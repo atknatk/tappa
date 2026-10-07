@@ -931,14 +931,23 @@ func TestOperator00026_PrivilegeMatrix(t *testing.T) {
 	// but the two keys (aes_key_ref, app_key_ref: "asla", checked below) -- and the name of
 	// the entrance each is mounted at (locations id, name). SELECT only; still no INSERT,
 	// UPDATE, DELETE or TRUNCATE on tags (the read writes no plaque, CLAUDE.md §4.4).
+	//
+	// 00032 (OP-12): op_read_tenant_billing reads one tenant's billing months -- the tenant's
+	// zone and price (tenants timezone, price_per_employee_month), the four arguments of the
+	// billable predicate (employees activated_at, deactivated_at beside 00029's tenant_id and
+	// status; no name, address or id of a person), and a frozen month's figures
+	// (billing_periods: NOT id, created_at or closed_by -- who closed a month is the tenant's
+	// administrator). SELECT only: billing_periods is append-only and the definer closes nothing.
 	opdefinerTenantGrants := map[string]string{
 		"legal_documents:SELECT": "id,slug,body,published_at,published_by",
 		"legal_documents:INSERT": "slug,body,published_by",
-		"tenants:SELECT":         "id,name,business_type,plan,created_at",
+		"tenants:SELECT":         "id,name,business_type,plan,timezone,created_at,price_per_employee_month",
 		"locations:SELECT":       "id,tenant_id,name",
-		"employees:SELECT":       "tenant_id,status",
+		"employees:SELECT":       "tenant_id,status,activated_at,deactivated_at",
 		"tags:SELECT":            "uid,tenant_id,location_id,last_ctr,status,retired_at,replaced_by,created_at,encoded_at",
 		"admin_users:SELECT":     "tenant_id,email,status",
+		"billing_periods:SELECT": "tenant_id,period_month,period_from,period_to,timezone,plan,free_period,employee_count," +
+			"unstamped_employees,unit_price,currency,amount_due,closed_at",
 	}
 	neverSelect := [][2]string{
 		{"tags", "aes_key_ref"}, {"tags", "app_key_ref"}, {"admin_users", "password_hash"},

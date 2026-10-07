@@ -102,9 +102,9 @@ func TestOperatorSQL_OnlyBoundParameters(t *testing.T) {
 	}
 	// 7 until OP-10; 00027 added three (op_begin_read, op_read_legal_versions,
 	// op_publish_legal), 00029 two (op_read_tenants, op_read_tenant_detail), 00030 one
-	// (op_read_tenant_plaques), 00031 one (op_read_audit).
-	if len(consts) != 14 {
-		t.Fatalf("found %d statement constants in operator.go, want 14 (two lookups, twelve op_* calls)", len(consts))
+	// (op_read_tenant_plaques), 00031 one (op_read_audit), 00032 one (op_read_tenant_billing).
+	if len(consts) != 15 {
+		t.Fatalf("found %d statement constants in operator.go, want 15 (two lookups, thirteen op_* calls)", len(consts))
 	}
 	quoted := regexp.MustCompile(`'[^']*'`)
 	placeholder := regexp.MustCompile(`\$(\d+)`)
@@ -154,8 +154,8 @@ func TestOperatorSQL_OnlyBoundParameters(t *testing.T) {
 		_ = sql
 		return true
 	})
-	if calls != 14 {
-		t.Fatalf("%d Exec/QueryRow/Query call(s) in operator.go, want 14 -- one per statement", calls)
+	if calls != 15 {
+		t.Fatalf("%d Exec/QueryRow/Query call(s) in operator.go, want 15 -- one per statement", calls)
 	}
 
 	doc, err := os.ReadFile(filepath.Join("..", "..", "db", "queries", "operator.sql"))
@@ -288,6 +288,8 @@ func TestOperatorAccessors_TheCustomerRoleCannotUseThem(t *testing.T) {
 		"RecordOperatorAuthEvent password_ok": func(c OperatorConn) error {
 			return RecordOperatorAuthEvent(ctx, c, OperatorPasswordOK, "", a.id)
 		},
+		// OP-12 (00032): the billing months meet the missing EXECUTE in their first phase.
+		"TenantBilling": func(c OperatorConn) error { _, e := TenantBilling(ctx, c, opRandHex(t), uuid.New(), 1); return e },
 	} {
 		err := opAs(t, ctx, tx, "tappa_app", func(sp pgx.Tx) error { return call(sp) })
 		if err == nil || errors.Is(err, ErrOperatorRefused) || errors.Is(err, ErrNoOperator) || !strings.Contains(err.Error(), "SQLSTATE 42501") {

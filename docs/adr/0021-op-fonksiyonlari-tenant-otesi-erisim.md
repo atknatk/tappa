@@ -27,6 +27,12 @@
   `op_begin_read` bir okuma türü (`operator_audit`) kazandı; `op_record_auth_event`'in kapalı
   kümesine `password_ok` girdi (§1 tablosu ve sınır 7 aynı değişiklikte düzeltildi) — bkz.
   "OP-14 uygulama notu". Ekran (B) ve `password_ok` yazıcısı (C) ayrı fazlardır.
+  **OP-12 A fazı (2026-10-07):** bir tenant'ın faturalama aylarını okuyan
+  `op_read_tenant_billing` migration `00032` ile doğdu — fatura aritmetiğinin **üçüncü
+  kopyası**, tenant'ın kendi yoluna ay ay bir testle bağlı; `op_begin_read` bir okuma türü
+  (`tenant_billing`) kazandı, `op_read_audit` o kapsamı tanır; tanımlayıcı 00016'nın beş fatura
+  fonksiyonunda EXECUTE aldı — `op_*` dışı EXECUTE kümesi artık adlı bir listedir — bkz.
+  "OP-12 uygulama notu". Ekran B fazıdır.
 - **Tarih:** 2026-09-26 · aynı gün **2. tur** (güvenlik denetiminin RED'i: izsiz okuma),
   **3. tur** (güvenlik denetiminin RED'i: bilet süresinin saati; üçüncü gözün bulguları) ve
   **3. tur eki** (orkestratör kararı: enrollment ve kimlik bilgisi yazımı definer'da) ve
@@ -114,7 +120,7 @@ kalan `zz_probe_*` nesne, fonksiyon ve rol sayısı **0** (ölçüldü).
 | Kim | Nitelik | Tutar | ASLA tutmaz |
 |---|---|---|---|
 | **`tappa_operator`** (rol) | NOSUPERUSER, **NOBYPASSRLS**, NOCREATEDB, NOCREATEROLE; hiçbir tablonun sahibi değil; **hiçbir rolün üyesi değil** | `op_*` üzerinde `EXECUTE`; `platform_admins`'te giriş araması için **yalnız `SELECT`**, dar sütun listesiyle (parola digest'i ve TOTP zarfı dahil — sınır 11; kesin liste OP-5) | hiçbir tenant tablosunda hiçbir yetki · **`platform_admins` üzerinde HİÇBİR yazma** (`INSERT`, `UPDATE`, `DELETE`) ve enrollment token hash'inde `SELECT` · **`platform_sessions`'ta hiçbir fiil** (oturum `op_open_session` ile doğar, `op_touch_session` ile yaşar, `op_close_session` ile biter) · **bilet tablosunda dört fiilin hiçbiri** · `operator_audit_log`'a doğrudan `INSERT` ve **`operator_audit_log` üzerinde `SELECT`** (görüntüleyici iki aşamalı `op_read_audit` ile okur — OP-14) · DEFAULT PRIVILEGE |
-| **`tappa_opdefiner`** (rol) | **NOLOGIN**, **BYPASSRLS**, NOSUPERUSER, NOCREATEDB, NOCREATEROLE — `tappa_resolver`'ın şekli; **üyesi yok** | `op_*`'ların **sahibi**; fonksiyonların gerektirdiği tablolarda **SÜTUN düzeyi** yetkiler; bilet tablosunda `INSERT` **yalnız bağlama sütunlarında** (hash, oturum, tür, hedef, `audit_id`, `expires_at`) ve `UPDATE` **yalnız `consumed_at`**'te; `platform_admins`'te kimlik bilgisi, durum, TOTP adımı, son giriş ve kilit sayacı sütunlarında `UPDATE` (yazar, digest'i ve zarfı **okumaz**) | aşağıdaki "asla" sütunlarında `SELECT` · **`platform_admins` üzerinde `INSERT`** · bilet tablosunun **`created_at`, `created_xact`, `consumed_at`** sütunlarında `INSERT` (DEFAULT doldurur) ve `consumed_at` dışındaki sütunlarında `UPDATE` · `operator_audit_log`'un **zaman sütununda** `INSERT` (DEFAULT `clock_timestamp()` doldurur) · DEFAULT PRIVILEGE · LOGIN · üye |
+| **`tappa_opdefiner`** (rol) | **NOLOGIN**, **BYPASSRLS**, NOSUPERUSER, NOCREATEDB, NOCREATEROLE — `tappa_resolver`'ın şekli; **üyesi yok** | `op_*`'ların **sahibi**; fonksiyonların gerektirdiği tablolarda **SÜTUN düzeyi** yetkiler; bilet tablosunda `INSERT` **yalnız bağlama sütunlarında** (hash, oturum, tür, hedef, `audit_id`, `expires_at`) ve `UPDATE` **yalnız `consumed_at`**'te; `platform_admins`'te kimlik bilgisi, durum, TOTP adımı, son giriş ve kilit sayacı sütunlarında `UPDATE` (yazar, digest'i ve zarfı **okumaz**) · *(OP-12, 00032)* sahibi olmadığı fonksiyonlarda EXECUTE **yalnız** adlı bir listede: 00016'nın beş fatura fonksiyonu ("OP-12 uygulama notu" md. 10) | aşağıdaki "asla" sütunlarında `SELECT` · **`platform_admins` üzerinde `INSERT`** · bilet tablosunun **`created_at`, `created_xact`, `consumed_at`** sütunlarında `INSERT` (DEFAULT doldurur) ve `consumed_at` dışındaki sütunlarında `UPDATE` · `operator_audit_log`'un **zaman sütununda** `INSERT` (DEFAULT `clock_timestamp()` doldurur) · DEFAULT PRIVILEGE · LOGIN · üye |
 | **`tappa_app`** (rol) | değişmez | **hiçbir yeni yetki** | yeni tablolarda ve dizilerde hiçbir fiil · `op_*` üzerinde `EXECUTE` |
 | **`op_record_auth_event`** (oturumsuz istisna 1 — fonksiyon) | sahibi `tappa_opdefiner`, `EXECUTE` yalnız `tappa_operator`; **oturum parametresi YOK** | kapalı bir tür kümesinden **oturum öncesi** satır yazar: beş başarısızlık — `login_failed`, `unknown_email`, `totp_failed`, `locked`, `enrollment_failed` — ve *(OP-14, 00031)* `password_ok` (parolası kabul edilmiş, ikinci faktörü henüz tamamlanmamış girişin izi; hesabı **yalnız id ile** adlandırır, kilit sayacına dokunmaz); `RETURNS void` | aktör iddiası · tenant verisi / `tenant_id` · e-posta metni ya da e-postanın herhangi bir hash'i · oturum doğuran başarı satırı (`login`/`enrollment` — onlar `op_open_session`/`op_complete_enrollment`'ındır) · ~~başarı satırı~~ *(OP-14 notu: "yalnız başarısızlık" ve "başarı satırı" `password_ok` ile yanlışlandı; kesin hâl sol hücrede)* |
 | **`op_open_session`** (oturumsuz istisna 2 — fonksiyon) | sahibi `tappa_opdefiner`, `EXECUTE` yalnız `tappa_operator`; **oturum parametresi YOK** (oturumu kendisi doğurur) | **tek ifadede**: TOTP adımını ilerletir (`totp_last_step < $adım` tekrar koruması **ve adımın duvar saatine bağlılığı** — `cur ± 1` — bu ifadededir), **kilit koşulunu** aynı `WHERE`'de sınar, son girişi yazar ve kilit sayacını sıfırlar, oturum satırını (`mfa_verified_at` dolu) ve köken satırını (`login`) yazar; yalnız `active` bir operatör için; `RETURNS void` | parola ya da TOTP doğrulaması (yapamaz — §1 açıklaması) · tenant verisi · duruma bağlı dönüş |
@@ -2515,6 +2521,324 @@ gövdesi değişmedi; uygulamanın karar verdiği yerler, adıyla:
   `TestOperatorSQL_OnlyBoundParameters` — on dört sabit ve çağrıları.
 - **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
 
+## OP-12 uygulama notu (2026-10-07, A fazı — veri katmanı)
+
+Uygulama: `db/migrations/00032_read_billing_from_the_operator.sql` + `internal/db/operator.go`
+(dışa açık `TenantBilling`, `TenantBillingTimeline`, `TenantBillingMonth`,
+`MaxTenantBillingPage`, `TenantBillingMonthsPerPage`; paket içi `readTenantBilling`,
+`errBillingOfAnotherTenant`) + `db/queries/operator.sql` (belge) + `db/queries/billing.sql`'in
+sonuna tek bir yorum cümlesi + `internal/db/operatorbilling_test.go` ve
+`internal/db/operatorbilling_external_test.go`. Ekran, wiring ve `*OperatorDB` yöntemi B
+fazıdır. Kararın gövdesi değişmedi; uygulamanın karar verdiği yerler, adıyla:
+
+1. **Ad §2 v 6'nın kuralıyla:** `op_read_tenant_billing(p_session, p_ticket, p_tenant_id uuid,
+   p_page_number integer)`.
+2. 🔴 **Aritmetiğin üçüncü kopyası.** `db/queries/billing.sql` *"THE ARITHMETIC IS NOT WRITTEN
+   TWICE"* der: önizleme (`PreviewBillingPeriod`) ve kapama (`CloseBillingPeriod`) 00016'nın beş
+   fonksiyonu üzerinde aynı üç CTE'dir. Bu okuma o yapıştırıcının **üçüncü** kopyasıdır; beş
+   fonksiyon **tek tanım** olarak kalır, burada da orada çağrıldığı gibi çağrılır. Ortak bir
+   `RETURNS TABLE` fonksiyonu elendi: sqlc v1.28 onu tipleyemez (ADR 0002 md.7) ve tenant'ın
+   kendi ifadelerini yeniden yazmak bu görevin işi değildir. 🔴 **Kopyaları bir arada tutan şey
+   bir TESTtir, yorum değil:** `TestOpReadTenantBilling_EveryMonthIsTheTenantsOwnFigure` okumanın
+   döndürdüğü **her** ay için tenant'ın kendi yolunu — üretilmiş store'un `GetBillingPeriod`'ını,
+   dondurulmuş satır yoksa `PreviewBillingPeriod`'ını, `tappa_app` olarak tenant bağlamında —
+   sorar ve alan alan karşılaştırır (md. 4). Bir kopyada yapılıp ötekinde yapılmayan bir
+   değişikliği **kendi fikstürlerinde görünüyorsa** yakalar: üç zone, kurduğu kadro ve fiyat
+   kenarları, UTC ay sınırının iki yanında kayıt olmuş iki tenant (2. tur) ve koştuğu anda okunan
+   aylar. Yalnız **başka bir anda** görünen değişikliği — içinde bulunulan ayın tenant'ın
+   zone'undan başka bir zone'da alınması — o test göremez (UTC'yle zone'un ayı yalnız bir ay
+   sınırına bir gün kadar yakınken ayrılır); onu `TestOpReadTenantBilling_TheNewestMonthIsTheZonesAtAnyInstant`
+   yakalar (2. tur notu). Başka her biçim kod incelemesinindir — iki test tamlık iddia etmez.
+   `billing.sql`'in başlığına değil **sonuna** tek bir cümle yazıldı:
+   başlıktaki ya da iki ifade arasındaki her yorum sqlc tarafından `internal/store`'a kopyalanır
+   (ölçüldü, sınır L9) — sorgu metni ve üretilen kod değişmedi.
+3. **Okumanın şekli:** sayfa, tenant'ın **kendi** zone'unda on iki yerel aydır, en yeni önce;
+   sayfa 1 tenant'ın içinde bulunduğu ay (`date_trunc('month', clock_timestamp() AT TIME ZONE
+   <zone>)`) ve önceki on biri, sayfa k on iki × (k − 1) ay geriden başlar. Her ay üç şeyden
+   biridir ve satır hangisi olduğunu söyler: **dondurulmuş** (`billing_periods`'ta satır var:
+   her rakam o satırdan **okunur**, hiçbiri yeniden hesaplanmaz — `GetBillingPeriod`'ın kuralı;
+   `first_chargeable_month` `NULL`, `closed_at` satırınki, `after_signup` ve `period_has_ended`
+   doğru — internal/domain/billing'in `frozenDraft`'ıyla aynı), **canlı** (satır yok ve ay
+   kaydın yerel ayında ya da sonra: `PreviewBillingPeriod`'ın aritmetiği, `currency` `NULL`,
+   `period_has_ended` = `to_at <= clock_timestamp()`), **kayıttan önce** (`after_signup = false`,
+   **bütün** rakamlar `NULL` — sıfır fatura değil). Dondurulmuş satır, kayıt ayının bugün nasıl
+   okunduğundan bağımsız kazanır (zone sonradan değişirse de; tenant'ın `Book.Period`'ı da öyle
+   cevap verir). Bilinmeyen id **sıfır satır** okur (`ErrNoSuchTenant`; okuma satırı zaten
+   commit edilmiş), bilinen tenant **tam on iki**.
+4. **Sütunlar (§2 ii):** `tenant_id, tenant_name, period_month, after_signup, frozen,
+   period_from, period_to, period_timezone, plan, first_chargeable_month, free_period,
+   employee_count, unstamped_employees, unit_price, currency, amount_due, closed_at,
+   period_has_ended`. **`closed_by` YOK** (orkestratör kararı K12-6: kapatan tenant'ın
+   yöneticisidir; operatörün sorusu ne zaman ve olup olmadığıdır). Çalışan adı, satırı ya da id'si
+   **yok** — yalnız sayım. 🔴 **Para `numeric`'tir, float değil:** `RETURNS TABLE` tip
+   değiştiricisini düşürür ve dayatmaz — ölçüldü (2026-10-07, 2. tur; geri alınan tek işlemde bir
+   `pg_temp` fonksiyonu, `scratchpad/op12a/t4_typmod.sql`): `RETURNS TABLE (x numeric(12, 2))`
+   katalogda `TABLE(x numeric)` okunur ve `0::numeric` ölçek 0, `1.5` ölçek 1,
+   `1.5::numeric(12, 2)` ölçek 2 döner. Bu yüzden canlı tutarın ölçeği ifadede, önizlemenin kendi
+   `::numeric(12, 2)` dönüşümüyle konur; dondurulmuş değerler sütunlarının ölçeğini taşır.
+5. **Canlı aritmetik, `PreviewBillingPeriod`'ınki terim terim** — aynı beş fonksiyon, aynı
+   argümanlar, aynı karşılaştırmalar; değişen **biçim**dir: kadro **bir kez** okunur ve aya göre
+   gruplanır (önizleme her ay için okur), ay sınırları ay başına bir kez hesaplanır
+   (`MATERIALIZED`: planlayıcıya bırakılınca çalışan başına süzgecin içine taşındı — ölçüldü),
+   uygunsuz damga sayımı sayfa başına bir kez. Maliyet sınır L5'te.
+6. **Kemer — her tablo referansı tenant'ı adlandırır** (§3.2): `t.id = p_tenant_id`,
+   `b.tenant_id = p_tenant_id` (yoksa başka bir tenant'ın aynı ayın dondurulmuş satırı sayfaya
+   katılır), `e.tenant_id = p_tenant_id` (yoksa veritabanındaki bütün çalışanlar sayılır).
+   `TestOpReadTenantBilling_ReturnsOnlyTheNamedTenantsFigures` iki tenant'la sürer.
+7. **`op_begin_read` yerinde değiştirildi** (`CREATE OR REPLACE`): 00031'in Up gövdesi + kapalı
+   küme satırı + yeni bir `ELSIF` dalı (diff ile ölçüldü: −1 +23 satır). Parametre nesnesi
+   **tam olarak** `{tenant_id, page_number}`: tireli uuid (iki harf büyüklüğü; hash'lenen metin
+   uuid değerinden), sayfa **1..5** — **içeriksiz bir kural** (orkestratör kararı K12-3: beş
+   sayfa × on iki ay = altmış ay = `billing.HistoryCap`, tenant'ın kendi geçmiş derinliği); sınırsız
+   bir sayfa tarih aritmetiğini okuma satırı commit edildikten **sonra** taşırırdı (kart
+   taslağının T7'si). Gövde de sayfayı sınırlar (`greatest(1, least(coalesce(sayfa, 1), 5))` —
+   00031'in `least(…, 1000)`'i gibi, birinci aşamaya güvenmez). Audit satırı:
+   `target_scope = 'tenant_billing'`, `target_tenant_id`, sayfa, `page_size` 12, `detail = {}`.
+   Birinci aşama tenant'a yine **bakmaz** (B14'ün okuma hâli).
+8. **`op_read_audit` yerinde değiştirildi:** 00031'in gövdesi, iki listeye `tenant_billing`
+   eklenerek (diff: −2 +2) — dönen kapsam listesi ve `detail`'i boş nesne olan okuma türleri. OP-14
+   notunun md. 5'i bunu zorlar: bilet CHECK'inin her türü `op_read_audit`'in bildiği bir kapsam
+   olmak zorundadır (`TestOpReadAudit_TheDetailIsShownOnlyInAShapeOnTheList`, "every read kind";
+   ölçüldü: `op_read_audit` 00031'in listelerine döndürülünce o test kırmızı — mutasyon A1). B
+   fazına devir: görüntüleyicinin kapsam etiket haritası kapalıdır;
+   `tenant_billing` için etiket eklenmezse kapsam *"unrecognised"* görünür.
+9. **Tanımlayıcının yeni yetkileri — yalnız yeni sütunlar, sütun düzeyinde:** `tenants`
+   (timezone, price_per_employee_month), `employees` (activated_at, deactivated_at — billable
+   yükleminin dört argümanı, 00029'un tenant_id ve status'uyla), `billing_periods` (döndürülen
+   sütunlar ve süzgeç için tenant_id; `id`, `created_at`, `closed_by` **değil**). Yalnız SELECT:
+   tablo append-only'dir ve tanımlayıcı bir ay kapatamaz. 00029'un sütunları **yeniden
+   verilmedi**; Down onları almaz ve `REVOKE ALL` yazmaz (00030'un tuzağı: genel bakışın
+   sayımları 42501'e dönerdi). `employees.activated_at/deactivated_at` kişisel veridir (sınır 9):
+   tanımlayıcı okur, **döndürmez**.
+10. 🔴 **Tanımlayıcının `op_*` dışı EXECUTE kümesi artık adlı bir listedir** (kart taslağının
+    T3'ü): 00016'nın beş fonksiyonu PUBLIC'in EXECUTE'unu almıştı (00016 bölüm 2b), 00032 onları
+    tanımlayıcıya verir. Dördünü okuma doğrudan çağırır; beşincisini
+    (`tappa_employee_lifecycle_status`) hem okuma (uygunsuz damga sayımı) hem
+    `tappa_employee_is_billable`'ın gövdesi çağırır — o gövde çağıranı olarak koşar (SECURITY
+    INVOKER), yani EXECUTE olmadan billable yüklemi 42501 ile düşer (ölçüldü,
+    `TestOperator00032_TheDefinerExecutesExactlyTheFiveBillingHelpers`; okuma da 42501). Hiçbiri SECURITY DEFINER
+    değildir, hiçbiri bir ilişki okumaz. **Pin genişletildi:** 00030'un kuralı (*"tanımlayıcının
+    çağırabildiği, PUBLIC'in çağıramadığı ya da SECURITY DEFINER olan yabancı fonksiyon"*) **bir
+    fonksiyonun ACL'inde tanımlayıcıyı adıyla anan girdiyi** görmüyordu — PUBLIC'in zaten
+    çağırabildiği bir fonksiyona tanımlayıcıya verilen EXECUTE o kurala yeşil kalır. Ölçüldü:
+    00032'den önceki ağaç (`2bfe314`), 00032'nin beş grant'ı aynı işlemde geri alınıp
+    `tappa_forbid_mutation()`'a tanımlayıcıya adıyla EXECUTE verildiğinde 00030 ve 00031'in
+    tanımlayıcı pinleri **YEŞİL** kaldı (mutasyon X0; kontrol X0c: PUBLIC-dışı
+    `resolve_tag_by_uid` aynı ağaçta kırmızı); genişletilmiş pinde aynı mutasyon kırmızı (E2).
+    `opDefinerForeignExecFindings` artık üç kural taşır: listenin dışındaki PUBLIC-dışı ya da
+    definer fonksiyon, listenin dışındaki ACL girdisi, ve listede olup tanımlayıcının
+    çağıramadığı fonksiyon — liste kümedir, tavan değil.
+11. **NOT VALID kuralı, iki yönde** (00031'inki): Up — altı türün dışında bir türden bilet
+    varsa CHECK `NOT VALID`; Down — 00031'in beş türünün dışında bir türden bilet varsa
+    (tüketilmiş ya da değil, bu dosyanınki ya da sonraki bir migration'ınki) `NOT VALID`. İki koşul
+    da **bütün** `WHERE` cümlesiyle pinlidir. Zincir aşağı doğru bileşir: bir `tenant_billing`
+    bileti varken 00032 → 00031 → 00030 Down'ları 23514'süz koşar (00031 ve 00030'un Down
+    koşulları da *"önceki kümenin dışı"*dır) — ölçüldü, Down testinin zincir dalı.
+    **Down/Up ölçümü (2026-10-07, geliştirme veritabanı, Postgres 17.10):** `pg_dump
+    --schema-only`, `\restrict`/`\unrestrict` satırları ayıklanarak, sha256 ilk 16 hane: v31
+    `126d47090054fd82` (OP-14 A'nın v31'i) → Up → v32 `20b156a752860d78` → Down → v31
+    `126d47090054fd82` → Up → v32 `20b156a752860d78`. Her goose adımı ayrı komut, sürüm her
+    adımdan önce ve sonra ölçüldü; veritabanının 31'de kaldığı pencere ≈22 sn. (Down'un hangi
+    dala girdiği bu döngüde ayrıca ölçülmedi; iki dal da Down testinde ölçülür.)
+12. **Ön koşul:** 00026–00031'in rol denetimleri aynen; **sunucu** PostgreSQL 17 ya da sonrası
+    (ölçümlerin yapıldığı sürüm — geliştirme 17.10; CI ve üretim `postgres:17`; bir taban, eşitlik
+    değil); ve **00031'in izleri** — değiştirilen iki fonksiyon 00031'in kimlikleriyle var ve
+    tanımlayıcının, beş fatura fonksiyonu 00016'nın kimlikleriyle var, bilet CHECK'i
+    `operator_audit`'i adlandırıyor ve henüz `tenant_billing`'i adlandırmıyor. goose'un sürüm
+    tablosu **okunmaz**: testler Up'ı HEAD'de, işlem içinde yeniden koşar.
+13. **Başka görevlerin testlerinde güncellemeler (zayıflatılmadı):**
+    `TestOperatorSQL_OnlyBoundParameters` 14 → 15 sabit/çağrı;
+    `TestOperatorAccessors_TheCustomerRoleCannotUseThem` + `TenantBilling`;
+    `TestOperator00026_PrivilegeMatrix` izin listesi (`tenants`, `employees` genişledi,
+    `billing_periods` yeni — tam sütun listeleriyle); `opDefinerForeignExecFindings` (md. 10;
+    `TestOperator00030_TheDefinerExecutesOnlyItsOwnAndPublicFunctions` ve
+    `TestOperator00031_TheDefinerReadsTheLogAndTheOperatorDoesNot` onu kullanır);
+    `TestOperator00031_TheFunctionsAndTheirExactSignatures`'ın bilet tür pini *"00031'in beş
+    türünü tutan kapalı küme"* oldu (00030'un pininin biçimi; HEAD'deki tam küme
+    `TestOperator00032_TheFunctionsAndTheirExactSignatures`'da, 00031'in tam kümesi 00032'nin
+    Down'ından sonra `TestOperator00032_DownGivesBack00031AndUpTakesItAgain`'de);
+    `TestOpReadAudit_TheDetailIsShownOnlyInAShapeOnTheList` (yeni türün sevk edilen `detail`'i,
+    bir tanınan ve bir tanınmayan şekil); `TestOpReadAudit_AForgedTicketIsRefused` (okuma
+    hash'i beşinci bir türün altında da). `TestOperator00031_DownGivesBack00030AndUpTakesItAgain`
+    00031'e `opAtVersion` ile — önce 00032'nin Down'ını koşarak — iner; değişiklik gerekmedi.
+14. **2. tur (2026-10-07, üçüncü gözün RED'i: bir test boşluğu; SQL ve Go davranışı
+    değişmedi).** Okuma iki ayı tenant'ın **zone'unda** alır: kayıt ayı (`signup_month`) ve
+    içinde bulunulan ay (`this_month`). Çapraz testin fikstürleri kaydı hep yerel ayın 15'i
+    12:00'ye koyuyordu ve testin öncülü *"başka bir takvim günü"* soruyordu, *"başka bir ay"*
+    değil: ikisini UTC'de alan mutasyonlar (M2, M1) yeşil kalıyordu (denetçi ölçtü; M1 yalnız bir
+    ay sınırının ≈26 saatlik penceresinde kırmızı olabilir). Kapatılan:
+    - **M2 — kayıt ayı:** çapraz teste iki uzak zone'da birer **kenar** tenant'ı eklendi:
+      Etc/GMT-14'te yerel ayın 1'i 00:30 (UTC'de önceki ay), Etc/GMT+12'de son günü 23:30
+      (UTC'de sonraki ay); öncül SQL'de ölçülür (kayıt anının UTC ayı yerel kayıt ayı değil). Her
+      ay okuma ve tenant'ın yolu karşılaştırılır; ayrıca okumanın `after_signup`'ı yerel kayıt
+      ayından itibaren doğru olmalı. **Ölçüldü:** kayıt ayını UTC'de alan mutasyon (M2) çapraz
+      testi kırmızıya çevirir.
+    - **M1 — içinde bulunulan ay, saatten bağımsız:** seçenekler (a) gerçek saatle karşılaştırma
+      — saat oynatılamadığı için ayın 1'i ya da son günü değilse fark çıkmaz, yani tek başına
+      saatten bağımsız bir kırmızı değildir; (b) gövde metninde `AT TIME ZONE` pini — mutasyonu
+      metinden yakalar, davranışı ölçmez; (c) sayılı sınır. **Seçilen: (a), saati okumanın
+      sorgusunda oynatarak.** Yeni test `TestOpReadTenantBilling_TheNewestMonthIsTheZonesAtAnyInstant`
+      okumanın `RETURN QUERY`'sini **katalogdan** (işlemin içindeki `pg_proc.prosrc`) alır, iki
+      PL/pgSQL adını (`p_tenant_id`, `v_page`) ve her `clock_timestamp()`'i parametreye bağlar ve
+      `tappa_opdefiner` olarak, fonksiyonun `search_path`'iyle koşar. KONTROL: üç zone'daki
+      tenant'ın gerçek okuması, okumanın hemen önceki ya da hemen sonraki anındaki ikame sorgunun
+      satırlarına metin metin eşit. Sonra iki seçilmiş an: içinde bulunulan UTC ayının
+      başlamasından **4 saat önce** (Etc/GMT-14 o aya girmiş, UTC girmemiş) ve **5 saat sonra**
+      (Etc/GMT+12 hâlâ önceki ayda) — iki öncül de SQL'de ölçülür — her tenant için on iki ay,
+      testin kendi `date_trunc('month', an AT TIME ZONE zone)` hesabından başlar. Kapalı hata:
+      ikamenin oynatmadığı bir saat (`now()`, `statement_timestamp()`, `CURRENT_DATE`…) ya da
+      bağlamadığı bir PL/pgSQL adı (ay `RETURN QUERY`'den önce bir değişkene hesaplanırsa) testi
+      geçirmez, düşürür. Sınırı yöntemindir: ölçülen, sorgu metninin bir andaki davranışıdır ve
+      fonksiyonun dışında koşar; ikisini gerçek anda KONTROL bağlar. (b) eklenmedi: davranış
+      testi kırmızıyken metin pini ikinci bir kopyadır. **Ölçüldü:** içinde bulunulan ayı UTC'de
+      alan mutasyon (M1) yeni testi kırmızıya çevirir; aynı mutasyon çapraz testle tek başına
+      bugün (2026-10-07, bir ay sınırından uzak) **YEŞİL** kalır (M1g — kapatılan boşluğun
+      kendisi). L13 gerekmedi.
+    - Üç evrensel cümle daraltıldı (00032'nin başlık yorumu, bu notun md. 2'si, `billing.sql`'in
+      son cümlesi) ve `internal/db/operator.go`'nun iki yorumu: *"held equal … month by month"*
+      artık *"fikstürlerinde karşılaştırılır"* der; `MoneyFromNumeric` için *"refuses any scale
+      but 2"* yanlıştı — ikiden fazlasını reddeder, azını kabul eder (L4).
+    - md. 4'teki tip değiştiricisi olgusu bu turda ölçüldü (komutuyla); md. 11'deki *"Down
+      doğrulanmış dala girdi"* cümlesi ölçülmemişti, çıkarıldı.
+15. **3. tur (2026-10-07, güvenlik denetimi ONAY ve bir DÜŞÜK bulgu; yalnız test — SQL, Go ürün
+    kodu ve migration değişmedi).** *"Argüman hata alanına dönmez"* denetimini yapan iki yardımcı
+    — `opWantClean` (`internal/db/operatorlegal_test.go`) ve `TestOperator00026_ArgumentsNeverComeBackInAnError`'ın
+    kendi `clean`'i (`internal/db/operatorfuncs_test.go`) — yalnız Message, Detail, Hint, Where,
+    ConstraintName ve ColumnName'e bakıyordu; denetçinin S12b mutasyonu (`op_begin_read`'in sayfa
+    sınırı reddine `TABLE = p_session`) bu yüzden yeşil kalıyordu, oysa değer istemciye `TABLE NAME`
+    alanı olarak gider. İki listeye `TableName`, `SchemaName` ve `DataTypeName` eklendi: artık
+    `RAISE … USING`'in doldurabildiği her alan (MESSAGE, DETAIL, HINT, COLUMN, CONSTRAINT,
+    DATATYPE, TABLE, SCHEMA) ve bağlam satırı aranır; yardımcıların başka davranışı değişmedi.
+    Ölçüldü: S12b ve S12 (`op_read_tenant_billing`'in reddine `TABLE = p_ticket`) **KIRMIZI**;
+    yalnız alan denetimi yapan testlere karşı aynı iki mutasyon genişletilmiş listeyle KIRMIZI
+    (S12b-f, S12-f), 2. turun dar listesiyle **YEŞİL** (S12b-pre, S12-pre — kapatılan boşluğun
+    kendisi). Öteki testler bu mutantları gövdeden de görür (Down testinin kimlik öncülü, tüketim
+    biçimi taraması, `NULL` biletle `TABLE` seçeneğinin `NULL` olması — 22004). Genişleme başka hiçbir
+    testte kırmızı çıkarmadı (`internal/db` 341 PASS; tek kırmızı L9/00027). `InternalQuery` gibi
+    `RAISE`'in dolduramadığı alanlara bakılmaz. `tappa_operator`'ın `op_*` dışı EXECUTE kümesini
+    tutan bir pinin yokluğu (denetçinin S16'sı; 00032'den önce de vardı) bu kartın değil,
+    orkestratörün backlog'undadır.
+
+**Sayılı sınırlar (OP-12 A):**
+- **L1** — Tanımlayıcı `employees.activated_at`/`deactivated_at`'i okur (billable yükleminin
+  argümanları); okuma onları döndürmez, yalnız sayar (sınır 9'un kuralı). Bir gövde değişikliği
+  onları döndürebilir — imza testi dönüş tipini pinler, gövdeyi değil.
+- **L2** — Go'daki satır-tenant denetimi (`errBillingOfAnotherTenant`) tek başına ulaşılamaz bir
+  daldır: SQL'in `t.id = p_tenant_id`'si önce cevap verir (OP-13'ün L2'si).
+- **L3** — Ön koşulun sunucu sürümü dalı bu kümede (17) sürülemez; testi metnini pinler.
+- **L4** — **pgx sıfırın ölçeğini taşımaz:** rakamı olmayan bir `numeric` (0,00) Go'ya
+  `0 × 10^0` olarak gelir (`pgtype` v5.10.0, `numeric.go`, ikili çözme — okundu). Go tarafında
+  ölçek yalnız sıfır olmayan tutarlarda görünür (`Exp = −2`); 0,00'ın ölçeğini yalnız SQL'deki
+  `scale()` ölçer (`TestOpReadTenantBilling_MoneyIsNumericAtScaleTwo`). `billing.MoneyFromNumeric`
+  ikiden **fazla** ondalığı reddeder, azını kabul eder — ölçeği düşmüş bir tutar Go'dan sessizce
+  geçerdi; bariyer SQL testidir.
+- **L5** — **Maliyet, gözlem** (2026-10-07, geliştirme veritabanı, `tappa_owner`, salt-okuma
+  işlemde, okumanın eşdeğer `SELECT`'i; seçilen tenant: `SELECT tenant_id FROM employees GROUP BY 1
+  ORDER BY count(*) DESC LIMIT 1` — test kalıntısı, boyu yazılmaz). On iki canlı ay: ay başına alt
+  sorgu biçimi 6,3–8,3 sn (üç koşu), tek tarama + gruplama 6,1–8,1 sn (üç koşu), sınırlar ve
+  kadro `MATERIALIZED` — sevk edilen biçim — 4,6–6,1 sn (beş koşu); koşular dönüşümlü, paylaşılan
+  veritabanı gürültülü. **Biçim maliyeti anlamlı düşürmüyor:** aynı yüklem satıra yazıldığında
+  (yalnız ölçüm, sevk edilmedi) aynı sorgu 0,10–0,11 sn — süre yardımcı çağrılarındadır. 00016'nın yorumu *"tek ifadelik IMMUTABLE bir SQL fonksiyonu
+  planlayıcı tarafından satır içine alınır"* der; beş fonksiyonun `SET search_path`'i
+  (`proconfig`) bunu engeller — PostgreSQL `SET` cümleli bir fonksiyonu satır içine almaz
+  (planda çağrı olarak görülür; ölçüldü). 🔴 **00016'nın bölüm 2 yorumu bu yüzden yanlıştır**
+  (*"A SQL function that is IMMUTABLE and a single expression is inlined by the planner, so the
+  sharing costs nothing at run time"*): aynı sayfa yardımcılarla 4,6–6,1 sn, yüklem satıra
+  yazılınca 0,10–0,11 sn (yukarıdaki ölçüm). Bu,
+  tenant'ın kendi önizlemesini de etkiler. 00016 uygulanmış bir migration'dır, yorumuna
+  dokunulmadı; düzeltmesi (yardımcıların tanımı, yeni bir migration) bu görevin işi değildir ve
+  orkestratörün backlog'una gider. Üretimde kadrolar onlarla ölçülür. **Üçüncü gözün ölçümü**
+  (2026-10-07, ayrı koşular, aynı tenant değil): sevk edilen biçim 2,2–2,5 sn, yüklem satıra
+  yazılınca 0,07–0,09 sn — oran (≈25–35×) yukarıdakiyle tutarlı; `EXPLAIN VERBOSE`'ta
+  yardımcılar çağrı olarak durur. 🔴 **B fazına devir:** operatör havuzunda `statement_timeout`
+  yoktur; okuma işlemi kendi `SET LOCAL statement_timeout`'unu koymalı ve zaman aşımı (57014)
+  başka her veritabanı hatası gibi 503 yoluna düşmeli — asla 0,00 basan bir sayfa değil.
+- **L6** — Tanınmayan bir zone'u kayıtlı tenant'ın okuması, okuma satırı commit edildikten sonra
+  22023 ile düşer (`time zone … not recognized`); tenant'ın kendi önizlemesi de aynı yardımcıda
+  düşer (salt-okuma ile ölçüldü; testi `TestOpReadTenantBilling_AnUnknownZoneIsAnErrorNotAZeroInvoice`).
+  Şemada zone'u reddeden bir kısıt yoktur (M7-05 yazımı Go'da doğrular) ve geliştirme
+  veritabanında böyle bir kalıntı tenant vardır. Sıfır fatura değil, hatadır (B: problem sayfası).
+- **L7** — Dondurulmuş bir ayın `after_signup` ve `period_has_ended`'i sabit doğrudur
+  (`frozenDraft`'ın kuralı): sahibin elle, bitmemiş bir ay için yazdığı satır da "bitti" okunur
+  — sınır 5'in sahibi.
+- **L8** — Sınır 4'ün penceresi 30 sn (geri alınan okuma bileti yeniden okunur).
+- **L9** — **sqlc, `billing.sql`'deki her yorumu `internal/store`'a kopyalar** — başlıktakini ilk
+  sorgunun belgesi olarak (ölçüldü: başlığa eklenen bir cümle `billing.sql.go`'yu değiştirdi;
+  son ifadeden sonraki bir cümle değiştirmedi). Kart taslağının T10'u (*"yalnız yorum eklenirse
+  `internal/store` değişmez"*) başlık için yanlıştı; cümle sona yazıldı.
+- **L10** — Donan saat taraması yardımcıların **içini** görmez (§6); beşinin kaynağı bugün saat
+  okumaz (salt-okuma ile okundu: hiçbirinde yasak adların hiçbiri yok) — okundu, pinlenmedi.
+- **L11** — Down ve ön koşul mutasyonları goose döngüsüyle değil, testlerin dosyanın kendi
+  bölümlerini koştuğu geri alınan işlemlerde ölçülür (OP-13'ün L10'u).
+- **L12** — Commit eden iki test koşu başına **+4** `read` satırı (yaşam döngüsü 1, havuz 3 —
+  veritabanında çalışansız bir tenant yoksa havuz 1), **+2** `platform_admins` (`disabled`) ve
+  **+2** iptal edilmiş oturum bırakır; bilet 0; tenant verisi commit edilmez. Ölçüldü (2026-10-07;
+  veritabanı saatinden T0, yalnız bu iki testin tek koşusu, satırlar `target_scope =
+  'tenant_billing'` üzerinden atfedilerek — o kapsamı yalnız bu kartın kodu yazar): 4 okuma
+  satırı, 2 aktör (ikisi `disabled`), 2 oturum (ikisi iptal), bilet 0, `op12` adlı commit edilmiş
+  tenant 0, onların `billing_periods` satırı 0.
+
+**Güvenlik iddiası — üç parça.**
+
+- **Tehdit modeli:** Bu pinler kazara sapmaya karşıdır; bir pini bilerek atlatmak kod
+  incelemesinin konusudur.
+- **PART I — bugün sevk edilen kodun ölçülen davranışı** (test · girdiler · assert; 2026-10-07,
+  `.env` yüklü `-race` koşusunda yeşil; onları kırmızıya çeviren mutasyonlar OP-12 A kart
+  düzeltmesinin tablosunda — 2. turda sayılan 52'nin 52'si istenen sonucu verdi: 49 kırmızı, 3
+  tasarım gereği yeşil — X0, açığın kendisi; G5/L2; M1g, 2. turun kapattığı boşluğun kendisi):
+  - `TestOpReadTenantBilling_EveryMonthIsTheTenantsOwnFigure` · üç zone (Europe/Malta, Etc/GMT-14,
+    Etc/GMT+12) × iki tenant (zone başına üç okuma) ve iki uzak zone'da birer **kenar** tenant'ı
+    (kayıt anı UTC'de başka bir ayda — 2. tur), 132 ay; sınırda ve bir mikrosaniye sonra ayrılan, sınırda
+    ve bir mikrosaniye önce katılan, damgası durumuyla çelişen, davetli; founding'in son ücretsiz
+    ve ilk ücretli ayı ürünün kendi ifadesiyle kapatılmış, kapamadan sonra kadro ve fiyat
+    değişmiş; standard tenant'ın ikinci sayfası kaydın öncesine uzanır · her ay tenant'ın kendi
+    yoluyla alan alan eşit, para tam eşit ve SQL'de ölçek 2; her ay türü her zone'da var; sınır
+    ayı tam dört sayar; dondurulmuş ücretli ay bugünün önizlemesinden hem sayıda hem fiyatta ayrı;
+    kenar tenant'larının `after_signup`'ı yerel kayıt ayından itibaren doğru (öncül: kayıt anının
+    UTC ayı yerel kayıt ayı değil); bir uzak zone UTC'den başka bir takvim **gününde** (gün, ay
+    değil — içinde bulunulan ayın zone'u bir sonraki maddenin işidir).
+  - `TestOpReadTenantBilling_TheNewestMonthIsTheZonesAtAnyInstant` (2. tur) · okumanın
+    `RETURN QUERY`'si katalogdan, `p_tenant_id`/`v_page`/`clock_timestamp()` parametreye bağlı,
+    `tappa_opdefiner` olarak; üç zone'da birer tenant · KONTROL: gerçek okuma, okumanın iki
+    yanındaki anlardan birindeki ikame sorguya metin metin eşit; UTC ayının başlamasından 4 saat
+    önce ve 5 saat sonra (öncüller: Etc/GMT-14 ve Etc/GMT+12 o anlarda UTC'den başka ayda) her
+    tenant'ın on iki ayı kendi zone'undaki aydan başlar; ikamenin oynatmadığı saat ya da
+    bağlamadığı değişken testi düşürür.
+  - `TestOpReadTenantBilling_ReturnsOnlyTheNamedTenantsFigures` · aynı ayı kapatılmış iki tenant ·
+    her biri yalnız kendi id'si, adı, tek dondurulmuş ayı ve kadrosu.
+  - `TestOpReadTenantBilling_AnUnknownTenantReadsNothingAndAKnownOneTwelveMonths`,
+    `TestOpReadTenantBilling_AnUnknownZoneIsAnErrorNotAZeroInvoice`,
+    `TestOpReadTenantBilling_MoneyIsNumericAtScaleTwo`, `TestOpReadTenantBilling_PagesAreBoundedInTheBody`.
+  - `TestOperator00032_TheFunctionsAndTheirExactSignatures` · katalog · tam imza ve sonuç
+    (`closed_by` yok; float yok, iki para sütunu `numeric`), sahip, `proconfig`, overload,
+    EXECUTE yalnız `tappa_operator`; taramalar bulgusuz; bilet CHECK'i HEAD'de tam altı tür.
+  - `TestOperator00032_TheDefinerReadsBillingAndTheOperatorDoesNot` · tanımlayıcının üç tablodaki
+    tam listeleri, `closed_by`/ad/adres/yazma 42501; `tappa_operator` doğrudan SELECT ve `COPY`
+    42501; `tappa_app` okuması 42501, beş fonksiyondaki EXECUTE'u duruyor.
+  - `TestOperator00032_TheDefinerExecutesExactlyTheFiveBillingHelpers` · md. 10.
+  - `TestOperator00032_DownGivesBack00031AndUpTakesItAgain` · md. 11; Down'ın iki gövdesi 00031'in
+    dosyasıyla birebir; `REVOKE ALL` yok; tuzak: genel bakış Down'dan sonra okur.
+  - `TestOperator00032_PreconditionRefusesAWrongCluster`, `TestOperator00032_CallersTempTableIsNeverRead`.
+  - `TestOpBeginRead_TheBillingKindBindsTheTenantAndAPage`,
+    `TestOpReadTenantBilling_ATicketFromThisTransactionIsRefused`,
+    `TestOpReadTenantBilling_AForgedTicketIsRefused`, `TestOpReadTenantBilling_RefusesEveryDeadSession`,
+    `TestOpReadTenantBilling_ExpiryIsTheWallClock` · §2 v'nin iki aşama tablosu bu okuma için.
+  - `TestOpReadTenantBilling_TwoPhaseLifecycle`, `TestTenantBilling_OnThePoolTheTwoPhasesAreTwoTransactions` ·
+    gerçek commit'lerle, üretim kurucusunun havuzunda.
+- **PART II — adıyla pinler:** `TestOperator00032_TheFunctionsAndTheirExactSignatures` (imza,
+  sonuç tipleri, CHECK); `TestOperator00032_DownGivesBack00031AndUpTakesItAgain` (iki `NOT VALID`
+  koşulu bütün `WHERE` cümlesiyle, Down'ın iki gövdesi, `REVOKE ALL`'ın yokluğu);
+  `TestOperator00032_TheDefinerExecutesExactlyTheFiveBillingHelpers` ve
+  `opDefinerForeignExecFindings`'in üç kuralı (tanımlayıcının `op_*` dışı EXECUTE kümesi = adlı
+  beş); `TestOperator00026_PrivilegeMatrix` (genişletildi); `TestOpRead_EveryReadConsumesItsTicketAsTheADRSays`
+  (yeni okumanın tüketen `UPDATE`'i); `TestOperator00026_NoFrozenClock` (yeni gövde ve iki
+  değiştirilen); `TestOpReadAudit_TheDetailIsShownOnlyInAShapeOnTheList` ("every read kind");
+  `TestOperatorSQL_OnlyBoundParameters` (on beş sabit ve çağrıları);
+  `TestTenantBilling_FivePagesOfTwelveAreTheTenantsHistoryCap` (sayfa sınırı × ay = `HistoryCap`);
+  `TestOpReadTenantBilling_TheNewestMonthIsTheZonesAtAnyInstant` (içinde bulunulan ayın zone'u,
+  saatten bağımsız; 2. tur).
+- **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
+
 ## Sonuçlar
 
 - **OP-5:** tablolar (bilet tablosu dahil) + `01-roles.sql` + runbook bu ADR'nin §1 ve
@@ -2534,6 +2858,9 @@ gövdesi değişmedi; uygulamanın karar verdiği yerler, adıyla:
 - **OP-14:** operatör audit görüntüleyicisi iki aşamalı `op_read_audit`'tir;
   `tappa_operator`'ın `operator_audit_log` üzerinde `SELECT`'i yoktur. *(A fazı 00031 ile
   uygulandı: okuma, kapalı şekil listesi ve `password_ok` — "OP-14 uygulama notu".)*
+- **OP-12:** bir tenant'ın faturalama ayları iki aşamalı `op_read_tenant_billing`'dir — fatura
+  aritmetiğinin üçüncü kopyası, tenant'ın kendi yoluna ay ay bir testle bağlı. *(A fazı 00032 ile
+  uygulandı — "OP-12 uygulama notu".)*
 - **OP-10** (`op_publish_legal` — `void` bir tek aşamalı yazma; sürüm listesi — ilk
   `op_read_*`) ve **OP-11…OP-18** her yeni `op_*` için §2'nin tamamını ve §6'nın
   katalog/davranış testlerini yeniden kazanır; OP-11'in *"her çağrı tam 1 operatör audit

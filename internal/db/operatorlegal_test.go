@@ -202,7 +202,10 @@ func opWantClean(t *testing.T, err error, code, msg, what string, values ...stri
 	if pg.Detail != "" || pg.Hint != "" {
 		t.Errorf("%s: the error carries a DETAIL (%d bytes) / HINT (%d bytes)", what, len(pg.Detail), len(pg.Hint))
 	}
-	all := strings.Join([]string{pg.Message, pg.Detail, pg.Hint, pg.Where, pg.ConstraintName, pg.ColumnName}, "\n")
+	// Every field RAISE ... USING can fill (MESSAGE, DETAIL, HINT, COLUMN, CONSTRAINT, DATATYPE,
+	// TABLE, SCHEMA), and the context line.
+	all := strings.Join([]string{pg.Message, pg.Detail, pg.Hint, pg.Where, pg.ConstraintName, pg.ColumnName,
+		pg.TableName, pg.SchemaName, pg.DataTypeName}, "\n")
 	for _, v := range values {
 		if v != "" && strings.Contains(all, v) {
 			t.Errorf("%s: the error text carries an argument value (%d characters of it)", what, len(v))

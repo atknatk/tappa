@@ -309,3 +309,10 @@ SELECT tappa_first_chargeable_month(t.plan, t.created_at, t.timezone)::date     
        tappa_first_chargeable_month(t.plan, t.created_at, @timezone::text)::date  AS proposed_month
 FROM tenants t
 WHERE t.id = @tenant_id;
+
+-- A THIRD COPY of the arithmetic above lives outside this file -- the operator's read of a
+-- tenant's billing months, migration 00032's op_read_tenant_billing, compared with this file
+-- month by month, on its fixtures, by TestOpReadTenantBilling_EveryMonthIsTheTenantsOwnFigure
+-- (what that test cannot see and the test that covers it: 00032's header) -- and this
+-- sentence sits after the last statement because sqlc copies every comment above it into
+-- internal/store (measured).

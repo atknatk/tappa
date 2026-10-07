@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // The platform operator's database accessors (M10; ADR 0021 §2 vi, §4). Hand-written
@@ -994,10 +995,166 @@ func readOperatorAudit(ctx context.Context, c OperatorConn, sessionHash string, 
 	return out, nil
 }
 
+// ------------------------------------------------------------------ OP-12 --
+//
+// One tenant's billing months on the operator's surface (migration 00032; ADR 0021 §2 v,
+// §3.2; CLAUDE.md §4.6, §6). One exported two-phase read in TenantPlaques' shape -- a free
+// function over an OperatorConn; it hands its readTicket from phase one to phase two (the
+// type's comment lists it). The screen and *OperatorDB's method are OP-12 phase B.
+//
+// 🔴 THE FIGURES ARE THE TENANT'S OWN. op_read_tenant_billing is a third copy of the glue
+// around 00016's five billing functions (db/queries/billing.sql's Preview and Close are the
+// other two), compared with the tenant's path month by month, on its fixtures, by
+// TestOpReadTenantBilling_EveryMonthIsTheTenantsOwnFigure (the month the tenant is in, at
+// instants that test does not run at, is TestOpReadTenantBilling_TheNewestMonthIsTheZonesAtAnyInstant's;
+// migration 00032's header names the limit). Nothing here computes a figure.
+//
+// 🔴 MONEY STAYS A DECIMAL. UnitPrice and AmountDue are pgtype.Numeric -- a big.Int mantissa
+// and a decimal exponent, exact -- and leave this package that way: package db cannot import
+// internal/domain/billing (billing imports db), so turning them into billing.Money
+// (MoneyFromNumeric) is the caller's. MoneyFromNumeric refuses MORE than two decimal places
+// and accepts fewer: a value whose scale was lost (1.5, or a zero, which pgx carries as 0 x
+// 10^0) converts without complaint, so it is no scale barrier -- the scale is pinned in SQL
+// (TestOpReadTenantBilling_MoneyIsNumericAtScaleTwo; ADR 0021's OP-12 note, L4). No float64 is
+// produced here and nothing here multiplies.
+
+// tenantBillingReadKind is 00032's read kind -- a member of operator_read_tickets_kind_check.
+const tenantBillingReadKind = "tenant_billing"
+
+// The page: TenantBillingMonthsPerPage of the tenant's local months, newest first, pages 1 to
+// MaxTenantBillingPage (00032: op_begin_read refuses any other page with 22023 and
+// op_read_tenant_billing bounds the page in its body as well). Five pages of twelve are sixty
+// months -- the tenant's own history depth, internal/domain/billing HistoryCap (held equal by
+// TestTenantBilling_FivePagesOfTwelveAreTheTenantsHistoryCap, from outside the package).
+const (
+	MaxTenantBillingPage       = 5
+	TenantBillingMonthsPerPage = 12
+)
+
+// readTenantBillingSQL is phase two; phase one is beginOperatorReadSQL. Mirrored in
+// db/queries/operator.sql.
+const readTenantBillingSQL = `SELECT tenant_id, tenant_name, period_month, after_signup, frozen, period_from,
+       period_to, period_timezone, plan, first_chargeable_month, free_period, employee_count,
+       unstamped_employees, unit_price, currency, amount_due, closed_at, period_has_ended
+FROM public.op_read_tenant_billing($1, $2, $3, $4)`
+
+// TenantBillingTimeline is the one read's three answers: the tenant -- its name for the
+// header of the screen (ADR 0020 §9) --, the fact that it exists (an id that names no tenant
+// is ErrNoSuchTenant, never an empty timeline), and a page of its months: exactly
+// TenantBillingMonthsPerPage of them, newest first.
+type TenantBillingTimeline struct {
+	TenantID   uuid.UUID
+	TenantName string
+	Page       int32
+	Months     []TenantBillingMonth
+}
+
+// TenantBillingMonth is one local month of the tenant. It is one of three things, and the two
+// booleans say which -- the figures mean something different in each:
+//   - Frozen: the month was closed. Every figure was READ from the frozen row and none was
+//     recomputed; ClosedAt is when; FirstChargeableMonth is not valid (a frozen row keeps the
+//     decision, Free, not the rule); AfterSignup and HasEnded are true.
+//   - !Frozen && AfterSignup: a live preview -- the tenant's own PreviewBillingPeriod
+//     arithmetic over today's roster and price. Currency is nil (a live month has no frozen
+//     currency: the caller's default applies); HasEnded says whether the month is over, so
+//     !Frozen && *HasEnded is a month that ended and was not closed.
+//   - !AfterSignup: before the business signed up. EVERY figure is nil or not valid -- never
+//     a zero invoice (CLAUDE.md §4.6, the money form).
+//
+// UnstampedEmployees is the count of the tenant's employee rows whose status disagrees with
+// their lifecycle stamps; when it is above zero EmployeeCount is a floor (migration 00016 says
+// why). No employee is named or listed: the read returns counts only.
+type TenantBillingMonth struct {
+	Month                pgtype.Date
+	AfterSignup          bool
+	Frozen               bool
+	From, To             *time.Time
+	Zone                 *string
+	Plan                 *string
+	FirstChargeableMonth pgtype.Date
+	Free                 *bool
+	EmployeeCount        *int32
+	UnstampedEmployees   *int32
+	UnitPrice            pgtype.Numeric
+	Currency             *string
+	AmountDue            pgtype.Numeric
+	ClosedAt             *time.Time
+	HasEnded             *bool
+}
+
+// tenantBillingParams is the read's parameter object as op_begin_read takes it: exactly these
+// keys (00032). The database rebuilds the object it hashes from the typed values, so this
+// spelling does not bind the ticket.
+type tenantBillingParams struct {
+	TenantID   uuid.UUID `json:"tenant_id"`
+	PageNumber int32     `json:"page_number"`
+}
+
+// TenantBilling is the two-phase read of one tenant's billing months: op_begin_read writes the
+// read's 'read' row (target_scope 'tenant_billing', the tenant named, the page) and a ticket
+// bound to the session, the tenant and the page; op_read_tenant_billing consumes it and
+// returns the page. An id that names no tenant is ErrNoSuchTenant -- after the 'read' row
+// naming it has committed. A dead session is ErrOperatorRefused, and so is a pgx.Tx (the two
+// phases are two transactions only on a pool, as for TenantList); a page outside
+// 1..MaxTenantBillingPage is a database error carrying 22023.
+func TenantBilling(ctx context.Context, c OperatorConn, sessionHash string, tenantID uuid.UUID, page int32) (TenantBillingTimeline, error) {
+	params, err := json.Marshal(tenantBillingParams{TenantID: tenantID, PageNumber: page})
+	if err != nil {
+		return TenantBillingTimeline{}, fmt.Errorf("db: tenant billing: encode the parameters: %w", err)
+	}
+	t, err := beginOperatorRead(ctx, c, sessionHash, tenantBillingReadKind, params)
+	if err != nil {
+		return TenantBillingTimeline{}, err
+	}
+	return readTenantBilling(ctx, c, sessionHash, t, tenantID, page)
+}
+
+// errBillingOfAnotherTenant is readTenantBilling's refusal of a row that names another tenant
+// than the one asked for. The statement cannot produce one (`t.id = p_tenant_id`); this is the
+// Go side's copy of that filter, so a regression in the SQL is an error here rather than
+// another tenant's invoice on the screen.
+var errBillingOfAnotherTenant = errors.New("db: read tenant billing: a row names another tenant")
+
+// readTenantBilling is op_read_tenant_billing: consume the ticket (bound to the session, the
+// kind, the tenant id and the page), then the page -- zero rows for an unknown id, otherwise
+// one row per month, every row carrying the tenant.
+func readTenantBilling(ctx context.Context, c OperatorConn, sessionHash string, t readTicket, tenantID uuid.UUID, page int32) (TenantBillingTimeline, error) {
+	rows, err := c.Query(ctx, readTenantBillingSQL, sessionHash, t.reveal(), tenantID, page)
+	if err != nil {
+		return TenantBillingTimeline{}, operatorErr("read tenant billing", err)
+	}
+	defer rows.Close()
+	tl := TenantBillingTimeline{Page: page}
+	for rows.Next() {
+		var (
+			id   uuid.UUID
+			name string
+			m    TenantBillingMonth
+		)
+		if err := rows.Scan(&id, &name, &m.Month, &m.AfterSignup, &m.Frozen, &m.From, &m.To, &m.Zone,
+			&m.Plan, &m.FirstChargeableMonth, &m.Free, &m.EmployeeCount, &m.UnstampedEmployees,
+			&m.UnitPrice, &m.Currency, &m.AmountDue, &m.ClosedAt, &m.HasEnded); err != nil {
+			return TenantBillingTimeline{}, operatorErr("read tenant billing", err)
+		}
+		if id != tenantID {
+			return TenantBillingTimeline{}, errBillingOfAnotherTenant
+		}
+		tl.TenantID, tl.TenantName = id, name
+		tl.Months = append(tl.Months, m)
+	}
+	if err := rows.Err(); err != nil {
+		return TenantBillingTimeline{}, operatorErr("read tenant billing", err)
+	}
+	if len(tl.Months) == 0 {
+		return TenantBillingTimeline{}, ErrNoSuchTenant
+	}
+	return tl, nil
+}
+
 // readTicket is op_begin_read's answer: the RAW read ticket, which CLAUDE.md §7 and ADR
 // 0021 §3.5 put on the never-log list (raw or hashed). The type is unexported and no
 // exported function takes or returns it -- LegalVersions, TenantList, TenantDetail,
-// TenantPlaques and OperatorAudit each hand it from their phase one to their phase two --
+// TenantPlaques, OperatorAudit and TenantBilling each hand it from their phase one to their phase two --
 // and it is the SealedSecret pattern all the same: the five redacting methods, and the
 // value behind a *string (SealedSecret's comment says why a *string and not a byte slice).
 // Through fmt's verbs, slog and encoding/json it prints the placeholder

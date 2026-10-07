@@ -752,19 +752,46 @@ func TestOperator00030_TheDefinerCannotReadAPlaqueKey(t *testing.T) {
 		"tappa_app calling op_read_tenant_plaques")
 }
 
-// opDefinerForeignExecFindings returns every function NOT owned by tappa_opdefiner that it
-// may EXECUTE and PUBLIC may not (a grant naming the definer or a role it could inherit
-// from), and every SECURITY DEFINER function not owned by it that it may EXECUTE at all --
-// in every schema, pg_catalog included.
+// opDefinerForeignExecAllowed is the NAMED allow-list of functions tappa_opdefiner may
+// EXECUTE without owning them and without PUBLIC's EXECUTE: 00016's five billing functions,
+// granted by 00032 (OP-12) for op_read_tenant_billing -- four called by the read, the fifth
+// both by it and inside tappa_employee_is_billable, which runs as its caller. None is a
+// SECURITY DEFINER and none reads a relation. A sixth needs a migration AND a line here.
+var opDefinerForeignExecAllowed = []string{
+	"public.tappa_employee_lifecycle_status(timestamp with time zone, timestamp with time zone)",
+	"public.tappa_employee_is_billable(text, timestamp with time zone, timestamp with time zone, timestamp with time zone, timestamp with time zone)",
+	"public.tappa_local_month_start(date, text)",
+	"public.tappa_first_chargeable_month(text, timestamp with time zone, text)",
+	"public.tappa_billing_amount_due(boolean, numeric, integer)",
+}
+
+// opDefinerForeignExecFindings returns, in every schema (pg_catalog included), for the
+// functions NOT owned by tappa_opdefiner:
+//   - (00030's rule) every one it may EXECUTE that PUBLIC may not, or that is a SECURITY
+//     DEFINER -- outside opDefinerForeignExecAllowed (a listed SECURITY DEFINER is still one);
+//   - (00032's rule) every one whose ACL names it -- outside the list. 00030's rule cannot see
+//     a grant on a function PUBLIC may call anyway; this one does (measured in
+//     TestOperator00032_TheDefinerExecutesExactlyTheFiveBillingHelpers);
+//   - every LISTED one it may not EXECUTE: the list is the set, not a ceiling.
 func opDefinerForeignExecFindings(ctx context.Context, q opQuerier) ([]string, error) {
 	rows, err := q.Query(ctx, `
 		SELECT p.oid::regprocedure::text || ' (owner ' || pg_get_userbyid(p.proowner) ||
-		       CASE WHEN p.prosecdef THEN ', SECURITY DEFINER' ELSE '' END || ')'
+		       CASE WHEN p.prosecdef THEN ', SECURITY DEFINER' ELSE '' END ||
+		       CASE WHEN p.oid = ANY ($1::text[]::regprocedure[]::oid[]) AND NOT has_function_privilege('tappa_opdefiner', p.oid, 'EXECUTE')
+		            THEN ', listed but not executable'
+		            WHEN p.oid <> ALL ($1::text[]::regprocedure[]::oid[])
+		                 AND EXISTS (SELECT 1 FROM aclexplode(p.proacl) AS x WHERE x.grantee = 'tappa_opdefiner'::regrole)
+		            THEN ', an ACL entry names the definer'
+		            ELSE '' END || ')'
 		  FROM pg_proc p
 		 WHERE p.proowner <> 'tappa_opdefiner'::regrole
-		   AND has_function_privilege('tappa_opdefiner', p.oid, 'EXECUTE')
-		   AND (p.prosecdef OR NOT has_function_privilege('public', p.oid, 'EXECUTE'))
-		 ORDER BY 1`)
+		   AND ((has_function_privilege('tappa_opdefiner', p.oid, 'EXECUTE')
+		         AND (p.prosecdef OR NOT has_function_privilege('public', p.oid, 'EXECUTE'))
+		         AND (p.prosecdef OR p.oid <> ALL ($1::text[]::regprocedure[]::oid[])))
+		     OR (p.oid <> ALL ($1::text[]::regprocedure[]::oid[])
+		         AND EXISTS (SELECT 1 FROM aclexplode(p.proacl) AS x WHERE x.grantee = 'tappa_opdefiner'::regrole))
+		     OR (p.oid = ANY ($1::text[]::regprocedure[]::oid[]) AND NOT has_function_privilege('tappa_opdefiner', p.oid, 'EXECUTE')))
+		 ORDER BY 1`, opDefinerForeignExecAllowed)
 	if err != nil {
 		return nil, err
 	}
@@ -786,7 +813,10 @@ func opDefinerForeignExecFindings(ctx context.Context, q opQuerier) ([]string, e
 // SECURITY DEFINER -- so a body of an op_* cannot reach data through another role's
 // function. The case that matters is named: resolve_tag_by_uid (tappa_resolver's) returns
 // aes_key_ref, and the definer may not call it. 00030 grants no EXECUTE outside its own
-// function, so the set is the one before it. CONTROLS (each in a savepoint): EXECUTE on
+// function, so the set is the one before it; since 00032 (OP-12) the scan holds the definer's
+// foreign set to a named allow-list -- 00016's five billing functions -- and also reports an
+// ACL entry naming the definer on a function PUBLIC may call (00032's test measures the
+// controls of that half). CONTROLS (each in a savepoint): EXECUTE on
 // resolve_tag_by_uid granted to the definer; a function of the owner's with PUBLIC's
 // EXECUTE revoked and the definer's granted -- each is reported.
 func TestOperator00030_TheDefinerExecutesOnlyItsOwnAndPublicFunctions(t *testing.T) {

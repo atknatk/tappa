@@ -63,8 +63,8 @@
 -- BeginOperatorRead -- phase one of the two-phase reads (ADR 0021 §2 v 1): resolves
 -- the session, writes the read's 'read' audit row and a ticket bound to it, returns the
 -- RAW ticket. $2 is a read kind (00027's closed set: 'legal_versions'; 00029 added
--- 'tenants' and 'tenant_detail', 00030 'tenant_plaques', 00031 'operator_audit'), $3 that
--- kind's parameter object. The caller COMMITS before phase two.
+-- 'tenants' and 'tenant_detail', 00030 'tenant_plaques', 00031 'operator_audit', 00032
+-- 'tenant_billing'), $3 that kind's parameter object. The caller COMMITS before phase two.
 --   SELECT public.op_begin_read($1, $2, $3::jsonb);
 
 -- ReadLegalVersions -- phase two of the version list: $2 is the RAW ticket, $3/$4 the
@@ -141,3 +141,27 @@
 --          target_scope, page_number, page_size, search_class, filter_kind, legal_slug,
 --          legal_bytes, detail_recognised
 --   FROM public.op_read_audit($1, $2, $3, $4, $5);
+
+-- ============================================================================
+-- OP-12 (migration 00032): one tenant's billing months. Phase one is BeginOperatorRead above,
+-- with kind 'tenant_billing' and the parameter object {tenant_id, page_number}: the page
+-- 1..5, twelve of the tenant's own local months each (five pages are sixty months, the
+-- tenant's own history depth). The read's 'read' row names the tenant and the page (page_size
+-- 12) with detail {}. Inside the function no row level security applies (its owner is
+-- BYPASSRLS); each of its three table references names the tenant. The definer reads the
+-- columns the arithmetic needs -- the tenant's zone, plan, signup instant and price, the four
+-- arguments of the billable predicate, the frozen month's figures -- and not
+-- billing_periods.closed_by; it returns COUNTS, never an employee.
+
+-- ReadTenantBilling -- phase two: $2 is the RAW ticket, $3 the tenant id and $4 the page, both
+-- bound in it. Zero rows for an id that names no tenant; otherwise exactly twelve rows, newest
+-- month first, page 1 holding the month the tenant is in (the wall clock read in its zone).
+-- Each month is FROZEN (every figure read from billing_periods, none recomputed; closed_at;
+-- no first_chargeable_month), LIVE (PreviewBillingPeriod's arithmetic over 00016's five
+-- functions -- the third copy of it, held equal to the tenant's own path by a test; currency
+-- NULL) or BEFORE SIGN-UP (after_signup false, every figure NULL -- never a zero). Money is
+-- numeric at scale 2, never a float.
+--   SELECT tenant_id, tenant_name, period_month, after_signup, frozen, period_from,
+--          period_to, period_timezone, plan, first_chargeable_month, free_period, employee_count,
+--          unstamped_employees, unit_price, currency, amount_due, closed_at, period_has_ended
+--   FROM public.op_read_tenant_billing($1, $2, $3, $4);

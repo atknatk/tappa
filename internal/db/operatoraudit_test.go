@@ -289,8 +289,10 @@ func opLogFunctionBody(t *testing.T, section, create, fn string) string {
 // argument list and result (no detail column), the owner, SECURITY DEFINER, proconfig, one
 // overload, EXECUTE for tappa_operator alone; op_begin_read and op_record_auth_event keep their
 // identities; the forward, frozen-clock and consumption scans walked them and raise nothing;
-// and the three CHECKs at HEAD -- the ticket kinds exactly the five, the audit kinds exactly
-// the eleven, actor_shape's pre-session arm exactly the six -- all three validated.
+// and the three CHECKs at HEAD -- the audit kinds exactly the eleven, actor_shape's
+// pre-session arm exactly the six, both validated, and the ticket kinds a closed set holding
+// 00031's five (00032 widened it: HEAD's exact set is TestOperator00032_TheFunctionsAndTheirExactSignatures'
+// pin, and 00031's exact set after 00032's Down is TestOperator00032_DownGivesBack00031AndUpTakesItAgain's).
 func TestOperator00031_TheFunctionsAndTheirExactSignatures(t *testing.T) {
 	ctx, tx := opTx(t)
 	var args, result, owner string
@@ -373,8 +375,13 @@ func TestOperator00031_TheFunctionsAndTheirExactSignatures(t *testing.T) {
 		}
 	}
 
+	tickets, _ := opConstraint(t, ctx, tx, "operator_read_tickets", "operator_read_tickets_kind_check")
+	for _, kind := range opKindsAt31 {
+		if !strings.Contains(tickets, "'"+kind+"'::text") || strings.Contains(tickets, "~") {
+			t.Errorf("operator_read_tickets_kind_check is %s, want a closed set holding %q", tickets, kind)
+		}
+	}
 	for _, c := range []struct{ table, name, want string }{
-		{"operator_read_tickets", "operator_read_tickets_kind_check", opKindCheckDef(opKindsAt31)},
 		{"operator_audit_log", "operator_audit_log_kind_check", opKindCheckDef(opAuditKinds)},
 		{"operator_audit_log", "operator_audit_log_actor_shape", opActorShapeDef(opAuthEventKinds)},
 	} {
@@ -1850,8 +1857,9 @@ type opLogShape struct {
 //     there all the same;
 //   - values planted in detail -- a ticket-shaped hex string, a TOTP-shaped code, a token, an
 //     address, a search term -- appear in NO field of ANY row returned;
-//   - the scope is returned for the five read kinds and NULL for an unknown one; names come
-//     from platform_admins and tenants by the row's ids (an unknown tenant: no name);
+//   - the scope is returned for the six read kinds (00032 added 'tenant_billing') and NULL for
+//     an unknown one; names come from platform_admins and tenants by the row's ids (an unknown
+//     tenant: no name);
 //   - every read kind the ticket CHECK names is a scope the list knows, with its shipped
 //     detail -- a read kind added without a shape here turns this red.
 func TestOpReadAudit_TheDetailIsShownOnlyInAShapeOnTheList(t *testing.T) {
@@ -1880,9 +1888,13 @@ func TestOpReadAudit_TheDetailIsShownOnlyInAShapeOnTheList(t *testing.T) {
 	}
 	readOf := func(scope, detail string) opLogRow {
 		r := sess("read", scope, detail)
-		if scope == tenantDetailReadKind || scope == tenantPlaquesReadKind {
+		switch scope {
+		case tenantDetailReadKind, tenantPlaquesReadKind:
 			r.tenant = &tenant
-		} else {
+		case tenantBillingReadKind:
+			r.tenant = &tenant
+			r.number, r.size = 1, TenantBillingMonthsPerPage
+		default:
 			r.number, r.size = 1, 50
 		}
 		return r
@@ -1905,6 +1917,7 @@ func TestOpReadAudit_TheDetailIsShownOnlyInAShapeOnTheList(t *testing.T) {
 		{name: "read legal_versions {}", row: readOf(legalVersionsReadKind, ""), recog: true, scope: legalVersionsReadKind},
 		{name: "read tenant_detail {}", row: readOf(tenantDetailReadKind, ""), recog: true, scope: tenantDetailReadKind},
 		{name: "read tenant_plaques {}", row: readOf(tenantPlaquesReadKind, ""), recog: true, scope: tenantPlaquesReadKind},
+		{name: "read tenant_billing {}", row: readOf(tenantBillingReadKind, ""), recog: true, scope: tenantBillingReadKind},
 		{name: "read tenants none", row: readOf(tenantsReadKind, `{"search": "none"}`), recog: true, scope: tenantsReadKind, search: "none"},
 		{name: "read tenants text", row: readOf(tenantsReadKind, `{"search": "text"}`), recog: true, scope: tenantsReadKind, search: "text"},
 		{name: "read tenants address", row: readOf(tenantsReadKind, `{"search": "address"}`), recog: true, scope: tenantsReadKind, search: "address"},
@@ -1933,6 +1946,7 @@ func TestOpReadAudit_TheDetailIsShownOnlyInAShapeOnTheList(t *testing.T) {
 		{name: "a boolean filter", row: readOf(operatorAuditReadKind, `{"filter": true}`), scope: operatorAuditReadKind},
 		{name: "a filter with an extra key", row: readOf(operatorAuditReadKind, `{"filter": "all", "code": `+q(totpLike)+`}`), scope: operatorAuditReadKind},
 		{name: "a plaque read carrying its tenant id", row: readOf(tenantPlaquesReadKind, `{"tenant_id": `+q(tenant.String())+`}`), scope: tenantPlaquesReadKind},
+		{name: "a billing read carrying its page", row: readOf(tenantBillingReadKind, `{"page_number": 1}`), scope: tenantBillingReadKind},
 		{name: "a read of an unknown scope", row: readOf("zz_later_scope", "")},
 		{name: "legal_publish {}", row: sess("legal_publish", "", "")},
 		{name: "legal_publish with a slug in another case", row: sess("legal_publish", "", legal(q("PRIVACY"), q(doc.String()), "10"))},
@@ -1951,7 +1965,7 @@ func TestOpReadAudit_TheDetailIsShownOnlyInAShapeOnTheList(t *testing.T) {
 	}
 	// The read kinds the ticket CHECK names, each with its shipped detail.
 	shipped := map[string]string{legalVersionsReadKind: "", tenantsReadKind: `{"search": "text"}`, tenantDetailReadKind: "",
-		tenantPlaquesReadKind: "", operatorAuditReadKind: `{"filter": "all"}`}
+		tenantPlaquesReadKind: "", operatorAuditReadKind: `{"filter": "all"}`, tenantBillingReadKind: ""}
 	ticketKinds, _ := opConstraint(t, ctx, tx, "operator_read_tickets", "operator_read_tickets_kind_check")
 	for _, arr := range opQuotedArrays(ticketKinds) {
 		for _, k := range arr {
@@ -2181,7 +2195,7 @@ func TestOpReadAudit_ATicketFromThisTransactionIsRefused(t *testing.T) {
 // filter and its page. Refused (28000, ticket not consumed): another session of the same
 // operator; another filter (a kind, and the empty one for a kind's ticket); another page number; another
 // page size; a ticket no op_begin_read issued, and NULL; and the KIND condition's own case --
-// the log read's own hash under the other four read kinds; and, the other direction, a
+// the log read's own hash under every other read kind (five since 00032); and, the other direction, a
 // log-read ticket shown to the version list with the version list's hash. CONTROL: the right
 // session, filter and page are read.
 func TestOpReadAudit_AForgedTicketIsRefused(t *testing.T) {
@@ -2215,7 +2229,7 @@ func TestOpReadAudit_AForgedTicketIsRefused(t *testing.T) {
 		})
 		opWantClean(t, err, sqlstateInvalidAuthorization, opAuditReadRefusal, fmt.Sprintf("a ticket never issued (%T)", raw))
 	}
-	for _, kind := range []string{legalVersionsReadKind, tenantsReadKind, tenantDetailReadKind, tenantPlaquesReadKind} {
+	for _, kind := range []string{legalVersionsReadKind, tenantsReadKind, tenantDetailReadKind, tenantPlaquesReadKind, tenantBillingReadKind} {
 		raw := opRandHex(t)
 		opForgeRead(t, ctx, tx, session, a.id, kind, opLogTicketHash(raw, "read", 2, 50), nil, xact, "30 seconds")
 		_, err := opReadLog(t, ctx, tx, hash, raw, "read", 2, 50)
