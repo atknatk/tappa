@@ -433,7 +433,8 @@ func run() error {
 		devTools = append(devTools, devTap)
 		activation.EnableDevTools(cfg)
 		tap.EnableDevTools(cfg)
-		slog.Default().Warn("DEV TOOLS ARE MOUNTED: POST /dev/simulate-tap mints plaque taps (dev on loopback only)")
+		log := slog.Default()
+		log.Warn("DEV TOOLS ARE MOUNTED: POST /dev/simulate-tap mints plaque taps (dev on loopback only)")
 	}
 	// The manual record writer (M6-08) — the SECOND writer of `transactions` in this
 	// process, and the first that is not a tap. It exists because Q18 decided the
