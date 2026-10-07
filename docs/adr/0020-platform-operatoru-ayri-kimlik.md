@@ -344,6 +344,20 @@ bir restoran hesabına bağlı olmamalı* (m10-platform.md §1).
   aksi hâlde adım fail-closed reddedilir (503) ve her fail-closed ret operatörü id'siyle pencere
   başına tek WARN satırında adlandırır.)* Ayrıntı ve ölçümler: ADR 0021 → "OP-14 C fazı eki"
   md. 8–9.
+  **OP-14 E notu (2026-10-07) — girişin geri kalan satırları da istemciden ayrık:** parolasız
+  satırlar (`login_failed`, `unknown_email`, `enrollment_failed`), kod adımının hesap bütçesinden
+  sonraki her ifadesi (arama, `totp_failed`, `op_open_session`, `locked`) ve enrollment'ın
+  `op_complete_enrollment`'ı isteğin iptalinden **ayrık**, ifade başına kendi süresiyle
+  (`SignInStatementGrace` 5 sn; en uzun yol üç ifade, 15 sn — HTTP drenajının içinde) koşar; ret
+  sayfaları da iptalden ayrık render edilir. Ölçülen açık (OP-14 C güvenlik denetiminin P4 ve P8'i):
+  yarı kapalı bağlantıda yanlış parola satırsız 500, doğru parola 303 alıyordu (izsiz parola tahmini);
+  kesilen kod denemeleri satırsız, sayaçsız hesap bütçesini tüketiyordu (izsiz kilitlenme). Artık
+  yarı kapalı her ret açık kalanın aldığı durum ve baytları alır ve satırını bırakır; N kesilen kod
+  denemesi N sayılan denemedir — kilitliyken kesilen doğru kod da `locked` yazar ve yanlış kodun
+  cevabını alır. Yazılamayan satır adımın hatasıdır (503), ret ya da başarı değil; parolasız ortak
+  tavan değişmedi. Parola adımının araması istemciyi izlemeye devam eder: aramadan önce giden istemci
+  hiçbir şeyle karşılaştırılmaz. Ayrıntı, ölçümler ve sınırlar (LE1–LE11; 2. tur md. 10): ADR 0021 →
+  "OP-14 E uygulama notu".
 - **Kurtarma kodu YOK** (K3). Cihaz kaybında tek yol `opadmin reset-mfa` (§6): TOTP
   zarfı silinir, kilit sayacı sıfırlanır, durum `pending`, bütün oturumlar iptal, yeni
   enrollment token'ı ve id'li link.

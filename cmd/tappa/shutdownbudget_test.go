@@ -225,3 +225,29 @@ func TestShutdownBudget_TheFirstFactorRecordNestsInsideTheHTTPGrace(t *testing.T
 		t.Errorf("operatorauth.FirstFactorRecordGrace is %v, too short to complete one INSERT", operatorauth.FirstFactorRecordGrace)
 	}
 }
+
+// TestShutdownBudget_TheSignInStatementsNestInsideTheHTTPGrace binds the budget of the
+// operator sign-in's OTHER detached statements (M10 OP-14 phase E): the password-less rows,
+// the code step after its account budget is charged, and the enrollment's last statement
+// run on contexts detached from the request, so a client that hangs up can neither spend a
+// shared budget without a row nor tell a refusal from a success by the answer. They run
+// inside the step's request, so -- like the first-factor record above -- they must FIT in
+// the drain Shutdown already waits for.
+//
+// THREE TIMES THE BUDGET, because each statement has its own bound and the longest path
+// runs three in sequence: the code step's lookup, op_open_session refused, and the refused
+// code's row (operatorauth.SignInStatementGrace's comment holds the count; the enrollment
+// runs two, the password step one).
+func TestShutdownBudget_TheSignInStatementsNestInsideTheHTTPGrace(t *testing.T) {
+	if worst := 3 * operatorauth.SignInStatementGrace; worst > httpShutdownGrace {
+		t.Fatalf("the code step's three detached statements can take %v (3 x operatorauth.SignInStatementGrace %v) "+
+			"but Shutdown only waits httpShutdownGrace (%v) for the request they run inside; a trail the drain "+
+			"cuts off is the silent state the detach exists to prevent",
+			worst, operatorauth.SignInStatementGrace, httpShutdownGrace)
+	}
+	// POSITIVE CONTROL, as above: a budget too short for one statement would make the
+	// detach decorative.
+	if operatorauth.SignInStatementGrace < time.Second {
+		t.Errorf("operatorauth.SignInStatementGrace is %v, too short to complete one statement", operatorauth.SignInStatementGrace)
+	}
+}

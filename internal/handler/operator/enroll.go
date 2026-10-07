@@ -123,6 +123,7 @@ func (s *Surface) enroll(w http.ResponseWriter, r *http.Request) {
 	}
 	issued, err := s.auth.CompleteEnrollment(r.Context(), rateKey(r), id, token.reveal(),
 		operatorauth.PendingBlobFromForm(blob), password.reveal(), code.reveal())
+	r = answered(r)
 	switch {
 	case err == nil:
 		if err := operatorauth.SetSessionCookie(w, issued.Token); err != nil {

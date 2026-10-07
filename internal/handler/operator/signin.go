@@ -26,6 +26,8 @@ func (s *Surface) signInPage(w http.ResponseWriter, r *http.Request) {
 // comparison and written one audit row) and one page here: 401 with
 // SignInView{Failed: true}. Measured: the same headers and body bytes and one comparison
 // on each of the eight arms of TestSurface_EveryRefusedSignInPaysOneComparisonAndAnswersAlike.
+// And the same whether the client stayed or half-closed its connection: every answer here
+// and in code and enroll is rendered on answered(r) (OP-14 phase E).
 // The address is not validated here (no length, UTF-8 or NUL check): internal/db answers an
 // address it cannot store as "no operator" (OP-6 md. 8), so such an address takes the
 // unknown address's path (dummy bcrypt, unknown_email row, ErrRefused). The checks before
@@ -36,6 +38,7 @@ func (s *Surface) signIn(w http.ResponseWriter, r *http.Request) {
 	}
 	email, password := postValue(r, "email"), postValue(r, "password")
 	c, err := s.auth.Password(r.Context(), rateKey(r), email.reveal(), password.reveal())
+	r = answered(r)
 	switch {
 	case err == nil:
 		if err := operatorauth.SetChallengeCookie(w, c); err != nil {
@@ -80,6 +83,7 @@ func (s *Surface) code(w http.ResponseWriter, r *http.Request) {
 	}
 	code := postValue(r, "code")
 	issued, err := s.auth.TOTP(r.Context(), c, code.reveal())
+	r = answered(r)
 	switch {
 	case err == nil:
 		if err := operatorauth.SetSessionCookie(w, issued.Token); err != nil {

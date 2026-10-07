@@ -2,6 +2,7 @@ package operator
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"net/http"
 
@@ -80,6 +81,23 @@ func (s *Surface) render(w http.ResponseWriter, r *http.Request, status int, c t
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
 	_, _ = w.Write(buf.Bytes())
+}
+
+// answered is r once the sign-in's step has decided (the password step, the code step, the
+// enrollment's last step): its values, none of its cancellation, so the page that says
+// what was decided is rendered whatever the client did (OP-14 phase E; the WL-9 precedent,
+// checkin.go's post).
+//
+// WHY (measured, OP-14 phase C's security audit, P8, the real router over TCP): a client
+// that half-closes its connection -- FIN after the request, still reading -- has the
+// request's context cancelled by net/http and still receives the answer. render's
+// component then refuses the cancelled context and the answer is a plain 500, while a
+// right password's 303 writes no body and goes out unchanged: with the step's rows now
+// written detached, a refusal answered 500 against a success answered 303 would still read
+// the guess's result. Rendered with answered, a refusal is the same status and the same
+// bytes as the refusal of a client that stayed (TestSurface_AHalfClosedRefusalIsTheSameAnswer).
+func answered(r *http.Request) *http.Request {
+	return r.WithContext(context.WithoutCancel(r.Context()))
 }
 
 // redirect answers 303 See Other: a POST becomes a plain GET and a refresh is harmless.

@@ -32,6 +32,12 @@ import (
 //
 // addr is the client's rate key (OP-8 resolves it). It is used for the work budget and
 // is written nowhere: no row carries an address (ADR 0021 §1).
+//
+// WHICH STATEMENTS FOLLOW THE CLIENT (OP-14 phase E): only the lookup. A request whose
+// client has gone before the lookup answers compares nothing and writes nothing -- no
+// guess was checked, and the budget it spent is its own address's. Every row written
+// after a comparison is written detached (recordPasswordless, recordPasswordOK): a
+// comparison that ran is a fact whether or not its client is still listening.
 func (a *Authenticator) Password(ctx context.Context, addr, email, password string) (Challenge, error) {
 	if !a.limits.work.spend(addr) {
 		return Challenge{}, ErrThrottled
@@ -104,6 +110,19 @@ func (a *Authenticator) Password(ctx context.Context, addr, email, password stri
 // gates in front of it do not already give -- the flood budget (OP-8's gate, per
 // address) prices every request, and a challenge that verifies was minted by a correct
 // password, so the budget that matters is the account's.
+//
+// 🔴 FROM THE ACCOUNT BUDGET'S CHARGE ON, THE ATTEMPT RUNS TO ITS END WHATEVER THE CLIENT
+// DOES (OP-14 phase E; ADR 0021, "OP-14 E uygulama notu"). Every statement after step 2
+// -- the lookup, the failure row, op_open_session and the refused code's row -- runs on
+// detach's context. Measured before (OP-14 phase C's security audit, P4, real Postgres):
+// with the request's context, ten code attempts whose client hung up left ZERO rows, a
+// lock counter of 0 and no session, and spent the account's budget ten of ten -- the
+// owner's right code was then ErrThrottled, and nothing anywhere said why. Detaching only
+// the failure row would not close it: a client that hangs up at once has its context
+// cancelled before the lookup, and a lookup that fails writes nothing. So N attempts whose
+// client left are N attempts the database counted (a wrong code moves the counter, a right
+// one opens its session or, while locked, writes 'locked'), and a client that half-closes
+// its connection gets the answer an attempt that stayed gets.
 func (a *Authenticator) TOTP(ctx context.Context, c Challenge, code string) (Issued, error) {
 	id, err := a.verifyChallenge(c)
 	if err != nil {
@@ -112,7 +131,9 @@ func (a *Authenticator) TOTP(ctx context.Context, c Challenge, code string) (Iss
 	if !a.limits.account.spend(id.String()) {
 		return Issued{}, ErrThrottled
 	}
-	acc, err := a.store.OperatorByID(ctx, id)
+	lctx, cancel := detach(ctx)
+	acc, err := a.store.OperatorByID(lctx, id)
+	cancel()
 	switch {
 	case errors.Is(err, db.ErrNoOperator):
 		return Issued{}, ErrRefused
@@ -132,7 +153,13 @@ func (a *Authenticator) TOTP(ctx context.Context, c Challenge, code string) (Iss
 
 	step, ok := verifyCode(key, code, now)
 	if !ok {
-		if rerr := a.store.RecordOperatorAuthEvent(ctx, db.OperatorTOTPFailed, "", id); rerr != nil {
+		// A failure row that cannot be written is the step's ERROR, never ErrCodeRejected:
+		// the guess was checked and not counted, and answering it as a refusal would tell
+		// its sender the code was wrong without the counter knowing (ADR 0021, "OP-14 E
+		// uygulama notu", md. 4).
+		rctx, cancel := detach(ctx)
+		defer cancel()
+		if rerr := a.store.RecordOperatorAuthEvent(rctx, db.OperatorTOTPFailed, "", id); rerr != nil {
 			return Issued{}, fmt.Errorf("operatorauth: record a failed code: %w", rerr)
 		}
 		if lockedNow {
@@ -149,7 +176,12 @@ func (a *Authenticator) TOTP(ctx context.Context, c Challenge, code string) (Iss
 	if err != nil {
 		return Issued{}, err
 	}
-	err = a.store.OpenOperatorSession(ctx, id, h, step)
+	// Detached too: under the request's context a right code whose client left would get
+	// an error where a wrong one gets its refusal -- and while the account is locked that
+	// difference alone would say which code was right.
+	octx, cancel := detach(ctx)
+	err = a.store.OpenOperatorSession(octx, id, h, step)
+	cancel()
 	switch {
 	case err == nil:
 		return Issued{Token: tok, AdminID: id}, nil
@@ -158,7 +190,9 @@ func (a *Authenticator) TOTP(ctx context.Context, c Challenge, code string) (Iss
 		if lockedNow {
 			kind, out = db.OperatorLocked, ErrLocked
 		}
-		if rerr := a.store.RecordOperatorAuthEvent(ctx, kind, "", id); rerr != nil {
+		rctx, cancel := detach(ctx)
+		defer cancel()
+		if rerr := a.store.RecordOperatorAuthEvent(rctx, kind, "", id); rerr != nil {
 			return Issued{}, fmt.Errorf("operatorauth: record a refused code: %w", rerr)
 		}
 		return Issued{}, out
@@ -238,8 +272,8 @@ func (a *Authenticator) Logout(ctx context.Context, t SessionToken) error {
 // PROCESS-WIDE enrollment budget, and pays for the digest and the seal --
 // the cost ADR 0021 sınır 12 names, which the database cannot pre-check because
 // tappa_operator cannot read a token hash. Every refusal after the password rule writes
-// ONE enrollment_failed row under the audit cap; the definer names the account if the
-// id exists.
+// ONE enrollment_failed row under the audit cap, detached from the request
+// (recordPasswordless); the definer names the account if the id exists.
 //
 // The token's validity -- right account, pending, unused, unexpired by the database's
 // clock -- is decided ONLY by op_complete_enrollment; Go never sees a token hash.
@@ -285,7 +319,15 @@ func (a *Authenticator) CompleteEnrollment(ctx context.Context, addr string, id 
 	if err != nil {
 		return Issued{}, err
 	}
-	err = a.store.CompleteOperatorEnrollment(ctx, id, rawToken, digest, sealed, step, h)
+	// Detached (OP-14 phase E): the two enrollment budgets are spent, and the process-wide
+	// one is everybody's. Under the request's context a client that hangs up during the
+	// digest spends a share of it with no enrollment_failed row and is answered with an
+	// error instead of the refusal; detached, the database decides -- a token it refuses is
+	// a row and ErrEnrollment, a valid one completes (its cookie reaches the client only if
+	// the client is still reading).
+	cctx, cancel := detach(ctx)
+	err = a.store.CompleteOperatorEnrollment(cctx, id, rawToken, digest, sealed, step, h)
+	cancel()
 	switch {
 	case err == nil:
 		return Issued{Token: tok, AdminID: id}, nil
@@ -311,6 +353,15 @@ func (a *Authenticator) enrollmentRefused(ctx context.Context, id uuid.UUID, out
 // A database error writing the row is returned: "her giriş operator_audit_log'da"
 // (OP-8's acceptance) is not something to drop silently when the table is reachable
 // and refuses.
+//
+// THE WRITE IS DETACHED from the request (detach; OP-14 phase E). Measured before (OP-14
+// phase C's security audit, P8, the real router over TCP): a client that half-closes its
+// connection -- FIN after the request, still reading -- has its request's context
+// cancelled by net/http while the comparison runs, and still receives the answer. With
+// the request's context a wrong password then wrote NO login_failed row and was answered
+// 500, while a right one got 303 and its challenge: a password guess, one per work-budget
+// charge, that left no trail and read its result. The cap's charge above is unchanged:
+// what changed is that a charge under the cap is now always followed by its write.
 func (a *Authenticator) recordPasswordless(ctx context.Context, kind db.OperatorAuthEvent, email string, id uuid.UUID) error {
 	if n := a.limits.auditCap.charge(""); n > auditCapLimit {
 		if n == auditCapLimit+1 {
@@ -319,10 +370,41 @@ func (a *Authenticator) recordPasswordless(ctx context.Context, kind db.Operator
 		}
 		return nil
 	}
-	if err := a.store.RecordOperatorAuthEvent(ctx, kind, email, id); err != nil {
+	wctx, cancel := detach(ctx)
+	defer cancel()
+	if err := a.store.RecordOperatorAuthEvent(wctx, kind, email, id); err != nil {
 		return fmt.Errorf("operatorauth: record a pre-session failure: %w", err)
 	}
 	return nil
+}
+
+// SignInStatementGrace bounds EACH statement the sign-in runs detached from the request
+// (detach; OP-14 phase E): a password-less row (recordPasswordless), the second step's
+// statements after its account budget is charged (the lookup, op_open_session, the
+// totp_failed or locked row), and the enrollment's op_complete_enrollment. The
+// 'password_ok' row keeps its own FirstFactorRecordGrace (OP-14 phase C).
+//
+// 🔴 FIVE SECONDS, FirstFactorRecordGrace's number for its reasons -- one statement is
+// milliseconds, the rest is a wait for a pooled connection; >= 1 s so the bound is not
+// decorative -- and ONE BOUND PER STATEMENT, not per step: a slow lookup must not eat the
+// time of the row after it, because a row starved of time is a checked guess without its
+// count. The worst path in sequence is the second step's, THREE statements (the lookup,
+// op_open_session refused, the refused code's row):
+//
+//	3 x 5 s = 15 s  <=  httpShutdownGrace (20 s), which Shutdown drains
+//	enrollment: op_complete_enrollment + its refusal row = 2 x 5 s; password step: one row
+//
+// WithoutCancel drops the request's deadline (httpx.RequestTimeout) with its cancellation,
+// so these bounds are the only ones: a step that starts in the request's last second can
+// answer up to 15 s after that deadline. Exported only so cmd/tappa's shutdown-budget gate
+// can hold the nesting (TestShutdownBudget_TheSignInStatementsNestInsideTheHTTPGrace).
+const SignInStatementGrace = 5 * time.Second
+
+// detach is the context of ONE sign-in statement that must run whether or not the client
+// is still there: ctx's values, none of its cancellation or deadline, and
+// SignInStatementGrace as its only bound.
+func detach(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), SignInStatementGrace)
 }
 
 // FirstFactorRecordGrace bounds the 'password_ok' write, which runs DETACHED from the

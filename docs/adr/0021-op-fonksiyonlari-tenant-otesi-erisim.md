@@ -58,6 +58,11 @@
   `op_begin_read` bir okuma türü (`tenant_vat`), audit tür kümesi bir tür (`tenant_vat_checked`)
   ve yeni bir CHECK (`operator_audit_log_tenant_write_shape`) kazandı — bkz. "OP-16 uygulama
   notu". Ekran ve VIES çağrısı B fazıdır.
+  **OP-14 E (2026-10-07):** girişin parolasız satırları (`login_failed`, `unknown_email`,
+  `enrollment_failed`), kod adımının hesap bütçesinden sonraki her ifadesi (arama, `totp_failed`,
+  `op_open_session`, `locked`) ve enrollment'ın `op_complete_enrollment`'ı isteğin iptalinden
+  **ayrık**, ifade başına kendi süresiyle (`SignInStatementGrace` 5 sn) yazılır; ret sayfaları
+  iptalden ayrık render edilir — C9 (iv) kapandı; migration yok — bkz. "OP-14 E uygulama notu".
 - **Tarih:** 2026-09-26 · aynı gün **2. tur** (güvenlik denetiminin RED'i: izsiz okuma),
   **3. tur** (güvenlik denetiminin RED'i: bilet süresinin saati; üçüncü gözün bulguları) ve
   **3. tur eki** (orkestratör kararı: enrollment ve kimlik bilgisi yazımı definer'da) ve
@@ -3159,6 +3164,9 @@ yok, DDL yok, yeni bağımlılık yok; `Store` arayüzü ve `cmd/tappa` wiring'i
   bütçesinin izin verdiği hızda (adres başına 20 / 10 dk) **izsiz** yapılabilir. Bu fazın kapsamı
   değil; **devir, öncelik parolasız satırlarda** (aynı ayrık yazım + iade kalıbı ve
   `login_failed`'ın da ayrık yazılması).
+  *(OP-14 E, 2026-10-07 — **KAPANDI**: parolasız satırlar, kod adımının hesap bütçesinden sonraki her ifadesi ve enrollment'ın son ifadesi
+  istekten ayrık yazılır; ret cevapları iptalden bağımsız aynı baytlardır. İade parolasız
+  tavana **uygulanmadı** — ortak tavanın davranışı değişmez. "OP-14 E uygulama notu".)*
 - **C8** — Commit eden uçtan uca testler (`internal/handler/operator`'ın OP-10/OP-11/OP-13
   veritabanı testleri) bu ekten sonra koşu başına `password_ok` satırı bırakır: ölçüldü — paketin bir `-race` koşusundan önce 0, sonra 4 `password_ok` satırı
   (2026-10-07). (Aynı aralıkta paralel bir ajanın testleri de veritabanına yazıyordu; onun
@@ -3255,6 +3263,268 @@ yok, DDL yok, yeni bağımlılık yok; `Store` arayüzü ve `cmd/tappa` wiring'i
   `checkBudgetKeys` — `firstFactor` haritasının anahtarlarının operatör id'leri olması;
   `TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain`'in yol sayıları — ölçülen
   duruma göre koşması gereken yolların tam kümesi.
+- **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
+
+## OP-14 E uygulama notu (2026-10-07, parolasız ve TOTP satırlarının ayrık yazımı — C9 (iv)'ün kapanışı)
+
+Uygulama: `internal/operatorauth/flow.go` (`recordPasswordless`'ın tek yazımı; `TOTP`'un hesap
+bütçesinden sonraki dört ifadesi; `CompleteEnrollment`'ın `op_complete_enrollment`'ı; yeni paket içi
+`detach` ve dışa açık `SignInStatementGrace`), `internal/handler/operator/render.go` (yeni `answered`),
+`signin.go` ve `enroll.go` (adım cevap verdikten sonra `r = answered(r)` — üç satır ve bir yorum
+cümlesi), `cmd/tappa/shutdownbudget_test.go` (yeni pin); testler yeni `detached_test.go`
+(veritabanısız), `detached_db_test.go` (gerçek Postgres, geri alınan işlem) ve
+`detached_external_test.go` (gerçek yönlendirici, gerçek TCP, yarı kapalı bağlantı); `units_test.go`'da
+bir pozitif kontrolün çapası (`ctx` → `rctx`; mutasyon aynı). Migration yok, DDL yok, yeni bağımlılık
+yok; `Store` arayüzü ve `cmd/tappa` wiring'i değişmedi.
+
+1. **Ölçülen açık (C9 (iv); OP-14 C güvenlik denetiminin P4 ve P8'i), bu notun testleriyle yeniden
+   ölçüldü** — üretim dosyaları `8575d24`'teki hâline döndürülmüş kopyada (mutasyon M00):
+   yarı kapalı bağlantıda (istemci isteği gönderip FIN yollar, okumaya devam eder; net/http isteğin
+   bağlamını iptal eder, cevabı yine teslim eder) yanlış parola, bilinmeyen adres, yanlış kod,
+   kilitliyken yanlış kod ve bozuk enrollment linki **500** (35 bayt, *"500 the page could not be
+   rendered"*) aldı ve satır **bırakmadı**; aynı istekler bağlantı açık kalınca 401 / 401 / 401 /
+   401 / 400 aldı. Doğru parola yarı kapalıda 303 + challenge. İstemcisi adımdan önce giden kod
+   denemesi aramada düştü (*"second-step lookup: … context canceled"*): satır yok, sayaç yok, hesap
+   bütçesi harcanmış.
+2. **Ayrık yazım — ifade başına (kapsam md. 1).** `detach(ctx)` =
+   `context.WithTimeout(context.WithoutCancel(ctx), SignInStatementGrace)`: isteğin değerleri, iptali
+   ve süresi değil, tek sınır `SignInStatementGrace`. Ayrık koşanlar:
+   - **parolasız:** `recordPasswordless`'ın yazımı (`login_failed`, `unknown_email`,
+     `enrollment_failed`) — tavanın şarjından sonra, değişmeden;
+   - **kod adımı, hesap bütçesinin şarjından sonra her ifade:** arama (`OperatorByID`),
+     `totp_failed`, `op_open_session`, reddedilen kodun satırı (`locked` / `totp_failed`);
+   - **enrollment:** `op_complete_enrollment` (iki enrollment bütçesi harcanmışken).
+   **Sapma, gerekçesiyle (kapsamın "audit yazımları"ndan geniş):** kod adımının araması ve
+   `op_open_session`'ı, enrollment'ın `op_complete_enrollment`'ı da ayrıktır. (a) Yalnız satırı
+   ayırmak P4'ü kapatmazdı: hemen kapanan istemcinin bağlamı aramadan önce iptal edilir, arama düşer,
+   satır yazılmaz, hesap bütçesi harcanmıştır (M00'ın ölçümü; aramayı geri alan E02 kırmızı).
+   (b) `op_open_session` isteğin bağlamında kalsaydı kilitliyken yarı kapalı **doğru** kod hata
+   sayfası (503), yanlış kod `ErrLocked` sayfası (401) alırdı — kilit altında bir doğru-kod kâhini (E04
+   kırmızı). (c) Süreç geneli enrollment bütçesi herkesindir; kesilen istek onu satırsız harcar ve
+   ret yerine hata alırdı (E06 kırmızı). **Bedeli (sınır LE1):** istemcisi giden doğru kod oturumunu
+   açar ve `login` satırını yazar, geçerli enrollment tamamlanır; istemci okumuyorsa çerez ulaşmaz.
+   **Parola adımının araması isteğin bağlamında KALIR (karar):** aramadan önce giden istemci hiçbir
+   şeyle karşılaştırılmaz ve satır yazmaz — tahmin denetlenmedi, harcanan iş bütçesi kendi adresinin;
+   cevap doğru ve yanlış parola için aynı hata (yüzeyde 503). Pin:
+   `TestDetachedSignIn_NoComparisonWithoutItsRow` (aramayı ayıran E25 kırmızı — bir karar pini,
+   güvenlik pini değil: ayrılırsa her istek karşılaştırılır ve satırını yazar).
+3. **Süre — aritmetik (kapsam md. 1).** `SignInStatementGrace` = **5 sn**, `FirstFactorRecordGrace`'in
+   sayısı ve gerekçesi (bir ifade milisaniye, gerisi havuzdan bağlantı beklemek; ≥ 1 sn pozitif
+   kontrol). **İfade başına bir sınır, adım başına değil:** yavaş bir arama arkasındaki satırın
+   süresini yemesin — süresi yenen satır, sayılmamış denetlenmiş bir tahmindir. En uzun sıralı yol kod
+   adımınındır: arama + `op_open_session` reddi + reddedilen kodun satırı = 3 × 5 = **15 sn ≤
+   `httpShutdownGrace` (20 sn)**; enrollment 2 × 5 sn; parola adımı bir satır. Pin:
+   `TestShutdownBudget_TheSignInStatementsNestInsideTheHTTPGrace` (3 × sınır ≤ 20 sn, sınır ≥ 1 sn).
+   Davranış olarak: `TestDetachedSignIn_AHangingStatementIsBoundedByItsGrace` — beş kol (parolasız
+   satır, kod adımının araması, `totp_failed`, `op_open_session`, `op_complete_enrollment`) asılı
+   mağazayla, isteğin kendi süresi 1 saat → her biri ≈5 sn'de hata (sentinel değil), challenge /
+   oturum yok. Sınırsız `detach` (E07) kırmızı.
+4. **Yazma hatasında davranış (kapsam md. 4) — ölçüldü, bugünkü korundu, hiçbiri sorulmadı.**
+   Gerçek sunucunun reddiyle (salt-okunur savepoint, 25006), istemci gitmişken:
+   - **parolasız** (yanlış parola; bozuk enrollment linki): satır yazılamazsa adım **hata** döner —
+     `ErrRefused` değil, hiçbir sentinel değil (yüzeyde 503, OP-14 C md. 10 D5'in ölçtüğü), challenge
+     yok, satır yok. Ortak tavanın şarjı **geri verilmez** (OP-6'dan beri böyle; kapsam md. 3:
+     tavan davranışı değişmez — şarjı iade eden E24 kırmızı). Kapsamın *"parolasız ret zaten 401"*
+     cümlesi satır yazıldığında doğrudur; yazılamadığında cevap ret değil hatadır (503) — değiştirilmedi.
+   - **yanlış kod:** `totp_failed` yazılamazsa adım **hata** (503) — `ErrCodeRejected` **değil**:
+     tahmin denetlendi ama sayılmadı, "yanlış" demek sayaç bilmeden sonucu söylemek olurdu (E13
+     kırmızı). Oturum yok, sayaç kıpırdamaz, hesap bütçesi harcanmış. Adım başarıya dönmez ("ret
+     kalır" = oturum yok, çerez yok).
+   - **kilitliyken doğru kod:** `locked` yazılamazsa adım **hata** (503), `ErrLocked` değil (E14
+     kırmızı); oturum yok, sayaç 5'te.
+   - Hiçbir hata metni operatörün adresini, istemcinin adresini, parolayı, kodu ya da operatörün
+     id'sini taşımaz. Pin: `TestDetachedSignIn_AnUnwrittenRowFailsTheStepAndCountsNothing` (kontrol:
+     aynı yanlış kod gerçek mağazayla `ErrCodeRejected` + satır).
+5. **Ret render'ı — 500/401 kâhini kapandı (kapsam md. 5).** Satır artık yazılsa da yarı kapalıda
+   yanlış parola 500, doğru parola 303 alacaktı: `render`'ın bileşeni iptal edilmiş bağlamı reddeder
+   (`render.go`), 303 gövdesizdir. `answered(r)` = `r.WithContext(context.WithoutCancel(r.Context()))`
+   — WL-9'un emsali (`checkin.go`'nun `post`'u) — üç handler'da (parola adımı, kod adımı, enrollment)
+   adım cevap verdikten **sonra** uygulanır; adımın her kolunun sayfası aynı yoldan, iptalden bağımsız
+   render edilir. ~~(ölçülen kollar 401 ve 400; 429 ve 503 aynı yoldan geçer, yarı kapalıda ayrıca
+   ölçülmedi)~~ *(3. tur: 503'ü 2. tur ölçtü — md. 10 F2, 503 / 1059 bayt; 429'u güvenlik denetimi
+   ölçtü — açık kalan ve yarı kapalı istemci 429 / 961 bayt, aynı; 429'un pini bu depoda yok.)*
+   Ölçüldü, gerçek yönlendirici, gerçek TCP, her yarı kapalı istekte adım net/http bağlamı iptal
+   edene dek tutularak (öncül ölçülür): bağlantı açık kalan ve yarı kapalı istemci
+   **aynı durum, aynı başlıklar (Date hariç) ve aynı gövde baytları** — yanlış parola 401 / 1760 bayt,
+   bilinmeyen adres 401 / 1760, yanlış kod 401 / 1687, kilitliyken yanlış kod 401 / 1690 ve
+   kilitliyken **doğru** kod aynı 401 / 1690 baytı, bozuk enrollment linki 400 / 1038; yarı kapalı
+   her istek satırını bıraktı; hiçbir ERROR satırı yok. Kontrol: doğru parola yarı kapalıda 303 +
+   challenge. Pin: `TestSurface_AHalfClosedRefusalIsTheSameAnswer` (E16–E19 kırmızı). Dokunulan
+   render kodu en aza indirildi: `render`'ın kendisi değişmedi.
+6. **Parolasız tavan (kapsam md. 3) — değişmedi, ölçüldü:** her isteğin istemcisi karşılaştırma
+   sırasında giderken 30 yanlış parola / bilinmeyen adres 30 satır, log boş; 31. ve 32. `ErrRefused`,
+   satır yok, pencere başına **tek** WARN (kapalı biçim: ileti, `kind`, `cap=30`, `window=10m0s`);
+   bir dönem sonra pencere yeniden açılır, satır yine yazılır, ikinci WARN yok; log'da adres yok.
+   Pin: `TestDetachedSignIn_ThePasswordlessCapHoldsWhenClientsLeave` (E20–E23 kırmızı).
+7. **Kilit sayacı (kapsam md. 2) — N kesilen deneme = N sayılan deneme, gerçek Postgres:** tek
+   challenge, her denemenin istemcisi adımdan önce gitmiş: beş yanlış kod beş `totp_failed` satırı,
+   sayaç 5, kilit ≈900 sn; kilitliyken kesilen **doğru** kod `locked` yazar, `ErrLocked` alır —
+   yanlış kodla aynı cevap; ardından yanlış kod sayacı 6'ya taşır; hesap bütçesi aynı yoldan sonuna
+   dek harcanır: **10 şarj = 10 satır** (9 `totp_failed` + 1 `locked`), sayaç 9, oturum 0; sahibin
+   doğru kodu `ErrThrottled`. P4'ün aynı dizisi ayrık yazımdan önce 0 satır, sayaç 0, bütçe 10/10
+   bırakmıştı. Kilitlenme hâlâ mümkündür (*"parolayı bilen biri tasarım gereği kilitleyebilir"*),
+   artık **izlidir**. Pinler: `TestDetachedSignIn_AbortedCodesAreCountedAndLock`,
+   `TestDetachedSignIn_ACodeAttemptOutlivesItsClient` (adımdan önce ve aramadan sonra giden istemci:
+   yanlış kod satır + sayaç +1, doğru kod oturum + `login`, sayaç 0) — E02–E05, E11, E12 kırmızı.
+8. **Enrollment kolu:** istemci adımdan önce gitmişken bozuk link, yanlış ilk kod ve veritabanının
+   reddettiği iyi biçimli token (iki enrollment bütçesini harcar) her biri bir `enrollment_failed`
+   satırı bırakır ve bağlantısı açık kalan istemcinin cevabını alır; hesap `pending` kalır; ardından
+   geçerli link tamamlanır (hesap aktif, `enrollment` satırı, ilk oturum). Pin:
+   `TestDetachedSignIn_AnAbortedEnrollmentStillLeavesItsRow` (E06 kırmızı); parolasız satırların
+   veritabanı yarısı `TestDetachedSignIn_APasswordlessRowOutlivesItsClient` (yanlış parola →
+   operatörü adlandıran `login_failed`, bilinmeyen adres → hedefsiz `unknown_email`, bekleyen hesabın
+   adresi → o hesabı adlandıran `unknown_email`; her biri `ErrRefused`, ortak tavan kol başına bir,
+   log boş, satırlarda adres yok).
+9. **Güncellenen test (zayıflatılmadı):** `TestAuditRows_EveryPasswordlessKindGoesThroughTheCap`'in
+   *"totp_failed through the cap"* pozitif kontrolünün çapası `RecordOperatorAuthEvent(ctx, …)` →
+   `RecordOperatorAuthEvent(rctx, …)` — aynı mutasyon, yazımın yeni bağlam adıyla.
+10. **2. tur (2026-10-07; üçüncü gözün ONAY'ı, bloklayan yok; F1–F5 — yalnız test ve metin, ürün
+    kodu değişmedi).** Denetçinin kendi sondası (gerçek TCP, yönlendirici ve gerçek Postgres) md. 5'in
+    baytlarını ve md. 7'nin sayılarını birebir tuttu ve LE6'nın açık bıraktığı uçtan uca ölçümü yaptı
+    (kilit altında doğru kod 30 hesapta 0 oturum).
+    - **F1 — yarı kapalı kapsam:** enrollment'ın yanlış ilk kod sayfasını isteğin bağlamıyla render eden
+      mutant (X12) yeşildi; denetçi aynı mutantta yarı kapalıya 500 / 35 bayt, açık kalana 401 / 3156
+      bayt ölçtü. `TestSurface_AHalfClosedRefusalIsTheSameAnswer`'a gerçek bir enrollment sayfasının
+      anahtarı ve blob'uyla yanlış ilk kod kolu eklendi: ikisi de 401 / **3156** bayt, yarı kapalı istek
+      `enrollment_failed` satırını bırakır. X12 kırmızı.
+    - **F2 — `answered` isteğin değerlerini taşır:** `context.Background()` kullanan mutant (X02)
+      yeşildi — karardan sonraki ERROR satırları `request_id`'yi kaybederdi. Aynı teste, satırı
+      veritabanının reddettiği yanlış parola kolu eklendi; logger `cmd/tappa`'daki gibi
+      `httpx.WithRequestID` ile sarılı, her istek kendi `X-Request-Id`'siyle gider: iki istemci de 503
+      / 1059 bayt, satır yok, ve her adım hatasının ERROR satırı **kendi isteğinin** id'sini taşır. X02
+      kırmızı.
+    - **F3 — ifade başına sınır:** kod adımına tek bir 5 sn sınır veren mutant (X05) yeşildi. Yeni
+      `TestDetachedSignIn_ASlowLookupLeavesTheRowItsOwnBound`: 4 sn'lik arama ve 2 sn'lik satır yazımı
+      (her biri bir sınırın içinde, toplamı dışında) → `ErrCodeRejected` ve `totp_failed` satırı, ≈6 sn.
+      X05 kırmızı. Bu test ve asılı-ifade testi `t.Parallel` ile birlikte koşar.
+    - **F4 — LE1'e ölçülen iki sonuç eklendi**, ikisi de bu turda testlere bağlandı
+      (`TestDetachedSignIn_ACodeAttemptOutlivesItsClient`, `TestDetachedSignIn_AnAbortedEnrollmentStillLeavesItsRow`).
+    - **F5 — LE11 eklendi** (kilit altında zamanlama farkı; eşitlik iddia edilmez).
+    - Mutasyon: `verify_round2.py` = 1. turun listesi değişmeden + X12, X02, X05 — 30 adlı mutasyon;
+      E19 yine BUILD-FAILED (sayılmadı); uygulanan 29'un 29'u kırmızı (1. turun 26'sı kırmızı kaldı;
+      X12 ve X02 → `TestSurface_AHalfClosedRefusalIsTheSameAnswer`, X05 →
+      `TestDetachedSignIn_ASlowLookupLeavesTheRowItsOwnBound`); taban yeşil.
+11. **3. tur (2026-10-07; güvenlik denetiminin ONAY'ı, dört DÜŞÜK bulgu — yalnız test ve metin, ürün
+    kodu değişmedi).**
+    - **F1 — LE8'in pin boşluğu:** `detach`'in isteğin süresini hesaba kattığı mutant (denetçinin S09'u:
+      sınır = en küçük(`SignInStatementGrace`, isteğin süresine kalan)) paketin tamamında yeşildi;
+      denetçinin sondası (gövde 31,5 sn damlatılıp 30 sn'lik süre aşılınca): sevk edilen kodda doğru
+      kod 303 + oturum, yanlış kod 401 + `totp_failed`; S09 altında kod adımının hepsi 503, 0 satır,
+      hesap bütçesi harcanmış. `TestDetachedSignIn_ACodeAttemptOutlivesItsClient`'a üçüncü istemci
+      biçimi eklendi: **süresi geçmiş** bağlam (`context.WithDeadline` geçmiş bir anla; öncül:
+      bağlamın hatası `DeadlineExceeded`) — yanlış kod satır + sayaç 1, doğru kod oturum + `login`,
+      tekrar edilen kod satır + sayaç. S09 kırmızı. LE8 artık ölçülüdür.
+    - **F2 — kilitsiz hesapta reddedilen doğru kodun satırı:** bu satırın isteğin bağlamıyla
+      yazıldığı mutant (S04; E05 yalnız `locked` kolunu kapsıyordu) yeşildi — aynı testin tekrar kolu
+      istemciyi açık tutuyordu. Tekrar edilen kod artık önce döngünün istemci biçimiyle (adımdan önce
+      giden, aramadan sonra giden, süresi geçmiş), sonra açık kalan istemciyle gönderilir: ikisi de
+      `ErrCodeRejected` ve birer `totp_failed`, sayaç 1 → 2. S04 kırmızı.
+    - **F3 — LE2 yeniden yazıldı** (seçici kesintinin ölçülen biçimi).
+    - **F4 — belge eskimesi:** kartın PART I sayısı ve PART II'si, md. 5'in 429/503 notu düzeltildi;
+      LE3 ve LE7'ye denetçinin ölçümleri eklendi.
+    - **Testin kararlılığı (bulgu dışı, bu turun zincirinde ölçüldü):** paketin bir `-race` koşusunda
+      `TestSurface_AHalfClosedRefusalIsTheSameAnswer` bir kez öncülünde kırmızıydı (doğru parola kolu,
+      *"held 0"*): FIN isteğin hemen ardından gidiyordu ve yük altında net/http bağlamı parola
+      adımının aramasından **önce** iptal etti — arama istemciyi izler (LE5), karşılaştırma ve satır
+      olmadı. Ürün davranışı doğru, testin zamanlaması değildi. Artık yarı kapalı istemci FIN'i adım
+      ilk tutulan ifadesine girince gönderir (denetimin P8 biçimi: FIN karşılaştırma sırasında);
+      ölçüldü: `-count=5` ve `GOMAXPROCS=2 -count=10`, 15 koşunun 15'i yeşil.
+    - Mutasyon: `verify_round3.py` = `verify_round2_nc.py`'nin listesi (2. turun 30'u; commit eden yarış
+      testi `-run` kümesinden çıkarılmış) + denetçinin S09 ve S04'ü, düzenlemeleri aynen — 32 adlı
+      mutasyon; E19 yine BUILD-FAILED (sayılmadı); uygulanan 31'in 31'i kırmızı (S09 ve S04 →
+      `TestDetachedSignIn_ACodeAttemptOutlivesItsClient`: S09 süresi geçmiş istemcinin aramasında,
+      S04 gitmiş istemcinin tekrar edilen kodunda); taban yeşil.
+
+**Sayılı sınırlar (OP-14 E):**
+- **LE1** — İstemcisi giden **doğru** kod oturumunu açar ve `login` satırını yazar; geçerli enrollment
+  tamamlanır. İstemci okumuyorsa çerez ulaşmaz: yetim oturum 30 dk boşta kalınca biter (oturum
+  yüklemi), enrollment'ta hesap aktiftir ve operatör normal girişle girer. Bir yarı kapalı istemci
+  cevabı okur (ölçüldü: 303 + challenge). *(2. tur, F4, ölçüldü:)* Bağlantı kesilince oturumun
+  token'ı kimsede değildir; kişi aynı kodu yeniden denerse veritabanının tekrar korumasıyla
+  reddedilir — 401, bir `totp_failed` satırı daha, sayaç 1. Kesilen enrollment'ta linki yeniden açan
+  kişi *"…been used already. Ask for a new one."* sayfasını (400) alır, oysa enrollment'ın kurduğu
+  parolayla giriş zaten çalışır — sayfanın önerdiği yeni link opadmin'de gereksiz bir `reset-mfa`
+  demektir (sayfa metni değişmedi; ayrı bir UI işi olarak devir).
+- **LE2** — Bir satır **yazılamazsa** (veritabanı reddi, zaman aşımı) denetlenmiş kod sayılmaz; cevap
+  `ErrCodeRejected` değil hatadır (503). ~~sonucu söylemez … seçici bir kesinti ölçülmedi~~ *(3. tur,
+  F3 — "sonucu söylemez" seçici bir kesintide doğru değil; güvenlik denetimi ölçtü:)* yalnız
+  `totp_failed` reddedilirken kilit altında yanlış kod 503 / 1059 bayt, doğru kod 401 / 1690 (`locked`
+  yazılır); yalnız `locked` reddedilirken tersi. Mekanizma veritabanında: başka bir işlem hesabın
+  `platform_admins` satırını kilitliyken `locked` 8 ms'de, `login_failed` 3 ms'de yazıldı,
+  `totp_failed` 1,5 sn'lik `lock_timeout`'a düştü — yalnız `totp_failed` sayaç için `platform_admins`'i
+  `UPDATE` eder. Yani bir **satır kilidi** iki kodu ayırır. Aynı ayrım bu görevden önce de, bağlantısı
+  açık kalan istemci için vardı (görev getirmedi); saldırgan tetikleyemez (dışarıdan 5 sn'den uzun bir
+  satır kilidi gerekir); pratik değeri LE11'in gerekçesiyle yoktur (parola, ±30 sn, 15 dk kilit, 10 / 10
+  dk bütçe). Bu yoldan denetlenip sayılmayan tahminler hesap bütçesiyle sınırlıdır.
+- **LE3** — Ayrık ifadeler isteğin süresini (`httpx.RequestTimeout`) de düşürür: kod adımı isteğin
+  son saniyesinde başlarsa cevap o süreden en çok 15 sn sonra yazılabilir. ~~chi'nin geç 504'ünün bu
+  yüzeydeki etkisi ölçülmedi~~ *(3. tur: güvenlik denetimi ölçtü — kısa süreli bir yönlendiricide ve
+  sevk edilen yönlendiricide istemciye hiç 504 ulaşmadı, kilit altında doğru ve yanlış kod aynı cevabı
+  aldı; bu depoda pini yok.)*
+- **LE4** — "En uzun yol üç ifade" koddan türetildi; pin sayıyı tutar, yolu değil — dördüncü bir ayrık
+  ifade eklenirse `TestShutdownBudget_TheSignInStatementsNestInsideTheHTTPGrace` kendiliğinden
+  kırmızı olmaz (üç ifadenin sıralı en kötü hâli de ölçülmedi; tek ifadenin sınırı ölçüldü).
+- **LE5** — Parola adımının araması istemciyi izler (md. 2'nin kararı): aramadan önce giden istemcinin
+  isteği karşılaştırılmaz ve satır yazmaz; kendi adresinin iş bütçesini harcar.
+- **LE6** — Yarı kapalı ölçüm sahte mağazayla yapıldı (yönlendirici, handler ve TCP gerçek; mağaza
+  pgx'in biçiminde: bitmiş bağlamda hiçbir şey yapmaz, bağlamın hatasını döner). Satırların
+  veritabanı yarısı `detached_db_test.go`'nundur; gerçek Postgres'le uçtan uca yarı kapalı ölçüm bu
+  depoda test olarak yok. *(2. tur: üçüncü göz onu kendi sondasıyla yaptı ve baytları ve sayıları
+  birebir tuttu — md. 10; sonda depoya girmedi.)*
+- **LE7** — `answered` yalnız üç adımın **kararından sonra** uygulanır: `readForm`'un 413/400'ü,
+  enrollment'ın parola eşleşmezliği ve çapraz köken reddi karardan önce, isteğin bağlamıyla render
+  edilir — kimlik bilgisi hakkında bir şey söylemezler; yarı kapalıda 500 alabilirler. *(3. tur:
+  güvenlik denetimi ölçtü — yarı kapalıda giriş formunun 400'ü 12'de 3, parola eşleşmezliği 12'de 1,
+  gövdesiz çapraz köken POST'u 12'de 12 kez 500 döndü; her 500 iki ERROR satırı üretir ve deploy'un 5.
+  uyarı kuralını (5 dk'da 5'ten fazla 5xx) tetikleyebilir. Bu görevsiz uçta birebir aynıdır, yani
+  görevden önce de vardı; mağaza çağrısı, satır ya da kimlik bilgisi sızıntısı yok. Kartta devir.)*
+- **LE8** — İstek bağlamının **süresinin** dolması (iptal değil) aynı `WithoutCancel` yolundan geçer;
+  ~~ayrıca ölçülmedi~~ *(3. tur: ölçüldü ve pinlendi — md. 11 F1.)*
+- **LE9** — C9 (i) aynen: şarj ile yazım arasında ölen süreç satır yazmaz.
+- **LE10** — Ortak parolasız tavan iade almaz (kapsam md. 3): yazılamayan bir satırın şarjı pencerede
+  kalır; tavanı yazma kesintisiyle tüketmek mümkündür — OP-6'dan beri böyle.
+- **LE11** *(2. tur, F5)* — Kilit altında doğru kod üç ifade, yanlış kod iki ifade koşar ve süreleri
+  ölçülebilir biçimde ayrışır (denetçinin harness'ında medyan 8,34 ms'ye karşı 5,44 ms); zamanlama
+  eşitliği iddia edilmez — pratik değeri yok: parola gerekir, kod ±30 sn geçerlidir, kilit 15 dk,
+  hesap bütçesi 10 / 10 dk.
+
+**Güvenlik iddiası — üç parça.**
+
+- **Tehdit modeli:** Bu pinler kazara sapmaya karşıdır; bir pini bilerek atlatmak kod incelemesinin
+  konusudur.
+- **PART I — bugün sevk edilen kodun ölçülen davranışı** (test · girdiler · assert; onu kırmızıya
+  çeviren mutasyonlar OP-14 E kart düzeltmesinin tablosunda — `verify_round1.py` ile 27 adlı mutasyon: değişikliğin
+  tamamını geri alan M00, E01–E25 ve E19b; E19'un ilk yazımı derlenmedi (BUILD-FAILED, sayılmadı);
+  uygulanan 26'nın 26'sı kırmızı, taban yeşil; 2. tur: `verify_round2.py` ile 30 — aynı liste + X12,
+  X02, X05; uygulanan 29'un 29'u kırmızı, E19 yine BUILD-FAILED, taban yeşil; 3. tur: `verify_round3.py`
+  ile 32 — `verify_round2_nc.py`'nin listesi + S09, S04; uygulanan 31'in 31'i kırmızı):
+  - `TestDetachedSignIn_APasswordlessRowOutlivesItsClient` · gerçek tanımlayıcı, istemci
+    karşılaştırma sırasında gider (öncül ölçülür) · yanlış parola / bilinmeyen adres / bekleyen hesap →
+    `ErrRefused`, birer satır doğru türde ve hedefle, ortak tavan 3, log boş, satırlarda adres yok.
+  - `TestDetachedSignIn_ACodeAttemptOutlivesItsClient` · gerçek tanımlayıcılar, istemci adımdan önce
+    ve aramadan sonra gider · yanlış kod → `totp_failed`, sayaç 1; doğru kod → oturum + `login`,
+    sayaç 0; *(2. tur)* aynı kod yeniden → `ErrCodeRejected`, `totp_failed` +1, sayaç 1 (LE1);
+    *(3. tur)* üçüncü istemci biçimi, süresi geçmiş bağlam (LE8), ve tekrar edilen kod önce gitmiş
+    istemciyle → `ErrCodeRejected` + satır, sonra açık kalanla → yine, sayaç 2.
+  - `TestDetachedSignIn_AbortedCodesAreCountedAndLock` · md. 7.
+  - `TestDetachedSignIn_AnAbortedEnrollmentStillLeavesItsRow` · md. 8.
+  - `TestDetachedSignIn_AnUnwrittenRowFailsTheStepAndCountsNothing` · md. 4.
+  - `TestDetachedSignIn_ThePasswordlessCapHoldsWhenClientsLeave` · md. 6.
+  - `TestDetachedSignIn_NoComparisonWithoutItsRow` · md. 2'nin kararı.
+  - `TestDetachedSignIn_AHangingStatementIsBoundedByItsGrace` · md. 3.
+  - *(2. tur)* `TestDetachedSignIn_ASlowLookupLeavesTheRowItsOwnBound` · 4 sn arama + 2 sn satır →
+    `ErrCodeRejected` ve satır (md. 10 F3).
+  - `TestSurface_AHalfClosedRefusalIsTheSameAnswer` · md. 5; *(2. tur)* enrollment'ın yanlış ilk kodu
+    401 / 3156 bayt; satırı reddedilen yanlış parola 503 / 1059 bayt ve ERROR satırlarında isteğin id'si.
+  - `TestShutdownBudget_TheSignInStatementsNestInsideTheHTTPGrace` · md. 3.
+- **PART II — adıyla pinler ve yakaladıklarının tam listesi:**
+  `TestShutdownBudget_TheSignInStatementsNestInsideTheHTTPGrace` — `SignInStatementGrace`'in üç katının
+  HTTP drenajının içinde ve kendisinin bir ifadeden uzun olması; `capLineRE` (`detached_test.go`) —
+  parolasız tavan satırının iletisi, seviyesi ve üç özniteliği; `wireAnswer.same`
+  (`detached_external_test.go`) — durum, Date dışı başlıklar ve gövde baytları; *(2. tur)* aynı
+  dosyada `httpx.LogRequestIDKey` araması — adım hatasının ERROR satırında isteğin kendi id'si;
+  `TestAuditRows_EveryPasswordlessKindGoesThroughTheCap` — `totp_failed`'ın tavan dışı yazımı, çapası
+  yeni bağlam adıyla.
 - **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
 
 ## OP-12 uygulama notu (2026-10-07, A fazı — veri katmanı)
@@ -4650,6 +4920,8 @@ Uygulamanın karar verdiği yerler, adıyla:
   ekranı ve wiring'i ekledi — aynı notun "OP-14 B fazı eki". D, 00033 ile opadmin'in üç eylemini
   günlüğe yazdı ve `at`'i duvar saatine bağladı — "OP-14 D uygulama notu".)*
   *(C fazı: `password_ok`'un Go yazıcısı ve operatör başına tavanı — "OP-14 C fazı eki".)*
+  *(E: parolasız ve TOTP satırları, kod adımının ve enrollment'ın son ifadeleri istekten ayrık;
+  ret sayfaları iptalden bağımsız — "OP-14 E uygulama notu".)*
 - **OP-12:** bir tenant'ın faturalama ayları iki aşamalı `op_read_tenant_billing`'dir — fatura
   aritmetiğinin üçüncü kopyası, tenant'ın kendi yoluna ay ay bir testle bağlı. *(A fazı 00032 ile
   uygulandı — "OP-12 uygulama notu".)*

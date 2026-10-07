@@ -1051,7 +1051,7 @@ func TestAuditRows_EveryPasswordlessKindGoesThroughTheCap(t *testing.T) {
 	}
 	for name, m := range map[string][2]string{
 		"enrollment_failed around the cap":  {`a.recordPasswordless(ctx, db.OperatorEnrollmentFailed, "", id)`, `a.store.RecordOperatorAuthEvent(ctx, db.OperatorEnrollmentFailed, "", id)`},
-		"totp_failed through the cap":       {`a.store.RecordOperatorAuthEvent(ctx, db.OperatorTOTPFailed, "", id)`, `a.recordPasswordless(ctx, db.OperatorTOTPFailed, "", id)`},
+		"totp_failed through the cap":       {`a.store.RecordOperatorAuthEvent(rctx, db.OperatorTOTPFailed, "", id)`, `a.recordPasswordless(rctx, db.OperatorTOTPFailed, "", id)`},
 		"a variable kind made login_failed": {`kind, out := db.OperatorTOTPFailed, ErrCodeRejected`, `kind, out := db.OperatorLoginFailed, ErrCodeRejected`},
 		"the row writer as a method value": {`a.recordPasswordless(ctx, db.OperatorEnrollmentFailed, "", id)`,
 			`func() error { rec := a.store.RecordOperatorAuthEvent; return rec(ctx, db.OperatorEnrollmentFailed, "", id) }()`},
