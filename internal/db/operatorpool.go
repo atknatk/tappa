@@ -24,9 +24,10 @@ import (
 // connection and no type, and the customer side is never handed this one (cmd/tappa's
 // TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator: the pool goes to the
 // operator's Authenticator and, since OP-10 phase B, to the operator surface's legal
-// slot, (OP-11 phase B) its tenant slot, (OP-13 phase B) its plaque slot and (OP-14 phase
-// B) its audit slot -- and to no other name in cmd/tappa's main.go and operator.go, the
-// scope that test reads by syntax; it is not a whole-program proof).
+// slot, (OP-11 phase B) its tenant slot, (OP-13 phase B) its plaque slot, (OP-14 phase B)
+// its audit slot and (OP-12 phase B) its billing slot -- and to no other name in cmd/tappa's
+// main.go and operator.go, the scope that test reads by syntax; it is not a whole-program
+// proof).
 //
 // WHAT IT IS NOT, AND EACH ABSENCE IS A DECISION:
 //
@@ -52,9 +53,9 @@ import (
 //     finds neither the DSN nor its password.
 //
 // It satisfies internal/operatorauth's Store and internal/handler/operator's LegalStore,
-// TenantStore, PlaqueStore and AuditStore (none can be imported here -- both packages
-// import this one -- so the external test asserts it, and cmd/tappa's wiring does not
-// compile without it). Its method set is those five interfaces' and Close, derived from
+// TenantStore, PlaqueStore, AuditStore and BillingStore (none can be imported here -- both
+// packages import this one -- so the external test asserts it, and cmd/tappa's wiring does
+// not compile without it). Its method set is those six interfaces' and Close, derived from
 // them by TestOperatorDB_IsTheStoreAndNothingMore.
 type OperatorDB struct {
 	pool *pgxpool.Pool
@@ -62,6 +63,10 @@ type OperatorDB struct {
 
 // The pool is an OperatorConn; that is what the methods hand to operator.go.
 var _ OperatorConn = (*pgxpool.Pool)(nil)
+
+// ...and one that opens a transaction, which TenantBilling's phase two needs (operator.go,
+// operatorTxConn): without it the billing read is refused before its first phase.
+var _ operatorTxConn = (*pgxpool.Pool)(nil)
 
 // operatorRole is the one role this pool may run as (ADR 0021 §1).
 const operatorRole = "tappa_operator"
@@ -467,9 +472,10 @@ func (o *OperatorDB) Close() { o.pool.Close() }
 // The seven methods below are internal/operatorauth's Store. Each is ONE statement on
 // the pool and hands its arguments, in order, to operator.go's function of the same
 // name -- which owns the SQL, the bound parameters and the error contract. (The ones
-// after them are the legal screen's, the tenant screens', the plaque screen's and the
-// audit screen's, delegated the same way; LegalVersions, TenantList, TenantDetail,
-// TenantPlaques and OperatorAudit are two statements each.)
+// after them are the legal screen's, the tenant screens', the plaque screen's, the audit
+// screen's and the billing screen's, delegated the same way; LegalVersions, TenantList,
+// TenantDetail, TenantPlaques and OperatorAudit are two statements each, TenantBilling
+// three -- its phase two sets its own time bound first.)
 
 // OperatorByEmail is the login lookup (operator.go).
 func (o *OperatorDB) OperatorByEmail(ctx context.Context, email string) (OperatorAccount, error) {
@@ -562,4 +568,16 @@ func (o *OperatorDB) TenantPlaques(ctx context.Context, sessionHash string, tena
 // OperatorAudit is a page of the operator's own audit log, a two-phase read (operator.go).
 func (o *OperatorDB) OperatorAudit(ctx context.Context, sessionHash string, q OperatorAuditQuery) ([]OperatorAuditEntry, error) {
 	return OperatorAudit(ctx, o.pool, sessionHash, q)
+}
+
+// The method below is internal/handler/operator's BillingStore (M10 OP-12, phase B): the
+// /operator/tenants/{id}/billing screen's one read. Same shape as the thirteen above; on the
+// POOL its phase one is an implicit transaction and its phase two a transaction of its own
+// under TenantBillingReadTimeout (operator.go) -- the method itself is driven on a pool built
+// by the production constructor in TestTenantBilling_OnThePoolTheTwoPhasesAreTwoTransactions
+// and TestTenantBilling_ThePhaseTwoTransactionCarriesItsOwnTimeBound.
+
+// TenantBilling is a page of one tenant's billing months, a two-phase read (operator.go).
+func (o *OperatorDB) TenantBilling(ctx context.Context, sessionHash string, tenantID uuid.UUID, page int32) (TenantBillingTimeline, error) {
+	return TenantBilling(ctx, o.pool, sessionHash, tenantID, page)
 }

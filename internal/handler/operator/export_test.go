@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/a-h/templ"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/web/templates/operatorpages"
@@ -90,3 +91,11 @@ func copyWords(m map[string]string) map[string]string {
 
 // AuditKindWordForTest is audit.go's auditKindWord.
 func AuditKindWordForTest(raw string) operatorpages.AuditWord { return auditKindWord(raw) }
+
+// MaxBillingPageForTest is billing.go's maxBillingPage.
+const MaxBillingPageForTest = maxBillingPage
+
+// MoneyTextForTest is billing.go's moneyText.
+func MoneyTextForTest(n pgtype.Numeric, currency string) (string, error) {
+	return moneyText(n, currency)
+}

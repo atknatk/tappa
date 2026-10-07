@@ -150,6 +150,9 @@ func (surfTenants) TenantPlaques(context.Context, string, uuid.UUID) (db.TenantP
 func (surfTenants) OperatorAudit(context.Context, string, db.OperatorAuditQuery) ([]db.OperatorAuditEntry, error) {
 	return nil, db.ErrOperatorRefused
 }
+func (surfTenants) TenantBilling(context.Context, string, uuid.UUID, int32) (db.TenantBillingTimeline, error) {
+	return db.TenantBillingTimeline{}, db.ErrOperatorRefused
+}
 
 const (
 	surfHost   = "ops.taptime.mt"
@@ -193,7 +196,7 @@ func newSurfRig(t *testing.T) *surfRig {
 		t.Fatal(err)
 	}
 	g.comparisons, g.digests = operatorauth.CountWork(a)
-	s, err := operator.New(a, surfLegal{}, surfTenants{}, surfTenants{}, surfTenants{}, surfLegal{}, surfHost, "https://taptime.mt", log)
+	s, err := operator.New(a, surfLegal{}, surfTenants{}, surfTenants{}, surfTenants{}, surfTenants{}, surfLegal{}, surfHost, "https://taptime.mt", log)
 	if err != nil {
 		t.Fatal(err)
 	}

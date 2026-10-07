@@ -43,9 +43,9 @@ import (
 )
 
 // noStore satisfies operatorauth.Store, operator.LegalStore, operator.TenantStore,
-// operator.PlaqueStore and operator.AuditStore without a database; building an
-// Authenticator calls none of its methods, and nothing here sends a sign-in, a legal, a
-// tenant, a plaque or an audit request.
+// operator.PlaqueStore, operator.AuditStore and operator.BillingStore without a database;
+// building an Authenticator calls none of its methods, and nothing here sends a sign-in, a
+// legal, a tenant, a plaque, an audit or a billing request.
 type noStore struct{}
 
 func (noStore) OperatorByEmail(context.Context, string) (db.OperatorAccount, error) {
@@ -84,6 +84,9 @@ func (noStore) TenantPlaques(context.Context, string, uuid.UUID) (db.TenantPlaqu
 }
 func (noStore) OperatorAudit(context.Context, string, db.OperatorAuditQuery) ([]db.OperatorAuditEntry, error) {
 	return nil, db.ErrOperatorRefused
+}
+func (noStore) TenantBilling(context.Context, string, uuid.UUID, int32) (db.TenantBillingTimeline, error) {
+	return db.TenantBillingTimeline{}, db.ErrOperatorRefused
 }
 
 // noTexts is an empty legal snapshot whose refresh does nothing (operator.LegalTexts).
@@ -531,7 +534,8 @@ func TestOpenOperatorSurface_PrintsNoValue(t *testing.T) {
 // the Authenticator AND the operator surface's legal slot (operator.New's LegalStore),
 // since OP-11 phase B also its tenant slot (operator.New's TenantStore), since OP-13
 // phase B its plaque slot (operator.New's PlaqueStore), since OP-14 phase B its audit slot
-// (operator.New's AuditStore), and the rules below say exactly that. It is not renamed because docs/plan/m10-platform.md
+// (operator.New's AuditStore), since OP-12 phase B its billing slot (operator.New's
+// BillingStore), and the rules below say exactly that. It is not renamed because docs/plan/m10-platform.md
 // cites it by this name three times (the OP-7 and OP-8 records) and ADR 0020 §7 once:
 // a rename would leave those citations dangling (testnames_test.go's ratchet) in records
 // that are not rewritten after the fact.
@@ -539,14 +543,14 @@ func TestOpenOperatorSurface_PrintsNoValue(t *testing.T) {
 //   - db.NewOperatorDB is called exactly once in the command, inside openOperatorSurface;
 //   - the value it returns is used only as configuredSurface's first argument and as
 //     the receiver of Close, and openOperatorSurface returns no *db.OperatorDB;
-//   - configuredSurface's store is used exactly five times: as operatorAuthenticator's
-//     first argument and as operator.New's second, third, fourth and fifth (the LegalStore
-//     slot; the TenantStore slot, OP-11; the PlaqueStore slot, OP-13; the AuditStore slot,
-//     OP-14) -- and that operatorAuthenticator's store only as operatorauth.New's first
-//     argument;
+//   - configuredSurface's store is used exactly six times: as operatorAuthenticator's
+//     first argument and as operator.New's second, third, fourth, fifth and sixth (the
+//     LegalStore slot; the TenantStore slot, OP-11; the PlaqueStore slot, OP-13; the
+//     AuditStore slot, OP-14; the BillingStore slot, OP-12) -- and that
+//     operatorAuthenticator's store only as operatorauth.New's first argument;
 //   - the legal snapshot travels the other way, from run() into the operator side:
 //     openOperatorSurface's texts only as configuredSurface's second argument, and that
-//     function's only as operator.New's sixth;
+//     function's only as operator.New's seventh;
 //   - it is ONE snapshot: legal.NewStore is named exactly once in the command, and run()
 //     uses the value it binds exactly as the boot refresh's receiver, openOperatorSurface's
 //     third argument and handler.NewMarketing's first -- so the store the operator's
@@ -717,8 +721,8 @@ func TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator(t *testing.T) {
 		want  []string
 	}{
 		{configured, "store", []string{"arg0 of operatorAuthenticator", "arg1 of operator.New", "arg2 of operator.New", "arg3 of operator.New",
-			"arg4 of operator.New"}},
-		{configured, "texts", []string{"arg5 of operator.New"}},
+			"arg4 of operator.New", "arg5 of operator.New"}},
+		{configured, "texts", []string{"arg6 of operator.New"}},
 		{authFn, "store", []string{"arg0 of operatorauth.New"}},
 		{open, "texts", []string{"arg1 of configuredSurface"}},
 		{run, boundName(run, "legal.NewStore"), []string{"recv of Refresh", "arg2 of openOperatorSurface", "arg0 of handler.NewMarketing"}},

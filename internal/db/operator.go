@@ -1071,6 +1071,50 @@ const readTenantBillingSQL = `SELECT tenant_id, tenant_name, period_month, after
        unstamped_employees, unit_price, currency, amount_due, closed_at, period_has_ended
 FROM public.op_read_tenant_billing($1, $2, $3, $4)`
 
+// 🔴 PHASE TWO CARRIES ITS OWN STATEMENT TIMEOUT (OP-12 phase B; ADR 0021's OP-12 note, L5).
+// The operator's pool sets none (the server's is 0) and the read was measured taking seconds
+// on a large roster, so without a bound a slow read holds a connection and the operator's
+// request for as long as it runs. Phase two therefore runs in a transaction of its own whose
+// first statement is tenantBillingStatementTimeoutSQL: LOCAL, so it ends with that
+// transaction and never reaches the next user of the pooled connection. A read past it is
+// SQLSTATE 57014, which operatorErr turns into a plain database error -- the screen's 503,
+// never a page of zero amounts -- and the rollback undoes the ticket's consumption with
+// everything else phase two did; the 'read' row phase one committed stays.
+//
+// TenantBillingReadTimeout is that bound as a Go value; the statement spells the same number
+// in milliseconds (SET takes no parameter, and the statements carry no quoted literal --
+// TestOperatorSQL_OnlyBoundParameters). TestTenantBilling_TheStatementSpellsTheReadTimeout
+// holds the two equal. WHY 15 SECONDS, arithmetic rather than taste:
+//
+//	the slowest read measured (L5: dev's largest roster, twelve live months)  6.1 s
+//	x 2 headroom                                                              12.2 s  <= 15 s
+//	the request's own deadline (httpx.RequestTimeout)                          30 s
+//	/ 2: the bound fires first, with room for the session predicate, phase one
+//	and the render, so a slow read is the database's 57014 and the screen's
+//	designed 503 -- not the router's deadline                                 15 s
+//
+// 15 s is the largest number under the second line and clears the first; the handler's test
+// holds 2 x TenantBillingReadTimeout <= httpx.RequestTimeout
+// (TestBillingRead_TheBoundFiresBeforeTheRequestDeadline). Production rosters count tens, and a
+// read of them is milliseconds.
+const (
+	tenantBillingStatementTimeoutSQL = `SET LOCAL statement_timeout = 15000`
+	TenantBillingReadTimeout         = 15 * time.Second
+)
+
+// operatorTxConn is an OperatorConn that can open a transaction -- *pgxpool.Pool, *pgx.Conn
+// and pgx.Tx each are one (on a pgx.Tx, Begin is a savepoint). TenantBilling's phase two needs
+// a transaction of its own for its SET LOCAL.
+type operatorTxConn interface {
+	OperatorConn
+	Begin(ctx context.Context) (pgx.Tx, error)
+}
+
+// errBillingNeedsATransaction is TenantBilling's refusal of a connection that cannot open a
+// transaction, answered BEFORE phase one: a read that could not bound its second phase does
+// not write the 'read' row of the first.
+var errBillingNeedsATransaction = errors.New("db: tenant billing: the connection cannot open a transaction for the read's time bound")
+
 // TenantBillingTimeline is the one read's three answers: the tenant -- its name for the
 // header of the screen (ADR 0020 §9) --, the fact that it exists (an id that names no tenant
 // is ErrNoSuchTenant, never an empty timeline), and a page of its months: exactly
@@ -1129,17 +1173,24 @@ type tenantBillingParams struct {
 // returns the page. An id that names no tenant is ErrNoSuchTenant -- after the 'read' row
 // naming it has committed. A dead session is ErrOperatorRefused, and so is a pgx.Tx (the two
 // phases are two transactions only on a pool, as for TenantList); a page outside
-// 1..MaxTenantBillingPage is a database error carrying 22023.
+// 1..MaxTenantBillingPage is a database error carrying 22023. Phase two runs in a transaction
+// of its own under TenantBillingReadTimeout (above): a read past it is a database error
+// carrying 57014, its ticket left unconsumed. A connection that cannot open that transaction
+// is refused before phase one (errBillingNeedsATransaction).
 func TenantBilling(ctx context.Context, c OperatorConn, sessionHash string, tenantID uuid.UUID, page int32) (TenantBillingTimeline, error) {
+	tc, ok := c.(operatorTxConn)
+	if !ok {
+		return TenantBillingTimeline{}, errBillingNeedsATransaction
+	}
 	params, err := json.Marshal(tenantBillingParams{TenantID: tenantID, PageNumber: page})
 	if err != nil {
 		return TenantBillingTimeline{}, fmt.Errorf("db: tenant billing: encode the parameters: %w", err)
 	}
-	t, err := beginOperatorRead(ctx, c, sessionHash, tenantBillingReadKind, params)
+	t, err := beginOperatorRead(ctx, tc, sessionHash, tenantBillingReadKind, params)
 	if err != nil {
 		return TenantBillingTimeline{}, err
 	}
-	return readTenantBilling(ctx, c, sessionHash, t, tenantID, page)
+	return readTenantBilling(ctx, tc, sessionHash, t, tenantID, page)
 }
 
 // errBillingOfAnotherTenant is readTenantBilling's refusal of a row that names another tenant
@@ -1150,9 +1201,38 @@ var errBillingOfAnotherTenant = errors.New("db: read tenant billing: a row names
 
 // readTenantBilling is op_read_tenant_billing: consume the ticket (bound to the session, the
 // kind, the tenant id and the page), then the page -- zero rows for an unknown id, otherwise
-// one row per month, every row carrying the tenant.
-func readTenantBilling(ctx context.Context, c OperatorConn, sessionHash string, t readTicket, tenantID uuid.UUID, page int32) (TenantBillingTimeline, error) {
-	rows, err := c.Query(ctx, readTenantBillingSQL, sessionHash, t.reveal(), tenantID, page)
+// one row per month, every row carrying the tenant. It runs in a transaction of its own
+// (Begin: on a pool a connection's transaction, on a pgx.Tx a savepoint) whose first
+// statement is tenantBillingStatementTimeoutSQL; the transaction is committed once the rows
+// are read -- an unknown id included, so its ticket is consumed as on any read -- and rolled
+// back on every error.
+func readTenantBilling(ctx context.Context, c operatorTxConn, sessionHash string, t readTicket, tenantID uuid.UUID, page int32) (TenantBillingTimeline, error) {
+	tx, err := c.Begin(ctx)
+	if err != nil {
+		return TenantBillingTimeline{}, operatorErr("read tenant billing", err)
+	}
+	tl, err := scanTenantBilling(ctx, tx, sessionHash, t, tenantID, page)
+	if err != nil && !errors.Is(err, ErrNoSuchTenant) {
+		// The read's own error is the answer; a failed rollback only adds that the connection
+		// is broken, which the pool discards.
+		if rerr := tx.Rollback(ctx); rerr != nil && !errors.Is(rerr, pgx.ErrTxClosed) {
+			return TenantBillingTimeline{}, fmt.Errorf("%w (and the rollback: %w)", err, operatorErr("read tenant billing", rerr))
+		}
+		return TenantBillingTimeline{}, err
+	}
+	if cerr := tx.Commit(ctx); cerr != nil {
+		return TenantBillingTimeline{}, operatorErr("read tenant billing", cerr)
+	}
+	return tl, err
+}
+
+// scanTenantBilling is phase two's two statements on the read's own transaction: the time
+// bound, then the read and its scan.
+func scanTenantBilling(ctx context.Context, tx pgx.Tx, sessionHash string, t readTicket, tenantID uuid.UUID, page int32) (TenantBillingTimeline, error) {
+	if _, err := tx.Exec(ctx, tenantBillingStatementTimeoutSQL); err != nil {
+		return TenantBillingTimeline{}, operatorErr("read tenant billing", err)
+	}
+	rows, err := tx.Query(ctx, readTenantBillingSQL, sessionHash, t.reveal(), tenantID, page)
 	if err != nil {
 		return TenantBillingTimeline{}, operatorErr("read tenant billing", err)
 	}

@@ -165,3 +165,13 @@
 --          period_to, period_timezone, plan, first_chargeable_month, free_period, employee_count,
 --          unstamped_employees, unit_price, currency, amount_due, closed_at, period_has_ended
 --   FROM public.op_read_tenant_billing($1, $2, $3, $4);
+
+-- TenantBillingStatementTimeout -- OP-12 phase B: phase two runs in a transaction of its own,
+-- and this is that transaction's first statement. The operator's pool sets no
+-- statement_timeout (0 on the server), and the read was measured taking seconds on a large
+-- roster (ADR 0021's OP-12 note, L5), so the read carries its own bound: 15 000 ms, LOCAL to
+-- the read's transaction -- it ends with it and never reaches the next user of the pooled
+-- connection. A read past it is SQLSTATE 57014 and rolls back with its ticket's consumption;
+-- the read's 'read' row, committed by phase one, stays. The number is not a parameter: SET
+-- takes none, and this file carries no quoted literal.
+--   SET LOCAL statement_timeout = 15000;

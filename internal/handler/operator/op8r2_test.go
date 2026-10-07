@@ -524,8 +524,8 @@ func hostileCookieLine(cookies []*http.Cookie) string {
 
 // hostileDrive is r with the hostile headers (a header the request sets itself --
 // Origin, Sec-Fetch-Site -- is kept), the second Cookie line and, on the sign-in, code,
-// enrollment, (OP-10) legal, (OP-11) tenant, (OP-13) plaque and (OP-14) audit paths, the
-// hostile query.
+// enrollment, (OP-10) legal, (OP-11) tenant, (OP-13) plaque, (OP-14) audit and (OP-12)
+// billing paths, the hostile query -- whose "page" a billing request must not read.
 func hostileDrive(r req) req {
 	h := map[string]string{}
 	for k, v := range hostileHeaders {
@@ -538,14 +538,18 @@ func hostileDrive(r req) req {
 	r.cookieLine = hostileCookieLine(r.cookies)
 	path, _, _ := strings.Cut(r.path, "?")
 	if strings.HasPrefix(path, "/operator/tenants/") {
-		path = "/operator/tenants/{id}"
-		if strings.HasSuffix(r.path, "/plaques") || strings.Contains(r.path, "/plaques?") {
+		switch {
+		case strings.HasSuffix(path, "/plaques"):
 			path = "/operator/tenants/{id}/plaques"
+		case strings.HasSuffix(path, "/billing"):
+			path = "/operator/tenants/{id}/billing"
+		default:
+			path = "/operator/tenants/{id}"
 		}
 	}
 	switch path {
 	case "/operator/login", "/operator/login/totp", "/operator/enroll", "/operator/legal", "/operator/tenants", "/operator/tenants/{id}",
-		"/operator/tenants/{id}/plaques", "/operator/audit":
+		"/operator/tenants/{id}/plaques", "/operator/tenants/{id}/billing", "/operator/audit":
 		q := url.Values{}
 		for k, v := range hostileQuery {
 			q[k] = v
@@ -585,7 +589,8 @@ func hostileOn(r *http.Request) {
 // registered method, sorted here; "" = absent) and its Set-Cookie headers, each
 // "<cookie name>=set" or "<cookie name>=clear". Read off the shipped handlers and
 // measured on them (2026-10-02, the 4th round; C41-C48 the 5th; C49-C66 OP-10, 2026-10-03;
-// C67-C93 OP-11, 2026-10-03; C94-C103 OP-13, 2026-10-06; C104-C121 OP-14, 2026-10-07).
+// C67-C93 OP-11, 2026-10-03; C94-C103 OP-13, 2026-10-06; C104-C121 OP-14, 2026-10-07;
+// C122-C141 OP-12, 2026-10-07).
 type designed struct {
 	loc, ct, allow string
 	cookies        []string
@@ -666,6 +671,18 @@ var designedHeaders = map[string]designed{
 	"C111": {ct: pageType}, "C112": {loc: "/operator/login"}, "C113": {ct: pageType}, "C114": {ct: pageType},
 	"C115": {ct: pageType}, "C116": {ct: pageType}, "C117": {ct: pageType}, "C118": {ct: pageType},
 	"C119": {loc: "/operator/login"}, "C120": {ct: pageType}, "C121": {allow: "GET,POST"},
+	// OP-12's billing screen (op12_test.go): the months, a later page and their refusals are
+	// pages -- a 400, 403, 404, 413, 429 or 503 page, none carrying a Location; the sign-in
+	// redirects of the gate and of a session the store refuses; the dead cookie cleared;
+	// PUT's 405. A later page answers 200 with its page (no PRG), so no Location can carry
+	// its number.
+	"C122": {ct: pageType}, "C123": {loc: "/operator/login"},
+	"C124": {loc: "/operator/login", cookies: []string{sessionClear}},
+	"C125": {loc: "/operator/login"}, "C126": {ct: pageType}, "C127": {ct: pageType}, "C128": {ct: pageType},
+	"C129": {ct: pageType}, "C130": {loc: "/operator/login"}, "C131": {ct: pageType},
+	"C132": {ct: pageType}, "C133": {loc: "/operator/login"}, "C134": {ct: pageType}, "C135": {ct: pageType},
+	"C136": {ct: pageType}, "C137": {ct: pageType}, "C138": {ct: pageType}, "C139": {ct: pageType},
+	"C140": {ct: pageType}, "C141": {allow: "GET,POST"},
 }
 
 // checkDesignedHeaders holds the response headers AT WriteHeader (w.Result().Header, the

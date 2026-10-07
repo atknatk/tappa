@@ -1,7 +1,8 @@
 // Package operatorpages is the platform operator's screens (M10 OP-8; ADR 0020 §4):
 // sign-in, the TOTP step, enrollment, the console's front page and its problem page,
 // (OP-10) the legal texts screen, (OP-11) the tenant list and a tenant's overview, (OP-13) a
-// tenant's plaques and (OP-14) the operator's own audit log, in the "TAPTIME OPERATOR" chrome.
+// tenant's plaques, (OP-14) the operator's own audit log and (OP-12) a tenant's billing months,
+// in the "TAPTIME OPERATOR" chrome.
 //
 // IT IS NOT web/templates/pages, ON PURPOSE. pages is what the customer product renders
 // and internal/handler imports it. Measured with `go list` (non-test imports, the build
@@ -37,8 +38,8 @@ import (
 // measures the refusals and a named render, TestTenantOverview_AnUnnamedTenantIsNamedByItsID
 // the placeholder. Which pages show a tenant's data, and whether each renders through
 // TenantScreen, is code review's; no test pins it. OP-11's overview (TenantOverview) is
-// the first that does and OP-13's plaques (TenantPlaques) the second; the tenant LIST
-// shows many tenants and names none in a banner.
+// the first that does, OP-13's plaques (TenantPlaques) the second and OP-12's billing months
+// (TenantBilling) the third; the tenant LIST shows many tenants and names none in a banner.
 type TenantName struct {
 	v string
 	// byID marks the placeholder: v is the tenant's id, and the banner says "Unnamed
@@ -223,8 +224,9 @@ type TenantOverviewView struct {
 	// The counts, formatted: every location; employees, plaques and panel accounts
 	// whose status is active.
 	Locations, ActiveEmployees, ActivePlaques, ActiveAdmins string
-	// PlaquesPath is the tenant's plaque screen, /operator/tenants/<id>/plaques (OP-13).
-	PlaquesPath string
+	// PlaquesPath is the tenant's plaque screen, /operator/tenants/<id>/plaques (OP-13);
+	// BillingPath its billing months, /operator/tenants/<id>/billing (OP-12).
+	PlaquesPath, BillingPath string
 }
 
 // TenantPlaquesView is /operator/tenants/{id}/plaques (M10 OP-13): one tenant's plaques,
@@ -356,6 +358,67 @@ type AuditRow struct {
 	DetailHidden       bool
 	Session            string
 }
+
+// TenantBillingView is /operator/tenants/{id}/billing (M10 OP-12): a page of one tenant's
+// billing months, newest first, rendered through TenantScreen. Every value is text the
+// handler formatted -- every amount already carries its currency (billing.Money's digits,
+// the symbol added in the handler) -- and templ escapes each one. It has no field a person
+// could travel in: the read returns counts, and the screen lists no one.
+type TenantBillingView struct {
+	Name TenantName
+	ID   string
+	// OverviewPath is the tenant's overview, /operator/tenants/<id> -- the way back;
+	// BillingPath this screen's own path, which its pager posts to.
+	OverviewPath, BillingPath string
+	// Page is the page number, 1..LastPage; MonthsPerPage the months on each page.
+	Page, LastPage, MonthsPerPage int
+	Rows                          []BillingRow
+}
+
+// BillingRow is one month. Label, Sentence and Tone are the handler's reading of the month's
+// state; HasFigures says the month carries figures (a frozen or a live month) and the fields
+// after it are set -- a month before sign-up, or one the handler could not read, carries none
+// and draws none. Free marks a month inside the founding offer's free window. FirstCharged is
+// set on a live month only (a frozen row keeps the decision, not the rule) and ClosedAt on a
+// frozen one only. Floor is the count of employee records that disagree with their own dates,
+// "" when there are none. Period and ClosedAt are in the month's own zone, named in them.
+type BillingRow struct {
+	Month           string
+	Label, Sentence string
+	Tone            BillingTone
+	HasFigures      bool
+	Plan            string
+	People          string
+	UnitPrice       string
+	Amount          string
+	Free            bool
+	FirstCharged    string
+	ClosedAt        string
+	Period          string
+	Floor           string
+}
+
+// BillingTone is the chip a billing month's state is drawn with -- the brand's fixed status
+// mapping, the word on the chip carrying the meaning and the tone repeating it. Its zero
+// value is BillingToneUnreadable, so a row whose tone was never set draws the unreadable
+// chip, not a frozen or a live one.
+type BillingTone int
+
+const (
+	// BillingToneUnreadable: a row the handler could not read as a billing month -- the ink
+	// tone, which is no status.
+	BillingToneUnreadable BillingTone = iota
+	// BillingToneFrozen: closed by the business, its figures read from the frozen record --
+	// the settled tone.
+	BillingToneFrozen
+	// BillingToneRunning: the month is still running, a live count -- the neutral tone.
+	BillingToneRunning
+	// BillingToneUnclosed: the month has ended and the business has not closed it -- the
+	// waiting tone (a fact for a person to look at, not a verdict).
+	BillingToneUnclosed
+	// BillingToneBeforeSignup: before the business signed up -- the neutral tone.
+	BillingToneBeforeSignup
+)
 
 // ProblemView is a refusal or a fault the operator surface answers with a page.
 type ProblemView struct {

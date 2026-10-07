@@ -102,9 +102,10 @@ func TestOperatorSQL_OnlyBoundParameters(t *testing.T) {
 	}
 	// 7 until OP-10; 00027 added three (op_begin_read, op_read_legal_versions,
 	// op_publish_legal), 00029 two (op_read_tenants, op_read_tenant_detail), 00030 one
-	// (op_read_tenant_plaques), 00031 one (op_read_audit), 00032 one (op_read_tenant_billing).
-	if len(consts) != 15 {
-		t.Fatalf("found %d statement constants in operator.go, want 15 (two lookups, thirteen op_* calls)", len(consts))
+	// (op_read_tenant_plaques), 00031 one (op_read_audit), 00032 one (op_read_tenant_billing),
+	// and OP-12 phase B the billing read's own time bound (a SET LOCAL statement_timeout).
+	if len(consts) != 16 {
+		t.Fatalf("found %d statement constants in operator.go, want 16 (two lookups, thirteen op_* calls, one SET LOCAL)", len(consts))
 	}
 	quoted := regexp.MustCompile(`'[^']*'`)
 	placeholder := regexp.MustCompile(`\$(\d+)`)
@@ -154,8 +155,8 @@ func TestOperatorSQL_OnlyBoundParameters(t *testing.T) {
 		_ = sql
 		return true
 	})
-	if calls != 15 {
-		t.Fatalf("%d Exec/QueryRow/Query call(s) in operator.go, want 15 -- one per statement", calls)
+	if calls != 16 {
+		t.Fatalf("%d Exec/QueryRow/Query call(s) in operator.go, want 16 -- one per statement", calls)
 	}
 
 	doc, err := os.ReadFile(filepath.Join("..", "..", "db", "queries", "operator.sql"))

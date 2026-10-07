@@ -64,8 +64,8 @@ func (s *Surface) readForm(w http.ResponseWriter, r *http.Request, limit int64, 
 }
 
 // render writes one screen. It renders into a buffer first, so a component that refuses
-// (operatorpages.TenantScreen without a tenant's name -- the tenant overview and the
-// plaque screen render through it) or fails writes no partial page:
+// (operatorpages.TenantScreen without a tenant's name -- the tenant overview, the plaque
+// screen and the billing screen render through it) or fails writes no partial page:
 // the status line has not been sent, and the answer is a plain 500
 // (TestTenantScreen_RefusesToRenderWithoutAName).
 func (s *Surface) render(w http.ResponseWriter, r *http.Request, status int, c templ.Component) {
@@ -309,6 +309,34 @@ var (
 		BackLabel: "Back to the console",
 		SignedIn:  true,
 	}
+
+	// The billing screen's pages (billing.go); its malformed and unknown ids answer with the
+	// two tenant pages above. Its two refusals are answered before any store call and before
+	// the read budget, and say nothing was read; the number in the page refusal is
+	// db.MaxTenantBillingPage (TestBillingScreen_TheBoundaryRefusesBeforeTheStore reads it
+	// off the page). 🔴 Its fault page carries NO FIGURE and says so: a failed read is a
+	// problem page, never a zero invoice (CLAUDE.md §4.6 in its money form).
+	problemBillingFormTooLarge = operatorpages.ProblemView{
+		Title:     "That request was too large",
+		Message:   "Open the tenant's billing again and choose a page there. Nothing was read.",
+		Back:      pathTenants,
+		BackLabel: "Back to the tenants",
+		SignedIn:  true,
+	}
+	problemBillingPageRefused = operatorpages.ProblemView{
+		Title:     "That page does not exist",
+		Message:   "A tenant's billing has pages 1 to 5. Nothing was read; start again from the first page.",
+		Back:      pathTenants,
+		BackLabel: "Back to the tenants",
+		SignedIn:  true,
+	}
+	problemBillingUnreadable = operatorpages.ProblemView{
+		Title:     "This tenant's billing could not be loaded",
+		Message:   "Try again in a moment. No figure was read, so none is shown — not even a zero.",
+		Back:      pathTenants,
+		BackLabel: "Back to the tenants",
+		SignedIn:  true,
+	}
 )
 
 // problemPages lists the variables above and problemTooMany(false) and (true), for the
@@ -323,5 +351,6 @@ func problemPages() []operatorpages.ProblemView {
 		problemTenantNotAnID, problemNoSuchTenant, problemTenantUnreadable,
 		problemPlaquesUnreadable,
 		problemAuditFormTooLarge, problemAuditKindRefused, problemAuditPageRefused, problemAuditUnreadable,
+		problemBillingFormTooLarge, problemBillingPageRefused, problemBillingUnreadable,
 	}
 }

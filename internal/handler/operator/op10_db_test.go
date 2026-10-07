@@ -62,9 +62,10 @@ import (
 )
 
 // liveStore is operatorauth.Store, operator.LegalStore, (OP-11) operator.TenantStore,
-// (OP-13) operator.PlaqueStore and (OP-14) operator.AuditStore on a connection that IS
-// tappa_operator: each method is internal/db's production accessor, each statement its own
-// committed transaction.
+// (OP-13) operator.PlaqueStore, (OP-14) operator.AuditStore and (OP-12) operator.BillingStore
+// on a connection that IS tappa_operator: each method is internal/db's production accessor,
+// each statement its own committed transaction (the billing read's second phase opens its
+// own, on this connection, for its SET LOCAL).
 type liveStore struct {
 	mu   sync.Mutex
 	conn *pgx.Conn
@@ -146,6 +147,12 @@ func (s *liveStore) OperatorAudit(ctx context.Context, h string, q db.OperatorAu
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return db.OperatorAudit(ctx, s.conn, h, q)
+}
+
+func (s *liveStore) TenantBilling(ctx context.Context, h string, id uuid.UUID, page int32) (db.TenantBillingTimeline, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return db.TenantBilling(ctx, s.conn, h, id, page)
 }
 
 // legalE2E is one test's committed rig.
@@ -236,7 +243,7 @@ func newLegalE2E(t *testing.T) *legalE2E {
 		t.Fatal(err)
 	}
 	live := &liveStore{conn: l.op}
-	s, err := operator.New(auth, live, live, live, live, l.texts, opHost, opBase, log)
+	s, err := operator.New(auth, live, live, live, live, live, l.texts, opHost, opBase, log)
 	if err != nil {
 		t.Fatal(err)
 	}

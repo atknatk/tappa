@@ -3,7 +3,8 @@ package operator_test
 // op8r5_test.go -- OP-8's fifth round: the shared runner of the header tables, the class
 // -> route table (classRoutes) the header tables are held to (OP-10 added a third table,
 // C49-C66, op10_test.go; OP-11 a fourth, C67-C93, op11_test.go; OP-13 a fifth, C94-C103,
-// op13_test.go; OP-14 a sixth, C104-C121, op14_test.go), the eight classes the 4th
+// op13_test.go; OP-14 a sixth, C104-C121, op14_test.go; OP-12 a seventh, C122-C141,
+// op12_test.go), the eight classes the 4th
 // audit found outside the 40 (N7), the walked-routes completeness test (N5) and the wire
 // test of the recorder's snapshot (F1 (b)).
 //
@@ -124,16 +125,28 @@ var classRoutes = map[string]classRoute{
 	"C117": {"POST", "/operator/audit", 400}, "C118": {"POST", "/operator/audit", 503},
 	"C119": {"POST", "/operator/audit", 303}, "C120": {"POST", "/operator/audit", 429},
 	"C121": {"PUT", "/operator/audit", 405},
+	// OP-12's billing screen (op12_test.go, TestOperatorHeaders_TheBillingClassesCarryThePolicy).
+	"C122": {"GET", "/operator/tenants/{id}/billing", 200}, "C123": {"GET", "/operator/tenants/{id}/billing", 303},
+	"C124": {"GET", "/operator/tenants/{id}/billing", 303}, "C125": {"GET", "/operator/tenants/{id}/billing", 303},
+	"C126": {"GET", "/operator/tenants/{id}/billing", 404}, "C127": {"GET", "/operator/tenants/{id}/billing", 404},
+	"C128": {"GET", "/operator/tenants/{id}/billing", 503}, "C129": {"GET", "/operator/tenants/{id}/billing", 503},
+	"C130": {"GET", "/operator/tenants/{id}/billing", 303}, "C131": {"GET", "/operator/tenants/{id}/billing", 429},
+	"C132": {"POST", "/operator/tenants/{id}/billing", 200}, "C133": {"POST", "/operator/tenants/{id}/billing", 303},
+	"C134": {"POST", "/operator/tenants/{id}/billing", 403}, "C135": {"POST", "/operator/tenants/{id}/billing", 413},
+	"C136": {"POST", "/operator/tenants/{id}/billing", 400}, "C137": {"POST", "/operator/tenants/{id}/billing", 400},
+	"C138": {"POST", "/operator/tenants/{id}/billing", 404}, "C139": {"POST", "/operator/tenants/{id}/billing", 503},
+	"C140": {"POST", "/operator/tenants/{id}/billing", 429},
+	"C141": {"PUT", "/operator/tenants/{id}/billing", 405},
 }
 
 // classCount is the number of classes of the header tables, C1 to C<classCount>.
-const classCount = 121
+const classCount = 141
 
 // routeOf is a request's method and path as a chi route: the query dropped, the prefix
 // itself written as the pattern chi.Walk reports for the console ("/operator/"), a path
 // one segment under /operator/tenants/ written as its pattern (OP-11's overview: chi
 // routes any one segment there to {id}), and one segment followed by /plaques written as
-// the plaque screen's (OP-13).
+// the plaque screen's (OP-13), or by /billing as the billing screen's (OP-12).
 func routeOf(l driveLog) string {
 	p, _, _ := strings.Cut(l.path, "?")
 	if p == operator.Prefix {
@@ -145,6 +158,8 @@ func routeOf(l driveLog) string {
 			p = operator.Prefix + "/tenants/{id}"
 		case seg != "" && tail == "plaques":
 			p = operator.Prefix + "/tenants/{id}/plaques"
+		case seg != "" && tail == "billing":
+			p = operator.Prefix + "/tenants/{id}/billing"
 		}
 	}
 	return l.method + " " + p
@@ -273,10 +288,10 @@ func TestOperatorHeaders_TheWrongMethodAndOversizedClassesCarryThePolicy(t *test
 // TestOperatorHeaders_TheWalkedRoutesEachHaveAClass is the completeness check the 4th
 // audit asked for (N5), on the surface's MOUNTED routes as chi.Walk reports them.
 //
-// PART I -- the shipped surface: chi.Walk reports sixteen method x route pairs on ten
+// PART I -- the shipped surface: chi.Walk reports eighteen method x route pairs on eleven
 // routes (OP-10 added GET and POST /operator/legal; OP-11 GET and POST /operator/tenants
 // and GET /operator/tenants/{id}; OP-13 GET /operator/tenants/{id}/plaques; OP-14 GET and
-// POST /operator/audit); classRoutes
+// POST /operator/audit; OP-12 GET and POST /operator/tenants/{id}/billing); classRoutes
 // has, for each pair, a class with a status other than 405, and for each route a 405
 // class with a method not mounted on it; classRoutes' keys are C1 to C<classCount>.
 //
@@ -303,7 +318,7 @@ func TestOperatorHeaders_TheWalkedRoutesEachHaveAClass(t *testing.T) {
 	for _, ms := range walked {
 		pairs += len(ms)
 	}
-	if len(walked) < 10 || pairs < 16 {
+	if len(walked) < 11 || pairs < 18 {
 		t.Fatalf("PREMISE: chi.Walk reported %d route(s), %d pair(s)", len(walked), pairs)
 	}
 	covered, wrongMethod := map[string]bool{}, map[string]bool{}

@@ -337,13 +337,20 @@ func (h *hashRecorder) OperatorAudit(ctx context.Context, s string, q db.Operato
 	return h.fakeStore.OperatorAudit(ctx, s, q)
 }
 
+// The billing screen's call (OP-12): the session hash. The tenant id is printed on the
+// screen by design and the page is a small integer.
+func (h *hashRecorder) TenantBilling(ctx context.Context, s string, id uuid.UUID, page int32) (db.TenantBillingTimeline, error) {
+	h.record("TenantBilling", s)
+	return h.fakeStore.TenantBilling(ctx, s, id, page)
+}
+
 // harvestWant pins the harvest: calls per method and the arity of each call's record.
 // The counts are the arms' own, derived where each arm is driven (comments at the arms).
 var harvestWant = map[string]struct{ calls, arity int }{
 	"OperatorByEmail":            {calls: 9, arity: 1},    // A2 A3 A4 A20 A20b A23 A26b A28 A30b
 	"RecordOperatorAuthEvent":    {calls: 7, arity: 1},    // A2 A3 A6 A14 A15 A17 A28
 	"OpenOperatorSession":        {calls: 5, arity: 1},    // A7 A20b A24 A26b A30b
-	"TouchOperatorSession":       {calls: 208, arity: 1},  // A8 A9 A21, A27 x 101, A31-A41, A43, A44-A52, A54-A59, A60-A65, A66a x 60, A66, A67-A74, A76, A77 (A42, A53 and A75 are refused before the gate)
+	"TouchOperatorSession":       {calls: 220, arity: 1},  // A8 A9 A21, A27 x 101, A31-A41, A43, A44-A52, A54-A59, A60-A65, A66a x 60, A66, A67-A74, A76, A77, A78-A86, A88, A89, A90 (A42, A53, A75 and A87 are refused before the gate)
 	"CloseOperatorSession":       {calls: 3002, arity: 1}, // A10 A22, A30a x 3000 (A30 is refused first)
 	"CompleteOperatorEnrollment": {calls: 3, arity: 4},    // A16 A17 A25
 	"LegalVersions":              {calls: 5, arity: 1},    // A31 A33 A39 A41 A43
@@ -352,6 +359,7 @@ var harvestWant = map[string]struct{ calls, arity int }{
 	"TenantDetail":               {calls: 4, arity: 1},    // A55 A56 A58 A59 (A57's id is refused before the store)
 	"TenantPlaques":              {calls: 65, arity: 1},   // A60 A61 A63 A64 A65, A66a x 60 (A62's id and A66's read budget refuse before the store)
 	"OperatorAudit":              {calls: 6, arity: 1},    // A67 A68 A69 A73 A74 A76 (A70-A72 refuse before the store, A75 before the gate, A77 at the read budget)
+	"TenantBilling":              {calls: 8, arity: 1},    // A78 A79 A81 A84 A85 A86 A88 A89 (A80, A82, A83 refuse before the store, A87 before the gate, A90 at the read budget)
 }
 
 // TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor -- THE CONTRACT (M10 OP-8; the
@@ -361,7 +369,7 @@ var harvestWant = map[string]struct{ calls, arity int }{
 // No member of the GROUPS G1-G17 (constants above) occurs, in any of the RENDERINGS
 // R1-R10 (renderings), on any of the SURFACES S1-S4 (leakSurfaces; S4 is the response
 // headers AT WriteHeader, the recorder's Result().Header -- Location among them), in any
-// of the 77 numbered ARMS A1-A77 below -- EXCEPT the DESIGNED EGRESS D1-D7, each of which
+// of the 90 numbered ARMS A1-A90 below -- EXCEPT the DESIGNED EGRESS D1-D7, each of which
 // is pinned the other way: the value IS on its surface in its arm. The groups are measured
 // against the CLOSED list neverLog (12 items, a pinned literal): every group of every item
 // has a member. G15 (the client address), G16 (a legal text posted to the operator's
@@ -369,7 +377,8 @@ var harvestWant = map[string]struct{ calls, arity int }{
 // its 8- and 4-character prefixes -- OP-11) are bound to no item -- the package's own
 // claims. The fake store's harvest -- session hashes, raw link tokens, digests,
 // envelopes, addresses, posted legal texts and search terms it was handed (the plaque
-// screen's and the audit log's session hashes too, OP-13 and OP-14) -- is searched
+// screen's, the audit log's and the billing screen's session hashes too, OP-13, OP-14 and
+// OP-12) -- is searched
 // too (G5, G8, G12, G11, G13, G16, G17) and pinned method by method by COUNT and ARITY
 // (harvestWant), not by content. The read ticket is not searched: no value of it reaches
 // this package (neverLog's comment).
@@ -428,8 +437,13 @@ var harvestWant = map[string]struct{ calls, arity int }{
 //	log · A68 the log filtered to a kind · A69 its next page · A70 a kind refused · A71 a
 //	page out of range · A72 an oversized form · A73 the read fails · A74 the read's session
 //	is refused · A75 a cross-origin filter · A76 a kind and a page in the query string ·
-//	and, on A30b's session from its own address, A66 the read budget (60 plaque reads,
-//	A66a, then the 61st) and A77 the audit log past the same budget
+//	OP-12's billing screen, on A20b's session: A78 a tenant's billing · A79 its older page
+//	· A80 a malformed id · A81 an id no tenant has · A82 a page out of range · A83 an
+//	oversized form · A84 the read fails · A85 the read times out · A86 the read's session is
+//	refused · A87 a cross-origin page · A88 a page in the query string · A89 a store that
+//	answers for another tenant · and, on A30b's session from its own address, A66 the read
+//	budget (60 plaque reads, A66a, then the 61st), A77 the audit log and A90 the billing past
+//	the same budget
 //
 // NOT CLAIMED, BY NAME: split or partial values; renderings not on the list (base32,
 // %X, a case-folded value, ...); what operatorauth's own types print (its
@@ -450,7 +464,7 @@ func TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor(t *testing.T) {
 		t.Fatal(err)
 	}
 	texts := newFakeTexts(store.fakeStore)
-	surface, err := operator.New(auth, store, store, store, store, texts, opHost, opBase, plog)
+	surface, err := operator.New(auth, store, store, store, store, store, texts, opHost, opBase, plog)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -872,6 +886,51 @@ func TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor(t *testing.T) {
 		!strings.Contains(results["A73 the audit read fails"].process, "the audit log could not be read") {
 		t.Fatal("PREMISE: A67 is not the log's page, or A73 wrote no fault line -- the arms are not the branches they name")
 	}
+	// OP-12's billing screen on A20b's session ([T] a touch; [B] TenantBilling). The leak
+	// tenant holds two pages of months of every state; a second tenant's read answers for
+	// another tenant.
+	billingOther := uuid.New()
+	store.mu.Lock()
+	store.billing[leakTenant] = fakeBilling{name: "FAKE Leak Tenant Ltd", months: append(billingPageOfEveryState(2026, time.October),
+		billingBeforeSignupMonths(2025, time.October, 12)...)}
+	store.billing[billingOther] = fakeBilling{name: "FAKE Someone Else Ltd", months: billingPageOfEveryState(2026, time.October),
+		asTenant: uuid.New()}
+	store.mu.Unlock()
+	billing := "/operator/tenants/" + leakTenant.String() + "/billing"
+	get("A78 a tenant's billing", billing, live)                                                                              // [T B1]
+	post("A79 the billing's older page", billing, url.Values{"page": {"2"}}, live)                                            // [T B2]
+	get("A80 a malformed billing id", "/operator/tenants/"+strings.ReplaceAll(leakTenant.String(), "-", "")+"/billing", live) // [T]
+	get("A81 the billing of an id no tenant has", "/operator/tenants/"+uuid.NewString()+"/billing", live)                     // [T B3]
+	post("A82 a billing page out of range", billing, url.Values{"page": {"6"}}, live)                                         // [T]
+	post("A83 an oversized billing form", billing, url.Values{"page": {strings.Repeat("9", 20<<10)}}, live)                   // [T]
+	fail("TenantBilling", errFakeDB)
+	get("A84 the billing read fails", billing, live) // [T B4]
+	fail("TenantBilling", errFakeBillingTimeout)
+	post("A85 the billing read times out", billing, url.Values{"page": {"2"}}, live) // [T B5]
+	fail("TenantBilling", db.ErrOperatorRefused)
+	get("A86 the billing read's session is refused", billing, live) // [T B6]
+	fail("TenantBilling", nil)
+	do("A87 a cross-origin billing page", req{method: http.MethodPost, path: billing, form: url.Values{"page": {"2"}},
+		origin: "https://taptime.mt", header: map[string]string{"Sec-Fetch-Site": "same-site"}, cookies: []*http.Cookie{live}})
+	get("A88 a page in the billing's query string", billing+"?page=2", live)                                                  // [T B7]
+	get("A89 a store that answers for another tenant's billing", "/operator/tenants/"+billingOther.String()+"/billing", live) // [T B8]
+	for arm, want := range map[string]int{
+		"A78 a tenant's billing": 200, "A79 the billing's older page": 200, "A80 a malformed billing id": 404,
+		"A81 the billing of an id no tenant has": 404, "A82 a billing page out of range": 400, "A83 an oversized billing form": 413,
+		"A84 the billing read fails": 503, "A85 the billing read times out": 503, "A86 the billing read's session is refused": 303,
+		"A87 a cross-origin billing page": 403, "A88 a page in the billing's query string": 200,
+		"A89 a store that answers for another tenant's billing": 503,
+	} {
+		if got := results[arm].w.Code; got != want {
+			t.Fatalf("PREMISE: %s = %d, want %d -- the arm is not the branch it names", arm, got, want)
+		}
+	}
+	if !strings.Contains(results["A78 a tenant's billing"].w.Body.String(), "Ended, not closed by the business") ||
+		!strings.Contains(results["A79 the billing's older page"].w.Body.String(), "Before sign-up") ||
+		!strings.Contains(results["A85 the billing read times out"].process, "SQLSTATE 57014") ||
+		!strings.Contains(results["A89 a store that answers for another tenant's billing"].process, "billing could not be read") {
+		t.Fatal("PREMISE: A78/A79 are not the months, or A85/A89 wrote no fault line -- the arms are not the branches they name")
+	}
 	do("A28 credentials in the query", req{method: http.MethodPost, // [E8 R7]: the empty body's empty address
 		path: "/operator/login?email=" + url.QueryEscape(email) + "&password=" + url.QueryEscape(queryPass), form: url.Values{}, origin: opOrigin})
 	get("A29 a link token in the query", "/operator/enroll?id="+pending.String()+"&token="+queryToken)
@@ -928,6 +987,12 @@ func TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor(t *testing.T) {
 	if results["A77 the audit log past the read budget"].w.Code != http.StatusTooManyRequests {
 		t.Fatalf("PREMISE: A77 was not refused by the read budget (%d)", results["A77 the audit log past the read budget"].w.Code)
 	}
+	// A90: a tenant's billing past the same session's read budget (OP-12) [T: 1].
+	do("A90 the billing past the read budget", req{method: http.MethodGet, path: billing,
+		cookies: []*http.Cookie{live3}, remote: remote4, header: map[string]string{"Sec-Fetch-Site": "same-origin"}})
+	if results["A90 the billing past the read budget"].w.Code != http.StatusTooManyRequests {
+		t.Fatalf("PREMISE: A90 was not refused by the read budget (%d)", results["A90 the billing past the read budget"].w.Code)
+	}
 	// The harvest, searched.
 	store.hmu.Lock()
 	for _, v := range store.got["OperatorByEmail"] {
@@ -965,6 +1030,9 @@ func TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor(t *testing.T) {
 		set.add(gSessionHash, v[0])
 	}
 	for _, v := range store.got["OperatorAudit"] {
+		set.add(gSessionHash, v[0])
+	}
+	for _, v := range store.got["TenantBilling"] {
 		set.add(gSessionHash, v[0])
 	}
 	// THE HARVEST PIN: count and arity, method by method.

@@ -389,6 +389,18 @@ bir restoran hesabına bağlı olmamalı* (m10-platform.md §1).
   yok) kayıtlı değildir ve yönlendiricinin kendi 404'ünü verir
   (`TestSurface_TheScreensOfLaterTasksAreNotMounted`). Gerekçe ve ölçüm: ADR 0021 → "OP-14 B
   fazı eki".)*
+  *(OP-12 notu, 2026-10-07: faturalama ekranı BİR tenant'ındır — okuması tenant'ı adlandırır,
+  başlığı onun adını taşır — bu yüzden tenant'ın altına alındı (orkestratör kararı K12-1 (a)):
+  `GET /operator/tenants/{id}/billing` ilk sayfadır ve URL'den yoldaki id dışında hiçbir şey
+  okumaz; `POST /operator/tenants/{id}/billing` gövdede `page` taşır (1..5, her biri tenant'ın
+  kendi on iki ayı); konsolun grubunda, aynı zincir; genel bakış ona link verir, konsol vermez.
+  Yukarıdaki listedeki platform geneli `/operator/billing` (bir ayın her tenant'ı: bir *fatura iş
+  listesi*) kayıtlı değildir — K12-1 (b), OP-K12'nin cevabından sonra ayrı bir kart — ve
+  yönlendiricinin kendi 404'ünü verir; ekranın alt yolları (`…/billing/`, `…/billing/<ay>`,
+  `…/billing.csv` — K12-4: CSV yok) da öyle (`TestSurface_TheScreensOfLaterTasksAreNotMounted`).
+  Her görüntüleme bir okumadır: bir `read` satırı, bir okuma birimi; okumanın ikinci aşaması
+  kendi süre sınırıyla (15 sn) koşar, aşınca 503. Gerekçe ve ölçüm: ADR 0021 → "OP-12 B fazı
+  eki".)*
 - **Host kapısı:** `TAPPA_OPERATOR_HOST` (D-B: `ops.taptime.mt`). Başka bir host'tan
   gelen `/operator/*` isteği **404** alır — ana host'ta (`taptime.mt/operator`) operatör
   yüzeyi yokmuş gibi görünür.
@@ -906,7 +918,7 @@ bir restoran hesabına bağlı olmamalı* (m10-platform.md §1).
 | M9-08 kriteri | Karşılığı |
 |---|---|
 | *"Operatörün her eylemi `audit_log`'a, ve hangi tenant adına yapıldığı okunabilir."* | **Yeniden okundu (K6):** her eylem `operator_audit_log`'a, satır tenant'ı adlandırır; tenant'ı **değiştirenler** ayrıca o tenant'ın `audit_log`'una aynı tx'te; okumalar yalnız operatör log'unda |
-| *"Tenant sınırının aşıldığı her yer, kodda ve ekranda adıyla görünür — sessiz bir çapraz-tenant okuma yok."* | Kodda: yalnız `op_` önekli fonksiyonlar (ADR 0021). Ekranda: tenant-ötesi her ekran girdiği tenant'ı başlıkta **adıyla** gösterir (OP-8). *(OP-11: liste tek bir tenant'a girmez ve başlık taşımaz, her satır tenant'ı adıyla gösterir; görünür adı olmayan bir tenant hem satırda hem genel bakışın başlığında "Unnamed tenant" ve id'siyle adlandırılır — sıfır `TenantName` hâlâ render edilemez.)* *(OP-13: plaket ekranı da `TenantScreen` içindedir; başlıktaki ad envanter okumasının kendisinden gelir — ayrı bir genel bakış okuması yapılmaz — ve okumanın döndürdüğü tenant yolun tenant'ı değilse ekran 503'tür.)* *(OP-14: audit görüntüleyicisi bir tenant'a **girmez** — günlük her operatörün ve bir sayfası birçok tenant'ı adlandırır —, bu yüzden "girdiği tenant'ı başlıkta" cümlesi ona şöyle okunur: başlık banner'ı yok, düz operatör kabuğu (`screen`); satırın dokunduğu her tenant satırda **adıyla** (`bdi`, kaçışlı) ve genel bakışına linkle durur; görünür adı olmayan tenant "Unnamed tenant" ve id'siyle, hiçbir tenant'ın taşımadığı bir id "A tenant id no tenant has" ve id'siyle, linksiz. ADR 0021 → "OP-14 B fazı eki" md. 4.)* Sessizlik: okuma audit'i veri dönmeden commit edilir (§5) |
+| *"Tenant sınırının aşıldığı her yer, kodda ve ekranda adıyla görünür — sessiz bir çapraz-tenant okuma yok."* | Kodda: yalnız `op_` önekli fonksiyonlar (ADR 0021). Ekranda: tenant-ötesi her ekran girdiği tenant'ı başlıkta **adıyla** gösterir (OP-8). *(OP-11: liste tek bir tenant'a girmez ve başlık taşımaz, her satır tenant'ı adıyla gösterir; görünür adı olmayan bir tenant hem satırda hem genel bakışın başlığında "Unnamed tenant" ve id'siyle adlandırılır — sıfır `TenantName` hâlâ render edilemez.)* *(OP-13: plaket ekranı da `TenantScreen` içindedir; başlıktaki ad envanter okumasının kendisinden gelir — ayrı bir genel bakış okuması yapılmaz — ve okumanın döndürdüğü tenant yolun tenant'ı değilse ekran 503'tür.)* *(OP-14: audit görüntüleyicisi bir tenant'a **girmez** — günlük her operatörün ve bir sayfası birçok tenant'ı adlandırır —, bu yüzden "girdiği tenant'ı başlıkta" cümlesi ona şöyle okunur: başlık banner'ı yok, düz operatör kabuğu (`screen`); satırın dokunduğu her tenant satırda **adıyla** (`bdi`, kaçışlı) ve genel bakışına linkle durur; görünür adı olmayan tenant "Unnamed tenant" ve id'siyle, hiçbir tenant'ın taşımadığı bir id "A tenant id no tenant has" ve id'siyle, linksiz. ADR 0021 → "OP-14 B fazı eki" md. 4.)* *(OP-12: faturalama ekranı da `TenantScreen` içindedir; başlıktaki ad fatura okumasının kendisinden gelir — ayrı bir genel bakış okuması yapılmaz — ve okumanın cevabı istenen tenant'ın istenen sayfası değilse ekran 503'tür. ADR 0021 → "OP-12 B fazı eki" md. 3–4.)* Sessizlik: okuma audit'i veri dönmeden commit edilir (§5) |
 | *"İzin listesi boşken panel kimseye açılmıyor, ve bu bir testle sabitlenmiş."* | `platform_admins` boşken kimse giremez; tohumlama ve kurulum sayfası yok (§1, §6) |
 | Ayrı rota ağacı; müşteri oturumu oraya hiçbir koşulda giremiyor (kabul 4, özet) | Ayrı host + ayrı çerez + ayrı tablo + ayrı çözümleme (§2, §4) — yapısal |
 

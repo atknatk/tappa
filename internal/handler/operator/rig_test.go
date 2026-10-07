@@ -50,8 +50,9 @@ const (
 
 // fakeStore answers operatorauth.Store the way 00026's definers answer,
 // operator.LegalStore the way 00027's do (OP-10), operator.TenantStore the way 00029's do
-// (OP-11), operator.PlaqueStore the way 00030's does (OP-13) and operator.AuditStore the way
-// 00031's does (OP-14), for the arms these tests drive, and COUNTS its calls by method --
+// (OP-11), operator.PlaqueStore the way 00030's does (OP-13), operator.AuditStore the way
+// 00031's does (OP-14) and operator.BillingStore the way 00032's does (OP-12), for the arms
+// these tests drive, and COUNTS its calls by method --
 // "the resolver was not called" is a count of zero here.
 type fakeStore struct {
 	mu       sync.Mutex
@@ -95,6 +96,26 @@ type fakeStore struct {
 	// op_begin_read commits it before op_read_audit reads), and the queries the screen asked.
 	audit     []db.OperatorAuditEntry
 	auditAsks []db.OperatorAuditQuery
+	// The billing screen's (OP-12): each tenant's months by id, NEWEST FIRST across every
+	// page (a test puts them in that order; page p is months [12(p-1), 12p)), and the asks.
+	billing     map[uuid.UUID]fakeBilling
+	billingAsks []fakeBillingAsk
+}
+
+// fakeBilling is one tenant's billing months as the fake holds them. asTenant and asPage,
+// when set, are the tenant id and the page the read reports instead of the ones asked for (a
+// store that answers for another tenant or another page).
+type fakeBilling struct {
+	name     string
+	months   []db.TenantBillingMonth
+	asTenant uuid.UUID
+	asPage   int32
+}
+
+// fakeBillingAsk is one TenantBilling call the fake answered past its refusals.
+type fakeBillingAsk struct {
+	tenant uuid.UUID
+	page   int32
 }
 
 // fakeInventory is one tenant's plaques as the fake holds them. Each plaque carries the
@@ -128,6 +149,7 @@ func newFakeStore() *fakeStore {
 		calls: map[string]int{}, accounts: map[string]db.OperatorAccount{}, byID: map[uuid.UUID]db.OperatorAccount{},
 		live: map[string]db.OperatorSession{}, tokens: map[uuid.UUID]string{}, locked: map[uuid.UUID]bool{}, fail: map[string]error{},
 		overviews: map[uuid.UUID]db.TenantOverview{}, inventories: map[uuid.UUID]fakeInventory{},
+		billing: map[uuid.UUID]fakeBilling{},
 	}
 }
 
@@ -462,6 +484,44 @@ func (f *fakeStore) OperatorAudit(_ context.Context, h string, q db.OperatorAudi
 	return found[from:min(from+int(q.Size), len(found))], nil
 }
 
+// TenantBilling answers as op_begin_read + op_read_tenant_billing do, through internal/db's
+// TenantBilling: a page outside 1..db.MaxTenantBillingPage is the database's refusal
+// (op_begin_read's 22023: errFakeBillingPageRefused) -- the call COUNTED, so a screen that
+// leaves the bound to the database is seen calling the store; a dead session is
+// ErrOperatorRefused; an id the fake holds no months for is ErrNoSuchTenant; otherwise the
+// tenant's name and the page's months (db.TenantBillingMonthsPerPage of them when the fake
+// holds that many -- fewer when a test seeded fewer).
+func (f *fakeStore) TenantBilling(_ context.Context, h string, id uuid.UUID, page int32) (db.TenantBillingTimeline, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.enter("TenantBilling"); err != nil {
+		return db.TenantBillingTimeline{}, err
+	}
+	if page < 1 || page > db.MaxTenantBillingPage {
+		return db.TenantBillingTimeline{}, errFakeBillingPageRefused
+	}
+	if _, ok := f.live[h]; !ok {
+		return db.TenantBillingTimeline{}, db.ErrOperatorRefused
+	}
+	f.billingAsks = append(f.billingAsks, fakeBillingAsk{tenant: id, page: page})
+	x, ok := f.billing[id]
+	if !ok {
+		return db.TenantBillingTimeline{}, db.ErrNoSuchTenant
+	}
+	tl := db.TenantBillingTimeline{TenantID: id, TenantName: x.name, Page: page}
+	if x.asTenant != uuid.Nil {
+		tl.TenantID = x.asTenant
+	}
+	if x.asPage != 0 {
+		tl.Page = x.asPage
+	}
+	from := int(page-1) * db.TenantBillingMonthsPerPage
+	if from < len(x.months) {
+		tl.Months = append(tl.Months, x.months[from:min(from+db.TenantBillingMonthsPerPage, len(x.months))]...)
+	}
+	return tl, nil
+}
+
 // fakeTexts is operator.LegalTexts: the snapshot (seeded by a test, or filled by a
 // refresh) and its refresh, which reads the fake store's publications -- the newest per
 // document wins, as ListPublishedLegalDocuments does, with the version's own time. A
@@ -653,7 +713,7 @@ func newRigAt(t *testing.T, level slog.Level) *rig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := operator.New(auth, g.store, g.store, g.store, g.store, g.texts, opHost, opBase, log)
+	s, err := operator.New(auth, g.store, g.store, g.store, g.store, g.store, g.texts, opHost, opBase, log)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -813,3 +873,12 @@ var errFakeDB = errors.New("fake: the database is unreachable")
 // errFakePageRefused is the fake's answer for an audit page the database refuses
 // (op_begin_read: SQLSTATE 22023).
 var errFakePageRefused = errors.New("fake: db: read operator audit: SQLSTATE 22023")
+
+// errFakeBillingPageRefused is the fake's answer for a billing page the database refuses
+// (op_begin_read: SQLSTATE 22023); errFakeBillingTimeout its answer for a read past the
+// read's own time bound (db.TenantBillingReadTimeout: SQLSTATE 57014), in internal/db's
+// spelling of a database error.
+var (
+	errFakeBillingPageRefused = errors.New("fake: db: begin operator read: database error (SQLSTATE 22023)")
+	errFakeBillingTimeout     = errors.New("fake: db: read tenant billing: database error (SQLSTATE 57014)")
+)

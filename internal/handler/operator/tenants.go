@@ -273,8 +273,9 @@ func namedVisibly(name string) bool { return visibleText(name) }
 
 // tenantBanner is the name a tenant's screen carries in its banner and title: the
 // tenant's own name, or -- when the name has no visible character -- the placeholder
-// that names the tenant by its id (operatorpages.UnnamedTenant). The overview and the
-// plaque screen (OP-13) both call it, with the id and the name their one read returned.
+// that names the tenant by its id (operatorpages.UnnamedTenant). The overview, the plaque
+// screen (OP-13) and the billing screen (OP-12) call it, with the id and the name their one
+// read returned.
 func tenantBanner(id uuid.UUID, name string) (operatorpages.TenantName, error) {
 	if namedVisibly(name) {
 		return operatorpages.NewTenantName(name)
@@ -307,13 +308,15 @@ func tenantsView(rows []db.TenantSummary, term formValue, page int32) operatorpa
 }
 
 // tenantOverviewView builds the overview screen: the identity facts and the four counts,
-// formatted for the page's mono figures, and (OP-13) the path of the tenant's plaques.
+// formatted for the page's mono figures, and the paths of the tenant's plaques (OP-13) and
+// billing months (OP-12).
 func tenantOverviewView(o db.TenantOverview, name operatorpages.TenantName) operatorpages.TenantOverviewView {
 	count := func(n int64) string { return strconv.FormatInt(n, 10) }
 	return operatorpages.TenantOverviewView{
 		Name:            name,
 		ID:              o.ID.String(),
 		PlaquesPath:     plaquesPath(o.ID),
+		BillingPath:     billingPath(o.ID),
 		CreatedAt:       utcStamp(o.CreatedAt),
 		Plan:            o.Plan,
 		BusinessType:    o.BusinessType,

@@ -9096,6 +9096,460 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 > deseniyle — `TestOperator00033_` ve `TestOperatorAuditKinds_` önekli testler — **8 PASS**; 0 yarış.
 > Testler satır commit etmez: sahip satırı 0 (`verify_round3.py`'nin önce/sonra sondası).
 
+> **Kart düzeltmesi (2026-10-07, OP-12 B fazı — ekran, wiring, okuma bütçesi ve okumanın süre
+> sınırı — uygulaması sırasında).** Taban `5a7b289` (dal `m10-a1` ucu; OP-12 A — 00032 —, OP-14 B
+> commit'li; dev DB goose 32). Yazıldı: `internal/handler/operator/billing.go` (yeni:
+> `BillingStore`, `maxBillingPage`, `errBillingNotThePageAsked`, `tenantBilling`,
+> `pageTenantBilling`, `readBilling`, `billingPage`, `billingPath`, `billingWord` ve beş sözcük,
+> `billingRowOf`, `moneyText`, `localStamp`), `routes.go` (iki rota konsolun grubunda; yorumlar),
+> `surface.go` (`New(auth, legalStore, tenantStore, plaqueStore, auditStore, billingStore, texts,
+> host, baseURL, log)`; `billingStore` alanı; paket belgesi; `readLimit` ve `sessionLimit`'in OP-12
+> türetmesi — sayılar değişmedi), `render.go` (üç sabit sayfa: `problemBillingFormTooLarge`,
+> `problemBillingPageRefused`, `problemBillingUnreadable`), `tenants.go` (genel bakışa
+> `BillingPath`); `web/templates/operatorpages/billing.templ` (yeni: `TenantBilling`, `billingRow`,
+> `billingChip`, `billingPager`, `billingPageForm`), `view.go` (`TenantBillingView`, `BillingRow`,
+> `BillingTone` + beş ton; `TenantOverviewView.BillingPath`), `tenants.templ` (genel bakıştan
+> *"See this tenant's billing"*), `chrome.templ` (yorum); `web/static/css/input.css` (dört var olan
+> tally kuralına beş seçici); `internal/db/operator.go` (ikinci aşama kendi işleminde:
+> `tenantBillingStatementTimeoutSQL`, `TenantBillingReadTimeout`, `operatorTxConn`,
+> `errBillingNeedsATransaction`, `scanTenantBilling`), `operatorpool.go` (`TenantBilling` yöntemi +
+> `operatorTxConn` derleme iddiası + yorumlar); `db/queries/operator.sql` (`SET LOCAL` belgesi);
+> `cmd/tappa/operator.go` (`operatorStore` ∪ `operator.BillingStore`; `operator.New(auth, store,
+> store, store, store, store, texts, …)`). Testler: `internal/handler/operator/op12_test.go` (yeni,
+> 18 test), `op12_db_test.go` (yeni, 2 PostgreSQL testi), `internal/db/operatorbillingbound_test.go`
+> (yeni, 3 test — biri PostgreSQL); güncellenen: `rig_test.go` (sahte store'un `TenantBilling`'i —
+> sayfa sınırını veritabanı gibi reddeder), `leak_test.go` (A78–A90, hasat), `export_test.go`,
+> `op8_test.go`, `op8r2_test.go`, `op8r5_test.go`, `typepins_test.go`, `surface_test.go`,
+> `op8_db_test.go`, `op10_db_test.go`; `internal/db/operator_test.go`, `operatorpool_test.go`,
+> `operatorpool_external_test.go`; `cmd/tappa/operator_test.go`. ADR 0021 → "OP-12 uygulama notu"
+> → "OP-12 B fazı eki" (+ Durum satırı, Sonuçlar, L5'e not); ADR 0020 §4 (*"Rotalar"*: OP-12 notu)
+> ve §9 (*"Ekranda"* hücresine OP-12 notu). **Migration YOK, DDL YOK, bağımlılık YOK** (`go.mod`,
+> `go.sum`, `sqlc.yaml`, `db/migrations` diff boş; `make gen` `internal/store`'da diff vermedi).
+> `internal/operatorauth/surface_external_test.go`: **mekanik yama uygulandı** — iki parça: sahte
+> `TenantBilling` (`surfTenants`'a) ve `operator.New`'in yeni argümanı; paket derlenir. Betik
+> `scratchpad/op12b/operatorauth_patch.py <ağaç> --worktree` (önce *"zaten uygulanmış mı"* sorar).
+> Paralel OP-14 C aynı dosyaya ve `leak_test.go`'nun `harvestWant`'ına dokunuyor — birleştirme
+> orkestratörün.
+>
+> **Kararlar, ölçümüyle** (gerekçe ADR 0021 → "OP-12 B fazı eki" md. 1–9):
+> 1. **Kapsam:** yalnız `GET` (sayfa 1) ve `POST` (gövdede `page`) `/operator/tenants/{id}/billing`
+>    (K12-1 (a)); sayfa 1..5 (K12-3; `maxBillingPage = db.MaxTenantBillingPage`, × 12 =
+>    `billing.HistoryCap`); CSV yok (K12-4); 12 aylık sayfa (K12-5); `closed_by` yok (K12-6).
+>    `/operator/billing` kayıtlı değil ve `TestSurface_TheScreensOfLaterTasksAreNotMounted`
+>    listesinde kalır; listeye ekranın alt yolları (`…/billing/`, `…/billing/<ay>`,
+>    `…/billing.csv`) eklendi.
+> 2. **Sınır store'dan ve okuma bütçesinden ÖNCE:** bozuk id 404 + store 0 + okuma birimi 0;
+>    gövde 413; okunamayan form 400; sayfa reddi 400 (*"pages 1 to 5. Nothing was read"*);
+>    sayfa URL'den okunmaz (FV5/FV6).
+> 3. **Hatalar:** `ErrNoSuchTenant` 404 · `ErrOperatorRefused` 303 · başka her hata — 57014
+>    dahil, ve istenen sayfa olmayan cevap (başka tenant / başka sayfa / ≠ 12 ay) — 503; **asla
+>    €0,00 basan bir sayfa yok** (problem sayfasında `€`, `0.00`, *Amount*, ay sözcüğü yok).
+> 4. **Ekran:** `TenantScreen` + ad (görünmez ad → *"Unnamed tenant"* + id); dört durum sözcükle
+>    (*Frozen* · *Live — month running* · *Ended, not closed by the business* · *Before sign-up*)
+>    + *Unreadable* (belgelenmemiş şekil ya da reddedilen para: rakamsız, sıfırsız, log'lu);
+>    B3: *Ended, not closed* yalnız `frozen=false ∧ period_has_ended=true ∧ after_signup=true`,
+>    hüküm sözcüğü yok (2. tur: kalıplar, çekimleriyle, iki sayfada ve üç problem sayfasında);
+>    dondurulmuş/canlı dört yerde ayrı (sözcük, çip sınıfı, cümle, *Closed* ↔
+>    *First charged month*); `unstamped > 0` → taban cümlesi; canlı satırda founding bedava
+>    pencere (*First charged month* + bedava pencere cümlesi); kişi listesi yok; zaman ayın kendi
+>    zone'unda (render'da), rakamlar mono.
+> 5. **Para:** tek köprü `billing.MoneyFromNumeric` (`moneyText`'te bir kez); sembol render
+>    katmanında; L4 doğrulandı (pgx sıfırı `0 × 10^0` → `€0.00`; ölçek 1 → `€1.50`; üç ondalık →
+>    ret); yapısal pin NF1–NF6'nın **listelediği biçimlerde** float ve Go'da aritmetik yok — float
+>    tipli ifade, `Float64Value`, `math/big`'in `Float`/`Rat`'ı, `billing.go`'da sayfa numarası
+>    dışında `*`/`/`/`%` yok; satırın tutarı ve fiyatı yalnız `moneyText(m.AmountDue|m.UnitPrice, …)`'ın
+>    okuması (2. tur: ilk metin *"float yok, çarpım Go'da yok"* diyordu ve pinden genişti).
+> 6. **`statement_timeout`:** ikinci aşama kendi işleminde, ilk ifadesi `SET LOCAL
+>    statement_timeout = 15000`. **Değer aritmetikle:** en yavaş ölçülen okuma 6,1 sn × 2 = 12,2 ≤
+>    15 ≤ `httpx.RequestTimeout` 30 / 2. **Ölçüm:** yavaş okuma 503 alır (sınırdan sonra, isteğin
+>    süresinden önce; log'da `SQLSTATE 57014`); **`read` satırı kalır** (birinci aşama commit
+>    etti); **bilet tüketilmemiş kalır** (ikinci aşamanın işlemi geri alındı) ve kilit
+>    bırakıldıktan sonra da öyle kalır; `SET LOCAL` bağlantıya sızmaz (önce = sonra); `Begin`'i
+>    olmayan bağlantı birinci aşamadan önce reddedilir. Yeri `internal/db` erişimcisi; başka
+>    ekranların okumalarına dokunulmadı (T98).
+> 7. **Bütçe:** `spendRead` + istek birimi; türetmeye *fatura kontrolü* penceresi (~10 fatura
+>    görüntüsü + ~5 genel bakış + ~5 liste/arama ≈ 20 okuma) — `readLimit` 60 ve `sessionLimit` 100
+>    değişmedi; karışık pencere ≈ 40 okuma → pay 1,5; istek ≈ 50 → 2,0. Ölçüldü (aşağıda).
+> 8. **Wiring:** `operator.New`'e `BillingStore` yuvası (altıncı; `texts` `arg6`); store'un
+>    `configuredSurface`'ta kullanımı 5 → 6.
+> 9. **Kontrast ve marka:** yeni renk/zemin yok; beş seçici dört var olan tally kuralına
+>    gruplandı; `app.css` 51 079 → 51 168 B (+89; kural düzeyinde diff yalnız dört seçici listesi;
+>    şablon yorumlarında utility adı yok). Kontrast: ink/green-lite 13,70 · ink/saffron-lite 13,97
+>    · ink/line %10 15,55 · ink/ink %10 13,27 · ink/paper 16,17 · ink %70/paper 6,05 ·
+>    tappa-green/paper 7,73 (geri dönüş linkleri) · tappa-green/porcelain 6,85 (sayfalayıcı, docket
+>    dışında — 2. tur). Çipin sözcüğü ink: ton kuralı yalnız çerçeve + zemin (2. tur).
+>
+> **Bütçe aritmetiği (OP-14 B → OP-12 B).** Her görüntüleme — `GET` ve her `POST` — `readLimit`'e bir
+> birim (`spendRead`, retlerden sonra, store'dan önce), `sessionGate`'te `sessionLimit`'e bir birim:
+>
+>     okuma (readLimit):   destek penceresi (OP-13 B)                          ~30 / 10 dk
+>                          audit inceleme (OP-14 B)                            ~20 / 10 dk
+>                          fatura kontrolü: ~10 fatura görüntüsü + ~5 genel
+>                          bakış + ~5 liste/arama                              ~20 / 10 dk
+>                          x 2, büyüğe                                          → 60 (değişmedi)
+>                          karışık (destek + her vakada fatura + ~6 eski sayfa) ~40 → pay 1,5
+>     istek (sessionLimit): fatura kontrolü ~28 → 3,6 · karışık ~50 → 2,0 → 100 (değişmedi)
+>
+> **Model bir tahmindir**, kullanım ölçümü değildir; OP-11'in yürüyüşü (pay 1,33) en dar kalır.
+> **Bedeli — çalınmış çerez:** pencere başına en çok 60 fatura sayfası (720 ayın sayımı ve tutarı),
+> her biri bir `read` satırı; okumaların veritabanı süresi en çok 60 × 15 sn. Ölçüldü:
+> `TestBillingBudget_EachViewIsOneReadOfTheSessionsSharedBudget` (20 plaket + 20 `GET` + 20 `POST` =
+> 60 × 200, 40 `TenantBilling`; 61. `GET` ve `POST` 429 — yüklem +1, store +0, oturum açık biçim;
+> 38 konsol 200, 101. istek 429; ikinci oturumda 25 ret — bozuk id `GET`/`POST`, sayfa 0/6, 413,
+> okunamayan form — okuma harcamaz, ardından 30 `GET` + 30 `POST` = 60 × 200 ve 61. 429).
+>
+> **OP-12 A'nın B devirleri — karşılıkları:**
+> 1. ✓ `*OperatorDB.TenantBilling` (`return TenantBilling(ctx, o.pool, …)`); tüketici arayüzü
+>    `operator.BillingStore`; `TestOperatorDB_EveryMethodDelegatesVerbatim` 13 → 14;
+>    `TestOperatorDB_HasNoTenantDoorAndNoRawSQLDoor` öncülü 14 → 15;
+>    `TestOperatorDB_IsTheStoreAndNothingMore` kümesi altı arayüzden;
+>    `TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator` store'un TAM altı kullanımı, `texts`
+>    `arg6`.
+> 2. ✓ `tenant_billing` sözcüğü OP-14 B'de eklenmişti (*"a tenant's billing"*); bu faz görüntüleyiciye
+>    dokunmadı.
+> 3. ✓ Sınır: sayfa 1..`db.MaxTenantBillingPage` (handler sabiti = o sabit), POST gövdesinde,
+>    bozuk id 404 + store 0; `ErrNoSuchTenant` 404; `ErrOperatorRefused` 303; 22023 ve 57014 dahil
+>    başka her hata 503.
+> 4. ✓ Para: `MoneyFromNumeric(…, currency)`; canlı ayda `billing.DefaultCurrency`; reddedilen değer
+>    satırı *Unreadable* yapar, sıfır değil; L4 testle doğrulandı.
+> 5. ✓ Ekran sözcükleri (yukarıda).
+> 6. ✓ Bütçe (yukarıda).
+> 7. ✓ E2E çapraz test `billing.Book.Period` ile — `TestE2E_BillingScreenIsTheTenantsOwnFigureMonthByMonth`.
+> 8. ✓ L5: `SET LOCAL statement_timeout` + 503 (karar 6).
+>
+> **Kabul (B fazı):**
+> 1. Tutarlar tenant önizlemesiyle aynı, uçtan uca ✓ — `TestE2E_BillingScreenIsTheTenantsOwnFigureMonthByMonth`
+>    (commit edilmiş founding fikstürü; sayfa 1 `GET` + sayfa 2 `POST`, 24 ay; her ay `Book.Period`
+>    ile durum, kişi, birim fiyat, tutar, plan, bedava pencere, taban, ilk ücretli ay / kapanış,
+>    sayım aralığı eşit; dört durum sayfada; dondurulmuş ücretli ay bugünün önizlemesinden ayrı —
+>    yeniden hesaplanmadı); `numeric`, float değil ✓ — `TestBillingMoney_OneBridgeAndNoFloat`,
+>    `TestBillingMoney_PutsTheSymbolInTheRenderLayer`.
+> 2. Okuma başına bir `read` satırı (kapsam `tenant_billing`, tenant, sayfa, 12, `{}`) ve bir
+>    tüketilmiş bilet; ölü oturumlar (MFA'sız, iptal, 31 dk boşta) `GET` ve `POST`'ta 303 ve satırsız;
+>    ekran yazmaz (`billing_periods` önce = sonra) ✓ — aynı E2E.
+> 3. Başarısız okuma sıfır tutarlı sayfa üretmez ✓ — `TestBillingScreen_AFailedReadIsAProblemPageNeverAZeroInvoice`;
+>    zaman aşımı 503 ✓ — `TestE2E_ASlowBillingReadIsA503AndLeavesItsTicketUnconsumed`,
+>    `TestTenantBilling_ThePhaseTwoTransactionCarriesItsOwnTimeBound`,
+>    `TestTenantBilling_TheStatementSpellsTheReadTimeout`,
+>    `TestTenantBilling_AConnectionThatCannotOpenATransactionIsRefusedBeforePhaseOne`,
+>    `TestBillingRead_TheBoundFiresBeforeTheRequestDeadline`.
+> 4. Ekran ✓ — `TestBillingScreen_EveryStateSaysItsWordAndNoVerdict`,
+>    `TestBilling_AFrozenMonthAndALiveMonthDoNotRenderAlike`, `TestBillingScreen_SaysTheCountIsAFloor`,
+>    `TestBillingScreen_OffersNoItemisationAnywhere`, `TestBillingScreen_NamesTheTenantAndEscapesWhatItNamed`,
+>    `TestBillingScreen_TimesAreTheMonthsOwnZone`, `TestBillingScreen_PagesAreFiveOfTwelve`,
+>    `TestBillingScreen_WearsTheDocketAnatomy`, `TestBillingScreen_TheBoundaryRefusesBeforeTheStore`,
+>    `TestBillingScreen_ReadsNothingFromTheURL`.
+> 5. Sızıntı sözleşmesi ✓ — `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` (A78–A90;
+>    hasat `TenantBilling` 8 × 1, `TouchOperatorSession` 208 → 220; G8 oturum hash'i hiçbir yüzeyde
+>    yok).
+> 6. Başlık sınıfları ✓ — `TestOperatorHeaders_TheBillingClassesCarryThePolicy` (C122–C141: GET 200 ·
+>    çerezsiz 303 · ölü çerez 303 · same-site okuma 303 · bozuk id 404 · bilinmeyen 404 · store
+>    hatası 503 · zaman aşımı 503 · okumanın reddedilen oturumu 303 · okuma bütçesi 429 · POST sayfa 2
+>    200 · POST çerezsiz 303 · çapraz-origin POST 403 (store 0) · 413 · okunamayan form 400 · sayfa
+>    reddi 400 · POST bozuk id 404 · POST store hatası 503 · POST okuma bütçesi 429 · PUT 405), diğer
+>    host 404 — `TestHostGate_OperatorRoutesAnswerTheRoutersOwn404OnEveryOtherHost` (yollara
+>    `…/billing`); `TestOperatorHeaders_TheWalkedRoutesEachHaveAClass` (11 rota / 18 çift / C1–C141).
+> 7. Bütçe ✓ — yukarıda. Kontrast ✓ — `TestBillingScreen_TheChipsAndTextClearAA`,
+>    `TestBillingScreen_EachChipHasTheRuleTheContrastTestComputes`. Genel bakış linki ✓ —
+>    `TestOperatorScreens_EveryActionAndLinkIsAMountedRoute`'un KONTROL'ü ve E2E'nin 1. adımı.
+>
+> **Pin değişiklikleri ve gerekçeleri (hiçbiri daraltılmadı):**
+> - `TestSurface_TheScreensOfLaterTasksAreNotMounted`: `/operator/tenants/{id}/billing` çıktı
+>   (monte edildi); yerine `…/billing/`, `…/billing/2026-09`, `…/billing.csv` — yine
+>   yönlendiricinin kendi 404 baytları; `/operator/billing` kaldı.
+> - `TestOperatorScreens_EveryOneWearsTheOperatorChrome` 30/21 → 34/25;
+>   `TestOperatorScreens_EveryActionAndLinkIsAMountedRoute` 34 render + fatura KONTROL'ü;
+>   `TestOperatorPages_TheExportedScreensAreTheOnesScreensRenders` on bir → on iki.
+> - `TestOperatorHeaders_TheWalkedRoutesEachHaveAClass` 10/16 → 11/18; `classCount` 121 → 141;
+>   `routeOf` ve `hostileDrive` `…/billing`'i tanır (URL'deki `page` düşmanca sorguda zaten vardı).
+> - `TestHostGate_OperatorRoutesAnswerTheRoutersOwn404OnEveryOtherHost` yollarına `…/billing`.
+> - `TestSurface_NewRefusesWhatAConfiguredSurfaceNeeds` *"no billing store"* kolu.
+> - `TestFormValues_TheListedSitesAloneRevealOrReadTheForm` FV5: `pageTenantBilling`'de
+>   `.Get("page")` bir kez.
+> - `TestOperatorSQL_OnlyBoundParameters` 15 → 16 sabit ve çağrı (yeni `SET LOCAL`; tırnaksız).
+> - `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`: A78–A90, hasat.
+> - `TestOperatorDB_*` üçlüsü, wiring pini (devir 1).
+>
+> **Güvenlik iddiası** ADR 0021 → "OP-12 B fazı eki" sonunda üç parçalı (tehdit modeli cümlesi,
+> PART I ölçen testler, PART II pinler, PART III tek cümle).
+>
+> **Mutasyonlar** — betik `scratchpad/op12b/verify_round1.py` (yalnız yolunda `op12b-orch` geçen,
+> kaynak/worktree/depoyla örtüşmeyen, `.git`'siz kopya; kopyada `app.css` ana depo `.tools/tailwindcss`'i
+> ile derlenir; TABAN önce — yedi seçimin yedisi yeşil olmalı; her çapa tam bir kez (`--check-anchors`:
+> 49/49); `.templ` mutasyonunda `templ generate -f`; mutasyonlanan paketlerde `go vet` — derlenmeyen
+> BUILD-FAILED, kırmızı sayılmaz; her dosya bayt bayt geri yazılır ve sha256 ile doğrulanır; `.env` yalnız
+> `set -a; . …; set +a` ile çocuk kabukta; seçimler: operator paketinin tamamı veritabanısız, iki
+> PostgreSQL E2E'si, `internal/db`'nin süre sınırı testleri (PostgreSQL) ve bağlı parametre pini, havuzun iki
+> pini, wiring pini). **Üç koşu:** **1a** (`op12b-orch/tree`, dev DB goose 32): TABAN 7/7 yeşil; K1–BU2 ve
+> T1 — 28 tanım — geçerli; BU3'ten sonra **disk doldu** (makinenin diski %100; `~/Library/Caches/go-build`
+> 181 GB — bu görevin değil) ve sonrakiler `no space left on device` ile BUILD-FAILED/SKIPPED oldu, son
+> geri yazma `OSError` ile durdu (kopya atıldı; worktree'ye dokunulmadı). **1b** (`op12b-orch/tree2`,
+> worktree'nin son kod ağacından taze kopya; dev DB **goose 33** — OP-14 D'nin 00033'ü arada uygulandı):
+> TABAN 7/7 yeşil; diskin kestiği 21 tanım yeniden; ikisi (X1, X3) **tanım hatasıyla** derlenmedi
+> (kullanılmayan değişken). **1c** (aynı kopya): X1 ve X3 derlenen tanımlarıyla. Her geri yazma sha256 eşit
+> (1a: 43/43 — disk hatasındaki son hariç; 1b: 21/21; 1c: 2/2). **Sonuç: 49 tanım, 49 KIRMIZI, 0 YEŞİL;
+> nihai tabloda BUILD-FAILED 0.** Kategoriler: kapı K1–K3 · €0,00 Z1–Z4 · float F1–F3 · dört sözcük
+> W1–W5 · dondurulmuş/canlı D1–D4 · taban FL1–FL3 · `bdi`/kaçış/banner E1–E3 · bütçe BU1–BU3 ·
+> `statement_timeout` T1–T5 · URL'den sayfa U1–U4 · 404/303/503 R1–R4 · çapraz test (tutar sapması)
+> X1–X4 · konsol/genel bakış linki L1–L2 · wiring/havuz P1–P2. Kayıtlar `run_round1a.txt`,
+> `run_round1b.txt`, `run_round1c.txt`; birleşik tablo `combine.py`. Notlar: X2 ve X4 yalnız E2E çapraz
+> testte kırmızı (birim testleri o alanı ayrı ölçmez — tel E2E'dir); FL3 birimde kırmızı, E2E'de yeşil
+> (fikstürün her canlı ayı zaten bir çelişen kayıt taşır).
+>
+> | # | Mutasyon | Koşu | Sonuç (kırmızıya çeviren testler; seçim) |
+> |---|---|---|---|
+> | K1 | the billing routes are not mounted | 1a | KIRMIZI — paket, veritabanısız: `TestBillingBudget_EachViewIsOneReadOfTheSessionsSharedBudget`, `TestBillingScreen_AFailedReadIsAProblemPageNeverAZeroInvoice`, `TestBillingScreen_EveryStateSaysItsWordAndNoVerdict`, `TestBillingScreen_NamesTheTenantAndEscapesWhatItNamed`, `TestBillingScreen_OffersNoItemisationAnywhere`, `TestBillingScreen_PagesAreFiveOfTwelve`, `TestBillingScreen_ReadsNothingFromTheURL`, `TestBillingScreen_SaysTheCountIsAFloor`, `TestBillingScreen_TheBoundaryRefusesBeforeTheStore`, `TestBillingScreen_TimesAreTheMonthsOwnZone`, `TestBillingScreen_WearsTheDocketAnatomy`, `TestBilling_AFrozenMonthAndALiveMonthDoNotRenderAlike`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestOperatorHeaders_TheBillingClassesCarryThePolicy`, `TestOperatorHeaders_TheWalkedRoutesEachHaveAClass`, `TestSurface_ThePrefixIsTheRoutersPrefix` |
+> | K2 | the billing routes are mounted in the sign-in group (no requireOperator, no sessionGate) | 1a | KIRMIZI — paket, veritabanısız: `TestBillingBudget_EachViewIsOneReadOfTheSessionsSharedBudget`, `TestBillingScreen_AFailedReadIsAProblemPageNeverAZeroInvoice`, `TestBillingScreen_EveryStateSaysItsWordAndNoVerdict`, `TestBillingScreen_NamesTheTenantAndEscapesWhatItNamed`, `TestBillingScreen_OffersNoItemisationAnywhere`, `TestBillingScreen_PagesAreFiveOfTwelve`, `TestBillingScreen_ReadsNothingFromTheURL`, `TestBillingScreen_SaysTheCountIsAFloor`, `TestBillingScreen_TheBoundaryRefusesBeforeTheStore`, `TestBillingScreen_TimesAreTheMonthsOwnZone`, `TestBillingScreen_WearsTheDocketAnatomy`, `TestBilling_AFrozenMonthAndALiveMonthDoNotRenderAlike`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestOperatorHeaders_TheBillingClassesCarryThePolicy` |
+> | K3 | a malformed id reaches the store (uuid.Parse in place of tenantID on the GET) | 1a | KIRMIZI — paket, veritabanısız: `TestBillingBudget_EachViewIsOneReadOfTheSessionsSharedBudget`, `TestBillingScreen_TheBoundaryRefusesBeforeTheStore`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestOperatorHeaders_TheBillingClassesCarryThePolicy` |
+> | Z1 | a failed read renders the screen with no month instead of the 503 page | 1a | KIRMIZI — paket, veritabanısız: `TestBillingScreen_AFailedReadIsAProblemPageNeverAZeroInvoice`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestOperatorHeaders_TheBillingClassesCarryThePolicy` |
+> | Z2 | an unreadable amount is drawn as a zero | 1a | KIRMIZI — paket, veritabanısız: `TestBillingScreen_EveryStateSaysItsWordAndNoVerdict` |
+> | Z3 | a month before sign-up draws zero figures | 1a | KIRMIZI — paket, veritabanısız: `TestBillingScreen_EveryStateSaysItsWordAndNoVerdict` · E2E (PostgreSQL): `TestE2E_BillingScreenIsTheTenantsOwnFigureMonthByMonth` |
+> | Z4 | an answer that is not the page asked for is rendered (the shape check dropped) | 1a | KIRMIZI — paket, veritabanısız: `TestBillingScreen_AFailedReadIsAProblemPageNeverAZeroInvoice`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` |
+> | F1 | moneyText goes through Float64Value | 1a | KIRMIZI — paket, veritabanısız: `TestBillingMoney_OneBridgeAndNoFloat`, `TestBillingMoney_PutsTheSymbolInTheRenderLayer`, `TestBillingScreen_EveryStateSaysItsWordAndNoVerdict` |
+> | F2 | the amount is multiplied in Go (count x price) | 1a | KIRMIZI — paket, veritabanısız: `TestBillingMoney_OneBridgeAndNoFloat`, `TestBillingScreen_EveryStateSaysItsWordAndNoVerdict`, `TestBillingScreen_NamesTheTenantAndEscapesWhatItNamed` |
+> | F3 | the price's mantissa read directly (pgtype.Numeric.Int) | 1a | KIRMIZI — paket, veritabanısız: `TestBillingMoney_OneBridgeAndNoFloat` |
+> | W1 | the unclosed word claims a verdict ("Overdue") | 1a | KIRMIZI — paket, veritabanısız: `TestBillingScreen_EveryStateSaysItsWordAndNoVerdict`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` |
+> | W2 | an ended month says it is running (HasEnded ignored) | 1a | KIRMIZI — paket, veritabanısız: `TestBillingScreen_EveryStateSaysItsWordAndNoVerdict`, `TestBilling_AFrozenMonthAndALiveMonthDoNotRenderAlike`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` · E2E (PostgreSQL): `TestE2E_BillingScreenIsTheTenantsOwnFigureMonthByMonth` |
+> | W3 | the before-sign-up word changed | 1a | KIRMIZI — paket, veritabanısız: `TestBillingScreen_EveryStateSaysItsWordAndNoVerdict`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` · E2E (PostgreSQL): `TestE2E_BillingScreenIsTheTenantsOwnFigureMonthByMonth` |
+> | W4 | the running word changed | 1a | KIRMIZI — paket, veritabanısız: `TestBillingScreen_EveryStateSaysItsWordAndNoVerdict` · E2E (PostgreSQL): `TestE2E_BillingScreenIsTheTenantsOwnFigureMonthByMonth` |
+> | W5 | a month before sign-up carrying a figure is drawn as before sign-up (fail-open) | 1a | KIRMIZI — paket, veritabanısız: `TestBillingScreen_EveryStateSaysItsWordAndNoVerdict` |
+> | D1 | a frozen month takes the running word and tone | 1a | KIRMIZI — paket, veritabanısız: `TestBillingScreen_EveryStateSaysItsWordAndNoVerdict`, `TestBilling_AFrozenMonthAndALiveMonthDoNotRenderAlike` · E2E (PostgreSQL): `TestE2E_BillingScreenIsTheTenantsOwnFigureMonthByMonth` |
+> | D2 | the frozen chip draws the running chip's class | 1a | KIRMIZI — paket, veritabanısız: `TestBillingScreen_EachChipHasTheRuleTheContrastTestComputes`, `TestBillingScreen_EveryStateSaysItsWordAndNoVerdict`, `TestBilling_AFrozenMonthAndALiveMonthDoNotRenderAlike` |
+> | D3 | a frozen month does not say when it was closed | 1a | KIRMIZI — paket, veritabanısız: `TestBillingScreen_EveryStateSaysItsWordAndNoVerdict`, `TestBillingScreen_TimesAreTheMonthsOwnZone`, `TestBillingScreen_WearsTheDocketAnatomy`, `TestBilling_AFrozenMonthAndALiveMonthDoNotRenderAlike` · E2E (PostgreSQL): `TestE2E_BillingScreenIsTheTenantsOwnFigureMonthByMonth` |
+> | D4 | a live month does not carry its first charged month | 1a | KIRMIZI — paket, veritabanısız: `TestBillingScreen_EveryStateSaysItsWordAndNoVerdict`, `TestBillingScreen_WearsTheDocketAnatomy`, `TestBilling_AFrozenMonthAndALiveMonthDoNotRenderAlike` · E2E (PostgreSQL): `TestE2E_BillingScreenIsTheTenantsOwnFigureMonthByMonth` |
+> | FL1 | the floor is never said | 1a | KIRMIZI — paket, veritabanısız: `TestBillingScreen_SaysTheCountIsAFloor` · E2E (PostgreSQL): `TestE2E_BillingScreenIsTheTenantsOwnFigureMonthByMonth` |
+> | FL2 | the floor sentence loses "upper bound" | 1a | KIRMIZI — paket, veritabanısız: `TestBillingScreen_SaysTheCountIsAFloor` |
+> | FL3 | the floor is said with nothing to admit (n >= 0) | 1a | KIRMIZI — paket, veritabanısız: `TestBillingScreen_SaysTheCountIsAFloor` · E2E (PostgreSQL): YEŞİL |
+> | E1 | the screen is not a TenantScreen (no banner, no name in the title) | 1a | KIRMIZI — paket, veritabanısız: `TestBillingScreen_NamesTheTenantAndEscapesWhatItNamed` |
+> | E2 | the plan is written raw (templ.Raw) | 1a | KIRMIZI — paket, veritabanısız: `TestBillingScreen_NamesTheTenantAndEscapesWhatItNamed` |
+> | E3 | a tenant whose name shows nothing is named by that name (no placeholder) | 1a | KIRMIZI — paket, veritabanısız: `TestBillingScreen_NamesTheTenantAndEscapesWhatItNamed` |
+> | BU1 | a view does not charge the read budget (spendRead skipped) | 1a | KIRMIZI — paket, veritabanısız: `TestBillingBudget_EachViewIsOneReadOfTheSessionsSharedBudget`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestOperatorHeaders_TheBillingClassesCarryThePolicy` |
+> | BU2 | the read unit is charged before the form refusals | 1a | KIRMIZI — paket, veritabanısız: `TestBillingBudget_EachViewIsOneReadOfTheSessionsSharedBudget` |
+> | BU3 | a view charges the session budget's second unit instead of the read budget | 1b | KIRMIZI — paket, veritabanısız: `TestBillingBudget_EachViewIsOneReadOfTheSessionsSharedBudget`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestOperatorHeaders_TheBillingClassesCarryThePolicy` |
+> | T1 | the bound is a session SET (it outlives the read) | 1a | KIRMIZI — internal/db (PostgreSQL): `TestTenantBilling_ThePhaseTwoTransactionCarriesItsOwnTimeBound`, `TestTenantBilling_TheStatementSpellsTheReadTimeout` |
+> | T2 | phase two sets no bound | 1b | KIRMIZI — internal/db (PostgreSQL): `TestTenantBilling_ThePhaseTwoTransactionCarriesItsOwnTimeBound` · internal/db: `TestOperatorSQL_OnlyBoundParameters` · E2E (PostgreSQL): `TestE2E_ASlowBillingReadIsA503AndLeavesItsTicketUnconsumed` |
+> | T3 | the bound is past the request deadline (60 s, the Go value with it) | 1b | KIRMIZI — paket, veritabanısız: `TestBillingRead_TheBoundFiresBeforeTheRequestDeadline` · E2E (PostgreSQL): `TestE2E_ASlowBillingReadIsA503AndLeavesItsTicketUnconsumed` |
+> | T4 | the statement's number and the Go value disagree (5000 ms) | 1b | KIRMIZI — internal/db (PostgreSQL): `TestTenantBilling_ThePhaseTwoTransactionCarriesItsOwnTimeBound`, `TestTenantBilling_TheStatementSpellsTheReadTimeout` |
+> | T5 | the SET LOCAL is sent on the connection before the read's transaction opens (outside any transaction: no effect) | 1b | KIRMIZI — internal/db (PostgreSQL): `TestTenantBilling_ThePhaseTwoTransactionCarriesItsOwnTimeBound` · internal/db: YEŞİL |
+> | U1 | the POST reads the page through FormValue (the URL included) | 1b | KIRMIZI — paket, veritabanısız: `TestBillingScreen_ReadsNothingFromTheURL`, `TestFormValues_TheListedSitesAloneRevealOrReadTheForm` |
+> | U2 | the GET reads the page from the URL | 1b | KIRMIZI — paket, veritabanısız: `TestBillingScreen_ReadsNothingFromTheURL`, `TestFormValues_TheListedSitesAloneRevealOrReadTheForm`, `TestOperatorHeaders_TheBillingClassesCarryThePolicy` |
+> | U3 | billingPage's length guard removed (20 digits wrap a 64-bit int) | 1b | KIRMIZI — paket, veritabanısız: `TestBillingScreen_TheBoundaryRefusesBeforeTheStore` |
+> | U4 | page 6 accepted (the handler bound off by one) | 1b | KIRMIZI — paket, veritabanısız: `TestBillingBudget_EachViewIsOneReadOfTheSessionsSharedBudget`, `TestBillingScreen_TheBoundaryRefusesBeforeTheStore`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestOperatorHeaders_TheBillingClassesCarryThePolicy` |
+> | R1 | an id no tenant has answers 503, not 404 | 1b | KIRMIZI — paket, veritabanısız: `TestBillingScreen_AFailedReadIsAProblemPageNeverAZeroInvoice`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestOperatorHeaders_TheBillingClassesCarryThePolicy` |
+> | R2 | the read's refused session answers 503, not the sign-in | 1b | KIRMIZI — paket, veritabanısız: `TestBillingScreen_AFailedReadIsAProblemPageNeverAZeroInvoice`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestOperatorHeaders_TheBillingClassesCarryThePolicy` |
+> | R3 | the read's refused session answers 200 with an empty page | 1b | KIRMIZI — paket, veritabanısız: `TestBillingScreen_AFailedReadIsAProblemPageNeverAZeroInvoice`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestOperatorHeaders_TheBillingClassesCarryThePolicy` |
+> | R4 | the fault's log line carries the session hash | 1b | KIRMIZI — paket, veritabanısız: `TestBillingScreen_AFailedReadIsAProblemPageNeverAZeroInvoice`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` |
+> | X1 | the amount column shows the unit price | 1c | KIRMIZI — paket, veritabanısız: `TestBillingScreen_EveryStateSaysItsWordAndNoVerdict`, `TestBillingScreen_NamesTheTenantAndEscapesWhatItNamed`, `TestBilling_AFrozenMonthAndALiveMonthDoNotRenderAlike` · E2E (PostgreSQL): `TestE2E_BillingScreenIsTheTenantsOwnFigureMonthByMonth` |
+> | X2 | people counted shows the disagreeing records | 1b | KIRMIZI — E2E (PostgreSQL): `TestE2E_BillingScreenIsTheTenantsOwnFigureMonthByMonth` |
+> | X3 | the period printed in UTC, not the month's zone | 1c | KIRMIZI — paket, veritabanısız: `TestBillingScreen_TimesAreTheMonthsOwnZone`, `TestBilling_AFrozenMonthAndALiveMonthDoNotRenderAlike` · E2E (PostgreSQL): `TestE2E_BillingScreenIsTheTenantsOwnFigureMonthByMonth` |
+> | X4 | the free window is never said | 1b | KIRMIZI — paket, veritabanısız: YEŞİL · E2E (PostgreSQL): `TestE2E_BillingScreenIsTheTenantsOwnFigureMonthByMonth` |
+> | L1 | the overview's billing link removed | 1b | KIRMIZI — paket, veritabanısız: `TestOperatorScreens_EveryActionAndLinkIsAMountedRoute` · E2E (PostgreSQL): `TestE2E_BillingScreenIsTheTenantsOwnFigureMonthByMonth` |
+> | L2 | the billing screen's way back to the overview removed | 1b | KIRMIZI — paket, veritabanısız: `TestBillingScreen_OffersNoItemisationAnywhere`, `TestOperatorScreens_EveryActionAndLinkIsAMountedRoute` |
+> | P1 | the wiring hands the billing slot the pool under another name | 1b | KIRMIZI — cmd/tappa: `TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator` |
+> | P2 | *OperatorDB.TenantBilling does more than delegate (forces page 1) | 1b | KIRMIZI — internal/db: `TestOperatorDB_EveryMethodDelegatesVerbatim` |
+>
+> **Kaçış denemeleri** (her biri bir testte; sonuç parantezde): (E1) `GET …/billing?page=3` (store
+> sayfa 1 — URL testi) · (E2) URL'de sayfa, gövde boş `POST` (sayfa 1) · (E3) URL'de 3, gövdede 2
+> (sayfa 2) · (E4) on üç sayfa: `0`, `6`, `-1`, `+2`, `" 2"`, `"2 "`, `02`, `1.5`, `1e0`, `abc`, tam
+> genişlik iki, Arap-Hint iki, `18446744073709551617` (400, store 0) · (E5) 17 KiB gövde (413),
+> `page=%zz` (400) · (E6) bozuk id — tiresiz, büyük harfli — `GET` ve `POST` (404, store 0) · (E7)
+> `PUT` (405, store 0 — C141) · (E8) çapraz-origin `POST` (403, store 0 — C134) · (E9) same-site
+> `GET` (303 — C125) · (E10) ölü çerez (303 + çerez silinir — C124) · (E11) okuma bütçesi (429,
+> store 0 — C131, C140, A90) · (E12) tenant adında `<Bar>`, `&`, `"` ve sağdan-sola override; plan
+> `<script>x</script>`; para birimi kodu `<b>X` (kaçışlı; ad `bdi` içinde; `<script` 0) · (E13)
+> görünmez tenant adı (*"Unnamed tenant"* + id) · (E14) başka bir tenant'ın, başka bir sayfanın ya da
+> on bir ayın cevabı (503, rakam yok) · (E15) belgelenmemiş yedi şekil — rakamlı önce-kayıt ayı,
+> dondurulmuş ama önce-kayıt, para birimsiz dondurulmuş, ilk ücretli aysız canlı, eksik rakamlı
+> canlı, üç ondalıklı tutar, tarihsiz ay (*Unreadable*, rakam yok, log'lu) · (E16) PostgreSQL'de ölü
+> oturumlar — MFA'sız, iptal, 31 dk boşta — `GET` ve `POST` (303, satır 0 — E2E) · (E17) başka host
+> (yönlendiricinin 404'ü) · (E18) `/operator/billing`, `…/billing/`, `…/billing/2026-09`,
+> `…/billing.csv` (yönlendiricinin 404'ü) · (E19) 15 düşmanca başlık + düşmanca sorgu (`page=424242`
+> dahil; yansıma yok — C122–C141) · (E20) iki aşama arasında bileti kilitlenmiş yavaş okuma (503,
+> 57014, bilet tüketilmemiş — E2E) · (E21) `Begin`'i olmayan bağlantı (birinci aşamadan önce ret,
+> ifade 0).
+>
+> **Sayılı sınırlar (OP-12 B)** — ADR 0021 → "OP-12 B fazı eki", LB1–LB12. Öne çıkanlar: LB1 (15 sn
+> meşru dev bir okumayı da keser — L5/T95 düzelene dek), LB3 (yavaş okumanın bileti süresi dolana
+> dek tüketilmemiş; ham bilet atıldı), LB7 (canlı satırın NULL olmayan para birimi kullanılır —
+> tolerans), LB11 (E2E her koşuda bir fikstür tenant'ı commit eder), LB12 (`operatorauth` dış
+> testinin tip yorumu güncellenmedi).
+>
+> **Kalıcı test verisi (koşu başına, yapı gereği):** `TestE2E_BillingScreenIsTheTenantsOwnFigureMonthByMonth`
+> — 1 tenant (*"FAKE op12b E2E …"*), 1 lokasyon, 1 sahip hesabı (kullanılamaz parola), 5 çalışan, 2
+> `billing_periods` ve 2 `audit_log` satırı (append-only; billing paketinin testlerinin sınıfı, T81);
+> iki E2E de newLegalE2E'nin operatör hesabını (`op10b-…`, temizlikte `disabled`), oturumlarını
+> (temizlikte iptal) ve `read`/login/logout satırlarını bırakır; biletler temizlikte silinir.
+> `TestTenantBilling_ThePhaseTwoTransactionCarriesItsOwnTimeBound` 1–2 `read` satırı (A fazının
+> fikstürü; biletler temizlikte silinir).
+> **Ölçüm (kalıcı veri, dev, 2026-10-07, owner, salt-okuma `counts.sql`):** bu görevin bütün koşularından
+> sonra `FAKE op12b E2E …` adlı **22** tenant (her biri tam 2 `billing_periods`, 5 çalışan, 2 `audit_log`
+> satırı — koşu başına sabit), `tenant_billing` kapsamlı `read` satırı toplam 205, bilet 0 (tüketilmemiş
+> 0), `op10b-…` hesaplarının `disabled` olmayanı 0, iptal edilmemiş oturumu 0. 22 tenant'ın kaynağı:
+> geliştirme koşuları, iki TABAN ve E2E çapraz testi seçen 17 mutasyon koşusu.
+>
+> **Doğrulama — zincir** (worktree, taban `5a7b289`, 2026-10-07; son parmak izi `91e96aa5…`):
+> - `gofmt -s -l` boş; `go build ./...`, `go vet ./...` ve staticcheck (`GOTOOLCHAIN=go1.26.7`,
+>   `2025.1.1`) exit 0 ve çıktısız (ilk staticcheck `op12_test.go`'daki çıplak U+202E/U+200B/U+2060'ı ST1018
+>   ile yakaladı — kaçışa çevrildi, mutasyonlardan önce); `make gen` iki kez — parmak izi öncesi ve sonrası
+>   aynı; `./scripts/redline-check.sh` exit 0 (ilk koşu `op12_db_test.go`'da bir R7d a0-token satırı buldu —
+>   fikstürün kullanılamaz parola sabiti ve adres aynı satırdaydı; iki değişkene ayrıldı, davranış aynı);
+>   `go.mod`, `go.sum`, `sqlc.yaml`, `db/migrations`, `internal/store` HEAD'e karşı diff 0; korunan belgeler
+>   (`state.md`, `roadmap.md`, `backlog.md`, `open-questions.md`, `agent-brief.md`, `CLAUDE.md`,
+>   `m10-platform.md`) ve dokunulmaz dosyalar diff 0.
+> - `TestEveryNamedTestExists` bu kart worktree'siz kopyada `m10-platform.md`'nin "## 4. Akış B" başlığından
+>   önce eklenerek PASS (*"dangling citations: 60 live, 60 budgeted"*); `./internal/handler -run
+>   TestComments_` PASS.
+> - `.env`'li `-race -count=1 -v`:
+>   - `./internal/handler/operator` (worktree'siz kopya, `app.css` derlenmiş; dev DB **goose 33**) **126
+>     PASS, 1 FAIL** — `TestE2E_AuditWordsCoverEveryScopeAndSearchClassTheDatabaseReturns` (*"the audit
+>     kind CHECK names […, operator_created, …]"*): **00033'ün** yeni türleri, bu fazın değil (orkestratörün
+>     bildirimi); yeni 20 testin 20'si PASS; yavaş okuma 15,035 sn'de 503 · `./internal/operatorauth` 50 PASS
+>     (yamalı dış test dahil);
+>   - `./internal/db` (`-run` deseni brief'teki gibi: `Test`+`TenantBilling`, `Test`+`OpReadTenantBilling`,
+>     `Test`+`Operator` önekleri — alt çizgisiz önek kartta bitişik yazılmaz): goose 32'de **81 PASS,
+>     1 FAIL** (`TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain` — L9, bilinen); goose 33'te
+>     **76 PASS, 6 FAIL** — 00027 (L9) ve 00033'ün beş katalog/Down zinciri testi
+>     (`TestOperator00031_TheFunctionsAndTheirExactSignatures`, `TestOperator00031_DownGivesBack00030AndUpTakesItAgain`,
+>     `TestOperator00031_CallersTempTableIsNeverRead`, `TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree`,
+>     `TestOperator00032_DownGivesBack00031AndUpTakesItAgain`); bütün `TestTenantBilling_*` ve
+>     `TestOpReadTenantBilling_*` iki sürümde de PASS;
+>   - `./internal/domain/billing` 30 PASS; `./cmd/tappa` (`Test`+`Operator`, `Test`+`Surface` önekleri) 3 PASS
+>     (worktree);
+>   - DATA RACE 0.
+> - Mutasyon koşuları (yukarıda) worktree'siz kopyalarda: 49/49 KIRMIZI.
+>
+> **Devirler:**
+> 1. **Orkestratöre — birleştirme:** `internal/operatorauth/surface_external_test.go` (iki parça: sahte
+>    `TenantBilling` + `operator.New`'in yeni argümanı; betik `scratchpad/op12b/operatorauth_patch.py`) ve
+>    `internal/handler/operator/leak_test.go`'nun `harvestWant`'ı (`TenantBilling` 8 × 1;
+>    `TouchOperatorSession` 208 → 220) — paralel OP-14 C ikisine de dokunuyor.
+> 2. **T98 (backlog'a orkestratör yazar):** öteki okuma ekranları (yasal metinler, tenant listesi/arama,
+>    genel bakış, plaketler, audit) hâlâ süre sınırsız; kalıp burada: ikinci aşama kendi işleminde,
+>    `SET LOCAL statement_timeout`, aşınca 503.
+> 3. **T95 (L5):** yardımcıların satır içine alınmaması; LB1'in (15 sn meşru okumayı keser) çaresi.
+> 4. **OP-K12 / OP-17:** plan geçmişi ya da kapama kuralı aritmetiği değiştirirse A'nın çapraz testi ve
+>    bu fazın E2E'si aynı değişiklikte değişir (tel).
+> 5. **K12-1 (b)** platform geneli fatura listesi: ayrı kart; `/operator/billing` 404 listesinde kalır.
+> 6. **OP-15 (askı):** ekran askı bilgisi göstermez.
+> 7. **00033 (OP-14 D):** `op_begin_read`'i yeniden tanımlıyor; `tenant_billing` dalı onun Up gövdesinde
+>    korunmalı — bu fazın E2E'leri ve `internal/db` süre sınırı testi goose 33'te yeşil (yukarıda).
+> 8. **Disk:** makinenin diski bu görev sırasında doldu (`~/Library/Caches/go-build` 181 GB); paralel
+>    ajanların derlemeleri de etkilenir.
+>
+> **2. tur (2026-10-07) — üçüncü gözün ONAY'ı ve altı DÜŞÜK bulgusu.** Yalnız test, metin ve yorum:
+> ürün davranışı, migration, DDL, bağımlılık değişmedi (`billing.go`'da yalnız bir yorum).
+> 1. **Hüküm sözcüğü bekçisi (MZ10).** Tam sözcük listesi *"… is owed."*'u geçiriyordu. Artık küçük
+>    harfe çevrilmiş metinde on kalıp — `\bow(e|ed|es|ing)\b`, `\bdue\b`, `\b(un)?settled\b`,
+>    `\bpa(y|ys|id|yment|yments|yable)\b`, `\boverdue\b`, `\bunpaid\b`, `\bdebts?\b`,
+>    `\boutstanding\b`, `\blate\b`, `\barrears\b` — iki sayfada (on iki durum, tuhaf şekiller) **ve**
+>    ekranın üç problem sayfasında (sayfa reddi, 17 KiB form, başarısız okuma; her biri başlığıyla
+>    PREMISE) aranır; her kalıbın bir KONTROL ifadesi var (boşalan ya da yanlış yazılan kalıp
+>    kırmızı). **Önce ölçüldü: gönderilen metinde sıfır eşleşme** — yanlış pozitif yok, gevşetilen
+>    kalıp yok (*charge/charged* hüküm sayılmadı: kaydın kendi sözcüğü, *First charged month*).
+>    `TestBillingScreen_EveryStateSaysItsWordAndNoVerdict`.
+> 2. **44 px (MZ9).** İki geri dönüş linkinin (*Back to the overview*, *Back to the tenants*)
+>    `op-link` sınıfı tam markup'ıyla pinlendi — `TestBillingScreen_WearsTheDocketAnatomy`.
+> 3. **Çipin sözcük rengi (MZ8).** Kaynak: `TestBillingScreen_EachChipHasTheRuleTheContrastTestComputes`
+>    ton kuralının **yalnız** zemin + çerçeve uygulamasını ister; yeni
+>    `TestTallyRules_NoToneRuleColoursTheWord` (CI'da koşar) `input.css`'in bütün çiplerinde —
+>    OP-13'ün plaket tonları dahil — ton kuralının yalnız `border-`/`bg-`, tek taban kuralının
+>    `text-ink` uyguladığını ve `.tally`'yi başka biçimde adlandıran kural olmadığını okur (KONTROL:
+>    `text-saffron` eklenmiş kopya bulgu verir). Derlenmiş: yeni `TestCompiledCSS_TallyWordIsInkOnEveryChip`
+>    (`TestCompiledCSS_StampWordIsInk` emsali) — ton kuralı `color`/`--tw-text-opacity`/`opacity`
+>    bildirmez, taban ink'tir; `app.css` olmayan CI'da **atlar** (atlama geçme değildir).
+> 4. **Sayfalayıcı porcelain üstünde.** `TestBillingScreen_TheChipsAndTextClearAA`'ya
+>    *tappa-green on porcelain* durumu eklendi: **6,85:1** (≥ 4,5); yorum ve ADR md. 9 düzeltildi
+>    (*"paper üstünde"* yalnız giriş kartındaki geri dönüş linkleri için doğru, 7,73).
+> 5. **Para pini (MZ2, MZ3).** `TestBillingMoney_OneBridgeAndNoFloat`: NF4'e `billing.go`'da `math/big`
+>    içe aktarımı ve paketin her yerinde `big.Float`/`big.Rat` (tip ya da `Float`/`Rat`/`NewFloat`/
+>    `NewRat`/`ParseFloat` adı); NF5'e `/`, `%`, `/=`, `%=`; yeni NF6 veri akışı (AST + tipler):
+>    `BillingRow.Amount`/`.UnitPrice` pakette birer kez, `billingRowOf`'un anahtarlı literal'inde,
+>    değeri tek tanımı `x, err := moneyText(m.AmountDue|m.UnitPrice, …)` olan, başka kullanılmayan,
+>    adresi alınmayan, yeniden atanmayan yerel değişken; her `BillingRow` literal'i anahtarlı.
+>    Pin yorumunda tehdit modeli (`operatorplaques_test.go`'nun emsali): *kazara sapma; tipli okumayı
+>    bilerek atlatan kod kod incelemesinin*. Kart md. 5, ADR md. 5 ve `billing.go`'nun paket yorumu
+>    pinin tuttuğuna daraltıldı.
+> 6. **E2E ay dönümü yarışı.** Satırlar ekranın kendi cari ayına hizalanır: ilk satır (sayfa 2'de
+>    +12) `fx.cur` ya da — ay döndüyse — `fx.cur+1`; başkası `Fatalf`, sayfalar arasında geri gitmez;
+>    cari ay öncülü de hizalı aya bakar. Dürüst kurulum: bir ay geride kurulan fikstür (dönüşün
+>    simülasyonu) hizalı testte YEŞİL (KONTROL) ve 1. turun karşılaştırmasıyla KIRMIZI (bulgu
+>    yeniden üretildi); iki ay geride KIRMIZI; ay etiketlerini bir ay kaydıran ürün mutasyonu
+>    KIRMIZI (hizalama onu bir dönüş sanar; ay ay `Book.Period` karşılaştırması yakalar).
+>
+> **2. tur mutasyonları** — betik `scratchpad/op12b/verify_round2.py` (motoru `verify_round1.py`'ninki:
+> aynı `prepare` korumaları; **tek kopya** `op12b-orch/tree2`, `make_copy.sh` ile worktree'den taze;
+> TABAN önce; her çapa tam bir kez — `--check-anchors` 11/11; `input.css` mutasyonunda kopyanın
+> `app.css`'i yeniden derlenir ve o da sha256 ile geri yazılır; derlenmeyen BUILD-FAILED ayrı;
+> worktree'ye mutasyon yok). MZ2, MZ3, MZ8, MZ9, MZ10 üçüncü gözün tanımları, çapalarıyla birebir.
+> | # | Mutasyon | Beklenen | Sonuç | Düşen testler (seçim başına) | İlk bulgu |
+> |---|---|---|---|---|---|
+> | MZ2 | moneyText formats EUR through a math/big.Float quotient (no float64 type, no *) | RED | **RED** | operator (paket): **RED** `TestBillingMoney_OneBridgeAndNoFloat` · operator -run ^TestBillingMoney_OneBridgeAndNoFloat$: **RED** `TestBillingMoney_OneBridgeAndNoFloat` · operator -run ^TestE2E_BillingScreenIsTheTenantsOwnFigureMonthByMonth$: **GREEN** — | `NF4 a big.Float or big.Rat at billing.go:340 in moneyText` |
+> | MZ2i | moneyText formats EUR by integer division and remainder of the minor units | RED | **RED** | operator (paket): **RED** `TestBillingMoney_OneBridgeAndNoFloat` · operator -run ^TestBillingMoney_OneBridgeAndNoFloat$: **RED** `TestBillingMoney_OneBridgeAndNoFloat` | `NF5 a % at billing.go:339 in moneyText` |
+> | MZ3 | the amount is re-summed in Go with Money.Add (count x unit price, free -> 0), no * token | RED | **RED** | operator (paket): **RED** `TestBillingMoney_OneBridgeAndNoFloat` · operator -run ^TestBillingMoney_OneBridgeAndNoFloat$: **RED** `TestBillingMoney_OneBridgeAndNoFloat` · operator -run ^TestE2E_BillingScreenIsTheTenantsOwnFigureMonthByMonth$: **GREEN** — | `NF6 BillingRow's Amount and UnitPrice written map[] time(s) as moneyText's reading, want once each` |
+> | MZ8 | CSS: the waiting tone's group also paints the word saffron (saffron on saffron-lite, 2.27:1) | RED | **RED** | operator (paket): **RED** `TestBillingScreen_EachChipHasTheRuleTheContrastTestComputes`, `TestCompiledCSS_TallyWordIsInkOnEveryChip`, `TestTallyRules_NoToneRuleColoursTheWord` · operator -run ^(TestTallyRules_NoToneRuleColoursTheWord\|TestBillingScreen_EachChipHasTheRuleTheContrastTestComputes)$: **RED** `TestBillingScreen_EachChipHasTheRuleTheContrastTestComputes`, `TestTallyRules_NoToneRuleColoursTheWord` · operator -run ^TestCompiledCSS_TallyWordIsInkOnEveryChip$: **RED** `TestCompiledCSS_TallyWordIsInkOnEveryChip` | `a rule naming a chip colours the word other than ink: .tally--invited,.tally--queued,.tally--unclosed,.tally--unencoded{--tw-border-opacity:1;border-c` |
+> | MZ8m | CSS: an OP-13 plaque tone (the rejection group) paints the word tomato | RED | **RED** | operator (paket): **RED** `TestCompiledCSS_TallyWordIsInkOnEveryChip`, `TestTallyRules_NoToneRuleColoursTheWord` · operator -run ^(TestTallyRules_NoToneRuleColoursTheWord\|TestBillingScreen_EachChipHasTheRuleTheContrastTestComputes)$: **RED** `TestTallyRules_NoToneRuleColoursTheWord` · operator -run ^TestCompiledCSS_TallyWordIsInkOnEveryChip$: **RED** `TestCompiledCSS_TallyWordIsInkOnEveryChip` | `a rule naming a chip colours the word other than ink: .tally--rejected,.tally--withdrawn{--tw-border-opacity:1;background-color:rgba(190,61,42,.1);bor` |
+> | MZ9 | templ: 'Back to the overview' loses op-link (no 44 px touch target) | RED | **RED** | operator (paket): **RED** `TestBillingScreen_WearsTheDocketAnatomy` · operator -run ^TestBillingScreen_WearsTheDocketAnatomy$: **RED** `TestBillingScreen_WearsTheDocketAnatomy` | `the screen does not carry <a href="/operator/tenants/f9a21562-fe81-4968-926b-e3221ed994f4" class="op-link">Back to the overview</a>` |
+> | MZ10 | templ: the intro paragraph claims a verdict ('... is owed') | RED | **RED** | operator (paket): **RED** `TestBillingScreen_EveryStateSaysItsWordAndNoVerdict` · operator -run ^TestBillingScreen_EveryStateSaysItsWordAndNoVerdict$: **RED** `TestBillingScreen_EveryStateSaysItsWordAndNoVerdict` | `the odd shapes' page carries the verdict word(s) ["owed"]` |
+> | MZ6a | the month labels shift one month later (billingRowOf): the alignment takes the first row for a month turn, the per-month comparison with Book.Period must still catch it | RED | **RED** | operator -run ^TestE2E_BillingScreenIsTheTenantsOwnFigureMonthByMonth$: **RED** `TestE2E_BillingScreenIsTheTenantsOwnFigureMonthByMonth` | `2026-11: Counted over is "2026-10-01 00:00 to 2026-11-01 00:00 Europe/Malta" on the screen and "2026-11-01 00:00 to 2026-12-01 00:00 Europe/Malta" on ` |
+> | MZ6b | the fixture's clock two months behind the read's (a gap no month turn makes) | RED | **RED** | operator -run ^TestE2E_BillingScreenIsTheTenantsOwnFigureMonthByMonth$: **RED** `TestE2E_BillingScreenIsTheTenantsOwnFigureMonthByMonth` | `page 1 opens with 2026-10: the current month is 2026-10, neither the fixture's 2026-08 nor (a month turning) the next` |
+> | MZ6c | CONTROL: the month turn simulated -- the fixture built as if in the month before the read's | GREEN | **GREEN** | operator -run ^TestE2E_BillingScreenIsTheTenantsOwnFigureMonthByMonth$: **GREEN** — | — |
+> | MZ6d | the same simulated turn against the 1st round's comparison (no alignment): the finding reproduced | RED | **RED** | operator -run ^TestE2E_BillingScreenIsTheTenantsOwnFigureMonthByMonth$: **RED** `TestE2E_BillingScreenIsTheTenantsOwnFigureMonthByMonth` | `page 1 row 1 is 2026-10, want 2026-09 (the tenant's own months, newest first)` |
+>
+> TABAN: ./internal/handler/operator GREEN · ^TestBillingMoney_OneBridgeAndNoFloat$ GREEN · ^TestE2E_BillingScreenIsTheTenantsOwnFigureMonthByMonth$ GREEN · ^(TestTallyRules_NoToneRuleColoursTheWord|TestBillingScreen_EachChipHasTheRuleTheContrastTestComputes)$ GREEN · ^TestCompiledCSS_TallyWordIsInkOnEveryChip$ GREEN · ^TestBillingScreen_WearsTheDocketAnatomy$ GREEN · ^TestBillingScreen_EveryStateSaysItsWordAndNoVerdict$ GREEN
+> Geri yazma: MZ2 sha256 equal (1 file(s)) · MZ2i sha256 equal (1 file(s)) · MZ3 sha256 equal (1 file(s)) · MZ8 sha256 equal (2 file(s)) · MZ8m sha256 equal (2 file(s)) · MZ9 sha256 equal (2 file(s)) · MZ10 sha256 equal (2 file(s)) · MZ6a sha256 equal (1 file(s)) · MZ6b sha256 equal (1 file(s)) · MZ6c sha256 equal (1 file(s)) · MZ6d sha256 equal (1 file(s))
+>
+> **Sonuç: 11 tanım — 10 KIRMIZI (beklenen), 1 YEŞİL (MZ6c, beklenen KONTROL); BUILD-FAILED 0,
+> NOT-APPLIED 0.** MZ2 ve MZ3 davranışça özdeştir (E2E YEŞİL kalır — üçüncü gözün ölçtüğü gibi);
+> onları kırmızıya çeviren yalnız yapısal pindir (NF4, NF6). MZ6a'da hizalama ilk satırı bir ay
+> dönümü sanar (log satırı) ve ay ay `Book.Period` karşılaştırması yakalar. Kayıt `run_round2.txt`,
+> `verify_round2.results.jsonl`. **1. turun etkilenen mutasyonları yeniden** (`verify_round1.py
+> --only W1,F1,F2,F3,X1,X2,X3,X4,FL1`, aynı kopya — sıkılaşan testler ve E2E'nin hizalaması onları
+> yeşile çevirmedi): TABAN 2/2 yeşil; **9/9 KIRMIZI** (F1 RED, F2 RED, F3 RED, W1 RED, FL1 RED, X1 RED, X2 RED, X3 RED, X4 RED); her geri yazma sha256 eşit; kayıt `run_round1d.txt`.
+>
+> **2. tur zinciri** (worktree; DB selections `op12b-orch/tree2` kopyasında, `app.css` derli):
+> - `gofmt -s -l` boş · `go build ./...` 0 · `go vet ./...` 0 · staticcheck 2025.1.1 (go1.26.7) 0;
+> - `make gen` iki kez: parmak izi değişmedi (idempotent); redline 0; `go.mod`/`go.sum`/`sqlc.yaml`/
+>   migration/`internal/store` farkı 0 satır; korunan belgeler ve dokunulmaz dosyalar farkı 0 satır;
+> - `.env` yüklü `-race`: `./internal/handler/operator` **128 PASS, 1 FAIL, 0 SKIP**, DATA RACE 0 — tek
+>   FAIL `TestE2E_AuditWordsCoverEveryScopeAndSearchClassTheDatabaseReturns` (OP-14 D'nin 00033'ü,
+>   bu görevin değil); fatura testlerinin hepsi, iki E2E ve yeni iki pin PASS
+>   (`TestCompiledCSS_TallyWordIsInkOnEveryChip` atlamadan koştu); `./internal/handler` (`-run` deseni
+>   brief'teki gibi: `Test`+`CompiledCSS` ve `Test`+`Brand` önekleri — önek kartta bitişik yazılmaz)
+>   **58 PASS, 0 FAIL**, DATA RACE 0;
+> - kart kopyada `m10-platform.md`'ye (`## 4. Akış B` başlığından önce) yerleştirilip `TestEveryNamedTestExists` **PASS** (sarkan atıf 60/60 bütçe) ve `TestComments_DoNotQuoteTheDriftingRosterSize` **PASS**; worktree'nin `m10-platform.md`'sine dokunulmadı.
+>
+> **2. tur parmak izi** (`(git diff; git ls-files --others --exclude-standard | sort | xargs cat) |
+> shasum -a 256`, HEAD `5a7b289`): `2f829e96025b0b5fcce7dba43dd1c479e6863f41120bf0b23709a2071da99c40`.
+>
+> **3. tur (2026-10-07) — güvenlik denetiminin ONAY'ı ve iki DÜŞÜK bulgusu; yalnız test, ürün kodu
+> ve yorumları aynen.** (1) Para pininin NF4/NF5'i adı `billing.go` olan dosyayı tarıyordu: dosya
+> yeniden adlandırılınca (S9) ya da `moneyText` float'la kendi dosyasına taşınınca (S9b) boş küme
+> üstünde yeşil geçiyordu. Artık `moneyText`, `billingRowOf` ve `readBilling`'i bildiren her dosya —
+> adı ne olursa olsun — taranır; üçünün bildirimi taramada yürünmemişse `Fatal`
+> (`TestBillingMoney_OneBridgeAndNoFloat`). (2) Birim fiyatın reddi sürülmüyordu (S8: hatayı düşüren
+> kod satırı boş fiyatla rakamlı basıyordu, yeşil); tuhaf şekillere üç ondalıklı birim fiyatlı canlı
+> bir ay eklendi — satır *Unreadable*, rakamsız, log satırı 14 → 16
+> (`TestBillingScreen_EveryStateSaysItsWordAndNoVerdict`). Mutasyonlar `scratchpad/op12b/verify_round3.py`
+> (tek kopya `op12b-orch/tree2`; TABAN 3/3 yeşil; çapalar 5/5 tam bir kez; yeniden adlandırılan ve
+> yaratılan dosya sonra silinip yokluğu doğrulanır, dokunulan dosya sha256 ile geri yazılır):
+> **S8 KIRMIZI** (*"odd row 5 is not drawn as unreadable"*) · **S9 KIRMIZI** (*"NF4 a float expression
+> at tenantbilling.go:339 in moneyText"*) · **S9b KIRMIZI** (*"… at money.go:23 in moneyText"*) ·
+> KONTROL **S8c KIRMIZI** (tutarın reddi düşük: *"odd row 4 …"*) · KONTROL **S9c KIRMIZI** (aynı float
+> `billing.go`'da). Kayıt `run_round3.txt`, `verify_round3.results.jsonl`. Zincir ve parmak izi: gofmt boş · build/vet 0 · staticcheck 2025.1.1 0 · `make gen` iki kez idempotent · redline 0 · bağımlılık/migration/store farkı 0 · `.env`'li `-race` `./internal/handler/operator` (`app.css`'li kopya) **128 PASS, 1 FAIL** (`TestE2E_AuditWordsCoverEveryScopeAndSearchClassTheDatabaseReturns`, 00033'ün), DATA RACE 0 · kart kopyada başlıktan önce eklenmişken `TestEveryNamedTestExists` PASS · parmak izi `fc1f9f0bd88d6a963a9243efc060a0b3c0a95a1d1261e66c7f1050893f2ece7e` (HEAD `5a7b289`).
+>
+> **Rebase (2026-10-07) — `8598de4`'e (OP-14 D), yalnız mekanik; davranış değişmedi.** Fark ve
+> izlenmeyen altı dosya kaydedildi (kayıt, eski parmak izi `fc1f9f0b…`'yi verdiği doğrulanarak),
+> dal `8598de4`'e alındı, fark `git apply -3` ile, izlenmeyenler sha256 doğrulamasıyla geri kondu.
+> Otuz bir dosyanın otuzu çakışmasız birleşti ve her birinde değişiklik öncekiyle aynı (`difflib`:
+> kaldırılan ve eklenen satırlar birebir). ADR 0021'deki üç çakışma `8598de4`'ün metnine yalnız
+> ekleme olarak çözüldü — `tip → merged` işlem kodları yalnız `equal` ve `insert`, eklenen 255
+> satır çıkarılınca bayt-aynı: Durum (5 satır, OP-14 D satırının ardında), OP-12 notunun L5 satırı
+> (1), *"OP-12 B fazı eki"* bütün olarak OP-12 notunun ardında ve *"OP-14 D uygulama notu"*nun
+> önünde (248), Sonuçlar'da OP-12 satırının ardında kendi satırı (1; önceden aynı satırı uzatıyordu
+> — `8598de4`'ün satırı bayt kaybetmesin diye ayrı satır oldu). `harvestWant` değişmedi: OP-14 D
+> `leak_test.go`'ya dokunmadı ve store çağrısı ekleyen bir kol eklemedi (`TenantBilling` 8 ×
+> 1; `TouchOperatorSession` 220). Zincir ve parmak izi: gofmt boş · build/vet 0 · staticcheck 2025.1.1 0 · `make gen` iki kez idempotent · redline 0 · bağımlılık/migration/store farkı 0 · `.env`'li `-race`: `./internal/handler/operator` (`app.css`'li kopya) **130 PASS, 0 FAIL** — `TestE2E_AuditWordsCoverEveryScopeAndSearchClassTheDatabaseReturns` bu uçta (dev DB 33 = ağaç 33) **yeşil**; `./internal/db` (brief'in deseni: `Test`+`TenantBilling`, `Test`+`OpReadTenantBilling`, `Test`+`Operator` önekleri) **87 PASS, 1 FAIL** — tek kırmızı L9 (`TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain`); `./internal/operatorauth` **50 PASS, 0 FAIL**; DATA RACE 0 · `verify_round3.py` yeniden temellenmiş kopyada: TABAN 3/3 yeşil, S8, S9, S9b ve KONTROL S8c, S9c **KIRMIZI** · kart kopyada başlıktan önce eklenmişken `TestEveryNamedTestExists` ve `TestComments_DoNotQuoteTheDriftingRosterSize` PASS · parmak izi `68060c789da96772d94e6fc5a26b18151239846eb5654ac6d19341dbaad68cdf` (HEAD `8598de4`).
+
 ## 4. Akış B — E-posta (AWS SES)
 
 ### Öneri: SES SMTP arayüzü + stdlib `net/smtp` (STARTTLS 587), `eu-central-1` — ✅ (sıfır yeni modül)

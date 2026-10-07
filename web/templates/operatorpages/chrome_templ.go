@@ -11,7 +11,8 @@ import templruntime "github.com/a-h/templ/runtime"
 import "github.com/atknatk/tappa/web/templates/layout"
 
 // THE OPERATOR CHROME (M10 OP-8). The exported screens of this package (OP-10 added
-// Legal, OP-11 Tenants and TenantOverview, OP-13 TenantPlaques, OP-14 AuditLog) render inside screen,
+// Legal, OP-11 Tenants and TenantOverview, OP-13 TenantPlaques, OP-14 AuditLog, OP-12
+// TenantBilling) render inside screen,
 // scriptedScreen or tenantScreen below, and each of the three draws bar first. Measured:
 // TestOperatorScreens_EveryOneWearsTheOperatorChrome renders the variants screens() makes
 // of them and looks for the "TAPTIME OPERATOR" lockup. A page that called the layout
@@ -115,7 +116,7 @@ func tenantBanner(name TenantName) templ.Component {
 			var templ_7745c5c3_Var3 string
 			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(unnamedTenant)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/chrome.templ`, Line: 58, Col: 76}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/chrome.templ`, Line: 59, Col: 76}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 			if templ_7745c5c3_Err != nil {
@@ -128,7 +129,7 @@ func tenantBanner(name TenantName) templ.Component {
 			var templ_7745c5c3_Var4 string
 			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(name.v)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/chrome.templ`, Line: 59, Col: 51}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/chrome.templ`, Line: 60, Col: 51}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 			if templ_7745c5c3_Err != nil {
@@ -146,7 +147,7 @@ func tenantBanner(name TenantName) templ.Component {
 			var templ_7745c5c3_Var5 string
 			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(name.v)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/chrome.templ`, Line: 61, Col: 74}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/chrome.templ`, Line: 62, Col: 74}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 			if templ_7745c5c3_Err != nil {

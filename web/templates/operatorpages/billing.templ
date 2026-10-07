@@ -1,0 +1,134 @@
+package operatorpages
+
+import "strconv"
+
+// TenantBilling is /operator/tenants/{id}/billing (M10 OP-12; ADR 0020 §4, §9): one tenant's
+// billing months, a page of twelve, newest first, inside TenantScreen -- the tenant's name in
+// the banner and the document title, and a tenant whose stored name shows nothing named by
+// its id.
+//
+// IT IS READ-ONLY, AND ITS MARKUP SAYS SO: the screen's own forms are the pager's, which
+// read another page, and the bar's sign-out. A month is closed by the business on its own
+// billing screen, never here; nothing here changes a figure, a price or a plan.
+//
+// EACH ROW IS ONE MONTH ON THE DOCKET and says its state IN WORDS, with a chip that repeats
+// it: frozen (closed by the business, every figure read from the frozen record), live with
+// the month running, ended and not closed by the business, before sign-up, or a row the
+// handler could not read. A frozen month and a live one never draw alike: another word,
+// another chip, another sentence and another fact (when it was closed, against the first
+// charged month of the live count). A month before sign-up and an unreadable one draw no
+// figure at all -- in particular no zero. Every figure and time is in the data face.
+//
+// NO PERSON IS LISTED: the read returns counts, the view has no field for a name, and no
+// row links anywhere. The page says so in a sentence.
+templ TenantBilling(v TenantBillingView) {
+	@TenantScreen("Billing", v.Name) {
+		<section class="op-card">
+			<p class="docket-label">Billing</p>
+			<h1 class="mt-1 font-display text-2xl font-bold tracking-tight">Billing months</h1>
+			<p class="mt-3 text-sm">
+				<span class="font-mono">{ strconv.Itoa(v.MonthsPerPage) }</span> of this tenant's own months per page, newest
+				first, each in the time zone it is counted in. These are the tenant's own figures: the arithmetic of its
+				billing screen, read when this page was opened.
+			</p>
+			<p class="mt-1 text-xs text-ink/70">
+				Nothing on this page closes, changes or charges a month. A count is all a month keeps: no person is
+				listed, here or anywhere a month links.
+			</p>
+			<p class="mt-2 flex flex-wrap gap-x-6">
+				<a href={ templ.URL(v.OverviewPath) } class="op-link">Back to the overview</a>
+				<a href="/operator/tenants" class="op-link">Back to the tenants</a>
+			</p>
+		</section>
+		<section class="docket" aria-labelledby="tenant-billing">
+			<h2 id="tenant-billing" class="docket-label">Newest first · page <span class="font-mono">{ strconv.Itoa(v.Page) }</span> of <span class="font-mono">{ strconv.Itoa(v.LastPage) }</span></h2>
+			<ol class="mt-2">
+				for _, r := range v.Rows {
+					@billingRow(r)
+				}
+			</ol>
+			if v.Page == v.LastPage {
+				<p class="mt-3 text-xs text-ink/70">
+					This is the oldest page this screen shows: <span class="font-mono">{ strconv.Itoa(v.LastPage*v.MonthsPerPage) }</span> months, the
+					tenant's own history depth.
+				</p>
+			}
+		</section>
+		@billingPager(v)
+	}
+}
+
+// billingRow is one month. Its facts are spans of their own, so they wrap on a phone.
+templ billingRow(r BillingRow) {
+	<li class="op-row">
+		<span class="font-mono font-bold">{ r.Month }</span>
+		@billingChip(r)
+		<span class="w-full text-sm">{ r.Sentence }</span>
+		if r.HasFigures {
+			<span class="text-sm">Plan <span class="font-mono">{ r.Plan }</span></span>
+			<span class="text-sm">People counted <span class="font-mono">{ r.People }</span></span>
+			<span class="text-sm">Price per person <span class="font-mono">{ r.UnitPrice }</span></span>
+			<span class="text-sm">Amount <span class="font-mono">{ r.Amount }</span></span>
+			if r.ClosedAt != "" {
+				<span class="text-sm">Closed <span class="font-mono">{ r.ClosedAt }</span></span>
+			}
+			if r.FirstCharged != "" {
+				<span class="text-sm">First charged month <span class="font-mono">{ r.FirstCharged }</span></span>
+			}
+			<span class="text-sm">Counted over <span class="font-mono">{ r.Period }</span></span>
+			if r.Free {
+				<span class="w-full text-sm">
+					Inside the founding offer's free window: the amount is zero because of the offer, not because nobody was
+					counted.
+				</span>
+			}
+			if r.Floor != "" {
+				<span class="w-full text-sm">
+					The count is a FLOOR: <span class="font-mono">{ r.Floor }</span> employee records of this business
+					disagree with their own dates and are never counted, so the real count may be higher. That number is an
+					upper bound on the effect, not the amount missing.
+				</span>
+			}
+		}
+	</li>
+}
+
+// billingChip is the month's chip: the word is the row's label, the frame and ground its
+// tone's. A tone this switch does not name -- the zero value included -- draws the
+// unreadable chip.
+templ billingChip(r BillingRow) {
+	switch r.Tone {
+		case BillingToneFrozen:
+			<span class="tally tally--frozen">{ r.Label }</span>
+		case BillingToneRunning:
+			<span class="tally tally--running">{ r.Label }</span>
+		case BillingToneUnclosed:
+			<span class="tally tally--unclosed">{ r.Label }</span>
+		case BillingToneBeforeSignup:
+			<span class="tally tally--before-signup">{ r.Label }</span>
+		default:
+			<span class="tally tally--unreadable">{ r.Label }</span>
+	}
+}
+
+// billingPager is the way to the newer and the older page -- each a form that posts the page
+// number to this screen; the URL carries none.
+templ billingPager(v TenantBillingView) {
+	if v.Page > 1 || v.Page < v.LastPage {
+		<nav class="flex flex-wrap items-center gap-x-6" aria-label="Pages of the billing months">
+			if v.Page > 1 {
+				@billingPageForm(v.BillingPath, v.Page-1, "Newer months")
+			}
+			if v.Page < v.LastPage {
+				@billingPageForm(v.BillingPath, v.Page+1, "Older months")
+			}
+		</nav>
+	}
+}
+
+templ billingPageForm(action string, page int, label string) {
+	<form method="post" action={ templ.URL(action) }>
+		<input type="hidden" name="page" value={ strconv.Itoa(page) }/>
+		<button type="submit" class="op-link">{ label }</button>
+	</form>
+}

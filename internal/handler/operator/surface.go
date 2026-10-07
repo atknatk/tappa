@@ -2,8 +2,8 @@
 // §3.6): the sign-in with its TOTP step, the enrollment, the sign-out and the console's
 // front page (OP-8), Taptime's legal texts (OP-10, legal.go), the tenant list, its search
 // and one tenant's overview (OP-11, tenants.go), one tenant's plaque inventory (OP-13,
-// plaques.go), the operator's own audit log (OP-14, audit.go), on the operator's own host,
-// and the two 503 states OP-7 shipped.
+// plaques.go), the operator's own audit log (OP-14, audit.go), one tenant's billing months
+// (OP-12, billing.go), on the operator's own host, and the two 503 states OP-7 shipped.
 //
 // 🔴 IT IS NOT internal/handler, AND THE PACKAGE BOUNDARY IS THE POINT. ADR 0021 §3.6:
 // the customer panel does not import the operator's packages. internal/handler is the
@@ -20,12 +20,12 @@
 // replaced op_begin_read, and 00031 op_record_auth_event; read from the five migrations).
 // So the routes are the sign-in, the TOTP step, the enrollment, the sign-out, /operator
 // itself, /operator/legal (OP-10), /operator/tenants with /operator/tenants/{id} (OP-11),
-// /operator/tenants/{id}/plaques (OP-13) and /operator/audit (OP-14). 00032 (OP-12's A
-// phase) added op_read_tenant_billing and replaced op_begin_read and op_read_audit once
-// more; no route here calls the billing definer. The billing screen of ADR 0020 §4 is not
-// registered (TestSurface_TheScreensOfLaterTasksAreNotMounted), and the renders of
-// screens() do not link to it (TestOperatorScreens_EveryActionAndLinkIsAMountedRoute); it
-// is OP-12's B phase.
+// /operator/tenants/{id}/plaques (OP-13), /operator/audit (OP-14) and
+// /operator/tenants/{id}/billing (OP-12's B phase: 00032 added op_read_tenant_billing and
+// replaced op_begin_read and op_read_audit once more). ADR 0020 §4's platform-wide
+// /operator/billing is not registered (the orchestrator's K12-1 (a):
+// TestSurface_TheScreensOfLaterTasksAreNotMounted drives it), and the renders of screens()
+// do not link to it (TestOperatorScreens_EveryActionAndLinkIsAMountedRoute).
 package operator
 
 import (
@@ -73,6 +73,9 @@ type Surface struct {
 	// auditStore is the audit screen's (audit.go): a page of the operator's own audit log,
 	// a two-phase read.
 	auditStore AuditStore
+	// billingStore is the billing screen's (billing.go): a page of one tenant's billing
+	// months, a two-phase read.
+	billingStore BillingStore
 	// host is TAPPA_OPERATOR_HOST, validated by internal/config: the host gate's
 	// comparison (httpx.OnHost).
 	host string
@@ -113,10 +116,10 @@ func Unavailable() *Surface { return &Surface{unavailable: true} }
 // New is the configured surface. It refuses the values a configured surface cannot do
 // without rather than degrade to Off silently: the Authenticator, the legal screen's
 // store and texts, the tenant screens' store, the plaque screen's store, the audit
-// screen's store, the operator host, a base URL it can take the operator origin's scheme
-// and port from, and a logger.
+// screen's store, the billing screen's store, the operator host, a base URL it can take the
+// operator origin's scheme and port from, and a logger.
 func New(auth *operatorauth.Authenticator, legalStore LegalStore, tenantStore TenantStore, plaqueStore PlaqueStore,
-	auditStore AuditStore, texts LegalTexts, host, baseURL string, log *slog.Logger) (*Surface, error) {
+	auditStore AuditStore, billingStore BillingStore, texts LegalTexts, host, baseURL string, log *slog.Logger) (*Surface, error) {
 	if auth == nil {
 		return nil, errors.New("operator: a configured surface needs its Authenticator")
 	}
@@ -132,6 +135,9 @@ func New(auth *operatorauth.Authenticator, legalStore LegalStore, tenantStore Te
 	if auditStore == nil {
 		return nil, errors.New("operator: a configured surface needs its audit store (the operator database)")
 	}
+	if billingStore == nil {
+		return nil, errors.New("operator: a configured surface needs its billing store (the operator database)")
+	}
 	if texts == nil {
 		return nil, errors.New("operator: a configured surface needs the legal texts' snapshot")
 	}
@@ -146,18 +152,19 @@ func New(auth *operatorauth.Authenticator, legalStore LegalStore, tenantStore Te
 		return nil, err
 	}
 	return &Surface{
-		auth:        auth,
-		legalStore:  legalStore,
-		texts:       texts,
-		tenantStore: tenantStore,
-		plaqueStore: plaqueStore,
-		auditStore:  auditStore,
-		host:        host,
-		origin:      origin,
-		log:         log,
-		sessions:    httpx.NewLimiter(sessionLimit, sessionPeriod),
-		reads:       httpx.NewLimiter(readLimit, readPeriod),
-		signOuts:    httpx.NewLimiter(signOutLimit, signOutPeriod),
+		auth:         auth,
+		legalStore:   legalStore,
+		texts:        texts,
+		tenantStore:  tenantStore,
+		plaqueStore:  plaqueStore,
+		auditStore:   auditStore,
+		billingStore: billingStore,
+		host:         host,
+		origin:       origin,
+		log:          log,
+		sessions:     httpx.NewLimiter(sessionLimit, sessionPeriod),
+		reads:        httpx.NewLimiter(readLimit, readPeriod),
+		signOuts:     httpx.NewLimiter(signOutLimit, signOutPeriod),
 		// limit 0: the window's first refusal is the first over the limit.
 		originRefusals: httpx.NewLimiter(0, originRefusalPeriod),
 	}, nil
@@ -294,6 +301,18 @@ const (
 	// and the session's 101st request is the gate's 429
 	// (TestAuditBudget_EachViewIsOneReadOfTheSessionsSharedBudget).
 	//
+	// OP-12 PHASE B ADDED A TENANT'S BILLING MONTHS, AND IT STANDS. A billing view is a read
+	// and its refusals are requests like the others', so the billing windows of readLimit's
+	// comment are, in requests:
+	//
+	//	a billing check     ~20 reads + ~5 console + ~3 refused                       ~28 -> 3.6
+	//	support + billing   ~40 reads + ~5 console + ~2 publications + ~3 refused      ~50 -> 2.0
+	//
+	// Measured on one session: 20 plaque views, 20 billing GETs and 20 billing POSTs are 60 x
+	// 200, the 61st billing view of either method is 429 from the read budget, and the
+	// session's 101st request is the gate's 429
+	// (TestBillingBudget_EachViewIsOneReadOfTheSessionsSharedBudget).
+	//
 	// WHAT THE TWO NUMBERS BOUND IN THE DATABASE. A read request is THREE definer
 	// transactions -- sessionGate's op_touch_session, op_begin_read and op_read_* (the leak
 	// test's harvest counts all three) -- so the requests the two budgets ADMIT in a window
@@ -306,8 +325,9 @@ const (
 
 	// readLimit: READS per operator SESSION (OP-11 phase B's hand-over, built in OP-13
 	// phase B) -- every request whose handler makes a two-phase op_* read: legalPage,
-	// listTenants (the list and every page of a search), tenantOverview, tenantPlaques and
-	// (OP-14) readAudit (the audit log's first page and every filter or page after it).
+	// listTenants (the list and every page of a search), tenantOverview, tenantPlaques,
+	// (OP-14) readAudit (the audit log's first page and every filter or page after it) and
+	// (OP-12) readBilling (a tenant's billing months, every page).
 	// The handler charges it ONCE, after the request's own refusals and before the store
 	// call (spendRead), so a malformed id, a refused term, page or form spends no read.
 	// Keyed on the session's id, like sessionLimit.
@@ -348,6 +368,24 @@ const (
 	// 1.58 headroom; OP-11's walk above stays the narrowest (1.33). Again an estimate, not a
 	// measurement of use. A stolen cookie's 60 reads may now be 60 pages of the log: at most
 	// 3 000 audit rows a window (60 pages of 50), each view itself one more 'read' row.
+	//
+	// OP-12 PHASE B ADDED A TENANT'S BILLING MONTHS AND KEPT THE NUMBER, with a third kind of
+	// window built on the card's line of ~10 billing views:
+	//
+	//	a support window (above)                                         ~30 reads
+	//	a billing check: ~10 billing views (a handful of tenants, a page
+	//	                 or two each) + their ~5 overviews + ~5 list or
+	//	                 search pages                                    ~20 reads
+	//	x 2 headroom over the larger                                     60
+	//
+	// A window that mixes them -- a support window that also opens the billing of each of its
+	// ~4 cases and pages back through ~6 more -- is ~40 reads, against which 60 is 1.5
+	// headroom (the audit mix above: 1.58; OP-11's walk stays the narrowest, 1.33). Again an
+	// estimate, not a measurement of use. A stolen cookie's 60 reads may now be 60 billing
+	// pages: at most 720 months of counts and amounts a window, each view one more 'read' row
+	// naming the tenant. A billing read is bounded in time as well (db.TenantBillingReadTimeout,
+	// 15 s), so 60 of them hold the database for at most 15 minutes of statement time a window
+	// -- on today's rosters, seconds.
 	//
 	// NO READ-THEN-WRITE WINDOW: Charge is one locked increment that returns the count, and
 	// the refusal is decided on the count it returned -- measured with 100 concurrent reads

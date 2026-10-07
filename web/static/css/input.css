@@ -408,15 +408,24 @@
      needs a person (the waiting tone -- incident A-1's shape among them), one in stock is
      neutral. No ground is new, so the contrast surface does not grow;
      TestPlaqueScreen_TheChipsAndTextClearAA computes each ground from the palette. */
+  /* M10 OP-12 adds a billing month's four states to the same groups: a month the business
+     closed is settled (the active tone -- the tenant's own screen stamps it in the same
+     green), one that ended and was not closed waits for a person to look (the waiting tone;
+     a fact, not a verdict), and a running month and one before sign-up are neutral. No
+     ground is new; TestBillingScreen_TheChipsAndTextClearAA computes each from the palette. */
   .tally--approved,
   .tally--active,
-  .tally--mounted  { @apply border-tappa-green bg-green-lite; }
+  .tally--mounted,
+  .tally--frozen  { @apply border-tappa-green bg-green-lite; }
   .tally--queued,
   .tally--invited,
-  .tally--unencoded { @apply border-saffron bg-saffron-lite; }
+  .tally--unencoded,
+  .tally--unclosed { @apply border-saffron bg-saffron-lite; }
   .tally--manual,
   .tally--deactivated,
-  .tally--stock { @apply border-line bg-line/10; }
+  .tally--stock,
+  .tally--running,
+  .tally--before-signup { @apply border-line bg-line/10; }
   /* M6-09: the LOCK tone, and it is the one chip on the product that is not a
      status. A guardrail is not a state a rule is in — it is structure, part of the
      product rather than a setting — and the policies screen has to make that
@@ -432,9 +441,11 @@
      the chip uses, and past 1.4.11's 3:1 for the frame, which the saffron and
      line chips do not reach and do not need to (the word carries the meaning). */
   /* M10 OP-13: a plaque whose stored state the inventory does not know is drawn in the
-     same ink tone -- it is no status, and it must not look like one of the four. */
+     same ink tone -- it is no status, and it must not look like one of the four. M10 OP-12:
+     so is a billing month the operator's screen could not read. */
   .tally--locked,
-  .tally--unrecognised { @apply border-ink bg-ink/10; }
+  .tally--unrecognised,
+  .tally--unreadable { @apply border-ink bg-ink/10; }
 
   /* --- the report row: a person's week inside a docket (M6-07) ---
      THESE EXIST FOR TWO REASONS AT ONCE, and the second one is measured. The brand
