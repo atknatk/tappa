@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -24,6 +25,10 @@ import (
 // definer still names the pending or disabled account as the target, ADR 0021 §1's
 // D3). The caller receives ErrRefused for all of them: ADR 0020 §3's "same answer,
 // same time".
+//
+// A RIGHT password writes ONE 'password_ok' row under its operator's own cap
+// (recordPasswordOK) BEFORE the challenge exists; a row that cannot be written is this
+// step's error, and no challenge is returned.
 //
 // addr is the client's rate key (OP-8 resolves it). It is used for the work budget and
 // is written nowhere: no row carries an address (ADR 0021 §1).
@@ -48,16 +53,25 @@ func (a *Authenticator) Password(ctx context.Context, addr, email, password stri
 		}
 		return Challenge{}, ErrRefused
 	}
+	// 🔴 THE TRAIL COMES BEFORE THE CHALLENGE (OP-14 phase C; ADR 0021, "OP-14 C fazı
+	// eki"). A right password whose second factor never completes is the "password known,
+	// device missing" signal; until OP-14 it was one process-log line (OP-6 12c), since
+	// 00031 it is a durable row. It is written HERE, after the comparison and before a
+	// challenge exists, because the challenge is what the caller turns into the cookie: a
+	// row written later -- at the code step, or after the cookie was set -- is missing
+	// exactly when the code step never comes, and a write that failed after the cookie
+	// would leave the code step without its trail. A row that cannot be written fails
+	// this step (fail-closed): no challenge, so no cookie, and the error carries nothing
+	// the request did. The price is that a database that refuses this write stops the
+	// sign-in here -- the next step's op_open_session writes too, so a database that
+	// cannot be written already stopped it there.
+	if err := a.recordPasswordOK(ctx, acc.ID); err != nil {
+		return Challenge{}, err
+	}
 	c, err := a.mintChallenge(acc.ID)
 	if err != nil {
 		return Challenge{}, err
 	}
-	// A right password whose second factor never completes left no trace (OP-6 12c, the
-	// security audit's LOW finding). One line, the operator's ID and nothing else -- an
-	// operator is named by id (ADR 0020 §5): no address, no email, nothing from the
-	// request. A durable 'password_ok' audit kind is a migration: OP-8 added none (the
-	// orchestrator's decision), so it is OP-14's.
-	a.log.Info("operator first factor verified; second factor pending", "operator_id", acc.ID.String())
 	return c, nil
 }
 
@@ -309,4 +323,105 @@ func (a *Authenticator) recordPasswordless(ctx context.Context, kind db.Operator
 		return fmt.Errorf("operatorauth: record a pre-session failure: %w", err)
 	}
 	return nil
+}
+
+// FirstFactorRecordGrace bounds the 'password_ok' write, which runs DETACHED from the
+// request (recordPasswordOK; OP-14 phase C, 2nd round).
+//
+// WHY DETACHED (the third eye's B1, measured through the real router over TCP and on
+// the real database): with the request's own context, a client that hangs up while the
+// comparison runs cancels r.Context(); the cap was charged, but pgxpool's Acquire
+// answered the done context at once and nothing was sent -- ten such requests spent an
+// operator's cap with ZERO rows, and the eleventh right password got 303, a challenge
+// and no row. The holder of the password could empty the window's trail. A right
+// password that was compared is a fact whether or not its client is still listening, so
+// its row is written on its own clock.
+//
+// 🔴 FIVE SECONDS, THE SAME AS encode.DefaultRepairGrace AND tenant.RefusalRecordGrace,
+// FOR THE SAME REASONS:
+//
+//	one INSERT through op_record_auth_event        milliseconds (dev, measured)
+//	+ a wait for a pooled connection under load     the rest
+//	floor: one round trip to Postgres with room     >= 1 s (a positive control)
+//	ceiling: it runs inside an in-flight request,   <= httpShutdownGrace (20 s), so
+//	  which Shutdown drains                          SIGTERM never cuts a trail short
+//
+// WithoutCancel drops the request's deadline (httpx.RequestTimeout, 30 s) with its
+// cancellation, so this is the ONLY bound: the password step lasts at most the lookup,
+// one cost-12 comparison and this. Exported only so cmd/tappa's shutdown-budget gate can
+// hold the nesting (TestShutdownBudget_TheFirstFactorRecordNestsInsideTheHTTPGrace).
+const FirstFactorRecordGrace = 5 * time.Second
+
+// errFirstFactorPending is the password step's refusal when the operator's cap is full
+// but its rows are not all WRITTEN -- writes still in flight, or about to fail and be given
+// back (OP-14 phase C, 3rd round, F1). It is no sentinel: the caller answers it as a
+// server failure (OP-8's handler: 503), and a person retries.
+var errFirstFactorPending = errors.New("operatorauth: the operator's first-factor rows are not written yet")
+
+// recordPasswordOK writes the 'password_ok' row of the operator whose right password
+// was just compared, under THAT OPERATOR's cap (limits.go, firstFactorLimit) -- never
+// under the process-wide audit cap, which password-less junk can fill. The account is
+// named by its id alone: the definer refuses an address for this kind (00031, 22023),
+// and no row carries one (ADR 0021 §1).
+//
+// THE CAP: the decision is what ONE take returns (one locked step). Past the cap the
+// request is served WITHOUT a row only if the window's rows WRITTEN have reached the cap
+// -- then the window's first such request is logged once (the kind, the operator's id
+// and the numbers, nothing from the request). If the count is past the cap but its rows
+// are NOT all written -- writes in flight, or writes that will fail and be given back
+// (3rd round, F1: ten in-flight writes that then failed left a challenge and zero rows)
+// -- the step FAILS CLOSED: the charge is given back and errFirstFactorPending returned.
+// So "a challenge without its row" exists only in a window that holds firstFactorLimit
+// written rows. Waiting for the writes in flight instead was weighed and not chosen: it
+// needs a condition per window and a bound on the wait, for a case a person meets only by
+// signing in more than firstFactorLimit times at once; a 503 costs them one retry.
+//
+// THE WRITE runs on a context detached from the request's cancellation, with its own
+// bound (FirstFactorRecordGrace): an abandoned request still leaves its row. A row
+// written is counted (wrote). If the write FAILS, the charge is GIVEN BACK (refund: the
+// same lock as every charge, this take's own window only, never below zero) and the error
+// is returned, never logged and dropped: the caller fails the step.
+//
+// EVERY FAIL-CLOSED REFUSAL names the operator once per window (refused; the 3rd round's
+// F4): the handler's ERROR line for the 503 names no operator, so without this line
+// nothing in the process log says whose sign-in a write outage stopped. An outage does
+// not by itself tell a right password from a wrong one (5th round, D5, narrowed from the
+// 3rd's wording; the closing audit's Q4 measured it): below the process-wide password-less
+// cap (auditCapLimit) a wrong one's login_failed write fails too and it gets the same
+// 503; only once that cap is spent is a wrong one answered 401 without its row while a
+// right one still gets the 503.
+func (a *Authenticator) recordPasswordOK(ctx context.Context, id uuid.UUID) error {
+	kind, key := db.OperatorPasswordOK, id.String()
+	n, written, window, firstOver := a.limits.firstFactor.take(key)
+	if n > firstFactorLimit {
+		if written >= firstFactorLimit {
+			if firstOver {
+				a.log.Warn("operator first-factor audit rows suppressed for this operator for the rest of the window",
+					"kind", string(kind), "operator_id", key, "cap", firstFactorLimit, "window", firstFactorPeriod.String())
+			}
+			return nil
+		}
+		a.limits.firstFactor.refund(key, window)
+		a.refused(kind, key, window)
+		return errFirstFactorPending
+	}
+	wctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), FirstFactorRecordGrace)
+	defer cancel()
+	if err := a.store.RecordOperatorAuthEvent(wctx, kind, "", id); err != nil {
+		a.limits.firstFactor.refund(key, window)
+		a.refused(kind, key, window)
+		return fmt.Errorf("operatorauth: record an accepted first factor: %w", err)
+	}
+	a.limits.firstFactor.wrote(window)
+	return nil
+}
+
+// refused is a fail-closed refusal's one line per window (budget.firstRefusal): the kind,
+// the operator's id and the numbers -- the suppression line's attributes. Never the
+// error's text, the address or anything the request carried.
+func (a *Authenticator) refused(kind db.OperatorAuthEvent, key string, window *budgetWindow) {
+	if a.limits.firstFactor.firstRefusal(window) {
+		a.log.Warn("operator first-factor audit row not written; this operator's sign-in step was refused",
+			"kind", string(kind), "operator_id", key, "cap", firstFactorLimit, "window", firstFactorPeriod.String())
+	}
 }

@@ -18,3 +18,13 @@ func CountWork(a *Authenticator) (comparisons, digests func() int64) {
 	a.digestFn = func(p string) (string, error) { d.Add(1); return dig(p) }
 	return c.Load, d.Load
 }
+
+// HoldComparisons runs before ahead of each of a's comparisons; the production comparer
+// still compares. It exists for surface_external_test.go's aborted-request test (OP-14
+// phase C, 2nd round): the client hangs up WHILE the comparison runs, and before is how
+// that test learns the comparison has started and holds it until net/http has cancelled
+// the request's context. Call it before the Authenticator serves a request.
+func HoldComparisons(a *Authenticator, before func()) {
+	cmp := a.compareFn
+	a.compareFn = func(h, p []byte) error { before(); return cmp(h, p) }
+}

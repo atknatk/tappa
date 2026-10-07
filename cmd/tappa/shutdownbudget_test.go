@@ -11,6 +11,7 @@ import (
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/encode"
 	"github.com/atknatk/tappa/internal/handler"
+	"github.com/atknatk/tappa/internal/operatorauth"
 )
 
 // TestShutdownBudget_TheTwoGoWaitsFitInsideTheKubernetesGrace binds three numbers
@@ -201,5 +202,26 @@ func TestShutdownBudget_ThePasswordNoticeNestsInsideTheHTTPGrace(t *testing.T) {
 	if handler.PasswordNoticeSendGrace < 2*time.Second || handler.PasswordNoticeRecordGrace < time.Second {
 		t.Errorf("the notice's budgets (%v to send, %v to record) are too short for one relay "+
 			"conversation and one INSERT", handler.PasswordNoticeSendGrace, handler.PasswordNoticeRecordGrace)
+	}
+}
+
+// TestShutdownBudget_TheFirstFactorRecordNestsInsideTheHTTPGrace binds the budget of the
+// operator sign-in's detached write (M10 OP-14 phase C, 2nd round): the 'password_ok'
+// row is written on a context detached from the request, so a client that hangs up
+// during the comparison cannot spend the cap without a row. It runs inside the password
+// step's request, so -- like the refusal record above -- it must FIT in the drain
+// Shutdown already waits for, not extend it; and it is one write, so the bound is the
+// budget itself.
+func TestShutdownBudget_TheFirstFactorRecordNestsInsideTheHTTPGrace(t *testing.T) {
+	if operatorauth.FirstFactorRecordGrace > httpShutdownGrace {
+		t.Fatalf("the detached 'password_ok' write can take %v (operatorauth.FirstFactorRecordGrace) but "+
+			"Shutdown only waits httpShutdownGrace (%v) for the request it runs inside; a trail the drain "+
+			"cuts off is the silent state the detach exists to prevent",
+			operatorauth.FirstFactorRecordGrace, httpShutdownGrace)
+	}
+	// POSITIVE CONTROL, as above: a budget too short for one INSERT would make the
+	// detach decorative.
+	if operatorauth.FirstFactorRecordGrace < time.Second {
+		t.Errorf("operatorauth.FirstFactorRecordGrace is %v, too short to complete one INSERT", operatorauth.FirstFactorRecordGrace)
 	}
 }

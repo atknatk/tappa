@@ -624,6 +624,7 @@ func TestBudgets_TheShippedNumbersArePinned(t *testing.T) {
 		"audit cap (process, password-less rows)":   {a.limits.auditCap, 30, 10 * time.Minute},
 		"enrollment (process, every bcrypt + seal)": {a.limits.enroll, 10, 10 * time.Minute},
 		"enrollment share (per address, 12c)":       {a.limits.enrollAddr, 3, 10 * time.Minute},
+		"first-factor trail (per operator, OP-14)":  {a.limits.firstFactor, 10, 10 * time.Minute},
 	} {
 		if c.b.limit != c.limit || c.b.period != c.period {
 			t.Errorf("%s: %d per %s, pinned %d per %s", name, c.b.limit, c.b.period, c.limit, c.period)
@@ -836,19 +837,20 @@ func TestBudget_AFullMapFailsOpenAndStaysBounded(t *testing.T) {
 // ------------------------------------------------------------------- audit rows --
 
 // auditRowViolations reads the package's own source and reports every write of a
-// pre-session audit row that does not respect the split the process-wide audit cap
-// rests on (limits.go, auditCapLimit): the three PASSWORD-LESS kinds (unknown_email,
-// login_failed, enrollment_failed) are written ONLY through recordPasswordless -- the
-// one place the cap is charged -- and the two kinds a password holder produces
-// (totp_failed, locked) ONLY directly, outside it (m10-platform.md, OP-6 md. 9). A
-// kind passed through a variable is resolved to every value the enclosing function
-// assigns it.
+// pre-session audit row that does not respect the split the two row ceilings rest on
+// (limits.go): the three PASSWORD-LESS kinds (unknown_email, login_failed,
+// enrollment_failed) are written ONLY through recordPasswordless -- the one place the
+// process-wide audit cap is charged; the two kinds a challenge holder produces
+// (totp_failed, locked) ONLY directly, outside it (m10-platform.md, OP-6 md. 9); and
+// 'password_ok' ONLY through recordPasswordOK -- the one place its operator's cap is
+// charged, never the shared one (OP-14 phase C, the card's C1). A kind passed through a
+// variable is resolved to every value the enclosing function assigns it.
 func auditRowViolations(fset *token.FileSet, files []*ast.File) []string {
 	passwordless := map[string]bool{"OperatorUnknownEmail": true, "OperatorLoginFailed": true, "OperatorEnrollmentFailed": true}
 	direct := map[string]bool{"OperatorTOTPFailed": true, "OperatorLocked": true}
 	var out []string
 	seen := map[string]int{}
-	capCalls := 0
+	capCalls, trailCalls, trailCallers := 0, 0, 0
 	// A METHOD VALUE escapes the call checks below (`rec := a.store.RecordOperatorAuthEvent;
 	// rec(...)` -- 4th audit, measured: a write of this shape stayed green). So every
 	// RecordOperatorAuthEvent selector that is not the Fun of a call is itself flagged.
@@ -945,11 +947,20 @@ func auditRowViolations(fset *token.FileSet, files []*ast.File) []string {
 					capCalls++
 					return true
 				}
+				if fn.name == "recordPasswordOK" {
+					trailCalls++
+					if k := kinds(call.Args[1]); len(k) != 1 || k[0] != "OperatorPasswordOK" {
+						out = append(out, fmt.Sprintf("%s: %s: the operator's capped writer writes %v, want the first-factor kind alone", pos, fn.name, k))
+					}
+					return true
+				}
 				for _, k := range kinds(call.Args[1]) {
 					if !direct[k] {
 						out = append(out, fmt.Sprintf("%s: %s: a %s row written straight to the store, around the audit cap", pos, fn.name, k))
 					}
 				}
+			case "recordPasswordOK":
+				trailCallers++
 			case "recordPasswordless":
 				for _, k := range kinds(call.Args[1]) {
 					seen[k]++
@@ -963,6 +974,9 @@ func auditRowViolations(fset *token.FileSet, files []*ast.File) []string {
 	}
 	if capCalls != 1 {
 		out = append(out, fmt.Sprintf("the capped writer calls the store %d time(s), want exactly once", capCalls))
+	}
+	if trailCalls != 1 || trailCallers == 0 {
+		out = append(out, fmt.Sprintf("the operator's capped writer calls the store %d time(s) and is called %d time(s); want once and at least once", trailCalls, trailCallers))
 	}
 	for k := range passwordless {
 		if seen[k] == 0 {
@@ -1010,11 +1024,14 @@ func parsePackage(t *testing.T, overrideFile, overrideSrc string) (*token.FileSe
 // straight to the store left the package green, because the behaviour test drove the
 // cap through the malformed-token arm only.
 //
-// The positive control applies five mutants to flow.go's text and requires the reader
+// The positive control applies eight mutants to flow.go's text and requires the reader
 // to flag each: an enrollment_failed row written around the cap, a totp_failed row
 // routed through it, the refused-code arm's variable kind assigned a password-less
-// value, the store's row writer taken as a method value and called through it, and the
-// row written around the cap from a package-level func literal.
+// value, the store's row writer taken as a method value and called through it, the row
+// written around the cap from a package-level func literal, and -- OP-14 phase C -- the
+// 'password_ok' row routed through the shared cap, written straight to the store, and
+// its writer made to write a password-less kind. (The behaviour half of the first is
+// TestPasswordOK_PasswordlessJunkCannotSilenceIt.)
 //
 // COUNTED LIMITS: (1) the read is by NAME -- a new Store method that writes audit rows
 // under another name is not seen; (2) a call through reflection is not seen; (3) a
@@ -1044,6 +1061,10 @@ func TestAuditRows_EveryPasswordlessKindGoesThroughTheCap(t *testing.T) {
 		// check instead -- measured: the walk reverted to function bodies stayed green).
 		"a package-level func literal around the cap": {"\tkey, err := a.openPending(id, b)\n\tif err != nil {\n\t\treturn Issued{}, a.enrollmentRefused(ctx, id, ErrEnrollment)\n\t}",
 			"\tkey, err := a.openPending(id, b)\n\tif err != nil {\n\t\tif rerr := recordAround(ctx, a, id); rerr != nil {\n\t\t\treturn Issued{}, rerr\n\t\t}\n\t\treturn Issued{}, ErrEnrollment\n\t}"},
+		// OP-14 phase C: 'password_ok' has its own writer and its own cap.
+		"password_ok through the shared cap":          {`a.recordPasswordOK(ctx, acc.ID)`, `a.recordPasswordless(ctx, db.OperatorPasswordOK, "", acc.ID)`},
+		"password_ok straight to the store":           {`a.recordPasswordOK(ctx, acc.ID)`, `a.store.RecordOperatorAuthEvent(ctx, db.OperatorPasswordOK, "", acc.ID)`},
+		"a password-less kind under the operator cap": {`kind, key := db.OperatorPasswordOK, id.String()`, `kind, key := db.OperatorLoginFailed, id.String()`},
 	} {
 		if strings.Count(string(orig), m[0]) != 1 {
 			t.Fatalf("POSITIVE CONTROL %q: the text to mutate is not in flow.go exactly once", name)

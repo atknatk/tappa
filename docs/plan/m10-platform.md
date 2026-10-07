@@ -9550,6 +9550,813 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 > `leak_test.go`'ya dokunmadı ve store çağrısı ekleyen bir kol eklemedi (`TenantBilling` 8 ×
 > 1; `TouchOperatorSession` 220). Zincir ve parmak izi: gofmt boş · build/vet 0 · staticcheck 2025.1.1 0 · `make gen` iki kez idempotent · redline 0 · bağımlılık/migration/store farkı 0 · `.env`'li `-race`: `./internal/handler/operator` (`app.css`'li kopya) **130 PASS, 0 FAIL** — `TestE2E_AuditWordsCoverEveryScopeAndSearchClassTheDatabaseReturns` bu uçta (dev DB 33 = ağaç 33) **yeşil**; `./internal/db` (brief'in deseni: `Test`+`TenantBilling`, `Test`+`OpReadTenantBilling`, `Test`+`Operator` önekleri) **87 PASS, 1 FAIL** — tek kırmızı L9 (`TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain`); `./internal/operatorauth` **50 PASS, 0 FAIL**; DATA RACE 0 · `verify_round3.py` yeniden temellenmiş kopyada: TABAN 3/3 yeşil, S8, S9, S9b ve KONTROL S8c, S9c **KIRMIZI** · kart kopyada başlıktan önce eklenmişken `TestEveryNamedTestExists` ve `TestComments_DoNotQuoteTheDriftingRosterSize` PASS · parmak izi `68060c789da96772d94e6fc5a26b18151239846eb5654ac6d19341dbaad68cdf` (HEAD `8598de4`).
 
+> **Kart düzeltmesi (2026-10-07, OP-14 C fazı — `password_ok` yazıcısı ve operatör başına
+> tavanı — uygulaması sırasında).** Taban `5a50b14` (OP-14 A commit'li: migration 00031,
+> `op_record_auth_event`'in kapalı kümesinde `password_ok`, hedef yalnız id, kilit sayacına
+> dokunmaz). Dev DB goose 31'de kaldı; **migration yok, DDL yok**, yeni bağımlılık yok;
+> `go.mod`, `go.sum`, `sqlc.yaml` diff'i boş. B fazı (ekran) paralel yürüdü; bu faz
+> `internal/handler/operator`'a ve `cmd/tappa`'ya **dokunmadı** (`Store` arayüzü aynı, yazıcı
+> `Authenticator`'ın içinde). Yazıldı:
+> - `internal/operatorauth/flow.go` — `Password`'ın başarı kolu: karşılaştırmadan **sonra**,
+>   challenge basılmadan **önce** paket içi `recordPasswordOK(ctx, hesap id)`; 12c'nin Info
+>   satırı kalktı. `recordPasswordOK`: operatör başına tavan (tek kilitli şarj), satır yalnız id
+>   ile, tavan aşımında tek WARN, yazma hatası çağırana döner.
+> - `internal/operatorauth/limits.go` — `firstFactorLimit` 10, `firstFactorPeriod` 10 dk
+>   (aritmetiği yanında), `limits.firstFactor`; `charge`'ın yorumuna tek kilit kuralı.
+> - `internal/operatorauth/operatorauth.go` — yalnız `Config.Log` yorumu.
+> - Testler: yeni `internal/operatorauth/passwordok_test.go` (veritabanısız) ve
+>   `internal/operatorauth/passwordok_db_test.go` (gerçek Postgres, geri alınan işlem — commit
+>   etmez); güncellenen `flow_db_test.go`, `units_test.go`, `leak_external_test.go`,
+>   `surface_external_test.go` (gerekçe md. 9).
+> - L9: `internal/db/operatorlegal_test.go` (`TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain`
+>   yeniden yazıldı) + `internal/db/operatoraudit_test.go`'nun başlık yorumu.
+> - ADR 0021: Durum satırı, L6 ve L14'e not, L9'a kapanış, Sonuçlar, yeni **"OP-14 C fazı
+>   eki"** (üç parçalı iddiasıyla). ADR 0020 §3: **"OP-14 C notu"** (12c'nin süreç log satırı →
+>   kalıcı satır) ve "Karar verilmedi"deki bütçe listesine tavan.
+>
+> 1. **Yazıcı ve zaman sırası (taslağın C2'si; orkestratör kararı):** parola adımı bcrypt
+>    başarısından sonra, challenge — OP-8 handler'ının ara çereze koyduğu değer — basılmadan önce
+>    `RecordOperatorAuthEvent(ctx, db.OperatorPasswordOK, "", hesap id)`; hedef **yalnız id**
+>    (adres verilmez; 00031 reddederdi, 22023). Challenge yazımdan sonra doğar; ~~yani her ara
+>    çerezin, üretim havuzunda commit edilmiş bir izi vardır~~ *(2. tur, B3: yanlıştı — tavanın
+>    üstünde challenge tasarım gereği satırsız basılır, C4. Doğrusu: tavanın altındaki her
+>    challenge'ın, o doğmadan yazılmış bir satırı vardır; "üretim havuzunda commit" ölçülmedi,
+>    yapıdan çıkar — testler geri alınan işlemde koşar.)*
+> 2. **Tavan (taslağın C1'i):** `firstFactorLimit` 10 / 10 dk **operatör başına** (anahtar
+>    hesap id'si), IP'den bağımsız. Aritmetik: meşru ≈4 / pencere (2 cihaz × ≈2 parola adımı; 5
+>    dk'lık challenge kod girilmeden dolarsa yeni parola adımı) × 2,5 → 10 · satır günde 1 440,
+>    yılda 525 600 / operatör · OP-6'nın hedefli satır bandıyla (174,7–188,4 B) ≈92–99 MB / yıl
+>    / operatör, üç operatörle ≈275–297 MB. **Parolasız ortak tavana konmadı.** Karar ve şarj
+>    tek kilitli adım (`budget.charge`'ın döndürdüğü sayı; `httpx.Limiter.TryCharge` kuralı,
+>    `Allowed` + `Charge` yok). Tavan aşılınca satır yok, istek hizmet görür, pencere başına
+>    operatör başına tek WARN (`kind=password_ok`, `operator_id`, `cap`, `window`).
+>    ⚠️ **İlk yazımda R7 kırmızıydı (ölçüldü):** sabitlerin adı `passwordOKLimit` /
+>    `passwordOKPeriod` idi ve WARN çağrısının argümanlarında R7'nin `password` tetikleyicisini
+>    eşleştirdi (bir de `units_test.go`'nun bir hata iletisi). Muafiyet yazılmadı, adlar değişti
+>    (`firstFactor…`; 12c emsali); redline exit 0.
+> 3. **12c'nin Info satırı KALKTI (ölçerek seçildi):** tavanın altında satır izin kendisi; Info
+>    satırı aynı id'yi ikinci kez taşırdı; tavanın üstünde bastırılan satır başına bir Info satırı,
+>    tavanın sınırladığı yazma kapısını log'a taşırdı. Tavanların altında `operatorauth` girişte
+>    0 bayt log yazar (ölçüldü).
+> 4. **Yazma hatası — (a) fail-closed (orkestratör kararı), ölçüldü:** salt-okunur savepoint →
+>    sunucunun 25006'sı → `Password` sentinel olmayan bir hata (handler 503), challenge sıfır,
+>    çerez setter'ı reddeder, satır 0; HTTP yüzeyinde 503 ve hiç `Set-Cookie`. Hata ve log'da
+>    adres, e-posta, parola, hesap id'si yok (hata metni: `operatorauth: record an accepted
+>    first factor: db: record operator auth event: database error (SQLSTATE 25006)`). **Bedel
+>    ölçüldü:** aynı ret `op_open_session`'ı da durdurur (25006, oturum 0). `password_ok`'a özgü
+>    yeni durdurma koşulu: 00031'siz veritabanı (00026'nın yazıcısı 22023) → C'nin kodu girişi
+>    durdurur (sınır C3).
+> 5. **Kilit:** `password_ok` sayaca iki yönde de dokunmaz (A'nın tanımlayıcısı); Go'nun izi
+>    başka türle yazması ve tanımlayıcının sayacı sıfırlaması mutasyonla kırmızı (M10, M11).
+>    `TestLock_ThresholdAndWindowThroughTheSignIn`, `TestOpRecordAuthEvent_ClosedSetNoActorNoAddress`
+>    değişmedi ve yeşil.
+> 6. 🔴 **L9 — KAPANDI (test tarafında; yasaklar korundu: uygulanmış migration değişmedi,
+>    `session_replication_role` yok, audit satırı silinmedi, yeni veritabanı yok).**
+>    `TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain` her dalın sonucunu o dalın
+>    savepoint'inde sayılan 00027'nin kümesi dışındaki satırlarla belirler, iki sonucu da
+>    assert eder (yoksa doğrulanmış yol; varsa 23514 `operator_audit_log_kind_check`); iki
+>    senaryo (bulunduğu gibi · işlem içinde yazılmış, geri alınan bir `password_ok` satırıyla).
+>    Yolların yardımcıları kendilerini ancak bölümü koşup assert ettikten sonra sayar; son,
+>    sayıları ölçülen durumun gerektirdiğiyle karşılaştırır. **"Yokken" `BEGIN…ROLLBACK` içinde
+>    ölçülebilir mi — ölçüldü, HAYIR (yasaklar altında):** `ALTER TABLE … ADD CONSTRAINT CHECK`
+>    doğrulaması tablonun her commit edilmiş satırını görür; satırlı bir veritabanında doğrulanmış
+>    yola ulaşmanın tek yolu satırı işlem içinde silmek (append-only tetikleyicisi kapatılarak)
+>    ya da `session_replication_role` — ikisi de yasak. Bu yüzden doğrulanmış yol yalnız temiz
+>    bir veritabanında koşar (sınır C6); ret yolu her koşuda (kendi geri alınan satırıyla) koşar.
+>    Mevcut 2. dalın `read`/`legal_publish` satırlarını işlem içinde silmesi korundu (eklenmiş bir
+>    silme yok; `password_ok` hiçbir dalda silinmez).
+>    **Ölçüm, iki durum (geliştirme veritabanı, 2026-10-07, aynı kod):** (i) kümenin dışında 0
+>    satır (bu fazın ilk koşuları) → yollar `validated: Up again` 1, `validated: Down's ELSE` 1,
+>    `refused: Up again` 1, `refused: Down's ELSE` 1; (ii) `internal/handler/operator`'ın commit
+>    eden uçtan uca testleri koştuktan sonra 4 satır → `refused: Up again` 2, `refused: Down's
+>    ELSE` 2. **Sıra testi:** `internal/db -run 'Test(Operator|OpRecordAuthEvent)'` eşdeğeri satırsızken
+>    ve satırlıyken 63 PASS / 0 FAIL / 0 SKIP / 0 yarış; satırlıyken paketin tamamı 321 PASS
+>    (00031'in Down testi dahil — `branch()`'i A'dan beri küme dışı satırları işlem içinde
+>    kaldırır, dokunulmadı).
+> 7. **`operatorauth`'un satır bırakmadığı ölçüldü:** bu fazın yeni veritabanı testlerinin
+>    hepsi geri alınan işlemde koşar; paketin `-race` koşusundan sonra `password_ok` 0. İlk
+>    kalıcı `password_ok` satırlarını `internal/handler/operator`'ın commit eden uçtan uca testleri
+>    bırakır: paketin bir `-race` koşusu 0 → **4** (sınır C8); ikinci tam koşu (CSS'i derlenmiş
+>    kopyada, zincir) 4 daha → geliştirme veritabanında **8** (orkestratörün ölçümüyle aynı).
+>    O 8 satırla, goose hâlâ 31'deyken, L9 testi bir kez daha koştu: `refused: Up again` 2,
+>    `refused: Down's ELSE` 2, PASS. **"Satır yok" dalı** bu fazın ilk koşularında, hiçbir
+>    `password_ok` commit edilmemişken ölçüldü (md. 6 (i)); satırlar artık kalıcı olduğundan
+>    geliştirme veritabanında bir daha ölçülemez — `BEGIN…ROLLBACK` içinde de, yasak silme
+>    olmadan, ölçülemez (md. 6) — sınır C6. Bütün ölçümler goose 31'de; 00032 (OP-12A)
+>    uygulandıktan sonra `internal/db`'de görülecek kırmızılar bu ağacın ölçümü değildir.
+> 8. **Fail-closed'un bedeli, adıyla (sınır C3):** 00031'in Down'ı uygulanmış bir veritabanında
+>    00026'nın yazıcısı `password_ok`'u 22023 ile reddeder (00031 Down testinin 3. dalı bunu
+>    ölçer) → C'nin kodu girişi parola adımında 503 ile durdurur. Dağıtım sırası migration →
+>    uygulama; 00031'i geri almak kodu da geri almayı gerektirir.
+> 9. **Başka testlerde güncellemeler — neden (zayıflatılmadı):** (a)
+>    `TestPassword_EveryArmPaysOneComparisonAtTheSameCost` başarı kolu 0 → 1 satır, türü ve
+>    hedefiyle; (b) `TestLimits_ARefusedRequestWritesNoRowAndMovesNoCounter`'a iş bütçesinin
+>    reddettiği **doğru** parola kolu (satır 0, `firstFactor` şarj edilmez); (c)
+>    `TestBudgets_TheShippedNumbersArePinned` + 10 / 10 dk; (d)
+>    `TestAuditRows_EveryPasswordlessKindGoesThroughTheCap` üçüncü sınıf (`password_ok` yalnız
+>    `recordPasswordOK`'tan, mağazaya tam bir kez, tür yalnız `OperatorPasswordOK`) + üç pozitif
+>    kontrol mutantı (beşten sekize); (e) `TestLeak_NoInputInAnyErrorOrLogLine` 43 → 45 kol (P7:
+>    `password_ok` yazılamaz → `errFakeDB`; A2: tavan satırı), 12c'nin `checkPasswordVerifiedLines`'ı
+>    yerine `checkFirstFactorCapLines` (metin + JSON, dört öznitelik) ve "tavanların altında log
+>    boş", `allowedFields`'a `limits.firstFactor`, `checkBudgetKeys`'e `firstFactor`; (f)
+>    `TestSurface_EveryRefusedSignInPaysOneComparisonAndAnswersAlike`'ın kontrolüne bir
+>    `password_ok` olayı, `surfStore`'a `refuse`, `surfRig`'e log tamponu; (g) ⚠️
+>    **`internal/handler/operator/leak_test.go`'da tek satır** (B fazının alanı, en aza
+>    indirildi): `harvestWant["RecordOperatorAuthEvent"]` 7 → 12 — doğru parolalı beş kolun
+>    (A4, A20b, A23, A26b, A30b) `password_ok`'u; ilk tam koşuda tam bu mesajla kırmızıydı
+>    (*"RecordOperatorAuthEvent was called 12 time(s), the arms make 7"*).
+>
+> **Kabul (C fazı):**
+> - doğru parola + TOTP yok → 1 `password_ok` ✓ · doğru parola + doğru TOTP → `password_ok` +
+>   `login` ✓ · yanlış parola → `login_failed`, `password_ok` yok ✓ · satır adres taşımaz,
+>   aktör/oturum iddia etmez ✓ — `TestPasswordOK_EachSignInArmLeavesItsRows` (+ doğru parola +
+>   yanlış kod → `password_ok` + `totp_failed`, sayaç 1).
+> - parolasız çöp ortak tavanı doldurmuşken doğru parola → `password_ok` **yazılır** ✓ —
+>   `TestPasswordOK_PasswordlessJunkCannotSilenceIt` (mutasyonla: M05, M06).
+> - hesap tavanı aşılınca satır yok, WARN bir kez, istek hizmet görür ✓ —
+>   `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow`.
+> - tek kilitte karar + şarj, `-race` eşzamanlılık testi ✓ —
+>   `TestPasswordOK_TheCapIsOneLockedStepUnderRacers` (M07: 10 koşunun 10'unda kırmızı, `-race`'li
+>   ve `-race`'siz).
+> - yazma hatası → adım hata, ara çerez **basılmaz** ✓ — `TestPasswordOK_ARowThatCannotBeWrittenFailsTheStep`
+>   (sunucunun 25006'sı), `TestSurface_ARightPasswordWhoseTrailIsRefusedGetsNoChallenge` (HTTP:
+>   503, hiç `Set-Cookie`).
+> - log'da adres yok ✓ — yukarıdaki testlerin hepsi log'u arar; `TestLeak_NoInputInAnyErrorOrLogLine`
+>   (A2) on yedi grubu.
+> - kilit sayacı değişmez ✓ — `TestPasswordOK_TouchesNoLockCounter` (M10, M11);
+>   `TestLock_ThresholdAndWindowThroughTheSignIn`, `TestOpRecordAuthEvent_ClosedSetNoActorNoAddress`
+>   aynen yeşil.
+> - L9 kapandı ✓ — `TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain` (md. 6; L9a–L9e).
+>
+> **Mutasyonlar — sayılan 23, 23'ü KIRMIZI; kontrol (değişmemiş gövdeyle yeniden kuran kanca)
+> YEŞİL.** Betik `scratchpad/op14c/verify_round1.py <kopya>`: yolunda `op14c-orch` geçmeyen ya da
+> kaynak worktree ile örtüşen kopya reddedilir (ikisi de denendi: worktree ve `op14c/sometree` →
+> `REFUSED`); taban önce koşar (üç taban: `operatorauth` seti, yarış testi `-race`, L9 testi —
+> kırmızı tabanda hiçbir mutant koşmaz); her çapa dosyasında **tam bir kez** bulunmalı (yoksa
+> APPLY-FAILED); derlenmeyen mutant BUILD-FAILED (bu turda 0); geri yükleme okunmuş baytlardan
+> ve sha256 ile doğrulanır; `.env` yalnız `set -a; . …; set +a`. Mutant koşuları `-race`'siz (M07
+> hariç); kırmızı her satırda go test'in kendi `--- FAIL` satırından okundu. Kopya:
+> `scratchpad/op14c/op14c-orch/tree` (worktree'nin `.git`'siz eşi). L9a ve L9d yalnız küme dışı
+> satırı olmayan bir veritabanında uygulanabilir; betik durumu ölçer ve satırlı veritabanında
+> NOT-APPLICABLE der — **temizken ölçüldüler (KIRMIZI)**; satırlıyken (4 satır) ikinci koşuda
+> L9a, L9d NOT-APPLICABLE, L9b, L9c, L9e KIRMIZI. Tablodaki "metin çapası" notu: o mutantlarda
+> `TestAuditRows_…`'ın kırmızısı okuyucunun kendi bulgusu değil, pozitif kontrolünün flow.go'da
+> aradığı metnin artık bulunmamasıdır — o mutantları okuyucu tek başına yakalamaz, davranış
+> testleri yakalar.
+>
+> | # | Mutasyon | Yol | Sonuç | Kırmızıya çeviren |
+> |---|---|---|---|---|
+> | CTL-hook | op_record_auth_event re-created UNCHANGED in the test's transaction | SQL kanca, işlem içinde | YEŞİL (kontrol) |  |
+> | M01 | order: the trail written at the code step (after the cookie), not the password step | Go, DB'li ve DB'siz | KIRMIZI | `TestAuditRows_EveryPasswordlessKindGoesThroughTheCap` (yalnız pozitif kontrolünün metin çapası), `TestLeak_NoInputInAnyErrorOrLogLine`, `TestLimits_ARefusedRequestWritesNoRowAndMovesNoCounter`, `TestPasswordOK_ARowThatCannotBeWrittenFailsTheStep`, `TestPasswordOK_EachSignInArmLeavesItsRows`, `TestPasswordOK_PasswordlessJunkCannotSilenceIt`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow`, `TestPassword_EveryArmPaysOneComparisonAtTheSameCost`, `TestSurface_ARightPasswordWhoseTrailIsRefusedGetsNoChallenge`, `TestSurface_EveryRefusedSignInPaysOneComparisonAndAnswersAlike` |
+> | M02 | order: the challenge minted first and returned although the trail failed after it | Go, DB'li ve DB'siz | KIRMIZI | `TestPasswordOK_ARowThatCannotBeWrittenFailsTheStep` |
+> | M03 | fail-open: a refused trail is logged and the step goes on | Go, DB'li ve DB'siz | KIRMIZI | `TestLeak_NoInputInAnyErrorOrLogLine`, `TestPasswordOK_ARowThatCannotBeWrittenFailsTheStep`, `TestSurface_ARightPasswordWhoseTrailIsRefusedGetsNoChallenge` |
+> | M04 | fail-open: the writer swallows the database's error | Go, DB'li ve DB'siz | KIRMIZI | `TestLeak_NoInputInAnyErrorOrLogLine`, `TestPasswordOK_ARowThatCannotBeWrittenFailsTheStep`, `TestSurface_ARightPasswordWhoseTrailIsRefusedGetsNoChallenge` |
+> | M05 | shared cap: password_ok routed through recordPasswordless | Go, DB'li ve DB'siz | KIRMIZI | `TestAuditRows_EveryPasswordlessKindGoesThroughTheCap`, `TestLeak_NoInputInAnyErrorOrLogLine`, `TestPasswordOK_PasswordlessJunkCannotSilenceIt`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow` |
+> | M06 | shared cap: recordPasswordOK charges the process-wide auditCap | Go, DB'li ve DB'siz | KIRMIZI | `TestLeak_NoInputInAnyErrorOrLogLine`, `TestPasswordOK_PasswordlessJunkCannotSilenceIt`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow` |
+> | M07 | two steps: Allowed (a read) then Charge, the decision on the read | Go, DB'siz, `-race` | KIRMIZI | `TestPasswordOK_TheCapIsOneLockedStepUnderRacers` |
+> | M08 | target by address: the email instead of the id | Go, DB'li ve DB'siz | KIRMIZI | `TestAuditRows_EveryPasswordlessKindGoesThroughTheCap` (yalnız pozitif kontrolünün metin çapası), `TestPasswordOK_ARowThatCannotBeWrittenFailsTheStep`, `TestPasswordOK_EachSignInArmLeavesItsRows`, `TestPasswordOK_PasswordlessJunkCannotSilenceIt`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow`, `TestPasswordOK_TouchesNoLockCounter`, `TestPassword_EveryArmPaysOneComparisonAtTheSameCost` |
+> | M09 | target by address: the email beside the id | Go, DB'li ve DB'siz | KIRMIZI | `TestAuditRows_EveryPasswordlessKindGoesThroughTheCap` (yalnız pozitif kontrolünün metin çapası), `TestPasswordOK_ARowThatCannotBeWrittenFailsTheStep`, `TestPasswordOK_EachSignInArmLeavesItsRows`, `TestPasswordOK_PasswordlessJunkCannotSilenceIt`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow`, `TestPasswordOK_TouchesNoLockCounter`, `TestPassword_EveryArmPaysOneComparisonAtTheSameCost` |
+> | M10 | lock (Go): the trail written as totp_failed (moves the counter) | Go, DB'li ve DB'siz | KIRMIZI | `TestAuditRows_EveryPasswordlessKindGoesThroughTheCap`, `TestLeak_NoInputInAnyErrorOrLogLine`, `TestPasswordOK_ARowThatCannotBeWrittenFailsTheStep`, `TestPasswordOK_EachSignInArmLeavesItsRows`, `TestPasswordOK_PasswordlessJunkCannotSilenceIt`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow`, `TestPasswordOK_TouchesNoLockCounter`, `TestPassword_EveryArmPaysOneComparisonAtTheSameCost`, `TestSurface_ARightPasswordWhoseTrailIsRefusedGetsNoChallenge`, `TestSurface_EveryRefusedSignInPaysOneComparisonAndAnswersAlike` |
+> | M11 | lock (SQL, in-transaction hook): the definer resets the counter on password_ok | SQL kanca, işlem içinde | KIRMIZI | `TestPasswordOK_TouchesNoLockCounter` |
+> | M12 | WARN repeated: one line per suppressed row | Go, DB'li ve DB'siz | KIRMIZI | `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow` |
+> | M13 | WARN carries the client address | Go, DB'li ve DB'siz | KIRMIZI | `TestAuditRows_EveryPasswordlessKindGoesThroughTheCap` (yalnız pozitif kontrolünün metin çapası), `TestLeak_NoInputInAnyErrorOrLogLine`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow` |
+> | M14 | WARN never logged | Go, DB'li ve DB'siz | KIRMIZI | `TestLeak_NoInputInAnyErrorOrLogLine`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow` |
+> | M15 | the OP-6 12c Info line put back beside the row | Go, DB'li ve DB'siz | KIRMIZI | `TestLeak_NoInputInAnyErrorOrLogLine`, `TestPasswordOK_EachSignInArmLeavesItsRows`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow` |
+> | M16 | cap keyed by the client address, not the operator | Go, DB'li ve DB'siz | KIRMIZI | `TestAuditRows_EveryPasswordlessKindGoesThroughTheCap` (yalnız pozitif kontrolünün metin çapası), `TestLeak_NoInputInAnyErrorOrLogLine`, `TestPasswordOK_PasswordlessJunkCannotSilenceIt`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow` |
+> | M17 | no cap: every right password writes | Go, DB'li ve DB'siz | KIRMIZI | `TestLeak_NoInputInAnyErrorOrLogLine`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow` |
+> | M18 | the cap's number 20 | Go, DB'li ve DB'siz | KIRMIZI | `TestBudgets_TheShippedNumbersArePinned`, `TestLeak_NoInputInAnyErrorOrLogLine`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow` |
+> | L9a | the scenario's own 'password_ok' row not written (and its premise gone) | test dosyası (kopyala-geri-yaz), DB'li | KIRMIZI | `TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain` |
+> | L9b | the dispatch inverted (rows found -> the validated path) | test dosyası (kopyala-geri-yaz), DB'li | KIRMIZI | `TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain` |
+> | L9c | the refusal arm of 'Up again' goes vacuous | test dosyası (kopyala-geri-yaz), DB'li | KIRMIZI | `TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain` |
+> | L9d | the validated arm of the Down's ELSE goes vacuous | test dosyası (kopyala-geri-yaz), DB'li | KIRMIZI | `TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain` |
+> | L9e | the measurement goes blind (counts a kind nothing writes) | test dosyası (kopyala-geri-yaz), DB'li | KIRMIZI | `TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain` |
+>
+> **Kaçış denemeleri — 10, hepsi beklenen yanıt** (her biri bir testin kolu; DB'liler geri alınan
+> işlemde):
+> - K1 tavanı adresle satın almak: tek operatörün doğru parolası 12 farklı adresten → 10 satır,
+>   12 hizmet, 1 WARN (`TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow`).
+> - K2 izi parolasız çöple susturmak: ortak tavan tükenmiş (öncül: bilinmeyen adres 0 satır) →
+>   doğru parola 1 satır (`TestPasswordOK_PasswordlessJunkCannotSilenceIt`).
+> - K3 tavanı yarışla aşmak: 40 eşzamanlı doğru parola × 200 tur → her tur tam 10
+>   (`TestPasswordOK_TheCapIsOneLockedStepUnderRacers`).
+> - K4 iz yazılamazken challenge almak: 25006 → hata, challenge yok, çerez setter'ı reddeder;
+>   HTTP'de 503 ve hiç `Set-Cookie` (`TestPasswordOK_ARowThatCannotBeWrittenFailsTheStep`,
+>   `TestSurface_ARightPasswordWhoseTrailIsRefusedGetsNoChallenge`).
+> - K5 doğru parolayla kilit sayacını sıfırlamak: sayaç 3 → 3; ardından iki yanlış kod 5 ve kilit
+>   (`TestPasswordOK_TouchesNoLockCounter`).
+> - K6 doğru parolayla kilidi kısaltmak: kilitliyken parola adımı satırını yazar, kilit damgası
+>   aynı, doğru kod `ErrLocked` (aynı test).
+> - K7 bütçenin reddettiği doğru parolayla iz ya da şarj üretmek: iş bütçesi tükenmiş adresten →
+>   `ErrThrottled`, 0 karşılaştırma, 0 satır, `firstFactor` 0
+>   (`TestLimits_ARefusedRequestWritesNoRowAndMovesNoCounter`).
+> - K8 tavan satırına istekten bir şey sokmak: satırın öznitelikleri veritabanının döndürdüğü id
+>   ve sabitlerdir; biçim metin ve JSON'da dört öznitelikle pinli; adres, e-posta aranır
+>   (`TestLeak_NoInputInAnyErrorOrLogLine` A2, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`).
+> - K9 başka bir operatörün tavanını tüketmek: anahtar hesap id'si; X tavanın üstündeyken Y'nin
+>   satırı yazılır (iki test).
+> - K10 DSN sahibinin doğrudan `op_record_auth_event` çağırması: **kapanmaz** — sınır C2 (L6).
+>
+> **Sayılı sınırlar (C) — ADR 0021 "OP-14 C fazı eki" C1–C8:** C1 tavan süreç içi (yeniden
+> başlatma sıfırlar, sabit pencere sınırda 2×, iki replika iki katı) · C2 DSN sahibi atlar · C3
+> 00031'siz veritabanında giriş yok · C4 satır parolanın doğruluğunu söyler, kişiyi değil;
+> sızmış parola tutan pencere başına 10 satırdan sonra o pencerede sessiz *(2. tur: ilk turda
+> kesik isteklerle 0'a indirilebiliyordu — B1, aşağıda)* · C5 fail-closed tek
+> ret biçimiyle (25006) ölçüldü · C6 L9'un doğrulanmış yolu yalnız temiz veritabanında koşar
+> (CI'da paket sırasına bağlı), elle girişin sayım-ALTER arasına girmesi sıralanmaz · C7 L14
+> ile ilişki: C'nin tavanı ürün yolundan seli yavaşlatır (≈139 gün / 200 000 satır / hesap),
+> parolasız ortak tavan filtresiz pencereyi ≈46 günde doldurabilir — türetildi, ölçülmedi;
+> L14'e not düşüldü · C8 commit eden uçtan uca testler koşu başına `password_ok` bırakır (ölçüldü:
+> 4).
+>
+> **Devirler (numaralı):**
+> 1. **B fazına / orkestratöre (birleştirme):** `internal/handler/operator/leak_test.go`'daki
+>    `harvestWant` satırı (md. 9 g) B'nin aynı tabloya ekleyeceği satırların yanında; ve
+>    `internal/operatorauth/surface_external_test.go`'nun `newSurfRig`'i `operator.New`'u
+>    çağırır — B `New`'un imzasını değiştirirse orada da tek çağrı güncellenir.
+> 2. **`internal/handler/operator`'ın commit eden testlerinin başlık yorumları** (*"WHAT ONE RUN
+>    LEAVES BEHIND"* — `op10_db_test.go` ve OP-11/OP-13'ün veritabanı testleri) artık koşu başına
+>    bir `password_ok` satırını da bırakır; yorumlar B'nin alanında, bu faz dokunmadı.
+> 3. **Görüntüleyiciye (B):** `password_ok` satırı oturumsuz, aktörsüz, hedef hesap adıyla;
+>    *"compromised"* hükmü yazılmaz (K14-6).
+> 4. **`docs/plan/m10-platform.md` (orkestratör):** OP-6 md. 18'in **P9**'u (*"kalıcı iz
+>    bırakmaz"*) ve OP-6 kartının 12c Info satırı anlatımı bu fazla tarihe döndü; OP-8 md. 18 ve
+>    OP-14 A md. 17'nin C devirleri kapandı.
+> 5. **K14-2 (ayrı kart):** opadmin eylemlerinin audit türleri — taslağın C fazı md. 5 C5 ve
+>    C3–C4; bu kartta yok.
+> 6. **Ayrı kart (L14'ün kapatılması):** veritabanında `op_record_auth_event` için bir tavan ya da
+>    daha eskiye ulaşan bir okuma; C7'nin parolasız-çöp aritmetiği o kartın girdisi.
+> 7. **Backlog T90:** panelin giriş/kayıt/aktivasyon akışlarındaki `Allowed` + `Charge`
+>    sınıfına dokunulmadı (bu faz yalnız operatörün kendi bütçesinde tek kilit kullandı).
+>
+> **Zincir (2026-10-07, worktree, son değişiklikten sonra):**
+> - `gofmt -s -l` (üretilenler hariç) boş; `go build ./...` ve `go vet ./...` exit 0;
+>   staticcheck (`GOTOOLCHAIN=go1.26.7`, 2025.1.1) exit 0, çıktı yok; `make gen` idempotent
+>   (`git status` ve `git diff` önce = sonra); `./scripts/redline-check.sh` exit 0 (ilk hâlde R7
+>   FAIL — md. 2); `go.mod`/`go.sum`/`sqlc.yaml` diff'i boş.
+> - `TestEveryNamedTestExists` worktree'de ve bu kart "## 4. Akış B" başlığından önce eklenmiş
+>   worktree'siz kopyada PASS (60 canlı, 60 bütçe). İlk denemede ADR'nin ve kartın `-run`
+>   desenindeki çıplak test önekleri iki sarkan atıf saydırdı (62/60); desen önek yazmadan
+>   yeniden yazıldı. `TestComments_DoNotQuoteTheDriftingRosterSize` kopyada ve worktree'de PASS.
+> - `.env`'li `-race`: `internal/operatorauth` 58 PASS / 0 FAIL / 0 SKIP / 0 yarış (340,9 sn) ve
+>   koşu `password_ok` bırakmadı; `internal/db`'nin operatör testleri (`-run` deseni md. 6'daki)
+>   satırsız ve satırlı 63 PASS; `internal/db`'nin tamamı satırlıyken 321 PASS;
+>   `internal/handler/operator` worktree'de 91 PASS + 2 FAIL → (1) hasat pini, düzeltildi (md. 9
+>   g), (2) `TestHostGate_TheOperatorHostServesNoCustomerRoute`: `web/static/css/app.css`
+>   (gitignore'lu `make css` çıktısı) worktree'de yok → 404; çevresel, bu değişiklikten bağımsız
+>   — CSS'i derlenmiş kopyada paketin tamamı **93 PASS / 0 FAIL / 0 yarış**. Bilinen kırmızılar
+>   T72 (`cmd/rotatekek`, yerel go 1.27) ve T94 (`cmd/opadmin` saat kayması) koşulmadı.
+> - Mutasyonlar 23 / 23 KIRMIZI, kontrol YEŞİL; M07 10 / 10 (`-race`'li ve `-race`'siz).
+>
+> **2. tur (2026-10-07, üçüncü gözün RED'i: B1 YÜKSEK/bloklayan, B2 ORTA, B3–B5 DÜŞÜK).**
+> Taban ve worktree aynı (`5a50b14`); dev DB bu turda goose **32**'de (OP-12A'nın 00032'si
+> uygulandı, `op_record_auth_event`'e dokunmaz). Migration yok, DDL yok, yeni bağımlılık yok.
+>
+> 10. 🔴 **B1 — kesilen istek tavanı satırsız tüketiyordu (üçüncü göz ölçtü: gerçek yönlendirici
+>     + TCP + cost 12 ve gerçek Postgres; 10 kesik istekten sonra 11. doğru parola 303 +
+>     challenge + 0 `password_ok`).** Kök: şarj ve yazım isteğin bağlamıyla; istemci bcrypt
+>     sırasında kapatınca `r.Context()` iptal, şarj alınmış, pgxpool `Acquire` hiçbir şey
+>     göndermeden `ctx.Err()`. Gerçek bir veritabanı hatası (25006, failover) da şarjı satırsız
+>     harcıyordu. Yanlışladığı cümleler (düzeltildi, üstü çizili ya da 2. tur notuyla): ADR 0021
+>     ek md. 2 (*"susturulamaz"*), C4 (*"ilk 10 satır kalıcıdır"*), `limits.go`'nun
+>     `firstFactorLimit` yorumu, bu kartın md. 1'i (B3).
+>     **Tasarım, iki parça:**
+>     - **(a) Ayrık yazım:** `recordPasswordOK` satırı
+>       `context.WithTimeout(context.WithoutCancel(ctx), FirstFactorRecordGrace)` ile yazar.
+>       `FirstFactorRecordGrace` = **5 sn**, aritmetik: bir INSERT milisaniye (dev), gerisi
+>       havuzdan bağlantı beklemek; alt sınır ≥ 1 sn (bir INSERT'e yer), üst sınır
+>       `httpShutdownGrace` 20 sn (ayrık yazım uçuştaki bir isteğin işi, Shutdown onu drene
+>       eder; 20 + `encode.DefaultCloseGrace` 5 = 25 < k8s 30 hesabına girmez, içinde yuvalanır);
+>       `WithoutCancel` isteğin 30 sn'lik süresini de düşürür, yani parola adımı en çok arama +
+>       bir cost-12 karşılaştırma + 5 sn sürer. `encode.DefaultRepairGrace` ve
+>       `tenant.RefusalRecordGrace` ile aynı sayı ve aynı gerekçe. Bağlantı:
+>       `cmd/tappa/shutdownbudget_test.go`'ya `TestShutdownBudget_TheFirstFactorRecordNestsInsideTheHTTPGrace`
+>       (sabit yalnız bunun için dışa açık).
+>     - **(b) İade:** başarısız yazım şarjını geri verir. `budget.take` tek kilitli adımda sayıyı,
+>       şarjın düştüğü pencereyi (işaretçi) ve pencerenin **ilk** tavan aşımı olup olmadığını
+>       döndürür; `budget.refund(key, pencere)` aynı kilit altında **yalnız o pencere hâlâ
+>       anahtarın penceresiyse** bir azaltır, sıfırın altına inmez. Süresi dolan pencere yerinde
+>       sıfırlanmaz, yeni bir işaretçiyle **değiştirilir** (`chargeLocked`) — iade kendi
+>       penceresini sonrakinden kimlikle ayırır. WARN artık `count == limit+1` ile değil
+>       pencerenin `warned` bayrağıyla bir kez: iade sayıyı tavanın altına indirip bir sonraki
+>       istek yeniden aşarsa ikinci satır doğmasın.
+>     - **Seçilmeyen yol:** yalnız başarılı yazımdan sonra şarj — yazım sürerken her yarışçı
+>       "yer var" görür, tavan eşzamanlılıkta aşılır (T90'ın sınıfı); ölçülmedi, yapıdan.
+>     **Ölçüm:** on kesik doğru parola → on satır, adım hatası yok; on birincisi 303 + ara
+>     çerez, yeni satır yok, tek WARN — gerçek yönlendiricide TCP ile
+>     (`TestSurface_AnAbortedRightPasswordStillLeavesItsRow`: karşılaştırma, net/http isteğin
+>     bağlamını iptal edene dek tutulur, öncül aramanın bağlamında ölçülür) ve gerçek Postgres'te
+>     (`TestPasswordOK_AnAbortedRightPasswordStillLeavesItsRow`). İade:
+>     `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack` (dört alt test: üst üste on ret hiçbir
+>     şey harcamaz · ortadaki ret tek şarjı geri verir · süresi dolmuş pencerenin reddi yenisine
+>     dokunmaz · iadeye rağmen pencere başına tek WARN),
+>     `TestPasswordOK_RefundsUnderRacersNeverOverspendTheCap` (100 tur × 40 yarışçı, her üçüncü
+>     yazım reddedilir: satır ≤ tavan, sayaç = geri verilmeyen şarjlar, ≤ 1 WARN, `-race`),
+>     gerçek 25006'da sayaç 0 (`TestPasswordOK_ARowThatCannotBeWrittenFailsTheStep`'e eklendi).
+>     Üçüncü gözün iki sondası (`eye_abort_*`) okundu, kalıbı kullanıldı, testler yeniden yazıldı.
+> 11. **B2 — hata sınıfları:** `TestSurface_ARightPasswordWhoseTrailIsRefusedGetsNoChallenge`
+>     artık altı sınıfı sürer — 25006, 28000 (`db.ErrOperatorRefused`), iptal edilmiş bağlam,
+>     süresi geçmiş bağlam, kopan bağlantı, 22023; her birinde 503 ve hiç çerez, yanıt ve log
+>     temiz. Yeni `TestPasswordOK_EveryWriteErrorFailsClosedAndGivesTheChargeBack` aynı altı
+>     sınıfı `Authenticator` düzeyinde sürer (hata, sentinel değil, challenge yok, satır yok,
+>     şarj geri). Bağlam kolları yazım katmanında kurulur (yazım isteğin iptalini artık görmez).
+> 12. **B3** — md. 1'in cümlesi ve ADR ek md. 1 düzeltildi (üstü çizili + doğrusu).
+> 13. **B4** — `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn` ve
+>     `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow` tavana kadar her istekten
+>     sonra 0 WARN ister.
+> 14. **İlk turdaki testlerin B1'i neden görmediği, adıyla:** hiçbir test isteğin bağlamını
+>     iptal etmiyordu; `TestPasswordOK_ARowThatCannotBeWrittenFailsTheStep` ret sonrası sayacı
+>     okumuyordu.
+> 15. **Yeni sayılı sınır C9 (ADR ek'inde):** (i) şarj ile yazım arasında ölen süreç satır
+>     yazmaz — challenge da basmaz; (ii) eşzamanlılıkta, sonradan iade edilecek bir yazım
+>     uçuştayken "tavan üstü" okuyan istek yazılmaz ~~(bir yuva boşa gider; satır tavanı aşmaz)~~
+>     *(3. tur, F1: o istek satırsız **hizmet görüyordu**, düşen yazımlarla pencere 0 satırla
+>     kalabiliyordu — md. 17)*;
+>     (iii) yazım en çok 5 sn, aşarsa hata + iade; (iv) TOTP adımının yazıları ve parolasız
+>     satırlar hâlâ isteğin bağlamıyla — kesilen bir kod denemesi satır bırakmaz ~~(saldırgan
+>     sonucu öğrenmez, hesap bütçesini harcar)~~ *(3. tur, F5: gerekçe düzeltildi — md. 21)* —
+>     **devir**, bu fazın kapsamı değil.
+> 16. **Değişen dosyalar (2. tur):** `internal/operatorauth/flow.go` (`FirstFactorRecordGrace`,
+>     ayrık yazım, iade), `limits.go` (`chargeLocked`, `take`, `refund`, `budgetWindow.warned`,
+>     `firstFactorLimit` yorumu), `export_test.go` (`HoldComparisons`), yeni
+>     `passwordok_external_test.go`, `passwordok_test.go` (+3 test, `trailStore` kancaları),
+>     `passwordok_db_test.go` (+1 test, iki ek assert), `surface_external_test.go` (sınıf
+>     tablosu), `units_test.go` (okuyucunun çapası), `leak_external_test.go`
+>     (`allowedFields["budgetWindow.warned"]`), `cmd/tappa/shutdownbudget_test.go` (+1 test),
+>     ADR 0021 (ek md. 1, 2 notu, yeni md. 8, C4/C7 notu, yeni C9, PART I/II), ADR 0020 §3 notu.
+>
+> **Mutasyonlar, 2. tur — `scratchpad/op14c/verify_round2.py`:** 31 mutasyon. İlk turun 23'ünün
+> çapaları 2. turun koduna taşındı (`take`, ayrık yazım). Yeniler: orkestratörün M19, M20,
+> M21, E07, E08, E09'u ve bu turun kendi iki mutasyonu — M22 (iade pencere kimliğini yok
+> sayar) ve M23 (WARN bayraksız, `count == limit+1`). Betik ilk turun koşucusunu kullanır:
+> `op14c-orch` dışı ya da worktree ile örtüşen yolu reddeder, önce tabanı koşar, her çapayı
+> tam bir kez arar, sha256 ile geri yükler, derlenmeyeni BUILD-FAILED olarak ayırır.
+> - **Sonuç:** uygulanan 29'un 29'u **KIRMIZI**; kontrol (değişmemiş kanca) **YEŞİL**.
+> - **M12:** ilk yazımı derlenmedi (`firstOver` kullanılmaz kaldı) → **BUILD-FAILED**, sayılmadı;
+>   derlenen yazımı (`if firstOver || n > firstFactorLimit`) ayrıca koşuldu → KIRMIZI.
+> - **L9a ve L9d UYGULANAMAZ:** veritabanı bu turda 12 küme dışı satır tutuyordu (goose 32).
+>   İlk turda, temizken kırmızıydılar; L9 testi bu turda değişmedi.
+>
+> | # | Mutasyon | Yol | Sonuç | Kırmızıya çeviren |
+> |---|---|---|---|---|
+> | CTL-hook | op_record_auth_event re-created UNCHANGED in the test's transaction | SQL kanca, işlem içinde | YEŞİL (kontrol) |  |
+> | M01 | order: the trail written at the code step (after the cookie), not the password step | Go, DB'li ve DB'siz | KIRMIZI | `TestAuditRows_EveryPasswordlessKindGoesThroughTheCap` (yalnız pozitif kontrolünün metin çapası), `TestLeak_NoInputInAnyErrorOrLogLine`, `TestLimits_ARefusedRequestWritesNoRowAndMovesNoCounter`, `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`, `TestPasswordOK_ARowThatCannotBeWrittenFailsTheStep`, `TestPasswordOK_AnAbortedRightPasswordStillLeavesItsRow`, `TestPasswordOK_EachSignInArmLeavesItsRows`, `TestPasswordOK_EveryWriteErrorFailsClosedAndGivesTheChargeBack`, `TestPasswordOK_PasswordlessJunkCannotSilenceIt`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_RefundsUnderRacersNeverOverspendTheCap`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow`, `TestPassword_EveryArmPaysOneComparisonAtTheSameCost`, `TestSurface_ARightPasswordWhoseTrailIsRefusedGetsNoChallenge`, `TestSurface_AnAbortedRightPasswordStillLeavesItsRow`, `TestSurface_EveryRefusedSignInPaysOneComparisonAndAnswersAlike` |
+> | M02 | order: the challenge minted first and returned although the trail failed after it | Go, DB'li ve DB'siz | KIRMIZI | `TestPasswordOK_ARowThatCannotBeWrittenFailsTheStep`, `TestPasswordOK_EveryWriteErrorFailsClosedAndGivesTheChargeBack` |
+> | M03 | fail-open: a refused trail is logged and the step goes on | Go, DB'li ve DB'siz | KIRMIZI | `TestLeak_NoInputInAnyErrorOrLogLine`, `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`, `TestPasswordOK_ARowThatCannotBeWrittenFailsTheStep`, `TestPasswordOK_EveryWriteErrorFailsClosedAndGivesTheChargeBack`, `TestPasswordOK_RefundsUnderRacersNeverOverspendTheCap`, `TestSurface_ARightPasswordWhoseTrailIsRefusedGetsNoChallenge` |
+> | M04 | fail-open: the writer swallows the database's error | Go, DB'li ve DB'siz | KIRMIZI | `TestLeak_NoInputInAnyErrorOrLogLine`, `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`, `TestPasswordOK_ARowThatCannotBeWrittenFailsTheStep`, `TestPasswordOK_EveryWriteErrorFailsClosedAndGivesTheChargeBack`, `TestPasswordOK_RefundsUnderRacersNeverOverspendTheCap`, `TestSurface_ARightPasswordWhoseTrailIsRefusedGetsNoChallenge` |
+> | M05 | shared cap: password_ok routed through recordPasswordless | Go, DB'li ve DB'siz | KIRMIZI | `TestAuditRows_EveryPasswordlessKindGoesThroughTheCap`, `TestLeak_NoInputInAnyErrorOrLogLine`, `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`, `TestPasswordOK_AnAbortedRightPasswordStillLeavesItsRow`, `TestPasswordOK_PasswordlessJunkCannotSilenceIt`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_RefundsUnderRacersNeverOverspendTheCap`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow`, `TestSurface_AnAbortedRightPasswordStillLeavesItsRow` |
+> | M06 | shared cap: recordPasswordOK charges the process-wide auditCap | Go, DB'li ve DB'siz | KIRMIZI | `TestLeak_NoInputInAnyErrorOrLogLine`, `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`, `TestPasswordOK_AnAbortedRightPasswordStillLeavesItsRow`, `TestPasswordOK_PasswordlessJunkCannotSilenceIt`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_RefundsUnderRacersNeverOverspendTheCap`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow`, `TestSurface_AnAbortedRightPasswordStillLeavesItsRow` |
+> | M07 | two steps: Allowed (a read) then the charge, the decision on the read | Go, DB'siz, `-race` | KIRMIZI | `TestPasswordOK_RefundsUnderRacersNeverOverspendTheCap`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers` |
+> | M08 | target by address: the email instead of the id | Go, DB'li ve DB'siz | KIRMIZI | `TestAuditRows_EveryPasswordlessKindGoesThroughTheCap` (yalnız pozitif kontrolünün metin çapası), `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`, `TestPasswordOK_ARowThatCannotBeWrittenFailsTheStep`, `TestPasswordOK_AnAbortedRightPasswordStillLeavesItsRow`, `TestPasswordOK_EachSignInArmLeavesItsRows`, `TestPasswordOK_PasswordlessJunkCannotSilenceIt`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow`, `TestPasswordOK_TouchesNoLockCounter`, `TestPassword_EveryArmPaysOneComparisonAtTheSameCost` |
+> | M09 | target by address: the email beside the id | Go, DB'li ve DB'siz | KIRMIZI | `TestAuditRows_EveryPasswordlessKindGoesThroughTheCap` (yalnız pozitif kontrolünün metin çapası), `TestPasswordOK_ARowThatCannotBeWrittenFailsTheStep`, `TestPasswordOK_AnAbortedRightPasswordStillLeavesItsRow`, `TestPasswordOK_EachSignInArmLeavesItsRows`, `TestPasswordOK_PasswordlessJunkCannotSilenceIt`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow`, `TestPasswordOK_TouchesNoLockCounter`, `TestPassword_EveryArmPaysOneComparisonAtTheSameCost` |
+> | M10 | lock (Go): the trail written as totp_failed (moves the counter) | Go, DB'li ve DB'siz | KIRMIZI | `TestAuditRows_EveryPasswordlessKindGoesThroughTheCap`, `TestLeak_NoInputInAnyErrorOrLogLine`, `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`, `TestPasswordOK_ARowThatCannotBeWrittenFailsTheStep`, `TestPasswordOK_AnAbortedRightPasswordStillLeavesItsRow`, `TestPasswordOK_EachSignInArmLeavesItsRows`, `TestPasswordOK_PasswordlessJunkCannotSilenceIt`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow`, `TestPasswordOK_TouchesNoLockCounter`, `TestPassword_EveryArmPaysOneComparisonAtTheSameCost`, `TestSurface_ARightPasswordWhoseTrailIsRefusedGetsNoChallenge`, `TestSurface_AnAbortedRightPasswordStillLeavesItsRow`, `TestSurface_EveryRefusedSignInPaysOneComparisonAndAnswersAlike` |
+> | M11 | lock (SQL, in-transaction hook): the definer resets the counter on password_ok | SQL kanca, işlem içinde | KIRMIZI | `TestPasswordOK_TouchesNoLockCounter` |
+> | M12 | WARN repeated: one line per suppressed row | Go, DB'li ve DB'siz | KIRMIZI (2. yazım; ilk yazım BUILD-FAILED, ayrıldı) | `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_RefundsUnderRacersNeverOverspendTheCap`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow` |
+> | M13 | WARN carries the client address | Go, DB'li ve DB'siz | KIRMIZI | `TestAuditRows_EveryPasswordlessKindGoesThroughTheCap` (yalnız pozitif kontrolünün metin çapası), `TestLeak_NoInputInAnyErrorOrLogLine`, `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`, `TestPasswordOK_AnAbortedRightPasswordStillLeavesItsRow`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow` |
+> | M14 | WARN never logged | Go, DB'li ve DB'siz | KIRMIZI | `TestLeak_NoInputInAnyErrorOrLogLine`, `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`, `TestPasswordOK_AnAbortedRightPasswordStillLeavesItsRow`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow`, `TestSurface_AnAbortedRightPasswordStillLeavesItsRow` |
+> | M15 | the OP-6 12c Info line put back beside the row | Go, DB'li ve DB'siz | KIRMIZI | `TestLeak_NoInputInAnyErrorOrLogLine`, `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`, `TestPasswordOK_AnAbortedRightPasswordStillLeavesItsRow`, `TestPasswordOK_EachSignInArmLeavesItsRows`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow` |
+> | M16 | cap keyed by the client address, not the operator | Go, DB'li ve DB'siz | KIRMIZI | `TestAuditRows_EveryPasswordlessKindGoesThroughTheCap` (yalnız pozitif kontrolünün metin çapası), `TestLeak_NoInputInAnyErrorOrLogLine`, `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`, `TestPasswordOK_AnAbortedRightPasswordStillLeavesItsRow`, `TestPasswordOK_PasswordlessJunkCannotSilenceIt`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_RefundsUnderRacersNeverOverspendTheCap`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow` |
+> | M17 | no cap: every right password writes | Go, DB'li ve DB'siz | KIRMIZI | `TestLeak_NoInputInAnyErrorOrLogLine`, `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`, `TestPasswordOK_AnAbortedRightPasswordStillLeavesItsRow`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_RefundsUnderRacersNeverOverspendTheCap`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow`, `TestSurface_AnAbortedRightPasswordStillLeavesItsRow` |
+> | M18 | the cap's number 20 | Go, DB'li ve DB'siz | KIRMIZI | `TestBudgets_TheShippedNumbersArePinned`, `TestLeak_NoInputInAnyErrorOrLogLine`, `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`, `TestPasswordOK_AnAbortedRightPasswordStillLeavesItsRow`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow`, `TestSurface_AnAbortedRightPasswordStillLeavesItsRow` |
+> | M19 | the write on the request's context again (B1 back) | Go, DB'li ve DB'siz | KIRMIZI | `TestPasswordOK_AnAbortedRightPasswordStillLeavesItsRow`, `TestSurface_AnAbortedRightPasswordStillLeavesItsRow` |
+> | M20 | no refund: a failed write keeps its charge | Go, DB'li ve DB'siz | KIRMIZI | `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`, `TestPasswordOK_ARowThatCannotBeWrittenFailsTheStep`, `TestPasswordOK_EveryWriteErrorFailsClosedAndGivesTheChargeBack`, `TestPasswordOK_RefundsUnderRacersNeverOverspendTheCap` |
+> | M21 | the refund wipes the window (other requests' charges with it) | Go, DB'li ve DB'siz | KIRMIZI | `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`, `TestPasswordOK_RefundsUnderRacersNeverOverspendTheCap` |
+> | M22 | the refund ignores the window's identity (gives back into a later window) | Go, DB'li ve DB'siz | KIRMIZI | `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack` |
+> | M23 | the WARN by count == limit+1 (no flag): a refund makes a second line | Go, DB'li ve DB'siz | KIRMIZI | `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`, `TestPasswordOK_RefundsUnderRacersNeverOverspendTheCap` |
+> | E07 | fail-open on a context error | Go, DB'li ve DB'siz | KIRMIZI | `TestPasswordOK_EveryWriteErrorFailsClosedAndGivesTheChargeBack`, `TestSurface_ARightPasswordWhoseTrailIsRefusedGetsNoChallenge` |
+> | E08 | fail-open on 28000 (db.ErrOperatorRefused) | Go, DB'li ve DB'siz | KIRMIZI | `TestPasswordOK_EveryWriteErrorFailsClosedAndGivesTheChargeBack`, `TestSurface_ARightPasswordWhoseTrailIsRefusedGetsNoChallenge` |
+> | E09 | the WARN on the cap's last WRITTEN row | Go, DB'li ve DB'siz | KIRMIZI | `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`, `TestPasswordOK_AnAbortedRightPasswordStillLeavesItsRow`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_RefundsUnderRacersNeverOverspendTheCap`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow` |
+> | L9a | the scenario's own 'password_ok' row not written (and its premise gone) | test dosyası (kopyala-geri-yaz), DB'li | UYGULANAMAZ (db holds 12 row(s) outside 00027's set) |  |
+> | L9b | the dispatch inverted (rows found -> the validated path) | test dosyası (kopyala-geri-yaz), DB'li | KIRMIZI | `TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain` |
+> | L9c | the refusal arm of 'Up again' goes vacuous | test dosyası (kopyala-geri-yaz), DB'li | KIRMIZI | `TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain` |
+> | L9d | the validated arm of the Down's ELSE goes vacuous | test dosyası (kopyala-geri-yaz), DB'li | UYGULANAMAZ (db holds 12 row(s) outside 00027's set) |  |
+> | L9e | the measurement goes blind (counts a kind nothing writes) | test dosyası (kopyala-geri-yaz), DB'li | KIRMIZI | `TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain` |
+>
+> **Kaçış denemeleri, 2. tur (+2):**
+> - **K11 — tavanı kesik isteklerle satırsız harcamak:** 10 doğru parola, karşılaştırma ortasında
+>   kapatılan TCP bağlantısıyla (ya da iptal edilen bağlamla) → 10 satır, adım hatası yok; 11.
+>   303 + challenge, satır yok, tek WARN (iki `…AnAbortedRightPasswordStillLeavesItsRow` testi).
+> - **K12 — tavanı başarısız yazımlarla harcamak:** 10 ret → sayaç 0, ardından 10 satır; gerçek
+>   25006'da sayaç 0 (`TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`,
+>   `TestPasswordOK_ARowThatCannotBeWrittenFailsTheStep`).
+>
+> **Devirler, 2. tur:**
+> 8. **B5 (B fazına):** `internal/handler/operator/leak_test.go`'nun kol yorumlarına R sayısı
+>    eklemek B'nin alanı. Bu faz o dosyada yalnız `harvestWant` satırına dokundu (md. 9 g).
+> 9. **TOTP adımının ve parolasız satırların bağlamı (sınır C9 iv):** `totp_failed`, `locked`,
+>    `login_failed`, `unknown_email`, `enrollment_failed` hâlâ isteğin bağlamıyla yazılır.
+>    Kesilen bir kod denemesi satır bırakmaz ve hesap bütçesini harcar; ~~saldırgan yanıtı almadığı
+>    için sonucu da öğrenmez~~ *(3. tur, F5: yanlıştı — yarı kapalı bağlantıda yanıt teslim edilir;
+>    kod adımında iki sonuç aynı 500'ü alır, ama **parolasız kolda** yanlış parola 500 + satırsız,
+>    doğru parola 303: izsiz parola tahmini — md. 21)*. Aynı ayrık yazım ve iade kalıbının oraya
+>    taşınması ayrı bir karar; **öncelik parolasız satırlarda** (`login_failed`).
+>    Kesik parolasız isteklerin ortak tavanı satırsız harcaması aynı sınıftandır.
+>
+> **Zincir, 2. tur (2026-10-07, worktree, son kod değişikliğinden sonra; dev DB goose 32):**
+> - **Statik:** `gofmt -s -l` (üretilenler hariç) boş; `go build ./...` ve `go vet ./...` exit 0;
+>   staticcheck (go1.26.7, 2025.1.1) exit 0, çıktı yok; `make gen` idempotent (`git status`
+>   önce = sonra); `go.mod`/`go.sum`/`sqlc.yaml` diff'i boş.
+> - **Redline:** exit 0. İlk koşu R7d FAIL verdi (`a0-token`): yeni DB testinde
+>   198.51.100.0/24 belge aralığından üretilen adresler bir parola değişkeniyle aynı satırdaydı. Satır ikiye
+>   bölündü, muafiyet yazılmadı.
+> - **`TestEveryNamedTestExists`:** worktree'de ve bu kart "## 4. Akış B" başlığından önce
+>   eklenmiş, worktree'siz kopyada PASS. `TestComments_DoNotQuoteTheDriftingRosterSize` PASS.
+> - **`.env`'li `-race`:**
+>   - `internal/operatorauth`: **63 PASS** / 0 FAIL / 0 SKIP / 0 yarış (328,7 sn).
+>   - `internal/handler/operator`: CSS'i derlenmiş kopyada **93 PASS** / 0 FAIL / 0 yarış (worktree'de
+>     `app.css` yok, `TestHostGate_TheOperatorHostServesNoCustomerRoute` çevresel kırmızı — 1. tur md.).
+>   - `internal/db -run 'Test(Operator00027_|OpRecordAuthEvent)'` eşdeğeri: **9 PASS**. L9 testi
+>     16 küme dışı satırla `refused` ×2 + ×2.
+> - **`cmd/tappa`'nın kapanış bütçesi testleri:** PASS (yeni `TestShutdownBudget_TheFirstFactorRecordNestsInsideTheHTTPGrace` dahil).
+> - `internal/db`'nin öteki operatör katalog testleri 00032 (OP-12A) yüzünden bu ağaçta
+>   koşulmadı (orkestratörün notu).
+>
+> **3. tur (2026-10-07, güvenlik denetiminin RED'i: F1 ORTA/bloklayan, F2 ORTA/bloklayan,
+> F3–F6 DÜŞÜK; 2. turun kodu sağlam bulundu).** Ağaç hâlâ `5a50b14` üstünde (00031); dal ucu
+> artık `d7775b7` (OP-12A, 00032), rebase yapılmadı. Dev DB goose 32. Migration yok, DDL yok,
+> yeni bağımlılık yok. Denetimin sondaları (`scratchpad/op14c-sec/probe/src/zz_secprobe_*`,
+> P1–P8) okundu, kalıpları kullanıldı, testler yeniden yazıldı.
+>
+> 17. 🔴 **F1 — eşzamanlılık + düşen yazımlar pencereyi satırsız bırakıyordu.** Denetimin P2'si
+>     gerçek Postgres'te ölçtü:
+>     - 10 doğru parolanın yazımı uçuşta bekletildi; 11. doğru parola `take`'ten n=11 aldı ve
+>       challenge basıldı;
+>     - 10 yazım 25006 ile düşüp iade edildi → `challenge=true; rows=0; WARN=1`.
+>     Bu, 2. turun md. 2 notunu, C4'ü, C9 (ii)'yi ve `limits.go` yorumunu yanlışladı; hepsi
+>     üstü çizili ve 3. tur notuyla düzeltildi.
+>     **Tasarım — seçenek (b), orkestratör kararı:**
+>     - Pencere **yazılmış** satırları ayrıca sayar: `budgetWindow.written`, başarılı yazımdan
+>       sonra `budget.wrote`, aynı kilit.
+>     - `take` tek kilitli adımda sayıyı **ve** yazılmış satır sayısını döndürür.
+>     - Tavanın üstünde, yazılmış satırlar tavana ulaştıysa: satırsız hizmet + pencere başına
+>       tek WARN.
+>     - Ulaşmadıysa: **fail-closed** — `errFirstFactorPending` (sentinel değil → 503),
+>       challenge yok, şarj iade, operatörü adlandıran tek satır.
+>     - WARN bayrağı yalnız gerçekten satırsız hizmet gören ilk istekte kalkar
+>       (`written >= limit`).
+>     **Yarış seçenekleri:**
+>     - **503 (seçildi):** bir kişi aynı anda 10'dan fazla parola adımı atmadıkça doğmaz
+>       (meşru ≈4 / pencere); doğarsa bir yeniden deneme.
+>     - **Bekleme (seçilmedi):** pencere başına bir koşul ve bekleme sınırı ister; karşılığında
+>       yalnız bu 503'ü kaldırır.
+>     **"Susturulamaz" iddiasının dar hâli:** tavanın üstünde satırsız challenge yalnız
+>     penceresinde o operatörün **yazılmış** 10 satırı varken basılır.
+>     **Ölçüm:** `TestPasswordOK_DB_ACapFullOfUnwrittenRowsServesNoChallenge` (P2, gerçek
+>     Postgres, iki kol) ve aynısı bellekte (`TestPasswordOK_ACapFullOfUnwrittenRowsServesNoChallenge`):
+>     - **yazımlar düşer:** 11. istek reddedilir, challenge yok, satır 0, sayaç 0;
+>     - **yazımlar oturur:** 11. istek yine reddedilir (geldiğinde satırlar yazılmamıştı),
+>       satır 10; 12. istek satırsız hizmet görür, tek WARN.
+>     Yarışçı testleri yeni davranışa göre ölçer: her tur tam 10 satır; her yarışçı ya hizmet
+>     görür ya `errFirstFactorPending` alır; sayaç hizmet görenlere eşit; her satır türü en çok
+>     bir kez.
+>     ⚠️ **Ölçerken görüldü:** iki F1 testinin ilk yazımı fazladan isteği eşzamanlı çağırıyordu.
+>     Tavansız mutant (M17) altında o istek kapıda kendi yazımını bekledi ve test kilitlendi. İlk
+>     mutasyon koşusu M16'dan sonra durduruldu, kopya rsync ile geri yüklendi. Fazladan istek artık
+>     ayrı bir goroutine'de, 10 sn sınırla koşar; aşarsa kapı açılır ve test kırmızı olur. Koşu
+>     baştan yapıldı; tablo ikinci koşunundur.
+> 18. **F2 — "yalnız doğru parola tavanı harcar" pinsizdi** (S5 yeşil kalıyordu):
+>     `TestPasswordOK_WrongPasswordsToItsAddressNeverSpendTheCap` (P7). Operatörün adresine 12
+>     yanlış parola → tavan 0; ardından doğru parola → 1 satır, tavan 1. Karşılaştırma bu testte
+>     tam eşleşen bir sahteyle yapılır; konusu tavan, bcrypt değil.
+> 19. **F3 — 5 sn davranış olarak pinlendi:** `TestPasswordOK_AHangingWriteIsBoundedByItsGrace`
+>     (P3). İsteğin bağlamı bir saat; askıda kalan mağaza → ≈5 sn'de hata, challenge yok, şarj 0,
+>     ret satırı.
+> 20. **F4 — yazma kesintisinde operatörü adlandıran iz.** Her fail-closed ret (yazma hatası ya
+>     da F1'in reddi) pencere başına operatör başına **tek** WARN yazar:
+>     *"operator first-factor audit row not written; this operator's sign-in step was refused"*.
+>     - Alanlar bastırma satırının kalıbında: `kind`, `operator_id`, `cap`, `window`. Adres,
+>       parola, hata metni ve SQLSTATE yok.
+>     - Pinler: `TestPasswordOK_EveryWriteErrorFailsClosedAndGivesTheChargeBack` (her sınıfta iki
+>       ret → tek satır, kapalı biçim, log'da hata metni yok);
+>       `TestSurface_ARightPasswordWhoseTrailIsRefusedGetsNoChallenge` (log operatörü yalnız bu
+>       satırda adlandırır); sızıntı testinin `checkFirstFactorLines`'ı (P7 kolu bu satırı yazar;
+>       metin + JSON, dört öznitelik); birim testlerinin `checkFirstFactorLog`'u.
+> 21. **F5 — C9 (iv)'ün gerekçesi düzeltildi** (ADR ek). Go sunucusu yarı kapalı bağlantıda
+>     isteğin bağlamını iptal eder ama yanıtı teslim eder.
+>     - **TOTP adımı:** doğru ve yanlış kod ikisi de 500 alır; sonuç "yanıt gelmediği" için
+>       değil, iki sonuç aynı yanıtı verdiği için öğrenilmez.
+>     - **Parolasız kol:** sonuç okunur — yarı kapalı yanlış parola 500 + `login_failed` yok,
+>       doğru parola 303 + challenge. Yani iş bütçesi hızında **izsiz parola tahmini** mümkün.
+>     - **Devir, öncelik parolasız satırlarda** (devir 9'un güncellenmiş hâli).
+> 22. **F6** — `TestSurface_AnAbortedRightPasswordStillLeavesItsRow` başarısızlıkta kilitlenmez:
+>     tutulan karşılaştırmayı `stop` kanalı serbest bırakır; `t.Cleanup` LIFO sırasıyla önce
+>     `stop`, sonra sunucu kapanır; son isteğin yardımcı goroutine'i de `stop`'u dinler.
+> 23. **Değişen dosyalar (3. tur):**
+>     - `internal/operatorauth/limits.go`: `written`, `refusedWarned`, `wrote`, `firstRefusal`,
+>       `take`'in yeni dönüşü, yorum.
+>     - `internal/operatorauth/flow.go`: `errFirstFactorPending`, fail-closed kolu, `refused`.
+>     - `internal/operatorauth/operatorauth.go`: `Config.Log` yorumu.
+>     - `internal/operatorauth/passwordok_test.go`: +2 test (F3, F1 bellek); iki satırlı
+>       denetleyici `checkFirstFactorLog`; yarışçı ve iade testlerinin yeni beklentileri.
+>     - `internal/operatorauth/passwordok_db_test.go`: +2 test (F1 P2, F2 P7);
+>       `lockedStore`, `gatedStore`, `exactCompare`; tavan testinin ön doldurması yazılmış
+>       satırlarla.
+>     - `internal/operatorauth/passwordok_external_test.go`: F6.
+>     - `internal/operatorauth/surface_external_test.go`: log operatörü yalnız ret satırında
+>       adlandırır.
+>     - `internal/operatorauth/leak_external_test.go`: `checkFirstFactorLines`, iki yeni
+>       `allowedFields` girdisi.
+>     - ADR 0021: md. 2 ve C4 notları, C9 (ii)(iii)(iv), yeni md. 9, PART I/II.
+>     - ADR 0020 §3 notu.
+>
+> **Mutasyonlar, 3. tur — `scratchpad/op14c/verify_round3.py`:** 36 mutasyon. 2. turun 31'inin
+> çapaları 3. turun koduna taşındı: `take` artık yazılmış satır sayısını da döndürüyor,
+> bastırma onun altına iç içe girdi, ret satırı ayrı. Yeniler orkestratörün listesi: S5, S2,
+> F1-geri, F4-geri, F4-tekrar. Koşucu ilk turunkiyle aynı kurallarla çalışır: `op14c-orch` dışı
+> ya da örtüşen yol reddedilir, taban önce koşar, çapalar tam bir kez aranır, geri yükleme sha256
+> ile doğrulanır, derlenmeyen mutant BUILD-FAILED sayılır.
+> **Sonuç:** uygulanan 34'ün 34'ü **KIRMIZI**, derlenmeyen 0, kontrol **YEŞİL**. L9a ve L9d
+> UYGULANAMAZ: veritabanı 16 küme dışı satır tutuyordu; ilk turda, temizken kırmızıydılar.
+>
+> | # | Mutasyon | Yol | Sonuç | Kırmızıya çeviren |
+> |---|---|---|---|---|
+> | CTL-hook | op_record_auth_event re-created UNCHANGED in the test's transaction | SQL kanca, işlem içinde | YEŞİL (kontrol) |  |
+> | M01 | order: the trail written at the code step (after the cookie), not the password step | Go, DB'li ve DB'siz | KIRMIZI | `TestLimits_ARefusedRequestWritesNoRowAndMovesNoCounter`, `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`, `TestPasswordOK_AHangingWriteIsBoundedByItsGrace`, `TestPasswordOK_ARowThatCannotBeWrittenFailsTheStep`, `TestPasswordOK_AnAbortedRightPasswordStillLeavesItsRow`, `TestPasswordOK_DB_ACapFullOfUnwrittenRowsServesNoChallenge`, `TestPasswordOK_EachSignInArmLeavesItsRows`, `TestPasswordOK_EveryWriteErrorFailsClosedAndGivesTheChargeBack`, `TestPasswordOK_PasswordlessJunkCannotSilenceIt`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_RefundsUnderRacersNeverOverspendTheCap`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow`, `TestPasswordOK_WrongPasswordsToItsAddressNeverSpendTheCap`, `TestPassword_EveryArmPaysOneComparisonAtTheSameCost` |
+> | M02 | order: the challenge minted first and returned although the trail failed after it | Go, DB'li ve DB'siz | KIRMIZI | `TestPasswordOK_ACapFullOfUnwrittenRowsServesNoChallenge`, `TestPasswordOK_AHangingWriteIsBoundedByItsGrace`, `TestPasswordOK_ARowThatCannotBeWrittenFailsTheStep`, `TestPasswordOK_DB_ACapFullOfUnwrittenRowsServesNoChallenge`, `TestPasswordOK_EveryWriteErrorFailsClosedAndGivesTheChargeBack`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers` |
+> | M03 | fail-open: a refused trail is logged and the step goes on | Go, DB'li ve DB'siz | KIRMIZI | `TestLeak_NoInputInAnyErrorOrLogLine`, `TestPasswordOK_ACapFullOfUnwrittenRowsServesNoChallenge`, `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`, `TestPasswordOK_AHangingWriteIsBoundedByItsGrace`, `TestPasswordOK_ARowThatCannotBeWrittenFailsTheStep`, `TestPasswordOK_DB_ACapFullOfUnwrittenRowsServesNoChallenge`, `TestPasswordOK_EveryWriteErrorFailsClosedAndGivesTheChargeBack`, `TestPasswordOK_RefundsUnderRacersNeverOverspendTheCap`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers`, `TestSurface_ARightPasswordWhoseTrailIsRefusedGetsNoChallenge` |
+> | M04 | fail-open: the writer swallows the database's error | Go, DB'li ve DB'siz | KIRMIZI | `TestLeak_NoInputInAnyErrorOrLogLine`, `TestPasswordOK_ACapFullOfUnwrittenRowsServesNoChallenge`, `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`, `TestPasswordOK_AHangingWriteIsBoundedByItsGrace`, `TestPasswordOK_ARowThatCannotBeWrittenFailsTheStep`, `TestPasswordOK_DB_ACapFullOfUnwrittenRowsServesNoChallenge`, `TestPasswordOK_EveryWriteErrorFailsClosedAndGivesTheChargeBack`, `TestPasswordOK_RefundsUnderRacersNeverOverspendTheCap`, `TestSurface_ARightPasswordWhoseTrailIsRefusedGetsNoChallenge` |
+> | M05 | shared cap: password_ok routed through recordPasswordless | Go, DB'li ve DB'siz | KIRMIZI | `TestPasswordOK_ARowThatCannotBeWrittenFailsTheStep`, `TestPasswordOK_AnAbortedRightPasswordStillLeavesItsRow`, `TestPasswordOK_DB_ACapFullOfUnwrittenRowsServesNoChallenge`, `TestPasswordOK_PasswordlessJunkCannotSilenceIt`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn` |
+> | M06 | shared cap: recordPasswordOK charges the process-wide auditCap | Go, DB'li ve DB'siz | KIRMIZI | `TestLeak_NoInputInAnyErrorOrLogLine`, `TestPasswordOK_ACapFullOfUnwrittenRowsServesNoChallenge`, `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`, `TestPasswordOK_AnAbortedRightPasswordStillLeavesItsRow`, `TestPasswordOK_DB_ACapFullOfUnwrittenRowsServesNoChallenge`, `TestPasswordOK_PasswordlessJunkCannotSilenceIt`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_RefundsUnderRacersNeverOverspendTheCap`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow`, `TestPasswordOK_WrongPasswordsToItsAddressNeverSpendTheCap`, `TestSurface_AnAbortedRightPasswordStillLeavesItsRow` |
+> | M07 | two steps: Allowed (a read) then the charge, the decision on the read | Go, DB'siz, `-race` | KIRMIZI | `TestPasswordOK_RefundsUnderRacersNeverOverspendTheCap`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers` |
+> | M08 | target by address: the email instead of the id | Go, DB'li ve DB'siz | KIRMIZI | `TestAuditRows_EveryPasswordlessKindGoesThroughTheCap`, `TestPasswordOK_ACapFullOfUnwrittenRowsServesNoChallenge`, `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`, `TestPasswordOK_ARowThatCannotBeWrittenFailsTheStep`, `TestPasswordOK_AnAbortedRightPasswordStillLeavesItsRow`, `TestPasswordOK_DB_ACapFullOfUnwrittenRowsServesNoChallenge`, `TestPasswordOK_EachSignInArmLeavesItsRows`, `TestPasswordOK_PasswordlessJunkCannotSilenceIt`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_RefundsUnderRacersNeverOverspendTheCap`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow`, `TestPasswordOK_TouchesNoLockCounter`, `TestPasswordOK_WrongPasswordsToItsAddressNeverSpendTheCap`, `TestPassword_EveryArmPaysOneComparisonAtTheSameCost` |
+> | M09 | target by address: the email beside the id | Go, DB'li ve DB'siz | KIRMIZI | `TestAuditRows_EveryPasswordlessKindGoesThroughTheCap`, `TestPasswordOK_ARowThatCannotBeWrittenFailsTheStep`, `TestPasswordOK_AnAbortedRightPasswordStillLeavesItsRow`, `TestPasswordOK_DB_ACapFullOfUnwrittenRowsServesNoChallenge`, `TestPasswordOK_EachSignInArmLeavesItsRows`, `TestPasswordOK_PasswordlessJunkCannotSilenceIt`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow`, `TestPasswordOK_TouchesNoLockCounter`, `TestPasswordOK_WrongPasswordsToItsAddressNeverSpendTheCap`, `TestPassword_EveryArmPaysOneComparisonAtTheSameCost` |
+> | M10 | lock (Go): the trail written as totp_failed (moves the counter) | Go, DB'li ve DB'siz | KIRMIZI | `TestAuditRows_EveryPasswordlessKindGoesThroughTheCap`, `TestLeak_NoInputInAnyErrorOrLogLine`, `TestPasswordOK_ACapFullOfUnwrittenRowsServesNoChallenge`, `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`, `TestPasswordOK_AHangingWriteIsBoundedByItsGrace`, `TestPasswordOK_ARowThatCannotBeWrittenFailsTheStep`, `TestPasswordOK_AnAbortedRightPasswordStillLeavesItsRow`, `TestPasswordOK_DB_ACapFullOfUnwrittenRowsServesNoChallenge`, `TestPasswordOK_EachSignInArmLeavesItsRows`, `TestPasswordOK_EveryWriteErrorFailsClosedAndGivesTheChargeBack`, `TestPasswordOK_PasswordlessJunkCannotSilenceIt`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_RefundsUnderRacersNeverOverspendTheCap`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow`, `TestPasswordOK_TouchesNoLockCounter`, `TestPasswordOK_WrongPasswordsToItsAddressNeverSpendTheCap`, `TestPassword_EveryArmPaysOneComparisonAtTheSameCost`, `TestSurface_ARightPasswordWhoseTrailIsRefusedGetsNoChallenge`, `TestSurface_AnAbortedRightPasswordStillLeavesItsRow`, `TestSurface_EveryRefusedSignInPaysOneComparisonAndAnswersAlike` |
+> | M11 | lock (SQL, in-transaction hook): the definer resets the counter on password_ok | SQL kanca, işlem içinde | KIRMIZI | `TestPasswordOK_TouchesNoLockCounter` |
+> | M12 | WARN repeated: one line per suppressed row | Go, DB'li ve DB'siz | KIRMIZI | `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_RefundsUnderRacersNeverOverspendTheCap`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow` |
+> | M13 | WARN carries the client address | Go, DB'li ve DB'siz | KIRMIZI | `TestAuditRows_EveryPasswordlessKindGoesThroughTheCap`, `TestLeak_NoInputInAnyErrorOrLogLine`, `TestPasswordOK_ACapFullOfUnwrittenRowsServesNoChallenge`, `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`, `TestPasswordOK_AnAbortedRightPasswordStillLeavesItsRow`, `TestPasswordOK_DB_ACapFullOfUnwrittenRowsServesNoChallenge`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow` |
+> | M14 | WARN never logged | Go, DB'li ve DB'siz | KIRMIZI | `TestLeak_NoInputInAnyErrorOrLogLine`, `TestPasswordOK_ACapFullOfUnwrittenRowsServesNoChallenge`, `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`, `TestPasswordOK_AnAbortedRightPasswordStillLeavesItsRow`, `TestPasswordOK_DB_ACapFullOfUnwrittenRowsServesNoChallenge`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow`, `TestSurface_AnAbortedRightPasswordStillLeavesItsRow` |
+> | M15 | the OP-6 12c Info line put back beside the row | Go, DB'li ve DB'siz | KIRMIZI | `TestLeak_NoInputInAnyErrorOrLogLine`, `TestPasswordOK_ACapFullOfUnwrittenRowsServesNoChallenge`, `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`, `TestPasswordOK_AnAbortedRightPasswordStillLeavesItsRow`, `TestPasswordOK_DB_ACapFullOfUnwrittenRowsServesNoChallenge`, `TestPasswordOK_EachSignInArmLeavesItsRows`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow` |
+> | M16 | cap keyed by the client address, not the operator | Go, DB'li ve DB'siz | KIRMIZI | `TestAuditRows_EveryPasswordlessKindGoesThroughTheCap`, `TestLeak_NoInputInAnyErrorOrLogLine`, `TestPasswordOK_ACapFullOfUnwrittenRowsServesNoChallenge`, `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`, `TestPasswordOK_AnAbortedRightPasswordStillLeavesItsRow`, `TestPasswordOK_DB_ACapFullOfUnwrittenRowsServesNoChallenge`, `TestPasswordOK_EveryWriteErrorFailsClosedAndGivesTheChargeBack`, `TestPasswordOK_PasswordlessJunkCannotSilenceIt`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_RefundsUnderRacersNeverOverspendTheCap`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow`, `TestPasswordOK_WrongPasswordsToItsAddressNeverSpendTheCap` |
+> | M17 | no cap: every right password writes | Go, DB'li ve DB'siz | KIRMIZI | `TestLeak_NoInputInAnyErrorOrLogLine`, `TestPasswordOK_ACapFullOfUnwrittenRowsServesNoChallenge`, `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`, `TestPasswordOK_AnAbortedRightPasswordStillLeavesItsRow`, `TestPasswordOK_DB_ACapFullOfUnwrittenRowsServesNoChallenge`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_RefundsUnderRacersNeverOverspendTheCap`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow`, `TestSurface_AnAbortedRightPasswordStillLeavesItsRow` |
+> | M18 | the cap's number 20 | Go, DB'li ve DB'siz | KIRMIZI | `TestBudgets_TheShippedNumbersArePinned`, `TestLeak_NoInputInAnyErrorOrLogLine`, `TestPasswordOK_ACapFullOfUnwrittenRowsServesNoChallenge`, `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`, `TestPasswordOK_AHangingWriteIsBoundedByItsGrace`, `TestPasswordOK_ARowThatCannotBeWrittenFailsTheStep`, `TestPasswordOK_AnAbortedRightPasswordStillLeavesItsRow`, `TestPasswordOK_DB_ACapFullOfUnwrittenRowsServesNoChallenge`, `TestPasswordOK_EveryWriteErrorFailsClosedAndGivesTheChargeBack`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow`, `TestSurface_AnAbortedRightPasswordStillLeavesItsRow` |
+> | M19 | the write on the request's context again (B1 back) | Go, DB'li ve DB'siz | KIRMIZI | `TestPasswordOK_AnAbortedRightPasswordStillLeavesItsRow`, `TestSurface_AnAbortedRightPasswordStillLeavesItsRow` |
+> | M20 | no refund: a failed write keeps its charge | Go, DB'li ve DB'siz | KIRMIZI | `TestLeak_NoInputInAnyErrorOrLogLine`, `TestPasswordOK_ACapFullOfUnwrittenRowsServesNoChallenge`, `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`, `TestPasswordOK_AHangingWriteIsBoundedByItsGrace`, `TestPasswordOK_ARowThatCannotBeWrittenFailsTheStep`, `TestPasswordOK_DB_ACapFullOfUnwrittenRowsServesNoChallenge`, `TestPasswordOK_EveryWriteErrorFailsClosedAndGivesTheChargeBack`, `TestPasswordOK_RefundsUnderRacersNeverOverspendTheCap` |
+> | M21 | the refund wipes the window (other requests' charges with it) | Go, DB'li ve DB'siz | KIRMIZI | `TestPasswordOK_ACapFullOfUnwrittenRowsServesNoChallenge`, `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`, `TestPasswordOK_DB_ACapFullOfUnwrittenRowsServesNoChallenge`, `TestPasswordOK_RefundsUnderRacersNeverOverspendTheCap`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers` |
+> | M22 | the refund ignores the window's identity (gives back into a later window) | Go, DB'li ve DB'siz | KIRMIZI | `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack` |
+> | M23 | the WARN by count == limit+1 (no flag): a refund makes a second line | Go, DB'li ve DB'siz | KIRMIZI | `TestPasswordOK_TheCapIsOneLockedStepUnderRacers` |
+> | E07 | fail-open on a context error | Go, DB'li ve DB'siz | KIRMIZI | `TestPasswordOK_AHangingWriteIsBoundedByItsGrace`, `TestPasswordOK_EveryWriteErrorFailsClosedAndGivesTheChargeBack`, `TestSurface_ARightPasswordWhoseTrailIsRefusedGetsNoChallenge` |
+> | E08 | fail-open on 28000 (db.ErrOperatorRefused) | Go, DB'li ve DB'siz | KIRMIZI | `TestPasswordOK_EveryWriteErrorFailsClosedAndGivesTheChargeBack`, `TestSurface_ARightPasswordWhoseTrailIsRefusedGetsNoChallenge` |
+> | E09 | the WARN on the cap's last WRITTEN row | Go, DB'li ve DB'siz | KIRMIZI | `TestPasswordOK_AnAbortedRightPasswordStillLeavesItsRow`, `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn`, `TestPasswordOK_RefundsUnderRacersNeverOverspendTheCap`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers`, `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow` |
+> | S5 | a wrong password charges the operator's cap | Go, DB'li ve DB'siz | KIRMIZI | `TestLeak_NoInputInAnyErrorOrLogLine`, `TestPasswordOK_WrongPasswordsToItsAddressNeverSpendTheCap` |
+> | S2 | the detached write without a bound | Go, DB'li ve DB'siz | KIRMIZI | `TestPasswordOK_AHangingWriteIsBoundedByItsGrace` |
+> | F1-back | the written count ignored: past the cap served without a row whatever was written | Go, DB'li ve DB'siz | KIRMIZI | `TestPasswordOK_ACapFullOfUnwrittenRowsServesNoChallenge`, `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`, `TestPasswordOK_DB_ACapFullOfUnwrittenRowsServesNoChallenge`, `TestPasswordOK_RefundsUnderRacersNeverOverspendTheCap` |
+> | F4-back | no line on a fail-closed refusal | Go, DB'li ve DB'siz | KIRMIZI | `TestLeak_NoInputInAnyErrorOrLogLine`, `TestPasswordOK_ACapFullOfUnwrittenRowsServesNoChallenge`, `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`, `TestPasswordOK_AHangingWriteIsBoundedByItsGrace`, `TestPasswordOK_ARowThatCannotBeWrittenFailsTheStep`, `TestPasswordOK_DB_ACapFullOfUnwrittenRowsServesNoChallenge`, `TestPasswordOK_EveryWriteErrorFailsClosedAndGivesTheChargeBack`, `TestPasswordOK_RefundsUnderRacersNeverOverspendTheCap`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers`, `TestSurface_ARightPasswordWhoseTrailIsRefusedGetsNoChallenge` |
+> | F4-repeat | the refusal line on every refused request | Go, DB'li ve DB'siz | KIRMIZI | `TestPasswordOK_ACapFullOfUnwrittenRowsServesNoChallenge`, `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`, `TestPasswordOK_DB_ACapFullOfUnwrittenRowsServesNoChallenge`, `TestPasswordOK_EveryWriteErrorFailsClosedAndGivesTheChargeBack`, `TestPasswordOK_RefundsUnderRacersNeverOverspendTheCap`, `TestPasswordOK_TheCapIsOneLockedStepUnderRacers` |
+> | L9a | the scenario's own 'password_ok' row not written (and its premise gone) | test dosyası (kopyala-geri-yaz), DB'li | UYGULANAMAZ (db holds 16 row(s) outside 00027's set) |  |
+> | L9b | the dispatch inverted (rows found -> the validated path) | test dosyası (kopyala-geri-yaz), DB'li | KIRMIZI | `TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain` |
+> | L9c | the refusal arm of 'Up again' goes vacuous | test dosyası (kopyala-geri-yaz), DB'li | KIRMIZI | `TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain` |
+> | L9d | the validated arm of the Down's ELSE goes vacuous | test dosyası (kopyala-geri-yaz), DB'li | UYGULANAMAZ (db holds 16 row(s) outside 00027's set) |  |
+> | L9e | the measurement goes blind (counts a kind nothing writes) | test dosyası (kopyala-geri-yaz), DB'li | KIRMIZI | `TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain` |
+>
+> **Kaçış denemeleri, 3. tur (+3):**
+> - **K13 — tavanı uçuştaki yazımlarla doldurup satırsız challenge almak:** reddedilir; düşen
+>   yazımlarla pencere 0 satır, sayaç 0 (`TestPasswordOK_DB_ACapFullOfUnwrittenRowsServesNoChallenge`).
+> - **K14 — operatörün adresine yanlış parolalarla tavanı harcamak:** tavan 0
+>   (`TestPasswordOK_WrongPasswordsToItsAddressNeverSpendTheCap`).
+> - **K15 — askıda kalan veritabanında adımı sonsuza dek tutmak:** ≈5 sn'de hata
+>   (`TestPasswordOK_AHangingWriteIsBoundedByItsGrace`).
+>
+> **Devirler, 3. tur:**
+> 10. **Parolasız satırların ayrık yazımı — öncelikli** (C9 iv, F5 ölçümü): yarı kapalı yanlış
+>     parola `login_failed` bırakmıyor, doğru parola 303 alıyor; iş bütçesi hızında izsiz parola
+>     tahmini. Aynı ayrık yazım + iade kalıbı `login_failed`/`unknown_email`/`enrollment_failed`'a,
+>     sonra TOTP adımının `totp_failed`/`locked`'ına. Ayrı kart.
+> 11. **Birleştirme (orkestratör):** dal ucu `d7775b7` (00032); bu ağaç `5a50b14`'te, rebase
+>     yapılmadı. `cmd/tappa/shutdownbudget_test.go`'nun EM-9 çakışması orkestratörde.
+>
+> **Zincir, 3. tur (2026-10-07, worktree, son değişiklikten sonra; dev DB goose 32):**
+> - **Statik:** `gofmt -s -l` (üretilenler hariç) boş; `go build ./...` ve `go vet ./...` exit 0;
+>   staticcheck (go1.26.7, 2025.1.1) exit 0, çıktı yok.
+> - **Üretim ve bağımlılıklar:** `make gen` idempotent (`git status` önce = sonra); redline exit 0;
+>   `go.mod`/`go.sum`/`sqlc.yaml` diff'i boş.
+> - **İsim ve yorum testleri:** `TestEveryNamedTestExists` worktree'de ve bu kart "## 4. Akış B"
+>   başlığından önce eklenmiş, worktree'siz kopyada PASS. `TestComments_DoNotQuoteTheDriftingRosterSize`
+>   PASS.
+> - **`.env`'li `-race`:**
+>   - `internal/operatorauth`: **67 PASS** / 0 FAIL / 0 SKIP / 0 yarış (313,0 sn).
+>   - `internal/handler/operator`: CSS'i derlenmiş kopyada **93 PASS** / 0 FAIL / 0 yarış.
+>   - `internal/db -run 'Test(Operator00027_|OpRecordAuthEvent)'` eşdeğeri: **9 PASS**. L9 testi 20
+>     küme dışı satırla ret yolunu her dalda iki kez koştu.
+>   - `cmd/tappa`'nın kapanış bütçesi testleri: PASS.
+> - **00033'ten sonra (orkestratörün notu, ölçüldü):** dev DB 33'e geçtikten sonra aynı `internal/db`
+>   koşusu (ağaç hâlâ 31'de) **9 PASS**; L9 testi 20 küme dışı satırla (hepsi `password_ok`; 00033'ün
+>   sahip türlerinden satır yok) ret yolunu her dalda iki kez koştu. Ölçüm küme dışındaki **her**
+>   türü sayar, sahip türlerinden satır doğduğunda o satırlar da ret yolunu sürer. ADR ek md. 9.
+>
+> **4. tur (2026-10-07, yalnız rebase + birleştirme; davranış değişmedi).** Taban `488b645`
+> (`d7775b7`'nin OP-12A'sı ve 00032'si, OP-14B, EM-9). Yöntem: 3. turun diff'i ve izlenmeyen
+> üç dosya scratchpad'e kaydedildi (`op14c/rebase/c3.diff`, sha256 `23e32eb6…866c`), dal
+> `488b645`'e yeniden kuruldu (`git checkout -B`), diff `git apply -3` ile uygulandı, izlenmeyenler
+> geri kondu, çakışmalar çözüldü, indeks boşaltıldı (`git reset -q`). Migration yok, DDL yok,
+> yeni bağımlılık yok; commit/push yok. Dev DB goose 33 (OP-14D'nin commit'siz 00033'ü), ağaç 32.
+>
+> 24. **Çakışmalar:**
+>     - `cmd/tappa/shutdownbudget_test.go` — EM-9'un
+>       `TestShutdownBudget_ThePasswordNoticeNestsInsideTheHTTPGrace`'i ve bu fazın
+>       `TestShutdownBudget_TheFirstFactorRecordNestsInsideTheHTTPGrace`'i ikisi de duruyor;
+>       paketin altı kapanış bütçesi testi PASS.
+>     - ADR 0021 — `488b645`'in metni üstüne **yalnız satır eklenerek** yeniden kuruldu. Durum'a
+>       C cümlesi B'ninkinden sonra, ayrı satırlarda. L6, L9 ve L14 notları özgün satırların
+>       altında, ayrı satırlarda; özgün satırlar değişmedi (3. turda L6 ve L14'ün son satırı
+>       nota bitişikti, bu turda not alt satıra indi — metin aynı). "OP-14 C fazı eki" bütün
+>       olarak "OP-14 B fazı eki"nin sonundan sonra, "## OP-12 uygulama notu"ndan önce.
+>       Sonuçlar'a C cümlesi B'ninkinden sonra ayrı satır. LB12'ye bir ek satır (md. 26).
+>     - **Kanıt (ADR 0021):** `git show 488b645:<ADR>`'ye karşı `difflib` ile her işlem kodu
+>       `equal` ya da `insert`; eklenen 390 satır çıkarılınca sha256 `5c66d9ed…c1f0`, tabanınkiyle
+>       aynı — bayt-aynı. Değişen taban satırı **yok**.
+>     - ADR 0020 temiz uygulandı. 1. turun değiştirdiği tek taban satırı ("Karar verilmedi"
+>       bütçe listesinin son satırı, iki satıra bölünüp `password_ok` tavanı eklendi) aynen
+>       duruyor; başka değişen satır yok.
+> 25. **Temiz uygulananlar, denetlendi:**
+>     - `surface_external_test.go`'nun `newSurfRig`'i: bu fazın `g.logs` yakalaması, B'nin dokuz
+>       argümanlı `operator.New` çağrısı ve `surfTenants`'ın `OperatorAudit` sahtesi birlikte.
+>     - Yeni `passwordok_external_test.go` sekiz argümanlı eski çağrıyı taşıyordu (`go vet`: not
+>       enough arguments). B'nin dokuz argümanlı biçimine getirildi: AuditStore yerine
+>       `surfTenants{}`. Tek satır, davranış yok.
+>     - `internal/handler/operator/leak_test.go`'nun `harvestWant`'ı kol yorumlarından yeniden
+>       türetildi:
+>       - `RecordOperatorAuthEvent` 12 = parolasız 7 (A2 A3 A6 A14 A15 A17 A28) + doğru parola 5
+>         (A4 A20b A23 A26b A30b). A20'de arama düşer, karşılaştırma başarısı yok.
+>       - B'nin kolları (A67–A77) A20b'nin oturumunu kullanır, parola adımı atmaz; bu yüzden
+>         `OperatorByEmail` 9 değişmedi ve `password_ok` sayısı 5'te kaldı.
+>       - `TouchOperatorSession` 208 ve `OperatorAudit` 6 B'nin değerleri, dokunulmadı.
+>       - `len(store.got) != len(harvestWant)` denetimi ve `RecordOperatorAuthEvent` → `gEmail`
+>         hasat döngüsü yerinde.
+>       - `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` PASS.
+> 26. **B'nin LB12'si (metin):** OP-14B'nin uçtan uca testi artık her koşuda girişinin
+>     `password_ok`'unu bırakır. ADR B ekinin LB12'sine ayrı bir ek satır eklendi;
+>     `op14_db_test.go`'nun "WHAT ONE RUN LEAVES BEHIND" yorumuna `password_ok` girdi. Ölçüldü:
+>     - testin tek koşusu 11 audit satırı bırakır: login, logout, `password_ok`, iki
+>       `unknown_email`, altı `read`. Koşunun operatörüne ve iki hesabına bağlı satırlar sayıldı;
+>       aynı aralıkta paralel bir yazıcının 3 `read` satırı sayıma girmedi;
+>     - paketin bir `-race` koşusu 5 `password_ok` bırakır (21 → 26): OP-10'un iki, OP-11'in,
+>       OP-13'ün ve OP-14'ün birer girişi.
+>     ADR ek C8'e 4. tur notu düşüldü. OP-10/11/13'ün başlık yorumları devir 2'de kalıyor.
+>
+> **Devirler, 4. tur:** 3. turun 11'inci devri (birleştirme) bu turla kapandı.
+>
+> **Zincir, 4. tur (2026-10-07, rebase'li ağaç; dev DB goose 33, ağaç 32):**
+> - **Statik:** `gofmt -l` boş; `go build ./...` ve `go vet ./...` exit 0 (ilk koşuda vet'in tek
+>   bulgusu md. 25'teki sekiz argümanlı çağrıydı); staticcheck (go1.26.7, 2025.1.1) exit 0.
+> - **Üretim ve bağımlılıklar:** `make gen` idempotent (`git status` ve diff'in sha256'sı önce =
+>   sonra); redline exit 0; `go.mod`/`go.sum` diff'i boş.
+> - **Üretim kodu 3. turla aynı:** `flow.go`, `limits.go`, `operatorauth.go` ve `operatorauth`'un
+>   test dosyalarının diff'i 3. turunkiyle satır satır aynı. `passwordok_db_test.go` ve
+>   `passwordok_test.go` bayt-aynı; `passwordok_external_test.go` yalnız md. 25'in satırında farklı.
+> - **İsim ve yorum testleri:** `TestEveryNamedTestExists` bu kart "## 4. Akış B" başlığından önce
+>   eklenmiş worktree'siz kopyada PASS (60 sarkan atıf, bütçe 60);
+>   `TestComments_DoNotQuoteTheDriftingRosterSize` PASS.
+> - **`.env`'li `-race`, worktree'siz kopyada:**
+>   - `internal/operatorauth`: **67 PASS** / 0 FAIL / 0 yarış (297,9 sn).
+>   - `internal/handler/operator` (CSS derlenmiş): **106 PASS**, 1 FAIL —
+>     `TestE2E_AuditWordsCoverEveryScopeAndSearchClassTheDatabaseReturns`. Sebebi 00033: kind
+>     CHECK'inde `operator_created`, `operator_disabled`, `operator_mfa_reset` var, ağaç 32'de.
+>     Bu fazın değil.
+>   - `internal/db -run 'Test(Operator00027_|OpRecordAuthEvent|OperatorAudit)'`: **12 PASS**, 1 FAIL —
+>     `TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree`, aynı 00033 sebebiyle.
+>     Kanıt: kopyada `internal/db`'nin iki test dosyası `488b645`'teki hâline döndürülünce aynı
+>     üç satırla düştü; kopya sonra worktree'ye geri eşitlendi. L9 testi 26 küme dışı satırla
+>     ret yolunu her dalda iki kez koştu.
+>   - `cmd/tappa -run TestShutdownBudget_`: 6 PASS.
+>
+> **Mutasyon, 4. tur:** `verify_round3.py`, rebase'li kopyada (`op14c-orch/tree`), değişmeden
+> koştu. Üç baz çizgisi yeşil, hiçbir çapa APPLY-FAILED değil, hiçbir mutant BUILD-FAILED değil.
+> Uygulanan **34 mutantın 34'ü kırmızı**, değişmemiş kanca kontrolü yeşil. L9a ve L9d yine
+> UYGULANAMAZ (veritabanında 26 küme dışı satır; temiz veritabanında 1. turda kırmızıydılar).
+> Kopya her mutanttan sonra sha ile geri yüklendi, koşu sonunda worktree'yle aynı. Çıktı:
+> `scratchpad/op14c/round4.out`.
+>
+> **5. tur (2026-10-07; kapanış denetimi ONAY — F1 kapandı, yeni susturma ya da DoS yolu yok;
+> beş DÜŞÜK bulgu commit'ten önce).** Yalnız test + metin/yorum: davranış değişmedi; üretim
+> kodunda yalnız iki yorum değişti (`limits.go` başlığı, `flow.go`'da `recordPasswordOK`'un
+> yorumu). Migration yok, DDL yok, yeni bağımlılık yok; commit/push yok. Denetimin sondaları
+> (`scratchpad/op14c-close/probe/zz_closeprobe_test.go`, Q1–Q6) okundu, kalıpları kullanıldı;
+> testler yeniden yazıldı ve adlandırıldı.
+>
+> 27. **D1 — `wrote`'un pencere kimliği pinsizdi** (N02 yeşildi). Yeni
+>     `TestPasswordOK_RowsThatLandAfterTheirWindowCountInTheirOwn` (Q2):
+>     - 10 doğru parolanın yazımı tutulur, pencere döner, yeni pencerede 10 yazım daha tutulur,
+>       sonra ilk 10'u oturur;
+>     - yeni pencerede bir doğru parola → `errFirstFactorPending`, challenge yok (eskinin geç
+>       satırları yeniye sayılsaydı F1 pencere sınırında geri gelirdi);
+>     - yeni pencerenin yazımları düşer → 10 satır, yeni pencerenin sayacı ve yazılmış sayısı 0,
+>       tek ret satırı.
+> 28. **D2 — F2 testi yazılmış sayıyı ölçmüyordu** (N09 yeşildi). İkisi birden:
+>     - `TestPasswordOK_WrongPasswordsToItsAddressNeverSpendTheCap` (gerçek Postgres) yanlış
+>       parolalardan sonra operatörün penceresinin hiç açılmadığını, doğru paroladan sonra
+>       yazılmış sayının 1 olduğunu da assert eder (paket içi `windowState`: pencerenin kilit
+>       altında kopyası);
+>     - yeni `TestPasswordOK_WrongPasswordsLeaveTheOperatorsWindowUntouched` (Q5, bellekte): 12
+>       yanlış parola, sonra tutulup düşen 10 doğru parola, tutulurken bir doğru parola daha →
+>       reddedilir; pencere satırsız, şarjsız, yazılmış sayı 0.
+> 29. **D3 — F4 satırının "pencere başına, operatör başına" iddiası pinsizdi** (N10a, N10b
+>     yeşildi). Yeni `TestPasswordOK_TheRefusalLineNamesEachOperatorOncePerWindow` (Q6): her
+>     yazım düşer; bir pencerede iki operatör, ilki iki kez → iki satır, her biri birini
+>     adlandırır; bir dönem sonra ilki yine → üçüncü satır (`checkFirstFactorLog` ile, kapalı
+>     biçim).
+> 30. **D4 — eskiyen metin daraltıldı:**
+>     - `limits.go` başlığı: *"are not gates … past it the request is served without the row"*
+>       → auditCap'in üstünde satırsız hizmet; firstFactor'ün üstünde satırsız hizmet yalnız
+>       penceresinin **yazılmış** satırları tavana ulaşmışsa, aksi hâlde fail-closed;
+>     - ADR 0020 "Karar verilmedi" bütçe satırı: *"bir kapı değil"* → aynı koşul, 503 ile.
+> 31. **D5 — F4'ün gerekçesi daraltıldı** (`flow.go`, `recordPasswordOK`'un yorumu): kesinti tek
+>     başına doğruyu yanlıştan ayırmaz. Süreç geneli parolasız tavanın (30 / 10 dk) altında
+>     yanlış parolanın `login_failed` yazımı da düşer ve o da 503 alır; ayrım yalnız o tavan
+>     dolunca (yanlış 401, doğru 503; denetimin Q4'ü). Satırın gerekçesi kaldı: handler'ın 503
+>     için yazdığı ERROR satırı (`operator: the first sign-in step failed`) operatörü
+>     adlandırmaz.
+> 32. **ADR 0021 C eki:** md. 10 (5. tur) ve PART I'e üç satır eklendi; eklerin hepsi C ekinin
+>     içinde, taban metni yine bayt-aynı.
+>
+> **Mutasyon, 5. tur:** `verify_round5.py` (3. turun listesi değişmeden + denetimin N02, N09,
+> N10a, N10b'si; `scratchpad/op14c-close/mutrun.py`'deki düzenlemeler harfi harfine), tek kopya
+> (`op14c-orch/tree`). Baz çizgileri yeşil; çapası tutmayan ve derlenmeyen 0. Uygulanan **38'in
+> 38'i kırmızı**:
+> - eski 34'ü kırmızı kaldı;
+> - N02 → `TestPasswordOK_RowsThatLandAfterTheirWindowCountInTheirOwn`;
+> - N09 → `TestPasswordOK_WrongPasswordsLeaveTheOperatorsWindowUntouched`,
+>   `TestPasswordOK_WrongPasswordsToItsAddressNeverSpendTheCap`;
+> - N10a, N10b → `TestPasswordOK_TheRefusalLineNamesEachOperatorOncePerWindow`.
+> Kanca kontrolü yeşil; L9a ve L9d satırlı veritabanında (26 küme dışı satır) yine uygulanamaz.
+> Kopya her mutanttan sonra sha ile geri yüklendi; koşu sonunda kodu worktree'yle aynı. Çıktı:
+> `scratchpad/op14c/round5.out`.
+>
+> **Zincir, 5. tur (2026-10-07, son değişiklikten sonra; dev DB goose 33, ağaç 32):**
+> - **Statik:** `gofmt -l` boş; `go build ./...`, `go vet ./...` exit 0; staticcheck (go1.26.7,
+>   2025.1.1) exit 0.
+> - **Üretim ve bağımlılıklar:** `make gen` idempotent (`git status` ve diff'in sha256'sı önce =
+>   sonra); redline exit 0; `go.mod`/`go.sum` diff'i boş.
+> - **İsim ve yorum testleri:** `TestEveryNamedTestExists` bu kart "## 4. Akış B" başlığından önce
+>   eklenmiş kopyada PASS (60 sarkan atıf, bütçe 60); `TestComments_DoNotQuoteTheDriftingRosterSize`
+>   PASS.
+> - **`.env`'li `-race`, kopyada:** `internal/operatorauth` **70 PASS** / 0 FAIL / 0 yarış
+>   (324,4 sn; 67 + üç yeni test); `cmd/tappa`'nın altı kapanış bütçesi testi PASS;
+>   `internal/handler/operator`'da `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` PASS
+>   (`app.css` derlenmiş kopyada).
+>
+> **6. tur (2026-10-07, yalnız rebase; davranış değişmedi).** Taban `a54459d` (`8598de4` OP-14D:
+> 00033; `a54459d` OP-12B: faturalama ekranı). Yöntem: 5. turun diff'i (sha256 `b5e6c5f0…7b2`) ve
+> izlenmeyen üç dosya scratchpad'e kaydedildi (`op14c/rebase6/`), ağaç temizlendi, dal
+> `git checkout -B` ile `a54459d`'ye kuruldu, `git apply -3`, izlenmeyenler geri kondu, indeks
+> boşaltıldı. Dev DB 33 = ağaç 33. Migration yok, DDL yok, yeni bağımlılık yok; commit/push yok.
+>
+> 33. **Çakışma yalnız ADR 0021'de.** `a54459d`'nin metni üstüne yalnız satır eklenerek yeniden
+>     kuruldu (`rebase6/remap_inserts.py`: 5. turun her eklemesi aynı önceki satırın ardına).
+>     - Durum: C cümlesi B'ninkinden sonra, D'ninkinden önce, ayrı satırlarda.
+>     - L6, L9, L14 notları ve LB12'nin ek satırı özgün satırların altında.
+>     - C eki bütün olarak "OP-14 B fazı eki"nden sonra, "## OP-12 uygulama notu"ndan önce.
+>     - Sonuçlar'ın OP-14 maddesinin son satırı D cümlesiyle değişmişti; C cümlesi o satırın
+>       ardına ayrı satır olarak geldi.
+>     - **Kanıt:** `git show a54459d:<ADR>`'ye karşı `difflib` ile yalnız `equal` ve `insert`;
+>       eklenen satırlar çıkarılınca sha256 `09fe5c60…dec5`, tabanınkiyle aynı — bayt-aynı.
+>     - ADR 0020: tek `replace` yine bütçe satırının bölünmesi; geri kalanı 18 satırlık ekleme.
+> 34. **Temiz uygulananlar, denetlendi:**
+>     - `internal/handler/operator/leak_test.go`'nun `harvestWant`'ı:
+>       - `RecordOperatorAuthEvent` 12: parolasız 7 + doğru parola 5 (A4 A20b A23 A26b A30b);
+>       - OP-12B'nin A78–A90 kolları `live` oturumunu kullanır, `/operator/login`'e gitmez →
+>         `OperatorByEmail` 9 ve `password_ok` 5 değişmedi;
+>       - `TouchOperatorSession` 220 = 208 + A78–A86, A88, A89, A90 (A87 kapıdan önce reddedilir);
+>       - `OperatorAudit` 6, `TenantBilling` 8 (B'lerin değerleri, dokunulmadı).
+>     - `operator.New` OP-12B'de onuncu yuvayı (BillingStore) aldı. `newSurfRig`'in çağrısı
+>       tabanınkiydi, `g.logs` yakalaması korundu. `passwordok_external_test.go`'nun çağrısına bir
+>       `surfTenants{}` eklendi; tek satır, davranış yok.
+>     - `cmd/tappa/shutdownbudget_test.go`: EM-9'un ve bu fazın testi ikisi de duruyor.
+>     - `internal/db/operatoraudit_test.go`: OP-14D'nin değişiklikleri (`opAtVersion`,
+>       `opLogInsert`) ve bu fazın başlık yorumu birlikte, temiz uygulandı.
+>     - `internal/db/operatorlegal_test.go` (L9) temiz uygulandı; OP-14D'nin `opLogInsert`'ü ile
+>       derlenir ve koşar.
+> 35. **L9, ağaç 33'te:** test 00027'nin on türlü kümesi dışındaki **her** türü sayar
+>     (`kind <> ALL(...)`), 00033'ün sahip türleri dahil. Geliştirme veritabanında 26 küme dışı
+>     satır var, hepsi `password_ok`; sahip türünden satır 0. Sonuç: PASS. Ret yolu iki dalda
+>     da (Up again, Down's ELSE) ikişer kez koştu: veritabanı bulunduğu gibi + işlem içinde
+>     yazılmış bir `password_ok` satırıyla. Doğrulanmış yol satırlı veritabanında koşmaz (C6).
+> 36. **C8, 6. tur:** paketin bir `-race` koşusu 7 `password_ok` bırakır (26 → 33). OP-12B'nin
+>     uçtan uca testleri iki giriş yapar; `op12_db_test.go`'nun "WHAT ONE RUN LEAVES BEHIND"
+>     yorumu bu satırı saymaz — devir 2'ye eklendi (OP-10/11/13 ile birlikte).
+> 37. **ADR 0021'e:** C ekine md. 11 (6. tur) ve C8'e 6. tur notu; PART I'in mutasyon özetine 6. tur.
+>     Hepsi C ekinin içinde ekleme; taban yine bayt-aynı.
+>
+> **Zincir, 6. tur (2026-10-07, rebase'li ağaç; dev DB 33 = ağaç 33):**
+> - **Statik:** `gofmt -l` boş; `go build ./...`, `go vet ./...` exit 0 (ilk derlemede tek eksik
+>   md. 34'teki onuncu yuvaydı); staticcheck (go1.26.7, 2025.1.1) exit 0.
+> - **Üretim ve bağımlılıklar:** `make gen` idempotent (`git status` ve diff'in sha256'sı önce =
+>   sonra); redline exit 0; `go.mod`/`go.sum` diff'i boş.
+> - **İsim ve yorum testleri:** `TestEveryNamedTestExists` bu kart "## 4. Akış B" başlığından önce
+>   eklenmiş kopyada PASS (60 sarkan atıf, bütçe 60); `TestComments_DoNotQuoteTheDriftingRosterSize`
+>   PASS.
+> - **`.env`'li `-race`, worktree'siz kopyada (`app.css` derlenmiş):**
+>   - `internal/db` tamamı: **354 PASS / 0 FAIL** / 0 yarış (00032/00033 kaynaklı kırmızı yok;
+>     L9 yeşil);
+>   - `internal/handler/operator` tamamı: **130 PASS / 0 FAIL**;
+>   - `internal/operatorauth`: **70 PASS / 0 FAIL**;
+>   - `cmd/tappa`'nın altı kapanış bütçesi testi PASS;
+>   - `cmd/opadmin`: **46 PASS / 0 FAIL**.
+>
+> **Mutasyon, 6. tur:** `verify_round5.py` rebase'li kopyada değişmeden. Baz çizgileri yeşil;
+> çapası tutmayan ve derlenmeyen 0. Uygulanan **38'in 38'i kırmızı** (N02, N09, N10a, N10b dahil,
+> aynı testlerle); kanca kontrolü yeşil; L9a ve L9d satırlı veritabanında (33 küme dışı satır)
+> uygulanamaz. Kopya her mutanttan sonra sha ile geri yüklendi; koşu sonunda kodu worktree'yle
+> aynı. Çıktı: `scratchpad/op14c/round6.out`.
+
 ## 4. Akış B — E-posta (AWS SES)
 
 ### Öneri: SES SMTP arayüzü + stdlib `net/smtp` (STARTTLS 587), `eu-central-1` — ✅ (sıfır yeni modül)

@@ -1204,6 +1204,7 @@ var allowedFields = map[string]allowedField{
 	"limits.auditCap":                {"*" + oa + "budget", "a budget, walked"},
 	"limits.enrollAddr":              {"*" + oa + "budget", "a budget, walked (12c: the per-address enrollment share)"},
 	"limits.enroll":                  {"*" + oa + "budget", "a budget, walked"},
+	"limits.firstFactor":             {"*" + oa + "budget", "a budget, walked (OP-14 C: the per-operator cap on 'password_ok' rows)"},
 	"budget.windows":                 {"map[string]*" + oa + "budgetWindow", "a budget's counters, keyed by a rate key -- a client address, an operator id, or the empty key of a process-wide budget (flow.go)"},
 	"budget.limit":                   {"int", "a budget's number"},
 	"budgetWindow.count":             {"int", "a budget window's count"},
@@ -1231,6 +1232,9 @@ var allowedFields = map[string]allowedField{
 	"budget.period":                  {"time.Duration", "a budget's window length"},
 	"budget.now":                     {"func() (time.Time) variadic=false", "the clock the budget reads"},
 	"budgetWindow.start":             {"time.Time", "a budget window's start"},
+	"budgetWindow.warned":            {"bool", "whether the window's first crossing of the limit was reported (OP-14 C, take): a flag"},
+	"budgetWindow.written":           {"int", "how many of the window's charges became rows (OP-14 C, 3rd round, wrote): a count"},
+	"budgetWindow.refusedWarned":     {"bool", "whether the window's first fail-closed refusal was reported (OP-14 C, 3rd round): a flag"},
 	"Config.Now":                     {"func() (time.Time) variadic=false", "the clock OP-7 hands New; nil means time.Now"},
 	"Config.Log":                     {"*log/slog.Logger", "the logger OP-7 hands New"},
 	"Identity.SessionID":             {"github.com/google/uuid.UUID", "the session's id (ADR 0020 §5: an operator is named by id)"},
@@ -1943,7 +1947,7 @@ func debugCapture(w *bytes.Buffer) *slog.Logger {
 //
 // No member of the 17 groups G1-G17 (the constants above; their sources in their
 // comments) occurs, in any of the 15 renderings R1-R15 (theRenderings), in the errors
-// the 43 numbered arms below return -- Error(), %v, %+v, %#v -- or in the log captured
+// the 45 numbered arms below return -- Error(), %v, %+v, %#v -- or in the log captured
 // at Debug level through the text and the JSON handler. G1 additionally covers every
 // raw session token whose hash the fake store received, found under R1-R15 by its HMAC
 // (preimageFound). The groups are measured against a CLOSED list, neverLog: each
@@ -1960,7 +1964,9 @@ func debugCapture(w *bytes.Buffer) *slog.Logger {
 // synthetic raw token must be found through its hash. AFTER the arms and the success
 // paths of Verify and Logout, checkBudgetKeys pins each budget map's keys by content
 // (the client addresses the drive used, its operators' ids, ""); and
-// checkPasswordVerifiedLines pins the password step's success line to its id.
+// checkFirstFactorLines pins the two lines an operator's first-factor trail logs to its
+// id (OP-14 phase C: the cap crossed; 3rd round: a fail-closed refusal) -- below the caps
+// and without a refusal the drive logs nothing.
 //
 // THIS test searches what the ENTRY POINTS return and log. What the package's TYPES
 // print is TestLeak_NoSecretOnAnyPrintingPath's contract, numbered with render: every
@@ -1994,10 +2000,12 @@ func debugCapture(w *bytes.Buffer) *slog.Logger {
 // (The list is m10-platform.md, OP-6 card correction, md. 18, "Tek liste (11. tur)", S8
 // and S9; the closed type set's and the field rule's are S1 to S7.)
 //
-// THE ARMS, NUMBERED (43; flow.go's order, then the helpers; E10 added in 12c):
+// THE ARMS, NUMBERED (45; flow.go's order, then the helpers; E10 added in 12c, P7 and A2
+// in OP-14 phase C):
 //
 //	Password  P1 work budget refused · P2 lookup fails · P3 unknown address · P4 its row
-//	          cannot be written · P5 wrong passphrase · P6 its row cannot be written
+//	          cannot be written · P5 wrong passphrase · P6 its row cannot be written · P7
+//	          right passphrase, its 'password_ok' row cannot be written (no challenge)
 //	TOTP      T1 challenge does not verify · T2 account budget refused · T3 account no
 //	          longer active · T4 lookup fails · T5 envelope does not open · T6 wrong code
 //	          · T7 wrong code, locked · T8 its row cannot be written · T9 right code the
@@ -2019,6 +2027,9 @@ func debugCapture(w *bytes.Buffer) *slog.Logger {
 //	          crossing it is TestLimits_ARefusedRequestWritesNoRowAndMovesNoCounter's
 //	          arm; measured, 5th round: an address put into the WARN line stays green
 //	          here and turns that test red)
+//	          A2 the one WARN line when ONE operator's first-factor cap is crossed --
+//	          right passphrases of one operator from fresh addresses, each served
+//	          (OP-14 phase C; it names the operator's id, never an address)
 //	New       N1 keys of the wrong size
 //
 // Why the claim is this narrow (OP-6 verification, 5th round -- the orchestrator's
@@ -2149,6 +2160,9 @@ func TestLeak_NoInputInAnyErrorOrLogLine(t *testing.T) {
 	reset(leakStore{acct: &acct, recordErr: errFakeDB})
 	_, err = a.Password(ctx, addr("192.0.2.1"), email, wrongPass)
 	arm("P6 password: the login_failed row cannot be written", err, errFakeDB)
+	reset(leakStore{acct: &acct, recordErr: errFakeDB})
+	_, err = a.Password(ctx, addr("192.0.2.1"), email, pass)
+	arm("P7 password: right passphrase, the password_ok row cannot be written", err, errFakeDB)
 	reset(leakStore{acct: &acct})
 	ch, err := a.Password(ctx, addr("192.0.2.1"), email, pass)
 	if err != nil {
@@ -2374,10 +2388,24 @@ func TestLeak_NoInputInAnyErrorOrLogLine(t *testing.T) {
 		}
 		errs = append(errs, err)
 	}
-	// Below the audit cap the drive's paths log ONE kind of line: the password step's
-	// success (12c), once per handler for each of the two right passwords above, with
-	// the operator's id and nothing else.
-	checkPasswordVerifiedLines(t, logs.String(), []string{acct.ID.String(), foreign.ID.String()})
+	// Below the caps the drive's paths log one kind of line only: P7's fail-closed refusal
+	// (OP-14 C, 3rd round, F4), naming its operator once. Until OP-14 phase C the password
+	// step's success logged one Info line with the operator's id (12c); the durable
+	// 'password_ok' row replaced it.
+	checkFirstFactorLines(t, logs.String(), nil, []string{acct.ID.String()})
+
+	// ---- A2: the line logged when ONE operator's first-factor cap is crossed (OP-14
+	// phase C). Right passphrases of one operator, from fresh addresses (the work
+	// budget is per address), until the line appears; each request is served.
+	reset(leakStore{acct: &acct})
+	for i := 0; !strings.Contains(logs.String(), firstFactorCapMsg); i++ {
+		if i > 20 {
+			t.Fatal("A2: the first-factor cap's WARN line never appeared")
+		}
+		_, err = a.Password(ctx, addr("198.51.100."+strconv.Itoa(60+i)), email, pass)
+		arm("A2 password: a right passphrase, filling the operator's first-factor cap", err, nil)
+	}
+	checkFirstFactorLines(t, logs.String(), []string{acct.ID.String()}, []string{acct.ID.String()})
 
 	// ---- A1: the other line this package logs, when the process-wide audit cap is
 	// crossed. Refusals that write a password-less row and pay no bcrypt (a malformed
@@ -2584,19 +2612,29 @@ func TestLeak_NoInputInAnyErrorOrLogLine(t *testing.T) {
 	checkBudgetKeys(t, a, usedAddrs, usedIDs)
 }
 
-// passwordVerifiedMsg is the password step's success line (flow.go, OP-6 12c).
-const passwordVerifiedMsg = "operator first factor verified; second factor pending"
+// firstFactorCapMsg is the line recordPasswordOK logs when one operator's 'password_ok'
+// cap is crossed (flow.go, OP-14 phase C). Until then the password step's success logged
+// an Info line per right password (OP-6 12c); the durable row replaced it.
+const firstFactorCapMsg = "operator first-factor audit rows suppressed for this operator for the rest of the window"
 
-// checkPasswordVerifiedLines pins the password step's success line: every line logged
-// is that line, in the text handler's shape or the JSON handler's, with its time, its
-// level, its message and ONE attribute, operator_id; and the ids are exactly ids, once
-// per handler -- so the line deleted is red, and so is any attribute added to it (12c,
-// the security audit: the line must only ever carry the id). A line is never printed:
-// one that is not this one can carry anything.
-func checkPasswordVerifiedLines(t *testing.T, logText string, ids []string) {
+// firstFactorRefusedMsg is the line recordPasswordOK logs, once per window per operator,
+// when it refuses the password step fail-closed (OP-14 phase C, 3rd round, F4).
+const firstFactorRefusedMsg = "operator first-factor audit row not written; this operator's sign-in step was refused"
+
+// checkFirstFactorLines pins the two lines: every line logged is one of them, in the text
+// handler's shape or the JSON handler's, with its time, its level (WARN), its message and
+// FOUR attributes -- the kind, the operator's id, the cap and the window -- and the ids of
+// each are exactly the ids given, once per handler. So a line deleted is red, a line per
+// request is red, and so is any attribute added (an address, an email, the error's text).
+// A line is never printed: one that is not one of these can carry anything.
+func checkFirstFactorLines(t *testing.T, logText string, capIDs, refusedIDs []string) {
 	t.Helper()
-	textLine := regexp.MustCompile(`^time=\S+ level=INFO msg="` + regexp.QuoteMeta(passwordVerifiedMsg) + `" operator_id=(\S+)$`)
-	var fromText, fromJSON []string
+	text := func(msg string) *regexp.Regexp {
+		return regexp.MustCompile(`^time=\S+ level=WARN msg="` + regexp.QuoteMeta(msg) +
+			`" kind=password_ok operator_id=(\S+) cap=10 window=10m0s$`)
+	}
+	lines := map[string]*regexp.Regexp{firstFactorCapMsg: text(firstFactorCapMsg), firstFactorRefusedMsg: text(firstFactorRefusedMsg)}
+	fromText, fromJSON := map[string][]string{}, map[string][]string{}
 	for _, l := range strings.Split(logText, "\n") {
 		switch {
 		case l == "":
@@ -2607,26 +2645,34 @@ func checkPasswordVerifiedLines(t *testing.T, logText string, ids []string) {
 				continue
 			}
 			id, _ := m["operator_id"].(string)
-			if len(m) != 4 || m["msg"] != passwordVerifiedMsg || m["level"] != "INFO" || id == "" {
-				t.Errorf("a JSON log line that is not the password step's id-only line (%d attributes)", len(m))
+			msg, _ := m["msg"].(string)
+			if _, known := lines[msg]; !known || len(m) != 7 || m["level"] != "WARN" || m["kind"] != "password_ok" ||
+				m["cap"] != float64(10) || m["window"] != "10m0s" || id == "" {
+				t.Errorf("a JSON log line that is not one of the first-factor lines (%d attributes)", len(m))
 				continue
 			}
-			fromJSON = append(fromJSON, id)
+			fromJSON[msg] = append(fromJSON[msg], id)
 		default:
-			mm := textLine.FindStringSubmatch(l)
-			if mm == nil {
-				t.Errorf("a text log line that is not the password step's id-only line (%d characters)", len(l))
-				continue
+			matched := false
+			for msg, re := range lines {
+				if mm := re.FindStringSubmatch(l); mm != nil {
+					fromText[msg] = append(fromText[msg], mm[1])
+					matched = true
+				}
 			}
-			fromText = append(fromText, mm[1])
+			if !matched {
+				t.Errorf("a text log line that is not one of the first-factor lines (%d characters)", len(l))
+			}
 		}
 	}
-	want := append([]string(nil), ids...)
-	sort.Strings(want)
-	sort.Strings(fromText)
-	sort.Strings(fromJSON)
-	if strings.Join(fromText, ",") != strings.Join(want, ",") || strings.Join(fromJSON, ",") != strings.Join(want, ",") {
-		t.Errorf("the password step's line: %d text and %d JSON line(s), want %d of each, one per right password, with those operators' ids", len(fromText), len(fromJSON), len(want))
+	for msg, ids := range map[string][]string{firstFactorCapMsg: capIDs, firstFactorRefusedMsg: refusedIDs} {
+		want := append([]string(nil), ids...)
+		sort.Strings(want)
+		sort.Strings(fromText[msg])
+		sort.Strings(fromJSON[msg])
+		if strings.Join(fromText[msg], ",") != strings.Join(want, ",") || strings.Join(fromJSON[msg], ",") != strings.Join(want, ",") {
+			t.Errorf("the line %q: %d text and %d JSON line(s), want %d of each, with those operators' ids", msg, len(fromText[msg]), len(fromJSON[msg]), len(want))
+		}
 	}
 }
 
@@ -2651,6 +2697,7 @@ func checkBudgetKeys(t *testing.T, a *operatorauth.Authenticator, addrs, ids map
 		{"account", ids, "an operator id of the drive"},
 		{"auditCap", empty, "the empty key"}, {"enroll", empty, "the empty key"},
 		{"enrollAddr", addrs, "a client address the drive used"},
+		{"firstFactor", ids, "an operator id of the drive"},
 	}
 	limits := reflect.ValueOf(a).Elem().FieldByName("limits")
 	if !limits.IsValid() || limits.IsNil() {

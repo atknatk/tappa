@@ -36,6 +36,10 @@
   **OP-14 B fazı (2026-10-07):** audit günlüğü operatör yüzeyinde (`GET`/`POST
   /operator/audit`, konsoldan link), `*OperatorDB`'nin yeni `OperatorAudit` yöntemiyle; her
   görüntüleme bir okuma birimi; migration yok — bkz. aynı notun "OP-14 B fazı eki".
+  **OP-14 C fazı (2026-10-07):** `password_ok`'un yazıcısı `internal/operatorauth`'un parola
+  adımında, challenge'dan önce, operatör başına kendi tavanıyla (10 / 10 dk; parolasız ortak
+  tavanın dışında); satır yazılamazsa adım düşer (fail-closed); migration yok — bkz. "OP-14 C
+  fazı eki". L9 aynı değişiklikte test tarafında kapandı.
   **OP-14 D (2026-10-07, K14-2):** platform sahibinin üç `cmd/opadmin` eylemi
   (`create`, `reset-mfa`, `disable`) migration `00033` ile birer `operator_audit_log` satırı
   yazar — bir definer'dan değil, sahibin SQL'inin `DO` bloğundan (ADR 0020 §5'in adlı
@@ -2430,6 +2434,8 @@ gövdesi değişmedi; uygulamanın karar verdiği yerler, adıyla:
 - **L6** — DSN sahibi herhangi bir hesap id'si için sahte `password_ok` basabilir (sınır 7'nin
   düzeltmesi); satır oturum açmaz, sayaca dokunmaz. Veritabanında bir tavanı yoktur; Go'daki
   hesap başına tavan C fazınındır ve DSN sahibi onu atlar.
+  *(OP-14 C: tavan sevk edildi — `firstFactorLimit` 10 / 10 dk, operatör başına; cümle aynen
+  doğru.)*
 - **L7** — Görüntüleyici adları tanımlayıcının (BYPASSRLS) yetkisiyle okur: `pending`/`disabled`
   operatörlerin adlarını da gösterir — giriş aramasının RLS'inin gizlediğini, audit'li bir okuma
   olarak (kart taslağının B4'ü; ekran B'nin).
@@ -2442,6 +2448,16 @@ gövdesi değişmedi; uygulamanın karar verdiği yerler, adıyla:
   00027'nin Down'ı da `read`/`legal_publish` satırı yokken düşer. C fazı `password_ok` satırı
   commit etmeye başlayınca `TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain`'in yeniden
   Up adımı geliştirme ve CI veritabanlarında kırmızıya döner (C'ye devir).
+  *(OP-14 C, 2026-10-07 — **KAPANDI**, test tarafında: uygulanmış migration'lar değişmedi,
+  audit satırı silinmedi, `session_replication_role` kullanılmadı. Test her dalın sonucunu o
+  dalın kendi savepoint'inde ölçtüğü **00027'nin kümesi dışındaki satır sayısıyla** belirler
+  ve iki sonucu da assert eder — yoksa bugünkü yol (yeniden Up ve Down'ın ELSE'i başarılı,
+  CHECK doğrulanmış), varsa belgelenmiş ret (23514, `operator_audit_log_kind_check`). İki
+  senaryo, her biri iki daldan: veritabanı bulunduğu gibi, ve işlem içinde yazılmış (geri
+  alınan) bir `password_ok` satırıyla — ret yolu her koşuda koşar. Doğrulanmış yol yalnız
+  küme dışı satırı olmayan bir veritabanında koşar; satırı olan birinde ona audit satırı
+  silmeden ulaşılamaz — sayılı sınır, "OP-14 C fazı eki" md. 6 ve C6. İki durum geliştirme
+  veritabanında ölçüldü: aynı md. 6.)*
 - **L10** — Kısıt yakalayıcısının `LOG` satırı (kısıt adı + SQLSTATE) `client_min_messages =
   log` diyen çağırana da gider (sınır 14'ün ikinci kanalının aynı mekanizması; 2. turda
   ölçüldü: o çağırana tam bir satır, metni birebir; varsayılan ayarda hiç); yalnız kümeler
@@ -2479,6 +2495,14 @@ gövdesi değişmedi; uygulamanın karar verdiği yerler, adıyla:
     doğrudan çağırır, Go'nun hiçbir tavanından geçmez (L6). Bu yüzden C'den sonra da sel
     veritabanı tarafında sınırsız kalır; C'nin tavanı yalnız sürecin kendisinin bir seli
     üretmesini engeller.
+    *(OP-14 C notu, 2026-10-07 — ilk iki cümle doğru kalıyor;
+    "engeller" fazla güçlü, doğrusu **yavaşlatır**, sayıyla: ürün yolundan parola sahibi bir
+    hesaba pencere başına en çok 10, günde 1 440 `password_ok` yazar — bir türün 200 000
+    satırını tek hesapla doldurmak ≈139 gün. Aynı aritmetik parolasız türler için de
+    geçerlidir ve C'den bağımsızdır: süreç geneli ortak tavan 30 / 10 dk = günde 4 320 satır,
+    yani internetten parolasız çöp **filtresiz** okumanın 200 000 satırlık penceresini ≈46
+    günde doldurabilir; bir tür filtresi (`login`, `read`, `password_ok`) o türün satırlarına
+    yine ulaşır. Ölçülmedi, koddan türetildi — "OP-14 C fazı eki" C7.)*
   - **Hafifletenler:** satır kaybolmaz (append-only; sahip yine okur). Sel ilk sayfada
     görünür, çünkü en yeni satırlar selin kendisidir; yani sessiz değildir. OP-14'ten önce hiç
     görüntüleyici yoktu.
@@ -2772,6 +2796,8 @@ ve beş `operator_audit` `read` satırı bırakır (biletler silinir) — ölç�
 veritabanı, salt-okuma sayım, tek koşu çevresinde): hesap +3 (`disabled` olmayan 0), oturum +5
 (iptal edilmemiş 0), audit satırı +10, bilet 0 → 0, `tenants` ve `tags` +0; A'nın havuz testi yöntemi de
 sürdüğü için koşu başına 2 → 3 `read` satırı bırakır (sınır L12'nin sayımı B'den itibaren +4);
+*(OP-14 C ile birleşince listeye bir satır eklenir: E2E'nin parola adımından geçen tek girişi bir
+`password_ok` bırakır, audit satırı koşu başına +11 — ölçüm "OP-14 C fazı eki" C8'de.)*
 **LB13** *(2. tur)* `internal/operatorauth/surface_external_test.go`'ya orkestratörün mekanik
 yaması uygulandı (md. 9; iki parça, paket derlenir); paralel OP-14 C ile aynı dosyanın
 birleştirmesi orkestratöründür.
@@ -2799,6 +2825,430 @@ kapsam sözlüğüne veritabanısız bir pin eklendi
 reddetmesi pinlendi (`TestAuditWords_NameEveryKindAndNothingElse`: `z` + U+202E ve `z` +
 U+00E9, beklenen yalnız çip). Başka davranış değişmedi; adlardaki bidi kontrol karakterleri ve
 okumanın `statement_timeout`/context pini kart düzeltmesinde devir (OP-11/13/14 ortak).
+
+## OP-14 C fazı eki (2026-10-07, `password_ok`'un yazıcısı ve operatör başına tavanı)
+
+Uygulama: `internal/operatorauth/flow.go` (`Password`'ın başarı kolu, paket içi
+`recordPasswordOK`), `internal/operatorauth/limits.go` (`firstFactorLimit` 10,
+`firstFactorPeriod` 10 dk, `limits.firstFactor`), `operatorauth.go` (yalnız `Config.Log`
+yorumu); testler yeni `passwordok_test.go` (veritabanısız) ve `passwordok_db_test.go`
+(gerçek Postgres, geri alınan işlem), güncellenen `flow_db_test.go`, `units_test.go`,
+`leak_external_test.go`, `surface_external_test.go`; `internal/handler/operator/leak_test.go`'da
+tek satır (hasat pini, md. 7) ve *(4. tur)* `op14_db_test.go`'nun başlık yorumu (C8); L9'un kapanışı
+`internal/db/operatorlegal_test.go` (+ `operatoraudit_test.go`'nun başlık yorumu). Migration
+yok, DDL yok, yeni bağımlılık yok; `Store` arayüzü ve `cmd/tappa` wiring'i değişmedi (yazıcı
+`Authenticator`'ın içindedir). Kararın gövdesi değişmedi; uygulamanın karar verdiği yerler:
+
+1. **Yazıcı ve zaman sırası (kart taslağının C2'si).** Parola adımı karşılaştırma
+   başarısından **sonra** ve challenge basılmadan **önce**
+   `RecordOperatorAuthEvent(ctx, OperatorPasswordOK, "", hesap id)` çağırır: hedef yalnız id,
+   adres verilmez (00031 reddederdi, 22023). Challenge, çağıranın (OP-8 handler'ı) ara çereze
+   koyduğu değerdir; satır challenge doğmadan yazılır. ~~ara çerezi olan her giriş adımının,
+   üretim havuzunda commit edilmiş bir izi vardır~~ *(2. tur, üçüncü gözün B3'ü — yanlıştı:
+   **tavanın üstünde** challenge tasarım gereği satırsız basılır, C4)* Doğrusu: **tavanın
+   altındaki** her challenge'ın, o challenge doğmadan yazılmış bir satırı vardır; tavanın
+   üstündekilerin satırı yoktur, pencerenin ilk tavan aşımı bir WARN bırakır. *"Üretim
+   havuzunda commit edilmiş"* kısmı **ölçülmedi** — testler geri alınan işlemde koşar; yapıdan
+   çıkar (üretimde her mağaza çağrısı kendi işlemidir, OP-7).
+   Ölçülen: dönüş anında satır veritabanındadır (`TestPasswordOK_EachSignInArmLeavesItsRows`);
+   yazımı kod adımına — çerezden sonraya — taşıyan mutasyon (M01) kırmızı: kod adımı hiç
+   gelmeyen girişte satır yoktur.
+2. **Tavan (kart taslağının C1'i).** `firstFactorLimit` 10 / 10 dk, **operatör başına** (anahtar
+   hesabın id'si), IP'den bağımsız — adres bütçe satın almaz (farklı adreslerden ölçüldü).
+   Aritmetik: meşru ≈4 / pencere (2 cihaz × ≈2 parola adımı; 5 dk'lık challenge kod
+   girilmeden dolarsa yeni bir parola adımı gerekir, yanlış yazılan kod gerekmez) × 2,5 → 10;
+   satır: günde 1 440, yılda 525 600 / operatör; OP-6'nın hedefli satır bandıyla (174,7–188,4
+   B) ≈92–99 MB / yıl / operatör, üç operatörle ≈275–297 MB — parolasız tavanın en kötü
+   hâliyle aynı mertebe, ama yalnız parolayı bilen ulaşır. **Parolasız ortak tavana konmaz:**
+   ortak tavanı parolasız çöp doldurur; `password_ok` onun altında olsaydı doğru parola
+   satırsız kalırdı — OP-6 md. 9'un `totp_failed` için ölçtüğü çatışma, bir tür sonra (M05,
+   M06 kırmızı). Kendi tavanı altında bir operatörün sinyali susturulamaz, yalnız **tekrarı**:
+   pencerenin sessiz kısmına ulaşmak önce o hesabın 10 satırını yazmayı gerektirir.
+   *(2. tur — ilk turda bu cümle **yanlıştı** (üçüncü gözün B1'i, TCP üzerinden gerçek
+   yönlendiriciyle ve gerçek Postgres'le ölçüldü): şarj ve yazım isteğin bağlamıyla
+   yapılıyordu; karşılaştırma sırasında bağlantısını kapatan istemci şarjı harcıyor, pgxpool
+   iptal edilmiş bağlamda hiçbir şey göndermiyordu — on kesik doğru parola pencerenin izini
+   boşalttı, on birincisi 303 + challenge + **0** satır aldı. Gerçek bir veritabanı hatası da
+   şarjı satırsız harcıyordu. ~~Cümle md. 8'in iki değişikliğiyle doğru oldu: yazım isteğin
+   iptalinden **ayrık**, ve başarısız yazım şarjını **iade eder**; kalan pencereler C9.~~
+   *(3. tur, güvenlik denetiminin F1'i — 2. turdan sonra da yanlıştı, gerçek Postgres'te
+   ölçüldü: 10 doğru parolanın yazımı uçuştayken 11. doğru parola tavanı "aşmış" buldu ve
+   challenge aldı; 10 yazım sonra 25006 ile düştü ve iade edildi → challenge + **0** satır.)*
+   **Cümlenin bugünkü, dar hâli (md. 9):** bir operatöre tavanın üstünde **satırsız** challenge
+   yalnız penceresinde o operatörün **yazılmış** 10 satırı varken basılır; tavanı uçuştaki ya da
+   düşecek yazımlar tutarken gelen doğru parola **fail-closed** reddedilir (503, challenge yok,
+   şarj iade). "Susturulamaz" iddiası tam bu kadardır.)* Karar ve
+   şarj **tek kilitli adımdır** (`budget.charge`'ın döndürdüğü sayı — `httpx.Limiter.TryCharge`
+   kuralı, backlog T90'ın sınıfı); "önce oku, sonra şarj et" mutasyonu (M07) yarışçılar
+   altında kırmızı (10 koşunun 10'unda, `-race`'li ve `-race`'siz). Tavan aşılınca: satır yok, istek **hizmet görür**, pencere başına operatör
+   başına **bir** WARN (`kind`, `operator_id`, `cap`, `window` — istekten hiçbir şey; ileti ve
+   argüman adları "password" sözcüğünü taşımaz: kırmızı çizgi taramasının R7 tetikleyicisi,
+   12c'nin emsali — ilk yazımda sabitlerin adı `passwordOK…` idi ve R7'yi kırmızıya çevirdi,
+   ad değişti, muafiyet yazılmadı).
+3. **12c'nin Info satırı KALKTI** (orkestratörün iki seçeneğinden "kalkar"; ölçülerek seçildi).
+   Tavanın altında satır izin kendisidir ve Info satırı aynı bilgiyi (operatörün id'si) süreç
+   log'unun saklama süresince bir kez daha taşırdı; tavanın üstünde bastırılan her satır için
+   bir Info satırı, tavanın sınırladığı yazma kapısını sınırsız bir log kapısı olarak geri
+   açardı. Tavan aşımının tek izi pencere başına tek WARN'dır. Ölçülen: tavanların altında
+   `operatorauth` girişte **0 bayt** log yazar (aynı test); Info satırını geri koyan mutasyon
+   (M15) kırmızı; sızıntı testinin 12c pini (`checkPasswordVerifiedLines`) yerini tavan
+   satırının pinine (`checkFirstFactorCapLines`) bıraktı.
+4. **Yazma hatası — seçenek (a), fail-closed** (orkestratör kararı). Satır yazılamazsa
+   `Password` hata döner — hiçbir sentinel değil, yani OP-8'in handler'ı 503 —, challenge sıfır
+   değerdir (çerez setter'ı reddeder ve başlık yazmaz) ve satır yoktur. Ölçüm gerçek sunucunun
+   reddiyle: çağrının savepoint'i `transaction_read_only = on` (25006); hata metni
+   `operatorauth: record an accepted first factor: db: record operator auth event: database
+   error (SQLSTATE 25006)` — adres, e-posta, parola, hesap id'si yok (internal/db'nin sınıfı
+   yalnız SQLSTATE taşır). HTTP yüzeyinde (OP-8'in gerçek handler'ı ve yönlendiricisi;
+   mağaza internal/db'nin hata biçimini döndüren bir sahte) 503 ve **hiç** `Set-Cookie` yok; yanıtın gövdesinde,
+   başlıklarında ve log'da adres, e-posta, parola, id yok
+   (`TestSurface_ARightPasswordWhoseTrailIsRefusedGetsNoChallenge`). **Bedel, ölçüldü:** aynı
+   ret bir sonraki adımın yazmasını — `op_open_session` — de durdurur (25006, oturum 0); yani
+   yazılamayan bir veritabanı girişi zaten bir adım sonra durduruyordu. Yeni olan durdurma
+   koşulları `password_ok`'a özgü retlerdir: (i) **00031'siz bir veritabanı** — 00031'in Down'ı
+   00026'nın yazıcısını geri koyar ve o `password_ok`'u 22023 ile reddeder (00031 Down
+   testinin 3. dalı ölçer) → C'nin kodu 00031'siz bir veritabanında **hiçbir operatörü içeri
+   almaz** (sınır C3); (ii) kapalı kümeyle CHECK'lerin ayrışması (A'nın kısıt yakalayıcısı:
+   sabit mesaj + sınıf 23). Seçenek (b) (WARN + devam) seçilmedi: iz susturulamaz olmalı —
+   M03, M04 kırmızı.
+5. **Kilit sayacı.** `password_ok` sayaca iki yönde de dokunmaz (A'nın tanımlayıcısı garanti
+   eder; bu test parola adımının yarısıdır): 3 hatalı hesapta doğru parola → sayaç 3, kilit
+   yok; ardından 2 yanlış kod → 5 ve kilit (sayım 3'ten sürdü); kilitliyken doğru parola
+   satırını yazar, sayaç 5 ve kilit aynı, doğru kod `ErrLocked`
+   (`TestPasswordOK_TouchesNoLockCounter`). İzi `totp_failed` olarak yazan Go mutasyonu (M10)
+   ve tanımlayıcının `password_ok`'ta sayacı sıfırladığı SQL mutasyonu (M11, testin geri alınan
+   işleminde `CREATE OR REPLACE` kancası) kırmızı; değişmemiş gövdeyle yeniden kuran kanca
+   (CTL-hook) yeşil. `TestLock_ThresholdAndWindowThroughTheSignIn` ve
+   `TestOpRecordAuthEvent_ClosedSetNoActorNoAddress` değişmeden yeşil.
+6. **L9 kapanışı (ölçüldü, iki durum).** Yasaklar korunarak (uygulanmış migration
+   değişmedi, `session_replication_role` yok, audit satırı silinmedi, yeni veritabanı yok)
+   `TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain` her dalın sonucunu o dalın kendi
+   savepoint'inde sayılan **00027'nin kümesi dışındaki** satırlarla belirler ve iki sonucu da
+   assert eder: yoksa doğrulanmış yol (yeniden Up ve Down'ın ELSE'i başarılı, CHECK
+   doğrulanmış), varsa belgelenmiş ret (23514, `operator_audit_log_kind_check`). İki senaryo,
+   her biri iki daldan: veritabanı bulunduğu gibi, ve işlem içinde yazılmış (geri alınan) bir
+   `password_ok` satırıyla. Her yolun yardımcısı kendini ancak bölümü koşup sonucunu assert
+   ettikten sonra sayar; son, sayıları ölçülen durumun gerektirdiğiyle karşılaştırır (temiz:
+   her yol dal başına bir kez; satırlı: ret yolu dal başına iki kez, doğrulanmış yol hiç).
+   **Ölçüm:** geliştirme veritabanında (2026-10-07) aynı kodla iki durum: (i) 00027'nin kümesi
+   dışında **0** satır (bu fazın ilk koşuları; o an hiçbir yer `password_ok` commit etmemişti)
+   → yollar `validated: Up again` 1, `validated: Down's ELSE` 1, `refused: Up again` 1,
+   `refused: Down's ELSE` 1; (ii) `internal/handler/operator`'ın commit eden uçtan uca
+   testleri koştuktan sonra **4** satır → `refused: Up again` 2, `refused: Down's ELSE` 2.
+   İki durumda da `internal/db`'nin `-run 'Test(Operator|OpRecordAuthEvent)'` eşdeğeri koşusu 63
+   PASS; satırlıyken paketin tamamı 321 PASS. Yolu boşaltan beş mutasyonun (L9a–L9e) beşi
+   temiz veritabanında kırmızı; satırlıyken L9a ve L9d uygulanamaz (doğrulanmış yol
+   koşmaz), L9b, L9c, L9e kırmızı.
+   Mevcut 2. dalın `read`/`legal_publish` satırlarını işlem içinde (geri alınan) silmesi
+   korundu — bu ekin eklediği bir silme yoktur; `password_ok` satırları hiçbir dalda silinmez.
+   (00031'in Down testinin `branch()`'i A'dan beri 00027'nin kümesi dışındaki satırları
+   işlem içinde kaldırır; dokunulmadı.)
+7. **Başka testlerde güncellemeler (zayıflatılmadı):** `TestPassword_EveryArmPaysOneComparisonAtTheSameCost`
+   başarı kolu 0 → 1 satır, türü ve hedefiyle; `TestLimits_ARefusedRequestWritesNoRowAndMovesNoCounter`'a
+   iş bütçesinin reddettiği **doğru** parola kolu (satır 0, operatörün tavanı şarj edilmez);
+   `TestBudgets_TheShippedNumbersArePinned` + 10 / 10 dk; `TestAuditRows_EveryPasswordlessKindGoesThroughTheCap`
+   üçüncü sınıf (`password_ok` yalnız `recordPasswordOK`'tan, mağazaya tam bir kez) + üç
+   pozitif kontrol mutantı; `TestLeak_NoInputInAnyErrorOrLogLine` 43 → 45 kol (P7: satır
+   yazılamaz; A2: tavan satırı), tavanların altında log boş, `allowedFields`'a
+   `limits.firstFactor`, `checkBudgetKeys`'e `firstFactor` (operatör id'leri);
+   `TestSurface_EveryRefusedSignInPaysOneComparisonAndAnswersAlike`'ın kontrolüne bir
+   `password_ok` olayı; `internal/handler/operator`'ın
+   `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` hasat pini (`harvestWant`)
+   `RecordOperatorAuthEvent` 7 → 12 çağrı — doğru parolalı beş kolun (A4, A20b, A23, A26b,
+   A30b) `password_ok`'u; ilk koşuda tam bu mesajla kırmızıydı (*"RecordOperatorAuthEvent was
+   called 12 time(s), the arms make 7"*), pin sayı ve arite pinidir, içerik değil.
+
+8. **2. tur (2026-10-07, üçüncü gözün RED'i — B1 YÜKSEK, B2 ORTA, B3/B4/B5 DÜŞÜK).**
+   - **B1 — kesik istek tavanı satırsız tüketiyordu (ölçüldü, yukarıda md. 2'nin notu).**
+     Tasarım, iki parça:
+     (a) **Ayrık yazım:** `recordPasswordOK` satırı
+     `context.WithTimeout(context.WithoutCancel(ctx), FirstFactorRecordGrace)` ile yazar.
+     Karşılaştırılmış bir doğru parola, istemcisi dinlese de dinlemese de bir olgudur.
+     `FirstFactorRecordGrace` = **5 sn**, `encode.DefaultRepairGrace` ve
+     `tenant.RefusalRecordGrace` ile aynı ve aynı gerekçeyle: bir INSERT milisaniyedir, gerisi
+     havuzdan bağlantı beklemektir; alt sınır ≥ 1 sn (pozitif kontrol), üst sınır
+     `httpShutdownGrace` (20 sn) — ayrık yazım hâlâ uçuştaki bir isteğin işidir ve Shutdown onu
+     drene eder. `WithoutCancel` isteğin süresini (`httpx.RequestTimeout`, 30 sn) de düşürür,
+     yani parola adımının süresi en çok arama + bir cost-12 karşılaştırma + 5 sn'dir. Bağlantı:
+     `cmd/tappa`'nın yeni `TestShutdownBudget_TheFirstFactorRecordNestsInsideTheHTTPGrace`'i
+     (dışa açık sabit yalnız bunun için).
+     (b) **İade:** başarısız yazım şarjını geri verir — `budget.refund`, her şarjla aynı kilit
+     altında; yalnız kendi `take`'inin penceresini azaltır (pencere işaretçi kimliğiyle
+     tanınır: süresi dolan pencere yerinde sıfırlanmaz, yenisiyle **değiştirilir**), sıfırın
+     altına inmez. Şarj tek kilitli `take` ile alınır; o adım sayıyı, pencereyi ve pencerenin
+     **ilk** tavan aşımı olup olmadığını döndürür. WARN artık `count == limit+1` ile değil bir
+     **bayrakla** bir kez yazılır: iade sayıyı tavanın altına indirip bir sonraki istek yeniden
+     aşınca ikinci bir satır doğmasın.
+     Seçilmeyen yol: yalnız başarılı yazımdan sonra şarj — eşzamanlılıkta tavan aşılır (yazım
+     sürerken herkes "yer var" görür); T90'ın sınıfı.
+     **Ölçüm:** on kesik doğru parola → on satır, adım hatası yok; on birincisi 303 + challenge,
+     yeni satır yok, bir WARN — hem gerçek yönlendiricide TCP ile
+     (`TestSurface_AnAbortedRightPasswordStillLeavesItsRow`: karşılaştırma, net/http isteğin
+     bağlamını iptal edene dek tutulur; öncül aramanın bağlamında ölçülür) hem gerçek
+     Postgres'te (`TestPasswordOK_AnAbortedRightPasswordStillLeavesItsRow`). İade:
+     `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack` (üst üste on ret hiçbir şey
+     harcamaz · ortadaki ret tek şarjı geri verir · süresi dolmuş pencerenin reddi yenisine
+     dokunmaz · iadeye rağmen pencere başına tek WARN),
+     `TestPasswordOK_RefundsUnderRacersNeverOverspendTheCap` (100 tur × 40 yarışçı, her üçüncü
+     yazım reddedilir: satır ≤ tavan, sayaç = geri verilmeyen şarjlar, ≤ 1 WARN), gerçek
+     25006'da sayaç 0 (`TestPasswordOK_ARowThatCannotBeWrittenFailsTheStep`).
+   - **B2 — hata sınıfları:** fail-closed testi artık altı sınıfı sürer — 25006, 28000
+     (`db.ErrOperatorRefused`), iptal edilmiş ve süresi geçmiş bağlam, kopan bağlantı, 22023 —,
+     bağlam kolları yazım katmanında (yazım artık isteğin iptalini görmez):
+     `TestSurface_ARightPasswordWhoseTrailIsRefusedGetsNoChallenge` (HTTP, her sınıfta 503 ve
+     hiç çerez) ve `TestPasswordOK_EveryWriteErrorFailsClosedAndGivesTheChargeBack` (her sınıfta
+     hata, challenge yok, satır yok, şarj geri). E07 ve E08 kırmızı.
+   - **B3 — md. 1'in cümlesi düzeltildi** (yerinde, üstü çizili).
+   - **B4 — WARN'ın yeri:** `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn` ve
+     `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow` tavana kadar her istekten
+     sonra **0** WARN ister; E09 kırmızı.
+   - **B5** — `internal/handler/operator/leak_test.go`'nun kol yorumlarına R sayısı eklemek B'nin
+     alanı; dokunulmadı, kartta devir.
+   - **İlk turdaki B1'i ölçmeyen testler, adıyla:** `TestPasswordOK_ARowThatCannotBeWrittenFailsTheStep`
+     ret sonrası sayacı okumuyordu; bütün yazma hatası testleri isteğin bağlamı **canlıyken**
+     koşuyordu. İptal hiçbir testte sürülmüyordu.
+
+9. **3. tur (2026-10-07, güvenlik denetiminin RED'i — F1, F2 ORTA/bloklayan; F3–F6 DÜŞÜK).**
+   - **F1 — eşzamanlılık + düşen yazımlar pencereyi satırsız bırakıyordu** (denetimin P2'si,
+     gerçek Postgres; md. 2'nin 3. tur notu). **Tasarım, orkestratörün (b) kararı:** pencere
+     **yazılmış** satırları ayrıca sayar (`budgetWindow.written`; başarılı yazımdan sonra
+     `budget.wrote`, aynı kilit). `take` tek kilitli adımda sayıyı **ve** yazılmış satır sayısını
+     döndürür. Tavanın üstünde: yazılmış satırlar tavana ulaşmışsa istek satırsız hizmet görür
+     (bir WARN, pencere başına); **ulaşmamışsa** — tavanı uçuştaki ya da düşecek yazımlar
+     tutuyorsa — istek **fail-closed** reddedilir: `errFirstFactorPending` (sentinel değil →
+     503), challenge yok, şarj iade. Pencerenin tek WARN'ı artık yalnız gerçekten satırsız hizmet
+     gören ilk istekte yazılır (bayrak, `written >= limit` iken). **Yarış seçenekleri, ölçerek:**
+     503 (seçildi) — bir kişi aynı anda 10'dan fazla parola adımı atmadıkça doğmaz, doğarsa bir
+     yeniden deneme; bekleme — pencere başına bir koşul ve beklemeye bir sınır ister, yalnız bu
+     503'ü kaldırır. **Ölçüm:** `TestPasswordOK_DB_ACapFullOfUnwrittenRowsServesNoChallenge`
+     (gerçek Postgres, iki kol: uçuştaki 10 yazım 25006 ile düşer → 11. istek reddedilmiş,
+     challenge yok, satır 0, sayaç 0; uçuştaki 10 yazım yerine oturur → 11. istek yine
+     reddedilmiş, satır 10, ardından 12. istek satırsız hizmet görür, tek WARN) ve aynısı
+     bellekte (`TestPasswordOK_ACapFullOfUnwrittenRowsServesNoChallenge`). Yarışçı testleri yeni
+     davranışı ölçer: `TestPasswordOK_TheCapIsOneLockedStepUnderRacers` her turda tam 10 satır,
+     her yarışçı ya hizmet görür ya `errFirstFactorPending` alır, sayaç hizmet görenlere eşit.
+   - **F2 — "yalnız doğru parola tavanı harcar" pinsizdi** (S5 yeşil kalıyordu):
+     `TestPasswordOK_WrongPasswordsToItsAddressNeverSpendTheCap` — operatörün adresine 12 yanlış
+     parola, operatörün tavanı 0; ardından doğru parola 1 satır, tavan 1 (denetimin P7'si).
+   - **F3 — 5 sn davranış olarak:** `TestPasswordOK_AHangingWriteIsBoundedByItsGrace`.
+   - **F4 — yazma kesintisinde operatörü adlandıran iz:** her fail-closed ret (yazma hatası ya da
+     F1'in reddi) pencere başına operatör başına **tek** WARN yazar: *"operator first-factor
+     audit row not written; this operator's sign-in step was refused"* + `kind`, `operator_id`,
+     `cap`, `window` (bastırma satırının alan kalıbı) — adres, parola, hata metni yok.
+     Pinler: `TestPasswordOK_EveryWriteErrorFailsClosedAndGivesTheChargeBack` (altı sınıfta iki
+     ret → tek satır, kapalı biçim, log'da hata metni yok), `TestSurface_ARightPasswordWhoseTrailIsRefusedGetsNoChallenge`
+     (log operatörü yalnız bu satırda adlandırır), sızıntı testinin `checkFirstFactorLines`'ı
+     (P7 kolu bu satırı yazar; metin + JSON, dört öznitelik). Bir sınıf (SQLSTATE) eklenmedi.
+   - **F5** — C9 (iv)'ün gerekçesi düzeltildi (yukarıda).
+   - **F6** — `TestSurface_AnAbortedRightPasswordStillLeavesItsRow` başarısızlıkta kilitlenmez:
+     tutulan karşılaştırmayı bir `stop` kanalı serbest bırakır, `t.Cleanup` ile sunucudan önce.
+   - **L9 testi sonraki şemalarda (ölçüldü):** geliştirme veritabanı bu tur 32'den 33'e geçti
+     (00032 OP-12A; 00033 OP-14D: üç sahip türü, `actor_shape`'in üçüncü kolu, `at`'i duvar
+     saatine zorlayan tetikleyici). Ağaç 31'deyken `TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain`
+     ikisinde de PASS ve ret yolunu her dalda iki kez koştu (32'de 16 ve 20, 33'te 20 küme dışı satır,
+     hepsi `password_ok`). Ölçüm "00027'nin kümesi dışındaki **her** tür"ü sayar; 00033'ün sahip
+     türlerinden satır doğduğunda o satırlar da ret yoluna gönderir.
+10. **5. tur (2026-10-07; kapanış denetimi ONAY, beş DÜŞÜK bulgu — yalnız test ve metin,
+    davranış değişmedi).** Denetimin sondaları (Q1–Q6) okundu; kalıpları kullanıldı, testler
+    yeniden yazıldı.
+   - **D1 — `wrote`'un pencere kimliği pinsizdi.** Satırı anahtarın *güncel* penceresine sayan
+     mutant (N02) yeşildi. `TestPasswordOK_RowsThatLandAfterTheirWindowCountInTheirOwn`
+     (denetimin Q2'si): 10 yazım tutulur, pencere döner, yeni pencerede 10 yazım daha tutulur,
+     sonra ilk 10'u oturur. Yeni pencerede bir doğru parola `errFirstFactorPending` alır,
+     challenge yok — eskinin geç satırları yeniye sayılsaydı F1 pencere sınırında geri gelirdi.
+     Sonra yeni pencerenin yazımları düşer: 10 satır, yeni pencerenin sayacı ve yazılmış sayısı
+     0, tek ret satırı.
+   - **D2 — F2 testi yazılmış sayıyı ölçmüyordu.** Yanlış parolada yalnız yazılmış sayıyı
+     artıran mutant (N09) yeşildi. `TestPasswordOK_WrongPasswordsToItsAddressNeverSpendTheCap`
+     artık yanlış parolalardan sonra operatörün penceresinin **hiç açılmadığını**, doğru
+     paroladan sonra yazılmış sayının 1 olduğunu da assert eder. Bellekteki komşusu
+     `TestPasswordOK_WrongPasswordsLeaveTheOperatorsWindowUntouched` (Q5): 12 yanlış parola,
+     sonra tutulup düşen 10 doğru parola ve tutulurken bir doğru parola daha → reddedilir;
+     pencere satırsız ve şarjsız biter.
+   - **D3 — F4 satırının "pencere başına, operatör başına" iddiası pinsizdi.** Bayrağı sonraki
+     pencereye taşıyan (N10a) ve bütün operatörlere tek bayrak veren (N10b) mutantlar yeşildi.
+     `TestPasswordOK_TheRefusalLineNamesEachOperatorOncePerWindow` (Q6): bir pencerede iki
+     operatör, biri iki kez → iki satır, her biri birini adlandırır; bir dönem sonra ilki yine
+     → üçüncü satır.
+   - **D4 — eskiyen metin daraltıldı:** `limits.go` başlığının *"are not gates … past it the
+     request is served without the row"*'u ve ADR 0020'nin "Karar verilmedi" bütçe satırındaki
+     *"bir kapı değil"*. Doğrusu: tavanın üstündeki istek yalnız penceresinin **yazılmış**
+     satırları tavana ulaşmışsa satırsız hizmet görür; ulaşmamışsa adım fail-closed reddedilir
+     (503).
+   - **D5 — F4'ün gerekçesi daraltıldı** (`flow.go`, `recordPasswordOK`'un yorumu). Eski
+     cümle: *"in a write outage the step answers a right password apart from a wrong one"*.
+     Kesinti tek başına doğruyu yanlıştan ayırmaz: süreç geneli parolasız tavanın (30 / 10 dk)
+     altında yanlış parolanın `login_failed` yazımı da düşer ve o da 503 alır. Ayrım yalnız o
+     tavan dolunca doğar: yanlış 401, doğru 503 (denetimin Q4'ü ölçtü). Satırın gerekçesi
+     kaldı: handler'ın 503 için yazdığı ERROR satırı operatörü adlandırmaz.
+   - **Mutasyon:** `verify_round5.py` = 3. turun listesi değişmeden + denetimin N02, N09, N10a,
+     N10b'si (denetimin kendi düzenlemeleri, harfi harfine). Uygulanan 38'in 38'i kırmızı: eski
+     34'ü kırmızı kaldı; N02 → `TestPasswordOK_RowsThatLandAfterTheirWindowCountInTheirOwn`, N09 →
+     `TestPasswordOK_WrongPasswordsLeaveTheOperatorsWindowUntouched` ve
+     `TestPasswordOK_WrongPasswordsToItsAddressNeverSpendTheCap`, N10a ve N10b →
+     `TestPasswordOK_TheRefusalLineNamesEachOperatorOncePerWindow`. Kontrol yeşil; L9a ve L9d
+     satırlı veritabanında yine uygulanamaz; derlenmeyen ya da çapası tutmayan 0.
+11. **6. tur (2026-10-07, yalnız rebase `a54459d` üstüne — OP-14 D'nin 00033'ü ve OP-12 B;
+    davranış değişmedi).** Geliştirme veritabanı 33 = ağaç 33. `TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain`
+    PASS: 00027'nin kümesi dışındaki **her** türü sayar, 00033'ün sahip türleri dahil (veritabanında
+    o türden satır yok; 26 küme dışı satırın hepsi `password_ok`); ret yolu iki dalda da ikişer kez
+    koştu. `internal/db`'nin tamamı `-race` ile 0 FAIL. Mutasyon: `verify_round5.py` rebase'li
+    kopyada değişmeden — uygulanan 38'in 38'i kırmızı, kontrol yeşil, L9a ve L9d yine uygulanamaz.
+
+**Sayılı sınırlar (OP-14 C):**
+- **C1** — Tavan süreç içidir: bellekte, yeniden başlatmada sıfırlanır, sabit pencere
+  (sınırda 2×), iki replika iki katı — `limits.go`'nun bütün bütçeleri gibi.
+- **C2** — DSN sahibi tavanı atlar (L6 aynen): `op_record_auth_event`'i doğrudan çağırır.
+- **C3** — C'nin kodu 00031'siz bir veritabanında giriş yaptırmaz (md. 4 (i)): dağıtım sırası
+  migration → uygulama; 00031'in geri alınması kodla birlikte geri alınmayı gerektirir.
+- **C4** — Satır parolanın doğru olduğunu söyler, kimin girdiğini değil; sızmış parolayı
+  tutan biri pencere başına 10 satırdan sonra o pencerede sessizdir — ilk 10 satır kalıcıdır
+  ve tavan aşımı bir WARN bırakır. *(2. tur: ilk turda "ilk 10 satır" kesik isteklerle ve
+  yazma hatalarıyla **sıfıra** indirilebiliyordu (B1); ~~md. 8'den sonra pencerenin sessiz
+  kısmı yalnız yazılmış satırlardan sonra gelir~~ (3. tur, F1: eşzamanlılık + düşen yazımlarla
+  yine sıfır oluyordu); **md. 9'dan sonra** pencerenin sessiz kısmı yalnız **yazılmış** 10
+  satırdan sonra gelir — kalan pencereler C9.)*
+- **C5** — Fail-closed ölçümü bir ret biçimiyle (salt-okunur savepoint, 25006) yapıldı;
+  bağlantı kopması, disk dolu gibi başka gerçek yazma hataları aynı Go yolundan geçer ama ayrı
+  ayrı ölçülmedi.
+- **C6** — L9 testinin doğrulanmış yolu yalnız 00027'nin kümesi dışında satır tutmayan bir
+  veritabanında koşar; satır tutan birinde (geliştirme veritabanı bu ekten sonra; CI'da
+  paketlerin sırasına göre) ona audit satırı silmeden ulaşılamaz — test bunu kendi sayılarıyla
+  söyler, kırmızı değil. Doğrulanmış yolu boşaltan iki mutasyon (L9a, L9d) yalnız temiz bir
+  veritabanında ölçülebilir; ölçüldüler, temizken. Sayımla ALTER'in doğrulaması arasında
+  başka bir oturumun commit ettiği satır (geliştirme sunucusunda elle giriş) testi kırmızıya
+  çevirebilir; test paketleri danışma kilidiyle sıralanır, elle giriş sıralanmaz.
+- **C7** — L14 ile ilişki (L14'e not düşüldü): C'nin tavanı ürün yolundan seli
+  **yavaşlatır** — tek hesapla bir türün 200 000 satırı ≈139 gün —, engellemez; parolasız
+  ortak tavan (C'den bağımsız) filtresiz okumanın penceresini ≈46 günde doldurabilir.
+  Koddan türetildi, ölçülmedi. *(2. tur: md. 8 bu aritmetiği değiştirmez — kesik istekler artık
+  satır yazar, ama yine pencere başına en çok 10.)*
+- **C9** *(2. tur; 3. turda (ii) ve (iv) düzeltildi)* — **Ayrık yazım ve iadenin kalan
+  pencereleri, adıyla:** (i) şarj ile yazım arasında ölen süreç satır yazmaz — ama challenge da
+  basmaz (istek onunla ölür); şarj bellekteki bütçeyle birlikte kaybolur. (ii) ~~Eşzamanlılıkta,
+  sonradan başarısız olup iade edilecek bir yazım uçuştayken "tavanın üstü" okuyan istek
+  yazılmaz: o pencerede bir yuva boşa gider~~ *(3. tur, F1: "bir yuva boşa gider" hafif
+  söyleniyordu — o istek satırsız **hizmet görüyordu** ve düşen yazımlarla pencere sıfır satırla
+  kalabiliyordu, ölçüldü.)* **Bugün:** tavanı uçuştaki ya da düşecek yazımlar tutarken gelen
+  doğru parola **reddedilir** (`errFirstFactorPending`, 503, challenge yok, şarj iade, operatörü
+  adlandıran tek satır). Bedeli: bir kişi aynı pencerede 10'dan fazla parola adımını aynı anda
+  atarsa bir 503 alır ve yeniden dener — meşru kullanım pencere başına ≈4 adımdır. Bekleme
+  (uçuştaki yazımların bitmesini beklemek) seçilmedi: pencere başına bir koşul değişkeni ve
+  beklemeye bir sınır ister, karşılığında yalnız bu 503'ü kaldırır. (iii) Yazım en çok
+  `FirstFactorRecordGrace` (5 sn) bekler; aşarsa hata + iade (fail-closed) — **3. turda
+  davranış olarak pinlendi** (`TestPasswordOK_AHangingWriteIsBoundedByItsGrace`: askıda kalan
+  mağaza → ≈5 sn'de hata, challenge yok, şarj 0); sunucu kapanırken de en çok o kadar — HTTP
+  drenajının içinde (`TestShutdownBudget_TheFirstFactorRecordNestsInsideTheHTTPGrace`).
+  (iv) TOTP adımının yazıları (`totp_failed`, `locked`) ve parolasız satırlar (`login_failed`,
+  `unknown_email`, `enrollment_failed`) hâlâ **isteğin bağlamıyla** yazılır. ~~kesilen bir kod
+  denemesi satır bırakmaz — saldırgan yanıtı almadığı için tahmininin sonucunu da öğrenmez~~
+  *(3. tur, F5 — gerekçe yanlıştı, güvenlik denetimi gerçek yönlendiricide TCP ile ölçtü: Go
+  sunucusu **yarı kapalı** bağlantıda (istemci FIN gönderip okumaya devam eder) isteğin
+  bağlamını iptal eder **ama yanıtı teslim eder**.)* **Doğrusu:** kod adımında yarı kapalı doğru
+  ve yanlış kod **ikisi de** 500 alır — sonuç "yanıt gelmediği" için değil, **iki sonuç aynı
+  yanıtı verdiği** için öğrenilmez; satır bırakmaz, hesap bütçesini harcar. **Parolasız kolda
+  sonuç okunur:** yarı kapalı yanlış parola 500 alır ve `login_failed` **bırakmaz**, doğru parola
+  303 + challenge alır (parolanın satırı ayrık yazıldığı için) — yani parola tahmini iş
+  bütçesinin izin verdiği hızda (adres başına 20 / 10 dk) **izsiz** yapılabilir. Bu fazın kapsamı
+  değil; **devir, öncelik parolasız satırlarda** (aynı ayrık yazım + iade kalıbı ve
+  `login_failed`'ın da ayrık yazılması).
+- **C8** — Commit eden uçtan uca testler (`internal/handler/operator`'ın OP-10/OP-11/OP-13
+  veritabanı testleri) bu ekten sonra koşu başına `password_ok` satırı bırakır: ölçüldü — paketin bir `-race` koşusundan önce 0, sonra 4 `password_ok` satırı
+  (2026-10-07). (Aynı aralıkta paralel bir ajanın testleri de veritabanına yazıyordu; onun
+  ağacında C yok, `password_ok` yazamaz.)
+  *(4. tur — `488b645` üstüne yeniden kurulunca OP-14 B'nin uçtan uca testi de katıldı:
+  paketin bir `-race` koşusu 5 `password_ok` bırakır (21 → 26; OP-10'un iki, OP-11'in, OP-13'ün
+  ve OP-14'ün birer girişi). B'nin uçtan uca testi tek başına 11 audit satırı bırakır: login,
+  logout, `password_ok`, iki `unknown_email`, altı `read` — koşunun operatörüne ve iki
+  hesabına bağlı satırlar sayılarak ölçüldü, 2026-10-07; aynı aralıkta paralel bir yazıcının
+  `read` satırları sayıma girmedi. Bkz. LB12'nin ek satırı.)*
+  *(6. tur — `a54459d` üstüne yeniden kurulunca OP-12 B'nin uçtan uca testleri de katıldı, iki
+  girişleriyle: paketin bir `-race` koşusu 7 `password_ok` bırakır (26 → 33, 2026-10-07; OP-10'un
+  ve OP-12 B'nin ikişer, OP-11'in, OP-13'ün ve OP-14'ün birer girişi). `op12_db_test.go`'nun
+  "WHAT ONE RUN LEAVES BEHIND" yorumu bu satırı saymaz — OP-10/11/13'ünkiler gibi devir.)*
+  Tablo append-only; satırlar kalıcıdır (OP-11A md. 10 emsali).
+
+**Güvenlik iddiası — üç parça.**
+
+- **Tehdit modeli:** Bu pinler kazara sapmaya karşıdır; bir pini bilerek atlatmak kod
+  incelemesinin konusudur.
+- **PART I — bugün sevk edilen kodun ölçülen davranışı** (test · girdiler · assert; onu
+  kırmızıya çeviren mutasyonlar OP-14 C kart düzeltmesinin tablosunda — sayılan 23 mutasyonun 23'ü kırmızı, değişmemiş kanca kontrolü yeşil; 2. tur:
+  `verify_round2.py` ile 31 mutasyon (ilk turun 23'ü, çapaları 2. turun koduna taşınarak, + M19–M23 ve
+  E07–E09): uygulanan 29'un 29'u kırmızı; L9a ve L9d satırlı veritabanında uygulanamaz (ilk turda
+  temizken kırmızıydı, L9 testi bu turda değişmedi); M12'nin ilk yazımı derlenmedi (BUILD-FAILED,
+  sayılmadı), derlenen yazımı kırmızı; kontrol yeşil; 3. tur:
+  `verify_round3.py` ile 36 mutasyon (2. turun 31'i, çapaları 3. turun koduna taşınarak, + S5,
+  S2, F1-geri, F4-geri, F4-tekrar): uygulanan 34'ün 34'ü kırmızı; L9a ve L9d satırlı veritabanında
+  uygulanamaz; derlenmeyen 0; kontrol yeşil. İlk koşu M17'de durduruldu — iki F1 testinin fazladan
+  isteği tavansız mutant altında kapıda kendi yazımını bekleyip kilitleniyordu; o istek artık
+  ayrı ve 10 sn sınırlı koşar, koşu baştan yapıldı; 4. tur, `488b645` üstüne rebase: aynı liste,
+  uygulanan 34'ün 34'ü kırmızı; 5. tur: `verify_round5.py` ile 40 mutasyon (3. turun 36'sı +
+  kapanış denetiminin N02, N09, N10a, N10b'si): uygulanan 38'in 38'i kırmızı, md. 10; 6. tur,
+  `a54459d` üstüne rebase: aynı liste, uygulanan 38'in 38'i kırmızı, md. 11):
+  - `TestPasswordOK_EachSignInArmLeavesItsRows` · gerçek tanımlayıcılar, dört kol (doğru parola
+    kodsuz · doğru kodlu · yanlış kodlu · yanlış parola) · satır türleri yazılış sırasıyla
+    birebir, toplam satır sayısı, `password_ok` şekli (oturum, aktör, tenant, kapsam, sayfa
+    yok; `detail = {}`), satırlarda adres yok, kilit sayacı, tavanların altında log 0 bayt;
+    dönüş anında satır veritabanında.
+  - `TestPasswordOK_PasswordlessJunkCannotSilenceIt` · ortak tavan tükenmiş (öncül ölçülür:
+    bilinmeyen adres 0 satır) · doğru parola 1 satır, ortak tavan şarj edilmez, operatörünki 1.
+  - `TestPasswordOK_PastTheOperatorsCapNoRowOneWarn` · tavana bir kala, üç adres · 1 satır, üçü
+    de hizmet görür, tek WARN (biçimi pinli), log'da adres yok; başka operatörün satırı yazılır.
+  - `TestPasswordOK_ARowThatCannotBeWrittenFailsTheStep` · sunucunun 25006'sı · hata (sentinel
+    değil), challenge yok, çerez yok, satır yok, hata ve log'da adres/e-posta/parola/id yok;
+    bedel: `op_open_session` de 25006; kontrol: gerçek mağazayla satır ve challenge.
+  - `TestSurface_ARightPasswordWhoseTrailIsRefusedGetsNoChallenge` · OP-8'in gerçek handler'ı,
+    yönlendirici · 503, hiç `Set-Cookie`, yanıt ve log temiz; kontrol: 303 + ara çerez.
+  - `TestPasswordOK_TouchesNoLockCounter` · md. 5.
+  - `TestPasswordOK_TheCapIsOneLockedStepUnderRacers` · 200 tur × 40 yarışçı, `-race` · her tur
+    tam 10 satır, tek WARN, 40 hizmet, 40 şarj.
+  - `TestPasswordOK_TheCapIsPerOperatorAndRestartsWithItsWindow` · enjekte saat · operatör
+    başına, pencere başına; tavana kadar 0 WARN; adresle satır yok; log'da adres yok.
+  - *(2. tur)* `TestSurface_AnAbortedRightPasswordStillLeavesItsRow`,
+    `TestPasswordOK_AnAbortedRightPasswordStillLeavesItsRow` · karşılaştırma ortasında kesilen
+    istek (TCP / bağlam iptali) · her biri hizmet görür ve satırını yazar; tavan aşımı tek WARN.
+  - *(2. tur)* `TestPasswordOK_AFailedWriteGivesItsOwnChargeBack`,
+    `TestPasswordOK_RefundsUnderRacersNeverOverspendTheCap`,
+    `TestPasswordOK_EveryWriteErrorFailsClosedAndGivesTheChargeBack` · md. 8.
+  - *(2. tur)* `TestShutdownBudget_TheFirstFactorRecordNestsInsideTheHTTPGrace` ·
+    `FirstFactorRecordGrace` ≤ `httpShutdownGrace` ve ≥ 1 sn.
+  - *(3. tur)* `TestPasswordOK_DB_ACapFullOfUnwrittenRowsServesNoChallenge`,
+    `TestPasswordOK_ACapFullOfUnwrittenRowsServesNoChallenge` · tavanı uçuştaki yazımlar tutarken
+    doğru parola → reddedilir, challenge yok; yazımlar düşerse satır 0 ve sayaç 0, otururlarsa
+    satır 10 ve sonraki istek satırsız hizmet görür.
+  - *(3. tur)* `TestPasswordOK_WrongPasswordsToItsAddressNeverSpendTheCap` · operatörün adresine
+    12 yanlış parola → tavan 0; doğru parola → 1 satır, tavan 1.
+  - *(3. tur)* `TestPasswordOK_AHangingWriteIsBoundedByItsGrace` · askıda kalan yazım → ≈5 sn'de
+    hata, challenge yok, şarj 0, ret satırı.
+  - *(5. tur)* `TestPasswordOK_RowsThatLandAfterTheirWindowCountInTheirOwn` · bir pencerenin
+    geç oturan satırları kendi penceresine sayılır → yeni pencerede yazılmamış tavanın üstü
+    reddedilir.
+  - *(5. tur)* `TestPasswordOK_WrongPasswordsLeaveTheOperatorsWindowUntouched` ve
+    `TestPasswordOK_WrongPasswordsToItsAddressNeverSpendTheCap`'in pencere denetimi · yanlış
+    parola operatörün penceresini açmaz.
+  - *(5. tur)* `TestPasswordOK_TheRefusalLineNamesEachOperatorOncePerWindow` · ret satırı
+    pencere başına, operatör başına bir.
+  - `TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain` · md. 6.
+  - `TestLeak_NoInputInAnyErrorOrLogLine` (P7, A2) · `TestLimits_ARefusedRequestWritesNoRowAndMovesNoCounter`
+    (iş bütçesinin reddettiği doğru parola) · `TestPassword_EveryArmPaysOneComparisonAtTheSameCost`
+    (başarı kolu) · md. 7.
+- **PART II — adıyla pinler ve yakaladıklarının tam listesi:**
+  `TestBudgets_TheShippedNumbersArePinned` — `firstFactor` bütçesinin 10 ve 10 dk'sı;
+  `TestShutdownBudget_TheFirstFactorRecordNestsInsideTheHTTPGrace` — ayrık yazımın bütçesinin
+  HTTP drenajının içinde ve bir INSERT'ten uzun olması; `allowedFields["budgetWindow.warned"]`
+  — pencerenin WARN bayrağının adı ve tipi; *(3. tur)* `allowedFields["budgetWindow.written"]`,
+  `allowedFields["budgetWindow.refusedWarned"]`; `checkFirstFactorLines` (sızıntı testi) ve
+  `checkFirstFactorLog` (birim testleri) — iki satırın iletisi, seviyesi ve dört özniteliği;
+  `TestAuditRows_EveryPasswordlessKindGoesThroughTheCap` — kaynakta `password_ok`'un tek yazım
+  yeri (`recordPasswordOK`, mağazaya tam bir kez, tür yalnız `OperatorPasswordOK`), ortak
+  tavanlı yazıcıya ve doğrudan mağazaya giden `password_ok`; `checkFirstFactorCapLines` ve
+  `checkOnlyTrailCapLines` — tavan satırının iletisi, seviyesi ve dört özniteliği (metin ve
+  JSON), satır başına bir operatör; `allowedFields["limits.firstFactor"]` — alanın adı ve tipi;
+  `checkBudgetKeys` — `firstFactor` haritasının anahtarlarının operatör id'leri olması;
+  `TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain`'in yol sayıları — ölçülen
+  duruma göre koşması gereken yolların tam kümesi.
+- **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
 
 ## OP-12 uygulama notu (2026-10-07, A fazı — veri katmanı)
 
@@ -3702,6 +4152,7 @@ TRIGGER yetkisi dahil).
   uygulandı: okuma, kapalı şekil listesi ve `password_ok` — "OP-14 uygulama notu". B fazı
   ekranı ve wiring'i ekledi — aynı notun "OP-14 B fazı eki". D, 00033 ile opadmin'in üç eylemini
   günlüğe yazdı ve `at`'i duvar saatine bağladı — "OP-14 D uygulama notu".)*
+  *(C fazı: `password_ok`'un Go yazıcısı ve operatör başına tavanı — "OP-14 C fazı eki".)*
 - **OP-12:** bir tenant'ın faturalama ayları iki aşamalı `op_read_tenant_billing`'dir — fatura
   aritmetiğinin üçüncü kopyası, tenant'ın kendi yoluna ay ay bir testle bağlı. *(A fazı 00032 ile
   uygulandı — "OP-12 uygulama notu".)*

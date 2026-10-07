@@ -326,6 +326,24 @@ bir restoran hesabına bağlı olmamalı* (m10-platform.md §1).
   fazınındır — parolasız ortak tavana konmaz (kart taslağının C1'i: parolasız çöp onu
   susturamamalı). Ayrıntı: [ADR 0021](0021-op-fonksiyonlari-tenant-otesi-erisim.md) → §1
   (düzeltilen tablo ve madde), sınır 7, "OP-14 uygulama notu".
+  **OP-14 C notu (2026-10-07) — 12c'nin süreç log satırı kalıcı satıra döndü:** parola adımı,
+  karşılaştırma başarısından **sonra** ve challenge (ara çerezin değeri) basılmadan **önce**
+  `password_ok` satırını yazar; 12c'nin Info satırı (`operator first factor verified; second
+  factor pending` + `operator_id`) **kaldırıldı** — iz artık satırın kendisidir ve tavanların
+  altında `operatorauth` girişte hiçbir log satırı yazmaz (ölçüldü). Tavan **operatör başına** 10 / 10 dk,
+  IP'den bağımsız, parolasız ortak tavana **konmaz**; aşılınca istek yine hizmet görür, satır
+  yazılmaz, pencere başına operatör başına **tek** WARN (tür, operatörün id'si, sayılar —
+  istekten hiçbir şey). Satır yazılamazsa parola adımı **hata** döner (fail-closed): challenge
+  yok, çerez yok (yüzeyde 503). *(2. tur, üçüncü gözün B1'i, ölçüldü: ilk turda satır isteğin
+  bağlamıyla yazılıyordu ve karşılaştırma sırasında bağlantısını kapatan istemci tavanı satırsız
+  harcıyordu — on kesik istek pencerenin izini boşalttı. Artık satır isteğin iptalinden **ayrık**
+  yazılır, kendi süresiyle (`FirstFactorRecordGrace` 5 sn, HTTP drenajının içinde), ve başarısız
+  yazım şarjını **iade eder**.)* *(3. tur, güvenlik denetiminin F1'i, ölçüldü: tavanı uçuştaki
+  ve sonra düşen yazımlar tutarken gelen doğru parola satırsız challenge alıyordu. Artık tavanın
+  üstünde satırsız hizmet yalnız penceresinde o operatörün **yazılmış** 10 satırı varken verilir;
+  aksi hâlde adım fail-closed reddedilir (503) ve her fail-closed ret operatörü id'siyle pencere
+  başına tek WARN satırında adlandırır.)* Ayrıntı ve ölçümler: ADR 0021 → "OP-14 C fazı eki"
+  md. 8–9.
 - **Kurtarma kodu YOK** (K3). Cihaz kaybında tek yol `opadmin reset-mfa` (§6): TOTP
   zarfı silinir, kilit sayacı sıfırlanır, durum `pending`, bütün oturumlar iptal, yeni
   enrollment token'ı ve id'li link.
@@ -1049,7 +1067,10 @@ m10-platform.md §3'ün ölçütleriyle:
   `TAPPA_OPERATOR_TOKEN_HMAC_KEY`'den etiketle türetilir (müşteri anahtarından değil — §2'nin
   yasağının ruhu korunur); bütçeler flood 300 · iş 20 · hesap 10 (TOTP'de kapı) · süreç
   geneli parolasız audit tavanı 30 · süreç geneli enrollment 10 · *(2026-10-01, 12c)* adres
-  başına enrollment payı 3 (süreç geneli enrollment'tan önce), hepsi 10 dk.
+  başına enrollment payı 3 (süreç geneli enrollment'tan önce) · *(2026-10-07, OP-14 C)*
+  operatör başına `password_ok` satır tavanı 10 (bir satır tavanı: tavanın üstündeki doğru parola
+  yalnız penceresinin **yazılmış** satırları tavana ulaşmışsa satırsız hizmet görür, ulaşmamışsa
+  adım fail-closed reddedilir, 503 — OP-14 C 3. tur F1, cümle 5. turda daraltıldı), hepsi 10 dk.
   Gerekçeler ve ölçümler: [m10-platform.md](../plan/m10-platform.md) → OP-6 kart
   düzeltmesi, `internal/operatorauth/limits.go`.
 - `operator_audit_log`'un sütun şekli ve `platform_*` tablolarında gönüllü RLS olup

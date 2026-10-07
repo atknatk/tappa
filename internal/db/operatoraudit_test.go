@@ -30,7 +30,11 @@ package db
 //
 // 🔴 NO TEST HERE COMMITS A 'password_ok' ROW. 00031's Down returns the audit CHECKs NOT
 // VALID when one exists, and 00027's applied Up cannot be re-run over one (the Down test
-// measures both); a committed one would change what the other migrations' Down tests meet.
+// measures both). Since OP-14 phase C the product's sign-in commits them (and
+// internal/handler/operator's committing end-to-end tests sign in), so the Down tests
+// meet them: this file's Down test removes the rows outside 00027's set inside its own
+// transaction (branch), and TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain
+// decides each branch by counting them (ADR 0021, OP-14 note, L9 -- closed in phase C).
 
 import (
 	"context"

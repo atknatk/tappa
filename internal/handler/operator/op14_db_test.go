@@ -11,10 +11,11 @@ package operator_test
 // and the foreign keys that point at them), by construction: three operator accounts --
 // op10b-… (newLegalE2E's; disabled at cleanup) and two this test commits, one pending and
 // one disabled (both disabled at cleanup) --, the first one's five sessions (the signed-in
-// one and four planted; revoked at cleanup), and the audit rows: login, logout, two
-// unknown_email rows naming the pending and the disabled account, one 'read' row of scope
-// tenants (the search) and five of scope operator_audit (four views and the planted live
-// session's). Read tickets are deleted at cleanup. No tenant row is written.
+// one and four planted; revoked at cleanup), and the audit rows: the sign-in's password_ok
+// (OP-14 C's writer; the two refused attempts write none), login, logout, two unknown_email
+// rows naming the pending and the disabled account, one 'read' row of scope tenants (the
+// search) and five of scope operator_audit (four views and the planted live session's).
+// Read tickets are deleted at cleanup. No tenant row is written.
 
 import (
 	"context"

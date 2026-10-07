@@ -114,9 +114,13 @@ type Config struct {
 	// Now is the wall clock; nil means time.Now. Injected by tests. The DATABASE
 	// keeps its own clock for every expiry it enforces (ADR 0021 §2 vii).
 	Now func() time.Time
-	// Log receives the two lines this package writes: a budget of pre-session audit
-	// rows filling up (limits.go), and a right password whose second factor is pending,
-	// with the operator's id alone (flow.go). Required -- a nil logger would make those
+	// Log receives the three WARN lines this package writes, each once per window: the
+	// process-wide cap on password-less pre-session rows crossed; one operator's cap on
+	// 'password_ok' rows crossed, with that operator's id; and one operator's password
+	// step refused fail-closed for want of its row, with that operator's id (limits.go,
+	// flow.go).
+	// (Until OP-14 phase C a right password also logged an Info line; the durable
+	// 'password_ok' row replaced it.) Required -- a nil logger would make those
 	// signals silently disappear.
 	Log *slog.Logger
 }

@@ -20,6 +20,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/base32"
+	"errors"
+	"fmt"
 	"html"
 	"net/http"
 	"net/http/httptest"
@@ -43,12 +45,15 @@ import (
 )
 
 // surfStore is the fake: an active account by address, the auth events written, and a
-// count of its calls.
+// count of its calls. refuse, when it names a kind, is the error that kind's write
+// returns -- and such a row is not recorded (OP-14 phase C: a 'password_ok' row the
+// database refuses).
 type surfStore struct {
 	mu     sync.Mutex
 	calls  int
 	active map[string]db.OperatorAccount
 	events []db.OperatorAuthEvent
+	refuse map[db.OperatorAuthEvent]error
 }
 
 func (s *surfStore) n() int {
@@ -89,6 +94,9 @@ func (s *surfStore) RecordOperatorAuthEvent(_ context.Context, kind db.OperatorA
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.calls++
+	if err := s.refuse[kind]; err != nil {
+		return err
+	}
 	s.events = append(s.events, kind)
 	return nil
 }
@@ -170,6 +178,7 @@ type surfRig struct {
 	now                  time.Time
 	key                  []byte
 	comparisons, digests func() int64
+	logs                 *bytes.Buffer // the Authenticator's, the surface's and the router's log
 }
 
 func newSurfRig(t *testing.T) *surfRig {
@@ -187,7 +196,8 @@ func newSurfRig(t *testing.T) *surfRig {
 		t.Fatal(err)
 	}
 	g.store.active[surfEmail] = db.OperatorAccount{ID: id, Digest: db.NewPasswordHash(string(digest)), Sealed: db.NewSealedSecret(sealed)}
-	log := debugCapture(&bytes.Buffer{})
+	g.logs = &bytes.Buffer{}
+	log := debugCapture(g.logs)
 	a, err := operatorauth.New(g.store, operatorauth.Config{
 		TOTPKEK: operatorauth.NewKey(kek), TokenHMACKey: operatorauth.NewKey([]byte("op8 surface token HMAC key, 32 b")),
 		Now: func() time.Time { return g.now }, Log: log,
@@ -287,11 +297,15 @@ func TestSurface_EveryRefusedSignInPaysOneComparisonAndAnswersAlike(t *testing.T
 			t.Errorf("%s: %d headers, the unknown address's %d", a.name, len(w.Result().Header), len(first.Result().Header))
 		}
 	}
-	// CONTROL: the right password -- one comparison too, and one cookie.
-	c0 := g.comparisons()
+	// CONTROL: the right password -- one comparison too, one cookie, and (OP-14 phase C)
+	// its one 'password_ok' row.
+	c0, e0 := g.comparisons(), len(g.store.kinds())
 	w := g.post("/operator/login", form(surfEmail, surfPass), surfOrigin, "")
 	if w.Code != http.StatusSeeOther || g.comparisons()-c0 != 1 || len(w.Result().Cookies()) != 1 {
 		t.Fatalf("CONTROL: the right password = %d, %d comparison(s), %d cookie(s)", w.Code, g.comparisons()-c0, len(w.Result().Cookies()))
+	}
+	if kinds := g.store.kinds(); len(kinds)-e0 != 1 || kinds[len(kinds)-1] != db.OperatorPasswordOK {
+		t.Fatalf("CONTROL: the right password left audit events %v after %d, want one %s", kinds, e0, db.OperatorPasswordOK)
 	}
 	// The body-size bound is checked ahead of Password: an oversized body is answered
 	// with 0 comparisons and 0 store calls.
@@ -299,6 +313,79 @@ func TestSurface_EveryRefusedSignInPaysOneComparisonAndAnswersAlike(t *testing.T
 	if w := g.post("/operator/login", form(strings.Repeat("a", 20<<10), surfPass), surfOrigin, ""); w.Code != http.StatusRequestEntityTooLarge ||
 		g.comparisons() != c0 || g.store.n() != n0 {
 		t.Errorf("an oversized form = %d with %d comparison(s), %d store call(s)", w.Code, g.comparisons()-c0, g.store.n()-n0)
+	}
+}
+
+// TestSurface_ARightPasswordWhoseTrailIsRefusedGetsNoChallenge is OP-14 phase C's
+// fail-closed half through OP-8's real handler on the shipped router, ERROR CLASS BY
+// ERROR CLASS (2nd round, the third eye's B2: a fail-open for one class stayed green while
+// only one was driven): the store's 'password_ok' write returns the database's refusal
+// (internal/db's shape: a fixed text and a SQLSTATE), its 28000 (db.ErrOperatorRefused),
+// a cancelled or expired context -- built at the write itself, since the request's own
+// cancellation no longer reaches it --, a broken connection, or 22023 (a database without
+// 00031). Every one: 503 with NO cookie at all -- no challenge reaches the browser, so the
+// code step is not reachable without its trail -- and neither the response (body and
+// headers) nor the log carries the operator's address, the client's address, the
+// password or the operator's id. CONTROL: the same request with the write accepted is 303
+// with the challenge cookie, and the store has the row.
+func TestSurface_ARightPasswordWhoseTrailIsRefusedGetsNoChallenge(t *testing.T) {
+	login := "email=" + url.QueryEscape(surfEmail) + "&password=" + url.QueryEscape(surfPass)
+	for _, c := range []struct {
+		name string
+		err  error
+	}{
+		{"the database refuses the row (25006)", errors.New("db: record operator auth event: database error (SQLSTATE 25006)")},
+		{"28000 (db.ErrOperatorRefused)", db.ErrOperatorRefused},
+		{"the write's context cancelled", fmt.Errorf("db: record operator auth event: %w", context.Canceled)},
+		{"the write's context expired", fmt.Errorf("db: record operator auth event: %w", context.DeadlineExceeded)},
+		{"the connection broke", errors.New("db: record operator auth event: conn closed")},
+		{"22023 (a database without 00031)", errors.New("db: record operator auth event: database error (SQLSTATE 22023)")},
+	} {
+		g := newSurfRig(t)
+		g.store.refuse = map[db.OperatorAuthEvent]error{db.OperatorPasswordOK: c.err}
+		e0 := len(g.store.kinds())
+		w := g.post("/operator/login", login, surfOrigin, "")
+		if w.Code != http.StatusServiceUnavailable || len(w.Result().Cookies()) != 0 || w.Header().Get("Set-Cookie") != "" {
+			t.Errorf("%s: a right password whose trail was refused = %d with %d cookie(s); want 503 and none", c.name, w.Code, len(w.Result().Cookies()))
+			continue
+		}
+		if got := len(g.store.kinds()) - e0; got != 0 {
+			t.Errorf("%s: PREMISE: the refused write was recorded (%d event(s))", c.name, got)
+		}
+		id := g.store.active[surfEmail].ID.String()
+		headers := fmt.Sprint(w.Result().Header)
+		for _, s := range []string{surfEmail, "192.0.2.44", surfPass, id} {
+			if strings.Contains(w.Body.String(), s) || strings.Contains(headers, s) ||
+				(s != id && strings.Contains(g.logs.String(), s)) {
+				t.Errorf("%s: the response carries the operator's address, the client's, the password or the operator's id, or the log one of the first three", c.name)
+			}
+		}
+		// The log names the operator by id in the fail-closed refusal line ALONE (3rd round,
+		// F4: before it, nothing in a write outage named whose right password was refused).
+		named := 0
+		for _, l := range strings.Split(g.logs.String(), "\n") {
+			if strings.Contains(l, id) {
+				named++
+				if !strings.Contains(l, firstFactorRefusedMsg) {
+					t.Errorf("%s: a log line names the operator outside the refusal line", c.name)
+				}
+			}
+		}
+		if named == 0 {
+			t.Errorf("%s: no log line names the operator whose right password was refused", c.name)
+		}
+		if !strings.Contains(g.logs.String(), "the first sign-in step failed") {
+			t.Errorf("%s: PREMISE: the step's failure was not logged by the handler", c.name)
+		}
+	}
+	g := newSurfRig(t)
+	w := g.post("/operator/login", login, surfOrigin, "")
+	cs := w.Result().Cookies()
+	if w.Code != http.StatusSeeOther || len(cs) != 1 || cs[0].Name != operatorauth.ChallengeCookieName {
+		t.Fatalf("CONTROL: the right password with its trail written = %d with %d cookie(s)", w.Code, len(cs))
+	}
+	if kinds := g.store.kinds(); len(kinds) == 0 || kinds[len(kinds)-1] != db.OperatorPasswordOK {
+		t.Fatalf("CONTROL: audit events %v, want the last one %s", kinds, db.OperatorPasswordOK)
 	}
 }
 

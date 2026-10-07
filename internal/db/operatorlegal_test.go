@@ -506,8 +506,29 @@ func TestOperator00027_TheApplicationCanNoLongerWriteALegalText(t *testing.T) {
 // ticket kind CHECK back to 00026's shape (Up again: the closed set), and puts the
 // audit kind CHECK back -- VALIDATED when no 'read'/'legal_publish' row exists, NOT VALID
 // when one does (the evidence stays: the table is append-only); Up then takes it all
-// again. Both branches are driven: the "no row" one by removing such rows inside the
-// transaction with the append-only trigger disabled -- the shape of a fresh clone.
+// again. The "no 'read' row" branch removes such rows inside the transaction with the
+// append-only trigger disabled -- the shape of a fresh clone.
+//
+// 🔴 L9 (ADR 0021, "OP-14 uygulama notu"; closed in OP-14 phase C). 00027 adds its
+// ten-kind audit CHECK VALIDATED in two places -- its Up (run again here) and its Down's
+// ELSE branch -- and a row of ANY kind 00027 does not know refuses both with 23514.
+// Since phase C the product writes such a row: a right password's 'password_ok'
+// (00031). The table is append-only, so a database that has seen one sign-in holds one
+// for good, and which state a run meets depends on what ran before it (the development
+// database keeps every committed row; CI runs the packages' binaries in parallel, and
+// internal/handler/operator's end-to-end tests commit sign-ins). So the outcome of each
+// branch is DECIDED BY A MEASUREMENT -- the rows outside 00027's set, counted in the
+// branch's own savepoint -- and BOTH outcomes are asserted: none -> the validated path
+// (Up again and the Down's ELSE succeed, the CHECK validated); some -> the documented
+// refusal (23514 naming operator_audit_log_kind_check). Two scenarios, each through both
+// branches: the database AS FOUND, and the same with ONE 'password_ok' row written in
+// the transaction (rolled back), so the refusal path runs on every run. The validated
+// path runs when the database holds no such row; on one that does, reaching it would
+// take deleting those audit rows, which this test does not do. Each path's helper counts
+// itself only after it has run its section and asserted the outcome; the end logs the
+// counts and compares them with what the measured state requires -- found clean: each
+// path once per branch; found holding such a row: the refusal path twice per branch and
+// the validated path never.
 func TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain(t *testing.T) {
 	ctx, tx := opTx(t)
 	b, err := os.ReadFile(filepath.Join("..", "..", "db", "migrations", "00027_move_legal_publishing_to_the_operator.sql"))
@@ -525,6 +546,34 @@ func TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain(t *testing.T) {
 		if _, err := q.Conn().PgConn().Exec(ctx, sql).ReadAll(); err != nil {
 			t.Fatalf("%s: %v", what, err)
 		}
+	}
+	// THE TWO PATHS, each a helper that RUNS the section, asserts its outcome and only then
+	// counts itself under its step: a branch that stops running a section -- an emptied
+	// arm, a skipped call -- is missing from ran, and the check at the end is red.
+	ran := map[string]int{}
+	// taken runs sql and requires it to succeed: the validated path.
+	taken := func(q pgx.Tx, sql, step, what string) {
+		t.Helper()
+		run(q, sql, what)
+		ran["validated: "+step]++
+	}
+	// refused runs sql in a savepoint of its own and requires 00027's documented refusal:
+	// SQLSTATE 23514 naming the audit kind CHECK -- a row the ten kinds do not cover.
+	refused := func(q pgx.Tx, sql, step, what string) {
+		t.Helper()
+		sp, err := q.Begin(ctx)
+		if err != nil {
+			t.Fatalf("savepoint: %v", err)
+		}
+		_, e := sp.Conn().PgConn().Exec(ctx, sql).ReadAll()
+		var pg *pgconn.PgError
+		if !errors.As(e, &pg) || pg.Code != sqlstateCheckViolation || pg.ConstraintName != "operator_audit_log_kind_check" {
+			t.Errorf("%s: %v; want the documented refusal, 23514 on operator_audit_log_kind_check", what, e)
+		}
+		if err := sp.Rollback(ctx); err != nil {
+			t.Fatalf("rollback: %v", err)
+		}
+		ran["refused: "+step]++
 	}
 	state := func(q opQuerier) (appInsert bool, fns int64, def string, validated bool) {
 		t.Helper()
@@ -548,6 +597,11 @@ func TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain(t *testing.T) {
 			t.Fatal(err)
 		}
 		return may
+	}
+	// outside counts the rows 00027's ten-kind CHECK refuses.
+	outside := func(q opQuerier) int64 {
+		t.Helper()
+		return opInt(t, ctx, q, `SELECT count(*) FROM operator_audit_log WHERE kind <> ALL ($1)`, opAuditKinds27)
 	}
 
 	// operator_read_tickets_kind_check: 00027's closed set, and after Down 00026's shape.
@@ -574,68 +628,114 @@ func TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain(t *testing.T) {
 		t.Fatalf("PREMISE: before Down the ticket kind CHECK is %s, want a closed set holding 'legal_versions'", got)
 	}
 
-	// Branch 1: a 'read' row exists -> the restored CHECK is NOT VALID.
 	a := opNewActive(t, ctx, tx)
 	_, sid := opNewSession(t, ctx, tx, a.id, true)
-	if _, err := tx.Exec(ctx, `INSERT INTO operator_audit_log (kind, session_id, actor_admin_id, target_scope)
-	                           VALUES ('read', $1, $2, 'legal_versions')`, sid, a.id); err != nil {
-		t.Fatalf("a 'read' row: %v", err)
-	}
-	sp, err := tx.Begin(ctx)
-	if err != nil {
-		t.Fatalf("savepoint: %v", err)
-	}
-	run(sp, down, "00027 Down with a 'read' row present")
-	app, fns, def, validated := state(sp)
-	if !app || fns != 0 || def != "now()" || validated {
-		t.Errorf("after Down (a 'read' row present): app INSERT=%v (want true) functions=%d (want 0) default=%s (want now()) kind CHECK validated=%v (want false)",
-			app, fns, def, validated)
-	}
-	if definerOnLegal(sp) {
-		t.Error("after Down tappa_opdefiner still holds a privilege on legal_documents")
-	}
-	if got := ticketKind(sp); got != kindShape {
-		t.Errorf("after Down the ticket kind CHECK is %s, want 00026's shape %s", got, kindShape)
-	}
-	if got := opColumns(t, ctx, sp, "tappa_app", "legal_documents", "INSERT"); got != "slug,body,published_by" {
-		t.Errorf("after Down tappa_app INSERT on legal_documents = (%s), want 00020's (slug,body,published_by)", got)
-	}
-	// The restored CHECK is enforced for a NEW row even when not validated.
-	opWant(t, opTry(t, ctx, sp, `INSERT INTO operator_audit_log (kind, session_id, actor_admin_id, target_scope)
-	                              VALUES ('read', $1, $2, 'legal_versions')`, sid, a.id),
-		sqlstateCheckViolation, "a new 'read' row after Down")
-	run(sp, up, "00027 Up again")
-	if app, fns, def, validated := state(sp); app || fns != 3 || def != "clock_timestamp()" || !validated {
-		t.Errorf("after Up again: app INSERT=%v functions=%d default=%s validated=%v; want false/3/clock_timestamp()/true", app, fns, def, validated)
-	}
-	if got := ticketKind(sp); got != kindClosed {
-		t.Errorf("after Up again the ticket kind CHECK is %s, want %s", got, kindClosed)
-	}
-	if err := sp.Rollback(ctx); err != nil {
-		t.Fatalf("rollback branch 1: %v", err)
-	}
-
-	// Branch 2: no such row (a fresh clone's shape) -> the restored CHECK is VALIDATED.
-	sp, err = tx.Begin(ctx)
-	if err != nil {
-		t.Fatalf("savepoint: %v", err)
-	}
-	for _, s := range []string{
-		`ALTER TABLE operator_audit_log DISABLE TRIGGER operator_audit_log_append_only`,
-		`DELETE FROM operator_read_tickets`,
-		`DELETE FROM operator_audit_log WHERE kind IN ('read', 'legal_publish')`,
-		`ALTER TABLE operator_audit_log ENABLE TRIGGER operator_audit_log_append_only`,
+	found := outside(tx)
+	for _, sc := range []struct {
+		name  string
+		setup func(q pgx.Tx)
+	}{
+		{"as found", nil},
+		{"with a 'password_ok' row", func(q pgx.Tx) {
+			row := opLogInsert(t, ctx, q, opLogRow{kind: "password_ok", target: &a.id})
+			if n := opInt(t, ctx, q, `SELECT count(*) FROM operator_audit_log WHERE id = $1 AND kind <> ALL ($2)`, row, opAuditKinds27); n != 1 {
+				t.Fatalf("PREMISE: the scenario's own 'password_ok' row is not one 00027's set refuses (%d)", n)
+			}
+		}},
 	} {
-		if _, err := sp.Exec(ctx, s); err != nil {
-			t.Fatalf("clear the new kinds inside the transaction: %s: %v", s, err)
+		scn, err := tx.Begin(ctx)
+		if err != nil {
+			t.Fatalf("savepoint: %v", err)
+		}
+		if sc.setup != nil {
+			sc.setup(scn)
+		}
+		n := outside(scn)
+
+		// Branch 1: a 'read' row exists -> the restored CHECK is NOT VALID.
+		if _, err := scn.Exec(ctx, `INSERT INTO operator_audit_log (kind, session_id, actor_admin_id, target_scope)
+		                            VALUES ('read', $1, $2, 'legal_versions')`, sid, a.id); err != nil {
+			t.Fatalf("%s: a 'read' row: %v", sc.name, err)
+		}
+		sp, err := scn.Begin(ctx)
+		if err != nil {
+			t.Fatalf("savepoint: %v", err)
+		}
+		run(sp, down, sc.name+": 00027 Down with a 'read' row present")
+		app, fns, def, validated := state(sp)
+		if !app || fns != 0 || def != "now()" || validated {
+			t.Errorf("%s: after Down (a 'read' row present): app INSERT=%v (want true) functions=%d (want 0) default=%s (want now()) kind CHECK validated=%v (want false)",
+				sc.name, app, fns, def, validated)
+		}
+		if definerOnLegal(sp) {
+			t.Errorf("%s: after Down tappa_opdefiner still holds a privilege on legal_documents", sc.name)
+		}
+		if got := ticketKind(sp); got != kindShape {
+			t.Errorf("%s: after Down the ticket kind CHECK is %s, want 00026's shape %s", sc.name, got, kindShape)
+		}
+		if got := opColumns(t, ctx, sp, "tappa_app", "legal_documents", "INSERT"); got != "slug,body,published_by" {
+			t.Errorf("%s: after Down tappa_app INSERT on legal_documents = (%s), want 00020's (slug,body,published_by)", sc.name, got)
+		}
+		// The restored CHECK is enforced for a NEW row even when not validated.
+		opWant(t, opTry(t, ctx, sp, `INSERT INTO operator_audit_log (kind, session_id, actor_admin_id, target_scope)
+		                              VALUES ('read', $1, $2, 'legal_versions')`, sid, a.id),
+			sqlstateCheckViolation, sc.name+": a new 'read' row after Down")
+		if n == 0 {
+			taken(sp, up, "Up again", sc.name+": 00027 Up again")
+			if app, fns, def, validated := state(sp); app || fns != 3 || def != "clock_timestamp()" || !validated {
+				t.Errorf("%s: after Up again: app INSERT=%v functions=%d default=%s validated=%v; want false/3/clock_timestamp()/true", sc.name, app, fns, def, validated)
+			}
+			if got := ticketKind(sp); got != kindClosed {
+				t.Errorf("%s: after Up again the ticket kind CHECK is %s, want %s", sc.name, got, kindClosed)
+			}
+		} else {
+			refused(sp, up, "Up again", fmt.Sprintf("%s: 00027 Up again over %d row(s) outside its set", sc.name, n))
+		}
+		if err := sp.Rollback(ctx); err != nil {
+			t.Fatalf("rollback branch 1: %v", err)
+		}
+
+		// Branch 2: no 'read'/'legal_publish' row (a fresh clone's shape) -> the Down's ELSE
+		// branch: the restored CHECK VALIDATED, or refused over a row outside 00027's set.
+		sp, err = scn.Begin(ctx)
+		if err != nil {
+			t.Fatalf("savepoint: %v", err)
+		}
+		for _, s := range []string{
+			`ALTER TABLE operator_audit_log DISABLE TRIGGER operator_audit_log_append_only`,
+			`DELETE FROM operator_read_tickets`,
+			`DELETE FROM operator_audit_log WHERE kind IN ('read', 'legal_publish')`,
+			`ALTER TABLE operator_audit_log ENABLE TRIGGER operator_audit_log_append_only`,
+		} {
+			if _, err := sp.Exec(ctx, s); err != nil {
+				t.Fatalf("clear the new kinds inside the transaction: %s: %v", s, err)
+			}
+		}
+		if n == 0 {
+			taken(sp, down, "Down's ELSE", sc.name+": 00027 Down with no 'read' row")
+			if _, _, _, validated := state(sp); !validated {
+				t.Errorf("%s: after Down with no 'read'/'legal_publish' row the kind CHECK is NOT VALID; on a fresh clone Down must restore 00026's constraint exactly", sc.name)
+			}
+		} else {
+			refused(sp, down, "Down's ELSE", fmt.Sprintf("%s: 00027 Down with no 'read' row and %d row(s) outside its set", sc.name, n))
+		}
+		if err := sp.Rollback(ctx); err != nil {
+			t.Fatalf("rollback branch 2: %v", err)
+		}
+		if err := scn.Rollback(ctx); err != nil {
+			t.Fatalf("rollback the scenario: %v", err)
 		}
 	}
-	run(sp, down, "00027 Down with no 'read' row")
-	if _, _, _, validated := state(sp); !validated {
-		t.Error("after Down with no 'read'/'legal_publish' row the kind CHECK is NOT VALID; on a fresh clone Down must restore 00026's constraint exactly")
+	// Found clean: the validated path once per branch (as found) and the refusal path once
+	// per branch (the scenario's own row). Found holding such a row: the refusal path in
+	// both scenarios, the validated path never.
+	want := map[string]int{"refused: Up again": 2, "refused: Down's ELSE": 2}
+	if found == 0 {
+		want = map[string]int{"validated: Up again": 1, "validated: Down's ELSE": 1, "refused: Up again": 1, "refused: Down's ELSE": 1}
 	}
-	if err := sp.Rollback(ctx); err != nil {
-		t.Fatalf("rollback branch 2: %v", err)
+	t.Logf("the database held %d row(s) outside 00027's set; paths run: %v", found, ran)
+	if fmt.Sprint(ran) != fmt.Sprint(want) {
+		t.Errorf("paths run %v, want %v: with %d row(s) outside 00027's set found, a path did not run where it must", ran, want, found)
 	}
 }
 

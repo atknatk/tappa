@@ -65,8 +65,9 @@ func TestEnrollmentTokenHash_IsTheDatabasesHash(t *testing.T) {
 // invalid UTF-8) each return the SAME error, pay exactly ONE bcrypt comparison
 // (counted), and write exactly ONE row -- the kind is Go's view, the target the
 // database's own lookup (so a pending or disabled address is unknown_email with that
-// account as target, ADR 0021 §1's D3). The success arm pays one comparison and writes
-// nothing. The cost half (dummy and stored digest both Cost) is
+// account as target, ADR 0021 §1's D3). The success arm pays one comparison and, since
+// OP-14 phase C, writes its one 'password_ok' row naming the account (before OP-14 it
+// wrote nothing). The cost half (dummy and stored digest both Cost) is
 // TestPassword_TheDigestAndTheDummyAreBothCostTwelve.
 func TestPassword_EveryArmPaysOneComparisonAtTheSameCost(t *testing.T) {
 	warmDigests(t)
@@ -146,8 +147,11 @@ func TestPassword_EveryArmPaysOneComparisonAtTheSameCost(t *testing.T) {
 	if c, err := a.Password(ctx, testAddr, strings.ToUpper(active.email), fixturePassphrase); err != nil || c.reveal() == "" {
 		t.Fatalf("the right password was refused: %v", err)
 	}
-	if calls != 1 || auditRows(t, ctx, tx) != before {
-		t.Fatalf("a successful password step: %d comparison(s), %d row(s), want 1 and 0", calls, auditRows(t, ctx, tx)-before)
+	if calls != 1 || auditRows(t, ctx, tx) != before+1 {
+		t.Fatalf("a successful password step: %d comparison(s), %d row(s), want 1 and 1", calls, auditRows(t, ctx, tx)-before)
+	}
+	if kind, target := lastRow(); kind != "password_ok" || target == nil || *target != active.id {
+		t.Fatalf("a successful password step wrote a %s row naming %v, want 'password_ok' naming the account", kind, target)
 	}
 }
 
@@ -482,17 +486,19 @@ func TestLimits_ARefusedRequestWritesNoRowAndMovesNoCounter(t *testing.T) {
 		t.Fatalf("past the account budget: rows %+d, counter %d, want 0 and 1 and no session", d, failures(t, ctx, tx, acc.id))
 	}
 
-	// WORK budget (password step): no comparison, no lookup's row.
+	// WORK budget (password step): no comparison, no lookup's row -- and for the RIGHT
+	// password no 'password_ok' row and no charge of its operator's cap (OP-14 C).
 	for a.limits.work.charge("198.51.100.7") < workLimit {
 	}
 	calls, before = 0, auditRows(t, ctx, tx)
-	for _, email := range []string{acc.email, "nobody@example.test"} {
-		if _, err := a.Password(ctx, "198.51.100.7", email, "wrong wrong wrong"); !errors.Is(err, ErrThrottled) {
+	for _, try := range []struct{ email, pw string }{{acc.email, "wrong wrong wrong"}, {"nobody@example.test", "wrong wrong wrong"}, {acc.email, fixturePassphrase}} {
+		if _, err := a.Password(ctx, "198.51.100.7", try.email, try.pw); !errors.Is(err, ErrThrottled) {
 			t.Fatalf("a password step past the work budget: %v", err)
 		}
 	}
-	if calls != 0 || auditRows(t, ctx, tx) != before {
-		t.Fatalf("past the work budget: %d comparison(s), %+d row(s), want 0 and 0", calls, auditRows(t, ctx, tx)-before)
+	if calls != 0 || auditRows(t, ctx, tx) != before || spentIn(a.limits.firstFactor, acc.id.String()) != 0 {
+		t.Fatalf("past the work budget: %d comparison(s), %+d row(s), %d charge(s) of the operator's first-factor cap, want 0, 0 and 0",
+			calls, auditRows(t, ctx, tx)-before, spentIn(a.limits.firstFactor, acc.id.String()))
 	}
 	// The enrollment's last step spends the SAME per-address work budget (flow.go). A
 	// malformed token would write an enrollment_failed row if it got that far; past the

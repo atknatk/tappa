@@ -27,7 +27,12 @@ import (
 // rule, the token's shape, the page, the first code, whose refusals write their own
 // enrollment_failed rows) and BEFORE the digest, the seal and the database call
 // (TestLimits_ARefusedRequestWritesNoRowAndMovesNoCounter drives the real budgets,
-// built by build -- the constructor path New takes -- against the real database).
+// built by build -- the constructor path New takes -- against the real database). The
+// two ROW ceilings -- auditCap and firstFactor (OP-14 phase C) -- are each charged where
+// its row would be written. Past auditCap the request is served without the row. Past
+// firstFactor it is served without the row only if the window's WRITTEN rows have
+// reached the cap; while they have not, the step fails closed (flow.go, recordPasswordOK:
+// the 3rd round's F1; this sentence narrowed in the 5th, D4).
 //
 // THE PRIMITIVE IS A LOCAL COPY OF httpx.Limiter'S MECHANISM, AND THE COPY IS THE
 // DEPENDENCY DIRECTION, NOT A TASTE. internal/httpx imports the panel's authentication
@@ -196,15 +201,73 @@ const (
 	// decision), not a number here (m10-platform.md, OP-8 card correction).
 	enrollAddrLimit  = 3
 	enrollAddrPeriod = 10 * time.Minute
+
+	// firstFactorLimit: 'password_ok' rows (00031; OP-14 phase C) -- the durable trail of a
+	// password the step ACCEPTED, written before the second factor is asked for -- per
+	// OPERATOR (the account the lookup returned), independent of the client address.
+	//
+	// WHO CAN SPEND IT: only a CORRECT password writes one, so only someone who holds the
+	// operator's password. Without a ceiling that holder writes one row per comparison
+	// the work budget lets through -- 20 per address per window, times every address
+	// they hold, i.e. unbounded across a botnet, into a table nothing can prune.
+	//
+	//	legitimate: one operator, 2 devices x ~2 password steps each        ~4 per window
+	//	            (a challenge that expires -- challengeTTL, 5 min -- before the
+	//	            code is typed is a fresh password step; a mistyped code is not)
+	//	x 2.5 headroom                                                         10
+	//
+	// ROWS: 10 per window = 1 440 a day = 525 600 a year per operator; at auditCapLimit's
+	// measured band for a row WITH a target id (174.7-188.4 bytes, same table, same three
+	// indexes) that is ~92-99 MB a year per operator, ~275-297 MB for three -- the order
+	// of the password-less cap's worst case, and reachable only with a password.
+	//
+	// 🔴 NOT UNDER auditCapLimit, ON PURPOSE (the OP-14 card's C1 -- OP-6 md. 9's measured
+	// conflict, one kind later). auditCap is filled by password-LESS junk anyone can send;
+	// with 'password_ok' under it, a flood of unknown addresses would leave a right
+	// password with no row -- the "password known, device missing" signal silenced by
+	// someone who knows neither (TestPasswordOK_PasswordlessJunkCannotSilenceIt). Under its
+	// own per-operator cap the signal cannot be silenced, only its REPETITION, and exactly
+	// this far (3rd round): a right password is served WITHOUT a row only in a window that
+	// already holds firstFactorLimit WRITTEN rows of that operator (budgetWindow.written).
+	// While the cap is held by writes still in flight, or by writes about to fail and be
+	// given back, a right password past it is REFUSED fail-closed -- no challenge
+	// (recordPasswordOK, errFirstFactorPending).
+	//
+	// ⚠️ HOW THE CLAIM WAS WRONG TWICE, MEASURED:
+	//   - 1st round (the third eye's B1, over TCP and on the real database): the charge was
+	//     taken and the row written with the REQUEST's context; a client that hung up
+	//     during the comparison spent a charge and nothing was sent -- ten aborted right
+	//     passwords emptied the window's trail, the eleventh got a challenge and no row.
+	//     Fixed in the 2nd round: the write runs DETACHED from the request's cancellation,
+	//     on its own bound (FirstFactorRecordGrace), and a write that fails GIVES ITS CHARGE
+	//     BACK (budget.refund: the same lock, its own window only, never below zero).
+	//   - 2nd round (the security audit's F1, real Postgres): ten right passwords whose
+	//     writes were in flight and then failed (25006) held the count at the cap while an
+	//     eleventh was served past it -- a challenge and, once the ten were given back,
+	//     zero rows. Fixed in the 3rd: "past the cap" is served without a row only when
+	//     the window's WRITTEN rows have reached it.
+	// What remains, by name: a process that dies between the charge and the write leaves
+	// no row -- and no challenge, since the request dies with it; and a request that finds
+	// the cap held by writes not yet done is refused (a 503 a person retries) rather than
+	// made to wait.
+	//
+	// PAST A CAP OF WRITTEN ROWS THE REQUEST IS STILL SERVED; ONLY THE ROW IS NOT WRITTEN
+	// (auditCapLimit's argument: the sign-in's gates are the work budget, the account
+	// budget and the lock, not the trail's ceiling). One WARN line per window per operator
+	// says the rows stopped, naming the operator by id (ADR 0020 §5) and nothing from the
+	// request; a fail-closed refusal names the operator in its own line, once per window.
+	firstFactorLimit  = 10
+	firstFactorPeriod = 10 * time.Minute
 )
 
 // budgetMaxKeys bounds each budget's map, httpx's limiterMaxKeys for the same reason:
 // a caller rotating source addresses must not grow memory without bound. Past it,
 // expired windows are dropped and, if that frees nothing, the map is reset -- the
 // fail-OPEN direction httpx chose deliberately (refusing new keys would let one
-// caller lock everybody out). The two process-wide budgets have one key and the
-// account budget one per operator, so only flood, work and enrollAddr can ever reach
-// it.
+// caller lock everybody out). The two process-wide budgets have one key, and the
+// account and firstFactor budgets one per operator (firstFactor's only for an operator
+// whose right password was presented), so only flood, work and enrollAddr can ever
+// reach it.
 const budgetMaxKeys = 100_000
 
 // budget is a fixed-window counter keyed by an opaque string.
@@ -219,6 +282,17 @@ type budget struct {
 type budgetWindow struct {
 	count int
 	start time.Time
+	// written counts the charges whose row was WRITTEN (wrote; OP-14 phase C, 3rd round):
+	// count is charges -- rows written, writes in flight and writes that will fail and be
+	// given back -- and only written says how many rows the window really holds.
+	written int
+	// warned is take's record that this window's first request served past the limit
+	// without a row has been reported. A refund can bring a count back under the limit, so
+	// "count == limit+1" can happen twice in one window; the flag keeps the one line.
+	warned bool
+	// refusedWarned is firstRefusal's record that this window's first fail-closed refusal
+	// has been reported (the 3rd round's F4): one line per window, not one per request.
+	refusedWarned bool
 }
 
 func newBudget(limit int, period time.Duration, now func() time.Time) *budget {
@@ -228,9 +302,22 @@ func newBudget(limit int, period time.Duration, now func() time.Time) *budget {
 // charge records one event against key and returns the count AFTER charging. The
 // count keeps climbing past the limit, so the window still expires on time and
 // count == limit+1 happens exactly once per window (the one WARN line).
+//
+// 🔴 THE DECISION AND THE CHARGE ARE ONE LOCKED STEP (httpx.Limiter.TryCharge's rule,
+// M10 EM-5A; backlog T90): every caller decides on the count THIS call returned. A
+// read of the window followed by a charge is two locked steps, and N racers can all
+// read "room left" before any of them charges -- so a ceiling on rows becomes a
+// ceiling on nothing (TestPasswordOK_TheCapIsOneLockedStepUnderRacers).
 func (b *budget) charge(key string) int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	return b.chargeLocked(key).count
+}
+
+// chargeLocked is charge's step, returning the window the event went into; b.mu must
+// be held. A window that has expired is REPLACED by a new one (a new pointer), never
+// reset in place -- refund tells its own window from a later one by that identity.
+func (b *budget) chargeLocked(key string) *budgetWindow {
 	now := b.now()
 	w, ok := b.windows[key]
 	if !ok || now.Sub(w.start) >= b.period {
@@ -244,11 +331,70 @@ func (b *budget) charge(key string) int {
 				b.windows = map[string]*budgetWindow{}
 			}
 		}
-		b.windows[key] = &budgetWindow{count: 1, start: now}
-		return 1
+		w = &budgetWindow{count: 1, start: now}
+		b.windows[key] = w
+		return w
 	}
 	w.count++
-	return w.count
+	return w
+}
+
+// take is charge for a budget whose charge can be GIVEN BACK and whose events are
+// WRITTEN (OP-14 phase C, the first-factor cap). From ONE locked step it returns the count
+// after charging; how many of the window's charges are rows actually written (wrote); the
+// window the charge went into -- the token refund and wrote need; and whether this is the
+// window's first charge past the limit THAT IS SERVED WITHOUT A ROW -- which is only so
+// when the window's written rows have reached the limit (the 3rd round's F1: a count held
+// by writes in flight or about to fail is not a trail). That last is the one WARN line --
+// a flag, not "count == limit+1", because a refund can bring the count back under the
+// limit.
+func (b *budget) take(key string) (count, written int, window *budgetWindow, firstOver bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	w := b.chargeLocked(key)
+	if w.count > b.limit && w.written >= b.limit && !w.warned {
+		w.warned = true
+		firstOver = true
+	}
+	return w.count, w.written, w, firstOver
+}
+
+// wrote records, under the same lock as every charge, that window's charge became a row.
+// It counts into the charge's OWN window even if that one has since been replaced: the
+// row belongs to the window it was charged in.
+func (b *budget) wrote(window *budgetWindow) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	window.written++
+}
+
+// firstRefusal reports, once per window, the first fail-closed refusal of a request
+// charged into window (the 3rd round's F4: the operator is named once per window when
+// its sign-in step is refused for want of its row).
+func (b *budget) firstRefusal(window *budgetWindow) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if window.refusedWarned {
+		return false
+	}
+	window.refusedWarned = true
+	return true
+}
+
+// refund gives back ONE event that take charged into window, under the same lock as
+// every charge: it is decremented only while it is still key's current window -- a
+// window that has expired and been replaced holds other requests' charges, never this
+// one's -- and never below zero. It reports whether anything was given back. Each
+// refund answers exactly one take, so within a window the count stays at least the
+// charges nobody gave back (TestPasswordOK_AFailedWriteGivesItsOwnChargeBack).
+func (b *budget) refund(key string, window *budgetWindow) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if w, ok := b.windows[key]; !ok || w != window || w.count == 0 {
+		return false
+	}
+	window.count--
+	return true
 }
 
 // spend charges one event and reports whether it is still within the budget.
@@ -263,17 +409,18 @@ func (b *budget) spend(key string) bool { return b.charge(key) <= b.limit }
 // 7th auditor's finding). Behind *limits it opens limits and prints the *budget
 // pointers as addresses (measured on the same paths: no address appeared).
 type limits struct {
-	flood, work, account, auditCap, enroll, enrollAddr *budget
+	flood, work, account, auditCap, enroll, enrollAddr, firstFactor *budget
 }
 
 func newLimits(now func() time.Time) *limits {
 	return &limits{
-		flood:      newBudget(floodLimit, floodPeriod, now),
-		work:       newBudget(workLimit, workPeriod, now),
-		account:    newBudget(accountLimit, accountPeriod, now),
-		auditCap:   newBudget(auditCapLimit, auditCapPeriod, now),
-		enroll:     newBudget(enrollLimit, enrollPeriod, now),
-		enrollAddr: newBudget(enrollAddrLimit, enrollAddrPeriod, now),
+		flood:       newBudget(floodLimit, floodPeriod, now),
+		work:        newBudget(workLimit, workPeriod, now),
+		account:     newBudget(accountLimit, accountPeriod, now),
+		auditCap:    newBudget(auditCapLimit, auditCapPeriod, now),
+		enroll:      newBudget(enrollLimit, enrollPeriod, now),
+		enrollAddr:  newBudget(enrollAddrLimit, enrollAddrPeriod, now),
+		firstFactor: newBudget(firstFactorLimit, firstFactorPeriod, now),
 	}
 }
 

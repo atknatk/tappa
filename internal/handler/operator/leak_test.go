@@ -348,7 +348,7 @@ func (h *hashRecorder) TenantBilling(ctx context.Context, s string, id uuid.UUID
 // The counts are the arms' own, derived where each arm is driven (comments at the arms).
 var harvestWant = map[string]struct{ calls, arity int }{
 	"OperatorByEmail":            {calls: 9, arity: 1},    // A2 A3 A4 A20 A20b A23 A26b A28 A30b
-	"RecordOperatorAuthEvent":    {calls: 7, arity: 1},    // A2 A3 A6 A14 A15 A17 A28
+	"RecordOperatorAuthEvent":    {calls: 12, arity: 1},   // A2 A3 A6 A14 A15 A17 A28; OP-14 C: each right password's 'password_ok' -- A4 A20b A23 A26b A30b
 	"OpenOperatorSession":        {calls: 5, arity: 1},    // A7 A20b A24 A26b A30b
 	"TouchOperatorSession":       {calls: 220, arity: 1},  // A8 A9 A21, A27 x 101, A31-A41, A43, A44-A52, A54-A59, A60-A65, A66a x 60, A66, A67-A74, A76, A77, A78-A86, A88, A89, A90 (A42, A53, A75 and A87 are refused before the gate)
 	"CloseOperatorSession":       {calls: 3002, arity: 1}, // A10 A22, A30a x 3000 (A30 is refused first)
