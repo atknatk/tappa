@@ -286,10 +286,12 @@ func TestOpTouchSession_IdleWindowIsTheWallClockInsideOneStatement(t *testing.T)
 // -------------------------------------------------------- op_record_auth_event --
 
 // TestOpRecordAuthEvent_ClosedSetNoActorNoAddress is ADR 0021 §1's op_record_auth_event
-// contract: exactly one row per accepted call, only the five failure kinds, no session,
-// no actor, never the address (not even a hash of it) -- the target is the database's
-// own lookup, by address (case-insensitive) or by id, and an unknown id is not an
-// error. totp_failed moves the account's counter in the same call; nothing else does.
+// contract: exactly one row per accepted call, the five failure kinds, no session, no
+// actor, never the address (not even a hash of it) -- the target is the database's own
+// lookup, by address (case-insensitive) or by id, and an unknown id is not an error.
+// totp_failed moves the account's counter in the same call; nothing else does. (The sixth
+// kind of the set, 00031's 'password_ok', takes an id only and has its own test:
+// TestOpRecordAuthEvent_PasswordOKNamesItsAccountAndTouchesNoCounter.)
 func TestOpRecordAuthEvent_ClosedSetNoActorNoAddress(t *testing.T) {
 	ctx, tx := opTx(t)
 	a := opNewActive(t, ctx, tx)
@@ -1199,10 +1201,11 @@ func TestOperator00026_ArgumentsNeverComeBackInAnError(t *testing.T) {
 		}
 	}
 	// op_record_auth_event validates the kind before writing; the address and the id are
-	// only looked up.
+	// only looked up. (The message is 00031's: since OP-14 the closed set holds a kind that
+	// is not a failure, 'password_ok', so the word "failure" left the refusal.)
 	err := opRecord(t, ctx, tx, "not-a-kind", "someone@example.test", nil)
 	clean("op_record_auth_event with a kind outside the set", err, sqlstateInvalidParameter,
-		"op_record_auth_event: kind is not a pre-session failure kind", "someone@example.test", "not-a-kind")
+		"op_record_auth_event: kind is not a pre-session kind", "someone@example.test", "not-a-kind")
 	for _, email := range []any{strings.Repeat("y", 10000) + "@example.test", nil} {
 		before := opAudit(t, ctx, tx)
 		if err := opRecord(t, ctx, tx, "login_failed", email, nil); err != nil {

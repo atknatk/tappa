@@ -317,6 +317,15 @@ bir restoran hesabına bağlı olmamalı* (m10-platform.md §1).
   kilitliyken doğru kodun `locked`'ı da tavanın dışındadır (aynı test, 2026-09-30).
   Ayrıntı ve sayılar: [m10-platform.md](../plan/m10-platform.md) → OP-6 kart düzeltmesi,
   md. 8–9.
+  **OP-14 düzeltmesi (2026-10-06, A fazı — migration 00031):** *"yalnız başarısızlık"*
+  artık doğru değil — kapalı kümenin altıncı türü `password_ok`: **doğru parolası kabul
+  edilmiş, ikinci faktörü henüz tamamlanmamış** bir girişin kalıcı izi (OP-6'nın 12c devri:
+  bugüne dek yalnız bir süreç log satırıydı). Oturum öncesidir (aktör ve oturum yok), hesabı
+  yalnız **id** ile adlandırır, kilit sayacına **dokunmaz**; bir oturumun doğuşu hâlâ yalnız
+  köken satırıdır (`login`, `enrollment`). Yazıcısı ve **hesap başına** tavanı OP-14 C
+  fazınındır — parolasız ortak tavana konmaz (kart taslağının C1'i: parolasız çöp onu
+  susturamamalı). Ayrıntı: [ADR 0021](0021-op-fonksiyonlari-tenant-otesi-erisim.md) → §1
+  (düzeltilen tablo ve madde), sınır 7, "OP-14 uygulama notu".
 - **Kurtarma kodu YOK** (K3). Cihaz kaybında tek yol `opadmin reset-mfa` (§6): TOTP
   zarfı silinir, kilit sayacı sıfırlanır, durum `pending`, bütün oturumlar iptal, yeni
   enrollment token'ı ve id'li link.

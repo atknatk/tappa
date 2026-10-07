@@ -749,7 +749,7 @@ var notSpecimens = []struct {
 	{reflect.TypeOf(operatorauth.Identity{}), "two uuids, the session's and the operator's: an operator is named by id (ADR 0020 §5)"},
 	{reflect.TypeOf((*operatorauth.Store)(nil)).Elem(), "an interface: it holds no value of its own; its implementation is OP-7's pool"},
 	{reflect.TypeOf(db.OperatorSession{}), "two uuids, op_touch_session's answer -- never the hash (ADR 0021 §1)"},
-	{reflect.TypeOf(db.OperatorAuthEvent("")), "a pre-session row kind, one of five constants"},
+	{reflect.TypeOf(db.OperatorAuthEvent("")), "a pre-session row kind: one of db's OperatorAuthEvent constants"},
 }
 
 type closedType struct {
@@ -1222,7 +1222,7 @@ var allowedFields = map[string]allowedField{
 	"db.OperatorAccount.Sealed":      {dbt + "SealedSecret", "the TOTP envelope, a db.SealedSecret"},
 	"db.PasswordHash.v":              {"*string", "the redacting type's value, behind a *string (internal/db)"},
 	"db.SealedSecret.v":              {"*string", "the redacting type's value, behind a *string (internal/db)"},
-	"db.OperatorAuthEvent":           {"kind:string", "a pre-session row kind, one of five constants"},
+	"db.OperatorAuthEvent":           {"kind:string", "a pre-session row kind: one of db's OperatorAuthEvent constants"},
 	"Authenticator.now":              {"func() (time.Time) variadic=false", "the clock (Config.Now, or time.Now): a function"},
 	"Authenticator.log":              {"*log/slog.Logger", "the logger (Config.Log): a *slog.Logger, in okFieldTypes, its handler not walked"},
 	"Authenticator.compareFn":        {"func([]uint8, []uint8) (error) variadic=false", "bcrypt.CompareHashAndPassword (password.go): a function"},

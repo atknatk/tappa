@@ -96,12 +96,28 @@ func opOwnerDSN(t *testing.T) string {
 // rolled back when the test ends. REPEATABLE READ so that every count this suite
 // takes sees this transaction's own writes and nothing another session committed in
 // the meantime: an audit-row delta of 0 then means "this call wrote nothing".
-func opTx(t *testing.T) (context.Context, pgx.Tx) {
+//
+// onNotice, at most one, receives the server's notices on this connection (OP-14: a LOG
+// line reaches the caller under client_min_messages = log, and its text is a test's
+// subject). pgx accepts the handler only in the connection's config, so it is set here,
+// where the connection is made; without one, pgx drops notices as before.
+func opTx(t *testing.T, onNotice ...pgconn.NoticeHandler) (context.Context, pgx.Tx) {
 	t.Helper()
 	dsn := opOwnerDSN(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	t.Cleanup(cancel)
-	conn, err := pgx.Connect(ctx, dsn)
+	cfg, err := pgx.ParseConfig(dsn)
+	if err != nil {
+		t.Fatalf("parse the owner connection string: %v", err)
+	}
+	switch len(onNotice) {
+	case 0:
+	case 1:
+		cfg.OnNotice = onNotice[0]
+	default:
+		t.Fatalf("opTx takes at most one notice handler, got %d", len(onNotice))
+	}
+	conn, err := pgx.ConnectConfig(ctx, cfg)
 	if err != nil {
 		t.Fatalf("connect as the owner: %v", err)
 	}
@@ -781,8 +797,11 @@ func TestOperator00026_PrivilegeMatrix(t *testing.T) {
 		{"tappa_opdefiner", "platform_sessions", "INSERT", "admin_id,token_hash,mfa_verified_at"},
 		{"tappa_opdefiner", "platform_sessions", "UPDATE", "last_used_at,revoked_at"},
 		// id: 00027 (OP-10) -- op_begin_read's INSERT ... RETURNING id (the ticket's
-		// audit_id). No other column: the log is read through op_read_audit (OP-14).
-		{"tappa_opdefiner", "operator_audit_log", "SELECT", "id"},
+		// audit_id). The other ten: 00031 (OP-14) -- op_read_audit reads the log, every
+		// column, and returns a fixed list built from them (the detail only through its
+		// closed list of shapes). tappa_operator's SELECT cell above stays empty: the log is
+		// read through op_read_audit and nothing else.
+		{"tappa_opdefiner", "operator_audit_log", "SELECT", "id,at,kind,session_id,actor_admin_id,target_admin_id,target_tenant_id,target_scope,page_number,page_size,detail"},
 		{"tappa_opdefiner", "operator_audit_log", "INSERT", "kind,session_id,actor_admin_id,target_admin_id,target_tenant_id,target_scope,page_number,page_size,detail"},
 		{"tappa_opdefiner", "operator_audit_log", "UPDATE", ""},
 		{"tappa_opdefiner", "operator_read_tickets", "SELECT", "id,ticket_hash,session_id,kind,target_tenant_id,audit_id,created_xact,expires_at,consumed_at"},

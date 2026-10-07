@@ -339,8 +339,9 @@ func opPlaqueTenant(t *testing.T, ctx context.Context, tx pgx.Tx, name string, a
 // what the read can return), the owner, SECURITY DEFINER, proconfig, one overload, no
 // EXECUTE for PUBLIC, tappa_app or tappa_resolver and EXECUTE for tappa_operator; that the
 // forward, frozen-clock and consumption scans walked it and raise nothing about it; that
-// op_begin_read keeps its identity; and the ticket kind CHECK at 00030 -- exactly the four
-// kinds.
+// op_begin_read keeps its identity; and that the ticket kind CHECK holds 00030's four kinds
+// (exactly the four until 00031 widened the set; the exact set at HEAD is the newest
+// migration's pin).
 func TestOperator00030_TheFunctionAndItsExactSignature(t *testing.T) {
 	ctx, tx := opTx(t)
 	var args, result, owner string
@@ -419,8 +420,15 @@ func TestOperator00030_TheFunctionAndItsExactSignature(t *testing.T) {
 	                              AND conname = 'operator_read_tickets_kind_check'`).Scan(&kinds); err != nil {
 		t.Fatal(err)
 	}
-	if kinds != opKinds30 {
-		t.Errorf("operator_read_tickets_kind_check is %s, want %s", kinds, opKinds30)
+	// The database is at HEAD, not at 00030: a later migration widens the closed set
+	// (00031 added 'operator_audit'), so this pin is "a closed set (no pattern) that holds
+	// 00030's four kinds" -- 00029's test's form; the exact set at HEAD is the newest
+	// migration's own pin (TestOperator00031_TheFunctionsAndTheirExactSignatures), and
+	// 00030's exact set after 00031's Down is TestOperator00031_DownGivesBack00030AndUpTakesItAgain's.
+	for _, kind := range opKindsAt30 {
+		if !strings.Contains(kinds, "'"+kind+"'::text") || strings.Contains(kinds, "~") {
+			t.Errorf("operator_read_tickets_kind_check is %s, want a closed set holding %q", kinds, kind)
+		}
 	}
 }
 

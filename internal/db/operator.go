@@ -35,7 +35,9 @@ import (
 // §3.6), and none of the five op_* born in 00026 touches a tenant table. The two reads
 // 00029 adds (OP-11) and the one 00030 adds (OP-13) read tenant tables WITHOUT a tenant
 // context: they cross the boundary as their BYPASSRLS owner, the one crossing ADR 0021
-// permits, and their statements name the tenant themselves.
+// permits, and their statements name the tenant themselves. 00031's read of the operator's
+// own log (OP-14) reads one tenant column, the name of each tenant its page's rows name,
+// by the value each row carries.
 //
 // THREE RULES THE OP-7 CARD NAMED, KEPT HERE BECAUSE THE SQL NOW LIVES HERE
 // (m10-platform.md, "Kabullere bağlananlar — OP-7" (b), (c), (d)):
@@ -73,8 +75,9 @@ var ErrOperatorRefused = errors.New("db: operator call refused")
 // well (the belt; RLS is the braces).
 var ErrNoOperator = errors.New("db: no active operator")
 
-// OperatorAuthEvent is op_record_auth_event's CLOSED kind set (00026, ADR 0021 §1):
-// pre-session FAILURES only. The database refuses any other value with 22023.
+// OperatorAuthEvent is op_record_auth_event's CLOSED kind set (00026, ADR 0021 §1): the
+// pre-session rows -- the five failures and, since 00031 (OP-14), OperatorPasswordOK. The
+// database refuses any other value with 22023.
 type OperatorAuthEvent string
 
 const (
@@ -83,6 +86,11 @@ const (
 	OperatorTOTPFailed       OperatorAuthEvent = "totp_failed"
 	OperatorLocked           OperatorAuthEvent = "locked"
 	OperatorEnrollmentFailed OperatorAuthEvent = "enrollment_failed"
+	// OperatorPasswordOK (00031): the password was accepted and the second factor is still
+	// to come. Not a failure and not a success of the sign-in (that is op_open_session's
+	// 'login' row). The database takes it by account id ONLY -- an address, or no id, is
+	// 22023 -- and it moves no lock counter. Its writer is OP-14 phase C.
+	OperatorPasswordOK OperatorAuthEvent = "password_ok"
 )
 
 // OperatorAccount is what the login needs of an ACTIVE operator: the digest to
@@ -160,6 +168,13 @@ FROM public.op_read_tenant_detail($1, $2, $3)`
 	readTenantPlaquesSQL = `SELECT tenant_id, tenant_name, uid, status, location_id, location_name,
        encoded_at, created_at, retired_at, replaced_by, last_ctr, plaque_count
 FROM public.op_read_tenant_plaques($1, $2, $3)`
+
+	// OP-14 (migration 00031). Phase one is beginOperatorReadSQL above.
+	readOperatorAuditSQL = `SELECT audit_id, at, kind, session_id, actor_admin_id, actor_name,
+       target_admin_id, target_admin_name, target_tenant_id, target_tenant_name,
+       target_scope, page_number, page_size, search_class, filter_kind, legal_slug,
+       legal_bytes, detail_recognised
+FROM public.op_read_audit($1, $2, $3, $4, $5)`
 )
 
 // maxOperatorEmailBytes is 00026's CHECK on platform_admins.email (254). A longer
@@ -218,9 +233,9 @@ func scanOperator(row pgx.Row, what string) (OperatorAccount, error) {
 	return a, nil
 }
 
-// RecordOperatorAuthEvent writes ONE pre-session failure row through
-// op_record_auth_event. The address (if any) and the account id (if any) are only
-// looked up by the definer; neither is stored (ADR 0021 §1). An empty email, one no
+// RecordOperatorAuthEvent writes ONE pre-session row through op_record_auth_event (a
+// failure, or OperatorPasswordOK). The address (if any) and the account id (if any) are
+// only looked up by the definer; neither is stored (ADR 0021 §1). An empty email, one no
 // operator can have (over-long or not storable as text) and uuid.Nil are sent as NULL.
 func RecordOperatorAuthEvent(ctx context.Context, c OperatorConn, kind OperatorAuthEvent, email string, admin uuid.UUID) error {
 	var e, a any
@@ -802,14 +817,191 @@ func valueOr[T any](p *T) T {
 	return *p
 }
 
+// ------------------------------------------------------------------ OP-14 --
+//
+// The operator's own audit log on the operator's surface (migration 00031; ADR 0020 §5, ADR
+// 0021 §1, §2 v). One exported two-phase read in TenantList's shape -- a free function over
+// an OperatorConn. The screen and *OperatorDB's method are OP-14 phase B.
+//
+// tappa_operator holds no SELECT on operator_audit_log: the only way to read it is this
+// read, and every read of it is itself a 'read' row, committed before a row is returned. The
+// rows' detail is never returned raw: op_read_audit reads a CLOSED list of shapes out of it
+// (search class, filter, legal slug and byte length -- values of closed sets or a bounded
+// integer) and marks every other shape unrecognised -- so a value a writer put into detail
+// by mistake has no field below to arrive in.
+
+// operatorAuditReadKind is 00031's read kind -- a member of operator_read_tickets_kind_check.
+const operatorAuditReadKind = "operator_audit"
+
+// OperatorAuditKind is a kind of operator_audit_log row: the closed set of
+// operator_audit_log_kind_check. The schema's CHECK, op_begin_read's filter list,
+// op_read_audit's filter shape and OperatorAuditKinds are four copies of one set, held equal
+// by TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree (each against the
+// database) and TestOperatorAuditKinds_TheTypedConstantsAreTheList (the constants of this
+// type, type-checked, against the list).
+type OperatorAuditKind string
+
+// The kinds, in the CHECK's order: the six pre-session ones (no session, no actor) first.
+const (
+	OperatorAuditLoginFailed      OperatorAuditKind = "login_failed"
+	OperatorAuditUnknownEmail     OperatorAuditKind = "unknown_email"
+	OperatorAuditTOTPFailed       OperatorAuditKind = "totp_failed"
+	OperatorAuditLocked           OperatorAuditKind = "locked"
+	OperatorAuditEnrollmentFailed OperatorAuditKind = "enrollment_failed"
+	OperatorAuditPasswordOK       OperatorAuditKind = "password_ok"
+	OperatorAuditLogin            OperatorAuditKind = "login"
+	OperatorAuditEnrollment       OperatorAuditKind = "enrollment"
+	OperatorAuditLogout           OperatorAuditKind = "logout"
+	OperatorAuditRead             OperatorAuditKind = "read"
+	OperatorAuditLegalPublish     OperatorAuditKind = "legal_publish"
+)
+
+// operatorAuditKinds is the closed set, one array; OperatorAuditKinds hands out copies.
+var operatorAuditKinds = [...]OperatorAuditKind{
+	OperatorAuditLoginFailed, OperatorAuditUnknownEmail, OperatorAuditTOTPFailed,
+	OperatorAuditLocked, OperatorAuditEnrollmentFailed, OperatorAuditPasswordOK,
+	OperatorAuditLogin, OperatorAuditEnrollment, OperatorAuditLogout, OperatorAuditRead,
+	OperatorAuditLegalPublish,
+}
+
+// OperatorAuditKinds returns the closed set of audit kinds, in the CHECK's order -- a fresh
+// slice the caller may keep.
+func OperatorAuditKinds() []OperatorAuditKind {
+	out := make([]OperatorAuditKind, len(operatorAuditKinds))
+	copy(out, operatorAuditKinds[:])
+	return out
+}
+
+// Known reports whether k is a member of the closed set. The comparison is exact -- no case
+// folding, no trimming: the CHECK writes the kinds in lower case and anything else is not
+// one of them.
+func (k OperatorAuditKind) Known() bool {
+	for _, m := range operatorAuditKinds {
+		if k == m {
+			return true
+		}
+	}
+	return false
+}
+
+// MaxOperatorAuditPage is the last page the log can be read at (00031: op_begin_read refuses
+// a later one with 22023, and op_read_audit's OFFSET is bounded by it). The log only grows and
+// a page is OFFSET (page-1) x size over it; an older row is reached through the kind filter.
+const MaxOperatorAuditPage = 1000
+
+// ErrOperatorAuditFilterRefused is OperatorAudit's answer for a kind filter that is neither
+// empty nor a member of the closed set. It is decided here, without a round trip (the
+// database would refuse it with 22023 as well) -- the value has no business in a statement.
+// No row is written (nothing was read).
+var ErrOperatorAuditFilterRefused = errors.New("db: operator audit filter refused")
+
+// OperatorAuditQuery is a page of the log. Kind is "" for every kind, or one member of the
+// closed set; Number from 1 to MaxOperatorAuditPage; Size 1..200. The read's own audit row
+// records the filter (the kind, or "all") and the page -- both values of closed sets or plain
+// integers. The database refuses any other page (op_begin_read, 22023) before writing a row.
+type OperatorAuditQuery struct {
+	Kind   OperatorAuditKind
+	Number int32
+	Size   int32
+}
+
+// OperatorAuditEntry is one row of op_read_audit -- a fixed column list (ADR 0021 §2 ii),
+// newest first. What a field does NOT carry matters as much as what it does:
+//   - Kind is the row's kind VERBATIM (OperatorAuditKind(e.Kind).Known() says whether this
+//     build names it -- a later migration's kind reads as unknown, never as a neighbour);
+//   - SessionID is the operator session's id, not its hash (no op_* takes an id);
+//   - ActorName, TargetAdminName and TargetTenantName are names other tables hold (an
+//     operator's display name, a tenant's name) -- free text, for the screen to escape;
+//   - Scope is the read kind of a 'read' row, and only when it is one op_read_audit names;
+//   - SearchClass, FilterKind, LegalSlug and LegalBytes are what the closed list of detail
+//     shapes reads out, and only when DetailRecognised; the detail itself is never returned.
+type OperatorAuditEntry struct {
+	ID               uuid.UUID
+	At               time.Time
+	Kind             string
+	SessionID        *uuid.UUID
+	ActorID          *uuid.UUID
+	ActorName        *string
+	TargetAdminID    *uuid.UUID
+	TargetAdminName  *string
+	TargetTenantID   *uuid.UUID
+	TargetTenantName *string
+	Scope            *string
+	PageNumber       *int32
+	PageSize         *int32
+	SearchClass      *string
+	FilterKind       *string
+	LegalSlug        *string
+	LegalBytes       *int32
+	// DetailRecognised: the row's (kind, scope, detail) is a shape on op_read_audit's closed
+	// list. false is FAIL-CLOSED: the detail is not shown, the row still is.
+	DetailRecognised bool
+}
+
+// operatorAuditParams is the read's parameter object as op_begin_read takes it: exactly these
+// keys (00031). The database rebuilds the object it hashes from the typed values, so this
+// spelling does not bind the ticket.
+type operatorAuditParams struct {
+	Kind       string `json:"kind"`
+	PageNumber int32  `json:"page_number"`
+	PageSize   int32  `json:"page_size"`
+}
+
+// OperatorAudit is the two-phase read of the operator's own log: op_begin_read writes the
+// read's 'read' row (scope 'operator_audit', the page, the filter) and a ticket bound to the
+// session, the filter and the page; op_read_audit consumes it and returns the page. As with
+// TenantList, the two phases are two transactions only on a pool; on a pgx.Tx the database
+// refuses phase two and this returns ErrOperatorRefused. A dead session is
+// ErrOperatorRefused; a filter outside the set is ErrOperatorAuditFilterRefused; a page
+// outside the database's bounds is a database error carrying 22023.
+func OperatorAudit(ctx context.Context, c OperatorConn, sessionHash string, q OperatorAuditQuery) ([]OperatorAuditEntry, error) {
+	if q.Kind != "" && !q.Kind.Known() {
+		return nil, ErrOperatorAuditFilterRefused
+	}
+	params, err := json.Marshal(operatorAuditParams{Kind: string(q.Kind), PageNumber: q.Number, PageSize: q.Size})
+	if err != nil {
+		return nil, fmt.Errorf("db: operator audit: encode the page: %w", err)
+	}
+	t, err := beginOperatorRead(ctx, c, sessionHash, operatorAuditReadKind, params)
+	if err != nil {
+		return nil, err
+	}
+	return readOperatorAudit(ctx, c, sessionHash, t, q)
+}
+
+// readOperatorAudit is op_read_audit: consume the ticket (bound to the session, the kind
+// filter and the page), then the page of the log.
+func readOperatorAudit(ctx context.Context, c OperatorConn, sessionHash string, t readTicket, q OperatorAuditQuery) ([]OperatorAuditEntry, error) {
+	rows, err := c.Query(ctx, readOperatorAuditSQL, sessionHash, t.reveal(), string(q.Kind), q.Number, q.Size)
+	if err != nil {
+		return nil, operatorErr("read operator audit", err)
+	}
+	defer rows.Close()
+	var out []OperatorAuditEntry
+	for rows.Next() {
+		var e OperatorAuditEntry
+		if err := rows.Scan(&e.ID, &e.At, &e.Kind, &e.SessionID, &e.ActorID, &e.ActorName,
+			&e.TargetAdminID, &e.TargetAdminName, &e.TargetTenantID, &e.TargetTenantName,
+			&e.Scope, &e.PageNumber, &e.PageSize, &e.SearchClass, &e.FilterKind, &e.LegalSlug,
+			&e.LegalBytes, &e.DetailRecognised); err != nil {
+			return nil, operatorErr("read operator audit", err)
+		}
+		out = append(out, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, operatorErr("read operator audit", err)
+	}
+	return out, nil
+}
+
 // readTicket is op_begin_read's answer: the RAW read ticket, which CLAUDE.md §7 and ADR
 // 0021 §3.5 put on the never-log list (raw or hashed). The type is unexported and no
-// exported function takes or returns it -- LegalVersions, TenantList, TenantDetail and
-// TenantPlaques each hand it from their phase one to their phase two -- and it is the SealedSecret
-// pattern all the same: the five redacting
-// methods, and the value behind a *string (SealedSecret's comment says why a *string and
-// not a byte slice). Through fmt's verbs, slog and encoding/json it prints the
-// placeholder (TestReadTicket_PrintsOnlyThePlaceholder's matrix).
+// exported function takes or returns it -- LegalVersions, TenantList, TenantDetail,
+// TenantPlaques and OperatorAudit each hand it from their phase one to their phase two --
+// and it is the SealedSecret pattern all the same: the five redacting methods, and the
+// value behind a *string (SealedSecret's comment says why a *string and not a byte slice).
+// Through fmt's verbs, slog and encoding/json it prints the placeholder
+// (TestReadTicket_PrintsOnlyThePlaceholder's matrix).
 type readTicket struct{ v *string }
 
 const ticketRedacted = "db.readTicket(redacted)"

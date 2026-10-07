@@ -22,6 +22,11 @@
   yeni `TenantPlaques` yöntemiyle; okumalar oturum başına ayrı bir okuma bütçesi
   (`readLimit` 60 / 10 dk) öder, `sessionLimit` istek sayar (100); migration yok — bkz. aynı
   notun "OP-13 B fazı eki".
+  **OP-14 A fazı (2026-10-06):**
+  operatörün kendi audit log'unu okuyan `op_read_audit` migration `00031` ile doğdu;
+  `op_begin_read` bir okuma türü (`operator_audit`) kazandı; `op_record_auth_event`'in kapalı
+  kümesine `password_ok` girdi (§1 tablosu ve sınır 7 aynı değişiklikte düzeltildi) — bkz.
+  "OP-14 uygulama notu". Ekran (B) ve `password_ok` yazıcısı (C) ayrı fazlardır.
 - **Tarih:** 2026-09-26 · aynı gün **2. tur** (güvenlik denetiminin RED'i: izsiz okuma),
   **3. tur** (güvenlik denetiminin RED'i: bilet süresinin saati; üçüncü gözün bulguları) ve
   **3. tur eki** (orkestratör kararı: enrollment ve kimlik bilgisi yazımı definer'da) ve
@@ -111,7 +116,7 @@ kalan `zz_probe_*` nesne, fonksiyon ve rol sayısı **0** (ölçüldü).
 | **`tappa_operator`** (rol) | NOSUPERUSER, **NOBYPASSRLS**, NOCREATEDB, NOCREATEROLE; hiçbir tablonun sahibi değil; **hiçbir rolün üyesi değil** | `op_*` üzerinde `EXECUTE`; `platform_admins`'te giriş araması için **yalnız `SELECT`**, dar sütun listesiyle (parola digest'i ve TOTP zarfı dahil — sınır 11; kesin liste OP-5) | hiçbir tenant tablosunda hiçbir yetki · **`platform_admins` üzerinde HİÇBİR yazma** (`INSERT`, `UPDATE`, `DELETE`) ve enrollment token hash'inde `SELECT` · **`platform_sessions`'ta hiçbir fiil** (oturum `op_open_session` ile doğar, `op_touch_session` ile yaşar, `op_close_session` ile biter) · **bilet tablosunda dört fiilin hiçbiri** · `operator_audit_log`'a doğrudan `INSERT` ve **`operator_audit_log` üzerinde `SELECT`** (görüntüleyici iki aşamalı `op_read_audit` ile okur — OP-14) · DEFAULT PRIVILEGE |
 | **`tappa_opdefiner`** (rol) | **NOLOGIN**, **BYPASSRLS**, NOSUPERUSER, NOCREATEDB, NOCREATEROLE — `tappa_resolver`'ın şekli; **üyesi yok** | `op_*`'ların **sahibi**; fonksiyonların gerektirdiği tablolarda **SÜTUN düzeyi** yetkiler; bilet tablosunda `INSERT` **yalnız bağlama sütunlarında** (hash, oturum, tür, hedef, `audit_id`, `expires_at`) ve `UPDATE` **yalnız `consumed_at`**'te; `platform_admins`'te kimlik bilgisi, durum, TOTP adımı, son giriş ve kilit sayacı sütunlarında `UPDATE` (yazar, digest'i ve zarfı **okumaz**) | aşağıdaki "asla" sütunlarında `SELECT` · **`platform_admins` üzerinde `INSERT`** · bilet tablosunun **`created_at`, `created_xact`, `consumed_at`** sütunlarında `INSERT` (DEFAULT doldurur) ve `consumed_at` dışındaki sütunlarında `UPDATE` · `operator_audit_log`'un **zaman sütununda** `INSERT` (DEFAULT `clock_timestamp()` doldurur) · DEFAULT PRIVILEGE · LOGIN · üye |
 | **`tappa_app`** (rol) | değişmez | **hiçbir yeni yetki** | yeni tablolarda ve dizilerde hiçbir fiil · `op_*` üzerinde `EXECUTE` |
-| **`op_record_auth_event`** (oturumsuz istisna 1 — fonksiyon) | sahibi `tappa_opdefiner`, `EXECUTE` yalnız `tappa_operator`; **oturum parametresi YOK** | kapalı bir tür kümesinden **yalnız başarısızlık** satırı yazar: `login_failed`, `unknown_email`, `totp_failed`, `locked`, `enrollment_failed`; `RETURNS void` | aktör iddiası · tenant verisi / `tenant_id` · e-posta metni ya da e-postanın herhangi bir hash'i · başarı satırı |
+| **`op_record_auth_event`** (oturumsuz istisna 1 — fonksiyon) | sahibi `tappa_opdefiner`, `EXECUTE` yalnız `tappa_operator`; **oturum parametresi YOK** | kapalı bir tür kümesinden **oturum öncesi** satır yazar: beş başarısızlık — `login_failed`, `unknown_email`, `totp_failed`, `locked`, `enrollment_failed` — ve *(OP-14, 00031)* `password_ok` (parolası kabul edilmiş, ikinci faktörü henüz tamamlanmamış girişin izi; hesabı **yalnız id ile** adlandırır, kilit sayacına dokunmaz); `RETURNS void` | aktör iddiası · tenant verisi / `tenant_id` · e-posta metni ya da e-postanın herhangi bir hash'i · oturum doğuran başarı satırı (`login`/`enrollment` — onlar `op_open_session`/`op_complete_enrollment`'ındır) · ~~başarı satırı~~ *(OP-14 notu: "yalnız başarısızlık" ve "başarı satırı" `password_ok` ile yanlışlandı; kesin hâl sol hücrede)* |
 | **`op_open_session`** (oturumsuz istisna 2 — fonksiyon) | sahibi `tappa_opdefiner`, `EXECUTE` yalnız `tappa_operator`; **oturum parametresi YOK** (oturumu kendisi doğurur) | **tek ifadede**: TOTP adımını ilerletir (`totp_last_step < $adım` tekrar koruması **ve adımın duvar saatine bağlılığı** — `cur ± 1` — bu ifadededir), **kilit koşulunu** aynı `WHERE`'de sınar, son girişi yazar ve kilit sayacını sıfırlar, oturum satırını (`mfa_verified_at` dolu) ve köken satırını (`login`) yazar; yalnız `active` bir operatör için; `RETURNS void` | parola ya da TOTP doğrulaması (yapamaz — §1 açıklaması) · tenant verisi · duruma bağlı dönüş |
 | **`op_complete_enrollment`** (oturumsuz istisna 3 — fonksiyon) | sahibi `tappa_opdefiner`, `EXECUTE` yalnız `tappa_operator`; **oturum parametresi YOK**; **ham** enrollment token'ını alır ve içeride hash'ler | **tek koşullu ifadede**: token'ı tüketir (tek kullanım, süre `clock_timestamp()` ile), parola digest'ini ve mühürlü TOTP sırrını yazar, TOTP adımının ilk değerini yazar (**`cur ± 1` ile sınırlı**), durumu `active` yapar, oturumu açar ve köken satırını (`enrollment`) yazar; yalnız `pending` bir hesap için; `RETURNS void` | parola ya da TOTP doğrulaması (yapamaz — Go'da) · digest'i ya da zarfı okumak · tenant verisi · duruma bağlı dönüş ya da hata ayrımı |
 
@@ -212,6 +217,13 @@ reddedildi: `tappa_operator`'a doğrudan `INSERT` (DSN'i tutan her türlü satı
 dahil — basar) ve oturumsuz **genel** bir definer ((i) delinir). **Karar:** dar,
 oturumsuz bir definer:
 - **Kapalı tür kümesi** (yukarıdaki beş tür; şemada CHECK) ve **yalnız başarısızlık**.
+  *(OP-14 notu, 2026-10-06 — bu madde 00031 ile yanlışlandı ve düzeltildi: küme altı türdür;
+  altıncısı `password_ok` bir başarısızlık değil, **oturum doğurmayan** bir izdir — parola
+  kabul edildi, ikinci faktör henüz gelmedi. Oturum öncesidir: aktör ve oturum taşımaz
+  (`operator_audit_log_actor_shape`'in oturumsuz koluna aynı migration'da girdi), hesabı
+  yalnız **id ile** adlandırır (adres verilirse 22023), ve kilit sayacına **dokunmaz**.
+  "Başarı" — bir oturumun doğuşu — hâlâ yalnız `op_open_session`/`op_complete_enrollment`'ın
+  köken satırıdır. Gerekçe ve sınır: "OP-14 uygulama notu", sınır 7.)*
 - **Aktör iddia etmez.** Satır *"bu hesaba karşı bir deneme"* der, *"şu operatör yaptı"*
   demez.
 - **E-posta saklanmaz, hash'i de saklanmaz.** Fonksiyon aldığı adresi
@@ -866,8 +878,11 @@ hangi testin hangi karta düştüğü plan bloğunda):
    fonksiyonun sabit sütunlarını, LIMIT'i kadar, bütün tenant'lara açar. Fren: kod
    incelemesi + kemer davranış testi.
 7. **`op_record_auth_event` sahte başarısızlık satırlarına açıktır** (§1): DSN sahibi
-   o fonksiyon üzerinden gürültü basabilir, **o fonksiyon üzerinden** sahte bir başarı
-   basamaz (başarı satırları `op_open_session`'ın köken satırlarıdır ve onlar sınır 1'e
+   o fonksiyon üzerinden gürültü basabilir, ~~**o fonksiyon üzerinden** sahte bir başarı
+   basamaz~~ *(OP-14 düzeltmesi, 2026-10-06: 00031'den beri **sahte bir `password_ok`
+   basabilir** — herhangi bir hesap id'si için *"parolası biliniyor"* diyen yanlış bir
+   alarm; satır oturum açmaz, aktör iddia etmez, kilit sayacını ne artırır ne sıfırlar.
+   Sahte bir **oturum doğuşu** ise bu fonksiyondan basılamaz:)* (başarı satırları `op_open_session`'ın köken satırlarıdır ve onlar sınır 1'e
    tabidir: gerçek bir oturumla birlikte doğarlar). Go tarafındaki süreç geneli tavanı
    DSN sahibi atlar. ⚠️ **Ve DSN sahibi bir hesabı kilitleyebilir:** sayacı artıran yol
    (`totp_failed`) çağırabildiği bir definer'dır; **sayaç için** bunu durduracak
@@ -2224,6 +2239,282 @@ yalıtımsız yazar ve `<title>` `bdi` taşıyamaz; banner ve konum adı `bdi` i
 dört CHECK'i ad dışı sütunlarda). Sonuç yalnız sekme başlığındaki metnin görsel sırasının
 değişmesidir; hiçbir karar sekme başlığına dayanmaz.
 
+## OP-14 uygulama notu (2026-10-06, A fazı — veri katmanı)
+
+Uygulama: `db/migrations/00031_read_the_operator_audit_log.sql` + `internal/db/operator.go`
+(dışa açık `OperatorAudit`, `OperatorAuditQuery`, `OperatorAuditEntry`, `OperatorAuditKind` ve
+on bir değeri, `OperatorAuditKinds`, `MaxOperatorAuditPage`, `ErrOperatorAuditFilterRefused`,
+`OperatorPasswordOK`; paket içi `readOperatorAudit`) + `db/queries/operator.sql` (belge) +
+`internal/db/operatoraudit_test.go`. Ekran, wiring ve `*OperatorDB` yöntemi B fazıdır;
+`password_ok`'un yazıcısı (`internal/operatorauth`, hesap başına tavanıyla) C fazıdır. Kararın
+gövdesi değişmedi; uygulamanın karar verdiği yerler, adıyla:
+
+1. **Ad §2 v 6'nın kuralıyla:** `op_read_audit(p_session, p_ticket, p_kind, p_page_number,
+   p_page_size)`. §1'in *"görüntüleyici iki aşamalı `op_read_audit` ile okur"* cümlesi böylece
+   uygulandı: `tappa_operator`'ın `operator_audit_log` üzerinde hâlâ **hiçbir** yetkisi yoktur.
+2. **`op_begin_read` yerinde değiştirildi** (`CREATE OR REPLACE`): 00030'un Up gövdesi + bir
+   değişken, kapalı küme satırı, `v_want` dalı ve yeni bir `ELSIF` dalı (diff ile ölçüldü).
+   `operator_audit`'in parametre nesnesi **tam olarak** `{kind, page_number, page_size}`:
+   `kind` `''` (her tür) ya da audit tür kümesinin bir üyesi; sayfa **1..1000** — **OFFSET
+   sınırı** (log yalnız büyür; sayfa 1000'den eskisine bir tür filtresiyle gidilir — **ancak**
+   o türün kendisi 200 000 satırı aşmadıysa: ürünün gösterebildiği en eski satır, filtresiz
+   okumada tablonun, filtreli okumada o türün en yeni 200 000'inci satırıdır ve bir tür 200 000
+   satırı aşınca ondan eskisine **üründen ulaşılmaz** — sınır L14); boy 1..200. Audit satırı:
+   `target_scope = 'operator_audit'`, sayfa, `detail = {"filter": <tür>}` ya da `{"filter":
+   "all"}` — kapalı bir kümeden bir değer, serbest metin değil (orkestratör kararı K14-3).
+   Filtre ve sayfa bilet hash'ine bağlıdır.
+3. **Okuma:** `operator_audit_log`, en yeni önce (`at DESC, id DESC` — `id` eşitliği bozar:
+   rastgele, yani eşitliğin sırası anlamsız ama tam ve sayfadan sayfaya kararlı); gövdede
+   `LIMIT least(boy, 200)` ve `OFFSET (least(sayfa, 1000) − 1) × limit` (birinci aşama
+   ikisini de zaten reddeder; gövde buna güvenmez). Görüntüleyicinin **kendi** `read` satırı
+   birinci aşamada commit edildiği için ilk sayfanın **ilk** satırıdır — **ancak** ondan daha
+   geç tarihli bir satır yoksa: iki aşama arasında commit edilmiş bir satır ya da sahibin
+   geleceğe tarihlediği bir satır (sınır L1, L2; ikisi de ölçüldü).
+4. **Sütunlar (§2 ii) ve `detail`:** `audit_id, at, kind, session_id, actor_admin_id,
+   actor_name, target_admin_id, target_admin_name, target_tenant_id, target_tenant_name,
+   target_scope, page_number, page_size, search_class, filter_kind, legal_slug, legal_bytes,
+   detail_recognised`. 🔴 **`detail` ham dönmez.** Tablo append-only olduğu için her sürümün
+   yazdığı her şekil orada kalır — geliştirme veritabanında hiçbir sevk edilmiş kodun artık
+   yazmadığı **beş şekil** var (OP-14 kart taslağının ölçümü, 2026-10-06'da yeniden ölçüldü:
+   `tenants` okumasında `{}`, `{"search": true}`, `{"kind": "text"}`; `legal_versions` ve
+   `tenant_detail` okumasında `{"search": "id"}`) — ve gelecekteki bir yazıcı `detail`'e
+   yanlışlıkla bir değer koyabilir. Bu yüzden **kapalı bir şekil listesi** okunur: `(read,
+   tenants, {"search": none|text|address|id})` → `search_class`; `(read, operator_audit,
+   {"filter": all|<bir tür>})` → `filter_kind`; `(read, legal_versions|tenant_detail|
+   tenant_plaques, {})`; `(legal_publish, —, {slug: dört slug'dan biri, document_id: küçük
+   harfli uuid, bytes: 1..262144})` → `legal_slug`, `legal_bytes`; `(başka her tür, —, {})`.
+   Başka her şey `detail_recognised = false`'tur ve değer sütunlarının hepsi `NULL` (**fail-
+   closed**); satırın kendisi düşmez. `target_scope` yalnız beş okuma türünden biriyse döner.
+   Dönen serbest metin yalnız başka tabloların adlarıdır (operatörün `display_name`'i,
+   tenant'ın `name`'i) — ekranın kaçışlaması B'nindir.
+5. **Tür kümesinin dört kopyası** — `operator_audit_log_kind_check`, `op_begin_read`'in filtre
+   listesi, `op_read_audit`'in filtre şekli ve Go'nun `OperatorAuditKinds`'ı — bir listeye
+   (`opAuditKinds`) ölçülerek bağlıdır: veritabanı tarafı
+   `TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree`, Go sabitleri tarafı **tip
+   denetimli** `TestOperatorAuditKinds_TheTypedConstantsAreTheList` (OP-13'ün Gh dersi: paketin
+   `go/build` `GoFiles`'ı `go/types` ile; tipi `OperatorAuditKind` ve `OperatorAuthEvent` olan
+   **her** paket sabiti, hangi dosyada hangi yazımla). OP-15/OP-16 kümeyi genişletince dördünü
+   birlikte genişletmek zorundadır — biri unutulursa kırmızı. Okuma türleri için aynısı:
+   bilet CHECK'inin her türü `op_read_audit`'in bildiği bir kapsam olmak zorunda
+   (`TestOpReadAudit_TheDetailIsShownOnlyInAShapeOnTheList`'in "every read kind" kolları) — OP-12'nin yeni okuma
+   türü bu testi genişletmeden yeşil kalamaz.
+6. **`password_ok` (orkestratör kararı K14-1):** tür CHECK'ine ve `actor_shape`'in **oturumsuz**
+   koluna aynı migration'da girdi (ikisi birlikte; yalnız biri olsaydı INSERT 23514 ile
+   düşerdi — kart taslağının T1'i); `op_record_auth_event` yerinde değiştirildi: kapalı kümesi
+   altı tür, `password_ok` hesabı **yalnız id ile** adlandırır (adres ya da id'siz çağrı 22023,
+   satır yok — argümanların kendisiyle karar verilir, durum kehaneti değildir), kilit sayacına
+   **dokunmaz** (ne artırır, ne sıfırlar, ne kilidi uzatır — kilitli bir hesapta da ölçüldü).
+   Bilinmeyen bir id hedefsiz bir satırdır, hata değil (00026'nın varlık kehaneti kuralı).
+   🔴 **Kısıt yakalayıcısı eklendi (T1'in ikinci yarısı, ölçüldü):** fonksiyonun yakalayıcısı
+   yoktu; zorlanmış bir CHECK altında aynı INSERT çıplak hâliyle 23514 ve `DETAIL`'inde başarısız
+   satırı — hedef hesabın id'si dahil — döndürüyor
+   (`TestOpRecordAuthEvent_AConstraintRefusalCarriesNoRow`'un kendi ölçümü). Artık kısıt
+   yakalanır, sunucuya kısıtın adı ve SQLSTATE'i `LOG` olarak gider (değer değil), çağırana
+   **sabit bir mesaj ve yakalanan SQLSTATE** döner — `DETAIL` yok; satır da sayaç da yazılmaz.
+   **LOG satırının metni ölçülür (2. tur):** test, satırı bir testin okuyabildiği tek kanaldan
+   — `client_min_messages = log` diyen çağıranın bildirimi olarak — yakalar ve iletisini
+   **birebir** karşılaştırır (`op_record_auth_event: the audit row failed constraint "<ad>"
+   (SQLSTATE <kod>); refused`), `DETAIL` ve `HINT` boş, `CONTEXT` yalnız fonksiyonun satırı;
+   fonksiyonun yükselttiği hiçbir bildirimde çağrının id'si ya da adresi yok; varsayılan
+   `client_min_messages` altında çağırana böyle bir satır gelmez. Sunucu logunun kendisi bir
+   testçe okunmaz (sınır L13).
+   28000 değil: bu bir operatörün reddi değil, bozuk bir yazmadır. Kapalı kümeyle CHECK'ler
+   anlaştığı sürece hiçbir argüman bir kısıta ulaşmaz; ulaşan iki yol kümelerin ayrışması ve
+   hedef hesabın arama ile yabancı anahtar denetimi arasında silinmesidir.
+7. **Yetkiler:** `tappa_opdefiner` `operator_audit_log`'un `id` dışındaki on sütununda SELECT
+   aldı (sütun düzeyinde; `id` 00027'nindir ve yeniden verilmedi); INSERT listesi 00026'nınki,
+   `at` yine yok; UPDATE/DELETE/TRUNCATE yok. `tappa_operator` ve `tappa_app` hiçbir tablo
+   yetkisi almadı. 00031 **bir** fonksiyon yaratır (`op_read_audit`) ve **iki**sini yerinde
+   değiştirir (`op_begin_read`, `op_record_auth_event`); üçünde de EXECUTE yalnız
+   `tappa_operator`'dadır (değiştirilen ikisinde yetki dosyada yeniden yazılır, `tappa_app`'te
+   yok). Tanımlayıcının `op_*` dışı EXECUTE
+   kümesi değişmedi (00030'un pini; bulgu 0). ⚠️ **Sahip `at`'e yazar** (ölçüldü:
+   `has_column_privilege(tappa_owner, operator_audit_log, at, INSERT) = true` — tablonun sahibi
+   ve dağıtılan topolojide süper kullanıcı). **Sonucu, adıyla:** sahibin yazdığı bir satırın
+   zamanı sahibin iddiasıdır; geleceğe tarihlenmiş bir satır her filtresiz ilk sayfanın başında
+   durur ve görüntüleyicinin kendi satırını aşağı iter (ölçüldü); görüntüleyici sahibin yazdığı
+   satırı tanımlayıcınınkinden ayıramaz. Sınır 5 süper kullanıcının bu tabloya yapabildiğini
+   zaten sayar; K14-2'nin (opadmin audit türleri) sahip satırları bunu bir ürün yoluna
+   çevirecek — o kartın `at`'i sütun listesine koymaması (taslağın C3'ü) ve bir `BEFORE INSERT`
+   tetikleyicisinin `at`'i duvar saatine zorlaması (sahibi de bağlar, `DISABLE` edilene dek)
+   orada ölçülecek seçeneklerdir.
+8. **NOT VALID kuralı, iki yönde:** Down üç CHECK'i önceki kümelere döndürür — bilet CHECK'i
+   00030'un dört türüne, audit tür CHECK'i 00027'nin on türüne, `actor_shape` 00026'nın iki
+   koluna — ve her biri, **önceki kümenin dışındaki** bir türden satır/bilet varsa `NOT VALID`
+   olur (00030'un kuralı; koşul *"bu dosyanın türü"* değil). Up da aynı soruyu sorar (00030'un
+   L11'i burada kapandı): kendi kümesinin dışındaki bir türden satır/bilet varsa — sonraki bir
+   migration'ın Down'ının bıraktığı — CHECK'ler `NOT VALID` eklenir; Down/Up zinciri bileşir
+   (Down testinin 4. dalı, ölçüldü). **Tüketilmiş biletler de sayılır (2. tur, ölçüldü):**
+   üretimde biletler tüketilmiş durur ve tüketilmiş bir bilet de CHECK'in reddettiği bir
+   satırdır; koşul bu yüzden yalnız türdür. Down testinin 5. dalı (yalnız ürünün kendi okumasının
+   tükettiği bir `operator_audit` bileti → Down'ın bilet CHECK'i `NOT VALID`) ve 6. dalı (yalnız
+   sonraki bir migration'ın tüketilmiş bileti → Down'ın **ve** Up'ın bilet CHECK'i `NOT VALID`,
+   Up bileşir) bunu ölçer; dört koşulun her biri **bütün** `WHERE` cümlesiyle pinlidir (ilk turun
+   pini yalnız `ARRAY`'i okuyordu: `AND consumed_at IS NULL` eklenen bir koşul yeşil kalıyordu).
+9. **Başka görevlerin testlerinde güncellemeler (zayıflatılmadı):** `TestOperatorSQL_OnlyBoundParameters`
+   13 → 14 sabit/çağrı; `TestOperatorAccessors_TheCustomerRoleCannotUseThem` + `OperatorAudit` ve
+   `password_ok`'lu `RecordOperatorAuthEvent`; `TestOperator00026_PrivilegeMatrix` tanımlayıcının
+   `operator_audit_log` SELECT hücresi tam sütun listesiyle (`tappa_operator`'ınki boş kaldı);
+   `TestOperator00030_TheFunctionAndItsExactSignature`'ın bilet tür pini *"00030'un dört türünü
+   tutan kapalı küme"* oldu (00029'un pininin biçimi; HEAD'deki tam küme
+   `TestOperator00031_TheFunctionsAndTheirExactSignatures`'da);
+   `TestOperator00026_ArgumentsNeverComeBackInAnError` 22023 mesajı (*"failure"* kelimesi
+   kümeden çıktı, çünkü küme artık bir başarısızlık olmayan tür taşır); yalnız yorum:
+   `TestOpRecordAuthEvent_ClosedSetNoActorNoAddress`, `internal/operatorauth`'un sızıntı testindeki
+   iki gerekçe metni (*"one of five constants"* → sayısız yazım).
+10. **Down/Up ölçümü (2026-10-06, geliştirme veritabanı, Postgres 17.10):** `pg_dump
+    --schema-only`, `\restrict`/`\unrestrict` satırları ayıklanarak, sha256 ilk 16 hane: v30
+    `66338d9974f75bb3` (OP-13A'nın v30'u) → Up → v31 `126d47090054fd82` → Down → v30
+    `66338d9974f75bb3` → Up → v31 `126d47090054fd82`. Her goose adımı ayrı komut, sürüm her
+    adımdan önce ve sonra ölçüldü. Down'dan önce `operator_audit` bileti 0, `password_ok` satırı 0,
+    on bir CHECK'in hepsi doğrulanmış: Down doğrulanmış dala girdi (`NOT VALID` dalı Down testinin
+    2.–4. dallarında ölçülür). OP-11 ve OP-13'ün yetkileri döküm eşitliğinin içindedir.
+
+**Sayılı sınırlar (OP-14 A):**
+- **L1** — *"Görüntüleyicinin kendi satırı ilk satırdır"* iki aşama arasında daha geç tarihli
+  bir satır commit edilmediyse doğrudur. Gerçek veritabanında testler bunu sıra biçiminde iddia
+  eder: kendi satırından önceki her satır ondan daha geç tarihlidir (`opLeads`).
+- **L2** — Sahip `at`'e yazar (md. 7): geleceğe tarihli bir sahip satırı ilk sayfanın başında
+  durur — ölçüldü (`TestOpReadAudit_NewestFirstAndTheViewersOwnRowLeads`'in son kolu).
+- **L3** — Kapalı şekil listesi dışında kalan her şekil "gösterilmedi" okunur; yeni bir türün
+  dolu `detail`'i, liste onu adlandırana dek gösterilmez (tasarım gereği). Okuma türleri ve
+  filtre kümesi için liste genişletmesi testle zorlanır; **okuma dışı** yeni bir türün dolu
+  `detail`'i için zorlayan bir test yoktur — o satır "tanınmadı" kalır.
+- **L4** — Sınır 4'ün penceresi 30 sn (geri alınan okuma bileti yeniden okunur).
+- **L5** — Maliyet, ölçüldü (2026-10-06, geliştirme veritabanı, 17 109 satır, ~282 sayfa;
+  sayfanın ifadesi sabit değerlerle, `EXPLAIN (ANALYZE, BUFFERS)`, geri alınan işlemde):
+  filtresiz ilk sayfa `operator_audit_log_at_idx`'i geriye yürür + artımlı sıralama, 51 satır
+  okunur, 0,5 ms; sık bir tür (`totp_failed`) aynı yol + süzgeç, 763 satır atlanır, 0,8 ms. Hiç
+  bulunmayan bir türün filtresi (`password_ok`) ve derin sayfa (sayfa 1000 × boy 200) planlayıcıyı
+  **tam taramaya + sıralamaya** geçirir: 17 109 satır, 2,7 ms ve 9,6 ms. Fonksiyonun bütünü
+  (sahte biletlerle, `tappa_operator` olarak): 21,3 / 9,6 / 5,6 / 11,1 ms. Nadir tür ve derin
+  sayfa tabloyla doğrusal büyür; indeks eklenmedi (`(kind, at, id)` nadir türü kapatırdı — tablo
+  büyüdüğünde yeniden ölçülecek bir eşik, bugünün kararı değil). Ölçülen planlar ilk çağrıların
+  özel planıdır; havuzdaki uzun ömürlü bir bağlantıda planlayıcı genel plana geçebilir —
+  ölçülmedi.
+- **L6** — DSN sahibi herhangi bir hesap id'si için sahte `password_ok` basabilir (sınır 7'nin
+  düzeltmesi); satır oturum açmaz, sayaca dokunmaz. Veritabanında bir tavanı yoktur; Go'daki
+  hesap başına tavan C fazınındır ve DSN sahibi onu atlar.
+- **L7** — Görüntüleyici adları tanımlayıcının (BYPASSRLS) yetkisiyle okur: `pending`/`disabled`
+  operatörlerin adlarını da gösterir — giriş aramasının RLS'inin gizlediğini, audit'li bir okuma
+  olarak (kart taslağının B4'ü; ekran B'nin).
+- **L8** — `op_read_audit` bir tenant parametresi almaz; sayfanın satırlarının adlandırdığı her
+  tenant'ın **adını**, satırın taşıdığı değerle okur — §3.2'nin *"bilerek bütün tenant'ları
+  tarayan fonksiyonlar adıyla bellidir"* sınıfına bu ad okuması girer (sayfa ≤ 200 satır).
+  Okumanın kendi `read` satırı hangi tenant'ların sayfada göründüğünü yazmaz (içeriksiz).
+- **L9** — **Down zinciri ve `password_ok`** (ölçüldü, Down testinin 3. dalı): `password_ok`
+  satırı varken 00027'nin uygulanmış Up'ı on türlü CHECK'i doğrulanmış ekler ve 23514 ile düşer;
+  00027'nin Down'ı da `read`/`legal_publish` satırı yokken düşer. C fazı `password_ok` satırı
+  commit etmeye başlayınca `TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain`'in yeniden
+  Up adımı geliştirme ve CI veritabanlarında kırmızıya döner (C'ye devir).
+- **L10** — Kısıt yakalayıcısının `LOG` satırı (kısıt adı + SQLSTATE) `client_min_messages =
+  log` diyen çağırana da gider (sınır 14'ün ikinci kanalının aynı mekanizması; 2. turda
+  ölçüldü: o çağırana tam bir satır, metni birebir; varsayılan ayarda hiç); yalnız kümeler
+  ayrıştığında ya da bir yarışta doğar, normal işleyişte doğmaz. Satır çağırana yalnız kendi
+  çağrısının kısıt adını ve kodunu söyler.
+- **L11** — opadmin'in eylemleri hâlâ `operator_audit_log`'a yazılmaz (K14-2: ayrı kart).
+- **L12** — Commit eden iki test koşu başına **+3** `read` satırı (yaşam döngüsü 1, havuz 2),
+  **+2** `platform_admins` (`disabled`), iptal edilmiş oturumlarını bırakır; `password_ok`
+  satırı commit edilmez. Ölçüldü (2026-10-06; veritabanı saatinden T0, yalnız bu iki testin tek
+  koşusu, satırlar `target_scope = 'operator_audit'` üzerinden atfedilerek — o kapsamı yalnız bu
+  kartın kodu yazar): 3 okuma satırı, 2 aktör, 2 oturum (ikisi iptal; audit satırı başvurduğu
+  için silinmez), 2 hesap `disabled`, bilet 0, `password_ok` 0.
+- **L13** — **Sunucu logunun kendisi bir testçe okunmaz** (kısıt: ajanlar sunucu logunu
+  basmaz). Ölçülen, aynı `ereport`'un iletisidir; sunucu logu ona kendi satırlarını ekler.
+  Geliştirme veritabanında bunlara ifade loglaması da dahildir (`log_statement = all`,
+  `log_min_duration_statement = 0`, bağlı parametreler — `client_min_messages = log` diyen
+  test bağlantısında görüldü: `$2 = '<hesap id>'`); bu sunucunun yapılandırmasıdır, fonksiyonun
+  satırı değil — üretimde kapalıdır (yukarıda, 2026-09-26 ölçümü) ve bu kart onu değiştirmez.
+- **L14** — **Görüntüleyicinin ulaşabildiği satır sayısı sınırlıdır** (güvenlik denetimi,
+  DÜŞÜK, 3. tur). Sınır koddan ve kaçış denemesi E07b'nin ölçümünden (sahte biletle sayfa
+  1001 → sayfa 1000'in satırı) türetildi; 200 000 satırla ayrıca ölçülmedi.
+  - **Sınır:** sayfa en çok 1000, boy en çok 200 — `op_begin_read`'in sayfa reddi ve
+    `op_read_audit`'in gövdesindeki `least(sayfa, 1000)` ile `least(boy, 200)`. Filtresiz
+    okumada tablonun, bir tür filtresiyle o türün **en yeni 200 000** satırı görülebilir.
+  - **Daha eskisine üründen yol yoktur:** `tappa_operator`'ın tabloda yetkisi yok, başka bir
+    `op_read_*` yok.
+  - **Kötüye kullanım yolu:** `op_record_auth_event`'in veritabanında tavanı yoktur (L6).
+    DSN sahibi oturumsuz türlerden birinde ≈200 000 sahte satırla (ör. `password_ok`,
+    `login_failed`) o türün gerçek satırlarını ve filtresiz okumada bütün eski satırları
+    görüntüleyicinin ulaşamayacağı yere itebilir. `read` türü için aynı yol bir oturum hash'i
+    ister: `op_begin_read` canlı bir MFA oturumu olmadan yazmaz.
+  - **C fazının hesap başına tavanıyla ilişkisi:** o tavan Go'dadır (`internal/operatorauth`)
+    ve yalnız sürecin kendi yazdığı satırları sınırlar. DSN sahibi `op_record_auth_event`'i
+    doğrudan çağırır, Go'nun hiçbir tavanından geçmez (L6). Bu yüzden C'den sonra da sel
+    veritabanı tarafında sınırsız kalır; C'nin tavanı yalnız sürecin kendisinin bir seli
+    üretmesini engeller.
+  - **Hafifletenler:** satır kaybolmaz (append-only; sahip yine okur). Sel ilk sayfada
+    görünür, çünkü en yeni satırlar selin kendisidir; yani sessiz değildir. OP-14'ten önce hiç
+    görüntüleyici yoktu.
+  - **Kapatma bu kartın işi değil:** veritabanında bir yazma tavanı ya da daha eskiye ulaşan
+    bir okuma (ör. zaman aralığı filtresi) ayrı bir karttır.
+
+**Güvenlik iddiası — üç parça.**
+
+- **Tehdit modeli:** bu ölçümler ve pinler, audit okumasının SQL'ine, yetkilerine, tür
+  kümesinin kopyalarına ve Go erişimcisine **kazara** giren bir değişikliğe karşıdır — bir bilet
+  koşulunu, bir şekil kuralını, bir sayfa sınırını, bir sütun yetkisini düşüren ya da tür
+  kümesini bir kopyada genişletip ötekinde unutan bir düzenleme — ve bir DSN sahibinin
+  `tappa_operator` olarak yapabildiklerine (ölçülen kollar). Pini atlatmak için bilerek
+  yazılmış kod ve sahibin (`tappa_owner`) yapabildikleri kod incelemesinin ve sayılı sınırların
+  konusudur.
+- **PART I — bugün sevk edilen kodun ölçülen davranışı** (test · girdiler · assert; onu kırmızıya
+  çeviren mutasyonlar OP-14 A kart düzeltmesinin md. 14'ünde — sayılan 64'ün 64'ü kırmızı —
+  ve 2. turun üçü, F1, F1u, H7, md. 20–21'de):
+  - `TestOperator00031_TheFunctionsAndTheirExactSignatures` · katalog · `op_read_audit`'in tam
+    imzası ve sonucu (`detail` sütunu yok), sahip, `proconfig`, tek overload, EXECUTE yalnız
+    `tappa_operator`; iki değiştirilen fonksiyonun kimliği; ileri, donan saat ve tüketim
+    taramaları bulgusuz; üç CHECK HEAD'de tam ve doğrulanmış.
+  - `TestOperator00031_TheDefinerReadsTheLogAndTheOperatorDoesNot` · katalog ve ifade ·
+    tanımlayıcının SELECT/INSERT listeleri, `at` INSERT'i yok; `tappa_operator` doğrudan SELECT,
+    `COPY`, `detail` SELECT'i 42501; `tappa_app` okuma ve `password_ok` yazımı 42501; sahibin
+    `at` INSERT'i var; append-only sahibi de bağlar; tanımlayıcının yabancı EXECUTE'u 0.
+  - `TestOperator00031_DownGivesBack00030AndUpTakesItAgain` · dosyanın Down/Up'ı işlem içinde,
+    önceki üç dosyadan türetilen kümeler, altı dal (5. ve 6.: yalnız tüketilmiş bilet) + sayılı
+    sınırlar; dört `NOT VALID` koşulu bütün `WHERE` cümlesiyle · md. 8, L9.
+  - `TestOperator00031_PreconditionRefusesAWrongCluster` · on rol şekli · 55000 ve 00031.
+  - `TestOperator00031_CallersTempTableIsNeverRead` · beş tablo adının gölgelenmesi (GRANT
+    adımıyla) · okuma, yazma ve adlar gerçek tablolardan.
+  - `TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree`,
+    `TestOperatorAuditKinds_TheTypedConstantsAreTheList` · md. 5.
+  - `TestOperatorAudit_AnUnknownFilterIsRefusedWithoutARoundTrip` · küme dışı filtre gidiş-dönüşsüz
+    `ErrOperatorAuditFilterRefused`; her üye ve `''` bir deyim.
+  - `TestOpBeginRead_TheAuditKindBindsItsFilterAndPage` · tür, parametre retleri (sayfa 1001,
+    `'all'`, SQL'li filtre dahil), altı ölü oturum, dört kontrol türü.
+  - `TestOpRecordAuthEvent_PasswordOKNamesItsAccountAndTouchesNoCounter`,
+    `TestOpRecordAuthEvent_AConstraintRefusalCarriesNoRow` · md. 6 (ikincisi `LOG` satırının
+    iletisini `client_min_messages = log` kanalından birebir; L10).
+  - `TestOpReadAudit_NewestFirstAndTheViewersOwnRowLeads` · md. 3, L2.
+  - `TestOpReadAudit_TheDetailIsShownOnlyInAShapeOnTheList` · ürünün kendi taramasıyla
+    (`readOperatorAudit`): listedeki her şekil değerini, listede olmayan her şekil — ölçülen beş
+    şekil dahil — `false`'u ve `NULL`'ları verir; `detail`'e dikilen bilet biçimli, TOTP biçimli,
+    token, adres ve arama terimi değerleri hiçbir satırın hiçbir metin alanında yok; bilet
+    CHECK'inin her türü bilinen bir kapsam.
+  - `TestOpReadAudit_PagesAreCappedOrderedAndBounded` · 1002 satır · boy 201 → 200, sayfa 2,
+    sayfa 1001 → sayfa 1000'in satırı.
+  - `TestOpReadAudit_ATicketFromThisTransactionIsRefused`, `TestOpReadAudit_AForgedTicketIsRefused`,
+    `TestOpReadAudit_RefusesEveryDeadSession`, `TestOpReadAudit_ExpiryIsTheWallClock` · §2 v'nin
+    iki aşama tablosu bu okuma için.
+  - `TestOpReadAudit_TwoPhaseLifecycle`, `TestOperatorAudit_OnThePoolTheTwoPhasesAreTwoTransactions` ·
+    gerçek commit'lerle, üretim kurucusunun havuzunda.
+- **PART II — adıyla pinler ve yakaladıklarının tam listesi:**
+  `TestOperator00031_TheFunctionsAndTheirExactSignatures` — fonksiyonun tam argüman listesi ve
+  sonuç tipi (dönüşe `detail` ya da başka bir sütun giremez), sahip, overload, `proconfig`, dört
+  rolün EXECUTE'u, üç CHECK'in tam metni; `TestOperator00031_DownGivesBack00030AndUpTakesItAgain` —
+  Down'ın ve Up'ın dört `NOT VALID` koşulunun **bütün** `WHERE` cümlesi, Down'ın iki bilet ve
+  iki audit tür CHECK'inin kümeleri, `actor_shape`'in dört kolu;
+  `TestOpRecordAuthEvent_AConstraintRefusalCarriesNoRow` — kısıt yakalayıcısının `LOG`
+  iletisinin tam metni; `TestOperator00026_PrivilegeMatrix` (genişletildi) —
+  tanımlayıcının `operator_audit_log` sütun listeleri, `tappa_operator`'ın boş hücresi;
+  `TestOpRead_EveryReadConsumesItsTicketAsTheADRSays` — `op_read_audit`'in tüketen `UPDATE`'i;
+  `TestOperator00026_NoFrozenClock` — iki değiştirilen ve bir yeni gövde;
+  `TestOperatorAuditKinds_TheTypedConstantsAreTheList` — tipi `OperatorAuditKind` ve
+  `OperatorAuthEvent` olan paket sabitlerinin değer kümeleri (testin derleme bağlamında seçilen
+  her dosyada, her yazımla — OP-13'ün L12'si aynen); `TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree`
+  — CHECK, `actor_shape`'in oturumsuz kolu, iki fonksiyonun kabul kümeleri ve `OperatorAuditKinds`;
+  `TestOperatorSQL_OnlyBoundParameters` — on dört sabit ve çağrıları.
+- **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
+
 ## Sonuçlar
 
 - **OP-5:** tablolar (bilet tablosu dahil) + `01-roles.sql` + runbook bu ADR'nin §1 ve
@@ -2241,7 +2532,8 @@ değişmesidir; hiçbir karar sekme başlığına dayanmaz.
 - **OP-8:** her okuma ekranı önce `op_begin_read`'i commit eder, sonra okur; oturum
   kapısı `op_touch_session`'dır; enrollment handler'ı `op_complete_enrollment`'a bağlanır.
 - **OP-14:** operatör audit görüntüleyicisi iki aşamalı `op_read_audit`'tir;
-  `tappa_operator`'ın `operator_audit_log` üzerinde `SELECT`'i yoktur.
+  `tappa_operator`'ın `operator_audit_log` üzerinde `SELECT`'i yoktur. *(A fazı 00031 ile
+  uygulandı: okuma, kapalı şekil listesi ve `password_ok` — "OP-14 uygulama notu".)*
 - **OP-10** (`op_publish_legal` — `void` bir tek aşamalı yazma; sürüm listesi — ilk
   `op_read_*`) ve **OP-11…OP-18** her yeni `op_*` için §2'nin tamamını ve §6'nın
   katalog/davranış testlerini yeniden kazanır; OP-11'in *"her çağrı tam 1 operatör audit

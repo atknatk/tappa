@@ -37,8 +37,9 @@
 --   FROM public.platform_admins
 --   WHERE id = $1 AND status = 'active';
 
--- RecordOperatorAuthEvent -- one pre-session FAILURE row (closed kind set; the
--- address and the id are looked up by the definer, never stored).
+-- RecordOperatorAuthEvent -- one pre-session row (closed kind set: the five failures and,
+-- since 00031, 'password_ok', which names its account by id alone and moves no lock
+-- counter; the address and the id are looked up by the definer, never stored).
 --   SELECT public.op_record_auth_event($1, $2, $3);
 
 -- OpenOperatorSession -- TOTP step advance + lock check + session + 'login' row, one
@@ -62,8 +63,8 @@
 -- BeginOperatorRead -- phase one of the two-phase reads (ADR 0021 §2 v 1): resolves
 -- the session, writes the read's 'read' audit row and a ticket bound to it, returns the
 -- RAW ticket. $2 is a read kind (00027's closed set: 'legal_versions'; 00029 added
--- 'tenants' and 'tenant_detail', 00030 'tenant_plaques'), $3 that kind's parameter
--- object. The caller COMMITS before phase two.
+-- 'tenants' and 'tenant_detail', 00030 'tenant_plaques', 00031 'operator_audit'), $3 that
+-- kind's parameter object. The caller COMMITS before phase two.
 --   SELECT public.op_begin_read($1, $2, $3::jsonb);
 
 -- ReadLegalVersions -- phase two of the version list: $2 is the RAW ticket, $3/$4 the
@@ -121,3 +122,22 @@
 --   SELECT tenant_id, tenant_name, uid, status, location_id, location_name,
 --          encoded_at, created_at, retired_at, replaced_by, last_ctr, plaque_count
 --   FROM public.op_read_tenant_plaques($1, $2, $3);
+
+-- ============================================================================
+-- OP-14 (migration 00031): the operator's own audit log. Phase one is BeginOperatorRead
+-- above, with kind 'operator_audit' and the parameter object {kind, page_number,
+-- page_size}: kind '' (every kind) or one of operator_audit_log's kinds, page 1..1000. The
+-- read's own 'read' row records the filter ({"filter": <kind>|"all"}) and the page.
+-- tappa_operator holds no SELECT on operator_audit_log; this is the one way to read it.
+
+-- ReadOperatorAudit -- phase two of the log: $2 is the RAW ticket, $3 the kind filter, $4/$5
+-- the page -- all bound in the ticket. Newest first (at, then id), capped at 200 rows, the
+-- OFFSET bounded at page 1000. The rows' detail is NOT returned raw: a closed list of shapes is
+-- read out of it (search_class, filter_kind, legal_slug, legal_bytes) and every other shape
+-- is detail_recognised = false with those columns NULL. Names come from platform_admins and
+-- tenants by the ids each row carries.
+--   SELECT audit_id, at, kind, session_id, actor_admin_id, actor_name,
+--          target_admin_id, target_admin_name, target_tenant_id, target_tenant_name,
+--          target_scope, page_number, page_size, search_class, filter_kind, legal_slug,
+--          legal_bytes, detail_recognised
+--   FROM public.op_read_audit($1, $2, $3, $4, $5);
