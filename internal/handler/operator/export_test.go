@@ -62,3 +62,31 @@ func PlaqueWordForShapeForTest(shape db.PlaqueShape) PlaqueWordForTest {
 	w := plaqueWordFor(shape)
 	return PlaqueWordForTest{w.label, w.sentence, w.tone}
 }
+
+// AuditPageSizeForTest is audit.go's auditPageSize.
+const AuditPageSizeForTest = auditPageSize
+
+// AuditKindWordsForTest is audit.go's auditKindWords, copied.
+func AuditKindWordsForTest() map[db.OperatorAuditKind]string {
+	out := map[db.OperatorAuditKind]string{}
+	for k, w := range auditKindWords {
+		out[k] = w
+	}
+	return out
+}
+
+// AuditScopeWordsForTest and AuditSearchWordsForTest are audit.go's auditScopeWords and
+// auditSearchWords, copied.
+func AuditScopeWordsForTest() map[string]string  { return copyWords(auditScopeWords) }
+func AuditSearchWordsForTest() map[string]string { return copyWords(auditSearchWords) }
+
+func copyWords(m map[string]string) map[string]string {
+	out := map[string]string{}
+	for k, w := range m {
+		out[k] = w
+	}
+	return out
+}
+
+// AuditKindWordForTest is audit.go's auditKindWord.
+func AuditKindWordForTest(raw string) operatorpages.AuditWord { return auditKindWord(raw) }

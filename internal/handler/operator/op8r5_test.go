@@ -3,7 +3,7 @@ package operator_test
 // op8r5_test.go -- OP-8's fifth round: the shared runner of the header tables, the class
 // -> route table (classRoutes) the header tables are held to (OP-10 added a third table,
 // C49-C66, op10_test.go; OP-11 a fourth, C67-C93, op11_test.go; OP-13 a fifth, C94-C103,
-// op13_test.go), the eight classes the 4th
+// op13_test.go; OP-14 a sixth, C104-C121, op14_test.go), the eight classes the 4th
 // audit found outside the 40 (N7), the walked-routes completeness test (N5) and the wire
 // test of the recorder's snapshot (F1 (b)).
 //
@@ -113,10 +113,21 @@ var classRoutes = map[string]classRoute{
 	"C100": {"GET", "/operator/tenants/{id}/plaques", 503}, "C101": {"GET", "/operator/tenants/{id}/plaques", 303},
 	"C102": {"GET", "/operator/tenants/{id}/plaques", 429},
 	"C103": {"POST", "/operator/tenants/{id}/plaques", 405},
+	// OP-14's audit log (op14_test.go, TestOperatorHeaders_TheAuditClassesCarryThePolicy).
+	"C104": {"GET", "/operator/audit", 200}, "C105": {"GET", "/operator/audit", 303},
+	"C106": {"GET", "/operator/audit", 303}, "C107": {"GET", "/operator/audit", 303},
+	"C108": {"GET", "/operator/audit", 503}, "C109": {"GET", "/operator/audit", 303},
+	"C110": {"GET", "/operator/audit", 429},
+	"C111": {"POST", "/operator/audit", 200}, "C112": {"POST", "/operator/audit", 303},
+	"C113": {"POST", "/operator/audit", 403}, "C114": {"POST", "/operator/audit", 413},
+	"C115": {"POST", "/operator/audit", 400}, "C116": {"POST", "/operator/audit", 400},
+	"C117": {"POST", "/operator/audit", 400}, "C118": {"POST", "/operator/audit", 503},
+	"C119": {"POST", "/operator/audit", 303}, "C120": {"POST", "/operator/audit", 429},
+	"C121": {"PUT", "/operator/audit", 405},
 }
 
 // classCount is the number of classes of the header tables, C1 to C<classCount>.
-const classCount = 103
+const classCount = 121
 
 // routeOf is a request's method and path as a chi route: the query dropped, the prefix
 // itself written as the pattern chi.Walk reports for the console ("/operator/"), a path
@@ -262,9 +273,10 @@ func TestOperatorHeaders_TheWrongMethodAndOversizedClassesCarryThePolicy(t *test
 // TestOperatorHeaders_TheWalkedRoutesEachHaveAClass is the completeness check the 4th
 // audit asked for (N5), on the surface's MOUNTED routes as chi.Walk reports them.
 //
-// PART I -- the shipped surface: chi.Walk reports fourteen method x route pairs on nine
+// PART I -- the shipped surface: chi.Walk reports sixteen method x route pairs on ten
 // routes (OP-10 added GET and POST /operator/legal; OP-11 GET and POST /operator/tenants
-// and GET /operator/tenants/{id}; OP-13 GET /operator/tenants/{id}/plaques); classRoutes
+// and GET /operator/tenants/{id}; OP-13 GET /operator/tenants/{id}/plaques; OP-14 GET and
+// POST /operator/audit); classRoutes
 // has, for each pair, a class with a status other than 405, and for each route a 405
 // class with a method not mounted on it; classRoutes' keys are C1 to C<classCount>.
 //
@@ -291,7 +303,7 @@ func TestOperatorHeaders_TheWalkedRoutesEachHaveAClass(t *testing.T) {
 	for _, ms := range walked {
 		pairs += len(ms)
 	}
-	if len(walked) < 9 || pairs < 14 {
+	if len(walked) < 10 || pairs < 16 {
 		t.Fatalf("PREMISE: chi.Walk reported %d route(s), %d pair(s)", len(walked), pairs)
 	}
 	covered, wrongMethod := map[string]bool{}, map[string]bool{}

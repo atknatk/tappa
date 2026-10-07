@@ -50,9 +50,9 @@ const (
 
 // fakeStore answers operatorauth.Store the way 00026's definers answer,
 // operator.LegalStore the way 00027's do (OP-10), operator.TenantStore the way 00029's do
-// (OP-11) and operator.PlaqueStore the way 00030's does (OP-13), for the arms these tests
-// drive, and COUNTS its calls by method -- "the resolver was not called" is a count of
-// zero here.
+// (OP-11), operator.PlaqueStore the way 00030's does (OP-13) and operator.AuditStore the way
+// 00031's does (OP-14), for the arms these tests drive, and COUNTS its calls by method --
+// "the resolver was not called" is a count of zero here.
 type fakeStore struct {
 	mu       sync.Mutex
 	calls    map[string]int
@@ -90,6 +90,11 @@ type fakeStore struct {
 	// asked for.
 	inventories map[uuid.UUID]fakeInventory
 	plaqueAsks  []uuid.UUID
+	// The audit screen's (OP-14): the log, NEWEST FIRST (a test puts its entries in that
+	// order; OperatorAudit puts each accepted view's own 'read' row at the head, as
+	// op_begin_read commits it before op_read_audit reads), and the queries the screen asked.
+	audit     []db.OperatorAuditEntry
+	auditAsks []db.OperatorAuditQuery
 }
 
 // fakeInventory is one tenant's plaques as the fake holds them. Each plaque carries the
@@ -404,6 +409,59 @@ func (f *fakeStore) TenantPlaques(_ context.Context, h string, id uuid.UUID) (db
 	return inv, nil
 }
 
+// fakeAuditStart is the time of the fake log's first own-read row; each later one is a
+// second after the one before, so a view's own row is the newest of the log a test seeds
+// (the seeded rows are dated before it).
+var fakeAuditStart = time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+
+// OperatorAudit answers as op_begin_read + op_read_audit do, through internal/db's
+// OperatorAudit: a kind outside db.OperatorAuditKinds is ErrOperatorAuditFilterRefused --
+// the call COUNTED, so a screen that leaves the refusal to internal/db is seen calling the
+// store; a page outside 1..db.MaxOperatorAuditPage or a size outside 1..200 is the
+// database's refusal (op_begin_read's 22023: errFakePageRefused); a dead session is
+// ErrOperatorRefused; otherwise the view's own 'read' row (scope
+// operator_audit, the page, the filter -- "all" or the kind --, by the session's operator)
+// goes to the head of the log, and the page of the log filtered to the kind is returned,
+// newest first.
+func (f *fakeStore) OperatorAudit(_ context.Context, h string, q db.OperatorAuditQuery) ([]db.OperatorAuditEntry, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.enter("OperatorAudit"); err != nil {
+		return nil, err
+	}
+	if q.Kind != "" && !q.Kind.Known() {
+		return nil, db.ErrOperatorAuditFilterRefused
+	}
+	if q.Number < 1 || q.Number > db.MaxOperatorAuditPage || q.Size < 1 || q.Size > 200 {
+		return nil, errFakePageRefused
+	}
+	s, ok := f.live[h]
+	if !ok {
+		return nil, db.ErrOperatorRefused
+	}
+	f.auditAsks = append(f.auditAsks, q)
+	sid, admin, name := s.SessionID, s.AdminID, "Fake Operator "+s.AdminID.String()[:4]
+	scope, filter, number, size := "operator_audit", "all", q.Number, q.Size
+	if q.Kind != "" {
+		filter = string(q.Kind)
+	}
+	own := db.OperatorAuditEntry{ID: uuid.New(), At: fakeAuditStart.Add(time.Duration(len(f.auditAsks)) * time.Second),
+		Kind: string(db.OperatorAuditRead), SessionID: &sid, ActorID: &admin, ActorName: &name, Scope: &scope,
+		PageNumber: &number, PageSize: &size, FilterKind: &filter, DetailRecognised: true}
+	f.audit = append([]db.OperatorAuditEntry{own}, f.audit...)
+	var found []db.OperatorAuditEntry
+	for _, e := range f.audit {
+		if q.Kind == "" || e.Kind == string(q.Kind) {
+			found = append(found, e)
+		}
+	}
+	from := int(q.Number-1) * int(q.Size)
+	if from >= len(found) {
+		return nil, nil
+	}
+	return found[from:min(from+int(q.Size), len(found))], nil
+}
+
 // fakeTexts is operator.LegalTexts: the snapshot (seeded by a test, or filled by a
 // refresh) and its refresh, which reads the fake store's publications -- the newest per
 // document wins, as ListPublishedLegalDocuments does, with the version's own time. A
@@ -595,7 +653,7 @@ func newRigAt(t *testing.T, level slog.Level) *rig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := operator.New(auth, g.store, g.store, g.store, g.texts, opHost, opBase, log)
+	s, err := operator.New(auth, g.store, g.store, g.store, g.store, g.texts, opHost, opBase, log)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -751,3 +809,7 @@ func (g *rig) signInAs(email, password string, key []byte, codeTime time.Time) *
 }
 
 var errFakeDB = errors.New("fake: the database is unreachable")
+
+// errFakePageRefused is the fake's answer for an audit page the database refuses
+// (op_begin_read: SQLSTATE 22023).
+var errFakePageRefused = errors.New("fake: db: read operator audit: SQLSTATE 22023")

@@ -276,6 +276,39 @@ var (
 		BackLabel: "Back to the tenants",
 		SignedIn:  true,
 	}
+
+	// The audit log's pages (audit.go). Its three refusals are answered before any store
+	// call and before the read budget, and say nothing was read; the number in the page
+	// refusal is db.MaxOperatorAuditPage (TestAuditScreen_TheBoundaryRefusesBeforeTheStore
+	// reads it off the page). An unreadable form is readForm's problemBadForm.
+	problemAuditFormTooLarge = operatorpages.ProblemView{
+		Title:     "That request was too large",
+		Message:   "Open the audit log again and choose a kind there. Nothing was read.",
+		Back:      pathAudit,
+		BackLabel: "Back to the audit log",
+		SignedIn:  true,
+	}
+	problemAuditKindRefused = operatorpages.ProblemView{
+		Title:     "That kind is not in the audit log",
+		Message:   "Choose a kind from the list on the audit log. Nothing was read.",
+		Back:      pathAudit,
+		BackLabel: "Back to the audit log",
+		SignedIn:  true,
+	}
+	problemAuditPageRefused = operatorpages.ProblemView{
+		Title:     "That page does not exist",
+		Message:   "The audit log has pages 1 to 1000. Nothing was read; start again from the first page.",
+		Back:      pathAudit,
+		BackLabel: "Back to the audit log",
+		SignedIn:  true,
+	}
+	problemAuditUnreadable = operatorpages.ProblemView{
+		Title:     "The audit log could not be loaded",
+		Message:   "Try again in a moment.",
+		Back:      pathConsole,
+		BackLabel: "Back to the console",
+		SignedIn:  true,
+	}
 )
 
 // problemPages lists the variables above and problemTooMany(false) and (true), for the
@@ -289,5 +322,6 @@ func problemPages() []operatorpages.ProblemView {
 		problemTenantSearchTooLarge, problemTenantSearchRefused, problemTenantPageRefused, problemTenantsUnreadable,
 		problemTenantNotAnID, problemNoSuchTenant, problemTenantUnreadable,
 		problemPlaquesUnreadable,
+		problemAuditFormTooLarge, problemAuditKindRefused, problemAuditPageRefused, problemAuditUnreadable,
 	}
 }

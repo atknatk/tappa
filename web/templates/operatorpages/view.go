@@ -1,7 +1,7 @@
 // Package operatorpages is the platform operator's screens (M10 OP-8; ADR 0020 §4):
 // sign-in, the TOTP step, enrollment, the console's front page and its problem page,
-// (OP-10) the legal texts screen, (OP-11) the tenant list and a tenant's overview and
-// (OP-13) a tenant's plaques, in the "TAPTIME OPERATOR" chrome.
+// (OP-10) the legal texts screen, (OP-11) the tenant list and a tenant's overview, (OP-13) a
+// tenant's plaques and (OP-14) the operator's own audit log, in the "TAPTIME OPERATOR" chrome.
 //
 // IT IS NOT web/templates/pages, ON PURPOSE. pages is what the customer product renders
 // and internal/handler imports it. Measured with `go list` (non-test imports, the build
@@ -280,6 +280,79 @@ const (
 	// PlaqueToneOut: retired or lost, taps on it rejected -- the rejection tone.
 	PlaqueToneOut
 )
+
+// AuditLogView is /operator/audit (M10 OP-14): a page of the operator's own audit log,
+// newest first, and the kind it is filtered to. It renders through the plain screen chrome:
+// the log is every operator's and names many tenants, so no tenant banner heads it -- each
+// row names its tenant (ADR 0020 §9, the OP-14 note). Every value is text the handler
+// formatted; templ escapes each one.
+type AuditLogView struct {
+	// Kind is the filter as posted -- "" for every kind, or one audit kind -- carried by the
+	// pager's hidden fields; Filter is its word (the docket's heading).
+	Kind, Filter string
+	// Options are the filter's choices: every kind, then each audit kind with its word.
+	Options []AuditKindOption
+	// Page is the page number, from 1; HasNext offers the next one (set on a full page short
+	// of the last); LastPage says this is the last page the screen can show, and Reach how
+	// many entries of one kind that is.
+	Page     int
+	HasNext  bool
+	LastPage bool
+	Reach    string
+	Rows     []AuditRow
+}
+
+// AuditKindOption is one choice of the audit log's filter.
+type AuditKindOption struct {
+	Value, Label string
+	Selected     bool
+}
+
+// AuditWord is a value of a closed set as the audit log says it: Text is the screen's word,
+// or -- when Unknown -- the raw value, which the handler fills only when it has the shape of
+// a closed set's member (it may be ""). The zero AuditWord is "nothing to say".
+type AuditWord struct {
+	Text    string
+	Unknown bool
+}
+
+// Shown reports whether w has something to say.
+func (w AuditWord) Shown() bool { return w.Text != "" || w.Unknown }
+
+// factLabel is an audit fact's label followed by the space before its value, or "" for a
+// fact with no label.
+func factLabel(label string) string {
+	if label == "" {
+		return ""
+	}
+	return label + " "
+}
+
+// AuditRow is one entry of the audit log. At is UTC to the second. Kind is the row's kind.
+// ActorID is the operator who acted ("" before sign-in) and Actor its name ("" when it shows
+// nothing: the id names it); AccountID and Account the same for the account a pre-session
+// row is about; TenantID the tenant a read named, Tenant its name ("" when it shows nothing)
+// and TenantPath its overview ("" when no tenant has that id). Scope is a read's kind,
+// ScopeHidden says a read's scope was not one the log returns. Page and PageSize are a
+// read's page; Search, Filter, Legal and LegalBytes what the log reads out of the row's
+// detail; DetailHidden says the detail had a shape the log does not show. Session is the
+// first eight digits of the session's id ("" before sign-in).
+type AuditRow struct {
+	At                 string
+	Kind               AuditWord
+	ActorID, Actor     string
+	AccountID, Account string
+	TenantID, Tenant   string
+	TenantPath         string
+	Scope              AuditWord
+	ScopeHidden        bool
+	Page, PageSize     string
+	Search, Filter     AuditWord
+	Legal              AuditWord
+	LegalBytes         string
+	DetailHidden       bool
+	Session            string
+}
 
 // ProblemView is a refusal or a fault the operator surface answers with a page.
 type ProblemView struct {

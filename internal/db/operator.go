@@ -822,7 +822,9 @@ func valueOr[T any](p *T) T {
 //
 // The operator's own audit log on the operator's surface (migration 00031; ADR 0020 §5, ADR
 // 0021 §1, §2 v). One exported two-phase read in TenantList's shape -- a free function over
-// an OperatorConn. The screen and *OperatorDB's method are OP-14 phase B.
+// an OperatorConn; since OP-14 phase B *OperatorDB delegates to it, as
+// internal/handler/operator's AuditStore (the /operator/audit screen's interface), and
+// TestOperatorDB_IsTheStoreAndNothingMore derives that type's method set from AuditStore too.
 //
 // tappa_operator holds no SELECT on operator_audit_log: the only way to read it is this
 // read, and every read of it is itself a 'read' row, committed before a row is returned. The

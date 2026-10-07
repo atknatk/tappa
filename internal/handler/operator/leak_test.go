@@ -330,13 +330,20 @@ func (h *hashRecorder) TenantPlaques(ctx context.Context, s string, id uuid.UUID
 	return h.fakeStore.TenantPlaques(ctx, s, id)
 }
 
+// The audit screen's call (OP-14): the session hash. The kind is a value of a closed set
+// and the page a small integer, both printed on the screen by design.
+func (h *hashRecorder) OperatorAudit(ctx context.Context, s string, q db.OperatorAuditQuery) ([]db.OperatorAuditEntry, error) {
+	h.record("OperatorAudit", s)
+	return h.fakeStore.OperatorAudit(ctx, s, q)
+}
+
 // harvestWant pins the harvest: calls per method and the arity of each call's record.
 // The counts are the arms' own, derived where each arm is driven (comments at the arms).
 var harvestWant = map[string]struct{ calls, arity int }{
 	"OperatorByEmail":            {calls: 9, arity: 1},    // A2 A3 A4 A20 A20b A23 A26b A28 A30b
 	"RecordOperatorAuthEvent":    {calls: 7, arity: 1},    // A2 A3 A6 A14 A15 A17 A28
 	"OpenOperatorSession":        {calls: 5, arity: 1},    // A7 A20b A24 A26b A30b
-	"TouchOperatorSession":       {calls: 198, arity: 1},  // A8 A9 A21, A27 x 101, A31-A41, A43, A44-A52, A54-A59, A60-A65, A66a x 60, A66 (A42 and A53 are refused before the gate)
+	"TouchOperatorSession":       {calls: 208, arity: 1},  // A8 A9 A21, A27 x 101, A31-A41, A43, A44-A52, A54-A59, A60-A65, A66a x 60, A66, A67-A74, A76, A77 (A42, A53 and A75 are refused before the gate)
 	"CloseOperatorSession":       {calls: 3002, arity: 1}, // A10 A22, A30a x 3000 (A30 is refused first)
 	"CompleteOperatorEnrollment": {calls: 3, arity: 4},    // A16 A17 A25
 	"LegalVersions":              {calls: 5, arity: 1},    // A31 A33 A39 A41 A43
@@ -344,6 +351,7 @@ var harvestWant = map[string]struct{ calls, arity int }{
 	"TenantList":                 {calls: 7, arity: 2},    // A44 A45 A46 A47 A51 A52 A54 (A48-A50 are refused before the store)
 	"TenantDetail":               {calls: 4, arity: 1},    // A55 A56 A58 A59 (A57's id is refused before the store)
 	"TenantPlaques":              {calls: 65, arity: 1},   // A60 A61 A63 A64 A65, A66a x 60 (A62's id and A66's read budget refuse before the store)
+	"OperatorAudit":              {calls: 6, arity: 1},    // A67 A68 A69 A73 A74 A76 (A70-A72 refuse before the store, A75 before the gate, A77 at the read budget)
 }
 
 // TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor -- THE CONTRACT (M10 OP-8; the
@@ -353,7 +361,7 @@ var harvestWant = map[string]struct{ calls, arity int }{
 // No member of the GROUPS G1-G17 (constants above) occurs, in any of the RENDERINGS
 // R1-R10 (renderings), on any of the SURFACES S1-S4 (leakSurfaces; S4 is the response
 // headers AT WriteHeader, the recorder's Result().Header -- Location among them), in any
-// of the 66 numbered ARMS A1-A66 below -- EXCEPT the DESIGNED EGRESS D1-D7, each of which
+// of the 77 numbered ARMS A1-A77 below -- EXCEPT the DESIGNED EGRESS D1-D7, each of which
 // is pinned the other way: the value IS on its surface in its arm. The groups are measured
 // against the CLOSED list neverLog (12 items, a pinned literal): every group of every item
 // has a member. G15 (the client address), G16 (a legal text posted to the operator's
@@ -361,7 +369,7 @@ var harvestWant = map[string]struct{ calls, arity int }{
 // its 8- and 4-character prefixes -- OP-11) are bound to no item -- the package's own
 // claims. The fake store's harvest -- session hashes, raw link tokens, digests,
 // envelopes, addresses, posted legal texts and search terms it was handed (the plaque
-// screen's session hashes too, OP-13) -- is searched
+// screen's and the audit log's session hashes too, OP-13 and OP-14) -- is searched
 // too (G5, G8, G12, G11, G13, G16, G17) and pinned method by method by COUNT and ARITY
 // (harvestWant), not by content. The read ticket is not searched: no value of it reaches
 // this package (neverLog's comment).
@@ -416,8 +424,12 @@ var harvestWant = map[string]struct{ calls, arity int }{
 //	A58 the overview fails · A59 the overview's session is refused · OP-13's plaque
 //	screen, on A20b's session: A60 a tenant's plaques · A61 an id no tenant has · A62 a
 //	malformed id · A63 the read fails · A64 the read's session is refused · A65 a store
-//	that answers for another tenant · and, on A30b's session from its own address, A66 the
-//	read budget (60 plaque reads, A66a, then the 61st)
+//	that answers for another tenant · OP-14's audit log, on A20b's session: A67 the audit
+//	log · A68 the log filtered to a kind · A69 its next page · A70 a kind refused · A71 a
+//	page out of range · A72 an oversized form · A73 the read fails · A74 the read's session
+//	is refused · A75 a cross-origin filter · A76 a kind and a page in the query string ·
+//	and, on A30b's session from its own address, A66 the read budget (60 plaque reads,
+//	A66a, then the 61st) and A77 the audit log past the same budget
 //
 // NOT CLAIMED, BY NAME: split or partial values; renderings not on the list (base32,
 // %X, a case-folded value, ...); what operatorauth's own types print (its
@@ -438,7 +450,7 @@ func TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor(t *testing.T) {
 		t.Fatal(err)
 	}
 	texts := newFakeTexts(store.fakeStore)
-	surface, err := operator.New(auth, store, store, store, texts, opHost, opBase, plog)
+	surface, err := operator.New(auth, store, store, store, store, texts, opHost, opBase, plog)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -814,6 +826,52 @@ func TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor(t *testing.T) {
 		!strings.Contains(results["A65 a store that answers for another tenant"].process, "plaques could not be read") {
 		t.Fatal("PREMISE: A60 is not the inventory, or A63/A65 wrote no fault line -- the arms are not the branches they name")
 	}
+	// OP-14's audit log on A20b's session ([T] a touch; [U] OperatorAudit). The fake's log
+	// holds rows naming the leak tenant, the account and a session, under the views' own.
+	auditAt := time.Date(2026, 9, 3, 8, 0, 0, 0, time.UTC)
+	leakSession, leakName, leakTenantName := uuid.New(), "FAKE Leak Operator", "FAKE Leak Tenant Ltd"
+	store.mu.Lock()
+	store.audit = append(store.audit,
+		db.OperatorAuditEntry{ID: uuid.New(), At: auditAt, Kind: "read", SessionID: &leakSession, ActorID: &id, ActorName: &leakName,
+			TargetTenantID: &leakTenant, TargetTenantName: &leakTenantName, Scope: ptr("tenant_plaques"), DetailRecognised: true},
+		db.OperatorAuditEntry{ID: uuid.New(), At: auditAt, Kind: "read", SessionID: &leakSession, ActorID: &id, ActorName: &leakName,
+			Scope: ptr("tenants"), PageNumber: ptr(int32(1)), PageSize: ptr(int32(50)), SearchClass: ptr("address"), DetailRecognised: true},
+		db.OperatorAuditEntry{ID: uuid.New(), At: auditAt, Kind: "login_failed", TargetAdminID: &id, TargetAdminName: &leakName,
+			DetailRecognised: true},
+		db.OperatorAuditEntry{ID: uuid.New(), At: auditAt, Kind: "read", SessionID: &leakSession, ActorID: &id, ActorName: &leakName,
+			DetailRecognised: false},
+	)
+	store.mu.Unlock()
+	auditForm := func(kind, page string) url.Values { return url.Values{"kind": {kind}, "page": {page}} }
+	get("A67 the audit log", "/operator/audit", live)                                                        // [T U1]
+	post("A68 the audit log filtered to a kind", "/operator/audit", auditForm("login", ""), live)            // [T U2]
+	post("A69 the audit log's next page", "/operator/audit", auditForm("", "2"), live)                       // [T U3]
+	post("A70 a kind refused", "/operator/audit", auditForm("zz_no_such_kind", ""), live)                    // [T]
+	post("A71 an audit page out of range", "/operator/audit", auditForm("", "1001"), live)                   // [T]
+	post("A72 an oversized audit form", "/operator/audit", auditForm(strings.Repeat("k", 20<<10), ""), live) // [T]
+	fail("OperatorAudit", errFakeDB)
+	post("A73 the audit read fails", "/operator/audit", auditForm("read", ""), live) // [T U4]
+	fail("OperatorAudit", db.ErrOperatorRefused)
+	get("A74 the audit read's session is refused", "/operator/audit", live) // [T U5]
+	fail("OperatorAudit", nil)
+	do("A75 a cross-origin audit filter", req{method: http.MethodPost, path: "/operator/audit", form: auditForm("login", ""),
+		origin: "https://taptime.mt", header: map[string]string{"Sec-Fetch-Site": "same-site"}, cookies: []*http.Cookie{live}})
+	get("A76 a kind and a page in the audit log's query string", "/operator/audit?kind=login&page=3", live) // [T U6]
+	for arm, want := range map[string]int{
+		"A67 the audit log": 200, "A68 the audit log filtered to a kind": 200, "A69 the audit log's next page": 200,
+		"A70 a kind refused": 400, "A71 an audit page out of range": 400, "A72 an oversized audit form": 413,
+		"A73 the audit read fails": 503, "A74 the audit read's session is refused": 303, "A75 a cross-origin audit filter": 403,
+		"A76 a kind and a page in the audit log's query string": 200,
+	} {
+		if got := results[arm].w.Code; got != want {
+			t.Fatalf("PREMISE: %s = %d, want %d -- the arm is not the branch it names", arm, got, want)
+		}
+	}
+	if !strings.Contains(results["A67 the audit log"].w.Body.String(), leakTenantName) ||
+		!strings.Contains(results["A67 the audit log"].w.Body.String(), "Detail not shown") ||
+		!strings.Contains(results["A73 the audit read fails"].process, "the audit log could not be read") {
+		t.Fatal("PREMISE: A67 is not the log's page, or A73 wrote no fault line -- the arms are not the branches they name")
+	}
 	do("A28 credentials in the query", req{method: http.MethodPost, // [E8 R7]: the empty body's empty address
 		path: "/operator/login?email=" + url.QueryEscape(email) + "&password=" + url.QueryEscape(queryPass), form: url.Values{}, origin: opOrigin})
 	get("A29 a link token in the query", "/operator/enroll?id="+pending.String()+"&token="+queryToken)
@@ -863,6 +921,13 @@ func TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor(t *testing.T) {
 		!strings.Contains(results["A66 the read budget"].process, "operator read budget reached") {
 		t.Fatalf("PREMISE: A66 was not refused by the read budget (%d)", results["A66 the read budget"].w.Code)
 	}
+	// A77: the audit log past the same session's read budget (OP-14) [T: 1] -- the budget is
+	// the session's, whichever screen spent it; the window's WARN was A66's.
+	do("A77 the audit log past the read budget", req{method: http.MethodGet, path: "/operator/audit",
+		cookies: []*http.Cookie{live3}, remote: remote4, header: map[string]string{"Sec-Fetch-Site": "same-origin"}})
+	if results["A77 the audit log past the read budget"].w.Code != http.StatusTooManyRequests {
+		t.Fatalf("PREMISE: A77 was not refused by the read budget (%d)", results["A77 the audit log past the read budget"].w.Code)
+	}
 	// The harvest, searched.
 	store.hmu.Lock()
 	for _, v := range store.got["OperatorByEmail"] {
@@ -897,6 +962,9 @@ func TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor(t *testing.T) {
 		set.add(gSessionHash, v[0])
 	}
 	for _, v := range store.got["TenantPlaques"] {
+		set.add(gSessionHash, v[0])
+	}
+	for _, v := range store.got["OperatorAudit"] {
 		set.add(gSessionHash, v[0])
 	}
 	// THE HARVEST PIN: count and arity, method by method.

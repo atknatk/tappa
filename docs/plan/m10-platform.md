@@ -8107,6 +8107,588 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 > `make gen` idempotent ve `internal/store` diff'i boş ✓ · `TestEveryNamedTestExists` ✓ (kart
 > eklenmiş kopyada, 60/60) · redline ✓ · gofmt/build/vet/staticcheck ✓.
 
+> **Kart düzeltmesi (2026-10-07, OP-14 B fazı — ekran, wiring ve okuma bütçesi — uygulaması sırasında).**
+> Taban `5a50b14` (dal `m10-a1` ucu; OP-14 A commit'li; dev DB goose 31); *3. turda* `d7775b7`'ye
+> taşındı (OP-12 A commit'li, 00032; dev DB goose 32 — 3. tur bölümü). Yazıldı:
+> `internal/handler/operator/audit.go` (yeni: `AuditStore`, `auditPageSize`, `auditLog`,
+> `filterAudit`, `readAudit`, `auditKind`, `auditPage`, `auditKindWords`, `auditScopeWords`,
+> `auditSearchWords`, `auditLogView`, `auditRow`, `auditKindWord`, `auditFilterWord`,
+> `closedWord`, `unknownWord`, `printableToken`, `visibleName`, `thousands`, `utcSecond`),
+> `routes.go` (iki rota konsolun grubunda; `pathAudit`; yorumlar), `surface.go` (`New(auth,
+> legalStore, tenantStore, plaqueStore, auditStore, texts, host, baseURL, log)`; `auditStore`
+> alanı; paket belgesi; `readLimit` ve `sessionLimit`'in OP-14 türetmesi — sayılar
+> değişmedi), `render.go` (dört sabit sayfa: `problemAuditFormTooLarge`,
+> `problemAuditKindRefused`, `problemAuditPageRefused`, `problemAuditUnreadable`);
+> `web/templates/operatorpages/audit.templ` (yeni: `AuditLog`, `auditList`, `auditRow`,
+> `auditKindWord`, `auditFact`, `auditPager`, `auditPageForm`), `view.go` (`AuditLogView`,
+> `AuditKindOption`, `AuditWord` + `Shown`, `AuditRow`, `factLabel`), `home.templ` (konsoldan
+> *"Audit log"* linki), `chrome.templ` (yorum); `internal/db/operatorpool.go`
+> (`OperatorAudit` yöntemi + yorumlar), `operator.go` (OP-14 bölümünün yorumu);
+> `cmd/tappa/operator.go` (`operatorStore` ∪ `operator.AuditStore`; `operator.New(auth, store,
+> store, store, store, texts, …)`). Testler: `internal/handler/operator/op14_test.go` (yeni, 12
+> test — 2. tur bir, 3. tur bir ekledi), `op14_db_test.go` (yeni, 2 PostgreSQL testi), `rig_test.go` (sahte store'un
+> `OperatorAudit`'i — görüntülemenin kendi `read` satırını günlüğün başına koyar, sayfa/boy
+> sınırını veritabanı gibi reddeder), `leak_test.go` (A67–A77, hasat), `export_test.go`,
+> `op8_test.go`, `op8r2_test.go`, `op8r5_test.go`, `typepins_test.go`, `surface_test.go`,
+> `op8_db_test.go`, `op10_db_test.go`; `internal/db/operatorpool_external_test.go`,
+> `operatorpool_test.go`, `operatoraudit_test.go`; `cmd/tappa/operator_test.go`. ADR 0021 →
+> "OP-14 B fazı eki" (+ Durum satırı, Sonuçlar); ADR 0020 §4 (*"Rotalar"*: `/operator/audit`'in
+> `GET`/`POST`'u + OP-14 notu) ve §9 (*"Ekranda"* hücresine OP-14 notu). **Migration YOK, DDL YOK,
+> bağımlılık YOK** (`go.mod`, `go.sum`, `sqlc.yaml`, `db/migrations` diff boş); `input.css`
+> değişmedi, derlenen `app.css` tabanla bayt-aynı (51 079 bayt, sha256 `bfeef499…`).
+> `internal/operatorauth/surface_external_test.go`: **orkestratörün mekanik yaması uygulandı**
+> (2. tur, orkestratör kararı) — iki parça: sahte `OperatorAudit` (`surfTenants`'a, tip
+> yorumunun bir satırıyla) ve `operator.New`'in yeni argümanı; paket derlenir, `go vet ./...` ve
+> staticcheck worktree'de temiz. Betik `scratchpad/op14b/operatorauth_patch.py <ağaç> --worktree`.
+> *(1. turda bu dosyaya dokunulmamıştı — o turun kısıtı; worktree'de vet/staticcheck yalnız o
+> paketin dış testinde kırmızıydı. Paralel OP-14 C aynı dosyaya dokunduğu için birleştirme
+> orkestratöründür.)*
+>
+> **Kararlar, ölçümüyle:**
+> 1. **Rotalar konsolun grubunda** (ADR 0020 §4; aynı zincir): `GET /operator/audit` her türün
+>    ilk sayfasıdır ve URL'den hiçbir şey okumaz; `POST /operator/audit` gövdede `kind` ve `page`
+>    taşır, sayfalayıcı iki form (gizli alanlarla); PRG yok — POST sayfayı 200 ile döner.
+>    Konsol linkler. Alt yollar ve `/operator/tenants/{id}/audit` (K14-5) yönlendiricinin kendi
+>    404'ü (`TestSurface_TheScreensOfLaterTasksAreNotMounted` artık `/operator/audit`'i değil
+>    `/operator/audit/`, `/operator/audit/x` ve `{id}/audit`'i sürer).
+> 2. **Sınır store'dan ve okuma bütçesinden ÖNCE:** `kind` `""` ya da `db.OperatorAuditKinds`'ın
+>    birebir üyesi (trim yok, harf büyüklüğü katlanmaz, `all` tür değildir); sayfa
+>    `1..db.MaxOperatorAuditPage` ondalık; gövde `maxFormBytes` üstü 413; okunamayan form 400.
+> 3. **Hatalar:** `ErrOperatorRefused` → 303; `ErrOperatorAuditFilterRefused` → 400 (ulaşılamaz);
+>    başka her hata → 503, log satırı tür + sayfa + hata (hash yok). A md. 16.2'nin *"22023 →
+>    500"* önerisi uygulanmadı: brief'in *"diğer hata → 503"* kuralı; 22023 sınır nedeniyle
+>    ulaşılamaz ve ayırmak handler'a `pgconn` importu demekti. Sahte store 22023'ü ayrı bir hata
+>    olarak taklit eder (`errFakePageRefused`): sınırı gevşeten mutasyon (M03, M04) 503'e düşer ve
+>    sınır testi kırmızıdır.
+> 4. **Ekran `screen` kabuğunda, başlık banner'ı yok** — ADR 0020 §9'un okunuşu ADR 0021 → "OP-14 B
+>    fazı eki" md. 4'te ve ADR 0020 §9 OP-14 notunda: görüntüleyici bir tenant'a girmez; satırın
+>    adlandırdığı her tenant satırda adıyla (`bdi`) ve genel bakış linkiyle; görünür adı
+>    olmayan *"Unnamed tenant"* + id (linkli); `tenants` satırı olmayan id *"A tenant id no
+>    tenant has"* + id (linksiz). Satır: zaman UTC saniye mono · türün sözcüğü · aktör (`bdi`) /
+>    *"Before sign-in"* / görünmez ad → id · hedef hesap · hedef tenant · kapsam · sayfa · arama
+>    sınıfı · filtre · `/legal/<slug>` + bayt · *"Detail not shown"* · oturum id'sinin ilk 8 hanesi.
+> 5. **Sözlükler kapalı ve fail-closed** (B2): tür 11 (K14-1: `password_ok` *"Password accepted,
+>    before the code"*), kapsam 6 (3. tur: 00032'nin `tenant_billing`'i *"a tenant's billing"*),
+>    sınıf 4, filtre `all` + 11, slug `legal.Slugs`. Bilinmeyen
+>    değer küçük harfli jeton ise ham + *"Unrecognised"* çipi, değilse yalnız çip. K14-6: hüküm
+>    sözcüğü yok. Pinler: `TestAuditWords_NameEveryKindAndNothingElse` (go/types),
+>    `TestE2E_AuditWordsCoverEveryScopeAndSearchClassTheDatabaseReturns` (katalog),
+>    `TestAuditWords_NameEveryScopeTheNewestMigrationReturns` (kapsamlar, veritabanısız: migration
+>    metnindeki en yeni `op_read_audit` tanımı — 3. tur).
+>
+>    | Tür | Sözcük |
+>    |---|---|
+>    | `login_failed` | Sign-in refused: wrong password |
+>    | `unknown_email` | Sign-in refused: no active account with that address |
+>    | `totp_failed` | Code refused |
+>    | `locked` | Account locked after wrong codes |
+>    | `enrollment_failed` | Setup link refused |
+>    | `password_ok` | Password accepted, before the code |
+>    | `login` | Signed in |
+>    | `enrollment` | Set up and signed in |
+>    | `logout` | Signed out |
+>    | `read` | Read (+ *"Of"* kapsam: the legal texts · the tenant list · a tenant's overview · a tenant's plaques · this audit log · a tenant's billing) |
+>    | `legal_publish` | Legal text published |
+>
+> 6. **B4 — `pending` ve `disabled` hesapların adları görünür**, bilerek: tanımlayıcı BYPASSRLS ile
+>    okur; görüntüleme audit'lidir. E2E: iki hesabın adresiyle yapılan giriş denemelerinin
+>    `unknown_email` satırları iki hesabı adıyla gösterir, adresler hiçbir sayfada yok. ADR 0021 →
+>    "OP-14 B fazı eki" md. 6 (sınır L7).
+> 7. **K14-4 — boy 50, üst sınır 1000; ekranın erişimi 50 000:** veritabanı 200'e kadar kabul
+>    eder (L14: tür başına 200 000), ekran 50 kullanır → filtre başına en yeni **50 000** satır.
+>    Ölçüldü (`TestAuditScreen_PagesForwardOnlyAfterAFullPage`). ADR 0021 → "OP-14 B fazı eki"
+>    md. 7 (L14'e işaret eder, L14'ün metni değişmedi).
+> 8. **Bütçe** (aşağıda "Bütçe aritmetiği").
+> 9. **Wiring:** `operator.New`'e ayrı `AuditStore` yuvası (OP-11 B karar 10'un kalıbı) — beşinci
+>    argüman; `texts` `arg5`.
+> 10. **Kontrast ve marka:** yeni renk, yeni zemin, yeni sınıf yok; ink/paper 16,17 · ink %70/paper
+>     6,05 · tanınmayan çip 13,27 · tappa-green/paper 7,73 · tappa-green/porcelain 6,85 ·
+>     paper/tappa-green 7,73 (`TestAuditScreen_TheTextClearsAA`); çipin `input.css` kuralı aynı
+>     testte. `app.css` tabanla bayt-aynı: yorumlardan doğan kural yok.
+>
+> **Bütçe aritmetiği (OP-13 B → OP-14 B devri).** Her görüntüleme — `GET` ve her `POST` —
+> `readLimit`'e bir birim (`spendRead`, retlerden sonra, store'dan önce), `sessionGate`'te
+> `sessionLimit`'e bir birim:
+>
+>     okuma (readLimit):   destek penceresi (OP-13 B)                          ~30 / 10 dk
+>                          audit inceleme: 1 ilk sayfa + ~4 filtre + ~10 eski
+>                          sayfa + bir destek vakası (~5)                      ~20 / 10 dk
+>                          x 2, büyüğe                                          → 60 (değişmedi)
+>                          karışık (her vakadan sonra 2 audit okuması)          ~38 → pay 1,58
+>     istek (sessionLimit): destek ~40 → 2,5 · audit ~28 → 3,6 · karışık ~48 → 2,08 → 100 (değişmedi)
+>
+> **Model bir tahmindir**, kullanım ölçümü değildir; OP-11'in yürüyüşü (pay 1,33) en dar kalır.
+> **Bedeli — çalınmış çerez:** pencere başına en çok 60 audit sayfası (3 000 audit satırı), her
+> biri bir `read` satırı. Ölçüldü: `TestAuditBudget_EachViewIsOneReadOfTheSessionsSharedBudget`
+> (30 plaket + 15 `GET` + 15 `POST` = 60 × 200, 30 `OperatorAudit`; 61. `GET` ve `POST` 429 —
+> yüklem +1, store +0, oturum açık biçim; 38 konsol 200, 101. istek 429; ikinci oturumda 20 ret —
+> tür, 0/1001 sayfa, 413, okunamayan form — okuma harcamaz, ardından 60 × 200 ve 61. 429).
+>
+> **OP-14 A md. 16'nın devirleri — karşılıkları:**
+> 1. ✓ `*OperatorDB.OperatorAudit` (`return OperatorAudit(ctx, o.pool, …)`); tüketici arayüzü
+>    `operator.AuditStore`; `TestOperatorDB_EveryMethodDelegatesVerbatim` 12 → 13;
+>    `TestOperatorDB_HasNoTenantDoorAndNoRawSQLDoor` öncülü 13 → 14;
+>    `TestOperatorDB_IsTheStoreAndNothingMore` kümesi beş arayüzden;
+>    `TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator` store'un TAM beş kullanımı, `texts`
+>    `arg5`. `TestOperatorAudit_OnThePoolTheTwoPhasesAreTwoTransactions` yöntemin kendisiyle
+>    genişletildi (1. turda bir `login` filtresiyle; 2. turda `read` filtresi ve boş olmayan sayfa
+>    öncülü — fikstür oturumu `login` satırı yazmadan açar; koşu başına bu test 2 → 3 `read`
+>    satırı).
+> 2. ✓ Sınır (karar 2, 3); boy handler sabiti 50; filtre ve sayfa POST gövdesinde.
+> 3. ✓ Ekran (karar 4, 5); `Kind` ham döner, sözlük kapalı; `DetailRecognised = false` →
+>    *"Detail not shown"*; `Scope` `nil` olan okuma → *"Of a scope this screen does not show"*;
+>    adlar `bdi`; oturum id'si kısaltılmış; zaman UTC'de render'da.
+> 4. ✓ *"İlk satır kendi satırım"* bir sıra iddiasıdır: ekran onu varsaymaz; E2E onu *"önündeki her
+>    satır daha geç tarihli"* biçiminde ölçer (bu koşuda 50 satırın 1.'si).
+> 5. ✓ `pending`/`disabled` adları — karar 6.
+> 6. ✓ Bütçe — OP-13 B'den beri *"okuma iki birim"* şu demektir: bir oturum birimi + bir okuma
+>    birimi; türetme yukarıda.
+>
+> **Kabul (B fazı):**
+> 1. Ekran yalnız `op_read_audit` üzerinden okur ve görüntüleme başına tam bir `operator_audit`
+>    `read` satırı + bir tüketilmiş bilet ✓ — `TestE2E_AuditScreenReadsTheLogThroughTheDefinerAndAuditsEachView`
+>    (dört görüntüleme ve planlanmış canlı oturumunki: beş satır, beş `operator_audit` bileti,
+>    tüketilmemiş 0; satırların `detail`'i `{"filter": "all"}` / `{"filter": "login"}`, sayfa
+>    1/50).
+> 2. İlk satır görüntülemenin kendi `read` satırı ✓ (sıra biçiminde; karşılık 4); `login` satırı
+>    operatörün adıyla ✓; OP-11 araması sınıfıyla (*"Searched by name"*) ve terim hiçbir sayfada,
+>    hiçbir audit satırında, hiçbir log satırında yok ✓; filtre `read` → yalnız okumalar ✓;
+>    ölü oturumlar (MFA'sız, iptal, 31 dk boşta) `GET` ve `POST`'ta 303 ve satırsız ✓ — hepsi aynı
+>    E2E.
+> 3. Sızıntı sözleşmesi ✓ — `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` (A67–A77;
+>    hasat `OperatorAudit` 6 × 1, `TouchOperatorSession` 198 → 208),
+>    `TestAuditScreen_NoCredentialFieldReachesThePage` (beş tipin alan listesi; çerez, hash,
+>    adres, TOTP kodu, tam oturum id'si üç görüntülemede 0; CONTROL), E2E'nin 6. adımı (çerez,
+>    hash, tam oturum id'si, TOTP kodu, arama sözcüğü, üç adres beş sayfada 0).
+> 4. Başlık sınıfları ✓ — `TestOperatorHeaders_TheAuditClassesCarryThePolicy` (C104–C121: GET
+>    200 · POST 200 · tür reddi 400 · sayfa reddi 400 · 413 · okunamayan form 400 · ölü çerez 303
+>    · oturumu reddedilen okuma 303 · store hatası 503 · okuma bütçesi 429 · çapraz-origin POST
+>    403 · PUT 405 · same-site okuma 303 · çerezsiz 303), diğer host 404 —
+>    `TestHostGate_OperatorRoutesAnswerTheRoutersOwn404OnEveryOtherHost` (yollara
+>    `/operator/audit`); `classRoutes`, `designedHeaders`, `hostileDrive` (yol + sorguda `kind`),
+>    `TestOperatorHeaders_TheWalkedRoutesEachHaveAClass` (10 rota / 16 çift / C1–C121).
+> 5. Ekran ✓ — `TestAuditScreen_EveryRowSaysWhatTheLogHolds`, `TestAuditWords_NameEveryKindAndNothingElse`,
+>    `TestAuditScreen_EscapesWhatOperatorsAndTenantsNamed`, `TestAuditScreen_PagesForwardOnlyAfterAFullPage`,
+>    `TestAuditScreen_ReadsNothingFromTheURL`, `TestAuditScreen_TheBoundaryRefusesBeforeTheStore`.
+> 6. Bütçe ✓ — yukarıda. Kontrast ✓ — karar 10. Konsol linki ✓ —
+>    `TestOperatorScreens_EveryActionAndLinkIsAMountedRoute`'un CONTROL'ü.
+>
+> **Pin değişiklikleri ve gerekçeleri (hiçbiri daraltılmadı):**
+> - `TestSurface_TheScreensOfLaterTasksAreNotMounted`: `/operator/audit` çıktı (monte edildi);
+>   yerine `/operator/audit/`, `/operator/audit/x` ve `/operator/tenants/{id}/audit` — yine
+>   yönlendiricinin kendi 404 baytları.
+> - `TestOperatorScreens_EveryOneWearsTheOperatorChrome` 25/16 → 30/21;
+>   `TestOperatorScreens_EveryActionAndLinkIsAMountedRoute` 30 render, CONTROL konsol → audit,
+>   audit satırı → genel bakış, filtre + sayfalayıcı → `/operator/audit`;
+>   `TestOperatorPages_TheExportedScreensAreTheOnesScreensRenders` on → on bir.
+> - `TestOperatorHeaders_TheWalkedRoutesEachHaveAClass` 9/14 → 10/16; `classCount` 103 → 121.
+> - `TestHostGate_OperatorRoutesAnswerTheRoutersOwn404OnEveryOtherHost` yollarına `/operator/audit`.
+> - `TestSurface_NewRefusesWhatAConfiguredSurfaceNeeds` *"no audit store"* kolu.
+> - `TestFormValues_TheListedSitesAloneRevealOrReadTheForm` FV5: `filterAudit`'te `.Get("kind")`
+>   ve `.Get("page")` birer kez (başka yerde `r.PostForm` hâlâ yasak).
+> - `hostileQuery`'ye `kind` (`qry_hostile_kind`): her sınıfın son isteği URL'de bir tür taşır.
+> - `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`: A67–A77, hasat.
+> - `TestOperatorDB_*` üçlüsü, wiring pini, havuz testi (devir 1).
+>
+> **Güvenlik iddiası** ADR 0021 → "OP-14 B fazı eki" sonunda üç parçalı (tehdit modeli cümlesi,
+> PART I ölçen testler ve onları kıran mutasyonlar, PART II pinler, PART III tek cümle).
+>
+> **Mutasyonlar (1. tur)** (betik `scratchpad/op14b/verify_round1.py`; kopya `scratchpad/op14b/op14b-orch/tree`, yolunda `op14b-orch` geçmeyen ya da kaynak, worktree veya depoyla örtüşen kopya ve `.git`'li kopya reddedilir; kopyaya `internal/operatorauth` yaması uygulanır (worktree'ye değil); TABAN önce koşulur ve beş seçimin beşi yeşil olmalıdır; her çapa tam bir kez geçmeli, yoksa NOT-APPLIED; `.templ` mutasyonunda `templ generate -f`; mutasyonlanan paketlerde `go vet` — derlenmeyen BUILD-FAILED, kırmızı sayılmaz; seçimler: operator paketinin tamamı veritabanısız, iki PostgreSQL testi, wiring pini, havuzun üç pini; her dosya bayt bayt geri yazılır ve sha256 ile doğrulanır; `.env` yalnız `set -a; . …; set +a` ile; kayıt `run_final.txt` ve `verify_round1.results.jsonl`). Ağacın parmak izi koşudan önce ve sonra aynı (`d34c2d93…`). **41 tanım: 41 KIRMIZI, 0 BUILD-FAILED, 0 YEŞİL.** Kategoriler: kapı M01–M04, M33, M34 · 413 M05 · filtrenin URL'den okunması M06–M08 · ölü oturum M09, M41 · oturum hash'i ve tam oturum id'si M10, M26, M27 · bütçe M11–M13 · etiket haritası fail-closed M14–M21, M38 · `bdi`/kaçış ve adlar M22–M25 · zaman ve sayfalayıcı M28–M31 · konsol linki M32 · sorun sayfaları ve wiring M35–M37 · kontrast M42 · uçtan uca M39.
+>
+> | # | Mutasyon | Sonuç (kırmızıya çeviren testler; seçim) |
+> |---|---|---|
+> | M01 | auditKind accepts any kind | KIRMIZI — operator — paket, veritabanısız: `TestAuditBudget_EachViewIsOneReadOfTheSessionsSharedBudget`, `TestAuditScreen_TheBoundaryRefusesBeforeTheStore`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestOperatorHeaders_TheAuditClassesCarryThePolicy` |
+> | M02 | auditKind trims one leading space | KIRMIZI — operator — paket, veritabanısız: `TestAuditScreen_TheBoundaryRefusesBeforeTheStore` |
+> | M03 | auditPage accepts page 1001 | KIRMIZI — operator — paket, veritabanısız: `TestAuditBudget_EachViewIsOneReadOfTheSessionsSharedBudget`, `TestAuditScreen_TheBoundaryRefusesBeforeTheStore`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestOperatorHeaders_TheAuditClassesCarryThePolicy` |
+> | M04 | auditPage accepts page 0 | KIRMIZI — operator — paket, veritabanısız: `TestAuditBudget_EachViewIsOneReadOfTheSessionsSharedBudget`, `TestAuditScreen_TheBoundaryRefusesBeforeTheStore` |
+> | M33 | the audit routes are not mounted | KIRMIZI — operator — paket, veritabanısız: `TestAuditBudget_EachViewIsOneReadOfTheSessionsSharedBudget`, `TestAuditScreen_EscapesWhatOperatorsAndTenantsNamed`, `TestAuditScreen_EveryRowSaysWhatTheLogHolds`, `TestAuditScreen_NoCredentialFieldReachesThePage`, `TestAuditScreen_PagesForwardOnlyAfterAFullPage`, `TestAuditScreen_ReadsNothingFromTheURL`, `TestAuditScreen_TheBoundaryRefusesBeforeTheStore`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestOperatorHeaders_TheAuditClassesCarryThePolicy`, `TestOperatorHeaders_TheWalkedRoutesEachHaveAClass`, `TestSurface_ThePrefixIsTheRoutersPrefix` |
+> | M34 | the audit routes are mounted in the sign-in group (no requireOperator, no sessionGate) | KIRMIZI — operator — paket, veritabanısız: `TestAuditBudget_EachViewIsOneReadOfTheSessionsSharedBudget`, `TestAuditScreen_EscapesWhatOperatorsAndTenantsNamed`, `TestAuditScreen_EveryRowSaysWhatTheLogHolds`, `TestAuditScreen_NoCredentialFieldReachesThePage`, `TestAuditScreen_PagesForwardOnlyAfterAFullPage`, `TestAuditScreen_ReadsNothingFromTheURL`, `TestAuditScreen_TheBoundaryRefusesBeforeTheStore`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestOperatorHeaders_TheAuditClassesCarryThePolicy` |
+> | M05 | the audit form's body bound is 1 MiB, not maxFormBytes | KIRMIZI — operator — paket, veritabanısız: `TestAuditBudget_EachViewIsOneReadOfTheSessionsSharedBudget`, `TestAuditScreen_TheBoundaryRefusesBeforeTheStore`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestOperatorHeaders_TheAuditClassesCarryThePolicy` |
+> | M06 | the POST reads the kind from the URL | KIRMIZI — operator — paket, veritabanısız: `TestAuditBudget_EachViewIsOneReadOfTheSessionsSharedBudget`, `TestAuditScreen_PagesForwardOnlyAfterAFullPage`, `TestAuditScreen_ReadsNothingFromTheURL`, `TestAuditScreen_TheBoundaryRefusesBeforeTheStore`, `TestFormValues_TheListedSitesAloneRevealOrReadTheForm`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestOperatorHeaders_TheAuditClassesCarryThePolicy` |
+> | M07 | the GET reads the kind from the URL | KIRMIZI — operator — paket, veritabanısız: `TestAuditScreen_ReadsNothingFromTheURL`, `TestFormValues_TheListedSitesAloneRevealOrReadTheForm`, `TestOperatorHeaders_TheAuditClassesCarryThePolicy` |
+> | M08 | the POST reads the page through FormValue (the URL included) | KIRMIZI — operator — paket, veritabanısız: `TestAuditScreen_ReadsNothingFromTheURL`, `TestFormValues_TheListedSitesAloneRevealOrReadTheForm` |
+> | M09 | the read's refused session answered 503, not the sign-in | KIRMIZI — operator — paket, veritabanısız: `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestOperatorHeaders_TheAuditClassesCarryThePolicy` |
+> | M41 | the read's refused session answered 200 with an empty page | KIRMIZI — operator — paket, veritabanısız: `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestOperatorHeaders_TheAuditClassesCarryThePolicy` |
+> | M10 | the read fault's log line carries the session hash | KIRMIZI — operator — paket, veritabanısız: `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` |
+> | M27 | the viewing session's hash rendered on the page (the docket's heading) | KIRMIZI — operator — paket, veritabanısız: `TestAuditScreen_NoCredentialFieldReachesThePage`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` |
+> | M26 | a row's whole session id, not its first eight digits | KIRMIZI — operator — paket, veritabanısız: `TestAuditScreen_EveryRowSaysWhatTheLogHolds`, `TestAuditScreen_NoCredentialFieldReachesThePage` |
+> | M11 | a view does not charge the read budget (spendRead skipped) | KIRMIZI — operator — paket, veritabanısız: `TestAuditBudget_EachViewIsOneReadOfTheSessionsSharedBudget`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestOperatorHeaders_TheAuditClassesCarryThePolicy` |
+> | M12 | the read unit charged before the form refusals | KIRMIZI — operator — paket, veritabanısız: `TestAuditBudget_EachViewIsOneReadOfTheSessionsSharedBudget` |
+> | M13 | a view charges the session budget's second unit instead of the read budget | KIRMIZI — operator — paket, veritabanısız: `TestAuditBudget_EachViewIsOneReadOfTheSessionsSharedBudget`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestOperatorHeaders_TheAuditClassesCarryThePolicy` |
+> | M14 | an unknown kind read as a known one ("Read") | KIRMIZI — operator — paket, veritabanısız: `TestAuditScreen_EveryRowSaysWhatTheLogHolds`, `TestAuditWords_NameEveryKindAndNothingElse` |
+> | M15 | password_ok has no word | KIRMIZI — operator — paket, veritabanısız: `TestAuditScreen_EveryRowSaysWhatTheLogHolds`, `TestAuditWords_NameEveryKindAndNothingElse` · operator `TestE2E_AuditWordsCoverEveryScopeAndSearchClassTheDatabaseReturns` (PostgreSQL): `TestE2E_AuditWordsCoverEveryScopeAndSearchClassTheDatabaseReturns` |
+> | M16 | an unknown value printed raw whatever its shape | KIRMIZI — operator — paket, veritabanısız: `TestAuditScreen_EveryRowSaysWhatTheLogHolds`, `TestAuditWords_NameEveryKindAndNothingElse` |
+> | M17 | printableToken admits capitals | KIRMIZI — operator — paket, veritabanısız: `TestAuditWords_NameEveryKindAndNothingElse` |
+> | M18 | closedWord reads an unknown scope, class or filter as known text | KIRMIZI — operator — paket, veritabanısız: `TestAuditScreen_EveryRowSaysWhatTheLogHolds` |
+> | M19 | the operator_audit scope has no word | KIRMIZI — operator — paket, veritabanısız: `TestAuditScreen_EveryRowSaysWhatTheLogHolds` · operator `TestE2E_AuditWordsCoverEveryScopeAndSearchClassTheDatabaseReturns` (PostgreSQL): `TestE2E_AuditWordsCoverEveryScopeAndSearchClassTheDatabaseReturns` |
+> | M38 | the unrecognised chip dropped from a fact's unknown value | KIRMIZI — operator — paket, veritabanısız: `TestAuditScreen_EveryRowSaysWhatTheLogHolds` |
+> | M20 | a detail the log did not recognise is not said | KIRMIZI — operator — paket, veritabanısız: `TestAuditScreen_EveryRowSaysWhatTheLogHolds`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` |
+> | M21 | a read whose scope the log did not return is not said | KIRMIZI — operator — paket, veritabanısız: `TestAuditScreen_EveryRowSaysWhatTheLogHolds` |
+> | M22 | the operator's name outside a bdi element | KIRMIZI — operator — paket, veritabanısız: `TestAuditScreen_EscapesWhatOperatorsAndTenantsNamed`, `TestAuditScreen_EveryRowSaysWhatTheLogHolds` |
+> | M23 | the tenant's name written raw (templ.Raw) | KIRMIZI — operator — paket, veritabanısız: `TestAuditScreen_EscapesWhatOperatorsAndTenantsNamed`, `TestAuditScreen_EveryRowSaysWhatTheLogHolds` |
+> | M24 | a name with no visible character printed as a name | KIRMIZI — operator — paket, veritabanısız: `TestAuditScreen_EveryRowSaysWhatTheLogHolds` |
+> | M25 | an id no tenant has linked as an unnamed tenant | KIRMIZI — operator — paket, veritabanısız: `TestAuditScreen_EveryRowSaysWhatTheLogHolds` |
+> | M28 | a time printed in its stored zone (no UTC) | KIRMIZI — operator — paket, veritabanısız: `TestAuditScreen_EveryRowSaysWhatTheLogHolds` |
+> | M29 | a time printed to the minute | KIRMIZI — operator — paket, veritabanısız: `TestAuditScreen_EveryRowSaysWhatTheLogHolds` · operator `TestE2E_AuditScreenReadsTheLogThroughTheDefinerAndAuditsEachView` (PostgreSQL): `TestE2E_AuditScreenReadsTheLogThroughTheDefinerAndAuditsEachView` |
+> | M30 | Next offered past page 1000 | KIRMIZI — operator — paket, veritabanısız: `TestAuditScreen_PagesForwardOnlyAfterAFullPage` |
+> | M31 | the page size is 200, not the tenant list's 50 | KIRMIZI — operator — paket, veritabanısız: `TestAuditScreen_EveryRowSaysWhatTheLogHolds`, `TestAuditScreen_PagesForwardOnlyAfterAFullPage`, `TestAuditScreen_TheBoundaryRefusesBeforeTheStore` |
+> | M32 | the console's link to the audit log removed | KIRMIZI — operator — paket, veritabanısız: `TestOperatorScreens_EveryActionAndLinkIsAMountedRoute` |
+> | M35 | problemAuditUnreadable left out of problemPages | KIRMIZI — operator — paket, veritabanısız: `TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo` |
+> | M36 | the wiring hands the audit slot the pool under another name | KIRMIZI — cmd/tappa `TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator`: `TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator` |
+> | M37 | *OperatorDB.OperatorAudit does more than delegate (forces the page size) | KIRMIZI — internal/db, havuzun üç pini: `TestOperatorDB_EveryMethodDelegatesVerbatim` |
+> | M42 | the unrecognised chip's rule takes the line tone (not the ink frame on ink at 10%) | KIRMIZI — operator — paket, veritabanısız: `TestAuditScreen_TheTextClearsAA`, `TestPlaqueScreen_EachChipHasTheRuleTheContrastTestComputes` |
+> | M39 | a view reads the log twice (a second OperatorAudit after a good one) | KIRMIZI — operator `TestE2E_AuditScreenReadsTheLogThroughTheDefinerAndAuditsEachView` (PostgreSQL): `TestE2E_AuditScreenReadsTheLogThroughTheDefinerAndAuditsEachView` · operator — paket, veritabanısız: `TestAuditBudget_EachViewIsOneReadOfTheSessionsSharedBudget`, `TestAuditScreen_EveryRowSaysWhatTheLogHolds`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` |
+>
+> **Kaçış denemeleri** (her biri bir testte; sonuç parantezde): (E1) `GET
+> /operator/audit?kind=login&page=3` (store her tür, sayfa 1 — URL testi) · (E2) URL'de tür/sayfa,
+> gövde boş `POST` (her tür, sayfa 1) · (E3) URL'de login/3, gövdede read/2 (read/2) · (E4) dokuz
+> tür: bilinmeyen, `LOGIN`, `Login`, `" login"`, `"login "`, `all`, SQL, NUL, sondaki satır sonu
+> (400, store 0) · (E5) on bir sayfa: `0`, `-1`, `+2`, `" 2"`, `"2 "`, `1.5`, `1e3`, `1001`,
+> `99999`, `abc`, tam genişlik rakam (400, store 0) · (E6) 16 KiB gövde (413), `kind=%zz` (400) ·
+> (E7) `PUT` (405, store 0 — C121) · (E8) çapraz-origin `POST` (403, store 0 — C113) · (E9)
+> same-site `GET` (303 — C107) · (E10) ölü çerez (303 + çerez silinir — C106) · (E11) okuma bütçesi
+> (429, store 0 — C110, C120, bütçe testi, A77) · (E12) aktör, hesap ve tenant adında
+> `</bdi></a><script>…`, sağdan-sola override (kaçışlı, `bdi` içinde, `<script` 0) · (E13)
+> `Bad Kind<i>` türü (basılmaz, yalnız çip) · (E14) bilinmeyen tür, kapsam, sınıf, filtre, slug
+> (ham + çip) · (E15) görünmez operatör, hesap ve tenant adı (id'li yer tutucu) · (E16) hiçbir
+> tenant'ın taşımadığı id (linksiz) · (E17) PostgreSQL'de ölü oturumlar — MFA'sız, iptal, 31 dk
+> boşta (303, satır 0 — E2E) · (E18) bekleyen ve devre dışı hesap (adıyla — E2E) · (E19) başka
+> host (yönlendiricinin 404'ü) · (E20) `/operator/audit/`, `/operator/audit/x`,
+> `/operator/tenants/{id}/audit` (yönlendiricinin 404'ü) · (E21) 15 düşmanca başlık + düşmanca
+> sorgu (yansıma yok — C104–C121) · (E22) 50 120 satırlı türde sayfa 1000 (dolu, *"Next"* yok) ·
+> (E23) yeniden yükleme: `POST`'un cevabı `no-store`; yeniden gönderim bir okuma ve bir `read`
+> satırı daha (E2E görüntüleme başına bir satır).
+>
+> **Sayılı sınırlar (OP-14 B):**
+> - **LB1** — *"İlk satır kendi satırım"* bir sıra iddiasıdır (L1, L2): ekran varsaymaz; E2E onu
+>   önde biçiminde ölçer.
+> - **LB2** — Ekranın erişimi filtre başına en yeni 50 000 satır (karar 7); L14'ün kötüye kullanım
+>   yolu ekranda dört kat kısa.
+> - **LB3** — `display_name` ve tenant adı serbest metindir: bir sahip `display_name`'e bir adres
+>   yazarsa ekran onu ad olarak basar. Sızıntı sözleşmesi ekranın adresi başka bir kaynaktan
+>   getirmediğini ölçer, adın içeriğini değil. *(2. tur, öneri — bulgu değil:)* `cmd/opadmin`'in
+>   `validDisplayName`'i `@`'ye izin veriyor; ileride `@`'yi reddetmek ucuz bir kalkandır.
+> - **LB4** — Küçük harfli jeton biçimindeki tanınmayan değer ham basılır. Kapalı kümelerin (tür
+>   CHECK'i; `op_read_audit`'in listeleri) dışında bir değerin bu sütunlara girmesi o kümelerin
+>   ihlalidir; ekran onu jeton biçimindeyse gösterir, değilse göstermez.
+> - **LB5** — `POST`'un yeniden yüklenmesi (tarayıcı sorar) bir okuma ve bir `read` satırı daha
+>   (OP-11 kalıbı).
+> - **LB6** — `HEAD /operator/audit` 405'tir (chi `HEAD`'i `GET`'e yönlendirmez; LP10'un aynısı);
+>   bu rotada sürülmedi, sınıfı `PUT`'tur.
+> - **LB7** — Oturum id'sinin ilk 8 hanesi bir ipucudur, kimlik değil: iki oturumun önekleri çift
+>   başına 2^-32 olasılıkla çakışır.
+> - **LB8** — Adlar okuma anınındır: adı değişmiş bir hesap ya da tenant eski satırda bugünkü
+>   adıyla görünür (append-only günlük ad saklamaz).
+> - **LB9** — 22023 → 503 (karar 3).
+> - **LB10** — E2E paylaşılan geliştirme veritabanının en yeni sayfalarını okur: testin `login`,
+>   `read` ve `unknown_email` satırlarının kendi türlerinin en yeni 50'si içinde olduğu varsayılır.
+>   `go test ./...`'da paralel paketler birkaç saniyede bir türden 50'den fazla satır yazarsa test
+>   kırmızıya döner (yanlış yeşil değil, kararsızlık).
+> - **LB11** — Sahte store görüntülemenin kendi satırını günlüğün başına koyar; veritabanındaki
+>   sıra A fazının (`TestOpReadAudit_NewestFirstAndTheViewersOwnRowLeads`) ve E2E'nin ölçümüdür.
+> - **LB12** — E2E'nin kalıcı satırları (aşağıda).
+> - **LB13** — *(2. tur)* `internal/operatorauth/surface_external_test.go`'ya orkestratörün mekanik
+>   yaması uygulandı (iki parça: sahte `OperatorAudit` + `operator.New`'in yeni argümanı; paket
+>   derlenir). Paralel OP-14 C ile aynı dosyanın birleştirmesi orkestratöründür (devir 1).
+>
+> **Kalıcı test verisi (koşu başına, yapı gereği; append-only tablolar ve onlara bağlı yabancı
+> anahtarlar):** `TestE2E_AuditScreenReadsTheLogThroughTheDefinerAndAuditsEachView` — üç operatör
+> hesabı (`op10b-…`, bekleyen `op14b-p-…`, devre dışı `op14b-d-…`; temizlikte üçü de `disabled`),
+> beş oturum (temizlikte iptal), login, logout, iki `unknown_email`, bir `tenants` ve beş
+> `operator_audit` `read` satırı; biletler temizlikte silinir; `tenants`'a ve `tags`'e satır yazılmaz.
+> Katalog testi salt-okuma işlemde koşar, yazmaz. internal/db havuz testi 2 → 3 `read` satırı.
+> **Ölçüm** (dev, 2026-10-07, owner, salt-okuma; E2E'nin tek koşusu çevresinde): `op14b` hesabı
+> 12 → 14, `op10b` hesabı 212 → 213 (aktif 0 → 0, `op14b` `disabled` olmayan 0 → 0), oturum +5
+> (iptal edilmemiş 0 → 0), audit satırı +10 (`operator_audit` okuması +5, `tenants` okuması +1,
+> `unknown_email` +2, login +1, logout +1), bilet 0 → 0, `tenants` +0, `tags` +0. Bu görevin
+> koşuları E2E'yi sekiz kez koştu (ilk koşu, iki iptal edilmiş/eski mutasyon tabanı, son mutasyon
+> koşusunun tabanı + M29 + M39, ölçüm koşusu, zincir) — her biri yukarıdaki satırları bıraktı.
+> ⚠️ **Gözlem (bu fazın değil):** aynı sayımda geliştirme veritabanında **4 commit edilmiş
+> `password_ok` satırı** vardı — yazıcısı OP-14 C'dir, B hiçbir `password_ok` satırı yazmaz. A'nın
+> L9'u / md. 17.3'ü: `TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain` bu satırlarla
+> kırmızıdır (zincirde ölçüldü, aşağıda).
+>
+> **Doğrulama — zincir, 1. tur** (2026-10-07; kod parmak izi `d34c2d93…` — mutasyon koşusundan önce ve
+> sonra aynı; sonra yalnız ADR 0021'in metni değişti, son parmak izi `450ab908…`):
+> - `gofmt -s -l` (go1.27.1'in ve go1.26.7'nin gofmt'u) boş; `go build ./...` exit 0; `make gen` iki
+>   kez — parmak izi öncesi ve iki koşudan sonra aynı (`d34c2d93…`); `go.mod`, `go.sum`,
+>   `sqlc.yaml`, `db/migrations` diff 0 satır; `./scripts/redline-check.sh` (worktree) exit 0.
+> - `go vet ./...` ve staticcheck (`GOTOOLCHAIN=go1.26.7`, `2025.1.1`) worktree'de **yalnız**
+>   `internal/operatorauth`'un dış test yapısında kırmızı (*"not enough arguments in call to
+>   operator.New"* — devir 1); yama uygulanmış worktree'siz kopyada (`op14b-orch/chain`) ikisi de
+>   exit 0 ve çıktısız. İlk staticcheck koşusu `op14_test.go`'daki üç çıplak biçim karakterini
+>   (U+2060, U+200B, U+202E) ST1018 ile yakaladı — kaçışa çevrildi, mutasyon koşusundan önce.
+> - `TestEveryNamedTestExists` worktree'de ve bu kart worktree'siz kopyada `m10-platform.md`'nin
+>   "## 4. Akış B" başlığından önce eklenerek — ikisinde de *"60 live, 60 budgeted"*, PASS;
+>   `./internal/handler -run TestComments_` kopyada ve worktree'de PASS;
+>   `TestTablesLock_IsTakenOncePerTestTree` PASS (`internal/handler/operator`'da `newE2E`'ye
+>   ulaşan 11 → 12 test).
+> - `.env`'li `-race -count=1 -v` (dev DB goose 31): `./internal/handler/operator` 105 üst düzey
+>   PASS (iki yeni PostgreSQL testi dahil), 0 FAIL, 0 SKIP · `./internal/db` (`-run` deseni brief'teki
+>   gibi: `Test`+`Operator`, `Test`+`OpRead`, `Test`+`OpBeginRead` önekleri — alt çizgisiz önek
+>   kartta bitişik yazılmaz, `TestEveryNamedTestExists` onu var olmayan bir test sayar) 99 PASS, **1 FAIL —
+>   `TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain`** (*"00027 Up again: check
+>   constraint operator_audit_log_kind_check … 23514"*): geliştirme veritabanındaki OP-14 C
+>   `password_ok` satırları, A'nın L9'u — bu fazın değil (orkestratör de öyle bildirdi);
+>   `TestOperator00031_*` ve `TestOperatorAudit_OnThePoolTheTwoPhasesAreTwoTransactions` PASS ·
+>   `./cmd/tappa` (`Test`+`Operator`, `Test`+`Surface` önekleri) 3 PASS · `./cmd/tappa` tamamı worktree'de
+>   123 PASS, 0 FAIL (worktree'siz kopyada 120 PASS; `.git` olmadığı için VCS damgası okuyan üç
+>   test kırmızı — `TestPackaging_TheArtifactKnowsWhatItWasBuiltFrom`,
+>   `TestArtifact_ServesFromAnEmptyWorkingDirectory`, `TestArtifact_SaysWhatItIsEVENWhenTheBootFails`:
+>   araç, T87 sınıfı) — DATA RACE 0.
+> - ⚠️ **00032 (OP-12 A) dev DB'ye uygulanınca** bilet tür CHECK'i ve `op_read_audit`'in kapsam
+>   listesi `tenant_billing`'i taşır ve `TestE2E_AuditWordsCoverEveryScopeAndSearchClassTheDatabaseReturns`
+>   dev DB'de **tasarım gereği kırmızıdır** — ekran sözlüğü fail-closed kalır (orkestratörün
+>   talimatı: sözcüğü OP-12 B ekler); o arada ekran OP-12 okumalarını *"Unrecognised"* çipiyle ve ham
+>   `tenant_billing` ile gösterir. Bu zincir 00032'den önce (goose 31) koşuldu.
+>
+> **2. tur (2026-10-07; üçüncü gözün RED'i — kodda ve markada bloklayan sorun yok, tek bloklayan
+> bulgu metin).** Taban yine `5a50b14`, worktree aynı. Bulgular ve karşılıkları:
+> - **0 (orkestratör kararı) ✓** — `operatorauth_patch.py` worktree'ye uygulandı: üç hunk, iki parça
+>   (sahte `OperatorAudit` — tip yorumunun bir satırıyla — ve `operator.New`'in yeni argümanı).
+>   Değişen tek `internal/operatorauth` dosyası `surface_external_test.go`.
+> - **1 [ORTA, bloklayan] ✓** — ADR 0021 B eki md. 9 ve LB13, kartın başlık paragrafı, LB13 ve devir 1:
+>   *"orkestratörün mekanik yaması uygulandı (iki parça …); paket derlenir"*.
+> - **2 ✓** — `printableToken`'ın yorumu ve ADR md. 5: biçim `target_scope` CHECK'inin biçimi
+>   (00026: `^[a-z][a-z_]{0,62}$`, rakamsız) **artı rakam**; gerekçe bir cümle: ileride adında
+>   sayı taşıyan bir kapalı küme üyesi (sürümlü bir tür) kendisi olarak basılsın, rakam
+>   işaretleme, boşluk ya da yön değiştirici taşımaz. Kod değişmedi (yalnız yorum).
+> - **3 ✓** — `TestAuditScreen_WearsTheDocketAnatomy` (yeni): tek `<section class="docket"
+>   aria-labelledby="audit-list">` ve 50 satırın hepsi içinde; başlık `docket-label`, sayfa
+>   numarası mono; seçici `op-input`; sayfalayıcının iki düğmesi `op-link`; `input.css`'te
+>   `.op-input` ve `.op-link`'in `min-h-11`'i (44 px). E17, E19, E20, E25, E26 ve iki ek
+>   mutasyon (M44, M45: 44 px kuralı düşer) KIRMIZI.
+> - **4 ✓** — `TestAuditWords_NameEveryKindAndNothingElse`'e `a-b`, `9abc`, `_abc` (jeton değil:
+>   yalnız çip) ve kontrol olarak `a9_b` (jeton). E03, E04 KIRMIZI.
+> - **5 ✓** — kapı testinin sayfa ret listesine `18446744073709551621` (400; uzunluk kalkanı
+>   olmadan 64 bit taşıp sayfa 5 okunurdu). E02 KIRMIZI.
+> - **6 ✓** — `TestOperatorAudit_OnThePoolTheTwoPhasesAreTwoTransactions`: döngünün öncülü
+>   (`len(rows) > 0`) ve görüntülemenin kendi satırının sayfada olması. Filtre `login`'den `read`'e
+>   alındı: fikstür oturumu `op_open_session` olmadan açar ve temiz bir veritabanında hiç `login`
+>   satırı olmayabilir — öncül eklenince orada kırmızıya dönerdi; `read` satırlarını testin
+>   kendisi commit eder.
+> - **7 ✓** — tanınmayan arama sınıfı *"Search:"* etiketiyle çizilir (ham değerle, basılamazsa
+>   yalnız çiple); tanınan sınıf etiketsiz (*"Searched by name"* kendini söyler).
+>   `TestAuditScreen_EveryRowSaysWhatTheLogHolds`: yirmi beş satır (yeni: basılamaz bir sınıf),
+>   yedi çip, sayfada *"Search:"* tam iki kez, bilinen sınıfın satırında yok. Kontrast: etiket
+>   renk sınıfı taşımaz, ink/paper 16,17 (`TestAuditScreen_TheTextClearsAA`'nın kapsamı, yorumu
+>   bunu söyler). `app.css` yeniden derlendi: tabanla bayt-aynı (51 079 bayt, `bfeef499…`);
+>   şablon yorumunda utility sınıf adı yok. M43 (etiket kalkar) KIRMIZI.
+> - **8 (not) ✓** — LB3'e öneri: `cmd/opadmin`'in `validDisplayName`'i `@`'ye izin veriyor;
+>   ileride `@`'yi reddetmek ucuz bir kalkan. Kod değişmedi.
+>
+> **Kanıt — 1. turun ağacına karşı değişenler** (`op14b-orch/tree`, 1. turun son ağacı, kod parmak
+> izi `d34c2d93…`): ürün `audit.go` (yalnız `printableToken`'ın yorumu — yorum dışı satır farkı 0),
+> `audit.templ` (arama olgusunun bir dalı + yorum) ve üretilen `audit_templ.go`; testler
+> `op14_test.go`, `internal/db/operatoraudit_test.go`; metin ADR 0021. `internal/operatorauth` yaması
+> 1. turun kopyasında da uygulanmıştı (betik kopyaya uygular), worktree'de 2. turda.
+>
+> **Mutasyonlar (2. tur)** — betik `scratchpad/op14b/verify_round2.py` (`verify_round1.py`'nin
+> kuralları: yalnız yolunda `op14b-orch` geçen, kaynak/worktree/depoyla örtüşmeyen, `.git`'siz kopya
+> — `scratchpad/op14b/op14b-orch/tree2`; TABAN önce, dört seçimin dördü yeşil; her çapa tam bir kez;
+> `.templ` mutasyonunda `templ generate -f`; derlenmeyen BUILD-FAILED ayrı; sha256 ile geri yükleme;
+> `.env` yalnız `set -a; . …; set +a`). Geliştirme veritabanı goose 32 olduğu için katalog testi
+> (`TestE2E_AuditWordsCoverEveryScopeAndSearchClassTheDatabaseReturns`) seçimlerden çıkarıldı — orada
+> tasarım gereği kırmızıdır (`tenant_billing`), tabanı yeşil olamazdı; M15 ve M19 paket seçimiyle
+> ölçüldü. Ağacın parmak izi koşudan önce ve sonra aynı (`111209b2…`); geri yükleme 52/52 sha256 eşit.
+> **52 tanım: 52 KIRMIZI, 0 BUILD-FAILED, 0 YEŞİL.** Kayıt `run_round2.txt`.
+>
+> | # | Mutasyon | Sonuç (kırmızıya çeviren testler; seçim) |
+> |---|---|---|
+> | M01 | auditKind accepts any kind | KIRMIZI — paket, veritabanısız: `TestAuditBudget_EachViewIsOneReadOfTheSessionsSharedBudget`, `TestAuditScreen_TheBoundaryRefusesBeforeTheStore`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestOperatorHeaders_TheAuditClassesCarryThePolicy` |
+> | M02 | auditKind trims one leading space | KIRMIZI — paket, veritabanısız: `TestAuditScreen_TheBoundaryRefusesBeforeTheStore` |
+> | M03 | auditPage accepts page 1001 | KIRMIZI — paket, veritabanısız: `TestAuditBudget_EachViewIsOneReadOfTheSessionsSharedBudget`, `TestAuditScreen_TheBoundaryRefusesBeforeTheStore`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestOperatorHeaders_TheAuditClassesCarryThePolicy` |
+> | M04 | auditPage accepts page 0 | KIRMIZI — paket, veritabanısız: `TestAuditBudget_EachViewIsOneReadOfTheSessionsSharedBudget`, `TestAuditScreen_TheBoundaryRefusesBeforeTheStore` |
+> | M33 | the audit routes are not mounted | KIRMIZI — paket, veritabanısız: `TestAuditBudget_EachViewIsOneReadOfTheSessionsSharedBudget`, `TestAuditScreen_EscapesWhatOperatorsAndTenantsNamed`, `TestAuditScreen_EveryRowSaysWhatTheLogHolds`, `TestAuditScreen_NoCredentialFieldReachesThePage`, `TestAuditScreen_PagesForwardOnlyAfterAFullPage`, `TestAuditScreen_ReadsNothingFromTheURL`, `TestAuditScreen_TheBoundaryRefusesBeforeTheStore`, `TestAuditScreen_WearsTheDocketAnatomy`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestOperatorHeaders_TheAuditClassesCarryThePolicy`, `TestOperatorHeaders_TheWalkedRoutesEachHaveAClass`, `TestSurface_ThePrefixIsTheRoutersPrefix` |
+> | M34 | the audit routes are mounted in the sign-in group (no requireOperator, no sessionGate) | KIRMIZI — paket, veritabanısız: `TestAuditBudget_EachViewIsOneReadOfTheSessionsSharedBudget`, `TestAuditScreen_EscapesWhatOperatorsAndTenantsNamed`, `TestAuditScreen_EveryRowSaysWhatTheLogHolds`, `TestAuditScreen_NoCredentialFieldReachesThePage`, `TestAuditScreen_PagesForwardOnlyAfterAFullPage`, `TestAuditScreen_ReadsNothingFromTheURL`, `TestAuditScreen_TheBoundaryRefusesBeforeTheStore`, `TestAuditScreen_WearsTheDocketAnatomy`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestOperatorHeaders_TheAuditClassesCarryThePolicy` |
+> | M05 | the audit form's body bound is 1 MiB, not maxFormBytes | KIRMIZI — paket, veritabanısız: `TestAuditBudget_EachViewIsOneReadOfTheSessionsSharedBudget`, `TestAuditScreen_TheBoundaryRefusesBeforeTheStore`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestOperatorHeaders_TheAuditClassesCarryThePolicy` |
+> | M06 | the POST reads the kind from the URL | KIRMIZI — paket, veritabanısız: `TestAuditBudget_EachViewIsOneReadOfTheSessionsSharedBudget`, `TestAuditScreen_PagesForwardOnlyAfterAFullPage`, `TestAuditScreen_ReadsNothingFromTheURL`, `TestAuditScreen_TheBoundaryRefusesBeforeTheStore`, `TestAuditScreen_WearsTheDocketAnatomy`, `TestFormValues_TheListedSitesAloneRevealOrReadTheForm`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestOperatorHeaders_TheAuditClassesCarryThePolicy` |
+> | M07 | the GET reads the kind from the URL | KIRMIZI — paket, veritabanısız: `TestAuditScreen_ReadsNothingFromTheURL`, `TestFormValues_TheListedSitesAloneRevealOrReadTheForm`, `TestOperatorHeaders_TheAuditClassesCarryThePolicy` |
+> | M08 | the POST reads the page through FormValue (the URL included) | KIRMIZI — paket, veritabanısız: `TestAuditScreen_ReadsNothingFromTheURL`, `TestFormValues_TheListedSitesAloneRevealOrReadTheForm` |
+> | M09 | the read's refused session answered 503, not the sign-in | KIRMIZI — paket, veritabanısız: `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestOperatorHeaders_TheAuditClassesCarryThePolicy` |
+> | M41 | the read's refused session answered 200 with an empty page | KIRMIZI — paket, veritabanısız: `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestOperatorHeaders_TheAuditClassesCarryThePolicy` |
+> | M10 | the read fault's log line carries the session hash | KIRMIZI — paket, veritabanısız: `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` |
+> | M27 | the viewing session's hash rendered on the page (the docket's heading) | KIRMIZI — paket, veritabanısız: `TestAuditScreen_NoCredentialFieldReachesThePage`, `TestAuditScreen_WearsTheDocketAnatomy`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` |
+> | M26 | a row's whole session id, not its first eight digits | KIRMIZI — paket, veritabanısız: `TestAuditScreen_EveryRowSaysWhatTheLogHolds`, `TestAuditScreen_NoCredentialFieldReachesThePage` |
+> | M11 | a view does not charge the read budget (spendRead skipped) | KIRMIZI — paket, veritabanısız: `TestAuditBudget_EachViewIsOneReadOfTheSessionsSharedBudget`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestOperatorHeaders_TheAuditClassesCarryThePolicy` |
+> | M12 | the read unit charged before the form refusals | KIRMIZI — paket, veritabanısız: `TestAuditBudget_EachViewIsOneReadOfTheSessionsSharedBudget` |
+> | M13 | a view charges the session budget's second unit instead of the read budget | KIRMIZI — paket, veritabanısız: `TestAuditBudget_EachViewIsOneReadOfTheSessionsSharedBudget`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestOperatorHeaders_TheAuditClassesCarryThePolicy` |
+> | M14 | an unknown kind read as a known one ("Read") | KIRMIZI — paket, veritabanısız: `TestAuditScreen_EveryRowSaysWhatTheLogHolds`, `TestAuditWords_NameEveryKindAndNothingElse` |
+> | M15 | password_ok has no word | KIRMIZI — paket, veritabanısız: `TestAuditScreen_EveryRowSaysWhatTheLogHolds`, `TestAuditWords_NameEveryKindAndNothingElse` |
+> | M16 | an unknown value printed raw whatever its shape | KIRMIZI — paket, veritabanısız: `TestAuditScreen_EveryRowSaysWhatTheLogHolds`, `TestAuditWords_NameEveryKindAndNothingElse` |
+> | M17 | printableToken admits capitals | KIRMIZI — paket, veritabanısız: `TestAuditWords_NameEveryKindAndNothingElse` |
+> | M18 | closedWord reads an unknown scope, class or filter as known text | KIRMIZI — paket, veritabanısız: `TestAuditScreen_EveryRowSaysWhatTheLogHolds` |
+> | M19 | the operator_audit scope has no word | KIRMIZI — paket, veritabanısız: `TestAuditScreen_EveryRowSaysWhatTheLogHolds` |
+> | M38 | the unrecognised chip dropped from a fact's unknown value | KIRMIZI — paket, veritabanısız: `TestAuditScreen_EveryRowSaysWhatTheLogHolds` |
+> | M20 | a detail the log did not recognise is not said | KIRMIZI — paket, veritabanısız: `TestAuditScreen_EveryRowSaysWhatTheLogHolds`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` |
+> | M21 | a read whose scope the log did not return is not said | KIRMIZI — paket, veritabanısız: `TestAuditScreen_EveryRowSaysWhatTheLogHolds` |
+> | M22 | the operator's name outside a bdi element | KIRMIZI — paket, veritabanısız: `TestAuditScreen_EscapesWhatOperatorsAndTenantsNamed`, `TestAuditScreen_EveryRowSaysWhatTheLogHolds` |
+> | M23 | the tenant's name written raw (templ.Raw) | KIRMIZI — paket, veritabanısız: `TestAuditScreen_EscapesWhatOperatorsAndTenantsNamed`, `TestAuditScreen_EveryRowSaysWhatTheLogHolds` |
+> | M24 | a name with no visible character printed as a name | KIRMIZI — paket, veritabanısız: `TestAuditScreen_EveryRowSaysWhatTheLogHolds` |
+> | M25 | an id no tenant has linked as an unnamed tenant | KIRMIZI — paket, veritabanısız: `TestAuditScreen_EveryRowSaysWhatTheLogHolds` |
+> | M28 | a time printed in its stored zone (no UTC) | KIRMIZI — paket, veritabanısız: `TestAuditScreen_EveryRowSaysWhatTheLogHolds` |
+> | M29 | a time printed to the minute | KIRMIZI — paket, veritabanısız: `TestAuditScreen_EveryRowSaysWhatTheLogHolds` · E2E (PostgreSQL): `TestE2E_AuditScreenReadsTheLogThroughTheDefinerAndAuditsEachView` |
+> | M30 | Next offered past page 1000 | KIRMIZI — paket, veritabanısız: `TestAuditScreen_PagesForwardOnlyAfterAFullPage` |
+> | M31 | the page size is 200, not the tenant list's 50 | KIRMIZI — paket, veritabanısız: `TestAuditScreen_EveryRowSaysWhatTheLogHolds`, `TestAuditScreen_PagesForwardOnlyAfterAFullPage`, `TestAuditScreen_TheBoundaryRefusesBeforeTheStore`, `TestAuditScreen_WearsTheDocketAnatomy` |
+> | M32 | the console's link to the audit log removed | KIRMIZI — paket, veritabanısız: `TestOperatorScreens_EveryActionAndLinkIsAMountedRoute` |
+> | M35 | problemAuditUnreadable left out of problemPages | KIRMIZI — paket, veritabanısız: `TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo` |
+> | M36 | the wiring hands the audit slot the pool under another name | KIRMIZI — cmd/tappa wiring pini: `TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator` |
+> | M37 | *OperatorDB.OperatorAudit does more than delegate (forces the page size) | KIRMIZI — internal/db, havuzun üç pini: `TestOperatorDB_EveryMethodDelegatesVerbatim` |
+> | M42 | the unrecognised chip's rule takes the line tone (not the ink frame on ink at 10%) | KIRMIZI — paket, veritabanısız: `TestAuditScreen_TheTextClearsAA`, `TestPlaqueScreen_EachChipHasTheRuleTheContrastTestComputes` |
+> | E02 | auditPage's length guard removed (20 digits wrap a 64-bit int) | KIRMIZI — paket, veritabanısız: `TestAuditScreen_TheBoundaryRefusesBeforeTheStore` |
+> | E03 | printableToken admits a hyphen | KIRMIZI — paket, veritabanısız: `TestAuditWords_NameEveryKindAndNothingElse` |
+> | E04 | printableToken's first character is free | KIRMIZI — paket, veritabanısız: `TestAuditWords_NameEveryKindAndNothingElse` |
+> | E17 | the entries in an op-card, not the docket | KIRMIZI — paket, veritabanısız: `TestAuditScreen_WearsTheDocketAnatomy` |
+> | E19 | the pager's buttons lose op-link | KIRMIZI — paket, veritabanısız: `TestAuditScreen_WearsTheDocketAnatomy` |
+> | E20 | the docket's heading is not a docket label | KIRMIZI — paket, veritabanısız: `TestAuditScreen_WearsTheDocketAnatomy` |
+> | E25 | the kind filter loses op-input | KIRMIZI — paket, veritabanısız: `TestAuditScreen_WearsTheDocketAnatomy` |
+> | E26 | the heading's page number is not in the data face | KIRMIZI — paket, veritabanısız: `TestAuditScreen_WearsTheDocketAnatomy` |
+> | M43 | an unknown search class loses its "Search:" label | KIRMIZI — paket, veritabanısız: `TestAuditScreen_EveryRowSaysWhatTheLogHolds` |
+> | M44 | op-input's 44 px rule dropped (min-h-11) | KIRMIZI — paket, veritabanısız: `TestAuditScreen_WearsTheDocketAnatomy` |
+> | M45 | op-link's 44 px rule dropped (min-h-11) | KIRMIZI — paket, veritabanısız: `TestAuditScreen_WearsTheDocketAnatomy` |
+> | M39 | a view reads the log twice (a second OperatorAudit after a good one) | KIRMIZI — E2E (PostgreSQL): `TestE2E_AuditScreenReadsTheLogThroughTheDefinerAndAuditsEachView` · paket, veritabanısız: `TestAuditBudget_EachViewIsOneReadOfTheSessionsSharedBudget`, `TestAuditScreen_EveryRowSaysWhatTheLogHolds`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` |
+>
+> **Doğrulama — zincir, 2. tur** (worktree, 2026-10-07; mutasyon koşusundan önce ve sonra parmak izi
+> `111209b2…`; sonra yalnız ADR 0021'in PART I/II metni değişti, son parmak izi `9280f6a2…`):
+> - `gofmt -s -l` (go1.27.1'in ve go1.26.7'nin gofmt'u) boş; `go build ./...`, `go vet ./...` ve
+>   staticcheck (`GOTOOLCHAIN=go1.26.7`, `2025.1.1`) **worktree'de** exit 0 ve çıktısız (yama
+>   uygulandı); `make gen` iki kez — parmak izi öncesi ve iki koşudan sonra aynı (`111209b2…`);
+>   `./scripts/redline-check.sh` exit 0; `go.mod`, `go.sum`, `sqlc.yaml`, `db/migrations` diff 0.
+> - `TestEveryNamedTestExists` worktree'de ve bu kart (2. tur bölümüyle) worktree'siz kopyada
+>   `m10-platform.md`'nin "## 4. Akış B" başlığından önce eklenerek — ikisinde de *"60 live, 60
+>   budgeted"*, PASS; `./internal/handler -run TestComments_` kopyada ve worktree'de PASS.
+> - `.env`'li `-race -count=1 -v` (dev DB **goose 32**): `./internal/handler/operator` 105 üst düzey
+>   PASS, **1 FAIL — `TestE2E_AuditWordsCoverEveryScopeAndSearchClassTheDatabaseReturns`**
+>   (*"the ticket CHECK names […, tenant_billing, …]"*): 00032'nin `tenant_billing`'i, tasarım
+>   gereği — sözlük fail-closed kalır, sözcüğü OP-12 B ekler (orkestratörün talimatı) ·
+>   `./internal/operatorauth` 50 PASS (yamalı dış test dahil) · `./internal/db` (`Test`+`OperatorAudit`
+>   ve `Test`+`OperatorPool` önekleri; ikincisine uyan test yok) 4 PASS — DATA RACE 0.
+> - Mutasyon koşusu (yukarıda) aynı kod ağacının kopyasında: 52/52 KIRMIZI.
+>
+> **3. tur (2026-10-07; güvenlik denetimi ONAY — orkestratörün dört küçük maddesi).** Kısıtlar
+> aynı; DDL yok, commit yok.
+> - **A — rebase ✓** Taban `5a50b14` → `d7775b7` (OP-12 A commit'i; 00032 dalda). Yöntem: izlenen
+>   değişikliklerin diff'i ve beş izlenmeyen dosya (sha256'larıyla) scratchpad'e; `git checkout -B
+>   <dal> d7775b7`; `git apply -3`. 28 dosyadan 27'si temiz uygulandı; tek çakışma ADR 0021 (Durum
+>   satırı, OP-14 notunun sonu ile OP-12 notunun başı, Sonuçlar). Çözüm betikle
+>   (`round3/merge_adr.py`): `git show d7775b7:<ADR>`'nin üstüne B'nin üç hunk'ı çapayla eklendi —
+>   Durum'da OP-12 A paragrafından sonra; B eki OP-14 notunun PART III'ünden sonra, "## OP-12
+>   uygulama notu"ndan önce (B eki OP-14 notunundur); Sonuçlar'da OP-14 maddesinin tek satırı (OP-12
+>   maddesi altında aynen). Beş izlenmeyen dosya sha256 eşit geri kondu; `make gen` fark üretmedi.
+>   **Kanıt** (`round3/rebase_proof.py --same`, rebase anında, 3. turun düzenlemelerinden önce):
+>   izlenen 28 dosyanın her birinde `git diff -U0 d7775b7`'nin eklediği satırlar çıkarılıp sildiği
+>   satırlar geri konunca sonuç `git show d7775b7:<dosya>` ile **bayt-aynı (28/28)** ve d7775b7'ye
+>   karşı +/− satır dizisi 2. turun `5a50b14`'e karşı dizisiyle **aynı (28/28)** — B'nin hiçbir
+>   satırı değişmedi, OP-12 A'nın hiçbir baytı kaybolmadı. Rebase sonrası, 3. tur düzenlemelerinden
+>   önce parmak izi `4d58e187…`. Aynı betik turun sonunda yalnız birinci soruyla koşuldu (zincirde).
+>   Rebase'in yorum sonucu: `surface.go`'nun "WHAT IT SERVES" paragrafı ve
+>   `TestSurface_TheScreensOfLaterTasksAreNotMounted`'ın yorumu faturalama ekranına *"00031'e
+>   kadarki migration'ların sahip olmadığı bir tanımlayıcı"* diyordu; 00032 dalda olduğundan
+>   *"tanımlayıcısı (`op_read_tenant_billing`) 00032 ile geldi, ekran OP-12'nin B fazı"* oldu —
+>   yalnız yorum, davranış değil.
+> - **B — `tenant_billing` ✓** Sözcük *"a tenant's billing"* (satırda *"Of a tenant's billing"*;
+>   *"a tenant's plaques"*, *"a tenant's overview"*'ın kalıbı). Sözlük kapalı ve fail-closed kalır.
+>   Pinler: `TestE2E_AuditWordsCoverEveryScopeAndSearchClassTheDatabaseReturns` goose 32'de **yeşil**
+>   (kapsam sözlüğü = bilet tür CHECK'i = `op_read_audit`'in listesi, altısı); yeni veritabanısız pin
+>   `TestAuditWords_NameEveryScopeTheNewestMigrationReturns` — kapsam sözlüğü = `db/migrations`'ta
+>   `op_read_audit`'i yaratan ya da değiştiren son migration'ın (bugün 00032) Up yarısındaki tanımın
+>   `CASE WHEN s.target_scope IN (…)` listesi, yani OP-12 A'nın listesi (Down yarısı 00031'in eski
+>   tanımını taşıdığı için okunmaz); `TestAuditScreen_EveryRowSaysWhatTheLogHolds` yirmi altı günlük
+>   satırı (yeni: `tenant_billing` satırı — adlı tenant linkli, sayfa 2 / 12, çipsiz). M46 (sözcük
+>   kalkar) dördünde de KIRMIZI. `app.css` d7775b7'nin ağacından ve bu ağaçtan aynı yolla derlendi:
+>   bayt-aynı (51 079 bayt, `bfeef499…`).
+> - **C — ✓** `TestAuditWords_NameEveryKindAndNothingElse`'e `"z\u202e"` ve `"z\u00e9"` (Go
+>   kaçışıyla — ST1018): jeton değil, yalnız çip (`{Unknown: true}`). X10 (`printableToken` ASCII
+>   dışı her baytı kabul eder) KIRMIZI. Kod değişmedi (yalnız test).
+> - **D — devir 7 ve 8** (aşağıda, birer madde); `docs/backlog.md`'ye dokunulmadı.
+> - Mutasyon betiğinin yardımcısında bir hata düzeltildi: `operatorauth_patch.py` *"zaten
+>   uygulanmış mı"* sorusunu çapa sorusundan sonra soruyordu; yaması uygulanmış bir ağaçta (worktree
+>   2. turdan beri öyle) `OperatorAudit` yöntemini ikinci kez ekliyordu (yeni metin eski metni
+>   kapsıyor). Artık önce soruyor ve uygulanmışsa dosyaya yazmıyor; `tree3`'teki dosya worktree'yle
+>   bayt-aynı.
+>
+> **Mutasyonlar (3. tur)** — betik `scratchpad/op14b/verify_round3.py` (`verify_round2.py`'nin
+> makinesi aynen: yalnız yolunda `op14b-orch` geçen, kaynak/worktree/depoyla örtüşmeyen, `.git`'siz
+> kopya — `scratchpad/op14b/op14b-orch/tree3`, worktree'nin bu turki ağacından; her çapa tam bir kez;
+> `.templ` mutasyonunda `templ generate -f`; derlenmeyen BUILD-FAILED ayrı; sha256 ile geri yükleme;
+> `.env` yalnız `set -a; . …; set +a`). TABAN beş seçimin beşi yeşil — katalog testi
+> (`TestE2E_AuditWordsCoverEveryScopeAndSearchClassTheDatabaseReturns`, goose 32) **tabanda yeniden**.
+> Tanımlar: M46 ve X10 bu turun; E02, E03, E04, E17, E19, E20, E25, E26, M43, M44, M45 2. turun,
+> çapaları değişmeden. Ağacın parmak izi koşudan önce ve sonra aynı (`318ddaa3…`); geri yükleme
+> 13/13 sha256 eşit. **13 tanım: 13 KIRMIZI, 0 BUILD-FAILED, 0 YEŞİL.** Kayıt
+> `run_round3.txt`, `verify_round3.results.jsonl`.
+>
+> | # | Mutasyon | Sonuç (kırmızıya çeviren testler; seçim) |
+> |---|---|---|
+> | M46 | the tenant_billing scope has no word | KIRMIZI — paket, veritabanısız: `TestAuditScreen_EveryRowSaysWhatTheLogHolds`, `TestAuditWords_NameEveryScopeTheNewestMigrationReturns` · `TestAuditWords_NameEveryScopeTheNewestMigrationReturns` tek başına: `TestAuditWords_NameEveryScopeTheNewestMigrationReturns` · `TestAuditScreen_EveryRowSaysWhatTheLogHolds` tek başına: `TestAuditScreen_EveryRowSaysWhatTheLogHolds` · E2E (PostgreSQL): `TestE2E_AuditWordsCoverEveryScopeAndSearchClassTheDatabaseReturns` |
+> | X10 | printableToken accepts every byte past ASCII | KIRMIZI — paket, veritabanısız: `TestAuditWords_NameEveryKindAndNothingElse` · `TestAuditWords_NameEveryKindAndNothingElse` tek başına: `TestAuditWords_NameEveryKindAndNothingElse` |
+> | E02 | auditPage's length guard removed (20 digits wrap a 64-bit int) | KIRMIZI — paket, veritabanısız: `TestAuditScreen_TheBoundaryRefusesBeforeTheStore` |
+> | E03 | printableToken admits a hyphen | KIRMIZI — paket, veritabanısız: `TestAuditWords_NameEveryKindAndNothingElse` |
+> | E04 | printableToken's first character is free | KIRMIZI — paket, veritabanısız: `TestAuditWords_NameEveryKindAndNothingElse` |
+> | E17 | the entries in an op-card, not the docket | KIRMIZI — paket, veritabanısız: `TestAuditScreen_WearsTheDocketAnatomy` |
+> | E19 | the pager's buttons lose op-link | KIRMIZI — paket, veritabanısız: `TestAuditScreen_WearsTheDocketAnatomy` |
+> | E20 | the docket's heading is not a docket label | KIRMIZI — paket, veritabanısız: `TestAuditScreen_WearsTheDocketAnatomy` |
+> | E25 | the kind filter loses op-input | KIRMIZI — paket, veritabanısız: `TestAuditScreen_WearsTheDocketAnatomy` |
+> | E26 | the heading's page number is not in the data face | KIRMIZI — paket, veritabanısız: `TestAuditScreen_WearsTheDocketAnatomy` |
+> | M43 | an unknown search class loses its "Search:" label | KIRMIZI — paket, veritabanısız: `TestAuditScreen_EveryRowSaysWhatTheLogHolds` |
+> | M44 | op-input's 44 px rule dropped (min-h-11) | KIRMIZI — paket, veritabanısız: `TestAuditScreen_WearsTheDocketAnatomy` |
+> | M45 | op-link's 44 px rule dropped (min-h-11) | KIRMIZI — paket, veritabanısız: `TestAuditScreen_WearsTheDocketAnatomy` |
+>
+> **Doğrulama — zincir, 3. tur** (worktree, taban `d7775b7`, 2026-10-07; parmak izi mutasyon
+> koşusundan önce ve sonra ve zincir boyunca `318ddaa3…`):
+> - `gofmt -s -l` (go1.27.1'in ve go1.26.7'nin gofmt'u) boş; `go build ./...`, `go vet ./...` ve
+>   staticcheck (`GOTOOLCHAIN=go1.26.7`, `2025.1.1`) worktree'de exit 0 ve çıktısız; `make gen` iki
+>   kez — parmak izi öncesi ve sonrası aynı; `./scripts/redline-check.sh` exit 0; `go.mod`, `go.sum`,
+>   `sqlc.yaml`, `db/migrations` HEAD'e karşı diff 0, `db/` altında izlenmeyen dosya 0; korunan
+>   belgeler (`state.md`, `roadmap.md`, `backlog.md`, `open-questions.md`, `agent-brief.md`,
+>   `CLAUDE.md`, `m10-platform.md`) HEAD'e karşı diff 0.
+> - `TestEveryNamedTestExists` worktree'de ve bu kart (3. tur bölümüyle) worktree'siz kopyada
+>   (`op14b-orch/chain`) `m10-platform.md`'nin "## 4. Akış B" başlığından önce eklenerek — ikisinde
+>   de *"dangling citations: 60 live, 60 budgeted"*, PASS; `./internal/handler -run TestComments_`
+>   kopyada ve worktree'de PASS.
+> - `.env`'li `-race -count=1 -v` (dev DB **goose 32**): `./internal/handler/operator` **107 üst
+>   düzey PASS, 0 FAIL** (2. turun 105'i + yeşile dönen katalog testi + yeni kapsam pini) ·
+>   `./internal/operatorauth` 50 PASS · `./internal/db` (`Test`+`OperatorAudit` ve `Test`+`OpReadAudit`
+>   önekleri) 12 PASS (`TestOperatorAudit_OnThePoolTheTwoPhasesAreTwoTransactions` dahil) — FAIL 0,
+>   SKIP 0, DATA RACE 0.
+> - Rebase kanıtı turun sonunda yeniden (`round3/rebase_proof.py`, birinci soru): izlenen 28 dosyanın
+>   28'inde B'nin satırları çıkarılınca `git show d7775b7:<dosya>` ile bayt-aynı.
+> - Mutasyon koşusu (yukarıda) aynı ağacın kopyasında: 13/13 KIRMIZI.
+>
+> **Devirler:**
+> 1. **Orkestratöre — birleştirme, `internal/operatorauth/surface_external_test.go`:** *(2. tur)*
+>    orkestratörün mekanik yaması bu worktree'ye uygulandı: `surfTenants`'a
+>    `OperatorAudit(context.Context, string, db.OperatorAuditQuery) ([]db.OperatorAuditEntry, error)`
+>    (ret, tip yorumunun bir satırıyla) ve `operator.New` çağrısına bir argüman (`surfTenants{}`
+>    dördüncü ile beşinci arasına); paket derlenir. Paralel OP-14 C aynı dosyaya dokunuyor;
+>    birleştirmeyi orkestratör yapar (betik: `scratchpad/op14b/operatorauth_patch.py`).
+> 2. **OP-12 (faturalama):** *(3. tur)* `tenant_billing`'in sözcüğü (*"a tenant's billing"*)
+>    orkestratörün 3. tur kararıyla bu kartta eklendi (önceki *"OP-12 B ekler"* kararının yerini
+>    alır); `TestE2E_AuditWordsCoverEveryScopeAndSearchClassTheDatabaseReturns` goose 32'de yeşil.
+>    OP-12 B'nin ekranı `spendRead` öder ve `readLimit` türetmesine satır ekler;
+>    başlık sınıfları C122'den; `operator.New`'e yuva eklemek wiring pininde store'un kullanım
+>    sayısını (bugün beş) ve `texts`'in indisini (bugün `arg5`) kaydırır.
+> 3. **OP-14 C (`password_ok` yazıcısı):** ekran türü zaten adlandırır (*"Password accepted, before
+>    the code"*); C'nin E2E'si görüntüleyicide satırı görmek isterse `unknown_email` filtresinin
+>    emsalini kullanabilir. Commit edilmiş `password_ok` satırı A'nın L9'unu tetikler (A md. 17.3).
+> 4. **OP-15/OP-16 (yeni audit türleri):** dört kopyaya (A md. 6) ek olarak beşinci: `auditKindWords`
+>    — `TestAuditWords_NameEveryKindAndNothingElse` ve katalog testi onsuz kırmızı.
+> 5. **K14-2 (opadmin audit türleri), K14-5 (tenant filtresi), K14-6 (türetilmiş işaret):** bu
+>    kartta yok; tenant filtresinin rotası (`/operator/tenants/{id}/audit`) bugün kayıtlı değil.
+> 6. **Daha eskiye ulaşan okuma** (L14 / karar 7): zaman aralığı filtresi ya da veritabanı yazma
+>    tavanı ayrı bir kart.
+> 7. **Bidi kontrol karakterleri ve `bdi` (OP-11/13/14 ortak; backlog'a orkestratör yazar):** *(3. tur)*
+>    adlar `<bdi>` içinde basılır — bu, adın yönünü çevresinden yalıtır ama adın kendi içindeki bidi
+>    kontrol karakterlerini (U+202A–U+202E, U+2066–U+2069) ne görünür kılar ne ayıklar; üç ekranın ortak
+>    yüzeyi olduğu için düzeltmesi ayrı bir iştir ve bu kart davranışı değiştirmedi (ham değer yolu
+>    ayrıdır: ASCII dışı bir bayt jeton sayılmaz, 3. turdan beri pinli).
+> 8. **`statement_timeout` ve context pini (backlog'a orkestratör yazar):** *(3. tur)* operatör
+>    havuzunda `statement_timeout` yoktur (dev'de 0 — ADR 0021 §1 tablosu) ve `readAudit`'in store'a
+>    isteğin context'ini geçirdiğini pinleyen test yoktur (sahte store context'i okumaz), yani
+>    okumanın süre tavanı da istemci gidince iptalin sorguya ulaşması da pinsizdir — OP-11/13'ün
+>    okumalarıyla ve "OP-12 uygulama notu" L5'in B'ye devriyle aynı sınıf; bu kart davranışı
+>    değiştirmedi.
+
 ## 4. Akış B — E-posta (AWS SES)
 
 ### Öneri: SES SMTP arayüzü + stdlib `net/smtp` (STARTTLS 587), `eu-central-1` — ✅ (sıfır yeni modül)

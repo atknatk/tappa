@@ -33,6 +33,9 @@
   (`tenant_billing`) kazandı, `op_read_audit` o kapsamı tanır; tanımlayıcı 00016'nın beş fatura
   fonksiyonunda EXECUTE aldı — `op_*` dışı EXECUTE kümesi artık adlı bir listedir — bkz.
   "OP-12 uygulama notu". Ekran B fazıdır.
+  **OP-14 B fazı (2026-10-07):** audit günlüğü operatör yüzeyinde (`GET`/`POST
+  /operator/audit`, konsoldan link), `*OperatorDB`'nin yeni `OperatorAudit` yöntemiyle; her
+  görüntüleme bir okuma birimi; migration yok — bkz. aynı notun "OP-14 B fazı eki".
 - **Tarih:** 2026-09-26 · aynı gün **2. tur** (güvenlik denetiminin RED'i: izsiz okuma),
   **3. tur** (güvenlik denetiminin RED'i: bilet süresinin saati; üçüncü gözün bulguları) ve
   **3. tur eki** (orkestratör kararı: enrollment ve kimlik bilgisi yazımı definer'da) ve
@@ -2521,6 +2524,255 @@ gövdesi değişmedi; uygulamanın karar verdiği yerler, adıyla:
   `TestOperatorSQL_OnlyBoundParameters` — on dört sabit ve çağrıları.
 - **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
 
+**OP-14 B fazı eki (2026-10-07, ekran, wiring ve okuma bütçesi).** Yukarıdaki notun *"Ekran,
+wiring ve `*OperatorDB` yöntemi B fazıdır"* cümlesi A fazının kaydıdır; B fazında tüketici
+yazıldı: `internal/handler/operator/audit.go` (tüketici arayüzü `AuditStore`; handler'lar
+`auditLog`, `filterAudit`, `readAudit`; kapalı sözlükler `auditKindWords`, `auditScopeWords`,
+`auditSearchWords`), `web/templates/operatorpages/audit.templ` (`AuditLog`), konsoldan link
+(`home.templ`), `*OperatorDB`'ye `OperatorAudit(ctx, sessionHash, q)` — `return
+OperatorAudit(ctx, o.pool, …)`. Migration yok; bağımlılık yok; `input.css` değişmedi (derlenen
+`app.css` tabanla bayt-aynı, 51 079 bayt — ekran yalnız var olan sınıfları kullanır). Kararlar,
+ölçümüyle:
+
+1. **Rotalar konsolun grubunda:** `GET /operator/audit` (her türün ilk sayfası; URL'den hiçbir
+   şey okunmaz) ve `POST /operator/audit` (gövdede `kind` ve `page`; sayfalayıcı iki form,
+   gizli alanlarla). Zincir aynı: host kapısı → güvenlik başlıkları → flood → same-origin
+   (okuma kapısıyla) → `requireOperator` → `sessionGate`. PRG yok: POST sayfayı 200 ile döner,
+   yeniden yükleme bir okuma ve bir `read` satırı daha. Tür kapalı bir kümeden bir değerdir,
+   kişisel veri değildir; URL'den okumama kuralı yine de tek biçimde tutuldu (tenant aramasının
+   kuralı). Alt yollar (`/operator/audit/`, `/operator/audit/x`) ve tenant'a göre audit
+   (`/operator/tenants/{id}/audit` — K14-5) yönlendiricinin kendi 404'üdür.
+2. **Sınır, store'dan ve okuma bütçesinden ÖNCE:** `kind` `""` ya da `db.OperatorAuditKinds`'ın
+   bir üyesi — birebir (trim yok, harf büyüklüğü katlanmaz; `all` bir tür değil, kaydedilen
+   filtrenin değeridir); sayfa `1..db.MaxOperatorAuditPage` ondalık rakamlarla (işaret, boşluk,
+   üs yok); gövde `maxFormBytes` (16 KiB) üstü 413, okunamayan form 400. Ret store'u çağırmaz,
+   okuma birimi harcamaz ve *"Nothing was read"* der.
+3. **Hatalar:** `ErrOperatorRefused` → oturum açmanın 303'ü; `ErrOperatorAuditFilterRefused` →
+   400 (sınır aynı kümeyi reddettiği için ulaşılamaz); başka her hata → 503 *"The audit log could
+   not be loaded"*, log satırı türü, sayfayı ve hatayı (çağrı + SQLSTATE) taşır, oturum hash'ini
+   taşımaz. A fazının devri 22023 için 500 öneriyordu; sınır sayfayı zaten reddettiğinden 22023
+   ulaşılamaz ve onu ayırmak handler'a SQLSTATE okutmak (`pgconn` importu) demekti — orkestratör
+   brief'inin kuralı (*"diğer hata → 503"*) uygulandı.
+4. **Ekran (`screen` kabuğu) — ADR 0020 §9'un okunuşu.** Görüntüleyici bir tenant'a **girmez**:
+   günlük her operatörün ve bir sayfası birçok tenant'ı adlandırır. Bu yüzden *"girdiği tenant'ı
+   başlıkta adıyla"* cümlesi ona şöyle okunur: başlık banner'ı yok; satırın dokunduğu her tenant
+   satırda **adıyla** (`bdi`, kaçışlı) ve genel bakışına linkle durur; görünür adı olmayan
+   tenant *"Unnamed tenant"* ve id'siyle (linkli), hiçbir `tenants` satırının taşımadığı bir id
+   *"A tenant id no tenant has"* ve id'siyle (linksiz). Satır docket kalıbında: zaman (UTC,
+   saniyeye kadar, mono), türün sözcüğü, aktör (adı `bdi` içinde; oturum öncesi satırda
+   *"Before sign-in"*; görünür adı yoksa *"an unnamed operator"* + id), hedef hesap (aynı
+   kural), hedef tenant, kapsam (*"Of …"*), sayfa (*"Page n (m per page)"*), arama sınıfı
+   (tanınmadığında *"Search:"* etiketiyle — 2. tur), filtre, belge (`/legal/<slug>`, mono) ve bayt sayısı, tanınmayan detay için *"Detail not
+   shown"*, oturum id'sinin ilk sekiz hanesi (mono). Oturum hash'i yok — tipte alanı yok.
+5. **Kapalı ve fail-closed sözlükler.** Tür (on bir; `password_ok` dahil — K14-1: yazıcısı C
+   fazı, ekran yalnız adlandırır), kapsam (altı), arama sınıfı (dört), filtre (`all` + on bir
+   tür), belge (`legal.Slugs`). Sözlükte olmayan değer bir küçük harfli jeton ise
+   (`^[a-z][a-z0-9_]{0,62}$`: `target_scope` CHECK'inin biçimi — 00026, `^[a-z][a-z_]{0,62}$` —
+   artı rakamlar; rakam, ileride adında sayı taşıyan bir kapalı küme üyesi — ör. sürümlü bir
+   tür — kendisi olarak basılsın diye eklendi ve işaretleme, boşluk ya da yön değiştirici
+   taşımaz; 2. turda düzeltildi: 1. tur bu biçimi *"CHECK'in biçimi"* diye anıyordu) ham hâliyle
+   mono ve *"Unrecognised"* çipiyle çizilir; değilse yalnız çip — değer basılmaz. Satır düşmez,
+   komşu bir türe okunmaz. Sözcükler hüküm değildir: hiçbiri iki satırı birleştirmez,
+   *"compromised"* yoktur (K14-6). Anahtar kümeleri pinli: tür sözlüğü = go/types ile türetilen
+   `OperatorAuditKind` sabitleri = `OperatorAuditKinds()`
+   (`TestAuditWords_NameEveryKindAndNothingElse`); katalogdan okunarak kapsam sözlüğü = bilet
+   tür CHECK'i = `op_read_audit`'in döndürdüğü kapsam listesi, sınıf sözlüğü = `op_read_audit`'in
+   `tenants` listesi, tür sözlüğü = audit tür CHECK'i
+   (`TestE2E_AuditWordsCoverEveryScopeAndSearchClassTheDatabaseReturns`); veritabanısız yarısı:
+   kapsam sözlüğü = migration'lardaki en yeni `op_read_audit` tanımının kapsam listesi
+   (`TestAuditWords_NameEveryScopeTheNewestMigrationReturns`). *(3. tur)* 00032'nin okuma türü
+   `tenant_billing` orkestratörün kararıyla bu fazda sözcüğünü aldı — *"a tenant's billing"*
+   (satırda *"Of a tenant's billing"*, kapsam sözcüklerinin kalıbında); sonraki bir migration'ın
+   yeni okuma türü iki pini de sözcük yazılana dek kırmızıya çevirir.
+6. **`pending` ve `disabled` hesapların adları görünür (sınır L7, kart taslağının B4'ü).**
+   Tanımlayıcı adları BYPASSRLS ile okur; giriş aramasının RLS'inin gizlediğini (sınır 15)
+   oturumlu bir operatöre **bilerek** gösterir ve bu gösterim audit'li bir okumadır (her
+   görüntüleme bir `read` satırı). Gerekçe: audit'in sorusu *"hangi hesaba karşı"*dır ve
+   bekleyen ya da devre dışı bir hesaba karşı denemeler tam da görülmesi gerekendir. Ölçüldü
+   (E2E): bekleyen ve devre dışı bir hesabın adresiyle yapılan giriş denemesi bir `unknown_email`
+   satırı bırakır (`OperatorByEmail` yalnız aktifi görür; `op_record_auth_event` hesabı adresle,
+   durumundan bağımsız bulur) ve görüntüleyici iki hesabı **adıyla** gösterir; adresleri hiçbir
+   sayfada yoktur.
+7. **Sayfa (K14-4) ve ekranın erişimi — sınır L14'ün ekran sayısı.** Boy 50 (tenant listesinin
+   sabiti, `auditPageSize = tenantPageSize`; istemciden okunmaz), üst sınır 1000. Veritabanı
+   boyu 200'e kadar kabul eder ve L14 o boyla **tür başına en yeni 200 000** satırı sayar; ekran
+   50 kullanır, bu yüzden **ekranın gerçek erişimi bir filtre başına — filtresiz okumada
+   tablonun — en yeni 50 000 satırıdır** (1000 × 50). Ölçüldü: 50 120 `login` satırlı sahte
+   günlükte filtreli sayfa 1000 dolu, *"Next"* yok ve sayfa *"the newest 50,000 entries of the
+   kind chosen"* der (`TestAuditScreen_PagesForwardOnlyAfterAFullPage`). L14'ün metni
+   değişmedi; bu ek ekranın sayısını söyler: 50 000 ile 200 000 arasındaki satırlara bugün
+   üründen yol yoktur (veritabanının izin verdiği boyu ekran kullanmaz) ve L14'ün kötüye
+   kullanım yolu ekranda dört kat kısadır — DSN sahibinin bir türü ≈50 000 sahte satırla
+   doldurması o türün gerçek satırlarını ekranın ulaşamayacağı yere iter. Hafifletenler
+   L14'ünkilerdir (satır kaybolmaz, sel ilk sayfada görünür).
+8. **Okuma bütçesi.** Her görüntüleme — `GET` ve her `POST` (filtre, sayfa) — `readLimit`'e BİR
+   birim (`spendRead`, kendi retlerinden sonra, store'dan önce) ve `sessionGate`'te `sessionLimit`'e
+   bir birim öder. Türetme (`surface.go`): destek penceresi ~30 okuma (OP-13 B); audit inceleme
+   penceresi ~1 ilk sayfa + ~4 filtre + ~10 eski sayfa + bir destek vakası (~5) ≈ 20 okuma;
+   büyüğün iki katı 60 — **`readLimit` değişmedi**. İkisinin karışığı (her destek vakasından
+   sonra günlüğe bir bakış: ~8 okuma) ≈ 38 okuma, 60'ın ona payı **1,58** (OP-11'in yürüyüşü 1,33
+   ile en dar kalır). `sessionLimit`'in payı yeniden hesaplandı: destek ~40 istek → 2,5; audit
+   ~28 → 3,6; karışık ~48 → **2,08** — 100 değişmedi. **Model tahmindir**, kullanım ölçümü
+   değildir. Ölçüldü (`TestAuditBudget_EachViewIsOneReadOfTheSessionsSharedBudget`): tek oturumda
+   30 plaket görüntüsü + 15 `GET` + 15 `POST` = 60 × 200 ve 30 `OperatorAudit`; 61. `GET` ve
+   `POST` 429 (yüklem +1, store +0, oturum açık biçim); ardından 38 konsol 200 ve 101. istek
+   429; ikinci oturumun 20 reti (tür, 0/1001 sayfa, 413, okunamayan form) okuma harcamaz.
+   **Bedeli — çalınmış oturum çerezi:** pencere başına en çok 60 audit sayfası = 3 000 audit
+   satırı, her görüntüleme kendisi bir `read` satırı.
+9. **Wiring:** `operator.New`'e ayrı bir `AuditStore` yuvası (beşinci argüman; `texts` altıncı
+   oldu). `cmd/tappa`'nın `operatorStore`'u beş arayüzün birleşimi; `configuredSurface`'in
+   store'u TAM beş kullanım (`arg0 of operatorAuthenticator`, `arg1`–`arg4 of operator.New`),
+   `texts` `arg5 of operator.New`. `internal/operatorauth/surface_external_test.go` de
+   `operator.New`'i çağırır: **orkestratörün mekanik yaması uygulandı** (2. tur, orkestratör
+   kararı) — iki parça: sahte `OperatorAudit` (`surfTenants`'a, tip yorumunun bir satırıyla) ve
+   `operator.New`'in yeni argümanı; paket derlenir. 1. turda bu madde yamanın uygulanmadığını
+   söylüyordu (o turun kısıtı `internal/operatorauth`'a dokunmamaktı); paralel OP-14 C aynı
+   dosyaya dokunduğu için birleştirme orkestratöründür.
+10. **Kontrast** (WCAG 2.1, sRGB; `TestAuditScreen_TheTextClearsAA`'nın logu): ink/paper 16,17 ·
+    ink %70/paper 6,05 · tanınmayan çip ink/(ink %10 ∘ paper) 13,27 · tappa-green/paper 7,73 ·
+    tappa-green/porcelain 6,85 · paper/tappa-green 7,73 (2. turun *"Search:"* etiketi renk sınıfı
+    taşımaz: ink/paper; `app.css` yeniden derlendi, yine tabanla bayt-aynı). Yeni renk ve yeni zemin yok; ekranın
+    tek çipi `tally--unrecognised` ve `input.css`'teki tek kuralı (ink çerçeve, ink %10 zemin)
+    aynı testte okunur. Dokunma hedefleri: seçici `op-input` (en az 44 px), *"Show"*
+    `btn--primary`, linkler ve sayfalayıcı `op-link`.
+
+**Güvenlik iddiası — üç parça.**
+
+- **Tehdit modeli:** Bu pinler kazara sapmaya karşıdır; bir pini bilerek atlatmak kod
+  incelemesinin konusudur. Ölçümler, audit ekranının, wiring'inin ve okuma bütçesinin koduna
+  KAZARA giren bir değişikliğe karşıdır — bir sınır denetimini, bir okuma birimini ya da bir
+  sözlüğün fail-closed dalını düşüren, bir değeri URL'den okuyan, bir adı `bdi` dışına ya da
+  kaçışsız yazan, oturum hash'ini ya da tam oturum id'sini bir yüzeye taşıyan bir düzenleme — ve
+  bir oturum sahibinin URL, yöntem, gövde ve başlıkla yapabildiklerine (ölçülen kollar).
+- **PART I — bugün sevk edilen kodun ölçülen davranışı** (2026-10-07; test · girdiler · assert ·
+  onu kıran mutasyonlar — tablolar OP-14 B kart düzeltmesinde; 2. turun koşusu 1. turun 41
+  mutasyonunu ve 11 yenisini son ağaçta yeniden koştu, 52/52 kırmızı; aşağıdaki numaralar o
+  koşunundur, katalog testininki 1. turun):
+  - `TestOperatorHeaders_TheAuditClassesCarryThePolicy` · C104–C121, 15 düşmanca başlık,
+    düşmanca sorgu (`kind`, `page` dahil) · tasarlanan durum, rota, başlık adları ve değerleri;
+    yansıma yok, betik yok; C110, C114–C117, C120'de `OperatorAudit` 0, C113 ve C121'de store 0 ·
+    M01, M03, M33, M34, M05, M06, M07, M09, M41, M11, M13.
+  - `TestAuditScreen_EveryRowSaysWhatTheLogHolds` · yirmi dört satırlık günlük (on bir tür,
+    bilinmeyen iki tür, kapsamlar, bilinmeyen ve dönmeyen kapsam, sınıf ve bilinmeyeni, üç
+    filtre, iki slug, adlı/adsız/olmayan tenant, adlı/adsız aktör ve hesap, bekleyen ve devre
+    dışı hesap adı), zamanlar UTC+2'de · görüntülemenin kendi satırı önde; her satırın
+    olguları; tanınmayan arama sınıfı *"Search:"* etiketiyle (2. tur: yirmi beş satır, yedi
+    çip; 3. tur: yirmi altı satır, `tenant_billing` kapsamı adıyla); sayfada `11:30`, tam oturum
+    id'si, `<script` yok · M33, M34, M26, M14, M15, M16, M18, M19, M38, M20, M21, M22, M23, M24,
+    M25, M28, M29, M31, M43, M39, M46.
+  - `TestAuditWords_NameEveryKindAndNothingElse` · go/types ile türetilen on bir sabit · sözlük =
+    sabitler = `OperatorAuditKinds()`; sözcük boş, ortak ya da hüküm değil; bilinmeyen tür
+    jetonsa ham, değilse yalnız işaret (2. tur: `a-b`, `9abc`, `_abc` jeton değil; 3. tur: `z` +
+    U+202E ve `z` + U+00E9 — ASCII dışı bayt — jeton değil) · M14, M15, M16, M17, E03, E04, X10.
+  - `TestAuditWords_NameEveryScopeTheNewestMigrationReturns` (3. tur) · `db/migrations`'ın Up
+    yarıları, `op_read_audit`'i yaratan ya da değiştiren sonuncusu (bugün 00032) · kapsam
+    sözlüğü = o tanımın kapsam listesi; sözcük boş ya da ortak değil; CONTROL 00032 ya da
+    sonrası, liste `operator_audit` ve `tenant_billing`'i taşır · M46.
+  - `TestAuditScreen_TheBoundaryRefusesBeforeTheStore` · dokuz tür, on bir sayfa, 16 KiB gövde,
+    okunamayan form; 2. tur: 64 bit taşan `18446744073709551621` · 400/413 ve store 0; CONTROL
+    her tür ve `""`, dört sayfa, boy 50 · M01, M02, M03, M04, M33, M34, M05, M06, M31, E02.
+  - `TestAuditScreen_ReadsNothingFromTheURL` · URL'de tür ve sayfa (`GET`, gövdesiz ve gövdeli
+    `POST`) · store'a giden gövdeninki; formlar ve linkler sorgusuz · M33, M34, M06, M07, M08.
+  - `TestAuditScreen_PagesForwardOnlyAfterAFullPage` · 120 ve 50 120 `login` satırı · Next ve
+    Previous, gizli alanlar, filtre seçenekleri, sayfa 1000'in notu (*"50,000"*) · M33, M34, M06, M30, M31.
+  - `TestAuditScreen_EscapesWhatOperatorsAndTenantsNamed` · aktör, hesap ve tenant adında
+    `</bdi></a><script>`, sağdan-sola override · kaçışlı, `bdi` içinde, `<script` 0 · M33, M34, M22, M23.
+  - `TestAuditScreen_NoCredentialFieldReachesThePage` · beş tipin alan listesi; üç görüntüleme ·
+    çerez, hash, adres, TOTP kodu ve tam oturum id'si 0, önek var; CONTROL · M33, M34, M27, M26.
+  - `TestAuditScreen_TheTextClearsAA` · paletten altı oran ≥ 4,5; tanınmayan çipin tek
+    `input.css` kuralı · M42.
+  - `TestAuditScreen_WearsTheDocketAnatomy` (2. tur) · süzülmüş günlüğün 2. sayfası · tek docket
+    bölümü ve bütün satırlar içinde; `docket-label` başlık ve mono sayfa numarası; `op-input`
+    seçici, `op-link` sayfalayıcı düğmeleri; `input.css`'te ikisinin `min-h-11`'i · M33, M34,
+    M06, M27, M31, E17, E19, E20, E25, E26, M44, M45.
+  - `TestAuditBudget_EachViewIsOneReadOfTheSessionsSharedBudget` · md. 8'in sayıları ·
+    M01, M03, M04, M33, M34, M05, M06, M11, M12, M13, M39.
+  - `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` · A67–A77 · G1–G17 × R1–R10 ×
+    S1–S4; hasat `OperatorAudit` 6 × 1, `TouchOperatorSession` 208 · M01, M03, M33, M34, M05, M06, M09, M41, M10, M27, M11, M13, M20, M39.
+  - `TestOperatorScreens_EveryActionAndLinkIsAMountedRoute` · otuz render · konsol günlüğü
+    linkler, satır tenant'ın genel bakışını, formlar `/operator/audit`'e · M32.
+  - `TestE2E_AuditScreenReadsTheLogThroughTheDefinerAndAuditsEachView` (PostgreSQL) · bir arama,
+    bekleyen ve devre dışı hesabın adresiyle iki giriş denemesi, dört görüntüleme, ölü oturumlar
+    · görüntülemenin kendi satırı önde ve zamanı satırın kendisi; `login` satırı adıyla; arama
+    sınıfıyla, sözcük hiçbir yerde yok; iki hesap adıyla; hiçbir sayfada çerez, hash, tam
+    oturum id'si, TOTP kodu, adres yok; ölü oturum 303 ve satırsız; görüntüleme başına bir
+    `read` satırı ve bir tüketilmiş `operator_audit` bileti · M29, M39.
+  - `TestE2E_AuditWordsCoverEveryScopeAndSearchClassTheDatabaseReturns` (PostgreSQL) · katalog ·
+    üç sözlük = üç küme (3. turdan beri goose 32'de yeşil) · M15, M19, M46.
+  - `TestOperatorAudit_OnThePoolTheTwoPhasesAreTwoTransactions` (internal/db) · yöntemin
+    KENDİSİ üretim kurucusunun havuzunda, `read` filtresiyle (2. tur) · boş olmayan sayfa, yalnız
+    `read` satırları, kendi satırı aralarında, bir `read` satırı daha, `{"filter": "read"}` · kendi mutasyonu yok; yöntemin aktarımını
+    `TestOperatorDB_EveryMethodDelegatesVerbatim` tutar (M37).
+- **PART II — adıyla pinler ve yakaladıklarının tam listesi:**
+  `TestOperatorDB_IsTheStoreAndNothingMore` — yöntem kümesi Store ∪ LegalStore ∪ TenantStore ∪
+  PlaqueStore ∪ AuditStore ∪ Close; `TestOperatorDB_EveryMethodDelegatesVerbatim` — on üç yöntem,
+  argümanlar sırasıyla; `TestOperatorDB_HasNoTenantDoorAndNoRawSQLDoor` — öncül 14;
+  `TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator` — store'un beş kullanımı, `texts`
+  altıncı argüman; `TestOperatorHeaders_TheWalkedRoutesEachHaveAClass` — on rota, on altı çift,
+  C1–C121; `TestOperatorPages_TheExportedScreensAreTheOnesScreensRenders` — on bir ekran
+  kurucusu; `TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo` — render.go'nun her
+  değişkeni `problemPages`'te; `TestFormValues_TheListedSitesAloneRevealOrReadTheForm` —
+  `r.PostForm` `filterAudit`'te yalnız `.Get("kind")` ve `.Get("page")` olarak birer kez,
+  `URL.Query`/`FormValue`/`RawQuery` hiçbir audit yolunda yok;
+  `TestOperatorScreens_EveryActionAndLinkIsAMountedRoute` — otuz render, konsolun audit linki;
+  `TestAuditScreen_WearsTheDocketAnatomy` (2. tur) — docket bölümü, başlığın iki sınıfı,
+  seçicinin ve sayfalayıcının sınıfı, iki 44 px kuralı;
+  `TestSurface_TheScreensOfLaterTasksAreNotMounted` — `/operator/billing`, `/operator/plaques`,
+  `/operator/audit/`, `/operator/audit/x`, iki `{id}` alt yolu yönlendiricinin kendi 404'ü;
+  `TestAuditWords_NameEveryKindAndNothingElse` — tür sözlüğü = türetilen sabitler;
+  `TestAuditWords_NameEveryScopeTheNewestMigrationReturns` (3. tur) — kapsam sözlüğü = en yeni
+  `op_read_audit` tanımının kapsam listesi;
+  `TestE2E_AuditWordsCoverEveryScopeAndSearchClassTheDatabaseReturns` — üç sözlük = katalogdaki
+  kümeler; `TestAuditScreen_NoCredentialFieldReachesThePage` — beş tipin alan listesi;
+  `TestReadBudget_NoOperatorSourceAsksTheLimiterBeforeCharging` — paketin dosyalarında
+  `Allowed` adlı seçici yok (audit.go dahil; CONTROL `spendRead`'de bir `Charge`).
+- **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
+
+**Sayılı sınırlar (OP-14 B)** — LB1–LB13 kart düzeltmesinde; burada en ağırları: **LB1** *"ilk
+satır görüntüleyicinin kendi satırıdır"* bir sıra iddiasıdır (L1, L2); ekran onu varsaymaz, E2E
+onu *"önündeki her satır daha geç tarihli"* biçiminde ölçer; **LB2** ekranın erişimi filtre
+başına en yeni 50 000 satırdır (md. 7); **LB3** operatörün `display_name`'i ve tenant'ın adı
+serbest metindir: bir sahip `display_name`'e bir adres yazarsa ekran onu ad olarak basar — sızıntı
+sözleşmesi ekranın adresi başka bir kaynaktan getirmediğini ölçer, adın içeriğini değil
+(öneri, bulgu değil: `opadmin`'in `validDisplayName`'i `@`'ye izin veriyor; ileride `@`'yi
+reddetmek ucuz bir kalkandır);
+**LB4** küçük harfli bir jeton biçimindeki tanınmayan değer ham basılır — kapalı kümelerin
+(tür CHECK'i; `op_read_audit`'in kapsam, sınıf, filtre ve slug listeleri) dışında bir değerin bu
+sütunlara girmesi o kümelerin ihlalidir ve ekran onu jeton biçimindeyse gösterir; **LB12**
+kalıcı test verisi: E2E koşu başına üç operatör hesabı (`op10b-…`, `op14b-p-…`, `op14b-d-…`;
+temizlikte `disabled`), beş oturum (iptal), login, logout, iki `unknown_email`, bir `tenants`
+ve beş `operator_audit` `read` satırı bırakır (biletler silinir) — ölçüldü (2026-10-07, geliştirme
+veritabanı, salt-okuma sayım, tek koşu çevresinde): hesap +3 (`disabled` olmayan 0), oturum +5
+(iptal edilmemiş 0), audit satırı +10, bilet 0 → 0, `tenants` ve `tags` +0; A'nın havuz testi yöntemi de
+sürdüğü için koşu başına 2 → 3 `read` satırı bırakır (sınır L12'nin sayımı B'den itibaren +4);
+**LB13** *(2. tur)* `internal/operatorauth/surface_external_test.go`'ya orkestratörün mekanik
+yaması uygulandı (md. 9; iki parça, paket derlenir); paralel OP-14 C ile aynı dosyanın
+birleştirmesi orkestratöründür.
+
+*2. tur (2026-10-07; üçüncü gözün RED'i — tek bloklayan bulgu metindi).* Düzeltilenler: md. 9 ve
+LB13 (yama uygulandı); md. 5'in jeton biçimi (CHECK'in biçimi + rakam, nedeniyle); tanınmayan
+arama sınıfına *"Search:"* etiketi (md. 4, md. 10); LB3'e `@` önerisi. Eklenen pinler: ekranın
+docket anatomisi (`TestAuditScreen_WearsTheDocketAnatomy`: tek docket bölümü, `docket-label`
+başlık ve mono sayfa numarası, `op-input` seçici, `op-link` sayfalayıcı ve ikisinin 44 px
+kuralı), jeton biçiminin üç kenarı (tire, baştaki rakam, baştaki alt çizgi —
+`TestAuditWords_NameEveryKindAndNothingElse`), 64 bit taşan yirmi haneli sayfa
+(`TestAuditScreen_TheBoundaryRefusesBeforeTheStore`), havuz testinin boş olmayan sayfa öncülü
+(`TestOperatorAudit_OnThePoolTheTwoPhasesAreTwoTransactions` artık `read` filtresiyle: fikstür
+oturumu `login` satırı yazmadan açar). Mutasyon tablosu OP-14 B kart düzeltmesinin 2. turunda.
+Geliştirme veritabanı 2. turda goose 32'dir (OP-12 A): `tenant_billing` bilet kümesindedir ve
+`TestE2E_AuditWordsCoverEveryScopeAndSearchClassTheDatabaseReturns` orada tasarım gereği
+kırmızıdır — sözlük fail-closed kalır, sözcüğü OP-12 B ekler.
+
+*3. tur (2026-10-07; güvenlik denetimi ONAY, orkestratörün üç küçük maddesi).* Taban OP-12 A'nın
+commit'i `d7775b7`'ye taşındı (00032 dalda); B'nin satırları değişmeden uygulandı, OP-12 A'nın
+metni bayt bayt korundu (kanıt kart düzeltmesinin 3. turunda). Önceki paragrafın son cümlesinin
+yerine: `tenant_billing`'in sözcüğünü bu faz ekledi (md. 5) ve katalog testi goose 32'de yeşil;
+kapsam sözlüğüne veritabanısız bir pin eklendi
+(`TestAuditWords_NameEveryScopeTheNewestMigrationReturns`). `printableToken`'ın ASCII dışı baytı
+reddetmesi pinlendi (`TestAuditWords_NameEveryKindAndNothingElse`: `z` + U+202E ve `z` +
+U+00E9, beklenen yalnız çip). Başka davranış değişmedi; adlardaki bidi kontrol karakterleri ve
+okumanın `statement_timeout`/context pini kart düzeltmesinde devir (OP-11/13/14 ortak).
+
 ## OP-12 uygulama notu (2026-10-07, A fazı — veri katmanı)
 
 Uygulama: `db/migrations/00032_read_billing_from_the_operator.sql` + `internal/db/operator.go`
@@ -2857,7 +3109,8 @@ fazıdır. Kararın gövdesi değişmedi; uygulamanın karar verdiği yerler, ad
   kapısı `op_touch_session`'dır; enrollment handler'ı `op_complete_enrollment`'a bağlanır.
 - **OP-14:** operatör audit görüntüleyicisi iki aşamalı `op_read_audit`'tir;
   `tappa_operator`'ın `operator_audit_log` üzerinde `SELECT`'i yoktur. *(A fazı 00031 ile
-  uygulandı: okuma, kapalı şekil listesi ve `password_ok` — "OP-14 uygulama notu".)*
+  uygulandı: okuma, kapalı şekil listesi ve `password_ok` — "OP-14 uygulama notu". B fazı
+  ekranı ve wiring'i ekledi — aynı notun "OP-14 B fazı eki".)*
 - **OP-12:** bir tenant'ın faturalama ayları iki aşamalı `op_read_tenant_billing`'dir — fatura
   aritmetiğinin üçüncü kopyası, tenant'ın kendi yoluna ay ay bir testle bağlı. *(A fazı 00032 ile
   uygulandı — "OP-12 uygulama notu".)*

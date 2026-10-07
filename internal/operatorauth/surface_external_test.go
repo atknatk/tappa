@@ -134,8 +134,8 @@ func (surfLegal) PublishLegal(context.Context, string, string, string) error {
 func (surfLegal) Published() map[string]legal.Doc { return map[string]legal.Doc{} }
 func (surfLegal) Refresh(context.Context) error   { return nil }
 
-// surfTenants is the operator surface's tenant store (OP-11) and plaque store (OP-13) for
-// the same rig: every call is refused.
+// surfTenants is the operator surface's tenant store (OP-11), plaque store (OP-13) and
+// audit store (OP-14) for the same rig: every call is refused.
 type surfTenants struct{}
 
 func (surfTenants) TenantList(context.Context, string, db.TenantListQuery) ([]db.TenantSummary, error) {
@@ -146,6 +146,9 @@ func (surfTenants) TenantDetail(context.Context, string, uuid.UUID) (db.TenantOv
 }
 func (surfTenants) TenantPlaques(context.Context, string, uuid.UUID) (db.TenantPlaqueInventory, error) {
 	return db.TenantPlaqueInventory{}, db.ErrOperatorRefused
+}
+func (surfTenants) OperatorAudit(context.Context, string, db.OperatorAuditQuery) ([]db.OperatorAuditEntry, error) {
+	return nil, db.ErrOperatorRefused
 }
 
 const (
@@ -190,7 +193,7 @@ func newSurfRig(t *testing.T) *surfRig {
 		t.Fatal(err)
 	}
 	g.comparisons, g.digests = operatorauth.CountWork(a)
-	s, err := operator.New(a, surfLegal{}, surfTenants{}, surfTenants{}, surfLegal{}, surfHost, "https://taptime.mt", log)
+	s, err := operator.New(a, surfLegal{}, surfTenants{}, surfTenants{}, surfTenants{}, surfLegal{}, surfHost, "https://taptime.mt", log)
 	if err != nil {
 		t.Fatal(err)
 	}

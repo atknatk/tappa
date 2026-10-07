@@ -29,14 +29,16 @@ import (
 //	/operator/legal; OP-10), the
 //	tenants (GET, POST
 //	/operator/tenants, GET
-//	/operator/tenants/{id}; OP-11) and
+//	/operator/tenants/{id}; OP-11),
 //	a tenant's plaques (GET
 //	/operator/tenants/{id}/plaques;
-//	OP-13)
+//	OP-13) and the audit log (GET,
+//	POST /operator/audit; OP-14)
 //	sign-out (POST /operator/logout)   sameOriginGate(false) -> requireOperator -> logoutGate
 //
-// The reads behind sessionGate -- the legal page, the tenant list and search, the overview
-// and the plaques -- each charge the read budget once more in their handler (spendRead).
+// The reads behind sessionGate -- the legal page, the tenant list and search, the overview,
+// the plaques and the audit log -- each charge the read budget once more in their handler
+// (spendRead).
 //
 // Sign-out is its own group, after the panel's measured lesson (adminlogin.go's sign-out
 // group): no flood gate is in front of it, and a sign-out with a session cookie charges
@@ -80,6 +82,8 @@ func (s *Surface) mount(r chi.Router) {
 			r.Post("/tenants", s.searchTenants)
 			r.Get("/tenants/{id}", s.tenantOverview)
 			r.Get("/tenants/{id}/plaques", s.tenantPlaques)
+			r.Get("/audit", s.auditLog)
+			r.Post("/audit", s.filterAudit)
 		})
 	})
 }
@@ -93,6 +97,7 @@ const (
 	pathCode    = Prefix + "/login/totp"
 	pathLegal   = Prefix + "/legal"
 	pathTenants = Prefix + "/tenants"
+	pathAudit   = Prefix + "/audit"
 )
 
 // hostGate is the OPERATOR half of ADR 0020 §4's two-way host gate: when
@@ -101,7 +106,7 @@ const (
 // görünür"). Measured against the router's own 404 (status, body, Content-Type, nosniff;
 // no CSP, Location or cookie) on the hosts the shipped ingress names plus six more, under
 // the methods and operator paths that test lists (a tenant's plaques among them since
-// OP-13): TestHostGate_OperatorRoutesAnswerTheRoutersOwn404OnEveryOtherHost.
+// OP-13, the audit log since OP-14): TestHostGate_OperatorRoutesAnswerTheRoutersOwn404OnEveryOtherHost.
 func (s *Surface) hostGate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !httpx.OnHost(r, s.host) {
@@ -124,8 +129,9 @@ func (s *Surface) hostGate(next http.Handler) http.Handler {
 // Measured: TestOperatorHeaders_FortyResponseClassesCarryThePolicy (C1-C40),
 // TestOperatorHeaders_TheWrongMethodAndOversizedClassesCarryThePolicy (C41-C48),
 // TestOperatorHeaders_TheLegalClassesCarryThePolicy (OP-10, C49-C66),
-// TestOperatorHeaders_TheTenantClassesCarryThePolicy (OP-11, C67-C93) and
-// TestOperatorHeaders_ThePlaqueClassesCarryThePolicy (OP-13, C94 on) drive the response
+// TestOperatorHeaders_TheTenantClassesCarryThePolicy (OP-11, C67-C93),
+// TestOperatorHeaders_ThePlaqueClassesCarryThePolicy (OP-13, C94-C103) and
+// TestOperatorHeaders_TheAuditClassesCarryThePolicy (OP-14, C104 on) drive the response
 // classes of the tests' classRoutes with hostile request headers and hold the response
 // headers AT WriteHeader (the recorder's snapshot) to the designed names and values;
 // TestOperatorHeaders_TheRecorderSnapshotIsWhatTheWireCarries measures that snapshot
@@ -288,8 +294,8 @@ func operatorOf(r *http.Request) (operatorauth.Identity, bool) {
 
 // storeSession is the session sessionGate resolved and its hash for the store -- the
 // argument of every op_* call a console screen makes (the legal texts, OP-10; the
-// tenants, OP-11; the plaques, OP-13). Through mount both are in place; a route mounted
-// outside the chain by mistake answers the sign-in.
+// tenants, OP-11; the plaques, OP-13; the audit log, OP-14). Through mount both are in
+// place; a route mounted outside the chain by mistake answers the sign-in.
 func (s *Surface) storeSession(w http.ResponseWriter, r *http.Request) (operatorauth.Identity, string, bool) {
 	id, ok := operatorOf(r)
 	tok, hasToken := sessionTokenOf(r)
@@ -376,8 +382,8 @@ func (s *Surface) spendSession(w http.ResponseWriter, r *http.Request, id operat
 // past it, answers 429 with the same page -- the window's first refusal logged at WARN
 // with the session's id. The read handlers call it once, after their own refusals and
 // before the store (legalPage; tenants.go's listTenants and tenantOverview; plaques.go's
-// tenantPlaques). The count Charge returns is the one the refusal is decided on: there is
-// no separate read of the budget to race (surface.go, readLimit).
+// tenantPlaques; audit.go's readAudit). The count Charge returns is the one the refusal is
+// decided on: there is no separate read of the budget to race (surface.go, readLimit).
 func (s *Surface) spendRead(w http.ResponseWriter, r *http.Request, id operatorauth.Identity) bool {
 	if n := s.reads.Charge(id.SessionID.String()); n > readLimit {
 		if s.reads.FirstOverLimit(n) {

@@ -1,0 +1,198 @@
+package operatorpages
+
+import "strconv"
+
+// AuditLog is /operator/audit (M10 OP-14; ADR 0020 §4, §5, §9): the operator surface's own
+// audit log, every operator's, newest first, a page at a time, filtered to one kind or none.
+//
+// IT IS A PLATFORM-WIDE SCREEN, NOT A TENANT'S: it renders in the plain operator chrome with
+// no tenant banner, because it enters no tenant -- each row names the tenant a read touched,
+// by its name, isolated for bidirectional text, linked to its overview (ADR 0020 §9 as the
+// OP-14 note reads it).
+//
+// THE FILTER IS A POST FORM, AND SO IS EVERY PAGE: the kind and the page travel in the body,
+// the pager's two forms carry both as hidden fields, and the page's links carry neither --
+// the tenant search's rule, kept for one shape of request on the whole surface.
+//
+// EACH ROW IS AN ENTRY ON THE DOCKET: its time (UTC, to the second) and its kind first, then
+// who acted -- an operator's name, or "Before sign-in" for a row made before a session
+// existed -- what it was about, what the log read out of its detail, and the session's id
+// shortened to eight digits. A value the screen has no word for is drawn as unrecognised,
+// with its raw text in the data face when the handler printed one; a row whose detail the
+// log did not recognise says so. Names are other people's text and are escaped and
+// isolated; a name that shows nothing is replaced by the account's or the tenant's id.
+//
+// THE SCREEN WRITES NOTHING: its forms read (the filter, the pager) and the bar signs out.
+templ AuditLog(v AuditLogView) {
+	@screen("Audit log", true) {
+		<section class="op-card">
+			<p class="docket-label">Audit log</p>
+			<h1 class="mt-1 font-display text-2xl font-bold tracking-tight">Who did what on this surface</h1>
+			<p class="mt-3 text-sm">
+				Every sign-in, sign-out, read and publication on the operator surface, newest first,
+				for every operator. Opening this page is a read too, and it is listed.
+			</p>
+			<form method="post" action="/operator/audit" class="mt-5 flex flex-col gap-3">
+				<label for="audit-kind" class="docket-label">Kind</label>
+				<select id="audit-kind" name="kind" class="op-input">
+					for _, o := range v.Options {
+						<option value={ o.Value } selected?={ o.Selected }>{ o.Label }</option>
+					}
+				</select>
+				<button type="submit" class="btn btn--primary">Show</button>
+			</form>
+			<p class="mt-2 text-sm">
+				<a href="/operator" class="op-link">Back to the console</a>
+			</p>
+		</section>
+		@auditList(v)
+		@auditPager(v)
+	}
+}
+
+// auditList is the page of entries on a docket.
+templ auditList(v AuditLogView) {
+	<section class="docket" aria-labelledby="audit-list">
+		<h2 id="audit-list" class="docket-label">Newest first · { v.Filter } · page <span class="font-mono">{ strconv.Itoa(v.Page) }</span></h2>
+		if len(v.Rows) == 0 {
+			if v.Page > 1 {
+				<p class="mt-2">This page is empty: the log ended on the page before.</p>
+			} else {
+				<p class="mt-2">The log holds no entry of this kind.</p>
+			}
+		} else {
+			<ol class="mt-2">
+				for _, r := range v.Rows {
+					@auditRow(r)
+				}
+			</ol>
+		}
+		if v.LastPage {
+			<p class="mt-3 text-xs text-ink/70">
+				This is the last page the screen shows: the newest <span class="font-mono">{ v.Reach }</span> entries of the
+				kind chosen.
+			</p>
+		}
+	</section>
+}
+
+// auditRow is one entry. Each fact is its own span so it wraps on a phone. A known search
+// class says itself ("Searched by name"); an unknown one carries the label "Search:" so the
+// unrecognised value is not a bare chip that names no fact.
+templ auditRow(r AuditRow) {
+	<li class="op-row">
+		<span class="font-mono font-bold">{ r.At }</span>
+		@auditKindWord(r.Kind)
+		if r.ActorID == "" {
+			<span class="text-sm">Before sign-in</span>
+		} else if r.Actor != "" {
+			<span class="text-sm">By <bdi>{ r.Actor }</bdi></span>
+		} else {
+			<span class="text-sm">By an unnamed operator <span class="break-all font-mono">{ r.ActorID }</span></span>
+		}
+		if r.AccountID != "" {
+			if r.Account != "" {
+				<span class="text-sm">Account <bdi>{ r.Account }</bdi></span>
+			} else {
+				<span class="text-sm">Account of an unnamed operator <span class="break-all font-mono">{ r.AccountID }</span></span>
+			}
+		}
+		if r.TenantID != "" {
+			if r.TenantPath == "" {
+				<span class="text-sm">A tenant id no tenant has <span class="break-all font-mono">{ r.TenantID }</span></span>
+			} else if r.Tenant != "" {
+				<span class="text-sm">Tenant <a href={ templ.URL(r.TenantPath) } class="op-link"><bdi>{ r.Tenant }</bdi></a></span>
+			} else {
+				<span class="text-sm">
+					Tenant <a href={ templ.URL(r.TenantPath) } class="op-link"><span class="italic">{ unnamedTenant }</span></a>
+					<span class="break-all font-mono">{ r.TenantID }</span>
+				</span>
+			}
+		}
+		if r.Scope.Shown() {
+			@auditFact("Of", r.Scope, false)
+		} else if r.ScopeHidden {
+			<span class="text-sm">Of a scope this screen does not show</span>
+		}
+		if r.Page != "" {
+			<span class="text-sm">
+				Page <span class="font-mono">{ r.Page }</span>
+				if r.PageSize != "" {
+					(<span class="font-mono">{ r.PageSize }</span> per page)
+				}
+			</span>
+		}
+		if r.Search.Unknown {
+			@auditFact("Search:", r.Search, false)
+		} else if r.Search.Shown() {
+			@auditFact("", r.Search, false)
+		}
+		if r.Filter.Shown() {
+			@auditFact("Filter:", r.Filter, false)
+		}
+		if r.Legal.Shown() {
+			@auditFact("Document", r.Legal, true)
+		}
+		if r.LegalBytes != "" {
+			<span class="text-sm"><span class="font-mono">{ r.LegalBytes }</span> bytes</span>
+		}
+		if r.DetailHidden {
+			<span class="text-sm italic">Detail not shown</span>
+		}
+		if r.Session != "" {
+			<span class="text-sm">Session <span class="font-mono">{ r.Session }</span></span>
+		}
+	</li>
+}
+
+// auditKindWord is the row's kind: its word in the display face, or an unrecognised value.
+templ auditKindWord(w AuditWord) {
+	if w.Unknown {
+		<span>
+			if w.Text != "" {
+				<span class="font-mono font-bold">{ w.Text }</span>
+			}
+			<span class="tally tally--unrecognised">Unrecognised</span>
+		</span>
+	} else {
+		<span class="font-display font-bold">{ w.Text }</span>
+	}
+}
+
+// auditFact is one fact whose value is a word of a closed set: the fact's label, then the
+// screen's word -- in the data face when mono -- or an unrecognised value: its raw text in the
+// data face when there is one, and the unrecognised chip.
+templ auditFact(label string, w AuditWord, mono bool) {
+	if w.Unknown && w.Text != "" {
+		<span class="text-sm">{ factLabel(label) }<span class="font-mono">{ w.Text }</span> <span class="tally tally--unrecognised">Unrecognised</span></span>
+	} else if w.Unknown {
+		<span class="text-sm">{ factLabel(label) }<span class="tally tally--unrecognised">Unrecognised</span></span>
+	} else if mono {
+		<span class="text-sm">{ factLabel(label) }<span class="font-mono">{ w.Text }</span></span>
+	} else {
+		<span class="text-sm">{ factLabel(label) + w.Text }</span>
+	}
+}
+
+// auditPager is the way to the page before and after this one -- each a form that posts the
+// same kind and the page's number.
+templ auditPager(v AuditLogView) {
+	if v.Page > 1 || v.HasNext {
+		<nav class="flex flex-wrap items-center gap-x-6" aria-label="Pages of the audit log">
+			if v.Page > 1 {
+				@auditPageForm(v.Kind, v.Page-1, "Previous page")
+			}
+			if v.HasNext {
+				@auditPageForm(v.Kind, v.Page+1, "Next page")
+			}
+		</nav>
+	}
+}
+
+templ auditPageForm(kind string, page int, label string) {
+	<form method="post" action="/operator/audit">
+		<input type="hidden" name="kind" value={ kind }/>
+		<input type="hidden" name="page" value={ strconv.Itoa(page) }/>
+		<button type="submit" class="op-link">{ label }</button>
+	</form>
+}

@@ -40,8 +40,8 @@ import (
 )
 
 // operatorRoutes are the routes OP-8 mounts, with the method each answers -- and OP-10's
-// legal screen, OP-11's tenant screens and OP-13's plaque screen. A path with {id} is a
-// chi pattern; mountedPath reads a concrete path of it.
+// legal screen, OP-11's tenant screens, OP-13's plaque screen and OP-14's audit log. A path
+// with {id} is a chi pattern; mountedPath reads a concrete path of it.
 var operatorRoutes = []struct{ method, path string }{
 	{http.MethodGet, "/operator"},
 	{http.MethodGet, "/operator/"},
@@ -58,6 +58,8 @@ var operatorRoutes = []struct{ method, path string }{
 	{http.MethodPost, "/operator/tenants"},
 	{http.MethodGet, "/operator/tenants/{id}"},
 	{http.MethodGet, "/operator/tenants/{id}/plaques"},
+	{http.MethodGet, "/operator/audit"},
+	{http.MethodPost, "/operator/audit"},
 }
 
 // tenantOverviewPath and tenantPlaquesPath are concrete paths of the two {id} routes: a
@@ -129,7 +131,7 @@ func TestSurface_ThePrefixIsTheRoutersPrefix(t *testing.T) {
 // half of the two-way host gate (ADR 0020 §4): on the hosts the ingress routes here
 // (read from the manifest), on the development host, on no host, on 127.0.0.1 and on
 // three look-alikes, each of the operator paths below (a tenant's plaques among them since
-// OP-13) under each of the seven methods below answers the SAME bytes as a path no
+// OP-13, the audit log since OP-14) under each of the seven methods below answers the SAME bytes as a path no
 // feature registered -- status, body,
 // the three headers net/http's NotFound sets, no CSP, no Location, no cookie -- and
 // reaches no store method. (A method chi does not know is the root router's 405, before
@@ -143,7 +145,7 @@ func TestHostGate_OperatorRoutesAnswerTheRoutersOwn404OnEveryOtherHost(t *testin
 		http.MethodOptions, http.MethodPatch}
 	paths := []string{"/operator", "/operator/", "/operator/login", "/operator/login/totp", "/operator/enroll?id=x",
 		"/operator/logout", "/operator/tenants", "/operator/tenants/x", "/operator/tenants/" + uuidString(t),
-		"/operator/tenants/" + uuidString(t) + "/plaques", "/operator/legal", "/operator/no-such"}
+		"/operator/tenants/" + uuidString(t) + "/plaques", "/operator/legal", "/operator/audit", "/operator/no-such"}
 	for _, host := range hosts {
 		want := g.do(req{method: http.MethodGet, host: host, path: "/no-such-route"})
 		if want.Code != http.StatusNotFound {
@@ -508,8 +510,8 @@ func TestLogout_IsNotRefusedByTheBudgetAThirdPartyCanSpend(t *testing.T) {
 	}
 }
 
-// screens renders the ten exported screen constructors of operatorpages
-// (operatorScreens, pinned against the package's API) in the 25 variants below (and the
+// screens renders the eleven exported screen constructors of operatorpages
+// (operatorScreens, pinned against the package's API) in the 30 variants below (and the
 // tenant chrome with a name).
 func screens(t *testing.T) map[string]string {
 	t.Helper()
@@ -551,6 +553,44 @@ func screens(t *testing.T) map[string]string {
 	plaquesNone := operatorpages.TenantPlaquesView{Name: name, ID: row.ID, OverviewPath: row.Path, Total: "0", Shown: "0", Noun: "plaques"}
 	plaquesUnnamed := plaques
 	plaquesUnnamed.Name = unnamed
+	// The audit log (OP-14): one row of each shape a fact can take -- a named and an
+	// unnamed tenant (each linked to its overview), a tenant id no tenant has, a named and an
+	// unnamed account, a named and an unnamed actor, a row before sign-in, every kind of
+	// value the log reads out, an unrecognised kind, scope and slug, a hidden detail.
+	everyOption := []operatorpages.AuditKindOption{{Value: "", Label: "Every kind", Selected: true},
+		{Value: "login", Label: "Signed in"}, {Value: "read", Label: "Read"}}
+	auditRows := []operatorpages.AuditRow{
+		{At: "2026-10-07 09:30:15 UTC", Kind: operatorpages.AuditWord{Text: "Read"}, ActorID: "30000000-0000-4000-8000-000000000001",
+			Actor: "Ops One", TenantID: row.ID, TenantPath: row.Path, Tenant: "Kebab Factory Ltd.",
+			Scope: operatorpages.AuditWord{Text: "a tenant's plaques"}, Session: "1a2b3c4d"},
+		{At: "2026-10-07 09:30:14 UTC", Kind: operatorpages.AuditWord{Text: "Read"}, ActorID: "30000000-0000-4000-8000-000000000001",
+			TenantID: row.ID, TenantPath: row.Path, Scope: operatorpages.AuditWord{Text: "the tenant list"}, Page: "2", PageSize: "50",
+			Search: operatorpages.AuditWord{Text: "Searched by name"}, Session: "1a2b3c4d"},
+		{At: "2026-10-07 09:30:13 UTC", Kind: operatorpages.AuditWord{Text: "Read"}, ActorID: "30000000-0000-4000-8000-000000000001",
+			Actor: "Ops One", TenantID: "40000000-0000-4000-8000-000000000009", Scope: operatorpages.AuditWord{Text: "a tenant's overview"},
+			Session: "1a2b3c4d"},
+		{At: "2026-10-07 09:30:12 UTC", Kind: operatorpages.AuditWord{Text: "Read"}, ActorID: "30000000-0000-4000-8000-000000000001",
+			Actor: "Ops One", Scope: operatorpages.AuditWord{Text: "this audit log"}, Page: "1", PageSize: "50",
+			Filter: operatorpages.AuditWord{Text: "Every kind"}, Session: "1a2b3c4d"},
+		{At: "2026-10-07 09:30:11 UTC", Kind: operatorpages.AuditWord{Text: "Legal text published"},
+			ActorID: "30000000-0000-4000-8000-000000000001", Actor: "Ops One", Legal: operatorpages.AuditWord{Text: "/legal/privacy"},
+			LegalBytes: "1234", Session: "1a2b3c4d"},
+		{At: "2026-10-07 09:30:10 UTC", Kind: operatorpages.AuditWord{Text: "Sign-in refused: wrong password"},
+			AccountID: "30000000-0000-4000-8000-000000000002", Account: "Ops Two"},
+		{At: "2026-10-07 09:30:09 UTC", Kind: operatorpages.AuditWord{Text: "Code refused"}, AccountID: "30000000-0000-4000-8000-000000000003"},
+		{At: "2026-10-07 09:30:08 UTC", Kind: operatorpages.AuditWord{Text: "zz_later_kind", Unknown: true},
+			ActorID: "30000000-0000-4000-8000-000000000001", Actor: "Ops One", Scope: operatorpages.AuditWord{Text: "billing_runs", Unknown: true},
+			Legal: operatorpages.AuditWord{Unknown: true}, DetailHidden: true, Session: "1a2b3c4d"},
+		{At: "2026-10-07 09:30:07 UTC", Kind: operatorpages.AuditWord{Text: "Read"}, ActorID: "30000000-0000-4000-8000-000000000001",
+			Actor: "Ops One", ScopeHidden: true, DetailHidden: true, Session: "1a2b3c4d"},
+	}
+	audit := operatorpages.AuditLogView{Filter: "Every kind", Page: 1, Options: everyOption, Rows: auditRows, HasNext: true,
+		Reach: "50,000"}
+	auditFiltered := operatorpages.AuditLogView{Kind: "login", Filter: "Signed in", Page: 2, Options: everyOption,
+		Rows: auditRows[:1], HasNext: true, Reach: "50,000"}
+	auditEmpty := operatorpages.AuditLogView{Kind: "login", Filter: "Signed in", Page: 3, Options: everyOption, Reach: "50,000"}
+	auditLast := operatorpages.AuditLogView{Filter: "Every kind", Page: 1000, Options: everyOption, Rows: auditRows, LastPage: true,
+		Reach: "50,000"}
 	out := map[string]string{}
 	for k, c := range map[string]templ.Component{
 		"sign-in":            operatorpages.SignIn(operatorpages.SignInView{}),
@@ -582,6 +622,11 @@ func screens(t *testing.T) map[string]string {
 		"tenant plaques, first":    operatorpages.TenantPlaques(plaquesFirst),
 		"tenant plaques, none":     operatorpages.TenantPlaques(plaquesNone),
 		"tenant plaques, unnamed":  operatorpages.TenantPlaques(plaquesUnnamed),
+		"audit log":                operatorpages.AuditLog(audit),
+		"audit log, filtered":      operatorpages.AuditLog(auditFiltered),
+		"audit log, past the end":  operatorpages.AuditLog(auditEmpty),
+		"audit log, the last page": operatorpages.AuditLog(auditLast),
+		"audit log, empty":         operatorpages.AuditLog(operatorpages.AuditLogView{Filter: "Every kind", Page: 1, Options: everyOption}),
 	} {
 		var b bytes.Buffer
 		if err := c.Render(context.Background(), &b); err != nil {
@@ -592,19 +637,20 @@ func screens(t *testing.T) map[string]string {
 	return out
 }
 
-// TestOperatorScreens_EveryOneWearsTheOperatorChrome: each of the 25 renders screens()
-// makes (ten exported screen constructors; the "Every" of the name is these 25) opens
+// TestOperatorScreens_EveryOneWearsTheOperatorChrome: each of the 30 renders screens()
+// makes (eleven exported screen constructors; the "Every" of the name is these 30) opens
 // with the operator bar -- the "TAPTIME OPERATOR" lockup on the ink band -- and none of
-// the 25 carries the restaurant panel's chrome (its tab bar, its green wordmark). The
-// sign-out control is on the sixteen signed-in renders and absent from the other nine.
+// the 30 carries the restaurant panel's chrome (its tab bar, its green wordmark). The
+// sign-out control is on the twenty-one signed-in renders and absent from the other nine.
 func TestOperatorScreens_EveryOneWearsTheOperatorChrome(t *testing.T) {
 	signedIn := map[string]bool{"home": true, "problem, signed in": true, "tenant screen": true, "legal": true, "legal, published": true,
 		"tenants": true, "tenants, a page": true, "tenants, searched": true, "tenants, a later page": true, "tenants, past the end": true,
 		"tenant overview": true, "tenant overview, unnamed": true, "tenant plaques": true, "tenant plaques, first": true,
-		"tenant plaques, none": true, "tenant plaques, unnamed": true}
+		"tenant plaques, none": true, "tenant plaques, unnamed": true, "audit log": true, "audit log, filtered": true,
+		"audit log, past the end": true, "audit log, the last page": true, "audit log, empty": true}
 	all := screens(t)
-	if len(all) != 25 || len(signedIn) != 16 {
-		t.Fatalf("PREMISE: %d render(s), %d signed in; the comment says 25 and 16", len(all), len(signedIn))
+	if len(all) != 30 || len(signedIn) != 21 {
+		t.Fatalf("PREMISE: %d render(s), %d signed in; the comment says 30 and 21", len(all), len(signedIn))
 	}
 	for name, html := range all {
 		bar := strings.Index(html, `<header class="op-bar">`)
@@ -672,14 +718,15 @@ func TestTenantScreen_RefusesToRenderWithoutAName(t *testing.T) {
 	}
 }
 
-// TestOperatorScreens_EveryActionAndLinkIsAMountedRoute: on the 25 renders screens()
-// makes (the "Every" of the name is these 25), each form action and link is a relative
+// TestOperatorScreens_EveryActionAndLinkIsAMountedRoute: on the 30 renders screens()
+// makes (the "Every" of the name is these 30), each form action and link is a relative
 // path of a route the surface mounts (operatorRoutes; a tenant overview's and a tenant's
-// plaques' paths are their {id} routes') -- so none of the 25 links to the billing or
-// audit screens of later tasks -- and the count of absolute URLs in their action, href
-// and src attributes is zero. CONTROL: the console links the tenant list, a list row links
-// its overview, the overview links the tenant's plaques (OP-13) and the plaques link back
-// to the overview.
+// plaques' paths are their {id} routes') -- so none of the 30 links to the billing screen
+// of a later task -- and the count of absolute URLs in their action, href and src
+// attributes is zero. CONTROL: the console links the tenant list and the audit log
+// (OP-14), a list row links its overview, the overview links the tenant's plaques (OP-13),
+// the plaques link back to the overview, an audit row links the overview of the tenant it
+// names and the audit log's filter and pager post to it.
 func TestOperatorScreens_EveryActionAndLinkIsAMountedRoute(t *testing.T) {
 	attr := regexp.MustCompile(`\s(action|href|src)="([^"]*)"`)
 	absolute := 0
@@ -689,6 +736,11 @@ func TestOperatorScreens_EveryActionAndLinkIsAMountedRoute(t *testing.T) {
 		!strings.Contains(all["tenant overview"], `href="/operator/tenants/10000000-0000-4000-8000-000000000001/plaques"`) ||
 		!strings.Contains(all["tenant plaques"], `href="/operator/tenants/10000000-0000-4000-8000-000000000001"`) {
 		t.Fatal("CONTROL: the console does not link the tenants, a list row its overview, the overview its plaques or the plaques the overview")
+	}
+	if !strings.Contains(all["home"], `<a href="/operator/audit" class="op-link">Audit log</a>`) ||
+		!strings.Contains(all["audit log"], `href="/operator/tenants/10000000-0000-4000-8000-000000000001"`) ||
+		strings.Count(all["audit log, filtered"], `<form method="post" action="/operator/audit"`) != 3 {
+		t.Fatal("CONTROL: the console does not link the audit log, an audit row does not link its tenant, or the filter and the pager do not post to the log")
 	}
 	for name, html := range all {
 		for _, m := range attr.FindAllStringSubmatch(html, -1) {
@@ -808,7 +860,7 @@ func TestHostGate_AnOperatorHostThatIsACustomerHostServesOnlyTheOperator(t *test
 		t.Fatalf("PREMISE: %s is not an ingress host any more; pick one that is", collide)
 	}
 	g := newRig(t)
-	s, err := operator.New(g.auth, g.store, g.store, g.store, g.texts, collide, opBase, slog.New(slog.DiscardHandler))
+	s, err := operator.New(g.auth, g.store, g.store, g.store, g.store, g.texts, collide, opBase, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -861,16 +913,19 @@ func TestHostGate_TheUnavailableSurfaceKeepsItsAnswerOnEveryHost(t *testing.T) {
 	}
 }
 
-// TestSurface_TheScreensOfLaterTasksAreNotMounted: ADR 0020 §4's billing and audit
-// screens need definers the migrations up to 00030 do not have; the surface registers
-// neither, so each answers the router's OWN 404 on the operator host -- the bytes of a
-// path no feature registered, not a page of the surface (a mounted route's 404, a tenant's
-// "no such id" page, is HTML) -- and no screen links to them
+// TestSurface_TheScreensOfLaterTasksAreNotMounted: ADR 0020 §4's billing screen is OP-12's
+// B phase (its definer, op_read_tenant_billing, came with 00032 in the A phase); the
+// surface does not register it, so it
+// answers the router's OWN 404 on the operator host -- the bytes of a path no feature
+// registered, not a page of the surface (a mounted route's 404, a tenant's "no such id"
+// page, is HTML) -- and no screen links to it
 // (TestOperatorScreens_EveryActionAndLinkIsAMountedRoute). (OP-10 took /operator/legal off
-// this list, OP-11 the tenant list and overview, and OP-13 the tenant's plaques under
-// /operator/tenants/{id}/plaques: they are mounted, with the definers 00027, 00029 and
-// 00030 added. ADR 0020 §4's earlier spelling /operator/plaques stays unmounted and stays
-// here.)
+// this list, OP-11 the tenant list and overview, OP-13 the tenant's plaques under
+// /operator/tenants/{id}/plaques and OP-14 /operator/audit: they are mounted, with the
+// definers 00027, 00029, 00030 and 00031 added. ADR 0020 §4's earlier spelling
+// /operator/plaques stays unmounted and stays here; so do the audit log's paths below it --
+// it has one page, posted to, and no per-tenant view (the orchestrator's K14-5: no tenant
+// filter in v1) -- each the router's own 404.)
 func TestSurface_TheScreensOfLaterTasksAreNotMounted(t *testing.T) {
 	g := newRig(t)
 	live := g.signIn(g.active())
@@ -878,8 +933,8 @@ func TestSurface_TheScreensOfLaterTasksAreNotMounted(t *testing.T) {
 	if want.Code != http.StatusNotFound || strings.Contains(want.Body.String(), "<html") {
 		t.Fatalf("PREMISE: an unregistered path = %d %q, want the router's plain 404", want.Code, want.Body.String())
 	}
-	for _, p := range []string{"/operator/billing", "/operator/plaques", "/operator/audit",
-		"/operator/tenants/" + uuidString(t) + "/billing"} {
+	for _, p := range []string{"/operator/billing", "/operator/plaques", "/operator/audit/", "/operator/audit/x",
+		"/operator/tenants/" + uuidString(t) + "/billing", "/operator/tenants/" + uuidString(t) + "/audit"} {
 		if w := g.get(p, live); w.Code != http.StatusNotFound || w.Body.String() != want.Body.String() {
 			t.Errorf("GET %s = %d %q, want the router's own 404", p, w.Code, w.Body.String())
 		}

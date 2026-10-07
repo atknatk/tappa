@@ -23,8 +23,9 @@ package db
 //     (TestOpReadAudit_TwoPhaseLifecycle, TestOperatorAudit_OnThePoolTheTwoPhasesAreTwoTransactions).
 //     They take the lock SHARED through opLiveFixture. What they leave per run, by
 //     construction: one disabled account each, its revoked sessions, and the 'read' rows
-//     they committed (the lifecycle one, the pool test two) -- operator_audit_log is
-//     append-only and its foreign keys keep the account and the sessions those rows name.
+//     they committed (the lifecycle one, the pool test three since OP-14 phase B drove the
+//     method there too) -- operator_audit_log is append-only and its foreign keys keep the
+//     account and the sessions those rows name.
 //
 // 🔴 NO TEST HERE COMMITS A 'password_ok' ROW. 00031's Down returns the audit CHECKs NOT
 // VALID when one exists, and 00027's applied Up cannot be re-run over one (the Down test
@@ -2470,7 +2471,11 @@ func TestOpReadAudit_TwoPhaseLifecycle(t *testing.T) {
 // dated later, read out as the filter it was ("all"); a 'read' filter returns 'read' rows only.
 // Inside one transaction it is ErrOperatorRefused; an unknown session is ErrOperatorRefused; a
 // filter outside the set is ErrOperatorAuditFilterRefused and page 1001 a 22023 database
-// error -- none of the refused calls writes a row. It commits two 'read' rows.
+// error -- none of the refused calls writes a row. Since OP-14 phase B the METHOD
+// (*OperatorDB).OperatorAudit -- the one the audit screen calls -- is driven on the same pool
+// too: a 'read' filter returns a non-empty page of 'read' rows only -- its own row among them --
+// after one more committed 'read' row whose filter it records (inside one transaction it would
+// be ErrOperatorRefused). It commits three 'read' rows.
 func TestOperatorAudit_OnThePoolTheTwoPhasesAreTwoTransactions(t *testing.T) {
 	ctx, f := opLiveFixture(t)
 	o, err := openOperatorDB(ctx, f.dsn, asOperator)
@@ -2527,5 +2532,37 @@ func TestOperatorAudit_OnThePoolTheTwoPhasesAreTwoTransactions(t *testing.T) {
 	}
 	if n := f.liveReads(t, ctx, f.session); n != 2 {
 		t.Errorf("after the refused calls the session has %d committed 'read' row(s), want still 2", n)
+	}
+	// Through the method (OP-14 phase B), on the production-built pool -- filtered to 'read',
+	// a kind this test has committed rows of (the fixture opens its session without a 'login'
+	// row, so a 'login' filter could return nothing on a fresh database and the loop below would
+	// measure nothing: 2nd round). The page is not empty, and the view's own row is on it.
+	rows, err = o.OperatorAudit(ctx, f.hash, OperatorAuditQuery{Kind: OperatorAuditRead, Number: 1, Size: 50})
+	if err != nil {
+		t.Fatalf("(*OperatorDB).OperatorAudit 'read' on its pool: %v", err)
+	}
+	if len(rows) == 0 {
+		t.Fatal("PREMISE: the method's 'read' page is empty; the test has committed 'read' rows")
+	}
+	ownFound := false
+	for _, r := range rows {
+		if r.Kind != "read" {
+			t.Errorf("the method's 'read' filter returned a %q row", r.Kind)
+		}
+		ownFound = ownFound || (r.SessionID != nil && *r.SessionID == f.session && opDeref(r.FilterKind) == "read")
+	}
+	if !ownFound {
+		t.Error("the method's own 'read' row (filter read) is not on its page")
+	}
+	if n := f.liveReads(t, ctx, f.session); n != 3 {
+		t.Errorf("the method's read left the session with %d committed 'read' row(s), want 3", n)
+	}
+	var filter string
+	if err := f.owner.QueryRow(ctx, `SELECT detail ->> 'filter' FROM operator_audit_log WHERE kind = 'read' AND session_id = $1
+	                                 AND target_scope = 'operator_audit' ORDER BY at DESC, id DESC LIMIT 1`, f.session).Scan(&filter); err != nil {
+		t.Fatalf("the method's 'read' row: %v", err)
+	}
+	if filter != "read" {
+		t.Errorf("the method's 'read' row records the filter %q, want read", filter)
 	}
 }

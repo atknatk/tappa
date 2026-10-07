@@ -475,15 +475,16 @@ var hostileHeaders = map[string]string{
 }
 
 // hostileQuery is a query string carrying a value under five credential field names,
-// "blob", and (OP-11) the tenant search's two field names, "q" and "page" -- a search term
-// and a page put in the URL, where the screens must not read them; hostileDrive appends it
-// to the sign-in, code, enrollment, legal and tenant requests (with an id on a POST: the
-// enrollment GET reads its id from the query by design).
+// "blob", (OP-11) the tenant search's two field names, "q" and "page" -- a search term
+// and a page put in the URL, where the screens must not read them -- and (OP-14) the audit
+// log's "kind"; hostileDrive appends it to the sign-in, code, enrollment, legal, tenant,
+// plaque and audit requests (with an id on a POST: the enrollment GET reads its id from the
+// query by design).
 var hostileQuery = url.Values{
 	"token": {"qry-hostile-token-" + strings.Repeat("q", 6)}, "email": {"qry-hostile@example.test"},
 	"password": {"qry hostile passphrase"}, "password_again": {"qry hostile passphrase"},
 	"code": {"917351"}, "blob": {"QRYblobHostileValue"},
-	"q": {"qry-hostile-search-term"}, "page": {"424242"},
+	"q": {"qry-hostile-search-term"}, "page": {"424242"}, "kind": {"qry_hostile_kind"},
 }
 
 // hostileValues are the hostile request values checkDesignedHeaders looks for in a response.
@@ -523,7 +524,8 @@ func hostileCookieLine(cookies []*http.Cookie) string {
 
 // hostileDrive is r with the hostile headers (a header the request sets itself --
 // Origin, Sec-Fetch-Site -- is kept), the second Cookie line and, on the sign-in, code,
-// enrollment, (OP-10) legal, (OP-11) tenant and (OP-13) plaque paths, the hostile query.
+// enrollment, (OP-10) legal, (OP-11) tenant, (OP-13) plaque and (OP-14) audit paths, the
+// hostile query.
 func hostileDrive(r req) req {
 	h := map[string]string{}
 	for k, v := range hostileHeaders {
@@ -543,7 +545,7 @@ func hostileDrive(r req) req {
 	}
 	switch path {
 	case "/operator/login", "/operator/login/totp", "/operator/enroll", "/operator/legal", "/operator/tenants", "/operator/tenants/{id}",
-		"/operator/tenants/{id}/plaques":
+		"/operator/tenants/{id}/plaques", "/operator/audit":
 		q := url.Values{}
 		for k, v := range hostileQuery {
 			q[k] = v
@@ -583,7 +585,7 @@ func hostileOn(r *http.Request) {
 // registered method, sorted here; "" = absent) and its Set-Cookie headers, each
 // "<cookie name>=set" or "<cookie name>=clear". Read off the shipped handlers and
 // measured on them (2026-10-02, the 4th round; C41-C48 the 5th; C49-C66 OP-10, 2026-10-03;
-// C67-C93 OP-11, 2026-10-03; C94-C103 OP-13, 2026-10-06).
+// C67-C93 OP-11, 2026-10-03; C94-C103 OP-13, 2026-10-06; C104-C121 OP-14, 2026-10-07).
 type designed struct {
 	loc, ct, allow string
 	cookies        []string
@@ -653,6 +655,17 @@ var designedHeaders = map[string]designed{
 	"C96": {loc: "/operator/login", cookies: []string{sessionClear}},
 	"C97": {loc: "/operator/login"}, "C98": {ct: pageType}, "C99": {ct: pageType}, "C100": {ct: pageType},
 	"C101": {loc: "/operator/login"}, "C102": {ct: pageType}, "C103": {allow: "GET"},
+	// OP-14's audit log (op14_test.go): the log, a filtered page and their refusals are
+	// pages -- a 400, 403, 413, 429 or 503 page, none carrying a Location; the sign-in
+	// redirects of the gate and of a session the store refuses; the dead cookie cleared;
+	// PUT's 405. A filtered page answers 200 with its page (no PRG), so no Location can
+	// carry its kind or page.
+	"C104": {ct: pageType}, "C105": {loc: "/operator/login"},
+	"C106": {loc: "/operator/login", cookies: []string{sessionClear}},
+	"C107": {loc: "/operator/login"}, "C108": {ct: pageType}, "C109": {loc: "/operator/login"}, "C110": {ct: pageType},
+	"C111": {ct: pageType}, "C112": {loc: "/operator/login"}, "C113": {ct: pageType}, "C114": {ct: pageType},
+	"C115": {ct: pageType}, "C116": {ct: pageType}, "C117": {ct: pageType}, "C118": {ct: pageType},
+	"C119": {loc: "/operator/login"}, "C120": {ct: pageType}, "C121": {allow: "GET,POST"},
 }
 
 // checkDesignedHeaders holds the response headers AT WriteHeader (w.Result().Header, the

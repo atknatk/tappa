@@ -31,12 +31,12 @@ const (
 // with the function that closes what it opened.
 //
 // 🔴 THE OPERATOR'S POOL NEVER LEAVES THIS FUNCTION. It is opened here, handed to
-// configuredSurface (whose syntax tree uses it exactly four times: as operatorauth.New's
+// configuredSurface (whose syntax tree uses it exactly five times: as operatorauth.New's
 // Store, through operatorAuthenticator, as operator.New's LegalStore -- OP-10 --, as its
-// TenantStore -- OP-11 -- and as its PlaqueStore -- OP-13), and its Close is returned as a
-// bound method value -- which carries one call and no object, so nothing in run() can hand
-// the pool to a customer handler (ADR 0021 §3.6: the operator's pool goes to the
-// operator's side only).
+// TenantStore -- OP-11 --, as its PlaqueStore -- OP-13 -- and as its AuditStore -- OP-14),
+// and its Close is returned as a bound method value -- which carries one call and no
+// object, so nothing in run() can hand the pool to a customer handler (ADR 0021 §3.6: the
+// operator's pool goes to the operator's side only).
 // TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator reads the three functions' syntax
 // trees for exactly that.
 //
@@ -99,19 +99,21 @@ func openOperatorSurface(ctx context.Context, cfg *config.Config, texts operator
 }
 
 // operatorStore is what the operator's pool is to the surface: the Authenticator's
-// Store, the legal screen's LegalStore (OP-10), the tenant screens' TenantStore (OP-11)
-// and the plaque screen's PlaqueStore (OP-13) -- *db.OperatorDB's method set
-// (TestOperatorDB_IsTheStoreAndNothingMore derives it from these four and Close).
+// Store, the legal screen's LegalStore (OP-10), the tenant screens' TenantStore (OP-11),
+// the plaque screen's PlaqueStore (OP-13) and the audit screen's AuditStore (OP-14) --
+// *db.OperatorDB's method set (TestOperatorDB_IsTheStoreAndNothingMore derives it from these
+// five and Close).
 type operatorStore interface {
 	operatorauth.Store
 	operator.LegalStore
 	operator.TenantStore
 	operator.PlaqueStore
+	operator.AuditStore
 }
 
 // configuredSurface builds the operator's Authenticator around store and the surface
-// that holds it -- store again as its legal store, its tenant store and its plaque store,
-// texts as its legal snapshot -- and announces the configured state. The process keeps the
+// that holds it -- store again as its legal store, its tenant store, its plaque store and
+// its audit store, texts as its legal snapshot -- and announces the configured state. The process keeps the
 // *Authenticator, inside the Surface (m10-platform.md, OP-4 block, OP-7 decision (3)).
 //
 // It is split from openOperatorSurface so the configured path can be driven without a
@@ -122,7 +124,7 @@ func configuredSurface(store operatorStore, texts operator.LegalTexts, cfg *conf
 	if err != nil {
 		return nil, err
 	}
-	surface, err := operator.New(auth, store, store, store, texts, cfg.OperatorHost, cfg.BaseURL, log)
+	surface, err := operator.New(auth, store, store, store, store, texts, cfg.OperatorHost, cfg.BaseURL, log)
 	if err != nil {
 		return nil, err
 	}

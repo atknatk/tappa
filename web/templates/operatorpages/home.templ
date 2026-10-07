@@ -8,7 +8,8 @@ import "github.com/atknatk/tappa/web/templates/components"
 // is signed in and links the operator screens this build has -- the tenants (OP-11; ADR
 // 0020 §4 named /operator itself as the tenant list, but the list is a READ, two units of
 // the session budget and an audit row, and the front page every sign-in lands on is not
-// made to cost one) and Taptime's legal texts (OP-10) -- beside the bar's sign-out form.
+// made to cost one), Taptime's legal texts (OP-10) and the operator's own audit log (OP-14;
+// a read as well, so a link and not the landing page) -- beside the bar's sign-out form.
 // Its links are held to the mounted routes by
 // TestOperatorScreens_EveryActionAndLinkIsAMountedRoute. The session facts it states are
 // ADR 0020 §2's, enforced by op_touch_session.
@@ -28,6 +29,10 @@ templ Home() {
 				<li>
 					<a href="/operator/legal" class="op-link">Legal texts</a>
 					<span class="text-sm text-ink/70">— Taptime's privacy policy, terms, company details and cookie notice</span>
+				</li>
+				<li>
+					<a href="/operator/audit" class="op-link">Audit log</a>
+					<span class="text-sm text-ink/70">— every sign-in, read and publication on this surface</span>
 				</li>
 			</ul>
 			<p class="mt-4 text-sm text-ink/70">

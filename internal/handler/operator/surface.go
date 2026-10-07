@@ -2,7 +2,8 @@
 // §3.6): the sign-in with its TOTP step, the enrollment, the sign-out and the console's
 // front page (OP-8), Taptime's legal texts (OP-10, legal.go), the tenant list, its search
 // and one tenant's overview (OP-11, tenants.go), one tenant's plaque inventory (OP-13,
-// plaques.go), on the operator's own host, and the two 503 states OP-7 shipped.
+// plaques.go), the operator's own audit log (OP-14, audit.go), on the operator's own host,
+// and the two 503 states OP-7 shipped.
 //
 // 🔴 IT IS NOT internal/handler, AND THE PACKAGE BOUNDARY IS THE POINT. ADR 0021 §3.6:
 // the customer panel does not import the operator's packages. internal/handler is the
@@ -14,14 +15,17 @@
 // op_touch_session, op_record_auth_event, op_open_session, op_complete_enrollment,
 // op_close_session --, three in 00027 -- op_begin_read, op_read_legal_versions,
 // op_publish_legal --, two in 00029 -- op_read_tenants, op_read_tenant_detail, the two
-// that read a tenant -- and one in 00030 -- op_read_tenant_plaques, a tenant's plaques
-// (00029 and 00030 also replaced op_begin_read; read from the four migrations). So the
-// routes are the sign-in, the TOTP step, the enrollment, the sign-out, /operator itself,
-// /operator/legal (OP-10), /operator/tenants with /operator/tenants/{id} (OP-11) and
-// /operator/tenants/{id}/plaques (OP-13). The billing and audit screens of ADR 0020 §4
-// are not registered (TestSurface_TheScreensOfLaterTasksAreNotMounted), and the renders of
-// screens() do not link to them (TestOperatorScreens_EveryActionAndLinkIsAMountedRoute);
-// they arrive with the definers that can serve them (OP-12, OP-14).
+// that read a tenant --, one in 00030 -- op_read_tenant_plaques, a tenant's plaques -- and
+// one in 00031 -- op_read_audit, the operator's own audit log (00029, 00030 and 00031 also
+// replaced op_begin_read, and 00031 op_record_auth_event; read from the five migrations).
+// So the routes are the sign-in, the TOTP step, the enrollment, the sign-out, /operator
+// itself, /operator/legal (OP-10), /operator/tenants with /operator/tenants/{id} (OP-11),
+// /operator/tenants/{id}/plaques (OP-13) and /operator/audit (OP-14). 00032 (OP-12's A
+// phase) added op_read_tenant_billing and replaced op_begin_read and op_read_audit once
+// more; no route here calls the billing definer. The billing screen of ADR 0020 §4 is not
+// registered (TestSurface_TheScreensOfLaterTasksAreNotMounted), and the renders of
+// screens() do not link to it (TestOperatorScreens_EveryActionAndLinkIsAMountedRoute); it
+// is OP-12's B phase.
 package operator
 
 import (
@@ -66,6 +70,9 @@ type Surface struct {
 	// plaqueStore is the plaque screen's (plaques.go): one tenant's plaque inventory, a
 	// two-phase read.
 	plaqueStore PlaqueStore
+	// auditStore is the audit screen's (audit.go): a page of the operator's own audit log,
+	// a two-phase read.
+	auditStore AuditStore
 	// host is TAPPA_OPERATOR_HOST, validated by internal/config: the host gate's
 	// comparison (httpx.OnHost).
 	host string
@@ -105,10 +112,11 @@ func Unavailable() *Surface { return &Surface{unavailable: true} }
 
 // New is the configured surface. It refuses the values a configured surface cannot do
 // without rather than degrade to Off silently: the Authenticator, the legal screen's
-// store and texts, the tenant screens' store, the plaque screen's store, the operator
-// host, a base URL it can take the operator origin's scheme and port from, and a logger.
+// store and texts, the tenant screens' store, the plaque screen's store, the audit
+// screen's store, the operator host, a base URL it can take the operator origin's scheme
+// and port from, and a logger.
 func New(auth *operatorauth.Authenticator, legalStore LegalStore, tenantStore TenantStore, plaqueStore PlaqueStore,
-	texts LegalTexts, host, baseURL string, log *slog.Logger) (*Surface, error) {
+	auditStore AuditStore, texts LegalTexts, host, baseURL string, log *slog.Logger) (*Surface, error) {
 	if auth == nil {
 		return nil, errors.New("operator: a configured surface needs its Authenticator")
 	}
@@ -120,6 +128,9 @@ func New(auth *operatorauth.Authenticator, legalStore LegalStore, tenantStore Te
 	}
 	if plaqueStore == nil {
 		return nil, errors.New("operator: a configured surface needs its plaque store (the operator database)")
+	}
+	if auditStore == nil {
+		return nil, errors.New("operator: a configured surface needs its audit store (the operator database)")
 	}
 	if texts == nil {
 		return nil, errors.New("operator: a configured surface needs the legal texts' snapshot")
@@ -140,6 +151,7 @@ func New(auth *operatorauth.Authenticator, legalStore LegalStore, tenantStore Te
 		texts:       texts,
 		tenantStore: tenantStore,
 		plaqueStore: plaqueStore,
+		auditStore:  auditStore,
 		host:        host,
 		origin:      origin,
 		log:         log,
@@ -269,6 +281,19 @@ const (
 	// 101st request is the gate's 429
 	// (TestReadBudget_TheReadsOfEveryScreenShareOneBudgetPerSession).
 	//
+	// OP-14 PHASE B RE-COUNTED IT WITH THE AUDIT LOG, AND IT STANDS. The log adds no request
+	// that is not a read or one of its refusals, so the three windows of readLimit's comment
+	// below are, in requests:
+	//
+	//	a support window      ~30 reads + ~5 console + ~2 publications + ~3 refused   ~40 -> 2.5 headroom
+	//	an audit review       ~20 reads + ~5 console + ~3 refused                     ~28 -> 3.6
+	//	the two mixed         ~38 reads + ~5 console + ~2 publications + ~3 refused   ~48 -> 2.08
+	//
+	// Measured on one session: 30 plaque views and 30 views of the audit log (GET and POST
+	// alike) are 60 x 200, the 61st audit view of either method is 429 from the read budget,
+	// and the session's 101st request is the gate's 429
+	// (TestAuditBudget_EachViewIsOneReadOfTheSessionsSharedBudget).
+	//
 	// WHAT THE TWO NUMBERS BOUND IN THE DATABASE. A read request is THREE definer
 	// transactions -- sessionGate's op_touch_session, op_begin_read and op_read_* (the leak
 	// test's harvest counts all three) -- so the requests the two budgets ADMIT in a window
@@ -281,7 +306,8 @@ const (
 
 	// readLimit: READS per operator SESSION (OP-11 phase B's hand-over, built in OP-13
 	// phase B) -- every request whose handler makes a two-phase op_* read: legalPage,
-	// listTenants (the list and every page of a search), tenantOverview and tenantPlaques.
+	// listTenants (the list and every page of a search), tenantOverview, tenantPlaques and
+	// (OP-14) readAudit (the audit log's first page and every filter or page after it).
 	// The handler charges it ONCE, after the request's own refusals and before the store
 	// call (spendRead), so a malformed id, a refused term, page or form spends no read.
 	// Keyed on the session's id, like sessionLimit.
@@ -307,6 +333,21 @@ const (
 	// a mix -- each leaving one 'read' row in operator_audit_log, and 40 more requests that
 	// read nothing. (OP-11's 200 let it make 100 reads.) A fixed window lets a burst of
 	// twice that straddle the boundary (httpx.Limiter's own limit, its doc comment).
+	//
+	// OP-14 PHASE B ADDED THE AUDIT LOG'S READS AND KEPT THE NUMBER, re-derived with a
+	// second kind of window: reviewing the log is not a support case, and the larger of the
+	// two windows sets the ceiling --
+	//
+	//	a support window (above)                                       ~30 reads
+	//	an audit review: ~1 first page + ~4 kinds filtered
+	//	                 + ~10 older pages + one support case (~5)     ~20 reads
+	//	x 2 headroom over the larger                                   60
+	//
+	// A window that mixes them -- a support window with a look at the log after each of its
+	// ~4 cases (a first page and one filter: ~8 reads) -- is ~38 reads, against which 60 is
+	// 1.58 headroom; OP-11's walk above stays the narrowest (1.33). Again an estimate, not a
+	// measurement of use. A stolen cookie's 60 reads may now be 60 pages of the log: at most
+	// 3 000 audit rows a window (60 pages of 50), each view itself one more 'read' row.
 	//
 	// NO READ-THEN-WRITE WINDOW: Charge is one locked increment that returns the count, and
 	// the refusal is decided on the count it returned -- measured with 100 concurrent reads
