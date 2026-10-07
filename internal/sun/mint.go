@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/atknatk/tappa/internal/config"
 )
 
 // Minting a SUN tap URL — what the chip does on every read — for DEVELOPMENT and
@@ -20,10 +22,11 @@ import (
 // the empty message → odd-index truncation — so a mismatch between minting and
 // verifying cannot hide.
 //
-// WHAT KEEPS IT FROM BEING A FORGERY SERVICE IN PRODUCTION is not this file: a
-// caller needs the per-tag key, which only the process KEK unwraps, and the one
-// HTTP surface that calls MintNextTapForDevelopment is mounted only on a
-// development deployment (internal/handler/devtap.go, DevToolsEnabled). Nothing
+// WHAT KEEPS IT FROM BEING A FORGERY SERVICE IN PRODUCTION: MintNextTapForDevelopment
+// works only on a Verifier made with WithDevelopmentMinting, which demands the
+// TAPPA_DEV_TOOLS=1 opt-in that config.Load allows only with TAPPA_ENV=dev; and
+// the one HTTP surface that calls it is mounted only behind the same opt-in
+// (internal/handler/devtap.go, DevToolsEnabled). Nothing
 // here is logged: the key is wiped on return and the MAC exists only in the
 // returned path.
 
@@ -61,6 +64,25 @@ func MintTapPath(key, uid []byte, ctr uint32) (string, error) {
 	return b.String(), nil
 }
 
+// ErrDevMintingDisabled is what MintNextTapForDevelopment answers on a Verifier
+// that was not made with WithDevelopmentMinting — which is every Verifier
+// NewVerifier returns. The HTTP gate cannot be forgotten around: without this
+// explicit construction step there is nothing to mint with.
+var ErrDevMintingDisabled = errors.New("sun: mint: development minting is not enabled on this verifier")
+
+// WithDevelopmentMinting returns a COPY of v that may mint taps, and refuses
+// unless the configuration opted in: TAPPA_DEV_TOOLS=1 (cfg.DevTools, which
+// config.Load only allows with TAPPA_ENV=dev). The original v is unchanged, so
+// the verifier the tap path uses never gains the capability.
+func (v *Verifier) WithDevelopmentMinting(cfg *config.Config) (*Verifier, error) {
+	if cfg == nil || !cfg.DevTools || cfg.Env != config.EnvDev {
+		return nil, ErrDevMintingDisabled
+	}
+	cp := *v
+	cp.devMinting = true
+	return &cp, nil
+}
+
 // ErrNotMintable reports a plaque the dev tool must not tap: not in service, not
 // on a wall, or at the end of its counter.
 var ErrNotMintable = errors.New("sun: mint: plaque is not in service")
@@ -69,6 +91,9 @@ var ErrNotMintable = errors.New("sun: mint: plaque is not in service")
 // under the plaque's own unwrapped key. It advances nothing — the returned path
 // still has to go through GET /t and sun.Verify, which is the point.
 func (v *Verifier) MintNextTapForDevelopment(ctx context.Context, uid string) (string, error) {
+	if !v.devMinting {
+		return "", ErrDevMintingDisabled
+	}
 	tag, err := v.tags.GetTagByUID(ctx, uid)
 	if err != nil {
 		return "", fmt.Errorf("sun: mint: resolve tag: %w", err)

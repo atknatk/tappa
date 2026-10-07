@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/google/uuid"
 )
@@ -80,7 +81,12 @@ func TestMintNextTapForDevelopment_MintsLastPlusOneOnlyForAPlaqueInService(t *te
 	wall := uuid.New()
 	tag := db.ResolvedTag{UID: "04AC7E55000601", TenantID: uuid.New(), LocationID: &wall, AESKeyRef: ref, LastCtr: 0x640, Status: "active"}
 
-	got, err := NewVerifier(fakeMintTags{tag}, kek).MintNextTapForDevelopment(context.Background(), tag.UID)
+	devCfg := &config.Config{Env: config.EnvDev, DevTools: true}
+	minter, err := NewVerifier(fakeMintTags{tag}, kek).WithDevelopmentMinting(devCfg)
+	if err != nil {
+		t.Fatalf("WithDevelopmentMinting: %v", err)
+	}
+	got, err := minter.MintNextTapForDevelopment(context.Background(), tag.UID)
 	if err != nil {
 		t.Fatalf("mint: %v", err)
 	}
@@ -96,8 +102,36 @@ func TestMintNextTapForDevelopment_MintsLastPlusOneOnlyForAPlaqueInService(t *te
 	} {
 		bad := tag
 		mutate(&bad)
-		if _, err := NewVerifier(fakeMintTags{bad}, kek).MintNextTapForDevelopment(context.Background(), bad.UID); !errors.Is(err, ErrNotMintable) {
+		m, _ := NewVerifier(fakeMintTags{bad}, kek).WithDevelopmentMinting(devCfg)
+		if _, err := m.MintNextTapForDevelopment(context.Background(), bad.UID); !errors.Is(err, ErrNotMintable) {
 			t.Errorf("%s: err = %v, want ErrNotMintable", name, err)
 		}
+	}
+}
+
+// TestMintNextTapForDevelopment_IsDisabledByDefault: the guard lives in this
+// package, not only in the HTTP gate. A Verifier from NewVerifier cannot mint,
+// and WithDevelopmentMinting refuses without the dev opt-in — and never changes
+// the Verifier it was called on.
+func TestMintNextTapForDevelopment_IsDisabledByDefault(t *testing.T) {
+	v := NewVerifier(fakeMintTags{}, make([]byte, 32))
+	if _, err := v.MintNextTapForDevelopment(context.Background(), "04AC7E55000601"); !errors.Is(err, ErrDevMintingDisabled) {
+		t.Fatalf("a default Verifier minted (err=%v)", err)
+	}
+	for _, cfg := range []*config.Config{
+		nil,
+		{Env: config.EnvDev},
+		{Env: config.EnvProd, DevTools: true},
+		{Env: config.EnvStaging, DevTools: true},
+	} {
+		if m, err := v.WithDevelopmentMinting(cfg); err == nil || m != nil {
+			t.Errorf("WithDevelopmentMinting(%+v) enabled minting", cfg)
+		}
+	}
+	if _, err := v.WithDevelopmentMinting(&config.Config{Env: config.EnvDev, DevTools: true}); err != nil {
+		t.Fatalf("the dev opt-in was refused: %v", err)
+	}
+	if _, err := v.MintNextTapForDevelopment(context.Background(), "04AC7E55000601"); !errors.Is(err, ErrDevMintingDisabled) {
+		t.Fatal("WithDevelopmentMinting changed the original Verifier")
 	}
 }

@@ -208,6 +208,14 @@ type Config struct {
 
 	LogLevel string
 
+	// DevTools is the EXPLICIT opt-in for the development-only plaque-tap
+	// simulator (ADR 0025, "Geliştirme aracı"): TAPPA_DEV_TOOLS=1. It is never
+	// on by default, and Load REFUSES TO START when it is set on any TAPPA_ENV
+	// other than dev — the simulator must not be enabled by the absence of
+	// configuration (an unset TAPPA_ENV falls back to dev and an unset
+	// TAPPA_BASE_URL to localhost, so those two alone are not a gate).
+	DevTools bool
+
 	// LogFormat is "text" or "json" and it is a DEPLOYMENT decision rather than a
 	// taste, because the two readers of this process's output want opposite things
 	// (M8-03, measured on the live cluster 2026-08-19).
@@ -260,6 +268,9 @@ func Load() (*Config, error) {
 	// environment name should be a deliberate edit here, next to IsProd.
 	push(validEnv(c.Env))
 	push(validLogFormat(c.LogFormat))
+	devTools, devErr := devToolsFlag(c.Env)
+	c.DevTools = devTools
+	push(devErr)
 
 	c.DatabaseURL = os.Getenv("DATABASE_URL")
 	if c.DatabaseURL == "" {
@@ -714,6 +725,23 @@ func optionalKey32(name string) ([]byte, error) {
 		return nil, nil
 	}
 	return key32(name)
+}
+
+// devToolsFlag reads TAPPA_DEV_TOOLS: unset or "0" is off, "1" is on, anything
+// else is a startup error, and "1" outside TAPPA_ENV=dev is a startup error too.
+func devToolsFlag(env string) (bool, error) {
+	switch v := strings.TrimSpace(os.Getenv("TAPPA_DEV_TOOLS")); v {
+	case "", "0":
+		return false, nil
+	case "1":
+		if env != EnvDev {
+			return false, fmt.Errorf("TAPPA_DEV_TOOLS=1 is only allowed with TAPPA_ENV=dev, got TAPPA_ENV=%q: "+
+				"the plaque-tap simulator must never run on a shared deployment", env)
+		}
+		return true, nil
+	default:
+		return false, fmt.Errorf("TAPPA_DEV_TOOLS: must be 1 or unset, got %q", v)
+	}
 }
 
 func env(k, def string) string {

@@ -133,6 +133,9 @@ type Verifier struct {
 	// keks is ordered: keks[0] is the primary (Config.TagKEK) and is tried first.
 	// It has more than one entry only during a KEK rotation; see UnwrapAny.
 	keks [][]byte
+	// devMinting is set only by WithDevelopmentMinting (mint.go); NewVerifier
+	// leaves it false, so a production Verifier cannot mint taps.
+	devMinting bool
 }
 
 // NewVerifier wires a Verifier. tags is normally *db.DB; kek is Config.TagKEK

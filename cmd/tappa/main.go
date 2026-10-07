@@ -422,11 +422,16 @@ func run() error {
 		return err
 	}
 	// THE DEV-ONLY PLAQUE-TAP SIMULATOR (ADR 0025, "Geliştirme aracı"), gate 1 of 3:
-	// constructed and mounted ONLY on a dev deployment served from a loopback
-	// address. DevTap.Mount and DevTap.Simulate check the same gate again.
+	// constructed and mounted ONLY with TAPPA_DEV_TOOLS=1 (refused by config.Load
+	// outside TAPPA_ENV=dev) on a loopback base URL. DevTap.Mount, DevTap.Simulate
+	// and sun's WithDevelopmentMinting each check again.
 	var devTools []httpx.Mounter
 	if handler.DevToolsEnabled(cfg) {
-		devTap, err := handler.NewDevTap(verifier, plaques, invites, sessions, cfg, slog.Default())
+		minter, err := verifier.WithDevelopmentMinting(cfg)
+		if err != nil {
+			return err
+		}
+		devTap, err := handler.NewDevTap(minter, plaques, invites, sessions, cfg, slog.Default())
 		if err != nil {
 			return err
 		}

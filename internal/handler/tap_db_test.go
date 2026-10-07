@@ -138,6 +138,11 @@ func newTapHarness(t *testing.T) *tapHarness {
 		GPSRadiusMeters: 150,
 		Debounce:        harnessDebounce,
 		Freshness:       harnessFreshness,
+		// The dev simulator's explicit opt-in (ADR 0025): this harness mounts
+		// POST /dev/simulate-tap exactly as `make dev` with TAPPA_DEV_TOOLS=1 does.
+		// Screens show the strip only after EnableDevTools, which only
+		// devtap_db_test.go calls.
+		DevTools: true,
 	}
 
 	data, err := db.New(context.Background(), cfg)
@@ -192,7 +197,11 @@ func newTapHarness(t *testing.T) *tapHarness {
 	if err != nil {
 		t.Fatalf("tenant.NewPlaques: %v", err)
 	}
-	devTap, err := NewDevTap(verifier, plaques, invites, sessions, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	minter, err := verifier.WithDevelopmentMinting(cfg)
+	if err != nil {
+		t.Fatalf("WithDevelopmentMinting: %v", err)
+	}
+	devTap, err := NewDevTap(minter, plaques, invites, sessions, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("NewDevTap: %v", err)
 	}

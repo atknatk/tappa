@@ -33,8 +33,10 @@ import (
 //  3. The handler refuses (404) on every request unless DevToolsEnabled(cfg).
 //
 // DevToolsEnabled is NOT "TAPPA_ENV is dev" alone, because an UNSET TAPPA_ENV
-// falls back to dev (internal/config, IsProd's note). It also requires the
-// configured base URL to be a loopback host, which no shared deployment has.
+// falls back to dev (internal/config, IsProd's note). It requires the explicit
+// TAPPA_DEV_TOOLS=1 opt-in (refused at startup outside dev) AND a loopback base
+// URL. And the minting itself needs a Verifier made with
+// sun.WithDevelopmentMinting, which checks the same config again.
 type DevTap struct {
 	enabled bool
 	baseURL string
@@ -56,22 +58,21 @@ type (
 	}
 )
 
-// DevToolsEnabled is the gate: a "dev" deployment whose base URL is a loopback
-// address (localhost, 127.0.0.0/8, ::1).
+// DevToolsEnabled is the gate: TAPPA_DEV_TOOLS=1 on a "dev" deployment whose base
+// URL is a loopback address (localhost, 127.0.0.0/8, ::1).
 func DevToolsEnabled(cfg *config.Config) bool {
-	if cfg == nil || cfg.Env != config.EnvDev {
+	// THE EXPLICIT OPT-IN COMES FIRST (security audit): TAPPA_DEV_TOOLS=1, which
+	// config.Load refuses outside TAPPA_ENV=dev. Env and base URL alone both have
+	// DEFAULTS (dev, localhost), so a deployment that forgot them must not get the
+	// simulator by omission.
+	if cfg == nil || !cfg.DevTools || cfg.Env != config.EnvDev {
 		return false
 	}
 	u, err := url.Parse(cfg.BaseURL)
 	if err != nil {
 		return false
 	}
-	host := u.Hostname()
-	if strings.EqualFold(host, "localhost") {
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
+	return isLoopbackHost(u.Hostname())
 }
 
 // NewDevTap wires the simulator. It is safe to construct anywhere: on a
@@ -213,11 +214,38 @@ func pickPlaque(plaques []tenant.Plaque, preferred uuid.UUID, asked string) stri
 
 // sameOrigin is strict: a POST from this origin, or one whose fetch metadata says
 // same-origin. An absent Origin with no metadata is refused.
+//
+// LOOPBACK-EQUIVALENT ORIGINS ARE ONE ORIGIN HERE: browsing the dev server as
+// 127.0.0.1:8080 while TAPPA_BASE_URL says localhost:8080 is the same machine and
+// port, so it is accepted — same scheme and port, both hosts loopback. This only
+// ever runs behind DevToolsEnabled, whose base URL is itself loopback.
 func (d *DevTap) sameOrigin(r *http.Request) bool {
 	if o := r.Header.Get("Origin"); o != "" && o != "null" {
-		return strings.EqualFold(strings.TrimRight(o, "/"), strings.TrimRight(d.baseURL, "/"))
+		if strings.EqualFold(strings.TrimRight(o, "/"), strings.TrimRight(d.baseURL, "/")) {
+			return true
+		}
+		return sameLoopbackOrigin(o, d.baseURL)
 	}
 	return r.Header.Get("Sec-Fetch-Site") == "same-origin"
+}
+
+// sameLoopbackOrigin reports whether two origins name loopback hosts on the same
+// scheme and port.
+func sameLoopbackOrigin(a, b string) bool {
+	ua, err1 := url.Parse(a)
+	ub, err2 := url.Parse(b)
+	if err1 != nil || err2 != nil || !strings.EqualFold(ua.Scheme, ub.Scheme) || ua.Port() != ub.Port() {
+		return false
+	}
+	return isLoopbackHost(ua.Hostname()) && isLoopbackHost(ub.Hostname())
+}
+
+func isLoopbackHost(h string) bool {
+	if strings.EqualFold(h, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(h)
+	return ip != nil && ip.IsLoopback()
 }
 
 // devToolsContext marks a render context for the dev strip when the deployment is

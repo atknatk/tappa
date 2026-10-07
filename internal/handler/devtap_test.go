@@ -38,7 +38,7 @@ func (f fakePlaqueList) Screen(context.Context, uuid.UUID) (tenant.PlaqueScreen,
 }
 
 func devCfg(env, base string) *config.Config {
-	return &config.Config{Env: env, BaseURL: base, RetentionYears: 2,
+	return &config.Config{Env: env, BaseURL: base, RetentionYears: 2, DevTools: env == config.EnvDev,
 		SessionHMACKey: []byte("SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS"), InviteHMACKey: []byte("IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII")}
 }
 
@@ -65,6 +65,12 @@ func TestDevToolsEnabled_IsDevOnALoopbackAddressOnly(t *testing.T) {
 	}
 	if DevToolsEnabled(nil) {
 		t.Error("a nil config enabled the dev tools")
+	}
+	// THE OPT-IN IS REQUIRED: dev on localhost WITHOUT TAPPA_DEV_TOOLS=1 is off.
+	noFlag := devCfg(config.EnvDev, "http://localhost:8080")
+	noFlag.DevTools = false
+	if DevToolsEnabled(noFlag) {
+		t.Error("dev on localhost without TAPPA_DEV_TOOLS enabled the dev tools")
 	}
 }
 
@@ -104,6 +110,11 @@ func TestDevTap_DoesNotExistOutsideDevelopment(t *testing.T) {
 		devCfg(config.EnvProd, "https://taptime.mt"),
 		devCfg(config.EnvStaging, "https://staging.taptime.mt"),
 		devCfg(config.EnvDev, "https://taptime.mt"), // TAPPA_ENV unset in a real deployment
+		func() *config.Config {
+			c := devCfg(config.EnvDev, "http://localhost:8080")
+			c.DevTools = false
+			return c
+		}(),
 	} {
 		m := &fakeMinter{}
 		h := newDevTapRouter(t, cfg, plaques, m)
@@ -148,6 +159,16 @@ func TestDevTap_InDevRedirectsToAMintedTapForThePendingActivation(t *testing.T) 
 	}
 	if w := postDevTap(r, "", pendingCookie()); w.Code != http.StatusForbidden {
 		t.Fatalf("a POST with no origin and no fetch metadata answered %d", w.Code)
+	}
+	for _, o := range []string{"http://127.0.0.1:8080", "http://[::1]:8080"} {
+		if w := postDevTap(r, o, pendingCookie()); w.Code != http.StatusSeeOther {
+			t.Errorf("a loopback-equivalent origin %s answered %d, want 303", o, w.Code)
+		}
+	}
+	for _, o := range []string{"http://127.0.0.1:9999", "https://localhost:8080", "http://192.168.1.5:8080"} {
+		if w := postDevTap(r, o, pendingCookie()); w.Code != http.StatusForbidden {
+			t.Errorf("origin %s answered %d, want 403 (another port, scheme or host)", o, w.Code)
+		}
 	}
 	w := postDevTap(r, "http://localhost:8080", pendingCookie())
 	if w.Code != http.StatusSeeOther || !strings.HasPrefix(w.Header().Get("Location"), "/t?tag=04AAAAAAAAAA03&") {
