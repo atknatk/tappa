@@ -888,8 +888,14 @@ func (a *Activation) finishActivation(w http.ResponseWriter, r *http.Request, ip
 	// A second device replaces the first: kill the old sessions BEFORE issuing
 	// the new one. ORDER IS LOAD-BEARING: RevokeAllForEmployee kills every live
 	// session of the employee, so issuing first would kill the session just issued.
+	// revoked counts the other phones actually signed out; the confirmation only
+	// says "your other phone has been signed out" when it is > 0. An employee
+	// who was 'active' but held no live session (lost phone, cleared browser) has
+	// no other phone to sign out, and telling them otherwise is false.
+	revoked := 0
 	if act.SecondDeviceReplaced {
 		n, err := a.sessions.RevokeAllForEmployee(r.Context(), act.TenantID, act.EmployeeID)
+		revoked = n
 		if err != nil {
 			// The invitation is already spent, so failing here would leave the
 			// employee unable to retry with a dead code. The activation stands,
@@ -994,7 +1000,7 @@ func (a *Activation) finishActivation(w http.ResponseWriter, r *http.Request, ip
 	// reject then debounced the person's real tap seconds later. The completion
 	// page is idempotent and has no button.
 	dest := ActivationCompletePath
-	if act.SecondDeviceReplaced {
+	if revoked > 0 {
 		dest += "?replaced=1"
 	}
 	a.redirect(w, r, dest)

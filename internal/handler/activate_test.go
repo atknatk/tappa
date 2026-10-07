@@ -107,8 +107,10 @@ func (f *fakeInvites) ActivationContext(_ context.Context, _, _ uuid.UUID) (invi
 }
 
 type fakeSessions struct {
-	issueErr   error
-	revokeErr  error
+	issueErr  error
+	revokeErr error
+	// revokeN is what RevokeAllForEmployee reports; nil means 2.
+	revokeN    *int
 	issued     int
 	revoked    int
 	steps      *[]string
@@ -186,6 +188,9 @@ func (f *fakeSessions) RevokeAllForEmployee(context.Context, uuid.UUID, uuid.UUI
 	}
 	if f.revokeErr != nil {
 		return 0, f.revokeErr
+	}
+	if f.revokeN != nil {
+		return *f.revokeN, nil
 	}
 	return 2, nil
 }
@@ -2479,6 +2484,28 @@ func TestComplete_IsGatedAndIdempotent(t *testing.T) {
 		}
 		if strings.Contains(body, "<button") || strings.Contains(body, "<form") {
 			t.Errorf("%s: the completion page has a button", tc.name)
+		}
+	}
+}
+
+// TestTap_SaysTheOtherPhoneWasSignedOutOnlyWhenOneWas: an employee who was already
+// active but held no live session (lost phone, cleared browser) has no other phone
+// to sign out, so the confirmation must not claim one was.
+func TestTap_SaysTheOtherPhoneWasSignedOutOnlyWhenOneWas(t *testing.T) {
+	for _, tc := range []struct {
+		revoked int
+		want    string
+	}{
+		{0, ActivationCompletePath},
+		{1, ActivationCompletePath + "?replaced=1"},
+	} {
+		n := tc.revoked
+		inv := &fakeInvites{activate: func(invite.Code) (invite.Activation, error) {
+			return invite.Activation{Context: okContext("active"), SecondDeviceReplaced: true}, nil
+		}}
+		h := newHandler(t, inv, &fakeSessions{revokeN: &n}, &fakeAudit{})
+		if got := doTap(t, h, activationTapURL, pendingCookie()).Header().Get("Location"); got != tc.want {
+			t.Errorf("%d session(s) revoked: Location = %q, want %q", tc.revoked, got, tc.want)
 		}
 	}
 }
