@@ -93,7 +93,9 @@ type Config struct {
 
 	// ResetDelivery names the transport that carries an admin password-reset link
 	// to the administrator's own address (M7-04 phase B, TAPPA_RESET_DELIVERY):
-	// ResetDeliveryNone or ResetDeliveryEmail.
+	// ResetDeliveryNone or ResetDeliveryEmail. Since M10 EM-9 the same value decides
+	// the "your password was changed" notice too: one switch for both e-mails an
+	// administrator receives (internal/handler's passwordnotice.go).
 	//
 	// Q02 IS ANSWERED by ADR 0022 (AWS SES in eu-central-1, spoken to as a plain SMTP
 	// relay with STARTTLS), so "email" is a value this package ACCEPTS — and when it is

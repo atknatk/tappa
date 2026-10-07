@@ -125,6 +125,14 @@ func (a *AdminAuth) accountPasswordSave(w http.ResponseWriter, r *http.Request) 
 		})
 		a.log.Info("panel credential changed",
 			"actor_id", id.Admin.AdminUserID, "revoked_other_sessions", revoked)
+		// THE ACCOUNT HOLDER IS TOLD (M10 EM-9), on THIS branch only: a refused or failed
+		// change changed nothing, so it has nothing to announce. It runs after the change
+		// committed and its row was written, and it cannot change the answer below
+		// (passwordnotice.go) -- the tenant and the administrator are the SESSION's
+		// (§4.5), exactly as the row above records them.
+		a.notices.passwordChanged(r.Context(), passwordChange{
+			tenantID: id.TenantID(), adminUserID: id.Admin.AdminUserID, via: noticeViaAccount,
+		})
 		// 303 so a refresh does not re-submit; the flash names the K3 sign-out.
 		a.redirect(w, accountReturn("password", ""))
 	case errors.Is(err, adminauth.ErrWrongCurrentPassword):

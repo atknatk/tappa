@@ -240,7 +240,7 @@ func TestAdminLogin_ChromeLinksReachRoutesThatAreMounted(t *testing.T) {
 	auth, err := NewAdminAuth(&fakeAdmins{}, &fakeTrail{}, newFakeLedger(), newFakeLedger(),
 		&fakeReviewer{}, &fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{},
 		&fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(),
-		newFakeAccount(), newFakeBrands(), newFakeBrandWriter(), nil, adminTestConfig(), slog.New(slog.DiscardHandler))
+		newFakeAccount(), newFakeBrands(), newFakeBrandWriter(), nil, &fakeNotices{}, adminTestConfig(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}

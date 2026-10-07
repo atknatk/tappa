@@ -169,3 +169,37 @@ func TestShutdownBudget_TheResetDrainNestsInsideTheHTTPGrace(t *testing.T) {
 			handler.ResetDrainGrace-handler.ResetDrainWriteReserve)
 	}
 }
+
+// passwordChangeAllowance is what the HTTP drain must still hold, AFTER the notice's
+// two budgets, for the change the notice is about: on the Account path that is three
+// cost-12 bcrypt runs and one transaction, before the notice begins. Five seconds is
+// several times the three runs at the cost internal/adminauth pins.
+const passwordChangeAllowance = 5 * time.Second
+
+// TestShutdownBudget_ThePasswordNoticeNestsInsideTheHTTPGrace binds the "your password
+// was changed" notice's budgets (M10 EM-9) to the drain they run inside.
+//
+// WHY NESTING RATHER THAN ADDING, as for the detached writes above: the notice is sent
+// IN the request that changed the password (handler.AdminReset.passwordChanged — it
+// does not use the reset outbox), so http.Server.Shutdown already waits for it. Its
+// two budgets are SEQUENTIAL — the send (with the address read) and then the row,
+// each on its own clock — so the worst case is their sum, and the change itself runs
+// before both. If they stop fitting, a request in flight at a deploy is cut after the
+// password changed and before its notice row, which is the silent state §4.6 forbids.
+func TestShutdownBudget_ThePasswordNoticeNestsInsideTheHTTPGrace(t *testing.T) {
+	worst := handler.PasswordNoticeSendGrace + handler.PasswordNoticeRecordGrace + passwordChangeAllowance
+	if worst > httpShutdownGrace {
+		t.Fatalf("a password change and its notice can take %v (handler.PasswordNoticeSendGrace %v + "+
+			"handler.PasswordNoticeRecordGrace %v + %v for the change) but Shutdown only waits "+
+			"httpShutdownGrace (%v) for the request they run inside; lower a notice budget or "+
+			"raise httpShutdownGrace, and re-run the kill-budget test above if you raise it",
+			worst, handler.PasswordNoticeSendGrace, handler.PasswordNoticeRecordGrace,
+			passwordChangeAllowance, httpShutdownGrace)
+	}
+	// POSITIVE CONTROL, as above: budgets too short for one relay conversation or one
+	// INSERT would make the notice decorative.
+	if handler.PasswordNoticeSendGrace < 2*time.Second || handler.PasswordNoticeRecordGrace < time.Second {
+		t.Errorf("the notice's budgets (%v to send, %v to record) are too short for one relay "+
+			"conversation and one INSERT", handler.PasswordNoticeSendGrace, handler.PasswordNoticeRecordGrace)
+	}
+}

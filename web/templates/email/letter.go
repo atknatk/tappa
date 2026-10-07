@@ -89,6 +89,34 @@ func resetLetter(life string) letter {
 	}
 }
 
+// passwordChangedLetter is the "your password was changed" notice (M10 EM-9). It
+// takes NO argument, so its words are the same for every account: it names nobody
+// (PasswordChangedView says why) and it carries no instant, no device and no
+// address. Its one action is the sign-in page, which changes nothing by being opened.
+//
+// THE SENTENCES ARE TRUE ON BOTH PATHS THAT SEND IT. A completed recovery signs the
+// account out everywhere and a change from the Account section signs out every
+// session but the one that made it, so "any other device ... was signed out" holds
+// for both. The advice names the sign-in page's forgotten-password link by what it
+// does rather than by its label, so a relabelled link does not make the e-mail wrong.
+func passwordChangedLetter() letter {
+	return letter{
+		subject: subjectPasswordChanged,
+		heading: "Your password was changed",
+		before: []string{
+			"The password of a Taptime administrator account that uses this email address was just " +
+				"changed, and any other device signed in to that account was signed out.",
+		},
+		action: "Go to the sign-in page",
+		after: []string{
+			"If you made this change, there is nothing more to do.",
+			"If you did not, someone else may have your password. Open the sign-in page and use its " +
+				"forgotten-password link to set a new one straight away.",
+		},
+		closing: "This email is only a notice. Its one link opens the sign-in page and changes nothing.",
+	}
+}
+
 // nameMarks is the punctuation a shown name may carry besides letters, marks,
 // digits, spaces and a sentence-ending ".".
 const nameMarks = "&'’-–—,()!"

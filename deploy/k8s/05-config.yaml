@@ -102,7 +102,9 @@ data:
   # BEHAVIOUR, UNCHANGED. Each mode is a closed set and an unknown value is a startup
   # failure, never a silent fallback (internal/config.deliveryMode):
   #   TAPPA_RESET_DELIVERY   none | email   none: the panel's recovery form says on
-  #                                         screen that this deployment sends no link
+  #                                         screen that this deployment sends no link,
+  #                                         and no "your password was changed" notice
+  #                                         goes either (M10 EM-9: one switch, both)
   #   TAPPA_INVITE_DELIVERY  panel | email  panel: the activation link is shown on the
   #                                         manager's own screen (ADR 0005 Y-D)
   # "email" is valid configuration; the reset channel exists since EM-5, and for

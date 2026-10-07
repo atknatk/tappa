@@ -100,7 +100,7 @@ func newBrandDBFixture(t *testing.T) *brandDBFixture {
 		records := newFakeLedger()
 		h, err := NewAdminAuth(admins, trail, records, records, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{},
 			&fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(),
-			newFakeAccount(), reader, writer, nil, adminTestConfig(), discardLogger())
+			newFakeAccount(), reader, writer, nil, &fakeNotices{}, adminTestConfig(), discardLogger())
 		if err != nil {
 			t.Fatalf("NewAdminAuth: %v", err)
 		}

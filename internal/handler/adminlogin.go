@@ -257,6 +257,14 @@ type AdminAuth struct {
 	// the log at start-up.
 	encoder PlaqueEncoder
 
+	// notices sends the "your password was changed" notice after the Account section's
+	// change-my-own-password commits (M10 EM-9, passwordnotice.go). It is REQUIRED, for
+	// the M5-04 reason: a nil notifier would let a change go unannounced and unrecorded
+	// while every test of the change stayed green. Whether anything is SENT is the
+	// notifier's mode (TAPPA_RESET_DELIVERY), never this field's presence — "none" still
+	// writes the notice row that says nothing was sent.
+	notices passwordNotifier
+
 	// See adminratelimit.go for why there are three and what each may refuse.
 	floodLimiter   *limiter
 	attemptLimiter *limiter
@@ -285,7 +293,7 @@ type AdminAuth struct {
 // the argument; the short version is that its absence is a deployment fact (no https
 // base URL, therefore no NDEF template) rather than a wiring bug, and the surface
 // answers 503 with a named fault instead of 404.
-func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLedger, queue panelQueue, reviewer panelReviewer, staff panelStaff, invites panelInviter, venues panelVenues, plaques panelPlaques, entries panelRecorder, rules panelRules, scribe panelScribe, books panelBooks, accounts panelAccounts, brands panelBrands, brandWriter panelBrandWriter, encoder PlaqueEncoder, cfg *config.Config, log *slog.Logger) (*AdminAuth, error) {
+func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLedger, queue panelQueue, reviewer panelReviewer, staff panelStaff, invites panelInviter, venues panelVenues, plaques panelPlaques, entries panelRecorder, rules panelRules, scribe panelScribe, books panelBooks, accounts panelAccounts, brands panelBrands, brandWriter panelBrandWriter, encoder PlaqueEncoder, notices passwordNotifier, cfg *config.Config, log *slog.Logger) (*AdminAuth, error) {
 	switch {
 	case admins == nil:
 		return nil, errors.New("handler: nil admin authenticator")
@@ -383,6 +391,10 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 	// (M10 WL-7) -- the M5-04 reason once more. Typed nil included.
 	case isNil(brandWriter):
 		return nil, errors.New("handler: nil brand writer")
+	// A nil notices would let the Account section change a password with no notice and
+	// no notice row (M10 EM-9) -- the M5-04 reason once more. Typed nil included.
+	case isNil(notices):
+		return nil, errors.New("handler: nil change notifier")
 	case cfg == nil:
 		return nil, errors.New("handler: nil config")
 	}
@@ -424,6 +436,7 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 		logoGate:       logoGate,
 		uploads:        newUploadAdmission(brandUploadsInFlight),
 		encoder:        encoder,
+		notices:        notices,
 		cookies:        adminauth.NewCookies(cfg),
 		short:          newAdminCookies(cfg),
 		choices:        choices,

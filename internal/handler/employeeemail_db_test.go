@@ -206,7 +206,7 @@ func TestEmployeeEmailDB_AFailedChangeWritesNothingAndARetryWritesOnce(t *testin
 	h, err := NewAdminAuth(admins, trail, records, records, &fakeReviewer{},
 		staff, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(),
 		newFakeScribe(), newFakeBooks(), newFakeAccount(), newFakeBrands(), newFakeBrandWriter(),
-		nil, adminTestConfig(), slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+		nil, &fakeNotices{}, adminTestConfig(), slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}

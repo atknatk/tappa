@@ -503,6 +503,8 @@ bildiriminde: giriş sayfasının adresi, token'sız) · düz metin parçası li
 · tenant ve çalışan adı yalnız gövdede, kaçışlı · davet metni linkin **telefonun ana
 tarayıcısında** açılmasını söyler (B27 ölçülmüş tuzak; iOS'ta Gmail/Outlook uygulama-içi
 tarayıcısının çerezi Safari ile paylaşmadığı iddiası **ölçülmedi** — EM-8).
+*(EM-9, 2026-10-06: bildirim uygulandı — tek URL'si `TAPPA_BASE_URL` + `/admin/login`, eşitlikle
+denetlenir; gönderim yolu ve kararlar aşağıdaki "EM-9 notu".)*
 
 **"Tek URL" kuralının sınırı — DKIM imzalı içerik (güvenlik ORTA, 3. tur).** Kayıt açık ve
 doğrulamasızdır, tenant adı serbest metindir ve URL benzeri bir dize taşıyabilir, ve davet keyfi
@@ -602,7 +604,8 @@ kapandı:
 - **Davet:** tenant başına saatte 50 + günde 300; çalışan başına saatte 3 (m10'un başlangıç
   sayıları). Sınırda red, kod basılmaz.
 - **Süreç geneli devre kesici:** saatte ~300 gönderim; **her** gönderimi sayar (davet,
-  sıfırlama, bildirim).
+  sıfırlama, bildirim). *(EM-9: kesici hâlâ yok; bildirimin kendi hesap başına tavanı
+  "EM-9 notu"nda.)*
 - **Sayıların savunması uygulama görevindedir**; bu ADR'nin ölçtüğü girdiler:
   - **Davet yolu:** kayıt kaynak adres başına saatte 3 tenant ve **ömür boyu tavan yok** (B17).
     İlk saatte tek adres 3 tenant × 50 = 150 davet gönderebilir; tenant'lar birikir, ikinci
@@ -991,7 +994,8 @@ EM-2 sapması j).**
    kesiciye ulaşır — §9) kesiciyi tüketebilir ve pencere boyunca bütün gönderimleri durdurur.
    Aynı akış SES hesabının itibarını (bounce/complaint oranları) düşürebilir; SES eşik aşımında
    hesabın gönderimini **duraklatabilir** (SES belgesi; ölçülmedi) — o zaman bütün tenant'ların
-   sıfırlama ve davet e-postası durur. m10 dış adım 11'in alarmları (`BounceRate > 0.02`,
+   sıfırlama ve davet e-postası durur *(EM-9, 3. tur: ve "parolanız değişti" bildirimi de —
+   aynı hesap ve aynı röle; bildirim o pencerede `undelivered` yazılır, "EM-9 notu" sınır 11)*. m10 dış adım 11'in alarmları (`BounceRate > 0.02`,
    `ComplaintRate > 0.0005`) erken uyarıdır, önlem değildir. Sıfırlama için alıcı başına
    gönderim tavanı **karar verilmedi**: M7-04 düzeltme 1(iii)'ün ölçtüğü kurtarma reddini
    yeniden üretir.
@@ -1142,9 +1146,13 @@ karşılığı olanlar: köşeli alan adı → 7 · dönüştürülmüş/kısa y
   sınırlarının sayıları açık.)*
 - Sıfırlama için alıcı başına gönderim tavanı (sayılı sınır 6). *(EM-5A 4. tur: karar ya da
   açık kullanıcı risk kabulü EM-5B'nin önkoşulu oldu — "EM-5A notu", sayılı sınır 13; §9 devre
-  kesicisi bu kararın yerini tutmaz.)*
+  kesicisi bu kararın yerini tutmaz.)* *(EM-9, 2026-10-06: "parolanız değişti" bildirimi aynı
+  anahtarla açılır ve önkoşul onu da kapsar; bildirime **hesap başına** bir tavan konuldu,
+  alıcı başına tavan yine yok — "EM-9 notu", sınır 3.)*
 - Davet gönderim hatasının audit eylem adı (EM-7).
 - Devre kesici açıkken sıfırlama grant'ının sonucu (senkron `undelivered` önerilir; EM-5).
+  *(EM-9, 3. tur: bu öneri "parolanız değişti" bildirimine **uygulanmamalı** — kesici onu sayabilir
+  ama reddetmemeli ya da bildirimin ayrı bir bütçesi olmalı; "EM-9 notu" sınır 11.)*
   *(EM-5A: kesici bu görevde kurulmadı — sapma ve devir "EM-5A notu"nda; karar açık.)*
 - *"X via Taptime"* gönderen adı (VIES koşulu, WL-11) ve e-postada logo — ADR 0023.
 - DMARC politikasının `none` → `quarantine` → `reject` takvimi — işletim kararı (dış adım 3).
@@ -1847,7 +1855,7 @@ başına test adı ve sonuç). Gerçek SMTP'ye karşı yeniden koşu EM-5B'dir.
   paylaşılan devre kesicisi ve tek SES hesabı; *bu notun* sayılı sınırı 6 değil — ve bu nottaki
   §9 sapması).
   (b) **Alıcı başına gönderim tavanı kararı ya da açık kullanıcı risk kabulü** (bu notun sayılı
-  sınırı 13). (a) bunu **karşılamaz**: devre kesici süreç geneli bir tavandır, tek alıcıda
+  sınırı 13) *(EM-9: bildirimi de kapsar — EM-9 notu, sınır 3)*. (a) bunu **karşılamaz**: devre kesici süreç geneli bir tavandır, tek alıcıda
   yoğunlaşan bir bombayı durdurmaz; tetiklendiğinde bütün tenant'ların sıfırlamasını durdurur,
   yani bombayı bir kurtarma kesintisine çevirir.
   (c) **Kuyruk-akıbeti numaralandırma kanalı: bilinçli kullanıcı kabulü ya da grant akıbetinin
@@ -1855,6 +1863,8 @@ başına test adı ve sonuç). Gerçek SMTP'ye karşı yeniden koşu EM-5B'dir.
 - **EM-7:** davet kanalı + `unbuiltDelivery`'nin davet satırı; §9'un paylaşılan devre kesicisi
   ve *"kesici açıkken sıfırlama sonucu"* kararı (bu nottaki sapma).
 - **EM-9:** `resetLetter` emsaliyle üçüncü mektup; gönderim yolu olarak bu kuyruk kullanılabilir.
+  *(EM-9, 2026-10-06: üçüncü mektup yazıldı; kuyruk **kullanılmadı** — gerekçe aşağıdaki
+  "EM-9 notu", karar 2.)*
 
 ## EM-6 notu — 2026-10-06 (uygulama; §7'den bir sapma — aşağıda)
 
@@ -2210,3 +2220,231 @@ Yalnız test: ürün kodu ve yorumları aynen kaldı):**
 sorguda · yönetici adresine `citext` eşitlik kapısı basımda · ASCII dışı saklanmış adres → davet
 reddi · 40P01 için ayrı bir cümle istenirse · *Karar verilmedi*'deki anahtarlı alıcı özeti bu
 satırı (`employee.email_changed`) da kapsar.
+
+## EM-9 notu — 2026-10-06 (uygulama; normatif içerik: §8'in EM-9 cümlesi — kararlar, sapmalar ve ölçümler aşağıda)
+
+K12'nin (*"parolanız değişti" bildirimi*) uygulaması. Taban dal ucu `4e69f84`. **ConfigMap
+değişmedi** (`none` / `panel`): bugün canlıda e-posta **gönderilmez**, ama her parola
+değişikliği artık bir bildirim satırı yazar (*"gönderilmedi, bu dağıtım e-posta göndermiyor"*)
+— davranış değişikliği yalnız `audit_log`'dadır. Migration yok, `go.mod`/`go.sum`/`sqlc.yaml`
+diff boş; yeni sorgu yok (adres var olan `GetAdminByID` ile okunur).
+
+**Yazıldı:**
+- `web/templates/email`: `RenderPasswordChanged`, `PasswordChangedView` (yalnız `BaseURL`),
+  `checkSignInLink` (taban `validBase`'den geçer, link `taban + "/admin/login"`'e **eşit**
+  olmak zorunda), `signInPath`, sabit ASCII konu `Your Taptime password was changed`,
+  `passwordChangedLetter` (argümansız — ad yok, an yok, adres yok); markup değişmedi
+  (`message.templ` dokunulmadı).
+- `internal/adminauth`: `Resets.NoticeRecipient` (var olan `recipient`'in dışa açık hâli:
+  satırın kendi adresi, kendi tenant'ında; pasif/adressiz/başka tenant → `""`).
+- `internal/handler`: `passwordnotice.go` (yeni — `passwordChanged`, `notice`, `recordNotice`,
+  `containNotice`, `PasswordNotice`, sabitler, iki audit eylemi, altı sabit neden, hesap başına
+  tavan); `ResetChannel`'a `DeliverPasswordNotice`; `emailResetChannel.DeliverPasswordNotice` +
+  `signInLink` + kurucuda bildirimin de açılışta bir kez render edilmesi; `panelResets`'e
+  `NoticeRecipient`; `AdminReset`'e `noticeLimiter`, `noticeSendGrace`; `Submit`'in başarı
+  dalında ve `accountPasswordSave`'in başarı dalında `passwordChanged` çağrısı;
+  `NewAdminAuth`'a **zorunlu** `notices` parametresi (nil ve tipli nil reddedilir).
+- `cmd/tappa/main.go`: kurtarma akışı panelden **önce** kurulur ve panele bildirici olarak
+  verilir.
+- Metin eşitlemesi: `internal/config/config.go` (`ResetDelivery` yorumu),
+  `deploy/k8s/05-config.yaml` (yalnız yorum; değerler aynı), `deploy/README.md` (iki yer).
+- Testler: `web/templates/email/email_test.go` (`renderBoth` → `renderEach`, üç ileti; iki yeni
+  test), `internal/handler/passwordnotice_test.go` (yeni), `internal/adminauth/resetrequest_db_test.go`
+  (bir yeni test), `cmd/tappa/shutdownbudget_test.go` (bir yeni test),
+  `cmd/tappa/passwordnotice_wiring_test.go` (yeni, 2. tur); `NewAdminAuth`'u çağıran mevcut **32**
+  test çağrısı (**24** dosya) yeni argümanı aldı — **31**'i `&fakeNotices{}`, panel DB harness'ındaki
+  (`adminlogin_db_test.go`) gerçek kurtarma akışını; yeni test dosyasının **2** çağrısıyla toplam
+  **34** çağrı / **25** dosya (2. turda yeniden sayıldı; 1. tur metni *"32 çağrıya
+  `&fakeNotices{}`"* diyordu); sekiz sahte kanala/çözücüye yeni metot (altısı
+  `internal/handler`'da, ikisi `cmd/tappa`'da); iki DB testi **bilerek** genişletildi: `TestPanelRecoveryDB_EndToEnd` (bildirim
+  satırın adresine, tek `sent` satırı, reddedilen tekrar bildirim yok) ve
+  `TestPanelRecoveryDB_EndToEndThroughTheSMTPTransport` (rölede artık **iki** ileti: link ve
+  bildirim).
+
+**Kapsam (ölçüldü):** `admin_users.password_hash`'e yazan üretim ifadesi **iki**:
+`SetOwnAdminPassword` (`db/queries/admins.sql`, çağıranı yalnız `Manager.ChangeOwnPassword`
+← `accountPasswordSave`) ve `ConsumePasswordResetAndSetPassword` (`db/queries/passwordresets.sql`,
+çağıranı yalnız `Resets.Consume` ← `AdminReset.Submit`); `CreateAdminUser` ilk paroladır,
+değişiklik değil. Bildirim **ikisinde de** gönderilir. `op_complete_enrollment`'ın
+`password_hash`'i `platform_admins`'tir (operatör yüzeyi e-posta göndermez — ADR 0020).
+
+**Kararlar (gerekçeli):**
+1. **Tek anahtar `TAPPA_RESET_DELIVERY`.** Bildirim de sıfırlama linki gibi yöneticinin kendi
+   satırındaki adrese, aynı röleyle gider; yönetici e-postasını açmak **bir** deploy kararıdır.
+   `none` → gönderim yok, adres okunmaz, `admin.password_notice.undelivered` satırı (neden:
+   *"this deployment sends no e-mail…"*). Kartın *"ResetDelivery modu `panel`"* ifadesi
+   ölçüldü: bu akışın kapalı kümesi `{none, email}`'dir (`internal/config`), `panel` davet
+   akışının değeridir.
+2. **İstekte, senkron — kuyrukta değil.** Kuyruk (§6) bir istekçinin **kayıtlı adresi
+   numaralandırmasını** gizlemek için vardır; bildirimin gizleyecek bir sorusu yoktur (parolayı
+   değiştiren hesabın var olduğunu bilir). Kuyruk ise tek bir FIFO'dur (32), herkese açık
+   formdan doldurulabilir ve doluyken taşanı **göndermeden** `undelivered` yazar: kuyruğa giren
+   bildirim, bir hesabı ele geçiren birinin anonim trafikle **susturabileceği** bir alarm
+   olurdu. *(3. tur: bu gerekçe **kuyruk** için ölçüldü; aynı anonim trafiğin planlanan §9
+   devre kesicisini açıp bildirimi susturabileceği ayrı bir yoldur — sınır 11.)* Ölçüldü: kuyruk
+   doluyken bildirim kanala ulaşır
+   (`TestPasswordNotice_AFullResetOutboxDoesNotStopIt`; kuyruğa dolu davranışını taklit eden
+   mutasyon KIRMIZI). Bedel yanıt süresidir, ölçüldü: röle veri sonu yanıtını 2 s tuttuğunda
+   hesap POST'u **2,002–2,007 s** (üçer koşu, `-race`'li ve `-race`'siz; sahte
+   `ChangeOwnPassword` ile — gerçek değişikliğin bcrypt'i bunun üstüne), anında yanıt veren test
+   rölesiyle 1,7–8,1 ms. Üst sınır `PasswordNoticeSendGrace` (10 s, adres okuması dahil) +
+   `PasswordNoticeRecordGrace` (5 s) — HTTP boşaltmasının (20 s) içinde, değişikliğin kendisine
+   5 s bırakarak (`TestShutdownBudget_ThePasswordNoticeNestsInsideTheHTTPGrace`).
+3. **Hesap başına tavan: saatte 5 gönderim** (`passwordNoticeLimit`/`passwordNoticePeriod`,
+   `httpx.Limiter.TryCharge` ile tek adım). Gerekçe: kayıt açık ve doğrulamasız, yani biri
+   satırında **başkasının** adresi olan bir hesaba sahip olabilir ve her parola değişikliği o
+   adrese bir ileti yollar; hesap bölümünün yazma zinciri oturum başına 10 dakikada 300 istek
+   (`adminSessionLimit`) taşır — tavansız bir hesap bir posta bombasıdır. **Adres başına
+   DEĞİL, hesap başına:** adres anahtarlı bir tavanı, kurbanın adresini taşıyan kendi hesabıyla
+   önceden harcayan saldırgan, kurbanın gerçek hesabı ele geçirildiğinde **asıl** bildirimi
+   susturabilirdi; hesap anahtarlı tavanı harcamak o hesabın parolasını değiştirmeyi gerektirir
+   ve tavandan önceki her değişiklik bildirim yollar. Tavanın ötesinde değişiklik yine geçerli,
+   satır yine yazılır (`undelivered`, tavanın nedeni); ilk aşımda bir log satırı.
+4. **Ad yok.** Bir e-postada işletme ya da kişi adının gösterilip gösterilmeyeceği EM-7'nin
+   bekleyen ürün kararıdır (sınır 22); bildirim ad **taşımaz** — görünümü yalnız `BaseURL`'dür
+   ve iki render bayt bayt aynıdır.
+5. **Link denetimi eşitlikle** (`checkSignInLink`): `checkLink`'in `?<param>=` biçimi uymaz;
+   taban `validBase`'den, link `taban + "/admin/login"` ile birebir. Link **kanalda**,
+   açılışta verilen `cfg.BaseURL`'den kurulur (`signInLink`); kanal isteği hiç görmez, yani
+   `Host`/`X-Forwarded-Host`/`Forwarded` linke ulaşamaz (ölçüldü). `signInPath`,
+   `adminLoginPath`'in ikinci kopyasıdır ve **tutulur**: kurucunun açılıştaki bildirim render'ı
+   ikisi ayrışırsa açılışı durdurur.
+6. **Audit:** `admin.password_notice.sent` / `admin.password_notice.undelivered`; değişiklik
+   başına **tam bir** satır; detail `outcome`, `via` (`recovery`|`account`), `reason`, `class`,
+   `smtp_code` — adres için alan **yok**. Bütçesiz: hacmi değişikliklerin kendi (bütçesiz)
+   satırlarıyla bire bir. Satır değişikliğin satırından **sonra** yazılır.
+7. **§4.6:** bildirim değişikliği geri almaz ve yanıtını değiştiremez; kanal ya da kayıt
+   yazıcısı panik ederse panik **burada** yakalanır (router'ın Recoverer'ı commit'lenmiş bir
+   değişikliği 500'e çevirirdi), değeri loglanmaz; satır yazımı başlamadıysa `undelivered`
+   (neden: iç hata).
+8. **`NewAdminAuth`'ın bildiricisi zorunlu** (M5-04): bildiricisiz bir panel, kimseye
+   söylenmeyen ve bildirim satırı bırakmayan parola değişiklikleri yapardı.
+
+**Sapmalar (açıkça):** EM-5A devrinin önerdiği kuyruk kullanılmadı (karar 2) · bildirim için
+`TAPPA_RESET_DELIVERY`'den ayrı bir anahtar yok (karar 1) · §10'un anahtar kümesine yeni anahtar
+eklenmedi (`tenant_id`, `admin_user_id`, `err_type`, `class`, `smtp_code`, `message_id` zaten
+kümede).
+
+**Güvenlik iddiaları — üç parçalı (EM-9).** Tehdit modeli: *"Bu pinler bu dosyalara, iki
+çağırana ve e-posta kanalının bildirim metoduna kazara giren sapmaya karşıdır; bir pini atlatmak
+için bilerek yazılmış kod, kod incelemesinin konusudur."*
+
+*İddia K — her parola değişikliği tam bir bildirim satırıyla biter; bildirim, satırın kendi
+adresine, tek URL'si yapılandırılmış giriş sayfası olarak ve hiçbir kimlik bilgisi taşımadan
+gider; değişikliği ve yanıtını hiçbir koşulda değiştirmez.*
+- **PART I:** `internal/handler/passwordnotice.go`'nun PART I'i, her madde test adıyla —
+  başlıcaları: `TestPasswordNotice_EveryChangeEndsInOneRowAndTheChangeStands` (sekiz sonuç +
+  kayıt yazıcısının paniği), `TestAccountPasswordSave_NotifiesAfterACommittedChangeOnly`,
+  `TestAdminReset_ACompletedRecoveryNotifiesAndStillSignsIn`,
+  `TestPasswordNotice_GoesToTheRowsAddressWithTheConfiguredSignInLinkOnly` (düşmanca `Host`,
+  `X-Forwarded-Host`, `Forwarded` ile, gerçek taşıyıcı + test içi röle),
+  `TestPasswordNotice_LogsOnlyIdsClassAndCode`, `TestPasswordNotice_AnAddressTheRelayCannotTakeIsNeverDialled`,
+  `TestPasswordNotice_AFullResetOutboxDoesNotStopIt`,
+  `TestPasswordNotice_ThePerAccountCapIsExactUnderConcurrentChanges` (40 eşzamanlı değişiklik ×
+  200 koşu), `TestPasswordNotice_AHungRelayHoldsTheAnswerOnlyForTheSendGrace`,
+  `TestPasswordNotice_AVisitorWhoLeavesStillGetsTheNotice`, `TestPasswordNotice_TheRowCarriesNoAddress`,
+  `TestPasswordNotice_EachStepHasItsOwnBound` (2. tur: asılı adres okuması gönderim süresinde,
+  asılı satır yazımı `PasswordNoticeRecordGrace`'te — sevk edilen 5 s — bırakılır),
+  `TestPasswordNotice_TheShippedClocksAndCapAreWired` (2. tur: tavan ve iki süre literal değere ve
+  bu notun cümlelerine bağlı), `TestNoticeRecipient_IsTheAddressOnTheRowAndNothingElse` (gerçek
+  Postgres), `cmd/tappa`'nın kaynak pini `TestPasswordNoticeWiring_ThePanelIsGivenTheMountedRecoveryFlow`
+  (2. tur: panelin bildiricisi, kanalı `NewEmailResetChannel`'dan doldurulan, bağlanan ve
+  boşaltılan tek kurtarma akışıdır), şablon tarafında
+  `TestRender_RefusesASignInLinkOutsideTheSignInPage` ve
+  `TestPasswordChanged_IsTheSameWordsForEveryAccountAndCarriesNoCredential`.
+- **PART II:** M10 EM-9 kartının mutasyon tablosu (1. tur 45 mutasyon: 44 KIRMIZI, 1 YEŞİL; 2. tur
+  7 mutasyon, yedisi KIRMIZI — toplam 52: 51 KIRMIZI, 1 YEŞİL; hepsi kopyada).
+  **Yakalamadığı:** kanal kurucusunun açılıştaki bildirim render'ının kaldırılması (YEŞİL —
+  yalnız iki yol kopyası ayrıştığında önem taşır, o zaman röle testi gönderimde kırmızıdır);
+  rölenin, süre konuşmayı kestikten sonra kabul ettiği gönderim (`undelivered` yazılır — sınır
+  15'in biçimi); değişiklik ile satır arasında süreç ölümü (satır yok); parolayı değiştiren
+  yeni bir çağıranın `passwordChanged`'i çağırmaması.
+- **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
+
+**EM-9'un sayılı sınırları (bu ADR'nin sınırlarına ek; M10 EM-9 kartındaki listeyle aynı):**
+1. **Gerçek röle (SES) ölçülmedi** — EM-5B; ConfigMap `email`'e çevrildiğinde bildirim de açılır,
+   yani EM-5B'nin ölçümleri bu iletiyi de kapsamalıdır.
+2. **Yanıt röleyi bekler:** hesap POST'u ve kurtarma `Submit`'i bildirim süresince
+   (en çok `PasswordNoticeSendGrace`) bekler — ölçüldü, röle 2 s → yanıt 2,00 s.
+3. **Alıcı başına tavan yok — sınır 13 bu iletiyi de kapsar, daraltılmış hâliyle.** Tavan
+   **hesap başına** (saatte 5) ve **süreç başına**dır; sabit pencere (sınırda 2× patlama). Kurbanın
+   adresini taşıyan **birden çok** hesap (kayıt açık, doğrulamasız: kaynak adres başına saatte 3
+   tenant, ömür boyu tavan yok — B17) tavanı çarpar; dağıtık kaynakta sınır yoktur. EM-5B
+   önkoşulu (b) bu iletiyi de kapsar.
+4. **Parola değişikliğinin kendine özgü bütçesi yok:** hesap yolu yazma zincirinin bütçeleriyle
+   (adres başına 10 dakikada 3000, oturum başına 300) ve her değişiklikte üç cost-12 bcrypt ile;
+   kurtarma yolu `adminResetSubmitLimit` (adres başına 10 dakikada 10) ve link başına en çok bir
+   değişiklikle sınırlıdır.
+5. **Kayıt yazıcısının içindeki panik 0 ya da 1 satır bırakır** (EM-5A sınır 3'ün ikizi);
+   ikinci satır denenmez — ölçüldü (yazıcıya tek çağrı).
+6. **Yöneticinin adresini değiştiren bir ürün yolu bugün yok** (ölçüldü: `admin_users`'a UPDATE
+   yazan üç sorgu `last_login_at`'e ve iki kez `password_hash`'e yazar, `email`'e değil). Biri
+   gelirse, adres okuması ile gönderim arasında değişen adresin hangisine gideceği — ve
+   değişikliğin ESKİ adrese de bildirilip bildirilmeyeceği — o görevin sorusudur.
+7. **Hesap yolu gerçek Postgres'e karşı uçtan uca koşulmadı:** `ChangeOwnPassword` cost-12
+   `Hash` öder (`-race` altında ~11 s); parçaları ayrı ölçüldü (adres okuması DB'de, handler
+   sahte değişiklikle, kurtarma yolu DB'de uçtan uca).
+8. **Açılış render'ı tek başına pinli değil** (mutasyon YEŞİL — PART II).
+9. **§9 devre kesicisi yok** (EM-5A sınır 9; bildirim de ona sayılacak).
+10. **Kablo pini kaynak düzeyindedir** (2. tur): `run()`'ın bildiriciyi ve kanalı **adlarıyla**
+    bağladığını okur; `NewAdminReset`/`NewAdminAuth`'un argümanlarıyla ne yaptığını değil
+    (`internal/handler`'ın testleri), ve kanal tanımlayıcısına `NewEmailResetChannel`'ın
+    **yanında** başka bir değer daha atanmasını değil.
+11. **Planlanan §9 devre kesicisi bildirimi susturabilir** (3. tur; güvenlik denetimi, ORTA —
+    bugün kesici yok, yani bugün erişilebilir değil). §9 kesiciyi *"her gönderimi sayar"* diye
+    tarif eder ve *Karar verilmedi*'de açıkken senkron `undelivered` önerilir. Kurtarma formu tek
+    kaynak adresten saatte en çok ≈960 gönderim ister (B9, §9), kesici ≈300'de açılır: kesici
+    böyle kurulursa saldırgan önce kesiciyi açar, sonra ele geçirdiği hesabın parolasını
+    değiştirir ve bildirim — `undelivered` satırıyla, ama hesap sahibine ulaşmadan — susar.
+    **Kural: kesici bildirimi sayabilir ama reddetmemeli — ya da bildirimin ayrı bir bütçesi
+    olmalı; aksi hâlde karar 2'nin gerekçesi düşer.** Aynı yön, ikinci yol: SES hesabın
+    gönderimini duraklatırsa (ana listenin sınır 6'sı) bildirim de durur; o yolun önlemi kodda
+    değil, hesap itibarındadır.
+
+**EM-9 2. tur (2026-10-07 — üçüncü göz RED, bir bloklayan METİN bulgusu; yalnız test + metin +
+pin, ürün kodunun davranışı değişmedi — `.go` üretim dosyalarında yalnız yorum):**
+- **[ORTA, bloklayan] Tehdit modeli cümlesi** `web/templates/email/email.go`'nun iddia bloğunda
+  yoktu (EM-9 o bloğa madde eklemişti) → paket için uyarlanmış cümle eklendi.
+- **M02** (`Submit`'in `default:` dalı da bildirir) YEŞİLDİ → kurtarma testine *"bizim tarafımızda
+  başarısız harcama"* satırı (500, bildirim 0, satır 0) → KIRMIZI.
+- **M26a/M26b** (tavan penceresi 1 saat → 1 s, tavan 5 → 30) YEŞİLDİ: test sınırlayıcıyı aynı
+  sabitlerle karşılaştırıp kendini doğruluyordu → sabitler literal değere (5, 1 saat, 10 s, 5 s)
+  ve bu notun cümlelerine (ADR'den okunur, sabitten biçimlenir) bağlandı → KIRMIZI.
+- **M10** (satır yazımının kendi süresi yok) ve **M35** (adres okuması gönderim süresinin dışında)
+  YEŞİLDİ → `TestPasswordNotice_EachStepHasItsOwnBound` (asılı okuyucu ve asılı kayıt yazıcısı) →
+  ikisi de KIRMIZI.
+- **M40** (`main.go` panele kanalsız ikinci bir akış verir) YEŞİLDİ → kaynak pini
+  `TestPasswordNoticeWiring_ThePanelIsGivenTheMountedRecoveryFlow` → KIRMIZI; ek varyant M40b
+  (tek akış `nil` kanalla) da KIRMIZI. Sınır 10 pinin kapsamını sayar.
+- **Metin:** test çağrısı sayıları düzeltildi (yukarıda); kartın karar numaraları bu notun
+  numaralarına hizalandı.
+- Betik `scratchpad/em9/verify_round2.py` (yalnız yolunda `em9-orch` geçen kopyada koşar; her
+  mutasyondan önce mutasyonsuz kontrol yeşil; çapa tam bir kez; sha256 ile geri yükleme;
+  `BUILD-FAILED` ayrı): 7/7 KIRMIZI, 7/7 `sha-ok`. M40b'nin ilk yazımı derlenmedi
+  (`resetChannel` kullanılmaz kalıyordu) ve `BUILD-FAILED` olarak ayrıldı; yeniden yazıldı.
+
+**EM-9 3. tur (2026-10-07 — üçüncü göz ve güvenlik ONAY; yalnız metin + rebase, ürün kodu ve
+testlerin davranışı değişmedi):**
+- **Rebase:** değişiklik dal ucu `20d62ab`'ye (EM-6 commit'li) taşındı. Bu ADR'de EM-6 notu ile
+  bu not aynı bölgede çakıştı; ikisi de korundu — EM-6 notu önce, bu not sonra. EM-6'nın metni
+  bayt bayt aynı (EM-9'un eklemeleri çıkarılınca dosya `20d62ab`'ninkiyle sha256-eşit; EM-6 notu
+  bölümü tek başına da eşit — kanıt betiği `scratchpad/em9/round3/adrproof.py`). EM-6'nın iki testi
+  (`employeeemail_test.go`, `employeeemail_db_test.go`) `NewAdminAuth`'u bildiricisiz çağırıyordu
+  → `&fakeNotices{}` eklendi; test çağrıları artık **36** / **27** dosya (33'ü `&fakeNotices{}`,
+  1'i gerçek akış, 2'si yeni testlerin kendi bildiricisi).
+- **[ORTA] §9 kesicisi bildirimi susturabilir** → sınır 11, EM-7 devri, karar 2'ye işaret,
+  *Karar verilmedi*'deki kesici maddesine işaret, ana listenin sınır 6'sına (SES duraklatması)
+  bildirim, `passwordnotice.go`'nun karar yorumuna kısa işaret (yalnız yorum).
+- **[DÜŞÜK] (b) önkoşulunun kapsamı:** EM-5A notunun *Devirler (b)* maddesine *"(EM-9: bildirimi de
+  kapsar — EM-9 notu, sınır 3)"*.
+
+**Devirler:**
+- **EM-5B:** gerçek SES ile bildirim de ölçülür (SPF/DKIM/DMARC, message-id, izleme kapalı,
+  linkin `taptime.mt` giriş sayfası olduğu); ConfigMap'i `email`'e çevirmek bildirimi de açar —
+  önkoşul (b) (alıcı başına tavan kararı ya da açık risk kabulü) bu iletiyi de kapsar.
+- **EM-7:** bildirimde ad gösterilip gösterilmeyeceği EM-7'nin ürün kararına bağlıdır (bugün
+  yok); §9 devre kesicisi bildirimi de sayar — **kesici bildirimi sayabilir ama reddetmemeli — ya
+  da bildirimin ayrı bir bütçesi olmalı; aksi hâlde karar 2'nin gerekçesi düşer** (sınır 11;
+  kurtarma formu tek kaynaktan kesiciyi açabilir).
+- **Yönetici adresini değiştiren gelecekteki görev** (bugün kartı yok; EM-6 çalışan adresidir):
+  sınır 6.

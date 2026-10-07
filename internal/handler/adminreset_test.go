@@ -52,6 +52,22 @@ type fakeResets struct {
 	issuedFor     []string
 	consumedWith  []string
 	consumePasswd []string
+
+	// recipients is what NoticeRecipient reads for an administrator (M10 EM-9): the
+	// address "on the row". A missing entry is a row with nowhere to send to.
+	recipients     map[uuid.UUID]string
+	recipientErr   error
+	recipientCalls int
+}
+
+func (f *fakeResets) NoticeRecipient(_ context.Context, _, adminUserID uuid.UUID) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.recipientCalls++
+	if f.recipientErr != nil {
+		return "", f.recipientErr
+	}
+	return f.recipients[adminUserID], nil
 }
 
 func (f *fakeResets) IssueForEmail(_ context.Context, email string) ([]adminauth.ResetGrant, error) {
@@ -100,6 +116,24 @@ type recordingChannel struct {
 	delivered []ResetDelivery
 	delay     time.Duration
 	err       error
+
+	// notices are the "your password was changed" notices it was handed (M10 EM-9),
+	// and noticeErr what it answers them with.
+	notices   []PasswordNotice
+	noticeErr error
+}
+
+func (c *recordingChannel) DeliverPasswordNotice(_ context.Context, n PasswordNotice) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.notices = append(c.notices, n)
+	return c.noticeErr
+}
+
+func (c *recordingChannel) allNotices() []PasswordNotice {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]PasswordNotice(nil), c.notices...)
 }
 
 func (c *recordingChannel) DeliverReset(ctx context.Context, d ResetDelivery) error {

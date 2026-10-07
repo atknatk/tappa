@@ -40,6 +40,7 @@ type gateChannel struct {
 	mu        sync.Mutex
 	delivered []ResetDelivery
 	ctxErrs   []error
+	notices   int
 }
 
 func newGateChannel() *gateChannel {
@@ -57,6 +58,15 @@ func (c *gateChannel) DeliverReset(ctx context.Context, d ResetDelivery) error {
 	c.delivered = append(c.delivered, d)
 	c.ctxErrs = append(c.ctxErrs, ctx.Err())
 	return ctx.Err()
+}
+
+// DeliverPasswordNotice is not this fake's subject: the notice never goes through the
+// outbox (M10 EM-9), so it answers at once and counts the call.
+func (c *gateChannel) DeliverPasswordNotice(context.Context, PasswordNotice) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.notices++
+	return nil
 }
 
 func (c *gateChannel) snapshot() ([]ResetDelivery, []error) {
@@ -99,6 +109,19 @@ func (c *panicChannel) DeliverReset(_ context.Context, d ResetDelivery) error {
 	c.mu.Lock()
 	c.sent = append(c.sent, d)
 	c.mu.Unlock()
+	return nil
+}
+
+// DeliverPasswordNotice panics like DeliverReset does, on the same call numbering,
+// with a value carrying the recipient — the notice's own panic test drives it.
+func (c *panicChannel) DeliverPasswordNotice(_ context.Context, n PasswordNotice) error {
+	c.mu.Lock()
+	c.calls++
+	k := c.calls
+	c.mu.Unlock()
+	if c.panicOn[k] {
+		panic("composing the notice for " + n.Recipient)
+	}
 	return nil
 }
 
@@ -666,6 +689,11 @@ func (f *freshResets) Consume(context.Context, adminauth.ResetToken, string) (ad
 	return adminauth.ConsumedReset{}, db.ResolvedPasswordReset{}, adminauth.ErrResetUnusable
 }
 
+// NoticeRecipient: no link is ever spent here (Consume refuses), so no notice asks.
+func (f *freshResets) NoticeRecipient(context.Context, uuid.UUID, uuid.UUID) (string, error) {
+	return "", nil
+}
+
 // TestResetOutbox_ConcurrentRequestsForOneAccountStayInsideItsBudget: twenty
 // requests for ONE administrator at once, through the real router, from twenty
 // addresses (so the per-address request budget refuses none) — in each of the three
@@ -1096,6 +1124,11 @@ func (f *cancellingResets) IssueForEmail(context.Context, string) ([]adminauth.R
 
 func (f *cancellingResets) Consume(context.Context, adminauth.ResetToken, string) (adminauth.ConsumedReset, db.ResolvedPasswordReset, error) {
 	return adminauth.ConsumedReset{}, db.ResolvedPasswordReset{}, adminauth.ErrResetUnusable
+}
+
+// NoticeRecipient: no link is ever spent here (Consume refuses), so no notice asks.
+func (f *cancellingResets) NoticeRecipient(context.Context, uuid.UUID, uuid.UUID) (string, error) {
+	return "", nil
 }
 
 // TestResetOutbox_AClientThatLeavesStillGetsItsFallbackRow: when the outbox will not

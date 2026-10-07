@@ -138,8 +138,9 @@ type AdminReset struct {
 	//
 	// 🔴 NIL IS A REAL, NAMED STATE AND NOT AN OVERSIGHT — this is the one dependency
 	// in internal/handler whose constructor does not refuse it, so it is argued
-	// rather than assumed. Nil means "this deployment has no way to send the link",
-	// which is what TAPPA_RESET_DELIVERY=none — the shipped ConfigMap's value —
+	// rather than assumed. Nil means "this deployment has no way to send the link"
+	// — nor, since M10 EM-9, the "your password was changed" notice (passwordnotice.go)
+	// — which is what TAPPA_RESET_DELIVERY=none — the shipped ConfigMap's value —
 	// builds (config.ResetDelivery; cmd/tappa's switch).
 	//
 	// WHY IT IS A NIL FIELD RATHER THAN A SECOND BOOLEAN OR A SECOND METHOD ON THE
@@ -174,6 +175,15 @@ type AdminReset struct {
 	// recordForLink and adminResetLinkLimit.
 	linkLimiter    *limiter
 	unknownLimiter *limiter
+	// noticeLimiter caps how many "your password was changed" notices ONE account may
+	// send per window (passwordnotice.go, M10 EM-9). It is the notice's own bucket,
+	// keyed on the account: it bounds e-mails, not rows, and it is spendable only by
+	// changing that account's password.
+	noticeLimiter *limiter
+	// noticeSendGrace is PasswordNoticeSendGrace, a field only so a test can show the
+	// notice's own bound holds against a relay that never answers without waiting the
+	// shipped ten seconds. Production always gets the constant from NewAdminReset.
+	noticeSendGrace time.Duration
 
 	// sleep is the constant-time floor's clock, injectable so a test can assert the
 	// floor is APPLIED without paying it on every case. Production leaves it nil.
@@ -187,6 +197,9 @@ type AdminReset struct {
 type panelResets interface {
 	IssueForEmail(ctx context.Context, email string) ([]adminauth.ResetGrant, error)
 	Consume(ctx context.Context, t adminauth.ResetToken, newPassword string) (adminauth.ConsumedReset, db.ResolvedPasswordReset, error)
+	// NoticeRecipient reads the address on an administrator's own row for the "your
+	// password was changed" notice (M10 EM-9); "" means nowhere to send it.
+	NoticeRecipient(ctx context.Context, tenantID, adminUserID uuid.UUID) (string, error)
 }
 
 // ResetDelivery is what a ResetChannel receives: one reset link and the address it
@@ -223,8 +236,18 @@ type ResetDelivery struct {
 // IT IS CALLED BY THE OUTBOX'S WORKER, NEVER BY A REQUEST (adminresetoutbox.go), with
 // a context that the request's end does not cancel and that resetSendGrace and the
 // shutdown drain do. An implementation must return when that context ends.
+//
+// DeliverPasswordNotice (M10 EM-9) is the OTHER e-mail an administrator receives: the
+// "your password was changed" notice. It IS called in the request that changed the
+// password (passwordnotice.go says why it does not go through the outbox), with a
+// context bounded by PasswordNoticeSendGrace that the request's end does not cancel.
+// It takes no link: the implementation builds the notice's one link, the sign-in page,
+// from its own configured base. A second method on the ONE channel rather than a
+// second channel, because the deployment's one switch (TAPPA_RESET_DELIVERY) decides
+// both, and a nil channel ("none") then means "neither" by construction.
 type ResetChannel interface {
 	DeliverReset(ctx context.Context, d ResetDelivery) error
+	DeliverPasswordNotice(ctx context.Context, n PasswordNotice) error
 }
 
 // Audit actions written by the recovery flow. The vocabulary is free text by schema
@@ -347,7 +370,10 @@ func NewAdminReset(resets panelResets, mail ResetChannel, rec auditRecorder, cfg
 		accountLimiter: newLimiter(adminResetAccountLimit, adminResetAccountPeriod),
 		linkLimiter:    newLimiter(adminResetLinkLimit, adminResetLinkPeriod),
 		unknownLimiter: newLimiter(adminResetUnknownLimit, adminResetUnknownPeriod),
+		noticeLimiter:  newLimiter(passwordNoticeLimit, passwordNoticePeriod),
 		log:            log,
+
+		noticeSendGrace: PasswordNoticeSendGrace,
 	}
 	if mail != nil {
 		h.outbox = newResetOutbox(resetOutboxSize)
@@ -873,6 +899,14 @@ func (h *AdminReset) Submit(w http.ResponseWriter, r *http.Request) {
 		})
 		h.log.Info("panel recovery completed", "admin_user_id", consumed.AdminUserID,
 			"ip", ip, "revoked_sessions", consumed.RevokedSessions)
+		// THE ACCOUNT HOLDER IS TOLD (M10 EM-9) — after the change committed and its row
+		// was written, and never instead of the answer below: the notice cannot fail the
+		// recovery (passwordnotice.go). It goes to the address on the administrator's
+		// row, which is where this link was sent, so the person who just used the link
+		// is normally the person it reaches; its job is the case where they are not.
+		h.passwordChanged(r.Context(), passwordChange{
+			tenantID: consumed.TenantID, adminUserID: consumed.AdminUserID, via: noticeViaRecovery,
+		})
 		// 🔴 TO THE SIGN-IN FORM, NEVER INTO THE PANEL. adminauth.Consume revokes EVERY
 		// live session for this administrator inside the same transaction as the write
 		// — including the browser doing the reset, because nothing here can tell "the

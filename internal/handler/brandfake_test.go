@@ -261,7 +261,7 @@ func newBrandPanel(t *testing.T, role string, tenantID uuid.UUID) *brandPanel {
 	records := newFakeLedger()
 	h, err := NewAdminAuth(p.admins, p.trail, records, records, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{},
 		&fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(),
-		newFakeAccount(), p.brands, p.writer, nil, adminTestConfig(),
+		newFakeAccount(), p.brands, p.writer, nil, &fakeNotices{}, adminTestConfig(),
 		slog.New(slog.NewTextHandler(p.logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)

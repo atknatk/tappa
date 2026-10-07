@@ -134,6 +134,21 @@ func TestPanelRecoveryDB_EndToEnd(t *testing.T) {
 			"tenant sees must be the only one there is", n)
 	}
 
+	// --- 5b. the change is announced (M10 EM-9) ----------------------------------
+	// Against the REAL resolver: the notice goes to the address ON THE ROW, read after
+	// the change committed — the request typed another spelling of it — for this
+	// administrator in this tenant, and leaves one sent row.
+	notices := p.mail.allNotices()
+	if len(notices) != 1 {
+		t.Fatalf("the channel was handed %d change notice(s), want 1", len(notices))
+	}
+	if notices[0].Recipient != p.email || notices[0].TenantID != p.tenantID || notices[0].AdminUserID != p.adminID {
+		t.Error("the change notice was not addressed to the row's address for this administrator in this tenant")
+	}
+	if n := p.auditCount(t, ActionAdminPasswordNoticeSent); n != 1 {
+		t.Errorf("%d sent notice row(s) in audit_log, want 1", n)
+	}
+
 	// --- 6. the link is spent ----------------------------------------------------
 	res, _ = p.get(t, strings.TrimPrefix(link, p.server.URL))
 	if res.StatusCode != http.StatusSeeOther {
@@ -157,6 +172,10 @@ func TestPanelRecoveryDB_EndToEnd(t *testing.T) {
 		t.Errorf("%d refusal row(s) in audit_log, want 1 — a failed recovery attempt has to "+
 			"land somewhere (§4.6), and this one resolved, so it can be an attributable row",
 			n)
+	}
+	// A refused replay changed nothing, so it announced nothing (M10 EM-9).
+	if n := len(p.mail.allNotices()); n != 1 {
+		t.Errorf("%d change notice(s) after the refused replay, want still 1", n)
 	}
 }
 
@@ -210,7 +229,9 @@ func TestPanelRecoveryDB_AnUnregisteredAddressIsIndistinguishable(t *testing.T) 
 // completed and (on a replay of the e-mailed link) refused rows are in this tenant;
 // 5, body half — the answer does not carry the link, and an unregistered address gets
 // the byte-identical page and no message; the original "single use" — the e-mailed
-// link spent once, refused on replay. The real relay (SES) is EM-5B's.
+// link spent once, refused on replay. The real relay (SES) is EM-5B's. Since M10 EM-9
+// it also reads the "your password was changed" notice the spent link sends: to the
+// row's address, with the configured sign-in page as its one URL.
 func TestPanelRecoveryDB_EndToEndThroughTheSMTPTransport(t *testing.T) {
 	relay := newFakeRelay(t, relayScript{})
 	p := newPanelHarnessWithResetChannel(t, func(t *testing.T, cfg *config.Config) ResetChannel {
@@ -274,6 +295,33 @@ func TestPanelRecoveryDB_EndToEndThroughTheSMTPTransport(t *testing.T) {
 		t.Errorf("%d completed row(s), want 1", n)
 	}
 
+	// THE CHANGE IS ANNOUNCED (M10 EM-9), through the same transport, in the request
+	// that spent the link — so the relay already holds it. It goes to the address ON
+	// THE ROW (the form typed it upper-cased), its one URL in each part is the
+	// configured sign-in page, and it carries none of the e-mailed link.
+	sessions = relay.completed()
+	if len(sessions) != 2 {
+		t.Fatalf("the relay holds %d message(s) after the recovery, want 2 (the link, then the notice)", len(sessions))
+	}
+	if got := sessions[1].rcptTo; len(got) != 1 || got[0] != "RCPT TO:<"+p.email+">" {
+		t.Errorf("the notice went to %d recipient(s) or another spelling, want the address on the row", len(got))
+	}
+	notice := parseRelayed(t, sessions[1].message)
+	if got := notice.header.Get("Subject"); got != "Your Taptime password was changed" {
+		t.Errorf("the notice's Subject is %q, want the fixed one", got)
+	}
+	for part, body := range map[string]string{"text": notice.text, "html": notice.html} {
+		if urls := absoluteURLs.FindAllString(body, -1); len(urls) != 1 || urls[0] != p.server.URL+adminLoginPath {
+			t.Errorf("the notice's %s part carries %d URL(s), want exactly the sign-in page", part, len(urls))
+		}
+		if strings.Contains(body, link) || strings.Contains(body, adminResetNewPath) {
+			t.Errorf("the notice's %s part carries the recovery link or its path", part)
+		}
+	}
+	if n := p.auditCount(t, ActionAdminPasswordNoticeSent); n != 1 {
+		t.Errorf("%d sent notice row(s), want 1", n)
+	}
+
 	// THE E-MAILED LINK WORKS ONCE (criterion 2's audit half): replayed, it is refused
 	// on the one refusal screen and the refusal is an attributable row.
 	if res, _ = p.get(t, strings.TrimPrefix(link, p.server.URL)); res.StatusCode != http.StatusSeeOther {
@@ -303,8 +351,10 @@ func TestPanelRecoveryDB_EndToEndThroughTheSMTPTransport(t *testing.T) {
 	if res.StatusCode != http.StatusOK || unknown != body {
 		t.Errorf("an unregistered address answered %d with a page that differs from the registered one", res.StatusCode)
 	}
-	if n := len(relay.completed()); n != 1 {
-		t.Errorf("the relay holds %d message(s) after the unregistered request, want still 1", n)
+	// Two: the link and the notice. The refused replay and the unregistered request
+	// sent nothing.
+	if n := len(relay.completed()); n != 2 {
+		t.Errorf("the relay holds %d message(s) after the unregistered request, want still 2", n)
 	}
 }
 

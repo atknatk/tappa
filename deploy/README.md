@@ -1208,7 +1208,8 @@ link sırrını bu üç istemcide taşımaz; başka istemciler ölçülmedi.
 
 **Ne:** işlemsel e-posta (ADR 0022) **iki akışla** açılır, ikisi de
 `deploy/k8s/05-config.yaml`'da: `TAPPA_RESET_DELIVERY` (`none` | `email` — panel parola
-sıfırlama linki) ve `TAPPA_INVITE_DELIVERY` (`panel` | `email` — çalışan aktivasyon linki).
+sıfırlama linki **ve** M10 EM-9'dan beri *"parolanız değişti"* bildirimi; ikisi aynı anahtarla
+açılır) ve `TAPPA_INVITE_DELIVERY` (`panel` | `email` — çalışan aktivasyon linki).
 Röle AWS SES'in SMTP arayüzüdür (`eu-central-1`, STARTTLS, port 587). Sır olmayan ayarlar
 ConfigMap'tedir (`TAPPA_SMTP_HOST`, `TAPPA_SMTP_PORT`, `TAPPA_MAIL_FROM`,
 `TAPPA_MAIL_REPLY_TO`); iki **kimlik bilgisi** `tappa-secrets`'tadır (`TAPPA_SMTP_USERNAME`,
@@ -1312,7 +1313,8 @@ anahtarı zaten okumaz. **Rollout gerekmez.**
 ### 3) Akışı aç — EM-5 / EM-7 sevk edildikten SONRA
 
 `05-config.yaml`'da `TAPPA_RESET_DELIVERY: "email"` (EM-5 + dış adımlar 1–10 ve geri
-bildirim adımı bitince — ADR 0022 §12) ya da
+bildirim adımı bitince — ADR 0022 §12; bu, parola değişikliği bildirimini de açar — her
+değişiklik, kayıtlı adrese bir e-posta, ADR 0022 *"EM-9 notu"*) ya da
 `TAPPA_INVITE_DELIVERY: "email"` (EM-7 sevk edilince). Bu bir **deploy kararıdır**
 (`main`'e birleştirme — CLAUDE.md §10) ve onu yapan değişiklik
 `TestPackaging_TheConfigMapShipsTodaysDelivery`'yi **bilerek** günceller. Önce 0–2. adımlar.

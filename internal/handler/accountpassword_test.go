@@ -53,7 +53,7 @@ func newPasswordAuth(t *testing.T, admins *fakeAdmins, trail *fakeTrail, role st
 	}
 	h, err := NewAdminAuth(admins, trail, newFakeLedger(), newFakeLedger(), &fakeReviewer{},
 		&fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(),
-		newFakeScribe(), newFakeBooks(), newFakeAccount(), newFakeBrands(), newFakeBrandWriter(), nil, adminTestConfig(), logger)
+		newFakeScribe(), newFakeBooks(), newFakeAccount(), newFakeBrands(), newFakeBrandWriter(), nil, &fakeNotices{}, adminTestConfig(), logger)
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}

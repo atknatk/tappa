@@ -573,7 +573,61 @@ func run() error {
 		return err
 	}
 
-	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, ruleWriter, books, accounts, brandReader, brandWriter, encoder, cfg, slog.Default())
+	// PANEL PASSWORD RECOVERY (M7-04 phase B) — the flow that lets an operator who
+	// cannot sign in get back in without another owner doing it for them.
+	//
+	// 🔴 THE DELIVERY CHANNEL IS WHAT TAPPA_RESET_DELIVERY SAYS, AND THE SHIPPED
+	// ConfigMap STILL SAYS "none" (ADR 0022 §12: switching it is a deploy decision,
+	// taken after the user's SES steps). Unlike invitations there is no interim channel,
+	// because the interim channel would be "show the link to whoever typed the address
+	// into a public form", which ADR 0015 identifies as the one thing standing between
+	// minting and account takeover. config.ResetDelivery carries the argument in full.
+	//
+	// WHAT nil DOES ("none"): the request form says, before anything is typed, that
+	// this deployment cannot send a link — and the POST answers without resolving the
+	// address, minting a row or retiring anybody's pending link. The alternative
+	// (mint and fail to send) would manufacture the harm ADR 0015 accepts, for no
+	// benefit at all.
+	//
+	// WHAT "email" BUILDS (M10 EM-5): the SMTP transport from the settings config.Load
+	// has already validated (mail.New — its errors name a field, never a value), and
+	// the channel that renders the e-mail and hands it to it. NewAdminReset then starts
+	// the outbox's worker, so the send is off the request path (ADR 0022 §6); the
+	// shutdown sequence below drains it.
+	var resetChannel handler.ResetChannel
+	switch cfg.ResetDelivery {
+	case config.ResetDeliveryNone:
+		resetChannel = nil
+	case config.ResetDeliveryEmail:
+		sender, err := mail.New(cfg.Mail)
+		if err != nil {
+			return fmt.Errorf("main: building the reset e-mail transport: %w", err)
+		}
+		if resetChannel, err = handler.NewEmailResetChannel(sender, cfg.BaseURL, slog.Default()); err != nil {
+			return err
+		}
+	default:
+		// Unreachable (config.Load refuses every value outside the closed set). It is
+		// written anyway because an unreachable branch that fails CLOSED is what stops
+		// the next person's new case from silently defaulting to "no delivery, but the
+		// screen says a link is on its way".
+		return fmt.Errorf("main: TAPPA_RESET_DELIVERY=%q passed config validation but nothing implements it", cfg.ResetDelivery)
+	}
+	resets, err := adminauth.NewResets(data, cfg)
+	if err != nil {
+		return err
+	}
+	resetFlow, err := handler.NewAdminReset(resets, resetChannel, trail, cfg, slog.Default())
+	if err != nil {
+		return err
+	}
+
+	// THE PANEL IS GIVEN THE RECOVERY FLOW AS ITS CHANGE NOTIFIER (M10 EM-9), which is
+	// why the recovery flow is wired ABOVE it: a change of one's own password from the
+	// Account section sends the same "your password was changed" notice a spent
+	// recovery link does, through the same channel and the same TAPPA_RESET_DELIVERY
+	// switch — with "none", neither sends and both write the notice row that says so.
+	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, ruleWriter, books, accounts, brandReader, brandWriter, encoder, resetFlow, cfg, slog.Default())
 	if err != nil {
 		return err
 	}
@@ -636,55 +690,6 @@ func run() error {
 	// local server through the same seam, and a machine with no route to the
 	// Commission simply records "not verified", which is a state the product handles.
 	signupFlow, err := handler.NewSignup(provisioner, signup.NewChecker(), cfg, slog.Default())
-	if err != nil {
-		return err
-	}
-
-	// PANEL PASSWORD RECOVERY (M7-04 phase B) — the flow that lets an operator who
-	// cannot sign in get back in without another owner doing it for them.
-	//
-	// 🔴 THE DELIVERY CHANNEL IS WHAT TAPPA_RESET_DELIVERY SAYS, AND THE SHIPPED
-	// ConfigMap STILL SAYS "none" (ADR 0022 §12: switching it is a deploy decision,
-	// taken after the user's SES steps). Unlike invitations there is no interim channel,
-	// because the interim channel would be "show the link to whoever typed the address
-	// into a public form", which ADR 0015 identifies as the one thing standing between
-	// minting and account takeover. config.ResetDelivery carries the argument in full.
-	//
-	// WHAT nil DOES ("none"): the request form says, before anything is typed, that
-	// this deployment cannot send a link — and the POST answers without resolving the
-	// address, minting a row or retiring anybody's pending link. The alternative
-	// (mint and fail to send) would manufacture the harm ADR 0015 accepts, for no
-	// benefit at all.
-	//
-	// WHAT "email" BUILDS (M10 EM-5): the SMTP transport from the settings config.Load
-	// has already validated (mail.New — its errors name a field, never a value), and
-	// the channel that renders the e-mail and hands it to it. NewAdminReset then starts
-	// the outbox's worker, so the send is off the request path (ADR 0022 §6); the
-	// shutdown sequence below drains it.
-	var resetChannel handler.ResetChannel
-	switch cfg.ResetDelivery {
-	case config.ResetDeliveryNone:
-		resetChannel = nil
-	case config.ResetDeliveryEmail:
-		sender, err := mail.New(cfg.Mail)
-		if err != nil {
-			return fmt.Errorf("main: building the reset e-mail transport: %w", err)
-		}
-		if resetChannel, err = handler.NewEmailResetChannel(sender, cfg.BaseURL, slog.Default()); err != nil {
-			return err
-		}
-	default:
-		// Unreachable (config.Load refuses every value outside the closed set). It is
-		// written anyway because an unreachable branch that fails CLOSED is what stops
-		// the next person's new case from silently defaulting to "no delivery, but the
-		// screen says a link is on its way".
-		return fmt.Errorf("main: TAPPA_RESET_DELIVERY=%q passed config validation but nothing implements it", cfg.ResetDelivery)
-	}
-	resets, err := adminauth.NewResets(data, cfg)
-	if err != nil {
-		return err
-	}
-	resetFlow, err := handler.NewAdminReset(resets, resetChannel, trail, cfg, slog.Default())
 	if err != nil {
 		return err
 	}

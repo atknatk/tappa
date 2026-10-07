@@ -117,7 +117,7 @@ func newAdminRouterWithBrands(t *testing.T, admins *fakeAdmins, brands panelBran
 	records := newFakeLedger()
 	h, err := NewAdminAuth(admins, &fakeTrail{}, records, records, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{},
 		&fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(),
-		newFakeAccount(), brands, newFakeBrandWriter(), nil, adminTestConfig(), log)
+		newFakeAccount(), brands, newFakeBrandWriter(), nil, &fakeNotices{}, adminTestConfig(), log)
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
@@ -646,7 +646,7 @@ func TestPanelBrand_TheReaderIsRequired(t *testing.T) {
 	for name, brands := range map[string]panelBrands{"nil": nil, "typed nil": (*fakeBrands)(nil)} {
 		_, err := NewAdminAuth(&fakeAdmins{}, &fakeTrail{}, records, records, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{},
 			&fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(),
-			newFakeAccount(), brands, newFakeBrandWriter(), nil, adminTestConfig(), discardLogger())
+			newFakeAccount(), brands, newFakeBrandWriter(), nil, &fakeNotices{}, adminTestConfig(), discardLogger())
 		if err == nil {
 			t.Errorf("a %s brand reader was accepted", name)
 		}

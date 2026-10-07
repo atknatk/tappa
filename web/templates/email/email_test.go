@@ -62,8 +62,12 @@ type rendered struct {
 	msg  mail.Message
 }
 
-// renderBoth renders the invitation (with the two names) and the reset.
-func renderBoth(t *testing.T, employeeName, tenantName string) []rendered {
+// renderEach renders EVERY message this package has, in a fixed order: the
+// invitation (with the two names), the reset and the password-changed notice (M10
+// EM-9; it takes no name, so the names reach it nowhere — the tests that iterate
+// over this slice measure that too). A test that walks the slice therefore covers a
+// message the day it is added here, which is the point of one helper for all of them.
+func renderEach(t *testing.T, employeeName, tenantName string) []rendered {
 	t.Helper()
 	ctx := context.Background()
 	inv := testBase + activatePath + "?" + activateParam + "=" + randomValue(t)
@@ -78,7 +82,12 @@ func renderBoth(t *testing.T, employeeName, tenantName string) []rendered {
 	if err != nil {
 		t.Fatalf("reset: %v", err)
 	}
-	return []rendered{{"invitation", inv, mi}, {"reset", rst, mr}}
+	sin := testBase + signInPath
+	mp, err := RenderPasswordChanged(ctx, sin, PasswordChangedView{BaseURL: testBase})
+	if err != nil {
+		t.Fatalf("password-changed notice: %v", err)
+	}
+	return []rendered{{"invitation", inv, mi}, {"reset", rst, mr}, {"password changed", sin, mp}}
 }
 
 // hostileNames are names an open signup lets an attacker choose. Each must be
@@ -271,7 +280,7 @@ func hrefs(t *testing.T, doc string) []string {
 func TestRender_EachPartCarriesExactlyOneAbsoluteURL(t *testing.T) {
 	names := append([]string{"Maria Borg", "Ħal Għaxaq Kebabs Ltd."}, hostileNames...)
 	for _, name := range names {
-		for _, r := range renderBoth(t, name, name) {
+		for _, r := range renderEach(t, name, name) {
 			if !strings.HasPrefix(r.link, testBase+"/") {
 				t.Fatalf("%s: the test built a link outside its own base", r.kind)
 			}
@@ -437,6 +446,132 @@ func TestRender_AcceptsTheResetLinkAdminauthMints(t *testing.T) {
 	}
 }
 
+// TestRender_RefusesASignInLinkOutsideTheSignInPage — the notice's own link check
+// (M10 EM-9; EM-4's hand-off: "its own link check — the sign-in page's address, no
+// query and no token; checkLink's ?<param>= shape does not fit, a separate check on
+// validBase is needed"). The link must be EXACTLY the base + "/admin/login".
+func TestRender_RefusesASignInLinkOutsideTheSignInPage(t *testing.T) {
+	ctx := context.Background()
+	v := randomValue(t)
+	notice := func(base, link string) error {
+		_, err := RenderPasswordChanged(ctx, link, PasswordChangedView{BaseURL: base})
+		return err
+	}
+	tests := []struct {
+		name string
+		base string
+		link string
+		want error // nil: accepted
+	}{
+		// controls: accepted shapes, the same bases the other two messages accept
+		{"the sign-in page", testBase, testBase + "/admin/login", nil},
+		{"a base with a trailing slash", testBase + "/", testBase + "/admin/login", nil},
+		{"a base with a path", testBase + "/app", testBase + "/app/admin/login", nil},
+		{"https with a port", testBase + ":8443", testBase + ":8443/admin/login", nil},
+		{"the plain http dev base", "http://localhost:8080", "http://localhost:8080/admin/login", nil},
+		// a credential or a query where none may be
+		{"a reset token as a query", testBase, testBase + "/admin/login?t=" + v, ErrLink},
+		{"an activation code as a query", testBase, testBase + "/admin/login?code=" + v, ErrLink},
+		{"any query", testBase, testBase + "/admin/login?next=/admin", ErrLink},
+		{"an empty query", testBase, testBase + "/admin/login?", ErrLink},
+		{"a fragment", testBase, testBase + "/admin/login#x", ErrLink},
+		{"a path parameter", testBase, testBase + "/admin/login;t=" + v, ErrLink},
+		// another page
+		{"the reset page with a token", testBase, testBase + "/admin/reset/new?t=" + v, ErrLink},
+		{"the activation page with a code", testBase, testBase + "/activate?code=" + v, ErrLink},
+		{"the recovery form", testBase, testBase + "/admin/reset", ErrLink},
+		{"a trailing slash on the path", testBase, testBase + "/admin/login/", ErrLink},
+		{"a longer path", testBase, testBase + "/admin/login/choose", ErrLink},
+		{"an upper-case path", testBase, testBase + "/ADMIN/LOGIN", ErrLink},
+		{"the base alone", testBase, testBase, ErrLink},
+		{"the base's path dropped", testBase + "/app", testBase + "/admin/login", ErrLink},
+		// another place
+		{"another host", testBase, "https://evil.example/admin/login", ErrLink},
+		{"a look-alike host", testBase, testBase + ".evil.example/admin/login", ErrLink},
+		{"user info before the host", testBase, "https://user@app.taptime.test/admin/login", ErrLink},
+		{"plain http under an https base", testBase, "http://app.taptime.test/admin/login", ErrLink},
+		{"a relative link", testBase, "/admin/login", ErrLink},
+		{"an upper-case scheme in the link only", testBase, "HTTPS://app.taptime.test/admin/login", ErrLink},
+		{"an empty link", testBase, "", ErrLink},
+		// the base is held to validBase, as for the other two messages
+		{"an empty base", "", "/admin/login", ErrBaseURL},
+		{"plain http on a public name", "http://taptime.mt", "http://taptime.mt/admin/login", ErrBaseURL},
+		{"a query in the base", testBase + "?x=1", testBase + "?x=1/admin/login", ErrBaseURL},
+		{"a fragment in the base", testBase + "#x", testBase + "#x/admin/login", ErrBaseURL},
+		{"user info in the base", "https://user@app.taptime.test", "https://user@app.taptime.test/admin/login", ErrBaseURL},
+		{"a CR LF in the base", testBase + "\r\nBcc: x", testBase + "\r\nBcc: x/admin/login", ErrBaseURL},
+		{"another scheme", "javascript:alert(1)", "javascript:alert(1)/admin/login", ErrBaseURL},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := notice(tc.base, tc.link)
+			switch {
+			case tc.want == nil && err != nil:
+				t.Fatalf("refused the sign-in page: %v", err)
+			case tc.want != nil && !errors.Is(err, tc.want):
+				t.Fatalf("got %v, want %v", err, tc.want)
+			}
+		})
+	}
+	// A refusal returns an empty Message, never a partly filled one.
+	m, err := RenderPasswordChanged(ctx, testBase+"/admin/login?t="+v, PasswordChangedView{BaseURL: testBase})
+	if err == nil || m != (mail.Message{}) {
+		t.Fatal("a refused link did not return an error and an empty Message")
+	}
+}
+
+// TestPasswordChanged_IsTheSameWordsForEveryAccountAndCarriesNoCredential — the
+// notice is LINKLESS in the sense M10 EM-9 asks for: no code, no token, no reset or
+// activation link, and no name. Its renderer takes no name and no value, so the
+// claim is measured as an OUTPUT property rather than argued from the signature:
+// two renders are the same bytes in both parts (nothing per account or per call
+// reaches the words), neither part carries a '?', a '=', a reset or an activation
+// path, and the one absolute URL in each part is exactly the sign-in page.
+func TestPasswordChanged_IsTheSameWordsForEveryAccountAndCarriesNoCredential(t *testing.T) {
+	ctx := context.Background()
+	link := testBase + signInPath
+	a, err := RenderPasswordChanged(ctx, link, PasswordChangedView{BaseURL: testBase})
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	b, err := RenderPasswordChanged(ctx, link, PasswordChangedView{BaseURL: testBase + "/"})
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if a.Subject != b.Subject || a.Text != b.Text || a.HTML != b.HTML {
+		t.Error("two renders of the notice differ; something per call reached the words")
+	}
+	if a.To != "" || a.Ref != "" {
+		t.Error("the renderer filled To or Ref; both are the caller's")
+	}
+	if a.Subject != "Your Taptime password was changed" {
+		t.Errorf("the subject is %q, want the fixed one", a.Subject)
+	}
+	for part, s := range map[string]string{"text": a.Text, "visible HTML": visibleText(t, a.HTML), "HTML": a.HTML} {
+		for _, forbidden := range []string{resetPath, activatePath, "?t=", "code=", "?" + resetParam, "/admin/reset"} {
+			if strings.Contains(s, forbidden) {
+				t.Errorf("the %s part carries %q", part, forbidden)
+			}
+		}
+		if part != "HTML" && (strings.ContainsAny(s, "?=")) {
+			t.Errorf("the %s part carries a '?' or a '=': there is no value to carry", part)
+		}
+	}
+	if got := absoluteURL.FindAllString(a.Text, -1); len(got) != 1 {
+		t.Errorf("the text part carries %d absolute URL(s), want exactly the sign-in page", len(got))
+	}
+	if hs := hrefs(t, a.HTML); len(hs) != 1 || hs[0] != link {
+		t.Errorf("the HTML's href(s) are %d, want exactly one: the sign-in page", len(hs))
+	}
+	// The words that make it a notice and not an action: it says what happened and
+	// that its link changes nothing.
+	for _, want := range []string{"was just changed", "changes nothing", "forgotten-password link"} {
+		if !strings.Contains(a.Text, want) || !strings.Contains(visibleText(t, a.HTML), want) {
+			t.Errorf("a part does not say %q", want)
+		}
+	}
+}
+
 // --- nothing remote -----------------------------------------------------------------
 
 // TestRender_LoadsNothingAndUsesOnlyTheseElements — §8: no image, no remote font,
@@ -447,7 +582,7 @@ func TestRender_LoadsNothingAndUsesOnlyTheseElements(t *testing.T) {
 	forbidden := []string{"<img", "<link", "<script", "<style", "<iframe", "<object", "<embed",
 		"<svg", "<video", "<audio", "<form", "<base", "@font-face", "@import", "url(",
 		" src=", " srcset=", " background=", " poster=", " action="}
-	for _, r := range renderBoth(t, "<script>alert(1)</script>", "<img src=x>") {
+	for _, r := range renderEach(t, "<script>alert(1)</script>", "<img src=x>") {
 		low := strings.ToLower(r.msg.HTML)
 		for _, f := range forbidden {
 			if n := strings.Count(low, f); n != 0 {
@@ -515,7 +650,7 @@ func TestNames_AnAddressShapedNameIsWithheld(t *testing.T) {
 		if _, ok := nameShown(name); ok {
 			t.Errorf("nameShown accepted %q", name)
 		}
-		for _, r := range renderBoth(t, name, name) {
+		for _, r := range renderEach(t, name, name) {
 			if strings.Contains(r.msg.Text, name) || strings.Contains(r.msg.HTML, name) ||
 				strings.Contains(r.msg.HTML, html.EscapeString(name)) {
 				t.Errorf("%s: the name %q reached the body", r.kind, name)
@@ -625,7 +760,7 @@ func TestNames_AnOrdinaryNameIsShownVerbatim(t *testing.T) {
 
 	// The two characters a shown name may carry that HTML escapes: ' and &.
 	employee, business := "Ġużeppi O'Neill", "Ħal Għaxaq Kebabs & Sons"
-	r := renderBoth(t, employee, business)[0]
+	r := renderEach(t, employee, business)[0]
 	if !utf8.ValidString(r.msg.Text) || !utf8.ValidString(r.msg.HTML) {
 		t.Fatal("a part is not valid UTF-8")
 	}
@@ -641,7 +776,7 @@ func TestNames_AnOrdinaryNameIsShownVerbatim(t *testing.T) {
 		t.Error("the HTML carries a raw ' or & of a name; it must be escaped")
 	}
 	// The four Maltese letters, both cases, as UTF-8 bytes in both parts.
-	r2 := renderBoth(t, "Ċensu Ġorġ Ħabib Żammit", "ċ ġ ħ ż Kebabs")[0]
+	r2 := renderEach(t, "Ċensu Ġorġ Ħabib Żammit", "ċ ġ ħ ż Kebabs")[0]
 	for _, letter := range []string{"ċ", "ġ", "ħ", "ż", "Ċ", "Ġ", "Ħ", "Ż"} {
 		if strings.Count(r2.msg.Text, letter) == 0 || strings.Count(r2.msg.HTML, letter) == 0 {
 			t.Errorf("a part lost %q", letter)
@@ -653,12 +788,12 @@ func TestNames_AnOrdinaryNameIsShownVerbatim(t *testing.T) {
 // a name with a line break would forge lines in it. Each such name is withheld,
 // and the text part has the same number of lines as with no name at all.
 func TestNames_ALineBreakNeverReachesTheTextPart(t *testing.T) {
-	baseline := strings.Count(renderBoth(t, "", "")[0].msg.Text, "\n")
+	baseline := strings.Count(renderEach(t, "", "")[0].msg.Text, "\n")
 	for _, name := range []string{"A\nB", "A\rB", "A\r\nB", "A\u2028B", "A\u2029B", "A\u0085B", "A\vB", "A\fB", "A\x00B", "A\u202eB"} {
 		if _, ok := nameShown(name); ok {
 			t.Errorf("nameShown accepted %q", name)
 		}
-		r := renderBoth(t, name, name)[0]
+		r := renderEach(t, name, name)[0]
 		if got := strings.Count(r.msg.Text, "\n"); got != baseline {
 			t.Errorf("name %q: the text part has %d line break(s), want %d", name, got, baseline)
 		}
@@ -688,7 +823,7 @@ func TestNames_KnownLimitIsALookalikeDotAndPlainProse(t *testing.T) {
 		if _, ok := nameShown(name); !ok {
 			t.Errorf("%q is withheld: the counted limit no longer holds, update its text", name)
 		}
-		r := renderBoth(t, name, name)[0]
+		r := renderEach(t, name, name)[0]
 		if !strings.Contains(r.msg.Text, name) {
 			t.Errorf("%q is not in the text part", name)
 		}
@@ -733,7 +868,7 @@ func TestNames_TheDotRule(t *testing.T) {
 			if !tc.shown {
 				return
 			}
-			r := renderBoth(t, tc.in, tc.in)[0]
+			r := renderEach(t, tc.in, tc.in)[0]
 			if !strings.Contains(r.msg.Text, tc.in) {
 				t.Errorf("%q is not in the text part", tc.in)
 			}
@@ -852,7 +987,7 @@ func TestTemplate_EscapesWhateverReachesIt(t *testing.T) {
 // timeout — the class that comes AFTER composing — and never invalid_message,
 // and the listener it points at accepts no connection.
 func TestSubject_IsFixedASCIIAndPassesTheMailComposer(t *testing.T) {
-	a, b := renderBoth(t, "Maria", "Kebab Factory"), renderBoth(t, "Ġużeppi", "Ħal Għaxaq")
+	a, b := renderEach(t, "Maria", "Kebab Factory"), renderEach(t, "Ġużeppi", "Ħal Għaxaq")
 	for i := range a {
 		s := a[i].msg.Subject
 		if s != b[i].msg.Subject {
@@ -1044,7 +1179,7 @@ func colourValueProblem(val string, pal map[string]string) string {
 func TestContrast_EveryTextOnItsGroundClearsAA(t *testing.T) {
 	pal := palette(t)
 	pairs := map[[2]string]float64{}
-	for _, r := range renderBoth(t, "Maria Borg", "Kebab Factory Ltd.") {
+	for _, r := range renderEach(t, "Maria Borg", "Kebab Factory Ltd.") {
 		nodes := 0
 		walkHTML(t, r.msg.HTML, func(stack []element, s string) {
 			for _, e := range stack {
@@ -1233,7 +1368,7 @@ func TestLifetime_NeverOverstates(t *testing.T) {
 	if _, err := RenderPasswordReset(ctx, testBase+"/admin/reset/new?t="+v, ResetView{BaseURL: testBase, ValidFor: -time.Hour}); !errors.Is(err, ErrLifetime) {
 		t.Errorf("a negative lifetime rendered a reset: %v", err)
 	}
-	r := renderBoth(t, "Maria", "Kebab Factory")
+	r := renderEach(t, "Maria", "Kebab Factory")
 	for i, want := range []string{"stays valid for 7 days", "stays valid for 1 hour"} {
 		if !strings.Contains(r[i].msg.Text, want) || !strings.Contains(visibleText(t, r[i].msg.HTML), want) {
 			t.Errorf("%s: a part does not say %q", r[i].kind, want)
@@ -1245,11 +1380,18 @@ func TestLifetime_NeverOverstates(t *testing.T) {
 // text part verbatim and in the HTML escaped — one source, two renderings.
 func TestRender_TheTwoPartsSayTheSameWords(t *testing.T) {
 	letters := map[string]letter{
-		"invitation": invitationLetter("Maria Borg", "Kebab Factory Ltd.", "7 days"),
-		"reset":      resetLetter("1 hour"),
+		"invitation":       invitationLetter("Maria Borg", "Kebab Factory Ltd.", "7 days"),
+		"reset":            resetLetter("1 hour"),
+		"password changed": passwordChangedLetter(),
 	}
-	r := renderBoth(t, "Maria Borg", "Kebab Factory Ltd.")
-	for i, kind := range []string{"invitation", "reset"} {
+	r := renderEach(t, "Maria Borg", "Kebab Factory Ltd.")
+	if len(r) != len(letters) {
+		t.Fatalf("renderEach renders %d message(s) and this test knows %d letter(s); a message is missing from one of them", len(r), len(letters))
+	}
+	for i, kind := range []string{"invitation", "reset", "password changed"} {
+		if r[i].kind != kind {
+			t.Fatalf("message %d is %q, want %q (renderEach's order)", i, r[i].kind, kind)
+		}
 		l := letters[kind]
 		all := append([]string{l.heading, l.action, l.closing, footer}, l.before...)
 		for _, s := range append(all, l.after...) {
@@ -1273,7 +1415,7 @@ func TestRender_TheTwoPartsSayTheSameWords(t *testing.T) {
 // say "own browser", which on an iPhone whose default is not Safari can be read
 // as Safari.
 func TestInvitation_SaysToUseThePhonesMainBrowser(t *testing.T) {
-	r := renderBoth(t, "Maria", "Kebab Factory")[0]
+	r := renderEach(t, "Maria", "Kebab Factory")[0]
 	visible := visibleText(t, r.msg.HTML)
 	for _, want := range []string{"in your phone's main browser", "the one that opens when you tap a link",
 		`choose "Open in browser" first`} {
@@ -1294,7 +1436,7 @@ func TestInvitation_SaysToUseThePhonesMainBrowser(t *testing.T) {
 // on the wordmark, the heading and the button; the body text keeps the system
 // stack.
 func TestRender_DisplayFaceOnWordmarkHeadingAndButton(t *testing.T) {
-	for _, r := range renderBoth(t, "Maria", "Kebab Factory") {
+	for _, r := range renderEach(t, "Maria", "Kebab Factory") {
 		got := map[string]bool{}
 		walkHTML(t, r.msg.HTML, func(stack []element, s string) {
 			e := stack[len(stack)-1]
@@ -1318,7 +1460,7 @@ func TestRender_DisplayFaceOnWordmarkHeadingAndButton(t *testing.T) {
 // TestRender_SaysTaptimeNotTheCodeName: the user-facing brand is Taptime; the
 // internal code name never reaches a recipient.
 func TestRender_SaysTaptimeNotTheCodeName(t *testing.T) {
-	for _, r := range renderBoth(t, "Maria", "Kebab Factory") {
+	for _, r := range renderEach(t, "Maria", "Kebab Factory") {
 		for _, part := range []string{r.msg.Subject, r.msg.Text, r.msg.HTML} {
 			if strings.Contains(strings.ToLower(part), "tappa") {
 				t.Errorf("%s: a part shows the internal code name", r.kind)

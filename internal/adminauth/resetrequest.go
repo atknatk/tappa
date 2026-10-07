@@ -175,6 +175,19 @@ func (r *Resets) IssueForEmail(ctx context.Context, email string) ([]ResetGrant,
 	return grants, nil
 }
 
+// NoticeRecipient is the address the "your password was changed" notice goes to (M10
+// EM-9): the administrator's OWN row, read inside their own tenant AFTER the change
+// committed. It is recipient below, exported, and nothing more — the same "read
+// from the row, never from a request" rule ResetGrant states, applied to the second
+// e-mail that goes to an administrator.
+//
+// "" means there is nowhere to send it: the row is gone, no longer active, or has no
+// address (admin_users.email is nullable). The caller records that; it is not an
+// error. The address is personal data and is not logged here or by the caller.
+func (r *Resets) NoticeRecipient(ctx context.Context, tenantID, adminUserID uuid.UUID) (string, error) {
+	return r.recipient(ctx, tenantID, adminUserID)
+}
+
 // recipient reads one administrator's own address inside their own tenant. It
 // returns "" when the row is gone or no longer active, which the caller treats as
 // "no link for this identity" rather than as an error.

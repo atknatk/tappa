@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 // The tests for "who gets a recovery link" (M7-04 phase B), against REAL Postgres.
@@ -218,5 +219,65 @@ func TestIssueForEmail_RetiresTheEarlierLinkAndSaysHowMany(t *testing.T) {
 	if _, _, err := r.Consume(ctx, first[0].Issued.Token, "a-brand-new-password"); err == nil {
 		t.Error("the superseded link still worked; the counter above would then be describing " +
 			"something that did not happen")
+	}
+}
+
+// TestNoticeRecipient_IsTheAddressOnTheRowAndNothingElse is where the "your password
+// was changed" notice (M10 EM-9) gets its address, against REAL Postgres: the
+// administrator's OWN row, in the spelling the row stores, read inside that row's own
+// tenant — and "" (nowhere to send, not an error) for every row it must not reach.
+//
+// 🔴 THE CROSS-TENANT ARM IS THE ONE A FAKE COULD NOT HAVE: the right administrator id
+// asked for under ANOTHER tenant's id reads nothing, because RLS and the query's own
+// tenant predicate both scope the read (§4.5). A positive control runs first, so a ""
+// below cannot be an empty fixture.
+func TestNoticeRecipient_IsTheAddressOnTheRowAndNothingElse(t *testing.T) {
+	d := testDB(t)
+	ctx := context.Background()
+	r := cheapResets(t, d)
+	home := newTenantRow(t, d, "Notice Home Ltd")
+	other := newTenantRow(t, d, "Notice Other Ltd")
+
+	// The row stores an upper-cased spelling: the notice must carry THAT spelling.
+	stored := strings.ToUpper(randEmail(t))
+	active := newAdminRow(t, d, home, stored, "p", "active", "owner", "Notice Owner")
+	disabled := newAdminRow(t, d, home, randEmail(t), "p", "disabled", "manager", "Notice Disabled")
+	// admin_users.email is nullable (00006); newAdminRow always writes one.
+	noAddress := uuid.New()
+	if err := d.WithTenant(ctx, home, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx,
+			`INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role, status)
+			 VALUES ($1, $2, 'Notice Nowhere', NULL, $3, 'owner', 'active')`,
+			noAddress, home, fixtureDigest(t, "p"))
+		return e
+	}); err != nil {
+		t.Fatalf("inserting an administrator with no address: %v", err)
+	}
+
+	got, err := r.NoticeRecipient(ctx, home, active)
+	if err != nil {
+		t.Fatalf("NoticeRecipient(active): %v", err)
+	}
+	if got != stored {
+		t.Fatalf("CONTROL: the active administrator's notice goes to %q, want the row's own spelling %q", got, stored)
+	}
+	for _, tc := range []struct {
+		name            string
+		tenant, adminID uuid.UUID
+	}{
+		{"a disabled administrator", home, disabled},
+		{"an administrator with no address", home, noAddress},
+		{"the right administrator under another tenant", other, active},
+		{"an unknown id", home, uuid.New()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := r.NoticeRecipient(ctx, tc.tenant, tc.adminID)
+			if err != nil {
+				t.Fatalf("NoticeRecipient: %v -- nowhere to send is an answer, not an error", err)
+			}
+			if got != "" {
+				t.Error("got an address for a row the notice must not reach")
+			}
+		})
 	}
 }

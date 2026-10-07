@@ -288,7 +288,7 @@ func panelBrowserAs(t *testing.T, role string, accounts *fakeAccounts) *browser 
 	}}
 	h, err := NewAdminAuth(admins, &fakeTrail{}, newFakeLedger(), newFakeLedger(), &fakeReviewer{},
 		&fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(),
-		newFakeScribe(), newFakeBooks(), accounts, newFakeBrands(), newFakeBrandWriter(), nil, adminTestConfig(), slog.New(slog.DiscardHandler))
+		newFakeScribe(), newFakeBooks(), accounts, newFakeBrands(), newFakeBrandWriter(), nil, &fakeNotices{}, adminTestConfig(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}

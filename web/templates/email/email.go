@@ -1,16 +1,24 @@
 // Package email renders Taptime's transactional e-mails (M10 EM-4; normative
-// source ADR 0022 §8): the invitation and the password reset. Each renderer
-// returns a mail.Message with Subject, Text and HTML filled; To and Ref stay
-// empty and are the caller's: internal/handler's emailResetChannel for the reset
-// (EM-5), EM-7 for the invitation (RenderInvitation has no caller yet).
+// source ADR 0022 §8): the invitation, the password reset and — since M10 EM-9 —
+// the "your password was changed" notice. Each renderer returns a mail.Message
+// with Subject, Text and HTML filled; To and Ref stay empty and are the caller's:
+// internal/handler's emailResetChannel for the reset (EM-5) and the notice (EM-9),
+// EM-7 for the invitation (RenderInvitation has no caller yet).
 //
-// ONE STRUCTURE, TWO MESSAGES. Both e-mails are a letter (letter.go): a heading,
+// ONE STRUCTURE, THREE MESSAGES. Every e-mail is a letter (letter.go): a heading,
 // paragraphs, one action and a closing line, rendered by ONE templ component
 // (message.templ) and by ONE plain-text writer (text.go). So the properties below
 // hold for every message by construction of the shared code, and the HTML and the
-// text part cannot say different things — they print the same strings. A third
-// message (EM-9's "your password was changed") is a third letter value plus its
-// own link check; it adds no markup.
+// text part cannot say different things — they print the same strings. The notice
+// is a third letter value plus its own link check (checkSignInLink); it added no
+// markup.
+//
+// THE NOTICE CARRIES NO CREDENTIAL, BY ITS SIGNATURE. Its one link is the sign-in
+// page — exactly BaseURL + "/admin/login", no query, no fragment — so there is no
+// value slot a code or a token could travel in, and its view has no name field:
+// the words are the same bytes for every account (ADR 0022 §8; whether an e-mail
+// may show a business or a person's name at all is EM-7's open product decision,
+// so this one shows none).
 //
 // WHY THE LINK IS A PARAMETER AND NOT A FIELD. The link carries the activation
 // code or the reset token (§4.7 material). Taking it as an argument, rather than
@@ -22,13 +30,17 @@
 // error, which comes from the writer (a strings.Builder) and carries no text of
 // the message.
 //
-// THE CLAIM, IN THREE PARTS AND ONLY THREE (agent-brief, M10 OP-6/OP-7).
+// THE CLAIM, IN THREE PARTS AND ONLY THREE (agent-brief, M10 OP-6/OP-7). Threat
+// model: these pins hold against ACCIDENTAL drift in this package — its renderers,
+// its letters, its link and name checks and its one templ component; code written on
+// purpose to get past a pin is the subject of code review.
 //
 // PART I — TODAY'S CODE, MEASURED (email_test.go):
 //   - each part carries exactly ONE absolute URL and it is the link: in the HTML
 //     the only scheme-or-"//" occurrence is the one href, whose value is the link;
-//     in the text part the link stands once on its own line. Both renderers, a
-//     plain and a hostile name set — TestRender_EachPartCarriesExactlyOneAbsoluteURL;
+//     in the text part the link stands once on its own line. All three renderers
+//     (renderEach in the tests), a plain and a hostile name set —
+//     TestRender_EachPartCarriesExactlyOneAbsoluteURL;
 //   - the link is the expected address: BaseURL (trailing slashes trimmed, as
 //     internal/invite and the reset handler trim it) + the path + "?<param>=" +
 //     1..128 of [A-Za-z0-9_-]. The table refuses, with ErrLink or ErrBaseURL and
@@ -46,6 +58,16 @@
 //     syntax only, so "999.999.999.999" and "1.2.3" pass (known-limit rows) —
 //     TestRender_RefusesALinkOutsideTheExpectedAddress; the reset link
 //     internal/adminauth mints is accepted — TestRender_AcceptsTheResetLinkAdminauthMints;
+//   - the notice's link is exactly BaseURL (trailing slashes trimmed) + "/admin/login"
+//     under the same base rule: a query (a token, a code, an empty "?"), a
+//     fragment, another path (the reset or activation page, a trailing slash, an
+//     upper-case path, a longer path), another host or a relative link is refused
+//     with ErrLink, a base the rule refuses with ErrBaseURL, each with an empty
+//     Message — TestRender_RefusesASignInLinkOutsideTheSignInPage; and the notice
+//     is the SAME bytes in both parts on every render (its words carry nothing
+//     about an account), its text holds no '?', '=', reset or activation path,
+//     and its one URL is the sign-in page —
+//     TestPasswordChanged_IsTheSameWordsForEveryAccountAndCarriesNoCredential;
 //   - nothing remote: the HTML holds no <img, <link, <script, <style, @font-face,
 //     @import, url( and no src/srcset/background attribute, its elements are
 //     exactly html, head, meta, title, body, div, p, h1 and a, and its attributes
@@ -99,7 +121,7 @@
 //     the button — TestRender_DisplayFaceOnWordmarkHeadingAndButton.
 //
 // PART II — NAMED PINS, AND EXACTLY WHAT EACH CATCHES (each mutation was run;
-// the M10 EM-4 card lists them):
+// the M10 EM-4 card lists them, and the EM-9 card the notice's):
 //   - TestRender_EachPartCarriesExactlyOneAbsoluteURL: a second link (in the
 //     footer, or the link as the button's visible text), a remote image or style,
 //     the link dropped from the text part or sharing a line with its label, a
@@ -111,6 +133,14 @@
 //     loopbackHost widened to a "127." prefix, to a "localhost" suffix without
 //     the dot, or to private addresses; validHostName's 63- or 253-byte bound
 //     dropped, or a leading '-' admitted;
+//   - TestRender_RefusesASignInLinkOutsideTheSignInPage: checkSignInLink accepting
+//     any link, a prefix match in place of equality (a query or a token after the
+//     path), a case-insensitive match, its validBase call dropped, the sign-in
+//     path changed; TestPasswordChanged_IsTheSameWordsForEveryAccountAndCarriesNoCredential:
+//     a per-render value in the words, a '?' or a reset path in the text, the
+//     "changes nothing" sentence dropped (a second URL in the notice's words is
+//     TestRender_EachPartCarriesExactlyOneAbsoluteURL's, a non-ASCII notice subject
+//     TestSubject_IsFixedASCIIAndPassesTheMailComposer's);
 //   - TestRender_LoadsNothingAndUsesOnlyTheseElements: any new element (an
 //     image, a font link, a script, a style block), the listed strings, any new
 //     attribute (bgcolor=, …), the UTF-8 declaration removed;
@@ -182,8 +212,9 @@ import (
 // The fixed subjects (ADR 0022 §4, §8): printable ASCII, no "=?", no name. mime's
 // Q encoder returns them unchanged, so they travel as written.
 const (
-	subjectInvitation = "Your Taptime invitation"
-	subjectReset      = "Reset your Taptime password"
+	subjectInvitation      = "Your Taptime invitation"
+	subjectReset           = "Reset your Taptime password"
+	subjectPasswordChanged = "Your Taptime password was changed"
 )
 
 // Where each link must point, relative to the configured BaseURL. They are the
@@ -195,6 +226,13 @@ const (
 	activateParam = "code"
 	resetPath     = "/admin/reset/new"
 	resetParam    = "t"
+	// signInPath is the panel's sign-in page, the notice's one link (EM-9). It is
+	// internal/handler's adminLoginPath written a second time, deliberately: this
+	// package cannot import that one, and the second copy is HELD rather than
+	// trusted — the handler builds the link from its own constant and this one
+	// checks it, so the two disagreeing refuses every render, and the e-mail
+	// channel's constructor renders once at boot (NewEmailResetChannel).
+	signInPath = "/admin/login"
 )
 
 // maxLinkValue bounds the code or token in a link. Both producers write 43
@@ -241,6 +279,45 @@ type ResetView struct {
 	BaseURL string
 	// ValidFor is the link's lifetime (adminauth.ResetTTL today).
 	ValidFor time.Duration
+}
+
+// PasswordChangedView is what the "your password was changed" notice needs besides
+// its link (M10 EM-9).
+//
+// IT HAS NO NAME FIELD, AND NO FIELD FOR A CODE, A TOKEN OR AN INSTANT, ON PURPOSE.
+// Whether an e-mail may show a business or a person's name is EM-7's pending product
+// decision (ADR 0022 counted limit 22), so the notice shows none; it says WHEN only
+// through the message's own Date header, so it needs no time zone; and a value slot
+// is where a credential could one day be put, so there is none.
+type PasswordChangedView struct {
+	// BaseURL is cfg.BaseURL; the link must be exactly BaseURL + "/admin/login".
+	BaseURL string
+}
+
+// RenderPasswordChanged renders the notice for the sign-in page's address. The
+// returned Message has Subject, Text and HTML; the caller sets To and Ref.
+func RenderPasswordChanged(ctx context.Context, link string, v PasswordChangedView) (mail.Message, error) {
+	if err := checkSignInLink(v.BaseURL, link); err != nil {
+		return mail.Message{}, err
+	}
+	return render(ctx, passwordChangedLetter(), link)
+}
+
+// checkSignInLink holds the notice's link to ONE string: the base (trailing slashes
+// trimmed, as checkLink trims it) + signInPath, compared EXACTLY. checkLink's shape
+// does not fit — it requires "?<param>=<value>", and this link must have no query at
+// all — so the base goes through the same validBase and the rest is equality: a
+// query, a fragment, a token, a second path segment or another spelling of the path
+// is a different string and is refused.
+func checkSignInLink(baseURL, link string) error {
+	base := strings.TrimRight(baseURL, "/")
+	if !validBase(base) {
+		return ErrBaseURL
+	}
+	if link != base+signInPath {
+		return ErrLink
+	}
+	return nil
 }
 
 // RenderInvitation renders the invitation for the activation link. The returned

@@ -79,7 +79,7 @@ func policyOriginBrowser(t *testing.T, scribe panelScribe) (*browser, *int) {
 	}}
 	h, err := NewAdminAuth(admins, &fakeTrail{}, newFakeLedger(), newFakeLedger(), &fakeReviewer{},
 		&fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(),
-		scribe, newFakeBooks(), newFakeAccount(), newFakeBrands(), newFakeBrandWriter(), nil, adminTestConfig(), discardLogger())
+		scribe, newFakeBooks(), newFakeAccount(), newFakeBrands(), newFakeBrandWriter(), nil, &fakeNotices{}, adminTestConfig(), discardLogger())
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}

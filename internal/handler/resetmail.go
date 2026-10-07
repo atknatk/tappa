@@ -20,7 +20,9 @@ type mailSender interface {
 
 // emailResetChannel is the ResetChannel for TAPPA_RESET_DELIVERY=email (M10 EM-5,
 // ADR 0022 §6): it renders the reset e-mail (web/templates/email) and hands it to the
-// SMTP relay (internal/mail). It runs on the outbox's worker, never on a request.
+// SMTP relay (internal/mail). DeliverReset runs on the outbox's worker, never on a
+// request; DeliverPasswordNotice (M10 EM-9) runs in the request that changed the
+// password — passwordnotice.go carries the claim for that half.
 //
 // WHAT IT TELLS ANYBODY, AND NOTHING ELSE (ADR 0022 §10):
 //   - a failed send is returned as the relay's *mail.SendError unwrapped — a class
@@ -113,7 +115,42 @@ func NewEmailResetChannel(sender *mail.SMTP, baseURL string, log *slog.Logger) (
 	if _, err := email.RenderPasswordReset(context.Background(), probe, email.ResetView{BaseURL: baseURL, ValidFor: time.Hour}); err != nil {
 		return nil, fmt.Errorf("handler: the reset e-mail cannot be built from TAPPA_BASE_URL: %w", err)
 	}
+	// THE NOTICE TOO (M10 EM-9), and this probe also holds the two copies of the
+	// sign-in path together: the link is built from adminLoginPath here and checked
+	// against the email package's own copy there, so a route renamed on one side
+	// refuses to boot instead of mailing a dead link.
+	if _, err := email.RenderPasswordChanged(context.Background(), signInLink(baseURL), email.PasswordChangedView{BaseURL: baseURL}); err != nil {
+		return nil, fmt.Errorf("handler: the change notice cannot be built from TAPPA_BASE_URL: %w", err)
+	}
 	return &emailResetChannel{sender: sender, baseURL: baseURL, log: log}, nil
+}
+
+// signInLink is the notice's one link: the configured base's sign-in page. It is
+// built from the CONFIGURED base (cfg.BaseURL, handed to NewEmailResetChannel at boot)
+// and from nothing a request carries — a Host or X-Forwarded-Host header never reaches
+// the channel, so it cannot reach the link.
+func signInLink(baseURL string) string {
+	return strings.TrimRight(baseURL, "/") + adminLoginPath
+}
+
+// DeliverPasswordNotice renders the "your password was changed" notice (M10 EM-9) and
+// sends it to n.Recipient — the address on the administrator's own row. Like
+// DeliverReset it returns the relay's *mail.SendError unwrapped on a failed send, a
+// wrapped sentinel on a render failure, and writes ONE line on an accepted send: the
+// administrator's id and the relay's message id, never the address or the message.
+func (c *emailResetChannel) DeliverPasswordNotice(ctx context.Context, n PasswordNotice) error {
+	m, err := email.RenderPasswordChanged(ctx, signInLink(c.baseURL), email.PasswordChangedView{BaseURL: c.baseURL})
+	if err != nil {
+		return fmt.Errorf("handler: rendering the change notice: %w", err)
+	}
+	m.To = n.Recipient
+	receipt, err := c.sender.Send(ctx, m)
+	if err != nil {
+		return err
+	}
+	c.log.InfoContext(ctx, "panel credential notice: the relay accepted the e-mail",
+		"admin_user_id", n.AdminUserID, "tenant_id", n.TenantID, "message_id", receipt.MessageID)
+	return nil
 }
 
 // DeliverReset renders the e-mail for d and sends it.

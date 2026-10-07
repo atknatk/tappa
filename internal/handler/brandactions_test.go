@@ -887,14 +887,14 @@ func TestBrandRoutes_TheWriterIsRequired(t *testing.T) {
 	for name, writer := range map[string]panelBrandWriter{"nil": nil, "typed nil": (*fakeBrandWriter)(nil)} {
 		_, err := NewAdminAuth(&fakeAdmins{}, &fakeTrail{}, records, records, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{},
 			&fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(),
-			newFakeAccount(), newFakeBrands(), writer, nil, adminTestConfig(), discardLogger())
+			newFakeAccount(), newFakeBrands(), writer, nil, &fakeNotices{}, adminTestConfig(), discardLogger())
 		if err == nil {
 			t.Errorf("a %s brand writer was accepted", name)
 		}
 	}
 	if _, err := NewAdminAuth(&fakeAdmins{}, &fakeTrail{}, records, records, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{},
 		&fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(),
-		newFakeAccount(), newFakeBrands(), newFakeBrandWriter(), nil, adminTestConfig(), discardLogger()); err != nil {
+		newFakeAccount(), newFakeBrands(), newFakeBrandWriter(), nil, &fakeNotices{}, adminTestConfig(), discardLogger()); err != nil {
 		t.Fatalf("PREMISE: the same call with a writer fails: %v", err)
 	}
 }

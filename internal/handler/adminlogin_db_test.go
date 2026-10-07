@@ -218,7 +218,28 @@ func newPanelHarnessWithResetChannel(t *testing.T, channel func(t *testing.T, cf
 	if err != nil {
 		t.Fatalf("billing.NewBook: %v", err)
 	}
-	h, err := NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, newFakeScribe(), books, newFakeAccount(), newFakeBrands(), newFakeBrandWriter(), nil, cfg, slog.New(slog.DiscardHandler))
+	// THE RECOVERY FLOW IS BUILT HERE, AHEAD OF THE PANEL, because the panel takes it as
+	// its change notifier (M10 EM-9) exactly as cmd/tappa wires it: a password changed
+	// from the Account section and one changed by a spent link send the same notice
+	// through the same channel. Why its channel is a recorder, and why its Resets is the
+	// real one at the shipped cost, is written where it is mounted (below).
+	resets, err := adminauth.NewResets(data, cfg)
+	if err != nil {
+		t.Fatalf("adminauth.NewResets: %v", err)
+	}
+	ph := &panelHarness{}
+	var resetChannel ResetChannel
+	if channel == nil {
+		ph.mail = &recordingChannel{}
+		resetChannel = ph.mail
+	} else {
+		resetChannel = channel(t, cfg)
+	}
+	resetFlow, err := NewAdminReset(resets, resetChannel, trail, cfg, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("NewAdminReset: %v", err)
+	}
+	h, err := NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, newFakeScribe(), books, newFakeAccount(), newFakeBrands(), newFakeBrandWriter(), nil, resetFlow, cfg, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
@@ -263,22 +284,9 @@ func newPanelHarnessWithResetChannel(t *testing.T, channel func(t *testing.T, cf
 	// path that exists when a deployment CAN deliver. The nil path — today's shipped
 	// configuration — is measured in adminreset_test.go, where its whole point is
 	// that no database work happens at all.
-	resets, err := adminauth.NewResets(data, cfg)
-	if err != nil {
-		t.Fatalf("adminauth.NewResets: %v", err)
-	}
-	ph := &panelHarness{}
-	var resetChannel ResetChannel
-	if channel == nil {
-		ph.mail = &recordingChannel{}
-		resetChannel = ph.mail
-	} else {
-		resetChannel = channel(t, cfg)
-	}
-	resetFlow, err := NewAdminReset(resets, resetChannel, trail, cfg, slog.New(slog.DiscardHandler))
-	if err != nil {
-		t.Fatalf("NewAdminReset: %v", err)
-	}
+	//
+	// (The flow itself is BUILT above, before the panel: since M10 EM-9 the panel takes
+	// it as its change notifier, as cmd/tappa wires it. It is MOUNTED here.)
 	stopWorkerAtCleanup(t, resetFlow)
 	ph.reset = resetFlow
 	resetFlow.Mount(r)

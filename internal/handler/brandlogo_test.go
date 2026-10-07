@@ -132,7 +132,7 @@ func logoSurfaces(t *testing.T, reader logoReader, sess *fakeSessions, admins *f
 	ledger := newFakeLedger()
 	panel, err := NewAdminAuth(admins, &fakeTrail{}, ledger, ledger, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{},
 		&fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(),
-		newFakeAccount(), newFakeBrands(), newFakeBrandWriter(), nil, adminTestConfig(), discardLogger())
+		newFakeAccount(), newFakeBrands(), newFakeBrandWriter(), nil, &fakeNotices{}, adminTestConfig(), discardLogger())
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}

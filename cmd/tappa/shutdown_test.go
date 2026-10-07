@@ -41,6 +41,11 @@ func (f *shutdownResets) Consume(context.Context, adminauth.ResetToken, string) 
 	return adminauth.ConsumedReset{}, db.ResolvedPasswordReset{}, errors.New("not reached in this test")
 }
 
+// NoticeRecipient is not reached: no password changes in this test (M10 EM-9).
+func (f *shutdownResets) NoticeRecipient(context.Context, uuid.UUID, uuid.UUID) (string, error) {
+	return "", errors.New("not reached in this test")
+}
+
 // shutdownTrail keeps every audit event.
 type shutdownTrail struct {
 	mu     sync.Mutex
@@ -78,6 +83,11 @@ func (c *stuckRelay) DeliverReset(ctx context.Context, _ handler.ResetDelivery) 
 	c.mu.Unlock()
 	<-ctx.Done()
 	return ctx.Err()
+}
+
+// DeliverPasswordNotice is not reached: no password changes in this test (M10 EM-9).
+func (c *stuckRelay) DeliverPasswordNotice(context.Context, handler.PasswordNotice) error {
+	return errors.New("not reached in this test")
 }
 
 func (c *stuckRelay) count() int {
