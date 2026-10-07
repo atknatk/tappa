@@ -52,6 +52,86 @@ import (
 // be undone by somebody else: a 30x from the remote host is a host WE did not
 // choose, and net/http follows up to ten of them by default. CheckRedirect below
 // turns the first one into an error, i.e. into Unknown.
+//
+// 🔴 A 200 SAYING `isValid: false` IS NOT, ON ITS OWN, AN ANSWER (OP-16C). This REST
+// endpoint is reported to deliver a member state's register being down IN THE BODY of
+// a 200, not as a 5xx: `isValid` false, with `userError` naming the failure
+// (MS_UNAVAILABLE, TIMEOUT, ...). The Commission does not document the endpoint (see
+// below) and nothing in this repository has measured it live, so the shape is taken
+// as possible rather than proven — which is enough, because the old reading of it was
+// the expensive one. Until OP-16C this file read `isValid` alone, so that outage — the
+// very case VATUnknown names as common — was stored as `false`, i.e. as "this VAT
+// number is not valid": the accusation §4.6 and migration 00017 exist to prevent. The
+// rule now leans the fail-closed way, WHEN IN DOUBT, UNKNOWN (viesResponse.status):
+//
+//	Valid    isValid is true  AND userError is absent, null, "" or "VALID"
+//	Invalid  isValid is false AND userError is exactly "INVALID"
+//	Unknown  every other shape: any other code (the outage and refusal codes below
+//	         and any code nobody has documented yet), isValid false with no
+//	         userError, isValid missing or null, and a contradiction (isValid true
+//	         next to any code but VALID)
+//
+// THE TWO "NO userError" CASES ARE ANSWERED DIFFERENTLY, ON PURPOSE. Every failure
+// code means the request was NOT PROCESSED, and the failure shape this endpoint is
+// reported to send carries `isValid: false`; nothing describes a failure that says
+// `true`. So `true` with no code is still a confirmation, while `false` with no code
+// is the outage shape with its code missing — this file cannot tell it from a
+// verdict, so it does not treat it as one. The cost of that choice is a missed
+// warning (the number is stored unverified, which the panel already words as "no
+// answer on file"), never an accusation.
+//
+// WHERE THE VOCABULARY COMES FROM, AND WHAT THE DOCUMENTATION DOES NOT SAY (read
+// 2026-10-07). The Commission's published REST description (swagger_publicVAT.yaml,
+// "Vies on-the-Web Endpoint" 1.0.0) does not describe this GET endpoint or the
+// userError field at all. The codes are the service's own, as its SOAP descriptions
+// publish them: checkVatService.wsdl lists INVALID_INPUT, GLOBAL_MAX_CONCURRENT_REQ,
+// MS_MAX_CONCURRENT_REQ, SERVICE_UNAVAILABLE, MS_UNAVAILABLE and TIMEOUT;
+// checkVatTestService.wsdl adds INVALID_REQUESTER_INFO, VAT_BLOCKED, IP_BLOCKED,
+// GLOBAL_MAX_CONCURRENT_REQ_TIME and MS_MAX_CONCURRENT_REQ_TIME. VALID and INVALID
+// beside a processed answer are REPORTED, not documented: third-party clients of
+// this endpoint describe them (and the outage shape above); no Commission document
+// does. No document promises the list is closed, so the rule does not enumerate the
+// failures: it names the two codes that ARE an answer, and nothing else is one.
+//
+// ⚠️ THE PRODUCT RISK THIS LEAVES, STATED AS A LIMIT (round 2). If VIES stops sending
+// userError beside a refusal, every invalid number becomes Unknown — silently: the
+// registration goes through, the number is stored unverified, and the only trace is
+// the handler's Debug line ("signup: vat check", result=unknown), which the deployed
+// level (info, deploy/k8s/05-config.yaml) does not keep. That is the fail-closed
+// direction §4.6 chooses — a missed warning rather than an accusation — and nothing
+// here would notice the drift.
+//
+// THE CLAIM, IN THREE PARTS (OP-16C, rounds 1 and 2).
+//
+// THREAT MODEL: these pins are against accidental drift; deliberately getting round a
+// pin is the subject of code review.
+//
+// PART I -- measured. Through Check against a local server:
+// TestVIESCheck_UserErrorDecidesWhetherIsValidIsAnAnswer serves every code above
+// beside `isValid` false and beside `isValid` true, VALID and INVALID beside both, an
+// undocumented code, a lower-case "invalid" and a padded " INVALID", a lower-case
+// "valid" and a padded " VALID" (round 2), userError absent, null and "", a userError
+// that is a number, isValid absent and null, an empty object, the POST endpoint's
+// error envelope, and (round 2) two answers in the real shape with fake values --
+// requestDate, name, address, viesApproximate, the last carrying isValid/userError
+// keys of its own that say the opposite; exactly one request per row, Valid only for
+// true beside absent/null/""/VALID, Invalid only for false beside INVALID, Unknown for
+// every other row. TestVIESCheck_AnOutageInsideA200IsStoredAsNoVerdict reads the two
+// values Provision hands CreateTenant (Verified and checkedAt over Check's answer) for
+// MS_UNAVAILABLE (nil, nil) and, as its control, for INVALID (false, a stamp). On real
+// Postgres (round 2), TestSignupProvision_CreatesTheWholeBusinessInOneTransaction runs
+// Provision with VATValid, VATUnknown and VATInvalid and reads the stored row back:
+// (true, stamped), (NULL, NULL), (false, stamped) -- the only test that sees the
+// CreateTenant call itself. TestVIESCheck_EveryFailureIsUnknownNeverInvalid, the table
+// that predates OP-16C, is unchanged and green.
+//
+// PART II -- named pins: the four tests above; for what an Unknown becomes once
+// stored, TestVATStatus_IsTheThreeStateValueTheColumnStores; for the two screens that
+// word it, TestSignupDone_PromisesNoPanelSurfaceForTheVATCheck and
+// TestAccount_TheNoAnswerCohortIsCalledTheSameThingOnBothScreens.
+//
+// PART III -- Any shape not on the list is the subject of code review; no completeness
+// claim.
 
 // VATStatus is what a VIES lookup established.
 //
@@ -63,11 +143,14 @@ type VATStatus int
 const (
 	// VATUnknown means no answer: a timeout, a network failure, a 5xx, an
 	// unparseable body, or a member state's own register being down (VIES reports
-	// that per country and it is common).
+	// that per country and it is common; the REST endpoint is reported to send it
+	// inside a 200, as `isValid` false beside a userError code — see the rule at
+	// the top of the file).
 	VATUnknown VATStatus = iota
 	// VATValid means VIES confirmed the number.
 	VATValid
-	// VATInvalid means VIES answered and does not know the number.
+	// VATInvalid means VIES processed the request and does not know the number:
+	// `isValid` false beside userError "INVALID", and no other shape.
 	VATInvalid
 )
 
@@ -178,12 +261,45 @@ func newCheckerAt(base string, c *http.Client) *Checker {
 
 // viesResponse is the subset of the REST answer this product reads.
 //
-// ONE FIELD. VIES also returns the trader's registered name and address, and this
-// type deliberately has nowhere to put them: we asked whether the number exists,
-// not who it belongs to, and a field that exists is a field something eventually
-// stores. The name on the invoice is the one the customer typed.
+// TWO FIELDS, AND NEITHER IS ABOUT THE TRADER. VIES also returns the trader's
+// registered name and address, and this type deliberately has nowhere to put them:
+// we asked whether the number exists, not who it belongs to, and a field that exists
+// is a field something eventually stores. The name on the invoice is the one the
+// customer typed.
+//
+// IsValid IS A POINTER so a body without the field — `{}`, or another envelope such
+// as the POST endpoint's errorWrappers — is "no verdict" rather than `false`. As a
+// plain bool it decoded to false, and before OP-16C false alone was Invalid.
 type viesResponse struct {
-	IsValid bool `json:"isValid"`
+	IsValid   *bool  `json:"isValid"`
+	UserError string `json:"userError"`
+}
+
+// The two userError values that accompany a processed request. Every other value is
+// a reason the request was not processed (see the top of the file).
+const (
+	viesUserErrorValid   = "VALID"
+	viesUserErrorInvalid = "INVALID"
+)
+
+// status is the rule at the top of this file, applied to a decoded answer.
+//
+// IT NAMES THE TWO SHAPES THAT ARE A VERDICT AND LETS EVERYTHING ELSE FALL THROUGH TO
+// Unknown, rather than listing the failure codes: a code VIES adds tomorrow is then
+// "no answer" without anybody editing this, which is the direction §4.6 wants an
+// unforeseen case to fail in.
+func (r viesResponse) status() VATStatus {
+	if r.IsValid == nil {
+		return VATUnknown
+	}
+	switch {
+	case *r.IsValid && (r.UserError == "" || r.UserError == viesUserErrorValid):
+		return VATValid
+	case !*r.IsValid && r.UserError == viesUserErrorInvalid:
+		return VATInvalid
+	default:
+		return VATUnknown
+	}
 }
 
 // Check asks VIES about a NORMALISED, FORMAT-VALID VAT number.
@@ -237,19 +353,16 @@ func (c *Checker) Check(ctx context.Context, normalisedVAT string) VATStatus {
 	if err := json.NewDecoder(&limitedReader{r: resp.Body, n: viesMaxBody}).Decode(&out); err != nil {
 		return VATUnknown
 	}
-	if out.IsValid {
-		return VATValid
-	}
-	return VATInvalid
+	return out.status()
 }
 
 // limitedReader is io.LimitedReader with one difference that matters here: hitting
 // the bound is an ERROR rather than a clean EOF.
 //
 // io.LimitReader would make a truncated body look like a complete one, so a
-// half-received answer could decode into `{"isValid":false}` shaped garbage and be
-// reported as VATInvalid — an accusation built out of a network failure. This
-// returns an error instead, which becomes Unknown.
+// half-received answer could decode into verdict-shaped garbage and be reported as
+// one — an accusation built out of a network failure. This returns an error instead,
+// which becomes Unknown.
 type limitedReader struct {
 	r interface{ Read([]byte) (int, error) }
 	n int

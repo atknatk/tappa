@@ -10357,6 +10357,192 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 > uygulanamaz. Kopya her mutanttan sonra sha ile geri yüklendi; koşu sonunda kodu worktree'yle
 > aynı. Çıktı: `scratchpad/op14c/round6.out`.
 
+> **OP-16C — VIES istemcisinin `userError`'ı.** Uygulama notu (2026-10-07; 2. tur aynı gün).
+> OP-16 kartının C fazı (md. 2 C, md. 4 C, md. 5 *C fazı* 1–4, md. 8 T1 ve T8). Taban
+> `8575d24`. Yazıldı: `internal/domain/signup/vies.go`, `vies_test.go`; 2. turda
+> `signup_db_test.go` (yalnız test). Migration yok, DDL yok, yeni bağımlılık yok
+> (`go.mod`/`go.sum` diff'i boş); `make gen` diff'i 0. 2. tur yalnız test + metin/yorumdur:
+> `status()` ve ürün davranışı 1. turdakiyle aynı. Commit önerisi:
+> `fix(signup): read a VIES outage as no answer, not as invalid`.
+>
+> 1. **Kusur (T1), ölçüldü.** `viesResponse` tek alanlıydı (`isValid bool`) ve `Check`
+>    `isValid` yanlışsa koşulsuz `VATInvalid` dönüyordu. VIES'in REST uç noktasının bir üye
+>    devletin sicili kapalıyken 200 içinde `isValid:false` + `userError:"MS_UNAVAILABLE"`
+>    döndürdüğü bildiriliyor; bu şekil bugüne dek **geçersiz (suçlama)** olarak yazılıyordu.
+>    Aynı yol, `isValid` alanı hiç olmayan her 200'ü de (`{}`, POST uç noktasının
+>    `errorWrappers` zarfı) Invalid sayıyordu, çünkü eksik bool `false`'a çözülür. Taban kodu
+>    yeni testlere karşı kırmızı (md. 7, M00); eski tablo
+>    `TestVIESCheck_EveryFailureIsUnknownNeverInvalid` tabanda da yeşildi, yani bu açığı
+>    görmüyordu (fixture `isValid:false`'u yalnız `INVALID` ile kullanıyor).
+> 2. **Belge ölçümü (2026-10-07, yalnız belge okundu; canlı VIES'e istek yok).**
+>    - Komisyonun yayımladığı REST tanımı (`swagger_publicVAT.yaml`, "Vies on-the-Web
+>      Endpoint" 1.0.0) yalnız `POST /check-vat-number`, `POST /check-vat-test-service`,
+>      `GET /check-status` içeriyor. Bu istemcinin kullandığı `GET /ms/{ülke}/vat/{numara}` uç
+>      noktası ve `userError` alanı **resmî belgede yok**. Planlayıcının "VIES REST belgesine
+>      göre" dediği 200 + `MS_UNAVAILABLE` şekli resmî belgeyle doğrulanamadı; üçüncü taraf
+>      istemci belgeleri bu şekli bildiriyor. Kod bu yüzden şekli *kanıtlanmış* değil *mümkün*
+>      sayar; eski okuması pahalı olan taraftı.
+>    - Hata sözlüğü servisin kendi SOAP tanımlarından: `checkVatService.wsdl` altı kod
+>      (`INVALID_INPUT`, `GLOBAL_MAX_CONCURRENT_REQ`, `MS_MAX_CONCURRENT_REQ`,
+>      `SERVICE_UNAVAILABLE`, `MS_UNAVAILABLE`, `TIMEOUT`); `checkVatTestService.wsdl` beş kod
+>      daha (`INVALID_REQUESTER_INFO`, `VAT_BLOCKED`, `IP_BLOCKED`,
+>      `GLOBAL_MAX_CONCURRENT_REQ_TIME`, `MS_MAX_CONCURRENT_REQ_TIME`).
+>    - İşlenmiş cevabın yanındaki `VALID`/`INVALID` **bildirilmiştir, belgelenmemiştir**:
+>      üçüncü taraf istemci belgeleri anlatır, Komisyonun hiçbir belgesi anlatmaz. *(2. tur:
+>      1. turdaki "repodaki fixture'lardan" kaynağı döngüseldi, değiştirildi.)* Hiçbir belge
+>      listenin kapalı olduğunu söylemiyor; kural bu yüzden hataları saymaz, cevap olan iki
+>      kodu adlandırır.
+> 3. **Kural (fail-closed yönü: şüphede Unknown)** — `viesResponse.status()`:
+>
+>    | `isValid` | `userError` | Sonuç | Yazılan (`vat_verified`, `vat_checked_at`) |
+>    |---|---|---|---|
+>    | `true` | yok · `null` · `""` · `VALID` | Valid | `true`, damga |
+>    | `false` | `INVALID` (tam eşleşme) | Invalid | `false`, damga |
+>    | `false` | on bir hata kodundan biri | Unknown | `NULL`, `NULL` |
+>    | `false` | yok · `null` · `""` | Unknown | `NULL`, `NULL` |
+>    | `false` | `VALID` (çelişki) | Unknown | `NULL`, `NULL` |
+>    | `false` | belgelenmemiş değer · küçük harf `invalid` · boşluklu ` INVALID` | Unknown | `NULL`, `NULL` |
+>    | `true` | küçük harf `valid` · boşluklu ` VALID` (2. tur) | Unknown | `NULL`, `NULL` |
+>    | `true` | `INVALID` ya da hata kodu ya da belgelenmemiş değer (çelişki) | Unknown | `NULL`, `NULL` |
+>    | yok · `null` | herhangi biri | Unknown | `NULL`, `NULL` |
+>    | (çözülemeyen gövde: `userError` sayı, JSON değil, kesik, 16 KiB üstü) | | Unknown | `NULL`, `NULL` |
+>
+>    Üst düzeyin dışındaki alanlar (`requestDate`, `name`, `address`, `viesApproximate` ve
+>    onun içindeki anahtarlar) hükme girmez (2. tur, md. 6).
+> 4. **İki karar, gerekçeli.**
+>    - **`isValid=false` + `userError` yok → Unknown (bugün Invalid'di).** Resmî belge bu uç
+>      noktayı hiç tanımlamadığı için *"yok"un Invalid olduğunu* söyleyen bir belge yok. Her
+>      hata kodu *"istek işlenmedi"* demektir ve bildirilen hata şekli `isValid:false` taşır;
+>      kodsuz bir `false` o şeklin kodu düşmüş hâlidir ve hükümden ayırt edilemez. Bedeli
+>      kaçırılmış bir uyarıdır (numara doğrulanmamış saklanır), asla suçlama değil. Asimetri
+>      bilinçli: `true` taşıyan bir hata şekli tanımlı değil, bu yüzden kodsuz `true` Valid
+>      kalır (mevcut `TestVIESCheck_AsksForTheRightThingAndNothingElse` de bunu ister).
+>    - **`isValid` alanı yok ya da `null` → Unknown.** Brief'in *"¬isValid"*i *"alan var ve
+>      false"* olarak okundu: `IsValid *bool`. Düz bool'da `{"userError":"INVALID"}` Invalid
+>      olurdu.
+> 5. **Signup'a etkisi, ölçüldü.**
+>    - **Domain:** `TestVIESCheck_AnOutageInsideA200IsStoredAsNoVerdict`, `Provision`'ın
+>      `CreateTenant`'a verdiği iki değeri (`Verified` ve `checkedAt`, `Check`'in cevabı
+>      üzerinden) okur: `MS_UNAVAILABLE` → `nil`, `nil` (önce `false` + damga); `INVALID`
+>      kontrolü → `false` + damga. Satırı değil, verilen değeri okur.
+>    - **Gerçek Postgres (2. tur):** `TestSignupProvision_CreatesTheWholeBusinessInOneTransaction`
+>      `Provision`'ı `VATValid`, `VATUnknown`, `VATInvalid` ile koşar ve saklanan satırı geri
+>      okur: (`true`, damga), (`NULL`, `NULL`), (`false`, damga). `CreateTenant` çağrısının
+>      kendisini gören tek test budur; 1. turda `VATUnknown` için `false` yazan bir çağrı
+>      bütün testleri yeşil bırakıyordu (üçüncü göz ölçtü, E07).
+>    - **Ekranlar:** önce onay ekranı *"did not recognise this number"*, hesap ekranı
+>      *"Not found"*; sonra onay ekranı *"We could not reach the EU VAT register just now"*,
+>      hesap ekranı *"Not checked"* — cümlesi bu kohortu zaten adlandırıyor (*"could not
+>      reach the register"*, *"cannot tell them apart"*).
+>    - Panel cümleleri **değişmedi** (string diff'i 0).
+>      `TestSignupDone_PromisesNoPanelSurfaceForTheVATCheck` ve
+>      `TestAccount_TheNoAnswerCohortIsCalledTheSameThingOnBothScreens` `-race` ile yeşil.
+>    - `tenant.VATNoAnswer` (*"sorduk, cevap yok"*) hâlâ yazılmıyor (T6): `checkedAt`
+>      Unknown'da damga basmaz; `account.go`'nun ulaşılamaz-kol yorumu doğru kalır.
+>    - Daha önce kesintide `false` yazılmış satırlar bu fazla **düzelmez**
+>      (`tappa_app`'in UPDATE'i yok); OP-16 A/B'nin operatör yeniden denetimi onlar içindir.
+>    - T8: `IP_BLOCKED`, `MS_MAX_CONCURRENT_REQ`, `GLOBAL_MAX_CONCURRENT_REQ` artık Unknown;
+>      signup ile operatör aynı çıkış IP'sini paylaşır.
+>    - *"Kesintide yazma yok"* kabulünün C katmanı: kesinti artık `VATUnknown`'dır, B'nin
+>      Unknown dalına düşer.
+> 6. **Üç parçalı iddia** (`vies.go` başlık yorumunda aynı içerik, İngilizce; 2. turda
+>    genişledi).
+>
+>    **TEHDİT MODELİ:** Bu pinler kazara sapmaya karşıdır; bir pini bilerek atlatmak kod
+>    incelemesinin konusudur.
+>
+>    **PART I — ölçüm.**
+>    - `TestVIESCheck_UserErrorDecidesWhetherIsValidIsAnAnswer` — `Check` üzerinden yerel
+>      `httptest` sunucusuna karşı **46 satır**, satır başına tam bir istek. On bir hata kodu
+>      `false` ve `true` yanında; `VALID`/`INVALID` ikisinin yanında; belgelenmemiş kod;
+>      küçük harf `invalid` ve boşluklu ` INVALID`; küçük harf `valid` ve boşluklu ` VALID`
+>      (2. tur); `userError` yok, `null` ve `""`; sayı tipli `userError`; `isValid` yok ve
+>      `null`; boş nesne; POST zarfı; **gerçek şekilli, sahte değerli iki cevap** (2. tur:
+>      `requestDate`, `name`, `address`, `viesApproximate`; sonuncusunun içinde ters hüküm
+>      söyleyen kendi `isValid`/`userError` anahtarları). Valid yalnız `true` +
+>      yok/`null`/`""`/`VALID`; Invalid yalnız `false` + `INVALID`; geri kalan Unknown.
+>    - `TestVIESCheck_AnOutageInsideA200IsStoredAsNoVerdict` — `CreateTenant`'a verilen iki
+>      değer (md. 5).
+>    - `TestSignupProvision_CreatesTheWholeBusinessInOneTransaction` — gerçek Postgres'te
+>      saklanan üç durum (md. 5, 2. tur).
+>    - `TestVIESCheck_EveryFailureIsUnknownNeverInvalid` — OP-16C öncesi tablo, değişmeden
+>      yeşil.
+>
+>    **PART II — adlı pinler:** yukarıdaki dört test;
+>    `TestVATStatus_IsTheThreeStateValueTheColumnStores`;
+>    `TestSignupDone_PromisesNoPanelSurfaceForTheVATCheck`;
+>    `TestAccount_TheNoAnswerCohortIsCalledTheSameThingOnBothScreens`.
+>
+>    **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
+>
+> 7. **Mutasyon.**
+>    - **1. tur:** `scratchpad/op16c/verify_round1.py`; 18'in 18'i kırmızı.
+>    - **2. tur:** `scratchpad/op16c/verify_round2.py` (1. turun listesi değişmeden + E01,
+>      E04, E04b, E07, E07b, E07c), tek kopya (`scratchpad/op16c-orch/tree`). Baz çizgileri
+>      yeşil; çapası tutmayan ve derlenmeyen 0. Uygulanan **24'ün 24'ü kırmızı**. Kopya her
+>      mutanttan sonra sha ile geri yüklendi; `vies.go` ve `signup.go` sha256'sı koşu öncesi =
+>      sonrası. Veritabanına yazan test hiçbir ortak `-run` kümesinde değil; yalnız üç E07
+>      mutantı ve onların bir baz çizgisi için koştu (4 koşu × 3 tenant = 12 kalıntı tenant,
+>      dev DB'de, `tappa_app` silemez — diğer DB testleriyle aynı sınıf).
+>
+>    | # | Mutasyon | Kırmızıya çeviren |
+>    |---|---|---|
+>    | M00 | `vies.go` tabana döndü, yeni testler kaldı | `TestVIESCheck_UserErrorDecidesWhetherIsValidIsAnAnswer`, `TestVIESCheck_AnOutageInsideA200IsStoredAsNoVerdict` |
+>    | C01 | `userError` okunmaz (iki dal) | ikisi |
+>    | C02 | `MS_UNAVAILABLE` → Invalid | ikisi |
+>    | C03 | çelişki → Valid (`true` + her kod) | `TestVIESCheck_UserErrorDecidesWhetherIsValidIsAnAnswer` |
+>    | C04 | belgelenmemiş değer → Invalid (belgeli hatalar kara listesi) | aynı |
+>    | C05 | `false` + `userError` yok → Invalid | aynı |
+>    | C06 | eksik `isValid` `false` okunur (düz bool) | aynı |
+>    | C07 | eksik `isValid` → Invalid | aynı |
+>    | C08 | `INVALID` büyük/küçük harf duyarsız | aynı |
+>    | C09 | `INVALID` boşluk kırpılarak | aynı |
+>    | C10 | kodsuz `true` artık Valid değil | aynı + `TestVIESCheck_AsksForTheRightThingAndNothingElse` |
+>    | C11 | `true` + `INVALID` dışı her kod → Valid | `TestVIESCheck_UserErrorDecidesWhetherIsValidIsAnAnswer` |
+>    | C12 | `Check` `status`'u atlar (eski kural, yeni tip) | ikisi |
+>    | C13 | etiket sapması (`user_error`) | ikisi + `TestVIESCheck_EveryFailureIsUnknownNeverInvalid` |
+>    | C14 | `false` + `VALID` (çelişki) → Invalid | `TestVIESCheck_UserErrorDecidesWhetherIsValidIsAnAnswer` |
+>    | C15 | çözülemeyen gövde → Invalid | aynı + `TestVIESCheck_EveryFailureIsUnknownNeverInvalid` |
+>    | C16 | Unknown `false` saklanır (`Verified`) | `TestVATStatus_IsTheThreeStateValueTheColumnStores`, `TestVIESCheck_AnOutageInsideA200IsStoredAsNoVerdict` |
+>    | C16h | aynı mutant, handler paketinde | `TestAccount_TheNoAnswerCohortIsCalledTheSameThingOnBothScreens` |
+>    | E01 | çözücü bilinmeyen alanı reddeder (`DisallowUnknownFields`) — 2. tur | `TestVIESCheck_UserErrorDecidesWhetherIsValidIsAnAnswer` |
+>    | E04 | `VALID` büyük/küçük harf duyarsız — 2. tur | aynı |
+>    | E04b | `VALID` boşluk kırpılarak — 2. tur | aynı |
+>    | E07 | `CreateTenant` çağrısı `VATUnknown` için `false` yazar — 2. tur | `TestSignupProvision_CreatesTheWholeBusinessInOneTransaction` |
+>    | E07b | `CreateTenant` çağrısı `VATUnknown` için damga basar — 2. tur | aynı |
+>    | E07c | `CreateTenant` çağrısı `VATInvalid` için `NULL` yazar — 2. tur | aynı |
+>
+> 8. **Zincir, 2. tur (2026-10-07, son değişiklikten sonra; ağaç 33):**
+>    - **Statik:** `gofmt -l` boş; `go build ./...`, `go vet ./...` exit 0; staticcheck
+>      (go1.26.7, 2025.1.1) `./internal/domain/signup/ ./internal/handler/` exit 0.
+>    - **Üretim ve bağımlılıklar:** `make gen` idempotent (`git status` ve diff'in sha256'sı
+>      önce = sonra); redline exit 0; `go.mod`/`go.sum` diff'i boş.
+>    - **İsim ve yorum testleri:** `TestEveryNamedTestExists` bu kart "## 4. Akış B"
+>      başlığından önce eklenmiş, worktree'siz kopyada PASS (60 sarkan atıf, bütçe 60);
+>      `TestComments_DoNotQuoteTheDriftingRosterSize` PASS.
+>    - **`.env`'li `-race`:** `internal/domain/signup` tamamı **33 PASS / 0 FAIL** / 0 yarış
+>      (DB testleri gerçek Postgres'e karşı koştu; yeni iki alt test dahil); `internal/handler`'da
+>      orkestratörün `-run` deseniyle signup ve account aileleri **65 PASS / 0 FAIL** / 0 yarış.
+> 9. **Sınırlar ve devir.**
+>    - **Kalan ürün riski (2. tur):** VIES bir reddin yanında `userError` göndermeyi bırakırsa
+>      her geçersiz numara **sessizce** Unknown olur: kayıt geçer, numara doğrulanmamış
+>      saklanır, tek iz handler'ın Debug satırıdır (`signup: vat check`, `result=unknown`) ve
+>      dağıtılmış log düzeyi (`info`, `deploy/k8s/05-config.yaml`) onu tutmaz. Sapmayı fark
+>      edecek bir şey yok; fail-closed yönün bedeli budur.
+>    - 200 içindeki kesinti şekli canlı ölçülmedi; resmî belge sessiz. Canlı bir elle ölçüm
+>      (sahte numarayla) yapılırsa sonucu bu maddeye yazılır.
+>    - `encoding/json` anahtarları büyük/küçük harf duyarsız eşler (`ISVALID` de dolar). VIES
+>      böyle göndermez; ayrı pin yok.
+>    - **Yinelenen anahtar (2. tur):** aynı anahtar gövdede iki kez gelirse `encoding/json`'da
+>      son gelen kazanır; ayrı pin yok.
+>    - **Devir — backlog'a (orkestratör yazar):**
+>      - E11/E12: üretim istemcisinin (`NewChecker`) `CheckRedirect`'i ve zaman aşımları
+>        pinsiz; testler `srv.Client()` kullanıyor, yani üretim istemcisinin ayarları
+>        testlerde devrede değil.
+>      - E05: log yasağı pini yok (K16-4); B fazında planlı.
+>    - OP-16 B: operatörün `VATChecker` adaptörü bu `Check`'i sarar; Unknown'da yazma çağrısı
+>      0 kabulü bu fazla anlam kazanır.
+
 ## 4. Akış B — E-posta (AWS SES)
 
 ### Öneri: SES SMTP arayüzü + stdlib `net/smtp` (STARTTLS 587), `eu-central-1` — ✅ (sıfır yeni modül)

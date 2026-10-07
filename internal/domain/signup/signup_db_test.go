@@ -284,6 +284,53 @@ func TestSignupProvision_CreatesTheWholeBusinessInOneTransaction(t *testing.T) {
 	if digest == d.Account.Password {
 		t.Fatal("the password was stored in the clear")
 	}
+
+	// THE OTHER TWO VIES ANSWERS, THROUGH THE SAME Provision (OP-16C, round 2). The
+	// draft above carries VATValid only, so until round 2 nothing on real Postgres
+	// read what a registration stores when VIES did not answer: a CreateTenant call
+	// that wrote `false` for VATUnknown left every test green (measured, E07). Each
+	// row registers one more business and reads its two VIES columns back — migration
+	// 00017's "never asked / no answer" (NULL, NULL) and "the register says no" (false,
+	// stamped).
+	for _, tc := range []struct {
+		name         string
+		status       VATStatus
+		wantVerified *bool
+		wantStamped  bool
+	}{
+		{"the register could not be reached", VATUnknown, nil, false},
+		{"the register does not know the number", VATInvalid, new(bool), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dv := draftFor(t, StructureSingle, "Front door")
+			dv.Business.VAT = tc.status
+			r, err := p.Provision(ctx, dv)
+			if err != nil {
+				t.Fatalf("Provision: %v", err)
+			}
+			var (
+				verified *bool
+				stamped  bool
+			)
+			if err := data.WithTenant(ctx, r.TenantID, func(ctx context.Context, tx pgx.Tx) error {
+				return tx.QueryRow(ctx,
+					`SELECT vat_verified, vat_checked_at IS NOT NULL FROM tenants WHERE id = $1`,
+					r.TenantID).Scan(&verified, &stamped)
+			}); err != nil {
+				t.Fatalf("reading back: %v", err)
+			}
+			switch {
+			case tc.wantVerified == nil && verified != nil:
+				t.Errorf("a %v draft stored vat_verified = %v; no answer must be stored as NULL, "+
+					"never as a verdict", tc.status, *verified)
+			case tc.wantVerified != nil && (verified == nil || *verified != *tc.wantVerified):
+				t.Errorf("a %v draft stored vat_verified = %v, want %v", tc.status, verified, *tc.wantVerified)
+			}
+			if stamped != tc.wantStamped {
+				t.Errorf("a %v draft stamped vat_checked_at: %v, want %v", tc.status, stamped, tc.wantStamped)
+			}
+		})
+	}
 }
 
 // safePrefix reports the first few bytes of a digest for a failure message. It is a
