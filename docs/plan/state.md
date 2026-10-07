@@ -1716,8 +1716,10 @@ En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
   (ADR 0025). Yeniden denetim bekliyor.
 - **Geliştirme aracı (2026-10-07):** `POST /dev/simulate-tap` + DEV ONLY şeridi —
   masaüstünde dokunuşu simüle eder, gerçek `sun.Verify` yolundan geçer. Kapı:
-  `TAPPA_ENV=dev` VE loopback `TAPPA_BASE_URL` (ADR 0025 "Geliştirme aracı");
-  `f95248e` · `9a022d9` · belgeler.
+  açık `TAPPA_DEV_TOOLS=1` (dev dışında başlatmayı reddeder) VE `TAPPA_ENV=dev` VE
+  loopback `TAPPA_BASE_URL`; `internal/sun` ayrıca `WithDevelopmentMinting` ister
+  (ADR 0025 "Geliştirme aracı"); `f95248e` · `9a022d9` · denetim düzeltmesi `df22655`.
+  Dev sunucu `TAPPA_DEV_TOOLS=1` ile çalıştırılmalı.
 - **BİRLEŞTİRME SIRASI (zorunlu):** önce `origin/m10-a1` (00026–00029, ADR 0020–0024),
   SONRA bu dal (00030, ADR 0025). Ters sıra üretimde goose `-allow-missing` ister.
 - **Sapma:** E2E testleri gerçek SDM MAC'i `internal/handler/sunurl_test.go`'daki test

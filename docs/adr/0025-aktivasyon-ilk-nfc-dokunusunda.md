@@ -149,11 +149,16 @@ ile **`last_ctr+1`** okumasının URL'sini KEK'le açılan plaket anahtarıyla �
 `/t?…`'ye 303'ler. Sonrası gerçek dokunuşla aynıdır: `CompleteByTap` → `sun.Verify` →
 atomik ilerletme; canlı oturumla sıradan tap sayfası.
 
-**Kapı — üç kat:** (1) `cmd/tappa/main.go` aracı yalnız `handler.DevToolsEnabled(cfg)`
+**Kapı — dört kat:** (1) `cmd/tappa/main.go` aracı yalnız `handler.DevToolsEnabled(cfg)`
 iken kurar ve router'a ekler; (2) `DevTap.Mount` aksi hâlde hiç rota kaydetmez;
-(3) `DevTap.Simulate` her istekte yeniden 404 verir. `DevToolsEnabled` =
-`TAPPA_ENV=dev` **VE** `TAPPA_BASE_URL` loopback (localhost / 127.0.0.0/8 / ::1) —
-yalnız `dev` yetmez, çünkü boş `TAPPA_ENV` dev'e düşer. Üretim (`deploy/k8s`:
+(3) `DevTap.Simulate` her istekte yeniden 404 verir; (4) `internal/sun` yalnız
+`Verifier.WithDevelopmentMinting(cfg)` ile yapılmış bir kopyada basar — `NewVerifier`
+varsayılanı `ErrDevMintingDisabled` döner. `DevToolsEnabled` = **açık
+`TAPPA_DEV_TOOLS=1`** (güvenlik denetimi: ortam ve base URL'in ikisi de VARSAYILANLI,
+yani yokluk açmamalı; `config.Load` bayrak `TAPPA_ENV=dev` dışında verilirse süreci
+BAŞLATMAZ) **VE** `TAPPA_ENV=dev` **VE** loopback `TAPPA_BASE_URL`. Bayrak yalnız
+`.env.example`'da belgelenir, deploy manifestlerinde yok. Origin kontrolü loopback
+eşdeğerlerini (localhost ↔ 127.0.0.1, aynı şema ve port) kabul eder. Üretim (`deploy/k8s`:
 `TAPPA_ENV=prod`, `https://taptime.mt`) iki koşulu da sağlamaz. Form `Origin`
 (yoksa `Sec-Fetch-Site: same-origin`) ister. Ekranlardaki kesikli **DEV ONLY** şeridi
 yalnız `EnableDevTools` çağrılmış (ve kapıyı geçen) bir dağıtımda görünür: bekleme
