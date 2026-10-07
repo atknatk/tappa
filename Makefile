@@ -244,8 +244,19 @@ require-db-env:
 	  exit 1; }
 
 ## test: tum testler + yaris dedektoru (CI bunu kosar — hicbir sey atlanmaz)
+# -timeout=20m is written out because go's default (10m) is what turned CI red on
+# a54459d (run 37637141518, 2026-10-07): internal/handler/operator panicked at 600.04 s
+# with no test hung -- its 130 sequential tests simply summed past the limit (the three
+# green runs before were 484.3-486.3 s; OP-12B added 22 tests, 77 s of them locally,
+# where the whole package takes 496 s at a54459d, which puts CI at ~575-610 s). The limit applies to
+# each package's test binary on its own, so it is sized against the slowest package, not
+# the suite: 1200 s is ~2x that package, room for roughly five more OP-12B-sized additions
+# (OP-14C's included) before it bites again, while a real hang still ends in go's
+# goroutine dump naming the test. It has an upper bound too: the dump only reaches the
+# log if go's alarm fires before the CI job's timeout-minutes, which ci.yml sizes from
+# this value. test-short and cover are not CI paths and keep go's default.
 test: require-db-env
-	go test -race -count=1 ./...
+	go test -race -count=1 -timeout=20m ./...
 
 ## test-short: gelistirici ic dongusu — SIMULE EDILEN GUN + BCRYPT ORNEKLEMI atlanir
 # NEDEN IKI HEDEF VAR. Olculdu (-race -count=1, tek makine). Sayilar ARALIKTIR;

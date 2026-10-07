@@ -26,7 +26,16 @@ jobs:
   check:
     runs-on: ubuntu-latest
     # make up'in pg bekleme dongusu zaman asimsizdir; isi ust sinira baglariz.
-    timeout-minutes: 20
+    # 35, not 20, because this cap must sit ABOVE `make test`'s -timeout=20m (Makefile):
+    # if the runner cancels the job first, go's goroutine dump naming the stuck test is
+    # never printed and `make audit` (R7d) never runs. Measured on runs 37632701101
+    # (green) and 37637141518 (red): ~0:51 of steps before `make check`, ~1:42 of
+    # fmt/gen/lint, ~5:00 from `go test` starting to the slowest package's binary
+    # starting (it queues behind the others on the runner's 4 CPUs), then that package,
+    # then ~0:42 of audit -- 8:15 + 20:00 = ~28:15 at worst, under 35 with ~6:45 to
+    # spare. Under the old 20 the job itself would have been cancelled once the slowest
+    # package passed ~11:45, before go's own limit could speak.
+    timeout-minutes: 35
     env:
       # `make build` statik ikili icin CGO_ENABLED=0 ister ama CI `make build`
       # KOSMAZ. CI'nin kostugu `make check` -> `go test -race` kosar ve -race,
@@ -189,8 +198,8 @@ jobs:
         #
         # MALIYET ~63 sn ve neredeyse tamami UYKUDUR: TestSeedDB_ADayAtKFStJulians
         # ADR 0006 geregi debounce'u SUNUCU saatiyle olcer, yani sikistirilamaz.
-        # Duvar saati olculdu: migrate 3:51, migrate+seed 4:53 — 20 dk'lik
-        # timeout-minutes bunu rahat tasir.
+        # Duvar saati olculdu: migrate 3:51, migrate+seed 4:53 — isin
+        # timeout-minutes'i (yukarida, gerekcesiyle) bunu rahat tasir.
         #
         # TAPPA_TAG_KEK yukarida, is seviyesinde: seed onunla SARMALAR, test onunla
         # ACAR (bos birakilirsa scripts/seed.sh 1 ile durur — sessiz bozuk plaket
