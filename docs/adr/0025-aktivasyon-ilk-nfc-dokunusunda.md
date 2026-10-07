@@ -103,10 +103,10 @@ GET'te (plaketin açtığı `/t`) doğuyor; ve §5'in "Practice tap" kuralı kal
 `TestConsumeInvite_RequiresConsentFromTheSameBinding` ·
 `TestDecide_FirstTapAfterActivationIsNotPractice` · `TestDecide_NoNewRecordIsEverPractice`.
 
-**Not — test tarafında SDM MAC üretimi.** E2E testleri gerçek MAC'li URL ister;
-`internal/handler/sunurl_test.go` bunu AN12196 KAT'ına sabitlenmiş bağımsız bir
-test yardımcısıyla üretir. Bu, check-in yolunda reddedilen "ikinci SDM
-implementasyonu" duruşunun bilinçli ve dar bir istisnasıdır (yalnız `_test.go`).
+**Not — SDM MAC üretimi.** E2E testleri gerçek MAC'li URL ister. 2026-10-07'den
+beri bu üretim `internal/sun/mint.go`'da (`MintTapPath`, AN12196 KAT'ına sabit,
+`mint_test.go`); `internal/handler/sunurl_test.go` artık onu çağırır, test tarafındaki
+ikinci kopya kalktı.
 
 ## Denetim 2. tur düzeltmeleri (2026-10-04)
 
@@ -137,3 +137,27 @@ o yüzden **00030** ve **0025** aldı. **`m10-a1` önce `main`'e birleşmeli.** 
 `up` onları **`-allow-missing` olmadan uygulamaz**. Ayrıca
 `cmd/tappa/storekeyshape_test.go`'daki sorgu sayısı iki dal birleşince yeniden
 hesaplanır (bu dal +2).
+
+## Geliştirme aracı (2026-10-07)
+
+Masaüstü tarayıcı plakete dokunamaz; aktivasyon ise yalnız gerçek NFC dokunuşunda
+tamamlanır. **`POST /dev/simulate-tap`** doğrulamayı ATLAMAZ: bekleyen aktivasyonun
+(yoksa canlı oturumun) işverenine ait aktif, duvardaki bir plaketi seçer (çalışanın
+kendi lokasyonu öncelikli; isteğe bağlı `tag`), `Verifier.MintNextTapForDevelopment`
+ile **`last_ctr+1`** okumasının URL'sini KEK'le açılan plaket anahtarıyla üretir
+(`internal/sun/mint.go`; anahtar ve MAC loglanmaz, anahtar `Zero`'lanır) ve tarayıcıyı
+`/t?…`'ye 303'ler. Sonrası gerçek dokunuşla aynıdır: `CompleteByTap` → `sun.Verify` →
+atomik ilerletme; canlı oturumla sıradan tap sayfası.
+
+**Kapı — üç kat:** (1) `cmd/tappa/main.go` aracı yalnız `handler.DevToolsEnabled(cfg)`
+iken kurar ve router'a ekler; (2) `DevTap.Mount` aksi hâlde hiç rota kaydetmez;
+(3) `DevTap.Simulate` her istekte yeniden 404 verir. `DevToolsEnabled` =
+`TAPPA_ENV=dev` **VE** `TAPPA_BASE_URL` loopback (localhost / 127.0.0.0/8 / ::1) —
+yalnız `dev` yetmez, çünkü boş `TAPPA_ENV` dev'e düşer. Üretim (`deploy/k8s`:
+`TAPPA_ENV=prod`, `https://taptime.mt`) iki koşulu da sağlamaz. Form `Origin`
+(yoksa `Sec-Fetch-Site: same-origin`) ister. Ekranlardaki kesikli **DEV ONLY** şeridi
+yalnız `EnableDevTools` çağrılmış (ve kapıyı geçen) bir dağıtımda görünür: bekleme
+ekranı (yeni sekme), `/activate/complete`, "already set up", sonuç sayfası. Tap
+sayfasında yok. Testler: `TestDevToolsEnabled_IsDevOnALoopbackAddressOnly`,
+`TestDevTap_DoesNotExistOutsideDevelopment`, `TestDevStrip_OnlyOnADevelopmentDeployment`,
+`TestDevTapDB_ASimulatedTapActivatesThroughTheRealPath`.
