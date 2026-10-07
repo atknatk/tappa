@@ -903,6 +903,24 @@ kaynakta yok (ölçen: `TestDeps_NoDriverInTheClosure`,
   biçimine doğrulanmış), dolgu ve üretim zamanı. Okunur hâller stderr raporunda ve
   uygulamadaki `NOTICE` satırındadır. Kısıt reddi kısıtın **adıyla** döner, satırı
   yankılamadan.
+- **Audit satırı (M10 OP-14 D, migration 00033):** `DO` bloğu hesabın işini yaptığı aynı
+  ifadede eylemin **tek** `operator_audit_log` satırını yazar — `create` → `operator_created`,
+  `reset-mfa` → `operator_mfa_reset`, `disable` → `operator_disabled` (her uygulama bir satır;
+  ikinci `disable` ikinci satırı yazar). Satır hesabı **id'siyle** adlandırır, başka hiçbir şey
+  taşımaz (oturum, aktör, tenant, kapsam, sayfa yok; `detail` boş — adres ve ad audit'e girmez;
+  şema bunu `actor_shape`'in üçüncü koluyla zorlar). İş ve iz birlikte commit edilir ya da
+  hiçbiri; reddedilen bir uygulama satır bırakmaz (`TestAudit_EachActionLeavesExactlyOneRowAndARefusalNone`,
+  `TestApply_AFailureAnywhereLeavesNoRow`). Satırın zamanını betik yazmaz: veritabanının
+  tetikleyicisi her satıra duvar saatini basar, sahibin satırına da. Satır operatör yüzeyinde
+  `/operator/audit`'te *"By the platform owner, with opadmin"* diye görünür. **Uygulama
+  adımları ve beklenen psql çıktısı değişmedi** (yeni ifade yok, `NOTICE` aynı); **Doğrula**
+  adımına bir sorgu eklendi: hesabın son opadmin audit satırı (`kind`, `at`) — aşağıda.
+  🔴 **Sıra:** bu betik veritabanının **00033'te** olmasını ister — `main`'deki deploy'un
+  migrate Job'u onu uygular. 00033'ü görmemiş bir veritabanında betik `refused by constraint
+  operator_audit_log_actor_shape (SQLSTATE 23514). Nothing was changed.` ile reddedilir ve hiçbir
+  şey değişmez (ölçen: `TestOperator00033_DownGivesBack00032AndUpTakesItAgain`); önce deploy,
+  sonra opadmin. Ters yön reddedilmez: 00033'ten sonra yalnız bu commit'in ya da sonrasının
+  opadmin'i kullanılır; eski bir betik iz bırakmaz (Doğrula'nın altındaki not).
 - **Üretim zamanı (2. ve 3. tur):** betik, üretildiği andaki makine saatini taşır.
   `create`/`reset-mfa` **üretimden 30 dk sonra** ve üretim zamanı veritabanı saatinin
   **önündeyse** (3. tur: kodda pay yok — ölçülen en küçük ret +250 ms, daha küçüğü ölçülmedi;
@@ -972,11 +990,31 @@ kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
 SELECT id, status, enroll_used_at IS NOT NULL AS used,
        round(extract(epoch FROM enroll_expires_at - clock_timestamp()))::int AS seconds_left
   FROM platform_admins ORDER BY created_at;
+SELECT a.id, l.kind, l.at, round(extract(epoch FROM clock_timestamp() - l.at))::int AS seconds_ago
+  FROM platform_admins a
+  LEFT JOIN LATERAL (SELECT kind, at FROM operator_audit_log
+                      WHERE target_admin_id = a.id
+                        AND kind IN ('operator_created', 'operator_mfa_reset', 'operator_disabled')
+                      ORDER BY at DESC, id DESC LIMIT 1) AS l ON true
+ ORDER BY a.created_at;
 SQL
 # create'ten sonra: <id>|pending|f|~1800 · kişi linki kullandıktan sonra: <id>|active|t|<sayı>
 # (kullanımdan sonra enroll_expires_at silinmez: son sütun pozitif kalabilir ve anlamı yoktur —
 #  link "used" sütunu t olduğu için ölüdür)
+# ikinci sorgu (OP-14 D, 00033) — hesabın son opadmin audit satırı: az önce uyguladığın eylemin
+# türü ve birkaç saniyelik yaş: <id>|operator_created|<zaman>|<saniye> (reset-mfa →
+# operator_mfa_reset, disable → operator_disabled). Tür boşsa, başka bir eylemin türüyse ya da
+# yaş eylemden eskiyse betik İZ BIRAKMADI: 00033'ten önceki bir opadmin'le üretilmiştir (ADR 0021
+# OP-14 D notu LD11); eksik iz sonradan yazılamaz (günlük append-only).
+# (ölçen: TestRunbook_TheVerifyQueryShowsEachActionsRow — bu bloğu README'den okuyup koşar)
 ```
+
+**00033'ten sonra yalnız bu commit'in ya da sonrasının opadmin'i kullanılır; eski bir betik iz
+bırakmaz.** Bu commit'ten önceki bir opadmin'in betiği 00033'teki veritabanında reddedilmez:
+hesabı değiştirir, audit satırı yazmaz (üçüncü gözün ölçümü, `disable` için, geri alınan
+işlemde). `disable`'ın üretim zamanı koruması yoktur — eski bir `disable` dosyası süresiz
+uygulanabilir; bu yüzden uygulanmış dosya saklanmaz (4. adım) ve her uygulamadan sonra yukarıdaki
+ikinci sorgu bakılır.
 
 ### reset-mfa — cihaz kaybı ya da süresi geçmiş link
 
@@ -1045,14 +1083,33 @@ bağlanır ve sorgular yalnız `usename = 'tappa_operator'` satırlarını seçe
 
 ### Sayılı sınırlar (OP-9)
 
-- **O9-1 · opadmin'in eylemleri `operator_audit_log`'a yazılmaz.** 00026'nın tür kümesi
+- **O9-1 · ~~opadmin'in eylemleri `operator_audit_log`'a yazılmaz.~~** *(M10 OP-14 D, 00033:
+  **kapandı** — her eylem bir audit satırı yazar, yukarıda "Audit satırı". Aşağıdaki iz 00033'ten
+  önceki eylemler için geçerli kalır: append-only günlük geriye dönük doldurulmaz.)* 00026'nın tür kümesi
   kapalıdır (beş oturum öncesi başarısızlık + `login`, `enrollment`, `logout`) ve bir
   sahip eylemi türü yeni bir migration ister — **OP-14'e, adıyla**. Veritabanında kalan
   iz dardır: `create` → `created_at` ve `enroll_issued_at`; `reset-mfa` →
   `enroll_issued_at` (her `reset-mfa` bir öncekinin değerini **ezer**) ve o anda açık
   oturumların `revoked_at`'i; `disable` → yalnız `status` (zaman damgası yok — `disabled_at`
   sütunu yok) ve o anda açık oturum **varsa** onların `revoked_at`'i. Ötesi psql oturumunun
-  kendisi.
+  kendisi. **Kalan (00033'ten sonra), adıyla:** satır "sahip uyguladı" der, **kimin** —
+  hangi insanın — uyguladığını söylemez (sahip tek bir veritabanı rolüdür); psql oturumunun
+  kendisi yine kayıt dışıdır. Sahip tablonun ve tetikleyici fonksiyonunun sahibidir: betikten
+  satırı silip uygulayabilir, ya da tetikleyiciyi kapatarak, düşürerek veya fonksiyonunu
+  değiştirerek satırı başka bir zamanla yazabilir (ADR 0021 sınır 5; OP-14 D notu LD2) — iz
+  sahibe karşı bir kontrol değil, sahibin kendi eylemlerinin kaydıdır. **Bir hesap artık
+  silinemez (00033):** her `create` bir `operator_created` satırı yazar, satır hesabı yabancı
+  anahtarla (`ON DELETE RESTRICT`) tutar ve günlük append-only'dir — önceden kullanılmamış,
+  yanlış girilmiş bir `pending` hesap silinebiliyordu; şimdi düzeltme yolu `disable` + doğru
+  adresle yeni bir `create`'tir (yanlış hesap `disabled` ve adresiyle kayıtlı kalır; aynı adresle
+  yeniden `create` `platform_admins_email_key` ile reddedilir — yanlış girilen yalnız ad idiyse o
+  adres yeni bir hesaba verilemez; ADR 0021 OP-14 D notu LD9). Bu yol, kapatılmış hesabın
+  kullanılmamış linkinin ölü olmasına dayanır: `disable` linki silmez, onu yalnız
+  `op_complete_enrollment`'ın `status = 'pending'` koşulu reddeder (ölçen:
+  `TestDisable_TheUnusedLinkOfADisabledAccountIsRefused`). **Eski bir opadmin iz bırakmaz:**
+  bu commit'ten önceki bir opadmin'in betiği 00033'teki veritabanında hesabı değiştirir, audit
+  satırı yazmaz (ADR 0021 OP-14 D notu LD11) — yalnız bu commit'in ya da sonrasının opadmin'i
+  kullanılır ve her uygulamadan sonra Doğrula'nın ikinci sorgusuna bakılır.
 - **O9-2 · Terminal denetimi dosya kipine bakar:** kendini kaydeden bir terminal de bir
   karakter aygıtıdır ve geçer; `/dev/null` da geçer (link ekrana çıkmaz, atılır).
 - **O9-3 · Sunucu log'una ifade metni düşer; o metinde hesap id'si, dolgu, üretim zamanı ve

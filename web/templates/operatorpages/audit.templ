@@ -15,8 +15,9 @@ import "strconv"
 // the tenant search's rule, kept for one shape of request on the whole surface.
 //
 // EACH ROW IS AN ENTRY ON THE DOCKET: its time (UTC, to the second) and its kind first, then
-// who acted -- an operator's name, or "Before sign-in" for a row made before a session
-// existed -- what it was about, what the log read out of its detail, and the session's id
+// who acted -- an operator's name, "Before sign-in" for a row made before a session existed,
+// or the platform owner for a row its opadmin SQL wrote (M10 OP-14 D) -- what it was about,
+// what the log read out of its detail, and the session's id
 // shortened to eight digits. A value the screen has no word for is drawn as unrecognised,
 // with its raw text in the data face when the handler printed one; a row whose detail the
 // log did not recognise says so. Names are other people's text and are escaped and
@@ -83,7 +84,9 @@ templ auditRow(r AuditRow) {
 	<li class="op-row">
 		<span class="font-mono font-bold">{ r.At }</span>
 		@auditKindWord(r.Kind)
-		if r.ActorID == "" {
+		if r.ByOwner {
+			<span class="text-sm">By the platform owner, with opadmin</span>
+		} else if r.ActorID == "" {
 			<span class="text-sm">Before sign-in</span>
 		} else if r.Actor != "" {
 			<span class="text-sm">By <bdi>{ r.Actor }</bdi></span>

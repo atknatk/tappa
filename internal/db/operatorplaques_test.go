@@ -91,10 +91,19 @@ var opKindsAt30 = []string{"legal_versions", "tenants", "tenant_detail", "tenant
 
 // ------------------------------------------------------------------ helpers --
 
+// opAuditKindsAddedBy names, by migration number, the operator_audit_log kinds a migration
+// added AFTER 00031 -- the rows opAtVersion removes, inside the transaction, before it runs
+// that migration's Down. (00031's own 'password_ok' is not here: 00031's Down test measures
+// what its Down does with such a row.)
+var opAuditKindsAddedBy = map[int][]string{
+	33: {"operator_created", "operator_mfa_reset", "operator_disabled"},
+}
+
 // opAtVersion takes the test's transaction to migration `version`: from the newest file
 // down, it runs the Down section of every migration numbered above `version` -- after
 // deleting, inside the transaction, every ticket whose kind is not in `kinds` (the closed
-// set at `version`), so each Down restores its kind CHECK VALIDATED, the shape the
+// set at `version`) and every audit row of a kind such a migration added
+// (opAuditKindsAddedBy), so each Down restores its kind CHECKs VALIDATED, the shape the
 // version's own tests expect. The database stays at HEAD for everyone else: the
 // transaction is rolled back when the test ends. With no later migration it does nothing
 // but the delete. (Since OP-13: 00029's Down test reaches 00029 through 00030's Down.)
@@ -122,6 +131,37 @@ func opAtVersion(t *testing.T, ctx context.Context, tx pgx.Tx, version int, kind
 	sort.Slice(later, func(i, j int) bool { return later[i].n > later[j].n })
 	if _, err := tx.Exec(ctx, `DELETE FROM public.operator_read_tickets WHERE kind <> ALL ($1)`, kinds); err != nil {
 		t.Fatalf("remove the tickets version %d does not know, inside the transaction: %v", version, err)
+	}
+	// The same for the AUDIT kinds a later migration added (since OP-14 D: 00033's three owner
+	// kinds), so that migration's Down restores the kind CHECK and actor_shape VALIDATED, the
+	// shape the version's own tests expect. operator_audit_log is append-only: its row trigger
+	// is disabled for the delete and enabled again, all inside the transaction -- and only when
+	// such a row exists (none does unless an opadmin script was applied to this database).
+	var addedKinds []string
+	for _, f := range later {
+		addedKinds = append(addedKinds, opAuditKindsAddedBy[f.n]...)
+	}
+	if len(addedKinds) > 0 {
+		var n int64
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM public.operator_audit_log WHERE kind = ANY ($1)`, addedKinds).Scan(&n); err != nil {
+			t.Fatalf("count the audit rows version %d does not know: %v", version, err)
+		}
+		if n > 0 {
+			opMustHoldTheTablesLockExclusive(t, ctx, tx)
+			for _, s := range []string{
+				`ALTER TABLE public.operator_audit_log DISABLE TRIGGER operator_audit_log_append_only`,
+				`DELETE FROM public.operator_audit_log WHERE kind = ANY ($1)`,
+				`ALTER TABLE public.operator_audit_log ENABLE TRIGGER operator_audit_log_append_only`,
+			} {
+				var args []any
+				if strings.Contains(s, "$1") {
+					args = []any{addedKinds}
+				}
+				if _, err := tx.Exec(ctx, s, args...); err != nil {
+					t.Fatalf("remove the audit rows version %d does not know, inside the transaction: %v", version, err)
+				}
+			}
+		}
 	}
 	for _, f := range later {
 		_, down := opMigrationSections(t, f.name)

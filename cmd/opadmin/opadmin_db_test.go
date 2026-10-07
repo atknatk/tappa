@@ -10,8 +10,12 @@ package main
 // which apply a whole script at top level because the script's OWN transaction is what
 // they measure; every one of those runs carries an injected failure (or waits out
 // lock_timeout), so a correct script commits no row. If a broken script does commit,
-// their cleanup deletes that pending row by id (a pending account has no session and no
-// audit row, so the owner can delete it) and the test is already red.
+// their cleanup tries to delete that pending row by id and the test is already red.
+// ⚠️ Since migration 00033 (M10 OP-14 D) a committed create also commits its
+// 'operator_created' audit row, which names the account (ON DELETE RESTRICT) and is
+// append-only: the delete then FAILS, the cleanup reports it, and the pending account and
+// its row stay in the database -- residue of a script that was broken, never of a correct
+// one.
 //
 // The operator-tables advisory lock (internal/db/operatorschema_test.go takes it
 // EXCLUSIVE for its DDL tests) is held SHARED for each test's whole duration
@@ -743,19 +747,32 @@ func insertBefore(t *testing.T, stmts []string, prefix, stmt string) []string {
 // failure injected (a) before the payload table and the COPY, (b) between the COPY and
 // the DO block, (c) inside the DO block after the INSERT, (d) between the DO block and
 // COMMIT, and (e) the output of a run whose report could not be written (the poison in
-// COMMIT's place): no account row is left in these five. POSITIVE CONTROL: the same
-// applier, with COMMIT replaced by a count and a ROLLBACK, sees the row the DO block
-// writes. And reset-mfa with a failure between its two UPDATEs leaves the account and
-// its session as they were.
+// COMMIT's place): no account row is left in these five, and no audit row naming the
+// account either (M10 OP-14 D: the DO block writes both, one statement). POSITIVE
+// CONTROL: the same applier, with COMMIT replaced by a count and a ROLLBACK, sees the
+// account row and its one 'operator_created' row the DO block writes. And reset-mfa with
+// a failure between its two UPDATEs (before its audit row) or after its inner block (after
+// it) leaves the account and its session as they were, and the account's owner rows -- of
+// every owner kind, and of 'operator_mfa_reset' -- counted as many as before (its one
+// 'operator_created'); CONTROL: the unbroken script, in a savepoint rolled back, is counted
+// as one more. What that count measures is the DO block's atomicity, not where the audit row
+// sits in it: a row written before the failure goes with it either way (2nd round: measured
+// with the audit INSERT moved first; TestSQL_EachActionWritesOneAuditRowInItsDoBlock is the
+// pin on its place). Every script here is generated with the DATABASE's clock
+// (T94: the report subtest's run() was the last one handed this machine's clock).
 func TestApply_AFailureAnywhereLeavesNoRow(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	sharedTablesLock(t, ctx)
 	check := ownerConn(t, ctx)
 	count := func(id string) int {
-		var n int
-		if err := check.QueryRow(ctx, `SELECT count(*) FROM public.platform_admins WHERE id = $1`, id).Scan(&n); err != nil {
+		var n, audit int
+		if err := check.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.platform_admins WHERE id = $1),
+		                                      (SELECT count(*) FROM public.operator_audit_log WHERE target_admin_id = $1)`, id).Scan(&n, &audit); err != nil {
 			t.Fatal(err)
+		}
+		if audit != 0 {
+			t.Errorf("%d audit row(s) name the account %s after a failure (the account row count is %d)", audit, id, n)
 		}
 		return n
 	}
@@ -821,6 +838,11 @@ func TestApply_AFailureAnywhereLeavesNoRow(t *testing.T) {
 		if err := conn.QueryRow(ctx, `SELECT count(*) FROM public.platform_admins WHERE id = $1`, g.id).Scan(&inside); err != nil || inside != 1 {
 			t.Fatalf("CONTROL FAILED: inside the script's transaction the row count is %d (err %v), want 1", inside, err)
 		}
+		var trace int
+		if err := conn.QueryRow(ctx, `SELECT count(*) FROM public.operator_audit_log
+		                               WHERE target_admin_id = $1 AND kind = 'operator_created'`, g.id).Scan(&trace); err != nil || trace != 1 {
+			t.Fatalf("CONTROL FAILED: inside the script's transaction %d 'operator_created' row(s) name the account (err %v), want 1", trace, err)
+		}
 		if _, err := conn.Exec(ctx, stmts[last]); err != nil {
 			t.Fatal(err)
 		}
@@ -832,7 +854,11 @@ func TestApply_AFailureAnywhereLeavesNoRow(t *testing.T) {
 	t.Run("a report that could not be written", func(t *testing.T) {
 		var out bytes.Buffer
 		args := []string{"create", "--email", randomEmail(t, "op9.noreport."), "--name", "Op Nine", "--host", "ops.taptime.mt"}
-		if code := run(args, &out, failingWriter{}, true, time.Now()); code != exitRefused {
+		// The database's clock, not this machine's (T94): with this machine's clock ahead of
+		// the database's by more than the time to the DO block, the generation guard refuses
+		// the DO block, and the statement in COMMIT's place then answers 25P02 (an aborted
+		// transaction), not the poison's P0001 -- derived from generationGuards, not reproduced.
+		if code := run(args, &out, failingWriter{}, true, dbNow(t, ctx, check)); code != exitRefused {
 			t.Fatalf("exit %d, want %d", code, exitRefused)
 		}
 		id := idOf(t, out.String())
@@ -862,19 +888,65 @@ func TestApply_AFailureAnywhereLeavesNoRow(t *testing.T) {
 		email := randomEmail(t, "op9.atomicreset.")
 		g, s1 := createdAndEnrolled(t, ctx, tx, o, email)
 		before := readAccount(t, ctx, tx, g.id)
+		// The account's owner rows (2nd round of the OP-14 D review: the comment above named
+		// this count and the subtest did not take it): every owner kind, and the reset's own.
+		ownerRows := func() (all, resets int) {
+			t.Helper()
+			if err := tx.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE kind = $3)
+			                             FROM public.operator_audit_log
+			                            WHERE target_admin_id = $1 AND kind = ANY ($2)`, g.id,
+				[]string{auditKindCreate, auditKindResetMFA, auditKindDisable}, auditKindResetMFA).Scan(&all, &resets); err != nil {
+				t.Fatal(err)
+			}
+			return all, resets
+		}
+		all0, resets0 := ownerRows()
+		if all0 != 1 || resets0 != 0 {
+			t.Fatalf("PREMISE: the account has %d owner row(s), %d of them resets; want its one 'operator_created'", all0, resets0)
+		}
 		r := dbGen(t, ctx, tx, "reset-mfa", "--id", g.id, "--email", email, "--host", "ops.taptime.mt")
 		const second = "\n        UPDATE public.platform_sessions"
-		if !strings.Contains(r.sql, second) {
-			t.Fatal("reset-mfa's SQL has no sessions UPDATE to inject before")
+		const closing = "\n    RAISE NOTICE"
+		if !strings.Contains(r.sql, second) || strings.Count(r.sql, closing) != 1 {
+			t.Fatal("reset-mfa's SQL has no sessions UPDATE, or not one closing NOTICE, to inject before")
 		}
-		broken := strings.Replace(r.sql, second, "\n        PERFORM 1/0;"+second, 1)
-		if err := applyInTx(t, ctx, tx, broken); pgCode(err) != "22012" {
-			t.Fatalf("the injected failure: %v, want 22012", err)
+		// Two places: between the two UPDATEs (before the audit row), and after the inner block
+		// (the audit row already written by the failing DO block -- it goes with it).
+		late := strings.Replace(r.sql, closing, "\n    PERFORM 1/0;"+closing, 1)
+		if strings.Index(late, "PERFORM 1/0") < strings.Index(late, "INSERT INTO public.operator_audit_log") {
+			t.Fatal("PREMISE: the late failure is not after the audit row")
 		}
-		after := readAccount(t, ctx, tx, g.id)
-		if after.status != "active" || after.noEnvelope || after.noDigest || *after.hash != *before.hash || after.liveSessions != 1 {
-			t.Errorf("a failed reset-mfa changed the account: status %q, envelope removed %v, live sessions %d",
-				after.status, after.noEnvelope, after.liveSessions)
+		for name, broken := range map[string]string{
+			"between its two updates":   strings.Replace(r.sql, second, "\n        PERFORM 1/0;"+second, 1),
+			"after its audit row write": late,
+		} {
+			if err := applyInTx(t, ctx, tx, broken); pgCode(err) != "22012" {
+				t.Fatalf("the injected failure %s: %v, want 22012", name, err)
+			}
+			after := readAccount(t, ctx, tx, g.id)
+			if after.status != "active" || after.noEnvelope || after.noDigest || *after.hash != *before.hash || after.liveSessions != 1 {
+				t.Errorf("a reset-mfa failing %s changed the account: status %q, envelope removed %v, live sessions %d",
+					name, after.status, after.noEnvelope, after.liveSessions)
+			}
+			if all, resets := ownerRows(); all != all0 || resets != resets0 {
+				t.Errorf("a reset-mfa failing %s left %d owner row(s), %d of them resets; want %d and %d", name, all, resets, all0, resets0)
+			}
+		}
+		// CONTROL: the same script unbroken, in a savepoint rolled back afterwards, is counted --
+		// one more owner row, and it is the reset's.
+		sp, err := tx.Begin(ctx)
+		if err != nil {
+			t.Fatalf("savepoint: %v", err)
+		}
+		if err := applyInTx(t, ctx, sp, r.sql); err != nil {
+			t.Fatalf("CONTROL FAILED: the unbroken reset-mfa: %v", err)
+		}
+		if all, resets := ownerRows(); all != all0+1 || resets != resets0+1 {
+			t.Errorf("CONTROL FAILED: the unbroken reset-mfa is counted as %d owner row(s), %d of them resets; want %d and %d",
+				all, resets, all0+1, resets0+1)
+		}
+		if err := sp.Rollback(ctx); err != nil {
+			t.Fatalf("rollback to savepoint: %v", err)
 		}
 		if _, err := o.auth.Verify(ctx, s1.Token); err != nil {
 			t.Errorf("the session after a failed reset-mfa: %v", err)

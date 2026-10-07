@@ -336,10 +336,13 @@ func factLabel(label string) string {
 // ScopeHidden says a read's scope was not one the log returns. Page and PageSize are a
 // read's page; Search, Filter, Legal and LegalBytes what the log reads out of the row's
 // detail; DetailHidden says the detail had a shape the log does not show. Session is the
-// first eight digits of the session's id ("" before sign-in).
+// first eight digits of the session's id ("" before sign-in). ByOwner says the row is one the
+// platform owner's opadmin SQL wrote (M10 OP-14 D): no operator acted, so the row says who did
+// instead of "Before sign-in".
 type AuditRow struct {
 	At                 string
 	Kind               AuditWord
+	ByOwner            bool
 	ActorID, Actor     string
 	AccountID, Account string
 	TenantID, Tenant   string

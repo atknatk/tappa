@@ -445,8 +445,8 @@ func TestAuditScreen_EveryRowSaysWhatTheLogHolds(t *testing.T) {
 
 // TestAuditWords_NameEveryKindAndNothingElse holds audit.go's kind words to the audit kinds,
 // DERIVED: the constants of type db.OperatorAuditKind in internal/db's export data (the build
-// being run), read with go/types -- so a twelfth kind added to internal/db is red here until
-// the screen has a word for it.
+// being run), read with go/types -- so a kind added to internal/db is red here until the screen
+// has a word for it.
 //
 // PART I -- the derived set is the words' keys and db.OperatorAuditKinds(); password_ok is
 // among them (K14-1: the screen names the kind phase C writes); every word is non-empty and
@@ -456,7 +456,8 @@ func TestAuditScreen_EveryRowSaysWhatTheLogHolds(t *testing.T) {
 // otherwise (2nd round: a hyphen, a leading digit and a leading underscore are not a token;
 // 3rd round: nor is a byte past ASCII -- z and a right-to-left override, z and an accented
 // letter --, so no bidi control and no look-alike letter reaches the page from a value).
-// CONTROL: the derived set has eleven members.
+// CONTROL: the derived set has fourteen members (eleven since 00031, the three owner kinds
+// since 00033 -- M10 OP-14 D), password_ok and operator_disabled among them.
 //
 // PART II -- red on: a constant of the type with no word; a word for a value that is no
 // constant; an empty or a shared word; a fallback that names an unknown kind as a known one.
@@ -477,7 +478,8 @@ func TestAuditWords_NameEveryKindAndNothingElse(t *testing.T) {
 		derived = append(derived, constant.StringVal(c.Val()))
 	}
 	slices.Sort(derived)
-	if len(derived) != 11 || !slices.Contains(derived, string(db.OperatorAuditPasswordOK)) {
+	if len(derived) != 14 || !slices.Contains(derived, string(db.OperatorAuditPasswordOK)) ||
+		!slices.Contains(derived, string(db.OperatorAuditOperatorDisabled)) {
 		t.Fatalf("CONTROL: the derived kinds are %v", derived)
 	}
 	var listed []string
@@ -920,7 +922,8 @@ func TestAuditScreen_EscapesWhatOperatorsAndTenantsNamed(t *testing.T) {
 // PART I -- BY TYPE: the fields of db.OperatorAuditEntry, operatorpages.AuditRow,
 // operatorpages.AuditLogView, operatorpages.AuditWord and operatorpages.AuditKindOption are
 // EXACTLY the lists below (a field added to any of the five is red here until it is argued
-// for -- the slot a session hash, a ticket, an address or a raw detail would need). ON THE
+// for -- the slot a session hash, a ticket, an address or a raw detail would need; M10 OP-14 D
+// argued for AuditRow.ByOwner, a bool, which can carry no value). ON THE
 // PAGE: after a sign-in and a view, the viewing session's cookie value and its hash (the
 // fake's key), the operator's address and the TOTP code of the sign-in are on none of three
 // views (unfiltered, filtered, a later page); the viewing session's id is there as its
@@ -948,7 +951,7 @@ func TestAuditScreen_NoCredentialFieldReachesThePage(t *testing.T) {
 		{db.OperatorAuditEntry{}, []string{"ActorID", "ActorName", "At", "DetailRecognised", "FilterKind", "ID", "Kind", "LegalBytes",
 			"LegalSlug", "PageNumber", "PageSize", "Scope", "SearchClass", "SessionID", "TargetAdminID", "TargetAdminName",
 			"TargetTenantID", "TargetTenantName"}},
-		{operatorpages.AuditRow{}, []string{"Account", "AccountID", "Actor", "ActorID", "At", "DetailHidden", "Filter", "Kind", "Legal",
+		{operatorpages.AuditRow{}, []string{"Account", "AccountID", "Actor", "ActorID", "At", "ByOwner", "DetailHidden", "Filter", "Kind", "Legal",
 			"LegalBytes", "Page", "PageSize", "Scope", "ScopeHidden", "Search", "Session", "Tenant", "TenantID", "TenantPath"}},
 		{operatorpages.AuditLogView{}, []string{"Filter", "HasNext", "Kind", "LastPage", "Options", "Page", "Reach", "Rows"}},
 		{operatorpages.AuditWord{}, []string{"Text", "Unknown"}},

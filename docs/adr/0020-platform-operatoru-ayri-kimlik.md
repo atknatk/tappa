@@ -580,6 +580,21 @@ bir restoran hesabına bağlı olmamalı* (m10-platform.md §1).
   doğuşu `op_open_session`'ın (`login`) ve `op_complete_enrollment`'ın (`enrollment`)
   köken satırından; çıkış
   `op_close_session`'dan; geri kalan her şey oturum taşıyan bir `op_*`'tan (ADR 0021).
+  **OP-14 D notu (2026-10-07, migration 00033) — TEK istisna, adıyla: platform sahibinin
+  `cmd/opadmin` satırları.** §6'nın üç eylemi (`create`, `reset-mfa`, `disable`) birer satır
+  yazar — `operator_created`, `operator_mfa_reset`, `operator_disabled` — ve bu satırlar bir
+  definer'dan **değil**, sahibin (`tappa_owner`) psql ile uyguladığı SQL'in hesabın işini yapan
+  aynı `DO` bloğundan gelir (iş ve iz tek ifade: birlikte commit edilir ya da hiçbiri).
+  **Gerekçe:** hesabı yaratan, sıfırlayan ve kapatan yazı zaten sahibindir (aşağıda §6:
+  `platform_admins`'e yalnız sahip yazar); sahip tablonun sahibi ve dağıtılan topolojide süper
+  kullanıcıdır, yani satırlar ona bir güç değil bir iz ekler. Bir definer **seçilmedi**: sahip
+  türü yazan bir `op_*`, `tappa_operator`'ın çağırabildiği bir fonksiyon olurdu — DSN sahibinin
+  herhangi bir hesap için *"platform sahibi bu hesabı kapattı"* basabildiği bir kapı.
+  **Şekil:** `operator_audit_log_actor_shape`'in **üçüncü kolu** — oturum yok, aktör yok, hedef
+  hesap (`target_admin_id`) var, ve başka hiçbir şey (tenant, kapsam, sayfa yok; `detail` tam
+  olarak `{}`): satır hesabı **id'siyle** adlandırır, adres ve ad audit'e girmez ve şema bunu
+  zorlar. `op_record_auth_event`'in kapalı kümesi bu türleri adlandırmaz; `tappa_operator`
+  tabloya yazamaz. Sınırlar ve ölçümler: ADR 0021 "OP-14 D uygulama notu".
 - **Her satırın zorunlu içeriği (normatif; sütun adları OP-5):** oturum kimliği
   (oturumlu satırlarda), **tür** ve **hedef** (tenant ve, okumalarda, hedef kapsamı +
   içeriksiz sayfa bilgisi). 🔴 **Arama terimi ve keyset imleci audit satırına YAZILMAZ — ne
@@ -590,7 +605,16 @@ bir restoran hesabına bağlı olmamalı* (m10-platform.md §1).
 - **Zaman damgası:** `operator_audit_log`'un zaman sütunu `DEFAULT clock_timestamp()`'tir
   ve INSERT listesinde yoktur; K6'nın tenant `audit_log` satırında `at` açıkça
   `clock_timestamp()` ile yazılır (00005'in `DEFAULT now()`'ı açık tutulan bir
-  transaction'da satırı geriye tarihler — ölçüldü, ADR 0021 §2 vii).
+  transaction'da satırı geriye tarihler — ölçüldü, ADR 0021 §2 vii). **OP-14 D notu
+  (2026-10-07, 00033):** *"INSERT listesinde yoktur"* tanımlayıcı için doğruydu, sahip için
+  değil — sahip `at`'e yazabiliyordu (ADR 0021 OP-14 notu md. 7, sınır L2). 00033'ten beri bir
+  `BEFORE INSERT` tetikleyicisi **her** yeni satırın `at`'ini duvar saatine zorlar — kim yazarsa
+  yazsın, sahip ve `COPY` dahil. Sahip tarih ancak tetikleyiciyi **kapatarak, düşürerek ya da
+  fonksiyonunu değiştirerek** (ya da süper kullanıcının `session_replication_role = replica`
+  oturumuyla — belgeden, ölçülmedi) seçebilir: ilk üçü **sahiplik** ister — tablonun ya da fonksiyonun; süper
+  kullanıcılık değil (PostgreSQL belgesi) — ve ikisinin de sahibi `tappa_owner`'dır (ADR 0021
+  sınır 5). *(2. tur düzeltmesi: ilk yazım yalnız `DISABLE`'ı ve
+  "süper kullanıcı yolu"nu sayıyordu.)*
 - 🔴 **Okuma, audit'i commit edilmeden veri döndürmez.** Tek aşamalı bir okuma izsiz
   okumaya izin veriyordu (güvenlik denetimi: `SAVEPOINT` → çağrı → `ROLLBACK TO` = veri
   elde, audit 0 satır). Okumalar **iki aşamalıdır**: `op_begin_read` audit satırını
@@ -691,7 +715,8 @@ bir restoran hesabına bağlı olmamalı* (m10-platform.md §1).
   olarak gönderir ve hash başarısız ifadenin metniyle log'a düşer (ölçüldü). Ölçüm ve kapsamı:
   README sınır O9-3. (e) opadmin'in
   eylemleri `operator_audit_log`'a yazılmaz (tür kümesi kapalı — migration ister; OP-14'e,
-  adıyla; README sınır O9-1). (f) Ingress ölçümü (§6'nın OP-9'a bıraktığı): Go `net/http`,
+  adıyla; README sınır O9-1). *(OP-14 D, 2026-10-07, 00033: kapandı — her eylem aynı `DO`
+  bloğunda bir audit satırı yazar; §5'in OP-14 D notu.)* (f) Ingress ölçümü (§6'nın OP-9'a bıraktığı): Go `net/http`,
   curl ve headless Chrome linkin fragment'ını ne istek satırında ne `Referer`'da gönderdi;
   ingress satırı hesap id'sini taşır.
 

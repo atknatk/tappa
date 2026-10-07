@@ -200,6 +200,11 @@ var auditKindWords = map[db.OperatorAuditKind]string{
 	db.OperatorAuditLogout:           "Signed out",
 	db.OperatorAuditRead:             "Read",
 	db.OperatorAuditLegalPublish:     "Legal text published",
+	// The platform owner's opadmin actions (M10 OP-14 D, migration 00033): the row names the
+	// account; auditRow says who acted (ByOwner), so the word says only what happened.
+	db.OperatorAuditOperatorCreated:  "Operator account created",
+	db.OperatorAuditOperatorMFAReset: "Operator account reset to a new setup link",
+	db.OperatorAuditOperatorDisabled: "Operator account disabled",
 }
 
 // auditScopeWords is the word for each read kind op_read_audit returns as a row's scope --
@@ -267,6 +272,9 @@ func auditRow(e db.OperatorAuditEntry) operatorpages.AuditRow {
 		At:           utcSecond(e.At),
 		Kind:         auditKindWord(e.Kind),
 		DetailHidden: !e.DetailRecognised,
+		// A row of the platform owner's opadmin SQL (00033) has no actor because no operator
+		// acted -- not because it was made before a sign-in. internal/db names the kinds.
+		ByOwner: db.OperatorAuditKind(e.Kind).ByOwner(),
 	}
 	if e.SessionID != nil {
 		// The first eight hex digits: enough to tell the sessions of one page apart and to

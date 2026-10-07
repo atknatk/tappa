@@ -865,6 +865,7 @@ var operatorAuditKinds = [...]OperatorAuditKind{
 	OperatorAuditLocked, OperatorAuditEnrollmentFailed, OperatorAuditPasswordOK,
 	OperatorAuditLogin, OperatorAuditEnrollment, OperatorAuditLogout, OperatorAuditRead,
 	OperatorAuditLegalPublish,
+	OperatorAuditOperatorCreated, OperatorAuditOperatorMFAReset, OperatorAuditOperatorDisabled,
 }
 
 // OperatorAuditKinds returns the closed set of audit kinds, in the CHECK's order -- a fresh
@@ -883,6 +884,36 @@ func (k OperatorAuditKind) Known() bool {
 		if k == m {
 			return true
 		}
+	}
+	return false
+}
+
+// ----------------------------------------------------------------- OP-14 D --
+//
+// The platform owner's three cmd/opadmin actions (migration 00033; ADR 0020 §5's one named
+// exception to "every audit row comes from a definer"): the SQL opadmin generates and
+// tappa_owner applies writes ONE row per action in the same DO block that changes the account.
+// No function here writes them and no op_* can -- op_record_auth_event's closed set does not
+// name them, and tappa_operator holds no INSERT on the log -- so these constants are what the
+// read and the screen name, not what this package sends.
+
+// The owner kinds, in the CHECK's order (after legal_publish). Each row names the account by
+// its id (target_admin_id) and carries nothing else: no session, no actor, no tenant, no scope,
+// no page, detail {} -- operator_audit_log_actor_shape's third arm.
+const (
+	OperatorAuditOperatorCreated  OperatorAuditKind = "operator_created"
+	OperatorAuditOperatorMFAReset OperatorAuditKind = "operator_mfa_reset"
+	OperatorAuditOperatorDisabled OperatorAuditKind = "operator_disabled"
+)
+
+// ByOwner reports whether k is one of the three kinds the platform owner's opadmin SQL writes:
+// the kinds of actor_shape's third arm, which TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree
+// holds equal to this answer for every kind the CHECK names. A row of such a kind was written
+// under no operator session -- by the database's owner, outside the operator surface.
+func (k OperatorAuditKind) ByOwner() bool {
+	switch k {
+	case OperatorAuditOperatorCreated, OperatorAuditOperatorMFAReset, OperatorAuditOperatorDisabled:
+		return true
 	}
 	return false
 }

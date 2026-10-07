@@ -13,7 +13,8 @@ package db
 //     taken EXCLUSIVE. Every row they need is written inside that transaction and goes with
 //     it. Rows whose PLACE in the newest-first order matters are written by the owner with a
 //     time far in the future (opLogBase): the owner may write `at` (00031's header names
-//     that fact and the OP-14 note counts it), REPEATABLE READ hides every other session's
+//     that fact and the OP-14 note counts it) once 00033's wall-clock trigger is disabled in
+//     the transaction (opOwnerDatesRows -- since OP-14 D), REPEATABLE READ hides every other session's
 //     commits, and a precondition checks that no committed row is dated at or after the base
 //     -- so those rows head the read in the order they were given;
 //   - the read side is reached WITHOUT a commit through a ticket the owner writes with
@@ -52,6 +53,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -88,12 +90,22 @@ const (
 	recordRowRefused31   = "op_record_auth_event: the audit row was refused"
 )
 
-// opAuditKinds is the closed set of operator_audit_log kinds at 00031, in the CHECK's order --
+// opAuditKinds is the closed set of operator_audit_log kinds at HEAD, in the CHECK's order --
 // the list the four copies are held to (TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree
 // against the database, TestOperatorAuditKinds_TheTypedConstantsAreTheList against the Go
-// constants).
+// constants). 00031 made it eleven; 00033 (OP-14 D) added the three owner kinds, opOwnerKinds.
 var opAuditKinds = []string{"login_failed", "unknown_email", "totp_failed", "locked", "enrollment_failed",
+	"password_ok", "login", "enrollment", "logout", "read", "legal_publish",
+	"operator_created", "operator_mfa_reset", "operator_disabled"}
+
+// opAuditKinds31 is the set at 00031 and 00032 -- what 00031's own tests reach (opAtVersion
+// first runs 00033's Down) and what 00033's Down gives back.
+var opAuditKinds31 = []string{"login_failed", "unknown_email", "totp_failed", "locked", "enrollment_failed",
 	"password_ok", "login", "enrollment", "logout", "read", "legal_publish"}
+
+// opOwnerKinds is actor_shape's third arm at 00033: the kinds the platform owner's opadmin SQL
+// writes, with no session and no actor (internal/db's OperatorAuditKind.ByOwner).
+var opOwnerKinds = []string{"operator_created", "operator_mfa_reset", "operator_disabled"}
 
 // opAuthEventKinds is op_record_auth_event's closed set at 00031: the pre-session kinds --
 // actor_shape's no-session arm.
@@ -122,7 +134,8 @@ func opKindCheckDef(kinds []string) string {
 }
 
 // opActorShapeDef is pg_get_constraintdef's text of operator_audit_log_actor_shape whose
-// pre-session arm names pre.
+// pre-session arm names pre -- the TWO-arm shape of 00026 and 00031 (00033's three arms:
+// opActorShapeDef33).
 func opActorShapeDef(pre []string) string {
 	q := make([]string, len(pre))
 	for i, k := range pre {
@@ -223,9 +236,63 @@ func opReadLog(t *testing.T, ctx context.Context, tx pgx.Tx, hash, ticket, kind 
 	return out, err
 }
 
+// opOwnerDatesRows lets the OWNER choose `at` inside the test's transaction. Since 00033 a
+// BEFORE INSERT trigger stamps every new row with the wall clock, whoever writes it
+// (TestOperator00033_TheRowsTimeIsTheWallClockWhoeverWritesIt); the ordered fixtures of these
+// tests need rows dated after opLogBase, so the trigger is DISABLED in the transaction, which
+// is rolled back -- the path the table's owner has (ADR 0021 limit 5), taken here on purpose and
+// nowhere outside a test. A transaction that has run 00033's Down (opAtVersion) has no trigger,
+// and one where it is already disabled needs nothing: nothing is done. The statement runs as
+// the owner: q must not be inside an identity switch.
+// 🔴 THE TABLE LOCK (orchestrator's condition, OP-14 D): ALTER TABLE … DISABLE TRIGGER takes a
+// table lock that blocks every other session's INSERT into operator_audit_log until this
+// transaction ends (TestOperator00033_TheRowsTimeIsTheWallClockWhoeverWritesIt measures its
+// mode). So it is taken only by a test holding the operator-tables lock EXCLUSIVE (opTx;
+// opMustHoldTheTablesLockExclusive refuses otherwise), and how long the table stayed locked is
+// logged when the test ends ("OP14D-LOCK").
+func opOwnerDatesRows(t *testing.T, ctx context.Context, q opQuerier) {
+	t.Helper()
+	var state string
+	if err := q.QueryRow(ctx, `SELECT coalesce((SELECT tgenabled::text FROM pg_catalog.pg_trigger
+	                                              WHERE tgrelid = 'public.operator_audit_log'::regclass
+	                                                AND tgname = 'operator_audit_log_at_is_the_wall_clock'), '')`).Scan(&state); err != nil {
+		t.Fatalf("read the `at` trigger's state: %v", err)
+	}
+	if state == "" || state == "D" {
+		return
+	}
+	opMustHoldTheTablesLockExclusive(t, ctx, q)
+	start := time.Now()
+	if _, err := q.Exec(ctx, `ALTER TABLE public.operator_audit_log DISABLE TRIGGER operator_audit_log_at_is_the_wall_clock`); err != nil {
+		t.Fatalf("let the owner date the fixture rows (disable the `at` trigger in the transaction): %v", err)
+	}
+	t.Cleanup(func() {
+		t.Logf("OP14D-LOCK: operator_audit_log held for the disabled `at` trigger %v, until the rollback", time.Since(start).Round(time.Millisecond))
+	})
+}
+
+// opMustHoldTheTablesLockExclusive fails the test unless this session holds the
+// operator-tables advisory lock EXCLUSIVE (opTx takes it so) -- the condition for a statement
+// that locks an operator table for the rest of the transaction (a DISABLE TRIGGER).
+func opMustHoldTheTablesLockExclusive(t *testing.T, ctx context.Context, q opQuerier) {
+	t.Helper()
+	var held bool
+	if err := q.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_locks
+	                             WHERE locktype = 'advisory' AND pid = pg_backend_pid() AND granted
+	                               AND mode = 'ExclusiveLock' AND objsubid = 1
+	                               AND ((classid::bigint << 32) | objid::bigint) = hashtext($1)::bigint)`,
+		operatorTablesTestLock).Scan(&held); err != nil {
+		t.Fatalf("read this session's advisory locks: %v", err)
+	}
+	if !held {
+		t.Fatalf("this session does not hold the %q lock EXCLUSIVE; a DISABLE TRIGGER here would lock operator_audit_log under other packages' running tests", operatorTablesTestLock)
+	}
+}
+
 // opLogRow is one row a test writes into operator_audit_log as the OWNER, who may write
-// every column, `at` included. after is an interval after opLogBase; "" writes the column's
-// DEFAULT (the wall clock).
+// every column, `at` included -- with 00033's trigger disabled in the transaction
+// (opOwnerDatesRows, which opLogInsert calls for a dated row). after is an interval after
+// opLogBase; "" writes the column's DEFAULT (the wall clock).
 type opLogRow struct {
 	kind                   string
 	session, actor, target *uuid.UUID
@@ -241,6 +308,9 @@ func opLogInsert(t *testing.T, ctx context.Context, q opQuerier, r opLogRow) uui
 	detail := r.detail
 	if detail == "" {
 		detail = "{}"
+	}
+	if r.after != "" {
+		opOwnerDatesRows(t, ctx, q)
 	}
 	var id uuid.UUID
 	if err := q.QueryRow(ctx, `
@@ -290,9 +360,10 @@ func opLogFunctionBody(t *testing.T, section, create, fn string) string {
 // argument list and result (no detail column), the owner, SECURITY DEFINER, proconfig, one
 // overload, EXECUTE for tappa_operator alone; op_begin_read and op_record_auth_event keep their
 // identities; the forward, frozen-clock and consumption scans walked them and raise nothing;
-// and the three CHECKs at HEAD -- the audit kinds exactly the eleven, actor_shape's
-// pre-session arm exactly the six, both validated, and the ticket kinds a closed set holding
-// 00031's five (00032 widened it: HEAD's exact set is TestOperator00032_TheFunctionsAndTheirExactSignatures'
+// and the three CHECKs at HEAD -- the audit kinds a closed set holding 00031's eleven,
+// actor_shape's pre-session arm exactly the six, both validated (00033 widened both: HEAD's
+// exact texts are TestOperator00033_TheKindsTheShapeAndTheClock's pin), and the ticket kinds a
+// closed set holding 00031's five (00032 widened it: HEAD's exact set is TestOperator00032_TheFunctionsAndTheirExactSignatures'
 // pin, and 00031's exact set after 00032's Down is TestOperator00032_DownGivesBack00031AndUpTakesItAgain's).
 func TestOperator00031_TheFunctionsAndTheirExactSignatures(t *testing.T) {
 	ctx, tx := opTx(t)
@@ -382,14 +453,23 @@ func TestOperator00031_TheFunctionsAndTheirExactSignatures(t *testing.T) {
 			t.Errorf("operator_read_tickets_kind_check is %s, want a closed set holding %q", tickets, kind)
 		}
 	}
-	for _, c := range []struct{ table, name, want string }{
-		{"operator_audit_log", "operator_audit_log_kind_check", opKindCheckDef(opAuditKinds)},
-		{"operator_audit_log", "operator_audit_log_actor_shape", opActorShapeDef(opAuthEventKinds)},
-	} {
-		def, valid := opConstraint(t, ctx, tx, c.table, c.name)
-		if def != c.want || !valid {
-			t.Errorf("%s is %s (validated %v),\n want %s, validated", c.name, def, valid, c.want)
+	// The audit CHECKs at HEAD: a closed set holding 00031's eleven kinds, and an actor_shape
+	// whose FIRST arm -- the pre-session one -- is 00031's six, both validated. (00033 widened
+	// both: HEAD's exact texts are TestOperator00033_TheKindsTheShapeAndTheClock's pin, and
+	// 00031's exact texts after 00033's and 00032's Downs are this file's Down test's.)
+	kinds, kindsValid := opConstraint(t, ctx, tx, "operator_audit_log", "operator_audit_log_kind_check")
+	if arrays := opQuotedArrays(kinds); len(arrays) != 1 || strings.Contains(kinds, "~") || !kindsValid {
+		t.Errorf("operator_audit_log_kind_check is %s (validated %v), want one validated closed list", kinds, kindsValid)
+	} else {
+		for _, kind := range opAuditKinds31 {
+			if !slices.Contains(arrays[0], kind) {
+				t.Errorf("operator_audit_log_kind_check is %s, want a closed set holding %q", kinds, kind)
+			}
 		}
+	}
+	shape, shapeValid := opConstraint(t, ctx, tx, "operator_audit_log", "operator_audit_log_actor_shape")
+	if arms := opQuotedArrays(shape); len(arms) < 2 || !slices.Equal(arms[0], opAuthEventKinds) || !shapeValid {
+		t.Errorf("operator_audit_log_actor_shape is %s (validated %v), want a validated shape whose pre-session arm is %v", shape, shapeValid, opAuthEventKinds)
 	}
 }
 
@@ -588,7 +668,7 @@ func TestOperator00031_DownGivesBack00030AndUpTakesItAgain(t *testing.T) {
 		{"00031's Down: the ticket condition", ticketPart, "operator_read_tickets", opKindsAt30},
 		{"00031's Down: the audit condition", auditPart, "operator_audit_log", opAuditKinds27},
 		{"00031's Up: the ticket condition", up, "operator_read_tickets", opKindsAt31},
-		{"00031's Up: the audit condition", up, "operator_audit_log", opAuditKinds},
+		{"00031's Up: the audit condition", up, "operator_audit_log", opAuditKinds31},
 	} {
 		if got, want := conds(c.part, c.table), whole(c.set); len(got) != 1 || got[0] != want {
 			t.Errorf("%s is %q; want exactly one, whole: %q", c.what, got, want)
@@ -664,7 +744,7 @@ func TestOperator00031_DownGivesBack00030AndUpTakesItAgain(t *testing.T) {
 		if s.reads != 1 || s.begin != body31 || s.record != rec31 || s.appExecute || !s.opExecute ||
 			s.definerACL != acl31 || s.operatorSelect != "" ||
 			s.tickets != notValid(opKindCheckDef(opKindsAt31), ticketsNV) || s.ticketsValid == ticketsNV ||
-			s.kinds != notValid(opKindCheckDef(opAuditKinds), auditNV) || s.kindsValid == auditNV ||
+			s.kinds != notValid(opKindCheckDef(opAuditKinds31), auditNV) || s.kindsValid == auditNV ||
 			s.shape != notValid(opActorShapeDef(opAuthEventKinds), auditNV) || s.shapeValid == auditNV {
 			t.Errorf("%s: reads=%d begin is 00031's=%v record is 00031's=%v app=%v operator=%v acl=(%s) operator SELECT=(%s)\n tickets=%s (%v)\n kinds=%s (%v)\n shape=%s (%v)\n want 00031's state, tickets NOT VALID=%v, audit NOT VALID=%v",
 				when, s.reads, s.begin == body31, s.record == rec31, s.appExecute, s.opExecute, s.definerACL, s.operatorSelect,
@@ -800,7 +880,7 @@ func TestOperator00031_DownGivesBack00030AndUpTakesItAgain(t *testing.T) {
 		`ALTER TABLE operator_read_tickets DROP CONSTRAINT operator_read_tickets_kind_check`,
 		`ALTER TABLE operator_read_tickets ADD CONSTRAINT operator_read_tickets_kind_check CHECK (kind IN ('` + strings.Join(opKindsAt31, "', '") + `', 'zz_later_read'))`,
 		`ALTER TABLE operator_audit_log DROP CONSTRAINT operator_audit_log_kind_check`,
-		`ALTER TABLE operator_audit_log ADD CONSTRAINT operator_audit_log_kind_check CHECK (kind IN ('` + strings.Join(opAuditKinds, "', '") + `', 'zz_later_kind'))`,
+		`ALTER TABLE operator_audit_log ADD CONSTRAINT operator_audit_log_kind_check CHECK (kind IN ('` + strings.Join(opAuditKinds31, "', '") + `', 'zz_later_kind'))`,
 	} {
 		if _, err := sp.Exec(ctx, s); err != nil {
 			t.Fatalf("simulate a later migration's Up: %v", err)
@@ -812,7 +892,7 @@ func TestOperator00031_DownGivesBack00030AndUpTakesItAgain(t *testing.T) {
 		`ALTER TABLE operator_read_tickets DROP CONSTRAINT operator_read_tickets_kind_check`,
 		`ALTER TABLE operator_read_tickets ADD CONSTRAINT operator_read_tickets_kind_check CHECK (kind IN ('` + strings.Join(opKindsAt31, "', '") + `')) NOT VALID`,
 		`ALTER TABLE operator_audit_log DROP CONSTRAINT operator_audit_log_kind_check`,
-		`ALTER TABLE operator_audit_log ADD CONSTRAINT operator_audit_log_kind_check CHECK (kind IN ('` + strings.Join(opAuditKinds, "', '") + `')) NOT VALID`,
+		`ALTER TABLE operator_audit_log ADD CONSTRAINT operator_audit_log_kind_check CHECK (kind IN ('` + strings.Join(opAuditKinds31, "', '") + `')) NOT VALID`,
 	} {
 		if _, err := sp.Exec(ctx, s); err != nil {
 			t.Fatalf("simulate a later migration's Down: %v", err)
@@ -1071,11 +1151,15 @@ func TestOperator00031_CallersTempTableIsNeverRead(t *testing.T) {
 // TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree holds the four copies of the
 // audit kind set equal on the database (the fifth, the Go constants, is held to the same
 // list by TestOperatorAuditKinds_TheTypedConstantsAreTheList):
-//   - operator_audit_log_kind_check names exactly opAuditKinds, and actor_shape's pre-session
-//     arm exactly opAuthEventKinds;
-//   - OperatorAuditKinds() is opAuditKinds, in order;
+//   - operator_audit_log_kind_check names exactly opAuditKinds; actor_shape's three arms
+//     (00033) name exactly opAuthEventKinds (pre-session), opOwnerKinds (the owner's opadmin
+//     rows) and the two together (the session arm's exclusions);
+//   - OperatorAuditKinds() is opAuditKinds, in order, and OperatorAuditKind.ByOwner names
+//     exactly opOwnerKinds of it (and none of a short list outside it, among them an
+//     "operator_" kind no migration names);
 //   - op_record_auth_event, offered EVERY kind the CHECK names, writes a row for exactly
-//     opAuthEventKinds and refuses the session kinds (22023, no row);
+//     opAuthEventKinds and refuses every other kind -- the session kinds and, since 00033, the
+//     owner kinds: no function tappa_operator calls writes an owner row (22023, no row);
 //   - op_begin_read's 'operator_audit' first phase takes EVERY kind the CHECK names and the empty filter,
 //     and refuses a kind outside it;
 //   - op_read_audit reads {"filter": k} out of a filter row for EVERY kind the CHECK names and
@@ -1095,16 +1179,33 @@ func TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree(t *testing.T)
 	if !slices.Equal(schema, opAuditKinds) {
 		t.Errorf("operator_audit_log_kind_check names %v, want %v", schema, opAuditKinds)
 	}
+	// actor_shape's three arms (00033): the pre-session kinds, the owner kinds, and the session
+	// arm naming every kind of the first two as the kinds it is NOT for.
 	shape, _ := opConstraint(t, ctx, tx, "operator_audit_log", "operator_audit_log_actor_shape")
-	if arms := opQuotedArrays(shape); len(arms) != 2 || !slices.Equal(arms[0], opAuthEventKinds) || !slices.Equal(arms[1], opAuthEventKinds) {
-		t.Errorf("actor_shape's arms name %v, want %v twice", arms, opAuthEventKinds)
+	sessionless := append(slices.Clone(opAuthEventKinds), opOwnerKinds...)
+	if arms := opQuotedArrays(shape); len(arms) != 3 || !slices.Equal(arms[0], opAuthEventKinds) ||
+		!slices.Equal(arms[1], opOwnerKinds) || !slices.Equal(arms[2], sessionless) {
+		t.Errorf("actor_shape's arms name %v, want %v, %v and %v", arms, opAuthEventKinds, opOwnerKinds, sessionless)
 	}
-	var goList []string
+	var goList, goOwner []string
 	for _, k := range OperatorAuditKinds() {
 		goList = append(goList, string(k))
+		if k.ByOwner() {
+			goOwner = append(goOwner, string(k))
+		}
 	}
 	if !slices.Equal(goList, opAuditKinds) {
 		t.Errorf("OperatorAuditKinds() is %v, want %v", goList, opAuditKinds)
+	}
+	if !slices.Equal(goOwner, opOwnerKinds) {
+		t.Errorf("ByOwner names %v of OperatorAuditKinds(), want actor_shape's owner arm %v", goOwner, opOwnerKinds)
+	}
+	// "operator_enabled": a kind no migration names that LOOKS like the owner's (2nd round of the
+	// OP-14 D review: a ByOwner that answers by the "operator_" prefix stayed green here).
+	for _, k := range []OperatorAuditKind{"", "zz_not_a_kind", "Operator_created", "operator_enabled", "operator_", OperatorAuditPasswordOK, OperatorAuditLogin} {
+		if k.ByOwner() {
+			t.Errorf("ByOwner(%q) = true", k)
+		}
 	}
 
 	a := opNewActive(t, ctx, tx)
@@ -1714,6 +1815,10 @@ func TestOpRecordAuthEvent_AConstraintRefusalCarriesNoRow(t *testing.T) {
 //   - a filter returns that kind only, in the same order;
 //   - THE COUNTED LIMIT, measured: rows the OWNER writes dated after the viewer's -- it may
 //     write `at` -- head the page; with the three above, the viewer's new row is fourth.
+//     Since 00033 the owner writes `at` only with the wall-clock trigger disabled, as this
+//     test does (opOwnerDatesRows; ADR 0021 limit 5) -- with the trigger in place the same
+//     rows are dated by the clock and the viewer's row leads
+//     (TestOperator00033_TheRowsTimeIsTheWallClockWhoeverWritesIt).
 func TestOpReadAudit_NewestFirstAndTheViewersOwnRowLeads(t *testing.T) {
 	ctx, tx := opTx(t)
 	if n := opInt(t, ctx, tx, `SELECT count(*) FROM operator_audit_log WHERE at > clock_timestamp()`); n != 0 {
@@ -2116,6 +2221,7 @@ func TestOpReadAudit_PagesAreCappedOrderedAndBounded(t *testing.T) {
 	a := opNewActive(t, ctx, tx)
 	hash, session := opNewSession(t, ctx, tx, a.id, true)
 	xact := opCommittedXact(t, ctx)
+	opOwnerDatesRows(t, ctx, tx)
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO operator_audit_log (at, kind, target_admin_id)
 		SELECT $1::timestamptz + make_interval(secs => 2000 - g), 'locked', $2

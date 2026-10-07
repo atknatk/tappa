@@ -8689,6 +8689,413 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 >    okumalarıyla ve "OP-12 uygulama notu" L5'in B'ye devriyle aynı sınıf; bu kart davranışı
 >    değiştirmedi.
 
+> **OP-14D — opadmin eylemlerinin audit satırı (K14-2). Kart düzeltmesi (2026-10-07, uygulama
+> sırasında).** OP-9'un devri (README O9-1; OP-9 kart düzeltmesi md. 13 ve "Güvenlik 3"), OP-14 A
+> kart düzeltmesinin md. 18'i ve ADR 0021 "OP-14 uygulama notu" md. 7 / L2 / L11. Taban `5a7b289`
+> (dal ucu; 00032 ve OP-14 B commit'li). Migration **00033** (`db/migrations/00033_audit_opadmin_actions.sql`).
+> Yazıldı: `cmd/opadmin/main.go` (`auditRow`, üç tür sabiti, SQL başlığına bir cümle, PART I/II —
+> on dört pin), `internal/db/operator.go` (yalnız kendi OP-14 D bloğu: `OperatorAuditOperatorCreated`,
+> `OperatorAuditOperatorMFAReset`, `OperatorAuditOperatorDisabled`, `OperatorAuditKind.ByOwner`;
+> `operatorAuditKinds` dizisine üç ad), `internal/handler/operator/audit.go` (üç sözcük,
+> `AuditRow.ByOwner`'ı dolduran satır), `web/templates/operatorpages/view.go` (`AuditRow.ByOwner`),
+> `audit.templ` (bir dal) + `make gen` (`audit_templ.go`), ADR 0020 §5 (istisna ve zaman damgası
+> notları) ve §6 (OP-9 notu (e)), ADR 0021 (Durum satırı, OP-14 notu md. 7 / L2 / L11 kapanışları,
+> "OP-14 D uygulama notu", Sonuçlar), `deploy/README.md` (O9-1 runbook'u: "Audit satırı" maddesi,
+> O9-1 kapanışı ve kalanı). Yeni testler: `internal/db/operatorowneraudit_test.go`,
+> `cmd/opadmin/audit_test.go`, `cmd/opadmin/audit_db_test.go`, `internal/handler/operator/op14d_test.go`.
+> Güncellenen pinler md. 9. `go.mod`, `go.sum`, `sqlc.yaml` diff'i boş; `make gen`'in
+> `internal/store` diff'i 0.
+>
+> **İki aşamalı çalışma (paylaşılan dev Postgres):** Aşama 1 veritabanına DDL'siz yazıldı; yalnız
+> salt-okur sondalar (`BEGIN TRANSACTION READ ONLY … ROLLBACK`, `tappa_owner`; koşucu
+> `scratchpad/op14d/ro.sh` — DDL/DML/COMMIT/DO ile başlayan satırı olan dosyayı reddeder; rol
+> sondası `SET LOCAL SESSION AUTHORIZATION`). Aşama 2 (orkestratörün *"uygula"*sından sonra):
+> `goose up-by-one` → 33, DB testleri, Down/Up döngüsü, mutasyonlar — md. 11–17. **Dev DB son
+> durumda 33.** Orkestratörün dört kararı (2. aşamanın girişinde): `ByOwner` dalı kabul (marka
+> merceği md. 15); tetikleyici fonksiyonunun PUBLIC EXECUTE'u kalır, iki dayanağı ölçülür (md. 13);
+> CHECK'lerin ad sırası ölçülür (md. 14); işlem içi `DISABLE TRIGGER` yalnız geri alınan işlemde ve
+> danışma kilidi EXCLUSIVE tutulurken, süresi ölçülerek (md. 12).
+>
+> 1. **Türler (orkestratör kararı 1):** `operator_created`, `operator_mfa_reset`,
+>    `operator_disabled` — günlüğün bir hesap hakkındaki olgu kalıbı (`login_failed`,
+>    `enrollment_failed`). CHECK sırasında `legal_publish`'ten sonra. Oturumsuz, aktörsüz, hedefli.
+> 2. **`actor_shape`'in üçüncü kolu (C4):** sahip türleri + oturum yok + aktör yok + hedef hesap var +
+>    tenant/kapsam/sayfa yok + `detail = '{}'`. Oturum kolu dokuz türü dışlar. Kind CHECK'iyle
+>    birlikte, adları korunarak (00027/00031 deseni). Kol satırın **bütün** şeklidir: `detail`'e ad
+>    ya da adres yazan bir opadmin düzenlemesi şemada 23514'tür. ADR 0020 §5'in *"her audit satırı
+>    bir definer'dan gelir"* cümlesi adlı istisnasını aldı (gerekçe: yazı zaten sahibindir; bir
+>    definer `tappa_operator`'ın çağırabildiği bir *"sahip kapattı"* kapısı olurdu).
+> 3. **Yazıcı (karar 2):** satır, hesabın işini yapan aynı `DO` bloğunun iç bloğunda, hesabın son
+>    yazısından sonra ve kısıt yakalayıcısından önce:
+>    `INSERT INTO public.operator_audit_log (kind, target_admin_id) VALUES ('<tür>', '<id>'::uuid);`.
+>    İfade metninde yalnız tür ve id (id zaten oradaydı). COPY veri satırı, yedi ifadelik zarf,
+>    `NOTICE`, üretim zamanı korumaları ve A-B-A koruması değişmedi. İkinci `disable` ikinci satırı
+>    yazar (eylem uygulandı).
+> 4. **`at` (karar 3, C3) — iki katman:** sütun listesinde `at` yok (pinli) **ve** `BEFORE INSERT …
+>    FOR EACH ROW` tetikleyicisi `operator_audit_log_at_is_the_wall_clock` →
+>    `tappa_audit_at_is_the_wall_clock()` (sahibin fonksiyonu, INVOKER, `search_path` pinli, gövde
+>    koşulsuz `NEW.at := pg_catalog.clock_timestamp()`). Sahibi, `INSERT … SELECT`'i ve `COPY`'yi de
+>    bağlar — tablonun sahibi tetikleyiciyi kapatana, düşürene ya da fonksiyonunu değiştirene dek
+>    (sınır 5; LD2; *2. tur düzeltmesi: ilk yazım yalnız `DISABLE`'ı sayıyordu*). Append-only tetikleyicileriyle sıra: bu yalnız
+>    INSERT'te, onlar UPDATE/DELETE (satır) ve TRUNCATE'te (ifade) — hiçbir olayda ikisi birlikte
+>    ateşlenmez (salt-okur katalog ölçümü). Tanımlayıcının satırı anlamca değişmez. PUBLIC'in
+>    fonksiyondaki EXECUTE'u bırakıldı: şemadaki sekiz tetikleyici fonksiyonunun sekizi gibi (salt-okur
+>    ölçüm), ADR 0021 OP-14 D notu md. 4. ADR 0021 OP-14 notu md. 7 ve L2 kapandı.
+> 5. **Tür kümesinin kopyaları (karar 4):** CHECK (on dört), `op_begin_read`'in filtre listesi,
+>    `op_read_audit`'in filtre şekli, `OperatorAuditKinds` birlikte genişledi; `op_begin_read` ve
+>    `op_read_audit` `CREATE OR REPLACE` — 00032'nin gövdeleri + birer liste (diff −1 +2, −1 +3);
+>    `op_read_audit`'in şekil listesine satır gerekmedi (son satırı kapsamı NULL, `detail`'i `{}`
+>    satırı zaten tanır). Down iki gövdeyi 00032'ninkine bayt bayt döndürür (md. 10).
+> 6. **Görüntüleyici:** üç sözcük ve — orkestratörün listesinin dışında, gerekçesiyle —
+>    `AuditRow.ByOwner`: sahip satırı *"Before sign-in"* değil *"By the platform owner, with
+>    opadmin"* der (yalnız sözcükle satır *"Operator account created · Before sign-in"* okunurdu).
+>    Ekran sahip türünü `internal/db`'nin `ByOwner`'ından okur. Bedel: `view.go`'da bir `bool`,
+>    `audit.templ`'de bir dal; `app.css` değişmedi (yeni sınıf yok; derlenen 51 079 bayt).
+> 7. **Down (karar 5):** fonksiyonlar 00032'nin gövdeleri, tetikleyici ve fonksiyonu düşer, CHECK'ler
+>    00031'in kümelerine — 00031'in on bir türü dışında satır varsa ikisi birlikte `NOT VALID`; Up
+>    aynı soruyu on dört türle sorar. `REVOKE`/`GRANT`/`DISABLE TRIGGER` yok.
+> 8. **Ön koşul:** 00026'nın rol denetimleri ve 00032'nin izleri. 🔴 İlk yazımda R7 kırmızıydı:
+>    `pg_catalog.strpos(v_kinds, '''password_ok''')` satırını redline R7 *"catalog."* + `password`
+>    biçiminden bir log çağrısı sandı; `position(... IN ...)` ile yazıldı, R7 temiz.
+> 9. **Başka görevlerin testlerinde güncellemeler — neden (zayıflatılmadı):** (a) `opAuditKinds`
+>    HEAD'in on dördü; 00031'in on biri `opAuditKinds31` — `TestOperator00031_DownGivesBack00030AndUpTakesItAgain`
+>    (`opAtVersion` önce 00033'ün Down'ını koşar); (b) `TestOperator00031_TheFunctionsAndTheirExactSignatures`
+>    audit CHECK'leri için *"on biri tutan kapalı küme, ilk kolu altı"* (00030/00031 bilet pininin
+>    biçimi; HEAD'in tam metni `TestOperator00033_TheKindsTheShapeAndTheClock`'ta); (c)
+>    `TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree` üç kol, `ByOwner`; (d)
+>    `opLogInsert` sahibin tarihlediği satırdan önce tetikleyiciyi **testin geri alınan işleminde**
+>    kapatır (`opOwnerDatesRows`), `TestOpReadAudit_PagesAreCappedOrderedAndBounded` de — sıralı
+>    fikstürler ve `at` eşitliği başka türlü kurulamaz; `TestOpReadAudit_NewestFirstAndTheViewersOwnRowLeads`'in
+>    sayılı-sınır kolu artık tetikleyici kapalıyken ölçer (yorumu güncellendi); (e) `opAtVersion` 33'ün
+>    altına inerken sahip türlü satırları işlem içinde siler (biletlerin kuralının audit karşılığı;
+>    geliştirme veritabanında 0 satır, salt-okur ölçüm); (f) `TestAuditWords_NameEveryKindAndNothingElse`
+>    CONTROL 11 → 14, `TestAuditScreen_NoCredentialFieldReachesThePage` alan listesine `ByOwner`; (g)
+>    `TestApply_AFailureAnywhereLeavesNoRow` audit satırını sayar, pozitif kontrol betiğin işleminde
+>    `operator_created` satırını görür, ve **T94 kapandı**: rapor alt testi betiği veritabanı saatiyle
+>    üretir (`dbNow`); DB testlerinde makine saatiyle üretilen başka `create`/`reset-mfa` kalmadı
+>    (`disable`'ın üretim koruması yok).
+> 10. **Salt-okur ölçümler (Aşama 1, 2026-10-07, geliştirme veritabanı):** PostgreSQL 17.10, goose
+>     **32**, `tappa_owner` süper kullanıcı ve tablonun sahibi. Canlı `op_begin_read` 9311 karakter /
+>     9312 bayt, md5 `145175e6cf9f7988db5d1d71d72d872e`; canlı `op_read_audit` 5404, md5
+>     `649683c22c11347cfa211e786e6c169c` — ikisi de 00032 Up gövdesine ve 00033 Down gövdesine eşit.
+>     Audit CHECK'leri 00031'inki ve doğrulanmış (yedi CHECK). Tablonun iki tetikleyicisi
+>     (`append_only` `BEFORE DELETE OR UPDATE … FOR EACH ROW`, `no_truncate` `BEFORE TRUNCATE … FOR
+>     EACH STATEMENT`), `at` DEFAULT `clock_timestamp()`. `INSERT (at)`: sahip **evet**, tanımlayıcı
+>     (kimlik `SET LOCAL SESSION AUTHORIZATION tappa_opdefiner` ile) / `tappa_operator` / `tappa_app`
+>     hayır. Satırlar: 00031 kümesi dışında 0, üç sahip türünde 0, geleceğe tarihli 0, oturum öncesi
+>     olmayan oturumsuz 0; `password_ok` 16 (OP-14 C'nin commit ettikleri). Aday adlar boş (fonksiyon
+>     0, tetikleyici 0). Fonksiyonlar için varsayılan ACL yok. Tetikleyici fonksiyonlarının sekizi de
+>     `proacl` boş (PUBLIC EXECUTE), `search_path` pinli, INVOKER.
+>
+> **Sayılı sınırlar:** ADR 0021 "OP-14 D uygulama notu" **LD1–LD11** (sahip satırı insanı adlandırmaz;
+> sahip satırı betikten silebilir, tarihi ise tetikleyiciyi kapatarak, düşürerek ya da fonksiyonunu
+> değiştirerek — sahiplik ister, süper kullanıcılık değil — ya da süper kullanıcının
+> `session_replication_role = replica` oturumuyla seçebilir (belgeden, ölçülmedi); tanımlayıcının INSERT
+> sütunları bir sahip satırına yeter — hiçbir `op_*` yazmaz, katalog pini; Up'ın `NOT VALID` sorusu
+> türdür; 00033'ten önceki eylemlerin satırı yok; 00033'süz veritabanında yeni betik
+> `operator_audit_log_actor_shape` ile reddedilir; L9'un sınıfı; ekran sahip satırını türünden tanır —
+> önekten değil; **2. tur:** opadmin'in yarattığı hesap artık silinemez (LD9, ölçüldü: 23503);
+> `pg-restore-verify.sh` tetikleyiciyi denetlemez (LD10); **3. tur:** eski bir opadmin 00033'teki veritabanında izsiz çalışır (LD11)).
+>
+> **Güvenlik iddiası** ADR 0021 → "OP-14 D uygulama notu" sonunda üç parçalı (tehdit modeli cümlesi,
+> PART I ölçüm + test adı, PART II adlı pinler, PART III). opadmin'in kendi PART I/II'si
+> `cmd/opadmin/main.go` başlığında (on dördüncü pin `TestSQL_EachActionWritesOneAuditRowInItsDoBlock`).
+>
+> **Runbook (README O9-1) — uygulama adımları DEĞİŞMEDİ; Doğrula adımına bir sorgu eklendi (3.
+> tur):** komutlar, psql çağrısı ve beklenen çıktı (`BEGIN · SET · SET · CREATE TABLE · COPY 1 ·
+> NOTICE … · DO · COMMIT`) aynı. Eklenen: "Audit satırı" maddesi ve bir **sıra** notu — betik
+> veritabanının 00033'te olmasını ister (deploy'un migrate Job'u uygular); 00033'süz veritabanında
+> `refused by constraint operator_audit_log_actor_shape (SQLSTATE 23514). Nothing was changed.`
+> (ölçen: `TestOperator00033_DownGivesBack00032AndUpTakesItAgain`). **3. tur:** Doğrula'nın
+> heredoc'una ikinci bir `SELECT` — her hesabın son sahip satırı (`id|kind|at|seconds_ago`) — ve
+> *"00033'ten sonra yalnız bu commit'in ya da sonrasının opadmin'i kullanılır; eski bir betik iz
+> bırakmaz"* notu (ölçen: `TestRunbook_TheVerifyQueryShowsEachActionsRow`). Kullanıcıya
+> bildirilecekler: bu sıra (`main`'e birleştirme ve deploy'dan önce bu dalın opadmin'i canlıya
+> uygulanmamalı), eski opadmin'in kullanılmaması ve Doğrula'daki yeni sorgu.
+>
+> **Kabul — karşılıkları:** üç eylem birer satır (`TestAudit_EachActionLeavesExactlyOneRowAndARefusalNone`);
+> düşen eylem satırsız (`TestApply_AFailureAnywhereLeavesNoRow`); sahibin `at`'i geçmişe/geleceğe
+> yazma denemesi ezilir (`TestOperator00033_TheRowsTimeIsTheWallClockWhoeverWritesIt`); `actor_shape`
+> üç kol ve tür kümesi pinleri (`TestOperator00033_TheKindsTheShapeAndTheClock`,
+> `TestOperator00033_TheOwnerArmIsExactlyAnAccountAndNothingElse`,
+> `TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree`,
+> `TestOperatorAuditKinds_TheTypedConstantsAreTheList`); okuma (`TestOpReadAudit_TheOwnersRowsReadAsTheirKindAndAccount`);
+> görüntüleyici sözlüğü ve katalog E2E'si (`TestAuditWords_NameEveryKindAndNothingElse`,
+> `TestAuditScreen_TheOwnersRowsNameTheOwner`, `TestE2E_AuditWordsCoverEveryScopeAndSearchClassTheDatabaseReturns`);
+> Down/Up (`TestOperator00033_DownGivesBack00032AndUpTakesItAgain` + Aşama 2'nin goose döngüsü); ön koşul
+> (`TestOperator00033_PreconditionRefusesAWrongCluster`); opadmin'in pinleri
+> (`TestSQL_EachActionWritesOneAuditRowInItsDoBlock` ve OP-9'un on üçü); tetikleyici fonksiyonunun
+> doğrudan çağrısı ve EXECUTE'suz ateşlenmesi (`TestOperator00033_TheClockFunctionRunsOnlyAsItsTrigger`).
+> Hepsi Aşama 2'de, veritabanı 33'teyken `.env`'li `-race` ile yeşil (md. 16).
+>
+> **DB'siz zincir (Aşama 1, worktree ve `scratchpad/op14d/tree` — `.git`'siz, `app.css` Tailwind
+> CLI ile derlendi):** `gofmt -s -l` boş; `go build ./...`, `go vet ./...` 0; staticcheck 2025.1.1
+> (`GOTOOLCHAIN=go1.26.7`) 0 — yerel go 1.27.1 ile aracın kendisi koşamıyor (export data sürümü);
+> `make gen` idempotent, `templ fmt` değişiklik 0; redline worktree'de 0 (md. 8'in düzeltmesinden
+> sonra); `go test -count=1 ./...` kopyada 30 paket ok, kırmızılar: T72
+> (`TestRotateScript_AccountsForEveryGoToolchainVariable`) ve kopyanın `.git`'sizliği
+> (`TestPackaging_TheArtifactKnowsWhatItWasBuiltFrom`, `TestArtifact_SaysWhatItIsEVENWhenTheBootFails`
+> — worktree'de yeşil); `-race` `cmd/opadmin`, `internal/db`, `internal/handler/operator` ok;
+> `TestEveryNamedTestExists` 60 canlı / 60 bütçe; `TestTablesLock_IsTakenOncePerTestTree` yeşil.
+>
+> **Mutasyonlar — `scratchpad/op14d/verify_round1.py`** (yalnız `op14d-orch` yollu kopya; yolunda
+> `op14d-orch` geçmeyen ya da worktree ile örtüşen kopya reddedilir; kontroller önce koşar ve YEŞİL
+> olmak zorunda; her çapa tam bir kez (`--check-anchors`: 42 vakanın bütün çapaları tam bir kez);
+> derlenmeyen BUILD-FAILED, uygulanamayan kanca APPLY-FAILED sayılır; her dosya sha256 ile geri
+> yazılır; SQL mutantları testin kendi geri alınan işleminde `opTx`'e geçici kancayla, goose döngüsü
+> yok; opadmin'in üst düzeyde uygulayan iki testi yalnız kontrolde koşar — hiçbir mutant bir
+> betiğin kendi COMMIT'inin paylaşılan veritabanına ulaşabileceği yerde koşmaz; veritabanı önce =
+> sonra: dört gövdenin md5'i, audit CHECK'leri, tetikleyicilerin durumu, sahip satırı sayısı,
+> geleceğe tarihli satır sayısı, tanımlayıcının ACL'i, goose). **42 adlı mutasyon** + 2 kontrol.
+>
+> **Aşama 1'de koşulan DB'siz yarı (`--nodb`: `.env` yok, veritabanı sondası yok, her vakanın
+> yalnız DB'siz testleri; SQL/dosya vakaları atlanır):** kontrol YEŞİL; **17'nin 17'si KIRMIZI**,
+> BUILD-FAILED 0, NOT-APPLIED 0, her geri yazma doğrulandı (kayıt `op14d-orch/verify_round1_nodb.json`):
+>
+> | # | Mutasyon | Kırmızıya çeviren (DB'siz) |
+> |---|---|---|
+> | O1 | opadmin: `at` sütun listesinde | `TestSQL_EachActionWritesOneAuditRowInItsDoBlock` |
+> | O2 | opadmin: `create` satırı `DO` bloğunun dışında | `TestSQL_EachActionWritesOneAuditRowInItsDoBlock`, `TestSQL_IsOneTransactionAroundOneDoBlock` |
+> | O3 | opadmin: `create` satırı hesabın yazısından önce | `TestSQL_EachActionWritesOneAuditRowInItsDoBlock` |
+> | O4 | opadmin: `create` başka tür yazar | `TestSQL_EachActionWritesOneAuditRowInItsDoBlock` |
+> | O5 | opadmin: `detail`'de adres | `TestSQL_EachActionWritesOneAuditRowInItsDoBlock` |
+> | O6 | opadmin: `create`'in `detail`'inde ad | `TestSQL_EachActionWritesOneAuditRowInItsDoBlock` |
+> | O7 | opadmin: reset türü yanlış yazılmış | `TestSQL_EachActionWritesOneAuditRowInItsDoBlock` |
+> | O8 | opadmin: `disable` satır yazmaz | `TestSQL_EachActionWritesOneAuditRowInItsDoBlock` |
+> | O9 | OP-9 pini: `maxEmailBytes` 255 | `TestRun_AcceptsTheBoundaries` |
+> | O10 | OP-9 pini: `reset-mfa` `FOR UPDATE`'siz | `TestSQL_ResetRechecksUnderTheRowLock` |
+> | O11 | OP-9 pini: `enrollTTL` 31 dk | `TestSQL_ThirtyMinutesFromOneDatabaseClockRead` |
+> | H1 | sözlükte `operator_disabled` yok | `TestAuditWords_NameEveryKindAndNothingElse`, `TestAuditScreen_TheOwnersRowsNameTheOwner` |
+> | H2 | sahip etiketi hiç | `TestAuditScreen_TheOwnersRowsNameTheOwner` |
+> | H3 | sahip etiketi her aktörsüz satırda | `TestAuditScreen_TheOwnersRowsNameTheOwner` |
+> | H4 | sahip türü başka türün sözcüğünü paylaşır | `TestAuditWords_NameEveryKindAndNothingElse`, `TestAuditScreen_TheOwnersRowsNameTheOwner` |
+> | G1 | `OperatorAuditKinds` `operator_mfa_reset`'siz | `TestOperatorAuditKinds_TheTypedConstantsAreTheList`, `TestAuditWords_NameEveryKindAndNothingElse`, `TestSQL_EachActionWritesOneAuditRowInItsDoBlock` |
+> | G2 | `ByOwner` `password_ok`'u da adlandırır | `TestSQL_EachActionWritesOneAuditRowInItsDoBlock`, `TestAuditScreen_TheOwnersRowsNameTheOwner` |
+>
+> **Aşama 2 — bütün koşu (veritabanı 33'teyken; betiğin ilk denemesi veritabanı sondasının bir
+> tip hatasında (`text || "char"`, psql çıkış 3) hiçbir vaka koşmadan durdu; sonda düzeltilip yeniden
+> koşuldu):** iki kontrol YEŞİL; **42 adlı mutasyonun 42'si KIRMIZI**; BUILD-FAILED 0, APPLY-FAILED 0,
+> NOT-APPLIED 0; her geri yazma doğrulandı; veritabanı önce = sonra (dört gövdenin md5'i, audit
+> CHECK'leri, üç tetikleyicinin durumu, sahip satırı 0, geleceğe tarihli satır 0, tanımlayıcının ACL'i,
+> goose 33). Kayıt `op14d-orch/verify_round1.json`.
+>
+> | # | Mutasyon | Yol | İstenen | Sonuç — kırmızıya çeviren |
+> |---|---|---|---|---|
+> | CTL-file | the copy unchanged | — | GREEN | GREEN |
+> | CTL-hook | the hook re-creates op_begin_read, op_read_audit and the trigger function unchanged | — | GREEN | GREEN |
+> | T1 | no trigger (dropped) | SQL, işlem içinde (kanca) | RED | RED — `TestOperator00033_DownGivesBack00032AndUpTakesItAgain`, `TestOperator00033_TheKindsTheShapeAndTheClock`, `TestOperator00033_TheRowsTimeIsTheWallClockWhoeverWritesIt` |
+> | T2 | the trigger fills a NULL at only | SQL, işlem içinde (kanca) | RED | RED — `TestOperator00033_TheKindsTheShapeAndTheClock`, `TestOperator00033_TheRowsTimeIsTheWallClockWhoeverWritesIt` |
+> | T3 | the trigger stamps now() (the transaction's start) | SQL, işlem içinde (kanca) | RED | RED — `TestOperator00033_TheKindsTheShapeAndTheClock`, `TestOperator00033_TheRowsTimeIsTheWallClockWhoeverWritesIt` |
+> | T4 | the trigger disabled | SQL, işlem içinde (kanca) | RED | RED — `TestOperator00033_TheKindsTheShapeAndTheClock`, `TestOperator00033_TheRowsTimeIsTheWallClockWhoeverWritesIt` |
+> | T5 | the trigger function SECURITY DEFINER | SQL, işlem içinde (kanca) | RED | RED — `TestOperator00026_ReverseCatalogPin`, `TestOperator00033_TheKindsTheShapeAndTheClock` |
+> | S1 | third arm loose: any detail | SQL, işlem içinde (kanca) | RED | RED — `TestOperator00033_TheKindsTheShapeAndTheClock`, `TestOperator00033_TheOwnerArmIsExactlyAnAccountAndNothingElse` |
+> | S2 | third arm loose: no account required | SQL, işlem içinde (kanca) | RED | RED — `TestOperator00033_TheKindsTheShapeAndTheClock`, `TestOperator00033_TheOwnerArmIsExactlyAnAccountAndNothingElse` |
+> | S3 | third arm loose: a session allowed | SQL, işlem içinde (kanca) | RED | RED — `TestOperator00033_TheKindsTheShapeAndTheClock`, `TestOperator00033_TheOwnerArmIsExactlyAnAccountAndNothingElse` |
+> | S4 | owner kinds in the pre-session arm (no third arm) | SQL, işlem içinde (kanca) | RED | RED — `TestOperator00033_TheKindsTheShapeAndTheClock`, `TestOperator00033_TheOwnerArmIsExactlyAnAccountAndNothingElse`, `TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree` |
+> | K1 | the kind CHECK without operator_disabled | SQL, işlem içinde (kanca) | RED | RED — `TestOpReadAudit_TheOwnersRowsReadAsTheirKindAndAccount`, `TestOperator00033_TheKindsTheShapeAndTheClock`, `TestOperator00033_TheOwnerArmIsExactlyAnAccountAndNothingElse`, `TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree` |
+> | B1 | op_begin_read's filter list without operator_mfa_reset | SQL, işlem içinde (kanca) | RED | RED — `TestOpReadAudit_TheOwnersRowsReadAsTheirKindAndAccount`, `TestOperator00033_TheKindsTheShapeAndTheClock`, `TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree` |
+> | B2 | op_read_audit's filter shape without operator_created | SQL, işlem içinde (kanca) | RED | RED — `TestOpReadAudit_TheOwnersRowsReadAsTheirKindAndAccount`, `TestOperator00033_TheKindsTheShapeAndTheClock`, `TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree` |
+> | R1 | op_record_auth_event takes the owner kinds (a definer door) | SQL, işlem içinde (kanca) | RED | RED — `TestOperator00033_TheOwnerArmIsExactlyAnAccountAndNothingElse`, `TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree` |
+> | A1 | the definer granted INSERT (at) | SQL, işlem içinde (kanca) | RED | RED — `TestOperator00026_PrivilegeMatrix`, `TestOperator00031_TheDefinerReadsTheLogAndTheOperatorDoesNot`, `TestOperator00033_TheKindsTheShapeAndTheClock` |
+> | A2 | tappa_operator granted INSERT (kind, target_admin_id) | SQL, işlem içinde (kanca) | RED | RED — `TestOperator00026_PrivilegeMatrix`, `TestOperator00031_TheDefinerReadsTheLogAndTheOperatorDoesNot` |
+> | D1 | Down: op_begin_read keeps an owner kind (not 00032's body) | dosya, işlem içinde | RED | RED — `TestOperator00033_DownGivesBack00032AndUpTakesItAgain` |
+> | D2 | Down: op_read_audit keeps an owner kind (not 00032's body) | dosya, işlem içinde | RED | RED — `TestOperator00033_DownGivesBack00032AndUpTakesItAgain` |
+> | D3 | Down: the audit CHECKs always NOT VALID | dosya, işlem içinde | RED | RED — `TestOperator00033_DownGivesBack00032AndUpTakesItAgain` |
+> | D4 | Down: the audit CHECKs never NOT VALID | dosya, işlem içinde | RED | RED — `TestOperator00033_DownGivesBack00032AndUpTakesItAgain` |
+> | D5 | Down: the trigger and its function not dropped | dosya, işlem içinde | RED | RED — `TestOperator00033_DownGivesBack00032AndUpTakesItAgain` |
+> | D6 | Down: the condition names the owner kinds as known | dosya, işlem içinde | RED | RED — `TestOperator00033_DownGivesBack00032AndUpTakesItAgain` |
+> | D7 | Up: the audit CHECKs always validated (no NOT VALID branch) | dosya, işlem içinde | RED | RED — `TestOperator00033_DownGivesBack00032AndUpTakesItAgain` |
+> | P1 | precondition: 00031's password_ok not checked | dosya, işlem içinde | RED | RED — `TestOperator00033_PreconditionRefusesAWrongCluster` |
+> | P2 | precondition: 'tappa_operator has members' check removed | dosya, işlem içinde | RED | RED — `TestOperator00033_PreconditionRefusesAWrongCluster` |
+> | P3 | precondition: 00032's read not checked | dosya, işlem içinde | RED | RED — `TestOperator00033_PreconditionRefusesAWrongCluster` |
+> | O1 | opadmin: at in the column list | Go (opadmin) | RED | RED — `TestSQL_EachActionWritesOneAuditRowInItsDoBlock` |
+> | O2 | opadmin: the create row outside the DO block | Go (opadmin) | RED | RED — `TestAudit_EachActionLeavesExactlyOneRowAndARefusalNone`, `TestCreate_TheLinkEnrollsTheAccount`, `TestSQL_EachActionWritesOneAuditRowInItsDoBlock`, `TestSQL_IsOneTransactionAroundOneDoBlock` |
+> | O3 | opadmin: the create row before the account's write | Go (opadmin) | RED | RED — `TestAudit_EachActionLeavesExactlyOneRowAndARefusalNone`, `TestCreate_TheLinkEnrollsTheAccount`, `TestSQL_EachActionWritesOneAuditRowInItsDoBlock` |
+> | O4 | opadmin: create writes another kind | Go (opadmin) | RED | RED — `TestAudit_EachActionLeavesExactlyOneRowAndARefusalNone`, `TestSQL_EachActionWritesOneAuditRowInItsDoBlock` |
+> | O5 | opadmin: the address in detail | Go (opadmin) | RED | RED — `TestAudit_EachActionLeavesExactlyOneRowAndARefusalNone`, `TestCreate_TheLinkEnrollsTheAccount`, `TestDisable_EndsSessionsAndSignIn`, `TestSQL_EachActionWritesOneAuditRowInItsDoBlock` |
+> | O6 | opadmin: the display name in create's detail | Go (opadmin) | RED | RED — `TestAudit_EachActionLeavesExactlyOneRowAndARefusalNone`, `TestCreate_TheLinkEnrollsTheAccount`, `TestSQL_EachActionWritesOneAuditRowInItsDoBlock` |
+> | O7 | opadmin: the reset kind misspelled | Go (opadmin) | RED | RED — `TestAudit_EachActionLeavesExactlyOneRowAndARefusalNone`, `TestResetMFA_KillsTheOldSessionsAndIssuesANewLink`, `TestSQL_EachActionWritesOneAuditRowInItsDoBlock` |
+> | O8 | opadmin: disable writes no row | Go (opadmin) | RED | RED — `TestAudit_EachActionLeavesExactlyOneRowAndARefusalNone`, `TestSQL_EachActionWritesOneAuditRowInItsDoBlock` |
+> | O9 | opadmin pin (OP-9): maxEmailBytes 255 | Go (opadmin) | RED | RED — `TestRun_AcceptsTheBoundaries` |
+> | O10 | opadmin pin (OP-9): reset-mfa without FOR UPDATE | Go (opadmin) | RED | RED — `TestSQL_ResetRechecksUnderTheRowLock` |
+> | O11 | opadmin pin (OP-9): enrollTTL 31 minutes | Go (opadmin) | RED | RED — `TestSQL_ThirtyMinutesFromOneDatabaseClockRead` |
+> | H1 | the screen's words miss operator_disabled | Go (ekran) | RED | RED — `TestAuditScreen_TheOwnersRowsNameTheOwner`, `TestAuditWords_NameEveryKindAndNothingElse`, `TestE2E_AuditWordsCoverEveryScopeAndSearchClassTheDatabaseReturns` |
+> | H2 | the owner label never set | Go (ekran) | RED | RED — `TestAuditScreen_TheOwnersRowsNameTheOwner` |
+> | H3 | the owner label on every actorless row | Go (ekran) | RED | RED — `TestAuditScreen_TheOwnersRowsNameTheOwner` |
+> | H4 | an owner kind shares another kind's word | Go (ekran) | RED | RED — `TestAuditScreen_TheOwnersRowsNameTheOwner`, `TestAuditWords_NameEveryKindAndNothingElse` |
+> | G1 | OperatorAuditKinds misses operator_mfa_reset | Go (internal/db) | RED | RED — `TestAuditWords_NameEveryKindAndNothingElse`, `TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree`, `TestOperatorAuditKinds_TheTypedConstantsAreTheList`, `TestSQL_EachActionWritesOneAuditRowInItsDoBlock` |
+> | G2 | ByOwner names password_ok too | Go (internal/db) | RED | RED — `TestAuditScreen_TheOwnersRowsNameTheOwner`, `TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree`, `TestSQL_EachActionWritesOneAuditRowInItsDoBlock` |
+>
+> Notlar: **A2** (`tappa_operator`'a `INSERT (kind, target_admin_id)`) `TestOperator00033_TheOwnerArmIsExactlyAnAccountAndNothingElse`'i
+> kırmızıya çevirmedi — tablonun FORCE RLS'i `tappa_operator`'ın INSERT'ini politikasızlıktan yine
+> 42501 ile reddeder (ikinci bariyer, ölçüldü); kırmızıyı iki yetki pini verdi. **R1**, `op_record_auth_event`
+> sahip türlerini kabul edince sahip satırını basabilen bir definer kapısının ölçümüdür (LD3'ün tersi).
+>
+> 11. **Goose döngüsü (2026-10-07):** `pg_dump --schema-only` (`\restrict`/`\unrestrict` ayıklanarak),
+>     sha256 ilk 16 hane: v32 `20b156a752860d78` (OP-12 A'nın v32'si) → `up-by-one` (71 ms) → v33
+>     `d5366ec2e11ea354` → `down` → v32 `20b156a752860d78` → `up-by-one` → v33 `d5366ec2e11ea354`.
+>     `scratchpad/op14d/goose_step.sh` beklenen sürümde değilse reddeder; sürüm her adımdan önce ve
+>     sonra ölçüldü; 32'de kalınan pencere ≈11 sn. Down'dan önce sahip satırı 0. v32 ↔ v33 dökümünün
+>     farkı (35 satır): iki liste, iki CHECK, fonksiyon, tetikleyici — yetki satırı yok. Canlı gövdelerin
+>     md5'i (`8c7ce71f…`, `f1a46beb…`) 00033 Up'ınkine eşit.
+> 12. **İşlem içi `DISABLE TRIGGER` (orkestratörün koşulu):** `opOwnerDatesRows` ve `opAtVersion`'ın
+>     silme dalı danışma kilidini bu oturumun EXCLUSIVE tuttuğunu `pg_locks`'tan doğrular, aksi hâlde
+>     testi düşürür (`opMustHoldTheTablesLockExclusive`). **Ölçüldü:** `DISABLE TRIGGER` tabloda
+>     `ShareRowExclusiveLock` alır — ACCESS EXCLUSIVE değil; oturumun önceden tuttuğu `AccessShare`/
+>     `RowShare`/`RowExclusive` dışındaki tek yeni kip — ve başka bir oturumun INSERT'i ona takılır (300
+>     ms `lock_timeout` → 55P03; o oturumun işlemi geri alındı). Kilit geri almaya kadar tutulur; tam
+>     `internal/db -race` koşusunda altı olayda **69–218 ms** (`OP14D-LOCK` log satırı).
+> 13. **Tetikleyici fonksiyonunun PUBLIC EXECUTE'u (karar 2) — iki dayanak ölçüldü**
+>     (`TestOperator00033_TheClockFunctionRunsOnlyAsItsTrigger`): doğrudan çağrı sahip, `tappa_app`,
+>     `tappa_operator` ve tanımlayıcı için `0A000` *"trigger functions can only be called as
+>     triggers"*; EXECUTE PUBLIC'ten geri alınınca tanımlayıcının doğrudan çağrısı 42501, ama
+>     `op_record_auth_event`'in (tanımlayıcı olarak koşan) INSERT'i tetikleyiciyi yine ateşler — aynı
+>     savepoint'te işaret tarih basan gövde satırda o tarihi bıraktı; kontrol: savepoint'ten sonra saat.
+> 14. **CHECK'lerin ad sırası (karar 3) — ölçüldü** (`TestOperator00033_TheOwnerArmIsExactlyAnAccountAndNothingElse`):
+>     hem `actor_shape`'i hem tür CHECK'ini bozan satır `operator_audit_log_actor_shape`, hem tür
+>     CHECK'ini hem `target_scope`'unkini bozan satır `operator_audit_log_kind_check` adıyla döner; 00032'ye
+>     dönülmüş veritabanında opadmin'in INSERT'i `operator_audit_log_actor_shape` ile 23514
+>     (`TestOperator00033_DownGivesBack00032AndUpTakesItAgain`) — README'nin sıra notu buna dayanır.
+> 15. **Marka merceği (`ByOwner` dalı):** yeni metin `text-sm` (var olan sınıf) — ink/paper **16,17:1**
+>     (`TestAuditScreen_TheTextClearsAA`'nın logu, yeşil); `app.css` tabanla **bayt-aynı** (taban `5a7b289`
+>     ve bu değişiklik, aynı Tailwind CLI: ikisi de 51 079 bayt, sha256 `bfeef499c402b933…`); şablon,
+>     `view.go` ve `audit.go` yorumlarında utility sınıf adı yok.
+> 16. **Testler (`.env`'li `-race`, veritabanı 33):** `internal/db` **350 PASS, 1 FAIL** —
+>     `TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain` (*"00027 Up again: … operator_audit_log_kind_check
+>     … 23514"*), L9: 00027'nin Down'ı 33'ün üstünde temiz koştu, yeniden Up'ı 32'deki gibi geliştirme
+>     veritabanındaki `password_ok` satırları yüzünden düşüyor; sahip satırı yok, 00033'ün payı yok.
+>     `cmd/opadmin` **44 PASS**; `internal/handler/operator` **108 PASS** (`app.css`'li kopyada);
+>     `internal/operatorauth` **50 PASS**; 0 yarış. `make test`'in komutu (`go test -race -count=1
+>     ./...`, kopyada, paylaşılan veritabanında başka ajanların testleri de koşarken): 28 paket ok,
+>     kırmızılar 00033'ün değil — T72, L9, kopyanın `.git`'sizliği (`TestPackaging_TheArtifactKnowsWhatItWasBuiltFrom`,
+>     `TestArtifact_ServesFromAnEmptyWorkingDirectory`, `TestArtifact_SaysWhatItIsEVENWhenTheBootFails`
+>     — worktree'de üçü yeşil) ve `TestResetOutboxDB_AFullOutboxFitsTheWriteReserve` (1 sn'lik
+>     bütçe, yük altında; tek başına `-race` ile yeşil, 0,75 sn).
+> 17. **Commit eden testlerin bıraktıkları:** bu kartın yeni ve değişen testleri **hiçbir satır commit
+>     etmez** (hepsi geri alınan işlemde); aşama boyunca sahip türlü satır **0**, geleceğe tarihli satır
+>     **0** kaldı (salt-okur sayım, üç an). Paylaşılan veritabanında aynı pencerede başka ajanlar da koştu
+>     (ör. `password_ok` 20 → 21: tabanın kodunda bu türün yazıcısı yok, OP-14 C'nindir), bu yüzden
+>     tür başına artış testlere atfedilemez; pencere toplamları (10:00:13 → 10:39:15 UTC, veritabanı
+>     saati): audit +306 — `read` +204 (`legal_versions` 15, `operator_audit` 31, `tenant_billing` 86,
+>     `tenant_detail` 28, `tenant_plaques` 17, `tenants` 27 — `tenant_billing`'in çoğu OP-12 B'nin
+>     paralel koşusu), `login` +36, `logout` +28, `legal_publish` +6, `enrollment` +2, `totp_failed` +21,
+>     `unknown_email` +8, `password_ok` +1; hesap `active` +5, `disabled` +77; oturum +177 (iptal +172);
+>     bilet 0 → 0; `tenants` +1121.
+>
+> **2. tur (2026-10-07, üçüncü gözün ONAY'ı ve altı DÜŞÜK bulgusu — YALNIZ TEST + METİN).** Migration
+> SQL'i, Go ürün kodu (`cmd/opadmin/main.go`, `internal/db/operator.go`, `internal/handler/operator/audit.go`,
+> şablonlar) ve opadmin üreticisi değişmedi; DDL yok; geliştirme veritabanı 33'te kaldı.
+>
+> 18. **Bulgu 1 — yorum ölçülmeyeni iddia ediyordu:** `TestApply_AFailureAnywhereLeavesNoRow`'un
+>     reset-mfa alt testi artık hesabın sahip satırlarını (üç sahip türünün hepsi ve `operator_mfa_reset`)
+>     hatadan önce ve sonra sayar ve eşit ister (öncül: hesabın tek `operator_created`'ı); hata iki
+>     yerde enjekte edilir — iki UPDATE arasında (audit satırından önce) ve iç bloktan sonra (audit
+>     satırı yazıldıktan sonra); kontrol: bozulmamış betik geri alınan bir savepoint'te sayıyı bir
+>     artırır. **İtiraz, ölçümle:** audit INSERT'ünü enjeksiyon noktasından önceye taşıyan mutasyon
+>     (M1a; M1b: iç bloğun ilk ifadesi) bu sayımı **kırmızıya çevirmez** — `DO` bloğu tek ifadedir ve
+>     `applyInTx` savepoint'i geri alır; sayım bloğun **atomikliğini** ölçer, satırın **yerini** değil.
+>     Yeri tutan pin `TestSQL_EachActionWritesOneAuditRowInItsDoBlock`'tur ve iki mutasyonda da
+>     KIRMIZI (*"the audit row is not between the account's last write and the inner block's constraint
+>     handler"*). Testin yorumu bunu söyler.
+> 19. **Bulgu 2 — "yalnız DISABLE":** sahibin tarih seçme yolları şu yerlerde tamamlandı — ADR 0021
+>     md. 4 ve LD2, ADR 0020'nin zaman damgası notu, README O9-1, migration'ın başlığı ve 2. bölümün
+>     yorumu: kapatma, düşürme, fonksiyonu `CREATE OR REPLACE` ile değiştirme — **sahiplik** ister,
+>     süper kullanıcılık değil (PostgreSQL belgesi) — ve süper kullanıcının `session_replication_role =
+>     replica` oturumu (belgeden; **ölçülmedi**, yasak). Migration dosyasındaki değişiklik yalnız
+>     yorumdur: yorumlar ayıklanınca dosya bayt bayt aynı (`comments_only.py`: on satır, hepsi tam yorum
+>     satırı); uygulanmış sürüm yeniden koşturulmadı.
+> 20. **Bulgu 3 — `ByOwner`'ın negatif listesi dardı:** `TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree`'nin
+>     listesine `operator_enabled` ve `operator_`; `TestAuditScreen_TheOwnersRowsNameTheOwner`'a bir
+>     `operator_enabled` satırı (ham metni ve *"Unrecognised"* çipiyle, sahibin değil). E17 artık iki
+>     testte KIRMIZI; 1. turun test sürümlerine karşı YEŞİL (üçüncü gözün ölçümü yeniden üretildi).
+> 21. **Bulgu 4 — yeni sayılı sınır LD9:** opadmin'in yarattığı hesap artık silinemez. Ölçüldü
+>     (`TestAudit_EachActionLeavesExactlyOneRowAndARefusalNone`): yaratılan, hiç kaydolmamış hesabın sahip
+>     `DELETE`'i 23503 `operator_audit_log_target_admin_id_fkey`; kontrol: hiçbir satırın adlandırmadığı
+>     hesap silinir; ve devre dışı hesabın adresiyle yeni `create` `platform_admins_email_key` ile
+>     reddedilir, sahip satırı bırakmaz — yanlış girilen yalnız ad idiyse o adres yeni bir hesaba
+>     verilemez. README O9-1'e iki cümle: düzeltme yolu `disable` + doğru adresle yeni `create`.
+> 22. **Bulgu 5:** ADR 0021 OP-14 D notu md. 7'nin atfı *"OP-13 notunun L11'i"*.
+> 23. **Bulgu 6:** `scripts/pg-restore-verify.sh` dokunulmadı; LD10 olarak sayıldı.
+>
+> **Mutasyonlar — `scratchpad/op14d/verify_round2.py`** (yalnız `op14d-orch` yollu kopya; yalnız Go
+> kaynak düzenlemesi, kanca ve DDL yok; mutasyonlu reset-mfa betiği yalnız alt testin
+> (`-run '^TestApply_AFailureAnywhereLeavesNoRow$/^reset-mfa'`) geri alınan işleminde uygulanır, üst
+> düzeyde uygulayan `create` alt testleri mutantla koşmaz; her çapa tam bir kez; her dosya sha256 ile
+> geri yazıldı; veritabanı önce = sonra — dört gövdenin md5'i, audit CHECK'leri, üç tetikleyici `O`,
+> sahip satırı 0, geleceğe tarihli 0, tanımlayıcının ACL'i, goose 33). Kayıt `op14d-orch/verify_round2.json`.
+>
+> | # | Mutasyon / kontrol | Test | İstenen | Sonuç |
+> |---|---|---|---|---|
+> | CTL-file | kopya değişmemiş | reset-mfa alt testi; `TestApply_AFailureAnywhereLeavesNoRow`; `TestSQL_EachActionWritesOneAuditRowInItsDoBlock`; `TestAudit_EachActionLeavesExactlyOneRowAndARefusalNone`; `TestResetMFA_KillsTheOldSessionsAndIssuesANewLink`; `TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree`; `TestAuditScreen_TheOwnersRowsNameTheOwner`; `TestAuditWords_NameEveryKindAndNothingElse`; `TestAuditScreen_NoCredentialFieldReachesThePage` | GREEN | dokuzu GREEN |
+> | CTL-r1tests | AGREE ve ekran testlerinin 1. tur sürümleri, ürün değişmemiş | `TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree`, `TestAuditScreen_TheOwnersRowsNameTheOwner` | GREEN | GREEN, GREEN |
+> | M1a | reset-mfa: audit INSERT oturum UPDATE'inden önce (iki UPDATE arasındaki enjeksiyondan önce) | reset-mfa alt testi · `TestSQL_EachActionWritesOneAuditRowInItsDoBlock` · `TestResetMFA_KillsTheOldSessionsAndIssuesANewLink` | — · RED · — | **GREEN** (atomiklik) · **RED** · GREEN |
+> | M1b | reset-mfa: audit INSERT iç bloğun ilk ifadesi (hesabın UPDATE'inden önce) | reset-mfa alt testi · `TestSQL_EachActionWritesOneAuditRowInItsDoBlock` | — · RED | **GREEN** · **RED** |
+> | E17 | `ByOwner` = `strings.HasPrefix(kind, "operator_")` | `TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree` · `TestAuditScreen_TheOwnersRowsNameTheOwner` · `TestSQL_EachActionWritesOneAuditRowInItsDoBlock` | RED · RED · — | **RED** (`ByOwner("operator_enabled") = true`, `ByOwner("operator_") = true`) · **RED** (*"4 row(s) name the platform owner"*) · GREEN |
+> | E17-r1 | E17, 1. turun test sürümlerine karşı | aynı iki test | GREEN | GREEN, GREEN — üçüncü gözün ölçümü |
+>
+> **Zincir (2. tur, son durumda):** `gofmt -s -l` boş; `go build ./...`, `go vet ./...` 0; staticcheck
+> 2025.1.1 (`GOTOOLCHAIN=go1.26.7`) 0; `make gen` idempotent (üretilen dosyaların sha256'sı önce =
+> sonra, `internal/store` diff 0); redline 0 (*"mekanik tarama temiz"*); `go.mod`/`go.sum`/`sqlc.yaml`
+> ve 00001–00032 diff'i boş; `TestEveryNamedTestExists` (kart kopyada başlıktan önce) 60 canlı / 60
+> bütçe, `TestComments_DoNotQuoteTheDriftingRosterSize` yeşil. `.env`'li `-race`: `cmd/opadmin`
+> **44 PASS** (`TestDeps_NoDriverInTheClosure` dahil); `internal/db`, brief'in `-run` deseniyle —
+> `TestOperator00033_`, `TestOperatorAuditKinds_` ve `TestOpReadAudit_` önekli testler — **17 PASS**
+> (`OP14D-LOCK` 60–190 ms, kip `ShareRowExclusiveLock`); `internal/handler/operator`, brief'in
+> deseniyle — `TestAuditScreen_`, `TestAuditWords_`, `TestAuditBudget_` ve `TestE2E_` önekli iki
+> audit testi — **14 PASS** (`app.css`'li kopya); 0 yarış. Bu turun testleri satır commit etmez: sahip satırı 0, geleceğe tarihli
+> 0 — `verify_round2.py`'nin önce/sonra sondası, bütün testler koştuktan sonra.
+>
+> **3. tur (2026-10-07, güvenlik denetiminin ONAY'ı ve üç DÜŞÜK bulgusu — YALNIZ TEST + METİN/YORUM).**
+> Migration SQL'i, Go ürün kodu ve opadmin üreticisi değişmedi; DDL yok; geliştirme veritabanı 33'te.
+>
+> 24. **Bulgu 1 — LD9'un yolunu taşıyan koşul pinsizdi:** `disable` kullanılmamış linki silmez; onu
+>     yalnız `op_complete_enrollment`'ın `AND a.status = 'pending'` koşulu (00026) durdurur. Yeni test
+>     `TestDisable_TheUnusedLinkOfADisabledAccountIsRefused` (`cmd/opadmin/audit_db_test.go`): hiç
+>     kaydolmamış hesap `disable` edilir (öncül: link hash'i aynı, kullanılmamış), linkiyle enrollment
+>     **veritabanınca** reddedilir — `keptStore` mağazanın cevabını tutar: `db.ErrOperatorRefused`
+>     (28000), operatorauth `ErrEnrollment`; hesap `disabled`, link kullanılmamış, oturum 0. Kontrol:
+>     aynı link `disable`'dan önce, geri alınan bir savepoint'te hesabı kaydeder (veritabanı evet der,
+>     hesap `active`). LD9'a *"ek savunma adayı"* cümlesi: `disable`'ın link üçlüsünü — CHECK'ler
+>     gereği `enroll_used_at` ile birlikte — NULL'laması (bu turda yok, üretici değişmedi).
+> 25. **Bulgu 2 — eski opadmin izsiz:** LD11 (denetçinin ölçümüne dayanır; bu turda eski ikiliyle
+>     yeniden üretilmedi). README: Doğrula'nın heredoc'una ikinci `SELECT` (her hesabın son sahip
+>     satırı: `id|kind|at|seconds_ago`), beklenen çıktı ve iz yoksa ne demek olduğu; Doğrula'nın altına
+>     ve "Audit satırı" maddesinin sıra notuna *"00033'ten sonra yalnız bu commit'in ya da sonrasının
+>     opadmin'i kullanılır; eski bir betik iz bırakmaz"*; O9-1'in kalanına iki cümle. Sorgu README'den
+>     okunup yazıldığı gibi koşulur: `TestRunbook_TheVerifyQueryShowsEachActionsRow` — `create` ve
+>     `disable`'dan sonra eylemin türü (≤ 60 sn), audit satırı çıkarılmış bir `disable`'dan (eski
+>     betiğin biçimi, bu üreticiden türetildi) sonra `operator_created`.
+> 26. **Bulgu 3 — PUBLIC EXECUTE gerekçesindeki önkoşul:** *"tablonun sahipliği"* → *"tabloda TRIGGER
+>     yetkisi"* (ADR 0021 md. 4; 00033'ün 2. bölüm yorumu). Koşulun pini zaten vardı:
+>     `TestOperator00026_PrivilegeMatrix` tablo düzeyi `TRIGGER`'ı dört rol × her operatör tablosu için
+>     false ister. 00011'in notu iki reddi ölçmüştü, parantezi sahipliği adlandırır (uygulanmış,
+>     dokunulmadı). Migration'da yalnız yorum: yorumlar ayıklanınca uygulanmış dosyayla
+>     (`41d52473…`) bayt bayt aynı (sha16 `9b431c0d1f91c3b0`; uygulanmış hâle göre 15 satır, hepsi
+>     tam yorum satırı); yeniden uygulanmadı.
+>
+> **Mutasyonlar — `scratchpad/op14d/verify_round3.py`** (yalnız `op14d-orch` kopyası; SQL mutantları
+> testin geri alınan işleminde — opadmin'in `beginOwnerTx`'ine ve `internal/db`'nin `opTx`'ine geçici
+> kanca; X6 yalnız `beginOwnerTx`'ten işlem alan testlerde görünür, üst düzeyde COMMIT eden betikler
+> gerçek fonksiyona karşı koşar; her çapa tam bir kez; sha256 ile geri yazma; veritabanı önce = sonra —
+> round 1 sondası + `op_complete_enrollment` md5 `476838a5…` + `tappa_app`'in TRIGGER yetkisi `false`,
+> goose 33). Kayıt `op14d-orch/verify_round3.json`.
+>
+> | # | Mutasyon / kontrol | Test | İstenen | Sonuç |
+> |---|---|---|---|---|
+> | CTL-file | kopya değişmemiş | yeni iki test, `TestAudit_EachActionLeavesExactlyOneRowAndARefusalNone`, `TestDisable_EndsSessionsAndSignIn`, `TestCreate_TheLinkEnrollsTheAccount`, `TestOperator00026_PrivilegeMatrix`, `TestOperator00033_TheClockFunctionRunsOnlyAsItsTrigger` | GREEN | yedisi GREEN |
+> | CTL-opahook | kanca `op_complete_enrollment`'ı değiştirmeden yeniden yaratır | `TestDisable_TheUnusedLinkOfADisabledAccountIsRefused`, `TestCreate_TheLinkEnrollsTheAccount` | GREEN | GREEN, GREEN (kanca uygulandı) |
+> | **X6** | `op_complete_enrollment`: `a.status = 'pending'` → `a.status <> 'active'` | `TestDisable_TheUnusedLinkOfADisabledAccountIsRefused` · bütün `cmd/opadmin` paketi | RED · — | **RED** (*"the database: <nil>"*; hesap `active`, link kullanılmış, 1 oturum) · paket RED, kırmızı olan **yalnız** bu test (alt testler dahil 103 PASS satırı; kanca 19 kez uygulandı) |
+> | X7 | `tappa_app`'e `operator_audit_log`'da `TRIGGER` | `TestOperator00026_PrivilegeMatrix` · `TestOperator00033_TheClockFunctionRunsOnlyAsItsTrigger` | RED · — | **RED** (`has_table_privilege(tappa_app, operator_audit_log, TRIGGER) = true`) · GREEN |
+> | R1 | README sorgusu her hesabın EN ESKİ sahip satırını okur | `TestRunbook_TheVerifyQueryShowsEachActionsRow` | RED | **RED** (*"after disable the verify step names operator_created"*) |
+>
+> **Zincir (3. tur, son durumda):** `gofmt -s -l` boş; `go build ./...`, `go vet ./...` 0; staticcheck
+> 2025.1.1 (`GOTOOLCHAIN=go1.26.7`) 0; `make gen` idempotent (üretilen dosyaların sha256'sı önce =
+> sonra); redline 0; `go.mod`/`go.sum`/`sqlc.yaml`/`internal/store` diff boş; `TestEveryNamedTestExists`
+> (kart kopyada başlıktan önce) 60 canlı / 60 bütçe, `TestComments_DoNotQuoteTheDriftingRosterSize`
+> yeşil. `.env`'li `-race`: `cmd/opadmin` **46 PASS** (iki yeni test dahil); `internal/db`, brief'in
+> deseniyle — `TestOperator00033_` ve `TestOperatorAuditKinds_` önekli testler — **8 PASS**; 0 yarış.
+> Testler satır commit etmez: sahip satırı 0 (`verify_round3.py`'nin önce/sonra sondası).
+
 ## 4. Akış B — E-posta (AWS SES)
 
 ### Öneri: SES SMTP arayüzü + stdlib `net/smtp` (STARTTLS 587), `eu-central-1` — ✅ (sıfır yeni modül)

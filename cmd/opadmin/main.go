@@ -93,7 +93,9 @@
 // BEGIN · SET LOCAL search_path · SET LOCAL lock_timeout · CREATE TEMP TABLE
 // pg_temp.opadmin_in · COPY … FROM STDIN with one data line · DO $opadmin$ … $opadmin$
 // · COMMIT. Every read and write of the account is inside the one DO block, which
-// PostgreSQL runs as a single statement. The explicit BEGIN … COMMIT is what the two
+// PostgreSQL runs as a single statement -- and so, since migration 00033 (M10 OP-14 D), is
+// the action's ONE operator_audit_log row (auditRow): the account's change and its trace
+// commit together or not at all. The explicit BEGIN … COMMIT is what the two
 // SET LOCALs and the ON COMMIT DROP table need; and in psql without ON_ERROR_STOP and
 // with ON_ERROR_ROLLBACK off (the runbook passes -X, which skips psqlrc), it makes a
 // failure before the COPY, before the DO block or after it abort the transaction
@@ -169,6 +171,9 @@
 // ============================================================================
 // THE CLAIM, IN THREE PARTS (agent-brief, M10 OP-6/OP-7)
 // ============================================================================
+// THREAT MODEL (stated with OP-14 D): these pins are against accidental drift; deliberately
+// getting round a pin is the subject of code review.
+//
 // PART I -- this command as shipped, measured:
 //   - its dependency closure (go list -deps for linux/amd64, linux/arm64, darwin/amd64,
 //     darwin/arm64 and windows/amd64, CGO off) is standard-library packages plus this
@@ -204,9 +209,23 @@
 //   - the role guard refuses tappa_app and tappa_operator: TestApply_RefusesARoleRLSWouldFilter;
 //     a row held by another transaction ends the script with 55P03 after about 5 s:
 //     TestApply_ARowHeldElsewhereFailsFastNotForever; the compiled command refuses a
-//     stderr redirected to a file: TestMain_TheBinaryRefusesARedirectedStderr.
+//     stderr redirected to a file: TestMain_TheBinaryRefusesARedirectedStderr;
+//   - (OP-14 D, migration 00033) each of create, reset-mfa and disable -- disable applied
+//     twice: twice -- leaves exactly one operator_audit_log row of its kind naming the
+//     account by id, with no session, actor, tenant, scope, page or detail, dated by the
+//     database's clock during the application; each refusal the test lists leaves none:
+//     TestAudit_EachActionLeavesExactlyOneRowAndARefusalNone; the failures injected by
+//     TestApply_AFailureAnywhereLeavesNoRow leave neither the account nor its row, and its
+//     positive control sees both inside the script's own transaction.
 //
-// PART II -- named pins and exactly what each catches (thirteen):
+// TEST CLOCK (T94, closed with OP-14 D): every database test that generates a create or a
+// reset-mfa script does so with the DATABASE's clock (dbGen / dbNow) -- "a report that could
+// not be written" in TestApply_AFailureAnywhereLeavesNoRow was the last run() handed this
+// machine's clock; with that clock ahead of the database's by more than the time to the DO
+// block, the generation guard refuses the block and the statement in COMMIT's place answers
+// 25P02 instead of the poison's P0001 (derived from generationGuards, not reproduced).
+//
+// PART II -- named pins and exactly what each catches (fourteen; the fourteenth is OP-14 D's):
 //   - TestDeps_ImportsAreTheListedOnes: an import set of the non-test .go files here
 //     that differs from importAllowList (read by go/parser, build constraints not
 //     evaluated, import "C" included);
@@ -241,7 +260,13 @@
 //   - TestHost_IsConfigsRule: an isDNSHostName signature or body that differs from
 //     internal/config's, and its 16-case table;
 //   - TestRun_AcceptsTheBoundaries: maxEmailBytes other than 254, a 254-byte address or
-//     a 200-character name refused.
+//     a 200-character name refused;
+//   - TestSQL_EachActionWritesOneAuditRowInItsDoBlock: for each subcommand, a count of
+//     "operator_audit_log" in the script other than one; that one outside the DO block, or
+//     not between the account's last write and the constraint handler of the same inner
+//     block; a column list other than (kind, target_admin_id) -- `at` or detail named in it,
+//     say; VALUES other than the subcommand's kind and the script's id; and the three kinds
+//     differing from the kinds internal/db's OperatorAuditKind.ByOwner names.
 //
 // PART III -- any form not listed above is the subject of code review; no completeness claim.
 package main
@@ -285,6 +310,16 @@ const (
 	// The DO block compares the field for equality, so the line's layout is checked
 	// too (TestPayload_OnlyTheOneLineOfTheExpectedShapeIsAccepted).
 	copyPadding = "opadmin/copy-data-padding/v1/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+	// The operator_audit_log kind each subcommand's DO block writes, one row per action
+	// (migration 00033, M10 OP-14 D): internal/db's OperatorAuditOperatorCreated,
+	// OperatorAuditOperatorMFAReset and OperatorAuditOperatorDisabled, written out because this
+	// binary cannot import internal/db (the driver -- TestDeps_NoDriverInTheClosure).
+	// TestSQL_EachActionWritesOneAuditRowInItsDoBlock holds the three equal to the kinds
+	// internal/db's ByOwner names; the database's kind CHECK refuses any other spelling.
+	auditKindCreate   = "operator_created"
+	auditKindResetMFA = "operator_mfa_reset"
+	auditKindDisable  = "operator_disabled"
 
 	// lockTimeout bounds how long THIS script waits for a lock another session holds
 	// (cmd/rotatekek's choice (b): fail fast and re-run, rather than queue without a
@@ -697,7 +732,8 @@ func (s script) body() string {
 	b.WriteString("-- this file (< file, or -f file) -- not psql -c, which sends it as one statement text\n")
 	b.WriteString("-- (measured), and not a GUI query tool (not measured). Runbook: deploy/README.md,\n")
 	b.WriteString("-- \"Operator accounts (M10 OP-9)\". One transaction. The values travel as the one COPY\n")
-	b.WriteString("-- data line below, in hex; the stderr report shows them readable.\n")
+	b.WriteString("-- data line below, in hex; the stderr report shows them readable. The DO block writes the\n")
+	b.WriteString("-- account's change and this action's one audit row together (M10 OP-14 D).\n")
 	if s.sub != "disable" {
 		b.WriteString("-- The enrollment link is not in this file; the data line holds the SHA-256 of its secret.\n")
 	}
@@ -804,6 +840,23 @@ func generationGuards(sub string) string {
 		"    END IF;\n"
 }
 
+// auditRow is the action's ONE operator_audit_log row (migration 00033; ADR 0020 §5 names the
+// owner's rows as its one exception to "every audit row comes from a definer"). It is written
+// in the DO block's inner block, AFTER the account's change: one statement, so the change and
+// its trace commit together or not at all (TestApply_AFailureAnywhereLeavesNoRow), and a
+// constraint that refuses the row -- operator_audit_log_actor_shape on a database not yet at
+// 00033 (internal/db's TestOperator00033_DownGivesBack00032AndUpTakesItAgain measures the name)
+// -- is reported by name like any other (constraintHandler) and changes nothing. The row names the
+// kind and the account's id, which the statement text already carries, and NOTHING ELSE: `at`
+// is not in the column list (00033's trigger stamps every row with the database's wall clock
+// in any case), and neither is detail -- the address and the display name travel as COPY data
+// and never reach the log (00033's actor_shape refuses an owner row with a detail other than
+// {}). TestSQL_EachActionWritesOneAuditRowInItsDoBlock pins this text and its place.
+func auditRow(c subcommand, kind string) string {
+	return "        INSERT INTO public.operator_audit_log (kind, target_admin_id)\n" +
+		"        VALUES ('" + kind + "', '" + c.id + "'::uuid);\n"
+}
+
 // constraintHandler turns a constraint's refusal into its name and SQLSTATE. The
 // DETAIL line PostgreSQL would print echoes the row.
 func constraintHandler(sub string) string {
@@ -832,6 +885,7 @@ func createScript(c subcommand, hash string) script {
 	b.WriteString("                enroll_token_hash, enroll_issued_at, enroll_expires_at)\n")
 	b.WriteString("        VALUES ('" + c.id + "'::uuid, v_email::public.citext, v_name, 'pending',\n")
 	b.WriteString("                v_hash, v_now, v_now + interval '" + enrollTTL + "');\n")
+	b.WriteString(auditRow(c, auditKindCreate))
 	b.WriteString(constraintHandler(c.name))
 	b.WriteString("    END;\n")
 	b.WriteString("    RAISE NOTICE 'opadmin create: pending operator account % written for % (%); its enrollment link " +
@@ -939,6 +993,7 @@ func resetMFAScript(c subcommand, hash string) script {
 		"generate a new one. Nothing was changed.';\n")
 	b.WriteString("        END IF;\n")
 	b.WriteString(revokeSessions(c))
+	b.WriteString(auditRow(c, auditKindResetMFA))
 	b.WriteString(constraintHandler(c.name))
 	b.WriteString("    END;\n")
 	b.WriteString("    RAISE NOTICE 'opadmin reset-mfa: account % was %, is now pending; % live session(s) revoked; " +
@@ -950,8 +1005,10 @@ func resetMFAScript(c subcommand, hash string) script {
 
 // disableScript closes an account and revokes its live sessions. Applied to an account
 // that is already disabled it leaves the status as it is, and its NOTICE names the
-// status it found (TestDisable_EndsSessionsAndSignIn applies it twice). It carries no
-// generation guard: it issues no link.
+// status it found (TestDisable_EndsSessionsAndSignIn applies it twice); each application
+// writes its own audit row -- the act was applied, whatever it found
+// (TestAudit_EachActionLeavesExactlyOneRowAndARefusalNone). It carries no generation
+// guard: it issues no link.
 func disableScript(c subcommand) script {
 	var b strings.Builder
 	b.WriteString(declare("v_email text", "v_status text", "v_revoked bigint"))
@@ -965,6 +1022,7 @@ func disableScript(c subcommand) script {
 	b.WriteString("           SET status = 'disabled'\n")
 	b.WriteString("         WHERE a.id = '" + c.id + "'::uuid;\n")
 	b.WriteString(revokeSessions(c))
+	b.WriteString(auditRow(c, auditKindDisable))
 	b.WriteString(constraintHandler(c.name))
 	b.WriteString("    END;\n")
 	b.WriteString("    RAISE NOTICE 'opadmin disable: account % was %, is now disabled; % live session(s) revoked', '" +
