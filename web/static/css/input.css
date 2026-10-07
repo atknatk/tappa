@@ -270,6 +270,27 @@
   .btn--primary { @apply min-h-12 py-3 text-base bg-tappa-green text-paper hover:bg-ink; }
   .btn--quiet   { @apply border border-line bg-paper text-ink hover:border-tomato hover:text-tomato; }
 
+  /* DEV-ONLY plaque-tap simulator (ADR 0025, "Geliştirme aracı"). Rendered only
+     on a development deployment. A dashed saffron frame on ink, pinned to the
+     bottom, mono uppercase: it must never be mistaken for product UI. */
+  .dev-strip {
+    @apply fixed inset-x-0 bottom-0 z-50 flex items-center justify-center gap-3
+           border-t-2 border-dashed border-saffron bg-ink px-4 py-3 font-mono text-xs
+           uppercase tracking-widest text-paper;
+  }
+  .dev-strip-label {
+    @apply border border-dashed border-saffron px-2 py-1 text-saffron;
+  }
+  .dev-strip-button {
+    @apply min-h-11 border-2 border-dashed border-paper bg-transparent px-3 py-2
+           font-mono text-xs font-bold uppercase tracking-widest text-paper
+           hover:border-saffron hover:text-saffron
+           focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2;
+  }
+  .dev-strip-spacer {
+    @apply h-20;
+  }
+
   /* THE ACTIVATION WIZARD (ADR 0025). One column, phone width first; the actions
      sit at the bottom of the screen (.wizard-actions, mt-auto inside a column that
      is at least a screen tall) so the primary button is where a thumb already is.

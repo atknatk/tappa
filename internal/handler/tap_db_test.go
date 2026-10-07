@@ -186,6 +186,17 @@ func newTapHarness(t *testing.T) *tapHarness {
 	r := chi.NewRouter()
 	tp.Mount(r)
 	act.Mount(r)
+	// The DEV-ONLY simulator (ADR 0025): this harness's config is dev on
+	// localhost, so it mounts — exactly as `make dev` does.
+	plaques, err := tenant.NewPlaques(data, trail, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatalf("tenant.NewPlaques: %v", err)
+	}
+	devTap, err := NewDevTap(verifier, plaques, invites, sessions, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatalf("NewDevTap: %v", err)
+	}
+	devTap.Mount(r)
 
 	h := &tapHarness{
 		invites: invites, activation: act,

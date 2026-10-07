@@ -422,6 +422,7 @@ templ wizardTap(v ActivateView) {
 			@activatedBody(v.EmployeeName, v.SecondDevice)
 		</div>
 	</div>
+	@components.DevTapStrip(true)
 }
 
 // plaqueWait is the waiting animation: a plaque, and a phone that comes down to
@@ -465,6 +466,7 @@ templ AlreadySetUp(v AlreadySetUpView) {
 				You can close this page.
 			</p>
 		</div>
+		@components.DevTapStrip(false)
 	}
 }
 
@@ -476,6 +478,7 @@ templ Activated(v ActivatedView) {
 		<div class="wizard">
 			@activatedBody(v.EmployeeName, v.SecondDevice)
 		</div>
+		@components.DevTapStrip(false)
 	}
 }
 

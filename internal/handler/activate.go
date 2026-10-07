@@ -123,6 +123,9 @@ type Activation struct {
 	floodLimiter   *limiter
 	unknownLimiter *limiter
 	inviteLimiter  *limiter
+	// devTools marks renders for the DEV-ONLY simulate-tap strip. It is false
+	// unless cmd/tappa calls EnableDevTools on a DevToolsEnabled deployment.
+	devTools bool
 	// statusLimiter meters the waiting screen's poll (Status) on its OWN budget,
 	// so a tab left polling can never spend the flood ceiling that a real
 	// activation on the same venue network needs.
@@ -818,6 +821,12 @@ func (a *Activation) HolderDeactivated(ctx context.Context, tenantID, employeeID
 	}
 	return ictx.Status == "deactivated", nil
 }
+
+// EnableDevTools turns on the DEV-ONLY simulate-tap strip on this flow's screens
+// (ADR 0025, "Geliştirme aracı"). It is a no-op unless DevToolsEnabled(cfg): the
+// caller cannot switch it on for a deployment that is not dev on loopback. Call it
+// before serving.
+func (a *Activation) EnableDevTools(cfg *config.Config) { a.devTools = DevToolsEnabled(cfg) }
 
 // activationTap is the plaque that completed an activation, for the audit row.
 type activationTap struct {
@@ -1584,7 +1593,7 @@ func (a *Activation) render(w http.ResponseWriter, r *http.Request, status int, 
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Security-Policy", activationCSP)
 	w.WriteHeader(status)
-	if err := c.Render(r.Context(), w); err != nil {
+	if err := c.Render(devToolsContext(r.Context(), a.devTools), w); err != nil {
 		// The status line is already on the wire, so there is nothing to send but
 		// a log line. Never swallowed (§7).
 		a.log.Error("rendering the activation page failed", "err", err)

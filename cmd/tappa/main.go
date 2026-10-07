@@ -421,6 +421,20 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// THE DEV-ONLY PLAQUE-TAP SIMULATOR (ADR 0025, "Geliştirme aracı"), gate 1 of 3:
+	// constructed and mounted ONLY on a dev deployment served from a loopback
+	// address. DevTap.Mount and DevTap.Simulate check the same gate again.
+	var devTools []httpx.Mounter
+	if handler.DevToolsEnabled(cfg) {
+		devTap, err := handler.NewDevTap(verifier, plaques, invites, sessions, cfg, slog.Default())
+		if err != nil {
+			return err
+		}
+		devTools = append(devTools, devTap)
+		activation.EnableDevTools(cfg)
+		tap.EnableDevTools(cfg)
+		slog.Default().Warn("DEV TOOLS ARE MOUNTED: POST /dev/simulate-tap mints plaque taps (dev on loopback only)")
+	}
 	// The manual record writer (M6-08) — the SECOND writer of `transactions` in this
 	// process, and the first that is not a tap. It exists because Q18 decided the
 	// system produces no checkout of its own: an hour the software invented is an hour
@@ -778,7 +792,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpx.NewRouter(cfg, slog.Default(), activation, tap, panelAuth, logos, marketing, signupFlow, resetFlow, ready, handler.NewBrandTheme(), operatorSurface),
+		Handler:           httpx.NewRouter(cfg, slog.Default(), append([]httpx.Mounter{activation, tap, panelAuth, logos, marketing, signupFlow, resetFlow, ready, handler.NewBrandTheme(), operatorSurface}, devTools...)...),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       90 * time.Second,
 		// NO WriteTimeout, deliberately (WL-9 round 3): a recorded tap's confirmation

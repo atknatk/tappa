@@ -77,6 +77,9 @@ type Tap struct {
 	cookies    session.Cookies
 	contexts   tapContexts
 	limiter    *httpx.TapLimiter
+	// devTools marks renders for the DEV-ONLY simulate-tap strip; false unless
+	// cmd/tappa calls EnableDevTools on a DevToolsEnabled deployment.
+	devTools bool
 	// baseURL is this deployment's own origin, for the Origin check on the POST
 	// (checkin.go). Reduced to scheme://host at construction, the way an Origin
 	// header is written, so a BaseURL with a path still compares.
@@ -554,6 +557,10 @@ func logoOf(b tenant.PageBrand) layout.Logo {
 	return layout.TapLogo(b.Logo.SHA256, b.Logo.Width, b.Logo.Height, b.Name)
 }
 
+// EnableDevTools turns on the DEV-ONLY simulate-tap strip on the result page
+// (ADR 0025). A no-op unless DevToolsEnabled(cfg). Call it before serving.
+func (t *Tap) EnableDevTools(cfg *config.Config) { t.devTools = DevToolsEnabled(cfg) }
+
 // tappedWallOf is where the plaque's nullable wall becomes a plain id for this
 // page, and it is a named function rather than two dereferences so the answer to
 // "what does the page do with a plaque that has no wall" lives in one place.
@@ -803,7 +810,7 @@ func (t *Tap) render(w http.ResponseWriter, r *http.Request, status int, c templ
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Security-Policy", tapCSPFor(drawsLogo))
 	w.WriteHeader(status)
-	if err := c.Render(r.Context(), w); err != nil {
+	if err := c.Render(devToolsContext(r.Context(), t.devTools), w); err != nil {
 		// The status line is already on the wire, so there is nothing to send
 		// but a log line. Never swallowed (§7).
 		t.log.ErrorContext(ctx, "rendering the tap page failed", "err", err)

@@ -2,6 +2,7 @@ package pages
 
 import "github.com/atknatk/tappa/web/templates/layout"
 import "strconv"
+import "github.com/atknatk/tappa/web/templates/components"
 
 // Result is what a tap lands on: one docket saying what was recorded.
 //
@@ -64,6 +65,7 @@ templ Result(v ResultView, logo layout.Logo) {
 			}
 		</section>
 		@closing(v)
+		@components.DevTapStrip(false)
 	}
 }
 
