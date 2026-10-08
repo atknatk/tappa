@@ -1,8 +1,8 @@
 // Package operatorpages is the platform operator's screens (M10 OP-8; ADR 0020 §4):
 // sign-in, the TOTP step, enrollment, the console's front page and its problem page,
 // (OP-10) the legal texts screen, (OP-11) the tenant list and a tenant's overview, (OP-13) a
-// tenant's plaques, (OP-14) the operator's own audit log and (OP-12) a tenant's billing months,
-// in the "TAPTIME OPERATOR" chrome.
+// tenant's plaques, (OP-14) the operator's own audit log, (OP-12) a tenant's billing months and
+// (OP-16) a tenant's VAT number with its re-check, in the "TAPTIME OPERATOR" chrome.
 //
 // IT IS NOT web/templates/pages, ON PURPOSE. pages is what the customer product renders
 // and internal/handler imports it. Measured with `go list` (non-test imports, the build
@@ -38,8 +38,9 @@ import (
 // measures the refusals and a named render, TestTenantOverview_AnUnnamedTenantIsNamedByItsID
 // the placeholder. Which pages show a tenant's data, and whether each renders through
 // TenantScreen, is code review's; no test pins it. OP-11's overview (TenantOverview) is
-// the first that does, OP-13's plaques (TenantPlaques) the second and OP-12's billing months
-// (TenantBilling) the third; the tenant LIST shows many tenants and names none in a banner.
+// the first that does, OP-13's plaques (TenantPlaques) the second, OP-12's billing months
+// (TenantBilling) the third and OP-16's VAT number (TenantVAT) the fourth; the tenant LIST
+// shows many tenants and names none in a banner.
 type TenantName struct {
 	v string
 	// byID marks the placeholder: v is the tenant's id, and the banner says "Unnamed
@@ -225,8 +226,9 @@ type TenantOverviewView struct {
 	// whose status is active.
 	Locations, ActiveEmployees, ActivePlaques, ActiveAdmins string
 	// PlaquesPath is the tenant's plaque screen, /operator/tenants/<id>/plaques (OP-13);
-	// BillingPath its billing months, /operator/tenants/<id>/billing (OP-12).
-	PlaquesPath, BillingPath string
+	// BillingPath its billing months, /operator/tenants/<id>/billing (OP-12); VATPath its VAT
+	// number, /operator/tenants/<id>/vat (OP-16).
+	PlaquesPath, BillingPath, VATPath string
 }
 
 // TenantPlaquesView is /operator/tenants/{id}/plaques (M10 OP-13): one tenant's plaques,
@@ -418,6 +420,58 @@ const (
 	BillingToneUnclosed
 	// BillingToneBeforeSignup: before the business signed up -- the neutral tone.
 	BillingToneBeforeSignup
+)
+
+// TenantVATView is /operator/tenants/{id}/vat (M10 OP-16): one tenant's VAT number, the verdict
+// on file in migration 00017's four states, and -- when the number is in the format VIES takes
+// -- the form that asks VIES again, rendered through TenantScreen. Every value is text the
+// handler formatted; templ escapes each one.
+type TenantVATView struct {
+	Name TenantName
+	ID   string
+	// OverviewPath is the tenant's overview, /operator/tenants/<id> -- the way back; VATPath
+	// this screen's own path, which its form posts to.
+	OverviewPath, VATPath string
+	// Number is the VAT number on file, as stored. The form does not carry it: the server
+	// sends VIES the number its own read returned.
+	Number string
+	// Label, Sentence and Tone are the handler's reading of the verdict on file -- its word,
+	// the sentence beside it, the chip.
+	Label, Sentence string
+	Tone            VATTone
+	// AskedAt is the time on the record (UTC), "" when it holds none. Answered says whether a
+	// verdict stands beside it: then it is VIES's last ANSWER ("Last answer" -- an ask it did not
+	// answer writes nothing, so the record cannot say when it was last asked); otherwise it is
+	// an ask that got no answer ("Asked").
+	AskedAt  string
+	Answered bool
+	// Askable offers the form: the number is in the format VIES accepts for its country. When
+	// it is not, the page says so in the form's place.
+	Askable bool
+	// NoticeHeading and Notice are the answer to a POST that changed nothing -- VIES did not
+	// answer, the number could not be sent, the session's VIES budget -- above the record; ""
+	// for none.
+	NoticeHeading, Notice string
+}
+
+// VATTone is the chip the verdict on file is drawn with -- the brand's fixed status mapping,
+// the word on the chip carrying the meaning and the tone repeating it, as on the customer's
+// account screen: a confirmation is the active tone, a refusal the rejection tone, no answer
+// the waiting tone, never asked the neutral one. Its zero value is VATToneUnknown, so a view
+// whose tone was never set draws the unrecognised chip, not one of the four.
+type VATTone int
+
+const (
+	// VATToneUnknown: a tone the handler never set -- the ink tone, which is no status.
+	VATToneUnknown VATTone = iota
+	// VATToneNotChecked: no answer on file and no time of asking -- the neutral tone.
+	VATToneNotChecked
+	// VATToneNoAnswer: asked, and the register did not answer -- the waiting tone.
+	VATToneNoAnswer
+	// VATToneConfirmed: the register confirmed the number -- the active tone.
+	VATToneConfirmed
+	// VATToneNotFound: the register does not know the number -- the rejection tone.
+	VATToneNotFound
 )
 
 // ProblemView is a refusal or a fault the operator surface answers with a page.

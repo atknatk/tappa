@@ -3,7 +3,8 @@
 // front page (OP-8), Taptime's legal texts (OP-10, legal.go), the tenant list, its search
 // and one tenant's overview (OP-11, tenants.go), one tenant's plaque inventory (OP-13,
 // plaques.go), the operator's own audit log (OP-14, audit.go), one tenant's billing months
-// (OP-12, billing.go), on the operator's own host, and the two 503 states OP-7 shipped.
+// (OP-12, billing.go), one tenant's VAT number and its re-check with VIES (OP-16, vat.go),
+// on the operator's own host, and the two 503 states OP-7 shipped.
 //
 // 🔴 IT IS NOT internal/handler, AND THE PACKAGE BOUNDARY IS THE POINT. ADR 0021 §3.6:
 // the customer panel does not import the operator's packages. internal/handler is the
@@ -22,7 +23,9 @@
 // itself, /operator/legal (OP-10), /operator/tenants with /operator/tenants/{id} (OP-11),
 // /operator/tenants/{id}/plaques (OP-13), /operator/audit (OP-14) and
 // /operator/tenants/{id}/billing (OP-12's B phase: 00032 added op_read_tenant_billing and
-// replaced op_begin_read and op_read_audit once more). ADR 0020 §4's platform-wide
+// replaced op_begin_read and op_read_audit once more) and /operator/tenants/{id}/vat (OP-16's B
+// phase: 00034 added op_read_tenant_vat and op_record_vat_check, the first op_* that changes a
+// tenant). ADR 0020 §4's platform-wide
 // /operator/billing is not registered (the orchestrator's K12-1 (a):
 // TestSurface_TheScreensOfLaterTasksAreNotMounted drives it), and the renders of screens()
 // do not link to it (TestOperatorScreens_EveryActionAndLinkIsAMountedRoute).
@@ -76,6 +79,11 @@ type Surface struct {
 	// billingStore is the billing screen's (billing.go): a page of one tenant's billing
 	// months, a two-phase read.
 	billingStore BillingStore
+	// vatStore and vies are the VAT screen's (vat.go): one tenant's number and verdict, a
+	// two-phase read, and the recording of VIES's answer; and the VIES client, the sign-up
+	// wizard's own, adapted by cmd/tappa.
+	vatStore VATStore
+	vies     VATChecker
 	// host is TAPPA_OPERATOR_HOST, validated by internal/config: the host gate's
 	// comparison (httpx.OnHost).
 	host string
@@ -86,11 +94,12 @@ type Surface struct {
 	origin string
 	log    *slog.Logger
 	// sessions is the per-session request budget (sessionGate), reads the per-session
-	// READ budget (spendRead, OP-13) and signOuts sign-out's own per-address ceiling
-	// (logoutGate). All three are httpx.Limiter, the panel's primitive; the numbers are
-	// below Mount.
+	// READ budget (spendRead, OP-13), viesAsks the per-session VIES budget (spendVIES, OP-16)
+	// and signOuts sign-out's own per-address ceiling (logoutGate). All four are
+	// httpx.Limiter, the panel's primitive; the numbers are below Mount.
 	sessions *httpx.Limiter
 	reads    *httpx.Limiter
+	viesAsks *httpx.Limiter
 	signOuts *httpx.Limiter
 	// originRefusals counts sameOriginGate's refusals under ONE process-wide key, so
 	// the first of each window is logged at WARN and the rest at Debug.
@@ -116,10 +125,12 @@ func Unavailable() *Surface { return &Surface{unavailable: true} }
 // New is the configured surface. It refuses the values a configured surface cannot do
 // without rather than degrade to Off silently: the Authenticator, the legal screen's
 // store and texts, the tenant screens' store, the plaque screen's store, the audit
-// screen's store, the billing screen's store, the operator host, a base URL it can take the
-// operator origin's scheme and port from, and a logger.
+// screen's store, the billing screen's store, the VAT screen's store and its VIES client, the
+// operator host, a base URL it can take the operator origin's scheme and port from, and a
+// logger.
 func New(auth *operatorauth.Authenticator, legalStore LegalStore, tenantStore TenantStore, plaqueStore PlaqueStore,
-	auditStore AuditStore, billingStore BillingStore, texts LegalTexts, host, baseURL string, log *slog.Logger) (*Surface, error) {
+	auditStore AuditStore, billingStore BillingStore, vatStore VATStore, vies VATChecker, texts LegalTexts, host, baseURL string,
+	log *slog.Logger) (*Surface, error) {
 	if auth == nil {
 		return nil, errors.New("operator: a configured surface needs its Authenticator")
 	}
@@ -137,6 +148,12 @@ func New(auth *operatorauth.Authenticator, legalStore LegalStore, tenantStore Te
 	}
 	if billingStore == nil {
 		return nil, errors.New("operator: a configured surface needs its billing store (the operator database)")
+	}
+	if vatStore == nil {
+		return nil, errors.New("operator: a configured surface needs its VAT store (the operator database)")
+	}
+	if vies == nil {
+		return nil, errors.New("operator: a configured surface needs its VIES client")
 	}
 	if texts == nil {
 		return nil, errors.New("operator: a configured surface needs the legal texts' snapshot")
@@ -159,11 +176,14 @@ func New(auth *operatorauth.Authenticator, legalStore LegalStore, tenantStore Te
 		plaqueStore:  plaqueStore,
 		auditStore:   auditStore,
 		billingStore: billingStore,
+		vatStore:     vatStore,
+		vies:         vies,
 		host:         host,
 		origin:       origin,
 		log:          log,
 		sessions:     httpx.NewLimiter(sessionLimit, sessionPeriod),
 		reads:        httpx.NewLimiter(readLimit, readPeriod),
+		viesAsks:     httpx.NewLimiter(viesLimit, viesPeriod),
 		signOuts:     httpx.NewLimiter(signOutLimit, signOutPeriod),
 		// limit 0: the window's first refusal is the first over the limit.
 		originRefusals: httpx.NewLimiter(0, originRefusalPeriod),
@@ -313,6 +333,16 @@ const (
 	// session's 101st request is the gate's 429
 	// (TestBillingBudget_EachViewIsOneReadOfTheSessionsSharedBudget).
 	//
+	// OP-16 PHASE B ADDED A TENANT'S VAT RE-CHECK, AND IT STANDS. A re-check is three requests
+	// and three reads -- the screen (GET), the ask (POST) and the screen again after it (the
+	// POST's 303 lands on a GET) -- and its refusals are requests like the others', so the VAT
+	// windows of readLimit's comment are, in requests:
+	//
+	//	a VAT check         ~25 reads + ~5 console + ~3 refused                       ~33 -> 3.0
+	//	support + VAT       ~39 reads + ~5 console + ~2 publications + ~3 refused      ~49 -> 2.04
+	//
+	// Measured on one session: TestVATBudget_ARecheckIsThreeReadsAndOneVIESUnit.
+	//
 	// WHAT THE TWO NUMBERS BOUND IN THE DATABASE. A read request is THREE definer
 	// transactions -- sessionGate's op_touch_session, op_begin_read and op_read_* (the leak
 	// test's harvest counts all three) -- so the requests the two budgets ADMIT in a window
@@ -326,8 +356,9 @@ const (
 	// readLimit: READS per operator SESSION (OP-11 phase B's hand-over, built in OP-13
 	// phase B) -- every request whose handler makes a two-phase op_* read: legalPage,
 	// listTenants (the list and every page of a search), tenantOverview, tenantPlaques,
-	// (OP-14) readAudit (the audit log's first page and every filter or page after it) and
-	// (OP-12) readBilling (a tenant's billing months, every page).
+	// (OP-14) readAudit (the audit log's first page and every filter or page after it),
+	// (OP-12) readBilling (a tenant's billing months, every page) and (OP-16) readVAT (a
+	// tenant's VAT screen and every ask of VIES from it).
 	// The handler charges it ONCE, after the request's own refusals and before the store
 	// call (spendRead), so a malformed id, a refused term, page or form spends no read.
 	// Keyed on the session's id, like sessionLimit.
@@ -387,12 +418,58 @@ const (
 	// 15 s), so 60 of them hold the database for at most 15 minutes of statement time a window
 	// -- on today's rosters, seconds.
 	//
+	// OP-16 PHASE B ADDED A TENANT'S VAT SCREEN AND KEPT THE NUMBER. Every view of it is a
+	// read, and so is every ask: the POST reads the number it sends to VIES through its own
+	// audited read (the orchestrator's K16-1), and its 303 lands on a GET that reads again. A
+	// re-check is therefore THREE reads (the screen, the ask, the screen after it), one unit of
+	// the VIES budget below and, when VIES answers, one write. A fourth kind of window:
+	//
+	//	a support window (above)                                         ~30 reads
+	//	a VAT check: ~5 re-checks (a handful of tenants whose verdict
+	//	             is wrong or missing, a retry after an outage)
+	//	             x 3 reads + their ~5 overviews + ~5 list pages      ~25 reads
+	//	x 2 headroom over the larger                                     60
+	//
+	// A window that mixes them -- a support window that also re-checks three of its tenants --
+	// is ~39 reads, against which 60 is 1.54 headroom (OP-11's walk stays the narrowest, 1.33).
+	// Again an estimate, not a measurement of use. A stolen cookie's 60 reads may now be 60 VAT
+	// views: 60 numbers a window, each view one more 'read' row naming the tenant; its asks are
+	// bounded first by viesLimit below.
+	//
 	// NO READ-THEN-WRITE WINDOW: Charge is one locked increment that returns the count, and
 	// the refusal is decided on the count it returned -- measured with 100 concurrent reads
 	// of one session: 60 reach the store, 40 answer 429
 	// (TestReadBudget_ConcurrentReadsOfOneSessionStopAtTheLimit).
 	readLimit  = 60
 	readPeriod = 10 * time.Minute
+
+	// viesLimit: VIES LOOKUPS per operator SESSION (OP-16 phase B; the orchestrator's K16-5) --
+	// every POST /operator/tenants/{id}/vat that reaches the VIES call. recheckVAT charges it
+	// ONCE, after the read and the format check and before the call (spendVIES), so a refused
+	// session, a malformed id, an unknown tenant and a number VIES does not take spend none --
+	// the sign-up wizard's outbound budget's rule (internal/handler/signupratelimit.go: "charged
+	// only when a lookup actually happens"). Keyed on the session's id, like the two above.
+	//
+	//	one operator x (~3 support cases that need a fresh answer
+	//	                + ~2 retries after VIES did not answer)        ~5 lookups per window
+	//	x 2 headroom                                                    10
+	//
+	// THE MODEL IS AN ESTIMATE, NOT A MEASUREMENT OF USE (the operator surface has none yet). A
+	// sweep of more than ten tenants' verdicts in one window answers 429 and waits for the next
+	// -- the ceiling's price, and the point: a VIES lookup is an outbound request from this
+	// deployment's address to a third party, the same address the sign-up wizard asks from
+	// (20 per address per window there), and VIES refuses an address that asks too fast
+	// (IP_BLOCKED and the *_MAX_CONCURRENT_REQ codes, which OP-16C reads as no answer).
+	//
+	// ITS COST, A STOLEN SESSION COOKIE: 10 outbound VIES lookups per window, each also one of
+	// the session's 60 reads and one 'read' row naming the tenant, and each answered one a
+	// 'tenant_vat_checked' row and, when the number still matched, a row in the tenant's own
+	// audit log. A fixed window lets a burst of twice that straddle the boundary (httpx.Limiter).
+	// Measured on one session: the eleventh lookup of a window is 429 with no VIES call, while
+	// the read budget beside it keeps its own count
+	// (TestVATBudget_ARecheckIsThreeReadsAndOneVIESUnit).
+	viesLimit  = 10
+	viesPeriod = 10 * time.Minute
 
 	// signOutLimit: the per-address ceiling of a sign-out that carries a session cookie
 	// (requireOperator answers a cookieless one first). The panel measured why sign-out

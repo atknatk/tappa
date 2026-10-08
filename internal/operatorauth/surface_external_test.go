@@ -142,8 +142,9 @@ func (surfLegal) PublishLegal(context.Context, string, string, string) error {
 func (surfLegal) Published() map[string]legal.Doc { return map[string]legal.Doc{} }
 func (surfLegal) Refresh(context.Context) error   { return nil }
 
-// surfTenants is the operator surface's tenant store (OP-11), plaque store (OP-13) and
-// audit store (OP-14) for the same rig: every call is refused.
+// surfTenants is the operator surface's tenant store (OP-11), plaque store (OP-13), audit
+// store (OP-14), billing store (OP-12) and VAT store (OP-16) for the same rig: every call is
+// refused.
 type surfTenants struct{}
 
 func (surfTenants) TenantList(context.Context, string, db.TenantListQuery) ([]db.TenantSummary, error) {
@@ -160,6 +161,19 @@ func (surfTenants) OperatorAudit(context.Context, string, db.OperatorAuditQuery)
 }
 func (surfTenants) TenantBilling(context.Context, string, uuid.UUID, int32) (db.TenantBillingTimeline, error) {
 	return db.TenantBillingTimeline{}, db.ErrOperatorRefused
+}
+func (surfTenants) TenantVAT(context.Context, string, uuid.UUID) (db.TenantVATStatus, error) {
+	return db.TenantVATStatus{}, db.ErrOperatorRefused
+}
+func (surfTenants) RecordTenantVATCheck(context.Context, string, uuid.UUID, string, bool) error {
+	return db.ErrOperatorRefused
+}
+
+// surfVIES is the operator surface's VIES client (OP-16) for the same rig: it never answers.
+type surfVIES struct{}
+
+func (surfVIES) CheckVAT(context.Context, string) operator.VATAnswer {
+	return operator.VATAnswerUnknown
 }
 
 const (
@@ -206,7 +220,8 @@ func newSurfRig(t *testing.T) *surfRig {
 		t.Fatal(err)
 	}
 	g.comparisons, g.digests = operatorauth.CountWork(a)
-	s, err := operator.New(a, surfLegal{}, surfTenants{}, surfTenants{}, surfTenants{}, surfTenants{}, surfLegal{}, surfHost, "https://taptime.mt", log)
+	s, err := operator.New(a, surfLegal{}, surfTenants{}, surfTenants{}, surfTenants{}, surfTenants{}, surfTenants{}, surfVIES{}, surfLegal{}, surfHost,
+		"https://taptime.mt", log)
 	if err != nil {
 		t.Fatal(err)
 	}

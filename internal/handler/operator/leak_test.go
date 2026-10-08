@@ -56,6 +56,10 @@ const (
 	// that cut the term short would still carry a prefix); this package's own claim
 	// (tenants.go); on no never-log list.
 	gTerm = "G17 tenant search term"
+	// OP-16: a tenant's VAT number -- a public register's key, not a credential, and on no
+	// never-log list; kept off every surface but the VAT screen's body all the same (the
+	// orchestrator's K16-4; backlog T107) -- this package's own claim (vat.go).
+	gVAT = "G18 tenant VAT number"
 )
 
 // neverLog is the CLOSED criterion: each never-log item of CLAUDE.md §7, ADR 0020 §5 and
@@ -344,13 +348,26 @@ func (h *hashRecorder) TenantBilling(ctx context.Context, s string, id uuid.UUID
 	return h.fakeStore.TenantBilling(ctx, s, id, page)
 }
 
+// The VAT screen's two calls (OP-16): the session hash, and -- for the write -- the VAT number
+// it was handed (the read's own, never the client's: vat.go). The tenant id is printed on the
+// screen by design and the verdict is a bool.
+func (h *hashRecorder) TenantVAT(ctx context.Context, s string, id uuid.UUID) (db.TenantVATStatus, error) {
+	h.record("TenantVAT", s)
+	return h.fakeStore.TenantVAT(ctx, s, id)
+}
+
+func (h *hashRecorder) RecordTenantVATCheck(ctx context.Context, s string, id uuid.UUID, number string, valid bool) error {
+	h.record("RecordTenantVATCheck", s, number)
+	return h.fakeStore.RecordTenantVATCheck(ctx, s, id, number, valid)
+}
+
 // harvestWant pins the harvest: calls per method and the arity of each call's record.
 // The counts are the arms' own, derived where each arm is driven (comments at the arms).
 var harvestWant = map[string]struct{ calls, arity int }{
 	"OperatorByEmail":            {calls: 9, arity: 1},    // A2 A3 A4 A20 A20b A23 A26b A28 A30b
 	"RecordOperatorAuthEvent":    {calls: 12, arity: 1},   // A2 A3 A6 A14 A15 A17 A28; OP-14 C: each right password's 'password_ok' -- A4 A20b A23 A26b A30b
 	"OpenOperatorSession":        {calls: 5, arity: 1},    // A7 A20b A24 A26b A30b
-	"TouchOperatorSession":       {calls: 220, arity: 1},  // A8 A9 A21, A27 x 101, A31-A41, A43, A44-A52, A54-A59, A60-A65, A66a x 60, A66, A67-A74, A76, A77, A78-A86, A88, A89, A90 (A42, A53, A75 and A87 are refused before the gate)
+	"TouchOperatorSession":       {calls: 227, arity: 1},  // A8 A9 A21, A27 x 101, A31-A41, A43, A44-A52, A54-A59, A60-A65, A66a x 60, A66, A67-A74, A76, A77, A78-A86, A88, A89, A90, A91-A97 (A42, A53, A75, A87 and A98 are refused before the gate)
 	"CloseOperatorSession":       {calls: 3002, arity: 1}, // A10 A22, A30a x 3000 (A30 is refused first)
 	"CompleteOperatorEnrollment": {calls: 3, arity: 4},    // A16 A17 A25
 	"LegalVersions":              {calls: 5, arity: 1},    // A31 A33 A39 A41 A43
@@ -360,26 +377,28 @@ var harvestWant = map[string]struct{ calls, arity int }{
 	"TenantPlaques":              {calls: 65, arity: 1},   // A60 A61 A63 A64 A65, A66a x 60 (A62's id and A66's read budget refuse before the store)
 	"OperatorAudit":              {calls: 6, arity: 1},    // A67 A68 A69 A73 A74 A76 (A70-A72 refuse before the store, A75 before the gate, A77 at the read budget)
 	"TenantBilling":              {calls: 8, arity: 1},    // A78 A79 A81 A84 A85 A86 A88 A89 (A80, A82, A83 refuse before the store, A87 before the gate, A90 at the read budget)
+	"TenantVAT":                  {calls: 6, arity: 1},    // A91 A92 A93 A94 A95 A96 (A97's id refuses before the store, A98 before the gate)
+	"RecordTenantVATCheck":       {calls: 2, arity: 2},    // A92 A95 (A93: VIES did not answer; A94: the number is never sent)
 }
 
 // TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor -- THE CONTRACT (M10 OP-8; the
 // shape is internal/operatorauth's
 // TestLeak_NoInputInAnyErrorOrLogLine, m10-platform.md OP-4 block, OP-8 list):
 //
-// No member of the GROUPS G1-G17 (constants above) occurs, in any of the RENDERINGS
+// No member of the GROUPS G1-G18 (constants above) occurs, in any of the RENDERINGS
 // R1-R10 (renderings), on any of the SURFACES S1-S4 (leakSurfaces; S4 is the response
 // headers AT WriteHeader, the recorder's Result().Header -- Location among them), in any
-// of the 90 numbered ARMS A1-A90 below -- EXCEPT the DESIGNED EGRESS D1-D7, each of which
+// of the 98 numbered ARMS A1-A98 below -- EXCEPT the DESIGNED EGRESS D1-D8, each of which
 // is pinned the other way: the value IS on its surface in its arm. The groups are measured
 // against the CLOSED list neverLog (12 items, a pinned literal): every group of every item
 // has a member. G15 (the client address), G16 (a legal text posted to the operator's
 // screen, or an unknown slug posted with one -- OP-10) and G17 (a tenant search term and
-// its 8- and 4-character prefixes -- OP-11) are bound to no item -- the package's own
-// claims. The fake store's harvest -- session hashes, raw link tokens, digests,
+// its 8- and 4-character prefixes -- OP-11) and G18 (a tenant's VAT number -- OP-16) are bound
+// to no item -- the package's own claims. The fake store's harvest -- session hashes, raw link tokens, digests,
 // envelopes, addresses, posted legal texts and search terms it was handed (the plaque
 // screen's, the audit log's and the billing screen's session hashes too, OP-13, OP-14 and
-// OP-12) -- is searched
-// too (G5, G8, G12, G11, G13, G16, G17) and pinned method by method by COUNT and ARITY
+// OP-12, and the VAT screen's session hashes and the number its write was handed, OP-16) -- is
+// searched too (G5, G8, G12, G11, G13, G16, G17, G18) and pinned method by method by COUNT and ARITY
 // (harvestWant), not by content. The read ticket is not searched: no value of it reaches
 // this package (neverLog's comment).
 //
@@ -403,7 +422,12 @@ var harvestWant = map[string]struct{ calls, arity int }{
 //     -- and its prefixes, which it contains -- on the result page it was searched from:
 //     its search box, its "matching" line and its pager's hidden fields (S3; A45, A46,
 //     A47). On the term's other arms -- its refusals, its faults, its session refused, a
-//     cross-origin search, a term in the query string -- it is on no surface.
+//     cross-origin search, a term in the query string -- it is on no surface. D8 the
+//     tenant's VAT number on its VAT screen (S3; A91, A93 -- the screen again with the
+//     no-answer sentence -- and A94, the other tenant's number with the format sentence); on
+//     the VAT screen's other arms -- the answer recorded (a 303), the write failing, the read
+//     failing, a malformed id, a cross-origin re-check -- it is on no surface, the process
+//     log included.
 //
 // THE ARMS (handler order, then the faults and ceilings):
 //
@@ -441,7 +465,10 @@ var harvestWant = map[string]struct{ calls, arity int }{
 //	· A80 a malformed id · A81 an id no tenant has · A82 a page out of range · A83 an
 //	oversized form · A84 the read fails · A85 the read times out · A86 the read's session is
 //	refused · A87 a cross-origin page · A88 a page in the query string · A89 a store that
-//	answers for another tenant · and, on A30b's session from its own address, A66 the read
+//	answers for another tenant · OP-16's VAT screen, on A20b's session: A91 a tenant's VAT
+//	number · A92 a re-check VIES answers · A93 a re-check VIES does not answer · A94 a number
+//	VIES does not take · A95 the re-check's write fails (22023) · A96 the VAT read fails · A97 a
+//	malformed id · A98 a cross-origin re-check · and, on A30b's session from its own address, A66 the read
 //	budget (60 plaque reads, A66a, then the 61st), A77 the audit log and A90 the billing past
 //	the same budget
 //
@@ -464,7 +491,8 @@ func TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor(t *testing.T) {
 		t.Fatal(err)
 	}
 	texts := newFakeTexts(store.fakeStore)
-	surface, err := operator.New(auth, store, store, store, store, store, texts, opHost, opBase, plog)
+	vies := &fakeVIES{store: store.fakeStore}
+	surface, err := operator.New(auth, store, store, store, store, store, store, vies, texts, opHost, opBase, plog)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -931,6 +959,48 @@ func TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor(t *testing.T) {
 		!strings.Contains(results["A89 a store that answers for another tenant's billing"].process, "billing could not be read") {
 		t.Fatal("PREMISE: A78/A79 are not the months, or A85/A89 wrote no fault line -- the arms are not the branches they name")
 	}
+	// OP-16's VAT screen on A20b's session ([T] a touch; [V] TenantVAT; [W] RecordTenantVATCheck).
+	// The leak tenant's number is IE-shaped (its longest run of digits is five, so no six-digit
+	// code needle can sit inside it -- minNeedle's comment); a second tenant's number is not in a
+	// format VIES takes. G18's members are both numbers.
+	vatOdd := uuid.New()
+	const vatNumber, vatOddNumber = "IE9F23456K", "IE1234"
+	set.add(gVAT, vatNumber, vatOddNumber)
+	store.mu.Lock()
+	store.vats[leakTenant] = fakeVAT{name: "FAKE Leak Tenant Ltd", number: vatNumber}
+	store.vats[vatOdd] = fakeVAT{name: "FAKE Odd Number Ltd", number: vatOddNumber}
+	store.mu.Unlock()
+	vat := "/operator/tenants/" + leakTenant.String() + "/vat"
+	get("A91 a tenant's VAT number", vat, live) // [T V1]
+	vies.set(operator.VATAnswerValid)
+	post("A92 a re-check VIES answers", vat, url.Values{}, live) // [T V2 W1]
+	vies.set(operator.VATAnswerUnknown)
+	post("A93 a re-check VIES does not answer", vat, url.Values{}, live)                                     // [T V3]
+	post("A94 a number VIES does not take", "/operator/tenants/"+vatOdd.String()+"/vat", url.Values{}, live) // [T V4]
+	vies.set(operator.VATAnswerInvalid)
+	fail("RecordTenantVATCheck", errFakeVATUnbound)
+	post("A95 the re-check's write fails", vat, url.Values{}, live) // [T V5 W2]
+	fail("RecordTenantVATCheck", nil)
+	fail("TenantVAT", errFakeDB)
+	get("A96 the VAT read fails", vat, live) // [T V6]
+	fail("TenantVAT", nil)
+	get("A97 a malformed VAT id", "/operator/tenants/"+strings.ReplaceAll(leakTenant.String(), "-", "")+"/vat", live) // [T]
+	do("A98 a cross-origin re-check", req{method: http.MethodPost, path: vat, form: url.Values{},
+		origin: "https://taptime.mt", header: map[string]string{"Sec-Fetch-Site": "same-site"}, cookies: []*http.Cookie{live}})
+	for arm, want := range map[string]int{
+		"A91 a tenant's VAT number": 200, "A92 a re-check VIES answers": 303, "A93 a re-check VIES does not answer": 503,
+		"A94 a number VIES does not take": 422, "A95 the re-check's write fails": 503, "A96 the VAT read fails": 503,
+		"A97 a malformed VAT id": 404, "A98 a cross-origin re-check": 403,
+	} {
+		if got := results[arm].w.Code; got != want {
+			t.Fatalf("PREMISE: %s = %d, want %d -- the arm is not the branch it names", arm, got, want)
+		}
+	}
+	if !strings.Contains(results["A93 a re-check VIES does not answer"].process, "VIES did not answer") ||
+		!strings.Contains(results["A95 the re-check's write fails"].process, "SQLSTATE 22023") ||
+		!strings.Contains(results["A96 the VAT read fails"].process, "VAT number could not be read") {
+		t.Fatal("PREMISE: A93/A95/A96 wrote no line of their own -- the arms are not the branches they name")
+	}
 	do("A28 credentials in the query", req{method: http.MethodPost, // [E8 R7]: the empty body's empty address
 		path: "/operator/login?email=" + url.QueryEscape(email) + "&password=" + url.QueryEscape(queryPass), form: url.Values{}, origin: opOrigin})
 	get("A29 a link token in the query", "/operator/enroll?id="+pending.String()+"&token="+queryToken)
@@ -1035,6 +1105,13 @@ func TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor(t *testing.T) {
 	for _, v := range store.got["TenantBilling"] {
 		set.add(gSessionHash, v[0])
 	}
+	for _, v := range store.got["TenantVAT"] {
+		set.add(gSessionHash, v[0])
+	}
+	for _, v := range store.got["RecordTenantVATCheck"] {
+		set.add(gSessionHash, v[0])
+		set.add(gVAT, v[1])
+	}
 	// THE HARVEST PIN: count and arity, method by method.
 	for m, want := range harvestWant {
 		calls := store.got[m]
@@ -1063,7 +1140,7 @@ func TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor(t *testing.T) {
 			}
 		}
 	}
-	for _, g := range []string{gAddr, gLegal, gTerm} {
+	for _, g := range []string{gAddr, gLegal, gTerm, gVAT} {
 		if !set.inGroup(g) {
 			t.Errorf("group %q has no member", g)
 		}
@@ -1085,6 +1162,9 @@ func TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor(t *testing.T) {
 		"A45 a search, a name term":            {"S3 response body": termAndPrefixes(textTerm)},
 		"A46 a search, an address term":        {"S3 response body": termAndPrefixes(addrTerm)},
 		"A47 the search's next page":           {"S3 response body": termAndPrefixes(textTerm)},
+		"A91 a tenant's VAT number":            {"S3 response body": {vatNumber}},
+		"A93 a re-check VIES does not answer":  {"S3 response body": {vatNumber}},
+		"A94 a number VIES does not take":      {"S3 response body": {vatOddNumber}},
 	}
 	for arm := range results {
 		if strings.HasSuffix(arm, " (password)") {

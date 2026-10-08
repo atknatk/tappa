@@ -238,6 +238,10 @@ func TestAccount_VATStateSaysItsOwnWord(t *testing.T) {
 			notWords: []string{"Confirmed", "Not found", "Not checked"},
 		},
 		{
+			// ⚠️ THE TWO VERDICT SENTENCES CHANGED IN M10 OP-16 B (LB7, D2): they dated the
+			// verdict by the registration and said nothing had asked since, which the
+			// platform operator's re-check made false.
+			// TestAccount_AVerdictIsDatedByTheRegistersLastAnswer holds the new wording.
 			name: "the register says yes", verified: &yes, at: &checked,
 			word: "Confirmed", phrase: "confirmed this number",
 			notWords: []string{"Not found", "No answer", "Not checked"},
@@ -266,12 +270,61 @@ func TestAccount_VATStateSaysItsOwnWord(t *testing.T) {
 				}
 			}
 			// THE STAMP IS ONLY DRAWN WHEN SOMETHING WAS ACTUALLY ASKED. "Asked <date>"
-			// under "Not checked" would be a date for an event that never happened.
+			// under "Not checked" would be a date for an event that never happened. And
+			// beside a verdict the time is the register's last ANSWER (M10 OP-16 B, D2):
+			// an ask it did not answer writes nothing, so "Asked" there would date the
+			// last ask the record cannot see.
+			verdict := tc.verified != nil
 			asked := strings.Contains(html, htmlText("Asked "))
-			if want := tc.at != nil; asked != want {
+			answered := strings.Contains(html, htmlText("Last answer "))
+			if want := tc.at != nil && !verdict; asked != want {
 				t.Errorf("the screen shows an asked-on date = %v, want %v", asked, want)
 			}
+			if want := tc.at != nil && verdict; answered != want {
+				t.Errorf("the screen shows a last-answer date = %v, want %v", answered, want)
+			}
 		})
+	}
+}
+
+// TestAccount_AVerdictIsDatedByTheRegistersLastAnswer (M10 OP-16 B, LB7 and the security
+// audit's D2): the two verdicts' sentences say the register answered "when it last answered",
+// and the stamp under them is "Last answer <date>" -- not "when this business registered", not
+// "nothing has asked again since", which the platform operator's re-check (ADR 0021, migration
+// 00034) made false, and not "when it was last asked": an ask VIES does not answer writes
+// nothing, so the record's time is the last ANSWER and a newer, unanswered ask may exist. They
+// name no asker either: whether a customer is told that Taptime re-checked the number is the
+// user's decision, so neither sentence says "Taptime re-checked", "we asked" or "re-check".
+func TestAccount_AVerdictIsDatedByTheRegistersLastAnswer(t *testing.T) {
+	yes, no := true, false
+	checked := fakeVATChecked
+	for _, tc := range []struct {
+		name     string
+		verified *bool
+		sentence string
+	}{
+		{"the register says yes", &yes, "The European Commission's VAT register (VIES) confirmed this number " +
+			"when it last answered. The number itself cannot be changed from this page."},
+		{"the register says no", &no, "The European Commission's VAT register (VIES) did not recognise this " +
+			"number when it last answered. That does not affect anything the product does — but an invoice " +
+			"made out to a number the register does not know is a problem for your accountant, so tell us " +
+			"and we will correct it."},
+	} {
+		acc := newFakeAccount()
+		acc.setVAT(tc.verified, &checked)
+		html := accountPage(t, acc)
+		if !strings.Contains(html, htmlText(tc.sentence)) {
+			t.Errorf("%s: the screen does not carry the sentence %q", tc.name, tc.sentence)
+		}
+		if !strings.Contains(html, htmlText("Last answer ")) {
+			t.Errorf("%s: the screen does not date the verdict as the register's last answer", tc.name)
+		}
+		for _, stale := range []string{"When this business registered", "Nothing has asked", "asked again since",
+			"last asked", "Last asked", "Asked ", "Taptime re-checked", "we asked", "re-check", "Re-check"} {
+			if strings.Contains(html, htmlText(stale)) {
+				t.Errorf("%s: the screen says %q", tc.name, stale)
+			}
+		}
 	}
 }
 
@@ -291,9 +344,10 @@ func TestAccount_OffersNoVATRecheck(t *testing.T) {
 	html := accountPage(t, newFakeAccount())
 	for _, forbidden := range []string{"Check again", "Re-check", "Recheck", "Verify now"} {
 		if strings.Contains(html, htmlText(forbidden)) {
-			t.Errorf("the account screen offers %q.\nNothing in the product can write "+
-				"vat_verified after registration — migration 00017 granted INSERT and not "+
-				"UPDATE — so a button saying so would be a control that cannot work.", forbidden)
+			t.Errorf("the account screen offers %q.\nNothing a customer's session reaches can write "+
+				"vat_verified after registration — migration 00017 granted tappa_app INSERT and not "+
+				"UPDATE; only the platform operator's re-check writes it (00034) — so a button saying "+
+				"so would be a control that cannot work.", forbidden)
 		}
 	}
 	if !strings.Contains(html, htmlText("tell us")) {

@@ -80,8 +80,9 @@ type AccountView struct {
 	// VATLine is the sentence under the marker: what the state means and what, if
 	// anything, the customer should do.
 	VATLine string
-	// VATCheckedAt is when the register was asked, already formatted, or "" when it
-	// never was.
+	// VATCheckedAt is the time on the record, already formatted, or "" when it holds none.
+	// Beside a verdict it is the register's last ANSWER (an ask it did not answer writes
+	// nothing); the template says so ("Last answer"), and "Asked" beside "No answer".
 	VATCheckedAt string
 
 	// --- the form ----------------------------------------------------------------

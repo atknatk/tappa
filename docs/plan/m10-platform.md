@@ -11587,6 +11587,407 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 > ADR md. 5'te metin olarak duruyor; kol iş bütçesini tüketir ve testin sonuna gitmek zorunda — değeri bedelinden
 > küçük). LE7'nin ölçümü backlog T109'a yazıldı.
 
+> **OP-16B — operatörün VAT yeniden denetim ekranı (VIES)**
+>
+> **Kart düzeltmesi (2026-10-07, uygulama sırasında).** Taban `27f7c93` (dal `m10-a1` ucu; OP-16C
+> `7822593` ve OP-16A `ac13003` commit'li); teslimden önce `3f55d16`'ya (OP-14E) rebase edildi. Kart taslağının (scratchpad `op15-16-plan/op16.md`) md. 1,
+> 2, 4 (B), 5 *B fazı*, 6–9'u; A ve C'den gelen gerçekler taslağın önüne geçti (yazma commit edilmiş
+> okumaya bağlı — bağ reddi için ayrı nöbetçi yok; `Check` üç değerli, yalnız `isValid:false` +
+> `INVALID` Invalid). Migration, DDL, yeni bağımlılık yok (`go.mod`, `go.sum`, `sqlc.yaml` diff'i
+> boş); `make gen` idempotent. Commit önerisi: `feat(operator): re-check a tenant's VAT number with
+> VIES`.
+>
+> **Yazıldı (ürün):** `internal/handler/operator/vat.go` (yeni), `surface.go` (`New`'a `VATStore` ve
+> `VATChecker` yuvaları; `viesAsks` sınırlayıcısı, `viesLimit` 10 / 10 dk ve türetmesi; `readLimit` ve
+> `sessionLimit` yeniden sayımı), `routes.go` (iki rota, yorumlar), `render.go` (yalnız `var` bloğuna
+> iki hata sayfası + `problemPages` listesi — OP-14E'nin `answered` eklediği bölgeye dokunulmadı),
+> `tenants.go` (genel bakışın `VATPath`'i), `web/templates/operatorpages/vat.templ` (yeni) +
+> `vat_templ.go` (üretildi), `view.go` (`TenantVATView`, `VATTone`, genel bakışa `VATPath`),
+> `tenants.templ` + `tenants_templ.go` (link), `web/static/css/input.css` (dört çip adı var olan dört
+> tona eklendi — yeni zemin yok), `internal/db/operatorpool.go` (iki temsilci yöntem),
+> `cmd/tappa/main.go` (tek `signup.NewChecker`, iki tüketiciye), `cmd/tappa/operator.go`
+> (`viesChecker`, `operatorVIES` adaptörü, `viesForOperator`, `operatorStore`'a `VATStore`), ADR 0021
+> ("OP-16 B eki" — `## Sonuçlar`'dan önce, yalnız ekleme; Sonuçlar'ın OP-16 maddesine bir satır),
+> ADR 0020 §4 (OP-16 notu, yalnız ekleme).
+>
+> **Yazıldı (test):** yeni `internal/handler/operator/op16_test.go`, `op16_db_test.go`,
+> `internal/db/operatorvatpool_test.go`, `internal/domain/signup/vies_client_test.go`,
+> `cmd/tappa/operatorvies_test.go`; güncellenen (neden aşağıda): `rig_test.go` (sahte mağazanın VAT
+> yöntemleri ve izi, `fakeVIES`), `surface_test.go` (`noStore`, `noVIES`, `New`'in iki yeni reddi),
+> `op8_test.go` (`operatorRoutes`, `mountedPath`, `screens()` 34 → 40, imzalı 25 → 31, host kapısı
+> yolları, monte edilmemiş yollar, link kontrolleri), `op8r2_test.go` (`hostileQuery`'ye `vat_number`,
+> `hostileDrive`, `designedHeaders` C142–C165), `op8r5_test.go` (`classRoutes` C142–C165,
+> `classCount` 141 → 165, `routeOf`, yürünen rota öncülü 11/18 → 12/20), `typepins_test.go`
+> (`operatorScreens` 12 → 13; RH4'e tek sabit olmayan yönlendirme), `leak_test.go` (G18, A91–A98, D8,
+> `harvestWant`'a iki yöntem, Touch 220 → 227), `export_test.go`, `op10_db_test.go` (`liveStore`'un
+> iki yöntemi, `liveVIES` yuvası), `op12_db_test.go` ve `op8_db_test.go` (`New` çağrıları),
+> `internal/db/operatorpool_test.go` (temsilci 14 → 16, öncül 15 → 17) ve
+> `operatorpool_external_test.go` (`VATStore`), `internal/operatorauth/surface_external_test.go` ve
+> `passwordok_external_test.go` (`New` çağrıları; `surfTenants`'a iki yöntem, `surfVIES` — OP-14E bu
+> iki dosyaya dokunmuyor, karşılaştırıldı), `cmd/tappa/operator_test.go` (`noStore`, `noCheck`, çağrılar,
+> bağlantı testi).
+>
+> **Yazıldı (2. tur, 2026-10-08):** yukarıdakilere ek olarak `internal/handler/account.go` (hesap
+> ekranının iki hüküm cümlesi — LB7) ve `internal/handler/account_test.go` (yeni pin + iki yorum);
+> öteki 2. tur değişiklikleri bu fazın kendi dosyalarındadır (`vat.go`, `vat.templ` +
+> `vat_templ.go`, `export_test.go`, `rig_test.go`, `op16_test.go`, `cmd/tappa/operatorvies_test.go`,
+> ADR 0021 eki, ADR 0020 notu). Ayrıntı: md. 11.
+>
+> **Not — `answered`:** brief'in okuma listesindeki `answered(r)` `27f7c93`'te yoktu (OP-14E'nindi);
+> `3f55d16`'ya rebase'den sonra `POST` onu kullanır (K-B2).
+>
+> **Rebase (orkestratörün bilgisi, 2026-10-07):** iş `27f7c93` üzerinde yapıldı ve rapordan önce
+> `3f55d16`'ya (OP-14E commit'li) geçici bir WIP commit'iyle taşındı (`git rebase` çakışmasız),
+> WIP `git reset 3f55d16` ile çalışma ağacına açıldı (HEAD = `3f55d16`, worktree'de commit yok). Her iki
+> tarafın değiştirdiği dosyalar: ADR 0020, ADR 0021, `render.go` — `difflib` opkodları yalnız
+> `equal`/`insert` (13, 175, 23 eklenen satır), eklenenler çıkarılınca `3f55d16`'daki dosya bayt bayt
+> aynı; ve `internal/operatorauth/detached_external_test.go` — OP-14E'nin yeni `operator.New`
+> çağrısı, imza değiştiği için tek satır (iki yuva eklendi). Rebase'den sonra POST, OP-14E'nin
+> `answered(r)`'ını kullanacak biçimde yeniden yapılandırıldı (md. 3, karar K-B2) ve zincir yeniden
+> koşuldu.
+>
+> 1. **Ölçümler (salt-okur, dev PostgreSQL 17.10, goose 34; `BEGIN TRANSACTION READ ONLY … ROLLBACK`).**
+>    - Sütunlar ve yetkiler A'nın ölçtüğü gibi; bu faz DDL yapmadı.
+>    - Baştaki durum: `tenant.vat_rechecked` 0, `tenant_vat_checked` 0 (A'nın sondası); VAT durumu
+>      olan tenant'lar (`vat_verified` 25 282, `vat_checked_at` 25 908) ve onların durumunun md5
+>      özeti (`15077a20…`, fikstürler dışarıda) her koşudan sonra aynı — gerçek bir tenant'ın VAT
+>      durumu değişmedi.
+>    - Müşteri hesap ekranının dört sözcüğü `internal/handler/account.go` `fillAccountVAT`'tan okundu
+>      (Confirmed / Not found / No answer / Not checked); bölüm `tenant.VATCheck.State`.
+>    - Kontrast (WCAG 2.1, sRGB, paper üstünde): ink, çiplerin zemininde 13,27:1 (ink/10) – 15,55:1
+>      (line/10); yeni zemin yok.
+> 2. **Kararların uygulanışı.**
+>    - **K16-1 (ii):** `POST` gövdeyi hiç okumaz; numara isteğin kendi audit'li okumasından
+>      (`TestVATRecheck_TheNumberIsTheServersNotTheClients`, VN1/VN5).
+>    - **K16-2:** Unknown (ve adı konmamış her `VATAnswer`) → yazma yok, `503`, aynı ekran + *"The
+>      EU VAT register (VIES) did not answer. Nothing was changed; the result below still stands. Try
+>      again in a few minutes."* (son cümle 2. tur, F5)
+>    - **K16-3:** A'nın `detail '{}'`'ına dokunulmadı.
+>    - **K16-4:** numara hiçbir log satırında, hata iletisinde ve başlıkta yok (T107; md. 6).
+>    - **K16-5:** `viesLimit` 10 / 10 dk / oturum; aritmetiği ve bedeli `surface.go`'da;
+>      `readLimit`/`sessionLimit` yeniden sayıldı (değişmedi).
+>    - **K16-6:** istemci `internal/domain/signup`'ta; `cmd/tappa`'da `operatorVIES` adaptörü; operatör
+>      paketinin kendi `VATAnswer`'ı; tek `signup.NewChecker` iki tüketiciye; operatör paketi
+>      signup'tan yalnız `ValidVATFormat`'ı kullanır (VN4) — *"ONLY OUTBOUND HTTP CLIENT"* doğru.
+>    - **K16-7:** müşterinin kendi yeniden denetimi yapılmadı.
+>    - **22023 için ayrı nöbetçi yok** (orkestratör): fail-closed `503` *"The re-check was not
+>      confirmed"*, log satırı tenant id'si + SQLSTATE.
+> 3. **Bu fazın kendi kararları (gerekçeli).**
+>    - **K-B1 — biçim reddi `422`:** istek anlaşıldı ama kayıtlı numara işlenemez; ekran + cümle
+>      döner, `GET` formu hiç çizmez.
+>    - **K-B2 — POST id denetiminden sonra istemciden ayrık (`answered(r)`, OP-14 E):** okuma
+>      (`vatReadTimeout` 5 sn — *2. tur, F1*), VIES (`vatAskTimeout` 4 sn tavan — ilk turda 5; üretim
+>      istemcisi 3 sn) ve yazma (`WithoutCancel` + 10 sn) sonuna kadar koşar, her biri kendi
+>      sınırıyla, toplam 19 sn ≤ `httpShutdownGrace` 20 sn; giden istemcinin sorusu kaydedilir; cevapsızlıkta giden istemciye de `503` ekranı
+>      (düz `500` değil). Oturum kapısı istemciyi izlemeye devam eder.
+>    - **K-B3 — `AnswerAsDesigned` kullanılmadı:** VIES kesintisinin `503`'ü erişim kaydında ERROR
+>      kalır (LB1); designed işareti kaydı tümden siler.
+>    - **K-B4 — RH4 genişletildi:** yüzeyin sabit olmayan tek yönlendirmesi `recheckVAT`'taki
+>      `vatPath(tenant)` (tenant `tenantID`'den); ikinci bir tane kırmızı.
+>    - **K-B5 — çip adları:** dört `tally--vat-*` adı var olan dört tona gruplandı (yeni zemin yok;
+>      `TestTallyRules_NoToneRuleColoursTheWord` yeşil).
+>    - **K-B6 — operatör cümleleri** müşteri ekranının *sözcüklerini* kullanır ama cümleleri
+>      operatörün bakışındandır (*"when it was last asked"*). Hesap ekranının iki hüküm cümlesi de
+>      *2. turda* aynı tarafsız tarihe geçti (LB7 kapandı — md. 11).
+> 4. **Kabul — her satır bir test.**
+>
+>    | Kabul / iddia | Test |
+>    |---|---|
+>    | `tappa_app` `vat_*` hâlâ UPDATE edemiyor | `TestAccountDB_TheAppRoleHoldsNoUpdateOnTheVATColumnsOrTheTerms`, `TestOperator00034_TheDefinerWritesTheVerdictAndNotTheNumber` (A; değişmedi) |
+>    | Tenant audit önce/sonra (gerçek PG) | `TestE2E_VATRecheckRecordsVIESAnswerAndTheTenantReadsIt` |
+>    | VIES kesintisinde yazma yok, cümle görünür, `503` | `TestVATRecheck_OnlyAVerdictIsRecorded`; E2E md. 2 |
+>    | Üç sonuç (sahte checker) | `TestVATRecheck_OnlyAVerdictIsRecorded` |
+>    | Biçim dışı numarada checker çağrısı 0 | `TestVATRecheck_ANumberVIESDoesNotTakeIsNeverSent` |
+>    | Ret yolları store'suz / yazısız | `TestVATRecheck_EveryRefusalWritesNothing` |
+>    | Başlık sınıfları | `TestOperatorHeaders_TheVATClassesCarryThePolicy` (C142–C165) |
+>    | Sınırlayıcı: 11. VIES reddedilir, okuma bütçesi ayrı | `TestVATBudget_ARecheckIsThreeReadsAndOneVIESUnit` |
+>    | POST numarayı istemciden almıyor | `TestVATRecheck_TheNumberIsTheServersNotTheClients`, `TestVATNumber_TheListedSitesAloneReadIt` |
+>    | VIES sırasında açık mağaza çağrısı / işlem / bağlantı yok | `TestVATRecheck_VIESIsAskedWithNoStoreCallOpen`, E2E md. 5 (`TxStatus`), `TestOperatorDB_TheVATMethodsHoldNoConnectionOnceTheyReturn` |
+>    | Yazma `WithoutCancel`; giden istemci | `TestVATRecheck_AClientThatLeavesStillGetsItsAnswerRecorded`, VN3 |
+>    | E2E: okuma satırı, yazma satırı, tenant `audit_log`, hesap ekranının okuduğu durum, Unknown'da yazı yok | `TestE2E_VATRecheckRecordsVIESAnswerAndTheTenantReadsIt` |
+>    | Dört durum hesap ekranıyla aynı (bölüm + sözcük) | `TestVATScreen_TheFourStatesAreTheAccountScreensFour`, `TestVATScreen_TheFourStatesAreCalledWhatTheAccountScreenCallsThem` |
+>    | Ekran: başlıkta ad, numara, durum, UTC, link | `TestVATScreen_EveryStateSaysItsWordAndSentence`, `TestOperatorScreens_EveryActionAndLinkIsAMountedRoute` |
+>    | Çip kontrastı ve CSS kuralı | `TestVATScreen_TheChipsAndTextClearAA`, `TestVATScreen_EachChipHasTheRuleTheContrastTestComputes` |
+>    | Rota monte, alt yollar değil | `TestOperatorHeaders_TheWalkedRoutesEachHaveAClass`, `TestSurface_TheScreensOfLaterTasksAreNotMounted`, `TestHostGate_OperatorRoutesAnswerTheRoutersOwn404OnEveryOtherHost` |
+>    | `New` iki yeni yuvayı ister | `TestSurface_NewRefusesWhatAConfiguredSurfaceNeeds` |
+>    | `*db.OperatorDB` = arayüzler | `TestOperatorDB_IsTheStoreAndNothingMore`, `TestOperatorDB_EveryMethodDelegatesVerbatim`, `TestOperatorDB_HasNoTenantDoorAndNoRawSQLDoor` |
+>    | Tek VIES istemcisi, adaptör | `TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator`, `TestOperatorVIES_OnlyAVerdictBecomesAVerdict` |
+>    | T106: yönlendirme izlenmez; cevapsız uç süre sınırında Unknown | `TestVIESProductionClient_RefusesToFollowARedirect`, `TestVIESProductionClient_GivesUpOnASilentServerWithinItsBound` |
+>    | T107: numara log'da yok (handler + adaptör + VIES istemcisi) | `TestVATRecheck_TheNumberIsOnNoLogLineOrHeader`, `TestOperatorVIES_OnlyAVerdictBecomesAVerdict`, `TestVIESCheck_LogsNothingOnAnyPath`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` (G18, A91–A98), VN1 |
+>    | typepins / ekran listesi | `TestOperatorPages_TheExportedScreensAreTheOnesScreensRenders`, `TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions`, `TestFormValues_TheListedSitesAloneRevealOrReadTheForm` |
+>    | *(2. tur, F1)* okuma `GET`'te ve ayrık `POST`'ta kendi sınırını taşır | `TestVATRecheck_TheReadIsBoundedOnBothMethods` |
+>    | *(2. tur, F2)* başka tenant'ın satırı: iki numara log'da/başlıkta/gövdede yok; satırların biçimi | `TestVATRecheck_TheNumberIsOnNoLogLineOrHeader` (14 kol, `vatLineShapes`) |
+>    | *(2. tur, F3)* üç sınır sayı olarak; toplam boşaltma süresinin içinde | `TestVATRecheck_TheThreeBoundsAreTheirNumbers`, `TestShutdownBudget_TheVATRecheckNestsInsideTheHTTPGrace`, `TestVATRecheck_AClientThatLeavesStillGetsItsAnswerRecorded` (sayılar literal) |
+>    | *(2. tur, F4)* hesap ekranının iki cümlesi tarafsız | `TestAccount_AVerdictIsDatedByTheRegistersLastAnswer`, `TestAccount_VATStateSaysItsOwnWord`, `TestAccount_TheNoAnswerCohortIsCalledTheSameThingOnBothScreens`, `TestAccount_OffersNoVATRecheck` |
+>    | *(2. tur, F5)* iki uyarı bir sonraki adımı söyler | `TestVATRecheck_OnlyAVerdictIsRecorded`, `TestVATRecheck_ANumberVIESDoesNotTakeIsNeverSent`, `TestVATRecheck_AClientThatLeavesStillGetsItsAnswerRecorded` (tam cümleler) |
+>
+> 5. **Mutasyonlar** — `scratchpad/op16b/mutate.py` (tek kopya `scratchpad/op16b/tree`, disk 100 GiB
+>    boş; veritabanı ortamı YOK — DB testleri atlar, hiçbir küme veritabanına yazmaz; commit eden
+>    testler hiçbir `-run` kümesinde değil, koşucu reddeder; her mutasyondan sonra dosya geri yazıldı
+>    ve sha256 karşılaştırıldı). İlk tur (taban `27f7c93`) 26/26 kırmızı; rebase ve K-B2'den sonra
+>    ikinci tur: üç küme tabanda yeşil, **28/28 kırmızı**, hepsi geri yazıldı. Yalnız yapısal pinin
+>    yakaladıkları: M06b (`answered` altında davranışça eşdeğer) ve — *ilk turda* — M25. *(2. tur,
+>    F2: "o kolda numara boş" yanlıştı — başka tenant'ın satırı kolunda `st` doluydu; M25 artık
+>    davranış testinde, satır biçimi denetimiyle kırmızı. 2. turun tablosu md. 11'de.)*
+>
+>    | # | Mutasyon | Kırmızıya çeviren |
+>    |---|---|---|
+>    | M01 | Unknown `false` olarak yazılır | OnlyAVerdict, Headers, ClientLeaves, NoLog, NoStoreCall, Leak |
+>    | M02 | numara formdan alınır | TheNumberIsTheServers, VN, FormValues, Headers |
+>    | M03 | VIES sorulurken ikinci bir okuma açık | NoStoreCall, OnlyAVerdict, Budget, Headers, Leak |
+>    | M04 | VIES sınırlayıcısı kaldırılır | Budget, NeverSent, Headers, NoLog |
+>    | M05 | biçim kontrolü kaldırılır | NeverSent, VN, NoStoreCall, Headers, NoLog, Leak |
+>    | M06 | POST istemciyi izler (`answered` yok) | ClientLeaves |
+>    | M06b | yazmanın bağlamında `WithoutCancel` yok | VN (yalnız yapısal) |
+>    | M06c | VIES sorusunun süre tavanı yok | ClientLeaves |
+>    | M07 | numara kayıt satırında log'lanır | NoLog, VN, Leak |
+>    | M08 | 503 yerine 200 | OnlyAVerdict, ClientLeaves, Headers, NoLog, Leak |
+>    | M09 | PRG yerine 200 | OnlyAVerdict, Budget, ClientLeaves, NeverSent, TheNumberIsTheServers, Headers, NoLog, Leak |
+>    | M10 | okuma bütçesi harcanmaz | Budget, Headers |
+>    | M11 | adaptörde Unknown → Invalid | `TestOperatorVIES_OnlyAVerdictBecomesAVerdict` |
+>    | M12 | T106: yönlendirme reddi kaldırılır | `TestVIESProductionClient_RefusesToFollowARedirect` |
+>    | M13 | T106: TLS el sıkışma sınırı kaldırılır | `TestVIESProductionClient_GivesUpOnASilentServerWithinItsBound` |
+>    | M14 | T106: istemcinin istek sınırı (`Timeout`) kaldırılır | aynı |
+>    | M15 | dört durum: zaman var + hüküm yok "never" okunur | FourStates, EveryState |
+>    | M16 | sözcük kayar (Confirmed → Valid) | CalledWhat, OnlyAVerdict |
+>    | M17 | genel bakışın linki kaldırılır | EveryState |
+>    | M18 | handler'ın tenant kemer kopyası kaldırılır | EveryRefusal |
+>    | M19 | imzalama akışına ikinci bir VIES istemcisi | `TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator` |
+>    | M20 | VIES bütçesi biçim kontrolünden önce | NeverSent, NoLog |
+>    | M21 | adı konmamış cevap onay sayılır | OnlyAVerdict |
+>    | M22 | yazmanın 22023'ü yönlendirmeye yutulur | EveryRefusal, Headers, NoLog, Leak |
+>    | M23 | cevapsızlık uyarısı düşer | OnlyAVerdict, ClientLeaves |
+>    | M24 | VIES istemcisi numarayı log'lar | `TestVIESCheck_LogsNothingOnAnyPath` |
+>    | M25 | okuma hatası satırına numara | ilk tur: VN (yalnız yapısal) · *2. tur:* NoLog (satır biçimi), VN |
+>    | M26 | VAT rotaları oturum zincirinin dışında | 11 test (Headers, Leak, Budget, … ) |
+>
+>    Kısaltmalar: OnlyAVerdict = `TestVATRecheck_OnlyAVerdictIsRecorded` · NeverSent =
+>    `TestVATRecheck_ANumberVIESDoesNotTakeIsNeverSent` · TheNumberIsTheServers =
+>    `TestVATRecheck_TheNumberIsTheServersNotTheClients` · NoStoreCall =
+>    `TestVATRecheck_VIESIsAskedWithNoStoreCallOpen` · ClientLeaves =
+>    `TestVATRecheck_AClientThatLeavesStillGetsItsAnswerRecorded` · EveryRefusal =
+>    `TestVATRecheck_EveryRefusalWritesNothing` · Budget = `TestVATBudget_ARecheckIsThreeReadsAndOneVIESUnit`
+>    · NoLog = `TestVATRecheck_TheNumberIsOnNoLogLineOrHeader` · FourStates =
+>    `TestVATScreen_TheFourStatesAreTheAccountScreensFour` · CalledWhat =
+>    `TestVATScreen_TheFourStatesAreCalledWhatTheAccountScreenCallsThem` · EveryState =
+>    `TestVATScreen_EveryStateSaysItsWordAndSentence` · VN = `TestVATNumber_TheListedSitesAloneReadIt` ·
+>    Headers = `TestOperatorHeaders_TheVATClassesCarryThePolicy` · FormValues =
+>    `TestFormValues_TheListedSitesAloneRevealOrReadTheForm` · Leak =
+>    `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`.
+>
+> 6. **Sayılı sınırlar:** ADR 0021 "OP-16 B eki" **LB1–LB12** (LB1 kesintinin `503`'ü erişim kaydında
+>    ERROR; LB2 `GET` istemciyi izler — okuması 2. turdan beri sınırlı; LB3 okuma–yazma arasında numara
+>    değişirse `void`, ekran ayrıca söylemez; LB4 sabit pencere; LB5 VIES reddi bir okuma harcamış olur;
+>    LB6 cevapsızlığın tek izi 'read' satırı + WARN; ~~LB7~~ 2. turda kapandı (hesap ekranı tarafsız);
+>    LB8 dial sınırı sürülmedi; LB9 = LV1; *2. tur:* LB10 oturum kapısının ifadesi bütçenin dışında —
+>    1 sn pay, sınır değil; LB11 sıfırlama tek başına eşdeğer mutant (M28 yeşil, M28b kırmızı); LB12
+>    numaranın düzeltilme yolu ürünün içinde yok — platform sahibinin veritabanı değişikliği).
+> 7. **Güvenlik iddiası** ADR 0021 → "OP-16 B eki" sonunda üç parçalı: tehdit modeli cümlesi (*"Bu
+>    pinler kazara sapmaya karşıdır; bir pini bilerek atlatmak kod incelemesinin konusudur."*), PART I
+>    ölçüm + test adı (mutasyon sayısıyla), PART II adlı pinler (VN1–VN5, RH4, bağlantı testi,
+>    `OperatorDB` türetmesi, ekran listesi, başlık/rota tamlığı, FormValues, Tally), PART III
+>    *"Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok."*
+> 8. **Devirler:**
+>    - **T106, T107** bu fazda kapandı (backlog'dan düşülmeli — orkestratör yazar).
+>    - ~~**Açık soru (LB7)**~~ — 2. turda **kapandı** (orkestratörün kararı, tarafsız ifade; md. 11).
+>    - **Kullanıcıya sorulabilir (LB7'nin kalanı):** müşteriye Taptime'ın numarayı **yeniden
+>      sorduğunu söylemek** (ör. *"…when Taptime last asked"* ya da bir bildirim) bir kullanıcı
+>      kararıdır; verilmedi, cümleler kimin sorduğunu söylemez (`TestAccount_AVerdictIsDatedByTheRegistersLastAnswer`
+>      *"Taptime re-checked"* ve *"we asked"*'i yasaklar — karar verilirse o pin birlikte değişir).
+>    - **Numaranın düzeltilmesi (LB12):** biçim uyarısı platform sahibinin veritabanı değişikliğini
+>      söyler; bunun için bir `op_*` fonksiyonu ya da ekran yok — gerekirse ayrı bir kart.
+>    - **T110** (bağın bilet taraması) ve **T108** (rol zaman aşımı) değişmedi; bu faz bağı her POST'ta
+>      bir kez sınar (okuma her zaman önce gelir).
+>    - **T109**'un sınıfı: `GET` ekranı (öteki okuma ekranları gibi) iptal edilmiş bağlamla render
+>      eder (LB2).
+> 9. **Zincir (1. tur, rebase'den sonra; `3f55d16` + çalışma ağacı, 2026-10-07 — 2. turunki md. 11'de):**
+>    - **Statik:** `gofmt -l` boş; `go build ./...`, `go vet ./...` 0; staticcheck 2025.1.1
+>      (`GOTOOLCHAIN=go1.26.7`) `./...` 0 bulgu.
+>    - **Üretim ve bağımlılıklar:** `make gen` idempotent (parmak izi önce = sonra `b2fb635f…`);
+>      `./scripts/redline-check.sh` exit 0 (8 328 bayt); `go.mod`/`go.sum`/`sqlc.yaml` diff'i boş.
+>    - **İsim ve yorum testleri:** worktree'siz kopyada, bu kart "## 4. Akış B"den önce eklenmiş
+>      hâlde `TestEveryNamedTestExists` PASS (3 031 test fonksiyonu; sarkan atıf 60 / bütçe 60);
+>      `TestComments_DoNotQuoteTheDriftingRosterSize` PASS.
+>    - **`.env`'li `-race`:** `internal/handler/operator` tamamı **146 PASS / 0 FAIL / 0 SKIP**, yarış 0
+>      (510,9 sn; `app.css` Tailwind CLI ile derlendi); `internal/domain/signup` tamamı 36/0/0;
+>      `internal/db` (dokunulan + VAT + yetki/erişimci/SQL/tür testleri) 45/0/0; kabulün A testleri
+>      (`TestAccountDB_TheAppRoleHoldsNoUpdateOnTheVATColumnsOrTheTerms`,
+>      `TestTenants00024_TheAppMayUpdateThreeColumnsAndDeleteNothing`,
+>      `TestAccountDB_ReadsTheFourVATStates`) 3/0/0; `cmd/tappa` tamamı 128/0/0;
+>      `internal/operatorauth` (veritabanısız, `-race`) ok.
+> 10. **Veritabanına bırakılanlar (salt-okur sondalarla sayıldı):** `TestE2E_VATRecheckRecordsVIESAnswerAndTheTenantReadsIt`
+>     iki kez koştu (rebase öncesi ve sonrası): **2 fikstür tenant** (`FAKE op16b E2E …`, uydurma IE
+>     biçimli numara), **4** `tenant.vat_rechecked` satırı (hepsi bu iki fikstürde), **4**
+>     `tenant_vat_checked` satırı (hepsi bu fikstürlerde); `tenant_vat` 'read' satırı bu oturumda
+>     18 → 37 (+19: iki E2E × 5, `internal/db` koşuları × 4 — A'nın iki commit eden testi 3 + yeni
+>     havuz testi 1 —, yeni havuz testinin tek başına koşusu 1); bilet 0; `newLegalE2E`'nin ve
+>     `opLiveFixture`'ın operatör hesapları ve oturumları (devre dışı / iptal — sınıfları). **Gerçek
+>     bir tenant'ın VAT durumu değişmedi:** hükmü yalnız `op_record_vat_check` değiştirebilir ve her
+>     değişiklik bir `tenant.vat_rechecked` satırı yazar — dördü de fikstürlerde; son iki saatte VAT
+>     durumu kazanan 24 fikstür-dışı tenant'ın 24'ü o iki saatte **yaratıldı** (signup paketinin ve
+>     eşzamanlı koşuların commit eden testleri), hiçbirinde yeniden denetim satırı yok. Öteki
+>     operatör E2E'leri (OP-10…14) kendi başlıklarında sayılan sınıfı bıraktı (paketin tam koşusu).
+> 11. **2. tur (üçüncü gözün RED'i — iki bloklayan, üç bloklamayan bulgu; 2026-10-08).** Başlangıç
+>     parmak izi `b2fb635f…`, HEAD `3f55d16` (dal ucu `c7d1dbb`, arada yalnız `state.md`).
+>     - **F1 (bloklayan) — `POST`'un okuması sınırsızdı:** `answered(r)` istemcinin iptalini **ve**
+>       yönlendiricinin süresini düşürüyordu; okuma `r.Context()` ile koşuyordu. Kapanış: `readVAT`
+>       okumayı `context.WithTimeout(r.Context(), vatReadTimeout)` ile sınırlar — `GET`'te ve `POST`'ta
+>       aynı yerde. **Değer 5 sn.** Gerekçe: okuma iki tek satırlık ifadedir; sınırın bağladığı şey kilit
+>       beklemesi ya da takılmış bağlantıdır. Fatura okumasının 15 sn'si ve `httpx.RequestTimeout`'un
+>       30 sn'si seçilmedi, çünkü üç sınır birlikte HTTP boşaltma süresine (20 sn) sığmalı: 15 + 4 + 10
+>       = 29 sn sığmaz; 5 + 4 + 10 = 19 sn sığar ve oturum kapısına 1 sn kalır. Aynı hesap için VIES
+>       sınırı 5 → **4 sn** indi (üretim istemcisinin 3 sn'sinin bir saniye üstü). Ölçüm:
+>       `TestVATRecheck_TheReadIsBoundedOnBothMethods` (sahte mağaza okumanın bağlamındaki süreyi
+>       girişte kaydeder; `GET`, `POST` ve okumadan önce giden istemcinin `POST`'u: 4–5 sn; kontrol:
+>       süresiz bağlam süresiz görünür). `vat.go`'nun başlık yorumu ve ADR md. 7 güncellendi.
+>     - **F2 (bloklayan) — başka tenant'ın satırı dolu kalıyordu:** (a) T107'nin log testine iki kol
+>       eklendi (mağaza başka bir tenant'ın satırıyla cevap verir; `GET` ve `POST`, `503`, gövde de
+>       aranır) ve her kolda **üç** numara aranır (tenant'ınki, VIES'in almadığı, başka tenant'ın
+>       satırınınki); ayrıca **satır biçimi** denetimi (`vatLineShapes`): bir kolun VAT/VIES adlı her JSON
+>       kaydı `vat.go`'nun beş satırından biri, tam alanlarıyla — boş bir numara taşıyan fazladan alan
+>       numara aramasına görünmez, biçime görünür (kontrol: fazladan boş alan ve altıncı bir satır
+>       bildirilir). (b) `readVAT` o dalda satırı sıfırlar (`st, err = db.TenantVATStatus{},
+>       errVATOfAnotherTenant`). (c) ADR PART I'ın *"(o kolda numara boştur)"* cümlesi ve md. 5'in M25
+>       satırı düzeltildi. **M25 ve E7 davranış testinde kırmızı** (NoLog — tablo aşağıda). Sızıntı
+>       testine A99 **eklenmedi** (isteğe bağlıydı; numara araması log testinde üç numarayla yapılıyor).
+>     - **F3 — sınırlar sayı olarak:** `TestVATRecheck_TheThreeBoundsAreTheirNumbers` (5 / 4 / 10 sn,
+>       yazma `legalWriteTimeout`'a eşit, `VATRecheckWorstCase` 19 sn); `ClientLeaves` testindeki
+>       sınırlar artık literal (VIES 3–4 sn, yazma 9–10 sn — handler'ın sabitinden okunmaz);
+>       `TestShutdownBudget_TheVATRecheckNestsInsideTheHTTPGrace` (`cmd/tappa`, OP-14E'nin
+>       `TestShutdownBudget_` deseni): 19 sn + 1 sn kapı payı ≤ `httpShutdownGrace` 20 sn; pozitif
+>       kontrol ≥ 5 sn. `VATRecheckWorstCase` `vat.go`'da dışa açık sabittir (komut testi okusun diye).
+>     - **F4 / LB7 — hesap ekranı (orkestratörün kararı, TARAFSIZ):** `fillAccountVAT`'ın iki cümlesi:
+>       *Confirmed* — *"The European Commission's VAT register (VIES) confirmed this number when it was
+>       last asked. The number itself cannot be changed from this page."* · *Not found* — *"The
+>       European Commission's VAT register (VIES) did not recognise this number when it was last asked.
+>       That does not affect anything the product does — but an invoice made out to a number the
+>       register does not know is a problem for your accountant, so tell us and we will correct it."*
+>       *"Nothing has asked again since"* ve *"When this business registered"* kalktı; cümleler kimin
+>       sorduğunu söylemez. Yeni pin `TestAccount_AVerdictIsDatedByTheRegistersLastAnswer`; `VATStateSaysItsOwnWord`
+>       (iki ifade parçası aynı kaldı), `TheNoAnswerCohortIsCalledTheSameThingOnBothScreens`
+>       (*Not checked* cümlesine dokunulmadı), `OffersNoVATRecheck` (yalnız hata iletisi düzeltildi:
+>       *"nothing in the product can write vat_verified"* artık yanlıştı — 00034) ve operatör tarafındaki
+>       `TestVATScreen_TheFourStatesAreCalledWhatTheAccountScreenCallsThem` yeşil.
+>     - **F5 — uyarılar bir sonraki adımı söyler:** cevapsızlık *"… Try again in a few minutes."*;
+>       biçim *"… The number can only be corrected by the platform owner, in the database: neither the
+>       business nor this screen can change it."* ve `GET`'in formsuz cümlesi *"… Only the platform owner
+>       can correct it, in the database."* (`vat.templ`, `make gen`). Doğru adım ölçüldü: müşteri
+>       değiştiremez (M7-05; 00024 `tappa_app`'tan `UPDATE (vat_number)`'ı geri aldı), bu ekran da
+>       değiştiremez (`TestOperator00034_TheDefinerWritesTheVerdictAndNotTheNumber`). `vatNotices`'ın
+>       yorumu bunu söyler.
+>     - **Mutasyonlar (2. tur)** — `scratchpad/op16b/r2_mutate.py`: ilk turun listesi (M10 ve M18
+>       2. turun koduna yeniden çapalandı), 2. turun eklemeleri ve üçüncü gözün yirmisi
+>       (`op16b-eye1-work/mut/muts.json`, **kendi `-run` kümeleriyle**; E7, E9, E10 2. turun koduna
+>       yeniden çapalandı — E7 sıfırlamadan önce WARN'a başka tenant'ın numarasını yazar, E9 4 sn'yi
+>       300 sn yapar, E10 dalın tamamını siler). Tek kopya worktree'den tazelendi, veritabanı ortamı
+>       yok, commit eden testler hiçbir kümede değil, her dosya sha256 ile geri yazıldı.
+>       Tabanda sekiz küme yeşil; **61 mutasyonun 60'ı kırmızı**, yeşil kalan
+>       tek mutasyon M28 — eşdeğer mutant, bilerek (LB11); her dosya geri yazıldı (sha256 eşit). Koşudan
+>       sonra `vat.go`'da yalnız yorum satırları değişti (8 satır; karşılaştırma betiği
+>       `r2_treediff.py`: kopya ile çalışma ağacı arasında başka fark yok).
+>
+>     | # | Mutasyon (2. tur) | Kırmızıya çeviren |
+>     |---|---|---|
+>     | M01–M26 | ilk turun 28'i (M10 ve M18 yeniden çapalı) | **28/28** — ilk turdaki gibi; M06 artık ReadBounded'da da, M18 NoLog'da da, **M25 NoLog (satır biçimi) + VN** |
+>     | M27 | okuma sınırsız (`WithCancel`) | ReadBounded |
+>     | M27b | okumanın sınırı 300 sn | ReadBounded, Numbers |
+>     | M27c | sınır yalnız `GET`'te, `POST`'un okuması sınırsız | ReadBounded |
+>     | M28 | başka tenant'ın satırı sıfırlanmaz — tek başına | **yeşil** — eşdeğer (LB11) |
+>     | M28b | M28 + okuma hatası satırına numara | NoLog (üç numara + satır biçimi), VN |
+>     | M29 | yazmanın sınırı 11 sn | ClientLeaves, Numbers |
+>     | M29b | `VATRecheckWorstCase`'ten okuma düşer | Numbers |
+>     | M29c | VIES sınırı 9 sn (toplam 24 + 1 > 20) — yalnız komut kümesi | ShutdownBudget |
+>     | M30 | cevapsızlığın sonraki adımı düşer | OnlyAVerdict, ClientLeaves |
+>     | M30b | biçim uyarısının sonraki adımı düşer | NeverSent |
+>     | M31 | hesap ekranı *Confirmed* eski cümleye döner | LastAsk |
+>     | M31b | hesap ekranı *Not found* eski cümleye döner | LastAsk |
+>     | M31c | *"when Taptime re-checked it"* | LastAsk |
+>     | AUD M01–M25 (on) | üçüncü gözün, kendi kümeleriyle | **10/10**; M25 NoLog + VN |
+>     | AUD E1–E6 | üçüncü gözün | **6/6** (E1 OperatorVIES; E2 NoLog, Leak; E3 ChipRule; E4 Headers, Budget; E5 Budget; E6 NeverSent) |
+>     | AUD E7 (yeniden çapalı) | başka tenant'ın numarası WARN'a, sıfırlamadan önce | **NoLog**, VN |
+>     | AUD E8 | yazma 1000 sn | ClientLeaves, Numbers |
+>     | AUD E9 (yeniden çapalı) | VIES 300 sn | ClientLeaves, Numbers |
+>     | AUD E10 (yeniden çapalı) | başka tenant dalının tamamı silinir | EveryRefusal, NoLog |
+>
+>     Yeni kısaltmalar: ReadBounded = `TestVATRecheck_TheReadIsBoundedOnBothMethods` · Numbers =
+>     `TestVATRecheck_TheThreeBoundsAreTheirNumbers` · ShutdownBudget =
+>     `TestShutdownBudget_TheVATRecheckNestsInsideTheHTTPGrace` · LastAsk =
+>     `TestAccount_AVerdictIsDatedByTheRegistersLastAnswer` · ChipRule =
+>     `TestVATScreen_EachChipHasTheRuleTheContrastTestComputes` · OperatorVIES =
+>     `TestOperatorVIES_OnlyAVerdictBecomesAVerdict`.
+>
+>     - **Zincir (2. tur):** `gofmt -l` boş; `go build ./...`, `go vet ./...` 0; staticcheck
+>       2025.1.1 (`GOTOOLCHAIN=go1.26.7`) `./...` 0 bulgu; `make gen` idempotent (parmak izi önce = sonra
+>       `8a2a630f…` — bitiş parmak izinin kendisi); `make css` derlenmiş `app.css`'i değiştirmedi (sha256 aynı — `vat.templ`'in yeni
+>       cümlesi kural doğurmaz); `./scripts/redline-check.sh` exit 0 (8 328 bayt); `go.mod`/`go.sum`/`sqlc.yaml`
+>       diff'i boş; ADR 0020, ADR 0021 ve `render.go` `3f55d16`'ya karşı yalnız ekleme (`difflib`: yalnız
+>       `equal`/`insert`, eklenenler çıkınca taban bayt bayt). İsim/yorum testleri worktree'siz kopyada
+>       (kart "## 4. Akış B"den önce): `TestEveryNamedTestExists` ve
+>       `TestComments_DoNotQuoteTheDriftingRosterSize` PASS. `.env`'li `-race`:
+>       `internal/handler/operator` tamamı **148 PASS / 0 FAIL / 0 SKIP**, yarış 0 (502 sn);
+>       `internal/handler` `^TestAccount` (hesap ekranı, veritabanlılar dahil) **40/0/0**;
+>       `internal/domain/signup` **36/0/0**; `cmd/tappa` **129/0/0**. Veritabanı (salt-okur, önce/sonra):
+>       E2E bir fikstür tenant'ı daha yarattı (`FAKE op16b E2E …`; 3 → 4), `tenant.vat_rechecked` ve
+>       `tenant_vat_checked` 6 → 8 (hepsi fikstürlerde), 'read' satırı 43 → 48, bilet 0; **koşudan önce var
+>       olan tenant'ların VAT durumu değişmedi** (koşudan önce yaratılmış fikstür-dışı tenant'ların md5
+>       özeti önceki sondanın özetine eşit, `1a27df12…`); VAT durumu kazanan 21 fikstür-dışı tenant'ın
+>       21'i koşu sırasında **yaratıldı** (commit eden kayıt testleri), hiçbirinde yeniden denetim satırı
+>       yok. Bitiş parmak izi raporda.
+> 12. **3. tur (güvenlik denetimi ONAY; iki DÜŞÜK bulgu — yalnız test ve metin, ürün mantığı
+>     değişmedi; 2026-10-08).** Başlangıç parmak izi `8a2a630f…`, HEAD `3f55d16`.
+>     - **D1 — VIES gövde sınırı sayıyla pinli:** yeni `TestVIESCheck_TheBodyBoundIsSixteenKiBToTheByte`
+>       (`vies_client_test.go`; üretim istemcisi, `Content-Length`'li yerel sunucu): 16 384 baytlık
+>       geçerli onay **Valid**, bir bayt fazlası ve 17 KiB **Unknown**; `viesMaxBody` = 16 384 sayıyla.
+>       Komşu `vies_test.go`'nun "enormous" kolu artık sabit 17 KiB (sabitten türetilmiyor). `vies.go`'ya
+>       dokunulmadı.
+>     - **D2 — kayıttaki zaman son CEVABINdır:** cevapsız soru hiçbir şey yazmaz (LB6), bu yüzden iki
+>       ekran da hükmü *"when it last answered"* ile tarihler. Hesap ekranı: *Confirmed* — *"The
+>       European Commission's VAT register (VIES) confirmed this number when it last answered. The
+>       number itself cannot be changed from this page."* · *Not found* — *"The European Commission's
+>       VAT register (VIES) did not recognise this number when it last answered. That does not affect
+>       anything the product does — but an invoice made out to a number the register does not know is a
+>       problem for your accountant, so tell us and we will correct it."*; damga hükmün yanında
+>       *"Last answer <tarih>"*, cevapsız durumun yanında *"Asked <tarih>"* (`account.templ`, aynı
+>       sınıflar — yeni CSS kuralı yok). Operatör ekranı: *"VIES confirmed this number when it last
+>       answered."* · *"VIES did not recognise this number when it last answered. …"*; zaman satırı
+>       hükmün yanında *"Last answer"*, cevapsız durumun yanında *"Asked"* (`TenantVATView.Answered`,
+>       `vat.templ`); 503 ekranı (*"VIES did not answer"*) altında hükmün **cevabının** zamanını
+>       gösterir. Kimin sorduğu yine söylenmez. 2. turun pini yeniden adlandırıldı (eski adın sonu *…DatedByItsLastAsk*) →
+>       **`TestAccount_AVerdictIsDatedByTheRegistersLastAnswer`** (ADR'deki iki atıf ve bu kart
+>       güncellendi); `TestAccount_VATStateSaysItsOwnWord` damgayı duruma göre okur;
+>       `TestVATScreen_EveryStateSaysItsWordAndSentence` iki hüküm cümlesini sayıyla yazar ve
+>       *"last asked"* geçen cümle reddeder; `TestVATRecheck_OnlyAVerdictIsRecorded` 503 ekranında
+>       *"Last answer"* ister; E2E'nin beklediği satır *"Last answer"*.
+>     - **ADR 0021:** OP-16 B ekine md. 12'den sonra tek bir *3. tur* maddesi (yalnız ekleme) + test
+>       adının iki atfı.
+>     - **Mutasyonlar (`r3_mutate.py`, kendi kopyası, veritabanı ortamı yok, denetçinin `-run`
+>       kümeleri, her dosya sha256 ile geri yazıldı): 12/12 kırmızı.** S18 (16 KiB → 16 MiB) — BodyBound
+>       + EveryFailure; S20 (yeni cümleye yeniden çapalı: *"when the platform operator last asked"*) —
+>       LastAnswer; D1a/D1b/D1c (sınır +1 bayt / −1 bayt / 32 KiB) — BodyBound (D1c EveryFailure da);
+>       D2a/D2b (hesap ekranı cümleleri eski hâline) — LastAnswer; D2c (hesap damgası yine *"Asked"*) —
+>       LastAnswer, OwnWord; D2d/D2e (operatör cümleleri eski hâline) — EveryState; D2f (operatör satırı
+>       yine *"Last asked"*) — OnlyAVerdict, EveryState; D2g (*"Last answer"* cevapsız durumda da) —
+>       EveryState. (BodyBound = `TestVIESCheck_TheBodyBoundIsSixteenKiBToTheByte` · EveryFailure =
+>       `TestVIESCheck_EveryFailureIsUnknownNeverInvalid` · LastAnswer =
+>       `TestAccount_AVerdictIsDatedByTheRegistersLastAnswer` · OwnWord = `TestAccount_VATStateSaysItsOwnWord`.)
+>     - **Zincir (3. tur):** `gofmt -l` boş; build, vet 0; staticcheck 2025.1.1 0 bulgu; `make gen`
+>       idempotent (iz önce = sonra `979ecdd7…`, bitiş izi); `make css` `app.css`'i değiştirmedi
+>       (`a2f672e8…`, aynı); redline exit 0; `go.mod`/`go.sum`/`sqlc.yaml` diff'i boş; ADR 0020/0021 ve
+>       `render.go` `3f55d16`'ya karşı yalnız ekleme. Worktree'siz kopyada `TestEveryNamedTestExists` ve
+>       `TestComments_DoNotQuoteTheDriftingRosterSize` PASS. `.env`'li `-race`: `internal/domain/signup`
+>       **37/0/0**; `internal/handler` `^TestAccount` **40/0/0**; `internal/handler/operator` `VAT|TestLeak_…`
+>       (E2E dahil) **19/0/0**; yarış 0. Veritabanı (salt-okur): E2E bir fikstür tenant'ı daha (5 → 6),
+>       yeniden denetim satırları 10 → 12 (hepsi fikstürlerde), bilet 0; koşudan önce var olan
+>       tenant'ların VAT özeti önceki sondayla aynı (`cdca96be…`); VAT durumu kazanan 21 yeni tenant
+>       koşu sırasında yaratıldı (commit eden kayıt testleri), hiçbirinde yeniden denetim satırı yok.
+>
+> **Denetimler ve kapanış (2026-10-08, orkestratör).** Üçüncü göz (tappa-brand + güvenlik merceği) RED verdi:
+> F1 POST okumasının süre sınırı yoktu, F2 başka tenant'ın satırı bir dalda dolu kalıyordu; F3–F5 ve LB7 bloklamayan.
+> 2. tur hepsini kapattı. Güvenlik denetimi (dar kapanış dahil) ONAY verdi; denetçinin 24 mutasyonunun 22'si kırmızı,
+> S12 eşdeğer, S18 (gövde sınırının boyutu) yeşildi → D1; D2 "last asked" ifadesi. 3. tur yalnız test ve metindi,
+> yeni denetim açılmadı; orkestratör `f6c1b2b` ucuna birleşik kopyada zinciri, S18'i, yeni cümleye çapalanmış S20'yi
+> ve D2'nin geri dönüşünü kendisi koştu: üçü de kırmızı. Kapanan backlog: T106, T107.
+
 ## 4. Akış B — E-posta (AWS SES)
 
 ### Öneri: SES SMTP arayüzü + stdlib `net/smtp` (STARTTLS 587), `eu-central-1` — ✅ (sıfır yeni modül)

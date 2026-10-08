@@ -141,7 +141,8 @@ func TestSurface_AnAbortedRightPasswordStillLeavesItsRow(t *testing.T) {
 		case <-stop:
 		}
 	})
-	s, err := operator.New(a, surfLegal{}, surfTenants{}, surfTenants{}, surfTenants{}, surfTenants{}, surfLegal{}, surfHost, "https://taptime.mt", log)
+	s, err := operator.New(a, surfLegal{}, surfTenants{}, surfTenants{}, surfTenants{}, surfTenants{}, surfTenants{}, surfVIES{}, surfLegal{}, surfHost,
+		"https://taptime.mt", log)
 	if err != nil {
 		t.Fatal(err)
 	}

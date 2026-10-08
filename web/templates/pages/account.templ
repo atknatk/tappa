@@ -122,6 +122,10 @@ templ accountFacts(v AccountView) {
 // tap (skill tappa-brand); this is the current state of a lookup, which is what
 // legalAdminState settled the shape for. The colour follows the fixed mapping and the
 // WORD carries the meaning on its own.
+//
+// THE STAMP SAYS WHAT THE TIME IS (M10 OP-16 B, the security audit's D2): beside a verdict it is
+// the register's last answer -- an ask it did not answer writes nothing, so the record cannot
+// say when it was last ASKED; beside "No answer" it is the ask that got none.
 templ accountVAT(v AccountView) {
 	<section class="bg-paper border border-line px-4 py-4">
 		<div class="flex flex-wrap items-baseline justify-between gap-2">
@@ -130,7 +134,12 @@ templ accountVAT(v AccountView) {
 		</div>
 		<p class="mt-2 max-w-2xl text-sm text-ink/85">{ v.VATLine }</p>
 		if v.VATCheckedAt != "" {
-			<p class="mt-2 font-mono text-sm text-ink/85">Asked { v.VATCheckedAt }</p>
+			switch v.VATState {
+				case "valid", "invalid":
+					<p class="mt-2 font-mono text-sm text-ink/85">Last answer { v.VATCheckedAt }</p>
+				default:
+					<p class="mt-2 font-mono text-sm text-ink/85">Asked { v.VATCheckedAt }</p>
+			}
 		}
 	</section>
 }

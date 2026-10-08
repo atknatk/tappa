@@ -308,8 +308,8 @@ func tenantsView(rows []db.TenantSummary, term formValue, page int32) operatorpa
 }
 
 // tenantOverviewView builds the overview screen: the identity facts and the four counts,
-// formatted for the page's mono figures, and the paths of the tenant's plaques (OP-13) and
-// billing months (OP-12).
+// formatted for the page's mono figures, and the paths of the tenant's plaques (OP-13),
+// billing months (OP-12) and VAT number (OP-16).
 func tenantOverviewView(o db.TenantOverview, name operatorpages.TenantName) operatorpages.TenantOverviewView {
 	count := func(n int64) string { return strconv.FormatInt(n, 10) }
 	return operatorpages.TenantOverviewView{
@@ -317,6 +317,7 @@ func tenantOverviewView(o db.TenantOverview, name operatorpages.TenantName) oper
 		ID:              o.ID.String(),
 		PlaquesPath:     plaquesPath(o.ID),
 		BillingPath:     billingPath(o.ID),
+		VATPath:         vatPath(o.ID),
 		CreatedAt:       utcStamp(o.CreatedAt),
 		Plan:            o.Plan,
 		BusinessType:    o.BusinessType,

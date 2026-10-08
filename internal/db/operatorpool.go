@@ -25,7 +25,8 @@ import (
 // TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator: the pool goes to the
 // operator's Authenticator and, since OP-10 phase B, to the operator surface's legal
 // slot, (OP-11 phase B) its tenant slot, (OP-13 phase B) its plaque slot, (OP-14 phase B)
-// its audit slot and (OP-12 phase B) its billing slot -- and to no other name in cmd/tappa's
+// its audit slot, (OP-12 phase B) its billing slot and (OP-16 phase B) its VAT slot -- and to
+// no other name in cmd/tappa's
 // main.go and operator.go, the scope that test reads by syntax; it is not a whole-program
 // proof).
 //
@@ -53,10 +54,10 @@ import (
 //     finds neither the DSN nor its password.
 //
 // It satisfies internal/operatorauth's Store and internal/handler/operator's LegalStore,
-// TenantStore, PlaqueStore, AuditStore and BillingStore (none can be imported here -- both
-// packages import this one -- so the external test asserts it, and cmd/tappa's wiring does
-// not compile without it). Its method set is those six interfaces' and Close, derived from
-// them by TestOperatorDB_IsTheStoreAndNothingMore.
+// TenantStore, PlaqueStore, AuditStore, BillingStore and VATStore (none can be imported here --
+// both packages import this one -- so the external test asserts it, and cmd/tappa's wiring
+// does not compile without it). Its method set is those seven interfaces' and Close, derived
+// from them by TestOperatorDB_IsTheStoreAndNothingMore.
 type OperatorDB struct {
 	pool *pgxpool.Pool
 }
@@ -580,4 +581,21 @@ func (o *OperatorDB) OperatorAudit(ctx context.Context, sessionHash string, q Op
 // TenantBilling is a page of one tenant's billing months, a two-phase read (operator.go).
 func (o *OperatorDB) TenantBilling(ctx context.Context, sessionHash string, tenantID uuid.UUID, page int32) (TenantBillingTimeline, error) {
 	return TenantBilling(ctx, o.pool, sessionHash, tenantID, page)
+}
+
+// The two methods below are internal/handler/operator's VATStore (M10 OP-16, phase B): the
+// /operator/tenants/{id}/vat screen's read and the recording of VIES's answer. Same shape as
+// the fourteen above. TenantVAT is two statements, each an implicit transaction on the POOL,
+// and it holds no connection once it returns -- so the VIES call the handler makes next runs
+// with nothing of the database held (TestOperatorDB_TheVATMethodsHoldNoConnectionOnceTheyReturn);
+// RecordTenantVATCheck is one statement.
+
+// TenantVAT is one tenant's VAT number and verdict, a two-phase read (operator.go).
+func (o *OperatorDB) TenantVAT(ctx context.Context, sessionHash string, tenantID uuid.UUID) (TenantVATStatus, error) {
+	return TenantVAT(ctx, o.pool, sessionHash, tenantID)
+}
+
+// RecordTenantVATCheck is op_record_vat_check (operator.go).
+func (o *OperatorDB) RecordTenantVATCheck(ctx context.Context, sessionHash string, tenantID uuid.UUID, number string, valid bool) error {
+	return RecordTenantVATCheck(ctx, o.pool, sessionHash, tenantID, number, valid)
 }

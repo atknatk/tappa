@@ -325,19 +325,28 @@ func fillAccountVAT(v *pages.AccountView, c tenant.VATCheck, zone *time.Location
 	// THE TOKEN IS THE DOMAIN'S OWN VALUE, so the template's switch and the domain's
 	// four states cannot drift into three and five.
 	v.VATState = string(c.State())
+	// 🔴 A VERDICT IS DATED BY THE REGISTER'S LAST ANSWER — NOT BY THE REGISTRATION,
+	// AND NOT BY THE LAST ASK (M10 OP-16 B, LB7 and the security audit's D2). These two
+	// sentences said "When this business registered" and "Nothing has asked again
+	// since" — true while the wizard was the only writer, false once the platform
+	// operator's re-check (ADR 0021, 00034) can write the verdict again. "When it was
+	// last asked" was the next wrong date: an ask VIES does not answer writes NOTHING
+	// (the re-check records only a verdict), so a newer, unanswered ask may exist that
+	// the record does not show. What the record holds is the last answer, and that is
+	// what the sentences and the stamp under them ("Last answer …") say. They name no
+	// asker: whether to tell a customer that Taptime re-checked their number is the
+	// user's decision, not this screen's.
 	switch c.State() {
 	case tenant.VATValid:
 		v.VATStateWord = "Confirmed"
-		v.VATLine = "When this business registered, the European Commission's VAT " +
-			"register (VIES) confirmed this number. Nothing has asked again since, and " +
-			"nothing needs to: the number itself cannot be changed from this page."
+		v.VATLine = "The European Commission's VAT register (VIES) confirmed this number " +
+			"when it last answered. The number itself cannot be changed from this page."
 	case tenant.VATInvalid:
 		v.VATStateWord = "Not found"
-		v.VATLine = "When this business registered, the European Commission's VAT " +
-			"register (VIES) did not recognise this number. That did not stop the " +
-			"registration and it does not affect anything the product does — but an " +
-			"invoice made out to a number the register does not know is a problem for " +
-			"your accountant, so tell us and we will correct it."
+		v.VATLine = "The European Commission's VAT register (VIES) did not recognise this " +
+			"number when it last answered. That does not affect anything the product " +
+			"does — but an invoice made out to a number the register does not know is a " +
+			"problem for your accountant, so tell us and we will correct it."
 	case tenant.VATNoAnswer:
 		v.VATStateWord = "No answer"
 		v.VATLine = "The VAT register was asked about this number and did not answer — " +

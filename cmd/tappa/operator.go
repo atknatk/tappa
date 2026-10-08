@@ -8,6 +8,7 @@ import (
 
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
+	"github.com/atknatk/tappa/internal/domain/signup"
 	"github.com/atknatk/tappa/internal/handler/operator"
 	"github.com/atknatk/tappa/internal/operatorauth"
 )
@@ -31,10 +32,10 @@ const (
 // with the function that closes what it opened.
 //
 // 🔴 THE OPERATOR'S POOL NEVER LEAVES THIS FUNCTION. It is opened here, handed to
-// configuredSurface (whose syntax tree uses it exactly six times: as operatorauth.New's
+// configuredSurface (whose syntax tree uses it exactly seven times: as operatorauth.New's
 // Store, through operatorAuthenticator, as operator.New's LegalStore -- OP-10 --, as its
-// TenantStore -- OP-11 --, as its PlaqueStore -- OP-13 --, as its AuditStore -- OP-14 --
-// and as its BillingStore -- OP-12),
+// TenantStore -- OP-11 --, as its PlaqueStore -- OP-13 --, as its AuditStore -- OP-14 --,
+// as its BillingStore -- OP-12 -- and as its VATStore -- OP-16),
 // and its Close is returned as a bound method value -- which carries one call and no
 // object, so nothing in run() can hand the pool to a customer handler (ADR 0021 §3.6: the
 // operator's pool goes to the operator's side only).
@@ -47,6 +48,10 @@ const (
 // publication, and again when a view finds it behind the version list. It
 // goes the other way -- from run() into the operator surface -- and carries two methods
 // (operator.LegalTexts: Published, Refresh).
+//
+// vies is the sign-up wizard's VIES checker -- the SAME value run() hands handler.NewSignup,
+// the process's only outbound HTTP client (main.go, where it is built) -- and it reaches the
+// surface only through operatorVIES, as the VAT re-check's VATChecker (OP-16).
 //
 // THREE OUTCOMES, AND WHICH ONE STOPS THE BOOT IS THE DECISION:
 //
@@ -73,7 +78,7 @@ const (
 //     Those are a configuration that is present and dangerous or broken, and must be
 //     loud -- the customer pool's rule; with the Deployment's maxUnavailable: 0 the
 //     previous pod keeps serving while the new one refuses.
-func openOperatorSurface(ctx context.Context, cfg *config.Config, texts operator.LegalTexts, log *slog.Logger) (*operator.Surface, func(), error) {
+func openOperatorSurface(ctx context.Context, cfg *config.Config, texts operator.LegalTexts, vies viesChecker, log *slog.Logger) (*operator.Surface, func(), error) {
 	if !cfg.OperatorSurfaceConfigured() {
 		log.Info("operator surface is off: no TAPPA_OPERATOR_* variable is set, so /operator answers 503 and the customer product is unaffected",
 			operatorSurfaceKey, operatorSurfaceOff)
@@ -91,7 +96,7 @@ func openOperatorSurface(ctx context.Context, cfg *config.Config, texts operator
 	if err != nil {
 		return nil, nil, err
 	}
-	surface, err := configuredSurface(pool, texts, cfg, log)
+	surface, err := configuredSurface(pool, texts, vies, cfg, log)
 	if err != nil {
 		pool.Close()
 		return nil, nil, err
@@ -101,9 +106,10 @@ func openOperatorSurface(ctx context.Context, cfg *config.Config, texts operator
 
 // operatorStore is what the operator's pool is to the surface: the Authenticator's
 // Store, the legal screen's LegalStore (OP-10), the tenant screens' TenantStore (OP-11),
-// the plaque screen's PlaqueStore (OP-13), the audit screen's AuditStore (OP-14) and the
-// billing screen's BillingStore (OP-12) -- *db.OperatorDB's method set
-// (TestOperatorDB_IsTheStoreAndNothingMore derives it from these six and Close).
+// the plaque screen's PlaqueStore (OP-13), the audit screen's AuditStore (OP-14), the
+// billing screen's BillingStore (OP-12) and the VAT screen's VATStore (OP-16) --
+// *db.OperatorDB's method set (TestOperatorDB_IsTheStoreAndNothingMore derives it from these
+// seven and Close).
 type operatorStore interface {
 	operatorauth.Store
 	operator.LegalStore
@@ -111,23 +117,62 @@ type operatorStore interface {
 	operator.PlaqueStore
 	operator.AuditStore
 	operator.BillingStore
+	operator.VATStore
+}
+
+// viesChecker is what this command needs of the sign-up wizard's VIES client
+// (*signup.Checker): its one method, which answers in signup's three values and returns no
+// error. Declared here, at the consumer, so the wiring tests can hand in a fake.
+type viesChecker interface {
+	Check(ctx context.Context, normalisedVAT string) signup.VATStatus
+}
+
+// operatorVIES adapts the sign-up wizard's VIES client to the operator surface's VATChecker
+// (M10 OP-16, the orchestrator's K16-6: the client stays in internal/domain/signup, and the
+// surface names its own three-valued answer). It is WIRING, not a rule: one value in, one
+// value out, and signup's two answers that are a verdict are the only ones that become one --
+// signup.VATUnknown and every value signup does not name become operator.VATAnswerUnknown,
+// which the surface never writes (TestOperatorVIES_OnlyAVerdictBecomesAVerdict). It logs
+// nothing and keeps no number.
+type operatorVIES struct{ c viesChecker }
+
+// CheckVAT asks VIES through the sign-up wizard's client.
+func (a operatorVIES) CheckVAT(ctx context.Context, number string) operator.VATAnswer {
+	switch a.c.Check(ctx, number) {
+	case signup.VATValid:
+		return operator.VATAnswerValid
+	case signup.VATInvalid:
+		return operator.VATAnswerInvalid
+	default:
+		return operator.VATAnswerUnknown
+	}
+}
+
+// viesForOperator is the surface's VATChecker around vies. A nil vies is a nil VATChecker, so
+// operator.New refuses it -- a configured surface without its VIES client is not built.
+func viesForOperator(vies viesChecker) operator.VATChecker {
+	if vies == nil {
+		return nil
+	}
+	return operatorVIES{c: vies}
 }
 
 // configuredSurface builds the operator's Authenticator around store and the surface
 // that holds it -- store again as its legal store, its tenant store, its plaque store, its
-// audit store and its billing store, texts as its legal snapshot -- and announces the
-// configured state. The process keeps the
+// audit store, its billing store and its VAT store, vies (adapted) as its VIES client, texts
+// as its legal snapshot -- and announces the configured state. The process keeps the
 // *Authenticator, inside the Surface (m10-platform.md, OP-4 block, OP-7 decision (3)).
 //
 // It is split from openOperatorSurface so the configured path can be driven without a
 // tappa_operator login (that role is NOLOGIN on a development database); store is
 // openOperatorSurface's pool in production.
-func configuredSurface(store operatorStore, texts operator.LegalTexts, cfg *config.Config, log *slog.Logger) (*operator.Surface, error) {
+func configuredSurface(store operatorStore, texts operator.LegalTexts, vies viesChecker, cfg *config.Config, log *slog.Logger) (*operator.Surface, error) {
 	auth, err := operatorAuthenticator(store, cfg, log)
 	if err != nil {
 		return nil, err
 	}
-	surface, err := operator.New(auth, store, store, store, store, store, texts, cfg.OperatorHost, cfg.BaseURL, log)
+	surface, err := operator.New(auth, store, store, store, store, store, store, viesForOperator(vies), texts, cfg.OperatorHost,
+		cfg.BaseURL, log)
 	if err != nil {
 		return nil, err
 	}

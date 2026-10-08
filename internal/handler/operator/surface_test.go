@@ -119,9 +119,9 @@ func TestSurface_OffAnswers503UnderThePrefixAndNowhereElse(t *testing.T) {
 }
 
 // noStore satisfies operatorauth.Store, operator.LegalStore, operator.TenantStore,
-// operator.PlaqueStore, operator.AuditStore and operator.BillingStore without a database:
-// operatorauth.New calls no method, and nothing in this file sends a request that would
-// reach one.
+// operator.PlaqueStore, operator.AuditStore, operator.BillingStore and operator.VATStore
+// without a database: operatorauth.New calls no method, and nothing in this file sends a
+// request that would reach one.
 type noStore struct{}
 
 func (noStore) OperatorByEmail(context.Context, string) (db.OperatorAccount, error) {
@@ -164,6 +164,17 @@ func (noStore) OperatorAudit(context.Context, string, db.OperatorAuditQuery) ([]
 func (noStore) TenantBilling(context.Context, string, uuid.UUID, int32) (db.TenantBillingTimeline, error) {
 	return db.TenantBillingTimeline{}, db.ErrOperatorRefused
 }
+func (noStore) TenantVAT(context.Context, string, uuid.UUID) (db.TenantVATStatus, error) {
+	return db.TenantVATStatus{}, db.ErrOperatorRefused
+}
+func (noStore) RecordTenantVATCheck(context.Context, string, uuid.UUID, string, bool) error {
+	return db.ErrOperatorRefused
+}
+
+// noVIES is operator.VATChecker that never answers.
+type noVIES struct{}
+
+func (noVIES) CheckVAT(context.Context, string) operator.VATAnswer { return operator.VATAnswerUnknown }
 
 // noTexts is an empty legal snapshot whose refresh does nothing.
 type noTexts struct{}
@@ -193,7 +204,7 @@ func authenticator(t *testing.T) *operatorauth.Authenticator {
 // paths with the router's own 404 bytes (its hostGate), and the customer routes are
 // unchanged. CONTROL: the same surface on the operator host serves its sign-in.
 func TestSurface_ConfiguredAnswersOnlyOnTheOperatorHost(t *testing.T) {
-	s, err := operator.New(authenticator(t), noStore{}, noStore{}, noStore{}, noStore{}, noStore{}, noTexts{}, "ops.taptime.mt", "https://taptime.mt", slog.New(slog.DiscardHandler))
+	s, err := operator.New(authenticator(t), noStore{}, noStore{}, noStore{}, noStore{}, noStore{}, noStore{}, noVIES{}, noTexts{}, "ops.taptime.mt", "https://taptime.mt", slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,11 +233,12 @@ func TestSurface_ConfiguredAnswersOnlyOnTheOperatorHost(t *testing.T) {
 
 // TestSurface_NewRefusesWhatAConfiguredSurfaceNeeds: no Authenticator, no legal store,
 // no tenant store (OP-11), no plaque store (OP-13), no audit store (OP-14), no billing store
-// (OP-12), no legal snapshot (OP-10), no host, no logger, a base URL the operator origin
-// cannot be taken from -- each refused rather than degraded to Off.
+// (OP-12), no VAT store and no VIES client (OP-16), no legal snapshot (OP-10), no host, no
+// logger, a base URL the operator origin cannot be taken from -- each refused rather than
+// degraded to Off.
 func TestSurface_NewRefusesWhatAConfiguredSurfaceNeeds(t *testing.T) {
 	a, log := authenticator(t), slog.New(slog.DiscardHandler)
-	n := noStore{}
+	n, v := noStore{}, noVIES{}
 	for name, c := range map[string]struct {
 		auth      *operatorauth.Authenticator
 		store     operator.LegalStore
@@ -234,28 +246,32 @@ func TestSurface_NewRefusesWhatAConfiguredSurfaceNeeds(t *testing.T) {
 		plaques   operator.PlaqueStore
 		audit     operator.AuditStore
 		billing   operator.BillingStore
+		vat       operator.VATStore
+		vies      operator.VATChecker
 		texts     operator.LegalTexts
 		host, url string
 		log       *slog.Logger
 	}{
-		"no Authenticator":             {nil, n, n, n, n, n, noTexts{}, "ops.taptime.mt", "https://taptime.mt", log},
-		"no legal store":               {a, nil, n, n, n, n, noTexts{}, "ops.taptime.mt", "https://taptime.mt", log},
-		"no tenant store":              {a, n, nil, n, n, n, noTexts{}, "ops.taptime.mt", "https://taptime.mt", log},
-		"no plaque store":              {a, n, n, nil, n, n, noTexts{}, "ops.taptime.mt", "https://taptime.mt", log},
-		"no audit store":               {a, n, n, n, nil, n, noTexts{}, "ops.taptime.mt", "https://taptime.mt", log},
-		"no billing store":             {a, n, n, n, n, nil, noTexts{}, "ops.taptime.mt", "https://taptime.mt", log},
-		"no legal snapshot":            {a, n, n, n, n, n, nil, "ops.taptime.mt", "https://taptime.mt", log},
-		"no host":                      {a, n, n, n, n, n, noTexts{}, "", "https://taptime.mt", log},
-		"no logger":                    {a, n, n, n, n, n, noTexts{}, "ops.taptime.mt", "https://taptime.mt", nil},
-		"no base URL":                  {a, n, n, n, n, n, noTexts{}, "ops.taptime.mt", "", log},
-		"a base URL with no scheme":    {a, n, n, n, n, n, noTexts{}, "ops.taptime.mt", "taptime.mt", log},
-		"a base URL of another scheme": {a, n, n, n, n, n, noTexts{}, "ops.taptime.mt", "ftp://taptime.mt", log},
+		"no Authenticator":             {nil, n, n, n, n, n, n, v, noTexts{}, "ops.taptime.mt", "https://taptime.mt", log},
+		"no legal store":               {a, nil, n, n, n, n, n, v, noTexts{}, "ops.taptime.mt", "https://taptime.mt", log},
+		"no tenant store":              {a, n, nil, n, n, n, n, v, noTexts{}, "ops.taptime.mt", "https://taptime.mt", log},
+		"no plaque store":              {a, n, n, nil, n, n, n, v, noTexts{}, "ops.taptime.mt", "https://taptime.mt", log},
+		"no audit store":               {a, n, n, n, nil, n, n, v, noTexts{}, "ops.taptime.mt", "https://taptime.mt", log},
+		"no billing store":             {a, n, n, n, n, nil, n, v, noTexts{}, "ops.taptime.mt", "https://taptime.mt", log},
+		"no VAT store":                 {a, n, n, n, n, n, nil, v, noTexts{}, "ops.taptime.mt", "https://taptime.mt", log},
+		"no VIES client":               {a, n, n, n, n, n, n, nil, noTexts{}, "ops.taptime.mt", "https://taptime.mt", log},
+		"no legal snapshot":            {a, n, n, n, n, n, n, v, nil, "ops.taptime.mt", "https://taptime.mt", log},
+		"no host":                      {a, n, n, n, n, n, n, v, noTexts{}, "", "https://taptime.mt", log},
+		"no logger":                    {a, n, n, n, n, n, n, v, noTexts{}, "ops.taptime.mt", "https://taptime.mt", nil},
+		"no base URL":                  {a, n, n, n, n, n, n, v, noTexts{}, "ops.taptime.mt", "", log},
+		"a base URL with no scheme":    {a, n, n, n, n, n, n, v, noTexts{}, "ops.taptime.mt", "taptime.mt", log},
+		"a base URL of another scheme": {a, n, n, n, n, n, n, v, noTexts{}, "ops.taptime.mt", "ftp://taptime.mt", log},
 	} {
-		if s, err := operator.New(c.auth, c.store, c.tenants, c.plaques, c.audit, c.billing, c.texts, c.host, c.url, c.log); err == nil || s != nil {
+		if s, err := operator.New(c.auth, c.store, c.tenants, c.plaques, c.audit, c.billing, c.vat, c.vies, c.texts, c.host, c.url, c.log); err == nil || s != nil {
 			t.Errorf("%s: New built a configured surface", name)
 		}
 	}
-	if s, err := operator.New(a, noStore{}, noStore{}, noStore{}, noStore{}, noStore{}, noTexts{}, "ops.taptime.mt", "https://taptime.mt", log); err != nil || s == nil {
+	if s, err := operator.New(a, noStore{}, noStore{}, noStore{}, noStore{}, noStore{}, noStore{}, noVIES{}, noTexts{}, "ops.taptime.mt", "https://taptime.mt", log); err != nil || s == nil {
 		t.Fatalf("CONTROL: a complete configuration was refused: %v", err)
 	}
 	if operator.Off().Configured() || operator.Unavailable().Configured() || (&operator.Surface{}).Configured() ||
@@ -272,7 +288,7 @@ func TestSurface_NewRefusesWhatAConfiguredSurfaceNeeds(t *testing.T) {
 // same router does write its record (the log is live), and the configured surface's 404
 // is recorded as usual (the exemption is the 503's, not the prefix's).
 func TestSurface_ItsDesigned503IsNotAnAlertEvent(t *testing.T) {
-	configured, err := operator.New(authenticator(t), noStore{}, noStore{}, noStore{}, noStore{}, noStore{}, noTexts{}, "ops.taptime.mt", "https://taptime.mt", slog.New(slog.DiscardHandler))
+	configured, err := operator.New(authenticator(t), noStore{}, noStore{}, noStore{}, noStore{}, noStore{}, noStore{}, noVIES{}, noTexts{}, "ops.taptime.mt", "https://taptime.mt", slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)
 	}

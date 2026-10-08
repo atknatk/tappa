@@ -65,10 +65,13 @@ func TestVIESCheck_EveryFailureIsUnknownNeverInvalid(t *testing.T) {
 		{
 			name: "the answer is enormous",
 			handler: func(w http.ResponseWriter, _ *http.Request) {
-				// A body past viesMaxBody. It even STARTS like a valid answer, which is
-				// the case io.LimitReader would have turned into a confident wrong
-				// verdict — see limitedReader.
-				_, _ = w.Write([]byte(`{"isValid":true,"padding":"` + strings.Repeat("x", viesMaxBody+1024) + `"}`))
+				// A body past the 16 KiB bound, at a FIXED size (17 KiB) rather than one
+				// built from viesMaxBody, which grew with the constant and left a bound
+				// raised to 16 MiB green (OP-16 B audit, D1; the byte edge is
+				// TestVIESCheck_TheBodyBoundIsSixteenKiBToTheByte). It even STARTS like a
+				// valid answer, which is the case io.LimitReader would have turned into a
+				// confident wrong verdict — see limitedReader.
+				_, _ = w.Write([]byte(`{"isValid":true,"padding":"` + strings.Repeat("x", 17<<10) + `"}`))
 			},
 			want: VATUnknown,
 		},

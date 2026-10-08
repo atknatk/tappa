@@ -110,7 +110,8 @@ templ tenantPageForm(search string, page int, label string) {
 // named by its id. The counts are what op_read_tenant_detail returns: every location, and
 // the employees, plaques and panel accounts whose status is active -- no person, no
 // address, no plaque uid (ADR 0021, OP-11 note md. 5). Under the counts, links to the
-// tenant's plaques (OP-13) and its billing months (OP-12), each a read of its own.
+// tenant's plaques (OP-13), its billing months (OP-12) and its VAT number (OP-16), each a read
+// of its own -- the overview itself shows no VAT number (OP-11's minimisation).
 templ TenantOverview(v TenantOverviewView) {
 	@TenantScreen("Tenant overview", v.Name) {
 		<section class="op-card">
@@ -137,6 +138,7 @@ templ TenantOverview(v TenantOverviewView) {
 			<p class="mt-2 flex flex-wrap gap-x-6">
 				<a href={ templ.URL(v.PlaquesPath) } class="op-link">See this tenant's plaques</a>
 				<a href={ templ.URL(v.BillingPath) } class="op-link">See this tenant's billing</a>
+				<a href={ templ.URL(v.VATPath) } class="op-link">See this tenant's VAT number</a>
 			</p>
 		</section>
 		<p class="flex flex-wrap gap-x-6">

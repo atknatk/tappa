@@ -264,6 +264,28 @@ func run() error {
 		log := slog.Default()
 		log.Error("the published legal texts could not be read at start-up; /legal will show its placeholders until a refresh succeeds (the next publication, or the operator's legal screen)", "err", err)
 	}
+	// THE VIES CHECKER IS BUILT HERE AND IS THE ONLY OUTBOUND HTTP CLIENT IN THIS
+	// PROCESS. Q09 (2026-08-13) made the check BEST EFFORT: a timeout or an outage
+	// records "not verified" and never stops a registration, so this dependency
+	// cannot take the sign-up flow down with it. It is net/http and nothing else
+	// (§1: no new dependency), it is pointed at a constant URL, and each endpoint that
+	// calls it carries its own outbound budget (the sign-up wizard's per address,
+	// internal/handler/signupratelimit.go; the operator's per session, OP-16's viesLimit).
+	//
+	// 🔴 ONE INSTANCE, TWO CONSUMERS (M10 OP-16, the orchestrator's K16-6): the sign-up
+	// wizard below, and the operator surface's VAT re-check, which openOperatorSurface
+	// hands it through operatorVIES -- an adapter onto the surface's own three-valued
+	// answer, not a second client. It is built before the operator surface so both take
+	// this one value (TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator: signup.NewChecker
+	// is named once in the command, and its value reaches exactly those two).
+	//
+	// ⚠️ IT IS PASSED EVEN IN DEVELOPMENT, deliberately: a checker that only exists
+	// in production is a code path that is first exercised on a customer. What makes
+	// that safe is the shape rather than the environment — the wizard's tests drive a
+	// local server through the same seam, and a machine with no route to the
+	// Commission simply records "not verified", which is a state the product handles.
+	vies := signup.NewChecker()
+
 	// THE PLATFORM OPERATOR'S SURFACE (M10 OP-7) -- its own pool, as tappa_operator,
 	// opened and handed to its Authenticator inside openOperatorSurface and nowhere
 	// else; this function sees only the Surface it mounts and the closer it defers.
@@ -273,8 +295,9 @@ func run() error {
 	// the role gate, the pin, a malformed DSN, a key of the wrong size -- stops the boot.
 	// It is opened here, after the customer pool, so a customer database that is down is
 	// reported first. It is handed the legal texts' snapshot (OP-10), which its legal
-	// screen refreshes; the operator's pool stays inside openOperatorSurface.
-	operatorSurface, closeOperator, err := openOperatorSurface(ctx, cfg, texts, slog.Default())
+	// screen refreshes, and the VIES checker above (OP-16); the operator's pool stays inside
+	// openOperatorSurface.
+	operatorSurface, closeOperator, err := openOperatorSurface(ctx, cfg, texts, vies, slog.Default())
 	if err != nil {
 		return err
 	}
@@ -677,19 +700,9 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	// THE VIES CHECKER IS BUILT HERE AND IS THE ONLY OUTBOUND HTTP CLIENT IN THIS
-	// PROCESS. Q09 (2026-08-13) made the check BEST EFFORT: a timeout or an outage
-	// records "not verified" and never stops a registration, so this dependency
-	// cannot take the sign-up flow down with it. It is net/http and nothing else
-	// (§1: no new dependency), it is pointed at a constant URL, and the endpoint that
-	// calls it carries its own outbound budget (internal/handler/signupratelimit.go).
-	//
-	// ⚠️ IT IS PASSED EVEN IN DEVELOPMENT, deliberately: a checker that only exists
-	// in production is a code path that is first exercised on a customer. What makes
-	// that safe is the shape rather than the environment — the wizard's tests drive a
-	// local server through the same seam, and a machine with no route to the
-	// Commission simply records "not verified", which is a state the product handles.
-	signupFlow, err := handler.NewSignup(provisioner, signup.NewChecker(), cfg, slog.Default())
+	// The VIES checker is the one built before the operator surface above -- the process's
+	// only outbound HTTP client, shared with the operator's VAT re-check.
+	signupFlow, err := handler.NewSignup(provisioner, vies, cfg, slog.Default())
 	if err != nil {
 		return err
 	}

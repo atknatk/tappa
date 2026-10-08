@@ -1129,15 +1129,19 @@ var guardedHeaders = map[string]map[string]int{
 // its allowed functions with its allowed counts; each http.Header Set/Add takes a
 // constant name; the scan finds no Del, no http.Redirect and no index expression on an
 // http.Header and no builtin delete or clear on one; each (*Surface).redirect call passes
-// a constant that is a path of operatorRoutes. CONTROL: the five names are found and at
-// least ten redirect calls resolve.
+// a constant that is a path of operatorRoutes -- but ONE (OP-16): in (*Surface).recheckVAT, the
+// recorded answer's POST -> 303 -> GET passes vatPath of the path's own tenant id, which
+// tenantID parsed (the screen it was posted from; TestOperatorHeaders_TheVATClassesCarryThePolicy
+// measures its value, C151 and C152). CONTROL: the five names are found and at least ten
+// redirect calls resolve.
 //
 // PART II -- red on: RH1 a guardedHeaders name (constant, case aside) outside its functions,
 // or a count other than allowed; RH2 a Header Set or Add whose name is not a constant;
 // RH3 a use of http.Header's Del, of http.Redirect, an index expression on an http.Header,
 // or the builtin delete or clear with an http.Header argument (5th round); RH4 a redirect
-// call whose target is not a constant path of operatorRoutes; RH5 redirect taken as a
-// method value.
+// call whose target is not a constant path of operatorRoutes, other than the one vatPath call
+// of recheckVAT whose argument is the identifier recheckVAT binds tenantID's result to (a
+// second such call is red too); RH5 redirect taken as a method value.
 //
 // PART III -- This pin catches the list in PART II only; a form not on it (examples: maps.Copy into w.Header(), textproto.MIMEHeader(w.Header()).Set, a ResponseWriter wrapped by another package) is code review's -- no completeness claim.
 func TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions(t *testing.T) {
@@ -1195,7 +1199,31 @@ func TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions(t *testing
 	for _, r := range operatorRoutes {
 		mounted[r.path] = true
 	}
-	redirects := 0
+	redirects, toVAT := 0, 0
+	vatPathFn, tenantIDFn := lookupFunc(t, tp.pkg, "vatPath"), lookupFunc(t, tp.pkg, "tenantID")
+	recheck := tp.method(t, "Surface", "recheckVAT")
+	// pathTenant reports whether e is an identifier recheckVAT defines from tenantID's result.
+	pathTenant := func(e ast.Expr) bool {
+		id, ok := ast.Unparen(e).(*ast.Ident)
+		if !ok {
+			return false
+		}
+		def := tp.info.Uses[id]
+		found := false
+		ast.Inspect(tp.decl(id.Pos()), func(n ast.Node) bool {
+			as, ok := n.(*ast.AssignStmt)
+			if !ok || len(as.Rhs) != 1 || len(as.Lhs) < 1 {
+				return true
+			}
+			if l, ok := as.Lhs[0].(*ast.Ident); ok && tp.info.Defs[l] != nil && tp.info.Defs[l] == def {
+				if c, ok := as.Rhs[0].(*ast.CallExpr); ok && tp.callee(c) == tenantIDFn {
+					found = true
+				}
+			}
+			return true
+		})
+		return found
+	}
 	for _, id := range tp.usesOf(redirect) {
 		c := tp.callOf(id)
 		if c == nil {
@@ -1203,10 +1231,19 @@ func TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions(t *testing
 			continue
 		}
 		redirects++
-		v := tp.info.Types[c.Args[len(c.Args)-1]].Value
+		target := c.Args[len(c.Args)-1]
+		if tc, ok := ast.Unparen(target).(*ast.CallExpr); ok && tp.callee(tc) == vatPathFn && tp.in(recheck, c.Pos()) &&
+			len(tc.Args) == 1 && pathTenant(tc.Args[0]) {
+			toVAT++
+			continue
+		}
+		v := tp.info.Types[target].Value
 		if v == nil || v.Kind() != constant.String || !mounted[constant.StringVal(v)] {
 			bad = append(bad, "RH4 a redirect target that is not a mounted route's constant at "+tp.where(c.Pos()))
 		}
+	}
+	if toVAT > 1 {
+		bad = append(bad, fmt.Sprintf("RH4 %d redirects to vatPath in recheckVAT, want at most the one", toVAT))
 	}
 	sort.Strings(bad)
 	for _, b := range bad {
@@ -1217,16 +1254,16 @@ func TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions(t *testing
 	}
 }
 
-// operatorScreens are the twelve screen constructors screens() (op8_test.go) renders, by
+// operatorScreens are the thirteen screen constructors screens() (op8_test.go) renders, by
 // name -- the list SN1/SN2 compare with operatorpages' exported API (OP-10 added Legal,
 // OP-11 Tenants and TenantOverview, OP-13 TenantPlaques, OP-14 AuditLog, OP-12
-// TenantBilling).
+// TenantBilling, OP-16 TenantVAT).
 var operatorScreens = []string{"AuditLog", "Code", "Enroll", "Home", "Legal", "Problem", "SignIn", "TenantBilling",
-	"TenantOverview", "TenantPlaques", "TenantScreen", "Tenants"}
+	"TenantOverview", "TenantPlaques", "TenantScreen", "TenantVAT", "Tenants"}
 
 // TestOperatorPages_TheExportedScreensAreTheOnesScreensRenders (3rd round).
 //
-// PART I -- operatorpages' exported functions that return a templ.Component are the twelve
+// PART I -- operatorpages' exported functions that return a templ.Component are the thirteen
 // of operatorScreens (read from the export data of the build being run).
 //
 // PART II -- red on: SN1 an exported constructor not in operatorScreens; SN2 a name in

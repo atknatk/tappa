@@ -36,12 +36,15 @@ import (
 //	POST /operator/audit; OP-14) and
 //	a tenant's billing months (GET,
 //	POST /operator/tenants/{id}/billing;
-//	OP-12)
+//	OP-12) and a tenant's VAT number
+//	(GET, POST
+//	/operator/tenants/{id}/vat; OP-16)
 //	sign-out (POST /operator/logout)   sameOriginGate(false) -> requireOperator -> logoutGate
 //
 // The reads behind sessionGate -- the legal page, the tenant list and search, the overview,
-// the plaques, the audit log and the billing months -- each charge the read budget once more
-// in their handler (spendRead).
+// the plaques, the audit log, the billing months and the VAT screen -- each charge the read
+// budget once more in their handler (spendRead); an ask of VIES from the VAT screen charges
+// the VIES budget as well (spendVIES).
 //
 // Sign-out is its own group, after the panel's measured lesson (adminlogin.go's sign-out
 // group): no flood gate is in front of it, and a sign-out with a session cookie charges
@@ -87,6 +90,8 @@ func (s *Surface) mount(r chi.Router) {
 			r.Get("/tenants/{id}/plaques", s.tenantPlaques)
 			r.Get("/tenants/{id}/billing", s.tenantBilling)
 			r.Post("/tenants/{id}/billing", s.pageTenantBilling)
+			r.Get("/tenants/{id}/vat", s.tenantVAT)
+			r.Post("/tenants/{id}/vat", s.recheckVAT)
 			r.Get("/audit", s.auditLog)
 			r.Post("/audit", s.filterAudit)
 		})
@@ -111,7 +116,8 @@ const (
 // görünür"). Measured against the router's own 404 (status, body, Content-Type, nosniff;
 // no CSP, Location or cookie) on the hosts the shipped ingress names plus six more, under
 // the methods and operator paths that test lists (a tenant's plaques among them since
-// OP-13, the audit log since OP-14, a tenant's billing since OP-12's B phase):
+// OP-13, the audit log since OP-14, a tenant's billing since OP-12's B phase, a tenant's VAT
+// number since OP-16's):
 // TestHostGate_OperatorRoutesAnswerTheRoutersOwn404OnEveryOtherHost.
 func (s *Surface) hostGate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -138,7 +144,8 @@ func (s *Surface) hostGate(next http.Handler) http.Handler {
 // TestOperatorHeaders_TheTenantClassesCarryThePolicy (OP-11, C67-C93),
 // TestOperatorHeaders_ThePlaqueClassesCarryThePolicy (OP-13, C94-C103),
 // TestOperatorHeaders_TheAuditClassesCarryThePolicy (OP-14, C104-C121) and
-// TestOperatorHeaders_TheBillingClassesCarryThePolicy (OP-12, C122 on) drive the response
+// TestOperatorHeaders_TheBillingClassesCarryThePolicy (OP-12, C122-C141) and
+// TestOperatorHeaders_TheVATClassesCarryThePolicy (OP-16, C142 on) drive the response
 // classes of the tests' classRoutes with hostile request headers and hold the response
 // headers AT WriteHeader (the recorder's snapshot) to the designed names and values;
 // TestOperatorHeaders_TheRecorderSnapshotIsWhatTheWireCarries measures that snapshot
@@ -301,7 +308,8 @@ func operatorOf(r *http.Request) (operatorauth.Identity, bool) {
 
 // storeSession is the session sessionGate resolved and its hash for the store -- the
 // argument of every op_* call a console screen makes (the legal texts, OP-10; the
-// tenants, OP-11; the plaques, OP-13; the audit log, OP-14; the billing months, OP-12).
+// tenants, OP-11; the plaques, OP-13; the audit log, OP-14; the billing months, OP-12; the
+// VAT number, OP-16).
 // Through mount both are in place; a route mounted outside the chain by mistake answers the
 // sign-in.
 func (s *Surface) storeSession(w http.ResponseWriter, r *http.Request) (operatorauth.Identity, string, bool) {
@@ -390,9 +398,9 @@ func (s *Surface) spendSession(w http.ResponseWriter, r *http.Request, id operat
 // past it, answers 429 with the same page -- the window's first refusal logged at WARN
 // with the session's id. The read handlers call it once, after their own refusals and
 // before the store (legalPage; tenants.go's listTenants and tenantOverview; plaques.go's
-// tenantPlaques; audit.go's readAudit; billing.go's readBilling). The count Charge returns is
-// the one the refusal is decided on: there is no separate read of the budget to race
-// (surface.go, readLimit).
+// tenantPlaques; audit.go's readAudit; billing.go's readBilling; vat.go's readVAT). The count
+// Charge returns is the one the refusal is decided on: there is no separate read of the budget
+// to race (surface.go, readLimit).
 func (s *Surface) spendRead(w http.ResponseWriter, r *http.Request, id operatorauth.Identity) bool {
 	if n := s.reads.Charge(id.SessionID.String()); n > readLimit {
 		if s.reads.FirstOverLimit(n) {

@@ -382,7 +382,8 @@
      are rejected (§5 row 1), so it takes the rejection tone. Grouped, not copied (the
      M6-05 rule below): one declaration per tone, a separate name per meaning. */
   .tally--rejected,
-  .tally--withdrawn { @apply border-tomato bg-tomato/10; }
+  .tally--withdrawn,
+  .tally--vat-not-found { @apply border-tomato bg-tomato/10; }
   /* M6-04: the two decided states. Same fixed mapping — a human approval is
      tappa-green, a refusal is tomato — and the same rule that the word carries
      the meaning: the text says "Approved by a manager", not just "Approved", so
@@ -413,19 +414,26 @@
      green), one that ended and was not closed waits for a person to look (the waiting tone;
      a fact, not a verdict), and a running month and one before sign-up are neutral. No
      ground is new; TestBillingScreen_TheChipsAndTextClearAA computes each from the palette. */
+  /* M10 OP-16 adds the four VAT verdicts of a tenant's VAT screen to the same groups, in the
+     customer account screen's mapping: a number the register confirmed is the active tone, one
+     it does not know the rejection tone (above), no answer the waiting tone, never asked the
+     neutral one. No ground is new; TestVATScreen_TheChipsAndTextClearAA computes each. */
   .tally--approved,
   .tally--active,
   .tally--mounted,
-  .tally--frozen  { @apply border-tappa-green bg-green-lite; }
+  .tally--frozen,
+  .tally--vat-confirmed { @apply border-tappa-green bg-green-lite; }
   .tally--queued,
   .tally--invited,
   .tally--unencoded,
-  .tally--unclosed { @apply border-saffron bg-saffron-lite; }
+  .tally--unclosed,
+  .tally--vat-no-answer { @apply border-saffron bg-saffron-lite; }
   .tally--manual,
   .tally--deactivated,
   .tally--stock,
   .tally--running,
-  .tally--before-signup { @apply border-line bg-line/10; }
+  .tally--before-signup,
+  .tally--vat-not-checked { @apply border-line bg-line/10; }
   /* M6-09: the LOCK tone, and it is the one chip on the product that is not a
      status. A guardrail is not a state a rule is in — it is structure, part of the
      product rather than a setting — and the policies screen has to make that

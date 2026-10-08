@@ -62,10 +62,10 @@ import (
 )
 
 // liveStore is operatorauth.Store, operator.LegalStore, (OP-11) operator.TenantStore,
-// (OP-13) operator.PlaqueStore, (OP-14) operator.AuditStore and (OP-12) operator.BillingStore
-// on a connection that IS tappa_operator: each method is internal/db's production accessor,
-// each statement its own committed transaction (the billing read's second phase opens its
-// own, on this connection, for its SET LOCAL).
+// (OP-13) operator.PlaqueStore, (OP-14) operator.AuditStore, (OP-12) operator.BillingStore and
+// (OP-16) operator.VATStore on a connection that IS tappa_operator: each method is
+// internal/db's production accessor, each statement its own committed transaction (the
+// billing read's second phase opens its own, on this connection, for its SET LOCAL).
 type liveStore struct {
 	mu   sync.Mutex
 	conn *pgx.Conn
@@ -155,11 +155,25 @@ func (s *liveStore) TenantBilling(ctx context.Context, h string, id uuid.UUID, p
 	return db.TenantBilling(ctx, s.conn, h, id, page)
 }
 
+func (s *liveStore) TenantVAT(ctx context.Context, h string, id uuid.UUID) (db.TenantVATStatus, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return db.TenantVAT(ctx, s.conn, h, id)
+}
+
+func (s *liveStore) RecordTenantVATCheck(ctx context.Context, h string, id uuid.UUID, number string, valid bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return db.RecordTenantVATCheck(ctx, s.conn, h, id, number, valid)
+}
+
 // legalE2E is one test's committed rig.
 type legalE2E struct {
 	*e2e
 	owner    *pgx.Conn
 	op       *pgx.Conn
+	live     *liveStore
+	vies     *liveVIES
 	texts    *legal.Store
 	f        fixture
 	name     string
@@ -243,7 +257,8 @@ func newLegalE2E(t *testing.T) *legalE2E {
 		t.Fatal(err)
 	}
 	live := &liveStore{conn: l.op}
-	s, err := operator.New(auth, live, live, live, live, live, l.texts, opHost, opBase, log)
+	l.live, l.vies = live, &liveVIES{}
+	s, err := operator.New(auth, live, live, live, live, live, live, l.vies, l.texts, opHost, opBase, log)
 	if err != nil {
 		t.Fatal(err)
 	}

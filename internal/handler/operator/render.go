@@ -355,6 +355,28 @@ var (
 		BackLabel: "Back to the tenants",
 		SignedIn:  true,
 	}
+
+	// The VAT screen's two fault pages (vat.go); its malformed and unknown ids answer with the
+	// two tenant pages above, and the answers that change nothing -- VIES did not answer, a
+	// number VIES does not take, the VIES budget -- are the screen itself with a sentence. NEITHER
+	// PAGE NAMES THE NUMBER. A write the database did not confirm may still have been recorded
+	// (a connection lost after the statement was sent), and the screen one click away shows the
+	// verdict on file -- so the page sends the operator there rather than to ask again blind.
+	problemVATUnreadable = operatorpages.ProblemView{
+		Title:     "This tenant's VAT number could not be loaded",
+		Message:   "Try again in a moment. Nothing was sent to VIES.",
+		Back:      pathTenants,
+		BackLabel: "Back to the tenants",
+		SignedIn:  true,
+	}
+	problemVATNotRecorded = operatorpages.ProblemView{
+		Title: "The re-check was not confirmed",
+		Message: "VIES answered, but the database did not confirm the answer was recorded. Open the tenant's VAT " +
+			"number again — it shows the verdict on file — and ask again from there if it has not changed.",
+		Back:      pathTenants,
+		BackLabel: "Back to the tenants",
+		SignedIn:  true,
+	}
 )
 
 // problemPages lists the variables above and problemTooMany(false) and (true), for the
@@ -370,5 +392,6 @@ func problemPages() []operatorpages.ProblemView {
 		problemPlaquesUnreadable,
 		problemAuditFormTooLarge, problemAuditKindRefused, problemAuditPageRefused, problemAuditUnreadable,
 		problemBillingFormTooLarge, problemBillingPageRefused, problemBillingUnreadable,
+		problemVATUnreadable, problemVATNotRecorded,
 	}
 }

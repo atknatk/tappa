@@ -37,15 +37,16 @@ import (
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/domain/legal"
+	"github.com/atknatk/tappa/internal/domain/signup"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/internal/operatorauth"
 	"github.com/atknatk/tappa/internal/sun"
 )
 
 // noStore satisfies operatorauth.Store, operator.LegalStore, operator.TenantStore,
-// operator.PlaqueStore, operator.AuditStore and operator.BillingStore without a database;
-// building an Authenticator calls none of its methods, and nothing here sends a sign-in, a
-// legal, a tenant, a plaque, an audit or a billing request.
+// operator.PlaqueStore, operator.AuditStore, operator.BillingStore and operator.VATStore
+// without a database; building an Authenticator calls none of its methods, and nothing here
+// sends a sign-in, a legal, a tenant, a plaque, an audit, a billing or a VAT request.
 type noStore struct{}
 
 func (noStore) OperatorByEmail(context.Context, string) (db.OperatorAccount, error) {
@@ -88,6 +89,18 @@ func (noStore) OperatorAudit(context.Context, string, db.OperatorAuditQuery) ([]
 func (noStore) TenantBilling(context.Context, string, uuid.UUID, int32) (db.TenantBillingTimeline, error) {
 	return db.TenantBillingTimeline{}, db.ErrOperatorRefused
 }
+func (noStore) TenantVAT(context.Context, string, uuid.UUID) (db.TenantVATStatus, error) {
+	return db.TenantVATStatus{}, db.ErrOperatorRefused
+}
+func (noStore) RecordTenantVATCheck(context.Context, string, uuid.UUID, string, bool) error {
+	return db.ErrOperatorRefused
+}
+
+// noCheck is a viesChecker that never answers (the sign-up wizard's VIES client's shape; no
+// test here asks it anything).
+type noCheck struct{}
+
+func (noCheck) Check(context.Context, string) signup.VATStatus { return signup.VATUnknown }
 
 // noTexts is an empty legal snapshot whose refresh does nothing (operator.LegalTexts).
 type noTexts struct{}
@@ -120,7 +133,7 @@ func shippedLoggers(buf *bytes.Buffer) map[string]*slog.Logger {
 func TestOpenOperatorSurface_OffWhenNothingIsSet(t *testing.T) {
 	var buf bytes.Buffer
 	log := slog.New(logHandler(&buf, &config.Config{LogLevel: "debug", LogFormat: config.LogFormatJSON}))
-	surface, closeFn, err := openOperatorSurface(t.Context(), &config.Config{}, noTexts{}, log)
+	surface, closeFn, err := openOperatorSurface(t.Context(), &config.Config{}, noTexts{}, noCheck{}, log)
 	if err != nil {
 		t.Fatalf("an unconfigured process refused to start: %v", err)
 	}
@@ -176,7 +189,7 @@ func TestOpenOperatorSurface_UnreachableKeepsTheProductUpARefusalStopsTheBoot(t 
 		dsn, _ := closedPortDSN(t)
 		var buf bytes.Buffer
 		log := slog.New(logHandler(&buf, &config.Config{LogLevel: "info", LogFormat: config.LogFormatJSON}))
-		surface, closeFn, err := openOperatorSurface(ctx, operatorCfg(dsn), noTexts{}, log)
+		surface, closeFn, err := openOperatorSurface(ctx, operatorCfg(dsn), noTexts{}, noCheck{}, log)
 		if err != nil {
 			t.Fatalf("an unreachable operator database stopped the boot: %v", err)
 		}
@@ -201,7 +214,7 @@ func TestOpenOperatorSurface_UnreachableKeepsTheProductUpARefusalStopsTheBoot(t 
 		}
 	})
 	t.Run("malformed DSN: the boot stops", func(t *testing.T) {
-		_, _, err := openOperatorSurface(ctx, operatorCfg("postgres://tappa_operator@127.0.0.1:notaport/tappa"), noTexts{}, slog.New(slog.DiscardHandler))
+		_, _, err := openOperatorSurface(ctx, operatorCfg("postgres://tappa_operator@127.0.0.1:notaport/tappa"), noTexts{}, noCheck{}, slog.New(slog.DiscardHandler))
 		if err == nil || errors.Is(err, db.ErrOperatorUnreachable) {
 			t.Fatalf("a malformed DSN: err %v, want a refusal that is not unreachability", err)
 		}
@@ -214,7 +227,7 @@ func TestOpenOperatorSurface_UnreachableKeepsTheProductUpARefusalStopsTheBoot(t 
 		// The customer DSN asking to become tappa_operator: the server answers 42501.
 		// It was reached; it refused. (OP-7 2nd round, B1.)
 		forged := app + map[bool]string{true: "&", false: "?"}[strings.Contains(app, "?")] + "role=tappa_operator"
-		s, _, err := openOperatorSurface(ctx, operatorCfg(forged), noTexts{}, slog.New(slog.DiscardHandler))
+		s, _, err := openOperatorSurface(ctx, operatorCfg(forged), noTexts{}, noCheck{}, slog.New(slog.DiscardHandler))
 		if err == nil || s != nil || errors.Is(err, db.ErrOperatorUnreachable) || !strings.Contains(err.Error(), "SQLSTATE 42501") {
 			t.Fatalf("a server that refused (42501): err %v, surface %v; want a boot refusal naming the code", err, s)
 		}
@@ -224,7 +237,7 @@ func TestOpenOperatorSurface_UnreachableKeepsTheProductUpARefusalStopsTheBoot(t 
 		if owner == "" {
 			t.Skip("DATABASE_MIGRATE_URL not set (real Postgres required)")
 		}
-		s, _, err := openOperatorSurface(ctx, operatorCfg(owner), noTexts{}, slog.New(slog.DiscardHandler))
+		s, _, err := openOperatorSurface(ctx, operatorCfg(owner), noTexts{}, noCheck{}, slog.New(slog.DiscardHandler))
 		if err == nil || s != nil || errors.Is(err, db.ErrOperatorUnreachable) {
 			t.Fatalf("the owner's DSN: err %v, surface %v; want a boot refusal that is not unreachability", err, s)
 		}
@@ -248,7 +261,7 @@ func TestOpenOperatorSurface_APartialStructIsNeverSilentlyOff(t *testing.T) {
 	} {
 		var buf bytes.Buffer
 		log := slog.New(logHandler(&buf, &config.Config{LogLevel: "debug", LogFormat: config.LogFormatJSON}))
-		s, closeFn, err := openOperatorSurface(ctx, c, noTexts{}, log)
+		s, closeFn, err := openOperatorSurface(ctx, c, noTexts{}, noCheck{}, log)
 		if closeFn != nil {
 			closeFn()
 		}
@@ -271,7 +284,7 @@ func TestConfiguredSurface_HoldsTheAuthenticatorAndAnnouncesIt(t *testing.T) {
 	}
 	var buf bytes.Buffer
 	log := slog.New(logHandler(&buf, &config.Config{LogLevel: "info", LogFormat: config.LogFormatJSON}))
-	surface, err := configuredSurface(noStore{}, noTexts{}, cfg, log)
+	surface, err := configuredSurface(noStore{}, noTexts{}, noCheck{}, cfg, log)
 	if err != nil {
 		t.Fatalf("configuredSurface: %v", err)
 	}
@@ -287,7 +300,7 @@ func TestConfiguredSurface_HoldsTheAuthenticatorAndAnnouncesIt(t *testing.T) {
 	} {
 		c := *cfg
 		short(&c)
-		if _, err := configuredSurface(noStore{}, noTexts{}, &c, log); err == nil {
+		if _, err := configuredSurface(noStore{}, noTexts{}, noCheck{}, &c, log); err == nil {
 			t.Error("a key of the wrong size reached a configured surface; the keys do not reach operatorauth.New")
 		}
 	}
@@ -390,19 +403,19 @@ func TestOperatorSurface_TheRunbookGrepMatchesTheShippedLine(t *testing.T) {
 	shipped := &config.Config{LogLevel: level[1], LogFormat: format[1]}
 
 	var off, on, unavailable bytes.Buffer
-	if _, closeFn, err := openOperatorSurface(t.Context(), &config.Config{}, noTexts{}, slog.New(logHandler(&off, shipped))); err != nil {
+	if _, closeFn, err := openOperatorSurface(t.Context(), &config.Config{}, noTexts{}, noCheck{}, slog.New(logHandler(&off, shipped))); err != nil {
 		t.Fatal(err)
 	} else {
 		closeFn()
 	}
 	cfg := &config.Config{OperatorTOTPKEK: randBytes(t, 32), OperatorTokenHMACKey: randBytes(t, 32), OperatorHost: "ops.taptime.mt",
 		BaseURL: "https://taptime.mt"}
-	if _, err := configuredSurface(noStore{}, noTexts{}, cfg, slog.New(logHandler(&on, shipped))); err != nil {
+	if _, err := configuredSurface(noStore{}, noTexts{}, noCheck{}, cfg, slog.New(logHandler(&on, shipped))); err != nil {
 		t.Fatal(err)
 	}
 	unreachable := *cfg
 	unreachable.OperatorDatabaseURL, _ = closedPortDSN(t)
-	if _, closeFn, err := openOperatorSurface(t.Context(), &unreachable, noTexts{}, slog.New(logHandler(&unavailable, shipped))); err != nil {
+	if _, closeFn, err := openOperatorSurface(t.Context(), &unreachable, noTexts{}, noCheck{}, slog.New(logHandler(&unavailable, shipped))); err != nil {
 		t.Fatal(err)
 	} else {
 		closeFn()
@@ -469,31 +482,31 @@ func TestOpenOperatorSurface_PrintsNoValue(t *testing.T) {
 	for _, log := range loggers {
 		// The dial failure: not a refusal to boot but the UNAVAILABLE line, which logs
 		// the error itself.
-		if s, _, err := openOperatorSurface(ctx, cfg, noTexts{}, log); err != nil || s.Configured() {
+		if s, _, err := openOperatorSurface(ctx, cfg, noTexts{}, noCheck{}, log); err != nil || s.Configured() {
 			t.Fatalf("a DSN to a closed port: err %v, configured %v; want an unavailable surface and no error", err, s.Configured())
 		}
 		refusals++
 		// A key of the wrong size, refused by operatorauth.New.
 		short := *cfg
 		short.OperatorTOTPKEK = kek[:16]
-		if _, err := configuredSurface(noStore{}, noTexts{}, &short, log); err == nil {
+		if _, err := configuredSurface(noStore{}, noTexts{}, noCheck{}, &short, log); err == nil {
 			t.Fatal("a 16-byte TOTP KEK built a configured surface")
 		} else {
 			log.Error("fatal", "err", err)
 			refusals++
 		}
 		// The lines themselves.
-		if _, _, err := openOperatorSurface(ctx, &config.Config{}, noTexts{}, log); err != nil {
+		if _, _, err := openOperatorSurface(ctx, &config.Config{}, noTexts{}, noCheck{}, log); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := configuredSurface(noStore{}, noTexts{}, cfg, log); err != nil {
+		if _, err := configuredSurface(noStore{}, noTexts{}, noCheck{}, cfg, log); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if owner := os.Getenv("DATABASE_MIGRATE_URL"); owner != "" {
 		for _, log := range loggers {
 			_, _, err := openOperatorSurface(ctx, &config.Config{OperatorDatabaseURL: owner, OperatorTOTPKEK: kek,
-				OperatorTokenHMACKey: hmacKey, OperatorHost: "ops.taptime.mt"}, noTexts{}, log)
+				OperatorTokenHMACKey: hmacKey, OperatorHost: "ops.taptime.mt"}, noTexts{}, noCheck{}, log)
 			if err == nil {
 				t.Fatal("the owner's DSN opened the operator surface")
 			}
@@ -535,7 +548,8 @@ func TestOpenOperatorSurface_PrintsNoValue(t *testing.T) {
 // since OP-11 phase B also its tenant slot (operator.New's TenantStore), since OP-13
 // phase B its plaque slot (operator.New's PlaqueStore), since OP-14 phase B its audit slot
 // (operator.New's AuditStore), since OP-12 phase B its billing slot (operator.New's
-// BillingStore), and the rules below say exactly that. It is not renamed because docs/plan/m10-platform.md
+// BillingStore), since OP-16 phase B its VAT slot (operator.New's VATStore), and the rules
+// below say exactly that. It is not renamed because docs/plan/m10-platform.md
 // cites it by this name three times (the OP-7 and OP-8 records) and ADR 0020 §7 once:
 // a rename would leave those citations dangling (testnames_test.go's ratchet) in records
 // that are not rewritten after the fact.
@@ -543,14 +557,21 @@ func TestOpenOperatorSurface_PrintsNoValue(t *testing.T) {
 //   - db.NewOperatorDB is called exactly once in the command, inside openOperatorSurface;
 //   - the value it returns is used only as configuredSurface's first argument and as
 //     the receiver of Close, and openOperatorSurface returns no *db.OperatorDB;
-//   - configuredSurface's store is used exactly six times: as operatorAuthenticator's
-//     first argument and as operator.New's second, third, fourth, fifth and sixth (the
-//     LegalStore slot; the TenantStore slot, OP-11; the PlaqueStore slot, OP-13; the
-//     AuditStore slot, OP-14; the BillingStore slot, OP-12) -- and that
-//     operatorAuthenticator's store only as operatorauth.New's first argument;
+//   - configuredSurface's store is used exactly seven times: as operatorAuthenticator's
+//     first argument and as operator.New's second, third, fourth, fifth, sixth and seventh
+//     (the LegalStore slot; the TenantStore slot, OP-11; the PlaqueStore slot, OP-13; the
+//     AuditStore slot, OP-14; the BillingStore slot, OP-12; the VATStore slot, OP-16) -- and
+//     that operatorAuthenticator's store only as operatorauth.New's first argument;
 //   - the legal snapshot travels the other way, from run() into the operator side:
 //     openOperatorSurface's texts only as configuredSurface's second argument, and that
-//     function's only as operator.New's seventh;
+//     function's only as operator.New's ninth;
+//   - so does the VIES checker (OP-16, the orchestrator's K16-6): signup.NewChecker is named
+//     exactly once in the command, and run() uses the value it binds exactly as
+//     openOperatorSurface's fourth argument and handler.NewSignup's second -- ONE client for
+//     the sign-up wizard and the operator's re-check, the process's only outbound HTTP
+//     client; openOperatorSurface's vies only as configuredSurface's third argument, that
+//     function's only as viesForOperator's argument, and viesForOperator's call only as
+//     operator.New's eighth;
 //   - it is ONE snapshot: legal.NewStore is named exactly once in the command, and run()
 //     uses the value it binds exactly as the boot refresh's receiver, openOperatorSurface's
 //     third argument and handler.NewMarketing's first -- so the store the operator's
@@ -577,7 +598,7 @@ func TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator(t *testing.T) {
 		files[name] = f
 	}
 	funcs := map[string]*ast.FuncDecl{}
-	calls, stores := 0, 0
+	calls, stores, checkers := 0, 0, 0
 	for _, f := range files {
 		for _, d := range f.Decls {
 			if fd, ok := d.(*ast.FuncDecl); ok && fd.Recv == nil {
@@ -591,6 +612,9 @@ func TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator(t *testing.T) {
 			if sel, ok := n.(*ast.SelectorExpr); ok && qualName(sel) == "legal.NewStore" {
 				stores++
 			}
+			if sel, ok := n.(*ast.SelectorExpr); ok && sel.Sel.Name == "NewChecker" {
+				checkers++
+			}
 			return true
 		})
 	}
@@ -599,6 +623,9 @@ func TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator(t *testing.T) {
 	}
 	if stores != 1 {
 		t.Errorf("legal.NewStore is named %d times in cmd/tappa, want once (run): the operator's screen and the public pages share one snapshot", stores)
+	}
+	if checkers != 1 {
+		t.Errorf("a NewChecker is named %d times in cmd/tappa, want once (run): the sign-up wizard and the operator's re-check share the process's one outbound HTTP client", checkers)
 	}
 	open, configured, run := funcs["openOperatorSurface"], funcs["configuredSurface"], funcs["run"]
 	if open == nil || configured == nil || run == nil {
@@ -721,11 +748,14 @@ func TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator(t *testing.T) {
 		want  []string
 	}{
 		{configured, "store", []string{"arg0 of operatorAuthenticator", "arg1 of operator.New", "arg2 of operator.New", "arg3 of operator.New",
-			"arg4 of operator.New", "arg5 of operator.New"}},
-		{configured, "texts", []string{"arg6 of operator.New"}},
+			"arg4 of operator.New", "arg5 of operator.New", "arg6 of operator.New"}},
+		{configured, "texts", []string{"arg8 of operator.New"}},
+		{configured, "vies", []string{"arg0 of viesForOperator"}},
 		{authFn, "store", []string{"arg0 of operatorauth.New"}},
 		{open, "texts", []string{"arg1 of configuredSurface"}},
+		{open, "vies", []string{"arg2 of configuredSurface"}},
 		{run, boundName(run, "legal.NewStore"), []string{"recv of Refresh", "arg2 of openOperatorSurface", "arg0 of handler.NewMarketing"}},
+		{run, boundName(run, "signup.NewChecker"), []string{"arg3 of openOperatorSurface", "arg1 of handler.NewSignup"}},
 	} {
 		got := uses(hop.fn, hop.param)
 		sort.Strings(got)
@@ -734,6 +764,28 @@ func TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator(t *testing.T) {
 		if strings.Join(got, "; ") != strings.Join(want, "; ") {
 			t.Errorf("%s uses its %s as %q; want exactly %q", hop.fn.Name.Name, hop.param, got, want)
 		}
+	}
+
+	// The adapter's call is operator.New's eighth argument (its VATChecker slot), and nowhere
+	// else: a second operator.VATChecker built from the checker would be another way in.
+	adapted := 0
+	ast.Inspect(configured.Body, func(n ast.Node) bool {
+		c, ok := n.(*ast.CallExpr)
+		if !ok || qualName(c.Fun) != "operator.New" {
+			return true
+		}
+		for i, a := range c.Args {
+			if ac, ok := a.(*ast.CallExpr); ok && qualName(ac.Fun) == "viesForOperator" {
+				if i != 7 {
+					t.Errorf("viesForOperator's call is operator.New's argument %d, want 7 (the VATChecker slot)", i)
+				}
+				adapted++
+			}
+		}
+		return true
+	})
+	if adapted != 1 {
+		t.Errorf("configuredSurface hands operator.New %d adapted VIES client(s), want one", adapted)
 	}
 
 	surface := boundName(run, "openOperatorSurface")

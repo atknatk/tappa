@@ -99,3 +99,36 @@ const MaxBillingPageForTest = maxBillingPage
 func MoneyTextForTest(n pgtype.Numeric, currency string) (string, error) {
 	return moneyText(n, currency)
 }
+
+// VATReadTimeoutForTest, VATAskTimeoutForTest and VATWriteTimeoutForTest are vat.go's three
+// bounds; VIESLimitForTest is surface.go's viesLimit.
+const (
+	VATReadTimeoutForTest  = vatReadTimeout
+	VATAskTimeoutForTest   = vatAskTimeout
+	VATWriteTimeoutForTest = vatWriteTimeout
+	VIESLimitForTest       = viesLimit
+)
+
+// vatStateTokens are vat.go's four states by internal/domain/tenant's VATState tokens -- the
+// customer's account screen's -- so a test compares the two partitions value for value.
+var vatStateTokens = map[vatState]string{
+	vatNotChecked: "never-checked", vatNoAnswer: "no-answer", vatConfirmed: "valid", vatNotFound: "invalid",
+}
+
+// VATStateForTest is vat.go's reading of st, as its tenant.VATState token.
+func VATStateForTest(st db.TenantVATStatus) string { return vatStateTokens[vatStateOf(st)] }
+
+// VATWordForTest is one entry of vat.go's vatWords, exported field by field.
+type VATWordForTest struct {
+	Label, Sentence string
+	Tone            operatorpages.VATTone
+}
+
+// VATWordsForTest is vat.go's vatWords by tenant.VATState token, copied.
+func VATWordsForTest() map[string]VATWordForTest {
+	out := map[string]VATWordForTest{}
+	for k, w := range vatWords {
+		out[vatStateTokens[k]] = VATWordForTest{w.label, w.sentence, w.tone}
+	}
+	return out
+}

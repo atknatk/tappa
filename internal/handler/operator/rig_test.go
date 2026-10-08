@@ -51,9 +51,9 @@ const (
 // fakeStore answers operatorauth.Store the way 00026's definers answer,
 // operator.LegalStore the way 00027's do (OP-10), operator.TenantStore the way 00029's do
 // (OP-11), operator.PlaqueStore the way 00030's does (OP-13), operator.AuditStore the way
-// 00031's does (OP-14) and operator.BillingStore the way 00032's does (OP-12), for the arms
-// these tests drive, and COUNTS its calls by method --
-// "the resolver was not called" is a count of zero here.
+// 00031's does (OP-14), operator.BillingStore the way 00032's does (OP-12) and
+// operator.VATStore the way 00034's do (OP-16), for the arms these tests drive, and COUNTS
+// its calls by method -- "the resolver was not called" is a count of zero here.
 type fakeStore struct {
 	mu       sync.Mutex
 	calls    map[string]int
@@ -100,6 +100,106 @@ type fakeStore struct {
 	// page (a test puts them in that order; page p is months [12(p-1), 12p)), and the asks.
 	billing     map[uuid.UUID]fakeBilling
 	billingAsks []fakeBillingAsk
+	// The VAT screen's (OP-16): each tenant's number and verdict by id, the ids the screen
+	// read, the writes it made, and the trace of the VAT flow -- every VAT store call and the
+	// VIES call's start and end, in order (vatTrace), with the store calls that ENTERED while
+	// VIES was being asked (vatOverlaps; fakeVIES sets asking).
+	vats        map[uuid.UUID]fakeVAT
+	vatReads    []uuid.UUID
+	vatWrites   []fakeVATWrite
+	vatTrace    []string
+	vatOverlaps []string
+	asking      bool
+	// beforeVATRead runs inside TenantVAT before it checks its context -- a test's hook for a
+	// client that leaves before the read.
+	beforeVATRead func()
+	// vatReadDeadlines is, for each TenantVAT call in order, how far its context's deadline was
+	// once the hook had run (-1 for none).
+	vatReadDeadlines []time.Duration
+}
+
+// fakeVAT is one tenant's VAT record as the fake holds it. asTenant, when set, is the tenant
+// id the read reports instead of the one asked for (a store that answers for another tenant).
+type fakeVAT struct {
+	name      string
+	number    string
+	verified  *bool
+	checkedAt *time.Time
+	asTenant  uuid.UUID
+}
+
+// fakeVATWrite is one RecordTenantVATCheck the fake took past its refusals: the session hash,
+// the tenant, the number and the verdict it was handed, and how far its context's deadline
+// was at entry (-1 for none).
+type fakeVATWrite struct {
+	hash     string
+	tenant   uuid.UUID
+	number   string
+	valid    bool
+	deadline time.Duration
+}
+
+// fakeVATClock is the time the fake's first recorded verdict is stamped at; each later one is a
+// minute after (the screen prints minutes).
+var fakeVATClock = time.Date(2026, 10, 7, 14, 3, 0, 0, time.UTC)
+
+// fakeVIES is operator.VATChecker for the rig: it answers answer (the zero value is
+// operator.VATAnswerUnknown), records the numbers it was asked about, whether its context was
+// cancelled when it answered and how far its deadline was (-1 for none), marks the store's
+// trace at its start and end
+// (fakeStore.asking between them), holds the call for hold, and runs during while it is asked
+// (a test's hook for a client that leaves).
+type fakeVIES struct {
+	mu        sync.Mutex
+	store     *fakeStore
+	answer    operator.VATAnswer
+	hold      time.Duration
+	during    func()
+	asked     []string
+	cancelled []bool
+	deadlines []time.Duration
+}
+
+func (v *fakeVIES) CheckVAT(ctx context.Context, number string) operator.VATAnswer {
+	v.mu.Lock()
+	v.asked = append(v.asked, number)
+	ans, hold, during := v.answer, v.hold, v.during
+	v.mu.Unlock()
+	v.store.mu.Lock()
+	v.store.asking = true
+	v.store.vatTrace = append(v.store.vatTrace, "vies>")
+	v.store.mu.Unlock()
+	if during != nil {
+		during()
+	}
+	if hold > 0 {
+		time.Sleep(hold)
+	}
+	left := time.Duration(-1)
+	if d, ok := ctx.Deadline(); ok {
+		left = time.Until(d)
+	}
+	v.mu.Lock()
+	v.cancelled = append(v.cancelled, ctx.Err() != nil)
+	v.deadlines = append(v.deadlines, left)
+	v.mu.Unlock()
+	v.store.mu.Lock()
+	v.store.asking = false
+	v.store.vatTrace = append(v.store.vatTrace, "<vies")
+	v.store.mu.Unlock()
+	return ans
+}
+
+func (v *fakeVIES) askedFor() []string {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return append([]string(nil), v.asked...)
+}
+
+func (v *fakeVIES) set(a operator.VATAnswer) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.answer = a
 }
 
 // fakeBilling is one tenant's billing months as the fake holds them. asTenant and asPage,
@@ -149,7 +249,7 @@ func newFakeStore() *fakeStore {
 		calls: map[string]int{}, accounts: map[string]db.OperatorAccount{}, byID: map[uuid.UUID]db.OperatorAccount{},
 		live: map[string]db.OperatorSession{}, tokens: map[uuid.UUID]string{}, locked: map[uuid.UUID]bool{}, fail: map[string]error{},
 		overviews: map[uuid.UUID]db.TenantOverview{}, inventories: map[uuid.UUID]fakeInventory{},
-		billing: map[uuid.UUID]fakeBilling{},
+		billing: map[uuid.UUID]fakeBilling{}, vats: map[uuid.UUID]fakeVAT{},
 	}
 }
 
@@ -522,6 +622,81 @@ func (f *fakeStore) TenantBilling(_ context.Context, h string, id uuid.UUID, pag
 	return tl, nil
 }
 
+// vatEnter is the VAT store calls' common entry, under f.mu: the trace, the overlap with an
+// ask of VIES, and the method's count and injected failure.
+func (f *fakeStore) vatEnter(m string) error {
+	f.vatTrace = append(f.vatTrace, m)
+	if f.asking {
+		f.vatOverlaps = append(f.vatOverlaps, m+" entered while VIES was being asked")
+	}
+	return f.enter(m)
+}
+
+// TenantVAT answers as op_begin_read + op_read_tenant_vat do: a cancelled context is its error
+// (a statement on a cancelled context does not run); a dead session is ErrOperatorRefused; an id
+// the fake holds no record for is ErrNoSuchTenant; otherwise the tenant's name, number and
+// verdict. Each call records its context's deadline (vatReadDeadlines).
+func (f *fakeStore) TenantVAT(ctx context.Context, h string, id uuid.UUID) (db.TenantVATStatus, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.vatEnter("TenantVAT"); err != nil {
+		return db.TenantVATStatus{}, err
+	}
+	if f.beforeVATRead != nil {
+		f.beforeVATRead()
+	}
+	left := time.Duration(-1)
+	if d, ok := ctx.Deadline(); ok {
+		left = time.Until(d)
+	}
+	f.vatReadDeadlines = append(f.vatReadDeadlines, left)
+	if err := ctx.Err(); err != nil {
+		return db.TenantVATStatus{}, err
+	}
+	if _, ok := f.live[h]; !ok {
+		return db.TenantVATStatus{}, db.ErrOperatorRefused
+	}
+	f.vatReads = append(f.vatReads, id)
+	x, ok := f.vats[id]
+	if !ok {
+		return db.TenantVATStatus{}, db.ErrNoSuchTenant
+	}
+	st := db.TenantVATStatus{TenantID: id, TenantName: x.name, Number: x.number, Verified: x.verified, CheckedAt: x.checkedAt}
+	if x.asTenant != uuid.Nil {
+		st.TenantID = x.asTenant
+	}
+	return st, nil
+}
+
+// RecordTenantVATCheck answers as op_record_vat_check does: a cancelled context is its error
+// (a statement on a cancelled context does not run); a dead session is ErrOperatorRefused;
+// otherwise the write is recorded and -- only when the tenant exists and its number is the one
+// handed over -- the verdict and its time replace the record's (nil either way, as 00034).
+func (f *fakeStore) RecordTenantVATCheck(ctx context.Context, h string, id uuid.UUID, number string, valid bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.vatEnter("RecordTenantVATCheck"); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if _, ok := f.live[h]; !ok {
+		return db.ErrOperatorRefused
+	}
+	left := time.Duration(-1)
+	if d, ok := ctx.Deadline(); ok {
+		left = time.Until(d)
+	}
+	f.vatWrites = append(f.vatWrites, fakeVATWrite{hash: h, tenant: id, number: number, valid: valid, deadline: left})
+	if x, ok := f.vats[id]; ok && x.number == number {
+		v, at := valid, fakeVATClock.Add(time.Duration(len(f.vatWrites)-1)*time.Minute)
+		x.verified, x.checkedAt = &v, &at
+		f.vats[id] = x
+	}
+	return nil
+}
+
 // fakeTexts is operator.LegalTexts: the snapshot (seeded by a test, or filled by a
 // refresh) and its refresh, which reads the fake store's publications -- the newest per
 // document wins, as ListPublishedLegalDocuments does, with the version's own time. A
@@ -613,6 +788,7 @@ type fixture struct {
 type rig struct {
 	t       *testing.T
 	store   *fakeStore
+	vies    *fakeVIES
 	texts   *fakeTexts
 	auth    *operatorauth.Authenticator
 	surface *operator.Surface
@@ -705,6 +881,7 @@ func newRigAt(t *testing.T, level slog.Level) *rig {
 	t.Helper()
 	g := &rig{t: t, store: newFakeStore(), kek: randBytes(t, 32), now: time.Unix(1_900_000_005, 0), logs: &bytes.Buffer{}}
 	g.texts = newFakeTexts(g.store)
+	g.vies = &fakeVIES{store: g.store}
 	log := captureAt(&lockedWriter{w: g.logs}, level)
 	auth, err := operatorauth.New(g.store, operatorauth.Config{
 		TOTPKEK: operatorauth.NewKey(g.kek), TokenHMACKey: operatorauth.NewKey(randBytes(t, 32)),
@@ -713,7 +890,7 @@ func newRigAt(t *testing.T, level slog.Level) *rig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := operator.New(auth, g.store, g.store, g.store, g.store, g.store, g.texts, opHost, opBase, log)
+	s, err := operator.New(auth, g.store, g.store, g.store, g.store, g.store, g.store, g.vies, g.texts, opHost, opBase, log)
 	if err != nil {
 		t.Fatal(err)
 	}

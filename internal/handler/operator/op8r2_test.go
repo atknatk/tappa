@@ -485,6 +485,9 @@ var hostileQuery = url.Values{
 	"password": {"qry hostile passphrase"}, "password_again": {"qry hostile passphrase"},
 	"code": {"917351"}, "blob": {"QRYblobHostileValue"},
 	"q": {"qry-hostile-search-term"}, "page": {"424242"}, "kind": {"qry_hostile_kind"},
+	// OP-16: a VAT number in the shape VIES takes, which the VAT screen must neither read nor
+	// echo (the number is the server's read's -- vat.go).
+	"vat_number": {"IE7Q42424X"},
 }
 
 // hostileValues are the hostile request values checkDesignedHeaders looks for in a response.
@@ -524,8 +527,9 @@ func hostileCookieLine(cookies []*http.Cookie) string {
 
 // hostileDrive is r with the hostile headers (a header the request sets itself --
 // Origin, Sec-Fetch-Site -- is kept), the second Cookie line and, on the sign-in, code,
-// enrollment, (OP-10) legal, (OP-11) tenant, (OP-13) plaque, (OP-14) audit and (OP-12)
-// billing paths, the hostile query -- whose "page" a billing request must not read.
+// enrollment, (OP-10) legal, (OP-11) tenant, (OP-13) plaque, (OP-14) audit, (OP-12) billing and
+// (OP-16) VAT paths, the hostile query -- whose "page" a billing request and whose "vat_number" a
+// VAT request must not read.
 func hostileDrive(r req) req {
 	h := map[string]string{}
 	for k, v := range hostileHeaders {
@@ -543,13 +547,15 @@ func hostileDrive(r req) req {
 			path = "/operator/tenants/{id}/plaques"
 		case strings.HasSuffix(path, "/billing"):
 			path = "/operator/tenants/{id}/billing"
+		case strings.HasSuffix(path, "/vat"):
+			path = "/operator/tenants/{id}/vat"
 		default:
 			path = "/operator/tenants/{id}"
 		}
 	}
 	switch path {
 	case "/operator/login", "/operator/login/totp", "/operator/enroll", "/operator/legal", "/operator/tenants", "/operator/tenants/{id}",
-		"/operator/tenants/{id}/plaques", "/operator/tenants/{id}/billing", "/operator/audit":
+		"/operator/tenants/{id}/plaques", "/operator/tenants/{id}/billing", "/operator/tenants/{id}/vat", "/operator/audit":
 		q := url.Values{}
 		for k, v := range hostileQuery {
 			q[k] = v
@@ -590,7 +596,7 @@ func hostileOn(r *http.Request) {
 // "<cookie name>=set" or "<cookie name>=clear". Read off the shipped handlers and
 // measured on them (2026-10-02, the 4th round; C41-C48 the 5th; C49-C66 OP-10, 2026-10-03;
 // C67-C93 OP-11, 2026-10-03; C94-C103 OP-13, 2026-10-06; C104-C121 OP-14, 2026-10-07;
-// C122-C141 OP-12, 2026-10-07).
+// C122-C141 OP-12, 2026-10-07; C142-C165 OP-16, 2026-10-07).
 type designed struct {
 	loc, ct, allow string
 	cookies        []string
@@ -683,6 +689,21 @@ var designedHeaders = map[string]designed{
 	"C132": {ct: pageType}, "C133": {loc: "/operator/login"}, "C134": {ct: pageType}, "C135": {ct: pageType},
 	"C136": {ct: pageType}, "C137": {ct: pageType}, "C138": {ct: pageType}, "C139": {ct: pageType},
 	"C140": {ct: pageType}, "C141": {allow: "GET,POST"},
+	// OP-16's VAT screen (op16_test.go): the screen and its refusals are pages -- a 403, 404,
+	// 422, 429 or 503 page, none carrying a Location; the sign-in redirects of the gate and of a
+	// session the store refuses (at the read or at the write); the dead cookie cleared; PUT's 405.
+	// The ONE Location that is not the sign-in's is a recorded answer's (C151, C152): the
+	// screen's own path -- POST -> 303 -> GET -- which carries the tenant's id and nothing posted.
+	"C142": {ct: pageType}, "C143": {loc: "/operator/login"},
+	"C144": {loc: "/operator/login", cookies: []string{sessionClear}},
+	"C145": {loc: "/operator/login"}, "C146": {ct: pageType}, "C147": {ct: pageType}, "C148": {ct: pageType},
+	"C149": {loc: "/operator/login"}, "C150": {ct: pageType},
+	"C151": {loc: "/operator/tenants/51600000-0000-4000-8000-000000000016/vat"},
+	"C152": {loc: "/operator/tenants/51600000-0000-4000-8000-000000000016/vat"},
+	"C153": {ct: pageType}, "C154": {loc: "/operator/login"}, "C155": {ct: pageType}, "C156": {ct: pageType},
+	"C157": {ct: pageType}, "C158": {ct: pageType}, "C159": {ct: pageType}, "C160": {ct: pageType},
+	"C161": {ct: pageType}, "C162": {ct: pageType}, "C163": {loc: "/operator/login"}, "C164": {loc: "/operator/login"},
+	"C165": {allow: "GET,POST"},
 }
 
 // checkDesignedHeaders holds the response headers AT WriteHeader (w.Result().Header, the

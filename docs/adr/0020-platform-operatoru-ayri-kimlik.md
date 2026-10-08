@@ -433,6 +433,22 @@ bir restoran hesabına bağlı olmamalı* (m10-platform.md §1).
   Her görüntüleme bir okumadır: bir `read` satırı, bir okuma birimi; okumanın ikinci aşaması
   kendi süre sınırıyla (15 sn) koşar, aşınca 503. Gerekçe ve ölçüm: ADR 0021 → "OP-12 B fazı
   eki".)*
+  *(OP-16 notu, 2026-10-07: bir tenant'ın VAT numarası ve VIES'e yeniden sorulması da BİR tenant'ındır
+  — okuması tenant'ı adlandırır, başlığı onun adını taşır — bu yüzden tenant'ın altındadır: `GET
+  /operator/tenants/{id}/vat` ekrandır ve URL'den yoldaki id dışında hiçbir şey okumaz; `POST
+  /operator/tenants/{id}/vat` VIES'e sorar ve **gövdeden hiçbir şey okumaz** — VIES'e ve yazmaya giden
+  numara isteğin kendi audit'li okumasınındır (orkestratörün K16-1'i); konsolun grubunda, aynı zincir;
+  genel bakış ona link verir, konsol vermez. Cevap kaydedilirse `303` aynı ekrana (POST → 303 → GET —
+  yüzeyin sabit olmayan tek `Location`'ı: tenant'ın kendi yolu, yoldaki id'den); VIES cevap vermezse
+  yazma yok, `503` ve aynı ekran bir cümleyle; numara VIES'in alacağı biçimde değilse `422`, VIES'e
+  istek yok. Bütçe: `GET` bir okuma; `POST` bir okuma ve — VIES'e gerçekten sorulacaksa — oturumun
+  VIES bütçesinden bir birim (10 / 10 dk, `viesLimit`); `303`'ün `GET`'i bir okuma daha. Okuma (iki
+  yöntemde de) kendi süre sınırıyla (5 sn) koşar; `POST`'un okuması, VIES çağrısı (4 sn) ve yazması
+  (10 sn) istemciden ve yönlendiricinin süresinden ayrıktır, toplamları (19 sn) HTTP boşaltma süresinin
+  (20 sn) içindedir *(2. tur)*. Ekranın alt
+  yolları (`…/vat/`, `…/vat/check`) ve platform geneli bir `/operator/vat` kayıtlı değildir ve
+  yönlendiricinin kendi 404'ünü verir (`TestSurface_TheScreensOfLaterTasksAreNotMounted`). Gerekçe ve
+  ölçüm: ADR 0021 → "OP-16 B eki".)*
 - **Host kapısı:** `TAPPA_OPERATOR_HOST` (D-B: `ops.taptime.mt`). Başka bir host'tan
   gelen `/operator/*` isteği **404** alır — ana host'ta (`taptime.mt/operator`) operatör
   yüzeyi yokmuş gibi görünür.
