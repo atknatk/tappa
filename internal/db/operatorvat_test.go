@@ -2284,6 +2284,31 @@ func TestOpRecordVATCheck_AMismatchedNumberChangesNothingAndLeavesTheOperatorsRo
 //     (the operator reads the tenant's number through the audited read anyway).
 func TestOpRecordVATCheck_AnUnknownTenantIsTheSameVoid(t *testing.T) {
 	ctx, tx := opTx(t)
+	// 🔴 INDEX PATHS FOR THE WHOLE TRANSACTION, set before anything here is planned (the RI
+	// checks' and the functions' plans are cached on this connection). Every call runs
+	// op_touch_session, whose UPDATE writes a new version of the session row, and the INSERT of
+	// the operator's row then checks session_id against that version. In a small
+	// platform_sessions -- a fresh CI database -- the planner takes both by SEQUENTIAL scan; the
+	// check's scan stops at the new version, so seq_tup_read counts the visible rows physically
+	// before it, and where it lands (the next free line pointer, or another page once this one
+	// is full) depends on the rolled-back versions the calls before it left. Measured, call after
+	// call with the same arguments: the counter moved exactly when the version's ctid passed
+	// another visible row (CI run 37771139592: platform_sessions{seq 2/24} -> 2/25 -> 2/26, every
+	// other counter equal; the same on a fresh CI-shaped database with no other process running,
+	// under this test's exclusive tables lock). That is heap layout, not the arguments --
+	// n_tup_hot_upd's class (opStatCounters) -- and it failed the PREMISE and the CLOSED
+	// comparison alike. By index the UPDATE and the check fetch exactly one visible version
+	// wherever it lies (platform_sessions idx 2/2, platform_admins idx 3/3: what a large database
+	// plans). operator_read_tickets has no index the binding can use (backlog T110) and stays a
+	// sequential scan; a call writes none of its rows, so nothing there moves. No counter is left
+	// out and nothing is tolerated: the vector compared is the same seven counters of every table.
+	// jit = off: the planner's disable_cost lifts that scan's cost past jit_above_cost, and every
+	// call would pay ~0.1 s of compilation for nothing -- JIT changes no row read.
+	for _, s := range []string{`SET LOCAL enable_seqscan = off`, `SET LOCAL jit = off`} {
+		if _, err := tx.Exec(ctx, s); err != nil {
+			t.Fatalf("%s: %v", s, err)
+		}
+	}
 	a := opNewActive(t, ctx, tx)
 	hash, session := opNewSession(t, ctx, tx, a.id, true)
 	f := opVATTenant(t, ctx, tx, "op16 b14 "+opToken(t), nil, "")
