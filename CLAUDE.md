@@ -223,7 +223,7 @@ Bu tablodaki her satırın adı `TestDecide_...` ile başlayan bir test durumu o
 - Bağımlılıklar açıkça enjekte edilir (struct alanı), paket seviyesi singleton yok.
 - Arayüz **tüketici** tarafında tanımlanır, üretici tarafında değil.
 - Log: `log/slog`, yapılandırılmış. **Asla loglanmaz:** oturum token'ı, CMAC,
-  AES anahtarı, davet kodu, tam GPS koordinatı; operatör tarafında okuma bileti,
+  AES anahtarı, davet kodu, e-posta adresi (ADR 0022 §10), tam GPS koordinatı; operatör tarafında okuma bileti,
   TOTP kodu ve sırrı, enrollment token'ı (ADR 0020/0021 — hata mesajı ve audit
   `detail`'i dahil).
 - Dış girdi handler sınırında doğrulanır; domain katmanı zaten geçerli veri görür.
