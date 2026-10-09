@@ -33,6 +33,13 @@ secrets/
 # ...but the value-free templates ARE committed, and must stay committed.
 !/deploy/**/*.example.yaml
 !/deploy/*.example.yaml
+# The backup runbook (deploy/README.md, operator step 9 and "Yedek ve geri yükleme")
+# keeps both of these OUTSIDE the checkout — $HOME/.config/tappa/ and `mktemp -d` — and
+# these two lines are the belt for a hand that types the old spelling anyway. An rclone
+# config carries the R2 key and the backup passphrase; a restore directory carries
+# every employee's attendance (T45; this repository is PUBLIC).
+/restore/
+*.rclone.conf
 
 # --- generated CSS (built by make css) ---
 /web/static/css/app.css

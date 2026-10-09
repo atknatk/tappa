@@ -299,6 +299,86 @@ report_grants "table privileges"  "$TMP/want.grants"    "$TMP/have.grants"
 report_grants "column privileges" "$TMP/want.colgrants" "$TMP/have.colgrants"
 
 # =================================================================================
+# 3b. SECURITY DEFINER AND THE ROLES BEHIND IT (T45) — the platform operator's op_*
+#     functions are CLAUDE.md §4.5's one sanctioned way across the tenant boundary,
+#     and what makes them bounded is NOT in any row or table grant: the owner
+#     (tappa_opdefiner, not a superuser), search_path = pg_catalog, pg_temp, EXECUTE
+#     to tappa_operator only, and the attributes and memberships of those roles.
+#     Before this section, a restored goose-34 schema with any one of eight such
+#     states — op_touch_session owned by the superuser, its search_path reset, EXECUTE
+#     to PUBLIC, EXECUTE to tappa_app, SECURITY DEFINER dropped, tappa_operator
+#     BYPASSRLS, tappa_opdefiner SUPERUSER, tappa_opdefiner a member of tappa_owner —
+#     got an exit-0 PASS from this script, eight times out of eight (measured).
+#
+#     EXPECTED is the source catalog as scripts/pg-backup.sh read it (manifest
+#     `function`/`role` lines); ACTUAL is the same two queries here. A difference in
+#     either direction fails — the reference is the database that was backed up, not
+#     a list in this file.
+#     ⚠️ Login is not compared (a fresh-pod restore re-creates tappa_operator NOLOGIN by
+#     design — deploy/README.md "Geri yüklemeden sonra (B YOLU, taze küme)").
+# =================================================================================
+# >>> T45 INVENTORY (byte-identical in pg-backup.sh and pg-restore-verify.sh) >>>
+# Every function in public that is not an extension's: owner, SECURITY DEFINER,
+# its SET clauses (search_path), and its EFFECTIVE ACL — a NULL proacl is spelled out
+# with acldefault() so "default" and "explicitly equal to default" compare equal.
+# The ACL entries are ordered COLLATE "C": source and restore target may sit on servers
+# with different default collations (glibc or a managed service vs this musl image),
+# and a locale that weighs '=' and '/' differently would order them differently.
+# The quotes are ESCAPED because this SQL lives in a double-quoted shell string: written
+# bare, the shell ate them and psql said 'collation "c" for encoding "UTF8" does not
+# exist' (measured), which stopped the whole backup.
+INV_FUNCTIONS_SQL="SELECT format('function %s(%s) owner=%s secdef=%s config=%s acl=%s',
+    p.proname, pg_get_function_identity_arguments(p.oid), pg_get_userbyid(p.proowner), p.prosecdef,
+    coalesce(array_to_string(p.proconfig, ';'), '-'),
+    (SELECT string_agg(a::text, ',' ORDER BY a::text COLLATE \"C\") FROM unnest(coalesce(p.proacl, acldefault('f', p.proowner))) AS a))
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+ WHERE n.nspname = 'public'
+   AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e');"
+# Every role that owns, or is granted, something in public — derived, not listed. Login
+# is deliberately NOT compared: a fresh-pod restore (B YOLU) re-creates tappa_operator
+# NOLOGIN by design, and tappa_app gets LOGIN from 02-app-password.sh.
+INV_ROLES_SQL="WITH r(oid) AS (
+    SELECT c.relowner FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public'
+    UNION SELECT (aclexplode(c.relacl)).grantee FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public'
+    UNION SELECT (aclexplode(a.attacl)).grantee FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public'
+    UNION SELECT p.proowner FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public'
+    UNION SELECT (aclexplode(p.proacl)).grantee FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public'
+    UNION SELECT n.nspowner FROM pg_namespace n WHERE n.nspname = 'public'
+    UNION SELECT (aclexplode(n.nspacl)).grantee FROM pg_namespace n WHERE n.nspname = 'public')
+  SELECT format('role %s super=%s bypassrls=%s createrole=%s createdb=%s replication=%s inherit=%s member_of=%s members=%s',
+    o.rolname, o.rolsuper, o.rolbypassrls, o.rolcreaterole, o.rolcreatedb, o.rolreplication, o.rolinherit,
+    coalesce((SELECT string_agg(g.rolname, ',' ORDER BY g.rolname) FROM pg_auth_members m JOIN pg_roles g ON g.oid = m.roleid WHERE m.member = o.oid), '-'),
+    coalesce((SELECT string_agg(g.rolname, ',' ORDER BY g.rolname) FROM pg_auth_members m JOIN pg_roles g ON g.oid = m.member WHERE m.roleid = o.oid), '-'))
+  FROM pg_roles o WHERE o.oid IN (SELECT oid FROM r);"
+# <<< T45 INVENTORY <<<
+# LC_ALL=C on BOTH sides: the manifest was sorted by nothing and this machine's locale
+# is not the backup pod's, so the order has to be decided here, the same way twice.
+inventory() { # label, manifest-prefix, sql
+  _l="$1"; _p="$2"
+  awk -v p="$_p" 'index($0, p " ") == 1' "$MANIFEST" | LC_ALL=C sort > "$TMP/want.$_p"
+  $OWNER_PSQL -c "$3" > "$TMP/have.$_p.raw" \
+    || die "the $_l inventory query failed against $PGDATABASE; no verdict is issued"
+  LC_ALL=C sort "$TMP/have.$_p.raw" > "$TMP/have.$_p"
+  _n="$(awk 'NF{n++} END{print n+0}' "$TMP/want.$_p")"
+  if [ "$_n" -eq 0 ]; then
+    bad "the manifest carries no '$_p' lines, so the $_l could NOT be compared. It was written by a scripts/pg-backup.sh older than T45; take a new backup (operator step 9(c)) rather than trusting this restore's $_l unchecked."
+  elif cmp -s "$TMP/want.$_p" "$TMP/have.$_p"; then
+    ok "$_l: all $_n identical to the source ($4)"
+  else
+    bad "$_l differ from the source — $5:"
+    # comm and not diff: busybox diff (this image's) speaks only unified format.
+    LC_ALL=C comm -23 "$TMP/want.$_p" "$TMP/have.$_p" | head -20 | sed 's/^/        source  /' >&2
+    LC_ALL=C comm -13 "$TMP/want.$_p" "$TMP/have.$_p" | head -20 | sed 's/^/        restore /' >&2
+  fi
+}
+inventory "functions" "function" "$INV_FUNCTIONS_SQL" \
+  "owner, SECURITY DEFINER, search_path and EXECUTE" \
+  "a SECURITY DEFINER function runs as its OWNER, so one owned by the superuser runs every caller's statement as superuser, a lost search_path lets a caller's objects shadow pg_catalog's, and EXECUTE to PUBLIC or tappa_app hands the operator's tenant-crossing door to every tenant session"
+inventory "roles" "role" "$INV_ROLES_SQL" \
+  "superuser, BYPASSRLS, CREATEROLE, CREATEDB, REPLICATION, INHERIT and memberships" \
+  "roles are cluster objects pg_dump never carries, so these came from the TARGET's own init (scripts/db-init/01-roles.sql); a role that bypasses RLS or inherits the owner here is a tenant boundary the source did not have"
+
+# =================================================================================
 # 4. BEHAVIOUR, AS THE APPLICATION SEES IT — one TCP session authenticated as
 #    tappa_app. Nothing here writes: the UPDATE and DELETE carry WHERE false, so even
 #    if the privilege wrongly exists the statement touches no row, and the whole probe
@@ -371,7 +451,10 @@ elif ! grep -q '^NOGUC ' "$TMP/probe.out"; then
 else
   noguc="$(awk '/^NOGUC /{print $2; exit}' "$TMP/probe.out")"
   guc="$(awk   '/^GUC /{print $2; exit}'   "$TMP/probe.out")"
-  if [ "${noguc:-x}" = "0" ]; then ok "tenant isolation: tappa_app with no app.tenant_id sees 0 of $M_ROWS rows"
+  # The denominator is public.transactions' own count (the probe reads that table),
+  # not the manifest's all-table total this line printed until T45.
+  m_tx="$(awk '$1 == "table" && $2 == "transactions" { print $3; exit }' "$MANIFEST")"
+  if [ "${noguc:-x}" = "0" ]; then ok "tenant isolation: tappa_app with no app.tenant_id sees 0 of ${m_tx:-?} transaction rows"
   else bad "tappa_app sees ${noguc:-<no answer>} transaction rows with NO app.tenant_id set — FORCE row-level security is not in effect"; fi
 
   if [ -z "$tenant" ]; then
@@ -516,7 +599,7 @@ if [ "$fails" -eq 0 ]; then
   # catalog, including whether it would fire. Neither one executes a TRUNCATE, so
   # "the guards are present and would fire" is the claim, not "TRUNCATE was tried
   # and refused" -- that one is internal/db/appendonly_truncate_test.go's.
-  echo "pg-restore-verify: PASS — the restored database matches $(basename "$DUMP") in rows, schema, policies, BOTH table- and column-level privileges, the UPDATE/DELETE privilege belt, and an enabled TRUNCATE guard on each of the seven append-only tables."
+  echo "pg-restore-verify: PASS — the restored database matches $(basename "$DUMP") in rows, schema, policies, BOTH table- and column-level privileges, every function's owner/SECURITY DEFINER/search_path/EXECUTE and the attributes of every role behind them, the UPDATE/DELETE privilege belt, and an enabled TRUNCATE guard on each of the seven append-only tables."
   exit 0
 fi
 echo "pg-restore-verify: $fails CHECK(S) FAILED — do not put this database into service." >&2

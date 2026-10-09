@@ -132,6 +132,10 @@ func TestCarrierScripts_ParseUnderBash(t *testing.T) {
 	scripts := map[string]string{
 		"db-reset.sh":          "bash",
 		"pg-restore-verify.sh": "sh",
+		// T45: the two halves of the nightly CronJob had no parse gate either; both
+		// run under busybox ash (postgres:17-alpine, rclone/rclone).
+		"pg-backup.sh":      "sh",
+		"pg-backup-ship.sh": "sh",
 	}
 	for name, shell := range scripts {
 		path := scriptPathIn(t, name)
@@ -603,5 +607,86 @@ func TestComposeFileDeclaresTheProjectName(t *testing.T) {
 			"scripts/db-reset.sh pins `-p tappa` and cites that declaration as the reason the " +
 			"pin is not a guess; without it compose uses the directory name and the two " +
 			"disagree the moment somebody renames the checkout.")
+	}
+}
+
+// TestBackupAndRestoreVerify_ShareTheInventory holds T45's fix: the backup records the
+// source's function and role inventory in the manifest, and the restore check compares
+// the restored catalog with it. Measured before the fix, on a restored goose-34 schema:
+// eight states that break the operator's SECURITY DEFINER boundary (op_touch_session
+// owned by the superuser, search_path reset, EXECUTE to PUBLIC, EXECUTE to tappa_app,
+// SECURITY DEFINER dropped, tappa_operator BYPASSRLS, tappa_opdefiner SUPERUSER,
+// tappa_opdefiner a member of tappa_owner) — eight exit-0 PASSes. After it, eight
+// exit-1s with the differing line named, and PASS again once each was undone.
+//
+// 🔴 THE TWO QUERIES MUST BE THE SAME BYTES. EXPECTED is produced by one script on one
+// day and ACTUAL by the other on another; a predicate edited in only one of them makes
+// every restore fail (false RED) or, worse, makes both sides blind to the same column
+// in different ways. So the block is compared verbatim, not "both contain X".
+func TestBackupAndRestoreVerify_ShareTheInventory(t *testing.T) {
+	t.Parallel()
+	const open, closing = "# >>> T45 INVENTORY", "# <<< T45 INVENTORY <<<"
+	block := func(name string) string {
+		text := readScript(t, name)
+		if n := strings.Count(text, open); n != 1 {
+			t.Fatalf("scripts/%s carries %d inventory blocks (%q), want exactly 1", name, n, open)
+		}
+		start := strings.Index(text, open)
+		end := strings.Index(text[start:], closing)
+		if end < 0 {
+			t.Fatalf("scripts/%s opens the inventory block but never closes it with %q", name, closing)
+		}
+		return text[start : start+end]
+	}
+	backup, restore := block("pg-backup.sh"), block("pg-restore-verify.sh")
+	if backup != restore {
+		t.Errorf("the inventory block differs between scripts/pg-backup.sh and scripts/pg-restore-verify.sh. " +
+			"The manifest's `function`/`role` lines are compared VERBATIM with the restore's own query, " +
+			"so the two must be one text; edit both in the same change.")
+	}
+
+	// What makes the comparison mean something: the properties the eight measured states break.
+	for want, why := range map[string]string{
+		"pg_get_userbyid(p.proowner)": "a SECURITY DEFINER function runs as its owner; owned by the superuser it runs every caller as superuser",
+		"p.prosecdef":                 "dropping SECURITY DEFINER changes which role's rights a function uses",
+		"p.proconfig":                 "the pinned search_path = pg_catalog, pg_temp lives here",
+		"acldefault('f', p.proowner)": "a NULL proacl means EXECUTE to PUBLIC; spelled out, it is compared rather than skipped",
+		"o.rolsuper, o.rolbypassrls":  "a role behind the boundary that bypasses RLS is a boundary the source did not have",
+		"pg_auth_members m JOIN pg_roles g ON g.oid = m.member": "a MEMBER of tappa_opdefiner runs with its BYPASSRLS — 00026 refuses that at migration time and a restore runs no migration",
+		"d.deptype = 'e'": "extension functions (pgcrypto, citext) are the extension's, not this schema's",
+		// The escaped spelling IS the pin: the SQL sits in a double-quoted shell string, and
+		// the bare `COLLATE "C"` was measured reaching psql as COLLATE c — an error that
+		// stopped the backup.
+		`ORDER BY a::text COLLATE \"C\"`: "the source and the restore target may have different default collations; " +
+			"a locale-ordered ACL list turns a correct restore red",
+	} {
+		if !strings.Contains(backup, want) {
+			t.Errorf("the inventory block no longer contains %q: %s", want, why)
+		}
+	}
+
+	bk := codeOf(readScript(t, "pg-backup.sh"))
+	for _, want := range []string{
+		`$PSQL -c "$INV_FUNCTIONS_SQL" > "$STAGE/.functions.$$"`,
+		`$PSQL -c "$INV_ROLES_SQL" > "$STAGE/.roles.$$"`,
+		`cat "$STAGE/.functions.$$" "$STAGE/.roles.$$"`,
+		// 4f: a --no-owner dump restores every op_* function owned by the restoring superuser.
+		`[ "$dump_fowner" -ge "$LIVE_FUNCS" ]`,
+	} {
+		if !strings.Contains(bk, want) {
+			t.Errorf("scripts/pg-backup.sh no longer contains %q; the manifest would stop carrying the inventory or the owner check would be gone", want)
+		}
+	}
+	rv := codeOf(readScript(t, "pg-restore-verify.sh"))
+	for _, want := range []string{
+		`inventory "functions" "function" "$INV_FUNCTIONS_SQL"`,
+		`inventory "roles" "role" "$INV_ROLES_SQL"`,
+		// A manifest without the lines must FAIL, not pass silently: "nothing to compare"
+		// read as "nothing differs" is the blind PASS this test exists to prevent.
+		`bad "the manifest carries no '$_p' lines`,
+	} {
+		if !strings.Contains(rv, want) {
+			t.Errorf("scripts/pg-restore-verify.sh no longer contains %q", want)
+		}
 	}
 }

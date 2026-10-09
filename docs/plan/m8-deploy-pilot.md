@@ -2739,6 +2739,314 @@ tablosu çıkmış durumda (satış slaytı da olur).
 
 ---
 
+> **T45 — gecelik yedeğin kümeye alınması: goose 34 hazırlığı ve provalı geri yükleme**
+>
+> # T45 — gecelik yedeğin goose 34'e hazırlığı + YEREL provalı geri yükleme (YAPICI kartı)
+>
+> - Dal ucu: `3e24a9d` (m10-a1 = main = canlı, goose 34). Worktree dalı `3e24a9d`'ye sıfırlandı, doğrulandı.
+> - **Baş parmak izi:** `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` (boş fark, izlenmeyen dosya 0)
+> - 1. tur sonu: `a2340b7cbf00066b08e2b217f427cce67137197e875f42a38e541a12fda9e1e6` (= 2. tur başı, doğrulandı)
+> - 2. tur sonu: `1f0764a7b21c72725f094b9711e1f535836bbacddf8cfd5c444d9c79282881ce` (= 3. tur başı, doğrulandı)
+> - **3. tur sonu (son parmak izi):** `6043c147df4ec952e2195e13a02d61d8fd560c537614a944495bee30ef5dadef` (izlenmeyen dosya 0)
+>
+> ## 3. TUR (küçük) — `lost-window.csv` ve çalışma dizini taraması
+>
+> - A YOLU 5. adım: `> lost-window.csv` → `> "$RESTORE/lost-window.csv"` (3. adımın `mktemp -d` dizini, repo dışı, 0700). Aynı yazımı alıntılayan `ON_ERROR_STOP` notu, "Bu CSV yine de…" paragrafı (artık nereye yazıldığını ve ne zaman silindiğini söylüyor) ve 8. adım (`$RESTORE/lost-window.csv`'yi adıyla anıyor; son kayıt girilince `rm -rf "$RESTORE"`) güncellendi. CSV'yi gösteren/okuyan bir komut yoktu (8. adım panelden elle giriş) — eklenmedi, davranış değişmedi.
+> - 🔴 Silme notu düzeltildi, yalnız genişletilmedi: 2. turdaki *"Takas (7) bitince `rm -rf "$RESTORE"`"* CSV `$RESTORE`'a taşınınca **8. adımın girdisini 8. adımdan önce silerdi**. Not artık "yeniden giriş (8) bittikten sonra; döküm, manifest ve CSV birlikte".
+> - **Tarama** (operatör adımı 9 = README 313–635 ve "Yedek ve geri yükleme" 1765–2325, kod bloklarında: yönlendirme, `tee`, `-o`/`--output`/`--file`, `cp`/`copy`/`copyto`, `touch`, `./` yolu, yolsuz `*.csv|sql|gz|conf|txt|json|yaml|env|pem|key` adı): çalışma dizinine yazan **tek** yer `lost-window.csv` idi (düzeltildi). Geri kalan isabetlerin hepsi yazma değil ya da repo dışı: `--config "$HOME/.config/tappa/…"` (2. tur), `"$RESTORE/…"` (2. tur), `mktemp` probe dosyası (2. tur), repo dosyalarını OKUYAN `kubectl apply -f deploy/k8s/*.yaml` / `docker cp scripts/…` / `--from-file=…=scripts/db-init/01-roles.sql`, `curl -o /dev/null`, `kubectl … -o custom-columns|jsonpath|yaml` (stdout), SQL içindeki `created_at > '$STAMP'` ve `<damga>`/`<HESAP_ID>` yer tutucuları. Bir not: 9(b)'nin emanet karşılaştırması `sha256sum /path/to/escrowed-rclone.conf` bir **yer tutucu mutlak yol** — çalışma dizini değil; dokunulmadı (önceden vardı).
+> - Kapılar: `redline-check.sh` 0 · `go test ./cmd/tappa -run <hedefli küme>` ok · 9(d) blokları değişmedi (sha256 öneki yine `7af522a86bbc2820`) · yapıştırma tehlikesi sayacı 42 (değişmedi).
+> - Değişen dosyalar (6): `scripts/pg-backup.sh`, `scripts/pg-restore-verify.sh`, `scripts/pg-backup-ship.sh` (tek mesaj), `cmd/tappa/scriptguards_test.go`, `deploy/README.md`, `.gitignore` (2. tur, orkestratör kararı).
+>
+> ---
+>
+> ## 2. TUR (birleşik denetim RED → kapanış)
+>
+> | # | Madde | Uygulanış | Kanıt |
+> |---|---|---|---|
+> | 1 | Gizli ve kişisel veri taşıyan dosyalar repo köküne yönleniyordu | Config: `$HOME/.config/tappa/backup.rclone.conf` (`mkdir -p -m 700`, `(umask 077 && rclone --config … config)`); döküm dizini: `RESTORE=$(mktemp -d)` — 9(b), "Son yedek", A YOLU 3–6, B3/B4, 9(d). 9(d)'nin son bloğu `rm -rf "$RESTORE"` + `rm -f "$CONF"`; A YOLU 3. adım ve B4'e `rm -rf "$RESTORE"` notu. `.gitignore`: `/restore/` ve `*.rclone.conf` | `git check-ignore -v` → `restore/tappa-x.sql.gz` `.gitignore:41:/restore/`; `tappa-backup.rclone.conf`, `backup.rclone.conf`, `deploy/backup.rclone.conf` `.gitignore:42:*.rclone.conf`; kontrol `deploy/README.md` → yok sayılmıyor (rc 1). README'de `./restore` artık yalnız tarihsel bir düzyazı satırında (eski glob'un kaydı); `tappa-backup.rclone.conf` **0** |
+> | 2 | 9(d) yazıldığı gibi koşmuyordu | 9(d) beş bloğa bölündü (d1 geri al+sha256 · d2 atılabilir Postgres · d3 B2 + geri yükleme + B3 daraltma, `docker exec -i tappa-drill-db sh -c …`, **`--` yok** · d4 doğrulama · d5 temizlik) + isteğe bağlı `prune-probe`; "bir blok beklenen sonucu vermezse sonrakine geçme" kuralı; `STAMP` en yeni damgayı listeden seçer (yer tutucu yok). README'deki 1. tur cümlesi ("birebir bu sırayla koşuldu") kaldırıldı; 1. tur provası için "9(d) blokları henüz yazılmadan, eşdeğer komutlarla" diye düzeltildi | **9(d) yazıldığı gibi iki kez koşuldu** (aşağıda §2T) |
+> | 3 | 4f yalnız `ALTER FUNCTION` sayıyordu | `^ALTER (FUNCTION\|PROCEDURE\|AGGREGATE) public\..* OWNER TO ` — `LIVE_FUNCS`'ın kümesiyle (her `prokind`) hizalı | Şemaya `CREATE PROCEDURE` + `CREATE AGGREGATE` (37 rutin: a=1 f=35 p=1; dump'ta FUNCTION 35, PROCEDURE 1, AGGREGATE 1): **1. tur betiği exit 1** ("37 … owner of 35"), **bugünkü exit 0** ("37/37 function owners"); geri yüklemesi `functions: all 37 identical`, PASS. `--no-owner` hâlâ exit 1 ("37 … owner of 0") |
+> | 4 | `ORDER BY a::text` yerel ayara bağlı | İki blokta da `ORDER BY a::text COLLATE \"C\"` (+ aynı gerekçe yorumu iki blokta) | **Mutasyon:** yalnız bir bloğa ekleyince `TestBackupAndRestoreVerify_ShareTheInventory` **FAIL** ("the inventory block differs"); ikisine → PASS. 🔴 **Ve ölçüm bir hata yakaladı:** ilk yazım çıplak `COLLATE "C"` idi; SQL çift tırnaklı bir kabuk dizgisinde durduğu için kabuk tırnakları yedi ve psql *"collation "c" for encoding "UTF8" does not exist"* dedi → `pg-backup.sh` **exit 1** ("could not read the function inventory"). Kaçışlı `\"C\"` ile exit 0. Pin artık **kaçışlı yazımı** arıyor |
+> | 5 | 9(d)'de satır sonu yorumlar | 9(d) bloklarında **hiç yorum yok** (gerekçe düzyazıda); "Son yedek" satırındaki benim eklediğim satır sonu yorum da kaldırıldı | Satır sonu yorum sayacı (bash blokları): HEAD 55 → 54 (9(d)'de 0; kalan 6'sı 9(a)/9(c)'de önceden vardı); yapıştırma tehlikesi satırı 43 → 42. zsh koşusunda `command not found` **0** |
+> | 6 | "0 of N rows" | `m_tx` = manifest'in `table transactions` satırı | Tam provada: *"sees 0 of 685177 transaction rows"* (önce *"0 of 6779780 rows"*) |
+> | 7 | Kova kilidi notu | 9(c)'den sonra kısa not: 14 gün, yalnız `tappa/<enc(prod)>/`; önek `rclone … cryptdecode --reverse tappa-backup: prod`; kurulum orkestratörün | Yerel hedefte ölçüldü: komutun çıktısı `prod <TAB> <26 karakter>` ve kovada `tappa/` altındaki **tek** birinci düzey anahtar tam o değer (kanarya silinmiş, `prune-probe` farklı önekte) |
+>
+> ### §2T — 9(d), yazıldığı gibi (2. tur)
+>
+> - **Kaynak:** dev DB'nin 2. tur betikleriyle alınmış yeni yedeği — `pg-backup.sh` exit 0, 670 sn, `35/35 function owners`, `6779780 rows`, damga `20261009T125128Z`; `pg-backup-ship.sh` ile R2 biçimli yerel hedefe (`rclone serve s3`, `provider = Cloudflare`, `no_check_bucket = true`, crypt `r2:tappa-backups/tappa`), `done: 1 backup(s) retained`.
+> - **Bloklar:** README'den **değiştirilmeden** çıkarıldı (6 blok, 48 satır, sha256 öneki `7af522a86bbc2820`; teslimden önce yeniden çıkarıldı → aynı önek). Önlerine yalnız bir "prelude": checkout köküne `cd` ve `rclone` → `rclone/rclone:1.71` imajını aynı yolları bağlayarak çağıran bir kabuk fonksiyonu (makinede rclone ikilisi yok). `HOME` scratchpad'te atılabilir bir dizine çevrildi (config 9(b)'nin yolunda, 0600); `TMPDIR` gerçek (`/var/folders/…`). Test parolası her koşuda üretildi, hiçbir yere yazılmadı.
+> - **bash:** kabuk exit 0, 549 sn · `sha256 OK 20261009T125128Z` · `restore exit: 0` · **PASS** (24 tablo, 20 politika, 23 FORCE, goose 34, 6 779 780 satır, 44+603 yetki, 35 fonksiyon, 5 rol, `0 of 685177 transaction rows`, GUC'lu 49 867, `42501`, TRUNCATE 7/7) · `verify exit: 0` · `prune-probe` `lsl` → `2025-01-01 00:00:00`, budamadan sonra `lsf` boş.
+> - **zsh, yapıştırma benzetimi:** `zsh -f -i < blok-metni` (etkileşimli, rc dosyası yok, `interactive_comments` kapalı) — kabuk exit 0, 499 sn, aynı sonuçlar (`sha256 OK`, `restore exit: 0`, PASS, `verify exit: 0`, prune-probe 2025-01-01 → boş); **`command not found` 0, `zsh:` hatası 0**.
+> - **İkisinden sonra:** `tappa-drill` konteyneri 0 · ağı 0 · `TMPDIR` altında indirilmiş döküm 0 · 9(b) yolunda config **yok** (d5 sildi) · checkout'ta yeni dosya 0.
+> - 1. turun kartındaki 3.3–3.5 koşusu (aşağıda) 9(d) blokları **yazılmadan önce** eşdeğer komutlarla yapılmıştı; o kayıt öyle okunmalı.
+>   `deploy/k8s/50-backup.yaml`, `12-networkpolicy.yaml`, `deploy.yml`, migration'lar, `go.mod`/`go.sum`/`sqlc.yaml`: **dokunulmadı** (fark 0 satır).
+> - Commit/push yok. kubectl yok. tappa-secrets'a hiçbir fiil yok. Cloudflare/R2'ye istek yok.
+>
+> > **Tehdit modeli (güvenliğe değen her iddia için):** bu pinler kazara sapmaya karşıdır;
+> > bilerek atlatma kod incelemesinin konusudur.
+>
+> ---
+>
+> ## 1. Hazırlık denetimi — ölçülen bayatlıklar
+>
+> ### Bayat bulunanlar (HEAD satırları, kanıtıyla)
+>
+> | # | Yer (HEAD) | Bayatlık | Kanıt (ölçüm) |
+> |---|---|---|---|
+> | B1 | `scripts/pg-restore-verify.sh` (bütün dosya; PASS cümlesi :519) | M10'un tek RLS-aşma yolu (`op_*` SECURITY DEFINER; sahip `tappa_opdefiner`, `search_path=pg_catalog,pg_temp`, EXECUTE yalnız `tappa_operator`) ve arkasındaki rollerin nitelikleri **hiç okunmuyordu** | goose-34 şemasının geri yüklenmiş kopyasında 8 mutasyon (aşağıda PART I) → **eski araç 8/8 exit 0 PASS** |
+> | B2 | `scripts/pg-backup.sh` :270-279 (4e) | `--no-owner` ile alınmış bir dump'ı yakalayan kontrol yok; böyle bir dump geri yüklenince 15 `op_*` + 6 resolver fonksiyonu **geri yükleyen süper kullanıcının** malı olur | `pg_dump` önüne `--no-owner` ekleyen sarmalayıcıyla: eski betik **exit 0**, `.sql.gz` gönderilmeye hazır |
+> | B3 | `deploy/README.md` :356 | Secret, operatörün **kişisel** `$HOME/.config/rclone/rclone.conf`'undan yaratılıyordu → içindeki her remote/kimlik her gece pod'a gider | metin okuması; asgari ayrıcalık ihlali |
+> | B4 | `deploy/README.md` :357, :1636, :1712, :1972; `pg-backup-ship.sh` :72 (mesaj örneği) | `tappa-backup:<bucket>/tappa-prod` yazımı kovasız bir `crypt` kökü varsayıyor. S3/R2'de crypt kökü kovasızsa kova adı da şifrelenir | `remote = r2:` + `BACKUP_REMOTE=tappa-backup:tappa-backups/prod` → kanarya yazılamadı (`HeadObject … input member Key must not be empty`), exit 1, hiçbir şey yüklenmedi (iki `no_check_bucket` değerinde de) |
+> | B5 | `deploy/README.md` :1775-1776, :1927 | Rol listeleri yalnız `tappa_app`/`tappa_resolver`; M10'un `tappa_operator`/`tappa_opdefiner`'ı yok | 01-roles.sql'in operatör bloğu çıkarılmış init'le geri yükleme: `ON_ERROR_STOP=1` → `ERROR: role "tappa_opdefiner" does not exist`, **exit 3**, 0 tablo. Bayraksız → **exit 0**, 138 hata, **15 SECURITY DEFINER fonksiyonu süper kullanıcının** |
+> | B6 | `deploy/README.md` :419-424 (9(c) beklenen çıktı), :1998 (B4: "45 tablo + 454 sütun") | goose 20 sayıları | goose 34'te: 24 tablo, 20 politika, 23 FORCE, 240 GRANT; 44 tablo + 603 sütun yetkisi |
+> | B7 | `deploy/README.md` 9(b) | R2'ye özgü hiçbir şey yok; **`no_check_bucket = true` olmadan iş R2'de kırmızıya düşer** | aşağıda §3 R2 ölçümleri |
+>
+> ### Bayat OLMAYANLAR (ölçüldü, değişmedi)
+>
+> - **Tablo kümesi / politika / FORCE / satır sayıları** (`pg-backup.sh` 2. ve 4b–4e, `pg-restore-verify.sh` 2. bölüm): hepsi katalogdan türetiliyor, sabit liste yok. goose 34'te dump metni sayımları katalogla birebir: `ENABLE` 23 = 23, `FORCE` 23 = 23 (fonksiyon gövdelerinde bu ifadeyi taşıyan satır **0**), `CREATE POLICY` 20 = 20. `24 tablo` vs `23 FORCE` farkı `goose_db_version`'dır (RLS'siz, doğru).
+> - **4c'nin "COPY başlığına benzeyen ilk sütun" sınırı** hâlâ erişilemez: 24 tablonun ilk sütunu uuid (22), `char(14)` (`tags.uid`) ya da integer (`goose_db_version`) — `tenant_branding` dahil (ilk sütunu `tenant_id uuid`).
+> - **`trunc_tables` (7 tablo)**: `TestAppendOnlyTablesAreNamedByBothScripts` migration'lardan türetip yeşil; prova'da 7/7 tetikleyici `('O','A')`.
+> - **Şema kapsamı**: dev DB'de `public` dışında şema yok (`schemas public`), yani `nspname='public'` süzgeci bir şey kaçırmıyor.
+> - **pg_dump sürümü**: yerel `postgres:17-alpine` = **17.10**, dev sunucu = **17.10**. 17.6+ `\restrict`/`\unrestrict` çerçevesi yazıyor; `pg-backup.sh` 4a'nın tamamlanma işareti EOF'tan **118 bayt** önce (okunan pencere 200) → 4a hâlâ çalışıyor (ölçüldü). Kümede yedek pod'u aynı etiketi `IfNotPresent` ile tek node'dan alır; o node'da sunucunun koştuğu imaj durduğu için (README sınır 14(b)) pg_dump sunucuyla aynı ikilidir. `psql` 16.15 ve 17.10 `\restrict`'i kabul ediyor (ölçüldü); daha eski minor'lar ölçülmedi — runbook geri yüklemeyi zaten pod içindeki aynı imajla yapıyor.
+> - **`rclone/rclone:1.71`**: bugün `v1.71.2`'ye çözülüyor (digest `sha256:3103526c5062…`).
+> - **NetworkPolicy** (`12-networkpolicy.yaml`): tek politika, `policyTypes: [Ingress]`, yalnız postgres pod'larını seçiyor; `from.podSelector app.kubernetes.io/name: tappa` (namespaceSelector yok = aynı namespace). CronJob pod şablonu bu etiketi taşıyor (`50-backup.yaml` :113) → kabul. Egress politikası yok → ship konteyneri R2'ye 443'ten çıkabilir.
+> - **`configmap/tappa-backup-scripts`**: `deploy.yml` :535-538 üç dosyayı (`pg-backup.sh`, `pg-backup-ship.sh`, `pg-restore-verify.sh`) doğru adlarla kuruyor; CronJob iki tanesini `sh /scripts/…` ile çağırıyor.
+> - **Secret mount izni** (`defaultMode: 0400`, uid 65532): kümede **ölçülemedi** (kubectl yok). Kaynak: kubelet `pkg/volume/volume_linux.go` v1.35.0 `changeFilePermission` → salt-okur hacimde `mode | 0440` ve grup = fsGroup; `pkg/volume/secret/secret.go` `ReadOnly: true` + `NewVolumeOwnership(...).ChangePermissions()`. Yani dosya 0440, grup 65532 → okunabilir. İlk koşu bunu ölçer.
+> - **Rollerin önceden kurulması**: B YOLU B1 init'i (`01-roles.sql`, OP-5 bloğu dahil) dört rolü yaratıyor; A YOLU aynı instance'ta → zaten var. `search_path` ve sahiplik dump'ta taşınıyor: 35/35 fonksiyon `SET search_path TO 'pg_catalog', 'pg_temp'`, `OWNER TO`: 15 `tappa_opdefiner`, 6 `tappa_resolver`, 14 `tappa_owner` (fonksiyon); prova'da geri yüklenen envanter kaynakla **satır satır aynı**.
+>
+> ---
+>
+> ## 2. Düzeltmeler
+>
+> 1. **`scripts/pg-backup.sh`**
+>    - 2b (yeni): canlı katalogdan **fonksiyon envanteri** (public, eklenti üyeleri hariç: sahip, `prosecdef`, `proconfig`, `acldefault`'la açılmış etkin ACL) ve **rol envanteri** (public'te bir şeyin sahibi/yetkilisi olan her rol — türetilmiş: süper, BYPASSRLS, CREATEROLE, CREATEDB, REPLICATION, INHERIT, `member_of`, `members`; LOGIN bilerek yok) → manifest'e `function …`/`role …` satırları + `functions`, `functions_secdef`, `function_owners_in_dump`, `roles` anahtarları.
+>    - 4f (yeni): dump'taki `ALTER (FUNCTION|PROCEDURE|AGGREGATE) public.… OWNER TO` satırı sayısı ≥ canlı rutin sayısı (`LIVE_FUNCS`, her `prokind`); değilse `--no-owner` şüphesiyle **exit 1**. (1. turda yalnız `FUNCTION` sayıyordu — 2. tur madde 3.)
+> 2. **`scripts/pg-restore-verify.sh`** — 3b (yeni): aynı iki sorgu geri yüklenen veritabanında; manifest satırlarıyla `LC_ALL=C sort` + `cmp`; fark varsa `source`/`restore` satırlarıyla FAIL (`comm` ile — busybox `diff` yalnız unified biçim basıyor, ilk denemede fark satırları kayboldu, ölçüldü). Manifest'te bu satırlar yoksa **FAIL** (sessiz geçiş yok). PASS cümlesi genişletildi.
+> 3. **`scripts/pg-backup-ship.sh`** — yalnız çıplak-remote ret mesajının örneği: `tappa-backup:prod` + "S3/R2'de kova crypt'in `remote =` satırında".
+> 4. **`cmd/tappa/scriptguards_test.go`**
+>    - `TestCarrierScripts_ParseUnderBash`: `pg-backup.sh` ve `pg-backup-ship.sh` eklendi (ikisinin de parse kapısı yoktu).
+>    - `TestBackupAndRestoreVerify_ShareTheInventory` (yeni): iki betikteki `# >>> T45 INVENTORY` bloğu **bayt bayt aynı** olmalı; bloğun sekiz mutasyonun kırdığı özellikleri okuyan yüklemleri; yedek betiğinin manifest'e yazması ve 4f; doğrulayıcının iki `inventory` çağrısı ve "manifest'te satır yok → bad" dalı. **Mutasyon kanıtı:** doğrulayıcının bloğunda `o.rolinherit` → `o.rolcanlogin` → test **FAIL** ("the inventory block differs …"); geri alınınca PASS.
+> 5. **`deploy/README.md`**
+>    - 9(a): R2 AB yargı bölgesi satırı (seçildi, orkestratör); Hetzner "kabul edilebilir"e indi.
+>    - 9(b): kişisel config yerine ayrı dosya; **R2 `rclone.conf` iskeleti** (yer tutuculu); `no_check_bucket`/kova-crypt'te/`.eu.` gerekçeleri ölçüm + kaynakla; Content-Encoding ve saklama ölçümleri.
+>    - 9(c): goose 34 beklenen çıktısı (gerçek ölçüm).
+>    - 9(d) (yeni): hedeften geri alma + atılabilir Postgres'e B YOLU + doğrulama provası (docker) + isteğe bağlı R2 mtime/saklama ölçümü.
+>    - Yol yer tutucuları `tappa-backup:prod` (3 yer); rol listeleri M10 rolleriyle; B1'e eski-init ölçümü; B4 sayıları + B YOLU sonrası operatör yüzeyi notu; manifest içeriği; T45 süreleri; "Provanın kendisi"ne T45 tablosu + negatif kontroller.
+>    - Yapıştırma tehlikesi: yeni bash bloklarının yorumlarında ters tırnak/tek kesme işareti **yok** (sayaç 43 → 42; değiştirdiğim satırdaki eski bir tanesi de gitti). `TestRunbook_*` yeşil.
+>
+> ---
+>
+> ## 3. Provanın kendisi — komutlar ve sonuçlar
+>
+> Tüm sürücüler scratchpad'te (`t45/*.sh`). Dev DB yalnız okundu: her bağlantı `PGOPTIONS='-c default_transaction_read_only=on'` ile (sunucu tarafında salt-okur oturum); DDL/yeni veritabanı yok; `docker logs tappa-db` hiç. Parola `.env`'den çalışma anında okunup docker'a **adla** (`-e PGPASSWORD`, değersiz) verildi; hiçbir yere basılmadı. Atılabilir hedeflerin parolaları her koşuda rastgele üretilen **test parolası**ydı (0600 dosya, iş sonunda silindi).
+>
+> ### 3.1 Yedek — `scripts/pg-backup.sh` (deponun dosyası), dev DB'ye karşı
+>
+> ```bash
+> docker run --rm --network tappa_default --read-only --user 65532:65532 --tmpfs /tmp \
+>   -v "$STAGE:/staging" -v "$REPO/scripts:/scripts:ro" \
+>   -e PGHOST=tappa-db -e PGUSER=tappa_owner -e PGDATABASE=tappa -e BACKUP_STAGE_DIR=/staging \
+>   -e PGPASSWORD -e PGOPTIONS postgres:17-alpine /bin/sh /scripts/pg-backup.sh
+> ```
+> Sonuç: **exit 0**, 648 sn (pg_dump 158 sn: 11:58:20 → 12:00:58 UTC). Son satırlar:
+> ```
+> pg-backup: live schema: 24 tables, 20 policies, 23 tables with FORCE RLS, goose 34
+> pg-backup: live inventory: 35 functions (21 SECURITY DEFINER), 5 roles own or hold something in public
+> pg-backup: verified: 24/24 tables present, 6779780 rows in the dump (6779780 live now), 20 policies, 23 ENABLE / 23 FORCE RLS, 240 GRANTs, 35/35 function owners
+> pg-backup: backup instant (restore rewinds to here): 2026-10-09T11:58:20Z
+> ```
+> 1,81 GB düz → 408 MB gzip. (Not: bu koşudan SONRA `pg-backup.sh`'ta yalnız bir yorum değişti: "Five checks" → "Six checks".)
+>
+> ### 3.2 Gönderme — `scripts/pg-backup-ship.sh` (deponun dosyası), R2 biçimli yerel hedefe
+>
+> Hedef: `rclone/rclone:1.71 serve s3` (atılabilir konteyner, kova dizini önceden var). İstemci config'i (test değerleriyle; yer tutuculu hali §5'te):
+> `[r2] type=s3 provider=Cloudflare region=auto acl=private no_check_bucket=true endpoint=http://t45-s3:8080` +
+> `[tappa-backup] type=crypt remote=r2:tappa-backups/tappa`, `BACKUP_REMOTE=tappa-backup:prod`.
+> Konteyner CronJob'ın `ship`'i gibi: uid 65532, salt-okur kök, `/tmp` tmpfs, `HOME`/`RCLONE_CACHE_DIR=/tmp`, config salt-okur.
+>
+> Sonuç: **exit 0**, 11 sn. "destination proven encrypted" → yükleme → "verified on the destination" → "done: 1 backup(s) retained". S3 işlemleri (gerçek gönderim, `--dump headers`): `PUT nesne` 2 + çoklu yükleme (`POST ?uploads` 1, `PUT ?partNumber` **78**, `POST ?uploadId` 1), `GET nesne` 1, `HEAD nesne` 19, `DELETE nesne` 1, `ListObjectsV2` 7 — **kova düzeyinde işlem 0**. Ham depoda adlar opak (`73g3qegd…/ori8dmb8…/…`), her nesne `RCLONE` sihirli baytıyla başlıyor; düz damga/`tappa-`/`manifest` geçen ad **0**.
+>
+> ### 3.3 Geri alma — README A YOLU 3. adımın komutları
+>
+> `rclone copy tappa-backup:prod/20261009T115819Z /restore/` → exit 0, 25 sn; `sha256 OK d7603b22…80f6`; indirilen `.sql.gz` staging'dekiyle **bayt bayt aynı** (`cmp`).
+>
+> ### 3.4 Geri yükleme — B YOLU, atılabilir `postgres:17-alpine`
+>
+> `10-postgres.yaml`'ın ortamı (POSTGRES_USER/DB, scram initdb argümanları, TZ/PGTZ UTC) + init dosyaları `docker cp` ile (bind-mount 0644 `.sh` Docker Desktop'ta `[ -x ]`'i geçip "bad interpreter: Permission denied" verdi — ölçüldü; ConfigMap davranışı = source). B2 (askıya alma) → `gzip -dc … | psql -X -q -v ON_ERROR_STOP=1` → B3 daraltma.
+> Sonuç: geri yükleme **exit 0, stderr 0 satır, 102 sn**.
+>
+> ### 3.5 Doğrulama — `scripts/pg-restore-verify.sh` (deponun dosyası, son hâli)
+>
+> **exit 0, 64 sn, PASS**: sha256 ✓ · 24 tablo · 20 politika · 23 FORCE · ENABLE=FORCE · goose 34 · 6 779 780 satır manifest'le eşit · tablo yetkileri 44 · sütun yetkileri 603 · **fonksiyonlar 35/35 aynı** · **roller 5/5 aynı** · `tappa_app` GUC'suz 0, GUC'lu 49 867 · `42501` ×2 · TRUNCATE kalkanı 7/7 · `tappa_app` TRUNCATE 0.
+>
+> ### 3.6 Bağımsız karşılaştırma (doğrulayıcıdan ayrı, `fingerprint.sql`)
+>
+> Her tablo için `count(*)` + satır metninin md5'inin ilk 60 bitinin toplamı (sıra bağımsız), ayrıca `tags.aes_key_ref`, `tags.app_key_ref`, `tenant_branding.logo` için uid/tenant sıralı özet; yalnız sayı ve özet basıldı. Dev 21 sn, geri yüklenen 16 sn; **27/27 satır IDENTICAL**.
+>
+> | tablo | dev, prova öncesi (SELECT count) | manifest: dump'taki | manifest: canlı (dump sonrası) | geri yüklenen (count) | içerik özeti dev = geri yüklenen |
+> |---|---:|---:|---:|---:|:-:|
+> | `admin_sessions` | 124911 | 124911 | 124911 | 124911 | ✓ |
+> | `admin_users` | 310576 | 310576 | 310576 | 310576 | ✓ |
+> | `audit_log` | 402596 | 402596 | 402596 | 402596 | ✓ |
+> | `billing_periods` | 41075 | 41075 | 41075 | 41075 | ✓ |
+> | `departments` | 175485 | 175485 | 175485 | 175485 | ✓ |
+> | `employee_invites` | 117420 | 117420 | 117420 | 117420 | ✓ |
+> | `employees` | 643111 | 643111 | 643111 | 643111 | ✓ |
+> | `goose_db_version` | 35 | 35 | 35 | 35 | ✓ |
+> | `legal_documents` | 3650 | 3650 | 3650 | 3650 | ✓ |
+> | `locations` | 589904 | 589904 | 589904 | 589904 | ✓ |
+> | `operator_audit_log` | 22896 | 22896 | 22896 | 22896 | ✓ |
+> | `operator_read_tickets` | 0 | 0 | 0 | 0 | ✓ |
+> | `password_resets` | 63311 | 63311 | 63311 | 63311 | ✓ |
+> | `platform_admins` | 4343 | 4343 | 4343 | 4343 | ✓ |
+> | `platform_sessions` | 6206 | 6206 | 6206 | 6206 | ✓ |
+> | `policies` | 818720 | 818720 | 818720 | 818720 | ✓ |
+> | `policy_attachments` | 792518 | 792518 | 792518 | 792518 | ✓ |
+> | `policy_versions` | 856170 | 856170 | 856170 | 856170 | ✓ |
+> | `sessions` | 205528 | 205528 | 205528 | 205528 | ✓ |
+> | `tags` | 237938 | 237938 | 237938 | 237938 | ✓ |
+> | `tenant_branding` | 5674 | 5674 | 5674 | 5674 | ✓ |
+> | `tenants` | 631080 | 631080 | 631080 | 631080 | ✓ |
+> | `transaction_reviews` | 41456 | 41456 | 41456 | 41456 | ✓ |
+> | `transactions` | 685177 | 685177 | 685177 | 685177 | ✓ |
+> | sütun `tags.aes_key_ref` (dolu satır) | 237938 | — | — | 237938 | ✓ |
+> | sütun `tags.app_key_ref` (dolu satır) | 1225 | — | — | 1225 | ✓ |
+> | sütun `tenant_branding.logo` (dolu satır) | 3175 | — | — | 3175 | ✓ |
+>
+> ### 3.7 R2'ye özgü ölçümler (sahte küçük staging; betik içerik değil varlık denetler)
+>
+> | Koşu | Sonuç |
+> |---|---|
+> | A. `no_check_bucket = true`, crypt `remote = r2:tappa-backups/tappa` | exit 0; işlemler yalnız nesne düzeyi: PUT 3, GET 1, HEAD 19, DELETE 1, ListObjectsV2 7 |
+> | B. aynı, `no_check_bucket = false` (rclone varsayılanı) | **exit 1** — ilk yazmada `PUT /tappa-backups` (**CreateBucket**) → 409; "could not write the encryption canary … Nothing has been uploaded." Kova kapsamlı R2 token'ı CreateBucket'ı zaten yapamaz → aynı kırmızı |
+> | C/C'. crypt kökü kovasız (`remote = r2:`), iki `no_check_bucket` değeri | **exit 1** — kanarya: `HeadObject … input member Key must not be empty`; yükleme yok; yeni kova yaratılmadı |
+> | D. saklama: mtime'ı 40 gün geride bir çift, sonra taze bir çift | D1 exit 0, aynı koşuda yüklendi → doğrulandı → **budandı** ("0 backup(s) retained"); D2 exit 0, taze çift kaldı. Yani `--min-age`, rclone'un yazdığı `X-Amz-Meta-Mtime`'a bakıyor |
+> | Yükleme başlıkları | `Content-Type: application/octet-stream`, **`Content-Encoding` yok** (R2'nin gzip açma davranışı değmiyor), `X-Amz-Acl: private`, `X-Amz-Meta-Mtime` var |
+>
+> Kaynaklar: rclone v1.71.2 `docs/content/s3.md` "Cloudflare R2" bölümü (*"… with the "Object Read & Write" permission, you may also need to add `no_check_bucket = true` …"*) ve `--s3-no-check-bucket` açıklaması (*"It can also be needed if the user you are using does not have bucket creation permissions."*); kod `backend/s3/s3.go`: `makeBucket` `NoCheckBucket` iken istek atmadan döner; yükleme yolu `Update → mkdirParent → Mkdir → makeBucket`; Cloudflare tuhaflıkları `virtualHostStyle=false`, `useMultipartEtag=false`.
+>
+> ### 3.8 Negatif kontroller (şema-yalnız kopya: dev'in `pg_dump --schema-only`'si atılabilir bir pod'a, yedeği alındı, ikinci pod'a B YOLU)
+>
+> Bkz. PART I tablosu.
+>
+> ### 3.9 Temizlik
+>
+> `t45-src`, `t45-tgt`, `t45-full`, `t45-s3`, `t45-old`, `t45-dbg` konteynerleri ve `t45-net` ağı kaldırıldı (kalan 0); test parola dosyası ve her `rclone.conf` silindi (kalan 0); şifreli depo kopyası ve geri alınmış düz kopya silindi. Kalan dökümler (içerik basılmadı): 2. turdan sonra yalnız `t45/full-stage2/` (2. tur yedeği, 408 MB `.sql.gz` + manifest), küçük şema-yalnız döküm ve stage'ler; 1. turun `full-stage/`'i silindi. 2. tur temizliği: `t45-*` ve `tappa-drill*` konteyner/ağ 0, test parola dosyası yok, `*rclone.conf` 0, `TMPDIR` altında döküm 0. `tappa-db` çalışıyor, dokunulmadı. Arkada süreç yok.
+>
+> ---
+>
+> ## 4. Güvenlik iddiaları — üç parça
+>
+> **Tehdit modeli:** bu pinler kazara sapmaya karşıdır; bilerek atlatma kod incelemesinin konusudur.
+>
+> ### PART I — ölçüm + test adı
+>
+> | Durum (geri yüklenmiş goose-34 şeması üzerinde) | Eski `pg-restore-verify.sh` | Yeni |
+> |---|---|---|
+> | taban (değişiklik yok) | exit 0 | exit 0 |
+> | m1 `op_touch_session` sahibi `tappa_owner` (süper kullanıcı) | **exit 0** | exit 1 (functions) |
+> | m2 `op_touch_session` `RESET search_path` | **exit 0** | exit 1 |
+> | m3 `GRANT EXECUTE … TO PUBLIC` | **exit 0** | exit 1 |
+> | m4 `GRANT EXECUTE … TO tappa_app` | **exit 0** | exit 1 |
+> | m5 `SECURITY INVOKER`'a çevrildi | **exit 0** | exit 1 |
+> | m6 `tappa_operator BYPASSRLS` | **exit 0** | exit 1 (roles) |
+> | m7 `GRANT tappa_owner TO tappa_opdefiner` | **exit 0** | exit 1 (roles) |
+> | m8 `tappa_opdefiner SUPERUSER` | **exit 0** | exit 1 (roles) |
+> | her biri geri alındıktan sonra | exit 0 | exit 0 |
+> | `--no-owner` dump (`pg-backup.sh`) | eski betik **exit 0**, gönderilmeye hazır | **exit 1**: "35 functions … sets the owner of 0" |
+> | operatör rolleri olmayan init + bayraksız psql | exit 1 (dolaylı: politika/sütun yetkisi) | exit 1, ayrıca "functions differ" + "roles differ" |
+>
+> Testler: `TestBackupAndRestoreVerify_ShareTheInventory` (yeni; mutasyonla FAIL gösterildi), `TestCarrierScripts_ParseUnderBash` (iki betik eklendi). Ölçüm sürücüleri: `t45/small-mutations.sh`, `t45/small-noowner.sh`, `t45/small-oldroles.sh`.
+>
+> ### PART II — adı konmuş pinler
+>
+> - İki betikteki `T45 INVENTORY` bloğu bayt bayt aynı.
+> - Blok yüklemleri: `pg_get_userbyid(p.proowner)`, `p.prosecdef`, `p.proconfig`, `acldefault('f', p.proowner)`, `o.rolsuper, o.rolbypassrls`, üyeler (`pg_auth_members … m.member`), `d.deptype = 'e'`, ve (2. tur) kaçışlı `ORDER BY a::text COLLATE \"C\"`.
+> - (2. tur) `pg-backup.sh` 4f deseni `ALTER (FUNCTION|PROCEDURE|AGGREGATE)` — ölçümle kanıtlandı; Go pin'i yok, `[ "$dump_fowner" -ge "$LIVE_FUNCS" ]` pin'i duruyor.
+> - `pg-backup.sh`: envanterin iki dosyaya yazılması, manifest'e eklenmesi, `[ "$dump_fowner" -ge "$LIVE_FUNCS" ]`.
+> - `pg-restore-verify.sh`: `inventory "functions" …`, `inventory "roles" …`, ve manifest'te satır yoksa `bad`.
+> - Mevcut pinler korunuyor: `TestPgRestoreVerify_KeepsTheTruncateGuardPredicates` (`fails` kapısı, "do not put this database into service"), `TestAppendOnlyTablesAreNamedByBothScripts`.
+>
+> ### PART III
+>
+> Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
+>
+> ---
+>
+> ## 5. R2 için `rclone.conf` iskeleti (yer tutuculu, sırsız)
+>
+> ```ini
+> [r2]
+> type = s3
+> provider = Cloudflare
+> access_key_id = <R2 API token erişim anahtarı kimliği>
+> secret_access_key = <R2 API token gizli anahtarı>
+> region = auto
+> endpoint = https://<HESAP_ID>.eu.r2.cloudflarestorage.com
+> acl = private
+> no_check_bucket = true
+>
+> [tappa-backup]
+> type = crypt
+> remote = r2:<KOVA>/tappa
+> password = <rclone config'in obscure ettiği parola>
+> password2 = <rclone config'in obscure ettiği tuz>
+> ```
+> Secret: `rclone.conf` = yalnız bu iki bölümü taşıyan ayrı dosya, **repo dışında** `$HOME/.config/tappa/backup.rclone.conf` (0600, dizin 0700; emanet + 9(d) provasından sonra yerel kopya silinir); `BACKUP_REMOTE = tappa-backup:prod`.
+> Token: kova kapsamlı **Object Read & Write** (yazma = dump/manifest/kanarya; okuma = kanarya geri okuma + `check` + listeleme; silme = kanarya temizliği + 30 gün budama). `filename_encryption`/`directory_name_encryption` varsayılan (standard/true) kalmalı — iş kanaryayla zaten zorluyor.
+>
+> ---
+>
+> ## 6. Sayılı sınırlar
+>
+> 1. **Kova seviyesinde silme koruması yok.** Budama ve kanarya temizliği `DeleteObject` ister; kümeden çalınan bir `tappa-backup-target` yedekleri **silebilir**. R2 kova kilidi (bucket lock) orkestratörün kararı; kurulursa: kilit süresi **≤ 30 gün** olmalı (yoksa budama kırmızı), ve kanarya crypt kökünde (`tappa/<opak>`) yazılıp silindiği için kilit `tappa/` önekinin **tamamına** konursa kanarya silinemez → iş her gece UYARI basar, kanaryalar birikir. Kilidi yalnız `prod`'un şifreli dizinine (`rclone cryptdecode --reverse tappa-backup: prod` → opak ad) bağlamak bu çatışmayı önler (ölçülmedi).
+> 2. **Tek bölge / tek sağlayıcı kopyası.** R2 "auto" bölge, AB yargı alanı içinde; ikinci bir hedef yok.
+> 3. **RPO 24 saat** (02:30 Malta, günde bir). Node 02:29'da ölürse ~24 saatlik kayıt gider; §4.6 o aralıkta karşılanamaz (README sınır 1).
+> 4. **RTO ölçümü (dev, 6,8 M satır, Docker Desktop):** geri alma 25 sn + taze pod init birkaç sn + geri yükleme 102 sn + doğrulama 64 sn ≈ **3,3 dk** makine süresi. Canlı veri (3 tenant, ~23 mesai) bunun çok altında; küme süresi (StatefulSet, PVC, Secret emanetten) ve insan süresi ölçülmedi.
+> 5. **Envanter zaman farkı:** fonksiyon/rol envanteri pg_dump'tan **hemen önce** okunur; ikisi arasında bir migration koşarsa geri yükleme doğrulaması (yanlış) KIRMIZI olur — güvenli yön.
+> 6. **LOGIN karşılaştırılmıyor** (B YOLU `tappa_operator`'ı NOLOGIN yaratır); rol ayarları (`pg_db_role_setting`) ve veritabanı düzeyi ACL (`datacl`) karşılaştırılmıyor.
+> 7. **R2'de ölçülmeyenler:** R2'nin `X-Amz-Meta-Mtime`'ı saklaması (saklamazsa rclone yükleme anına düşer — dump ile yükleme dakikalar ayrı, sonuç yine doğru), `acl = private`'ı kabulü, `.eu.` uç noktası, token kapsamı. Hepsinin ölçümü orkestratörün ilk koşusu + 9(d).
+> 8. **Secret dosya izni** (`0400` + fsGroup → `0440`) kümede ölçülmedi; kubelet kaynağına dayanır.
+> 9. Dev DB 1,5 GB / 6,8 M satır ile prova yapıldı; canlının şekli aynı (goose 34) ama verisi gerçek ve küçük.
+> 10. Pod'un `emptyDir`'indeki düz dump başarısız bir Job'ın pod'u silinene kadar durur (dosyanın kendi başlığındaki sayılı sınır; değişmedi).
+>
+> ---
+>
+> ## 7. Orkestratörün küme adımları (sırası)
+>
+> 1. **Kova + token (orkestratör, Cloudflare tarafı):** AB yargı bölgesinde kova; kova kapsamlı **Object Read & Write** token. (İsteğe bağlı: sınır 1'deki kilit kararı.)
+> 2. **Config'i kendi makinende, REPO DIŞINDA üret** (README 9(b)): `mkdir -p -m 700 "$HOME/.config/tappa"` ve `(umask 077 && rclone --config "$HOME/.config/tappa/backup.rclone.conf" config)` → §5 iskeleti. Doğrula: `rclone --config "$HOME/.config/tappa/backup.rclone.conf" lsf tappa-backup:` (boş liste, hata yok).
+> 3. **Emanet:** `$HOME/.config/tappa/backup.rclone.conf`'u küme DIŞINDA, `TAPPA_TAG_KEK`'ten ayrı zarfta sakla (README 9(b) emanet adımı; parmak izi karşılaştırması).
+> 4. **Secret:** `kubectl -n tappa create secret generic tappa-backup-target --from-file=rclone.conf="$HOME/.config/tappa/backup.rclone.conf" --from-literal=BACKUP_REMOTE='tappa-backup:prod'` (tappa-secrets'a dokunulmaz).
+> 5. **Bu dalın birleşip deploy olması** (ConfigMap `tappa-backup-scripts`'i yeni betiklerle `deploy.yml` kurar) — **en az bir yeşil deploy'dan sonra** apply.
+> 6. **Apply + ilk koşu:** README 9(c): `kubectl apply -f deploy/k8s/50-backup.yaml` → `create job tappa-backup-first --from=cronjob/tappa-backup` → `wait` → iki konteynerin logu. Beklenen: `live inventory: 35 functions (21 SECURITY DEFINER), 5 roles …`, `35/35 function owners`, ship `destination proven encrypted` … `done: 1 backup(s) retained`.
+> 7. **R2'den geri alma provası (kendi makinende, kümeye dokunmadan):** README 9(d)'nin beş bloğu sırayla, aynı kabukta (d1 geri al + sha256 → d2 atılabilir Postgres → d3 B2/geri yükleme/B3 → d4 `pg-restore-verify.sh` **PASS** + `verify exit: 0` → isteğe bağlı `prune-probe` → d5 temizlik: konteyner, ağ, `mktemp -d` döküm dizini ve config'in yerel kopyası). Bir blok beklenen sonucu vermezse sonrakine geçilmez.
+> 7b. **Kova kilidi (orkestratör kararı):** ilk yeşil koşudan sonra 14 gün, yalnız `tappa/<enc(prod)>/` önekine; önek `rclone --config "$HOME/.config/tappa/backup.rclone.conf" cryptdecode --reverse tappa-backup: prod` çıktısının ikinci sütunu (README 9(c) sonrası not).
+> 8. Ertesi sabah: `kubectl -n tappa get job -l app.kubernetes.io/component=backup` ile 02:30 koşusunu gör.
+>
+> ---
+>
+> ## 8. Açık sorular (önerimle)
+>
+> 1. ~~R2 kova kilidi~~ → **KARARA BAĞLANDI (orkestratör, 2. tur):** 14 gün, yalnız `tappa/<enc(prod)>/`; README 9(c) sonrasına not olarak yazıldı.
+> 2. **Cloudflare bir veri işleyen (GDPR): DPA/işleyen sözleşmesi** imzalı mı? Veri crypt ile şifreli gidiyor ama yine de kişisel veri aktarımı. Öneri: Q23 ile aynı sınıfta kullanıcıya sorulsun; open-questions'a orkestratör yazar.
+> 3. ~~"0 of N rows"~~ → **2. turda düzeltildi** (madde 6): artık manifest'in `table transactions` satırını basıyor ("0 of 685177 transaction rows").
+> 4. **İkinci hedef (çok sağlayıcı)?** Öneri: şimdilik hayır; pilot ölçeğinde tek AB hedefi + emanet + aylık 9(d) provası yeterli; RPO 24 s kabul edilmişse.
+> 5. **`postgres:17-alpine`/`rclone:1.71` digest pinleme** (README sınır 14). Öneri: değiştirmedim; yedek pod'u sunucuyla aynı etiketi aynı node'dan aldığı için pg_dump = sunucu sürümü özelliği **digest'siz** hâlde de geçerli; pinlenecekse dördü birlikte.
+>
+> ## Kapılar (teslimde)
+>
+> - (2. turda son hâl üzerinde yeniden koşuldu.)
+> - `gofmt -l cmd/tappa` boş · `go vet ./cmd/tappa` ok · `go build -o <scratchpad> ./cmd/tappa` ok (ikili worktree dışında, silindi) · `sh -n` üç betikte ok.
+> - `git check-ignore -v`: `/restore/` ve `*.rclone.conf` kuralları eşleşiyor; `deploy/README.md` eşleşmiyor (kontrol).
+> - Mutasyon kanıtları (2. tur): COLLATE tek blokta → pin FAIL, iki blokta → PASS; 4f: PROCEDURE+AGGREGATE şemasında 1. tur betiği exit 1, bugünkü exit 0.
+> - `./scripts/redline-check.sh` → **0**.
+> - Hedefli testler yeşil: `go test ./cmd/tappa -run <hedefli küme>` ok · `go test ./cmd/rotatekek -run <runbook testleri>` ok.
+> - `go.mod` / `go.sum` / `sqlc.yaml` / `db/migrations` farkı: **0 satır**.
+> - Tam `-race`, `go test ./...`, `make check` **koşulmadı** (kullanıcı kuralı: faz sonunda).
+>
+> **Denetim ve kapanış (2026-10-09, orkestratör):** kullanıcı T45'i seçti; hedef **Cloudflare R2** (AB yargı bölgesi) — kullanıcı kararı; Cloudflare alt işleyici olarak kabul (self-serve DPA; gizlilik metnine alt işleyici satırı açık iş). Tek birleşik denetim RED (iki ORTA README metni: sır/döküm yolları repo kökünde ve git yok saymıyor; 9(d) yazıldığı gibi koşmuyordu; düşükler 4f/COLLATE/zsh) → 2. tur (9(d) iki kabukta yazıldığı gibi koşup PASS; COLLATE kaçış hatası ölçümle yakalandı) → 3. tur (`lost-window.csv`) → dar kapanış ONAY; yeni DÜŞÜK (d5 config'i koşulsuz siliyordu) orkestratör tarafından d6'ya ayrıldı. Orkestratör kararları: `.gitignore` `/restore/` + `*.rclone.conf`; ilk yeşil koşudan sonra R2 kova kilidi 14 gün yalnız `tappa/<enc(prod)>/`. Faz sonu: `verify.sh` yeşil, `cmd/tappa` `-race` ok. Küme adımları (R2 kurulumu, Secret, apply, ilk koşu, R2'den geri alma provası) bu commit'ten sonra.
+
 ## M8-03 — Gözlemlenebilirlik
 
 - **Bağımlılık:** M8-02

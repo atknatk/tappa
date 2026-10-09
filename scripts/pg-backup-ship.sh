@@ -69,7 +69,7 @@ trap 'rm -rf "$TMPD"' EXIT INT TERM
 # including things this product never wrote. Requiring a path segment makes the
 # blast radius of the prune a directory this job owns.
 case "$BACKUP_REMOTE" in
-  *:) fail "BACKUP_REMOTE='$BACKUP_REMOTE' has no path. This job PRUNES BY AGE under that prefix, so a bare remote would expire objects it does not own. Use something like 'tappa-backup:bucket/tappa-prod'." ;;
+  *:) fail "BACKUP_REMOTE='$BACKUP_REMOTE' has no path. This job PRUNES BY AGE under that prefix, so a bare remote would expire objects it does not own. Use something like 'tappa-backup:prod' (on S3/R2 the BUCKET belongs in the crypt remote's own 'remote = r2:<bucket>/tappa' line, not here: deploy/README.md, operator step 9(b))." ;;
   *:*/*|*:*) : ;;
   *)  fail "BACKUP_REMOTE='$BACKUP_REMOTE' is not an rclone remote (expected 'name:path')." ;;
 esac

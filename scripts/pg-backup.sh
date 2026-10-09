@@ -146,6 +146,64 @@ GOOSE_VERSION="$($PSQL -c "SELECT coalesce(max(version_id)::text, 'none') FROM g
 say "live schema: $TABLE_COUNT tables, $LIVE_POLICIES policies, $LIVE_FORCE_RLS tables with FORCE RLS, goose $GOOSE_VERSION"
 
 # ---------------------------------------------------------------------------------
+# 2b. WHAT ROWS AND TABLE GRANTS DO NOT CARRY, AND M10 MADE LOAD-BEARING (T45).
+#     The platform operator's only way across the tenant boundary is a set of
+#     SECURITY DEFINER op_* functions owned by tappa_opdefiner (BYPASSRLS), pinned to
+#     search_path = pg_catalog, pg_temp, EXECUTE to tappa_operator only (ADR 0021,
+#     CLAUDE.md §4.5's one exception). Whether a restore kept that is a property of
+#     pg_proc and pg_authid, and scripts/pg-restore-verify.sh read neither — measured
+#     on a restored goose-34 schema: function owned by the superuser, search_path
+#     reset, EXECUTE to PUBLIC, EXECUTE to tappa_app, SECURITY DEFINER dropped,
+#     tappa_operator BYPASSRLS, tappa_opdefiner SUPERUSER, tappa_opdefiner a member of
+#     tappa_owner — eight states, eight exit-0 PASSes.
+#     So the manifest now carries the live inventory of both, and the restore check
+#     compares the restored catalog with it line for line. The two queries are
+#     byte-identical in both scripts (cmd/tappa/scriptguards_test.go holds that).
+# ---------------------------------------------------------------------------------
+# >>> T45 INVENTORY (byte-identical in pg-backup.sh and pg-restore-verify.sh) >>>
+# Every function in public that is not an extension's: owner, SECURITY DEFINER,
+# its SET clauses (search_path), and its EFFECTIVE ACL — a NULL proacl is spelled out
+# with acldefault() so "default" and "explicitly equal to default" compare equal.
+# The ACL entries are ordered COLLATE "C": source and restore target may sit on servers
+# with different default collations (glibc or a managed service vs this musl image),
+# and a locale that weighs '=' and '/' differently would order them differently.
+# The quotes are ESCAPED because this SQL lives in a double-quoted shell string: written
+# bare, the shell ate them and psql said 'collation "c" for encoding "UTF8" does not
+# exist' (measured), which stopped the whole backup.
+INV_FUNCTIONS_SQL="SELECT format('function %s(%s) owner=%s secdef=%s config=%s acl=%s',
+    p.proname, pg_get_function_identity_arguments(p.oid), pg_get_userbyid(p.proowner), p.prosecdef,
+    coalesce(array_to_string(p.proconfig, ';'), '-'),
+    (SELECT string_agg(a::text, ',' ORDER BY a::text COLLATE \"C\") FROM unnest(coalesce(p.proacl, acldefault('f', p.proowner))) AS a))
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+ WHERE n.nspname = 'public'
+   AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e');"
+# Every role that owns, or is granted, something in public — derived, not listed. Login
+# is deliberately NOT compared: a fresh-pod restore (B YOLU) re-creates tappa_operator
+# NOLOGIN by design, and tappa_app gets LOGIN from 02-app-password.sh.
+INV_ROLES_SQL="WITH r(oid) AS (
+    SELECT c.relowner FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public'
+    UNION SELECT (aclexplode(c.relacl)).grantee FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public'
+    UNION SELECT (aclexplode(a.attacl)).grantee FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public'
+    UNION SELECT p.proowner FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public'
+    UNION SELECT (aclexplode(p.proacl)).grantee FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public'
+    UNION SELECT n.nspowner FROM pg_namespace n WHERE n.nspname = 'public'
+    UNION SELECT (aclexplode(n.nspacl)).grantee FROM pg_namespace n WHERE n.nspname = 'public')
+  SELECT format('role %s super=%s bypassrls=%s createrole=%s createdb=%s replication=%s inherit=%s member_of=%s members=%s',
+    o.rolname, o.rolsuper, o.rolbypassrls, o.rolcreaterole, o.rolcreatedb, o.rolreplication, o.rolinherit,
+    coalesce((SELECT string_agg(g.rolname, ',' ORDER BY g.rolname) FROM pg_auth_members m JOIN pg_roles g ON g.oid = m.roleid WHERE m.member = o.oid), '-'),
+    coalesce((SELECT string_agg(g.rolname, ',' ORDER BY g.rolname) FROM pg_auth_members m JOIN pg_roles g ON g.oid = m.member WHERE m.roleid = o.oid), '-'))
+  FROM pg_roles o WHERE o.oid IN (SELECT oid FROM r);"
+# <<< T45 INVENTORY <<<
+$PSQL -c "$INV_FUNCTIONS_SQL" > "$STAGE/.functions.$$" \
+  || fail "could not read the function inventory (pg_proc) from the live database"
+$PSQL -c "$INV_ROLES_SQL" > "$STAGE/.roles.$$" \
+  || fail "could not read the role inventory (pg_roles) from the live database"
+LIVE_FUNCS="$(awk 'NF{n++} END{print n+0}' "$STAGE/.functions.$$")"
+LIVE_SECDEF="$(awk '/ secdef=t /{n++} END{print n+0}' "$STAGE/.functions.$$")"
+LIVE_ROLES="$(awk 'NF{n++} END{print n+0}' "$STAGE/.roles.$$")"
+say "live inventory: $LIVE_FUNCS functions ($LIVE_SECDEF SECURITY DEFINER), $LIVE_ROLES roles own or hold something in public"
+
+# ---------------------------------------------------------------------------------
 # 3. THE DUMP.
 #
 #    --format=plain and NOT custom, deliberately: the acceptance criterion for this
@@ -175,7 +233,7 @@ pg_dump --format=plain --no-password --file="$SQL" \
 FINISHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 # ---------------------------------------------------------------------------------
-# 4. VERIFY THE INSIDE OF THE ARTIFACT. Five checks, in the order in which a broken
+# 4. VERIFY THE INSIDE OF THE ARTIFACT. Six checks, in the order in which a broken
 #    dump most often breaks.
 # ---------------------------------------------------------------------------------
 
@@ -278,7 +336,21 @@ dump_grant="$(awk '/^GRANT /          { n++ } END { print n+0 }' "$SQL")"
 [ "$dump_grant" -gt 0 ] \
   || fail "the dump carries no GRANT statements: restoring it would produce a database tappa_app cannot read"
 
-say "verified: $TABLE_COUNT/$TABLE_COUNT tables present, $total_dump rows in the dump ($total_live live now), $dump_policy policies, $dump_enable ENABLE / $dump_force FORCE RLS, $dump_grant GRANTs"
+# 4f. FUNCTION OWNERSHIP (T45). pg_dump writes one `ALTER <kind> ... OWNER TO` per
+#     routine; a dump taken with --no-owner (-O) writes none, and restoring THAT
+#     leaves every SECURITY DEFINER op_* function owned by whoever ran the restore —
+#     the superuser — so tappa_operator's every call would run as superuser.
+#     Measured on a goose-34 schema: 35 functions, 35 owner lines.
+#     🔴 THE KIND IS COUNTED THE WAY LIVE_FUNCS COUNTS IT — every pg_proc row. pg_dump
+#     spells the owner line ALTER PROCEDURE for a procedure and ALTER AGGREGATE for an
+#     aggregate (a window function stays FUNCTION), so counting only FUNCTION would
+#     turn every night red the day a migration adds either (measured: one CREATE
+#     PROCEDURE in the schema, 36 routines, 35 FUNCTION owner lines -> exit 1).
+dump_fowner="$(awk '/^ALTER (FUNCTION|PROCEDURE|AGGREGATE) public\..* OWNER TO / { n++ } END { print n+0 }' "$SQL")"
+[ "$dump_fowner" -ge "$LIVE_FUNCS" ] \
+  || fail "the database has $LIVE_FUNCS functions in public and the dump sets the owner of $dump_fowner. A restore of it would leave the SECURITY DEFINER op_* functions owned by the restoring superuser. Was the dump taken with --no-owner?"
+
+say "verified: $TABLE_COUNT/$TABLE_COUNT tables present, $total_dump rows in the dump ($total_live live now), $dump_policy policies, $dump_enable ENABLE / $dump_force FORCE RLS, $dump_grant GRANTs, $dump_fowner/$LIVE_FUNCS function owners"
 
 # ---------------------------------------------------------------------------------
 # 5. COMPRESS, CHECKSUM, MANIFEST. gzip after verification rather than before: the
@@ -310,15 +382,21 @@ SHA="$(sha256sum "$GZ" | awk '{print $1}')"
   echo "grants $dump_grant"
   echo "rows_total_dump $total_dump"
   echo "rows_total_live_after $total_live"
+  echo "functions $LIVE_FUNCS"
+  echo "functions_secdef $LIVE_SECDEF"
+  echo "function_owners_in_dump $dump_fowner"
+  echo "roles $LIVE_ROLES"
   echo "# per table: name rows_in_dump rows_live_after"
   while read -r t live; do
     [ -n "$t" ] || continue
     dump="$(awk -v t="$t" '$1 == t { print $2 }' "$STAGE/.dumpcounts.$$")"
     echo "table $t $dump $live"
   done < "$STAGE/.livecounts.$$"
+  echo "# per function and per role (section 2b): what scripts/pg-restore-verify.sh compares"
+  cat "$STAGE/.functions.$$" "$STAGE/.roles.$$"
 } > "$MANIFEST"
 
-rm -f "$STAGE/.dumpcounts.$$" "$STAGE/.livecounts.$$"
+rm -f "$STAGE/.dumpcounts.$$" "$STAGE/.livecounts.$$" "$STAGE/.functions.$$" "$STAGE/.roles.$$"
 
 say "wrote $(basename "$GZ") ($BYTES_GZ bytes) and $(basename "$MANIFEST")"
 say "sha256 $SHA"
