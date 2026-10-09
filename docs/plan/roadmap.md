@@ -18,6 +18,7 @@ milestone dosyalarına, nerede olduğumuz için [state.md](state.md)'ye bak.
 | **M8** | [Deploy & pilot](m8-deploy-pilot.md) | Sahaya çıkış | VPS + managed PG, encode runbook, KF St Julians pilotu | 7 |
 | **M9** | [Sonrası](m9-sonrasi.md) | Pilot sonrası | çevrimdışı kuyruk, push, CSV import, marka editörü | 7 |
 | **M10** | [Platform](m10-platform.md) | Operatör yüzeyi, işlemsel e-posta, tenant markası | platform operatörü (ADR 0020/0021, `op_*`), AWS SES e-posta (ADR 0022), white-label (ADR 0023/0024) | m10'da |
+| **M11** | [Entegrasyon API'si](m11-entegrasyon-api.md) | Dış İK/ERP sistemlerinin (KF-RMS, KM-ERP) Tappa'ya bağlanması | tenant API anahtarı, `/v1` (lokasyon/çalışan upsert, imleçli punch akışı, rehber), imzalı webhook, sandbox; şirket boyutu (ADR 0027/0028) | 14 (plan) |
 
 M0–M9 toplam **83 görev**; M10'un görev listesi ve durumu [m10-platform.md](m10-platform.md) ile [state.md](state.md)'de (1'i ertelendi: M6-10 → M9-06; M5-11 M5-09 denetiminde bulunan §5 ihlali için 2026-08-02'de eklendi).
 

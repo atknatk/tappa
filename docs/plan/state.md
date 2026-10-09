@@ -1692,6 +1692,14 @@ yazılır.
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 
+### 2026-10-09 (28. oturum, yirmi sekizinci yarı) — 📐 **M11 entegrasyon API'si PLANLANDI** (kod yok)
+
+- **Girdi:** kullanıcının paylaştığı *"TapTime API — Kurulum Rehberi"* (KF-RMS/KM-ERP; ZKBio'nun yerine). **Repoya konmadı** (depo public, müşterinin iç webhook adresini taşıyor).
+- **Plan:** [m11-entegrasyon-api.md](m11-entegrasyon-api.md) — spec↔Tappa ölçüm tablosu, entegratöre bildirilecek 13 sözleşme farkı, 18 karar, tasarım özü, 14 görev (API-0…API-13).
+- **🟢 KULLANICI KARARLARI (2026-10-09):** K-1 = **tek tenant, iki şirket** (`companies` boyutu; §4.5 değişmez) · K-2 = **ADR 0026 kalır** (aktivasyon dokunuşu punch değil) · K-3 = **ayrı sandbox kurulumu** (`sandbox.taptime.mt`). Prod: KM tenant'ı var, dokunuş verisi yok.
+- **Ölçülen engeller:** çapraz tenant dokunuşu bugün `sys:tenant-mismatch` → 403 · `transactions`'ta monoton anahtar yok (imleç `xid8` ile, Postgres 17) · DB outbox/işçi yok · SSRF koruması ve egress politikası yok · `employees.location_id NOT NULL` spec'te karşılıksız · e-posta prod'da kapalı (EM-5B M11'in canlı ön koşulu).
+- **Kalan:** API-0 (ADR 0027 + 0028) kullanıcı "başla" deyince; KM plaketlerinin akıbeti API-13 öncesi sorulacak.
+
 ### 2026-10-09 (28. oturum, yirmi yedinci yarı) — ✅ **EM-7C** `d69087b` · 🟢 e-postayı açma kararları
 
 - **Kullanıcı kararları (2026-10-09):** EM-5B (b) alıcı başına tavan YAP · (c) kuyruk/kesici-akıbeti numaralandırma KABUL · işletmeler arası davet yoğunlaşması KABUL.
