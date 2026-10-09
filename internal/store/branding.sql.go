@@ -81,6 +81,86 @@ func (q *Queries) EnsureTenantBrand(ctx context.Context, arg EnsureTenantBrandPa
 	return err
 }
 
+const getTenantActivationBrand = `-- name: GetTenantActivationBrand :one
+SELECT tenants.name,
+       (tenants.vat_verified IS TRUE)::boolean AS vat_verified,
+       accent, logo_sha256, logo_mime, logo_width, logo_height
+FROM tenant_branding
+JOIN tenants ON tenants.id = tenant_branding.tenant_id
+WHERE tenant_id = $1
+  AND tenants.id = $1
+`
+
+type GetTenantActivationBrandRow struct {
+	Name        string
+	VatVerified bool
+	Accent      *string
+	LogoSha256  *string
+	LogoMime    *string
+	LogoWidth   *int32
+	LogoHeight  *int32
+}
+
+// The activation family's per-page read (M10 WL-13; ADR 0023's WL-13 note): the brand
+// fields a page draws, the business's NAME (the logo's alt) and whether VIES confirmed
+// the business's VAT number. The user decided on 2026-10-09 that the wizard, the
+// "Activation complete" screen and "already set up" show the LOGO only for a business
+// VIES verified (vat_verified IS TRUE -- FALSE and NULL, never asked or no answer
+// (00017's states), are both "not verified"); the accent is shown either way. The
+// caller drops the logo when vat_verified is false (internal/domain/tenant,
+// activationBrandOf).
+//
+// GetTenantPanelBrand's shape: it starts from tenant_branding, so a business with no
+// brand row finds no row (pgx.ErrNoRows) and draws Taptime's page; both tables are
+// reached by their primary key, and each names the tenant (section 4.5).
+func (q *Queries) GetTenantActivationBrand(ctx context.Context, tenantID uuid.UUID) (GetTenantActivationBrandRow, error) {
+	row := q.db.QueryRow(ctx, getTenantActivationBrand, tenantID)
+	var i GetTenantActivationBrandRow
+	err := row.Scan(
+		&i.Name,
+		&i.VatVerified,
+		&i.Accent,
+		&i.LogoSha256,
+		&i.LogoMime,
+		&i.LogoWidth,
+		&i.LogoHeight,
+	)
+	return i, err
+}
+
+const getTenantActivationLogo = `-- name: GetTenantActivationLogo :one
+SELECT logo, logo_mime
+FROM tenant_branding
+JOIN tenants ON tenants.id = tenant_branding.tenant_id
+WHERE tenant_id = $1
+  AND tenants.id = $1
+  AND tenants.vat_verified IS TRUE
+  AND logo_sha256 = $2::text
+`
+
+type GetTenantActivationLogoParams struct {
+	TenantID   uuid.UUID
+	LogoSha256 string
+}
+
+type GetTenantActivationLogoRow struct {
+	Logo     []byte
+	LogoMime *string
+}
+
+// The logo's bytes for the activation wizard's logo route, GET /activate/logo/{sha}
+// (M10 WL-13). GetTenantLogo's statement plus ONE condition: the business is VIES
+// verified. The gate is in this WHERE rather than in a read before it, so "not
+// verified", "another business's digest", "a digest nobody stored" and "a logo since
+// replaced" are one answer -- no row (pgx.ErrNoRows) -- and the route turns that one
+// answer into one 404 (ADR 0024 §5's WL-13 note).
+func (q *Queries) GetTenantActivationLogo(ctx context.Context, arg GetTenantActivationLogoParams) (GetTenantActivationLogoRow, error) {
+	row := q.db.QueryRow(ctx, getTenantActivationLogo, arg.TenantID, arg.LogoSha256)
+	var i GetTenantActivationLogoRow
+	err := row.Scan(&i.Logo, &i.LogoMime)
+	return i, err
+}
+
 const getTenantBrand = `-- name: GetTenantBrand :one
 
 SELECT accent, logo_sha256, logo_mime, logo_width, logo_height, updated_at, updated_by
@@ -101,19 +181,20 @@ type GetTenantBrandRow struct {
 // branding.sql -- the tenant's brand: an accent and a logo (M10 WL-1; ADR 0023 §1,
 // ADR 0024 §4). Table: tenant_branding, migration 00028.
 //
-// TENANT SCOPE (CLAUDE.md section 4.5, belt + braces on RLS): the nine statements in
-// this file name @tenant_id explicitly (the WHERE of the eight SELECT/UPDATE is pinned
+// TENANT SCOPE (CLAUDE.md section 4.5, belt + braces on RLS): the eleven statements in
+// this file name @tenant_id explicitly (the WHERE of the ten SELECT/UPDATE is pinned
 // by TestTenantBranding_EveryStatementNamesTheTenant) and are meant to run inside
 // db.(*DB).WithTenant, with the tenant taken from the verified session and not from
 // the request (ADR 0024 §5).
 //
 // THE PER-PAGE READS AND THE BYTES, AND THE DIFFERENCE BETWEEN THEM IS THE POINT.
-// GetTenantBrand (tap screen, editor) and GetTenantPanelBrand (the panel chrome, WL-8)
-// are per-page reads and do NOT select `logo`: the bytes are up to 256 KiB and a page
-// needs their digest and size to render an <img>, not the bytes. Of the statements in
-// this file, GetTenantLogo is the one that returns the bytes; it is for the two logo
-// routes (WL-6). A test reads the generated statement text of the per-page reads
-// (internal/db/branding_test.go).
+// GetTenantBrand (tap screen, editor), GetTenantPanelBrand (the panel chrome, WL-8) and
+// GetTenantActivationBrand (the activation family, WL-13) are per-page reads and do NOT
+// select `logo`: the bytes are up to 256 KiB and a page needs their digest and size to
+// render an <img>, not the bytes. Of the statements in this file, GetTenantLogo and
+// GetTenantActivationLogo return the bytes; the first is for the two logo routes (WL-6),
+// the second for the activation wizard's (WL-13). A test reads the generated statement
+// text of the per-page reads (internal/db/branding_test.go).
 //
 // HOW A WRITE IS MEANT TO RUN (WL-4: the change and its audit_log row in ONE
 // transaction, with the value it replaced). Inside one WithTenant:

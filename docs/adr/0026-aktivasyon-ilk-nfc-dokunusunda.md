@@ -6,7 +6,9 @@
   NFC dokunuşunda tamamlanır · işverenin **herhangi bir** aktif plaketi yeter ·
   aktivasyon çerezi **davetin süresi bitene kadar** yaşar · practice tap'in yerini
   aktivasyon dokunuşu alır.
-- **Etkilenen:** migration `00030_add_consent_to_employee_invites.sql` ·
+- **Etkilenen:** migration `00035_add_consent_to_employee_invites.sql` *(2026-10-09 düzeltmesi, M10
+  WL-13: bu satır yeniden temellendirmeden önceki adı, `00030`, yazıyordu; dosya `00035` — aşağıdaki
+  *"Numara ve birleştirme"*)* ·
   [`db/queries/invites.sql`](../../db/queries/invites.sql) ·
   [`internal/invite`](../../internal/invite) (`RecordConsent`, `Binding`,
   `Activate(code, binding)`, `ErrConsentMissing`) ·

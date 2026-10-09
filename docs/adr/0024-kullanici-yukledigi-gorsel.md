@@ -264,6 +264,10 @@ PNG → PNG (`BestCompression`), JPEG → JPEG (q85). Saklanan ve sunulan tek ş
   çözümleyicisini kullanır; `/admin/brand/logo/…` çalışan oturumunu kimlik saymaz (→ **WL-6**:
   yönetici oturumu olmayan, çalışan çerezli istek `/admin/brand/logo/…`'ya 404 ya da panelin
   oturumsuz yanıtını alır, logo baytını almaz).
+  *(WL-13, 2026-10-09: **üçüncü rota** `GET /activate/logo/{sha}` — aktivasyon sihirbazının dört
+  adımı için; oturum henüz yoktur, işletme **davet çerezindeki** kullanılabilir davetten çözülür ve
+  logo yalnız VIES-doğrulanmış işletmeye verilir. Aynı 200, 304 kuralı ve 404 (`serveLogo`). WL-13
+  notu.)*
 - **Tenant yalnız oturumdan.** Başka tenant'ın sha'sı ve var olmayan sha **bayt-aynı 404**
   alır — gövde, durum ve başlıklar (→ **WL-6**: A oturumu B'nin sha'sını isteyince aldığı
   404, bilinmeyen sha'nınkiyle bayt-aynı; oturumsuz tap logosu 404). *(WL-6 düzeltmesi,
@@ -288,11 +292,13 @@ PNG → PNG (`BestCompression`), JPEG → JPEG (q85). Saklanan ve sunulan tek ş
   `Allow: GET` ile, yönlendiricinin tanımadığı bir metot (ölçülen: `FOO`) 405'i `Allow`
   başlığı olmadan alır; ikisi de digest'ten bağımsız (karar 7).)*
 - **Sayfa CSP'si:** `img-src 'self'` yalnız `<img>` render eden yanıtın politikasına
-  (`tapCSPFor(hasLogo)`, `adminCSPFor(hasLogo)`; emsal `landingCSPFor`, `marketing.go:500-509`).
+  (`tapCSPFor(hasLogo)`, `adminCSPFor(hasLogo)`; emsal `landingCSPFor`, `marketing.go:500-509`;
+  WL-13: `activationCSPFor(hasLogo)`).
   `Tap.render` tap, sonuç ve tap-problem yanıtlarında ortaktır (`tap.go:635-646`), politika
   render başına hesaplanır (→ **WL-6**: "sayfa `img-src`'yi ancak `<img` içeriyorsa adlandırır"
   testi, panel + tap).
-- **Bütçe:** tap grubundaki logo isteği tap sınırlayıcısının bütçesine girer; soğuk önbellekte
+- **Bütçe:** tap grubundaki logo isteği tap sınırlayıcısının bütçesine girer *(WL-13: sihirbazın
+  logo isteği aktivasyon akışının taşkın tavanına)*; soğuk önbellekte
   sayfa başına +1 (→ **WL-6**: ücretli istek sayısı ölçülüp bütçeler güncellenir — sıcak 1,
   soğuk 2).
 - **Elenen:** kimliksiz hash rotası — tenant'lar arası okuma için `SECURITY DEFINER` gerekirdi
@@ -1668,3 +1674,65 @@ Yeşil kalan P03 eşdeğerdir: `PanelLogoOf` ve `PreviewLogo` aynı kutuları re
   tuttuğunu, okuyucunun ne yaptığını iki testin tuttuğunu söylüyor.
 - **Ürün kodu değişmedi:** 2. tura göre ürün `.go` dosyalarında yalnız `//` satırları değişti
   (`brandupload.go`'nun başı, PART I'e bir madde, `readLogoBytes`'in yorumu).
+
+## WL-13 notu (2026-10-09 — üçüncü logo rotası: `GET /activate/logo/{sha}`; §5'in kuralları değişmedi)
+
+**Neden üçüncü bir rota.** Kullanıcı kararıyla (ADR 0023'ün WL-13 notu) aktivasyon sihirbazı
+işletmenin logosunu — yalnız VIES-doğrulanmış işletmede — çizer. Sihirbazın dört adımında tarayıcının
+**oturumu yoktur**: `/t/logo/` canlı çalışan oturumu ister ve 404 verirdi; `/admin/brand/logo/`
+panel çerezi ister. İşletme tek yerden bilinir: davet çerezindeki kod, sayfanın kendi çözücüsüyle
+(`invite.Lookup`). *"Activation complete"* ve *"already set up"* oturumludur ve `/t/logo/` çizer
+(aktivasyon dokunuşu daveti harcar ve çerezini siler).
+
+**Rota** (`internal/handler/activationbrand.go`, `Activation.Logo`; `Activation.Mount` kaydeder).
+Sıra: akışın taşkın tavanı (`flooded`, DB'den önce) → `{sha}` 64 küçük onaltılık hane mi → davet
+çerezi okunuyor mu → `invite.Lookup` (kullanılabilir davet: bilinen, süresi dolmamış, harcanmamış,
+iptal edilmemiş, çalışanı etkinleştirilebilir) → `serveLogo(…, tenant, BrandReader.ActivationLogo)`.
+`serveLogo` WL-6'nın `BrandLogos.serve` gövdesidir, üç rota için ortaklaştırıldı: aynı başlık
+kümesi, satır bulunduktan sonra `If-None-Match`, tek `writeLogoNotFound`. `ActivationLogo`'nun
+deyimi `GetTenantLogo` artı `tenants.vat_verified IS TRUE`: doğrulanmamış işletme, başka işletmenin
+digest'i, kimsenin saklamadığı digest ve değiştirilmiş logonun eski digest'i **tek cevaptır**
+(`pgx.ErrNoRows` → `ErrLogoNotFound` → 404). Çözücü ya da okuma hatası 500'dür (`writeLogoUnavailable`).
+**Rota hiçbir şey yazmaz:** audit satırı, davet bütçesi, red log'u yok.
+
+**Güvenlik iddiası (WL-13, üç parçalı).** *Bu pinler kazara sapmaya karşıdır; bilerek atlatma kod
+incelemesinin konusudur.*
+- **PART I — ölçüldü** (`internal/handler/activationbrand_test.go` sahtelerle,
+  `activationbrand_db_test.go` ve `internal/domain/tenant/activationbrand_db_test.go` dev
+  Postgres'e karşı `tappa_app` olarak; her yanıt `rec.Result()`'tan):
+  - kullanılabilir davet + VIES-doğrulanmış işletme + işletmenin güncel digest'i → 200, WL-6'nın
+    başlık kümesi birebir, saklanan tip ve bayt; JPEG işletmede `logo.jpg`
+    (`TestActivationLogo_AVerifiedBusinessesLogoIsServedWithTheLogoHeaders`);
+  - her ret **tek yanıttır**, bayt bayt (durum, her başlık, gövde) ve WL-6'nın 404'üdür: çerez yok,
+    yalnız oturum çerezi, ayrıştırılamayan çerez, bilinmeyen kod, süresi dolmuş, harcanmış ve iptal
+    edilmiş davet, etkinleştirilemeyen çalışan, doğrulanmamış işletme, kimsenin saklamadığı digest,
+    başka işletmenin digest'i, büyük harfli / kısa / onaltılık olmayan digest; çerezsiz, ayrıştırılamayan
+    ve biçimi bozuk istekler çözücüye ulaşmaz; hiçbir ret davetin işletmesinden başka bir işletmenin
+    logosunu okumaz (`TestActivationLogo_EveryRefusalIsTheSameNotFound`);
+  - `If-None-Match` yalnız davetin işletmesinin kendi logosunda 304; doğrulanmamış işletmenin kendi
+    digest'inde ve başka işletmenin digest'inde 404 değişmez
+    (`TestActivationLogo_IfNoneMatchIsAnsweredOnlyForTheInvitationsOwnLogo`);
+  - çözücü ya da okuyucu hatası 500, bayt yok, 404 değil (`TestActivationLogo_AFailureIsNotARefusal`);
+  - her istek akışın taşkın tavanına bir kez, çözücüden önce yazılır; tavandan sonra 429 ve çözüm
+    yok, aynı adresten sihirbaz da 429 (`TestActivationLogo_ARequestSpendsTheFloodCeiling`);
+  - rota yazmaz: sunulan logo ve 30 ret audit satırı üretmez, davetin penceresini harcamaz
+    (`TestActivationLogo_WritesNothing`);
+  - gerçek Postgres: `vat_verified` TRUE işletmenin logosu sunulur; FALSE ve NULL işletmenin **kendi**
+    digest'i 404; doğrulanmış işletmenin davetiyle ikinci doğrulanmış işletmenin digest'i, bilinmeyen
+    digest'le bayt-aynı 404 (`TestActivationLogoDB_OnlyAVerifiedBusinessesOwnLogoIsServed`); okuma
+    katmanında aynı üç durum, eski digest ve tenant'sız istek (`TestActivationBrandDB_TheVIESGateHoldsOnBothReads`,
+    `TestActivationBrand_ANilTenantOpensNoTransaction`).
+- **PART II — adı konmuş pinler:** yukarıdaki testler; mutasyonlar ve kırmızıya çevirdikleri ADR
+  0023'ün WL-13 notundaki tabloda (M2–M7, M13, M20 bu rotanındır).
+- **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
+
+**Sayılı sınırlar (WL-13 rotası).** (1) Rota reddini log'lamaz; sahte çerezli istekler yalnız akış
+tavanıyla sınırlı ve izsizdir. (2) Rota yalnız `GET`'tir. **Ölçüldü** (WL-13 üçüncü göz, 2026-10-09):
+`HEAD`, `POST`, `PUT`, `DELETE`, `OPTIONS` ve `PATCH` yönlendiricinin 405'ini `Allow: GET` ve boş
+gövdeyle alır, çerezli ve çerezsiz aynı; handler çalışmaz — akış bütçesi harcanmaz, veritabanına
+gidilmez. Rota şekline uymayan yollar (`/activate/logo/`, fazladan bir segment, sondaki `/`)
+chi'nin kendi *"404 page not found"*'unu alır — WL-6 rotalarıyla aynı. Bir kez ölçüldü; WL-6'nın
+şekil testi (`TestLogoRoutes_ShapesTheRouteDoesNotMatchGetTheRoutersAnswer`) bu rotayı kapsamaz, yani
+pin değildir. (3) Önbelleğe alınmış görsel,
+doğrulama sonradan düşerse tarayıcıda kalır (ADR 0023 WL-13 sınır 2). (4) Akış tavanına etkinleştirme
+başına +1 istek.

@@ -826,7 +826,7 @@ func TestQRScreens_SayNothingAboutTheQRRoute(t *testing.T) {
 		"pages.Confirm": pages.Confirm(pages.ConfirmView{
 			Code: "ABCD-EFGH", EmployeeName: "Maria Borg", EmployerName: "Kebab Factory Ltd",
 		}),
-		"pages.Activated": pages.Activated(pages.ActivatedView{EmployeeName: "Maria Borg", SecondDevice: true}),
+		"pages.Activated": pages.Activated(pages.ActivatedView{EmployeeName: "Maria Borg", SecondDevice: true}, layout.Brand{}),
 	}
 	// Every wizard step (ADR 0026), including the waiting screen.
 	for step := 1; step <= pages.ActivateStepTap; step++ {
@@ -834,7 +834,7 @@ func TestQRScreens_SayNothingAboutTheQRRoute(t *testing.T) {
 			EmployeeName: "Maria Borg", EmployerName: "Kebab Factory Ltd", LocationName: "St Julians",
 			WiFiSSID: "KF-Guest", RetentionYears: 2, CSRFToken: "t", Step: step, Consented: step > 2,
 			SecondDevice: true, StatusURL: ActivationStatusPath,
-		})
+		}, layout.Brand{})
 	}
 	for name, v := range problems {
 		for _, retry := range []string{"", problemRetryURL} {

@@ -16,13 +16,14 @@ import "github.com/atknatk/tappa/internal/brand"
 // route's 200 and body.
 //
 // THE ZERO VALUE IS "NO THEME" and writes nothing, so a shell that is not given one --
-// every shell but the panel's and the tap screen's today -- renders as it did before
-// the type existed.
+// every shell but the panel's, the tap screen's and (M10 WL-13) the activation family's
+// today -- renders as it did before the type existed.
 //
 // Linking it is a decision about the RESPONSE, not about the business: the caller
 // passes a Theme only for a colour brand.Check passes today (the route 404s the
 // others, and the page would then keep app.css's defaults anyway) and only on a page
-// with an accent slot (ADR 0023 §4: the tap screen and the panel shell).
+// with an accent slot (ADR 0023 §4: the tap screen and the panel shell; since M10 WL-13
+// the activation family, whose slot is the wizard's primary button).
 type Theme struct{ hex string }
 
 // ThemeOf is the theme stylesheet for one accent.

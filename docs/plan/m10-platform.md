@@ -13017,6 +13017,178 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 >
 > **Denetim ve kapanış (2026-10-09, orkestratör):** orkestratör aracı gerçek SES'e karşı koştu (~21:53 UTC; alıcı mail.tm geçici kutusu, kimlikler Infisical'dan yalnız env ile): 4/4 sent + SES 250 id, `auth 535`; mail.tm Authentication-Results eklemiyor ve `/sources` ilk sınırın CRLF'ini kaydırıyor (DKIM gövde özetiyle kanıtlandı) → bağımsız doğrulama (dkimpy + pyspf, depo dışı): DKIM `taptime.mt` + `amazonses.com` 4/4, SPF `mail.taptime.mt` pass, DMARC hizalı; Gmail "Show original" kriteri bu bağımsız doğrulamayla **ikame edildi (orkestratör kabulü)**, canlı dumanda Gmail'de ayrıca bakılacak. Tek birleşik denetim RED (ORTA: kanarya ad pini tek başına yoktu; düşükler README) → 4. tur (test + metin) → orkestratör M1'i kendi koştu: KIRMIZI. Kalan ⏳ (canlı duman, ConfigMap `email` sonrası): tek kullanımlık link, B5, B2 gözle teyit, Gmail alıcı kararı.
 
+> **WL-13 — aktivasyon ailesine tenant markası (white-label): sihirbazın dört adımı, "Activation complete", "already set up"**
+>
+> **Kart düzeltmesi (2026-10-09, WL-13 uygulaması sırasında).** Normatif kaynak [ADR 0023](../adr/0023-tenant-markasi-ve-arayuz-kurali.md)
+> §2 (slot haritası), §7 (§9 ile ilişki), §9 madde 7; kararlar, ölçümler, mutasyon tablosu ve sayfa tarafının üç parçalı
+> iddiası ADR 0023'ün *"WL-13 notu"*nda (dosyanın **sonuna** eklendi); sihirbazın logo rotasının iddiası ADR 0024'ün
+> *"WL-13 notu"*nda. Taban: `e95a717` (dal `m10-a1`: EM-7C + main'in aktivasyon işi — ADR 0026, migration 00035).
+>
+> **Kullanıcı kararları (2026-10-09, §9):**
+> 1. **Tam marka (S3):** aktivasyon ailesinin markalı ekranlarında — adım 1–4 + *"Activation complete"* + `AlreadySetUp` —
+>    tap ekranının şekli: 24 px logo yuvası + altında *"taptime · punchless"* ve accent.
+> 2. **Logo yalnız VIES-doğrulanmış tenant'ta** (`tenants.vat_verified IS TRUE`; false/NULL → logo yok, accent ve
+>    `taptime` kelime markası tap ekranının logosuz hâli gibi). EM-7B kararının eşi; ADR 0005 risk 9.
+> 3. **Accent** adım 1–3'ün `.tap-button`'ında; accent varken ilerleme çubuğu, 01/02/03 ve işaretli onay kutusu
+>    **ink** (K-2a uzantısı). Tema gövdesi değişmez, yeni rota yok — ink sınıfları şablonda.
+>
+> **Tehdit modeli:** *"Bu pinler kazara sapmaya karşıdır; bilerek atlatma kod incelemesinin konusudur."*
+>
+> **Yazıldı:** `db/queries/branding.sql` (yeni: `GetTenantActivationBrand`, `GetTenantActivationLogo`; başlık sayıları) +
+> `make gen` (`internal/store/branding.sql.go`, `querier.go`) · `internal/domain/tenant/activationbrand.go` (yeni:
+> `BrandReader.ActivationBrand`, `activationBrandOf` — **VIES kapısı** —, `BrandReader.ActivationLogo`) ·
+> `internal/handler/activationbrand.go` (yeni: `activationLogoRoute`, `logoRoute` `wizardLogo`/`sessionLogo`,
+> `Activation.lookFor`, `Activation.Logo` — `GET /activate/logo/{sha}`; üç parçalı iddia) · `internal/handler/activate.go`
+> (`activationBrands` arayüzü, `brands` alanı, `NewActivation(…, brands, cfg, log)` + nil reddi, `Mount`'a rota,
+> `renderAlreadySetUp`, `Complete`/`renderForm` markalı, `heldSession.TenantID`, `render(…, drawsLogo)`,
+> `activationCSPFor`) · `internal/handler/brandlogo.go` (`BrandLogos.serve` → paylaşılan `serveLogo` + `logoRead`; başlık
+> yorumu) · `internal/handler/tap.go`, `ratelimit.go` (yalnız yorum: CSP kapsamı; akış bütçesi 8 → 9) ·
+> `web/templates/layout/base.templ` (yeni `ActivationPage(title, Brand)`; `Page`/`PageWithScript`/`shell`/`documentHead`
+> yorumları düzeltildi) · `layout/brand.go` (`activationLogoRoute`, `ActivationLogo`, `ActivationBrand`,
+> `Brand.Accented`) · `layout/theme.go` (yorum) · `web/templates/pages/activate.templ` (`Activate(v, look)`,
+> `AlreadySetUp(v, look)`, `Activated(v, look)`; `wizardSegment`/`wizardIndex`/`wizardConsent`; onay kutusunun
+> `if accented` dalı; `plaqueWait` ve `Problem` yorumları) + `make gen` · `cmd/tappa/main.go` (marka okuyucusu
+> aktivasyondan önce kurulur ve ona verilir) · pinler: `cmd/tappa/storekeyshape_test.go` (imza haritası +2, adlı sorgu
+> 132 → 134, `[]byte` taşıyan yöntem 6 → 7), `internal/db/branding_test.go` (select-list haritası + pozitif kontrol,
+> SELECT/UPDATE 8 → 10) · testler: yeni `internal/handler/activationbrand_test.go`, `activationbrand_db_test.go`,
+> `internal/domain/tenant/activationbrand_db_test.go`; değişen `unbranded_golden_test.go` (+3 render, 33 → 36; golden'lar
+> **e95a717'den**), `brandlogo_test.go` (img-src derlemine aktivasyon), `activate_test.go` (`handlerOpts.brands/log`),
+> `devtap_test.go`, `qr_db_test.go`, `adminlogin_db_test.go`, `tap_db_test.go`, `seedflow_db_test.go` (yeni kurucu
+> imzası) · belgeler: ADR 0023 (§2 tablosu, `.tap-button` sayımı, §7, §9 md 7, *Karar verilmedi*, İddia B, WL-13 notu),
+> ADR 0024 (§5 + WL-13 notu), ADR 0005 risk 9 (WL-13 eki), ADR 0026 (*Etkilenen*: `00030` → `00035`), skill
+> `tappa-brand` (*Tenant slotları*), CLAUDE.md §9'un tenant markası paragrafı (yalnız o).
+> Migration yok, DDL yok, yeni bağımlılık yok, Node yok; `go.mod`/`go.sum`/`sqlc.yaml` diff boş.
+>
+> **Ölçüm ortamı:** dev Postgres (`.env.example`'ın geliştirme URL'i, `tappa_app`) yalnız DB testleri için; derlenmiş
+> CSS ana deponun `.tools/tailwindcss`'iyle; CDP Chrome headless (390×844, `prefers-reduced-motion`); mutasyonlar
+> yerinde uygulanıp kaynak bayt bayt geri yazıldı, her satırdan sonra parmak izi tabanla aynı.
+>
+> **Kararlar (ADR 0023 WL-13 notu, teknik kararlar 1–11):**
+> 1. **Sihirbazın logo rotası** `GET /activate/logo/{sha}`: taşkın tavanı → digest biçimi → davet çerezi → `invite.Lookup`
+>    → `serveLogo` + `ActivationLogo`. Her ret WL-6'nın tek 404'ü; çözücü/okuma hatası 500; rota hiçbir şey yazmaz.
+> 2. **"Activation complete" ve "already set up" `/t/logo/{sha}`** — oturumlular; aktivasyon dokunuşu daveti harcar ve
+>    çerezini siler, davet anahtarlı rota orada çözecek bir şey bulamaz.
+> 3. **VIES kapısı okumalarda:** `activationBrandOf` (logo ve ad yalnız TRUE'da) ve `GetTenantActivationLogo`'nun `WHERE`'i.
+>    `/t/logo/` bilerek kapılanmadı (aynı oturum logoyu tap ekranında zaten görür).
+> 4. **CSP** `activationCSPFor(hasLogo)`; her `render` çağrısı `drawsLogo` söyler.
+> 5. **Kabuk** `layout.ActivationPage`; `layout.Page`, `pages.Problem` ve `pages.Confirm` marka almaz (yapısal).
+> 6. **Fail-plain** + tek ERROR (`tenant_id`, hata); reddedilen accent → accent yok, logo kalır, tek WARN.
+> 7. **Marka kimin:** sihirbaz davetin işletmesinin; oturumlu iki ekran oturumun işletmesinin.
+> 8. **Ink sınıfları şablonda;** derlenmiş `app.css` 57 631 → 57 865 B (+234 B), yeni üç kural (`accent-ink`, işaretli
+>    çerçevenin ink kenarı ve ink %5 zemini); yorumlarda sınıf adı yok (ölçüldü: yeni kural yalnız bu üçü).
+> 9. **Bütçe:** akışın `floodLimit`'i (etkinleştirme başına +1, immutable önbellek).
+> 10. **Plaket çizimi Taptime** — `plaqueWait` marka argümanı almaz (ADR 0023 §9 md 4: fiziksel plaket Taptime'ın).
+>
+> **Sapmalar:** (a) markasız golden'a üç render eklendi (`activate-complete`, `activate-complete-replaced`,
+> `activate-already-set-up`) — brief "10 aktivasyon render'ı" diyordu; markalanan iki oturumlu ekranın da bayt-aynılığını
+> pinlemek için, **WL-13 değişikliğinden önce** e95a717'den yazıldı. (b) Brief'te listelenmeyen iki pin daha ölçülerek
+> güncellendi: `TestStoreSurface_NoByteCarryingQueryReadsTags` (6 → 7) ve `TestTenantBranding_EveryStatementNamesTheTenant`
+> (8 → 10). (c) `NewActivation` bir parametre aldı (zorunlu; nil reddedilir) — dokuz çağrı yeri güncellendi.
+>
+> **Kabul tablosu (her satır tam bir test adı; DB testleri dev Postgres'e karşı):**
+>
+> | # | Kabul | Test |
+> |---|---|---|
+> | R1 | Rota: geçerli çerez + doğrulanmış işletme + doğru sha → 200, WL-6'nın başlık kümesi birebir (tip, dosya adı, önbellek, ETag, CSP, CORP, nosniff, Content-Length); JPEG → `logo.jpg` | `TestActivationLogo_AVerifiedBusinessesLogoIsServedWithTheLogoHeaders` |
+> | R2 | Her 404 nedeni bayt-aynı (durum + her başlık + gövde): çerez yok, yalnız oturum çerezi, bozuk çerez, bilinmeyen kod, süresi dolmuş, harcanmış, iptal, etkinleştirilemeyen çalışan, doğrulanmamış, bilinmeyen sha, **başka işletmenin sha'sı**, bozuk sha ×3; çerezsiz/bozuk istek çözücüye ulaşmaz; başka işletmenin logosu okunmaz | `TestActivationLogo_EveryRefusalIsTheSameNotFound` |
+> | R3 | `If-None-Match` 304 yalnız kendi logoda; doğrulanmamışta ve başka sha'da 404 değişmez | `TestActivationLogo_IfNoneMatchIsAnsweredOnlyForTheInvitationsOwnLogo` |
+> | R4 | Çözücü / okuyucu hatası 500, bayt yok | `TestActivationLogo_AFailureIsNotARefusal` |
+> | R5 | **Bütçe aşımı:** her istek akış tavanına bir kez, çözücüden önce; 601. istek 429 ve çözüm yok; aynı adresten sihirbaz 429, başka adres 200 | `TestActivationLogo_ARequestSpendsTheFloodCeiling` |
+> | R6 | Rota yazmaz: audit satırı 0, davet penceresi harcanmaz | `TestActivationLogo_WritesNothing` |
+> | R7 | **DB E2E:** gerçek davet + gerçek okuyucu; TRUE → 1. adımda logo + tema + img-src, rota baytı sunar; FALSE ve NULL → ink wordmark + tema, `<img>` yok, kendi sha'sı 404; doğrulanmış davetle başka doğrulanmış işletmenin sha'sı = bilinmeyen sha (bayt-aynı 404) | `TestActivationLogoDB_OnlyAVerifiedBusinessesOwnLogoIsServed` |
+> | R8 | Okuma katmanı, gerçek Postgres: VIES TRUE/FALSE/NULL × marka okuması ve logo okuması; eski sha ve başka işletmenin sha'sı `ErrLogoNotFound` | `TestActivationBrandDB_TheVIESGateHoldsOnBothReads` |
+> | R9 | VIES kapısı birim: doğrulanmamışta logo ve ad yok, accent aynı; yarım logo ve kanonik olmayan accent hata | `TestActivationBrandOf_TheLogoOnlyForAVerifiedBusiness` |
+> | R10 | Tenant'sız okuma transaction açmaz; DB hatası hata (404 değeri değil) | `TestActivationBrand_ANilTenantOpensNoTransaction` |
+> | R11 | İki yeni sorgu tenant kuşağı altında | `TestActivationBrand_TheBeltSeesBothReads`, `TestStaffQueries_CarryAnExplicitTenantPredicate`, `TestTenantBranding_EveryStatementNamesTheTenant` |
+> | R12 | Sorgu envanteri ve sayıları (134; `[]byte` 7) | `TestStoreSurface_IsTheOneRecorded`, `TestStoreSurface_NoByteCarryingQueryReadsTags`, `TestResolverAccess_NoSqlcQueryNamesADefiner` |
+> | R13 | Per-page okuma logo baytı seçmez; logo okuması `logo,logo_mime` | `TestTenantBranding_PerPageReadsDoNotSelectTheLogo` |
+> | S1 | **Doğrulanmış + logolu + accent'li:** adım 1–4 + complete + AlreadySetUp'ta BrandHeader (sihirbazda `/activate/logo/`, oturumlularda `/t/logo/`), tema `<link>`'i app.css'ten hemen sonra, `<img>` 1, img-src; `.tap-button` adım 1–3'te 1, **adım 4'te 0**; geri kalan sayfa markasızla bayt-aynı | `TestActivationScreens_ABrandedBusinessGetsTheTapScreensHeaderAndTheme` |
+> | S2 | **Doğrulanmamış (yalnız accent):** logo yok, ink wordmark, tema var, img-src yok | `TestActivationScreens_AnAccentWithoutALogoGetsTheInkWordmark` |
+> | S3 | **Markasız → BAYT-AYNI golden** (36 render; 13'ü aktivasyon) | `TestUnbrandedScreens_AreByteIdenticalToTheGolden` |
+> | S4 | Accent varken ink (çubuk, numaralar, onay kutusu), yokken yeşil — 4 marka × 4 adım | `TestActivationWizard_TheOtherGreenMarksTurnInkOnlyBesideAnAccent` |
+> | S5 | Ink kuralları derlenmiş CSS'te ink renginde ve yeşilden sonra | `TestActivationWizard_TheInkMarksCompileToInkAfterTheGreen` |
+> | S6 | Problem ekranları ve Confirm markalı işletmenin geçerli koduyla bile markasız (14 ekran, bayt-aynı, marka okunmaz) | `TestActivationFailureScreens_StayTaptimesForABrandedInvitation` |
+> | S7 | Plaket çizimi markalıda bayt-aynı | `TestActivationPlaque_StaysTaptimesOnABrandedPage` |
+> | S8 | Marka okuma hatası → markasız ekran + tek ERROR (tenant_id; kod/renk/sha yok) | `TestActivationScreens_ABrandReadFailureDrawsTaptimesPage` |
+> | S9 | Bugün reddedilen accent → tema ve ink yok, logo kalır, tek WARN | `TestActivationScreens_AnAccentTheGateRefusesTodayKeepsTheLogo` |
+> | S10 | Sihirbaz davetin işletmesinin markası (telefonda başka oturum varken); AlreadySetUp oturumunkini | `TestActivationScreens_TheBrandIsTheBusinessThePageNames` |
+> | S11 | **CSP `img-src` yalnız logo varken** — 83 render (20 aktivasyon: altı ekran × üç marka + iki başarısızlık ekranı) | `TestPageImages_ImgSrcIsNamedOnlyByAPageThatDrawsAnImage` |
+> | S12 | `activationCSPFor` literallere karşı | `TestActivationCSP_ALogoWidensByImgSrcAlone` |
+> | S13 | **Kontrast:** markalı render'ın tema bağlantısı gerçek tema rotasından alınır; düğme metni ≥ 4,5:1 (8 renk), porcelain'de < 3:1 ise ink kenar | `TestActivationWizard_TheAccentButtonTextClearsAA` |
+> | S14 | Sıfır marka ile `ActivationPage` = `Page` bayt bayt | `TestActivationPage_AZeroBrandIsPageByteForByte` |
+> | S15 | Nil / typed-nil marka okuyucusu reddedilir | `TestNewActivation_RefusesANilBrandReader` |
+> | S16 | Kabuk çağrılıyor (yeni kabuğun çağıranı var) | `TestLayoutShells_EveryOneIsActuallyRendered` |
+> | D1 | Belgelerde adı geçen her test var | `TestEveryNamedTestExists` |
+> | D2 | ADR 0005 sayımları | `TestADR0005_TheRiskCountMatchesTheTable`, `TestADR0005_TheAnchorCountsMatchTheProse` |
+>
+> **Mutasyon tablosu (22; hepsi kırmızı, hepsi geri yazıldı, parmak izi tabanla aynı):**
+>
+> | # | Mutasyon | Kırmızıya dönen testler |
+> |---|---|---|
+> | M1 | VIES kapısını sayfa okumasından kaldır | `TestActivationBrandDB_TheVIESGateHoldsOnBothReads`, `TestActivationBrandOf_TheLogoOnlyForAVerifiedBusiness`, `TestActivationLogoDB_OnlyAVerifiedBusinessesOwnLogoIsServed` |
+> | M2 | NULL'u doğrulanmış say (`IS NOT FALSE`) | `TestActivationBrandDB_TheVIESGateHoldsOnBothReads`, `TestActivationLogoDB_OnlyAVerifiedBusinessesOwnLogoIsServed`, `TestTenantBranding_PerPageReadsDoNotSelectTheLogo` |
+> | M3 | VIES kapısını logo deyiminden kaldır | `TestActivationBrandDB_TheVIESGateHoldsOnBothReads`, `TestActivationLogoDB_OnlyAVerifiedBusinessesOwnLogoIsServed` |
+> | M4 | 404'lerden birini farklılaştır (çerezsiz → `http.NotFound`) | `TestActivationLogo_EveryRefusalIsTheSameNotFound` |
+> | M5 | sha kontrolünü kaldır (`OR true`) | `TestActivationBrandDB_TheVIESGateHoldsOnBothReads`, `TestActivationLogoDB_OnlyAVerifiedBusinessesOwnLogoIsServed` |
+> | M6 | Çerezsiz isteğe (oturumdan) logo ver | `TestActivationLogo_EveryRefusalIsTheSameNotFound` |
+> | M7 | Harcanmış davette logo ver | `TestActivationLogo_EveryRefusalIsTheSameNotFound` |
+> | M8 | Problem ekranını (bad link) markala | `TestActivationFailureScreens_StayTaptimesForABrandedInvitation` |
+> | M9 | Confirm'ü markala | `TestActivationFailureScreens_StayTaptimesForABrandedInvitation` |
+> | M10 | Ink sınıfını accent'siz de uygula | `TestActivationScreens_ABrandedBusinessGetsTheTapScreensHeaderAndTheme`, `TestActivationWizard_TheOtherGreenMarksTurnInkOnlyBesideAnAccent`, `TestUnbrandedScreens_AreByteIdenticalToTheGolden` |
+> | M11 | Markasızda tema link'i bas | `TestActivationScreens_ABrandReadFailureDrawsTaptimesPage`, `TestActivationScreens_ABrandedBusinessGetsTheTapScreensHeaderAndTheme`, `TestActivationScreens_AnAccentTheGateRefusesTodayKeepsTheLogo`, `TestActivationWizard_TheOtherGreenMarksTurnInkOnlyBesideAnAccent`, `TestUnbrandedScreens_AreByteIdenticalToTheGolden` |
+> | M12 | CSP'ye her zaman `img-src` koy | `TestActivationCSP_ALogoWidensByImgSrcAlone`, `TestActivationFailureScreens_StayTaptimesForABrandedInvitation`, `TestActivationLogoDB_OnlyAVerifiedBusinessesOwnLogoIsServed`, `TestActivationScreens_AnAccentWithoutALogoGetsTheInkWordmark`, `TestPageImages_ImgSrcIsNamedOnlyByAPageThatDrawsAnImage`, `TestUnbrandedScreens_AreByteIdenticalToTheGolden` |
+> | M13 | Bütçeyi kaldır | `TestActivationLogo_ARequestSpendsTheFloodCeiling` |
+> | M14 | Adım 4'e tap-button ekle | `TestActivationScreens_ABrandedBusinessGetsTheTapScreensHeaderAndTheme`, `TestUnbrandedScreens_AreByteIdenticalToTheGolden` |
+> | M15 | Plaket halkasını accent'le boya (yalnız accent yanında) | `TestActivationPlaque_StaysTaptimesOnABrandedPage`, `TestActivationScreens_ABrandedBusinessGetsTheTapScreensHeaderAndTheme` |
+> | M16 | Oturumlu ekranlar sihirbaz rotasını çizer | `TestActivationScreens_ABrandedBusinessGetsTheTapScreensHeaderAndTheme`, `TestActivationScreens_AnAccentTheGateRefusesTodayKeepsTheLogo`, `TestActivationScreens_TheBrandIsTheBusinessThePageNames` |
+> | M17 | Sihirbaz telefon sahibinin markasıyla | `TestActivationScreens_TheBrandIsTheBusinessThePageNames` |
+> | M18 | Marka okuma hatası sessiz | `TestActivationScreens_ABrandReadFailureDrawsTaptimesPage` |
+> | M19 | Reddedilen accent yine tema bağlar | `TestActivationScreens_AnAccentTheGateRefusesTodayKeepsTheLogo` |
+> | M20 | Reddedilen logo isteği audit yazar + davet penceresini harcar | `TestActivationLogo_WritesNothing` |
+> | M21 | Nil marka okuyucusu kabul | `TestNewActivation_RefusesANilBrandReader` |
+> | M22 | Sihirbaz logosu tap rotasından | `TestActivationLogoDB_OnlyAVerifiedBusinessesOwnLogoIsServed`, `TestActivationScreens_ABrandedBusinessGetsTheTapScreensHeaderAndTheme`, `TestActivationScreens_AnAccentTheGateRefusesTodayKeepsTheLogo`, `TestActivationScreens_TheBrandIsTheBusinessThePageNames` |
+>
+> **Sayılı sınırlar:** ADR 0023 WL-13 notu 1–9 (VIES KDV numarasının varlığını söyler, kaydolanın sahipliğini değil —
+> ADR 0022 EM-7B sınır 1; X müşteri değilken onun numarasıyla kaydolan taklitçi doğrulanır, kapı biçim 1'i daraltmaz;
+> doğrulama sonradan düşerse önbellekteki görsel kalır; `/t/logo/` kapısız; rota reddi log'lamaz; akış tavanına +1;
+> kırık logo `alt`'ı; bekleme ekranının bloğu sihirbaz markasıyla; `ActivationBrand` +1 PK okuması — EXPLAIN üçüncü
+> gözde ölçüldü: iki PK Index Scan, maliyet 16,77, generic plan aynı; CDP pin değil) ve ADR 0024 WL-13 notu (rota
+> yalnız GET — üçüncü göz ölçtü: HEAD/POST/PUT/DELETE/OPTIONS/PATCH 405 `Allow: GET`, handler çalışmaz; şekle uymayan
+> yol chi'nin 404'ü; şekil testi bu rotayı kapsamaz, pin değil).
+>
+> **Kontrast (2. tur düzeltmesi):** işaretli onay kutusunun zemininde ink/85 metin **8,65:1** (AA geçer). İşaretli
+> hâlin ink %5 zemini etiketin paper'ının yerine geçer; altta gövdenin porcelain'i kalır → bileşik `rgb(226, 230, 224)`.
+> 1. turdaki "paper üstünde ink %5 → 9,46:1" öncülü yanlıştı (üçüncü göz).
+>
+> **Kapılar (koşuldu):** `gofmt -l` boş · `go build ./...` · `go vet` (handler, tenant, cmd/tappa, db, web) · `make fmt gen`
+> idempotent (parmak izi değişmedi) · `scripts/redline-check.sh` temiz · hedefli testler (yukarıdaki tablo, DB ile) ·
+> `go test ./cmd/tappa/` (envanter ve belge testleri). **Koşulmadı (brief gereği):** tam `-race`, `go test ./...`,
+> `make check`. `TestSeedDB_EveryDemoPlaqueOpensUnderTheConfiguredKEK` yalnız `.env`'in KEK'iyle koşar — bu görevde
+> koşulmadı (yalnız kurucu imzası değişti).
+>
+> **Görsel kanıt:** `scratchpad/wl13/shots/` — A (doğrulanmış, logo + accent `FFC72C`), B (doğrulanmış, yalnız logo),
+> C (doğrulanmamış, yalnız accent), U (markasız) × altı ekran (adım 2 işaretli onayla) + problem ekranı; computed
+> değerler `scratchpad/wl13/probes.json`; harness `scratchpad/wl13/render/main.go` (gerçek bileşenler, gerçek
+> `layout.ActivationBrand`).
+>
+> **2. tur (2026-10-09, yalnız metin; üçüncü göz ONAY, üç DÜŞÜK bulgu):** (1) ADR 0023 §6 madde 9 ve skill'in
+> *"Dokunulmaz"* listesine onay kutusu için WL-13 istisnası; (2) kontrast sayısı ve öncülü (yukarıda); (3) iki
+> "ölçülmedi" ölçüm sonucuyla güncellendi (ADR 0024 WL-13 sınır 2, ADR 0023 WL-13 sınır 8). Kod değişmedi.
+>
+> **3. tur (2026-10-09, yalnız metin; güvenlik denetimi ONAY — kod/davranış bulgusu 0: 13 ret nedeni bayt-aynı,
+> zamanlama VIES/sha sızdırmıyor, RLS ayrıca ölçüldü, önbellek `private`, 4 mutasyon KIRMIZI):** (1) [ORTA] ADR 0005
+> risk 9 biçim 1'in WL-13 eki ve ADR 0023 WL-13 sınır 1: *"VIES şirketin gerçek olduğunu söyler … risk daralır"* →
+> *"VIES numaranın varlığını söyler, sahipliğini değil"*, ADR 0022 EM-7B sınır 1'e atıf; kapı biçim 1'in asıl
+> senaryosunda (X müşteri değilken onun herkese açık numarasıyla kayıt) hiçbir şey daraltmaz. Kullanıcı kararı aynen
+> uygulanmış — yalnız sicilin anlatımı düzeldi. (2) [DÜŞÜK] risk 9 biçim 2'ye aktivasyon ailesi eki (yalnız
+> VIES-doğrulanmışta; ör. 1. adımda *"✓ Activation complete"* çizen logo — kayıt kaybı yok, yalnız o çalışan
+> etkinleşmez). Kod değişmedi.
+>
+> **Devirler:** state.md · backlog · open-questions · m10-platform.md — bu görevde dokunulmadı (orkestratöre). Denetçiye:
+> `/t/logo/`'nun VIES'le kapılanmaması (karar 3) ve sihirbaz rotasının ret log'suzluğu (sınır 4) bilinçli tercihlerdir.
+>
+> **Denetim ve kapanış (2026-10-09, orkestratör):** 🟢 **KULLANICI KARARLARI (2026-10-09, §9):** aktivasyon ailesine tam marka (S3) — logo yalnız VIES-doğrulanmışta; accent varken ilerleme çubuğu, numaralar ve onay kutusu ink. İnceleme (salt-okur, `origin/main` `65f55b4`) K6'nın bilinçli olduğunu ve logonun davet çerezine bağlı yeni bir rota gerektirdiğini gösterdi. Tam disiplin: üçüncü göz ONAY (tappa-brand merceği; golden'ların `e95a717`'den yazıldığını bağımsız doğruladı; üç düşük metin → 2. tur) → güvenlik ONAY (13 ret nedeni bayt-aynı, zamanlama VIES/sha sızdırmıyor, RLS ayrıca, önbellek `private`; ORTA metin: VIES numaranın varlığını söyler, sahipliğini değil → 3. tur). Tap/sonuç/panel'e VIES kapısı UZATILMADI (oturum + fiziksel dokunuş; status quo). Faz sonu: `verify.sh` yeşil; `-race` handler (344 s), domain/tenant, templates/email, cmd/tappa ok; `internal/db`'de yalnız bilinen T113 kırmızıları.
+
 ## 4. Akış B — E-posta (AWS SES)
 
 ### Öneri: SES SMTP arayüzü + stdlib `net/smtp` (STARTTLS 587), `eu-central-1` — ✅ (sıfır yeni modül)

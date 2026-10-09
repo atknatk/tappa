@@ -274,8 +274,15 @@ const activationTapURL = "/t?tag=" + testPlaqueUID + "&ctr=0005F2&cmac=EA2AA4036
 // activationQRURL is the same plaque's static QR URL: no SUN.
 const activationQRURL = "/t?tag=" + testPlaqueUID
 
-// handlerOpts lets a test swap the verifier; the zero value is a genuine tap.
-type handlerOpts struct{ verifier *fakeVerifier }
+// handlerOpts lets a test swap the verifier and the brand reader; the zero value is a
+// genuine tap and a business with no brand (M10 WL-13).
+type handlerOpts struct {
+	verifier *fakeVerifier
+	brands   *fakeActivationBrands
+	// log, when set, receives the handler's log output (M10 WL-13's brand tests read
+	// it); otherwise it is discarded.
+	log io.Writer
+}
 
 func newHandler(t *testing.T, inv *fakeInvites, sess *fakeSessions, rec *fakeAudit) http.Handler {
 	t.Helper()
@@ -291,6 +298,9 @@ func newHandlerWith(t *testing.T, inv *fakeInvites, sess *fakeSessions, rec *fak
 	if o.verifier == nil {
 		o.verifier = &fakeVerifier{}
 	}
+	if o.brands == nil {
+		o.brands = &fakeActivationBrands{}
+	}
 	sess.tok = sess.token(t)
 	cfg := &config.Config{
 		Env:            config.EnvDev,
@@ -299,7 +309,11 @@ func newHandlerWith(t *testing.T, inv *fakeInvites, sess *fakeSessions, rec *fak
 	}
 	// Discard log output: these tests assert on responses and audit events, and a
 	// test that also asserted on log text would fail for cosmetic reasons.
-	a, err := NewActivation(inv, sess, o.verifier, rec, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	logw := o.log
+	if logw == nil {
+		logw = io.Discard
+	}
+	a, err := NewActivation(inv, sess, o.verifier, rec, o.brands, cfg, slog.New(slog.NewTextHandler(logw, nil)))
 	if err != nil {
 		t.Fatalf("NewActivation: %v", err)
 	}
@@ -1683,7 +1697,7 @@ func TestNoLogLineEverCarriesTheCode(t *testing.T) {
 		t.Helper()
 		sess.tok = sess.token(t)
 		cfg := &config.Config{Env: config.EnvDev, BaseURL: "http://localhost:8080", RetentionYears: 2}
-		a, err := NewActivation(inv, sess, &fakeVerifier{}, &fakeAudit{}, cfg,
+		a, err := NewActivation(inv, sess, &fakeVerifier{}, &fakeAudit{}, &fakeActivationBrands{}, cfg,
 			slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelDebug})))
 		if err != nil {
 			t.Fatalf("NewActivation: %v", err)
@@ -2380,7 +2394,7 @@ func TestBudgets_AnonymousRefusalsStopFillingTheLog(t *testing.T) {
 	sess := &fakeSessions{}
 	sess.tok = sess.token(t)
 	cfg := &config.Config{Env: config.EnvDev, BaseURL: "http://localhost:8080", RetentionYears: 2}
-	a, err := NewActivation(inv, sess, &fakeVerifier{}, &fakeAudit{}, cfg,
+	a, err := NewActivation(inv, sess, &fakeVerifier{}, &fakeAudit{}, &fakeActivationBrands{}, cfg,
 		slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	if err != nil {
 		t.Fatalf("NewActivation: %v", err)

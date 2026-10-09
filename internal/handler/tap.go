@@ -601,7 +601,8 @@ func tappedWallOf(pv sun.Preview) uuid.UUID {
 //
 // SCOPE: this header is set on THIS package's tap responses. Since ADR 0026 the
 // activation screens carry it too, plus connect-src 'self' for the waiting
-// screen's poll (activationCSP, activate.go).
+// screen's poll (activationCSP, activate.go), and since M10 WL-13 img-src 'self' on an
+// activation screen that draws the business's logo (activationCSPFor).
 const tapCSP = "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; " +
 	"form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
 

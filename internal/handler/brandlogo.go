@@ -7,6 +7,12 @@ package handler
 //	GET /t/logo/{sha}             the tap surface's chain (Tap.chain): a live employee
 //	                              session is required
 //
+// A THIRD LOGO ROUTE LIVES IN activationbrand.go (M10 WL-13): GET /activate/logo/{sha},
+// keyed by the invitation in the activation cookie and gated on VIES, for the wizard's
+// four steps, which a browser sees before it holds a session. It answers through
+// serveLogo below, so its 200, its 304 rule and its refusal are these routes' own; its
+// claim is written there.
+//
 // TWO ROUTES, BECAUSE TWO SURFACES. The panel cookie is Path=/admin and never reaches
 // /t/…, so a tap-side route cannot see a manager; and each surface has its own
 // resolver and its own budgets. Each route reads ONLY its own surface's identity: the
@@ -247,29 +253,43 @@ func (b *BrandLogos) tapLogo(w http.ResponseWriter, r *http.Request) {
 
 // serve answers for the business tenantID, which the caller took from a live session.
 func (b *BrandLogos) serve(w http.ResponseWriter, r *http.Request, tenantID uuid.UUID) {
+	serveLogo(w, r, b.log, tenantID, b.logos.Logo)
+}
+
+// logoRead is one business's logo bytes by digest: tenant.BrandReader.Logo for the two
+// routes above, tenant.BrandReader.ActivationLogo for the activation wizard's (M10
+// WL-13). Each answers tenant.ErrLogoNotFound for every digest the business does not
+// hold -- and ActivationLogo for every digest of a business VIES did not verify.
+type logoRead func(ctx context.Context, tenantID uuid.UUID, digest string) (tenant.StoredLogo, error)
+
+// serveLogo is the answer of every logo route (WL-6's two and, since M10 WL-13, the
+// activation wizard's): the business is tenantID, which the caller resolved from its
+// surface's identity, and the bytes are read's. One function, so the three routes send
+// the same 200, the same 304 rule and the same refusal.
+func serveLogo(w http.ResponseWriter, r *http.Request, log *slog.Logger, tenantID uuid.UUID, read logoRead) {
 	digest := chi.URLParam(r, "sha")
 	if !isLogoDigest(digest) {
-		writeLogoNotFound(w, b.log)
+		writeLogoNotFound(w, log)
 		return
 	}
-	logo, err := b.logos.Logo(r.Context(), tenantID, digest)
+	logo, err := read(r.Context(), tenantID, digest)
 	switch {
 	case errors.Is(err, tenant.ErrLogoNotFound):
-		writeLogoNotFound(w, b.log)
+		writeLogoNotFound(w, log)
 		return
 	case err != nil:
 		// The tenant and the error; not the digest and never the bytes (ADR 0024 §6's
 		// rule for the upload's log, applied to the read).
-		b.log.ErrorContext(r.Context(), "logo: reading the logo failed", "tenant_id", tenantID, "err", err)
-		writeLogoUnavailable(w, b.log)
+		log.ErrorContext(r.Context(), "logo: reading the logo failed", "tenant_id", tenantID, "err", err)
+		writeLogoUnavailable(w, log)
 		return
 	}
 	name, ok := logoFileName(logo.MIME)
 	if !ok {
 		// Unreachable while migration 00028's type CHECK stands. Not served: a type
 		// this file cannot name is a type it cannot vouch for.
-		b.log.ErrorContext(r.Context(), "logo: the stored type is not one this route serves", "tenant_id", tenantID)
-		writeLogoUnavailable(w, b.log)
+		log.ErrorContext(r.Context(), "logo: the stored type is not one this route serves", "tenant_id", tenantID)
+		writeLogoUnavailable(w, log)
 		return
 	}
 	h := w.Header()
@@ -294,7 +314,7 @@ func (b *BrandLogos) serve(w http.ResponseWriter, r *http.Request, tenantID uuid
 	h.Set("Content-Length", strconv.Itoa(len(logo.Data)))
 	w.WriteHeader(http.StatusOK)
 	if _, err := w.Write(logo.Data); err != nil {
-		b.log.WarnContext(r.Context(), "logo: writing the response failed", "tenant_id", tenantID, "err", err)
+		log.WarnContext(r.Context(), "logo: writing the response failed", "tenant_id", tenantID, "err", err)
 	}
 }
 

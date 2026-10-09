@@ -295,7 +295,7 @@ func newPanelHarnessWith(t *testing.T, o panelHarnessOptions) *panelHarness {
 	if err != nil {
 		t.Fatalf("session.New: %v", err)
 	}
-	activation, err := NewActivation(invites, sessions, sun.NewVerifier(data, cfg.TagKEK), trail, cfg, slog.New(slog.DiscardHandler))
+	activation, err := NewActivation(invites, sessions, sun.NewVerifier(data, cfg.TagKEK), trail, dbBrandReader(t, data), cfg, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewActivation: %v", err)
 	}

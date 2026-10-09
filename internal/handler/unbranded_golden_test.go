@@ -17,7 +17,11 @@ package handler
 // this test"), any other header, and the bytes of the tap screen's signed context,
 // which carries its own mint time and is masked (its presence is asserted instead).
 //
-// The list, by name and count, is in the WL-9 card and the ADR 0023 WL-9 note.
+// The list, by name and count, is in the WL-9 card and the ADR 0023 WL-9 note; WL-13
+// added the activation family's three session-screen renders (ADR 0023's WL-13 note),
+// and every activation render here goes through a brand reader that answers "no brand"
+// (activate_test.go's newHandlerWith), which is what a business that never set one
+// reads as.
 
 import (
 	"bytes"
@@ -31,6 +35,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/google/uuid"
 
 	"github.com/atknatk/tappa/internal/domain/checkin"
 	"github.com/atknatk/tappa/internal/domain/tenant"
@@ -192,6 +198,17 @@ func unbrandedScreenRenders(t *testing.T) []screenGolden {
 		verify: func(sun.Params) (sun.Result, error) { return sun.Result{}, sun.ErrUnknownTag },
 	}})
 	add(readRecorded(t, "activate-tap-refused", doTap(t, hRefused, activationTapURL, pendingCookie())))
+	// M10 WL-13: the activation family's two SESSION screens -- "Activation complete"
+	// (both shapes) and "already set up" -- which WL-13 brands. Their goldens were
+	// written from e95a717, before any WL-13 change, for the reason this file's header
+	// gives.
+	doneSession := uuid.MustParse("66666666-6666-4666-8666-666666666666")
+	hDone := newHandler(t, &fakeInvites{}, &fakeSessions{sessionID: doneSession}, &fakeAudit{})
+	live := &http.Cookie{Name: session.CookieName, Value: "FAKEsessionFAKEsessionFAKEsessionFAKEsess12"}
+	marker := &http.Cookie{Name: activatedCookieName, Value: doneSession.String()}
+	add(readRecorded(t, "activate-complete", get(t, hDone, ActivationCompletePath, live, marker)))
+	add(readRecorded(t, "activate-complete-replaced", get(t, hDone, ActivationCompletePath+"?replaced=1", live, marker)))
+	add(readRecorded(t, "activate-already-set-up", get(t, hDone, "/activate", live)))
 	return out
 }
 
@@ -214,7 +231,10 @@ func goldenBytes(r screenGolden) []byte {
 // card and ADR 0023's WL-9 note. A render and its golden file deleted TOGETHER keep
 // the list and the directory in step; this number is what notices (WL-9 2nd round,
 // X22).
-const unbrandedScreenCount = 33
+//
+// 33 -> 36 on 2026-10-09 (M10 WL-13): activate-complete, activate-complete-replaced and
+// activate-already-set-up, written from e95a717 before WL-13 branded them.
+const unbrandedScreenCount = 36
 
 // TestUnbrandedScreens_AreByteIdenticalToTheGolden is ADR 0023 Iddia B's PART I for
 // WL-9: every listed render of a business with no brand is byte-identical -- status,

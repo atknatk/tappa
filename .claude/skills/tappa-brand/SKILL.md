@@ -331,13 +331,14 @@ handler'da `mayEditAccount`, domain'de ikinci kez, rol ve durum DB'den
 | Sonuç ekranı | tap ekranınınkiyle aynı başlık | **yok** — tema `<link>`'i 0, renkler durumu anlatır | işletme adı | WL-9 — `TestResultScreen_DrawsTheLogoAndNoAccent` |
 | Panel kabuğu | başlıkta 32 px kutu + işletme adı + co-brand | **4 px şerit** | **boş** (`alt=""`) — ad logonun yanında görünür metin | WL-8 — `TestPanelBrand_ABrandedBusinessGetsItsHeaderOnEverySection` |
 | Account → *"Your brand"* önizlemesi | önizlemedeki tap başlığı, kaynak `/admin/brand/logo/{sha}` | önizlemedeki tap düğmesi — **yalnız kaydedilen** accent | işletme adı | WL-7 — `TestBrandPreview_IsTheTapScreensOwnComponentsAndCannotSubmit` |
-| Aktivasyon, tur, problem, giriş, AdminChoose, parola sıfırlama, landing, legal, signup, operatör | yok | yok | — | Taptime (aktivasyon: K6; tur ve practice: faz 2, *karar verilmedi*) |
+| Aktivasyon ailesi — sihirbazın dört adımı, *"Activation complete"*, *"already set up"* | tap ekranının başlığı (24 px yuva + co-brand) — **yalnız VIES-doğrulanmış** işletmede; sihirbazda `/activate/logo/{sha}`, oturumlu iki ekranda `/t/logo/{sha}` | **adım 1–3'ün birincil düğmesinin zemini**; accent varken ilerleme çubuğu, 01/02/03 ve işaretli onay kutusu **ink** | işletme adı | WL-13 — `TestActivationScreens_ABrandedBusinessGetsTheTapScreensHeaderAndTheme` |
+| Aktivasyonun problem ekranları ve *"phone already in use"* onayı, tap problem ekranları, giriş, AdminChoose, parola sıfırlama, landing, legal, signup, operatör | yok | yok | — | Taptime (aktivasyon problem/onay: WL-13 — `TestActivationFailureScreens_StayTaptimesForABrandedInvitation`) |
 | E-posta | faz 1'de yok | yok | — | K8: markadan en çok işletme adı, gövdede; adın gösterilip gösterilmeyeceği EM-7'nin bekleyen kullanıcı kararı (WL-11 SES akışıyla bekliyor) |
 
 - **Başka işletmenin plaketi:** tap ve sonuç ekranı Taptime varsayılanıyla açılır — `<img>`,
   tema bağlantısı ve `/t/logo/` 0 (`TestTapPage_AnotherBusinesssPlaqueShowsNoBrand`,
   `TestResultScreen_NoBrandWhereThePlaqueIsNotThisBusinesss`).
-- **Marka yoksa bayt-aynı:** tap, sonuç ve aktivasyon ailesinin 33 render'ı
+- **Marka yoksa bayt-aynı:** tap, sonuç ve aktivasyon ailesinin 36 render'ı (WL-13'te 33 → 36)
   (`TestUnbrandedScreens_AreByteIdenticalToTheGolden`) ve WL-8'in 24 bileşen render'ı
   (`TestPanelBrand_AnUnbrandedChromeIsTheChromeBeforeWL8` — 16'sı panel kabuğu, 8'i
   `documentHead`'e ulaşan öteki kabuklar: `Page`, `PageWithScript`, `Marketing` ve
@@ -349,12 +350,37 @@ handler'da `mayEditAccount`, domain'de ikinci kez, rol ve durum DB'den
   kalır, WARN (ADR 0023 §7 WL-9 notu karar 4, WL-8 notu karar 7;
   `TestTapPage_ABrandReadFailureRendersTaptimesPage`,
   `TestTapPage_AnAccentTheGateRefusesTodayKeepsTheLogo`).
-- **Tap düğmesinin sınıfı sekiz `class` özniteliğinde** (2026-10-06'da sayıldı: `tap.templ`'de
-  iki — gönderen yüz ve önizleme yüzü —, aktivasyon ailesinde altı; WL-0'da yediydi, önizleme
-  yüzü WL-9'un bölmesiyle geldi), ama accent'i sınıf değil **sayfanın tema bağlantısı** taşır:
-  tema yalnız tap ekranına ve panel kabuğuna, `app.css`'ten hemen sonra bağlanır; aktivasyon,
-  tur, problem ve onay ekranlarındaki altı kullanım yeşil kalır (ADR 0023 §2, §4). Panelin
-  içindeki Account önizlemesinin düğmesi accent'i bu yüzden **bilerek** alır.
+- **Tap düğmesinin sınıfı yedi `class` özniteliğinde** (2026-10-09'da sayıldı: `tap.templ`'de
+  iki — gönderen yüz ve önizleme yüzü —, aktivasyon ailesinde beş: sihirbazın *Next*, *Agree and
+  continue*, *I'm ready*'si, problem ekranının *Try again*'i, onay ekranının *Continue anyway*'i;
+  2026-10-06'da sekizdi, tur ADR 0026 ile kalktı), ama accent'i sınıf değil **sayfanın tema
+  bağlantısı** taşır: tema tap ekranına, panel kabuğuna ve (WL-13) aktivasyon ailesinin altı
+  markalı ekranına, `app.css`'ten hemen sonra bağlanır; problem ve onay ekranlarındaki iki kullanım
+  yeşil kalır (ADR 0023 §2, §4). Panelin içindeki Account önizlemesinin düğmesi accent'i bu yüzden
+  **bilerek** alır.
+
+### Aktivasyon ailesi (ADR 0023 WL-13 notu — kullanıcı kararları, 2026-10-09)
+
+- **Şekil tap ekranınınki:** `layout.BrandHeader` (logo 24 px yuvada + co-brand; logo yokken
+  accent varsa ink `taptime`) ve tema bağlantısı. Kabuk `layout.ActivationPage(title, Brand)`
+  (betiksiz), adım 4 `PageWithScript(…, Brand)`; `layout.Page` marka almaz — problem ve onay
+  ekranları onu çağırır.
+- **Logo yalnız VIES-doğrulanmış işletmede** (`tenants.vat_verified IS TRUE`; FALSE ve NULL
+  "doğrulanmamış"). Kapı okumadadır (`BrandReader.ActivationBrand`, `GetTenantActivationLogo`'nun
+  `WHERE`'i), sayfada değil: doğrulanmamış işletmede ekran `<img>` yazmaz, `img-src` adlandırmaz.
+- **Hangi rota:** sihirbaz (oturum yok) `/activate/logo/{sha}` — işletme davet çerezinden;
+  *"Activation complete"* ve *"already set up"* (oturumlu) `/t/logo/{sha}`.
+- **Kimin markası:** sihirbaz davetin işletmesinin (telefonda başka işletmenin oturumu olsa da);
+  oturumlu iki ekran oturumun işletmesinin.
+- **Accent'in slotu sihirbazın 1–3. adımlarının `.tap-button`'ı**; adım 4'te birincil düğme yok.
+  Accent varken ilerleme çubuğunun tamamlanmış segmentleri, 01/02/03 ve işaretli onay kutusu
+  (kenar, %5 zemin, kutunun kendi rengi) **ink** — ekranda tek vurgu rengi tenant'ın düğmesi
+  (K-2a'nın uzantısı). Ink sınıfları şablonda seçilir; tema gövdesi değişmez.
+- **Değişmez:** bekleme ekranının plaket çizimi (halka + yeşil *"taptime"*) — duvardaki plaket
+  Taptime'ındır (ADR 0023 §9 madde 4); damga ve `Notice` renkleri; aktivasyonun problem ve onay
+  ekranları (marka yalnız kullanılabilir bir davetten bilinir — ölü linki canlıdan ayırırdı).
+- **Okunamazsa** Taptime'ın sayfası + tek ERROR; bugün reddedilen accent → accent ve ink yok,
+  logo kalır, WARN (tap ekranının kuralı).
 
 ### Tap ve sonuç ekranının başlığı — üç şekil (ADR 0023 §5–§7, WL-9 notu)
 
@@ -537,7 +563,10 @@ testi okur) · tomato = hata/yıkıcı · saffron = FLAGGED/geç · `Notice` · 
 düğmesinin odak çizgisi tarayıcının rengidir, accent onu taşımaz) · sayfa zeminleri ve metin
 tonları · yazı tipleri · sonuç ekranında accent yok (logolu tenant'ta yalnız Wordmark yerini
 logo + co-brand satırına bırakır) · onay kutularının `accent-color`'ı (adı "accent" ama
-tenant accent'i **değil** — `TestBrand_EveryNativeCheckboxAndRadioCarriesTheAccent`).
+tenant accent'i **değil** — `TestBrand_EveryNativeCheckboxAndRadioCarriesTheAccent`). *WL-13
+istisnası (2026-10-09, kullanıcı kararı):* aktivasyon sihirbazında accent varken işaretli onay
+kutusu ink (`accent-ink`; çerçevesi ve zemini de ink) — tenant accent'i kutuya girmez, yanında
+tenant accent'i durduğu için Taptime yeşili ink'e döner (ADR 0023 §6 madde 9).
 
 Panelde iki renk yan yana durur — yeşil panelin eylemlerinde, tenant rengi şeritte ve Account
 önizlemesinin tap düğmesinde. Bu, yukarıdaki *"birden çok vurgu rengi"* yasağının **bilinçli**
@@ -550,10 +579,12 @@ ekranının görüntüsüdür.
   tap ve sonuç ekranında ayrıca CLAUDE.md §9'un sorusudur — önce sor. Üç §9 kararı (D-C,
   K-2a, K-2b) yalnız dört değişikliği kapsar: tap başlığında logo + co-brand, tap düğmesinde
   accent, sonuç başlığında logo + co-brand, logosuz ama accent'li tap ekranında ink `taptime`
-  (ADR 0023 §7). Başka her tap/sonuç değişikliği yeniden sorulur.
+  (ADR 0023 §7). Aktivasyon ailesinin üç kararı (2026-10-09) üç değişiklik daha kapsar (ADR 0023
+  §7'nin WL-13 eki: v–vii). Başka her tap/sonuç/aktivasyon değişikliği yeniden sorulur.
 - Şablon **yorumunda** yardımcı sınıf adı yazma, tarif et — `.templ` taranır, bu dosya
   taranmaz (yukarıdaki not).
-- Accent'i sonuç ekranına, damgaya, docket'e ya da birincil düğmeye taşıma.
+- Accent'i sonuç ekranına, damgaya, docket'e ya da panelin birincil düğmesine taşıma
+  (aktivasyon sihirbazının birincil düğmeleri `.tap-button`'dır ve accent'i WL-13'ten beri alır).
 - Logoyu sayfada ayrı bir okumayla çizme: `img-src` kararı kabuğun okumasınındır.
 - Logo için uzak URL kullanma — e-postada da (izleme pikseli).
 - Logo pikselleri ve kırık logodaki `alt` durum kelimelerini taklit edebilir; bu kabul edilmiş

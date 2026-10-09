@@ -107,6 +107,14 @@ const (
 	// onboarding fifteen people therefore costs about 120 requests against a
 	// ceiling of 600 — 75 complete activations per window per address key.
 	//
+	// M10 WL-13 ADDS ONE for a business that shows its logo on the wizard: the logo's
+	// own request, GET /activate/logo/{sha}, is charged here too (Activation.Logo, the
+	// same gate as the pages, before any database work). One, not four: the response
+	// is cacheable (private, immutable -- the URL is the content's digest), so steps 2
+	// to 4 take it from the browser's cache. 9 requests each, fifteen people about 135
+	// -- 66 complete activations per window per address key. The two session screens'
+	// logo goes through /t/logo/ and the tap surface's own budget, not this one.
+	//
 	// (The pre-wizard figures were 4, 5 or 7 requests depending on the tour.)
 	//
 	// ⚠️ THIS PARAGRAPH USED TO SAY "about 45 requests" FOR FIFTEEN PEOPLE, and it

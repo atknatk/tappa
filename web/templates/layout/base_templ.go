@@ -21,9 +21,18 @@ import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
 // Page is the shell for a screen that needs NO JavaScript and carries no business's
-// brand: activation, the tour, the problem screens, the password reset family.
-// PageWithScript is the tap screen's shell and BrandedPage the result screen's;
-// both say why below.
+// brand: the problem screens (the activation flow's and the tap flow's), the
+// activation flow's "phone already in use" confirmation, the password reset family.
+// PageWithScript is the tap screen's and the activation wizard's waiting screen's
+// shell, BrandedPage the result screen's and ActivationPage the rest of the activation
+// family's; each says why below.
+//
+// (Until M10 WL-13 this listed "activation, the tour" here. The tour went with ADR
+// 0026, and the activation family's screens that name a business -- the wizard,
+// "Activation complete", "already set up" -- now take ActivationPage. A problem screen
+// and the confirmation stay here: their words are fixed sentences that must not tell an
+// unknown, a spent and a live invitation apart, and a business's logo on one of them
+// would be exactly that tell.)
 func Page(title string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -71,13 +80,18 @@ func Page(title string) templ.Component {
 	})
 }
 
-// BrandedPage is Page with the business's LOGO in the header (M10 WL-9): the result
-// screen's shell. It takes a Logo and nothing else, and that is user decision D-C
-// (2026-09-24) in the type rather than in a comment -- "on the result screen, only
-// the logo". There is no accent parameter, so this shell cannot write the theme
-// stylesheet: the result screen's colours tell the verdict (ADR 0023 §2, §6 item 8).
-// A zero Logo renders exactly what Page renders.
-func BrandedPage(title string, logo Logo) templ.Component {
+// ActivationPage is Page with the business's brand -- the header and the accent's
+// theme stylesheet -- and no script (M10 WL-13, user decisions of 2026-10-09): the
+// activation wizard's first three steps, "Activation complete" and "already set up".
+// The wizard's fourth step needs its poll script and takes PageWithScript with the same
+// Brand.
+//
+// A SHELL OF ITS OWN rather than PageWithScript with an empty path, so that a page that
+// loads no script cannot be handed one by editing a string, and so that Page itself
+// keeps no brand parameter at all: the problem screens and the confirmation render Page,
+// and nothing can pass them a business's look. A zero Brand renders exactly what Page
+// renders (internal/handler, TestActivationPage_AZeroBrandIsPageByteForByte).
+func ActivationPage(title string, b Brand) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -116,7 +130,7 @@ func BrandedPage(title string, logo Logo) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = shell(title, "", Brand{logo: logo}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var4), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = shell(title, "", b).Render(templ.WithChildren(ctx, templ_7745c5c3_Var4), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -124,28 +138,13 @@ func BrandedPage(title string, logo Logo) templ.Component {
 	})
 }
 
-// PageWithScript is the same shell plus exactly ONE self-hosted script tag and the
-// business's brand -- the logo in the header and the accent's stylesheet.
-//
-// IT EXISTS FOR THE TAP PAGE AND NOTHING ELSE. §4.2 allows the browser's
-// location to be read at the moment of a tap and forbids every other shape of
-// it (in the background, continuously, or by watching a boundary), and reading
-// it at a moment requires
-// script — there is no HTML that says "ask once, when this button is pressed".
-// The activation flow needs no script and gets none: a form that works with
-// JavaScript disabled works on a locked-down work phone too, and the tap form
-// keeps that property as well (without script it simply posts no coordinates,
-// which §5 rows 6-7 already treat as a legitimate state).
-//
-// THE BRAND BECAME A PARAMETER OF THIS SHELL IN M10 WL-9, rather than a third
-// shell, because the tap page is its only caller: a business with no brand passes
-// Brand{} and gets the page it got before, byte for byte (internal/handler:
-// TestUnbrandedScreens_AreByteIdenticalToTheGolden). The brand is what user
-// decisions D-C, K-2a and K-2b put on this screen and nothing more (ADR 0023 §7).
-//
-// src must be an app-relative path under /static. Nothing here builds a URL from
-// user input, and no page passes one in.
-func PageWithScript(title, src string, b Brand) templ.Component {
+// BrandedPage is Page with the business's LOGO in the header (M10 WL-9): the result
+// screen's shell. It takes a Logo and nothing else, and that is user decision D-C
+// (2026-09-24) in the type rather than in a comment -- "on the result screen, only
+// the logo". There is no accent parameter, so this shell cannot write the theme
+// stylesheet: the result screen's colours tell the verdict (ADR 0023 §2, §6 item 8).
+// A zero Logo renders exactly what Page renders.
+func BrandedPage(title string, logo Logo) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -184,7 +183,7 @@ func PageWithScript(title, src string, b Brand) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = shell(title, src, b).Render(templ.WithChildren(ctx, templ_7745c5c3_Var6), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = shell(title, "", Brand{logo: logo}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var6), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -192,39 +191,39 @@ func PageWithScript(title, src string, b Brand) templ.Component {
 	})
 }
 
-// shell is the actual document. It is unexported so the three entry points above
-// are the whole vocabulary — a fourth variant should be a fourth named component
-// with its own reason, not an extra parameter nobody reads.
+// PageWithScript is the same shell plus exactly ONE self-hosted script tag and the
+// business's brand -- the logo in the header and the accent's stylesheet.
 //
-// It deliberately loads ONE stylesheet (two on a tap screen whose business set an
-// accent -- see the brand paragraph at the end of this comment), the caller's
-// optional script, and NOTHING ELSE:
+// IT HAS TWO CALLERS, each with its own script and its own reason (counted in the
+// .templ sources on 2026-10-09):
 //
-//   - No font <link>, no CDN, no analytics. A runtime request to a third party
-//     would send this page's URL, and on the activation page that URL carries
-//     the invite code. The BRAND FACES ARE SELF-HOSTED as of M5-04:
-//     web/static/fonts/ holds Space Grotesk and IBM Plex Mono under the SIL OFL
-//     with their licences and provenance beside them, and app.css declares them
-//     with @font-face pointing at our own origin. (Before M5-04 the directory
-//     did not exist, app.css had zero @font-face rules and every screen fell
-//     back to the system typeface — the red line held, the brand did not.)
-//   - <meta name="referrer" content="no-referrer"> for the same reason, one layer
-//     lower: even a future page with an external image must not put the current
-//     URL in a Referer header.
-//   - <meta name="robots" content="noindex, nofollow"> because an activation link
-//     that reaches a crawler is an activation link that reaches a log somewhere.
-//     THAT VALUE IS NOW AN ARGUMENT rather than a literal in the head — see Robots
-//     — because M7-01 added the first page in the product whose whole purpose is
-//     to be found. This shell still passes RobotsPrivate and always will: every
-//     screen it renders is reached from a personal link.
+//   - THE TAP PAGE. §4.2 allows the browser's location to be read at the moment of a
+//     tap and forbids every other shape of it (in the background, continuously, or by
+//     watching a boundary), and reading it at a moment requires script -- there is no
+//     HTML that says "ask once, when this button is pressed". The tap form keeps
+//     working without script: it simply posts no coordinates, which §5 rows 6-7
+//     already treat as a legitimate state.
+//   - THE ACTIVATION WIZARD'S WAITING SCREEN (step 4, ADR 0026). Its script polls
+//     GET /activate/status and flips the screen to "Activation complete" when the tap
+//     finished in another tab; without script the words on the screen stay true and
+//     the tap's own tab says "Activation complete".
 //
-// THE BUSINESS'S BRAND ADDS TWO THINGS AND ONLY ON THE TWO BRANDED SHELLS (M10 WL-9):
-// the theme stylesheet, which documentHead writes SECOND in the head so it wins over
-// app.css's :root defaults by order (same specificity; ADR 0023 §4, measured in
-// WL-5) -- the result screen's shell never has one, BrandedPage takes no Theme -- and
-// the header, BrandHeader below. Both are our own origin. With Brand{} neither changes
-// a byte.
-func shell(title, script string, b Brand) templ.Component {
+// (An earlier version of this comment said "it exists for the tap page and nothing
+// else" and "the activation flow needs no script and gets none". Both stopped being
+// true with ADR 0026's waiting screen; the sentence outlived the code it described.
+// The rest of the activation flow still loads no script -- its steps are plain GET
+// links and one form.)
+//
+// THE BRAND BECAME A PARAMETER OF THIS SHELL IN M10 WL-9, rather than a third shell: a
+// business with no brand passes Brand{} and gets the page it got before, byte for byte
+// (internal/handler: TestUnbrandedScreens_AreByteIdenticalToTheGolden). On the tap page
+// the brand is what user decisions D-C, K-2a and K-2b put on that screen and nothing
+// more (ADR 0023 §7); on the waiting screen it is the activation family's brand (M10
+// WL-13, ADR 0023's WL-13 note).
+//
+// src must be an app-relative path under /static. Nothing here builds a URL from
+// user input, and no page passes one in.
+func PageWithScript(title, src string, b Brand) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -245,6 +244,85 @@ func shell(title, script string, b Brand) templ.Component {
 			templ_7745c5c3_Var7 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
+		templ_7745c5c3_Var8 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+			if !templ_7745c5c3_IsBuffer {
+				defer func() {
+					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err == nil {
+						templ_7745c5c3_Err = templ_7745c5c3_BufErr
+					}
+				}()
+			}
+			ctx = templ.InitializeContext(ctx)
+			templ_7745c5c3_Err = templ_7745c5c3_Var7.Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			return nil
+		})
+		templ_7745c5c3_Err = shell(title, src, b).Render(templ.WithChildren(ctx, templ_7745c5c3_Var8), templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		return nil
+	})
+}
+
+// shell is the actual document. It is unexported so the three entry points above
+// are the whole vocabulary — a fourth variant should be a fourth named component
+// with its own reason, not an extra parameter nobody reads.
+//
+// It deliberately loads ONE stylesheet (two on a tap or activation screen whose
+// business set an accent -- see the brand paragraph at the end of this comment), the
+// caller's optional script, and NOTHING ELSE:
+//
+//   - No font <link>, no CDN, no analytics. A runtime request to a third party
+//     would send this page's URL, and on the activation page that URL carries
+//     the invite code. The BRAND FACES ARE SELF-HOSTED as of M5-04:
+//     web/static/fonts/ holds Space Grotesk and IBM Plex Mono under the SIL OFL
+//     with their licences and provenance beside them, and app.css declares them
+//     with @font-face pointing at our own origin. (Before M5-04 the directory
+//     did not exist, app.css had zero @font-face rules and every screen fell
+//     back to the system typeface — the red line held, the brand did not.)
+//   - <meta name="referrer" content="no-referrer"> for the same reason, one layer
+//     lower: even a future page with an external image must not put the current
+//     URL in a Referer header.
+//   - <meta name="robots" content="noindex, nofollow"> because an activation link
+//     that reaches a crawler is an activation link that reaches a log somewhere.
+//     THAT VALUE IS NOW AN ARGUMENT rather than a literal in the head — see Robots
+//     — because M7-01 added the first page in the product whose whole purpose is
+//     to be found. This shell still passes RobotsPrivate and always will: every
+//     screen it renders is reached from a personal link.
+//
+// THE BUSINESS'S BRAND ADDS TWO THINGS AND ONLY ON THE BRANDED SHELLS (M10 WL-9; WL-13
+// added ActivationPage): the theme stylesheet, which documentHead writes SECOND in the
+// head so it wins over app.css's :root defaults by order (same specificity; ADR 0023
+// §4, measured in WL-5) -- the result screen's shell never has one, BrandedPage takes
+// no Theme -- and the header, BrandHeader below. Both are our own origin. With Brand{}
+// neither changes a byte.
+func shell(title, script string, b Brand) templ.Component {
+	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
+			return templ_7745c5c3_CtxErr
+		}
+		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+		if !templ_7745c5c3_IsBuffer {
+			defer func() {
+				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err == nil {
+					templ_7745c5c3_Err = templ_7745c5c3_BufErr
+				}
+			}()
+		}
+		ctx = templ.InitializeContext(ctx)
+		templ_7745c5c3_Var9 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var9 == nil {
+			templ_7745c5c3_Var9 = templ.NopComponent
+		}
+		ctx = templ.ClearChildren(ctx)
 		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<!doctype html><html lang=\"en\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
@@ -261,7 +339,7 @@ func shell(title, script string, b Brand) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templ_7745c5c3_Var7.Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = templ_7745c5c3_Var9.Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -316,9 +394,9 @@ func BrandHeader(b Brand) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var8 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var8 == nil {
-			templ_7745c5c3_Var8 = templ.NopComponent
+		templ_7745c5c3_Var10 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var10 == nil {
+			templ_7745c5c3_Var10 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
 		if b.logo.Drawn() {
@@ -326,12 +404,12 @@ func BrandHeader(b Brand) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var9 string
-			templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(b.logo.src)
+			var templ_7745c5c3_Var11 string
+			templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(b.logo.src)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/layout/base.templ`, Line: 133, Col: 24}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/layout/base.templ`, Line: 170, Col: 24}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -339,12 +417,12 @@ func BrandHeader(b Brand) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var10 string
-			templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(b.logo.widthAttr())
+			var templ_7745c5c3_Var12 string
+			templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(b.logo.widthAttr())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/layout/base.templ`, Line: 133, Col: 53}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/layout/base.templ`, Line: 170, Col: 53}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -352,12 +430,12 @@ func BrandHeader(b Brand) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var11 string
-			templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(b.logo.heightAttr())
+			var templ_7745c5c3_Var13 string
+			templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(b.logo.heightAttr())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/layout/base.templ`, Line: 133, Col: 84}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/layout/base.templ`, Line: 170, Col: 84}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -365,12 +443,12 @@ func BrandHeader(b Brand) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var12 string
-			templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(b.logo.alt)
+			var templ_7745c5c3_Var14 string
+			templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(b.logo.alt)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/layout/base.templ`, Line: 133, Col: 103}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/layout/base.templ`, Line: 170, Col: 103}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -410,8 +488,9 @@ func BrandHeader(b Brand) templ.Component {
 //
 // theme is the tenant accent's stylesheet (M10 WL-8, ADR 0023 §4), written right
 // after app.css so that its :root rule wins by order. It is a layout.Theme, which is
-// built from a brand.Color only, and its zero value writes nothing: the panel shells
-// and the tap screen's shell pass the business's, every other shell passes the zero value.
+// built from a brand.Color only, and its zero value writes nothing: the panel shells,
+// the tap screen's shell and (M10 WL-13) the activation family's pass the business's,
+// every other shell passes the zero value.
 func documentHead(title, script string, robots Robots, theme Theme) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -428,21 +507,21 @@ func documentHead(title, script string, robots Robots, theme Theme) templ.Compon
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var13 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var13 == nil {
-			templ_7745c5c3_Var13 = templ.NopComponent
+		templ_7745c5c3_Var15 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var15 == nil {
+			templ_7745c5c3_Var15 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
 		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1, viewport-fit=cover\"><meta name=\"robots\" content=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var14 string
-		templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(string(robots))
+		var templ_7745c5c3_Var16 string
+		templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(string(robots))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/layout/base.templ`, Line: 169, Col: 46}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/layout/base.templ`, Line: 207, Col: 46}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -450,12 +529,12 @@ func documentHead(title, script string, robots Robots, theme Theme) templ.Compon
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var15 string
-		templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(title)
+		var templ_7745c5c3_Var17 string
+		templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(title)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/layout/base.templ`, Line: 171, Col: 16}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/layout/base.templ`, Line: 209, Col: 16}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -468,12 +547,12 @@ func documentHead(title, script string, robots Robots, theme Theme) templ.Compon
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var16 string
-			templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(theme.Href())
+			var templ_7745c5c3_Var18 string
+			templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(theme.Href())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/layout/base.templ`, Line: 174, Col: 45}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/layout/base.templ`, Line: 212, Col: 45}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -487,12 +566,12 @@ func documentHead(title, script string, robots Robots, theme Theme) templ.Compon
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var17 string
-			templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(script)
+			var templ_7745c5c3_Var19 string
+			templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(script)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/layout/base.templ`, Line: 177, Col: 23}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/layout/base.templ`, Line: 215, Col: 23}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -546,9 +625,9 @@ func Wordmark() templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var18 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var18 == nil {
-			templ_7745c5c3_Var18 = templ.NopComponent
+		templ_7745c5c3_Var20 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var20 == nil {
+			templ_7745c5c3_Var20 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
 		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "<header class=\"flex items-baseline justify-between\"><span class=\"font-display text-lg font-bold tracking-tight text-tappa-green\">taptime</span> <span class=\"font-mono text-[10px] uppercase tracking-widest text-ink/70\">punchless</span></header>")
@@ -617,12 +696,12 @@ func Panel(title string, theme Theme) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var19 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var19 == nil {
-			templ_7745c5c3_Var19 = templ.NopComponent
+		templ_7745c5c3_Var21 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var21 == nil {
+			templ_7745c5c3_Var21 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Var20 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Var22 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -634,13 +713,13 @@ func Panel(title string, theme Theme) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templ_7745c5c3_Var19.Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = templ_7745c5c3_Var21.Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = PanelWithScript(title, "", theme).Render(templ.WithChildren(ctx, templ_7745c5c3_Var20), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = PanelWithScript(title, "", theme).Render(templ.WithChildren(ctx, templ_7745c5c3_Var22), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -708,9 +787,9 @@ func PanelWithScript(title, src string, theme Theme) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var21 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var21 == nil {
-			templ_7745c5c3_Var21 = templ.NopComponent
+		templ_7745c5c3_Var23 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var23 == nil {
+			templ_7745c5c3_Var23 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
 		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "<!doctype html><html lang=\"en\">")
@@ -725,7 +804,7 @@ func PanelWithScript(title, src string, theme Theme) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templ_7745c5c3_Var21.Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = templ_7745c5c3_Var23.Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -810,12 +889,12 @@ func Marketing(title string, robots Robots) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var22 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var22 == nil {
-			templ_7745c5c3_Var22 = templ.NopComponent
+		templ_7745c5c3_Var24 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var24 == nil {
+			templ_7745c5c3_Var24 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Var23 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Var25 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -827,13 +906,13 @@ func Marketing(title string, robots Robots) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templ_7745c5c3_Var22.Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = templ_7745c5c3_Var24.Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = MarketingWithScript(title, robots, "").Render(templ.WithChildren(ctx, templ_7745c5c3_Var23), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = MarketingWithScript(title, robots, "").Render(templ.WithChildren(ctx, templ_7745c5c3_Var25), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -878,9 +957,9 @@ func MarketingWithScript(title string, robots Robots, src string) templ.Componen
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var24 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var24 == nil {
-			templ_7745c5c3_Var24 = templ.NopComponent
+		templ_7745c5c3_Var26 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var26 == nil {
+			templ_7745c5c3_Var26 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
 		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "<!doctype html><html lang=\"en\">")
@@ -895,7 +974,7 @@ func MarketingWithScript(title string, robots Robots, src string) templ.Componen
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templ_7745c5c3_Var24.Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = templ_7745c5c3_Var26.Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -967,9 +1046,9 @@ func Auth(title, script string) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var25 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var25 == nil {
-			templ_7745c5c3_Var25 = templ.NopComponent
+		templ_7745c5c3_Var27 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var27 == nil {
+			templ_7745c5c3_Var27 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
 		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "<!doctype html><html lang=\"en\">")
@@ -984,7 +1063,7 @@ func Auth(title, script string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templ_7745c5c3_Var25.Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = templ_7745c5c3_Var27.Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1033,12 +1112,12 @@ func Operator(title string) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var26 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var26 == nil {
-			templ_7745c5c3_Var26 = templ.NopComponent
+		templ_7745c5c3_Var28 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var28 == nil {
+			templ_7745c5c3_Var28 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Var27 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Var29 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -1050,13 +1129,13 @@ func Operator(title string) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templ_7745c5c3_Var26.Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = templ_7745c5c3_Var28.Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = OperatorWithScript(title, "").Render(templ.WithChildren(ctx, templ_7745c5c3_Var27), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = OperatorWithScript(title, "").Render(templ.WithChildren(ctx, templ_7745c5c3_Var29), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1086,9 +1165,9 @@ func OperatorWithScript(title, src string) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var28 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var28 == nil {
-			templ_7745c5c3_Var28 = templ.NopComponent
+		templ_7745c5c3_Var30 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var30 == nil {
+			templ_7745c5c3_Var30 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
 		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "<!doctype html><html lang=\"en\">")
@@ -1103,7 +1182,7 @@ func OperatorWithScript(title, src string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templ_7745c5c3_Var28.Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = templ_7745c5c3_Var30.Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

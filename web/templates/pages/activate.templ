@@ -28,23 +28,34 @@ import (
 // employer is named on every step, because a planted cookie on a session-less
 // phone is still possible (cookies.go, measure 3): the defence that remains is a
 // person reading a name they do not recognise before agreeing to anything.
-templ Activate(v ActivateView) {
+//
+// THE BUSINESS'S BRAND (M10 WL-13, user decisions of 2026-10-09) is look: the tap
+// screen's header -- the logo in its 24 px slot over the co-brand line, or the ink
+// wordmark when there is an accent and no logo -- and the accent's theme stylesheet,
+// which fills the primary button of steps 1 to 3. With an accent linked, the wizard's
+// other green marks turn ink -- the progress bar, the step numbers, the ticked consent
+// box -- so the tenant's button is the one accent colour on the screen (decision 3, K-2a
+// extended). The theme body does not change; the ink classes are chosen here, per
+// render. A zero layout.Brand renders the page this template rendered before WL-13,
+// byte for byte (internal/handler, TestUnbrandedScreens_AreByteIdenticalToTheGolden).
+// The logo is already dropped for a business VIES did not verify (decision 2).
+templ Activate(v ActivateView, look layout.Brand) {
 	if v.Step == ActivateStepTap {
-		@layout.PageWithScript("Tap the plaque — Taptime", "/static/js/activate.js", layout.Brand{}) {
-			@wizardShell(v) {
+		@layout.PageWithScript("Tap the plaque — Taptime", "/static/js/activate.js", look) {
+			@wizardShell(v, look.Accented()) {
 				@wizardTap(v)
 			}
 		}
 	} else {
-		@layout.Page(wizardTitle(v.Step)) {
-			@wizardShell(v) {
+		@layout.ActivationPage(wizardTitle(v.Step), look) {
+			@wizardShell(v, look.Accented()) {
 				switch v.Step {
 					case 2:
-						@wizardPrivacy(v)
+						@wizardPrivacy(v, look.Accented())
 					case 3:
-						@wizardReady(v)
+						@wizardReady(v, look.Accented())
 					default:
-						@wizardWelcome(v)
+						@wizardWelcome(v, look.Accented())
 				}
 			}
 		}
@@ -78,16 +89,44 @@ func wizardStepName(step int) string {
 // wizardSegment is one bar of the progress indicator. The classes are LITERALS in
 // this file on purpose: Tailwind reads .templ files and not .go files, so a class
 // assembled anywhere else would silently drop out of the stylesheet.
-func wizardSegment(n, current int) string {
-	if n <= current {
+//
+// accented is the page's theme link (M10 WL-13): a done bar keeps its done class and
+// takes the ink fill on top of it -- a utility, so it wins over the component's green
+// by layer order -- and a bar still to come is unchanged.
+func wizardSegment(n, current int, accented bool) string {
+	switch {
+	case n > current:
+		return "wizard-segment"
+	case accented:
+		return "wizard-segment wizard-segment--done bg-ink"
+	default:
 		return "wizard-segment wizard-segment--done"
 	}
-	return "wizard-segment"
+}
+
+// wizardIndex is the 01 / 02 / 03 of steps 1 and 3: green on Taptime's page, ink beside
+// a tenant accent (M10 WL-13). Literals here, for wizardSegment's reason.
+func wizardIndex(accented bool) string {
+	if accented {
+		return "wizard-index text-ink"
+	}
+	return "wizard-index"
+}
+
+// wizardConsent is the consent box's frame: Taptime's green edge and ground once ticked,
+// or ink ones beside a tenant accent (M10 WL-13). Literals here, for wizardSegment's
+// reason; the box's own tick colour is written on the input below, where the
+// native-control scan reads it.
+func wizardConsent(accented bool) string {
+	if accented {
+		return "wizard-consent has-[:checked]:border-ink has-[:checked]:bg-ink/5"
+	}
+	return "wizard-consent"
 }
 
 // wizardShell is the frame every step shares: progress, the step's body, and the
 // actions pinned toward the bottom of a phone screen where a thumb reaches them.
-templ wizardShell(v ActivateView) {
+templ wizardShell(v ActivateView, accented bool) {
 	<div class="wizard">
 		<nav aria-label="Setup progress">
 			<p class="docket-label">
@@ -96,7 +135,7 @@ templ wizardShell(v ActivateView) {
 			</p>
 			<ol class="mt-2 grid grid-cols-4 gap-1.5" role="list">
 				for n := 1; n <= ActivateStepTap; n++ {
-					<li class={ wizardSegment(n, clampStep(v.Step)) } aria-current?={ n == clampStep(v.Step) }>
+					<li class={ wizardSegment(n, clampStep(v.Step), accented) } aria-current?={ n == clampStep(v.Step) }>
 						<span class="sr-only">{ wizardStepName(n) }</span>
 					</li>
 				}
@@ -145,7 +184,7 @@ templ wizardHolder(v ActivateView) {
 	}
 }
 
-templ wizardWelcome(v ActivateView) {
+templ wizardWelcome(v ActivateView, accented bool) {
 	<section class="wizard-panel">
 		<p class="docket-label">{ v.EmployerName }</p>
 		<h1 class="mt-1 font-display text-3xl font-bold leading-tight tracking-tight text-ink">
@@ -161,7 +200,7 @@ templ wizardWelcome(v ActivateView) {
 		<p class="docket-label">How it works</p>
 		<ol class="mt-3 flex flex-col gap-4" role="list">
 			<li class="flex gap-3">
-				<span class="wizard-index">01</span>
+				<span class={ wizardIndex(accented) }>01</span>
 				<div>
 					<p class="font-display text-base font-bold tracking-tight">Tap the plaque</p>
 					<p class="mt-0.5 font-display text-sm text-ink/80">
@@ -171,7 +210,7 @@ templ wizardWelcome(v ActivateView) {
 				</div>
 			</li>
 			<li class="flex gap-3">
-				<span class="wizard-index">02</span>
+				<span class={ wizardIndex(accented) }>02</span>
 				<div>
 					<p class="font-display text-base font-bold tracking-tight">Press one button</p>
 					<p class="mt-0.5 font-display text-sm text-ink/80">
@@ -181,7 +220,7 @@ templ wizardWelcome(v ActivateView) {
 				</div>
 			</li>
 			<li class="flex gap-3">
-				<span class="wizard-index">03</span>
+				<span class={ wizardIndex(accented) }>03</span>
 				<div>
 					<p class="font-display text-base font-bold tracking-tight">Nothing in the background</p>
 					<p class="mt-0.5 font-display text-sm text-ink/80">
@@ -201,7 +240,7 @@ templ wizardWelcome(v ActivateView) {
 // wizardPrivacy is the GDPR Art. 13 notice and the consent box. The words of the
 // notice are the activation page's (M5-02), unchanged in substance; what changed
 // is that agreeing no longer activates anything (ADR 0026).
-templ wizardPrivacy(v ActivateView) {
+templ wizardPrivacy(v ActivateView, accented bool) {
 	<section class="wizard-panel">
 		<p class="docket-label">Your privacy</p>
 		<h1 class="mt-1 font-display text-3xl font-bold leading-tight tracking-tight text-ink">
@@ -280,14 +319,18 @@ templ wizardPrivacy(v ActivateView) {
 				}
 			}
 		}
-		<label class="wizard-consent">
+		<label class={ wizardConsent(accented) }>
 			<input
 				type="checkbox"
 				name="consent"
 				value="yes"
 				required
 				checked?={ v.Consented }
-				class="mt-0.5 h-6 w-6 shrink-0 accent-tappa-green"
+				if accented {
+					class="mt-0.5 h-6 w-6 shrink-0 accent-ink"
+				} else {
+					class="mt-0.5 h-6 w-6 shrink-0 accent-tappa-green"
+				}
 				if v.ConsentMissing {
 					aria-invalid="true"
 					aria-describedby="consent-error"
@@ -315,7 +358,7 @@ templ wizardPrivacy(v ActivateView) {
 // session cookie lives in the browser that receives it, and an NFC tag opens the
 // phone's DEFAULT browser, which is not the in-app browser of the chat or mail
 // app the invitation link was probably opened from.
-templ wizardReady(v ActivateView) {
+templ wizardReady(v ActivateView, accented bool) {
 	<section class="wizard-panel">
 		<p class="docket-label">Get ready</p>
 		<h1 class="mt-1 font-display text-3xl font-bold leading-tight tracking-tight text-ink">
@@ -324,7 +367,7 @@ templ wizardReady(v ActivateView) {
 	</section>
 	<section class="docket wizard-panel">
 		<div class="flex gap-3">
-			<span class="wizard-index">01</span>
+			<span class={ wizardIndex(accented) }>01</span>
 			<div class="font-display">
 				<p class="text-base font-bold tracking-tight">Join the Wi-Fi</p>
 				if v.WiFiSSID != "" {
@@ -347,7 +390,7 @@ templ wizardReady(v ActivateView) {
 			</div>
 		</div>
 		<div class="mt-5 flex gap-3 border-t border-dashed border-line pt-5">
-			<span class="wizard-index">02</span>
+			<span class={ wizardIndex(accented) }>02</span>
 			<div class="font-display">
 				<p class="text-base font-bold tracking-tight">Stay in this browser</p>
 				<p class="mt-1 text-sm text-ink/85">
@@ -429,6 +472,13 @@ templ wizardTap(v ActivateView) {
 // meet it while two rings spread. Pure CSS (input.css, .plaque-wait); it stops
 // moving under prefers-reduced-motion and says nothing to a screen reader, which
 // gets the status line below it instead.
+//
+// IT STAYS TAPTIME'S ON A BRANDED PAGE (M10 WL-13), rings and word alike, and it takes
+// no brand argument so that nothing can hand it one. The drawing is the PHYSICAL plaque
+// on the wall, and that plaque is Taptime's: its print carries the Taptime mark whatever
+// business mounted it (ADR 0023 §9 item 4 -- the plaque is not a tenant slot). Drawing
+// the tenant's colour or logo on it would show the employee a plaque that does not exist
+// at their door, on the screen whose one job is to send them to the real one.
 templ plaqueWait() {
 	<div class="plaque-wait" aria-hidden="true">
 		<span class="plaque-wait-ring"></span>
@@ -444,8 +494,12 @@ templ plaqueWait() {
 // AlreadySetUp greets a phone that is already activated and comes back to the
 // activation link or the reloaded waiting tab. Neutral, no button (§9): the next
 // thing to do is tap a plaque.
-templ AlreadySetUp(v AlreadySetUpView) {
-	@layout.Page("Already set up — Taptime") {
+//
+// look is the brand of the business whose session this phone holds (M10 WL-13): the
+// header and the theme link, nothing else -- the stamp and the notice keep the colours
+// that tell the state (ADR 0023 §6).
+templ AlreadySetUp(v AlreadySetUpView, look layout.Brand) {
+	@layout.ActivationPage("Already set up — Taptime", look) {
 		<div class="wizard">
 			<section class="docket wizard-panel">
 				<div class="flex items-start justify-between gap-3">
@@ -473,8 +527,11 @@ templ AlreadySetUp(v AlreadySetUpView) {
 // Activated is what the ACTIVATING TAP renders (ADR 0026): this phone now has a
 // session. No button (§9): the next thing that happens is another touch on a
 // plaque, and that one is an ordinary check-in.
-templ Activated(v ActivatedView) {
-	@layout.Page("Activation complete — Taptime") {
+//
+// look is the brand of the business the new session belongs to (M10 WL-13), as on
+// AlreadySetUp.
+templ Activated(v ActivatedView, look layout.Brand) {
+	@layout.ActivationPage("Activation complete — Taptime", look) {
 		<div class="wizard">
 			@activatedBody(v.EmployeeName, v.SecondDevice)
 		</div>
@@ -512,6 +569,12 @@ templ activatedBody(name string, secondDevice bool) {
 // of constants so that an unknown, an expired and an already-used code produce
 // BYTE-IDENTICAL output (§4.7: no oracle) — asserted in
 // internal/handler/activate_test.go.
+//
+// IT TAKES NO BRAND AND RENDERS Page, WHICH HAS NO BRAND PARAMETER (M10 WL-13). A
+// business's look can be known only from a USABLE invitation, so a problem screen in
+// that business's colours would answer the question these screens exist not to answer:
+// "was this link one of theirs, and is it still alive". Confirm below holds to the same
+// rule for the same reason.
 //
 // ONE TEMPLATE SERVES BOTH FLOWS, so a sentence added here appears on ALL of
 // them — SIXTEEN screens since ADR 0026, counted rather than guessed: ten

@@ -963,7 +963,9 @@ func imagePolicyAgrees(body, policy string) bool {
 // responses that draw it and must name img-src -- counted below, the TRUE half) and of
 // businesses without one. A page that names it without drawing an image, or draws one
 // without naming it, turns this red. Since WL-9 the tap and result screens draw it
-// too, and the corpus counts their two logo-bearing renders in the TRUE half.
+// too, and the corpus counts their two logo-bearing renders in the TRUE half; since
+// WL-13 the activation family's six branded screens do, under three brands, with two of
+// its failure screens reached by a branded business's invitation.
 //
 // THE CORPUS IS LISTED, NOT DERIVED, AND THE LIST IS PRINTED: every row of
 // pages.PanelSections, unbranded and under three brands, plus the named panel and tap
@@ -1106,6 +1108,25 @@ func TestPageImages_ImgSrcIsNamedOnlyByAPageThatDrawsAnImage(t *testing.T) {
 		okResult(), testTenant, tapLocation))
 	// Of these five, the two with a logo on the business's own plaque draw it.
 	logoRenders += 2
+	// M10 WL-13: the activation family's six branded screens under three brands, and two
+	// of its failure screens reached with a branded business's invitation. The six with a
+	// logo draw it (the wizard's from /activate/logo/, the two session screens' from
+	// /t/logo/); the failure screens never do.
+	for _, v := range []struct {
+		name         string
+		logo, accent bool
+	}{{"logo and accent", true, true}, {"accent alone", false, true}, {"no brand", false, false}} {
+		ha := activationHandler(t, brandsFor(map[uuid.UUID]tenant.PageBrand{testTenant: testPageBrand(t, v.logo, v.accent)}), nil)
+		for _, s := range activationScreens() {
+			add("activation "+s.name+", "+v.name, ask(t, ha, http.MethodGet, s.target, s.cookies...))
+			if v.logo {
+				logoRenders++
+			}
+		}
+	}
+	hab := activationHandler(t, brandsFor(map[uuid.UUID]tenant.PageBrand{testTenant: testPageBrand(t, true, true)}), nil)
+	add("activation GET /activate with no link, branded business", ask(t, hab, http.MethodGet, "/activate"))
+	add("activation tap from a QR, branded invitation", ask(t, hab, http.MethodGet, activationQRURL, pendingCookie()))
 
 	names := make([]string, 0, len(corpus))
 	drawn := 0

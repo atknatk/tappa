@@ -1054,10 +1054,15 @@ func TestTenantBranding_PerPageReadsDoNotSelectTheLogo(t *testing.T) {
 
 	// The panel chrome's read (WL-8) selects the business's name and the brand fields a
 	// page draws, without the audit pair.
+	//
+	// The activation family's read (WL-13) selects the panel read's fields plus the
+	// business's VIES verdict, cast to a plain bool; the tokens are the select list's
+	// identifiers as this tokenizer reads them, the cast and its alias included.
 	for name, want := range map[string]string{
-		"getTenantBrand":          "accent,logo_sha256,logo_mime,logo_width,logo_height,updated_at,updated_by",
-		"getTenantBrandForUpdate": "accent,logo_sha256,logo_mime,logo_width,logo_height,updated_at,updated_by",
-		"getTenantPanelBrand":     "name,accent,logo_sha256,logo_mime,logo_width,logo_height",
+		"getTenantBrand":           "accent,logo_sha256,logo_mime,logo_width,logo_height,updated_at,updated_by",
+		"getTenantBrandForUpdate":  "accent,logo_sha256,logo_mime,logo_width,logo_height,updated_at,updated_by",
+		"getTenantPanelBrand":      "name,accent,logo_sha256,logo_mime,logo_width,logo_height",
+		"getTenantActivationBrand": "tenants,name,tenants,vat_verified,is,true,boolean,as,vat_verified,accent,logo_sha256,logo_mime,logo_width,logo_height",
 	} {
 		stmt, ok := consts[name]
 		if !ok {
@@ -1083,6 +1088,15 @@ func TestTenantBranding_PerPageReadsDoNotSelectTheLogo(t *testing.T) {
 	}
 	if got := strings.Join(selectList(logoStmt), ","); got != "logo,logo_mime" {
 		t.Errorf("positive control: getTenantLogo selects (%s), want (logo,logo_mime)", got)
+	}
+	// WL-13: the activation wizard's logo route reads the bytes through its own
+	// statement, which selects what getTenantLogo selects.
+	activationLogoStmt, ok := consts["getTenantActivationLogo"]
+	if !ok {
+		t.Fatalf("internal/store/branding.sql.go has no constant getTenantActivationLogo")
+	}
+	if got := strings.Join(selectList(activationLogoStmt), ","); got != "logo,logo_mime" {
+		t.Errorf("getTenantActivationLogo selects (%s), want (logo,logo_mime)", got)
 	}
 }
 
@@ -1123,10 +1137,11 @@ func TestTenantBranding_EveryStatementNamesTheTenant(t *testing.T) {
 		}
 		checked++
 	}
-	// Eight of branding.sql's nine statements are SELECT or UPDATE (WL-8 added the panel
-	// chrome's read); a count below that means the constants were not found, and the
-	// loop above checked nothing.
-	if checked != 8 {
-		t.Errorf("checked %d SELECT/UPDATE statement(s) in internal/store/branding.sql.go, want 8", checked)
+	// Ten of branding.sql's eleven statements are SELECT or UPDATE (WL-8 added the panel
+	// chrome's read, WL-13 the activation family's read and the wizard's logo read); a
+	// count below that means the constants were not found, and the loop above checked
+	// nothing.
+	if checked != 10 {
+		t.Errorf("checked %d SELECT/UPDATE statement(s) in internal/store/branding.sql.go, want 10", checked)
 	}
 }

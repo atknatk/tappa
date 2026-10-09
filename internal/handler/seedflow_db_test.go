@@ -310,7 +310,7 @@ func newSeedFlow(t *testing.T) *seedFlow {
 		t.Fatalf("checkin.New: %v", err)
 	}
 	verifier := sun.NewVerifier(data, kek)
-	act, err := NewActivation(invites, sessions, verifier, trail, cfg, quiet)
+	act, err := NewActivation(invites, sessions, verifier, trail, dbBrandReader(t, data), cfg, quiet)
 	if err != nil {
 		t.Fatalf("NewActivation: %v", err)
 	}

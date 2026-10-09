@@ -216,7 +216,7 @@ func TestDevStrip_OnlyOnADevelopmentDeployment(t *testing.T) {
 	build := func(cfg *config.Config) http.Handler {
 		sess := &fakeSessions{sessionID: sid}
 		sess.tok = sess.token(t)
-		a, err := NewActivation(&fakeInvites{}, sess, &fakeVerifier{}, &fakeAudit{}, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		a, err := NewActivation(&fakeInvites{}, sess, &fakeVerifier{}, &fakeAudit{}, &fakeActivationBrands{}, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 		if err != nil {
 			t.Fatal(err)
 		}

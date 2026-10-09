@@ -319,7 +319,18 @@ func run() error {
 	// because the activating tap (ADR 0026) must run the ATOMIC counter advance;
 	// the tap page gets it through an interface that names only the preview.
 	verifier := sun.NewVerifier(data, cfg.TagKEK, cfg.TagKEKPrevious)
-	activation, err := handler.NewActivation(invites, sessions, verifier, trail, cfg, slog.Default())
+	// The business's brand, READ side (M10 WL-6, WL-8, WL-13). The reader takes the pool
+	// and nothing else: it reads, it never writes, and the tenant it reads is the one
+	// each caller resolved -- a session, or (the activation wizard, WL-13) the invitation
+	// in the activation cookie. The panel reads it for its chrome on every section
+	// (WL-8); the two logo routes below read the bytes (WL-6); the activation flow reads
+	// its six branded screens' brand and serves the wizard's logo (WL-13), and is built
+	// here, so the reader is built first.
+	brandReader, err := tenant.NewBrandReader(data)
+	if err != nil {
+		return err
+	}
+	activation, err := handler.NewActivation(invites, sessions, verifier, trail, brandReader, cfg, slog.Default())
 	if err != nil {
 		return err
 	}
@@ -599,15 +610,6 @@ func run() error {
 				slog.Error("the plaque encode store did not shut down cleanly", "err", err)
 			}
 		}()
-	}
-
-	// The business's brand, READ side (M10 WL-6, WL-8). The reader takes the pool and
-	// nothing else: it reads, it never writes, and the tenant it reads is the one each
-	// caller's session resolved. The panel reads it for its chrome on every section
-	// (WL-8); the two logo routes below read the bytes (WL-6).
-	brandReader, err := tenant.NewBrandReader(data)
-	if err != nil {
-		return err
 	}
 
 	// The business's brand, WRITE side (M10 WL-4, wired by WL-7): the Account editor's

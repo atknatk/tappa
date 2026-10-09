@@ -11,9 +11,10 @@ package layout
 // compares the listed renders with goldens written before this file existed.
 //
 // THE FIELDS ARE UNEXPORTED AND THE CONSTRUCTORS VALIDATE, so the only image URLs a
-// header can write are the two built here: "/t/logo/" (TapLogo) or, for the Account
-// editor's preview inside the panel, "/admin/brand/logo/" (PreviewLogo, M10 WL-7), plus
-// a 64-digit lower-case hex digest, with a box in 1..512. Any other shape becomes the
+// header can write are the three built here: "/t/logo/" (TapLogo), for the Account
+// editor's preview inside the panel "/admin/brand/logo/" (PreviewLogo, M10 WL-7), and
+// for the activation wizard "/activate/logo/" (ActivationLogo, M10 WL-13), plus a
+// 64-digit lower-case hex digest, with a box in 1..512. Any other shape becomes the
 // zero Logo, which draws nothing and widens no policy. The handler decides the
 // Content-Security-Policy from Logo.Drawn, the same predicate the header draws the
 // <img> from, so the page names img-src exactly when it draws an image.
@@ -32,6 +33,15 @@ const tapLogoRoute = "/t/logo/"
 // TestBrandPreview_TheLogoIsThePanelRoute requests the src this writes through the
 // panel's own logo route.
 const previewLogoRoute = "/admin/brand/logo/"
+
+// activationLogoRoute is the activation wizard's logo route (GET /activate/logo/{sha}, M10
+// WL-13; internal/handler, activate.go). Steps 1-4 of the wizard are drawn for a browser
+// that holds an invitation and NO session, so the tap route -- which answers only a live
+// employee session -- would 404 them; this route resolves the business from the
+// invitation in the activation cookie instead, and serves the logo only to a business
+// VIES verified (ADR 0024 §5's WL-13 note). The "Activation complete" and "already set
+// up" screens hold a session and draw TapLogo.
+const activationLogoRoute = "/activate/logo/"
 
 // logoMaxEdge is the stored logo's longest edge (ADR 0024 §3; brand.LogoMaxOutputEdge,
 // migration 00028's CHECK). A box outside 1..512 is not one a stored logo can have.
@@ -68,6 +78,18 @@ func PreviewLogo(sha256 string, width, height int, alt string) Logo {
 	return l
 }
 
+// ActivationLogo describes the same logo as TapLogo, served by the activation wizard's
+// route (M10 WL-13): the wizard's four steps, which a browser sees before it holds a
+// session. The rule for the digest and the box is TapLogo's.
+func ActivationLogo(sha256 string, width, height int, alt string) Logo {
+	l := TapLogo(sha256, width, height, alt)
+	if !l.Drawn() {
+		return Logo{}
+	}
+	l.src = activationLogoRoute + sha256
+	return l
+}
+
 // Drawn reports whether this logo is drawn. It is the page's hasLogo: the handler names
 // img-src in the response's policy exactly when this is true (ADR 0024 §5).
 func (l Logo) Drawn() bool { return l.src != "" }
@@ -77,7 +99,8 @@ func (l Logo) heightAttr() string { return strconv.Itoa(l.height) }
 
 // Brand is what the tap screen takes from a business's brand: the header's logo and
 // the tap button's accent, as its theme stylesheet (ADR 0023 §2, user decision D-C).
-// The result screen takes a Logo alone (BrandedPage) -- it has no accent slot.
+// The result screen takes a Logo alone (BrandedPage) -- it has no accent slot. Since
+// M10 WL-13 the activation family takes the same two slots (ActivationBrand).
 type Brand struct {
 	logo  Logo
 	theme Theme
@@ -87,6 +110,19 @@ type Brand struct {
 // after the read side has passed it through brand.Check (ADR 0023 §3), or the zero
 // Theme for none.
 func TapBrand(logo Logo, theme Theme) Brand { return Brand{logo: logo, theme: theme} }
+
+// ActivationBrand builds the activation family's brand (M10 WL-13, user decisions of
+// 2026-10-09): the tap screen's header and its accent, on the wizard's four steps, on
+// "Activation complete" and on "already set up". The logo is ActivationLogo on the
+// wizard and TapLogo on the two screens that hold a session; the caller has already
+// dropped it for a business VIES did not verify (internal/domain/tenant,
+// BrandReader.ActivationBrand). theme follows TapBrand's rule.
+func ActivationBrand(logo Logo, theme Theme) Brand { return Brand{logo: logo, theme: theme} }
+
+// Accented reports whether the page links the accent's theme stylesheet. The activation
+// wizard reads it to turn its other green marks ink (user decision 3 of 2026-10-09, an
+// extension of K-2a: with a tenant accent on the screen, the accent is the one colour).
+func (b Brand) Accented() bool { return b.theme.Linked() }
 
 // Logo is the header's logo.
 func (b Brand) Logo() Logo { return b.logo }

@@ -7,11 +7,37 @@
 package layout
 
 // Page is the shell for a screen that needs NO JavaScript and carries no business's
-// brand: activation, the tour, the problem screens, the password reset family.
-// PageWithScript is the tap screen's shell and BrandedPage the result screen's;
-// both say why below.
+// brand: the problem screens (the activation flow's and the tap flow's), the
+// activation flow's "phone already in use" confirmation, the password reset family.
+// PageWithScript is the tap screen's and the activation wizard's waiting screen's
+// shell, BrandedPage the result screen's and ActivationPage the rest of the activation
+// family's; each says why below.
+//
+// (Until M10 WL-13 this listed "activation, the tour" here. The tour went with ADR
+// 0026, and the activation family's screens that name a business -- the wizard,
+// "Activation complete", "already set up" -- now take ActivationPage. A problem screen
+// and the confirmation stay here: their words are fixed sentences that must not tell an
+// unknown, a spent and a live invitation apart, and a business's logo on one of them
+// would be exactly that tell.)
 templ Page(title string) {
 	@shell(title, "", Brand{}) {
+		{ children... }
+	}
+}
+
+// ActivationPage is Page with the business's brand -- the header and the accent's
+// theme stylesheet -- and no script (M10 WL-13, user decisions of 2026-10-09): the
+// activation wizard's first three steps, "Activation complete" and "already set up".
+// The wizard's fourth step needs its poll script and takes PageWithScript with the same
+// Brand.
+//
+// A SHELL OF ITS OWN rather than PageWithScript with an empty path, so that a page that
+// loads no script cannot be handed one by editing a string, and so that Page itself
+// keeps no brand parameter at all: the problem screens and the confirmation render Page,
+// and nothing can pass them a business's look. A zero Brand renders exactly what Page
+// renders (internal/handler, TestActivationPage_AZeroBrandIsPageByteForByte).
+templ ActivationPage(title string, b Brand) {
+	@shell(title, "", b) {
 		{ children... }
 	}
 }
@@ -31,21 +57,32 @@ templ BrandedPage(title string, logo Logo) {
 // PageWithScript is the same shell plus exactly ONE self-hosted script tag and the
 // business's brand -- the logo in the header and the accent's stylesheet.
 //
-// IT EXISTS FOR THE TAP PAGE AND NOTHING ELSE. §4.2 allows the browser's
-// location to be read at the moment of a tap and forbids every other shape of
-// it (in the background, continuously, or by watching a boundary), and reading
-// it at a moment requires
-// script — there is no HTML that says "ask once, when this button is pressed".
-// The activation flow needs no script and gets none: a form that works with
-// JavaScript disabled works on a locked-down work phone too, and the tap form
-// keeps that property as well (without script it simply posts no coordinates,
-// which §5 rows 6-7 already treat as a legitimate state).
+// IT HAS TWO CALLERS, each with its own script and its own reason (counted in the
+// .templ sources on 2026-10-09):
 //
-// THE BRAND BECAME A PARAMETER OF THIS SHELL IN M10 WL-9, rather than a third
-// shell, because the tap page is its only caller: a business with no brand passes
-// Brand{} and gets the page it got before, byte for byte (internal/handler:
-// TestUnbrandedScreens_AreByteIdenticalToTheGolden). The brand is what user
-// decisions D-C, K-2a and K-2b put on this screen and nothing more (ADR 0023 §7).
+//   - THE TAP PAGE. §4.2 allows the browser's location to be read at the moment of a
+//     tap and forbids every other shape of it (in the background, continuously, or by
+//     watching a boundary), and reading it at a moment requires script -- there is no
+//     HTML that says "ask once, when this button is pressed". The tap form keeps
+//     working without script: it simply posts no coordinates, which §5 rows 6-7
+//     already treat as a legitimate state.
+//   - THE ACTIVATION WIZARD'S WAITING SCREEN (step 4, ADR 0026). Its script polls
+//     GET /activate/status and flips the screen to "Activation complete" when the tap
+//     finished in another tab; without script the words on the screen stay true and
+//     the tap's own tab says "Activation complete".
+//
+// (An earlier version of this comment said "it exists for the tap page and nothing
+// else" and "the activation flow needs no script and gets none". Both stopped being
+// true with ADR 0026's waiting screen; the sentence outlived the code it described.
+// The rest of the activation flow still loads no script -- its steps are plain GET
+// links and one form.)
+//
+// THE BRAND BECAME A PARAMETER OF THIS SHELL IN M10 WL-9, rather than a third shell: a
+// business with no brand passes Brand{} and gets the page it got before, byte for byte
+// (internal/handler: TestUnbrandedScreens_AreByteIdenticalToTheGolden). On the tap page
+// the brand is what user decisions D-C, K-2a and K-2b put on that screen and nothing
+// more (ADR 0023 §7); on the waiting screen it is the activation family's brand (M10
+// WL-13, ADR 0023's WL-13 note).
 //
 // src must be an app-relative path under /static. Nothing here builds a URL from
 // user input, and no page passes one in.
@@ -59,9 +96,9 @@ templ PageWithScript(title, src string, b Brand) {
 // are the whole vocabulary — a fourth variant should be a fourth named component
 // with its own reason, not an extra parameter nobody reads.
 //
-// It deliberately loads ONE stylesheet (two on a tap screen whose business set an
-// accent -- see the brand paragraph at the end of this comment), the caller's
-// optional script, and NOTHING ELSE:
+// It deliberately loads ONE stylesheet (two on a tap or activation screen whose
+// business set an accent -- see the brand paragraph at the end of this comment), the
+// caller's optional script, and NOTHING ELSE:
 //
 //   - No font <link>, no CDN, no analytics. A runtime request to a third party
 //     would send this page's URL, and on the activation page that URL carries
@@ -81,12 +118,12 @@ templ PageWithScript(title, src string, b Brand) {
 //     to be found. This shell still passes RobotsPrivate and always will: every
 //     screen it renders is reached from a personal link.
 //
-// THE BUSINESS'S BRAND ADDS TWO THINGS AND ONLY ON THE TWO BRANDED SHELLS (M10 WL-9):
-// the theme stylesheet, which documentHead writes SECOND in the head so it wins over
-// app.css's :root defaults by order (same specificity; ADR 0023 §4, measured in
-// WL-5) -- the result screen's shell never has one, BrandedPage takes no Theme -- and
-// the header, BrandHeader below. Both are our own origin. With Brand{} neither changes
-// a byte.
+// THE BUSINESS'S BRAND ADDS TWO THINGS AND ONLY ON THE BRANDED SHELLS (M10 WL-9; WL-13
+// added ActivationPage): the theme stylesheet, which documentHead writes SECOND in the
+// head so it wins over app.css's :root defaults by order (same specificity; ADR 0023
+// §4, measured in WL-5) -- the result screen's shell never has one, BrandedPage takes
+// no Theme -- and the header, BrandHeader below. Both are our own origin. With Brand{}
+// neither changes a byte.
 templ shell(title, script string, b Brand) {
 	<!DOCTYPE html>
 	<html lang="en">
@@ -160,8 +197,9 @@ templ BrandHeader(b Brand) {
 //
 // theme is the tenant accent's stylesheet (M10 WL-8, ADR 0023 §4), written right
 // after app.css so that its :root rule wins by order. It is a layout.Theme, which is
-// built from a brand.Color only, and its zero value writes nothing: the panel shells
-// and the tap screen's shell pass the business's, every other shell passes the zero value.
+// built from a brand.Color only, and its zero value writes nothing: the panel shells,
+// the tap screen's shell and (M10 WL-13) the activation family's pass the business's,
+// every other shell passes the zero value.
 templ documentHead(title, script string, robots Robots, theme Theme) {
 	<head>
 		<meta charset="utf-8"/>

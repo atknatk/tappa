@@ -807,6 +807,23 @@ durumunu okuyan hiçbir sütun ya da kontrol ağaçta yok.
    taklitçinin davetiyle **onun** tenant'ına etkinleştirmiş kişidir; gerçek işletmenin
    çalışanı kendi ekranında taklitçinin logosunu görmez. Aktivasyon ekranı logo taşımaz (K6),
    işveren adını ise WL'den önce de basıyordu.
+   *(2026-10-09, M10 WL-13: **K6 kalktı.** Aktivasyon ailesi — sihirbazın dört adımı, *"Activation
+   complete"*, *"already set up"* — logoyu artık taşır, ama **yalnız VIES-doğrulanmış** işletmede
+   (`tenants.vat_verified IS TRUE`; `TestActivationBrandDB_TheVIESGateHoldsOnBothReads`,
+   `TestActivationLogoDB_OnlyAVerifiedBusinessesOwnLogoIsServed`); doğrulanmamış işletmenin
+   davetiyle açılan sihirbaz yalnız accent'i ve Taptime kelime markasını gösterir. Muhatap böylece
+   telefonunu etkinleştirmeden **önce** taklitçinin logosunu görebilen davetliye genişler. **VIES
+   KDV numarasının varlığını söyler, kaydolanın o numaranın sahibi olduğunu değil** ([ADR
+   0022](0022-islemsel-eposta.md) EM-7B notu, sayılı sınır 1: *"VIES varlığı kanıtlar, sahipliği
+   değil … gerçek sahibi önce kaydolmamışsa o tenant saldırganınki olabilir"*): numara kayıtta
+   serbest yazılır, sahiplik kanıtı istenmez, `vat_number` küresel tekildir (00001) ve ilk gelen
+   alır; `vies.go` adı numaraya bağlamaz. Henüz müşteri olmayan X'in herkese açık KDV numarasıyla
+   kaydolan taklitçi `vat_verified = TRUE` olur ve X'in logosunu sihirbazda gösterir — **kapı bu
+   biçimin asıl senaryosunda hiçbir şey daraltmaz**; yalnız X zaten müşteriyse (numara onun
+   tenant'ında olduğu için) taklitçi doğrulanamaz. Aktivasyonun problem ekranları ve *"phone already
+   in use"* onayı Taptime kalır. [ADR 0023](0023-tenant-markasi-ve-arayuz-kurali.md) WL-13 notu.
+   (WL-13 güvenlik denetimiyle düzeltildi, 2026-10-09: bu ekin ilk hâli *"VIES şirketin gerçek
+   olduğunu söyler … risk daralır"* diyordu.))*
 2. **Logonun pikselleri Taptime'ın kendi ekran dilini taklit eder** (ADR 0023 sınır 1'in
    WL-9 eki, güvenlik denetiminin S3'ü): tap ekranında bir *"✓ Tapped in"*, REJECTED ya da
    FLAGGED bir sonuç ekranında bir *"APPROVED"* damgası çizen logo. Ve **`alt`**: logo isteği
@@ -815,6 +832,13 @@ durumunu okuyan hiçbir sütun ya da kontrol ağaçta yok.
    WL-9 notu, sınır 11). `alt` = ad tap ekranında, sonuç ekranında ve Account önizlemesinde
    geçerlidir; panel başlığında `alt` boştur ve kırık logo kutusunun dışına bir piksel bile
    basmaz (ADR 0023 WL-8 notu, karar 9 ve sınır 5).
+   *(2026-10-09, M10 WL-13: aynı biçim **aktivasyon ailesinde** de — ama yalnız VIES-doğrulanmış
+   işletmede, çünkü logo yalnız orada çizilir (ve biçim 1'in ekindeki gibi o kapı sahipliği
+   kanıtlamaz). Ör. sihirbazın 1. adımında *"✓ Activation complete"* çizen bir logo çalışanı onay
+   vermeden sayfayı kapatmaya götürebilir: **kayıt kaybı yoktur** — onay, bağlama ve aktivasyon
+   dokunuşu hiçbir `transactions` satırı değildir — yalnız o çalışan etkinleşmez ve davet açık
+   kalır. Kırık logoda `alt` = işletme adı sihirbazda, *"Activation complete"*'te ve *"already set
+   up"*'ta da geçerlidir (ADR 0023 WL-13 sınır 6).)*
 
 **Kim yapabilir.** Yalnız işletmenin **aktif sahibi**: logo ve renk yazımı handler'da
 `mayEditAccount` (canlı oturum + `owner`), domain'de ikinci kez — rol ve durum DB'den
@@ -1078,6 +1102,8 @@ bir kez daha işlemek olurdu.
   §9 onayı **D-C**'nin bedelidir. ADR 0023'ün slot haritası ve uyuşmazlık kuralı (§2) onun
   hafifleticileridir; o ADR yeni bir yüzeye logo eklerse (ör. faz 2'nin tur ekranları) risk
   9'un muhatabı genişler ve risk 9'un bölümü o değişiklikle birlikte güncellenir.
+  *(2026-10-09, M10 WL-13: oldu — aktivasyon ailesi, VIES koşuluyla; risk 9'un bölümü, biçim 1'in
+  ekiyle, aynı değişiklikte güncellendi.)*
 - **[M5-02](../plan/m5-tap-akisi.md) müdür-kimlik riskini azaltır:** Q02 çözülünce
   davet kodu çalışanın kendi kanalına gider; Risk 5'in önkoşulu (müdürün kodu
   görmesi) kalkar. Risk kabul olarak durur ama azaltım yolu bu görevdedir.

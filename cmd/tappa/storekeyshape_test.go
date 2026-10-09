@@ -191,6 +191,15 @@ const storeDir = "internal/store"
 // and WithdrawPasswordReset, the recovery flow's one-live-link-per-account rule: an
 // advisory lock keyed by the administrator and the retirement of a link recorded
 // undelivered. Neither carries a []byte field nor calls a definer.
+//
+// M10 WL-13 (2026-10-09, db/queries/branding.sql) added GetTenantActivationBrand, the
+// activation family's per-page read (GetTenantPanelBrand's fields plus the business's
+// VIES verdict as a plain bool), and GetTenantActivationLogo, the activation wizard's
+// logo bytes -- GetTenantLogo's statement with the VIES gate in its WHERE. The second
+// returns a []byte, GetTenantActivationLogoRow.Logo: the logo's bytes from
+// tenant_branding, read by tenant AND digest, exactly as GetTenantLogoRow.Logo. Neither
+// calls a definer; internal/db's TestTenantBranding_PerPageReadsDoNotSelectTheLogo pins
+// the first's select list and the second's positive control.
 var storeSurface = map[string]string{
 	"AdvanceTagCounter":                  "(context.Context, AdvanceTagCounterParams{Ctr int32; TenantID uuid.UUID; Uid string}) (AdvanceTagCounterRow{Uid string; CtrGap int32}, error)",
 	"AppendPolicyVersion":                "(context.Context, AppendPolicyVersionParams{TenantID uuid.UUID; PolicyID uuid.UUID; VersionNo int32; Document []byte; CreatedBy *uuid.UUID}) (AppendPolicyVersionRow{ID uuid.UUID; VersionNo int32; CreatedAt time.Time}, error)",
@@ -257,6 +266,8 @@ var storeSurface = map[string]string{
 	"GetRosterCursorAnchor":            "(context.Context, GetRosterCursorAnchorParams{TenantID uuid.UUID; ID uuid.UUID}) (string, error)",
 	"GetTagForTenant":                  "(context.Context, GetTagForTenantParams{TenantID uuid.UUID; Uid string}) (GetTagForTenantRow{Uid string; TenantID uuid.UUID; LocationID *uuid.UUID; LastCtr int32; Status string; RetiredAt *time.Time; ReplacedBy *string; CreatedAt time.Time; EncodedAt *time.Time}, error)",
 	"GetTenantAccount":                 "(context.Context, uuid.UUID) (GetTenantAccountRow{ID uuid.UUID; Name string; VatNumber string; BusinessType string; Timezone string; VatVerified *bool; VatCheckedAt *time.Time; CreatedAt time.Time}, error)",
+	"GetTenantActivationBrand":         "(context.Context, uuid.UUID) (GetTenantActivationBrandRow{Name string; VatVerified bool; Accent *string; LogoSha256 *string; LogoMime *string; LogoWidth *int32; LogoHeight *int32}, error)",
+	"GetTenantActivationLogo":          "(context.Context, GetTenantActivationLogoParams{TenantID uuid.UUID; LogoSha256 string}) (GetTenantActivationLogoRow{Logo []byte; LogoMime *string}, error)",
 	"GetTenantBrand":                   "(context.Context, uuid.UUID) (GetTenantBrandRow{Accent *string; LogoSha256 *string; LogoMime *string; LogoWidth *int32; LogoHeight *int32; UpdatedAt time.Time; UpdatedBy uuid.UUID}, error)",
 	"GetTenantBrandForUpdate":          "(context.Context, uuid.UUID) (GetTenantBrandForUpdateRow{Accent *string; LogoSha256 *string; LogoMime *string; LogoWidth *int32; LogoHeight *int32; UpdatedAt time.Time; UpdatedBy uuid.UUID}, error)",
 	"GetTenantClock":                   "(context.Context, uuid.UUID) (GetTenantClockRow{ID uuid.UUID; Name string; Timezone string}, error)",
@@ -497,11 +508,19 @@ func TestStoreSurface_NoByteCarryingQueryReadsTags(t *testing.T) {
 	// the logo's re-encoded bytes, read by tenant and digest for the two logo routes.
 	// Its statement reads tenant_branding; the word check above runs on it like on the
 	// other five.
-	if carriers != 6 {
-		t.Errorf("%d method(s) return a []byte-carrying struct; SIX did when this was last pinned "+
-			"(2026-10-03) -- two policy-document readers, three Transaction readers and the "+
-			"tenant logo reader. A seventh is either a new policy document or logo reader, or a "+
-			"§4.7 finding", carriers)
+	//
+	// 6 -> 7 (2026-10-09, M10 WL-13), measured by this walk:
+	//
+	//	GetTenantActivationLogo   -> GetTenantActivationLogoRow.Logo (tenant_branding.logo)
+	//
+	// the same bytes for the activation wizard's logo route, read by tenant AND digest
+	// with the business's VIES verdict in the WHERE. Its statement reads tenant_branding
+	// joined to tenants; the word check above runs on it like on the other six.
+	if carriers != 7 {
+		t.Errorf("%d method(s) return a []byte-carrying struct; SEVEN did when this was last pinned "+
+			"(2026-10-09) -- two policy-document readers, three Transaction readers and the "+
+			"two tenant logo readers (the logo routes' and the activation wizard's). An eighth is "+
+			"either a new policy document or logo reader, or a §4.7 finding", carriers)
 	}
 	if !t.Failed() {
 		// 🔴 THE MESSAGE SAYS WHAT THE CHECK KNOWS, AND THE PREVIOUS ONE DID NOT. It
@@ -840,13 +859,16 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// 130 -> 132 on 2026-10-09 (activation by NFC tap, from main by the merge that brought
 	// it into m10-a1; main pinned it 128 -> 130 alone): invites.sql's RecordInviteConsent
 	// and InviteConsentMatches; neither calls a definer.
-	if named != 132 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; ONE HUNDRED AND THIRTY-TWO were "+
+	// 132 -> 134 on 2026-10-09 (M10 WL-13): branding.sql's GetTenantActivationBrand and
+	// GetTenantActivationLogo, the activation family's brand read and the wizard's logo
+	// bytes; neither calls a definer.
+	if named != 134 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; ONE HUNDRED AND THIRTY-FOUR were "+
 			"there when this was pinned (2026-10-09: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
 			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+
 			"+ EM-7B's three invitation e-mail queries, + EM-7C's two recovery queries, "+
-			"+ the activation tap's two consent queries). "+
+			"+ the activation tap's two consent queries, + WL-13's two activation brand queries). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {

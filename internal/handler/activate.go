@@ -22,6 +22,7 @@ import (
 
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
+	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/internal/invite"
 	"github.com/atknatk/tappa/internal/session"
@@ -55,6 +56,16 @@ type (
 	}
 	auditRecorder interface {
 		Record(ctx context.Context, e audit.Event) (uuid.UUID, error)
+	}
+	// activationBrands is the slice of tenant.BrandReader the activation family needs
+	// (M10 WL-13): the brand its six branded screens draw, and the logo's bytes for the
+	// wizard's own logo route. Both reads keep the VIES gate (user decision 2 of
+	// 2026-10-09): ActivationBrand returns no logo for a business VIES did not verify,
+	// and ActivationLogo has no bytes for one (internal/domain/tenant,
+	// activationbrand.go).
+	activationBrands interface {
+		ActivationBrand(ctx context.Context, tenantID uuid.UUID) (tenant.PageBrand, error)
+		ActivationLogo(ctx context.Context, tenantID uuid.UUID, digest string) (tenant.StoredLogo, error)
 	}
 )
 
@@ -107,6 +118,9 @@ type Activation struct {
 	sessions sessionManager
 	sun      activationVerifier
 	audit    auditRecorder
+	// brands reads the business's brand for the wizard, "Activation complete" and
+	// "already set up", and the wizard's logo bytes (M10 WL-13).
+	brands activationBrands
 	// cookies writes the SESSION cookie (internal/session owns its attributes).
 	cookies session.Cookies
 	// codes writes the short-lived ACTIVATION cookie carrying the invite code.
@@ -135,8 +149,10 @@ type Activation struct {
 }
 
 // NewActivation wires the flow. Every dependency is required: a nil recorder
-// would silently drop the §4.6 trail, and a nil manager cannot fail safely.
-func NewActivation(inv inviteManager, sess sessionManager, verifier activationVerifier, rec auditRecorder, cfg *config.Config, log *slog.Logger) (*Activation, error) {
+// would silently drop the §4.6 trail, and a nil manager cannot fail safely. A nil
+// brand reader would draw every business's activation in Taptime's look without a
+// word in any log, so it is refused here rather than read as "no brand" (M10 WL-13).
+func NewActivation(inv inviteManager, sess sessionManager, verifier activationVerifier, rec auditRecorder, brands activationBrands, cfg *config.Config, log *slog.Logger) (*Activation, error) {
 	switch {
 	case inv == nil:
 		return nil, errors.New("handler: nil invite manager")
@@ -148,6 +164,8 @@ func NewActivation(inv inviteManager, sess sessionManager, verifier activationVe
 		return nil, errors.New("handler: nil sun verifier")
 	case rec == nil:
 		return nil, errors.New("handler: nil audit recorder")
+	case isNil(brands):
+		return nil, errors.New("handler: nil brand reader")
 	case cfg == nil:
 		return nil, errors.New("handler: nil config")
 	}
@@ -159,6 +177,7 @@ func NewActivation(inv inviteManager, sess sessionManager, verifier activationVe
 		sessions:         sess,
 		sun:              verifier,
 		audit:            rec,
+		brands:           brands,
 		cookies:          session.NewCookies(cfg),
 		codes:            newCodeCookies(cfg),
 		retentionYears:   cfg.RetentionYears,
@@ -180,11 +199,14 @@ func NewActivation(inv inviteManager, sess sessionManager, verifier activationVe
 // The activating tap itself is not a route of this handler: it arrives on GET /t
 // and the Tap handler hands it here (Pending, CompleteByTap), so it sits behind
 // the tap path's own address and session shields.
+//
+// GET /activate/logo/{sha} (M10 WL-13) is the wizard's logo: activationbrand.go.
 func (a *Activation) Mount(r chi.Router) {
 	r.Get("/activate", a.Page)
 	r.Post("/activate", a.Continue)
 	r.Get(ActivationStatusPath, a.Status)
 	r.Get(ActivationCompletePath, a.Complete)
+	r.Get(activationLogoRoute, a.Logo)
 	r.Post("/api/activate", a.Submit)
 }
 
@@ -318,7 +340,7 @@ func (a *Activation) Page(w http.ResponseWriter, r *http.Request) {
 				Code:         raw,
 				EmployeeName: ictx.FullName,
 				EmployerName: ictx.TenantName,
-			}))
+			}), false)
 			return
 		}
 		a.startActivation(w, r, raw, ictx.ExpiresAt)
@@ -372,7 +394,7 @@ func (a *Activation) landWithoutLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if held != nil {
-		a.render(w, r, http.StatusOK, pages.AlreadySetUp(pages.AlreadySetUpView{EmployeeName: held.FullName}))
+		a.renderAlreadySetUp(w, r, held)
 		return
 	}
 	switch r.URL.Query().Get("from") {
@@ -397,8 +419,16 @@ func (a *Activation) alreadySetUpFor(w http.ResponseWriter, r *http.Request, ip 
 		return false
 	}
 	a.failAttempt(r.Context(), ip, ictx, "already_used_on_this_phone", againstIPOnly)
-	a.render(w, r, http.StatusOK, pages.AlreadySetUp(pages.AlreadySetUpView{EmployeeName: held.FullName}))
+	a.renderAlreadySetUp(w, r, held)
 	return true
+}
+
+// renderAlreadySetUp draws "already set up" in the brand of the business whose live
+// session this phone holds (M10 WL-13). The logo is the tap route's: the session that
+// answers this page is the one /t/logo/ serves.
+func (a *Activation) renderAlreadySetUp(w http.ResponseWriter, r *http.Request, held *heldSession) {
+	look := a.lookFor(r.Context(), held.TenantID, sessionLogo)
+	a.render(w, r, http.StatusOK, pages.AlreadySetUp(pages.AlreadySetUpView{EmployeeName: held.FullName}, look), look.Logo().Drawn())
 }
 
 // wizardStep reads ?step= for the activation wizard (ADR 0026) and decides which
@@ -1031,10 +1061,13 @@ func (a *Activation) Complete(w http.ResponseWriter, r *http.Request) {
 				} else {
 					a.log.Error("activation complete: loading the employee failed", "err", cerr)
 				}
+				// The brand of the business the new session belongs to (M10 WL-13); its
+				// logo through the tap route, which this session can fetch.
+				look := a.lookFor(r.Context(), res.TenantID, sessionLogo)
 				a.render(w, r, http.StatusOK, pages.Activated(pages.ActivatedView{
 					EmployeeName: name,
 					SecondDevice: r.URL.Query().Get("replaced") == "1",
-				}))
+				}, look), look.Logo().Drawn())
 				return
 			case err != nil && !errors.Is(err, session.ErrNoSession) && !errors.Is(err, session.ErrRevoked):
 				a.log.Error("activation complete: verifying the session failed", "err", err)
@@ -1422,12 +1455,19 @@ func (a *Activation) renderForm(w http.ResponseWriter, r *http.Request, status i
 		v.HeldByName = fs.heldBy.FullName
 		v.HeldByEmployer = fs.heldBy.TenantName
 	}
-	a.render(w, r, status, pages.Activate(v))
+	// The brand is the INVITATION's business -- the one this wizard sets the phone up
+	// for -- never the business of a session already on the phone (M10 WL-13). Its logo
+	// comes through the wizard's own route: there is no session yet.
+	look := a.lookFor(r.Context(), ictx.TenantID, wizardLogo)
+	a.render(w, r, status, pages.Activate(v, look), look.Logo().Drawn())
 }
 
 // heldSession is who this phone currently belongs to, as far as its session
 // cookie says.
 type heldSession struct {
+	// TenantID is the session's business: "already set up" is drawn in its brand
+	// (M10 WL-13).
+	TenantID   uuid.UUID
 	EmployeeID uuid.UUID
 	FullName   string
 	TenantName string
@@ -1462,7 +1502,7 @@ func (a *Activation) heldBy(r *http.Request) (*heldSession, error) {
 		}
 		return nil, fmt.Errorf("handler: reading the phone's current session: %w", err)
 	}
-	held := &heldSession{EmployeeID: res.EmployeeID, FullName: "another employee"}
+	held := &heldSession{TenantID: res.TenantID, EmployeeID: res.EmployeeID, FullName: "another employee"}
 	ictx, err := a.invites.ActivationContext(r.Context(), res.TenantID, res.EmployeeID)
 	if err != nil {
 		// The CONFLICT is already established — we know a different employee holds
@@ -1575,8 +1615,12 @@ func (a *Activation) sameOrigin(r *http.Request, strict bool) bool {
 	return strings.EqualFold(strings.TrimRight(origin, "/"), strings.TrimRight(a.baseURL, "/"))
 }
 
+// renderProblem draws a failure screen in Taptime's own look. pages.Problem takes no
+// brand, so none can reach it: a business's look is known only from a USABLE
+// invitation, and a failure screen in its colours would tell a live link from a dead
+// one (§4.7; M10 WL-13). No failure screen draws an image.
 func (a *Activation) renderProblem(w http.ResponseWriter, r *http.Request, status int, v pages.ProblemView) {
-	a.render(w, r, status, pages.Problem(v))
+	a.render(w, r, status, pages.Problem(v), false)
 }
 
 // render writes one component with the headers every screen in this flow needs.
@@ -1593,11 +1637,16 @@ func (a *Activation) renderProblem(w http.ResponseWriter, r *http.Request, statu
 // plus one fetch to /activate/status, which is what connect-src 'self' is for.
 // frame-ancestors 'none' matters here for the same reason as on the tap page: the
 // consent form is a single button worth clickjacking.
-func (a *Activation) render(w http.ResponseWriter, r *http.Request, status int, c templ.Component) {
+//
+// drawsLogo is THIS response's answer to "does c draw the business's logo" (M10 WL-13),
+// and it widens the policy by img-src 'self' only then (activationCSPFor) -- the tap
+// screen's rule (tap.go, render). Each call site states it: the branded screens pass
+// their header's Logo().Drawn(), the failure screens and the confirmation false.
+func (a *Activation) render(w http.ResponseWriter, r *http.Request, status int, c templ.Component, drawsLogo bool) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Content-Security-Policy", activationCSP)
+	w.Header().Set("Content-Security-Policy", activationCSPFor(drawsLogo))
 	w.WriteHeader(status)
 	if err := c.Render(devToolsContext(r.Context(), a.devTools), w); err != nil {
 		// The status line is already on the wire, so there is nothing to send but
@@ -1616,6 +1665,13 @@ func (a *Activation) redirect(w http.ResponseWriter, r *http.Request, to string)
 
 // activationCSP is tapCSP plus connect-src 'self' for the waiting screen's poll.
 const activationCSP = tapCSP + "; connect-src 'self'"
+
+// activationCSPFor is the policy an activation response is sent with: activationCSP,
+// plus img-src 'self' when that response draws the business's logo (M10 WL-13; the
+// tapCSPFor shape, brandlogo.go's logoImagePolicy). With false it is activationCSP byte
+// for byte, which is what every screen of a business with no logo -- and every failure
+// screen -- is sent with (TestUnbrandedScreens_AreByteIdenticalToTheGolden).
+func activationCSPFor(hasLogo bool) string { return logoImagePolicy(activationCSP, hasLogo) }
 
 // originOf reduces a configured base URL to its scheme://host origin, which is
 // the form an Origin header takes. A BaseURL with a path ("https://x/app") would
