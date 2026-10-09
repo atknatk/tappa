@@ -60,6 +60,9 @@ const (
 	// never-log list; kept off every surface but the VAT screen's body all the same (the
 	// orchestrator's K16-4; backlog T107) -- this package's own claim (vat.go).
 	gVAT = "G18 tenant VAT number"
+	// The enrollment key's QR code (ADR 0020 §3, QR note): the SVG path the enrollment page
+	// draws, the otpauth:// URI -- the TOTP secret -- in another form. Bound to N4.
+	gQR = "G19 the enrollment key's QR code"
 )
 
 // neverLog is the CLOSED criterion: each never-log item of CLAUDE.md §7, ADR 0020 §5 and
@@ -80,7 +83,7 @@ var neverLog = []struct {
 	{"N1 operator session token (CLAUDE.md §7; ADR 0020 §5)", []string{gSession}},
 	{"N2 its hash (ADR 0020 §5)", []string{gSessionHash}},
 	{"N3 TOTP code, the current one and the ±1 window's (CLAUDE.md §7; ADR 0020 §5; ADR 0021 §3.5)", []string{gCode, gCodeNear}},
-	{"N4 TOTP secret (CLAUDE.md §7; ADR 0020 §5)", []string{gSecret}},
+	{"N4 TOTP secret, its QR code among its forms (CLAUDE.md §7; ADR 0020 §5; ADR 0020 §3 QR note)", []string{gSecret, gQR}},
 	{"N5 enrollment token (CLAUDE.md §7; ADR 0020 §5; ADR 0021 §3.5)", []string{gLinkToken}},
 	{"N6 its hash (ADR 0020 §5; ADR 0021 §3.5)", []string{gLinkHash}},
 	{"N7 password, old and new (ADR 0020 §5)", []string{gPassword}},
@@ -385,10 +388,10 @@ var harvestWant = map[string]struct{ calls, arity int }{
 // shape is internal/operatorauth's
 // TestLeak_NoInputInAnyErrorOrLogLine, m10-platform.md OP-4 block, OP-8 list):
 //
-// No member of the GROUPS G1-G18 (constants above) occurs, in any of the RENDERINGS
+// No member of the GROUPS G1-G19 (constants above) occurs, in any of the RENDERINGS
 // R1-R10 (renderings), on any of the SURFACES S1-S4 (leakSurfaces; S4 is the response
 // headers AT WriteHeader, the recorder's Result().Header -- Location among them), in any
-// of the 98 numbered ARMS A1-A98 below -- EXCEPT the DESIGNED EGRESS D1-D8, each of which
+// of the 99 numbered ARMS A1-A99 below -- EXCEPT the DESIGNED EGRESS D1-D8, each of which
 // is pinned the other way: the value IS on its surface in its arm. The groups are measured
 // against the CLOSED list neverLog (12 items, a pinned literal): every group of every item
 // has a member. G15 (the client address), G16 (a legal text posted to the operator's
@@ -414,8 +417,9 @@ var harvestWant = map[string]struct{ calls, arity int }{
 //   - DESIGNED EGRESS D1-D5: present where it is meant to be (the allowed table below):
 //     D1 the login challenge in its Set-Cookie (S4; A4, A23 and the password steps of
 //     A20b, A26b, A30b), D2 the session token in its Set-Cookie (S4; A7, A16 and the code
-//     steps of A20b, A26b, A30b), D3 the enrollment page's TOTP key, base32 and URI (S3; A11), D4 the
-//     pending blob in the form (S3; A11-A14), D5 the link token echoed into the
+//     steps of A20b, A26b, A30b), D3 the enrollment page's TOTP key, base32 and URI, and
+//     its QR code's SVG path (G19) -- each page its own key's: A11's on A11, A99's on A99
+//     (S3), D4 the pending blob in the form (S3; A11-A14, A99), D5 the link token echoed into the
 //     re-rendered enrollment form (S3; A12-A14), D6 the legal snapshot's texts in the
 //     legal page's editors (S3; A31: the seeded text, A33 and A43: it and the published
 //     one -- in A43 the text whose refresh failed is NOT one of them), D7 the search term
@@ -434,6 +438,8 @@ var harvestWant = map[string]struct{ calls, arity int }{
 //	A1 sign-in page · A2 unknown address · A3 wrong password (G1's control password) ·
 //	A4 right password (D1) · A5 code page · A6 wrong code · A7 right code (D2) ·
 //	A8 console · A9 junk session cookie · A10 sign-out · A11 enrollment page (D3, D4) ·
+//	A99 the enrollment page again, for the same account -- a new key and a new QR code,
+//	and A11's on none of its surfaces (D3, D4) ·
 //	A12 passwords differ (D4, D5) · A13 weak password (D4, D5) · A14 wrong first code
 //	(D4, D5) · A15 malformed link token · A16 enrollment completed (D2) · A17 the SAME
 //	link again -- refused by the database, the ErrEnrollment branch with a real token ·
@@ -473,7 +479,9 @@ var harvestWant = map[string]struct{ calls, arity int }{
 //	the same budget
 //
 // NOT CLAIMED, BY NAME: split or partial values; renderings not on the list (base32,
-// %X, a case-folded value, ...); what operatorauth's own types print (its
+// %X, a case-folded value, ...); the QR code drawn in another form than the page's path
+// (another path syntax, a rect per module, the module matrix printed by fmt); what
+// operatorauth's own types print (its
 // TestLeak_NoSecretOnAnyPrintingPath); the ingress's log, the browser's history and
 // anything outside this process; arms not numbered here (a failing crypto/rand, a cookie
 // setter refusing an empty value, a failing templ render other than the tenant refusal).
@@ -674,20 +682,37 @@ func TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor(t *testing.T) {
 	get("A8 console", "/operator", sess)                                                                        // [T1]
 	get("A9 junk session cookie", "/operator", &http.Cookie{Name: operatorauth.SessionCookieName, Value: junk}) // [T2]
 	post("A10 sign-out", "/operator/logout", url.Values{}, sess)                                                // [C1]
+	// enrollPageValues reads an enrollment page's designed egress -- its key as printed and
+	// unspaced, its blob and its QR code's path -- and adds them to the searched members.
+	enrollPageValues := func(arm string, w *httptest.ResponseRecorder) (printed, pk string, rawPK []byte, blob, qrPath string) {
+		t.Helper()
+		pageKey := regexp.MustCompile(`<p class="op-key">([A-Z2-7 ]+)</p>`).FindStringSubmatch(w.Body.String())
+		pageBlob := regexp.MustCompile(`name="blob" value="([^"]+)"`).FindStringSubmatch(w.Body.String())
+		pageQR := regexp.MustCompile(`<path d="(M[0-9 Mhvz-]+)" fill="#152219">`).FindStringSubmatch(w.Body.String())
+		if pageKey == nil || pageBlob == nil || pageQR == nil {
+			t.Fatalf("PREMISE: %s's page carries no key, blob or QR code", arm)
+		}
+		pk = strings.ReplaceAll(pageKey[1], " ", "")
+		rawPK, err := base32.StdEncoding.DecodeString(pk)
+		if err != nil {
+			t.Fatal(err)
+		}
+		blob = html.UnescapeString(pageBlob[1])
+		set.add(gSecret, pk, pageKey[1], string(rawPK))
+		set.add(gBlob, blob)
+		set.add(gQR, pageQR[1])
+		return pageKey[1], pk, rawPK, blob, pageQR[1]
+	}
 	w = get("A11 enrollment page", "/operator/enroll?id="+pending.String())
-	pageKey := regexp.MustCompile(`<p class="op-key">([A-Z2-7 ]+)</p>`).FindStringSubmatch(w.Body.String())
-	pageBlob := regexp.MustCompile(`name="blob" value="([^"]+)"`).FindStringSubmatch(w.Body.String())
-	if pageKey == nil || pageBlob == nil {
-		t.Fatal("PREMISE: A11's page carries no key or blob")
+	printedPK, pk, rawPK, blob, qrPath := enrollPageValues("A11", w)
+	// A99: the same link opened again. The page is new: its own key, blob and QR code
+	// (D3, D4 on A99), and A11's on none of its surfaces -- the code is drawn per page,
+	// not kept.
+	w = get("A99 the enrollment page again", "/operator/enroll?id="+pending.String())
+	printedPK99, pk99, _, blob99, qrPath99 := enrollPageValues("A99", w)
+	if pk99 == pk || qrPath99 == qrPath {
+		t.Fatal("PREMISE: A99's page repeats A11's key or QR code -- the arm is not a second page")
 	}
-	pk := strings.ReplaceAll(pageKey[1], " ", "")
-	rawPK, err := base32.StdEncoding.DecodeString(pk)
-	if err != nil {
-		t.Fatal(err)
-	}
-	blob := html.UnescapeString(pageBlob[1])
-	set.add(gSecret, pk, pageKey[1], string(rawPK))
-	set.add(gBlob, blob)
 	pageCode := totpAt(rawPK, now)
 	set.add(gCode, pageCode, wrongCodeAt(rawPK, now))
 	enroll := func(token, p1, p2, code string) url.Values {
@@ -1150,7 +1175,8 @@ func TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor(t *testing.T) {
 	allowed := map[string]map[string][]string{ // arm -> surface -> values allowed there
 		"A4 right password":                    {"S4 response headers": {ch.Value}},
 		"A7 right code":                        {"S4 response headers": {sess.Value}},
-		"A11 enrollment page":                  {"S3 response body": {pk, pageKey[1], blob}},
+		"A11 enrollment page":                  {"S3 response body": {pk, printedPK, blob, qrPath}},
+		"A99 the enrollment page again":        {"S3 response body": {pk99, printedPK99, blob99, qrPath99}},
 		"A12 passwords differ":                 {"S3 response body": {blob, linkToken}},
 		"A13 weak password":                    {"S3 response body": {blob, linkToken}},
 		"A14 wrong first code":                 {"S3 response body": {blob, linkToken}},

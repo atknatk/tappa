@@ -115,10 +115,11 @@ type CodeView struct {
 
 // EnrollView is the enrollment screen (ADR 0020 §3).
 //
-// ON FIRST LOAD it carries the new TOTP secret twice -- as grouped base32 for typing
-// and as the otpauth:// URI for an app that takes one -- and the sealed pending blob
-// for the form. Both are plaintext credentials; the response that carries them is
-// no-store with no-referrer, and the handler zeroes the secret once it is rendered.
+// ON FIRST LOAD it carries the new TOTP secret three times -- as the otpauth:// URI's QR
+// code for an app's camera, as grouped base32 for typing and as the URI itself for an app
+// that takes a link (ADR 0020 §3, QR note) -- and the sealed pending blob for the form.
+// All are plaintext credentials; the response that carries them is no-store with
+// no-referrer, and the handler zeroes the secret once it is rendered.
 //
 // ON A RE-RENDER after a refused attempt (passwords that differ, a password the
 // rule refuses, a code the window does not accept) there is NO secret -- the handler
@@ -128,7 +129,10 @@ type EnrollView struct {
 	AccountID string
 	Key       string // grouped base32 (first load)
 	URI       string // otpauth:// URI (first load)
-	Blob      string
+	// QR is URI as a QR code (first load): its modules [y][x], dark true, the quiet zone
+	// included. The page draws it inline (qr.go); empty draws nothing.
+	QR   [][]bool
+	Blob string
 	// Token is the link's token ECHOED from a post (re-render). On first load it is
 	// empty: the token travels in the link's fragment, which a browser does not put in a
 	// request, and the page's script moves it into the form

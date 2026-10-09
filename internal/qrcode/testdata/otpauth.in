@@ -1,0 +1,1 @@
+otpauth://totp/Taptime%20operator:ops.taptime.mt?secret=FAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKE&issuer=Taptime%20operator&algorithm=SHA1&digits=6&period=30

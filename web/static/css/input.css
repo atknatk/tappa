@@ -812,6 +812,16 @@
   /* The enrollment key: grouped base32, read aloud and typed by a person -- mono, wide
      tracking, wrapped anywhere rather than overflowing a phone. */
   .op-key     { @apply break-all font-mono text-lg font-bold tracking-widest text-ink; }
+  /* The key's QR code (ADR 0020 §3, QR note): an inline SVG whose width and height
+     attributes give whole pixels per module. Kept at its own size at the column's left
+     edge, shrunk only on a column narrower than it (the height follows the viewBox), and
+     outlined in the perforation tone OUTSIDE its drawing -- the four-module quiet zone is
+     part of the SVG's paper ground, so nothing touches it (skill tappa-brand, plaque
+     print: no frame inside the quiet zone). The 1px rule is an outline, not a border: a
+     border would be taken from the box (border-box) and draw 226 pixels for a 228-pixel
+     attribute, so the modules would stop being whole pixels; an outline adds nothing to
+     the box. Its colours are the SVG's own attributes. */
+  .op-qr      { @apply block h-auto max-w-full self-start outline outline-1 outline-line; }
   .op-uri     { @apply break-all border border-line bg-porcelain px-3 py-2 font-mono text-xs text-ink; }
   /* The link-code field. The enrollment script hides it once it has filled it in from
      the link; written out because Tailwind v3's preflight carries no [hidden] rule

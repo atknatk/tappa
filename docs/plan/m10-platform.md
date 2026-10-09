@@ -11988,6 +11988,115 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 > yeni denetim açılmadı; orkestratör `f6c1b2b` ucuna birleşik kopyada zinciri, S18'i, yeni cümleye çapalanmış S20'yi
 > ve D2'nin geri dönüşünü kendisi koştu: üçü de kırmızı. Kapanan backlog: T106, T107.
 
+> # Operatör kayıt sayfasına TOTP QR kodu — görev kartı
+>
+> > Dal `m10-a1`, taban `163f6a5` (canlı `main` `c6c05b8` ile kod aynı). Commit/push YOK.
+> > Normatif kayıt: ADR 0020 §3 → **QR notu (2026-10-09)**. Bu kart m10-platform.md'ye EKLENMEDİ.
+>
+> ## Neden
+>
+> Kullanıcı (platform sahibi) canlıda ilk operatör kaydında Authenticator uygulaması için QR
+> bekledi; sayfa anahtarı yalnız metin olarak (base32 + `otpauth://` URI) gösteriyordu
+> (ADR 0020 §3: "QR kütüphanesi yok"). **Kullanıcı kararı (2026-10-09): QR olsun.** CLAUDE.md §1
+> değişmedi → kodlayıcı depoda, saf Go, bağımlılıksız.
+>
+> ## Kabul kriterleri ve karşılıkları
+>
+> | # | Kriter | Karşılık |
+> |---|---|---|
+> | K1 | Saf paket, yalnız stdlib; byte modu; varsayılan M (L/M/Q/H parametre); sürüm ≥ 1–10 otomatik; RS; 8 maske ceza puanıyla; biçim + (≥7) sürüm bilgisi; 4 modül sessiz alan; matris çıktısı; sığmayan girdi hata | `internal/qrcode` (`qrcode.go`, `matrix.go`, `rs.go`, `tables.go`): sürüm **1–40**, `Encode(data, level)`, `Code.Bitmap(QuietZone)`, `ErrTooLong` |
+> | K2 | Bilinen cevap vektörleri `qrencode` ile üretilip `testdata/`'ya; testte çağrılmaz; kısa ASCII, sürüm 1, sürüm 7+, otpauth (sahte anahtar), sığmayan girdi | `testdata/generate.sh` (libqrencode 4.1.1): 6 adlı vektör + 160'lık tarama; `TestEncode_MatchesTheReferenceVectors`, `…Sweep`, `TestEncode_OneByteMoreTakesTheNextVersion`, `TestEncode_TheRefusalCarriesNoInput` |
+> | K3 | Maske farklıysa: aynı sürüm + aynı maske zorlanmış eşitlik + "en düşük ceza" + gerekçe | Zorlanmış eşitlik 166/166; kendi seçim 139/166; `TestEncode_ChoosesTheLowestPenaltyMask`; gerekçe ölçüldü: referansın okumasının modeli 166/166 (`TestEncode_TheMaskChoiceDiffersFromTheReferenceOnlyInThePenaltyReading`) |
+> | K4 | Okuma doğrulaması / BCH denetimi | `read_test.go`: bağımsız çözücü (Tablo 9 + E.1 elle, log/antilog GF, sendrom, BCH bölmesi, desen denetimi); referansı okur, Encode'u okur, bozuk sembolü reddeder |
+> | K5 | Satır içi SVG, tek `<path>`, viewBox modül biriminde, crispEdges, ink on paper, 4 modül sessiz alan, ≥ ~200 px, CSP değişmez, aria-label/title, metin anahtar altında, tappa-brand | `enroll.templ` + `operatorpages/qr.go` + `.op-qr` (input.css); `TestEnrollQR_IsTheKeysURIInkOnPaper`; 228 × 228 px (sürüm 8) |
+> | K6 | Güvenlik: no-store; ayrı URL/uç nokta yok; log yok; QR yalnız kayıt sayfasında; mevcut sızıntı/başlık testleri yeşil + yeni kol | `TestEnrollQR_*`; leak testi G19 + A99; başlık testleri yeşil; yeni rota yok (`TestOperatorHeaders_TheWalkedRoutesEachHaveAClass`) |
+> | K7 | ADR 0020 §3 QR notu (yalnız ekleme, üç parçalı iddia), `enroll.templ:26`, `enroll.go:44` yorumları, CLAUDE.md dizin haritası (bir satır) | yapıldı; ek olarak `internal/operatorauth/totp.go`'nun "No QR library" yorumu güncellendi (bayatlamıştı) |
+>
+> ## Ne yapıldı — dosyalar
+>
+> Yeni: `internal/qrcode/{qrcode,matrix,rs,tables}.go`, `internal/qrcode/{qrcode,read}_test.go`,
+> `internal/qrcode/testdata/` (generate.sh, 3 `.in`, 6 `.txt` matris, `sweep.txt`),
+> `web/templates/operatorpages/qr.go`, `internal/handler/operator/enrollqr_test.go`.
+>
+> Değişen: `internal/handler/operator/enroll.go` (QR üretimi + yorum), `web/templates/operatorpages/{enroll.templ,enroll_templ.go,view.go}`,
+> `web/static/css/input.css` (`.op-qr`), `internal/handler/operator/{leak_test.go,op8_test.go}`,
+> `internal/operatorauth/totp.go` (yorum), `docs/adr/0020-…md` (QR notu), `CLAUDE.md` (bir satır).
+>
+> ## Kararlar (otonom, gerekçeli)
+>
+> 1. **Sürüm aralığı 1–40**, 1–10 değil: operatör host'u 253 bayta kadar olabilir → URI 387 bayta kadar;
+>    1–10 ile uzun bir host reddedilirdi. 160 kombinasyonun 160'ı referansla doğrulandı.
+> 2. **Ceza okuması standardın sözü** (desen ışık tarafı başına; tam pay), referansınki değil;
+>    27/166 farklı maske — ikisi de geçerli; fark ölçülüp açıklandı.
+> 3. **QR handler'da üretilir, şablonda çizilir:** `operatorpages` modül içinden yalnız `layout` ve
+>    `components`'ı import eder (`TestOperatorPages_ImportedOnlyByTheSurfaceAndSharingOnlyTheShell`, IM2);
+>    matris `EnrollView.QR [][]bool` olarak geçer, yol `qr.go`'da kurulur — pin değişmedi.
+> 4. **Zemin için bir `<rect>`:** QR'ın açık zemini CSS'e (kart rengi, forced-colors) bağlı kalmasın.
+> 5. **Çerçeve outline, border değil:** border-box'ta border 228 px'i 226'ya düşürür, modüller tam
+>    piksel olmaktan çıkardı.
+> 6. **Kodlayıcı reddi:** sayfa düşmez, anahtar metin olarak kalır, ERROR satırı yalnız uzunluk; dal
+>    bir istekle ulaşılamaz (sınır 2).
+>
+> ## Ölçümler (bir kez, test değil)
+>
+> - Chrome (headless, `127.0.0.1`'den gerçek CSP başlığıyla): QR 228 × 228 px (390/360/320 px düzen),
+>   280 px'de 198 × 198; outline `solid 1px rgb(201,210,200)`; tek CSP ihlali betik (köken farkı) — SVG için yok.
+> - Apple Core Image QR dedektörü: Chrome ekran görüntüsü → sayfanın URI'si (148 bayt), eşit;
+>   Encode'un 480 PNG'si → 480/480 girdisine eşit.
+> - Derlenmiş `app.css`: 51 258 → 51 442 B; yeni tek kural `.op-qr`, yorumdan doğan başıboş kural yok.
+>
+> ## Mutasyon tablosu (22; her biri tek düzenleme, geri alındı)
+>
+> | # | Mutasyon | Kırmızıya dönen |
+> |---|---|---|
+> | M1 | maske 4 formülü `(x/2+y/3)` | MatchesTheReferenceSweep, …Vectors, TheMaskChoiceDiffers…, ReadsWhatEncodeWrote |
+> | M2 | GF polinomu 0x11B | aynı 4 + RefusesABrokenSymbol |
+> | M3 | biçim XOR 0x5413 | aynı 5 + FormatAndVersionInfo |
+> | M4 | sürüm BCH 0x1F27 | aynı 5 + FormatAndVersionInfo |
+> | M5 | sessiz alan kaldırıldı (`Bitmap(0)`) | EnrollQR_IsTheKeysURIInkOnPaper |
+> | M6 | N3 ağırlığı 0 | Penalty_ScoresEachRule…, TheMaskChoiceDiffers… |
+> | M7 | sürüm 10'da 8 bit sayı | Sweep, TheMaskChoiceDiffers…, ReadsWhatEncodeWrote |
+> | M8 | ECC kod sözcükleri ters | Sweep, Vectors, TheMaskChoiceDiffers…, Reads…, Refuses… |
+> | M9 | renkler ters (ink ↔ paper) | EnrollQR_IsTheKeysURIInkOnPaper, Leak |
+> | M10 | `svg`'ye `style=` | EnrollQR_IsTheKeysURIInkOnPaper |
+> | M11a | QR için ayrı uç nokta `GET /operator/enroll/qr` | OperatorHeaders_TheWalkedRoutesEachHaveAClass |
+> | M11b | QR bir URL'den (`<image href=…>`) | EnrollQR_Is…, Leak, OperatorScreens_EveryActionAndLinkIsAMountedRoute |
+> | M12 | `no-store` → `private` | EnrollQR_Is… + 8 başlık testi |
+> | M13 | QR sayfalar arası önbellekte | Leak (A99) |
+> | M14 | URI Debug log satırında | Leak |
+> | M15 | açık modüller çizildi | EnrollQR_Is… |
+> | M16 | `aria-label` kaldırıldı | EnrollQR_Is… |
+> | M17b | N4 0 (ilk yazım derlenmedi, geçerli kodla yinelendi) | Penalty_ScoresEachRule… |
+> | M18 | ikinci biçim kopyası ters | Sweep, Vectors, TheMaskChoiceDiffers…, Reads…, Refuses… |
+> | M19 | hizalama adımı formülü | AlignmentPositions_AreTableE1 + aynı 5 |
+> | M20 | QR başka dizginin (URI + `#`) | EnrollQR_Is… |
+> | M21 | anahtar QR'ın üstünde | EnrollQR_Is… |
+>
+> ## Zincir
+>
+> | Adım | Sonuç |
+> |---|---|
+> | `gofmt -l` | boş |
+> | `go build ./...` + `go vet ./...` | 0 |
+> | staticcheck 2025.1.1 (go1.26.7) | 0 |
+> | `make gen` | idempotent (diff sha256 öncesi/sonrası aynı) |
+> | `scripts/redline-check.sh` | exit 0 (yalnız önceden var olan muafiyet WARN'ları) |
+> | `go.mod` / `go.sum` / `sqlc.yaml` diff | boş |
+> | `go test -race -timeout=20m ./internal/handler/operator/` (bir kez) | ok, 523 s |
+> | `go test ./...` (bir kez, dev DB) | 30 ok, 3 FAIL — üçü de dokunulmayan paketlerde ve ortamdan: `cmd/rotatekek` (yerel Go 1.27.1 `GOPACKAGESDRIVER` raporluyor; taban 163f6a5'te aynı ret), `internal/db` (dev DB'de `operator_audit_log_kind_check` NOT VALID — 00033/00034'ün bilinçli hâli), `internal/handler` plaket yolculuğu zaman bütçesi (10,1 s, paralel yük altında) |
+> | `TestEveryNamedTestExists`, `TestComments_` (worktree'siz kopya) | ikisi de geçti (sarkan atıf 60/60, bütçe değişmedi) |
+> | Parmak izi | başlangıç `e3b0c442…b855` (boş) → bitiş `a7c3969e…8ffa` |
+>
+> ## Sınırlar / açık sorular
+>
+> Bkz. ADR 0020 §3 QR notu → "Sınırlar" (1)–(4). Açık: canlıdaki gerçek operatör host'unun
+> uzunluğu (sürüm 8 mi 9 mu → 228 / 244 px) ölçülmedi; bir telefonla gerçek tarama (Google
+> Authenticator / 1Password) yapılmadı — Core Image ve Chrome ölçümü onun yerine geçmez.
+>
+> **Denetim ve canlıya alma (2026-10-09, orkestratör):** kullanıcı hız istedi — iki sıralı denetim yerine TEK birleşik
+> denetim (güvenlik + tappa-brand + kabul): ONAY, bloklayan yok; denetçinin 6 mutasyonu yakalandı; kodlayıcı ret satırı
+> (yalnız uzunluk) kabul edildi; forced-colors görünümü ölçülmedi (düşük). Kullanıcı kararı: onaydan sonra hemen canlıya.
+
 ## 4. Akış B — E-posta (AWS SES)
 
 ### Öneri: SES SMTP arayüzü + stdlib `net/smtp` (STARTTLS 587), `eu-central-1` — ✅ (sıfır yeni modül)

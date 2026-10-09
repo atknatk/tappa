@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/atknatk/tappa/internal/operatorauth"
+	"github.com/atknatk/tappa/internal/qrcode"
 	"github.com/atknatk/tappa/web/templates/operatorpages"
 )
 
@@ -41,9 +42,17 @@ import (
 // account, an active one or nobody ("aynı yanıt" for pending, ADR 0020 §3). Whether the
 // link is genuine is decided at the POST, by op_complete_enrollment.
 //
-// The key is in the page twice (base32 and the otpauth:// URI); the response is no-store
-// and no-referrer, and the Secret is zeroed once the page is rendered -- the rendered
-// strings are not wiped (OP-6 md. 18 P6).
+// The key is in the page three times -- the otpauth:// URI's QR code, base32 and the URI
+// (ADR 0020 §3, QR note: the user's decision of 2026-10-09, internal/qrcode, no
+// dependency). The QR code is drawn into this response's body, as an SVG path, and
+// nowhere else: no URL serves it, so the key is in no request's path or query; the
+// response is no-store and no-referrer, and the Secret is zeroed once the page is
+// rendered -- the rendered strings and the QR matrix are not wiped (OP-6 md. 18 P6).
+//
+// The URI is 134 bytes plus the operator host (config: at most 253), so at level M it
+// always fits (a version 40 symbol holds 2331 bytes) and Encode's refusal is not reached
+// by a request. Were it reached, the page would still serve the key as text, and the
+// refusal's line carries lengths only (qrcode.ErrTooLong; the package comment).
 func (s *Surface) enrollPage(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(r.URL.Query().Get("id"))
 	if err != nil || id == uuid.Nil {
@@ -57,12 +66,19 @@ func (s *Surface) enrollPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer p.Secret.Zero()
-	s.renderEnroll(w, r, http.StatusOK, operatorpages.EnrollView{
+	view := operatorpages.EnrollView{
 		AccountID: id.String(),
 		Key:       groupKey(p.Secret.Base32()),
 		URI:       p.Secret.URI(totpIssuer, s.host),
 		Blob:      p.Blob.RevealForForm(),
-	})
+	}
+	qr, err := qrcode.Encode([]byte(view.URI), qrcode.M)
+	if err != nil {
+		s.log.ErrorContext(r.Context(), "operator: the enrollment key's QR code was not drawn; the page shows the key as text", "err", err)
+	} else {
+		view.QR = qr.Bitmap(qrcode.QuietZone)
+	}
+	s.renderEnroll(w, r, http.StatusOK, view)
 }
 
 // totpIssuer is the label an authenticator app shows for the entry; the account part

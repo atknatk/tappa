@@ -23,7 +23,11 @@ func EnrollScript() string { return enrollScript }
 // of the link after the #. The account id is in the query: it is not a secret (ADR 0020
 // §6), and the server needs it to seal the page's key to that account.
 //
-// The key is shown as text twice, not as a QR code (ADR 0020 §3: no QR library).
+// The key is shown three times (ADR 0020 §3, QR note; the user's decision of 2026-10-09):
+// first as the otpauth:// URI's QR code, drawn into this page from EnrollView.QR (qr.go)
+// -- ink on paper, the quiet zone inside the drawing, the colours as SVG attributes, so the
+// page's policy is unchanged and the key is in no other request -- then, under it, as
+// grouped base32 and as the URI, for an app that does not scan.
 templ Enroll(v EnrollView) {
 	@scriptedScreen("Set up your account", enrollScript) {
 		<section class="op-card">
@@ -32,6 +36,14 @@ templ Enroll(v EnrollView) {
 			if v.Key != "" {
 				<div class="mt-6 flex flex-col gap-3">
 					<p class="docket-label">Step 1 · Add this key to your authenticator app</p>
+					if len(v.QR) > 0 {
+						<svg class="op-qr" role="img" aria-label="Scan with your authenticator app" viewBox={ qrViewBox(v.QR) } width={ qrPixels(v.QR) } height={ qrPixels(v.QR) } shape-rendering="crispEdges">
+							<title>Scan with your authenticator app</title>
+							<rect width={ qrSide(v.QR) } height={ qrSide(v.QR) } fill={ qrPaper }></rect>
+							<path d={ qrPath(v.QR) } fill={ qrInk }></path>
+						</svg>
+						<p class="text-sm text-ink/70">Scan the code with your app, or type this key:</p>
+					}
 					<p class="op-key">{ v.Key }</p>
 					<p class="text-sm text-ink/70">If your app takes a setup link instead, use this one:</p>
 					<p class="op-uri">{ v.URI }</p>

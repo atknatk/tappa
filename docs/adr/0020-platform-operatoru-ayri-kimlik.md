@@ -387,6 +387,119 @@ bir restoran hesabına bağlı olmamalı* (m10-platform.md §1).
   - **Kimliksiz son adımın bedeli:** `POST /operator/enroll` token veritabanında
     doğrulanmadan önce bir cost-12 bcrypt ve bir `Seal` öder; çare ADR 0015 emsaliyle
     adres başına ve süreç geneli bir **oran sınırıdır** (ADR 0021 sınır 12; sayılar OP-8).
+- **QR notu (2026-10-09) — karar değişti: enrollment ekranı anahtarı QR kodu olarak da
+  gösterir.** Yukarıdaki *"QR kütüphanesi yok: enrollment ekranı base32 sırrı ve
+  `otpauth://` URI'sini metin olarak gösterir"* cümlesinin ilk yarısı geçerlidir —
+  kütüphane yok —, ikinci yarısının yerini bu not alır. **Kullanıcı kararı (2026-10-09):**
+  canlıdaki ilk operatör kaydında Authenticator uygulaması için QR beklendi. CLAUDE.md §1
+  değişmedi: kodlayıcı **depoda, saf Go, yalnız standart kütüphane**; `go.mod`, `go.sum`
+  diff'i boş.
+  - **Kodlayıcı — `internal/qrcode`.** Byte modu; hata düzeltme L/M/Q/H (sayfa **M**
+    kullanır); sürüm 1–40, veriyi tutan en küçüğü kendiliğinden; Reed–Solomon (GF(2^8),
+    0x11D); 8 maskeden §7.8.3'ün ceza puanı en düşük olanı (eşitlikte küçük numara); biçim
+    bilgisi ve sürüm ≥ 7'de sürüm bilgisi; `Bitmap(QuietZone)` 4 modüllük sessiz alanı
+    ekler. Sığmayan girdi `ErrTooLong`'u sarar; hata metni yalnız uzunluk ve seviye
+    adlandırır, girdiyi değil. Paket durum tutmaz, log yazmaz.
+  - **Doğruluk — referans libqrencode 4.1.1** (`qrencode -8 -m 0 -t ASCII`;
+    `internal/qrcode/testdata/generate.sh` üretir, testler onu **çağırmaz** — CI'da yok —,
+    çıktısı commit edilir): altı adlı vektör tam matris olarak (kısa ASCII L/M/Q/H → sürüm 1;
+    112 bayt M → sürüm 7, sürüm bilgisi blokları; sahte anahtarlı bir `otpauth` URI'si M →
+    sürüm 8) ve 160 satırlık tarama sha256 olarak (her sürüm × her seviye; girdi, o sürümün
+    referansın `--strict-version`'ının kabul edip bir bayt fazlasını reddettiği kapasitesi
+    kadar). Referansın seçtiği maskeye zorlanan matris **166/166** eşit. Kodlayıcının **kendi**
+    maske seçimi 139/166'da referansınkiyle aynı; kalan 27 iki kodlayıcının ceza kurallarını
+    **okumasından** gelir — referans 1:1:3:1:1 desenini en çok bir kez sayar (bu paket ışık
+    tarafı başına), koyu payını tam yüzdeye yuvarlayıp bantlar (bu paket tam payı) —; referansın
+    okumasının test içindeki bir modeli 166/166 seçimi yeniden üretir. Kodlayıcıyla kod ve
+    tablo paylaşmayan bir çözücü (`read_test.go`: Tablo 9 ve E.1 elle, log/antilog GF, sendrom,
+    BCH bölmesi) önce referansın matrislerini girdilerine okur, sonra Encode'un sürüm 1–10 ×
+    4 seviye çıktısını. **Bir kez ölçüldü, test değil:** Apple Core Image'ın QR dedektörü
+    Encode'un 480 PNG'sinin (160 kendiliğinden maske + sürüm 1–10 × 4 seviye × 8 maske)
+    480'ini girdisine, Chrome'da render edilen sayfanın ekran görüntüsünü sayfadaki URI'ye
+    çözdü.
+  - **Çizim — satır içi SVG, `enrollPage`'in kendi yanıtında.** Tek `<path>` (her koyu modül
+    için bir birim kare alt yolu; modül başına `<rect>` değil) ve zemin için tek `<rect>`;
+    `viewBox` modül biriminde, `shape-rendering="crispEdges"`; renkler SVG `fill`
+    öznitelikleri — modüller ink `#152219`, zemin paper `#FFFDF4` (16,17:1; koyu modül açık
+    zemin, tersi değil); 4 modüllük sessiz alan çizimin içinde, çerçeve (1 px `line`
+    outline) dışında; erişilebilir ad `role="img"` + `aria-label` + `<title>` *"Scan with
+    your authenticator app"*. Metin anahtar — base32 ve URI — QR'ın **altında** kalır (QR
+    okumayan uygulama için). Boyut modül başına tam piksel: 14 baytlık `ops.taptime.mt` ile
+    sürüm 8, sessiz alanla 57 modül, **228 × 228 px**; Chrome'da 390, 360 ve 320 px'lik
+    düzende 228, 280 px'lik düzende sütuna sığmak için 198 (bir kez ölçüldü). URI 134 bayt
+    + host'tur: 18 bayta kadar host sürüm 8, 46 bayta kadar sürüm 9.
+  - **CSP değişmedi:** `enrollCSP` bayt bayt aynı; `style=`, `<style>`, `data:` URI'si,
+    `<img>`, harici görsel yok. Chrome'da ölçülen tek politika ihlali betiğindir (sayfa
+    ölçüm için `127.0.0.1`'den servis edildi, politika `ops.taptime.mt`'yi adlandırır) —
+    SVG için ihlal yok.
+  - **Güvenlik iddiası (üç parçalı).**
+    - **TEHDİT MODELİ:** QR kodu, sayfanın zaten taşıdığı TOTP sırrının başka bir
+      biçimidir; tehdit, bu biçimin sırrı sayfanın kendi gövdesinden başka bir yere —
+      başka bir yanıta, bir URL'ye (yol ya da sorgu: ingress log'u, tarayıcı geçmişi,
+      Referer), bir önbelleğe, bir log satırına — taşıması ya da sayfadaki anahtardan başka
+      bir şeyi kodlamasıdır; sayfanın kendisi tasarlanmış çıkıştır (leak testinin D3'ü).
+    - **PART I — ölçülen davranış, adıyla test:**
+      `TestEnrollQR_IsTheKeysURIInkOnPaper` — ilk yüklemede tek `svg`, öznitelikleri tam
+      olarak yedi ve bu sırada (`style`, `xmlns`, `href` yok), çocukları `title` + `rect` +
+      `path`; zemin ve modül renkleri `tailwind.config.js`'in paper ve ink'i; yol yalnız
+      birim karelerden oluşur ve koyu kümesi sayfanın yazdığı URI'nin `qrcode.Encode(M)
+      .Bitmap(4)`'üne eşittir, sessiz alanda koyu modül 0; o URI sayfanın yazdığı base32
+      anahtarı taşır; sıra QR → anahtar → URI; gövdede ` style=`, `<style`, `data:`,
+      `<img`, `xlink:`, `<use`, `<image`, `<foreignObject` yok; CSP tek değer ve
+      enrollment politikası, `Cache-Control: no-store`, `Referrer-Policy: no-referrer`;
+      ≥ 200 px, modül başına tam piksel ·
+      `TestEnrollQR_OnlyOnTheFirstLoad` — parolaları farklı yeniden render'da `svg` ve
+      anahtar yok; `screens()`'in 40 render'ından yalnız QR matrisli enrollment render'ı
+      `svg` taşır ·
+      `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` — yeni grup **G19**
+      (sayfanın SVG yolu; never-log maddesi N4'e bağlı) on biçimde (R1–R10), dört yüzeyde
+      (S1–S4), 99 kolda yalnız kendi sayfasının gövdesinde (D3: A11 ve yeni **A99**); A99
+      aynı linkin ikinci açılışıdır — yeni anahtar, yeni QR, A11'inki hiçbir yüzeyinde yok ·
+      `TestOperatorHeaders_FortyResponseClassesCarryThePolicy` — enrollment sınıflarının
+      politikası değişmedi · `TestOperatorHeaders_TheWalkedRoutesEachHaveAClass` — yeni rota
+      yok (yöntem × rota çiftleri aynı yirmi) · `TestEncode_TheRefusalCarriesNoInput` — iki
+      hata metni girdinin dört baytlık hiçbir dizisini taşımaz. Kodlayıcının doğruluğu:
+      `TestEncode_MatchesTheReferenceVectors`, `TestEncode_MatchesTheReferenceSweep`,
+      `TestEncode_TheMaskChoiceDiffersFromTheReferenceOnlyInThePenaltyReading`,
+      `TestEncode_ChoosesTheLowestPenaltyMask`, `TestPenalty_ScoresEachRuleByTheStandard`,
+      `TestEncode_OneByteMoreTakesTheNextVersion`, `TestAlignmentPositions_AreTableE1`,
+      `TestFormatAndVersionInfo_AreTheStandardsCodewords`, `TestBitmap_AddsTheQuietZone`,
+      `TestRead_ReadsTheReferenceMatrices`, `TestRead_ReadsWhatEncodeWrote`,
+      `TestRead_RefusesABrokenSymbol`.
+    - **PART II — adı konmuş pinler (yapıcının koşturduğu 22 mutasyon, her biri tek
+      düzenleme, geri alındı; kırmızıya dönenler):** maske 4'ün formülü
+      `(x/2+y/3)` → `TestEncode_MatchesTheReferenceSweep`, `…Vectors`,
+      `…TheMaskChoiceDiffers…`, `TestRead_ReadsWhatEncodeWrote` · GF polinomu `0x11B` → aynı
+      dört + `TestRead_RefusesABrokenSymbol` · biçim maskesi `0x5413` ve sürüm üreteci
+      `0x1F27` → her biri aynı beş + `TestFormatAndVersionInfo_AreTheStandardsCodewords` ·
+      sürüm 10'da 8 bitlik sayı → `…Sweep`, `…TheMaskChoiceDiffers…`, `…ReadsWhatEncodeWrote`
+      · ECC kod sözcükleri ters sırada, ikinci biçim kopyası ters bitlerle → her biri
+      `…Sweep`, `…Vectors`, `…TheMaskChoiceDiffers…`, `…ReadsWhatEncodeWrote`,
+      `…RefusesABrokenSymbol` · hizalama adımı formülü → bu beş + `TestAlignmentPositions_AreTableE1`
+      · N3 ağırlığı 0 → `TestPenalty_ScoresEachRuleByTheStandard`, `…TheMaskChoiceDiffers…` ·
+      N4 0 → `TestPenalty_ScoresEachRuleByTheStandard` (maske sayısı 139'da kaldı) · sessiz
+      alan kaldırıldı (`Bitmap(0)`), açık modüller çizildi, `svg`'ye `style=`, `aria-label`
+      kaldırıldı, QR başka bir dizginin (URI + `#`), anahtar QR'ın üstünde → her biri
+      `TestEnrollQR_IsTheKeysURIInkOnPaper` · renkler ters (ink ↔ paper) → o test +
+      `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` · QR ayrı bir uç noktada
+      (`GET /operator/enroll/qr` bağlandı) → `TestOperatorHeaders_TheWalkedRoutesEachHaveAClass`
+      · QR bir URL'den (`<image href="/operator/enroll/qr?d=…">`) →
+      `TestEnrollQR_IsTheKeysURIInkOnPaper`, leak testi,
+      `TestOperatorScreens_EveryActionAndLinkIsAMountedRoute` · `no-store` → `private` →
+      `TestEnrollQR_IsTheKeysURIInkOnPaper` ve sekiz başlık testi · QR sayfalar arasında
+      önbellekte (ikinci açılış ilkinin QR'ını çizer) ve URI'nin bir Debug log satırında →
+      her biri leak testi.
+    - **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
+  - **Sınırlar.** (1) QR matrisi ve SVG yolu silinmez — render edilen dizgiler gibi (OP-6
+    md. 18 P6). (2) Kodlayıcının reddi bir istekle ulaşılamaz: host en çok 253 bayt, URI en
+    çok 387, sürüm 40-M 2331 bayt tutar; ulaşılsaydı sayfa anahtarı yine metin olarak
+    gösterir ve ERROR satırı yalnız uzunluk ve seviye taşır (`TestEncode_TheRefusalCarriesNoInput`
+    hata metnini ölçer; dalın kendisi bir testle sürülmez). (3) QR, ekrandaki sırrı bir
+    kameranın uzaktan yakalamasını 32 karakterlik metinden kolaylaştırır; aynı sır aynı
+    ekranda zaten metin olarak duruyordu — hafifletenler tek kullanımlık, 30 dakikalık link
+    ve anahtarsız yeniden render; kullanıcı kararıyla kabul edildi. (4) Maske seçimi
+    referansınkinden 27/166 durumda farklıdır; ikisi de geçerli sembol, ikisi de standardın
+    sözünün bir okuması.
 
 ### 4. Rota ve host
 

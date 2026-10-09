@@ -19,8 +19,9 @@ import (
 )
 
 // TOTP, standard library only (ADR 0020 §3): RFC 6238 over RFC 4226, HMAC-SHA1, six
-// digits, a thirty-second step, one step of tolerance on each side. No QR library: the
-// enrollment screen shows the base32 secret and the otpauth:// URI as text.
+// digits, a thirty-second step, one step of tolerance on each side. No QR library either:
+// the enrollment screen draws the otpauth:// URI's QR code with internal/qrcode, written in
+// this repository (ADR 0020 §3, QR note), and shows the base32 secret and the URI as text.
 //
 // KNOWN-ANSWER PROOF, NOT SELF-CONSISTENCY. A generator and a verifier written from
 // the same misreading of the truncation or the counter's byte order agree with each

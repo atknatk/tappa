@@ -35,6 +35,7 @@ import (
 	"github.com/atknatk/tappa/internal/handler/operator"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/internal/operatorauth"
+	"github.com/atknatk/tappa/internal/qrcode"
 	"github.com/atknatk/tappa/internal/session"
 	"github.com/atknatk/tappa/web/templates/operatorpages"
 )
@@ -525,10 +526,15 @@ func TestLogout_IsNotRefusedByTheBudgetAThirdPartyCanSpend(t *testing.T) {
 
 // screens renders the thirteen exported screen constructors of operatorpages
 // (operatorScreens, pinned against the package's API) in the 40 variants below (and the
-// tenant chrome with a name).
+// tenant chrome with a name). The first load of the enrollment screen carries a QR code
+// of its view's URI (ADR 0020 §3, QR note).
 func screens(t *testing.T) map[string]string {
 	t.Helper()
 	name, err := operatorpages.NewTenantName("Kebab Factory Ltd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	enrollQR, err := qrcode.Encode([]byte("otpauth://totp/x"), qrcode.M)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -643,7 +649,7 @@ func screens(t *testing.T) map[string]string {
 		"code":               operatorpages.Code(operatorpages.CodeView{}),
 		"code, rejected":     operatorpages.Code(operatorpages.CodeView{Rejected: true}),
 		"code, locked":       operatorpages.Code(operatorpages.CodeView{Locked: true}),
-		"enroll":             operatorpages.Enroll(operatorpages.EnrollView{AccountID: "x", Key: "ABCD EFGH", URI: "otpauth://totp/x", Blob: "b"}),
+		"enroll":             operatorpages.Enroll(operatorpages.EnrollView{AccountID: "x", Key: "ABCD EFGH", URI: "otpauth://totp/x", QR: enrollQR.Bitmap(qrcode.QuietZone), Blob: "b"}),
 		"enroll, re-render":  operatorpages.Enroll(operatorpages.EnrollView{AccountID: "x", Blob: "b", Token: "t", Mismatch: true, WeakPassword: true, CodeRejected: true}),
 		"home":               operatorpages.Home(),
 		"problem":            operatorpages.Problem(operatorpages.ProblemView{Title: "T", Message: "M", Back: "/operator/login", BackLabel: "B"}),

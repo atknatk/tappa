@@ -74,6 +74,7 @@ internal/brand/       tenant markasının çekirdeği (ADR 0023/0024): accent WC
 internal/netx/        adres aralığı aritmetiği (bir liste yer kanıtı olamayacak
                       kadar geniş mi). Saf: `net/netip` + `math/big`, başka hiçbir
                       şey — bu yüzden hem tenant hem tap ondan çağırabilir.
+internal/qrcode/      QR kodlayıcı (ISO/IEC 18004, byte modu, sürüm 1-40), yalnız stdlib — operatör kayıt QR'ı (ADR 0020 §3).
 db/migrations/        goose SQL. Uygulanmış migration DEĞİŞTİRİLMEZ, yenisi yazılır.
 db/queries/           sqlc kaynak SQL
 web/templates/        .templ dosyaları
