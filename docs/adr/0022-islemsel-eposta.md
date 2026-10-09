@@ -2448,3 +2448,286 @@ testlerin davranışı değişmedi):**
   kurtarma formu tek kaynaktan kesiciyi açabilir).
 - **Yönetici adresini değiştiren gelecekteki görev** (bugün kartı yok; EM-6 çalışan adresidir):
   sınır 6.
+
+## EM-7A notu — 2026-10-09 (uygulama; normatif içerik: §9'un devre kesicisi — kararlar, sapmalar ve ölçümler aşağıda)
+
+EM-7 ikiye bölündü (orkestratör kararı). **EM-7A** (bu not): §9'un süreç geneli paylaşılan
+devre kesicisi. **EM-7B** (davet e-posta kanalı) paralel yazılıyor ve bu ADR'ye kendi notunu
+ekliyor; iki not birbirine dokunmaz. Taban dal ucu `08b1bd1`. **ConfigMap değişmedi**
+(`none` / `panel`): bugün canlıda kesici **kurulmaz** — `none` dalında kanal yoktur, kesici
+yalnız `TAPPA_RESET_DELIVERY=email` dalında kurulur; davranış değişikliği o anahtarı açan
+deploy kararıyla gelir (§12). Migration yok, DDL yok, yeni bağımlılık yok; `go.mod`/`go.sum`/
+`sqlc.yaml` diff boş.
+
+**Terimler (kod İngilizce, bu not Türkçe):** *dolu pencere* — son `BreakerWindow` içinde
+`BreakerLimit` gönderim kaydedilmiş; reddedilebilir bir gönderim reddedilir. *Kesik dönem* —
+kesicinin ilk reddinden, retsiz geçen tam bir pencereye dek; yalnız iki log satırının anlamıdır,
+geçirme kararı her an pencereye bakar.
+
+**Yazıldı:**
+- `internal/mail/breaker.go` (yeni) — `Breaker`, `NewBreaker`, `BreakerConfig` (`Now`, `Log`),
+  `BreakerLimit` = 300, `BreakerWindow` = 1 saat; `Send` (reddedilebilir), `SendExempt` (sayılır,
+  asla reddedilmez), `Refusing` (soru; bir şey kaydetmez); üç parçalı iddia.
+- `internal/mail/errors.go` — kapalı `Class` kümesine `ClassBreaker` = `"breaker"` (SMTP kodu
+  yok). `internal/mail/doc.go` — paket girişine bir paragraf (taşıyıcının *"kuyruk yok, logger
+  yok"* cümlesi taşıyıcıya daraltıldı; kesici kendisine verilen logger'la iki satır yazar).
+- `internal/handler/resetmail.go` — `NewEmailResetChannel` artık `*mail.Breaker` alır;
+  `resetSender` tüketici arayüzü (`mailSender` + `SendExempt` + `Refusing`); `DeliverReset`
+  → `Send`, `DeliverPasswordNotice` → `SendExempt`; `RefusingResets`.
+- `internal/handler/adminreset.go` — `ResetChannel`'a üçüncü metot `RefusingResets()`; yorumlar.
+- `internal/handler/adminresetoutbox.go` — `dispatch` teklif etmeden **önce** kesiciye sorar;
+  `recordFallback` (kuyruk-dolu yedeğinin satırı ile kesicinin satırı aynı işlevden);
+  `resetReasonBreaker` — `undelivered` satırının **altıncı** sabit nedeni.
+- `internal/handler/passwordnotice.go` — yalnız yorum (*"planlanan §9 kesicisi"* cümleleri
+  gerçekleşen kurala çevrildi).
+- `cmd/tappa/main.go` — `email` dalında taşıyıcı (`mail.New`) → **tek** kesici
+  (`mail.NewBreaker`) → kanal.
+- Testler: `internal/mail/breaker_test.go` (yeni), `internal/handler/resetbreaker_test.go`
+  (yeni), `cmd/tappa/breaker_wiring_test.go` (yeni, kaynak pini); dört sahte kanala
+  `RefusingResets` (`recordingChannel`, `gateChannel`, `panicChannel`, `stuckRelay` — hepsi
+  `false`); `NewEmailResetChannel`'ı çağıran beş test çağrısı ve bir yapı değişmezi kesiciyle
+  sarıldı (`fakeRelay.breaker`, `newTestBreaker` yardımcıları — `fakesmtp_test.go`).
+
+**Kararlar (gerekçeli; K7A-1…7 orkestratörün kararlarıdır):**
+1. **K7A-1 — kayan pencere, saatte 300, kesin.** Kesici son 300 kaydın zamanını bir halkada
+   tutar: pencerede en az 300 gönderim olması, en yeni 300'üncünün pencerede olmasıyla
+   **eşdeğerdir** — bellek O(300), sayım kesin. Bir yer, o gönderim tam bir saat yaşlandığında
+   açılır; saat başında sıfırlanan sabit pencere değil, yani sınırda 2× patlama yoktur
+   (M7-04 sınırlayıcısının sayılı sınırı burada tekrarlanmaz). Saat enjekte edilir
+   (`BreakerConfig.Now`; üretimde `time.Now` — monoton okuma). Süreç içi, bellek — sayılı
+   sınır 1.
+2. **K7A-2 — her gönderim sayılır.** Sıfırlama (`Send`), bildirim (`SendExempt`), davet (EM-7B —
+   aynı kesicinin `Send`'i; `main.go`'daki tek kesici pinli). Sayılan, kesicinin **geçirdiği**
+   girişimdir, röleye ulaşmadan, karar ile kayıt **tek kilitli adımda** — sonuç değil (sınır 2).
+   Reddedilen gönderim kaydedilmez: retler tek başına kesiciyi kapalı tutamaz.
+3. **K7A-3 — ayrım e-posta kanalında** (`resetmail.go`): `DeliverReset` → `Send`,
+   `DeliverPasswordNotice` → `SendExempt`. Gerekçe: (a) hangi iletinin hangisi olduğunu bilen
+   tek yer, onu render eden kanaldır; `internal/mail` çağırana tarafsız kalır — "reddedilebilir"
+   ve "muaf" iki yöntem sunar, bildirimin ne olduğunu bilmez; (b) link ve bildirim **aynı
+   kanaldan** gider (EM-9 karar 1: tek anahtar), yani yukarıda (`passwordnotice.go`) yapılacak
+   bir ayrım yine kanal arayüzünden geçmek zorundaydı; (c) kanal `*mail.Breaker` alır, taşıyıcıyı
+   değil — kanalın kesiciyi atlayarak kurulmasını **tür sistemi** engeller. **Elenen:** bağlam
+   değeriyle işaret (*"bu gönderim muaf"* — çağrı yerinde görünmez ve işçinin bağlamı isteğin
+   değerlerini taşıdığı için yanlış yere sızabilir); bildirime ayrı bütçe (K7A-3: say, reddetme).
+4. **K7A-4 — kesik pencerede sıfırlama: senkron `undelivered`.** `dispatch` her grant için,
+   kuyruğa **teklif etmeden önce** `RefusingResets()`'e sorar (teklif edilen grant geri
+   alınamaz); `true` → mevcut yedek yolun satırı (`admin.recovery.undelivered`, neden
+   *"the process-wide sending limit was reached, so the recovery link was not sent"*),
+   kuyruk yok, gönderim yok, **grant başına log satırı yok** (kesicinin tek trip satırı yeter;
+   satır grant'ın kaydıdır). Yanıt değişmez: aynı sayfa, aynı taban — ölçüldü (PART I). **Soru
+   bir rezervasyon değildir:** soruyu geçip kuyruğa giren grant işçiye gelene dek pencere
+   dolarsa işçide `Send` reddedilir — sıradan bir başarısız gönderim (sınır 3). **Sorunun
+   `true`'su bir ret sayılır** (kesik dönemin `refused` sayısına girer, trip satırını yazabilir):
+   bütün retleri `dispatch`'te olan bir kesici yoksa trip satırını hiç yazmazdı.
+5. **K7A-5 — `ClassBreaker` = `"breaker"`**, kod 0, `*mail.SendError` olarak döner (metin
+   `mail: breaker`). Nereye düşer: sıfırlama işçisinin hata log satırı (`class`, `smtp_code`) ·
+   EM-7B'nin davet başarısızlık satırı (`class` alanı) · bildirim satırının `class` alanı
+   (bildirim hiç reddedilmediği için pratikte hiç). Sıfırlama `undelivered` satırının detail'inde
+   `class` alanı **yoktur** (`adminResetDetail`, EM-5A'dan beri) ve eklenmedi — kesik pencerenin
+   satırını `reason` ayırır.
+6. **K7A-6 — iki satır, ret başına satır yok.** `Warn` *"mail breaker: the process-wide sending
+   limit is reached, refusing sends"* (anahtarlar `limit`, `window`) kesik dönemin **ilk**
+   reddinde; `Info` *"mail breaker: no send refused for a whole window, sending normally
+   again"* (`limit`, `window`, `refused`) **retsiz geçen tam bir pencereden sonraki ilk
+   çağrıda**. Neden *"ilk geçirilen gönderimde"* değil: sınırda gezinen bir yükte birkaç saniyede
+   bir yer açılır ve sonraki gönderim reddedilir — ilk geçişte kapanan bir kesici açılan her yer
+   için bir satır çifti yazardı (mutasyon M23 bunu yapar ve sürekli-aşırı-yük testi KIRMIZI).
+   Satırlar kilit içinde yazılır: iki yarışan çağıranın kapanış ve sonraki trip satırını ters
+   sırada yazması imkânsız; pencere başına en çok iki satır olduğu için maliyeti yok.
+7. **K7A-7 — alıcı başına tavan kapsam dışı.** EM-5A sınır 13 ve EM-5B önkoşulu (b) değişmedi;
+   kesicinin onu karşılamadığı cümlesi yerinde.
+
+**Sapmalar (açıkça):**
+- **§10'un kapalı anahtar kümesi bir gönderimle ilgili satırlar içindir**; kesicinin iki satırı
+  hiçbir gönderimle ilgili değildir ve kümenin dışında üç anahtar taşır: `limit`, `window`,
+  `refused` — ilk ikisi sabit, üçüncüsü sayaç. Pinli: `TestBreaker_LogsTheTripOnceAndTheCloseOnce`
+  (anahtar kümesi **tam olarak** bu).
+- **"Tüketiciler kesiciyi tanımaz" kuralının sayılı istisnası:** sıfırlama kanalı (`*mail.Breaker`
+  alır, üç yöntemini kullanır) ve `ResetChannel`'ın üçüncü metodu `RefusingResets` — K7A-3 ve
+  K7A-4 bunu gerektirir. Davet kanalı (EM-7B) ve kuyruk/işçi yalnız `Send`'i ya da
+  `*mail.SendError`'ı görür.
+- `NewEmailResetChannel`'ın parametresi `*mail.SMTP` → `*mail.Breaker`.
+- `undelivered` satırının sabit nedenleri **altı** oldu (EM-5A karar 11 *"beş"* diyordu).
+
+**"Karar verilmedi"deki iki madde — karara bağlandı (madde metinleri yerinde bırakıldı):**
+- *"Devre kesici açıkken sıfırlama grant'ının sonucu"* → senkron `undelivered`, kuyruğa girmeden
+  (karar 4); *"parolanız değişti"* bildirimi sayılır, reddedilmez (karar 3) — EM-9 sınır 11'in
+  kuralı uygulandı.
+- *"Oran sınırlarının kesin sayıları"* → **kesicinin** sayısı: saatte 300, kayan pencere
+  (karar 1). Davetin tenant ve çalışan başına sayıları EM-7B'nindir.
+
+**EM-5B önkoşulu (a):** kod yarısı karşılandı — §9 kesicisi var, sıfırlamayı ve bildirimi
+sayıyor, sıfırlamayı reddediyor. ConfigMap kararı EM-5B'nindir; (b) ve (c) açık.
+**EM-5B önkoşulu (c) şunu da kapsar (2. tur):** kesici-akıbeti numaralandırma kanalı (aşağıdaki
+sayılı sınır 13). (c)'nin bugünkü metni *"kuyruk-akıbeti numaralandırma kanalı"*dır (EM-5A sınır
+12); kesici aynı sınıfın ikinci ve daha güçlü yoludur — ConfigMap'i `email`'e çevirmeden önce
+istenen bilinçli kabul ya da tasarım ikisini birlikte karşılamalıdır.
+
+**Güvenlik iddiaları — üç parçalı (EM-7A).** Tehdit modeli: *"Bu pinler kazara sapmaya
+karşıdır — `internal/mail/breaker.go`'ya, yöntemlerini seçen sıfırlama kanalına, kuyruğun
+`dispatch`'ine ve `cmd/tappa`'nın kablolamasına kazara giren sapmaya; bilerek atlatma kod
+incelemesinin konusudur."* Mutasyonlar tek bir scratchpad kopyasında, kopyala-değiştir-geri
+yaz yöntemiyle, her birinden sonra sha256 doğrulanarak koşuldu (M-numaraları M10 EM-7A
+kartının tablosu).
+
+*İddia L (EM-7A) — süreç, herhangi bir `BreakerWindow` içinde en çok `BreakerLimit` (300)
+reddedilebilir gönderimi taşıyıcıya ulaştırır; "parolanız değişti" bildirimi sayılır ama
+reddedilmez; kesik pencerede bir sıfırlama grant'ı kuyruğa girmeden `undelivered` satırıyla
+biter ve isteğin yanıtı değişmez; kesici bir kesik dönemde en çok iki satır yazar ve satırları
+hiçbir ileti alanı taşımaz.*
+- **PART I** (enjekte saat, kaydeden gönderici, ağ yok; `-race`):
+  `TestBreaker_The300thPassesAndThe301stIsRefusedUntilTheHourPasses` — 300. geçer, 301.
+  `breaker`/0 ile reddedilir ve sarılan göndericiye ulaşmaz, saatten 1 ns önce hâlâ red, saatte
+  tam 299 yer açılır · `TestBreaker_TheWindowSlidesOneSendAtATime` — t0'da 100 + t0+30 dk'da 200
+  → t0+1 sa'te tam 100, t0+1 sa 30 dk'da tam 200 geçer · `TestBreaker_TheShippedLimitIs300AnHour`
+  — sabitler ve sınıfın sözcüğü literal · `TestBreaker_AnExemptSendIsCountedAndNeverRefused`
+  — 300 muaf gönderim reddedilebilirleri kapatır, sınırın ötesinde muaflar yine geçer, 299 +
+  1 muaf da doldurur · `TestBreaker_ExactlyTheLimitPassesUnderConcurrency` — 1000 eşzamanlı
+  `Send` × 20 koşu: her koşuda tam 300 geçer, 700'ü `breaker` · `TestBreaker_RefusingRecordsNothingAndIsARefusal`
+  — 1000 soru yer harcamaz, doluyken `true`, tek başına trip satırını yazar ·
+  `TestBreaker_LogsTheTripOnceAndTheCloseOnce` — 120 retten sonra tek `WARN`, son retten bir
+  saat sonra tek `INFO` (`refused=120`), bir nanosaniye önce değil; anahtarlar tam olarak
+  `time, level, msg, limit, window` (+ `refused`); iletilerin adresi, konusu, gövdesi, kodu,
+  `Ref`'i, tenant adı ve alan adı log'da yok (kontrol: log kesici satırını taşıyor) ·
+  `TestBreaker_ASustainedOverloadTripsOnce` — sınırın iki katında üç saat: tek trip satırı,
+  sessiz bir saatten sonra tek kapanış · `TestNewBreaker_RefusesANilSender`.
+  Handler (gerçek e-posta kanalı + gerçek `mail.Breaker` + kaydeden gönderici):
+  `TestEmailResetChannel_TheBreakerCountsTheNoticeAndRefusesTheLink` — 300 bildirim sayılır
+  (sonraki link `breaker`, `RefusingResets` `true`), sınırın ötesinde bildirim yine gider; 300
+  link geçer, 301. reddedilir, bildirim yine gider · `TestPasswordNotice_ATrippedBreakerDoesNotStopIt`
+  — `passwordChanged` üzerinden: 299 + bildirim kesiciyi doldurur (sayıldı), kesik pencerede
+  ikinci değişikliğin bildirimi de satırın adresine gider, iki `sent` satırı ·
+  `TestAdminReset_ATrippedBreakerRecordsTheGrantAtOnceAndQueuesNothing` — kesik pencerede tam
+  bir pencerelik (`adminauth.ResetWindow` = 8 grant) kayıtlı adres: yanıt dönerken sekiz
+  `undelivered` satırı (kesicinin nedeni), kuyruk boş, gönderim yok, işçi satırı yok, tek log
+  satırı (kesicinin trip'i); durum, **bütün başlıklar** ve gövde, kesici geçirirken aynı isteğin
+  ve kesik pencerede kayıtsız adresin yanıtıyla bayt-aynı; üçü de **[taban, taban + 50 ms]**
+  bandında (2. tur: üst sınır eklendi — `adminresetoutbox_test.go`'nun tam-kuyruk emsali; ölçülen
+  250,29–251,28 ms, üç koşu, `-race`); kontroller: kesici geçirirken sekiz grant gönderildi;
+  kanalsız dağıtımın sayfası farklı ·
+  `TestResetOutbox_AGrantTheBreakerRefusesAtTheWorkerIsUndelivered` — soruyu geçen grant
+  işçide reddedilir: gönderim-hatası nedenli tek `undelivered`, hata satırında
+  `"class":"breaker"`, `"smtp_code":0`, `"err_type":"*mail.SendError"`.
+  Kablo: `TestBreakerWiring_TheTransportReachesTheChannelsOnlyThroughOneBreaker` — `run()`'da
+  tek `mail.NewBreaker`; `mail.New`'den atanan tanımlayıcı yalnız atamasında ve kesicinin ilk
+  argümanında geçer; her `handler.NewEmail…Channel`'ın ilk argümanı o kesicidir.
+- **PART II — adı konmuş pinler ve yakaladıkları** (M10 EM-7A kartının mutasyon tablosu):
+  eşik +1 ve −1 (M01, M02), pencere sınırında `<=` (M03), pencerenin kaymaması (M04), saat
+  başında sıfırlanan sabit pencere (M05), kilidin kalkması (M06 — `DATA RACE`), karar ile kayıt
+  arasında kilidin bırakılması (M07), muaf gönderimin reddedilebilir olması (M08, M08h),
+  sayılmaması (M09, M09h), kanalın bildirimi `Send` ile (M10) ve linki `SendExempt` ile (M11)
+  göndermesi, kanalın soruya hep `false` demesi (M12), `dispatch`'in sormaması (M13), kesik
+  dalda grant başına log satırı (M14), kesik dalın satırına başka neden (M15), kesik pencerede
+  farklı gövde (M16) ve farklı başlık (M17), boş `ClassBreaker` (M18, M18h), her retle trip
+  satırı (M19), trip satırının ve kapanış satırının seviyesi (M20, M21), kapanışın iki pencere
+  sonra (M22) ya da ilk boş yerde (M23) yazılması, reddedilen gönderimin alıcıyı loglaması
+  (M24), sorunun bir gönderim kaydetmesi (M25) ve ret sayılmaması (M26), `main.go`'da ikinci
+  bir kesici (M27) ve taşıyıcının kesici dışında kullanılması (M28); kesik dalı yavaşlatıp yanıtı
+  tabanın üstüne iten bir sapma (M29, 2. tur: grant başına 100 ms → kesik kayıtlı kol 802 ms).
+  **Yakalamadığı:** kesik dalı yavaşlatan ama toplamı tabanın **altında** kalan bir sapma (M29b:
+  grant başına 25 ms, sekiz grantta 200 ms — YEŞİL; yanıtta görünmez, taban bunun için var); geriye
+  giden bir saat (yalnız enjekte saatte mümkün; halka eski zamanları yenilerin önünde
+  tutabilir — sınır 9); `run()` dışında kurulan bir kesici, işaretçi ya da kapatma üzerinden
+  yeniden atama ve adı `NewEmail` ile başlamayan bir kanal kurucusu (o yalnız *"taşıyıcı yalnız
+  kesiciye gider"* kuralıyla korunur — sınır 11); gerçek SES.
+- **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
+
+**EM-7A'nın sayılı sınırları (M10 EM-7A kartındaki listeyle aynı):**
+1. **Sayaç süreç içi, bellektedir.** Bugün `replicas: 1` (ölçüldü — `deploy/k8s/20-app.yaml`);
+   N replika tavanı N × 300'e çıkarır; rolling update (`maxSurge: 1`) iki süreci bir süre birlikte
+   koşturur — o saatte en çok 2 × 300; her yeniden başlatma boş pencereyle başlar (çökme döngüsü
+   ya da sık deploy tavanı çarpar). Kalıcı ya da replikalar arası bir sayaç bu görevin kapsamı
+   dışında.
+2. **Girişim sayılır, sonuç değil.** Taşıyıcının aramadan önce reddettiği bir ileti
+   (`invalid_address`) de bir yer tutar; bir `Send`'in içindeki 4xx tekrarı tek gönderimdir
+   (röleye iki bağlantı).
+3. **Soru rezervasyon değildir.** Soruyu geçip kuyruğa giren grant, işçiye gelene dek pencere
+   dolarsa işçide reddedilir: `undelivered` (neden: gönderim hatası; log'da `class=breaker`) ve
+   grant başına bir hata log satırı — bir kesik dönemde en çok kuyruktaki grant kadar (≤ 33).
+4. **Bildirim kesicinin tavanıyla sınırlanmaz.** Bildirimler pencereyi 300'ün üstüne itebilir
+   ve kesiciyi doldurabilir; hacimleri yalnız hesap başına saatte 5 ile sınırlı ve birden çok
+   hesap çarpar (EM-9 sınır 3).
+5. **Kesici bir kesinti aracıdır** (ana listenin sınır 6'sı). Anonim kurtarma formu tek kaynak
+   adresten 10 dakikada 160 grant ister (B9), yani tek adres kesiciyi yaklaşık 20 dakikada
+   doldurabilir; dolunca **bütün tenant'ların** sıfırlama ve davet e-postaları, son geçirilen
+   gönderim pencereden çıkana dek (en çok bir saat, yük sürerse süresiz) durur. Bilinçli: SES
+   itibar riski kesinti riskine çevrildi. Bildirim muaftır (EM-9 notunun sınır 11'i kapandı).
+   **Ve kesinti linki de öldürür (2. tur):** kesik dönemde gelen anonim bir istek, kurbanın
+   kutusunda hâlâ geçerli olan linki emekliye ayırır (`IssueForEmail` — basım ve kardeşlerin
+   emekliye ayrılması tek ifade, `internal/adminauth/reset.go`'nun *Issue* yorumu; ADR 0015'in
+   kabul ettiği zarar) ve yerine yenisi **gitmez** (kesik dalın satırı `undelivered`). Kurbanın
+   elindeki çalışan kurtarma, kesici açık kaldıkça ve bir yabancı adresini forma yazdıkça
+   ölüdür. Çözümlemeden **önce** kesiciye sormak bunu kapatmaz ve K7A-4 ile çelişir: yanıtın
+   ve basımın kesiciden bağımsız olması bu görevin kararıdır, ve kayıtsız adres de aynı soruyu
+   sorardı — sınır 13'ü de kapatmaz. Karar EM-5B'nindir.
+6. **Kapanış satırı tembeldir:** retsiz geçen tam bir pencereden sonraki **ilk çağrı** yazar; o
+   ana dek kesici gönderimleri geçirebilir ama satır yazılmamış olabilir, hiç gönderim olmayan
+   bir süreçte bir sonraki gönderime dek yazılmaz.
+7. **Tenant'a görünen audit nedeni süreç geneli bir durumu söyler:** kesik pencerede bir
+   tenant'ın satırı platformun son bir saatte 300 gönderime ulaştığını söyler (EM-5A'nın
+   kuyruk-dolu nedeninin emsali).
+8. **Soru bir ret sayılır:** hiçbir şey gönderilmese de kesik dönemin `refused` sayısına girer
+   ve trip satırını yazabilir (karar 4).
+9. **Geriye giden saat pinsizdir** — üretimde `time.Now`'ın monoton okuması; yalnız enjekte
+   edilen bir saat geri gidebilir.
+10. **Kesik pencerede kayıtlı adresin senkron satır yazımı tabanın içinde ödenir** (EM-5A
+    sınır 14'ün aynısı; gerçek Postgres'le ölçülmedi — test sahte izle ölçer). 2. turdan beri
+    üst sınır pinli (tam pencere, taban + 50 ms — M29 KIRMIZI); tabanın altında kalan
+    yavaşlama yanıtta görünmez ve pinsizdir (M29b YEŞİL).
+11. **Kablo pini kaynak düzeyindedir:** `run()`'ı okur; `run()` dışında kurulan bir kesiciyi,
+    işaretçi ya da kapatma üzerinden yeniden atamayı görmez; adı `NewEmail` ile başlamayan bir
+    kanal kurucusu yalnız *"taşıyıcı yalnız kesiciye gider"* kuralıyla korunur.
+12. **Gerçek SES ölçülmedi** — EM-5B (bir `Send`'in SES'te bir gönderim olduğu, 4xx tekrarı).
+13. **Kesici-akıbeti numaralandırma kanalı (ORTA, ölçüldü — 2. tur, birleşik denetim).**
+    *Mekanizma:* kendi yönetici hesabı ve posta kutusu olan biri (kayıt herkese açık) pencereyi
+    kendi adresine istenen sıfırlamalarla doldurur; ilk gönderiminin saati dolduğunda pencerede
+    **tek** bir yer açılır ve o an saatle bilinir. Saldırgan o an önce **hedef** adres için, hemen
+    ardından **kendi** adresi için istek atar. Hedef kayıtlıysa açılan yeri hedefin grant'ı alır
+    ve saldırganın isteği kesik dalı görür: kendi linki **gelmez** ve kendi tenant'ının
+    audit'inde kesicinin nedeni (`the process-wide sending limit was reached…`) görünür; hedef
+    kayıtsızsa grant yoktur, yer saldırganın linkine kalır ve link **gelir**. Yanıt (durum,
+    gövde, süre) iki durumda da aynıdır — kanal yanıtın değil, saldırganın **kendi** grant'ının
+    akıbetidir. *Ölçüm:* denetçi ölçtü; yapıcı enjekte saatle yeniden üretti (kaydedilmeyen bir
+    scratch testi: 1 gönderim t0'da + 299 t0+1 dk'da, t0+1 sa'te hedef sonra saldırgan) — hedef
+    kayıtlı → saldırganın linki **0** kez, saldırganın tenant'ında `admin.recovery.undelivered`
+    / kesicinin nedeni; hedef kayıtsız → **1** kez, `admin.recovery.requested`. *Neden kuyruk
+    kanalından (EM-5A sınır 12) güçlü:* yer bir saat tutulur ve serbest kalma anı saatle bilinir
+    (kuyrukta sıra saniyelerle ve gürültüyle değişir); tek bir deneme tek bir adresin cevabını
+    verir. *Bugün canlıda değil:* ConfigMap `none`/`panel` — sıfırlama akışının kanalı, dolayısıyla
+    kesicisi yok. *Olası davranışlar (karar verilmedi):* kayıtsız adresin isteğine de kesiciden
+    bir yer harcatmak (iki durum aynı yeri tüketir — bedeli: anonim istekler kesiciyi daha çabuk
+    doldurur, sınır 5); tenant'a görünen nedeni kesiciye özgü olmaktan çıkarmak (satır yalnız
+    *"gönderilemedi"* der — bu, saldırganın kendi kutusunda gelmeyen linki gizlemez, yalnız
+    audit'teki ipucunu kaldırır). **Karar EM-5B önkoşulu (c)'ye aittir** (yukarıda: (c) bunu da
+    kapsar).
+
+**Devirler:**
+- **EM-7B:** davet kanalı kesiciyi `Send` ile kullanır — `main.go`'daki **tek** kesici, paylaşılan
+  taşıyıcının etrafında (`TestBreakerWiring_TheTransportReachesTheChannelsOnlyThroughOneBreaker`
+  taşıyıcıyı kesiciden başka bir yere veren her çağrıyı ve ikinci bir kesiciyi kırmızıya
+  çevirir); davet başarısızlık satırının `class` alanı kesik pencerede `breaker` taşır; davet hata
+  yolunun grant başına log satırı (`employeeactions.go`) kesik pencerede reddedilen her davet
+  için bir satır yazar — hacmi davetin kendi sınırlarıyla sınırlı, ama kesicinin *"ret başına
+  satır yok"* kuralının dışında: EM-7B'nin kararı.
+- **EM-5B:** önkoşul (a)'nın kod yarısı kapandı; (b), (c) açık; gerçek SES ile sınır 12.
+  **(c) genişler:** kuyruk-akıbeti kanalına (EM-5A sınır 12) **kesici-akıbeti** kanalı (sınır 13)
+  eklenir; ve sınır 5'in emekliye ayırma yarısı (kesik dönemde kurbanın linkinin ölmesi) EM-5B'nin
+  kararıdır.
+- **Çok replikalı ya da kalıcı sayaç:** `replicas` 1'in üstüne çıktığında (legal snapshot'ın
+  emsali) ayrı bir kart.
+
+**EM-7A 2. tur (2026-10-09 — birleşik denetim RED; davranış değişmedi: yalnız metin ve bir test
+pini):**
+- **[ORTA, metin]** kesici-akıbeti numaralandırma kanalı → sayılı sınır 13 (mekanizma, ölçüm,
+  canlıda olmadığı, iki olası davranış); EM-5B önkoşulu (c) onu da kapsar (yukarıda ve Devirler);
+  `adminresetoutbox.go`'nun COUNTED LIMITS yorumuna bir cümle.
+- **[DÜŞÜK, test pini]** `TestAdminReset_ATrippedBreakerRecordsTheGrantAtOnceAndQueuesNothing`'e
+  üç kol için üst sınır (taban + 50 ms) ve tam bir pencere (8 grant — kesik dalın en yavaş hâli;
+  iki grantla grant başına 100 ms'lik yavaşlama tabanın altında kalıyordu). M29 (grant başına
+  100 ms) KIRMIZI — kesik kayıtlı kol 802,6 ms; M29b (grant başına 25 ms, toplam 200 ms)
+  YEŞİL — tabanın altındaki yavaşlama yanıtta görünmez (PART II *Yakalamadığı*, sınır 10).
+- **[DÜŞÜK, metin]** sayılı sınır 5'e emekliye ayırma yarısı (kesik dönemde kurbanın linki
+  ölür, yenisi gitmez; çözümlemeden önce sormak K7A-4 ile çelişir ve sınır 13'ü kapatmaz).
+- **[DÜŞÜK, metin]** `adminreset.go`'nun `ResetChannel` yorumu: *"ONE METHOD"* → *"ONE INTERFACE,
+  DECLARED AT THE CONSUMER"*; *"istekten asla çağrılmaz"* cümlesi yalnız `DeliverReset`'e
+  daraltıldı (bildirim ve `RefusingResets` istekten çağrılır).

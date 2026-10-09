@@ -38,10 +38,13 @@ import (
 // measured: with the outbox full, the notice still reaches the channel
 // (TestPasswordNotice_AFullResetOutboxDoesNotStopIt). The price is the response's
 // time: the change's answer waits for the relay, bounded by PasswordNoticeSendGrace.
-// ⚠️ THAT ARGUMENT IS ABOUT THE QUEUE. The planned §9 breaker (EM-7) is another shared
-// resource the same anonymous traffic can exhaust: it may COUNT the notice but must not
-// REFUSE it — or give the notice its own budget — or the argument above falls (ADR 0022,
-// EM-9 note, limit 11).
+// ⚠️ THAT ARGUMENT IS ABOUT THE QUEUE, AND THE §9 BREAKER (M10 EM-7A, mail.Breaker) IS
+// THE OTHER SHARED RESOURCE the same anonymous traffic can exhaust. So the breaker
+// COUNTS the notice and never REFUSES it (ADR 0022, EM-9 note limit 11; EM-7A note
+// K7A-3): the e-mail channel sends the notice through Breaker.SendExempt and the reset
+// link through Breaker.Send (resetmail.go). Measured: with the breaker refusing every
+// reset link, a change still sends its notice and writes a sent row —
+// TestPasswordNotice_ATrippedBreakerDoesNotStopIt.
 //
 // §4.6 — THE CHANGE IS NEVER UNDONE AND EVERY CHANGE ENDS IN ONE NOTICE ROW. The
 // notice runs after the change committed and decides nothing about it: whatever the
@@ -88,7 +91,11 @@ import (
 //     dialled — TestPasswordNotice_AnAddressTheRelayCannotTakeIsNeverDialled;
 //   - with the reset outbox full (one grant in a send, resetOutboxSize waiting, one
 //     more refused — the control), the notice still reaches the channel —
-//     TestPasswordNotice_AFullResetOutboxDoesNotStopIt;
+//     TestPasswordNotice_AFullResetOutboxDoesNotStopIt; with the process-wide breaker
+//     refusing (300 sends in the hour; the control: a reset link is refused), the
+//     notice goes through the real e-mail channel to the sender behind the breaker,
+//     the row says sent, and the notice was counted —
+//     TestPasswordNotice_ATrippedBreakerDoesNotStopIt (M10 EM-7A);
 //   - per account, exactly passwordNoticeLimit notices are SENT for 40 concurrent
 //     changes (200 runs, every call started from one line); the rest end undelivered
 //     with the cap's reason, one rate-limited line is logged, and another account's
@@ -143,7 +150,8 @@ import (
 //     changed (with the channel's constructor test);
 //   - the log test: the recipient on the accepted line, the error itself on the
 //     failure line;
-//   - the full-outbox test: the notice refused while the reset outbox is full;
+//   - the full-outbox test: the notice refused while the reset outbox is full; the
+//     breaker test: the notice sent through the breaker's refusable Send;
 //   - the cap test: "Allowed, then Charge" in place of TryCharge, the cap keyed on the
 //     tenant, the cap not consulted;
 //   - the hung-relay test: the send's context without its grace, the send-failed row
@@ -170,8 +178,9 @@ import (
 // COUNTED LIMITS (ADR 0022's EM-9 note lists them with the card): the cap is per
 // account and per process, in a fixed window (a burst at the boundary reaches twice
 // the limit); one attacker with several accounts carrying a victim's address (signup
-// is open and unverified) multiplies it; the planned §9 breaker does not exist yet, and
-// when it does it must not refuse the notice (see the queue paragraph above).
+// is open and unverified) multiplies it; the §9 breaker counts the notice and never
+// refuses it (see the queue paragraph above), so it does not bound the notices
+// either — only this cap does.
 
 // The notice's clocks, exported for cmd/tappa's shutdown budget test.
 const (

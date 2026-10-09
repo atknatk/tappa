@@ -90,6 +90,9 @@ func (c *stuckRelay) DeliverPasswordNotice(context.Context, handler.PasswordNoti
 	return errors.New("not reached in this test")
 }
 
+// RefusingResets: this relay has no breaker in front of it (M10 EM-7A).
+func (c *stuckRelay) RefusingResets() bool { return false }
+
 func (c *stuckRelay) count() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()

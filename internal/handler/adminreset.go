@@ -227,15 +227,16 @@ type ResetDelivery struct {
 
 // ResetChannel delivers a reset link to the administrator it belongs to.
 //
-// ONE METHOD, DECLARED AT THE CONSUMER (§7), for the reason internal/invite.Channel
+// ONE INTERFACE, DECLARED AT THE CONSUMER (§7), for the reason internal/invite.Channel
 // gives: the producer of a delivery mechanism does not get to define what this flow
 // needs from it. The one implementation is emailResetChannel (resetmail.go, M10
 // EM-5). Unlike invites there is no interim one — see config.ResetDelivery for why
 // showing the link to the requester is not one.
 //
-// IT IS CALLED BY THE OUTBOX'S WORKER, NEVER BY A REQUEST (adminresetoutbox.go), with
-// a context that the request's end does not cancel and that resetSendGrace and the
-// shutdown drain do. An implementation must return when that context ends.
+// DeliverReset IS CALLED BY THE OUTBOX'S WORKER, NEVER BY A REQUEST
+// (adminresetoutbox.go), with a context that the request's end does not cancel and
+// that resetSendGrace and the shutdown drain do. An implementation must return when
+// that context ends. (The other two methods are called from a request — below.)
 //
 // DeliverPasswordNotice (M10 EM-9) is the OTHER e-mail an administrator receives: the
 // "your password was changed" notice. It IS called in the request that changed the
@@ -245,9 +246,17 @@ type ResetDelivery struct {
 // from its own configured base. A second method on the ONE channel rather than a
 // second channel, because the deployment's one switch (TAPPA_RESET_DELIVERY) decides
 // both, and a nil channel ("none") then means "neither" by construction.
+//
+// RefusingResets (M10 EM-7A) is asked by the REQUEST, once per grant, BEFORE the grant
+// is queued: true means the process-wide breaker (ADR 0022 §9) would refuse the link
+// now, and the request records the grant undelivered at once instead of queueing it
+// (dispatch). It is a question, not a reservation: a grant that was not refused can
+// still be refused by the breaker when the worker sends it, and then ends undelivered
+// like any failed send. An implementation without a breaker answers false.
 type ResetChannel interface {
 	DeliverReset(ctx context.Context, d ResetDelivery) error
 	DeliverPasswordNotice(ctx context.Context, n PasswordNotice) error
+	RefusingResets() bool
 }
 
 // Audit actions written by the recovery flow. The vocabulary is free text by schema
@@ -502,7 +511,9 @@ func (h *AdminReset) RequestPage(w http.ResponseWriter, r *http.Request) {
 //	resolve + issue + hand over
 //	                  minting is synchronous; the SEND is not — each grant goes to
 //	                  the outbox without blocking (adminresetoutbox.go), so the
-//	                  relay's time never reaches this response.
+//	                  relay's time never reaches this response. A grant the
+//	                  process-wide breaker would refuse is recorded undelivered here
+//	                  instead (dispatch) — the answer below does not change.
 //	floor             applied on EVERY exit below the budget check, including the
 //	                  ones that did nothing.
 func (h *AdminReset) Request(w http.ResponseWriter, r *http.Request) {
@@ -1049,7 +1060,8 @@ type adminResetDetail struct {
 // receives is the per-SOURCE-address request budget (the one worker bounds all sends
 // together, not one recipient's share), and a distributed source has none. There is
 // no per-recipient send ceiling (ADR 0022 EM-5A note, limit 13 — an EM-5B
-// precondition; the planned §9 breaker does not stop it).
+// precondition; the §9 breaker, mail.Breaker, is a process-wide ceiling and does not
+// stop it).
 func (h *AdminReset) recordForAdmin(ctx context.Context, tenantID, adminUserID uuid.UUID, e audit.Event) {
 	key := adminUserID.String()
 	// ONE LOCKED STEP (httpx.Limiter.TryCharge): the outbox's worker and every

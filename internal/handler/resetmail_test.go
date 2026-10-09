@@ -34,7 +34,7 @@ func newEmailFlow(t *testing.T, relay *fakeRelay, resets panelResets, trail *fak
 		handler = teeHandler{handler, slog.NewJSONHandler(asJSON, opts)}
 	}
 	log := slog.New(handler)
-	ch, err := NewEmailResetChannel(relay.sender(t, user, pass, timeout), adminTestConfig().BaseURL, log)
+	ch, err := NewEmailResetChannel(relay.breaker(t, user, pass, timeout), adminTestConfig().BaseURL, log)
 	if err != nil {
 		t.Fatalf("NewEmailResetChannel: %v", err)
 	}
@@ -462,7 +462,7 @@ func TestEmailResetChannel_RefusesWhatItCannotBuild(t *testing.T) {
 	t.Parallel()
 	relay := newFakeRelay(t, relayScript{})
 	user, pass := relayCredentials(t)
-	s := relay.sender(t, user, pass, time.Second)
+	s := relay.breaker(t, user, pass, time.Second)
 	for _, tc := range []struct {
 		base string
 		ok   bool
@@ -545,7 +545,12 @@ func TestEmailResetChannel_AStoredAddressTheRelayCannotTakeIsNeverDialled(t *tes
 // promises the full ResetTTL.
 func TestEmailResetChannel_StatesTheTimeLeftWhenSent(t *testing.T) {
 	t.Parallel()
-	ch := &emailResetChannel{sender: &capturingSender{}, baseURL: adminTestConfig().BaseURL, log: slog.New(slog.DiscardHandler)}
+	captured := &capturingSender{}
+	b, err := mail.NewBreaker(captured, mail.BreakerConfig{Log: slog.New(slog.DiscardHandler)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch := &emailResetChannel{sender: b, baseURL: adminTestConfig().BaseURL, log: slog.New(slog.DiscardHandler)}
 	g := grantFor("left@relay.example.test")
 	for _, tc := range []struct {
 		left time.Duration
@@ -561,7 +566,7 @@ func TestEmailResetChannel_StatesTheTimeLeftWhenSent(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("%v left: %v", tc.left, err)
 		}
-		m := ch.sender.(*capturingSender).last
+		m := captured.last
 		if !strings.Contains(m.Text, "stays valid for "+tc.want+".") {
 			t.Errorf("%v left: the text does not say %q", tc.left, tc.want)
 		}

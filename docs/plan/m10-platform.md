@@ -12097,6 +12097,204 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 > denetim (güvenlik + tappa-brand + kabul): ONAY, bloklayan yok; denetçinin 6 mutasyonu yakalandı; kodlayıcı ret satırı
 > (yalnız uzunluk) kabul edildi; forced-colors görünümü ölçülmedi (düşük). Kullanıcı kararı: onaydan sonra hemen canlıya.
 
+> **EM-7A — §9'un süreç geneli paylaşılan devre kesicisi**
+>
+> **Kart düzeltmesi (2026-10-09, EM-7A uygulaması sırasında).** §9'un süreç geneli paylaşılan
+> devre kesicisi. Normatif kaynak [ADR 0022](../adr/0022-islemsel-eposta.md) §9; kararlar,
+> sapmalar ve üç parçalı iddia ADR'nin *"EM-7A notu"*ndadır (aynı ağaçta, kodla birlikte
+> yazıldı; dosyanın **sonuna** eklendi — EM-7B'nin notuyla çakışmasın diye). Taban dal ucu
+> `08b1bd1`. EM-7B (davet e-posta kanalı) paralel bir worktree'de; ortak sözleşme
+> `Send(ctx, mail.Message) (mail.Receipt, error)`.
+>
+> **Tehdit modeli:** *"Bu pinler kazara sapmaya karşıdır — `internal/mail/breaker.go`'ya,
+> yöntemlerini seçen sıfırlama kanalına, kuyruğun `dispatch`'ine ve `cmd/tappa`'nın
+> kablolamasına kazara giren sapmaya; bilerek atlatma kod incelemesinin konusudur."*
+>
+> **Yazıldı:** `internal/mail/breaker.go` (yeni: `Breaker`, `NewBreaker`, `BreakerConfig`
+> {`Now`, `Log`}, `BreakerLimit` 300, `BreakerWindow` 1 saat, `Send`, `SendExempt`,
+> `Refusing`; üç parçalı iddia) · `internal/mail/errors.go` (`ClassBreaker` = `"breaker"`) ·
+> `internal/mail/doc.go` (paket girişinde bir paragraf) · `internal/handler/resetmail.go`
+> (`NewEmailResetChannel(*mail.Breaker, …)`, `resetSender`, link → `Send`, bildirim →
+> `SendExempt`, `RefusingResets`; iddiaya madde) · `internal/handler/adminreset.go`
+> (`ResetChannel.RefusingResets`; yorumlar) · `internal/handler/adminresetoutbox.go`
+> (`dispatch` teklif etmeden önce sorar; `recordFallback`; `resetReasonBreaker`; iddiaya madde) ·
+> `internal/handler/passwordnotice.go` (yalnız yorum) · `cmd/tappa/main.go` (`email` dalında
+> taşıyıcı → tek kesici → kanal) · testler: `internal/mail/breaker_test.go` (yeni),
+> `internal/handler/resetbreaker_test.go` (yeni), `cmd/tappa/breaker_wiring_test.go` (yeni);
+> sahtelere `RefusingResets` (`recordingChannel`, `gateChannel`, `panicChannel`, `stuckRelay`);
+> `NewEmailResetChannel` çağrıları (`resetmail_test.go` ×2, `passwordnotice_test.go`,
+> `adminresetoutbox_test.go`, `adminreset_db_test.go`, bir yapı değişmezi) kesiciyle sarıldı
+> (`fakesmtp_test.go`: `fakeRelay.breaker`, `newTestBreaker`) · ADR 0022 *"EM-7A notu"*
+> (yalnız ekleme: 1. tur 223, 2. turla 283 satır, 0 silme). Migration yok, DDL yok, yeni bağımlılık yok;
+> `go.mod`/`go.sum`/`sqlc.yaml` diff boş. ConfigMap değişmedi (`none`/`panel`) — bugün canlıda
+> kesici kurulmaz.
+> **Ölçüm ortamı:** go1.27.1 darwin/amd64 (`-race`); staticcheck v0.6.1 (`2025.1.1`)
+> `GOTOOLCHAIN=go1.26.9`, yerel modül önbelleği; dev Postgres yalnız
+> `TestPanelRecoveryDB_EndToEndThroughTheSMTPTransport` için; mutasyonlar
+> `scratchpad/em7a/mut` kopyasında.
+>
+> **Kararlar (orkestratörün K7A-1…7'si; numaralar ADR 0022 *"EM-7A notu"*nun karar numaralarıdır):**
+> 1. **K7A-1 — kayan pencere, saatte 300, kesin.** En yeni 300 kaydın zamanı bir halkada; bir
+>    yer o gönderim tam bir saat yaşlanınca açılır; sabit pencere değil (sınırda 2× yok). Saat
+>    `BreakerConfig.Now` ile enjekte; süreç içi (`replicas: 1` ölçüldü — sınır 1).
+> 2. **K7A-2 — her gönderim sayılır:** sıfırlama `Send`, bildirim `SendExempt`, davet (EM-7B)
+>    aynı kesicinin `Send`'i. Sayılan geçirilen girişimdir (röleden önce, karar + kayıt tek
+>    kilitli adım), sonuç değil; reddedilen kaydedilmez.
+> 3. **K7A-3 — ayrım e-posta kanalında** (`resetmail.go`): link `Send`, bildirim `SendExempt`.
+>    Gerekçe: iletiyi render eden tek yer; `internal/mail` çağırana tarafsız; link ve bildirim
+>    aynı kanaldan (EM-9 karar 1); kanal `*mail.Breaker` aldığı için kesiciyi atlayan kablo
+>    derlenmez. Elenen: bağlam işareti, bildirime ayrı bütçe.
+> 4. **K7A-4 — kesik pencerede sıfırlama senkron `undelivered`:** `dispatch` teklif etmeden önce
+>    `RefusingResets()`; `true` → yedek yolun satırı (`admin.recovery.undelivered`, neden
+>    `resetReasonBreaker`), kuyruk yok, gönderim yok, grant başına log satırı yok; yanıt bayt-aynı.
+>    Soru rezervasyon değildir (sınır 3); sorunun `true`'su bir ret sayılır.
+> 5. **K7A-5 — `ClassBreaker` = `"breaker"`,** kod 0; işçinin hata log satırına, EM-7B'nin
+>    davet satırının `class` alanına düşer; sıfırlama satırının detail'inde `class` alanı yok
+>    (EM-5A'dan beri) — `reason` ayırır.
+> 6. **K7A-6 — iki satır:** ilk retle `Warn` (`limit`, `window`); retsiz tam bir pencereden
+>    sonraki ilk çağrıda `Info` (`limit`, `window`, `refused`). Ret başına satır yok; sınırda
+>    gezinen yükte dalgalanma yok (M23).
+> 7. **K7A-7 — alıcı başına tavan kapsam dışı;** EM-5A sınır 13 ve EM-5B önkoşulu (b) yerinde.
+>
+> **Sapmalar:** §10'un kapalı kümesinin dışında üç anahtar (`limit`, `window`, `refused`) —
+> kesicinin satırları bir gönderimle ilgili değil; pinli · sıfırlama kanalı ve `ResetChannel`
+> kesiciyi tanır (K7A-3/4'ün gereği; sayılı istisna) · `NewEmailResetChannel` parametresi
+> `*mail.SMTP` → `*mail.Breaker` · `undelivered` nedenleri beşten altıya.
+> *Karar verilmedi*'deki iki madde (kesici açıkken sıfırlama sonucu; oran sayıları — kesicininki)
+> ADR notunda *"karara bağlandı"*; madde metinleri yerinde. EM-5B önkoşulu (a)'nın kod yarısı
+> kapandı.
+>
+> **Kabul tablosu (her satır bir test; hepsi `-race` ile yeşil):**
+>
+> | # | Kabul | Test |
+> |---|---|---|
+> | A1 | 300. gönderim geçer, 301. `breaker`/0 ile reddedilir, sarılan göndericiye ulaşmaz; saatten 1 ns önce hâlâ red; saatte tam 299 yer | `TestBreaker_The300thPassesAndThe301stIsRefusedUntilTheHourPasses` |
+> | A2 | Pencere kayar (100 @t0 + 200 @t0+30 dk → t0+1 sa'te tam 100, t0+1 sa 30 dk'da tam 200) | `TestBreaker_TheWindowSlidesOneSendAtATime` |
+> | A3 | Sevk edilen sayılar 300 / 1 saat ve sınıfın sözcüğü `breaker`, literal | `TestBreaker_TheShippedLimitIs300AnHour` |
+> | A4 | Muaf gönderim sayılır ve asla reddedilmez (300 muaf kapatır; 299 + 1 muaf kapatır; sınır ötesi muaf geçer) | `TestBreaker_AnExemptSendIsCountedAndNeverRefused` |
+> | A5 | 1000 eşzamanlı `Send` × 20 koşu → her koşuda tam 300 geçer, 700 `breaker` | `TestBreaker_ExactlyTheLimitPassesUnderConcurrency` |
+> | A6 | Soru yer harcamaz, doluyken `true`, ret sayılır (tek başına trip satırı) | `TestBreaker_RefusingRecordsNothingAndIsARefusal` |
+> | A7 | Tek trip (`WARN`) ve tek kapanış (`INFO`, `refused=120`) satırı; anahtarlar tam küme; adres/konu/gövde/kod/`Ref`/tenant adı/alan adı log'da yok | `TestBreaker_LogsTheTripOnceAndTheCloseOnce` |
+> | A8 | Sınırın 2 katında 3 saat → tek trip satırı; sessiz saatten sonra tek kapanış | `TestBreaker_ASustainedOverloadTripsOnce` |
+> | A9 | Nil gönderici reddedilir; nil/sıfır `Breaker` yapılandırılmamış | `TestNewBreaker_RefusesANilSender` |
+> | A10 | Kanal: 300 bildirim sayılır, sonraki link `breaker`, bildirim yine gider; 300 link geçer, 301. red, bildirim yine gider | `TestEmailResetChannel_TheBreakerCountsTheNoticeAndRefusesTheLink` |
+> | A11 | `passwordChanged` → kanal → kesici: bildirim sayılır ve kesik pencerede de satırın adresine gider, iki `sent` satırı | `TestPasswordNotice_ATrippedBreakerDoesNotStopIt` |
+> | A12 | Kesik pencerede sıfırlama, tam pencere (8 grant): yanıt dönerken sekiz `undelivered` (kesicinin nedeni), kuyruk boş, gönderim yok, işçi satırı yok, tek log satırı (trip); durum + bütün başlıklar + gövde açık pencereyle ve kayıtsız adresle bayt-aynı; üçü de **[taban, taban + 50 ms]** bandında (2. tur: üst sınır pini; ölçülen 250,29–251,28 ms, üç koşu) | `TestAdminReset_ATrippedBreakerRecordsTheGrantAtOnceAndQueuesNothing` |
+> | A13 | Soru rezervasyon değil: soruyu geçen grant işçide reddedilir → gönderim-hatası nedenli `undelivered`, satırda `class=breaker`, `smtp_code=0`, `err_type=*mail.SendError` | `TestResetOutbox_AGrantTheBreakerRefusesAtTheWorkerIsUndelivered` |
+> | A14 | `run()`: tek `mail.NewBreaker`; taşıyıcı yalnız kesiciye gider; her `handler.NewEmail…Channel` kesiciyi alır | `TestBreakerWiring_TheTransportReachesTheChannelsOnlyThroughOneBreaker` |
+> | A15 | Değişen çağrı yerleri yeşil kaldı (kesiciyle sarılmış gerçek taşıyıcı) | `TestEmailResetChannel_*` (hepsi), `TestPasswordNotice_*` (hepsi), `TestResetOutbox_TheGrantAndBudgetLinesCarryTheRequestsID`, `TestAdminReset_RegisteredAndUnregisteredAreByteIdentical`, `TestPanelRecoveryDB_EndToEndThroughTheSMTPTransport` (DB), `TestShutdown_DrainsTheResetOutboxAlongsideTheHTTPServer`, `TestPasswordNoticeWiring_ThePanelIsGivenTheMountedRecoveryFlow`, `TestEveryNamedTestExists` |
+>
+> **Mutasyon tablosu** (`scratchpad/em7a/mutate.py`; yalnız yolunda `/em7a/mut` geçen kopyada
+> koşar; her (paket, `-run`) çifti önce mutasyonsuz KONTROL koşusunda yeşil; çapa tam bir kez,
+> yoksa NOT-APPLIED; karar `go test`'in çıkış kodu VE çıktısından, derleme hatası
+> BUILD-FAILED olarak ayrılır; her mutasyondan sonra dosya okunmuş baytlarından geri yazılıp
+> sha256 karşılaştırıldı):
+>
+> | # | Mutasyon | Dosya | Sonuç (kırmızıya dönen testler) | Geri yükleme |
+> |---|---|---|---|---|
+> | M01 | BreakerLimit 300 -> 301 (eşik +1) | breaker.go | KIRMIZI — B_ASustainedOverloadTripsOnce, B_AnExemptSendIsCountedAndNeverRefused, B_ExactlyTheLimitPassesUnderConcurrency, B_LogsTheTripOnceAndTheCloseOnce … (çıktı listesi betikte 400 karakterde kesildi) | sha-ok |
+> | M02 | BreakerLimit 300 -> 299 | breaker.go | KIRMIZI — B_AnExemptSendIsCountedAndNeverRefused, B_ExactlyTheLimitPassesUnderConcurrency, B_LogsTheTripOnceAndTheCloseOnce, B_RefusingRecordsNothingAndIsARefusal, B_The300thPassesAndThe301stIsRefusedUntilTheHourPasses … (çıktı listesi betikte 400 karakterde kesildi) | sha-ok |
+> | M03 | karşılaştırma < yerine <= (pencere sınırında bir fazla) | breaker.go | KIRMIZI — B_AnExemptSendIsCountedAndNeverRefused, B_The300thPassesAndThe301stIsRefusedUntilTheHourPasses, B_TheWindowSlidesOneSendAtATime | sha-ok |
+> | M04 | pencere kaymaz (gönderim hiç yaşlanmaz) | breaker.go | KIRMIZI — B_ASustainedOverloadTripsOnce, B_AnExemptSendIsCountedAndNeverRefused, B_LogsTheTripOnceAndTheCloseOnce, B_The300thPassesAndThe301stIsRefusedUntilTheHourPasses, B_TheWindowSlidesOneSendAtATime | sha-ok |
+> | M05 | sabit saat penceresi (saat dönünce sıfırlanır) | breaker.go | KIRMIZI — B_The300thPassesAndThe301stIsRefusedUntilTheHourPasses, B_TheWindowSlidesOneSendAtATime | sha-ok |
+> | M06 | kilit kaldırıldı (yarış) | breaker.go | KIRMIZI (DATA RACE) — B_ExactlyTheLimitPassesUnderConcurrency | sha-ok |
+> | M07 | karar ile kayıt arasında kilit bırakılır | breaker.go | KIRMIZI — B_ExactlyTheLimitPassesUnderConcurrency | sha-ok |
+> | M08 | SendExempt reddedilebilir (bildirim reddedilir — breaker) | breaker.go | KIRMIZI — B_AnExemptSendIsCountedAndNeverRefused | sha-ok |
+> | M08h | aynısı, handler testleri | breaker.go | KIRMIZI — ERC_TheBreakerCountsTheNoticeAndRefusesTheLink, PN_ATrippedBreakerDoesNotStopIt | sha-ok |
+> | M09 | SendExempt sayılmaz (bildirim sayılmaz — breaker) | breaker.go | KIRMIZI — B_AnExemptSendIsCountedAndNeverRefused | sha-ok |
+> | M09h | aynısı, handler testleri | breaker.go | KIRMIZI — ERC_TheBreakerCountsTheNoticeAndRefusesTheLink, PN_ATrippedBreakerDoesNotStopIt | sha-ok |
+> | M10 | kanal bildirimi Send ile gönderir (bildirim reddedilir — kanal) | resetmail.go | KIRMIZI — ERC_TheBreakerCountsTheNoticeAndRefusesTheLink, PN_ATrippedBreakerDoesNotStopIt | sha-ok |
+> | M11 | kanal linki SendExempt ile gönderir (link hiç reddedilmez) | resetmail.go | KIRMIZI — ERC_TheBreakerCountsTheNoticeAndRefusesTheLink, RO_AGrantTheBreakerRefusesAtTheWorkerIsUndelivered … (çıktı listesi betikte 400 karakterde kesildi) | sha-ok |
+> | M12 | kanalın RefusingResets her zaman false | resetmail.go | KIRMIZI — AR_ATrippedBreakerRecordsTheGrantAtOnceAndQueuesNothing, ERC_TheBreakerCountsTheNoticeAndRefusesTheLink, PN_ATrippedBreakerDoesNotStopIt | sha-ok |
+> | M13 | dispatch kesikken de kuyruğa koyar (soru sorulmaz) | adminresetoutbox.go | KIRMIZI — AR_ATrippedBreakerRecordsTheGrantAtOnceAndQueuesNothing | sha-ok |
+> | M14 | kesik dalda reddedilen grant başına log satırı | adminresetoutbox.go | KIRMIZI — AR_ATrippedBreakerRecordsTheGrantAtOnceAndQueuesNothing | sha-ok |
+> | M15 | kesik dalın satırı başka nedenle | adminresetoutbox.go | KIRMIZI — AR_ATrippedBreakerRecordsTheGrantAtOnceAndQueuesNothing | sha-ok |
+> | M16 | HTTP cevabında farklı gövde (kesikken CanDeliver false) | adminreset.go | KIRMIZI — AR_ATrippedBreakerRecordsTheGrantAtOnceAndQueuesNothing | sha-ok |
+> | M17 | HTTP cevabında farklı başlık (kesikken) | adminreset.go | KIRMIZI — AR_ATrippedBreakerRecordsTheGrantAtOnceAndQueuesNothing | sha-ok |
+> | M18 | Class boş (ClassBreaker = "") | errors.go | KIRMIZI — B_AnExemptSendIsCountedAndNeverRefused, B_LogsTheTripOnceAndTheCloseOnce, B_The300thPassesAndThe301stIsRefusedUntilTheHourPasses … (çıktı listesi betikte 400 karakterde kesildi) | sha-ok |
+> | M18h | aynısı, handler testleri | errors.go | KIRMIZI — RO_AGrantTheBreakerRefusesAtTheWorkerIsUndelivered | sha-ok |
+> | M19 | her reddedişte trip satırı (log yağmuru) | breaker.go | KIRMIZI — B_ASustainedOverloadTripsOnce, B_LogsTheTripOnceAndTheCloseOnce, B_RefusingRecordsNothingAndIsARefusal | sha-ok |
+> | M20 | trip satırı Warn değil Debug | breaker.go | KIRMIZI — B_LogsTheTripOnceAndTheCloseOnce, B_RefusingRecordsNothingAndIsARefusal | sha-ok |
+> | M21 | kapanış satırı yanlış seviyede (Info yerine Debug) | breaker.go | KIRMIZI — B_ASustainedOverloadTripsOnce, B_LogsTheTripOnceAndTheCloseOnce | sha-ok |
+> | M22 | kapanış iki pencere sonra | breaker.go | KIRMIZI — B_ASustainedOverloadTripsOnce, B_LogsTheTripOnceAndTheCloseOnce | sha-ok |
+> | M23 | kapanış ilk boş yerde (dalgalanma) | breaker.go | KIRMIZI — B_ASustainedOverloadTripsOnce, B_LogsTheTripOnceAndTheCloseOnce | sha-ok |
+> | M24 | reddedilen Send mesajın alıcısını loglar | breaker.go | KIRMIZI — B_ASustainedOverloadTripsOnce, B_LogsTheTripOnceAndTheCloseOnce | sha-ok |
+> | M25 | Refusing bir gönderim kaydeder | breaker.go | KIRMIZI — B_RefusingRecordsNothingAndIsARefusal | sha-ok |
+> | M26 | Refusing ret sayılmaz (trip yazılmaz) | breaker.go | KIRMIZI — B_LogsTheTripOnceAndTheCloseOnce, B_RefusingRecordsNothingAndIsARefusal | sha-ok |
+> | M27 | main.go ikinci bir kesici kurar | main.go | KIRMIZI — BW_TheTransportReachesTheChannelsOnlyThroughOneBreaker | sha-ok |
+> | M28 | main.go taşıyıcıyı kesicinin dışında da kullanır | main.go | KIRMIZI — BW_TheTransportReachesTheChannelsOnlyThroughOneBreaker | sha-ok |
+> | **2. tur** (aynı betik, kopya çalışma ağacıyla yeniden eşitlendi; KONTROL yeşil) | | | | |
+> | M29 | kesik dala grant başına 100 ms gecikme | adminresetoutbox.go | KIRMIZI — AR_ATrippedBreakerRecordsTheGrantAtOnceAndQueuesNothing (*"tripped, registered answered in 802.569141ms, over floor+50ms"*) | sha-ok |
+> | M29b | kesik dala grant başına 25 ms gecikme (8 grant = 200 ms, tabanın altında) | adminresetoutbox.go | **YEŞİL — eşdeğer:** yavaşlama tabanın içinde kalır, yanıtta görünmez (taban bunun için var); sayılı sınır 10 | sha-ok |
+>
+> **Toplam: 33 mutasyon — 32 KIRMIZI, 1 YEŞİL (M29b, eşdeğer), 0 BUILD-FAILED, 0 NOT-APPLIED; 33/33 `sha-ok`.** Kısaltmalar: `B_` = `TestBreaker_`, `ERC_` = `TestEmailResetChannel_`, `PN_` = `TestPasswordNotice_`, `AR_` = `TestAdminReset_`, `RO_` = `TestResetOutbox_`, `BW_` = `TestBreakerWiring_`. İlk koşu M06'da betiğin kendi hatasıyla durdu (yarış çıktısındaki UTF-8 olmayan bir bayt; dosya `finally` ile geri yazılmıştı, sha doğrulandı) — `errors='replace'` ile M06'dan yeniden koşuldu. Koşudan sonra çalışma ağacında yalnız bir yorum (`breaker.go`, test adının tam yazımı) ve bir `t.Logf` satırı (`resetbreaker_test.go`, ölçülen yanıt süreleri) değişti.
+>
+> **Sayılı sınırlar (EM-7A — ADR 0022 *"EM-7A notu"*nun listesiyle aynı):**
+> 1. Sayaç süreç içi, bellekte: `replicas: 1` (ölçüldü); N replika N × 300; rolling update'te
+>    (`maxSurge: 1`) o saatte en çok 2 × 300; her yeniden başlatma boş pencere.
+> 2. Girişim sayılır, sonuç değil (gönderimden önce reddedilen ileti de yer tutar; 4xx tekrarı
+>    tek gönderim).
+> 3. Soru rezervasyon değil: soruyu geçen grant işçide reddedilebilir — gönderim-hatası satırı ve
+>    grant başına log satırı (kesik dönem başına ≤ 33).
+> 4. Bildirim kesicinin tavanıyla sınırlanmaz; pencereyi 300'ün üstüne itebilir (EM-9 sınır 3).
+> 5. Kesici bir kesinti aracıdır: tek kaynak adres ~20 dakikada doldurabilir; bütün tenant'ların
+>    sıfırlama ve daveti en çok bir saat (yük sürerse süresiz) durur; bildirim muaf. **2. tur:**
+>    kesik dönemde gelen anonim istek kurbanın kutusundaki hâlâ geçerli linki emekliye ayırır
+>    (`IssueForEmail`, `internal/adminauth/reset.go`'nun *Issue* yorumu) ve yerine yenisi gitmez;
+>    çözümlemeden önce kesiciye sormak K7A-4 ile çelişir ve sınır 13'ü kapatmaz — karar EM-5B'nin.
+> 6. Kapanış satırı tembel (retsiz tam pencereden sonraki ilk çağrı yazar).
+> 7. Tenant'a görünen audit nedeni süreç geneli durumu söyler (kuyruk-dolu emsali).
+> 8. Soru bir ret sayılır.
+> 9. Geriye giden saat pinsiz (yalnız enjekte saatte mümkün).
+> 10. Kesik pencerede kayıtlı adresin senkron satır yazımı tabanın içinde (EM-5A sınır 14); üst
+>     sınır 2. turdan beri pinli (M29 KIRMIZI), tabanın altındaki yavaşlama pinsiz (M29b YEŞİL).
+> 11. Kablo pini kaynak düzeyinde (`run()` dışı, işaretçi/kapatma, `NewEmail` adı).
+> 12. Gerçek SES ölçülmedi — EM-5B.
+> 13. **Kesici-akıbeti numaralandırma kanalı (ORTA, ölçüldü — 2. tur).** Kayıtlı yönetici hesabı
+>     açan saldırgan pencereyi kendi adresiyle doldurur (1 gönderim t0'da, 299 t0+1 dk'da); t0+1
+>     sa'te açılan **tek** yere önce hedef, hemen ardından kendi adresi için istek atar. Hedef
+>     kayıtlı → saldırganın linki **0** kez gelir, kendi tenant'ında `admin.recovery.undelivered` /
+>     kesicinin nedeni; kayıtsız → **1** kez, `admin.recovery.requested` (denetçi ölçtü; yapıcı
+>     enjekte saatle, kaydedilmeyen bir scratch testinde yeniden üretti). Yanıt iki durumda da
+>     aynı. Kuyruk kanalından (EM-5A sınır 12) güçlü: yer bir saat tutulur ve serbest kalma anı
+>     saatle bilinir. Bugün canlıda değil (ConfigMap `none`/`panel`). Olası davranışlar: kayıtsız
+>     adres isteğine de kesiciden yer harcatmak; tenant'a görünen nedeni kesiciye özgü olmaktan
+>     çıkarmak. Karar EM-5B önkoşulu (c)'nin.
+>
+> **Güvenlik iddiası (üç parçalı; ADR 0022 *"EM-7A notu"*, İddia L):** tehdit modeli yukarıda ·
+> **PART I** = kabul tablosundaki ölçümler ve test adları · **PART II** = mutasyon tablosunun
+> KIRMIZI satırları; *yakalamadığı:* tabanın altında kalan yavaşlama (M29b), geriye giden saat, `run()` dışında kurulan kesici,
+> işaretçi/kapatma ile yeniden atama, adı `NewEmail` ile başlamayan kanal kurucusu, gerçek SES ·
+> **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
+>
+> **Devirler:**
+> - **EM-7B:** davet kanalı kesicinin `Send`'ini kullanır — `main.go`'da paylaşılan taşıyıcının
+>   etrafında **tek** kesici (A14 taşıyıcıyı kesici dışında kullanan her çağrıyı ve ikinci
+>   kesiciyi kırmızıya çevirir); davet başarısızlık satırının `class`'ı kesik pencerede
+>   `breaker`; davet hata yolunun grant başına log satırı kesicinin *"ret başına satır yok"*
+>   kuralının dışında — EM-7B'nin kararı. **`main.go` birleşimi:** EM-7B'nin tek paylaşılan
+>   göndericisi (`mail.New`) kesiciye (`mail.NewBreaker`) sarılır; iki kanal da kesiciyi alır.
+> - **EM-5B:** önkoşul (a)'nın kod yarısı kapandı; (b), (c) açık; sınır 12.
+>   **Önkoşul (c) GENİŞLER (2. tur — orkestratör kartın devirlerinden `m10-platform.md`'ye
+>   taşır):** (c)'nin bugünkü metni *"kuyruk-akıbeti numaralandırma kanalı: bilinçli kullanıcı
+>   kabulü ya da grant akıbetinin istekçiye yansımasını azaltan bir tasarım"*dır; bundan böyle
+>   **kesici-akıbeti numaralandırma kanalını** da kapsar (sınır 13 — ölçüldü, kuyruk kanalından
+>   güçlü) ve kesik dönemde kurbanın linkinin emekliye ayrılıp yenisinin gitmemesini (sınır 5'in
+>   2. tur yarısı) de. Kabul ya da tasarım ikisini birlikte karşılamalıdır.
+> - **Çok replikalı/kalıcı sayaç:** `replicas` > 1 olduğunda ayrı kart.
+>
+> **EM-7A 2. tur (2026-10-09 — birleşik denetim RED; davranış değişmedi, yalnız metin + bir test
+> pini).** Başlangıç parmak izi `da5b2479…` (1. turun sonu). (1) [ORTA, metin] kesici-akıbeti
+> kanalı → sayılı sınır 13, EM-5B (c) genişlemesi (Devirler), `adminresetoutbox.go` COUNTED
+> LIMITS'e bir cümle. (2) [DÜŞÜK, pin] A12'ye üst sınır + tam pencere — M29 KIRMIZI, M29b YEŞİL
+> (eşdeğer). *Not:* brief'teki *"~100 ms gecikme → KIRMIZI"* iki grantla doğru değildi (2 ×
+> 100 ms = 200 ms tabanın altında kalır, yanıt yine ≈250 ms); test bu yüzden tam pencereyle
+> (8 grant — kesik dalın en yavaş hâli) koşar. (3) [DÜŞÜK, metin] sınır 5'e emekliye ayırma
+> yarısı. (4) [DÜŞÜK, metin] `ResetChannel` yorumu: *"ONE INTERFACE, DECLARED AT THE
+> CONSUMER"*; *"istekten asla"* yalnız `DeliverReset`'e daraltıldı.
+>
+> **Denetim ve kapanış (2026-10-09, orkestratör):** EM-7 ikiye bölündü (7A kesici, 7B davet kanalı; paralel worktree). Küçük iş → TEK birleşik denetim (güvenlik + kabul): 1. tur RED — davranış kusuru yok; bir ORTA (kesici-akıbeti numaralandırma kanalı, ölçüldü; sınır 13 + EM-5B (c) genişlemesi) ve üç DÜŞÜK (üst sınır pini, iki metin); denetçinin dört mutasyonu KIRMIZI. 2. tur yalnız metin + test pini → yeni denetim açılmadı; orkestratör M29'u (kesik dala 100 ms) kendi koştu: KIRMIZI (803 ms), sha ile geri yazıldı. Faz sonu bir kez: `verify.sh` yeşil; `-race` `internal/mail`, `internal/handler` (354 s), `cmd/tappa` ok. ConfigMap `none`/`panel` — canlıda davranış değişmez.
+
 ## 4. Akış B — E-posta (AWS SES)
 
 ### Öneri: SES SMTP arayüzü + stdlib `net/smtp` (STARTTLS 587), `eu-central-1` — ✅ (sıfır yeni modül)

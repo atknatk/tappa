@@ -617,16 +617,27 @@ func run() error {
 	// the channel that renders the e-mail and hands it to it. NewAdminReset then starts
 	// the outbox's worker, so the send is off the request path (ADR 0022 §6); the
 	// shutdown sequence below drains it.
+	//
+	// 🔴 THE TRANSPORT GOES OUT ONLY THROUGH THE ONE BREAKER (M10 EM-7A, ADR 0022 §9):
+	// the process-wide ceiling counts EVERY send — recovery link, change notice,
+	// invitation — so it is built once, around the one transport, and every e-mail
+	// channel is given the breaker, never the transport. NewEmailResetChannel takes
+	// *mail.Breaker, and TestBreakerWiring_TheTransportReachesTheChannelsOnlyThroughOneBreaker
+	// reads this function to hold the rest.
 	var resetChannel handler.ResetChannel
 	switch cfg.ResetDelivery {
 	case config.ResetDeliveryNone:
 		resetChannel = nil
 	case config.ResetDeliveryEmail:
-		sender, err := mail.New(cfg.Mail)
+		transport, err := mail.New(cfg.Mail)
 		if err != nil {
 			return fmt.Errorf("main: building the reset e-mail transport: %w", err)
 		}
-		if resetChannel, err = handler.NewEmailResetChannel(sender, cfg.BaseURL, slog.Default()); err != nil {
+		breaker, err := mail.NewBreaker(transport, mail.BreakerConfig{Log: slog.Default()})
+		if err != nil {
+			return fmt.Errorf("main: building the e-mail breaker: %w", err)
+		}
+		if resetChannel, err = handler.NewEmailResetChannel(breaker, cfg.BaseURL, slog.Default()); err != nil {
 			return err
 		}
 	default:

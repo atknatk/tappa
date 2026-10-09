@@ -12,17 +12,40 @@ import (
 	"github.com/atknatk/tappa/web/templates/email"
 )
 
-// mailSender is the one thing the reset channel needs from internal/mail, declared
-// at the consumer (§7).
+// mailSender is the one thing an e-mail channel needs from internal/mail to send,
+// declared at the consumer (§7). *mail.SMTP and *mail.Breaker both have it.
 type mailSender interface {
 	Send(ctx context.Context, m mail.Message) (mail.Receipt, error)
 }
 
+// resetSender is what THIS channel needs from the process-wide breaker (M10 EM-7A,
+// ADR 0022 §9): mailSender for the reset link (refusable), SendExempt for the notice
+// (counted, never refused) and Refusing for the request's question before it queues
+// a grant. *mail.Breaker is the only type that has all three, and NewEmailResetChannel
+// takes that type, so the channel cannot be wired around the breaker.
+type resetSender interface {
+	mailSender
+	SendExempt(ctx context.Context, m mail.Message) (mail.Receipt, error)
+	Refusing() bool
+}
+
+var _ resetSender = (*mail.Breaker)(nil)
+
 // emailResetChannel is the ResetChannel for TAPPA_RESET_DELIVERY=email (M10 EM-5,
 // ADR 0022 §6): it renders the reset e-mail (web/templates/email) and hands it to the
-// SMTP relay (internal/mail). DeliverReset runs on the outbox's worker, never on a
-// request; DeliverPasswordNotice (M10 EM-9) runs in the request that changed the
-// password — passwordnotice.go carries the claim for that half.
+// SMTP relay (internal/mail) THROUGH THE PROCESS-WIDE BREAKER (mail.Breaker, M10
+// EM-7A). DeliverReset runs on the outbox's worker, never on a request;
+// DeliverPasswordNotice (M10 EM-9) runs in the request that changed the password —
+// passwordnotice.go carries the claim for that half.
+//
+// 🔴 THIS CHANNEL IS WHERE THE BREAKER TELLS THE NOTICE FROM THE LINK (ADR 0022 EM-7A
+// note, K7A-3), because it is the one place that knows which message it is rendering:
+// the reset link goes through Send (refused past the limit), the notice through
+// SendExempt (counted like every send, never refused — the same anonymous traffic that
+// can fill the window must not silence the message that announces a takeover, EM-9
+// note limit 11). internal/mail only offers the two methods and knows nothing of
+// notices; the outbox and the request path never see the breaker, except through
+// RefusingResets.
 //
 // WHAT IT TELLS ANYBODY, AND NOTHING ELSE (ADR 0022 §10):
 //   - a failed send is returned as the relay's *mail.SendError unwrapped — a class
@@ -70,7 +93,12 @@ type mailSender interface {
 //     TestEmailResetChannel_RefusesWhatItCannotBuild;
 //   - a stored non-ASCII address ends undelivered with class invalid_address, the
 //     relay never dialled and the address not logged —
-//     TestEmailResetChannel_AStoredAddressTheRelayCannotTakeIsNeverDialled.
+//     TestEmailResetChannel_AStoredAddressTheRelayCannotTakeIsNeverDialled;
+//   - THE BREAKER (M10 EM-7A), over a recording sender with an injected clock: 300
+//     notices pass, are counted (a link after them is refused as breaker and
+//     RefusingResets says true) and a notice past the limit still passes; 300 links
+//     pass and the 301st is refused —
+//     TestEmailResetChannel_TheBreakerCountsTheNoticeAndRefusesTheLink.
 //
 // PART II — NAMED PINS AND EXACTLY WHAT EACH CATCHES (mutations run; the M10 EM-5
 // card): the log test — the error itself on the failure line (M17, through the key
@@ -80,7 +108,9 @@ type mailSender interface {
 // event's detail on the budget line (X20); the lifetime tests — the
 // full TTL instead of the time left (M21); the constructor test — no base-URL check
 // (M22), a nil sender accepted (M23); the delivery test — the recipient not written
-// into the message (M35). WHAT THEY DO NOT CATCH: a key inside the closed
+// into the message (M35); the breaker test (the M10 EM-7A card) — the notice sent
+// through Send (refused when full), the notice sent around the breaker (not counted),
+// the link sent through SendExempt (never refused). WHAT THEY DO NOT CATCH: a key inside the closed
 // set carrying a value it should not (the set is about names; the value scan covers
 // the listed secrets only); a relay behaviour not in the table; the real relay (SES),
 // which is EM-5B's.
@@ -88,7 +118,7 @@ type mailSender interface {
 // PART III — Any form not listed above is the subject of code review — no
 // completeness claim.
 type emailResetChannel struct {
-	sender  mailSender
+	sender  resetSender
 	baseURL string
 	log     *slog.Logger
 }
@@ -97,14 +127,18 @@ type emailResetChannel struct {
 // is not a token and grants nothing: it never leaves this process.
 const resetProbeValue = "probe"
 
-// NewEmailResetChannel builds the reset e-mail channel.
+// NewEmailResetChannel builds the reset e-mail channel around the process-wide
+// breaker. It takes *mail.Breaker and not the transport: cmd/tappa builds ONE breaker
+// around the ONE transport and every e-mail channel sends through it (ADR 0022 §9 —
+// it counts every send), so a channel handed the bare transport would be a hole in
+// that count the type system can close.
 //
 // IT REFUSES A BASE URL THE E-MAIL CANNOT CARRY, AT BOOT. The email package accepts
 // only an https base (plain http only on loopback, where development runs), and the
 // rule is asked rather than restated: one render with a probe link. Without this a
 // deployment whose TAPPA_BASE_URL fails the rule would boot, mint links, and record
 // every one of them undelivered.
-func NewEmailResetChannel(sender *mail.SMTP, baseURL string, log *slog.Logger) (ResetChannel, error) {
+func NewEmailResetChannel(sender *mail.Breaker, baseURL string, log *slog.Logger) (ResetChannel, error) {
 	if sender == nil {
 		return nil, errors.New("handler: nil reset e-mail sender")
 	}
@@ -144,7 +178,9 @@ func (c *emailResetChannel) DeliverPasswordNotice(ctx context.Context, n Passwor
 		return fmt.Errorf("handler: rendering the change notice: %w", err)
 	}
 	m.To = n.Recipient
-	receipt, err := c.sender.Send(ctx, m)
+	// SendExempt: counted by the breaker like every send, NEVER refused by it (the
+	// type comment says why). Any other error is the transport's, returned as-is.
+	receipt, err := c.sender.SendExempt(ctx, m)
 	if err != nil {
 		return err
 	}
@@ -167,6 +203,10 @@ func (c *emailResetChannel) DeliverReset(ctx context.Context, d ResetDelivery) e
 	}
 	m.To = d.Recipient
 	m.Ref = d.ResetID.String()
+	// Send: refusable. A grant the request already saw refused never gets here
+	// (RefusingResets); one that passed that question and found the window full by
+	// the time the worker reached it is refused here, as an ordinary *mail.SendError
+	// of class breaker — deliver records it undelivered like any failed send.
 	receipt, err := c.sender.Send(ctx, m)
 	if err != nil {
 		// Unwrapped: a *mail.SendError carries a class and a code and no text, and
@@ -176,4 +216,11 @@ func (c *emailResetChannel) DeliverReset(ctx context.Context, d ResetDelivery) e
 	c.log.InfoContext(ctx, "panel recovery: the relay accepted the reset e-mail",
 		"reset_id", d.ResetID, "message_id", receipt.MessageID)
 	return nil
+}
+
+// RefusingResets asks the breaker whether a reset link handed over now would be
+// refused (ADR 0022 EM-7A note, K7A-4). The request path asks it before queueing each
+// grant; a true answer is a refusal the breaker counts.
+func (c *emailResetChannel) RefusingResets() bool {
+	return c.sender.Refusing()
 }

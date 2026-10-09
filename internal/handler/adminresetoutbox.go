@@ -95,6 +95,19 @@ import (
 //     lines — TestAdminResetBudgets_EveryGateIsExactUnderConcurrentCallers;
 //   - 200 times, 30 hand-overs racing one Drain never send on the closed queue —
 //     TestResetOutbox_AnOfferRacingTheDrainNeverSendsOnAClosedQueue;
+//   - with the process-wide breaker refusing (M10 EM-7A; the real e-mail channel and
+//     mail.Breaker over a recording sender), each grant of a registered address has
+//     its undelivered row — the breaker's reason — BEFORE the response returns, the
+//     outbox holds nothing and nothing is sent, the handler writes no line for the
+//     refused grants (the breaker's one trip line is the only line), and the
+//     response's status, headers and body are byte-identical to the same request's
+//     with the breaker passing and to an unregistered address's, each inside
+//     [floor, floor+50ms] with a full adminauth.ResetWindow of grants (the most rows
+//     the tripped branch writes before the floor ends) —
+//     TestAdminReset_ATrippedBreakerRecordsTheGrantAtOnceAndQueuesNothing; a grant
+//     that passed the question and met a full window at the worker ends undelivered
+//     with the send-failed reason, its failure line naming class=breaker and
+//     smtp_code=0 — TestResetOutbox_AGrantTheBreakerRefusesAtTheWorkerIsUndelivered;
 //   - a drain whose whole budget passes while a row is being written returns an
 //     error at the deadline and the worker is gone within a second, its rows
 //     abandoned and logged; a request that mints AFTER that (still inside the HTTP
@@ -160,7 +173,12 @@ import (
 //   - the nesting test: ResetDrainGrace above httpShutdownGrace (M15), a write reserve
 //     as long as the budget (M16); TestAdminResetConstants_ShippedValuesArePinned: the
 //     outbox's size and clocks changed (M28);
-//   - the artifact test: run() leaving the channel nil under "email" (M30).
+//   - the artifact test: run() leaving the channel nil under "email" (M30);
+//   - the breaker tests (the M10 EM-7A card): the question not asked, so a refused
+//     grant is queued; a line per refused grant; the refused grant answered with a
+//     different page; the breaker's row given another reason; the tripped branch
+//     slowed past the floor (M29). NOT caught: a slowdown that stays under the floor
+//     (M29b) — invisible in the answer, which is what the floor is for.
 //   WHAT THEY DO NOT CATCH: a wait added in cmd/tappa's run() OUTSIDE the shutdown
 //   function; a wait inside it BEFORE Shutdown shorter than the 300 ms refusal bound
 //   (MY09, a 250 ms sleep, stayed green; MY10, 400 ms, went red); an extra wait
@@ -184,7 +202,13 @@ import (
 // only by the request budget per address; and deliver's `defer cancelSend()` is
 // pinned by no test (MY06): it matters only for a send that PANICS, whose timer
 // would otherwise live until resetSendGrace and whose stop hook on sendsStopped
-// until the drain — memory held per panic, not a lost or a wrong row.
+// until the drain — memory held per panic, not a lost or a wrong row. And the
+// breaker's question is a SHARPER form of the queue's fate channel below (ADR 0022
+// EM-7A note, limit 13 — measured): an attacker who fills the window with his own
+// sends, then asks for a target's address and right after for his own the moment the
+// one slot he knows is freeing frees, learns from whether HIS link arrives (and from
+// the breaker's reason in his own tenant's trail) whether the target is registered —
+// a precondition of switching the ConfigMap to "email" (EM-5B (c)), not closed here.
 //
 // NOT MEASURED, AND OUTSIDE PART I's TIMING CLAIM (ADR 0022 EM-5A note, limits 12
 // and 14): this queue is ONE FIFO shared by every requester, so a requester's own
@@ -247,6 +271,9 @@ const (
 	resetReasonOutboxShut  = "the delivery queue was closed for shutdown, so the recovery link was not sent"
 	resetReasonDrainEnded  = "the process stopped before the recovery link could be sent"
 	resetReasonWorkerFault = "the delivery stopped on an internal fault; the recovery link may not have been sent"
+	// resetReasonBreaker (M10 EM-7A): the process-wide sending limit (ADR 0022 §9) was
+	// reached when the request asked, so the grant was never queued.
+	resetReasonBreaker = "the process-wide sending limit was reached, so the recovery link was not sent"
 )
 
 // resetJob is one grant waiting for the worker.
@@ -350,12 +377,27 @@ func boundedBy(base context.Context, d time.Duration, stopper context.Context) (
 // the grant undelivered HERE, before the response, and sends nothing (ADR 0022
 // §6.1). Either way the request does not wait for a relay.
 //
+// 🔴 A GRANT THE PROCESS-WIDE BREAKER WOULD REFUSE NEVER ENTERS THE OUTBOX (M10 EM-7A,
+// ADR 0022 EM-7A note, K7A-4): it is recorded undelivered at once, with the outbox's
+// own fallback row and the breaker's reason, and nothing is sent. Asked BEFORE the
+// offer because an offered grant cannot be taken back. Why not let the worker meet the
+// refusal: a queued grant holds one of the outbox's 32 places for nothing while the
+// breaker refuses, and its row would come later and from the worker. The response is
+// untouched — Request renders the same page after the same floor whatever this
+// decides (TestAdminReset_ATrippedBreakerRecordsTheGrantAtOnceAndQueuesNothing).
+// NO LOG LINE PER REFUSED GRANT: the breaker writes one when it trips (internal/mail),
+// and the row is the per-grant record.
+//
 // THE FALLBACK ROW IS WRITTEN ON THE REQUEST'S OWN ROW CONTEXT, NOT THE WORKER'S. A
 // request still in flight during shutdown runs inside the HTTP drain
 // (httpShutdownGrace), which outlasts the outbox's: tying this row to the drain's
 // spent budget would drop it while the pool is still open.
 func (h *AdminReset) dispatch(r *http.Request, ip string, g adminauth.ResetGrant) {
 	base := context.WithoutCancel(r.Context())
+	if h.mail.RefusingResets() {
+		h.recordFallback(base, g, resetReasonBreaker)
+		return
+	}
 	accepted, closing := h.outbox.offer(resetJob{base: base, ip: ip, g: g})
 	if accepted {
 		return
@@ -366,6 +408,13 @@ func (h *AdminReset) dispatch(r *http.Request, ip string, g adminauth.ResetGrant
 	}
 	h.log.WarnContext(base, "panel recovery: the delivery queue did not take the link, so it was not sent",
 		"ip", ip, "admin_user_id", g.Issued.Reset.AdminUserID, "reset_id", g.Issued.Reset.ID, "queue", state)
+	h.recordFallback(base, g, reason)
+}
+
+// recordFallback writes the undelivered row of a grant the request kept from the
+// worker, on the request's own row context (dispatch says why), bounded by
+// resetAuditGrace.
+func (h *AdminReset) recordFallback(base context.Context, g adminauth.ResetGrant, reason string) {
 	ctx, cancel := context.WithTimeout(base, resetAuditGrace)
 	defer cancel()
 	h.recordOutcome(ctx, g, ActionAdminResetUndelivered, "undelivered", reason)

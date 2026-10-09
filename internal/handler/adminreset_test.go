@@ -130,6 +130,11 @@ func (c *recordingChannel) DeliverPasswordNotice(_ context.Context, n PasswordNo
 	return c.noticeErr
 }
 
+// RefusingResets: no breaker in front of this fake (M10 EM-7A); the breaker's own
+// question is measured with the real e-mail channel and mail.Breaker
+// (resetbreaker_test.go).
+func (c *recordingChannel) RefusingResets() bool { return false }
+
 func (c *recordingChannel) allNotices() []PasswordNotice {
 	c.mu.Lock()
 	defer c.mu.Unlock()

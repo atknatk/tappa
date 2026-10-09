@@ -236,7 +236,7 @@ func TestPanelRecoveryDB_EndToEndThroughTheSMTPTransport(t *testing.T) {
 	relay := newFakeRelay(t, relayScript{})
 	p := newPanelHarnessWithResetChannel(t, func(t *testing.T, cfg *config.Config) ResetChannel {
 		user, pass := relayCredentials(t)
-		ch, err := NewEmailResetChannel(relay.sender(t, user, pass, 5*time.Second), cfg.BaseURL, slog.New(slog.DiscardHandler))
+		ch, err := NewEmailResetChannel(relay.breaker(t, user, pass, 5*time.Second), cfg.BaseURL, slog.New(slog.DiscardHandler))
 		if err != nil {
 			t.Fatalf("NewEmailResetChannel: %v", err)
 		}

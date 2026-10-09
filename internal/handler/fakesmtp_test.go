@@ -22,6 +22,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"io"
+	"log/slog"
 	"math/big"
 	"mime"
 	"mime/multipart"
@@ -148,6 +149,24 @@ func (f *fakeRelay) sender(t *testing.T, user, pass string, timeout time.Duratio
 		t.Fatalf("mail.New: %v", err)
 	}
 	return s
+}
+
+// breaker is sender behind a fresh process-wide breaker (M10 EM-7A), which is what
+// NewEmailResetChannel takes: the shape cmd/tappa builds, with the real clock and a
+// discarded log. A test of the breaker's own behaviour builds its own.
+func (f *fakeRelay) breaker(t *testing.T, user, pass string, timeout time.Duration) *mail.Breaker {
+	t.Helper()
+	return newTestBreaker(t, f.sender(t, user, pass, timeout))
+}
+
+// newTestBreaker wraps s in a breaker on the real clock with a discarded log.
+func newTestBreaker(t *testing.T, s *mail.SMTP) *mail.Breaker {
+	t.Helper()
+	b, err := mail.NewBreaker(s, mail.BreakerConfig{Log: slog.New(slog.DiscardHandler)})
+	if err != nil {
+		t.Fatalf("mail.NewBreaker: %v", err)
+	}
+	return b
 }
 
 func (f *fakeRelay) accept() {

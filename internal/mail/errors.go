@@ -49,6 +49,11 @@ const (
 	ClassNetwork Class = "network"
 	// ClassTimeout: the deadline passed or the context was cancelled.
 	ClassTimeout Class = "timeout"
+	// ClassBreaker: the process-wide breaker (Breaker, ADR 0022 §9) refused the send
+	// because BreakerLimit sends were already let through in the last BreakerWindow.
+	// Decided before any dial and before the message is looked at, so it carries no
+	// reply code, and nothing reached the relay.
+	ClassBreaker Class = "breaker"
 )
 
 // SendError is the only error Send returns for a send that was attempted or

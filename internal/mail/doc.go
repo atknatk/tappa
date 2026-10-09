@@ -1,8 +1,12 @@
 // Package mail is the SMTP transport for transactional e-mail (M10 EM-2; design:
 // docs/plan/m10-platform.md §4, ADR 0022). Standard library only, and it knows
 // nothing of invitations or resets: a Message is an address, a subject, two
-// bodies and an optional correlation label. It has no queue and no logger — it
-// returns a Receipt or a *SendError and the caller logs the class and the code.
+// bodies and an optional correlation label. The transport (SMTP) has no queue and no
+// logger — it returns a Receipt or a *SendError and the caller logs the class and the
+// code. The one other type that sends, Breaker (breaker.go, M10 EM-7A), is the
+// process-wide ceiling wrapped around the transport; it writes two lines through the
+// logger it is given (a trip and a close, no message field in either) and carries its
+// own three-part claim — the claim below is the transport's.
 //
 // Flow of one Send: validate and compose (every refusal here, before any dial) →
 // dial with the deadline → greeting, EHLO → STARTTLS, REQUIRED (TLS ≥ 1.2, the

@@ -816,7 +816,7 @@ func TestPasswordNotice_ThePerAccountCapIsExactUnderConcurrentChanges(t *testing
 func newEmailNoticeFlow(t *testing.T, relay *fakeRelay, resets panelResets, trail auditRecorder, timeout time.Duration) *AdminReset {
 	t.Helper()
 	user, pass := relayCredentials(t)
-	ch, err := NewEmailResetChannel(relay.sender(t, user, pass, timeout), adminTestConfig().BaseURL, slog.New(slog.DiscardHandler))
+	ch, err := NewEmailResetChannel(relay.breaker(t, user, pass, timeout), adminTestConfig().BaseURL, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewEmailResetChannel: %v", err)
 	}

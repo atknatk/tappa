@@ -69,6 +69,9 @@ func (c *gateChannel) DeliverPasswordNotice(context.Context, PasswordNotice) err
 	return nil
 }
 
+// RefusingResets: no breaker in front of this fake (M10 EM-7A).
+func (c *gateChannel) RefusingResets() bool { return false }
+
 func (c *gateChannel) snapshot() ([]ResetDelivery, []error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -124,6 +127,9 @@ func (c *panicChannel) DeliverPasswordNotice(_ context.Context, n PasswordNotice
 	}
 	return nil
 }
+
+// RefusingResets: no breaker in front of this fake (M10 EM-7A).
+func (c *panicChannel) RefusingResets() bool { return false }
 
 // ctxTrail is fakeTrail that refuses a write whose context has already ended — what
 // a real database does — and can hold each write for a while, honouring the
@@ -1282,7 +1288,7 @@ func TestResetOutbox_TheGrantAndBudgetLinesCarryTheRequestsID(t *testing.T) {
 			channel: func(t *testing.T, log *slog.Logger) ResetChannel {
 				relay := newFakeRelay(t, relayScript{})
 				user, pass := relayCredentials(t)
-				ch, err := NewEmailResetChannel(relay.sender(t, user, pass, 5*time.Second), adminTestConfig().BaseURL, log)
+				ch, err := NewEmailResetChannel(relay.breaker(t, user, pass, 5*time.Second), adminTestConfig().BaseURL, log)
 				if err != nil {
 					t.Fatalf("NewEmailResetChannel: %v", err)
 				}
