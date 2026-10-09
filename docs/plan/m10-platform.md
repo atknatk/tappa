@@ -16482,7 +16482,7 @@ metni), `FactNoBulkImport`, `TestBrand_*`, panel CSP ↔ script karşılığı t
 > | C12 | varsayılanlar silindi | `input.css` | slot + varsayılan testi |
 > | S1 | şablonda `text-brand border-brand bg-on-brand ring-brand-edge text-brand-edge` | `result.templ` | **yeşil — 0 kural farkı** (karar d) |
 > | S2 | şablonda `shadow-brand-edge text-on-brand` | `result.templ` | `TestCompiledCSS_BrandVariablesOnlyInTheirSlots` |
-> | L1 | tema `<link>`'i ortak `<head>`'e | `layout/base.templ` (+`templ generate`) | `TestScreens_ReferenceOnlyOurOwnAssets`, `TestTour_PointsOnlyAtItsOwnFlow` (handler paketi, `-run .`, DB'siz) |
+> | L1 | tema `<link>`'i ortak `<head>`'e | `layout/base.templ` (+`templ generate`) | `TestScreens_ReferenceOnlyOurOwnAssets`, `Tour_PointsOnlyAtItsOwnFlow` (handler paketi, `-run .`, DB'siz) |
 > | L2 | tema `<link>`'i yalnız `tap.templ`'e | `pages/tap.templ` (+`templ generate`; üretilen dosya bağlantıyı taşıdı) | **hiçbiri** (handler paketi, `-run .`, DB'siz) — sınır 5 |
 > | V1 | palet sabiti `paletteInkHex` `152219` → `152218`, defter aynı | `brand/accent.go` | WL-5 kümesinde yalnız `TestBrandTheme_ANewBodyNeedsANewRoute`. **Tam paketlerde** (`go test -count=1 ./internal/brand ./internal/handler`, DB'siz, `-race`'siz): brand'de 6 üst düzey FAIL — `TestAccent_EveryColourAgreesWithTheBoundariesThePaletteImplies`, `TestAccent_TheDesignTableHolds`, `TestAccent_TheNearestHexEitherSideOfEachComputedBoundary`, `TestPalette_TheComparisonSeesEveryKindOfDrift`, `TestPalette_TheGoCopyEqualsTailwindConfig`, `TestSuggest_TheDesignExamples` — handler'da 1, toplam 7 (denetçi kendi koşusunda 8 saydı; fark ölçülmedi) |
 > | V2 | `ThemeCSS` özellik sırası, defter aynı | `theme.go` | `TestBrandTheme_ANewBodyNeedsANewRoute`, matris (WL-5 kümesi) |
@@ -16675,7 +16675,7 @@ metni), `FactNoBulkImport`, `TestBrand_*`, panel CSP ↔ script karşılığı t
 >   başka stil dosyalarını değil; bir slot sınıfının slot olmayan bir öğeye yazılmasını görmez. (5) Tek bir
 >   sayfanın şablonuna yazılan tema bağlantısını DB'siz koşan testlerin hiçbiri kırmızıya çevirmedi
 >   (ölçüldü, L2); ortak `<head>`'e yazılanı `TestScreens_ReferenceOnlyOurOwnAssets` ve
->   `TestTour_PointsOnlyAtItsOwnFlow` kırmızıya çevirdi (ölçüldü, L1) — tek sayfalık bağlantının ağı
+>   `Tour_PointsOnlyAtItsOwnFlow` kırmızıya çevirdi (ölçüldü, L1) — tek sayfalık bağlantının ağı
 >   WL-9'un golden'ı. (6) Madde 1'in testi imzayı ve alanları görür; `serve`'ün ulaşabileceği paket
 >   düzeyi durum ya da fonksiyonu görmez (ölçüldü, A9) — kod incelemesinin konusu. (7) Madde 10'un
 >   testi sözdizimseldir (`main.go` AST'si): rota bir değişken ya da yardımcı üzerinden verilirse

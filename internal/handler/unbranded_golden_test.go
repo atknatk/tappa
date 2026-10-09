@@ -160,7 +160,8 @@ func unbrandedScreenRenders(t *testing.T) []screenGolden {
 		result(c.name, c.d)
 	}
 
-	// --- the activation family (its own router; no CSP header -- recorded as "") ---
+	// --- the activation family (its own router; since the activation-tap ADR it
+	// carries activationCSP, and these goldens were rewritten with that redesign) ---
 	hAct := newHandler(t, &fakeInvites{}, &fakeSessions{}, &fakeAudit{})
 	add(readRecorded(t, "activate-landing", get(t, hAct, "/activate")))
 	add(readRecorded(t, "activate-form", get(t, hAct, "/activate", codeCookie())))

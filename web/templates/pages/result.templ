@@ -35,9 +35,14 @@ import "github.com/atknatk/tappa/web/templates/components"
 // not a brand: user decision D-C (2026-09-24) puts the logo on this screen and the
 // accent nowhere on it, because the colours here tell the verdict. ResultView keeps
 // its eight fields; a zero Logo renders the wordmark, as before.
+//
+// The DEV-ONLY strip is the FIRST child on purpose: as the last one, templ wrote a
+// separating space even when it renders nothing, which changed the unbranded result
+// screen by one byte (TestUnbrandedScreens_AreByteIdenticalToTheGolden). It is
+// position:fixed, so its place in the DOM does not move it.
 templ Result(v ResultView, logo layout.Logo) {
 	@layout.BrandedPage("Tapped — Taptime", logo) {
-		<section class="docket">
+		@components.DevTapStrip(false)<section class="docket">
 			<div class="flex items-start justify-between gap-4">
 				<div>
 					<p class="docket-label">{ v.Venue }</p>
@@ -65,7 +70,6 @@ templ Result(v ResultView, logo layout.Logo) {
 			}
 		</section>
 		@closing(v)
-		@components.DevTapStrip(false)
 	}
 }
 

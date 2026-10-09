@@ -316,7 +316,7 @@ func run() error {
 		return err
 	}
 	// ONE verifier for both consumers below. The activation flow gets it whole
-	// because the activating tap (ADR 0025) must run the ATOMIC counter advance;
+	// because the activating tap (ADR 0026) must run the ATOMIC counter advance;
 	// the tap page gets it through an interface that names only the preview.
 	verifier := sun.NewVerifier(data, cfg.TagKEK, cfg.TagKEKPrevious)
 	activation, err := handler.NewActivation(invites, sessions, verifier, trail, cfg, slog.Default())
@@ -421,11 +421,12 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	// THE DEV-ONLY PLAQUE-TAP SIMULATOR (ADR 0025, "Geliştirme aracı"), gate 1 of 3:
+	// THE DEV-ONLY PLAQUE-TAP SIMULATOR (ADR 0026, "Geliştirme aracı"), gate 1 of 3:
 	// constructed and mounted ONLY with TAPPA_DEV_TOOLS=1 (refused by config.Load
 	// outside TAPPA_ENV=dev) on a loopback base URL. DevTap.Mount, DevTap.Simulate
 	// and sun's WithDevelopmentMinting each check again.
-	var devTools []httpx.Mounter
+	// A nil interface unless the gate passes; httpx.NewRouter skips nil features.
+	var devTools httpx.Mounter
 	if handler.DevToolsEnabled(cfg) {
 		minter, err := verifier.WithDevelopmentMinting(cfg)
 		if err != nil {
@@ -435,7 +436,7 @@ func run() error {
 		if err != nil {
 			return err
 		}
-		devTools = append(devTools, devTap)
+		devTools = devTap
 		activation.EnableDevTools(cfg)
 		tap.EnableDevTools(cfg)
 		log := slog.Default()
@@ -798,7 +799,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpx.NewRouter(cfg, slog.Default(), append([]httpx.Mounter{activation, tap, panelAuth, logos, marketing, signupFlow, resetFlow, ready, handler.NewBrandTheme(), operatorSurface}, devTools...)...),
+		Handler:           httpx.NewRouter(cfg, slog.Default(), activation, tap, panelAuth, logos, marketing, signupFlow, resetFlow, ready, handler.NewBrandTheme(), operatorSurface, devTools),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       90 * time.Second,
 		// NO WriteTimeout, deliberately (WL-9 round 3): a recorded tap's confirmation

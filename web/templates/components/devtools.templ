@@ -1,6 +1,6 @@
 package components
 
-// DevTapStrip is the DEV-ONLY "Simulate a plaque tap" control (ADR 0025,
+// DevTapStrip is the DEV-ONLY "Simulate a plaque tap" control (ADR 0026,
 // "Geliştirme aracı"). It renders NOTHING unless the render context was marked by
 // WithDevTools, which only a development deployment does — so the product screens
 // keep their no-button rule everywhere else.
@@ -13,7 +13,6 @@ package components
 // bottom, mono uppercase, so nobody mistakes it for product UI in a screenshot.
 templ DevTapStrip(newTab bool) {
 	if DevToolsOn(ctx) {
-		<div class="dev-strip-spacer" aria-hidden="true"></div>
 		<form
 			method="post"
 			action={ templ.SafeURL(DevSimulateTapPath) }

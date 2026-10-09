@@ -8,7 +8,7 @@ package components
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
-// DevTapStrip is the DEV-ONLY "Simulate a plaque tap" control (ADR 0025,
+// DevTapStrip is the DEV-ONLY "Simulate a plaque tap" control (ADR 0026,
 // "Geliştirme aracı"). It renders NOTHING unless the render context was marked by
 // WithDevTools, which only a development deployment does — so the product screens
 // keep their no-button rule everywhere else.
@@ -41,7 +41,7 @@ func DevTapStrip(newTab bool) templ.Component {
 		}
 		ctx = templ.ClearChildren(ctx)
 		if DevToolsOn(ctx) {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"dev-strip-spacer\" aria-hidden=\"true\"></div><form method=\"post\" action=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<form method=\"post\" action=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

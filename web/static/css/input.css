@@ -270,7 +270,7 @@
   .btn--primary { @apply min-h-12 py-3 text-base bg-tappa-green text-paper hover:bg-ink; }
   .btn--quiet   { @apply border border-line bg-paper text-ink hover:border-tomato hover:text-tomato; }
 
-  /* DEV-ONLY plaque-tap simulator (ADR 0025, "Geliştirme aracı"). Rendered only
+  /* DEV-ONLY plaque-tap simulator (ADR 0026, "Geliştirme aracı"). Rendered only
      on a development deployment. A dashed saffron frame on ink, pinned to the
      bottom, mono uppercase: it must never be mistaken for product UI. */
   .dev-strip {
@@ -287,11 +287,12 @@
            hover:border-saffron hover:text-saffron
            focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2;
   }
-  .dev-strip-spacer {
-    @apply h-20;
+  /* Room under the content for the fixed strip, only when the strip exists. */
+  main:has(> .dev-strip) {
+    @apply pb-24;
   }
 
-  /* THE ACTIVATION WIZARD (ADR 0025). One column, phone width first; the actions
+  /* THE ACTIVATION WIZARD (ADR 0026). One column, phone width first; the actions
      sit at the bottom of the screen (.wizard-actions, mt-auto inside a column that
      is at least a screen tall) so the primary button is where a thumb already is.
      Palette tokens only — no new colour enters through this block.
