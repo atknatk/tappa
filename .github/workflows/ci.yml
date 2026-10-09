@@ -142,6 +142,18 @@ jobs:
         # gitignore'da, yani uretilmesi diff uretmez.
         run: make css
 
+      - name: Pre-pull Postgres from the Docker Hub mirror
+        # Anonymous Docker Hub pulls from the shared runner IPs hit the rate limit
+        # (2026-10-09: two runs in a row failed `make up` with toomanyrequests).
+        # mirror.gcr.io serves the same official image without that limit and needs
+        # no credential; tagging it as postgres:17-alpine lets compose find it
+        # locally and skip the pull. The Docker Hub token in the repo's secrets is
+        # deliberately NOT used here: it can push the production image, and this
+        # job runs the test code.
+        run: |
+          docker pull mirror.gcr.io/library/postgres:17-alpine
+          docker tag mirror.gcr.io/library/postgres:17-alpine postgres:17-alpine
+
       - name: Start Postgres (make up)
         # Q04 = yerel Postgres. `services:` bloku CHECKOUT'TAN ONCE baslar,
         # dolayisiyla repodaki scripts/db-init/*.sql'i (tappa_app rolu +
