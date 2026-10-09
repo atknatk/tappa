@@ -153,7 +153,15 @@ check_db_role() {
   #
   # ⚠️ IT IS A DEPLOY-TIME GATE, NOT A RUNTIME ONE. It cannot catch a value changed
   # after the deploy. The in-process check is a counted limit; see the M8-02 card.
-  local sql_offenders="SELECT usename || ' from ' || host(client_addr) FROM pg_stat_activity WHERE datname = current_database() AND client_addr IS NOT NULL AND usename <> 'tappa_app';"
+  #
+  # 2026-10-09: the operator surface (M10 OP-7, ADR 0020/0021) went live, and the
+  # running server now ALSO holds a pool as tappa_operator -- NOSUPERUSER,
+  # NOBYPASSRLS, owner of nothing, allowed only EXECUTE on the op_* functions (CLAUDE.md
+  # §4.5's one deliberate exception). That connection is by design, so the allowed set
+  # is exactly these two roles; tappa_owner, a superuser or any other role is still a
+  # violation. The first deploy after OP-7 failed this gate on tappa_operator alone
+  # (deploy run 37898970535; pg_stat_activity: tappa_app 1, tappa_operator 1).
+  local sql_offenders="SELECT usename || ' from ' || host(client_addr) FROM pg_stat_activity WHERE datname = current_database() AND client_addr IS NOT NULL AND usename NOT IN ('tappa_app', 'tappa_operator');"
   local sql_summary="SELECT usename, count(*) FROM pg_stat_activity WHERE datname = current_database() AND client_addr IS NOT NULL GROUP BY 1;"
 
   # PGPASSWORD is read from the container's OWN environment, so the password is
@@ -180,7 +188,7 @@ check_db_role() {
     return 2
   fi
   if [[ -n $offenders ]]; then
-    echo "::error::a network connection to the tappa database is open as a role other than tappa_app. RLS is not enforced for the schema owner, so tenant isolation is void for whatever opened it:" >&2
+    echo "::error::a network connection to the tappa database is open as a role other than tappa_app or tappa_operator. RLS is not enforced for the schema owner, so tenant isolation is void for whatever opened it:" >&2
     printf '%s\n' "$offenders" >&2
     return 1
   fi
@@ -193,7 +201,7 @@ check_db_role() {
     echo "::error::db-role: the offender query passed but the summary query did not run, so this result is NOT trustworthy." >&2
     return 2
   fi
-  echo "db-role: every network connection to the database is tappa_app"
+  echo "db-role: every network connection to the database is tappa_app or tappa_operator"
 }
 
 case $mode in
