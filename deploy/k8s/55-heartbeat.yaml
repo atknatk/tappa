@@ -1,0 +1,216 @@
+# Tappa — the uptime heartbeat for the external dead man's switch (T116, Q28 (a)).
+#
+# 🔴 WHAT THIS IS FOR. Every alert rule in deploy/README.md ("M8-03 — UYARI KURALLARI")
+# is computed from this cluster's own logs, so none of them can say "the cluster is
+# gone": a dead node writes no log line and fires no rule. healthchecks.io (EU-hosted,
+# user decision 2026-10-09) is the opposite shape — it is told "still alive" on a
+# schedule and e-mails when the telling STOPS. This CronJob does the telling. The
+# check `tappa-uptime` is configured there with a 5 minute period and a 5 minute grace.
+#
+# EVERY 5 MINUTES, ONE POD:
+#   1. GET $TAPPA_BASE_URL/healthz — the PUBLIC origin, so DNS, the ingress, TLS and
+#      certificate validity are on the path, not just the pod. The base URL is read
+#      from tappa-config (05-config.yaml), never written here, because a second
+#      spelling of the canonical origin is the drift 40-ingress.yaml warns about.
+#      Through the ingress /healthz is only reachable while the Service has a READY
+#      endpoint, and with replicas: 1 a failing /readyz (the database) removes it —
+#      so a database outage turns this red too, one hop removed (20-app.yaml).
+#   2. 200 -> the ping URL ("alive"); anything else -> the ping URL + "/fail"
+#      ("alert now") and the Job exits non-zero.
+#
+# 🔴 THE PING URL IS A SECRET AND IS TREATED AS ONE (CLAUDE.md §7's spirit: anyone who
+# knows it can send "alive" and silence the alarm). It comes from secret/tappa-alert-pings,
+# key by key, and it reaches curl through STDIN (`-K -`), so it is not in any argv —
+# measured: a curl in flight with the URL on stdin, /proc/*/cmdline of every process in
+# the container carried no part of it. Nothing curl prints is let through (`-s`, stderr
+# discarded); the log carries the probe's verdict and the signal's HTTP class only.
+#
+# 🔴 THE SECRET IS REQUIRED HERE (no `optional`), ON PURPOSE. Without it the kubelet
+# refuses to create the container (CreateContainerConfigError), activeDeadlineSeconds
+# fails the Job, and no signal reaches healthchecks.io — which then alerts. A heartbeat
+# that silently skipped its own signal would be the one configuration that can never
+# alert. (The backup is the opposite case: there the key is optional, because a backup
+# must never depend on its alarm — 50-backup.yaml.)
+#
+# WHO APPLIES THIS FILE: THE OPERATOR, for the reason 50-backup.yaml gives — the deploy
+# identity has no verbs on batch/cronjobs (01-rbac.yaml). deploy/README.md, operator
+# step 10. The script is inline rather than in a ConfigMap so that this one file plus
+# the Secret is the whole installation: nothing here waits for a deploy.
+#
+# ⚠️ WHAT IT DOES NOT SEE, counted rather than implied (deploy/README.md limit 33):
+# the probe starts INSIDE the cluster, so "the node can reach its own public address"
+# is not "the internet can reach it" (an upstream routing or firewall fault outside the
+# node passes this probe). The hairpin itself — a pod reaching the node's own public
+# address — WAS measured (orchestrator, 2026-10-09: a restricted curlimages/curl:8.22.0
+# pod in this namespace got 200 from https://taptime.mt/healthz, remote 144.76.158.60,
+# 0.028 s); that is a moment, not a guarantee.
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: tappa-heartbeat
+  namespace: tappa
+  labels:
+    app.kubernetes.io/name: tappa
+    app.kubernetes.io/component: heartbeat
+spec:
+  # Matches the check's period on healthchecks.io (5 min). With its 5 min grace, an
+  # alert arrives at most ~10 minutes after the last good signal.
+  schedule: "*/5 * * * *"
+  # One at a time: two overlapping probes would send two signals for one moment.
+  concurrencyPolicy: Forbid
+  # A run that could not start within two minutes of its slot is skipped, not
+  # replayed: a late "alive" says nothing about the slot it was meant for, and the
+  # next slot is never more than five minutes away. Also bounds the controller's
+  # missed-schedule count after an outage.
+  startingDeadlineSeconds: 120
+  # 288 runs a day: keep one success (proof it works) and a few failures (evidence).
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: tappa
+        app.kubernetes.io/component: heartbeat
+    spec:
+      # No retry: the next run is five minutes away, and a retry would only send a
+      # second signal for the same moment.
+      backoffLimit: 0
+      # 🔴 THE SCRIPT'S BUDGET IS BOUNDED BY --retry-max-time, NOT BY --retry-delay.
+      # curl honours a server's Retry-After over --retry-delay — measured on this image:
+      # /healthz 503 with "Retry-After: 50" held the script 50.9 s, and with the signal
+      # endpoint answering the same, 101 s — past this deadline, so the "/fail" never
+      # left. With
+      # --retry-max-time 12 a retry is only started inside the first 12 s and only if
+      # the server's wait fits in it; each call is then at most 12 + 8 = 20 s, the two
+      # 40 s (measured with Retry-After: 50 on both: under 2 s, no retry). The rest is
+      # pod start-up. TestHeartbeat_TheScriptsWorstCaseFitsItsDeadline recomputes it.
+      activeDeadlineSeconds: 60
+      template:
+        metadata:
+          labels:
+            # 🔴 DELIBERATELY NOT app.kubernetes.io/name: tappa. 12-networkpolicy.yaml
+            # admits exactly that label to Postgres' 5432. This pod talks to the public
+            # internet and never to the database, so it stays outside the allow-set.
+            app.kubernetes.io/part-of: tappa
+            app.kubernetes.io/component: heartbeat
+        spec:
+          restartPolicy: Never
+          # This pod calls no Kubernetes API.
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: heartbeat
+              # 🔴 AN EXACT VERSION, AND A NEW IMAGE RATHER THAN AN EXISTING ONE — measured,
+              # not preferred. rclone/rclone:1.71 and postgres:17-alpine (both already on
+              # the node) carry busybox wget + ssl_client and no curl. busybox wget does
+              # verify TLS (an untrusted CA, a self-signed leaf and a wrong host name were
+              # all refused), but it takes the URL ONLY on argv: measured, a wget in flight
+              # put the ping URL into /proc/<pid>/cmdline. curl reads it from stdin. The
+              # backup cannot make the same trade (its ship container must stay rclone),
+              # and deploy/README.md limit 33 counts that asymmetry.
+              # PINNED BY DIGEST, the tag kept only so a reader sees the version. The
+              # digest is the multi-arch INDEX (media type manifest.list.v2, read from the
+              # local store after a pull by tag; a pull by tag@digest then ran curl 8.22.0),
+              # so the kubelet picks the node's architecture and a re-pushed tag cannot
+              # change what runs. Upgrading means a new tag AND a new digest, in one edit.
+              image: curlimages/curl:8.22.0@sha256:58adaa4e8dca9c988bae2aba4ab3434a0bb2da16bbe3f92dec39ec7785166777
+              imagePullPolicy: IfNotPresent
+              # 🔴 NO xtrace: `sh -x` would print every expanded word, the signal URL
+              # included. The first line of the script switches it off if anything turned
+              # it on (scripts/rotate-kek.sh's precedent); TestHeartbeat_ScriptParses pins
+              # both this list and that line, and TestHeartbeat_XtraceCannotPrintTheSignalURL
+              # runs it under `sh -x`.
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  case $- in *x*) set +x ;; esac
+                  set -eu
+                  say() { echo "tappa-heartbeat: $*"; }
+                  ping_url="${UPTIME_PING_URL:-}"
+                  case "$ping_url" in
+                    https://*) ;;
+                    *) say "FAILED: UPTIME_PING_URL is empty or not an https URL - check secret/tappa-alert-pings (the value is never printed)"; exit 2 ;;
+                  esac
+                  case "$ping_url" in
+                    *[[:space:]]*) say "FAILED: UPTIME_PING_URL contains whitespace (a pasted newline?) - re-create secret/tappa-alert-pings"; exit 2 ;;
+                  esac
+                  base="${TAPPA_BASE_URL:-}"
+                  base="${base%/}"
+                  probe="$base/healthz"
+                  up=no
+                  case "$base" in
+                    https://*)
+                      rc=0
+                      code=$(curl -q -s -o /dev/null -w '%{http_code}' --proto =https --connect-timeout 5 --max-time 8 --retry 1 --retry-delay 2 --retry-max-time 12 --retry-connrefused "$probe" 2>/dev/null) || rc=$?
+                      if [ "$rc" -eq 0 ] && [ "$code" = 200 ]; then
+                        up=yes
+                        why="HTTP 200"
+                      elif [ "$rc" -eq 0 ]; then
+                        why="HTTP $code"
+                      else
+                        case "$rc" in
+                          6) why="dns, curl exit 6" ;;
+                          7) why="connect, curl exit 7" ;;
+                          28) why="timeout, curl exit 28" ;;
+                          35|53|54|58|59|60|64|66|77|80|82|83|90|91|98) why="tls, curl exit $rc" ;;
+                          *) why="curl exit $rc" ;;
+                        esac
+                      fi
+                      ;;
+                    *) why="TAPPA_BASE_URL is empty or not https, so nothing was probed" ;;
+                  esac
+                  if [ "$up" = yes ]; then
+                    say "probe $probe: up ($why)"
+                    target="$ping_url"
+                  else
+                    say "probe $probe: DOWN ($why) - sending the fail signal"
+                    target="$ping_url/fail"
+                  fi
+                  prc=0
+                  pcode=$(echo "url = $target" | curl -q -s -o /dev/null -w '%{http_code}' --proto =https --connect-timeout 5 --max-time 8 --retry 1 --retry-delay 2 --retry-max-time 12 --retry-connrefused -K - 2>/dev/null) || prc=$?
+                  case "$pcode" in
+                    2??) pclass=2xx ;;
+                    3??) pclass=3xx ;;
+                    4??) pclass=4xx ;;
+                    5??) pclass=5xx ;;
+                    *) pclass=none ;;
+                  esac
+                  if [ "$prc" -eq 0 ] && [ "$pclass" = 2xx ]; then
+                    say "signal sent (HTTP 2xx)"
+                    sent=yes
+                  else
+                    say "signal NOT delivered (HTTP $pclass, curl exit $prc) - healthchecks.io alerts when its grace period ends"
+                    sent=no
+                  fi
+                  if [ "$up" = yes ] && [ "$sent" = yes ]; then
+                    exit 0
+                  fi
+                  exit 1
+              env:
+                - name: TAPPA_BASE_URL
+                  valueFrom:
+                    configMapKeyRef:
+                      name: tappa-config
+                      key: TAPPA_BASE_URL
+                # Key by key, never envFrom: this pod gets ONE value of the Secret and
+                # never BACKUP_PING_URL, so it cannot impersonate the backup's signal.
+                - name: UPTIME_PING_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: tappa-alert-pings
+                      key: UPTIME_PING_URL
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests: { cpu: 10m, memory: 16Mi }
+                limits:   { cpu: 200m, memory: 64Mi }

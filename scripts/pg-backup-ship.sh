@@ -42,9 +42,105 @@ RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-30}"
 fail() { echo "pg-backup-ship: FAILED: $*" >&2; exit 1; }
 say()  { echo "pg-backup-ship: $*"; }
 
+# ---------------------------------------------------------------------------------
+# 0. THE ALERT SIGNAL (T116, Q28 (a)) — healthchecks.io's `tappa-backup` check is told
+#    how THIS run ended: the ping URL when it reached its last line with status 0, the
+#    ping URL + "/fail" on anything else. If dump-and-verify fails, this container
+#    never starts and no signal is sent at all; the check then alerts when its grace
+#    period (1 h) ends. That is the intended path, not a gap.
+#
+#    🔴 THE BACKUP NEVER DEPENDS ON ITS ALARM, AND THAT IS THE WHOLE DESIGN OF THIS
+#    FUNCTION. It is called from the EXIT trap below, after this run's status is fixed,
+#    guarded by `|| :`, and the trap then exits with that saved status — so an absent
+#    Secret (the key is `optional: true` in 50-backup.yaml), a bad URL, an unreachable
+#    healthchecks.io or a 5xx changes ONE log line and never the job's colour.
+#    Measured in busybox ash (this image): `exit "$rc"` inside an EXIT trap keeps $rc
+#    whatever ran before it; the trap also runs when `${X:?}` or `set -e` ends the
+#    script, so those failures are signalled too.
+#
+#    🔴 THE URL IS A SECRET (whoever knows it can send "success" and silence the alarm),
+#    SO NOTHING wget SAYS IS PRINTED. Its stderr is captured and reduced to a CLASS —
+#    measured, busybox wget's messages carry the host or address and never the path,
+#    but "measured today" is not a reason to print text this script does not control.
+#    ⚠️ COUNTED, NOT CLOSED (deploy/README.md limit 33): busybox wget takes the URL only
+#    on argv, so for the moment it runs the URL is in /proc/<pid>/cmdline (measured).
+#    This image has no curl, and moving the signal to another container or image would
+#    make the backup's result depend on that image being pullable — the trade this
+#    function exists to refuse. busybox wget does verify TLS (measured: untrusted CA,
+#    self-signed leaf and wrong host name all refused).
+# ---------------------------------------------------------------------------------
+alert_ping() { # $1 = this run's exit status
+  # 🔴 FIRST, BEFORE THE URL IS EVER EXPANDED: no xtrace. Run as `sh -x` in this image
+  # without this line, the trace printed the URL on three lines of a green run (the
+  # assignment, the `[ -z` test, the wget command) and a fourth on a red one (the "/fail"
+  # assignment); with it, on none. scripts/rotate-kek.sh refuses to run traced; this
+  # function only switches tracing OFF, because refusing would turn the backup red over
+  # its alarm. It runs last (from the EXIT trap), so nothing after it loses a trace.
+  # TestBackupShip_XtraceCannotPrintTheSignalURL runs the whole script under `sh -x`.
+  case $- in *x*) set +x ;; esac
+  _url="${BACKUP_PING_URL:-}"
+  if [ -z "$_url" ]; then
+    echo "pg-backup-ship: alert signal skipped: BACKUP_PING_URL is not set (secret/tappa-alert-pings is absent or has no such key)"
+    return 0
+  fi
+  case "$_url" in
+    https://*) : ;;
+    *) echo "pg-backup-ship: WARNING: alert signal NOT sent: BACKUP_PING_URL is not an https URL (the value is never printed)" >&2
+       return 0 ;;
+  esac
+  case "$_url" in
+    *[[:space:]]*) echo "pg-backup-ship: WARNING: alert signal NOT sent: BACKUP_PING_URL contains whitespace (a pasted newline?)" >&2
+       return 0 ;;
+  esac
+  # 🔴 "success" NEEDS BOTH: status 0 AND the last line of this script reached. Status
+  # alone is not enough, measured: under macOS's bash 3.2 (the /bin/sh a developer runs
+  # this with) an EXIT trap sees $? = 0 after `${X:?}` aborts the script, and the shell
+  # itself then ends 0 — the trap would have told healthchecks.io "success" for a run that
+  # shipped nothing. busybox, dash and bash 5 see 2/2/1 there; the marker makes the
+  # signal right in all four without touching the exit status any of them produce.
+  if [ "$1" -eq 0 ] && [ "${ship_complete:-no}" = yes ]; then
+    _what=success
+  else
+    _what=failure
+    _url="$_url/fail"
+  fi
+  # 🔴 STDERR GOES TO A FILE, NOT INTO $(...), AND THAT IS A MEASURED FIX. The first
+  # version captured it with a command substitution. busybox wget does TLS through a
+  # helper process (ssl_client) that inherits that stderr, outlives wget when wget gives
+  # up, and keeps the pipe open until the SERVER closes the connection: measured against
+  # a server that answers after 60 s, `timeout 30` had long returned and the script still
+  # sat there for 63 s. Against a peer that never closes, that is a backup job held until
+  # activeDeadlineSeconds fails it — the alarm turning the backup red. With a file there
+  # is no pipe to wait for; `timeout` bounds wget itself.
+  _errf="${TMPDIR:-/tmp}/pg-backup-ship.ping.$$"
+  _rc=0
+  timeout 30 wget -q -T 10 -O /dev/null "$_url" >/dev/null 2>"$_errf" || _rc=$?
+  _err="$(cat "$_errf" 2>/dev/null || :)"
+  rm -f "$_errf"
+  if [ "$_rc" -eq 0 ]; then
+    echo "pg-backup-ship: alert signal sent ($_what, HTTP 2xx)"
+    return 0
+  fi
+  case "$_err" in
+    *"server returned error: HTTP/"*)
+      _class="HTTP $(printf '%s\n' "$_err" | sed -n 's/.*server returned error: HTTP\/[0-9.]* \([1-5]\)[0-9][0-9].*/\1xx/p' | head -n 1)" ;;
+    *"bad address"*) _class="dns" ;;
+    *"can't connect"*) _class="connect" ;;
+    *SSL*|*ssl_client*) _class="tls" ;;
+    *"timed out"*) _class="timeout" ;;
+    *) if [ "$_rc" -eq 143 ]; then _class="timeout"; else _class="other"; fi ;;
+  esac
+  echo "pg-backup-ship: WARNING: alert signal ($_what) NOT delivered ($_class, exit $_rc); healthchecks.io alerts when its grace period ends. This run's own result is unchanged." >&2
+  return 0
+}
+
+ship_complete=no
 TMPD="${TMPDIR:-/tmp}/pg-backup-ship.$$"
+# The EXIT trap is set BEFORE mkdir so that even that failure is signalled; `rm -rf`
+# of a directory that was never created is a no-op.
+trap 'rm -rf "$TMPD"' INT TERM
+trap 'rc=$?; rm -rf "$TMPD"; alert_ping "$rc" || :; exit "$rc"' EXIT
 mkdir -p "$TMPD" || { echo "pg-backup-ship: FAILED: cannot create $TMPD" >&2; exit 1; }
-trap 'rm -rf "$TMPD"' EXIT INT TERM
 
 # ---------------------------------------------------------------------------------
 # 1. THE DESTINATION MUST BE CONFIGURED, AND "not configured" MUST BE LOUD.
@@ -382,3 +478,6 @@ if rclone lsf "$BACKUP_REMOTE" --dirs-only > "$STAGE/.kept" 2>"$STAGE/.kept.err"
 else
   say "done: tonight's backup IS uploaded and verified, but the destination could not be listed afterwards, so the retained count is UNKNOWN (not zero). rclone said: $(tr '\n' ' ' < "$STAGE/.kept.err" | cut -c1-200)"
 fi
+
+# The last line on purpose: the EXIT trap's "success" signal needs it (section 0).
+ship_complete=yes

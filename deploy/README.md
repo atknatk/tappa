@@ -33,9 +33,10 @@ Hedef: `https://taptime.mt` · küme: k3s v1.35.4, tek node
 | `k8s/30-migrate-job.yaml` | goose Job (`tappa_owner`) | `deploy.yml` |
 | `k8s/40-ingress.yaml` | Ingress (`nginx`, `letsencrypt-prod`) | `deploy.yml` |
 | `k8s/50-backup.yaml` | 🔴 **gecelik yedek CronJob'ı** (02:30 Malta) | **operatör** (bir kez; deploy'un `batch/cronjobs` yetkisi **yok** ve bilerek yok) |
+| `k8s/55-heartbeat.yaml` | 🔴 **uptime heartbeat CronJob'ı** (her 5 dk; healthchecks.io'ya *"yaşıyor"* ya da `/fail` — T116) | **operatör** (bir kez; aynı gerekçe — adım 10) |
 | `k8s/postgres-init/02-app-password.sh` | `tappa_app`'e **girişi açan** üretim script'i | ConfigMap içinde |
 | `../scripts/pg-backup.sh` | dump **ve içeriğinin doğrulanması** (satır sayısı, tablo kümesi, RLS/GRANT) | ConfigMap içinde (`deploy.yml` `--from-file`) |
-| `../scripts/pg-backup-ship.sh` | dump'ı **node dışına** taşır + saklama süresini uygular | ConfigMap içinde (`deploy.yml` `--from-file`) |
+| `../scripts/pg-backup-ship.sh` | dump'ı **node dışına** taşır + saklama süresini uygular + sonucu healthchecks.io'ya bildirir (T116; bildirim yedeğin sonucunu **değiştirmez**) | ConfigMap içinde (`deploy.yml` `--from-file`) |
 | `../scripts/pg-restore-verify.sh` | 🔴 geri yüklenmiş bir veritabanının **kaynakla aynı** olduğunu ölçer | operatör, geri yüklemenin son adımı |
 | `../scripts/verify-image.sh` | push öncesi imaj kapısı (izlenebilirlik/tzdata/goose/uid) | `deploy.yml` |
 
@@ -69,6 +70,12 @@ küme kapsamlı olanlar **hâlâ 3**, çünkü `CronJob` namespace'li):
 > 11'i namespace'li. ⚠️ **Bugün 15/3/12** — `50-backup.yaml`'ın `CronJob`'ı
 > namespace'li, yani küme kapsamlı sayı **değişmedi**; ölçüm komutu
 > `kubectl api-resources --namespaced=false -o name` ile üye kontrolü.
+> ⚠️ **2026-10-09 (T116): 17/3/14 — ve bu sayı `kubectl` ile DEĞİL, dosyalardaki `kind:`
+> satırları sayılarak bulundu** (ajan `kubectl` koşmaz; `grep -h '^kind:' deploy/k8s/*.yaml`).
+> 15'ten 16'ya çıkışı `40-ingress.yaml`'ın ikinci Ingress'i (`tappa-redirects`, domain
+> cutover 2026-09-02) bu paragrafı güncellemeden getirmişti; 17'ncisi `55-heartbeat.yaml`'ın
+> `CronJob`'ı. İkisi de namespace'li, yani küme kapsamlı sayı **hâlâ 3**. `--dry-run=client`
+> ölçümü orkestratörün küme adımlarında.
 > `01-rbac.yaml`'ın getirdiği **beş** nesnenin **yalnız ikisi**
 > küme kapsamlı; **dördü** `rbac.authorization.k8s.io/v1` grubunda ve `ServiceAccount`
 > düz `v1`. Yani *"beş yeni nesne"* ile *"beş küme-kapsamlı nesne"* birbirine
@@ -83,6 +90,7 @@ küme kapsamlı olanlar **hâlâ 3**, çünkü `CronJob` namespace'li):
 | imaj etiketleri | **`:deploy-placeholder`** kalır → `ImagePullBackOff`, migration Job'ı **Failed** |
 | çalışan bir kurulumda | rollout'u **kilitler** — Deployment'ı olmayan bir etikete geri alır |
 | `50-backup.yaml`'ın CronJob'ı | **uygulanır, ve iki eksikle**: `configmap/tappa-backup-scripts` (onu `deploy.yml` kurar) ve `secret/tappa-backup-target` (operatörün) yoksa gece 02:30'da pod `ContainerCreating`'de kalır ve Job `activeDeadlineSeconds: 3600` dolunca **Failed** olur. Yani sessiz değil — ama *"yedeğim var"* sanılan bir CronJob bırakır |
+| `55-heartbeat.yaml`'ın CronJob'ı | **uygulanır**; `secret/tappa-alert-pings` yoksa her 5 dakikada bir pod `CreateContainerConfigError`'da kalır, Job `activeDeadlineSeconds: 60` dolunca **Failed** olur ve healthchecks.io'ya sinyal gitmez — yani servis **uyarır** (gürültülü; adım 10) |
 
 Yani boş kümede **asla açılmayan** bir kurulum, dolu kümede bir **kesinti** bırakır.
 ⚠️ Bu teorik değil: bu turda kümede kazara bırakılmış tam olarak bu durum bulundu ve
@@ -637,6 +645,152 @@ stdin'den yapıştırılır gibi verilerek. İkisinde de: `sha256 OK`, `restore 
 budamadan sonra boş; zsh'te `command not found` **0**; sonunda kalan konteyner, ağ,
 indirilmiş döküm ve yerel config **0**, checkout'ta yeni dosya **0**. Ayrıntılar
 *"Yedek ve geri yükleme"* → *"Provanın kendisi"*.
+
+**10. Dış uyarı — healthchecks.io ölü adam anahtarı (T116; `Q28 (a)`'nın bir parçası).**
+
+> ⚠️ **Bu adım da listenin SONUNA eklendi** — 9. adımın notundaki gerekçe aynen geçerli:
+> numaralı atıflar (*"adım 9(b)"*, *"5. adım"*) araya konan bir maddeyle kayar. Sıra
+> bakımından da doğru yer burası: yedek sinyalini gönderen `scripts/pg-backup-ship.sh`
+> `configmap/tappa-backup-scripts`'e ancak **bu değişikliği içeren bir deploy**'la girer.
+
+**Ne ve neden.** *"M8-03 — UYARI KURALLARI"*nın yedi kuralı kümenin **kendi log'undan**
+hesaplanır; ölü bir node log yazmaz, yani hiçbiri *"küme gitti"* diyemez. healthchecks.io
+bunun tersini yapar: belli aralıklarla *"yaşıyorum"* denmesini bekler ve **söylenmesi
+kesilince** e-posta atar (kullanıcı kararı 2026-10-09: AB'de barındırılan dış servis,
+ücretsiz plan). Kontrolün sinyal adresine bir `GET` *"yaşıyor"*, adresin sonuna `/fail`
+*"hemen uyar"* demektir. İki kontrol kurulu:
+
+| Kontrol | Takvim / tolerans | Sinyali gönderen | *"Yaşıyor"* | `/fail` — hemen uyarı | Sinyal yok — tolerans sonunda uyarı |
+|---|---|---|---|---|---|
+| `tappa-uptime` | her 5 dk / 5 dk | `k8s/55-heartbeat.yaml` (CronJob `tappa-heartbeat`) | halka açık `$TAPPA_BASE_URL/healthz` → 200 | `/healthz` 200 değil: TLS, DNS, bağlantı, zaman aşımı, 5xx — ve hazırlığı düşen pod Service'ten çıktığı için veritabanı arızası da (`replicas: 1`) | node/küme yok, CronJob askıda, Secret yok, imaj çekilemiyor, sinyal teslim edilemedi |
+| `tappa-backup` | cron `30 2 * * *` Europe/Malta / 1 saat | `k8s/50-backup.yaml`'ın `ship` konteyneri (`scripts/pg-backup-ship.sh`'ın EXIT tuzağı) | dump R2'ye gönderildi **ve** hedefte doğrulandı | `ship` kırmızı bitti (hedef, şifreleme kanıtı, yükleme, doğrulama, budama) | `dump-and-verify` düştü (`ship` o zaman **hiç başlamaz** — bilerek), CronJob koşmadı, sinyal teslim edilemedi |
+
+🔴 **Sinyal adresi bir SIRdır:** bilen biri *"yaşıyor"* gönderip uyarıyı susturabilir.
+`secret/tappa-alert-pings`'te durur (`UPTIME_PING_URL`, `BACKUP_PING_URL` — tam
+`https://hc-ping.com/<uuid>` adresleri), her pod **yalnız kendi anahtarını** alır ve adres
+hiçbir log satırına düşmez: iki betik de HTTP istemcisinin çıktısını basmaz, log'da yalnız
+karar ve HTTP sınıfı vardır. Heartbeat adresi curl'e **stdin**'den verir (argv'de yok,
+ölçüldü); yedeğinki argv'dedir (sınır 33 (c)).
+
+🔴 **Yedek, alarmına BAĞIMLI DEĞİLDİR; heartbeat ise bağımlıdır — ikisi bilerek ters.**
+`50-backup.yaml`'da anahtar `optional: true`: Secret yoksa, adres https değilse ya da
+healthchecks.io cevap vermezse yedek **yine alınır ve iş yeşil biter**, log'a tek satır
+düşer (`TestBackupShip_TheSignalNeverChangesTheOutcome` her durumu sinyalli ve sinyalsiz
+koşup iki çıkış kodunu karşılaştırır). `55-heartbeat.yaml`'da anahtar **zorunlu**: Secret
+yoksa pod açılmaz, sinyal gitmez, servis uyarır — kendi sinyalini sessizce atlayan bir
+heartbeat hiç uyaramayan tek yapılandırma olurdu.
+
+**(a) Secret — değer ekrana, argv'ye ve kabuk geçmişine çıkmadan.** Orkestratör
+2026-10-09'da yarattı; bu blok taze bir küme içindir. Adresler healthchecks.io panelinde,
+her kontrolün ping adresi alanındadır. `printf` ve `read` kabuğun kendi komutlarıdır,
+yani değerler bir sürecin argv'sine girmez. 🔴 `apply` DEĞİL `create`: `apply` nesnenin
+tamamını `last-applied-configuration` açıklamasına **düz metin** yazar.
+
+```bash
+umask 077
+printf 'tappa-uptime ping URL: '; read -rs UPTIME_URL; echo
+printf 'tappa-backup ping URL: '; read -rs BACKUP_URL; echo
+printf '{"apiVersion":"v1","kind":"Secret","metadata":{"name":"tappa-alert-pings","namespace":"tappa"},"type":"Opaque","stringData":{"UPTIME_PING_URL":"%s","BACKUP_PING_URL":"%s"}}' "$UPTIME_URL" "$BACKUP_URL" \
+  | kubectl --context hetzner-k8s-1 -n tappa create -f -
+unset UPTIME_URL BACKUP_URL
+```
+
+Doğrula — yalnız ADLAR, BOYUTLAR ve açıklama ANAHTARLARI, değer basılmaz:
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa get secret tappa-alert-pings -o go-template='{{range $k, $v := .data}}{{$k}} {{len $v}}{{"\n"}}{{end}}{{range $k, $v := .metadata.annotations}}annotation {{$k}}{{"\n"}}{{end}}'
+```
+
+Beklenen: iki satır, `BACKUP_PING_URL 76` ve `UPTIME_PING_URL 76` — 76, 56 baytın base64
+uzunluğudur (`https://hc-ping.com/` 20 + UUID 36; healthchecks.io'nun *slug* biçimli adresi
+başka bir uzunluk verir). Fazlası değere bir satır sonu girdiğini gösterir: iki betik de
+boşluk taşıyan bir adresi **reddeder** (heartbeat kırmızı, yedek tek satır uyarı). Bir
+`annotation kubectl.kubernetes.io/last-applied-configuration` satırı görünürse Secret
+`apply` ile yaratılmış ve adresler o açıklamada düz metin duruyor:
+`kubectl --context hetzner-k8s-1 -n tappa annotate secret tappa-alert-pings kubectl.kubernetes.io/last-applied-configuration-`.
+
+**Bir adres sızdıysa** healthchecks.io'da o kontrolün adresini yenile (ya da kontrolü
+yeniden yarat) ve yalnız o anahtarı yamala — değer yine stdin'den:
+
+```bash
+printf 'yeni ping URL: '; read -rs NEW_URL; echo
+printf '{"stringData":{"UPTIME_PING_URL":"%s"}}' "$NEW_URL" | kubectl --context hetzner-k8s-1 -n tappa patch secret tappa-alert-pings --type merge --patch-file /dev/stdin
+unset NEW_URL
+```
+
+(yedeğinki için anahtar `BACKUP_PING_URL`). Rollout gerekmez: her iki CronJob da her
+koşuda yeni bir pod açar ve Secret'ı o an okur.
+
+**(b) CronJob'ları uygula — bu değişiklik `main`'e birleşip deploy yeşil koştuktan SONRA.**
+
+```bash
+kubectl --context hetzner-k8s-1 apply -f deploy/k8s/55-heartbeat.yaml
+kubectl --context hetzner-k8s-1 apply -f deploy/k8s/50-backup.yaml
+```
+
+Ters sıra zararsızdır ama sessiz değildir: eski `pg-backup-ship.sh` `BACKUP_PING_URL`'yi
+okumaz, yedek yeşil biter, `tappa-backup` kontrolü sinyal alamadığı için **uyarır**.
+
+**(c) İlk sinyalleri ELLE tetikle** — 5 dakikayı ve 02:30'u bekleme:
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa create job tappa-heartbeat-first --from=cronjob/tappa-heartbeat
+kubectl --context hetzner-k8s-1 -n tappa wait --for=condition=complete job/tappa-heartbeat-first --timeout=120s
+kubectl --context hetzner-k8s-1 -n tappa logs job/tappa-heartbeat-first
+kubectl --context hetzner-k8s-1 -n tappa delete job tappa-heartbeat-first
+```
+
+Beklenen log, iki satır — ve healthchecks.io panelinde `tappa-uptime` **up**:
+
+```
+tappa-heartbeat: probe https://taptime.mt/healthz: up (HTTP 200)
+tappa-heartbeat: signal sent (HTTP 2xx)
+```
+
+✅ **Pod'dan node'un kendi genel adresine (hairpin) TLS bağlantısı bu kümede ÖLÇÜLDÜ
+(orkestratör, 2026-10-09):** `tappa` namespace'inde, `restricted` PodSecurity altında koşan
+bir `curlimages/curl:8.22.0` pod'undan `https://taptime.mt/healthz` → **200** (uzak adres
+`144.76.158.60`, 0,028 sn), `https://ops.taptime.mt/operator/login` → 200,
+`https://hc-ping.com/` → 301. Yani `--resolve`/`--connect-to` gerekmiyor. Bu ölçüm bir
+**an**dır: ilk koşuda yine de `DOWN (connect…)`/`(timeout…)` görür ve dışarıdan
+`https://taptime.mt/healthz` 200 dönüyorsa önce hairpin'in değişip değişmediğine bak.
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa create job tappa-backup-signal-first --from=cronjob/tappa-backup
+kubectl --context hetzner-k8s-1 -n tappa wait --for=condition=complete job/tappa-backup-signal-first --timeout=3600s
+kubectl --context hetzner-k8s-1 -n tappa logs job/tappa-backup-signal-first -c ship --tail=2
+kubectl --context hetzner-k8s-1 -n tappa delete job tappa-backup-signal-first
+```
+
+Beklenen son iki satır: `pg-backup-ship: done: N backup(s) retained at the destination` ve
+`pg-backup-ship: alert signal sent (success, HTTP 2xx)`; panelde `tappa-backup` **up**. Bu
+tam bir yedek koşusudur — hedefe bir kopya daha gider (budama yaşa göre; kova kilidi
+14 gün). Son olarak e-posta kanalının kendisini healthchecks.io panelindeki entegrasyonun
+test bildirimiyle sına — bu repodan ölçülemez.
+
+**(d) Uyarı geldiğinde — belirti → ilk bakılacak yer.** Son işler:
+`kubectl --context hetzner-k8s-1 -n tappa get job -l app.kubernetes.io/component=heartbeat --sort-by=.metadata.creationTimestamp`
+(yedek için `component=backup`).
+
+| E-posta | Anlamı | İlk bakılacak yer |
+|---|---|---|
+| `tappa-uptime` **down**, hemen | heartbeat koştu ve `/fail` gönderdi: `/healthz` 200 değildi | son işin log'undaki `DOWN (…)` parantezi: `HTTP 503` → hazırlık/veritabanı (*"Olay müdahalesi"*, M8-03 6. sinyal) · `tls` → sertifika (`get certificate`) · `dns` → adım 1 · `connect`/`timeout` → ingress, node ya da hairpin |
+| `tappa-uptime` **down**, tolerans dolunca | hiç sinyal gelmedi | önce dışarıdan `https://taptime.mt/healthz`; sonra `get nodes`, `get cronjob tappa-heartbeat` (askıda mı) ve son işin kendisi: `describe job <iş>` — `DeadlineExceeded` = pod 60 sn'yi aştı; ⚠️ Job denetleyicisi o anda **pod'u siler**, yani `get pod -l app.kubernetes.io/component=heartbeat` çoğu zaman **boş** döner. Sebep pod olaylarındadır (~1 saat kalır): `get events --field-selector involvedObject.kind=Pod --sort-by=.lastTimestamp` — `CreateContainerConfigError` = Secret ya da ConfigMap yok · `ErrImagePull`/`ImagePullBackOff` = imaj ya da Docker Hub bütçesi (sınır 12). Pod kaldıysa log'unda `signal NOT delivered` = healthchecks.io'ya ulaşılamıyor |
+| `tappa-backup` **down**, hemen | `ship` kırmızı bitti ve `/fail` gönderdi | `logs job/<iş> -c ship` → `FAILED:` satırı; *"Yedek ve geri yükleme"* |
+| `tappa-backup` **down**, 03:30'dan sonra (Malta) | sinyal yok | `get job -l app.kubernetes.io/component=backup`; `logs job/<iş> -c dump-and-verify`; `ship` log'unda `alert signal skipped` ya da `NOT delivered` |
+
+**(e) Sınırlar — sayılı, ayrıntısı sınır 33'te:** tek sağlayıcı ve tek e-posta alıcısı;
+ücretsiz planın kotası/SLA'sı ölçülmedi; yoklama küme **içinden** başlar (node dışındaki
+bir ağ arızası görünmez; hairpin'in **çalıştığı** 2026-10-09'da ölçüldü); yedek sinyalinin
+adresi kısa bir an argv'de.
+
+**Testler** (yalnız bu adımın; tam takım değil):
+`go test ./cmd/tappa/ -run 'TestHeartbeat_|TestBackup_|TestBackupShip_|TestCronJobs_'` —
+on üç test, adlarının öneki bunlardır. ⚠️ Yanlış önekle süzülen bir `-run` hiçbir testi
+koşmaz ve `ok` basar — yeşil ama boş.
+🔴 **`Q28 (a)`'nın KALANI açık:** M8-03'ün yedi log sinyali hâlâ hiçbir yere gönderilmiyor
+(sınır 25) — bu adım yalnız log **dışı** iki sinyali kapatır. `Q28 (b)` (log saklama) açık
+(sınır 24).
 
 ---
 
@@ -1790,6 +1944,12 @@ Europe/Malta`, yani yaz/kış kayması yok) tek bir pod koşar: `wait-for-postgr
 `dump-and-verify` → `ship`. İkincisi düşerse üçüncüsü **hiç başlamaz**, yani
 doğrulanmamış bir dump hedefe **gidemez**.
 
+`ship` bitince — yeşil ya da kırmızı — sonucu healthchecks.io'nun `tappa-backup`
+kontrolüne bildirir (T116, operatör adımı 10): yeşilse *"yaşıyor"*, kırmızıysa `/fail`.
+İkincisi hiç başlamadıysa bildirim **yoktur** ve kontrol 1 saatlik toleransın sonunda
+uyarır. Bildirim yedeğin sonucunu **değiştirmez**: Secret yoksa, adres reddedilirse ya da
+servis cevap vermezse log'a tek satır düşer, çıkış kodu aynı kalır.
+
 Her koşu iki dosya bırakır: `tappa-<UTC damgası>.sql.gz` ve yanında bir
 `.manifest`. Manifest'te sır yoktur; içinde sha256, yedek anı, sunucu sürümü,
 `goose` sürümü, tablo/politika/GRANT sayıları, **tablo tablo satır sayıları** ve (T45'ten
@@ -1850,6 +2010,11 @@ kubectl -n tappa get job -l app.kubernetes.io/component=backup \
   -o custom-columns=NAME:.metadata.name,DONE:.status.succeeded,FAIL:.status.failed,START:.status.startTime
 kubectl -n tappa logs job/<job> -c dump-and-verify | tail -5
 ```
+
+Kümenin **dışından** aynı soru: healthchecks.io panelinde `tappa-backup` kontrolünün son
+sinyali ve durumu (operatör adımı 10). `ship`'in son satırı hangi sinyalin gittiğini söyler:
+`alert signal sent (success|failure, HTTP 2xx)`, `alert signal skipped` (Secret yok) ya da
+`NOT delivered (<sınıf>)`.
 
 Hedefteki kopyayı **kendi makinenden** (kümeye hiç dokunmadan) listelemek — config
 emanetten operatör adımı 9(b)'nin yoluna (`$HOME/.config/tappa/`, repo dışı, 0600)
@@ -4468,6 +4633,12 @@ ki bu bugün ~günlerdir. İki sınırın **küçüğü** geçerlidir.
 > durumda aşağıdaki alan filtreleri **hiçbir satırla eşleşmez**, ki bu ekranda
 > *"hiç reject yok, hiç 5xx yok"* diye görünür — sessiz ölüm.
 
+> ⚠️ **T116 (2026-10-09) — bu tablonun DIŞINDA iki sinyal artık teslim ediliyor:** halka
+> açık `/healthz`'in 200 dönmemesi (kümenin ölümü dahil — o zaman hiç sinyal gelmez) ve
+> gecelik yedeğin sonucu, healthchecks.io'nun ölü adam anahtarı üzerinden e-postayla
+> (operatör adımı 10, sınır 33). **Bu tablonun yedi kuralı için yukarıdaki *"teslimat
+> kanalı yok"* cümlesi aynen geçerlidir** — `Q28 (a)`'nın kalanı.
+
 **Yedi sinyal**, dört olaydan ve bir açılış satırından hesaplanır (aşağıdaki tablo yedi
 satırdır; bir tur boyunca burada *"beş"* yazıyordu ve 6. kural eklendikten sonra belge
 kendisiyle çelişiyordu; 7. kural M10 OP-8'de eklendi — sınır 32):
@@ -5276,6 +5447,11 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     ⚠️ Bu madde bir tur boyunca `Q12`'ye atıf veriyordu; `Q12` **barındırmadır** ve
     uyarı hedefi hakkında hiçbir şey söylemez. Sorunun kendisi (`Q28`) o yanlış atıf
     ölçülünce açıldı.
+    ⚠️ **T116 (2026-10-09) — DAR bir parça kapandı, bu madde KAPANMADI.** Log **dışı** iki
+    sinyal artık kümenin dışına gidiyor: halka açık `/healthz` (kümenin ölümü dahil) ve
+    gecelik yedeğin sonucu, healthchecks.io üzerinden e-postayla (operatör adımı 10, sınır
+    33). M8-03 tablosunun log sinyalleri — bugün **yedi**; bu maddenin *"altı"*sı OP-8'in
+    yedinci kuralından önce yazıldı — hâlâ teslimatsız.
 26. **[request id korelasyonu TAP ZİNCİRİYLE SINIRLI]** — M8-03. `slog.Handler`
     sarmalayıcısı yalnız `*Context` çağrılarını damgalayabilir.
     🔴 **HANGİ AĞACIN SAYISI OLDUĞU HER SAYININ YANINDA YAZIYOR** — bir tur bu maddede
@@ -5444,3 +5620,52 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     (kapalı/ulaşılamaz yüzeyde `/operator` istekleri iz bırakmaz); kural satırı açılıştan sonra
     döndürülmüş bir log'da göremez (6. kuralın daralması). Yapılandırılmış yüzeyin kendi 503'leri
     (giriş sırasında bir veritabanı arızası) tasarım DEĞİLDİR ve 5. kuralda kayıtlıdır.
+33. **[dış ölü adam anahtarı: tek sağlayıcı, küme içinden yoklama, yedek sinyalinin adresi
+    argv'de]** — T116, 2026-10-09; operatör adımı 10. ✅ **Kapanan:** node'un/kümenin
+    ölümü, halka açık `/healthz`'in 200 dönmemesi (TLS, DNS, ingress ve — hazırlığı düşen
+    pod Service'ten çıktığı için — veritabanı dahil) ve gecelik yedeğin sonucu artık
+    kümenin **dışından** e-postayla bildiriliyor. ❌ **Kapanmayan, sayılı:**
+    (a) **Tek sağlayıcı, tek kanal, tek alıcı.** healthchecks.io'nun kendisi, e-posta
+    teslimi ya da hesap sahibinin gelen kutusu düşerse uyarı yoktur ve bu repodan
+    izlenemez. Ücretsiz planın kotası ve SLA'sı **ölçülmedi**.
+    (b) **Yoklama küme İÇİNDEN başlar.** Pod `taptime.mt`'yi kümenin DNS'iyle çözer ve
+    node'un kendi genel adresine bağlanır (hairpin); node'un **dışındaki** bir
+    yönlendirme ya da güvenlik duvarı arızası bu yoklamayı geçer. Hairpin'in bu kümede
+    **çalıştığı ölçüldü** (orkestratör, 2026-10-09: `restricted` bir pod'dan
+    `https://taptime.mt/healthz` → 200, uzak adres `144.76.158.60`, 0,028 sn) — bu bir
+    andır, bir güvence değil; değişirse seçenekler (orkestratörün): yoklamayı küme içi
+    Service'e çevirmek (TLS/DNS/ingress kapsamı düşer) ya da dış bir yoklayıcı.
+    (c) **Yedek sinyalinin adresi kısa bir an argv'de.** `rclone/rclone:1.71`'de curl yok;
+    busybox wget adresi yalnız argv'den alır — ölçüldü: wget çalışırken adres
+    `/proc/<pid>/cmdline`'da. Pencere: gecede bir kez, en çok ~12 sn ölçüldü (`-T 10`;
+    `timeout 30` yedek fren). Okuyucular: aynı konteynerdeki süreçler (yalnız betiğin
+    kendisi; pod'da `shareProcessNamespace` yok — `TestCronJobs_PodsAreLockedDown`) ve
+    node düzeyi (root ve host PID ad alanındaki ajanlar). **Somut aday bu belgenin
+    kendisinde:** SigNoz'un `k8s-infra-otel-agent` DaemonSet'i bu node'da koşuyor
+    (*"Gözlemlenebilirlik — M8-03"* → *"Log nereden çıkar"* tablosu ve oradaki komut
+    bloğu). O ajanın `hostmetrics` alıcısında **`process` scraper'ı** açıksa her sürecin
+    `process.command_line`'ını toplar ve ClickHouse'a yazar — o zaman bu pencereye denk
+    gelen bir kazıma adresi SigNoz'a taşır. Açık olup olmadığı **ölçülmedi**; ölçümü
+    o bölümdeki komutun eşidir, `filelog` yerine `hostmetrics` aranarak:
+    `kubectl -n signoz get cm k8s-infra-otel-agent -o jsonpath='{.data.otel-agent-config\.yaml}' | grep -A 20 'hostmetrics'`
+    — `scrapers:` altında `process:` yoksa aday düşer. Sinyali başka bir imaja ya da
+    konteynere taşımak yedeğin sonucunu o imajın çekilebilmesine bağlardı — reddedilen
+    takas. Heartbeat'te kapalı: curl adresi stdin'den okur (`-K -`, ölçüldü). Her iki
+    betik de `sh -x` ile koşturulsa bile adresi basmaz: sinyal kodunun ilk satırı
+    izlemeyi kapatır (ölçüldü — korumasız hâlde üç-dört iz satırı adresi taşıyordu;
+    `TestHeartbeat_XtraceCannotPrintTheSignalURL`, `TestBackupShip_XtraceCannotPrintTheSignalURL`).
+    (d) **`curlimages/curl:8.22.0` artık DIGEST'le sabit** (`@sha256:58adaa4e…6777`, çok
+    mimarili index — yerel depoda ortam türü `manifest.list.v2` okundu, `tag@digest` ile
+    çekilip koşturuldu; `TestHeartbeat_ImageIsPinnedToAnExactVersion` 64 hanenin tamamını
+    ister). Kalan: Docker Hub anonim çekme bütçesinden (sınır 12) bir imaj daha harcar;
+    `IfNotPresent` ile node başına bir kez. Yükseltme = yeni etiket **ve** yeni digest, tek
+    düzenlemede.
+    (e) **`Q28 (a)`'nın KALANI:** M8-03'ün yedi log sinyali hâlâ hiçbir yere gönderilmiyor
+    (sınır 25); bu madde yalnız log **dışı** iki sinyali kapatır. `Q28 (b)` (log saklama)
+    açık (sınır 24).
+    (f) **macOS'un bash 3.2'si** (geliştirici makinesinin `/bin/sh`'ı), EXIT tuzağı kurulu
+    bir betik `${X:?}` ile bittiğinde tuzakta `$?`'yi 0 görür ve **0 ile çıkar** —
+    ölçüldü (dash 2, busybox 2, bash 5 1). `pg-backup-ship.sh`'ın çıkış kodu bundan T116'dan
+    önce de etkileniyordu ve üretimi (busybox) etkilemez; sinyal bu yüzden yalnız çıkış
+    koduna değil betiğin son satırına ulaşılmasına da bağlı (`ship_complete`,
+    `TestBackupShip_TheSignalNeverChangesTheOutcome`).

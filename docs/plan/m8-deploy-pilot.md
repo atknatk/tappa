@@ -3047,6 +3047,251 @@ tablosu çıkmış durumda (satış slaytı da olur).
 >
 > **Denetim ve kapanış (2026-10-09, orkestratör):** kullanıcı T45'i seçti; hedef **Cloudflare R2** (AB yargı bölgesi) — kullanıcı kararı; Cloudflare alt işleyici olarak kabul (self-serve DPA; gizlilik metnine alt işleyici satırı açık iş). Tek birleşik denetim RED (iki ORTA README metni: sır/döküm yolları repo kökünde ve git yok saymıyor; 9(d) yazıldığı gibi koşmuyordu; düşükler 4f/COLLATE/zsh) → 2. tur (9(d) iki kabukta yazıldığı gibi koşup PASS; COLLATE kaçış hatası ölçümle yakalandı) → 3. tur (`lost-window.csv`) → dar kapanış ONAY; yeni DÜŞÜK (d5 config'i koşulsuz siliyordu) orkestratör tarafından d6'ya ayrıldı. Orkestratör kararları: `.gitignore` `/restore/` + `*.rclone.conf`; ilk yeşil koşudan sonra R2 kova kilidi 14 gün yalnız `tappa/<enc(prod)>/`. Faz sonu: `verify.sh` yeşil, `cmd/tappa` `-race` ok. Küme adımları (R2 kurulumu, Secret, apply, ilk koşu, R2'den geri alma provası) bu commit'ten sonra.
 
+> **T116 / Q28 (a) — dış ölü adam anahtarı: heartbeat ve yedek sinyali (healthchecks.io)**
+>
+> # T116 — Q28 (a) YAPICI: dış ölü adam anahtarı (healthchecks.io) için kümeden sinyal
+>
+> Dal: `worktree-agent-aeeeb621eb7c908ea` @ `2f28df6` (m10-a1 ucu). Commit/push YOK.
+> 1. tur: baş `e3b0c442…b855` (boş ağaç) → son `a00a8351f8cc…2c1c`.
+> 2. tur: baş `a00a8351f8ccc768faf82d3fcd93b34b957490d88e89f0d40c4a751edb732c1c` → son `c671bb15375ea61ff878c61b90c1cf534579c0f7ad5afb287a20dd7adff64dc4`.
+>
+> ## 2. TUR — birleşik denetim (ONAY; 4 DÜŞÜK + 2 öneri), ne yapıldı
+>
+> | # | Madde | Yapılan | Kanıt |
+> |---|---|---|---|
+> | 1 | curl `--retry` sunucunun `Retry-After`'ına uyuyor | iki curl'e `--retry-max-time 12`; `55-heartbeat.yaml` bütçe yorumu düzeltildi; bütçe testi bayrağı ZORUNLU kılıyor (retry eden çağrı → `retry-max-time + max-time`, 2×20 = 40 < 60) | M10 (`m10-retryafter.sh`): ÖNCE `/healthz` 503 + `Retry-After: 50` → **50,9 sn**, ikisi birden **101 sn**; SONRA **1,2 / 0,7 / 0,7 sn**, retry yok, `/fail` gitti. Go: `TestHeartbeat_TheScriptsWorstCaseFitsItsDeadline` + `TestHeartbeat_TellsUpAsAliveAndDownAsFail`'e iki Retry-After durumu (< 20 sn) |
+> | 2 | xtrace adresi basıyor | `alert_ping`'in ilk satırı ve heartbeat betiğinin ilk satırı `case $- in *x*) set +x ;; esac` (`_url=`'den ÖNCE) | M11 (`m11-xtrace.sh`, gerçek busybox): korumasız ship `sh -x` → 3 satır (yeşil koşu: `_url=`, `[ -z`, `timeout … wget`), korumalı → **0**; korumasız heartbeat `sh -xc` → 3 satır (`ping_url=`, `target=`, `echo 'url = …'`), korumalı → **0**. Go: `TestHeartbeat_ScriptParses` (ilk satır = koruma; iki manifestin 4 `command:` listesinde `-x`/`-xc`/`-o xtrace` yok; kuralın kendi tablosu), `TestHeartbeat_XtraceCannotPrintTheSignalURL` (`sh -xc`), `TestBackupShip_XtraceCannotPrintTheSignalURL` (yapısal sıra + `sh -x` ile iki koşu, kontrol: iz satırı ve `set +x` izi var) |
+> | 3 | 10(d) "tolerans dolunca": pod silinmiş olur | README satırına `describe job <iş>` (`DeadlineExceeded`) + `get events --field-selector involvedObject.kind=Pod --sort-by=.lastTimestamp` (~1 saat) eklendi; `get pod` çoğu zaman boş uyarısı | metin |
+> | 4 | sınır 33 (c) somut aday | SigNoz `k8s-infra-otel-agent` → `hostmetrics` alıcısında `process` scraper'ı (`process.command_line`); ölçüm komutu README'deki `filelog` komutunun eşi (`grep -A 20 'hostmetrics'`) | metin; ÖLÇÜLMEDİ (kubectl yok) |
+> | 5 | digest'e sabitle (karar EVET) | `image: curlimages/curl:8.22.0@sha256:58adaa4e8dca9c988bae2aba4ab3434a0bb2da16bbe3f92dec39ec7785166777`; test 64 hanenin tamamını ZORUNLU kılar | yerel depoda tanımlayıcı ortam türü `application/vnd.docker.distribution.manifest.list.v2+json` (çok mimarili index — ağ isteği yok); `docker pull --platform linux/amd64 …:8.22.0@sha256:…` + koşturma → curl 8.22.0 |
+> | 6 | "hiç kapanmayan eş" Go testi (karar EVET) | sahte wget'e `STUB_WGET_LINGER`: stderr'i miras alan `sleep 20 &`, pid dosyası, `download timed out`, exit 1; test < 10 sn, exit 0, tek `NOT delivered (timeout` satırı; Cleanup çocuğu öldürür | `TestBackupShip_ALingeringClientChildCannotHoldTheBackup` (tek başına 1,15–1,47 sn); test sonrası `pgrep 'sleep 20'` → 0 |
+> | 7 | hairpin ölçüldü + restricted pin | README 10(c) uyarısı ve sınır 33 (b), manifest başlığı ölçümle güncellendi; `TestCronJobs_PodsAreLockedDown` artık `00-namespace.yaml`'ın `enforce: restricted`'ını da okuyor ve `hostPort`/`procMount`/`sysctls`/`add:` yasaklı | mutasyon R7a (runAsNonRoot düşer) KIRMIZI |
+> | 8 | test önekleri | README adım 10(e) altına doğru komut: `go test ./cmd/tappa/ -run <hedefli küme>` (13 test); kartta da aynı | `TestEveryNamedTestExists` yeşil (uydurma bir test adı YAZILMADI — ilk denemede yazılınca kırmızıydı, düzeltildi) |
+>
+> Ek: heartbeat matrisi (M7, 19 durum) 2. tur manifestiyle yeniden koşuldu — sonuçlar aynı, en kötü 24 sn, log'da işaret 0/19 (`m7-heartbeat-r2.out`).
+>
+> ### 2. tur mutasyonları (`mutate-r2.sh` → `mutate-r2.out`; TAM set bir kez, kopyada)
+> 1. turun 22'si + M09b yeniden koşuldu (testler yeniden düzenlendiği için): **23/23 KIRMIZI**. Yeniler:
+>
+> | # | Mutasyon | Sonuç | Yakalayan |
+> |---|---|---|---|
+> | R1a | probe curl'ünden `--retry-max-time 12` silindi | KIRMIZI | `TestHeartbeat_TheScriptsWorstCaseFitsItsDeadline`, `…TellsUp…/healthz_503_with_Retry-After_50` |
+> | R1b | sinyal curl'ünden silindi | KIRMIZI | bütçe testi, `…TellsUp…/signal_503_with_Retry-After_50` |
+> | R2a | ship koruması silindi | KIRMIZI | `TestBackupShip_XtraceCannotPrintTheSignalURL` (iki alt durum) |
+> | R2b | ship koruması `_url=`'nin ARKASINA taşındı | KIRMIZI | aynı |
+> | R2c | heartbeat koruması silindi | KIRMIZI | `TestHeartbeat_ScriptParses`, `TestHeartbeat_XtraceCannotPrintTheSignalURL` |
+> | R2d | heartbeat `- -c` → `- -xc` | KIRMIZI | `TestHeartbeat_ScriptParses` |
+> | R2e | ship `command` listesine `-x` | KIRMIZI | `TestHeartbeat_ScriptParses` (iki manifesti de okur — adı heartbeat'li, kapsamı iki CronJob) |
+> | R5a | digest bir hane kırpıldı | KIRMIZI | `TestHeartbeat_ImageIsPinnedToAnExactVersion` |
+> | R5b | digest kaldırıldı (yalnız etiket) | KIRMIZI | aynı |
+> | R6a | stderr yeniden `$(...)` ile yakalandı | KIRMIZI | `TestBackupShip_ALingeringClientChildCannotHoldTheBackup` |
+> | R7a | `runAsNonRoot: true` silindi (restricted reddederdi) | KIRMIZI | `TestCronJobs_PodsAreLockedDown` |
+>
+> Toplam **34/34 KIRMIZI** (M20 yalnız macOS'ta anlamlı — S5).
+>
+> ### 2. tur kapıları
+> `gofmt -l cmd internal` boş · `go build ./...` ok · `go vet ./cmd/tappa/` ok · `sh -n scripts/pg-backup-ship.sh` ok · `./scripts/redline-check.sh` → 0 · `go.mod`/`go.sum`/`sqlc.yaml` diff boş · `go test ./cmd/tappa/ -run <hedefli küme>` ok (worktree'de ve `.git`'siz kopyada) · `cmd/rotatekek` `TestRunbook_*` 4/4 ok · `cmd/opadmin` `TestRunbook_TheVerifyQueryShowsEachActionsRow` SKIP (DB). Tam `-race`/`go test ./...`/`make check` KOŞULMADI. Bırakılan süreç/konteyner/ağ: 0.
+>
+> ## Değişen / yeni dosyalar
+>
+> | Dosya | Ne |
+> |---|---|
+> | `deploy/k8s/55-heartbeat.yaml` (YENİ) | CronJob `tappa-heartbeat`, `*/5`, `curlimages/curl:8.22.0`, satır içi betik |
+> | `deploy/k8s/50-backup.yaml` | `ship` konteynerine `BACKUP_PING_URL` (secretKeyRef `tappa-alert-pings`, `optional: true`) |
+> | `scripts/pg-backup-ship.sh` | §0 `alert_ping` + EXIT tuzağı + `ship_complete` işareti; mevcut gövde DEĞİŞMEDİ |
+> | `cmd/tappa/alertsignal_test.go` (YENİ) | 13 test: 1. turda 10 (1. tur raporundaki "9" yanlış saymıştı), 2. turda +3 (`TestHeartbeat_XtraceCannotPrintTheSignalURL`, `TestBackupShip_XtraceCannotPrintTheSignalURL`, `TestBackupShip_ALingeringClientChildCannotHoldTheBackup`). Koşturma: `go test ./cmd/tappa/ -run <hedefli küme>` |
+> | `deploy/README.md` | "Ne nereden gelir" 2 satır · nesne sayısı notu · dizin-apply tablosu 1 satır · **operatör adımı 10** (listenin SONU) · yedek bölümü 2 paragraf · M8-03 bölümü 1 not · sınır 25'e not · **sınır 33** (yeni, listenin sonu) |
+>
+> `go.mod`/`go.sum`/`sqlc.yaml` diff: BOŞ. `deploy.yml`, `01-rbac.yaml`: dokunulmadı (gerek yok — aşağıda).
+>
+> ## Kararlar
+>
+> ### K1 — Heartbeat imajı: `curlimages/curl:8.22.0` (yeni, tam sürüm), mevcut imaj DEĞİL
+> Ölçüm (M1, M5, M6 — `scratchpad/t116/m1-images.sh`, `m56.sh`):
+> - `postgres:17-alpine` (alpine 3.24.1) ve `rclone/rclone:1.71` (alpine 3.22.2): **curl YOK**; busybox `wget` + `ssl_client` (OpenSSL 3'e bağlı) VAR.
+> - busybox wget **TLS doğruluyor**: güvenilmeyen CA, kendinden imzalı yaprak, yanlış host adı → üçü de `certificate verify failed`, exit 1; CA güvenilir kılınınca exit 0 (pozitif kontrol).
+> - busybox wget adresi **yalnız argv**'den alır (`--help`: `-i` yok); uçuştayken aynı konteynerdeki `/proc/*/cmdline`'da işaret **GÖRÜNDÜ**.
+> - curl 8.22.0, adres `-K -` ile stdin'den: uçuştaki her süreçte `/proc/*/cmdline`'da işaret **YOK** (görülen argv: `curl -q -s -o /dev/null --max-time 20 -K -`).
+> - curl `-sS` hata metinleri yolu basmıyor (yalnız host/port: `(6) Could not resolve host`, `(7) Failed to connect to fakesrv:8444`, `(60) SSL…`, `(22) The requested URL returned error: 500`); betik yine de `-s` + `2>/dev/null` ile hiçbirini geçirmiyor.
+> - İmaj: 35 MB, Alpine 3.24.1, `curl_user` (uid 100), `CURL_CA_BUNDLE=/cacert.pem`. En yeni çekilebilen sürüm 8.22.0 (2026-09-02); 8.23.0 yok. Index digest (çekmeden ölçülen): `sha256:58adaa4e8dca9c988bae2aba4ab3434a0bb2da16bbe3f92dec39ec7785166777` — **kullanılmadı** (açık soru S3).
+> **Gerekçe:** "mümkünse mevcut imaj" ile "mümkünse argv'ye düşmez" çatıştı; heartbeat 288 kez/gün koşar ve curl'ün `-w %{http_code}` + çıkış kodu sınıfları (dns/connect/tls/timeout) operatöre neden kırmızı olduğunu söyler. Bedeli: bir imaj daha (Docker Hub bütçesi, node başına bir kez — sınır 33 (d)).
+>
+> ### K2 — Yedek sinyali: `pg-backup-ship.sh`'ın EXIT tuzağı, ayrı konteyner DEĞİL
+> Seçenekler: (a) ship betiğine ekleme, (b) ship'i initContainer yapıp curl'lü son bir ana konteyner, (c) yan konteyner + paylaşılan dosya.
+> - (b)/(c) **elendi**: ikinci imaj çekilemezse (Docker Hub bütçesi) pod tamamlanmaz → Job `activeDeadlineSeconds` ile **Failed** → yedek, alarmı yüzünden kırmızı. Görevin 🔴 maddesine aykırı. (b) ayrıca ship hatasında `/fail` gönderemez (init düşerse ana konteyner koşmaz) ve README'nin `logs … --tail=20 # ship` komutlarını bozar.
+> - (a) **seçildi**: aynı konteyner, aynı imaj, aynı ConfigMap anahtarı → yeni bağımlılık yok; deploy ile CronJob arasında sıralama tehlikesi yok (eski betik + yeni CronJob → sinyal yok, yedek yeşil, servis uyarır; yeni betik + eski CronJob → "skipped", yedek yeşil).
+> - Bedeli: busybox wget → adres ~en çok 12 sn argv'de (sınır 33 (c)).
+>
+> ### K3 — Yedek alarma bağımlı değil — nasıl
+> - `optional: true` (Secret ya da anahtar yoksa kubelet konteyneri yine açar).
+> - EXIT tuzağı: `rc=$?; rm -rf "$TMPD"; alert_ping "$rc" || :; exit "$rc"`. busybox'ta ölçüldü (M4): tuzaktaki `exit "$rc"` durumu korur; tuzak `${X:?}` (rc 2) ve `set -e` (rc 1) bitişlerinde de koşar.
+> - `alert_ping` her yolda `return 0`; https olmayan / boşluk taşıyan adres → tek satır, istek yok.
+> - 🔴 **Ölçümle bulunan iki kusur, düzeltildi:**
+>   1. İlk sürüm stderr'i `$(...)` ile yakalıyordu. busybox wget TLS'i `ssl_client` alt süreciyle yapar; o süreç wget'ten uzun yaşar ve boruyu sunucu kapatana dek açık tutar — 60 sn'de cevap veren sunucuya karşı `timeout 30` dönmüşken betik **63 sn** bekledi. Hiç kapanmayan bir eşte bu, yedeği `activeDeadlineSeconds`'a kadar tutardı. Düzeltme: stderr bir dosyaya. Sonra: 60 sn sunucu → 12–13 sn, hiç konuşmayan eş (`:7443`) → 12 sn, ikisi de `timeout` sınıfı, exit 0.
+>   2. macOS bash 3.2 (`/bin/sh`): EXIT tuzağı kuruluyken `${X:?}` bitişinde tuzak `$?`'yi **0** görür ve kabuk **0** ile çıkar (M9: dash 2, busybox 2, bash 5 1, zsh 1). Bu, T116'dan önceki betiği de etkiliyordu (çıkış kodu); ama sinyal "success" giderdi. Düzeltme: `ship_complete=yes` betiğin son satırı; "success" = `rc 0` **ve** işaret. Çıkış kodlarına dokunulmadı.
+>
+> ### K4 — Heartbeat Secret'ı ZORUNLU
+> Kendi sinyalini sessizce atlayan heartbeat hiç uyaramaz. Secret yoksa `CreateContainerConfigError` → Job deadline ile Failed → sinyal yok → servis uyarır.
+>
+> ### K5 — Heartbeat pod'u `app.kubernetes.io/name: tappa` TAŞIMAZ
+> `12-networkpolicy.yaml` o etiketi 5432'ye kabul ediyor; heartbeat veritabanıyla konuşmaz. CronJob nesnesinin kendi etiketleri `name: tappa` (listeleme için), pod şablonu `part-of: tappa` + `component: heartbeat`.
+>
+> ### K6 — Probe hedefi `$TAPPA_BASE_URL/healthz` (ConfigMap'ten), `/readyz` değil
+> İngress üzerinden `/healthz` yalnız Service'in HAZIR uç noktası varken erişilir; `replicas: 1` ve `/readyz` düşerse uç nokta gider → ingress 503 → `/fail`. Yani veritabanı arızası da (bir adım dolaylı) görünür. `/readyz` halka açık yüzeyde ayrıca metre ediliyor (health.go); dışarıdan dövmek gereksiz. Redirect izlenmez (`-L` yok): kanonik host 301 dönerse bu bir yanlış yapılandırmadır → `/fail`.
+>
+> ### K7 — Zaman bütçesi (2. turda DÜZELTİLDİ — ilk sürüm yanlıştı)
+> Her curl: `--connect-timeout 5 --max-time 8 --retry 1 --retry-delay 2 --retry-max-time 12 --retry-connrefused`; çağrı başına üst sınır retry-max-time + max-time = 20 sn, iki çağrı 40 sn < `activeDeadlineSeconds: 60`. 🔴 İlk sürümün "36 sn" hesabı YANLIŞTI: curl sunucunun `Retry-After`'ına `--retry-delay`'den öncelik verir (denetçi ölçtü; benim M10 ölçümüm 50,9 sn ve 101 sn). Ölçülen en kötü (iki eş de hiç konuşmuyor, docker açılışı dahil): **25 sn**. `startingDeadlineSeconds: 120`, `successfulJobsHistoryLimit: 1`, `failedJobsHistoryLimit: 3`, `backoffLimit: 0`, `concurrencyPolicy: Forbid`.
+>
+> ## Ölçümler (gerçek imajlar, pod kısıtlarıyla: uid 65532, salt-okur kök, `--cap-drop ALL`, `no-new-privileges`; heartbeat ayrıca 64 MiB / 0.2 CPU)
+>
+> Sahte sunucu: `scratchpad/t116/fakesrv/` (Go; :8080 http, :8443 yerel-CA TLS, :9443 yanlış ad, :10443 kendinden imzalı, :7443 hiç konuşmayan TCP). İnternete istek yok. Her koşu sonunda kalan konteyner 0, ağ 0.
+>
+> **M7 heartbeat (`m7-heartbeat.sh`, çıktı `m7-heartbeat.out`) — 19 durum, log'da işaret 0/19:**
+> | durum | exit | sunucunun gördüğü |
+> |---|---|---|
+> | healthz 200 | 0 | `/healthz`, `/<işaret>` |
+> | taban sonda `/` | 0 | `/healthz` (çift `/` yok), `/<işaret>` |
+> | healthz 503 / 500 | 1 | `/healthz`×2 (retry), `/<işaret>/fail` |
+> | kendinden imzalı / yanlış ad | 1 | `/<işaret>/fail` (`tls, curl exit 60`) |
+> | bağlantı reddi / DNS | 1 | `/<işaret>/fail` (`connect 7` / `dns 6`) |
+> | taban http | 1 | `/<işaret>/fail` (yoklanmadı) |
+> | eş hiç konuşmuyor | 1 | `/<işaret>/fail` (`timeout 28`), 13 sn |
+> | sinyal 500 / 404 | 1 | `5xx` (retry ile 2 istek) / `4xx` |
+> | sinyal ulaşılmaz / hiç konuşmuyor / 60 sn | 1 | `HTTP none, curl exit 7/28` |
+> | sinyal boş / http / sonda satır sonu | 2 | hiç istek yok |
+>
+> **M8 yedek (`m8-ship.sh`, çıktı `m8-ship.out`) — GERÇEK `pg-backup-ship.sh`, crypt-over-local, 13 durum, log'da işaret 0/13:**
+> | durum | exit | sinyal satırı | sunucu |
+> |---|---|---|---|
+> | başarı | 0 | `sent (success, HTTP 2xx)` | `/<işaret>` |
+> | Secret yok | 0 | `skipped` | — |
+> | 500 / 404 | 0 | `NOT delivered (HTTP 5xx/4xx, exit 1)` | `/…` |
+> | ulaşılmaz / DNS / TLS güvenilmez | 0 | `connect` / `dns` / `tls` | — |
+> | adres http | 0 | `not an https URL` | — |
+> | 60 sn sunucu / hiç konuşmayan eş | 0 | `timeout`, 12–13 sn | — |
+> | hedef salt-okur (kanarya yazılamaz) | 1 | `sent (failure, HTTP 2xx)` | `/<işaret>/fail` |
+> | aynısı + 500 | 1 | `failure… HTTP 5xx` | `/…/fail` |
+> | `RCLONE_CONFIG` yok (`${:?}`) | 2 | `sent (failure…)` | `/<işaret>/fail` |
+> Başarılı koşunun tam log'u: mevcut satırlar aynen, en sona tek `alert signal sent (success, HTTP 2xx)` satırı.
+>
+> **M4 busybox ash (her iki imaj):** tuzakta `exit "$rc"` → 3 korunur; `|| :` altında fonksiyonda errexit kapalı; `${:?}` → tuzak rc 2; `set -e` → rc 1; `else` dalında `$?` = 7; `*[[:space:]]*` boşluk/sekme/satır sonunu yakalar; `timeout` applet var, öldürünce 143.
+> **M9 EXIT-tuzağı durumu, kabuk başına:** yukarıda K3.2.
+>
+> ## Kabul tablosu
+>
+> | # | Kriter | Kanıt |
+> |---|---|---|
+> | 1 | CronJob her 5 dk, Forbid, startingDeadline < period, active ≈60, backoff 0, history sınırlı | `TestHeartbeat_RunsEveryFiveMinutesOneAtATime` |
+> | 2 | Betiğin en kötü süresi deadline'a sığar | `TestHeartbeat_TheScriptsWorstCaseFitsItsDeadline` (36 < 60); M7 en kötü 25 sn |
+> | 3 | Halka açık URL ConfigMap'ten, host betikte yazılı değil | `TestHeartbeat_TheSignalURLIsARequiredSecretAndTheTargetComesFromTheConfigMap` |
+> | 4 | Heartbeat Secret ref ZORUNLU, tek anahtar, envFrom yok | aynı test |
+> | 5 | 200 → sinyal 1, 500/503/ulaşılmaz/http → `/fail` + exit≠0 | `TestHeartbeat_TellsUpAsAliveAndDownAsFail`; M7 |
+> | 6 | Sinyal adresi argv'de yok (heartbeat) | `TestHeartbeat_TellsUpAsAliveAndDownAsFail` (curl shim argv kaydı + kontrol); M6 |
+> | 7 | Sinyal adresi log'da yok (heartbeat) | aynı test (stdout+stderr); M7 19/19 |
+> | 8 | xtrace yok, `sh -n` geçer | `TestHeartbeat_ScriptParses` |
+> | 9 | İmaj tam sürüme sabit, IfNotPresent | `TestHeartbeat_ImageIsPinnedToAnExactVersion` |
+> | 10 | Güvenlik bağlamı (her iki CronJob): SA token yok, non-root, seccomp, salt-okur, ALL drop, limits, host*/shareProcessNamespace yok | `TestCronJobs_PodsAreLockedDown` |
+> | 11 | Heartbeat pod'u 5432 izin kümesinin dışında (kontrol: yedek içinde) | `TestHeartbeat_PodStaysOutsideTheDatabaseAllowSet` |
+> | 12 | Yedek: başarı → sinyal 1; gönderim hatası → `/fail` 1 | `TestBackupShip_TheSignalNeverChangesTheOutcome`; M8 |
+> | 13 | Yedek: Secret yok → sinyal 0, yeşil | aynı test; M8 |
+> | 14 | Yedek: sinyal sunucusu 500 → yeşil + tek log satırı | aynı test; M8 |
+> | 15 | Yedek: her durumda çıkış kodu sinyalsiz ikiziyle AYNI | aynı test (her durum iki kez koşar) |
+> | 16 | Yedek: log'da URL 0 (sahte wget adresi iki akışa da basar) | aynı test; M8 13/13 |
+> | 17 | Yedek: hiç kapanmayan eş yedeği tutmaz | M8 (12 sn; düzeltme öncesi 63 sn) — Go testi YOK (S4) |
+> | 18 | `BACKUP_PING_URL` optional, yalnız ship'te, `UPTIME_PING_URL` yedekte yok | `TestBackup_TheSignalURLIsOptionalAndOnlyTheShipContainerHasIt` |
+> | 19 | Parse kapısı (ship) | `TestCarrierScripts_ParseUnderBash` (mevcut; `sh -n` + `set -eu`) |
+> | 20 | Yeni manifest kök-güven pinlerinin kapsamında (ters bölü / `!!` / SSL_CERT yok) | `TestRootPinFiles`, `TestPackaging_NothingMovesTheSystemRoots` (glob yeni dosyayı okuyor) |
+> | 21 | README sınır numaraları tekil, atıf yapılan testler var | `TestRunbook_AcceptedLimitsAreNumberedOnce`, `TestEveryNamedTestExists` (worktree'siz kopyada yeşil) |
+> | 22 | README yapıştırılabilir blokları zsh-güvenli | `TestRunbook_PasteableBlocksCarryNoShellHazardInComments` (yeşil; yeni blokların hiç yorumu yok) |
+> | 23 | Kırmızı çizgi taraması | `./scripts/redline-check.sh` → 0 |
+>
+> ## Mutasyonlar (`mutate.sh`, `mutate2.sh`, `mutate3.sh` — hepsi scratchpad KOPYASINDA, worktree'ye dokunmadan)
+>
+> | # | Mutasyon | Sonuç | Yakalayan |
+> |---|---|---|---|
+> | M01 | `BACKUP_PING_URL` optional değil | KIRMIZI | `TestBackup_TheSignalURLIsOptionalAndOnlyTheShipContainerHasIt…` |
+> | M02 | sinyal hatası yedeği kırmızı yapar (`return 0`→`exit 1`) | KIRMIZI | `TestBackupShip_…` (500/404/ulaşılmaz) |
+> | M03 | başarı satırı URL'yi basar | KIRMIZI | `TestBackupShip_…` |
+> | M04 | `/fail` unutulur | KIRMIZI | `TestBackupShip_…` |
+> | M05 | wget stdout log'a | KIRMIZI | `TestBackupShip_…` |
+> | M06 | wget stderr log'a | KIRMIZI | `TestBackupShip_…` |
+> | M07 | healthz 500 = başarı | KIRMIZI | `TestHeartbeat_TellsUpAsAliveAndDownAsFail…` (500/503) |
+> | M08 | `concurrencyPolicy` kaldırıldı | KIRMIZI | `TestHeartbeat_RunsEveryFiveMinutesOneAtATime…` |
+> | M09 | sinyal URL'si argv'de (`-K -` da gider) | KIRMIZI | çıkarıcı kontrolü (`-K -` yok) |
+> | M09b | sinyal URL'si argv'de, `-K -` metinde kalır | KIRMIZI | `TestHeartbeat_TellsUpAsAliveAndDownAsFail…` argv kaydı (6 durum) |
+> | M10 | `UPTIME_PING_URL` optional | KIRMIZI | `TestHeartbeat_TheSignalURLIsARequiredSecretAndTheTargetComesFromTheConfigMap…` |
+> | M11 | pod şablonuna `name: tappa` | KIRMIZI | `TestHeartbeat_PodStaysOutsideTheDatabaseAllowSet…` |
+> | M12 | `curlimages/curl:latest` | KIRMIZI | `TestHeartbeat_ImageIsPinnedToAnExactVersion…` |
+> | M13 | host betiğe sabit yazıldı | KIRMIZI | `TestHeartbeat_TheSignalURLIsARequiredSecretAndTheTargetComesFromTheConfigMap…` + davranış |
+> | M14 | heartbeat `/fail` unutur | KIRMIZI | `TestHeartbeat_TellsUpAsAliveAndDownAsFail…` |
+> | M15 | `activeDeadlineSeconds: 30` | KIRMIZI | `TestHeartbeat_TheScriptsWorstCaseFitsItsDeadline…` |
+> | M16 | `set -eux` | KIRMIZI | `TestHeartbeat_ScriptParses` (+ davranış: işaret log'a düştü) |
+> | M17 | `shareProcessNamespace: true` | KIRMIZI | `TestCronJobs_PodsAreLockedDown` |
+> | M18 | dump-and-verify da URL'yi alır | KIRMIZI | `TestBackup_TheSignalURLIsOptionalAndOnlyTheShipContainerHasIt…` |
+> | M19 | `failedJobsHistoryLimit: 288` | KIRMIZI | `TestHeartbeat_RunsEveryFiveMinutesOneAtATime…` |
+> | M20 | başarı yalnız çıkış koduna bağlı (`ship_complete` kalkar) | KIRMIZI **yalnız macOS'ta** | `TestBackupShip_…` config-missing; dash/busybox'ta rc≠0 olduğu için orada yeşil kalır — S5 |
+> | M21 | `readOnlyRootFilesystem: false` | KIRMIZI | `TestCronJobs_PodsAreLockedDown` |
+> | M22 | heartbeat `BACKUP_PING_URL`'yi de okur | KIRMIZI | `TestHeartbeat_TheSignalURLIsARequiredSecretAndTheTargetComesFromTheConfigMap…` |
+>
+> 23/23 kırmızı (M20 platforma bağlı, sayıldı).
+>
+> ## Sayılı sınırlar (README sınır 33'ün özeti + yapıcı notları)
+> 1. Tek sağlayıcı / tek e-posta alıcısı; ücretsiz planın kotası/SLA'sı ölçülmedi.
+> 2. Yoklama küme içinden; node dışındaki ağ arızası görünmez. Hairpin **ÖLÇÜLDÜ** (orkestratör, 2026-10-09: restricted bir pod'dan `https://taptime.mt/healthz` → 200, 144.76.158.60, 0,028 sn) — bir an, güvence değil.
+> 3. Yedek sinyalinin adresi ≤ ~12 sn argv'de (busybox wget). Somut aday: SigNoz `k8s-infra-otel-agent`'ın `hostmetrics` alıcısında `process` scraper'ı (`process.command_line` toplar) — ölçülmedi; komut README sınır 33 (c)'de.
+> 4. `curlimages/curl:8.22.0` artık index digest'le sabit (2. tur); bir imaj daha Docker Hub bütçesinden.
+> 5. M8-03'ün yedi log sinyali hâlâ teslimatsız (Q28 (a)'nın kalanı); Q28 (b) açık.
+> 6. Davranış testleri betikleri **ana makinenin** sh/curl'üyle koşar (macOS: bash 3.2 + curl 8.7.1/LibreSSL; CI: dash + Ubuntu curl). busybox'a özgü gerçekler (tuzak durumu, `timeout` 143, wget hata cümleleri, ssl_client davranışı) bu kartın M4/M5/M8 ölçümleridir; Go testinde busybox YOK. Sahte wget busybox'ın ölçülmüş hata cümlelerini taklit eder.
+> 7. "Hiç kapanmayan eş" düzeltmesinin Go testi 2. turda eklendi (`TestBackupShip_ALingeringClientChildCannotHoldTheBackup`); duvar saati sınırı taşıdığı için `t.Parallel` DEĞİL (paralel yük altında 7,2 sn ölçüldü, tek başına ~1,2 sn).
+> 8. `wait --for=condition=complete` başarısız bir Job'da zaman aşımına kadar bekler (runbook'ta 120 sn / 3600 sn).
+> 9. README'deki "15 nesne" sayısı T116'dan önce bayattı (16: `tappa-redirects`, 2026-09-02); şimdi 17 — `kind:` satırlarından sayıldı, `kubectl` ile değil.
+> 10. Sınır 25'in "altı sinyal" sayısı OP-8'den beri bayattı (yedi) — notla düzeltildi.
+> 11. `TestRunbook_TheVerifyQueryShowsEachActionsRow` (cmd/opadmin) DB istediği için kopyada SKIP — bu değişiklikle ilgisiz, koşulmadı.
+>
+> ## Güvenlik iddiası
+>
+> **Tehdit modeli:** bu pinler kazara sapmaya karşıdır; bilerek atlatma kod incelemesinin konusudur.
+>
+> **PART I — ölçüldü + test:**
+> - Yedek alarmına bağımlı değil: Secret yok / http adres / 500 / 404 / ulaşılmaz / DNS / TLS / 60 sn / hiç konuşmayan eş → gerçek imajda exit 0 (M8); her durum sinyalli ve sinyalsiz koşulup çıkış kodu eşitliği `TestBackupShip_TheSignalNeverChangesTheOutcome`.
+> - Sinyal adresi log'a düşmüyor: M7 19/19, M8 13/13; sızdıran sahte istemciye rağmen `TestBackupShip_…`, `TestHeartbeat_TellsUpAsAliveAndDownAsFail`.
+> - Heartbeat adresi argv'de değil: M6 (`/proc/*/cmdline` 0), `TestHeartbeat_TellsUpAsAliveAndDownAsFail` (shim argv kaydı + kontrol).
+> - Aşağı → `/fail`, yukarı → çıplak adres: M7, M8; aynı iki test.
+> - TLS doğrulanıyor (her iki istemci): M5, M6.
+>
+> **PART II — adı konmuş pinler:** `TestHeartbeat_RunsEveryFiveMinutesOneAtATime` · `TestHeartbeat_TheScriptsWorstCaseFitsItsDeadline` · `TestHeartbeat_ImageIsPinnedToAnExactVersion` · `TestHeartbeat_TheSignalURLIsARequiredSecretAndTheTargetComesFromTheConfigMap` · `TestHeartbeat_PodStaysOutsideTheDatabaseAllowSet` · `TestCronJobs_PodsAreLockedDown` · `TestHeartbeat_ScriptParses` · `TestBackup_TheSignalURLIsOptionalAndOnlyTheShipContainerHasIt` · mevcut `TestCarrierScripts_ParseUnderBash`, `TestPackaging_NothingMovesTheSystemRoots`, `TestRootPinFiles`.
+>
+> **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
+>
+> ## Kapılar (koşulanlar — tam `-race`/`go test ./...`/`make check` KOŞULMADI)
+> - `gofmt -l cmd internal` → boş · `go build ./...` → ok · `go vet ./cmd/tappa/` → ok · `sh -n scripts/pg-backup-ship.sh` → ok
+> - `go test ./cmd/tappa/ -run <hedefli küme>` → ok
+> - Worktree'siz kopyada (`scratchpad/t116/copy`, `.git` hariç rsync): `TestEveryNamedTestExists`, `TestRunbook_AcceptedLimitsAreNumberedOnce` PASS; `cmd/rotatekek` `TestRunbook_*` 4/4 PASS; `cmd/opadmin` `TestRunbook_TheVerifyQueryShowsEachActionsRow` SKIP (DB)
+> - `./scripts/redline-check.sh` → 0
+> - `go.mod`/`go.sum`/`sqlc.yaml` diff → boş
+>
+> ## Orkestratörün küme adımları (sırasıyla)
+> 1. Bu değişikliği incelet (üçüncü göz), commit'le, dala push'la; **kullanıcı onayıyla** `main`'e birleştir → `deploy.yml` yeşil koşsun (yeni `pg-backup-ship.sh` `configmap/tappa-backup-scripts`'e ancak o zaman girer).
+> 2. `kubectl --context hetzner-k8s-1 apply --dry-run=client -f deploy/k8s/55-heartbeat.yaml` (ve dizin için README'deki 17/3/14 sayısını `--dry-run=client` + `api-resources` ile doğrula).
+> 3. Secret'ı doğrula (değer basmadan) — README adım 10(a)'nın `go-template` komutu: iki satır, beklenen `76` (UUID biçimi); `annotation …last-applied-configuration` satırı ÇIKMAMALI (çıkarsa aynı yerdeki `annotate …-` komutu).
+> 4. `kubectl --context hetzner-k8s-1 apply -f deploy/k8s/55-heartbeat.yaml`
+> 5. `kubectl --context hetzner-k8s-1 apply -f deploy/k8s/50-backup.yaml`
+> 6. Adım 10(c) heartbeat bloğu: `create job tappa-heartbeat-first --from=cronjob/tappa-heartbeat` → log iki satır (`up (HTTP 200)`, `signal sent (HTTP 2xx)`) → panelde `tappa-uptime` up (hairpin orkestratörce ölçüldü — 2. tur madde 7).
+> 7. Adım 10(c) yedek bloğu: `create job tappa-backup-signal-first --from=cronjob/tappa-backup` → `ship` son iki satır (`done: N …`, `alert signal sent (success, HTTP 2xx)`) → panelde `tappa-backup` up.
+> 8. healthchecks.io'da e-posta entegrasyonunun test bildirimi.
+> 9. `/fail` yolunu canlıda kanıtlamak için ConfigMap'e ya da Secret'a dokunma: o yol M7/M8'de gerçek imajlarla ölçüldü; canlıda ilk gerçek arıza onu gösterir.
+> 10. state.md / backlog / open-questions güncellemesi (yapıcıya yasaktı): T116 kapanışı; Q28 (a) "kısmen — log dışı iki sinyal teslim ediliyor, yedi log sinyali açık".
+>
+> ## Açık sorular (önerimle)
+> - ~~S1~~ **KAPANDI** (2. tur: orkestratör ölçtü, hairpin çalışıyor). Eski metin — **S1 — hairpin çalışmazsa?** Öneri: önce ölç (adım 6). Çalışmazsa heartbeat'e `--resolve taptime.mt:443:<ingress-nginx ClusterIP ya da node iç adresi>` ekleyip TLS/SNI/ingress'i korumak (yalnız genel DNS yarısı düşer) — sabit adres yazmayı gerektirir; alternatif dış bir yoklayıcı (healthchecks.io yoklamaz). Karar orkestratörün.
+> - **S2 — `/healthz` mı `/readyz` mı?** Öneri: `/healthz` kalsın (görev öyle istedi; hazırlık zaten ingress üzerinden dolaylı görünür ve `/readyz` halka açık yüzeyde metreli).
+> - ~~S3~~ **KAPANDI** (2. tur: orkestratör kararı EVET, uygulandı). Eski metin — **S3 — imajı digest'e sabitlemek?** Öneri: evet, bir sonraki dokunuşta `curlimages/curl:8.22.0@sha256:58adaa4e…6777` (ölçülen index digest) — ancak multi-arch index olduğu node'dan doğrulanmadan değil; bugün etiket + sınır 33 (d).
+> - ~~S4~~ **KAPANDI** (2. tur: EVET, uygulandı). Eski metin — **S4 — "hiç kapanmayan eş" için Go testi?** Öneri: sahte wget'e "stderr'i miras alan, uzun yaşayan çocuk" taklidi ekleyen bir durum (≈10 satır); bu turda eklenmedi, M8 ölçümü var.
+> - **S5 — M20 Linux'ta yakalanmıyor.** Öneri: kabul; işaretin tek anlamlı olduğu kabuk bash 3.2 ve orada kırmızı. İstenirse test, `ship_complete` satırını silip "rc 0 + son satır yok" durumunu doğrudan üretebilir.
+> - **S6 — Q28 (a)'nın kalanı (yedi log sinyali):** SigNoz uyarısını aynı healthchecks.io hesabına (ör. SigNoz webhook → `/fail`) bağlamak doğal devam; ayrı görev.
+>
+> **Denetim ve kapanış (2026-10-09, orkestratör):** kullanıcı kararı — uyarı yolu healthchecks.io (ücretsiz, AB); kontroller `tappa-uptime` (5 dk/5 dk) ve `tappa-backup` (02:30 Malta, grace 1 sa) ve Secret `tappa-alert-pings` orkestratörce kuruldu (değerler yalnız bellekte; Infisical `/tappa-alerts`). S1 orkestratör ölçtü: restricted PodSecurity'li pod'dan `taptime.mt` 200 (hairpin çalışıyor). Tek birleşik denetim ONAY (kritik/yüksek/orta 0; dört DÜŞÜK: Retry-After bütçesi, xtrace pin açığı, iki README metni) → 2. tur (+ digest sabitleme, kapanmayan sunucu testi). Orkestratör R1a (`--retry-max-time` sil) ve R2a (ship xtrace korumasını sil) mutasyonlarını kendi koştu: ikisi de KIRMIZI. Faz sonu: `verify.sh` yeşil, `cmd/tappa` `-race` ok.
+
 ## M8-03 — Gözlemlenebilirlik
 
 - **Bağımlılık:** M8-02

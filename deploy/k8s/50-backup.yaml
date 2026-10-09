@@ -251,6 +251,21 @@ spec:
                     secretKeyRef:
                       name: tappa-backup-target
                       key: BACKUP_REMOTE
+                # 🔴 THE ALERT SIGNAL'S URL (T116): healthchecks.io's `tappa-backup` check,
+                # told "success" or "/fail" by scripts/pg-backup-ship.sh's EXIT trap.
+                # `optional: true` IS LOAD-BEARING IN THE OPPOSITE DIRECTION FROM
+                # 55-heartbeat.yaml's: without it a missing secret/tappa-alert-pings would
+                # stop the kubelet from creating THIS container, and the backup would fail
+                # because its ALARM is not configured. With it, the script prints one
+                # "skipped" line and the backup's result is its own. Only this container
+                # gets it — the dump never needs it — and only this key, never
+                # UPTIME_PING_URL. deploy/README.md, operator step 10.
+                - name: BACKUP_PING_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: tappa-alert-pings
+                      key: BACKUP_PING_URL
+                      optional: true
               volumeMounts:
                 - { name: scripts,  mountPath: /scripts, readOnly: true }
                 - { name: stage,    mountPath: /staging }
