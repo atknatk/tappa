@@ -6,6 +6,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -13,6 +14,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/a-h/templ"
 	"github.com/go-chi/chi/v5"
@@ -23,6 +25,7 @@ import (
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/internal/invite"
 	"github.com/atknatk/tappa/internal/session"
+	"github.com/atknatk/tappa/internal/sun"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
@@ -32,8 +35,18 @@ import (
 type (
 	inviteManager interface {
 		Lookup(ctx context.Context, c invite.Code) (invite.Context, error)
-		Activate(ctx context.Context, c invite.Code) (invite.Activation, error)
+		RecordConsent(ctx context.Context, c invite.Code, b invite.Binding) (invite.Context, error)
+		Activate(ctx context.Context, c invite.Code, b invite.Binding) (invite.Activation, error)
 		ActivationContext(ctx context.Context, tenantID, employeeID uuid.UUID) (invite.Context, error)
+	}
+	// activationVerifier is the ADVANCING half of internal/sun (ADR 0026). The
+	// activating tap is a GET with no button after it, so the replay guard runs
+	// HERE — the atomic ctr advance of §4.4 — and never the preview path. This is
+	// the one handler besides the check-in POST that may advance a counter, and
+	// it is a separate interface so the Tap page's tapPreviewer still cannot.
+	activationVerifier interface {
+		PreviewWithoutReplayProtection(ctx context.Context, p sun.Params) (sun.Preview, error)
+		Verify(ctx context.Context, p sun.Params) (sun.Result, error)
 	}
 	sessionManager interface {
 		Issue(ctx context.Context, p session.IssueParams) (session.Issued, error)
@@ -49,32 +62,38 @@ type (
 // decision (00005), so the constants are the vocabulary.
 const (
 	ActionActivationCompleted = "activation.completed"
+	// ActionActivationConsented is the wizard's consent (ADR 0026). It is NOT an
+	// activation: nothing is consumed and no session exists after it.
+	ActionActivationConsented = "activation.consented"
 	ActionActivationFailed    = "activation.failed"
 	ActionActivationLimited   = "activation.rate_limited"
 	ActionActivationBlocked   = "activation.blocked"
 	ActionDeviceReplaced      = "activation.device_replaced"
 )
 
-// Activation serves the three screens of the invite flow.
+// Activation serves the invite flow: a short wizard, a consent, and the first NFC
+// tap that completes it (ADR 0026).
 //
-// ROUTES AND WHY THERE ARE THREE:
+//	GET  /activate          the link the employee was sent. Validates the code,
+//	                        moves it into an HttpOnly cookie and redirects to
+//	                        itself with a clean URL; then renders wizard step
+//	                        ?step=1..4 (welcome, privacy + consent, get ready,
+//	                        "now tap the plaque").
+//	POST /activate          the same-site confirmation behind the cross-site guard.
+//	POST /api/activate      RECORDS CONSENT and binds it to this browser. It spends
+//	                        nothing and issues no session.
+//	GET  /activate/status   the waiting screen's poll: waiting / done / none.
+//	GET  /t (via Tap)       a browser holding a consented activation completes it
+//	                        on its first genuine NFC tap: sun.Verify (atomic ctr),
+//	                        same-tenant active plaque, consume, issue (CompleteByTap).
 //
-//	GET  /activate       the link the employee was sent. Validates the code, moves
-//	                     it into an HttpOnly cookie and redirects to itself with a
-//	                     clean URL; then renders the notice + Wi-Fi step + consent.
-//	POST /api/activate   spends the code, issues the session, sets the cookie.
-//	GET  /activate/done  the confirmation, identified by the NEW SESSION COOKIE.
+// WHY THE SESSION IS BORN ON THE TAP AND NOT ON THE FORM. The form proves somebody
+// opened a link; the tap proves this phone stood at one of the employer's plaques.
+// Issuing on the tap makes "activated" mean "has physically been at work with this
+// phone" and retires the practice tap (the activation IS the training moment).
 //
-// The third exists so the POST can answer 303 instead of rendering: a refresh on
-// a rendered POST would re-submit a code that is now spent and show an error to
-// someone who did nothing wrong. It also proves, at the only moment it is cheap
-// to find out, that the browser actually kept the session cookie.
-//
-// §5 ROW 3 — SCOPE NOTE, NOT A CLAIM. The tap page (`GET /t`, M5-04) is the thing
-// that redirects a session-less visitor here "without writing a record". That
-// endpoint does not exist yet, so what M5-02 delivers is the destination: an
-// activation page that exists and is reachable. Wiring the redirect is M5-04's
-// work and is NOT done here.
+// §5 ROW 3 still holds for the whole flow: no path here writes a `transactions`
+// row — the activating tap included.
 //
 // ⚠️ "WRITES NOTHING UNTIL A CODE IS SPENT" IS FALSE and an earlier version of
 // this comment said it. Measured: GET /activate?code=<consumed> writes an
@@ -86,6 +105,7 @@ const (
 type Activation struct {
 	invites  inviteManager
 	sessions sessionManager
+	sun      activationVerifier
 	audit    auditRecorder
 	// cookies writes the SESSION cookie (internal/session owns its attributes).
 	cookies session.Cookies
@@ -103,18 +123,29 @@ type Activation struct {
 	floodLimiter   *limiter
 	unknownLimiter *limiter
 	inviteLimiter  *limiter
+	// devTools marks renders for the DEV-ONLY simulate-tap strip. It is false
+	// unless cmd/tappa calls EnableDevTools on a DevToolsEnabled deployment.
+	devTools bool
+	// statusLimiter meters the waiting screen's poll (Status) on its OWN budget,
+	// so a tab left polling can never spend the flood ceiling that a real
+	// activation on the same venue network needs.
+	statusLimiter *limiter
 
 	log *slog.Logger
 }
 
 // NewActivation wires the flow. Every dependency is required: a nil recorder
 // would silently drop the §4.6 trail, and a nil manager cannot fail safely.
-func NewActivation(inv inviteManager, sess sessionManager, rec auditRecorder, cfg *config.Config, log *slog.Logger) (*Activation, error) {
+func NewActivation(inv inviteManager, sess sessionManager, verifier activationVerifier, rec auditRecorder, cfg *config.Config, log *slog.Logger) (*Activation, error) {
 	switch {
 	case inv == nil:
 		return nil, errors.New("handler: nil invite manager")
 	case sess == nil:
 		return nil, errors.New("handler: nil session manager")
+	case isNil(verifier):
+		// Without it no activation can ever complete (ADR 0026): every pending
+		// tap would fail. A startup error, not a first-tap panic.
+		return nil, errors.New("handler: nil sun verifier")
 	case rec == nil:
 		return nil, errors.New("handler: nil audit recorder")
 	case cfg == nil:
@@ -126,6 +157,7 @@ func NewActivation(inv inviteManager, sess sessionManager, rec auditRecorder, cf
 	return &Activation{
 		invites:          inv,
 		sessions:         sess,
+		sun:              verifier,
 		audit:            rec,
 		cookies:          session.NewCookies(cfg),
 		codes:            newCodeCookies(cfg),
@@ -135,18 +167,30 @@ func NewActivation(inv inviteManager, sess sessionManager, rec auditRecorder, cf
 		floodLimiter:     newLimiter(floodLimit, floodPeriod),
 		unknownLimiter:   newLimiter(unknownLimit, unknownPeriod),
 		inviteLimiter:    newLimiter(inviteFailureLimit, inviteFailurePeriod),
+		statusLimiter:    newLimiter(statusLimit, statusPeriod),
 		log:              log,
 	}, nil
 }
 
 // Mount registers the routes on r.
+//
+// /activate/tour and /activate/done ARE GONE (ADR 0026). The tour's teaching moved
+// into the wizard's first step, and "done" is now the screen the activating TAP
+// renders — there is no moment after the form where a session exists to confirm.
+// The activating tap itself is not a route of this handler: it arrives on GET /t
+// and the Tap handler hands it here (Pending, CompleteByTap), so it sits behind
+// the tap path's own address and session shields.
 func (a *Activation) Mount(r chi.Router) {
 	r.Get("/activate", a.Page)
 	r.Post("/activate", a.Continue)
-	r.Get("/activate/tour", a.Tour)
-	r.Get("/activate/done", a.Done)
+	r.Get(ActivationStatusPath, a.Status)
+	r.Get(ActivationCompletePath, a.Complete)
 	r.Post("/api/activate", a.Submit)
 }
+
+// ActivationStatusPath is what the waiting screen's script polls. A constant
+// because the template, the script's data attribute and the route must agree.
+const ActivationStatusPath = "/activate/status"
 
 // The failure screens. They are PACKAGE-LEVEL CONSTANTS, and problemBadLink is
 // ONE value used for four different internal outcomes (unknown code, expired
@@ -175,15 +219,51 @@ var (
 		Message: "We have stopped accepting activations from here for a few minutes.",
 		Hint:    "Wait a little and open your link again.",
 	}
-	problemNoSession = pages.ProblemView{
-		Title:   "Your browser didn't keep the sign-in",
-		Message: "Taptime needs to remember this phone, and this browser is not storing that.",
-		Hint:    "Turn off private browsing or allow cookies for this site, then open your link again.",
-	}
 	problemServer = pages.ProblemView{
 		Title:   "Something went wrong on our side",
 		Message: "Nothing was activated and nothing was recorded against you.",
 		Hint:    "Try your link again in a minute.",
+	}
+
+	// problemFinishHere answers a tap from a browser that has no activation cookie
+	// and no session — almost always because the link was opened inside a chat or
+	// mail app and the plaque opened the phone's real browser. The link still
+	// works, so the manager is NOT the answer (third eye #2).
+	problemFinishHere = pages.ProblemView{
+		Title:   "Finish setup in this browser",
+		Message: "This browser hasn't been set up for Taptime yet.",
+		Hint: "If you still have the link your workplace sent you, open it in this browser and go through the " +
+			"steps here, then tap the plaque again. Otherwise, ask your manager for a new link.",
+	}
+	// problemSignedOut answers a tap from a phone whose session was REVOKED —
+	// almost always because the account was set up on another phone since (audit
+	// round 2, C). "Your link still works" would be false here.
+	problemSignedOut = pages.ProblemView{
+		Title:   "This phone was signed out",
+		Message: "Your account has been set up on another phone, so this one no longer works.",
+		Hint:    "If that wasn't you, tell your manager.",
+	}
+
+	// The activating tap's refusals (ADR 0026). None of them activates anything
+	// and none writes an attendance record; each one is in audit_log. They say
+	// what to DO, because the person is standing at a plaque.
+	// problemActivationTapFailed is ONE screen for an unknown plaque, another
+	// employer's plaque, a plaque out of service and a signature that did not verify (§4.7, audit R5): the
+	// advice is the same for all three and telling them apart would be an oracle.
+	problemActivationTapFailed = pages.ProblemView{
+		Title:   "That tap didn't finish setup",
+		Message: "Your phone isn't activated yet, and nothing was recorded.",
+		Hint:    "Hold the top of your phone against a Taptime plaque at your workplace and try again.",
+	}
+	problemActivationNeedsTouch = pages.ProblemView{
+		Title:   "Hold your phone against the plaque",
+		Message: "Activation needs a real tap on the plaque, so this didn't finish it.",
+		Hint:    "Touch the top of your phone to the plaque to finish.",
+	}
+	problemActivationNotReady = pages.ProblemView{
+		Title:   "Finish the setup steps first",
+		Message: "This phone hasn't agreed to the privacy notice yet, so the tap didn't activate it.",
+		Hint:    "Open your activation link again, go through the steps, then tap the plaque.",
 	}
 )
 
@@ -205,6 +285,9 @@ func (a *Activation) Page(w http.ResponseWriter, r *http.Request) {
 	if raw := r.URL.Query().Get("code"); raw != "" {
 		ictx, err := a.invites.Lookup(r.Context(), invite.ParseCode(raw))
 		if a.overInviteBudget(w, r, ip, ictx) {
+			return
+		}
+		if errors.Is(err, invite.ErrCodeUsed) && a.alreadySetUpFor(w, r, ip, ictx) {
 			return
 		}
 		if err != nil {
@@ -238,13 +321,13 @@ func (a *Activation) Page(w http.ResponseWriter, r *http.Request) {
 			}))
 			return
 		}
-		a.startActivation(w, r, raw)
+		a.startActivation(w, r, raw, ictx.ExpiresAt)
 		return
 	}
 
 	st, ok := a.codes.read(r)
 	if !ok {
-		a.renderProblem(w, r, http.StatusOK, problemNoLink)
+		a.landWithoutLink(w, r)
 		return
 	}
 	ictx, err := a.invites.Lookup(r.Context(), st.code)
@@ -261,7 +344,89 @@ func (a *Activation) Page(w http.ResponseWriter, r *http.Request) {
 		a.renderProblem(w, r, http.StatusInternalServerError, problemServer)
 		return
 	}
-	a.renderForm(w, r, http.StatusOK, ictx, st, formState{heldBy: held})
+	a.renderForm(w, r, http.StatusOK, ictx, st, formState{
+		heldBy:          held,
+		step:            wizardStep(r, st.pending()),
+		switchConfirmed: held != nil && st.pending(),
+	})
+}
+
+// landWithoutLink answers GET /activate for a browser with no activation cookie
+// (audit round 1, third eye #2 and #3). Three different people arrive here and
+// each is told the thing that is true for them:
+//
+//	a phone that is ALREADY set up    "already set up — tap a plaque". This is the
+//	                                  waiting tab reloaded after success, or the
+//	                                  link opened again. Sending them to their
+//	                                  manager would be wrong advice.
+//	a tap from a browser that never   ?from=tap: the NFC tap opened a browser that
+//	ran the wizard                    is not the one the link was opened in (the
+//	                                  in-app-browser case). The link still works —
+//	                                  open it HERE.
+//	anybody else                      the original "you need your activation link".
+func (a *Activation) landWithoutLink(w http.ResponseWriter, r *http.Request) {
+	held, err := a.heldBy(r)
+	if err != nil {
+		a.log.Error("activation page: could not determine the phone's holder", "err", err)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemServer)
+		return
+	}
+	if held != nil {
+		a.render(w, r, http.StatusOK, pages.AlreadySetUp(pages.AlreadySetUpView{EmployeeName: held.FullName}))
+		return
+	}
+	switch r.URL.Query().Get("from") {
+	case "tap":
+		a.renderProblem(w, r, http.StatusOK, problemFinishHere)
+		return
+	case "signedout":
+		a.renderProblem(w, r, http.StatusOK, problemSignedOut)
+		return
+	}
+	a.renderProblem(w, r, http.StatusOK, problemNoLink)
+}
+
+// alreadySetUpFor handles a SPENT invitation opened on the phone that holds that
+// very employee's live session: the person is fine, and "this link can't be used,
+// ask your manager" would send them away for nothing. The attempt is still
+// recorded (§4.6) but charged to the IP window only — it is not abuse. It reports
+// whether it answered.
+func (a *Activation) alreadySetUpFor(w http.ResponseWriter, r *http.Request, ip string, ictx invite.Context) bool {
+	held, err := a.heldBy(r)
+	if err != nil || held == nil || held.EmployeeID != ictx.EmployeeID {
+		return false
+	}
+	a.failAttempt(r.Context(), ip, ictx, "already_used_on_this_phone", againstIPOnly)
+	a.render(w, r, http.StatusOK, pages.AlreadySetUp(pages.AlreadySetUpView{EmployeeName: held.FullName}))
+	return true
+}
+
+// wizardStep reads ?step= for the activation wizard (ADR 0026) and decides which
+// screen this visit gets.
+//
+//	1  welcome — how Taptime works
+//	2  privacy notice + consent (the only form)
+//	3  get ready — Wi-Fi and "stay in this browser"
+//	4  the waiting screen: "now tap the plaque"
+//
+// Navigation is plain GET links, so the wizard works with JavaScript off. Steps 3
+// and 4 exist only AFTER consent — they describe what happens next, and showing
+// them to somebody who has not agreed would skip the one step that matters — so
+// an unconsented visit is clamped to step 2 at most. A bare /activate lands on
+// step 1, or on the waiting screen once this browser has consented: that is the
+// state a person returning to the tab is in.
+func wizardStep(r *http.Request, consented bool) int {
+	n, err := strconv.Atoi(r.URL.Query().Get("step"))
+	if err != nil || n < 1 || n > pages.ActivateStepTap {
+		if consented {
+			return pages.ActivateStepTap
+		}
+		return 1
+	}
+	if !consented && n > 2 {
+		return 2
+	}
+	return n
 }
 
 // Continue is the same-site confirmation step behind the cross-site guard in
@@ -312,12 +477,17 @@ func (a *Activation) Continue(w http.ResponseWriter, r *http.Request) {
 		a.rejectCode(w, r, ip, ictx, err, "activate_continue")
 		return
 	}
-	a.startActivation(w, r, raw)
+	a.startActivation(w, r, raw, ictx.ExpiresAt)
 }
 
 // startActivation mints a synchronizer token, parks it with the code in the
-// cookie and redirects to a clean URL.
-func (a *Activation) startActivation(w http.ResponseWriter, r *http.Request, raw string) {
+// cookie and redirects to a clean URL. The cookie lives until the invitation
+// expires (ADR 0026).
+//
+// IT ALWAYS STARTS UNCONSENTED: a fresh arrival writes "<csrf>.<code>" with no
+// binding, even when this browser had consented to the same invitation before.
+// Opening the link again is a fresh start; the consent step is one tick away.
+func (a *Activation) startActivation(w http.ResponseWriter, r *http.Request, raw string, expires time.Time) {
 	token, err := newCSRFToken()
 	if err != nil {
 		// The message says "csrf" rather than the word redline R7 watches for:
@@ -329,11 +499,19 @@ func (a *Activation) startActivation(w http.ResponseWriter, r *http.Request, raw
 		a.renderProblem(w, r, http.StatusInternalServerError, problemServer)
 		return
 	}
-	a.codes.set(w, token, raw)
+	a.codes.set(w, token, raw, "", expires)
+	a.codes.clearDone(w)
 	a.redirect(w, r, "/activate")
 }
 
-// Submit serves POST /api/activate — the endpoint that spends the code.
+// Submit serves POST /api/activate — the wizard's consent step (ADR 0026).
+//
+// IT NO LONGER ACTIVATES ANYTHING. Until ADR 0026 this endpoint spent the code
+// and issued the session; now it RECORDS CONSENT on the invitation, binds that
+// consent to this browser, and sends the person on to the "get ready" step.
+// Nothing is consumed, the employee's status does not move and no session cookie
+// is written. The first genuine NFC tap from this browser completes the
+// activation (CompleteByTap).
 //
 // ORDER OF CHECKS, and why each one is where it is:
 //
@@ -345,12 +523,12 @@ func (a *Activation) startActivation(w http.ResponseWriter, r *http.Request, raw
 //	                     written to audit_log, because a tenant is known.
 //	· per-invite window  now attributable, so a trip writes a row rather than
 //	                     vanishing (§4.6).
-//	· consent            the GDPR gate. Nothing is consumed without it, and the
-//	                     refusal is itself recorded.
-//	· activate           the single atomic statement (§4.4 shape).
-//	· revoke, then issue ORDER IS LOAD-BEARING: RevokeAllForEmployee kills every
-//	                     live session of the employee, so issuing first would kill
-//	                     the session just issued.
+//	· csrf               the synchronizer token (measure 1, cookies.go).
+//	· holder             another employee's session on this phone needs an
+//	                     explicit "switch" tick (measure 2).
+//	· consent            the GDPR gate; the refusal is itself recorded.
+//	· record + bind      the consent row and the new binding, then the cookie
+//	                     that carries the binding.
 func (a *Activation) Submit(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
 	if a.flooded(w, r, ip, "activate_submit") {
@@ -404,6 +582,10 @@ func (a *Activation) Submit(w http.ResponseWriter, r *http.Request) {
 	// form themselves, on a page bearing a stranger's name), which measure 2
 	// addresses and which is NOT claimed to be closed here.
 	//
+	// It matters MORE since ADR 0026, not less: this POST is now what mints the
+	// consent binding, and the binding is what lets a later tap activate. A forged
+	// consent would turn a planted code into a pending activation.
+	//
 	// A mismatch is an ATTACK signal, not a user slip, so it does count against
 	// the invitation's budget (see budgetScope).
 	if !st.csrfMatches(r.PostFormValue("csrf")) {
@@ -415,12 +597,12 @@ func (a *Activation) Submit(w http.ResponseWriter, r *http.Request) {
 
 	// MEASURE 2 (cookies.go): never bind this phone to a different employee
 	// without being told to. The session already on the phone is EVIDENCE of who
-	// it belongs to; overwriting it silently is what turned the audit's fixation
-	// into a lost shift for someone who would never have noticed.
+	// it belongs to. The switch is confirmed HERE, where a person is reading a
+	// page, because the tap that completes it has no screen to confirm on.
 	held, err := a.heldByOther(r, ictx.EmployeeID)
 	if err != nil {
 		// FAIL CLOSED: we cannot tell whether this would replace someone, so we do
-		// not do it. Nothing is consumed and the visitor is told to try again.
+		// not do it. Nothing is recorded and the visitor is told to try again.
 		a.log.Error("activation submit: could not determine the phone's holder", "err", err)
 		a.renderProblem(w, r, http.StatusInternalServerError, problemServer)
 		return
@@ -429,7 +611,7 @@ func (a *Activation) Submit(w http.ResponseWriter, r *http.Request) {
 		a.recordConflict(r.Context(), ip, ictx, "session_conflict_unconfirmed")
 		a.log.Warn("activation would replace another employee's session", "ip", ip,
 			"held_employee_id", held.EmployeeID, "offered_employee_id", ictx.EmployeeID)
-		a.renderForm(w, r, http.StatusConflict, ictx, st, formState{heldBy: held, switchMissing: true})
+		a.renderForm(w, r, http.StatusConflict, ictx, st, formState{heldBy: held, switchMissing: true, step: 2})
 		return
 	}
 
@@ -437,25 +619,283 @@ func (a *Activation) Submit(w http.ResponseWriter, r *http.Request) {
 		// A USER SLIP, not an attack: forgetting the box must not spend the
 		// invitation's budget, or a confused employee locks themselves out of
 		// their own link with a 429. It still counts against the IP window (which
-		// is 60 and would take real determination to reach) and it is still
+		// is 600 and would take real determination to reach) and it is still
 		// recorded — §4.6 wants the refusal visible, it does not want it punished.
 		a.failAttempt(r.Context(), ip, ictx, "consent_missing", againstIPOnly)
 		a.renderForm(w, r, http.StatusBadRequest, ictx, st, formState{
-			heldBy: held, consentMissing: true, switchConfirmed: held != nil,
+			heldBy: held, consentMissing: true, switchConfirmed: held != nil, step: 2,
 		})
 		return
 	}
 
-	act, err := a.invites.Activate(r.Context(), code)
+	// The binding is minted fresh on EVERY consent, including a repeated one, so
+	// the browser that agreed last is the one whose tap counts (invites.sql,
+	// RecordInviteConsent). Same generator and size as the synchronizer token:
+	// 256 bits of crypto/rand, base64url.
+	rawBinding, err := newCSRFToken()
 	if err != nil {
-		a.rejectCode(w, r, ip, act.Context, err, "activate_submit")
+		a.log.Error("activation: minting the consent binding failed", "err", err)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemServer)
+		return
+	}
+	consented, err := a.invites.RecordConsent(r.Context(), code, invite.ParseBinding(rawBinding))
+	if err != nil {
+		a.rejectCode(w, r, ip, consented, err, "activate_submit")
+		return
+	}
+
+	// The cookie now carries the binding. Its raw value exists as a local in this
+	// function and as a header on this response, nowhere else.
+	a.codes.rebind(w, r, rawBinding, consented.ExpiresAt)
+	// A previous activation's marker in this browser belongs to a previous
+	// waiting tab (audit round 2, A).
+	a.codes.clearDone(w)
+
+	a.record(r.Context(), audit.Event{
+		TenantID: consented.TenantID,
+		Action:   ActionActivationConsented,
+		Target:   consented.EmployeeID.String(),
+		Detail: activationDetail{
+			InviteID:     consented.InviteID.String(),
+			Outcome:      "ok",
+			SecondDevice: consented.SecondDevice(),
+		},
+	})
+	a.redirect(w, r, "/activate?step=3")
+}
+
+// Pending reports whether this request's browser holds a CONSENTED activation —
+// one whose next NFC tap completes it (ADR 0026). It reads the cookie only: no
+// database, so the tap path can ask it on every request for free.
+//
+// A cookie WITHOUT a binding is not pending. That is the planted-cookie case
+// (cookies.go, measure 3): a cross-site GET can store a code in a stranger's
+// browser, but never a binding, so a planted code makes the tap fall through to
+// the ordinary §5 row 3 redirect — onto the wizard, which names the employer and
+// the employee — rather than activating anybody.
+func (a *Activation) Pending(r *http.Request) bool {
+	st, ok := a.codes.read(r)
+	return ok && st.pending()
+}
+
+// CompleteByTap is the activating tap (ADR 0026): GET /t from a browser holding a
+// consented activation. The Tap handler calls it when Pending is true, after the
+// SUN URL has parsed and after the session middleware has run.
+//
+// WHAT IT WRITES, and what it does not:
+//
+//   - NO `transactions` ROW, ever. This tap is not attendance — it proves the
+//     person stood at one of their employer's plaques with this phone — so it is
+//     treated like §5 row 3: the tap that finds no usable session records no
+//     attendance. The NEXT tap is an ordinary, non-practice check-in (ADR 0026
+//     replaces the practice tap).
+//   - tags.last_ctr IS ADVANCED, atomically, by sun.Verify (§4.4). A replayed
+//     activation URL therefore fails exactly like a replayed check-in.
+//   - audit_log: activation.completed with the plaque's uid and wall on success;
+//     activation.failed with a reason on every refusal that has a tenant.
+//
+// ORDER, and why:
+//
+//	· flood ceiling       before any database work.
+//	· lookup              the invitation must still be usable; a dead one also
+//	                      clears the cookie so the next tap is an ordinary one.
+//	· NFC only            a QR URL carries no proof of a touch, so it cannot
+//	                      activate (and advances nothing).
+//	· sun.Verify          CMAC first, THEN the atomic ctr advance — inside Verify.
+//	· plaque checks       active, mounted, and the SAME tenant as the invitation.
+//	                      Any active plaque of that employer is acceptable.
+//	· finishActivation    consume (consent + binding in the same statement),
+//	                      revoke a replaced phone, issue, set the cookie.
+func (a *Activation) CompleteByTap(w http.ResponseWriter, r *http.Request, p sun.Params) {
+	ip := clientIP(r)
+	if a.flooded(w, r, ip, "activate_tap") {
+		return
+	}
+	st, ok := a.codes.read(r)
+	if !ok || !st.pending() {
+		// The Tap handler asks Pending first, so this is a wiring slip rather than
+		// a visitor's state. Answer like an unconsented phone: back to the wizard.
+		a.redirect(w, r, "/activate")
+		return
+	}
+
+	ictx, err := a.invites.Lookup(r.Context(), st.code)
+	if a.overInviteBudget(w, r, ip, ictx) {
+		return
+	}
+	if err != nil {
+		if _, classified := inviteFailureReason(err); classified || errors.Is(err, invite.ErrUnknownCode) {
+			// A dead invitation will never complete; keep it from hijacking this
+			// phone's taps any longer (a live session underneath would otherwise
+			// be overruled by a cookie that can no longer do anything).
+			a.codes.clear(w)
+		}
+		a.rejectCode(w, r, ip, ictx, err, "activate_tap")
+		return
+	}
+
+	if !p.HasSUN() {
+		a.failTap(r.Context(), ip, ictx, "no_sun", "")
+		a.renderProblem(w, r, http.StatusBadRequest, problemActivationNeedsTouch)
+		return
+	}
+
+	// THE PLAQUE IS JUDGED BEFORE ANYTHING ADVANCES (audit R5). The preview resolves
+	// the tag's tenant and status WITHOUT touching tags.last_ctr; only a plaque of
+	// the invitation's own tenant that is in service goes on to sun.Verify. Without
+	// this, an invitee of tenant A tapping tenant B's plaque moved B's counter while
+	// leaving no row in B's trail — the gap checkin.go's tenant gate closes for an
+	// ordinary tap.
+	//
+	// ONE ANSWER FOR THREE REFUSALS (§4.7): an unknown uid, another tenant's plaque
+	// and a signature that does not verify all render problemActivationTapFailed
+	// with the same status, so a pending invitee cannot use the activation path to
+	// learn which uids exist or whose they are. audit_log keeps the distinction.
+	pv, err := a.sun.PreviewWithoutReplayProtection(r.Context(), p)
+	if err != nil {
+		if errors.Is(err, sun.ErrUnknownTag) {
+			a.failTap(r.Context(), ip, ictx, "unknown_tag", "")
+			a.log.Warn("activation tap: unknown plaque", "tag_uid", p.UID, "invite_id", nonNil(ictx.InviteID))
+			a.renderProblem(w, r, http.StatusBadRequest, problemActivationTapFailed)
+			return
+		}
+		a.log.Error("activation tap: plaque pre-check failed", "tag_uid", p.UID, "err", err)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemServer)
+		return
+	}
+	// The foreign plaque's uid is NOT written into this tenant's trail (§4.5).
+	if pv.TenantID != ictx.TenantID {
+		a.failTap(r.Context(), ip, ictx, "foreign_tenant_tag", "")
+		a.log.Warn("activation tap: plaque of another tenant", "tag_uid", p.UID,
+			"invite_tenant_id", ictx.TenantID, "tag_tenant_id", pv.TenantID)
+		a.renderProblem(w, r, http.StatusBadRequest, problemActivationTapFailed)
+		return
+	}
+	// A plaque out of service gets the SAME answer too (audit round 2, security
+	// LOW 1): its status is known before any signature is checked — sun.Verify
+	// never unwraps a key for a dead tag — so a specific screen here would tell an
+	// unsigned URL whether a uid is retired, lost or in the box.
+	if pv.TagStatus != "active" || pv.Location == nil {
+		a.failTap(r.Context(), ip, ictx, "tag_not_active", p.UID)
+		a.renderProblem(w, r, http.StatusBadRequest, problemActivationTapFailed)
+		return
+	}
+
+	// Only now the advancing path: CMAC first, then the atomic counter (§4.4).
+	res, err := a.sun.Verify(r.Context(), p)
+	if err != nil {
+		if errors.Is(err, sun.ErrUnknownTag) {
+			a.failTap(r.Context(), ip, ictx, "unknown_tag", "")
+			a.renderProblem(w, r, http.StatusBadRequest, problemActivationTapFailed)
+			return
+		}
+		a.log.Error("activation tap: sun verification failed", "tag_uid", p.UID, "err", err)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemServer)
+		return
+	}
+	// Belt over the pre-check: what Verify resolved must still be our tenant's
+	// active, mounted plaque. Unreachable unless the row changed in between.
+	if res.Tag.TenantID != ictx.TenantID || res.Tag.Status != "active" || res.Location == nil {
+		a.failTap(r.Context(), ip, ictx, "tag_changed", "")
+		a.renderProblem(w, r, http.StatusBadRequest, problemActivationTapFailed)
+		return
+	}
+	if !res.SUNValid {
+		// A CMAC that did not verify, or a counter that did not advance (a replayed
+		// or reloaded activation URL). The two are one refusal on purpose (§4.7).
+		a.failTap(r.Context(), ip, ictx, "sun_invalid", p.UID)
+		a.renderProblem(w, r, http.StatusBadRequest, problemActivationTapFailed)
+		return
+	}
+
+	a.finishActivation(w, r, ip, st, activationTap{UID: res.Tag.UID, LocationID: *res.Location})
+}
+
+// HolderDeactivated reports whether the employee a live session belongs to has
+// been deactivated. The Tap handler asks it before letting a pending activation
+// take over a live session (§5 row 4 must still fire for that person).
+func (a *Activation) HolderDeactivated(ctx context.Context, tenantID, employeeID uuid.UUID) (bool, error) {
+	ictx, err := a.invites.ActivationContext(ctx, tenantID, employeeID)
+	if err != nil {
+		return false, fmt.Errorf("handler: session holder status: %w", err)
+	}
+	return ictx.Status == "deactivated", nil
+}
+
+// EnableDevTools turns on the DEV-ONLY simulate-tap strip on this flow's screens
+// (ADR 0026, "Geliştirme aracı"). It is a no-op unless DevToolsEnabled(cfg): the
+// caller cannot switch it on for a deployment that is not dev on loopback. Call it
+// before serving.
+func (a *Activation) EnableDevTools(cfg *config.Config) { a.devTools = DevToolsEnabled(cfg) }
+
+// activationTap is the plaque that completed an activation, for the audit row.
+type activationTap struct {
+	UID        string
+	LocationID uuid.UUID
+}
+
+// failTap records one refused activating tap. It is failAttempt plus the plaque's
+// uid when that uid belongs to the invitation's own tenant (the caller passes ""
+// otherwise). Charged to the invitation's window: a loop of bad taps is exactly
+// what that window bounds, and every row here is permanent (audit_log is
+// append-only).
+func (a *Activation) failTap(ctx context.Context, ip string, ictx invite.Context, reason, tagUID string) {
+	if ictx.InviteID != uuid.Nil {
+		a.inviteLimiter.Charge(ictx.InviteID.String())
+	}
+	if ictx.TenantID == uuid.Nil {
+		return
+	}
+	a.record(ctx, audit.Event{
+		TenantID: ictx.TenantID,
+		Action:   ActionActivationFailed,
+		Target:   ictx.EmployeeID.String(),
+		Detail: activationDetail{
+			InviteID: nonNil(ictx.InviteID),
+			Outcome:  "rejected",
+			Reason:   reason,
+			TagUID:   tagUID,
+		},
+	})
+	a.log.Info("activation tap rejected", "reason", reason, "ip", ip,
+		"employee_id", ictx.EmployeeID, "invite_id", nonNil(ictx.InviteID))
+}
+
+// finishActivation is THE activation: consume the invitation, revoke a replaced
+// phone's sessions, issue this phone's session, swap the cookies, write the trail,
+// render the confirmation. It was the second half of Submit until ADR 0026 moved
+// activation onto the tap; it is one function so there is exactly one place where
+// a session is born from an invitation.
+func (a *Activation) finishActivation(w http.ResponseWriter, r *http.Request, ip string, st activationState, tap activationTap) {
+	act, err := a.invites.Activate(r.Context(), st.code, st.binding)
+	if err != nil {
+		if errors.Is(err, invite.ErrConsentMissing) {
+			// Another browser consented since, or the row never recorded this
+			// one. Drop the stale binding so the next GET /activate shows the
+			// wizard again instead of a waiting screen that cannot finish.
+			a.failTap(r.Context(), ip, act.Context, "consent_missing", tap.UID)
+			a.codes.rebind(w, r, "", act.ExpiresAt)
+			a.renderProblem(w, r, http.StatusConflict, problemActivationNotReady)
+			return
+		}
+		if _, classified := inviteFailureReason(err); classified {
+			a.codes.clear(w)
+		}
+		a.rejectCode(w, r, ip, act.Context, err, "activate_tap")
 		return
 	}
 
 	// A second device replaces the first: kill the old sessions BEFORE issuing
-	// the new one. See the decision note below.
+	// the new one. ORDER IS LOAD-BEARING: RevokeAllForEmployee kills every live
+	// session of the employee, so issuing first would kill the session just issued.
+	// revoked counts the other phones actually signed out; the confirmation only
+	// says "your other phone has been signed out" when it is > 0. An employee
+	// who was 'active' but held no live session (lost phone, cleared browser) has
+	// no other phone to sign out, and telling them otherwise is false.
+	revoked := 0
 	if act.SecondDeviceReplaced {
 		n, err := a.sessions.RevokeAllForEmployee(r.Context(), act.TenantID, act.EmployeeID)
+		revoked = n
 		if err != nil {
 			// The invitation is already spent, so failing here would leave the
 			// employee unable to retry with a dead code. The activation stands,
@@ -506,6 +946,7 @@ func (a *Activation) Submit(w http.ResponseWriter, r *http.Request) {
 				InviteID: act.InviteID.String(),
 				Outcome:  "session_issue_failed",
 				Reason:   "the invitation was consumed but no session could be issued",
+				TagUID:   tap.UID,
 			},
 		})
 		a.renderProblem(w, r, http.StatusInternalServerError, problemServer)
@@ -513,16 +954,10 @@ func (a *Activation) Submit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := a.cookies.Set(w, issued.Token); err != nil {
-		// SYMMETRIC WITH THE BRANCH ABOVE, and an audit was right that it was not.
-		// Both leave the SAME state — the invitation is spent, the employee is
-		// 'active', and nobody holds a usable session — so both must leave the same
-		// trail (§4.6). Only one of them wrote a row, which made the trail's shape
-		// depend on which of two equivalent failures happened.
-		//
-		// This branch is unreachable in practice (Cookies.Set fails only on an
-		// empty token, and Issue has already refused to return one), and that is
-		// exactly why the asymmetry survived review: nobody could trip it. An
-		// unreachable branch still teaches the next reader what the rule is.
+		// SYMMETRIC WITH THE BRANCH ABOVE: both leave the SAME state — the
+		// invitation is spent, the employee is 'active', and nobody holds a usable
+		// session — so both leave the same trail (§4.6). Unreachable in practice
+		// (Cookies.Set fails only on an empty token, which Issue never returns).
 		a.log.Error("activation: writing the session cookie failed", "employee_id", act.EmployeeID, "err", err)
 		a.record(r.Context(), audit.Event{
 			TenantID: act.TenantID,
@@ -532,6 +967,7 @@ func (a *Activation) Submit(w http.ResponseWriter, r *http.Request) {
 				InviteID: act.InviteID.String(),
 				Outcome:  "session_cookie_failed",
 				Reason:   "the invitation was consumed but the session cookie could not be written",
+				TagUID:   tap.UID,
 			},
 		})
 		a.renderProblem(w, r, http.StatusInternalServerError, problemServer)
@@ -539,6 +975,8 @@ func (a *Activation) Submit(w http.ResponseWriter, r *http.Request) {
 	}
 	// The credential is spent; do not leave a dead one in the browser.
 	a.codes.clear(w)
+	// The marker the waiting tab's poll needs to say "done" for THIS activation.
+	a.codes.setDone(w, issued.Session.ID.String())
 
 	a.record(r.Context(), audit.Event{
 		TenantID: act.TenantID,
@@ -550,136 +988,140 @@ func (a *Activation) Submit(w http.ResponseWriter, r *http.Request) {
 			SecondDevice: act.SecondDeviceReplaced,
 			SessionID:    issued.Session.ID.String(),
 			Device:       issued.Session.DeviceInfo,
+			TagUID:       tap.UID,
+			LocationID:   tap.LocationID.String(),
 		},
 	})
 
-	// WHERE A FRESH ACTIVATION LANDS (M5-07). A FIRST activation goes to the mini
-	// tour; a SECOND DEVICE goes straight to the confirmation it already knows.
-	//
-	// THAT SPLIT IS THE TOUR'S HONESTY GATE, not a convenience. The tour's third
-	// slide says the first tap is a practice run, and practice is derived from "this
-	// person has no prior record" (internal/domain/tap, isPracticeTap). The one
-	// moment that is knowable cheaply is HERE: SecondDeviceReplaced is true exactly
-	// when employees.status was already 'active', and somebody who has never been
-	// activated has never held a session and therefore has never tapped. So the
-	// audience of the promise is exactly the audience it is true for. A second
-	// device would have been told something false about their next tap.
-	//
-	// THE TOUR IS STILL REACHABLE by hand at /activate/tour, and its words hold
-	// there too — see the measured limits on pages.Tour, which is why the slide
-	// speaks about the FIRST tap rather than about the NEXT one.
-	dest := "/activate/tour"
-	if act.SecondDeviceReplaced {
-		dest = "/activate/done?replaced=1"
+	// 303 TO A PAGE OF ITS OWN (audit round 2, B). The confirmation used to be
+	// rendered at the plaque's /t?… URL, and that was WRONG, not merely untidy: a
+	// reload or a restored tab re-opened a spent counter as the ordinary tap page,
+	// whose button could only produce a recorded sun-invalid reject — and that
+	// reject then debounced the person's real tap seconds later. The completion
+	// page is idempotent and has no button.
+	dest := ActivationCompletePath
+	if revoked > 0 {
+		dest += "?replaced=1"
 	}
 	a.redirect(w, r, dest)
 }
 
-// Tour serves GET /activate/tour — the three slides of M5-07's mini tour.
+// ActivationCompletePath is where a completed activation lands.
+const ActivationCompletePath = "/activate/complete"
+
+// Complete serves GET /activate/complete — the "Activation complete" screen.
 //
-// IT WRITES NOTHING. No attendance record, no audit row, no cookie: it reads the
-// session to prove somebody is behind the request and renders literals. That is
-// why the card's "the tour can be skipped" needs no mechanism — skipping is
-// following the same kind of link as finishing, and neither one leaves a trace to
-// undo. Measured by row count in TestTourDB_WritesNothing.
-//
-// IT IS BEHIND THE FLOOD CEILING for the reason Done is: it does a database round
-// trip per request even though it stores nothing, and an unshielded read path in
-// this flow is what made ratelimit.go's "DoS shield" smaller than it sounded.
-//
-// A MISSING OR DEAD SESSION GETS THE SAME SCREEN AS THE CONFIRMATION DOES, and
-// for the same reason: nothing is at stake on this page, so the ErrRevoked /
-// ErrNoSession distinction that matters enormously on the tap path (§5 rows 3 vs
-// 4) buys nothing here.
-func (a *Activation) Tour(w http.ResponseWriter, r *http.Request) {
+// IDEMPOTENT ON RELOAD and GATED: while the tappa_activated marker names the
+// live session this browser holds, it shows the confirmation; afterwards (marker
+// expired) a phone with a live session sees "already set up"; anybody else gets
+// the ordinary no-link landing. It writes nothing.
+func (a *Activation) Complete(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
-	if a.flooded(w, r, ip, "activate_tour") {
+	if a.flooded(w, r, ip, "activate_complete") {
 		return
 	}
-	tok, err := a.cookies.Read(r)
-	if err != nil {
-		a.renderProblem(w, r, http.StatusOK, problemNoSession)
-		return
-	}
-	if _, err := a.sessions.Verify(r.Context(), tok); err != nil {
-		if errors.Is(err, session.ErrNoSession) || errors.Is(err, session.ErrRevoked) {
-			a.renderProblem(w, r, http.StatusOK, problemNoSession)
-			return
+	if marker, ok := a.codes.readDone(r); ok {
+		if tok, err := a.cookies.Read(r); err == nil {
+			res, err := a.sessions.Verify(r.Context(), tok)
+			switch {
+			case err == nil && res.ID.String() == marker:
+				name := ""
+				if ictx, cerr := a.invites.ActivationContext(r.Context(), res.TenantID, res.EmployeeID); cerr == nil {
+					name = ictx.FullName
+				} else {
+					a.log.Error("activation complete: loading the employee failed", "err", cerr)
+				}
+				a.render(w, r, http.StatusOK, pages.Activated(pages.ActivatedView{
+					EmployeeName: name,
+					SecondDevice: r.URL.Query().Get("replaced") == "1",
+				}))
+				return
+			case err != nil && !errors.Is(err, session.ErrNoSession) && !errors.Is(err, session.ErrRevoked):
+				a.log.Error("activation complete: verifying the session failed", "err", err)
+				a.renderProblem(w, r, http.StatusInternalServerError, problemServer)
+				return
+			}
 		}
-		a.log.Error("activation tour: verifying the session failed", "err", err)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemServer)
+	}
+	a.landWithoutLink(w, r)
+}
+
+// Status serves GET /activate/status — what the waiting screen's script polls to
+// notice that the activation finished in ANOTHER TAB (the NFC tap opens the
+// phone's default browser in a new tab; the cookies are shared).
+//
+//	{"state":"waiting"}  this browser still holds a consented activation
+//	{"state":"done"}     the activation THIS browser completed: the tappa_activated
+//	                     marker names the live session it holds
+//	{"state":"none"}     neither: nothing to wait for (expired, cleared, other)
+//
+// IT IS CHEAP ON PURPOSE. "waiting" is answered from the cookie alone; only the
+// other two states cost one session lookup. It writes nothing, records nothing
+// and is metered on its own budget, so a forgotten tab cannot eat the flood
+// ceiling that a colleague's real activation on the same network needs.
+//
+// It says nothing about WHO: no name, no employer, no ids. A script on this
+// origin could read it, and it does not need to know.
+func (a *Activation) Status(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if n := a.statusLimiter.Charge(clientIP(r)); n > statusLimit {
+		w.Header().Set("Retry-After", strconv.Itoa(int(statusPeriod/time.Second)))
+		a.writeStatus(w, http.StatusTooManyRequests, "slow_down")
 		return
 	}
-	a.render(w, r, http.StatusOK, pages.Tour(pages.TourView{Step: tourStep(r)}))
-}
-
-// tourStep reads ?step= and CLAMPS it into 1..pages.TourSteps.
-//
-// An unparseable, missing or out-of-range value becomes step one rather than an
-// error screen: there is nothing to get wrong here — no record, no credential —
-// so a mistyped number does not deserve a failure page. The clamp is also what
-// keeps the template's "unknown step behaves as step one" fallback unreachable in
-// production while leaving it correct if it ever is reached.
-func tourStep(r *http.Request) int {
-	n, err := strconv.Atoi(r.URL.Query().Get("step"))
-	if err != nil || n < 1 || n > pages.TourSteps {
-		return 1
+	if a.Pending(r) {
+		a.writeStatus(w, http.StatusOK, "waiting")
+		return
 	}
-	return n
-}
-
-// Done serves GET /activate/done — the confirmation, identified by the session
-// cookie that was just set.
-//
-// WHY IT READS THE SESSION RATHER THAN CARRYING STATE FORWARD: it makes the
-// confirmation a genuine end-to-end check. If the browser silently dropped the
-// cookie (private mode, a locked-down work profile), the employee finds out here,
-// with a sentence that says what to change — instead of at the plaque tomorrow.
-//
-// A REVOKED session lands on the same "no session" screen, and that is correct
-// HERE even though the ErrRevoked/ErrNoSession distinction matters enormously on
-// the tap path (§5 rows 3 vs 4, session.Verify's API TRAP). The difference is that
-// no attendance record is at stake on this page: there is nothing to write, so
-// there is nothing to lose. The tap endpoint (M5-05) must branch on it and will.
-func (a *Activation) Done(w http.ResponseWriter, r *http.Request) {
-	// BEHIND THE SHIELD TOO. This endpoint writes nothing, so it cannot fill the
-	// trail — but it does two database round trips per request (verify the
-	// session, load the employee and the venue), and ratelimit.go calls the flood
-	// budget "the DoS shield" without qualification. An unshielded read path in
-	// the same flow made that sentence smaller than it sounded.
-	ip := clientIP(r)
-	if a.flooded(w, r, ip, "activate_done") {
+	// "done" ONLY for the activation this browser just completed: the marker the
+	// activating tap set must name the session the browser now holds. Any other
+	// live session — the previous holder's on a phone being handed over, an older
+	// one of the same person — is "none" (third eye, audit round 1).
+	// An activation cookie WITHOUT a binding means a newer activation is under way
+	// in this browser and has not been consented yet: whatever marker is still
+	// around belongs to an older one (audit round 2, A).
+	if _, has := a.codes.read(r); has {
+		a.writeStatus(w, http.StatusOK, "none")
+		return
+	}
+	marker, ok := a.codes.readDone(r)
+	if !ok {
+		a.writeStatus(w, http.StatusOK, "none")
 		return
 	}
 	tok, err := a.cookies.Read(r)
 	if err != nil {
-		a.renderProblem(w, r, http.StatusOK, problemNoSession)
+		a.writeStatus(w, http.StatusOK, "none")
 		return
 	}
 	res, err := a.sessions.Verify(r.Context(), tok)
 	if err != nil {
 		if errors.Is(err, session.ErrNoSession) || errors.Is(err, session.ErrRevoked) {
-			a.renderProblem(w, r, http.StatusOK, problemNoSession)
+			a.writeStatus(w, http.StatusOK, "none")
 			return
 		}
-		a.log.Error("activation done: verifying the session failed", "err", err)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemServer)
+		a.log.Error("activation status: verifying the session failed", "err", err)
+		a.writeStatus(w, http.StatusServiceUnavailable, "unknown")
 		return
 	}
-
-	ictx, err := a.invites.ActivationContext(r.Context(), res.TenantID, res.EmployeeID)
-	if err != nil {
-		a.log.Error("activation done: loading the employee failed", "employee_id", res.EmployeeID, "err", err)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemServer)
+	if res.ID.String() != marker {
+		a.writeStatus(w, http.StatusOK, "none")
 		return
 	}
+	a.writeStatus(w, http.StatusOK, "done")
+}
 
-	a.render(w, r, http.StatusOK, pages.Done(pages.DoneView{
-		EmployeeName: ictx.FullName,
-		LocationName: ictx.LocationName,
-		WiFiSSID:     ictx.WiFiSSID,
-		SecondDevice: r.URL.Query().Get("replaced") == "1",
-	}))
+func (a *Activation) writeStatus(w http.ResponseWriter, status int, state string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(struct {
+		State string `json:"state"`
+	}{state}); err != nil {
+		// The status line is already sent; a log is all that is left (§7). The
+		// value is a fixed word, so nothing sensitive is lost here.
+		a.log.Error("activation status: writing the body failed", "err", err)
+	}
 }
 
 // activationDetail is the audit payload for this flow.
@@ -701,6 +1143,12 @@ type activationDetail struct {
 	// (device.go). It is here because ADR 0005 Y-D's detection signal is "N
 	// employees activated from one device", and that report needs the field.
 	Device string `json:"device,omitempty"`
+	// TagUID and LocationID name the plaque whose tap completed (or failed to
+	// complete) the activation (ADR 0026). The uid is not a secret — the chip
+	// prints it in the address bar — and it is only written for a plaque of the
+	// SAME tenant as the row.
+	TagUID     string `json:"tag_uid,omitempty"`
+	LocationID string `json:"location_id,omitempty"`
 }
 
 // rejectCode is the single exit for every unusable-code outcome: it records the
@@ -770,6 +1218,7 @@ var inviteFailureReasons = map[error]string{
 	invite.ErrCodeUsed:       "already_used",
 	invite.ErrCodeCancelled:  "cancelled",
 	invite.ErrNotActivatable: "employee_not_activatable",
+	invite.ErrConsentMissing: "consent_missing",
 }
 
 // inviteFailureReason resolves err against the table with errors.Is, so a wrapped
@@ -940,6 +1389,8 @@ func nonNil(id uuid.UUID) string {
 // formState is the transient, per-render half of the activation form: what went
 // wrong last time and whose session is in the way.
 type formState struct {
+	// step is the wizard screen to render (wizardStep).
+	step           int
 	consentMissing bool
 	switchMissing  bool
 	// switchConfirmed keeps a confirmed switch checked when the form comes back
@@ -960,6 +1411,9 @@ func (a *Activation) renderForm(w http.ResponseWriter, r *http.Request, status i
 		ConsentMissing:   fs.consentMissing,
 		SwitchMissing:    fs.switchMissing,
 		SwitchConfirmed:  fs.switchConfirmed,
+		Step:             fs.step,
+		Consented:        st.pending(),
+		StatusURL:        ActivationStatusPath,
 		// CSRFToken is rendered ON PURPOSE — it is the synchronizer token, not a
 		// secret in the §4.7 sense. The invite code, which IS one, is not here.
 		CSRFToken: st.csrf,
@@ -1131,12 +1585,21 @@ func (a *Activation) renderProblem(w http.ResponseWriter, r *http.Request, statu
 // responses are personal (a name, an employer, a venue) and they are reached
 // from a credential-bearing URL; a shared phone's back button must not resurrect
 // them from a cache, and no intermediary should keep a copy.
+//
+// THE CONTENT SECURITY POLICY IS NOW SET HERE TOO (ADR 0026). tap.go's tapCSP note
+// deferred extending it to this flow "as its own task"; the wizard rewrite is that
+// task. The pages already have the shape it wants — one stylesheet, one script of
+// our own, self-hosted fonts, forms that post to this origin, no inline anything —
+// plus one fetch to /activate/status, which is what connect-src 'self' is for.
+// frame-ancestors 'none' matters here for the same reason as on the tap page: the
+// consent form is a single button worth clickjacking.
 func (a *Activation) render(w http.ResponseWriter, r *http.Request, status int, c templ.Component) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", activationCSP)
 	w.WriteHeader(status)
-	if err := c.Render(r.Context(), w); err != nil {
+	if err := c.Render(devToolsContext(r.Context(), a.devTools), w); err != nil {
 		// The status line is already on the wire, so there is nothing to send but
 		// a log line. Never swallowed (§7).
 		a.log.Error("rendering the activation page failed", "err", err)
@@ -1150,6 +1613,9 @@ func (a *Activation) redirect(w http.ResponseWriter, r *http.Request, to string)
 	w.Header().Set("Cache-Control", "no-store")
 	http.Redirect(w, r, to, http.StatusSeeOther)
 }
+
+// activationCSP is tapCSP plus connect-src 'self' for the waiting screen's poll.
+const activationCSP = tapCSP + "; connect-src 'self'"
 
 // originOf reduces a configured base URL to its scheme://host origin, which is
 // the form an Origin header takes. A BaseURL with a path ("https://x/app") would

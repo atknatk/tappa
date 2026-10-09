@@ -171,6 +171,15 @@ agent `tappa-security-auditor` (milestone sonunda)
 
 ## M5-02 — Davet ve aktivasyon akışı
 
+> ⚠️ **ADR 0026 (2026-10-04) bu kartın oturum-verme kısmının yerini aldı.**
+> `POST /api/activate` artık **yalnız onayı kaydeder** (`consented_at` + tarayıcıya
+> bağlı `consent_binding_hash`, migration 00035); daveti tüketmez, oturum vermez.
+> Aktivasyon, onay veren tarayıcıdan gelen ilk **gerçek NFC dokunuşunda** (`GET /t`
+> → `Activation.CompleteByTap`: `sun.Verify` + aynı tenant'ın aktif plaketi + tek
+> ifadeli tüketim) tamamlanır ve `transactions` satırı yazmaz. Sayfa 4 adımlı bir
+> sihirbaz oldu; aktivasyon çerezi davetin süresi kadar yaşar; `/activate/done`
+> kaldırıldı. Aşağıdaki metin M5-02'nin **tarihsel** kaydıdır.
+
 - **Bağımlılık:** M5-01 · Q02
 - **Kırmızı çizgi:** §4.7 (davet kodu loglanmaz)
 - **Commit:** `feat(activation): add invite and one-time activation flow`
@@ -428,7 +437,7 @@ oturum çerezi.
 >    `active` çalışan + geçerli kullanılmamış davet = yeni telefon.
 >    `RevokeAllForEmployee` **`Issue`'dan ÖNCE** çağrılır — sıra taşıyıcıdır, çünkü
 >    o sorgu çalışanın **tüm canlı** oturumlarını iptal eder ve sonra çağrılsaydı
->    yeni oturumu da öldürürdü (`TestSubmit_SecondDeviceRevokesBeforeIssuing`
+>    yeni oturumu da öldürürdü (`Submit_SecondDeviceRevokesBeforeIssuing`
 >    sırayı ölçüyor). Aktivasyon öncesi form **uyarır** ("This is a new phone…"),
 >    sonrası onay ekranı **söyler**, `audit_log`'a `activation.device_replaced`
 >    yazılır. Gerekçe: çalınan telefon senaryosunda tek çare budur ve M5-01
@@ -2209,6 +2218,14 @@ sözleşme aşağıdaki kart düzeltmesinde.
 
 ## M5-07 — Mini tur ve practice tap
 
+> ⚠️ **ADR 0026 (2026-10-04) ile ikisi de kalktı.** Tur, aktivasyon sihirbazının ilk
+> adımına katlandı (`/activate/tour` yok); **practice tap'in yerini aktivasyon
+> dokunuşu aldı** — onu izleyen ilk dokunuş sıradan, sayılan bir check-in'dir
+> (`TestDecide_FirstTapAfterActivationIsNotPractice`,
+> `TestDecide_NoNewRecordIsEverPractice`). `transactions.practice` kolonu ve tarihsel
+> satırlar kalır (ADR 0008 onlar için geçerli). Aşağıdaki `Tour_*`/`TourDB_*` test
+> adları silinen testlerindir; tarihsel kayıt olarak `Test` öneki olmadan duruyorlar.
+
 - **Bağımlılık:** M5-02 · M5-06
 - **Commit:** `feat(activation): add three-slide tour and practice tap`
 
@@ -2232,7 +2249,7 @@ sözleşme aşağıdaki kart düzeltmesinde.
 > (`TestInput_HasNoClientPracticeField` — alan eklendi, test **RED**), damga ve
 > "does not count toward your hours" cümlesi `result.templ`'de pinli. M5-07'nin
 > eklediği: aynı iddianın **HTTP sınırından** denenmesi
-> (`TestTourDB_AClientCannotDeclareOrRefuseThePracticeFlag` — `practice`,
+> (`TourDB_AClientCannotDeclareOrRefuseThePracticeFlag` — `practice`,
 > `Practice`, `is_practice`, `training`, `practice_tap` alanlarıyla hem **talep**
 > hem **ret** denendi, ikisi de kolonu değiştirmedi; handler yalnız `ctx`,
 > `occurred_at`, `lat`, `lng` okuyor).
@@ -2254,7 +2271,7 @@ sözleşme aşağıdaki kart düzeltmesinde.
 > *(Bu satır ilk yazılışında çıplak `go test ./...` diye alıntılanmıştı — tam da
 > `agent-brief.md`'nin "her DB testini sessizce SKIP eder" diye işaretlediği komut.
 > Denetimde yakalandı, `make test` ile yeniden ölçüldü, sayı değişmedi; ve
-> `TestCheckinDB_PracticeThenDirection…` ile `TestTourDB_Skipping…`'in gerçekten
+> `TestCheckinDB_PracticeThenDirection…` ile `TourDB_Skipping…`'in gerçekten
 > PASS olduğu — SKIP değil — ayrıca doğrulandı.)* (Öbür yön
 > zaten kırmızıydı: `decide.go` guard'ı silinince
 > `TestDecide_DirectionPracticeOpenInDoesNotCloseChain` **RED**.) Yani "iki koruma"
@@ -2276,18 +2293,18 @@ sözleşme aşağıdaki kart düzeltmesinde.
 > **3. Tur SUNUCU TARAFINDA üç GET'tir; JS yok, istemci state'i yok, YAZMA yok.**
 > `GET /activate/tour?step=1..3`, ilerleme bir **link**. Adım dışı/bozuk değer
 > **1'e kırpılır** (hata ekranı değil). Tur `transactions`, `audit_log` veya çerez
-> **yazmaz** — ölçüldü (`TestTourDB_WritesNothing`: 7 istek boyunca iki sayaç da
+> **yazmaz** — ölçüldü (`TourDB_WritesNothing`: 7 istek boyunca iki sayaç da
 > sabit, ardından **pozitif kontrol** olarak gerçek bir tap sayacı +1 yapıyor).
 > "Atlanabilir" bunun sonucudur: atlamak da bitirmek de aynı linki izlemektir.
 > Turun view modeli **tek alan** taşır (`TourView.Step`) ve **hiçbir kişisel veri**
-> taşımaz — isim, mekân, id, kod hiçbiri (`TestTour_CarriesNoPersonalDataAtAll`,
-> `TestTourView_FieldCountIsTheSpec`).
+> taşımaz — isim, mekân, id, kod hiçbiri (`Tour_CarriesNoPersonalDataAtAll`,
+> `TourView_FieldCountIsTheSpec`).
 >
 > **4. 🔴 ÜÇÜNCÜ SLAYT "SONRAKİ TAP'İN PRACTICE OLACAĞINI" SÖYLEMİYOR — ölçüm
 > öyle demiyor.** `GetLastTransactionForEmployee` **verdict ve kanal yüklemi
 > taşımıyor** ve §4.6 her kararlı tap'i yazıyor, dolayısıyla practice hakkı
 > **herhangi bir önceki kayıtla** harcanır. Ölçüldü
-> (`TestDecide_ThePracticeRunIsSpentByANYPriorRecord`):
+> (`Decide_ThePracticeRunIsSpentByANYPriorRecord`):
 >
 > | Önceki kayıt | Sonraki tap practice mi |
 > |---|---|
@@ -2308,16 +2325,16 @@ sözleşme aşağıdaki kart düzeltmesinde.
 > `/activate/done?replaced=1`** (bugünkü davranışın aynısı). Gerekçe ölçülebilir:
 > `SecondDeviceReplaced` tam olarak `employees.status` zaten `'active'` iken
 > doğrudur, ve hiç aktive olmamış biri hiç oturum tutmamıştır → hiç tap etmemiştir.
-> Uçtan uca kanıt: `TestTourDB_ASecondDeviceIsNotShownThePractisePromise`.
+> Uçtan uca kanıt: `TourDB_ASecondDeviceIsNotShownThePractisePromise`.
 > Slaytın metni yine de **"ilk tap"** hakkında konuşuyor, "sıradaki tap" hakkında
 > değil — turu elle açan ikinci cihaz kullanıcısı için de doğru kalsın diye.
 >
 > **5. Kapsam kararı: tur M5-06'nın ÜÇ beyaz listesine EKLENDİ** (kartın dışında
 > bırakılmadı), **ve bir DÖRDÜNCÜ liste yazılması gerekti.** M5-06 o mekanizmanın
 > sınırını *"kapsam ekran başına ve elle"* diye yazmıştı; tur o günden beri eklenen
-> ilk ekran, ve liste genişletildi: metin (`TestTour_SaysExactlyThisAndNothingElse`,
-> `screenText` ile tüm belge), eleman (`TestTour_RendersOnlyTheseElements`,
-> **13** etiketlik kapalı küme) ve referans (`TestTour_PointsOnlyAtItsOwnFlow`,
+> ilk ekran, ve liste genişletildi: metin (`Tour_SaysExactlyThisAndNothingElse`,
+> `screenText` ile tüm belge), eleman (`Tour_RendersOnlyTheseElements`,
+> **13** etiketlik kapalı küme) ve referans (`Tour_PointsOnlyAtItsOwnFlow`,
 > adım başına birebir href **değer** kümesi). Mutasyonla: eklenen cümle **RED**,
 > eklenen `<iframe srcdoc>` **RED** (metin testi görmüyor — `srcdoc` `textAttrRE`'de
 > yok, kapalı küme yakalıyor), `https://evil.example/x` **RED**.
@@ -2330,7 +2347,7 @@ sözleşme aşağıdaki kart düzeltmesinde.
 > sayısı 0"* kuralının tam ihlali. `refRE`'ye `ping` eklendi; repoda hiçbir şablonda
 > `ping` geçmediği için mevcut hiçbir beklenti kımıldamadı (ölçüldü). Mutasyon iki
 > yerde **RED**: tur slaytında ve **ortak `Problem` şablonunda** (on bir ekran).
-> `TestTour_PointsOnlyAtItsOwnFlow`'un *"her slaytın yaydığı adres kümesini
+> `Tour_PointsOnlyAtItsOwnFlow`'un *"her slaytın yaydığı adres kümesini
 > pinler"* cümlesi de **öznitelik adlarını sayacak** şekilde indirildi — liste hâlâ
 > bir liste, ve bunu artık yorumun kendisi söylüyor.
 >
@@ -2341,7 +2358,7 @@ sözleşme aşağıdaki kart düzeltmesinde.
 > dokunma hedefi — tüm paketi **yeşil** bıraktı: metin pini metin düğümü görmüyor,
 > eleman kümesi `a`'ya zaten izin veriyor, referans kümesinde o adres zaten var.
 > §9'un *"bu ekranlarda ikinci aksiyon olmaz"* kuralı tam olarak buna bakıyordu.
-> `TestTour_HasExactlyTheseTouchTargets` eklendi: adım başına **sıralı
+> `Tour_HasExactlyTheseTouchTargets` eklendi: adım başına **sıralı
 > (hedef → etiket)** listesi + izinsiz `on…=` özniteliği reddi. Beş mutasyon,
 > beşi **RED**: boş anchor · etiketli fazladan anchor · silinen skip linki
 > (**4 test** kırılıyor) · yeniden adlandırılan anchor · izinli elemana konan
@@ -2358,7 +2375,7 @@ sözleşme aşağıdaki kart düzeltmesinde.
 > **her** yanıta koyuyor.
 > (ii) dokunma hedefleri: `tap-button` 64px (`min-h-16`), skip linki 44px
 > (`min-h-11` → derlenmiş CSS'te `min-height:2.75rem`) — ama **hiçbir test piksel
-> ölçmüyor**, ve `TestTour_HasExactlyTheseTouchTargets` **markup** okuyor: yalnız
+> ölçmüyor**, ve `Tour_HasExactlyTheseTouchTargets` **markup** okuyor: yalnız
 > stille basılabilir hâle getirilmiş bir alanı (dev bir `::after`) göremez.
 > (iii) `screenText`'in bilinen açık kanalları (CSS `content:`, `meta description`,
 > yanıt başlıkları) turda da açık — tur onları kapatmıyor, aynı listelere giriyor.
@@ -3548,7 +3565,7 @@ UPDATE değil.)
 > yazıyordu** ("resetting activated_at does NOT by itself hand a second practice
 > tap to someone who has already tapped"). Kart, repoda ölçülmüş ve yazılmış bir
 > gerçeğe rağmen tersini varsaymıştı. Ölçüm
-> `TestSeedDB_ASecondActivationIsNotASecondPracticeRun` olarak pinlendi.
+> `SeedDB_ASecondActivationIsNotASecondPracticeRun` olarak pinlendi.
 > **Kusurun kendisi değişmedi:** düz HTTP + tek geriye tarihli `occurred_at` ile
 > erişilebilir, ve `sys:occurred-at-bound` tavanı 72 saattir.
 >

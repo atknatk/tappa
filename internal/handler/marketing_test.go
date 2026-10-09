@@ -1895,6 +1895,7 @@ var cookieWriters = map[string]cookieWriter{
 	"tappa_session":       {[]string{"internal", "session", "cookie.go"}, "Set"},
 	"tappa_admin_session": {[]string{"internal", "adminauth", "cookie.go"}, "Set"},
 	"tappa_activation":    {[]string{"internal", "handler", "cookies.go"}, "set"},
+	"tappa_activated":     {[]string{"internal", "handler", "cookies.go"}, "setDone"},
 	// The three short panel cookies all go through ONE setter, which is why they
 	// share a writer: adminCookies.set takes the name as a parameter and applies
 	// the same attributes to all three.
@@ -2094,7 +2095,7 @@ func TestCookieNotice_LifetimesMatchTheCodeThatWritesThem(t *testing.T) {
 		sec  int
 		want string
 	}{
-		{activationCookieMaxAge, "15 minutes"},
+		{int(activationCookieCeiling.Seconds()), "30 days"},
 		{adminLoginCookieMaxAge, "15 minutes"},
 		{adminChoiceCookieMaxAge, "5 minutes"},
 		{adminConfirmMaxAge, "10 minutes"},

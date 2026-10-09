@@ -974,6 +974,7 @@ var zeroCallSiteCensus = map[string]int{
 	"ev2.go":        19, // 15 deferred + EV2Auth.Zero's two fields + two error paths
 	"changekey.go":  2,
 	"verify.go":     1,
+	"mint.go":       4, // ADR 0026 dev minter: session key, full CMAC, MAC, unwrapped tag key
 }
 
 // TestSUN_EveryWipeInThePackageHasTheRightShape applies two of the four conditions
@@ -1876,6 +1877,11 @@ var wipeGateUnassigned = map[string]struct {
 	why           string
 }{
 	"advance.go": {0, "the atomic counter advance: SQL text and a uid, no key material"},
+	// mint.go (ADR 0026, dev tool) handles key material and wipes all four values
+	// it derives with a bare-identifier defer in the declaring block — the shape
+	// verify.go's measured justification below describes. Its construction is the
+	// CMAC core's own (cmac, sv2, truncateSDMMAC), which wipeScannedFiles gates.
+	"mint.go":    {4, "dev-only tap minter: wipes the unwrapped key, session key, full CMAC and MAC by deferred Zero in the declaring block; the construction is the gated CMAC core's"},
 	"params.go":  {0, "tap-URL parsing: uid, counter and the chip's MAC, all public"},
 	"preview.go": {0, "read-only preview of a parsed tap; holds no plaintext key"},
 	"keys.go":    {0, "OWNS Zero and the KEK envelope. Its one Zero is undeferred and is the definition, not a use — an inventory here would count the mechanism as its own client"},

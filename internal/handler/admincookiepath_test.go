@@ -338,7 +338,7 @@ func rangeTableFor(src, registration string) string {
 // does. If the regex stops matching, the derived list would quietly shrink to
 // nothing and every assertion built on it would pass vacuously — the exact failure
 // this repo names as "a check that cannot fail".
-var knownEmployeeRoutes = []string{"/t", "/api/checkin", "/activate", "/activate/done", "/activate/tour", "/api/activate"}
+var knownEmployeeRoutes = []string{"/t", "/api/checkin", "/activate", ActivationStatusPath, "/api/activate"}
 
 // TestEmployeeRoutes_DerivationIsNotVacuous pins the scanner itself.
 func TestEmployeeRoutes_DerivationIsNotVacuous(t *testing.T) {

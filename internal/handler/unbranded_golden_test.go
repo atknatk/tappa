@@ -160,7 +160,8 @@ func unbrandedScreenRenders(t *testing.T) []screenGolden {
 		result(c.name, c.d)
 	}
 
-	// --- the activation family (its own router; no CSP header -- recorded as "") ---
+	// --- the activation family (its own router; since the activation-tap ADR it
+	// carries activationCSP, and these goldens were rewritten with that redesign) ---
 	hAct := newHandler(t, &fakeInvites{}, &fakeSessions{}, &fakeAudit{})
 	add(readRecorded(t, "activate-landing", get(t, hAct, "/activate")))
 	add(readRecorded(t, "activate-form", get(t, hAct, "/activate", codeCookie())))
@@ -181,11 +182,16 @@ func unbrandedScreenRenders(t *testing.T) []screenGolden {
 	confirm := httptest.NewRecorder()
 	hVictim2.ServeHTTP(confirm, crossSite)
 	add(readRecorded(t, "activate-continue", confirm))
-	add(readRecorded(t, "activate-done", get(t, hAct, "/activate/done", &http.Cookie{Name: session.CookieName, Value: fakeCode})))
-	add(readRecorded(t, "activate-done-without-session", get(t, hAct, "/activate/done")))
-	for step := 1; step <= 3; step++ {
-		add(readRecorded(t, fmt.Sprintf("activate-tour-%d", step), get(t, hAct, fmt.Sprintf("/activate/tour?step=%d", step), tourCookie())))
-	}
+	// ADR (activation by NFC tap): the tour and /activate/done are gone; the wizard's
+	// later steps and the activating tap's screens take their places in the list.
+	add(readRecorded(t, "activate-wizard-2", get(t, hAct, "/activate?step=2", codeCookie())))
+	add(readRecorded(t, "activate-wizard-3", get(t, hAct, "/activate?step=3", pendingCookie())))
+	add(readRecorded(t, "activate-wizard-4", get(t, hAct, "/activate?step=4", pendingCookie())))
+	add(readRecorded(t, "activate-consent-missing", post(t, hAct, url.Values{"csrf": {fakeCSRF}}, codeCookie())))
+	hRefused := newHandlerWith(t, &fakeInvites{}, &fakeSessions{}, &fakeAudit{}, handlerOpts{verifier: &fakeVerifier{
+		verify: func(sun.Params) (sun.Result, error) { return sun.Result{}, sun.ErrUnknownTag },
+	}})
+	add(readRecorded(t, "activate-tap-refused", doTap(t, hRefused, activationTapURL, pendingCookie())))
 	return out
 }
 

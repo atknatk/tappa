@@ -672,7 +672,7 @@ maddesine bağlıdır; mutasyon kimlikleri (H…, C…, X…) WL-5 kartının mu
   başka stil dosyalarını değil; bir slot sınıfının slot olmayan bir öğeye yazılmasını görmez. (5) Tek bir
   sayfanın şablonuna yazılan tema bağlantısını DB'siz koşan testlerin hiçbiri kırmızıya çevirmedi
   (ölçüldü, L2); ortak `<head>`'e yazılanı `TestScreens_ReferenceOnlyOurOwnAssets` ve
-  `TestTour_PointsOnlyAtItsOwnFlow` kırmızıya çevirdi (ölçüldü, L1) — tek sayfalık bağlantının ağı
+  `Tour_PointsOnlyAtItsOwnFlow` kırmızıya çevirdi (ölçüldü, L1) — tek sayfalık bağlantının ağı
   WL-9'un golden'ı. (6) Madde 1'in testi imzayı ve alanları görür; `serve`'ün ulaşabileceği paket
   düzeyi durum ya da fonksiyonu görmez (ölçüldü, A9) — kod incelemesinin konusu. (7) Madde 10'un
   testi sözdizimseldir (`main.go` AST'si): rota bir değişken ya da yardımcı üzerinden verilirse
@@ -982,7 +982,7 @@ boş. Ölçüm ortamı: dev Postgres 17, `tappa_app`; yerel Go 1.27.1 (staticche
   script, robots, theme)` imzası — `app.css`'ten hemen sonra. Tap kabuğu markanın temasını geçirir,
   sonuç kabuğu (`BrandedPage`) ve öteki kabuklar sıfır değeri. Markasız render'larda bayt değişmedi,
   bu yüzden L1'in iki testi (`TestScreens_ReferenceOnlyOurOwnAssets`,
-  `TestTour_PointsOnlyAtItsOwnFlow`) değişmeden yeşil; birincisine logolu sonuç ekranı için bir alt
+  `Tour_PointsOnlyAtItsOwnFlow`) değişmeden yeşil; birincisine logolu sonuç ekranı için bir alt
   test eklendi. WL-8 ile birleştirmede `theme.go` WL-8'inkidir; sıfır değer cümlesi *"her kabuk ama
   panelinki ve tap ekranınınki"* oldu (tap kabuğu da tema alır).
 - **Karar 7 — `templ Tap`'in bölünmesi** (WL-7 bağımlılığı): `TapHeading(ad, mekân)` (docket) ve

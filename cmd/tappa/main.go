@@ -315,7 +315,11 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	activation, err := handler.NewActivation(invites, sessions, trail, cfg, slog.Default())
+	// ONE verifier for both consumers below. The activation flow gets it whole
+	// because the activating tap (ADR 0026) must run the ATOMIC counter advance;
+	// the tap page gets it through an interface that names only the preview.
+	verifier := sun.NewVerifier(data, cfg.TagKEK, cfg.TagKEKPrevious)
+	activation, err := handler.NewActivation(invites, sessions, verifier, trail, cfg, slog.Default())
 	if err != nil {
 		return err
 	}
@@ -345,7 +349,7 @@ func run() error {
 	// An open window is ANNOUNCED, repeatedly, for the whole time it stays open:
 	// see announceKEKRotationWindow.
 	go announceKEKRotationWindow(ctx, len(cfg.TagKEKPrevious) > 0, slog.Default())
-	tap, err := handler.NewTap(sun.NewVerifier(data, cfg.TagKEK, cfg.TagKEKPrevious), directory, sessions, checkins, trail, cfg, slog.Default())
+	tap, err := handler.NewTap(verifier, directory, sessions, checkins, activation, trail, cfg, slog.Default())
 	if err != nil {
 		return err
 	}
@@ -416,6 +420,27 @@ func run() error {
 	plaques, err := tenant.NewPlaques(data, trail, slog.Default())
 	if err != nil {
 		return err
+	}
+	// THE DEV-ONLY PLAQUE-TAP SIMULATOR (ADR 0026, "Geliştirme aracı"), gate 1 of 3:
+	// constructed and mounted ONLY with TAPPA_DEV_TOOLS=1 (refused by config.Load
+	// outside TAPPA_ENV=dev) on a loopback base URL. DevTap.Mount, DevTap.Simulate
+	// and sun's WithDevelopmentMinting each check again.
+	// A nil interface unless the gate passes; httpx.NewRouter skips nil features.
+	var devTools httpx.Mounter
+	if handler.DevToolsEnabled(cfg) {
+		minter, err := verifier.WithDevelopmentMinting(cfg)
+		if err != nil {
+			return err
+		}
+		devTap, err := handler.NewDevTap(minter, plaques, invites, sessions, cfg, slog.Default())
+		if err != nil {
+			return err
+		}
+		devTools = devTap
+		activation.EnableDevTools(cfg)
+		tap.EnableDevTools(cfg)
+		log := slog.Default()
+		log.Warn("DEV TOOLS ARE MOUNTED: POST /dev/simulate-tap mints plaque taps (dev on loopback only)")
 	}
 	// The manual record writer (M6-08) — the SECOND writer of `transactions` in this
 	// process, and the first that is not a tap. It exists because Q18 decided the
@@ -787,7 +812,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpx.NewRouter(cfg, slog.Default(), activation, tap, panelAuth, logos, marketing, signupFlow, resetFlow, ready, handler.NewBrandTheme(), operatorSurface),
+		Handler:           httpx.NewRouter(cfg, slog.Default(), activation, tap, panelAuth, logos, marketing, signupFlow, resetFlow, ready, handler.NewBrandTheme(), operatorSurface, devTools),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       90 * time.Second,
 		// NO WriteTimeout, deliberately (WL-9 round 3): a recorded tap's confirmation

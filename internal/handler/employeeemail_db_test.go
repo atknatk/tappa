@@ -55,7 +55,7 @@ func TestEmployeeEmailDB_AChangedAddressKillsTheLinkSentBefore(t *testing.T) {
 	if pendingInvitations(t, p, employee) != 0 {
 		t.Error("an invitation is still spendable after the address changed")
 	}
-	if activateOverHTTP(t, p, stale) {
+	if consentOverHTTP(t, p, stale) {
 		t.Fatal("the link minted BEFORE the address changed still activated a phone")
 	}
 	_, card := p.get(t, loc)
@@ -68,7 +68,7 @@ func TestEmployeeEmailDB_AChangedAddressKillsTheLinkSentBefore(t *testing.T) {
 
 	// CONTROL: a link minted AFTER the change, opened at once, works.
 	_, fresh := p.post(t, employeeInviteHref, url.Values{"id": {employee.String()}})
-	if !activateOverHTTP(t, p, codeFromLink(t, activationLinkIn(t, fresh))) {
+	if !consentOverHTTP(t, p, codeFromLink(t, activationLinkIn(t, fresh))) {
 		t.Fatal("control: a fresh link did not activate, so the refusal above proves nothing")
 	}
 }
@@ -289,7 +289,7 @@ func TestEmployeeEmailDB_AFailedChangeWritesNothingAndARetryWritesOnce(t *testin
 	if n := pendingInvitations(t, p, employee); n != 0 {
 		t.Errorf("%d spendable link(s) after the retry, want 0", n)
 	}
-	if activateOverHTTP(t, p, stale) {
+	if consentOverHTTP(t, p, stale) {
 		t.Error("the link minted before the retry still activated a phone")
 	}
 	retried := employeeAuditRows(t, p, tenant.ActionEmployeeEmailChanged, employee)

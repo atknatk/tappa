@@ -127,7 +127,7 @@ type GetLastOpenTransactionParams struct {
 // later" -- and a closing 'out' closes it whatever flag it carries. It is also moot
 // today: a practice row is ALWAYS type='in' (tap.isPracticeTap requires no prior
 // tap and no open check-in, so resolveDirection cannot return 'out' for it), pinned
-// by TestDecide_PracticeIsAlwaysAnIn.
+// by TestDecide_NoNewRecordIsEverPractice.
 //
 // COST, MEASURED (EXPLAIN (ANALYZE, BUFFERS), 5001 rows for one person, ADR 0008):
 // the predicate NEVER narrows the index range -- `practice` is not in

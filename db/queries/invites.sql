@@ -222,6 +222,15 @@ RETURNING id, tenant_id, employee_id, created_at, expires_at, used_at;
 --
 -- This is the ONLY statement in db/queries that writes employee_invites.used_at
 -- (greppable), which is what makes the un-consume limit in the header hold.
+--
+-- CONSENT IS PART OF THE PREDICATE (ADR 0026, migration 00035). Activation now
+-- happens on the first NFC tap, not on the form, so the statement also requires
+-- the consent the wizard recorded AND the binding of the browser that recorded
+-- it. Both live in the same WHERE as used_at for the reason the rest of this
+-- statement does: a read-then-write ("was consent given?" in Go, then consume)
+-- would be the tags.last_ctr TOCTOU again. No path through the generated store
+-- can activate an employee whose invitation was not consented to by the browser
+-- presenting it.
 WITH consumed AS (
     UPDATE employee_invites
     SET used_at = now()
@@ -230,6 +239,8 @@ WITH consumed AS (
       AND used_at IS NULL
       AND cancelled_at IS NULL
       AND now() < expires_at
+      AND consented_at IS NOT NULL
+      AND consent_binding_hash = @consent_binding_hash::text
       AND EXISTS (SELECT 1 FROM employees e
                   WHERE e.id = employee_invites.employee_id
                     AND e.tenant_id = employee_invites.tenant_id
@@ -246,6 +257,46 @@ WHERE e.id = c.employee_id
   AND e.status IN ('invited', 'active')
 RETURNING e.id, e.tenant_id, e.location_id, e.department_id, e.full_name,
           e.status, e.invited_at, e.activated_at, c.id AS invite_id;
+
+-- name: RecordInviteConsent :one
+-- The wizard's consent POST (ADR 0026). It records WHEN the employee agreed to the
+-- GDPR Art. 13 notice and WHICH browser did (the HMAC of a token that lives only in
+-- that browser's HttpOnly cookie). It consumes NOTHING and activates NOBODY:
+-- used_at is not in its SET list and employees is not touched.
+--
+-- The same liveness predicate as the consuming statement, so consent cannot be
+-- recorded against an invitation that could never be completed (spent, retired,
+-- expired, or an employee who is deactivated). Re-consenting from another browser
+-- is allowed and MOVES the binding: the last browser to agree is the one whose tap
+-- can complete the activation. That is deliberate -- the person may have started
+-- in a chat app's in-app browser and finished in the phone's real one.
+--
+-- code_hash and consent_binding_hash are matched or written, never returned
+-- (section 4.7).
+UPDATE employee_invites
+SET consented_at         = now(),
+    consent_binding_hash = @consent_binding_hash::text
+WHERE employee_invites.code_hash = @code_hash
+  AND employee_invites.tenant_id = @tenant_id
+  AND employee_invites.used_at IS NULL
+  AND employee_invites.cancelled_at IS NULL
+  AND now() < employee_invites.expires_at
+  AND EXISTS (SELECT 1 FROM employees e
+              WHERE e.id = employee_invites.employee_id
+                AND e.tenant_id = employee_invites.tenant_id
+                AND e.status IN ('invited', 'active'))
+RETURNING employee_invites.id, employee_invites.consented_at;
+
+-- name: InviteConsentMatches :one
+-- A READ used ONLY to label a refused activation for audit_log (internal/invite
+-- classify): "nobody consented / another browser consented" versus the other
+-- refusals. It is NOT a gate -- the gate is the consuming statement's own WHERE,
+-- and nothing branches on this value before consuming.
+SELECT (consented_at IS NOT NULL
+        AND consent_binding_hash IS NOT DISTINCT FROM @consent_binding_hash::text)::boolean AS matches
+FROM employee_invites
+WHERE code_hash = @code_hash
+  AND tenant_id = @tenant_id;
 
 -- name: ListPendingInvitesForEmployee :many
 -- The invites of one employee that are still usable RIGHT NOW: not consumed and

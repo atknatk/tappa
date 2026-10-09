@@ -148,7 +148,8 @@ db-reset:
 ## simulate-day: KF St Julians'ta bir gun uret (skill tappa-seed, M5-09)
 # Kayitlari KARAR MOTORU uretir: gercek HTTP, gercek router, gercek Postgres.
 # `make seed` yapilmis olmali; degilse test SKIP eder ve sebebini soyler.
-# ~65 sn surer — bunun ~62 sn'si BEKLEMEDIR: ADR 0006 debounce'u sunucu saatiyle
+# ~32 sn surer — bunun ~31 sn'si BEKLEMEDIR (ADR 0026'ten beri tek bekleme; once
+# ~62 sn idi): ADR 0006 debounce'u sunucu saatiyle
 # olcer, yani ayni kisinin ardisik tap'leri gercek zaman ister (gerekce:
 # internal/handler/seedflow_db_test.go, seedDebounce).
 simulate-day:
@@ -293,11 +294,13 @@ test: require-db-env
 #                    -> makine durumuna gore 92-242 sn araliginda gorulur;
 #                       bant bir HEDEF degil, bir gozlem kaydidir.
 #                                   84,7-138 sn idi; M6-01 B fazi bcrypt getirdi.
-#                                   Gunun ~62 sn'si time.Sleep'tir: ADR 0006
+#                                   Gunun ~31 sn'si time.Sleep'tir (ADR 0026
+#                                   oncesi ~62 sn; practice turu kalkinca ilk
+#                                   bekleme de kalkti): ADR 0006
 #                                   debounce'u SUNUCU saatiyle olcer, yani ayni
 #                                   kisinin ardisik tap'leri gercek zaman ister ve
 #                                   sikistirilamaz. (Gun testi tek basina
-#                                   62,9-64,3 sn.)
+#                                   62,9-64,3 sn idi; 2026-10-04: 31,2 sn.)
 #   make test-short  51-74 sn GOZLENEN ARALIK — bant bir HEDEF degil, `make test`
 #                    icin oldugu gibi bir GOZLEM KAYDIDIR. Yuk arttikca dogrusal
 #                    buyuyor ve makine durumu tek degiskendir:
@@ -327,7 +330,7 @@ test: require-db-env
 # testing.Short okumuyor); sayi zaten bayatti. Ayni sinifin ikinci vakasi: bu blok
 # "iki yapisal test" derken de yanlisti ve o da duzeltilmisti.
 #   1. TestSeedDB_ADayAtKFStJulians (internal/handler/day_db_test.go) — simule
-#      edilen gun; ~62 sn'si gercek time.Sleep.
+#      edilen gun; ~31 sn'si gercek time.Sleep (ADR 0026 oncesi ~62).
 #   2. TestAuthenticate_TimingIsFlat (internal/adminauth/manager_timing_test.go) —
 #      YALNIZ bcrypt DUVAR SAATI ORNEKLEMI (5 kol x N cost-12 karsilastirma).
 #   3. TestPanelE2E_TimingIsFlatOverHTTP (internal/handler/adminlogin_db_test.go) —

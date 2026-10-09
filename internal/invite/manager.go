@@ -97,6 +97,13 @@ var (
 	// (TestActivate_DeactivatedEmployeeDoesNotBurnTheCode). Hand-written SQL
 	// outside the store is not bound by it.
 	ErrNotActivatable = errors.New("invite: employee cannot be activated")
+
+	// ErrConsentMissing: the invitation is otherwise usable, but the activation
+	// was attempted WITHOUT the consent the wizard records — nobody agreed yet, or
+	// a DIFFERENT browser agreed since (ADR 0026: the binding moves to the last
+	// browser that consented). Context POPULATED. The consuming statement is what
+	// refuses it; this label only says why, for audit_log.
+	ErrConsentMissing = errors.New("invite: consent not recorded by this browser")
 )
 
 // TTL bounds and default for a new invitation.
@@ -571,6 +578,56 @@ func (m *Manager) ActivationContext(ctx context.Context, tenantID, employeeID uu
 	return out, nil
 }
 
+// RecordConsent stores the employee's agreement to the GDPR Art. 13 notice on the
+// invitation, bound to the browser that gave it (ADR 0026). It backs the wizard's
+// POST /api/activate.
+//
+// IT CONSUMES NOTHING AND ACTIVATES NOBODY. The invitation stays usable, the
+// employee keeps their status and no session exists afterwards; activation is the
+// first NFC tap's job (Activate). What it does change is who CAN complete that
+// tap: only a request carrying b.
+//
+// Outcomes mirror Lookup: (Context, nil) on success; a populated Context with
+// ErrCodeUsed / ErrCodeCancelled / ErrCodeExpired / ErrNotActivatable when the
+// statement matched nothing; ErrUnknownCode with a zero Context.
+func (m *Manager) RecordConsent(ctx context.Context, c Code, b Binding) (Context, error) {
+	ictx, err := m.Lookup(ctx, c)
+	if err != nil {
+		return ictx, err
+	}
+	hash, _, err := m.resolve(ctx, c)
+	if err != nil {
+		return ictx, err
+	}
+	bindingHash, err := b.hash(m.hmacKey)
+	if err != nil {
+		// The handler mints the binding itself, so a malformed one is a bug in
+		// this process, not something a visitor did.
+		return ictx, fmt.Errorf("invite: consent: binding: %w", err)
+	}
+	err = m.data.WithTenant(ctx, ictx.TenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := store.New(tx).RecordInviteConsent(ctx, store.RecordInviteConsentParams{
+			ConsentBindingHash: bindingHash,
+			CodeHash:           hash,
+			TenantID:           ictx.TenantID,
+		})
+		return e
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Lookup said usable a moment ago and the statement disagreed: the
+			// invitation was spent, retired or expired in between, or the
+			// employee was deactivated. Re-read so the trail names which.
+			if again, lerr := m.Lookup(ctx, c); lerr != nil {
+				return again, lerr
+			}
+			return ictx, ErrNotActivatable
+		}
+		return ictx, fmt.Errorf("invite: consent: %w", err)
+	}
+	return ictx, nil
+}
+
 // Activation is a completed activation: who was activated, where they work, and
 // which invitation paid for it.
 type Activation struct {
@@ -581,8 +638,10 @@ type Activation struct {
 	SecondDeviceReplaced bool
 }
 
-// Activate spends the code and flips the employee to 'active'. It backs
-// POST /api/activate.
+// Activate spends the code and flips the employee to 'active'. Since ADR 0026 it
+// backs the FIRST NFC TAP (GET /t with a pending activation), not the consent
+// form: the form only records consent (RecordConsent), and b must be the binding
+// that consent was recorded with, or nothing is consumed (ErrConsentMissing).
 //
 // THE WHOLE OPERATION IS ONE SQL STATEMENT (store.ConsumeInviteAndActivate), so
 // "this employee was activated" IMPLIES "an invitation was consumed for them",
@@ -607,10 +666,17 @@ type Activation struct {
 // when it returns nothing, this function classifies the failure from the facts
 // the resolver already returned, purely so audit_log can say WHY. The visitor is
 // told the same thing either way.
-func (m *Manager) Activate(ctx context.Context, c Code) (Activation, error) {
+func (m *Manager) Activate(ctx context.Context, c Code, b Binding) (Activation, error) {
 	hash, res, err := m.resolve(ctx, c)
 	if err != nil {
 		return Activation{}, err
+	}
+	// A binding that cannot be one of ours is not an attack worth a distinct
+	// answer: it simply cannot match, so it is classified like a missing consent
+	// rather than surfaced as an internal error.
+	bindingHash, bErr := b.hash(m.hmacKey)
+	if bErr != nil && !errors.Is(bErr, errMalformed) {
+		return Activation{}, fmt.Errorf("invite: activate: %w", bErr)
 	}
 
 	out := Activation{Context: Context{
@@ -622,6 +688,7 @@ func (m *Manager) Activate(ctx context.Context, c Code) (Activation, error) {
 
 	var consumed store.ConsumeInviteAndActivateRow
 	var priorStatus string
+	consentMatched := false
 	err = m.data.WithTenant(ctx, res.TenantID, func(ctx context.Context, tx pgx.Tx) error {
 		q := store.New(tx)
 		// The prior status is read INSIDE the same transaction as the
@@ -654,9 +721,30 @@ func (m *Manager) Activate(ctx context.Context, c Code) (Activation, error) {
 			out.WiFiSSID = *venue.WifiSsid
 		}
 
+		// LABEL ONLY, read before the consumption in the same transaction: whether
+		// the consent on the row belongs to this binding. Nothing branches on it
+		// before the UPDATE — the UPDATE's own WHERE is the gate (ADR 0026).
+		if bindingHash != "" {
+			consentMatched, e = q.InviteConsentMatches(ctx, store.InviteConsentMatchesParams{
+				ConsentBindingHash: bindingHash,
+				CodeHash:           hash,
+				TenantID:           res.TenantID,
+			})
+			if e != nil {
+				return fmt.Errorf("invite: read consent: %w", e)
+			}
+		}
+		if bindingHash == "" {
+			// No usable binding: nothing can match, and the statement is not run
+			// with an empty hash (which the shape CHECK would make unmatchable
+			// anyway). Rolled back like any other refusal.
+			return pgx.ErrNoRows
+		}
+
 		consumed, e = q.ConsumeInviteAndActivate(ctx, store.ConsumeInviteAndActivateParams{
-			TenantID: res.TenantID,
-			CodeHash: hash,
+			TenantID:           res.TenantID,
+			CodeHash:           hash,
+			ConsentBindingHash: bindingHash,
 		})
 		// The error is PROPAGATED, never swallowed. db/queries/invites.sql spells
 		// out why: a caller that swallows it and commits spends the code in the
@@ -667,7 +755,7 @@ func (m *Manager) Activate(ctx context.Context, c Code) (Activation, error) {
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			out.Status = priorStatus
-			return out, m.classify(res, priorStatus)
+			return out, m.classify(res, priorStatus, consentMatched)
 		}
 		return out, fmt.Errorf("invite: activate: %w", err)
 	}
@@ -689,7 +777,7 @@ func (m *Manager) Activate(ctx context.Context, c Code) (Activation, error) {
 // migration 00009 blocks structurally) from the residual race in invites.sql —
 // the two produce the same error but not the same story, and only the second one
 // should ever make anybody worry.
-func (m *Manager) classify(res db.ResolvedInvite, priorStatus string) error {
+func (m *Manager) classify(res db.ResolvedInvite, priorStatus string, consentMatched bool) error {
 	switch {
 	case res.UsedAt != nil:
 		return ErrCodeUsed
@@ -702,6 +790,11 @@ func (m *Manager) classify(res db.ResolvedInvite, priorStatus string) error {
 		return ErrCodeExpired
 	case priorStatus == statusDeactivated:
 		return ErrNotActivatable
+	case !consentMatched:
+		// Usable invitation, activatable employee, but no consent from THIS
+		// browser (ADR 0026). Checked after the employee's state because a
+		// deactivated person's refusal is the more important story.
+		return ErrConsentMissing
 	default:
 		// Usable invite, activatable employee, and still zero rows: the
 		// deactivation-mid-statement window documented in db/queries/invites.sql.

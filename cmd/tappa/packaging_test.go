@@ -777,7 +777,7 @@ func configMapKeys(t *testing.T, src string) map[string]bool {
 	return out
 }
 
-// notInjectedOnPurpose is the ONE variable internal/config names that the running
+// notInjectedOnPurpose lists the variables internal/config names that the running
 // server must never receive. It is a map rather than a bare skip so the reason
 // travels with it and so the test below can assert the ABSENCE, not just tolerate
 // it.
@@ -790,6 +790,11 @@ var notInjectedOnPurpose = map[string]string{
 	"DATABASE_MIGRATE_URL": "the migration role's DSN. tappa_owner is initdb's bootstrap SUPERUSER and " +
 		"bypasses RLS unconditionally; internal/config names it only to REFUSE a deployment where the two " +
 		"DSNs are equal. A server process that could read it would hold a ready-made cross-tenant credential.",
+	// ADR 0026, "Geliştirme aracı": the dev-only plaque-tap simulator's opt-in.
+	// It must NEVER reach a deployed container — config.Load refuses it outside
+	// TAPPA_ENV=dev anyway, and its absence here is asserted, not tolerated.
+	"TAPPA_DEV_TOOLS": "the development-only plaque-tap simulator (POST /dev/simulate-tap). It mints " +
+		"valid tap URLs; a deployed container must never receive it.",
 }
 
 // TestPackaging_EverySecretConfigReadsIsInjectedByTheManifest.

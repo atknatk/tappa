@@ -215,7 +215,7 @@ type chainRow struct {
 // THE LAST ROW IS DELIBERATELY UNREACHABLE THROUGH THE ENGINE. Two practice rows in
 // a row cannot happen today: isPracticeTap requires the person to have NO record at
 // all, so the practice run is spent by the first row whatever it is (measured over
-// HTTP in TestSeedDB_ASecondActivationIsNotASecondPracticeRun — a re-activated
+// HTTP in TestSeedDB_ASecondActivationWritesNoRecordAndLeavesTheChainAlone — a re-activated
 // employee's next record is practice=false, and ConsumeInviteAndActivate does not
 // even move activated_at). It is asserted anyway because the DATABASE can hold that
 // shape — an import, a backfill, or M9-01's offline queue writing out of order —

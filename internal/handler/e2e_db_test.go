@@ -1,43 +1,45 @@
 package handler
 
-// End-to-end against a REAL Postgres and the REAL router: issue an invitation,
-// open the link, consent, submit, get a session cookie, and find the employee
-// active with the invitation spent. Then prove the same code cannot do it twice —
-// once sequentially, and once with N goroutines racing under -race.
+// End-to-end against a REAL Postgres, the REAL router and a REAL plaque: issue an
+// invitation, walk the wizard, consent — and find NOTHING activated — then tap the
+// plaque with a genuinely signed SUN URL and find the employee active, exactly one
+// session, the invitation spent, the plaque's counter advanced and no attendance
+// row (ADR 0026). Then prove the activation cannot be completed twice, by a replay,
+// by racing taps (-race), by another employer's plaque, by a dead plaque, after the
+// invitation expired, or without consent.
 //
 // WHY NOT FAKES HERE. Everything this file measures is a property of the
-// DATABASE: the atomic single-use consumption (§4.4), the tenant isolation, the
-// audit row. activate_test.go covers the HTTP behaviour with fakes; neither file
-// can replace the other.
+// DATABASE: the atomic single-use consumption and the atomic counter advance
+// (§4.4), the consent predicate, the tenant boundary, the audit rows.
+// activate_test.go covers the HTTP behaviour with fakes; neither file can replace
+// the other.
 //
 // Fixtures are NOT cleaned up (tappa_app has REVOKE DELETE on the tables
-// involved). Fresh random UUIDs keep runs from colliding; `make db-reset` clears
-// the dev database.
+// involved). Fresh random UUIDs and uids keep runs from colliding.
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"regexp"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/atknatk/tappa/internal/audit"
-	"github.com/atknatk/tappa/internal/config"
-	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/invite"
 	"github.com/atknatk/tappa/internal/session"
+	"github.com/atknatk/tappa/internal/sun"
 )
 
 // linkChannel captures the activation URL, which is how a real delivery
@@ -50,87 +52,49 @@ func (c *linkChannel) DeliverInvite(_ context.Context, d invite.Delivery) error 
 	return nil
 }
 
+// harness is the tap harness (real Tap + real Activation on one router, a real
+// plaque of this tenant) plus an HTTP server and the employee being activated.
 type harness struct {
-	server     *httptest.Server
-	data       *db.DB
-	invites    *invite.Manager
-	tenantID   uuid.UUID
-	locationID uuid.UUID
+	*tapHarness
+	server *httptest.Server
+	// employeeID is the person under test — NOT the tap harness's own already
+	// active employee, whose field this shadows on purpose.
 	employeeID uuid.UUID
+	ctrMu      sync.Mutex
+	ctr        uint32
 }
 
 func newHarness(t *testing.T, employeeStatus string) *harness {
 	t.Helper()
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		t.Skip("DATABASE_URL not set; skipping activation end-to-end tests (real Postgres required)")
-	}
-	// Obviously fake, distinct 32-byte keys (agent-brief madde 2). They MUST
-	// differ: config.Load refuses equal keys and this fixture honours the same
-	// rule even though it does not go through Load.
-	cfg := &config.Config{
-		Env:            config.EnvDev,
-		BaseURL:        "http://localhost:8080",
-		DatabaseURL:    dsn,
-		SessionHMACKey: []byte("SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS"),
-		InviteHMACKey:  []byte("IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII"),
-		RetentionYears: 2,
-	}
-
-	data, err := db.New(context.Background(), cfg)
-	if err != nil {
-		t.Fatalf("db.New: %v", err)
-	}
-	t.Cleanup(data.Close)
-
-	sessions, err := session.New(data, cfg)
-	if err != nil {
-		t.Fatalf("session.New: %v", err)
-	}
-	invites, err := invite.New(data, cfg)
-	if err != nil {
-		t.Fatalf("invite.New: %v", err)
-	}
-	trail, err := audit.New(data)
-	if err != nil {
-		t.Fatalf("audit.New: %v", err)
-	}
-	act, err := NewActivation(invites, sessions, trail, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	if err != nil {
-		t.Fatalf("NewActivation: %v", err)
-	}
-	r := chi.NewRouter()
-	act.Mount(r)
-	srv := httptest.NewServer(r)
-	t.Cleanup(srv.Close)
-
-	h := &harness{
-		server: srv, data: data, invites: invites,
-		tenantID: uuid.New(), locationID: uuid.New(), employeeID: uuid.New(),
-	}
-	err = data.WithTenant(context.Background(), h.tenantID, func(ctx context.Context, tx pgx.Tx) error {
-		if _, e := tx.Exec(ctx,
-			`INSERT INTO tenants (id, name, vat_number, business_type, structure)
-			 VALUES ($1, 'Kebab Factory Ltd', $2, 'restaurant', 'multi')`,
-			h.tenantID, "VAT-"+h.tenantID.String()); e != nil {
-			return e
-		}
-		if _, e := tx.Exec(ctx,
-			`INSERT INTO locations (id, tenant_id, name, static_ips, gps_lat, gps_lng, wifi_ssid)
-			 VALUES ($1, $2, 'St Julians', '{203.0.113.0/24}', 35.918, 14.489, 'KF-StJulians-Staff')`,
-			h.locationID, h.tenantID); e != nil {
+	th := newTapHarness(t) // skips when DATABASE_URL is unset
+	h := &harness{tapHarness: th, employeeID: uuid.New(), ctr: uint32(th.startCtr)}
+	err := th.data.WithTenant(context.Background(), th.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		if _, e := tx.Exec(ctx, `UPDATE locations SET wifi_ssid = 'KF-StJulians-Staff' WHERE id = $1 AND tenant_id = $2`,
+			th.locationID, th.tenantID); e != nil {
 			return e
 		}
 		_, e := tx.Exec(ctx,
 			`INSERT INTO employees (id, tenant_id, location_id, full_name, status, invited_at)
 			 VALUES ($1, $2, $3, 'Maria Borg', $4, now())`,
-			h.employeeID, h.tenantID, h.locationID, employeeStatus)
+			h.employeeID, th.tenantID, th.locationID, employeeStatus)
 		return e
 	})
 	if err != nil {
 		t.Fatalf("fixture: %v", err)
 	}
+	h.server = httptest.NewServer(th.router)
+	t.Cleanup(h.server.Close)
 	return h
+}
+
+// nextTap is a genuinely signed SUN URL for the harness's plaque with the next
+// counter value — what the chip emits on its next touch.
+func (h *harness) nextTap(t *testing.T) string {
+	t.Helper()
+	h.ctrMu.Lock()
+	defer h.ctrMu.Unlock()
+	h.ctr++
+	return signedTapURL(t, tapFakeTagKey, h.tagUID, h.ctr)
 }
 
 // issue mints an invitation and returns the raw code, taken off the delivery
@@ -160,13 +124,69 @@ func (h *harness) client(t *testing.T) *http.Client {
 	if err != nil {
 		t.Fatalf("cookiejar: %v", err)
 	}
-	return &http.Client{Jar: jar, Timeout: 10 * time.Second}
+	return &http.Client{Jar: jar, Timeout: 15 * time.Second}
+}
+
+// consent walks the wizard to the consent POST in browser c and returns the page
+// it lands on (step 3).
+func (h *harness) consent(t *testing.T, c *http.Client, code string) string {
+	t.Helper()
+	if _, err := c.Get(h.server.URL + "/activate?code=" + url.QueryEscape(code)); err != nil {
+		t.Fatalf("open link: %v", err)
+	}
+	privacy := h.getBody(t, c, "/activate?step=2")
+	resp, err := c.PostForm(h.server.URL+"/api/activate", url.Values{"consent": {"yes"}, "csrf": {formToken(t, privacy)}})
+	if err != nil {
+		t.Fatalf("consent POST: %v", err)
+	}
+	page := body(t, resp)
+	if resp.StatusCode != http.StatusOK || resp.Request.URL.Query().Get("step") != "3" {
+		t.Fatalf("consent landed on %s with %d, want step 3", resp.Request.URL, resp.StatusCode)
+	}
+	return page
+}
+
+func (h *harness) getBody(t *testing.T, c *http.Client, path string) string {
+	t.Helper()
+	resp, err := c.Get(h.server.URL + path)
+	if err != nil {
+		t.Fatalf("GET %s: %v", path, err)
+	}
+	return body(t, resp)
+}
+
+// tapWith opens a tap URL in browser c without following redirects, so a refusal
+// and a redirect are both visible as themselves.
+func (h *harness) tapWith(t *testing.T, c *http.Client, target string) (*http.Response, string) {
+	t.Helper()
+	nc := *c
+	nc.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	resp, err := nc.Get(h.server.URL + target)
+	if err != nil {
+		t.Fatalf("tap %s: %v", target, err)
+	}
+	// A completed activation answers 303 to its own page (audit round 2, B) —
+	// followed here, the way a phone does, so callers read the confirmation.
+	if resp.StatusCode == http.StatusSeeOther && strings.HasPrefix(resp.Header.Get("Location"), ActivationCompletePath) {
+		body(t, resp)
+		if resp, err = nc.Get(h.server.URL + resp.Header.Get("Location")); err != nil {
+			t.Fatalf("follow to the completion page: %v", err)
+		}
+	}
+	return resp, body(t, resp)
+}
+
+func (h *harness) status(t *testing.T, c *http.Client) string {
+	t.Helper()
+	var s struct{ State string }
+	if err := json.Unmarshal([]byte(h.getBody(t, c, ActivationStatusPath)), &s); err != nil {
+		t.Fatalf("status body: %v", err)
+	}
+	return s.State
 }
 
 // formToken pulls the synchronizer token out of a rendered activation form —
-// exactly what a browser does when it submits. Driving the flow through the token
-// (rather than around it) is what makes these tests prove the CSRF measure works
-// for a legitimate user instead of only against an attacker.
+// exactly what a browser does when it submits.
 func formToken(t *testing.T, page string) string {
 	t.Helper()
 	m := regexp.MustCompile(`name="csrf" value="([^"]+)"`).FindStringSubmatch(page)
@@ -186,253 +206,458 @@ func body(t *testing.T, resp *http.Response) string {
 	return string(b)
 }
 
-// TestE2E_ActivationFlow is the card's acceptance path, end to end.
+func (h *harness) cookieValue(c *http.Client, name string) string {
+	u, _ := url.Parse(h.server.URL)
+	for _, ck := range c.Jar.Cookies(u) {
+		if ck.Name == name {
+			return ck.Value
+		}
+	}
+	return ""
+}
+
+// TestE2E_ActivationFlow is ADR 0026's acceptance path, end to end.
 func TestE2E_ActivationFlow(t *testing.T) {
 	h := newHarness(t, "invited")
 	code := h.issue(t)
 	c := h.client(t)
 
-	// 1. Open the link. The client follows the 303 to a clean /activate.
+	// 1. Open the link. The client follows the 303 to a clean /activate: step 1.
 	resp, err := c.Get(h.server.URL + "/activate?code=" + url.QueryEscape(code))
 	if err != nil {
 		t.Fatalf("GET /activate: %v", err)
 	}
-	page := body(t, resp)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	welcome := body(t, resp)
+	if resp.StatusCode != http.StatusOK || resp.Request.URL.RawQuery != "" {
+		t.Fatalf("status %d at %s, want 200 at a clean /activate", resp.StatusCode, resp.Request.URL)
 	}
-	if resp.Request.URL.RawQuery != "" {
-		t.Errorf("the code survived in the URL: %s", resp.Request.URL)
-	}
-	for _, want := range []string{"Maria Borg", "Kebab Factory Ltd", "KF-StJulians-Staff", "No fingerprints"} {
-		if !strings.Contains(page, want) {
-			t.Errorf("the activation page is missing %q", want)
+	for _, want := range []string{"Maria Borg", "Kebab Factory Ltd", "Tap the plaque"} {
+		if !strings.Contains(welcome, want) {
+			t.Errorf("step 1 is missing %q", want)
 		}
 	}
-	if strings.Contains(page, code) {
-		t.Fatal("the activation page carries the raw code")
+
+	// 2. Step 2: the notice and the form. Submit WITHOUT consent: nothing recorded.
+	privacy := h.getBody(t, c, "/activate?step=2")
+	if !strings.Contains(privacy, "No fingerprints") {
+		t.Error("step 2 must carry the GDPR notice")
 	}
-
-	token := formToken(t, page)
-
-	// 2. Submit WITHOUT consent: nothing may be consumed.
+	token := formToken(t, privacy)
 	noConsent, err := c.PostForm(h.server.URL+"/api/activate", url.Values{"csrf": {token}})
 	if err != nil {
 		t.Fatalf("POST without consent: %v", err)
 	}
-	if got := body(t, noConsent); !strings.Contains(got, "Please tick the box") {
-		t.Error("the consent gate did not come back with the form")
+	if got := body(t, noConsent); noConsent.StatusCode != http.StatusBadRequest || !strings.Contains(got, "Please tick the box") {
+		t.Errorf("the consent gate answered %d without the error", noConsent.StatusCode)
 	}
-	if noConsent.StatusCode != http.StatusBadRequest {
-		t.Errorf("status = %d, want 400", noConsent.StatusCode)
-	}
-	h.assertEmployeeStatus(t, "invited")
+	h.assertConsented(t, false)
 
-	// 3. Submit WITH consent.
-	done, err := c.PostForm(h.server.URL+"/api/activate", url.Values{"consent": {"yes"}, "csrf": {token}})
+	// 3. Consent. ADR 0026: recorded, bound — and NOTHING activated.
+	resp, err = c.PostForm(h.server.URL+"/api/activate", url.Values{"consent": {"yes"}, "csrf": {token}})
 	if err != nil {
 		t.Fatalf("POST /api/activate: %v", err)
 	}
-	// A FIRST activation lands on the mini tour (M5-07), not on the confirmation.
-	// The tour is three linked GETs and the last one points at /activate/done, so
-	// this step follows the same path a phone does.
-	tour := body(t, done)
-	if done.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want 200 after following the redirect", done.StatusCode)
+	ready := body(t, resp)
+	if resp.Request.URL.Query().Get("step") != "3" || !strings.Contains(ready, "KF-StJulians-Staff") {
+		t.Fatalf("consent landed on %s; want step 3 naming the venue network", resp.Request.URL)
 	}
-	if done.Request.URL.Path != "/activate/tour" {
-		t.Errorf("landed on %s, want /activate/tour", done.Request.URL.Path)
+	h.assertConsented(t, true)
+	h.assertEmployeeStatus(t, "invited")
+	h.assertInviteConsumed(t, false)
+	h.assertSessionCount(t, 0)
+	h.assertAudit(t, ActionActivationConsented, 1)
+	if h.cookieValue(c, session.CookieName) != "" {
+		t.Fatal("the consent POST left a session cookie")
 	}
-	if !strings.Contains(tour, "Tap the plaque") {
-		t.Error("the first slide of the tour did not render")
-	}
-	if strings.Contains(tour, code) {
-		t.Fatal("the tour carries the raw code")
+	if strings.Count(h.cookieValue(c, activationCookieName), ".") != 2 {
+		t.Fatal("the activation cookie does not carry the consent binding")
 	}
 
-	confirmationResp, err := c.Get(h.server.URL + "/activate/done")
-	if err != nil {
-		t.Fatalf("GET /activate/done: %v", err)
+	// 4. The waiting screen, and its poll.
+	if wait := h.getBody(t, c, "/activate?step=4"); !strings.Contains(wait, "Now tap the plaque") {
+		t.Error("step 4 is not the waiting screen")
 	}
-	confirmation := body(t, confirmationResp)
-	if confirmationResp.StatusCode != http.StatusOK {
-		t.Fatalf("confirmation status = %d, want 200", confirmationResp.StatusCode)
+	if got := h.status(t, c); got != "waiting" {
+		t.Errorf("status before the tap = %q, want waiting", got)
 	}
-	if !strings.Contains(confirmation, "All done") {
-		t.Error("the confirmation screen did not render")
+
+	// 5. THE TAP. A genuinely signed URL with the next counter value.
+	ctrBefore := h.lastCtr(t, h.tagUID)
+	txBefore := h.transactionCount(t)
+	tapURL := h.nextTap(t)
+	tapResp, page := h.tapWith(t, c, tapURL)
+	if tapResp.StatusCode != http.StatusOK || !strings.Contains(page, "Activation complete") {
+		t.Fatalf("the activating tap answered %d:\n%s", tapResp.StatusCode, page)
 	}
-	if strings.Contains(confirmation, code) {
+	if strings.Contains(page, "<button") || strings.Contains(page, "<form") {
+		t.Error("the activation confirmation has a button (§9)")
+	}
+	if strings.Contains(page, code) {
 		t.Fatal("the confirmation carries the raw code")
 	}
-
-	// 4. The session cookie is in the jar, and the activation cookie is gone.
-	u, _ := url.Parse(h.server.URL)
-	var sessionCookie, activationCookie string
-	for _, ck := range c.Jar.Cookies(u) {
-		switch ck.Name {
-		case session.CookieName:
-			sessionCookie = ck.Value
-		case activationCookieName:
-			activationCookie = ck.Value
-		}
-	}
-	if sessionCookie == "" {
-		t.Fatal("no session cookie: the phone was not remembered")
-	}
-	if activationCookie != "" {
-		t.Error("the spent activation cookie is still in the browser")
-	}
-
-	// 5. The database agrees.
 	h.assertEmployeeStatus(t, "active")
 	h.assertInviteConsumed(t, true)
 	h.assertSessionCount(t, 1)
 	h.assertAudit(t, ActionActivationCompleted, 1)
-	h.assertAudit(t, invite.ActionCodeShownToManager, 0) // no channel wrote one here
+	h.assertAuditMentions(t, ActionActivationCompleted, h.tagUID)
+	if got := h.lastCtr(t, h.tagUID); got != int32(h.ctr) || got <= ctrBefore {
+		t.Errorf("tags.last_ctr = %d, want %d: the activating tap must run the ATOMIC advance (§4.4)", got, h.ctr)
+	}
+	if got := h.transactionCount(t); got != txBefore {
+		t.Errorf("the activating tap wrote %d transactions rows; it is not attendance", got-txBefore)
+	}
+	if h.cookieValue(c, session.CookieName) == "" || h.cookieValue(c, activationCookieName) != "" {
+		t.Fatal("after the tap: want a session cookie and no activation cookie")
+	}
+	if got := h.status(t, c); got != "done" {
+		t.Errorf("status after the tap = %q, want done", got)
+	}
+	// The waiting tab RELOADED after success, and the link reopened on this phone:
+	// both are "already set up", never "ask your manager" (third eye #3).
+	if reload := h.getBody(t, c, "/activate"); !strings.Contains(reload, "This phone is already set up") {
+		t.Error("reloading /activate on the activated phone must say it is already set up")
+	}
+	if again := h.getBody(t, c, "/activate?code="+url.QueryEscape(code)); !strings.Contains(again, "This phone is already set up") {
+		t.Error("reopening the spent link on the activated phone must say it is already set up")
+	}
 
-	// 6. THE SAME CODE CANNOT DO IT AGAIN. A fresh browser opens the same link.
-	second := h.client(t)
-	replay, err := second.Get(h.server.URL + "/activate?code=" + url.QueryEscape(code))
+	// The completion page is its own URL now (audit round 2, B): reloading IT is
+	// harmless and shows the same confirmation.
+	if again := h.getBody(t, c, ActivationCompletePath); !strings.Contains(again, "Activation complete") ||
+		strings.Contains(again, "<button") {
+		t.Error("reloading the completion page must show the confirmation again, with no button")
+	}
+
+	// 6. The SAME tap URL again (back button): the phone is activated now, so it is
+	// an ordinary tap page — and still nothing is consumed or issued twice.
+	again, againBody := h.tapWith(t, c, tapURL)
+	if again.StatusCode != http.StatusOK || strings.Contains(againBody, "Activation complete") {
+		t.Errorf("a reloaded activation URL answered %d with the activation screen", again.StatusCode)
+	}
+	h.assertSessionCount(t, 1)
+
+	// 7. THE NEXT TAP IS A REAL CHECK-IN, AND NOT PRACTICE (ADR 0026 replaced it).
+	_, tapPage := h.tapWith(t, c, h.nextTap(t))
+	ctx := regexp.MustCompile(`name="ctx" value="([^"]+)"`).FindStringSubmatch(tapPage)
+	if len(ctx) != 2 {
+		t.Fatalf("the next tap did not render the tap page:\n%s", tapPage)
+	}
+	checkin, err := c.PostForm(h.server.URL+"/api/checkin", url.Values{"ctx": {ctx[1]}})
+	if err != nil {
+		t.Fatalf("POST /api/checkin: %v", err)
+	}
+	result := body(t, checkin)
+	if checkin.StatusCode != http.StatusOK || strings.Contains(result, "TRAINING") {
+		t.Fatalf("the first check-in answered %d (TRAINING shown: %v)", checkin.StatusCode, strings.Contains(result, "TRAINING"))
+	}
+	rec := h.lastRecord(t, h.employeeID)
+	if rec.Practice {
+		t.Fatal("the first check-in after activation was recorded practice=true; ADR 0026 replaced the practice tap")
+	}
+	if rec.Type == nil || *rec.Type != "in" {
+		t.Errorf("the first check-in's direction = %v, want in", show(rec.Type))
+	}
+
+	// 8. The link cannot be used again, in any browser.
+	replay, err := h.client(t).Get(h.server.URL + "/activate?code=" + url.QueryEscape(code))
 	if err != nil {
 		t.Fatalf("replay GET: %v", err)
 	}
-	replayBody := body(t, replay)
-	if replay.StatusCode != http.StatusBadRequest {
-		t.Fatalf("replay status = %d, want 400", replay.StatusCode)
-	}
-	if !strings.Contains(replayBody, "Ask your manager for a new one") {
-		t.Error("a replayed link must land on the generic failure page")
+	if got := body(t, replay); replay.StatusCode != http.StatusBadRequest || !strings.Contains(got, "Ask your manager for a new one") {
+		t.Errorf("a spent link answered %d", replay.StatusCode)
 	}
 	h.assertSessionCount(t, 1)
-	// TWO failures are recorded by this test, and both are meant to be: the
-	// consent-less submit in step 2 and the replay in step 6. §4.6 wants an
-	// attempt that goes nowhere to leave a trace, so the count is the assertion —
-	// dropping either row would be the bug.
-	h.assertAudit(t, ActionActivationFailed, 2)
 }
 
-// TestE2E_ConcurrentActivationsProduceExactlyOneSession is the §4.4 proof at the
-// HTTP boundary: N browsers POST the SAME code at the same instant and exactly
-// one walks away with a session.
-func TestE2E_ConcurrentActivationsProduceExactlyOneSession(t *testing.T) {
+// TestE2E_ConsentWithoutATapActivatesNothing: no consent → no activation, and a
+// consent with no tap is also no activation. A tap from a browser that only
+// OPENED the link (no binding) is §5 row 3 — back to the wizard — and touches no
+// counter.
+func TestE2E_ConsentWithoutATapActivatesNothing(t *testing.T) {
 	h := newHarness(t, "invited")
 	code := h.issue(t)
-
-	// All N racers share one browser state: the same cookie, so the same
-	// synchronizer token. The race being measured is the CONSUMPTION, not the
-	// token check.
-	const raceToken = "RACEtokenRACEtokenRACEtokenRACEtokenRACE123"
-
-	const n = 10 // below inviteFailureLimit so the limiter is not what wins
-	var (
-		wg        sync.WaitGroup
-		mu        sync.Mutex
-		successes int
-		statuses  []int
-	)
-	start := make(chan struct{})
-	for i := 0; i < n; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			req, err := http.NewRequest(http.MethodPost, h.server.URL+"/api/activate",
-				strings.NewReader("consent=yes&csrf="+url.QueryEscape(raceToken)))
-			if err != nil {
-				t.Error(err)
-				return
-			}
-			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-			req.AddCookie(&http.Cookie{Name: activationCookieName, Value: raceToken + "." + code})
-			client := &http.Client{
-				Timeout: 15 * time.Second,
-				// Do not follow the redirect: the 303 itself is the signal.
-				CheckRedirect: func(*http.Request, []*http.Request) error {
-					return http.ErrUseLastResponse
-				},
-			}
-			<-start
-			resp, err := client.Do(req)
-			if err != nil {
-				t.Error(err)
-				return
-			}
-			defer resp.Body.Close()
-			_, _ = io.Copy(io.Discard, resp.Body)
-
-			mu.Lock()
-			statuses = append(statuses, resp.StatusCode)
-			if resp.StatusCode == http.StatusSeeOther {
-				successes++
-			}
-			mu.Unlock()
-		}()
+	c := h.client(t)
+	if _, err := c.Get(h.server.URL + "/activate?code=" + url.QueryEscape(code)); err != nil {
+		t.Fatalf("open link: %v", err)
 	}
-	close(start)
-	wg.Wait()
-
-	if successes != 1 {
-		t.Fatalf("%d of %d concurrent activations succeeded, want exactly 1 (statuses: %v)", successes, n, statuses)
+	before := h.lastCtr(t, h.tagUID)
+	resp, _ := h.tapWith(t, c, h.nextTap(t))
+	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != activationFromTap {
+		t.Fatalf("an unconsented tap answered %d %q, want 303 /activate", resp.StatusCode, resp.Header.Get("Location"))
 	}
-	h.assertSessionCount(t, 1)
-	h.assertInviteConsumed(t, true)
-	h.assertEmployeeStatus(t, "active")
+	if h.lastCtr(t, h.tagUID) != before {
+		t.Error("an unconsented tap advanced the plaque's counter")
+	}
+	h.assertSessionCount(t, 0)
+	h.assertInviteConsumed(t, false)
+	h.assertEmployeeStatus(t, "invited")
 }
 
-// TestE2E_SecondDeviceRevokesTheFirst is the decision this task makes explicit: a
-// valid, unused invitation for an ALREADY ACTIVE employee is treated as a new
-// phone, and the old phone is signed out.
+// TestE2E_ReplayedSUNCannotActivate: a counter that is not strictly greater than
+// the plaque's last one — an old URL, a copied one — completes nothing (§4.4).
+func TestE2E_ReplayedSUNCannotActivate(t *testing.T) {
+	h := newHarness(t, "invited")
+	c := h.client(t)
+	h.consent(t, c, h.issue(t))
+
+	for _, ctr := range []uint32{uint32(h.startCtr), uint32(h.startCtr) - 50} {
+		resp, page := h.tapWith(t, c, signedTapURL(t, tapFakeTagKey, h.tagUID, ctr))
+		if resp.StatusCode != http.StatusBadRequest || !strings.Contains(page, "finish setup") {
+			t.Errorf("ctr %d: answered %d, want the refused-tap screen", ctr, resp.StatusCode)
+		}
+	}
+	h.assertSessionCount(t, 0)
+	h.assertInviteConsumed(t, false)
+	h.assertAudit(t, ActionActivationFailed, 2)
+	if got := h.lastCtr(t, h.tagUID); got != h.startCtr {
+		t.Errorf("a replay moved tags.last_ctr to %d", got)
+	}
+
+	// A forged CMAC on a fresh counter is refused the same way and moves nothing.
+	forged := strings.Replace(h.nextTap(t), "&cmac=", "&cmac=0", 1)
+	forged = forged[:len(forged)-1]
+	if resp, _ := h.tapWith(t, c, forged); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("a forged CMAC answered %d", resp.StatusCode)
+	}
+	if got := h.lastCtr(t, h.tagUID); got != h.startCtr {
+		t.Errorf("a forged CMAC moved tags.last_ctr to %d (CMAC must be checked BEFORE the advance)", got)
+	}
+
+	// The genuine next touch still works: the refusals cost nothing but rows.
+	if resp, page := h.tapWith(t, c, h.nextTap(t)); resp.StatusCode != http.StatusOK || !strings.Contains(page, "Activation complete") {
+		t.Fatalf("a genuine tap after the replays answered %d", resp.StatusCode)
+	}
+	h.assertSessionCount(t, 1)
+}
+
+// TestE2E_ConcurrentActivatingTapsProduceExactlyOneSession is the §4.4 proof at
+// the HTTP boundary, twice: N copies of the SAME URL, and N DIFFERENT genuine
+// URLs, all from the one consented browser at the same instant. Exactly one
+// session either way.
+func TestE2E_ConcurrentActivatingTapsProduceExactlyOneSession(t *testing.T) {
+	for _, distinct := range []bool{false, true} {
+		name := "same_url"
+		if distinct {
+			name = "distinct_counters"
+		}
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t, "invited")
+			c := h.client(t)
+			h.consent(t, c, h.issue(t))
+			pending := h.cookieValue(c, activationCookieName)
+
+			const n = 8 // below inviteFailureLimit, so the limiter is not what decides
+			urls := make([]string, n)
+			for i := range urls {
+				if i == 0 || distinct {
+					urls[i] = h.nextTap(t)
+				} else {
+					urls[i] = urls[0]
+				}
+			}
+			var (
+				wg        sync.WaitGroup
+				mu        sync.Mutex
+				completed int
+				statuses  []int
+			)
+			start := make(chan struct{})
+			for i := 0; i < n; i++ {
+				wg.Add(1)
+				go func(target string) {
+					defer wg.Done()
+					req, err := http.NewRequest(http.MethodGet, h.server.URL+target, nil)
+					if err != nil {
+						t.Error(err)
+						return
+					}
+					req.AddCookie(&http.Cookie{Name: activationCookieName, Value: pending})
+					client := &http.Client{Timeout: 15 * time.Second,
+						CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+					<-start
+					resp, err := client.Do(req)
+					if err != nil {
+						t.Error(err)
+						return
+					}
+					if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+						t.Error(err)
+					}
+					resp.Body.Close()
+					mu.Lock()
+					statuses = append(statuses, resp.StatusCode)
+					if resp.StatusCode == http.StatusSeeOther && strings.HasPrefix(resp.Header.Get("Location"), ActivationCompletePath) {
+						completed++
+					}
+					mu.Unlock()
+				}(urls[i])
+			}
+			close(start)
+			wg.Wait()
+
+			if completed != 1 {
+				t.Fatalf("%d of %d concurrent activating taps completed, want exactly 1 (statuses %v)", completed, n, statuses)
+			}
+			h.assertSessionCount(t, 1)
+			h.assertInviteConsumed(t, true)
+			h.assertAudit(t, ActionActivationCompleted, 1)
+		})
+	}
+}
+
+// TestE2E_ForeignTenantPlaqueCannotActivate: ANY active plaque of the employer is
+// fine (user decision) — and a plaque of ANOTHER employer is not, even with a
+// genuine signature.
+func TestE2E_ForeignTenantPlaqueCannotActivate(t *testing.T) {
+	h := newHarness(t, "invited")
+	kek, err := hex.DecodeString(tapFakeKEK)
+	if err != nil {
+		t.Fatalf("kek: %v", err)
+	}
+	foreignUID := h.newTag(t, kek, uuid.New(), uuid.New(), 100)
+	c := h.client(t)
+	h.consent(t, c, h.issue(t))
+
+	resp, page := h.tapWith(t, c, signedTapURL(t, tapFakeTagKey, foreignUID, 101))
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(page, "finish setup") {
+		t.Fatalf("a foreign plaque answered %d", resp.StatusCode)
+	}
+	// R5: the foreign plaque's counter did NOT move — it is refused on the
+	// non-advancing preview, before sun.Verify.
+	if got := h.lastCtr(t, foreignUID); got != 100 {
+		t.Fatalf("the foreign tenant's plaque counter moved to %d, want 100", got)
+	}
+	h.assertSessionCount(t, 0)
+	h.assertInviteConsumed(t, false)
+	h.assertAudit(t, ActionActivationFailed, 1)
+	// The other tenant's uid stays out of this tenant's trail (§4.5).
+	h.assertAuditMentions(t, ActionActivationFailed, "foreign_tenant_tag")
+	h.assertAuditDoesNotMention(t, foreignUID)
+
+	// A SECOND plaque of the employer's own, on another wall — not the one on the
+	// employee's profile — activates.
+	ownUID := h.extraPlaque(t, kek, 50)
+	if resp, page := h.tapWith(t, c, signedTapURL(t, tapFakeTagKey, ownUID, 51)); resp.StatusCode != http.StatusOK || !strings.Contains(page, "Activation complete") {
+		t.Fatalf("another plaque of the same employer answered %d", resp.StatusCode)
+	}
+	h.assertSessionCount(t, 1)
+}
+
+// TestE2E_DeadPlaqueCannotActivate: a lost or retired plaque completes nothing and
+// its counter is not touched.
+func TestE2E_DeadPlaqueCannotActivate(t *testing.T) {
+	for _, status := range []string{"lost", "retired"} {
+		t.Run(status, func(t *testing.T) {
+			h := newHarness(t, "invited")
+			c := h.client(t)
+			h.consent(t, c, h.issue(t))
+			h.retireTag(t, h.tagUID, status)
+
+			resp, page := h.tapWith(t, c, h.nextTap(t))
+			if resp.StatusCode != http.StatusBadRequest || !strings.Contains(page, "finish setup") {
+				t.Fatalf("a %s plaque answered %d", status, resp.StatusCode)
+			}
+			if got := h.lastCtr(t, h.tagUID); got != h.startCtr {
+				t.Errorf("a %s plaque's counter moved to %d", status, got)
+			}
+			h.assertSessionCount(t, 0)
+			h.assertInviteConsumed(t, false)
+		})
+	}
+}
+
+// TestE2E_ExpiredInvitationCannotActivate: the cookie outlives nothing — an
+// invitation that expired between consent and tap completes nothing, and the
+// dead cookie is cleared.
+func TestE2E_ExpiredInvitationCannotActivate(t *testing.T) {
+	h := newHarness(t, "invited")
+	c := h.client(t)
+	h.consent(t, c, h.issue(t))
+
+	owner := ownerPoolForTest(t)
+	if _, err := owner.Exec(context.Background(),
+		`UPDATE employee_invites SET expires_at = now() - interval '1 second' WHERE tenant_id = $1 AND employee_id = $2`,
+		h.tenantID, h.employeeID); err != nil {
+		t.Fatalf("expire the invitation: %v", err)
+	}
+	before := h.lastCtr(t, h.tagUID)
+	resp, _ := h.tapWith(t, c, h.nextTap(t))
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("an expired invitation's tap answered %d, want 400", resp.StatusCode)
+	}
+	if h.lastCtr(t, h.tagUID) != before {
+		t.Error("an expired invitation's tap advanced the counter")
+	}
+	h.assertSessionCount(t, 0)
+	h.assertEmployeeStatus(t, "invited")
+	if h.cookieValue(c, activationCookieName) != "" {
+		t.Error("the dead activation cookie was left in the browser")
+	}
+}
+
+// TestE2E_SecondDeviceRevokesTheFirst: a valid invitation for an ALREADY ACTIVE
+// employee is a new phone; its activating tap signs the old phone out.
 func TestE2E_SecondDeviceRevokesTheFirst(t *testing.T) {
 	h := newHarness(t, "invited")
 
-	// First device.
 	first := h.client(t)
-	code1 := h.issue(t)
-	p1, err := first.Get(h.server.URL + "/activate?code=" + url.QueryEscape(code1))
-	if err != nil {
-		t.Fatalf("first GET: %v", err)
+	h.consent(t, first, h.issue(t))
+	if resp, _ := h.tapWith(t, first, h.nextTap(t)); resp.StatusCode != http.StatusOK {
+		t.Fatalf("first activation answered %d", resp.StatusCode)
 	}
-	t1 := formToken(t, body(t, p1))
-	r1, err := first.PostForm(h.server.URL+"/api/activate", url.Values{"consent": {"yes"}, "csrf": {t1}})
-	if err != nil {
-		t.Fatalf("first POST: %v", err)
-	}
-	_ = body(t, r1)
 	h.assertSessionCount(t, 1)
 
-	// Second device, second invitation.
 	second := h.client(t)
 	code2 := h.issue(t)
-	page, err := second.Get(h.server.URL + "/activate?code=" + url.QueryEscape(code2))
-	if err != nil {
-		t.Fatalf("second GET: %v", err)
+	if _, err := second.Get(h.server.URL + "/activate?code=" + url.QueryEscape(code2)); err != nil {
+		t.Fatalf("second link: %v", err)
 	}
-	warn := body(t, page)
-	if !strings.Contains(warn, "This is a new phone") {
+	if warn := h.getBody(t, second, "/activate"); !strings.Contains(warn, "This is a new phone") {
 		t.Error("the second activation must warn before signing the other phone out")
 	}
-	t2 := formToken(t, warn)
-	r2, err := second.PostForm(h.server.URL+"/api/activate", url.Values{"consent": {"yes"}, "csrf": {t2}})
-	if err != nil {
-		t.Fatalf("second POST: %v", err)
-	}
-	confirmation := body(t, r2)
-	if !strings.Contains(confirmation, "other phone has been signed out") {
-		t.Error("the confirmation must say what happened to the other phone")
+	h.consent(t, second, code2)
+	h.assertSessionCount(t, 1) // consent revoked nothing
+	resp, page := h.tapWith(t, second, h.nextTap(t))
+	if resp.StatusCode != http.StatusOK || !strings.Contains(page, "other phone has been signed out") {
+		t.Fatalf("second activation answered %d without saying what happened to the other phone", resp.StatusCode)
 	}
 
-	// Two session rows exist, and exactly one is live: the new one.
 	h.assertSessionCount(t, 2)
 	h.assertLiveSessionCount(t, 1)
 	h.assertAudit(t, ActionDeviceReplaced, 1)
-
-	// The OLD device's cookie no longer resolves to a live session — measured by
-	// asking the confirmation page, which verifies the session it is given.
-	stale, err := first.Get(h.server.URL + "/activate/done")
-	if err != nil {
-		t.Fatalf("stale GET: %v", err)
+	if got := h.status(t, first); got != "none" {
+		t.Errorf("the revoked phone's status = %q, want none", got)
 	}
-	if got := body(t, stale); !strings.Contains(got, "keep the sign-in") {
-		t.Error("the revoked device must no longer be recognised")
+}
+
+// TestE2E_AClientCannotDeclareThePracticeFlag: with the practice tap retired (ADR
+// 0026) the engine sets practice on nothing — and no form field a client can
+// invent turns it back on, on a first record or on a checkout (the M4-06
+// hours-inflation exploit stays closed at the HTTP boundary too).
+func TestE2E_AClientCannotDeclareThePracticeFlag(t *testing.T) {
+	h := newHarness(t, "invited")
+	claims := url.Values{
+		"practice": {"true"}, "Practice": {"1"}, "is_practice": {"yes"},
+		"training": {"true"}, "practice_tap": {"on"},
+	}
+	emp := h.newEmployee(t, "active")
+	cookie := h.cookieForEmployee(t, emp)
+
+	if w := h.postTap(t, h.nfcContext(uint32(h.startCtr)+1), cookie, claims); w.Code != http.StatusOK {
+		t.Fatalf("first tap status = %d", w.Code)
+	}
+	if rec := h.lastRecord(t, emp); rec.Practice {
+		t.Fatalf("a client declared its first record practice (verdict %q)", rec.Verdict)
+	}
+
+	other := h.newEmployee(t, "active")
+	h.seedTapAgedBy(t, other, 600*time.Second, "in", false)
+	if w := h.postTap(t, h.nfcContext(uint32(h.startCtr)+2), h.cookieForEmployee(t, other), claims); w.Code != http.StatusOK {
+		t.Fatalf("checkout status = %d", w.Code)
+	}
+	rec := h.lastRecord(t, other)
+	if rec.Type == nil || *rec.Type != "out" || rec.Practice {
+		t.Fatalf("checkout = %q practice=%v, want out/false", deref(rec.Type), rec.Practice)
 	}
 }
 
@@ -560,6 +785,76 @@ func (h *harness) assertAudit(t *testing.T, action string, want int) {
 		if hexRun(d) {
 			t.Fatalf("an audit detail contains a 64-hex value, which is the shape of a code hash: %s", d)
 		}
+	}
+}
+
+// extraPlaque mounts one more active plaque of this tenant at a NEW location and
+// returns its uid.
+func (h *harness) extraPlaque(t *testing.T, kek []byte, startCtr int32) string {
+	t.Helper()
+	uidBytes := make([]byte, 7)
+	if _, err := rand.Read(uidBytes); err != nil {
+		t.Fatalf("rand: %v", err)
+	}
+	uid := strings.ToUpper(hex.EncodeToString(uidBytes))
+	tagKey, err := hex.DecodeString(tapFakeTagKey)
+	if err != nil {
+		t.Fatalf("tag key: %v", err)
+	}
+	ref, err := sun.Wrap(kek, uidBytes, tagKey)
+	if err != nil {
+		t.Fatalf("sun.Wrap: %v", err)
+	}
+	loc := uuid.New()
+	if err := h.data.WithTenant(context.Background(), h.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		if _, e := tx.Exec(ctx, `INSERT INTO locations (id, tenant_id, name, static_ips, gps_lat, gps_lng)
+			VALUES ($1, $2, 'Sliema', '{198.51.100.0/24}', 35.912, 14.502)`, loc, h.tenantID); e != nil {
+			return e
+		}
+		_, e := tx.Exec(ctx, `INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status)
+			VALUES ($1, $2, $3, $4, $5, 'active')`, uid, h.tenantID, loc, ref, startCtr)
+		return e
+	}); err != nil {
+		t.Fatalf("extra plaque: %v", err)
+	}
+	return uid
+}
+
+func (h *harness) assertConsented(t *testing.T, want bool) {
+	t.Helper()
+	h.assertCount(t,
+		`SELECT count(*) FROM employee_invites WHERE tenant_id = $1 AND employee_id = $2 AND consented_at IS NOT NULL`,
+		map[bool]int{true: 1, false: 0}[want], "consented invitations")
+}
+
+// assertAuditMentions requires a row of action whose detail contains needle.
+func (h *harness) assertAuditMentions(t *testing.T, action, needle string) {
+	t.Helper()
+	var n int
+	if err := h.data.WithTenant(context.Background(), h.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND action = $2 AND position($3 in detail::text) > 0`,
+			h.tenantID, action, needle).Scan(&n)
+	}); err != nil {
+		t.Fatalf("read audit_log: %v", err)
+	}
+	if n == 0 {
+		t.Fatalf("no %s row mentions %q", action, needle)
+	}
+}
+
+func (h *harness) assertAuditDoesNotMention(t *testing.T, needle string) {
+	t.Helper()
+	var n int
+	if err := h.data.WithTenant(context.Background(), h.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND position($2 in detail::text) > 0`,
+			h.tenantID, needle).Scan(&n)
+	}); err != nil {
+		t.Fatalf("read audit_log: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("%d audit rows of this tenant mention %q", n, needle)
 	}
 }
 

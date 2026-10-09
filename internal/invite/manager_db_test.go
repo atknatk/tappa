@@ -257,7 +257,7 @@ func TestLookup_FailuresCarryTheirTenant(t *testing.T) {
 	t.Run("already used", func(t *testing.T) {
 		f := newFixture(t, d, statusInvited, "")
 		_, code := issue(t, m, f, 0)
-		if _, err := m.Activate(context.Background(), code); err != nil {
+		if _, err := m.Activate(context.Background(), code, consent(t, m, code)); err != nil {
 			t.Fatalf("first Activate: %v", err)
 		}
 		got, err := m.Lookup(context.Background(), code)
@@ -308,8 +308,9 @@ func TestActivate_ConsumesExactlyOnce(t *testing.T) {
 	m, d := testManager(t)
 	f := newFixture(t, d, statusInvited, "KF-StJulians-Staff")
 	inv, code := issue(t, m, f, 0)
+	b := consent(t, m, code)
 
-	act, err := m.Activate(context.Background(), code)
+	act, err := m.Activate(context.Background(), code, b)
 	if err != nil {
 		t.Fatalf("Activate: %v", err)
 	}
@@ -330,7 +331,7 @@ func TestActivate_ConsumesExactlyOnce(t *testing.T) {
 	assertInviteConsumed(t, d, f, inv.ID, true)
 
 	// The replay.
-	if _, err := m.Activate(context.Background(), code); !errors.Is(err, ErrCodeUsed) {
+	if _, err := m.Activate(context.Background(), code, b); !errors.Is(err, ErrCodeUsed) {
 		t.Fatalf("second Activate err = %v, want ErrCodeUsed", err)
 	}
 }
@@ -344,7 +345,7 @@ func TestActivate_SecondDeviceIsReportedNotRefused(t *testing.T) {
 	f := newFixture(t, d, statusActive, "")
 	_, code := issue(t, m, f, 0)
 
-	act, err := m.Activate(context.Background(), code)
+	act, err := m.Activate(context.Background(), code, consent(t, m, code))
 	if err != nil {
 		t.Fatalf("Activate on an already-active employee must succeed: %v", err)
 	}
@@ -362,7 +363,7 @@ func TestActivate_DeactivatedEmployeeDoesNotBurnTheCode(t *testing.T) {
 	f := newFixture(t, d, statusDeactivated, "")
 	inv, code := issue(t, m, f, 0)
 
-	_, err := m.Activate(context.Background(), code)
+	_, err := m.Activate(context.Background(), code, newBinding(t))
 	if !errors.Is(err, ErrNotActivatable) {
 		t.Fatalf("err = %v, want ErrNotActivatable", err)
 	}
@@ -402,7 +403,7 @@ func TestActivate_ExpiredCodeIsRefusedByTheDatabase(t *testing.T) {
 		t.Fatalf("insert expired invite: %v", err)
 	}
 
-	if _, err := m.Activate(context.Background(), code); !errors.Is(err, ErrCodeExpired) {
+	if _, err := m.Activate(context.Background(), code, newBinding(t)); !errors.Is(err, ErrCodeExpired) {
 		t.Fatalf("err = %v, want ErrCodeExpired", err)
 	}
 	assertEmployeeStatus(t, d, f, statusInvited)
@@ -459,4 +460,97 @@ func assertInviteConsumed(t *testing.T, d *db.DB, f fixture, inviteID uuid.UUID,
 	if !want && used != nil {
 		t.Fatal("used_at is set: the invite was burned when it should have survived")
 	}
+}
+
+// newBinding mints a consent binding the way the handler does: 256 random bits,
+// base64url.
+func newBinding(t *testing.T) Binding {
+	t.Helper()
+	c, err := newCode()
+	if err != nil {
+		t.Fatalf("newCode: %v", err)
+	}
+	return ParseBinding(c.reveal())
+}
+
+// consent records consent for code with a fresh binding and returns the binding
+// — the wizard's step 2 (ADR 0026).
+func consent(t *testing.T, m *Manager, code Code) Binding {
+	t.Helper()
+	b := newBinding(t)
+	if _, err := m.RecordConsent(context.Background(), code, b); err != nil {
+		t.Fatalf("RecordConsent: %v", err)
+	}
+	return b
+}
+
+// TestRecordConsent_ConsumesNothing: consent is a record, not an activation.
+func TestRecordConsent_ConsumesNothing(t *testing.T) {
+	m, d := testManager(t)
+	f := newFixture(t, d, statusInvited, "")
+	inv, code := issue(t, m, f, 0)
+
+	got, err := m.RecordConsent(context.Background(), code, newBinding(t))
+	if err != nil {
+		t.Fatalf("RecordConsent: %v", err)
+	}
+	if got.TenantID != f.tenantID || got.EmployeeID != f.employeeID || got.InviteID != inv.ID {
+		t.Fatalf("RecordConsent returned the wrong context: %+v", got)
+	}
+	assertEmployeeStatus(t, d, f, statusInvited)
+	assertInviteConsumed(t, d, f, inv.ID, false)
+}
+
+// TestRecordConsent_RefusesADeadInvitation: a spent invitation cannot collect a
+// consent that nothing could ever complete, and the refusal is labelled.
+func TestRecordConsent_RefusesADeadInvitation(t *testing.T) {
+	m, d := testManager(t)
+	f := newFixture(t, d, statusInvited, "")
+	_, code := issue(t, m, f, 0)
+	if _, err := m.Activate(context.Background(), code, consent(t, m, code)); err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+	got, err := m.RecordConsent(context.Background(), code, newBinding(t))
+	if !errors.Is(err, ErrCodeUsed) {
+		t.Fatalf("err = %v, want ErrCodeUsed", err)
+	}
+	if got.TenantID != f.tenantID {
+		t.Fatal("a refused consent must stay attributable")
+	}
+}
+
+// TestActivate_WithoutConsentIsRefusedAndBurnsNothing: ADR 0026's gate, from the
+// manager's side. No consent, or another browser's consent, consumes nothing and is
+// labelled ErrConsentMissing for the trail.
+func TestActivate_WithoutConsentIsRefusedAndBurnsNothing(t *testing.T) {
+	m, d := testManager(t)
+
+	t.Run("nobody consented", func(t *testing.T) {
+		f := newFixture(t, d, statusInvited, "")
+		inv, code := issue(t, m, f, 0)
+		if _, err := m.Activate(context.Background(), code, newBinding(t)); !errors.Is(err, ErrConsentMissing) {
+			t.Fatalf("err = %v, want ErrConsentMissing", err)
+		}
+		assertEmployeeStatus(t, d, f, statusInvited)
+		assertInviteConsumed(t, d, f, inv.ID, false)
+	})
+
+	t.Run("another browser consented", func(t *testing.T) {
+		f := newFixture(t, d, statusInvited, "")
+		inv, code := issue(t, m, f, 0)
+		_ = consent(t, m, code) // the other browser
+		if _, err := m.Activate(context.Background(), code, newBinding(t)); !errors.Is(err, ErrConsentMissing) {
+			t.Fatalf("err = %v, want ErrConsentMissing", err)
+		}
+		assertInviteConsumed(t, d, f, inv.ID, false)
+	})
+
+	t.Run("a malformed binding is a missing consent, not an outage", func(t *testing.T) {
+		f := newFixture(t, d, statusInvited, "")
+		_, code := issue(t, m, f, 0)
+		_ = consent(t, m, code)
+		if _, err := m.Activate(context.Background(), code, ParseBinding("short")); !errors.Is(err, ErrConsentMissing) {
+			t.Fatalf("err = %v, want ErrConsentMissing", err)
+		}
+	})
 }

@@ -3,34 +3,32 @@ package handler
 // A DAY AT KF ST JULIANS, produced by the decision engine (M5-09).
 //
 // WHAT THIS FILE IS. One test that drives the whole employee-facing product
-// against real Postgres and the production router: an invitation, an activation,
-// a mini-tour, practice taps, check-ins, check-outs, a queue of people on one
+// against real Postgres and the production router: an invitation, the activation
+// wizard, an activating NFC tap (ADR 0026), check-ins, check-outs, a queue of people on one
 // plaque, a mobile-data tap, an evidence-less tap, a QR scan, a manager's manual
 // entry, a deactivated account's attempt, a retired plaque and a Rusty Bar night
 // shift that crosses midnight. Nothing below writes a `transactions` row by hand:
-// every verdict, direction, trust score and practice flag on the day's records
+// every verdict, direction and trust score on the day's records
 // came out of internal/domain/tap through internal/domain/checkin, because a
 // fixture that hand-writes those columns makes a broken engine look correct.
 //
 // WHY IT IS ONE TEST AND NOT TWELVE. The day is one causal chain: direction is a
-// toggle against the person's last open check-in, the practice flag depends on
-// whether the person has ever been recorded, and the debounce depends on when
-// they last tapped. Split into independent tests those become twelve isolated
+// toggle against the person's last open check-in, and the debounce depends on
+// when they last tapped. Split into independent tests those become twelve isolated
 // fixtures, which is what the rest of this package already does well; what was
 // missing — and what the card asks for — is the chain itself.
 //
 // THE THREE PHASES AND WHY THEY ARE MINUTES APART IN NOTHING BUT SECONDS. See
 // seedDebounce in seedflow_db_test.go: ADR 0006 measures the debounce against a
 // server-side age no client can move, so one person's consecutive taps must be
-// separated by real time. The day therefore runs phase 0 (everyone's practice
-// tap), waits, phase 1 (the check-ins), waits, phase 2 (the check-outs).
+// separated by real time. The day therefore runs phase 0 (an activation and a
+// refused attempt), phase 1 (the check-ins), waits, phase 2 (the check-outs).
 //
-// 🔴 WHY EVERY WORKER HAS A PRACTICE ROW, which the M5-09 card's "~21 işlem" did
-// not anticipate: §5 says the FIRST record after activation is a training tap,
-// and on a freshly seeded database nobody has a record yet. So a first day really
-// does start with one TRAINING row per person — that is the product, not a
-// fixture artefact. The crew is ephemeral (fresh, run-stamped employee ids per
-// run) because transactions are immutable (§4.3): a re-runnable test cannot
+// WHY NOBODY HAS A PRACTICE ROW ANY MORE (ADR 0026). Until the activating tap
+// replaced it, §5 made the FIRST record after activation a training tap, so a
+// first day started with one TRAINING row per person. Now the first record is an
+// ordinary check-in. The crew is still ephemeral (fresh, run-stamped employee ids
+// per run) because transactions are immutable (§4.3): a re-runnable test cannot
 // inherit the last run's open check-in or its debounce predecessor. What that
 // costs the demo database, and what driving the SEEDED crew was measured to do
 // instead, is LIMITS L4.
@@ -75,9 +73,9 @@ const zeroCMAC = "0000000000000000"
 // dayWait is how long a phase waits before the same person may tap again.
 //
 // It is a VARIABLE so the wait itself can be mutated away and the consequence
-// measured rather than asserted. Measured, with it set to 0: the day fails on the
-// FIRST check-in of phase 1 — "Maria Borg: check-in = ignored/<nil>" — because
-// her practice tap was seconds earlier. The same collapse is counted without
+// measured rather than asserted. (Measured before ADR 0026, with it set to 0: the
+// day failed on the FIRST check-in of phase 1, seconds after that person's
+// practice tap. Since then the one wait left is between phase 1 and phase 2.) The same collapse is counted without
 // aborting by TestSeedDB_WithoutTheWaitTheDayCollapsesIntoIgnoredRows (5 of 15
 // records counted, 10 ignored); applied to this script it would swallow 19 of the
 // 31 rows, every check-out among them.
@@ -141,10 +139,31 @@ func declaring(v url.Values, when time.Time) url.Values {
 
 // --- activation --------------------------------------------------------------
 
-// activate walks a brand-new employee through invitation, consent and the mini
-// tour on ONE cookie jar, and leaves the session cookie in it. This is the first
-// third of the card's chain.
-func (f *seedFlow) activate(t *testing.T, p *phone) {
+// activate walks a brand-new employee through invitation, the wizard's consent
+// and the ACTIVATING TAP on a seeded plaque (ADR 0026), on ONE cookie jar, and
+// leaves the session cookie in it. This is the first third of the card's chain.
+//
+// THE TAP IS GENUINE, unlike every check-in tap in this file (L1): the activating
+// tap has no signed-context step to stipulate, so it carries a real SDM MAC under
+// the seeded plaque's published fake key (signedTapURL, sunurl_test.go) and runs
+// the real sun.Verify, atomic counter advance included.
+func (f *seedFlow) activate(t *testing.T, p *phone, plaque string) {
+	t.Helper()
+	code := f.inviteCode(t, p)
+
+	status, page := f.openPage(t, p, "/activate?code="+url.QueryEscape(code), seedOffSiteAddr)
+	if status != http.StatusOK {
+		t.Fatalf("GET /activate status = %d, want 200", status)
+	}
+	if strings.Contains(page, code) {
+		t.Fatal("the activation page carries the raw code")
+	}
+	f.consentAndTap(t, p, plaque)
+}
+
+// inviteCode issues an invitation for p and returns the raw code off the delivery
+// channel, the way a mail sender would receive it.
+func (f *seedFlow) inviteCode(t *testing.T, p *phone) string {
 	t.Helper()
 	ch := &linkChannel{}
 	if _, err := f.invites.IssueAndDeliver(context.Background(), invite.IssueParams{
@@ -160,41 +179,42 @@ func (f *seedFlow) activate(t *testing.T, p *phone) {
 	if code == "" {
 		t.Fatal("the delivered link carries no code")
 	}
+	return code
+}
 
-	status, page := f.openPage(t, p, "/activate?code="+url.QueryEscape(code), seedOffSiteAddr)
+// consentAndTap is the rest of the wizard for a browser that has opened its link:
+// step 2's consent POST, then a genuine NFC tap on plaque. It asserts the tap
+// completed the activation and that the browser now holds a session.
+func (f *seedFlow) consentAndTap(t *testing.T, p *phone, plaque string) {
+	t.Helper()
+	status, privacy := f.openPage(t, p, "/activate?step=2", seedOffSiteAddr)
 	if status != http.StatusOK {
-		t.Fatalf("GET /activate status = %d, want 200", status)
+		t.Fatalf("%s: step 2 status = %d", p.name, status)
 	}
-	if strings.Contains(page, code) {
-		t.Fatal("the activation page carries the raw code")
-	}
-	token := formToken(t, page)
-
 	req, err := http.NewRequest(http.MethodPost, f.server.URL+"/api/activate",
-		strings.NewReader(url.Values{"consent": {"yes"}, "csrf": {token}}.Encode()))
+		strings.NewReader(url.Values{"consent": {"yes"}, "csrf": {formToken(t, privacy)}}.Encode()))
 	if err != nil {
-		t.Fatalf("build activate POST: %v", err)
+		t.Fatalf("build consent POST: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	resp, err := p.client.Do(req)
 	if err != nil {
 		t.Fatalf("POST /api/activate: %v", err)
 	}
-	tour := body(t, resp)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("activation status = %d, want 200", resp.StatusCode)
-	}
-	if resp.Request.URL.Path != "/activate/tour" {
-		t.Errorf("a first activation must land on the mini tour, landed on %s", resp.Request.URL.Path)
-	}
-	if !strings.Contains(tour, "Tap the plaque") {
-		t.Error("the first slide of the tour did not render")
-	}
-	// Walk out of the tour the way a phone does.
-	if code, _ := f.openPage(t, p, "/activate/done", seedOffSiteAddr); code != http.StatusOK {
-		t.Fatalf("GET /activate/done status = %d, want 200", code)
+	ready := body(t, resp)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(ready, "Two quick things before you tap") {
+		t.Fatalf("%s: consent landed on %s with %d, want the get-ready step", p.name, resp.Request.URL, resp.StatusCode)
 	}
 
+	key := fmt.Sprintf("%X", fixtures.SeedTagKey(plaque))
+	before := f.tagCounter(t, plaque)
+	status, done := f.openPage(t, p, signedTapURL(t, key, plaque, before+1), seedOffSiteAddr)
+	if status != http.StatusOK || !strings.Contains(done, "Activation complete") {
+		t.Fatalf("%s: the activating tap answered %d", p.name, status)
+	}
+	if got := f.tagCounter(t, plaque); got != before+1 {
+		t.Fatalf("%s: the activating tap left the counter at %d, want %d", p.name, got, before+1)
+	}
 	var got string
 	for _, c := range p.client.Jar.Cookies(f.baseURL) {
 		if c.Name == session.CookieName {
@@ -202,7 +222,7 @@ func (f *seedFlow) activate(t *testing.T, p *phone) {
 		}
 	}
 	if got == "" {
-		t.Fatalf("%s walked out of activation without a session cookie", p.name)
+		t.Fatalf("%s finished activation without a session cookie", p.name)
 	}
 }
 
@@ -232,7 +252,7 @@ func (f *seedFlow) activate(t *testing.T, p *phone) {
 //
 // `make test-short` is the target this test's skip exists for. See the Makefile's
 // test-short block for the measured band, the load condition it was measured under,
-// and all three skips by name. Most of the difference `-short` buys is still the ~62 s this test
+// and all three skips by name. Most of the difference `-short` buys is still the ~31 s this test
 // spends asleep, because ADR 0006 measures the debounce on the SERVER clock
 // (seedDebounce, seedflow_db_test.go).
 //
@@ -243,7 +263,7 @@ func (f *seedFlow) activate(t *testing.T, p *phone) {
 func TestSeedDB_ADayAtKFStJulians(t *testing.T) {
 	if testing.Short() {
 		t.Skip("SKIPPED BY -short: TestSeedDB_ADayAtKFStJulians, the whole simulated day " +
-			"(31 records, ~63 s, of which ~62 s is ADR 0006 debounce waiting) did NOT run. " +
+			"(22 records, ~32 s, of which ~31 s is ADR 0006 debounce waiting) did NOT run. " +
 			"Nothing here is covered by another test. `make test` and CI still run it; " +
 			"a skipped test is not a passing one (M5-06). Use `make test` before you commit.")
 	}
@@ -270,12 +290,11 @@ func TestSeedDB_ADayAtKFStJulians(t *testing.T) {
 	ivan := f.hire(t, "Ivan Petrov", rustyBar.ID, "active")
 
 	// Grace has never been activated: no session, no activated_at. She is the
-	// card's chain — invitation -> activation -> practice -> in -> out.
+	// card's chain — invitation -> wizard -> activating tap -> in -> out.
 	grace := f.insertEmployee(t, "Grace Attard", stJulians.ID, "invited", false)
 
 	// Nadia has no phone at all. She is never activated, so she never taps; her
-	// hours arrive as a manager's manual entry. (activated_at NULL also keeps §5's
-	// practice rule from firing on a record she did not make.)
+	// hours arrive as a manager's manual entry.
 	nadia := f.insertEmployee(t, "Nadia Farrugia", stJulians.ID, "invited", false)
 
 	// Paul was deactivated last week and his phone still holds a live session —
@@ -292,43 +311,17 @@ func TestSeedDB_ADayAtKFStJulians(t *testing.T) {
 	securityBefore := f.auditRows(t, "tap.security_alert")
 
 	// =========================================================================
-	// PHASE 0 — activation, and everybody's first (TRAINING) tap.
+	// PHASE 0 — Grace activates, and a deactivated account tries.
 	// =========================================================================
-	f.activate(t, grace)
-
-	practice := []*phone{maria, joseph, antoine, rita, ahmed, elena, marco, grace}
-	for _, p := range practice {
-		if code, _ := f.tapNFC(t, p, plaque, onSite, venueGPS); code != http.StatusOK {
-			t.Fatalf("%s: practice tap status = %d, want 200", p.name, code)
-		}
-		rec := f.lastRow(t, p.id)
-		if !rec.Practice {
-			t.Fatalf("%s: the first record after activation must be a TRAINING tap (§5), practice = false", p.name)
-		}
-		if rec.Verdict != "ok" || rec.Type == nil || *rec.Type != "in" {
-			t.Fatalf("%s: practice tap = %s/%v, want ok/in", p.name, rec.Verdict, show(rec.Type))
-		}
-	}
-
-	// Ivan taps his plaque for the first time like everybody else — NO declared
-	// time, so the training row is stamped at server-now, which is LATER than both
-	// halves of the night shift he is about to work.
 	//
-	// 🔴 THIS LINE USED TO CARRY declaring(rbGPS, night.practice), AND THAT WAS A
-	// WORKAROUND FOR A PRODUCT DEFECT (M5-11, ADR 0008). Pushing the training row
-	// down to 17:50 kept it below the 18:05 check-in, because a practice row that
-	// sorted newest hid the real open check-in and turned the 02:10 checkout into a
-	// second `in`. The query now excludes practice rows, so the fixture no longer
-	// has to arrange the history for the engine — and this ordering (training tap
-	// newest, real shift beneath it) is exactly the shape that used to break.
+	// ADR 0026: there is no TRAINING tap any more. Grace's activation is completed
+	// by a genuine NFC tap on the plaque, which writes NO `transactions` row — so
+	// nobody in the crew has a record yet when the shift starts, and the first tap
+	// each of them makes below is an ordinary, counted check-in.
+	f.activate(t, grace, plaque)
+
 	night := rustyBarNight(t, rustyBar.Timezone)
 	rbGPS := atFix(rustyBar.Lat, rustyBar.Lng)
-	if code, _ := f.tapNFC(t, ivan, fixtures.TagKFRustyBar, rustyBar.OnSiteIP, rbGPS); code != http.StatusOK {
-		t.Fatalf("Ivan: practice tap status = %d, want 200", code)
-	}
-	if rec := f.lastRow(t, ivan.id); !rec.Practice {
-		t.Fatal("Ivan's first record is not a TRAINING tap")
-	}
 
 	// §5 ROW 4 — a deactivated account tries. Recorded, refused, and a security
 	// alert raised for the managers.
@@ -344,10 +337,9 @@ func TestSeedDB_ADayAtKFStJulians(t *testing.T) {
 		t.Fatalf("a deactivated account's attempt raised %d security alerts, want 1", got)
 	}
 
-	// =========================================================================
-	// The wait. See seedDebounce: this is the price of ADR 0006 being real.
-	// =========================================================================
-	time.Sleep(dayWait)
+	// NO WAIT HERE since ADR 0026: phase 0 no longer taps anybody who taps again in
+	// phase 1 (Paul's refused attempt is his only one; Grace's activation writes no
+	// record), so there is no debounce predecessor to age past.
 
 	// =========================================================================
 	// PHASE 1 — the shift starts.
@@ -458,17 +450,21 @@ func TestSeedDB_ADayAtKFStJulians(t *testing.T) {
 		t.Fatalf("a QR record carries no proof of moment: sun_valid=%v ctr=%v", show(qr.SunValid), show(qr.Ctr))
 	}
 
-	// GRACE'S FIRST REAL CHECK-IN — the third step of the card's chain. Her
-	// TRAINING row must NOT have held the chain open, or this would be an `out`.
+	// GRACE'S FIRST CHECK-IN — the tap after the one that activated her phone.
+	// It is her FIRST RECORD (the activating tap wrote none) and it counts: an
+	// ordinary `in`, never practice (ADR 0026).
 	if code, _ := f.tapNFC(t, grace, plaque, onSite, venueGPS); code != http.StatusOK {
 		t.Fatalf("Grace: check-in status = %d", code)
 	}
 	graceIn := f.lastRow(t, grace.id)
 	if graceIn.Practice {
-		t.Fatal("Grace's SECOND record is still marked TRAINING")
+		t.Fatal("Grace's first check-in after activation is marked TRAINING; ADR 0026 replaced the practice tap")
 	}
 	if graceIn.Type == nil || *graceIn.Type != "in" {
-		t.Fatalf("Grace's first real tap = %v, want in — a practice row must not hold the chain open", show(graceIn.Type))
+		t.Fatalf("Grace's first check-in = %v, want in", show(graceIn.Type))
+	}
+	if got := f.rowsFor(t, grace.id); got != 1 {
+		t.Fatalf("Grace has %d records after activating and checking in, want 1 — the activating tap is not attendance", got)
 	}
 
 	// THE MANAGER'S MANUAL ENTRY. Nadia has no phone, so the owner types her shift
@@ -633,20 +629,20 @@ func TestSeedDB_ADayAtKFStJulians(t *testing.T) {
 	if len(crew) != 10 {
 		t.Fatalf("the day has %d workers, the card says 10", len(crew))
 	}
-	// 31, and the breakdown is the point of asserting a total at all — if the
+	// 22, and the breakdown is the point of asserting a total at all — if the
 	// number moves, a scenario was added or silently lost:
 	//
-	//	phase 0  9 training taps + 1 refused attempt (deactivated)      = 10
+	//	phase 0  Grace's activating tap (NO record) + 1 refused attempt   = 1
 	//	phase 1  6 NFC check-ins + 1 ignored double tap + 1 QR
 	//	         + 1 manual entry + 1 Rusty Bar 18:05 + 1 Grace          = 11
 	//	phase 2  7 NFC check-outs + 1 QR + 1 Rusty Bar 02:10
 	//	         + 1 refused retired plaque                              = 10
 	//
-	// It is higher than the card's "~21" for a reason the card could not have
-	// known: on a fresh database §5's practice rule gives every one of the nine
-	// tapping workers a TRAINING row before their first real check-in.
-	if total != 31 {
-		t.Fatalf("the day produced %d records, want 31", total)
+	// It was 31 until ADR 0026: nine TRAINING rows, one per tapping worker, came
+	// before the first real check-in. The activating tap replaced them and writes
+	// no record, which is why the card's "~21" is now almost exactly right.
+	if total != 22 {
+		t.Fatalf("the day produced %d records, want 22", total)
 	}
 	// Paul is NOT in `crew` — the day has ten workers, and he no longer works here.
 	// His refused attempt IS a record though (§4.6), so his rows are added to the
@@ -824,15 +820,15 @@ func ptrTime(v time.Time) *time.Time  { return &v }
 // sys:occurred-at-bound's 72 h).
 //
 // WHAT CHANGED. `AND NOT t.practice` in GetLastOpenTransaction (ADR 0008). Ivan's
-// training tap above no longer declares 17:50 — the workaround was removed as the
-// task's finish condition, and this file's night shift closes with the training row
-// sitting NEWEST, which is precisely the arrangement that used to break it.
+// training tap no longer declared 17:50 after that fix; since ADR 0026 there is no
+// training tap at all, so the day can no longer produce the arrangement — the
+// historic-row shape is pinned by the tests named below, which seed it.
 //
 // WHERE IT IS PINNED NOW, so this paragraph cannot rot into the only record:
 // TestSeedDB_APracticeRowNeverHidesAnOlderOpenCheckIn (both arms, through
 // checkin.Service.Record), TestGatherDB_APracticeRowDoesNotHideAnOlderOpenCheckIn
 // (the query's own boundary, including two stacked practice rows) and
-// TestDecide_PracticeIsAlwaysAnIn (the invariant that lets the NOT EXISTS stay
+// TestDecide_NoNewRecordIsEverPractice (the invariant that lets the NOT EXISTS stay
 // practice-neutral).
 //
 // L4 — THE CREW IS EPHEMERAL AND RUN-STAMPED, SO THIS DAY DOES NOT FILL THE

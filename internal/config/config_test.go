@@ -48,6 +48,8 @@ func setRequired(t *testing.T) {
 	for _, name := range mailVariables() {
 		t.Setenv(name, "")
 	}
+	t.Setenv("TAPPA_DEV_TOOLS", "") // off unless a test opts in
+	t.Setenv("TAPPA_ENV", "")       // -> default dev
 }
 
 // otherKey is a valid 32-byte key that is NOT all zeroes, so it differs from the
@@ -579,5 +581,43 @@ func TestLoad_UnsetPreviousKEKIsNilNotEmptySlice(t *testing.T) {
 	}
 	if c.TagKEKPrevious != nil {
 		t.Fatalf("an unset rotation KEK must be nil, got %d bytes", len(c.TagKEKPrevious))
+	}
+}
+
+// TestLoad_DevToolsIsAnExplicitDevOnlyOptIn (ADR 0026, "Geliştirme aracı"): the
+// simulator is off unless TAPPA_DEV_TOOLS=1, and setting it on any environment
+// but dev is a startup failure, not a silent on.
+func TestLoad_DevToolsIsAnExplicitDevOnlyOptIn(t *testing.T) {
+	for _, tc := range []struct {
+		env, flag string
+		ok, want  bool
+	}{
+		{"", "", true, false},
+		{"dev", "", true, false},
+		{"dev", "0", true, false},
+		{"dev", "1", true, true},
+		{"", "1", true, true}, // unset env IS dev; the flag is still the explicit part
+		{"staging", "1", false, false},
+		{"prod", "1", false, false},
+		{"dev", "yes", false, false},
+		{"prod", "", true, false},
+	} {
+		setRequired(t)
+		t.Setenv("TAPPA_ENV", tc.env)
+		t.Setenv("TAPPA_DEV_TOOLS", tc.flag)
+		c, err := config.Load()
+		if !tc.ok {
+			if err == nil || !strings.Contains(err.Error(), "TAPPA_DEV_TOOLS") {
+				t.Errorf("env=%q flag=%q: want a startup error naming TAPPA_DEV_TOOLS, got %v", tc.env, tc.flag, err)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("env=%q flag=%q: %v", tc.env, tc.flag, err)
+			continue
+		}
+		if c.DevTools != tc.want {
+			t.Errorf("env=%q flag=%q: DevTools=%v, want %v", tc.env, tc.flag, c.DevTools, tc.want)
+		}
 	}
 }

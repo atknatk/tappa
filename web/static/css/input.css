@@ -270,6 +270,125 @@
   .btn--primary { @apply min-h-12 py-3 text-base bg-tappa-green text-paper hover:bg-ink; }
   .btn--quiet   { @apply border border-line bg-paper text-ink hover:border-tomato hover:text-tomato; }
 
+  /* DEV-ONLY plaque-tap simulator (ADR 0026, "Geliştirme aracı"). Rendered only
+     on a development deployment. A dashed saffron frame on ink, pinned to the
+     bottom, mono uppercase: it must never be mistaken for product UI. */
+  .dev-strip {
+    @apply fixed inset-x-0 bottom-0 z-50 flex items-center justify-center gap-3
+           border-t-2 border-dashed border-saffron bg-ink px-4 py-3 font-mono text-xs
+           uppercase tracking-widest text-paper;
+  }
+  .dev-strip-label {
+    @apply border border-dashed border-saffron px-2 py-1 text-saffron;
+  }
+  .dev-strip-button {
+    @apply min-h-11 border-2 border-dashed border-paper bg-transparent px-3 py-2
+           font-mono text-xs font-bold uppercase tracking-widest text-paper
+           hover:border-saffron hover:text-saffron
+           focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2;
+  }
+  /* Room under the content for the fixed strip, only when the strip exists. */
+  main:has(> .dev-strip) {
+    @apply pb-24;
+  }
+
+  /* THE ACTIVATION WIZARD (ADR 0026). One column, phone width first; the actions
+     sit at the bottom of the screen (.wizard-actions, mt-auto inside a column that
+     is at least a screen tall) so the primary button is where a thumb already is.
+     Palette tokens only — no new colour enters through this block.
+     Motion is CSS and small: a step fades up 8px when it appears, the waiting
+     screen's rings spread and its phone comes down to the plaque. All of it stops
+     under prefers-reduced-motion (the block at the end). */
+  .wizard {
+    @apply flex flex-col gap-6 min-h-[calc(100svh-7rem)];
+  }
+  /* [hidden] must beat a display utility on the same element (Tailwind v3's
+     preflight carries no [hidden] rule — see .pw-toggle below for the measurement).
+     The waiting screen's success block is `flex` AND starts hidden. */
+  .wizard [hidden] { display: none; }
+  .wizard-panel {
+    animation: wizard-in 280ms ease-out both;
+  }
+  .wizard-segment {
+    @apply block h-1.5 rounded-sm bg-line;
+  }
+  .wizard-segment--done {
+    @apply bg-tappa-green;
+  }
+  .wizard-index {
+    @apply shrink-0 pt-0.5 font-mono text-xs font-bold tracking-widest text-tappa-green;
+  }
+  .wizard-actions {
+    @apply mt-auto flex flex-col gap-3 pt-2;
+  }
+  .wizard-back {
+    @apply flex min-h-11 items-center justify-center font-display text-sm text-ink/70
+           underline-offset-4 hover:underline
+           focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2;
+  }
+  .wizard-consent {
+    @apply flex items-start gap-3 border border-line bg-paper px-4 py-4 cursor-pointer
+           has-[:checked]:border-tappa-green has-[:checked]:bg-green-lite;
+  }
+  .wizard-waiting {
+    @apply flex items-center justify-center gap-2 font-mono text-xs uppercase tracking-widest text-ink/70;
+  }
+  .wizard-waiting-dot {
+    @apply inline-block h-2 w-2 rounded-full bg-saffron;
+    animation: wizard-blink 1.6s ease-in-out infinite;
+  }
+
+  /* The waiting plaque: a paper plaque with the wordmark, two rings that spread
+     from it, and a phone outline that comes down to touch it — the one gesture the
+     screen is asking for. */
+  .plaque-wait {
+    @apply relative mx-auto flex h-56 w-56 items-end justify-center;
+  }
+  .plaque-wait-plaque {
+    @apply relative z-10 mb-4 flex h-28 w-40 flex-col items-center justify-center
+           rounded-sm border-2 border-ink bg-paper shadow-sm;
+  }
+  .plaque-wait-ring {
+    @apply absolute bottom-4 left-1/2 h-28 w-40 -translate-x-1/2 rounded-sm border-2 border-tappa-green/40;
+    animation: plaque-ring 2.4s ease-out infinite;
+  }
+  .plaque-wait-ring--late {
+    animation-delay: 1.2s;
+  }
+  .plaque-wait-phone {
+    @apply absolute left-1/2 top-0 z-20 h-24 w-14 -translate-x-1/2 rounded-md border-2 border-ink bg-porcelain;
+    animation: plaque-phone 2.4s ease-in-out infinite;
+  }
+  .plaque-wait-phone::before {
+    content: '';
+    @apply absolute left-1/2 top-1.5 h-1 w-5 -translate-x-1/2 rounded-sm bg-ink/40;
+  }
+  @keyframes wizard-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: none; }
+  }
+  @keyframes wizard-blink {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.25; }
+  }
+  @keyframes plaque-ring {
+    0%   { opacity: 0.9; transform: translateX(-50%) scale(1); }
+    100% { opacity: 0;   transform: translateX(-50%) scale(1.35); }
+  }
+  @keyframes plaque-phone {
+    0%, 15%   { transform: translateX(-50%) translateY(-4px); }
+    45%, 70%  { transform: translateX(-50%) translateY(40px); }
+    100%      { transform: translateX(-50%) translateY(-4px); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .wizard-panel,
+    .wizard-waiting-dot,
+    .plaque-wait-ring,
+    .plaque-wait-phone { animation: none; }
+    .plaque-wait-ring--late { @apply hidden; }
+    .plaque-wait-phone { transform: translateX(-50%) translateY(40px); }
+  }
+
   /* --- password visibility toggle: the sign-in field's one control (2026-09-14) ---
      IT STARTS [hidden] IN THE MARKUP AND THE PAGE'S SCRIPT REVEALS IT on the first
      keystroke. A browser that runs no script therefore shows NO control rather than

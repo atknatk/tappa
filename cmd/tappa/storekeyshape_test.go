@@ -128,7 +128,8 @@ const storeDir = "internal/store"
 
 // storeSurface is THE INVENTORY: every *Queries method in internal/store, with its
 // parameter types and its result types, and every result struct EXPANDED to its
-// fields. 123 entries (2026-10-03, M10 WL-1), generated from the artifact and pinned verbatim.
+// fields. 123 entries (2026-10-03, M10 WL-1), generated from the artifact and pinned verbatim;
+// 125 since the activation ADR added the two consent queries.
 //
 // 🔴 IT REPLACES FIVE ROUNDS OF TYPE CLASSIFICATION, AND THE REASON IS A COUNT.
 // Every previous design of this wall answered "what does a leak LOOK like":
@@ -200,7 +201,7 @@ var storeSurface = map[string]string{
 	"ClearTenantLogo":                    "(context.Context, ClearTenantLogoParams{UpdatedBy uuid.UUID; TenantID uuid.UUID}) (int64, error)",
 	"CloseBillingPeriod":                 "(context.Context, CloseBillingPeriodParams{ClosedBy uuid.UUID; PeriodMonth pgtype.Date; TenantID uuid.UUID}) (CloseBillingPeriodRow{ID uuid.UUID; TenantID uuid.UUID; PeriodMonth pgtype.Date; PeriodFrom time.Time; PeriodTo time.Time; Timezone string; Plan string; FreePeriod bool; EmployeeCount int32; UnstampedEmployees int32; UnitPrice pgtype.Numeric; Currency string; AmountDue pgtype.Numeric; ClosedBy uuid.UUID; ClosedAt time.Time}, error)",
 	"ConfirmRecentRemoval":               "(context.Context, ConfirmRecentRemovalParams{TenantID uuid.UUID; ActorID uuid.UUID; Action string; Target string; WindowSeconds int32}) (string, error)",
-	"ConsumeInviteAndActivate":           "(context.Context, ConsumeInviteAndActivateParams{TenantID uuid.UUID; CodeHash string}) (ConsumeInviteAndActivateRow{ID uuid.UUID; TenantID uuid.UUID; LocationID uuid.UUID; DepartmentID *uuid.UUID; FullName string; Status string; InvitedAt *time.Time; ActivatedAt *time.Time; InviteID uuid.UUID}, error)",
+	"ConsumeInviteAndActivate":           "(context.Context, ConsumeInviteAndActivateParams{TenantID uuid.UUID; CodeHash string; ConsentBindingHash string}) (ConsumeInviteAndActivateRow{ID uuid.UUID; TenantID uuid.UUID; LocationID uuid.UUID; DepartmentID *uuid.UUID; FullName string; Status string; InvitedAt *time.Time; ActivatedAt *time.Time; InviteID uuid.UUID}, error)",
 	"ConsumePasswordResetAndSetPassword": "(context.Context, ConsumePasswordResetAndSetPasswordParams{PasswordHash string; TenantID uuid.UUID; TokenHash string}) (ConsumePasswordResetAndSetPasswordRow{AdminUserID uuid.UUID; TenantID uuid.UUID; ResetID uuid.UUID; RetiredCount int64}, error)",
 	"CountAnomalySignals":                "(context.Context, CountAnomalySignalsParams{TenantID uuid.UUID; FromAt time.Time; ToAt time.Time}) (CountAnomalySignalsRow{Records int64; Judged int64; Unanswerable int64; DistanceOnly int64; OutsideVenue int64; OutsideVenueOnNetwork int64; CounterGaps int64; OtherVenue int64; Training int64; ManagerTyped int64}, error)",
 	"CountDepartmentReferences":          "(context.Context, CountDepartmentReferencesParams{TenantID uuid.UUID; ID uuid.UUID}) (CountDepartmentReferencesRow{EmployeeCount int64; TransactionCount int64}, error)",
@@ -266,6 +267,7 @@ var storeSurface = map[string]string{
 	"InsertTransaction":                "(context.Context, InsertTransactionParams{TenantID uuid.UUID; EmployeeID *uuid.UUID; LocationID *uuid.UUID; DepartmentID *uuid.UUID; TagUid *string; Ctr *int32; Type *string; OccurredAt time.Time; SourceIp *netip.Addr; IpMatch *bool; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; GpsMatch *bool; SunValid *bool; Trust *int16; Verdict string; Note *string; Channel string; EnteredBy *uuid.UUID; Practice bool; Queued bool; PolicyVersionID *uuid.UUID; MatchedSid *string; PolicyLayer *string; PolicyContext []byte}) (Transaction{ID uuid.UUID; TenantID uuid.UUID; EmployeeID *uuid.UUID; LocationID *uuid.UUID; DepartmentID *uuid.UUID; TagUid *string; Ctr *int32; Type *string; OccurredAt time.Time; SourceIp *netip.Addr; IpMatch *bool; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; GpsMatch *bool; SunValid *bool; Trust *int16; Verdict string; Note *string; Channel string; EnteredBy *uuid.UUID; Practice bool; Queued bool; CreatedAt time.Time; PolicyVersionID *uuid.UUID; MatchedSid *string; PolicyLayer *string; PolicyContext []byte}, error)",
 	"InsertTransactionReview":          "(context.Context, InsertTransactionReviewParams{TenantID uuid.UUID; ReviewerID uuid.UUID; Outcome string; Note *string; TransactionID uuid.UUID}) (InsertTransactionReviewRow{ID uuid.UUID; ReviewedAt time.Time}, error)",
 	"InsertUnassigned":                 "(context.Context, InsertUnassignedParams{Uid string; TenantID uuid.UUID; AesKeyRef []byte; AppKeyRef []byte}) (InsertUnassignedRow{Uid string; CreatedAt time.Time}, error)",
+	"InviteConsentMatches":             "(context.Context, InviteConsentMatchesParams{ConsentBindingHash string; CodeHash string; TenantID uuid.UUID}) (bool, error)",
 	"ListAdminSessionsForAdmin":        "(context.Context, ListAdminSessionsForAdminParams{TenantID uuid.UUID; AdminUserID uuid.UUID}) ([]ListAdminSessionsForAdminRow{ID uuid.UUID; TenantID uuid.UUID; AdminUserID uuid.UUID; CreatedAt time.Time; LastUsedAt *time.Time; RevokedAt *time.Time}, error)",
 	"ListAnomalyPeople":                "(context.Context, ListAnomalyPeopleParams{TenantID uuid.UUID; FromAt time.Time; ToAt time.Time; RowLimit int32}) ([]ListAnomalyPeopleRow{EmployeeID *uuid.UUID; EmployeeName *string; Records int64; DistanceOnly int64; OutsideVenue int64; CounterGaps int64; OtherVenue int64}, error)",
 	"ListAnomalyPlaques":               "(context.Context, ListAnomalyPlaquesParams{TenantID uuid.UUID; FromAt time.Time; ToAt time.Time; RowLimit int32}) ([]ListAnomalyPlaquesRow{TagUid *string; LocationName *string; Records int64; CounterGaps int64; LargestGap int32}, error)",
@@ -305,6 +307,7 @@ var storeSurface = map[string]string{
 	"PolicyNameTaken":                  "(context.Context, PolicyNameTakenParams{TenantID uuid.UUID; Name string}) (bool, error)",
 	"PreviewBillingPeriod":             "(context.Context, PreviewBillingPeriodParams{PeriodMonth pgtype.Date; TenantID uuid.UUID}) (PreviewBillingPeriodRow{TenantID uuid.UUID; TenantName string; Plan string; Timezone string; PeriodMonth pgtype.Date; PeriodFrom time.Time; PeriodTo time.Time; FirstChargeableMonth pgtype.Date; FreePeriod bool; EmployeeCount int32; UnstampedEmployees int32; UnitPrice pgtype.Numeric; AmountDue pgtype.Numeric; PeriodHasEnded bool; PeriodIsAfterSignup bool}, error)",
 	"RecordAuditEvent":                 "(context.Context, RecordAuditEventParams{TenantID uuid.UUID; ActorID *uuid.UUID; Action string; Target *string; Detail []byte}) (RecordAuditEventRow{ID uuid.UUID; At time.Time}, error)",
+	"RecordInviteConsent":              "(context.Context, RecordInviteConsentParams{ConsentBindingHash string; CodeHash string; TenantID uuid.UUID}) (RecordInviteConsentRow{ID uuid.UUID; ConsentedAt *time.Time}, error)",
 	"RenameTenantPolicy":               "(context.Context, RenameTenantPolicyParams{Name string; TenantID uuid.UUID; ID uuid.UUID}) (RenameTenantPolicyRow{ID uuid.UUID; Name string}, error)",
 	"RetireTagForReplacement":          "(context.Context, RetireTagForReplacementParams{ReplacedBy string; TenantID uuid.UUID; Uid string}) (RetireTagForReplacementRow{Uid string; TenantID uuid.UUID; LocationID *uuid.UUID; LastCtr int32; Status string; RetiredAt *time.Time; ReplacedBy *string; CreatedAt time.Time; EncodedAt *time.Time}, error)",
 	"RevokeAdminSession":               "(context.Context, RevokeAdminSessionParams{ID uuid.UUID; TenantID uuid.UUID}) (RevokeAdminSessionRow{ID uuid.UUID; RevokedAt *time.Time}, error)",
@@ -834,12 +837,16 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// 128 -> 130 on 2026-10-09 (M10 EM-7C): passwordresets.sql's LockAdminForResetIssue
 	// and WithdrawPasswordReset, the recovery flow's one live link per account; neither
 	// calls a definer.
-	if named != 130 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; ONE HUNDRED AND THIRTY were "+
+	// 130 -> 132 on 2026-10-09 (activation by NFC tap, from main by the merge that brought
+	// it into m10-a1; main pinned it 128 -> 130 alone): invites.sql's RecordInviteConsent
+	// and InviteConsentMatches; neither calls a definer.
+	if named != 132 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; ONE HUNDRED AND THIRTY-TWO were "+
 			"there when this was pinned (2026-10-09: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
 			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+
-			"+ EM-7B's three invitation e-mail queries, + EM-7C's two recovery queries). "+
+			"+ EM-7B's three invitation e-mail queries, + EM-7C's two recovery queries, "+
+			"+ the activation tap's two consent queries). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {

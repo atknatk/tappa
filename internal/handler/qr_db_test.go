@@ -817,24 +817,24 @@ func TestQRScreens_SayNothingAboutTheQRRoute(t *testing.T) {
 		"tapProblemServer": tapProblemServer, "tapProblemTooMany": tapProblemTooMany,
 		"tapProblemStale": tapProblemStale, "tapProblemForeignTenant": tapProblemForeignTenant,
 		"problemNoLink": problemNoLink, "problemBadLink": problemBadLink,
-		"problemTooMany": problemTooMany, "problemNoSession": problemNoSession,
-		"problemServer": problemServer,
+		"problemTooMany": problemTooMany, "problemServer": problemServer,
+		"problemActivationTapFailed": problemActivationTapFailed, "problemActivationNeedsTouch": problemActivationNeedsTouch,
+		"problemActivationNotReady": problemActivationNotReady, "problemFinishHere": problemFinishHere, "problemSignedOut": problemSignedOut,
 	}
 	screens := map[string]templ.Component{
 		"pages.Tap": pages.Tap(pages.TapView{EmployeeName: "Maria Borg", LocationName: "St Julians", TapContext: "x.y"}, layout.Brand{}),
-		"pages.Activate": pages.Activate(pages.ActivateView{
-			EmployeeName: "Maria Borg", EmployerName: "Kebab Factory Ltd", LocationName: "St Julians",
-			WiFiSSID: "KF-Guest", RetentionYears: 2, CSRFToken: "t",
-		}),
 		"pages.Confirm": pages.Confirm(pages.ConfirmView{
 			Code: "ABCD-EFGH", EmployeeName: "Maria Borg", EmployerName: "Kebab Factory Ltd",
 		}),
-		"pages.Done": pages.Done(pages.DoneView{
-			EmployeeName: "Maria Borg", LocationName: "St Julians", WiFiSSID: "KF-Guest",
-		}),
+		"pages.Activated": pages.Activated(pages.ActivatedView{EmployeeName: "Maria Borg", SecondDevice: true}),
 	}
-	for step := 1; step <= pages.TourSteps; step++ {
-		screens["pages.Tour step "+strconv.Itoa(step)] = pages.Tour(pages.TourView{Step: step})
+	// Every wizard step (ADR 0026), including the waiting screen.
+	for step := 1; step <= pages.ActivateStepTap; step++ {
+		screens["pages.Activate step "+strconv.Itoa(step)] = pages.Activate(pages.ActivateView{
+			EmployeeName: "Maria Borg", EmployerName: "Kebab Factory Ltd", LocationName: "St Julians",
+			WiFiSSID: "KF-Guest", RetentionYears: 2, CSRFToken: "t", Step: step, Consented: step > 2,
+			SecondDevice: true, StatusURL: ActivationStatusPath,
+		})
 	}
 	for name, v := range problems {
 		for _, retry := range []string{"", problemRetryURL} {
@@ -1044,12 +1044,12 @@ func TestQRDB_SimultaneousTapsByOnePersonAreSerialised(t *testing.T) {
 		})
 	}
 
-	// N3 FROM THE AUDIT: the same race also multiplied the PRACTICE run. An
-	// employee with no tap at all had every simultaneous row marked practice=true
-	// (measured: 20 of 20), because each request read "no prior tap". Harmless for
-	// hours — practice never counts — but the same read-then-decide shape, and the
-	// lock closes it too.
-	t.Run("the practice run is spent exactly once", func(t *testing.T) {
+	// N3 FROM THE AUDIT: the same race also multiplied the PRACTICE run (20 of 20
+	// rows practice=true, each request having read "no prior tap"). ADR 0026
+	// retired the practice tap, so what remains to pin for an employee's very
+	// FIRST taps arriving at once is the same read-then-decide shape on the
+	// direction chain: exactly one counted row, and none of them practice.
+	t.Run("a first-ever burst counts exactly once and marks nothing practice", func(t *testing.T) {
 		const n = 20
 		h := newTapHarness(t)
 		emp := h.newEmployee(t, "active") // activated_at set, no taps yet
@@ -1066,9 +1066,11 @@ func TestQRDB_SimultaneousTapsByOnePersonAreSerialised(t *testing.T) {
 		wg.Wait()
 
 		v := h.verdictBreakdown(t, emp)
-		if v["__practice"] != 1 {
-			t.Fatalf("%d of %d rows were marked practice, want exactly 1: the practice run is a "+
-				"read-then-decide too; breakdown %v", v["__practice"], n, v)
+		if v["__practice"] != 0 {
+			t.Fatalf("%d of %d rows were marked practice, want 0 (ADR 0026); breakdown %v", v["__practice"], n, v)
+		}
+		if v["__directional"] != 1 {
+			t.Fatalf("%d of %d rows carry a direction, want exactly 1; breakdown %v", v["__directional"], n, v)
 		}
 	})
 

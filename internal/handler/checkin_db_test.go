@@ -412,7 +412,7 @@ func TestCheckinDB_Row3_NoSessionRedirectsAndWritesNOTHING(t *testing.T) {
 		if w.Code != http.StatusSeeOther {
 			t.Fatalf("post %d: status = %d, want 303", i, w.Code)
 		}
-		if loc := w.Header().Get("Location"); loc != "/activate" {
+		if loc := w.Header().Get("Location"); loc != activationFromTap {
 			t.Fatalf("post %d: Location = %q", i, loc)
 		}
 	}
@@ -893,21 +893,23 @@ func TestCheckinDB_PolicyContextCarriesADistanceAndNoCoordinate(t *testing.T) {
 func TestCheckinDB_PracticeThenDirectionTogglesAgainstTheLastOpenCheckIn(t *testing.T) {
 	h := newTapHarness(t)
 
-	// tap 1 — the PRACTICE tap. No history at all, which is what makes it
-	// practice, and also what keeps it clear of the debounce.
-	first := h.newEmployee(t, "active") // activated_at is set, so this is practice
+	// tap 1 — the first record after activation. Until ADR 0026 this was the
+	// PRACTICE tap; the activating NFC tap replaced it, so it is now an ordinary
+	// check-IN that counts.
+	first := h.newEmployee(t, "active") // activated_at is set: the old practice shape
 	if w := h.postTap(t, h.nfcContext(uint32(h.startCtr)+1), h.cookieForEmployee(t, first), nil); w.Code != http.StatusOK {
-		t.Fatalf("practice tap status = %d", w.Code)
+		t.Fatalf("first tap status = %d", w.Code)
 	}
 	one := h.lastRecord(t, first)
-	if !one.Practice {
-		t.Fatalf("the first record after activation is not marked practice (verdict %q)", one.Verdict)
+	if one.Practice {
+		t.Fatalf("the first record after activation was marked practice (verdict %q); ADR 0026 retired the practice tap", one.Verdict)
 	}
 	if one.Type == nil || *one.Type != "in" {
-		t.Fatalf("practice direction = %v, want in", deref(one.Type))
+		t.Fatalf("first-tap direction = %v, want in", deref(one.Type))
 	}
 
-	// tap 2 — the real check-IN, arriving on top of a practice tap. THE HEADLINE:
+	// tap 2 — the real check-IN, arriving on top of a HISTORIC practice tap (one
+	// written before ADR 0026; transactions are immutable). THE HEADLINE:
 	// it is an `in`, not an `out`, because a training record must not hold the
 	// chain open (the M4-06 hours-inflation exploit). And it is not practice,
 	// because the run was already spent.

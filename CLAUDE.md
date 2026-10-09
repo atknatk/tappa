@@ -154,7 +154,7 @@ kaydedilmiş bir aralığı düzeltemez. (`internal/netx`, backlog T40.)
 |---|---|---|
 | 1 | Etiket `lost` veya `retired` | `reject` |
 | 2 | SUN geçersiz (CMAC uyuşmuyor **veya** `ctr` artmadı) | `reject` |
-| 3 | Oturum yok / geçersiz | aktivasyon sayfası (kayıt yok) |
+| 3 | Oturum yok / geçersiz | aktivasyon sayfası (kayıt yok); onaylı aktivasyon bekleyen tarayıcıda **aktivasyon dokunuşu** (kayıt yok, ADR 0026) |
 | 4 | Çalışan `deactivated` | `reject` + denemeyi logla + güvenlik uyarısı |
 | 5 | Aynı **kişi** 60 sn içinde tekrar | `ignored` |
 | 6 | IP eşleşti **veya** GPS < 150 m | `ok` (IP yoksa not: `verified via GPS`) |
@@ -182,8 +182,13 @@ kaydedilmiş bir aralığı düzeltemez. (`internal/netx`, backlog T40.)
 - **QR kanalı** (`channel='qr'`): SUN yok → **IP zorunlu**, GPS tek başına yetmez
   → `flag`. QR fotoğraflanır ve süresiz geçerlidir; fiziksel dokunuş kanıtı yok.
   Baseline politikası `base:qr-requires-ip`, tenant değiştirebilir.
-- **Practice tap:** aktivasyon sonrası ilk kayıt `practice=true`, TRAINING damgası,
-  çalışılan saate **asla** sayılmaz.
+- **Aktivasyon dokunuşu** (practice tap'in yerini aldı — ADR 0026): davet linki bir
+  sihirbaz açar; onay POST'u yalnız onayı kaydeder ve bu tarayıcıya bağlar (daveti
+  tüketmez, oturum vermez). Aktivasyon, o tarayıcıdan gelen ilk **gerçek NFC**
+  dokunuşunda tamamlanır: `sun.Verify` (atomik `ctr`) → işverenin **aktif** bir
+  plaketi (aynı tenant) → tek ifadeli tüketim → oturum. Bu dokunuş **`transactions`
+  satırı yazmaz**; sonraki dokunuş sıradan check-in'dir. Yeni kayıt `practice=true`
+  olmaz; tarihsel practice satırları saate sayılmaz ve yön zincirine girmez (ADR 0008).
 - **Manuel kayıt:** `channel='manual'` + `entered_by` dolu; raporlarda ayrı görünür.
 
 Bu tablodaki her satırın adı `TestDecide_...` ile başlayan bir test durumu olmalı.

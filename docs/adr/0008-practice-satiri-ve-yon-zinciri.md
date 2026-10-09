@@ -126,7 +126,7 @@ bağımsız sebep, her biri tek başına yeterli.
 Bu, kusuru teorik yapmaz — kusur düz HTTP'den erişilebilirdi. **Kartın rotasını**
 yanlış yapar, ve bir hata raporundaki yanlış rota, düzeltmenin hiç sorun olmayan
 şeyi korumasıyla biter. Kart tarihli bir blokla düzeltildi; ölçüm
-`TestSeedDB_ASecondActivationIsNotASecondPracticeRun` olarak pinlendi.
+`SeedDB_ASecondActivationIsNotASecondPracticeRun` olarak pinlendi.
 
 ## Karar
 
@@ -154,7 +154,7 @@ Dört bağlı karar:
    `LastOpenIn == nil` ister; `resolveDirection` `TypeOut`'u yalnız
    practice-olmayan bir `LastOpenIn` varken döndürür. İkisi de `Decide`'ın **aynı
    dalında**, **aynı `Input`**'tan hesaplanır → practice bir `out` olamaz.
-   `TestDecide_PracticeIsAlwaysAnIn` bunu **liste değil özellik** olarak
+   `Decide_PracticeIsAlwaysAnIn` bunu **liste değil özellik** olarak
    doğruluyor (72 kombinasyon: geçmiş şekli × aktivasyon × kanıt × kanal) ve iki
    **boş-değil (non-vacuity)** sayacı taşıyor — hiç practice üretilmezse veya hiç
    `out` üretilmezse test kendi kendini geçersiz ilan eder.
@@ -333,7 +333,7 @@ olarak **değildir**.
 | Alternatif | Neden seçilmedi (ölçümle) |
 |---|---|
 | **(2) Sorgu N satır döndürsün, tüketici practice'leri atlasın** | Sorunu Go'ya taşır, çözmez: "kaç satır" sorusuna cevap yok. **Ölçüldü:** 5001 satırlık geçmişte açık girişi olmayan bir kişide sorgu **5000 satırın hepsini** üretmek zorunda (B kolu, 10 246 buffer) — çünkü "yok" cevabı ancak sonuna kadar bakınca verilir; `LIMIT N` konursa N'inci satırın altındaki gerçek giriş **yine kaçırılır**, yani aynı hatanın parametreli hâli olur. Ayrıca "son açık giriş" tanımı iki yere bölünmeye devam ederdi — kusurun kök sebebi tam olarak buydu. |
-| **(3) Practice satırı hiç `type` taşımasın** | Üç ölçülebilir sonuç, üçü de olumsuz. (a) **Geçmişi düzeltmez** (§4.3): bugünkü 4 555 practice satırı `type='in'` taşımaya devam eder, yani kusur mevcut veri üzerinde **açık kalır** — oysa seçilen çözüm eski satırlarda da doğru cevabı verir. (b) **M5-07/M4-06 semantiğini kırar:** `TestSeedDB_ADayAtKFStJulians` (satır 291) ve `TestDecide_APracticeTapCanStillFlag` practice tap'in `ok/in` olmasını iddia ediyor; onay ekranı "Tapped **in**" yazıyor — yön taşımayan bir practice tap, çalışanın gördüğü ilk ekranı **anlamsızlaştırır**. (c) `transactions_ok_has_direction` CHECK'i (`verdict <> 'ok' OR type IS NOT NULL`) bir `ok` practice satırının `type`'ını **NULL yapmayı veritabanı düzeyinde reddediyor** — yani seçenek, ayrıca bir **migration** gerektirirdi. |
+| **(3) Practice satırı hiç `type` taşımasın** | Üç ölçülebilir sonuç, üçü de olumsuz. (a) **Geçmişi düzeltmez** (§4.3): bugünkü 4 555 practice satırı `type='in'` taşımaya devam eder, yani kusur mevcut veri üzerinde **açık kalır** — oysa seçilen çözüm eski satırlarda da doğru cevabı verir. (b) **M5-07/M4-06 semantiğini kırar:** `TestSeedDB_ADayAtKFStJulians` (satır 291) ve `Decide_APracticeTapCanStillFlag` practice tap'in `ok/in` olmasını iddia ediyor; onay ekranı "Tapped **in**" yazıyor — yön taşımayan bir practice tap, çalışanın gördüğü ilk ekranı **anlamsızlaştırır**. (c) `transactions_ok_has_direction` CHECK'i (`verdict <> 'ok' OR type IS NOT NULL`) bir `ok` practice satırının `type`'ını **NULL yapmayı veritabanı düzeyinde reddediyor** — yani seçenek, ayrıca bir **migration** gerektirirdi. |
 | **Yorumu gerçeğe indir, sorguyu bırak** (M5-01/M5-02'de birkaç kez doğru olan hamle) | Burada **yanlış** hamle: yorum bir *iddiayı* abartmıyordu, **var olması gereken bir korumayı** tarif ediyordu ve koruma gerçekten gerekliydi. Yorumu indirmek §5 ihlalini belgelenmiş bir özellik hâline getirirdi. |
 | **Gather'da ikinci bir sorgu** ("practice geldiyse bir daha sor") | Kilit altında ikinci bir gidiş-dönüş (ADR 0006 4. katman: karar + kayıt tek transaction'da, kişi başına advisory kilit altında) ve yine **kaç kere** sorulacağı sorusu. Tek `WHERE` yüklemiyle aynı cevabı veriyor. |
 | **Indeksi de aynı anda değiştir** | Kapsam dışı: yeni indeks bir migration'dır ve M5-11 bir sorgu görevidir. Ölçüm yukarıda, devredildi. |
@@ -349,9 +349,9 @@ olarak **değildir**.
 - **LIMITS L3 kapandı** (`day_db_test.go` sonu) ve M5-09 kart düzeltmesi md. 6
   kapandı — ikisi de tarihli, ikisi de pinin nerede olduğunu adıyla söylüyor.
 - **Yeni testler:** `TestSeedDB_APracticeRowNeverHidesAnOlderOpenCheckIn`
-  (kontrol/bozuk, üretim yazma yolu) · `TestSeedDB_ASecondActivationIsNotASecondPracticeRun`
+  (kontrol/bozuk, üretim yazma yolu) · `SeedDB_ASecondActivationIsNotASecondPracticeRun`
   · `TestGatherDB_APracticeRowDoesNotHideAnOlderOpenCheckIn` (sorgunun sınırı, iki
-  ardışık practice dâhil) · `TestDecide_PracticeIsAlwaysAnIn` (invaryant).
+  ardışık practice dâhil) · `Decide_PracticeIsAlwaysAnIn` (invaryant).
 - **[M6-07 / M6-11](../plan/m6-dashboard.md):** "unutulmuş çıkış" anomali listesi
   bu düzeltmeden sonra **daha az** satır görecek; o kartlara not düşüldü.
 - **[M9-01](../plan/m9-sonrasi.md):** çevrimdışı kuyruk tam da bu şekli

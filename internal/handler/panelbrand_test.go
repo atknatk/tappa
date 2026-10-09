@@ -550,7 +550,7 @@ func TestPanelBrand_TheLogoSrcIsTheLogoRoute(t *testing.T) {
 		t.Fatalf("adminLogoHref = %q, want %q", got, panelLogoPath(digestOf(logoPNGA)))
 	}
 	tp, err := NewTap(&fakePreviewer{preview: okPreview(true)}, &fakeDirectory{facts: okFacts()},
-		liveEmployee(logoTenantA), &fakeCheckins{}, &fakeAudit{}, tapCfg(), discardLogger())
+		liveEmployee(logoTenantA), &fakeCheckins{}, noActivation{}, &fakeAudit{}, tapCfg(), discardLogger())
 	if err != nil {
 		t.Fatalf("NewTap: %v", err)
 	}
