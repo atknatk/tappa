@@ -275,6 +275,12 @@ dokunuş gerektirir. Bu ekrana özellik eklemek istiyorsan önce sor.
 - Küçük ve odaklı değişiklik; ilgisiz refactor'ü aynı commit'e karıştırma.
 - Şema, karar motoru veya güvenlik sınırı değiştiyse **ADR yaz** (`docs/adr/NNNN-*.md`).
 - İş bitince `make check` çalıştır. Kırmızıysa iş bitmemiştir.
+- **Büyük testler yalnız FAZ SONUNDA** (kullanıcı kuralı, 2026-10-08, 2026-10-09'da
+  yinelendi: *"her adımda test yapıp çok zaman kaybetme"*). Tur içinde yalnız değişen
+  testler `-run` ile, ve saniyelik kapılar (`gofmt`, build, redline). Tam `-race`,
+  `go test ./...`, tüm mutasyon seti ve `make check` bir görevde **bir kez** koşar:
+  commit'ten önceki son doğrulamada. Her yapıcı ve denetçi brief'ine bu yazılır.
+  CI her push'ta zaten tam koşar.
 - Commit: `type(scope): özet` — `feat(tap): reject retired tags`. İngilizce, emir kipi.
 - **İş feature dalında yapılır** (kullanıcı kararı, 2026-09-09 — bu, *"doğrudan
   `main`'de çalışılır"* diyen 2026-07-24 kararının **yerini alır**). Gerekçe
