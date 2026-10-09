@@ -144,8 +144,8 @@ type AdminReset struct {
 	// in internal/handler whose constructor does not refuse it, so it is argued
 	// rather than assumed. Nil means "this deployment has no way to send the link"
 	// — nor, since M10 EM-9, the "your password was changed" notice (passwordnotice.go)
-	// — which is what TAPPA_RESET_DELIVERY=none — the shipped ConfigMap's value —
-	// builds (config.ResetDelivery; cmd/tappa's switch).
+	// — which is what TAPPA_RESET_DELIVERY=none — the shipped ConfigMap's value until
+	// 2026-10-09, "email" since — builds (config.ResetDelivery; cmd/tappa's switch).
 	//
 	// WHY IT IS A NIL FIELD RATHER THAN A SECOND BOOLEAN OR A SECOND METHOD ON THE
 	// INTERFACE: the fact "can this deployment deliver?" has to be readable BEFORE

@@ -430,7 +430,10 @@ spec:
             #              runbook (deploy/README.md) has been run, and kubelet refuses
             #              to start the container on a missing Secret key. With both
             #              delivery flows off (05-config.yaml: none / panel) the process
-            #              never reads them, so their absence is the steady state.
+            #              never reads them, so their absence is a valid state: a fresh
+            #              cluster, or one where e-mail was turned off and the keys
+            #              removed. Since 2026-10-09 05-config.yaml ships both flows as
+            #              email, and with a flow on a missing key stops the boot.
             #   Secret     for SES the username is an access key id and the password
             #              its SMTP secret: neither belongs in the ConfigMap, which is
             #              in git. The non-secret half (host, port, sender) is there.

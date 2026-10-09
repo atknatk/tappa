@@ -102,8 +102,9 @@ type Config struct {
 	// set, the transport's settings must be complete and valid (Mail, below), or the
 	// process does not start. cmd/tappa builds the channel for it since M10 EM-5 (the
 	// reset path's delivery runs off the request, ADR 0022 §6); the shipped ConfigMap
-	// still says "none", and switching it is a deploy decision (ADR 0022 §12). The value
-	// names the MECHANISM, not a provider — the provider is TAPPA_SMTP_HOST's business.
+	// says "email" since 2026-10-09 ("none" before it), and switching it is a deploy
+	// decision (ADR 0022 §12 and its EM-5B note). The value names the MECHANISM, not a
+	// provider — the provider is TAPPA_SMTP_HOST's business.
 	//
 	// 🔴 THERE IS NO INTERIM CHANNEL, WHICH IS THE DIFFERENCE FROM invites.
 	// internal/invite ships ManagerVisibleChannel — an uncomfortable name for

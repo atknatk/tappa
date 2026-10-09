@@ -179,8 +179,9 @@ func InvitationsByEmail(e *EmailInvitations) AdminAuthOption {
 // transport would fall back to showing every link on the manager's screen while the
 // operator believed they were being mailed (the shape cmd/tappa's old unbuiltDelivery
 // refusal existed for). A transport in the panel mode would mail links a deployment
-// never switched on — the shipped ConfigMap says "panel", and switching is a deploy
-// decision (ADR 0022 §12). "" is the panel mode, as config.Load reads an empty value.
+// never switched on — one that says "panel" mails nothing (the shipped ConfigMap did
+// until 2026-10-09 and says "email" since), and switching is a deploy decision (ADR
+// 0022 §12). "" is the panel mode, as config.Load reads an empty value.
 func invitationMode(mode string, transport *EmailInvitations) error {
 	switch mode {
 	case "", config.InviteDeliveryPanel:

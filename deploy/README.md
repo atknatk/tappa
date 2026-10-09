@@ -1646,18 +1646,25 @@ ilkini, ve `/etc/ssl/certs` ile `/etc/pki/tls/certs` dizinlerinin **her** dosyas
 go1.27.1 `crypto/x509/root_linux.go`. Bu yüzden uygulama manifestinde bugün **hiç bildirilmiş
 mount yoktur** — o yollardan geniş, güvenli yönde — ve ilk mount bir pini kırmızıya çevirir).
 
-**Bugünkü durum (EM-3 sevk edildiğinde):** iki akış **kapalı** (`none` / `panel`) —
-davranış değişmedi (`TestPackaging_TheConfigMapShipsTodaysDelivery`). Akışlar kapalıyken
+**Bugünkü durum — 2026-10-09'dan beri iki akış da AÇIK (`email` / `email`).** Kullanıcı
+kararı (EM-5B; [ADR 0022](../docs/adr/0022-islemsel-eposta.md) *"EM-5B notu"*), pin
+`TestPackaging_TheConfigMapShipsTodaysDelivery`. Açılışın önkoşulları karşılandı: süreç
+geneli kesici (EM-7A), alıcı başına tavan (EM-7C — sıfırlamada hesap başına **tek canlı
+link**, davette işletme + posta kutusu başına saatte 5, günde 20), numaralandırma
+kanallarının ve işletmeler arası davet yoğunlaşmasının **kullanıcı kabulü**, ve gerçek SES
+ölçümü (aşağıda, *"EM-5B ölçümü"* — SPF/DKIM/DMARC geçti). İki kimlik `tappa-secrets`'ta
+(ölçüldü). Tek taşıyıcı ve tek kesici iki akışa birden hizmet eder; sıfırlama gönderimi
+istek yolunun dışında bir işçide yapılır ve kapanışta HTTP boşaltmasıyla eşzamanlı
+boşaltılır (ADR 0022 §6). Sevk edilen ikilinin bu ConfigMap'in **gerçek** değerleriyle
+üretimde açıldığı `TestArtifact_BootsInProductionWithTheShippedConfigMap`'te ölçülür
+(kapalı DB portuyla her koşuda; `DATABASE_URL` varsa tam açılış + SIGTERM).
+
+**Akışlar kapalıyken** (açılıştan önceki ara durum ya da aşağıdaki *"Geri alma"* sonrası)
 SMTP değişkenleri **okunmaz ve doğrulanmaz**: `tappa-secrets`'ta kimlik olsa da olmasa da
-süreç aynı açılır. `email` geçerli bir yapılandırmadır, ama **davet akışında bu derleme
-onunla açılmayı reddeder** (açılış log'unda `"msg":"fatal"` + *"… delivers activation
-links only on the manager's panel (… M10 EM-7)"*): davet kanalı EM-7 ile gelir.
-**Sıfırlama kanalı M10 EM-5'ten beri bu derlemededir** — `TAPPA_RESET_DELIVERY=email` ile
-süreç açılır, gönderim istek yolunun dışında bir işçide yapılır ve kapanışta HTTP
-boşaltmasıyla eşzamanlı boşaltılır (ADR 0022 §6); ConfigMap yine `none` taşır.
-Aşağıdaki 0–2. adımlar EM-3 birleştikten sonra **her an** koşulabilir; 3. adım (akışı
-açmak) sıfırlama için kullanıcının dış adımlarından ve EM-5B'nin gerçek SES ölçümlerinden,
-davet için EM-7'den **sonra**dır.
+süreç aynı açılır. **Akışlardan biri açıkken** okunur ve doğrulanır — eksik ya da bozuk bir
+ayar yeni pod'un açılmasını durdurur (3. adımın *"Açılış reddi"*). Aşağıdaki 0–2. adımlar
+kimlik **döndürme** ya da yeni bir kümede kurulum için de geçerlidir; **3. adım yapıldı
+(2026-10-09)** — açılıştan geriye kalan, o adımdaki canlı duman kontrol listesidir.
 
 ### 🔴 Sıra
 
@@ -1673,11 +1680,13 @@ davet için EM-7'den **sonra**dır.
    **bir kez** gösterilir → doğrudan parola yöneticisine; sohbete, commit'e, ekran
    görüntüsüne, bir dosyaya **değil** (dış adım 9, Olay A-0).
 2. **Bu bölümün 0–2. adımları** — kimlikler `tappa-secrets`'a (dış adım 10).
-3. **Akışı aç** (3. adım) — ancak **2. maddeden SONRA**. Kimlik eksikken bir akış `email`
-   olursa yeni pod açılmayı **reddeder** (`config.Load` eksik değişkeni adıyla söyler,
-   değerini asla); `maxUnavailable: 0` eski pod'u servis verirken tutar, rollout zaman
-   aşımına uğrar ve deploy başarısız görünür — **ama bu güvence kısa ömürlüdür**, 3.
-   adımın *"Geri alma"*sı nedenini yazar.
+3. **Akışı aç** (3. adım) — ✅ **yapıldı, 2026-10-09** (iki akış da `email`; 1. ve 2.
+   maddeler önce tamamlandı, kimlikler ölçüldü). Kural yeniden açılışta da aynıdır: ancak
+   **2. maddeden SONRA**. Kimlik eksikken bir akış `email` olursa yeni pod açılmayı
+   **reddeder** (`config.Load` eksik değişkeni adıyla söyler, değerini asla);
+   `maxUnavailable: 0` eski pod'u servis verirken tutar, rollout zaman aşımına uğrar ve
+   deploy başarısız görünür — **ama bu güvence kısa ömürlüdür**, 3. adımın *"Geri
+   alma"*sı nedenini yazar.
 
 Her `kubectl` satırı **`--context hetzner-k8s-1 -n tappa`** taşır. **Hiçbir değer ekrana,
 bir dosyaya, bir komut satırına ya da bu belgeye yazılmaz** — örnek bir değer bile: değerler
@@ -1729,10 +1738,12 @@ kubectl --context hetzner-k8s-1 -n tappa describe secret tappa-secrets | grep TA
 # gir (açılış bir satır sonunu kontrol karakteri diye reddeder, bir boşluğu reddetmez).
 ```
 
-Secret'ın değişmesi çalışan pod'u yeniden başlatmaz; akışlar kapalıyken süreç bu iki
-anahtarı zaten okumaz. **Rollout gerekmez.**
+Secret'ın değişmesi çalışan pod'u yeniden başlatmaz. Akışlar kapalıyken süreç bu iki
+anahtarı zaten okumaz — **rollout gerekmez**. **Akışlar açıkken (2026-10-09'dan beri)**
+çalışan süreç eski değerleri kendi ortamında tutar: yeni değer ancak pod yeniden
+başlayınca girer (`rollout restart` — aşağıdaki *"Döndürme"*).
 
-### EM-5B ölçümü — gerçek SES'e karşı (3. adımdan ÖNCE)
+### EM-5B ölçümü — gerçek SES'e karşı (3. adımdan ÖNCE; yapıldı 2026-10-09)
 
 **Ne:** *Transactional e-mail* bölümünün **3) Akışı aç** adımı EM-5B'nin gerçek SES ölçümlerinden **sonra**dır
 ([m10](../docs/plan/m10-platform.md), *"EM-5B — kalan ve neden kaldığı"*). Ölçüm iki
@@ -1774,8 +1785,9 @@ sınanır: `internal/handler/realsmtpkit_test.go`):
   notu düşer; denetleyici kaynağı **onarmaz** (yalnız teşhis).
 
 **Ön koşul:** kullanıcının SES dış adımları (yukarıdaki *Sıra* 1) ve 0–2. adımlar.
-ConfigMap'e **dokunulmaz** (`none` / `panel` kalır) — araç kendi süreç içi zincirini
-kurar, kümeye bağlanmaz. Hesap SES sandbox'ındaysa alıcı adres SES'te doğrulanmış olmalı.
+Araç ConfigMap'e **dokunmaz** ve onu okumaz — kendi süreç içi zincirini kurar, kümeye
+bağlanmaz; bu yüzden ConfigMap `email` iken de (2026-10-09'dan beri) aynı koşulur. 2026-10-09
+ölçümü ConfigMap `none` / `panel` iken yapıldı. Hesap SES sandbox'ındaysa alıcı adres SES'te doğrulanmış olmalı.
 Adres bu belgeye, bir commit'e ya da sohbete **yazılmaz**.
 
 **Alıcı seçimi — Gmail *Download Original* önerilir** (ham kaynağı olduğu gibi verir ve
@@ -1951,19 +1963,109 @@ DMARC=PASS"* istiyor. Bu koşuda alıcı mail.tm'ydi ve karar yazmadı; üç son
 dkimpy/pyspf'in DKIM'in doğruladığı bayt üstündeki ölçümüdür — m10 maddesi bununla **ikame
 edildi**, alıcının kendi kararı ise aşağıdaki canlı dumana kaldı.
 
-**Kalan — ConfigMap `email`'e çevrildikten sonraki canlı duman:** sıfırlama linkinin tek
+**Kalan — ConfigMap `email`'e çevrildikten sonraki canlı duman** (ConfigMap 2026-10-09'da
+çevrildi; madde madde kontrol listesi **3) Akışı aç** adımında): sıfırlama linkinin tek
 kullanımlığı ve M7-04 B5 (gerçek link ve istek yolu ister), B2'nin gözle teyidi (başarısız
 denemenin bir yere düştüğü), ve **Gmail'de alıcı kararı** (*Show original*'da SPF, DKIM ve
 DMARC'ı alıcının kendisinin PASS yazması).
 
-### 3) Akışı aç — EM-5 / EM-7 sevk edildikten SONRA
+### 3) Akışı aç — ✅ yapıldı 2026-10-09 (iki akış da `email`)
 
 `05-config.yaml`'da `TAPPA_RESET_DELIVERY: "email"` (EM-5 + dış adımlar 1–10 ve geri
 bildirim adımı bitince — ADR 0022 §12; bu, parola değişikliği bildirimini de açar — her
-değişiklik, kayıtlı adrese bir e-posta, ADR 0022 *"EM-9 notu"*) ya da
-`TAPPA_INVITE_DELIVERY: "email"` (EM-7 sevk edilince). Bu bir **deploy kararıdır**
+değişiklik, kayıtlı adrese bir e-posta, ADR 0022 *"EM-9 notu"*) ve
+`TAPPA_INVITE_DELIVERY: "email"` (EM-7B sevk edildi; EM-7C'nin işletme + kutu tavanıyla).
+**İkisi de 2026-10-09'da çevrildi** — kullanıcı kararı, EM-5B'nin önkoşulları karşılandıktan
+sonra (ADR 0022 *"EM-5B notu"*: kesici EM-7A `b935f47`, davet kanalı EM-7B `a8d38ff`, alıcı
+başına tavan EM-7C `d69087b`, EM-5B ölçüm aracı `4b201f8`). Bu bir **deploy kararıdır**
 (`main`'e birleştirme — CLAUDE.md §10) ve onu yapan değişiklik
-`TestPackaging_TheConfigMapShipsTodaysDelivery`'yi **bilerek** günceller. Önce 0–2. adımlar.
+`TestPackaging_TheConfigMapShipsTodaysDelivery`'yi **bilerek** güncelledi (artık `email` /
+`email`'i pinler); geri dönüş de aynı testi bilerek günceller. Önce 0–2. adımlar.
+
+**Canlıya nasıl çıkar — ConfigMap değişikliği tek başına pod'u yeniden başlatmaz (ölçüldü,
+`deploy.yml` + `20-app.yaml`).** Pod şablonunda ConfigMap'in özetini taşıyan bir
+annotation yoktur ve `deploy.yml` `rollout restart` çalıştırmaz. Ortam konteyner başlarken
+okunur (`envFrom: tappa-config`). Bu birleştirmede pod yine de yenilenir, çünkü `deploy.yml`
+önce `05-config.yaml`'ı uygular, sonra `20-app.yaml`'ı **commit'in kendi imaj etiketiyle**
+(`:sha-<12 hane>`) uygular — yeni commit şablonu değiştirir, Deployment yeni bir ReplicaSet
+açar ve yeni pod `email`'i okur. **Rollout olmayan durum:** aynı SHA'nın yeniden deploy'u
+(`workflow_dispatch` ile *Run workflow*) ya da ConfigMap'in elle `kubectl apply`'ı —
+şablon değişmez, çalışan pod eski ortamda kalır; o zaman
+`kubectl --context hetzner-k8s-1 -n tappa rollout restart deployment/tappa` gerekir.
+Deploy sonrası teyit (imaj `scratch`'tır — pod içinde `printenv` yok, teyit dışarıdan):
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa get configmap tappa-config \
+  -o jsonpath='{.data.TAPPA_RESET_DELIVERY} {.data.TAPPA_INVITE_DELIVERY}{"\n"}'
+# beklenen: email email
+kubectl --context hetzner-k8s-1 -n tappa get pods -l app.kubernetes.io/name=tappa,app.kubernetes.io/component=server \
+  -o jsonpath='{range .items[*]}{.metadata.name} {.metadata.creationTimestamp} {.spec.containers[0].image}{"\n"}{end}'
+# beklenen: TEK pod; imaj etiketi deploy edilen commit, oluşturma zamanı deploy koşusundan sonra
+```
+
+Pod'un **gerçekten** `email` okuduğunun ürün içi kanıtı kontrol listesinin 1. maddesidir
+(kurtarma formu).
+
+**Canlı duman — kontrol listesi (kullanıcı, kendi hesabıyla; 2026-10-09 deploy'undan
+sonra).** Adres, link ve kod bu belgeye, bir commit'e ya da sohbete **yazılmaz**; sonuçlar
+yalnız ✓/✗ olarak karta/`state.md`'ye geçer.
+
+- [ ] **1. Açılış.** `rollout status` başarılı; yeni pod'un log'unda `"msg":"fatal"` yok;
+  `https://taptime.mt/admin/reset` formu *"This Taptime cannot send email yet"* uyarısını
+  **göstermiyor** (göstermesi = pod hâlâ `none` okuyor → yukarıdaki `rollout restart`).
+- [ ] **2. Sıfırlama — kendi hesabınla *"parolamı unuttum"*.** Formda kendi yönetici
+  adresin → *"Check your email"* sayfası → Gmail'de kurtarma e-postası geldi (gelen kutusu
+  mu spam mi — not et) → linkle yeni parola → *"recovered"* cümlesiyle giriş formu → yeni
+  parolayla giriş. Ardından **ikinci bir e-posta**: *"your password was changed"* bildirimi
+  (EM-9) aynı kutuya geldi.
+- [ ] **3. Tek kullanımlık link.** 2. maddedeki **aynı** linki yeniden aç ve parola koymayı
+  dene → link kullanılamaz sayfası (*"That link no longer works"* ailesi); parola
+  **değişmez** (yeni parolayla giriş hâlâ çalışır).
+- [ ] **4. B2 — başarısız deneme bir yere düşer.** (a) 3. maddedeki deneme **çözülen**
+  bir linktir → `audit_log`'da `admin.recovery.refused` satırı, `already_used: true`
+  (2. maddenin satırları da aynı sorguda görünür):
+
+  ```bash
+  kubectl --context hetzner-k8s-1 -n tappa exec statefulset/tappa-postgres -- sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" \
+    psql -U tappa_owner -d tappa -Atc \
+    "SELECT at, action, detail->>'"'"'outcome'"'"', detail->>'"'"'already_used'"'"' FROM audit_log WHERE action LIKE '"'"'admin.recovery.%'"'"' OR action LIKE '"'"'admin.password_notice.%'"'"' ORDER BY at DESC LIMIT 6;"'
+  # beklenen, yeniden eskiye (2. ve 3. maddeden sonra):
+  #   ...|admin.recovery.refused|refused|true
+  #   ...|admin.password_notice.sent|sent|
+  #   ...|admin.recovery.completed|ok|
+  #   ...|admin.recovery.requested|ok|
+  # requested yerine undelivered satiri varsa e-posta roleye ulasmadi: detail reason verir,
+  # sinif ve SMTP kodu pod logundaki "panel recovery: delivery failed" satirindadir.
+  ```
+
+  (b) linkin `t=` değerinden bir karakter değiştirip aç → aynı ret sayfası; satır
+  **yazılmaz** (tenant yok, ADR 0015), yerine süreç log'unda
+  `"panel recovery refused"` + `"link did not resolve"` satırı (SigNoz ya da
+  `kubectl --context hetzner-k8s-1 -n tappa logs deployment/tappa -c tappa --tail=50`).
+  İkisinde de token ya da özeti **görünmez**.
+- [ ] **5. B5 — kayıtlı/kayıtsız ayırt edilemez.** Formu bir de **kayıtlı olmayan** bir
+  adresle gönder → **aynı** *"Check your email"* sayfası, aynı cümleler, gözle fark
+  edilir bir gecikme farkı yok; o adrese **hiçbir** e-posta gitmez. (Zamanlama eşitliği
+  [taban, taban + 50 ms] test içi ölçülüdür; burada yalnız sayfanın aynılığı ve gönderimin
+  yokluğu teyit edilir.)
+- [ ] **6. Test daveti.** Panelde, e-posta adresi **senin** bir kutun olan bir test çalışanı
+  için davet → ekran *"Their activation link is on its way by email"* der, link **ekranda
+  gösterilmez** (`panel` modunda gösterilirdi); Gmail'de davet geldi; `audit_log`'daki son
+  davet satırı `invite.code_emailed` (`invite.code_shown_to_manager` **değil**). Linki
+  açmak isteğe bağlı — aktivasyon bir NFC dokunuşunda tamamlanır (ADR 0026); test
+  çalışanını iş bitince panelden devre dışı bırak.
+- [ ] **7. Gmail'de alıcı kararı.** 2. ve 6. maddelerdeki üç iletinin her birinde ⋮ →
+  *Show original* → üst özet: **SPF PASS** (`mail.taptime.mt`), **DKIM PASS**
+  (`taptime.mt`), **DMARC PASS**. `Message-ID`'nin SES'inki olması beklenen
+  (EM-5B kaydı). Şüphede ham kaynak *"EM-5B 3) Denetle"* adımıyla aynı denetleyiciden
+  geçirilebilir (`TAPPA_REALSMTP_SES_ID` olmadan o satır `N/A` olur).
+
+Bir madde ✗ ise: 1 → `rollout restart` / pod log'u; 2 ya da 6 gelmediyse → `audit_log`'da
+`admin.recovery.undelivered`, `admin.password_notice.undelivered`, `invite.undelivered`
+ya da `invite.email_refused` satırı (davette ve bildirimde sınıf ve SMTP kodu `detail`'de,
+sıfırlamada pod log'unun *"panel recovery: delivery failed"* satırında; hiçbirinde adres
+yoktur), SES konsolunda gönderim ve bastırma listesi, spam klasörü; 3, 4, 5 ya da 7 ✗ ise akışları
+kapatmak (aşağıdaki *"Geri alma"*) bir **deploy kararıdır** — önce orkestratöre/karta yaz.
 
 **Açılış reddi** (rollout `status` zaman aşımına uğrar, eski pod servis verir): yeni pod'un
 log'unda `"msg":"fatal"` satırı nedeni adıyla söyler — *"TAPPA_SMTP_… is required while
@@ -1995,7 +2097,23 @@ Bu yüzden açılış reddini görür görmez: ConfigMap'te akışı `none` / `p
 uygula** (deploy'la ya da `kubectl --context hetzner-k8s-1 -n tappa apply -f
 deploy/k8s/05-config.yaml` ile), sonra başarısız rollout'u yeniden başlat.
 `kubectl rollout undo` **yetmez**: Deployment'ı geri alır, ConfigMap'i **getirmez** — geri
-alınan pod da `email` okur. Kimlikleri de kaldırmak istersen (akışlar kapalıyken güvenli):
+alınan pod da `email` okur.
+
+**Başarılı bir açılıştan geri dönüş** (e-postayı kapatmak) için de aynı ConfigMap
+değişikliği gerekir, ama ConfigMap'i elle uygulamak **çalışan pod'u yeniden başlatmaz**
+(yukarıda *"Rollout olmayan durum"*): pod `email`'i okumaya ve göndermeye devam eder. Bu
+yüzden ConfigMap'i uyguladıktan sonra:
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa rollout restart deployment/tappa
+kubectl --context hetzner-k8s-1 -n tappa rollout status deployment/tappa --timeout=300s
+# sonra: https://taptime.mt/admin/reset formu yeniden This Taptime cannot send email yet uyarisini gostermeli
+```
+
+(Değişiklik deploy'la — `main`'e birleştirme — gelirse yeni commit'in imaj etiketi
+şablonu zaten değiştirir; restart'ı yalnız elle `apply`'da unutma.) **Eski bir imaja
+dönülecekse** sıra ayrıdır: önce ConfigMap, sonra imaj (*"Elle deploy / rollback"*, e-posta
+uyarısı). Kimlikleri de kaldırmak istersen (akışlar kapalıyken güvenli):
 
 ```bash
 kubectl --context hetzner-k8s-1 -n tappa patch secret tappa-secrets --type json -p '[
@@ -2029,9 +2147,11 @@ izinlidir, 465 değil) — açılırsa:
 
 **Öneri (dış adım):** yerelden SES denemesi için **ayrı**, sandbox'ta kalan, kısıtlı bir IAM
 kimliği (yalnız `ses:SendRawEmail`; sandbox yalnız doğrulanmış alıcılara gönderir — SES
-belgesi, ölçülmedi — bu da seed adreslerini korur). Davet akışında EM-7'ye dek bu derleme
-`email` ile zaten açılmaz; **sıfırlama akışında EM-5'ten beri açılır** — dev'de
-`TAPPA_RESET_DELIVERY=email` gerçek röleye gider (ADR 0022 sınır 25).
+belgesi, ölçülmedi — bu da seed adreslerini korur). Bu derleme **iki akışta da** `email`
+ile açılır (sıfırlama EM-5'ten, davet EM-7B'den beri) — dev'de `TAPPA_RESET_DELIVERY=email`
+ya da `TAPPA_INVITE_DELIVERY=email` gerçek röleye gider (ADR 0022 sınır 25). Üretim
+ConfigMap'inin 2026-10-09'dan beri `email` olması `.env`'i değiştirmez: orada iki akış
+boş kalır.
 
 ### Sayılı sınırlar (EM-3)
 
@@ -2067,7 +2187,10 @@ belgesi, ölçülmedi — bu da seed adreslerini korur). Davet akışında EM-7'
    gitmez (STARTTLS olmadan AUTH yok), ama gönderim de olmaz.
 4. **Akışlar kapalıyken ayarlar okunmaz** — ConfigMap'teki bozuk bir değer açılışta değil,
    CI'da görünür (`TestPackaging_TheConfigMapsMailSettingsLoadInProduction`), Secret'taki
-   bozuk bir kimlik ise ancak akış açıldığında.
+   bozuk bir kimlik ise ancak akış açıldığında. *(2026-10-09'dan beri akışlar açık: ayarlar
+   ve iki kimlik her açılışta okunup doğrulanır; bu sınır yalnız akışlar yeniden
+   kapatılırsa geçerlidir. Kimliğin **değeri** — SES'in kabul edip etmediği — açılışta değil
+   ilk gönderimde görünür: `auth` sınıfı, SMTP 535.)*
 
 ---
 
@@ -2138,6 +2261,34 @@ kubectl -n tappa rollout undo deployment/tappa      # bir önceki imaja
 > kubectl -n tappa rollout status deployment/tappa --timeout=120s || \
 >   kubectl -n tappa get pod -o wide
 > ```
+
+> 🔴 **E-POSTA AÇIKKEN ESKİ BİR İMAJA DÖNMEK — ÖNCE ConfigMap, SONRA İMAJ (2026-10-09'dan
+> beri iki akış `email`).** ConfigMap imajla birlikte geri **gelmez** ve eski ikili onu
+> okur. Bu ikililer o değerle **açılmayı reddeder** (ölçüldü, iki commit'in `main.go`'su
+> `unbuiltDelivery`):
+> - `a8d38ff` (EM-7B, davet kanalı) **öncesi** → `TAPPA_INVITE_DELIVERY=email` ile açılmaz;
+> - `a2ed96f` (EM-5, sıfırlama kanalı) **öncesi** → `TAPPA_RESET_DELIVERY=email` ile de açılmaz.
+>
+> `replicas: 1` + `maxUnavailable: 0`: yeni pod açılmaz, `rollout status` zaman aşımına
+> uğrar — geri alma **olay anında** takılır. Bu yüzden böyle bir SHA'ya `rollout undo` /
+> `set image`'dan **ÖNCE** ConfigMap'te `TAPPA_INVITE_DELIVERY: "panel"` (hedef `a2ed96f`
+> öncesiyse ayrıca `TAPPA_RESET_DELIVERY: "none"`) yaz ve uygula, **sonra** imajı geri al:
+>
+> ```bash
+> # 05-config.yaml duzeltildikten sonra (davet panel, gerekiyorsa reset none):
+> kubectl --context hetzner-k8s-1 -n tappa apply -f deploy/k8s/05-config.yaml
+> kubectl --context hetzner-k8s-1 -n tappa get configmap tappa-config \
+>   -o jsonpath='{.data.TAPPA_RESET_DELIVERY} {.data.TAPPA_INVITE_DELIVERY}{"\n"}'
+> # ancak bundan SONRA yukaridaki set image ya da rollout undo
+> ```
+>
+> Ayrıca: e-postayı açmanın önkoşullarının kodu `d69087b`'de (EM-7C) tamamlanır (sıra:
+> `a2ed96f` EM-5 → `b935f47` EM-7A kesici → `a8d38ff` EM-7B → `d69087b` EM-7C tavan).
+> Daha eski ama reddetmeyen bir imaj **açılır**, yalnız korumasız gönderir: `d69087b`
+> öncesi alıcı başına tavan yok, `b935f47` öncesi süreç geneli kesici de yok. Bu aralığa
+> dönerken de önce `none` / `panel` önerilir. Bugünkü canlı (`e95a717`) EM-7A/B/C'yi içerir; açılışta
+> sorun yok, risk yalnız geri dönüştedir. Geri alma sonrası ConfigMap'i yeniden `email`'e
+> çevirmek de bir deploy kararıdır (*"Transactional e-mail"*, 3. adım).
 
 > 🔴 **Rollback şemayı geri almaz.** `goose down` bu iş akışında **yoktur** ve
 > bilinçlidir: geri alınabilir olmak (`-- +goose Down` dolu) ile *otomatik olarak
@@ -5188,12 +5339,13 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
 2. **`TAPPA_RETENTION_YEARS=2` GEÇİCİ.** Bu sayı çalışana GDPR Art. 13 metninde
    gösteriliyor, yani hukuki bir beyan; hukukçu onayı bekliyor (Q13 / backlog B3).
    Deploy için kabul, **pilot için değil** — M8-06 kapısının maddelerinden biri.
-3. **`TAPPA_RESET_DELIVERY=none`** (ve `TAPPA_INVITE_DELIVERY=panel`) — Q02'nin cevabı
-   ADR 0022 (AWS SES, `eu-central-1`, SMTP + STARTTLS); yapılandırma EM-3'le hazır.
-   Sıfırlama kanalı EM-5'ten beri derlemede, ama açmak kullanıcının dış adımlarına ve
-   EM-5B'nin gerçek SES ölçümlerine bağlı; davet kanalı EM-7'ye dek yok (bu derleme
-   davet akışında `email` ile açılmaz). `none` iken panelin kurtarma formu ekranda bunu
-   söylüyor. Runbook: *"Transactional e-mail (M10 EM-3)"*.
+3. **~~`TAPPA_RESET_DELIVERY=none` (ve `TAPPA_INVITE_DELIVERY=panel`)~~ — KAPANDI,
+   2026-10-09:** iki akış da `email` (kullanıcı kararı, EM-5B; ADR 0022 *"EM-5B notu"*).
+   Q02'nin cevabı ADR 0022 (AWS SES, `eu-central-1`, SMTP + STARTTLS); sıfırlama kanalı
+   EM-5, davet kanalı EM-7B, süreç geneli kesici EM-7A, alıcı başına tavan EM-7C, gerçek
+   SES ölçümü EM-5B. **Kalan:** canlı duman kontrol listesi ve o bölümün sayılı sınırları
+   — runbook *"Transactional e-mail (M10 EM-3)"* → *"3) Akışı aç"*. (Madde numarası,
+   atıflar çözülsün diye yerinde duruyor.)
 4. **HSTS ingress'ten miras alınıyor** (`max-age=31536000; includeSubDomains`,
    ölçüldü). Uygulamanın **kendi** başlığını set etmesi (backlog T28) hâlâ açık;
    `preload` set edilmedi ve kolayca set edilmemeli.

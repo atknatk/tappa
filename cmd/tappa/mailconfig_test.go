@@ -7,10 +7,12 @@ package main
 //     outside internal/mail touches mail.Config's RootCAs (type-checked); (b) no
 //     configuration variable names a certificate authority; (c) nothing in the
 //     deployment moves the system roots (SSL_CERT_FILE / SSL_CERT_DIR);
-//   - the manifests: the two credentials are optional Secret keys, the ConfigMap still
-//     ships none/panel, and the ConfigMap's transport settings load in production;
+//   - the manifests: the two credentials are optional Secret keys, the ConfigMap ships
+//     email/email (since 2026-10-09, the user's EM-5B decision), and the ConfigMap's
+//     transport settings load in production;
 //   - the binary: a delivery mode the configuration accepts and this build lacks stops
-//     the boot before the database is dialled.
+//     the boot before the database is dialled, and the shipped ConfigMap boots it in
+//     production.
 
 import (
 	"bytes"
@@ -25,6 +27,7 @@ import (
 	"go/token"
 	"go/types"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -33,11 +36,14 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 	"unicode"
 
 	"github.com/atknatk/tappa/internal/config"
+	"github.com/atknatk/tappa/internal/handler"
+	"github.com/atknatk/tappa/internal/mail"
 )
 
 const (
@@ -870,12 +876,19 @@ func TestPackaging_TheSMTPCredentialsAreOptionalSecretKeys(t *testing.T) {
 	}
 }
 
-// TestPackaging_TheConfigMapShipsTodaysDelivery: EM-3 and EM-5 change no behaviour (ADR
-// 0022 §5, §12). The ConfigMap's two delivery modes are none and panel, and neither is
-// overridden by an explicit env entry of the serving container (which would win over
-// envFrom). Turning a flow to email is a DEPLOY decision (ADR 0022 §12: after EM-5 and
-// the user's external steps for resets, after EM-7 for invitations), and the change
-// that makes it updates this test on purpose.
+// TestPackaging_TheConfigMapShipsTodaysDelivery: the ConfigMap's two delivery modes are
+// what the deployment decided, and neither is overridden by an explicit env entry of the
+// serving container (which would win over envFrom).
+//
+// TODAY BOTH ARE email — THE USER'S DECISION OF 2026-10-09 (M10 EM-5B; ADR 0022's EM-5B
+// note). Until then this test pinned none/panel: EM-3 and EM-5 changed no behaviour (ADR
+// 0022 §5, §12), and the switch waited for EM-5B's prerequisites — the process-wide
+// breaker (EM-7A), the per-recipient ceilings (EM-7C), the user's acceptance of the
+// enumeration channels and of cross-business invitation concentration, and the
+// real-SES measurement. Switching is a DEPLOY decision either way (ADR 0022 §12), so the
+// change that turns a flow back off (deploy/README.md, "Transactional e-mail", step 3,
+// the revert) updates this test on purpose — that is what keeps a revert, or a stray
+// edit, from passing unnoticed.
 func TestPackaging_TheConfigMapShipsTodaysDelivery(t *testing.T) {
 	cfgSrc, err := os.ReadFile(filepath.Join(repoRoot, "deploy", "k8s", "05-config.yaml"))
 	if err != nil {
@@ -891,18 +904,18 @@ func TestPackaging_TheConfigMapShipsTodaysDelivery(t *testing.T) {
 	}
 	env := containerEnvEntries(t, string(appSrc), servingContainer)
 	for name, want := range map[string]string{
-		"TAPPA_RESET_DELIVERY":  config.ResetDeliveryNone,
-		"TAPPA_INVITE_DELIVERY": config.InviteDeliveryPanel,
+		"TAPPA_RESET_DELIVERY":  config.ResetDeliveryEmail,
+		"TAPPA_INVITE_DELIVERY": config.InviteDeliveryEmail,
 	} {
 		got, ok := cm[name]
 		switch {
 		case !ok:
 			t.Errorf("%s is not a ConfigMap key", name)
 		case got != want:
-			t.Errorf("the ConfigMap ships %s=%q; EM-3 ships %q — switching a flow to email is a deploy decision "+
-				"taken after its channel exists and the user's SES steps are done (ADR 0022 §12; the reset channel "+
-				"exists since EM-5, the invitation's since EM-7B), and the change that takes it updates this test",
-				name, got, want)
+			t.Errorf("the ConfigMap ships %s=%q; since 2026-10-09 it ships %q — both flows were switched to email "+
+				"by the user's decision once EM-5B's prerequisites were met (ADR 0022, EM-5B note). Turning a flow "+
+				"off is a deploy decision too (deploy/README.md, Transactional e-mail, step 3), and the change that "+
+				"takes it updates this test", name, got, want)
 		}
 		if _, overridden := env[name]; overridden {
 			t.Errorf("%s is an env entry of the serving container: it would override the ConfigMap's value", name)
@@ -910,47 +923,305 @@ func TestPackaging_TheConfigMapShipsTodaysDelivery(t *testing.T) {
 	}
 }
 
-// TestPackaging_TheConfigMapsMailSettingsLoadInProduction: the transport settings the
-// ConfigMap ships are not read while both flows are off — so nothing at boot would say
-// they are wrong until the day a flow is switched on. This loads the ConfigMap as a
-// production process would see it, with both flows switched to email and stand-in
-// credentials, and requires config.Load to accept it: a 465, an address for a host or a
-// malformed sender in the ConfigMap is red HERE, not at that deploy.
-func TestPackaging_TheConfigMapsMailSettingsLoadInProduction(t *testing.T) {
+// The stand-in SMTP credentials of shippedPodEnv. They are the sentinels the artifact
+// tests search a process's output for: no 4 consecutive characters of either form a
+// word, so every 4-byte window can be looked for.
+const shippedStandInUser, shippedStandInPass = "jkq4wvz8xqp2zkv6", "qzx7vjw9kpq3xzt8"
+
+// shippedPodEnv is the environment the serving container gets from THE SHIPPED
+// MANIFESTS, with a stand-in for each Secret value: every tappa-config key with its
+// value from deploy/k8s/05-config.yaml (envFrom), then the container's own env entries
+// from deploy/k8s/20-app.yaml, which win over envFrom as Kubernetes applies them.
+//
+// WHICH SECRET KEYS: every REQUIRED env entry of the serving container must have a
+// stand-in here, or this is fatal — a new required secret is given one rather than
+// silently left out. Of the OPTIONAL entries only the two SMTP credentials are set:
+// tappa-secrets holds both since the e-mail runbook (measured before the 2026-10-09
+// switch), and with a flow on the boot needs them. The other optional entries (the
+// operator surface, the rotation KEK) are left absent, a valid state that switches
+// nothing about e-mail. The stand-ins are obviously fake and distinct.
+//
+// It returns the ConfigMap's own values beside the merged environment, so a caller can
+// tell what the file says from what a stand-in says.
+func shippedPodEnv(t *testing.T, dsn string) (cm, env map[string]string) {
+	t.Helper()
 	cfgSrc, err := os.ReadFile(filepath.Join(repoRoot, "deploy", "k8s", "05-config.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	cm := configMapValues(t, string(cfgSrc))
+	appSrc, err := os.ReadFile(filepath.Join(repoRoot, "deploy", "k8s", "20-app.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cm = configMapValues(t, string(cfgSrc))
+	if cm["TAPPA_ENV"] != config.EnvProd {
+		t.Fatalf("CONTROL FAILED: the ConfigMap parse reads TAPPA_ENV as %q", cm["TAPPA_ENV"])
+	}
+	creds := config.SMTPCredentialVariables()
+	standIn := map[string]string{
+		"DATABASE_URL":           dsn,
+		"TAPPA_SESSION_HMAC_KEY": base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("S"), 32)),
+		"TAPPA_TAG_KEK":          base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("K"), 32)),
+		"TAPPA_INVITE_HMAC_KEY":  base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("I"), 32)),
+		creds[0]:                 shippedStandInUser,
+		creds[1]:                 shippedStandInPass,
+	}
+	entries := containerEnvEntries(t, string(appSrc), servingContainer)
+	env = map[string]string{}
+	for k, v := range cm {
+		env[k] = v
+	}
+	for name, e := range entries {
+		v, ok := standIn[name]
+		switch {
+		case ok:
+			env[name] = v
+		case !e.optional:
+			t.Fatalf("the serving container requires %s and this test has no stand-in for it: add one to "+
+				"shippedPodEnv, or the boot measured here is not the pod's", name)
+		}
+	}
+	// PREMISE: every stand-in reaches the pod — a credential the manifest stopped
+	// injecting would make this measure an environment the pod does not have.
+	for name := range standIn {
+		if _, ok := entries[name]; !ok {
+			t.Fatalf("PREMISE: %s is not an env entry of the serving container", name)
+		}
+	}
+	return cm, env
+}
+
+// TestPackaging_TheConfigMapsMailSettingsLoadInProduction loads the ConfigMap AS IT
+// SHIPS — since 2026-10-09 both flows are email, so nothing is overridden — as a
+// production process sees it (shippedPodEnv: the file's values, stand-ins for the
+// Secret's), and requires config.Load to accept it: loadMail finds every required
+// setting, the relay host passes the production rule, the port is 587, the sender is
+// one address and TAPPA_BASE_URL is https. A 465, an address for a host, a malformed
+// sender or a dropped key in the ConfigMap is red HERE, before a deploy.
+//
+// Then it builds, from that configuration, the e-mail objects run() builds — the
+// transport, the one breaker, the reset channel, the per-mailbox cap and the invitation
+// route — because the two channel constructors refuse a TAPPA_BASE_URL their e-mails
+// cannot carry, and that refusal would otherwise first be met by the new pod. Nothing
+// is dialled: mail.New checks fields and opens no connection.
+//
+// KNOWN LIMIT: the second half restates run()'s list of constructors rather than
+// calling run(); a constructor run() gains is not covered here.
+// TestArtifact_BootsInProductionWithTheShippedConfigMap runs run() itself on the same
+// environment, against a real database when one is configured.
+func TestPackaging_TheConfigMapsMailSettingsLoadInProduction(t *testing.T) {
+	cm, env := shippedPodEnv(t, "postgres://tappa_app@127.0.0.1:1/tappa?sslmode=disable")
 	for _, must := range []string{"TAPPA_SMTP_HOST", "TAPPA_SMTP_PORT", "TAPPA_MAIL_FROM", "TAPPA_MAIL_REPLY_TO"} {
 		if _, ok := cm[must]; !ok {
 			t.Fatalf("%s is not a ConfigMap key", must)
 		}
 	}
-	// The Secret's half, as stand-ins: obviously fake and distinct (agent-brief md. 2).
-	for _, name := range append(append(config.OperatorSurfaceVariables(), "DATABASE_MIGRATE_URL", "TAPPA_TAG_KEK_PREVIOUS"),
-		config.SMTPCredentialVariables()...) {
-		t.Setenv(name, "")
+	// Nothing from the developer's shell may take part: every TAPPA_ and DATABASE_
+	// variable is blanked first (config.Load reads an empty value as unset).
+	for _, kv := range os.Environ() {
+		if name, _, _ := strings.Cut(kv, "="); strings.HasPrefix(name, "TAPPA_") || strings.HasPrefix(name, "DATABASE_") {
+			t.Setenv(name, "")
+		}
 	}
-	t.Setenv("DATABASE_URL", "postgres://tappa_app@127.0.0.1:1/tappa?sslmode=disable")
-	t.Setenv("TAPPA_SESSION_HMAC_KEY", base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("S"), 32)))
-	t.Setenv("TAPPA_TAG_KEK", base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("K"), 32)))
-	t.Setenv("TAPPA_INVITE_HMAC_KEY", base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("I"), 32)))
-	creds := config.SMTPCredentialVariables()
-	t.Setenv(creds[0], "jkq4wvz8xqp2zkv6")
-	t.Setenv(creds[1], "qzx7vjw9kpq3xzt8")
-	for k, v := range cm {
+	for k, v := range env {
 		t.Setenv(k, v)
 	}
-	t.Setenv("TAPPA_RESET_DELIVERY", config.ResetDeliveryEmail)
-	t.Setenv("TAPPA_INVITE_DELIVERY", config.InviteDeliveryEmail)
 	c, err := config.Load()
 	if err != nil {
-		t.Fatalf("the ConfigMap's transport settings do not load in production with both flows on: %v", err)
+		t.Fatalf("the shipped ConfigMap does not load in production: %v", err)
+	}
+	if c.ResetDelivery != config.ResetDeliveryEmail || c.InviteDelivery != config.InviteDeliveryEmail {
+		t.Fatalf("PREMISE: the shipped ConfigMap loads as %q/%q, not email/email", c.ResetDelivery, c.InviteDelivery)
 	}
 	if !c.IsProd() || c.Mail.Host != cm["TAPPA_SMTP_HOST"] || c.Mail.From != cm["TAPPA_MAIL_FROM"] {
 		t.Errorf("PREMISE: prod=%v, host %q, from %q — not the ConfigMap's", c.IsProd(), c.Mail.Host, c.Mail.From)
 	}
+	if c.Mail.Port != 587 {
+		t.Errorf("the relay port is %d; ADR 0022 §1 chose 587 (STARTTLS)", c.Mail.Port)
+	}
+	if c.Mail.ReplyTo != "" {
+		t.Errorf("a Reply-To loaded although the ConfigMap ships it empty")
+	}
+	if !strings.HasPrefix(c.BaseURL, "https://") {
+		t.Errorf("TAPPA_BASE_URL is %q; every link the e-mails carry sits under it and must be https", c.BaseURL)
+	}
+
+	transport, err := mail.New(c.Mail)
+	if err != nil {
+		t.Fatalf("the transport refuses the shipped settings: %v", err)
+	}
+	breaker, err := mail.NewBreaker(transport, mail.BreakerConfig{})
+	if err != nil {
+		t.Fatalf("the breaker: %v", err)
+	}
+	if _, err := handler.NewEmailResetChannel(breaker, c.BaseURL, nil); err != nil {
+		t.Errorf("the reset channel refuses the shipped TAPPA_BASE_URL: %v", err)
+	}
+	capped, err := mail.NewRecipientCap(breaker)
+	if err != nil {
+		t.Fatalf("the per-mailbox cap: %v", err)
+	}
+	if _, err := handler.NewEmailInvitations(capped, c.BaseURL); err != nil {
+		t.Errorf("the invitation route refuses the shipped TAPPA_BASE_URL: %v", err)
+	}
+}
+
+// TestArtifact_BootsInProductionWithTheShippedConfigMap drives THE SHIPPED BINARY on the
+// SHIPPED ConfigMap — every value read from deploy/k8s/05-config.yaml, both flows email
+// since 2026-10-09 (the user's EM-5B decision), TAPPA_ENV=prod from the file too — with
+// stand-ins for the Secret's values (shippedPodEnv). It is the measurement the switch
+// rests on: the pod the next deploy creates boots rather than refusing.
+//
+// TWO DEPTHS:
+//   - closed database port (always): the boot passes config.Load's production rules
+//     and the delivery refusal, writes its build line (which needs the loaded
+//     configuration) and stops on the database dial — naming no delivery, SMTP or mail
+//     variable. The ConfigMap is used byte for byte, TAPPA_ADDR included: the process
+//     never gets as far as listening.
+//   - real database (DATABASE_URL set; skipped otherwise): run() goes past the dial and
+//     builds what only it builds — the one transport, the one breaker, the reset
+//     channel, the per-mailbox cap and the invitation route (NewAdminAuth refuses the
+//     e-mail mode without it) — and serves: the recovery form is the deliverable one,
+//     and SIGTERM ends the process with exit 0. TAPPA_ADDR is the one value
+//     overridden (a free loopback port, not :8080 on every interface), and the
+//     database is the test's. Production refuses a privileged role, so DATABASE_URL
+//     must be the application role, as in CI.
+//
+// NO NETWORK: building the transport dials nothing, nothing is queued at boot and no
+// request here sends, so neither the relay the ConfigMap names nor TAPPA_BASE_URL's
+// host is contacted. In both depths the output carries no 4 bytes of either stand-in
+// credential.
+func TestArtifact_BootsInProductionWithTheShippedConfigMap(t *testing.T) {
+	bin := theArtifact(t)
+	noCredential := func(t *testing.T, out string) {
+		t.Helper()
+		for _, cred := range []string{shippedStandInUser, shippedStandInPass} {
+			for i := 0; i+4 <= len(cred); i++ {
+				if strings.Contains(out, cred[i:i+4]) {
+					t.Errorf("the process printed 4 bytes of a stand-in credential (offset %d)", i)
+					break
+				}
+			}
+		}
+	}
+	environ := func(env map[string]string) []string {
+		out := []string{"PATH=" + os.Getenv("PATH")}
+		for k, v := range env {
+			out = append(out, k+"="+v)
+		}
+		return out
+	}
+
+	// PREMISE, for both depths: the boot measured is the e-mail one. The real-database
+	// depth observes the reset flow's form only, so without this an invitation flow
+	// switched back to panel would leave it green while it claims the invitation route.
+	if cm, _ := shippedPodEnv(t, ""); cm["TAPPA_RESET_DELIVERY"] != config.ResetDeliveryEmail ||
+		cm["TAPPA_INVITE_DELIVERY"] != config.InviteDeliveryEmail {
+		t.Fatalf("PREMISE: the ConfigMap ships %q/%q, not email/email", cm["TAPPA_RESET_DELIVERY"], cm["TAPPA_INVITE_DELIVERY"])
+	}
+
+	t.Run("closed database port", func(t *testing.T) {
+		_, env := shippedPodEnv(t, "postgres://tappa_app@127.0.0.1:1/tappa?sslmode=disable")
+		ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, bin)
+		cmd.Dir = t.TempDir()
+		cmd.Env = environ(env)
+		raw, err := cmd.CombinedOutput()
+		out := string(raw)
+		if err == nil {
+			t.Fatalf("the process exited 0 against a closed database port:\n%s", out)
+		}
+		// A prefix: from a modified tree the line is a warning that says so ("build: this
+		// binary was compiled from a MODIFIED working tree…"), from a clean one "build".
+		if !strings.Contains(out, `"msg":"build`) {
+			t.Errorf("no build line: the boot stopped before the configuration loaded. Its whole output was:\n%s", out)
+		}
+		fatal := regexp.MustCompile(`(?m)^.*"msg":"fatal".*$`).FindString(out)
+		if fatal == "" {
+			t.Fatalf("no fatal line. Its whole output was:\n%s", out)
+		}
+		for _, named := range []string{"config:", "_DELIVERY", "TAPPA_SMTP_", "TAPPA_MAIL_", "TAPPA_BASE_URL"} {
+			if strings.Contains(fatal, named) {
+				t.Errorf("the boot stopped on %q rather than on the database dial: %s", named, fatal)
+			}
+		}
+		noCredential(t, out)
+	})
+
+	t.Run("real database", func(t *testing.T) {
+		dsn := os.Getenv("DATABASE_URL")
+		if dsn == "" {
+			t.Skip("DATABASE_URL not set; skipping the full production boot (real Postgres required)")
+		}
+		_, env := shippedPodEnv(t, dsn)
+		addr := freeAddr(t)
+		env["TAPPA_ADDR"] = addr
+		ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, bin)
+		cmd.Dir = t.TempDir()
+		cmd.Env = environ(env)
+		var out lockedBuffer
+		cmd.Stdout = &out
+		cmd.Stderr = &out
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		if err := cmd.Start(); err != nil {
+			t.Fatalf("starting the artifact: %v", err)
+		}
+		exited := make(chan error, 1)
+		go func() { exited <- cmd.Wait() }()
+		t.Cleanup(func() { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) })
+
+		// No redirect is followed: nothing here may leave this machine.
+		client := &http.Client{Timeout: 5 * time.Second,
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+		var form string
+		for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); {
+			select {
+			case err := <-exited:
+				t.Fatalf("the process exited (%v) before serving; production refuses a privileged database "+
+					"role, so DATABASE_URL must be the application role. Its output was:\n%s", err, out.String())
+			default:
+			}
+			res, err := client.Get("http://" + addr + "/admin/reset")
+			if err == nil {
+				b, _ := io.ReadAll(res.Body)
+				_ = res.Body.Close()
+				if res.StatusCode == http.StatusOK {
+					form = string(b)
+					break
+				}
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		if form == "" {
+			t.Fatalf("the artifact never served the recovery form.\nIts output was:\n%s", out.String())
+		}
+		if strings.Contains(form, "cannot send email yet") {
+			t.Errorf("the shipped ConfigMap says email, yet the recovery form says it cannot send: run() left the channel nil")
+		}
+		if !strings.Contains(form, `name="csrf"`) {
+			t.Errorf("PREMISE: the page served is not the recovery form")
+		}
+
+		if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case err := <-exited:
+			if err != nil {
+				t.Errorf("the process exited with %v after SIGTERM, want 0:\n%s", err, out.String())
+			}
+		case <-time.After(30 * time.Second):
+			t.Fatalf("the process did not exit within 30 s of SIGTERM:\n%s", out.String())
+		}
+		logged := out.String()
+		if !strings.Contains(logged, "shutting down") || strings.Contains(logged, `"msg":"fatal"`) {
+			t.Errorf("the output does not show a clean shutdown:\n%s", logged)
+		}
+		noCredential(t, logged)
+	})
 }
 
 // TestUnbuiltDelivery_RefusesEmailForEitherFlow: the decision, as a table. Since M10

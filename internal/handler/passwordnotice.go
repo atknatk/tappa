@@ -20,9 +20,9 @@ import (
 // e-mail channel and never from a request header (resetmail.go).
 //
 // WHAT TURNS IT ON: the recovery flow's channel — TAPPA_RESET_DELIVERY. With "none"
-// (the shipped ConfigMap) nothing is sent and the change still gets its notice row,
-// saying so; with "email" the notice is rendered and sent through the same transport
-// as the reset link. One switch, because both e-mails go to the same address on the
+// (the shipped ConfigMap until 2026-10-09; "email" since) nothing is sent and the
+// change still gets its notice row, saying so; with "email" the notice is rendered
+// and sent through the same transport as the reset link. One switch, because both e-mails go to the same address on the
 // same row through the same relay, and switching administrator e-mail on is ONE
 // deploy decision (ADR 0022 §12).
 //

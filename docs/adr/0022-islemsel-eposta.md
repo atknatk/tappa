@@ -3499,3 +3499,91 @@ değiştirmez; yarış `undelivered` + sınıf ve kendi cümlesiyle kaydedilir.*
   mutasyonları (yalnız bu turunkiler): **5 mutasyon, 5 KIRMIZI, 5 `sha-ok`** — E01 (e-postanın eski cümlesi), E02
   (sayfanın 3. tur cümlesi), T01 (`statement_timestamp` → `now()`, okuma), T02 (aynısı, basımın emekliye ayırması),
   M04 (geri çekme `accountLimiter.Allowed`'a bağlı).
+
+## EM-5B notu — 2026-10-09 (açılış: §12'nin iki ConfigMap değişikliği yapıldı; normatif içerik değişmedi)
+
+**Ne değişti:** `deploy/k8s/05-config.yaml` → `TAPPA_RESET_DELIVERY: "email"` ve
+`TAPPA_INVITE_DELIVERY: "email"`. §12'nin *"davranış iki ConfigMap değişikliğiyle açılır"*
+cümlesindeki iki değişiklik **tek** değişiklikte yapıldı. Ürün kodunun davranışı değişmedi (yalnız
+bayatlayan yorumlar: `cmd/tappa/main.go`, `internal/config/config.go`, `internal/handler`'da
+`adminreset.go`, `passwordnotice.go`, `inviteemail.go`, `deploy/k8s/20-app.yaml`); migration, DDL,
+yeni bağımlılık ve yeni Secret yok. Canlıya çıkış `main`'e birleştirmedir — bir deploy kararı
+(CLAUDE.md §10); bu not yazılırken birleştirme yapılmadı.
+
+**Kullanıcı kararı (2026-10-09):** iki akış da açılır.
+
+**Önkoşullar — karşılandıkları yer:**
+- **(a) §9'un süreç geneli devre kesicisi** — EM-7A, `b935f47`.
+- **Davet kanalı** — EM-7B, `a8d38ff` (sıfırlama kanalı EM-5'ten beri ikilide).
+- **(b) alıcı başına tavan** — EM-7C, `d69087b`: sıfırlamada hesap başına **tek canlı link**; davette
+  işletme + normalize posta kutusu başına saatte 5, günde 20.
+- **(c) numaralandırma kanalları** (EM-5A sınır 12 kuyruk-akıbeti, EM-7A sınır 13 kesici-akıbeti) —
+  kullanıcıca **kabul**; **EM-7C sınır 6** (işletmeler arası davet yoğunlaşması: N işletme → bir kutuya
+  saatte 5N, günde 20N) — kullanıcıca **bilinçli kabul**. EM-7C notunun EM-5B devri böylece kapandı.
+- **Gerçek SES ölçümü** — EM-5B aracı, `4b201f8` (`TestEM5B_SendToTheRealRelay`,
+  `TestEM5B_CheckAReceivedSource`). 2026-10-09 koşusu: dört ileti `sent` + SES 250 `message_id`,
+  yanlış parolayla `auth` / 535; SPF (`mail.taptime.mt`), DKIM (`d=taptime.mt`) ve DMARC (hizalı)
+  geçti — alıcı (mail.tm) karar yazmadığı için bağımsız doğrulamayla (dkimpy + pyspf, orkestratör
+  kabulü). Tablo: `deploy/README.md`, *"EM-5B ölçümü"*.
+- **İki SMTP kimliği `tappa-secrets`'ta** (`TAPPA_SMTP_USERNAME`, `TAPPA_SMTP_PASSWORD`) — varlıkları
+  ölçüldü (dış adım 10).
+
+**Açılışın ölçümü (ağ yok, kimlikler yer tutucu):**
+- `TestPackaging_TheConfigMapShipsTodaysDelivery` artık `email` / `email`'i pinler (önce `none` /
+  `panel`); geri dönüş bu testi yine bilerek günceller.
+- `TestPackaging_TheConfigMapsMailSettingsLoadInProduction` ConfigMap'i **olduğu gibi** (akış değeri
+  ezilmeden) üretim ortamında yükler — `loadMail` bütün zorunlu ayarları bulur, host üretim kuralından
+  geçer, port 587, `TAPPA_BASE_URL` https, Reply-To boş — ve `run()`'ın e-posta nesnelerini kurar
+  (taşıyıcı, kesici, sıfırlama kanalı, kutu tavanı, davet yolu; iki kanal kurucusu tabanı bir
+  deneme e-postasıyla sınar).
+- `TestArtifact_BootsInProductionWithTheShippedConfigMap` (yeni) sevk edilen ikiliyi ConfigMap'in
+  **gerçek** değerleri ve `20-app.yaml`'ın Secret girdileri için yer tutucularla `TAPPA_ENV=prod`'da
+  çalıştırır: kapalı DB portunda yapılandırma ve teslim kapılarını geçip build satırını yazar ve DB'de
+  durur; gerçek Postgres'le (`DATABASE_URL`, uygulama rolü) servis verir, kurtarma formu teslim
+  edilebilir olanıdır, SIGTERM → çıkış 0. Çıktıda kimliklerin hiçbir 4 baytlık parçası yok.
+- Hedefli mutasyonlar (8, her biri ayrı koşu, dosya özetiyle geri yüklendi): sıfırlama `none`, davet
+  `panel`, port 465, taban `http`, host bir IP, gönderen boş, manifestte kimlik girdisinin adı
+  değişmiş, `run()` sıfırlama kanalını kurmuyor — sekizi de en az bir testte **kırmızı**.
+
+**Canlıya çıkış (ölçüldü: `.github/workflows/deploy.yml`, `deploy/k8s/20-app.yaml`):** ConfigMap
+değişikliği tek başına pod'u yeniden başlatmaz — pod şablonunda ConfigMap özeti taşıyan bir annotation
+yok, `deploy.yml` `rollout restart` çalıştırmaz. Pod yine de yenilenir, çünkü `deploy.yml` önce
+`05-config.yaml`'ı, sonra `20-app.yaml`'ı commit'in `:sha-<12 hane>` imaj etiketiyle uygular ve yeni
+commit şablonu değiştirir. Aynı SHA'nın yeniden deploy'unda ya da ConfigMap'in elle uygulanmasında
+rollout **olmaz** → `rollout restart` (runbook, *"3) Akışı aç"*).
+
+**Sayılı sınırlar (bu not):**
+1. **Kimliğin değeri açılışta doğrulanmaz** (`mail.New` bağlanmaz); SES'in kabulü ilk gönderimde
+   görünür (`auth` / 535). EM-5B koşusu kimlikleri Infisical'dan aldı; `tappa-secrets`'taki iki
+   SMTP anahtarının Infisical'dakilerle **birebir aynı** olduğu ölçüldü (orkestratör, 2026-10-09;
+   değer yazılmadan karşılaştırıldı). SES'in bu kimliği canlı süreçte kabul ettiği ise canlı
+   dumanın ilk gönderiminde görülür.
+2. Boot testinin gerçek-DB derinliği yalnız `DATABASE_URL` varken koşar (CI'da var). Kapalı-port
+   derinliği `run()`'ın DB'den sonraki kurucularını görmez: `http` taban orada yeşil kalır (mutasyonla
+   ölçüldü) — paketleme testi ve gerçek-DB derinliği yakalar.
+3. Paketleme testinin ikinci yarısı `run()`'ın kurucu listesini yeniden yazar; `run()`'a eklenen bir
+   kurucu orada görünmez (gerçek-DB derinliği görür).
+4. Boot testi davet yolunu yalnız açılışla gözler (`NewAdminAuth` e-posta modunu seçeneksiz reddeder);
+   bir davetin gerçekten e-postayla gittiği canlı dumandadır.
+
+**Kalan — canlı duman (deploy'dan sonra, kullanıcı; runbook *"3) Akışı aç"* kontrol listesi):**
+açılış ve kurtarma formunun teslim edilebilir hâli; kendi hesabıyla *"parolamı unuttum"* ve EM-9
+bildirimi; sıfırlama linkinin **tek kullanımlığı**; M7-04 **B2**'nin gözle teyidi
+(`admin.recovery.refused` satırı, çözülmeyen link için süreç log'u); M7-04 **B5** (kayıtsız adresle
+aynı sayfa, gönderim yok); bir **test daveti** (`invite.code_emailed`); **Gmail'de alıcı kararı**
+(*Show original*: SPF, DKIM, DMARC PASS).
+
+**Geri dönüş:** ConfigMap'te `none` / `panel` ve dosyayı **hemen** uygula — `rollout undo` ConfigMap'i
+geri getirmez (runbook, *"Geri alma"*). ConfigMap'i elle uygulamak çalışan pod'u yeniden başlatmaz:
+ardından `rollout restart deployment/tappa` ve `rollout status`.
+
+**İmaj geri alma — önce ConfigMap, sonra imaj (ölçüldü: eski commit'lerin `unbuiltDelivery`'si).**
+ConfigMap imajla birlikte geri gelmez ve eski ikili bugünkü `email` değerlerini okur. `a8d38ff`
+(EM-7B) öncesi bir ikili `TAPPA_INVITE_DELIVERY=email` ile, `a2ed96f` (EM-5) öncesi bir ikili
+`TAPPA_RESET_DELIVERY=email` ile **açılmayı reddeder**. `replicas: 1` ve `maxUnavailable: 0` ile
+geri alma olay anında takılır. Böyle bir SHA'ya `rollout undo` ya da `set image`'dan **önce**
+ConfigMap'te `TAPPA_INVITE_DELIVERY: panel` (hedef `a2ed96f` öncesiyse ayrıca
+`TAPPA_RESET_DELIVERY: none`) uygulanır, **sonra** imaj geri alınır. `d69087b` öncesi reddetmeyen
+imajlar açılır ama alıcı başına tavansız (`b935f47` öncesi kesicisiz de) gönderir; onlara dönerken de
+önce `none` / `panel` önerilir. Bugünkü canlı `e95a717` EM-7A/B/C'yi içerir — risk açılışta değil,
+yalnız geri dönüştedir. Runbook: *"Elle deploy / rollback"*, e-posta uyarısı.

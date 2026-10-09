@@ -259,16 +259,17 @@ func TestLoad_MailSettingsFailClosedWhenAFlowIsEmail(t *testing.T) {
 
 // TestLoad_MailSettingsAreNotReadWhileBothFlowsAreOff: with none + panel the transport's
 // variables are neither read nor validated (ADR 0022 §5) — so the runbook's intermediate
-// state (credentials in the Secret, the ConfigMap still none/panel) boots unchanged, and
-// even values that would be refused with a flow on do not stop the boot. Mail stays the
-// zero value: a field nothing should use holds nothing to use.
+// state (credentials in the Secret, the ConfigMap none/panel: before the switch, or after
+// turning e-mail off again — the shipped ConfigMap says email/email since 2026-10-09)
+// boots unchanged, and even values that would be refused with a flow on do not stop the
+// boot. Mail stays the zero value: a field nothing should use holds nothing to use.
 func TestLoad_MailSettingsAreNotReadWhileBothFlowsAreOff(t *testing.T) {
 	user, pass := credentialVariables(t)
 	for _, tc := range []struct {
 		name string
 		set  map[string]string
 	}{
-		{"nothing set (today's deployment)", nil},
+		{"nothing set (the default; development's .env)", nil},
 		{"the runbook's intermediate state", map[string]string{
 			"TAPPA_SMTP_HOST": shippedHost, "TAPPA_SMTP_PORT": "587", "TAPPA_MAIL_FROM": shippedFrom,
 			user: sentinelUser, pass: sentinelPass}},

@@ -627,11 +627,12 @@ func run() error {
 	// cannot sign in get back in without another owner doing it for them.
 	//
 	// 🔴 THE DELIVERY CHANNEL IS WHAT TAPPA_RESET_DELIVERY SAYS, AND THE SHIPPED
-	// ConfigMap STILL SAYS "none" (ADR 0022 §12: switching it is a deploy decision,
-	// taken after the user's SES steps). Unlike invitations there is no interim channel,
-	// because the interim channel would be "show the link to whoever typed the address
-	// into a public form", which ADR 0015 identifies as the one thing standing between
-	// minting and account takeover. config.ResetDelivery carries the argument in full.
+	// ConfigMap SAYS "email" SINCE 2026-10-09 (ADR 0022 §12 and its EM-5B note: a deploy
+	// decision, taken after the user's SES steps and EM-5B's prerequisites; "none"
+	// before it). Unlike invitations there is no interim channel, because the interim
+	// channel would be "show the link to whoever typed the address into a public
+	// form", which ADR 0015 identifies as the one thing standing between minting and
+	// account takeover. config.ResetDelivery carries the argument in full.
 	//
 	// WHAT nil DOES ("none"): the request form says, before anything is typed, that
 	// this deployment cannot send a link — and the POST answers without resolving the
@@ -706,8 +707,9 @@ func run() error {
 	// switch — with "none", neither sends and both write the notice row that says so.
 	//
 	// THE INVITATION ROUTE IS WHAT TAPPA_INVITE_DELIVERY SAYS (M10 EM-7B, ADR 0022 §7).
-	// "panel" — the shipped ConfigMap's value — is the panel as it always was: the link
-	// on the manager's screen. "email" gives the panel the invitation route built on
+	// "panel" — the shipped ConfigMap's value until 2026-10-09, "email" since (ADR 0022's
+	// EM-5B note) — is the panel as it always was: the link on the manager's screen.
+	// "email" gives the panel the invitation route built on
 	// the per-mailbox cap (M10 EM-7C) around the ONE breaker above — an invitation is
 	// counted by both AND may be refused by either, and the cap's question is asked
 	// before anything is minted — and the panel then mails each link to the employee's

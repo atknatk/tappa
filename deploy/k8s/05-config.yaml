@@ -98,32 +98,45 @@ data:
   # PILOTING with it is not, and this comment is where that distinction is recorded.
   TAPPA_RETENTION_YEARS: "2"
 
-  # 🔴 TRANSACTIONAL E-MAIL (ADR 0022; M10 EM-3) — BOTH FLOWS OFF, WHICH IS TODAY'S
-  # BEHAVIOUR, UNCHANGED. Each mode is a closed set and an unknown value is a startup
-  # failure, never a silent fallback (internal/config.deliveryMode):
-  #   TAPPA_RESET_DELIVERY   none | email   none: the panel's recovery form says on
-  #                                         screen that this deployment sends no link,
-  #                                         and no "your password was changed" notice
-  #                                         goes either (M10 EM-9: one switch, both)
-  #   TAPPA_INVITE_DELIVERY  panel | email  panel: the activation link is shown on the
-  #                                         manager's own screen (ADR 0005 Y-D)
-  # "email" is valid configuration and both channels exist (reset since EM-5,
-  # invitations since EM-7B; one transport serves both). Switching a flow on is a deploy
-  # decision, made AFTER the two SMTP credentials are in tappa-secrets — a flow on with
-  # a credential missing is a startup failure. maxUnavailable: 0 keeps the OLD pod
-  # serving only while that pod lives: the deploy applies this ConfigMap first, so a
-  # recreated old pod (drain, eviction) reads it and refuses too, and with replicas: 1
-  # the tap surface is down. Revert this ConfigMap AT ONCE — `rollout undo` does not
-  # bring it back (deploy/README.md, "Transactional e-mail", step 3).
-  # cmd/tappa's TestPackaging_TheConfigMapShipsTodaysDelivery pins these two values.
-  TAPPA_RESET_DELIVERY: "none"
-  TAPPA_INVITE_DELIVERY: "panel"
+  # 🔴 TRANSACTIONAL E-MAIL (ADR 0022; M10 EM-3) — BOTH FLOWS ON SINCE 2026-10-09, BY
+  # THE USER'S DECISION (M10 EM-5B; ADR 0022's EM-5B note). Each mode is a closed set
+  # and an unknown value is a startup failure, never a silent fallback
+  # (internal/config.deliveryMode):
+  #   TAPPA_RESET_DELIVERY   none | email   email: the recovery link AND the "your
+  #                                         password was changed" notice go to the
+  #                                         administrator's own address (M10 EM-5, EM-9:
+  #                                         one switch, both). none: the recovery form
+  #                                         says on screen that no link is sent
+  #   TAPPA_INVITE_DELIVERY  panel | email  email: the activation link goes to the
+  #                                         employee's own address (M10 EM-7B), capped
+  #                                         per business and mailbox (EM-7C). panel: it
+  #                                         is shown on the manager's screen (ADR 0005 Y-D)
+  # Switched on after the prerequisites EM-5B named were met: the process-wide breaker
+  # (EM-7A), the per-recipient ceilings (EM-7C: one live recovery link per account;
+  # 5 an hour and 20 a day per business and mailbox for invitations), the user's
+  # acceptance of the enumeration channels and of cross-business invitation
+  # concentration, and the real-SES measurement of 2026-10-09 (SPF, DKIM and DMARC
+  # pass — deploy/README.md, "EM-5B"). One transport and one breaker serve both flows.
+  # 🔴 WITH A FLOW ON, BOTH SMTP CREDENTIALS MUST BE IN tappa-secrets, OR THE NEW POD
+  # REFUSES TO BOOT (internal/config names the missing variable). Both were there
+  # before the switch (measured). maxUnavailable: 0 keeps the OLD pod serving only
+  # while that pod lives: the deploy applies this ConfigMap first, so a recreated old
+  # pod (drain, eviction) reads it and refuses too, and with replicas: 1 the tap
+  # surface is down. TO TURN E-MAIL OFF: none / panel here and apply THIS FILE AT ONCE
+  # — `rollout undo` does not bring a ConfigMap back (deploy/README.md, "Transactional
+  # e-mail", step 3). A ConfigMap change alone restarts no pod: the deploy rolls the
+  # Deployment because each commit's image tag changes its pod template.
+  # cmd/tappa's TestPackaging_TheConfigMapShipsTodaysDelivery pins these two values, and
+  # TestArtifact_BootsInProductionWithTheShippedConfigMap boots the shipped binary in
+  # production on this file's values.
+  TAPPA_RESET_DELIVERY: "email"
+  TAPPA_INVITE_DELIVERY: "email"
 
   # The relay (ADR 0022 §1, §5): AWS SES's SMTP endpoint in eu-central-1, STARTTLS on
-  # 587. NOT READ while both flows above are off — and therefore not checked at boot
-  # either: TestPackaging_TheConfigMapsMailSettingsLoadInProduction loads them with
-  # both flows on, so a wrong value here is red in CI rather than on the day of the
-  # switch. In production the host may not be localhost, a *.localhost name or an IP
+  # 587. READ AND CHECKED AT BOOT now that a flow is on (internal/config's loadMail):
+  # a wrong value here stops the new pod. TestPackaging_TheConfigMapsMailSettingsLoadInProduction
+  # loads this file as a production process sees it, so such a value is red in CI
+  # first. In production the host may not be localhost, a *.localhost name or an IP
   # address in any spelling (other loopback names are not refused), and 465 (implicit
   # TLS) is refused in every environment.
   # The two credentials are NOT here: they are tappa-secrets keys (20-app.yaml).
