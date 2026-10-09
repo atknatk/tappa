@@ -12833,6 +12833,190 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 >
 > **Denetim ve kapanış (2026-10-09, orkestratör):** 🟢 **KULLANICI KARARLARI (2026-10-09):** EM-5B (b) = alıcı başına tavan YAP; EM-5B (c) = kuyruk-akıbeti ve kesici-akıbeti numaralandırma kanalları KABUL (genişletilmedi). Seyir: 1. tur ortak kova → yapıcı "tavan-akıbeti" kanalını ölçtü → 2. tur iki bağımsız kova + çözümleme öncesi soru → güvenlik RED (YÜKSEK: posta kutusu sıfırlama kovası ~20 saatlik kurtarma reddi açıyordu, ölçüldü; ORTA: davet kovası kiracılar arası sayı sızdırıyor/engelliyordu) → 3. tur orkestratör tasarım kararı: sıfırlamada **hesap başına tek canlı link** (DB, kilit altında; teslim edilemeyen link geri çekilir), davette **(tenant, kutu)** kovası → kapanış güvenlik ONAY (kritik/yüksek 0) → 4. tur metin + `statement_timestamp()` + pin + `Issue` dışa kapatıldı. Orkestratör T01/T02 (`statement_timestamp()` → `now()`) mutasyonlarını kendi koştu: KIRMIZI. Faz sonu: 3. turda beş paketin tam `-race`'i yeşil; 4. turda `verify.sh` + hedefli `-race` yeşil. EM-5B'ye devir: işletmeler arası davet yoğunlaşması (5N/saat) kullanıcıya bilinçli kabul olarak sunulacak. ConfigMap `none`/`panel` — canlıda davranış değişmez.
 
+> **EM-5B — gerçek SES ölçümü: kriterler, araçlar, sonuçlar**
+>
+> **4. tur (2026-10-09) — birleşik denetim RED'inin kapanışı.** (1) ORTA: kanarya adı tek başına
+> pinlendi — nötr sözcükler yerinde, iki parçaya kanarya işletme / kişi adı eklenen iki vaka +
+> doğrulanmış davete kanarya; denetçinin **M1**'i (`forbidden := []string{}`) artık **KIRMIZI**.
+> (2) `TAPPA_REALSMTP_SES_ID` verilmezse "250 message id" satırı **N/A** (hüküm INCOMPLETE,
+> kırmızı) + not; öz-testte pinli. (3)–(5) README metni: Kalan'a B2'nin gözle teyidi ve "Gmail'de
+> alıcı kararı"; m10'un Gmail Show original maddesinin bağımsız doğrulamayla **ikame edildiği**
+> (orkestratör kabulü); `em5b_env` sarmalayıcısı (`env -u` ile `tappa-secrets`'ın SMTP dışı 11
+> anahtarı test ikilisine varmaz — (A) ve (B) yolunda); bağımsız doğrulama kimlikler kaldırıldıktan
+> SONRA (EM-5B 4 → 5); iç adımlar "EM-5B 1) … 6)"; `$EM5B_DIR` ilk kullanımdan önce (Ortam).
+>
+> **3. tur (yalnız metin):** "Ölçüldü" tablosu iki hâlle (ham dışa aktarım / DKIM'in doğruladığı
+> onarılmış bayt) yeniden yazıldı.
+>
+> **2. tur.** Taban `e95a717` (`m10-a1`: EM-7C + main'in aktivasyon işi); `d69087b`'den etiketli
+> stash + SHA ile `apply` + kendi girdisinin `drop`'u ile taşındı, çakışma yok. Gerçek SES'e /
+> internete yapıcıdan istek **yok**; gerçek gönderimi orkestratör yaptı. ConfigMap, state.md,
+> backlog, CLAUDE.md, m10-platform.md **dokunulmadı**. Commit yok. Bu kartta gerçek adres, kimlik
+> ya da token **yoktur**.
+>
+> Ölçüldü — 2026-10-09 (~21:53 UTC), orkestratör, gerçek SES `eu-central-1`, alıcı mail.tm
+>
+> Denetleyicinin **2. tur** hâliyle (o hâlde SES id verilmezse 250 id satırı INFO'ydu; 4. turdan
+> beri N/A). 3. tur düzeltmesi: 2. turun özeti kesik bir çıktıya dayanıyordu; aşağıdaki tablo dört
+> ham kaynağın **iki hâlde** yeniden okunmasıdır.
+>
+> **Gönderici:** exit 0 — dört ileti `sent`, dördünde SES 250 `message_id` dolu (biçim + yankı
+> kuralından geçti); `auth-probe refused class=auth smtp_code=535`.
+>
+> **İki hâl.** (1) mail.tm'nin ham `/sources` dışa aktarımı; (2) **CRLF'i onarılmış** kaynak.
+> Onarım **yalnız** dışa aktarımın kaydırdığı **tek CRLF'i** ilk MIME sınırının arkasına geri
+> koymaktır (`\r\n\r\n\r\n--<b>Content-…` → `\r\n\r\n--<b>\r\nContent-…`). İki DKIM imzası
+> (`d=taptime.mt`, `d=amazonses.com`) **ancak onarılmış hâlde** doğrulanır; ham hâlde gövde özeti
+> ikisinde de tutmaz. Yani onarılmış kaynak SES'in gönderip imzaladığı baytın kendisidir —
+> onarım içerik uydurmaz, imza bunu kanıtlar. (Denetleyici kendisi onarmaz; bu ölçüm dışarıda,
+> DKIM'le doğrulanarak yapıldı.)
+>
+> | Satır | Ham mail.tm dışa aktarımı | CRLF onarılmış (DKIM'in doğruladığı bayt) |
+> |---|---|---|
+> | hüküm | dördünde **FAIL** | dördünde **INCOMPLETE** — hiçbir satır FAIL değil; yalnız SPF/DKIM/DMARC N/A (test bilerek kırmızı) |
+> | `mime` | FAIL (4/4) — `text/plain` okunamıyor | PASS (4/4) |
+> | `link (text part)` | FAIL (4/4) | PASS (4/4) |
+> | `link (html part)` · `tracking` | PASS (4/4) | PASS (4/4) |
+> | `names` | sıfırlama, bildirim PASS; iki davet FAIL | PASS (4/4) — doğrulanmamışta ad 0, doğrulanmışta 2 |
+> | `link value` | bildirim PASS (linkinde değer yok); öteki üçü FAIL (iki yerine bir değer) | PASS (4/4) |
+> | `spf` · `dkim taptime.mt` · `dmarc` | N/A — mail.tm `Authentication-Results` eklemiyor (4/4 kaynakta 0) | N/A (aynı sebep) |
+> | bağımsız (dkimpy + pyspf, depo dışı venv) | — (gövde özeti tutmuyor) | DKIM `d=taptime.mt` + `d=amazonses.com` **4/4 geçerli**; SPF `mail.taptime.mt` (`v=spf1 include:amazonses.com ~all`, SES IP'si) **4/4 pass**; DMARC **hizalı** (From `taptime.mt`, DKIM `d=taptime.mt`, relaxed) |
+> | `message-id` | INFO — **SES'inki** (bizim `<rastgele@taptime.mt>` değiştirildi; EM-5B'nin *"kendi Message-ID'mize ne olduğu"* sorusunun cevabı) | aynı |
+>
+> Ham hâldeki FAIL'lerin hepsi tek sebepten: kaydırılmış CRLF yüzünden `text/plain` parçası
+> okunamıyor (MIME satırının notu bunu söyler). Onarılmış hâlde hiçbir satır FAIL değil
+> (INCOMPLETE = başlık satırları — bölge, TLS, From, Reply-To yok, To, Subject, Date, 250 id —
+> dahil her yargılanan satır PASS; yalnız alıcının yazmadığı üç karar N/A, onlar da bağımsız
+> doğrulandı). mail.tm'nin kendi ayrıştırıcısı her iletide text gövdesini görüyor (578–789
+> karakter).
+>
+> **Gmail "Show original" → bağımsız doğrulama ile ikame (orkestratör kabulü, 2026-10-09).** m10'un
+> harfiyen istediği *"Gmail Show original SPF=PASS (`mail.taptime.mt`), DKIM=PASS, DMARC=PASS"* bu
+> koşuda alıcının kararı değil; dkimpy/pyspf'in DKIM'in doğruladığı bayt üstündeki ölçümü.
+> Alıcının kendi kararı canlı dumana kaldı.
+>
+> M7-04 kriterleri — gerçek SMTP'ye karşı yeniden koşu
+>
+> | M7-04 kriteri | Gerçek SES'e karşı nasıl | Sonuç |
+> |---|---|---|
+> | Magic link / şifre ile giriş | — (girişin konusu; teslimle ilgisiz) | kapsam dışı |
+> | Token tek kullanımlık, süreli, hash'i saklanıyor | fikstürle ölçülemez (gerçek link ister) | ⏳ ConfigMap çevrildikten sonraki canlı duman |
+> | Sağlayıcı AB bölgesinde, GDPR | denetleyici `region`: `eu-central-1` (dört iletide); işleme sözleşmesi dış adım 12, ölçülmez | ✓ bölge (2026-10-09) |
+> | Gönderim başarısızlığı dürüstçe bildiriliyor | `auth-probe refused class=auth smtp_code=535` | ✓ (2026-10-09) |
+> | Token/kod log'a yazılmıyor | göndericinin log taraması, gerçek 250'ler ve gerçek 535 üstünde; gönderici exit 0 = tarama temiz | ✓ (2026-10-09) |
+> | B1 adres başına oran sınırı | kanaldan bağımsız (EM-5A tablosu) | ✓ (değişmedi) |
+> | B2 başarısız deneme bir yere düşer | kanaldan bağımsız; canlı dumanda gözle | ⏳ canlı duman |
+> | B3 link yalnız satırdaki adrese | denetleyici `to` + zarf alıcısı tek | ✓ (2026-10-09) |
+> | B4 store `*Params` yazdırılmıyor | kanaldan bağımsız (kaynak taraması) | ✓ (değişmedi) |
+> | B5 kayıtlı/kayıtsız ayırt edilemez | DB + istek yolu ister → test içi röle (EM-5A) | ⏳ ConfigMap çevrildikten sonraki canlı duman |
+>
+> EM-5B'ye özgü: SPF/DKIM/DMARC ✓ (bağımsız, 4/4 — Gmail Show original'ın ikamesi, orkestratör
+> kabulü) · 250 message-id dolu ve yankı kuralından geçti ✓ · kendi `Message-ID`'miz →
+> SES'inkiyle değiştirildi (kayıt) · izleme kapalı ✓ (html linki değişmemiş, `awstrack`/piksel 0) ·
+> bildirim ve davet de ölçüldü ✓ · doğrulanmamış davette ad 0 ✓.
+> **Kalan ⏳ — ConfigMap `email`'e çevrildikten sonraki canlı duman:** sıfırlama linkinin tek
+> kullanımlığı, B5, B2'nin gözle teyidi ve **Gmail'de alıcı kararı** (Show original'da SPF/DKIM/
+> DMARC'ı alıcının kendisinin PASS yazması).
+>
+> Turlarda değişen (orkestratör kararları)
+>
+> 1. **`dkim amazonses.com` → INFO** (2. tur; kaydedilir, hükme girmez; DMARC `taptime.mt` imzasına dayanır).
+> 2. **Alıcı karar yazmadıysa N/A** (2. tur) — `spf`, `dkim taptime.mt`, `dmarc` `N/A` (FAIL değil,
+>    PASS **hiç değil**); tablonun altında tek hüküm satırı `FAIL` > `INCOMPLETE` > `PASS`, N/A
+>    listesi ve notlar. Yalnız N/A varken giriş testi **kırmızı** (yapıcı seçimi, 3. turda onaylandı).
+> 3. **MIME teşhisi** (2. tur) — yapışık sınır satırı (`--<b>Content-…`) → MIME satırında işaret +
+>    not (DKIM `bh=`'e bak); **onarım yok**, DKIM Go'da yazılmadı, bağımlılık yok.
+> 4. **250 id verilmezse N/A** (4. tur) — kaynağı bu koşunun gönderimine bağlayan tek satır; onsuz
+>    aynı fikstürleri taşıyan eski bir kaynak PASS alırdı. Hüküm INCOMPLETE, kırmızı; satır not taşır.
+> 5. **Kanarya adı tek başına pinli** (4. tur) — ayrıntı aşağıda.
+>
+> Araçlar (özet)
+>
+> | Dosya | Tag | Ne |
+> |---|---|---|
+> | `internal/handler/realsmtp_test.go` | `//go:build realsmtp` | `TestEM5B_SendToTheRealRelay`, `TestEM5B_CheckAReceivedSource`; tag'siz derlenmez, ayar eksikse FAIL |
+> | `internal/handler/realsmtpkit_test.go` | yok | aracın tamamı + dört öz-test (`TestEM5BKit_*`), her koşuda, ağ yok |
+> | `deploy/README.md` | — | *Transactional e-mail* → 2. ile 3. adım arasında numarasız "EM-5B ölçümü" bölümü; iç adımlar "EM-5B 1) Gönder … 6) Kapat" |
+>
+> Gönderici: `mail.New` → `mail.NewBreaker` → `NewEmailResetChannel` (sıfırlama `Send`, bildirim
+> `SendExempt`) ve aynı kesici → `mail.NewRecipientCap` → `NewEmailInvitations` → panelin
+> `emailLinkSink` (işletme kapsamıyla) — `run()`'un zinciri.
+>
+> Denetleyicinin kriterleri (21 satır)
+>
+> | # | Kriter | Beklenen | Sonuç türü |
+> |---|---|---|---|
+> | 1 | `receiver verdict` | en üstteki `Authentication-Results` | INFO (+ not: karar yoksa) |
+> | 2 | `spf` | pass, `smtp.mailfrom` alanı `mail.taptime.mt` | PASS/FAIL; karar yoksa **N/A** |
+> | 3 | `dkim taptime.mt` | pass, `d=taptime.mt` (ya da `header.i` alanı) | PASS/FAIL; karar yoksa **N/A** |
+> | 4 | `dkim amazonses.com` | kaydedilir | **INFO** |
+> | 5 | `dmarc` | pass, `header.from=taptime.mt` | PASS/FAIL; karar yoksa **N/A** |
+> | 6 | `region` | SES izlerinde yalnız `eu-central-1` | PASS/FAIL |
+> | 7 | `ses to receiver tls` | `*.amazonses.com` aşamasında ESMTPS/TLS | PASS/FAIL |
+> | 8 | `from` | `Taptime <no-reply@taptime.mt>` | PASS/FAIL |
+> | 9 | `reply-to` | yok (ya da `TAPPA_MAIL_REPLY_TO`) | PASS/FAIL |
+> | 10 | `to` | tek adres `= TAPPA_REALSMTP_TO` | PASS/FAIL |
+> | 11 | `subject` | sabit ASCII konu | PASS/FAIL |
+> | 12 | `date` | tek Date, RFC 5322 | PASS/FAIL |
+> | 13 | `message-id` | ours / SES's / another's | INFO |
+> | 14 | `250 message id` | göndericinin id'si başlıklarda | PASS/FAIL; **verilmezse N/A + not** (4. tur) |
+> | 15 | `mime` | alternative: text/plain → text/html, utf-8 | PASS/FAIL (+ not: yapışık sınır) |
+> | 16 | `link (text part)` | tek URL, değişmemiş | PASS/FAIL |
+> | 17 | `link (html part)` | tek URL, değişmemiş | PASS/FAIL |
+> | 18 | `tracking` | `awstrack`/`<img`/`src=` 0 | PASS/FAIL |
+> | 19 | `names` | türe göre (doğrulanmamış: ad 0 + nötr sözcükler; doğrulanmış: iki ad; kanarya hiç) | PASS/FAIL |
+> | 20 | `smtp credentials` | yok (tamamı + her 8'lik parça) | PASS/FAIL |
+> | 21 | `link value` | yalnız fikstür değeri (iki parçada iki); 43+ base64url 0 | PASS/FAIL |
+>
+> Orkestratörün komutları (yer tutuculu, sırsız)
+>
+> Tam ve sıralı hâli `deploy/README.md` → "EM-5B ölçümü": Ortam (`$EM5B_DIR` dahil) → kimlik
+> (A) `read -rs` ya da (B) Infisical, ikisinde de `em5b_env` sarmalayıcısı → **EM-5B 1) Gönder** →
+> **2) Ham kaynağı al** → **3) Denetle** (tür başına, `TAPPA_REALSMTP_SES_ID` zorunlu sayılır) →
+> **4) Kimlikleri kaldır** → **5) Bağımsız doğrulama** (yalnız gerekirse, 4'ten SONRA ya da yeni
+> kabukta) → **6) Kapat**. Alıcı olarak **Gmail Download Original**.
+>
+> ```bash
+> (B) yolunun sarmalayıcısı — /tappa'nın SMTP dışı sırları test ikilisine varmaz:
+> em5b_env() { infisical run --env=<ortam> --path=/tappa -- env \
+>   -u DATABASE_URL -u DATABASE_MIGRATE_URL -u POSTGRES_PASSWORD -u TAPPA_APP_PASSWORD \
+>   -u TAPPA_TAG_KEK -u TAPPA_TAG_KEK_PREVIOUS -u TAPPA_SESSION_HMAC_KEY -u TAPPA_INVITE_HMAC_KEY \
+>   -u TAPPA_OPERATOR_DATABASE_URL -u TAPPA_OPERATOR_TOKEN_HMAC_KEY -u TAPPA_OPERATOR_TOTP_KEK "$@"; }
+> em5b_env go test -tags realsmtp -count=1 -v -run <hedefli küme> ./internal/handler
+> export TAPPA_REALSMTP_EML="$EM5B_DIR/<tür>.eml" TAPPA_REALSMTP_KIND=<tür> TAPPA_REALSMTP_SES_ID='<o türün message_id’si>'
+> em5b_env go test -tags realsmtp -count=1 -v -run <hedefli küme> ./internal/handler
+> ```
+>
+> Yapıcının doğrulaması (4. tur, `e95a717` üstünde, ağ yok)
+>
+> - **M1** (denetçinin: `forbidden := []string{}`, kanarya çifti çıkarıldı) worktree'siz kopyada →
+>   **KIRMIZI**, tam olarak yeni üç vakadan: *"a canary business name in the unverified invitation,
+>   neutral words kept"*, *"a canary person name …"*, *"a canary name in the verified invitation,
+>   both names kept"* — her biri `FAIL on [], want exactly ["names"]`. Geri yazıldı (`cmp` aynı).
+> - **250 id mutasyonu** (N/A → INFO'ya geri) → **KIRMIZI**: *"no 250 id given"* — N/A kümesi boş,
+>   giriş hükmü boş (yeşil), tablo PASS diyor; üç assert birden.
+> - Öz-testler: ürünün dört iletisi, üç başlık varyantında, **her vakada SES id verilerek** →
+>   `verdict: PASS`, 250 id satırı PASS (id `Return-Path`/`smtp.mailfrom`'da; SES Message-ID
+>   varyantında `message-id`'de). Fikstür alıcı başlığı SES'in bounce adresini
+>   `<id>@mail.taptime.mt` biçiminde taşıyor (fikstür varsayımı, ölçüm değil — kodda yazılı).
+> - Kapılar: gofmt temiz · `go vet` tag'siz ve `-tags realsmtp` temiz · staticcheck v0.6.1 iki yolda
+>   temiz · `TestEM5BKit_*` `-race` ile yeşil (6,1 s) · `redline-check.sh` exit 0, 0 FAIL, yeni
+>   satırlarda isabet yok · worktree'siz kopyada `TestEveryNamedTestExists` (3183 test, sarkan
+>   59/59), `TestRunbook_*`, `TestObservability_*`, `TestOperatorSurface_TheRunbookGrepMatchesTheShippedLine`
+>   yeşil · `go.mod`/`go.sum`/`sqlc.yaml` diff boş.
+>
+> Açık sorular
+>
+> 1. ~~Adlar ve link değeri satırı, mail.tm biçiminde~~ — kapandı (3. tur).
+> 2. ~~Yalnız-N/A durumunda kırmızı~~ — orkestratör onayladı (3. tur).
+> 3. `em5b_env`'in `env -u` listesi `deploy/examples/externalsecret.example.yaml`'dan türetildi;
+>    canlı `/tappa`'da başka bir sır varsa listeye eklenmeli (README bunu söylüyor). Bir izin listesi
+>    (`env -i` + gerekli adlar) daha sıkı olurdu ama Go'nun kendi ortamını (`GOPATH`, `GOCACHE`,
+>    `HOME`, `PATH`…) elle taşımayı gerektirir — seçilmedi.
+> 4. ConfigMap'i `email`'e çevirmek ayrı deploy kararı; kalan ⏳'ler o günün canlı dumanında.
+>
+> **Denetim ve kapanış (2026-10-09, orkestratör):** orkestratör aracı gerçek SES'e karşı koştu (~21:53 UTC; alıcı mail.tm geçici kutusu, kimlikler Infisical'dan yalnız env ile): 4/4 sent + SES 250 id, `auth 535`; mail.tm Authentication-Results eklemiyor ve `/sources` ilk sınırın CRLF'ini kaydırıyor (DKIM gövde özetiyle kanıtlandı) → bağımsız doğrulama (dkimpy + pyspf, depo dışı): DKIM `taptime.mt` + `amazonses.com` 4/4, SPF `mail.taptime.mt` pass, DMARC hizalı; Gmail "Show original" kriteri bu bağımsız doğrulamayla **ikame edildi (orkestratör kabulü)**, canlı dumanda Gmail'de ayrıca bakılacak. Tek birleşik denetim RED (ORTA: kanarya ad pini tek başına yoktu; düşükler README) → 4. tur (test + metin) → orkestratör M1'i kendi koştu: KIRMIZI. Kalan ⏳ (canlı duman, ConfigMap `email` sonrası): tek kullanımlık link, B5, B2 gözle teyit, Gmail alıcı kararı.
+
 ## 4. Akış B — E-posta (AWS SES)
 
 ### Öneri: SES SMTP arayüzü + stdlib `net/smtp` (STARTTLS 587), `eu-central-1` — ✅ (sıfır yeni modül)

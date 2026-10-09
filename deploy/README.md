@@ -1732,6 +1732,230 @@ kubectl --context hetzner-k8s-1 -n tappa describe secret tappa-secrets | grep TA
 Secret'ın değişmesi çalışan pod'u yeniden başlatmaz; akışlar kapalıyken süreç bu iki
 anahtarı zaten okumaz. **Rollout gerekmez.**
 
+### EM-5B ölçümü — gerçek SES'e karşı (3. adımdan ÖNCE)
+
+**Ne:** *Transactional e-mail* bölümünün **3) Akışı aç** adımı EM-5B'nin gerçek SES ölçümlerinden **sonra**dır
+([m10](../docs/plan/m10-platform.md), *"EM-5B — kalan ve neden kaldığı"*). Ölçüm iki
+araçtır, ikisi de `internal/handler`'da ve **`-tags realsmtp` olmadan derlenmez bile** —
+CI, `go test ./...` ve `make check` gerçek bir e-posta gönderemez
+(`internal/handler/realsmtp_test.go`; araçların kendisi her koşuda test içi röleye karşı
+sınanır: `internal/handler/realsmtpkit_test.go`):
+
+- **Gönderici** (`TestEM5B_SendToTheRealRelay`) ürünün dört iletisini — sıfırlama linki,
+  *"parolanız değişti"* bildirimi, VIES-doğrulanmış ve doğrulanmamış işletmenin daveti —
+  **üretim zinciriyle** (`mail.New` → kesici → kanal; davet alıcı tavanı üstünden) tek bir
+  adrese, birer saniye arayla gönderir; sonra **yanlış parolalı** bir taşıyıcıyla bir
+  sıfırlama dener (SES'in reddi sınıf + kod olarak ölçülür, ileti gitmez). Linkler gerçek
+  token/kod **değil**, sabit fikstür sözcükleridir (taban `https://taptime.mt`) ve hiçbir
+  şeyi etkinleştirmez. İleti başına yalnız şunu basar: tür, gönderildi/reddedildi,
+  `message_id`, `class`, `smtp_code`. **Adres, kimlik ve gövde basılmaz; dosya yazılmaz.**
+- **Denetleyici** (`TestEM5B_CheckAReceivedSource`) alıcı kutusundan indirilen **bir**
+  ham kaynağı (`.eml`, alıcının `Authentication-Results`'ı dahil) okur ve M7-04 + EM-5B
+  kriterlerini bir tabloyla verir (kriter · beklenen · bulunan · PASS/FAIL/INFO/N/A, altında
+  bir hüküm satırı ve teşhis notları): SPF pass + `smtp.mailfrom` alanı `mail.taptime.mt`;
+  DKIM pass `d=taptime.mt` (SES'in kendi `amazonses.com` imzası **kaydedilir**, INFO —
+  DMARC `taptime.mt` imzasına dayanır); DMARC pass; SES izlerinde bölge yalnız `eu-central-1`;
+  SES → alıcı aşamasında TLS; From / Reply-To / To / sabit ASCII Subject; Date;
+  `Message-ID` bizimki mi SES'inki mi (INFO — EM-5B'nin sorusu); göndericinin
+  `message_id`'sinin başlıklarda geçtiği; `multipart/alternative` (text + html, UTF-8);
+  her parçada **tek** URL ve link **değişmemiş**; `awstrack` / `<img` / `src=` 0;
+  doğrulanmamış davette ad 0 (doğrulanmışta iki ad var — kapının pozitif kontrolü);
+  kaynakta SMTP kimliği 0 (tamamı ve her 8 karakterlik parçası); link değeri yalnız
+  fikstürün ve 43 karakterlik base64url (gerçek token/kod biçimi) dizisi 0.
+  **Alıcı karar yazmadıysa** (kaynakta hiç `Authentication-Results` yok) SPF, DKIM
+  `taptime.mt` ve DMARC satırları FAIL **değil**, PASS **hiç değil**: `N/A` olur, tablonun
+  altı *"not verified by this source (N/A), NOT passed"* der, hüküm `INCOMPLETE`'tir ve
+  test **kırmızı** kalır — bu üçü aşağıdaki bağımsız yolla doğrulanıp karta yazılır.
+  `TAPPA_REALSMTP_SES_ID` verilmezse **250 id** satırı da `N/A`'dır (hüküm `INCOMPLETE`,
+  kırmızı): kaynağı bu koşunun gönderimine bağlayan tek satır odur — onsuz, aynı
+  fikstürleri taşıyan **eski** bir kaynak da PASS alırdı. Bir
+  MIME sınır satırına başlık yapışmışsa (`--<sınır>Content-…`) MIME satırı bunu söyler ve
+  tablonun altına *"kaynak dışa aktarımı bozuk olabilir — DKIM gövde özetine (`bh=`) bak"*
+  notu düşer; denetleyici kaynağı **onarmaz** (yalnız teşhis).
+
+**Ön koşul:** kullanıcının SES dış adımları (yukarıdaki *Sıra* 1) ve 0–2. adımlar.
+ConfigMap'e **dokunulmaz** (`none` / `panel` kalır) — araç kendi süreç içi zincirini
+kurar, kümeye bağlanmaz. Hesap SES sandbox'ındaysa alıcı adres SES'te doğrulanmış olmalı.
+Adres bu belgeye, bir commit'e ya da sohbete **yazılmaz**.
+
+**Alıcı seçimi — Gmail *Download Original* önerilir** (ham kaynağı olduğu gibi verir ve
+alıcının `Authentication-Results`'ını taşır; denetleyicinin iki biçimi de — `header.d`
+ve Gmail'in yalnız `header.i`'si — öz-testlerde sınanıyor). **mail.tm geçici kutusu
+önerilmez (ölçüldü, 2026-10-09, dört iletinin dördünde):** (1) `Authentication-Results`
+**eklemiyor** → SPF/DKIM/DMARC satırları `N/A`; (2) `/sources` dışa aktarımı ilk MIME
+sınırından **sonraki** CRLF'i sınırın **önüne** taşıyor (`\r\n\r\n\r\n--<sınır>Content-Transfer-Encoding:`)
+→ `text/plain` parçası okunamıyor ve onu okuyan satırlar FAIL verir. Kanıt bozulmanın
+SES'te değil dışa aktarımda olduğunu gösteriyor: ham kaynakta DKIM gövde özeti iki
+imzada da tutmuyor, CRLF yerine konunca dört iletide iki imza da doğrulanıyor; mail.tm'nin
+kendi ayrıştırıcısı da her iletide text gövdesini görüyor.
+
+**Ortam — değer argv'ye, ekrana, geçmişe ya da bir dosyaya düşmeden.** Depo kökünde,
+etkileşimli bir kabukta (bash ya da zsh). Sır olmayan dört ayar ConfigMap'teki değerlerdir;
+ham kaynakların dizini de **burada**, ilk kullanımından önce tanımlanır:
+
+```bash
+export TAPPA_SMTP_HOST=email-smtp.eu-central-1.amazonaws.com TAPPA_SMTP_PORT=587
+export TAPPA_MAIL_FROM='Taptime <no-reply@taptime.mt>'
+unset TAPPA_MAIL_REPLY_TO                 # ConfigMap'te boş → Reply-To beklenmez
+printf 'Alici adres: '; read -rs TAPPA_REALSMTP_TO; echo; export TAPPA_REALSMTP_TO
+EM5B_DIR=$(mktemp -d)                     # 0700; ham kaynaklar (alıcı adresini taşırlar) depo dışında
+```
+
+İki kimlik **iki yoldan biriyle** girer; ikisi de testleri `em5b_env` üzerinden koşar. Bu
+sarmalayıcı, test ikilisinin ortamından `tappa-secrets`'ın SMTP **dışındaki** bütün
+anahtarlarını çıkarır (liste `deploy/examples/externalsecret.example.yaml`'dan; `/tappa`'ya
+yeni bir sır eklenirse buraya da eklenir) — tek fren `-run` olmasın, araç onları zaten okumaz.
+
+(A) 1a yolu — kimlikler terminalde yankılanmadan, kabuğun yerleşikleriyle (1a'daki biçim;
+`read -rs -p` **kullanma**, zsh'te başka anlama gelir):
+
+```bash
+printf 'SES SMTP kullanici adi: '; read -rs TAPPA_SMTP_USERNAME; echo
+printf 'SES SMTP parolasi: ';      read -rs TAPPA_SMTP_PASSWORD; echo
+export TAPPA_SMTP_USERNAME TAPPA_SMTP_PASSWORD
+em5b_env() { env -u DATABASE_URL -u DATABASE_MIGRATE_URL -u POSTGRES_PASSWORD -u TAPPA_APP_PASSWORD \
+  -u TAPPA_TAG_KEK -u TAPPA_TAG_KEK_PREVIOUS -u TAPPA_SESSION_HMAC_KEY -u TAPPA_INVITE_HMAC_KEY \
+  -u TAPPA_OPERATOR_DATABASE_URL -u TAPPA_OPERATOR_TOKEN_HMAC_KEY -u TAPPA_OPERATOR_TOTP_KEK "$@"; }
+```
+
+(B) 1b yolu — Infisical değerleri **yalnız o sürecin** ortamına verir; `/tappa`'nın bütün
+sırları gelir, `env -u` SMTP dışındakileri test ikilisine varmadan düşürür:
+
+```bash
+em5b_env() { infisical run --env=<ortam> --path=/tappa -- env \
+  -u DATABASE_URL -u DATABASE_MIGRATE_URL -u POSTGRES_PASSWORD -u TAPPA_APP_PASSWORD \
+  -u TAPPA_TAG_KEK -u TAPPA_TAG_KEK_PREVIOUS -u TAPPA_SESSION_HMAC_KEY -u TAPPA_INVITE_HMAC_KEY \
+  -u TAPPA_OPERATOR_DATABASE_URL -u TAPPA_OPERATOR_TOKEN_HMAC_KEY -u TAPPA_OPERATOR_TOTP_KEK "$@"; }
+```
+
+**EM-5B 1) Gönder** — dört ileti + bir ret, birkaç saniye:
+
+```bash
+em5b_env go test -tags realsmtp -count=1 -v -run '^TestEM5B_SendToTheRealRelay$' ./internal/handler
+# beklenen beş satır (sıra sabit):
+#   reset              sent     message_id=<SES id>
+#   notice             sent     message_id=<SES id>
+#   invite-verified    sent     message_id=<SES id>
+#   invite-unverified  sent     message_id=<SES id>
+#   auth-probe         refused  class=auth smtp_code=535
+# ve --- PASS. message_id=(empty) → 250 ya id taşımadı ya da id internal/mail'in biçim/yankı
+# kuralına takıldı (ADR 0022 §2, sayılı sınır 21) — test FAIL verir; satırı kartına yaz.
+```
+
+Dört `message_id`'yi türleriyle not et (id'ler log'a yazılabilen değerlerdir, ADR 0022
+§10) — EM-5B 3. adım her birini ister. `-run` **şarttır**: onsuz `-tags realsmtp` paketin
+bütün testlerini (DB testleri dahil) koşar. `-count=1` sonucu önbelleğe almaz.
+
+**EM-5B 2) Ham kaynağı al** — her ileti için Gmail'de iletiyi aç → ⋮ → *Show original* →
+*Download Original*; dosyayı `$EM5B_DIR`'e türüyle adlandırarak koy: `reset.eml`,
+`notice.eml`, `invite-verified.eml`, `invite-unverified.eml`.
+
+**EM-5B 3) Denetle** — tür başına bir kez; `TAPPA_REALSMTP_SES_ID` EM-5B 1. adımda o tür
+için basılan `message_id`'dir (verilmezse o satır `N/A`, hüküm `INCOMPLETE`, test kırmızı):
+
+```bash
+export TAPPA_REALSMTP_EML="$EM5B_DIR/reset.eml" TAPPA_REALSMTP_KIND=reset TAPPA_REALSMTP_SES_ID='<reset id>'
+em5b_env go test -tags realsmtp -count=1 -v -run '^TestEM5B_CheckAReceivedSource$' ./internal/handler
+# aynısı notice, invite-verified, invite-unverified için (üç değişkeni o türe çevirerek).
+# beklenen (Gmail kaynağı): tablonun altında "verdict: PASS", --- PASS. "message-id" satırı
+# INFO: "(ours: kept)" ya da "(SES's: ours replaced)" — EM-5B'nin cevabı budur, karta yazılır.
+# "verdict: INCOMPLETE" (N/A) ya da bir "note (mime)" → yukarıdaki "Alıcı seçimi" ve aşağıdaki
+# EM-5B 5. adım; test o durumda bilerek kırmızıdır.
+```
+
+**EM-5B 4) Kimlikleri kaldır** — tabloları karta yapıştır (adres ve kimlik tabloda yoktur),
+sonra SMTP kimliklerini ve alıcıyı kabuktan çıkar. 5. adım **bundan SONRA** gelir:
+
+```bash
+unset TAPPA_SMTP_USERNAME TAPPA_SMTP_PASSWORD TAPPA_REALSMTP_TO
+env | cut -d= -f1 | grep -c '^TAPPA_SMTP_\(USERNAME\|PASSWORD\)$'   # beklenen: 0
+```
+
+**EM-5B 5) Bağımsız doğrulama — yalnız gerekirse** (alıcı karar yazmadıysa, ya da tabloya
+ikinci göz). **Yalnız 4. adımdan SONRA ya da yeni bir kabukta** koşulur — `pip`'in indirip
+kurduğu paketler bu kabuğun ortamını görür; SMTP kimlikleri dışa aktarılmışken ya da
+`em5b_env`/`infisical run` altında **koşma**. Araçlar **depo dışında**, geçici bir Python
+sanal ortamında (depoya bağımlılık eklenmez; değer basılmaz). Yeni kabukta `EM5B_DIR`'i
+aynı dizine ayarla:
+
+```bash
+EM5B_VENV=$(mktemp -d) && python3 -m venv "$EM5B_VENV" && "$EM5B_VENV/bin/pip" install -q dkimpy pyspf dnspython
+# DKIM — kaynaktaki HER imza (d=taptime.mt ve d=amazonses.com); anahtar DNS'ten okunur
+"$EM5B_VENV/bin/python" - "$EM5B_DIR/reset.eml" <<'PY'
+import sys, dkim
+raw = open(sys.argv[1], 'rb').read()
+n = sum(1 for l in raw.split(b'\n') if l.lower().startswith(b'dkim-signature:'))
+for i in range(n):
+    d = dkim.DKIM(raw)
+    print(i, d.verify(idx=i), d.domain)
+PY
+# beklenen: her imza True, alanlar taptime.mt ve amazonses.com. mail.tm kaynağında önce
+# ilk sınırdan sonraki CRLF'i yerine koy (yalnız teşhis; denetleyici bunu yapmaz):
+#   raw.replace(b'\r\n\r\n\r\n--' + <sınır> + b'Content-', b'\r\n\r\n--' + <sınır> + b'\r\nContent-', 1)
+# SPF — <SES IP>: SES'ten gelen Received satırındaki [köşeli parantez]; <Return-Path>:
+# ...@mail.taptime.mt; <HELO>: aynı satırın "from" host'u
+"$EM5B_VENV/bin/python" -c 'import spf,sys; print(spf.check2(i=sys.argv[1], s=sys.argv[2], h=sys.argv[3]))' \
+  '<SES IP>' '<Return-Path>' '<HELO>'
+# beklenen: ('pass', ...). Kayıtlar: dig +short TXT mail.taptime.mt → "v=spf1 include:amazonses.com ~all"
+# DMARC: dig +short TXT _dmarc.taptime.mt; hizalama elle — From alanı taptime.mt, geçen DKIM
+# imzasının d= alanı taptime.mt (relaxed) → hizalı.
+rm -rf "$EM5B_VENV"; unset EM5B_VENV
+```
+
+(Orkestratör 2026-10-09 ölçümünü bu araçlarla — dkimpy + pyspf, depo dışı venv — yaptı;
+bu blok o yolun tarifidir ve yazıldığı ortamda ağ olmadan **koşulmadı**: ilk kullanımda
+çıktısını sonuç tablosuyla karşılaştır.)
+
+**EM-5B 6) Kapat:**
+
+```bash
+rm -rf "$EM5B_DIR"
+unset EM5B_DIR TAPPA_REALSMTP_EML TAPPA_REALSMTP_KIND TAPPA_REALSMTP_SES_ID
+unset -f em5b_env
+```
+
+**Neyi ölçmez:** çıkış kutusu işçisini ve istek yollarını (veritabanı ister — test içi
+röleye karşı ölçülüdürler), panelin cümlelerini ve sıfırlama linkinin tek kullanımlığını
+(gerçek bir link ister: **3) Akışı aç** adımından sonraki canlı duman), alıcı istemcinin linkleri nasıl
+gösterdiğini. Gönderici süreç içinde **taze** bir kesici ve alıcı tavanı kurar; canlı
+sürecin sayaçlarına dokunmaz (dört ileti, her iki tavanın çok altında).
+
+**Ölçüldü — 2026-10-09, orkestratör, gerçek SES (`eu-central-1`), alıcı mail.tm geçici
+kutusu** (adres ve kimlik burada yok). Gönderici: exit 0 — dört ileti `sent`, dördünde SES
+250 `message_id` dolu (biçim ve yankı kuralından geçti); `auth-probe refused class=auth
+smtp_code=535`. Denetleyici (2. turdaki hâliyle) dört ham kaynağı **iki hâlde** okudu:
+mail.tm'nin ham dışa aktarımı ve **CRLF'i onarılmış** kaynak. Onarım **yalnız** dışa aktarımın
+kaydırdığı **tek CRLF'i** ilk sınırın arkasına geri koymaktır (`\r\n\r\n\r\n--<b>Content-…` →
+`\r\n\r\n--<b>\r\nContent-…`) ve iki DKIM imzası (`d=taptime.mt`, `d=amazonses.com`) **ancak bu
+hâlde** doğrulanır — ham hâlde gövde özeti ikisinde de tutmaz. Yani onarılmış kaynak, SES'in
+gönderip imzaladığı baytın kendisidir; onarım içerik uydurmaz, imza bunu kanıtlar.
+
+| Satır | Ham mail.tm dışa aktarımı | CRLF onarılmış (DKIM'in doğruladığı bayt) |
+|---|---|---|
+| hüküm | dördünde **FAIL** | dördünde **INCOMPLETE** — hiçbir satır FAIL değil; yalnız SPF/DKIM/DMARC N/A (test bilerek kırmızı) |
+| `mime` | FAIL (4/4) — `text/plain` okunamıyor | PASS (4/4) |
+| `link (text part)` | FAIL (4/4) | PASS (4/4) |
+| `link (html part)` · `tracking` | PASS (4/4) | PASS (4/4) |
+| `names` | sıfırlama, bildirim PASS; iki davet FAIL (beklenen sözcükler okunamayan text parçasında) | PASS (4/4) — doğrulanmamışta ad 0, doğrulanmışta 2 |
+| `link value` | bildirim PASS (linkinde değer yok); öteki üçü FAIL (iki yerine bir değer) | PASS (4/4) |
+| `spf` · `dkim taptime.mt` · `dmarc` | N/A — mail.tm `Authentication-Results` eklemiyor (4/4 kaynakta 0) | N/A (aynı sebep) |
+| bağımsız (dkimpy + pyspf, depo dışı) | — (ham hâlde DKIM gövde özeti tutmuyor) | DKIM `d=taptime.mt` ve `d=amazonses.com` 4/4 geçerli; SPF `mail.taptime.mt` (`v=spf1 include:amazonses.com ~all`, SES IP'si) 4/4 pass; DMARC hizalı (From `taptime.mt`, DKIM `d=taptime.mt`, relaxed) |
+| `message-id` | INFO — **SES'inki**: bizim `<rastgele@taptime.mt>` başlığımız değiştirildi | aynı |
+
+Ham hâldeki FAIL'lerin hepsi tek sebepten: dışa aktarımın kaydırdığı CRLF yüzünden `text/plain`
+parçası okunamıyor (MIME satırının notu bunu söyler).
+
+**Gmail "Show original" yerine bağımsız doğrulama — orkestratör kabulü, 2026-10-09.** m10'un
+EM-5B kartı harfiyen *"Gmail Show original SPF=PASS (`mail.taptime.mt`), DKIM=PASS,
+DMARC=PASS"* istiyor. Bu koşuda alıcı mail.tm'ydi ve karar yazmadı; üç sonuç alıcının değil,
+dkimpy/pyspf'in DKIM'in doğruladığı bayt üstündeki ölçümüdür — m10 maddesi bununla **ikame
+edildi**, alıcının kendi kararı ise aşağıdaki canlı dumana kaldı.
+
+**Kalan — ConfigMap `email`'e çevrildikten sonraki canlı duman:** sıfırlama linkinin tek
+kullanımlığı ve M7-04 B5 (gerçek link ve istek yolu ister), B2'nin gözle teyidi (başarısız
+denemenin bir yere düştüğü), ve **Gmail'de alıcı kararı** (*Show original*'da SPF, DKIM ve
+DMARC'ı alıcının kendisinin PASS yazması).
+
 ### 3) Akışı aç — EM-5 / EM-7 sevk edildikten SONRA
 
 `05-config.yaml`'da `TAPPA_RESET_DELIVERY: "email"` (EM-5 + dış adımlar 1–10 ve geri
