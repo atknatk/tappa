@@ -221,7 +221,7 @@ jobs:
       - name: Set up Go (verify-image.sh reads buildinfo with it)
         uses: actions/setup-go@v5
         with:
-          go-version: "1.26.6"
+          go-version: "1.26.9"
           cache: false
 
       # The token is piped, never passed as an argument: an argument reaches `ps` and

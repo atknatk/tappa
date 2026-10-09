@@ -38,7 +38,9 @@
 # all of which close in 1.26.6. CI's pin is the USER's Go installation and their call
 # to move; the SHIPPED binary is this file's call, and shipping a knowingly
 # vulnerable stdlib to a pilot with real employees' data is not one of the options.
-ARG GO_IMAGE=golang:1.26.6-bookworm
+# 2026-10-09: 1.26.6 -> 1.26.9 for GO-2026-6617 (net/http; govulncheck reports it as
+# called from the request path; fixed in 1.26.9). CI and deploy.yml pin the same version.
+ARG GO_IMAGE=golang:1.26.9-bookworm
 
 # ---------------------------------------------------------------------- build --
 FROM ${GO_IMAGE} AS build

@@ -97,7 +97,10 @@ jobs:
           # seed) tum suit go1.26.6 ile kosuldu — 3506 PASS / 0 FAIL / 1 SKIP /
           # 22 paket, exit 0; 1.26.5 ile birebir ayni sonuc. go.mod'da `toolchain`
           # yonergesi yok (yalniz `go 1.26.2`), yani bu pin tek karar noktasidir.
-          go-version: "1.26.6"
+          # 2026-10-09: 1.26.6 -> 1.26.9 — GO-2026-6617 (net/http, cagriliyor;
+          # "Fixed in: net/http@go1.26.9") `make audit`i kirmiziya cevirdi. Kod
+          # degisikligi yok; Dockerfile ve deploy.yml ayni surumu pinliyor.
+          go-version: "1.26.9"
           # Modul onbellegi go.sum'a gore (setup-go varsayilani; "modul onbellegi"
           # kart adim 1).
           cache: true
