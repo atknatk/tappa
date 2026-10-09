@@ -33,9 +33,13 @@ import (
 // shutdownResets resolves every address to the same grants; Consume is not reached.
 type shutdownResets struct{ grants []adminauth.ResetGrant }
 
-func (f *shutdownResets) IssueForEmail(context.Context, string) ([]adminauth.ResetGrant, error) {
-	return f.grants, nil
+func (f *shutdownResets) IssueForEmail(context.Context, string) ([]adminauth.ResetGrant, []adminauth.Reset, error) {
+	return f.grants, nil, nil
 }
+
+// Withdraw: the undelivered grants' links are retired (M10 EM-7C); not what this test
+// counts.
+func (f *shutdownResets) Withdraw(context.Context, uuid.UUID, uuid.UUID) error { return nil }
 
 func (f *shutdownResets) Consume(context.Context, adminauth.ResetToken, string) (adminauth.ConsumedReset, db.ResolvedPasswordReset, error) {
 	return adminauth.ConsumedReset{}, db.ResolvedPasswordReset{}, errors.New("not reached in this test")

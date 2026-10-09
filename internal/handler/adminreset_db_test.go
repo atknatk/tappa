@@ -364,6 +364,11 @@ func TestPanelRecoveryDB_EndToEndThroughTheSMTPTransport(t *testing.T) {
 // stop at once and every row is written by the REAL audit recorder into real
 // Postgres. The drain must finish inside its budget, with exactly one undelivered row
 // per grant. The log line is the measurement the reserve is argued from.
+//
+// SINCE M10 EM-7C EACH UNDELIVERED ROW IS PRECEDED BY A WITHDRAWAL (recordOutcome), so
+// the reserve holds both: the withdrawals go to real Postgres through the real
+// adminauth.Resets.Withdraw (the grants are the fake's, so each UPDATE matches no row —
+// the round trip and the transaction are paid, the one-row write is not).
 func TestResetOutboxDB_AFullOutboxFitsTheWriteReserve(t *testing.T) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
@@ -395,9 +400,14 @@ func TestResetOutboxDB_AFullOutboxFitsTheWriteReserve(t *testing.T) {
 	first := inTenant(grantsFor("first@drain.example.test", 1))
 	queued := inTenant(grantsFor("queued@drain.example.test", resetOutboxSize))
 	ch := newGateChannel()
-	h, err := NewAdminReset(&fakeResets{grantsFor: map[string][]adminauth.ResetGrant{
+	real, err := adminauth.NewResets(data, adminTestConfig())
+	if err != nil {
+		t.Fatalf("adminauth.NewResets: %v", err)
+	}
+	resets := &realWithdrawals{fakeResets: &fakeResets{grantsFor: map[string][]adminauth.ResetGrant{
 		"first@drain.example.test": first, "queued@drain.example.test": queued,
-	}}, ch, trail, adminTestConfig(), slog.New(slog.DiscardHandler))
+	}}, real: real}
+	h, err := NewAdminReset(resets, ch, trail, adminTestConfig(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminReset: %v", err)
 	}
@@ -429,6 +439,26 @@ func TestResetOutboxDB_AFullOutboxFitsTheWriteReserve(t *testing.T) {
 	if n != rows {
 		t.Errorf("%d undelivered row(s) in the tenant, want %d — one per grant", n, rows)
 	}
+	if w := resets.withdrawals(); len(w) != rows {
+		t.Errorf("%d withdrawal(s) reached Postgres, want %d — one per undelivered grant", len(w), rows)
+	}
+}
+
+// realWithdrawals is a fakeResets whose Withdraw goes to the real adminauth.Resets, so a
+// drain pays the withdrawal's real round trip (M10 EM-7C).
+type realWithdrawals struct {
+	*fakeResets
+	real *adminauth.Resets
+}
+
+func (r *realWithdrawals) Withdraw(ctx context.Context, tenantID, resetID uuid.UUID) error {
+	err := r.real.Withdraw(ctx, tenantID, resetID)
+	r.mu.Lock()
+	if err == nil {
+		r.withdrawn = append(r.withdrawn, resetID)
+	}
+	r.mu.Unlock()
+	return err
 }
 
 // --- harness helpers ------------------------------------------------------------

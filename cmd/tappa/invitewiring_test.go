@@ -16,11 +16,13 @@ import (
 // its own transport.
 //
 // It asserts, over run() alone: exactly ONE mail.New call, its result assigned to one
-// identifier; the one handler.NewEmailResetChannel call and the one
-// handler.NewEmailInvitations call take the SAME first argument, and run() assigns it
-// from mail.NewBreaker(<that identifier>, …) (one relay, one SMTP identity, one
-// process-wide count — EM-7A, whose own pin holds that the transport reaches nothing
-// else and that there is one breaker);
+// identifier; the one handler.NewEmailResetChannel call takes as its first argument an
+// identifier run() assigns from mail.NewBreaker(<that identifier>, …), and the one
+// handler.NewEmailInvitations call an identifier run() assigns from
+// mail.NewRecipientCap(<that same breaker>, …) (one relay, one SMTP identity, one
+// process-wide count — EM-7A — and the per-mailbox cap on the invitation route only —
+// EM-7C; the breaker wiring test holds that the transport and the breaker reach nothing
+// else and that there is one of each);
 // handler.InvitationsByEmail is called exactly once, inside the
 // `case config.InviteDeliveryEmail:` arm of a switch on cfg.InviteDelivery, appended to
 // one identifier; and the one handler.NewAdminAuth call spreads that identifier as its
@@ -145,17 +147,19 @@ func TestInvitationWiring_OneTransportServesBothFlows(t *testing.T) {
 		t.Fatalf("run() calls handler.NewEmailResetChannel %d time(s) and handler.NewEmailInvitations %d time(s); want one each",
 			len(resets), len(invitations))
 	}
-	// ONE SENDER FOR BOTH, AND IT IS THE ONE BREAKER (EM-7A): the same identifier, and
-	// run() assigns it from mail.NewBreaker(<the one transport>, …) — never the bare
-	// transport. EM-7A's own pin (the breaker wiring test) holds the rest of that shape:
-	// the transport reaches nothing but that call, and there is one breaker.
+	// ONE BREAKER FOR BOTH (EM-7A), AND THE CAP ON THE INVITATION ROUTE ONLY (EM-7C):
+	// the reset channel is built from what run() assigns from mail.NewBreaker(<the one
+	// transport>, …), and the invitation route from what run() assigns from
+	// mail.NewRecipientCap(<that same breaker>, …) — never the bare transport, never a
+	// second breaker.
 	resetFrom, invitesFrom := firstArg(resets[0]), firstArg(invitations[0])
-	if resetFrom == "" || resetFrom != invitesFrom {
-		t.Errorf("the reset channel is built from %q and the invitation route from %q: two senders, not one", resetFrom, invitesFrom)
+	if resetFrom == "" || !wraps(run, resetFrom, "NewBreaker", transportVar) {
+		t.Errorf("the reset channel is built from %q, which run() does not assign from mail.NewBreaker(%s, …): "+
+			"its sends would escape the process-wide count", resetFrom, transportVar)
 	}
-	if !wraps(run, invitesFrom, "NewBreaker", transportVar) {
-		t.Errorf("the invitation route is built from %q, which run() does not assign from mail.NewBreaker(%s, …): "+
-			"its sends would escape the process-wide count", invitesFrom, transportVar)
+	if invitesFrom == "" || !wraps(run, invitesFrom, "NewRecipientCap", resetFrom) {
+		t.Errorf("the invitation route is built from %q, which run() does not assign from mail.NewRecipientCap(%s, …) "+
+			"around the reset channel's breaker: two breakers, or an uncapped invitation route", invitesFrom, resetFrom)
 	}
 	if len(options) != 1 || !optionInEmailArm || optionsVar == "" {
 		t.Fatalf("handler.InvitationsByEmail is called %d time(s), inside the InviteDeliveryEmail arm: %v; "+

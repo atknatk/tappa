@@ -12548,6 +12548,291 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 >
 > **Denetim ve kapanış (2026-10-09, orkestratör):** 🟢 **KULLANICI KARARI (2026-10-09, ADR 0022 sınır 22):** davet e-postasında işletme/çalışan adı yalnız VIES-doğrulanmış tenant'ta (`vat_verified IS TRUE`), değilse nötr metin. Tam disiplin: üçüncü göz ONAY (yedi DÜŞÜK, 3. turda kapandı; "gönderilemedi" 500 → 503, emsal OP-16B); güvenlik ONAY (kritik/yüksek 0; ORTA metin: alıcıya yoğunlaştırma — kişi sınırı satır başına, tek kutunun tavanı tenant sınırı; ölçüldü 21 ileti/<1 sn → sınır 12, EM-5B (b) davete de uygulanır; DÜŞÜK: VIES adı bağlamaz). EM-7A'nın `b935f47`'si üstüne rebase (tek taşıyıcı → tek kesici → iki kanal; iki kablolama pini birlikte yeşil). Orkestratörün faz sonu tam `-race` koşusu `TestActivationReasons_CoverEverySentinel`'i kırmızı yakaladı (yeni basım sentinel'leri aktivasyon tablosunda aranıyordu) → test üç üretim tablosundan türetildi (4. tur); orkestratör M31'i kendi koştu: KIRMIZI. `internal/db`'deki yedi operatör migration testi yerelde kırmızı — T113 (dev DB NOT VALID), EM-7B'den değil; CI taze DB. ConfigMap `panel` — canlıda davranış değişmez; `email`'e çevirmek EM-5B önkoşulları + kullanıcı kararı.
 
+> **EM-7C — alıcı başına gönderim sınırı (EM-5B önkoşulu (b)): sıfırlamada hesap başına tek canlı link, davette işletme × posta kutusu tavanı**
+>
+> **Kart düzeltmesi (2026-10-09, EM-7C uygulaması sırasında; 2., 3. ve 4. tur aynı gün).** §9'a alıcı başına sınır.
+> Normatif kaynak [ADR 0022](../adr/0022-islemsel-eposta.md) §9; kararlar, sapmalar ve üç parçalı iddia ADR'nin
+> *"EM-7C notu"*ndadır (dosyanın **sonuna** eklendi — yalnız ekleme; not dört turun son hâlini yazar). Taban dal ucu
+> `cc8ce06` (`m10-a1`; EM-7A `b935f47`, EM-7B `a8d38ff` içinde).
+>
+> **Kullanıcı kararları (2026-10-09):** EM-5B (b) — alıcı başına sınır **yapılacak** (risk kabulü değil). EM-5B (c) —
+> kuyruk-akıbeti ve kesici-akıbeti numaralandırma kanalları **kabul**, tasarım düzeltmesi yok.
+> **Orkestratör kararları, 3. tur (güvenlik denetimi RED'inden sonra):** KARAR 1 — sıfırlamada posta kutusu kovası
+> **kaldırılır**, yerine **hesap başına tek canlı link** (canlı link varken basım yok, emekliye ayırma yok, gönderim
+> yok; yanıt bayt-aynı, bantta); KARAR 2 — davet tavanı **(tenant_id, normalize kutu)** başına (5/saat, 20/gün),
+> başka işletmelerin davetleri sayılmaz; Bulgu 3 — *"durum istekçiye görünmez"*in dayanağı yazılır, EM-7A yorumu
+> düzeltilir.
+>
+> **Tehdit modeli:** *"Bu pinler kazara sapmaya karşıdır; bilerek atlatma kod incelemesinin konusudur."*
+>
+> **Yazıldı (son hâl):** `internal/mail/recipientcap.go` (yeni: `RecipientCap`, `NewRecipientCap`, `Send(ctx, scope,
+> m)`, `Capped(scope, to)`, `RecipientHourLimit` 5, `RecipientHourWindow` 1 saat, `RecipientDayLimit` 20,
+> `RecipientDayWindow` 24 saat — (kapsam, kutu) başına —, `recipientCapEntries` 8192, `normalizeMailbox`; üç parçalı
+> iddia) · `internal/mail/errors.go` (`ClassRecipientCap` = `"recipient_cap"`) · `breaker.go`, `doc.go` (yalnız yorum) ·
+> `db/queries/passwordresets.sql` (yeni: `LockAdminForResetIssue`, `WithdrawPasswordReset`; iki sorgunun yorumuna
+> birer cümle) + `make gen` (`internal/store/passwordresets.sql.go`, `querier.go`) · `cmd/tappa/storekeyshape_test.go`
+> (imza haritası +2, sorgu sayısı 128 → 130) · `internal/adminauth/resetrequest.go` (`IssueForEmail` →
+> `([]ResetGrant, []Reset, error)`, `issueUnlessLive`, `Withdraw`) · `reset.go` (`Issue` → **dışa kapalı `issue`**,
+> 4. tur; basım `create`/`newHashedToken`/`issuedFrom` ile paylaşılır; harm (a) yorumu) · `web/templates/email/letter.go`
+> (kurtarma e-postasının *"Asking again …"* cümlesi, `resetAskAgain`; 4. tur) + `email_test.go` (pin) · `internal/handler/adminreset.go` (`panelResets` üç dönüş +
+> `Withdraw`; `ActionAdminResetKept`; `recordKept`; `recordOutcome` geri çeker; `resetReasonLiveLink`) ·
+> `adminresetlimits.go`, `adminresetoutbox.go` (yorum) · `web/templates/pages/adminreset.templ` (bir cümle; `make
+> gen`) · `internal/invite/email.go` (`ErrRecipientCapped`, `recipient_limit`, `MailSink.RecipientCapped(tenantID,
+> address)`) · `manager.go` (soru basım transaction'ında, `p.TenantID` ile) · `internal/handler/inviteemail.go`
+> (`inviteSender` = `Send`/`Capped`; havuz işletmenin kapsamıyla sorar ve sayar; 429; `unsent-recipient-limit`) ·
+> `web/templates/pages/employees.templ` + `employeesview.go` (+ `make gen`) · `cmd/tappa/main.go` (taşıyıcı → tek
+> kesici; sıfırlama kanalı kesiciyi, davet yolu `email` kolunda kurulan tek tavanı alır) · testler: yeni
+> `recipientcap_test.go`, `recipientcap_internal_test.go`, `internal/adminauth/livelink_db_test.go`,
+> `internal/handler/resetlivelink_test.go`, `resetlivelink_db_test.go`, `internal/invite/recipientcap_db_test.go`;
+> değişen `resetrequest_db_test.go`, `adminreset_db_test.go` (rezerv testi gerçek geri çekmeyle),
+> `inviteemail_test.go`, `inviteemail_db_test.go`, `email_db_test.go`,
+> `breaker_wiring_test.go`, `invitewiring_test.go`, sahte `panelResets`'ler (`adminreset_test.go`,
+> `adminresetoutbox_test.go`, `cmd/tappa/shutdown_test.go`). **Sıfırlama kanalı, `resetmail.go`, `passwordnotice.go`
+> ve EM-7A'nın sıfırlama testleri HEAD'deki hâliyle** (2. turun sıfırlama-tavan değişiklikleri geri alındı).
+> Migration yok, DDL yok, yeni bağımlılık yok, yeni Secret yok; `go.mod`/`go.sum`/`sqlc.yaml` diff boş. ConfigMap
+> değişmedi (`none`/`panel`).
+> **Ölçüm ortamı:** go1.27.1 darwin/amd64; dev Postgres (`.env.example`'ın geliştirme URL'leri) yalnız DB testleri
+> için; mutasyonlar `scratchpad/em7c/mut` kopyasında (`.git`siz).
+>
+> **Kararlar (numaralar ADR 0022 *"EM-7C notu"*nun karar numaralarıdır):**
+> 1. **Davet tavanı (işletme, kutu) başına saatte 5, günde 20** — kayan ve kesin pencere (anahtar başına son 20
+>    gönderimin halkası). Başka işletmelerin davetleri sayılmaz (2. turun ortak sayacı A'nın davetleriyle B'yi
+>    reddediyor ve B'ye *"başka bir işletme de davet ediyor"* diyordu). İşletmeler arası yoğunlaşma sayılı (sınır 6).
+> 2. **Anahtar:** küçük harf + yerel kısmın ilk `+`'dan sonrası atılır; HMAC-SHA256(kapsam ‖ 0x00 ‖ kutu), süreç
+>    başında `crypto/rand` anahtarı, yalnız bellekte; günü dolan anahtar budanır, 8192'de en uzun süredir gönderim
+>    almamış unutulur (fail-open); 8192 > kesicinin bir günü → canlı anahtar unutulmaz; dolu harita ≈ 5,6 MiB.
+> 3. **Yer:** taşıyıcı → kesici → tavan → davet yolu; sıfırlama kanalı kesiciyi doğrudan alır. Tek kilitli adım
+>    (tavan, sonra kesici, sonra kayıt). Kablolama pinleri bilerek güncellendi.
+> 4. **Sıfırlama — hesap başına TEK CANLI LİNK.** Çözülen her aday için tek transaction: yöneticiye anahtarlı danışma
+>    kilidi → canlı linkleri oku (consume'un üç koşulu, Postgres'te **`statement_timestamp()`** — 4. tur) → varsa
+>    **hiçbir şey** (basım, emekliye
+>    ayırma, gönderim yok; canlı linkin kaydı `kept` döner), yoksa `CreatePasswordReset`.
+>    - **Kaynak: veritabanı durumu** (süreç içi harita değil): liveness'ı consume ile aynı saat ve aynı koşullar
+>      belirler; harcanan/emekliye ayrılan linki harita göremez; harita her deploy'da boşalır (deploy sonrası ilk
+>      istek harm (a)'yı geri getirirdi) ve replikalar arası tutarsızdır; DB zaten otorite. Migration/DDL yok — iki
+>      yeni sqlc sorgusu.
+>    - **Saat — `statement_timestamp()` (4. tur, denetçi 3/3 ölçtü):** okuma kilitten sonra ayrı ifade; `now()` işlem
+>      başıdır (beklemeden önce) → kilit beklenirken ölen link "canlı" sayılıp `kept` dönüyordu. Basımın emekliye
+>      ayırma koşulu da aynı saate geçti (yoksa beklemede ölen link `retired_count = 1` ile yanlış harm (a) alarmı).
+>      Harcama (`ConsumePasswordResetAndSetPassword`) `now()` okur ama `Consume`'da kiracı ayarından hemen sonraki ilk
+>      ifadedir — işlem başı ≈ ifade başı; tek beklemesi aynı token'ı harcayan consume'un satır kilidi, o zaman 0 satır.
+>      İki taraf aynı anlam: *"ifadenin koştuğu anda harcanabilir mi"*. Yazılan zaman damgaları `now()`'da kaldı.
+>    - **`ResetTTL` = hesap başına gönderim tavanı** (bir link yaşadıkça her istek onu tutar): hesap başına
+>      `ResetTTL`'de (1 saat) bir kurtarma e-postası; pinli.
+>    - **Audit: `admin.recovery.kept`** (outcome `kept`, sabit neden, canlı linkin `reset_id`'si ve `expires_at`'i; adres
+>      yok) — §4.6: istekçiye bir şey söylenemez, iz tek yerdir; **EM-5A hesap bütçesinden** (`recordForAdmin`; 10
+>      dakikada 10 + bir `rate_limited`).
+>    - **Teslim edilemeyen link geri çekilir** (`Withdraw`, satırdan ve bütçeden önce) — yoksa hiçbir kutuda olmayan bir
+>      link hesabın tek yerini bir saat tutardı.
+>    - **Yanıt üç kolda bayt-aynı ve bantta** (kayıtsız / canlı linkli / canlı linksiz): 250,33 / 250,28 / 250,27 ms
+>      (`-race`).
+> 5. **Davet: basılmadan red** (transaction içinde, dört adres reddinden sonra, basan işletme için) → 429 + cümle;
+>    yarışta (aynı işletmenin başka basışı) → B12 artığı, `invite.undelivered` `class: recipient_cap`, 503 ve kendi
+>    cümlesi.
+> 6. **Log:** tavan iki satır yazar (ilk ret `Warn`, sessiz saat `Info`), anahtarlar tam `hour_limit`, `day_limit`
+>    (+ `refused`); adres/özet/kapsam yok. Sıfırlamada yeni satır yalnız geri çekme hatası (kimlikler, `err_type`).
+> 7. **(c) kabulü** tarihli, genişletilmedi; iki akıbet kanalı tutulan adaylarla **daralır**; *"durum istekçiye
+>    görünmez"*in dayanağı: yanıt aynı, istekçiye gönderim yok, `kept` hesabın kendi tenant'ında, **bugün hiçbir
+>    yüzey bir tenant'a `admin.recovery.*` okutmaz** (tenant için `audit_log` okuyanlar yalnız `ListPlaqueHistory` ve
+>    `ConfirmRecentRemoval`). EM-7A'nın *"his own tenant's trail"* yorumu düzeltildi.
+>
+> **Ekran cümleleri (aynen):**
+> - Kurtarma isteği sayfası, üçüncü paragraf (HEAD'in *"If several emails arrive, use the newest — asking again
+>   replaces the earlier links."* ve 3. turun *"… within the last hour, its link still works …"* cümleleri yanlıştı):
+>   *"If a recovery email reached you, its link works for as long as it says — asking again sends no new link while
+>   that one still works."*
+> - Kurtarma e-postası (4. tur; HEAD *"… Asking again replaces it."*): *"The link works once and stays valid for
+>   {süre}. Asking again sends no new link while this one still works."*
+> - Davet 429 (basımdan önce): başlık *"Too many invitations to that address for now"* · gövde *"Nothing was sent and
+>   no link was created. This business can send one inbox at most 5 invitations an hour and 20 a day, and the inbox at
+>   the address on file for {Name} has had that many from it. Try again later."*
+> - Davet 503 (gönderimde, yarış): başlık *"The invitation was created but not emailed"* · gövde *"The address on file
+>   for {Name} reached the most invitations this business can send one inbox — 5 an hour and 20 a day — just before
+>   this one could go, so it was not sent."* · *"The new link has already replaced any earlier one, so {Name} has no
+>   working link yet. Send it again from their card once the limit frees up: within an hour, or within a day if the
+>   daily limit was reached."*
+>
+> **Sapmalar:** §10 kümesi dışında üç anahtar (`hour_limit`, `day_limit`, `refused`; pinli) · `IssueForEmail` üç dönüş,
+> `Resets.Withdraw`, `panelResets`'e ikisi · denetim sözlüğüne `admin.recovery.kept` · `NewEmailInvitations`
+> `mailSender` → `inviteSender` · `invite.MailSink.RecipientCapped(tenantID, address)` · ret sözlüğüne
+> `recipient_limit` · davet sonuçlarına `unsent-recipient-limit` · kurtarma sayfasının ve e-postasının birer cümlesi ·
+> `Issue` → `issue` · `CreatePasswordReset`'in emekliye ayırma koşulu ve `ListLivePasswordResetsForAdmin` `now()` →
+> `statement_timestamp()` (sorgu metni, DDL değil) · bilerek
+> güncellenen testler: `…RetiresTheEarlierLinkAndSaysHowMany` → `…KeepsTheLiveLinkAndRetiresNothing`, iki kablolama
+> pini, `TestNewEmailInvitations_RefusesWhatItCannotBuild`, `TestInviteEmailDB_ABreakerRefusalIsUndeliveredWithItsClass`,
+> mağaza yüzeyi ve sorgu sayısı pinleri. *Karar verilmedi*'deki alıcı başına tavan maddesi ADR notunda *"karara
+> bağlandı"*.
+>
+> **Kabul tablosu (her satır tam bir test adı; DB testleri dev Postgres'e karşı, tavan ve eşzamanlılık testleri
+> `-race` ile yeşil):**
+>
+> | # | Kabul | Test |
+> |---|---|---|
+> | A1 | Tavan: 5. geçer, 6. `recipient_cap`/0 ve göndericiye ulaşmaz; saatten 1 ns önce red; saatte açılır (enjekte saat) | `TestRecipientCap_TheFifthPassesAndTheSixthIsRefusedUntilTheHourPasses` |
+> | A2 | Dört saatte 20; 21. red; ilk beşi bir gün yaşlanınca tam 5 | `TestRecipientCap_TheTwentiethInADayPassesAndTheTwentyFirstIsRefused` |
+> | A3 | **Kapsamlar ayrı, iki yönde** | `TestRecipientCap_EachScopeHasItsOwnCount` |
+> | A4 | Sabitler literal | `TestRecipientCap_TheShippedLimitsAreFiveAnHourAndTwentyADay` |
+> | A5 | Büyük harf ve `+etiket` tek kutu; noktasız yerel kısım ayrı | `TestRecipientCap_CaseAndAPlusTagAreOneMailbox` |
+> | A6 | Tavan reddi kesiciden, kesici reddi tavandan yer harcamaz | `TestRecipientCap_ARefusalOfOneCeilingSpendsNothingOfTheOther` |
+> | A7 | 200 eşzamanlı × 20 koşu → tam 5 (`-race`) | `TestRecipientCap_ExactlyFivePassUnderConcurrency` |
+> | A8 | Soru yer harcamaz, doluyken `true`, ret sayılır | `TestRecipientCap_CappedRecordsNothingAndIsARefusal` |
+> | A9 | İki log satırı, anahtar kümesi tam, adres yok | `TestRecipientCap_LogsTheFirstRefusalOnceAndTheQuietHourOnce` |
+> | A10 | Özet log'da yok | `TestRecipientCap_TheDigestNeverReachesTheLog` |
+> | A11 | Durum adresi ve kapsamı tutmaz | `TestRecipientCap_HoldsADigestAndNeverTheAddress` |
+> | A12 | Bellek sınırı, en eskiyi unutur | `TestRecipientCap_ForgetsTheStalestMailboxPastItsBound` |
+> | A13 | Sınır > kesicinin bir günü; ≈ 5,6 MiB | `TestRecipientCap_TheBoundOutlastsADayOfTheBreaker` |
+> | A14 | Eksik kesici reddedilir | `TestNewRecipientCap_RefusesAMissingBreaker` |
+> | B1 | **Canlı link tutulur:** 25 istek, basım 0, `kept` = ilk link, canlı link tek, ilk link parolayı değiştirir | `TestIssueForEmail_KeepsTheLiveLinkAndRetiresNothing` |
+> | B2 | **Denetçinin (a) senaryosu, enjekte saat:** tohum `+x` hesabın canlı linki varken sahip link alır; 25 saldırgan isteği sahibin linkini değiştirmez; link ölünce ilk istek (saldırganınki) sahibe taze link basar, sahibin isteği onu tutar, link parolayı değiştirir | `TestIssueForEmail_NeverLeavesAWindowWithoutALiveLinkOrAWayToGetOne` |
+> | B3 | Aynı kutudaki başka hesaplar (`+etiket`, başka işletmede aynı adres) sahibin linkini etkilemez | `TestIssueForEmail_AnotherAccountInTheSameMailboxChangesNothing` |
+> | B4 | Süresi dolmuş / harcanmış / geri çekilmiş link → sonraki istek hemen basar (kontrol: canlıyken tutulur) | `TestIssueForEmail_MintsAgainOnceTheLinkCannotBeSpent` |
+> | B5 | Geri çekme yalnız canlı ve kendi tenant'ının linkine; harcanmış link harcanmış kalır; ikinci geri çekme ilk zamanı korur | `TestWithdraw_RetiresOnlyALiveLinkOfItsOwnTenant` |
+> | B6 | Karar hesap başına (aynı adres iki işletme) | `TestIssueForEmail_DecidesPerAccount` |
+> | B7 | 8 tur × 16 eşzamanlı istek → her turda tam 1 basım (`-race`) | `TestIssueForEmail_ExactlyOneLinkUnderConcurrency` |
+> | B8 | **`ResetTTL` = hesap başına tavan** (1 saat, `NewResets` kurar, link `ResetTTL` yaşar, ikinci istek aynı bitişi tutar) | `TestIssueForEmail_TheCeilingIsOneLinkPerResetTTL` |
+> | B9 | **Üç kol bayt-aynı ve [taban, taban + 50 ms]**; `kept` satırı canlı linki adlandırır; gönderim yalnız canlı linksiz hesaba | `TestAdminReset_ALiveLinkAnswersLikeEveryOtherAddress` |
+> | B10 | Teslim edilemeyen link geri çekilir (geri çekme başarısız olsa da satır yazılır); teslim edilen çekilmez | `TestAdminReset_AnUndeliveredLinkIsWithdrawn` |
+> | B11 | `kept` satırları hesap bütçesinden: 12 istek → 10 `kept` + 1 `rate_limited`, gönderim 0 | `TestAdminReset_KeptRowsSpendTheAccountsBudget` |
+> | B12 | Uçtan uca (gerçek HTTP + Postgres + çözücü): başarısız gönderim → `undelivered` + canlı link 0 → sonraki istek basar ve teslim edilir → iki istek `kept`, sayfa aynı, tek canlı link | `TestPanelRecoveryDB_OneLiveLinkPerAccount` |
+> | B13 | İki yeni sorgu tenant koşulu taşır | `TestAdminAuthQueries_CarryAnExplicitTenantPredicate` |
+> | B14 | Mağaza yüzeyi ve sorgu sayısı (130) | `TestStoreSurface_IsTheOneRecorded`, `TestResolverAccess_NoSqlcQueryNamesADefiner` |
+> | B15 | Boşaltma rezervi geri çekmeyi de taşır: dolu kuyruğun 33 grant'ı, her biri gerçek `Withdraw` + gerçek `undelivered` satırı, 180–512 ms (`-race`, üç koşu) < 1 s; geri çekme sayısı 33 | `TestResetOutboxDB_AFullOutboxFitsTheWriteReserve` |
+> | B16 | **4. tur — kilit beklenirken ölen link tutulmaz:** link 1,5 s sonra ölür, başka transaction yöneticinin kilidini 2,5 s tutar, istek canlıyken başlar → taze link basılır, `kept` 0, `retired_count` 0, eski link harcanamaz, yeni link parolayı değiştirir (3/3 yeşil) | `TestIssueForEmail_ALinkThatExpiresDuringTheLockWaitIsNotKept` |
+> | B17 | **4. tur — geri çekme bütçeden önce:** hesap bütçesi 10 `kept` ile dolu (kontrol: `undelivered` 0, `rate_limited` 1), başarısız gönderimin linki yine geri çekilir | `TestAdminReset_AnUndeliveredLinkIsWithdrawnPastTheAccountsBudget` |
+> | B18 | **4. tur — yedek yolun geri çekmesi tabanın altında:** gerçek Postgres, tam pencere (8 grant), kesici reddi; her grant geri çekilir ve kaydedilir; yanıt 250,27–251,99 ms (iki koşu × üç istek), [taban, taban + 50 ms] | `TestResetOutboxDB_TheFallbackWithdrawalsStayUnderTheFloor` |
+> | B19 | **4. tur — sayfa cümlesi:** yeni cümle 1, eski üç parça 0 | `TestAdminReset_TheSentPageSaysWhatAskingAgainDoes` |
+> | B20 | **4. tur — e-posta cümlesi:** metin ve HTML'in görünen metninde yeni cümle 1, *"replaces it"* 0 | `TestReset_AskingAgainSaysWhatTheFlowDoes` |
+> | C1 | Davet (Postgres): dolu anahtar → `ErrRecipientCapped`; soru satırın adresiyle ve basan işletmeyle; satır 0 yeni, eski link harcanabilir; tek ret satırı, adres yok | `TestEmailRouteDB_ACappedMailboxMintsNothing` |
+> | C2 | Davet yarışı: basılır, `invite.undelivered` `class: recipient_cap`, `smtp_code: 0` | `TestEmailRouteDB_ACapReachedAfterTheMintIsUndelivered` |
+> | C3 | Davet uçtan uca: 429 + cümle, eski link harcanabilir, röle 0 yeni, sayfa/log'da adres yok; kontrol bir saat sonra | `TestInviteEmailDB_ACappedMailboxIsRefusedBeforeAnythingIsMinted` |
+> | C4 | **A/B, iki yönde:** A'nın beşi (+ 429 kontrolü) B'nin aynı kutuya basışını etkilemez; B'nin beşi A'nınkini etkilemez | `TestInviteEmailDB_OneBusinessesInvitationsNeverDecideAnothers` |
+> | C5 | Havuz soruyu ve gönderimi basan işletmenin kapsamıyla yapar; sormak göndermez | `TestInviteEmail_TheSinkAsksTheCapAboutTheAddressOnly` |
+> | C6 | Sonuç tablosu: 429 ve 503 cümleleri işletme başına; *"few minutes"* yok | `TestInviteEmail_EveryOutcomeIsASentenceAndNoneCarriesALink` |
+> | C7 | `run()`: tek kesici, tek tavan; sıfırlama kanalı kesiciyi, davet yolu tavanı alır; kesici başka yere gitmez | `TestBreakerWiring_TheTransportReachesTheChannelsOnlyThroughOneBreaker` |
+> | C8 | Sıfırlama kanalı `NewBreaker(<taşıyıcı>)`'dan, davet yolu `NewRecipientCap(<o kesici>)`'dan | `TestInvitationWiring_OneTransportServesBothFlows` |
+> | C9 | Repo geneli tarayıcılar `.git`siz kopyada yeşil | `TestEveryNamedTestExists`, `TestComments_DoNotQuoteTheDriftingRosterSize` |
+>
+> **Mutasyon tablosu — 3. turun tam seti, bir kez** (`scratchpad/em7c/mutate_r3.py`; yalnız yolunda
+> `scratchpad/em7c/mut` geçen kopyada koşar; her (paket, `-run`) çifti önce mutasyonsuz KONTROL koşusunda yeşil;
+> çapa tam bir kez; her mutasyondan sonra dosya okunmuş baytlarından geri yazılıp sha256 karşılaştırıldı; DB
+> testleri `.env.example`'ın geliştirme URL'leriyle; git'e commit eden testler `-run` kümesinde yok). İstenen dördü
+> kalın: L01, L02, S01, L05.
+>
+> | # | Mutasyon | Dosya | Sonuç (kırmızıya dönen testler) | Geri yükleme |
+> |---|---|---|---|---|
+> | C01 | saatlik sınır 5 → 6 | recipientcap.go | KIRMIZI — TestRecipientCap_ARefusalOfOneCeilingSpendsNothingOfTheOther, TestRecipientCap_CappedRecordsNothingAndIsARefusal, TestRecipientCap_CaseAndAPlusTagAreOneMailbox, TestRecipientCap_EachScopeHasItsOwnCount, TestRecipientCap_ExactlyFivePassUnderConcurrency, TestRecipientCap_ForgetsTheStalestMailboxPastItsBound, TestRecipientCap_LogsTheFirstRefusalOnceAndTheQuietHourOnce, TestRecipientCap_TheFifthPassesAndTheSixthIsRefusedUntilTheHourPasses, TestRecipientCap_TheShippedLimitsAreFiveAnHourAndTwentyADay | sha-ok |
+> | C02 | saatlik sınır 5 → 4 | recipientcap.go | KIRMIZI — TestRecipientCap_ARefusalOfOneCeilingSpendsNothingOfTheOther, TestRecipientCap_CappedRecordsNothingAndIsARefusal, TestRecipientCap_CaseAndAPlusTagAreOneMailbox, TestRecipientCap_EachScopeHasItsOwnCount, TestRecipientCap_ExactlyFivePassUnderConcurrency, TestRecipientCap_ForgetsTheStalestMailboxPastItsBound, TestRecipientCap_LogsTheFirstRefusalOnceAndTheQuietHourOnce, TestRecipientCap_TheFifthPassesAndTheSixthIsRefusedUntilTheHourPasses, TestRecipientCap_TheShippedLimitsAreFiveAnHourAndTwentyADay, TestRecipientCap_TheTwentiethInADayPassesAndTheTwentyFirstIsRefused | sha-ok |
+> | C03 | günlük sınır 20 → 21 | recipientcap.go | KIRMIZI — TestRecipientCap_LogsTheFirstRefusalOnceAndTheQuietHourOnce, TestRecipientCap_TheShippedLimitsAreFiveAnHourAndTwentyADay, TestRecipientCap_TheTwentiethInADayPassesAndTheTwentyFirstIsRefused | sha-ok |
+> | C04 | saatlik karşılaştırma `<` → `<=` | recipientcap.go | KIRMIZI — TestRecipientCap_TheFifthPassesAndTheSixthIsRefusedUntilTheHourPasses, TestRecipientCap_TheTwentiethInADayPassesAndTheTwentyFirstIsRefused | sha-ok |
+> | C05 | gün hiç açılmaz | recipientcap.go | KIRMIZI — TestRecipientCap_TheTwentiethInADayPassesAndTheTwentyFirstIsRefused | sha-ok |
+> | C06 | **kapsam anahtardan çıkar** (özete yazılmaz) | recipientcap.go | KIRMIZI — TestRecipientCap_CappedRecordsNothingAndIsARefusal, TestRecipientCap_EachScopeHasItsOwnCount, TestInviteEmailDB_OneBusinessesInvitationsNeverDecideAnothers | sha-ok |
+> | C07 | küçük harfe çevirme kaldırıldı | recipientcap.go | KIRMIZI — TestRecipientCap_CappedRecordsNothingAndIsARefusal, TestRecipientCap_CaseAndAPlusTagAreOneMailbox, TestRecipientCap_EachScopeHasItsOwnCount, TestRecipientCap_ExactlyFivePassUnderConcurrency, TestRecipientCap_HoldsADigestAndNeverTheAddress, TestRecipientCap_TheDigestNeverReachesTheLog | sha-ok |
+> | C08 | `+etiket` katlaması kaldırıldı | recipientcap.go | KIRMIZI — TestRecipientCap_CappedRecordsNothingAndIsARefusal, TestRecipientCap_CaseAndAPlusTagAreOneMailbox, TestRecipientCap_EachScopeHasItsOwnCount, TestRecipientCap_ExactlyFivePassUnderConcurrency, TestRecipientCap_HoldsADigestAndNeverTheAddress | sha-ok |
+> | C09 | tavan kesiciden SONRA sorulur | recipientcap.go | KIRMIZI — TestRecipientCap_ARefusalOfOneCeilingSpendsNothingOfTheOther | sha-ok |
+> | C10 | kesici reddi tavana kaydedilir | recipientcap.go | KIRMIZI — TestRecipientCap_ARefusalOfOneCeilingSpendsNothingOfTheOther | sha-ok |
+> | C11 | özetin yerine kapsam + normalize adres tutulur | recipientcap.go | KIRMIZI — TestRecipientCap_ARefusalOfOneCeilingSpendsNothingOfTheOther, TestRecipientCap_CappedRecordsNothingAndIsARefusal, TestRecipientCap_CaseAndAPlusTagAreOneMailbox, TestRecipientCap_EachScopeHasItsOwnCount, TestRecipientCap_ForgetsTheStalestMailboxPastItsBound | sha-ok |
+> | C12 | bellek sınırı kaldırıldı | recipientcap.go | KIRMIZI — TestRecipientCap_ForgetsTheStalestMailboxPastItsBound | sha-ok |
+> | C13 | `admit`'in kilidi kaldırıldı | recipientcap.go | KIRMIZI — TestRecipientCap_ARefusalOfOneCeilingSpendsNothingOfTheOther, TestRecipientCap_CappedRecordsNothingAndIsARefusal, TestRecipientCap_ExactlyFivePassUnderConcurrency, TestRecipientCap_LogsTheFirstRefusalOnceAndTheQuietHourOnce, DATA-RACE | sha-ok |
+> | C14 | her retle ilk-ret satırı (log yağmuru) | recipientcap.go | KIRMIZI — TestRecipientCap_CappedRecordsNothingAndIsARefusal, TestRecipientCap_LogsTheFirstRefusalOnceAndTheQuietHourOnce, TestRecipientCap_TheDigestNeverReachesTheLog | sha-ok |
+> | C15 | satırda özet (hex) | recipientcap.go | KIRMIZI — TestRecipientCap_CappedRecordsNothingAndIsARefusal, TestRecipientCap_LogsTheFirstRefusalOnceAndTheQuietHourOnce, TestRecipientCap_TheDigestNeverReachesTheLog | sha-ok |
+> | C16 | bir soru gönderim kaydeder | recipientcap.go | KIRMIZI — TestRecipientCap_CappedRecordsNothingAndIsARefusal, TestRecipientCap_EachScopeHasItsOwnCount, TestRecipientCap_ForgetsTheStalestMailboxPastItsBound | sha-ok |
+> | C17 | sessiz-saat satırı düşer | recipientcap.go | KIRMIZI — TestRecipientCap_LogsTheFirstRefusalOnceAndTheQuietHourOnce, TestRecipientCap_TheDigestNeverReachesTheLog | sha-ok |
+> | L01 | **tek-canlı-link kuralı kaldırıldı** (her istek basar ve emekliye ayırır — `Issue`) | resetrequest.go | KIRMIZI — TestIssueForEmail_AnotherAccountInTheSameMailboxChangesNothing, TestIssueForEmail_DecidesPerAccount, TestIssueForEmail_ExactlyOneLinkUnderConcurrency, TestIssueForEmail_KeepsTheLiveLinkAndRetiresNothing, TestIssueForEmail_MintsAgainOnceTheLinkCannotBeSpent, TestIssueForEmail_NeverLeavesAWindowWithoutALiveLinkOrAWayToGetOne, TestIssueForEmail_TheCeilingIsOneLinkPerResetTTL, TestPanelRecoveryDB_OneLiveLinkPerAccount | sha-ok |
+> | L02 | **kural posta kutusuna göre anahtarlanır** (2. turun anahtarı; canlılık kutu başına) | resetrequest.go | KIRMIZI — TestIssueForEmail_AnotherAccountInTheSameMailboxChangesNothing, TestIssueForEmail_DecidesPerAccount, TestIssueForEmail_ExactlyOneLinkUnderConcurrency, TestIssueForEmail_KeepsTheLiveLinkAndRetiresNothing, TestIssueForEmail_MintsAgainOnceTheLinkCannotBeSpent, TestIssueForEmail_MintsForTheSignInWindowAndNoWider, TestIssueForEmail_NeverLeavesAWindowWithoutALiveLinkOrAWayToGetOne, TestIssueForEmail_SkipsDisabledIdentitiesWithoutFreeingTheirSlot, TestIssueForEmail_TheCeilingIsOneLinkPerResetTTL | sha-ok |
+> | L03 | yöneticiye anahtarlı kilit kaldırıldı | resetrequest.go | KIRMIZI — TestIssueForEmail_ExactlyOneLinkUnderConcurrency | sha-ok |
+> | L04 | teslim edilemeyen link geri çekilmez | adminreset.go | KIRMIZI — TestAdminReset_AnUndeliveredLinkIsWithdrawn, TestPanelRecoveryDB_OneLiveLinkPerAccount | sha-ok |
+> | L05 | **basım atlanınca taban atlanır** (yalnız tutulan kol) | adminreset.go | KIRMIZI — TestAdminReset_ALiveLinkAnswersLikeEveryOtherAddress | sha-ok |
+> | L06 | `kept` satırı yazılmaz | adminreset.go | KIRMIZI — TestAdminReset_ALiveLinkAnswersLikeEveryOtherAddress, TestAdminReset_KeptRowsSpendTheAccountsBudget, TestPanelRecoveryDB_OneLiveLinkPerAccount | sha-ok |
+> | L07 | `kept` satırı hesap bütçesini atlar | adminreset.go | KIRMIZI — TestAdminReset_KeptRowsSpendTheAccountsBudget | sha-ok |
+> | Q01 | geri çekme harcanmış linki de emekliye ayırır (`used_at IS NULL` düşer) | store/passwordresets.sql.go | KIRMIZI — TestWithdraw_RetiresOnlyALiveLinkOfItsOwnTenant | sha-ok |
+> | Q02 | kilit sorgusunun tenant koşulu düşer | db/queries/passwordresets.sql | KIRMIZI — TestAdminAuthQueries_CarryAnExplicitTenantPredicate | sha-ok |
+> | S01 | **davet anahtarından işletme çıkar** (soru ve gönderim) | inviteemail.go | KIRMIZI — TestInviteEmailDB_OneBusinessesInvitationsNeverDecideAnothers, TestInviteEmail_TheSinkAsksTheCapAboutTheAddressOnly | sha-ok |
+> | S02 | gönderim sorudan başka bir kapsamda sayılır | inviteemail.go | KIRMIZI — TestInviteEmail_TheSinkAsksTheCapAboutTheAddressOnly, TestInviteEmailDB_OneBusinessesInvitationsNeverDecideAnothers | sha-ok |
+> | S03 | soru başka bir işletme için sorulur | manager.go | KIRMIZI — TestEmailRouteDB_ACappedMailboxMintsNothing | sha-ok |
+> | I01 | davette basımdan önce soru kaldırıldı | manager.go | KIRMIZI — TestEmailRouteDB_ACappedMailboxMintsNothing, TestInviteEmailDB_ACappedMailboxIsRefusedBeforeAnythingIsMinted | sha-ok |
+> | I02 | soru basım işleminin bitişinden SONRA sorulur | manager.go | KIRMIZI — TestEmailRouteDB_ACappedMailboxMintsNothing | sha-ok |
+> | I03 | adres yerine başka değer sorulur | manager.go | KIRMIZI — TestEmailRouteDB_ACappedMailboxMintsNothing | sha-ok |
+> | H10 | davet havuzu tavana hiç sormaz | inviteemail.go | KIRMIZI — TestInviteEmail_TheSinkAsksTheCapAboutTheAddressOnly, TestInviteEmailDB_ACappedMailboxIsRefusedBeforeAnythingIsMinted | sha-ok |
+> | H11 | tavan reddi 200 ile yanıtlanır | inviteemail.go | KIRMIZI — TestInviteEmail_EveryOutcomeIsASentenceAndNoneCarriesALink | sha-ok |
+> | R01 | yarış cümlesi eskiye döner ("a few minutes") | inviteemail.go | KIRMIZI — TestInviteEmail_EveryOutcomeIsASentenceAndNoneCarriesALink | sha-ok |
+> | W01 | davetlere ikinci bir tavan | main.go | KIRMIZI — TestBreakerWiring_TheTransportReachesTheChannelsOnlyThroughOneBreaker | sha-ok |
+> | W02 | kesici tavandan ve sıfırlama kanalından başka bir çağrıya ulaşır | main.go | KIRMIZI — TestBreakerWiring_TheTransportReachesTheChannelsOnlyThroughOneBreaker | sha-ok |
+>
+> **Toplam (3. tur, tam set bir kez): 37 mutasyon — 37 KIRMIZI, 0 YEŞİL, 0 BUILD-FAILED, 0 çapa hatası; 37/37
+> `sha-ok`.** Koşudan sonra `.git`siz kopya ile çalışma ağacı `diff -rq` ile birebir aynıydı; koşudan sonra çalışma
+> ağacında yalnız ADR notu ve `TestResetOutboxDB_AFullOutboxFitsTheWriteReserve`'ün geri çekmeyi gerçek Postgres'e
+> götüren sarmalayıcısı (yalnız test, B15) değişti. 1. turun 34'lük ve 2. turun 40'lık setleri o turların tasarımları üzerindeydi
+> (34/34 ve 40/40 KIRMIZI); 3. tur tasarımı değiştiği için set yeniden yazıldı.
+>
+> **Mutasyon tablosu — 4. tur (yalnız bu turunkiler; `scratchpad/em7c/mutate_r4.py`, aynı yöntem, taban önce yeşil):**
+>
+> | # | Mutasyon | Dosya | Sonuç (kırmızıya dönen testler) | Geri yükleme |
+> |---|---|---|---|---|
+> | E01 | **e-posta eski cümleye döner** (*"Asking again replaces it."*) | web/templates/email/letter.go | KIRMIZI — TestReset_AskingAgainSaysWhatTheFlowDoes | sha-ok |
+> | E02 | sayfa 3. turun *"within the last hour"* cümlesine döner | web/templates/pages/adminreset_templ.go | KIRMIZI — TestAdminReset_TheSentPageSaysWhatAskingAgainDoes | sha-ok |
+> | T01 | **canlı link okuması `statement_timestamp()` → `now()`** | store/passwordresets.sql.go | KIRMIZI — TestIssueForEmail_ALinkThatExpiresDuringTheLockWaitIsNotKept | sha-ok |
+> | T02 | basımın emekliye ayırma koşulu `statement_timestamp()` → `now()` | store/passwordresets.sql.go | KIRMIZI — TestIssueForEmail_ALinkThatExpiresDuringTheLockWaitIsNotKept | sha-ok |
+> | M04 | **geri çekme hesap bütçesine bağlanır** (`accountLimiter.Allowed`) | adminreset.go | KIRMIZI — TestAdminReset_AnUndeliveredLinkIsWithdrawnPastTheAccountsBudget | sha-ok |
+>
+> **Toplam (4. tur): 5 mutasyon — 5 KIRMIZI; 5/5 `sha-ok`;** koşudan sonra kopya ile çalışma ağacı `diff -rq` ile
+> birebir aynıydı. M04 3. turun hedefli setinde yeşil kalmıştı (denetçi); şimdi kırmızı.
+>
+> **Sayılı sınırlar (EM-7C — ADR 0022 *"EM-7C notu"*nun listesiyle aynı):**
+> 1. Davet tavanının sayacı süreç içi, bellekte (`replicas: 1`); N replika N kat; her yeniden başlatma boş. (Tek-canlı-
+>    link kuralının durumu veritabanında — yeniden başlatmadan etkilenmez.)
+> 2. Sağlayıcı takma adları (Gmail noktaları, `googlemail.com`, alan adı takma adları, `+` dışı ayraçlar) ayrı kutu.
+> 3. Davette girişim sayılır, sonuç değil.
+> 4. **Hedefli kurtarma reddi istek yolundan KAPALI** (sıralı ve eşzamanlı — ölçüldü). Kalan, yol dışında: `Consume`
+>    kardeşleri emekliye ayırır (linki tutan yapar); kilitsiz, emekliye ayıran ilkel 4. turdan beri dışa kapalı
+>    (`issue`) — paket dışından derlenmez.
+> 5. **Bombalama (sıfırlama):** hesap başına `ResetTTL`'de (1 saat) 1 e-posta; kutuya katlanan N hesap → kutuya saatte
+>    N; N hesabı tohumlamak N işletme kaydı demektir — açık kayıt kaynak başına saatte 3; tek istek ≤ 8 hesap çözer;
+>    istek bütçesi kaynak başına 10 dakikada 20; hepsinin üstünde kesici (saatte 300).
+> 6. **Davette işletmeler arası yoğunlaşma (EM-7B sınır 12'nin güncel durumu):** tek işletme içinde kutu başına 5/saat,
+>    20/gün (artı-etiketli satırlar dahil) — kapalı; işletmeler arası tavan yok: N işletme → saatte 5N; N'yi açık kayıt
+>    (kaynak başına saatte 3) ve kesici sınırlar. **EM-5B'ye devir:** kullanıcıya bilinçli kabul olarak sunulacak.
+> 7. **Kayıp e-posta:** canlı link ölene dek (≤ `ResetTTL`) yeni link yok; sayfa söyler.
+> 8. **Geri çekmenin kapsamadıkları:** süreç ölümü (kuyruktaki grant'lar satırsız ve geri çekilmeden → o hesaplar
+>    `ResetTTL`'ye dek link alamaz), boşaltma bütçesinin tükenmesi, geri çekmenin veritabanı hatası. Tersi: zaman
+>    aşımına uğramış ama gitmiş bir link de geri çekilir — sahibi yeniden ister. Süreç ölümü kalanı orkestratörce
+>    **kabul** (4. tur).
+> 9. İstek yolunda senkron yazımlar, tabandan önce, yalnız kayıtlı adreslerde: `kept` satırı (≤ 8; sahte izle ölçüldü)
+>    ve **yedek yolun geri çekmesi** (kesici reddi / kuyruk dolu / kapanırken grant başına +1 transaction, tam pencerede
+>    8 + 8) — gerçek Postgres'le ölçüldü: 250,27–251,99 ms, bantta (B18).
+> 10. `kept` satırları hesap bütçesini harcar (satırlar, gönderimler değil).
+> 11. Birden çok canlı link yalnız dışa kapalı `issue` (paket içi testler) ya da EM-7C öncesi satırlarla; en yenisi
+>     tutulur.
+> 12. Davetin yarış penceresi: basılmış, gönderilmemiş davet; kendi cümlesi.
+> 13. Davet reddinin kendi bütçesi yok.
+> 14. Bildirim sınırlanmaz (hesap başına saatte 5; kesici sayar, reddetmez).
+> 15. Geriye giden saat pinsiz.
+> 16. Kablolama pinleri kaynak düzeyinde.
+> 17. Gerçek SES ölçülmedi — EM-5B.
+>
+> **Güvenlik iddiası (üç parçalı; ADR 0022 *"EM-7C notu"*, İddialar T, U, V):** tehdit modeli yukarıda · **PART I** =
+> kabul tablosundaki ölçümler ve test adları · **PART II** = mutasyon tablosunun KIRMIZI satırları; *yakalamadığı:*
+> geriye giden saat, `run()` dışında kurulan tavan/kesici, işaretçi/kapatma ile yeniden atama, tabanın altında kalan
+> yavaşlama (koşulmadı — EM-7A M29b emsali), `kept` satırının gerçek Postgres'le tam penceredeki maliyeti, süreç
+> ölümünde geri çekilemeyen linkler, işletmeler arası davet yoğunlaşması
+> (tasarım gereği), gerçek SES · **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
+>
+> **Devirler — EM-5B'nin kalan adımları:**
+> - Önkoşul (a) kod: EM-7A ✓ · (b) kod: **bu görev ✓** (sıfırlamada hesap başına tek canlı link; davette işletme × kutu
+>   tavanı) · (c): kuyruk- ve kesici-akıbeti **kabul** ✓, genişletilmedi (tutulan adaylarla daralır).
+> - **Sınır 6 (işletmeler arası davet yoğunlaşması, 5N/saat) EM-5B'de kullanıcıya bilinçli kabul olarak sunulacak**
+>   (4. tur, orkestratör kaydı); sınır 5'in sayıları da EM-5B'nin bilinçli kabulüne; sınır 8'in süreç-ölümü kalanı
+>   kabul. EM-7A sınır 5'in kesici için sorusu açık.
+> - Panel bir gün `admin.recovery.*` satırlarını gösterirse *"durum istekçiye görünmez"*in (iv) dayanağı yeniden
+>   değerlendirilir.
+> - Gerçek SES ile: M7-04 kriterlerinin yeniden koşusu, canlı duman (SPF/DKIM/DMARC, message-id, izleme kapalı),
+>   tavanın ve kesicinin bir gönderimi bir SES gönderimi olarak sayması; ConfigMap'i `email`'e çevirmek (deploy kararı;
+>   `TestPackaging_TheConfigMapShipsTodaysDelivery` o gün bilerek güncellenir).
+> - Orkestratöre (dokunulmadı): `docs/plan/state.md`, `docs/backlog.md`, `docs/plan/open-questions.md`, `CLAUDE.md`,
+>   `docs/plan/m10-platform.md` — EM-5B önkoşul metni (b)'nin kapandığını ve (c)'nin kabulünü taşımalı; kart bu blok
+>   olarak m10'a taşınır.
+>
+> **Denetim ve kapanış (2026-10-09, orkestratör):** 🟢 **KULLANICI KARARLARI (2026-10-09):** EM-5B (b) = alıcı başına tavan YAP; EM-5B (c) = kuyruk-akıbeti ve kesici-akıbeti numaralandırma kanalları KABUL (genişletilmedi). Seyir: 1. tur ortak kova → yapıcı "tavan-akıbeti" kanalını ölçtü → 2. tur iki bağımsız kova + çözümleme öncesi soru → güvenlik RED (YÜKSEK: posta kutusu sıfırlama kovası ~20 saatlik kurtarma reddi açıyordu, ölçüldü; ORTA: davet kovası kiracılar arası sayı sızdırıyor/engelliyordu) → 3. tur orkestratör tasarım kararı: sıfırlamada **hesap başına tek canlı link** (DB, kilit altında; teslim edilemeyen link geri çekilir), davette **(tenant, kutu)** kovası → kapanış güvenlik ONAY (kritik/yüksek 0) → 4. tur metin + `statement_timestamp()` + pin + `Issue` dışa kapatıldı. Orkestratör T01/T02 (`statement_timestamp()` → `now()`) mutasyonlarını kendi koştu: KIRMIZI. Faz sonu: 3. turda beş paketin tam `-race`'i yeşil; 4. turda `verify.sh` + hedefli `-race` yeşil. EM-5B'ye devir: işletmeler arası davet yoğunlaşması (5N/saat) kullanıcıya bilinçli kabul olarak sunulacak. ConfigMap `none`/`panel` — canlıda davranış değişmez.
+
 ## 4. Akış B — E-posta (AWS SES)
 
 ### Öneri: SES SMTP arayüzü + stdlib `net/smtp` (STARTTLS 587), `eu-central-1` — ✅ (sıfır yeni modül)

@@ -674,22 +674,27 @@ func TestResetOutbox_AnEndedStopperEndsTheContextAtOnce(t *testing.T) {
 }
 
 // freshResets mints a NEW grant for one administrator on every call — what the real
-// adminauth.Resets does for one address (a new row, a new token, the siblings
-// retired) — so concurrent requests produce distinct reset ids for one account.
+// adminauth.Resets did for one address before M10 EM-7C, and what it still does each
+// time the account's last link stopped being spendable (spent, expired, or withdrawn
+// after an undelivered send) — so concurrent requests produce distinct reset ids for
+// one account, the most rows a budget can be offered.
 type freshResets struct {
 	mu     sync.Mutex
 	base   adminauth.ResetGrant
 	minted []adminauth.ResetGrant
 }
 
-func (f *freshResets) IssueForEmail(context.Context, string) ([]adminauth.ResetGrant, error) {
+func (f *freshResets) IssueForEmail(context.Context, string) ([]adminauth.ResetGrant, []adminauth.Reset, error) {
 	g := grantsFor(f.base.Recipient, 1)[0]
 	g.Issued.Reset.TenantID, g.Issued.Reset.AdminUserID = f.base.Issued.Reset.TenantID, f.base.Issued.Reset.AdminUserID
 	f.mu.Lock()
 	f.minted = append(f.minted, g)
 	f.mu.Unlock()
-	return []adminauth.ResetGrant{g}, nil
+	return []adminauth.ResetGrant{g}, nil, nil
 }
+
+// Withdraw: the undelivered links' retirement is not what these tests count.
+func (f *freshResets) Withdraw(context.Context, uuid.UUID, uuid.UUID) error { return nil }
 
 func (f *freshResets) Consume(context.Context, adminauth.ResetToken, string) (adminauth.ConsumedReset, db.ResolvedPasswordReset, error) {
 	return adminauth.ConsumedReset{}, db.ResolvedPasswordReset{}, adminauth.ErrResetUnusable
@@ -1123,10 +1128,13 @@ type cancellingResets struct {
 	cancel context.CancelFunc
 }
 
-func (f *cancellingResets) IssueForEmail(context.Context, string) ([]adminauth.ResetGrant, error) {
+func (f *cancellingResets) IssueForEmail(context.Context, string) ([]adminauth.ResetGrant, []adminauth.Reset, error) {
 	f.cancel()
-	return f.grants, nil
+	return f.grants, nil, nil
 }
+
+// Withdraw: the undelivered links' retirement is not what this test counts.
+func (f *cancellingResets) Withdraw(context.Context, uuid.UUID, uuid.UUID) error { return nil }
 
 func (f *cancellingResets) Consume(context.Context, adminauth.ResetToken, string) (adminauth.ConsumedReset, db.ResolvedPasswordReset, error) {
 	return adminauth.ConsumedReset{}, db.ResolvedPasswordReset{}, adminauth.ErrResetUnusable

@@ -493,6 +493,23 @@ templ AdminInviteEmailed(v InviteEmailedView) {
 				</p>
 				<p class="mt-2">Any earlier link for { v.Name } has already stopped working, so they need the new one.</p>
 			}
+		} else if v.Outcome == "unsent-recipient-limit" {
+			// THE MAILBOX'S CAP MET AT THE SEND (M10 EM-7C round 2): the link was created,
+			// then another of this business's invitations to the same inbox took its last
+			// slot. Not "a few minutes": the slot frees within the hour, or the day at the
+			// daily line. The cap counts THIS business's invitations only (EM-7C round 3).
+			@components.Notice(components.ToneAlert, "The invitation was created but not emailed") {
+				<p>
+					The address on file for { v.Name } reached the most invitations this business can
+					send one inbox — { itoa(v.RecipientHourLimit) } an hour and { itoa(v.RecipientDayLimit) } a
+					day — just before this one could go, so it was not sent.
+				</p>
+				<p class="mt-2">
+					The new link has already replaced any earlier one, so { v.Name } has no working link
+					yet. Send it again from their card once the limit frees up: within an hour, or within a
+					day if the daily limit was reached.
+				</p>
+			}
 		} else {
 			@components.Notice(components.ToneWarn, inviteEmailedHeading(v)) {
 				switch v.Outcome {
@@ -540,6 +557,19 @@ templ AdminInviteEmailed(v InviteEmailedView) {
 						<p>
 							Nothing was sent and no link was created. This business has created
 							{ itoa(v.BusinessDayLimit) } invitations in the last 24 hours, the most it can.
+							Try again later.
+						</p>
+						// THE PER-MAILBOX CAP (M10 EM-7C) COUNTS THIS BUSINESS'S INVITATIONS TO ONE
+						// INBOX — case and "+tag" folded, so other people's rows that share the
+						// inbox count too — and never another business's (EM-7C round 3: a count
+						// across businesses told one business that another invites this person).
+						// The sentence says what the inbox has had from this business and blames
+						// neither the address nor the manager.
+					case "recipient_limit":
+						<p>
+							Nothing was sent and no link was created. This business can send one inbox at most
+							{ itoa(v.RecipientHourLimit) } invitations an hour and { itoa(v.RecipientDayLimit) } a
+							day, and the inbox at the address on file for { v.Name } has had that many from it.
 							Try again later.
 						</p>
 					case "show-has-address":

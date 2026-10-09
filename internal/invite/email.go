@@ -12,8 +12,11 @@ package invite
 //
 //   - It owns the RULES of the route: the three issuing limits (§9), the four
 //     refusals of an address (§7: none, not plain ASCII, not one the relay takes,
-//     an administrator's), whether the e-mail may name anybody (the user's decision
-//     of 2026-10-09: only a VIES-verified business), and the four audit rows
+//     an administrator's), WHERE the per-mailbox cap is asked and FOR WHICH
+//     business (M10 EM-7C: in the minting transaction, after those four, scoped to
+//     the issuing business — the cap itself is internal/mail's, reached through
+//     MailSink), whether the e-mail may name anybody (the user's
+//     decision of 2026-10-09: only a VIES-verified business), and the four audit rows
 //     (invite.code_emailed, invite.undelivered, invite.email_refused, and — through
 //     ManagerVisibleChannel, unchanged — the owner's fallback).
 //   - It does NOT render and does NOT speak SMTP. The e-mail's words are
@@ -51,12 +54,21 @@ import (
 //
 // ⚠️ THE PERSON LIMIT IS PER EMPLOYEE ROW, NOT PER MAILBOX (EM-7B round 4, security
 // review): CountRecentInvites counts by employee_id. Several rows can hold one mailbox
-// (plus-addressing within a business; the same address in several businesses), so a
-// mailbox's ceiling is the BUSINESS limits — 50 an hour, 300 a day per business — and
-// across businesses only the process-wide breaker (ADR 0022 §9). Measured by the
-// reviewer: 21 messages to one mailbox in under a second from five plus-tagged rows in
-// one business and the same address in two others. Counted in the EM-7B note
-// ("alıcıya yoğunlaştırma"); a per-recipient ceiling is EM-5B's precondition (b).
+// (plus-addressing within a business; the same address in several businesses).
+// Measured by the reviewer: 21 messages to one mailbox in under a second from five
+// plus-tagged rows in one business and the same address in two others (the EM-7B
+// note's "alıcıya yoğunlaştırma"). WITHIN ONE BUSINESS THE MAILBOX'S CEILING IS NOW
+// THE PER-MAILBOX CAP (mail.RecipientCap, M10 EM-7C): five an hour, twenty a day, case
+// and "+tag" folded, keyed by (business, mailbox) — asked inside the minting
+// transaction through MailSink.RecipientCapped (ErrRecipientCapped).
+//
+// 🔴 ANOTHER BUSINESS'S INVITATIONS ARE NOT COUNTED, ON PURPOSE (EM-7C round 3,
+// security review): with one count across businesses, business A's five invitations
+// to an inbox made business B's sixth press answer "too many to that address" — a
+// cross-tenant signal (that some other business invites this person) and a denial of
+// B's invitation that B did nothing to earn. So ACROSS businesses the mailbox is
+// bounded only by how many businesses exist — open signup's rate limit — times this
+// ceiling, and by the process-wide breaker (ADR 0022 §9): counted in the EM-7C note.
 //
 // A press refused by a limit mints nothing: the count and the mint share one
 // transaction and the refusal rolls it back.
@@ -90,6 +102,11 @@ var (
 	ErrTenantHourLimit   = errors.New("invite: this business has reached its invitations for the hour")
 	ErrTenantDayLimit    = errors.New("invite: this business has reached its invitations for the day")
 	ErrEmployeeHourLimit = errors.New("invite: this person has reached their invitations for the hour")
+	// ErrRecipientCapped: the address on file has been sent as many invitations BY THIS
+	// BUSINESS as the per-mailbox cap allows for now (M10 EM-7C, ADR 0022's EM-7C note)
+	// — other businesses' invitations and recovery links are not counted. Asked after
+	// the address refusals, in the minting transaction, so nothing is minted.
+	ErrRecipientCapped = errors.New("invite: the address on file has been sent as many e-mails as it may receive for now")
 	// ErrHasAddress: the owner's fallback (IssueParams.OnlyWithoutAddress) asked to
 	// show a link on screen for somebody who HAS an address on file — the link goes
 	// there instead.
@@ -106,6 +123,7 @@ var refusalReasons = map[error]string{
 	ErrTenantHourLimit:         "business_hourly_limit",
 	ErrTenantDayLimit:          "business_daily_limit",
 	ErrEmployeeHourLimit:       "person_hourly_limit",
+	ErrRecipientCapped:         "recipient_limit",
 }
 
 // RefusalReason reports whether err is one of the e-mail route's refusals and, if
@@ -146,8 +164,20 @@ type Recipient struct {
 // reply code, no text — so EmailChannel can record the two and the caller can log
 // them. It inherits Delivery's three obligations for d.ActivationURL, and one more
 // for d.Recipient.Address: it is written into the message's To and nowhere else.
+//
+// RecipientCapped (M10 EM-7C) answers whether the per-mailbox cap would refuse an
+// invitation from business tenantID to address now — that business's count for that
+// mailbox only: other businesses' invitations and recovery links never decide it.
+// IssueAndDeliver asks it INSIDE the minting transaction, after the address passed its
+// four refusals, so a full mailbox mints nothing (ErrRecipientCapped). SendInvitation
+// must count the send under the SAME business (d.Invite.TenantID). It is a question,
+// not a reservation: another press of the same business to the same mailbox between
+// the question and this press's own send (after the commit) can still take the last
+// slot, and then SendInvitation returns the cap's *mail.SendError like any failed send
+// — minted, not sent (B12). It must not log the address.
 type MailSink interface {
 	SendInvitation(ctx context.Context, d Delivery) (messageID string, err error)
+	RecipientCapped(tenantID uuid.UUID, address string) bool
 }
 
 // The audit actions of the e-mail route.

@@ -82,6 +82,13 @@ func invitationLetter(employeeName, tenantName string, verified bool, life strin
 // resetLetter is the password reset. It names nobody (ResetView says why) and
 // repeats what the reset page itself promises: nothing changes until the link is
 // used, and using it signs every device out.
+//
+// "ASKING AGAIN" SAYS WHAT THE FLOW DOES SINCE M10 EM-7C: a request for an account
+// that holds a live link sends nothing (internal/adminauth's IssueForEmail — one live
+// link per account), so this e-mail must not promise that asking again replaces it.
+// The recovery page says the same (web/templates/pages/adminreset.templ);
+// TestReset_AskingAgainSaysWhatTheFlowDoes pins this sentence and internal/handler's
+// TestAdminReset_TheSentPageSaysWhatAskingAgainDoes the page's.
 func resetLetter(life string) letter {
 	return letter{
 		subject: subjectReset,
@@ -92,13 +99,19 @@ func resetLetter(life string) letter {
 		},
 		action: "Set a new password",
 		after: []string{
-			"The link works once and stays valid for " + life + ". Asking again replaces it.",
+			"The link works once and stays valid for " + life + ". " + resetAskAgain,
 			"Nothing has changed yet: your current password keeps working until you use the " +
 				"link. Setting a new one signs you out of Taptime on every device.",
 		},
 		closing: "If you did not ask for this, you can ignore this email — your password stays as it is.",
 	}
 }
+
+// resetAskAgain is the reset e-mail's sentence about asking again (M10 EM-7C). True
+// in both of the cases the recovery page's sentence once got wrong: a link that timed
+// out on its way and was withdrawn no longer works, so asking again sends a new one;
+// a link that arrived late still works only as long as the e-mail itself states.
+const resetAskAgain = "Asking again sends no new link while this one still works."
 
 // passwordChangedLetter is the "your password was changed" notice (M10 EM-9). It
 // takes NO argument, so its words are the same for every account: it names nobody

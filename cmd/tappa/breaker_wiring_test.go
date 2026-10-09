@@ -18,17 +18,28 @@ import (
 // exactly once; every identifier run() assigns from mail.New appears nowhere in run()
 // except on the left of that assignment and as mail.NewBreaker's FIRST argument (so the
 // transport reaches nothing — no channel, no second wrapper — except the one breaker);
-// and the first argument of every handler.NewEmail…Channel call is an identifier run()
-// assigns from that one mail.NewBreaker call.
+// and the first argument of every handler.NewEmail… call is an identifier run() assigns
+// from that one mail.NewBreaker call — DIRECTLY for handler.NewEmailResetChannel, and
+// THROUGH the one mail.NewRecipientCap call (whose first argument is that breaker) for
+// handler.NewEmailInvitations (M10 EM-7C: the per-mailbox cap, counted per business,
+// is the invitation route's alone; recovery's ceiling is one live link per account in
+// internal/adminauth, and a recovery send through a mailbox count would refuse an
+// owner who holds no live link — measured in EM-7C's second round); the breaker
+// appears in run() only on the left of its assignment and as those two first
+// arguments.
 //
 // PART II — what it catches: the transport passed to any call but the breaker; a second
 // breaker; a channel given another breaker-shaped value or nil (NewEmailResetChannel's
-// *mail.Breaker parameter already refuses the transport itself at compile time). WHAT IT
-// DOES NOT CATCH: a breaker built outside run(); an identifier reassigned through a
-// pointer or a closure; a channel constructor whose name does not start with NewEmail
-// (an e-mail channel of another package is checked only through rule one — the
-// transport cannot reach it). PART III: a form not on that list is code review's — no
-// completeness claim.
+// *mail.Breaker parameter already refuses the transport itself at compile time); the
+// reset channel given the cap (it does not compile — *mail.Breaker) or the invitation
+// route given the bare breaker (it does not compile either — inviteSender), so what
+// this test adds there is a second cap, none, or the cap built around something other
+// than the one breaker; the breaker passed to any third call. WHAT IT DOES NOT CATCH: a
+// breaker or a cap built outside run(); an identifier reassigned through a pointer or a
+// closure; a channel constructor whose name does not start with NewEmail (an e-mail
+// channel of another package is checked only through rule one — the transport cannot
+// reach it). PART III: a form not on that list is code review's — no completeness
+// claim.
 func TestBreakerWiring_TheTransportReachesTheChannelsOnlyThroughOneBreaker(t *testing.T) {
 	f, err := parser.ParseFile(token.NewFileSet(), filepath.Join(repoRoot, "cmd", "tappa", "main.go"), nil, 0)
 	if err != nil {
@@ -66,14 +77,18 @@ func TestBreakerWiring_TheTransportReachesTheChannelsOnlyThroughOneBreaker(t *te
 
 	transports := map[string]bool{} // identifiers assigned from mail.New
 	breakerIDs := map[string]bool{} // identifiers assigned from mail.NewBreaker
+	capIDs := map[string]bool{}     // identifiers assigned from mail.NewRecipientCap
 	allowed := map[*ast.Ident]bool{}
-	var news, breakers, channels []*ast.CallExpr
+	var news, breakers, caps, channels []*ast.CallExpr
 	ast.Inspect(run.Body, func(n ast.Node) bool {
 		if c, ok := call(n, "mail", "New"); ok {
 			news = append(news, c)
 		}
 		if c, ok := call(n, "mail", "NewBreaker"); ok {
 			breakers = append(breakers, c)
+		}
+		if c, ok := call(n, "mail", "NewRecipientCap"); ok {
+			caps = append(caps, c)
 		}
 		if c, ok := call(n, "handler", "NewEmail*"); ok {
 			channels = append(channels, c)
@@ -90,6 +105,10 @@ func TestBreakerWiring_TheTransportReachesTheChannelsOnlyThroughOneBreaker(t *te
 				}
 				if _, ok := call(as.Rhs[0], "mail", "NewBreaker"); ok && id.Name != "err" && id.Name != "_" {
 					breakerIDs[id.Name] = true
+					allowed[id] = true
+				}
+				if _, ok := call(as.Rhs[0], "mail", "NewRecipientCap"); ok && id.Name != "err" && id.Name != "_" {
+					capIDs[id.Name] = true
 				}
 			}
 		}
@@ -111,13 +130,19 @@ func TestBreakerWiring_TheTransportReachesTheChannelsOnlyThroughOneBreaker(t *te
 		t.Error("mail.NewBreaker's first argument is not the transport run() built with mail.New")
 	}
 
-	ast.Inspect(run.Body, func(n ast.Node) bool {
-		if id, ok := n.(*ast.Ident); ok && transports[id.Name] && !allowed[id] {
-			t.Errorf("the transport %q is used in run() other than as the breaker's argument (at offset %d): "+
-				"whatever it reaches there sends around the process-wide count", id.Name, id.Pos())
-		}
-		return true
-	})
+	// THE PER-MAILBOX CAP (M10 EM-7C): exactly one, around the one breaker.
+	if len(caps) != 1 {
+		t.Fatalf("run() calls mail.NewRecipientCap %d time(s), want exactly one: a second cap is a second "+
+			"per-business count, and none leaves the invitation route uncapped", len(caps))
+	}
+	if len(caps[0].Args) == 0 {
+		t.Fatal("mail.NewRecipientCap is called without arguments; the file does not compile as read")
+	}
+	if id, ok := caps[0].Args[0].(*ast.Ident); ok && breakerIDs[id.Name] {
+		allowed[id] = true
+	} else {
+		t.Error("mail.NewRecipientCap's first argument is not the breaker run() built with mail.NewBreaker")
+	}
 
 	if len(channels) == 0 {
 		t.Fatal("run() builds no handler.NewEmail… channel; this pin expects the reset channel at least")
@@ -127,8 +152,39 @@ func TestBreakerWiring_TheTransportReachesTheChannelsOnlyThroughOneBreaker(t *te
 		if len(c.Args) == 0 {
 			t.Fatalf("handler.%s is called without arguments", name)
 		}
-		if id, ok := c.Args[0].(*ast.Ident); !ok || !breakerIDs[id.Name] {
-			t.Errorf("handler.%s is not given the one breaker run() builds as its sender", name)
+		id, _ := c.Args[0].(*ast.Ident)
+		switch name {
+		case "NewEmailInvitations":
+			if id == nil || !capIDs[id.Name] {
+				t.Errorf("handler.%s is not given the one per-mailbox cap run() builds around the one breaker", name)
+			}
+		default:
+			if id == nil || !breakerIDs[id.Name] {
+				t.Errorf("handler.%s is not given the one breaker run() builds as its sender", name)
+			} else {
+				allowed[id] = true
+			}
 		}
 	}
+
+	// A declaration names the breaker without handing it to anything.
+	ast.Inspect(run.Body, func(n ast.Node) bool {
+		if vs, ok := n.(*ast.ValueSpec); ok && len(vs.Values) == 0 {
+			for _, id := range vs.Names {
+				allowed[id] = true
+			}
+		}
+		return true
+	})
+	ast.Inspect(run.Body, func(n ast.Node) bool {
+		if id, ok := n.(*ast.Ident); ok && transports[id.Name] && !allowed[id] {
+			t.Errorf("the transport %q is used in run() other than as the breaker's argument (at offset %d): "+
+				"whatever it reaches there sends around the process-wide count", id.Name, id.Pos())
+		}
+		if id, ok := n.(*ast.Ident); ok && breakerIDs[id.Name] && !allowed[id] {
+			t.Errorf("the breaker %q is used in run() other than as the cap's or the reset channel's argument "+
+				"(at offset %d)", id.Name, id.Pos())
+		}
+		return true
+	})
 }

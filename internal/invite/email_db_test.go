@@ -173,13 +173,26 @@ func (f mailFixture) detailKeys(t *testing.T, action string, employee uuid.UUID)
 	return strings.Join(keys, ",")
 }
 
-// fakeMailSink records what it was handed and answers as told.
+// fakeMailSink records what it was handed and answers as told. capped is its answer
+// to the per-mailbox cap's question (M10 EM-7C), and asked the addresses it was asked
+// about.
 type fakeMailSink struct {
-	mu    sync.Mutex
-	got   []Delivery
-	id    string
-	err   error
-	block chan struct{} // if set, SendInvitation waits on it
+	mu     sync.Mutex
+	got    []Delivery
+	id     string
+	err    error
+	block  chan struct{} // if set, SendInvitation waits on it
+	capped bool
+	asked  []string
+	scopes []uuid.UUID // the business each question was asked for
+}
+
+func (s *fakeMailSink) RecipientCapped(tenantID uuid.UUID, address string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.asked = append(s.asked, address)
+	s.scopes = append(s.scopes, tenantID)
+	return s.capped
 }
 
 func (s *fakeMailSink) SendInvitation(_ context.Context, d Delivery) (string, error) {

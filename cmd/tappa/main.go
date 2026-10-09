@@ -630,6 +630,14 @@ func run() error {
 	// breaker is what the reset channel and the invitation route are given: one relay,
 	// one SMTP identity, one count. With both flows off nothing is built — config.Load
 	// has not even read the transport's settings.
+	//
+	// 🔴 THE PER-MAILBOX CAP IS THE INVITATION ROUTE'S ALONE (M10 EM-7C, ADR 0022's
+	// EM-7C note): built below, in the invitation arm, around this one breaker, and
+	// counted per BUSINESS and mailbox. The reset channel is given the breaker itself:
+	// a recovery e-mail's per-recipient ceiling is one live link per account
+	// (internal/adminauth), which never refuses an owner who holds no live link — a
+	// count per mailbox did (EM-7C round 2, measured). Both wiring tests read this
+	// function to hold the shape.
 	var breaker *mail.Breaker
 	if cfg.ResetDelivery == config.ResetDeliveryEmail || cfg.InviteDelivery == config.InviteDeliveryEmail {
 		transport, err := mail.New(cfg.Mail)
@@ -673,15 +681,20 @@ func run() error {
 	// THE INVITATION ROUTE IS WHAT TAPPA_INVITE_DELIVERY SAYS (M10 EM-7B, ADR 0022 §7).
 	// "panel" — the shipped ConfigMap's value — is the panel as it always was: the link
 	// on the manager's screen. "email" gives the panel the invitation route built on
-	// the ONE breaker above — its Send only: an invitation is counted AND may be refused
-	// while the breaker is open — and the panel then mails each link to the employee's
+	// the per-mailbox cap (M10 EM-7C) around the ONE breaker above — an invitation is
+	// counted by both AND may be refused by either, and the cap's question is asked
+	// before anything is minted — and the panel then mails each link to the employee's
 	// own address; NewAdminAuth refuses the option without the mode and the mode
 	// without the option. Switching the ConfigMap is a deploy decision (§12).
 	var panelOptions []handler.AdminAuthOption
 	switch cfg.InviteDelivery {
 	case config.InviteDeliveryPanel:
 	case config.InviteDeliveryEmail:
-		invitations, err := handler.NewEmailInvitations(breaker, cfg.BaseURL)
+		invitationCap, err := mail.NewRecipientCap(breaker)
+		if err != nil {
+			return fmt.Errorf("main: building the per-mailbox cap: %w", err)
+		}
+		invitations, err := handler.NewEmailInvitations(invitationCap, cfg.BaseURL)
 		if err != nil {
 			return err
 		}

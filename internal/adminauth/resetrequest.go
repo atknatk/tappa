@@ -86,14 +86,58 @@ type ResetGrant struct {
 }
 
 // IssueForEmail mints a reset link for every administrator an address resolves to
-// INSIDE the reset window, and returns each link with the address on that
-// administrator's own row.
+// INSIDE the reset window WHO DOES NOT ALREADY HOLD A LIVE ONE, and returns each new
+// link with the address on that administrator's own row (grants) — and, for every
+// administrator who does hold one, that live link's record (kept), so the caller can
+// write the trail of a request that minted nothing.
+//
+// 🔴 ONE LIVE LINK PER ACCOUNT (M10 EM-7C, ADR 0022's EM-7C note). While an
+// administrator holds a link that could be spent RIGHT NOW — not consumed, not
+// retired, not expired, ListLivePasswordResetsForAdmin's three conditions, which are
+// the consume statement's own — a request for their address mints NOTHING for them,
+// retires NOTHING and sends NOTHING. Two harms close together:
+//
+//   - ADR 0015's harm (a) ON THE REQUEST PATH. Before EM-7C every request retired the
+//     account's live link (CreatePasswordReset's fused retirement), so anybody who
+//     knew an address could kill the owner's pending link by asking again — once per
+//     request, bounded only by the request budgets. Now a request that finds a live
+//     link leaves it alone: the owner's link stays spendable until it expires or is
+//     spent, whatever anybody else types into the form.
+//   - THE PER-RECIPIENT SEND CEILING for recovery (EM-5B (b)). An account receives at
+//     most ONE recovery e-mail per ResetTTL from this path: the next can be minted
+//     only after the last one died. The ceiling IS ResetTTL — shortening the TTL
+//     raises it, and migration 00019's 24-hour span ceiling is its floor (one a day).
+//
+// 🔴 AND IT NEVER LEAVES A WINDOW WITH NO LIVE LINK AND NO WAY TO GET ONE. That is
+// what a per-MAILBOX send counter did (EM-7C round 2, measured by a security audit):
+// whoever filled the count could keep the owner from asking for an hour or a day
+// while the owner's last link had already expired. Here the rule's state is the
+// link itself: the moment it stops being spendable, the next request mints. And
+// because the state is per ACCOUNT, an account somebody else registered under the
+// same mailbox (a "+tag" or a capitalised spelling in another business — open
+// signup allows it) has its own link and changes nothing about the owner's.
+//
+// WHY THE DATABASE AND NOT A MAP IN THIS PROCESS: the link's liveness is decided by
+// the database's clock, at the instant the live-link read runs (statement_timestamp()
+// — after the lock was granted, so a link that expired while the request waited is not
+// "live"; db/queries/passwordresets.sql says why that and the consume statement's now()
+// mean the same instant) — so a request is never refused because of a link that could
+// not actually be spent, and never keeps one that could not. A
+// map in the process would not see a link consumed or expired, would forget
+// everything at a restart (and every deploy restarts), and would disagree between
+// two processes; the database is already the authority on all three.
+//
+// THE READ-THEN-MINT IS SERIALISED PER ADMINISTRATOR (LockAdminForResetIssue, the
+// first statement of the transaction that reads and mints): concurrent requests for
+// one administrator would otherwise all read "no live link" and all mint.
 //
 // 🔴 IT ANSWERS THE SAME WAY FOR A REGISTERED AND AN UNREGISTERED ADDRESS — there is
-// ONE return shape (a slice and a nil error) and an unknown address simply yields an
-// empty slice. There is no ErrNoSuchAdmin here and no "not found" error for a caller
+// ONE return shape (two slices and a nil error) and an unknown address simply yields
+// two empty slices. There is no ErrNoSuchAdmin here and no "not found" error for a caller
 // to branch on, because a caller that CAN branch is a caller that can leak
-// (00011's OBLIGATION 1). Issue's own ErrNoSuchAdmin is swallowed for exactly that
+// (00011's OBLIGATION 1). The split between grants and kept is NOT a difference the
+// caller may show: it decides what is sent and what the trail says, never the answer
+// (internal/handler's Request renders one page after one floor for all three). issue's own ErrNoSuchAdmin is swallowed for exactly that
 // reason and only for that error: the row was resolved and then found inactive
 // between two statements, which is not a fact the requester may learn.
 //
@@ -110,27 +154,28 @@ type ResetGrant struct {
 // slot exactly as they do in Authenticate's comparison loop — dropping them before
 // the cap would make the window's CONTENTS depend on how many disabled rows an
 // address has, which is a fact about the database answered by how many links arrive.
-func (r *Resets) IssueForEmail(ctx context.Context, email string) ([]ResetGrant, error) {
+func (r *Resets) IssueForEmail(ctx context.Context, email string) ([]ResetGrant, []Reset, error) {
 	// The same three refusals Authenticate makes, in the same place and for the same
 	// reasons: an address that cannot be a lookup key never reaches the driver, where
 	// a NUL byte or invalid UTF-8 would come back as a DATABASE ERROR and turn an
 	// unauthenticated form into a 500.
 	email = strings.TrimSpace(email)
 	if email == "" || !isLookupableEmail(email) {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	candidates, err := r.data.GetAdminByEmail(ctx, email)
 	if err != nil {
 		// A database failure is NOT "unknown address". Collapsing them would hide an
 		// outage behind a screen saying a link is on its way.
-		return nil, fmt.Errorf("adminauth: issue reset for address: %w", err)
+		return nil, nil, fmt.Errorf("adminauth: issue reset for address: %w", err)
 	}
 	if len(candidates) > ResetWindow {
 		candidates = candidates[:ResetWindow]
 	}
 
 	grants := make([]ResetGrant, 0, len(candidates))
+	var kept []Reset
 	for _, c := range candidates {
 		// ⚠️ THIS TEST IS THE THIRD OF THREE AND IT IS MEASURED NOT TO BE LOAD-BEARING,
 		// which is written down rather than left for somebody to discover by deleting
@@ -156,23 +201,114 @@ func (r *Resets) IssueForEmail(ctx context.Context, email string) ([]ResetGrant,
 		// for identities the resolver already returned.
 		to, err := r.recipient(ctx, c.TenantID, c.ID)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if to == "" {
 			// Disabled or gone between the resolver and this read. Skipped in silence
 			// here and recorded by the caller's trail, never by a different response.
 			continue
 		}
-		issued, err := r.Issue(ctx, c.TenantID, c.ID)
+		issued, live, err := r.issueUnlessLive(ctx, c.TenantID, c.ID)
 		if err != nil {
 			if errors.Is(err, ErrNoSuchAdmin) {
 				continue
 			}
-			return nil, err
+			return nil, nil, err
+		}
+		if live != nil {
+			kept = append(kept, *live)
+			continue
 		}
 		grants = append(grants, ResetGrant{Issued: issued, Recipient: to})
 	}
-	return grants, nil
+	return grants, kept, nil
+}
+
+// issueUnlessLive is IssueForEmail's per-account step: under the administrator's
+// lock, the live links are read and a new one is minted only when there is none.
+// Exactly one of the two results is set: the minted link, or the newest live one.
+//
+// THE TOKEN IS DRAWN BEFORE THE TRANSACTION so the lock is held for three statements
+// and no crypto; when a live link is found it is simply dropped (it was never stored,
+// and ResetToken cannot print itself).
+//
+// The mint is CreatePasswordReset, unchanged, so its fused retirement still runs —
+// and retires nothing on this path, because the read just above found nothing live
+// under a lock every other issuer on this path takes too.
+func (r *Resets) issueUnlessLive(ctx context.Context, tenantID, adminUserID uuid.UUID) (IssuedReset, *Reset, error) {
+	t, h, err := r.newHashedToken()
+	if err != nil {
+		return IssuedReset{}, nil, fmt.Errorf("adminauth: issue reset: %w", err)
+	}
+	var (
+		row  store.CreatePasswordResetRow
+		live *Reset
+	)
+	err = r.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		q := store.New(tx)
+		if e := q.LockAdminForResetIssue(ctx, store.LockAdminForResetIssueParams{
+			AdminUserID: adminUserID, TenantID: tenantID,
+		}); e != nil {
+			return e
+		}
+		rows, e := q.ListLivePasswordResetsForAdmin(ctx, store.ListLivePasswordResetsForAdminParams{
+			TenantID: tenantID, AdminUserID: adminUserID,
+		})
+		if e != nil {
+			return e
+		}
+		if len(rows) > 0 {
+			// Newest first (the query's ORDER BY). More than one live link exists only
+			// if something minted outside this path (this package's unexported issue,
+			// or a row from before EM-7C); the newest is the one a mailbox received last.
+			live = &Reset{
+				ID:          rows[0].ID,
+				TenantID:    rows[0].TenantID,
+				AdminUserID: rows[0].AdminUserID,
+				CreatedAt:   rows[0].CreatedAt,
+				ExpiresAt:   rows[0].ExpiresAt,
+			}
+			return nil
+		}
+		row, e = r.create(ctx, q, tenantID, adminUserID, h)
+		return e
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return IssuedReset{}, nil, ErrNoSuchAdmin
+	}
+	if err != nil {
+		return IssuedReset{}, nil, fmt.Errorf("adminauth: issue reset: %w", err)
+	}
+	if live != nil {
+		return IssuedReset{}, live, nil
+	}
+	return issuedFrom(row, t), nil, nil
+}
+
+// Withdraw retires ONE link that was minted and could not be handed to its
+// recipient (M10 EM-7C): the outbox was full or closing, the breaker refused, the
+// relay failed, or the process stopped first.
+//
+// 🔴 WITHOUT IT, ONE LIVE LINK PER ACCOUNT WOULD TURN A FAILED SEND INTO AN HOUR OF
+// NOTHING: the undelivered link is live, so every request for the account in the
+// next ResetTTL would find it and mint nothing, while no inbox holds it. Withdrawing
+// it makes the next request mint a fresh one. It is fail-closed in the other
+// direction too: a send that timed out may still have reached the mailbox, and that
+// link then dies — the owner asks again and gets a new one at once.
+//
+// Only cancelled_at moves, only from NULL, and only for a link neither spent nor
+// already retired (WithdrawPasswordReset); a link that is gone already is not an
+// error.
+func (r *Resets) Withdraw(ctx context.Context, tenantID, resetID uuid.UUID) error {
+	err := r.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		return store.New(tx).WithdrawPasswordReset(ctx, store.WithdrawPasswordResetParams{
+			TenantID: tenantID, ID: resetID,
+		})
+	})
+	if err != nil {
+		return fmt.Errorf("adminauth: withdraw reset: %w", err)
+	}
+	return nil
 }
 
 // NoticeRecipient is the address the "your password was changed" notice goes to (M10

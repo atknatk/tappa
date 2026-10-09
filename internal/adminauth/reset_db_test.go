@@ -15,7 +15,7 @@ import (
 	"github.com/atknatk/tappa/internal/store"
 )
 
-// reset_db_test.go -- Resets.Issue and Resets.Consume against a REAL Postgres.
+// reset_db_test.go -- Resets.issue and Resets.Consume against a REAL Postgres.
 //
 // 🔴 IT EXISTS BECAUSE AN AUDIT FOUND THE TWO FUNCTIONS HAD **ZERO** TESTS. The first
 // round of M7-04 phase A shipped eleven tests for the reset credential and every one
@@ -154,7 +154,7 @@ func TestResets_IssueAndConsume_EndToEnd(t *testing.T) {
 		t.Fatalf("fixture: %d live sessions, want 3", n)
 	}
 
-	issued, err := r.Issue(ctx, tenantID, admin)
+	issued, err := r.issue(ctx, tenantID, admin)
 	if err != nil {
 		t.Fatalf("Issue: %v", err)
 	}
@@ -220,7 +220,7 @@ func TestConsume_StoresADigestAtTheShippedCost(t *testing.T) {
 	tenantID := newTenantRow(t, d, "Reset Cost Ltd")
 	admin := newAdminRow(t, d, tenantID, randEmail(t), "old", "active", "owner", "Cost Owner")
 
-	issued, err := r.Issue(ctx, tenantID, admin)
+	issued, err := r.issue(ctx, tenantID, admin)
 	if err != nil {
 		t.Fatalf("Issue: %v", err)
 	}
@@ -259,7 +259,7 @@ func TestIssue_RefusesAnythingButAnActiveAdminOfThatTenant(t *testing.T) {
 		{name: "an id that is nobody", tenant: tenantA, admin: uuid.New(), wantSentinel: ErrNoSuchAdmin},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			_, err := r.Issue(ctx, c.tenant, c.admin)
+			_, err := r.issue(ctx, c.tenant, c.admin)
 			if !errors.Is(err, c.wantSentinel) {
 				t.Fatalf("err = %v, want %v", err, c.wantSentinel)
 			}
@@ -271,17 +271,17 @@ func TestIssue_RefusesAnythingButAnActiveAdminOfThatTenant(t *testing.T) {
 		})
 	}
 	t.Run("nil identifiers are refused before any query", func(t *testing.T) {
-		if _, err := r.Issue(ctx, uuid.Nil, healthy); err == nil {
+		if _, err := r.issue(ctx, uuid.Nil, healthy); err == nil {
 			t.Fatal("a nil tenant was accepted")
 		}
-		if _, err := r.Issue(ctx, tenantA, uuid.Nil); err == nil {
+		if _, err := r.issue(ctx, tenantA, uuid.Nil); err == nil {
 			t.Fatal("a nil admin was accepted")
 		}
 	})
 	// POSITIVE CONTROL: without it every refusal above could be "this fixture cannot
 	// issue anything".
 	t.Run("control: an active administrator of this tenant gets a link", func(t *testing.T) {
-		if _, err := r.Issue(ctx, tenantA, healthy); err != nil {
+		if _, err := r.issue(ctx, tenantA, healthy); err != nil {
 			t.Fatalf("Issue: %v -- every refusal above is then vacuous", err)
 		}
 	})
@@ -302,7 +302,7 @@ func TestConsume_EveryFailureIsOneError(t *testing.T) {
 	tenantID := newTenantRow(t, d, "Reset Failure Ltd")
 
 	spentAdmin := newAdminRow(t, d, tenantID, randEmail(t), "p", "active", "owner", "Spent")
-	spent, err := r.Issue(ctx, tenantID, spentAdmin)
+	spent, err := r.issue(ctx, tenantID, spentAdmin)
 	if err != nil {
 		t.Fatalf("Issue: %v", err)
 	}
@@ -315,22 +315,22 @@ func TestConsume_EveryFailureIsOneError(t *testing.T) {
 	expiredAdmin := newAdminRow(t, d, tenantID, randEmail(t), "p", "active", "owner", "Expired")
 	expiredResets := cheapResets(t, d)
 	expiredResets.ttl = -time.Hour
-	expired, err := expiredResets.Issue(ctx, tenantID, expiredAdmin)
+	expired, err := expiredResets.issue(ctx, tenantID, expiredAdmin)
 	if err != nil {
 		t.Fatalf("Issue(expired): %v", err)
 	}
 
 	retiredAdmin := newAdminRow(t, d, tenantID, randEmail(t), "p", "active", "owner", "Retired")
-	retired, err := r.Issue(ctx, tenantID, retiredAdmin)
+	retired, err := r.issue(ctx, tenantID, retiredAdmin)
 	if err != nil {
 		t.Fatalf("Issue: %v", err)
 	}
-	if _, err := r.Issue(ctx, tenantID, retiredAdmin); err != nil { // supersedes it
+	if _, err := r.issue(ctx, tenantID, retiredAdmin); err != nil { // supersedes it
 		t.Fatalf("Issue(second): %v", err)
 	}
 
 	disabledAdmin := newAdminRow(t, d, tenantID, randEmail(t), "p", "active", "manager", "ToDisable")
-	disabledLink, err := r.Issue(ctx, tenantID, disabledAdmin)
+	disabledLink, err := r.issue(ctx, tenantID, disabledAdmin)
 	if err != nil {
 		t.Fatalf("Issue: %v", err)
 	}
@@ -384,7 +384,7 @@ func TestConsume_EveryFailureIsOneError(t *testing.T) {
 
 	// POSITIVE CONTROL.
 	okAdmin := newAdminRow(t, d, tenantID, randEmail(t), "p", "active", "owner", "Fine")
-	ok, err := r.Issue(ctx, tenantID, okAdmin)
+	ok, err := r.issue(ctx, tenantID, okAdmin)
 	if err != nil {
 		t.Fatalf("Issue: %v", err)
 	}
@@ -411,7 +411,7 @@ func TestConsume_ReplayIsNotAFreeSignOutButton(t *testing.T) {
 	admin := newAdminRow(t, d, tenantID, randEmail(t), "p", "active", "owner", "Replay Owner")
 	newSessionRow(t, d, tenantID, admin)
 
-	issued, err := r.Issue(ctx, tenantID, admin)
+	issued, err := r.issue(ctx, tenantID, admin)
 	if err != nil {
 		t.Fatalf("Issue: %v", err)
 	}
@@ -504,7 +504,7 @@ func TestConsume_BothWritesShareOneTransaction(t *testing.T) {
 		counter := &txCountingDB{inner: d}
 		r := cheapResets(t, counter)
 
-		issued, err := r.Issue(ctx, tenantID, admin)
+		issued, err := r.issue(ctx, tenantID, admin)
 		if err != nil {
 			t.Fatalf("Issue: %v", err)
 		}
@@ -528,7 +528,7 @@ func TestConsume_BothWritesShareOneTransaction(t *testing.T) {
 		newSessionRow(t, d, tenantID, admin)
 
 		issuer := cheapResets(t, d) // issue on the real DB so the link really exists
-		issued, err := issuer.Issue(ctx, tenantID, admin)
+		issued, err := issuer.issue(ctx, tenantID, admin)
 		if err != nil {
 			t.Fatalf("Issue: %v", err)
 		}

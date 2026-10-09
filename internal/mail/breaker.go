@@ -113,8 +113,10 @@ import (
 // the deployment runs one replica (deploy/k8s/20-app.yaml, replicas: 1), a rolling
 // update briefly runs two (maxSurge: 1) and every restart starts an empty window, so
 // the ceiling is per process, not per account; it is not a per-recipient ceiling
-// (ADR 0022 EM-5A note, limit 13) — one recipient can still receive many of the 300;
-// exempt sends are bounded only by their callers' own caps.
+// (ADR 0022 EM-5A note, limit 13) — for invitations that is RecipientCap
+// (recipientcap.go, M10 EM-7C: per business and mailbox, asked before this breaker),
+// for recovery links internal/adminauth's one live link per account; exempt sends are
+// bounded only by their callers' own caps.
 
 // The shipped ceiling (ADR 0022 §9's starting number, decided in its EM-7A note).
 const (

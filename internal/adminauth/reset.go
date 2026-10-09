@@ -137,9 +137,9 @@ var (
 	// showing one sentence.
 	ErrResetUnusable = errors.New("adminauth: reset token cannot be used")
 
-	// ErrNoSuchAdmin is Issue's refusal: no active administrator with that id in that
+	// ErrNoSuchAdmin is issue's refusal: no active administrator with that id in that
 	// tenant. It is NOT reachable from an unauthenticated request with an
-	// attacker-chosen id -- Issue takes uuids that phase B must have resolved first --
+	// attacker-chosen id -- issue takes uuids that phase B must have resolved first --
 	// so it is safe for it to be distinguishable HERE. Whether the RESPONSE
 	// distinguishes it is phase B's decision and the answer is no (00011's
 	// OBLIGATION 1).
@@ -285,7 +285,7 @@ type ResetDatabase interface {
 	// the SAME function panel login resolves through (migration 00011/00017).
 	//
 	// 🔴 IT IS ADDED IN PHASE B BECAUSE PHASE A COULD NOT ANSWER "WHO GETS THE LINK".
-	// Issue takes uuids, deliberately; the mapping from a typed-in address to
+	// issue takes uuids, deliberately; the mapping from a typed-in address to
 	// candidate administrators is 00011's OBLIGATION 1 territory and phase A wrote it
 	// down as this phase's hardest question. It is answered in IssueForEmail
 	// (resetrequest.go), in THIS package rather than in a handler, because the answer
@@ -392,8 +392,15 @@ func (i IssuedReset) Link(base string) string {
 	return base + "?t=" + i.Token.reveal()
 }
 
-// Issue mints a reset token for ONE administrator and retires that administrator's
+// issue mints a reset token for ONE administrator and retires that administrator's
 // previously live links in the SAME statement (db/queries/passwordresets.sql).
+//
+// 🔴 UNEXPORTED SINCE M10 EM-7C ROUND 4, SO THE COMPILER KEEPS IT OFF EVERY REQUEST
+// PATH. It takes no lock and it retires whatever is live — exactly the shape that let
+// anybody kill an owner's pending link (the paragraphs below). The one way to mint
+// from outside this package is IssueForEmail, which mints through issueUnlessLive (one
+// live link per account, under a lock). What still calls this is this package's own
+// tests, which need a link for an administrator they name by id.
 //
 // 🔴 WHAT IT DELIBERATELY DOES NOT DO: touch the administrator's password. A reset
 // REQUEST leaves the existing credential working. That is not politeness, it is the
@@ -421,6 +428,14 @@ func (i IssuedReset) Link(base string) string {
 // than left here. Nothing in this package can impose it: this function is given uuids,
 // not an address.
 //
+// 🔴 SINCE M10 EM-7C THE PUBLIC REQUEST PATH DOES NOT REACH THIS RETIREMENT AT ALL.
+// IssueForEmail mints through issueUnlessLive, which mints ONLY when the
+// administrator holds no live link (under a per-administrator lock), so the fused
+// retirement it shares with this function finds nothing to retire there and the
+// attack above — somebody else's request killing your pending link — is closed on
+// that path, not bounded. This function still retires: it is the primitive, and
+// since round 4 it is unexported, so no caller outside this package can reach it.
+//
 // IT TAKES uuids, NOT AN EMAIL, and that boundary is the point. Mapping a typed-in
 // address to candidate administrators is 00011's OBLIGATION 1 territory -- the
 // question a dummy bcrypt exists to refuse -- so it stays outside this function and
@@ -430,15 +445,11 @@ func (i IssuedReset) Link(base string) string {
 // A disabled or unknown administrator yields pgx.ErrNoRows from the query and
 // ErrNoSuchAdmin here; nothing is retired in that case either (the statement's EXISTS
 // guard, 00009's measured lesson about unconditional data-modifying CTEs).
-func (r *Resets) Issue(ctx context.Context, tenantID, adminUserID uuid.UUID) (IssuedReset, error) {
+func (r *Resets) issue(ctx context.Context, tenantID, adminUserID uuid.UUID) (IssuedReset, error) {
 	if tenantID == uuid.Nil || adminUserID == uuid.Nil {
 		return IssuedReset{}, errors.New("adminauth: issue reset: tenant and admin are required")
 	}
-	t, err := newResetToken()
-	if err != nil {
-		return IssuedReset{}, fmt.Errorf("adminauth: issue reset: %w", err)
-	}
-	h, err := t.hash(r.hmacKey)
+	t, h, err := r.newHashedToken()
 	if err != nil {
 		return IssuedReset{}, fmt.Errorf("adminauth: issue reset: %w", err)
 	}
@@ -446,12 +457,7 @@ func (r *Resets) Issue(ctx context.Context, tenantID, adminUserID uuid.UUID) (Is
 	var row store.CreatePasswordResetRow
 	err = r.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		var e error
-		row, e = store.New(tx).CreatePasswordReset(ctx, store.CreatePasswordResetParams{
-			TenantID:    tenantID,
-			AdminUserID: adminUserID,
-			TokenHash:   h,
-			ExpiresAt:   r.now().Add(r.ttl),
-		})
+		row, e = r.create(ctx, store.New(tx), tenantID, adminUserID, h)
 		return e
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -462,6 +468,38 @@ func (r *Resets) Issue(ctx context.Context, tenantID, adminUserID uuid.UUID) (Is
 		// and %w wraps only the database error (§4.7).
 		return IssuedReset{}, fmt.Errorf("adminauth: issue reset: %w", err)
 	}
+	return issuedFrom(row, t), nil
+}
+
+// newHashedToken draws a fresh token and its stored hash. Neither error names either
+// value (§4.7).
+func (r *Resets) newHashedToken() (ResetToken, string, error) {
+	t, err := newResetToken()
+	if err != nil {
+		return ResetToken{}, "", err
+	}
+	h, err := t.hash(r.hmacKey)
+	if err != nil {
+		return ResetToken{}, "", err
+	}
+	return t, h, nil
+}
+
+// create is the one INSERT of a reset row, shared by issue and issueUnlessLive so the
+// two can never mint differently: the TTL is this Resets' clock plus its ttl, and the
+// statement is CreatePasswordReset with its fused retirement and its active-admin
+// guard.
+func (r *Resets) create(ctx context.Context, q *store.Queries, tenantID, adminUserID uuid.UUID, tokenHash string) (store.CreatePasswordResetRow, error) {
+	return q.CreatePasswordReset(ctx, store.CreatePasswordResetParams{
+		TenantID:    tenantID,
+		AdminUserID: adminUserID,
+		TokenHash:   tokenHash,
+		ExpiresAt:   r.now().Add(r.ttl),
+	})
+}
+
+// issuedFrom pairs a stored row with the raw token that produced its hash.
+func issuedFrom(row store.CreatePasswordResetRow, t ResetToken) IssuedReset {
 	return IssuedReset{
 		Reset: Reset{
 			ID:           row.ID,
@@ -472,7 +510,7 @@ func (r *Resets) Issue(ctx context.Context, tenantID, adminUserID uuid.UUID) (Is
 			RetiredCount: row.RetiredCount,
 		},
 		Token: t,
-	}, nil
+	}
 }
 
 // ConsumedReset is what a successful reset did, in the shape an audit row needs.

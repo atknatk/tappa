@@ -168,7 +168,7 @@ WITH retired AS (
       AND p.admin_user_id = $3
       AND p.used_at IS NULL
       AND p.cancelled_at IS NULL
-      AND now() < p.expires_at
+      AND statement_timestamp() < p.expires_at
       AND EXISTS (SELECT 1 FROM admin_users a
                   WHERE a.id = $3
                     AND a.tenant_id = $4
@@ -321,6 +321,21 @@ type CreatePasswordResetRow struct {
 // the stale-link case above. Closing it too would need a per-administrator advisory
 // lock at the call site (the shape ADR 0006 uses for tap debounce); it is not taken
 // here and is named so phase B can decide with the cost in view.
+// M10 EM-7C TOOK IT ON THE REQUEST PATH: internal/adminauth's IssueForEmail mints
+// through issueUnlessLive, which takes LockAdminForResetIssue (below) and reads
+// ListLivePasswordResetsForAdmin before calling this, and mints nothing while a live
+// link exists — so on that path this statement's retirement finds nothing to retire.
+// adminauth's unexported issue still calls it without the lock (tests only).
+//
+// 🔴 "LIVE" HERE IS JUDGED AT statement_timestamp(), NOT now() (M10 EM-7C round 4),
+// for the reason ListLivePasswordResetsForAdmin gives: on the issuing path this
+// statement runs after the administrator's lock, which can be WAITED for, and now()
+// is the transaction's start. With now(), a link that expired during the wait was
+// found "live" here and retired — retired_count = 1 in the trail, the very number an
+// investigation reads as somebody else's request killing a pending link (harm (a)).
+// The two statements of one transaction must agree on what is live; they now read the
+// same clock. The timestamps this file WRITES stay now() (created_at's default, the
+// retirement time): those record when the transaction happened, not a judgement.
 func (q *Queries) CreatePasswordReset(ctx context.Context, arg CreatePasswordResetParams) (CreatePasswordResetRow, error) {
 	row := q.db.QueryRow(ctx, createPasswordReset,
 		arg.TokenHash,
@@ -347,7 +362,7 @@ WHERE tenant_id = $1
   AND admin_user_id = $2
   AND used_at IS NULL
   AND cancelled_at IS NULL
-  AND now() < expires_at
+  AND statement_timestamp() < expires_at
 ORDER BY created_at DESC
 `
 
@@ -378,7 +393,28 @@ type ListLivePasswordResetsForAdminRow struct {
 // what CreatePasswordReset buys, and an invariant nothing can observe is an invariant
 // nothing can defend -- internal/db/passwordresets_test.go reads it through this
 // query. Phase B's panel ("a reset link was sent, it expires at ...") is the second
-// reader.
+// reader. SINCE M10 EM-7C IT IS ALSO A DECISION'S INPUT: internal/adminauth mints a
+// new link only when this returns nothing (one live link per account), under
+// LockAdminForResetIssue.
+//
+// 🔴 IT JUDGES EXPIRY AT statement_timestamp(), NOT now() (M10 EM-7C round 4, a
+// security review measured it 3/3). On the issuing path this statement runs AFTER the
+// administrator's lock, a separate statement that can be waited for; now() is the
+// TRANSACTION's start, i.e. before the wait. With now(), a link that expired while the
+// request waited was still "live": the request kept it, minted nothing and sent
+// nothing — and the owner held a dead link with no new one coming
+// (TestIssueForEmail_ALinkThatExpiresDuringTheLockWaitIsNotKept). statement_timestamp()
+// is taken when THIS statement starts, after the lock was granted.
+//
+// IT MEANS WHAT THE CONSUME STATEMENT MEANS: "could be spent at the instant the
+// statement runs". ConsumePasswordResetAndSetPassword reads now(), but in
+// adminauth.Resets.Consume it is the first statement after the tenant setting, with
+// nothing to wait for before it, so its transaction's start IS its statement's start
+// (to within the set_config round trip). The one wait it can meet is a row lock held
+// by a concurrent consume of the SAME token — and that consume spends it, so the
+// waiter matches 0 rows whatever the clock says. Same instant, same three conditions:
+// a request is never refused because of a link that could not be spent, and never
+// keeps one that could not be.
 //
 // token_hash is NOT selected (section 4.7); used_at and cancelled_at are not selected
 // either, because the WHERE pins both to NULL for every returned row.
@@ -406,4 +442,77 @@ func (q *Queries) ListLivePasswordResetsForAdmin(ctx context.Context, arg ListLi
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockAdminForResetIssue = `-- name: LockAdminForResetIssue :exec
+SELECT pg_advisory_xact_lock(hashtextextended('admin-reset:' || a.id::text, 0))
+FROM admin_users a
+WHERE a.id = $1
+  AND a.tenant_id = $2
+`
+
+type LockAdminForResetIssueParams struct {
+	AdminUserID uuid.UUID
+	TenantID    uuid.UUID
+}
+
+// SERIALISE ONE ADMINISTRATOR'S RECOVERY ISSUING (M10 EM-7C round 3, ADR 0022's
+// "EM-7C note").
+//
+// 🔴 ONE LIVE LINK PER ACCOUNT IS A READ-THEN-DECIDE, and without this it loses the way
+// the debounce and the invitation limits did (LockEmployeeForTap's and
+// LockTenantForInviteLimits' comments, measured there): N concurrent requests for the
+// same administrator all read "no live link" BEFORE any of them has committed, and
+// every one of them mints and sends. internal/adminauth takes this lock as the FIRST
+// statement of the transaction that reads the live links and mints, so the read each
+// request makes includes every link committed by the request that held the lock
+// before it (READ COMMITTED takes a fresh snapshot per statement; a transaction-scoped
+// advisory lock is released only after its COMMIT is visible). This is the
+// per-administrator lock CreatePasswordReset's CONCURRENCY LIMIT above names as the
+// way to close its concurrent case.
+//
+// THE KEY IS THE ADMINISTRATOR, NAMESPACED, and it is taken only for a row this tenant
+// can see: the lock is evaluated per row of the scoped SELECT, so an id that is not an
+// administrator of @tenant_id locks nothing (and CreatePasswordReset refuses it
+// anyway). The 'admin-reset:' prefix keeps the key apart from the tap debounce's
+// "<tenant>:<employee>" string and the invitation limits' 'invite-limits:' one; a hash
+// collision serialises two unrelated requests and never mixes their data.
+func (q *Queries) LockAdminForResetIssue(ctx context.Context, arg LockAdminForResetIssueParams) error {
+	_, err := q.db.Exec(ctx, lockAdminForResetIssue, arg.AdminUserID, arg.TenantID)
+	return err
+}
+
+const withdrawPasswordReset = `-- name: WithdrawPasswordReset :exec
+UPDATE password_resets
+SET cancelled_at = now()
+WHERE tenant_id = $1
+  AND id = $2
+  AND used_at IS NULL
+  AND cancelled_at IS NULL
+`
+
+type WithdrawPasswordResetParams struct {
+	TenantID uuid.UUID
+	ID       uuid.UUID
+}
+
+// RETIRE ONE LINK THAT WAS NEVER HANDED TO ANYBODY (M10 EM-7C round 3).
+//
+// 🔴 WHY IT EXISTS: since EM-7C a recovery request mints nothing while the account
+// already holds a LIVE link (internal/adminauth's IssueForEmail) — so a link that was
+// minted and then NOT delivered (the outbox full or closing, the breaker refusing, the
+// relay failing) would hold the account's one slot for the rest of its hour while no
+// inbox has it, and every request in that hour, the owner's own included, would be
+// answered with nothing. The recovery flow therefore withdraws every link it records
+// undelivered: the next request mints a fresh one. It is the same fail-closed rule
+// IssueForEmail states for minting — a link nobody can be given is a link that should
+// not exist.
+//
+// THIS FILE'S DISCIPLINE HOLDS: cancelled_at only moves from NULL to now(), and the
+// WHERE requires both used_at and cancelled_at IS NULL — a spent link stays spent and a
+// retired one keeps its first retirement time. Nothing is deleted (section 4.6); the
+// undelivered row in audit_log says why the link was retired.
+func (q *Queries) WithdrawPasswordReset(ctx context.Context, arg WithdrawPasswordResetParams) error {
+	_, err := q.db.Exec(ctx, withdrawPasswordReset, arg.TenantID, arg.ID)
+	return err
 }

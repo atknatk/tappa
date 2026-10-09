@@ -185,6 +185,11 @@ const storeDir = "internal/store"
 // M10 WL-8 (2026-10-03) added GetTenantPanelBrand, the panel chrome's per-request read:
 // the business's name (tenants.name) beside GetTenantBrand's brand fields without the
 // audit pair. No []byte field -- the same test pins its select list.
+//
+// M10 EM-7C (2026-10-09, db/queries/passwordresets.sql) added LockAdminForResetIssue
+// and WithdrawPasswordReset, the recovery flow's one-live-link-per-account rule: an
+// advisory lock keyed by the administrator and the retirement of a link recorded
+// undelivered. Neither carries a []byte field nor calls a definer.
 var storeSurface = map[string]string{
 	"AdvanceTagCounter":                  "(context.Context, AdvanceTagCounterParams{Ctr int32; TenantID uuid.UUID; Uid string}) (AdvanceTagCounterRow{Uid string; CtrGap int32}, error)",
 	"AppendPolicyVersion":                "(context.Context, AppendPolicyVersionParams{TenantID uuid.UUID; PolicyID uuid.UUID; VersionNo int32; Document []byte; CreatedBy *uuid.UUID}) (AppendPolicyVersionRow{ID uuid.UUID; VersionNo int32; CreatedAt time.Time}, error)",
@@ -289,6 +294,7 @@ var storeSurface = map[string]string{
 	"ListTagsForTenant":                "(context.Context, uuid.UUID) ([]ListTagsForTenantRow{Uid string; TenantID uuid.UUID; LocationID *uuid.UUID; LastCtr int32; Status string; RetiredAt *time.Time; ReplacedBy *string; CreatedAt time.Time; EncodedAt *time.Time}, error)",
 	"ListTapsTakenTogether":            "(context.Context, ListTapsTakenTogetherParams{TenantID uuid.UUID; MinDays int32; RowLimit int32; FromAt time.Time; ToAt time.Time; Zone string; WithinSeconds float64}) ([]ListTapsTakenTogetherRow{FirstEmployeeName *string; SecondEmployeeName *string; LocationName *string; Together int64; Days int64; ClosestSeconds int32}, error)",
 	"ListWorkedShiftEvents":            "(context.Context, ListWorkedShiftEventsParams{TenantID uuid.UUID; FromAt time.Time; UntilAt time.Time; RowLimit int32}) ([]ListWorkedShiftEventsRow{EmployeeID *uuid.UUID; OccurredAt time.Time; Type *string; Verdict string; Channel string; LocationID *uuid.UUID; ReviewOutcome *string; EmployeeName *string; LocationName *string; LocationShiftStart pgtype.Time; LocationShiftEnd pgtype.Time; LocationOvernight *bool; DepartmentShiftStart pgtype.Time; DepartmentShiftEnd pgtype.Time; DepartmentOvernight *bool}, error)",
+	"LockAdminForResetIssue":           "(context.Context, LockAdminForResetIssueParams{AdminUserID uuid.UUID; TenantID uuid.UUID}) (error)",
 	"LockEmployeeForEmailChange":       "(context.Context, LockEmployeeForEmailChangeParams{TenantID uuid.UUID; ID uuid.UUID}) (LockEmployeeForEmailChangeRow{ID uuid.UUID; Email *string}, error)",
 	"LockEmployeeForTap":               "(context.Context, LockEmployeeForTapParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (error)",
 	"LockTenantForInviteLimits":        "(context.Context, uuid.UUID) (error)",
@@ -319,6 +325,7 @@ var storeSurface = map[string]string{
 	"UpdateDepartment":                 "(context.Context, UpdateDepartmentParams{Name string; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; TenantID uuid.UUID; ID uuid.UUID}) (Department{ID uuid.UUID; TenantID uuid.UUID; LocationID uuid.UUID; Name string; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; CreatedAt time.Time}, error)",
 	"UpdateLocation":                   "(context.Context, UpdateLocationParams{Name string; StaticIps []netip.Prefix; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; WifiSsid *string; TenantID uuid.UUID; ID uuid.UUID}) (UpdateLocationRow{ID uuid.UUID; TenantID uuid.UUID; Name string; StaticIps []netip.Prefix; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; WifiSsid *string; CreatedAt time.Time}, error)",
 	"UpdateTenantAccount":              "(context.Context, UpdateTenantAccountParams{Name string; BusinessType string; Timezone string; TenantID uuid.UUID}) (UpdateTenantAccountRow{ID uuid.UUID; Name string; VatNumber string; BusinessType string; Timezone string; VatVerified *bool; VatCheckedAt *time.Time; CreatedAt time.Time}, error)",
+	"WithdrawPasswordReset":            "(context.Context, WithdrawPasswordResetParams{TenantID uuid.UUID; ID uuid.UUID}) (error)",
 	"WithTx":                           "(pgx.Tx) (*Queries)",
 }
 
@@ -824,12 +831,15 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// 125 -> 128 on 2026-10-09 (M10 EM-7B): invites.sql's LockTenantForInviteLimits,
 	// CountRecentInvites and GetInviteRecipient, the e-mail route's limits and address
 	// read; none calls a definer.
-	if named != 128 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; ONE HUNDRED AND TWENTY-EIGHT were "+
+	// 128 -> 130 on 2026-10-09 (M10 EM-7C): passwordresets.sql's LockAdminForResetIssue
+	// and WithdrawPasswordReset, the recovery flow's one live link per account; neither
+	// calls a definer.
+	if named != 130 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; ONE HUNDRED AND THIRTY were "+
 			"there when this was pinned (2026-10-09: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
 			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+
-			"+ EM-7B's three invitation e-mail queries). "+
+			"+ EM-7B's three invitation e-mail queries, + EM-7C's two recovery queries). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {

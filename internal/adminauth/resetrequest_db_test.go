@@ -40,13 +40,16 @@ func TestIssueForEmail_AnswersTheSameShapeWhateverItFinds(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := r.IssueForEmail(ctx, tc.email)
+			got, kept, err := r.IssueForEmail(ctx, tc.email)
 			if err != nil {
 				t.Fatalf("IssueForEmail: %v -- every arm has to answer the same way, and an "+
 					"error is a difference a caller can branch on", err)
 			}
 			if len(got) != tc.want {
 				t.Fatalf("got %d link(s), want %d", len(got), tc.want)
+			}
+			if len(kept) != 0 {
+				t.Fatalf("%d live link(s) kept on a first request; nothing was live yet", len(kept))
 			}
 		})
 	}
@@ -74,7 +77,7 @@ func TestIssueForEmail_DeliversToTheAddressOnTheRow(t *testing.T) {
 	}
 	newAdminRow(t, d, tenantID, stored, "p", "active", "owner", "Spelling")
 
-	grants, err := r.IssueForEmail(ctx, typed)
+	grants, _, err := r.IssueForEmail(ctx, typed)
 	if err != nil {
 		t.Fatalf("IssueForEmail: %v", err)
 	}
@@ -111,7 +114,7 @@ func TestIssueForEmail_MintsForTheSignInWindowAndNoWider(t *testing.T) {
 		tenants = append(tenants, tid)
 	}
 
-	grants, err := r.IssueForEmail(ctx, shared)
+	grants, _, err := r.IssueForEmail(ctx, shared)
 	if err != nil {
 		t.Fatalf("IssueForEmail: %v", err)
 	}
@@ -164,7 +167,7 @@ func TestIssueForEmail_SkipsDisabledIdentitiesWithoutFreeingTheirSlot(t *testing
 		active = append(active, tid)
 	}
 
-	grants, err := r.IssueForEmail(ctx, shared)
+	grants, _, err := r.IssueForEmail(ctx, shared)
 	if err != nil {
 		t.Fatalf("IssueForEmail: %v", err)
 	}
@@ -188,37 +191,49 @@ func TestIssueForEmail_SkipsDisabledIdentitiesWithoutFreeingTheirSlot(t *testing
 	}
 }
 
-// TestIssueForEmail_RetiresTheEarlierLinkAndSaysHowMany is ADR 0015's accepted harm
-// (a), made observable — which is the only defence the trail can offer against it.
-func TestIssueForEmail_RetiresTheEarlierLinkAndSaysHowMany(t *testing.T) {
+// TestIssueForEmail_KeepsTheLiveLinkAndRetiresNothing is ADR 0015's harm (a) on the
+// request path, CLOSED (M10 EM-7C). Before EM-7C this test was
+// "RetiresTheEarlierLinkAndSaysHowMany": the second request killed the first link
+// and the trail's retired_count was the only defence. Now a request that finds a live
+// link mints nothing, retires nothing and hands back the live link's record — however
+// many times it is asked (25 here, more than the 20 a day the per-mailbox counter of
+// EM-7C's second round allowed).
+func TestIssueForEmail_KeepsTheLiveLinkAndRetiresNothing(t *testing.T) {
 	d := testDB(t)
 	ctx := context.Background()
 	r := cheapResets(t, d)
-	tenantID := newTenantRow(t, d, "Recovery Retirement Ltd")
+	tenantID := newTenantRow(t, d, "Recovery Keeping Ltd")
 	email := randEmail(t)
-	newAdminRow(t, d, tenantID, email, "p", "active", "owner", "Victim")
+	victim := newAdminRow(t, d, tenantID, email, "p", "active", "owner", "Victim")
 
-	first, err := r.IssueForEmail(ctx, email)
-	if err != nil || len(first) != 1 {
-		t.Fatalf("first IssueForEmail: %v, %d link(s)", err, len(first))
+	first, kept, err := r.IssueForEmail(ctx, email)
+	if err != nil || len(first) != 1 || len(kept) != 0 {
+		t.Fatalf("first IssueForEmail: %v, %d link(s), %d kept", err, len(first), len(kept))
 	}
 	if got := first[0].Issued.Reset.RetiredCount; got != 0 {
 		t.Errorf("the first request retired %d link(s), want 0", got)
 	}
 
-	second, err := r.IssueForEmail(ctx, email)
-	if err != nil || len(second) != 1 {
-		t.Fatalf("second IssueForEmail: %v, %d link(s)", err, len(second))
+	for i := 0; i < 25; i++ {
+		again, kept, err := r.IssueForEmail(ctx, email)
+		if err != nil {
+			t.Fatalf("request %d: %v", i+2, err)
+		}
+		if len(again) != 0 {
+			t.Fatalf("request %d minted %d link(s) while the account held a live one -- every "+
+				"such mint retires the owner's pending link (harm (a)) and sends one more "+
+				"e-mail to the same inbox", i+2, len(again))
+		}
+		if len(kept) != 1 || kept[0].ID != first[0].Issued.Reset.ID || kept[0].AdminUserID != victim {
+			t.Fatalf("request %d kept %+v, want exactly the live link %v", i+2, kept, first[0].Issued.Reset.ID)
+		}
 	}
-	if got := second[0].Issued.Reset.RetiredCount; got != 1 {
-		t.Errorf("the second request retired %d link(s), want 1. That number is the only place "+
-			"ADR 0015's harm (a) becomes visible: an investigation reading 'requested, "+
-			"retired 1' a minute after 'requested, retired 0' is reading the attack.", got)
+	if ids := liveLinkIDs(t, d, tenantID, victim); len(ids) != 1 || ids[0] != first[0].Issued.Reset.ID {
+		t.Fatalf("live links after 25 more requests = %v, want only the first one", ids)
 	}
-	// AND THE FIRST LINK IS REALLY DEAD, which is the harm rather than the counter.
-	if _, _, err := r.Consume(ctx, first[0].Issued.Token, "a-brand-new-password"); err == nil {
-		t.Error("the superseded link still worked; the counter above would then be describing " +
-			"something that did not happen")
+	// AND THE FIRST LINK REALLY WORKS, which is the property rather than the count.
+	if _, _, err := r.Consume(ctx, first[0].Issued.Token, "a-brand-new-password"); err != nil {
+		t.Errorf("the owner's link was unusable after 25 requests by somebody else: %v", err)
 	}
 }
 

@@ -42,6 +42,21 @@ import "time"
 // after a newer one was issued) and chose retirement. The residual is accepted there
 // and bounded here; neither file claims it is gone.
 //
+// 🔴 M10 EM-7C CLOSED IT ON THIS PATH, AND WITH NEITHER OF THE TWO SHAPES ABOVE.
+// Issuing still retires siblings (CreatePasswordReset is unchanged), but the request
+// path no longer issues while a live link exists: adminauth.IssueForEmail mints only
+// for an account that holds no live link, under a per-administrator lock. A request
+// that finds the owner's pending link leaves it spendable, so harm (a) cannot START
+// from this form any more. And the rule is keyed on the LINK's own state, not on a
+// count of e-mails, so it is not the email-keyed gate eliminated above: the moment
+// the owner's link stops being spendable (spent, expired, or withdrawn because it
+// was never delivered) the next request — anybody's — mints a fresh one to the
+// owner's row (TestIssueForEmail_NeverLeavesAWindowWithoutALiveLinkOrAWayToGetOne).
+// EM-7C's second round had put a per-mailbox send counter here, and a security audit
+// measured in it exactly the recovery denial the first row of the table describes;
+// it was removed. What the request ceiling below bounds now is load and repetition,
+// not harm (a).
+//
 // 🔴 THE CARD PUTS BOTH HARMS ON ONE ENDPOINT AND THEY ARE ON TWO. Harm (a) is
 // produced by Issue, on the REQUEST endpoint; harm (b) — a full cost-12 bcrypt paid
 // before the token is even looked up — is produced by Consume, on the SET-A-NEW-ONE
@@ -82,7 +97,9 @@ import "time"
 // the trail MORE complete.
 const (
 	// adminResetRequestLimit / adminResetRequestPeriod: how many recovery REQUESTS
-	// one address may make per window. It is the ceiling that bounds harm (a).
+	// one address may make per window. It was the ceiling that bounded harm (a)
+	// until M10 EM-7C closed harm (a) on this path (one live link per account, above);
+	// it bounds load and repetition.
 	//
 	// DERIVED FROM OPERATOR BEHAVIOUR, the way every budget in adminratelimit.go is:
 	//
@@ -93,7 +110,10 @@ const (
 	// per identity inside adminauth.ResetWindow, TWO tenant-scoped transactions: the
 	// address read and the fused insert-and-retire. So the DATABASE OPERATION count is
 	// 1 + 2k — three at this database's median (one identity per address) and
-	// seventeen at a full window. MEASURED end to end over real HTTP (the probe at
+	// seventeen at a full window. (Since M10 EM-7C the second transaction first takes
+	// the administrator's lock and reads the live links, and inserts only when there
+	// is none: the transaction count is unchanged, two statements are added, and the
+	// figures below predate them.) MEASURED end to end over real HTTP (the probe at
 	// resetRequestFloor below): 1.4-2.6 ms for k=0, 9.9-14.4 ms for k=1 and
 	// 60-64 ms for k=8, medians of three runs.
 	//
@@ -106,9 +126,11 @@ const (
 	// Ten is what one shared office needs; twenty is that with the one retry a person
 	// actually makes. Below ten the office case starts losing.
 	//
-	// WHY IT IS NOT HIGHER: every unit is one more pending link an attacker can
-	// extinguish, and 20 per window per address is already 2 880 per day from a
-	// single source — loud, and far past anything a person does.
+	// WHY IT IS NOT HIGHER: before M10 EM-7C every unit was one more pending link an
+	// attacker could extinguish; now it is one more resolver read, k lock-and-read
+	// transactions and up to k "kept" rows inside each account's audit budget — and
+	// 20 per window per address is already 2 880 per day from a single source, loud
+	// and far past anything a person does.
 	//
 	// ⚠️ IT REFUSES BEFORE ANY DATABASE WORK AND IT REFUSES EQUALLY. The screen a
 	// refused request gets is the SAME rate-limit screen the panel already serves,
@@ -116,11 +138,12 @@ const (
 	// checked before the address is resolved, so a refusal cannot answer the question
 	// the flow spends the rest of its length refusing to answer.
 	//
-	// ⚠️ IT IS ALSO THE ONLY LIMIT ON HOW MANY RESET E-MAILS ONE RECIPIENT RECEIVES,
-	// and only per source address: the account budget bounds audit rows, not sends,
-	// the outbox's one worker bounds all sends together rather than one recipient's
-	// share, and a distributed source is not bounded at all. No per-recipient ceiling
-	// exists (ADR 0022 EM-5A note, limit 13).
+	// ⚠️ IT IS NO LONGER THE LIMIT ON HOW MANY RESET E-MAILS ONE RECIPIENT RECEIVES
+	// (it was, per source address only, until M10 EM-7C — ADR 0022 EM-5A note, limit
+	// 13). One live link per account bounds an ACCOUNT to one recovery e-mail per
+	// adminauth.ResetTTL from any number of sources, and a MAILBOX to that times the
+	// accounts folding into it — "+tag" addresses and other businesses' spellings,
+	// each an account somebody had to sign up (ADR 0022 EM-7C note).
 	adminResetRequestLimit  = 20
 	adminResetRequestPeriod = 10 * time.Minute
 

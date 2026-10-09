@@ -17,6 +17,7 @@ import (
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/internal/invite"
+	"github.com/atknatk/tappa/internal/mail"
 	"github.com/atknatk/tappa/web/templates/email"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
@@ -80,19 +81,58 @@ import (
 //   - the construction matches the mode both ways —
 //     TestNewAdminAuth_TheInvitationModeMatchesTheConfiguration; a base URL the e-mail
 //     cannot carry, and a nil sender, are refused at boot —
-//     TestNewEmailInvitations_RefusesWhatItCannotBuild.
+//     TestNewEmailInvitations_RefusesWhatItCannotBuild;
+//   - THE PER-MAILBOX CAP (M10 EM-7C): with the employee's mailbox full (filled in
+//     other spellings, through the real mail.RecipientCap the panel is given), a press
+//     answers 429 with its sentence, mints nothing (the earlier link still works),
+//     dials no relay, writes one invite.email_refused row with reason recipient_limit
+//     and no address, logs no address, and carries no "/activate?code="; an hour later
+//     the same press is sent — TestInviteEmailDB_ACappedMailboxIsRefusedBeforeAnythingIsMinted;
+//     the sink asks the cap about the address and the press's business and counts
+//     the send under that business — TestInviteEmail_TheSinkAsksTheCapAboutTheAddressOnly;
+//     one business's invitations never decide another's, both ways: business A's five
+//     invitations to an inbox leave business B's press to it SENT, and B's five leave
+//     A's next one SENT once A's own count frees —
+//     TestInviteEmailDB_OneBusinessesInvitationsNeverDecideAnothers (round 2 counted
+//     every business together, and A's presses told B that some other business invites
+//     this person; ADR 0022's EM-7C note); the cap met AT THE SEND (minted, then the
+//     last slot taken) answers its own sentence, not "a few minutes" —
+//     TestInviteEmail_EveryOutcomeIsASentenceAndNoneCarriesALink. Recovery links are
+//     not counted here at all: their ceiling is one live link per account
+//     (internal/adminauth).
 //
 // PART II — the named pins and what each catches are the M10 EM-7B card's mutation
-// table (ADR 0022's "EM-7B notu" lists them).
+// table (ADR 0022's "EM-7B notu" lists them) and, for the per-mailbox cap, the M10
+// EM-7C card's (its "EM-7C notu"): the sink not asking the cap, the cap's refusal
+// answered 200, the question removed from the minting transaction, asked after its
+// commit, or asked about another value — each red.
 //
 // PART III — Any form not listed above is the subject of code review — no
 // completeness claim.
+
+// inviteSender is what the invitation route needs from the ceilings around the
+// transport (ADR 0022 §9): Send — refusable by the per-mailbox cap and by the breaker,
+// counted under the business that pressed (scope) — and the cap's question for that
+// business and mailbox, asked inside the minting transaction (M10 EM-7C, K7C-5).
+// Declared here, at the consumer; *mail.RecipientCap has both, the breaker and the
+// bare transport do not, so the route cannot be built around the cap.
+//
+// 🔴 THE SCOPE IS THE BUSINESS (EM-7C round 3): another business's invitations to the
+// same inbox are not counted, so one business's presses can neither refuse another's
+// nor tell it that someone else invites this person. And recovery links are not
+// counted here at all — the reset channel is given the breaker, not this cap.
+type inviteSender interface {
+	Send(ctx context.Context, scope string, m mail.Message) (mail.Receipt, error)
+	Capped(scope, to string) bool
+}
+
+var _ inviteSender = (*mail.RecipientCap)(nil)
 
 // EmailInvitations is the invitation e-mail transport as the panel holds it: the
 // relay and the configured base the e-mail's one link must sit under. It holds no
 // per-request state; each press builds its own emailLinkSink around it.
 type EmailInvitations struct {
-	sender  mailSender
+	sender  inviteSender
 	baseURL string
 }
 
@@ -107,10 +147,11 @@ const inviteProbeValue = "probe"
 // the e-mail's base rule does not start and mint invitations it can never send.
 //
 // sender is the consumer-side interface, not a concrete type: cmd/tappa gives it the
-// ONE mail.Breaker (EM-7A) around the ONE transport, the same value the reset channel
-// gets, and this route calls only its Send — an invitation is counted and, while the
-// breaker is open, refused.
-func NewEmailInvitations(sender mailSender, baseURL string) (*EmailInvitations, error) {
+// ONE mail.RecipientCap (EM-7C) around the ONE mail.Breaker (EM-7A) around the ONE
+// transport — the reset channel gets that breaker directly, not the cap — and this
+// route calls its Send under the pressing business — an invitation is counted by both
+// ceilings and refused by either — and its Capped, before anything is minted.
+func NewEmailInvitations(sender inviteSender, baseURL string) (*EmailInvitations, error) {
 	if isNil(sender) {
 		return nil, errors.New("handler: nil invitation e-mail sender")
 	}
@@ -198,7 +239,9 @@ func (s *emailLinkSink) SendInvitation(ctx context.Context, d invite.Delivery) (
 	}
 	m.To = d.Recipient.Address
 	m.Ref = d.Invite.ID.String()
-	receipt, err := s.mail.sender.Send(ctx, m)
+	// Counted under the business that minted it — the scope RecipientCapped was asked
+	// with inside the minting transaction (invite.MailSink).
+	receipt, err := s.mail.sender.Send(ctx, d.Invite.TenantID.String(), m)
 	if err != nil {
 		return "", err
 	}
@@ -207,6 +250,14 @@ func (s *emailLinkSink) SendInvitation(ctx context.Context, d invite.Delivery) (
 		"invite_id", d.Invite.ID, "message_id", receipt.MessageID)
 	s.to, s.sent = d.Recipient.Address, true
 	return receipt.MessageID, nil
+}
+
+// RecipientCapped asks the per-mailbox cap whether an invitation from business
+// tenantID to address would be refused now — that business's count only
+// (invite.MailSink's question, M10 EM-7C). The address goes to the cap and nowhere
+// else.
+func (s *emailLinkSink) RecipientCapped(tenantID uuid.UUID, address string) bool {
+	return s.mail.sender.Capped(tenantID.String(), address)
 }
 
 // The owner's fallback travels as ONE extra field on the invite form (ADR 0022 §7,
@@ -262,9 +313,12 @@ func mayShowInviteLink(id httpx.AdminIdentity) bool {
 //
 //	sent                               200, "sent to <address>, works for N days"
 //	an address refusal (four)          200, its sentence; nothing minted
-//	a limit (three)                    429, its sentence; nothing minted
+//	a limit (three) or the mailbox's   429, its sentence; nothing minted
+//	  cap (M10 EM-7C)
 //	minted, not confirmed sent         503, "may not have gone out — try again in a
 //	                                     few minutes"
+//	minted, then the mailbox's cap     503, "created but not emailed — the limit
+//	  met at the send (EM-7C round 2)    frees within an hour, or a day"
 //	the transaction failed             500, the panel's problem page
 //
 // 503 FOR "MAY NOT HAVE GONE OUT" (EM-7B round 3), the panel's precedent for an outside
@@ -284,12 +338,14 @@ func (a *AdminAuth) employeeInviteByEmail(w http.ResponseWriter, r *http.Request
 	}
 	id := httpx.AdminOf(r)
 	view := pages.InviteEmailedView{
-		PanelChrome:       a.chrome(r, pages.TabEmployees),
-		Name:              person.Name,
-		PersonLimit:       invite.EmployeeHourLimit,
-		BusinessHourLimit: invite.TenantHourLimit,
-		BusinessDayLimit:  invite.TenantDayLimit,
-		BackHref:          rosterReturn(f, person.ID, "", ""),
+		PanelChrome:        a.chrome(r, pages.TabEmployees),
+		Name:               person.Name,
+		PersonLimit:        invite.EmployeeHourLimit,
+		BusinessHourLimit:  invite.TenantHourLimit,
+		BusinessDayLimit:   invite.TenantDayLimit,
+		RecipientHourLimit: mail.RecipientHourLimit,
+		RecipientDayLimit:  mail.RecipientDayLimit,
+		BackHref:           rosterReturn(f, person.ID, "", ""),
 	}
 	// PER-REQUEST, ON THE STACK — panelLinkSink's rule: the sink holds the address it
 	// sent to, and a shared one would name one manager's recipient on another's screen.
@@ -317,7 +373,8 @@ func (a *AdminAuth) employeeInviteByEmail(w http.ResponseWriter, r *http.Request
 		}
 		view.Outcome = reason
 		status := http.StatusOK
-		if errors.Is(err, invite.ErrEmployeeHourLimit) || errors.Is(err, invite.ErrTenantHourLimit) || errors.Is(err, invite.ErrTenantDayLimit) {
+		if errors.Is(err, invite.ErrEmployeeHourLimit) || errors.Is(err, invite.ErrTenantHourLimit) ||
+			errors.Is(err, invite.ErrTenantDayLimit) || errors.Is(err, invite.ErrRecipientCapped) {
 			status = http.StatusTooManyRequests
 		}
 		a.renderPanel(w, r, status, view.PanelChrome, pages.AdminInviteEmailed(view))
@@ -339,6 +396,15 @@ func (a *AdminAuth) employeeInviteByEmail(w http.ResponseWriter, r *http.Request
 		// for — without blaming the address or the manager.
 		a.logUnsentInvitation(r.Context(), id.TenantID(), person.ID, inv.ID, sink.sent, err)
 		view.Outcome = "unsent"
+		// THE MAILBOX FILLED BETWEEN THE QUESTION AND THE SEND (M10 EM-7C round 2): the
+		// minting transaction found room, another of this business's invitations to the
+		// same inbox took the last slot before this one went. Its own sentence, because "try again in a few
+		// minutes" would be wrong — the slot frees within the hour, or the day at the
+		// daily line — and, like every sentence here, it blames neither the address nor
+		// the manager.
+		if class, _, ok := sendErrorClass(err); ok && !sink.sent && class == string(mail.ClassRecipientCap) {
+			view.Outcome = "unsent-recipient-limit"
+		}
 		a.renderPanel(w, r, http.StatusServiceUnavailable, view.PanelChrome, pages.AdminInviteEmailed(view))
 		return
 	}

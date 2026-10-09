@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -32,16 +33,31 @@ import (
 	"github.com/atknatk/tappa/web/templates/components"
 )
 
-// fakeMailSender is a mailSender that records and answers as told.
+// fakeMailSender is an inviteSender that records and answers as told. capped is its
+// answer to the per-mailbox cap's question (M10 EM-7C); asked and askedScopes are what
+// it was asked about, sentScopes the scope each send was counted under.
 type fakeMailSender struct {
-	mu   sync.Mutex
-	sent []mail.Message
-	err  error
+	mu          sync.Mutex
+	sent        []mail.Message
+	err         error
+	capped      bool
+	asked       []string
+	askedScopes []string
+	sentScopes  []string
 }
 
-func (f *fakeMailSender) Send(_ context.Context, m mail.Message) (mail.Receipt, error) {
+func (f *fakeMailSender) Capped(scope, to string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.asked = append(f.asked, to)
+	f.askedScopes = append(f.askedScopes, scope)
+	return f.capped
+}
+
+func (f *fakeMailSender) Send(_ context.Context, scope string, m mail.Message) (mail.Receipt, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sentScopes = append(f.sentScopes, scope)
 	if f.err != nil {
 		return mail.Receipt{}, f.err
 	}
@@ -133,12 +149,12 @@ func TestNewAdminAuth_TheInvitationModeMatchesTheConfiguration(t *testing.T) {
 // URL the invitation e-mail cannot carry (plain http off loopback, no host), are refused
 // at boot; a good base and a loopback http base are accepted.
 func TestNewEmailInvitations_RefusesWhatItCannotBuild(t *testing.T) {
-	var typedNil *mail.SMTP
+	var typedNil *mail.RecipientCap
 	if _, err := NewEmailInvitations(nil, testBaseURL); err == nil {
 		t.Error("a nil sender was accepted")
 	}
 	if _, err := NewEmailInvitations(typedNil, testBaseURL); err == nil {
-		t.Error("a typed-nil *mail.SMTP was accepted")
+		t.Error("a typed-nil *mail.RecipientCap was accepted")
 	}
 	for _, base := range []string{"http://panel.example.test", "https://", "ftp://panel.example.test"} {
 		if _, err := NewEmailInvitations(&fakeMailSender{}, base); err == nil {
@@ -179,6 +195,17 @@ func TestInviteEmail_EveryOutcomeIsASentenceAndNoneCarriesALink(t *testing.T) {
 			[]string{"The email may not have gone out", "Try again from their card", "has already stopped working"}},
 		{"breaker open", nil, &mail.SendError{Class: mail.Class("breaker")}, http.StatusServiceUnavailable,
 			[]string{"The email may not have gone out", "Try again from their card"}},
+		// M10 EM-7C: the per-mailbox cap, asked before the mint (a refusal) and met at
+		// the send after it (a race — minted, not sent).
+		{"recipient cap", wrap(invite.ErrRecipientCapped), nil, http.StatusTooManyRequests,
+			[]string{"Too many invitations to that address for now", "Nothing was sent and no link was created",
+				"This business can send one inbox at most", "5 invitations an hour and 20 a",
+				"the inbox at the address on file for Maria Borg has had that many from it", "Try again later"}},
+		// EM-7C round 2: the cap met at the send has its own sentence — not "a few
+		// minutes" (the slot frees within the hour, or the day).
+		{"recipient cap at the send", nil, &mail.SendError{Class: mail.ClassRecipientCap}, http.StatusServiceUnavailable,
+			[]string{"The invitation was created but not emailed", "reached the most invitations this business can",
+				"5 an hour and 20 a day", "has no working link", "within an hour, or within a", "day if the daily limit was reached"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			staff := &fakeStaff{}
@@ -219,6 +246,9 @@ func TestInviteEmail_EveryOutcomeIsASentenceAndNoneCarriesALink(t *testing.T) {
 						t.Errorf("a limit sentence says %q", w)
 					}
 				}
+			}
+			if tc.name == "recipient cap at the send" && strings.Contains(body, "few minutes") {
+				t.Error("the cap met at the send says \"a few minutes\"; its slot frees within the hour, or the day")
 			}
 			if strings.Contains(body, "/activate?code=") || strings.Contains(body, "FAKEemailCODEvalue") {
 				t.Error("the e-mail mode's page carries the activation link")
@@ -525,5 +555,58 @@ func TestInviteEmail_AShowRefusalIsRecordedWhenTheVisitorLeaves(t *testing.T) {
 	b.h.ServeHTTP(httptest.NewRecorder(), req)
 	if n := trail.count(ActionInviteShowRefused); n != 1 {
 		t.Errorf("%d invite.show_refused row(s) for a request whose visitor left, want 1", n)
+	}
+}
+
+// TestInviteEmail_TheSinkAsksTheCapAboutTheAddressOnly is the seam M10 EM-7C adds to the
+// invitation route: the per-press sink answers internal/invite's question by asking the
+// per-mailbox cap about exactly the address it is given, FOR THE BUSINESS it is given
+// (EM-7C round 3: the cap is counted per business and mailbox) — asking sends nothing —
+// and a send is counted under the business that minted the invitation.
+func TestInviteEmail_TheSinkAsksTheCapAboutTheAddressOnly(t *testing.T) {
+	const address = "Maria.ZQ7.Borg+Shift@Example.test"
+	business := uuid.New()
+	sender := &fakeMailSender{capped: true}
+	transport, err := NewEmailInvitations(sender, testBaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &emailLinkSink{mail: transport, log: discardLogger()}
+	if !s.RecipientCapped(business, address) {
+		t.Error("the sink says false while the cap says true")
+	}
+	sender.mu.Lock()
+	sender.capped = false
+	sender.mu.Unlock()
+	if s.RecipientCapped(business, address) {
+		t.Error("the sink says true while the cap says false")
+	}
+	sender.mu.Lock()
+	if len(sender.asked) != 2 || sender.asked[0] != address || sender.asked[1] != address {
+		t.Errorf("the cap was asked about %q, want exactly the address the sink was given, twice", sender.asked)
+	}
+	if len(sender.askedScopes) != 2 || sender.askedScopes[0] != business.String() || sender.askedScopes[1] != business.String() {
+		t.Errorf("the cap was asked for scopes %q, want the business %s both times", sender.askedScopes, business)
+	}
+	if len(sender.sent) != 0 {
+		t.Errorf("asking sent %d message(s)", len(sender.sent))
+	}
+	sender.mu.Unlock()
+
+	// THE SEND IS COUNTED UNDER THE INVITATION'S OWN BUSINESS — the scope the question
+	// was asked with inside the minting transaction.
+	created := time.Now()
+	inv := invite.Invite{ID: uuid.New(), TenantID: business, EmployeeID: uuid.New(), CreatedAt: created, ExpiresAt: created.Add(72 * time.Hour)}
+	if _, err := s.SendInvitation(context.Background(), invite.Delivery{
+		Invite:        inv,
+		ActivationURL: testBaseURL + "/activate?code=FAKEemailCODEvalue",
+		Recipient:     invite.Recipient{Address: "maria.borg@example.test", EmployeeName: "Maria Borg"},
+	}); err != nil {
+		t.Fatalf("SendInvitation: %v", err)
+	}
+	sender.mu.Lock()
+	defer sender.mu.Unlock()
+	if len(sender.sentScopes) != 1 || sender.sentScopes[0] != business.String() {
+		t.Errorf("the send was counted under %q, want the invitation's business %s", sender.sentScopes, business)
 	}
 }

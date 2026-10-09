@@ -271,7 +271,8 @@ func (m *Manager) IssueAndDeliver(ctx context.Context, p IssueParams, ch Channel
 	// THE E-MAIL ROUTE (M10 EM-7B) IS THE ONE CHANNEL THE TRANSACTION KNOWS ABOUT, and
 	// it adds two steps to it and changes nothing else: the issuing limits are counted
 	// FIRST, under the business's lock (checkLimits); and the address is read LAST,
-	// after CreateInvite, with its four refusals (readRecipient). A refusal of either
+	// after CreateInvite, with its four refusals (readRecipient) and then the
+	// per-mailbox cap's question (M10 EM-7C, ErrRecipientCapped). A refusal of either
 	// rolls the whole transaction back — no row, no retired sibling — and is recorded
 	// afterwards as invite.email_refused. Every other channel takes exactly the
 	// transaction below without those steps.
@@ -324,6 +325,15 @@ func (m *Manager) IssueAndDeliver(ctx context.Context, p IssueParams, ch Channel
 		switch {
 		case toOwnAddress:
 			to, e = readRecipient(ctx, q, p)
+			// THE PER-MAILBOX CAP IS ASKED HERE, STILL INSIDE THE TRANSACTION (M10 EM-7C,
+			// K7C-5): a full mailbox rolls the press back like any refusal — no row, no
+			// retired sibling, the earlier link still alive. After the four address
+			// refusals, because "this is not an address we can send to" is the truer
+			// sentence when both hold. FOR THIS BUSINESS ONLY (EM-7C round 3): another
+			// business's invitations to the same inbox never decide this press.
+			if e == nil && mailCh.sink.RecipientCapped(p.TenantID, to.Address) {
+				e = ErrRecipientCapped
+			}
 		case p.OnlyWithoutAddress:
 			e = requireNoAddress(ctx, q, p)
 		}

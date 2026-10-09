@@ -54,6 +54,14 @@ const (
 	// Decided before any dial and before the message is looked at, so it carries no
 	// reply code, and nothing reached the relay.
 	ClassBreaker Class = "breaker"
+	// ClassRecipientCap: the per-mailbox cap (RecipientCap, ADR 0022's EM-7C note)
+	// refused the send because the recipient's mailbox — the address in lower case,
+	// without a "+tag" — was already sent RecipientHourLimit messages OF THE SAME SCOPE
+	// (the invitation route's scope is the business) in the last RecipientHourWindow,
+	// or RecipientDayLimit in the last RecipientDayWindow. Decided before the breaker
+	// and before any dial, so it carries no reply code, nothing reached the relay and
+	// the breaker counted nothing.
+	ClassRecipientCap Class = "recipient_cap"
 )
 
 // SendError is the only error Send returns for a send that was attempted or

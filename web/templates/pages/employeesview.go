@@ -184,8 +184,10 @@ type InviteEmailedView struct {
 
 	// Name is the person the invitation is for.
 	Name string
-	// Outcome is one of the closed set the handler writes: "sent", "unsent", one of
-	// internal/invite's refusal reasons, "show-not-permitted" or "show-has-address".
+	// Outcome is one of the closed set the handler writes: "sent", "unsent",
+	// "unsent-recipient-limit" (M10 EM-7C: minted, then the mailbox's cap met at the
+	// send), one of internal/invite's refusal reasons, "show-not-permitted" or
+	// "show-has-address".
 	Outcome string
 	// Address is where the e-mail went — the address the relay accepted, read in the
 	// transaction that minted the code. It is set only for "sent" and is personal
@@ -200,6 +202,11 @@ type InviteEmailedView struct {
 	PersonLimit       int
 	BusinessHourLimit int
 	BusinessDayLimit  int
+	// RecipientHourLimit and RecipientDayLimit are internal/mail's per-mailbox cap (M10
+	// EM-7C) — per business and mailbox — printed by the "recipient_limit" and
+	// "unsent-recipient-limit" sentences for the same reason.
+	RecipientHourLimit int
+	RecipientDayLimit  int
 	// BackHref returns to the person's card on the roster the manager came from.
 	BackHref string
 }
@@ -218,6 +225,8 @@ func inviteEmailedHeading(v InviteEmailedView) string {
 		return "Too many invitations for " + v.Name
 	case "business_hourly_limit", "business_daily_limit":
 		return "This business has reached its invitation limit for now"
+	case "recipient_limit":
+		return "Too many invitations to that address for now"
 	case "show-has-address":
 		return v.Name + " has an address now"
 	default:

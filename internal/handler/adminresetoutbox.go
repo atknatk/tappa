@@ -18,7 +18,7 @@ import (
 // A real relay conversation (TLS + AUTH + DATA) can take seconds, so a synchronous
 // send made a registered address measurably slower than an unregistered one — the
 // enumeration question the whole request form refuses to answer, answered by the
-// clock. Here the request MINTS synchronously (IssueForEmail, unchanged) and hands
+// clock. Here the request MINTS synchronously (IssueForEmail) and hands
 // each grant to a bounded, in-process outbox WITHOUT BLOCKING; one worker goroutine
 // sends, then writes the grant's one outcome row. The response no longer depends on
 // the send at all.
@@ -118,8 +118,10 @@ import (
 //     TestResetOutbox_AnEndedStopperEndsTheContextAtOnce;
 //   - a FULL outbox's 33 rows, written by the real audit recorder into real
 //     Postgres after the sends stop, fit ResetDrainWriteReserve (measured 116–184 ms
-//     by the builder and 150–294 ms by the auditor, under -race and load) —
-//     TestResetOutboxDB_AFullOutboxFitsTheWriteReserve;
+//     by the builder and 150–294 ms by the auditor, under -race and load) — and since
+//     M10 EM-7C each row is preceded by its link's withdrawal through the real
+//     adminauth.Resets.Withdraw, and the two together still fit (180–512 ms, three
+//     runs under -race) — TestResetOutboxDB_AFullOutboxFitsTheWriteReserve;
 //   - the drain runs AT THE SAME TIME as the HTTP drain: with a 2 s request in
 //     flight and a send stuck in the relay, the listener refused a new connection
 //     about 0.2 ms after shutdown() was called (bound 300 ms) and the sequence took
@@ -191,7 +193,10 @@ import (
 //
 // COUNTED LIMITS: a process that DIES (SIGKILL, OOM, a panic outside a grant)
 // loses the outbox: up to resetOutboxSize grants plus the one in flight end with NO
-// row (ADR 0022 counted limit 1 — the link may already be in a mailbox); a send whose
+// row (ADR 0022 counted limit 1 — the link may already be in a mailbox) and, since
+// M10 EM-7C, with no withdrawal either, so each of those accounts keeps a live link no
+// inbox may hold and gets no new one until it expires (adminauth.ResetTTL; the EM-7C
+// note's limit 8) — the same for rows a spent drain budget abandons; a send whose
 // 250 was written by the relay but not read before a cancellation, and a panic
 // between the 250 and the row, record undelivered for a link that went (counted limit
 // 15); a panic INSIDE the audit writer leaves 0 or 1 row, unknown (the row's write
@@ -206,9 +211,13 @@ import (
 // breaker's question is a SHARPER form of the queue's fate channel below (ADR 0022
 // EM-7A note, limit 13 — measured): an attacker who fills the window with his own
 // sends, then asks for a target's address and right after for his own the moment the
-// one slot he knows is freeing frees, learns from whether HIS link arrives (and from
-// the breaker's reason in his own tenant's trail) whether the target is registered —
-// a precondition of switching the ConfigMap to "email" (EM-5B (c)), not closed here.
+// one slot he knows is freeing frees, learns from whether HIS link arrives whether
+// the target is registered — a precondition of switching the ConfigMap to "email"
+// (EM-5B (c)), accepted by the user's decision (ADR 0022 EM-7C note), not closed
+// here. (This sentence used to add "and from the breaker's reason in his own
+// tenant's trail": no surface lets a tenant read an admin.recovery.* row today —
+// the only tenant-facing audit reads are the plaque history and the
+// removal-confirmation query — so the trail is not a channel; the arrival is.)
 //
 // NOT MEASURED, AND OUTSIDE PART I's TIMING CLAIM (ADR 0022 EM-5A note, limits 12
 // and 14): this queue is ONE FIFO shared by every requester, so a requester's own
@@ -392,6 +401,14 @@ func boundedBy(base context.Context, d time.Duration, stopper context.Context) (
 // request still in flight during shutdown runs inside the HTTP drain
 // (httpShutdownGrace), which outlasts the outbox's: tying this row to the drain's
 // spent budget would drop it while the pool is still open.
+//
+// ⚠️ SINCE M10 EM-7C THE ROW IS PRECEDED BY THE LINK'S WITHDRAWAL (recordOutcome), ON
+// THE SAME REQUEST: every grant refused here — breaker, full outbox, closing outbox —
+// costs the request two transactions before its floor ends, on registered addresses
+// only; a full adminauth.ResetWindow is eight of each. Measured against real Postgres
+// (the real Withdraw and audit recorder): the answer stays inside [floor, floor+50ms]
+// — TestResetOutboxDB_TheFallbackWithdrawalsStayUnderTheFloor. It is the shape of the
+// fallback row itself (ADR 0022 EM-5A note, limit 14; the EM-7C note's limit 9).
 func (h *AdminReset) dispatch(r *http.Request, ip string, g adminauth.ResetGrant) {
 	base := context.WithoutCancel(r.Context())
 	if h.mail.RefusingResets() {

@@ -37,6 +37,12 @@ type fakeResets struct {
 	// grantsFor decides what an address resolves to. A nil entry means "no active
 	// administrator", which is the unregistered arm.
 	grantsFor map[string][]adminauth.ResetGrant
+	// keptFor is the live links an address's accounts already hold (M10 EM-7C): the
+	// accounts IssueForEmail mints nothing for.
+	keptFor map[string][]adminauth.Reset
+	// withdrawn is every link Withdraw was asked to retire, and withdrawErr its answer.
+	withdrawn   []uuid.UUID
+	withdrawErr error
 	// issueDelay is how long IssueForEmail takes for an address that resolves. It
 	// exists so the timing test measures a real inequality rather than a hoped-for
 	// one.
@@ -70,19 +76,32 @@ func (f *fakeResets) NoticeRecipient(_ context.Context, _, adminUserID uuid.UUID
 	return f.recipients[adminUserID], nil
 }
 
-func (f *fakeResets) IssueForEmail(_ context.Context, email string) ([]adminauth.ResetGrant, error) {
+func (f *fakeResets) IssueForEmail(_ context.Context, email string) ([]adminauth.ResetGrant, []adminauth.Reset, error) {
 	f.mu.Lock()
 	f.issueCalls++
 	f.issuedFor = append(f.issuedFor, email)
-	delay, err, grants := f.issueDelay, f.issueErr, f.grantsFor[email]
+	delay, err, grants, kept := f.issueDelay, f.issueErr, f.grantsFor[email], f.keptFor[email]
 	f.mu.Unlock()
 	if delay > 0 {
 		time.Sleep(delay)
 	}
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return grants, nil
+	return grants, kept, nil
+}
+
+func (f *fakeResets) Withdraw(_ context.Context, _, resetID uuid.UUID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.withdrawn = append(f.withdrawn, resetID)
+	return f.withdrawErr
+}
+
+func (f *fakeResets) withdrawals() []uuid.UUID {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]uuid.UUID(nil), f.withdrawn...)
 }
 
 func (f *fakeResets) Consume(_ context.Context, t adminauth.ResetToken, newPassword string) (adminauth.ConsumedReset, db.ResolvedPasswordReset, error) {

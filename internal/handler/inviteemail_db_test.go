@@ -40,13 +40,29 @@ import (
 	"github.com/atknatk/tappa/internal/mail"
 )
 
+// cappedRelay is the invitation route's sender as cmd/tappa builds it: the real
+// mail.SMTP talking to relay, behind a real breaker and the per-mailbox cap (M10 EM-7C).
+func cappedRelay(t *testing.T, relay *fakeRelay, user, pass string) *mail.RecipientCap {
+	t.Helper()
+	b, err := mail.NewBreaker(relay.sender(t, user, pass, 5*time.Second), mail.BreakerConfig{Log: discardLogger()})
+	if err != nil {
+		t.Fatalf("mail.NewBreaker: %v", err)
+	}
+	c, err := mail.NewRecipientCap(b)
+	if err != nil {
+		t.Fatalf("mail.NewRecipientCap: %v", err)
+	}
+	return c
+}
+
 // emailHarness is the panel harness in the e-mail mode, its transport the real
-// mail.SMTP talking to relay.
+// mail.SMTP talking to relay, behind a real breaker and per-mailbox cap (the shape
+// cmd/tappa builds).
 func emailHarness(t *testing.T, relay *fakeRelay, o panelHarnessOptions) (p *panelHarness, user, pass string) {
 	t.Helper()
 	user, pass = relayCredentials(t)
 	o.invitations = func(t *testing.T, cfg *config.Config) *EmailInvitations {
-		inv, err := NewEmailInvitations(relay.sender(t, user, pass, 5*time.Second), cfg.BaseURL)
+		inv, err := NewEmailInvitations(cappedRelay(t, relay, user, pass), cfg.BaseURL)
 		if err != nil {
 			t.Fatalf("NewEmailInvitations: %v", err)
 		}
@@ -526,7 +542,11 @@ func TestInviteEmailDB_ABreakerRefusalIsUndeliveredWithItsClass(t *testing.T) {
 				t.Fatalf("mail.NewBreaker: %v", err)
 			}
 			breaker = b
-			inv, err := NewEmailInvitations(b, cfg.BaseURL)
+			c, err := mail.NewRecipientCap(b)
+			if err != nil {
+				t.Fatalf("mail.NewRecipientCap: %v", err)
+			}
+			inv, err := NewEmailInvitations(c, cfg.BaseURL)
 			if err != nil {
 				t.Fatalf("NewEmailInvitations: %v", err)
 			}
@@ -638,5 +658,215 @@ func TestInviteEmailDB_ARefusalWhoseRowFailsStillSaysWhy(t *testing.T) {
 	relay.mu.Unlock()
 	if dials != 0 {
 		t.Errorf("the relay was dialled %d time(s) for a refused press", dials)
+	}
+}
+
+// TestInviteEmailDB_ACappedMailboxIsRefusedBeforeAnythingIsMinted is M10 EM-7C's
+// per-mailbox cap as an invitation meets it, end to end: the REAL mail.RecipientCap
+// around the REAL mail.Breaker on an INJECTED clock, in front of the real mail.SMTP and
+// the in-test relay, given to the panel as cmd/tappa gives it. One press is sent (the
+// mailbox's first invitation, and the person's earlier link); four more invitations to
+// the same inbox in other spellings — upper case, "+tags" — are sent through the cap
+// under THIS business's scope (they pass both ceilings and are not relayed; the cap is
+// counted per business and mailbox). Then a press answers 429 with the cap's sentence,
+// mints nothing (one invitation row, still spendable), dials no relay, writes ONE
+// invite.email_refused row with reason recipient_limit and no address, and neither the
+// page nor the log names the address; the response carries no "/activate?code=".
+// CONTROL: an hour later on the same clock the same press is sent.
+func TestInviteEmailDB_ACappedMailboxIsRefusedBeforeAnythingIsMinted(t *testing.T) {
+	relay := newFakeRelay(t, relayScript{})
+	user, pass := relayCredentials(t)
+	var clockMu sync.Mutex
+	now := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
+	clock := func() time.Time {
+		clockMu.Lock()
+		defer clockMu.Unlock()
+		return now
+	}
+	fill := &fillableSender{}
+	var limits *mail.RecipientCap
+	logs := &lockedBuffer{}
+	p := newPanelHarnessWith(t, panelHarnessOptions{
+		log: slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+		invitations: func(t *testing.T, cfg *config.Config) *EmailInvitations {
+			fill.real = relay.sender(t, user, pass, 5*time.Second)
+			b, err := mail.NewBreaker(fill, mail.BreakerConfig{Now: clock, Log: slog.New(slog.DiscardHandler)})
+			if err != nil {
+				t.Fatalf("mail.NewBreaker: %v", err)
+			}
+			if limits, err = mail.NewRecipientCap(b); err != nil {
+				t.Fatalf("mail.NewRecipientCap: %v", err)
+			}
+			inv, err := NewEmailInvitations(limits, cfg.BaseURL)
+			if err != nil {
+				t.Fatalf("NewEmailInvitations: %v", err)
+			}
+			return inv
+		},
+	})
+	_, _, employee := seedPanelPerson(t, p, p.tenantID, "Capped Borg", "invited")
+	address := emailAddress("Capped")
+	setAddress(t, p, employee, address)
+	p.signIn(t)
+	press := func() (*http.Response, string) {
+		return p.post(t, employeeInviteHref, url.Values{"id": {employee.String()}})
+	}
+
+	if res, _ := press(); res.StatusCode != http.StatusOK {
+		t.Fatalf("the first press answered %d, want 200", res.StatusCode)
+	}
+	if n := len(relay.completed()); n != 1 {
+		t.Fatalf("CONTROL FAILED: %d message(s) relayed for the first press, want 1", n)
+	}
+	at := strings.LastIndexByte(address, '@')
+	local, domain := address[:at], address[at:]
+	fill.mu.Lock()
+	fill.filling = true
+	fill.mu.Unlock()
+	for _, a := range []string{strings.ToUpper(address), local + "+a" + domain, strings.ToLower(local) + "+b" + strings.ToUpper(domain), local + "+c" + domain} {
+		if _, err := limits.Send(context.Background(), p.tenantID.String(), mail.Message{To: a}); err != nil {
+			t.Fatalf("fill send to the inbox was refused: %v", err)
+		}
+	}
+	fill.mu.Lock()
+	fill.filling = false
+	fill.mu.Unlock()
+
+	res, body := press()
+	if res.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("the press to a full mailbox answered %d, want 429", res.StatusCode)
+	}
+	for _, w := range []string{"Too many invitations to that address for now", "Nothing was sent and no link was created",
+		"This business can send one inbox at most", "Try again later"} {
+		if !strings.Contains(body, w) {
+			t.Errorf("the page does not say %q", w)
+		}
+	}
+	if strings.Contains(body, "/activate?code=") || strings.Contains(strings.ToLower(body), strings.ToLower(address)) {
+		t.Error("the refusal page carries a link or names the address")
+	}
+	if n := len(relay.completed()); n != 1 {
+		t.Errorf("%d message(s) relayed, want still the first press's one", n)
+	}
+	if n := invitationRows(t, p, employee); n != 1 {
+		t.Errorf("%d invitation row(s), want the first press's only — the capped press must mint nothing", n)
+	}
+	var spendable int
+	if err := p.data.WithTenant(context.Background(), p.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT count(*) FROM employee_invites WHERE tenant_id = $1 AND employee_id = $2
+		                          AND used_at IS NULL AND cancelled_at IS NULL AND now() < expires_at`,
+			p.tenantID, employee).Scan(&spendable)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if spendable != 1 {
+		t.Errorf("%d spendable link(s), want the earlier one still alive", spendable)
+	}
+	rows := trailDetails(t, p, invite.ActionEmailRefused, employee)
+	if len(rows) != 1 || !strings.Contains(rows[0], `"reason": "recipient_limit"`) || strings.Contains(rows[0], "@") {
+		t.Errorf("invite.email_refused rows %v, want one with reason recipient_limit and no address", rows)
+	}
+	out := strings.ToLower(logs.String())
+	if strings.Contains(out, strings.ToLower(local)) || strings.Contains(out, "em7b.example.test") {
+		t.Errorf("the panel's log names the address:\n%s", logs.String())
+	}
+	if !strings.Contains(out, `"reason":"recipient_limit"`) {
+		t.Errorf("CONTROL FAILED: the panel's log holds no refusal line to judge:\n%s", logs.String())
+	}
+
+	// CONTROL: an hour later every send to the inbox has aged out of the hour.
+	clockMu.Lock()
+	now = now.Add(mail.RecipientHourWindow)
+	clockMu.Unlock()
+	if res, _ := press(); res.StatusCode != http.StatusOK {
+		t.Fatalf("CONTROL: the press an hour later answered %d, want 200", res.StatusCode)
+	}
+	if n := len(relay.completed()); n != 2 {
+		t.Errorf("CONTROL: %d message(s) relayed, want 2", n)
+	}
+}
+
+// TestInviteEmailDB_OneBusinessesInvitationsNeverDecideAnothers pins EM-7C round 3's
+// key, (business, mailbox), end to end and BOTH WAYS: two businesses' panels over real
+// HTTP and real Postgres, given ONE real cap around one real breaker as cmd/tappa gives
+// it, each with employees whose addresses are the same two inboxes.
+//   - A, then B: business A sends inbox X its five invitations (three to one person and
+//     two to another under a "+tag" — the person limit is three); A's sixth press
+//     answers 429 — the control that A's count for X IS full — and business B's press to
+//     X is then SENT.
+//   - B, then A: business B fills inbox Y the same way (B's sixth answers 429); A's
+//     press to Y is SENT.
+//
+// With one count across businesses (round 2), A's five presses made B's answer the
+// cap's 429 — telling B that some other business invites this person, and refusing
+// B's invitation for A's traffic.
+func TestInviteEmailDB_OneBusinessesInvitationsNeverDecideAnothers(t *testing.T) {
+	relay := newFakeRelay(t, relayScript{})
+	user, pass := relayCredentials(t)
+	shared := cappedRelay(t, relay, user, pass)
+	harness := func(name string) *panelHarness {
+		return newPanelHarnessWith(t, panelHarnessOptions{
+			tenantName: name,
+			invitations: func(t *testing.T, cfg *config.Config) *EmailInvitations {
+				inv, err := NewEmailInvitations(shared, cfg.BaseURL)
+				if err != nil {
+					t.Fatalf("NewEmailInvitations: %v", err)
+				}
+				return inv
+			},
+		})
+	}
+	pa, pb := harness("EM7C Business A Ltd"), harness("EM7C Business B Ltd")
+	x, y := emailAddress("InboxX"), emailAddress("InboxY")
+	tagged := func(addr, tag string) string {
+		at := strings.LastIndexByte(addr, '@')
+		return addr[:at] + "+" + tag + addr[at:]
+	}
+	people := func(p *panelHarness, label, inbox string) (one, two uuid.UUID) {
+		_, _, one = seedPanelPerson(t, p, p.tenantID, label+" One", "invited")
+		setAddress(t, p, one, inbox)
+		_, _, two = seedPanelPerson(t, p, p.tenantID, label+" Two", "invited")
+		setAddress(t, p, two, tagged(inbox, "two"))
+		return one, two
+	}
+	aX1, aX2 := people(pa, "A on X", x)
+	aY1, _ := people(pa, "A on Y", y)
+	bX1, _ := people(pb, "B on X", x)
+	bY1, bY2 := people(pb, "B on Y", y)
+	pa.signIn(t)
+	pb.signIn(t)
+	press := func(p *panelHarness, employee uuid.UUID) (*http.Response, string) {
+		return p.post(t, employeeInviteHref, url.Values{"id": {employee.String()}})
+	}
+	fill := func(p *panelHarness, who string, one, two uuid.UUID) {
+		t.Helper()
+		for _, e := range []uuid.UUID{one, one, one, two, two} {
+			if res, _ := press(p, e); res.StatusCode != http.StatusOK {
+				t.Fatalf("%s: an invitation answered %d before its count was full", who, res.StatusCode)
+			}
+		}
+		if res, body := press(p, two); res.StatusCode != http.StatusTooManyRequests ||
+			!strings.Contains(body, "Too many invitations to that address for now") {
+			t.Fatalf("CONTROL FAILED: %s's sixth invitation answered %d without the cap's sentence — its count is not full",
+				who, res.StatusCode)
+		}
+	}
+
+	// A, THEN B.
+	fill(pa, "business A on inbox X", aX1, aX2)
+	if res, body := press(pb, bX1); res.StatusCode != http.StatusOK || !strings.Contains(body, "Invitation sent to B on X One") {
+		t.Errorf("business B's invitation to inbox X answered %d after business A's five: another business's "+
+			"invitations decided this one", res.StatusCode)
+	}
+
+	// B, THEN A.
+	fill(pb, "business B on inbox Y", bY1, bY2)
+	if res, body := press(pa, aY1); res.StatusCode != http.StatusOK || !strings.Contains(body, "Invitation sent to A on Y One") {
+		t.Errorf("business A's invitation to inbox Y answered %d after business B's five: another business's "+
+			"invitations decided this one", res.StatusCode)
+	}
+	if n := len(relay.completed()); n != 2*mail.RecipientHourLimit+2 {
+		t.Errorf("%d message(s) relayed, want %d — each business's five and the other's one, to each inbox",
+			n, 2*mail.RecipientHourLimit+2)
 	}
 }

@@ -173,7 +173,7 @@ func AdminResetSent(v AdminResetSentView) templ.Component {
 			}
 			ctx = templ.InitializeContext(ctx)
 			if v.CanDeliver {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<h1 class=\"font-display text-2xl font-bold tracking-tight\">Check your email</h1><p class=\"text-sm text-ink/85\">If that address belongs to a Taptime administrator, a recovery link is on its way to it. The link works once and expires in an hour.</p><p class=\"text-sm text-ink/70\">Nothing has changed yet: your current password still works until you use the link.</p><p class=\"text-sm text-ink/70\">If several emails arrive, use the newest — asking again replaces the earlier links.</p>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<h1 class=\"font-display text-2xl font-bold tracking-tight\">Check your email</h1><p class=\"text-sm text-ink/85\">If that address belongs to a Taptime administrator, a recovery link is on its way to it. The link works once and expires in an hour.</p><p class=\"text-sm text-ink/70\">Nothing has changed yet: your current password still works until you use the link.</p><p class=\"text-sm text-ink/70\">If a recovery email reached you, its link works for as long as it says — asking again sends no new link while that one still works.</p>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -277,7 +277,7 @@ func AdminResetNew(v AdminResetNewView) templ.Component {
 			var templ_7745c5c3_Var12 string
 			templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(itoa(v.MinPasswordChars))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/adminreset.templ`, Line: 115, Col: 74}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/adminreset.templ`, Line: 116, Col: 74}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 			if templ_7745c5c3_Err != nil {
@@ -307,7 +307,7 @@ func AdminResetNew(v AdminResetNewView) templ.Component {
 					var templ_7745c5c3_Var14 string
 					templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(v.Error)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/adminreset.templ`, Line: 120, Col: 16}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/adminreset.templ`, Line: 121, Col: 16}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 					if templ_7745c5c3_Err != nil {
@@ -331,7 +331,7 @@ func AdminResetNew(v AdminResetNewView) templ.Component {
 			var templ_7745c5c3_Var15 string
 			templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(v.CSRFToken)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/adminreset.templ`, Line: 124, Col: 55}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/adminreset.templ`, Line: 125, Col: 55}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 			if templ_7745c5c3_Err != nil {

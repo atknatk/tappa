@@ -31,7 +31,8 @@ import (
 //
 //	GET  /admin/reset       the request form. Mints the synchronizer token.
 //	POST /admin/reset       resolves the address, mints a link per identity inside
-//	                        adminauth.ResetWindow, hands each to the delivery
+//	                        adminauth.ResetWindow that holds no live one (M10 EM-7C:
+//	                        one live link per account), hands each to the delivery
 //	                        channel, and answers ONE page whatever it found.
 //	GET  /admin/reset/new   what the link opens. Moves the token out of the URL into
 //	                        an HttpOnly cookie and redirects to a clean address.
@@ -63,7 +64,10 @@ import (
 // decision (ADR 0022 §12). With "none" no link is ever issued, so:
 //
 //	criterion 1, harm (a)   the recovery-denial the request budget bounds cannot
-//	                        happen: nothing is minted, so nothing is retired.
+//	                        happen: nothing is minted, so nothing is retired. (With
+//	                        "email" it cannot happen on this path either since M10
+//	                        EM-7C: a request that finds a live link mints nothing,
+//	                        so it retires nothing — adminauth.IssueForEmail.)
 //	criterion 2, audit half  no link exists to be replayed or refused, so the
 //	                        attributable audit_log rows are never written.
 //	                        ⚠️ THE PROCESS-LOG HALF IS LIVE, AND IT IS LIVE BECAUSE
@@ -195,7 +199,13 @@ type AdminReset struct {
 // panelResets is the slice of adminauth.Resets this package needs, declared HERE at
 // the consumer (§7).
 type panelResets interface {
-	IssueForEmail(ctx context.Context, email string) ([]adminauth.ResetGrant, error)
+	// IssueForEmail returns the links minted now (grants) and, for every account
+	// that already held a live link, that link's record (kept) — M10 EM-7C's one live
+	// link per account. Neither changes the answer; both change the trail.
+	IssueForEmail(ctx context.Context, email string) ([]adminauth.ResetGrant, []adminauth.Reset, error)
+	// Withdraw retires a link recorded undelivered, so the account's one live link
+	// is never one no inbox holds (recordOutcome).
+	Withdraw(ctx context.Context, tenantID, resetID uuid.UUID) error
 	Consume(ctx context.Context, t adminauth.ResetToken, newPassword string) (adminauth.ConsumedReset, db.ResolvedPasswordReset, error)
 	// NoticeRecipient reads the address on an administrator's own row for the "your
 	// password was changed" notice (M10 EM-9); "" means nowhere to send it.
@@ -269,8 +279,17 @@ const (
 	// ActionAdminResetUndelivered marks a link that was minted and could NOT be
 	// handed to its recipient. The row exists because the alternative is silence:
 	// the requester must not be told (it would answer "is this address registered"),
-	// so the trail is the only place the fact can live (§4.6).
+	// so the trail is the only place the fact can live (§4.6). Since M10 EM-7C the
+	// link is also withdrawn (recordOutcome).
 	ActionAdminResetUndelivered = "admin.recovery.undelivered"
+	// ActionAdminResetKept (M10 EM-7C) marks a request that resolved to an account
+	// already holding a live link: nothing was minted, retired or sent, and the row
+	// names the live link (reset_id, expires_at). It exists for undelivered's reason
+	// — the requester is told nothing different, so the trail is the only place a
+	// request against this account can show (§4.6) — and it is written through the
+	// same per-account budget (recordForAdmin), so a flood of requests cannot turn it
+	// into a write primitive.
+	ActionAdminResetKept = "admin.recovery.kept"
 )
 
 // adminResetPath is the recovery request form, and adminResetNewPath is what a reset
@@ -513,7 +532,10 @@ func (h *AdminReset) RequestPage(w http.ResponseWriter, r *http.Request) {
 //	                  the outbox without blocking (adminresetoutbox.go), so the
 //	                  relay's time never reaches this response. A grant the
 //	                  process-wide breaker would refuse is recorded undelivered here
-//	                  instead (dispatch) — the answer below does not change.
+//	                  instead (dispatch) — the answer below does not change. An
+//	                  account that already holds a live link gets no grant at all
+//	                  (M10 EM-7C) and its "kept" row is written here (recordKept) —
+//	                  the answer does not change either.
 //	floor             applied on EVERY exit below the budget check, including the
 //	                  ones that did nothing.
 func (h *AdminReset) Request(w http.ResponseWriter, r *http.Request) {
@@ -560,7 +582,7 @@ func (h *AdminReset) Request(w http.ResponseWriter, r *http.Request) {
 	// be the M5-01/02/03 failure class.
 	email := strings.TrimSpace(r.PostFormValue("email"))
 
-	grants, err := h.resets.IssueForEmail(r.Context(), email)
+	grants, kept, err := h.resets.IssueForEmail(r.Context(), email)
 	if err != nil {
 		// A database failure is NOT "unknown address", and it must not be reported as
 		// one: that would hide an outage behind a screen saying a link is on its way.
@@ -574,7 +596,10 @@ func (h *AdminReset) Request(w http.ResponseWriter, r *http.Request) {
 	for _, g := range grants {
 		h.dispatch(r, ip, g)
 	}
-	if len(grants) == 0 {
+	for _, k := range kept {
+		h.recordKept(r, k)
+	}
+	if len(grants) == 0 && len(kept) == 0 {
 		// Unattributable: nothing resolved, so there is no tenant and audit_log's
 		// tenant_id is NOT NULL with an FK (00005). Logged WITHOUT the address, and
 		// bounded, so a flood of guesses cannot write a list of guessed addresses into
@@ -697,7 +722,23 @@ func (h *AdminReset) recordWorkerOutcome(base context.Context, g adminauth.Reset
 // it (never the send's). Every path a grant can take ends here exactly once: deliver,
 // the full or closing outbox (dispatch, on the REQUEST's row context), the drain's
 // unsent tail (deliverJob) and a worker panic before the row (handle).
+//
+// 🔴 AN UNDELIVERED LINK IS WITHDRAWN FIRST (M10 EM-7C), and before the budget is
+// asked, so a row the budget suppresses does not keep the link alive. One live link
+// per account means a request mints nothing while a live link exists; a live link no
+// inbox holds would therefore turn one failed send into ResetTTL of silence for the
+// owner, their own requests included. Withdrawn, the next request mints at once. A
+// send that timed out may still have reached the mailbox: that link dies too, and
+// asking again gets a fresh one — fail-closed, never a window with no way to get a
+// link. A failed withdrawal is logged (ids only) and the row is still written.
 func (h *AdminReset) recordOutcome(ctx context.Context, g adminauth.ResetGrant, action, outcome, reason string) {
+	if action == ActionAdminResetUndelivered {
+		if err := h.resets.Withdraw(ctx, g.Issued.Reset.TenantID, g.Issued.Reset.ID); err != nil {
+			h.log.ErrorContext(ctx, "panel recovery: withdrawing an undelivered link failed",
+				"admin_user_id", g.Issued.Reset.AdminUserID, "reset_id", g.Issued.Reset.ID,
+				"err_type", fmt.Sprintf("%T", err))
+		}
+	}
 	h.recordForAdmin(ctx, g.Issued.Reset.TenantID, g.Issued.Reset.AdminUserID, audit.Event{
 		TenantID: g.Issued.Reset.TenantID,
 		ActorID:  ptr(g.Issued.Reset.AdminUserID),
@@ -718,6 +759,35 @@ func (h *AdminReset) recordOutcome(ctx context.Context, g adminauth.ResetGrant, 
 		},
 	})
 }
+
+// recordKept writes the "kept" row of an account whose live link made a new one
+// unnecessary (M10 EM-7C), on the request's own row context — the context dispatch's
+// fallback row uses, for the same reason — bounded by resetAuditGrace, through the
+// per-account budget.
+//
+// ⚠️ IT IS A SYNCHRONOUS INSERT PAID BEFORE THE FLOOR ENDS, ON REGISTERED ADDRESSES
+// ONLY — the shape of the fallback row (ADR 0022 EM-5A note, limit 14): invisible in
+// the answer while it stays under resetRequestFloor (at most adminauth.ResetWindow
+// rows), and measured against the fake trail, not against Postgres.
+func (h *AdminReset) recordKept(r *http.Request, k adminauth.Reset) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), resetAuditGrace)
+	defer cancel()
+	h.recordForAdmin(ctx, k.TenantID, k.AdminUserID, audit.Event{
+		TenantID: k.TenantID,
+		ActorID:  ptr(k.AdminUserID),
+		Action:   ActionAdminResetKept,
+		Target:   k.AdminUserID.String(),
+		Detail: adminResetDetail{
+			Outcome:   "kept",
+			Reason:    resetReasonLiveLink,
+			ResetID:   k.ID.String(),
+			ExpiresAt: k.ExpiresAt.UTC().Format(time.RFC3339),
+		},
+	})
+}
+
+// resetReasonLiveLink is the kept row's reason.
+const resetReasonLiveLink = "the account already holds a live recovery link, so no new one was created or sent"
 
 // NewPage serves GET /admin/reset/new — what a reset link opens.
 //
@@ -1056,12 +1126,14 @@ type adminResetDetail struct {
 // would be a write primitive into a named tenant's append-only table.
 //
 // ⚠️ IT BOUNDS ROWS, NOT SENDS. The row is written AFTER the send, so a grant past
-// this budget is still delivered; the only limit on how many e-mails one recipient
-// receives is the per-SOURCE-address request budget (the one worker bounds all sends
-// together, not one recipient's share), and a distributed source has none. There is
-// no per-recipient send ceiling (ADR 0022 EM-5A note, limit 13 — an EM-5B
-// precondition; the §9 breaker, mail.Breaker, is a process-wide ceiling and does not
-// stop it).
+// this budget is still delivered. What bounds the e-mails one ACCOUNT receives is
+// adminauth's one live link per account (M10 EM-7C): one recovery e-mail per
+// adminauth.ResetTTL, whatever the source — a link recorded undelivered is
+// withdrawn, so a failed send does not count against it. A MAILBOX receives that
+// once per account folding into it (a "+tag" or another business's spelling of the
+// address; open signup lets anybody create those), each one an account somebody
+// had to sign up (ADR 0022 EM-7C note). Rows past this budget are what a flood of
+// "kept" requests spends — the sends are not affected.
 func (h *AdminReset) recordForAdmin(ctx context.Context, tenantID, adminUserID uuid.UUID, e audit.Event) {
 	key := adminUserID.String()
 	// ONE LOCKED STEP (httpx.Limiter.TryCharge): the outbox's worker and every

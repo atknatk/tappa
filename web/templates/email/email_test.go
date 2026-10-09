@@ -1549,3 +1549,27 @@ func TestRender_SaysTaptimeNotTheCodeName(t *testing.T) {
 		}
 	}
 }
+
+// TestReset_AskingAgainSaysWhatTheFlowDoes pins the reset e-mail's sentence about
+// asking again to what the recovery flow does since M10 EM-7C: a request for an
+// account that holds a live link sends nothing, so asking again does NOT replace the
+// link. Both parts carry the new sentence exactly once and the old promise nowhere.
+// The recovery page's matching sentence is internal/handler's
+// TestAdminReset_TheSentPageSaysWhatAskingAgainDoes.
+func TestReset_AskingAgainSaysWhatTheFlowDoes(t *testing.T) {
+	r := renderEach(t, "Maria", "Kebab Factory")[1]
+	if r.kind != "reset" {
+		t.Fatalf("renderEach's second message is %q, want the reset", r.kind)
+	}
+	const now = "Asking again sends no new link while this one still works."
+	for name, part := range map[string]string{"text": r.msg.Text, "html": visibleText(t, r.msg.HTML)} {
+		if n := strings.Count(part, now); n != 1 {
+			t.Errorf("the %s part says %q %d time(s), want once", name, now, n)
+		}
+		for _, old := range []string{"Asking again replaces it", "replaces it", "replaces the earlier"} {
+			if strings.Contains(part, old) {
+				t.Errorf("the %s part still promises %q — asking again replaces nothing while a link is live", name, old)
+			}
+		}
+	}
+}
