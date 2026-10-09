@@ -249,7 +249,7 @@ func (t *Tap) Checkin(w http.ResponseWriter, r *http.Request) {
 		readCtx, cancel := context.WithTimeout(post, t.brandWait)
 		logo := t.resultLogo(readCtx, id, tctx)
 		cancel()
-		t.render(w, r.WithContext(post), http.StatusOK, pages.Result(resultView(res), logo), logo.Drawn())
+		t.render(w, r.WithContext(post), http.StatusOK, withDevStrip(pages.Result(resultView(res), logo), t.devTools, false), logo.Drawn())
 	}
 }
 

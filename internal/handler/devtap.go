@@ -1,14 +1,17 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
 
+	"github.com/a-h/templ"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
@@ -255,4 +258,29 @@ func devToolsContext(ctx context.Context, enabled bool) context.Context {
 		return ctx
 	}
 	return components.WithDevTools(ctx)
+}
+
+// withDevStrip appends the DEV-ONLY strip to a rendered page, just before </main>,
+// when enabled — and returns c UNTOUCHED otherwise, so a non-dev deployment writes
+// exactly the bytes it wrote before the tool existed. It is used for the result
+// screen, whose unbranded render is pinned byte for byte
+// (TestUnbrandedScreens_AreByteIdenticalToTheGolden): any call to the strip inside
+// result.templ made templ write a separating space even when the strip rendered
+// nothing.
+func withDevStrip(c templ.Component, enabled, newTab bool) templ.Component {
+	if !enabled {
+		return c
+	}
+	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
+		var page, strip bytes.Buffer
+		if err := c.Render(ctx, &page); err != nil {
+			return err
+		}
+		if err := components.DevTapStrip(newTab).Render(components.WithDevTools(ctx), &strip); err != nil {
+			return err
+		}
+		out := bytes.Replace(page.Bytes(), []byte("</main>"), append(strip.Bytes(), "</main>"...), 1)
+		_, err := w.Write(out)
+		return err
+	})
 }

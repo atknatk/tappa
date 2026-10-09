@@ -274,7 +274,10 @@ func TestDevStrip_OnlyOnADevelopmentDeployment(t *testing.T) {
 	if strings.Contains(render(result, context.Background()), "DEV ONLY") {
 		t.Error("the result page carries the dev control without the dev marker")
 	}
-	if !strings.Contains(render(result, components.WithDevTools(context.Background())), "DEV ONLY") {
+	if strings.Contains(render(withDevStrip(result, false, false), context.Background()), "DEV ONLY") {
+		t.Error("withDevStrip added the control while disabled")
+	}
+	if !strings.Contains(render(withDevStrip(result, true, false), context.Background()), "DEV ONLY") {
 		t.Error("the result page lacks the dev control in dev")
 	}
 	tapPage := pages.Tap(pages.TapView{EmployeeName: "Maria Borg", TapContext: "x.y"}, layout.Brand{})
