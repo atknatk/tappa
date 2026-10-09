@@ -46,7 +46,7 @@ import (
 // states the contract in full); the other half — the strict, atomic advance of
 // tags.last_ctr — happens on POST /api/checkin or it does not happen at all.
 //
-// ⚠️ ONE EXCEPTION, AND IT IS NOT THIS HANDLER'S CODE (ADR 0025): a browser holding
+// ⚠️ ONE EXCEPTION, AND IT IS NOT THIS HANDLER'S CODE (ADR 0026): a browser holding
 // a CONSENTED activation hands the whole GET to Activation.CompleteByTap, which
 // runs the full sun.Verify — atomic advance included — because the activating tap
 // has no button after it. That tap writes no `transactions` row either.
@@ -70,7 +70,7 @@ type Tap struct {
 	sessions  sessionVerifier
 	checkins  checkinRecorder
 	// activation completes a CONSENTED activation on its first NFC tap (ADR
-	// 0025). It is the Activation handler, reached through the narrow interface
+	// 0026). It is the Activation handler, reached through the narrow interface
 	// below: the advancing SUN verify it needs lives THERE, so this handler's
 	// own vocabulary still holds only the non-advancing preview.
 	activation tapActivation
@@ -132,7 +132,7 @@ func NewTap(preview tapPreviewer, dir tapDirectory, sess sessionVerifier, checki
 	case isNil(activation):
 		// REQUIRED: without it a consented activation can never complete, and
 		// every tap from such a phone would bounce to the waiting screen forever
-		// (ADR 0025). A boot error, not a silent loop.
+		// (ADR 0026). A boot error, not a silent loop.
 		return nil, errors.New("handler: nil activation flow")
 	case dir == nil:
 		return nil, errors.New("handler: nil directory")
@@ -349,7 +349,7 @@ func (t *Tap) Page(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A CONSENTED ACTIVATION TAKES THE TAP (ADR 0025). A browser that agreed to
+	// A CONSENTED ACTIVATION TAKES THE TAP (ADR 0026). A browser that agreed to
 	// the notice in the wizard and holds the consent binding completes its
 	// activation with this touch — whatever session it carries, because the
 	// wizard already made the person confirm replacing another employee's one
@@ -558,7 +558,7 @@ func logoOf(b tenant.PageBrand) layout.Logo {
 }
 
 // EnableDevTools turns on the DEV-ONLY simulate-tap strip on the result page
-// (ADR 0025). A no-op unless DevToolsEnabled(cfg). Call it before serving.
+// (ADR 0026). A no-op unless DevToolsEnabled(cfg). Call it before serving.
 func (t *Tap) EnableDevTools(cfg *config.Config) { t.devTools = DevToolsEnabled(cfg) }
 
 // tappedWallOf is where the plaque's nullable wall becomes a plain id for this
@@ -599,7 +599,7 @@ func tappedWallOf(pv sun.Preview) uuid.UUID {
 //	                       invisibly under someone else's page and have them
 //	                       click. Refusing to be framed removes that outright.
 //
-// SCOPE: this header is set on THIS package's tap responses. Since ADR 0025 the
+// SCOPE: this header is set on THIS package's tap responses. Since ADR 0026 the
 // activation screens carry it too, plus connect-src 'self' for the waiting
 // screen's poll (activationCSP, activate.go).
 const tapCSP = "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; " +
@@ -654,7 +654,7 @@ func isNil(v any) bool {
 // the button, so the only thing between a planted cookie and a confused tap is
 // a person reading a name they do not recognise.
 //
-// ✅ SINCE ADR 0025 a planted cookie cannot ACTIVATE anything through this page:
+// ✅ SINCE ADR 0026 a planted cookie cannot ACTIVATE anything through this page:
 // completing an activation on a tap needs the consent binding, which no cross-site
 // navigation can plant (Activation.Pending). What remains is the one below.
 //
@@ -667,7 +667,7 @@ func isNil(v any) bool {
 func (t *Tap) redirectToActivation(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	// ?from=tap lets /activate tell a browser that never ran the wizard to open
-	// the link HERE, instead of sending the person to their manager (ADR 0025).
+	// the link HERE, instead of sending the person to their manager (ADR 0026).
 	// A REVOKED session is a different story (audit round 2, C): this phone was
 	// signed out, almost always because the account was set up on another one,
 	// and "your link still works" would be false — it gets its own landing.

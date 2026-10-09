@@ -15,7 +15,7 @@ import (
 	"github.com/atknatk/tappa/web/templates/layout"
 )
 
-// Activate is the activation WIZARD (ADR 0025): three short steps and a waiting
+// Activate is the activation WIZARD (ADR 0026): three short steps and a waiting
 // screen, each one a plain GET, so it works with JavaScript off.
 //
 //	1  Welcome      how Taptime works, in three lines
@@ -529,7 +529,7 @@ func wizardWelcome(v ActivateView) templ.Component {
 
 // wizardPrivacy is the GDPR Art. 13 notice and the consent box. The words of the
 // notice are the activation page's (M5-02), unchanged in substance; what changed
-// is that agreeing no longer activates anything (ADR 0025).
+// is that agreeing no longer activates anything (ADR 0026).
 func wizardPrivacy(v ActivateView) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -1073,7 +1073,7 @@ func AlreadySetUp(v AlreadySetUpView) templ.Component {
 	})
 }
 
-// Activated is what the ACTIVATING TAP renders (ADR 0025): this phone now has a
+// Activated is what the ACTIVATING TAP renders (ADR 0026): this phone now has a
 // session. No button (§9): the next thing that happens is another touch on a
 // plaque, and that one is an ordinary check-in.
 func Activated(v ActivatedView) templ.Component {
@@ -1243,7 +1243,7 @@ func activatedBody(name string, secondDevice bool) templ.Component {
 // internal/handler/activate_test.go.
 //
 // ONE TEMPLATE SERVES BOTH FLOWS, so a sentence added here appears on ALL of
-// them — SIXTEEN screens since ADR 0025, counted rather than guessed: ten
+// them — SIXTEEN screens since ADR 0026, counted rather than guessed: ten
 // activation failures (internal/handler/activate.go: problemNoLink,
 // problemBadLink, problemTooMany, problemServer and the six problemActivation*
 // refusals of the activating tap; problemNoSession went with /activate/done) and

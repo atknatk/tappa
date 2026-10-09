@@ -8,10 +8,10 @@ import (
 )
 
 // signedTapURL builds a GENUINE plain-SUN tap URL — the one a chip would emit for
-// (uid, ctr) under tagKey — so a DB test can drive the activating tap (ADR 0025)
+// (uid, ctr) under tagKey — so a DB test can drive the activating tap (ADR 0026)
 // through the real sun.Verify, CMAC and atomic counter advance included.
 //
-// SINCE THE DEV TOOL (ADR 0025, "Geliştirme aracı") the construction lives in
+// SINCE THE DEV TOOL (ADR 0026, "Geliştirme aracı") the construction lives in
 // internal/sun as MintTapPath, pinned there to AN12196 (mint_test.go), and this
 // helper simply calls it — the test-only second copy this file used to carry is
 // gone. The pin below stays as the handler package's own check that the helper

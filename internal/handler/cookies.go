@@ -14,7 +14,7 @@ import (
 )
 
 // The activation cookie: the carrier of the invite code (and, after consent, the
-// consent binding — ADR 0025) between GET /activate, the consent POST and the
+// consent binding — ADR 0026) between GET /activate, the consent POST and the
 // first NFC tap on GET /t that completes the activation.
 //
 // WHY THE CODE TRAVELS IN A COOKIE AND NOT IN THE FORM. The obvious design puts
@@ -101,14 +101,14 @@ import (
 //     one-shot marker. Making the form say WHOSE activation this is (it does) is
 //     the mitigation that exists now; it is not a substitute for that decision.
 //
-//     ✅ ADR 0025 TOOK THAT DECISION for the case that matters most now that a tap
+//     ✅ ADR 0026 TOOK THAT DECISION for the case that matters most now that a tap
 //     ACTIVATES: completion needs the consent BINDING, which only the CSRF-checked
 //     consent POST mints and which a cross-site GET cannot plant. A planted code
 //     therefore makes a tap fall through to §5 row 3 (the wizard, naming the
 //     stranger) and never completes an activation. Rendering that stranger's
 //     wizard remains possible, as before.
 //
-// The cookie value is "<csrf>.<code>", and after consent (ADR 0025)
+// The cookie value is "<csrf>.<code>", and after consent (ADR 0026)
 // "<csrf>.<code>.<binding>". Every part is 43-character base64url, and '.' is
 // outside that alphabet, so the split is unambiguous.
 //
@@ -163,7 +163,7 @@ const (
 	// one never disturbs the other.
 	activationCookieName = "tappa_activation"
 
-	// activationCookieCeiling caps the cookie's lifetime. Since ADR 0025 the
+	// activationCookieCeiling caps the cookie's lifetime. Since ADR 0026 the
 	// cookie lives UNTIL THE INVITATION EXPIRES (user decision): activation now
 	// completes on the first NFC tap, which may be the next shift rather than the
 	// next minute, so a 15-minute cookie would strand an employee who consented
@@ -219,7 +219,7 @@ const (
 type activationState struct {
 	csrf string
 	code invite.Code
-	// binding is the consent binding (ADR 0025), present only after this browser
+	// binding is the consent binding (ADR 0026), present only after this browser
 	// agreed to the notice. Its presence is what makes an activation PENDING: the
 	// next NFC tap from this browser completes it. Same redaction as the code.
 	binding    invite.Binding
@@ -283,7 +283,7 @@ func (c codeCookies) secure() bool { return !c.insecure }
 //
 // rawBinding is "" before consent and the freshly minted binding after it; the
 // value is then "<csrf>.<code>.<binding>". expires is the invitation's own
-// expiry (ADR 0025): the cookie dies with the code it carries.
+// expiry (ADR 0026): the cookie dies with the code it carries.
 func (c codeCookies) set(w http.ResponseWriter, csrf, rawCode, rawBinding string, expires time.Time) {
 	value := csrf + "." + rawCode
 	if rawBinding != "" {

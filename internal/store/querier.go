@@ -413,7 +413,7 @@ type Querier interface {
 	// This is the ONLY statement in db/queries that writes employee_invites.used_at
 	// (greppable), which is what makes the un-consume limit in the header hold.
 	//
-	// CONSENT IS PART OF THE PREDICATE (ADR 0025, migration 00030). Activation now
+	// CONSENT IS PART OF THE PREDICATE (ADR 0026, migration 00035). Activation now
 	// happens on the first NFC tap, not on the form, so the statement also requires
 	// the consent the wizard recorded AND the binding of the browser that recorded
 	// it. Both live in the same WHERE as used_at for the reason the rest of this
@@ -4381,7 +4381,7 @@ type Querier interface {
 	// RETURNING id, at: the caller logs the id (a stable, non-secret handle) instead
 	// of the payload, and `at` lets a test assert the row exists without re-reading.
 	RecordAuditEvent(ctx context.Context, arg RecordAuditEventParams) (RecordAuditEventRow, error)
-	// The wizard's consent POST (ADR 0025). It records WHEN the employee agreed to the
+	// The wizard's consent POST (ADR 0026). It records WHEN the employee agreed to the
 	// GDPR Art. 13 notice and WHICH browser did (the HMAC of a token that lives only in
 	// that browser's HttpOnly cookie). It consumes NOTHING and activates NOBODY:
 	// used_at is not in its SET list and employees is not touched.

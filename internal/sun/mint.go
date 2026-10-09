@@ -11,10 +11,10 @@ import (
 )
 
 // Minting a SUN tap URL — what the chip does on every read — for DEVELOPMENT and
-// TESTS ONLY (ADR 0025, "Geliştirme aracı").
+// TESTS ONLY (ADR 0026, "Geliştirme aracı").
 //
 // WHY IT LIVES HERE. A desktop browser cannot touch a plaque, and the activation
-// flow (ADR 0025) completes only on a genuine NFC tap. Rather than add a path that
+// flow (ADR 0026) completes only on a genuine NFC tap. Rather than add a path that
 // SKIPS verification, the dev tool mints the URL the plaque would have produced
 // and sends the browser to GET /t, where sun.Verify checks it exactly as it checks
 // a real tap. Cryptography stays in this package (CLAUDE.md §3), and the

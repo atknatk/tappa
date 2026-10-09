@@ -193,7 +193,7 @@ func (noActivation) CompleteByTap(http.ResponseWriter, *http.Request, sun.Params
 }
 
 // pendingActivation stands in for a browser holding a CONSENTED activation (ADR
-// 0025). It records what the tap page handed it.
+// 0026). It records what the tap page handed it.
 type pendingActivation struct {
 	calls int
 	got   sun.Params
@@ -215,7 +215,7 @@ func (p *pendingActivation) CompleteByTap(w http.ResponseWriter, _ *http.Request
 // TestTapPage_APendingActivationTakesTheTap: a browser that consented in the
 // wizard completes its activation with the tap — before §5 row 3's redirect, and
 // whatever session it carries — and the page's own preview, directory read and
-// context minting never run for it (ADR 0025).
+// context minting never run for it (ADR 0026).
 func TestTapPage_APendingActivationTakesTheTap(t *testing.T) {
 	for _, tc := range []struct {
 		name    string

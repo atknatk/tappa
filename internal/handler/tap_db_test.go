@@ -97,7 +97,7 @@ type tapHarness struct {
 	tagUID     string
 	startCtr   int32
 	// invites and activation are the REAL activation flow, mounted on the same
-	// router (ADR 0025): the activating tap is GET /t, so "consent, then tap,
+	// router (ADR 0026): the activating tap is GET /t, so "consent, then tap,
 	// then check in" only exists end to end on one router.
 	invites    *invite.Manager
 	activation *Activation
@@ -138,7 +138,7 @@ func newTapHarness(t *testing.T) *tapHarness {
 		GPSRadiusMeters: 150,
 		Debounce:        harnessDebounce,
 		Freshness:       harnessFreshness,
-		// The dev simulator's explicit opt-in (ADR 0025): this harness mounts
+		// The dev simulator's explicit opt-in (ADR 0026): this harness mounts
 		// POST /dev/simulate-tap exactly as `make dev` with TAPPA_DEV_TOOLS=1 does.
 		// Screens show the strip only after EnableDevTools, which only
 		// devtap_db_test.go calls.
@@ -172,7 +172,7 @@ func newTapHarness(t *testing.T) *tapHarness {
 	if err != nil {
 		t.Fatalf("checkin.New: %v", err)
 	}
-	// The activation flow is real too (ADR 0025): a phone holding a consented
+	// The activation flow is real too (ADR 0026): a phone holding a consented
 	// activation completes it on GET /t, so the tap page cannot be built without it.
 	invites, err := invite.New(data, cfg)
 	if err != nil {
@@ -191,7 +191,7 @@ func newTapHarness(t *testing.T) *tapHarness {
 	r := chi.NewRouter()
 	tp.Mount(r)
 	act.Mount(r)
-	// The DEV-ONLY simulator (ADR 0025): this harness's config is dev on
+	// The DEV-ONLY simulator (ADR 0026): this harness's config is dev on
 	// localhost, so it mounts — exactly as `make dev` does.
 	plaques, err := tenant.NewPlaques(data, trail, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {

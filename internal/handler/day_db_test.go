@@ -4,7 +4,7 @@ package handler
 //
 // WHAT THIS FILE IS. One test that drives the whole employee-facing product
 // against real Postgres and the production router: an invitation, the activation
-// wizard, an activating NFC tap (ADR 0025), check-ins, check-outs, a queue of people on one
+// wizard, an activating NFC tap (ADR 0026), check-ins, check-outs, a queue of people on one
 // plaque, a mobile-data tap, an evidence-less tap, a QR scan, a manager's manual
 // entry, a deactivated account's attempt, a retired plaque and a Rusty Bar night
 // shift that crosses midnight. Nothing below writes a `transactions` row by hand:
@@ -24,7 +24,7 @@ package handler
 // separated by real time. The day therefore runs phase 0 (an activation and a
 // refused attempt), phase 1 (the check-ins), waits, phase 2 (the check-outs).
 //
-// WHY NOBODY HAS A PRACTICE ROW ANY MORE (ADR 0025). Until the activating tap
+// WHY NOBODY HAS A PRACTICE ROW ANY MORE (ADR 0026). Until the activating tap
 // replaced it, §5 made the FIRST record after activation a training tap, so a
 // first day started with one TRAINING row per person. Now the first record is an
 // ordinary check-in. The crew is still ephemeral (fresh, run-stamped employee ids
@@ -73,7 +73,7 @@ const zeroCMAC = "0000000000000000"
 // dayWait is how long a phase waits before the same person may tap again.
 //
 // It is a VARIABLE so the wait itself can be mutated away and the consequence
-// measured rather than asserted. (Measured before ADR 0025, with it set to 0: the
+// measured rather than asserted. (Measured before ADR 0026, with it set to 0: the
 // day failed on the FIRST check-in of phase 1, seconds after that person's
 // practice tap. Since then the one wait left is between phase 1 and phase 2.) The same collapse is counted without
 // aborting by TestSeedDB_WithoutTheWaitTheDayCollapsesIntoIgnoredRows (5 of 15
@@ -140,7 +140,7 @@ func declaring(v url.Values, when time.Time) url.Values {
 // --- activation --------------------------------------------------------------
 
 // activate walks a brand-new employee through invitation, the wizard's consent
-// and the ACTIVATING TAP on a seeded plaque (ADR 0025), on ONE cookie jar, and
+// and the ACTIVATING TAP on a seeded plaque (ADR 0026), on ONE cookie jar, and
 // leaves the session cookie in it. This is the first third of the card's chain.
 //
 // THE TAP IS GENUINE, unlike every check-in tap in this file (L1): the activating
@@ -314,7 +314,7 @@ func TestSeedDB_ADayAtKFStJulians(t *testing.T) {
 	// PHASE 0 — Grace activates, and a deactivated account tries.
 	// =========================================================================
 	//
-	// ADR 0025: there is no TRAINING tap any more. Grace's activation is completed
+	// ADR 0026: there is no TRAINING tap any more. Grace's activation is completed
 	// by a genuine NFC tap on the plaque, which writes NO `transactions` row — so
 	// nobody in the crew has a record yet when the shift starts, and the first tap
 	// each of them makes below is an ordinary, counted check-in.
@@ -337,7 +337,7 @@ func TestSeedDB_ADayAtKFStJulians(t *testing.T) {
 		t.Fatalf("a deactivated account's attempt raised %d security alerts, want 1", got)
 	}
 
-	// NO WAIT HERE since ADR 0025: phase 0 no longer taps anybody who taps again in
+	// NO WAIT HERE since ADR 0026: phase 0 no longer taps anybody who taps again in
 	// phase 1 (Paul's refused attempt is his only one; Grace's activation writes no
 	// record), so there is no debounce predecessor to age past.
 
@@ -452,13 +452,13 @@ func TestSeedDB_ADayAtKFStJulians(t *testing.T) {
 
 	// GRACE'S FIRST CHECK-IN — the tap after the one that activated her phone.
 	// It is her FIRST RECORD (the activating tap wrote none) and it counts: an
-	// ordinary `in`, never practice (ADR 0025).
+	// ordinary `in`, never practice (ADR 0026).
 	if code, _ := f.tapNFC(t, grace, plaque, onSite, venueGPS); code != http.StatusOK {
 		t.Fatalf("Grace: check-in status = %d", code)
 	}
 	graceIn := f.lastRow(t, grace.id)
 	if graceIn.Practice {
-		t.Fatal("Grace's first check-in after activation is marked TRAINING; ADR 0025 replaced the practice tap")
+		t.Fatal("Grace's first check-in after activation is marked TRAINING; ADR 0026 replaced the practice tap")
 	}
 	if graceIn.Type == nil || *graceIn.Type != "in" {
 		t.Fatalf("Grace's first check-in = %v, want in", show(graceIn.Type))
@@ -638,7 +638,7 @@ func TestSeedDB_ADayAtKFStJulians(t *testing.T) {
 	//	phase 2  7 NFC check-outs + 1 QR + 1 Rusty Bar 02:10
 	//	         + 1 refused retired plaque                              = 10
 	//
-	// It was 31 until ADR 0025: nine TRAINING rows, one per tapping worker, came
+	// It was 31 until ADR 0026: nine TRAINING rows, one per tapping worker, came
 	// before the first real check-in. The activating tap replaced them and writes
 	// no record, which is why the card's "~21" is now almost exactly right.
 	if total != 22 {
@@ -820,7 +820,7 @@ func ptrTime(v time.Time) *time.Time  { return &v }
 // sys:occurred-at-bound's 72 h).
 //
 // WHAT CHANGED. `AND NOT t.practice` in GetLastOpenTransaction (ADR 0008). Ivan's
-// training tap no longer declared 17:50 after that fix; since ADR 0025 there is no
+// training tap no longer declared 17:50 after that fix; since ADR 0026 there is no
 // training tap at all, so the day can no longer produce the arrangement — the
 // historic-row shape is pinned by the tests named below, which seed it.
 //

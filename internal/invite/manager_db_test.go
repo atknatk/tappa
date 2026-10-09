@@ -474,7 +474,7 @@ func newBinding(t *testing.T) Binding {
 }
 
 // consent records consent for code with a fresh binding and returns the binding
-// — the wizard's step 2 (ADR 0025).
+// — the wizard's step 2 (ADR 0026).
 func consent(t *testing.T, m *Manager, code Code) Binding {
 	t.Helper()
 	b := newBinding(t)
@@ -519,7 +519,7 @@ func TestRecordConsent_RefusesADeadInvitation(t *testing.T) {
 	}
 }
 
-// TestActivate_WithoutConsentIsRefusedAndBurnsNothing: ADR 0025's gate, from the
+// TestActivate_WithoutConsentIsRefusedAndBurnsNothing: ADR 0026's gate, from the
 // manager's side. No consent, or another browser's consent, consumes nothing and is
 // labelled ErrConsentMissing for the trail.
 func TestActivate_WithoutConsentIsRefusedAndBurnsNothing(t *testing.T) {

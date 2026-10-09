@@ -129,7 +129,7 @@ func newInvite(t *testing.T, d *DB, tenantID, employeeID uuid.UUID, ttl time.Dur
 	if row.UsedAt != nil {
 		t.Fatalf("a fresh invite has used_at = %v, want NULL", row.UsedAt)
 	}
-	// Every invite these tests consume is CONSENTED (ADR 0025, migration 00030),
+	// Every invite these tests consume is CONSENTED (ADR 0026, migration 00035),
 	// written directly so that it holds for dead invites too — an expired one, a
 	// deactivated employee's. That keeps the older tests about what they were
 	// about: the predicate that refuses them is still the one they name, not the
@@ -176,7 +176,7 @@ func bindingFor(codeHash string) string {
 }
 
 // consentRaw stamps consent on an invite with a plain UPDATE as tappa_app — the
-// column grant of 00030 is what allows it.
+// column grant of 00035 is what allows it.
 func consentRaw(t *testing.T, d *DB, tenantID, inviteID uuid.UUID, bindingHash string) {
 	t.Helper()
 	if err := d.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
@@ -1105,7 +1105,7 @@ func TestEmployeeInvites_UpdateIsColumnScoped(t *testing.T) {
 		t.Error("tappa_app cannot UPDATE used_at: consumption would be impossible")
 	}
 	if !cConsented || !cBinding {
-		t.Errorf("tappa_app cannot UPDATE consented_at=%v consent_binding_hash=%v: the wizard could not record consent (00030)",
+		t.Errorf("tappa_app cannot UPDATE consented_at=%v consent_binding_hash=%v: the wizard could not record consent (00035)",
 			cConsented, cBinding)
 	}
 	if cExpires || cEmployee || cHash || cCreated {
@@ -1228,7 +1228,7 @@ func cancelPending(t *testing.T, d *DB, tenantID, employeeID uuid.UUID) {
 	}
 }
 
-// --- Consent (ADR 0025, migration 00030) -------------------------------------------
+// --- Consent (ADR 0026, migration 00035) -------------------------------------------
 
 // recordConsent runs the real RecordInviteConsent statement in the tenant context.
 func recordConsent(t *testing.T, d *DB, tenantID uuid.UUID, codeHash, bindingHash string) error {
@@ -1365,7 +1365,7 @@ func TestRecordInviteConsent_ConsumesNothingAndRefusesDeadInvites(t *testing.T) 
 
 // TestEmployeeInvites_ConsentColumnsAreOneFact: the shape CHECK keeps a raw token
 // out of consent_binding_hash, and the pair CHECK keeps consent and binding
-// together (00030).
+// together (00035).
 func TestEmployeeInvites_ConsentColumnsAreOneFact(t *testing.T) {
 	d := appDB(t)
 	tenantID, locationID := newTenant(t, d)

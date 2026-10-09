@@ -69,7 +69,7 @@ type ActivateView struct {
 	SwitchMissing   bool
 	SwitchConfirmed bool
 
-	// Step is the wizard screen (ADR 0025): 1..ActivateSteps, or ActivateStepTap
+	// Step is the wizard screen (ADR 0026): 1..ActivateSteps, or ActivateStepTap
 	// for the waiting screen. The handler clamps it; the template treats anything
 	// it does not know as step 1.
 	Step int
@@ -96,7 +96,7 @@ type AlreadySetUpView struct {
 	EmployeeName string
 }
 
-// ActivatedView is the confirmation the ACTIVATING TAP renders (ADR 0025). It has
+// ActivatedView is the confirmation the ACTIVATING TAP renders (ADR 0026). It has
 // no button by construction (§9): the next thing that happens is another touch on
 // a plaque, and that one is an ordinary check-in.
 type ActivatedView struct {

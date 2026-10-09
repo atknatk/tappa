@@ -1,4 +1,4 @@
-# ADR 0025 — Aktivasyon ilk NFC dokunuşunda tamamlanır; practice tap kalkar
+# ADR 0026 — Aktivasyon ilk NFC dokunuşunda tamamlanır; practice tap kalkar
 
 - **Durum:** kabul edildi
 - **Tarih:** 2026-10-04
@@ -129,14 +129,12 @@ ikinci kopya kalktı.
   değil — yeni çalışan başka bir tarayıcıda kurmalı ya da çerezler silinmeli. Ürün
   kararı bekliyor.
 
-## Birleştirme sırası (zorunlu)
+## Numara ve birleştirme (çözüldü, 2026-10-09)
 
-`origin/m10-a1` migration **00026–00029** ve ADR **0020–0024**'ü kullanıyor; bu iş
-o yüzden **00030** ve **0025** aldı. **`m10-a1` önce `main`'e birleşmeli.** Bu dal
-önce birleşirse üretim 00030'a çıkar ve 00026–00029 sonradan "eksik" kalır: goose
-`up` onları **`-allow-missing` olmadan uygulamaz**. Ayrıca
-`cmd/tappa/storekeyshape_test.go`'daki sorgu sayısı iki dal birleşince yeniden
-hesaplanır (bu dal +2).
+Bu iş önce migration 00026, sonra 00030 ve ADR 0020, sonra 0025 olarak yazıldı;
+`m10-a1` (00026–00034, ADR 0020–0025) `main`'e birleşince dal `origin/main`'in
+üstüne yeniden temellendirildi ve son numaralar **migration 00035**, **ADR 0026**
+oldu. Goose sırası artık düz (34 → 35); `-allow-missing` gerekmez.
 
 ## Geliştirme aracı (2026-10-07)
 

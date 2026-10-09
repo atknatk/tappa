@@ -1,6 +1,6 @@
 package handler
 
-// The DEV-ONLY plaque-tap simulator (ADR 0025, "Geliştirme aracı") against fakes:
+// The DEV-ONLY plaque-tap simulator (ADR 0026, "Geliştirme aracı") against fakes:
 // the gate, and that no product screen carries the control outside development.
 // The real activation through it is in devtap_db_test.go.
 

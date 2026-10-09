@@ -9,7 +9,7 @@ import (
 )
 
 // TestBinding_NeverPrintsItsValue: the consent binding is a bearer credential
-// paired with the code (ADR 0025), so it carries the code's redaction through
+// paired with the code (ADR 0026), so it carries the code's redaction through
 // every printing interface — including from inside a wrapping struct, the shape a
 // handler writes when it logs its own state.
 func TestBinding_NeverPrintsItsValue(t *testing.T) {

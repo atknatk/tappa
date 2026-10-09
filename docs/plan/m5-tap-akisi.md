@@ -171,9 +171,9 @@ agent `tappa-security-auditor` (milestone sonunda)
 
 ## M5-02 — Davet ve aktivasyon akışı
 
-> ⚠️ **ADR 0025 (2026-10-04) bu kartın oturum-verme kısmının yerini aldı.**
+> ⚠️ **ADR 0026 (2026-10-04) bu kartın oturum-verme kısmının yerini aldı.**
 > `POST /api/activate` artık **yalnız onayı kaydeder** (`consented_at` + tarayıcıya
-> bağlı `consent_binding_hash`, migration 00030); daveti tüketmez, oturum vermez.
+> bağlı `consent_binding_hash`, migration 00035); daveti tüketmez, oturum vermez.
 > Aktivasyon, onay veren tarayıcıdan gelen ilk **gerçek NFC dokunuşunda** (`GET /t`
 > → `Activation.CompleteByTap`: `sun.Verify` + aynı tenant'ın aktif plaketi + tek
 > ifadeli tüketim) tamamlanır ve `transactions` satırı yazmaz. Sayfa 4 adımlı bir
@@ -2218,7 +2218,7 @@ sözleşme aşağıdaki kart düzeltmesinde.
 
 ## M5-07 — Mini tur ve practice tap
 
-> ⚠️ **ADR 0025 (2026-10-04) ile ikisi de kalktı.** Tur, aktivasyon sihirbazının ilk
+> ⚠️ **ADR 0026 (2026-10-04) ile ikisi de kalktı.** Tur, aktivasyon sihirbazının ilk
 > adımına katlandı (`/activate/tour` yok); **practice tap'in yerini aktivasyon
 > dokunuşu aldı** — onu izleyen ilk dokunuş sıradan, sayılan bir check-in'dir
 > (`TestDecide_FirstTapAfterActivationIsNotPractice`,

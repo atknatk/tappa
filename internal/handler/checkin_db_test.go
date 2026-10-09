@@ -893,7 +893,7 @@ func TestCheckinDB_PolicyContextCarriesADistanceAndNoCoordinate(t *testing.T) {
 func TestCheckinDB_PracticeThenDirectionTogglesAgainstTheLastOpenCheckIn(t *testing.T) {
 	h := newTapHarness(t)
 
-	// tap 1 — the first record after activation. Until ADR 0025 this was the
+	// tap 1 — the first record after activation. Until ADR 0026 this was the
 	// PRACTICE tap; the activating NFC tap replaced it, so it is now an ordinary
 	// check-IN that counts.
 	first := h.newEmployee(t, "active") // activated_at is set: the old practice shape
@@ -902,14 +902,14 @@ func TestCheckinDB_PracticeThenDirectionTogglesAgainstTheLastOpenCheckIn(t *test
 	}
 	one := h.lastRecord(t, first)
 	if one.Practice {
-		t.Fatalf("the first record after activation was marked practice (verdict %q); ADR 0025 retired the practice tap", one.Verdict)
+		t.Fatalf("the first record after activation was marked practice (verdict %q); ADR 0026 retired the practice tap", one.Verdict)
 	}
 	if one.Type == nil || *one.Type != "in" {
 		t.Fatalf("first-tap direction = %v, want in", deref(one.Type))
 	}
 
 	// tap 2 — the real check-IN, arriving on top of a HISTORIC practice tap (one
-	// written before ADR 0025; transactions are immutable). THE HEADLINE:
+	// written before ADR 0026; transactions are immutable). THE HEADLINE:
 	// it is an `in`, not an `out`, because a training record must not hold the
 	// chain open (the M4-06 hours-inflation exploit). And it is not practice,
 	// because the run was already spent.

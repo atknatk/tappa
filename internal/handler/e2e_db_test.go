@@ -4,7 +4,7 @@ package handler
 // invitation, walk the wizard, consent — and find NOTHING activated — then tap the
 // plaque with a genuinely signed SUN URL and find the employee active, exactly one
 // session, the invitation spent, the plaque's counter advanced and no attendance
-// row (ADR 0025). Then prove the activation cannot be completed twice, by a replay,
+// row (ADR 0026). Then prove the activation cannot be completed twice, by a replay,
 // by racing taps (-race), by another employer's plaque, by a dead plaque, after the
 // invitation expired, or without consent.
 //
@@ -216,7 +216,7 @@ func (h *harness) cookieValue(c *http.Client, name string) string {
 	return ""
 }
 
-// TestE2E_ActivationFlow is ADR 0025's acceptance path, end to end.
+// TestE2E_ActivationFlow is ADR 0026's acceptance path, end to end.
 func TestE2E_ActivationFlow(t *testing.T) {
 	h := newHarness(t, "invited")
 	code := h.issue(t)
@@ -252,7 +252,7 @@ func TestE2E_ActivationFlow(t *testing.T) {
 	}
 	h.assertConsented(t, false)
 
-	// 3. Consent. ADR 0025: recorded, bound — and NOTHING activated.
+	// 3. Consent. ADR 0026: recorded, bound — and NOTHING activated.
 	resp, err = c.PostForm(h.server.URL+"/api/activate", url.Values{"consent": {"yes"}, "csrf": {token}})
 	if err != nil {
 		t.Fatalf("POST /api/activate: %v", err)
@@ -336,7 +336,7 @@ func TestE2E_ActivationFlow(t *testing.T) {
 	}
 	h.assertSessionCount(t, 1)
 
-	// 7. THE NEXT TAP IS A REAL CHECK-IN, AND NOT PRACTICE (ADR 0025 replaced it).
+	// 7. THE NEXT TAP IS A REAL CHECK-IN, AND NOT PRACTICE (ADR 0026 replaced it).
 	_, tapPage := h.tapWith(t, c, h.nextTap(t))
 	ctx := regexp.MustCompile(`name="ctx" value="([^"]+)"`).FindStringSubmatch(tapPage)
 	if len(ctx) != 2 {
@@ -352,7 +352,7 @@ func TestE2E_ActivationFlow(t *testing.T) {
 	}
 	rec := h.lastRecord(t, h.employeeID)
 	if rec.Practice {
-		t.Fatal("the first check-in after activation was recorded practice=true; ADR 0025 replaced the practice tap")
+		t.Fatal("the first check-in after activation was recorded practice=true; ADR 0026 replaced the practice tap")
 	}
 	if rec.Type == nil || *rec.Type != "in" {
 		t.Errorf("the first check-in's direction = %v, want in", show(rec.Type))
@@ -631,7 +631,7 @@ func TestE2E_SecondDeviceRevokesTheFirst(t *testing.T) {
 }
 
 // TestE2E_AClientCannotDeclareThePracticeFlag: with the practice tap retired (ADR
-// 0025) the engine sets practice on nothing — and no form field a client can
+// 0026) the engine sets practice on nothing — and no form field a client can
 // invent turns it back on, on a first record or on a checkout (the M4-06
 // hours-inflation exploit stays closed at the HTTP boundary too).
 func TestE2E_AClientCannotDeclareThePracticeFlag(t *testing.T) {

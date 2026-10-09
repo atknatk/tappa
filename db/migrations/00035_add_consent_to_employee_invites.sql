@@ -1,5 +1,5 @@
 -- +goose Up
--- ADR 0025: activation completes on a physical NFC tap, not on the consent form.
+-- ADR 0026: activation completes on a physical NFC tap, not on the consent form.
 --
 -- The wizard's consent POST no longer spends the invitation. It RECORDS the
 -- consent on the invitation row and binds it to the one browser that gave it;
@@ -30,10 +30,10 @@ ALTER TABLE employee_invites ADD CONSTRAINT employee_invites_consent_pair
     CHECK ((consented_at IS NULL) = (consent_binding_hash IS NULL));
 
 COMMENT ON COLUMN employee_invites.consented_at IS
-    'GDPR Art. 13 consent recorded by the activation wizard (ADR 0025). '
+    'GDPR Art. 13 consent recorded by the activation wizard (ADR 0026). '
     'Activation (used_at) requires it; it never implies activation by itself.';
 COMMENT ON COLUMN employee_invites.consent_binding_hash IS
-    'HMAC of the token held by the consenting browser (ADR 0025). Never the raw token.';
+    'HMAC of the token held by the consenting browser (ADR 0026). Never the raw token.';
 
 -- Column-level UPDATE only, extending 00012's grant. tappa_resolver is NOT
 -- granted either column: resolve_invite_by_code_hash is unchanged, and consent

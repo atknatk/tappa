@@ -55,7 +55,7 @@ var markSessionPresent = uuid.UUID{0: 0x01}
 //   - Type (direction, M4-04): a toggle against the person's last open check-in.
 //   - MinutesLate (M4-05): lateness against the resolved shift; report only.
 //   - Trust (M4-06): 20 + 50(IP) + 30(GPS); INDEPENDENT of the verdict.
-//   - Practice: ALWAYS false since ADR 0025 — the activating NFC tap replaced the
+//   - Practice: ALWAYS false since ADR 0026 — the activating NFC tap replaced the
 //     M4-06 training tap. Input still carries no client practice flag, so nothing
 //     can claim one either.
 //
@@ -241,7 +241,7 @@ func Decide(in Input) Decision {
 		dir, note := resolveDirection(in)
 		dec.Type = &dir
 		dec.Note = appendNote(dec.Note, note)
-		// NO PRACTICE TAP ANY MORE (ADR 0025). The first tap after activation used
+		// NO PRACTICE TAP ANY MORE (ADR 0026). The first tap after activation used
 		// to be a TRAINING record that never counted toward hours (M4-06); the
 		// activation itself now happens on a physical NFC tap, which IS the
 		// training moment and writes no attendance row at all. So every record
@@ -507,7 +507,7 @@ const staleOpenInNote = "stale open check-in (possible forgotten checkout)"
 // through checkin and only a hand-built Input reaches it — which is exactly what
 // TestDecide_DirectionPracticeOpenInDoesNotCloseChain does, and all it can prove.
 //
-// This is only about a PRIOR practice record's effect on the chain. Since ADR 0025
+// This is only about a PRIOR practice record's effect on the chain. Since ADR 0026
 // no NEW record is practice, so the only practice rows this can meet are historic
 // ones (written before the activation tap replaced the training tap); they were
 // always `in` (ADR 0008) and must still never reappear as a LastOpenIn.

@@ -209,12 +209,12 @@ func TestDecide_RustyBarNightShiftFullRound(t *testing.T) {
 	}
 }
 
-// --- Practice defense-in-depth (M4-07 hardening, kept after ADR 0025) ------------
+// --- Practice defense-in-depth (M4-07 hardening, kept after ADR 0026) ------------
 
 // TestDecide_CheckoutNotPracticeInconsistentCaller: even an INCONSISTENT caller —
 // LastForPerson == nil yet a non-nil LastOpenIn — must not get a practice checkout,
 // which would leave the check-in open and inflate hours (the M4-06 exploit). Since
-// ADR 0025 Decide sets no practice at all, so this is now a regression guard: a
+// ADR 0026 Decide sets no practice at all, so this is now a regression guard: a
 // change that brought practice derivation back must not bring the exploit with it.
 func TestDecide_CheckoutNotPracticeInconsistentCaller(t *testing.T) {
 	t.Parallel()

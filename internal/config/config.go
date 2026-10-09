@@ -209,7 +209,7 @@ type Config struct {
 	LogLevel string
 
 	// DevTools is the EXPLICIT opt-in for the development-only plaque-tap
-	// simulator (ADR 0025, "Geliştirme aracı"): TAPPA_DEV_TOOLS=1. It is never
+	// simulator (ADR 0026, "Geliştirme aracı"): TAPPA_DEV_TOOLS=1. It is never
 	// on by default, and Load REFUSES TO START when it is set on any TAPPA_ENV
 	// other than dev — the simulator must not be enabled by the absence of
 	// configuration (an unset TAPPA_ENV falls back to dev and an unset

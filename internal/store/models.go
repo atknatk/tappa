@@ -99,9 +99,9 @@ type EmployeeInvite struct {
 	UsedAt     *time.Time
 	// Davet gecersizlestirildi (kullanilmadi). used_at ile ASLA karistirilmaz: used_at = "kod harcandi", cancelled_at = "kod artik kullanilamaz". Sorgular ikisini de ayri ayri eler.
 	CancelledAt *time.Time
-	// GDPR Art. 13 consent recorded by the activation wizard (ADR 0025). Activation (used_at) requires it; it never implies activation by itself.
+	// GDPR Art. 13 consent recorded by the activation wizard (ADR 0026). Activation (used_at) requires it; it never implies activation by itself.
 	ConsentedAt *time.Time
-	// HMAC of the token held by the consenting browser (ADR 0025). Never the raw token.
+	// HMAC of the token held by the consenting browser (ADR 0026). Never the raw token.
 	ConsentBindingHash *string
 }
 

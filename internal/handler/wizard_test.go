@@ -1,6 +1,6 @@
 package handler
 
-// The activation wizard (ADR 0025) against FAKES: where each step's links point,
+// The activation wizard (ADR 0026) against FAKES: where each step's links point,
 // that nothing on a step runs inline script, that every touch target is large
 // enough, and that the waiting screen's script obeys its own rules. The database
 // half — consent records nothing but consent, the tap activates — is in
@@ -124,7 +124,7 @@ func TestWizard_TellsTheEmployeeAboutTheBrowserTrap(t *testing.T) {
 
 // TestWizard_WaitingScreenNamesTheEmployerAndSaysTheTapIsNotAttendance: the copy
 // that matters on step 4 — any plaque of THIS employer, and the first tap finishes
-// setup without clocking anybody in (ADR 0025).
+// setup without clocking anybody in (ADR 0026).
 func TestWizard_WaitingScreenNamesTheEmployerAndSaysTheTapIsNotAttendance(t *testing.T) {
 	h := newHandler(t, &fakeInvites{}, &fakeSessions{}, &fakeAudit{})
 	body := get(t, h, "/activate?step=4", pendingCookie()).Body.String()

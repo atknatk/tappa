@@ -15,10 +15,10 @@ package handler
 // `AND NOT t.practice` in GetLastOpenTransaction. This file is the pin: the same
 // two arms that measured the defect, now measured through checkin.Service.Record.
 //
-// SINCE ADR 0025 THE ENGINE WRITES NO PRACTICE ROW (the activating NFC tap replaced
+// SINCE ADR 0026 THE ENGINE WRITES NO PRACTICE ROW (the activating NFC tap replaced
 // the training tap), so the training row each arm needs is SEEDED as the historic
 // row it now can only be — transactions are immutable (§4.3), so every practice row
-// written before ADR 0025 is still there and still read by this query.
+// written before ADR 0026 is still there and still read by this query.
 //
 // WHY THE MANUAL CHANNEL AND NOT HTTP TAPS. ADR 0006 measures the person-debounce
 // on the SERVER clock over `channel IN ('nfc','qr')` rows, so three NFC taps by one
@@ -113,7 +113,7 @@ func TestSeedDB_APracticeRowNeverHidesAnOlderOpenCheckIn(t *testing.T) {
 			realIn := now.Add(-3 * time.Hour)
 			entry := f.enterManually(t, p.id, plaque, &realIn)
 			if entry.Decision.Practice {
-				t.Fatal("the engine wrote a TRAINING record; ADR 0025 retired the practice tap")
+				t.Fatal("the engine wrote a TRAINING record; ADR 0026 retired the practice tap")
 			}
 			if entry.Decision.Type == nil || *entry.Decision.Type != tap.TypeIn {
 				t.Fatalf("the real check-in came out as %v, want in — a training tap must not hold the chain open",
@@ -146,10 +146,10 @@ func TestSeedDB_APracticeRowNeverHidesAnOlderOpenCheckIn(t *testing.T) {
 
 // TestSeedDB_ASecondActivationWritesNoRecordAndLeavesTheChainAlone: somebody who
 // loses their phone and activates a new one (the second-device path) gets NO record
-// for the activating tap and no training row after it (ADR 0025), activated_at does
+// for the activating tap and no training row after it (ADR 0026), activated_at does
 // not move, and their next tap toggles against the check-in that was already open.
 //
-// (Before ADR 0025 this measured that a re-activation was not a SECOND practice run:
+// (Before ADR 0026 this measured that a re-activation was not a SECOND practice run:
 // the practice rule read "first record ever", so a person with history never got
 // one. Now no activation produces one, which is the stronger statement.)
 func TestSeedDB_ASecondActivationWritesNoRecordAndLeavesTheChainAlone(t *testing.T) {
@@ -191,7 +191,7 @@ func TestSeedDB_ASecondActivationWritesNoRecordAndLeavesTheChainAlone(t *testing
 }
 
 // seedHistoricPractice writes one TRAINING row the way the engine wrote them
-// before ADR 0025: an `in`, verdict ok, practice=true, both stamps at `at`.
+// before ADR 0026: an `in`, verdict ok, practice=true, both stamps at `at`.
 func (f *seedFlow) seedHistoricPractice(t *testing.T, employeeID, locationID uuid.UUID, plaque string, at time.Time) {
 	t.Helper()
 	err := f.data.WithTenant(context.Background(), f.tenantID, func(ctx context.Context, tx pgx.Tx) error {
@@ -224,7 +224,7 @@ func (f *seedFlow) activatedAt(t *testing.T, employeeID uuid.UUID) time.Time {
 
 // reactivate walks an ALREADY ACTIVE employee through a second activation — the
 // "new phone" path: the wizard warns, the consent records, and the activating tap
-// on plaque revokes the old sessions before issuing the new one (ADR 0025).
+// on plaque revokes the old sessions before issuing the new one (ADR 0026).
 func (f *seedFlow) reactivate(t *testing.T, p *phone, plaque string) {
 	t.Helper()
 	code := f.inviteCode(t, p)

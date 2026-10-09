@@ -289,7 +289,7 @@ func TestPanelEmployeesDB_ASecondInvitationRETIRESTheFirst(t *testing.T) {
 
 	// POSITIVE CONTROL: the newest link gets through the wizard to a recorded
 	// consent — the step that makes a browser able to activate on its first tap
-	// (ADR 0025; the tap itself is driven end to end in e2e_db_test.go, this
+	// (ADR 0026; the tap itself is driven end to end in e2e_db_test.go, this
 	// harness mounts no plaque).
 	if !consentOverHTTP(t, p, codeB) {
 		t.Fatal("the newest link could not even record consent; the refusal below would " +
@@ -523,7 +523,7 @@ func pendingInvitations(t *testing.T, p *panelHarness, employee uuid.UUID) int {
 
 // consentOverHTTP walks the employee's own wizard with a FRESH cookie jar — open
 // the link, read step 2, post the consent — and reports whether the consent was
-// recorded (the POST lands on step 3). Since ADR 0025 that is as far as a link
+// recorded (the POST lands on step 3). Since ADR 0026 that is as far as a link
 // alone can go: activation is the first NFC tap's.
 func consentOverHTTP(t *testing.T, p *panelHarness, code string) bool {
 	t.Helper()

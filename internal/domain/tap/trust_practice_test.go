@@ -165,7 +165,7 @@ func TestDecide_QRChannelEndToEnd(t *testing.T) {
 
 // TestInput_HasNoClientPracticeField closes the M4-06 hours-inflation exploit
 // STRUCTURALLY: Input offers NO place for a client to declare practice (and since
-// ADR 0025 the server derives none either). If a future change adds a
+// ADR 0026 the server derives none either). If a future change adds a
 // practice/isPractice field to Input, this test fails and forces a security review.
 func TestInput_HasNoClientPracticeField(t *testing.T) {
 	t.Parallel()
@@ -177,7 +177,7 @@ func TestInput_HasNoClientPracticeField(t *testing.T) {
 	}
 }
 
-// TestDecide_FirstTapAfterActivationIsNotPractice is ADR 0025's change to §5's
+// TestDecide_FirstTapAfterActivationIsNotPractice is ADR 0026's change to §5's
 // "practice tap" rule, pinned: the activating NFC tap replaced the training tap, so
 // the first RECORD after activation — the shape that used to be practice — is an
 // ordinary one, on both of the verdicts that record attendance.
@@ -202,7 +202,7 @@ func TestDecide_FirstTapAfterActivationIsNotPractice(t *testing.T) {
 				t.Fatalf("precondition: want %q, got %q via %q", tc.wantVer, got.Verdict, got.MatchedSid)
 			}
 			if got.Practice {
-				t.Errorf("the first tap after activation must be an ordinary record since ADR 0025; Practice=true")
+				t.Errorf("the first tap after activation must be an ordinary record since ADR 0026; Practice=true")
 			}
 			if got.Type == nil || *got.Type != TypeIn {
 				t.Errorf("a first record is a check-IN; Type = %v", got.Type)
@@ -273,7 +273,7 @@ func TestDecide_ManualChannelSkipsSUN(t *testing.T) {
 
 // TestDecide_TheFirstTapCanNeverBeIgnored: the person-debounce needs a PREVIOUS
 // tap to measure a gap against, and on a first tap there is none. Still worth
-// pinning after ADR 0025: the activation screen promises "to check in, tap the
+// pinning after ADR 0026: the activation screen promises "to check in, tap the
 // plaque again", and that next tap — the employee's first record — must be able to
 // land as a real ok/flag rather than a silent duplicate.
 func TestDecide_TheFirstTapCanNeverBeIgnored(t *testing.T) {
@@ -285,7 +285,7 @@ func TestDecide_TheFirstTapCanNeverBeIgnored(t *testing.T) {
 	}
 }
 
-// TestDecide_NoNewRecordIsEverPractice is the property ADR 0025 leaves behind: the
+// TestDecide_NoNewRecordIsEverPractice is the property ADR 0026 leaves behind: the
 // engine never produces a practice record, whatever the history, activation,
 // evidence or channel. It checks the PROPERTY over every combination rather than a
 // list (the M5-10 lesson), so a branch that started setting Practice again fails
@@ -359,7 +359,7 @@ func TestDecide_NoNewRecordIsEverPractice(t *testing.T) {
 						recorded++
 					}
 					if got.Practice {
-						t.Errorf("%s: Decide produced a practice record; ADR 0025 retired the practice tap", name)
+						t.Errorf("%s: Decide produced a practice record; ADR 0026 retired the practice tap", name)
 					}
 					if got.Type != nil && *got.Type == TypeOut {
 						sawOut++

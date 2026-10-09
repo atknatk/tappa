@@ -1,4 +1,4 @@
-// The activation waiting screen's only script (ADR 0025). It does ONE thing:
+// The activation waiting screen's only script (ADR 0026). It does ONE thing:
 // notice that the activation finished in ANOTHER TAB and say so here.
 //
 // WHY THERE IS ANOTHER TAB. The first NFC tap completes the activation, and a tap

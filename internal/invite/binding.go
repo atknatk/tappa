@@ -10,10 +10,10 @@ import (
 	"log/slog"
 )
 
-// Binding is the consent binding (ADR 0025): a random token minted when the
+// Binding is the consent binding (ADR 0026): a random token minted when the
 // employee agrees to the GDPR notice, kept ONLY in that browser's HttpOnly
 // activation cookie, and stored server-side as an HMAC on the invitation
-// (employee_invites.consent_binding_hash, migration 00030).
+// (employee_invites.consent_binding_hash, migration 00035).
 //
 // WHY IT EXISTS. Activation now completes on the first NFC tap, which arrives as a
 // plain GET carrying whatever cookie the browser holds. A cross-site navigation can

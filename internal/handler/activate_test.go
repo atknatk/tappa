@@ -353,7 +353,7 @@ func codeCookie() *http.Cookie {
 	return &http.Cookie{Name: activationCookieName, Value: fakeCSRF + "." + fakeCode}
 }
 
-// fakeBinding is the consent binding a consented browser carries (ADR 0025).
+// fakeBinding is the consent binding a consented browser carries (ADR 0026).
 const fakeBinding = "BINDbindBINDbindBINDbindBINDbindBINDbind123"
 
 // pendingCookie is the activation cookie AFTER consent: code plus binding. A
@@ -437,7 +437,7 @@ func TestPage_ValidCodeMovesIntoCookieAndRedirects(t *testing.T) {
 	if found.SameSite != http.SameSiteLaxMode {
 		t.Error("SameSite must be Lax: it is the CSRF defence for POST /api/activate")
 	}
-	// ADR 0025: the cookie lives until the invitation expires. The fake context
+	// ADR 0026: the cookie lives until the invitation expires. The fake context
 	// carries no expiry, so this lands on the 1-second floor — never 0 (a session
 	// cookie) and never negative (a deletion).
 	if found.MaxAge < 1 {
@@ -446,7 +446,7 @@ func TestPage_ValidCodeMovesIntoCookieAndRedirects(t *testing.T) {
 }
 
 // TestActivationCookie_LivesUntilTheInvitationExpires pins the user decision of
-// ADR 0025 at the arithmetic: the cookie's lifetime is the invitation's remaining
+// ADR 0026 at the arithmetic: the cookie's lifetime is the invitation's remaining
 // life, bounded above by the ceiling and below by one second.
 func TestActivationCookie_LivesUntilTheInvitationExpires(t *testing.T) {
 	now := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
@@ -951,7 +951,7 @@ func TestSubmit_ConsentIsRequired(t *testing.T) {
 	}
 }
 
-// TestSubmit_RecordsConsentAndIssuesNoSession is ADR 0025's first half: the
+// TestSubmit_RecordsConsentAndIssuesNoSession is ADR 0026's first half: the
 // wizard's consent POST records consent, binds it to this browser and moves on to
 // the get-ready step — and it consumes NOTHING and issues NO session.
 func TestSubmit_RecordsConsentAndIssuesNoSession(t *testing.T) {
@@ -972,7 +972,7 @@ func TestSubmit_RecordsConsentAndIssuesNoSession(t *testing.T) {
 		t.Fatalf("RecordConsent calls = %d, want 1", inv.consentCalls)
 	}
 	if inv.activateCalls != 0 {
-		t.Fatal("the consent POST consumed the invitation; only the NFC tap may (ADR 0025)")
+		t.Fatal("the consent POST consumed the invitation; only the NFC tap may (ADR 0026)")
 	}
 	if sess.issued != 0 || sess.revoked != 0 {
 		t.Fatalf("the consent POST issued %d / revoked %d sessions; it must do neither", sess.issued, sess.revoked)
@@ -1002,7 +1002,7 @@ func TestSubmit_RecordsConsentAndIssuesNoSession(t *testing.T) {
 	}
 }
 
-// TestTap_CompletesAConsentedActivation is ADR 0025's second half: the first NFC
+// TestTap_CompletesAConsentedActivation is ADR 0026's second half: the first NFC
 // tap from the consenting browser verifies the SUN with the ADVANCING path,
 // consumes the invitation, issues exactly one session, clears the activation
 // cookie, records the plaque — and renders a confirmation with no button.
@@ -1968,7 +1968,7 @@ func TestB1_FullAuditScenarioNowFails(t *testing.T) {
 		t.Fatalf("STEP 3 completed the takeover: status %d, sessions issued %d, consents %d", w3.Code, sess.issued, inv.consentCalls)
 	}
 
-	// STEP 4 (ADR 0025) — the victim taps a plaque while the planted code sits in
+	// STEP 4 (ADR 0026) — the victim taps a plaque while the planted code sits in
 	// their browser. A planted cookie carries no consent binding, so the tap is
 	// not an activation: nothing is verified, consumed or issued.
 	w4 := doTap(t, h, activationTapURL, codeCookie(), &http.Cookie{Name: session.CookieName, Value: victimSession})

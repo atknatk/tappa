@@ -28,7 +28,7 @@ func (h *harness) devTapPost(t *testing.T, c *http.Client) (*http.Response, stri
 }
 
 // TestDevTapDB_ASimulatedTapActivatesThroughTheRealPath is the dev tool end to
-// end (ADR 0025, "Geliştirme aracı"): after consent, the button produces a REAL
+// end (ADR 0026, "Geliştirme aracı"): after consent, the button produces a REAL
 // activation — the minted URL goes through GET /t, sun.Verify and the atomic
 // counter advance — so exactly one session, the invitation spent, zero
 // attendance rows and last_ctr + 1. Pressed again with the live session it

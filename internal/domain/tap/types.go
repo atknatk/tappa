@@ -217,7 +217,7 @@ type Employee struct {
 	Department *uuid.UUID
 	// ActivatedAt is when the invite was activated. It USED to be the server-side
 	// source of the practice flag (M4-06: first tap after activation = practice);
-	// ADR 0025 retired the practice tap, so Decide no longer reads it. It stays
+	// ADR 0026 retired the practice tap, so Decide no longer reads it. It stays
 	// because the caller loads it with the employee row and it is a fact about the
 	// person, not a decision input anybody can supply.
 	ActivatedAt time.Time
@@ -506,7 +506,7 @@ type Decision struct {
 	// unambiguously distinct from "0 minutes late".
 	MinutesLate *int
 	// Practice marks a training tap (TRAINING stamp; never counts toward hours).
-	// Since ADR 0025 Decide never sets it: the activating NFC tap replaced the
+	// Since ADR 0026 Decide never sets it: the activating NFC tap replaced the
 	// M4-06 practice tap. It remains so the record writer keeps one shape and
 	// historic practice rows (immutable, §4.3) still have a name.
 	Practice bool

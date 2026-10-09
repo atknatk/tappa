@@ -93,7 +93,7 @@ const (
 	// the only case where refusing everything from that address is the right
 	// answer.
 	//
-	// WHAT ONE ACTIVATION ACTUALLY COSTS since the wizard (ADR 0025), counted by
+	// WHAT ONE ACTIVATION ACTUALLY COSTS since the wizard (ADR 0026), counted by
 	// walking the flow:
 	//
 	//	8 requests  GET /activate?code= -> 303 -> GET /activate (step 1) ->
@@ -148,7 +148,7 @@ const (
 	inviteFailurePeriod = 10 * time.Minute
 
 	// statusLimit / statusPeriod meter GET /activate/status, the waiting screen's
-	// poll (ADR 0025), on a budget of its own. One tab polls every 3 seconds and
+	// poll (ADR 0026), on a budget of its own. One tab polls every 3 seconds and
 	// gives up after 10 minutes — at most 200 requests — so 2400 per address in
 	// 10 minutes carries a dozen people waiting on the same venue network at once.
 	// It refuses nothing but the poll: the page itself still works, it just stops

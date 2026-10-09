@@ -828,7 +828,7 @@ func TestQRScreens_SayNothingAboutTheQRRoute(t *testing.T) {
 		}),
 		"pages.Activated": pages.Activated(pages.ActivatedView{EmployeeName: "Maria Borg", SecondDevice: true}),
 	}
-	// Every wizard step (ADR 0025), including the waiting screen.
+	// Every wizard step (ADR 0026), including the waiting screen.
 	for step := 1; step <= pages.ActivateStepTap; step++ {
 		screens["pages.Activate step "+strconv.Itoa(step)] = pages.Activate(pages.ActivateView{
 			EmployeeName: "Maria Borg", EmployerName: "Kebab Factory Ltd", LocationName: "St Julians",
@@ -1045,7 +1045,7 @@ func TestQRDB_SimultaneousTapsByOnePersonAreSerialised(t *testing.T) {
 	}
 
 	// N3 FROM THE AUDIT: the same race also multiplied the PRACTICE run (20 of 20
-	// rows practice=true, each request having read "no prior tap"). ADR 0025
+	// rows practice=true, each request having read "no prior tap"). ADR 0026
 	// retired the practice tap, so what remains to pin for an employee's very
 	// FIRST taps arriving at once is the same read-then-decide shape on the
 	// direction chain: exactly one counted row, and none of them practice.
@@ -1067,7 +1067,7 @@ func TestQRDB_SimultaneousTapsByOnePersonAreSerialised(t *testing.T) {
 
 		v := h.verdictBreakdown(t, emp)
 		if v["__practice"] != 0 {
-			t.Fatalf("%d of %d rows were marked practice, want 0 (ADR 0025); breakdown %v", v["__practice"], n, v)
+			t.Fatalf("%d of %d rows were marked practice, want 0 (ADR 0026); breakdown %v", v["__practice"], n, v)
 		}
 		if v["__directional"] != 1 {
 			t.Fatalf("%d of %d rows carry a direction, want exactly 1; breakdown %v", v["__directional"], n, v)

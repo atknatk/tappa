@@ -100,7 +100,7 @@ var (
 
 	// ErrConsentMissing: the invitation is otherwise usable, but the activation
 	// was attempted WITHOUT the consent the wizard records — nobody agreed yet, or
-	// a DIFFERENT browser agreed since (ADR 0025: the binding moves to the last
+	// a DIFFERENT browser agreed since (ADR 0026: the binding moves to the last
 	// browser that consented). Context POPULATED. The consuming statement is what
 	// refuses it; this label only says why, for audit_log.
 	ErrConsentMissing = errors.New("invite: consent not recorded by this browser")
@@ -569,7 +569,7 @@ func (m *Manager) ActivationContext(ctx context.Context, tenantID, employeeID uu
 }
 
 // RecordConsent stores the employee's agreement to the GDPR Art. 13 notice on the
-// invitation, bound to the browser that gave it (ADR 0025). It backs the wizard's
+// invitation, bound to the browser that gave it (ADR 0026). It backs the wizard's
 // POST /api/activate.
 //
 // IT CONSUMES NOTHING AND ACTIVATES NOBODY. The invitation stays usable, the
@@ -628,7 +628,7 @@ type Activation struct {
 	SecondDeviceReplaced bool
 }
 
-// Activate spends the code and flips the employee to 'active'. Since ADR 0025 it
+// Activate spends the code and flips the employee to 'active'. Since ADR 0026 it
 // backs the FIRST NFC TAP (GET /t with a pending activation), not the consent
 // form: the form only records consent (RecordConsent), and b must be the binding
 // that consent was recorded with, or nothing is consumed (ErrConsentMissing).
@@ -713,7 +713,7 @@ func (m *Manager) Activate(ctx context.Context, c Code, b Binding) (Activation, 
 
 		// LABEL ONLY, read before the consumption in the same transaction: whether
 		// the consent on the row belongs to this binding. Nothing branches on it
-		// before the UPDATE — the UPDATE's own WHERE is the gate (ADR 0025).
+		// before the UPDATE — the UPDATE's own WHERE is the gate (ADR 0026).
 		if bindingHash != "" {
 			consentMatched, e = q.InviteConsentMatches(ctx, store.InviteConsentMatchesParams{
 				ConsentBindingHash: bindingHash,
@@ -782,7 +782,7 @@ func (m *Manager) classify(res db.ResolvedInvite, priorStatus string, consentMat
 		return ErrNotActivatable
 	case !consentMatched:
 		// Usable invitation, activatable employee, but no consent from THIS
-		// browser (ADR 0025). Checked after the employee's state because a
+		// browser (ADR 0026). Checked after the employee's state because a
 		// deactivated person's refusal is the more important story.
 		return ErrConsentMissing
 	default:

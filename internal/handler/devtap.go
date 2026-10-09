@@ -18,7 +18,7 @@ import (
 	"github.com/atknatk/tappa/web/templates/components"
 )
 
-// DevTap is the DEVELOPMENT-ONLY plaque-tap simulator (ADR 0025, "Geliştirme
+// DevTap is the DEVELOPMENT-ONLY plaque-tap simulator (ADR 0026, "Geliştirme
 // aracı"): POST /dev/simulate-tap picks a plaque, mints the URL its next read
 // would produce, and 303s the browser to it. GET /t then runs EXACTLY as for a
 // real tap — CompleteByTap with sun.Verify and the atomic counter advance for a

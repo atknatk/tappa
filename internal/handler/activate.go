@@ -39,7 +39,7 @@ type (
 		Activate(ctx context.Context, c invite.Code, b invite.Binding) (invite.Activation, error)
 		ActivationContext(ctx context.Context, tenantID, employeeID uuid.UUID) (invite.Context, error)
 	}
-	// activationVerifier is the ADVANCING half of internal/sun (ADR 0025). The
+	// activationVerifier is the ADVANCING half of internal/sun (ADR 0026). The
 	// activating tap is a GET with no button after it, so the replay guard runs
 	// HERE — the atomic ctr advance of §4.4 — and never the preview path. This is
 	// the one handler besides the check-in POST that may advance a counter, and
@@ -62,7 +62,7 @@ type (
 // decision (00005), so the constants are the vocabulary.
 const (
 	ActionActivationCompleted = "activation.completed"
-	// ActionActivationConsented is the wizard's consent (ADR 0025). It is NOT an
+	// ActionActivationConsented is the wizard's consent (ADR 0026). It is NOT an
 	// activation: nothing is consumed and no session exists after it.
 	ActionActivationConsented = "activation.consented"
 	ActionActivationFailed    = "activation.failed"
@@ -72,7 +72,7 @@ const (
 )
 
 // Activation serves the invite flow: a short wizard, a consent, and the first NFC
-// tap that completes it (ADR 0025).
+// tap that completes it (ADR 0026).
 //
 //	GET  /activate          the link the employee was sent. Validates the code,
 //	                        moves it into an HttpOnly cookie and redirects to
@@ -143,7 +143,7 @@ func NewActivation(inv inviteManager, sess sessionManager, verifier activationVe
 	case sess == nil:
 		return nil, errors.New("handler: nil session manager")
 	case isNil(verifier):
-		// Without it no activation can ever complete (ADR 0025): every pending
+		// Without it no activation can ever complete (ADR 0026): every pending
 		// tap would fail. A startup error, not a first-tap panic.
 		return nil, errors.New("handler: nil sun verifier")
 	case rec == nil:
@@ -174,7 +174,7 @@ func NewActivation(inv inviteManager, sess sessionManager, verifier activationVe
 
 // Mount registers the routes on r.
 //
-// /activate/tour and /activate/done ARE GONE (ADR 0025). The tour's teaching moved
+// /activate/tour and /activate/done ARE GONE (ADR 0026). The tour's teaching moved
 // into the wizard's first step, and "done" is now the screen the activating TAP
 // renders — there is no moment after the form where a session exists to confirm.
 // The activating tap itself is not a route of this handler: it arrives on GET /t
@@ -244,7 +244,7 @@ var (
 		Hint:    "If that wasn't you, tell your manager.",
 	}
 
-	// The activating tap's refusals (ADR 0025). None of them activates anything
+	// The activating tap's refusals (ADR 0026). None of them activates anything
 	// and none writes an attendance record; each one is in audit_log. They say
 	// what to DO, because the person is standing at a plaque.
 	// problemActivationTapFailed is ONE screen for an unknown plaque, another
@@ -401,7 +401,7 @@ func (a *Activation) alreadySetUpFor(w http.ResponseWriter, r *http.Request, ip 
 	return true
 }
 
-// wizardStep reads ?step= for the activation wizard (ADR 0025) and decides which
+// wizardStep reads ?step= for the activation wizard (ADR 0026) and decides which
 // screen this visit gets.
 //
 //	1  welcome — how Taptime works
@@ -482,7 +482,7 @@ func (a *Activation) Continue(w http.ResponseWriter, r *http.Request) {
 
 // startActivation mints a synchronizer token, parks it with the code in the
 // cookie and redirects to a clean URL. The cookie lives until the invitation
-// expires (ADR 0025).
+// expires (ADR 0026).
 //
 // IT ALWAYS STARTS UNCONSENTED: a fresh arrival writes "<csrf>.<code>" with no
 // binding, even when this browser had consented to the same invitation before.
@@ -504,9 +504,9 @@ func (a *Activation) startActivation(w http.ResponseWriter, r *http.Request, raw
 	a.redirect(w, r, "/activate")
 }
 
-// Submit serves POST /api/activate — the wizard's consent step (ADR 0025).
+// Submit serves POST /api/activate — the wizard's consent step (ADR 0026).
 //
-// IT NO LONGER ACTIVATES ANYTHING. Until ADR 0025 this endpoint spent the code
+// IT NO LONGER ACTIVATES ANYTHING. Until ADR 0026 this endpoint spent the code
 // and issued the session; now it RECORDS CONSENT on the invitation, binds that
 // consent to this browser, and sends the person on to the "get ready" step.
 // Nothing is consumed, the employee's status does not move and no session cookie
@@ -582,7 +582,7 @@ func (a *Activation) Submit(w http.ResponseWriter, r *http.Request) {
 	// form themselves, on a page bearing a stranger's name), which measure 2
 	// addresses and which is NOT claimed to be closed here.
 	//
-	// It matters MORE since ADR 0025, not less: this POST is now what mints the
+	// It matters MORE since ADR 0026, not less: this POST is now what mints the
 	// consent binding, and the binding is what lets a later tap activate. A forged
 	// consent would turn a planted code into a pending activation.
 	//
@@ -665,7 +665,7 @@ func (a *Activation) Submit(w http.ResponseWriter, r *http.Request) {
 }
 
 // Pending reports whether this request's browser holds a CONSENTED activation —
-// one whose next NFC tap completes it (ADR 0025). It reads the cookie only: no
+// one whose next NFC tap completes it (ADR 0026). It reads the cookie only: no
 // database, so the tap path can ask it on every request for free.
 //
 // A cookie WITHOUT a binding is not pending. That is the planted-cookie case
@@ -678,7 +678,7 @@ func (a *Activation) Pending(r *http.Request) bool {
 	return ok && st.pending()
 }
 
-// CompleteByTap is the activating tap (ADR 0025): GET /t from a browser holding a
+// CompleteByTap is the activating tap (ADR 0026): GET /t from a browser holding a
 // consented activation. The Tap handler calls it when Pending is true, after the
 // SUN URL has parsed and after the session middleware has run.
 //
@@ -687,7 +687,7 @@ func (a *Activation) Pending(r *http.Request) bool {
 //   - NO `transactions` ROW, ever. This tap is not attendance — it proves the
 //     person stood at one of their employer's plaques with this phone — so it is
 //     treated like §5 row 3: the tap that finds no usable session records no
-//     attendance. The NEXT tap is an ordinary, non-practice check-in (ADR 0025
+//     attendance. The NEXT tap is an ordinary, non-practice check-in (ADR 0026
 //     replaces the practice tap).
 //   - tags.last_ctr IS ADVANCED, atomically, by sun.Verify (§4.4). A replayed
 //     activation URL therefore fails exactly like a replayed check-in.
@@ -823,7 +823,7 @@ func (a *Activation) HolderDeactivated(ctx context.Context, tenantID, employeeID
 }
 
 // EnableDevTools turns on the DEV-ONLY simulate-tap strip on this flow's screens
-// (ADR 0025, "Geliştirme aracı"). It is a no-op unless DevToolsEnabled(cfg): the
+// (ADR 0026, "Geliştirme aracı"). It is a no-op unless DevToolsEnabled(cfg): the
 // caller cannot switch it on for a deployment that is not dev on loopback. Call it
 // before serving.
 func (a *Activation) EnableDevTools(cfg *config.Config) { a.devTools = DevToolsEnabled(cfg) }
@@ -863,7 +863,7 @@ func (a *Activation) failTap(ctx context.Context, ip string, ictx invite.Context
 
 // finishActivation is THE activation: consume the invitation, revoke a replaced
 // phone's sessions, issue this phone's session, swap the cookies, write the trail,
-// render the confirmation. It was the second half of Submit until ADR 0025 moved
+// render the confirmation. It was the second half of Submit until ADR 0026 moved
 // activation onto the tap; it is one function so there is exactly one place where
 // a session is born from an invitation.
 func (a *Activation) finishActivation(w http.ResponseWriter, r *http.Request, ip string, st activationState, tap activationTap) {
@@ -1144,7 +1144,7 @@ type activationDetail struct {
 	// employees activated from one device", and that report needs the field.
 	Device string `json:"device,omitempty"`
 	// TagUID and LocationID name the plaque whose tap completed (or failed to
-	// complete) the activation (ADR 0025). The uid is not a secret — the chip
+	// complete) the activation (ADR 0026). The uid is not a secret — the chip
 	// prints it in the address bar — and it is only written for a plaque of the
 	// SAME tenant as the row.
 	TagUID     string `json:"tag_uid,omitempty"`
@@ -1586,7 +1586,7 @@ func (a *Activation) renderProblem(w http.ResponseWriter, r *http.Request, statu
 // from a credential-bearing URL; a shared phone's back button must not resurrect
 // them from a cache, and no intermediary should keep a copy.
 //
-// THE CONTENT SECURITY POLICY IS NOW SET HERE TOO (ADR 0025). tap.go's tapCSP note
+// THE CONTENT SECURITY POLICY IS NOW SET HERE TOO (ADR 0026). tap.go's tapCSP note
 // deferred extending it to this flow "as its own task"; the wizard rewrite is that
 // task. The pages already have the shape it wants — one stylesheet, one script of
 // our own, self-hosted fonts, forms that post to this origin, no inline anything —

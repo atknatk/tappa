@@ -584,7 +584,7 @@ func TestLoad_UnsetPreviousKEKIsNilNotEmptySlice(t *testing.T) {
 	}
 }
 
-// TestLoad_DevToolsIsAnExplicitDevOnlyOptIn (ADR 0025, "Geliştirme aracı"): the
+// TestLoad_DevToolsIsAnExplicitDevOnlyOptIn (ADR 0026, "Geliştirme aracı"): the
 // simulator is off unless TAPPA_DEV_TOOLS=1, and setting it on any environment
 // but dev is a startup failure, not a silent on.
 func TestLoad_DevToolsIsAnExplicitDevOnlyOptIn(t *testing.T) {
