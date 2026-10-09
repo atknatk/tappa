@@ -199,6 +199,12 @@ type IssueParams struct {
 	// TTL is the validity window; zero means defaultTTL. Values outside
 	// [minTTL, maxTTL] are REJECTED, not clamped (§7: no silent acceptance).
 	TTL time.Duration
+	// OnlyWithoutAddress is the e-mail mode's owner-only fallback (ADR 0022 §7, K3):
+	// the link is shown on the panel ONLY for somebody with no address on file. It is
+	// checked in the minting transaction, after the row is inserted, and a person who
+	// has an address is refused with ErrHasAddress (nothing minted). It cannot be set
+	// together with an EmailChannel. The panel mode never sets it.
+	OnlyWithoutAddress bool
 }
 
 // IssueAndDeliver mints a code, stores its hash and hands the activation link to
@@ -262,10 +268,28 @@ func (m *Manager) IssueAndDeliver(ctx context.Context, p IssueParams, ch Channel
 		return Invite{}, fmt.Errorf("invite: issue: %w", err)
 	}
 
+	// THE E-MAIL ROUTE (M10 EM-7B) IS THE ONE CHANNEL THE TRANSACTION KNOWS ABOUT, and
+	// it adds two steps to it and changes nothing else: the issuing limits are counted
+	// FIRST, under the business's lock (checkLimits); and the address is read LAST,
+	// after CreateInvite, with its four refusals (readRecipient). A refusal of either
+	// rolls the whole transaction back — no row, no retired sibling — and is recorded
+	// afterwards as invite.email_refused. Every other channel takes exactly the
+	// transaction below without those steps.
+	mailCh, toOwnAddress := ch.(*EmailChannel)
+	if toOwnAddress && p.OnlyWithoutAddress {
+		return Invite{}, errors.New("invite: issue: an e-mailed invitation cannot be the no-address fallback")
+	}
+
 	var row store.CreateInviteRow
 	var retired int
+	var to Recipient
 	err = m.data.WithTenant(ctx, p.TenantID, func(ctx context.Context, tx pgx.Tx) error {
 		q := store.New(tx)
+		if toOwnAddress {
+			if e := checkLimits(ctx, q, p); e != nil {
+				return e
+			}
+		}
 		// 🔴 THE OLD INVITATIONS ARE RETIRED IN THE SAME TRANSACTION AS THE NEW ONE,
 		// and the ordering is the whole point: cancel first, then insert. The reverse
 		// would let the cancelling statement catch the row that was just created and
@@ -290,9 +314,31 @@ func (m *Manager) IssueAndDeliver(ctx context.Context, p IssueParams, ch Channel
 			CodeHash:   hash,
 			ExpiresAt:  m.clock().Add(ttl),
 		})
+		if e != nil {
+			return e
+		}
+		// 🔴 AFTER CreateInvite, NOT BEFORE IT (ADR 0022's EM-6 note, counted limit 1):
+		// the insert's foreign-key check holds FOR KEY SHARE on the employee row, so an
+		// address change either committed before this read (and is what it reads) or
+		// waits for this transaction and then retires the invitation it minted.
+		switch {
+		case toOwnAddress:
+			to, e = readRecipient(ctx, q, p)
+		case p.OnlyWithoutAddress:
+			e = requireNoAddress(ctx, q, p)
+		}
 		return e
 	})
 	if err != nil {
+		if reason, refused := RefusalReason(err); refused && toOwnAddress {
+			// A REFUSAL WHOSE ROW COULD NOT BE WRITTEN IS STILL THE REFUSAL: both errors
+			// travel, so the caller tells the manager why nothing was sent (the sentinel)
+			// and logs that the trail is missing the row (ErrNotRecorded). Returning the
+			// write error alone turned a refusal into an unexplained 500.
+			if rerr := mailCh.refused(ctx, p, reason); rerr != nil {
+				return Invite{}, fmt.Errorf("invite: issue: %w", errors.Join(err, rerr))
+			}
+		}
 		return Invite{}, fmt.Errorf("invite: issue: %w", err)
 	}
 
@@ -306,6 +352,7 @@ func (m *Manager) IssueAndDeliver(ctx context.Context, p IssueParams, ch Channel
 	if err := ch.DeliverInvite(ctx, Delivery{
 		Invite:        inv,
 		ActivationURL: m.activationURL(code),
+		Recipient:     to,
 	}); err != nil {
 		return inv, fmt.Errorf("invite: deliver %s: %w", inv.ID, err)
 	}

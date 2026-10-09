@@ -265,6 +265,12 @@ type AdminAuth struct {
 	// writes the notice row that says nothing was sent.
 	notices passwordNotifier
 
+	// inviteMail is the invitation's e-mail route (M10 EM-7B, inviteemail.go): set
+	// exactly when TAPPA_INVITE_DELIVERY=email and nil in the panel mode, which
+	// NewAdminAuth checks against the configuration both ways. Whether an invitation
+	// is mailed or shown is decided by this field and nothing else.
+	inviteMail *EmailInvitations
+
 	// See adminratelimit.go for why there are three and what each may refuse.
 	floodLimiter   *limiter
 	attemptLimiter *limiter
@@ -293,7 +299,12 @@ type AdminAuth struct {
 // the argument; the short version is that its absence is a deployment fact (no https
 // base URL, therefore no NDEF template) rather than a wiring bug, and the surface
 // answers 503 with a named fault instead of 404.
-func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLedger, queue panelQueue, reviewer panelReviewer, staff panelStaff, invites panelInviter, venues panelVenues, plaques panelPlaques, entries panelRecorder, rules panelRules, scribe panelScribe, books panelBooks, accounts panelAccounts, brands panelBrands, brandWriter panelBrandWriter, encoder PlaqueEncoder, notices passwordNotifier, cfg *config.Config, log *slog.Logger) (*AdminAuth, error) {
+//
+// opts carries what only one delivery mode has (M10 EM-7B: InvitationsByEmail). It is
+// variadic so the panel mode's construction is the call it always was; the mode it
+// must match is cfg's, and a mismatch in either direction refuses construction
+// (invitationMode).
+func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLedger, queue panelQueue, reviewer panelReviewer, staff panelStaff, invites panelInviter, venues panelVenues, plaques panelPlaques, entries panelRecorder, rules panelRules, scribe panelScribe, books panelBooks, accounts panelAccounts, brands panelBrands, brandWriter panelBrandWriter, encoder PlaqueEncoder, notices passwordNotifier, cfg *config.Config, log *slog.Logger, opts ...AdminAuthOption) (*AdminAuth, error) {
 	switch {
 	case admins == nil:
 		return nil, errors.New("handler: nil admin authenticator")
@@ -416,7 +427,7 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 	if err != nil {
 		return nil, err
 	}
-	return &AdminAuth{
+	a := &AdminAuth{
 		admins:         admins,
 		audit:          rec,
 		ledger:         records,
@@ -454,7 +465,16 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 		brandUploadLimiter: newLimiter(brandUploadLimit, brandUploadPeriod),
 		brandWriteLimiter:  newLimiter(brandWriteLimit, brandWritePeriod),
 		brandUploadTimeout: brandUploadReadTimeout,
-	}, nil
+	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(a)
+		}
+	}
+	if err := invitationMode(cfg.InviteDelivery, a.inviteMail); err != nil {
+		return nil, err
+	}
+	return a, nil
 }
 
 // adminLoginPath is where the panel's sign-in page is mounted.

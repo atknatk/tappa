@@ -32,6 +32,11 @@ import (
 type Delivery struct {
 	Invite        Invite
 	ActivationURL string
+	// Recipient is the employee's own address and the e-mail's names (M10 EM-7B),
+	// read in the minting transaction. It is filled ONLY for an EmailChannel and is
+	// the zero value for every other channel. Its Address is personal data with the
+	// same three obligations as the link: not logged, not stored, one recipient.
+	Recipient Recipient
 }
 
 // Channel delivers an activation link to whoever must use it.
@@ -42,6 +47,12 @@ type Delivery struct {
 // one-file change: today the link reaches the employee through their manager's
 // screen; when Q02 is decided it must reach the employee's OWN channel
 // (personal email or SMS) and no call site should have to move.
+//
+// ✅ M10 EM-7B: Q02 IS ANSWERED (ADR 0022) AND THE SECOND IMPLEMENTATION EXISTS —
+// EmailChannel (email.go), chosen by TAPPA_INVITE_DELIVERY=email. The call site did
+// not move: the panel builds one channel or the other and calls IssueAndDeliver.
+// The paragraph below still describes the panel mode, which remains the shipped
+// default and the e-mail mode's owner-only fallback.
 //
 // ⚠️ THE INTERIM IMPLEMENTATION IS AN ACCEPTED RISK, NOT A DESIGN. ADR 0005 Y-D
 // ("müdürün kimlik basması"): the person who generates and READS the code is the
@@ -84,8 +95,9 @@ type auditRecorder interface {
 // as unmitigated.
 const ActionCodeShownToManager = "invite.code_shown_to_manager"
 
-// ManagerVisibleChannel is TODAY'S ONLY CHANNEL: it shows the activation link on
-// the admin panel and records that it did.
+// ManagerVisibleChannel is the PANEL MODE'S CHANNEL (TAPPA_INVITE_DELIVERY=panel,
+// the shipped default) and the e-mail mode's owner-only fallback: it shows the
+// activation link on the admin panel and records that it did.
 //
 // The name is deliberately uncomfortable. A future reader looking for "how does
 // the code reach the employee" should trip over the fact that it does not — it

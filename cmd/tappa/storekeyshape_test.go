@@ -203,6 +203,7 @@ var storeSurface = map[string]string{
 	"CountMaskedOpenCheckIns":            "(context.Context, CountMaskedOpenCheckInsParams{TenantID uuid.UUID; FromAt time.Time; ToAt time.Time}) (CountMaskedOpenCheckInsRow{StillOpen int64; ClosedLater int64}, error)",
 	"CountPendingFlagged":                "(context.Context, CountPendingFlaggedParams{TenantID uuid.UUID; Cap int32}) (int32, error)",
 	"CountPracticeTaps":                  "(context.Context, CountPracticeTapsParams{TenantID uuid.UUID; FromAt time.Time; ToAt time.Time}) (int64, error)",
+	"CountRecentInvites":                 "(context.Context, CountRecentInvitesParams{EmployeeID uuid.UUID; TenantID uuid.UUID}) (CountRecentInvitesRow{TenantLastHour int32; TenantLastDay int32; EmployeeLastHour int32}, error)",
 	"CountTenantPlaques":                 "(context.Context, uuid.UUID) (CountTenantPlaquesRow{InService int64; InStock int64; ReadyToMount int64; Loaded int64}, error)",
 	"CreateAdminSession":                 "(context.Context, CreateAdminSessionParams{TokenHash string; AdminUserID uuid.UUID; TenantID uuid.UUID}) (CreateAdminSessionRow{ID uuid.UUID; TenantID uuid.UUID; AdminUserID uuid.UUID; CreatedAt time.Time; LastUsedAt *time.Time; RevokedAt *time.Time}, error)",
 	"CreateAdminUser":                    "(context.Context, CreateAdminUserParams{FullName string; Email *string; PasswordHash string; Role string; TenantID uuid.UUID}) (CreateAdminUserRow{ID uuid.UUID; TenantID uuid.UUID; FullName string; Role string; Status string; CreatedAt time.Time}, error)",
@@ -237,6 +238,7 @@ var storeSurface = map[string]string{
 	"GetEmployeeEmail":                 "(context.Context, GetEmployeeEmailParams{TenantID uuid.UUID; ID uuid.UUID}) (GetEmployeeEmailRow{ID uuid.UUID; Email *string}, error)",
 	"GetEmployeeForTap":                "(context.Context, GetEmployeeForTapParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (GetEmployeeForTapRow{Status string; LocationID uuid.UUID; DepartmentID *uuid.UUID; ActivatedAt *time.Time; TenantTimezone string; TenantBusinessType string}, error)",
 	"GetLastOpenTransaction":           "(context.Context, GetLastOpenTransactionParams{TenantID uuid.UUID; EmployeeID *uuid.UUID}) (Transaction{ID uuid.UUID; TenantID uuid.UUID; EmployeeID *uuid.UUID; LocationID *uuid.UUID; DepartmentID *uuid.UUID; TagUid *string; Ctr *int32; Type *string; OccurredAt time.Time; SourceIp *netip.Addr; IpMatch *bool; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; GpsMatch *bool; SunValid *bool; Trust *int16; Verdict string; Note *string; Channel string; EnteredBy *uuid.UUID; Practice bool; Queued bool; CreatedAt time.Time; PolicyVersionID *uuid.UUID; MatchedSid *string; PolicyLayer *string; PolicyContext []byte}, error)",
+	"GetInviteRecipient":               "(context.Context, GetInviteRecipientParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (GetInviteRecipientRow{Email *string; FullName string; TenantName string; TenantVerified bool; IsAdminAddress bool}, error)",
 	"GetLastTransactionForEmployee":    "(context.Context, GetLastTransactionForEmployeeParams{TenantID uuid.UUID; EmployeeID *uuid.UUID}) (Transaction{ID uuid.UUID; TenantID uuid.UUID; EmployeeID *uuid.UUID; LocationID *uuid.UUID; DepartmentID *uuid.UUID; TagUid *string; Ctr *int32; Type *string; OccurredAt time.Time; SourceIp *netip.Addr; IpMatch *bool; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; GpsMatch *bool; SunValid *bool; Trust *int16; Verdict string; Note *string; Channel string; EnteredBy *uuid.UUID; Practice bool; Queued bool; CreatedAt time.Time; PolicyVersionID *uuid.UUID; MatchedSid *string; PolicyLayer *string; PolicyContext []byte}, error)",
 	"GetLocationByIP":                  "(context.Context, GetLocationByIPParams{TenantID uuid.UUID; Src netip.Addr}) (Location{ID uuid.UUID; TenantID uuid.UUID; Name string; StaticIps []netip.Prefix; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; CreatedAt time.Time; WifiSsid *string}, error)",
 	"GetLocationForTap":                "(context.Context, GetLocationForTapParams{TenantID uuid.UUID; ID uuid.UUID}) (GetLocationForTapRow{ID uuid.UUID; TenantID uuid.UUID; Name string; StaticIps []netip.Prefix; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool}, error)",
@@ -289,6 +291,7 @@ var storeSurface = map[string]string{
 	"ListWorkedShiftEvents":            "(context.Context, ListWorkedShiftEventsParams{TenantID uuid.UUID; FromAt time.Time; UntilAt time.Time; RowLimit int32}) ([]ListWorkedShiftEventsRow{EmployeeID *uuid.UUID; OccurredAt time.Time; Type *string; Verdict string; Channel string; LocationID *uuid.UUID; ReviewOutcome *string; EmployeeName *string; LocationName *string; LocationShiftStart pgtype.Time; LocationShiftEnd pgtype.Time; LocationOvernight *bool; DepartmentShiftStart pgtype.Time; DepartmentShiftEnd pgtype.Time; DepartmentOvernight *bool}, error)",
 	"LockEmployeeForEmailChange":       "(context.Context, LockEmployeeForEmailChangeParams{TenantID uuid.UUID; ID uuid.UUID}) (LockEmployeeForEmailChangeRow{ID uuid.UUID; Email *string}, error)",
 	"LockEmployeeForTap":               "(context.Context, LockEmployeeForTapParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (error)",
+	"LockTenantForInviteLimits":        "(context.Context, uuid.UUID) (error)",
 	"MarkAdminLoggedIn":                "(context.Context, MarkAdminLoggedInParams{ID uuid.UUID; TenantID uuid.UUID}) (MarkAdminLoggedInRow{ID uuid.UUID; LastLoginAt *time.Time}, error)",
 	"MarkTagEncoded":                   "(context.Context, MarkTagEncodedParams{Uid string; TenantID uuid.UUID}) (MarkTagEncodedRow{Uid string; EncodedAt *time.Time}, error)",
 	"MoveEmployee":                     "(context.Context, MoveEmployeeParams{TenantID uuid.UUID; ID uuid.UUID; LocationID uuid.UUID; DepartmentID *uuid.UUID}) (MoveEmployeeRow{ID uuid.UUID; FullName string; LocationID uuid.UUID; DepartmentID *uuid.UUID}, error)",
@@ -818,11 +821,15 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// 122 -> 125 on 2026-10-06 (M10 EM-6): employees.sql's GetEmployeeEmail,
 	// LockEmployeeForEmailChange and SetEmployeeEmail, the address read and change; none
 	// calls a definer.
-	if named != 125 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; ONE HUNDRED AND TWENTY-FIVE were "+
-			"there when this was pinned (2026-10-06: 111 on 2026-08-24, + T73's three "+
+	// 125 -> 128 on 2026-10-09 (M10 EM-7B): invites.sql's LockTenantForInviteLimits,
+	// CountRecentInvites and GetInviteRecipient, the e-mail route's limits and address
+	// read; none calls a definer.
+	if named != 128 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; ONE HUNDRED AND TWENTY-EIGHT were "+
+			"there when this was pinned (2026-10-09: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
-			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries). "+
+			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+
+			"+ EM-7B's three invitation e-mail queries). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {

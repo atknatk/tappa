@@ -1140,6 +1140,12 @@ type fakeInviter struct {
 	err    error
 	link   string
 	issued []invite.IssueParams
+	// channels are the channels it was handed, in order (M10 EM-7B: which route a
+	// press took is the channel's type).
+	channels []invite.Channel
+	// recipient is put in the Delivery it hands the channel — what internal/invite
+	// would have read in the minting transaction (M10 EM-7B).
+	recipient invite.Recipient
 }
 
 const fakeActivationLink = "https://panel.example/activate?code=FAKE-CODE-VALUE"
@@ -1147,7 +1153,8 @@ const fakeActivationLink = "https://panel.example/activate?code=FAKE-CODE-VALUE"
 func (f *fakeInviter) IssueAndDeliver(ctx context.Context, p invite.IssueParams, ch invite.Channel) (invite.Invite, error) {
 	f.mu.Lock()
 	f.issued = append(f.issued, p)
-	err, link := f.err, f.link
+	f.channels = append(f.channels, ch)
+	err, link, to := f.err, f.link, f.recipient
 	f.mu.Unlock()
 	if err != nil {
 		return invite.Invite{}, err
@@ -1160,7 +1167,7 @@ func (f *fakeInviter) IssueAndDeliver(ctx context.Context, p invite.IssueParams,
 		ID: uuid.New(), TenantID: p.TenantID, EmployeeID: p.EmployeeID,
 		CreatedAt: now, ExpiresAt: now.Add(7 * 24 * time.Hour),
 	}
-	if err := ch.DeliverInvite(ctx, invite.Delivery{Invite: inv, ActivationURL: link}); err != nil {
+	if err := ch.DeliverInvite(ctx, invite.Delivery{Invite: inv, ActivationURL: link, Recipient: to}); err != nil {
 		return inv, err
 	}
 	return inv, nil

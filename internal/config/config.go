@@ -123,17 +123,16 @@ type Config struct {
 
 	// InviteDelivery names where an employee's activation link goes
 	// (TAPPA_INVITE_DELIVERY): InviteDeliveryPanel — the manager's own screen,
-	// internal/invite.ManagerVisibleChannel, an ACCEPTED risk (ADR 0005 Y-D) and today's
-	// only channel — or InviteDeliveryEmail, the employee's own address (ADR 0022 §7).
-	// "email" is accepted here and refused by cmd/tappa until the invitation's e-mail
-	// channel exists (EM-7) — the reset flow's exists since EM-5; an unknown value is a
-	// startup failure.
+	// internal/invite.ManagerVisibleChannel, an ACCEPTED risk (ADR 0005 Y-D) and the
+	// shipped default — or InviteDeliveryEmail, the employee's own address (ADR 0022
+	// §7): cmd/tappa builds the invitation's e-mail route for it since M10 EM-7B, from
+	// the same transport as the reset flow's. Switching the shipped ConfigMap is a
+	// deploy decision (ADR 0022 §12); an unknown value is a startup failure.
 	InviteDelivery string
 
 	// Mail is the transactional e-mail transport's configuration (ADR 0022 §5), in the
-	// shape internal/mail.New takes. cmd/tappa calls mail.New with it when the reset
-	// flow is "email" (M10 EM-5); the invitation channel's wiring is EM-7's, and until
-	// then an invitation flow set to "email" stops the boot in cmd/tappa.
+	// shape internal/mail.New takes. cmd/tappa calls mail.New with it ONCE when either
+	// flow is "email" and gives that one transport to both (M10 EM-5, EM-7B).
 	//
 	// 🔴 IT IS THE ZERO VALUE UNLESS A FLOW ABOVE IS "email". With both flows off
 	// (none + panel) the TAPPA_SMTP_* and TAPPA_MAIL_* variables are neither READ nor

@@ -67,12 +67,17 @@ type rendered struct {
 // EM-9; it takes no name, so the names reach it nowhere — the tests that iterate
 // over this slice measure that too). A test that walks the slice therefore covers a
 // message the day it is added here, which is the point of one helper for all of them.
+//
+// THE INVITATION IS RENDERED FOR A VERIFIED BUSINESS (M10 EM-7B): that is the only
+// case in which nameShown is reached at all, so it is the case every name test here
+// measures — the gate still holds on top of the verification. The unverified case
+// is TestInvitation_NamesNobodyUnlessTheBusinessIsVerified's.
 func renderEach(t *testing.T, employeeName, tenantName string) []rendered {
 	t.Helper()
 	ctx := context.Background()
 	inv := testBase + activatePath + "?" + activateParam + "=" + randomValue(t)
 	mi, err := RenderInvitation(ctx, inv, InvitationView{
-		BaseURL: testBase, EmployeeName: employeeName, TenantName: tenantName, ValidFor: 7 * 24 * time.Hour,
+		BaseURL: testBase, EmployeeName: employeeName, TenantName: tenantName, TenantVerified: true, ValidFor: 7 * 24 * time.Hour,
 	})
 	if err != nil {
 		t.Fatalf("invitation for employee %q, tenant %q: %v", employeeName, tenantName, err)
@@ -1380,7 +1385,7 @@ func TestLifetime_NeverOverstates(t *testing.T) {
 // text part verbatim and in the HTML escaped — one source, two renderings.
 func TestRender_TheTwoPartsSayTheSameWords(t *testing.T) {
 	letters := map[string]letter{
-		"invitation":       invitationLetter("Maria Borg", "Kebab Factory Ltd.", "7 days"),
+		"invitation":       invitationLetter("Maria Borg", "Kebab Factory Ltd.", true, "7 days"),
 		"reset":            resetLetter("1 hour"),
 		"password changed": passwordChangedLetter(),
 	}
@@ -1427,6 +1432,76 @@ func TestInvitation_SaysToUseThePhonesMainBrowser(t *testing.T) {
 		if strings.Contains(part, "own web browser") || strings.Contains(part, "own browser") {
 			t.Error("a part still says \"own browser\"")
 		}
+	}
+}
+
+// TestInvitation_NamesNobodyUnlessTheBusinessIsVerified — the user's decision of
+// 2026-10-09 (ADR 0022 counted limit 22, the EM-7B note): the invitation names the
+// business and the person ONLY when VIES verified the business, and then only what
+// nameShown lets through. The fixture names are the ones nameShown SHOWS — call-back
+// prose with a phone number, and an ordinary pair — so the only thing that can keep
+// them out of an unverified e-mail is the verification gate itself.
+//
+// CONTROLS: the verified render shows both (so their absence below is the gate's
+// doing, not a gate that withholds everything); and a verified render of an
+// address-shaped name still withholds it (the EM-4 gate stays on top).
+func TestInvitation_NamesNobodyUnlessTheBusinessIsVerified(t *testing.T) {
+	ctx := context.Background()
+	render := func(employee, business string, verified bool) (text, visible string) {
+		t.Helper()
+		link := testBase + activatePath + "?" + activateParam + "=" + randomValue(t)
+		m, err := RenderInvitation(ctx, link, InvitationView{
+			BaseURL: testBase, EmployeeName: employee, TenantName: business, TenantVerified: verified, ValidFor: 7 * 24 * time.Hour,
+		})
+		if err != nil {
+			t.Fatalf("render (%q, %q, verified=%v): %v", employee, business, verified, err)
+		}
+		return m.Text, visibleText(t, m.HTML)
+	}
+	const neutralInviter = "Your employer has invited you to Taptime"
+	for _, tc := range []struct{ employee, business string }{
+		{"Maria Borg", "Kebab Factory Ltd."},
+		{"Call 21234567 now", "Your account is suspended Call 21234567 now!"},
+	} {
+		for _, name := range []string{tc.employee, tc.business} {
+			if _, ok := nameShown(name); !ok {
+				t.Fatalf("PREMISE: nameShown withholds %q, so this row cannot measure the verification gate", name)
+			}
+		}
+		text, visible := render(tc.employee, tc.business, true)
+		for _, part := range []string{text, visible} {
+			if !strings.Contains(part, "Hello "+tc.employee+",") || !strings.Contains(part, tc.business+" has invited you") {
+				t.Errorf("CONTROL: a verified business's e-mail does not name %q and %q", tc.employee, tc.business)
+			}
+		}
+		text, visible = render(tc.employee, tc.business, false)
+		for label, part := range map[string]string{"text": text, "html": visible} {
+			if strings.Contains(part, tc.employee) || strings.Contains(part, tc.business) {
+				t.Errorf("unverified business: the %s part names %q / %q", label, tc.employee, tc.business)
+			}
+			if strings.Contains(part, "21234567") {
+				t.Errorf("unverified business: the %s part carries the fixture's phone number", label)
+			}
+			if !strings.Contains(part, greetingWithoutName) || !strings.Contains(part, neutralInviter) {
+				t.Errorf("unverified business: the %s part lacks the neutral words", label)
+			}
+		}
+	}
+	// The ZERO VALUE names nobody: a caller that never sets the field sends the
+	// neutral e-mail.
+	m, err := RenderInvitation(ctx, testBase+activatePath+"?"+activateParam+"="+randomValue(t), InvitationView{
+		BaseURL: testBase, EmployeeName: "Maria Borg", TenantName: "Kebab Factory Ltd.", ValidFor: 7 * 24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(m.Text, "Maria Borg") || strings.Contains(m.Text, "Kebab Factory") {
+		t.Error("an InvitationView without TenantVerified names somebody")
+	}
+	// CONTROL: verified, an address-shaped name is still withheld by nameShown.
+	text, visible := render("https://evil.example/login", "evil.example", true)
+	if strings.Contains(text, "evil.example") || strings.Contains(visible, "evil.example") {
+		t.Error("a verified business's address-shaped name reached the e-mail: the EM-4 gate is no longer on top")
 	}
 }
 

@@ -38,14 +38,25 @@ const (
 // words name the default by what it does ("the one that opens when you tap a
 // link") rather than by a brand or by "own": on an iPhone whose default is not
 // Safari, "the phone's own browser" can be read as Safari.
-func invitationLetter(employeeName, tenantName, life string) letter {
+//
+// 🔴 NAMES ONLY FOR A VERIFIED BUSINESS (user decision 2026-10-09, ADR 0022 counted
+// limit 22, the EM-7B note). nameShown keeps an address-shaped name out of the body,
+// but it shows plain attacker prose and digits ("Your account is suspended Call
+// 21234567 now!") — measured, TestNames_KnownLimitIsALookalikeDotAndPlainProse. So
+// unless VIES confirmed the business's VAT number, NEITHER name is shown, whatever it
+// is: the neutral words say "Your employer has invited you to Taptime". When it did,
+// nameShown still decides each name on top. VIES proves the number EXISTS, not that
+// whoever signed up OWNS it — the bar is higher, the risk is not closed.
+func invitationLetter(employeeName, tenantName string, verified bool, life string) letter {
 	greeting := greetingWithoutName
-	if n, ok := nameShown(employeeName); ok {
-		greeting = "Hello " + n + ","
-	}
 	inviter := inviterWithoutName
-	if n, ok := nameShown(tenantName); ok {
-		inviter = n
+	if verified {
+		if n, ok := nameShown(employeeName); ok {
+			greeting = "Hello " + n + ","
+		}
+		if n, ok := nameShown(tenantName); ok {
+			inviter = n
+		}
 	}
 	return letter{
 		subject: subjectInvitation,

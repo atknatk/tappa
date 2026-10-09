@@ -124,6 +124,19 @@ type RosterActionsView struct {
 	CanInvite    bool
 	InviteLabel  string
 	InviteAction string
+	// InviteByEmail is true in the e-mail mode (TAPPA_INVITE_DELIVERY=email, M10
+	// EM-7B): the invite button mails the link to the address on file (Email) and the
+	// screen never shows it. With no address on file the button is NOT offered — the
+	// server would refuse it — and the card says why. False is the panel mode, whose
+	// card is the one it always was.
+	InviteByEmail bool
+	// CanShowLink is the e-mail mode's owner-only fallback (ADR 0022 §7, K3): true only
+	// for an OWNER, an invitable person and NO address on file — the conditions the
+	// server checks again when the form arrives. ShowLinkField and ShowLinkValue are
+	// the one extra field that form posts to InviteAction; the server owns both.
+	CanShowLink   bool
+	ShowLinkField string
+	ShowLinkValue string
 
 	// RecordHref opens the manual record entry screen for this person (M6-08).
 	//

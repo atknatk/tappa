@@ -113,6 +113,32 @@ func (p *panelHarness) drainReset(t *testing.T) {
 // recordingChannel every other test uses.
 func newPanelHarnessWithResetChannel(t *testing.T, channel func(t *testing.T, cfg *config.Config) ResetChannel) *panelHarness {
 	t.Helper()
+	return newPanelHarnessWith(t, panelHarnessOptions{resetChannel: channel})
+}
+
+// panelHarnessOptions are the harness's optional parts. The zero value is the harness
+// every other test uses.
+type panelHarnessOptions struct {
+	// resetChannel: see newPanelHarnessWithResetChannel.
+	resetChannel func(t *testing.T, cfg *config.Config) ResetChannel
+	// invitations, when set, switches the panel to TAPPA_INVITE_DELIVERY=email with
+	// the transport it builds from the harness's configuration (M10 EM-7B).
+	invitations func(t *testing.T, cfg *config.Config) *EmailInvitations
+	// tenantName and vatVerified shape the business's row: the name (default
+	// "Panel E2E Ltd") and tenants.vat_verified (nil = NULL, never asked).
+	tenantName  string
+	vatVerified *bool
+	// log is the panel's logger (default: discarded).
+	log *slog.Logger
+	// wrapTrail, when set, wraps the real audit recorder the PANEL is given (the
+	// recovery flow and the domain packages keep the real one) — so a test can make
+	// one action's row fail (M10 EM-7B round 3).
+	wrapTrail func(auditRecorder) auditRecorder
+}
+
+func newPanelHarnessWith(t *testing.T, o panelHarnessOptions) *panelHarness {
+	t.Helper()
+	channel := o.resetChannel
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
 		t.Skip("DATABASE_URL not set; skipping panel end-to-end tests (real Postgres required). " +
@@ -239,7 +265,20 @@ func newPanelHarnessWithResetChannel(t *testing.T, channel func(t *testing.T, cf
 	if err != nil {
 		t.Fatalf("NewAdminReset: %v", err)
 	}
-	h, err := NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, newFakeScribe(), books, newFakeAccount(), newFakeBrands(), newFakeBrandWriter(), nil, resetFlow, cfg, slog.New(slog.DiscardHandler))
+	var opts []AdminAuthOption
+	if o.invitations != nil {
+		cfg.InviteDelivery = config.InviteDeliveryEmail
+		opts = append(opts, InvitationsByEmail(o.invitations(t, cfg)))
+	}
+	panelLog := o.log
+	if panelLog == nil {
+		panelLog = slog.New(slog.DiscardHandler)
+	}
+	var panelTrail auditRecorder = trail
+	if o.wrapTrail != nil {
+		panelTrail = o.wrapTrail(trail)
+	}
+	h, err := NewAdminAuth(admins, panelTrail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, newFakeScribe(), books, newFakeAccount(), newFakeBrands(), newFakeBrandWriter(), nil, resetFlow, cfg, panelLog, opts...)
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
@@ -307,10 +346,14 @@ func newPanelHarnessWithResetChannel(t *testing.T, channel func(t *testing.T, cf
 	}
 
 	ph.tenantID = uuid.New()
+	tenantName := o.tenantName
+	if tenantName == "" {
+		tenantName = "Panel E2E Ltd"
+	}
 	if err := data.WithTenant(context.Background(), ph.tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		_, e := tx.Exec(ctx,
-			`INSERT INTO tenants (id, name, vat_number, business_type, structure)
-			 VALUES ($1, 'Panel E2E Ltd', $2, 'bar', 'single')`,
+			`INSERT INTO tenants (id, name, vat_number, business_type, structure, vat_verified)
+			 VALUES ($1, $3, $2, 'bar', 'single', $4)`,
 			// 🔴 THE FULL UUID, NOT THE FIRST 8 HEX DIGITS -- A SEPARATE FIX, MARKED
 			// BECAUSE IT IS NOT PART OF M6-06 (approved scope extension, 2026-08-09).
 			// vat_number is UNIQUE. Every DB test helper in this repo built it from
@@ -330,7 +373,7 @@ func newPanelHarnessWithResetChannel(t *testing.T, channel func(t *testing.T, cf
 			// shrinks. The full uuid v4 carries 122 random bits: the same figure
 			// becomes 9.2e-30. Applied at all 21 truncated call sites across 19 files
 			// (measured: 0 left), and `make test` was then run TWICE, both green.
-			ph.tenantID, "VAT-"+ph.tenantID.String())
+			ph.tenantID, "VAT-"+ph.tenantID.String(), tenantName, o.vatVerified)
 		return e
 	}); err != nil {
 		t.Fatalf("insert tenant: %v", err)

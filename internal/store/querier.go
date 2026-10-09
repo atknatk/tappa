@@ -779,6 +779,22 @@ type Querier interface {
 	//
 	// TENANT SCOPE (section 4.5): explicit predicate beside RLS, tenant from the session.
 	CountPracticeTaps(ctx context.Context, arg CountPracticeTapsParams) (int64, error)
+	// How many invitations this business minted in the last hour and the last day, and
+	// how many of those were for ONE person in the last hour (M10 EM-7B, ADR 0022 §9:
+	// 50 an hour and 300 a day per business, 3 an hour per person -- the numbers live in
+	// internal/invite, this statement only counts).
+	//
+	// EVERY ROW COUNTS, whatever became of it: spent, retired, expired, minted in the
+	// panel mode before the deployment switched to e-mail. A row is one press that
+	// minted a code, which is what the limits bound; a REFUSED press leaves no row (its
+	// transaction rolls back), so refusals cannot exhaust the budget they are refused by.
+	//
+	// now() is the transaction's start, the same clock created_at's default writes.
+	// It runs AFTER LockTenantForInviteLimits in the same transaction -- see there.
+	//
+	// TENANT SCOPE (section 4.5, belt + braces): explicit predicate on top of RLS. The
+	// index employee_invites_tenant_idx (tenant_id, employee_id) serves the predicate.
+	CountRecentInvites(ctx context.Context, arg CountRecentInvitesParams) (CountRecentInvitesRow, error)
 	// HOW MANY PLAQUES THIS BUSINESS HAS, AND HOW MANY OF THEM A TAP CAN ACTUALLY USE.
 	//
 	// IT EXISTS FOR ONE SENTENCE ON ONE SCREEN (M7-03 phase B): the panel's landing
@@ -1823,7 +1839,9 @@ type Querier interface {
 	// below say why, each in its own words: no screen had a reader for it. EM-6 gives it
 	// ONE reader (the action card shows the address on file) and ONE writer, and all of
 	// that lives in the three statements at the end of this file. Every other read here
-	// still leaves the column out.
+	// still leaves the column out. (M10 EM-7B added ONE more reader, outside this file:
+	// invites.sql's GetInviteRecipient, which reads the address inside the transaction
+	// that mints an e-mailed invitation -- that is where it has to run.)
 	// Everything the activation page must render about WHO is activating, in one
 	// round trip: the greeting name, the current lifecycle status, the location whose
 	// WiFi step comes next, and the DATA CONTROLLER's name for the GDPR Art. 13
@@ -1929,6 +1947,35 @@ type Querier interface {
 	// presentation columns exist precisely because the screen that follows the
 	// decision has to say something, and neither of them is a name.
 	GetEmployeeForTap(ctx context.Context, arg GetEmployeeForTapParams) (GetEmployeeForTapRow, error)
+	// Where an e-mailed invitation goes and what it may say (M10 EM-7B, ADR 0022 §7).
+	//
+	// 🔴 IT RUNS INSIDE THE TRANSACTION THAT MINTS THE INVITATION, AFTER CreateInvite --
+	// the closed form of EM-6's counted limit 1. CreateInvite's foreign-key check takes
+	// FOR KEY SHARE on the employee row, which conflicts with the FOR UPDATE an address
+	// change takes (LockEmployeeForEmailChange). So this read either sees an address
+	// change that committed first, or the change waits for this transaction and then
+	// retires the invitation it minted (Staff.ChangeEmail's second cancellation). Read
+	// before the mint, in a separate transaction, it could read the old address, let
+	// the change commit, and send a live code to an address that is no longer on file.
+	//
+	// ONE STATEMENT, so the address, the names and the verification state describe the
+	// same instant (a second read would be a race between them):
+	//   email             the address on file, NULL when there is none (00003);
+	//   full_name         the greeting's name;
+	//   tenant_name       the inviter's name;
+	//   tenant_verified   VIES confirmed the business's VAT number -- vat_verified IS
+	//                     TRUE, so FALSE and NULL (never asked, or no answer -- 00017's
+	//                     states) are both "not verified". The e-mail shows the two
+	//                     names only when this is true (user decision 2026-10-09);
+	//   is_admin_address  the address equals, as citext (case-insensitive -- the
+	//                     column's own equality), the address of ANY administrator row
+	//                     of this business. An activation link mailed to the panel's
+	//                     own inbox is ADR 0005 Y-D with one step fewer.
+	//
+	// TENANT SCOPE (section 4.5, belt + braces): every table carries an explicit
+	// predicate bound to the parameter, on top of RLS -- employees, tenants and the
+	// admin_users sub-query alike.
+	GetInviteRecipient(ctx context.Context, arg GetInviteRecipientParams) (GetInviteRecipientRow, error)
 	// transactions.sql -- tenant-scoped reads and the single append-only write for
 	// the product's core record. Every query carries an explicit tenant_id filter
 	// (CLAUDE.md section 4.5, belt + braces on RLS). transactions is IMMUTABLE
@@ -3957,6 +4004,31 @@ type Querier interface {
 	// lock (a 200-request flood finished in 40 ms, all rate limited), which reads as
 	// "no difference". Use distinct sessions for the flood and one shot for the victim.
 	LockEmployeeForTap(ctx context.Context, arg LockEmployeeForTapParams) error
+	// SERIALISE ONE BUSINESS'S E-MAILED INVITATIONS (M10 EM-7B, ADR 0022 §9).
+	//
+	// 🔴 THE LIMITS ARE A READ-THEN-DECIDE, and without this they lose the way the
+	// debounce did (LockEmployeeForTap's comment, measured there): N concurrent issuers
+	// all count BEFORE any of them has committed, so every one of them sees the same old
+	// number and every one of them mints. The lock is taken as the FIRST statement of the
+	// transaction that counts, mints and reads the address, so the count each issuer sees
+	// includes every invitation committed by the issuer that held the lock before it
+	// (READ COMMITTED takes a fresh snapshot per statement, and a transaction-scoped
+	// advisory lock is released only after its COMMIT is visible).
+	//
+	// THE KEY IS THE TENANT, NAMESPACED. The tenant limits (hour, day) are per business,
+	// and the per-person limit lives inside one business, so one key per business covers
+	// all three. Advisory locks live in one cluster-wide space and RLS does not scope
+	// them, hence the tenant id in the key; the 'invite-limits:' prefix keeps the key
+	// apart from LockEmployeeForTap's "<tenant>:<employee>" string. A hash collision
+	// serialises two unrelated issuers -- it can never mix their data, every statement
+	// after it still carries its own tenant predicate and runs under RLS.
+	//
+	// WHAT IT COSTS: two managers of ONE business pressing at once take turns for the
+	// few statements of the issuing transaction (the e-mail itself is sent after the
+	// commit, outside the lock). Issuers in different businesses never wait on it.
+	// Only the e-mail mode takes it (internal/invite); the panel mode's issuing
+	// transaction is unchanged.
+	LockTenantForInviteLimits(ctx context.Context, tenantID uuid.UUID) error
 	// Stamps last_login_at after a SUCCESSFUL login. The status test keeps the stamp
 	// honest: a disabled admin never gets one, so "last successful login" cannot be
 	// advanced by an attempt that did not produce a session.

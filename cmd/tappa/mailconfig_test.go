@@ -901,7 +901,7 @@ func TestPackaging_TheConfigMapShipsTodaysDelivery(t *testing.T) {
 		case got != want:
 			t.Errorf("the ConfigMap ships %s=%q; EM-3 ships %q — switching a flow to email is a deploy decision "+
 				"taken after its channel exists and the user's SES steps are done (ADR 0022 §12; the reset channel "+
-				"exists since EM-5, the invitation's does not), and the change that takes it updates this test",
+				"exists since EM-5, the invitation's since EM-7B), and the change that takes it updates this test",
 				name, got, want)
 		}
 		if _, overridden := env[name]; overridden {
@@ -954,50 +954,62 @@ func TestPackaging_TheConfigMapsMailSettingsLoadInProduction(t *testing.T) {
 }
 
 // TestUnbuiltDelivery_RefusesEmailForEitherFlow: the decision, as a table. Since M10
-// EM-5 the reset flow's "email" is BUILT (its channel is a case in run()'s switch), so
-// it is accepted here; the invitation's "email" is refused naming its variable, the
-// value to go back to and the task that will implement it (EM-7) — alone or beside a
-// reset "email". The test keeps its name: it is the same table, and the invitation
-// rows are what it still refuses.
+// EM-5 the reset flow's "email" is BUILT, and since M10 EM-7B the invitation's is too
+// (each is a case in run()'s switches), so all four combinations config.Load accepts
+// are accepted here. The test keeps its name — it is the same table, and its name is
+// cited by ADR 0022 and the M10 card — and what it still refuses is a value OUTSIDE
+// the closed sets, which is the shape the function exists for: a value added to
+// internal/config without a channel in this build. The refusal names the variable,
+// the two values to choose from, and never the value it was given.
 func TestUnbuiltDelivery_RefusesEmailForEitherFlow(t *testing.T) {
+	const stranger = "sms-zq7x"
 	for _, tc := range []struct {
 		reset, invite string
 		want          []string // nil: accepted
 	}{
 		{config.ResetDeliveryNone, config.InviteDeliveryPanel, nil},
 		{config.ResetDeliveryEmail, config.InviteDeliveryPanel, nil},
-		{config.ResetDeliveryNone, config.InviteDeliveryEmail, []string{"TAPPA_INVITE_DELIVERY=email", "EM-7", "set it to panel"}},
-		{config.ResetDeliveryEmail, config.InviteDeliveryEmail, []string{"TAPPA_INVITE_DELIVERY=email", "EM-7"}},
+		{config.ResetDeliveryNone, config.InviteDeliveryEmail, nil},
+		{config.ResetDeliveryEmail, config.InviteDeliveryEmail, nil},
+		{stranger, config.InviteDeliveryPanel, []string{"TAPPA_RESET_DELIVERY", "set it to none or email"}},
+		{config.ResetDeliveryNone, stranger, []string{"TAPPA_INVITE_DELIVERY", "set it to panel or email"}},
+		{config.ResetDeliveryEmail, "", []string{"TAPPA_INVITE_DELIVERY"}},
 	} {
 		err := unbuiltDelivery(&config.Config{ResetDelivery: tc.reset, InviteDelivery: tc.invite})
 		switch {
 		case tc.want == nil && err != nil:
 			t.Errorf("%s/%s: refused: %v", tc.reset, tc.invite, err)
 		case tc.want != nil && err == nil:
-			t.Errorf("%s/%s: accepted; this build has no invitation e-mail channel", tc.reset, tc.invite)
+			t.Errorf("%q/%q: accepted; this build implements no such delivery", tc.reset, tc.invite)
 		case tc.want != nil:
 			for _, w := range tc.want {
 				if !strings.Contains(err.Error(), w) {
-					t.Errorf("%s/%s: the refusal does not say %q: %v", tc.reset, tc.invite, w, err)
+					t.Errorf("%q/%q: the refusal does not say %q: %v", tc.reset, tc.invite, w, err)
 				}
+			}
+			if strings.Contains(err.Error(), stranger) {
+				t.Errorf("%q/%q: the refusal repeats the value it was given: %v", tc.reset, tc.invite, err)
 			}
 		}
 	}
 }
 
 // TestArtifact_RefusesAnEmailDeliveryThisBuildLacks drives THE SHIPPED BINARY: with a
-// complete, valid transport configuration and the invitation flow set to email, the
-// process exits non-zero and its fatal line names that flow's variable — the refusal
-// at the top of run(), before the database is dialled (the database here is a closed
-// port, so a boot that got past the refusal would fail on the dial and name no flow).
-// And nothing it prints carries the credentials it was given.
+// complete, valid transport configuration, a delivery this build does not have stops
+// the boot with a fatal line naming its variable — before the database is dialled
+// (the database here is a closed port, so a boot that got past the refusal would fail
+// on the dial and name no flow). And nothing it prints carries the credentials it was
+// given.
 //
-// THE RESET FLOW'S "email" IS BUILT SINCE M10 EM-5, so its row now expects the
-// opposite: the boot gets past the refusal and fails on the dial, naming no flow —
-// the same output as both flows off.
+// SINCE M10 EM-7B EVERY "email" IS BUILT — the reset flow's since EM-5, the
+// invitation's since EM-7B — so the three e-mail rows now expect the opposite of what
+// this test was written for: the boot gets past the refusal and fails on the dial,
+// naming no flow. What a build still LACKS is a value outside the closed sets, and
+// that row ("sms" for invitations) is refused at boot naming TAPPA_INVITE_DELIVERY
+// (config.Load's refusal reaches the binary's fatal line first).
 //
-// CONTROL: the same environment with both flows off fails on the dial instead, so the
-// flow — not the transport settings — is what the refusal is about.
+// CONTROL: the same environment with both flows off fails on the dial too, so the
+// e-mail rows' answer is the dial, not a quieter refusal.
 func TestArtifact_RefusesAnEmailDeliveryThisBuildLacks(t *testing.T) {
 	bin := theArtifact(t)
 	creds := config.SMTPCredentialVariables()
@@ -1040,21 +1052,23 @@ func TestArtifact_RefusesAnEmailDeliveryThisBuildLacks(t *testing.T) {
 		}
 		return string(out)
 	}
-	for _, tc := range []struct{ reset, invite, names string }{
-		{config.ResetDeliveryNone, config.InviteDeliveryEmail, "TAPPA_INVITE_DELIVERY"},
-		{config.ResetDeliveryEmail, config.InviteDeliveryEmail, "TAPPA_INVITE_DELIVERY"},
-	} {
-		out := boot(tc.reset, tc.invite)
-		if !regexp.MustCompile(`(?m)fatal.*` + tc.names + `=email`).MatchString(out) {
-			t.Errorf("%s/%s: the boot did not stop on the delivery mode (looking for a fatal line naming %s). "+
-				"Its whole output was:\n%s", tc.reset, tc.invite, tc.names, out)
-		}
+	// A delivery this build lacks: refused at boot, naming the variable.
+	if out := boot(config.ResetDeliveryNone, "sms"); !regexp.MustCompile(`(?m)fatal.*TAPPA_INVITE_DELIVERY`).MatchString(out) {
+		t.Errorf("none/sms: the boot did not stop on the delivery mode (looking for a fatal line naming "+
+			"TAPPA_INVITE_DELIVERY). Its whole output was:\n%s", out)
 	}
-	// The reset flow's "email" is built: the boot passes the refusal and stops on the
-	// closed database port, naming no flow (EM-5).
-	if out := boot(config.ResetDeliveryEmail, config.InviteDeliveryPanel); !strings.Contains(out, "fatal") || strings.Contains(out, "_DELIVERY=") {
-		t.Errorf("email/panel: this build implements the reset e-mail channel, so the boot should pass the delivery "+
-			"refusal and fail on the database dial, naming no flow:\n%s", out)
+	// Every "email" is built: the boot passes the refusal and stops on the closed
+	// database port, naming no flow (the reset flow's since EM-5, the invitation's
+	// since EM-7B).
+	for _, tc := range []struct{ reset, invite string }{
+		{config.ResetDeliveryEmail, config.InviteDeliveryPanel},
+		{config.ResetDeliveryNone, config.InviteDeliveryEmail},
+		{config.ResetDeliveryEmail, config.InviteDeliveryEmail},
+	} {
+		if out := boot(tc.reset, tc.invite); !strings.Contains(out, "fatal") || strings.Contains(out, "_DELIVERY") {
+			t.Errorf("%s/%s: this build implements both e-mail channels, so the boot should pass the delivery "+
+				"refusal and fail on the database dial, naming no flow:\n%s", tc.reset, tc.invite, out)
+		}
 	}
 	out := boot(config.ResetDeliveryNone, config.InviteDeliveryPanel)
 	if !strings.Contains(out, "fatal") || strings.Contains(out, "_DELIVERY=") {

@@ -12295,6 +12295,259 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 >
 > **Denetim ve kapanış (2026-10-09, orkestratör):** EM-7 ikiye bölündü (7A kesici, 7B davet kanalı; paralel worktree). Küçük iş → TEK birleşik denetim (güvenlik + kabul): 1. tur RED — davranış kusuru yok; bir ORTA (kesici-akıbeti numaralandırma kanalı, ölçüldü; sınır 13 + EM-5B (c) genişlemesi) ve üç DÜŞÜK (üst sınır pini, iki metin); denetçinin dört mutasyonu KIRMIZI. 2. tur yalnız metin + test pini → yeni denetim açılmadı; orkestratör M29'u (kesik dala 100 ms) kendi koştu: KIRMIZI (803 ms), sha ile geri yazıldı. Faz sonu bir kez: `verify.sh` yeşil; `-race` `internal/mail`, `internal/handler` (354 s), `cmd/tappa` ok. ConfigMap `none`/`panel` — canlıda davranış değişmez.
 
+> **EM-7B — çalışan davetinin e-posta kanalı**
+>
+> **Kart düzeltmesi (2026-10-09, EM-7B uygulaması sırasında).** EM-7 ikiye bölündü (orkestratör
+> kararı): **EM-7B** = davet kanalı (bu blok), **EM-7A** = §9 süreç geneli devre kesicisi (ayrı blok).
+> Normatif kaynak [ADR 0022](../adr/0022-islemsel-eposta.md) §7, §9, §10; kararlar, sapmalar ve üç
+> parçalı iddia ADR'nin *"EM-7B notu"*ndadır. Taban dal ucu `08b1bd1`. **ConfigMap değişmedi**
+> (`TAPPA_INVITE_DELIVERY: "panel"`) — `email` modunu açmak deploy kararı (§12). **Migration yok, DDL
+> yok;** `go.mod`/`go.sum`/`sqlc.yaml` diff boş; `make fmt gen` idempotent (parmak izi önce = sonra).
+>
+> **Ön koşul kapandı — KULLANICI KARARI (2026-10-09, ADR 0022 sınır 22):** davet e-postasında işletme
+> ve çalışan adı **yalnız VIES'te doğrulanmış tenant'ta** (`tenants.vat_verified IS TRUE`); `false`/`NULL`
+> → ad yok, nötr metin (*"Hello,"* · *"Your employer has invited you to Taptime…"*). EM-4 süzgeci
+> doğrulanmışta da üstte. VIES varlığı kanıtlar, sahipliği değil — sayılı sınır 1.
+>
+> **Yazıldı:** `db/queries/invites.sql` (üç sorgu: `LockTenantForInviteLimits`, `CountRecentInvites`,
+> `GetInviteRecipient`; adlı sorgu sayacı 125 → 128; `employees.sql` başlığına bir cümle) ·
+> `internal/invite/email.go` (yeni: `EmailChannel`, `MailSink`, `Recipient`, üç sınır, ret sentinel'leri,
+> `RefusalReason`, `ErrNotRecorded`, `ErrHasAddress`, iki süre, üç audit eylemi) · `internal/invite/manager.go`
+> (`IssueAndDeliver`'a e-posta kanalının iki adımı; `IssueParams.OnlyWithoutAddress`) ·
+> `internal/invite/channel.go` (`Delivery.Recipient`; iki yorum) · `internal/handler/inviteemail.go` (yeni:
+> `EmailInvitations`, `NewEmailInvitations`, `AdminAuthOption`, `InvitationsByEmail`, `invitationMode`,
+> `emailLinkSink`, `employeeInviteByEmail`, `employeeInviteOnScreen`, `ActionInviteShowRefused`) ·
+> `employeeactions.go` (tek dal) · `employees.go` (kartın e-posta alanları) · `adminlogin.go`
+> (`inviteMail` alanı, `NewAdminAuth(..., opts ...AdminAuthOption)`) · `web/templates/email`
+> (`InvitationView.TenantVerified`, `invitationLetter` doğrulama kapısı, yorumlar) ·
+> `web/templates/pages/employees.templ` + `employeesview.go` (`AdminInviteEmailed`, `InviteEmailedView`,
+> `inviteEmailedHeading`) · `web/templates/components/roster.templ` + `rosterview.go` (kartın e-posta kolu,
+> `InviteByEmail`, `CanShowLink`, `ShowLinkField`, `ShowLinkValue`) · `cmd/tappa/main.go` (tek `mail.New`
+> → `transport`, iki kanala; davet switch'i; `unbuiltDelivery` kapalı kümelerin dışı) ·
+> `internal/config/config.go` (iki yorum) · `deploy/k8s/05-config.yaml` (yalnız yorum) · ADR 0022'ye
+> *"EM-7B notu"* (yalnız ekleme). Testler: yeni `internal/invite/email_db_test.go`,
+> `internal/db/inviteemail_test.go`, `internal/handler/inviteemail_test.go`,
+> `internal/handler/inviteemail_db_test.go`, `cmd/tappa/invitewiring_test.go`; bilerek güncellenen
+> `web/templates/email/email_test.go` (`renderEach` doğrulanmış tenant'la render eder + bir yeni test),
+> `cmd/tappa/mailconfig_test.go` (`TestUnbuiltDelivery_RefusesEmailForEitherFlow`,
+> `TestArtifact_RefusesAnEmailDeliveryThisBuildLacks` — e-posta satırları tersine döndü, kapalı küme dışı
+> satır eklendi), `cmd/tappa/storekeyshape_test.go` (üç imza, sayaç 128),
+> `internal/handler/adminlogin_db_test.go` (`newPanelHarnessWith` + seçenekleri — mevcut çağrılar
+> değişmedi), `internal/handler/adminlogin_test.go` (`fakeInviter`'a `channels`, `recipient`).
+>
+> **Kararlar (gerekçeli):**
+> 1. **K7B-1 — adres basım transaction'ında, `CreateInvite`'tan SONRA**, tek sorguyla (adres, iki ad,
+>    `(vat_verified IS TRUE)`, yönetici adresi eşitliği). §7'nin *"`IssueAndDeliver`'dan önce"*
+>    cümlesi notta yer değiştirdi (normatif metin dokunulmadı). Mekanizma EM-6 sınır 1'dir ve ölçüldü.
+> 2. **K7B-2 — dört ret:** yok → ASCII dışı → `mail.ValidRecipient` → aynı tenant'taki herhangi bir
+>    `admin_users` adresine `citext` eşit. Transaction geri alınır (satır 0, eski link canlı), sonra
+>    tek `invite.email_refused` (detail `channel`, `employee_id`, `outcome`, `reason`; adres yok),
+>    yöneticiye cümle.
+> 3. **K7B-3 — sınırlar ve eşzamanlılık:** işletme başına transaction kapsamlı danışma kilidi
+>    (`'invite-limits:' || tenant_id`), ilk ifade; sonra `employee_invites`'tan sayım; sonra basım.
+>    Seçim gerekçesi: `tenants` satırında `FOR UPDATE` o işletmenin bütün FK eklemelerini (tap kaydı
+>    dahil) bekletirdi; `SERIALIZABLE` yeniden deneme döngüsü isterdi; danışma kilidi yalnız bu yolu
+>    sıraya sokar (debounce'un emsali). İndeks gerekmedi — ölçüldü (sınır 6). Sınırlar yalnız e-posta
+>    modunda; panel modu değişmedi.
+> 4. **K7B-4 — senkron, POST'un kendi yanıtı** (cümleler bu basışın olgularıdır; query string'de
+>    iddia olurdu). Başarı 200; adres reddi 200; oran sınırı 429; gönderilemedi **503** (3. tur — emsal:
+>    operatörün VIES yanıtsız 503'ü, logo yüklemesinin kabul dolu 503'ü).
+> 5. **K7B-5 — audit:** `invite.code_emailed` (tam beş anahtar, röle id vermezse `"message_id": ""`),
+>    `invite.undelivered` (tam altı anahtar, kodsuz hatada `"smtp_code": 0` — 3. tur: açık boş değerler, iki
+>    ayrı yapı), e-posta modunda `invite.code_shown_to_manager` 0. Satır gönderimden sonra, kendi
+>    süresiyle, istek iptalinden kopuk.
+> 6. **K7B-6 — başarısız gönderim (kesici dahil):** 503 + suçlamasız cümle (*"…Try again from their card
+>    in a few minutes — the new link replaces this one."*); satır durur (B12, ana sınır 11).
+> 7. **K7B-7 — owner yedeği:** `deliver=screen` alanı; owner + adressiz (ikisi de sunucuda; adres basım
+>    transaction'ında); `manager_panel` satırı; ret `invite.show_refused` (`outcome`, `reason`, `role`,
+>    `required_role`) — istek iptalinden kopuk bağlamda (3. tur).
+> 8. **K7B-8 — log:** başarısız gönderim satırı tam olarak kimlikler + `err_type` + `class` + `smtp_code`;
+>    satır yazılamazsa ayrı bir kimlik satırı. Ret satırı yazılamazsa (3. tur) ret yine ret: sentinel +
+>    `ErrNotRecorded` birlikte, yöneticiye retin cümlesi, log'a ayrı satır (kimlik + sabit neden).
+> 9. **K7B-9 — HMAC alıcı özeti UYGULANMADI** (*Karar verilmedi*; yeni anahtar + GDPR, ayrı ADR, Q13).
+> 10. **K7B-10 — panel bayt-aynı:** kartın dört görünümünün sha256'sı `08b1bd1` şablonlarıyla ölçülüp
+>     pinlendi; derlenmiş `app.css` iki ağaçta bayt-aynı (51 442 B); ConfigMap testi değişmedi.
+>
+> **Ekran ve e-posta metinleri (aynen):** sayfa — *"Invitation sent to {Name}"* · *"Their activation
+> link is on its way by email. It works for {N days}."* · *"Nobody sees the link on this screen, and
+> Taptime keeps no copy of it."* · *"Sent to"* + adres · *"Sent means our mail service accepted it, not
+> that it has reached their inbox — that can take a few minutes. If it does not arrive, check the address
+> on their card and send it again."* · emekliye ayırma cümlesi (1 / N / 0) · *"The email may not have
+> gone out"* — *"We could not confirm that the email to {Name} was sent. Try again from their card in a
+> few minutes — the new link replaces this one."* · *"Any earlier link for {Name} has already stopped
+> working, so they need the new one."* · retler (hepsi *"Nothing was sent and no link was created."* ile
+> başlar): adres yok · *"accented or non-Latin letter"* · *"a plain address such as name@example.com"* ·
+> *"also the address of an administrator of this business"* · *"{3} invitations were created for {Name} in
+> the last hour, the most one person can have. Try again later."* · *"This business has created {50}
+> invitations in the last hour, the most it can. Try again later."* · *"…{300} invitations in the last 24
+> hours…"* (3. tur: *"created"*, *"Check the address"* yok; başlık *"This business has reached its
+> invitation limit for now"*) · owner yedeği
+> retleri *"Only the business owner can show an activation link on screen…"*, *"{Name} has an email
+> address on file now…"*. Kart — *"The link goes by email to the address on file below. It is never shown
+> on screen."* · *"No address on file, so no link can be emailed. The owner can add one below."* ·
+> *"Show the link on screen"* · *"Owner only, for somebody with no email. It is shown once, on the next
+> screen, and the trail records that you saw it."* E-posta (doğrulanmamış) — *"Hello,"* · *"Your employer
+> has invited you to Taptime, so you can clock in and out…"* (EM-4'ün nötr sözcükleri).
+>
+> **Kabul — kanıtlar:**
+>
+> | # | Kriter | Test |
+> |---|---|---|
+> | 1 | e-posta modunda tek ileti, satırın adresine, içinde basılan link (aktive eder) | `TestInviteEmailDB_OnePressOneMessageCarryingTheMintedLink` |
+> | 2 | yanıtta `/activate?code=` 0, her sonuç bir cümle | `TestInviteEmail_EveryOutcomeIsASentenceAndNoneCarriesALink` |
+> | 3 | `invite.code_emailed` 1 (beş anahtar), `code_shown_to_manager` 0 | `TestInviteEmailDB_OnePressOneMessageCarryingTheMintedLink`, `TestEmailRouteDB_TheDeliveryCarriesTheRowsAddressAndTheVerification` |
+> | 4 | ad yalnız doğrulanmış tenant'ta (düşmanca ad; `false` ve `NULL`) | `TestInviteEmailDB_NamesOnlyForAVerifiedBusiness`, `TestInvitation_NamesNobodyUnlessTheBusinessIsVerified` |
+> | 5 | dört ret: satır 0, SMTP 0, ret satırı 1, cümle | `TestInviteEmailDB_EachAddressRefusalMintsNothing`, `TestEmailRouteDB_EachAddressRefusalMintsNothing` |
+> | 6 | yönetici adresi `citext` eşitliği | `TestInviteRecipient_TheAdministratorTestIsCaseInsensitive` |
+> | 7 | adres basımdan sonra, aynı transaction'da | `TestEmailRouteDB_TheAddressIsReadAfterTheMintInTheSameTransaction` |
+> | 8 | 51./301./4. ret, satır 0 | `TestEmailRouteDB_LimitsAreCountedFromTheRows`, `TestInviteEmailDB_TheFourthPressInAnHourIsRefusedWithASentence` |
+> | 9 | eşzamanlı basış sınırı aşmaz (`-race`) | `TestEmailRouteDB_ConcurrentPressesNeverPassALimit` |
+> | 10 | sınır sayıları literal | `TestEmailRoute_TheLimitsAreTheADRsNumbers` |
+> | 11 | SMTP hatası: `invite.undelivered` (class, smtp_code), satır durur | `TestEmailRouteDB_AFailedSendIsRecordedAndTheRowStands`, `TestInviteEmailDB_AFailedSendIsRecordedAndNeverLogsTheMessage` |
+> | 12 | log sızıntısı yok (adres/link/kod/base64/gövde/röle sözü/SMTP kimliği), anahtarlar §10 | `TestInviteEmailDB_AFailedSendIsRecordedAndNeverLogsTheMessage`, `TestInviteEmail_AFailedSendLogsOnlyIdsClassAndCode` |
+> | 13 | yazılamayan sonuç satırı loglanır | `TestInviteEmail_AnUnrecordedOutcomeIsLoggedNotSwallowed` |
+> | 14 | owner yedeği: owner görür (`manager_panel`), öteki roller reddedilir | `TestInviteEmailDB_OnlyTheOwnerSeesALinkOnScreen`, `TestInviteEmail_TheFallbackIsTheOwnersAlone`, `TestEmailRouteDB_TheOwnersFallbackRequiresNoAddress` |
+> | 15 | kart yalnız sunucunun yapacağını önerir | `TestInviteEmail_TheCardOffersOnlyWhatTheServerWouldDo` |
+> | 16 | panel modu bayt-aynı, e-posta göndermez | `TestRosterActions_ThePanelModeCardIsTheCardBeforeEM7B`, `TestInviteEmail_ThePanelModeNeverMails`, mevcut `TestEmployeeInvite_ShowsTheLinkOnceAndNeverLogsIt`, `TestPanelEmployeesDB_TheInviteLinkIsShownOnceAndNeverReadBack` |
+> | 17 | mod ile yapılandırma iki yönlü | `TestNewAdminAuth_TheInvitationModeMatchesTheConfiguration` |
+> | 18 | açılışta taban/gönderici reddi | `TestNewEmailInvitations_RefusesWhatItCannotBuild` |
+> | 19 | tek taşıyıcı iki akışa; seçenek yalnız e-posta kolunda | `TestInvitationWiring_OneTransportServesBothFlows` |
+> | 20 | süreler HTTP boşaltmasına sığar | `TestShutdownBudget_TheInvitationEmailNestsInsideTheHTTPGrace` |
+> | 21 | RLS + açık tenant yüklemi (üç sorgu) | `TestRLS_InviteRecipient_AnotherTenantsRowsAreNeitherReadNorCounted`, `TestInviteEmailQueries_CarryTheirOwnTenantPredicate` |
+> | 22 | ikili: her `email` kurulur, kapalı küme dışı reddedilir | `TestUnbuiltDelivery_RefusesEmailForEitherFlow`, `TestArtifact_RefusesAnEmailDeliveryThisBuildLacks` |
+> | 23 | (rebase turu) kesicinin reddi: satır basılır, röle aranmaz, `invite.undelivered` `class: "breaker"` (kodsuz), suçlamasız cümle; pencere geçince gönderilir | `TestInviteEmailDB_ABreakerRefusalIsUndeliveredWithItsClass` |
+> | 25 | (3. tur) ret satırı yazılamaz → ret cümlesi (200), ayrı log satırı, davet 0, sentinel + `ErrNotRecorded` | `TestEmailRouteDB_ARefusalWhoseRowFailsIsStillTheRefusal`, `TestInviteEmailDB_ARefusalWhoseRowFailsStillSaysWhy` |
+> | 26 | (3. tur) `invite.show_refused` istek iptal edilmişken de yazılır | `TestInviteEmail_AShowRefusalIsRecordedWhenTheVisitorLeaves` |
+> | 27 | (3. tur) açık boş değerler: boş `message_id` ile beş anahtar; kesici `"smtp_code": 0` | `TestEmailRouteDB_TheDeliveryCarriesTheRowsAddressAndTheVerification` (*no relay id*), `TestInviteEmailDB_ABreakerRefusalIsUndeliveredWithItsClass` |
+> | 28 | (3. tur) gönderilemedi 503; sınır cümleleri *"created"* | `TestInviteEmail_EveryOutcomeIsASentenceAndNoneCarriesALink`, `TestInviteEmailDB_AFailedSendIsRecordedAndNeverLogsTheMessage`, `TestInviteEmailDB_TheFourthPressInAnHourIsRefusedWithASentence` |
+> | 29 | (4. tur) internal/invite'ın her sentinel'i audit sözcüğünü üç tablodan TAM BİRİNDE taşır (aktivasyon / `invite.email_refused` / `invite.show_refused`); audit'e ulaşamayan iki sentinel gerekçesiyle adlı | `TestActivationReasons_CoverEverySentinel` |
+> | 24 | (rebase turu) tek taşıyıcı → tek kesici → iki kanal | `TestBreakerWiring_TheTransportReachesTheChannelsOnlyThroughOneBreaker` (EM-7A, değişmedi), `TestInvitationWiring_OneTransportServesBothFlows` (daraltıldı) |
+>
+> **Mutasyon tablosu** (`scratchpad/em7b/mutate.py`, tek scratch kopya `scratchpad/em7b/mut`; her çapa tam
+> bir kez; mutasyonsuz taban önce YEŞİL; her mutasyondan sonra dosya sha256 ile geri yüklendi — 28/28
+> `sha-ok`; koşu sonunda kopya worktree ile `diff -rq` aynı; derlenmeyen bir ilk yazım — M16 —
+> `BUILD-FAILED` olarak ayrıldı, yeniden yazılıp koşuldu):
+>
+> | # | Mutasyon | Sonuç (kırmızıya dönen testler) |
+> |---|---|---|
+> | M01 | ad kapısı kaldırıldı (`if true \|\| verified`) | KIRMIZI — `TestInvitation_NamesNobodyUnlessTheBusinessIsVerified`, `TestInviteEmailDB_NamesOnlyForAVerifiedBusiness` |
+> | M02 | `NULL` doğrulanmış sayılır (`IS NOT FALSE`) | KIRMIZI — `TestEmailRouteDB_TheDeliveryCarriesTheRowsAddressAndTheVerification`, `TestInviteEmailDB_NamesOnlyForAVerifiedBusiness` |
+> | M03 | adres okuması `CreateInvite`'tan önceye | KIRMIZI — `TestEmailRouteDB_TheAddressIsReadAfterTheMintInTheSameTransaction` |
+> | M04 | `citext` yerine düz `text` eşitliği | KIRMIZI — `TestInviteRecipient_TheAdministratorTestIsCaseInsensitive`, `TestEmailRouteDB_EachAddressRefusalMintsNothing`, `TestInviteEmailDB_EachAddressRefusalMintsNothing` |
+> | M05 | ASCII kapısı kaldırıldı | KIRMIZI — `TestEmailRouteDB_EachAddressRefusalMintsNothing`, `TestInviteEmailDB_EachAddressRefusalMintsNothing` |
+> | M06 | işletme saatlik sınırı 51 (`>=` → `>`) | KIRMIZI — `TestEmailRouteDB_LimitsAreCountedFromTheRows`, `TestEmailRouteDB_ConcurrentPressesNeverPassALimit` |
+> | M06b | sabit 50 → 51 | KIRMIZI — `TestEmailRoute_TheLimitsAreTheADRsNumbers`, `TestInviteEmail_EveryOutcomeIsASentenceAndNoneCarriesALink` |
+> | M06c | işletme günlük sınırı 301 | KIRMIZI — `TestEmailRouteDB_LimitsAreCountedFromTheRows` |
+> | M07 | çalışan sınırı kaldırıldı | KIRMIZI — `TestEmailRouteDB_LimitsAreCountedFromTheRows`, `TestEmailRouteDB_ConcurrentPressesNeverPassALimit`, `TestInviteEmailDB_TheFourthPressInAnHourIsRefusedWithASentence` |
+> | M08 | sayım kilitsiz (danışma kilidi yok) | KIRMIZI — `TestEmailRouteDB_ConcurrentPressesNeverPassALimit` |
+> | M09 | e-posta modunda `code_shown_to_manager` yazılır | KIRMIZI — `TestEmailRouteDB_TheDeliveryCarriesTheRowsAddressAndTheVerification`, `TestInviteEmailDB_OnePressOneMessageCarryingTheMintedLink` |
+> | M10 | audit detail'ine adres | KIRMIZI — dört test (iki invite, iki handler DB) |
+> | M11 | başarısız gönderim log satırına `err` | KIRMIZI — `TestInviteEmailDB_AFailedSendIsRecordedAndNeverLogsTheMessage`, `TestInviteEmail_AFailedSendLogsOnlyIdsClassAndCode` |
+> | M11b | kabul satırına adres | KIRMIZI — `TestInviteEmail_EveryOutcomeIsASentenceAndNoneCarriesALink`, `TestInviteEmail_AnUnrecordedOutcomeIsLoggedNotSwallowed` |
+> | M12 | yanıta link | KIRMIZI — `TestInviteEmailDB_OnePressOneMessageCarryingTheMintedLink`, `TestInviteEmail_EveryOutcomeIsASentenceAndNoneCarriesALink` |
+> | M13 | owner kapısı kaldırıldı (`id.Live()`) | KIRMIZI — `TestInviteEmailDB_OnlyTheOwnerSeesALinkOnScreen`, `TestInviteEmail_TheFallbackIsTheOwnersAlone`, `TestInviteEmail_TheCardOffersOnlyWhatTheServerWouldDo` |
+> | M14 | panel modunda taşıyıcı kabul | KIRMIZI — `TestNewAdminAuth_TheInvitationModeMatchesTheConfiguration` |
+> | M14b | main.go: seçenek e-posta kolunun dışında | KIRMIZI — `TestInvitationWiring_OneTransportServesBothFlows` |
+> | M14c | kart: e-posta kolu panel modunda da | KIRMIZI — `TestRosterActions_ThePanelModeCardIsTheCardBeforeEM7B`, `TestInviteEmail_ThePanelModeNeverMails` |
+> | M15 | ret yutulur, transaction commit edilir | KIRMIZI — `TestEmailRouteDB_EachAddressRefusalMintsNothing`, `TestInviteEmailDB_EachAddressRefusalMintsNothing` |
+> | M16 | ret audit satırı yazılmaz | KIRMIZI — dört test |
+> | M17 | yönetici alt sorgusunun tenant yüklemi yok | KIRMIZI — `TestInviteEmailQueries_CarryTheirOwnTenantPredicate` |
+> | M18 | `CountRecentInvites` tenant yüklemi yok | KIRMIZI — `TestInviteEmailQueries_CarryTheirOwnTenantPredicate`, `TestRLS_InviteRecipient_AnotherTenantsRowsAreNeitherReadNorCounted` |
+> | M19 | `GetInviteRecipient` çalışan tenant yüklemi yok | KIRMIZI — `TestInviteEmailQueries_CarryTheirOwnTenantPredicate` |
+> | M20 | gönderim hatası başarı sayılır | KIRMIZI — üç test |
+> | M21 | yedekte adres denetimi yok | KIRMIZI — `TestEmailRouteDB_TheOwnersFallbackRequiresNoAddress`, `TestInviteEmailDB_OnlyTheOwnerSeesALinkOnScreen` |
+> | M22 | yazılamayan `undelivered` loglanmaz | KIRMIZI — `TestInviteEmail_AnUnrecordedOutcomeIsLoggedNotSwallowed` |
+> | M23 | kabulden sonra satır hatası yutulur | KIRMIZI — `TestInviteEmail_AnUnrecordedOutcomeIsLoggedNotSwallowed` |
+> | M24 | (rebase) davet yolu kesicinin takma adıyla kurulur | KIRMIZI — `TestBreakerWiring_TheTransportReachesTheChannelsOnlyThroughOneBreaker`, `TestInvitationWiring_OneTransportServesBothFlows` |
+> | M25 | (rebase) `undelivered` satırı gerçek sınıf yerine sabit sınıf yazar | KIRMIZI — `TestInviteEmailDB_ABreakerRefusalIsUndeliveredWithItsClass` |
+> | M26 | (3. tur) ret satırı yazılamayınca ret sentineli düşer | KIRMIZI — `TestEmailRouteDB_ARefusalWhoseRowFailsIsStillTheRefusal`, `TestInviteEmailDB_ARefusalWhoseRowFailsStillSaysWhy` |
+> | M26b | (3. tur) yazılamayan ret satırı loglanmaz | KIRMIZI — `TestInviteEmailDB_ARefusalWhoseRowFailsStillSaysWhy` |
+> | M27 | (3. tur) `show_refused` istek bağlamıyla | KIRMIZI — `TestInviteEmail_AShowRefusalIsRecordedWhenTheVisitorLeaves` |
+> | M28 | (3. tur) `message_id` yeniden `omitempty` | KIRMIZI — `TestEmailRouteDB_TheDeliveryCarriesTheRowsAddressAndTheVerification` |
+> | M28b | (3. tur) `smtp_code` yeniden `omitempty` | KIRMIZI — `TestInviteEmailDB_ABreakerRefusalIsUndeliveredWithItsClass` |
+> | M29 | (3. tur) gönderilemedi 503 yerine 500 | KIRMIZI — beş test |
+> | M30 | (3. tur) kişi sınırı cümlesi yine *"has been sent"* | KIRMIZI — `TestInviteEmail_EveryOutcomeIsASentenceAndNoneCarriesALink`, `TestInviteEmailDB_TheFourthPressInAnHourIsRefusedWithASentence` |
+> | M31 | (4. tur) basım tablosundan `ErrTenantDayLimit` silindi | KIRMIZI — `TestActivationReasons_CoverEverySentinel` |
+> | M31b | (4. tur) `showRefusalReasons`'tan `has_address` silindi | KIRMIZI — `TestActivationReasons_CoverEverySentinel`, `TestInviteEmailDB_OnlyTheOwnerSeesALinkOnScreen` |
+> | M31c | (4. tur) bir basım reddi aktivasyon tablosuna da yazıldı | KIRMIZI — `TestActivationReasons_CoverEverySentinel` |
+> | M31d | (4. tur) `ErrNotRecorded` bir sözcük aldı | KIRMIZI — `TestActivationReasons_CoverEverySentinel` |
+>
+> **41 mutasyon: 41 KIRMIZI, 0 YEŞİL** (4. tur: M31–M31d yeni, dördü KIRMIZI; 3. tur: M26–M30 yeni; çapası değişen M09, M10, M16, M20, M25
+> yeniden koşuldu, beşi KIRMIZI; hepsi `sha-ok`). Önceki sayım: **30 mutasyon: 30 KIRMIZI, 0 YEŞİL** (28'i rebase öncesi tam koşu; rebase turunda M14b çapası `breaker`'a göre yeniden yazılıp M24, M25 ile birlikte `b935f47` tabanlı kopyada koşuldu — üçü KIRMIZI, `sha-ok`). Koşu kümeleri: invite `-run 'TestEmailRouteDB_|TestEmailRoute_'`, db
+> `-run 'TestRLS_InviteRecipient_|TestInviteEmailQueries_|TestInviteRecipient_'`, handler (sahte)
+> `-run 'TestNewAdminAuth_TheInvitationModeMatchesTheConfiguration|TestNewEmailInvitations_|TestInviteEmail_|TestRosterActions_ThePanelModeCardIsTheCardBeforeEM7B'`,
+> handler (DB) `-run 'TestInviteEmailDB_'`, email `-run 'TestInvitation_|TestRender_TheTwoPartsSayTheSameWords'`, cmd
+> `-run 'TestInvitationWiring_|TestShutdownBudget_TheInvitationEmailNestsInsideTheHTTPGrace|TestUnbuiltDelivery_'` (kimlik bilgisi testleri `-skip` ile atlanarak).
+>
+> **Sayılı sınırlar** (ADR 0022 *"EM-7B notu"*ndaki listeyle aynı): 1 VIES varlığı kanıtlar, sahipliği
+> değil; doğrulanmamış tenant'ın nötr daveti yine keyfi bir adrese gidebilir; VIES adı bağlamaz, ad
+> doğrulamadan sonra değiştirilebilir ve `vat_verified` sıfırlanmaz · 2 owner-only yedek EM-12'ye
+> dek boş (B28) · 3 başarısız gönderim ve ekranda gösterilen link de kişinin saatlik bütçesini harcar
+> (sayım satırdır; cümle *"created"* der) · 4 "sent" = röle kabul etti;
+> kabulden sonra satır yazılamazsa ekran "gitmemiş olabilir" der · 5 yanıt röleyi bekler (≤ 10 s + 5 s,
+> HTTP boşaltmasına sığar) · 6 sayım tenant'ın toplam davet satırıyla doğrusal (bugün ≈2 ms / 1 740 satır;
+> büyük tenant için `(tenant_id, created_at)` indeksi ayrı migration) · 7 danışma kilidi işletme başına
+> (karma çakışması iki işletmeyi sıraya sokar, verilerini karıştırmaz) · 8 ekleme formunun zayıf adres
+> kuralı kaldı (basımda reddedilir) · 9 **kesici açıkken her red bir log satırı yazar** (orkestratör
+> kararı; hacim oran sınırlarıyla sınırlı) · 10 kart, kurala uymayan / yönetici adresinde düğmeyi gizlemez
+> (basım cümleyle döner) · 11 kaynak pinleri kaynak düzeyinde · 12 **alıcıya yoğunlaştırma** (ORTA,
+> denetçi ölçtü — 4. tur): kişi sınırı `employee_id` başına, posta kutusu başına değil; bir kutunun tavanı
+> işletme sınırlarıdır, işletmeler arası tek fren süreç geneli kesici; EM-5B (b) davete de uygulanır.
+>
+> **Güvenlik iddiaları — üç parçalı:** ADR 0022 *"EM-7B notu"* — İddia O (kod yalnız o an kayıtlı,
+> kullanılabilir adrese; retler bir şey basmaz), P (sınırlar eşzamanlı da aşılmaz), Q (ad yalnız
+> doğrulanmışta), R (adres/link/kod yanıta, log'a, audit'e girmez; hata yalnız sınıf + kod), S (owner-only
+> yedek; panel bayt-aynı; e-posta yolu yalnız `email` modunda). Tehdit modeli başta: *"bu pinler kazara
+> sapmaya karşıdır; bilerek atlatma kod incelemesinin konusudur."* PART III her birinde aynen *"Listede
+> olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok."*
+>
+> **Kapılar:** `gofmt -l` boş · `go build ./...` + `go vet` (değişen paketler) 0 · `make fmt gen`
+> idempotent · `./scripts/redline-check.sh` 0 · değişen testler `-race -run` ile yeşil ·
+> `TestEveryNamedTestExists` ve `TestComments_` worktree'siz kopyada yeşil · derlenmiş `app.css` `08b1bd1`
+> ile bayt-aynı (51 442 B).
+>
+> **Devirler:**
+> - **EM-8:** M6-11 iki kanalı (`email`, `manager_panel`) ayrı gösterir; gerçek cihaz turu, davetin
+>   istemcilerde görünümü, *"main browser"* talimatı.
+> - **EM-12:** yönetici daveti; owner-only kapı o gün gerçek isteği ayırır.
+> - **WL-11:** başlıklara tenant verisi girmez (değişmedi); *"X via Taptime"* gönderen adı VIES koşuluyla —
+>   bu kararla aynı eşik.
+> - **EM-5B:** gerçek SES'le davet de ölçülür; `TAPPA_INVITE_DELIVERY`'yi `email`'e çevirmek deploy kararı,
+>   `TestPackaging_TheConfigMapShipsTodaysDelivery` o gün bilerek güncellenir.
+>   **Önkoşul (b) GENİŞLER (4. tur, güvenlik denetimi):** alıcı başına gönderim tavanı kararı ya da açık
+>   kullanıcı risk kabulü artık **davet akışını da** kapsar — `TAPPA_INVITE_DELIVERY=email` ona bağlıdır.
+>   Gerekçe sınır 12: kişi sınırı satır başınadır, posta kutusu başına değil (denetçinin ölçümü: tek kutuya
+>   bir saniyenin altında 21 ileti). İsteğe bağlı seçenek, karar EM-5B'nin: kişi sınırını normalize adres
+>   üzerinden saymak.
+> - **EM-7A (birleşim) — rebase turu tamam (taban `b935f47`):** iki akıştan biri `email` iken tek
+>   `mail.New` → tek `mail.NewBreaker` → aynı kesici `NewEmailResetChannel` ve `NewEmailInvitations`'a (davet
+>   yalnız `Send`). Çakışmalar: `cmd/tappa/main.go` (taşıyıcı bloğu — EM-7A kesiciyi yalnız sıfırlama
+>   dalında kuruyordu, artık iki akış için ortak blokta) ve ADR 0022'nin sonu (iki not da korundu: önce
+>   EM-7A, sonra EM-7B; `HEAD`'e göre silme 0). EM-7A'nın pini değiştirilmedi; bu görevin pini kesici
+>   biçimine daraltıldı.
+>
+> **3. tur (2026-10-09 — üçüncü göz ONAY; yedi DÜŞÜK + bir soru kapatıldı):** (1) ret satırı yazılamazsa
+> ret yine ret (`errors.Join`) + ayrı log satırı · (2) sınır cümleleri *"created"* · (3) `show_refused`
+> istek iptalinden kopuk · (4) açık boş değerler (`message_id`, `smtp_code`) · (5)–(8) metin: `em6-fixture`,
+> `m6.example` / `EM7B.example.test`, `mailconfig_test.go`'nun dizgisi, *"WHAT ONE RUN LEAVES BEHIND"*
+> koddan sayıldı ve ölçüldü (18 tenant, 63 çalışan, 527 davet, 92 audit satırı) · **Soru:** gönderilemedi
+> 503 — emsal operatörün VIES yanıtsız ve kayıt-yazılamadı 503'leri, logo yüklemesinin kabul dolu 503'ü;
+> M29 kırmızı. ADR 0022 *"EM-7B notu"*nun sonunda *"EM-7B 3. tur"* maddesi.
+>
+> **4. tur (2026-10-09 — faz sonu tam `-race`'te `TestActivationReasons_CoverEverySentinel` KIRMIZI):**
+> basım retleri aktivasyon tablosuna değil basım tablolarına aittir; test kapsamı ayırdı — sentinel'ler
+> paketten türetilir, her biri üç üretim tablosundan (aktivasyon, `refusalReasons`, yeni
+> `showRefusalReasons`) TAM BİRİNDE; audit'e ulaşamayan adlı iki istisna: `ErrUnknownCode` (tenant yok),
+> `ErrNotRecorded` (ret değil, satırın yazılamadığı işareti — log'a gider). M31–M31d KIRMIZI.
+>
+> **4. tur eki — güvenlik denetimi ONAY (kritik/yüksek 0):** (ORTA, metin) sayılı sınır **12 — alıcıya
+> yoğunlaştırma**: kişi sınırı `employee_id` başına; artı etiketli satırlar ve başka işletmelerdeki aynı
+> adres tek kutuya işletme sınırları kadar ileti yollatır (denetçi ölçtü: <1 s'de 21); işletmeler arası
+> tek fren süreç geneli kesici; sıfırlamadaki ikizi EM-5A 4. tur / EM-5B (b); `email.go` yorumu daraltıldı.
+> (DÜŞÜK, metin) sınır 1: VIES adı bağlamaz. Davranış değişikliği yok.
+>
+> **Denetim ve kapanış (2026-10-09, orkestratör):** 🟢 **KULLANICI KARARI (2026-10-09, ADR 0022 sınır 22):** davet e-postasında işletme/çalışan adı yalnız VIES-doğrulanmış tenant'ta (`vat_verified IS TRUE`), değilse nötr metin. Tam disiplin: üçüncü göz ONAY (yedi DÜŞÜK, 3. turda kapandı; "gönderilemedi" 500 → 503, emsal OP-16B); güvenlik ONAY (kritik/yüksek 0; ORTA metin: alıcıya yoğunlaştırma — kişi sınırı satır başına, tek kutunun tavanı tenant sınırı; ölçüldü 21 ileti/<1 sn → sınır 12, EM-5B (b) davete de uygulanır; DÜŞÜK: VIES adı bağlamaz). EM-7A'nın `b935f47`'si üstüne rebase (tek taşıyıcı → tek kesici → iki kanal; iki kablolama pini birlikte yeşil). Orkestratörün faz sonu tam `-race` koşusu `TestActivationReasons_CoverEverySentinel`'i kırmızı yakaladı (yeni basım sentinel'leri aktivasyon tablosunda aranıyordu) → test üç üretim tablosundan türetildi (4. tur); orkestratör M31'i kendi koştu: KIRMIZI. `internal/db`'deki yedi operatör migration testi yerelde kırmızı — T113 (dev DB NOT VALID), EM-7B'den değil; CI taze DB. ConfigMap `panel` — canlıda davranış değişmez; `email`'e çevirmek EM-5B önkoşulları + kullanıcı kararı.
+
 ## 4. Akış B — E-posta (AWS SES)
 
 ### Öneri: SES SMTP arayüzü + stdlib `net/smtp` (STARTTLS 587), `eu-central-1` — ✅ (sıfır yeni modül)

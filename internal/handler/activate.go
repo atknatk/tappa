@@ -744,8 +744,11 @@ func (a *Activation) rejectCode(w http.ResponseWriter, r *http.Request, ip strin
 	a.renderProblem(w, r, http.StatusBadRequest, problemBadLink)
 }
 
-// inviteFailureReasons maps every REFUSAL internal/invite can name onto the word
-// audit_log stores for it.
+// inviteFailureReasons maps every refusal of SPENDING a link that internal/invite can
+// name onto the word audit_log stores for it. (Refusals of MINTING one — M10 EM-7B's
+// e-mail route and on-screen fallback — have their words in internal/invite's
+// refusalReasons and inviteemail.go's showRefusalReasons; the coverage test holds the
+// three tables together.)
 //
 // 🔴 IT IS A TABLE RATHER THAN A SWITCH BECAUSE A TEST HAS TO BE ABLE TO READ IT.
 // The switch that used to be here shipped a new sentinel — ErrCodeCancelled, the one

@@ -166,3 +166,61 @@ type InviteIssuedView struct {
 	// BackHref returns to the roster the manager came from, filters and page intact.
 	BackHref string
 }
+
+// InviteEmailedView is the answer to an invitation press in the E-MAIL mode
+// (TAPPA_INVITE_DELIVERY=email, M10 EM-7B): what happened, in words, and the way back.
+//
+// 🔴 §4.7 — IT HAS NO FIELD FOR THE LINK, AND THAT IS THE MODE. The code went to the
+// employee's own inbox; this screen can say WHERE, never WHAT. A field here could be
+// filled, so there is none.
+//
+// IT IS RENDERED BY THE POST, NOT REACHED BY A REDIRECT. Every outcome below is a fact
+// about THIS press — "sent to", "this business has sent 50 in the hour", "we could not
+// confirm it went out" — and a sentence like that in a query string would be a claim
+// anybody could send to anybody (the M6-04 banner lesson the roster's vocabulary
+// follows). A refresh re-posts, and the browser asks first.
+type InviteEmailedView struct {
+	PanelChrome
+
+	// Name is the person the invitation is for.
+	Name string
+	// Outcome is one of the closed set the handler writes: "sent", "unsent", one of
+	// internal/invite's refusal reasons, "show-not-permitted" or "show-has-address".
+	Outcome string
+	// Address is where the e-mail went — the address the relay accepted, read in the
+	// transaction that minted the code. It is set only for "sent" and is personal
+	// data: rendered as text, never logged.
+	Address string
+	// Expires is the link's lifetime as a length (expiryPhrase), set only for "sent".
+	Expires string
+	// Retired is how many earlier links this one retired, set only for "sent".
+	Retired int
+	// PersonLimit, BusinessHourLimit and BusinessDayLimit are internal/invite's
+	// numbers, printed by the limit sentences so the screen cannot drift from them.
+	PersonLimit       int
+	BusinessHourLimit int
+	BusinessDayLimit  int
+	// BackHref returns to the person's card on the roster the manager came from.
+	BackHref string
+}
+
+// inviteEmailedHeading names a refused or fallback outcome in a few words; the
+// sentence under it says what to do.
+func inviteEmailedHeading(v InviteEmailedView) string {
+	switch v.Outcome {
+	case "no_address":
+		return "No address on file"
+	case "address_not_ascii", "address_not_deliverable":
+		return "That address cannot receive the link"
+	case "address_is_an_administrators":
+		return "That address belongs to an administrator"
+	case "person_hourly_limit":
+		return "Too many invitations for " + v.Name
+	case "business_hourly_limit", "business_daily_limit":
+		return "This business has reached its invitation limit for now"
+	case "show-has-address":
+		return v.Name + " has an address now"
+	default:
+		return "Only the owner can do that"
+	}
+}

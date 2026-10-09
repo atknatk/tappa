@@ -358,7 +358,9 @@ type GetEmployeeActivationContextRow struct {
 // below say why, each in its own words: no screen had a reader for it. EM-6 gives it
 // ONE reader (the action card shows the address on file) and ONE writer, and all of
 // that lives in the three statements at the end of this file. Every other read here
-// still leaves the column out.
+// still leaves the column out. (M10 EM-7B added ONE more reader, outside this file:
+// invites.sql's GetInviteRecipient, which reads the address inside the transaction
+// that mints an e-mailed invitation -- that is where it has to run.)
 // Everything the activation page must render about WHO is activating, in one
 // round trip: the greeting name, the current lifecycle status, the location whose
 // WiFi step comes next, and the DATA CONTROLLER's name for the GDPR Art. 13

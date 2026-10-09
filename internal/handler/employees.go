@@ -532,6 +532,16 @@ func (a *AdminAuth) rosterActions(w http.ResponseWriter, r *http.Request, f ledg
 		CanChangeEmail: mayChangeEmployeeEmail(httpx.AdminOf(r)),
 		EmailAction:    employeeEmailHref,
 	}
+	// M10 EM-7B. The e-mail mode's card: the button mails the link when there is an
+	// address, and an OWNER looking at somebody with none is offered the on-screen
+	// fallback — the same predicate and the same "no address" the POST checks again
+	// (mayShowInviteLink; internal/invite's OnlyWithoutAddress). The panel mode leaves
+	// all four fields zero, which is the card it always rendered.
+	if a.inviteMail != nil {
+		v.InviteByEmail = true
+		v.CanShowLink = person.Invitable() && email == "" && mayShowInviteLink(httpx.AdminOf(r))
+		v.ShowLinkField, v.ShowLinkValue = inviteDeliverField, inviteDeliverScreen
+	}
 	return v, problem
 }
 

@@ -107,8 +107,8 @@ data:
   #                                         goes either (M10 EM-9: one switch, both)
   #   TAPPA_INVITE_DELIVERY  panel | email  panel: the activation link is shown on the
   #                                         manager's own screen (ADR 0005 Y-D)
-  # "email" is valid configuration; the reset channel exists since EM-5, and for
-  # invitations THIS BUILD REFUSES TO BOOT ON IT until EM-7. Switching a flow on is a deploy
+  # "email" is valid configuration and both channels exist (reset since EM-5,
+  # invitations since EM-7B; one transport serves both). Switching a flow on is a deploy
   # decision, made AFTER the two SMTP credentials are in tappa-secrets — a flow on with
   # a credential missing is a startup failure. maxUnavailable: 0 keeps the OLD pod
   # serving only while that pod lives: the deploy applies this ConfigMap first, so a

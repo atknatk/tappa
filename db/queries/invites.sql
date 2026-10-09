@@ -323,3 +323,99 @@ WHERE tenant_id = @tenant_id
   AND cancelled_at IS NULL
   AND now() < expires_at
 RETURNING id;
+
+-- name: LockTenantForInviteLimits :exec
+-- SERIALISE ONE BUSINESS'S E-MAILED INVITATIONS (M10 EM-7B, ADR 0022 §9).
+--
+-- 🔴 THE LIMITS ARE A READ-THEN-DECIDE, and without this they lose the way the
+-- debounce did (LockEmployeeForTap's comment, measured there): N concurrent issuers
+-- all count BEFORE any of them has committed, so every one of them sees the same old
+-- number and every one of them mints. The lock is taken as the FIRST statement of the
+-- transaction that counts, mints and reads the address, so the count each issuer sees
+-- includes every invitation committed by the issuer that held the lock before it
+-- (READ COMMITTED takes a fresh snapshot per statement, and a transaction-scoped
+-- advisory lock is released only after its COMMIT is visible).
+--
+-- THE KEY IS THE TENANT, NAMESPACED. The tenant limits (hour, day) are per business,
+-- and the per-person limit lives inside one business, so one key per business covers
+-- all three. Advisory locks live in one cluster-wide space and RLS does not scope
+-- them, hence the tenant id in the key; the 'invite-limits:' prefix keeps the key
+-- apart from LockEmployeeForTap's "<tenant>:<employee>" string. A hash collision
+-- serialises two unrelated issuers -- it can never mix their data, every statement
+-- after it still carries its own tenant predicate and runs under RLS.
+--
+-- WHAT IT COSTS: two managers of ONE business pressing at once take turns for the
+-- few statements of the issuing transaction (the e-mail itself is sent after the
+-- commit, outside the lock). Issuers in different businesses never wait on it.
+-- Only the e-mail mode takes it (internal/invite); the panel mode's issuing
+-- transaction is unchanged.
+SELECT pg_advisory_xact_lock(hashtextextended('invite-limits:' || (sqlc.arg(tenant_id)::uuid)::text, 0));
+
+-- name: CountRecentInvites :one
+-- How many invitations this business minted in the last hour and the last day, and
+-- how many of those were for ONE person in the last hour (M10 EM-7B, ADR 0022 §9:
+-- 50 an hour and 300 a day per business, 3 an hour per person -- the numbers live in
+-- internal/invite, this statement only counts).
+--
+-- EVERY ROW COUNTS, whatever became of it: spent, retired, expired, minted in the
+-- panel mode before the deployment switched to e-mail. A row is one press that
+-- minted a code, which is what the limits bound; a REFUSED press leaves no row (its
+-- transaction rolls back), so refusals cannot exhaust the budget they are refused by.
+--
+-- now() is the transaction's start, the same clock created_at's default writes.
+-- It runs AFTER LockTenantForInviteLimits in the same transaction -- see there.
+--
+-- TENANT SCOPE (section 4.5, belt + braces): explicit predicate on top of RLS. The
+-- index employee_invites_tenant_idx (tenant_id, employee_id) serves the predicate.
+SELECT count(*) FILTER (WHERE created_at > now() - interval '1 hour')::int AS tenant_last_hour,
+       count(*)::int AS tenant_last_day,
+       count(*) FILTER (WHERE employee_id = @employee_id
+                          AND created_at > now() - interval '1 hour')::int AS employee_last_hour
+FROM employee_invites
+WHERE tenant_id = @tenant_id
+  AND created_at > now() - interval '1 day';
+
+-- name: GetInviteRecipient :one
+-- Where an e-mailed invitation goes and what it may say (M10 EM-7B, ADR 0022 §7).
+--
+-- 🔴 IT RUNS INSIDE THE TRANSACTION THAT MINTS THE INVITATION, AFTER CreateInvite --
+-- the closed form of EM-6's counted limit 1. CreateInvite's foreign-key check takes
+-- FOR KEY SHARE on the employee row, which conflicts with the FOR UPDATE an address
+-- change takes (LockEmployeeForEmailChange). So this read either sees an address
+-- change that committed first, or the change waits for this transaction and then
+-- retires the invitation it minted (Staff.ChangeEmail's second cancellation). Read
+-- before the mint, in a separate transaction, it could read the old address, let
+-- the change commit, and send a live code to an address that is no longer on file.
+--
+-- ONE STATEMENT, so the address, the names and the verification state describe the
+-- same instant (a second read would be a race between them):
+--   email             the address on file, NULL when there is none (00003);
+--   full_name         the greeting's name;
+--   tenant_name       the inviter's name;
+--   tenant_verified   VIES confirmed the business's VAT number -- vat_verified IS
+--                     TRUE, so FALSE and NULL (never asked, or no answer -- 00017's
+--                     states) are both "not verified". The e-mail shows the two
+--                     names only when this is true (user decision 2026-10-09);
+--   is_admin_address  the address equals, as citext (case-insensitive -- the
+--                     column's own equality), the address of ANY administrator row
+--                     of this business. An activation link mailed to the panel's
+--                     own inbox is ADR 0005 Y-D with one step fewer.
+--
+-- TENANT SCOPE (section 4.5, belt + braces): every table carries an explicit
+-- predicate bound to the parameter, on top of RLS -- employees, tenants and the
+-- admin_users sub-query alike.
+SELECT e.email,
+       e.full_name,
+       t.name AS tenant_name,
+       (t.vat_verified IS TRUE)::boolean AS tenant_verified,
+       EXISTS (
+           SELECT 1
+           FROM admin_users a
+           WHERE a.tenant_id = @tenant_id
+             AND a.email = e.email
+       ) AS is_admin_address
+FROM employees e
+JOIN tenants t ON t.id = e.tenant_id
+WHERE e.tenant_id = @tenant_id
+  AND t.id = @tenant_id
+  AND e.id = @employee_id;

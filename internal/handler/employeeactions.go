@@ -389,6 +389,12 @@ func (a *AdminAuth) employeeInvite(w http.ResponseWriter, r *http.Request) {
 		a.redirect(w, rosterReturn(f, employeeID, "", "not-invitable"))
 		return
 	}
+	// THE E-MAIL MODE (M10 EM-7B, inviteemail.go) branches HERE, after the two checks
+	// both modes share, and the panel mode below is the code it always was.
+	if a.inviteMail != nil {
+		a.employeeInviteByEmail(w, r, f, person)
+		return
+	}
 
 	// THE SINK IS PER-REQUEST AND LIVES ON THE STACK. A field on AdminAuth would be
 	// shared by every concurrent request in the process, which is how one manager's

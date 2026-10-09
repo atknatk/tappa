@@ -136,7 +136,36 @@ templ RosterActions(v RosterActionsView) {
 		</div>
 		<div class="mt-4 flex flex-col gap-4 border-t border-line pt-4">
 			<div class="flex flex-wrap items-center gap-3">
-				if v.CanInvite {
+				if v.CanInvite && v.InviteByEmail {
+					// THE E-MAIL MODE (M10 EM-7B). The button is offered only where the
+					// server would act on it: with an address on file. Without one the card
+					// says so, and an OWNER is offered the one fallback ADR 0022 §7 keeps —
+					// the link on screen, recorded as shown to them.
+					if v.Email != "" {
+						<form method="post" action={ templ.URL(v.InviteAction) }>
+							@hiddenFields(v.Hidden)
+							<button type="submit" class="btn btn--primary">{ v.InviteLabel }</button>
+						</form>
+						<p class="text-xs text-ink/70">
+							The link goes by email to the address on file below. It is never shown on screen.
+						</p>
+					} else {
+						<p class="text-xs text-ink/85">
+							No address on file, so no link can be emailed. The owner can add one below.
+						</p>
+						if v.CanShowLink {
+							<form method="post" action={ templ.URL(v.InviteAction) }>
+								@hiddenFields(v.Hidden)
+								<input type="hidden" name={ v.ShowLinkField } value={ v.ShowLinkValue }/>
+								<button type="submit" class="btn btn--quiet">Show the link on screen</button>
+							</form>
+							<p class="text-xs text-ink/70">
+								Owner only, for somebody with no email. It is shown once, on the next screen, and
+								the trail records that you saw it.
+							</p>
+						}
+					}
+				} else if v.CanInvite {
 					<form method="post" action={ templ.URL(v.InviteAction) }>
 						@hiddenFields(v.Hidden)
 						<button type="submit" class="btn btn--primary">{ v.InviteLabel }</button>

@@ -3,7 +3,7 @@
 // the "your password was changed" notice. Each renderer returns a mail.Message
 // with Subject, Text and HTML filled; To and Ref stay empty and are the caller's:
 // internal/handler's emailResetChannel for the reset (EM-5) and the notice (EM-9),
-// EM-7 for the invitation (RenderInvitation has no caller yet).
+// its invitation sink for the invitation (M10 EM-7B, inviteemail.go).
 //
 // ONE STRUCTURE, THREE MESSAGES. Every e-mail is a letter (letter.go): a heading,
 // paragraphs, one action and a closing line, rendered by ONE templ component
@@ -16,9 +16,9 @@
 // THE NOTICE CARRIES NO CREDENTIAL, BY ITS SIGNATURE. Its one link is the sign-in
 // page — exactly BaseURL + "/admin/login", no query, no fragment — so there is no
 // value slot a code or a token could travel in, and its view has no name field:
-// the words are the same bytes for every account (ADR 0022 §8; whether an e-mail
-// may show a business or a person's name at all is EM-7's open product decision,
-// so this one shows none).
+// the words are the same bytes for every account (ADR 0022 §8; EM-7B's decision —
+// names only for a VIES-verified business — was taken for the invitation, and this
+// notice still shows none).
 //
 // WHY THE LINK IS A PARAMETER AND NOT A FIELD. The link carries the activation
 // code or the reset token (§4.7 material). Taking it as an argument, rather than
@@ -73,6 +73,12 @@
 //     exactly html, head, meta, title, body, div, p, h1 and a, and its attributes
 //     only lang, charset, name, content, style and href —
 //     TestRender_LoadsNothingAndUsesOnlyTheseElements;
+//   - the invitation names the business and the person ONLY for a business VIES
+//     verified (InvitationView.TenantVerified; its zero value names nobody): call-back
+//     prose with a phone number and an ordinary pair are both shown verified and
+//     absent unverified, the neutral words standing in, and a verified address-shaped
+//     name is still withheld — TestInvitation_NamesNobodyUnlessTheBusinessIsVerified
+//     (M10 EM-7B; every name bullet below is measured on a verified render);
 //   - names: a tenant or employee name is shown only when every rune is a
 //     letter, a mark, a digit, a space or one of & ' ’ - – — , ( ) !, it has a
 //     letter, and each "." ends it or is followed by ' ', ',' or ')' (nameShown).
@@ -185,9 +191,10 @@
 // looks like a dot but is a letter, a mark or a digit (not a label separator for
 // the detector) is shown, so such a name reads like an address to a person; a
 // phone number (data detectors are not measured), full-width digits and plain
-// attacker prose are shown — whether an invitation may show attacker-chosen
-// prose at all is a PRODUCT decision EM-7 must have before it switches e-mail on
-// (the card's EM-7 hand-off); a real but unusual name with a character outside
+// attacker prose are shown BY nameShown — which is why the invitation reaches
+// nameShown only for a VIES-verified business (the user's decision of 2026-10-09,
+// EM-7B; VIES proves the number exists, not who owns it, so this raises the bar and
+// does not close the risk); a real but unusual name with a character outside
 // the allowlist is withheld; the lifetime phrase is the caller's duration
 // floored, not the time left when the e-mail is read; how a client's dark mode
 // repaints the inline colours is not measured; an element's own colour may be
@@ -256,10 +263,18 @@ type InvitationView struct {
 	// BaseURL is the deployment's configured origin (cfg.BaseURL). The link must
 	// be BaseURL + "/activate?code=" + the code.
 	BaseURL string
-	// EmployeeName and TenantName appear in the body only, and only when
-	// nameShown accepts them; otherwise neutral words stand in.
+	// EmployeeName and TenantName appear in the body only, only when TenantVerified
+	// is true, and then only when nameShown accepts them; otherwise neutral words
+	// stand in.
 	EmployeeName string
 	TenantName   string
+	// TenantVerified is true only for a business whose VAT number VIES confirmed
+	// (tenants.vat_verified IS TRUE). FALSE — THE ZERO VALUE — WITHHOLDS BOTH NAMES,
+	// whatever they are (user decision 2026-10-09, ADR 0022 counted limit 22): an
+	// unverified business's name, and the person name its manager typed, are text an
+	// open signup chose, and this e-mail is DKIM-signed for Taptime's domain. A caller
+	// that forgets the field sends the neutral e-mail, never a named one.
+	TenantVerified bool
 	// ValidFor is the link's lifetime: the invitation's expires_at − created_at.
 	ValidFor time.Duration
 }
@@ -285,8 +300,8 @@ type ResetView struct {
 // its link (M10 EM-9).
 //
 // IT HAS NO NAME FIELD, AND NO FIELD FOR A CODE, A TOKEN OR AN INSTANT, ON PURPOSE.
-// Whether an e-mail may show a business or a person's name is EM-7's pending product
-// decision (ADR 0022 counted limit 22), so the notice shows none; it says WHEN only
+// The invitation names a business and a person only when VIES verified the business
+// (EM-7B, ADR 0022 counted limit 22); the notice shows no name at all; it says WHEN only
 // through the message's own Date header, so it needs no time zone; and a value slot
 // is where a credential could one day be put, so there is none.
 type PasswordChangedView struct {
@@ -330,7 +345,7 @@ func RenderInvitation(ctx context.Context, link string, v InvitationView) (mail.
 	if err != nil {
 		return mail.Message{}, err
 	}
-	return render(ctx, invitationLetter(v.EmployeeName, v.TenantName, life), link)
+	return render(ctx, invitationLetter(v.EmployeeName, v.TenantName, v.TenantVerified, life), link)
 }
 
 // RenderPasswordReset renders the reset e-mail for the reset link. The returned

@@ -395,7 +395,32 @@ func TestFailures_AreIndistinguishable(t *testing.T) {
 // ⚠️ WHAT IT CANNOT SEE, named rather than implied: a sentinel declared somewhere
 // other than a top-level `Err… = errors.New(…)` in that package — a wrapped error
 // type, or one built in a function. The scan is a go/ast walk over the package's
-// value declarations, which is the shape internal/invite actually uses for all five.
+// value declarations, which is the shape internal/invite actually uses for all of them.
+//
+// 🔴 TWO SCOPES SINCE M10 EM-7B, AND THE INTENT IS UNCHANGED: every refusal
+// internal/invite can name reaches audit_log with a word of its own (§4.6). EM-7B added
+// refusals that are born when an invitation is MINTED, not when one is SPENT — the
+// e-mail route's address refusals and limits, and the on-screen fallback's "has an
+// address" — and their words live in the issuance side's tables, not in activation's
+// (writing them into inviteFailureReasons would make the activation page claim
+// failures it can never see). So the sentinel set is still DERIVED from the package,
+// and each sentinel must have its word in EXACTLY ONE of three production tables, each
+// read from its source with go/ast (keys and words, not a copy):
+//
+//	activation  internal/handler activate.go     inviteFailureReasons
+//	issuance    internal/invite email.go         refusalReasons      (invite.email_refused)
+//	            internal/handler inviteemail.go  showRefusalReasons  (invite.show_refused)
+//
+// A sentinel in none is red (a new one cannot be silently exempt); one in two is red
+// (one refusal, one word). And the named set of sentinels that CANNOT reach audit_log,
+// each with its reason — the only list kept by hand, so it cannot be quietly widened:
+//
+//	ErrUnknownCode  resolves to no tenant, and audit_log.tenant_id is NOT NULL.
+//	ErrNotRecorded  is not a refusal: it marks that an outcome's OWN row could not be
+//	                written (EM-7B). A row about a failed row is the same write failing
+//	                again, so its home is the panel's log — a line of its own, pinned by
+//	                TestInviteEmailDB_ARefusalWhoseRowFailsStillSaysWhy and
+//	                TestInviteEmail_AnUnrecordedOutcomeIsLoggedNotSwallowed.
 func TestActivationReasons_CoverEverySentinel(t *testing.T) {
 	sentinels := inviteSentinelNames(t)
 	// ANTI-VACUITY: a walk that read nothing would pass over everything.
@@ -403,53 +428,154 @@ func TestActivationReasons_CoverEverySentinel(t *testing.T) {
 		t.Fatalf("found %d sentinel(s) in internal/invite (%v); the package declares "+
 			"more, so this scan is reading the wrong directory", len(sentinels), sentinels)
 	}
-
-	// The reasons the product stores, keyed by the sentinel's NAME so the two sides
-	// can be compared without reflecting over error identity.
-	reasons := map[string]string{
-		"ErrCodeExpired":    "expired",
-		"ErrCodeUsed":       "already_used",
-		"ErrCodeCancelled":  "cancelled",
-		"ErrNotActivatable": "employee_not_activatable",
+	isSentinel := map[string]bool{}
+	for _, s := range sentinels {
+		isSentinel[s] = true
 	}
-	// THE ONE EXPECTED OMISSION, named here so it cannot be quietly widened:
-	// ErrUnknownCode resolves to no tenant, and audit_log.tenant_id is NOT NULL.
-	const unattributable = "ErrUnknownCode"
+
+	tables := []struct {
+		scope, file, name string
+		words             map[string]string
+	}{
+		{"activation", "activate.go", "inviteFailureReasons", nil},
+		{"issuance (invite.email_refused)", filepath.Join("..", "invite", "email.go"), "refusalReasons", nil},
+		{"issuance (invite.show_refused)", "inviteemail.go", "showRefusalReasons", nil},
+	}
+	for i := range tables {
+		tables[i].words = sentinelTable(t, tables[i].file, tables[i].name)
+		// ANTI-VACUITY, PER TABLE: a table read as empty would excuse nothing and catch
+		// nothing.
+		if len(tables[i].words) == 0 {
+			t.Fatalf("read no entries from %s in %s; the table moved or changed shape", tables[i].name, tables[i].file)
+		}
+	}
+	unwritable := map[string]string{
+		"ErrUnknownCode": "resolves to no tenant; audit_log.tenant_id is NOT NULL",
+		"ErrNotRecorded": "marks that an outcome's own row could not be written; logged, not audited",
+	}
 
 	for _, name := range sentinels {
-		if name == unattributable {
-			if _, ok := reasons[name]; ok {
-				t.Errorf("%s is listed as an audited reason, but it resolves to no tenant "+
-					"and cannot be written to audit_log", name)
+		var in []string
+		for _, tb := range tables {
+			if w, ok := tb.words[name]; ok {
+				in = append(in, tb.scope)
+				if w == "" {
+					t.Errorf("invite.%s has an EMPTY word in %s", name, tb.name)
+				}
 			}
-			continue
 		}
-		if _, ok := reasons[name]; !ok {
-			t.Errorf("invite.%s has no audited reason. Every refusal internal/invite can "+
-				"name must reach audit_log with a word of its own (§4.6) — add it to "+
-				"inviteFailureReasons in activate.go and to the table in "+
-				"TestFailures_AreAudited. This test exists because ErrCodeCancelled "+
-				"shipped without either.", name)
+		_, exempt := unwritable[name]
+		switch {
+		case exempt && len(in) > 0:
+			t.Errorf("invite.%s cannot reach audit_log (%s) and yet has a word in %v", name, unwritable[name], in)
+		case exempt:
+		case len(in) == 0:
+			t.Errorf("invite.%s has no audited word. Every refusal internal/invite can name must reach "+
+				"audit_log with a word of its own (§4.6) — give it one in inviteFailureReasons (a refusal "+
+				"of SPENDING a link), or in refusalReasons / showRefusalReasons (a refusal of MINTING "+
+				"one). This test exists because ErrCodeCancelled shipped without one.", name)
+		case len(in) > 1:
+			t.Errorf("invite.%s has a word in %d tables (%v); one refusal, one word", name, len(in), in)
 		}
 	}
-	// AND THE PRODUCTION TABLE MUST NOT CARRY A REASON FOR A SENTINEL THAT NO LONGER
-	// EXISTS — a dead entry is a claim about a refusal the product can no longer make.
-	if got := len(inviteFailureReasons); got != len(reasons) {
-		t.Errorf("inviteFailureReasons has %d entries and this test knows %d; the two "+
-			"lists have drifted", got, len(reasons))
+	// NO DEAD ENTRIES: a word for a sentinel that no longer exists is a claim about a
+	// refusal the product can no longer make.
+	for _, tb := range tables {
+		for name, w := range tb.words {
+			if !isSentinel[name] {
+				t.Errorf("%s carries %q for invite.%s, which no longer exists in that package", tb.name, w, name)
+			}
+		}
 	}
-	for name, want := range reasons {
+	for name := range unwritable {
+		if !isSentinel[name] {
+			t.Errorf("invite.%s is named as unwritable but no longer exists; drop it from the list", name)
+		}
+	}
+	// THE ACTIVATION TABLE AS READ IS THE ONE THE BINARY RUNS: same size, same words.
+	act := tables[0].words
+	if len(act) != len(inviteFailureReasons) {
+		t.Errorf("inviteFailureReasons has %d entries at run time and %d in its source", len(inviteFailureReasons), len(act))
+	}
+	for _, w := range inviteFailureReasons {
 		found := false
-		for _, s := range sentinels {
-			if s == name {
-				found = true
-			}
+		for _, aw := range act {
+			found = found || aw == w
 		}
 		if !found {
-			t.Errorf("this test expects a reason for invite.%s (%q), which no longer "+
-				"exists in that package", name, want)
+			t.Errorf("inviteFailureReasons stores %q at run time, which its source table does not show", w)
 		}
 	}
+	// THE ISSUANCE WORDS ARE DISTINCT: two refusals sharing a word would be one row to an
+	// investigator.
+	seen := map[string]string{}
+	for _, tb := range tables[1:] {
+		for name, w := range tb.words {
+			if other, dup := seen[w]; dup {
+				t.Errorf("invite.%s and invite.%s share the issuance word %q", name, other, w)
+			}
+			seen[w] = name
+		}
+	}
+}
+
+// sentinelTable reads a top-level `var <name> = map[error]string{ invite.ErrX: "word",
+// … }` (or ErrX: "word" inside internal/invite) out of file, keyed by the sentinel's
+// NAME, so the coverage test reads the production table itself rather than a copy.
+func sentinelTable(t *testing.T, file, name string) map[string]string {
+	t.Helper()
+	f, err := parser.ParseFile(token.NewFileSet(), file, nil, 0)
+	if err != nil {
+		t.Fatalf("parsing %s: %v", file, err)
+	}
+	out := map[string]string{}
+	found := false
+	for _, decl := range f.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.VAR {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			vs, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for i, n := range vs.Names {
+				if n.Name != name || i >= len(vs.Values) {
+					continue
+				}
+				lit, ok := vs.Values[i].(*ast.CompositeLit)
+				if !ok {
+					t.Fatalf("%s in %s is not a composite literal", name, file)
+				}
+				found = true
+				for _, el := range lit.Elts {
+					kv, ok := el.(*ast.KeyValueExpr)
+					if !ok {
+						t.Fatalf("%s in %s has an element that is not key: value", name, file)
+					}
+					var key string
+					switch k := kv.Key.(type) {
+					case *ast.Ident:
+						key = k.Name
+					case *ast.SelectorExpr:
+						key = k.Sel.Name
+					default:
+						t.Fatalf("%s in %s has a key that is not a sentinel name", name, file)
+					}
+					word, ok := kv.Value.(*ast.BasicLit)
+					if !ok || word.Kind != token.STRING {
+						t.Fatalf("%s in %s maps %s to something other than a string literal", name, file, key)
+					}
+					out[key] = strings.Trim(word.Value, `"`)
+				}
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("%s declares no %s", file, name)
+	}
+	return out
 }
 
 // inviteSentinelNames reads every top-level `Err… = errors.New(…)` out of

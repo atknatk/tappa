@@ -150,14 +150,14 @@ func run() error {
 	logBuild(slog.Default(), buildinfo.Read())
 
 	// 🔴 A DELIVERY MODE THE CONFIGURATION ACCEPTS AND THIS BUILD DOES NOT IMPLEMENT
-	// STOPS THE BOOT HERE, before the database is dialled (M10 EM-3). internal/config
-	// accepts "email" for both flows and validates the transport's settings for it (ADR
-	// 0022 §5); the reset flow's channel exists since EM-5 (the switch further down),
-	// the invitation's is EM-7's. Without this the invitation half would be a SILENT
-	// default — nothing below reads InviteDelivery, so "email" would boot and keep
-	// showing codes on the manager's panel while the operator believed they were being
-	// mailed. TestArtifact_RefusesAnEmailDeliveryThisBuildLacks drives the shipped binary
-	// to this line.
+	// STOPS THE BOOT HERE, before the database is dialled (M10 EM-3). Since M10 EM-7B
+	// this build implements all four combinations config.Load accepts — the reset
+	// flow's e-mail channel since EM-5, the invitation's since EM-7B (the two switches
+	// further down) — so today this refuses nothing config.Load lets through. It stays
+	// because the shape it guards does not go away: the day a third value is added to
+	// either closed set, a build that does not implement it must stop HERE rather than
+	// boot into a silent default. TestArtifact_RefusesAnEmailDeliveryThisBuildLacks
+	// drives the shipped binary through it.
 	if err := unbuiltDelivery(cfg); err != nil {
 		return err
 	}
@@ -624,19 +624,27 @@ func run() error {
 	// channel is given the breaker, never the transport. NewEmailResetChannel takes
 	// *mail.Breaker, and TestBreakerWiring_TheTransportReachesTheChannelsOnlyThroughOneBreaker
 	// reads this function to hold the rest.
+	//
+	// 🔴 ONE TRANSPORT AND ONE BREAKER FOR BOTH E-MAIL FLOWS (M10 EM-7B). When EITHER flow
+	// is "email" exactly one mail.New and one mail.NewBreaker run here, and that one
+	// breaker is what the reset channel and the invitation route are given: one relay,
+	// one SMTP identity, one count. With both flows off nothing is built — config.Load
+	// has not even read the transport's settings.
+	var breaker *mail.Breaker
+	if cfg.ResetDelivery == config.ResetDeliveryEmail || cfg.InviteDelivery == config.InviteDeliveryEmail {
+		transport, err := mail.New(cfg.Mail)
+		if err != nil {
+			return fmt.Errorf("main: building the e-mail transport: %w", err)
+		}
+		if breaker, err = mail.NewBreaker(transport, mail.BreakerConfig{Log: slog.Default()}); err != nil {
+			return fmt.Errorf("main: building the e-mail breaker: %w", err)
+		}
+	}
 	var resetChannel handler.ResetChannel
 	switch cfg.ResetDelivery {
 	case config.ResetDeliveryNone:
 		resetChannel = nil
 	case config.ResetDeliveryEmail:
-		transport, err := mail.New(cfg.Mail)
-		if err != nil {
-			return fmt.Errorf("main: building the reset e-mail transport: %w", err)
-		}
-		breaker, err := mail.NewBreaker(transport, mail.BreakerConfig{Log: slog.Default()})
-		if err != nil {
-			return fmt.Errorf("main: building the e-mail breaker: %w", err)
-		}
 		if resetChannel, err = handler.NewEmailResetChannel(breaker, cfg.BaseURL, slog.Default()); err != nil {
 			return err
 		}
@@ -661,7 +669,30 @@ func run() error {
 	// Account section sends the same "your password was changed" notice a spent
 	// recovery link does, through the same channel and the same TAPPA_RESET_DELIVERY
 	// switch — with "none", neither sends and both write the notice row that says so.
-	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, ruleWriter, books, accounts, brandReader, brandWriter, encoder, resetFlow, cfg, slog.Default())
+	//
+	// THE INVITATION ROUTE IS WHAT TAPPA_INVITE_DELIVERY SAYS (M10 EM-7B, ADR 0022 §7).
+	// "panel" — the shipped ConfigMap's value — is the panel as it always was: the link
+	// on the manager's screen. "email" gives the panel the invitation route built on
+	// the ONE breaker above — its Send only: an invitation is counted AND may be refused
+	// while the breaker is open — and the panel then mails each link to the employee's
+	// own address; NewAdminAuth refuses the option without the mode and the mode
+	// without the option. Switching the ConfigMap is a deploy decision (§12).
+	var panelOptions []handler.AdminAuthOption
+	switch cfg.InviteDelivery {
+	case config.InviteDeliveryPanel:
+	case config.InviteDeliveryEmail:
+		invitations, err := handler.NewEmailInvitations(breaker, cfg.BaseURL)
+		if err != nil {
+			return err
+		}
+		panelOptions = append(panelOptions, handler.InvitationsByEmail(invitations))
+	default:
+		// Unreachable (config.Load refuses every value outside the closed set) and
+		// written for the reason the reset switch's default is: a new value must fail
+		// closed, never default to "the screen says the link was mailed".
+		return fmt.Errorf("main: TAPPA_INVITE_DELIVERY=%q passed config validation but nothing implements it", cfg.InviteDelivery)
+	}
+	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, ruleWriter, books, accounts, brandReader, brandWriter, encoder, resetFlow, cfg, slog.Default(), panelOptions...)
 	if err != nil {
 		return err
 	}
@@ -849,17 +880,27 @@ func logBuild(log *slog.Logger, b buildinfo.Build) {
 	log.Info("build", b.LogArgs()...)
 }
 
-// unbuiltDelivery refuses a delivery mode internal/config accepts and this build does
-// not implement: today "email" for INVITATIONS (M10 EM-3). The refusal names the
-// variable, the value to go back to and the task that will implement it; config.Load
-// has already refused every value outside the two closed sets, and the transport's
-// settings are already validated by the time this runs. The day a channel exists its
-// line leaves this function — the reset flow's left with EM-5 (its channel is the
-// ResetDeliveryEmail case in run()); the invitation's leaves with EM-7.
+// unbuiltDelivery refuses a delivery mode this build does not implement (M10 EM-3).
+// It used to refuse "email" for each flow until that flow's channel existed — the
+// reset flow's line left with EM-5, the invitation's with EM-7B — and what is left is
+// the closed set this build DOES implement: {none, email} for the reset flow and
+// {panel, email} for invitations. config.Load already refuses every other value, so
+// this is the second, build-side half of that rule: a value added to a closed set in
+// internal/config without a channel here stops the boot, naming the variable, instead
+// of reaching run()'s switches. Like config's own refusal it does not repeat the
+// value: a value pasted into the wrong variable could be anything.
 func unbuiltDelivery(cfg *config.Config) error {
-	if cfg.InviteDelivery != config.InviteDeliveryPanel {
-		return fmt.Errorf("main: TAPPA_INVITE_DELIVERY=%s is valid configuration, but this build delivers activation "+
-			"links only on the manager's panel (ADR 0022 §7, M10 EM-7); set it to %s", cfg.InviteDelivery, config.InviteDeliveryPanel)
+	switch cfg.ResetDelivery {
+	case config.ResetDeliveryNone, config.ResetDeliveryEmail:
+	default:
+		return fmt.Errorf("main: TAPPA_RESET_DELIVERY is not a delivery this build implements (ADR 0022 §5); "+
+			"set it to %s or %s. The value is not repeated here", config.ResetDeliveryNone, config.ResetDeliveryEmail)
+	}
+	switch cfg.InviteDelivery {
+	case config.InviteDeliveryPanel, config.InviteDeliveryEmail:
+	default:
+		return fmt.Errorf("main: TAPPA_INVITE_DELIVERY is not a delivery this build implements (ADR 0022 §7); "+
+			"set it to %s or %s. The value is not repeated here", config.InviteDeliveryPanel, config.InviteDeliveryEmail)
 	}
 	return nil
 }
