@@ -1,10 +1,11 @@
 # M11 — Entegrasyon API'si (KF-RMS · KM-ERP)
 
-> **Durum:** PLAN, **3. sürüm** (2026-10-10, 28. oturum). Kod yok.
-> 1. sürüm (`a169391`) ve 2. sürüm (`e0ad91f`) ikişer bağımsız denetimden (üçüncü
-> göz + güvenlik merceği) **RED** aldı; bu sürüm 2. turun bulgularını da işler —
-> eşleme §9'da. Kullanıcı kararları: K-1, K-2, K-3, K-19, K-25, K-26 (§3).
-> Sıradaki adım: 3. tur denetim, ONAY gelirse API-0 (ADR'ler).
+> **Durum:** PLAN, **4. sürüm** (2026-10-10, 28. oturum). Kod yok.
+> 1., 2. ve 3. sürüm (`a169391`, `e0ad91f`, `41c956d`) ikişer bağımsız denetimden
+> (üçüncü göz + güvenlik merceği) **RED** aldı; 3. turda bloklayan bulgu kalmadı,
+> imleç tasarımı gerçek Postgres'te ölçülerek doğrulandı. Bu sürüm 3. turun iki ORTA
+> ve düşük bulgularını işler — eşleme §9'da. Kullanıcı kararları: K-1, K-2, K-3,
+> K-19, K-25, K-26 (§3). Sıradaki adım: dar kapsamlı 4. tur denetim, ONAY gelirse API-0.
 >
 > **Kaynak:** kullanıcının paylaştığı *"TapTime API — Kurulum Rehberi (KF-RMS ve
 > KM-ERP entegrasyonu)"*, 2026-10-09. **Repoya konmadı** — depo public ve doküman
@@ -62,7 +63,8 @@ API-12'nin teslim ettiği rehberde bu liste **açıkça** yazılır.
 3. v1'de `version` hep `1`, `voided` üretilmez (K-5). Alanlar sözleşmede durur.
 4. Ek alan: `channel` (`nfc` | `qr`). Her iki kanalda da `tagId` doludur.
 5. `punchTime` = Tappa'nın `occurred_at`'ı: telefonun **beyan ettiği** an. Çevrimdışı
-   kuyruk 120 sn'ye kadar `ok` kalır; daha eskisi onaya düşer; tavan 72 sa.
+   kuyruk **varsayılan** 120 sn'ye kadar `ok` kalır (tenant'ça ayarlanabilir baseline —
+   `internal/policy/baseline.go:109-118`); daha eskisi onaya düşer; tavan 72 sa.
    `recordedAt` = sunucunun kaydı yazdığı an.
 6. 60 sn içindeki tekrar dokunuş (`ignored`) punch **değildir**.
 7. Lokasyon `timezone`'u tenant'ın saat dilimine eşit olmalı (bugün `Europe/Malta`), değilse 422 (K-7).
@@ -91,6 +93,9 @@ API-12'nin teslim ettiği rehberde bu liste **açıkça** yazılır.
 22. Pasifleştirme (`DELETE` ya da `PUT active:false`) anahtar başına **saatlik bir
     bütçeyle** sınırlıdır; aşılınca 429 + `Retry-After` (K-25).
 23. API ve webhook, operatörün tenant için açtığı erişimle çalışır (K-22).
+24. Ev lokasyonu olmayan (API'den yönetilen) çalışanın punch'ına Tappa'nın "farklı
+    şubede dokundu" notu **düşmez** (CLAUDE.md §5; `internal/domain/tap/decide.go:133-134`
+    ev lokasyonuyla karşılaştırır) — bu bilgi zaten `location` alanında (K-14).
 
 ---
 
@@ -138,11 +143,11 @@ hiçbir KM çalışanı birleşik tenant'ta aktive edilmez.
 | K-10 | Anahtar: `tt_live_` öneki + 43 karakter base64url (sandbox'ta `tt_test_`); depoda kendi env anahtarıyla HMAC-SHA256. Prod yalnız `tt_live_`, sandbox yalnız `tt_test_`; yanlış önek DB'ye gitmeden 401 | Mevcut token kalıbı; önek sızıntı taramasını mümkün kılar |
 | K-11 | İmza spec §4.5 biçiminde (`sha256=` öneki + gövdenin hex HMAC-SHA256'sı); ek zaman damgası başlığı **yok** | İmzaya girmeyen başlık sahte güven verir |
 | K-12 | Uç nokta adresi ve imza anahtarı **panelden** (owner); anahtar yalnız oluşturma ve döndürmede **bir kez** gösterilir, "göster" yok | Mühürlü değer geri açılabildiği için "göster" ele geçirilmiş oturuma sahte imzalı punch yollatırdı |
-| K-13 | **İmleç = tenant başına sayaç.** `feed_counters(tenant_id, last_seq)` satırı tetikleyici içinde `UPDATE … RETURNING` ile artırılır; satır kilidi commit'e kadar tutulur → `seq` **tenant içinde yoğun ve commit sırasıyla** artar. Küresel dizi ve advisory kilit **yok** (2. sürümdeki tasarım atıldı) | Ölçüldü (2. tur): küresel dizi `CACHE 1` değilse kilit altında bile 1234 olayın 1016'sı kaçıyordu; küresel `seq` ayrıca tenant'lar arası hacim sızdırıyordu. Sayaç satırı ikisini birden yapısal olarak kapatır. İspat §4.4 |
-| K-14 | `employees.location_id` API'den yönetilen satırlarda NULL olabilir: `CHECK (location_id IS NOT NULL OR external_ref IS NOT NULL)`; manuel kayıt formu lokasyon seçtirir (`db/queries/transactions.sql:354` bugün `e.location_id` okuyor) | Spec'te ev lokasyonu yok. **API-1 önce `location_id`'nin bütün okuyucularını sayar;** kabul edilemezse geri dönüş: opsiyonel `homeLocationRef` |
+| K-13 | **İmleç = tenant başına sayaç.** `feed_counters(tenant_id, last_seq)` satırı tetikleyici içinde `INSERT … ON CONFLICT (tenant_id) DO UPDATE … RETURNING` ile artırılır (ilk olay satırı da açar); satır kilidi commit'e kadar tutulur → `seq` **tenant içinde yoğun ve commit sırasıyla** artar. Küresel dizi ve advisory kilit **yok** (2. sürümdeki tasarım atıldı) | Ölçüldü (2. tur): küresel dizi `CACHE 1` değilse kilit altında bile 1234 olayın 1016'sı kaçıyordu; küresel `seq` ayrıca tenant'lar arası hacim sızdırıyordu. Sayaç satırı ikisini birden yapısal olarak kapatır. **3. turda ölçüldü:** 3 koşuda (1255–2416 olay, %10 abort, %10 savepoint geri alımı) kaçan 0; kilitsiz dizi ve ayrı işlemde sayaç mutasyonları 843 / 408 kaçırdı; ilk-olay yarışı 1700 olayda 0. İspat §4.4 |
+| K-14 | `employees.location_id` API'den yönetilen satırlarda NULL olabilir: `CHECK (location_id IS NOT NULL OR external_ref IS NOT NULL)`; manuel kayıt formu lokasyon seçtirir (`db/queries/transactions.sql:354` bugün `e.location_id` okuyor) | Spec'te ev lokasyonu yok. **API-1 önce `location_id`'nin bütün okuyucularını sayar;** kabul edilemezse geri dönüş: opsiyonel `homeLocationRef`. **Bilinen bedel:** böyle bir çalışanda `crossLocation` hep yanlış → "farklı şube" notu düşmez (§2 madde 24) |
 | K-15 | E-posta değişince: bekleyen davetler **aynı işlemde** emekliye ayrılır + audit (panel kuralı, ADR 0022 §7); çalışan aktive değilse yeni davet isteği kuyruğa girer; aktive çalışana davet gitmez | Eski kutudaki kodun çalışanı devralmasını önler |
 | K-16 | API'den yeni çalışan = otomatik davet | Spec §4.2; panel davranışı değişmez |
-| K-17 | **Davet kuyruğu** ayrı tablo: `invite_requests(tenant_id, employee_id, requested_at, lease_until, attempts)` — `employees`'e kira sütunu eklenmez (rehberin `updated_at`'ını kirletmesin). İşçi kodu **gönderim anında basar**, eski davetleri **aynı işlemde** emekliye ayırır ve yollar; kira süresi gönderim bütçesinden (10 sn + 5 sn audit) uzundur (60 sn) — iki pod aynı daveti iki kez basamaz. **`resend-activation` istek anında hiçbir daveti öldürmez**: canlı istek ya da son 1 saatte gönderilmiş davet varsa etkisiz. Tavanlar **şirket başına**: `(tenant, şirket)` 50/saat 300/gün, `(tenant, şirket, kutu)` 5/saat 20/gün; çalışan 3/saat ve süreç kesicisi aynı | 2. tur: istek anında emekliye ayırma, resend döngüsünü çalışanı süresiz kodsuz bırakan bir engelleme aracına çeviriyordu; tenant-ortak tavan da KM'nin KF davetlerini geciktirmesine izin veriyordu (EM-7C dersi) |
+| K-17 | **Davet kuyruğu** ayrı tablo: `invite_requests(tenant_id, employee_id, requested_at, lease_until, attempts)` — `employees`'e kira sütunu eklenmez (rehberin `updated_at`'ını kirletmesin). İşçi kodu **gönderim anında basar**, eski davetleri **aynı işlemde** emekliye ayırır ve yollar; kira süresi gönderim bütçesinden (10 sn + 5 sn audit) uzundur (60 sn) — iki pod aynı daveti iki kez basamaz. **`resend-activation` istek anında hiçbir daveti öldürmez**: canlı istek ya da son 1 saatte gönderilmiş davet varsa etkisiz. Tavanlar **şirket başına** ve **panel ile kuyruk aynı sayacı paylaşır**: `(tenant, şirket)` 50/saat 300/gün, `(tenant, şirket, kutu)` 5/saat 20/gün; çalışan 3/saat ve süreç kesicisi aynı. **İkinci ve sonraki şirketi yalnız operatör açar** (§4.1) → herkese açık kayıtla açılan bir tenant tek şirketlidir ve süreç kesicisinden bugünkü gibi en çok 50/300 alır | 2. tur: istek anında emekliye ayırma, resend döngüsünü çalışanı süresiz kodsuz bırakan bir engelleme aracına çeviriyordu; tenant-ortak tavan da KM'nin KF davetlerini geciktirmesine izin veriyordu (EM-7C dersi). 3. tur: şirket açmak sınırsız olursa şirket başına tavan, tek bir kaydın 300/saatlik süreç kesicisini — herkesin kurtarma e-postası dahil — doldurmasına izin veriyordu |
 | K-18 | İlk bağlama: `PUT /employees/{ref}` bilinmeyen ref için önce **aynı şirkette, pasif olmayan, `external_ref`'i boş, e-postası eşleşen** çalışanı bağlar (`employee.linked` audit); yoksa yeni satır açar. Lokasyonlarda otomatik eşleme yok — owner paneldeki "External ref" alanını doldurur | Pilot verisi çift kayda dönüşmesin; KM şirketi boş başladığı için KM anahtarı hiçbir KF satırını bağlayamaz |
 | K-20 | Lokasyon `active` alanı yalnız etiket; karar motoruna girmez | Kararı etkilemesi CLAUDE.md §5 + politika + ADR ister |
 | K-21 | `employees.updated_at` **tetikleyiciyle**, yalnız rehbere görünen sütunlar (ad, kod, `external_ref`, durum, şirket) değişince `clock_timestamp()`; rehber `updated_at >= updatedSince − 10 dk` döndürür ve `asOf` verir | Bugün dört UPDATE yolu var (`invites.sql:250`, `employees.sql:531/612/793`); elle güncellemek birini unutur |
@@ -150,11 +155,24 @@ hiçbir KM çalışanı birleşik tenant'ta aktive edilmez.
 | K-23 | API kaynaklı audit: `actor_id = api_keys.id`, `detail.via = "api"` | Aktör bir admin değilken izin kaynağı yine adlandırılmalı |
 | K-24 | **Şirket sınırı her sorguda:** API araması `(tenant_id, company_id, external_ref)` ile; tekillikler: çalışan `(tenant_id, company_id, external_ref) WHERE status <> 'deactivated'`, lokasyon `(tenant_id, company_id, external_ref)`. **E-posta tenant genelinde tekil kalır** ama yalnız pasif olmayanlarda: `(tenant_id, email) WHERE email IS NOT NULL AND status <> 'deactivated'` — **kısıt adı `employees_tenant_email_key` korunur** (kod adıyla tanıyor). Çakışma şirketten bağımsız aynı 409 `email_unavailable` | 2. tur: şirket başına e-posta, KM'nin bir KF çalışanının adresiyle KM satırı açıp onu KF markalı davetle KM bordrosuna bağlatmasına izin veriyordu. Kalan "adres kullanımda" bilgisi **kabul edilmiş artık risk**: K-1 bedeli 4 gereği KM yöneticileri o adresleri panelde zaten görüyor. Tek şirketli tenant'ta yan etki: pasif satır adresi bırakır → ayrılan biri aynı adresle yeniden eklenebilir (ADR 0010'un "yeni kayıt" çaresiyle uyumlu; ADR 0010'a not) |
 | K-27 | Olay satırı, yazıldığı anda **lokasyonun ve çalışanın şirket kimliğini** kopyalar; kapsam ve yönlendirme yalnız bu kopyadan. `employees.company_id` değiştirilemez (şirket geçişi = pasifleştir + yeni satır) | 2. tur: kapsam okuma anında hesaplanırsa lokasyonun şirketi değişince geçmiş punch'lar başka sisteme kayıyor ya da hiç gelmiyordu |
-| K-28 | **`IsHardened()` = `prod` ∨ `sandbox`**; bugün `IsProd()`'a bağlı her sertleştirme (ayrıcalıklı DB rolü reddi, Secure çerez, güvenilir proxy, SMTP host, kayıt/giriş/aktivasyon dalları) bu yükleme geçer | `TAPPA_ENV=sandbox` aksi hâlde internete açık, çok taraflı bir kurulumda bunları sessizce kapatırdı (2. tur, iki denetim) |
+| K-28 | **`IsHardened()` = `prod` ∨ `sandbox`**; üretim kodundaki **dokuz** `IsProd()` çağrısının dokuzu da bu yükleme geçer: `internal/config/config.go:326` (güvenilir proxy), `config.go:1000` (SMTP host), `internal/db/pool.go:119` (ayrıcalıklı rol reddi), `internal/session/cookie.go:136`, `internal/adminauth/cookie.go:109`, `internal/handler/cookies.go:270` (Secure çerezler), `signupstate.go:440`, `logincontext.go:297`, `activate.go:184`. `EnvDev`'e bağlı üç kapı (`config.go:738`, `devtap.go:71`, `sun/mint.go:78`) sandbox'ta kapalı kalır | `TAPPA_ENV=sandbox` aksi hâlde internete açık, çok taraflı bir kurulumda bunları sessizce kapatırdı (2. tur, iki denetim) |
 
 ---
 
 ## 4. Tasarım özü (ADR 0027 ve 0028'de normatif olacak)
+
+### 4.0 Ortak şema kuralı — `arwd` varsayılanına güvenilmez
+
+Üretimde `pg_default_acl` = `tappa_app=arwd/tappa_owner`; yeni tablo dört fiille doğar
+(`deploy/README.md:5722-5746`, ölçülmüş), taze CI veritabanında ise `ar` ile — yani CI
+fazla yetkiyi **göremez**. Bu yüzden M11'in **her** yeni tablosunda (`companies`,
+`api_keys`, `api_idempotency`, `invite_requests`, `punch_events`, `feed_counters`,
+`webhook_endpoints`, `webhook_deliveries`): `REVOKE ALL … FROM tappa_app`, ardından
+yalnız gereken fiillere ve **sütunlara** açık `GRANT` (R5'in tablo başına GRANT şartını
+da bu karşılar). Tablo düzeyi UPDATE sütun kısıtını ezer (`deploy/README.md:5701`) —
+bu yüzden UPDATE hep sütun listesiyle verilir. **Kabul:** CI, migration'lardan önce
+prod'un `arwd` varsayılanını kurar ve her yeni tabloda dört fiili `has_table_privilege` /
+`has_column_privilege` ile ölçer.
 
 ### 4.1 Şirket boyutu (K-1 = A)
 
@@ -163,11 +181,14 @@ hiçbir KM çalışanı birleşik tenant'ta aktive edilmez.
   Migration her mevcut tenant'a **bir varsayılan şirket** açar; **`/signup`** yeni
   tenant'ın varsayılan şirketini tenant ve lokasyonlarla **aynı işlemde** açar
   (`internal/domain/signup` — `locations.company_id NOT NULL` olunca aksi hâlde kayıt kırılır).
-  Kod owner'ca düzenlenebilir (KF tenant'ının varsayılanı canlı öncesi `KF`).
+  Owner yalnız kod ve adı düzenler (KF tenant'ının varsayılanı canlı öncesi `KF`).
+  **İkinci ve sonraki şirketi yalnız operatör açar** — yeni bir `op_*` yazarı (ADR 0021
+  sınıfı, `operator_audit_log`); KM şirketi böyle açılır. Gerekçe: şirket başına davet
+  tavanı (K-17) şirket sayısıyla çarpılır; herkese açık kayıt tek şirketle kalmalı.
 - `locations.company_id`, `employees.company_id` — NOT NULL, bileşik FK
   `(company_id, tenant_id)`; `employees.company_id` değiştirilemez (K-27).
 - Tap motoru **değişmez**: şirket karar girdisi değildir; dokunuş tenant içidir.
-- Panel: şirket yönetimi (owner), listelerde şirket sütunu/filtresi, çalışan eklerken
+- Panel: şirket kodu/adı (owner), listelerde şirket sütunu/filtresi, çalışan eklerken
   şirket seçimi. Panel yetkileri tenant geneli (K-1 bedeli 4); EM-12 şirket kapsamını ele alır.
 - Tek şirketli müşteri için tek görünür fark: pasif bir çalışanın e-postası artık
   yeniden kullanılabilir (K-24).
@@ -192,14 +213,21 @@ hiçbir KM çalışanı birleşik tenant'ta aktive edilmez.
 - Panel (owner): oluştur (bir kez göster) · listele (ad, önek ipucu, son kullanım) · iptal.
   Audit: `api_key.created`, `api_key.revoked`. `last_used_at` dakikada en çok bir kez.
 - **Oran sınırı iki katlı:** IP başına kova resolver'dan **önce**, geçerli anahtarda anahtar başına kova.
-- **Log ve tarama:** anahtar, hash'i, `Authorization` başlığı ve uç nokta imza anahtarı
-  asla loglanmaz. R7 tetik listesine `api_?key|bearer|authorization|signature|signing_?key|kek`
-  kökleri, R7b'ye yeni ad alanları (`first_name`/`last_name` ve Go karşılıkları), R7d'ye
-  anahtar önekli değer kalıbı eklenir — her biri **kasıtlı ihlalde kırmızı** testiyle (API-3).
+- **Log ve tarama:** anahtar, hash'i, `Authorization` başlığı, uç nokta imza anahtarı,
+  webhook URL'si ve `*url.Error` metni asla loglanmaz. Tarayıcı eklemeleri **önce bugünkü
+  ağaçta sayılır**: yalın `kek`/`signature`/`authorization` kökleri bugün 35 satırı kırmızıya
+  çevirir (3. tur ölçtü — `cmd/rotatekek`, `internal/sun/keys.go` vb.) ve R7'nin "kelimeyi değil
+  değeri hedefle" ilkesine aykırıdır. Bu yüzden: R7'ye yalnız ağacı kırmızıya çevirmeyen
+  kökler (`api_?key`, `bearer`, `signing_?key` — sayılarak), R7b'ye yeni ad alanları,
+  R7d'ye **değer biçimli** kalıplar (API anahtarı öneki ve imza anahtarı öneki — §4.5);
+  kalan durumlar adıyla muafiyet. Her ekleme **kasıtlı ihlalde kırmızı** testiyle (API-3).
   CLAUDE.md §7 yasak listesine API anahtarı ve uç nokta imza anahtarı eklenir (API-0).
 - **Env anahtarları** (`TAPPA_API_KEY_HMAC_KEY`, `TAPPA_WEBHOOK_KEK`) `namedKeys()`'e girer
   ve **bütün** anahtarlarla çift çift karşılaştırılır (bugünkü ayrım kontrolü yalnız
-  operatör çiftlerine bakıyor — `config.go:688-692`; genelleştirilir).
+  operatör çiftlerine bakıyor — `config.go:688-692`; genelleştirilir). `config.go:688-692`'nin
+  kendi uyarısı gereği genelleştirme ölçülmemiş bir üretim yapılandırmasının açılışını
+  reddettirebilir → API-13 runbook'u deploy'dan önce prod'daki anahtar çiftlerinin eşitliğini
+  **değerleri basmadan** ölçer.
 
 ### 4.3 Punch olayı — yapısal yayın
 
@@ -218,28 +246,50 @@ Dış dünyadaki punch, `transactions` satırının **dışarıya bakan izdüş�
     satırı K-4'ün kanal/practice koşulunu sağlıyorsa.
   Saf `tap.Decide`, `policy` ve sayaç ilerletme yolu **dokunulmaz**.
 - **Yetki modeli — `tappa_app` olay yazamaz:** tetikleyici fonksiyonları **SECURITY
-  DEFINER**, sahibi yeni bir **NOLOGIN, NOBYPASSRLS** rol `tappa_feedwriter`. Rolün
-  yetkisi yalnız: `punch_events` ve `webhook_deliveries` INSERT, `feed_counters`
-  INSERT/UPDATE, ve okuma için gereken sütunlar (`transactions` kanal/practice/verdict/
-  lokasyon/çalışan, `locations.company_id`, `employees.company_id`, `webhook_endpoints`
-  kimlik/şirket/aktif, `tenants.api_enabled_at`). `tappa_app`'ten bu üç tabloya INSERT
-  **açıkça REVOKE** (prod varsayılan yetkileri yeni tabloya INSERT veriyor — ölçülmüş).
-  RLS, çağıranın işleminde set edilmiş `app.tenant_id` GUC'uyla aynen çalışır.
-  ADR 0021'in "`prosecdef` sahibi yalnız {`tappa_resolver`, `tappa_opdefiner`}"
-  katalog testi `tappa_feedwriter` ile genişler (ADR 0021'e not) — bu rol tenant
-  sınırını **aşmaz**, yalnız yazma hakkını tetikleyiciye kilitler.
+  DEFINER**, sahibi yeni bir **NOLOGIN, NOBYPASSRLS** rol `tappa_feedwriter` (3. turda
+  ölçüldü: definer içinde `current_setting('app.tenant_id')` çağıranın değerini verir,
+  RLS `WITH CHECK` uygulanır, FORCE RLS altında sütun SELECT'i yeterli, `tappa_app`'in
+  doğrudan INSERT'i 42501). Rolün yetkisi **tam olarak**:
+  - `punch_events` INSERT; `webhook_deliveries` INSERT;
+  - `feed_counters` **SELECT (tenant_id, last_seq)**, INSERT, UPDATE (last_seq) —
+    `ON CONFLICT DO UPDATE … RETURNING` SELECT ister (3. tur: SELECT'siz ilk dokunuş 42501);
+  - okuma sütunları: `transactions` (kanal, practice, verdict, lokasyon, çalışan, tenant),
+    `locations.company_id`, `employees.company_id`, `webhook_endpoints` (kimlik, şirket,
+    aktif), `tenants.api_enabled_at`.
+  `tappa_app` bu üç tabloda §4.0 kuralına tabidir: `punch_events` SELECT;
+  `feed_counters` SELECT; `webhook_deliveries` SELECT + yalnız kira/sonuç sütunlarına
+  UPDATE (`lease_until`, `attempt`, `next_attempt_at`, `state`, `last_status`,
+  `last_error_class`, `delivered_at`). INSERT/DELETE hiçbirinde yok.
+- **Rolün yaşam döngüsü:** roller yalnız `scripts/db-init/01-roles.sql`'de doğar —
+  `tappa_feedwriter` oradaki **idempotent** blokta (OP-5 kalıbı) ve canlı küme için
+  `deploy/README.md` runbook'unda yaratılır; `pg_dump` rol taşımadığı için
+  (`scripts/pg-restore-verify.sh:379`) geri yükleme provası **sıfırdan kurulmuş** bir
+  pod'a yapılır. Migration'ın ön koşul bloğu rol yoksa **ya da üyesi varsa** düşer.
+- **Katalog testi** (`internal/db/operatorschema_test.go:500-545` kalıbı, ADR 0021'e not):
+  `tappa_feedwriter` NOLOGIN, NOBYPASSRLS, **üyesi 0**; sahip olduğu **her** fonksiyon
+  `prorettype = trigger` (doğrudan çağrılabilir, `void` dönen bir yardımcı yazma kapısı
+  olurdu) ve `proconfig`'i sabit (`search_path`, `lock_timeout`). ADR 0021'in "`prosecdef`
+  sahibi yalnız {`tappa_resolver`, `tappa_opdefiner`}" testi `tappa_feedwriter` ile
+  genişler — rol tenant sınırını **aşmaz** (politikalar PUBLIC, GUC'a bağlı), yalnız yazma
+  hakkını tetikleyiciye kilitler.
 - **Tetikleyicinin değişmezleri** (ADR 0028'de normatif, API-2'de testli):
-  hata yutan `EXCEPTION` bloğu **yok** (savepoint geri alımı kilidi bırakır — ölçüldü —
-  ve olay sessizce düşerdi); uç nokta **adresini okumaz** (bozuk bir uç nokta tap yolunu
-  kıramaz); ağ ya da uzun iş yok.
+  `SET search_path = pg_catalog, pg_temp` ve bütün adlar nitelikli; her sorguda açık
+  `tenant_id = NEW.tenant_id` (kuşak + kemer) ve `NEW.tenant_id` = GUC **assert**'i;
+  olayın şirket sütunları NOT NULL; hata yutan `EXCEPTION` bloğu **yok** (savepoint geri
+  alımı kilidi bırakır — ölçüldü — ve olay sessizce düşerdi); uç nokta **adresini okumaz**
+  (bozuk bir uç nokta tap yolunu kıramaz); ağ ya da uzun iş yok.
+- **Eşlik eden listeler:** `punch_events` append-only olduğu için
+  `cmd/tappa/scriptguards_test.go:447-510` (`APPEND_ONLY`), `scripts/pg-restore-verify.sh`
+  (`trunc_tables` ve sabit "seven" başarı cümlesi) güncellenir; R5b'nin görmediği
+  `CREATE TRIGGER` / `ALTER FUNCTION … OWNER` için katalog testi yeterli kapıdır.
 - **Teslim satırı:** aynı tetikleyici, tenant'ın API erişimi açıksa (K-22), olay için
   eşleşen aktif uç noktalara `webhook_deliveries` satırı yazar. Ayrı yayılım taraması yok.
 - **Geri doldurma (tek migration işlemi):** önce `transactions` **ve**
   `transaction_reviews` tabloları kilitlenir, iki tetikleyici kurulur, **sonra** geçmiş
   uygun satırlar için olay yazılır (sıra `occurred_at`, tenant sayaçları buna göre
   ilerletilir). Geri doldurulan olaylar için teslim satırı yazılmaz. Kilit süresi prod
-  boyutunda bir kopyada **ölçülür** ve sınırlanır; sınır aşılırsa geri doldurma kendi
-  kilidiyle tenant başına küçük işlemlere bölünür.
+  boyutunda bir kopyada **ölçülür**; **eşik 2 sn** — aşılırsa geri doldurma kendi
+  sayaç kilidiyle tenant başına küçük işlemlere bölünür.
 - **Bedel:** tetikleyicinin her hatası `ok` dokunuşun kaydını geri alır (sayaç ilerlemiş,
   kayıt yok — bugünkü her INSERT hatasıyla aynı sınıf). Başarısız kayıt kimlikleriyle
   loglanır (sır yok).
@@ -266,21 +316,33 @@ sonrakiler daha da büyük. Dolayısıyla `WHERE tenant_id = $t AND seq > $curso
 - **Takılı yazıcı (ölçüldü: tenant'ın 8 yazıcısının 8'i bekledi):** sayaç satırını
   tutup commit etmeyen tek bir işlem o tenant'ın bütün dokunuşlarını bekletir ve havuzu
   doldurarak diğer tenant'lara yayılabilir. Bu yüzden **API-2'nin ön koşulu:**
-  `tappa_app` için `idle_in_transaction_session_timeout` ve TCP keepalive; tetikleyici
-  kilidi almadan önce işlem-yerel kısa bir `lock_timeout` set eder (aşılırsa dokunuş
-  "tekrar dene" alır, sayaç ilerlemiş kayıt yok — bugünkü sınıf). Değerler ADR 0028'de.
+  `tappa_app` bağlantıları için `idle_in_transaction_session_timeout` ve TCP keepalive —
+  **havuzun `RuntimeParams`'ıyla** verilir ve açılışta `SHOW` ile doğrulanır (`ALTER ROLE
+  … SET` `pg_dump`'la taşınmaz, geri yüklemede sessizce kaybolurdu); tetikleyici
+  fonksiyonun **özniteliği** olarak kısa bir `lock_timeout` taşır (`proconfig` — fonksiyon
+  çıkışında eski değere döner; gövdede `set_config(…, true)` ise işlemin geri kalanına
+  sızıyordu, 3. tur ölçtü). Aşılırsa dokunuş "tekrar dene" alır (sayaç ilerlemiş, kayıt
+  yok — bugünkü sınıf; 3. turda ~505 ms'de 55P03 ölçüldü). Değerler ADR 0028'de.
 - **Geri yükleme:** sayaçlar `pg_dump`'la yedek anındaki değerle gelir; yedekten sonra
   tüketilmiş olaylar varsa tüketicinin imleci bunların ötesindedir. **Uygulama yazmaya
-  başlamadan önce** geri yükleme prosedürü her tenant'ın sayacını büyük bir aralık ileri
-  atar; `scripts/pg-restore-verify.sh` (doğrulayıcı) bu atlamanın **yapıldığını** kontrol
-  eder ve yapılmamışsa geri yüklemeyi reddeder (bugünkü ENABLE/FORCE sayım kapısının emsali).
+  başlamadan önce** geri yükleme prosedürü `tenants`'taki **her** tenant için sayacı
+  **upsert** ile büyük bir aralık ileri atar (yedek anında sayaç satırı olmayan tenant
+  dahil — UPDATE onu atlardı); `scripts/pg-restore-verify.sh` (doğrulayıcı) her tenant için
+  atlamanın **yapıldığını** denetler ve yapılmamışsa geri yüklemeyi reddeder (bugünkü
+  ENABLE/FORCE sayım kapısının emsali); gece geri yükleme provası da atlatmayı koşar.
 - Geçmiş sorgusu (`from`/`to`): `occurred_at` aralığı, `punch_events` üzerinden; ≤ 31 gün, sayfalı.
 
 ### 4.5 Webhook
 
 - `webhook_endpoints(tenant_id, id, company_id, url, signing_key_sealed, active, created_at, rotated_at)` —
   `UNIQUE(tenant_id, company_id)` (şirket başına tek uç nokta); imza anahtarı
-  `sun.Seal(TAPPA_WEBHOOK_KEK, AAD = endpoint id)` ile mühürlü (kendi KEK'i).
+  `sun.Seal(TAPPA_WEBHOOK_KEK, AAD = endpoint id)` ile mühürlü (kendi KEK'i). İmza
+  anahtarı **önekli** üretilir ki R7d değer kalıbıyla yakalayabilsin; rehberdeki
+  bilinen-cevap vektörünün anahtarı **açıkça sahtedir** (CLAUDE.md §4.7).
+- **URL kuralı:** `https`, port 443, IP literali yok, **userinfo yok, sorgu dizgesi yok,
+  parça yok** (spec'in adresleri bu biçimde). URL ve `*url.Error` metni **asla** log'a ya
+  da audit'e yazılmaz (Go o metinde yalnız parolayı siler, sorguyu korur); log ve audit
+  yalnız uç nokta kimliği + hata sınıfı taşır.
 - `webhook_deliveries(tenant_id, id, endpoint_id, punch_event_seq, attempt, next_attempt_at, lease_until, state, last_status, last_error_class, created_at, delivered_at)` —
   `UNIQUE(endpoint_id, punch_event_seq)`; `state ∈ pending|delivered|dead`;
   `last_error_class` **kapalı küme** (timeout · tls · refused · http_4xx · http_5xx ·
@@ -294,8 +356,10 @@ sonrakiler daha da büyük. Dolayısıyla `WHERE tenant_id = $t AND seq > $curso
   gönder" aynı kovayı paylaşır: tenant başına saatte 10.
 - **İşçi — kiralama modeli:** (1) vadesi gelen teslimi kısa bir işlemde
   `FOR UPDATE SKIP LOCKED` ile seç, `lease_until` yaz, commit; (2) HTTP isteğini işlem
-  **dışında** gönder; (3) sonucu ayrı kısa işlemde yaz. Gönderim anında tenant'ın API
-  erişimi yeniden kontrol edilir (K-22). Geri çekilme 1 dk · 5 dk · 30 dk · 2 sa · 6 sa →
+  **dışında** gönder; (3) sonucu ayrı kısa işlemde yaz. Gönderim anında **ve** "yeniden
+  gönder"de tenant'ın API erişimi (K-22) **ve uç noktanın `active`'i** yeniden kontrol
+  edilir — devre dışı bırakılan uç noktaya kuyruktaki teslimler gitmez (K-26'nın
+  savunma yazması gerçekten durdurur). Geri çekilme 1 dk · 5 dk · 30 dk · 2 sa · 6 sa →
   `dead`. Panelde teslim günlüğü + "yeniden gönder".
 - **İşçi kurulumu — K-19, tenant'lar arası tarama yok:** süreç içi "işi olan tenant'lar"
   kümesi. Tenant kümeye o tenant'ta bir dokunuş/onay commit edildiğinde, kimliği
@@ -304,16 +368,19 @@ sonrakiler daha da büyük. Dolayısıyla `WHERE tenant_id = $t AND seq > $curso
   başlarsa küme boştur (§2 madde 20).
 - **SSRF — izin listesi:**
   - yalnız `https`, port 443, URL'de IP literali yok;
-  - **her dial'da** çözülen her adres `Unmap()` edilir ve:
-    - **IPv4:** küresel unicast **ve** IANA özel amaçlı kayıtlarında değil (en az
-      `0/8`, `10/8`, `100.64/10`, `127/8`, `169.254/16`, `172.16/12`, `192.0.0/24`,
-      `192.0.2/24`, `192.88.99/24`, `192.168/16`, `198.18/15`, `198.51.100/24`,
-      `203.0.113/24`, `224/4`, `240/4`);
-    - **IPv6:** **yalnız `2000::/3`** içinden, şunlar düşülerek: `2001::/32` (Teredo),
-      `2001:db8::/32`, `2002::/16`, `64:ff9b::/96` ve `64:ff9b:1::/48` (zaten `2000::/3`
-      dışında ama açıkça yazılır), `2001:10::/28`, `2001:20::/28`; IPv4-uyumlu ve
-      `fec0::/10` gibi eski biçimler `2000::/3` dışında kaldığı için reddedilir (Go'nun
-      `IsGlobalUnicast` bunlara `true` diyor — ölçüldü, o yüzden ona güvenilmez);
+  - kontrol `net.Dialer.ControlContext` içinde, **gerçekten bağlanılan** adrese yapılır
+    (her dial'da — DNS rebinding'i kapatır); adres `Unmap()` edilir ve:
+    - **iki aile için aynı kural:** IANA **özel amaçlı adres kayıtlarının** (IPv4 ve IPv6)
+      hiçbir girdisinde değil — liste kayıttan birebir alınır, elle seçilmez;
+    - **IPv4** ayrıca küresel unicast (en az `0/8`, `10/8`, `100.64/10`, `127/8`,
+      `169.254/16`, `172.16/12`, `192.0.0/24`, `192.0.2/24`, `192.88.99/24`,
+      `192.168/16`, `198.18/15`, `198.51.100/24`, `203.0.113/24`, `224/4`, `240/4`);
+    - **IPv6** ayrıca **yalnız `2000::/3`** içinden ve **`2001::/23`'ün tamamı** ile
+      `3fff::/20` (RFC 9637), `2002::/16` düşülerek — `2001::/23` Teredo, PCP/TURN/SRP
+      anycast (`2001:1::1`, `::2`, `::3` — en yakın, çoğu zaman yerel sunucuya gider),
+      benchmarking `2001:2::/48`, ORCHIDv2 ve AMT'yi birlikte kapatır (3. tur `netip` ile
+      ölçtü); IPv4-uyumlu, `fec0::/10`, `64:ff9b::/96` gibi biçimler `2000::/3` dışında
+      kaldığı için reddedilir (Go'nun `IsGlobalUnicast`'ı bunlara `true` diyor — güvenilmez);
     - **düğümün kendi genel adresleri ve ingress adresi** değil — config listesi;
       liste **boşsa** prod ve sandbox **başlamaz**.
   - `Transport.Proxy: nil`; yönlendirme izlenmez; toplam 10 sn; `MaxResponseHeaderBytes`
@@ -348,7 +415,9 @@ API aynısını uygular; tek fark K-26'dır:
 
 | Askıda açık | Askıda 403 `tenant_suspended` |
 |---|---|
-| bütün `GET`'ler, `/v1/punches`, `/v1/directory`, webhook gönderimi · `PUT /employees` (**yeni** çalışan) · `resend-activation` · **K-26 savunma yazmaları:** API anahtarı iptali, uç nokta devre dışı bırakma (panel) | `PUT /locations` · var olan çalışanı değiştiren `PUT /employees` (**`active:false` dahil**) · `DELETE /employees` · anahtar oluşturma · uç nokta oluşturma/döndürme |
+| bütün `GET`'ler, `/v1/punches`, `/v1/directory`, webhook gönderimi (kuyruktaki teslimlerin işçi tarafından gönderilmesi) · `PUT /employees` (**yeni** çalışan) · `resend-activation` · **K-26 savunma yazmaları:** API anahtarı iptali, uç nokta devre dışı bırakma (panel) | `PUT /locations` · var olan çalışanı değiştiren `PUT /employees` (**`active:false` dahil**) · `DELETE /employees` · anahtar oluşturma · uç nokta oluşturma/döndürme/**adres değiştirme** · **test ping** · panelden **"yeniden gönder"** · şirket kodu/adı düzenleme |
+
+**Tabloda adı geçmeyen her M11 yazması askıda kapalıdır** (varsayılan kapalı).
 
 Askı sütunları OP-15'e bağlı (bugün `tenants`'ta yok, OP-15 beklemede, migration numarası
 00035 çakışıyor — OP-15 yeniden numaralanır). Bu yüzden **API-4 yalnız tek kontrol
@@ -361,9 +430,10 @@ noktasını** kurar; tablonun testleri **API-4b**'dir ve OP-15'e bağlıdır.
   tag'li bir `cmd` dosyası import eder. Kapılar: prod derlemesi için `go list -deps`
   **negatif**, sandbox için **pozitif** kontrol (`packaging_test` kalıbı — sembol testi
   `-ldflags=-s -w` yüzünden boş geçerdi); CI `-tags sandbox` ile de vet/test koşar;
-  deploy kapısı (`verify-image.sh`) imajın derleme bilgisindeki tag'i doğrular. Sandbox
-  ikilisi yalnız `TAPPA_ENV=sandbox` ile, prod ikilisi yalnız `prod` ile başlar. Mevcut dev
-  simülatörünün dört katlı kapısı **gevşetilmez**.
+  deploy kapısı (`verify-image.sh` derleme bilgisini zaten okuyor — `:118`) imajın tag'ini
+  doğrular. Sandbox ikilisi **yalnız** `TAPPA_ENV=sandbox` ile başlar (boş `TAPPA_ENV`'in
+  dev'e düşmesi böylece kapanır); tag'siz ikili `sandbox` değerini **reddeder** (dev ve
+  CI'daki kullanımı değişmez). Mevcut dev simülatörünün dört katlı kapısı **gevşetilmez**.
 - **Sertleştirme:** K-28 (`IsHardened`) — sandbox her prod kapısında prod gibi davranır.
 - **Sanal plaket izin listesi:** sandbox minter'ı ve sandbox çözümleyicisi yalnız
   ayrılmış, NXP olmayan bir sanal UID aralığını kabul eder (gerçek NXP UID'si `0x04` ile
@@ -372,8 +442,10 @@ noktasını** kurar; tablonun testleri **API-4b**'dir ve OP-15'e bağlıdır.
   Ortak KEK + prod satırı zinciri böylece yapısal olarak kapanır; ayrıca sandbox kendi
   sırlarıyla kurulur, prod yedeği oraya geri yüklenmez.
 - **Simülasyon yüzeyi:** yalnız sandbox'ta `POST /v1/sandbox/taps {employeeRef, locationRef, channel}`.
-- **Hesap açılışı:** sandbox tenant'ları ve anahtarları yalnız sandbox operatörünce açılır
-  (K-22'nin sandbox karşılığı); herkese açık kayıt sandbox'ta kapalı.
+- **Hesap açılışı:** sandbox kendi operatör yüzeyini kendi ops host'unda çalıştırır.
+  `/signup` prod'daki gibi kalır (tenant açan bir `op_*` yok); API ve webhook ise K-22
+  gereği **yalnız sandbox operatörü açınca** çalışır — kayıt açık olsa da operatörsüz
+  hiçbir sandbox tenant'ı anahtar kullanamaz, uç nokta kuramaz.
 - **E-posta:** gerçek e-posta yok; davet `panel` modunda, aktivasyon linki sandbox'a özel bir uçtan.
 - **Altyapı:** ayrı namespace + Postgres; NetworkPolicy (prod'unki gibi kendi
   namespace'ini korur), Pod Security `restricted`, `ResourceQuota`/`LimitRange`.
@@ -381,7 +453,11 @@ noktasını** kurar; tablonun testleri **API-4b**'dir ve OP-15'e bağlıdır.
 ### 4.9 Pasifleştirme bütçesi (K-25)
 
 `DELETE /employees` ve `PUT {active:false}` aynı sınıftır ve **anahtar başına saatlik
-bir bütçeyi** paylaşır (varsayılan 20; değer ADR 0028'de). Aşılınca 429 + `Retry-After`,
+bir bütçeyi** paylaşır (varsayılan 20; değer ADR 0028'de). Bütçe **bellekte tutulmaz**
+(geri alınamaz bir eylemin tek freni yeniden başlatmada sıfırlanamaz): son bir saatin
+audit satırlarından, **anahtar başına advisory kilit** altında sayılır
+(`db/queries/invites.sql:403` emsali). Owner'ın birden çok anahtarı bütçeyi çarpar —
+kabul edilmiş; sızmış tek anahtar saatte en çok 20 hak alır. Aşılınca 429 + `Retry-After`,
 owner'a panelde görünür uyarı ve `api.deactivation_budget_exceeded` audit satırı. ADR
 0010'a sapma notu: iki adımlı onay API'de yoktur, yerini bütçe alır.
 
@@ -392,8 +468,8 @@ owner'a panelde görünür uyarı ve `api.deactivation_budget_exceeded` audit sa
 | ID | Görev | Boyut | Ajan | Bağımlılık |
 |---|---|---|---|---|
 | API-0 | ADR 0027 (şirket boyutu) + ADR 0028 (anahtar, punch yayını, sayaç imleci, tetikleyici değişmezleri, webhook, SSRF tehdit modeli, K-19 işçisi, sandbox kapısı, pasifleştirme bütçesi) + notlar: ADR 0026 (K-2), 0022 §7 (otomatik davet + kuyruk + şirket başına tavan), 0010 (K-25 + K-24 yan etkisi), 0025 (§4.7 + K-26), 0002 §7 (resolver 7 + `tenants` sütun yetkisi), 0021 (yeni `op_*` + `tappa_feedwriter` katalog testi) · CLAUDE.md §3 (yeni paketler), §7 (log yasakları) | M | yapıcı + üçüncü göz | — |
-| API-1 | Şema: `companies` (+ `is_default`, signup'ta varsayılan şirket), `company_id`'ler (+ değişmezlik), `external_ref`, `employee_code`, `first_name`/`last_name`, `employees.updated_at` + K-21 tetikleyicisi, `invite_requests`, `locations.active`, K-14 CHECK, K-24 tekillikleri, `tenants.api_enabled_at` + açan/kapatan `op_*`. Panel: şirket yönetimi, şirket seçimi, "External ref" alanları, manuel kayıtta lokasyon seçimi | L | `tappa-db-migrator` + yapıcı (`tappa-brand`) | API-0 |
-| API-2 | `punch_events`, `feed_counters`, `webhook_endpoints`, `webhook_deliveries` şeması · `tappa_feedwriter` + iki tetikleyici (olay + teslim satırı) · geri doldurma · `tappa_app` zaman aşımları · geri yükleme sayaç atlatma + doğrulayıcı kapısı | M | `tappa-db-migrator` | API-1 |
+| API-1 | Şema: `companies` (+ `is_default`, signup'ta varsayılan şirket), `company_id`'ler (+ değişmezlik), `external_ref`, `employee_code`, `first_name`/`last_name`, `employees.updated_at` + K-21 tetikleyicisi, `invite_requests`, `locations.active`, K-14 CHECK, K-24 tekillikleri, `tenants.api_enabled_at` + açan/kapatan `op_*`, ikinci şirketi açan `op_*`. §4.0 yetki kuralı. Panel: şirket kodu/adı, şirket seçimi, "External ref" alanları, manuel kayıtta lokasyon seçimi | L | `tappa-db-migrator` + yapıcı (`tappa-brand`) | API-0 |
+| API-2 | `punch_events`, `feed_counters`, `webhook_endpoints`, `webhook_deliveries` şeması · `tappa_feedwriter` (`01-roles.sql` idempotent blok + canlı küme runbook'u) + katalog testi + iki tetikleyici (olay + teslim satırı) · geri doldurma · `tappa_app` zaman aşımları (`RuntimeParams`) · geri yükleme sayaç atlatma + doğrulayıcı kapısı + eşlik eden listeler | M | `tappa-db-migrator` | API-1 |
 | API-3 | `api_keys` + resolver + `internal/apikey` (redakte tip) + panel (owner) + audit + R7/R7b/R7d kalıpları + env anahtarlarının çift çift ayrımı | M | yapıcı (`tappa-brand`) | API-1 |
 | API-4 | `/v1` iskeleti: host kapısı (genelleştirilmiş), biçim kontrolü + IP kovası + Bearer + anahtar kovası, JSON hata, gövde sınırı, Idempotency-Key, askı **kontrol noktası**, `openapi.yaml` iskeleti, K-19 işçi iskeleti (küme + kiralama + kapanış) | M | yapıcı | API-3 |
 | API-4b | Askı tablosunun (§4.7) testleri | S | yapıcı | API-4, **OP-15** |
@@ -404,8 +480,8 @@ owner'a panelde görünür uyarı ve `api.deactivation_budget_exceeded` audit sa
 | API-9 | Uç nokta paneli (adres, oluştur/döndür — bir kez göster, devre dışı bırak, test ping) + SSRF-güvenli istemci | M | yapıcı (`tappa-brand`) | API-2, API-4 |
 | API-10 | Webhook gönderici: kiralama, geri çekilme, `dead`, yeniden gönder, kapanış testi, panel teslim günlüğü | L | yapıcı (`tappa-brand`) | API-9 |
 | API-11 | Sandbox ikilisi + simülasyon paketi + kurulum (§4.8) | M | yapıcı + kullanıcı (alan adı/DNS) | API-5, API-6, API-7, API-8, API-10 |
-| API-12 | OpenAPI tamamı + entegrasyon rehberi (EN; §2'nin 23 maddesi + imza vektörü) | S | yapıcı | API-5…API-10 |
-| API-13 | Canlıya alma: sırlar, `api.` DNS + Ingress, **`tappa-security-auditor` tam tur**, operatörden K-22 açılışı, KF bağlama runbook'u (K-18), KM şirketi + KM plaketleri (§3 — kullanıcıya sorulur), eski KM tenant'ının kapatılması, spec §7 kabul listesi | M | yapıcı + denetçi + kullanıcı | hepsi + **EM-12** |
+| API-12 | OpenAPI tamamı + entegrasyon rehberi (EN; §2'nin 24 maddesi + imza vektörü) | S | yapıcı | API-5…API-11 |
+| API-13 | Canlıya alma: sırlar, `api.` DNS + Ingress, **`tappa-security-auditor` tam tur**, operatörden K-22 açılışı, KF bağlama runbook'u (K-18), KM şirketi + KM plaketleri (§3 — kullanıcıya sorulur), eski KM tenant'ının kapatılması, prod anahtar çifti eşitlik ölçümü (değer basmadan), spec §7 kabul listesi | M | yapıcı + denetçi + kullanıcı | hepsi + **EM-12** + **OP-15** |
 
 Her görev: yapıcı (opus) → **ayrı** üçüncü göz → bulgu varsa düzelt + yeniden
 denetle (CLAUDE.md §10). Büyük testler (`-race` tamamı, `make check`) yalnız görev
@@ -416,20 +492,20 @@ Her commit'ten önce `./scripts/redline-check.sh` — pre-push kancası push edi
 ### Kabul çekirdeği (kart açılırken genişler — burada bağlayıcı)
 
 - **API-0:** her ADR notu var; CLAUDE.md §4.5 metni **değişmemiş** (K-19); ADR 0028'de SSRF tehdit modeli, tetikleyici değişmezleri ve sandbox kapısı normatif.
-- **API-1:** `\d` ile her yeni tablo RLS beşlisi + GRANT; mevcut her tenant'ın tam bir varsayılan şirketi var; **`/signup` ile açılan yeni tenant'ın da**; K-24 indeksleri ve **kısıt adı korunmuş** (panelde "adres alınmış" hâlâ 409, 500 değil); pasif satırla aynı e-postada yeni aktif satır açılıyor, iki aktif satır açılamıyor; `employees.company_id` UPDATE'i reddediliyor; `location_id` okuyucu sayımı rapora yazılmış; `updated_at` dört UPDATE yolunda ve **yalnız** rehbere görünen sütun değişince değişiyor (her biri için test); `api_enabled_at`'ı `tappa_app` yazamıyor, `op_*` açıp kapatabiliyor.
-- **API-2:** (a) olay kodunu bilmeyen düz bir `INSERT INTO transactions` olay doğurur; (b) **çok oturumlu stres testi** (≥ 12 yazıcı, ≥ 3 tenant, INSERT ile COMMIT arasında rastgele bekleme, eşzamanlı okuyucu) → **sıfır** kaçan; **sayaç kilidi kaldırılmış** mutasyonda kırmızı; (c) geri yüklenmiş kopyada doğrulayıcı, sayaç atlatılmadan geri yüklemeyi reddeder; atlatılınca yeni olay eski imlecin ötesinde döner; (d) flag yazan dokunuş olay yazmaz, onaylanınca yazar, reddedilince yazmaz; manuel ve `practice` satırı (onaylı `practice` flag dahil) asla; (e) B tenant'ı A'nın olaylarını görmez (filtresiz sorgu); (f) `tappa_app` ile doğrudan `punch_events`/`webhook_deliveries`/`feed_counters` INSERT'i **42501**; (g) tetikleyici hatası dokunuş kaydını geri alır; (h) savepoint içinde geri alınan olay sayacı da geri alır; (i) takılı yazıcı `lock_timeout` sonunda bırakılır; (j) olay satırındaki şirket kimlikleri lokasyonun şirketi sonradan değişse de sabit; (k) kapalı API erişiminde olay yazılır, teslim satırı yazılmaz; (l) geri doldurmanın kilit süresi ölçülüp rapora yazılmış.
+- **API-1:** `\d` ile her yeni tablo RLS beşlisi + GRANT; **§4.0: CI, prod'un `arwd` varsayılanını kurup her yeni tabloda dört fiili ölçer**; owner ikinci şirket **açamaz**, `op_*` açar; mevcut her tenant'ın tam bir varsayılan şirketi var; **`/signup` ile açılan yeni tenant'ın da**; K-24 indeksleri ve **kısıt adı korunmuş** (panelde "adres alınmış" hâlâ 409, 500 değil); pasif satırla aynı e-postada yeni aktif satır açılıyor, iki aktif satır açılamıyor; `employees.company_id` UPDATE'i reddediliyor; `location_id` okuyucu sayımı rapora yazılmış; `updated_at` dört UPDATE yolunda ve **yalnız** rehbere görünen sütun değişince değişiyor (her biri için test); `api_enabled_at`'ı `tappa_app` yazamıyor, `op_*` açıp kapatabiliyor.
+- **API-2:** (a) olay kodunu bilmeyen düz bir `INSERT INTO transactions` olay doğurur; (b) **çok oturumlu stres testi** (≥ 12 yazıcı, ≥ 3 tenant, INSERT ile COMMIT arasında rastgele 0–30 ms, abort ve savepoint geri alımı karışık, eşzamanlı okuyucu) → **sıfır** kaçan ve `seq` yoğun; **iki mutasyonda kırmızı**: kilitsiz dizi, ayrı işlemde artırılan sayaç (3. tur ikisini de ölçtü: 843 / 408); (c) geri yüklenmiş kopyada doğrulayıcı, sayaç atlatılmadan geri yüklemeyi reddeder; atlatılınca yeni olay eski imlecin ötesinde döner; (d) flag yazan dokunuş olay yazmaz, onaylanınca yazar, reddedilince yazmaz; manuel ve `practice` satırı (onaylı `practice` flag dahil) asla; (e) B tenant'ı A'nın olaylarını görmez (filtresiz sorgu); (f) `arwd` varsayılanlı veritabanında `tappa_app` ile `punch_events`/`feed_counters` üzerinde INSERT, UPDATE, DELETE **42501**; `webhook_deliveries` üzerinde INSERT, DELETE ve kira/sonuç dışı sütun UPDATE'i 42501; (g) tetikleyici hatası dokunuş kaydını geri alır; (h) savepoint içinde geri alınan olay sayacı da geri alır; (i) takılı yazıcı `lock_timeout` sonunda bırakılır ve tetikleyiciden sonra işlemin `lock_timeout`'u eski değerindedir (öznitelik sızmaz); `tappa_app` bağlantısında `SHOW idle_in_transaction_session_timeout` beklenen değer; (j) olay satırındaki şirket kimlikleri lokasyonun şirketi sonradan değişse de sabit; (k) kapalı API erişiminde olay yazılır, teslim satırı yazılmaz; (l) geri doldurmanın kilit süresi prod boyutunda bir kopyada ölçülmüş ve **≤ 2 sn** (aşarsa bölünmüş hâli); (m) katalog testi: `tappa_feedwriter` NOLOGIN, NOBYPASSRLS, üyesiz, sahip olduğu her fonksiyon `prorettype = trigger`, `proconfig` sabit; (n) yedek **sıfırdan kurulmuş** bir pod'a geri yüklenir (rol `01-roles.sql`'den gelir) ve doğrulayıcı geçer; rolün bir üyesi varken migration düşer.
 - **API-3:** iptal edilmiş anahtar bir sonraki istekte **401**; `api_enabled_at` boş tenant'ın anahtarı **403**; yanlış ortam öneki DB'ye gitmeden 401; anahtar log'da/hata metninde/audit'te yok; yeni R7/R7b/R7d kökleri yeşil ve **kasıtlı ihlalde kırmızı**; `TAPPA_WEBHOOK_KEK` = `TAPPA_TAG_KEK` (ya da başka herhangi bir anahtar) yapıştırılınca süreç başlamaz; B'nin anahtarı A'nın tek satırını okuyamaz/yazamaz.
 - **API-4:** API host'unda `/admin` 404, ana host'ta `/v1` 404; geçersiz anahtar selinde IP kovası resolver'dan önce 429; aynı Idempotency-Key + farklı gövde 422; eşzamanlı aynı anahtar tek işlem, ikinci istek kayıtlı sonucu döner; süreç işlem ortasında ölünce anahtar takılı kalmaz.
 - **API-4b:** §4.7 tablosunun her hücresi için bir test.
 - **API-5:** KM anahtarı KF lokasyonunu okuyamaz/değiştiremez (aynı `externalRef` ile bile yeni KM satırı açar); farklı `timezone` 422; tekrar `PUT` yeni satır açmaz.
-- **API-6:** KM anahtarı KF çalışanını okuyamaz/değiştiremez/pasifleştiremez; aktif bir KF çalışanının e-postasıyla KM'de çalışan açmak **409 `email_unavailable`** (yeni satır açılmaz, davet gitmez); pasif çalışana `active:true` → yeni satır, eski geçmiş yerinde; e-posta değişince eski davet aynı işlemde ölü; `resend-activation` döngüsü canlı daveti öldürmez (N çağrı → en çok bir gönderim); aktive çalışana `resend-activation` 409; KM'nin davet seli KF'nin şirket tavanını tüketmez; kuyrukta **kod yok** (şema + log taraması); iki pod aynı daveti bir kez basar; pasifleştirme bütçesi aşımında 429 + owner uyarısı + audit; `GET` yanıtında e-posta yok.
+- **API-6:** KM anahtarı KF çalışanını okuyamaz/değiştiremez/pasifleştiremez; aktif bir KF çalışanının e-postasıyla KM'de çalışan açmak **409 `email_unavailable`** (yeni satır açılmaz, davet gitmez); pasif çalışana `active:true` → yeni satır, eski geçmiş yerinde; e-posta değişince eski davet aynı işlemde ölü; `resend-activation` döngüsü canlı daveti öldürmez (N çağrı → en çok bir gönderim); aktive çalışana `resend-activation` 409; KM'nin davet seli KF'nin şirket tavanını tüketmez ve **KF'nin panelden davetini reddettirmez** (panel ve kuyruk aynı `(tenant, şirket)` sayacı); tek şirketli bir tenant süreç kesicisinden en çok 50/300 alır; kuyrukta **kod yok** (şema + log taraması); iki pod aynı daveti bir kez basar; pasifleştirme bütçesi aşımında 429 + owner uyarısı + audit, ve bütçe **süreç yeniden başlayınca sıfırlanmaz** (DB'den sayılır); `GET` yanıtında e-posta yok.
 - **API-7:** dört yönlendirme şeklinin akış karşılığı: KF@KF yalnız KF'ye, KM@KM yalnız KM'ye, KM@KF hem KF (`location`) hem KM (`employer`), KF@KM hem KM hem KF; manuel ve reddedilmiş satır hiçbir kapsamda yok; `limit` 1001 → 400.
 - **API-8:** `updatedSince` örtüşme penceresi içindeki değişikliği kaçırmaz; yanıtta e-posta yok; davet kirası `updated_at`'ı değiştirmez.
 - **API-9:** uç nokta imza anahtarı ikinci kez gösterilemez; `op_*` fonksiyonları `signing_key_sealed` ve `token_hash` sütunlarını göremez; ping ve yeniden gönderim aynı kovada; kapalı API erişiminde uç nokta oluşturma/ping/yeniden gönderim reddedilir; şirket başına ikinci uç nokta açılamaz.
-- **API-10:** **dört yönlendirme şekli** (KF@KF → 1 teslim KF'ye; KM@KM → 1 teslim KM'ye; KM@KF → 2 teslim; KF@KM → 2 teslim); `169.254.169.254`, `0.0.0.0`, `::ffff:127.0.0.1`, `::7f00:1`, `64:ff9b::` + iç adres, `2001::/32` adresi, düğüm adresi, `localhost`'a çözülen ad, `http://`, 302 → reddedilir; düğüm listesi boşken süreç başlamaz; `HTTP_PROXY` tanımlıyken bile doğrudan bağlanır; aynı teslim iki pod'dan bir kez gider; gönderim sırasında açık DB işlemi yok; API erişimi kapatılınca bekleyen teslim gönderilmez; imza kendi vektörümüzle doğrulanır; kapanış bütçesi testi yeşil.
-- **API-11:** prod derlemesinde simülasyon paketi `go list -deps`'te yok, sandbox'ta var; CI `-tags sandbox` vet/test; deploy kapısı yanlış tag'li imajı reddeder; sandbox ikilisi `0x04` önekli (gerçek) UID'yi minter'da da çözümleyicide de reddeder; prod ikilisi `TAPPA_ENV=sandbox`'ı reddeder; sandbox'ta her `IsHardened` kapısı açık (ayrıcalıklı DB rolü reddi dahil).
-- **API-12:** OpenAPI her uç ve hata kodunu kapsar; §2'nin 23 maddesi rehberde.
-- **API-13:** spec §7 listesinin dokuz maddesi tek tek işaretli; güvenlik denetimi ONAY.
+- **API-10:** **dört yönlendirme şekli** (KF@KF → 1 teslim KF'ye; KM@KM → 1 teslim KM'ye; KM@KF → 2 teslim; KF@KM → 2 teslim); `169.254.169.254`, `0.0.0.0`, `::ffff:127.0.0.1`, `::7f00:1`, `64:ff9b::` + iç adres, `2001::1`, `2001:1::1`, `2001:2::1`, `3fff::1`, düğüm adresi, `localhost`'a çözülen ad, `http://`, userinfo'lu ya da sorgulu URL, 302 → reddedilir; **iki aşamalı DNS** (ilk çözüm genel adres, ikinci iç adres) bağlantı anında reddedilir; devre dışı bırakılan uç noktaya kuyruktaki teslim gitmez; URL ve `*url.Error` metni log'da ve audit'te yok; düğüm listesi boşken süreç başlamaz; `HTTP_PROXY` tanımlıyken bile doğrudan bağlanır; aynı teslim iki pod'dan bir kez gider; gönderim sırasında açık DB işlemi yok; API erişimi kapatılınca bekleyen teslim gönderilmez; imza kendi vektörümüzle doğrulanır; kapanış bütçesi testi yeşil.
+- **API-11:** prod derlemesinde simülasyon paketi `go list -deps`'te yok, sandbox'ta var; CI `-tags sandbox` vet/test; deploy kapısı yanlış tag'li imajı reddeder; sandbox ikilisi `0x04` önekli (gerçek) UID'yi minter'da da çözümleyicide de reddeder; tag'siz ikili `TAPPA_ENV=sandbox`'ı reddeder, sandbox ikilisi boş ya da başka `TAPPA_ENV` ile başlamaz; K-28'in **dokuz kapısının her biri** sandbox ortamında sınanır (ayrıcalıklı DB rolü reddi dahil); operatör açmadan sandbox tenant'ının anahtarı 403.
+- **API-12:** OpenAPI her uç ve hata kodunu kapsar; §2'nin 24 maddesi rehberde.
+- **API-13:** spec §7 listesinin dokuz maddesi tek tek işaretli — 6. madde ("düzeltme ve iptal yeni `version`") **sözleşme farkı** olarak (§2 madde 3); güvenlik denetimi ONAY.
 
 ---
 
@@ -440,7 +516,7 @@ Her commit'ten önce `./scripts/redline-check.sh` — pre-push kancası push edi
 - **Takılı yazıcı tenant'ı durdurur** (§4.4) — zaman aşımları API-2'nin ön koşulu, sertleştirme adayı değil.
 - **Davet tavanları ve 300/saat süreç kesicisi** ilk toplu senkronu saatlere yayar — runbook'ta yazılır, KF-RMS ekibine önceden söylenir.
 - **Pilot verisinin çiftlenmesi** → K-18; API-13 runbook'u ilk `PUT`'tan önce panel eşlemesini ister.
-- **K-1 bedelleri** (§3) ve **EM-12 ön koşulu**.
+- **K-1 bedelleri** (§3) ve iki **canlı ön koşul**: **EM-12** (KM yöneticileri) ve **OP-15** (askı sütunları — API-4b ona bağlı). EM-12 şirket kapsamlı yetki getirirse K-24'ün "adres kullanımda" artık riski (409 kehaneti, adres işgali) yeniden değerlendirilir — EM-12 kartına not.
 - **GDPR:** rehber iki şirketin çalışan adlarını karşılıklı açar (spec istiyor); DPA/aydınlatma metni güncellemesi kullanıcıda (Q13 ile birlikte).
 - **Egress açık:** SSRF kapısı tek savunma; egress NetworkPolicy backlog adayı.
 - **Pod ağında IPv6 olup olmadığı doğrulanmadı** — yoksa IPv6 sınıfları bugün sömürülemez, kapı yine yazılır.
@@ -452,7 +528,8 @@ Her commit'ten önce `./scripts/redline-check.sh` — pre-push kancası push edi
 3. KF-RMS / KM-ERP ekibinden canlı + test webhook adresleri (spec §8).
 4. Canlı öncesi: paneldeki KF lokasyon ve çalışanlarının bağlanması (K-18); KF tenant'ının varsayılan şirket kodunun `KF` yapılması.
 5. KM plaketlerinin akıbeti (taşıma mı, yeni plaket mi) — API-13 öncesi sorulacak.
-6. Eski KM tenant'ının kapatılması (operatör).
+6. Eski KM tenant'ının kapatılması ve KM şirketinin açılması (operatör).
+7. Canlı ön koşullar: **EM-12** ve **OP-15**'in tamamlanması.
 
 ## 8. Kapsam dışı (v1)
 
@@ -509,3 +586,32 @@ oran deposu · egress NetworkPolicy.
 | `GET /employees` e-posta; kira süresi | güvenlik D8 | §4.6 · K-17 |
 | "Son kilit" ifadesi; `EXCEPTION` bloğu; geri doldurma sırası; geri yükleme sırası ve doğrulayıcı | üçüncü göz D1–D4 | §4.3 · §4.4 |
 | E-posta indeksi kısıt adı ve tek şirketli yan etki; yeni tenant'ta varsayılan şirket; kira şeması; Idempotency takılması; review tetikleyicisi K-4; EM-5B durumu; atıf kuralı; §2 eksikleri | üçüncü göz D6–D9, D11–D14 | K-24 · §4.1 · K-17 · §4.6 · K-4 · §1 · başlık · §2 madde 14/21 |
+
+### 3. tur (2026-10-10, `41c956d`) — üçüncü göz RED, güvenlik RED — **bloklayan yok**
+
+İmleç tasarımı gerçek Postgres'te ölçüldü ve doğrulandı (3 koşu, 0 kaçan; iki mutasyon
+kırmızı); definer + GUC + FORCE RLS davranışı ölçüldü.
+
+| Bulgu | Kaynak | Nereye işlendi (4. sürüm) |
+|---|---|---|
+| Yalnız INSERT REVOKE; prod `arwd` varsayılanında UPDATE/DELETE kalıyor (sayaç sıfırlanınca tenant'ın bütün dokunuşları kayıtsız) | güvenlik ORTA-1, üçüncü göz ORTA-1 | §4.0 ortak şema kuralı · §4.3 tam yetki listesi · API-1/API-2 (f) `arwd`'li CI ölçümü |
+| `tappa_feedwriter` yetki seti çalışmıyor (`feed_counters` SELECT eksik, ölçüldü 42501); rolün db-init/runbook/geri yükleme yaşam döngüsü ve üyelik sabitlemesi yok | üçüncü göz ORTA-1, güvenlik D-1 | §4.3 yetki listesi, yaşam döngüsü, katalog testi · API-2 (m)(n) |
+| Şirket başına tavan: panel yolu tanımsız; şirket sayısı sınırsız → tek kayıt süreç kesicisini doldurur | güvenlik ORTA-2, üçüncü göz ORTA-2 | K-17 (panel + kuyruk aynı sayaç) · §4.1 ikinci şirketi yalnız operatör açar · API-6 kabul |
+| K-13 ↔ §4.4 metin çelişkisi | üçüncü göz D1 | K-13 |
+| `lock_timeout` gövdede sızıyor; zaman aşımı mekanizması | üçüncü göz D2, D3, güvenlik D-2 | §4.4 öznitelik + `RuntimeParams` · API-2 (i) |
+| Geri yüklemede sayaç atlatma eksik | üçüncü göz D4 | §4.4 her tenant için upsert + gece provası |
+| Yalın R7 kökleri ağacı kırmızıya çevirir (35 satır) | üçüncü göz D5 | §4.2 tarayıcı eklemeleri önce sayılır, değer biçimli kalıplar |
+| §4.7 eksik hücreler | üçüncü göz D6 | §4.7 tablo + "varsayılan kapalı" |
+| §4.8 ↔ API-11 başlatma kuralı | üçüncü göz D7 | §4.8 |
+| Pasifleştirme bütçesinin deposu | üçüncü göz D8, güvenlik D-8 | §4.9 DB'den, anahtar başına kilit |
+| K-28 kapıları adsız | üçüncü göz D9 | K-28 dokuz yer · API-11 |
+| Geri doldurma eşiği; API-12 → API-11; OP-15 canlı ön koşul | üçüncü göz D10–D12 | §4.3 (2 sn) · §5 · §6 · §7 |
+| K-14 bedeli: "farklı şube" notu düşmez | üçüncü göz D13 | K-14 · §2 madde 24 |
+| Spec §7 madde 6 sapma; 120 sn varsayılan | üçüncü göz D14 | API-13 · §2 madde 5 |
+| Devre dışı uç noktaya teslim sürüyor | güvenlik D-3 | §4.5 işçi · API-10 |
+| IPv6 izin listesinde artık (`2001:1::1` vb.); DNS rebinding mekanizması | güvenlik D-4 | §4.5 `2001::/23` + `3fff::/20`, `ControlContext` · API-10 |
+| URL userinfo/sorgu; URL ve hata metni log'u; imza anahtarı öneki; sahte vektör | güvenlik D-5 | §4.5 URL kuralı · §4.2 · API-10 |
+| Sandbox hesap açılışı mekanizması | güvenlik D-6 | §4.8 |
+| K-24 artık riski EM-12'ye şartlı | güvenlik D-7 | §6 EM-12 notu |
+| Anahtar ayrımının genelleştirilmesi prod açılışını reddettirebilir | güvenlik D-9 | §4.2 · API-13 runbook |
+| `delivered`→`pending` | güvenlik D-10 | değişiklik gerekmedi (kova + tüketici tekilleştirmesi) |
