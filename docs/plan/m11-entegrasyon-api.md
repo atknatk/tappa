@@ -1,13 +1,19 @@
 # M11 — Entegrasyon API'si (KF-RMS · KM-ERP)
 
-> **Durum:** PLAN, **7. sürüm** (2026-10-10, 28. oturum). Kod yok.
+> **Durum:** PLAN, **8. sürüm** (2026-10-10, 28. oturum). Kod yok. 7. turda (`71b8dc6`) iki
+> mercek de RED verdi ama **bloklayan yok**; K-31 tek ön-kilidi 14 288 işlemlik stresle (8 106
+> holding) **0 kilitlenme, 0 kaçan** ölçüldü; holding fonksiyonları prototipte kurulup ölçüldü
+> (iki yönlü süzgeç, 18 sütunluk "asla SELECT", logo kapısı, tetikleyici bağlama reddi). Bu
+> sürüm 7. turun bulgularını ve kullanıcının K-1h kararını işler — eşleme §9'da.
+>
+> *Önceki sürüm notu (7.):*
 > 1.–5. sürüm "tek tenant, iki şirket" modeliydi (5. sürüm iki mercekten ONAY). Kullanıcı
 > modeli değiştirdi: **KF ve KM aynı holding altında ayrı iki tenant; holding bağıyla çapraz
 > dokunuş**. 6. sürüm (`77bd943`) bu modeli kurdu; 6. turda iki mercek de RED verdi — en
 > ağırı **ikisinin de ölçtüğü** kilitlenme (sayaçlar iki ayrı tetikleyiciye bölününce ters
 > yönlü iki holding dokunuşundan biri geri alınıyordu). Bu sürüm 6. turun bütün bulgularını ve
 > kullanıcının dört yeni kararını (K-1e, K-1f, K-1g, K-3'ün geri dönüşü) işler — eşleme §9'da.
-> Sıradaki adım: 7. tur denetim (iki mercek), ONAY gelirse API-0.
+> **Sıradaki adım: 8. tur denetim (iki mercek), ONAY gelirse API-0.**
 >
 > **Kaynak:** kullanıcının paylaştığı *"TapTime API — Kurulum Rehberi (KF-RMS ve KM-ERP
 > entegrasyonu)"*, 2026-10-09. **Repoya konmadı** — depo public ve doküman müşterinin iç
@@ -81,9 +87,11 @@ API-12'nin rehberinde bu liste **açıkça** yazılır.
 23. API ve webhook, operatörün tenant için açtığı erişimle çalışır (K-22).
 24. Ev lokasyonu olmayan çalışanın punch'ına "farklı şube" notu düşmez (K-14).
 25. Şirketler arası dokunuşun kararı **işverenin** kurallarıyla verilir (K-1a); bir KF şubesine özel politika istisnası o şubede okutan KM çalışanına uygulanmaz. **İstisna:** şirketler arası QR okutması yalnız **o şubenin ağından** (IP) geliyorsa geçerlidir, değilse onaya düşer — işveren bunu kapatamaz (K-1g).
-26. Holding üyeliği bittiğinde (operatör çıkarır) çapraz dokunuş durur; o anda işlemde olan dokunuşlar yazılır (K-29).
-27. **Şirketler arası punch'ta karşı tarafın kimlikleri** gelir: çalışanın `externalRef`/`employeeCode`/`company`'si ve lokasyonun `id`/`externalRef`/`name`/`company`'si, `tagId` (K-1f). Punch alanları **punch anındaki** değerlerdir (sonradan ad değişse de punch değişmez — K-32).
+26. Holding üyeliği bittiğinde (operatör çıkarır) çapraz dokunuş durur: NFC'de, sayacı üyelik bitmeden ilerletilmiş dokunuş yine yazılır; bitişten sonraki NFC dokunuşu kayıtsız reddedilir (sayaç ilerlemez); QR ve manuel kayıt bitiş anından itibaren reddedilir (K-29).
+27. **Şirketler arası punch'ta karşı tarafın kimlikleri** gelir: çalışanın `id`/`externalRef`/`employeeCode`/`company`'si ve lokasyonun `id`/`externalRef`/`name`/`company`'si, `tagId` (K-1f). Punch alanları **punch anındaki** değerlerdir (sonradan ad değişse de punch değişmez — K-32).
 28. Başka şirketin kayıp/emekli bir plaketine dokunuş reddedilir; punch olmaz (K-4).
+29. Rehber (`GET /v1/directory`) **sayfalıdır** (`cursor`, en çok 1000) — spec düz dizi gösteriyor.
+30. KF şubesinde başlayıp **KM plaketinde** biten bir KM vardiyasında KF-RMS (`scope=location`) yalnız **girişi** alır; çıkış bir KM lokasyonu punch'ıdır ve KM-ERP'nin iki kapsamında gelir. KF panelinde ise kapanış zamanı görünür (K-1e).
 
 ---
 
@@ -100,6 +108,7 @@ API-12'nin rehberinde bu liste **açıkça** yazılır.
 | **K-1d** | Holding içi görünürlük | **Kabul, DPA notuyla**: ad, kod, zaman, mekan; GPS, IP, not, policy bağlamı, e-posta **asla** | DPA / aydınlatma metni (saklama süresi dahil) kullanıcıda |
 | **K-1e** | KF'de başlayıp KM plaketinde biten vardiyanın kapanış çıkışı KF'ye gitsin mi? | **Evet, yalnız zaman** — KM mekanı, karar, politika bilgisi gitmez | K-1d'nin genişlemesi (adıyla) |
 | **K-1f** | Çapraz punch'ta karşı tarafın kimlikleri | **Paylaşılır**: çalışan `externalRef`/kod, lokasyon `externalRef`/ad, `tagId`, şirket kodu | K-1d'nin genişlemesi; e-posta/GPS/IP/not yine asla |
+| **K-1h** | Holding içi görünürlüğün genişlemesi | **Kabul** (2026-10-10): KF kendi plaketindeki KM dokunuşunun **sonucunu** (sayıldı / onay bekliyor / onaylandı / reddedildi — nedeni değil) ve **yönünü** (giriş/çıkış) görür; rehber **aktif/pasif** durumunu verir (spec şartı) | KF, KM'de işten ayrılanı dolaylı öğrenir (tersi de); DPA notuna eklenir |
 | **K-1g** | Çapraz QR okutması | **Sistem kuralı: o şubenin IP'si şart**; yoksa `flag`. İşveren kapatamaz | Yeni `sys:` guardrail → CLAUDE.md §5 tablosu + ADR 0004/0007 notu |
 | **K-2** | Aktivasyon dokunuşu punch mı? | **ADR 0026 kalır** | §2 madde 1 |
 | **K-3** | Sandbox | **Ayrı alan adı** (`taptime.mt` dışı) + **ayrı derleme** (2026-10-10; alt alan + çerez geçişi denendi, maliyeti büyüdü, geri dönüldü). Panel yazma kapılarının yalnız aynı kökeni kabul etmesi (**GATE-1**) yine yapılır | Alan adı + DNS |
@@ -132,15 +141,17 @@ API-12'nin rehberinde bu liste **açıkça** yazılır.
 | K-23 | API audit: `actor_id = api_keys.id`, `detail.via = "api"` | |
 | K-24 | E-posta tekilliği tenant içinde, pasif hariç, kısıt adı korunur; holding genelinde **aranmaz** (artık risk adlandırılmış: aynı kişiyi iki tenant davet edebilir; aktivasyon K-1b gereği o tenant'ın plaketinde fiziksel dokunuş ister) | Holding genelinde aramak yeni bir tenant-ötesi okuma olurdu |
 | K-28 | `IsHardened()` = `prod` ∨ `sandbox`; dokuz `IsProd()` çağrısı (`config.go:326`, `config.go:1000`, `db/pool.go:119`, `session/cookie.go:136`, `adminauth/cookie.go:109`, `handler/cookies.go:270`, `signupstate.go:440`, `logincontext.go:297`, `activate.go:184`) | |
-| K-29 | Holding üyeliği tenant kapsamsız `holdings` + `holding_members`; yalnız `op_*` yazar (`clock_timestamp()` — ADR 0021 §2 vii). **Tolerans modeli:** sayaç ilerletmesi **katı** (`left_at > clock_timestamp()`), karar ve yazma **60 sn toleranslı** (`left_at > now() − 60 sn`; istek zaman aşımı 30 sn). Böylece ilerletmesi başarılı olmuş her dokunuş yazılır; ilerletmesi reddedilen hiçbir sayaç harcanmaz | 6. tur: "5 dk pencere" yalnız erteliyordu — ilerletme `left_at`'ten önce, yazma sonra olursa kayıt kayboluyordu (CLAUDE.md §4.6) |
-| K-30 | Çapraz dokunuşun kaydı **işverende**; `site_*` sütunları; `transactions` RLS'i değişmez. **CHECK kanala göre:** tap kanalları → `site_tenant_id` ve `site_tag_uid` dolu, `site_location_id` NULL olabilir (lokasyonsuz/`unassigned` plaket); `manual` → `site_tenant_id` ve `site_location_id` dolu, `site_tag_uid` NULL; her durumda `site_tenant_id ≠ tenant_id`, `location_id` ve `tag_uid` NULL | 6. tur: "üçü dolu" CHECK, lokasyonsuz KF plaketinin reddini ve KF sahası için manuel düzeltmeyi yazılamaz kılıyordu (§4.6) |
-| K-31 | **Tek holding tetikleyicisi önce çalışır** (ad sırasında ilk) ve **iki sayaç satırını tek ifadede** `… WHERE tenant_id IN (işveren, site) ORDER BY tenant_id FOR UPDATE` ile kilitler; sonra çalışan kendi-tenant tetikleyicisi zaten tutulan kilidi bekleme olmadan kullanır. Tetikleyici ad sırası katalog testinde pinlenir | 6. turda **iki mercek de ölçtü**: iki ayrı tetikleyici → kilitlenme, bir dokunuş geri alındı; tek ön-kilit → 3/3 turda 0 hata, 2/2 kayıt |
-| K-32 | `punch_events` olay anında bir **anlık görüntü** taşır (çalışan ref/kod/şirket kodu; lokasyon id/ref/ad/şirket kodu; tag uid); API okurken tenant sınırını aşmaz | KM'nin akışı KF lokasyon ref'ini, KF'ninki KM çalışan ref'ini istiyor; okuma anında çapraz join yerine yazma anında değişmez kopya |
-| K-33 | **Holding süzgeci (normatif):** her `holding_*` fonksiyonu için "**anahtar satırının tenant'ı ∈ eşler(GUC tenant'ı)** ∧ GUC tenant'ı bir holding'in üyesi"; iki yönlü test: (i) holding dışı C çağırır → 0 satır; (ii) **eş çağıran (KM) + holding dışı anahtar** (C'nin uid'i/lokasyon id'si) → 0 satır ve C'nin `last_ctr`'ı değişmez | 6. tur: yalnız (i) test edilirse "çağıranın üyeliği var mı" diye yazılmış hatalı süzgeç geçerdi ve KM oturumu C'nin plaketini okuyup sayacını harcayabilirdi |
-| K-34 | `tappa_holdingdefiner` (BYPASSRLS) için **fiil × sütun matrisi** ve **"asla SELECT"** listesi: `tags.aes_key_ref`, `tags.app_key_ref`, `employees.email`, `transactions.gps_lat/gps_lng/source_ip/note/policy_context`, bütün `*_hash` sütunları; katalog `has_column_privilege(…,'SELECT') = false` ile pinler | BYPASSRLS rolde tek yapısal sınır sütun grant'larıdır |
-| K-35 | Canlı oturumlu ve bekleyen aktivasyon bağı olan tarayıcı **eş tenant'ın** plaketine dokunursa normal holding dokunuşu olur (aktivasyon akışı devralmaz) | `internal/handler/tap.go:369-385` aksi hâlde onu yabancı plaket aktivasyon hatasına çevirirdi |
-| K-36 | Holding üyesi tenant'ın saat dilimi değiştirilemez (tetikleyici; değişiklik yalnız `op_*` ile, iki üyede birlikte) | 6. tur: owner sonradan değiştirirse çapraz geç kalma hesabı bozulurdu |
-| K-37 | **GATE-1:** panelin dört yazma kapısı (`sameOrigin` kopyaları) yalnız `same-origin` kabul eder (operatör yüzeyi emsali — `internal/handler/operator/routes.go:278-284`) | Ucuz sertleştirme; K-3'ün geri dönüşüyle sandbox riski kalksa da `taptime.mt` altındaki her alt alan (ops dahil) için doğru kural |
+| K-29 | Holding üyeliği tenant kapsamsız `holdings` + `holding_members`; yalnız `op_*` yazar (`clock_timestamp()` — ADR 0021 §2 vii). **Kanal × zaman modeli:** `holding_advance_tag_counter` **üç sonuç** döner — `advanced` · `not_peer` · `replay` (eş ama sayaç artmadı); ilerletme **katı** (`left_at > clock_timestamp()`). **NFC:** `SameHolding` ilerletmenin sonucundan gelir (`advanced` ya da `replay` → eş); `not_peer` → #1 → kayıt yok, sayaç ilerlemedi; `replay` → `sys:sun-invalid` reddi `site_*` ile yazılır; `advanced` → BEFORE INSERT ve holding tetikleyicisi NFC satırında üyeliği **60 sn toleransla** kabul eder (yalnız zaten ilerletilmiş dokunuşlar buraya ulaşır). **QR ve manuel:** karar ve yazma anında **katı** kontrol. **Okumalar** (`holding_tap_site`, `holding_logo`, rehber, lokasyon listesi) **katı**. Tolerans ≥ 2 × istek zaman aşımı (30 sn — `internal/httpx/router.go:32,90`) testle pinlenir | 6. tur: "5 dk pencere" yalnız erteliyordu; 7. tur ölçtü: tek toleranslı pencere NFC'de sahte "replay", QR'da çıkarılmış tenant'a 60 sn yeni yazma, okumada `static_ips` açıyordu |
+| K-30 | Çapraz dokunuşun kaydı **işverende**; `site_*` sütunları; `transactions` RLS'i değişmez. **CHECK kanala göre:** tap kanalları → `site_tenant_id` ve `site_tag_uid` dolu, `site_location_id` NULL olabilir (lokasyonsuz/`unassigned` plaket); `manual` → `site_tenant_id` ve `site_location_id` dolu, `site_tag_uid` NULL; her durumda `site_tenant_id ≠ tenant_id`, `location_id` ve `tag_uid` NULL; ve **`site_tenant_id IS NOT NULL OR (site_location_id IS NULL AND site_tag_uid IS NULL)`** (7. tur ölçtü: FK'ler MATCH SIMPLE olduğu için `site_tenant_id` NULL bir satır C'nin `site_*`'ını taşıyabiliyordu) | 6. tur: "üçü dolu" CHECK, lokasyonsuz KF plaketinin reddini ve KF sahası için manuel düzeltmeyi yazılamaz kılıyordu (§4.6) |
+| K-31 | **Tek holding tetikleyicisi önce çalışır** (ad sırasında ilk): önce iki sayaç satırını kanonik sırada **var eder** (`INSERT … ON CONFLICT DO NOTHING`, küçük tenant id önce), sonra **tek ifadede** `… WHERE tenant_id IN (işveren, site) ORDER BY tenant_id FOR UPDATE` ile kilitler ve **kilitlediği satır sayısının 2 olduğunu** assert eder; holding punch'ının **iki hedef olay satırını da** bu tetikleyici yazar. Tetikleyici ad sırası katalog testinde pinlenir | 6. turda iki mercek ölçtü: iki ayrı tetikleyici → kilitlenme. 7. tur ölçtü: tek ön-kilit 14 288 işlemde 0 kilitlenme; ama sayaç satırı **eksikken** `FOR UPDATE` onu atlayıp kilitlenmeyi geri getiriyordu — "var et" adımı bunu kapatır |
+| K-32 | `punch_events` olay anında bir **anlık görüntü** taşır (çalışan **id**/ref/kod/şirket kodu; lokasyon id/ref/ad/şirket kodu; tag uid); API okurken tenant sınırını aşmaz | KM'nin akışı KF lokasyon ref'ini, KF'ninki KM çalışan ref'ini istiyor; okuma anında çapraz join yerine yazma anında değişmez kopya |
+| K-33 | **Holding süzgeci (normatif):** her `holding_*` fonksiyonu için "**anahtar satırının tenant'ı ∈ eşler(GUC tenant'ı)** ∧ GUC tenant'ı bir holding'in üyesi"; iki yönlü test: (i) holding dışı C çağırır → 0 satır; (ii) **eş çağıran (KM) + holding dışı anahtar** (C'nin uid'i/lokasyon id'si) → 0 satır ve C'nin `last_ctr`'ı değişmez. **Fikstürde C ikinci bir holding'in (H2) üyesidir** ve üç mutant kırmızı olmalı: M1 (yalnız çağıran üye mi), M2 (yalnız anahtar üye mi), M3 (ikisi de *bir* holding'in üyesi mi — `holding_id` eşleşmesi unutulmuş) | 6. tur: yalnız (i) test edilirse "çağıranın üyeliği var mı" diye yazılmış hatalı süzgeç geçerdi ve KM oturumu C'nin plaketini okuyup sayacını harcayabilirdi; 7. tur ölçtü: C hiçbir holding'de değilken M3 iki testi de geçiyordu |
+| K-34 | `tappa_holdingdefiner` (BYPASSRLS) için **fiil × sütun matrisi** ve **"asla SELECT"** listesi: `tags.aes_key_ref`, `tags.app_key_ref`, `employees.email`, `admin_users.email`, `platform_admins.email`, `platform_admins.totp_secret_sealed`, `webhook_endpoints.url`, `webhook_endpoints.signing_key_sealed`, `transactions.gps_lat/gps_lng/source_ip/note/policy_context`, bütün `*_hash` sütunları; katalog `has_column_privilege(…,'SELECT') = false` ile pinler (7. turda prototipte 18 sütun ölçüldü). **Tetikleyici yolunda** gövde `NEW`'i grant'tan bağımsız okur → oradaki asıl bariyer **hedef sütunların** (`site_punches`, `punch_events`) katalog pinidir | BYPASSRLS rolde fonksiyon yolunun tek yapısal sınırı sütun grant'larıdır |
+| K-35 | Canlı oturumlu ve bekleyen aktivasyon bağı olan tarayıcı, plaketin tenant'ı **davetin tenant'ından farklı** ve oturumun eşiyse normal holding dokunuşu olur; plaketin tenant'ı davetinkiyle aynıysa aktivasyon yine tamamlanır | `internal/handler/tap.go:369-385` aksi hâlde onu yabancı plaket aktivasyon hatasına çevirirdi |
+| K-36 | Holding üyesi tenant'ın saat dilimi değiştirilemez — `tenants` üzerinde `tappa_holdingdefiner` sahipli bir tetikleyici (kapalı listede); değişiklik yalnız `op_*` ile, iki üyede birlikte | 6. tur: owner sonradan değiştirirse çapraz geç kalma hesabı bozulurdu |
+| K-37 | **GATE-1:** panelin dört yazma kapısı (`sameOrigin` kopyaları) **her dalda** `Sec-Fetch-Site: same-site` ve `cross-site`'ı reddeder; `same-origin`, `none` ve başlıksız istekler bugünkü gibi. `no-referrer` sayfaları `Origin: null` + `same-origin` gönderir (ölçülmüş — `internal/httpx/operatorhost.go:53-57`) ve kabul edilmeye devam eder. Aktivasyon `Submit`'inin `strict=false` dalı (`activate.go:578,1603-1605`) `Origin` yokken de `Sec-Fetch-Site`'a bakar | Ucuz sertleştirme; K-3'ün geri dönüşüyle sandbox riski kalksa da `taptime.mt` altındaki her alt alan (ops dahil) için doğru kural |
+| K-38 | **K-1g guardrail'ının yeri:** `sys:person-debounce`'tan (#8) **hemen sonra**, baseline'dan önce; guardrail sıra testine eklenir. Guardrail terminaldir: işveren onu gevşetemez ve `deny`'e de sıkılaştıramaz (adlandırılmış) | Debounce QR'ın tek frenidir (CLAUDE.md §5); önüne geçerse tekrar QR'lar onay kuyruğunu doldururdu |
+| K-39 | **K-1d'nin ters yönü:** `holding_tap_site`'ın `static_ips`/GPS'i yalnız sunucu içi karar girdisidir, KM'ye gösterilmez. KM satırının `ip_match`/`policy_context`'i KF'nin ağını ve koordinatını dolaylı açabilir → KM panelinde `site_*` satırları için IP/GPS ayrıntısı gösterilmez (bugün de seçilmiyor — `db/queries/transactions.sql:606-615`); kalan dolaylı açılma K-1d bedeli olarak adlandırılır | 7. tur |
 
 ---
 
@@ -183,15 +194,17 @@ anahtarla aynı cevap). Gövdede RLS yok → açık süzgeç tek bariyer (ADR 00
 | Fonksiyon | Ne döner / ne yapar | Çağrı yeri |
 |---|---|---|
 | `holding_tap_site(p_uid)` | eş tenant'ın plaketi: `site_tenant_id`, tag durumu, varsa `location_id`/ad/`external_ref`/`static_ips`/GPS/vardiya/overnight, saat dilimi, `api_code`, marka meta (accent; logo özeti yalnız VIES-doğrulanmış tenant için) | `GET /t`, `checkin.gather` (kilitli işlem içinde — `SameHolding`'in kaynağı) |
-| `holding_advance_tag_counter(p_uid, p_ctr)` | **tek ifade** (`db/queries/tags.sql:33-46` CTE + `FOR UPDATE` kalıbı), eş şartı `prev`'de **ve** `UPDATE … WHERE`'de, **katı** üyelik (`left_at > clock_timestamp()`); 6. turda ölçüldü: 20 + 20 yarışmacı, 5 tur, her turda tam 1 kazanan | **`checkin.advance`** (`internal/domain/checkin/checkin.go:927-974`) — `sun.Verify`'a dokunulmaz (o yalnız aktivasyon) |
+| `holding_advance_tag_counter(p_uid, p_ctr)` | **tek ifade** (`db/queries/tags.sql:33-46` CTE + `FOR UPDATE` kalıbı), eş şartı `prev`'de **ve** `UPDATE … WHERE`'de, **katı** üyelik (`left_at > clock_timestamp()`); sonuç `advanced` · `not_peer` · `replay` (K-29). 6. ve 7. turda ölçüldü: her turda tam 1 kazanan | **`checkin.advance`** (`internal/domain/checkin/checkin.go:927-974`) — `sun.Verify`'a dokunulmaz (o yalnız aktivasyon) |
 | `holding_logo(p_uid, p_digest)` | eş tenant'ın **güncel** logo baytı, yalnız VIES-doğrulanmışsa ve özet `holding_tap_site`'ın verdiğiyle aynıysa | logo rotası (ADR 0024 notu) — bugün `GET /t/logo/{sha}` yalnız oturum tenant'ınınkini veriyor (`internal/handler/brandlogo.go:240-245`) |
 | `holding_site_locations(p_cursor)` | eş tenant'ın lokasyonları: id, ad, `external_ref`, vardiya, overnight — sayfalı, en çok 1000 | KM panelinde manuel kayıt lokasyon seçimi; KM raporları (ad + KF vardiyası) |
 | `holding_directory(p_updated_since, p_cursor)` | holding'deki tenant'ların çalışanları: kimlik, `api_code`, `external_ref`, kod, ad, soyad, aktif — **e-posta yok**; sayfalı, en çok 1000 | `GET /v1/directory` |
-| Tetikleyiciler: `site_*` üyelik kontrolü (BEFORE INSERT, `WHEN (NEW.site_tenant_id IS NOT NULL)`, 60 sn toleranslı) · **holding akış/izdüşüm tetikleyicisi** (AFTER INSERT, ad sırasında ilk — K-31) | — | `transactions`, `transaction_reviews` |
+| Tetikleyiciler: `site_*` üyelik kontrolü (BEFORE INSERT, `WHEN (NEW.site_tenant_id IS NOT NULL)`; NFC 60 sn toleranslı, QR/manuel katı — K-29) · **holding akış/izdüşüm tetikleyicisi** (AFTER INSERT, ad sırasında ilk — K-31) · **saat dilimi kilidi** (BEFORE UPDATE ON `tenants` — K-36) | — | `transactions`, `transaction_reviews`, `tenants` |
 
 **Kayıt (K-30).** `transactions`'a nullable `site_tenant_id`, `site_location_id`, `site_tag_uid`
 (satır yeniden yazmaz — CLAUDE.md §4.3). FK `(site_location_id, site_tenant_id) → locations`,
-`(site_tag_uid, site_tenant_id) → tags`; CHECK kanala göre (K-30); kısmi indeks. **ALTER
+`(site_tag_uid, site_tenant_id) → tags`; CHECK kanala göre (K-30); kısmi indeks. Ayrıca nullable
+`closes_transaction_id` (bileşik FK `(closes_transaction_id, tenant_id) → transactions`, aynı
+tenant) — tap yolunun `out` yönünde kapattığı girişin kimliği (K-1e'nin kaynağı). **ALTER
 maliyeti:** 688 bin satırlık kopyada ~0,76 sn ölçüldü (6. tur); prod boyutunda ölçülür, **eşik
 2 sn**, aşılırsa CHECK/FK `NOT VALID` + ayrı `VALIDATE`.
 
@@ -199,42 +212,60 @@ maliyeti:** 688 bin satırlık kopyada ~0,76 sn ölçüldü (6. tur); prod boyut
 - `GET /t`: oturum KM, plaket KF → `holding_tap_site` 1 satır → sayfa **KF mekan adı + KF
   markası** (K-1c); 0 satır → bugünkü davranış. Canlı oturum + bekleyen aktivasyon + eş plaket
   → normal holding dokunuşu (K-35). Aktivasyon değişmez (K-1b; `activate.go:797,828`).
-- `checkin.advance`: plaketin tenant'ı ≠ oturumunki → eşse `holding_advance_tag_counter`
-  (katı), değilse bugünkü gibi ilerletmeden reddet. **Eşzamanlılık:** aynı `(tag, ctr)` ile N
-  goroutine, yarısı tek-tenant yarısı holding yolu → tam 1 başarı.
+- `checkin.advance`: plaketin tenant'ı ≠ oturumunki → `holding_advance_tag_counter` (katı);
+  sonucu karara taşınır: `not_peer` → bugünkü gibi ilerletmeden reddet (#1, kayıt yok);
+  `replay` → `sys:sun-invalid` reddi `site_*` ile; `advanced` → holding dokunuşu (K-29).
+  **Eşzamanlılık:** aynı `(tag, ctr)` ile N goroutine, yarısı tek-tenant yarısı holding yolu →
+  tam 1 başarı.
 - `gather`: çalışan, departman vardiyası, son kayıt, debounce, son açık giriş **KM'de, bugünkü
   sorgularla** (6. tur kodda doğruladı: hepsi `(tenant, employee)` süzgeçli). Dokunulan
-  lokasyonun kanıtı `holding_tap_site`'tan; `SameHolding` aynı çağrıdan (60 sn toleranslı).
+  lokasyonun kanıtı `holding_tap_site`'tan. `SameHolding`: **NFC'de** ilerletmenin sonucundan;
+  **QR'da** karar anındaki katı üyelik kontrolünden (K-29).
 - `tap.Decide`: guardrail #1 = `TagTenantID ≠ SessionTenantID ∧ ¬SameHolding`. **Yeni guardrail
   (K-1g):** `sys:cross-tenant-qr-site-ip` — kanal `qr` ∧ çapraz ∧ ¬(site IP eşleşti) → `flag`;
-  işveren kapatamaz. ADR 0004/0007 + CLAUDE.md §5 tablosu.
+  yeri `sys:person-debounce`'tan hemen sonra, baseline'dan önce (K-38); işveren kapatamaz.
+  ADR 0004/0007 + CLAUDE.md §5 tablosu.
 - Politika kümesi **KM'nin** (K-1a). `write`: satır KM'de, `site_*` dolu.
 - **Kayıp/emekli/lokasyonsuz KF plaketi:** KM'de `reject` kaydı (`site_tenant_id`, `site_tag_uid`
   dolu, `site_location_id` NULL olabilir — K-30); KF bunu izdüşümde `refused_tag_not_active`
-  olarak görür; çapraz audit yazılmaz.
+  olarak görür ve **KF panelinin uyarı yüzeyi** (bugün `AlertLostTagTapped` yalnız oturum
+  tenant'ının audit'ine yazıyor) bu izdüşüm satırından beslenir; çapraz audit yazılmaz.
 - Sonuç ekranı: KF logosu (bugün farklı tenant'ta logo yok — `internal/handler/checkin.go:320-323`).
 
 **KF görünürlüğü — izdüşüm `site_punches`.** KF tenant'ında RLS beşlisiyle, append-only:
-`(tenant_id = site, transaction_id, employer_tenant_id, employer_api_code, employee_id,
-employee_ref, employee_code, employee_name, site_location_id, site_tag_uid, occurred_at,
-channel, type, outcome, ctr_gap, created_at)`. **`outcome` kapalı küme:** `counted ·
-pending_review · approved · rejected · refused_tag_not_active · refused` — `verdict` ve
-`matched_sid` **kopyalanmaz** (KM'nin politika adlarını ve işten çıkarma bilgisini açardı).
-GPS, IP, not, policy bağlamı, e-posta **yok** (katalogla pinli). Satır türleri:
-(1) KF plaketindeki holding dokunuşu; (2) **K-1e kapanış çıkışı** — KF sitesinde açılmış bir
-girişi KM plaketinde kapatan çıkış: **yalnız zaman** + kapattığı girişin `transaction_id`'si,
-`site_location_id`/`site_tag_uid` NULL, mekan/karar yok; hedef tenant kapatılan girişin
-`site_tenant_id`'sinden **ayrı bir eşlik kontrolüyle** türetilir; (3) onay olayı.
+`(tenant_id = site, id, transaction_id, closes_transaction_id, employer_tenant_id,
+employer_api_code, employee_id, employee_ref, employee_code, employee_name, site_location_id,
+site_tag_uid, occurred_at, channel, type, outcome, ctr_gap, created_at)`. **`outcome` kapalı
+küme** (K-1h): `counted · pending_review · approved · rejected · refused_tag_not_active ·
+refused · closes_shift · employer_manual` — `verdict` ve `matched_sid` **kopyalanmaz**.
+Eşleme tam ve **toplamdır**: `ignored` (60 sn tekrarı) **izdüşüme yazılmaz** (açık bir dal,
+hata değil — bir `CASE` hatası KM'nin kaydını geri alırdı, CLAUDE.md §4.6). GPS, IP, not,
+policy bağlamı, e-posta **yok** (katalogla pinli). Satır türleri:
+(1) KF plaketindeki holding dokunuşu; (2) **K-1e kapanış çıkışı** (`closes_shift`) — KF
+sitesinde **dokunuşla** açılmış bir girişi KM plaketinde kapatan çıkış: **yalnız zaman** +
+`closes_transaction_id`; `site_location_id`/`site_tag_uid` NULL, mekan/karar yok. Kaynak:
+`transactions`'a eklenen nullable `closes_transaction_id` (bileşik FK, aynı tenant) — checkin
+yönü `out` hesaplarken **zaten bulduğu** son açık girişin kimliğini yazar (ADR 0008 zinciri
+SQL'de yeniden türetilmez). Hedef tenant, o girişin `site_tenant_id`'sidir ve ayrı bir eşlik
+kontrolünden geçer. **Bu satır yalnız `site_punches`'a yazılır: KF için `punch_events`,
+teslim satırı ya da sayaç kilidi YOK** (7. tur: aksi hâlde KF-RMS'e KM mekanı giderdi — §2
+madde 30); (3) **işveren manuel kaydı** (`employer_manual`) — KM yöneticisinin KF sahası için
+yazdığı manuel satır; KF raporunda **ayrı** gösterilir (fiziksel kanıtı yok); K-1e kapanışı
+manuel açılmış girişlere uygulanmaz; (4) onay olayı (`approved`/`rejected`).
 KF'nin bütün okumaları sıradan, RLS'li, açık `tenant_id` filtreli sorgulardır.
 
 **KF ve KM panelleri.**
 - KF: holding dokunuşları, işgücü raporu (girişi KF sitesinde olan aralıklar, K-1e ile tam
   süre), plaket son görülme ve **sayaç boşlukları** (`ctr_gap`) izdüşümden. KF onay vermez.
-- KM: konumu `site_*` olan satırlar için **yedi okuyucu** güncellenir (6. tur saydı):
-  `ListPanelTransactions`, `ListFlaggedForReview`, `ListOpenCheckIns` (KF mekan adı),
-  `ListWorkedShiftEvents` + `resolveShift` (KF vardiyası, "KF — <mekan>" kovası; bugün `uuid.Nil`
-  kovasına düşüyor — `report.go:838-841`), `ListAnomalyVenues`, `ListTapsTakenTogether`
-  (bugün dışarıda bırakıyor). Kaynak `holding_site_locations`.
+- **İşverenin okuyucuları** (rol geneldir: KF@KM'de saha KM'dir) — `transactions.location_id`/
+  `tag_uid` okuyan **dokuz** çağıran (7. tur saydı): `ListPanelTransactions`,
+  `ListFlaggedForReview`, `ListOpenCheckIns` (saha mekan adı), `ListWorkedShiftEvents` +
+  `resolveShift` (saha vardiyası, "<şirket> — <mekan>" kovası; bugün `uuid.Nil` kovasına düşüyor —
+  `report.go:838-841`; CSV dışa aktarım da `ledger.Hours` üzerinden bunu kullanır),
+  `ListAnomalyVenues`, `ListTapsTakenTogether` (bugün dışarıda bırakıyor), `ListAnomalyPlaques`
+  (`anomaly.go:450`; saha plaketi işverenin anomalisi değildir → dışarıda, saha bunu `ctr_gap`
+  ile görür), `ListTagLastSeen` (`plaque.go:674`; aynı), `CountLocationReferences` (saha tarafı
+  izdüşümle). Faturalama, kadro ve operatör tarafında okuyucu yok. Kaynak `holding_site_locations`.
 - **Lokasyon silme:** KF'nin `CountLocationReferences`'ı KM'deki `site_location_id`'leri göremez →
   sayım izdüşümden de; FK RESTRICT son kemer.
 - **Manuel kayıt** yalnız işverende; KF sahası için `site_tenant_id` + `site_location_id` (lokasyon
@@ -274,7 +305,7 @@ karşılığı), 0023, 0024 (logo rotası), 0026 (değişmediği notu); `guardra
 ### 4.3 Punch olayı — yapısal yayın
 
 - **Tablolar (API-2):** `punch_events(tenant_id, seq, punch_id, punch_tenant_id, roles, version,
-  status, punch_time, recorded_at, channel, employee_ref, employee_code, employee_company,
+  status, punch_time, recorded_at, channel, employee_id, employee_ref, employee_code, employee_company,
   location_id, location_ref, location_name, location_company, tag_uid, created_at)` — `tenant_id`
   = **hedef**; `roles ⊆ {employer, location}`; `UNIQUE(tenant_id, seq)`; FK
   `(punch_id, punch_tenant_id) → transactions(id, tenant_id)`; **anlık görüntü** sütunları (K-32);
@@ -284,15 +315,20 @@ karşılığı), 0023, 0024 (logo rotası), 0026 (değişmediği notu); `guardra
   iki satır: işveren `{employer}`, plaketin tenant'ı `{location}`.
 - **Tetikleyiciler (binary'den bağımsız; saf `tap.Decide`, `policy`, sayaç yolu dokunulmaz):**
   1. **Holding tetikleyicisi** (`tappa_holdingdefiner`, ad sırasında **ilk**): satır `site_*`
-     taşıyorsa (ya da K-1e kapanış çıkışıysa) iki sayaç satırını kanonik sırada tek ifadede
-     kilitler (K-31), plaketin tenant'ının hedef olay satırını, teslim satırını (API erişimi açık
-     ve uç noktası aktifse) ve `site_punches` satırını yazar; yazdığı satırın `tenant_id`'si
-     yalnız `NEW.site_tenant_id` (ya da K-1e'de kapatılan girişin `site_tenant_id`'si, ayrı eşlik
-     kontrolüyle) olabilir; eş değilse (üyelik bitmiş) **sessizce atlar** — işverenin olayı ve
-     onayı yine yazılır.
+     taşıyorsa iki sayaç satırını var edip kanonik sırada kilitler (K-31) ve **iki hedef olay
+     satırını da** (işveren `{employer}` + saha `{location}`), iki teslim satırını (API erişimi
+     açık ve uç noktası aktifse) ve `site_punches` satırını yazar — işverenin satırındaki karşı
+     taraf (saha lokasyonu ref/ad/şirket kodu) da ancak burada okunabilir (7. tur: NOBYPASSRLS
+     feedwriter GUC=KM iken KF `locations`/`tenants` satırlarını RLS yüzünden göremez). K-1e
+     kapanış çıkışında yalnız `site_punches` yazar (sayaç/olay/teslim yok). Yazdığı saha
+     satırlarının `tenant_id`'si yalnız `NEW.site_tenant_id` (K-1e'de kapatılan girişin
+     `site_tenant_id`'si, ayrı eşlik kontrolüyle) olabilir. Eşlik kontrolü BEFORE INSERT ile
+     **aynı kanal kuralını** kullanır (NFC 60 sn toleranslı, QR/manuel katı); eş değilse
+     (onay anında üyelik bitmiş) saha tarafını **sessizce atlar** — işverenin olayı ve onayı
+     yine yazılır (bu durumda işverenin olay satırını kendi-tenant tetikleyicisi yazar).
   2. **Kendi-tenant tetikleyicisi** (`tappa_feedwriter`, NOBYPASSRLS, ad sırasında ikinci):
-     işverenin hedef olay satırını ve teslim satırını yazar; holding punch'ında kendi sayacının
-     kilidi zaten bu işlemde tutulduğu için beklemez.
+     **yalnız** `site_tenant_id IS NULL` satırların (ve saha tarafı atlanmış satırların) hedef
+     olay satırını ve teslim satırını yazar.
   - Onay (`transaction_reviews`) için aynı iki tetikleyici; bağlı satır K-4'ün kanal/practice
     şartını sağlıyorsa.
 - **`tappa_feedwriter` yetkisi** 3.–5. turda ölçülmüştü; bu sürümde liste değişti (şirket
@@ -328,9 +364,12 @@ last_seq = last_seq + 1 RETURNING last_seq` ile artar; satır kilidi commit'e ka
 dokunuşlarıyla **0 kilitlenme, 0 kaçan**. Kilit değişmezi: sayaç satırları kilitlendikten sonra
 çakışan kilit, ağ, uzun iş yok. Takılı yazıcı: `tappa_app` için `idle_in_transaction_session_timeout`
 + TCP keepalive (havuz `RuntimeParams`, açılışta `SHOW`); tetikleyicilerde öznitelik `lock_timeout`.
-Sayaç satırı her tenant için her zaman var (migration + `AFTER INSERT ON tenants` tetikleyicisi).
-Geri yükleme: runbook her tenant'ın sayacını ileri atar; doğrulayıcı `last_seq ≥ max(seq) +
-aralık`'ı kendi verisinden denetler; T45 tipi elle prova. Geçmiş sorgusu ≤ 31 gün, sayfalı.
+Sayaç satırı her tenant için her zaman var (migration + `AFTER INSERT ON tenants` tetikleyicisi);
+yine de holding ön-kilidi satırları önce "var eder" ve kilitlediği sayıyı assert eder (K-31 — 7.
+tur eksik satırla kilitlenmeyi ölçtü). Migration sırası: tetikleyiciler **geri doldurmadan önce**
+kurulur. Geri yükleme: runbook her tenant'ın sayacını ileri atar; doğrulayıcı
+`count(tenants) = count(feed_counters)` ve `last_seq ≥ max(seq) + aralık`'ı kendi verisinden
+denetler; T45 tipi elle prova. Geçmiş sorgusu ≤ 31 gün, sayfalı.
 
 ### 4.5 Webhook
 
@@ -396,8 +435,8 @@ Aşılınca 429 + owner uyarısı + audit. ADR 0010 sapma notu.
 | GATE-1 | Panel yazma kapıları yalnız `same-origin` | S | yapıcı + güvenlik | API-0 |
 | API-1 | Tek-tenant şema: `external_ref`, `employee_code`, `first_name`/`last_name`, `updated_at` + K-21, `invite_requests`, `locations.external_ref`/`active`, K-14, K-24, `tenants.api_enabled_at` + `api_code` + `op_*`; §4.0 katalog iskeleti; panel alanları | M | `tappa-db-migrator` + yapıcı (`tappa-brand`) | API-0 |
 | API-1a | Holding varlığı: tablolar, üç `op_*`, `tappa_holdingdefiner` + K-34, K-36 saat dilimi kilidi, katalog, operatör ekranı | M | `tappa-db-migrator` + yapıcı | API-0 |
-| API-1b | Çapraz dokunuş: `site_*` + K-30 CHECK + üyelik tetikleyicisi (ALTER ölçümü) · `holding_tap_site`, `holding_advance_tag_counter`, `holding_logo` · guardrail #1 + K-1g · `checkin.advance`/`gather`/`write`, `tap.go` (K-35), logo rotası · tap/sonuç ekranında KF markası | L | yapıcı (`tappa-sun`, `tappa-brand`) | API-1a |
-| API-1c | `site_punches` + K-1e · KF panel görünümleri · KM'nin yedi okuyucusu + `holding_site_locations` · manuel kayıtta KF sahası · lokasyon silme sayımı | L | yapıcı (`tappa-brand`) | API-1b |
+| API-1b | Çapraz dokunuş: `site_*` + K-30 CHECK + üyelik tetikleyicisi (ALTER ölçümü) · `holding_tap_site`, `holding_advance_tag_counter`, `holding_logo` · guardrail #1 + K-1g · `checkin.advance`/`gather`/`write`, `tap.go` (K-35), logo rotası · tap/sonuç ekranında KF markası | L | yapıcı (`tappa-sun`, `tappa-brand`) | API-1, API-1a |
+| API-1c | `site_punches` + K-1e (`closes_transaction_id`) + K-1h · KF panel görünümleri ve kayıp plaket uyarısı · işverenin dokuz okuyucusu + `holding_site_locations` · manuel saha kaydı (`employer_manual`) · lokasyon silme sayımı | L | yapıcı (`tappa-brand`) | API-1, API-1b |
 | API-2 | `punch_events` (anlık görüntü), `feed_counters` (+ `tenants` tetikleyicisi), `webhook_endpoints`, `webhook_deliveries` · iki tetikleyici (ad sırası, K-31) · `tappa_feedwriter` yeniden ölçüm · geri doldurma · zaman aşımları · geri yükleme · eşlik eden listeler | L | `tappa-db-migrator` | API-1, API-1c |
 | API-3 | `api_keys` + resolver + `internal/apikey` + panel + audit + R4/R7/R7b/R7d + env ayrımı | M | yapıcı (`tappa-brand`) | API-1 |
 | API-4 | `/v1` iskeleti (host kapısı, biçim + IP kovası + Bearer + anahtar kovası, JSON hata, gövde sınırı, Idempotency, askı kontrol noktası, `openapi.yaml`, K-19 işçisi) | M | yapıcı | API-3 |
@@ -409,7 +448,7 @@ Aşılınca 429 + owner uyarısı + audit. ADR 0010 sapma notu.
 | API-9 | Uç nokta paneli + SSRF-güvenli istemci | M | yapıcı (`tappa-brand`) | **GATE-1**, API-2, API-4 |
 | API-10 | Webhook gönderici + teslim günlüğü | L | yapıcı (`tappa-brand`) | API-9 |
 | API-11 | Sandbox ikilisi + simülasyon + kurulum | M | yapıcı + kullanıcı (alan adı/DNS) | API-5…API-10 |
-| API-12 | OpenAPI + entegrasyon rehberi (§2'nin 28 maddesi + imza vektörü) | S | yapıcı | API-5…API-11 |
+| API-12 | OpenAPI + entegrasyon rehberi (§2'nin 30 maddesi + imza vektörü) | S | yapıcı | API-5…API-11 |
 | API-13 | Canlıya alma: sırlar, `api.` DNS + Ingress, **`tappa-security-auditor` tam tur**, operatörden K-22 (kod `KF`/`KM`) ve **KF+KM holding'i**, K-18 runbook'u, prod anahtar çifti ve `pg_auth_members` ölçümü, spec §7 listesi | M | yapıcı + denetçi + kullanıcı | hepsi + **OP-15** |
 
 Her görev: yapıcı (opus) → ayrı üçüncü göz → bulgu varsa düzelt + yeniden denetle; CLAUDE.md §4'e
@@ -420,20 +459,20 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
 ### Kabul çekirdeği
 
 - **API-0:** CLAUDE.md §4.5 (iki istisna, kapalı listeyle), §5 (K-1g + #1), §6, §7, §9 yeni metinleri; bütün ADR notları; ADR 0027'de holding tehdit modeli (holding dışı tenant hiçbir yoldan erişemez; eş tenant holding dışı anahtar veremez), ADR 0028'de SSRF tehdit modeli.
-- **GATE-1:** dört kapı `Sec-Fetch-Site: same-site` ve `Origin: null` + `same-site` isteklerini reddeder, `same-origin`'i kabul eder; mevcut panel/kayıt/sıfırlama/aktivasyon akışları yeşil.
+- **GATE-1:** dört kapının her dalı (aktivasyon `Submit`'inin `strict=false` dalı dahil) `Sec-Fetch-Site: same-site`/`cross-site`'ı — `Origin` olsa da olmasa da — reddeder; `Origin: null` + `same-origin` (no-referrer sayfaları), `none` ve başlıksız istekler kabul; mevcut panel/kayıt/sıfırlama/aktivasyon akışları yeşil.
 - **API-1:** §4.0 katalogu (`arwd`); K-24 indeksi ve kısıt adı; pasif satırla aynı e-postada yeni aktif satır açılır, iki aktif açılamaz; `updated_at` dört UPDATE yolunda ve yalnız rehber sütunlarında; okuyucu sayımı; `api_enabled_at`/`api_code`'u `tappa_app` yazamaz.
 - **API-1a:** `holdings`/`holding_members`'a `tappa_app` hiçbir fiille dokunamaz (`arwd`); yalnız `op_*` yazar, audit üç günlükte; farklı saat dilimi reddedilir; üye tenant'ın saat dilimi owner tarafından değiştirilemez (K-36); aynı anda iki aktif üyelik yok, çıkan tenant geçiş bitince yeniden katılabilir; `left_at` geri alınamaz; K-34 sütun pinleri (`aes_key_ref`, `app_key_ref`, `email`, GPS/IP/not/`policy_context`, `*_hash` → SELECT false); geri yükleme sıfırdan pod'a.
-- **API-1b:** (a) KM oturumu + KF plaketi → kayıt KM'de, `site_*` dolu; (b) **K-33 iki yön:** C oturumu + KF plaketi → 403, kayıt yok, KF sayacı ilerlemez; **KM oturumu + C plaketi** → 403, kayıt yok, **C'nin `last_ctr`'ı değişmez**; her `holding_*` fonksiyonu C bağlamında ve KM bağlamı + C anahtarıyla 0 satır; (c) aynı `(tag, ctr)` N goroutine yarı/yarı → tam 1; (d) KF sonra 60 sn içinde KM plaketi → `ignored`; KF'de giriş + KM'de çıkış → doğru `out`; (e) KF'nin `location/<id>` istisnası uygulanmaz; (f) **K-1g:** çapraz QR site IP'siz → `flag` (KM QR kuralını gevşetse bile), site IP'li → `ok`; (g) **K-29:** ilerletme `left_at`'ten önce, yazma sonra → kayıt yazılır; ilerletme `left_at`'ten sonra → 403, sayaç ilerlemez; (h) K-1b aktivasyon reddi; K-35 bekleyen bağlı tarayıcıda holding dokunuşu; (i) tap/sonuç ekranında KF logosu ve accent'i, VIES kapısı, `holding_logo` C'nin ya da eski özetin baytını vermez; (j) CHECK kanal kuralları (lokasyonsuz plaket reddi yazılır; manuel KF sahası yazılır; `site_tenant_id = tenant_id` reddedilir); (k) ALTER süresi ölçülmüş ve ≤ 2 sn (ya da `NOT VALID` yolu); (l) `holding_advance_tag_counter` replay korur (eşit/geri ctr 0 satır).
-- **API-1c:** `site_punches` katalogu: GPS/IP/not/`policy_context`/`verdict`/`matched_sid`/e-posta sütunu yok, `outcome` kapalı küme; K-1e kapanış çıkışı yalnız zaman + giriş kimliği ile, KM mekan bilgisi yok; deaktive KM çalışanının KF plaketindeki reddi KF'de yalnız `refused` (neden yok); KF onay veremez; yedi KM okuyucusunun her biri `site_*` satırını doğru mekan/vardiya ile gösterir (her biri için test); manuel KF sahası kaydı; lokasyon silme holding referansını sayar; C izdüşümden 0 satır.
-- **API-2:** (a) düz `INSERT INTO transactions` olay doğurur; (b) stres: ≥ 12 yazıcı, ≥ 3 tenant, **ters yönlü holding dokunuşları**, abort/savepoint karışık, eşzamanlı okuyucu → 0 kaçan, **0 kilitlenme**, `seq` yoğun; mutasyonlar kırmızı: kilitsiz dizi, ayrı işlemde sayaç, **iki ayrı tetikleyiciyle sayaç kilidi** (kilitlenme); (c) geri yükleme doğrulayıcısı; (d) flag/onay/manuel/practice; (e) C görmez; (f) `arwd` altında fiil reddi ve geçici tablo bağlama reddi (her iki definer'ın tetikleyicileri); (g)–(i) tetikleyici hatası, savepoint, zaman aşımları; (j) hedef satırlar ve **anlık görüntü** alanları (KM@KF: KM satırında KF lokasyon ref/ad/kod, KF satırında KM çalışan ref/kod/şirket kodu); (k) kapalı API erişimi; (l) geri doldurma ≤ 2 sn; (m) katalog: iki rol, **tetikleyici ad sırası**, EXECUTE yalnız sahipte, `TG_RELID`; (n) sıfırdan pod; (o) `tappa_feedwriter` yetkilerinin her biri tek başına zorunlu (yeniden ölçüm); (p) üyelik bitmişken onay → KM olayı yazılır, KF tarafı atlanır, hata yok.
+- **API-1b:** (a) KM oturumu + KF plaketi → kayıt KM'de, `site_*` dolu; (b) **K-33 iki yön, C ikinci bir holding'in (H2) üyesiyken:** C oturumu + KF plaketi → 403, kayıt yok, KF sayacı ilerlemez; **KM oturumu + C plaketi** → 403, kayıt yok, **C'nin `last_ctr`'ı değişmez**; her `holding_*` fonksiyonu C bağlamında ve KM bağlamı + C anahtarıyla 0 satır; **M1, M2, M3 mutantlarının her biri kırmızı**; (c) aynı `(tag, ctr)` N goroutine yarı/yarı → tam 1; (d) KF sonra 60 sn içinde KM plaketi → `ignored`; KF'de giriş + KM'de çıkış → doğru `out`; (e) KF'nin `location/<id>` istisnası uygulanmaz; (f) **K-1g:** çapraz QR site IP'siz → `flag` (KM QR kuralını gevşetse bile), site IP'li → `ok`; (g) **K-29 kanal × zaman:** NFC — ilerletme `left_at`'ten önce, yazma sonra → holding kaydı yazılır; ilerletme `left_at`'ten sonra → 403, kayıt yok, sayaç ilerlemez; eş + eşit ctr → `sys:sun-invalid` reddi `site_*` ile; QR — `left_at`'ten sonraki karar → 403, kayıt yok; manuel — `left_at`'ten sonra KF sahası reddedilir; `holding_tap_site`/`holding_logo` `left_at`'ten sonra 0 satır; tolerans ≥ 2 × istek zaman aşımı pinli; (h) K-1b aktivasyon reddi; K-35 bekleyen bağlı tarayıcıda holding dokunuşu; (i) tap/sonuç ekranında KF logosu ve accent'i, VIES kapısı, `holding_logo` C'nin ya da eski özetin baytını vermez; (j) CHECK kanal kuralları (lokasyonsuz plaket reddi yazılır; manuel KF sahası yazılır; `site_tenant_id = tenant_id` reddedilir; **`site_tenant_id` NULL iken `site_location_id`/`site_tag_uid` dolu satır reddedilir**); (k) ALTER süresi ölçülmüş ve ≤ 2 sn (ya da `NOT VALID` yolu); (l) `holding_advance_tag_counter` replay korur (eşit/geri ctr 0 satır).
+- **API-1c:** `site_punches` katalogu: GPS/IP/not/`policy_context`/`verdict`/`matched_sid`/e-posta sütunu yok, `outcome` kapalı küme ve **eşleme toplam** (her `verdict` × kanal × onay durumu için ya bir `outcome` ya da açık "yazılmaz"; `ignored` yazılmaz ve KM kaydı geri alınmaz); K-1e kapanış çıkışı yalnız zaman + `closes_transaction_id`, KM mekan bilgisi yok, **KF için `punch_events`/teslim yok**; manuel açılmış girişe K-1e uygulanmaz; `employer_manual` KF raporunda ayrı; deaktive KM çalışanının KF plaketindeki reddi KF'de yalnız `refused`; kayıp KF plaketi uyarısı **KF panelinde**; KF onay veremez; dokuz okuyucunun her biri saha satırını doğru mekan/vardiya ile (her yönde) gösterir; lokasyon silme holding referansını sayar; C izdüşümden 0 satır.
+- **API-2:** (a) düz `INSERT INTO transactions` olay doğurur; (b) stres: ≥ 12 yazıcı, ≥ 3 tenant, **ters yönlü holding dokunuşları**, abort/savepoint karışık, eşzamanlı okuyucu → 0 kaçan, **0 kilitlenme**, `seq` yoğun; mutasyonlar kırmızı: kilitsiz dizi, ayrı işlemde sayaç, **iki ayrı tetikleyiciyle sayaç kilidi** (kilitlenme); (c) geri yükleme doğrulayıcısı; (d) flag/onay/manuel/practice; (e) C görmez; (f) `arwd` altında fiil reddi ve geçici tablo bağlama reddi (her iki definer'ın tetikleyicileri); (g)–(i) tetikleyici hatası, savepoint, zaman aşımları; (j) hedef satırlar ve **anlık görüntü** alanları — **iki hedef satırı da holding tetikleyicisi yazar** (KM@KF: KM satırında KF lokasyon id/ref/ad/şirket kodu, KF satırında KM çalışan **id**/ref/kod/şirket kodu); kendi-tenant tetikleyicisi `site_*` satırına olay yazmaz; (k) kapalı API erişimi; (l) geri doldurma ≤ 2 sn; (m) katalog: iki rol, **tetikleyici ad sırası**, EXECUTE yalnız sahipte, `TG_RELID`; (n) sıfırdan pod; (o) `tappa_feedwriter` yetkilerinin her biri tek başına zorunlu (yeniden ölçüm); (p) üyelik bitmişken onay → KM olayı (kendi-tenant tetikleyicisinden) yazılır, KF tarafı atlanır, hata yok; (q) **sayaç satırı eksikken** ters yönlü holding dokunuşları → 0 kilitlenme ("var et" adımı kaldırılmış mutantta kırmızı — 7. turda ölçüldü); doğrulayıcı `count(tenants) = count(feed_counters)`; (r) K-1e kapanış çıkışı KF sayacını kilitlemez ve KF'ye olay/teslim üretmez.
 - **API-3:** katalog `api_keys`; iptal geri alınamaz; eşzamanlı çift/toplu iptal; 401/403; yanlış önek; log yok; R4/R7/R7b/R7d kasıtlı ihlalde kırmızı; eşit env anahtarıyla başlamaz; C'nin anahtarı A'yı göremez.
 - **API-4 / API-4b / API-5 / API-6:** 5. sürümdeki gibi (katalog `api_idempotency`; host kapıları; IP kovası; Idempotency eşzamanlılığı; §4.7 her hücre; C anahtarı başka tenant'ı göremez; e-posta değişimi, resend döngüsü, kuyrukta kod yok, iki pod tek basım, bütçe DB'den ve eşzamanlılıkta tam 1; `GET`'te e-posta yok).
 - **API-7:** dört şekil × iki kapsam doğru tenant'a, anlık görüntü alanlarıyla; C hiçbirini görmez; manuel/reddedilmiş yok; `limit` 1001 → 400.
-- **API-8:** holding'deki iki tenant, C yok, e-posta yok, sayfalı (≤ 1000); örtüşme penceresi.
+- **API-8:** holding'deki iki tenant, C yok, e-posta yok, `active` var (K-1h), sayfalı (≤ 1000); örtüşme penceresi.
 - **API-9:** katalog; tenant başına tek uç nokta; anahtar bir kez; ping/yeniden gönderim kovası; kapalı erişimde ret.
 - **API-10:** dört yönlendirme; SSRF ret listesi + iki aşamalı DNS; devre dışı uç noktaya teslim yok; proxy'ye rağmen doğrudan; iki pod tek gönderim; açık işlem yok; kapanış.
 - **API-11:** prod derlemesinde simülasyon yok; CI `-tags sandbox`; deploy kapısı; gerçek UID reddi; dokuz `IsHardened` kapısı; operatörsüz anahtar 403; holding simülasyonu.
-- **API-12:** OpenAPI her uç/hata; §2'nin 28 maddesi.
+- **API-12:** OpenAPI her uç/hata; §2'nin 30 maddesi.
 - **API-13:** spec §7'nin dokuz maddesi (6. madde sözleşme farkı); güvenlik ONAY; KF+KM holding'i kuruldu; holding dışı izolasyon prod'da örneklendi.
 
 ---
@@ -455,11 +494,11 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
 
 ## 7. Kullanıcının dış adımları
 
-1. ~~K-1, K-1a…g, K-2, K-3, K-19, K-25, K-26~~ ✅
+1. ~~K-1, K-1a…h, K-2, K-3, K-19, K-25, K-26~~ ✅
 2. Sandbox için `taptime.mt` dışında bir alan adı + DNS; `api.taptime.mt` DNS (Cloudflare, DNS-only).
 3. KF-RMS / KM-ERP canlı + test webhook adresleri — API-13'te.
 4. Canlı öncesi: KF ve KM panellerinde lokasyon/çalışan bağlama (K-18).
-5. DPA / aydınlatma metni: holding içi paylaşım (K-1d/e/f) ve `site_punches` saklama süresi.
+5. DPA / aydınlatma metni: holding içi paylaşım (K-1d/e/f/h — sonuç, yön, aktiflik dahil) ve `site_punches` saklama süresi.
 6. Canlı ön koşul: OP-15.
 
 ## 8. Kapsam dışı (v1)
@@ -502,4 +541,29 @@ pasifleştirme bütçesi.
 | `ctr_gap`; yedi KM okuyucusu; ALTER maliyeti; API-0 listesi; bağımlılık; `punch_events` FK; feedwriter listesi; "Bedel" paragrafı; tek üyelik / yeniden katılım; R4 şema nitelikli; bekleyen aktivasyon | üçüncü göz D2–D10 | §4.1 · §4.3 · §5 · K-35 · §4.2 R4 |
 | Rehber sınırsız; panel çerez yolu; saklama süresi | güvenlik D-5, D-6, D-8 | `holding_directory` sayfalı · (COOKIE-1 kalktı) · §7 madde 5 |
 
-**7. tur:** bekliyor.
+**7. tur (2026-10-10, `71b8dc6`) — üçüncü göz RED (5 ORTA, 7 DÜŞÜK), güvenlik RED (4 ORTA, 8 DÜŞÜK); bloklayan yok.**
+Ölçülenler: K-31 tek ön-kilit 14 288 işlemde (8 106 holding) 0 kilitlenme / 0 kaçan, ön-kilitsiz
+mutant 20'de 9 kilitlenme; prototipte K-33 doğru süzgeç, K-34 18 sütun pini, logo kapısı,
+tetikleyici bağlama reddi, 3 tur yarışta tam 1 kazanan.
+
+| Bulgu | Kaynak | Nereye işlendi (8. sürüm) |
+|---|---|---|
+| Holding punch'ında işverenin satırındaki karşı taraf sütunlarını feedwriter RLS yüzünden okuyamıyor | üçüncü göz O-1 | §4.3: iki hedef satırı holding tetikleyicisi yazar · API-2 (j) |
+| `punch_events`'te `employee_id` yok | üçüncü göz O-2 | K-32 · §4.3 · §2 madde 27 |
+| K-1g guardrail sırası | üçüncü göz O-3, güvenlik D-b | K-38 |
+| K-29 tek pencere: NFC'de sahte replay, QR'da 60 sn yeni yazma, okumada `static_ips` | üçüncü göz O-4, güvenlik R6 | K-29 kanal × zaman modeli · §4.1 · API-1b (g) |
+| `site_punches` `ignored`/K-1e/manuel temsil edemiyor; kapatılan girişin kaynağı | üçüncü göz O-5, güvenlik D-h, R5/R7, R5 manuel | toplam `outcome` eşlemesi · `closes_transaction_id` · K-1e yalnız izdüşümde · `employer_manual` · API-1c |
+| K-33 testi M3'ü yakalamıyor (ölçüldü) | güvenlik R5 | K-33 H2 fikstürü + M1/M2/M3 · API-1b (b) |
+| Sayaç satırı eksikken kilitlenme (ölçüldü) | üçüncü göz D-1 | K-31 "var et" + assert · §4.4 · API-2 (q) |
+| Okuyucu listesi eksik (9) | üçüncü göz D-2 | §4.1 |
+| Bağımlılıklar; rehber sayfalı | üçüncü göz D-3, D-4 | §5 · §2 madde 29 |
+| GATE-1 aktivasyon `strict=false` dalı | üçüncü göz D-5, güvenlik D-f | K-37 · GATE-1 kabul |
+| Kayıp plaket uyarısı yanlış tenant'ta | üçüncü göz D-6 | §4.1 · API-1c |
+| K-34 tetikleyici yolu; "asla SELECT" eksikleri | üçüncü göz D-7, güvenlik D-d | K-34 |
+| `site_tenant_id` NULL iken `site_*` (ölçüldü) | güvenlik D-a | K-30 · API-1b (j) |
+| K-1d ters yön (`static_ips`, `ip_match`, GPS mesafesi) | güvenlik D-c | K-39 |
+| K-36 tetikleyicisi kapalı listede değil | güvenlik D-e | K-36 · §4.1 tablo |
+| K-35 belirsiz | güvenlik D-g | K-35 |
+| `outcome`/`type`/`active` K-1d dışında | güvenlik D-h | **K-1h (kullanıcı)** |
+
+**8. tur:** bekliyor.
