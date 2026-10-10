@@ -15,6 +15,12 @@
 # can arrive on: a request that could process a tap can only land on taptime.mt. A www
 # rule pointed at the app would reopen that gap (a proxied www would then feed a
 # Cloudflare edge address into §5's proof of place), so www is redirect-only.
+# ⚠️ Since T112 one more name reaches the SAME Service: ops.taptime.mt, through
+# 41-operator-ingress.yaml. It serves the operator's surface, not this product — the
+# application refuses every customer route there (404; a bare / goes to the console)
+# — but ONLY while
+# TAPPA_OPERATOR_HOST is set; with the operator surface unconfigured this invariant
+# breaks, which is why closing that surface removes 41's objects too (41's header).
 #
 # 🔴 THIS HOSTNAME MUST NOT BE PROXIED BY CLOUDFLARE, AND THAT IS THE SINGLE MOST
 # CONSEQUENTIAL LINE IN THIS DIRECTORY. The rule predates taptime.mt; it was measured
@@ -132,7 +138,7 @@ metadata:
     # behind this Ingress sets itself; the sign-up form's 64 KiB (signupMaxFormBytes)
     # is the next. The legal text (256 KiB at most, M10 OP-10) is posted on the
     # OPERATOR's host (/operator/legal), which this Ingress does not route (that host
-    # gets its own Ingress: deploy/README.md, "Bekliyor: K2/K4"). "1m" is the upload's
+    # has its own two Ingresses: 41-operator-ingress.yaml, T112). "1m" is the upload's
     # own cap, so it cannot be lowered without refusing logos the handler accepts; a
     # body declared over it is the controller's to refuse (its 413), before the pod.
     # REQUEST BUFFERING IS NOT SET HERE AND HAS NOT BEEN MEASURED IN THE CLUSTER (the

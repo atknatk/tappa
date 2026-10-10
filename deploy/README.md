@@ -32,6 +32,7 @@ Hedef: `https://taptime.mt` · küme: k3s v1.35.4, tek node
 | `k8s/20-app.yaml` | Deployment + Service | `deploy.yml` |
 | `k8s/30-migrate-job.yaml` | goose Job (`tappa_owner`) | `deploy.yml` |
 | `k8s/40-ingress.yaml` | Ingress (`nginx`, `letsencrypt-prod`) | `deploy.yml` |
+| `k8s/41-operator-ingress.yaml` | operatör host'u `ops.taptime.mt`'nin iki Ingress'i (`/` 24k, `/operator/legal` Exact 320k; K4 IP kısıtı **yok**, karar bekliyor) — T112 | `deploy.yml` (silmek **operatör**: deploy kimliğinde `delete` yok; yüzey kapanırken — *"Geri alma — yüzeyi kapat"*) |
 | `k8s/50-backup.yaml` | 🔴 **gecelik yedek CronJob'ı** (02:30 Malta) | **operatör** (bir kez; deploy'un `batch/cronjobs` yetkisi **yok** ve bilerek yok) |
 | `k8s/55-heartbeat.yaml` | 🔴 **uptime heartbeat CronJob'ı** (her 5 dk; healthchecks.io'ya *"yaşıyor"* ya da `/fail` — T116) | **operatör** (bir kez; aynı gerekçe — adım 10) |
 | `k8s/postgres-init/02-app-password.sh` | `tappa_app`'e **girişi açan** üretim script'i | ConfigMap içinde |
@@ -76,6 +77,12 @@ küme kapsamlı olanlar **hâlâ 3**, çünkü `CronJob` namespace'li):
 > cutover 2026-09-02) bu paragrafı güncellemeden getirmişti; 17'ncisi `55-heartbeat.yaml`'ın
 > `CronJob`'ı. İkisi de namespace'li, yani küme kapsamlı sayı **hâlâ 3**. `--dry-run=client`
 > ölçümü orkestratörün küme adımlarında.
+> ⚠️ 2026-10-10 (T112): `41-operator-ingress.yaml`'ın iki `Ingress`'i (namespace'li) →
+> **Güncel sayım: 19/3/16** (toplam / küme kapsamlı / namespace'li). Bu satır artık elle
+> tutulmuyor: `TestPackaging_TheReadmeCountsTheManifestObjects` dosyalardaki sütun-0 `kind:`
+> satırlarını sayar (yukarıdaki `grep`'in aynısı), türleri kapsamına göre ayırır ve bu çapayı
+> arar — bir manifest eklenip sayı güncellenmezse kırmızı. `--dry-run=client` ölçümü yine
+> orkestratörün.
 > `01-rbac.yaml`'ın getirdiği **beş** nesnenin **yalnız ikisi**
 > küme kapsamlı; **dördü** `rbac.authorization.k8s.io/v1` grubunda ve `ServiceAccount`
 > düz `v1`. Yani *"beş yeni nesne"* ile *"beş küme-kapsamlı nesne"* birbirine
@@ -99,8 +106,9 @@ temizlendi (bozuk StatefulSet + `ImagePullBackOff` + Failed Job + bağlı 20Gi P
 **Elle deploy etmek gerekiyorsa** `.github/workflows/deploy.yml`'in adımlarını sırayla
 izle: namespace → **`01-rbac.yaml`** (bir kez, cluster-admin ile) → `tappa-secrets`
 (elle) → ConfigMap'ler (`--from-file` dahil) → Postgres → NetworkPolicy → migration
-Job (**bekle**) → Deployment → Ingress. Tek tek `apply` etmek güvenlidir; **dizini
-toptan** `apply` etmek değildir.
+Job (**bekle**) → Deployment → Ingress'ler (`40`, sonra `41` — `41` yalnız operatör yüzeyi
+yapılandırılmışsa; *"Uygulandı: K2"*). Tek tek `apply` etmek güvenlidir; **dizini toptan**
+`apply` etmek değildir.
 
 ---
 
@@ -1116,10 +1124,11 @@ curl -sS -o /dev/null -w '%{http_code}\n' https://taptime.mt/operator
 # kendi 404'üdür (iki yönlü host kapısı, ADR 0020 §4 OP-8 notu).
 ```
 
-(OP-8: operatör host'unun kendisi — `https://ops.taptime.mt/operator/login` — bu ingress'le
-**erişilemez**: `40-ingress.yaml` o host için kural taşımaz. DNS, TLS ve Ingress kuralı OP-9'un
-kullanıcı adımıdır (K2/K4); o gelene kadar canlıda operatör girişi yoktur, yapılandırılmış olsa
-bile.)
+(OP-8: operatör host'unun kendisi — `https://ops.taptime.mt/operator/login` — `40-ingress.yaml`
+ile **erişilemez**: o dosya bu host için kural taşımaz. Host'un iki Ingress'i
+`41-operator-ingress.yaml`'dadır — 2026-10-09'dan beri canlıda (elle), T112'den beri ağaçta ve
+`deploy.yml`'de; bkz. *"Uygulandı: K2"* bölümü. K4 (IP kısıtı) hâlâ açık. ⚠️ Yüzey kapalıyken
+o Ingress'ler `ops.taptime.mt`'de müşteri ürününü açar: aşağıdaki *"Geri alma"*.)
 
 (`pg_stat_activity`'de bir `tappa_operator` bağlantısı aramak bir kanıt DEĞİLDİR: havuz
 boştaki bağlantıyı en çok ~30 dk tutar — pgxpool `MaxConnIdleTime` — ve `MinConns` 0'dır,
@@ -1153,6 +1162,25 @@ denemede ağ düzeyinde olan hatadır (ör. kapalı port). `sslmode=disable` ile
 yüzeyi `unavailable` bırakır.
 
 ### Geri alma — yüzeyi kapat
+
+🔴 **Önce operatör host'unun iki Ingress'i (T112'den beri).** Dört anahtar gidince uygulama
+operatör-host kapısını (`operatorHostOnly`) **bağlamaz**; `deploy/k8s/41-operator-ingress.yaml`
+ise `ops.taptime.mt`'yi hâlâ aynı Service'e yönlendirir — o host müşteri ürününün ikinci,
+kapısız bir origin'i olur (gerekçe: *"Uygulandı: K2"* bölümü). Sıra: (1) bir commit
+`deploy.yml`'deki `kubectl apply -f deploy/k8s/41-operator-ingress.yaml` satırını kaldırır —
+yoksa sıradaki deploy nesneleri geri yaratır (ve `TestPackaging_TheDeployAppliesEveryIngressFile`
+dosya ağaçta kaldıkça satırı ister: dosyayı da kaldır ya da pini aynı commit'te güncelle);
+(2) nesneleri **cluster-admin** ile sil — deploy kimliğinin `ingresses` üzerinde `delete`
+yetkisi yok (`01-rbac.yaml`):
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa delete ingress tappa-operator tappa-operator-legal
+# beklenen: iki satır deleted; host artık uygulamaya ulaşmaz (varsayılan arka uç, ölçülmedi)
+```
+
+Acil durumda (2) (1)'den önce gelebilir — ama **sıradaki deploy'dan önce** ikisi de yapılmış
+olmalı. `ops-taptime-tls` sırrı kalır; cert-manager'ın bu Ingress'ten türettiği `Certificate`'ın
+silinmeyle gidip gitmediği ölçülmedi. Sonra (3) aşağıdaki anahtar yaması:
 
 ```bash
 kubectl --context hetzner-k8s-1 -n tappa patch secret tappa-secrets --type json -p '[
@@ -1511,18 +1539,38 @@ bağlanır ve sorgular yalnız `usename = 'tappa_operator'` satırlarını seçe
   bir damga verebilir — ölçülmedi. Geliştirme makinesi ↔ DB farkı: **~1 ms** (test log'u);
   üretimdeki fark ölçülmedi.
 
-### Bekliyor: K2/K4 (kullanıcı kararı) — `ops.taptime.mt` DNS'i, Ingress, IP kısıtı
+### Uygulandı: K2 — `ops.taptime.mt`'nin iki Ingress'i (2026-10-09 elle; T112 ile repoda) · K4 hâlâ açık
 
-`deploy/k8s/40-ingress.yaml`'ın kuralları **değişmedi** (OP-10 B'de yalnız gövde sınırının
-yorumu düzeltildi: o Ingress operatör host'unu yönlendirmez). Operatör yüzeyi `TAPPA_OPERATOR_HOST`'ta
-yaşar ve uygulamanın iki yönlü host kapısı (OP-8) operatör rotalarını müşteri host'larında,
-müşteri rotalarını operatör host'unda 404'e çevirir; Ingress'in işi o host'u pod'a
-getirmektir. **Taslak** (uygulanmadı; kural metni öneridir) — **iki Ingress**, çünkü gövde
-sınırı yola göre değişir ve ingress-nginx'te `proxy-body-size` gibi ek açıklamalar bir Ingress
-kaynağının **bütün** yollarına uygulanır; yol başına farklı bir sınır, o yol için ayrı bir
-Ingress kaynağı demektir (ingress-nginx'in ek açıklama modeli; **kümede ölçülmedi** — iki
-kaynağın aynı host'ta tek `server` bloğunda birleştiği ve her birinin `location`'ının kendi
-sınırını taşıdığı, uygulandıktan sonra `nginx -T` ile doğrulanmalı):
+**Durum.** 2026-10-09'da operatör yüzeyi açılırken bu bölümün o günkü **taslağı** (iki Ingress,
+IP kısıtı yok) `kubectl apply` ile **elle** uygulandı; `deploy.yml` onu uygulamadığı için küme
+ile ağaç ayrıştı (backlog T112 — T41–T44'ün sınıfı: *"kümede düzeltildi, manifest bilmiyor"*).
+Artık iki nesne **`deploy/k8s/41-operator-ingress.yaml`**'dadır ve `deploy.yml`'in *"Roll out
+the server"* adımı onu `40-ingress.yaml`'dan hemen sonra uygular — aynı kimlik, aynı fiiller
+(`01-rbac.yaml`: `ingresses` → `get, list, create, patch`; **yeni yetki yok**). Pin:
+`TestPackaging_TheDeployAppliesEveryIngressFile` (ağaçtaki her Ingress dosyası deploy'da
+uygulanır; T112'nin sınıfı Ingress'ler için kapalı).
+
+Dosya, orkestratörün 2026-10-10'da aldığı canlı dökümle (status, managedFields ve
+last-applied atılmış) **alan alan aynıdır**: iki belge PyYAML ile bütün olarak karşılaştırıldı,
+ikisi de eşit; pin `TestPackaging_TheOperatorIngressesAreTheLiveObjects`. Canlı nesnelerde
+**etiket yoktur**, dosyada da yoktur — `app.kubernetes.io/name: tappa` eklemek ilk deploy'da
+canlıyı **değiştirirdi**, yani bir karardır, kopya değil. İlk deploy'da `kubectl apply` bu iki
+nesne için `unchanged` (ya da yalnız `last-applied` ek açıklamasını yazan `configured`)
+basmalıdır; başka bir alan değişiyorsa dur. YAML burada **ikinci kez yazılmaz**: tek tanım
+dosyadır (eskiden buradaki taslak, ağaçtaki tek yazımdı).
+
+Operatör yüzeyi `TAPPA_OPERATOR_HOST`'ta yaşar ve uygulamanın iki yönlü host kapısı (OP-8)
+operatör rotalarını müşteri host'larında, müşteri rotalarını operatör host'unda 404'e
+çevirir; Ingress'in işi o host'u pod'a getirmektir. **İki Ingress**, çünkü gövde sınırı yola
+göre değişir ve ingress-nginx'te `proxy-body-size` gibi ek açıklamalar bir Ingress kaynağının
+**bütün** yollarına uygulanır; yol başına farklı bir sınır, o yol için ayrı bir Ingress kaynağı
+demektir (ingress-nginx'in ek açıklama modeli; **kümede ölçülmedi** — iki kaynağın aynı host'ta
+tek `server` bloğunda birleştiği ve her birinin `location`'ının kendi sınırını taşıdığı,
+aşağıdaki salt-okur `nginx -T` komutuyla ölçülecek). Sınırlar, operatör paketinin kendi
+sınırlarına AST'den bağlıdır (`TestPackaging_TheOperatorBodyLimitsFollowTheHandlersBounds`:
+her gövde okuması `readForm`'dan geçer, `maxLegalBody`'yi yalnız `publishLegal` verir ve o
+yalnız `Route(Prefix)` altında `POST /legal`'dır; her sınır kendi bağının üstünde, iki katının
+altında; `/`'nin sınırı `maxLegalBody`'nin altında):
 
 - **`tappa-operator`** — `/` (Prefix), **`24k`**. Operatör yüzeyinin `/operator/legal` dışındaki
   her gövde okuması `readForm`'dan `maxFormBytes` = 16 KiB ile geçer (`/operator/login`,
@@ -1539,81 +1587,71 @@ sınırını taşıdığı, uygulandıktan sonra `nginx -T` ile doğrulanmalı):
   ÖNCE tamponlar: oturumsuz bir istemci de bu yola 320 KiB'a kadar gönderebilir (uygulama 303
   ile sign-in'e yollar) — sayılı sınır, tek yol.
 
-Her iki kaynak aynı `tls` bloğunu taşır (aynı sır); `cert-manager.io/cluster-issuer` yalnız
-birinde (tek Certificate). **K4 izin listesi iki kaynağa da yazılmalıdır:** ek açıklama
-kaynak başınadır, yalnız birine yazılırsa öbür yol (ör. `/operator/legal`) her adrese açık
-kalır.
+Her iki kaynak aynı `tls` bloğunu taşır (aynı sır, `ops-taptime-tls` — hiçbir müşteri
+host'unun sırrı değil, yani takılan bir ops sınaması müşteri sertifikasını rehin alamaz);
+`cert-manager.io/cluster-issuer` yalnız `tappa-operator`'da (tek Certificate). Pinler:
+`TestPackaging_TheOperatorIngressesShareOneHostAndOneCertificate`,
+`TestPackaging_EveryIngressHostIsRoutedByOneFile` (her host tek dosyada; joker host yok;
+`TAPPA_BASE_URL`'in host'u 40'ta, 41'de değil).
 
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: tappa-operator
-  namespace: tappa
-  annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-prod
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
-    # /operator/legal dışındaki her yol: uygulamanın en büyük gövde sınırı 16 KiB
-    # (maxFormBytes, readForm) + 8 KiB pay. Gerekçe yukarıda.
-    nginx.ingress.kubernetes.io/proxy-body-size: "24k"
-    # K4 (opsiyonel): yalnız operatörün ağları. Ölçülmedi: Cloudflare proxy'si (turuncu
-    # bulut) açıksa ingress istemciyi değil Cloudflare'in kenar adresini görür ve bu liste
-    # istemcinin değil kenarın adresini sınar — ops kaydı DNS-only olmalı
-    # (40-ingress.yaml'ın (a) seçeneği, taptime.mt için seçilen). use-forwarded-headers +
-    # proxy-real-ip-cidr (40-ingress.yaml'ın (b) seçeneği) PAYLAŞILAN ConfigMap'tedir (~20
-    # uygulama) ve CIDR yanlışsa origin'e doğrudan gelen biri sahte X-Forwarded-For ile bu
-    # izin listesini geçer. Ek açıklamanın adı ingress-nginx sürümüne göre doğrulanmalı.
-    # İKİ KAYNAĞA DA (aşağıdaki tappa-operator-legal).
-    # nginx.ingress.kubernetes.io/whitelist-source-range: "<ops CIDR>,<ops CIDR>"
-spec:
-  ingressClassName: nginx
-  tls:
-    - hosts:
-        - ops.taptime.mt
-      secretName: ops-taptime-tls
-  rules:
-    - host: ops.taptime.mt
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: tappa
-                port:
-                  name: http
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: tappa-operator-legal
-  namespace: tappa
-  annotations:
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
-    # Yasal metin yayını (OP-10): uygulamanın sınırı 262 144 bayt + 64 KiB pay.
-    nginx.ingress.kubernetes.io/proxy-body-size: "320k"
-    # K4: tappa-operator'dakiyle AYNI liste — burada yoksa bu yol her adrese açıktır.
-    # nginx.ingress.kubernetes.io/whitelist-source-range: "<ops CIDR>,<ops CIDR>"
-spec:
-  ingressClassName: nginx
-  tls:
-    - hosts:
-        - ops.taptime.mt
-      secretName: ops-taptime-tls
-  rules:
-    - host: ops.taptime.mt
-      http:
-        paths:
-          - path: /operator/legal
-            pathType: Exact
-            backend:
-              service:
-                name: tappa
-                port:
-                  name: http
+**DNS — ölçüldü (2026-10-10):** `dig +short ops.taptime.mt` → `144.76.158.60` (origin;
+Cloudflare kenar adresi değil). ⚠️ `deploy.yml`'in Cloudflare kapısı
+(`scripts/verify-deployment.sh cloudflare`) yalnız `taptime.mt`'yi yoklar; `ops.taptime.mt`
+için bir kapı **yoktur** (bugün tap işlemediği için; K4 gelirse gerekir — aşağıda).
+
+🔴 **Bu iki Ingress yalnız yüzey YAPILANDIRILMIŞKEN zararsızdır.** Uygulamanın müşteri
+yarısındaki host kapısı (`internal/httpx/operatorhost.go`, `operatorHostOnly`) operatör
+host'unda her müşteri rotasını 404'e çevirir — ama `NewRouter` onu **yalnız
+`TAPPA_OPERATOR_HOST` doluyken** bağlar (`internal/httpx/router.go`;
+`TestOperatorHostOnly_EveryEscapeAttemptLandsOnOneSide`'ın CONTROL satırları). OP-7'nin dört
+anahtarı yokken `ops.taptime.mt` **müşteri ürününü** sunar (açılış sayfası, giriş formları, tap
+ve aktivasyon rotaları): müşterinin **ikinci, kapısız** bir origin'i — `40-ingress.yaml`'ın
+*"EXACTLY ONE HOST SERVES THE APP"* değişmezi kırılır. Bugün yumuşatan, okunarak (test
+edilmeden): ürün çereze `Domain` koymaz (host'a özgü; `taptime.mt`'nin oturumu bu host'a
+gitmez, buradaki bir tap §5 satır 3'tür — aktivasyon sayfası, kayıt yok) ve DNS kaydı
+proxy'siz (DNS-only, yukarıdaki ölçüm).
+Yani **yüzeyi kapatmak bu iki nesneyi de kaldırmak demektir**, ve deploy kimliği Ingress
+**silemez** (`01-rbac.yaml`'da `delete` yok, `TestPackaging_TheDeployAppliesEveryIngressFile`
+bunu da pinler): sıra yukarıdaki *"Geri alma — yüzeyi kapat"*ta. ⚠️ **Taze bir kümede** aynı
+aralık kendiliğinden doğar: yüzey ancak ilk deploy'dan SONRA yapılandırılabilir (OP-7'nin
+sırası: 00026 önce iner), ve o deploy 41'i de uygular — DNS o kümeye bakıyorsa, OP-7'nin 3.
+adımına kadar `ops.taptime.mt` müşteri ürününü sunar. O adımı ilk deploy'un hemen ardından koş.
+
+**K4 — hâlâ AÇIK (kullanıcı kararı).** Bugün **hiçbir** kaynak adres kısıtı yok; dosya bunu
+yer tutucu yorumlarla söyler, kısıt varmış gibi yapmaz. Karar verilirse: (1) liste **iki
+kaynağa da** yazılır — ek açıklama kaynak başınadır, yalnız birine yazılırsa öbür yol (ör.
+`/operator/legal`) her adrese açık kalır; (2) ek açıklamanın adı kümenin ingress-nginx sürümüne
+göre doğrulanır (eski sürümler `whitelist-source-range`, yeniler `allowlist-source-range`
+okur — ölçülmedi); (3) liste ancak kayıt **DNS-only** kaldıkça anlamlıdır: proxy (turuncu
+bulut) açıksa ingress istemciyi değil kenarın adresini görür ve liste kenarı sınar;
+`use-forwarded-headers` + `proxy-real-ip-cidr` (40-ingress.yaml'ın (b) seçeneği) PAYLAŞILAN
+ConfigMap'tedir (~20 uygulama) ve CIDR yanlışsa origin'e doğrudan gelen biri sahte
+`X-Forwarded-For` ile listeyi geçer — bu yüzden K4 ile birlikte `deploy.yml`'e
+`cloudflare ops.taptime.mt` kapısı da gelmeli; (4) liste eklenince
+`TestPackaging_TheOperatorIngressesAreTheLiveObjects` bilerek kırmızıya döner ve listeyle
+birlikte güncellenir (canlıyı değiştiren bir alan).
+
+**`nginx -T` — orkestratörün ölçeceği (salt-okur, ajan koşmaz).** İki kaynağın tek `server`
+bloğunda birleştiğini ve her `location`'ın kendi sınırını taşıdığını gösterir:
+
+```bash
+kubectl --context hetzner-k8s-1 -n ingress-nginx get deploy,ds -o name
+# controller adı yukarıdan; aşağıda deploy/ingress-nginx-controller varsayıldı
+kubectl --context hetzner-k8s-1 -n ingress-nginx exec deploy/ingress-nginx-controller -- nginx -T 2>/dev/null \
+  | grep -c '## start server ops.taptime.mt'
+# beklenen: 1  (iki kaynak, TEK server bloğu)
+kubectl --context hetzner-k8s-1 -n ingress-nginx exec deploy/ingress-nginx-controller -- nginx -T 2>/dev/null \
+  | awk '/## start server ops.taptime.mt/,/## end server ops.taptime.mt/' \
+  | grep -E 'location |set \$ingress_name|client_max_body_size|force_ssl_redirect'
 ```
+
+Beklenen (sıra değişebilir): `location = /operator/legal` altında `set $ingress_name
+"tappa-operator-legal";` ve `client_max_body_size 320k;`; `location /` altında `set
+$ingress_name "tappa-operator";` ve `client_max_body_size 24k;`; ikisinde de
+`force_ssl_redirect = true`. Bir sertifika yenilemesi sürerken ek bir
+`/.well-known/acme-challenge/…` location'ı görünebilir. **Kırmızı:** iki `server` bloğu, ya da
+`location = /operator/legal`'ın `24k` taşıması (o zaman 256 KiB'lık bir yasal metin
+yayımlanamaz — nginx'in markasız 413'ü).
 
 **Ingress neyi log'lar (ADR 0020 §6'nın OP-9'a bıraktığı ölçüm).** ingress-nginx'in
 varsayılan erişim satırı istek satırını (`$request`: yöntem, yol, **sorgu**) ve `Referer`

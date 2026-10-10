@@ -1,0 +1,132 @@
+# Tappa — the platform operator's host, ops.taptime.mt (M10 OP-9 K2; backlog T112).
+#
+# 🔴 THIS FILE EXISTS BECAUSE THESE TWO OBJECTS LIVED ONLY IN THE CLUSTER. On 2026-10-09
+# the operator surface was opened by applying deploy/README.md's draft ("Bekliyor: K2/K4")
+# BY HAND; .github/workflows/deploy.yml did not apply it, so the cluster and the tree
+# disagreed — the T41/T42/T43/T44 class ("fixed in the cluster, the manifest does not
+# know") once more. What is below is the live pair as dumped on 2026-10-10 (status,
+# managedFields and last-applied removed), field for field: same names, host, paths,
+# path types, body sizes, TLS secret, issuer annotation, class and backend. The live
+# objects carry NO labels, so neither does this file: adding one would make the first
+# deploy CHANGE the live objects, and that is a decision, not a transcription
+# (TestPackaging_TheOperatorIngressesAreTheLiveObjects pins the pair as dumped).
+#
+# 🔴 THE CUSTOMER ROUTES ARE 404 ON THIS HOST ONLY WHILE THE OPERATOR SURFACE IS
+# CONFIGURED. This Ingress sends ops.taptime.mt to the SAME Service as taptime.mt. The
+# application's host gate (internal/httpx/operatorhost.go, operatorHostOnly) answers
+# every customer route on the operator host with 404 (a bare / goes to the console) —
+# but NewRouter mounts that gate only when TAPPA_OPERATOR_HOST is set
+# (internal/httpx/router.go; the CONTROL rows of
+# TestOperatorHostOnly_EveryEscapeAttemptLandsOnOneSide). With the four OP-7 keys
+# absent, a request to ops.taptime.mt is served the CUSTOMER product: the landing page,
+# the sign-in forms, the tap and activation routes. That breaks 40-ingress.yaml's
+# "EXACTLY ONE HOST SERVES THE APP", whose proxy-off gate checks taptime.mt alone.
+# What softens it today, read rather than tested here: the product sets no cookie
+# Domain (host-only, so no session from taptime.mt reaches this host and a tap here is
+# CLAUDE.md §5 row 3: the activation page, no record), and the record resolved
+# DNS-only on 2026-10-10 (dig +short ops.taptime.mt -> 144.76.158.60, the origin, not
+# a proxy edge). Neither makes a second customer origin acceptable. So CLOSING THE
+# SURFACE MEANS REMOVING THESE TWO OBJECTS TOO, and that takes a commit (drop the
+# apply line in deploy.yml, or this file) AND a cluster-admin delete
+# (the deploy identity has no `delete` on ingresses — 01-rbac.yaml). deploy/README.md,
+# "Geri alma — yüzeyi kapat", carries the commands.
+#
+# 🔴 TWO OBJECTS, BECAUSE THE BODY LIMIT DEPENDS ON THE PATH. ingress-nginx applies an
+# annotation such as proxy-body-size to EVERY path of the Ingress that carries it, so a
+# different limit for one path is a separate Ingress for that path. Both limits are the
+# application's own bound plus a margin, so the request just past the bound is answered
+# by the application's own 413 page rather than the controller's unbranded one, and both
+# are pinned against the handler constants by
+# TestPackaging_TheOperatorBodyLimitsFollowTheHandlersBounds:
+#   tappa-operator        /  (Prefix)               24k = maxFormBytes 16 KiB + 8 KiB
+#                         (internal/handler/operator/render.go — every operator form
+#                         but the legal text goes through readForm with it)
+#   tappa-operator-legal  /operator/legal (Exact)   320k = maxLegalBody 256 KiB + 64 KiB
+#                         (legal.go; ADR 0016 §6's 262 144-byte ceiling, applied to the
+#                         URL-encoded request body — the same bytes the controller counts)
+# A single Ingress at 320k would let a client with no session make the controller buffer
+# 320 KiB on the sign-in paths. NOT MEASURED IN THE CLUSTER: that the controller merges
+# the two objects into ONE server block for ops.taptime.mt with each location carrying
+# its own client_max_body_size — deploy/README.md gives the read-only nginx -T command.
+#
+# TLS: both objects carry the SAME tls block (one secret, ops-taptime-tls, separate from
+# every customer host's secret), and only tappa-operator carries the cert-manager issuer
+# annotation, so exactly one Certificate is derived for the secret. The live pair is
+# exactly that (the legal object has no issuer annotation).
+#
+# ⚠️ K4 IS STILL OPEN (the user's decision): there is NO source-address restriction
+# today, and this file says so rather than implying one. If an allow-list is decided,
+# it goes on BOTH objects — an annotation is per object, so a list on one leaves the
+# other path open to every address — and its name must be checked against the cluster's
+# ingress-nginx version (older releases read whitelist-source-range, newer ones
+# allowlist-source-range). It is only meaningful while the record stays DNS-only: behind
+# a proxy the controller sees the proxy's edge address (40-ingress.yaml, options a/b/c).
+#
+# Applied by deploy.yml's "Roll out the server" step, right after 40-ingress.yaml; the
+# deploy identity's ingresses verbs (get, list, create, patch) are 01-rbac.yaml's.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tappa-operator
+  namespace: tappa
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    # Plain HTTP is redirected for the reason 40-ingress.yaml measured on the customer
+    # host: a non-secure origin gets no Sec-Fetch-* headers, and the operator's
+    # same-origin gate (routes.go) falls back to Sec-Fetch-Site when Origin is null.
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # Every path but /operator/legal: maxFormBytes (16 KiB) + 8 KiB.
+    nginx.ingress.kubernetes.io/proxy-body-size: "24k"
+    # K4 placeholder — see the header. Not set today.
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - ops.taptime.mt
+      secretName: ops-taptime-tls
+  rules:
+    - host: ops.taptime.mt
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: tappa
+                port:
+                  name: http
+---
+# The legal text's publication (M10 OP-10), and nothing else: an Exact path, so
+# /operator/legal/anything falls to tappa-operator's 24k.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tappa-operator-legal
+  namespace: tappa
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # maxLegalBody (262 144 bytes) + 64 KiB. The route is behind the session gate, but
+    # the controller buffers the body BEFORE the application sees it: a client with no
+    # session can also send up to 320 KiB to this one path (the application then
+    # redirects it to sign-in) — a counted limit, one path.
+    nginx.ingress.kubernetes.io/proxy-body-size: "320k"
+    # K4 placeholder — the SAME list as tappa-operator's, or this path is open to all.
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - ops.taptime.mt
+      secretName: ops-taptime-tls
+  rules:
+    - host: ops.taptime.mt
+      http:
+        paths:
+          - path: /operator/legal
+            pathType: Exact
+            backend:
+              service:
+                name: tappa
+                port:
+                  name: http

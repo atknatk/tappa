@@ -620,6 +620,16 @@ jobs:
           set -euo pipefail
           sed "s|:deploy-placeholder|:sha-$SHORT|g" deploy/k8s/20-app.yaml | kubectl apply -f -
           kubectl apply -f deploy/k8s/40-ingress.yaml
+          # The operator host's two Ingresses (backlog T112: applied by hand on
+          # 2026-10-09, in the tree since). The same identity and verbs as the line
+          # above (01-rbac.yaml: ingresses get, list, create, patch).
+          # ⚠️ THIS LINE ASSUMES THE OPERATOR SURFACE IS CONFIGURED. Without the four
+          # OP-7 keys the application does not mount its operator-host gate, so this
+          # host would serve the CUSTOMER product — a second, ungated customer origin
+          # (41-operator-ingress.yaml's header). Closing the surface removes this line in
+          # the same change; the identity cannot delete an Ingress, so the objects
+          # themselves are the operator's to delete (deploy/README.md, "Geri alma").
+          kubectl apply -f deploy/k8s/41-operator-ingress.yaml
           # maxUnavailable is 0, so the old pod keeps serving until the new one has
           # passed /readyz — i.e. until it has proved it can reach the database.
           kubectl -n tappa rollout status deployment/tappa --timeout=300s
