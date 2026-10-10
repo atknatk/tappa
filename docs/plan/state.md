@@ -1692,6 +1692,14 @@ yazılır.
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 
+### 2026-10-10 (28. oturum, otuz ikinci yarı) — ✅ **M11 planı ONAYLI — holding modeli** (11 denetim turu; kod yok)
+
+- **Model değişti (kullanıcı, 2026-10-10):** 30. yarıda onaylanan "tek tenant, iki şirket" yerine **KF ve KM aynı holding altında ayrı iki tenant; holding bağıyla çapraz dokunuş** → CLAUDE.md §4.5'e ikinci, adı konmuş istisna (API-0'da yazılacak). Plan: [m11-entegrasyon-api.md](m11-entegrasyon-api.md) (`77bd943` → … → bu commit). 6.–11. tur iki mercekle; 6.–10. tur RED (bloklayan 6. turdan sonra hiç yok), **11. tur üçüncü göz ve güvenlik ONAY**; 14 DÜŞÜK onay sonrası işlendi.
+- **🟢 KULLANICI KARARLARI:** K-1 holding · K-1a kayıt işverende (onay/politika/manuel işverende) · K-1b aktivasyon yalnız kendi plaketinde · K-1c holding plaketinde **plaketin** markası · K-1d/f/h görünürlük (ad, kod, zaman, mekan, `externalRef`, `tagId`, sonuç, yön, aktiflik — e-posta/GPS/IP/not asla; DPA notu kullanıcıda) · **K-1e kaldırıldı** (KF'ye kapanış saati — 7.–9. turun ORTA'larını üretiyordu) · K-1g çapraz QR'da saha IP'si şart (yeni `sys:` guardrail) · K-3 sandbox **ayrı alan adı** (alt alan + `__Host-` geçişi denendi, geri dönüldü) + GATE-1 · K-25 · K-26.
+- **Ölçümle kurulan tasarım:** iki sayaç için tek ön-kilit ("var et" + kanonik sıra; 14 288 + 8 640 işlemde 0 kilitlenme, mutantlar 9/20 ve 324) · dört sonuçlu katı holding ilerletmesi · kanal × zaman tolerans modeli (yalnız ilerletilmiş NFC ve kayıtlı redler) · tek `holding_peer` yüklemi (M1/M2/M3 fonksiyonda ve tetikleyicide kırmızı) · `tappa_holdingdefiner` 18+ sütunluk "asla SELECT" pini · KF izdüşümü kapalı `outcome` kümesiyle, holding çalışanına süre yok (izdüşüm içi eşleme 9 sa / 32 sa sahte aralık üretiyordu).
+- **Ders:** bir görünürlük özelliği (K-1e) değişmez kayıt modeline "bağ" sütunu eklettiğinde, düzeltme ve geriye tarihleme kurallarıyla (ADR 0008/0011) her turda yeni bir çatışma çıkardı; kaldırmak üç turluk kırmızıyı bir kerede kapattı. Bir özellik denetimde tekrar tekrar kırmızı üretiyorsa **kullanıcıya bedeliyle geri sormak** doğru hamleydi.
+- **Kalan:** **API-0** (ADR 0027 + 0028 + CLAUDE.md §4.5/§5/§6/§7/§9 metinleri) kullanıcı "başla" dediğinde, dal `m11-api`. Canlı ön koşul: OP-15. Kullanıcının dış adımları: sandbox alan adı, `api.taptime.mt` DNS, webhook adresleri (API-13'te), DPA notu.
+
 ### 2026-10-10 (28. oturum, otuz birinci yarı) — 🚀 **canlı `77cfb98`** (WL-13 + e-posta açık)
 
 - **Deploy (kullanıcı onayı):** `77cfb98` main'e; main CI ilk koşuda bilinen flake `TestPolicySetDB_ConcurrentFirstTapsMaterialiseOnce` ile düştü (dalda aynı commit yeşildi) → yeniden koşu yeşil → deploy. Canlıda ConfigMap `email`/`email`, kurtarma formu artık *"cannot send email yet"* demiyor, fatal log 0.
