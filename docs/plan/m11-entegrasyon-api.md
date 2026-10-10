@@ -1,12 +1,12 @@
 # M11 — Entegrasyon API'si (KF-RMS · KM-ERP)
 
-> **Durum:** PLAN, **5. sürüm** (2026-10-10, 28. oturum). Kod yok.
-> 1.–3. sürüm ikişer bağımsız denetimden RED aldı; 4. sürüm (`0436321`) **üçüncü
-> gözden ONAY**, güvenlik merceğinden tek bir ORTA ile RED aldı (tetikleyici
-> fonksiyonunun PUBLIC EXECUTE'u — geçici tablo yolu, ölçüldü). Bu sürüm o bulguyu
-> ve iki raporun DÜŞÜK'lerini işler — eşleme §9'da. Kullanıcı kararları: K-1, K-2,
-> K-3, K-19, K-25, K-26 (§3). Sıradaki adım: güvenlik merceğinin dar 5. turu, ONAY
-> gelirse API-0.
+> **Durum:** ✅ **PLAN ONAYLI** (2026-10-10, 28. oturum). Kod yok.
+> Beş denetim turu: 1.–3. sürüm ikişer bağımsız denetimden RED; 4. sürüm (`0436321`)
+> **üçüncü gözden ONAY**; 5. sürüm (`f2104ea`) **güvenlik merceğinden ONAY** (geçici
+> tablo yolunun kapandığı ve meşru yolun çalıştığı PG 17.10'da harfiyen kurularak
+> ölçüldü). 5. turun üç DÜŞÜK'ü bu sürümde denetçinin önerdiği biçimde işlendi
+> (yeniden denetlenmedi — API-0'ın ADR denetimi kapsar). Eşleme §9'da. Kullanıcı
+> kararları: K-1, K-2, K-3, K-19, K-25, K-26 (§3). **Sıradaki adım: API-0 (ADR 0027 + 0028).**
 >
 > **Kaynak:** kullanıcının paylaştığı *"TapTime API — Kurulum Rehberi (KF-RMS ve
 > KM-ERP entegrasyonu)"*, 2026-10-09. **Repoya konmadı** — depo public ve doküman
@@ -177,7 +177,10 @@ bu yüzden UPDATE hep sütun listesiyle verilir. **Tablo × fiil × sütun matri
 kısmi UNIQUE → ikinci şirketi `tappa_app` yapısal olarak açamaz (ikinci kayıt 23505,
 `is_default`'u yazmak 42501 — 4. turda ölçüldü), UPDATE yalnız `(code, name)`; `api_keys` —
 UPDATE yalnız `(revoked_at, last_used_at)`, iptal **tek yönlü** (00011'deki
-`tappa_forbid_revocation_reset` emsali tetikleyici); `webhook_endpoints` — UPDATE
+`tappa_forbid_revocation_reset` emsali tetikleyici) ve **her `revoked_at` yazması**
+`COALESCE(revoked_at, now())` ve/veya `WHERE revoked_at IS NULL` taşır (00011 BOUNDARY 2,
+`:534-547` — korumasız bir toplu iptal tetikleyiciye çarpıp bütün işlemi geri alır,
+anahtarlar canlı kalırdı); `feed_counters` — `tappa_app` yalnız SELECT (satırı tetikleyici açar, §4.4); `webhook_endpoints` — UPDATE
 `tenant_id`/`company_id` içermez. **Fonksiyonlar da bu kurala tabidir:** M11'in yarattığı
 her fonksiyonda `REVOKE ALL ON FUNCTION … FROM PUBLIC` (yeni fonksiyon PUBLIC EXECUTE ile
 doğar). **Kabul:** CI, migration'lardan önce prod'un `arwd` varsayılanını kurar; **genel
@@ -293,11 +296,14 @@ Dış dünyadaki punch, `transactions` satırının **dışarıya bakan izdüş�
   `tappa_feedwriter` oradaki **idempotent** blokta (OP-5 kalıbı) ve canlı küme için
   `deploy/README.md` runbook'unda yaratılır; `pg_dump` rol taşımadığı için
   (`scripts/pg-restore-verify.sh:379`) geri yükleme provası **sıfırdan kurulmuş** bir
-  pod'a yapılır. Migration'ın ön koşul bloğu rol yoksa ya da rolün **dört yönden
-  herhangi bir üyeliği** varsa düşer (00029:99-120 emsali). Migration sonrasındaki hatalı
-  bir `GRANT tappa_feedwriter TO tappa_app` için **çalışan kapı:** `internal/db/pool.go`'nun
-  rol reddi, sertleştirilmiş ortamlarda (K-28) `tappa_app` **herhangi bir rolün üyesiyse**
-  açılışı reddeder (bugün yalnız süper kullanıcı, BYPASSRLS ve tablo sahipliğine bakıyor).
+  pod'a yapılır. Migration'ın ön koşul bloğu rol yoksa ya da rolün **iki yönden** herhangi
+  bir üyeliği varsa (rolün üyesi var / rol bir rolün üyesi) düşer (00029:99-120 emsali).
+  Migration sonrasındaki hatalı bir `GRANT tappa_feedwriter TO tappa_app` için **çalışan
+  kapı:** `internal/db/pool.go`'nun rol reddi, sertleştirilmiş ortamlarda (K-28) `tappa_app`
+  **herhangi bir rolün üyesiyse** açılışı reddeder (bugün süper kullanıcılık, BYPASSRLS,
+  tablo sahipliği, bunlara üyelik ve rol değiştirmiş oturumu denetliyor — `pool.go:175-200`;
+  genel üyelik eklenir). 5. turda ölçüldü: taze init'te ve dev'de `tappa_app`'in üyeliği 0 —
+  kural bugünkü açılışı kırmaz; API-13 runbook'u prod'da `pg_auth_members`'ı da ölçer.
 - **Katalog testi** (`internal/db/operatorschema_test.go:500-545` kalıbı, ADR 0021'e not):
   `tappa_feedwriter` NOLOGIN, NOBYPASSRLS, **üyesi 0**; sahip olduğu **her** fonksiyon
   `prorettype = trigger` (doğrudan çağrılabilir, `void` dönen bir yardımcı yazma kapısı
@@ -358,8 +364,11 @@ sonrakiler daha da büyük. Dolayısıyla `WHERE tenant_id = $t AND seq > $curso
   yok — bugünkü sınıf; 3. turda ~505 ms'de 55P03 ölçüldü). Değerler ADR 0028'de.
 - **Geri yükleme:** sayaçlar `pg_dump`'la yedek anındaki değerle gelir; yedekten sonra
   tüketilmiş olaylar varsa tüketicinin imleci bunların ötesindedir. Sayaç satırı **her
-  tenant için her zaman vardır** — migration mevcut tenant'lara, `/signup` yeni tenant'a
-  açar — böylece yedek ile kaynak arasındaki satır sayısı eşitliği
+  tenant için her zaman vardır** — migration mevcut tenant'lara açar, yeni tenant'ınkini
+  `tappa_feedwriter` sahipli bir **`AFTER INSERT ON tenants` tetikleyicisi** açar (signup
+  kodu değil: `tappa_app`'in `feed_counters`'a INSERT'i yok; tetikleyici M11 öncesi bir
+  binary'ye geri dönüşte de çalışır ve katalog testinin `prorettype = trigger` şartına
+  uyar) — böylece yedek ile kaynak arasındaki satır sayısı eşitliği
   (`scripts/pg-restore-verify.sh:160-174`) bozulmaz ve atlatma yalnız bir `UPDATE`'tir.
   **Uygulama yazmaya başlamadan önce** geri yükleme runbook'u her tenant'ın sayacını büyük
   bir aralık ileri atar; doğrulayıcı, her tenant için `last_seq ≥ max(o tenant'ın
@@ -521,7 +530,7 @@ owner'a panelde görünür uyarı ve `api.deactivation_budget_exceeded` audit sa
 | API-10 | Webhook gönderici: kiralama, geri çekilme, `dead`, yeniden gönder, kapanış testi, panel teslim günlüğü | L | yapıcı (`tappa-brand`) | API-9 |
 | API-11 | Sandbox ikilisi + simülasyon paketi + kurulum (§4.8) | M | yapıcı + kullanıcı (alan adı/DNS) | API-5, API-6, API-7, API-8, API-10 |
 | API-12 | OpenAPI tamamı + entegrasyon rehberi (EN; §2'nin 24 maddesi + imza vektörü) | S | yapıcı | API-5…API-11 |
-| API-13 | Canlıya alma: sırlar, `api.` DNS + Ingress, **`tappa-security-auditor` tam tur**, operatörden K-22 açılışı, KF bağlama runbook'u (K-18), KM şirketi + KM plaketleri (§3 — kullanıcıya sorulur), eski KM tenant'ının kapatılması, prod anahtar çifti eşitlik ölçümü (değer basmadan), spec §7 kabul listesi | M | yapıcı + denetçi + kullanıcı | hepsi + **EM-12** + **OP-15** |
+| API-13 | Canlıya alma: sırlar, `api.` DNS + Ingress, **`tappa-security-auditor` tam tur**, operatörden K-22 açılışı, KF bağlama runbook'u (K-18), KM şirketi + KM plaketleri (§3 — kullanıcıya sorulur), eski KM tenant'ının kapatılması, prod anahtar çifti eşitlik ölçümü (değer basmadan) ve prod `pg_auth_members` ölçümü, spec §7 kabul listesi | M | yapıcı + denetçi + kullanıcı | hepsi + **EM-12** + **OP-15** |
 
 Her görev: yapıcı (opus) → **ayrı** üçüncü göz → bulgu varsa düzelt + yeniden
 denetle (CLAUDE.md §10). Büyük testler (`-race` tamamı, `make check`) yalnız görev
@@ -533,8 +542,8 @@ Her commit'ten önce `./scripts/redline-check.sh` — pre-push kancası push edi
 
 - **API-0:** her ADR notu var; CLAUDE.md §4.5 metni **değişmemiş** (K-19); ADR 0028'de SSRF tehdit modeli, tetikleyici değişmezleri ve sandbox kapısı normatif.
 - **API-1:** `\d` ile her yeni tablo RLS beşlisi + GRANT; **§4.0: CI, prod'un `arwd` varsayılanını kurup her yeni tabloda dört fiili ölçer**; owner ikinci şirket **açamaz**, `op_*` açar; mevcut her tenant'ın tam bir varsayılan şirketi var; **`/signup` ile açılan yeni tenant'ın da**; K-24 indeksleri ve **kısıt adı korunmuş** (panelde "adres alınmış" hâlâ 409, 500 değil); pasif satırla aynı e-postada yeni aktif satır açılıyor, iki aktif satır açılamıyor; `employees.company_id` UPDATE'i reddediliyor; `location_id` okuyucu sayımı rapora yazılmış; `updated_at` dört UPDATE yolunda ve **yalnız** rehbere görünen sütun değişince değişiyor (her biri için test); `api_enabled_at`'ı `tappa_app` yazamıyor, `op_*` açıp kapatabiliyor.
-- **API-2:** (a) olay kodunu bilmeyen düz bir `INSERT INTO transactions` olay doğurur; (b) **çok oturumlu stres testi** (≥ 12 yazıcı, ≥ 3 tenant, INSERT ile COMMIT arasında rastgele 0–30 ms, abort ve savepoint geri alımı karışık, eşzamanlı okuyucu) → **sıfır** kaçan ve `seq` yoğun; **iki mutasyonda kırmızı**: kilitsiz dizi, ayrı işlemde artırılan sayaç (3. tur ikisini de ölçtü: 843 / 408); (c) geri yüklenmiş kopyada doğrulayıcı, sayaç atlatılmadan geri yüklemeyi reddeder; atlatılınca yeni olay eski imlecin ötesinde döner; (d) flag yazan dokunuş olay yazmaz, onaylanınca yazar, reddedilince yazmaz; manuel ve `practice` satırı (onaylı `practice` flag dahil) asla; (e) B tenant'ı A'nın olaylarını görmez (filtresiz sorgu); (f) `arwd` varsayılanlı veritabanında `tappa_app` ile `punch_events`/`feed_counters` üzerinde INSERT, UPDATE, DELETE **42501**; `webhook_deliveries` üzerinde INSERT, DELETE ve kira/sonuç dışı sütun UPDATE'i 42501; **`tappa_app`'in geçici tablosuna `CREATE TRIGGER … EXECUTE FUNCTION <olay tetikleyicisi>` → 42501**; (g) tetikleyici hatası dokunuş kaydını geri alır; (h) savepoint içinde geri alınan olay sayacı da geri alır; (i) takılı bir yazıcının **arkasında bekleyen** işlem `lock_timeout` sonunda 55P03 ile bırakılır, takılı yazıcının kendisini `idle_in_transaction_session_timeout` bitirir; tetikleyiciden sonra işlemin `lock_timeout`'u eski değerindedir (öznitelik sızmaz); `tappa_app` bağlantısında `SHOW idle_in_transaction_session_timeout` beklenen değer; (j) olay satırındaki şirket kimlikleri lokasyonun şirketi sonradan değişse de sabit; (k) kapalı API erişiminde olay yazılır, teslim satırı yazılmaz; (l) geri doldurmanın kilit süresi prod boyutunda bir kopyada ölçülmüş ve **≤ 2 sn** (aşarsa bölünmüş hâli); (m) katalog testi: `tappa_feedwriter` NOLOGIN, NOBYPASSRLS, dört yönden üyesiz, sahip olduğu her fonksiyon `prorettype = trigger`, `proconfig` sabit ve `has_function_privilege` EXECUTE **`tappa_app` ve PUBLIC için false**; `tappa_app` bir role üye yapılınca sertleştirilmiş ortamda süreç başlamaz; (n) yedek **sıfırdan kurulmuş** bir pod'a geri yüklenir (rol `01-roles.sql`'den gelir) ve doğrulayıcı geçer; rolün bir üyesi varken migration düşer.
-- **API-3:** §4.0 katalog testi `api_keys`'i kapsar ve iptal geri alınamaz (`revoked_at` NULL'a dönemez); iptal edilmiş anahtar bir sonraki istekte **401**; `api_enabled_at` boş tenant'ın anahtarı **403**; yanlış ortam öneki DB'ye gitmeden 401; anahtar log'da/hata metninde/audit'te yok; yeni R7/R7b/R7d kökleri yeşil ve **kasıtlı ihlalde kırmızı**; `TAPPA_WEBHOOK_KEK` = `TAPPA_TAG_KEK` (ya da başka herhangi bir anahtar) yapıştırılınca süreç başlamaz; B'nin anahtarı A'nın tek satırını okuyamaz/yazamaz.
+- **API-2:** (a) olay kodunu bilmeyen düz bir `INSERT INTO transactions` olay doğurur; (b) **çok oturumlu stres testi** (≥ 12 yazıcı, ≥ 3 tenant, INSERT ile COMMIT arasında rastgele 0–30 ms, abort ve savepoint geri alımı karışık, eşzamanlı okuyucu) → **sıfır** kaçan ve `seq` yoğun; **iki mutasyonda kırmızı**: kilitsiz dizi, ayrı işlemde artırılan sayaç (3. tur ikisini de ölçtü: 843 / 408); (c) geri yüklenmiş kopyada doğrulayıcı, sayaç atlatılmadan geri yüklemeyi reddeder; atlatılınca yeni olay eski imlecin ötesinde döner; (d) flag yazan dokunuş olay yazmaz, onaylanınca yazar, reddedilince yazmaz; manuel ve `practice` satırı (onaylı `practice` flag dahil) asla; (e) B tenant'ı A'nın olaylarını görmez (filtresiz sorgu); (f) `arwd` varsayılanlı veritabanında `tappa_app` ile `punch_events`/`feed_counters` üzerinde INSERT, UPDATE, DELETE **42501**; `webhook_deliveries` üzerinde INSERT, DELETE ve kira/sonuç dışı sütun UPDATE'i 42501; **`tappa_app`'in geçici tablosuna `CREATE TRIGGER … EXECUTE FUNCTION <olay tetikleyicisi>` → 42501**; (g) tetikleyici hatası dokunuş kaydını geri alır; (h) savepoint içinde geri alınan olay sayacı da geri alır; (i) takılı bir yazıcının **arkasında bekleyen** işlem `lock_timeout` sonunda 55P03 ile bırakılır, takılı yazıcının kendisini `idle_in_transaction_session_timeout` bitirir; tetikleyiciden sonra işlemin `lock_timeout`'u eski değerindedir (öznitelik sızmaz); `tappa_app` bağlantısında `SHOW idle_in_transaction_session_timeout` beklenen değer; (j) olay satırındaki şirket kimlikleri lokasyonun şirketi sonradan değişse de sabit; (k) kapalı API erişiminde olay yazılır, teslim satırı yazılmaz; (l) geri doldurmanın kilit süresi prod boyutunda bir kopyada ölçülmüş ve **≤ 2 sn** (aşarsa bölünmüş hâli); (m) katalog testi: `tappa_feedwriter` NOLOGIN, NOBYPASSRLS, dört yönden üyesiz, sahip olduğu her fonksiyon `prorettype = trigger`, `proconfig` sabit ve EXECUTE ACL'i **tam olarak** `{tappa_feedwriter=X/tappa_feedwriter}` (sahip dışında hiçbir rol — `tappa_operator` gibi TEMP hakkı olan başka LOGIN rolleri dahil — çalıştıramaz; 5. turda ölçülen ACL, geri yüklemeden sonra da aynı); `tappa_app` bir role üye yapılınca sertleştirilmiş ortamda süreç başlamaz; (n) yedek **sıfırdan kurulmuş** bir pod'a geri yüklenir (rol `01-roles.sql`'den gelir) ve doğrulayıcı geçer; rolün bir üyesi varken migration düşer.
+- **API-3:** §4.0 katalog testi `api_keys`'i kapsar ve iptal geri alınamaz (`revoked_at` NULL'a dönemez); **eşzamanlı çift iptal** ve toplu iptal anahtarları canlı bırakmaz; iptal edilmiş anahtar bir sonraki istekte **401**; `api_enabled_at` boş tenant'ın anahtarı **403**; yanlış ortam öneki DB'ye gitmeden 401; anahtar log'da/hata metninde/audit'te yok; yeni R7/R7b/R7d kökleri yeşil ve **kasıtlı ihlalde kırmızı**; `TAPPA_WEBHOOK_KEK` = `TAPPA_TAG_KEK` (ya da başka herhangi bir anahtar) yapıştırılınca süreç başlamaz; B'nin anahtarı A'nın tek satırını okuyamaz/yazamaz.
 - **API-4:** §4.0 katalog testi `api_idempotency`'yi kapsar; API host'unda `/admin` 404, ana host'ta `/v1` 404; geçersiz anahtar selinde IP kovası resolver'dan önce 429; aynı Idempotency-Key + farklı gövde 422; eşzamanlı aynı anahtar tek işlem, ikinci istek kayıtlı sonucu döner; süreç işlem ortasında ölünce anahtar takılı kalmaz.
 - **API-4b:** §4.7 tablosunun her hücresi için bir test.
 - **API-5:** KM anahtarı KF lokasyonunu okuyamaz/değiştiremez (aynı `externalRef` ile bile yeni KM satırı açar); farklı `timezone` 422; tekrar `PUT` yeni satır açmaz.
@@ -671,3 +680,20 @@ kırmızı); definer + GUC + FORCE RLS davranışı ölçüldü.
 | §4.7 "varsayılan kapalı" davet işçisini ve tetikleyiciyi kapatıyordu | üçüncü göz D4 | §4.7 açık sütunu |
 | API-2 (i) ifadesi | üçüncü göz D7 | API-2 (i) |
 | §4.0 ölçümünün kapsamı | üçüncü göz D8 | §4.0 genel katalog testi · API-3/4/9 kabul |
+
+### 5. tur (2026-10-10, `f2104ea`) — güvenlik merceği **ONAY**
+
+Ölçüm: geçici PG 17.10 konteynerinde 35 migration + seed + prod `arwd` varsayılanı + planın
+modeli harfiyen. Geçici tablo / constraint trigger / `INSTEAD OF` / doğrudan çağrı → 42501;
+EXECUTE PUBLIC'e açılınca saldırı yeniden üretildi (pozitif kontrol); meşru yol (ok, flag,
+reject, manual, practice, onay, API kapalı, GUC uyuşmazlığı) beklendiği gibi; 26 yetkinin
+25'i tek tek zorunlu (`USAGE ON SCHEMA public` dev kümesinde zorunlu); başka bağlama/atlatma
+yolu yok (event trigger, `session_replication_role`, kalıtım, bölüm, `SET ROLE`); düzeltme
+`pg_dump`/geri yüklemeden sağ çıkıyor.
+
+| DÜŞÜK | Nereye işlendi (onay sonrası, yeniden denetlenmedi) |
+|---|---|
+| D-1 sayaç satırını kim açar (signup ↔ yetki çelişkisi) | §4.4 `AFTER INSERT ON tenants` tetikleyicisi · §4.0 matris |
+| D-2 API-2 (m) EXECUTE'u yalnız `tappa_app`/PUBLIC için ölçüyordu | API-2 (m) tam ACL |
+| D-3 `revoked_at` yazma koruması (00011 BOUNDARY 2) | §4.0 · API-3 kabul |
+| Metin notları: `pool.go` ifadesi, "dört yön" | §4.3 |

@@ -1692,6 +1692,15 @@ yazılır.
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 
+### 2026-10-10 (28. oturum, otuzuncu yarı) — ✅ **M11 planı ONAYLI** (beş denetim turu; kod yok)
+
+- **Plan:** [m11-entegrasyon-api.md](m11-entegrasyon-api.md), 5 sürüm (`a169391` → `e0ad91f` → `41c956d` → `0436321` → `f2104ea` + DÜŞÜK'ler). Her turda iki bağımsız mercek (üçüncü göz + `tappa-security-auditor`); 1.–3. tur ikisi de RED, 4. tur üçüncü göz **ONAY**, 5. tur güvenlik **ONAY**. Bulgu → yer eşlemesi planın §9'unda. 24 sözleşme farkı, K-1…K-28, 15 görev (API-0…API-13 + API-4b). Bu kayıt 28. yarının M11 kaydının yerini alır (oradaki `xid8` imleci ve `sandbox.taptime.mt` artık geçersiz).
+- **🟢 KULLANICI KARARLARI:** K-1 tek tenant + iki şirket (ek bedellerle yeniden onaylandı → **EM-12 canlı ön koşul**) · K-2 ADR 0026 kalır · K-3 sandbox **ayrı alan adı + ayrı derleme** · K-19 arka plan işçisi **tenant'lar arası tarama yapmaz** (CLAUDE.md §4.5 değişmez) · K-25 API pasifleştirme anında + anahtar başına saatlik bütçe · K-26 askıda anahtar iptali / uç nokta kapatma açık.
+- **Ölçümle çürütülen tasarımlar:** Go katmanında olay yazmak (deploy/rollback'te kayıp) → DB tetikleyicisi · `xid8` imleci (`pg_dump` geri yüklemesinde 0 satır) → küresel dizi + advisory kilit (`CACHE 20`'de 1234 olayın 1016'sı kaçtı) → **tenant başına sayaç satırı** (3 koşuda 0 kaçan, iki mutasyon kırmızı) · yalnız INSERT REVOKE (prod `arwd`) → her tabloda REVOKE ALL + matris · tetikleyici fonksiyonunun PUBLIC EXECUTE'u (geçici tabloya bağlanıp reddedilmiş kayda olay yazdırıyordu) → `REVOKE … FROM PUBLIC`.
+- **Ders:** bir garantiyi "ispat" diye yazmak yetmedi — beş turun dördünde en ağır bulgu gerçek Postgres'te **ölçülerek** bulundu (geri yükleme, dizi önbelleği, varsayılan yetkiler, TEMP + EXECUTE). Plan aşamasında bile denetçiye geçici şema/konteynerde ölçüm yaptırmak kodu yazmadan dört hatayı yakaladı.
+- **Not:** R7d plan satırlarını da tarar; 1. sürümün bir satırı push'u durdurdu, tappa-b9 geçmişi katladı (`a169391`). Her plan commit'inden önce `./scripts/redline-check.sh` koştu.
+- **Kalan:** API-0 (ADR 0027 + 0028 + notlar) kullanıcı "başla" deyince, dal `m11-api`. Canlı ön koşullar: **EM-12**, **OP-15**. Kullanıcıya API-13 öncesi sorulacak: KM plaketlerinin akıbeti. Kullanıcının dış adımları: sandbox alan adı, `api.taptime.mt` DNS, RMS/ERP webhook adresleri.
+
 ### 2026-10-10 (28. oturum, yirmi dokuzuncu yarı) — 🚀 canlı `e95a717` · ✅ WL-13 `c06f205` · ✅ EM-5B `4b201f8` + `093a2b8`
 
 - **main ayrıştı:** başka geliştirici aktivasyon işini (ADR 0026, migration 00035, dev tap simülatörü) main'e aldı ve canlıya çıktı (`65f55b4`). Dal FF olmadığı için deploy döngüsü güvenle durdu; merge yapıcısı `e95a717` (çakışma yalnız sorgu sayacı pini 132 + state.md) → dev DB goose 35 → deploy. **OP-15 askısı 00036'ya kaydırılmalı.** CI Docker Hub anonim çekme sınırına iki kez takıldı → `031ec03` Postgres'i mirror.gcr.io'dan çekiyor (deploy token'ı CI'a verilmedi: push yetkili).
