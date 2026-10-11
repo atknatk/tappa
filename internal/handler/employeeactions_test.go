@@ -897,25 +897,23 @@ func TestEmployeeActions_AreRefusedCrossOriginBeforeTheResolverRuns(t *testing.T
 	}
 }
 
-// TestEmployeeActions_SecFetchSiteSameSitePassesTheOriginGate is S4, MEASURED rather
-// than described, because this diff is what put three mutating routes — one of them
-// irreversible — behind that one line.
+// TestEmployeeActions_SecFetchSiteSameSiteIsRefusedByTheOriginGate is S4. Its first
+// version was the LEDGER of AdminAuth.sameOrigin accepting `Sec-Fetch-Site: same-site`
+// with no Origin, and said that once the gate was tightened it must be rewritten as
+// the proof of that. GATE-1 (K-37, ADR 0028 §11) tightened it; this is the proof.
 //
-// 🔴 WHAT IT PINS. With NO Origin header, AdminAuth.sameOrigin accepts
-// `Sec-Fetch-Site: same-site`, and "same-site" means precisely A DIFFERENT ORIGIN OF
-// THE SAME SITE — a subdomain with an XSS, a subdomain takeover, the http twin of the
-// https origin. ProtectWriting's own comment names those three as the threat it
-// exists for, so the gate accepts what its reason rejects.
+// 🔴 WHAT IT PINS. "same-site" means precisely A DIFFERENT ORIGIN OF THE SAME SITE —
+// a subdomain with an XSS, a subdomain takeover, the http twin of the https origin.
+// ProtectWriting's own comment names those three as the threat it exists for, and
+// the gate now refuses what its reason rejects: an irreversible deactivation posted
+// with no Origin and same-site fetch metadata never reaches the domain.
 //
-// ⚠️ IT IS NOT EXPLOITABLE FROM A BROWSER TODAY and the test says so rather than
-// implying a hole: browsers always send Origin on POST, so a real cross-origin page
-// cannot reach this branch, and a non-browser attacker forges Origin anyway. The
-// value of pinning it is that the line is now load-bearing for a write nobody can
-// undo, and tightening it (accept only `same-origin` when Origin is absent) is a
-// one-word change in a shared function — which is why it is REPORTED rather than
-// made here: that function also gates sign-out and the review queue, and their
-// rounds are not this task's.
-func TestEmployeeActions_SecFetchSiteSameSitePassesTheOriginGate(t *testing.T) {
+// ⚠️ IT WAS NOT EXPLOITABLE FROM A BROWSER BEFORE EITHER: browsers always send Origin
+// on POST, so a real cross-origin page could not reach this branch, and a non-browser
+// attacker forges Origin anyway. The value of pinning it is that the line is
+// load-bearing for a write nobody can undo. The full header grid of all four copies
+// is internal/handler/sameorigin_gate1_test.go.
+func TestEmployeeActions_SecFetchSiteSameSiteIsRefusedByTheOriginGate(t *testing.T) {
 	staff := &fakeStaff{}
 	b := panelBrowserWithActions(t, staff, &fakeInviter{})
 	b.origin = "" // no Origin header at all
@@ -925,36 +923,48 @@ func TestEmployeeActions_SecFetchSiteSameSitePassesTheOriginGate(t *testing.T) {
 	// ORIGIN gate, so every other gate must be satisfied or a refusal here would be
 	// the wrong refusal.
 	confirmed := deactivateConfirmed(t, b, employeeID, nil)
-	req := httptest.NewRequest(http.MethodPost, employeeDeactivateHref,
-		strings.NewReader(confirmed.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Sec-Fetch-Site", "same-site")
-	req.RemoteAddr = b.ip
-	for name, value := range b.cookies {
-		req.AddCookie(&http.Cookie{Name: name, Value: value})
+	send := func(site string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, employeeDeactivateHref,
+			strings.NewReader(confirmed.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("Sec-Fetch-Site", site)
+		req.RemoteAddr = b.ip
+		for name, value := range b.cookies {
+			req.AddCookie(&http.Cookie{Name: name, Value: value})
+		}
+		rec := httptest.NewRecorder()
+		b.h.ServeHTTP(rec, req)
+		return rec
 	}
-	rec := httptest.NewRecorder()
-	b.h.ServeHTTP(rec, req)
 
+	rec := send("same-site")
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/admin" {
+		t.Fatalf("same-site POST answered %d -> %q, want 303 -> /admin (sameOriginGate's refusal)",
+			rec.Code, rec.Header().Get("Location"))
+	}
+	if d, _ := staff.commands(); len(d) != 0 {
+		t.Fatalf("the domain saw %d deactivation(s) from a same-site POST with no Origin, want 0", len(d))
+	}
+
+	// THE POSITIVE CONTROL, so the refusal above is about `same-site` and not about a
+	// gate (or a confirmation) that refuses everything: the identical request with
+	// same-origin fetch metadata is served.
+	rec = send("same-origin")
 	if rec.Code != http.StatusSeeOther || strings.Contains(rec.Header().Get("Location"), "problem=") {
-		t.Fatalf("same-site POST answered %d -> %q; this test is the LEDGER of the gate "+
-			"accepting it, so if it is now refused the gate has been tightened and this "+
-			"test must be rewritten as the proof of that",
+		t.Fatalf("control: same-origin POST answered %d -> %q, want the ordinary 303",
 			rec.Code, rec.Header().Get("Location"))
 	}
 	if d, _ := staff.commands(); len(d) != 1 {
-		t.Fatalf("the domain saw %d deactivation(s) from a same-site POST with no Origin, "+
-			"want 1 (measured behaviour). A 0 means the gate was tightened.", len(d))
+		t.Fatalf("control: the domain saw %d deactivation(s) from a same-origin POST, want 1", len(d))
 	}
 
-	// THE CONTROLS, so the pass above is about `same-site` and not about a gate that
-	// lets everything through.
+	// The gate's ordinary half, kept from the first version: a foreign Origin is
+	// refused as well.
 	cross := panelBrowserWithActions(t, &fakeStaff{}, &fakeInviter{})
 	cross.origin = "https://evil.example"
 	if rec := cross.do(http.MethodPost, employeeDeactivateHref,
 		url.Values{"id": {employeeID.String()}}); rec.Header().Get("Location") != "/admin" {
-		t.Errorf("a cross-ORIGIN POST was not refused (Location %q); the gate is open to "+
-			"everything and the measurement above means nothing", rec.Header().Get("Location"))
+		t.Errorf("a cross-ORIGIN POST was not refused (Location %q)", rec.Header().Get("Location"))
 	}
 }
 

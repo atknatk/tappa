@@ -16,9 +16,12 @@ import java.net.URLEncoder
  *   Origin   the panel's own origin. The three routes mount under
  *            AdminAuth.ProtectWriting, whose sameOriginGate refuses a request that
  *            carries neither an Origin equal to TAPPA_BASE_URL nor a
- *            Sec-Fetch-Site of same-origin/same-site — and a native client sends
- *            neither by default. Measured on the server (TestPlaqueEncode_
+ *            Sec-Fetch-Site of same-origin — and a native client sends neither by
+ *            default. Measured on the server (TestPlaqueEncode_
  *            TheRelayMustDeclareItsOrigin): without it the round never opens.
+ *            THE RELAY STAYS ON THE Origin BRANCH: it sends no Sec-Fetch-Site, and
+ *            the gate refuses same-site and cross-site even beside a matching Origin
+ *            (GATE-1, ADR 0028 §11), so this client must never add that header.
  *   Cookie   the panel session, as the WebView sign-in left it in CookieManager.
  *            This app invents no identity surface (ADR 0017 §6 md. 10): the person
  *            encoding is the signed-in panel admin, and the tenant is theirs.

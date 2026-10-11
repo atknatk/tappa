@@ -1598,14 +1598,26 @@ func (a *AdminAuth) flooded(w http.ResponseWriter, r *http.Request, ip, where st
 // flow acquires an unreviewed change. The duplication is named so it is a decision
 // rather than an accident.
 //
+// SAME-SITE AND CROSS-SITE ARE REFUSED ON EVERY BRANCH, even beside a matching
+// Origin (GATE-1, K-37, ADR 0028 §11). "same-site" names a DIFFERENT origin of the
+// same site — a sibling subdomain with an XSS, or one taken over — which is exactly
+// what this check exists to refuse, and the Origin-less branch used to accept it.
+// Our own pages post same-origin; a no-referrer page posts `Origin: null` +
+// same-origin and still passes. Every other combination answers as before
+// (TestSameOrigin_EveryOtherHeaderCombinationIsUnchanged pins the grid).
+//
 // A malformed configured BaseURL makes this check pass; config.Load does not
 // validate the URL's shape and this is not the place to start (the same note
 // session.NewCookies carries).
 func (a *AdminAuth) sameOrigin(r *http.Request) bool {
+	switch strings.ToLower(strings.TrimSpace(r.Header.Get("Sec-Fetch-Site"))) {
+	case "same-site", "cross-site":
+		return false
+	}
 	origin := r.Header.Get("Origin")
 	if origin == "" || origin == "null" {
 		switch strings.ToLower(strings.TrimSpace(r.Header.Get("Sec-Fetch-Site"))) {
-		case "same-origin", "same-site":
+		case "same-origin":
 			return true
 		default:
 			return false

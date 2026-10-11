@@ -580,6 +580,7 @@ func (a *Activation) Submit(w http.ResponseWriter, r *http.Request) {
 		// Origin is allowed) because the token below is the load-bearing check
 		// and an over-eager origin rule would break browsers that omit the
 		// header; the strict version lives on Continue, where it can afford to be.
+		// Same-site and cross-site are refused here all the same (GATE-1, K-37).
 		a.anonFail(ip, "activate_submit", "foreign origin")
 		a.renderProblem(w, r, http.StatusBadRequest, problemBadLink)
 		return
@@ -1595,10 +1596,19 @@ func crossSite(r *http.Request) bool {
 // means: Continue refuses it, Submit allows it and leans on the synchronizer
 // token instead. Both positions are stated at their call sites.
 //
+// SAME-SITE AND CROSS-SITE ARE REFUSED ON EVERY BRANCH, strict=false included
+// (GATE-1, K-37, ADR 0028 §11), for the reason adminlogin.go gives: `strict` decides
+// what an absent header means, and a browser that says same-site or cross-site has
+// not sent an absent one.
+//
 // A malformed configured BaseURL makes this check pass; config.Load does not
 // validate the URL's shape and this function is not the place to start (the same
 // note session.NewCookies carries).
 func (a *Activation) sameOrigin(r *http.Request, strict bool) bool {
+	switch strings.ToLower(strings.TrimSpace(r.Header.Get("Sec-Fetch-Site"))) {
+	case "same-site", "cross-site":
+		return false
+	}
 	origin := r.Header.Get("Origin")
 	if origin == "" || origin == "null" {
 		if !strict {
@@ -1606,7 +1616,7 @@ func (a *Activation) sameOrigin(r *http.Request, strict bool) bool {
 		}
 		// Fall back to the fetch metadata when there is no Origin at all.
 		switch r.Header.Get("Sec-Fetch-Site") {
-		case "same-origin", "same-site":
+		case "same-origin":
 			return true
 		default:
 			return false

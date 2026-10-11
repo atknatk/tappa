@@ -1497,11 +1497,18 @@ func (h *AdminReset) floor() func() {
 // rounds, and re-shaping it as a side effect of adding a recovery form is how a
 // settled flow acquires an unreviewed change. The duplication is named so it is a
 // decision rather than an accident.
+//
+// SAME-SITE AND CROSS-SITE ARE REFUSED ON EVERY BRANCH (GATE-1, K-37), for the
+// reason adminlogin.go gives.
 func (h *AdminReset) sameOrigin(r *http.Request) bool {
+	switch strings.ToLower(strings.TrimSpace(r.Header.Get("Sec-Fetch-Site"))) {
+	case "same-site", "cross-site":
+		return false
+	}
 	origin := r.Header.Get("Origin")
 	if origin == "" || origin == "null" {
 		switch strings.ToLower(strings.TrimSpace(r.Header.Get("Sec-Fetch-Site"))) {
-		case "same-origin", "same-site":
+		case "same-origin":
 			return true
 		default:
 			return false

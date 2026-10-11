@@ -35,8 +35,9 @@ import (
 // 🔴 THE RELAY MUST SEND AN Origin HEADER, AND THIS IS A CONTRACT RATHER THAN A
 // DETAIL. These are mutating routes, so they mount inside mountWriting and inherit
 // AdminAuth.ProtectWriting — whose sameOriginGate refuses a request that carries
-// neither an Origin nor a Sec-Fetch-Site of same-origin/same-site. A native Android
-// client sends neither by default. Measured, both ways
+// neither an Origin nor a Sec-Fetch-Site of same-origin (same-site and cross-site are
+// refused on every branch since GATE-1, K-37). A native Android client sends neither
+// by default. Measured, both ways
 // (TestPlaqueEncode_TheRelayMustDeclareItsOrigin): with no Origin the round never
 // starts. The relay sets `Origin: <TAPPA_BASE_URL>` on every request; it is one
 // header on a client we write ourselves, and the alternative — exempting these three
