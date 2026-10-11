@@ -126,8 +126,8 @@ ediyorsa **dur ve sor**, sessizce uygulama.
    tenant holding dışı bir tenant'ın anahtarını (plaket uid'i, lokasyon id'si) veremez. **Listeye
    fonksiyon eklemek, bir fonksiyonun dönüş sütunlarını ya da definer'ın sütun matrisini
    genişletmek, `holding_peer`'e kip eklemek ya da bir kipin süzgecini veya zaman kuralını
-   gevşetmek kullanıcı onayı + ADR 0027 değişikliği ister** (ADR 0027 §2; testler
-   `TestHoldingCatalog_TheFunctionsAndTheirExactSignatures` ve `TestHoldingDefiner_ColumnMatrix`).
+   gevşetmek kullanıcı onayı + ADR 0027 değişikliği ister** (ADR 0027 §2; testler: ADR 0027
+   §2'deki imza katalog testi ve sütun matrisi testi).
 6. **Kayıt asla kaybolmaz.** Kanıt yetersizse REJECT edip atma: kaydı yaz,
    `verdict='flag'` ver, müdür onay kuyruğuna düşür. Sessiz onay da yok.
 7. **NTAG AES anahtarları repoda yer almaz.** DB'de KEK ile sarmalanmış saklanır
