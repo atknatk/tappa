@@ -48,6 +48,8 @@ templ AdminManualEntry(v ManualEntryView) {
 				switch v.Problem {
 					case "direction":
 						<p>A record is either a check-in or a checkout, and nothing was chosen. Nothing was written.</p>
+					case "venue":
+						<p>{ v.Name } has no home venue, so the record needs the venue the shift was worked at. Nothing was written.</p>
 					case "when":
 						<p>We could not read that date and time, so nothing was written. Both fields are needed, in this venue's own clock.</p>
 					case "future":
@@ -79,6 +81,10 @@ templ AdminManualEntry(v ManualEntryView) {
 			<p class="mt-1 font-mono text-sm text-ink/85">
 				if v.Venue != "" {
 					{ v.Venue }
+				} else if v.NeedsVenue {
+					// K-14: somebody the integration manages, placed by no venue. The
+					// record is filed at the venue chosen below.
+					<span class="text-ink/70">no home venue</span>
 				} else {
 					<span class="text-ink/70">venue not recorded</span>
 				}
@@ -116,7 +122,8 @@ templ AdminManualEntry(v ManualEntryView) {
 // narrowing value inside their own tenant), a direction from a closed vocabulary, a
 // wall clock and a sentence. The venue and the department are NOT here — the write
 // statement reads them off the employee row, so there is no field a manager could
-// mis-file somebody through.
+// mis-file somebody through. The one exception is a person with NO home venue (K-14):
+// the form then asks for the venue, and the statement reads it only for them.
 templ manualFormStep(v ManualEntryView) {
 	<form method="post" action={ templ.URL(v.Action) } class="mt-4 flex flex-col gap-4">
 		<input type="hidden" name="id" value={ v.EmployeeID }/>
@@ -143,6 +150,25 @@ templ manualFormStep(v ManualEntryView) {
 				}
 			</div>
 		</fieldset>
+		if v.NeedsVenue {
+			// 🔴 THE ONE PLACEMENT A MANAGER CHOOSES, AND ONLY HERE (K-14). Somebody with a
+			// home venue is filed there by the statement itself and this control is not
+			// rendered; somebody without one cannot be filed anywhere else. NO EMPTY
+			// OPTION IS PRE-SELECTED AS A VENUE: the empty one says "choose", and
+			// submitting it is refused with a sentence.
+			<div class="filter-field">
+				<label class="docket-label" for="record-location">Venue</label>
+				<select class="filter-input" id="record-location" name="location">
+					<option value="" selected?={ v.LocationID == "" }>Choose the venue</option>
+					for _, o := range v.Venues {
+						<option value={ o.Value } selected?={ o.Value == v.LocationID }>{ o.Label }</option>
+					}
+				</select>
+				<p class="mt-1 text-sm text-ink/85">
+					{ v.Name } has no home venue, so the record is filed at the one you choose.
+				</p>
+			</div>
+		}
 		<div class="flex flex-wrap gap-4">
 			<div class="filter-field">
 				<label class="docket-label" for="record-date">Date</label>
@@ -212,6 +238,9 @@ templ manualConfirmStep(v ManualEntryView) {
 				{ v.WhenLocal } <span class="text-ink/70">· { v.Zone }</span>
 			</p>
 			<p class="font-mono text-sm text-ink/70">{ v.WhenUTC } UTC</p>
+			if v.ChosenVenue != "" {
+				<p class="font-mono text-sm text-ink">At { v.ChosenVenue }</p>
+			}
 			if v.Backdated {
 				<p class="font-mono text-sm text-ink/85">
 					This is a past moment. The record will say it happened then, and it will
@@ -255,6 +284,9 @@ templ manualConfirmStep(v ManualEntryView) {
 			<input type="hidden" name="date" value={ v.Date }/>
 			<input type="hidden" name="time" value={ v.Time }/>
 			<input type="hidden" name="note" value={ v.Note }/>
+			if v.LocationID != "" {
+				<input type="hidden" name="location" value={ v.LocationID }/>
+			}
 			<input type="hidden" name={ v.ConfirmField } value={ v.ConfirmToken }/>
 			<div class="flex flex-wrap items-center gap-3">
 				<button class="btn btn--primary" type="submit">Record it</button>

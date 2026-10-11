@@ -76,6 +76,8 @@ var (
 	departmentSaveHref   = locationsHref + "/department"
 	venueDeleteHref      = locationsHref + "/venue/delete"
 	departmentDeleteHref = locationsHref + "/department/delete"
+	// M11 API-1: the venue's integration identity (saveVenueExternalRef).
+	venueExternalRefHref = locationsHref + "/venue/external-ref"
 )
 
 // The closed vocabularies this section's query string may echo. A reflected
@@ -117,7 +119,10 @@ var (
 	// verified against the audit action ITS OWN act writes before a word is printed.
 	venueDoneWords = []string{"venue-saved", "venue-added", "department-saved",
 		"department-added", "venue-deleted", "department-deleted",
-		"plaque-mounted", "plaque-replaced", "plaque-unmounted"}
+		"plaque-mounted", "plaque-replaced", "plaque-unmounted",
+		// M11 API-1. Self-backing like "venue-saved": the venue card beneath shows the
+		// ref the database holds.
+		"venue-external-ref"}
 
 	// venueRemovalWords are the words that MUST be verified against the trail before
 	// they are rendered, and the audit action each one claims.
@@ -169,6 +174,12 @@ var (
 		// A separate word from "plaque-not-active" because it sends them somewhere
 		// else: that one is about the plaque a replacement would retire.
 		"plaque-no-wall",
+		// The venue external-ref change's four refusals (M11 API-1,
+		// saveVenueExternalRef): the shape, another venue holding it, no change, and an
+		// admin who is not an owner (separate from "not-permitted", whose sentence is
+		// about removal).
+		"bad-external-ref", "external-ref-taken", "same-external-ref",
+		"external-ref-not-permitted",
 	}
 )
 
@@ -470,6 +481,14 @@ func (a *AdminAuth) venueForms(w http.ResponseWriter, r *http.Request, screen te
 		f := venueFormOf(ven)
 		if err := a.attachVenueRemoval(w, r, &f, ven); err != nil {
 			return nil, nil, err
+		}
+		// M11 API-1: the venue's external ref, its own owner-only form on the edit card
+		// (saveVenueExternalRef). A new venue has no card to carry it until it exists.
+		f.ExternalRef = &components.VenueRefFormView{
+			Action:    venueExternalRefHref,
+			ID:        ven.ID.String(),
+			Value:     ven.ExternalRef,
+			CanChange: mayChangeExternalRef(id),
 		}
 		return &f, nil, nil
 	}
@@ -999,6 +1018,8 @@ func venueRowViews(screen tenant.VenueScreen) ([]components.VenueRowView, []comp
 			GPS:    gpsText(v.GPS),
 			Shift:  shiftText(v.Shift),
 			WiFi:   v.WiFiSSID,
+			// M11 API-1: the integration identity, "" when the venue is not linked.
+			ExternalRef: v.ExternalRef,
 			// 🔴 THE SENTENCE, NOT THE COUNT. §5's rule is what a manager needs to read
 			// off this card: with neither IP nor GPS every tap here is recorded and sent
 			// to the approval queue. The card does not predict how many taps that will

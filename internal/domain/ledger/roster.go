@@ -177,10 +177,13 @@ type Person struct {
 	// migration 00003 makes the column NOT NULL with a CHECK, so an empty string
 	// would mean the query stopped selecting it.
 	Status string
-	// LocationName and DepartmentName are "" when the row carries no such name.
-	// location_id is NOT NULL in the schema, so an empty LocationName means a join
-	// missed rather than that a person has no venue -- the screen says "unknown"
-	// rather than printing nothing, because a blank cell reads as "none".
+	// HasHome is false for an employee the integration manages who has no home venue
+	// (K-14, migration 00037). It is what tells "no venue" apart from a missed join.
+	HasHome bool
+	// LocationName and DepartmentName are "" when the row carries no such name. With
+	// HasHome true an empty LocationName means a join missed rather than that a person
+	// has no venue -- the screen says "unknown" rather than printing nothing, because a
+	// blank cell reads as "none".
 	LocationName   string
 	DepartmentName string
 	// LiveDevices is how many of this person's sessions are still valid. 0 means
@@ -338,6 +341,7 @@ func person(row store.ListPanelEmployeesRow) Person {
 		ID:             row.ID,
 		Name:           row.FullName,
 		Status:         row.Status,
+		HasHome:        row.LocationID != nil,
 		LocationName:   deref(row.LocationName),
 		DepartmentName: deref(row.DepartmentName),
 		LiveDevices:    int(row.LiveSessions),

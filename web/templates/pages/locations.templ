@@ -55,6 +55,9 @@ templ AdminLocations(v LocationsView) {
 		} else if v.Done != "" && !ClaimsARemoval(v.Done) && !ClaimsAPlaqueAct(v.Done) {
 			@components.Notice(components.ToneOK, doneVenueHeading(v.Done)) {
 				switch v.Done {
+					case "venue-external-ref":
+						// M11 API-1. Self-backing: the venue card below shows the ref on file.
+						<p>The venue below shows the external ref now on file.</p>
 					case "venue-added", "venue-saved":
 						// 🔴 THE SENTENCE POINTS AT THE LIST RATHER THAN RESTATING THE SAVE.
 						// What a manager most needs to check after editing a venue is whether
@@ -90,6 +93,14 @@ templ AdminLocations(v LocationsView) {
 						<p>Removing something asks first. Nothing was removed — open it again and use the remove link.</p>
 					case "confirm-stale":
 						<p>That confirmation was for something else — you may have opened another one in the meantime. Nothing was removed.</p>
+					case "bad-external-ref":
+						<p>Nothing was changed. An external ref uses letters, digits and . _ ~ - only, starts with a letter or a digit, and has at most 64 characters.</p>
+					case "external-ref-taken":
+						<p>Nothing was changed. Another venue of this business already has that external ref.</p>
+					case "same-external-ref":
+						<p>That is already the venue's external ref, so nothing was changed.</p>
+					case "external-ref-not-permitted":
+						<p>Nothing was changed. Only the business owner can change a venue's external ref.</p>
 					case "unknown-plaque":
 						<p>That plaque id is not one of this business's. Nothing was changed.</p>
 					case "plaque-not-stock":
@@ -428,6 +439,8 @@ func doneVenueHeading(done string) string {
 		return "Department added"
 	case "department-saved":
 		return "Department as it now stands"
+	case "venue-external-ref":
+		return "External ref on file"
 	default:
 		return "Venue as it now stands"
 	}
@@ -461,6 +474,14 @@ func problemVenueHeading(problem string) string {
 		return "That plaque cannot be changed"
 	case "plaque-not-encoded":
 		return "That plaque cannot go on a wall"
+	case "bad-external-ref":
+		return "That external ref cannot be used"
+	case "external-ref-taken":
+		return "That external ref is already taken"
+	case "same-external-ref":
+		return "Nothing to change"
+	case "external-ref-not-permitted":
+		return "Only the owner can do that"
 	default:
 		return "We could not load your venues"
 	}

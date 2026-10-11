@@ -667,7 +667,8 @@ func TestLocationsSection_EveryControlLeadsSomewhereThatExists(t *testing.T) {
 	// AND THE SET OF POSTING TARGETS IS EXACTLY WHAT THIS SECTION REGISTERS. The loop
 	// above proves each target is served by SOMETHING; this proves the section is not
 	// quietly posting at another section's route.
-	want := map[string]bool{chromeLogout: true, venueSaveHref: true, departmentSaveHref: true}
+	// M11 API-1: an existing venue's card carries the owner's external-ref form.
+	want := map[string]bool{chromeLogout: true, venueSaveHref: true, departmentSaveHref: true, venueExternalRefHref: true}
 	for target := range targets {
 		if !want[target] {
 			t.Errorf("the locations section posts to %s, which is not one of its routes", target)

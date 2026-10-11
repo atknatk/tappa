@@ -83,6 +83,11 @@ templ AdminEmployees(v EmployeesView) {
 						if v.Actions != nil {
 							<p>{ emailLine(v.Actions) }</p>
 						}
+					case "external-ref":
+						// M11 API-1 — the same class: the ref the SAME request read back.
+						if v.Actions != nil {
+							<p>{ externalRefLine(v.Actions) }</p>
+						}
 					default:
 						if v.Actions != nil {
 							<p>{ movedLine(v.Actions) }</p>
@@ -158,6 +163,30 @@ templ AdminEmployees(v EmployeesView) {
 						</p>
 					case "same-email":
 						<p>That is already their address, so nothing was changed and no activation link was affected.</p>
+						// THE EXTERNAL-REF CHANGE'S FIVE REFUSALS (M11 API-1). Nothing was
+						// changed in any of them.
+					case "bad-external-ref":
+						<p>
+							Nothing was changed. An external ref uses letters, digits and . _ ~ -
+							only, starts with a letter or a digit, and has at most 64 characters.
+						</p>
+					case "external-ref-taken":
+						<p>
+							Nothing was changed. Somebody else in this business already has that
+							external ref. A person who has been deactivated does not count.
+						</p>
+					case "same-external-ref":
+						<p>That is already their external ref, so nothing was changed.</p>
+					case "external-ref-required":
+						<p>
+							Nothing was changed. This person has no home venue, so the external ref
+							is what identifies them. Give them a venue first, then unlink it.
+						</p>
+					case "external-ref-not-permitted":
+						<p>
+							Nothing was changed. Only the business owner can change an employee's
+							external ref.
+						</p>
 					case "not-permitted":
 						// NO "the attempt was recorded" HERE, deliberately: this word arrives in a
 						// query string anybody can type, and a sentence about a record would be
@@ -316,6 +345,8 @@ func doneRosterHeading(done string) string {
 		return "On the roster"
 	case "email":
 		return "Address on file"
+	case "external-ref":
+		return "External ref on file"
 	default:
 		return "Where they work now"
 	}
@@ -331,6 +362,15 @@ func emailLine(a *components.RosterActionsView) string {
 	return a.Name + "'s address on file is " + a.Email + "."
 }
 
+// externalRefLine says which external ref is on file NOW, from the card the same
+// request read (M11 API-1) — emailLine's rule.
+func externalRefLine(a *components.RosterActionsView) string {
+	if a.ExternalRef == "" {
+		return a.Name + " is not linked to an HR or ERP record."
+	}
+	return a.Name + "'s external ref is " + a.ExternalRef + "."
+}
+
 // movedLine says WHERE somebody works, from the card the same request read out of
 // the database.
 //
@@ -341,7 +381,10 @@ func emailLine(a *components.RosterActionsView) string {
 // something true.
 func movedLine(a *components.RosterActionsView) string {
 	where := a.Venue
-	if where == "" {
+	switch {
+	case where == "" && a.NoHome:
+		where = "no home venue"
+	case where == "":
 		where = "a venue that could not be read"
 	}
 	if a.Department != "" {
@@ -374,6 +417,16 @@ func problemRosterHeading(problem string) string {
 		return "That address is already taken"
 	case "same-email":
 		return "Nothing to change"
+	case "bad-external-ref":
+		return "That external ref cannot be used"
+	case "external-ref-taken":
+		return "That external ref is already taken"
+	case "same-external-ref":
+		return "Nothing to change"
+	case "external-ref-required":
+		return "The external ref is needed"
+	case "external-ref-not-permitted":
+		return "Only the owner can do that"
 	case "not-permitted":
 		return "Only the owner can do that"
 	default:

@@ -97,6 +97,16 @@ templ VenueRow(v VenueRowView) {
 					}
 				</dd>
 			</div>
+			<div class="col-span-2">
+				<dt class="docket-label">External ref</dt>
+				<dd class="break-all font-mono text-sm text-ink">
+					if v.ExternalRef != "" {
+						{ v.ExternalRef }
+					} else {
+						<span class="text-ink/70">Not linked</span>
+					}
+				</dd>
+			</div>
 			if v.DepartmentCount > 0 {
 				<div class="col-span-2">
 					<dt class="docket-label">Departments ({ departmentCountText(v.DepartmentCount) })</dt>
@@ -338,12 +348,61 @@ templ VenueForm(v VenueFormView) {
 				<a class="btn btn--quiet" href={ templ.URL(v.CloseHref) }>Cancel</a>
 			</div>
 		</form>
+		if v.ExternalRef != nil {
+			// OUTSIDE the save form for Removal's reason, and its own route because
+			// binding is an owner's act (M11 API-1).
+			@venueRefForm(*v.ExternalRef)
+		}
 		if v.Removal != nil {
 			// OUTSIDE the save form: a nested form is invalid HTML and the browser
 			// would drop one of them.
 			@Removal(*v.Removal)
 		}
 	</section>
+}
+
+// venueRefForm binds the venue to the identifier the customer's HR or ERP system uses
+// for it (M11 API-1, K-18): venues are never matched by name, so a venue that already
+// exists is bound here before the integration's first sync. MONO: an identifier.
+templ venueRefForm(v VenueRefFormView) {
+	<div class="mt-4 flex flex-col gap-3 border-t border-line pt-4">
+		if v.CanChange {
+			<form method="post" action={ templ.URL(v.Action) } class="flex flex-wrap items-end gap-3">
+				<input type="hidden" name="id" value={ v.ID }/>
+				<div class="filter-field">
+					<label class="docket-label" for="venue-external-ref">External ref</label>
+					<input
+						class="filter-input font-mono"
+						id="venue-external-ref"
+						type="text"
+						name="external_ref"
+						value={ v.Value }
+						maxlength="64"
+						autocomplete="off"
+						spellcheck="false"
+						aria-describedby="venue-external-ref-help"
+					/>
+					<p id="venue-external-ref-help" class="mt-1 text-xs text-ink/85">
+						The identifier your HR or ERP system uses for this venue: letters, digits
+						and . _ ~ - only, up to 64 characters. Leave it empty to unlink.
+					</p>
+				</div>
+				<div class="filter-actions">
+					<button type="submit" class="btn btn--primary">Save external ref</button>
+				</div>
+			</form>
+		} else {
+			<div>
+				<p class="docket-label">External ref</p>
+				if v.Value != "" {
+					<p class="break-all font-mono text-sm text-ink">{ v.Value }</p>
+				} else {
+					<p class="text-sm text-ink">Not linked to an HR or ERP record.</p>
+				}
+				<p class="mt-1 text-xs text-ink/85">Only the business owner can change an external ref.</p>
+			</div>
+		}
+	</div>
 }
 
 // DepartmentForm is the add/edit card for one department.

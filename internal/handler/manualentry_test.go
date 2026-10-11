@@ -185,11 +185,11 @@ func TestManualEntryReview_ShowsTheRecordAndMintsAConfirmationBoundToIt(t *testi
 		subject string
 		wantOK  bool
 	}{
-		{"the record it was minted for", manualConfirmSubject(entryID, manual.Out, at), true},
-		{"the other direction", manualConfirmSubject(entryID, manual.In, at), false},
-		{"one hour later", manualConfirmSubject(entryID, manual.Out, at.Add(time.Hour)), false},
-		{"one minute later", manualConfirmSubject(entryID, manual.Out, at.Add(time.Minute)), false},
-		{"another person", manualConfirmSubject(uuid.New(), manual.Out, at), false},
+		{"the record it was minted for", manualConfirmSubject(entryID, manual.Out, at, uuid.Nil), true},
+		{"the other direction", manualConfirmSubject(entryID, manual.In, at, uuid.Nil), false},
+		{"one hour later", manualConfirmSubject(entryID, manual.Out, at.Add(time.Hour), uuid.Nil), false},
+		{"one minute later", manualConfirmSubject(entryID, manual.Out, at.Add(time.Minute), uuid.Nil), false},
+		{"another person", manualConfirmSubject(uuid.New(), manual.Out, at, uuid.Nil), false},
 	}
 	confirm, err := newAdminConfirm(adminTestConfig())
 	if err != nil {
@@ -926,7 +926,7 @@ func staleConfirmation(t *testing.T, employeeID uuid.UUID, d manual.Direction, a
 		return "", err
 	}
 	c.now = func() time.Time { return time.Now().Add(-(adminConfirmTTL + time.Minute)) }
-	return c.mint(confirmActionRecordManual, manualConfirmSubject(employeeID, d, at), panelTestSession)
+	return c.mint(confirmActionRecordManual, manualConfirmSubject(employeeID, d, at, uuid.Nil), panelTestSession)
 }
 
 // TestManualEntry_AWriteFailureSaysNothingWasWrittenRatherThanNothingIsSHOWING.

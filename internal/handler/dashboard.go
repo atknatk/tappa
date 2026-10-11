@@ -165,7 +165,10 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		// 🔴 THE ADDRESS CHANGE (M10 EM-6). Here for the ordinary reason — the Origin
 		// check must run AHEAD of the resolver — and owner-only inside the handler.
 		r.Post(employeeEmailHref, a.employeeEmail)
+		// M11 API-1: the integration identity, owner-only inside the handler.
+		r.Post(employeeExternalRefHref, a.employeeExternalRef)
 		r.Post(venueSaveHref, a.saveVenue)
+		r.Post(venueExternalRefHref, a.saveVenueExternalRef)
 		r.Post(departmentSaveHref, a.saveDepartment)
 		// 🔴 THE TWO REMOVALS ARE POSTs AND THEY LIVE HERE, WHICH IS THE WHOLE OF T3.
 		// A delete reachable by GET is one a link, a prefetch or a crawler can fire;

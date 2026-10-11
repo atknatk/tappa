@@ -77,8 +77,10 @@ type RosterAddView struct {
 // back when the server refused it.
 //
 // 🔴 THE REQUIRED FIELDS ARE DERIVED FROM THE SCHEMA, NOT CHOSEN. Migration 00003
-// makes full_name and location_id NOT NULL and leaves department_id, role and email
-// nullable, so exactly two controls here are required and three are not. A form that
+// makes full_name and location_id NOT NULL (00037 relaxed location_id only for a row the
+// integration manages, K-14 -- the panel still places everybody it adds) and leaves
+// department_id, role and email nullable, so exactly two controls here are required and
+// three are not. A form that
 // demanded an email would refuse the ordinary shift worker who does not have one, and
 // the invitation flow does not need it — an activation link is read out or handed over
 // (internal/invite), never necessarily emailed.
@@ -102,7 +104,7 @@ type StaffFormView struct {
 	DepartmentID string
 
 	// Locations is every venue in the business. It NEVER contains an empty option:
-	// location_id is NOT NULL, so "no venue" is not a choice, and offering it would
+	// the panel places everybody it adds, so "no venue" is not a choice, and offering it would
 	// offer a submission the server can only refuse. When this is empty the form is
 	// not rendered at all — see RosterAddView.Possible.
 	Locations []OptionView

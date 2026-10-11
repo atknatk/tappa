@@ -1,5 +1,7 @@
 package pages
 
+import "github.com/atknatk/tappa/web/templates/components"
+
 // The MANUAL RECORD ENTRY screen's view model (M6-08).
 //
 // 🔴 IT IS THE PANEL'S ONLY WRITE FORM WHOSE PRODUCT IS PERMANENT, and the fields
@@ -51,10 +53,10 @@ type ManualEntryView struct {
 	// Name, Venue and Department are read from the database in the SAME request that
 	// renders the screen, so what the manager acts on is what they see.
 	//
-	// Venue is "" only if the join missed — employees.location_id is NOT NULL — so an
-	// empty string is a data defect rather than "no venue", and the template says so
-	// in words instead of leaving a blank that reads as "none". Department is ""
-	// for a business that does not model departments, which is a first-class state.
+	// Venue is "" when the person has no home venue (NeedsVenue, K-14) or a join
+	// missed; the template says which in words instead of leaving a blank that reads as
+	// "none". Department is "" for a business that does not model departments, which is
+	// a first-class state.
 	Name       string
 	Venue      string
 	Department string
@@ -63,6 +65,14 @@ type ManualEntryView struct {
 	// remedy: deactivation is one-way (docs/adr/0010) and this table takes no UPDATE.
 	// The screen tells the manager who they are recording for.
 	Deactivated bool
+
+	// NeedsVenue is true for a person with no home venue (K-14, migration 00037): the
+	// form then offers Venues and the record is filed at the one chosen. LocationID is
+	// the chosen venue's id ("" for none) and ChosenVenue its name on the summary.
+	NeedsVenue  bool
+	Venues      []components.OptionView
+	LocationID  string
+	ChosenVenue string
 
 	// Zone is the IANA name every wall clock on this screen is read and printed in. It
 	// is DISPLAYED rather than assumed, because the whole screen is a person typing a
@@ -164,6 +174,8 @@ func manualProblemHeading(problem string) string {
 	switch problem {
 	case "direction":
 		return "Nothing was recorded — pick check-in or checkout"
+	case "venue":
+		return "Nothing was recorded — choose the venue"
 	case "when", "future", "too-old":
 		return "Nothing was recorded — that time cannot be used"
 	case "confirm-required", "confirm-stale":

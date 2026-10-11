@@ -226,8 +226,9 @@ func TestManualDB_WritesExactlyTheColumnsItMayAndNULLsTheREST(t *testing.T) {
 		t.Errorf("entered_by = %v, want the administrator %s. The whole argument for "+
 			"verdict='ok' rests on this column naming somebody answerable.", r.EnteredBy, f.actorID)
 	}
-	// THE PLACEMENT CAME FROM THE EMPLOYEE ROW, NOT FROM A CALLER. manual.Entry has no
-	// field for either, so this is the only place the values could have come from.
+	// THE PLACEMENT CAME FROM THE EMPLOYEE ROW, NOT FROM A CALLER. manual.Entry's one
+	// placement field (LocationID, M11 K-14) is read only for a person with no home venue
+	// -- TestManualDB_AVenuelessPersonIsFiledAtTheChosenVenueOnly -- and this one has one.
 	if r.LocationID == nil || *r.LocationID != f.locationID {
 		t.Errorf("location_id = %v, want the employee's venue %s", r.LocationID, f.locationID)
 	}

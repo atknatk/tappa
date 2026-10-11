@@ -82,6 +82,9 @@ type panelStaff interface {
 	// owner's form changes it.
 	Email(ctx context.Context, tenantID, employeeID uuid.UUID) (string, error)
 	ChangeEmail(ctx context.Context, c tenant.EmailCommand) (tenant.EmailChange, error)
+	// The integration identity (M11 API-1, employeeexternalref.go): the card shows it
+	// (Person.ExternalRef), the owner's form changes it.
+	ChangeExternalRef(ctx context.Context, c tenant.ExternalRefCommand) (tenant.ExternalRefChange, error)
 }
 
 // panelInviter is the slice of internal/invite the panel needs: ONE method, and it
@@ -106,6 +109,8 @@ var (
 	employeeDeactivateHref = employeesHref + "/deactivate"
 	employeeMoveHref       = employeesHref + "/move"
 	employeeEmailHref      = employeesHref + "/email"
+	// M11 API-1: the integration identity (employeeexternalref.go).
+	employeeExternalRefHref = employeesHref + "/external-ref"
 )
 
 // maxEmployeeActionBody is the ceiling on an action POST's body.
@@ -132,7 +137,10 @@ var (
 	// "email" (M10 EM-6) is in the "moved" class: the notice beside it states the
 	// address the SAME request read back (or that there is none), never the event, so
 	// a replayed URL restates something true.
-	rosterDoneWords = []string{"added", "deactivated", "moved", "email"}
+	//
+	// "external-ref" (M11 API-1) is in the same class: the notice states the ref the
+	// SAME request read back.
+	rosterDoneWords = []string{"added", "deactivated", "moved", "email", "external-ref"}
 	// 🔴 M6-13 ADDED FIVE WORDS HERE AND THEY WERE DELETED IN THE SAME MILESTONE,
 	// BECAUSE NO CODE PATH COULD PRODUCE ONE. `bad-name`, `bad-email`, `bad-role`,
 	// `email-taken` and `no-venue` arrived with sentences and headings on the roster
@@ -165,6 +173,10 @@ var (
 		// is produced by a branch of employeeEmail and driven by a test — the rule the
 		// paragraph above records after M6-13 shipped five words nothing produced.
 		"bad-email", "email-taken", "same-email", "not-permitted",
+		// The external-ref change's five refusals (M11 API-1, employeeexternalref.go),
+		// each produced by a branch of employeeExternalRef.
+		"bad-external-ref", "external-ref-taken", "same-external-ref",
+		"external-ref-required", "external-ref-not-permitted",
 	}
 )
 
@@ -222,7 +234,8 @@ func (a *AdminAuth) employeeAdd(w http.ResponseWriter, r *http.Request) {
 	locationID, err := uuid.Parse(posted.LocationID)
 	if err != nil {
 		// A MISSING VENUE AND AN UNREADABLE ONE ARE THE SAME INSTRUCTION ("choose a
-		// venue"), so they share a sentence. employees.location_id is NOT NULL, so
+		// venue"), so they share a sentence. The panel always places the people it
+		// adds (employees.location_id is NULL only for an API-managed row, K-14), so
 		// there is no "nowhere" this could mean instead.
 		a.log.Warn("panel employee add refused: the posted venue is not a uuid")
 		a.addFormAgain(w, r, posted, "location_id", "Choose the venue this person works at.")

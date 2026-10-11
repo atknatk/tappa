@@ -185,6 +185,8 @@ func TestEmployeesSection_EveryControlLeadsSomewhereThatExists(t *testing.T) {
 		employeeMoveHref:       true,
 		// M10 EM-6: the owner's address form (this browser is an owner's).
 		employeeEmailHref: true,
+		// M11 API-1: the owner's external-ref form, on the same card.
+		employeeExternalRefHref: true,
 	}
 	for action := range want {
 		if !got[action] {

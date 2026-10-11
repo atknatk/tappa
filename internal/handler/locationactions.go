@@ -87,6 +87,8 @@ type panelVenues interface {
 	// authorises nothing — locations.go/removalReceipt says why that distinction is
 	// the point.
 	ConfirmRemoval(ctx context.Context, tenantID, actorID uuid.UUID, action, target string) (tenant.RemovalReceipt, error)
+	// The venue's integration identity (M11 API-1, K-18): saveVenueExternalRef.
+	ChangeExternalRef(ctx context.Context, c tenant.ExternalRefCommand) (tenant.ExternalRefChange, error)
 }
 
 // saveVenue adds a venue or rewrites one.
@@ -819,4 +821,82 @@ func (a *AdminAuth) refuseRemovalByRole(w http.ResponseWriter, r *http.Request, 
 	})
 
 	a.redirect(w, venueReturn("", "not-permitted"))
+}
+
+// --- the venue's external ref (M11 API-1, K-18) ---------------------------------------
+
+// ActionLocationExternalRefChangeRefused records an attempt the role gate refused, in
+// the `<subject>.<verb>_<refusal>` shape the trail uses for acts that did not happen.
+const ActionLocationExternalRefChangeRefused = "location.external_ref_change_refused"
+
+// saveVenueExternalRef binds one venue to the identifier the customer's HR/ERP system
+// uses for it, or unbinds it (K-18: the API never matches a venue by name, so the owner
+// binds the venues that already exist before the first sync, or that sync opens a
+// second row for each).
+//
+// It is a form of its own on the venue's edit card rather than a field of the venue
+// form: binding is OWNER-ONLY (employeeExternalRef's reason — whoever holds a ref
+// receives the integrator's writes for it), while saving a venue is open to every
+// admin, and one form with an owner-only field would have to say what a manager's save
+// does to a field it never rendered. Every outcome is a 303 to the section with a
+// closed word; the card below shows the ref the database holds, so the word is
+// self-backing.
+func (a *AdminAuth) saveVenueExternalRef(w http.ResponseWriter, r *http.Request) {
+	id := httpx.AdminOf(r)
+	if !a.readVenueBody(w, r) {
+		return
+	}
+	venueID, err := uuid.Parse(strings.TrimSpace(r.PostFormValue("id")))
+	if err != nil || venueID == uuid.Nil {
+		a.log.Warn("panel venue external ref refused: the venue id could not be read")
+		a.redirect(w, venueReturn("", "unreadable"))
+		return
+	}
+	// THE ROLE IS CHECKED BEFORE ANY DATABASE WORK, the removal gate's order.
+	if !mayChangeExternalRef(id) {
+		a.log.Warn("panel venue external ref refused: this admin is not an owner",
+			"venue_id", venueID, "actor_id", id.Admin.AdminUserID, "role", id.Admin.Role)
+		a.record(r.Context(), audit.Event{
+			TenantID: id.TenantID(),
+			ActorID:  ptr(id.Admin.AdminUserID),
+			Action:   ActionLocationExternalRefChangeRefused,
+			Target:   venueID.String(),
+			Detail: refusedExternalRefChangeDetail{
+				Outcome:      "refused",
+				Reason:       "changing a venue's external ref is reserved for an owner",
+				Role:         id.Admin.Role,
+				RequiredRole: adminRoleOwner,
+			},
+		})
+		a.redirect(w, venueReturn("", "external-ref-not-permitted"))
+		return
+	}
+	change, err := a.venues.ChangeExternalRef(r.Context(), tenant.ExternalRefCommand{
+		TenantID:    id.TenantID(),
+		SubjectID:   venueID,
+		ActorID:     id.Admin.AdminUserID,
+		ExternalRef: r.PostFormValue("external_ref"),
+	})
+	switch {
+	case err == nil:
+		a.log.Info("panel venue external ref changed", "venue_id", venueID,
+			"has_external_ref", change.To != "")
+		a.redirect(w, venueReturn("venue-external-ref", ""))
+	case errors.Is(err, tenant.ErrExternalRef):
+		a.log.Warn("panel venue external ref refused: not the shape the integration carries",
+			"venue_id", venueID)
+		a.redirect(w, venueReturn("", "bad-external-ref"))
+	case errors.Is(err, tenant.ErrExternalRefTaken):
+		a.log.Warn("panel venue external ref refused: another venue holds it", "venue_id", venueID)
+		a.redirect(w, venueReturn("", "external-ref-taken"))
+	case errors.Is(err, tenant.ErrSameExternalRef):
+		a.log.Info("panel venue external ref: already the one on file", "venue_id", venueID)
+		a.redirect(w, venueReturn("", "same-external-ref"))
+	case errors.Is(err, tenant.ErrUnknownVenue):
+		a.log.Warn("panel venue external ref refused: no such venue in this tenant")
+		a.redirect(w, venueReturn("", "unknown-venue"))
+	default:
+		a.log.Error("panel: could not change the venue's external ref", "err", err, "venue_id", venueID)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteFailed)
+	}
 }

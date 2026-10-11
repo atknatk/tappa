@@ -44,10 +44,14 @@ templ RosterRow(p RosterRowView) {
 				<p class="truncate font-display text-sm font-bold tracking-tight text-ink">
 					if p.Venue != "" {
 						{ p.Venue }
+					} else if p.NoHome {
+						// K-14: the integration manages this person and placed them by
+						// no venue. A state, said in words.
+						No home venue
 					} else {
-						// employees.location_id is NOT NULL, so this is a repair
-						// problem rather than a person with no venue. Saying so beats
-						// an empty line, which a reader would take for "none".
+						// A person with a home venue whose name did not come back is a
+						// repair problem. Saying so beats an empty line, which a reader
+						// would take for "none".
 						Venue could not be read
 					}
 				</p>
@@ -122,6 +126,8 @@ templ RosterActions(v RosterActionsView) {
 				<p class="mt-1 truncate text-xs text-ink/70">
 					if v.Venue != "" {
 						{ v.Venue }
+					} else if v.NoHome {
+						No home venue
 					} else {
 						Venue could not be read
 					}
@@ -240,6 +246,55 @@ templ RosterActions(v RosterActionsView) {
 					<p class="text-xs text-ink/85">Only the business owner can change an address.</p>
 				}
 			</div>
+			// THE INTEGRATION IDENTITY (M11 API-1, K-18). The customer's HR/ERP system
+			// addresses this person by it once the API is on, so binding the people who
+			// already exist BEFORE the first sync keeps that sync from adding them a
+			// second time. OWNER-ONLY for the email's reason: whoever holds the ref
+			// receives the integrator's writes -- a rename, an address, a deactivation.
+			// MONO: an identifier, read character by character. Rendered only where the
+			// handler supplies the action, which the section always does -- so a view
+			// built without it (TestRosterActions_ThePanelModeCardIsTheCardBeforeEM7B's)
+			// is the card it was.
+			if v.ExternalRefAction != "" {
+				<div class="flex flex-col gap-3 border-t border-line pt-4">
+					<div>
+						<p class="docket-label">External ref</p>
+						if v.ExternalRef != "" {
+							<p class="break-all font-mono text-sm text-ink">{ v.ExternalRef }</p>
+						} else {
+							<p class="text-sm text-ink">Not linked to an HR or ERP record.</p>
+						}
+					</div>
+					if v.CanChangeExternalRef {
+						<form method="post" action={ templ.URL(v.ExternalRefAction) } class="flex flex-wrap items-end gap-3">
+							@hiddenFields(v.Hidden)
+							<div class="filter-field">
+								<label class="docket-label" for="change-external-ref">External ref</label>
+								<input
+									class="filter-input font-mono"
+									id="change-external-ref"
+									type="text"
+									name="external_ref"
+									value={ v.ExternalRef }
+									maxlength="64"
+									autocomplete="off"
+									spellcheck="false"
+									aria-describedby="change-external-ref-help"
+								/>
+								<p id="change-external-ref-help" class="mt-1 text-xs text-ink/85">
+									The identifier your HR or ERP system uses for { v.Name }: letters, digits
+									and . _ ~ - only, up to 64 characters. Leave it empty to unlink.
+								</p>
+							</div>
+							<div class="filter-actions">
+								<button type="submit" class="btn btn--primary">Save external ref</button>
+							</div>
+						</form>
+					} else {
+						<p class="text-xs text-ink/85">Only the business owner can change an external ref.</p>
+					}
+				</div>
+			}
 			<div class="flex flex-wrap items-center gap-3 border-t border-line pt-4">
 				// 🔴 A LINK TO A GET, NOT A CONTROL THAT WRITES (M6-08). Entering a record
 				// is a two-step flow with its own confirmation, so what belongs on this
@@ -297,9 +352,11 @@ templ RosterActions(v RosterActionsView) {
 				// silently narrow the list the manager returns to.
 				//
 				// 🔴 THE VENUE HAS NO EMPTY OPTION AND THE DEPARTMENT DOES, WHICH IS THE
-				// SCHEMA SPEAKING. employees.location_id is NOT NULL (00003): everybody
-				// works somewhere, so "no venue" is not a destination, and offering it
-				// would offer a submission the server can only refuse.
+				// PANEL SPEAKING. A move places somebody (MoveEmployee writes a venue,
+				// never NULL; a NULL home venue exists only for a row the integration
+				// manages, K-14, and moving that person gives them one), so "no venue" is
+				// not a destination, and offering it would offer a submission the server
+				// can only refuse.
 				// department_id IS nullable — a bar does not model departments — so "No
 				// department" is a real choice rather than the absence of one.
 				@placementSelect("move-location", "to_location", "Venue", "", v.LocationID, v.Locations)

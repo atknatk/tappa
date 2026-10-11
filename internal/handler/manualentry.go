@@ -13,6 +13,7 @@ import (
 	"github.com/atknatk/tappa/internal/domain/manual"
 	"github.com/atknatk/tappa/internal/domain/tap"
 	"github.com/atknatk/tappa/internal/httpx"
+	"github.com/atknatk/tappa/web/templates/components"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
@@ -128,7 +129,7 @@ const maxManualNote = maxReviewNote
 // carefully but to have nothing to escape (oneOfWords, review.go).
 var manualProblemWords = []string{
 	"unreadable", "unknown", "direction", "when", "future", "too-old",
-	"confirm-required", "confirm-stale", "unavailable",
+	"confirm-required", "confirm-stale", "unavailable", "venue",
 }
 
 // manualDirections is the direction control's options AND the validator's list, and it
@@ -200,6 +201,9 @@ func (a *AdminAuth) manualEntryReview(w http.ResponseWriter, r *http.Request) {
 	if problem == "" {
 		problem = manualBoundsProblem(a.entries.Bounds(at))
 	}
+	if problem == "" {
+		problem = manualVenueProblem(subject, f)
+	}
 	if problem != "" {
 		a.log.Warn("panel manual entry refused: the submitted moment cannot be recorded",
 			"employee_id", f.employeeID, "reason", problem)
@@ -207,7 +211,8 @@ func (a *AdminAuth) manualEntryReview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := a.setConfirmation(w, r, confirmActionRecordManual, manualConfirmSubject(f.employeeID, f.direction, at))
+	token, err := a.setConfirmation(w, r, confirmActionRecordManual,
+		manualConfirmSubject(f.employeeID, f.direction, at, manualVenueOf(subject, f)))
 	if err != nil {
 		// §4.6: a manager whose confirmation could not be minted is told the action is
 		// unavailable, not shown a button that would fail.
@@ -219,6 +224,8 @@ func (a *AdminAuth) manualEntryReview(w http.ResponseWriter, r *http.Request) {
 	v := a.manualView(r, subject, f.employeeID)
 	v.Date, v.Time, v.Note = f.date, f.clock, f.note
 	v.Direction = string(f.direction)
+	v.LocationID = manualVenueValue(subject, f)
+	v.ChosenVenue = subject.VenueName(f.locationID)
 	v.Confirming = true
 	v.ConfirmToken = token
 	v.RecordAction = manualRecordHref
@@ -293,12 +300,18 @@ func (a *AdminAuth) manualEntryRecord(w http.ResponseWriter, r *http.Request) {
 		a.renderManualForm(w, r, subject, f, problem)
 		return
 	}
+	if problem := manualVenueProblem(subject, f); problem != "" {
+		a.log.Warn("panel manual entry refused: no venue of this business was chosen",
+			"employee_id", f.employeeID)
+		a.renderManualForm(w, r, subject, f, problem)
+		return
+	}
 	// 🔴 THE CONFIRMATION IS CHECKED BEFORE ANYTHING IS WRITTEN, and a refusal writes
 	// NOTHING: no record, no audit row. It is bound to the exact record — this person,
 	// this direction, this instant — so changing any of the three in the posted form
 	// after the warning was served produces a value that does not verify.
 	if why := a.confirmationRefusalFor(r, confirmActionRecordManual,
-		manualConfirmSubject(f.employeeID, f.direction, at)); why != "" {
+		manualConfirmSubject(f.employeeID, f.direction, at, manualVenueOf(subject, f))); why != "" {
 		// 🔴 IT RE-RENDERS RATHER THAN REDIRECTING, AND A MEASURED SCENARIO IS WHY. The
 		// confirmation lasts ten minutes; a manager who fills the form, reads the two
 		// warnings, is interrupted, and then presses "Record it" lands exactly here — and
@@ -340,6 +353,8 @@ func (a *AdminAuth) manualEntryRecord(w http.ResponseWriter, r *http.Request) {
 		Direction: f.direction,
 		At:        at,
 		Note:      f.note,
+		// Read by the statement only for a person with no home venue (K-14).
+		LocationID: manualVenueOf(subject, f),
 	})
 	switch {
 	case err == nil:
@@ -355,6 +370,8 @@ func (a *AdminAuth) manualEntryRecord(w http.ResponseWriter, r *http.Request) {
 		a.renderManualForm(w, r, subject, f, "too-old")
 	case errors.Is(err, manual.ErrDirection):
 		a.renderManualForm(w, r, subject, f, "direction")
+	case errors.Is(err, manual.ErrVenue):
+		a.renderManualForm(w, r, subject, f, "venue")
 	default:
 		// A real failure is a real failure. Redirecting it into one of the refusals
 		// above would tell a manager their record was rejected when nothing was asked,
@@ -375,6 +392,9 @@ type manualForm struct {
 	date  string
 	clock string
 	note  string
+	// locationID is the posted venue, uuid.Nil when none (or not a uuid). It means
+	// something only for a person with no home venue (K-14); see manualVenueOf.
+	locationID uuid.UUID
 }
 
 // readManualForm bounds the body, parses it and validates every field.
@@ -426,12 +446,20 @@ func (a *AdminAuth) readManualForm(w http.ResponseWriter, r *http.Request) (manu
 	// note" banner over a page that is already showing the cut text would be telling
 	// somebody something they are looking at.
 	note, _ := cleanBoundedText(r.PostFormValue("note"), maxManualNote)
+	// THE VENUE IS PARSED, NOT TRUSTED: anything that is not a uuid is "none chosen",
+	// and a uuid is checked against the business's own venues (manualVenueProblem) and
+	// again by the statement's join.
+	locationID, err := uuid.Parse(strings.TrimSpace(r.PostFormValue("location")))
+	if err != nil {
+		locationID = uuid.Nil
+	}
 	return manualForm{
 		employeeID: employeeID,
 		direction:  direction,
 		date:       strings.TrimSpace(r.PostFormValue("date")),
 		clock:      strings.TrimSpace(r.PostFormValue("time")),
 		note:       note,
+		locationID: locationID,
 	}, true
 }
 
@@ -511,8 +539,45 @@ func manualZone(name string) *time.Location {
 // with "/" because adminConfirm.mint refuses a subject containing the payload's own
 // separator, and none of the three can contain a slash: a uuid, a two-word vocabulary
 // and an RFC3339 instant.
-func manualConfirmSubject(employeeID uuid.UUID, d manual.Direction, at time.Time) string {
-	return employeeID.String() + "/" + string(d) + "/" + at.UTC().Format(time.RFC3339)
+//
+// FOR A PERSON WITH NO HOME VENUE (K-14) THE VENUE IS A FOURTH PART: it is the
+// manager's choice there, so a warning served for one venue must not be spent on
+// another. For everybody else venue is uuid.Nil and the subject is the three parts
+// above, unchanged.
+func manualConfirmSubject(employeeID uuid.UUID, d manual.Direction, at time.Time, venue uuid.UUID) string {
+	s := employeeID.String() + "/" + string(d) + "/" + at.UTC().Format(time.RFC3339)
+	if venue != uuid.Nil {
+		s += "/" + venue.String()
+	}
+	return s
+}
+
+// manualVenueOf is the venue a record will be filed at by the manager's choice: the
+// posted one for a person with no home venue, uuid.Nil for everybody else (their home
+// venue is read by the statement, and a posted value is ignored).
+func manualVenueOf(s manual.Subject, f manualForm) uuid.UUID {
+	if !s.NeedsVenue {
+		return uuid.Nil
+	}
+	return f.locationID
+}
+
+// manualVenueValue is manualVenueOf as the form's selected value, "" for none.
+func manualVenueValue(s manual.Subject, f manualForm) string {
+	if v := manualVenueOf(s, f); v != uuid.Nil {
+		return v.String()
+	}
+	return ""
+}
+
+// manualVenueProblem refuses a venue-less person's record without a venue of THIS
+// business -- before the warning is served, so the manager is not shown a summary the
+// write would refuse. The domain and the statement refuse it again.
+func manualVenueProblem(s manual.Subject, f manualForm) string {
+	if s.NeedsVenue && s.VenueName(f.locationID) == "" {
+		return "venue"
+	}
+	return ""
 }
 
 // manualEntryReturn is the 303 target for the ONE refusal that cannot re-render: a
@@ -597,6 +662,8 @@ func (a *AdminAuth) manualView(r *http.Request, s manual.Subject, employeeID uui
 		Name:         s.Name,
 		Venue:        s.LocationName,
 		Department:   s.DepartmentName,
+		NeedsVenue:   s.NeedsVenue,
+		Venues:       manualVenueOptions(s),
 		Deactivated:  s.Deactivated(),
 		Zone:         manualZone(s.Zone).String(),
 		Directions:   manualDirections,
@@ -611,6 +678,20 @@ func (a *AdminAuth) renderManualForm(w http.ResponseWriter, r *http.Request, s m
 	v := a.manualView(r, s, f.employeeID)
 	v.Date, v.Time, v.Note = f.date, f.clock, f.note
 	v.Direction = string(f.direction)
+	v.LocationID = manualVenueValue(s, f)
 	v.Problem = problem
 	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminManualEntry(v))
+}
+
+// manualVenueOptions is the picker's contents for a person with no home venue, empty
+// for everybody else.
+func manualVenueOptions(s manual.Subject) []components.OptionView {
+	if !s.NeedsVenue {
+		return nil
+	}
+	out := make([]components.OptionView, 0, len(s.Venues))
+	for _, v := range s.Venues {
+		out = append(out, components.OptionView{Value: v.ID.String(), Label: v.Name})
+	}
+	return out
 }

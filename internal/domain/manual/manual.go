@@ -228,6 +228,11 @@ var (
 	ErrTooOld = errors.New("manual: that time is too far in the past to enter here")
 	// ErrDirection: the direction is neither of the two.
 	ErrDirection = errors.New("manual: a record is either a check-in or a checkout")
+	// ErrVenue: the person has no home venue (an employee the integration manages --
+	// K-14, migration 00037) and no venue of THIS business was chosen. One sentinel for
+	// "none chosen" and "not ours", ErrUnknownEmployee's collapse: both are the same
+	// instruction to the manager.
+	ErrVenue = errors.New("manual: this person has no home venue; choose the venue the shift was worked at")
 )
 
 // Database is the slice of the store this package needs, declared HERE at the
@@ -281,6 +286,11 @@ type Subject struct {
 	// the employee row. DepartmentName is "" for a business with no departments.
 	LocationName   string
 	DepartmentName string
+	// NeedsVenue is true when the person has no home venue (K-14): the record is then
+	// filed at the venue the manager chooses from Venues, and only then.
+	NeedsVenue bool
+	// Venues is this business's venues, loaded only when NeedsVenue.
+	Venues []Venue
 	// Zone is the tenant's IANA timezone name. The render layer converts the
 	// manager's wall clock with it, and shows it, so nobody types 17:00 meaning one
 	// zone into a field the server reads as another.
@@ -290,6 +300,22 @@ type Subject struct {
 // Deactivated reports whether this person's taps are already being refused. The
 // screen says so before the button is pressed; nothing here refuses on it.
 func (s Subject) Deactivated() bool { return s.Status == "deactivated" }
+
+// Venue is one of the business's venues, as the picker offers it.
+type Venue struct {
+	ID   uuid.UUID
+	Name string
+}
+
+// VenueName names a venue of Venues, or "" when id is not one of them.
+func (s Subject) VenueName(id uuid.UUID) string {
+	for _, v := range s.Venues {
+		if v.ID == id {
+			return v.Name
+		}
+	}
+	return ""
+}
 
 // Entry is what a manager submitted, after the boundary validated it (section 7).
 type Entry struct {
@@ -307,6 +333,10 @@ type Entry struct {
 	// Note is the manager's optional sentence, already bounded and cleaned by the
 	// handler.
 	Note string
+	// LocationID is the venue the manager chose, read ONLY for a person with no home
+	// venue (K-14); for everybody else the record is filed at their home venue and the
+	// statement itself never reads this (db/queries/transactions.sql).
+	LocationID uuid.UUID
 }
 
 // Recorded is what was written, read back from the row itself.
@@ -422,7 +452,19 @@ func (r *Recorder) Subject(ctx context.Context, tenantID, employeeID uuid.UUID) 
 			Status:         row.Status,
 			LocationName:   deref(row.LocationName),
 			DepartmentName: deref(row.DepartmentName),
+			NeedsVenue:     row.LocationID == nil,
 			Zone:           clock.Timezone,
+		}
+		if !out.NeedsVenue {
+			return nil
+		}
+		locs, err := q.ListLocationsForTenant(ctx, tenantID)
+		if err != nil {
+			return fmt.Errorf("list venues: %w", err)
+		}
+		out.Venues = make([]Venue, 0, len(locs))
+		for _, l := range locs {
+			out.Venues = append(out.Venues, Venue{ID: l.ID, Name: l.Name})
 		}
 		return nil
 	})
@@ -496,6 +538,19 @@ func (r *Recorder) Record(ctx context.Context, e Entry) (Recorded, error) {
 	var out Recorded
 	err := r.data.WithTenant(ctx, e.TenantID, func(ctx context.Context, tx pgx.Tx) error {
 		q := store.New(tx)
+		// WHO AND WHERE, READ FIRST IN THE SAME TRANSACTION, so a 0-row INSERT below can
+		// be told apart: no such person (ErrUnknownEmployee) or no venue to file a
+		// venue-less person at (ErrVenue). The statement remains the authority on
+		// scope; this read only names the refusal.
+		who, err := q.GetPanelEmployeeForAction(ctx, store.GetPanelEmployeeForActionParams{
+			TenantID: e.TenantID, ID: e.EmployeeID,
+		})
+		if err != nil {
+			return err
+		}
+		if who.LocationID == nil && e.LocationID == uuid.Nil {
+			return ErrVenue
+		}
 		params := store.InsertManualTransactionParams{
 			TenantID:   e.TenantID,
 			EmployeeID: e.EmployeeID,
@@ -512,8 +567,17 @@ func (r *Recorder) Record(ctx context.Context, e Entry) (Recorded, error) {
 			n := e.Note
 			params.Note = &n
 		}
+		if who.LocationID == nil {
+			venue := e.LocationID
+			params.LocationID = &venue
+		}
 		row, err := q.InsertManualTransaction(ctx, params)
 		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) && who.LocationID == nil {
+				// The person exists (read above), so no row means the chosen venue did
+				// not resolve inside this business.
+				return ErrVenue
+			}
 			return err
 		}
 		out = Recorded{
@@ -559,6 +623,8 @@ func (r *Recorder) Record(ctx context.Context, e Entry) (Recorded, error) {
 	})
 	switch {
 	case err == nil:
+	case errors.Is(err, ErrVenue):
+		return Recorded{}, ErrVenue
 	case errors.Is(err, pgx.ErrNoRows):
 		// 🔴 NO ROWS IS A REFUSAL HERE, NOT AN ABSENCE, and it is the statement's design
 		// rather than an accident: the INSERT builds its row FROM an employee in this

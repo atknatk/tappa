@@ -269,8 +269,9 @@ const (
 // rosterAdd builds the add control, the form, or the sentence that replaces both.
 //
 // 🔴 Possible IS COMPUTED FROM THE BUSINESS'S OWN VENUES AND IS THE WHOLE OF THE
-// EMPTY PATH. employees.location_id is NOT NULL, so a business with no venue cannot
-// have employees at all — and the option list this form would render is exactly the
+// EMPTY PATH. The panel always places the people it adds (employees.location_id is NULL
+// only for an API-managed row, K-14), so a business with no venue cannot add anybody
+// here — and the option list this form would render is exactly the
 // list that is empty in that state. Offering the control anyway would offer a
 // submission the server can only refuse, which is the defect this section carries two
 // tests against. The locations section makes the identical call one table over.
@@ -503,6 +504,7 @@ func (a *AdminAuth) rosterActions(w http.ResponseWriter, r *http.Request, f ledg
 		Status:        person.Status,
 		Venue:         person.LocationName,
 		Department:    person.DepartmentName,
+		NoHome:        person.LocationID == nil,
 		Hidden:        hidden,
 		CloseHref:     rosterReturn(f, uuid.Nil, "", ""),
 		CanInvite:     person.Invitable(),
@@ -531,6 +533,10 @@ func (a *AdminAuth) rosterActions(w http.ResponseWriter, r *http.Request, f ledg
 		Email:          email,
 		CanChangeEmail: mayChangeEmployeeEmail(httpx.AdminOf(r)),
 		EmailAction:    employeeEmailHref,
+		// M11 API-1, the same predicate the POST checks (mayChangeExternalRef).
+		ExternalRef:          person.ExternalRef,
+		CanChangeExternalRef: mayChangeExternalRef(httpx.AdminOf(r)),
+		ExternalRefAction:    employeeExternalRefHref,
 	}
 	// M10 EM-7B. The e-mail mode's card: the button mails the link when there is an
 	// address, and an OWNER looking at somebody with none is offered the on-screen
@@ -662,6 +668,7 @@ func rosterRowView(p ledger.Person, zone *time.Location, manage string) componen
 	return components.RosterRowView{
 		Name:       p.Name,
 		Venue:      p.LocationName,
+		NoHome:     !p.HasHome,
 		Department: p.DepartmentName,
 		Status:     p.Status,
 		Since:      rosterDate(p.Since, zone),

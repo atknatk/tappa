@@ -42,11 +42,13 @@ type RosterRowView struct {
 	// NOT NULL (migration 00003) — so unlike DocketView.Who there is no "nobody
 	// recognised" branch to write.
 	Name string
-	// Venue is the person's home location, "" only if the join missed. The column
-	// is NOT NULL, so an empty string here means a data defect rather than "this
-	// person has no venue", and the template says so in words instead of leaving a
-	// blank cell that reads as "none".
+	// Venue is the person's home location, "" when they have none (NoHome) or the
+	// join missed. The template says which in words instead of leaving a blank cell
+	// that reads as "none".
 	Venue string
+	// NoHome is true for somebody the integration manages who has no home venue (K-14,
+	// migration 00037) -- a state, not a defect.
+	NoHome bool
 	// Department is "" for a business that does not model departments — a bar, in
 	// the two markets this ships to. That is a first-class state, not a gap.
 	Department string
@@ -111,6 +113,8 @@ type RosterActionsView struct {
 	Status     string
 	Venue      string
 	Department string
+	// NoHome is RosterRowView.NoHome for the person the card is about.
+	NoHome bool
 
 	// Hidden is the roster position, posted back by every form on the card.
 	Hidden []FormField
@@ -193,6 +197,14 @@ type RosterActionsView struct {
 	// who can change it, never a form the server would refuse.
 	CanChangeEmail bool
 	EmailAction    string
+
+	// ExternalRef is the integration identity on file, "" when unbound (M11 API-1,
+	// K-18). It is the customer's own HR/ERP key for this person -- data, not a
+	// credential. CanChangeExternalRef is the POST's own gate (an OWNER), so a manager
+	// sees the ref and the sentence that says who can change it, never a refused form.
+	ExternalRef          string
+	CanChangeExternalRef bool
+	ExternalRefAction    string
 }
 
 // RosterFilterView is the employees section's filter bar: what can be picked, and

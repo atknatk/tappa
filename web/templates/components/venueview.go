@@ -42,6 +42,9 @@ type VenueRowView struct {
 	Shift string
 	// WiFi is the network name shown during activation, or "" for none.
 	WiFi string
+	// ExternalRef is the venue's integration identity (M11 API-1, K-18), "" when the
+	// venue is not linked to an HR or ERP record.
+	ExternalRef string
 
 	// NoProofOfPlace is true when this venue has NEITHER static IPs NOR a
 	// coordinate.
@@ -146,6 +149,10 @@ type VenueFormView struct {
 	// Removal is the delete control, or nil on an ADD where there is nothing to
 	// remove yet.
 	Removal *RemovalView
+	// ExternalRef is the venue's integration identity form (M11 API-1), nil on a NEW
+	// venue: binding needs a row to bind. It is rendered OUTSIDE the save form, like
+	// Removal, because it posts to its own owner-only route.
+	ExternalRef *VenueRefFormView
 }
 
 // RemovalView is the delete control on an edit card, or the sentence that stands in
@@ -282,4 +289,16 @@ func countedList(kinds []string) string {
 		return kinds[0]
 	}
 	return strings.Join(kinds[:len(kinds)-1], ", ") + " or " + kinds[len(kinds)-1]
+}
+
+// VenueRefFormView is the venue's external-ref form (M11 API-1, K-18).
+//
+// CanChange is the POST's own gate (an OWNER, mayChangeExternalRef): a manager sees the
+// ref and the sentence that says who can change it, never a form the server would
+// refuse.
+type VenueRefFormView struct {
+	Action    string
+	ID        string
+	Value     string
+	CanChange bool
 }

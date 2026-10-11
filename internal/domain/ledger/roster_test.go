@@ -85,6 +85,7 @@ var personFields = map[string]string{
 	"ID":             "an opaque row id; phase B needs it to address a person",
 	"Name":           "what the card is for",
 	"Status":         "the lifecycle chip; migration 00003's CHECK vocabulary",
+	"HasHome":        "whether they have a home venue at all (K-14, M11 API-1); a boolean, no id",
 	"LocationName":   "where they work; a name, not an id",
 	"DepartmentName": "same, and empty for a business with no departments",
 	"LiveDevices":    "a COUNT of sessions -- never a session, an id or a label",
