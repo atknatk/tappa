@@ -1,0 +1,282 @@
+[
+  {
+    "alert": "tappa 1: reject rate jump",
+    "alertType": "LOGS_BASED_ALERT",
+    "ruleType": "threshold_rule",
+    "evalWindow": "15m0s",
+    "frequency": "5m0s",
+    "condition": {
+      "compositeQuery": {
+        "queries": [
+          {
+            "type": "clickhouse_sql",
+            "spec": {
+              "name": "A",
+              "query": "SELECT toStartOfInterval(fromUnixTimestamp64Nano(timestamp), INTERVAL 15 MINUTE) AS ts, if(countIf(JSONExtractString(body,'verdict')='reject') >= 5, 100.0 * countIf(JSONExtractString(body,'verdict')='reject') / count(), 0) AS value FROM signoz_logs.distributed_logs_v2 WHERE timestamp BETWEEN {{.start_timestamp_nano}} AND {{.end_timestamp_nano}} AND resources_string['k8s.namespace.name'] = 'tappa' AND resources_string['k8s.container.name'] = 'tappa' AND JSONExtractString(body, 'msg') = 'tap.decision' GROUP BY ts",
+              "disabled": false
+            }
+          }
+        ],
+        "panelType": "graph",
+        "queryType": "clickhouse_sql"
+      },
+      "op": "1",
+      "target": 10,
+      "matchType": "1",
+      "selectedQueryName": "A"
+    },
+    "labels": {
+      "app": "tappa",
+      "severity": "warning"
+    },
+    "annotations": {
+      "description": "More than 10% of taps rejected in 15 min (at least 5). A plaque lost/retired/unassigned, SUN verification failing, or an account trying. See deploy/README.md M8-03 rule 1.",
+      "summary": "tappa 1: reject rate jump"
+    },
+    "disabled": false,
+    "preferredChannels": [
+      "tappa-healthchecks"
+    ],
+    "version": "v5"
+  },
+  {
+    "alert": "tappa 2: flag queue building up",
+    "alertType": "LOGS_BASED_ALERT",
+    "ruleType": "threshold_rule",
+    "evalWindow": "60m0s",
+    "frequency": "10m0s",
+    "condition": {
+      "compositeQuery": {
+        "queries": [
+          {
+            "type": "clickhouse_sql",
+            "spec": {
+              "name": "A",
+              "query": "SELECT ts, toFloat64(sum(c) > 20 OR max(c) > 10) AS value FROM (SELECT toStartOfInterval(fromUnixTimestamp64Nano(timestamp), INTERVAL 60 MINUTE) AS ts, JSONExtractString(body,'matched_sid') AS sid, count() AS c FROM signoz_logs.distributed_logs_v2 WHERE timestamp BETWEEN {{.start_timestamp_nano}} AND {{.end_timestamp_nano}} AND resources_string['k8s.namespace.name'] = 'tappa' AND resources_string['k8s.container.name'] = 'tappa' AND JSONExtractString(body, 'msg') = 'tap.decision' AND JSONExtractString(body,'verdict')='flag' GROUP BY ts, sid) GROUP BY ts",
+              "disabled": false
+            }
+          }
+        ],
+        "panelType": "graph",
+        "queryType": "clickhouse_sql"
+      },
+      "op": "1",
+      "target": 0,
+      "matchType": "1",
+      "selectedQueryName": "A"
+    },
+    "labels": {
+      "app": "tappa",
+      "severity": "warning"
+    },
+    "annotations": {
+      "description": "More than 20 flagged taps in 60 min, or more than 10 for one rule. Evidence is short (often a venue's address list or GPS). See M8-03 rule 2.",
+      "summary": "tappa 2: flag queue building up"
+    },
+    "disabled": false,
+    "preferredChannels": [
+      "tappa-healthchecks"
+    ],
+    "version": "v5"
+  },
+  {
+    "alert": "tappa 3: tap security event",
+    "alertType": "LOGS_BASED_ALERT",
+    "ruleType": "threshold_rule",
+    "evalWindow": "5m0s",
+    "frequency": "1m0s",
+    "condition": {
+      "compositeQuery": {
+        "queries": [
+          {
+            "type": "clickhouse_sql",
+            "spec": {
+              "name": "A",
+              "query": "SELECT toStartOfInterval(fromUnixTimestamp64Nano(timestamp), INTERVAL 1 MINUTE) AS ts, toFloat64(count()) AS value FROM signoz_logs.distributed_logs_v2 WHERE timestamp BETWEEN {{.start_timestamp_nano}} AND {{.end_timestamp_nano}} AND resources_string['k8s.namespace.name'] = 'tappa' AND resources_string['k8s.container.name'] = 'tappa' AND JSONExtractString(body, 'msg') = 'tap.security_alert' GROUP BY ts",
+              "disabled": false
+            }
+          }
+        ],
+        "panelType": "graph",
+        "queryType": "clickhouse_sql"
+      },
+      "op": "1",
+      "target": 0,
+      "matchType": "1",
+      "selectedQueryName": "A"
+    },
+    "labels": {
+      "app": "tappa",
+      "severity": "critical"
+    },
+    "annotations": {
+      "description": "A tap.security_alert line: a deactivated account tapped, or the second cause in M8-03 rule 3. matched_sid says which. Look at the line in SigNoz.",
+      "summary": "tappa 3: tap security event"
+    },
+    "disabled": false,
+    "preferredChannels": [
+      "tappa-healthchecks"
+    ],
+    "version": "v5"
+  },
+  {
+    "alert": "tappa 4: suspicious ctr jump",
+    "alertType": "LOGS_BASED_ALERT",
+    "ruleType": "threshold_rule",
+    "evalWindow": "15m0s",
+    "frequency": "5m0s",
+    "condition": {
+      "compositeQuery": {
+        "queries": [
+          {
+            "type": "clickhouse_sql",
+            "spec": {
+              "name": "A",
+              "query": "SELECT toStartOfInterval(fromUnixTimestamp64Nano(timestamp), INTERVAL 5 MINUTE) AS ts, toFloat64(count()) AS value FROM signoz_logs.distributed_logs_v2 WHERE timestamp BETWEEN {{.start_timestamp_nano}} AND {{.end_timestamp_nano}} AND resources_string['k8s.namespace.name'] = 'tappa' AND resources_string['k8s.container.name'] = 'tappa' AND JSONExtractString(body, 'msg') = 'tap.decision' AND JSONExtractInt(body,'ctr_gap') > 10 GROUP BY ts",
+              "disabled": false
+            }
+          }
+        ],
+        "panelType": "graph",
+        "queryType": "clickhouse_sql"
+      },
+      "op": "1",
+      "target": 0,
+      "matchType": "1",
+      "selectedQueryName": "A"
+    },
+    "labels": {
+      "app": "tappa",
+      "severity": "warning"
+    },
+    "annotations": {
+      "description": "A plaque was read more often than the server saw (ctr_gap > 10; > 50 is urgent). The only visible trace of URL harvesting. See M8-03 rule 4.",
+      "summary": "tappa 4: suspicious ctr jump"
+    },
+    "disabled": false,
+    "preferredChannels": [
+      "tappa-healthchecks"
+    ],
+    "version": "v5"
+  },
+  {
+    "alert": "tappa 5: server errors",
+    "alertType": "LOGS_BASED_ALERT",
+    "ruleType": "threshold_rule",
+    "evalWindow": "5m0s",
+    "frequency": "1m0s",
+    "condition": {
+      "compositeQuery": {
+        "queries": [
+          {
+            "type": "clickhouse_sql",
+            "spec": {
+              "name": "A",
+              "query": "SELECT toStartOfInterval(fromUnixTimestamp64Nano(timestamp), INTERVAL 5 MINUTE) AS ts, toFloat64(count()) AS value FROM signoz_logs.distributed_logs_v2 WHERE timestamp BETWEEN {{.start_timestamp_nano}} AND {{.end_timestamp_nano}} AND resources_string['k8s.namespace.name'] = 'tappa' AND resources_string['k8s.container.name'] = 'tappa' AND JSONExtractString(body, 'msg') = 'http.request' AND JSONExtractString(body,'level') = 'ERROR' GROUP BY ts",
+              "disabled": false
+            }
+          }
+        ],
+        "panelType": "graph",
+        "queryType": "clickhouse_sql"
+      },
+      "op": "1",
+      "target": 5,
+      "matchType": "1",
+      "selectedQueryName": "A"
+    },
+    "labels": {
+      "app": "tappa",
+      "severity": "critical"
+    },
+    "annotations": {
+      "description": "More than 5 HTTP 5xx answers in 5 min. The server is broken; a panic is turned into a 500 and shows here. See M8-03 rule 5.",
+      "summary": "tappa 5: server errors"
+    },
+    "disabled": false,
+    "preferredChannels": [
+      "tappa-healthchecks"
+    ],
+    "version": "v5"
+  },
+  {
+    "alert": "tappa 6: readiness lost",
+    "alertType": "LOGS_BASED_ALERT",
+    "ruleType": "threshold_rule",
+    "evalWindow": "5m0s",
+    "frequency": "1m0s",
+    "condition": {
+      "compositeQuery": {
+        "queries": [
+          {
+            "type": "clickhouse_sql",
+            "spec": {
+              "name": "A",
+              "query": "SELECT toStartOfInterval(fromUnixTimestamp64Nano(timestamp), INTERVAL 1 MINUTE) AS ts, toFloat64(count()) AS value FROM signoz_logs.distributed_logs_v2 WHERE timestamp BETWEEN {{.start_timestamp_nano}} AND {{.end_timestamp_nano}} AND resources_string['k8s.namespace.name'] = 'tappa' AND resources_string['k8s.container.name'] = 'tappa' AND JSONExtractString(body, 'msg') = 'readiness.lost' GROUP BY ts",
+              "disabled": false
+            }
+          }
+        ],
+        "panelType": "graph",
+        "queryType": "clickhouse_sql"
+      },
+      "op": "1",
+      "target": 0,
+      "matchType": "1",
+      "selectedQueryName": "A"
+    },
+    "labels": {
+      "app": "tappa",
+      "severity": "critical"
+    },
+    "annotations": {
+      "description": "The database is not answering; /readyz returns 503 and the pod leaves rotation. Closes with readiness.regained. See M8-03 rule 6.",
+      "summary": "tappa 6: readiness lost"
+    },
+    "disabled": false,
+    "preferredChannels": [
+      "tappa-healthchecks"
+    ],
+    "version": "v5"
+  },
+  {
+    "alert": "tappa 7: operator surface unavailable",
+    "alertType": "LOGS_BASED_ALERT",
+    "ruleType": "threshold_rule",
+    "evalWindow": "10m0s",
+    "frequency": "1m0s",
+    "condition": {
+      "compositeQuery": {
+        "queries": [
+          {
+            "type": "clickhouse_sql",
+            "spec": {
+              "name": "A",
+              "query": "SELECT toStartOfInterval(fromUnixTimestamp64Nano(timestamp), INTERVAL 1 MINUTE) AS ts, toFloat64(count()) AS value FROM signoz_logs.distributed_logs_v2 WHERE timestamp BETWEEN {{.start_timestamp_nano}} AND {{.end_timestamp_nano}} AND resources_string['k8s.namespace.name'] = 'tappa' AND resources_string['k8s.container.name'] = 'tappa' AND JSONExtractString(body,'operator_surface') = 'unavailable' GROUP BY ts",
+              "disabled": false
+            }
+          }
+        ],
+        "panelType": "graph",
+        "queryType": "clickhouse_sql"
+      },
+      "op": "1",
+      "target": 0,
+      "matchType": "1",
+      "selectedQueryName": "A"
+    },
+    "labels": {
+      "app": "tappa",
+      "severity": "warning"
+    },
+    "annotations": {
+      "description": "The pod started without the operator surface (OP-7 settings missing or refused). ops.taptime.mt answers 503. See M8-03 rule 7.",
+      "summary": "tappa 7: operator surface unavailable"
+    },
+    "disabled": false,
+    "preferredChannels": [
+      "tappa-healthchecks"
+    ],
+    "version": "v5"
+  }
+]

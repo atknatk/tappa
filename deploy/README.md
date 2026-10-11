@@ -35,6 +35,7 @@ Hedef: `https://taptime.mt` · küme: k3s v1.35.4, tek node
 | `k8s/41-operator-ingress.yaml` | operatör host'u `ops.taptime.mt`'nin iki Ingress'i (`/` 24k, `/operator/legal` Exact 320k; K4 IP kısıtı **yok**, karar bekliyor) — T112 | `deploy.yml` (silmek **operatör**: deploy kimliğinde `delete` yok; yüzey kapanırken — *"Geri alma — yüzeyi kapat"*) |
 | `k8s/50-backup.yaml` | 🔴 **gecelik yedek CronJob'ı** (02:30 Malta) | **operatör** (bir kez; deploy'un `batch/cronjobs` yetkisi **yok** ve bilerek yok) |
 | `k8s/55-heartbeat.yaml` | 🔴 **uptime heartbeat CronJob'ı** (her 5 dk; healthchecks.io'ya *"yaşıyor"* ya da `/fail` — T116) | **operatör** (bir kez; aynı gerekçe — adım 10) |
+| `observability/signoz-alert-rules.json` | 🔴 **SigNoz'un yedi uyarı kuralı** (M8-03 tablosunun 1–7'si, ClickHouse-SQL; T118) — kanal yalnız **adıyla** (`tappa-healthchecks`), adres yok; küme manifesti **değildir** | **operatör** (SigNoz API'siyle, bir kez — adım 10 (f)) |
 | `k8s/postgres-init/02-app-password.sh` | `tappa_app`'e **girişi açan** üretim script'i | ConfigMap içinde |
 | `../scripts/pg-backup.sh` | dump **ve içeriğinin doğrulanması** (satır sayısı, tablo kümesi, RLS/GRANT) | ConfigMap içinde (`deploy.yml` `--from-file`) |
 | `../scripts/pg-backup-ship.sh` | dump'ı **node dışına** taşır + saklama süresini uygular + sonucu healthchecks.io'ya bildirir (T116; bildirim yedeğin sonucunu **değiştirmez**) | ConfigMap içinde (`deploy.yml` `--from-file`) |
@@ -664,14 +665,17 @@ indirilmiş döküm ve yerel config **0**, checkout'ta yeni dosya **0**. Ayrınt
 **Ne ve neden.** *"M8-03 — UYARI KURALLARI"*nın yedi kuralı kümenin **kendi log'undan**
 hesaplanır; ölü bir node log yazmaz, yani hiçbiri *"küme gitti"* diyemez. healthchecks.io
 bunun tersini yapar: belli aralıklarla *"yaşıyorum"* denmesini bekler ve **söylenmesi
-kesilince** e-posta atar (kullanıcı kararı 2026-10-09: AB'de barındırılan dış servis,
-ücretsiz plan). Kontrolün sinyal adresine bir `GET` *"yaşıyor"*, adresin sonuna `/fail`
-*"hemen uyar"* demektir. İki kontrol kurulu:
+kesilince** bildirim atar — Telegram **ve** e-posta (kullanıcı kararı 2026-10-09: AB'de
+barındırılan dış servis, ücretsiz plan; ⚠️ e-posta 2026-10-11'e kadar **hiçbir** kontrole
+bağlı değildi — tuzak 1, (f)). Kontrolün sinyal adresine bir `GET` *"yaşıyor"*, adresin
+sonuna `/fail` *"hemen uyar"* demektir. Üç kontrol kurulu — üçüncüsü yedi log kuralının
+teslimatıdır (T118) ve sinyali adresten değil **gövdedeki kelimeden** okur:
 
 | Kontrol | Takvim / tolerans | Sinyali gönderen | *"Yaşıyor"* | `/fail` — hemen uyarı | Sinyal yok — tolerans sonunda uyarı |
 |---|---|---|---|---|---|
 | `tappa-uptime` | her 5 dk / 5 dk | `k8s/55-heartbeat.yaml` (CronJob `tappa-heartbeat`) | halka açık `$TAPPA_BASE_URL/healthz` → 200 | `/healthz` 200 değil: TLS, DNS, bağlantı, zaman aşımı, 5xx — ve hazırlığı düşen pod Service'ten çıktığı için veritabanı arızası da (`replicas: 1`) | node/küme yok, CronJob askıda, Secret yok, imaj çekilemiyor, sinyal teslim edilemedi |
 | `tappa-backup` | cron `30 2 * * *` Europe/Malta / 1 saat | `k8s/50-backup.yaml`'ın `ship` konteyneri (`scripts/pg-backup-ship.sh`'ın EXIT tuzağı) | dump R2'ye gönderildi **ve** hedefte doğrulandı | `ship` kırmızı bitti (hedef, şifreleme kanıtı, yükleme, doğrulama, budama) | `dump-and-verify` düştü (`ship` o zaman **hiç başlamaz** — bilerek), CronJob koşmadı, sinyal teslim edilemedi |
+| `tappa-signals` | 365 gün / 1 saat — yani fiilen **ölü adam anahtarı DEĞİL** | SigNoz'un webhook kanalı `tappa-healthchecks` (yedi kuralın hepsi; `POST`) | gövdede `resolved` — bir kural kapandı | gövdede `firing` — bir kural ateşlendi | 365 gün hiç bildirim yok. SigNoz'un **kendi** ölümünü bu kontrol **görmez** (sınır 25) |
 
 🔴 **Sinyal adresi bir SIRdır:** bilen biri *"yaşıyor"* gönderip uyarıyı susturabilir.
 `secret/tappa-alert-pings`'te durur (`UPTIME_PING_URL`, `BACKUP_PING_URL` — tam
@@ -774,31 +778,148 @@ Beklenen son iki satır: `pg-backup-ship: done: N backup(s) retained at the dest
 `pg-backup-ship: alert signal sent (success, HTTP 2xx)`; panelde `tappa-backup` **up**. Bu
 tam bir yedek koşusudur — hedefe bir kopya daha gider (budama yaşa göre; kova kilidi
 14 gün). Son olarak e-posta kanalının kendisini healthchecks.io panelindeki entegrasyonun
-test bildirimiyle sına — bu repodan ölçülemez.
+test bildirimiyle sına — bu repodan ölçülemez. ⚠️ **Test bildiriminin gelmesi kontrolün o
+kanala BAĞLI olduğunu kanıtlamaz** (tuzak 1, (f)): her kontrolün sayfasında Telegram **ve**
+e-postanın ikisinin de açık olduğunu ayrıca gör.
 
 **(d) Uyarı geldiğinde — belirti → ilk bakılacak yer.** Son işler:
 `kubectl --context hetzner-k8s-1 -n tappa get job -l app.kubernetes.io/component=heartbeat --sort-by=.metadata.creationTimestamp`
 (yedek için `component=backup`).
 
-| E-posta | Anlamı | İlk bakılacak yer |
+| Bildirim (Telegram / e-posta) | Anlamı | İlk bakılacak yer |
 |---|---|---|
 | `tappa-uptime` **down**, hemen | heartbeat koştu ve `/fail` gönderdi: `/healthz` 200 değildi | son işin log'undaki `DOWN (…)` parantezi: `HTTP 503` → hazırlık/veritabanı (*"Olay müdahalesi"*, M8-03 6. sinyal) · `tls` → sertifika (`get certificate`) · `dns` → adım 1 · `connect`/`timeout` → ingress, node ya da hairpin |
 | `tappa-uptime` **down**, tolerans dolunca | hiç sinyal gelmedi | önce dışarıdan `https://taptime.mt/healthz`; sonra `get nodes`, `get cronjob tappa-heartbeat` (askıda mı) ve son işin kendisi: `describe job <iş>` — `DeadlineExceeded` = pod 60 sn'yi aştı; ⚠️ Job denetleyicisi o anda **pod'u siler**, yani `get pod -l app.kubernetes.io/component=heartbeat` çoğu zaman **boş** döner. Sebep pod olaylarındadır (~1 saat kalır): `get events --field-selector involvedObject.kind=Pod --sort-by=.lastTimestamp` — `CreateContainerConfigError` = Secret ya da ConfigMap yok · `ErrImagePull`/`ImagePullBackOff` = imaj ya da Docker Hub bütçesi (sınır 12). Pod kaldıysa log'unda `signal NOT delivered` = healthchecks.io'ya ulaşılamıyor |
 | `tappa-backup` **down**, hemen | `ship` kırmızı bitti ve `/fail` gönderdi | `logs job/<iş> -c ship` → `FAILED:` satırı; *"Yedek ve geri yükleme"* |
 | `tappa-backup` **down**, 03:30'dan sonra (Malta) | sinyal yok | `get job -l app.kubernetes.io/component=backup`; `logs job/<iş> -c dump-and-verify`; `ship` log'unda `alert signal skipped` ya da `NOT delivered` |
+| `tappa-signals` **down** | SigNoz'da yedi kuraldan **en az biri** ateşlendi | SigNoz arayüzü → *Alerts* — ateşteki kuralın adı `tappa <n>: …`'dir ve `<n>` *"M8-03 — UYARI KURALLARI"* tablosunun satırıdır; o satırın *"İlk bakılacak yer"* sütunu |
+| `tappa-signals` **up** | bir kural kapandı | ⚠️ **ötekilerin de kapandığı anlamına gelmez** — tek kontrol yedi kuralı taşır (sınır 25); SigNoz → *Alerts*'te ateşte kural kalmadığını gör |
 
-**(e) Sınırlar — sayılı, ayrıntısı sınır 33'te:** tek sağlayıcı ve tek e-posta alıcısı;
-ücretsiz planın kotası/SLA'sı ölçülmedi; yoklama küme **içinden** başlar (node dışındaki
-bir ağ arızası görünmez; hairpin'in **çalıştığı** 2026-10-09'da ölçüldü); yedek sinyalinin
-adresi kısa bir an argv'de.
+**(e) Sınırlar — sayılı, ayrıntısı sınır 33'te (`tappa-signals`'ınki sınır 25'te):** tek
+sağlayıcı ve tek hesap (iki kanal: Telegram + e-posta); ücretsiz planın kotası/SLA'sı
+ölçülmedi; yoklama küme **içinden** başlar (node dışındaki bir ağ arızası görünmez;
+hairpin'in **çalıştığı** 2026-10-09'da ölçüldü); yedek sinyalinin adresi kısa bir an argv'de.
+
+**(f) `tappa-signals` — M8-03'ün yedi log kuralının teslimatı (T118, 2026-10-11).**
+Orkestratör kümede kurdu; bu alt adım bir **sonraki** kurulum içindir. Zincir:
+
+> SigNoz kuralı (kaynağı `deploy/observability/signoz-alert-rules.json`) → SigNoz webhook
+> kanalı `tappa-healthchecks` → healthchecks.io kontrolü `tappa-signals` → Telegram + e-posta.
+
+SigNoz'un kendi e-posta özelliği **kapalı**; tek teslim yolu bu zincirdir. Uçtan uca kanıt
+(orkestratör, 2026-10-11): SigNoz'un kanal test uyarısı, bildirim kanalı bağlanmamış bir
+sonda kontrolünde `fail`/`down` üretti (sonda sonra silindi). Kuralların ne olduğu, neyi
+basitleştirdikleri ve neyin onları susturduğu *"M8-03 — UYARI KURALLARI"* bölümünün başındaki
+kutudadır.
+
+`tappa-signals`'ın ayarları — dördü de **zorunlu**, biri eksikse zincir sessizce kırılır:
+
+| Ayar | Değer | Eksikse |
+|---|---|---|
+| `filter_http_body` | `true` | gövde okunmaz; her istek *"yaşıyor"* sayılır, uyarı **hiç** gelmez (tuzak 2) |
+| `failure_kw` / `success_kw` | `firing` / `resolved` | SigNoz'un gövdesindeki durum kelimeleri; kural açıklamaları bu iki kelimeyi **taşıyamaz** (`TestSignozRules_CarryNoAddressAndNoDeliveryKeyword`) |
+| `channels` | `*` | kontrol hiçbir kanala bağlanmaz: `down` olur ve **kimseye söylemez** (tuzak 1) |
+| `timeout` / `grace` | 365 gün (API'nin üst sınırı, 31 536 000 sn) / 1 saat | bu kontrol bir ölü adam anahtarı **değildir**; kısa bir tolerans, sessiz geçen her gün için yanlış uyarı demek olurdu |
+
+Kontrol **yeni** (`new`) durumdayken uyarmaz — ilk `firing`'e kadar sessizdir. Yani *"hiç
+bildirim gelmedi"* zincirin çalıştığını **kanıtlamaz**; tek kanıt yukarıdaki uçtan uca
+denemedir ve yeniden kurulumda, orkestratörün yaptığı gibi **gerçek kontrolü çaldırmadan**
+tekrarlanır: healthchecks.io'da aynı ayarlarla ama **kanalsız** geçici bir sonda kontrolü
+kur; aşağıdaki (2)'yi koşarken adres sorusuna önce **sondanın** ping adresini ver; SigNoz
+arayüzünde kanalın düzenleme formundaki *Test* ile sondada `down` gör; sonra aynı formda
+adresi `tappa-signals`'ınkiyle değiştir ve sondayı sil.
+
+🔴 **Sinyal adresi bir SIRdır** — bilen biri `resolved` göndererek açık bir uyarıyı kapatır.
+Infisical `/tappa-alerts/TAPPA_HC_SIGNALS_PING_URL`'de ve SigNoz'un kanal ayarında durur;
+repoda **yoktur** (`deploy/observability/` altında `hc-ping` ve `://` geçemez — aynı test).
+Sızarsa: healthchecks.io'da adresi yenile, Infisical'ı ve SigNoz kanalını güncelle.
+
+⚠️ **İKİ TUZAK — ikisi de ölçüldü (orkestratör, 2026-10-11):**
+
+1. **API ile kurulan bir kontrol varsayılan olarak HİÇBİR bildirim kanalına bağlanmaz.**
+   `"channels": "*"` açıkça verilmelidir (API belgesine göre `*` o an **var olan** bütün
+   entegrasyonları bağlar — sonradan eklenen bir kanal her kontrole ayrıca bağlanır).
+   Ölçüldü: `tappa-uptime` ve `tappa-backup` yalnız Telegram'a bağlıydı, e-posta
+   entegrasyonu **hiçbir** kontrole bağlı değildi — yani bu adımın 2026-10-09 metnindeki
+   *"e-postayla"* iki gün boyunca doğru değildi. Orkestratör üçünü de `*` yaptı.
+2. **HTTP gövdesinin anahtar kelime filtresi `filter_http_body`'dir; `filter_body` E-POSTA
+   gövdesidir** (healthchecks.io'ya e-postayla gelen sinyaller için). Ölçüldü: `filter_body`
+   ile kurulan kontrol `firing` taşıyan isteği **`success`** saydı — her uyarı
+   *"yaşıyor"* olarak okunuyordu.
+
+**Yeniden kurulum.** ⚠️ Bu iki blok bu repodan **koşulmadı** (yapıcı SigNoz'a ve
+healthchecks.io'ya istek atmadı); uç noktalar ve gövde biçimleri orkestratörün 2026-10-11
+kurulumundakilerdir. Değerler `read -rs` ile okunur ve curl'e **yapılandırma dosyası**
+(`-K`, `umask 077`) ya da **stdin** üzerinden verilir — hiçbiri bir sürecin argv'sine ya da
+ekrana düşmez. `printf` ve `read` kabuğun kendi komutlarıdır.
+
+(1) healthchecks.io kontrolü — panelden de kurulabilir; API'yle kurulursa gövde budur.
+`unique` var olan bir kontrolü **güncellemez**, yalnız ikincisini yaratmayı engeller: kontrol
+zaten varsa ayarlarını panelde yukarıdaki tabloyla karşılaştır. Yanıttan yalnız sırsız
+alanlar basılır (`ping_url` basılmaz).
+
+```bash
+umask 077
+HC_CFG=$(mktemp)
+printf 'healthchecks.io API key (read-write): '; read -rs HC_KEY; echo
+printf 'header = "X-Api-Key: %s"\nheader = "Content-Type: application/json"\n' "$HC_KEY" > "$HC_CFG"
+unset HC_KEY
+printf '%s' '{"name":"tappa-signals","timeout":31536000,"grace":3600,"filter_http_body":true,"failure_kw":"firing","success_kw":"resolved","channels":"*","unique":["name"]}' \
+  | curl -fsS -K "$HC_CFG" --data-binary @- https://healthchecks.io/api/v3/checks/ \
+  | jq '{name, status, timeout, grace, failure_kw, success_kw, channels}'
+rm -f "$HC_CFG"
+```
+
+Beklenen: `name` `tappa-signals`, `status` `new`, `channels` **boş değil**. Sonra kontrolün
+ping adresini panelden Infisical `/tappa-alerts/TAPPA_HC_SIGNALS_PING_URL`'e yaz.
+
+(2) SigNoz — oturum, kanal, yedi kural. Sıra önemlidir: kurallar kanalı **adıyla** anar,
+yani kanal önce kurulur. Kurallar ikinci kez gönderilirse aynı adla **ikinci** bir kopya
+doğar — taze olmayan bir SigNoz'da önce *Alerts*'te var olanlara bak.
+
+```bash
+umask 077
+SIGNOZ=https://signoz.everva.com.tr
+SZ_CFG=$(mktemp)
+printf 'SigNoz admin e-mail: '; read -rs SZ_EMAIL; echo
+printf 'SigNoz admin password: '; read -rs SZ_PASS; echo
+SZ_ORG=$(printf 'url = "%s/api/v2/sessions/context?email=%s"\n' "$SIGNOZ" "$(printf '%s' "$SZ_EMAIL" | jq -sRr @uri)" | curl -fsS -K - | jq -r '.data.orgs[0].id')
+[ -n "$SZ_ORG" ] && [ "$SZ_ORG" != null ] && echo 'org ok'
+printf 'url = "%s/api/v2/sessions/email_password"\nheader = "Content-Type: application/json"\n' "$SIGNOZ" > "$SZ_CFG"
+SZ_TOKEN=$(printf '%s\n%s\n%s\n' "$SZ_EMAIL" "$SZ_PASS" "$SZ_ORG" | jq -Rn '[inputs] | {email: .[0], password: .[1], orgId: .[2]}' | curl -fsS -K "$SZ_CFG" --data-binary @- | jq -r '.data.accessToken')
+unset SZ_EMAIL SZ_PASS
+[ ${#SZ_TOKEN} -gt 20 ] && [ "$SZ_TOKEN" != null ] && echo 'token ok'
+printf 'header = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\n' "$SZ_TOKEN" > "$SZ_CFG"
+unset SZ_TOKEN
+printf 'tappa-signals ping URL: '; read -rs HC_SIGNALS_URL; echo
+printf '%s' "$HC_SIGNALS_URL" | jq -Rs '{name: "tappa-healthchecks", webhook_configs: [{send_resolved: true, url: .}]}' \
+  | curl -sS -K "$SZ_CFG" --data-binary @- -o /dev/null -w 'channel: HTTP %{http_code}\n' "$SIGNOZ/api/v1/channels"
+unset HC_SIGNALS_URL
+jq -c '.[]' deploy/observability/signoz-alert-rules.json | while IFS= read -r RULE; do
+  printf '%s' "$RULE" | curl -sS -K "$SZ_CFG" --data-binary @- -o /dev/null -w '%{http_code} ' "$SIGNOZ/api/v1/rules"
+  printf '%s' "$RULE" | jq -r .alert
+done
+rm -f "$SZ_CFG"
+```
+
+Beklenen: `org ok`, `token ok`, `channel: HTTP 2xx` ve yedi satır `2xx tappa <n>: …`. İlk
+ikisinden biri gelmezse **dur** — sonraki çağrılar boş bir kimlikle gider. 🔴
+**`send_resolved: true` zorunludur:** yoksa kapanış bildirimi hiç gönderilmez ve
+`tappa-signals` ilk ateşten sonra **sonsuza dek** `down` kalır — sonraki her uyarı o
+gürültünün içinde kaybolur. ⚠️ Canlı kanalda bu ayarın açık olduğu bu repodan
+**doğrulanmadı**; SigNoz arayüzünün kanal ayarlarında `tappa-healthchecks`'i açıp gör.
+Son olarak SigNoz → *Alerts*: yedi kural, durumları `inactive` (hatasız değerlendiriliyor)
+— `firing` görünürse o gerçek bir uyarıdır. Kural JSON'unun `version` alanı `v5`'tir; bu
+SigNoz `v4`'ü **reddediyor** (ölçüldü).
 
 **Testler** (yalnız bu adımın; tam takım değil):
 `go test ./cmd/tappa/ -run 'TestHeartbeat_|TestBackup_|TestBackupShip_|TestCronJobs_'` —
-on üç test, adlarının öneki bunlardır. ⚠️ Yanlış önekle süzülen bir `-run` hiçbir testi
-koşmaz ve `ok` basar — yeşil ama boş.
-🔴 **`Q28 (a)`'nın KALANI açık:** M8-03'ün yedi log sinyali hâlâ hiçbir yere gönderilmiyor
-(sınır 25) — bu adım yalnız log **dışı** iki sinyali kapatır. `Q28 (b)` (log saklama) açık
-(sınır 24).
+on üç test, adlarının öneki bunlardır. (f)'nin kuralları:
+`go test ./cmd/tappa/ -run 'TestSignozRules_'` — dört test. ⚠️ Yanlış önekle süzülen bir
+`-run` hiçbir testi koşmaz ve `ok` basar — yeşil ama boş.
+🔴 **`Q28 (a)`:** M8-03'ün yedi log sinyali 2026-10-11'den beri (f) üzerinden teslim
+ediliyor; kalanı — SigNoz'un tek başına ölümü, basitleştirmeler, tek kontrolün yedi kuralı
+taşıması — sınır 25'te sayılı. `Q28 (b)` (log saklama) açık (sınır 24).
 
 ---
 
@@ -5015,19 +5136,55 @@ ki bu bugün ~günlerdir. İki sınırın **küçüğü** geçerlidir.
 
 ### 🔴 M8-03 — UYARI KURALLARI
 
-> **TESLİMAT KANALI YOK, VE BU DÜRÜSTÇE YAZILIYOR.** Bu kurallar bugün bir yere
-> **gönderilmiyor**: uyarının **nereye gideceği** `Q28 (a)`'da açık, ve SigNoz'un
-> uyarı kurulumu bu repodaki bir dosyaya değil, o kümedeki başka bir ürünün
-> konfigürasyonuna bağlı.
-> **Sevk edilen şey şudur: altı sinyalin altısı da log'dan HESAPLANABİLİR, alan adları
-> testle pinlenmiştir, ve eşikler yazılıdır.** Kuralı bir hedefe bağlamak
-> operatörün işi ve aşağıdaki sorgular olduğu gibi yapıştırılabilir.
+> **TESLİMAT VAR, AMA KÜMENİN İÇİNDEN BAŞLIYOR — VE ONU NEYİN SUSTURDUĞU AŞAĞIDA SAYILI.**
+> (T118, 2026-10-11; `Q28 (a)`, kullanıcı kararı: uyarılar SigNoz'dan.) Aşağıdaki tablonun
+> yedi kuralı kümedeki SigNoz'da (v0.131, `signoz.everva.com.tr`, ArgoCD `infra-signoz`)
+> **ClickHouse-SQL eşik kuralı** olarak kurulu. Kaynakları bu repoda:
+> **`deploy/observability/signoz-alert-rules.json`** (sırsız, id'siz; yeniden kurulum
+> operatör adımı 10 (f)). Zincir: kural → SigNoz webhook kanalı `tappa-healthchecks` →
+> healthchecks.io kontrolü **`tappa-signals`** (gövdede `firing` = `down`, `resolved` =
+> `up`) → Telegram + e-posta.
+> **Ölçülen (orkestratör, 2026-10-11):** yedi sorgu ClickHouse'ta son 24 saate karşı koştu
+> ve yedisi geçerli; filtrelerin dayandığı alanların gerçekten dolu geldiği ayrıca görüldü
+> (`level` {`INFO`, `ERROR`} · `operator_surface` {`off`, `configured`} · `verdict` {`flag`,
+> `reject`} · `ctr_gap` her `tap.decision`'da); yedi kural `inactive` (hatasız
+> değerlendiriliyor); uçtan uca: SigNoz'un test uyarısı bir sonda kontrolünde `down` üretti.
+> **Pinli:** dosyadaki her kuralın gövde alanları ve `msg` değerleri koddaki sabitlerle
+> (`TestSignozRules_FilterOnThePinnedNames`, `TestObservability_AlertSignalNames`'in
+> eşlemesinden), her kural bu tablonun aynı numaralı satırıyla — filtresi ve eşiği
+> satırın yazdığıyla aynı (`TestSignozRules_OneRuleForEachRunbookRow`), her sorgu
+> `tappa` namespace'i ve konteyneriyle sınırlı (`TestSignozRules_EveryQueryIsScopedToTappa`);
+> dosyada adres ve healthchecks.io anahtar kelimesi yok
+> (`TestSignozRules_CarryNoAddressAndNoDeliveryKeyword`).
 >
-> **Sahibi:** kümeyi işleten operatör. **Neye bağlı:** `Q28 (a)` — uyarı hedefi
-> (**teslimat**) · `Q28 (b)` — log saklama süresi (**saklama**; bir uyarıyı
-> araştırmak için log'un hâlâ orada olması gerekir) · operatör eylemi
-> `log-retention-signoz` (SigNoz'un logları gerçekten tuttuğu süre, `Q28 (b)`'nin
-> ölçülmemiş yarısı).
+> ❌ **Sayılı sınırlar — kurulu kural tablodan DARDIR ve zincirin kör noktaları var:**
+> - **Basitleştirmeler.** 1. kural *"≥ 5 reject **ve** oran > %10"*u tek ifadede tutar
+>   (5'in altında oran 0 sayılır). 2. kural *"toplam > 20 **veya** tek `matched_sid` > 10"*u
+>   tek bir 0/1 değerine indirir — hangi kolun ateşlediği bildirimde görünmez. 4. kural
+>   `ctr_gap > 10`; *"> 50 acil"* ayrımı yalnız açıklamada — ayrı kural yok. 5. kuralın
+>   *"toplam isteğin %1'i"* kolu **kurulmadı**, yalnız *"5 dk'da > 5 olay"*. 7. kural yalnız
+>   `unavailable`'ı okur; `off` bilinçli kapatılmış yüzeydir, uyarı değil.
+> - **Pencereler kayan değil, saate hizalı kovalardır** (`toStartOfInterval`; SQL'den
+>   okundu, ölçülmedi). Değerlendirme penceresi genellikle iki kovaya bölünür, yani eşiğin
+>   hemen üstünde bir patlama sınırdan ikiye ayrılıp **ateşlemeyebilir** — 1., 2. ve 5.
+>   kuralda. Eşiği `0` olan 3., 4., 6. ve 7. kuralı etkilemez (tek satır yeter).
+> - **SigNoz'un kendi e-postası kapalı** — tek teslim yolu healthchecks.io (sınır 33 (a):
+>   tek sağlayıcı).
+> - **SigNoz kümede.** Küme ya da node ölürse yedisi **birlikte susar** — o durumu
+>   `tappa-uptime` (heartbeat, adım 10) yakalar. Ama SigNoz'un **tek başına** ölmesi
+>   (pod'u, ClickHouse'u, log toplayan ajan) **hiçbir yerde uyarı üretmez**:
+>   `tappa-signals`'ın toleransı 365 gündür, yani bir ölü adam anahtarı değildir (sınır 25).
+> - **Tek kontrol, yedi kural.** Herhangi bir kuralın `resolved`'ı kontrolü `up`'a çeker —
+>   başka bir kural hâlâ ateşteyken bile; ve kontrol zaten `down` iken ikinci bir kuralın
+>   ateşlenmesi **yeni bildirim üretmez** (healthchecks.io durum **değişiminde** bildirir).
+>   Bu tasarımın sonucudur, **ölçülmedi**. Hangi kuralların ateşte olduğunu SigNoz →
+>   *Alerts* söyler.
+> - **Log saklama `Q28 (b)` hâlâ açık** (sınır 24, operatör eylemi `log-retention-signoz`)
+>   — bir uyarıyı araştırmak için log'un hâlâ orada olması gerekir.
+>
+> **Sahibi:** kümeyi işleten operatör (SigNoz ve healthchecks.io hesabı). **Neye bağlı:**
+> `Q28 (b)` — log saklama süresi (**saklama**) · operatör eylemi `log-retention-signoz`
+> (SigNoz'un logları gerçekten tuttuğu süre, `Q28 (b)`'nin ölçülmemiş yarısı).
 >
 > ⚠️ **BURADA BİR TUR BOYUNCA `Q12` YAZIYORDU VE ÜÇ YERDE YANLIŞTI.** `Q12`
 > ***barındırma*** sorusudur (VPS sağlayıcı, managed Postgres, AB bölgesi, yedek
@@ -5046,11 +5203,12 @@ ki bu bugün ~günlerdir. İki sınırın **küçüğü** geçerlidir.
 > durumda aşağıdaki alan filtreleri **hiçbir satırla eşleşmez**, ki bu ekranda
 > *"hiç reject yok, hiç 5xx yok"* diye görünür — sessiz ölüm.
 
-> ⚠️ **T116 (2026-10-09) — bu tablonun DIŞINDA iki sinyal artık teslim ediliyor:** halka
+> ⚠️ **T116 (2026-10-09) — bu tablonun DIŞINDA iki sinyal de teslim ediliyor:** halka
 > açık `/healthz`'in 200 dönmemesi (kümenin ölümü dahil — o zaman hiç sinyal gelmez) ve
-> gecelik yedeğin sonucu, healthchecks.io'nun ölü adam anahtarı üzerinden e-postayla
-> (operatör adımı 10, sınır 33). **Bu tablonun yedi kuralı için yukarıdaki *"teslimat
-> kanalı yok"* cümlesi aynen geçerlidir** — `Q28 (a)`'nın kalanı.
+> gecelik yedeğin sonucu, healthchecks.io'nun ölü adam anahtarı üzerinden (operatör adımı
+> 10, sınır 33). ~~Bu tablonun yedi kuralı için *"teslimat kanalı yok"* cümlesi aynen
+> geçerlidir.~~ → **T118 (2026-10-11): yedi kural da aynı sağlayıcıya, `tappa-signals`
+> üzerinden gidiyor** (yukarıdaki kutu).
 
 **Yedi sinyal**, dört olaydan ve bir açılış satırından hesaplanır (aşağıdaki tablo yedi
 satırdır; bir tur boyunca burada *"beş"* yazıyordu ve 6. kural eklendikten sonra belge
@@ -5070,7 +5228,9 @@ kendisiyle çelişiyordu; 7. kural M10 OP-8'de eklendi — sınır 32):
 sabitlerdir ve `TestObservability_AlertSignalNames` ikisinin aynı kaldığını
 denetler; **filtrelerde geçen her `sys:`/`base:` adının `internal/policy`'de
 gerçekten var olduğunu** `TestObservability_EverySidInTheAlertRulesExists`
-denetler — aşağıdaki nota bak):
+denetler — aşağıdaki nota bak). Bunlar **elle arama** içindir; **kurulu** kuralların tam
+SQL'i `deploy/observability/signoz-alert-rules.json`'dadır ve aynı sabitlere bağlıdır
+(yukarıdaki kutu):
 
 ```
 # 1 — reject oranı
@@ -5852,7 +6012,25 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     ⚠️ `Q12` (barındırma) bu maddeye **dolaylı** bağlıdır: nerede barındığımız node
     kopyasının rotasyon ayarını ve toplayıcının varlığını belirler. Ama *"ne kadar
     saklanacak"* sorusu `Q28 (b)`'dir, `Q12` değil.
-25. **[uyarıların TESLİMAT KANALI yok]** — M8-03'ün üçüncü kriteri **hesaplanabilirlik**
+25. **[uyarıların teslimatı: ~~kanal yok~~ → kümenin İÇİNDEN, tek kontrol üzerinden]** —
+    🔴 **T118 (2026-10-11) — TESLİMAT KURULDU, kör noktaları sayılı.** Yedi kural kümedeki
+    SigNoz'da ClickHouse-SQL eşik kuralı olarak koşuyor (kaynak
+    `deploy/observability/signoz-alert-rules.json`, `TestSignozRules_` testleri) ve
+    `tappa-healthchecks` webhook'u → healthchecks.io `tappa-signals` → Telegram + e-posta
+    üzerinden gidiyor (operatör adımı 10 (f); *"M8-03 — UYARI KURALLARI"* kutusu).
+    ❌ **Kapanmayan, sayılı:** (a) **SigNoz'un tek başına ölmesi sessizdir** — SigNoz
+    pod'u, ClickHouse ya da log toplayan ajan durursa kurallar değerlendirilmez ve hiçbir
+    şey bunu söylemez; `tappa-signals`'ın toleransı 365 gün (ölü adam anahtarı değil).
+    Kümenin/node'un ölümü ise `tappa-uptime`'a düşer (sınır 33). (b) **Kurulu kural
+    tablodan dardır** — beş basitleştirme kutuda adıyla (1, 2, 4, 5, 7), ve pencereler kayan
+    değil saate hizalı kovalar olduğundan 1., 2. ve 5. kural sınırda bölünen bir patlamayı
+    kaçırabilir. (c) **Tek kontrol,
+    yedi kural:** bir kuralın `resolved`'ı kontrolü `up`'a çeker, başka bir kural hâlâ
+    ateşteyken bile; kontrol `down` iken yeni bir kural yeni bildirim üretmez (tasarımın
+    sonucu, ölçülmedi). (d) Canlı kanalda `send_resolved` **açık** (orkestratör ölçtü, 2026-10-11;
+    kanal yapılandırması API'den okundu, adres basılmadan). (e) Tek sağlayıcı — sınır 33 (a) aynen.
+    **Aşağısı 2026-10-11 öncesinin kaydıdır, tarih olarak duruyor:**
+    M8-03'ün üçüncü kriteri **hesaplanabilirlik**
     olarak sevk edildi: **altı** sinyalin altısı da log'dan bir filtre ile çıkıyor, alan
     adları `TestObservability_AlertSignalNames` ile, filtrelerdeki politika adları
     `TestObservability_EverySidInTheAlertRulesExists` ile pinlendi, eşikler yazılı.
@@ -6074,9 +6252,16 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     ister). Kalan: Docker Hub anonim çekme bütçesinden (sınır 12) bir imaj daha harcar;
     `IfNotPresent` ile node başına bir kez. Yükseltme = yeni etiket **ve** yeni digest, tek
     düzenlemede.
-    (e) **`Q28 (a)`'nın KALANI:** M8-03'ün yedi log sinyali hâlâ hiçbir yere gönderilmiyor
-    (sınır 25); bu madde yalnız log **dışı** iki sinyali kapatır. `Q28 (b)` (log saklama)
-    açık (sınır 24).
+    (e) ~~**`Q28 (a)`'nın KALANI:** M8-03'ün yedi log sinyali hâlâ hiçbir yere
+    gönderilmiyor (sınır 25).~~ → **T118 (2026-10-11):** yedi log sinyali de aynı
+    sağlayıcıya, `tappa-signals` üzerinden gidiyor; kör noktaları sınır 25'te. Bu madde
+    yalnız log **dışı** iki sinyali anlatır. `Q28 (b)` (log saklama) açık (sınır 24).
+    ⚠️ **T118 DÜZELTMESİ — bu madde ve adım 10 *"e-postayla"* diyordu, ve iki gün boyunca
+    DOĞRU DEĞİLDİ.** Ölçüldü (orkestratör, 2026-10-11): API ile kurulan bir kontrol hiçbir
+    bildirim kanalına bağlanmaz; `tappa-uptime` ve `tappa-backup` yalnız Telegram'a bağlıydı,
+    e-posta entegrasyonu **hiçbirine** bağlı değildi. Bugün üçü de `"channels": "*"`:
+    Telegram + e-posta. (a)'daki *"tek kanal"* bu yüzden artık *"iki kanal, tek sağlayıcı,
+    tek hesap"*tır (adım 10 (f), tuzak 1).
     (f) **macOS'un bash 3.2'si** (geliştirici makinesinin `/bin/sh`'ı), EXIT tuzağı kurulu
     bir betik `${X:?}` ile bittiğinde tuzakta `$?`'yi 0 görür ve **0 ile çıkar** —
     ölçüldü (dash 2, busybox 2, bash 5 1). `pg-backup-ship.sh`'ın çıkış kodu bundan T116'dan
