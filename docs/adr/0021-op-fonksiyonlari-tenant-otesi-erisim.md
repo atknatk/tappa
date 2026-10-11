@@ -5232,8 +5232,11 @@ Bu ADR'nin sözleşmesi (§1–§6) `op_*` için aynen geçerlidir. Değişenler
   testi `op_%` adlı her fonksiyonun sahibini `tappa_opdefiner` ister).
 - **Yeni `op_*`'lar** (bu sınıfta; §2'nin sözleşmesini ve §6'nın testlerini ölçerek yeniden kazanırlar):
   - **holding üyeliği:** `op_create_holding`, `op_add_holding_member`, `op_remove_holding_member` (ADR
-    0027 §1) — `clock_timestamp()` (§2 vii); audit operatör log'u **ve** iki tenant'ın `audit_log`'u
-    (K6); ekleme farklı saat dilimini reddeder (K-36);
+    0027 §1) — `clock_timestamp()` (§2 vii); audit K6 kalıbıyla, eylem eylem ADR 0027 §1'in
+    tablosuna göre (`op_create_holding` yalnız operatör log'u; ilk ekleme + eklenen tenant; sonraki
+    ekleme + eklenen ve her diğer üye; çıkarma + çıkan ve kalan üye); ekleme farklı saat dilimini
+    reddeder ve karşılaştırmadan önce ilgili `tenants` satırlarını kanonik sırada kilitler (K-36);
+    çıkan tenant `left_at + 60 sn`'den önce yeniden katılamaz;
   - **API erişimi:** `tenants.api_enabled_at`'i açan/kapatan ve `tenants.api_code`'u yazan `op_*`
     ([ADR 0028](0028-dis-api-anahtar-akis-webhook.md) §2, K-22) — tenant'ı **değiştiren** `op_*`'ların
     (OP-16, OP-15) sınıfı.

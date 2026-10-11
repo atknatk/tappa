@@ -58,7 +58,8 @@ CLAUDE.md §10: *"Şema, karar motoru veya güvenlik sınırı değiştiyse ADR 
 ikisine değer ve üçüncüsüne bilerek değmez:
 - **Şema:** `tenants`'a operatörün yazdığı ve `tappa_app`'in yalnız okuduğu bir durum girer;
   operatör audit tür kümesi iki tür kazanır; encode rölesinin kapalı hata sözlüğü bir sözcük kazanır.
-- **Güvenlik sınırı:** §4.5'in tek istisnası (`op_*`) tenant'ın satırını ve `audit_log`'unu
+- **Güvenlik sınırı:** §4.5'in tek istisnası (`op_*`; *M11 notu (2026-10-11): ikinci istisna
+  [ADR 0027](0027-holding-ve-capraz-tenant-dokunusu.md) — holding*) tenant'ın satırını ve `audit_log`'unu
   bağlamsız yazan **ikinci** bir fonksiyon çiftini kazanır; ve müşteri panelinin yazma zincirine
   (`ProtectWriting`) bir halka eklenir — bir kimliğin **yapabildiğini**, kimliği değişmeden,
   başka bir tarafın kararıyla daraltan ilk halka.

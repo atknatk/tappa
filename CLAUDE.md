@@ -120,8 +120,11 @@ ediyorsa **dur ve sor**, sessizce uygulama.
    (ADR 0020). **(2) Aynı holding'deki tenant'lar arası dokunuş ve görünürlük** (ADR 0027)
    — yalnız ADR 0027 §2'deki **kapalı** `holding_*` fonksiyon listesi ve holding
    tetikleyicileri (`tappa_holdingdefiner`); holding üyeliğini yalnız `op_*` yazar; holding
-   dışı bir tenant bu yüzeye hiçbir yoldan erişemez, eş bir tenant holding dışı bir tenant'ın
-   anahtarını (plaket uid'i, lokasyon id'si) veremez. Listeye ekleme bir ADR değişikliğidir.
+   dışı bir tenant bu yüzeye hiçbir yoldan erişemez (tek, sınırlı istisna: üyeliği yeni biten
+   tenant için K-29'un 60 sn'lik çıkış penceresi), eş bir tenant holding dışı bir tenant'ın
+   anahtarını (plaket uid'i, lokasyon id'si) veremez. **Listeye fonksiyon eklemek, bir
+   fonksiyonun dönüş sütunlarını ya da definer'ın sütun matrisini genişletmek kullanıcı onayı +
+   ADR 0027 değişikliği ister** (imza tablosu ve katalog testi — ADR 0027 §2).
 6. **Kayıt asla kaybolmaz.** Kanıt yetersizse REJECT edip atma: kaydı yaz,
    `verdict='flag'` ver, müdür onay kuyruğuna düşür. Sessiz onay da yok.
 7. **NTAG AES anahtarları repoda yer almaz.** DB'de KEK ile sarmalanmış saklanır
@@ -239,7 +242,8 @@ başlayan bir test durumu olmalı.
   `ENABLE` **ve** `FORCE ROW LEVEL SECURITY` birlikte (`scripts/pg-restore-verify.sh`
   ikisinin sayısı farklıysa geri yüklemeyi reddeder). Tenant verisi olmayan bir sütunun
   adı `tenant_id` **olmaz** — R5 ve RLS testleri tabloyu o addan tenant tablosu sayar.
-- **`arwd` varsayılanına güvenilmez** (M11'de konan kural — ADR 0028 §1). Üretimde
+- **`arwd` varsayılanına güvenilmez** (M11'de kondu, **kalıcıdır** — her yeni tablo ve
+  fonksiyon; ADR 0028 §1). Üretimde
   `pg_default_acl` yeni tabloyu `tappa_app`'e dört fiille (`arwd`) doğurur, taze CI'da `ar` —
   CI fazla yetkiyi göremez. Bu yüzden her yeni tabloda `REVOKE ALL … FROM tappa_app` + yalnız
   gereken fiil ve **sütunlara** açık `GRANT`; **UPDATE hep sütun listesiyle** (tablo düzeyi
@@ -274,7 +278,8 @@ başlayan bir test durumu olmalı.
   TOTP kodu ve sırrı, enrollment token'ı (ADR 0020/0021 — hata mesajı ve audit
   `detail`'i dahil); dış API tarafında API anahtarı ve hash'i, `Authorization` başlığı,
   webhook imza anahtarı, webhook URL'si ve
-  `*url.Error` metni (Go o metinde URL'yi sorgusuyla taşır — ADR 0028 §3, §6).
+  `*url.Error` metni (Go o metinde URL'yi taşır — ADR 0028 §3, §6; bunlarda da hata mesajı ve
+  audit `detail`'i dahil).
 - Dış girdi handler sınırında doğrulanır; domain katmanı zaten geçerli veri görür.
 - Yorumlar *neden*i anlatır. Kodun ne yaptığını tekrar eden yorum yazma.
 - Türkçe karakter kodda yok: identifier, log, hata mesajı, commit → İngilizce.

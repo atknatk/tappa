@@ -18,7 +18,9 @@
   *"B — mevcut allow-list modelini genişlet"* kararı. Madde madde:
   [Yerine geçilen metinler](#yerine-geçilen-metinler--madde-madde).
 - **İlgili:** [ADR 0021](0021-op-fonksiyonlari-tenant-otesi-erisim.md) (bu ADR'nin
-  veritabanı yarısı — tenant sınırını aşmanın tek yolu) ·
+  veritabanı yarısı — tenant sınırını aşmanın tek yolu; *M11 notu (2026-10-11): §4.5'in ikinci
+  bilinçli istisnası [ADR 0027](0027-holding-ve-capraz-tenant-dokunusu.md) — aynı holding'deki
+  tenant'lar arası dokunuş*) ·
   [ADR 0002](0002-tenant-baglami-ve-rls.md) md.6, md.7 ·
   [ADR 0013](0013-kayit-sihirbazi-ve-ilk-gelen-sirasi.md) (herkese açık kayıt) ·
   [ADR 0014](0014-parola-digestinin-tabani-islenebilirlik.md) (bcrypt) ·

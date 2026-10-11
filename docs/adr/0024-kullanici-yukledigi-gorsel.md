@@ -1739,7 +1739,8 @@ başına +1 istek.
 
 ## M11 notu (2026-10-11) — `holding_logo`: eş tenant'ın logosu tap rotasından
 
-§5'in kuralları (tenant yalnız oturumdan çözülür, bayt-aynı 404, başlıklar, CSP, bütçe) değişmez; tap
+§5'in *"tenant yalnız oturumdan"* kuralı M11'de şöyle okunur (1. tur düzeltmesi): **tenant oturumdan
+ya da `holding_logo`'nun eş süzgecinden çözülür**; bayt-aynı 404, başlıklar, CSP ve bütçe değişmez. Tap
 rotası (`GET /t/logo/{sha}`) bir şey daha servis eder ([ADR 0027](0027-holding-ve-capraz-tenant-dokunusu.md)
 §10, K-1c): canlı oturumun **eş** tenant'ının (aynı holding) o anki plaketine ait logo, kapalı listedeki
 `holding_logo(p_uid, p_digest)` ile — yalnız saha tenant'ı VIES-doğrulanmışsa **ve** özet

@@ -121,7 +121,9 @@ değişince (2026-10-10, ADR 0027 K-1) geçersizleşti, yerini K-32'nin anlık g
 ### 1. Ortak şema kuralı — `arwd` varsayılanına güvenilmez
 
 Üretimde yeni bir tablo `tappa_app`'e **dört fiille** doğar; taze CI veritabanında `ar` ile — yani
-CI fazla yetkiyi göremez. Bu yüzden M11'in **her** yeni tablosunda:
+CI fazla yetkiyi göremez. Bu yüzden M11'in **her** yeni tablosunda — ve **kural M11'e özgü
+değildir, kalıcıdır**: M11'den sonraki her yeni tablo ve fonksiyon için de geçerlidir (CLAUDE.md §6
+ile aynı kapsam; 1. tur düzeltmesi, üçüncü göz):
 1. `REVOKE ALL … FROM tappa_app`, ardından **yalnız gereken fiillere ve sütunlara** açık `GRANT`
    (CLAUDE.md §6'nın tablo başına GRANT şartını da bu karşılar);
 2. **UPDATE hep sütun listesiyle** (tablo düzeyi UPDATE sütun kısıtını ezer);
@@ -164,11 +166,14 @@ satırı yazılmaz.
 - **`GET /v1/punches?scope=location`**: hedef tenant = anahtarın tenant'ı ∧ olay satırının rolleri
   `location` içerir. **`scope=employer`**: hedef tenant = anahtarın tenant'ı ∧ roller `employer`
   içerir. Olay satırları zaten hedef tenant'ta durur (§4); okuma tenant sınırını **aşmaz**.
-- **Rehber** (`GET /v1/directory`): holding geneli, `holding_directory` ile (ADR 0027 §2) —
-  e-postasız, sayfalı.
+- **Rehber** (`GET /v1/directory`) iki kaynağın birleşimidir (1. tur düzeltmesi, üçüncü göz):
+  anahtarın tenant'ının **kendi** çalışanları **her zaman** sıradan, RLS'li, açık `tenant_id`
+  filtreli bir sorgudan; **eşlerin** çalışanları `holding_directory`'den (ADR 0027 §2) — o fonksiyon
+  **yalnız eşleri** döner, çağıranın kendi tenant'ını **asla** (`holding_peer(a, a, …) = false`).
+  İkisi de e-postasız, sayfalı (tek imleçte birleşik sıra API-8'de).
 - **Holding dışı tenant'ın anahtarı yalnız kendi tenant'ını görür:** rehberde yalnız kendi
-  çalışanları (holding'i yoksa `holding_directory` 0 satır döner; rehber kendi tenant'ının satırlarını
-  sıradan RLS'li sorguyla verir), akışta yalnız kendi hedef satırları.
+  çalışanları (RLS'li yol); `holding_directory` onun bağlamında **0 satır** döner (K-33'ün *"C
+  bağlamında 0 satır"* kuralı aynen); akışta yalnız kendi hedef satırları.
 
 ### 3. API anahtarı
 
@@ -535,8 +540,9 @@ genelinde aranmaz (ADR 0027 §13 madde 10).
 - `POST /v1/employees/{ref}/resend-activation`: kuyrukta canlı istek ya da son 1 saatte gönderilmiş
   canlı davet varken **etkisiz** (202); aktive çalışana **409 `already_activated`** (cihaz değişimi
   yalnız panelden).
-- `GET /v1/directory?updatedSince=…&cursor=…` — `holding_directory` (ADR 0027), 10 dk örtüşme
-  penceresi, `asOf`, sayfalı (≤ 1000), aktif/pasif durumu (K-1h), e-postasız.
+- `GET /v1/directory?updatedSince=…&cursor=…` — kendi çalışanları RLS'li sorgudan + eşlerinki
+  `holding_directory`'den (ADR 0027; §2), 10 dk örtüşme penceresi, `asOf`, sayfalı (≤ 1000),
+  aktif/pasif durumu (K-1h), e-postasız.
 
 **Davet kuyruğu (K-17):** `invite_requests(tenant_id, employee_id, requested_at, lease_until,
 attempts)` — `employees`'e kira sütunu eklenmez (rehberin `updated_at`'ını kirletmesin). İşçi
@@ -730,7 +736,9 @@ olayı tam bir kez) + `TestWebhookDeliveries_KMatKFIsTwo` · (k) `TestFeed_Close
 `TestPunches_OutsiderSeesNone` · `TestPunches_NoManualNoRejected` · `TestPunches_Limit1001Is400`.
 
 **API-8** — `TestDirectory_HoldingTenantsOnlyNoEmailWithActive` · `TestDirectory_Paged` ·
-`TestDirectory_OverlapWindow`.
+`TestDirectory_OverlapWindow` · `TestDirectory_OwnStaffAlwaysFromTheRLSQuery` ·
+`TestDirectory_KeyOfATenantWithoutHoldingSeesOnlyItsOwnStaff` (holding'siz anahtar: kendi
+çalışanları gelir, `holding_directory` 0 satır, başka tenant yok).
 
 **API-9** — `TestWebhookEndpointCatalog` · `TestWebhookEndpoint_OnePerTenant` ·
 `TestWebhookEndpoint_KeyShownOnce` · `TestWebhookPing_SharesTheResendBucket` ·
@@ -742,12 +750,18 @@ olayı tam bir kez) + `TestWebhookDeliveries_KMatKFIsTwo` · (k) `TestFeed_Close
 `TestEgress_ProxyEnvironmentIgnored` · `TestEgress_RedirectNotFollowed` ·
 `TestWebhookWorker_DisabledEndpointGetsNothing` · `TestWebhookWorker_TwoPodsSendOnce` ·
 `TestWebhookWorker_NoOpenTransactionDuringHTTP` · `TestWebhookWorker_DrainsWithinShutdownBudget` ·
-`TestWebhookSignature_KnownAnswer`.
+`TestWebhookSignature_KnownAnswer` · `TestWebhookWorker_URLAndURLErrorNeverReachLogOrAudit`
+(CLAUDE.md §7: başarısız gönderimlerde — DNS, TLS, zaman aşımı, ret — süreç log'unda ve audit
+`detail`'inde uç noktanın adresi ve `url.Error` metni yok; yalnız uç nokta kimliği ve hata sınıfı).
 
 **API-11** — `TestPackaging_ProdBuildHasNoSandboxPackage` · `TestPackaging_SandboxBuildHasIt` ·
 `TestConfig_UntaggedBinaryRefusesSandbox` · `TestSandbox_RealNXPUIDRefusedOnEveryResolveAndInsert` ·
 `TestConfig_IsHardenedCoversTheNineGates` · `TestSandbox_KeyWithoutOperatorIs403` ·
-`TestSandbox_SimulatesAHoldingTap`.
+`TestSandbox_SimulatesAHoldingTap` · **CI kapısı:** iş akışı `go vet -tags sandbox ./...` ve
+`go test -tags sandbox ./...`'i de koşar (`TestCI_RunsVetAndTestWithTheSandboxTag` — iş akışı
+dosyasını okuyan bir paketleme testi) · **deploy kapısı:** `verify-image.sh` imajın derleme bilgisindeki
+tag'i doğrular — sandbox imajı `sandbox` tag'siz, prod imajı tag'li ise reddedilir
+(`TestVerifyImage_RefusesAWrongBuildTag`).
 
 **API-12** — `TestOpenAPI_EveryRouteAndErrorDocumented` · `TestGuide_CarriesAll31ContractDifferences`.
 
@@ -758,7 +772,7 @@ holding dışı izolasyon prod'da örneklenir.
 ## Sonuçlar
 
 - **CLAUDE.md** güncellendi (bu ADR ile aynı değişiklikte): §3 (yeni paketler, *"henüz yok — M11"*),
-  §6 (M11'in `arwd` kuralı), §7 (log yasakları: API anahtarı, `Authorization` başlığı, webhook imza
+  §6 (kalıcı `arwd` kuralı), §7 (log yasakları: API anahtarı, `Authorization` başlığı, webhook imza
   anahtarı, webhook URL'si, `*url.Error` metni).
 - **Notlar** (her birinin sonunda *"M11 notu (2026-10-11)"*): ADR 0002 (md.7 — yedinci çözümleyici ve
   `tappa_resolver`'ın `tenants(id, api_enabled_at)` yetkisi), 0010 (K-25 sapması, K-24 yan etkisi),
