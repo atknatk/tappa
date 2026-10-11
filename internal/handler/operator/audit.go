@@ -209,6 +209,10 @@ var auditKindWords = map[db.OperatorAuditKind]string{
 	// matched and the verdict changed -- so the word says a re-check was recorded, not that a
 	// verdict moved (the tenant's own audit row says that).
 	db.OperatorAuditTenantVATChecked: "VAT re-check recorded",
+	// M11 API-1 (migration 00039): written on every accepted call, so the words say the act was
+	// applied; the tenant's own audit row says the tenant changed.
+	db.OperatorAuditTenantAPIEnabled:  "Integration API opened",
+	db.OperatorAuditTenantAPIDisabled: "Integration API closed",
 }
 
 // auditScopeWords is the word for each read kind op_read_audit returns as a row's scope --

@@ -292,7 +292,7 @@ func TestEmployeesSection_OffersNoActionUntilAPersonIsNamed(t *testing.T) {
 func TestEmployeesSection_OffersNoActionTheServerWouldRefuse(t *testing.T) {
 	staff := &fakeStaff{person: &tenant.Person{
 		Name: "Paul Spiteri", Status: ledger.StatusDeactivated,
-		LocationID: panelTestLocation, LocationName: "KF St Julians",
+		LocationID: &panelTestLocation, LocationName: "KF St Julians",
 	}}
 	b := panelBrowserWithActions(t, staff, &fakeInviter{})
 	employeeID := uuid.New()
@@ -1072,7 +1072,7 @@ func TestEmployeeActions_EveryRefusalIsASentence(t *testing.T) {
 			name:   "not invitable",
 			target: employeeInviteHref,
 			staff: &fakeStaff{person: &tenant.Person{
-				Name: "Paul Spiteri", Status: ledger.StatusDeactivated, LocationID: panelTestLocation,
+				Name: "Paul Spiteri", Status: ledger.StatusDeactivated, LocationID: &panelTestLocation,
 			}},
 			want:   "problem=not-invitable",
 			expect: "deactivated",

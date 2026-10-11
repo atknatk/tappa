@@ -1820,7 +1820,13 @@ type Querier interface {
 	//	db/queries/employees.sql:...  DeactivateEmployee        status -> 'deactivated'
 	//	db/queries/employees.sql:...  MoveEmployee              location_id / department_id
 	//	db/queries/employees.sql:...  SetEmployeeEmail          email (M10 EM-6)
+	//	db/queries/employees.sql:...  SetEmployeeExternalRef    external_ref (M11 API-1)
 	//	db/queries/invites.sql:...    ConsumeInviteAndActivate  status -> 'active'
+	//
+	// None of them writes updated_at: migration 00037's trigger owns it (K-21) and moves it
+	// only when a column the integration directory shows changes -- so of the five,
+	// DeactivateEmployee, SetEmployeeExternalRef and a FIRST ConsumeInviteAndActivate move
+	// it, MoveEmployee and SetEmployeeEmail never do.
 	//
 	// ⚠️ THE ANCHOR IS PART OF THE COMMAND. Without `^` the same grep returns SIX lines:
 	// the three statements plus three sentences of prose that name them, one of which is
@@ -2084,6 +2090,12 @@ type Querier interface {
 	// PATH READS IT -- the decision engine takes static_ips and gps_lat/gps_lng
 	// (section 5, row 6); wifi_ssid is display data, and 00010 explains at length why
 	// it must never become a decision input.
+	//
+	// THE SAME HOLDS FOR external_ref AND active (migration 00037, M11): they are named
+	// for the mapping, and NOTHING ON THE TAP PATH READS EITHER -- external_ref is the
+	// integrator's identity and active is a label (K-20: the decision engine never sees
+	// it). Measured on 00037: without them sqlc emitted GetLocationByIPRow and
+	// ListLocationsForTenantRow again.
 	// Proof-of-place, IP side (CLAUDE.md section 5, row 6): the location whose
 	// static_ips contains the request source IP. static_ips is cidr[]; the source is
 	// matched with @src::inet <<= ANY(static_ips), which is TRUE when the address
@@ -2556,6 +2568,18 @@ type Querier interface {
 	//	                 would be the manager's guess with a foreign-key check on it.
 	//	atomicity    the read and the write are one statement, so the placement cannot
 	//	             change between them.
+	//
+	// 🔴 ONE EXCEPTION TO "READ FROM THE EMPLOYEE ROW" (M11 API-1, K-14). An employee the
+	// integration manages may have NO home venue (migration 00037), and a record of work
+	// with no venue is a record no report can file. For THAT employee only, the venue is
+	// the manager's choice (@location_id), resolved inside this tenant by the join below --
+	// so a foreign or invented venue still produces 0 rows, never a foreign write, and the
+	// composite FK (location_id, tenant_id) is still the braces. For everybody with a home
+	// venue the posted value is NOT READ: the join's `e.location_id IS NULL` keeps it out,
+	// so the "a manager cannot mis-file somebody" property above holds for them unchanged.
+	// No venue at all (home NULL and none chosen, or one not this tenant's) is 0 rows;
+	// internal/domain/manual tells that apart from an unknown employee by reading the
+	// employee first, in the same transaction.
 	//
 	// @tenant_id APPEARS TWICE ON PURPOSE, exactly as in InsertTransactionReview: once as
 	// the column being written (which the RLS WITH CHECK re-verifies) and once as the
@@ -4053,6 +4077,17 @@ type Querier interface {
 	//
 	// TENANT SCOPE (section 4.5, belt + braces): explicit predicate on top of RLS.
 	LockEmployeeForEmailChange(ctx context.Context, arg LockEmployeeForEmailChangeParams) (LockEmployeeForEmailChangeRow, error)
+	// The integration identity on file for ONE person, row-locked until the transaction ends
+	// (M11 API-1, internal/domain/tenant.Staff.ChangeExternalRef).
+	//
+	// FOR NO KEY UPDATE is the lock SetEmployeeExternalRef takes anyway (external_ref is not a
+	// key column), taken FIRST so the "before" the trail records is the value the write
+	// replaces: two owners saving at once write one after the other, each describing what the
+	// other left. It does not conflict with the FOR KEY SHARE a foreign-key insert takes, so
+	// a tap that names this employee is not held up by it.
+	//
+	// TENANT SCOPE (section 4.5, belt + braces): explicit predicate on top of RLS.
+	LockEmployeeForExternalRefChange(ctx context.Context, arg LockEmployeeForExternalRefChangeParams) (LockEmployeeForExternalRefChangeRow, error)
 	// SERIALISE ONE PERSON'S TAP DECISION (ADR 0006, layer 4).
 	//
 	// 🔴 THE DEBOUNCE IS A READ-THEN-DECIDE, and without this it loses the same way
@@ -4097,6 +4132,13 @@ type Querier interface {
 	// lock (a 200-request flood finished in 40 ms, all rate limited), which reads as
 	// "no difference". Use distinct sessions for the flood and one shot for the victim.
 	LockEmployeeForTap(ctx context.Context, arg LockEmployeeForTapParams) error
+	// The integration identity on file for ONE venue, row-locked until the transaction ends
+	// (M11 API-1, internal/domain/tenant.Venues.ChangeExternalRef) -- the employee twin's
+	// shape (LockEmployeeForExternalRefChange): FOR NO KEY UPDATE, the lock the UPDATE below
+	// takes anyway, so the trail's "before" is the value the write replaces.
+	//
+	// TENANT SCOPE (section 4.5, belt + braces): explicit predicate on top of RLS.
+	LockLocationForExternalRefChange(ctx context.Context, arg LockLocationForExternalRefChangeParams) (LockLocationForExternalRefChangeRow, error)
 	// SERIALISE ONE BUSINESS'S E-MAILED INVITATIONS (M10 EM-7B, ADR 0022 §9).
 	//
 	// 🔴 THE LIMITS ARE A READ-THEN-DECIDE, and without this they lose the way the
@@ -4688,6 +4730,35 @@ type Querier interface {
 	// TENANT SCOPE (section 4.5, belt + braces): explicit predicate on top of RLS. A
 	// foreign id matches nothing.
 	SetEmployeeEmail(ctx context.Context, arg SetEmployeeEmailParams) (SetEmployeeEmailRow, error)
+	// Binds ONE person to the integrator's identity, or unbinds them (NULL) (M11 API-1, K-18:
+	// the owner links an existing employee to the RMS/ERP record before the API is switched
+	// on, so the first sync does not create a second row).
+	//
+	// 🔴 IT NAMES external_ref AND NOTHING ELSE, like SetEmployeeEmail: a ref cannot
+	// activate, deactivate or move anybody. updated_at moves because external_ref is one of
+	// the directory's columns (migration 00037's trigger, K-21).
+	//
+	// THE DATABASE IS THE AUTHORITY ON THE THREE REFUSALS, each by name:
+	//   employees_external_ref_shape         23514 -- the ref is not URL-safe (the boundary
+	//                                         checks the same pattern first);
+	//   employees_tenant_external_ref_key    23505 -- another LIVE person of this business
+	//                                         holds it (a deactivated one does not);
+	//   employees_home_or_external_ref       23514 -- unbinding somebody with no home venue
+	//                                         (K-14): the ref is then their only anchor.
+	//
+	// TENANT SCOPE (section 4.5, belt + braces): explicit predicate on top of RLS. A foreign id
+	// matches nothing.
+	SetEmployeeExternalRef(ctx context.Context, arg SetEmployeeExternalRefParams) (SetEmployeeExternalRefRow, error)
+	// Binds ONE venue to the integrator's identity, or unbinds it (NULL) (M11 API-1, K-18:
+	// venues are never matched by name -- the owner fills this field, and PUT
+	// /v1/locations/{ref} then updates THIS row instead of opening a second one).
+	//
+	// IT NAMES external_ref AND NOTHING ELSE. Two refusals are the database's, by name:
+	// locations_external_ref_shape (23514) and locations_tenant_external_ref_key (23505 --
+	// another venue of this business holds it).
+	//
+	// TENANT SCOPE (section 4.5, belt + braces): explicit predicate on top of RLS.
+	SetLocationExternalRef(ctx context.Context, arg SetLocationExternalRefParams) (SetLocationExternalRefRow, error)
 	// The standalone set-password statement passwordresets.sql said M7-05 would need and
 	// must NOT reach for ConsumePasswordResetAndSetPassword to write. Its authority is the
 	// current session's identity: the caller passes the id it authenticated as, so the

@@ -397,6 +397,8 @@ type Context struct {
 	TenantID   uuid.UUID
 	EmployeeID uuid.UUID
 	InviteID   uuid.UUID
+	// LocationID is the employee's HOME venue, or uuid.Nil for an API-managed
+	// employee who has none (K-14, migration 00037); LocationName is then "".
 	LocationID uuid.UUID
 	// FullName is the employee's name ("Hello Maria"), TenantName the employer's
 	// — the GDPR Art. 13 data controller.
@@ -557,11 +559,17 @@ func (m *Manager) ActivationContext(ctx context.Context, tenantID, employeeID uu
 		out.FullName = emp.FullName
 		out.TenantName = emp.TenantName
 		out.Status = emp.Status
-		out.LocationID = emp.LocationID
+		if emp.LocationID == nil {
+			// K-14 (migration 00037): an API-managed employee may have no home venue.
+			// There is then no venue to name and no network to show; the Wi-Fi step
+			// renders without one, which is its "no SSID" state already.
+			return nil
+		}
+		out.LocationID = *emp.LocationID
 
 		venue, err := q.GetLocationWiFi(ctx, store.GetLocationWiFiParams{
 			TenantID: tenantID,
-			ID:       emp.LocationID,
+			ID:       *emp.LocationID,
 		})
 		if err != nil {
 			return fmt.Errorf("load venue: %w", err)
@@ -707,18 +715,21 @@ func (m *Manager) Activate(ctx context.Context, c Code, b Binding) (Activation, 
 		priorStatus = emp.Status
 		out.FullName = emp.FullName
 		out.TenantName = emp.TenantName
-		out.LocationID = emp.LocationID
+		// K-14: no home venue means no venue to name (ActivationContext's note).
+		if emp.LocationID != nil {
+			out.LocationID = *emp.LocationID
 
-		venue, e := q.GetLocationWiFi(ctx, store.GetLocationWiFiParams{
-			TenantID: res.TenantID,
-			ID:       emp.LocationID,
-		})
-		if e != nil {
-			return fmt.Errorf("invite: load venue: %w", e)
-		}
-		out.LocationName = venue.Name
-		if venue.WifiSsid != nil {
-			out.WiFiSSID = *venue.WifiSsid
+			venue, e := q.GetLocationWiFi(ctx, store.GetLocationWiFiParams{
+				TenantID: res.TenantID,
+				ID:       *emp.LocationID,
+			})
+			if e != nil {
+				return fmt.Errorf("invite: load venue: %w", e)
+			}
+			out.LocationName = venue.Name
+			if venue.WifiSsid != nil {
+				out.WiFiSSID = *venue.WifiSsid
+			}
 		}
 
 		// LABEL ONLY, read before the consumption in the same transaction: whether
@@ -762,7 +773,10 @@ func (m *Manager) Activate(ctx context.Context, c Code, b Binding) (Activation, 
 
 	out.Status = consumed.Status
 	out.FullName = consumed.FullName
-	out.LocationID = consumed.LocationID
+	out.LocationID = uuid.Nil
+	if consumed.LocationID != nil {
+		out.LocationID = *consumed.LocationID
+	}
 	out.InviteID = consumed.InviteID
 	out.SecondDeviceReplaced = priorStatus == statusActive
 	return out, nil

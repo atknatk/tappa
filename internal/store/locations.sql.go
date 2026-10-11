@@ -261,7 +261,7 @@ func (q *Queries) DeleteLocation(ctx context.Context, arg DeleteLocationParams) 
 const getLocationByIP = `-- name: GetLocationByIP :one
 
 SELECT id, tenant_id, name, static_ips, gps_lat, gps_lng, shift_start, shift_end,
-       overnight, created_at, wifi_ssid
+       overnight, created_at, wifi_ssid, external_ref, active
 FROM locations
 WHERE tenant_id = $1
   AND $2::inet <<= ANY(static_ips)
@@ -287,6 +287,12 @@ type GetLocationByIPParams struct {
 // PATH READS IT -- the decision engine takes static_ips and gps_lat/gps_lng
 // (section 5, row 6); wifi_ssid is display data, and 00010 explains at length why
 // it must never become a decision input.
+//
+// THE SAME HOLDS FOR external_ref AND active (migration 00037, M11): they are named
+// for the mapping, and NOTHING ON THE TAP PATH READS EITHER -- external_ref is the
+// integrator's identity and active is a label (K-20: the decision engine never sees
+// it). Measured on 00037: without them sqlc emitted GetLocationByIPRow and
+// ListLocationsForTenantRow again.
 // Proof-of-place, IP side (CLAUDE.md section 5, row 6): the location whose
 // static_ips contains the request source IP. static_ips is cidr[]; the source is
 // matched with @src::inet <<= ANY(static_ips), which is TRUE when the address
@@ -324,6 +330,8 @@ func (q *Queries) GetLocationByIP(ctx context.Context, arg GetLocationByIPParams
 		&i.Overnight,
 		&i.CreatedAt,
 		&i.WifiSsid,
+		&i.ExternalRef,
+		&i.Active,
 	)
 	return i, err
 }
@@ -467,7 +475,7 @@ func (q *Queries) GetLocationWiFi(ctx context.Context, arg GetLocationWiFiParams
 
 const getPanelLocation = `-- name: GetPanelLocation :one
 SELECT id, tenant_id, name, static_ips, gps_lat, gps_lng,
-       shift_start, shift_end, overnight, wifi_ssid, created_at
+       shift_start, shift_end, overnight, wifi_ssid, created_at, external_ref
 FROM locations
 WHERE tenant_id = $1
   AND id = $2
@@ -479,17 +487,18 @@ type GetPanelLocationParams struct {
 }
 
 type GetPanelLocationRow struct {
-	ID         uuid.UUID
-	TenantID   uuid.UUID
-	Name       string
-	StaticIps  []netip.Prefix
-	GpsLat     pgtype.Numeric
-	GpsLng     pgtype.Numeric
-	ShiftStart pgtype.Time
-	ShiftEnd   pgtype.Time
-	Overnight  bool
-	WifiSsid   *string
-	CreatedAt  time.Time
+	ID          uuid.UUID
+	TenantID    uuid.UUID
+	Name        string
+	StaticIps   []netip.Prefix
+	GpsLat      pgtype.Numeric
+	GpsLng      pgtype.Numeric
+	ShiftStart  pgtype.Time
+	ShiftEnd    pgtype.Time
+	Overnight   bool
+	WifiSsid    *string
+	CreatedAt   time.Time
+	ExternalRef *string
 }
 
 // One venue, for the edit form and for the BEFORE half of the audit row.
@@ -518,13 +527,14 @@ func (q *Queries) GetPanelLocation(ctx context.Context, arg GetPanelLocationPara
 		&i.Overnight,
 		&i.WifiSsid,
 		&i.CreatedAt,
+		&i.ExternalRef,
 	)
 	return i, err
 }
 
 const listLocationsForTenant = `-- name: ListLocationsForTenant :many
 SELECT id, tenant_id, name, static_ips, gps_lat, gps_lng, shift_start, shift_end,
-       overnight, created_at, wifi_ssid
+       overnight, created_at, wifi_ssid, external_ref, active
 FROM locations
 WHERE tenant_id = $1
 ORDER BY name
@@ -554,6 +564,8 @@ func (q *Queries) ListLocationsForTenant(ctx context.Context, tenantID uuid.UUID
 			&i.Overnight,
 			&i.CreatedAt,
 			&i.WifiSsid,
+			&i.ExternalRef,
+			&i.Active,
 		); err != nil {
 			return nil, err
 		}
@@ -569,6 +581,7 @@ const listPanelLocations = `-- name: ListPanelLocations :many
 
 SELECT l.id, l.name, l.static_ips, l.gps_lat, l.gps_lng,
        l.shift_start, l.shift_end, l.overnight, l.wifi_ssid, l.created_at,
+       l.external_ref,
        (SELECT count(*) FROM departments d
          WHERE d.tenant_id = $1
            AND d.location_id = l.id) AS department_count
@@ -594,6 +607,7 @@ type ListPanelLocationsRow struct {
 	Overnight       bool
 	WifiSsid        *string
 	CreatedAt       time.Time
+	ExternalRef     *string
 	DepartmentCount int64
 }
 
@@ -670,6 +684,7 @@ func (q *Queries) ListPanelLocations(ctx context.Context, arg ListPanelLocations
 			&i.Overnight,
 			&i.WifiSsid,
 			&i.CreatedAt,
+			&i.ExternalRef,
 			&i.DepartmentCount,
 		); err != nil {
 			return nil, err
@@ -680,6 +695,72 @@ func (q *Queries) ListPanelLocations(ctx context.Context, arg ListPanelLocations
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockLocationForExternalRefChange = `-- name: LockLocationForExternalRefChange :one
+SELECT id, external_ref
+FROM locations
+WHERE tenant_id = $1
+  AND id = $2
+FOR NO KEY UPDATE
+`
+
+type LockLocationForExternalRefChangeParams struct {
+	TenantID uuid.UUID
+	ID       uuid.UUID
+}
+
+type LockLocationForExternalRefChangeRow struct {
+	ID          uuid.UUID
+	ExternalRef *string
+}
+
+// The integration identity on file for ONE venue, row-locked until the transaction ends
+// (M11 API-1, internal/domain/tenant.Venues.ChangeExternalRef) -- the employee twin's
+// shape (LockEmployeeForExternalRefChange): FOR NO KEY UPDATE, the lock the UPDATE below
+// takes anyway, so the trail's "before" is the value the write replaces.
+//
+// TENANT SCOPE (section 4.5, belt + braces): explicit predicate on top of RLS.
+func (q *Queries) LockLocationForExternalRefChange(ctx context.Context, arg LockLocationForExternalRefChangeParams) (LockLocationForExternalRefChangeRow, error) {
+	row := q.db.QueryRow(ctx, lockLocationForExternalRefChange, arg.TenantID, arg.ID)
+	var i LockLocationForExternalRefChangeRow
+	err := row.Scan(&i.ID, &i.ExternalRef)
+	return i, err
+}
+
+const setLocationExternalRef = `-- name: SetLocationExternalRef :one
+UPDATE locations
+SET external_ref = $1::text
+WHERE tenant_id = $2
+  AND id = $3
+RETURNING id, external_ref
+`
+
+type SetLocationExternalRefParams struct {
+	ExternalRef *string
+	TenantID    uuid.UUID
+	ID          uuid.UUID
+}
+
+type SetLocationExternalRefRow struct {
+	ID          uuid.UUID
+	ExternalRef *string
+}
+
+// Binds ONE venue to the integrator's identity, or unbinds it (NULL) (M11 API-1, K-18:
+// venues are never matched by name -- the owner fills this field, and PUT
+// /v1/locations/{ref} then updates THIS row instead of opening a second one).
+//
+// IT NAMES external_ref AND NOTHING ELSE. Two refusals are the database's, by name:
+// locations_external_ref_shape (23514) and locations_tenant_external_ref_key (23505 --
+// another venue of this business holds it).
+//
+// TENANT SCOPE (section 4.5, belt + braces): explicit predicate on top of RLS.
+func (q *Queries) SetLocationExternalRef(ctx context.Context, arg SetLocationExternalRefParams) (SetLocationExternalRefRow, error) {
+	row := q.db.QueryRow(ctx, setLocationExternalRef, arg.ExternalRef, arg.TenantID, arg.ID)
+	var i SetLocationExternalRefRow
+	err := row.Scan(&i.ID, &i.ExternalRef)
+	return i, err
 }
 
 const updateLocation = `-- name: UpdateLocation :one

@@ -129,7 +129,7 @@ type ConsumeInviteAndActivateParams struct {
 type ConsumeInviteAndActivateRow struct {
 	ID           uuid.UUID
 	TenantID     uuid.UUID
-	LocationID   uuid.UUID
+	LocationID   *uuid.UUID
 	DepartmentID *uuid.UUID
 	FullName     string
 	Status       string

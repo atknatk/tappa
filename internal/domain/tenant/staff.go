@@ -189,16 +189,20 @@ type Person struct {
 	Name string
 	// Status is one of the three values migration 00003's CHECK admits. It is never
 	// defaulted here: an empty string would mean the query stopped selecting it.
-	Status     string
-	LocationID uuid.UUID
+	Status string
+	// LocationID is the home venue, or nil for an API-managed employee who has none
+	// (K-14, migration 00037: such a row carries an external_ref instead). The panel
+	// still always places the people IT adds and moves.
+	LocationID *uuid.UUID
 	// DepartmentID is nil for a business that does not model departments (00003) --
 	// a first-class state rather than a gap.
 	DepartmentID *uuid.UUID
-	// LocationName and DepartmentName are "" when there is no such name.
-	// location_id is NOT NULL, so an empty LocationName means a join missed rather
-	// than "no venue", and the screen says so in words.
+	// LocationName and DepartmentName are "" when there is no such name: no home venue
+	// (LocationID nil), or a join that missed.
 	LocationName   string
 	DepartmentName string
+	// ExternalRef is the integration identity (migration 00037), "" when unbound.
+	ExternalRef string
 }
 
 // Deactivated reports whether this person's taps are already being refused.
@@ -352,8 +356,9 @@ type AddCommand struct {
 	Role  string
 	Email string
 
-	// LocationID is REQUIRED: employees.location_id is NOT NULL (00003), so there is
-	// no "nowhere" to hire somebody into. A tenant with no venues at all therefore
+	// LocationID is REQUIRED: the panel always places the people it adds -- the column
+	// is NULL only for a row the integration manages (K-14, migration 00037), which
+	// carries an external_ref instead. A tenant with no venues at all therefore
 	// cannot add anybody, and the SCREEN has to say that rather than offering an
 	// empty picker -- Add refuses it here as ErrUnknownPlacement either way.
 	LocationID uuid.UUID
@@ -485,7 +490,7 @@ func (s *Staff) Add(ctx context.Context, c AddCommand) (Person, error) {
 			Action:   ActionEmployeeAdded,
 			Target:   row.ID.String(),
 			Detail: addDetail{
-				LocationID:   row.LocationID.String(),
+				LocationID:   idText(row.LocationID),
 				DepartmentID: idText(row.DepartmentID),
 				HasEmail:     email != nil,
 				HasRole:      role != nil,
@@ -505,7 +510,7 @@ func (s *Staff) Add(ctx context.Context, c AddCommand) (Person, error) {
 	// (§4.7, §7). The booleans are what a reader of the log needs anyway.
 	s.log.Info("employee added",
 		"employee_id", out.ID, "actor_id", c.ActorID,
-		"location_id", out.LocationID,
+		"location_id", c.LocationID,
 		"has_email", email != nil, "status", out.Status)
 	return out, nil
 }
@@ -702,13 +707,16 @@ func optionalEmail(raw string) (*string, error) {
 // holds that address.
 //
 // 🔴 IT NAMES THE INDEX RATHER THAN TRUSTING THE SQLSTATE ALONE. `employees` carries
-// three unique indexes (employees_pkey, employees_id_tenant_key,
-// employees_tenant_email_key), so a bare 23505 would let a primary-key collision --
+// four unique indexes (employees_pkey, employees_id_tenant_key,
+// employees_tenant_email_key and, since migration 00037, employees_tenant_external_ref_key),
+// so a bare 23505 would let a primary-key collision --
 // which would be a real fault worth a 500 and an alert -- be reported to a manager as
 // "that address is taken", sending them to fix something that is not wrong. The
 // constraint name is populated for a partial unique INDEX as well as for a named
 // constraint; measured against this schema (2026-08-17), the violation reports
-// CONSTRAINT = employees_tenant_email_key.
+// CONSTRAINT = employees_tenant_email_key. Migration 00037 rebuilt the index over LIVE
+// rows only (K-24) under the SAME name, so this comparison still holds; a deactivated
+// person's address no longer collides.
 func isEmailTaken(err error) bool {
 	var pg *pgconn.PgError
 	if !errors.As(err, &pg) || pg.Code != "23505" {
@@ -831,9 +839,9 @@ type MoveCommand struct {
 	TenantID   uuid.UUID
 	EmployeeID uuid.UUID
 	ActorID    uuid.UUID
-	// LocationID is the destination venue. It is REQUIRED because
-	// employees.location_id is NOT NULL (00003): everybody has a home venue, so
-	// there is no "no venue" to move to.
+	// LocationID is the destination venue. It is REQUIRED: a move places somebody,
+	// and the panel never takes a venue away (K-14's venue-less rows are API-managed;
+	// moving one gives it a home venue).
 	LocationID uuid.UUID
 	// DepartmentID is the destination department, or nil for "no department" --
 	// which is a legitimate destination rather than a missing argument (00003: a bar
@@ -881,7 +889,8 @@ func (s *Staff) Move(ctx context.Context, c MoveCommand) (Person, error) {
 			return fmt.Errorf("load employee: %w", err)
 		}
 		out = person(before)
-		if before.LocationID == c.LocationID && sameDepartment(before.DepartmentID, c.DepartmentID) {
+		if before.LocationID != nil && *before.LocationID == c.LocationID &&
+			sameDepartment(before.DepartmentID, c.DepartmentID) {
 			return ErrSamePlacement
 		}
 
@@ -909,8 +918,8 @@ func (s *Staff) Move(ctx context.Context, c MoveCommand) (Person, error) {
 			Action:   ActionEmployeeMoved,
 			Target:   c.EmployeeID.String(),
 			Detail: moveDetail{
-				FromLocationID:   before.LocationID.String(),
-				ToLocationID:     row.LocationID.String(),
+				FromLocationID:   idText(before.LocationID),
+				ToLocationID:     idText(row.LocationID),
 				FromDepartmentID: idText(before.DepartmentID),
 				ToDepartmentID:   idText(row.DepartmentID),
 			},
@@ -988,7 +997,12 @@ func wrap(op string, err error) error {
 		errors.Is(err, ErrEmployeeEmail),
 		errors.Is(err, ErrEmployeeRole),
 		errors.Is(err, ErrEmailTaken),
-		errors.Is(err, ErrSameEmail):
+		errors.Is(err, ErrSameEmail),
+		// M11 API-1's external-ref refusals (externalref.go).
+		errors.Is(err, ErrExternalRef),
+		errors.Is(err, ErrExternalRefTaken),
+		errors.Is(err, ErrSameExternalRef),
+		errors.Is(err, ErrExternalRefRequired):
 		return err
 	default:
 		return fmt.Errorf("tenant: %s: %w", op, err)
@@ -1004,6 +1018,7 @@ func person(row store.GetPanelEmployeeForActionRow) Person {
 		DepartmentID:   row.DepartmentID,
 		LocationName:   deref(row.LocationName),
 		DepartmentName: deref(row.DepartmentName),
+		ExternalRef:    deref(row.ExternalRef),
 	}
 }
 

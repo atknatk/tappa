@@ -311,7 +311,8 @@ func newFakeLedger() *fakeLedger {
 		queue: ledger.QueuePage{Queried: true, Zone: time.UTC},
 		// 🔴 THE ROSTER'S OPTIONS CARRY ONE VENUE, AND THAT IS THE ORDINARY STATE
 		// RATHER THAN A CONVENIENCE (M6-13). A business with no venue cannot have
-		// employees at all — employees.location_id is NOT NULL — so a fake with an
+		// employees at all through the panel — the panel always places somebody
+		// (employees.location_id is NULL only for an API-managed row, K-14) — so a fake with an
 		// empty option list models a business that cannot use this section, and the
 		// add form correctly refuses to render for it. Leaving the default empty made
 		// every add test exercise the EMPTY path by accident while appearing to test
@@ -530,6 +531,32 @@ type fakeStaff struct {
 	// emailReads counts Email calls, so a test can assert that a path which must do no
 	// database work (the address change's role refusal) did not read the address.
 	emailReads int
+
+	// The external ref (M11 API-1): refErr fails the change; refChanges records every
+	// change asked.
+	refErr     error
+	refChanges []tenant.ExternalRefCommand
+}
+
+// ChangeExternalRef records the command and answers the configured refusal, or the
+// change asked for. Like ChangeEmail it does not validate: the rule is measured
+// against real Postgres in internal/domain/tenant.
+func (f *fakeStaff) ChangeExternalRef(_ context.Context, c tenant.ExternalRefCommand) (tenant.ExternalRefChange, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.refChanges = append(f.refChanges, c)
+	if f.refErr != nil {
+		return tenant.ExternalRefChange{}, f.refErr
+	}
+	return tenant.ExternalRefChange{SubjectID: c.SubjectID, To: c.ExternalRef}, nil
+}
+
+func (f *fakeStaff) refCommands() []tenant.ExternalRefCommand {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]tenant.ExternalRefCommand, len(f.refChanges))
+	copy(out, f.refChanges)
+	return out
 }
 
 // Email answers the configured address and counts the read.
@@ -591,7 +618,7 @@ func (f *fakeStaff) Add(_ context.Context, c tenant.AddCommand) (tenant.Person, 
 		ID:           panelTestEmployee,
 		Name:         c.FullName,
 		Status:       ledger.StatusInvited,
-		LocationID:   c.LocationID,
+		LocationID:   &c.LocationID,
 		DepartmentID: c.DepartmentID,
 	}, nil
 }
@@ -612,7 +639,7 @@ func (f *fakeStaff) Person(_ context.Context, _, employeeID uuid.UUID) (tenant.P
 		ID:           employeeID,
 		Name:         "Maria Borg",
 		Status:       ledger.StatusActive,
-		LocationID:   panelTestLocation,
+		LocationID:   &panelTestLocation,
 		LocationName: "KF St Julians",
 	}, nil
 }
@@ -636,7 +663,7 @@ func (f *fakeStaff) Move(_ context.Context, c tenant.MoveCommand) (tenant.Person
 	}
 	return tenant.Person{
 		ID: c.EmployeeID, Name: "Maria Borg", Status: ledger.StatusActive,
-		LocationID: c.LocationID, DepartmentID: c.DepartmentID,
+		LocationID: &c.LocationID, DepartmentID: c.DepartmentID,
 	}, nil
 }
 
@@ -673,7 +700,12 @@ func (f *fakeStaff) commands() ([]tenant.DeactivateCommand, []tenant.MoveCommand
 // Postgres) and internal/db/venuewrites_test.go (the RLS layer underneath them, with
 // no tenant predicate of its own).
 type fakeVenues struct {
-	mu        sync.Mutex
+	mu sync.Mutex
+	// venueRefs records the external-ref changes asked (M11 API-1); venueRefErr fails
+	// them.
+	venueRefs   []tenant.ExternalRefCommand
+	venueRefErr error
+
 	screen    tenant.VenueScreen
 	screenErr error
 	saveErr   error
@@ -821,6 +853,18 @@ func (f *fakeVenues) Department(_ context.Context, _ uuid.UUID, id uuid.UUID) (t
 		return d, nil
 	}
 	return tenant.Department{}, tenant.ErrUnknownDepartment
+}
+
+// ChangeExternalRef records the venue ref change asked (M11 API-1) and answers
+// venueRefErr, or the change asked for.
+func (f *fakeVenues) ChangeExternalRef(_ context.Context, c tenant.ExternalRefCommand) (tenant.ExternalRefChange, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.venueRefs = append(f.venueRefs, c)
+	if f.venueRefErr != nil {
+		return tenant.ExternalRefChange{}, f.venueRefErr
+	}
+	return tenant.ExternalRefChange{SubjectID: c.SubjectID, To: c.ExternalRef}, nil
 }
 
 func (f *fakeVenues) SaveVenue(_ context.Context, c tenant.VenueCommand) (tenant.Venue, error) {

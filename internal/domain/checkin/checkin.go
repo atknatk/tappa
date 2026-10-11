@@ -1055,7 +1055,7 @@ func (s *Service) gather(ctx context.Context, tx pgx.Tx, req Request, tappedLoca
 		}
 		f.employee = &tap.Employee{
 			Status:     tap.EmployeeStatus(emp.Status),
-			Location:   &emp.LocationID,
+			Location:   emp.LocationID, // nil for an API-managed employee with no home venue (K-14)
 			Department: emp.DepartmentID,
 		}
 		if emp.ActivatedAt != nil {

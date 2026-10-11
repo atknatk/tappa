@@ -13,6 +13,12 @@
 -- PATH READS IT -- the decision engine takes static_ips and gps_lat/gps_lng
 -- (section 5, row 6); wifi_ssid is display data, and 00010 explains at length why
 -- it must never become a decision input.
+--
+-- THE SAME HOLDS FOR external_ref AND active (migration 00037, M11): they are named
+-- for the mapping, and NOTHING ON THE TAP PATH READS EITHER -- external_ref is the
+-- integrator's identity and active is a label (K-20: the decision engine never sees
+-- it). Measured on 00037: without them sqlc emitted GetLocationByIPRow and
+-- ListLocationsForTenantRow again.
 
 -- name: GetLocationByIP :one
 -- Proof-of-place, IP side (CLAUDE.md section 5, row 6): the location whose
@@ -38,7 +44,7 @@
 -- TestGetLocationByIP_MatchesEverybodyWhenARangeDoes is the sign hung on this
 -- sleeping surface.
 SELECT id, tenant_id, name, static_ips, gps_lat, gps_lng, shift_start, shift_end,
-       overnight, created_at, wifi_ssid
+       overnight, created_at, wifi_ssid, external_ref, active
 FROM locations
 WHERE tenant_id = @tenant_id
   AND @src::inet <<= ANY(static_ips);
@@ -48,7 +54,7 @@ WHERE tenant_id = @tenant_id
 -- computes the haversine distance from the tap's GPS to each location and checks
 -- the < 150 m radius. Returns every location in the tenant so that check can run.
 SELECT id, tenant_id, name, static_ips, gps_lat, gps_lng, shift_start, shift_end,
-       overnight, created_at, wifi_ssid
+       overnight, created_at, wifi_ssid, external_ref, active
 FROM locations
 WHERE tenant_id = @tenant_id
 ORDER BY name;
@@ -187,6 +193,7 @@ WHERE tenant_id = @tenant_id
 -- so when it is reached, not a pager.
 SELECT l.id, l.name, l.static_ips, l.gps_lat, l.gps_lng,
        l.shift_start, l.shift_end, l.overnight, l.wifi_ssid, l.created_at,
+       l.external_ref,
        (SELECT count(*) FROM departments d
          WHERE d.tenant_id = @tenant_id
            AND d.location_id = l.id) AS department_count
@@ -208,7 +215,7 @@ LIMIT @row_limit;
 -- RLS), which the caller turns into "no such venue in this business" rather than
 -- into a 500 or into an answer about whether that id exists elsewhere.
 SELECT id, tenant_id, name, static_ips, gps_lat, gps_lng,
-       shift_start, shift_end, overnight, wifi_ssid, created_at
+       shift_start, shift_end, overnight, wifi_ssid, created_at, external_ref
 FROM locations
 WHERE tenant_id = @tenant_id
   AND id = @id;
@@ -371,3 +378,32 @@ WHERE tenant_id = @tenant_id
   AND id = @id
 RETURNING id, name, static_ips, gps_lat, gps_lng, shift_start, shift_end, overnight,
           wifi_ssid, created_at;
+
+-- name: LockLocationForExternalRefChange :one
+-- The integration identity on file for ONE venue, row-locked until the transaction ends
+-- (M11 API-1, internal/domain/tenant.Venues.ChangeExternalRef) -- the employee twin's
+-- shape (LockEmployeeForExternalRefChange): FOR NO KEY UPDATE, the lock the UPDATE below
+-- takes anyway, so the trail's "before" is the value the write replaces.
+--
+-- TENANT SCOPE (section 4.5, belt + braces): explicit predicate on top of RLS.
+SELECT id, external_ref
+FROM locations
+WHERE tenant_id = @tenant_id
+  AND id = @id
+FOR NO KEY UPDATE;
+
+-- name: SetLocationExternalRef :one
+-- Binds ONE venue to the integrator's identity, or unbinds it (NULL) (M11 API-1, K-18:
+-- venues are never matched by name -- the owner fills this field, and PUT
+-- /v1/locations/{ref} then updates THIS row instead of opening a second one).
+--
+-- IT NAMES external_ref AND NOTHING ELSE. Two refusals are the database's, by name:
+-- locations_external_ref_shape (23514) and locations_tenant_external_ref_key (23505 --
+-- another venue of this business holds it).
+--
+-- TENANT SCOPE (section 4.5, belt + braces): explicit predicate on top of RLS.
+UPDATE locations
+SET external_ref = sqlc.narg('external_ref')::text
+WHERE tenant_id = @tenant_id
+  AND id = @id
+RETURNING id, external_ref;

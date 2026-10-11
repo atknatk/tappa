@@ -696,10 +696,10 @@ aktivasyon `strict=false` dahil) · `TestSameOrigin_EveryOtherHeaderCombinationI
 testi; katı kopyalarda `Origin` yokken başlıksız/`none` RED) · `TestSameOrigin_NoReferrerPagesStillPass`
 (`Origin: null` + `same-origin`) · mevcut panel/kayıt/sıfırlama/aktivasyon/röle akış testleri yeşil.
 
-**API-1** — `M11Catalog_EveryNewTableMatchesTheMatrixUnderArwd` · `EmployeeEmail_UniqueAmongActiveOnly`
-(kısıt adı korunur; pasifle aynı e-postada yeni aktif açılır, iki aktif açılamaz) ·
-`EmployeeUpdatedAt_OnlyDirectoryColumnsOnEveryUpdatePath` (dört yol) ·
-`EmployeeLocationReaders_Counted` · `TenantApiColumns_AppCannotWrite`.
+**API-1** *(yazıldı — "API-1 uygulama notu")* — `TestM11Catalog_EveryNewTableMatchesTheMatrixUnderArwd` ·
+`TestEmployeeEmail_UniqueAmongActiveOnly` (kısıt adı korunur; pasifle aynı e-postada yeni aktif açılır,
+iki aktif açılamaz) · `TestEmployeeUpdatedAt_OnlyDirectoryColumnsOnEveryUpdatePath` (dört yol + panelin
+external-ref yazması) · `TestEmployeeLocationReaders_Counted` · `TestTenantApiColumns_AppCannotWrite`.
 
 **API-2** — (a) `Feed_PlainInsertIntoTransactionsBearsAnEvent` · (b) `Feed_StressNoMissNoDeadlock`
 (≥ 12 yazıcı, ≥ 3 tenant, ters yönlü holding dokunuşları, abort/savepoint karışık, eşzamanlı okuyucu;
@@ -787,3 +787,54 @@ holding dışı izolasyon prod'da örneklenir.
   API-1c → API-2 → API-7 · API-1a → API-8 · GATE-1 + API-2 + API-4 → API-9 → API-10 → API-11 → API-12 →
   API-13. Her görev yapıcı → üçüncü göz; CLAUDE.md §4'e değenlerde (GATE-1, API-2, API-3) ayrıca
   `tappa-security-auditor`.
+
+## API-1 uygulama notu (2026-10-11)
+
+Şema üç migration'dır; numaralar `00037`'den başlar (`00036` OP-15'e ayrıldı):
+
+- **`00037`** — `employees`: `external_ref`, `employee_code`, `first_name`, `last_name`, `updated_at`;
+  `location_id` NULL olabilir, `employees_home_or_external_ref` CHECK'i ile (K-14); e-posta indeksi
+  `employees_tenant_email_key` **adıyla** yeniden kuruldu, `status <> 'deactivated'` süzgeciyle (K-24);
+  `employees_tenant_external_ref_key` (canlı satırlar arasında tekil). `updated_at`'ı yalnız
+  `employees_directory_clock` tetikleyicisi (`tappa_employees_touch_updated_at`, `EXECUTE` yalnız
+  sahipte, `TG_RELID` assert'li) yazar: INSERT'te ve rehberin gördüğü sütunlardan biri (ad, `first_name`,
+  `last_name`, `full_name`, kod, `external_ref`, durum) değişince `clock_timestamp()`; başka her UPDATE'te
+  eski değer korunur, elle yazılan değer ezilir. `full_name` listeye **eklendi**: panelin açtığı satırda
+  ad/soyad yoktur ve rehberin gösterebileceği ad odur. `locations`: `external_ref` (tenant içinde tekil),
+  `active` (K-20 etiketi). `invite_requests` (K-17): anahtar `(tenant_id, employee_id)` — kişi başına tek
+  canlı istek; `tappa_app`: SELECT, INSERT `(tenant_id, employee_id)`, UPDATE `(lease_until, attempts)`,
+  DELETE (gönderilen istek kuyruktan çıkar — §9'un beş sütununda "gönderildi" durumu yok). External ref
+  biçimi URL yolunda taşındığı için RFC 3986 "unreserved" kümesidir, harf/rakamla başlar, en çok 64
+  karakter (`^[A-Za-z0-9][A-Za-z0-9._~-]{0,63}$`); `employee_code` ve iki ad kontrol karakteri ve
+  kenar boşluğu taşımayan, sınırlı etiketlerdir. API-5/6 bu biçimleri 422 ile söyler.
+- **`00038`** — `tenants.api_enabled_at`, `tenants.api_code` (`^[A-Z][A-Z0-9]{1,15}$`, **tekil değil**:
+  tenant'lar arası tekillik yazmayı tenant-ötesi bir eyleme çevirirdi — 00024'ün `vat_number`
+  gerekçesi) ve `tenants_api_needs_a_code`. Ön koşul `tappa_app`'in `tenants` üzerinde tablo düzeyi
+  INSERT/UPDATE tutmadığını, son koşul iki sütunu yazamadığını ölçer.
+- **`00039`** — tek yazar: `op_enable_tenant_api(oturum, tenant, kod)` (açılış anı ilk açılışta kalır,
+  kod değişir) ve `op_disable_tenant_api(oturum, tenant)` (`api_enabled_at` NULL, kod **kalır** — punch'lar
+  onu `company` olarak taşımaya devam eder). ADR 0021 sözleşmesi: `void`, birincil anahtarla `FOR NO KEY
+  UPDATE`, K6 tenant satırı (`tenant.api_enabled` `{actor_kind, api_code}` / `tenant.api_disabled`)
+  `clock_timestamp()` ile, operatör satırı (`tenant_api_enabled` / `tenant_api_disabled`) her kabul
+  edilen çağrıda; bilinmeyen tenant aynı `void`. OP-15'in dalda bekleyen çiftinin (suspend/reinstate)
+  biçimi emsal alındı; okumaya bağlama (OP-16 (b2)) yok — çağrı kayıtlı bir değeri bir adayla
+  karşılaştırmaz. `op_begin_read` ve `op_read_audit` 00034 gövdeleri + iki tür adıyla değiştirildi. Ön
+  koşul tür CHECK'ini ve `tenant_write_shape`'i **tam metinle** karşılaştırır: OP-15'in `00036`'sı önce
+  birleşirse bu dosya sessizce onu geri almaz, "rebase" der.
+
+**`arwd` kuralının mekaniği (§1 madde 4).** CI, `make up` ile `make migrate` arasında üretimin
+`pg_default_acl`'ini kurar (`ci.yml`, "Use production's default ACL (arwd)"); 00035'teki iki veritabanı
+karşılaştırıldı — dar ve geniş yapımlar arasında uygulama tablolarında **fark yok**, tek fark
+`goose_db_version`'ın UPDATE/DELETE'i. O tablo ilk migration'dan önce doğduğu için katalog testinin
+tanığıdır: tanık dar ise test çalışmayı reddeder ve CI'ın komutunu yazar. Test, 00035'teki
+ilişki/sütun/fonksiyon/dizi kümesini **dondurur** ve ondan sonra doğan her nesnenin rolü rolüne matriste
+olmasını ister (`m11Tables`, `m11Columns`, `m11Functions` — `internal/db/m11schema_test.go`).
+*Adlandırılmış yan bulgu:* üretimde `tappa_app`, `goose_db_version` üzerinde UPDATE ve DELETE tutuyor
+(göç defteri uygulama rolüyle değiştirilebilir) — kapsam dışı, API-13 runbook'una aday.
+
+**`opAtVersion`.** Operatör testlerinin eski bir sürüme inmek için çalıştırdığı Down zinciri `00037` ve
+`00038`'i **atlar** (`opAtVersionSkips`): ikisi operatör nesnesine dokunmaz
+(`TestOpAtVersion_SkipsOnlyMigrationsWithoutAnOperatorObject`), Down'ları `employees`/`tenants` üzerinde
+ACCESS EXCLUSIVE alır ve `00037`'ninki, ev lokasyonu olmayan ya da pasif/aktif aynı adresi paylaşan
+satır varsa (K-14/K-24 testleri bunları commit eder) bilerek reddeder. `00039`'un Down'ı yürütülür.
+

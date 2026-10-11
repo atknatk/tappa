@@ -207,3 +207,22 @@
 -- tenant exists -- but for a wait while another transaction holds an existing tenant's row
 -- (ADR 0021's OP-16 note, LV3).
 --   SELECT public.op_record_vat_check($1, $2, $3, $4);
+
+-- M11 API-1 (migrations 00038 + 00039, K-22): the operator opens and closes a tenant's
+-- integration API -- the ONLY writer of tenants.api_enabled_at and tenants.api_code. One-phase
+-- writes, RETURNS void, the answer the same whatever the tenant held or whether it exists (an id
+-- that names no tenant writes the operator's row alone). Inside both functions no row level
+-- security applies: every reference to the tenant names $2, by its primary key alone. No
+-- OperatorDB method calls them yet; the operator's screen for them is a later task.
+
+-- EnableTenantAPI -- $2 the tenant, $3 its API code (the spec's `company`: ^[A-Z][A-Z0-9]{1,15}$,
+-- else 22023 before anything is read). In one call, only if the tenant exists: api_enabled_at
+-- keeps its first opening instant (or takes the wall clock), api_code becomes $3, and the
+-- tenant's audit_log row ('tenant.api_enabled', {actor_kind, api_code}, `at` that wall clock);
+-- on every accepted call the operator's 'tenant_api_enabled' row naming the tenant, detail {}.
+--   SELECT public.op_enable_tenant_api($1, $2, $3);
+
+-- DisableTenantAPI -- $2 the tenant. api_enabled_at becomes NULL and api_code is KEPT (punches
+-- still carry it as their company); the tenant's 'tenant.api_disabled' row ({actor_kind}); the
+-- operator's 'tenant_api_disabled' row on every accepted call.
+--   SELECT public.op_disable_tenant_api($1, $2);

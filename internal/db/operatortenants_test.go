@@ -580,8 +580,11 @@ func TestOperator00029_TheDefinerReadsNamedColumnsAndNoSecret(t *testing.T) {
 	} {
 		opWant(t, opExecAs(t, ctx, tx, "tappa_app", call.sql, call.args...), sqlstateInsufficientPrivi, "tappa_app calling "+call.name)
 	}
+	// 00038 (M11 API-1) added the two API columns, which tappa_app reads through its
+	// table-level SELECT and cannot write (TestTenantApiColumns_AppCannotWrite).
 	if got, want := opColumns(t, ctx, tx, "tappa_app", "tenants", "SELECT"),
-		"id,name,vat_number,business_type,structure,plan,timezone,created_at,price_per_employee_month,vat_verified,vat_checked_at"; got != want {
+		"id,name,vat_number,business_type,structure,plan,timezone,created_at,price_per_employee_month,vat_verified,vat_checked_at,"+
+			"api_enabled_at,api_code"; got != want {
 		t.Errorf("tappa_app SELECT on tenants = (%s), want (%s) -- 00029 must not touch it", got, want)
 	}
 	a := opNewTenant(t, ctx, tx, "op11 rls a", 0)

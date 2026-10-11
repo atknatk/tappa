@@ -77,7 +77,7 @@ type Department struct {
 type Employee struct {
 	ID            uuid.UUID
 	TenantID      uuid.UUID
-	LocationID    uuid.UUID
+	LocationID    *uuid.UUID
 	DepartmentID  *uuid.UUID
 	FullName      string
 	Role          *string
@@ -87,6 +87,11 @@ type Employee struct {
 	ActivatedAt   *time.Time
 	DeactivatedAt *time.Time
 	CreatedAt     time.Time
+	ExternalRef   *string
+	EmployeeCode  *string
+	FirstName     *string
+	LastName      *string
+	UpdatedAt     time.Time
 }
 
 type EmployeeInvite struct {
@@ -105,6 +110,14 @@ type EmployeeInvite struct {
 	ConsentBindingHash *string
 }
 
+type InviteRequest struct {
+	TenantID    uuid.UUID
+	EmployeeID  uuid.UUID
+	RequestedAt time.Time
+	LeaseUntil  *time.Time
+	Attempts    int32
+}
+
 type LegalDocument struct {
 	ID          uuid.UUID
 	Slug        string
@@ -114,17 +127,19 @@ type LegalDocument struct {
 }
 
 type Location struct {
-	ID         uuid.UUID
-	TenantID   uuid.UUID
-	Name       string
-	StaticIps  []netip.Prefix
-	GpsLat     pgtype.Numeric
-	GpsLng     pgtype.Numeric
-	ShiftStart pgtype.Time
-	ShiftEnd   pgtype.Time
-	Overnight  bool
-	CreatedAt  time.Time
-	WifiSsid   *string
+	ID          uuid.UUID
+	TenantID    uuid.UUID
+	Name        string
+	StaticIps   []netip.Prefix
+	GpsLat      pgtype.Numeric
+	GpsLng      pgtype.Numeric
+	ShiftStart  pgtype.Time
+	ShiftEnd    pgtype.Time
+	Overnight   bool
+	CreatedAt   time.Time
+	WifiSsid    *string
+	ExternalRef *string
+	Active      bool
 }
 
 type OperatorAuditLog struct {
@@ -263,6 +278,8 @@ type Tenant struct {
 	PricePerEmployeeMonth pgtype.Numeric
 	VatVerified           *bool
 	VatCheckedAt          *time.Time
+	ApiEnabledAt          *time.Time
+	ApiCode               *string
 }
 
 type TenantBranding struct {

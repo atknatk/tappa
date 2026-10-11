@@ -41,7 +41,7 @@ type CreateEmployeeParams struct {
 type CreateEmployeeRow struct {
 	ID           uuid.UUID
 	TenantID     uuid.UUID
-	LocationID   uuid.UUID
+	LocationID   *uuid.UUID
 	DepartmentID *uuid.UUID
 	FullName     string
 	Role         *string
@@ -242,7 +242,7 @@ type GetEmployeeActivationContextRow struct {
 	ID         uuid.UUID
 	FullName   string
 	Status     string
-	LocationID uuid.UUID
+	LocationID *uuid.UUID
 	TenantName string
 }
 
@@ -315,7 +315,13 @@ type GetEmployeeActivationContextRow struct {
 //	db/queries/employees.sql:...  DeactivateEmployee        status -> 'deactivated'
 //	db/queries/employees.sql:...  MoveEmployee              location_id / department_id
 //	db/queries/employees.sql:...  SetEmployeeEmail          email (M10 EM-6)
+//	db/queries/employees.sql:...  SetEmployeeExternalRef    external_ref (M11 API-1)
 //	db/queries/invites.sql:...    ConsumeInviteAndActivate  status -> 'active'
+//
+// None of them writes updated_at: migration 00037's trigger owns it (K-21) and moves it
+// only when a column the integration directory shows changes -- so of the five,
+// DeactivateEmployee, SetEmployeeExternalRef and a FIRST ConsumeInviteAndActivate move
+// it, MoveEmployee and SetEmployeeEmail never do.
 //
 // ⚠️ THE ANCHOR IS PART OF THE COMMAND. Without `^` the same grep returns SIX lines:
 // the three statements plus three sentences of prose that name them, one of which is
@@ -463,7 +469,7 @@ type GetEmployeeForTapParams struct {
 
 type GetEmployeeForTapRow struct {
 	Status             string
-	LocationID         uuid.UUID
+	LocationID         *uuid.UUID
 	DepartmentID       *uuid.UUID
 	ActivatedAt        *time.Time
 	TenantTimezone     string
@@ -538,7 +544,7 @@ func (q *Queries) GetEmployeeForTap(ctx context.Context, arg GetEmployeeForTapPa
 }
 
 const getPanelEmployeeForAction = `-- name: GetPanelEmployeeForAction :one
-SELECT e.id, e.full_name, e.status, e.location_id, e.department_id,
+SELECT e.id, e.full_name, e.status, e.location_id, e.department_id, e.external_ref,
        l.name AS location_name,
        d.name AS department_name
 FROM employees e
@@ -557,8 +563,9 @@ type GetPanelEmployeeForActionRow struct {
 	ID             uuid.UUID
 	FullName       string
 	Status         string
-	LocationID     uuid.UUID
+	LocationID     *uuid.UUID
 	DepartmentID   *uuid.UUID
+	ExternalRef    *string
 	LocationName   *string
 	DepartmentName *string
 }
@@ -598,6 +605,7 @@ func (q *Queries) GetPanelEmployeeForAction(ctx context.Context, arg GetPanelEmp
 		&i.Status,
 		&i.LocationID,
 		&i.DepartmentID,
+		&i.ExternalRef,
 		&i.LocationName,
 		&i.DepartmentName,
 	)
@@ -664,6 +672,7 @@ func (q *Queries) GetRosterCursorAnchor(ctx context.Context, arg GetRosterCursor
 
 const listPanelEmployees = `-- name: ListPanelEmployees :many
 SELECT e.id, e.full_name, e.status, e.invited_at, e.activated_at, e.deactivated_at,
+       e.location_id,
        l.name AS location_name,
        d.name AS department_name,
        COALESCE(ls.live_sessions, 0)::bigint AS live_sessions,
@@ -714,6 +723,7 @@ type ListPanelEmployeesRow struct {
 	InvitedAt         *time.Time
 	ActivatedAt       *time.Time
 	DeactivatedAt     *time.Time
+	LocationID        *uuid.UUID
 	LocationName      *string
 	DepartmentName    *string
 	LiveSessions      int64
@@ -905,6 +915,7 @@ func (q *Queries) ListPanelEmployees(ctx context.Context, arg ListPanelEmployees
 			&i.InvitedAt,
 			&i.ActivatedAt,
 			&i.DeactivatedAt,
+			&i.LocationID,
 			&i.LocationName,
 			&i.DepartmentName,
 			&i.LiveSessions,
@@ -967,6 +978,42 @@ func (q *Queries) LockEmployeeForEmailChange(ctx context.Context, arg LockEmploy
 	return i, err
 }
 
+const lockEmployeeForExternalRefChange = `-- name: LockEmployeeForExternalRefChange :one
+SELECT id, external_ref, location_id
+FROM employees
+WHERE tenant_id = $1
+  AND id = $2
+FOR NO KEY UPDATE
+`
+
+type LockEmployeeForExternalRefChangeParams struct {
+	TenantID uuid.UUID
+	ID       uuid.UUID
+}
+
+type LockEmployeeForExternalRefChangeRow struct {
+	ID          uuid.UUID
+	ExternalRef *string
+	LocationID  *uuid.UUID
+}
+
+// The integration identity on file for ONE person, row-locked until the transaction ends
+// (M11 API-1, internal/domain/tenant.Staff.ChangeExternalRef).
+//
+// FOR NO KEY UPDATE is the lock SetEmployeeExternalRef takes anyway (external_ref is not a
+// key column), taken FIRST so the "before" the trail records is the value the write
+// replaces: two owners saving at once write one after the other, each describing what the
+// other left. It does not conflict with the FOR KEY SHARE a foreign-key insert takes, so
+// a tap that names this employee is not held up by it.
+//
+// TENANT SCOPE (section 4.5, belt + braces): explicit predicate on top of RLS.
+func (q *Queries) LockEmployeeForExternalRefChange(ctx context.Context, arg LockEmployeeForExternalRefChangeParams) (LockEmployeeForExternalRefChangeRow, error) {
+	row := q.db.QueryRow(ctx, lockEmployeeForExternalRefChange, arg.TenantID, arg.ID)
+	var i LockEmployeeForExternalRefChangeRow
+	err := row.Scan(&i.ID, &i.ExternalRef, &i.LocationID)
+	return i, err
+}
+
 const moveEmployee = `-- name: MoveEmployee :one
 UPDATE employees e
 SET location_id   = l.id,
@@ -994,7 +1041,7 @@ type MoveEmployeeParams struct {
 type MoveEmployeeRow struct {
 	ID           uuid.UUID
 	FullName     string
-	LocationID   uuid.UUID
+	LocationID   *uuid.UUID
 	DepartmentID *uuid.UUID
 }
 
@@ -1128,5 +1175,50 @@ func (q *Queries) SetEmployeeEmail(ctx context.Context, arg SetEmployeeEmailPara
 	row := q.db.QueryRow(ctx, setEmployeeEmail, arg.Email, arg.TenantID, arg.ID)
 	var i SetEmployeeEmailRow
 	err := row.Scan(&i.ID, &i.Email)
+	return i, err
+}
+
+const setEmployeeExternalRef = `-- name: SetEmployeeExternalRef :one
+UPDATE employees
+SET external_ref = $1::text
+WHERE tenant_id = $2
+  AND id = $3
+RETURNING id, external_ref
+`
+
+type SetEmployeeExternalRefParams struct {
+	ExternalRef *string
+	TenantID    uuid.UUID
+	ID          uuid.UUID
+}
+
+type SetEmployeeExternalRefRow struct {
+	ID          uuid.UUID
+	ExternalRef *string
+}
+
+// Binds ONE person to the integrator's identity, or unbinds them (NULL) (M11 API-1, K-18:
+// the owner links an existing employee to the RMS/ERP record before the API is switched
+// on, so the first sync does not create a second row).
+//
+// 🔴 IT NAMES external_ref AND NOTHING ELSE, like SetEmployeeEmail: a ref cannot
+// activate, deactivate or move anybody. updated_at moves because external_ref is one of
+// the directory's columns (migration 00037's trigger, K-21).
+//
+// THE DATABASE IS THE AUTHORITY ON THE THREE REFUSALS, each by name:
+//
+//	employees_external_ref_shape         23514 -- the ref is not URL-safe (the boundary
+//	                                      checks the same pattern first);
+//	employees_tenant_external_ref_key    23505 -- another LIVE person of this business
+//	                                      holds it (a deactivated one does not);
+//	employees_home_or_external_ref       23514 -- unbinding somebody with no home venue
+//	                                      (K-14): the ref is then their only anchor.
+//
+// TENANT SCOPE (section 4.5, belt + braces): explicit predicate on top of RLS. A foreign id
+// matches nothing.
+func (q *Queries) SetEmployeeExternalRef(ctx context.Context, arg SetEmployeeExternalRefParams) (SetEmployeeExternalRefRow, error) {
+	row := q.db.QueryRow(ctx, setEmployeeExternalRef, arg.ExternalRef, arg.TenantID, arg.ID)
+	var i SetEmployeeExternalRefRow
+	err := row.Scan(&i.ID, &i.ExternalRef)
 	return i, err
 }

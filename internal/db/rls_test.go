@@ -53,7 +53,8 @@ import (
 // append-only -- to TestRLS_OwnerMutationsHitAppendOnlyTrigger (case 5). Currently
 // covered: tenants, locations, departments, employees, sessions, tags, transactions,
 // audit_log, transaction_reviews, admin_users, admin_sessions, password_resets,
-// policies, policy_versions, policy_attachments, employee_invites, billing_periods.
+// policies, policy_versions, policy_attachments, employee_invites, billing_periods,
+// invite_requests (M11 API-1, migration 00037).
 // tenant_branding (00028) holds one row per tenant, so the write list's "own" control
 // would collide on its primary key -- the reason tenants has its own test below; its
 // isolation tests are in branding_test.go.
@@ -283,6 +284,10 @@ func buildFixture(t *testing.T, d *DB) fixture {
 		  VALUES ($1, $2, '2025-01-01', '2024-12-31 23:00+00', '2025-01-31 23:00+00',
 		          'Europe/Malta', 'standard', false, 1, 1.50, $3)`,
 			[]any{fx.billingID, fx.tenantID, fx.adminUserID}},
+		// invite_requests (M11 API-1) -- K-17's queue, one request for the fixture's
+		// employee. Its key is (tenant_id, employee_id), so the employee identifies it.
+		{`INSERT INTO invite_requests (tenant_id, employee_id) VALUES ($1, $2)`,
+			[]any{fx.tenantID, fx.employeeID}},
 	}
 
 	err := d.WithTenant(context.Background(), fx.tenantID, func(ctx context.Context, tx pgx.Tx) error {
@@ -417,6 +422,7 @@ func TestRLS_ReadIsolation_AllTables(t *testing.T) {
 		{"policy_attachments", `SELECT count(*) FROM policy_attachments WHERE id = $1`, a.policyAttachID},
 		{"employee_invites", `SELECT count(*) FROM employee_invites WHERE id = $1`, a.inviteID},
 		{"billing_periods", `SELECT count(*) FROM billing_periods WHERE id = $1`, a.billingID},
+		{"invite_requests", `SELECT count(*) FROM invite_requests WHERE employee_id = $1`, a.employeeID},
 	}
 
 	for _, tc := range tables {
@@ -635,6 +641,24 @@ func TestRLS_WriteWithCheck_AllTables(t *testing.T) {
 			},
 			func(ctx context.Context, tx pgx.Tx) error {
 				_, e := tx.Exec(ctx, `INSERT INTO billing_periods (id, tenant_id, period_month, period_from, period_to, timezone, plan, free_period, employee_count, unit_price, closed_by) VALUES ($1, $2, '2025-02-01', '2025-01-31 23:00+00', '2025-02-28 23:00+00', 'Europe/Malta', 'standard', false, 1, 1.50, $3)`, uuid.New(), b.tenantID, b.adminUserID)
+				return e
+			}},
+		{"invite_requests", blockRLS,
+			func(ctx context.Context, tx pgx.Tx) error {
+				// tenant_id = A (fails WITH CHECK under B); the composite FK to A's employee
+				// resolves (FK checks bypass RLS), and RLS is evaluated before the primary
+				// key, so the existing request for that employee cannot mask it.
+				_, e := tx.Exec(ctx, `INSERT INTO invite_requests (tenant_id, employee_id) VALUES ($1, $2)`, a.tenantID, a.employeeID)
+				return e
+			},
+			func(ctx context.Context, tx pgx.Tx) error {
+				// B's fixture employee is already queued (one request per person), so the
+				// control queues a NEW B employee.
+				emp := uuid.New()
+				if _, e := tx.Exec(ctx, `INSERT INTO employees (id, tenant_id, location_id, full_name) VALUES ($1, $2, $3, 'Queued')`, emp, b.tenantID, b.locationID); e != nil {
+					return e
+				}
+				_, e := tx.Exec(ctx, `INSERT INTO invite_requests (tenant_id, employee_id) VALUES ($1, $2)`, b.tenantID, emp)
 				return e
 			}},
 	}

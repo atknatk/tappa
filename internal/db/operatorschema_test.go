@@ -952,11 +952,15 @@ func TestOperator00026_PrivilegeMatrix(t *testing.T) {
 	// below) -- and appends K6's row to the tenant's audit_log: INSERT on the six columns that
 	// row names, `at` among them (the wall clock, written explicitly), NOT id; no SELECT,
 	// UPDATE, DELETE or TRUNCATE on audit_log.
+	//
+	// 00039 (M11 API-1): op_enable_tenant_api / op_disable_tenant_api write the tenant's API
+	// gate -- UPDATE on api_enabled_at and api_code, and SELECT on api_enabled_at alone (the
+	// enable keeps the first opening instant); the K6 INSERT is 00034's.
 	opdefinerTenantGrants := map[string]string{
 		"legal_documents:SELECT": "id,slug,body,published_at,published_by",
 		"legal_documents:INSERT": "slug,body,published_by",
-		"tenants:SELECT":         "id,name,vat_number,business_type,plan,timezone,created_at,price_per_employee_month,vat_verified,vat_checked_at",
-		"tenants:UPDATE":         "vat_verified,vat_checked_at",
+		"tenants:SELECT":         "id,name,vat_number,business_type,plan,timezone,created_at,price_per_employee_month,vat_verified,vat_checked_at,api_enabled_at",
+		"tenants:UPDATE":         "vat_verified,vat_checked_at,api_enabled_at,api_code",
 		"audit_log:INSERT":       "tenant_id,actor_id,action,target,detail,at",
 		"locations:SELECT":       "id,tenant_id,name",
 		"employees:SELECT":       "tenant_id,status,activated_at,deactivated_at",

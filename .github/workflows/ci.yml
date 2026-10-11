@@ -165,6 +165,25 @@ jobs:
         # baglanabilsin diye test adimindan ONCE ayaga kaldirilir.
         run: make up
 
+      - name: Use production's default ACL (arwd)
+        # ADR 0028 §1 / CLAUDE.md §6 ("`arwd` varsayılanına güvenilmez", M11 API-1): production's
+        # pg_default_acl hands every NEW table to tappa_app with all four verbs (arwd); a fresh
+        # 01-roles.sql hands it `ar`. Migrating CI under the narrow default made it STRICTER than
+        # production in the direction that hides defects: a migration that forgot its
+        # `REVOKE ALL ... FROM tappa_app` was invisible here and wide open there. So CI widens
+        # the default to production's BEFORE the first migrate -- goose's own table is created
+        # under it too, which is the witness internal/db's
+        # TestM11Catalog_EveryNewTableMatchesTheMatrixUnderArwd reads before it compares every
+        # table born after 00035 with its matrix (it refuses to run on a narrow-built database).
+        # Measured on a pair of databases at 00035 (2026-10-11): the only grant that differs is
+        # goose_db_version's UPDATE and DELETE -- every application table is identical, so this
+        # step changes no existing test. The statement is m11DefaultACLStatement in that test.
+        run: |
+          docker compose -f docker-compose.yml -p tappa exec -T db \
+            psql -v ON_ERROR_STOP=1 --no-psqlrc -U tappa_owner -d tappa \
+            -c "ALTER DEFAULT PRIVILEGES FOR ROLE tappa_owner IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO tappa_app" \
+            -c "SELECT defaclobjtype, defaclacl FROM pg_default_acl"
+
       - name: Apply the schema (make migrate)
         # 🔴 BU ADIM YOKTU VE ILK GERCEK CI KOSUSUNU (31902969589) TEK BASINA
         # DUSURDU. `make up` sunucuyu, rolleri ve uzantilari getirir; SEMAYI goose

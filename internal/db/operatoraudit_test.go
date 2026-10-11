@@ -98,8 +98,16 @@ const (
 // the list the four copies are held to (TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree
 // against the database, TestOperatorAuditKinds_TheTypedConstantsAreTheList against the Go
 // constants). 00031 made it eleven; 00033 (OP-14 D) added the three owner kinds, opOwnerKinds;
-// 00034 (OP-16) the first tenant-writing kind, opTenantWriteKinds.
+// 00034 (OP-16) the first tenant-writing kind, opTenantWriteKinds; 00039 (M11 API-1) the two
+// API-gate kinds.
 var opAuditKinds = []string{"login_failed", "unknown_email", "totp_failed", "locked", "enrollment_failed",
+	"password_ok", "login", "enrollment", "logout", "read", "legal_publish",
+	"operator_created", "operator_mfa_reset", "operator_disabled", "tenant_vat_checked",
+	"tenant_api_enabled", "tenant_api_disabled"}
+
+// opAuditKinds34 is the set at 00034 -- what 00034's own tests pin (they reach 00034 through
+// 00039's Down) and what 00039's Down gives back.
+var opAuditKinds34 = []string{"login_failed", "unknown_email", "totp_failed", "locked", "enrollment_failed",
 	"password_ok", "login", "enrollment", "logout", "read", "legal_publish",
 	"operator_created", "operator_mfa_reset", "operator_disabled", "tenant_vat_checked"}
 
@@ -109,9 +117,10 @@ var opAuditKinds33 = []string{"login_failed", "unknown_email", "totp_failed", "l
 	"password_ok", "login", "enrollment", "logout", "read", "legal_publish",
 	"operator_created", "operator_mfa_reset", "operator_disabled"}
 
-// opTenantWriteKinds is operator_audit_log_tenant_write_shape's list at HEAD (00034): the kinds an
-// op_* that CHANGES a tenant writes -- a row that names its tenant and nothing else.
-var opTenantWriteKinds = []string{"tenant_vat_checked"}
+// opTenantWriteKinds is operator_audit_log_tenant_write_shape's list at HEAD (00034's one kind,
+// 00039's two): the kinds an op_* that CHANGES a tenant writes -- a row that names its tenant and
+// nothing else.
+var opTenantWriteKinds = []string{"tenant_vat_checked", "tenant_api_enabled", "tenant_api_disabled"}
 
 // opAuditKinds31 is the set at 00031 and 00032 -- what 00031's own tests reach (opAtVersion
 // first runs 00033's Down) and what 00033's Down gives back.

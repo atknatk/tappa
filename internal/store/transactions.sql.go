@@ -236,12 +236,17 @@ INSERT INTO transactions (
     tenant_id, employee_id, location_id, department_id, type, occurred_at,
     trust, verdict, note, channel, entered_by, practice, queued
 )
-SELECT $1, e.id, e.location_id, e.department_id, $2::text, $3,
-       $4::smallint, 'ok', $5::text, 'manual', $6::uuid,
-       false, false
+SELECT $1, e.id, COALESCE(e.location_id, l.id), e.department_id, $2::text,
+       $3, $4::smallint, 'ok', $5::text, 'manual',
+       $6::uuid, false, false
 FROM employees e
+LEFT JOIN locations l
+       ON l.tenant_id = $1
+      AND l.id = $7::uuid
+      AND e.location_id IS NULL
 WHERE e.tenant_id = $1
-  AND e.id = $7::uuid
+  AND e.id = $8::uuid
+  AND (e.location_id IS NOT NULL OR l.id IS NOT NULL)
 RETURNING id, occurred_at, created_at, type, verdict, channel, trust, practice, queued
 `
 
@@ -252,6 +257,7 @@ type InsertManualTransactionParams struct {
 	Trust      int16
 	Note       *string
 	EnteredBy  uuid.UUID
+	LocationID *uuid.UUID
 	EmployeeID uuid.UUID
 }
 
@@ -334,6 +340,18 @@ type InsertManualTransactionRow struct {
 //	atomicity    the read and the write are one statement, so the placement cannot
 //	             change between them.
 //
+// 🔴 ONE EXCEPTION TO "READ FROM THE EMPLOYEE ROW" (M11 API-1, K-14). An employee the
+// integration manages may have NO home venue (migration 00037), and a record of work
+// with no venue is a record no report can file. For THAT employee only, the venue is
+// the manager's choice (@location_id), resolved inside this tenant by the join below --
+// so a foreign or invented venue still produces 0 rows, never a foreign write, and the
+// composite FK (location_id, tenant_id) is still the braces. For everybody with a home
+// venue the posted value is NOT READ: the join's `e.location_id IS NULL` keeps it out,
+// so the "a manager cannot mis-file somebody" property above holds for them unchanged.
+// No venue at all (home NULL and none chosen, or one not this tenant's) is 0 rows;
+// internal/domain/manual tells that apart from an unknown employee by reading the
+// employee first, in the same transaction.
+//
 // @tenant_id APPEARS TWICE ON PURPOSE, exactly as in InsertTransactionReview: once as
 // the column being written (which the RLS WITH CHECK re-verifies) and once as the
 // SELECT's own scope predicate.
@@ -366,6 +384,7 @@ func (q *Queries) InsertManualTransaction(ctx context.Context, arg InsertManualT
 		arg.Trust,
 		arg.Note,
 		arg.EnteredBy,
+		arg.LocationID,
 		arg.EmployeeID,
 	)
 	var i InsertManualTransactionRow

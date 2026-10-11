@@ -522,7 +522,7 @@ func (a *AdminAuth) rosterActions(w http.ResponseWriter, r *http.Request, f ledg
 		MoveAction:       employeeMoveHref,
 		Locations:        optionViews(screen.Options.Locations),
 		Departments:      optionViews(screen.Options.Departments),
-		LocationID:       person.LocationID.String(),
+		LocationID:       uuidParam(person.LocationID),
 		DepartmentID:     uuidParam(person.DepartmentID),
 		// M10 EM-6. The form is offered to an OWNER only, which is the same
 		// predicate the POST checks (mayChangeEmployeeEmail) — so the screen cannot

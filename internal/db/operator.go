@@ -869,6 +869,7 @@ var operatorAuditKinds = [...]OperatorAuditKind{
 	OperatorAuditLegalPublish,
 	OperatorAuditOperatorCreated, OperatorAuditOperatorMFAReset, OperatorAuditOperatorDisabled,
 	OperatorAuditTenantVATChecked,
+	OperatorAuditTenantAPIEnabled, OperatorAuditTenantAPIDisabled,
 }
 
 // OperatorAuditKinds returns the closed set of audit kinds, in the CHECK's order -- a fresh
@@ -1293,6 +1294,17 @@ const tenantVATReadKind = "tenant_vat"
 // tenant's own audit_log row ('tenant.vat_rechecked'), which the call writes only when the
 // tenant and its number matched.
 const OperatorAuditTenantVATChecked OperatorAuditKind = "tenant_vat_checked"
+
+// The two kinds of migration 00039 (M11 API-1, K-22; CHECK order: after tenant_vat_checked):
+// the operator's row of every accepted op_enable_tenant_api / op_disable_tenant_api call -- the
+// session, the operator, the tenant and nothing else (operator_audit_log_tenant_write_shape).
+// The tenant's own audit_log row ('tenant.api_enabled' / 'tenant.api_disabled') is the one
+// that says the tenant was changed; it is written only for a tenant that exists. No method of
+// OperatorDB calls the two functions yet: the operator's screen for them is a later task.
+const (
+	OperatorAuditTenantAPIEnabled  OperatorAuditKind = "tenant_api_enabled"
+	OperatorAuditTenantAPIDisabled OperatorAuditKind = "tenant_api_disabled"
+)
 
 // The two statements; phase one of the read is beginOperatorReadSQL. Mirrored in
 // db/queries/operator.sql.

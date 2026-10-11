@@ -98,6 +98,20 @@ var opKindsAt30 = []string{"legal_versions", "tenants", "tenant_detail", "tenant
 var opAuditKindsAddedBy = map[int][]string{
 	33: {"operator_created", "operator_mfa_reset", "operator_disabled"},
 	34: {"tenant_vat_checked"},
+	39: {"tenant_api_enabled", "tenant_api_disabled"},
+}
+
+// opAtVersionSkips are the later migrations opAtVersion does NOT walk back, each with why. They
+// touch no operator object (TestOpAtVersion_SkipsOnlyMigrationsWithoutAnOperatorObject reads
+// their files), so the operator surface at an older version is the same with or without them --
+// and their Downs are the wrong thing to run inside an operator test: each takes ACCESS
+// EXCLUSIVE on a table every other package's tests write (employees, locations, tenants), held
+// until the test's rollback, and 00037's refuses outright once the database holds an employee
+// with no home venue (K-14) or a deactivated and a live employee sharing an address (K-24) --
+// rows the M11 tests commit.
+var opAtVersionSkips = map[int]string{
+	37: "employees, locations and the invitation queue (M11 API-1) -- no operator object",
+	38: "the two API columns of tenants (M11 API-1); 00039 is their operator surface and IS walked",
 }
 
 // opAtVersion takes the test's transaction to migration `version`: from the newest file
@@ -125,7 +139,7 @@ func opAtVersion(t *testing.T, ctx context.Context, tx pgx.Tx, version int, kind
 		if !ok || err != nil || !strings.HasSuffix(e.Name(), ".sql") {
 			continue
 		}
-		if n > version {
+		if _, skip := opAtVersionSkips[n]; n > version && !skip {
 			later = append(later, file{n, e.Name()})
 		}
 	}

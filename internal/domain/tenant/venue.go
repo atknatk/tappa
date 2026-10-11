@@ -300,7 +300,10 @@ type Venue struct {
 	// Nothing on the tap path reads it (db/queries/locations.sql states this and
 	// GetLocationForTap does not select it). Here it is an ordinary editable text
 	// field, and "" is a state rather than an error.
-	WiFiSSID        string
+	WiFiSSID string
+	// ExternalRef is the integration identity (migration 00037, K-18), "" when unbound.
+	// Like WiFiSSID it is NOT a decision input.
+	ExternalRef     string
 	CreatedAt       time.Time
 	DepartmentCount int
 }
@@ -422,6 +425,7 @@ func (v *Venues) Screen(ctx context.Context, tenantID uuid.UUID) (VenueScreen, e
 				GPS:             gpsOf(l.GpsLat, l.GpsLng),
 				Shift:           shiftOf(l.ShiftStart, l.ShiftEnd, l.Overnight),
 				WiFiSSID:        deref(l.WifiSsid),
+				ExternalRef:     deref(l.ExternalRef),
 				CreatedAt:       l.CreatedAt,
 				DepartmentCount: int(l.DepartmentCount),
 			})
@@ -492,13 +496,14 @@ func (v *Venues) Venue(ctx context.Context, tenantID, venueID uuid.UUID) (Venue,
 			return fmt.Errorf("load venue: %w", err)
 		}
 		out = Venue{
-			ID:        row.ID,
-			Name:      row.Name,
-			StaticIPs: row.StaticIps,
-			GPS:       gpsOf(row.GpsLat, row.GpsLng),
-			Shift:     shiftOf(row.ShiftStart, row.ShiftEnd, row.Overnight),
-			WiFiSSID:  deref(row.WifiSsid),
-			CreatedAt: row.CreatedAt,
+			ID:          row.ID,
+			Name:        row.Name,
+			StaticIPs:   row.StaticIps,
+			GPS:         gpsOf(row.GpsLat, row.GpsLng),
+			Shift:       shiftOf(row.ShiftStart, row.ShiftEnd, row.Overnight),
+			WiFiSSID:    deref(row.WifiSsid),
+			ExternalRef: deref(row.ExternalRef),
+			CreatedAt:   row.CreatedAt,
 			// DepartmentCount is NOT set: GetPanelLocation does not count, and a zero
 			// here would be a NUMBER THAT LOOKS MEASURED. The only caller is the edit
 			// form, which does not render it.
@@ -1530,7 +1535,10 @@ func wrapVenue(op string, err error) error {
 		errors.Is(err, ErrUnknownDepartment),
 		errors.Is(err, ErrVenueName),
 		errors.Is(err, ErrVenueRangeTooWide),
-		errors.Is(err, ErrDepartmentName):
+		errors.Is(err, ErrDepartmentName),
+		errors.Is(err, ErrExternalRef),
+		errors.Is(err, ErrExternalRefTaken),
+		errors.Is(err, ErrSameExternalRef):
 		return err
 	default:
 		return fmt.Errorf("tenant: %s: %w", op, err)

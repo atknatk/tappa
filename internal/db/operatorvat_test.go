@@ -122,6 +122,18 @@ var op00034ListEdits = map[string][][2]string{
 
 // ------------------------------------------------------------------ helpers --
 
+// opTenantWriteShapeDefOf is operator_audit_log_tenant_write_shape's text (pg_get_constraintdef)
+// over a kind list: 00034's is opTenantWriteShapeDef, HEAD's is over opTenantWriteKinds.
+func opTenantWriteShapeDefOf(kinds []string) string {
+	quoted := make([]string, len(kinds))
+	for i, k := range kinds {
+		quoted[i] = "'" + k + "'::text"
+	}
+	return `CHECK (((kind <> ALL (ARRAY[` + strings.Join(quoted, ", ") + `])) OR ((target_tenant_id IS NOT NULL) AND ` +
+		`(target_admin_id IS NULL) AND (target_scope IS NULL) AND (page_number IS NULL) AND (page_size IS NULL) AND ` +
+		`(detail = '{}'::jsonb))))`
+}
+
 // opNewestUpBody returns a function's body as the NEWEST migration whose Up defines it writes it
 // -- what a database at HEAD runs.
 func opNewestUpBody(t *testing.T, fn string) string {
@@ -506,8 +518,10 @@ func TestOperator00034_TheFunctionsAndTheirExactSignatures(t *testing.T) {
 		                             WHERE n.nspname = 'public' AND p.proname = $1`, fn).Scan(&live); err != nil {
 			t.Fatal(err)
 		}
-		if live != b34 || live != opNewestUpBody(t, fn) {
-			t.Errorf("the live %s is not 00034's body (or 00034 is not its newest definition)", fn)
+		// Since 00039 (M11 API-1) 00034's body is no longer the newest: the live one is the
+		// newest migration's, and 00039's own test holds that one to 00034's plus its edits.
+		if live != opNewestUpBody(t, fn) {
+			t.Errorf("the live %s is not its newest migration's body", fn)
 		}
 	}
 
@@ -515,7 +529,7 @@ func TestOperator00034_TheFunctionsAndTheirExactSignatures(t *testing.T) {
 	for _, c := range []struct{ table, name, want string }{
 		{"operator_read_tickets", "operator_read_tickets_kind_check", opKindCheckDef(opKindsAt34)},
 		{"operator_audit_log", "operator_audit_log_kind_check", opKindCheckDef(opAuditKinds)},
-		{"operator_audit_log", opTenantWriteShape, opTenantWriteShapeDef},
+		{"operator_audit_log", opTenantWriteShape, opTenantWriteShapeDefOf(opTenantWriteKinds)},
 		{"operator_audit_log", "operator_audit_log_actor_shape", opActorShapeDef33(opAuthEventKinds, opOwnerKinds)},
 	} {
 		def, valid := opConstraint(t, ctx, tx, c.table, c.name)
@@ -580,8 +594,10 @@ func TestOperator00034_TheFunctionsAndTheirExactSignatures(t *testing.T) {
 		what, re string
 		want     []string
 	}{
-		{"write tenants", `(update|insert into|delete from)\s+public\.tenants`, []string{"op_record_vat_check"}},
-		{"name audit_log", `public\.audit_log\M`, []string{"op_record_vat_check"}},
+		// Since 00039 (M11 API-1) two more definer functions write tenants and audit_log: the API
+		// gate's pair, whose own test holds the columns they reach.
+		{"write tenants", `(update|insert into|delete from)\s+public\.tenants`, []string{"op_disable_tenant_api", "op_enable_tenant_api", "op_record_vat_check"}},
+		{"name audit_log", `public\.audit_log\M`, []string{"op_disable_tenant_api", "op_enable_tenant_api", "op_record_vat_check"}},
 		{"name the kind tenant_vat_checked", `tenant_vat_checked`, []string{"op_begin_read", "op_read_audit", "op_record_vat_check"}},
 	} {
 		if got := naming(c.re); !slices.Equal(got, c.want) {
@@ -643,8 +659,9 @@ func TestOperator00034_TheFunctionsAndTheirExactSignatures(t *testing.T) {
 func TestOperator00034_TheDefinerWritesTheVerdictAndNotTheNumber(t *testing.T) {
 	ctx, tx := opTx(t)
 	for _, c := range []struct{ role, table, priv, want string }{
-		{"tappa_opdefiner", "tenants", "SELECT", opDefinerTenantsSel34},
-		{"tappa_opdefiner", "tenants", "UPDATE", opDefinerTenantsUpd34},
+		// At HEAD: 00034's lists plus 00039's API columns (opDefinerTenantsSel39/Upd39).
+		{"tappa_opdefiner", "tenants", "SELECT", opDefinerTenantsSel39},
+		{"tappa_opdefiner", "tenants", "UPDATE", opDefinerTenantsUpd39},
 		{"tappa_opdefiner", "tenants", "INSERT", ""},
 		{"tappa_opdefiner", "audit_log", "INSERT", opDefinerAuditIns34},
 		{"tappa_opdefiner", "audit_log", "SELECT", ""},
@@ -1096,7 +1113,7 @@ func TestOperator00034_DownGivesBack00033AndUpTakesItAgain(t *testing.T) {
 		what, text, table, constraint string
 		set                           []string
 	}{
-		{"00034's Up: the audit kinds", part(up, auditDrop, "-- +goose StatementEnd"), "operator_audit_log", "operator_audit_log_kind_check", opAuditKinds},
+		{"00034's Up: the audit kinds", part(up, auditDrop, "-- +goose StatementEnd"), "operator_audit_log", "operator_audit_log_kind_check", opAuditKinds34},
 		{"00034's Up: the ticket kinds", part(up, ticketDrop, "-- +goose StatementEnd"), "operator_read_tickets", "operator_read_tickets_kind_check", opKindsAt34},
 		{"00034's Down: the audit kinds", part(down, auditDrop, "-- +goose StatementEnd"), "operator_audit_log", "operator_audit_log_kind_check", opAuditKinds33},
 		{"00034's Down: the ticket kinds", part(down, ticketDrop, "-- +goose StatementEnd"), "operator_read_tickets", "operator_read_tickets_kind_check", opKindsAt32},
@@ -1119,7 +1136,7 @@ func TestOperator00034_DownGivesBack00033AndUpTakesItAgain(t *testing.T) {
 	at34 := func(s opVATState, when string, kindsNV, ticketsNV bool) {
 		t.Helper()
 		if s.fns != 2 || s.begin != begin34 || s.audit != audit34 || !s.operatorBegin || !s.operatorAudit || s.appX ||
-			s.kinds != notValid(opKindCheckDef(opAuditKinds), kindsNV) || s.kindsValid == kindsNV ||
+			s.kinds != notValid(opKindCheckDef(opAuditKinds34), kindsNV) || s.kindsValid == kindsNV ||
 			s.tickets != notValid(opKindCheckDef(opKindsAt34), ticketsNV) || s.ticketsValid == ticketsNV ||
 			s.shape != opTenantWriteShapeDef || !s.shapeValid ||
 			s.tenantsSel != opDefinerTenantsSel34 || s.tenantsUpd != opDefinerTenantsUpd34 || s.auditIns != opDefinerAuditIns34 {
@@ -1292,7 +1309,7 @@ func TestOperator00034_DownGivesBack00033AndUpTakesItAgain(t *testing.T) {
 	sp = branch()
 	for _, s := range []string{
 		`ALTER TABLE operator_audit_log DROP CONSTRAINT operator_audit_log_kind_check`,
-		`ALTER TABLE operator_audit_log ADD CONSTRAINT operator_audit_log_kind_check CHECK (kind IN ('` + strings.Join(opAuditKinds, "', '") + `', 'zz_later_kind'))`,
+		`ALTER TABLE operator_audit_log ADD CONSTRAINT operator_audit_log_kind_check CHECK (kind IN ('` + strings.Join(opAuditKinds34, "', '") + `', 'zz_later_kind'))`,
 		`ALTER TABLE operator_read_tickets DROP CONSTRAINT operator_read_tickets_kind_check`,
 		`ALTER TABLE operator_read_tickets ADD CONSTRAINT operator_read_tickets_kind_check CHECK (kind IN ('` + strings.Join(opKindsAt34, "', '") + `', 'zz_later_read'))`,
 	} {
@@ -1306,7 +1323,7 @@ func TestOperator00034_DownGivesBack00033AndUpTakesItAgain(t *testing.T) {
 	opForgeRead(t, ctx, sp, session, a.id, "zz_later_read", opRandHex(t), &f.id, xact, "30 seconds")
 	for _, s := range []string{
 		`ALTER TABLE operator_audit_log DROP CONSTRAINT operator_audit_log_kind_check`,
-		`ALTER TABLE operator_audit_log ADD CONSTRAINT operator_audit_log_kind_check CHECK (kind IN ('` + strings.Join(opAuditKinds, "', '") + `')) NOT VALID`,
+		`ALTER TABLE operator_audit_log ADD CONSTRAINT operator_audit_log_kind_check CHECK (kind IN ('` + strings.Join(opAuditKinds34, "', '") + `')) NOT VALID`,
 		`ALTER TABLE operator_read_tickets DROP CONSTRAINT operator_read_tickets_kind_check`,
 		`ALTER TABLE operator_read_tickets ADD CONSTRAINT operator_read_tickets_kind_check CHECK (kind IN ('` + strings.Join(opKindsAt34, "', '") + `')) NOT VALID`,
 	} {
@@ -1397,7 +1414,7 @@ func TestOperator00034_PreconditionRefusesAWrongCluster(t *testing.T) {
 		{"the audit kind CHECK missing", []string{`ALTER TABLE operator_audit_log DROP CONSTRAINT operator_audit_log_kind_check`}, "as migration 00033 left them"},
 		{"the ticket kind CHECK missing", []string{`ALTER TABLE operator_read_tickets DROP CONSTRAINT operator_read_tickets_kind_check`}, "as migration 00033 left them"},
 		{"the audit kind CHECK without operator_disabled", []string{fmtKinds(kinds, quoted(opAuditKinds31))}, "as migration 00033 left them"},
-		{"the audit kind CHECK already naming tenant_vat_checked", []string{fmtKinds(kinds, quoted(opAuditKinds))}, "as migration 00033 left them"},
+		{"the audit kind CHECK already naming tenant_vat_checked", []string{fmtKinds(kinds, quoted(opAuditKinds34))}, "as migration 00033 left them"},
 		{"the ticket kind CHECK without tenant_billing", []string{fmtKinds(tickets, quoted(opKindsAt31))}, "as migration 00033 left them"},
 		{"the ticket kind CHECK already naming tenant_vat", []string{fmtKinds(tickets, quoted(opKindsAt34))}, "as migration 00033 left them"},
 		{"this file's CHECK already there", []string{`ALTER TABLE operator_audit_log ADD CONSTRAINT operator_audit_log_tenant_write_shape CHECK (true)`}, "as migration 00033 left them"},
