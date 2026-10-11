@@ -1692,6 +1692,15 @@ yazılır.
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 
+### 2026-10-11 (28. oturum, otuz üçüncü yarı) — ✅ **API-0 DONE** (`m11-api`: `97cd6d1` · `01c459c` · `14a3293`; yalnız doküman)
+
+- **Dal ve klasör:** `m11-api`, ayrı worktree `../tappa-m11-api` (kullanıcı kararı — ana checkout'ta başka oturum `m10-a1`'de çalışıyor; dal değiştirmek onun çalışma ağacını değiştirirdi). Bu kayıt yalnız bu dalın `state.md`'sinde; `m10-a1` birleştirmesinde olağan çakışma.
+- **Ne yazıldı:** ADR 0027 (holding ve çapraz tenant dokunuşu — kapalı `holding_*` listesi, imza tablosu, `holding_peer` beş kip, fiil × sütun matrisi, tehdit modeli) · ADR 0028 (dış API — anahtar, sayaç imleci, webhook, SSRF izin listesi, sandbox, GATE-1) · CLAUDE.md §3/§4.5/§5/§6/§7/§9 · 15 ADR'ye "M11 notu" · `open-questions.md` Y2 · `guardrails.go` tek yorum.
+- **Denetim:** 1. tur üçüncü göz ONAY, güvenlik RED (ORTA: kapalı liste testle sabitlenmiyordu — dönüşü genişletilmiş `holding_site_locations` KM'ye KF'nin `static_ips`/GPS'ini döndürdü, ölçüldü) → imza katalog testi + "liste/dönüş/matris/kip genişletmesi kullanıcı onayı + ADR" kuralı → 2. tur **iki mercek ONAY** (katalog mantığı beş mutantı kırmızı yaptı) → 11 DÜŞÜK son commit'te (holding düzeyinde danışma kilidi, örtüşme şartlı toleranslı kip, kanarya testi, `aclexplode` tam eşitlik, yorum ayıklanmış gövde taraması + dinamik SQL yasağı).
+- **Ölçülen yapıcı sapmaları (kabul):** `FOR SHARE` sütun UPDATE yetkisi istiyor → değeri CHECK'le sabit `holding_members.lock_anchor`; hedefli `ON CONFLICT` hedef + yüklem sütunlarında SELECT istiyor; kilitli SELECT non-volatile fonksiyonda reddediliyor → `holding_peer` VOLATILE; katılan tenant'ın satırı `FOR NO KEY UPDATE` (00034'ün `vat_*` yetkisiyle, yeni yazma yüzeyi yok).
+- **Ders:** "kapalı liste" bir metin iddiası olarak kaldığı sürece güvenlik merceği ilk turda deldi; listeyi **imza + içerik (kanarya) + ACL** üçlüsüyle testle bağlamak, metnin söylediğini mekanik kıldı.
+- **Kalan:** sıradaki görevler GATE-1, API-1, API-1a (üçü de yalnız API-0'a bağlı) — kullanıcıya soruldu. Canlı ön koşul: OP-15.
+
 ### 2026-10-10 (28. oturum, otuz ikinci yarı) — ✅ **M11 planı ONAYLI — holding modeli** (11 denetim turu; kod yok)
 
 - **Model değişti (kullanıcı, 2026-10-10):** 30. yarıda onaylanan "tek tenant, iki şirket" yerine **KF ve KM aynı holding altında ayrı iki tenant; holding bağıyla çapraz dokunuş** → CLAUDE.md §4.5'e ikinci, adı konmuş istisna (API-0'da yazılacak). Plan: [m11-entegrasyon-api.md](m11-entegrasyon-api.md) (`77bd943` → … → bu commit). 6.–11. tur iki mercekle; 6.–10. tur RED (bloklayan 6. turdan sonra hiç yok), **11. tur üçüncü göz ve güvenlik ONAY**; 14 DÜŞÜK onay sonrası işlendi.
