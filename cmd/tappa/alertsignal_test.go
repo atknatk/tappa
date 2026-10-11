@@ -42,6 +42,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -878,9 +879,11 @@ func TestBackup_TheSignalURLIsOptionalAndOnlyTheShipContainerHasIt(t *testing.T)
 //   - timeout: drops its duration and runs the rest (busybox's 143 is the card's).
 //
 // With STUB_WGET_LINGER=<file> the wget stub plays the measured busybox shape instead: it
-// leaves a child (`sleep 20 &`) that INHERITS its stderr and outlives it — busybox wget's
-// ssl_client does exactly that — writes the child's pid to <file>, says "download timed
-// out" and exits 1.
+// leaves a child that INHERITS its stderr and outlives it — busybox wget's ssl_client does
+// exactly that — writes the child's pid to <file>, says "download timed out" and exits 1.
+// The child lives 45 one-second sleeps and, only if it reaches the end of that life, writes
+// <file>.ended before it exits and lets go of the stream: a run that returns while that
+// marker is absent cannot have been waiting for the child.
 func shipStubs(t *testing.T) string {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "bin")
@@ -905,7 +908,7 @@ for a in "$@"; do url="$a"; done
 echo "stub wget fetching $url"
 echo "stub wget: GET $url" >&2
 if [ -n "${STUB_WGET_LINGER:-}" ]; then
-  sleep 20 &
+  ( n=0; while [ "$n" -lt 45 ]; do sleep 1; n=$((n + 1)); done; : > "$STUB_WGET_LINGER.ended" ) &
   echo $! > "$STUB_WGET_LINGER"
   echo "wget: download timed out" >&2
   exit 1
@@ -1135,17 +1138,34 @@ func TestBackupShip_XtraceCannotPrintTheSignalURL(t *testing.T) {
 // as a test: wget's TLS helper inherits its stderr and outlives it, so a script that reads
 // that stderr through a pipe (`$(...)`) waits for the helper — measured 63 s against a
 // server answering after 60 s, and without bound against one that never closes, i.e. a
-// backup held until activeDeadlineSeconds fails it. The stub leaves a 20 s child holding
-// its stderr; the run must still end green within 10 s, with one "timeout" line.
+// backup held until activeDeadlineSeconds fails it. The stub leaves a child holding its
+// stderr; the run must end green, with one "timeout" line, WHILE THAT CHILD IS STILL ALIVE.
 //
-// NOT t.Parallel, on purpose: the assertion is a wall-clock bound. Alone the run takes
-// ~1.2 s (measured, three runs); among this file's parallel shell-spawning subtests it took
-// 7.2 s, too close to 10 s to stay honest. A sequential test runs before the package's
-// parallel ones are released, so the bound measures the script, not the scheduler.
+// 🔴 THE WITNESS IS AN ORDER, NOT A DURATION (T120). This test used to bound the run at
+// 10 s from its start, against a 20 s child, and went red under a full `go test -race
+// ./...` (27.9 s) with the CORRECT script. Measured (T120, 128 runs of the correct script
+// with the run split at the child's birth): alone ~1.2 s; beside three other `go test
+// -race ./cmd/tappa` up to 16.3 s, 8 of 24 over the old 10 s — and in every run the part
+// AFTER the child was born took at most 0.12 s, the child was alive at the end, and the
+// rest was the script's own process spawns (the rclone stubs, find, basename, sed)
+// queuing for a CPU before wget was even called. A wall-clock bound measured the
+// machine's load. What the property says is causal: a script that waits on a pipe the
+// child holds cannot return before the child lets go of it, and the child lets go only
+// by exiting. So the stub's child writes <pid file>.ended at the very end of its life,
+// before it exits; if that marker is absent when the run returns, the run did not wait
+// for the child — however slow the machine was. Load can only turn this red by making
+// the script's last few commands, AFTER the child was born, take longer than the child's
+// 45 s life (runShip's own 60 s ceiling is the tighter limit by then). The red path costs
+// that life, once: with the `$(...)` capture restored the run returned after 46.6 s and
+// the marker was there.
+//
+// t.Parallel like its siblings, now that the assertion no longer depends on running alone.
 func TestBackupShip_ALingeringClientChildCannotHoldTheBackup(t *testing.T) {
+	t.Parallel()
 	hostCurl(t)
 	ep := newFakeEndpoint(t, 200)
 	pidFile := filepath.Join(t.TempDir(), "linger.pid")
+	ended := pidFile + ".ended"
 	t.Cleanup(func() {
 		b, err := os.ReadFile(pidFile)
 		if err != nil {
@@ -1168,13 +1188,36 @@ func TestBackupShip_ALingeringClientChildCannotHoldTheBackup(t *testing.T) {
 	start := time.Now()
 	code, out := runShip(t, shipStubs(t), caBundle(t, ep),
 		"BACKUP_PING_URL="+ep.srv.URL+"/"+pingMarker, "STUB_WGET_LINGER="+pidFile)
-	elapsed := time.Since(start)
-	if _, err := os.Stat(pidFile); err != nil {
+	elapsed := time.Since(start).Round(100 * time.Millisecond)
+	// The witness is read FIRST, before anything else can let the child's life run out.
+	_, endedErr := os.Stat(ended)
+	b, err := os.ReadFile(pidFile)
+	if err != nil {
 		t.Fatalf("CONTROL FAILED: the stub never left its lingering child (%v); the test is blind", err)
 	}
-	if elapsed > 10*time.Second {
-		t.Errorf("the run took %v with a child holding the client's stderr, want under 10 s: the script is "+
-			"waiting on a pipe the alarm's client left open", elapsed.Round(100*time.Millisecond))
+	switch {
+	case endedErr == nil:
+		t.Errorf("the run returned after %v, and only once the child holding the client's stderr had come "+
+			"to the end of its life: the script is waiting on a pipe the alarm's client left open", elapsed)
+	case !errors.Is(endedErr, os.ErrNotExist):
+		t.Fatalf("stat %s: %v", ended, endedErr)
+	default:
+		// CONTROL: the marker is absent because the child is ALIVE, not because it died early
+		// without writing it (a stub that broke would let go of the stream at once and make
+		// the check above pass for any script).
+		pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
+		if err != nil {
+			t.Fatalf("CONTROL FAILED: linger pid file holds %q: %v", b, err)
+		}
+		p, err := os.FindProcess(pid)
+		if err == nil {
+			err = p.Signal(syscall.Signal(0))
+		}
+		if err != nil {
+			t.Fatalf("CONTROL FAILED: the lingering child %d is gone (%v) but never reached the end of its "+
+				"life; the witness is blind", pid, err)
+		}
+		t.Logf("the run returned after %v with the lingering child still alive", elapsed)
 	}
 	if code != 0 {
 		t.Errorf("exit %d, want 0: a hung signal must not turn the backup red\n%s", code, out)
