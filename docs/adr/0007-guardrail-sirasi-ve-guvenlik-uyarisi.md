@@ -296,3 +296,27 @@ sırasıdır, üst katmanlar onu delege eder.
 - [ADR 0006](0006-debounce-iki-kosullu-zaman.md) — aynı desen: istemcinin
   etkileyebildiği bir zaman değeri bir güvenlik kararını taşıyordu.
 - [CLAUDE.md](../../CLAUDE.md) §5 satır 4, §4.6.
+
+## M11 notu (2026-10-11) — #1'in eşlik şartı ve yeni #9
+
+Bu ADR'nin kuralı (`sys:employee-deactivated`'in uyarısı ön-alınamaz) değişmez. M11'de
+([ADR 0027](0027-holding-ve-capraz-tenant-dokunusu.md) §7) normatif sıra:
+
+| # | sid | Değişiklik |
+|---|---|---|
+| 1 | `sys:tenant-mismatch` | eşleşme şartına `∧ ¬SameHolding` eklenir |
+| 2–8 | `sys:tag-not-active` … `sys:person-debounce` | aynı |
+| 9 | `sys:cross-tenant-qr-site-ip` | **yeni** (K-1g, kullanıcı kararı; yeri K-38: debounce'un hemen arkası, baseline'dan önce) |
+| 10 | `sys:policy-edit-owner-only` | 9 → 10 |
+| 11 | `sys:no-self-review` | 10 → 11 |
+
+- Yeni guardrail #5'in **arkasındadır**: deaktive çalışanın çapraz QR'ı #5 ile reddedilir ve uyarısı
+  korunur — *"Aile taraması"*na yeni bir ön-alan eklenmez. #10 ve #11 başka bir eylem ad alanında
+  eşleşir; kaymaları tap kararını etkilemez.
+- *"Aile taraması"*nın ilk satırı (`sys:tenant-mismatch`'in bilinçli ön-alması) yalnız **holding
+  dışı** tenant için geçerli kalır. Eş tenant'ta #1 eşleşmez; deaktive bir KM çalışanının KF
+  plaketindeki dokunuşu #5'e ulaşır → işverende (KM) `reject` + **işverende** güvenlik uyarısı; KF
+  bunu izdüşümde yalnız `refused` görür (K-1h — nedeni değil; çapraz audit yazılmaz).
+- `TestGuardrails_NormativeOrder` ve `guardrails.go`'nun yerleştirme testinin sabit listeleri yeni
+  guardrail'la güncellenir (API-1b); yeni guardrail için `TestDecide_…` vakaları CLAUDE.md §5'in
+  kuralıyla.

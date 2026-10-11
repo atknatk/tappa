@@ -5214,3 +5214,34 @@ damgası da; pinler `TestAccount_AVerdictIsDatedByTheRegistersLastAnswer`,
   §4.5 *"uygulama `tappa_app` rolüyle bağlanır"* (OP-7'den sonra ikinci havuz
   `tappa_operator`); §7'nin *"asla loglanmaz"* listesine **okuma bileti, TOTP kodu,
   enrollment token'ı** (§3.5); §3 dizin haritası (ADR 0020 Sonuçlar).
+
+## M11 notu (2026-10-11) — "TEK" artık iki; yeni `op_*`'lar; sahip testi genişler
+
+Bu ADR'nin sözleşmesi (§1–§6) `op_*` için aynen geçerlidir. Değişenler:
+
+- **Başlık, *"Tek cümlede"* ve §3.1'deki "TEK" ifadesi M11'den sonra yanlıştır.** CLAUDE.md §4.5'in
+  **ikinci** bilinçli istisnası [ADR 0027](0027-holding-ve-capraz-tenant-dokunusu.md)'dir — aynı
+  holding'deki tenant'lar arası dokunuş ve görünürlük, yalnız kapalı `holding_*` listesi ve holding
+  tetikleyicileriyle (`tappa_holdingdefiner`). §3.1 bundan sonra şöyle okunur: *"Tenant bağlamı
+  olmadan bir tenant satırına dokunan kod yolları `op_*` ve ADR 0027'nin kapalı listesidir; md.7'nin
+  çözümleyicileri bu sayıma girmez."* Metin değiştirilmedi (ADR 0016 / 0018 emsali).
+- **İki sınıf ayrı kalır.** `op_*`'ı yalnız `tappa_operator` çağırır; çağrılabilir `holding_*`'ı
+  `tappa_app` çağırır. Bu ADR'nin *"Elenen seçenekler"*indeki iki satır — `op_*` `EXECUTE`'unu
+  `tappa_app`'e vermek ve `op_*`'ların sahibini `tappa_resolver` yapmak — holding'in **neden ayrı bir
+  sahip rolü** olduğunun gerekçesidir. `holding_*` fonksiyonları `op_` önekini **almaz** (ters yön
+  testi `op_%` adlı her fonksiyonun sahibini `tappa_opdefiner` ister).
+- **Yeni `op_*`'lar** (bu sınıfta; §2'nin sözleşmesini ve §6'nın testlerini ölçerek yeniden kazanırlar):
+  - **holding üyeliği:** `op_create_holding`, `op_add_holding_member`, `op_remove_holding_member` (ADR
+    0027 §1) — `clock_timestamp()` (§2 vii); audit operatör log'u **ve** iki tenant'ın `audit_log`'u
+    (K6); ekleme farklı saat dilimini reddeder (K-36);
+  - **API erişimi:** `tenants.api_enabled_at`'i açan/kapatan ve `tenants.api_code`'u yazan `op_*`
+    ([ADR 0028](0028-dis-api-anahtar-akis-webhook.md) §2, K-22) — tenant'ı **değiştiren** `op_*`'ların
+    (OP-16, OP-15) sınıfı.
+- **§6 testlerinin genişlemesi.** *"`prosecdef` olan her fonksiyonun sahibi {`tappa_resolver`,
+  `tappa_opdefiner`} içinde"* ters yön testi **`tappa_feedwriter`** (ADR 0028 §4) ve
+  **`tappa_holdingdefiner`** (ADR 0027 §2) ile genişler; iki rolün de üye sayısı 0 ve `rolsuper = f`.
+  `holding_peer` SECURITY INVOKER olduğu için `prosecdef` testinin dışında kalır ve **ayrı bir katalog
+  satırıyla** (sahip `tappa_holdingdefiner`, `EXECUTE` yalnız sahipte) pinlenir. §6'nın `op_*` için
+  kurduğu davranış testlerinin `holding_*` karşılıkları ADR 0027 *"Test edilecekler"*dedir: *kemer* →
+  iki yönlü süzgeç ve M1/M2/M3 mutantları; *geçici tablo gölgesi* → tetikleyici bağlama reddi ve
+  `TG_RELID` assert'i.

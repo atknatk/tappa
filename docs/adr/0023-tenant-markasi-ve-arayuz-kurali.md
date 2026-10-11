@@ -2073,3 +2073,17 @@ bayt bayt geri yazıldı; her satırdan sonra çalışma ağacının parmak izi 
 görevde güncellenmedi. ADR 0005 risk 9'un bölümü (WL-13 eki), ADR 0024 §5 (üçüncü rota), skill
 `tappa-brand` *"Tenant slotları"* ve CLAUDE.md §9'un tenant markası paragrafı bu notla birlikte
 güncellendi. QR ile aktivasyonun yokluğu (ADR 0026) değişmedi.
+
+## M11 notu (2026-10-11) — K-1c: holding plaketinde marka plaketin tenant'ınındır
+
+Slot haritası (§2), WCAG kapısı (§3), enjeksiyon (§4) ve §7'nin sayılı istisnası değişmez; değişen
+markanın **sahibidir**. Kullanıcı kararı **K-1c** (2026-10-10,
+[ADR 0027](0027-holding-ve-capraz-tenant-dokunusu.md) §10): bir holding dokunuşunda (KM çalışanı KF
+plaketinde) tap ekranı **plaketin** tenant'ının (KF) logosunu ve accent'ini, sonuç ekranı KF'nin
+logosunu taşır — oturumun tenant'ınınkini değil. Kaynak `holding_tap_site`'ın marka meta'sı (accent,
+logo boyutu ve logonun `alt`'ı olan işletme adı; logo özeti **yalnız VIES-doğrulanmış** saha tenant'ı
+için — WL-13 kapısının aynısı); bayt `holding_logo` ile ([ADR 0024](0024-kullanici-yukledigi-gorsel.md)
+notu). Sonuç ekranında accent yoktur. **Aktivasyon ailesi değişmez:** aktivasyon yalnız kendi tenant'ının
+plaketinde (K-1b, ADR 0026), sihirbazın markası davetin tenant'ınınkidir. Bu, §7'nin *"tap ve sonuç
+ekranlarındaki başka her değişiklik yeniden sorulur"* kuralının kullanıcıya sorulmuş cevabıdır;
+CLAUDE.md §9'a aynı cümle eklendi.

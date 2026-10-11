@@ -412,3 +412,14 @@ olarak **değildir**.
   görünmüyor**. Geriye dönük tespit `p.practice AND p.occurred_at > t.occurred_at`
   sorgusunu gerektirir; devredildi: **M6-11**. ⚠️ **§4.6 ihlali değil** — hiçbir
   satır kaybolmuyor, kaybolan **sinyaldir**.
+
+## M11 notu (2026-10-11) — yön zinciri işverende
+
+Karar değişmez. Holding dokunuşunun kaydı işverendedir ([ADR 0027](0027-holding-ve-capraz-tenant-dokunusu.md)
+K-1a, K-30) ve `GetLastOpenTransaction` `(tenant_id, employee_id)` süzgeçlidir → kişinin *"son açık
+girişi"* iki tenant'ın plaketlerindeki dokunuşları **birlikte** kapsar: KF plaketinde giriş + KM
+plaketinde çıkış → doğru `out` (API-1b (d)). Saha (KF) yön zincirini **hesaplamaz**: izdüşümde
+(`site_punches`) yalnız işverenin verdiği `type` görünür ve KF raporu holding çalışanları için süre
+hesaplamaz — K-1e kaldırıldı, 10. turda izdüşüm içi eşlemenin sahte 9 sa / 32 sa aralıklar saydığı
+ölçüldü (ADR 0027 §9). *"Practice ⟹ in"* invaryantı ve dış yüklem aynen; yeni kayıt `practice=true`
+olmaz (ADR 0026). Practice satırları dış akışa da girmez (ADR 0028 K-6).

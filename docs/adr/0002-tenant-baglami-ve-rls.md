@@ -521,3 +521,31 @@ biçim ayrı bir vaka olarak durabilir ama izolasyon kanıtı **sayılmaz**
 | **Superuser `tappa_owner`'a ait `SECURITY DEFINER` çözümleme fonksiyonu** | `SECURITY DEFINER` gövdesi sahibinin yetkisiyle koşar; sahip superuser olduğu için gövde RLS'i **tümüyle** atlar → tüm veritabanını kapsayan genel bir bypass, patlama yarıçapı sınırsız. Dönüşün sınırlı kalması bir *gövde özelliği*dir, ayrıcalık modelinin yapısal garantisi değil. Çözümleme, en-az-ayrıcalıklı (yalnız çözümleme tablolarına — `sessions`, `tags`, `employee_invites`, `admin_users`, `admin_sessions` — sütun-düzeyinde erişen) bir arayüzün ardında yapılır (Karar madde 7). |
 | **GUC-anahtar saf-RLS** (`app.resolve_token` GUC'una anahtarlanmış, toplamsal bir RLS dalı; **bypass yok**) | Mutlu-yolu **bypass'sız** ifade eder ve "saf RLS bunu ifade edemez" iddiasını çürütür (canlıda doğrulandı: `tappa_app` tam RLS'e tabi, dönüş tek anahtarla sınırlı). Reddedilme sebebi ifade gücü değil, çevrelemenin **yapısal olmaması**: iki tek-nokta hatası canlıda çapraz-tenant ihlali üretti — (1) **okuma:** `SET LOCAL`'sız kurulan resolve-GUC havuz bağlantısında kalır, OR-dalı o bağlantıdaki her meşru sorguya bir çapraz-tenant satır sızdırır (`NULLIF` fail-closed yakalayamaz, `WithTenant` resolve-GUC'a dokunmaz); (2) **yazma:** `FOR ALL USING(...)` kısayolu `WITH CHECK`'i varsayılan olarak `USING`'den kopyalar → çapraz-tenant `INSERT` forge. İkisi de yalnız **disiplinle** engellenir; §4.5 yapısal çevreleme ister. Bu yüzden en-az-ayrıcalıklı `tappa_resolver` + anahtar-kısıtlı `SECURITY DEFINER` fonksiyon seçildi (Karar madde 7). |
 | **RLS testini `tappa_owner` ile koşmak** (tek havuz) | `tappa_owner` superuser'dır ve RLS'i koşulsuz atlar (M0-03 tablosu); testin negatif vakaları gürültülü patlar. İzolasyon `tappa_app` ile ölçülmek **zorundadır**. |
+
+## M11 notu (2026-10-11) — md.6, md.7
+
+Kararın kendisi değişmez; M11'in etkisi ([ADR 0027](0027-holding-ve-capraz-tenant-dokunusu.md),
+[ADR 0028](0028-dis-api-anahtar-akis-webhook.md)):
+
+- **md.6 — ikinci "ayrı rol ve ayrı ADR".** ADR 0021 (`op_*`, `tappa_opdefiner`) md.6'nın ilk
+  karşılığıydı; ADR 0027 **ikincisidir**: aynı holding'deki iki tenant arasında dokunuş ve görünürlük,
+  yalnız kapalı `holding_*` fonksiyon listesi ve holding tetikleyicileriyle, sahibi
+  `tappa_holdingdefiner` (NOLOGIN, BYPASSRLS, üyesiz). md.6'nın iki koşulu korunur: rol **ayrıdır** ve
+  `tappa_app` BYPASSRLS almaz, hiçbir tabloda tenant sınırını aşan bir yetki almaz — yalnız md.7
+  kalıbında, dar ve anahtar parametreli definer fonksiyonlarında `EXECUTE` (ADR 0027 §2). Holding
+  üyeliğini yalnız `op_*` yazar (K-29).
+- **md.7 — yedinci çözümleyici `resolve_api_key_by_hash`** (ADR 0028 §3), beş kısıta birebir: girdi
+  yalnız hash; dönüş `api_keys.token_hash`'in küresel UNIQUE'iyle en çok bir satır; sabit sütunlar
+  `(tenant_id, key_id, revoked_at, api_enabled_at)`; `tappa_app`'in tabloda çapraz-tenant `SELECT`'i
+  yok; naif *"bağlam NULL iken göster"* dalı yok. Mevcut altı çözümleyicinin *"taşı, uygulama"* ilkesi:
+  karar (iptal → 401, API erişimi kapalı → 403) uygulamada, önbelleksiz. sqlc `RETURNS TABLE(…)`'ı
+  tipleyemediği için `internal/db/resolve.go`'da elle yazılır (M1-08 notunun dördüncü tekrarı).
+- **`tappa_resolver`'ın yetkisi bir tablo genişler:** `api_keys` üzerinde çözümlemenin sütunları ve
+  `tenants` üzerinde **yalnız** `SELECT (id, api_enabled_at)` — birincil anahtar join'i, (ii)'nin
+  en çok bir satır sınırı bozulmaz. Bu, rolün `tenants`'a ilk dokunuşudur; patlama yarıçapı iki
+  sütunla sınırlıdır (`name`, `vat_number` vb. okunamaz).
+- **md.7'nin sayımına `holding_*` girmez** (ADR 0021'in `op_*` için yaptığı ayrımın aynısı):
+  çözümleyici bağlamı **üretir**, `holding_*` bağlamı bilerek **aşar** — ayrı sınıf, ADR 0027.
+- **md.7'nin `sys:tenant-mismatch` maddesi:** guardrail artık yalnız iki tenant aynı holding'de eş
+  **değilse** akışı keser (`TagTenantID ≠ SessionTenantID ∧ ¬SameHolding`); eşse dokunuş işverende
+  kaydedilir (ADR 0027 §7, CLAUDE.md §5).

@@ -173,3 +173,30 @@ eklenirse **kendilerinin silinmesini** ve bu paragrafın düzeltilmesini söylü
 4. **"Sonraki tap reject" iddiası guardrail'e bağlı.** Guardrail sırası değişirse
    (ADR 0007) bu cümle yeniden ölçülmelidir; bugün ölçen test yukarıda adıyla
    yazılı ve pozitif kontrolü var.
+
+## M11 notu (2026-10-11) — API pasifleştirmesi (K-25) ve pasif satırın e-postası (K-24)
+
+Kararın iki parçası değişmez (deaktivasyon oturumu iptal etmez; ürün içinde geri dönüş yoktur).
+M11'in etkisi ([ADR 0028](0028-dis-api-anahtar-akis-webhook.md)):
+
+- **Sapma — iki adımlı onay API'de YOKTUR (K-25, kullanıcı kararı 2026-10-10).** `DELETE
+  /v1/employees/{ref}` ve `PUT {active:false}` anında pasifleştirir; yukarıdaki *"Onay adımı SUNUCUDA
+  ZORLANIYOR"* bölümü **panel** için aynen geçerlidir. Onayın yerini **anahtar başına saatlik bütçe**
+  alır (varsayılan 20; son bir saatin audit satırlarından, anahtar başına advisory kilit altında; kilit
+  + sayım + pasifleştirme + audit tek işlemde; aşımda 429 + owner uyarısı +
+  `api.deactivation_budget_exceeded`) — ADR 0028 §12. Gerekçe: bir entegrasyon sistemi uyarı ekranı
+  göremez; geri alınamaz eylemin API'deki freni sunulan uyarı değil, **sayılan** bütçedir. Bedel: sızmış
+  bir anahtar saatte en çok 20 kişiyi geri alınamaz biçimde pasifleştirebilir; owner'ın birden çok
+  anahtarı bütçeyi çarpar.
+- **Yeniden işe alım API'de de "yeni kayıt"tır:** pasif çalışana `active:true` → yeni satır, yeni
+  `employee.id`, aynı `externalRef` (plan §2 madde 9); eski kayıt ve işlemleri yerinde — bu ADR'nin
+  *"Sonuç"*undaki çare.
+- **K-24'ün yan etkisi — pasif satır e-postasını bırakır.** E-posta tekilliği `(tenant_id, email)
+  WHERE email IS NOT NULL AND status <> 'deactivated'` olur (kısıt adı `employees_tenant_email_key`
+  korunur — kod çakışmayı adıyla tanıyor). Bugün pasif satır adresini tutuyor; aynı kişiyi aynı adresle
+  *"yeni çalışan"* olarak eklemek kısıta çarpıyor. M11'den sonra eklenebilir. Bu, bu ADR'nin *"yeni
+  kayıt"* çaresiyle **uyumludur** ve bir geri dönüş yolu **açmaz**: davet yine yalnız yeni satıra gider,
+  eski satırın `status`'ü yazılmaz (§2 tablosunun *"davet reddedilir"* satırı değişmez).
+- **Kabul edilen risk 4** (guardrail sırasına bağlılık): M11 sıraya `sys:cross-tenant-qr-site-ip`'i
+  (#9) ekler ([ADR 0007](0007-guardrail-sirasi-ve-guvenlik-uyarisi.md) notu); `sys:employee-deactivated`
+  (#5) önde kalır, ölçen test aynen geçerli.

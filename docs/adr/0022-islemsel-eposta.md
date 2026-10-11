@@ -3587,3 +3587,30 @@ ConfigMap'te `TAPPA_INVITE_DELIVERY: panel` (hedef `a2ed96f` öncesiyse ayrıca
 imajlar açılır ama alıcı başına tavansız (`b935f47` öncesi kesicisiz de) gönderir; onlara dönerken de
 önce `none` / `panel` önerilir. Bugünkü canlı `e95a717` EM-7A/B/C'yi içerir — risk açılışta değil,
 yalnız geri dönüştedir. Runbook: *"Elle deploy / rollback"*, e-posta uyarısı.
+
+## M11 notu (2026-10-11) — §7: API'den otomatik davet, kuyruk ve tavanlar
+
+§7'nin panel kuralları değişmez. M11 ([ADR 0028](0028-dis-api-anahtar-akis-webhook.md) §9) davet
+akışına ikinci bir giriş ekler:
+
+- **Otomatik davet (K-16).** API'den yeni çalışan (`PUT /v1/employees/{ref}`) bir davet **ister**;
+  davet senkron gönderilmez, **kuyruğa** (`invite_requests`) girer (K-17). §7'nin *"senkron gönder,
+  yönetici sonucu ekranda görsün"* gerekçesi panel içindir; API'nin çağıranı bir ekran değil bir
+  entegrasyon sistemidir — sonuç `activationEmail` durumu ve zamanıyla döner.
+- **Kuyruk (K-17).** Kod **gönderim anında** basılır (kuyrukta kod yoktur — şema ve log taraması);
+  işçi eski davetleri **aynı işlemde** emekliye ayırır ve gönderir; kira 60 sn (gönderim bütçesinden
+  uzun — iki pod aynı daveti iki kez basamaz); işçi K-19'un etkinlik kümesiyle kurulur (tenant'lar arası
+  tarama yok; yeniden başlamada küme boşalır). `resend-activation` istek anında hiçbir daveti
+  öldürmez — canlı istek ya da son 1 saatte gönderilmiş canlı davet varken etkisizdir; aktive çalışana
+  409.
+- **Tavanlar.** §9'un ve EM-7C notunun **bugünkü tenant tavanları** (tenant 50/saat 300/gün · çalışan
+  3/saat · kutu 5/saat 20/gün · süreç kesicisi 300/saat); panel ve kuyruk **aynı sayaçları** paylaşır;
+  tavan isteği reddettirmez, gönderimi geciktirir (ilk toplu senkron saatlere yayılır). KF ve KM ayrı
+  tenant oldukları için biri ötekinin tavanını tüketemez.
+- **E-posta değişikliği (K-15).** §7'nin *"E-postayı değiştir"* kuralı API'de de aynıdır: bekleyen
+  davetler aynı işlemde ölür; çalışan aktive değilse yeni davet kuyruğa girer, aktive ise gitmez.
+- **Adres kuralları.** §7'nin *"aynı tenant'taki bir yönetici adresine eşit adres"* reddi API'de
+  422'dir (adres ASCII olmalı — §4); tenant içinde aktif başka bir çalışanda kullanılan adres 409
+  `email_unavailable` (K-24).
+- **§10'un log kuralı** kuyruk işçisi için de geçerlidir; ek olarak API anahtarı, `Authorization`
+  başlığı ve webhook URL'si log'a asla (CLAUDE.md §7).

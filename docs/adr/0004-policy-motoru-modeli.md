@@ -429,3 +429,24 @@ Guardrail'in ilan ettiği aralık config'te de zorlanmalı, yoksa koruma env
 | **Tenant ayar tablosu** (boolean sütunlar: `gps_only_allowed`, `qr_requires_ip`, …) | Her yeni kural bir migration + kod dalı ister; kombinatoryal patlar. **Kaynak kapsamı ifade edilemez** — "yalnız Rusty Bar'da GPS yeter" (Y-K) bir boolean'a sığmaz, ya hep ya hiç olur. Sürümleme ve açıklanabilirlik yok: bir kaydın neden flag'lendiği, ayar o günden beri değiştiyse yeniden üretilemez. Sınırlı parametre (madde 11) bir boolean'la anlatılamaz. |
 | **Rego / OPA** (Open Policy Agent) | **ADR 0001 "üçüncü parti/framework yok" ile çelişir:** ayrı bir runtime (OPA süreci veya gömülü değerlendirici) + yeni bir bağımlılık zinciri getirir; CLAUDE.md §1 "tek binary, stdlib > küçük kütüphane > framework" ethos'unu bozar. Rego Turing-tam'a yakın ifade gücüyle **doğrulanamaz genişlik** açar — guardrail'in gevşetilemezliğini (madde 4) ve nicel sınırları (Y-J) kanıtlamak zorlaşır. İki müşteri ve dar bir v1 yüzeyi (Q22) için aşırı ağır. Bizim kapalı-liste modelimiz (madde 8) kasıtlı olarak küçük ve doğrulanabilir. |
 | **CEL** (Common Expression Language) | Rego'dan hafif ama yine **yeni bir bağımlılık ve yeni bir dil**: tenant'ın öğrenmesi, bizim güvenli alt kümesini sınırlamamız gereken bir ifade dili. Kapalı operatör listesi (madde 8) ve "yeni operatör = yeni ADR" disiplini, CEL'in açık ifade yüzeyinden daha denetlenebilir. CEL'in esnekliği v1'de gereksiz; guardrail gevşetilemezliğini ve determinizmi (madde 4, 7) kanıtlamak, kendi kapalı modelimizde daha kolay. Gerçekten gerekirse gelecekte ayrı bir ADR ile tartışılır. |
+
+## M11 notu (2026-10-11) — `SameHolding` bir sunucu olgusudur; yeni guardrail
+
+Model değişmez (üç katman, guardrail terminaldir, `ignore`/`redirect` tenant'a kapalıdır). M11'in
+etkisi ([ADR 0027](0027-holding-ve-capraz-tenant-dokunusu.md) §7):
+
+- **`sys:tenant-mismatch` (#1)** eşleşmesi `TagTenantID ≠ SessionTenantID ∧ ¬SameHolding` olur.
+  `SameHolding` motorun **hesapladığı** bir şey değil, bağlamda verilen bir **sunucu olgusudur**:
+  checkin onu sayaç ilerletmesinin sonucundan (`advanced`/`replay`/`peer_inactive` → eş, `not_peer`
+  → değil) ya da ilerletme denenmediyse ve QR'da katı `holding_tap_site` okumasından kurar (K-29).
+  İstemci etkileyemez; saf motor DB/HTTP bilmemeye devam eder.
+- **Yeni guardrail `sys:cross-tenant-qr-site-ip`** (K-1g, kullanıcı kararı): kanal `qr` ∧ holding
+  dokunuşu ∧ saha IP'si eşleşmedi → effect `review` (§5 sonucu `flag`). §4'teki *"guardrail katmanı
+  §5 satır 1–5'in üst kümesidir"* listesine girer; bir §4 kırmızı çizgisinin değil, kullanıcının
+  K-1g kuralının uygulamasıdır. Yeri ve sıra numaraları [ADR 0007](0007-guardrail-sirasi-ve-guvenlik-uyarisi.md)
+  notunda.
+- **§4'ün terminallik ilkesinin adlandırılmış sonucu (K-38):** işveren bu guardrail'ı ne `allow`'a
+  gevşetebilir ne `deny`'e sıkılaştırabilir — guardrail eşleşince baseline/tenant katmanı hiç çalışmaz.
+- **Holding dokunuşunda politika kümesi işverenindir** (K-1a): sahanın (plaketin tenant'ının)
+  politikaları ve `location/<id>` kaynaklı istisnaları uygulanmaz; §7'nin *"spesifik kaynak genel
+  kaynağı ezer"* kuralı yalnız işverenin kendi belgeleri arasında işler.

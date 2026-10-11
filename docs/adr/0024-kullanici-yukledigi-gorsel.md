@@ -1736,3 +1736,17 @@ chi'nin kendi *"404 page not found"*'unu alır — WL-6 rotalarıyla aynı. Bir 
 pin değildir. (3) Önbelleğe alınmış görsel,
 doğrulama sonradan düşerse tarayıcıda kalır (ADR 0023 WL-13 sınır 2). (4) Akış tavanına etkinleştirme
 başına +1 istek.
+
+## M11 notu (2026-10-11) — `holding_logo`: eş tenant'ın logosu tap rotasından
+
+§5'in kuralları (tenant yalnız oturumdan çözülür, bayt-aynı 404, başlıklar, CSP, bütçe) değişmez; tap
+rotası (`GET /t/logo/{sha}`) bir şey daha servis eder ([ADR 0027](0027-holding-ve-capraz-tenant-dokunusu.md)
+§10, K-1c): canlı oturumun **eş** tenant'ının (aynı holding) o anki plaketine ait logo, kapalı listedeki
+`holding_logo(p_uid, p_digest)` ile — yalnız saha tenant'ı VIES-doğrulanmışsa **ve** özet
+`holding_tap_site`'ın verdiğiyle aynıysa. §5'in *"Elenen: kimliksiz hash rotası — tenant'lar arası okuma
+için `SECURITY DEFINER` gerekirdi (ADR 0002 md.7'ye yeni istisna)"* cümlesi M11'de bir karşılık bulur
+ama **md.7'de değil**: tenant'lar arası okuma ADR 0027'nin kapalı listesindeki `holding_logo`'dur ve
+kimliksiz değildir — canlı oturum + eşlik + özet eşitliği. Holding dışı bir tenant'ın ya da eski bir
+özetin baytı **asla**: aynı bayt-aynı 404. Rotanın `p_uid`'i nereden aldığı (sayfanın taşıdığı plaket)
+API-1b'de kesinleşir; hangi biçimde olursa olsun uid istemciden gelir ve süzgeç eşliktir — eş olmayan
+ya da bilinmeyen uid 0 satır, 404.

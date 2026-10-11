@@ -282,3 +282,14 @@ istekte değil) · `normalizeNewlines` **tek geçiş**.
 - **Kabul edilen sınır:** ürün bir yasal metnin **yeterli** olup olmadığını yargılayamaz.
   Garanti edilen şey dar: sayfa *"yayımlanmadı"* demeyi ancak biri **kasten yayımladığı
   için** bırakır.
+
+## M11 notu (2026-10-11) — §2'nin sonucu korunur
+
+§2'nin sonucu — müşteri oturumuyla ulaşılan bir handler'da `WithTenant(başkası)` yasaktır — M11'de
+**aynen korunur**. Holding ([ADR 0027](0027-holding-ve-capraz-tenant-dokunusu.md)) iki tenant arasında
+okuma ve yazma açar, ama başka bir tenant'ın bağlamını açarak değil, kapalı `holding_*` definer
+listesiyle: **KM oturumundan hiçbir zaman `WithTenant(KF)` açılmaz**; KF'nin plaketi
+`holding_tap_site` / `holding_advance_tag_counter` ile okunur ve ilerletilir, KF'nin görünürlüğü KF'nin
+**kendi** bağlamında, kendi RLS'li `site_punches` tablosundan gelir. §1'in tenant kapsamsız tablo
+muafiyet kalıbı (`-- redline: no-tenant-scope(…)`, gönüllü ENABLE + FORCE RLS) `holdings` ve
+`holding_members` için de kullanılır (CLAUDE.md §6).

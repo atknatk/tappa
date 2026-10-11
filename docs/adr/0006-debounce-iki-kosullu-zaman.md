@@ -376,3 +376,15 @@ ve `TestDebounceGap_TakesTheSmallerDistance` (8 vaka, fonksiyonun kendisi).
 kaldır (4) · sunucu bacağında `min`→`max` (9) · negatif beyanı sıfıra çek (4) ·
 `gather`'da yeni gerçeği düşür (2) · sorguyu `ORDER BY occurred_at`'e çevir ·
 sorgudan manuel yüklemini kaldır.
+
+## M11 notu (2026-10-11) — debounce holding plaketlerini kapsar
+
+Karar değişmez. Holding dokunuşu ([ADR 0027](0027-holding-ve-capraz-tenant-dokunusu.md)) **işverende**
+kaydedilir ve `gather`'ın debounce okumaları `(tenant, employee)` süzgeçlidir (6. denetim turu kodda
+doğruladı) → kişi bazlı debounce **iki tenant'ın plaketlerini birlikte** kapsar: KF plaketine dokunup
+60 sn içinde KM plaketine dokunan KM çalışanı `ignored` alır (plan §2 madde 6; API-1b (d)). İki bacak
+(beyan ve sunucu — `clock_timestamp() − created_at`) aynen; holding satırları tap kanalıdır
+(`nfc`/`qr`); işverenin saha için yazdığı manuel kayıt `manual` öncül muafiyetine girer. QR'da tek fren
+yine debounce'tur — bu yüzden çapraz QR guardrail'ı (`sys:cross-tenant-qr-site-ip`) debounce'un
+**hemen arkasına** konur (ADR 0027 K-38): önüne geçseydi 60 sn içindeki tekrar QR'lar `ignored` yerine
+`flag` olup onay kuyruğunu doldururdu.

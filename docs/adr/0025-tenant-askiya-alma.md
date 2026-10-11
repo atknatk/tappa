@@ -982,3 +982,22 @@ tüketici (fatura, rapor) doğarsa şu kurallarla başlar:
   operatörün satırı oradan dönmez — OP-18 bu ikisini birlikte okumalıdır; OP-12 B devir 6
   (*"ekran askı bilgisi göstermez"*) aynen kalır — faturalama ekranı askıyı göstermez, genel bakış
   gösterir.
+
+## M11 notu (2026-10-11) — dış API'nin askı tablosu ve K-26
+
+Bu ADR'nin modeli (askı = yazma kilidi; tap, okumalar, CSV ve kaydın telafi yolları askıyı bilmez) M11'in
+dış API'sine de uygulanır — [ADR 0028](0028-dis-api-anahtar-akis-webhook.md) §10'un tablosu:
+
+- **Askıda açık:** bütün `GET`'ler, akış (`/v1/punches`), rehber, webhook gönderimi, yeni çalışan
+  `PUT`'u, `resend-activation`, davet kuyruğu işçisi, tetikleyicilerin olay/teslim/izdüşüm yazması
+  (askı dokunuşu durdurmaz — holding dokunuşu dahil, [ADR 0027](0027-holding-ve-capraz-tenant-dokunusu.md) §11).
+- **Askıda 403 `tenant_suspended`:** `PUT /v1/locations`, var olan çalışanı değiştiren `PUT`
+  (`active:false` dahil — panelde deaktivasyonun askıda kapalı olmasıyla hizalı, sınır 11), `DELETE
+  /v1/employees`, anahtar oluşturma, uç nokta oluşturma/döndürme/adres değiştirme, test ping, panelden
+  *"yeniden gönder"*. Tabloda adı geçmeyen her M11 yazması askıda **kapalıdır**.
+- **Sapma — K-26 (kullanıcı kararı, 2026-10-10): askıda savunma yazmaları AÇIK.** API anahtarı iptali
+  ve webhook uç noktasını devre dışı bırakma askıda da yapılabilir — ikisi de yetkiyi **daraltan**
+  yazmalardır; askıdaki bir işletmenin sızmış bir anahtarı kapatamaması askının amacına ters düşerdi.
+  §3'ün kapalı istisna listesi bu iki M11 panel rotasıyla genişler.
+- Askı sütunları OP-15'e bağlı olduğu için API-4 yalnız tek **kontrol noktasını** kurar; tablonun
+  testleri API-4b'dir ve OP-15'e bağlıdır.

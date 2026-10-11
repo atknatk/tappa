@@ -166,3 +166,21 @@ ekranı (yeni sekme), `/activate/complete`, "already set up", sonuç sayfası. T
 sayfasında yok. Testler: `TestDevToolsEnabled_IsDevOnALoopbackAddressOnly`,
 `TestDevTap_DoesNotExistOutsideDevelopment`, `TestDevStrip_OnlyOnADevelopmentDeployment`,
 `TestDevTapDB_ASimulatedTapActivatesThroughTheRealPath`.
+
+## M11 notu (2026-10-11) — değişmez; K-1b, K-35
+
+Bu ADR **değişmez.** Kullanıcı kararı **K-2** (2026-10-09): aktivasyon dokunuşu punch değildir —
+dış API'de de ilk punch ikinci dokunuştur ([ADR 0028](0028-dis-api-anahtar-akis-webhook.md); plan §2
+madde 1). Holding ([ADR 0027](0027-holding-ve-capraz-tenant-dokunusu.md)) iki şeyi adlandırır:
+
+- **K-1b (kullanıcı kararı, 2026-10-10):** aktivasyon yalnız **davetin tenant'ının** aktif plaketinde
+  tamamlanır — aynı holding'deki eş tenant'ın plaketi de aktivasyon için *"yabancı plaket"*tir;
+  ilerletmeyen ön kontrol (`PreviewWithoutReplayProtection`) onu sayaç ilerlemeden reddeder
+  (*"Güvenlik değerlendirmesi"*nin *"Tenant"* maddesi aynen). Bedeli: yalnız KF'de çalışan bir KM
+  çalışanı da ilk kez bir **KM** plaketine dokunmalıdır.
+- **K-35:** canlı oturumu **ve** bekleyen (bağlı) bir aktivasyonu olan tarayıcıda, plaketin tenant'ı
+  davetinkinden **farklı** ve oturumun **eşiyse**, dokunuş bir aktivasyon hatası değil sıradan bir
+  holding dokunuşudur (`internal/handler/tap.go:369-385` aksi hâlde onu yabancı plaket aktivasyon
+  hatasına çevirirdi); plaketin tenant'ı davetinkiyle aynıysa aktivasyon yine tamamlanır (Karar 3).
+  Oturumsuz tarayıcıda değişiklik yoktur.
+- QR ile aktivasyon yine yoktur (Bedel 3) — çapraz QR da aktive edemez.

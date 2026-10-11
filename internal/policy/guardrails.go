@@ -306,9 +306,12 @@ func Guardrails(p Params) []Guardrail {
 		// 1. sys:tenant-mismatch — a session for tenant B tapping tenant A's tag.
 		// redirect, and (because redirect writes NOTHING) the tap lands in NEITHER
 		// tenant, so a KF manager never sees a KM employee's name or GPS
-		// (§4.5; ADR 0002 Y2). Fires only when BOTH a tag and a session exist and
-		// their tenants differ; a request with no tag (authz) or no session
-		// (falls to #4, sys:no-session) does not match.
+		// (§4.5; ADR 0002 Y2). M11 will change this for two tenants of the SAME
+		// holding (ADR 0027): such a tap will be recorded at the employer and the
+		// site will see a closed projection (name and code, never GPS). Fires only
+		// when BOTH a tag and a session exist and their tenants differ; a request
+		// with no tag (authz) or no session (falls to #4, sys:no-session) does not
+		// match.
 		{
 			Sid:    "sys:tenant-mismatch",
 			Effect: EffectRedirect,

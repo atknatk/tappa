@@ -75,6 +75,19 @@ internal/netx/        adres aralığı aritmetiği (bir liste yer kanıtı olama
                       kadar geniş mi). Saf: `net/netip` + `math/big`, başka hiçbir
                       şey — bu yüzden hem tenant hem tap ondan çağırabilir.
 internal/qrcode/      QR kodlayıcı (ISO/IEC 18004, byte modu, sürüm 1-40), yalnız stdlib — operatör kayıt QR'ı (ADR 0020 §3).
+  — aşağıdakiler HENÜZ YOK, M11'de doğacak (ADR 0027/0028) —
+internal/apikey/      dış API anahtarı: üretim, biçim kontrolü, HMAC; çözümleyicinin taşıdığı
+                      olguyu (iptal, API erişimi) değerlendirir. Log yok (ADR 0028 §3).
+internal/handler/api/ /v1 yüzeyi, ayrı host (api.taptime.mt): JSON hata, Idempotency, askı
+                      kontrol noktası, openapi.yaml. Müşteri paneli import etmez (ADR 0028).
+internal/webhook/     webhook teslim işçisi (kiralama, geri çekilme), imza, K-19'un süreç içi
+                      "işi olan tenant'lar" kümesi — tenant'lar arası tarama YOK (ADR 0028 §6).
+internal/egress/      SSRF-güvenli giden HTTP istemcisi: dial anında izin listesi, Proxy nil,
+                      yönlendirme yok. Egress açıkken tek savunma (ADR 0028 §7).
+internal/sandbox/     sandbox simülasyonu; YALNIZ `sandbox` build tag'li cmd dosyası import
+                      eder — prod derlemesinde yoktur (ADR 0028 §11).
+internal/db/holding.go  kapalı listedeki holding_* çağrıları, elle ve tipli (resolve.go
+                      emsali); ayrı bir holding paketi yok (ADR 0027 §2).
 db/migrations/        goose SQL. Uygulanmış migration DEĞİŞTİRİLMEZ, yenisi yazılır.
 db/queries/           sqlc kaynak SQL
 web/templates/        .templ dosyaları
@@ -100,10 +113,15 @@ ediyorsa **dur ve sor**, sessizce uygulama.
 5. **Tenant izolasyonu her katmanda.** Her tabloda `tenant_id`, her tabloda RLS
    politikası, uygulama `tappa_app` rolüyle bağlanır (NOBYPASSRLS, tablo sahibi
    değil). Sorgularda ayrıca açık `tenant_id` filtresi — kuşak+kemer.
-   **Bilinçli TEK istisna:** platform operatörünün `op_*` SECURITY DEFINER
-   fonksiyonları (ADR 0021) — tenant sınırını aşmanın tek yolu; `tappa_operator`
-   yalnız onları çağırır, tenant verisine her erişim `operator_audit_log`'da iz
-   bırakır. Operatör kimliği ayrıdır ve tenant kapsamsızdır (ADR 0020).
+   **Bilinçli istisnalar iki tanedir** — tenant sınırını aşmanın yalnız bu iki yolu var:
+   **(1) `op_*`** (ADR 0021) — platform operatörünün SECURITY DEFINER fonksiyonları;
+   `tappa_operator` yalnız onları çağırır, tenant verisine her erişim
+   `operator_audit_log`'da iz bırakır; operatör kimliği ayrıdır ve tenant kapsamsızdır
+   (ADR 0020). **(2) Aynı holding'deki tenant'lar arası dokunuş ve görünürlük** (ADR 0027)
+   — yalnız ADR 0027 §2'deki **kapalı** `holding_*` fonksiyon listesi ve holding
+   tetikleyicileri (`tappa_holdingdefiner`); holding üyeliğini yalnız `op_*` yazar; holding
+   dışı bir tenant bu yüzeye hiçbir yoldan erişemez, eş bir tenant holding dışı bir tenant'ın
+   anahtarını (plaket uid'i, lokasyon id'si) veremez. Listeye ekleme bir ADR değişikliğidir.
 6. **Kayıt asla kaybolmaz.** Kanıt yetersizse REJECT edip atma: kaydı yaz,
    `verdict='flag'` ver, müdür onay kuyruğuna düşür. Sessiz onay da yok.
 7. **NTAG AES anahtarları repoda yer almaz.** DB'de KEK ile sarmalanmış saklanır
@@ -160,6 +178,21 @@ kaydedilmiş bir aralığı düzeltemez. (`internal/netx`, backlog T40.)
 | 6 | IP eşleşti **veya** GPS < 150 m | `ok` (IP yoksa not: `verified via GPS`) |
 | 7 | ikisi de yok | `flag` — kayıt alınır, onay kuyruğuna düşer |
 
+**Holding (ADR 0027) — tablonun numaraları değişmez, iki ek kural.** Tablonun önünde §4.5'in
+uygulaması olan `sys:tenant-mismatch` durur (guardrail listesinde #1): plaketin tenant'ı oturumunkinden
+farklıysa `redirect`, **hiçbir** tenant'a kayıt yok — **ama yalnız iki tenant aynı holding'de eş
+değilse** (`TagTenantID ≠ SessionTenantID ∧ ¬SameHolding`). Eşse dokunuş bir **holding
+dokunuşudur**: kayıt **işverende** (oturumun tenant'ı) yazılır, `site_*` sütunları plaketin
+tenant'ını adlandırır; karar **işverenin** politikalarıyla verilir (sahanın lokasyon istisnaları
+uygulanmaz); debounce (satır 5) ve yön zinciri işverendedir ve iki tenant'ın plaketlerini birlikte
+kapsar. `SameHolding` bir sunucu olgusudur (sayaç ilerletmesinin sonucu ya da katı
+`holding_tap_site`), motor onu hesaplamaz. **Yeni guardrail `sys:cross-tenant-qr-site-ip` (K-1g):**
+kanal `qr` ∧ holding dokunuşu ∧ **saha IP'si eşleşmedi** → `flag`; yeri `sys:person-debounce`'tan
+(satır 5) **hemen sonra**, baseline'dan (satır 6–7) önce; işveren onu ne gevşetebilir ne `deny`'e
+sıkılaştırabilir. **Aktivasyon** (satır 3) yalnız davetin **kendi** tenant'ının plaketinde
+tamamlanır — ADR 0026 değişmez; canlı oturumlu ve aktivasyonu bekleyen bir tarayıcıda eş tenant'ın
+plaketi aktivasyonu değil holding dokunuşunu üretir (K-35).
+
 - **Debounce KİŞİ bazlıdır, etiket bazlı değil.** Sıra halinde farklı kişiler
   aynı plakete art arda dokunabilmeli.
 - **Debounce'un "60 sn"si SUNUCU zamanıdır** (ADR 0006, 2026-08-01). Mesafe iki
@@ -191,19 +224,28 @@ kaydedilmiş bir aralığı düzeltemez. (`internal/netx`, backlog T40.)
   olmaz; tarihsel practice satırları saate sayılmaz ve yön zincirine girmez (ADR 0008).
 - **Manuel kayıt:** `channel='manual'` + `entered_by` dolu; raporlarda ayrı görünür.
 
-Bu tablodaki her satırın adı `TestDecide_...` ile başlayan bir test durumu olmalı.
+Bu tablodaki her satırın — ve yukarıdaki iki holding kuralının — adı `TestDecide_...` ile
+başlayan bir test durumu olmalı.
 
 ## 6. Veritabanı kuralları
 
 - Her yeni tablo şunlarla doğar: `tenant_id uuid NOT NULL`, `ENABLE ROW LEVEL SECURITY`,
   `FORCE ROW LEVEL SECURITY`, `tenant_id` üzerinde politika, `tenant_id` üzerinde indeks.
   Beşinden biri eksikse migration eksiktir (GRANT dahil; bkz. docs/plan/m1-veri-katmani.md).
-- **Tenant kapsamsız tablo** (yalnız platform operatörü — ADR 0020/0021): R5
+- **Tenant kapsamsız tablo** (yalnız platform operatörü — ADR 0020/0021 — ve holding
+  üyeliği: `holdings`, `holding_members`, yazarı yalnız `op_*` — ADR 0027): R5
   muafiyetiyle **görünür** (`scripts/redline-check.sh`), `tappa_app`'tan **açık**
   `REVOKE ALL` (dev/prod varsayılan yetkileri yeni tabloya yetki verir — ölçüldü),
   `ENABLE` **ve** `FORCE ROW LEVEL SECURITY` birlikte (`scripts/pg-restore-verify.sh`
   ikisinin sayısı farklıysa geri yüklemeyi reddeder). Tenant verisi olmayan bir sütunun
   adı `tenant_id` **olmaz** — R5 ve RLS testleri tabloyu o addan tenant tablosu sayar.
+- **`arwd` varsayılanına güvenilmez** (M11'de konan kural — ADR 0028 §1). Üretimde
+  `pg_default_acl` yeni tabloyu `tappa_app`'e dört fiille (`arwd`) doğurur, taze CI'da `ar` —
+  CI fazla yetkiyi göremez. Bu yüzden her yeni tabloda `REVOKE ALL … FROM tappa_app` + yalnız
+  gereken fiil ve **sütunlara** açık `GRANT`; **UPDATE hep sütun listesiyle** (tablo düzeyi
+  UPDATE sütun kısıtını ezer). Her yeni fonksiyonda `REVOKE ALL ON FUNCTION … FROM PUBLIC`;
+  tetikleyici fonksiyonlarında `EXECUTE` yalnız sahipte. CI migration'lardan önce `arwd`'i
+  kurar, katalog testi tablo × fiil × sütunu matrisle karşılaştırır.
 - Tenant bağlamı bağlantı başına `SET LOCAL app.tenant_id` ile verilir; politikalar
   **`NULLIF(current_setting('app.tenant_id', true), '')::uuid`** okur. `SET LOCAL` →
   transaction dışında sızmaz. Havuzdan alınan bağlantıda `SET` (LOCAL'siz) **kullanma**.
@@ -230,7 +272,9 @@ Bu tablodaki her satırın adı `TestDecide_...` ile başlayan bir test durumu o
 - Log: `log/slog`, yapılandırılmış. **Asla loglanmaz:** oturum token'ı, CMAC,
   AES anahtarı, davet kodu, e-posta adresi (ADR 0022 §10), tam GPS koordinatı; operatör tarafında okuma bileti,
   TOTP kodu ve sırrı, enrollment token'ı (ADR 0020/0021 — hata mesajı ve audit
-  `detail`'i dahil).
+  `detail`'i dahil); dış API tarafında API anahtarı ve hash'i, `Authorization` başlığı,
+  webhook imza anahtarı, webhook URL'si ve
+  `*url.Error` metni (Go o metinde URL'yi sorgusuyla taşır — ADR 0028 §3, §6).
 - Dış girdi handler sınırında doğrulanır; domain katmanı zaten geçerli veri görür.
 - Yorumlar *neden*i anlatır. Kodun ne yaptığını tekrar eden yorum yazma.
 - Türkçe karakter kodda yok: identifier, log, hata mesajı, commit → İngilizce.
@@ -263,6 +307,8 @@ buton YOK — "All done — you can close this page." Bir sonraki işlem zaten y
 dokunuş gerektirir. Bu ekrana özellik eklemek istiyorsan önce sor.
 
 **Tenant markası (M10 white-label — ADR 0023/0024, skill `tappa-brand` → "Tenant slotları").** İşletme sayılı slotları boyar: bir logo (tap ve sonuç ekranında 24 px yuva + altında "taptime · punchless", panelde 32 px; aktivasyon ailesinde — sihirbazın dört adımı, "Activation complete", "already set up" — tap ekranının başlığı, ama **yalnız VIES-doğrulanmış** işletmede) ve tek bir accent. Accent'in ürün yüzeyinde boyadığı CSS slotları iki tanedir: tap düğmesinin zemini (tap ekranı ve aktivasyon sihirbazının 1–3. adımlarının birincil düğmesi) ve panelin 4 px şeridi (editörün renk seçicisi kendi rengini gösterir — ADR 0023 §2); accent WCAG kapısından geçer; accent varken sihirbazın öteki yeşil işaretleri (ilerleme çubuğu, 01/02/03, işaretli onay kutusu) ink olur. Kaşe damgaları, durum→renk eşlemesi, docket, sonuç ekranının renkleri, aktivasyonun problem ve onay ekranları ve bekleme ekranının plaket çizimi değişmez; sonuç ekranında accent yoktur. Bu, "paletin dışına çıkma" ve tap ekranı kuralına kullanıcının §9 kararlarıyla (D-C; K-2a, K-2b; aktivasyon ailesi 2026-10-09 — ADR 0023 WL-13 notu) verilmiş sayılı istisnadır — tap/sonuç/aktivasyon ekranlarındaki başka her değişiklik yine önce sorulur. Marka taklidi kabul edilmiş bir risktir (ADR 0005, risk 9).
+
+**Holding plaketinde marka plaketin tenant'ınındır (M11 — ADR 0027 §10, kullanıcı kararı K-1c).** Bir holding dokunuşunda (KM çalışanı KF plaketinde) tap ekranı **KF'nin** logosunu ve accent'ini, sonuç ekranı **KF'nin** logosunu taşır — oturumun tenant'ınınkini değil; logo yalnız VIES-doğrulanmış saha tenant'ında ve `holding_logo` ile. Slotlar, sayılı istisna ve sonuç ekranında accent olmaması aynen geçerlidir; değişen yalnız markanın **sahibidir**. Aktivasyon ailesi değişmez (aktivasyon yalnız kendi tenant'ının plaketinde — ADR 0026).
 
 ## 10. Çalışma şekli
 
