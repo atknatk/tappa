@@ -117,10 +117,12 @@ green).
 
 - **`Origin: <server address>`** — the routes mount under `AdminAuth.ProtectWriting`,
   whose `sameOriginGate` refuses a request carrying neither an `Origin` equal to
-  `TAPPA_BASE_URL` nor a `Sec-Fetch-Site`. A native client sends neither by default
-  (m8-deploy-pilot.md open item 20). `HttpRelayServer` sets it on every request;
-  it is derived from the configured address (scheme + authority only — an address
-  with a path is refused at "Save address").
+  `TAPPA_BASE_URL` nor, when `Origin` is absent, a `Sec-Fetch-Site` of `same-origin`
+  (`same-site` and `cross-site` are refused on every branch — GATE-1, ADR 0028 §11).
+  A native client sends neither by default (m8-deploy-pilot.md open item 20). The
+  relay sends `Origin` and never `Sec-Fetch-Site`: `HttpRelayServer` sets `Origin`
+  on every request, derived from the configured address (scheme + authority only —
+  an address with a path is refused at "Save address").
 - **`Cookie`** — the panel session as the WebView sign-in left it in `CookieManager`.
   No API login, no token, no password held by the app (K3, ADR 0017 §6 md. 10) —
   and the WebView is opted out of the platform's Autofill

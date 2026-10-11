@@ -646,7 +646,9 @@ bir restoran hesabına bağlı olmamalı* (m10-platform.md §1).
   (iv) `sameOriginGate`: güvensiz yöntemde `Origin` operatör origin'ine (`TAPPA_BASE_URL`'in
   şeması ve port'u + operatör host'u; varsayılan port düşer) harf büyüklüğü dışında eşit ya
   da `Origin` yok/`null` iken `Sec-Fetch-Site: same-origin` (panelin geri dönüşü `same-site`'ı
-  da kabul eder — burada tehdit odur). Bir tarayıcının form POST'u `Origin: null` +
+  da kabul eder — burada tehdit odur). *(Not, 2026-10-11 — GATE-1: panelin dört kapısı artık
+  `same-site`/`cross-site`'ı her dalda reddeder, `Origin` olsa da olmasa da; ADR 0028 §11, K-37.
+  Bu maddenin kararı değişmedi.)* Bir tarayıcının form POST'u `Origin: null` +
   `Sec-Fetch-Site: same-origin` taşıdı (1. tur denetçisi, headless Chrome). Ret 403, store
   çağrısı 0, bcrypt 0 (`TestSameOriginGate_ACrossOriginPostReachesNoStore`,
   `TestSurface_ACrossOriginPostPaysNothing`). Log *(4. tur, B6)*: 10 dakikalık, süreç geneli

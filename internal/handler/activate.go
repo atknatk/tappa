@@ -1615,6 +1615,7 @@ func (a *Activation) sameOrigin(r *http.Request, strict bool) bool {
 			return true
 		}
 		// Fall back to the fetch metadata when there is no Origin at all.
+		// Case-sensitive on purpose: a non-canonical "Same-Origin" fails closed (GATE-1 grid).
 		switch r.Header.Get("Sec-Fetch-Site") {
 		case "same-origin":
 			return true

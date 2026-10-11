@@ -41,8 +41,12 @@ var gate1Origins = []struct{ name, value string }{
 	{"Origin: null", "null"},
 }
 
-// gate1Sites are the grid's columns, in order. "" omits the header.
-var gate1Sites = []string{"", "none", "same-origin", "same-site", "cross-site"}
+// gate1Sites are the grid's columns, in order. "" omits the header. The last two
+// are not values a current browser sends: "Same-Origin" pins that Continue's
+// fallback compares case-sensitively (activate.go says so) while the strict copies
+// fold case, and "cross-origin" is a value crossSite reads as cross-site but these
+// gates never named. GATE-1 changed neither column.
+var gate1Sites = []string{"", "none", "same-origin", "same-site", "cross-site", "Same-Origin", "cross-origin"}
 
 // gate1Narrowed reports whether a Sec-Fetch-Site column is one GATE-1 changed.
 func gate1Narrowed(site string) bool { return site == "same-site" || site == "cross-site" }
@@ -51,7 +55,8 @@ type gate1Copy struct {
 	name  string
 	check func(*http.Request) bool
 	// before and after: one line per gate1Origins row, one mark per gate1Sites
-	// column — A accepted, R refused. Columns: (absent) none same-origin same-site cross-site.
+	// column — A accepted, R refused. Columns: (absent) none same-origin same-site
+	// cross-site, then Same-Origin cross-origin.
 	before, after [4]string
 	// bare is what a request with no Origin and no (or `none`) fetch metadata gets:
 	// refused by the strict copies and Continue (the login CSRF gate), accepted by
@@ -69,64 +74,64 @@ func gate1Copies() []gate1Copy {
 			name:  "AdminAuth.sameOrigin (adminlogin.go)",
 			check: login.sameOrigin,
 			before: [4]string{
-				/* no Origin      */ "R R A A R",
-				/* own Origin     */ "A A A A A",
-				/* foreign Origin */ "R R R R R",
-				/* Origin: null   */ "R R A A R",
+				/* no Origin      */ "R R A A R  A R",
+				/* own Origin     */ "A A A A A  A A",
+				/* foreign Origin */ "R R R R R  R R",
+				/* Origin: null   */ "R R A A R  A R",
 			},
 			after: [4]string{
-				/* no Origin      */ "R R A R R",
-				/* own Origin     */ "A A A R R",
-				/* foreign Origin */ "R R R R R",
-				/* Origin: null   */ "R R A R R",
+				/* no Origin      */ "R R A R R  A R",
+				/* own Origin     */ "A A A R R  A A",
+				/* foreign Origin */ "R R R R R  R R",
+				/* Origin: null   */ "R R A R R  A R",
 			},
 		},
 		{
 			name:  "Signup.sameOrigin (signup.go)",
 			check: wizard.sameOrigin,
 			before: [4]string{
-				/* no Origin      */ "R R A A R",
-				/* own Origin     */ "A A A A A",
-				/* foreign Origin */ "R R R R R",
-				/* Origin: null   */ "R R A A R",
+				/* no Origin      */ "R R A A R  A R",
+				/* own Origin     */ "A A A A A  A A",
+				/* foreign Origin */ "R R R R R  R R",
+				/* Origin: null   */ "R R A A R  A R",
 			},
 			after: [4]string{
-				/* no Origin      */ "R R A R R",
-				/* own Origin     */ "A A A R R",
-				/* foreign Origin */ "R R R R R",
-				/* Origin: null   */ "R R A R R",
+				/* no Origin      */ "R R A R R  A R",
+				/* own Origin     */ "A A A R R  A A",
+				/* foreign Origin */ "R R R R R  R R",
+				/* Origin: null   */ "R R A R R  A R",
 			},
 		},
 		{
 			name:  "AdminReset.sameOrigin (adminreset.go)",
 			check: reset.sameOrigin,
 			before: [4]string{
-				/* no Origin      */ "R R A A R",
-				/* own Origin     */ "A A A A A",
-				/* foreign Origin */ "R R R R R",
-				/* Origin: null   */ "R R A A R",
+				/* no Origin      */ "R R A A R  A R",
+				/* own Origin     */ "A A A A A  A A",
+				/* foreign Origin */ "R R R R R  R R",
+				/* Origin: null   */ "R R A A R  A R",
 			},
 			after: [4]string{
-				/* no Origin      */ "R R A R R",
-				/* own Origin     */ "A A A R R",
-				/* foreign Origin */ "R R R R R",
-				/* Origin: null   */ "R R A R R",
+				/* no Origin      */ "R R A R R  A R",
+				/* own Origin     */ "A A A R R  A A",
+				/* foreign Origin */ "R R R R R  R R",
+				/* Origin: null   */ "R R A R R  A R",
 			},
 		},
 		{
 			name:  "Activation.sameOrigin strict=true (Continue)",
 			check: func(r *http.Request) bool { return act.sameOrigin(r, true) },
 			before: [4]string{
-				/* no Origin      */ "R R A A R",
-				/* own Origin     */ "A A A A A",
-				/* foreign Origin */ "R R R R R",
-				/* Origin: null   */ "R R A A R",
+				/* no Origin      */ "R R A A R  R R",
+				/* own Origin     */ "A A A A A  A A",
+				/* foreign Origin */ "R R R R R  R R",
+				/* Origin: null   */ "R R A A R  R R",
 			},
 			after: [4]string{
-				/* no Origin      */ "R R A R R",
-				/* own Origin     */ "A A A R R",
-				/* foreign Origin */ "R R R R R",
-				/* Origin: null   */ "R R A R R",
+				/* no Origin      */ "R R A R R  R R",
+				/* own Origin     */ "A A A R R  A A",
+				/* foreign Origin */ "R R R R R  R R",
+				/* Origin: null   */ "R R A R R  R R",
 			},
 		},
 		{
@@ -136,16 +141,16 @@ func gate1Copies() []gate1Copy {
 			check: func(r *http.Request) bool { return act.sameOrigin(r, false) },
 			bare:  true,
 			before: [4]string{
-				/* no Origin      */ "A A A A A",
-				/* own Origin     */ "A A A A A",
-				/* foreign Origin */ "R R R R R",
-				/* Origin: null   */ "A A A A A",
+				/* no Origin      */ "A A A A A  A A",
+				/* own Origin     */ "A A A A A  A A",
+				/* foreign Origin */ "R R R R R  R R",
+				/* Origin: null   */ "A A A A A  A A",
 			},
 			after: [4]string{
-				/* no Origin      */ "A A A R R",
-				/* own Origin     */ "A A A R R",
-				/* foreign Origin */ "R R R R R",
-				/* Origin: null   */ "A A A R R",
+				/* no Origin      */ "A A A R R  A A",
+				/* own Origin     */ "A A A R R  A A",
+				/* foreign Origin */ "R R R R R  R R",
+				/* Origin: null   */ "A A A R R  A A",
 			},
 		},
 	}
