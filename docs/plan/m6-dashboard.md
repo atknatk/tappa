@@ -2923,7 +2923,9 @@ Ayrıca iş yalnız CSS+bileşen değil — kabuk `pages/` + `handler/`'a da dok
 > origin'i**, yani `ProtectWriting`'in kendi yorumunun tehdit saydığı şey. Bugün
 > tarayıcıyla sömürülemez (POST'ta Origin daima gider) ama **bu diff üç mutasyon
 > rotasını, biri geri alınamaz, o satırın arkasına monte etti**. Pinlendi:
-> `TestEmployeeActions_SecFetchSiteSameSitePassesTheOriginGate` (iki kontrolüyle).
+> `EmployeeActions_SecFetchSiteSameSitePassesTheOriginGate` (iki kontrolüyle; o günkü ad).
+> *(2026-10-11: GATE-1 sertleştirmeyi yaptı; test artık
+> `TestEmployeeActions_SecFetchSiteSameSiteIsRefusedByTheOriginGate` — ADR 0028 §11.)*
 > **Sertleştirme yapılmadı** çünkü `sameOrigin` **çıkışı ve onay kuyruğunu da**
 > koruyor — tek kelimelik değişiklik, ama onların turu bu görev değil.
 >

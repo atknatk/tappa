@@ -684,6 +684,10 @@ tenant'lı holding için ek UI · OAuth · paylaşımlı oran deposu · egress N
 
 ## Test edilecekler (adlarıyla)
 
+Henüz yazılmamış testlerin adları `Test` öneki olmadan verilir (`TestEveryNamedTestExists`
+kuralı: belgede yalnız var olan testin adı yazılır); test yazıldığında önek eklenir ve bu satır
+gerçek adla güncellenir. Önekli adlar var olan testlerdir.
+
 Adlar önerilir; uygulama görevi kart düzeltmesiyle değiştirebilir, kapsamı daraltamaz. *(Kaynak:
 plan §5 kabul çekirdeği.)*
 
@@ -692,78 +696,79 @@ aktivasyon `strict=false` dahil) · `TestSameOrigin_EveryOtherHeaderCombinationI
 testi; katı kopyalarda `Origin` yokken başlıksız/`none` RED) · `TestSameOrigin_NoReferrerPagesStillPass`
 (`Origin: null` + `same-origin`) · mevcut panel/kayıt/sıfırlama/aktivasyon/röle akış testleri yeşil.
 
-**API-1** — `TestM11Catalog_EveryNewTableMatchesTheMatrixUnderArwd` · `TestEmployeeEmail_UniqueAmongActiveOnly`
+**API-1** — `M11Catalog_EveryNewTableMatchesTheMatrixUnderArwd` · `EmployeeEmail_UniqueAmongActiveOnly`
 (kısıt adı korunur; pasifle aynı e-postada yeni aktif açılır, iki aktif açılamaz) ·
-`TestEmployeeUpdatedAt_OnlyDirectoryColumnsOnEveryUpdatePath` (dört yol) ·
-`TestEmployeeLocationReaders_Counted` · `TestTenantApiColumns_AppCannotWrite`.
+`EmployeeUpdatedAt_OnlyDirectoryColumnsOnEveryUpdatePath` (dört yol) ·
+`EmployeeLocationReaders_Counted` · `TenantApiColumns_AppCannotWrite`.
 
-**API-2** — (a) `TestFeed_PlainInsertIntoTransactionsBearsAnEvent` · (b) `TestFeed_StressNoMissNoDeadlock`
+**API-2** — (a) `Feed_PlainInsertIntoTransactionsBearsAnEvent` · (b) `Feed_StressNoMissNoDeadlock`
 (≥ 12 yazıcı, ≥ 3 tenant, ters yönlü holding dokunuşları, abort/savepoint karışık, eşzamanlı okuyucu;
-`seq` yoğun) + mutasyonlar `TestFeedMutant_UnlockedSequenceMisses`,
-`TestFeedMutant_CounterInSeparateTransactionMisses`, `TestFeedMutant_TwoTriggersLockingCountersDeadlock` ·
-(c) `TestRestoreVerify_CountersAheadOfEvents` · (d) `TestFeed_FlagApprovalManualPractice` ·
-(e) `TestFeed_OutsiderSeesNothing` · (f) `TestFeedTriggers_RefuseVerbsUnderArwdAndTempTableBinding`
-(iki definer) · (g)–(i) `TestFeedTrigger_ErrorRollsBackTheRecord`, `TestFeedTrigger_SavepointKeepsCounterAndEventTogether`,
-`TestFeedTimeouts_ShownAtStartup` · (j) `TestFeed_TargetRowsAndSnapshots` (iki hedef satırı holding
+`seq` yoğun) + mutasyonlar `FeedMutant_UnlockedSequenceMisses`,
+`FeedMutant_CounterInSeparateTransactionMisses`, `FeedMutant_TwoTriggersLockingCountersDeadlock` ·
+(c) `RestoreVerify_CountersAheadOfEvents` · (d) `Feed_FlagApprovalManualPractice` ·
+(e) `Feed_OutsiderSeesNothing` · (f) `FeedTriggers_RefuseVerbsUnderArwdAndTempTableBinding`
+(iki definer) · (g)–(i) `FeedTrigger_ErrorRollsBackTheRecord`, `FeedTrigger_SavepointKeepsCounterAndEventTogether`,
+`FeedTimeouts_ShownAtStartup` · (j) `Feed_TargetRowsAndSnapshots` (iki hedef satırı holding
 tetikleyicisi yazar; kendi-tenant tetikleyicisi `site_*` satırına ve onayına hiç olay yazmaz; işveren
-olayı tam bir kez) + `TestWebhookDeliveries_KMatKFIsTwo` · (k) `TestFeed_ClosedApiWritesEventsButNoDeliveries` ·
-(l) `TestFeedBackfill_WithinTwoSeconds` · (m) `TestFeedCatalog_TwoRolesTriggerOrderExecuteOwnerOnlyRelid`
+olayı tam bir kez) + `WebhookDeliveries_KMatKFIsTwo` · (k) `Feed_ClosedApiWritesEventsButNoDeliveries` ·
+(l) `FeedBackfill_WithinTwoSeconds` · (m) `FeedCatalog_TwoRolesTriggerOrderExecuteOwnerOnlyRelid`
 + K-34'ün `webhook_endpoints.url`/`signing_key_sealed` pinleri + yazılan dört tablonun sütun pini ·
-(n) `TestRestore_FreshPodCarriesTheFeedRole` · (o) `TestFeedwriter_EveryGrantIsIndividuallyNecessary` ·
-(p) `TestFeed_ApprovalAfterExitWritesEmployerEventAndDeliveryOnce` · (q)
-`TestFeed_MissingCounterRowsNoDeadlock` + `TestRestoreVerify_EveryTenantHasACounter`.
+(n) `Restore_FreshPodCarriesTheFeedRole` · (o) `Feedwriter_EveryGrantIsIndividuallyNecessary` ·
+(p) `Feed_ApprovalAfterExitWritesEmployerEventAndDeliveryOnce` · (q)
+`Feed_MissingCounterRowsNoDeadlock` + `RestoreVerify_EveryTenantHasACounter`.
 
-**API-3** — `TestApiKeysCatalog` · `TestApiKeyRevocation_IsOneWay` · `TestApiKeyRevocation_ConcurrentAndBulkAreSafe` ·
-`TestApiKeyAuth_RevokedIs401ClosedIs403` · `TestApiKeyAuth_WrongPrefixNeverReachesTheDatabase` ·
-`TestApiKeyAuth_NothingLogged` · `TestRedline_R4R7R7bR7dCatchDeliberateViolations` ·
-`TestConfig_EqualEnvKeysRefuseToStart` · `TestApiKeyAuth_OutsiderKeyCannotSeeAnotherTenant`.
+**API-3** — `ApiKeysCatalog` · `ApiKeyRevocation_IsOneWay` · `ApiKeyRevocation_ConcurrentAndBulkAreSafe` ·
+`ApiKeyAuth_RevokedIs401ClosedIs403` · `ApiKeyAuth_WrongPrefixNeverReachesTheDatabase` ·
+`ApiKeyAuth_NothingLogged` ·
+`Redline_R4R7R7bR7dCatchDeliberateViolations` ·
+`Config_EqualEnvKeysRefuseToStart` · `ApiKeyAuth_OutsiderKeyCannotSeeAnotherTenant`.
 
-**API-4 / API-4b** — `TestApiCatalog_Idempotency` · `TestApiHost_TwoWayGate` (API host'unda `/admin`
-404, ana host'ta `/v1` 404) · `TestApiAuth_IPBucketBeforeResolver` · `TestIdempotency_SameKeyDifferentBodyIs422` ·
-`TestIdempotency_ConcurrentSameKeyOneEffect` · `TestIdempotency_DeathMidRequestLeavesNoStuckKey` ·
-`TestApiSuspension_EveryCellOfTheTable` (API-4b, OP-15'e bağlı).
+**API-4 / API-4b** — `ApiCatalog_Idempotency` · `ApiHost_TwoWayGate` (API host'unda `/admin`
+404, ana host'ta `/v1` 404) · `ApiAuth_IPBucketBeforeResolver` · `Idempotency_SameKeyDifferentBodyIs422` ·
+`Idempotency_ConcurrentSameKeyOneEffect` · `Idempotency_DeathMidRequestLeavesNoStuckKey` ·
+`ApiSuspension_EveryCellOfTheTable` (API-4b, OP-15'e bağlı).
 
-**API-5** — `TestLocationsPut_OutsiderKeyCannotTouchAnotherTenant` · `TestLocationsPut_DifferentTimezoneIs422` ·
-`TestLocationsPut_RepeatOpensNoRow`.
+**API-5** — `LocationsPut_OutsiderKeyCannotTouchAnotherTenant` · `LocationsPut_DifferentTimezoneIs422` ·
+`LocationsPut_RepeatOpensNoRow`.
 
-**API-6** — `TestEmployeesPut_ActiveEmailElsewhereIs409` · `TestEmployeesPut_InactiveToActiveOpensANewRow` ·
-`TestEmployeesPut_EmailChangeKillsOldInviteInSameTransaction` · `TestResendActivation_LoopNeverKillsTheLiveInvite` ·
-`TestResendActivation_ActivatedIs409` · `TestInviteQueue_HoldsNoCode` · `TestInviteQueue_TwoPodsMintOnce` ·
-`TestDeactivationBudget_ComesFromTheDatabase` · `TestDeactivationBudget_ConcurrentLastSlotExactlyOne`
-(`-race`) · `TestDeactivationBudget_ExceededIs429WithAlertAndAudit` · `TestEmployeesGet_NoEmail`.
+**API-6** — `EmployeesPut_ActiveEmailElsewhereIs409` · `EmployeesPut_InactiveToActiveOpensANewRow` ·
+`EmployeesPut_EmailChangeKillsOldInviteInSameTransaction` · `ResendActivation_LoopNeverKillsTheLiveInvite` ·
+`ResendActivation_ActivatedIs409` · `InviteQueue_HoldsNoCode` · `InviteQueue_TwoPodsMintOnce` ·
+`DeactivationBudget_ComesFromTheDatabase` · `DeactivationBudget_ConcurrentLastSlotExactlyOne`
+(`-race`) · `DeactivationBudget_ExceededIs429WithAlertAndAudit` · `EmployeesGet_NoEmail`.
 
-**API-7** — `TestPunches_FourShapesTimesTwoScopes` (anlık görüntü alanlarıyla, doğru tenant'a) ·
-`TestPunches_OutsiderSeesNone` · `TestPunches_NoManualNoRejected` · `TestPunches_Limit1001Is400`.
+**API-7** — `Punches_FourShapesTimesTwoScopes` (anlık görüntü alanlarıyla, doğru tenant'a) ·
+`Punches_OutsiderSeesNone` · `Punches_NoManualNoRejected` · `Punches_Limit1001Is400`.
 
-**API-8** — `TestDirectory_HoldingTenantsOnlyNoEmailWithActive` · `TestDirectory_Paged` ·
-`TestDirectory_OverlapWindow` · `TestDirectory_OwnStaffAlwaysFromTheRLSQuery` ·
-`TestDirectory_KeyOfATenantWithoutHoldingSeesOnlyItsOwnStaff` (holding'siz anahtar: kendi
+**API-8** — `Directory_HoldingTenantsOnlyNoEmailWithActive` · `Directory_Paged` ·
+`Directory_OverlapWindow` · `Directory_OwnStaffAlwaysFromTheRLSQuery` ·
+`Directory_KeyOfATenantWithoutHoldingSeesOnlyItsOwnStaff` (holding'siz anahtar: kendi
 çalışanları gelir, `holding_directory` 0 satır, başka tenant yok).
 
-**API-9** — `TestWebhookEndpointCatalog` · `TestWebhookEndpoint_OnePerTenant` ·
-`TestWebhookEndpoint_KeyShownOnce` · `TestWebhookPing_SharesTheResendBucket` ·
-`TestWebhookEndpoint_ClosedApiRefused`.
+**API-9** — `WebhookEndpointCatalog` · `WebhookEndpoint_OnePerTenant` ·
+`WebhookEndpoint_KeyShownOnce` · `WebhookPing_SharesTheResendBucket` ·
+`WebhookEndpoint_ClosedApiRefused`.
 
-**API-10** — `TestWebhookRouting_FourShapes` · `TestEgress_RefusesEveryIANASpecialPurposeEntry` ·
-`TestEgress_DNSRebindingSecondAnswerRefused` · `TestEgress_IPv6OnlyGlobalUnicastMinusCarveOuts` ·
-`TestEgress_NodeAndIngressAddressesRefused` · `TestEgress_EmptyNodeListRefusesToStart` ·
-`TestEgress_ProxyEnvironmentIgnored` · `TestEgress_RedirectNotFollowed` ·
-`TestWebhookWorker_DisabledEndpointGetsNothing` · `TestWebhookWorker_TwoPodsSendOnce` ·
-`TestWebhookWorker_NoOpenTransactionDuringHTTP` · `TestWebhookWorker_DrainsWithinShutdownBudget` ·
-`TestWebhookSignature_KnownAnswer` · `TestWebhookWorker_URLAndURLErrorNeverReachLogOrAudit`
+**API-10** — `WebhookRouting_FourShapes` · `Egress_RefusesEveryIANASpecialPurposeEntry` ·
+`Egress_DNSRebindingSecondAnswerRefused` · `Egress_IPv6OnlyGlobalUnicastMinusCarveOuts` ·
+`Egress_NodeAndIngressAddressesRefused` · `Egress_EmptyNodeListRefusesToStart` ·
+`Egress_ProxyEnvironmentIgnored` · `Egress_RedirectNotFollowed` ·
+`WebhookWorker_DisabledEndpointGetsNothing` · `WebhookWorker_TwoPodsSendOnce` ·
+`WebhookWorker_NoOpenTransactionDuringHTTP` · `WebhookWorker_DrainsWithinShutdownBudget` ·
+`WebhookSignature_KnownAnswer` · `WebhookWorker_URLAndURLErrorNeverReachLogOrAudit`
 (CLAUDE.md §7: başarısız gönderimlerde — DNS, TLS, zaman aşımı, ret — süreç log'unda ve audit
 `detail`'inde uç noktanın adresi ve `url.Error` metni yok; yalnız uç nokta kimliği ve hata sınıfı).
 
-**API-11** — `TestPackaging_ProdBuildHasNoSandboxPackage` · `TestPackaging_SandboxBuildHasIt` ·
-`TestConfig_UntaggedBinaryRefusesSandbox` · `TestSandbox_RealNXPUIDRefusedOnEveryResolveAndInsert` ·
-`TestConfig_IsHardenedCoversTheNineGates` · `TestSandbox_KeyWithoutOperatorIs403` ·
-`TestSandbox_SimulatesAHoldingTap` · **CI kapısı:** iş akışı `go vet -tags sandbox ./...` ve
-`go test -tags sandbox ./...`'i de koşar (`TestCI_RunsVetAndTestWithTheSandboxTag` — iş akışı
+**API-11** — `Packaging_ProdBuildHasNoSandboxPackage` · `Packaging_SandboxBuildHasIt` ·
+`Config_UntaggedBinaryRefusesSandbox` · `Sandbox_RealNXPUIDRefusedOnEveryResolveAndInsert` ·
+`Config_IsHardenedCoversTheNineGates` · `Sandbox_KeyWithoutOperatorIs403` ·
+`Sandbox_SimulatesAHoldingTap` · **CI kapısı:** iş akışı `go vet -tags sandbox ./...` ve
+`go test -tags sandbox ./...`'i de koşar (`CI_RunsVetAndTestWithTheSandboxTag` — iş akışı
 dosyasını okuyan bir paketleme testi) · **deploy kapısı:** `verify-image.sh` imajın derleme bilgisindeki
 tag'i doğrular — sandbox imajı `sandbox` tag'siz, prod imajı tag'li ise reddedilir
-(`TestVerifyImage_RefusesAWrongBuildTag`).
+(`VerifyImage_RefusesAWrongBuildTag`).
 
-**API-12** — `TestOpenAPI_EveryRouteAndErrorDocumented` · `TestGuide_CarriesAll31ContractDifferences`.
+**API-12** — `OpenAPI_EveryRouteAndErrorDocumented` · `Guide_CarriesAll31ContractDifferences`.
 
 **API-13** — runbook: spec §7'nin dokuz maddesi; `tappa-security-auditor` tam tur ONAY; operatörden
 K-22 (`KF`/`KM`) ve KF+KM holding'i; K-18 bağlama; prod anahtar çiftleri ve `pg_auth_members`;

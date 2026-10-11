@@ -359,7 +359,7 @@ olarak** bu tablodur.
 `static_ips` ve GPS **yalnız** `holding_tap_site`'ın dönüşündedir ve yalnız sunucu içi karar girdisidir
 (K-39); başka hiçbir dönüşte yoktur.
 
-**Katalog testi — `TestHoldingCatalog_TheFunctionsAndTheirExactSignatures`** (emsal
+**Katalog testi — `HoldingCatalog_TheFunctionsAndTheirExactSignatures`** (emsal
 `internal/db/operatortenants_test.go:388`, `TestOperator00029_TheFunctionsAndTheirExactSignatures`).
 Her madde **bütün şemaları** `nspname.proname` ile dolaşır (yalnız `public` değil — 2. tur):
 (i) sahibi `tappa_holdingdefiner` olan fonksiyonların **nitelikli ad kümesi** imza tablosuna eşittir
@@ -378,7 +378,7 @@ audit'siz KF'nin `static_ips`'ini okuyordu); `coalesce` şarttır, çünkü `NUL
 (PUBLIC `EXECUTE`) demektir ve `aclexplode(NULL)` boş döner. Dönüşü genişletilmiş bir
 `holding_site_locations` (1. turun mutantı) bu testte kırmızıdır.
 
-**Kanarya testi — `TestHoldingFunctions_SiteEvidenceCanaryNeverLeaks`** (2. tur, güvenlik merceği
+**Kanarya testi — `HoldingFunctions_SiteEvidenceCanaryNeverLeaks`** (2. tur, güvenlik merceği
 ölçtü: imza testi dönüşün **içeriğini** pinlemiyor — `location_name`'e `static_ips`/GPS birleştiren bir
 gövde yeşil kalıyordu). Eş tenant'ın lokasyonuna ayırt edici bir kanarya tohumlanır: bir TEST-NET
 adresi (ör. `198.51.100.77/32`) ve başka hiçbir yerde geçmeyen bir GPS çifti. Sonra her **çağrılabilir**
@@ -897,127 +897,131 @@ adlandırılmış kalan risk (1. tur, güvenlik merceği; §13 madde 13).
 
 ## Test edilecekler (adlarıyla)
 
+Henüz yazılmamış testlerin adları `Test` öneki olmadan verilir (`TestEveryNamedTestExists`
+kuralı: belgede yalnız var olan testin adı yazılır); test yazıldığında önek eklenir ve bu satır
+gerçek adla güncellenir. Önekli adlar var olan testlerdir.
+
 Adlar önerilir; uygulama görevi daha iyi bir ad seçerse kart düzeltmesiyle değiştirir, kapsamı
 daraltamaz. *(Kaynak: plan §5 kabul çekirdeği — API-1a, API-1b, API-1c, API-2'nin holding
 satırları.)*
 
 **Şema ve katalog (API-1a)**
-- `TestHoldingSchema_AppRoleHasNoVerbOnHoldingTables` — `arwd` varsayılanı kurulmuşken `tappa_app`
+- `HoldingSchema_AppRoleHasNoVerbOnHoldingTables` — `arwd` varsayılanı kurulmuşken `tappa_app`
   `holdings`/`holding_members`'ta dört fiilde yetkisiz; R5 muafiyeti WARN'da görünür; ENABLE + FORCE.
-- `TestHoldingOps_OnlyOperatorFunctionsWriteMembership`
-- Audit, eylem eylem (§1 tablosu): `TestHoldingOps_CreateAuditsOnlyTheOperatorLog` ·
-  `TestHoldingOps_FirstAddAuditsTheOperatorAndTheAddedTenant` ·
-  `TestHoldingOps_SecondAddAuditsTheOperatorAndBothMembers` ·
-  `TestHoldingOps_RemoveAuditsTheOperatorTheLeaverAndTheRemainingMember`
-- `TestHoldingOps_AddRefusesADifferentTimezone` · `TestHoldingTimezone_OwnerCannotChangeAMembersTimezone`
-  (çıkış penceresinde de) · `TestHoldingOps_TimezoneComparisonRacesTheOwnersUpdate` (eşzamanlı:
+- `HoldingOps_OnlyOperatorFunctionsWriteMembership`
+- Audit, eylem eylem (§1 tablosu): `HoldingOps_CreateAuditsOnlyTheOperatorLog` ·
+  `HoldingOps_FirstAddAuditsTheOperatorAndTheAddedTenant` ·
+  `HoldingOps_SecondAddAuditsTheOperatorAndBothMembers` ·
+  `HoldingOps_RemoveAuditsTheOperatorTheLeaverAndTheRemainingMember`
+- `HoldingOps_AddRefusesADifferentTimezone` · `HoldingTimezone_OwnerCannotChangeAMembersTimezone`
+  (çıkış penceresinde de) · `HoldingOps_TimezoneComparisonRacesTheOwnersUpdate` (eşzamanlı:
   `op_add_holding_member`'ın kanonik `tenants` kilidi ile sahibin saat dilimi `UPDATE`'i — iki
   sırada da sonuç ya ret ya eşit saat dilimiyle üyelik; farklı saat dilimli üyelik **asla**) ·
-  `TestHoldingOps_ConcurrentAddsForOneTenantOneWins` ·
-  `TestHoldingOps_ConcurrentAddsOfTwoTenantsKeepOneTimezone` (boş holding'e farklı saat dilimli iki
+  `HoldingOps_ConcurrentAddsForOneTenantOneWins` ·
+  `HoldingOps_ConcurrentAddsOfTwoTenantsKeepOneTimezone` (boş holding'e farklı saat dilimli iki
   tenant eşzamanlı → tam biri eklenir; mutant: holding kilidi kaldırılmış → iki saat dilimli holding)
-- `TestHoldingOps_OneMembershipAtATimeIncludingTheExitWindow` ·
-  `TestHoldingOps_RejoinWaitsForTheToleranceWindow` (`left_at + 59 sn` ret, `+ 61 sn` kabul; iki
-  60 sn kopyasının eşitliği) · `TestHoldingOps_LeftAtCannotBeUndone`
-- `TestHoldingDefiner_RoleShape` (NOLOGIN, BYPASSRLS, NOSUPERUSER, üyesiz; `proconfig` sabit)
-- `TestHoldingDefiner_ColumnMatrix` (§3 matrisi, tablo × fiil × sütun) ·
-  `TestHoldingDefiner_NeverSelectColumns` (*"asla SELECT"* listesi + `%_hash` katalog sorgusu)
-- `TestHoldingDefiner_LockAnchorIsTheOnlyMembershipUpdate` (üyelik sütunlarında UPDATE `false`;
+- `HoldingOps_OneMembershipAtATimeIncludingTheExitWindow` ·
+  `HoldingOps_RejoinWaitsForTheToleranceWindow` (`left_at + 59 sn` ret, `+ 61 sn` kabul; iki
+  60 sn kopyasının eşitliği) · `HoldingOps_LeftAtCannotBeUndone`
+- `HoldingDefiner_RoleShape` (NOLOGIN, BYPASSRLS, NOSUPERUSER, üyesiz; `proconfig` sabit)
+- `HoldingDefiner_ColumnMatrix` (§3 matrisi, tablo × fiil × sütun) ·
+  `HoldingDefiner_NeverSelectColumns` (*"asla SELECT"* listesi + `%_hash` katalog sorgusu)
+- `HoldingDefiner_LockAnchorIsTheOnlyMembershipUpdate` (üyelik sütunlarında UPDATE `false`;
   `lock_anchor = true` → 23514; gövdelerde `UPDATE public.holding_members` yok)
-- **`TestHoldingCatalog_TheFunctionsAndTheirExactSignatures`** (§2: bütün şemalarda nitelikli ad
+- **`HoldingCatalog_TheFunctionsAndTheirExactSignatures`** (§2: bütün şemalarda nitelikli ad
   kümesi = imza tablosu; argüman ve dönüş metni birebir; nitelikli ad başına tek aşırı yükleme; her
   şemadaki her `holding\_%`'nin sahibi `tappa_holdingdefiner`; `prosecdef`/`provolatile`/`proconfig`;
   `aclexplode` ile EXECUTE **tam eşitliği**) — mutantlar: dönüşüne `static_ips` eklenmiş
   `holding_site_locations` → kırmızı; `tappa_operator`'a `EXECUTE` → kırmızı; başka şemada bir
   `holding_*` → kırmızı
-- **`TestHoldingFunctions_SiteEvidenceCanaryNeverLeaks`** (§2 kanarya: TEST-NET adresi ve GPS yalnız
+- **`HoldingFunctions_SiteEvidenceCanaryNeverLeaks`** (§2 kanarya: TEST-NET adresi ve GPS yalnız
   `holding_tap_site`'ın üç kanıt sütununda; mutant: `location_name || static_ips` → kırmızı)
-- `TestHoldingPeer_InvokerVolatileOwnedByDefinerExecutableOnlyByOwner` ·
-  `TestHoldingPeer_ModesAreAClosedSet` (bilinmeyen kip → hata; `a = b` → `false`) ·
-  `TestHoldingPeer_IsTheOnlyBodyThatTouchesHoldingMembers` (§2'nin gövde taraması: yorumları
+- `HoldingPeer_InvokerVolatileOwnedByDefinerExecutableOnlyByOwner` ·
+  `HoldingPeer_ModesAreAClosedSet` (bilinmeyen kip → hata; `a = b` → `false`) ·
+  `HoldingPeer_IsTheOnlyBodyThatTouchesHoldingMembers` (§2'nin gövde taraması: yorumları
   ayıklanmış `pg_get_functiondef`, bütün şemalar, `BEGIN ATOMIC` için `pg_depend` kenarları;
   mutantlar: yorumda, tırnaklı/büyük harfli tanımlayıcıda ve `BEGIN ATOMIC` gövdesinde
-  `holding_members` → kırmızı) · `TestHoldingDefiner_NoDynamicSQLNoUnicodeIdentifiers` (definer
-  gövdelerinde `EXECUTE` ve `U&"` yok) · `TestHoldingPeer_TolerantModesRequireOverlappingMemberships`
+  `holding_members` → kırmızı) · `HoldingDefiner_NoDynamicSQLNoUnicodeIdentifiers` (definer
+  gövdelerinde `EXECUTE` ve `U&"` yok) · `HoldingPeer_TolerantModesRequireOverlappingMemberships`
   (A çıktıktan sonra katılan B ile A, pencerede eş **değil**; birlikte üyeyken çıkan A ile B
-  pencerede eş) · `TestHoldingFunctions_PeerSetComputedOnce` (çok satırlı fonksiyonlarda
+  pencerede eş) · `HoldingFunctions_PeerSetComputedOnce` (çok satırlı fonksiyonlarda
   `holding_peer` veri satırı başına çağrılmaz — plan/çağrı sayımıyla) ·
-  `TestHoldingPeer_OnlyRowLockIsForShare` (`holding_peer`'de `FOR UPDATE` / `FOR NO KEY UPDATE` /
+  `HoldingPeer_OnlyRowLockIsForShare` (`holding_peer`'de `FOR UPDATE` / `FOR NO KEY UPDATE` /
   `FOR KEY SHARE` / `UPDATE` / `INSERT` / `DELETE` / `MERGE` yok; mutant: ters sırada `FOR UPDATE`
   → kilitlenme)
-- `TestHoldingFunctions_ExecuteGrantedOnlyToApp` · `TestHoldingTriggers_ExecuteOnlyOwnerAndAssertRelid`
+- `HoldingFunctions_ExecuteGrantedOnlyToApp` · `HoldingTriggers_ExecuteOnlyOwnerAndAssertRelid`
   (geçici tablo bağlama reddi)
-- `TestRestore_FreshPodCarriesTheHoldingRole` (sıfırdan pod; `01-roles.sql` idempotent)
+- `Restore_FreshPodCarriesTheHoldingRole` (sıfırdan pod; `01-roles.sql` idempotent)
 
 **Çapraz dokunuş (API-1b)** — harf, plan §5 API-1b kabulünün maddesidir
-- (a) `TestHoldingTap_RecordLandsAtTheEmployerWithSiteColumns`
-- (b) `TestHoldingTap_OutsiderSessionOnAPeerPlaqueIsRefusedAndCounterUnchanged` ·
-  `TestHoldingTap_PeerSessionOnAnOutsiderPlaqueLeavesItsCounter` ·
-  `TestHoldingFunctions_ReturnNothingForAnOutsiderOrAnOutsiderKey` ·
-  `TestHoldingFilter_MutantsM1M2M3AreRedInFunctionsAndTriggers` (C, H2'nin üyesi) ·
-  `TestHoldingManual_PeerManagerCannotNameAnOutsiderLocation` ·
-  `TestHoldingDirectory_ReturnsPeersNeverTheCaller` (çağıranın kendi tenant'ı `holding_directory`'den
+- (a) `HoldingTap_RecordLandsAtTheEmployerWithSiteColumns`
+- (b) `HoldingTap_OutsiderSessionOnAPeerPlaqueIsRefusedAndCounterUnchanged` ·
+  `HoldingTap_PeerSessionOnAnOutsiderPlaqueLeavesItsCounter` ·
+  `HoldingFunctions_ReturnNothingForAnOutsiderOrAnOutsiderKey` ·
+  `HoldingFilter_MutantsM1M2M3AreRedInFunctionsAndTriggers` (C, H2'nin üyesi) ·
+  `HoldingManual_PeerManagerCannotNameAnOutsiderLocation` ·
+  `HoldingDirectory_ReturnsPeersNeverTheCaller` (çağıranın kendi tenant'ı `holding_directory`'den
   hiç dönmez; C bağlamında 0 satır — K-33)
-- (c) `TestHoldingAdvance_ConcurrentSameCounterExactlyOneWins` (`-race`, yarı/yarı)
-- (d) `TestDecide_PersonDebounceSpansBothTenantsPlaques` · `TestHoldingTap_DirectionChainStaysAtTheEmployer`
-- (e) `TestHoldingTap_SiteLocationExceptionsDoNotApply`
-- (f) `TestDecide_CrossTenantQRWithoutSiteIPIsFlagged` (işveren QR kuralını gevşetse bile) ·
-  `TestDecide_CrossTenantQRWithSiteIPIsOK` · `TestGuardrails_CrossTenantQRSitsRightAfterDebounce` ·
-  `TestGuardrails_CrossTenantQRCannotBeLoosenedOrTightened`
-- (g) `TestHoldingWindow_AdvancedBeforeLeftWrittenAfterIsRecorded` ·
-  `TestHoldingWindow_LeftBetweenAdvanceAndGatherFlagsWithoutSiteEvidence` ·
-  `TestHoldingWindow_AdvanceAfterLeftIsNotPeer` · `TestHoldingAdvance_EqualCounterIsReplayWithSiteColumns` ·
-  `TestHoldingTap_LostPlaqueRefusalRecordedAtEmployerSeenAtSite` ·
-  `TestHoldingAdvance_InactivePlaqueIsPeerInactiveNot403` ·
-  `TestHoldingWindow_RefusalsSurviveTheLeftRace` (replay, `peer_inactive`, kayıp plaket) ·
-  `TestHoldingAdvance_DecideSeesTheCurrentStatus` (kanca ile kurulan yarış) ·
-  `TestHoldingWindow_NoRowPassesBeforeAndSkipsAfter` (FK beklemesi + commit edilmemiş `op_remove`;
-  `FOR SHARE` sıralaması) · `TestHoldingWindow_QRRefusalSurvivesTheLeftRace` ·
-  `TestHoldingWindow_UnadvancedNFCRowAfterLeftIsRefused` · `TestHoldingWindow_QRDecisionAfterLeftIs403` ·
-  `TestHoldingWindow_ManualAfterLeftIsRefused` · `TestHoldingReads_AfterLeftReturnNothing` ·
-  `TestHoldingWindow_ToleranceIsAtLeastTwiceTheRequestTimeout` ·
-  `TestHoldingPeer_AppCannotCallIt` (katalog satırı)
-- (h) `TestHoldingActivation_OnlyOnItsOwnTenantsPlaque` ·
-  `TestHoldingTap_PendingActivationBrowserWithLiveSessionTapsAsHolding`
-- (i) `TestHoldingBrand_TapAndResultShowTheSiteBrand` · `TestHoldingLogo_VIESGate` ·
-  `TestHoldingLogo_OutsiderOrStaleDigestIs404`
-- (j) `TestHoldingCheck_ChannelRules` (lokasyonsuz plaket reddi yazılır; manuel saha yazılır;
+- (c) `HoldingAdvance_ConcurrentSameCounterExactlyOneWins` (`-race`, yarı/yarı)
+- (d) `Decide_PersonDebounceSpansBothTenantsPlaques` · `HoldingTap_DirectionChainStaysAtTheEmployer`
+- (e) `HoldingTap_SiteLocationExceptionsDoNotApply`
+- (f) `Decide_CrossTenantQRWithoutSiteIPIsFlagged` (işveren QR kuralını gevşetse bile) ·
+  `Decide_CrossTenantQRWithSiteIPIsOK` · `Guardrails_CrossTenantQRSitsRightAfterDebounce` ·
+  `Guardrails_CrossTenantQRCannotBeLoosenedOrTightened`
+- (g) `HoldingWindow_AdvancedBeforeLeftWrittenAfterIsRecorded` ·
+  `HoldingWindow_LeftBetweenAdvanceAndGatherFlagsWithoutSiteEvidence` ·
+  `HoldingWindow_AdvanceAfterLeftIsNotPeer` · `HoldingAdvance_EqualCounterIsReplayWithSiteColumns` ·
+  `HoldingTap_LostPlaqueRefusalRecordedAtEmployerSeenAtSite` ·
+  `HoldingAdvance_InactivePlaqueIsPeerInactiveNot403` ·
+  `HoldingWindow_RefusalsSurviveTheLeftRace` (replay, `peer_inactive`, kayıp plaket) ·
+  `HoldingAdvance_DecideSeesTheCurrentStatus` (kanca ile kurulan yarış) ·
+  `HoldingWindow_NoRowPassesBeforeAndSkipsAfter` (FK beklemesi + commit edilmemiş `op_remove`;
+  `FOR SHARE` sıralaması) · `HoldingWindow_QRRefusalSurvivesTheLeftRace` ·
+  `HoldingWindow_UnadvancedNFCRowAfterLeftIsRefused` · `HoldingWindow_QRDecisionAfterLeftIs403` ·
+  `HoldingWindow_ManualAfterLeftIsRefused` · `HoldingReads_AfterLeftReturnNothing` ·
+  `HoldingWindow_ToleranceIsAtLeastTwiceTheRequestTimeout` ·
+  `HoldingPeer_AppCannotCallIt` (katalog satırı)
+- (h) `HoldingActivation_OnlyOnItsOwnTenantsPlaque` ·
+  `HoldingTap_PendingActivationBrowserWithLiveSessionTapsAsHolding`
+- (i) `HoldingBrand_TapAndResultShowTheSiteBrand` · `HoldingLogo_VIESGate` ·
+  `HoldingLogo_OutsiderOrStaleDigestIs404`
+- (j) `HoldingCheck_ChannelRules` (lokasyonsuz plaket reddi yazılır; manuel saha yazılır;
   `site_tenant_id = tenant_id` ret; `site_tenant_id` NULL iken `site_*` dolu ret)
-- (k) `TestHoldingMigration_AlterWithinTwoSeconds` (ölçüm; aşılırsa `NOT VALID` yolu)
-- (l) `TestHoldingAdvance_KeepsReplayProtection` (eşit/geri `ctr` → `replay`, sayaç değişmez;
+- (k) `HoldingMigration_AlterWithinTwoSeconds` (ölçüm; aşılırsa `NOT VALID` yolu)
+- (l) `HoldingAdvance_KeepsReplayProtection` (eşit/geri `ctr` → `replay`, sayaç değişmez;
   holding dışı → `not_peer`)
-- `TestDecide_TenantMismatchRespectsSameHolding` (CLAUDE.md §5'in `TestDecide_…` kuralı)
+- `Decide_TenantMismatchRespectsSameHolding` (CLAUDE.md §5'in `TestDecide_…` kuralı)
 
 **İzdüşüm ve paneller (API-1c)**
-- `TestSitePunches_CatalogCarriesNoEvidenceColumns` · `TestSitePunches_OutcomeMappingIsTotal`
+- `SitePunches_CatalogCarriesNoEvidenceColumns` · `SitePunches_OutcomeMappingIsTotal`
   (`ignored` yazılmaz, işverenin kaydı geri alınmaz)
-- `TestSitePunches_ReplayURLCollapsesAtTheSite` (N → KF'de 1, işverende N) ·
-  `TestSitePunches_DifferentEmployeesReplaysStaySeparate` ·
-  `TestSitePunches_ForgedCountersCollapsePerHourBucket` (200 sahte URL) ·
-  `TestSitePunches_RealRefusalsAreKeptOneEach` (3 → 3) ·
-  `TestSitePunches_LostPlaqueRepeatsGiveOneRowAndOneAlert` ·
-  `TestSitePunches_LostPlaqueAlertCannotBeSuppressed` ·
-  `TestSitePunches_BucketIsServerClockAndZoneFree` (UTC ve Europe/Malta aynı kova) ·
-  `TestSitePunches_NullHolesAreDeduplicated` · `TestSitePunches_AppCannotReadSunValid` ·
-  `TestSitePunches_LastSeenIgnoresDeclaredTime` (`occurred_at=2099`) ·
-  `TestSitePanel_LostPlaqueAlertUsesTheServerClock` (KF kayıp plaket uyarısının zamanı
+- `SitePunches_ReplayURLCollapsesAtTheSite` (N → KF'de 1, işverende N) ·
+  `SitePunches_DifferentEmployeesReplaysStaySeparate` ·
+  `SitePunches_ForgedCountersCollapsePerHourBucket` (200 sahte URL) ·
+  `SitePunches_RealRefusalsAreKeptOneEach` (3 → 3) ·
+  `SitePunches_LostPlaqueRepeatsGiveOneRowAndOneAlert` ·
+  `SitePunches_LostPlaqueAlertCannotBeSuppressed` ·
+  `SitePunches_BucketIsServerClockAndZoneFree` (UTC ve Europe/Malta aynı kova) ·
+  `SitePunches_NullHolesAreDeduplicated` · `SitePunches_AppCannotReadSunValid` ·
+  `SitePunches_LastSeenIgnoresDeclaredTime` (`occurred_at=2099`) ·
+  `SitePanel_LostPlaqueAlertUsesTheServerClock` (KF kayıp plaket uyarısının zamanı
   `site_punches.created_at`'ten; `occurred_at` beyanı uyarıyı ne öne ne geriye kaydırır)
-- `TestSiteReport_HoldingStaffHaveNoHoursAtTheSite` (KF→KM ve KM→KF ardışık iki vardiya, aynı gün ve
-  iki güne yayılan → 0 sa + dokunuş listesi) · `TestSiteReport_ApprovedFlagFoldsToItsLastOutcome` ·
-  `TestSiteReport_OwnStaffHoursUnchanged` · `TestSiteReport_EmployerManualSeparateAndExcluded`
-- `TestSitePunches_DeactivatedEmployeeRefusalIsOnlyRefused` · `TestSitePanel_LostPlaqueAlertAtTheSite` ·
-  `TestSitePanel_CannotReview`
-- `TestEmployerReaders_NineReadersNameTheSite` (her yönde, dokuzunun her biri ayrı vaka)
-- `TestLocationDelete_CountsHoldingReferences` · `TestSitePunches_OutsiderSeesNothing`
+- `SiteReport_HoldingStaffHaveNoHoursAtTheSite` (KF→KM ve KM→KF ardışık iki vardiya, aynı gün ve
+  iki güne yayılan → 0 sa + dokunuş listesi) · `SiteReport_ApprovedFlagFoldsToItsLastOutcome` ·
+  `SiteReport_OwnStaffHoursUnchanged` · `SiteReport_EmployerManualSeparateAndExcluded`
+- `SitePunches_DeactivatedEmployeeRefusalIsOnlyRefused` · `SitePanel_LostPlaqueAlertAtTheSite` ·
+  `SitePanel_CannotReview`
+- `EmployerReaders_NineReadersNameTheSite` (her yönde, dokuzunun her biri ayrı vaka)
+- `LocationDelete_CountsHoldingReferences` · `SitePunches_OutsiderSeesNothing`
 
 **Holding tetikleyicisi (API-2'nin holding satırları)**
-- `TestHoldingTrigger_WritesBothTargetRows` (KM@KF: KM satırında KF lokasyon id/ref/ad/şirket kodu;
-  KF satırında KM çalışan id/ref/kod/şirket kodu) · `TestOwnTenantTrigger_NeverTouchesSiteRows` ·
-  `TestHoldingTrigger_EmployerEventExactlyOnce`
-- `TestHoldingTrigger_ApprovalAfterExitWritesEmployerEventAndDeliveryOnce` (karşı taraf NULL; KF
+- `HoldingTrigger_WritesBothTargetRows` (KM@KF: KM satırında KF lokasyon id/ref/ad/şirket kodu;
+  KF satırında KM çalışan id/ref/kod/şirket kodu) · `OwnTenantTrigger_NeverTouchesSiteRows` ·
+  `HoldingTrigger_EmployerEventExactlyOnce`
+- `HoldingTrigger_ApprovalAfterExitWritesEmployerEventAndDeliveryOnce` (karşı taraf NULL; KF
   atlanır, hata yok)
-- `TestHoldingTrigger_MissingCounterRowsNoDeadlock` (*"var et"*siz mutant kırmızı) ·
-  `TestHoldingTrigger_NameOrderIsFirst` · `TestHoldingTrigger_WrittenTablesColumnPins`
+- `HoldingTrigger_MissingCounterRowsNoDeadlock` (*"var et"*siz mutant kırmızı) ·
+  `HoldingTrigger_NameOrderIsFirst` · `HoldingTrigger_WrittenTablesColumnPins`
 
 ## Sonuçlar
 

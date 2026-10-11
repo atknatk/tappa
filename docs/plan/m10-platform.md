@@ -15093,7 +15093,9 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 >     manager yok).
 > 14. CSRF / çapraz köken → çözücüden önce ret, 0 alan çağrısı. Kapalı. `Origin`'siz
 >     `Sec-Fetch-Site: same-site` paylaşılan kapının mevcut, ölçülmüş kabulüdür
->     (`TestEmployeeActions_SecFetchSiteSameSitePassesTheOriginGate`) — bu görev değiştirmedi.
+>     (o günkü adıyla `EmployeeActions_SecFetchSiteSameSitePassesTheOriginGate`) — bu görev değiştirmedi.
+>     *(2026-10-11: GATE-1 bu kabulü kaldırdı; test artık
+>     `TestEmployeeActions_SecFetchSiteSameSiteIsRefusedByTheOriginGate` — ADR 0028 §11.)*
 > 15. Anonim POST → `/admin/login`, alan çağrısı 0. Kapalı.
 > 16. Adresin log'a, yönlendirmeye, ize sızması → yok (testler + R7b). Kapalı; R7b'nin ara
 >     değişken sınırı sayılı (sınır 9).
