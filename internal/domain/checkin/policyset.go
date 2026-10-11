@@ -108,6 +108,17 @@ type policySets struct {
 // index for THIS statement is none: baseline ids are derived from (tenant, name) and
 // the layer is fixed, so the two indexes have the same collision set (00015's header).
 //
+// ⚠️ AND SINCE T121 THE policies AND policy_versions INSERTS NAME NO CONFLICT TARGET
+// AT ALL (db/queries/policies.sql), so "three different anchors" is history too.
+// Naming one target is what broke concurrent first taps: a derived id puts two
+// racers on EVERY unique index of the row -- policies_pkey and policies_id_tenant_key
+// for a policy, policy_versions_pkey and _id_tenant_key beside the no_key for a
+// version -- and a racer that met the winner on an index the statement had not named
+// got 23505, rolled materialise back and decided on the guardrails alone. With no
+// target every unique index arbitrates. The derivation is still load-bearing: it is
+// what makes two racers' rows THE SAME row, and without it the loser's version would
+// cite a policy id that was never written.
+//
 // It is uuid.NameSpaceURL over a URL-shaped string rather than an invented
 // namespace constant, so the derivation is legible in the one place it matters:
 // a person holding a policy id can recompute it from the tenant and the name.
@@ -406,6 +417,14 @@ func tenantPolicies(rows []store.ListPolicySetRow, log *slog.Logger) []policy.Po
 // existing row — including one the tenant has switched OFF — is never modified.
 // policy_versions is append-only by privilege AND by trigger (00007), so "write
 // it again" HAS to be a no-op rather than an update; it is.
+//
+// ⚠️ "TWO TAPS ARRIVING TOGETHER WRITE ONE SET OF ROWS" WAS TRUE BEFORE T121 AND
+// NOT ENOUGH. The rows were always one set; the LOSING tap was the casualty -- its
+// insert met the winner on a unique index the statement had not named, this
+// transaction rolled back on 23505, and forTenant decided that tap on the
+// guardrails alone (an `ok` recorded as a `flag`). The two statements that carry
+// derived ids now name no conflict target, so the loser waits for the winner and
+// does nothing (TestPolicySetDB_ConcurrentFirstTapsMaterialiseOnce).
 func (p policySets) materialise(ctx context.Context, tenantID uuid.UUID, docs []policy.BaselineDoc) error {
 	err := p.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		q := store.New(tx)

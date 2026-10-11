@@ -26,22 +26,26 @@
 -- takes the job over at provisioning time (see internal/domain/checkin).
 --
 -- IDEMPOTENCY IS ANCHORED ON CONSTRAINTS THAT ALREADY EXIST, so no migration was
--- needed -- but the three statements below do NOT all use the same one, and an
--- earlier version of this comment said "the primary key" for all three, which was
--- wrong for two of them:
+-- needed -- but the three statements below do NOT take their conflicts the same
+-- way. This table has been wrong twice: it first said "the primary key" for all
+-- three, then named ONE target per statement, and naming one target was the
+-- concurrency defect T121 fixed (EnsureBaselinePolicy's comment has the measurement):
 --
---   policies            ON CONFLICT (id)                       -- the PRIMARY KEY
---   policy_versions     ON CONFLICT ON CONSTRAINT
---                       policy_versions_no_key                 -- UNIQUE (tenant_id, policy_id, version_no)
+--   policies            ON CONFLICT DO NOTHING        -- NO TARGET: all three unique
+--                                                        indexes arbitrate
+--   policy_versions     ON CONFLICT DO NOTHING        -- NO TARGET: all three unique
+--                                                        indexes arbitrate
 --   policy_attachments  ON CONFLICT ON CONSTRAINT
---                       policy_attachments_resource_key        -- UNIQUE (tenant_id, policy_id, resource)
+--                       policy_attachments_resource_key  -- the only index a racer
+--                                                           can meet (random id)
 --
--- policies has no (tenant_id, name) key, which is why its id is DERIVED from
--- (tenant, baseline document name) with uuid v5: that makes its primary key a
--- usable conflict target. The other two already had a natural key to conflict on.
--- All three keep this an INSERT-ONLY change to append-only data: policy_versions
--- is append-only by privilege AND by trigger (00007), so "write it again" must be
--- a no-op rather than a second row.
+-- policies had no name key when this was written (00015 has since added
+-- UNIQUE (tenant_id, layer, name)), which is why its id is DERIVED from (tenant,
+-- baseline document name) with uuid v5: two first taps then write THE SAME row, so
+-- there is a conflict for DO NOTHING to absorb instead of two rows. policy_versions
+-- derives its id too. All three keep this an INSERT-ONLY change to append-only data:
+-- policy_versions is append-only by privilege AND by trigger (00007), so "write it
+-- again" must be a no-op rather than a second row.
 --
 -- TENANT SCOPE (section 4.5, belt + braces): every statement carries an explicit
 -- tenant_id and runs inside db.(*DB).WithTenant, whose RLS WITH CHECK refuses a
@@ -90,77 +94,82 @@ ORDER BY p.id, v.version_no DESC;
 -- created_by is NULL: the author is Tappa's system provisioning, not a human
 -- admin (00007 documents exactly this case).
 --
--- ON CONFLICT (id) DO NOTHING is what makes a second tap free. It also means an
+-- ON CONFLICT DO NOTHING is what makes a second tap free. It also means an
 -- EXISTING row is left exactly as it is -- including enabled=false. A tenant that
 -- switched a baseline statement off must not have it switched back on by someone
 -- walking up to a plaque.
 --
--- 🔴 THIS COMMENT USED TO SAY "and a hundred concurrent first taps produce one
--- row". IT IS FALSE, AND THIS INSERT IS THE ONE THAT FAILS. Measured (M5-08
--- audit, barrier-synchronised COMMITTING racers, a virgin key per attempt, five
--- attempts per row):
+-- 🔴 IT NAMES NO CONFLICT TARGET, AND THE MISSING TARGET IS THE FIX (T121,
+-- 2026-10-11). This statement said ON CONFLICT (id) until then, and the comment
+-- above it said "a hundred concurrent first taps produce one row" -- true of the
+-- ROWS, false of the TAPS. ON CONFLICT arbitrates only on the index it is given; the
+-- speculative insertion can still trip any OTHER unique index on the row, and a trip
+-- there is a plain 23505 that rolls back the racer's whole materialise transaction.
+-- policies carries THREE unique indexes: policies_pkey (id), policies_id_tenant_key
+-- (id, tenant_id) -- 00007, a composite FK target -- and
+-- policies_tenant_layer_name_key (tenant_id, layer, name) -- 00015. The loser of two
+-- concurrent first taps met the winner on policies_id_tenant_key, forTenant fell
+-- back to the guardrails alone, and that tap's `ok` was recorded as a `flag` (§4.6
+-- held -- the record was written -- but a manager got work the baseline would not
+-- have given them). With NO target every unique index is an arbiter: a racer that
+-- meets the winner on any of them waits for it and then does nothing.
 --
---   policies            ON CONFLICT (id)                20 racers: 4 / 100 fail
---                                                       40 racers: 9 / 200 fail
---   policies            ON CONFLICT (id, tenant_id)      8 racers: 10 / 40 fail
---   policy_versions     ON CONSTRAINT ..._no_key        20 racers: 19 / 100 fail
---   policy_versions     ON CONFLICT (id)  [the PK]      20 racers:  9 / 100 fail
---   policy_attachments  ON CONSTRAINT ..._resource_key  20 and 40 racers: 0 fail
+-- Measured (barrier-released COMMITTING racers, a fresh tenant per attempt, ids
+-- supplied the way production supplies them, 16 racers x 250 attempts = 4 000
+-- inserts per row, two runs):
 --
--- and through the REAL code path (policySets.forTenant against a virgin tenant),
--- 40 racers produce 3-4 failures per 200, every one logged as:
+--   policies            ON CONFLICT (id)                   179 / 162 x 23505 policies_id_tenant_key
+--   policies            ON CONFLICT DO NOTHING               0 / 0
+--   policy_versions     ON CONSTRAINT ..._no_key           863 / 856 x 23505 policy_versions_pkey
+--   policy_versions     ON CONFLICT DO NOTHING               0 / 0
+--   policy_attachments  ON CONSTRAINT ..._resource_key       0 / 0
 --
---   materialise baseline: ensure baseline policy "...": duplicate key value
---   violates unique constraint "policies_id_tenant_key" (SQLSTATE 23505)
+-- and every row of it left exactly one row per tenant: the defect was never a
+-- duplicate, it was the LOSER. Through the real path (policySets.forTenant, 16
+-- racers, 200 virgin tenants) the old statement sent 62 of 3 200 racers to the
+-- guardrails alone, in 35 of the 200 attempts; the new one sent 0 of 10 800 across
+-- six pool/racer/starting-state combinations.
+-- checkin.TestPolicySetDB_ConcurrentFirstTapsMaterialiseOnce is what holds it now.
 --
--- THE RULE IS "A NON-ARBITER UNIQUE INDEX", NOT "THE PRIMARY KEY". ON CONFLICT
--- arbitrates on ONE index; the speculative insertion can still trip any OTHER
--- unique index on the row. policies carries THREE now: policies_pkey (id),
--- policies_id_tenant_key (id, tenant_id) -- added by 00007 as a composite FK target
--- -- and policies_tenant_layer_name_key (tenant_id, layer, name), added by 00015.
--- Arbitrating on any ONE leaves the others exposed, which is why both columns of the
--- table above fail and why swapping the target only moves the collision.
+-- WHY A DIFFERENT NAMED TARGET COULD NOT FIX IT, kept from the M5-08 audit because it
+-- is the evidence that swapping the target only MOVES the collision: ON CONFLICT
+-- (id, tenant_id) failed 10 / 40 at 8 racers (onto policies_pkey), and PK
+-- arbitration on policy_versions failed 9 / 100 at 20 (onto policy_versions_no_key).
+-- That audit listed three ways out -- retry on 23505, an upsert naming every index,
+-- provisioning at sign-up. Leaving the target off IS the second one, in the form
+-- Postgres provides for DO NOTHING (DO UPDATE requires a target; DO NOTHING does not).
 --
--- ⚠️ THE COUNT SAID "TWO" UNTIL 00015 SHIPPED, AND THE WHOLE ARGUMENT OF THIS
--- PARAGRAPH DERIVES FROM IT ("arbitrating on one leaves the OTHER exposed"), so an
--- enumeration that is one short is an argument that is one short. The CONCLUSION does
--- not change and 00015's own header measured why: baseline ids are derived with
--- uuid v5 from (tenant, name) and layer is fixed, so the id index and the name index
--- have the SAME collision set for this statement -- the third index adds no new way
--- for EnsureBaselinePolicy to fail. policy_attachments never fails for a structural reason
--- instead: it does not supply id at all (see its INSERT), so gen_random_uuid()
--- gives every racer a distinct primary key and there is no second index to trip.
---
--- ⚠️ NO WORKING ARBITER CHOICE IS KNOWN. An earlier version of this comment
--- recommended "arbitrate on the PRIMARY KEY"; that is RETRACTED -- measured, PK
--- arbitration on policy_versions still fails 9 / 100, on policy_versions_no_key.
--- A real fix has to come from somewhere else (retry on 23505, an upsert that
--- names both indexes, or provisioning the baseline once at sign-up so the tap
--- path never races -- M7-03's job).
+-- ⚠️ WHAT "NO TARGET" ALSO ABSORBS, AND WHY THAT IS NOT A NEW SILENCE. A conflict on
+-- (tenant_id, layer, name) is now skipped where ON CONFLICT (id) raised it. For any
+-- row THIS statement could write, the two are one collision set: the id is uuid v5
+-- of (tenant, name) and the layer is fixed, so a row with this name and the derived
+-- id is an id conflict as well (00015's header, re-checked by T121). The only row
+-- that conflicts on the name ALONE is a baseline container with a FOREIGN id -- no
+-- statement in this file writes one (this one derives, CreateTenantPolicy writes
+-- 'tenant'), but a hand-written fixture can. Measured on exactly that state, a
+-- foreign-id container with no version: before, 23505 on
+-- policies_tenant_layer_name_key; after, this statement does nothing and the NEXT
+-- one is refused by policy_versions_policy_fk (23503), because the derived policy id
+-- it cites was never written. Both roll the transaction back, both leave the rows as
+-- they were (1/0/0), both decide on the guardrails alone with the same ERROR line.
+-- The failure moved one statement down; it did not go quiet.
 --
 -- 🔬 METHOD, because this class is easy to measure wrongly and an earlier
 -- measurement in this very comment reported "0 failures" for the top row:
 --   * the race only exists once a COMPETING TRANSACTION COMMITS -- a harness
 --     whose racers roll back cannot see it at all;
---   * it is a LOW-PROBABILITY event (~4% of inserts here), so ONE green run
---     proves nothing: run many attempts, each with a VIRGIN key;
+--   * it is a LOW-PROBABILITY event per insert, so ONE green run proves nothing:
+--     release the racers together and run many attempts, each with a VIRGIN key;
 --   * the probe must supply ids the way PRODUCTION does. The earlier probe handed
 --     every racer the same policy_attachments id, which production never does,
 --     and so "measured" a failure that cannot occur.
 --
--- IT IS FAIL-SAFE, NOT SILENT: a losing racer's tap falls back to a
--- guardrail-only decision, so the record is still written (section 4.6) and is
--- flagged rather than counted. NOT FIXED HERE -- policyset.go is outside the
--- M5-08 diff and the fix belongs with M7-03's provisioning; the existing race
--- test uses 8 racers, below the rate at which this shows up.
---
--- ON CONFLICT (id) DO NOTHING still makes a second tap free, and it leaves an
--- EXISTING row exactly as it is -- including enabled=false. A tenant that
--- switched a baseline statement off must not have it switched back on by someone
--- walking up to a plaque.
+-- A MATERIALISE THAT FAILS FOR ANY OTHER REASON IS STILL FAIL-SAFE AND STILL LOUD:
+-- forTenant decides on the guardrails alone, so the record is written (section 4.6)
+-- and flagged rather than counted, and it logs the error at ERROR with the tenant id.
 INSERT INTO policies (id, tenant_id, name, layer, enabled, created_by)
 VALUES (@id, @tenant_id, @name, 'baseline', true, NULL)
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 -- name: EnsureBaselinePolicyVersion :exec
 -- Materialise version 1 of a managed-baseline policy's document.
@@ -174,12 +183,33 @@ ON CONFLICT (id) DO NOTHING;
 -- edit here. This statement therefore does nothing at all once version 1 exists,
 -- whatever the binary now says.
 --
--- The conflict target is the (tenant_id, policy_id, version_no) key rather than
--- the primary key, so it holds even if a caller passed a different id for the
--- same version -- the row that exists wins either way.
+-- NO CONFLICT TARGET (T121), for EnsureBaselinePolicy's reason and with a worse
+-- number behind it. This statement used to name policy_versions_no_key
+-- (tenant_id, policy_id, version_no), and that key still does what it was named for:
+-- a write of version 1 is a no-op whatever id it carries -- the row that exists
+-- wins. But the id this path passes is DERIVED (uuid v5 of tenant, name and version
+-- number), so a racer writing the same version ALSO meets the winner on
+-- policy_versions_pkey and policy_versions_id_tenant_key (00008), and with only
+-- no_key named, those two raised 23505: 863 and 856 of 4 000 racers in two runs,
+-- all on the primary key (the table is in EnsureBaselinePolicy's comment). With no
+-- target all three arbitrate. They are one collision set for any row this path
+-- writes -- the derived id names exactly one (tenant, policy, version_no) -- so for
+-- every row this path can meet, nothing that used to be written is skipped now;
+-- only the race's 23505 is gone. One shape is skipped where it used to fail: a
+-- row that carries the derived id but points at ANOTHER policy_id (only a
+-- hand-written fixture makes one -- no production statement writes a derived id
+-- to another policy). The old form raised 23505 on the primary key; this one
+-- inserts nothing, materialise commits without that document's version, and the
+-- reload logs "incomplete after materialising" and decides on guardrails alone:
+-- loud and fail-safe (a flag, never a silent approval -- T121 security review).
+--
+-- On a VIRGIN tenant this statement does not race at all: the racers meet on the
+-- policies insert first, and whoever loses there waits for the winner's commit and
+-- then finds this row already written. It races when the policies row is there and
+-- the version is not, which is the second state the concurrency test pins.
 INSERT INTO policy_versions (id, tenant_id, policy_id, version_no, document, created_by)
 VALUES (@id, @tenant_id, @policy_id, 1, @document, NULL)
-ON CONFLICT ON CONSTRAINT policy_versions_no_key DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 -- name: EnsurePolicyAttachment :exec
 -- Bind a materialised baseline policy to a resource ('*' tenant-wide for every
@@ -193,6 +223,12 @@ ON CONFLICT ON CONSTRAINT policy_versions_no_key DO NOTHING;
 -- provisioning (M7-03) will both read attachments to answer "where does this
 -- apply" -- a question that would otherwise get the wrong answer for every tenant
 -- provisioned by this path.
+--
+-- ITS CONFLICT TARGET STAYS NAMED, and this is the one materialising statement where
+-- that is right: it does not supply an id, so gen_random_uuid() gives every racer a
+-- distinct primary key, and resource_key is the only unique index a racer can meet
+-- (measured: 0 of 4 000). A unique index added to this table later re-opens the
+-- question EnsureBaselinePolicy's comment answers.
 INSERT INTO policy_attachments (tenant_id, policy_id, resource)
 VALUES (@tenant_id, @policy_id, @resource)
 ON CONFLICT ON CONSTRAINT policy_attachments_resource_key DO NOTHING;

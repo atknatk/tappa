@@ -11,6 +11,7 @@ package checkin
 // record loss on the most common outcome the product has.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -36,6 +37,13 @@ func quietLogger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard
 // the seeded Kebab Factory tenant has 0 policies and 0 policy_versions).
 func newPolicyHarness(t *testing.T) (*db.DB, uuid.UUID, policySets) {
 	t.Helper()
+	data := openPolicyDB(t)
+	return data, newPolicyTenant(t, data), policySets{data: data, params: policy.DefaultParams(), log: quietLogger()}
+}
+
+// openPolicyDB opens a real pool against DATABASE_URL, or skips.
+func openPolicyDB(t *testing.T) *db.DB {
+	t.Helper()
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
 		t.Skip("DATABASE_URL not set; skipping policy-set tests (real Postgres required)")
@@ -56,7 +64,12 @@ func newPolicyHarness(t *testing.T) (*db.DB, uuid.UUID, policySets) {
 		t.Fatalf("db.New: %v", err)
 	}
 	t.Cleanup(data.Close)
+	return data
+}
 
+// newPolicyTenant creates a fresh tenant with NO policy rows.
+func newPolicyTenant(t *testing.T, data *db.DB) uuid.UUID {
+	t.Helper()
 	tenantID := uuid.New()
 	if err := data.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		_, e := tx.Exec(ctx,
@@ -67,7 +80,25 @@ func newPolicyHarness(t *testing.T) (*db.DB, uuid.UUID, policySets) {
 	}); err != nil {
 		t.Fatalf("fixture tenant: %v", err)
 	}
-	return data, tenantID, policySets{data: data, params: policy.DefaultParams(), log: quietLogger()}
+	return tenantID
+}
+
+// lockedBuffer is a log sink the racers share and the test reads afterwards.
+type lockedBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (l *lockedBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
 }
 
 func countRows(t *testing.T, data *db.DB, tenantID uuid.UUID, table string) int {
@@ -202,35 +233,131 @@ func TestPolicySetDB_MaterialisingIsIdempotent(t *testing.T) {
 }
 
 // TestPolicySetDB_ConcurrentFirstTapsMaterialiseOnce. A shift change is many taps
-// at once, and for a tenant that has never tapped they are all "the first one".
-// The deterministic ids plus ON CONFLICT DO NOTHING are what turn that into one
-// set of rows instead of N.
+// at once, and for a tenant that has never tapped they are all "the first one":
+// every one of them must come back with the WHOLE baseline, and the tables must
+// hold one set of rows rather than N.
+//
+// 🔴 THE FAILURE THIS EXISTS FOR IS A LOSING RACER, NOT A DUPLICATE ROW. Until T121
+// the materialising INSERTs each named ONE conflict target (policies its primary
+// key, policy_versions its no_key). ON CONFLICT arbitrates only on what it is
+// given, so a racer that met the winner on ANOTHER unique index of the same row got
+// 23505, its whole materialise transaction rolled back, and forTenant answered with
+// the guardrails ALONE: its tap landed on the fail-to-review default and an `ok` was
+// recorded as a `flag` (CLAUDE.md §5 rows 6-7; §4.6 held, the record was written).
+// The rows were right every time -- the DECISION was not -- which is why every
+// racer's Set is checked before anything is counted.
+//
+// ⚠️ THE EARLIER SHAPE OF THIS TEST CAUGHT THAT IN ABOUT 0.25% OF RUNS (T120's
+// measurement) AND SAID NOTHING WHEN IT DID. Eight goroutines started in a loop on
+// a COLD pool arrive spread out by their own dials, and the logger was io.Discard,
+// so the 23505 that explained a red run was thrown away. It stopped main's CI and a
+// deploy once. This shape, against the pre-T121 statements, went red in 20 runs out
+// of 20 (-count=20), in both subtests -- and never on the cold first attempt: every
+// one of the 40 failures came on attempt 2 to 8, which is the dial spreading the
+// racers, measured. So:
+//   - the racers are released together by a barrier, and every attempt after the
+//     first runs on connections the earlier attempts left in the pool;
+//   - each run makes ATTEMPTS draws on fresh tenants, because one release is one
+//     low-odds draw;
+//   - forTenant's WARN-and-above lines are captured and printed in the failure;
+//   - RACERS is 4, the floor of pgx's default pool (max(4, NumCPU)), so each racer
+//     holds a connection of its own on any machine -- CI's 4-vCPU runner included.
+//     A racer count above the pool only queues. Measured with the pre-T121
+//     statements, share of attempts in which at least one racer fell back:
+//     pool 4 / 4 racers 30/100 · pool 4 / 16 racers 18/100 · pool 16 / 16 racers
+//     32/100 · pool 32 / 32 racers 31/100.
+//
+// TWO STARTING STATES, because the two statements race in different ones. On a
+// virgin tenant the racers meet on the FIRST insert (policies); once one of them
+// holds that row the others wait for it and then find everything committed, so the
+// policy_versions statement never races there and this state cannot see it. On a
+// tenant that already holds the policy CONTAINERS but no versions, the policies
+// insert is a no-op and the race moves to policy_versions. Today's tap path does
+// not produce that state (materialise writes both in one transaction); it is here to
+// pin the second statement. Measured with the pre-T121 statements: 34/100 attempts
+// drew a fallback at pool 4 / 4 racers and 46/100 at 16 / 16, every one a 23505 on
+// policy_versions_pkey.
 func TestPolicySetDB_ConcurrentFirstTapsMaterialiseOnce(t *testing.T) {
-	data, tenantID, sets := newPolicyHarness(t)
-	const racers = 8
+	const (
+		racers   = 4
+		attempts = 10
+	)
 	want := len(policy.Baseline())
 
-	var wg sync.WaitGroup
-	sizes := make([]int, racers)
-	for i := 0; i < racers; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			sizes[i] = len(sets.forTenant(context.Background(), tenantID).Baseline)
-		}(i)
+	cases := []struct {
+		name string
+		seed func(t *testing.T, data *db.DB, tenantID uuid.UUID)
+	}{
+		{"a virgin tenant", nil},
+		{"a tenant holding the policy containers but no versions", seedBaselineContainers},
 	}
-	wg.Wait()
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			data := openPolicyDB(t)
+			logs := &lockedBuffer{}
+			sets := policySets{data: data, params: policy.DefaultParams(),
+				log: slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelWarn}))}
 
-	for i, n := range sizes {
-		if n != want {
-			t.Fatalf("racer %d assembled %d baseline documents, want %d", i, n, want)
+			for attempt := 1; attempt <= attempts; attempt++ {
+				tenantID := newPolicyTenant(t, data)
+				if tc.seed != nil {
+					tc.seed(t, data, tenantID)
+				}
+
+				sizes := make([]int, racers)
+				var ready, done sync.WaitGroup
+				start := make(chan struct{})
+				for i := range racers {
+					ready.Add(1)
+					done.Add(1)
+					go func() {
+						defer done.Done()
+						ready.Done()
+						<-start
+						sizes[i] = len(sets.forTenant(context.Background(), tenantID).Baseline)
+					}()
+				}
+				ready.Wait()
+				close(start)
+				done.Wait()
+
+				for i, n := range sizes {
+					if n != want {
+						t.Fatalf("attempt %d/%d: racer %d assembled %d baseline documents, want %d. It "+
+							"decided on the guardrails ALONE, so its tap would be recorded as a `flag` "+
+							"where the baseline says `ok`. What forTenant logged:\n%s",
+							attempt, attempts, i, n, want, logs.String())
+					}
+				}
+				for _, table := range []string{"policies", "policy_versions", "policy_attachments"} {
+					if got := countRows(t, data, tenantID, table); got != want {
+						t.Fatalf("attempt %d/%d: %s = %d after %d concurrent first taps, want %d",
+							attempt, attempts, table, got, racers, want)
+					}
+				}
+			}
+		})
+	}
+}
+
+// seedBaselineContainers writes the policies row of every shipped baseline document,
+// under the id materialise derives for it, and NO version: containers without their
+// documents. ListPolicySet inner-joins versions, so forTenant reports all of them
+// missing and materialises.
+func seedBaselineContainers(t *testing.T, data *db.DB, tenantID uuid.UUID) {
+	t.Helper()
+	err := data.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		for _, doc := range policy.Baseline() {
+			if _, e := tx.Exec(ctx,
+				`INSERT INTO policies (id, tenant_id, name, layer) VALUES ($1, $2, $3, 'baseline')`,
+				baselinePolicyID(tenantID, doc.Name), tenantID, doc.Name); e != nil {
+				return e
+			}
 		}
-	}
-	if got := countRows(t, data, tenantID, "policies"); got != want {
-		t.Fatalf("policies = %d after %d concurrent first taps, want %d", got, racers, want)
-	}
-	if got := countRows(t, data, tenantID, "policy_versions"); got != want {
-		t.Fatalf("policy_versions = %d, want %d", got, want)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("seeding the baseline containers: %v", err)
 	}
 }
 
