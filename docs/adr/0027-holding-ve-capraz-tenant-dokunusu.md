@@ -48,8 +48,9 @@ holding'in üyesi iki tenant'tan birinin çalışanı ötekinin plaketinde okuta
 (**saha**) yalnız kapalı bir izdüşümü (`site_punches`) görür; tenant sınırı **yalnız** §2'deki
 **kapalı** `holding_*` fonksiyon listesinde ve holding tetikleyicilerinde aşılır, holding üyeliğini
 **yalnız** `op_*` yazar; ve iki yönlü tehdit modeli normatiftir — **holding dışı bir tenant bu
-yüzeye hiçbir yoldan erişemez** (tek ve sınırlı istisna: üyeliği yeni biten bir tenant için K-29'un
-60 sn'lik çıkış penceresi — §6, §12), **eş bir tenant holding dışı bir anahtarı (plaket uid'i,
+yüzeye hiçbir yoldan erişemez** (tek ve sınırlı istisna: bir üyelik bittikten sonraki 60 sn —
+K-29'un çıkış penceresi — içinde toleranslı kollardan yazılan satırlar **iki yönde de** karşı tarafa
+düşer — §6, §12), **eş bir tenant holding dışı bir anahtarı (plaket uid'i,
 lokasyon id'si) veremez** (§12). Listeyi, bir fonksiyonun dönüş sütunlarını ya da definer'ın sütun
 matrisini genişletmek **kullanıcı onayı + bu ADR'nin değişikliği** ister ve bir katalog testi bunu
 mekanik olarak sabitler (§2).
@@ -170,9 +171,18 @@ yok — ADR 0021 §2 v 7, B14):
 - `op_create_holding` — boş holding açar.
 - `op_add_holding_member` — tenant'ı ekler; **saat dilimi holding'in mevcut üyelerininkinden
   farklıysa reddeder** (K-36; K-7: raporlar tenant saat dilimiyle hesaplanır, çapraz geç kalma iki
-  tenant'ın aynı saati okumasını ister). **Karşılaştırmadan önce kilitler** (1. tur, üçüncü göz
-  ölçtü: kilitsiz karşılaştırma ile ekleme arasına sahibin saat dilimi `UPDATE`'i girebiliyordu):
-  ilgili `tenants` satırlarını **kanonik sırada** (küçük id önce) — holding'in mevcut üyelerininkini
+  tenant'ın aynı saati okumasını ister). **Önce holding'i serileştirir** (2. tur, iki denetçi ölçtü:
+  **boş** bir holding'e farklı saat dilimli iki tenant eşzamanlı eklenince ikisi de karşılaştıracak
+  üye görmüyor ve K-36 deliniyordu): `pg_advisory_xact_lock(hashtextextended('holding-membership:'
+  || holding_id::text, 0))` — deponun mevcut kalıbı (`db/queries/invites.sql:403`); advisory kilit
+  fonksiyonları ve `hashtextextended` PUBLIC'e açıktır, yani **yeni bir yetki gerekmez**. Kilitten
+  sonraki üyelik okuması yeni bir ifadedir (READ COMMITTED, VOLATILE gövde) ve bekleyen eklemenin
+  commit edilmiş üyeliğini görür. Aynı kilidi `op_remove_holding_member` da alır (audit'in *"kalan
+  üye"* kümesi eşzamanlı bir eklemeyle yarışmasın). **Elenen:** `holdings` satırını `FOR NO KEY
+  UPDATE` ile kilitlemek — `tappa_opdefiner`'a `holdings`'te bir sütunda yeni bir `UPDATE` yetkisi
+  isterdi (*"Bağlam"*: satır kilidinin yetki şartı). **Sonra, karşılaştırmadan önce kilitler** (1.
+  tur, üçüncü göz ölçtü: kilitsiz karşılaştırma ile ekleme arasına sahibin saat dilimi `UPDATE`'i
+  girebiliyordu): ilgili `tenants` satırlarını **kanonik sırada** (küçük id önce) — holding'in mevcut üyelerininkini
   `FOR SHARE`, eklenen tenant'ınkini `FOR NO KEY UPDATE` (`FOR SHARE`'den güçlü: aynı tenant için iki
   eşzamanlı ekleme de sıraya girer — tek üyelik kuralının kilidi budur; iki `FOR SHARE` birbirini
   beklemezdi). Sahibin saat dilimi `UPDATE`'i satırı `FOR NO KEY UPDATE` ile tuttuğu için iki kilitle
@@ -250,33 +260,55 @@ gerekçe).
 
 **Tek yüklem — `holding_peer(a, b, mod)` (K-33).** *"İki tenant aynı holding'de eş mi"* sorusunun
 **tek** cevabı budur; bütün `holding_*` fonksiyonları **ve iki tetikleyici** (BEFORE INSERT üyelik
-kapısı, AFTER holding tetikleyicisi) onu çağırır. **1. tur düzeltmesinden (2026-10-11, üçüncü göz)
-beri kural yapısaldır: `holding_members`'a gövdesinde değinen TEK fonksiyon `holding_peer`'dir**
-(yazarlar olan `tappa_opdefiner` sahipli `op_*`'lar hariç) — satır içi eşlik kontrolü, onu
-yazabilecek bir gövde kalmadığı için imkânsızdır. BEFORE kapısının kilidi ve K-36 kilidinin üyelik
-sorusu da bu yüzden `holding_peer`'in kipleridir. `mod` **kapalı** bir kümedir (bilinmeyen kip →
+kapısı, AFTER holding tetikleyicisi) onu çağırır. **Kural (1. tur düzeltmesi, 2026-10-11, üçüncü
+göz): `holding_members`'a gövdesinde değinen TEK fonksiyon `holding_peer`'dir** (yazarlar olan
+`tappa_opdefiner` sahipli `op_*`'lar hariç); BEFORE kapısının kilidi ve K-36 kilidinin üyelik sorusu
+da bu yüzden `holding_peer`'in kipleridir. Kural **yapısal değildir, bir taramayla tutulur** (aşağıda):
+`tappa_holdingdefiner`'ın `holding_members`'ta `SELECT` yetkisi olduğu için bir gövde tabloyu
+okuyabilir; satır içi eşlik kontrolü yazmak taramayı kırmızıya çevirir. Tarama sözdizimseldir, kanıt
+değildir — kapsadığı biçimler aşağıda sayılıdır, kalanlar kod incelemesinin konusudur. `mod` **kapalı** bir kümedir (bilinmeyen kip →
 hata):
 
 | Kip | Soru | Saat | Çağıran |
 |---|---|---|---|
 | `strict` | `a` ve `b` aynı holding'de, iki üyelik de `left_at IS NULL OR left_at > clock_timestamp()` | `clock_timestamp()` | çağrılabilir `holding_*` fonksiyonları (`holding_advance_tag_counter`'da tek CTE'de **bir kez**) |
 | `strict_stmt` | aynı soru, `statement_timestamp()` ile | ifade saati | BEFORE kapısının katı kolları (QR, manuel, ilerletilmemiş NFC); AFTER tetikleyicisinin onay kolu |
-| `tolerant_stmt` | aynı holding, iki üyelik `left_at IS NULL OR left_at + 60 sn > statement_timestamp()` | ifade saati | **yalnız** BEFORE kapısının K-29 (i)/(ii) kolları (§6) |
-| `lock` | `a` ve `b`'nin aday üyelik satırlarını (`left_at IS NULL OR left_at + 60 sn > statement_timestamp()`) kanonik sırada (küçük tenant id önce) **`FOR SHARE`** kilitler; karar vermez | — | **yalnız** BEFORE kapısı, karardan önce (§6) |
+| `tolerant_stmt` | aynı holding, iki üyelik `left_at IS NULL OR left_at + 60 sn > statement_timestamp()` **ve iki üyelik zamanda örtüşür:** `ma.joined_at < coalesce(mb.left_at, 'infinity') AND mb.joined_at < coalesce(ma.left_at, 'infinity')` | ifade saati | **yalnız** BEFORE kapısının K-29 (i)/(ii) kolları (§6) |
+| `lock` | `tolerant_stmt`'in şartını (aynı holding + pencere + **örtüşme**) sağlayan aday üyelik satır çiftlerini kanonik sırada (küçük tenant id önce) **`FOR SHARE`** kilitler; karar vermez | — | **yalnız** BEFORE kapısı, karardan önce (§6) |
 | `is_member` | `a`'nın (`b` NULL) `left_at IS NULL OR left_at + 60 sn > clock_timestamp()` olan bir üyeliği var mı | `clock_timestamp()` | **yalnız** K-36 saat dilimi kilidi (§1) |
 
+**Örtüşme şartı neden (2. tur, güvenlik merceği ölçtü):** yalnız *"aynı `holding_id` + pencere"*
+soran toleranslı kip, holding'den **çıkmış** A'nın pencerede kalan eski satırını, A çıktıktan
+**sonra** katılmış B'nin satırıyla eşleyip hiç birlikte üye olmamış iki tenant'ı eş sayıyordu. Katı
+kiplerde iki üyelik de *şu an* canlı olduğu için örtüşme kendiliğinden sağlanır.
 `a = b` → `false` (bir tenant kendisinin eşi değildir; kendi verisi RLS'li yoldan gelir — rehber dahil,
 ADR 0028 §2). 60 sn'nin tek tanımı `holding_peer`'dedir (`op_add_holding_member`'ın kopyası §1).
+**Maliyet — eş kümesi bir kez (2. tur, güvenlik merceği ölçtü: 5,54 sn → 42 ms).** VOLATILE bir
+fonksiyon satır başına yeniden çağrılır; bu yüzden çok satırlı fonksiyonlar (`holding_directory`,
+`holding_site_locations`) eş kümesini **bir kez** hesaplar — `tenants` üzerinde `holding_peer(GUC
+tenant'ı, t.id, 'strict')` ile, materyalize bir CTE'de — ve veri satırlarını bu kümeyle birleştirir;
+`holding_peer`'i veri satırı başına **çağırmaz**.
 `holding_peer` **VOLATILE**'dir (`lock` kipi satır kilidi alır; PostgreSQL kilitli `SELECT`'i volatil
 olmayan fonksiyonda reddeder — *"Bağlam"*), `holding_members` üzerindeki **tek satır kilidi
 `FOR SHARE`'dir** — gövdesinde `FOR UPDATE`, `FOR NO KEY UPDATE`, `FOR KEY SHARE`, `UPDATE`,
 `INSERT`, `DELETE`, `MERGE` **yoktur** (1. tur, güvenlik merceği ölçtü: `lock_anchor`'ın `UPDATE`
 yetkisi `FOR UPDATE`'e de izin veriyor ve ters sırada alınan `FOR UPDATE` kilitlenme üretiyor — §3).
-**`prosrc` taraması (normatif):** `public`'teki her fonksiyon için `prosrc` `holding_members`
-içeriyorsa ya adı `holding_peer`'dir ya da sahibi `tappa_opdefiner` ve adı `op_%`'dir; ve
-`holding_peer`'in `prosrc`'unda yukarıdaki yasak deyimlerin hiçbiri geçmez. (Tarama bir ad
-taramasıdır; bir görünümün arkasını görmez — `tappa_holdingdefiner`'ın üyelik okuyabildiği tek
-nesnenin `holding_members` olması §3'ün matrisiyle tutulur.)
+**Gövde taraması (normatif; 2. tur düzeltmesi — güvenlik merceği `prosrc` üzerindeki sözcük
+düzeyindeki taramanın dört atlatmasını ölçtü):**
+1. Metin `prosrc` değil **`pg_get_functiondef(oid)`**'dir, **yorumları ayıklanmış** olarak (`--` ve
+   iç içe `/* */`), büyük/küçük harf duyarsız; her şemadaki her fonksiyon dolaşılır.
+2. Bu metinde `holding_members` geçen her fonksiyon ya `public.holding_peer`'dir ya da sahibi
+   `tappa_opdefiner` olan bir `op_%`'dir.
+3. SQL-standart gövdeli (`BEGIN ATOMIC`, `prosqlbody` dolu) her fonksiyon için ayrıca **`pg_depend`
+   kenarları** denetlenir: `holding_members`'a bağımlılık kaydı yalnız aynı iki sınıfta olabilir
+   (PL/pgSQL gövdesi bağımlılık kaydetmez — metin taraması o yüzden gerekir).
+4. `tappa_holdingdefiner` sahipli **her** gövdede **`EXECUTE`** (dinamik SQL — §2 sözleşmesinin 1.
+   maddesi bununla pinlenir) ve **`U&"`** (Unicode kaçışlı tanımlayıcı) **yoktur**.
+5. `holding_peer`'in metninde yukarıdaki yasak deyimlerin (`FOR UPDATE`, `FOR NO KEY UPDATE`, `FOR KEY
+   SHARE`, `UPDATE`, `INSERT`, `DELETE`, `MERGE`) hiçbiri geçmez.
+
+Tarama bir görünümün ya da başka bir fonksiyonun arkasını görmez; `tappa_holdingdefiner`'ın üyelik
+okuyabildiği tek nesnenin `holding_members` olması §3'ün matrisiyle tutulur.
 `holding_peer` **SECURITY INVOKER**, sahibi `tappa_holdingdefiner`, `EXECUTE` **yalnız sahipte**:
 yalnız definer gövdelerinin içinden (orada `current_user` = sahip) çağrılabilir. `tappa_app`'e
 asla — aksi hâlde serbest parametreli bir **üyelik kâhini** olurdu (9. tur ölçtü). 10. tur ayrıca
@@ -285,8 +317,9 @@ asla — aksi hâlde serbest parametreli bir **üyelik kâhini** olurdu (9. tur 
 
 **Kapalı fonksiyon listesi — holding istisnasının tamamı.** Bu listede olmayan hiçbir kod yolu
 tenant bağlamı olmadan bir tenant satırına dokunamaz (`op_*` hariç — ADR 0021). 🔴 **Listeye fonksiyon
-eklemek, bir fonksiyonun dönüş sütunlarını değiştirmek ya da genişletmek, ya da `tappa_holdingdefiner`'ın
-sütun matrisini (§3) genişletmek KULLANICI ONAYI + bu ADR'nin değişikliği ister** (tarihli not + iki
+eklemek, bir fonksiyonun dönüş sütunlarını değiştirmek ya da genişletmek, `tappa_holdingdefiner`'ın
+sütun matrisini (§3) genişletmek, ya da `holding_peer`'e kip eklemek veya bir kipin süzgecini ya da
+zaman kuralını gevşetmek KULLANICI ONAYI + bu ADR'nin değişikliği ister** (tarihli not + iki
 merceğin denetimi); argüman değişikliği yalnız bu ADR'nin değişikliğidir. *"Zaten N tane var"*
 gerekçe değildir (ADR 0021'in md.7 kuralı). **Neden kullanıcı onayı (1. tur, güvenlik merceği,
 ölçüldü):** dönüşü `static_ips`/GPS ile genişletilmiş bir `holding_site_locations` KM'ye KF'nin ağını
@@ -327,16 +360,35 @@ olarak** bu tablodur.
 (K-39); başka hiçbir dönüşte yoktur.
 
 **Katalog testi — `TestHoldingCatalog_TheFunctionsAndTheirExactSignatures`** (emsal
-`internal/db/operatortenants_test.go:388`, `TestOperator00029_TheFunctionsAndTheirExactSignatures`):
-(i) sahibi `tappa_holdingdefiner` olan fonksiyonların **ad kümesi** imza tablosuna eşittir — eksik
-ya da fazla bir ad kırmızı; (ii) her birinin argüman ve dönüş metni tablodakiyle **birebir**; (iii)
-ad başına **tek aşırı yükleme** (ikinci bir imza ikinci bir kapıdır); (iv) adı `holding\_%` olan
-**her** fonksiyonun sahibi `tappa_holdingdefiner` (ters yön — sahipliği unutulmuş bir `holding_*`
-superuser sahipli bir definer olurdu); (v) `prosecdef` `holding_peer` dışında `true`, `holding_peer`
-için `false` ve `provolatile = 'v'`; `proconfig` = `search_path=pg_catalog, pg_temp` (tetikleyicilerde
-ayrıca `lock_timeout`); (vi) `EXECUTE` ACL'i yukarıdaki tablonun sütunu (PUBLIC ve `tappa_resolver`
-için `false`). Dönüşü genişletilmiş bir `holding_site_locations` (1. turun mutantı) bu testte
-kırmızıdır.
+`internal/db/operatortenants_test.go:388`, `TestOperator00029_TheFunctionsAndTheirExactSignatures`).
+Her madde **bütün şemaları** `nspname.proname` ile dolaşır (yalnız `public` değil — 2. tur):
+(i) sahibi `tappa_holdingdefiner` olan fonksiyonların **nitelikli ad kümesi** imza tablosuna eşittir
+(hepsi `public.` altında) — eksik ya da fazla bir ad kırmızı; (ii) her birinin argüman ve dönüş metni
+tablodakiyle **birebir**; (iii) nitelikli ad başına **tek aşırı yükleme** (ikinci bir imza ikinci bir
+kapıdır); (iv) **hangi şemada olursa olsun** adı `holding\_%` olan **her** fonksiyonun sahibi
+`tappa_holdingdefiner` (ters yön — sahipliği unutulmuş bir `holding_*` superuser sahipli bir definer
+olurdu); (v) `prosecdef` `holding_peer` dışında `true`, `holding_peer` için `false` ve `provolatile =
+'v'`; `proconfig` = `search_path=pg_catalog, pg_temp` (tetikleyicilerde ayrıca `lock_timeout`); (vi)
+`EXECUTE` ACL'i **tam eşitlikle**: `aclexplode(coalesce(proacl, acldefault('f', proowner)))`'tan
+`EXECUTE` alan rollerin kümesi çağrılabilir fonksiyonlarda **tam olarak** {sahip, `tappa_app`},
+`holding_peer` ve tetikleyicilerde **tam olarak** {sahip}'tir — PUBLIC ya da başka herhangi bir rol
+(ör. `tappa_operator`, `tappa_resolver`) kırmızı. *"Şu rollerde `false`"* biçimindeki ilk hâl yetmiyordu
+(2. tur, güvenlik merceği ölçtü: `tappa_operator`'a `EXECUTE` verilince test yeşil kalıyor ve operatör
+audit'siz KF'nin `static_ips`'ini okuyordu); `coalesce` şarttır, çünkü `NULL` `proacl` varsayılan ACL
+(PUBLIC `EXECUTE`) demektir ve `aclexplode(NULL)` boş döner. Dönüşü genişletilmiş bir
+`holding_site_locations` (1. turun mutantı) bu testte kırmızıdır.
+
+**Kanarya testi — `TestHoldingFunctions_SiteEvidenceCanaryNeverLeaks`** (2. tur, güvenlik merceği
+ölçtü: imza testi dönüşün **içeriğini** pinlemiyor — `location_name`'e `static_ips`/GPS birleştiren bir
+gövde yeşil kalıyordu). Eş tenant'ın lokasyonuna ayırt edici bir kanarya tohumlanır: bir TEST-NET
+adresi (ör. `198.51.100.77/32`) ve başka hiçbir yerde geçmeyen bir GPS çifti. Sonra her **çağrılabilir**
+`holding_*` (`holding_tap_site`, `holding_advance_tag_counter`, `holding_logo`,
+`holding_site_locations`, `holding_directory`) eş bağlamında çağrılır ve **her çıktı hücresinin**
+metin biçiminde kanaryanın (adresin ve GPS'in ondalık yazımlarının) **geçmediği** doğrulanır —
+**tek istisna** `holding_tap_site`'ın `static_ips`, `gps_lat`, `gps_lng` sütunlarıdır (K-39: yalnız
+sunucu içi karar girdisi). Holding tetikleyicisinin aynı tohumla yazdığı dört tablonun (`site_punches`,
+`punch_events`, `webhook_deliveries`, `feed_counters`) satırları da aynı denetimden geçer. Mutant:
+`location_name || static_ips` döndüren gövde → kırmızı.
 
 **EXECUTE ve bağlama kuralları (plan §4.0):** M11'in her fonksiyonunda `REVOKE ALL ON FUNCTION … FROM
 PUBLIC`; çağrılabilir `holding_*` fonksiyonlarında `EXECUTE` **yalnız `tappa_app`**'e; tetikleyici
@@ -508,9 +560,10 @@ her kanalda yanlıştı (7. tur), bu yüzden kural kanal ve satır şekline gör
 | Onaylar (`transaction_reviews`) | **katı** (`statement_timestamp()`) | onay işverende **her zaman** yazılır (işverenin kendi kaydı); eşlik bitmişse KF tarafı (izdüşüm, saha olayı) atlanır — §9 bedeli |
 | Okumalar (`holding_tap_site`, `holding_logo`, rehber, lokasyon listesi) | **katı** | `left_at`'ten sonra 0 satır |
 
-**Toleransın uygulandığı yer veritabanıdır.** BEFORE INSERT kapısı ve holding tetikleyicisinin
-`transactions` kolu 60 sn toleransı **yalnız** yukarıdaki iki NFC/red koluna uygular; geri kalan
-her şey katıdır. `sun_valid` kodda ilerletmenin başarısıdır (`checkin.go:966-970`).
+**Toleransın uygulandığı yer veritabanıdır.** BEFORE INSERT kapısı 60 sn toleransı **yalnız**
+yukarıdaki iki NFC/red koluna uygular (`holding_peer`'in `tolerant_stmt` kipi); geri kalan her şey
+katıdır. Holding tetikleyicisinin `transactions` kolu eşliği **yeniden sormaz** (aşağıda) — kipi
+yoktur. `sun_valid` kodda ilerletmenin başarısıdır (`checkin.go:966-970`).
 
 **Sıralama — `FOR SHARE` ve `statement_timestamp()`.** BEFORE kapısı karar vermeden **önce**
 `holding_peer(işveren, saha, 'lock')` ile iki tenant'ın aday `holding_members` satırlarını
@@ -715,10 +768,14 @@ e-postaları, iki tenant'ın mesai kayıtları (CLAUDE.md §4.3, §4.6), holding
 
 1. **Holding dışı tenant C (oturumu, yöneticisi, API anahtarı) hiçbir yoldan erişemez — K-29'un
    60 sn'lik çıkış penceresi hariç** (1. tur düzeltmesi, güvenlik merceği). **Tek ve sınırlı
-   istisna:** üyeliği **yeni biten** bir tenant, `left_at`'ten sonraki 60 sn boyunca K-29'un iki
-   toleranslı kolundan (ilerletmesi `left_at`'ten önce yapılmış NFC dokunuşu; replay, `peer_inactive`,
-   kayıp plaket ve QR **redleri**) eski eşin plaketine bağlı satır yazdırabilir; bu satırlar eski eşin
-   izdüşümüne ve akışına düşer — red tekilleştirmesiyle sınırlı (11. tur: 2 200 red → 44). Yeni
+   istisna:** bir üyelik bittikten sonraki 60 sn boyunca K-29'un iki toleranslı kolundan (ilerletmesi
+   `left_at`'ten önce yapılmış NFC dokunuşu; replay, `peer_inactive`, kayıp plaket ve QR **redleri**)
+   yazılan satırlar **iki yönde de** karşı tarafa düşer (2. tur düzeltmesi, güvenlik merceği): **çıkan**
+   tenant'ın çalışanlarının kalan üyenin plaketlerindeki satırları kalanın izdüşümüne, akışına ve
+   webhook'una; **kalan** üyenin çalışanlarının çıkanın plaketlerindeki satırları **çıkanın**
+   izdüşümüne, akışına ve webhook'una. Red tekilleştirmesiyle sınırlı (11. tur: 2 200 red → 44); kip
+   örtüşen üyelikler ister (§2), yani pencere, çıkan tenant'ın **çıktıktan sonra** katılan bir üyeyle
+   eşleşmesini açmaz. Yeni
    ilerletme, okumalar, QR kararı ve manuel kayıt pencerede de **katıdır**; pencere yeniden katılımı da
    kapatır (§1). Hiç üye olmamış bir C için istisna yoktur.
    - C oturumu + KF plaketi → `holding_advance_tag_counter` = `not_peer` → #1 → **403, kayıt yok,
@@ -806,8 +863,9 @@ adlandırılmış kalan risk (1. tur, güvenlik merceği; §13 madde 13).
     kilidin `FOR SHARE` olduğunu pinler.
 13. **Üyelik sürerken `tappa_app` kusurunun sahte `site_*` satırı** (§12 (d)): işverenin çalışanı ×
     eşin plaketi/lokasyonu ile sınırlı; sonuç eşin izdüşümüne ulaşır.
-14. **K-29'un 60 sn'lik çıkış penceresi** (§12 madde 1): yeni çıkmış bir tenant'ın toleranslı
-    kollardan yazdığı satırlar eski eşe düşer; tekilleştirmeyle sınırlı.
+14. **K-29'un 60 sn'lik çıkış penceresi** (§12 madde 1): bir üyelik bittikten sonraki 60 sn içinde
+    toleranslı kollardan yazılan satırlar **iki yönde de** (çıkandan kalana, kalandan çıkana) karşı
+    tarafın izdüşümüne, akışına ve webhook'una düşer; tekilleştirmeyle ve örtüşme şartıyla sınırlı.
 
 ## Elenen seçenekler
 
@@ -855,7 +913,9 @@ satırları.)*
   (çıkış penceresinde de) · `TestHoldingOps_TimezoneComparisonRacesTheOwnersUpdate` (eşzamanlı:
   `op_add_holding_member`'ın kanonik `tenants` kilidi ile sahibin saat dilimi `UPDATE`'i — iki
   sırada da sonuç ya ret ya eşit saat dilimiyle üyelik; farklı saat dilimli üyelik **asla**) ·
-  `TestHoldingOps_ConcurrentAddsForOneTenantOneWins`
+  `TestHoldingOps_ConcurrentAddsForOneTenantOneWins` ·
+  `TestHoldingOps_ConcurrentAddsOfTwoTenantsKeepOneTimezone` (boş holding'e farklı saat dilimli iki
+  tenant eşzamanlı → tam biri eklenir; mutant: holding kilidi kaldırılmış → iki saat dilimli holding)
 - `TestHoldingOps_OneMembershipAtATimeIncludingTheExitWindow` ·
   `TestHoldingOps_RejoinWaitsForTheToleranceWindow` (`left_at + 59 sn` ret, `+ 61 sn` kabul; iki
   60 sn kopyasının eşitliği) · `TestHoldingOps_LeftAtCannotBeUndone`
@@ -864,14 +924,24 @@ satırları.)*
   `TestHoldingDefiner_NeverSelectColumns` (*"asla SELECT"* listesi + `%_hash` katalog sorgusu)
 - `TestHoldingDefiner_LockAnchorIsTheOnlyMembershipUpdate` (üyelik sütunlarında UPDATE `false`;
   `lock_anchor = true` → 23514; gövdelerde `UPDATE public.holding_members` yok)
-- **`TestHoldingCatalog_TheFunctionsAndTheirExactSignatures`** (§2: ad kümesi = imza tablosu;
-  argüman ve dönüş metni birebir; ad başına tek aşırı yükleme; her `holding\_%`'nin sahibi
-  `tappa_holdingdefiner`; `prosecdef`/`provolatile`/`proconfig`/EXECUTE) — mutant: dönüşüne
-  `static_ips` eklenmiş `holding_site_locations` → kırmızı
+- **`TestHoldingCatalog_TheFunctionsAndTheirExactSignatures`** (§2: bütün şemalarda nitelikli ad
+  kümesi = imza tablosu; argüman ve dönüş metni birebir; nitelikli ad başına tek aşırı yükleme; her
+  şemadaki her `holding\_%`'nin sahibi `tappa_holdingdefiner`; `prosecdef`/`provolatile`/`proconfig`;
+  `aclexplode` ile EXECUTE **tam eşitliği**) — mutantlar: dönüşüne `static_ips` eklenmiş
+  `holding_site_locations` → kırmızı; `tappa_operator`'a `EXECUTE` → kırmızı; başka şemada bir
+  `holding_*` → kırmızı
+- **`TestHoldingFunctions_SiteEvidenceCanaryNeverLeaks`** (§2 kanarya: TEST-NET adresi ve GPS yalnız
+  `holding_tap_site`'ın üç kanıt sütununda; mutant: `location_name || static_ips` → kırmızı)
 - `TestHoldingPeer_InvokerVolatileOwnedByDefinerExecutableOnlyByOwner` ·
   `TestHoldingPeer_ModesAreAClosedSet` (bilinmeyen kip → hata; `a = b` → `false`) ·
-  `TestHoldingPeer_IsTheOnlyBodyThatTouchesHoldingMembers` (`prosrc` taraması: `holding_members`
-  geçen her gövde ya `holding_peer` ya `tappa_opdefiner` sahipli `op_%`) ·
+  `TestHoldingPeer_IsTheOnlyBodyThatTouchesHoldingMembers` (§2'nin gövde taraması: yorumları
+  ayıklanmış `pg_get_functiondef`, bütün şemalar, `BEGIN ATOMIC` için `pg_depend` kenarları;
+  mutantlar: yorumda, tırnaklı/büyük harfli tanımlayıcıda ve `BEGIN ATOMIC` gövdesinde
+  `holding_members` → kırmızı) · `TestHoldingDefiner_NoDynamicSQLNoUnicodeIdentifiers` (definer
+  gövdelerinde `EXECUTE` ve `U&"` yok) · `TestHoldingPeer_TolerantModesRequireOverlappingMemberships`
+  (A çıktıktan sonra katılan B ile A, pencerede eş **değil**; birlikte üyeyken çıkan A ile B
+  pencerede eş) · `TestHoldingFunctions_PeerSetComputedOnce` (çok satırlı fonksiyonlarda
+  `holding_peer` veri satırı başına çağrılmaz — plan/çağrı sayımıyla) ·
   `TestHoldingPeer_OnlyRowLockIsForShare` (`holding_peer`'de `FOR UPDATE` / `FOR NO KEY UPDATE` /
   `FOR KEY SHARE` / `UPDATE` / `INSERT` / `DELETE` / `MERGE` yok; mutant: ters sırada `FOR UPDATE`
   → kilitlenme)

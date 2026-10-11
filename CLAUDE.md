@@ -120,11 +120,14 @@ ediyorsa **dur ve sor**, sessizce uygulama.
    (ADR 0020). **(2) Aynı holding'deki tenant'lar arası dokunuş ve görünürlük** (ADR 0027)
    — yalnız ADR 0027 §2'deki **kapalı** `holding_*` fonksiyon listesi ve holding
    tetikleyicileri (`tappa_holdingdefiner`); holding üyeliğini yalnız `op_*` yazar; holding
-   dışı bir tenant bu yüzeye hiçbir yoldan erişemez (tek, sınırlı istisna: üyeliği yeni biten
-   tenant için K-29'un 60 sn'lik çıkış penceresi), eş bir tenant holding dışı bir tenant'ın
-   anahtarını (plaket uid'i, lokasyon id'si) veremez. **Listeye fonksiyon eklemek, bir
-   fonksiyonun dönüş sütunlarını ya da definer'ın sütun matrisini genişletmek kullanıcı onayı +
-   ADR 0027 değişikliği ister** (imza tablosu ve katalog testi — ADR 0027 §2).
+   dışı bir tenant bu yüzeye hiçbir yoldan erişemez (tek, sınırlı istisna: bir üyelik bittikten
+   sonraki 60 sn — K-29'un çıkış penceresi — içinde toleranslı kollardan yazılan satırlar **iki
+   yönde de** karşı tarafın izdüşümüne ve akışına düşer: çıkandan kalana, kalandan çıkana), eş bir
+   tenant holding dışı bir tenant'ın anahtarını (plaket uid'i, lokasyon id'si) veremez. **Listeye
+   fonksiyon eklemek, bir fonksiyonun dönüş sütunlarını ya da definer'ın sütun matrisini
+   genişletmek, `holding_peer`'e kip eklemek ya da bir kipin süzgecini veya zaman kuralını
+   gevşetmek kullanıcı onayı + ADR 0027 değişikliği ister** (ADR 0027 §2; testler
+   `TestHoldingCatalog_TheFunctionsAndTheirExactSignatures` ve `TestHoldingDefiner_ColumnMatrix`).
 6. **Kayıt asla kaybolmaz.** Kanıt yetersizse REJECT edip atma: kaydı yaz,
    `verdict='flag'` ver, müdür onay kuyruğuna düşür. Sessiz onay da yok.
 7. **NTAG AES anahtarları repoda yer almaz.** DB'de KEK ile sarmalanmış saklanır
