@@ -132,3 +132,14 @@ func VATWordsForTest() map[string]VATWordForTest {
 	}
 	return out
 }
+
+// MaxHoldingPageForTest is holdings.go's maxHoldingPage; HoldingsReadTimeoutForTest and
+// HoldingWriteTimeoutForTest are its two bounds.
+const (
+	MaxHoldingPageForTest      = maxHoldingPage
+	HoldingsReadTimeoutForTest = holdingsReadTimeout
+	HoldingWriteTimeoutForTest = holdingWriteTimeout
+)
+
+// HoldingNameForTest is holdings.go's holdingName.
+func HoldingNameForTest(raw string) (string, bool) { return holdingName(raw) }

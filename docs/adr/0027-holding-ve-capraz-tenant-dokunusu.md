@@ -1171,6 +1171,18 @@ kaldırılınca öteki sıralamayı tutuyor — ölçüldü; ikisi de korunur: d
 serileştirme noktası, satır kilitleri kanonik sıra); hiç kilit yoksa *"ekle, sonra kod"* sırası da
 kırmızı.
 
+**Operatör ekranı (`/operator/holdings`).** Liste `op_read_holdings` ile okunur (okuma bütçesinden bir
+birim; `?page=N` yalnız 1–1000 düz rakam, başkası store'dan önce 404); holding oluşturma ve üye
+ekleme/çıkarma `db.OperatorDB` üzerinden yalnız üç `op_*`'i çağırır ve okuma harcamaz. Ret sessiz
+olduğu için yazma 303 ile listeye döner ve altındaki cümle **POST'tan değil o okumadan** türetilir:
+*"Added."* yalnız okuma canlı üyeliği gösterince, sayfa kenarı sonucu belirsiz bırakınca *"The result is
+not on this page."* (`TestHoldings_TheResultIsReadNotPosted`). Ad ve id'ler sınırda doğrulanır, sayfaya
+geri yazılmaz (reddedilen form 422 ile listeyi yeniden okur). ⚠️ **Sayılı sınırlar:** (1) *"Added."*/
+*"Removed."* bu çağrıyı daha önceki bir çağrıdan ayıramaz — okuma çağrıyı değil üyeliğin son durumunu
+döndürür; (2) audit ekranı holding satırlarında **hangi** holding olduğunu göstermez — `op_read_audit`
+`holding_id`'yi tanır ama `db.OperatorAuditEntry`'de alanı yok (ayrı iş). Uçtan uca:
+`TestE2E_HoldingsCreateAddReadRemoveThroughTheDefiners`.
+
 **Geri yükleme.** Rol `01-roles.sql`'in yeni `HOLDING ROLE (M11 API-1a)` bloğundadır ve canlı küme
 için `deploy/README.md` → *"Holding role (M11 API-1a)"*; `scripts/db-init`'ten sıfırdan kurulan bir kapta
 rol vardı ve goose 42'ye çıktı (ölçüldü); `TestRestore_FreshPodCarriesTheHoldingRole` bloğu rolsüz

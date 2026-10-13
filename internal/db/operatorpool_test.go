@@ -698,8 +698,8 @@ func TestOperatorDB_EveryMethodDelegatesVerbatim(t *testing.T) {
 		}
 		delegating++
 	}
-	if delegating != 16 {
-		t.Fatalf("%d delegating methods on OperatorDB, want the seven operatorauth.Store methods, the two operator.LegalStore methods (OP-10), the two operator.TenantStore methods (OP-11), the operator.PlaqueStore method (OP-13), the operator.AuditStore method (OP-14), the operator.BillingStore method (OP-12) and the two operator.VATStore methods (OP-16)", delegating)
+	if delegating != 20 {
+		t.Fatalf("%d delegating methods on OperatorDB, want the seven operatorauth.Store methods, the two operator.LegalStore methods (OP-10), the two operator.TenantStore methods (OP-11), the operator.PlaqueStore method (OP-13), the operator.AuditStore method (OP-14), the operator.BillingStore method (OP-12), the two operator.VATStore methods (OP-16) and the four operator.HoldingStore methods (M11 API-1a)", delegating)
 	}
 }
 

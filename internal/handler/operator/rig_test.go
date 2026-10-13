@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -52,8 +53,9 @@ const (
 // operator.LegalStore the way 00027's do (OP-10), operator.TenantStore the way 00029's do
 // (OP-11), operator.PlaqueStore the way 00030's does (OP-13), operator.AuditStore the way
 // 00031's does (OP-14), operator.BillingStore the way 00032's does (OP-12) and
-// operator.VATStore the way 00034's do (OP-16), for the arms these tests drive, and COUNTS
-// its calls by method -- "the resolver was not called" is a count of zero here.
+// operator.VATStore the way 00034's do (OP-16) and operator.HoldingStore the way 00042's do (M11
+// API-1a), for the arms these tests drive, and COUNTS its calls by method -- "the resolver was
+// not called" is a count of zero here.
 type fakeStore struct {
 	mu       sync.Mutex
 	calls    map[string]int
@@ -116,7 +118,59 @@ type fakeStore struct {
 	// vatReadDeadlines is, for each TenantVAT call in order, how far its context's deadline was
 	// once the hook had run (-1 for none).
 	vatReadDeadlines []time.Duration
+	// The holdings screen's (M11 API-1a): the holdings, NEWEST FIRST (a test puts them in that
+	// order; CreateHolding puts a new one at the head), the businesses a membership can name, the
+	// pages Holdings was asked for with their contexts' deadlines, the writes the screen made, and
+	// the id the next CreateHolding hands out (a new one when Nil).
+	holdings         []fakeHolding
+	holdingTenants   map[uuid.UUID]fakeHoldingTenant
+	holdingReads     []fakeHoldingRead
+	holdingWrites    []fakeHoldingWrite
+	nextHolding      uuid.UUID
+	holdingClockTick int
 }
+
+// fakeHolding is one holding as the fake holds it: its memberships in the order they were made.
+type fakeHolding struct {
+	id        uuid.UUID
+	name      string
+	createdAt time.Time
+	members   []fakeMembership
+}
+
+// fakeMembership is one membership: a business, when it joined and -- ended -- when it left.
+type fakeMembership struct {
+	tenant uuid.UUID
+	joined time.Time
+	left   *time.Time
+}
+
+// fakeHoldingTenant is a business a membership can name: what op_read_holdings returns of it.
+type fakeHoldingTenant struct {
+	name, timezone string
+	apiCode        *string
+}
+
+// fakeHoldingRead is one Holdings call the fake answered past its refusals: the page and how far
+// its context's deadline was at entry (-1 for none).
+type fakeHoldingRead struct {
+	page     int32
+	deadline time.Duration
+}
+
+// fakeHoldingWrite is one holding write the fake took past its refusals: the method, the session
+// hash, the name (CreateHolding) or the two ids, and how far its context's deadline was at entry
+// (-1 for none). A write on a cancelled context is refused with the context's error first, so a
+// recorded write ran on a live one.
+type fakeHoldingWrite struct {
+	method, hash, name string
+	holding, tenant    uuid.UUID
+	deadline           time.Duration
+}
+
+// fakeHoldingClock is the time of the fake's first holding write; each later one is a minute
+// after (the screen prints minutes).
+var fakeHoldingClock = time.Date(2026, 10, 12, 9, 0, 0, 0, time.UTC)
 
 // fakeVAT is one tenant's VAT record as the fake holds it. asTenant, when set, is the tenant
 // id the read reports instead of the one asked for (a store that answers for another tenant).
@@ -249,7 +303,7 @@ func newFakeStore() *fakeStore {
 		calls: map[string]int{}, accounts: map[string]db.OperatorAccount{}, byID: map[uuid.UUID]db.OperatorAccount{},
 		live: map[string]db.OperatorSession{}, tokens: map[uuid.UUID]string{}, locked: map[uuid.UUID]bool{}, fail: map[string]error{},
 		overviews: map[uuid.UUID]db.TenantOverview{}, inventories: map[uuid.UUID]fakeInventory{},
-		billing: map[uuid.UUID]fakeBilling{}, vats: map[uuid.UUID]fakeVAT{},
+		billing: map[uuid.UUID]fakeBilling{}, vats: map[uuid.UUID]fakeVAT{}, holdingTenants: map[uuid.UUID]fakeHoldingTenant{},
 	}
 }
 
@@ -697,6 +751,165 @@ func (f *fakeStore) RecordTenantVATCheck(ctx context.Context, h string, id uuid.
 	return nil
 }
 
+// holdingTick is the fake's wall clock for one holding write, under f.mu.
+func (f *fakeStore) holdingTick() time.Time {
+	t := fakeHoldingClock.Add(time.Duration(f.holdingClockTick) * time.Minute)
+	f.holdingClockTick++
+	return t
+}
+
+// deadlineOf is how far ctx's deadline is (-1 for none).
+func deadlineOf(ctx context.Context) time.Duration {
+	if d, ok := ctx.Deadline(); ok {
+		return time.Until(d)
+	}
+	return -1
+}
+
+// Holdings answers as op_begin_read + op_read_holdings do: a cancelled context is its error (a
+// statement on a cancelled context does not run); a dead session is ErrOperatorRefused; otherwise
+// a page of db.HoldingsPerPage rows -- each holding in the order the fake holds them (newest
+// first), its live memberships first, then its ended ones, each newest first, and one row with no
+// member for a holding that never had one.
+func (f *fakeStore) Holdings(ctx context.Context, h string, page int32) ([]db.HoldingRow, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.enter("Holdings"); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if _, ok := f.live[h]; !ok {
+		return nil, db.ErrOperatorRefused
+	}
+	f.holdingReads = append(f.holdingReads, fakeHoldingRead{page: page, deadline: deadlineOf(ctx)})
+	var all []db.HoldingRow
+	for _, x := range f.holdings {
+		if len(x.members) == 0 {
+			all = append(all, db.HoldingRow{HoldingID: x.id, HoldingName: x.name, HoldingCreatedAt: x.createdAt})
+			continue
+		}
+		ms := append([]fakeMembership(nil), x.members...)
+		sort.SliceStable(ms, func(i, j int) bool {
+			if (ms[i].left == nil) != (ms[j].left == nil) {
+				return ms[i].left == nil
+			}
+			return ms[i].joined.After(ms[j].joined)
+		})
+		for _, m := range ms {
+			row := db.HoldingRow{HoldingID: x.id, HoldingName: x.name, HoldingCreatedAt: x.createdAt}
+			tenant, joined := m.tenant, m.joined
+			row.MemberTenantID, row.JoinedAt, row.LeftAt = &tenant, &joined, m.left
+			if t, ok := f.holdingTenants[m.tenant]; ok {
+				name, zone := t.name, t.timezone
+				row.MemberName, row.MemberTimezone, row.MemberAPICode = &name, &zone, t.apiCode
+			}
+			all = append(all, row)
+		}
+	}
+	from := int(page-1) * db.HoldingsPerPage
+	if page < 1 || from >= len(all) {
+		return nil, nil
+	}
+	return all[from:min(from+db.HoldingsPerPage, len(all))], nil
+}
+
+// holdingWrite is the three writes' common entry, under f.mu: the method's count and injected
+// failure, a cancelled context (a statement on it does not run), a dead session, then the record.
+func (f *fakeStore) holdingWrite(ctx context.Context, m, h, name string, holding, tenant uuid.UUID) error {
+	if err := f.enter(m); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if _, ok := f.live[h]; !ok {
+		return db.ErrOperatorRefused
+	}
+	f.holdingWrites = append(f.holdingWrites, fakeHoldingWrite{method: m, hash: h, name: name, holding: holding, tenant: tenant,
+		deadline: deadlineOf(ctx)})
+	return nil
+}
+
+// CreateHolding answers as op_create_holding does: the write's refusals (holdingWrite), then a new
+// empty holding at the head of the list -- nextHolding's id when a test set one.
+func (f *fakeStore) CreateHolding(ctx context.Context, h, name string) (uuid.UUID, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.holdingWrite(ctx, "CreateHolding", h, name, uuid.Nil, uuid.Nil); err != nil {
+		return uuid.Nil, err
+	}
+	id := f.nextHolding
+	if id == uuid.Nil {
+		id = uuid.New()
+	}
+	f.nextHolding = uuid.Nil
+	f.holdings = append([]fakeHolding{{id: id, name: name, createdAt: f.holdingTick()}}, f.holdings...)
+	return id, nil
+}
+
+// AddHoldingMember answers as op_add_holding_member does: the write's refusals, then -- nil either
+// way -- a new live membership only when the holding and the business exist, the business has no
+// live membership anywhere, its timezone is every live member's and no live member carries its
+// API code (the 60-second exit window is the database's, measured against it in
+// holdings_db_test.go).
+func (f *fakeStore) AddHoldingMember(ctx context.Context, h string, holding, tenant uuid.UUID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.holdingWrite(ctx, "AddHoldingMember", h, "", holding, tenant); err != nil {
+		return err
+	}
+	t, known := f.holdingTenants[tenant]
+	at := -1
+	for i, x := range f.holdings {
+		for _, m := range x.members {
+			if m.tenant == tenant && m.left == nil {
+				return nil
+			}
+		}
+		if x.id == holding {
+			at = i
+		}
+	}
+	if !known || at < 0 {
+		return nil
+	}
+	for _, m := range f.holdings[at].members {
+		if m.left != nil {
+			continue
+		}
+		peer := f.holdingTenants[m.tenant]
+		if peer.timezone != t.timezone || (peer.apiCode != nil && t.apiCode != nil && *peer.apiCode == *t.apiCode) {
+			return nil
+		}
+	}
+	f.holdings[at].members = append(f.holdings[at].members, fakeMembership{tenant: tenant, joined: f.holdingTick()})
+	return nil
+}
+
+// RemoveHoldingMember answers as op_remove_holding_member does: the write's refusals, then -- nil
+// either way -- the business's live membership of the holding, if there is one, ends now.
+func (f *fakeStore) RemoveHoldingMember(ctx context.Context, h string, holding, tenant uuid.UUID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.holdingWrite(ctx, "RemoveHoldingMember", h, "", holding, tenant); err != nil {
+		return err
+	}
+	for i, x := range f.holdings {
+		if x.id != holding {
+			continue
+		}
+		for j, m := range x.members {
+			if m.tenant == tenant && m.left == nil {
+				left := f.holdingTick()
+				f.holdings[i].members[j].left = &left
+			}
+		}
+	}
+	return nil
+}
+
 // fakeTexts is operator.LegalTexts: the snapshot (seeded by a test, or filled by a
 // refresh) and its refresh, which reads the fake store's publications -- the newest per
 // document wins, as ListPublishedLegalDocuments does, with the version's own time. A
@@ -890,7 +1103,7 @@ func newRigAt(t *testing.T, level slog.Level) *rig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := operator.New(auth, g.store, g.store, g.store, g.store, g.store, g.store, g.vies, g.texts, opHost, opBase, log)
+	s, err := operator.New(auth, g.store, g.store, g.store, g.store, g.store, g.store, g.store, g.vies, g.texts, opHost, opBase, log)
 	if err != nil {
 		t.Fatal(err)
 	}

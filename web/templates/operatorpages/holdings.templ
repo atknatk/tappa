@@ -1,0 +1,175 @@
+package operatorpages
+
+import (
+	"strconv"
+
+	"github.com/atknatk/tappa/web/templates/components"
+)
+
+// Holdings is /operator/holdings (M11 API-1a; ADR 0027 §1): the holdings, newest first, each with
+// its memberships, the form that adds a business to it, and the form that creates a holding.
+//
+// THE SENTENCE ABOVE THE LIST IS THE LIST'S OWN READ. A write's answer says nothing about what the
+// database found (ADR 0021 §2 v 7), so the page that follows it reads the holdings and says what
+// they show -- added, not added and why, removed. It never prints what the URL carried: the
+// handler builds every sentence from a closed set and every fact from the read.
+//
+// A HOLDING'S NAME IS THE OPERATOR'S TEXT AND A BUSINESS'S NAME ITS OWN: both reach the page as
+// data, escaped by templ and isolated for bidirectional text (bdi). A name that shows nothing is
+// replaced by the words for it, and the id beside it names the holding or the business.
+//
+// Every form posts to a path the handler parses; the add form's one field is the business's id,
+// and each live membership has its own Remove button, whose path names the holding and the
+// business (the body carries nothing).
+templ Holdings(v HoldingsView) {
+	@screen("Holdings", true) {
+		<section class="op-card">
+			<p class="docket-label">Holdings</p>
+			<h1 class="mt-1 font-display text-2xl font-bold tracking-tight">Holdings</h1>
+			<p class="mt-3 text-sm">
+				A holding groups businesses that work in one timezone, so that their people can tap in at each
+				other's sites. Only this screen changes who is in one.
+			</p>
+			<p class="mt-2 text-sm">
+				<a href="/operator" class="op-link">Back to the console</a>
+			</p>
+		</section>
+		@holdingNotice(v)
+		<section class="op-card" aria-labelledby="holding-create">
+			<h2 id="holding-create" class="docket-label">Create a holding</h2>
+			<form method="post" action="/operator/holdings" class="mt-4 flex flex-col gap-3">
+				<label for="holding-name" class="docket-label">Name</label>
+				<input id="holding-name" type="text" name="name" maxlength="120" required autocomplete="off" spellcheck="false" class="op-input"/>
+				<p class="text-xs text-ink/70">One line of at most 120 characters. The new holding has no business in it yet.</p>
+				<button type="submit" class="btn btn--primary">Create</button>
+			</form>
+		</section>
+		<section class="docket" aria-labelledby="holding-list">
+			<h2 id="holding-list" class="docket-label">Newest first · page <span class="font-mono">{ strconv.Itoa(v.Page) }</span></h2>
+			if len(v.Holdings) == 0 {
+				if v.Page > 1 {
+					<p class="mt-2">This page is empty: the list ended on the page before.</p>
+				} else {
+					<p class="mt-2">There are no holdings yet.</p>
+				}
+			} else {
+				<ol class="mt-2 flex flex-col gap-6">
+					for _, h := range v.Holdings {
+						@holdingEntry(h)
+					}
+				</ol>
+			}
+		</section>
+		@holdingPager(v)
+	}
+}
+
+// holdingNotice is the sentence above the list, in the notice block of the tone the handler chose;
+// the rules of an add, when set, are listed under it.
+templ holdingNotice(v HoldingsView) {
+	switch v.NoticeTone {
+		case HoldingNoticeOK:
+			@components.Notice(components.ToneOK, v.NoticeHeading) {
+				<p>{ v.Notice }</p>
+			}
+		case HoldingNoticeWarn:
+			@components.Notice(components.ToneWarn, v.NoticeHeading) {
+				<p>{ v.Notice }</p>
+				if len(v.NoticeRules) > 0 {
+					<ul class="mt-2 flex flex-col gap-1">
+						for _, rule := range v.NoticeRules {
+							<li>{ rule }</li>
+						}
+					</ul>
+				}
+			}
+	}
+}
+
+// holdingEntry is one holding: its name, id and creation time, its memberships, and the form that
+// adds a business to it.
+templ holdingEntry(h HoldingView) {
+	<li class="flex flex-col gap-2">
+		<p class="font-display text-lg font-bold tracking-tight">
+			if h.Name == "" {
+				<span class="italic">Unnamed holding</span>
+			} else {
+				<bdi>{ h.Name }</bdi>
+			}
+		</p>
+		<p class="text-sm">Created <span class="font-mono">{ h.CreatedAt }</span></p>
+		<p class="break-all text-xs text-ink/70">{ h.ID }</p>
+		if h.ContinuedFromBefore {
+			<p class="text-sm">Its first memberships are on the page before.</p>
+		}
+		if len(h.Members) == 0 {
+			<p class="text-sm">No business has been in this holding.</p>
+		} else {
+			<ol>
+				for _, m := range h.Members {
+					@holdingMember(m)
+				}
+			</ol>
+		}
+		if h.ContinuesAfter {
+			<p class="text-sm">More of its memberships are on the next page.</p>
+		}
+		<form method="post" action={ templ.URL(h.MembersPath) } class="flex flex-col gap-2">
+			<label for={ "holding-add-" + h.ID } class="docket-label">Add a business</label>
+			<input id={ "holding-add-" + h.ID } type="text" name="tenant_id" maxlength="64" required autocomplete="off" spellcheck="false" class="op-input"/>
+			<p class="text-xs text-ink/70">The business's id, from its overview. It must work in the timezone of every member.</p>
+			<button type="submit" class="btn btn--primary">Add</button>
+		</form>
+	</li>
+}
+
+// holdingMember is one membership on the docket: the business (its overview a link), a chip saying
+// whether the membership is live or ended, the timezone and API code, the times, the business's
+// id and -- live only -- its Remove button.
+templ holdingMember(m HoldingMemberView) {
+	<li class="op-row">
+		<a href={ templ.URL(m.TenantPath) } class="op-link">
+			if m.Name == "" {
+				<span class="italic">{ unnamedTenant }</span>
+			} else {
+				<bdi>{ m.Name }</bdi>
+			}
+		</a>
+		if m.Live {
+			<span class="tally tally--active">Live</span>
+		} else {
+			<span class="tally tally--deactivated">Ended</span>
+		}
+		<span class="text-sm">Timezone <span class="font-mono">{ m.Timezone }</span></span>
+		if m.APICode == "" {
+			<span class="text-sm">No API code</span>
+		} else {
+			<span class="text-sm">API code <span class="font-mono">{ m.APICode }</span></span>
+		}
+		<span class="text-sm">Joined <span class="font-mono">{ m.JoinedAt }</span></span>
+		if !m.Live {
+			<span class="text-sm">Left <span class="font-mono">{ m.LeftAt }</span></span>
+		}
+		<span class="w-full break-all text-xs text-ink/70">{ m.TenantID }</span>
+		if m.Live {
+			<form method="post" action={ templ.URL(m.RemovePath) }>
+				<button type="submit" class="btn btn--quiet">Remove</button>
+			</form>
+		}
+	</li>
+}
+
+// holdingPager is the way to the page before and after this one -- links, each a page number in
+// the URL (a page number is not personal data, unlike the tenant search's term).
+templ holdingPager(v HoldingsView) {
+	if v.Page > 1 || v.HasNext {
+		<nav class="flex flex-wrap items-center gap-x-6" aria-label="Pages of the list">
+			if v.Page > 1 {
+				<a href={ templ.URL("/operator/holdings?page=" + strconv.Itoa(v.Page-1)) } class="op-link">Previous page</a>
+			}
+			if v.HasNext {
+				<a href={ templ.URL("/operator/holdings?page=" + strconv.Itoa(v.Page+1)) } class="op-link">Next page</a>
+			}
+		</nav>
+	}
+}

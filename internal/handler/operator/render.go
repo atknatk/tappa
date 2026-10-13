@@ -377,6 +377,59 @@ var (
 		BackLabel: "Back to the tenants",
 		SignedIn:  true,
 	}
+
+	// The holdings screen's pages (holdings.go, M11 API-1a). Its two refusals of a malformed
+	// URL and of an oversized form are answered before any store call and say nothing was
+	// read or changed; the number in the page refusal is maxHoldingPage
+	// (TestHoldings_PagesForwardOnlyAfterAFullPage reads it off the page). A refused name or
+	// business id is not a page: it is the list again with a sentence (422). NEITHER FAULT
+	// PAGE SAYS NOTHING HAPPENED: a write the database did not confirm may still have been made
+	// (a connection lost after the statement was sent), and the list one click away shows what
+	// the database holds -- so the page sends the operator there rather than to try again blind.
+	problemHoldingsPageRefused = operatorpages.ProblemView{
+		Title:     "That page does not exist",
+		Message:   "The list of holdings has pages 1 to 1000. Nothing was read; start again from the first page.",
+		Back:      pathHoldings,
+		BackLabel: "Back to the holdings",
+		SignedIn:  true,
+	}
+	problemHoldingNotAnID = operatorpages.ProblemView{
+		Title:     "That link does not name a holding or a business",
+		Message:   "Open the holding from the list and use its own buttons. Nothing was changed.",
+		Back:      pathHoldings,
+		BackLabel: "Go to the holdings",
+		SignedIn:  true,
+	}
+	problemHoldingFormTooLarge = operatorpages.ProblemView{
+		Title:     "That form was too large",
+		Message:   "Open the holdings again and send the form from there. Nothing was changed.",
+		Back:      pathHoldings,
+		BackLabel: "Back to the holdings",
+		SignedIn:  true,
+	}
+	problemHoldingsUnreadable = operatorpages.ProblemView{
+		Title:     "The holdings could not be loaded",
+		Message:   "Try again in a moment.",
+		Back:      pathConsole,
+		BackLabel: "Back to the console",
+		SignedIn:  true,
+	}
+	problemHoldingNotCreated = operatorpages.ProblemView{
+		Title: "The holding was not confirmed",
+		Message: "The database did not confirm it. Open the holdings before you create it again " +
+			"— the list shows whether it went through.",
+		Back:      pathHoldings,
+		BackLabel: "Back to the holdings",
+		SignedIn:  true,
+	}
+	problemHoldingChangeNotConfirmed = operatorpages.ProblemView{
+		Title: "The change was not confirmed",
+		Message: "The database did not confirm it. Open the holdings again — the list shows each holding's " +
+			"members as the database holds them — and try again from there if nothing changed.",
+		Back:      pathHoldings,
+		BackLabel: "Back to the holdings",
+		SignedIn:  true,
+	}
 )
 
 // problemPages lists the variables above and problemTooMany(false) and (true), for the
@@ -393,5 +446,7 @@ func problemPages() []operatorpages.ProblemView {
 		problemAuditFormTooLarge, problemAuditKindRefused, problemAuditPageRefused, problemAuditUnreadable,
 		problemBillingFormTooLarge, problemBillingPageRefused, problemBillingUnreadable,
 		problemVATUnreadable, problemVATNotRecorded,
+		problemHoldingsPageRefused, problemHoldingNotAnID, problemHoldingFormTooLarge, problemHoldingsUnreadable,
+		problemHoldingNotCreated, problemHoldingChangeNotConfirmed,
 	}
 }

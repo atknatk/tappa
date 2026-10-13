@@ -599,3 +599,28 @@ func (o *OperatorDB) TenantVAT(ctx context.Context, sessionHash string, tenantID
 func (o *OperatorDB) RecordTenantVATCheck(ctx context.Context, sessionHash string, tenantID uuid.UUID, number string, valid bool) error {
 	return RecordTenantVATCheck(ctx, o.pool, sessionHash, tenantID, number, valid)
 }
+
+// The four methods below are internal/handler/operator's HoldingStore (M11 API-1a): the
+// /operator/holdings screen's read and its three writes (migration 00041). Same shape as the
+// sixteen above. Holdings is two statements, each an implicit transaction on the POOL; each write
+// is one statement.
+
+// Holdings is a page of the holdings and their memberships, a two-phase read (operator.go).
+func (o *OperatorDB) Holdings(ctx context.Context, sessionHash string, page int32) ([]HoldingRow, error) {
+	return Holdings(ctx, o.pool, sessionHash, page)
+}
+
+// CreateHolding is op_create_holding (operator.go).
+func (o *OperatorDB) CreateHolding(ctx context.Context, sessionHash, name string) (uuid.UUID, error) {
+	return CreateHolding(ctx, o.pool, sessionHash, name)
+}
+
+// AddHoldingMember is op_add_holding_member (operator.go).
+func (o *OperatorDB) AddHoldingMember(ctx context.Context, sessionHash string, holdingID, tenantID uuid.UUID) error {
+	return AddHoldingMember(ctx, o.pool, sessionHash, holdingID, tenantID)
+}
+
+// RemoveHoldingMember is op_remove_holding_member (operator.go).
+func (o *OperatorDB) RemoveHoldingMember(ctx context.Context, sessionHash string, holdingID, tenantID uuid.UUID) error {
+	return RemoveHoldingMember(ctx, o.pool, sessionHash, holdingID, tenantID)
+}

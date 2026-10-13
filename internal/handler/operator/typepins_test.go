@@ -764,9 +764,12 @@ func TestEnrollScreen_TheListedFormsRenderItOnlyInRenderEnroll(t *testing.T) {
 // operatorpages.TenantsView literal in tenantsView. r.PostForm is read in postValue, in
 // (*Surface).enroll as .Get("id") and .Get("blob"), (OP-10) in (*Surface).publishLegal as
 // .Get("slug") and .Get("body"), (OP-11) in (*Surface).searchTenants as .Get("page"),
-// (OP-14) in (*Surface).filterAudit as .Get("kind") and .Get("page"), and (OP-12) in
-// (*Surface).pageTenantBilling as .Get("page"), once each. CONTROL: postValue's eight calls
-// resolve, each with a constant credential name.
+// (OP-14) in (*Surface).filterAudit as .Get("kind") and .Get("page"), (OP-12) in
+// (*Surface).pageTenantBilling as .Get("page"), and (M11 API-1a) in (*Surface).createHolding as
+// .Get("name") and in (*Surface).addHoldingMember as .Get("tenant_id"), once each. url.URL.Query
+// is read in (*Surface).enrollPage as .Get("id") and (M11 API-1a) in (*Surface).holdingsPage as
+// .Get("page"), .Get("done"), .Get("holding") and .Get("tenant"), once each. CONTROL:
+// postValue's eight calls resolve, each with a constant credential name.
 //
 // PART II -- red on:
 //
@@ -781,9 +784,14 @@ func TestEnrollScreen_TheListedFormsRenderItOnlyInRenderEnroll(t *testing.T) {
 //	FV5 r.PostForm read other than in postValue, in (*Surface).enroll as .Get("id") or
 //	    .Get("blob"), in (*Surface).publishLegal as .Get("slug") or .Get("body") (OP-10),
 //	    in (*Surface).searchTenants as .Get("page") (OP-11), in (*Surface).filterAudit as
-//	    .Get("kind") or .Get("page") (OP-14) and in (*Surface).pageTenantBilling as
-//	    .Get("page") (OP-12) -- a count there other than one of each;
-//	FV6 url.URL.Query other than once in (*Surface).enrollPage, as .Get("id");
+//	    .Get("kind") or .Get("page") (OP-14), in (*Surface).pageTenantBilling as
+//	    .Get("page") (OP-12), in (*Surface).createHolding as .Get("name") and in
+//	    (*Surface).addHoldingMember as .Get("tenant_id") (M11 API-1a) -- a count there other
+//	    than one of each;
+//	FV6 url.URL.Query other than once in (*Surface).enrollPage, as .Get("id"), and (M11
+//	    API-1a) once each in (*Surface).holdingsPage as .Get("page"), .Get("done"),
+//	    .Get("holding") and .Get("tenant") -- the list's page and the 303's query, none of
+//	    which is personal data;
 //	FV7 ParseForm other than once in (*Surface).readForm.
 //
 // PART III -- This pin catches the list in PART II only; a form not on it (examples: url.URL's RequestURI or Redacted method, a name built at run time, r.Body read directly) is code review's -- no completeness claim.
@@ -802,10 +810,14 @@ func TestFormValues_TheListedSitesAloneRevealOrReadTheForm(t *testing.T) {
 	searchTenants := tp.method(t, "Surface", "searchTenants")
 	filterAudit := tp.method(t, "Surface", "filterAudit")
 	pageTenantBilling := tp.method(t, "Surface", "pageTenantBilling")
+	createHolding := tp.method(t, "Surface", "createHolding")
+	addHoldingMember := tp.method(t, "Surface", "addHoldingMember")
+	holdingsPage := tp.method(t, "Surface", "holdingsPage")
 	listTenants := tp.method(t, "Surface", "listTenants")
 	searchTerm := lookupFunc(t, tp.pkg, "tenantSearchTerm")
 	tenantsView := lookupFunc(t, tp.pkg, "tenantsView")
 	legalReads, tenantReads, auditReads, billingReads := map[string]int{}, map[string]int{}, map[string]int{}, map[string]int{}
+	holdingReads, holdingQueries := map[string]int{}, map[string]int{}
 	consumers := map[types.Object]string{}
 	for _, m := range []string{"Password", "TOTP", "CompleteEnrollment"} {
 		consumers[lookupMember(t, oa, "Authenticator", m)] = m
@@ -926,11 +938,29 @@ func TestFormValues_TheListedSitesAloneRevealOrReadTheForm(t *testing.T) {
 					continue
 				}
 			}
+			if tp.in(createHolding, id.Pos()) {
+				if k := tp.getKey(id); k == "name" {
+					holdingReads[k]++
+					continue
+				}
+			}
+			if tp.in(addHoldingMember, id.Pos()) {
+				if k := tp.getKey(id); k == "tenant_id" {
+					holdingReads[k]++
+					continue
+				}
+			}
 			bad = append(bad, "FV5 r.PostForm at "+tp.where(id.Pos()))
 		case query:
 			if tp.in(enrollPage, id.Pos()) && tp.getKey(id) == "id" {
 				queries++
 				continue
+			}
+			if tp.in(holdingsPage, id.Pos()) {
+				if k := tp.getKey(id); k == "page" || k == "done" || k == "holding" || k == "tenant" {
+					holdingQueries[k]++
+					continue
+				}
 			}
 			bad = append(bad, "FV6 URL.Query at "+tp.where(id.Pos()))
 		case parseForm:
@@ -955,6 +985,13 @@ func TestFormValues_TheListedSitesAloneRevealOrReadTheForm(t *testing.T) {
 	}
 	if len(billingReads) != 1 || billingReads["page"] != 1 {
 		bad = append(bad, fmt.Sprintf("FV5 pageTenantBilling reads r.PostForm %v, want page once", billingReads))
+	}
+	if len(holdingReads) != 2 || holdingReads["name"] != 1 || holdingReads["tenant_id"] != 1 {
+		bad = append(bad, fmt.Sprintf("FV5 the holding writes read r.PostForm %v, want name (createHolding) and tenant_id (addHoldingMember) once each", holdingReads))
+	}
+	if len(holdingQueries) != 4 || holdingQueries["page"] != 1 || holdingQueries["done"] != 1 || holdingQueries["holding"] != 1 ||
+		holdingQueries["tenant"] != 1 {
+		bad = append(bad, fmt.Sprintf("FV6 holdingsPage reads URL.Query %v, want page, done, holding and tenant once each", holdingQueries))
 	}
 	sort.Strings(bad)
 	for _, b := range bad {
@@ -1132,8 +1169,13 @@ var guardedHeaders = map[string]map[string]int{
 // a constant that is a path of operatorRoutes -- but ONE (OP-16): in (*Surface).recheckVAT, the
 // recorded answer's POST -> 303 -> GET passes vatPath of the path's own tenant id, which
 // tenantID parsed (the screen it was posted from; TestOperatorHeaders_TheVATClassesCarryThePolicy
-// measures its value, C151 and C152). CONTROL: the five names are found and at least ten
-// redirect calls resolve.
+// measures its value, C151 and C152) -- and THREE (M11 API-1a): in (*Surface).createHolding,
+// (*Surface).addHoldingMember and (*Surface).removeHoldingMember, one each, the accepted write's
+// 303 passes a call of holdingResultPath with a constant first argument -- its parameters are a
+// holdingDone word and two uuid.UUIDs, so its value is the list's path with a closed word and two
+// canonical ids
+// (TestOperatorHeaders_TheHoldingClassesCarryThePolicy measures it, C175, C184 and C193).
+// CONTROL: the five names are found and at least ten redirect calls resolve.
 //
 // PART II -- red on: RH1 a guardedHeaders name (constant, case aside) outside its functions,
 // or a count other than allowed; RH2 a Header Set or Add whose name is not a constant;
@@ -1141,7 +1183,9 @@ var guardedHeaders = map[string]map[string]int{
 // or the builtin delete or clear with an http.Header argument (5th round); RH4 a redirect
 // call whose target is not a constant path of operatorRoutes, other than the one vatPath call
 // of recheckVAT whose argument is the identifier recheckVAT binds tenantID's result to (a
-// second such call is red too); RH5 redirect taken as a method value.
+// second such call is red too) and the one holdingResultPath call in each of the three holding
+// writes (a second in one of them, or one elsewhere, is red too); RH5 redirect taken as a method
+// value.
 //
 // PART III -- This pin catches the list in PART II only; a form not on it (examples: maps.Copy into w.Header(), textproto.MIMEHeader(w.Header()).Set, a ResponseWriter wrapped by another package) is code review's -- no completeness claim.
 func TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions(t *testing.T) {
@@ -1202,6 +1246,10 @@ func TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions(t *testing
 	redirects, toVAT := 0, 0
 	vatPathFn, tenantIDFn := lookupFunc(t, tp.pkg, "vatPath"), lookupFunc(t, tp.pkg, "tenantID")
 	recheck := tp.method(t, "Surface", "recheckVAT")
+	resultPathFn := lookupFunc(t, tp.pkg, "holdingResultPath")
+	holdingWriters := []*types.Func{tp.method(t, "Surface", "createHolding"), tp.method(t, "Surface", "addHoldingMember"),
+		tp.method(t, "Surface", "removeHoldingMember")}
+	toHoldings := map[string]int{}
 	// pathTenant reports whether e is an identifier recheckVAT defines from tenantID's result.
 	pathTenant := func(e ast.Expr) bool {
 		id, ok := ast.Unparen(e).(*ast.Ident)
@@ -1237,6 +1285,19 @@ func TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions(t *testing
 			toVAT++
 			continue
 		}
+		if tc, ok := ast.Unparen(target).(*ast.CallExpr); ok && tp.callee(tc) == resultPathFn && len(tc.Args) == 3 &&
+			tp.info.Types[tc.Args[0]].Value != nil {
+			in := ""
+			for _, w := range holdingWriters {
+				if tp.in(w, c.Pos()) {
+					in = w.Name()
+				}
+			}
+			if in != "" {
+				toHoldings[in]++
+				continue
+			}
+		}
 		v := tp.info.Types[target].Value
 		if v == nil || v.Kind() != constant.String || !mounted[constant.StringVal(v)] {
 			bad = append(bad, "RH4 a redirect target that is not a mounted route's constant at "+tp.where(c.Pos()))
@@ -1244,6 +1305,11 @@ func TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions(t *testing
 	}
 	if toVAT > 1 {
 		bad = append(bad, fmt.Sprintf("RH4 %d redirects to vatPath in recheckVAT, want at most the one", toVAT))
+	}
+	for name, n := range toHoldings {
+		if n > 1 {
+			bad = append(bad, fmt.Sprintf("RH4 %d redirects to holdingResultPath in %s, want at most the one", n, name))
+		}
 	}
 	sort.Strings(bad)
 	for _, b := range bad {
@@ -1254,16 +1320,16 @@ func TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions(t *testing
 	}
 }
 
-// operatorScreens are the thirteen screen constructors screens() (op8_test.go) renders, by
+// operatorScreens are the fourteen screen constructors screens() (op8_test.go) renders, by
 // name -- the list SN1/SN2 compare with operatorpages' exported API (OP-10 added Legal,
 // OP-11 Tenants and TenantOverview, OP-13 TenantPlaques, OP-14 AuditLog, OP-12
-// TenantBilling, OP-16 TenantVAT).
-var operatorScreens = []string{"AuditLog", "Code", "Enroll", "Home", "Legal", "Problem", "SignIn", "TenantBilling",
+// TenantBilling, OP-16 TenantVAT, M11 API-1a Holdings).
+var operatorScreens = []string{"AuditLog", "Code", "Enroll", "Holdings", "Home", "Legal", "Problem", "SignIn", "TenantBilling",
 	"TenantOverview", "TenantPlaques", "TenantScreen", "TenantVAT", "Tenants"}
 
 // TestOperatorPages_TheExportedScreensAreTheOnesScreensRenders (3rd round).
 //
-// PART I -- operatorpages' exported functions that return a templ.Component are the thirteen
+// PART I -- operatorpages' exported functions that return a templ.Component are the fourteen
 // of operatorScreens (read from the export data of the build being run).
 //
 // PART II -- red on: SN1 an exported constructor not in operatorScreens; SN2 a name in

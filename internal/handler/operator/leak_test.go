@@ -63,6 +63,10 @@ const (
 	// The enrollment key's QR code (ADR 0020 §3, QR note): the SVG path the enrollment page
 	// draws, the otpauth:// URI -- the TOTP secret -- in another form. Bound to N4.
 	gQR = "G19 the enrollment key's QR code"
+	// M11 API-1a: a holding's name -- the operator's label, not a credential and on no never-log
+	// list; kept off every surface but the holdings list's body all the same (holdings.go: no
+	// line has a reason to carry it, and a refused name is not echoed) -- this package's own claim.
+	gHolding = "G20 holding name"
 )
 
 // neverLog is the CLOSED criterion: each never-log item of CLAUDE.md §7, ADR 0020 §5 and
@@ -364,13 +368,35 @@ func (h *hashRecorder) RecordTenantVATCheck(ctx context.Context, s string, id uu
 	return h.fakeStore.RecordTenantVATCheck(ctx, s, id, number, valid)
 }
 
+// The holdings screen's four calls (M11 API-1a): the session hash, and -- for a create -- the
+// name it was handed. The page is a small integer and the ids are printed on the screen by design.
+func (h *hashRecorder) Holdings(ctx context.Context, s string, page int32) ([]db.HoldingRow, error) {
+	h.record("Holdings", s)
+	return h.fakeStore.Holdings(ctx, s, page)
+}
+
+func (h *hashRecorder) CreateHolding(ctx context.Context, s, name string) (uuid.UUID, error) {
+	h.record("CreateHolding", s, name)
+	return h.fakeStore.CreateHolding(ctx, s, name)
+}
+
+func (h *hashRecorder) AddHoldingMember(ctx context.Context, s string, holding, tenant uuid.UUID) error {
+	h.record("AddHoldingMember", s)
+	return h.fakeStore.AddHoldingMember(ctx, s, holding, tenant)
+}
+
+func (h *hashRecorder) RemoveHoldingMember(ctx context.Context, s string, holding, tenant uuid.UUID) error {
+	h.record("RemoveHoldingMember", s)
+	return h.fakeStore.RemoveHoldingMember(ctx, s, holding, tenant)
+}
+
 // harvestWant pins the harvest: calls per method and the arity of each call's record.
 // The counts are the arms' own, derived where each arm is driven (comments at the arms).
 var harvestWant = map[string]struct{ calls, arity int }{
 	"OperatorByEmail":            {calls: 9, arity: 1},    // A2 A3 A4 A20 A20b A23 A26b A28 A30b
 	"RecordOperatorAuthEvent":    {calls: 12, arity: 1},   // A2 A3 A6 A14 A15 A17 A28; OP-14 C: each right password's 'password_ok' -- A4 A20b A23 A26b A30b
 	"OpenOperatorSession":        {calls: 5, arity: 1},    // A7 A20b A24 A26b A30b
-	"TouchOperatorSession":       {calls: 227, arity: 1},  // A8 A9 A21, A27 x 101, A31-A41, A43, A44-A52, A54-A59, A60-A65, A66a x 60, A66, A67-A74, A76, A77, A78-A86, A88, A89, A90, A91-A97 (A42, A53, A75, A87 and A98 are refused before the gate)
+	"TouchOperatorSession":       {calls: 238, arity: 1},  // A8 A9 A21, A27 x 101, A31-A41, A43, A44-A52, A54-A59, A60-A65, A66a x 60, A66, A67-A74, A76, A77, A78-A86, A88, A89, A90, A91-A97, A100-A109, A111 (A42, A53, A75, A87, A98 and A110 are refused before the gate)
 	"CloseOperatorSession":       {calls: 3002, arity: 1}, // A10 A22, A30a x 3000 (A30 is refused first)
 	"CompleteOperatorEnrollment": {calls: 3, arity: 4},    // A16 A17 A25
 	"LegalVersions":              {calls: 5, arity: 1},    // A31 A33 A39 A41 A43
@@ -382,26 +408,31 @@ var harvestWant = map[string]struct{ calls, arity int }{
 	"TenantBilling":              {calls: 8, arity: 1},    // A78 A79 A81 A84 A85 A86 A88 A89 (A80, A82, A83 refuse before the store, A87 before the gate, A90 at the read budget)
 	"TenantVAT":                  {calls: 6, arity: 1},    // A91 A92 A93 A94 A95 A96 (A97's id refuses before the store, A98 before the gate)
 	"RecordTenantVATCheck":       {calls: 2, arity: 2},    // A92 A95 (A93: VIES did not answer; A94: the number is never sent)
+	"Holdings":                   {calls: 5, arity: 1},    // A100 A102 A103 A105 A107 (A111's id refuses before the store, A110 before the gate)
+	"CreateHolding":              {calls: 2, arity: 2},    // A101 A108 (A103's name refuses before the store)
+	"AddHoldingMember":           {calls: 2, arity: 1},    // A104 A109 (A105's id refuses before the store)
+	"RemoveHoldingMember":        {calls: 1, arity: 1},    // A106
 }
 
 // TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor -- THE CONTRACT (M10 OP-8; the
 // shape is internal/operatorauth's
 // TestLeak_NoInputInAnyErrorOrLogLine, m10-platform.md OP-4 block, OP-8 list):
 //
-// No member of the GROUPS G1-G19 (constants above) occurs, in any of the RENDERINGS
+// No member of the GROUPS G1-G20 (constants above) occurs, in any of the RENDERINGS
 // R1-R10 (renderings), on any of the SURFACES S1-S4 (leakSurfaces; S4 is the response
 // headers AT WriteHeader, the recorder's Result().Header -- Location among them), in any
-// of the 99 numbered ARMS A1-A99 below -- EXCEPT the DESIGNED EGRESS D1-D8, each of which
+// of the 111 numbered ARMS A1-A111 below -- EXCEPT the DESIGNED EGRESS D1-D9, each of which
 // is pinned the other way: the value IS on its surface in its arm. The groups are measured
 // against the CLOSED list neverLog (12 items, a pinned literal): every group of every item
 // has a member. G15 (the client address), G16 (a legal text posted to the operator's
 // screen, or an unknown slug posted with one -- OP-10) and G17 (a tenant search term and
-// its 8- and 4-character prefixes -- OP-11) and G18 (a tenant's VAT number -- OP-16) are bound
-// to no item -- the package's own claims. The fake store's harvest -- session hashes, raw link tokens, digests,
+// its 8- and 4-character prefixes -- OP-11), G18 (a tenant's VAT number -- OP-16) and G20 (a
+// holding's name -- M11 API-1a) are bound to no item -- the package's own claims. The fake store's harvest -- session hashes, raw link tokens, digests,
 // envelopes, addresses, posted legal texts and search terms it was handed (the plaque
 // screen's, the audit log's and the billing screen's session hashes too, OP-13, OP-14 and
-// OP-12, and the VAT screen's session hashes and the number its write was handed, OP-16) -- is
-// searched too (G5, G8, G12, G11, G13, G16, G17, G18) and pinned method by method by COUNT and ARITY
+// OP-12, the VAT screen's session hashes and the number its write was handed, OP-16, and the
+// holdings screen's session hashes and the names its creates were handed, M11 API-1a) -- is
+// searched too (G5, G8, G12, G11, G13, G16, G17, G18, G20) and pinned method by method by COUNT and ARITY
 // (harvestWant), not by content. The read ticket is not searched: no value of it reaches
 // this package (neverLog's comment).
 //
@@ -431,7 +462,10 @@ var harvestWant = map[string]struct{ calls, arity int }{
 //     no-answer sentence -- and A94, the other tenant's number with the format sentence); on
 //     the VAT screen's other arms -- the answer recorded (a 303), the write failing, the read
 //     failing, a malformed id, a cross-origin re-check -- it is on no surface, the process
-//     log included.
+//     log included. D9 the holdings' names on the list (S3; A100: the seeded one, A102, A103 and
+//     A105: it and the one A101 created); a refused name (A103), a name whose create failed
+//     (A108) and a name posted cross-origin (A110) are on no surface, and no name is on any
+//     surface of the writes' arms -- their 303s, 503s and 404 -- the process log included.
 //
 // THE ARMS (handler order, then the faults and ceilings):
 //
@@ -474,7 +508,11 @@ var harvestWant = map[string]struct{ calls, arity int }{
 //	answers for another tenant · OP-16's VAT screen, on A20b's session: A91 a tenant's VAT
 //	number · A92 a re-check VIES answers · A93 a re-check VIES does not answer · A94 a number
 //	VIES does not take · A95 the re-check's write fails (22023) · A96 the VAT read fails · A97 a
-//	malformed id · A98 a cross-origin re-check · and, on A30b's session from its own address, A66 the read
+//	malformed id · A98 a cross-origin re-check · M11 API-1a's holdings, on A20b's session: A100 the
+//	holdings · A101 a holding created · A102 the list after it, with its result · A103 a name
+//	refused · A104 a business added · A105 a business id refused · A106 a business removed ·
+//	A107 the list's read fails · A108 the create fails (22023) · A109 the add fails · A110 a
+//	cross-origin create · A111 a malformed holding id · and, on A30b's session from its own address, A66 the read
 //	budget (60 plaque reads, A66a, then the 61st), A77 the audit log and A90 the billing past
 //	the same budget
 //
@@ -500,7 +538,7 @@ func TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor(t *testing.T) {
 	}
 	texts := newFakeTexts(store.fakeStore)
 	vies := &fakeVIES{store: store.fakeStore}
-	surface, err := operator.New(auth, store, store, store, store, store, store, vies, texts, opHost, opBase, plog)
+	surface, err := operator.New(auth, store, store, store, store, store, store, store, vies, texts, opHost, opBase, plog)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1026,6 +1064,60 @@ func TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor(t *testing.T) {
 		!strings.Contains(results["A96 the VAT read fails"].process, "VAT number could not be read") {
 		t.Fatal("PREMISE: A93/A95/A96 wrote no line of their own -- the arms are not the branches they name")
 	}
+	// M11 API-1a's holdings on A20b's session ([T] a touch; [H] Holdings; [K] CreateHolding; [M]
+	// AddHoldingMember; [X] RemoveHoldingMember). The fake holds one holding with the leak tenant
+	// in it; G20's members are the names the arms seed and post.
+	const (
+		seededHolding  = "ĦŻ FAKE Leak Holding \"seed\" <b>&</b>"
+		createdHolding = "ĠĠ FAKE Leak Holding created"
+		refusedHolding = "ĊĊ FAKE Leak Holding\trefused"
+		failHolding    = "ŻĦ FAKE Leak Holding fails"
+		crossHolding   = "ĦĊ FAKE Leak Holding cross"
+	)
+	set.add(gHolding, seededHolding, createdHolding, refusedHolding, failHolding, crossHolding)
+	leakHolding := uuid.New()
+	store.mu.Lock()
+	store.holdingTenants[leakTenant] = fakeHoldingTenant{name: "FAKE Leak Tenant Ltd", timezone: "Europe/Malta"}
+	store.holdings = append(store.holdings, fakeHolding{id: leakHolding, name: seededHolding,
+		createdAt: time.Date(2026, 9, 4, 8, 0, 0, 0, time.UTC)})
+	store.mu.Unlock()
+	holdingMembers := "/operator/holdings/" + leakHolding.String() + "/members"
+	get("A100 the holdings", "/operator/holdings", live)                                                  // [T H1]
+	w = post("A101 a holding created", "/operator/holdings", url.Values{"name": {createdHolding}}, live)  // [T K1]
+	get("A102 the list after the create", w.Result().Header.Get("Location"), live)                        // [T H2]
+	post("A103 a holding name refused", "/operator/holdings", url.Values{"name": {refusedHolding}}, live) // [T H3]
+	post("A104 a business added", holdingMembers, url.Values{"tenant_id": {leakTenant.String()}}, live)   // [T M1]
+	post("A105 a business id refused", holdingMembers, url.Values{"tenant_id": {"FAKE-not-an-id"}}, live) // [T H4]
+	post("A106 a business removed", holdingMembers+"/"+leakTenant.String()+"/remove", url.Values{}, live) // [T X1]
+	fail("Holdings", errFakeDB)
+	get("A107 the holdings' read fails", "/operator/holdings", live) // [T H5]
+	fail("Holdings", nil)
+	fail("CreateHolding", errFakeHoldingRefused)
+	post("A108 the create fails", "/operator/holdings", url.Values{"name": {failHolding}}, live) // [T K2]
+	fail("CreateHolding", nil)
+	fail("AddHoldingMember", errFakeHoldingRefused)
+	post("A109 the add fails", holdingMembers, url.Values{"tenant_id": {leakTenant.String()}}, live) // [T M2]
+	fail("AddHoldingMember", nil)
+	do("A110 a cross-origin create", req{method: http.MethodPost, path: "/operator/holdings", form: url.Values{"name": {crossHolding}},
+		origin: "https://taptime.mt", header: map[string]string{"Sec-Fetch-Site": "same-site"}, cookies: []*http.Cookie{live}})
+	post("A111 a malformed holding id", "/operator/holdings/FAKE/members", url.Values{"tenant_id": {leakTenant.String()}}, live) // [T]
+	for arm, want := range map[string]int{
+		"A100 the holdings": 200, "A101 a holding created": 303, "A102 the list after the create": 200,
+		"A103 a holding name refused": 422, "A104 a business added": 303, "A105 a business id refused": 422,
+		"A106 a business removed": 303, "A107 the holdings' read fails": 503, "A108 the create fails": 503,
+		"A109 the add fails": 503, "A110 a cross-origin create": 403, "A111 a malformed holding id": 404,
+	} {
+		if got := results[arm].w.Code; got != want {
+			t.Fatalf("PREMISE: %s = %d, want %d -- the arm is not the branch it names", arm, got, want)
+		}
+	}
+	if !strings.Contains(results["A102 the list after the create"].w.Body.String(), "Created.") ||
+		!strings.Contains(results["A107 the holdings' read fails"].process, "the holdings could not be read") ||
+		!strings.Contains(results["A108 the create fails"].process, "SQLSTATE 22023") ||
+		!strings.Contains(results["A109 the add fails"].process, "was not confirmed") ||
+		!strings.Contains(results["A104 a business added"].process, "asked to add a business") {
+		t.Fatal("PREMISE: A102 is not the result page, or A104/A107/A108/A109 wrote no line of their own -- the arms are not the branches they name")
+	}
 	do("A28 credentials in the query", req{method: http.MethodPost, // [E8 R7]: the empty body's empty address
 		path: "/operator/login?email=" + url.QueryEscape(email) + "&password=" + url.QueryEscape(queryPass), form: url.Values{}, origin: opOrigin})
 	get("A29 a link token in the query", "/operator/enroll?id="+pending.String()+"&token="+queryToken)
@@ -1137,6 +1229,15 @@ func TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor(t *testing.T) {
 		set.add(gSessionHash, v[0])
 		set.add(gVAT, v[1])
 	}
+	for _, m := range []string{"Holdings", "AddHoldingMember", "RemoveHoldingMember"} {
+		for _, v := range store.got[m] {
+			set.add(gSessionHash, v[0])
+		}
+	}
+	for _, v := range store.got["CreateHolding"] {
+		set.add(gSessionHash, v[0])
+		set.add(gHolding, v[1])
+	}
 	// THE HARVEST PIN: count and arity, method by method.
 	for m, want := range harvestWant {
 		calls := store.got[m]
@@ -1165,7 +1266,7 @@ func TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor(t *testing.T) {
 			}
 		}
 	}
-	for _, g := range []string{gAddr, gLegal, gTerm, gVAT} {
+	for _, g := range []string{gAddr, gLegal, gTerm, gVAT, gHolding} {
 		if !set.inGroup(g) {
 			t.Errorf("group %q has no member", g)
 		}
@@ -1191,6 +1292,10 @@ func TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor(t *testing.T) {
 		"A91 a tenant's VAT number":            {"S3 response body": {vatNumber}},
 		"A93 a re-check VIES does not answer":  {"S3 response body": {vatNumber}},
 		"A94 a number VIES does not take":      {"S3 response body": {vatOddNumber}},
+		"A100 the holdings":                    {"S3 response body": {seededHolding}},
+		"A102 the list after the create":       {"S3 response body": {seededHolding, createdHolding}},
+		"A103 a holding name refused":          {"S3 response body": {seededHolding, createdHolding}},
+		"A105 a business id refused":           {"S3 response body": {seededHolding, createdHolding}},
 	}
 	for arm := range results {
 		if strings.HasSuffix(arm, " (password)") {

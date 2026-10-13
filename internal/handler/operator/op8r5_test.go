@@ -4,7 +4,8 @@ package operator_test
 // -> route table (classRoutes) the header tables are held to (OP-10 added a third table,
 // C49-C66, op10_test.go; OP-11 a fourth, C67-C93, op11_test.go; OP-13 a fifth, C94-C103,
 // op13_test.go; OP-14 a sixth, C104-C121, op14_test.go; OP-12 a seventh, C122-C141,
-// op12_test.go; OP-16 an eighth, C142-C165, op16_test.go), the eight classes the 4th
+// op12_test.go; OP-16 an eighth, C142-C165, op16_test.go; M11 API-1a a ninth, C166-C199,
+// holdings_test.go), the eight classes the 4th
 // audit found outside the 40 (N7), the walked-routes completeness test (N5) and the wire
 // test of the recorder's snapshot (F1 (b)).
 //
@@ -151,17 +152,41 @@ var classRoutes = map[string]classRoute{
 	"C161": {"POST", "/operator/tenants/{id}/vat", 503}, "C162": {"POST", "/operator/tenants/{id}/vat", 503},
 	"C163": {"POST", "/operator/tenants/{id}/vat", 303}, "C164": {"POST", "/operator/tenants/{id}/vat", 303},
 	"C165": {"PUT", "/operator/tenants/{id}/vat", 405},
+	// M11 API-1a's holdings (holdings_test.go, TestOperatorHeaders_TheHoldingClassesCarryThePolicy).
+	"C166": {"GET", "/operator/holdings", 200}, "C167": {"GET", "/operator/holdings", 303},
+	"C168": {"GET", "/operator/holdings", 303}, "C169": {"GET", "/operator/holdings", 303},
+	"C170": {"GET", "/operator/holdings", 404}, "C171": {"GET", "/operator/holdings", 503},
+	"C172": {"GET", "/operator/holdings", 303}, "C173": {"GET", "/operator/holdings", 429},
+	"C174": {"GET", "/operator/holdings", 200},
+	"C175": {"POST", "/operator/holdings", 303}, "C176": {"POST", "/operator/holdings", 303},
+	"C177": {"POST", "/operator/holdings", 403}, "C178": {"POST", "/operator/holdings", 413},
+	"C179": {"POST", "/operator/holdings", 422}, "C180": {"POST", "/operator/holdings", 429},
+	"C181": {"POST", "/operator/holdings", 503}, "C182": {"POST", "/operator/holdings", 303},
+	"C183": {"PUT", "/operator/holdings", 405},
+	"C184": {"POST", "/operator/holdings/{id}/members", 303}, "C185": {"POST", "/operator/holdings/{id}/members", 303},
+	"C186": {"POST", "/operator/holdings/{id}/members", 403}, "C187": {"POST", "/operator/holdings/{id}/members", 404},
+	"C188": {"POST", "/operator/holdings/{id}/members", 422}, "C189": {"POST", "/operator/holdings/{id}/members", 413},
+	"C190": {"POST", "/operator/holdings/{id}/members", 503}, "C191": {"POST", "/operator/holdings/{id}/members", 303},
+	"C192": {"GET", "/operator/holdings/{id}/members", 405},
+	"C193": {"POST", "/operator/holdings/{id}/members/{tenant}/remove", 303},
+	"C194": {"POST", "/operator/holdings/{id}/members/{tenant}/remove", 303},
+	"C195": {"POST", "/operator/holdings/{id}/members/{tenant}/remove", 403},
+	"C196": {"POST", "/operator/holdings/{id}/members/{tenant}/remove", 404},
+	"C197": {"POST", "/operator/holdings/{id}/members/{tenant}/remove", 503},
+	"C198": {"POST", "/operator/holdings/{id}/members/{tenant}/remove", 303},
+	"C199": {"GET", "/operator/holdings/{id}/members/{tenant}/remove", 405},
 }
 
 // classCount is the number of classes of the header tables, C1 to C<classCount>.
-const classCount = 165
+const classCount = 199
 
 // routeOf is a request's method and path as a chi route: the query dropped, the prefix
 // itself written as the pattern chi.Walk reports for the console ("/operator/"), a path
 // one segment under /operator/tenants/ written as its pattern (OP-11's overview: chi
 // routes any one segment there to {id}), and one segment followed by /plaques written as
 // the plaque screen's (OP-13), by /billing as the billing screen's (OP-12), or by /vat as the VAT
-// screen's (OP-16).
+// screen's (OP-16); and a path under /operator/holdings/ written as the membership route's or the
+// removal route's pattern (M11 API-1a).
 func routeOf(l driveLog) string {
 	p, _, _ := strings.Cut(l.path, "?")
 	if p == operator.Prefix {
@@ -177,6 +202,14 @@ func routeOf(l driveLog) string {
 			p = operator.Prefix + "/tenants/{id}/billing"
 		case seg != "" && tail == "vat":
 			p = operator.Prefix + "/tenants/{id}/vat"
+		}
+	}
+	if rest, ok := strings.CutPrefix(p, operator.Prefix+"/holdings/"); ok {
+		switch parts := strings.Split(rest, "/"); {
+		case len(parts) == 2 && parts[1] == "members":
+			p = operator.Prefix + "/holdings/{id}/members"
+		case len(parts) == 4 && parts[1] == "members" && parts[3] == "remove":
+			p = operator.Prefix + "/holdings/{id}/members/{tenant}/remove"
 		}
 	}
 	return l.method + " " + p
@@ -305,11 +338,12 @@ func TestOperatorHeaders_TheWrongMethodAndOversizedClassesCarryThePolicy(t *test
 // TestOperatorHeaders_TheWalkedRoutesEachHaveAClass is the completeness check the 4th
 // audit asked for (N5), on the surface's MOUNTED routes as chi.Walk reports them.
 //
-// PART I -- the shipped surface: chi.Walk reports twenty method x route pairs on twelve
+// PART I -- the shipped surface: chi.Walk reports twenty-four method x route pairs on fifteen
 // routes (OP-10 added GET and POST /operator/legal; OP-11 GET and POST /operator/tenants
 // and GET /operator/tenants/{id}; OP-13 GET /operator/tenants/{id}/plaques; OP-14 GET and
 // POST /operator/audit; OP-12 GET and POST /operator/tenants/{id}/billing; OP-16 GET and POST
-// /operator/tenants/{id}/vat); classRoutes
+// /operator/tenants/{id}/vat; M11 API-1a GET and POST /operator/holdings, POST
+// /operator/holdings/{id}/members and POST /operator/holdings/{id}/members/{tenant}/remove); classRoutes
 // has, for each pair, a class with a status other than 405, and for each route a 405
 // class with a method not mounted on it; classRoutes' keys are C1 to C<classCount>.
 //
@@ -336,7 +370,7 @@ func TestOperatorHeaders_TheWalkedRoutesEachHaveAClass(t *testing.T) {
 	for _, ms := range walked {
 		pairs += len(ms)
 	}
-	if len(walked) < 12 || pairs < 20 {
+	if len(walked) < 15 || pairs < 24 {
 		t.Fatalf("PREMISE: chi.Walk reported %d route(s), %d pair(s)", len(walked), pairs)
 	}
 	covered, wrongMethod := map[string]bool{}, map[string]bool{}

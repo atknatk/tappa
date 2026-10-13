@@ -527,9 +527,11 @@ func hostileCookieLine(cookies []*http.Cookie) string {
 
 // hostileDrive is r with the hostile headers (a header the request sets itself --
 // Origin, Sec-Fetch-Site -- is kept), the second Cookie line and, on the sign-in, code,
-// enrollment, (OP-10) legal, (OP-11) tenant, (OP-13) plaque, (OP-14) audit, (OP-12) billing and
-// (OP-16) VAT paths, the hostile query -- whose "page" a billing request and whose "vat_number" a
-// VAT request must not read.
+// enrollment, (OP-10) legal, (OP-11) tenant, (OP-13) plaque, (OP-14) audit, (OP-12) billing,
+// (OP-16) VAT and (M11 API-1a) holdings paths, the hostile query -- whose "page" a billing request
+// and a holding write and whose "vat_number" a VAT request must not read. The holdings LIST reads
+// its page from the URL by design, so a GET of it is not given the hostile page (the enrollment
+// GET's id, below, is the same exception).
 func hostileDrive(r req) req {
 	h := map[string]string{}
 	for k, v := range hostileHeaders {
@@ -553,15 +555,26 @@ func hostileDrive(r req) req {
 			path = "/operator/tenants/{id}"
 		}
 	}
+	if strings.HasPrefix(path, "/operator/holdings/") {
+		if strings.HasSuffix(path, "/remove") {
+			path = "/operator/holdings/{id}/members/{tenant}/remove"
+		} else {
+			path = "/operator/holdings/{id}/members"
+		}
+	}
 	switch path {
 	case "/operator/login", "/operator/login/totp", "/operator/enroll", "/operator/legal", "/operator/tenants", "/operator/tenants/{id}",
-		"/operator/tenants/{id}/plaques", "/operator/tenants/{id}/billing", "/operator/tenants/{id}/vat", "/operator/audit":
+		"/operator/tenants/{id}/plaques", "/operator/tenants/{id}/billing", "/operator/tenants/{id}/vat", "/operator/audit",
+		"/operator/holdings", "/operator/holdings/{id}/members", "/operator/holdings/{id}/members/{tenant}/remove":
 		q := url.Values{}
 		for k, v := range hostileQuery {
 			q[k] = v
 		}
 		if r.method == http.MethodPost {
 			q.Set("id", hostileQueryID)
+		}
+		if r.method == http.MethodGet && path == "/operator/holdings" {
+			q.Del("page")
 		}
 		sep := "?"
 		if strings.Contains(r.path, "?") {
@@ -596,7 +609,7 @@ func hostileOn(r *http.Request) {
 // "<cookie name>=set" or "<cookie name>=clear". Read off the shipped handlers and
 // measured on them (2026-10-02, the 4th round; C41-C48 the 5th; C49-C66 OP-10, 2026-10-03;
 // C67-C93 OP-11, 2026-10-03; C94-C103 OP-13, 2026-10-06; C104-C121 OP-14, 2026-10-07;
-// C122-C141 OP-12, 2026-10-07; C142-C165 OP-16, 2026-10-07).
+// C122-C141 OP-12, 2026-10-07; C142-C165 OP-16, 2026-10-07; C166-C199 M11 API-1a, 2026-10-13).
 type designed struct {
 	loc, ct, allow string
 	cookies        []string
@@ -704,6 +717,25 @@ var designedHeaders = map[string]designed{
 	"C157": {ct: pageType}, "C158": {ct: pageType}, "C159": {ct: pageType}, "C160": {ct: pageType},
 	"C161": {ct: pageType}, "C162": {ct: pageType}, "C163": {loc: "/operator/login"}, "C164": {loc: "/operator/login"},
 	"C165": {allow: "GET,POST"},
+	// M11 API-1a's holdings (holdings_test.go): the list, a result page and their refusals are
+	// pages -- a 403, 404, 413, 422, 429 or 503 page, none carrying a Location; the sign-in
+	// redirects of the gate and of a session the store refuses (at the read or at a write); the
+	// dead cookie cleared; the 405s. The Locations that are not the sign-in's are the three
+	// accepted writes' (C175, C184, C193): the list with the closed word and the ids the handler
+	// parsed or the database returned -- nothing posted, nothing of the hostile query.
+	"C166": {ct: pageType}, "C167": {loc: "/operator/login"},
+	"C168": {loc: "/operator/login", cookies: []string{sessionClear}},
+	"C169": {loc: "/operator/login"}, "C170": {ct: pageType}, "C171": {ct: pageType}, "C172": {loc: "/operator/login"},
+	"C173": {ct: pageType}, "C174": {ct: pageType},
+	"C175": {loc: "/operator/holdings?done=created&holding=61000000-0000-4000-8000-0000000000a1"},
+	"C176": {loc: "/operator/login"}, "C177": {ct: pageType}, "C178": {ct: pageType}, "C179": {ct: pageType},
+	"C180": {ct: pageType}, "C181": {ct: pageType}, "C182": {loc: "/operator/login"}, "C183": {allow: "GET,POST"},
+	"C184": {loc: "/operator/holdings?done=add&holding=61000000-0000-4000-8000-0000000000a2&tenant=61000000-0000-4000-8000-0000000000a3"},
+	"C185": {loc: "/operator/login"}, "C186": {ct: pageType}, "C187": {ct: pageType}, "C188": {ct: pageType},
+	"C189": {ct: pageType}, "C190": {ct: pageType}, "C191": {loc: "/operator/login"}, "C192": {allow: "POST"},
+	"C193": {loc: "/operator/holdings?done=remove&holding=61000000-0000-4000-8000-0000000000a2&tenant=61000000-0000-4000-8000-0000000000a3"},
+	"C194": {loc: "/operator/login"}, "C195": {ct: pageType}, "C196": {ct: pageType}, "C197": {ct: pageType},
+	"C198": {loc: "/operator/login"}, "C199": {allow: "POST"},
 }
 
 // checkDesignedHeaders holds the response headers AT WriteHeader (w.Result().Header, the

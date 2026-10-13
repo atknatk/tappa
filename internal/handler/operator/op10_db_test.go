@@ -62,8 +62,9 @@ import (
 )
 
 // liveStore is operatorauth.Store, operator.LegalStore, (OP-11) operator.TenantStore,
-// (OP-13) operator.PlaqueStore, (OP-14) operator.AuditStore, (OP-12) operator.BillingStore and
-// (OP-16) operator.VATStore on a connection that IS tappa_operator: each method is
+// (OP-13) operator.PlaqueStore, (OP-14) operator.AuditStore, (OP-12) operator.BillingStore,
+// (OP-16) operator.VATStore and (M11 API-1a) operator.HoldingStore on a connection that IS
+// tappa_operator: each method is
 // internal/db's production accessor, each statement its own committed transaction (the
 // billing read's second phase opens its own, on this connection, for its SET LOCAL).
 type liveStore struct {
@@ -167,6 +168,30 @@ func (s *liveStore) RecordTenantVATCheck(ctx context.Context, h string, id uuid.
 	return db.RecordTenantVATCheck(ctx, s.conn, h, id, number, valid)
 }
 
+func (s *liveStore) Holdings(ctx context.Context, h string, page int32) ([]db.HoldingRow, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return db.Holdings(ctx, s.conn, h, page)
+}
+
+func (s *liveStore) CreateHolding(ctx context.Context, h, name string) (uuid.UUID, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return db.CreateHolding(ctx, s.conn, h, name)
+}
+
+func (s *liveStore) AddHoldingMember(ctx context.Context, h string, holding, tenant uuid.UUID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return db.AddHoldingMember(ctx, s.conn, h, holding, tenant)
+}
+
+func (s *liveStore) RemoveHoldingMember(ctx context.Context, h string, holding, tenant uuid.UUID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return db.RemoveHoldingMember(ctx, s.conn, h, holding, tenant)
+}
+
 // legalE2E is one test's committed rig.
 type legalE2E struct {
 	*e2e
@@ -258,7 +283,7 @@ func newLegalE2E(t *testing.T) *legalE2E {
 	}
 	live := &liveStore{conn: l.op}
 	l.live, l.vies = live, &liveVIES{}
-	s, err := operator.New(auth, live, live, live, live, live, live, l.vies, l.texts, opHost, opBase, log)
+	s, err := operator.New(auth, live, live, live, live, live, live, live, l.vies, l.texts, opHost, opBase, log)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,8 +1,9 @@
 // Package operatorpages is the platform operator's screens (M10 OP-8; ADR 0020 §4):
 // sign-in, the TOTP step, enrollment, the console's front page and its problem page,
 // (OP-10) the legal texts screen, (OP-11) the tenant list and a tenant's overview, (OP-13) a
-// tenant's plaques, (OP-14) the operator's own audit log, (OP-12) a tenant's billing months and
-// (OP-16) a tenant's VAT number with its re-check, in the "TAPTIME OPERATOR" chrome.
+// tenant's plaques, (OP-14) the operator's own audit log, (OP-12) a tenant's billing months,
+// (OP-16) a tenant's VAT number with its re-check and (M11 API-1a) the holdings with their
+// memberships, in the "TAPTIME OPERATOR" chrome.
 //
 // IT IS NOT web/templates/pages, ON PURPOSE. pages is what the customer product renders
 // and internal/handler imports it. Measured with `go list` (non-test imports, the build
@@ -476,6 +477,61 @@ const (
 	VATToneConfirmed
 	// VATToneNotFound: the register does not know the number -- the rejection tone.
 	VATToneNotFound
+)
+
+// HoldingsView is /operator/holdings (M11 API-1a; ADR 0027 §1): a page of the holdings, newest
+// first, each with its memberships, the form that creates one, and the sentence above them -- a
+// write's outcome as the page's own read shows it, or a refused form's reason. It renders through
+// the plain screen chrome: a holding groups several businesses, so no tenant banner heads it; each
+// membership names its business. Every value is text the handler formatted (or a word of its
+// closed set); templ escapes each one.
+type HoldingsView struct {
+	// Page is the page number, from 1; HasNext offers the next one (set on a full page short of
+	// the last).
+	Page    int
+	HasNext bool
+	// NoticeTone, NoticeHeading and Notice are the sentence above the list (HoldingNoticeNone
+	// draws none); NoticeRules, when set, are the database's rules for an add, listed under it.
+	NoticeTone            HoldingNoticeTone
+	NoticeHeading, Notice string
+	NoticeRules           []string
+	Holdings              []HoldingView
+}
+
+// HoldingView is one holding of the page. Name is "" when it shows nothing (the row then says
+// "Unnamed holding" and the id names it); CreatedAt is UTC. MembersPath is its add form's action,
+// /operator/holdings/<id>/members. ContinuedFromBefore and ContinuesAfter say the page cuts the
+// holding's memberships -- it began on the page before, or goes on to the next.
+type HoldingView struct {
+	ID, Name, CreatedAt                 string
+	MembersPath                         string
+	ContinuedFromBefore, ContinuesAfter bool
+	Members                             []HoldingMemberView
+}
+
+// HoldingMemberView is one membership: the business (TenantPath its overview; Name "" when it
+// shows nothing), its timezone and API code ("" for none) -- the facts that decide an add --,
+// when it joined and, for an ended one, left (UTC). Live marks a membership that has not ended;
+// RemovePath, set on a live one only, is its Remove button's action.
+type HoldingMemberView struct {
+	TenantID, TenantPath, Name string
+	Timezone, APICode          string
+	JoinedAt, LeftAt           string
+	Live                       bool
+	RemovePath                 string
+}
+
+// HoldingNoticeTone is the tone of the sentence above the holdings: the brand's notice tones, the
+// heading carrying the meaning. Its zero value draws no sentence.
+type HoldingNoticeTone int
+
+const (
+	// HoldingNoticeNone: no sentence.
+	HoldingNoticeNone HoldingNoticeTone = iota
+	// HoldingNoticeOK: what was asked is what the read shows.
+	HoldingNoticeOK
+	// HoldingNoticeWarn: it is not, the page cannot tell, or a form was refused.
+	HoldingNoticeWarn
 )
 
 // ProblemView is a refusal or a fault the operator surface answers with a page.

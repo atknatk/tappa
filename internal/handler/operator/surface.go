@@ -4,7 +4,8 @@
 // and one tenant's overview (OP-11, tenants.go), one tenant's plaque inventory (OP-13,
 // plaques.go), the operator's own audit log (OP-14, audit.go), one tenant's billing months
 // (OP-12, billing.go), one tenant's VAT number and its re-check with VIES (OP-16, vat.go),
-// on the operator's own host, and the two 503 states OP-7 shipped.
+// the holdings and their memberships (M11 API-1a, holdings.go), on the operator's own host, and
+// the two 503 states OP-7 shipped.
 //
 // 🔴 IT IS NOT internal/handler, AND THE PACKAGE BOUNDARY IS THE POINT. ADR 0021 §3.6:
 // the customer panel does not import the operator's packages. internal/handler is the
@@ -25,7 +26,9 @@
 // /operator/tenants/{id}/billing (OP-12's B phase: 00032 added op_read_tenant_billing and
 // replaced op_begin_read and op_read_audit once more) and /operator/tenants/{id}/vat (OP-16's B
 // phase: 00034 added op_read_tenant_vat and op_record_vat_check, the first op_* that changes a
-// tenant). ADR 0020 §4's platform-wide
+// tenant); and /operator/holdings with its two membership routes (M11 API-1a: 00042 added
+// op_create_holding, op_add_holding_member, op_remove_holding_member and op_read_holdings, and
+// replaced op_begin_read and op_read_audit). ADR 0020 §4's platform-wide
 // /operator/billing is not registered (the orchestrator's K12-1 (a):
 // TestSurface_TheScreensOfLaterTasksAreNotMounted drives it), and the renders of screens()
 // do not link to it (TestOperatorScreens_EveryActionAndLinkIsAMountedRoute).
@@ -84,6 +87,9 @@ type Surface struct {
 	// wizard's own, adapted by cmd/tappa.
 	vatStore VATStore
 	vies     VATChecker
+	// holdingStore is the holdings screen's (holdings.go): the holdings and their memberships,
+	// a two-phase read, and the three one-phase writes of a membership.
+	holdingStore HoldingStore
 	// host is TAPPA_OPERATOR_HOST, validated by internal/config: the host gate's
 	// comparison (httpx.OnHost).
 	host string
@@ -125,12 +131,12 @@ func Unavailable() *Surface { return &Surface{unavailable: true} }
 // New is the configured surface. It refuses the values a configured surface cannot do
 // without rather than degrade to Off silently: the Authenticator, the legal screen's
 // store and texts, the tenant screens' store, the plaque screen's store, the audit
-// screen's store, the billing screen's store, the VAT screen's store and its VIES client, the
-// operator host, a base URL it can take the operator origin's scheme and port from, and a
-// logger.
+// screen's store, the billing screen's store, the VAT screen's store, the holdings screen's store
+// (M11 API-1a) and the VAT screen's VIES client, the operator host, a base URL it can take the
+// operator origin's scheme and port from, and a logger.
 func New(auth *operatorauth.Authenticator, legalStore LegalStore, tenantStore TenantStore, plaqueStore PlaqueStore,
-	auditStore AuditStore, billingStore BillingStore, vatStore VATStore, vies VATChecker, texts LegalTexts, host, baseURL string,
-	log *slog.Logger) (*Surface, error) {
+	auditStore AuditStore, billingStore BillingStore, vatStore VATStore, holdingStore HoldingStore, vies VATChecker,
+	texts LegalTexts, host, baseURL string, log *slog.Logger) (*Surface, error) {
 	if auth == nil {
 		return nil, errors.New("operator: a configured surface needs its Authenticator")
 	}
@@ -151,6 +157,9 @@ func New(auth *operatorauth.Authenticator, legalStore LegalStore, tenantStore Te
 	}
 	if vatStore == nil {
 		return nil, errors.New("operator: a configured surface needs its VAT store (the operator database)")
+	}
+	if holdingStore == nil {
+		return nil, errors.New("operator: a configured surface needs its holding store (the operator database)")
 	}
 	if vies == nil {
 		return nil, errors.New("operator: a configured surface needs its VIES client")
@@ -178,6 +187,7 @@ func New(auth *operatorauth.Authenticator, legalStore LegalStore, tenantStore Te
 		billingStore: billingStore,
 		vatStore:     vatStore,
 		vies:         vies,
+		holdingStore: holdingStore,
 		host:         host,
 		origin:       origin,
 		log:          log,
@@ -343,6 +353,16 @@ const (
 	//
 	// Measured on one session: TestVATBudget_ARecheckIsThreeReadsAndOneVIESUnit.
 	//
+	// M11 API-1a ADDED THE HOLDINGS, AND IT STANDS. A membership change is two requests and one
+	// read -- the write (POST, no read) and the list after it (its 303 lands on a GET that reads)
+	// -- and a refused form is one request and one read (the list again), so the holdings window
+	// of readLimit's comment is, in requests:
+	//
+	//	a holdings session  ~8 writes + ~8 lists after them + ~2 views + ~3 refused   ~21 -> 4.7
+	//	support + holdings  ~40 reads + ~5 writes + ~5 console + ~3 refused         ~53 -> 1.89
+	//
+	// Measured on one session: TestHoldingsBudget_AViewIsOneReadAndAWriteIsNone.
+	//
 	// WHAT THE TWO NUMBERS BOUND IN THE DATABASE. A read request is THREE definer
 	// transactions -- sessionGate's op_touch_session, op_begin_read and op_read_* (the leak
 	// test's harvest counts all three) -- so the requests the two budgets ADMIT in a window
@@ -357,8 +377,10 @@ const (
 	// phase B) -- every request whose handler makes a two-phase op_* read: legalPage,
 	// listTenants (the list and every page of a search), tenantOverview, tenantPlaques,
 	// (OP-14) readAudit (the audit log's first page and every filter or page after it),
-	// (OP-12) readBilling (a tenant's billing months, every page) and (OP-16) readVAT (a
-	// tenant's VAT screen and every ask of VIES from it).
+	// (OP-12) readBilling (a tenant's billing months, every page), (OP-16) readVAT (a
+	// tenant's VAT screen and every ask of VIES from it) and (M11 API-1a) readHoldings (the
+	// holdings list, every page of it, and a refused holdings form that shows it again; the three
+	// holding writes read nothing).
 	// The handler charges it ONCE, after the request's own refusals and before the store
 	// call (spendRead), so a malformed id, a refused term, page or form spends no read.
 	// Keyed on the session's id, like sessionLimit.
@@ -435,6 +457,23 @@ const (
 	// Again an estimate, not a measurement of use. A stolen cookie's 60 reads may now be 60 VAT
 	// views: 60 numbers a window, each view one more 'read' row naming the tenant; its asks are
 	// bounded first by viesLimit below.
+	//
+	// M11 API-1a ADDED THE HOLDINGS AND KEPT THE NUMBER. A view of the list is a read; a write is
+	// not, and the list its 303 lands on is. A fifth kind of window, setting up a group:
+	//
+	//	a support window (above)                                         ~30 reads
+	//	a holdings session: ~2 holdings created and ~6 memberships
+	//	                    changed, each followed by the list (~8),
+	//	                    ~2 more views, ~5 overviews to copy the
+	//	                    businesses' ids from                         ~15 reads
+	//	x 2 headroom over the larger                                     60
+	//
+	// A window that mixes them -- a support window that also sets up one group -- is ~38 reads,
+	// against which 60 is 1.58 headroom (OP-11's walk stays the narrowest, 1.33). Again an
+	// estimate, not a measurement of use. A stolen cookie's 60 reads may now be 60 pages of the
+	// list: at most 12 000 membership rows a window (60 pages of 200 -- each a holding, a business's
+	// name, timezone and API code), each view one more 'read' row; its writes are bounded by
+	// sessionLimit alone, and each leaves the operator's row naming the holding.
 	//
 	// NO READ-THEN-WRITE WINDOW: Charge is one locked increment that returns the count, and
 	// the refusal is decided on the count it returned -- measured with 100 concurrent reads
