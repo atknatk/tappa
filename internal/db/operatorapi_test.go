@@ -676,8 +676,9 @@ func TestOperator00039_DownGivesBack00034AndUpTakesItAgain(t *testing.T) {
 // TestOperator00039_PreconditionRefusesAWrongCluster: 00039's first statement passes this
 // cluster taken to 00038 (00039's Down) and refuses, with 55000 naming 00039, a role of the wrong
 // shape, a database not at 00034's operator surface -- in particular a kind CHECK or a tenant-write
-// shape ANOTHER migration widened in between (OP-15's case: this file must stop, not undo it) --,
-// 00038's columns missing, and a drifted ACL its column grants cannot narrow.
+// shape ANOTHER migration widened in between, or a body of the two functions it replaces that
+// another migration changed (OP-15's case: this file must stop, not undo it) --, 00038's columns
+// missing, and a drifted ACL its column grants cannot narrow.
 func TestOperator00039_PreconditionRefusesAWrongCluster(t *testing.T) {
 	ctx, tx := opTx(t)
 	opAtVersion(t, ctx, tx, 38, opKindsAt34...)
@@ -687,6 +688,16 @@ func TestOperator00039_PreconditionRefusesAWrongCluster(t *testing.T) {
 		t.Fatal("00039's Up does not open with the precondition DO block")
 	}
 	pre := up[i:j]
+	up34, _ := opMigrationSections(t, op00034File)
+	// bodyDrift is 00034's own CREATE OR REPLACE of fn with one line added to the body: the
+	// owner, the signature and every attribute stay 00034's, so no other check can see it.
+	bodyDrift := func(fn string) string {
+		stmt := regexp.MustCompile(`(?s)CREATE OR REPLACE FUNCTION public\.` + fn + `\(.*?\nAS \$\$.*?\$\$;`).FindString(up34)
+		if stmt == "" {
+			t.Fatalf("00034's Up does not define %s", fn)
+		}
+		return strings.Replace(stmt, "\nAS $$", "\nAS $$\n-- changed by a migration between 00034 and 00039", 1)
+	}
 	widened := `ALTER TABLE operator_audit_log DROP CONSTRAINT operator_audit_log_kind_check;
 	            ALTER TABLE operator_audit_log ADD CONSTRAINT operator_audit_log_kind_check CHECK (kind IN ('` +
 		strings.Join(opAuditKinds34, "', '") + `', 'tenant_suspended')) NOT VALID`
@@ -707,6 +718,9 @@ func TestOperator00039_PreconditionRefusesAWrongCluster(t *testing.T) {
 			`ALTER TABLE operator_audit_log DROP CONSTRAINT operator_audit_log_tenant_write_shape`,
 			`ALTER TABLE operator_audit_log ADD CONSTRAINT operator_audit_log_tenant_write_shape CHECK (kind <> ALL (ARRAY['tenant_vat_checked', 'tenant_suspended']) OR detail = '{}'::jsonb)`},
 			"rebase this file onto it"},
+		// A body another migration changed, everything else 00034's: only the digest sees it.
+		{"op_begin_read's body changed by another migration", []string{bodyDrift("op_begin_read")}, "a live body is not 00034's"},
+		{"op_read_audit's body changed by another migration", []string{bodyDrift("op_read_audit")}, "a live body is not 00034's"},
 		{"the definer already reaches the code", []string{`GRANT UPDATE (api_code) ON tenants TO tappa_opdefiner`}, "a privilege no migration gave"},
 		{"the definer holds UPDATE on all of tenants", []string{`GRANT UPDATE ON tenants TO tappa_opdefiner`}, "a privilege no migration gave"},
 		{"tappa_app may open its own API", []string{`GRANT UPDATE (api_enabled_at) ON tenants TO tappa_app`}, "a privilege no migration gave"},

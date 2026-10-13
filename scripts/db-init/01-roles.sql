@@ -179,11 +179,17 @@ GRANT USAGE ON SCHEMA public TO tappa_opdefiner;
 --       etkilenmiyor (geri yukleme sonunda tags UPDATE/DELETE hala false, 45 yetki).
 --       Etkiledigi tek sey SONRAKI DDL'dir.
 --
---   SOMUT SONUC VE NEDEN ONEMLI: dev/CI dar, uretim ve her geri yuklenmis
---   veritabani genis. Yani DOGRULAMA ORTAMI URETIMDEN KATI, ve ayrim kusuru
---   GIZLER yonde -- REVOKE satirini unutan bir migration yerelde hicbir fark
---   uretmez, uretimde sessizce `arwd` verir. `pg-restore-verify.sh` de bunu
---   goremez: referansi dump'in kendisi, dump ise genis varsayilani ILAN ediyor.
+--   SOMUT SONUC VE NEDEN ONEMLI: uretim ve her geri yuklenmis veritabani genis.
+--   Dar kurulmus bir DOGRULAMA ORTAMI URETIMDEN KATIDIR ve ayrim kusuru GIZLER
+--   yonde -- REVOKE satirini unutan bir migration orada hicbir fark uretmez,
+--   uretimde sessizce `arwd` verir. Bu yuzden dev ve CI artik dar DEGIL (M11
+--   API-1, ADR 0028 §1): taze bir hacimde scripts/db-init/03-dev-production-
+--   default-acl.sql bu satirlardan sonra uretimin `arwd`'ini kurar ve internal/db
+--   katalog testi her yeni tabloyu o varsayilan altinda matrisle karsilastirir.
+--   Bu dosyanin dar satiri yalniz uretimin TAZE hacminde gecerli kalir (deploy.yml
+--   03'u tasimaz); 03'ten once kurulmus bir gelistirme hacmi hala dar olabilir
+--   (`make db-reset`). `pg-restore-verify.sh` unutulan REVOKE'u goremez:
+--   referansi dump'in kendisi, dump ise genis varsayilani ILAN ediyor.
 --
 --   ⚠️ CARE VAR VE OLCULDU: geri yukleme prosedurunun SON adimi tek bir ifadeyle
 --   varsayilani yeniden daraltiyor (`REVOKE UPDATE, DELETE ON TABLES`), var olan

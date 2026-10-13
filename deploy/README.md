@@ -5772,9 +5772,10 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     init → `ar` · geri yükleme sonrası → **`arwd`** · o anda yaratılan yeni tablo
     `tappa_app`'e **`arwd`** verir. **Var olan tablolar etkilenmiyor** (aynı ölçümde
     45 yetki, `tags` UPDATE/DELETE false) — etkilenen tek şey **sonraki DDL**.
-    🔴 **NEDEN SAYILMASI GEREKEN BİR SINIR:** dev/CI **dar**, üretim ve her geri
-    yüklenmiş veritabanı **geniş** — yani **doğrulama ortamı üretimden katı** ve ayrım
-    kusuru **gizler** yönde. `REVOKE` satırını unutan bir migration yerelde hiçbir fark
+    🔴 **NEDEN SAYILMASI GEREKEN BİR SINIR:** dev/CI **dar** idi, üretim ve her geri
+    yüklenmiş veritabanı **geniş** — yani **doğrulama ortamı üretimden katıydı** ve ayrım
+    kusuru **gizler** yönde. *(M11 API-1'den beri dev ve CI taze hacimde üretimin `arwd`'iyle
+    kurulur: `scripts/db-init/03-dev-production-default-acl.sql`, ADR 0028 §1.)* `REVOKE` satırını unutan bir migration yerelde hiçbir fark
     üretmez, üretimde sessizce `arwd` verir. `pg-restore-verify.sh` bunu **göremez**:
     referansı dump'ın kendisi, ve dump geniş varsayılanı **ilan ediyor**.
     ✅ **Geri yükleme yolunda KAPATILDI:** A YOLU 7. adım ve B YOLU B3, dump'tan sonra

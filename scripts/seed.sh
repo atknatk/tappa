@@ -18,6 +18,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# HEDEF ORTAMLA CELISIYORSA REDDET -- docker'a bakilmadan once. Bu betik her zaman
+# compose veritabanina yazar (asagidaki pin); DATABASE_URL baska bir veritabanini
+# gosteriyorsa kullanici BASKA bir yere yazdigini sanir. Gerekce: scripts/compose-db-only.sh.
+. scripts/compose-db-only.sh
+compose_db_only seed.sh seeds
+
 SEED_FILE=${1:-test/fixtures/seed.sql}
 # Migration/seed yetkili rolle calisir; uygulama rolu (tappa_app) RLS'e tabidir
 # ve seed verisini yazamaz (CLAUDE.md §6).

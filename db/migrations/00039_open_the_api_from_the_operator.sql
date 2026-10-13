@@ -13,10 +13,10 @@
 -- WHAT IT DOES, IN ORDER:
 --   0. re-checks the two cluster roles' shape (00026's precondition, as 00027-00034 repeated it),
 --      that the database is at 00034 EXACTLY on the operator surface (the kind CHECK and the
---      tenant-write shape compared by their full text, so a migration that widened them in
---      between -- OP-15's, waiting on another branch as 00036 -- stops this file loudly instead
---      of being silently undone by it), that 00038's two columns exist, and that nobody already
---      reaches them;
+--      tenant-write shape compared by their full text, the two replaced bodies by md5(prosrc),
+--      so a migration that changed them in between -- OP-15's, waiting on another branch as
+--      00036 -- stops this file loudly instead of being silently undone by it), that 00038's two
+--      columns exist, and that nobody already reaches them;
 --   1. operator_audit_log_kind_check gains 'tenant_api_enabled' and 'tenant_api_disabled' (NOT
 --      VALID only when a row of a kind outside the new set already exists), and
 --      operator_audit_log_tenant_write_shape names both: the operator's row names its tenant and
@@ -79,9 +79,10 @@
 -- The role checks are 00026's, in its order, as 00027-00034 repeated them: an op_* owned by a
 -- SUPERUSER, a LOGIN or a member-carrying tappa_opdefiner is a general bypass with every other
 -- check green, and a member of tappa_operator inherits EXECUTE on the two functions below.
--- 00034's state: the three functions it left, and the two CHECKs compared by their whole text
+-- 00034's state: the three functions it left, the two CHECKs compared by their whole text
 -- (the kind CHECK's NOT VALID suffix aside: this file's own Down leaves 00034's set NOT VALID
--- when rows of its kinds remain, and the Up must compose over that).
+-- when rows of its kinds remain, and the Up must compose over that), and the two bodies 3. and
+-- 4. replace, by md5 digest.
 -- THE REACH: the grants below are column lists, and a column grant cannot take back a wider
 -- privilege some other hand gave (00024 measured it) -- so nobody may already reach the two
 -- columns, and tappa_opdefiner holds no table-level UPDATE on tenants.
@@ -174,6 +175,22 @@ BEGIN
               AND c.conname = 'operator_audit_log_tenant_write_shape')
          IS DISTINCT FROM 'CHECK (((kind <> ALL (ARRAY[''tenant_vat_checked''::text])) OR ((target_tenant_id IS NOT NULL) AND (target_admin_id IS NULL) AND (target_scope IS NULL) AND (page_number IS NULL) AND (page_size IS NULL) AND (detail = ''{}''::jsonb))))' THEN
         RAISE EXCEPTION 'migration 00039 (M11 API-1) widens operator_audit_log_kind_check and operator_audit_log_tenant_write_shape as migration 00034 left them, and the constraints are not in that state -- a migration between 00034 and this one widened them; rebase this file onto it. Migrate in order. Nothing was changed.'
+            USING ERRCODE = 'object_not_in_prerequisite_state';
+    END IF;
+
+    -- THE TWO BODIES, BY DIGEST. 3. and 4. replace op_begin_read and op_read_audit WHOLE,
+    -- so a migration between 00034 and this one that changed only a body (OP-15's 00036 may)
+    -- passes every check above and is silently undone below. The constants are md5(prosrc) of
+    -- 00034's Up bodies; this file's Down gives those back verbatim
+    -- (TestOperator00039_DownGivesBack00034AndUpTakesItAgain), so the Up still composes over it.
+    -- A rebase onto such a migration takes its bodies and their digests here.
+    IF (SELECT pg_catalog.md5(p.prosrc) FROM pg_catalog.pg_proc p
+         WHERE p.oid = pg_catalog.to_regprocedure('public.op_begin_read(text, text, jsonb)'))
+         IS DISTINCT FROM 'd3d333f60f435d98b57e2ae3536ea8be'
+       OR (SELECT pg_catalog.md5(p.prosrc) FROM pg_catalog.pg_proc p
+            WHERE p.oid = pg_catalog.to_regprocedure('public.op_read_audit(text, text, text, integer, integer)'))
+         IS DISTINCT FROM '1fc969295e75bdcca2a96b60d7041404' THEN
+        RAISE EXCEPTION 'migration 00039 (M11 API-1) replaces op_begin_read and op_read_audit whole with migration 00034''s bodies plus two kinds, and a live body is not 00034''s -- a migration between 00034 and this one changed it, and this file would silently undo that; rebase this file onto it. Migrate in order. Nothing was changed.'
             USING ERRCODE = 'object_not_in_prerequisite_state';
     END IF;
 

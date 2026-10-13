@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 
@@ -217,4 +218,92 @@ func TestVenueCard_ShowsTheExternalRefAndOffersTheFormToAnOwnerOnly(t *testing.T
 	if body := b.do(http.MethodGet, locationsHref+"?venue=new", nil).Body.String(); strings.Contains(body, `name="external_ref"`) {
 		t.Error("a NEW venue's card offers an external-ref form; there is no row to bind yet")
 	}
+}
+
+// TestPanelWrites_EveryRouteMountWritingRegistersRefusesAForeignOriginBeforeTheResolver: the two
+// external-ref routes -- and every other POST mountWriting registers -- answer a foreign Origin, a
+// same-site sibling's, `null` and an absent one with the Origin gate's refusal (303 to /admin)
+// and NO session lookup; the two external-ref commands are never built. The same-origin control
+// reaches the resolver and the domain once per route, so the zeros are about the Origin.
+//
+// 🔴 THE ROUTE SET IS mountWriting'S OWN REGISTRATION, NOT A LIST. The hand-written lists before
+// this one (TestEmployeeActions_AreRefusedCrossOriginBeforeTheResolverRuns,
+// TestVenueWrites_AreOnTheWritingChain, ...) each name their own section's routes, and API-1's two
+// were in none of them. mountWriting is given a router of its own and that router is walked, so
+// a route added there is covered the day it is added -- and sign-in and sign-out, which mount
+// elsewhere on their own chains, are not dragged in, so no exemption list is needed
+// (TestPlaqueWrites_AreOnTheWRITINGChain's walk is the same idea for one section's prefix).
+func TestPanelWrites_EveryRouteMountWritingRegistersRefusesAForeignOriginBeforeTheResolver(t *testing.T) {
+	staff, venues := &fakeStaff{}, &fakeVenues{}
+	admins := &fakeAdmins{verify: func() (adminauth.Resolved, error) {
+		return adminauth.Resolved{
+			SessionID: panelTestSession, TenantID: panelTestTenant, AdminUserID: panelTestAdmin,
+			Role: "owner", FullName: "KF Owner",
+		}, nil
+	}}
+	a, err := NewAdminAuth(admins, &fakeTrail{}, newFakeLedger(), newFakeLedger(), &fakeReviewer{},
+		staff, &fakeInviter{}, venues, &fakePlaques{}, &fakeRecorder{}, newFakeRules(),
+		newFakeScribe(), newFakeBooks(), newFakeAccount(), newFakeBrands(), newFakeBrandWriter(),
+		nil, &fakeNotices{}, adminTestConfig(), slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("NewAdminAuth: %v", err)
+	}
+	full := chi.NewRouter()
+	a.Mount(full)
+	writing := chi.NewRouter()
+	a.mountWriting(writing)
+	var routes []string
+	if err := chi.Walk(writing, func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
+		if method == http.MethodPost {
+			routes = append(routes, route)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("chi.Walk: %v", err)
+	}
+	// ANTI-VACUITY: the walk reads the real registration -- the two routes this task added are in it.
+	if !slices.Contains(routes, employeeExternalRefHref) || !slices.Contains(routes, venueExternalRefHref) {
+		t.Fatalf("the walk of mountWriting found %v, without %s and %s; it is not reading the real registration",
+			routes, employeeExternalRefHref, venueExternalRefHref)
+	}
+
+	b := newBrowser(t, full)
+	b.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	form := url.Values{"id": {uuid.NewString()}, "external_ref": {"KF-1"}}
+
+	// THE CONTROL: same-origin, each external-ref POST resolves the session and reaches its domain.
+	for _, route := range []string{employeeExternalRefHref, venueExternalRefHref} {
+		if rec := b.do(http.MethodPost, route, form); rec.Code != http.StatusSeeOther || rec.Header().Get("Location") == "/admin" {
+			t.Fatalf("control: a same-origin POST to %s answered %d -> %q, want the route's own 303", route, rec.Code, rec.Header().Get("Location"))
+		}
+	}
+	baseline := admins.verifiedCount()
+	if baseline != 2 || len(staff.refCommands()) != 1 || len(venues.venueRefs) != 1 {
+		t.Fatalf("control: %d session lookup(s), %d employee and %d venue command(s); want 2, 1 and 1 -- the counters are not wired",
+			baseline, len(staff.refCommands()), len(venues.venueRefs))
+	}
+
+	for _, o := range []struct{ name, origin string }{
+		{"a foreign origin", "https://evil.example"},
+		{"a same-site sibling", "https://evil.example.test"},
+		{"Origin: null", "null"},
+		{"no Origin", ""},
+	} {
+		b.origin = o.origin
+		for _, route := range routes {
+			rec := b.do(http.MethodPost, route, form)
+			if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/admin" {
+				t.Errorf("%s: POST %s answered %d -> %q, want the Origin gate's 303 -> /admin", o.name, route, rec.Code, rec.Header().Get("Location"))
+			}
+		}
+	}
+	if got := admins.verifiedCount() - baseline; got != 0 {
+		t.Errorf("%d refused POSTs over %d route(s) cost %d session lookup(s), want 0: the Origin check must run "+
+			"BEFORE the resolver on every route mountWriting registers", 4*len(routes), len(routes), got)
+	}
+	if len(staff.refCommands()) != 1 || len(venues.venueRefs) != 1 {
+		t.Errorf("after the refused POSTs the domain holds %d employee and %d venue external-ref command(s), want still 1 and 1",
+			len(staff.refCommands()), len(venues.venueRefs))
+	}
+	t.Logf("%d route(s) mountWriting registers, each refused for 4 origins", len(routes))
 }

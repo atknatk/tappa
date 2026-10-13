@@ -163,29 +163,15 @@ jobs:
         # imaj postgres:17-alpine, ayni roller, ayni uzantilar, TZ/PGTZ=UTC).
         # M1-09 DB testleri geldiginde ayni `make check` icinden localhost:5432'ye
         # baglanabilsin diye test adimindan ONCE ayaga kaldirilir.
+        #
+        # URETIMIN `arwd` VARSAYILANI DA BURADAN GELIR (ADR 0028 §1, M11 API-1):
+        # scripts/db-init/03-dev-production-default-acl.sql onu taze hacimde, ilk
+        # migration'dan once kurar. Eskiden bunu ayri bir adim `make up`tan sonra
+        # psql ile yapiyordu ve sunucu hazir olmadan kostugu icin bir kez dustu; init
+        # dosyasi sunucu baglanti kabul etmeden koser, yarisacak bir sey kalmadi.
+        # Dogrulayici tek: internal/db TestM11Catalog_EveryNewTableMatchesTheMatrixUnderArwd
+        # goose_db_version taniginda dar varsayilan gorurse CI'da KIRMIZI olur.
         run: make up
-
-      - name: Use production's default ACL (arwd)
-        # ADR 0028 §1 / CLAUDE.md §6 ("`arwd` varsayılanına güvenilmez", M11 API-1): production's
-        # pg_default_acl hands every NEW table to tappa_app with all four verbs (arwd); a fresh
-        # 01-roles.sql hands it `ar`. Migrating CI under the narrow default made it STRICTER than
-        # production in the direction that hides defects: a migration that forgot its
-        # `REVOKE ALL ... FROM tappa_app` was invisible here and wide open there. So CI widens
-        # the default to production's BEFORE the first migrate -- goose's own table is created
-        # under it too, which is the witness internal/db's
-        # TestM11Catalog_EveryNewTableMatchesTheMatrixUnderArwd reads before it compares every
-        # table born after 00035 with its matrix (it refuses to run on a narrow-built database).
-        # Measured on a pair of databases at 00035 (2026-10-11): the only grant that differs is
-        # goose_db_version's UPDATE and DELETE -- every application table is identical, so this
-        # step changes no existing test. The statement is m11DefaultACLStatement in that test.
-        # -h 127.0.0.1: over the socket this psql can land on the entrypoint's temporary init
-        # server (run 38132539511 met its socket already gone); TCP reaches only the real
-        # server, which `make up` now waits for the same way (see the Makefile's `up`).
-        run: |
-          docker compose -f docker-compose.yml -p tappa exec -T db \
-            psql -h 127.0.0.1 -v ON_ERROR_STOP=1 --no-psqlrc -U tappa_owner -d tappa \
-            -c "ALTER DEFAULT PRIVILEGES FOR ROLE tappa_owner IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO tappa_app" \
-            -c "SELECT defaclobjtype, defaclacl FROM pg_default_acl"
 
       - name: Apply the schema (make migrate)
         # 🔴 BU ADIM YOKTU VE ILK GERCEK CI KOSUSUNU (31902969589) TEK BASINA

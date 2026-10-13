@@ -819,14 +819,16 @@ holding dışı izolasyon prod'da örneklenir.
   edilen çağrıda; bilinmeyen tenant aynı `void`. OP-15'in dalda bekleyen çiftinin (suspend/reinstate)
   biçimi emsal alındı; okumaya bağlama (OP-16 (b2)) yok — çağrı kayıtlı bir değeri bir adayla
   karşılaştırmaz. `op_begin_read` ve `op_read_audit` 00034 gövdeleri + iki tür adıyla değiştirildi. Ön
-  koşul tür CHECK'ini ve `tenant_write_shape`'i **tam metinle** karşılaştırır: OP-15'in `00036`'sı önce
-  birleşirse bu dosya sessizce onu geri almaz, "rebase" der.
+  koşul tür CHECK'ini ve `tenant_write_shape`'i **tam metinle**, değiştirdiği iki gövdeyi `md5(prosrc)` ile
+  karşılaştırır: OP-15'in `00036`'sı önce birleşirse bu dosya sessizce onu geri almaz, "rebase" der.
 
-**`arwd` kuralının mekaniği (§1 madde 4).** CI, `make up` ile `make migrate` arasında üretimin
-`pg_default_acl`'ini kurar (`ci.yml`, "Use production's default ACL (arwd)"); 00035'teki iki veritabanı
-karşılaştırıldı — dar ve geniş yapımlar arasında uygulama tablolarında **fark yok**, tek fark
-`goose_db_version`'ın UPDATE/DELETE'i. O tablo ilk migration'dan önce doğduğu için katalog testinin
-tanığıdır: tanık dar ise test çalışmayı reddeder ve CI'ın komutunu yazar. Test, 00035'teki
+**`arwd` kuralının mekaniği (§1 madde 4).** Taze bir hacimde, ilk migration'dan önce üretimin
+`pg_default_acl`'i kurulur: CI'da, yeni geliştiricide ve `make db-reset`'te aynı init dosyası
+(`scripts/db-init/03-dev-production-default-acl.sql`; ilk hali `ci.yml`'de ayrı bir adımdı). 00035'teki
+iki veritabanı karşılaştırıldı — dar ve geniş yapımlar arasında uygulama tablolarında **fark yok**, tek
+fark `goose_db_version`'ın UPDATE/DELETE'i. O tablo ilk migration'dan önce doğduğu için katalog testinin
+tanığıdır: tanık dar ise test CI'da kırmızıdır, başka yerde (init dosyasından eski bir hacim) atlanır —
+geçiş sayılmaz — ve yeniden kurmayı söyler. Test, 00035'teki
 ilişki/sütun/fonksiyon/dizi kümesini **dondurur** ve ondan sonra doğan her nesnenin rolü rolüne matriste
 olmasını ister (`m11Tables`, `m11Columns`, `m11Functions` — `internal/db/m11schema_test.go`).
 *Adlandırılmış yan bulgu:* üretimde `tappa_app`, `goose_db_version` üzerinde UPDATE ve DELETE tutuyor

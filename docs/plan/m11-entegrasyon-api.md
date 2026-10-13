@@ -497,7 +497,7 @@ Aşılınca 429 + owner uyarısı + audit. ADR 0010 sapma notu.
 | API-10 | Webhook gönderici + teslim günlüğü | L | yapıcı (`tappa-brand`) | API-9 |
 | API-11 | Sandbox ikilisi + simülasyon + kurulum | M | yapıcı + kullanıcı (alan adı/DNS) | API-5…API-10 |
 | API-12 | OpenAPI + entegrasyon rehberi (§2'nin 31 maddesi + imza vektörü) | S | yapıcı | API-5…API-11 |
-| API-13 | Canlıya alma: sırlar, `api.` DNS + Ingress, **`tappa-security-auditor` tam tur**, operatörden K-22 (kod `KF`/`KM`) ve **KF+KM holding'i**, K-18 runbook'u, prod anahtar çifti ve `pg_auth_members` ölçümü, spec §7 listesi | M | yapıcı + denetçi + kullanıcı | hepsi + **OP-15** |
+| API-13 | Canlıya alma: sırlar, `api.` DNS + Ingress, **`tappa-security-auditor` tam tur**, operatörden K-22 (kod `KF`/`KM`) — **K-22'nin operatör yüzeyi de burada**: `op_enable_tenant_api`/`op_disable_tenant_api`'nin Go erişimcisi + `/operator` ekranı (API aç/kapat, `api_code`; API-1 yalnız iki `op_*`'i getirdi) — ve **KF+KM holding'i**, K-18 runbook'u, prod anahtar çifti ve `pg_auth_members` ölçümü, spec §7 listesi | M | yapıcı + denetçi + kullanıcı | hepsi + **OP-15** |
 
 Her görev: yapıcı (opus) → ayrı üçüncü göz → bulgu varsa düzelt + yeniden denetle; CLAUDE.md §4'e
 değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca

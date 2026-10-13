@@ -310,7 +310,9 @@ func TestDbReset_RefusesADaemonOnAnotherMachine(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			cmd := exec.Command("bash", script)
 			cmd.Dir = repoRoot
-			cmd.Env = append(os.Environ(), "DOCKER_HOST="+tc.host)
+			// DATABASE_URL is dropped: with it naming another database the script refuses
+			// EARLIER (scripts/compose-db-only.sh), and this case is about the daemon.
+			cmd.Env = append(envWithout("DATABASE_URL"), "DOCKER_HOST="+tc.host)
 			out, err := cmd.CombinedOutput()
 			if err == nil {
 				t.Fatalf("the script EXITED 0 with DOCKER_HOST=%s. It was about to delete "+
@@ -327,6 +329,84 @@ func TestDbReset_RefusesADaemonOnAnotherMachine(t *testing.T) {
 					"banner has moved above the guards:\n%s", out)
 			}
 		})
+	}
+}
+
+// envWithout is this process's environment minus the named variables.
+func envWithout(names ...string) []string {
+	var out []string
+	for _, kv := range os.Environ() {
+		name, _, _ := strings.Cut(kv, "=")
+		keep := true
+		for _, n := range names {
+			if name == n {
+				keep = false
+			}
+		}
+		if keep {
+			out = append(out, kv)
+		}
+	}
+	return out
+}
+
+// TestComposeScripts_RefuseADatabaseURLThatNamesAnotherDatabase is scripts/compose-db-only.sh,
+// executed. seed.sh and db-reset.sh reach the compose database whatever DATABASE_URL says, so with
+// DATABASE_URL naming any other database each must refuse -- and refuse BEFORE docker.
+//
+// 🔴 NO RUN HERE CAN REACH A DATABASE. PATH holds dirname alone (the scripts' own `cd` needs it),
+// so docker cannot resolve: a run the guard wrongly let through stops at the script's own "docker
+// is not on PATH" check, having written and deleted nothing. That check is also what tells the two
+// outcomes apart: a refusal never gets to it, and the controls -- the compose address, and no
+// DATABASE_URL at all -- pass the guard and stop exactly there, so the refusals are the guard's.
+func TestComposeScripts_RefuseADatabaseURLThatNamesAnotherDatabase(t *testing.T) {
+	if testing.Short() {
+		t.Skip("executes the scripts")
+	}
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skipf("bash is not on PATH: %v", err)
+	}
+	dirname, err := exec.LookPath("dirname")
+	if err != nil {
+		t.Fatalf("dirname is not on PATH: %v", err)
+	}
+	bin := t.TempDir()
+	if err := os.Symlink(dirname, filepath.Join(bin, "dirname")); err != nil {
+		t.Fatal(err)
+	}
+	const refusal, dockerCheck = "your DATABASE_URL points elsewhere", "'docker'"
+	for _, script := range []string{"seed.sh", "db-reset.sh"} {
+		path := scriptPathIn(t, script)
+		for _, c := range []struct {
+			name, url string
+			refused   bool
+		}{
+			{"another port", "postgres://app@127.0.0.1:55460/tappa", true},
+			{"another host", "postgres://app@db.example.test:5432/tappa", true},
+			{"a keyword DSN", "host=localhost port=5432 dbname=tappa", true},
+			{"control: the compose address", "postgres://app@localhost:5432/tappa?sslmode=disable", false},
+			{"control: no DATABASE_URL", "", false},
+		} {
+			t.Run(script+"/"+c.name, func(t *testing.T) {
+				env := append(envWithout("PATH", "DATABASE_URL", "DOCKER_HOST", "DOCKER_CONTEXT"), "PATH="+bin)
+				if c.url != "" {
+					env = append(env, "DATABASE_URL="+c.url)
+				}
+				cmd := exec.Command(bash, path)
+				cmd.Dir = repoRoot
+				cmd.Env = env
+				out, err := cmd.CombinedOutput()
+				if err == nil {
+					t.Fatalf("exited 0 with no docker on PATH:\n%s", out)
+				}
+				refused, reachedDocker := strings.Contains(string(out), refusal), strings.Contains(string(out), dockerCheck)
+				if refused != c.refused || reachedDocker == c.refused {
+					t.Errorf("refused=%v, reached the docker check=%v; want %v and %v:\n%s",
+						refused, reachedDocker, c.refused, !c.refused, out)
+				}
+			})
+		}
 	}
 }
 

@@ -158,10 +158,13 @@ var m11Functions = map[string]m11FunctionACL{
 	"op_disable_tenant_api(text,uuid)":     {owner: "tappa_opdefiner", definer: true, execute: "tappa_opdefiner,tappa_operator"},
 }
 
-// m11DefaultACLStatement is what CI runs before its first migration (.github/workflows/ci.yml,
-// "Use production's default ACL (arwd)") -- production's pg_default_acl, so the catalogue below
-// is the one production builds.
+// m11DefaultACLStatement is production's pg_default_acl, which m11DefaultACLInit gives every
+// fresh development and CI volume before the first migration -- so the catalogue below is the
+// one production builds. The test holds the file to this text.
 const m11DefaultACLStatement = `ALTER DEFAULT PRIVILEGES FOR ROLE tappa_owner IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO tappa_app`
+
+// m11DefaultACLInit is the init script that runs m11DefaultACLStatement on an empty PGDATA.
+const m11DefaultACLInit = "scripts/db-init/03-dev-production-default-acl.sql"
 
 // TestM11Catalog_EveryNewTableMatchesTheMatrixUnderArwd is ADR 0028 §1's general catalogue
 // test:
@@ -170,9 +173,10 @@ const m11DefaultACLStatement = `ALTER DEFAULT PRIVILEGES FOR ROLE tappa_owner IN
 //     any migration and under whatever default ACL the database had then. tappa_app holding
 //     UPDATE and DELETE on it means the WHOLE migration chain ran under production's wide
 //     default -- so a REVOKE a new migration forgot shows up below as an extra verb. Under the
-//     narrow default (`ar`, a fresh 01-roles.sql) the missing REVOKE would hide and this test
-//     would be green for the wrong reason, so it REFUSES to run there and says how to build the
-//     database CI builds;
+//     narrow default (`ar`, 01-roles.sql alone) the missing REVOKE would hide and this test
+//     would be green for the wrong reason, so it does not judge there: red in CI, where every
+//     volume is fresh and a narrow one is a broken build; SKIPPED elsewhere -- not a pass --,
+//     where it is a volume built before m11DefaultACLInit existed, and says how to rebuild it;
 //   - every relation, column, function and sequence the catalogue holds is either in the frozen
 //     pre-M11 baseline or in the matrix -- a new one in neither is red;
 //   - every table, column and function of the matrix holds EXACTLY its row, for every role
@@ -182,6 +186,20 @@ const m11DefaultACLStatement = `ALTER DEFAULT PRIVILEGES FOR ROLE tappa_owner IN
 //   - the trigger function refuses to run bound to any other table (TG_RELID), and tappa_app
 //     cannot even bind it (no EXECUTE).
 func TestM11Catalog_EveryNewTableMatchesTheMatrixUnderArwd(t *testing.T) {
+	script, err := os.ReadFile(filepath.Join("..", "..", m11DefaultACLInit))
+	if err != nil {
+		t.Fatalf("read %s: %v", m11DefaultACLInit, err)
+	}
+	var statements []string
+	for _, line := range strings.Split(string(script), "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(line), "--") {
+			statements = append(statements, line)
+		}
+	}
+	if !strings.Contains(strings.Join(strings.Fields(strings.Join(statements, " ")), " "), m11DefaultACLStatement+";") {
+		t.Fatalf("%s does not run %s; -- the database this test judges is not built the way it says", m11DefaultACLInit, m11DefaultACLStatement)
+	}
+
 	ctx, tx := opTx(t)
 
 	var appUpdate, appDelete bool
@@ -191,10 +209,19 @@ func TestM11Catalog_EveryNewTableMatchesTheMatrixUnderArwd(t *testing.T) {
 		t.Fatalf("read the witness: %v", err)
 	}
 	if !appUpdate || !appDelete {
-		t.Fatalf("this database was NOT migrated under production's default ACL: tappa_app holds UPDATE=%v DELETE=%v "+
+		// CI (GitHub Actions sets CI) builds every database on a fresh volume, so a narrow one there
+		// is a broken build. Anywhere else it is a volume older than m11DefaultACLInit -- init runs on
+		// an empty PGDATA only -- and red would fail `make check` on the database, not on a defect.
+		report := t.Skipf
+		if os.Getenv("CI") != "" {
+			report = t.Fatalf
+		}
+		report("this database was NOT migrated under production's default ACL: tappa_app holds UPDATE=%v DELETE=%v "+
 			"on goose_db_version, the table goose creates before the first migration. Under the narrow default a "+
-			"forgotten REVOKE ALL is invisible, so this test proves nothing here. Build the database the way CI "+
-			"does: after the server is up and BEFORE the first migrate, run as tappa_owner\n  %s;", appUpdate, appDelete, m11DefaultACLStatement)
+			"forgotten REVOKE ALL is invisible, so this test proves nothing here -- THIS IS NOT A PASS. %s gives a "+
+			"FRESH volume production's default: rebuild the compose database with `make db-reset`, or build any other "+
+			"from an empty PGDATA with scripts/db-init mounted (or run, as tappa_owner, BEFORE its first migrate\n  %s;)",
+			appUpdate, appDelete, m11DefaultACLInit, m11DefaultACLStatement)
 	}
 
 	// The relations and their columns.
@@ -687,19 +714,40 @@ var employeeLocationReaders = []string{
 	"LockEmployeeForExternalRefChange", "MoveEmployee",
 }
 
+// employeeLocationNonReaders are the statements the wide net below catches -- they name employees
+// and a location_id or a wildcard -- that do NOT read employees.location_id, each with what its
+// location_id is. A statement is in exactly one of the two lists.
+var employeeLocationNonReaders = map[string]string{
+	"ListFlaggedForReview":  "t.location_id, the record's venue; employees is joined for full_name",
+	"ListOpenCheckIns":      "t.location_id, the record's venue; employees is joined for full_name",
+	"ListPanelTransactions": "t.location_id and the venue filter on transactions; employees is matched and joined for full_name",
+	"ListTapsTakenTogether": "transactions' location_id through its ordered/pairs CTEs; employees is joined for full_name",
+	"ListWorkedShiftEvents": "t.location_id, the record's venue; employees is joined for full_name",
+}
+
 // TestEmployeeLocationReaders_Counted pins K-14's count: the statements of db/queries that
 // touch employees.location_id are exactly employeeLocationReaders. A new reader is red until
 // somebody decides what it does with an employee who has no home venue and adds it to the list.
 // (The Go readers are pinned by the type system: sqlc hands every one of them a *uuid.UUID.)
+//
+// THE NET IS WIDE AND THE NARROWING IS WRITTEN DOWN. Its first version recognised a reader by
+// its shape -- alias.location_id, or a bare location_id in a statement naming no other table
+// with that column -- and two shapes walked past it: a bare location_id beside a JOIN to
+// locations (which has no such column, so it IS employees'), and a read through a wildcard
+// (SELECT * in a CTE, alias.*, RETURNING *, sqlc.embed). So every statement that names employees
+// and a location_id or a wildcard is a candidate, and each candidate is classified by hand:
+// employeeLocationReaders or employeeLocationNonReaders. The shape reading stays as a check on
+// the second list only -- a statement it calls a reader cannot be filed as a non-reader.
 func TestEmployeeLocationReaders_Counted(t *testing.T) {
 	files, err := filepath.Glob(filepath.Join("..", "..", "db", "queries", "*.sql"))
 	if err != nil || len(files) == 0 {
 		t.Fatalf("read db/queries: %v", err)
 	}
 	nameRE := regexp.MustCompile(`(?m)^-- name: (\w+)`)
-	aliasRE := regexp.MustCompile(`(?i)\b(?:FROM|JOIN|UPDATE)\s+(?:public\.)?employees(?:\s+(?:AS\s+)?(\w+))?`)
-	keywords := map[string]bool{"where": true, "set": true, "on": true, "left": true, "join": true, "inner": true, "order": true, "group": true}
-	var got []string
+	employeesRE := regexp.MustCompile(`(?i)\bemployees\b`)
+	locationRE := regexp.MustCompile(`(?i)\blocation_id\b`)
+	wildcardRE := regexp.MustCompile(`(?i)\bSELECT\s+(?:DISTINCT\s+)?\*|\w\.\*|\bRETURNING\s+\*|\bsqlc\.embed\s*\(`)
+	candidates := map[string]string{} // name -> statement
 	for _, f := range files {
 		b, err := os.ReadFile(f)
 		if err != nil {
@@ -712,7 +760,6 @@ func TestEmployeeLocationReaders_Counted(t *testing.T) {
 			if i+1 < len(idx) {
 				end = idx[i+1][0]
 			}
-			name := src[m[2]:m[3]]
 			var body strings.Builder
 			for _, line := range strings.Split(src[m[1]:end], "\n") {
 				if !strings.HasPrefix(strings.TrimSpace(line), "--") {
@@ -720,33 +767,66 @@ func TestEmployeeLocationReaders_Counted(t *testing.T) {
 				}
 			}
 			stmt := body.String()
-			reads := false
-			for _, am := range aliasRE.FindAllStringSubmatch(stmt, -1) {
-				alias := strings.ToLower(am[1])
-				if alias == "" || keywords[alias] {
-					// Unaliased: a bare location_id in a statement over employees alone.
-					if regexp.MustCompile(`(?i)(^|[^.\w])location_id\b`).MatchString(stmt) &&
-						!regexp.MustCompile(`(?i)\b(FROM|JOIN|UPDATE|INTO)\s+(public\.)?(locations|departments|tags|transactions)\b`).MatchString(stmt) {
-						reads = true
-					}
-					continue
-				}
-				if regexp.MustCompile(`\b` + regexp.QuoteMeta(alias) + `\.location_id\b`).MatchString(stmt) {
-					reads = true
-				}
-			}
-			if regexp.MustCompile(`(?i)\bINSERT\s+INTO\s+employees\s*\([^)]*\blocation_id\b`).MatchString(stmt) {
-				reads = true
-			}
-			if reads {
-				got = append(got, name)
+			if employeesRE.MatchString(stmt) && (locationRE.MatchString(stmt) || wildcardRE.MatchString(stmt)) {
+				candidates[src[m[2]:m[3]]] = stmt
 			}
 		}
 	}
-	sort.Strings(got)
-	if !slices.Equal(got, employeeLocationReaders) {
-		t.Errorf("the statements reading employees.location_id are\n %v\nwant (reviewed for K-14's NULL)\n %v", got, employeeLocationReaders)
+
+	readers := map[string]bool{}
+	for _, name := range employeeLocationReaders {
+		readers[name] = true
 	}
+	var unclassified []string
+	for name, stmt := range candidates {
+		_, non := employeeLocationNonReaders[name]
+		switch {
+		case readers[name] && non:
+			t.Errorf("%s is in employeeLocationReaders AND employeeLocationNonReaders", name)
+		case !readers[name] && !non:
+			unclassified = append(unclassified, name)
+		case non && employeeLocationShapeReads(stmt):
+			t.Errorf("%s is filed as a non-reader, but it reads employees.location_id by alias or bare name", name)
+		}
+	}
+	sort.Strings(unclassified)
+	if len(unclassified) > 0 {
+		t.Errorf("statements naming employees and a location_id or a wildcard, in neither list: %v -- decide what each "+
+			"does with an employee who has no home venue (K-14) and add it to employeeLocationReaders, or say what it "+
+			"reads instead in employeeLocationNonReaders", unclassified)
+	}
+	for name := range readers {
+		if _, ok := candidates[name]; !ok {
+			t.Errorf("employeeLocationReaders names %s, which the net no longer catches", name)
+		}
+	}
+	for name := range employeeLocationNonReaders {
+		if _, ok := candidates[name]; !ok {
+			t.Errorf("employeeLocationNonReaders names %s, which the net no longer catches", name)
+		}
+	}
+}
+
+// employeeLocationShapeReads is the first version's reading: alias.location_id for an alias of
+// employees, a bare location_id in a statement over employees that names no other table carrying
+// the column, or location_id in an INSERT INTO employees column list.
+func employeeLocationShapeReads(stmt string) bool {
+	aliasRE := regexp.MustCompile(`(?i)\b(?:FROM|JOIN|UPDATE)\s+(?:public\.)?employees(?:\s+(?:AS\s+)?(\w+))?`)
+	keywords := map[string]bool{"where": true, "set": true, "on": true, "left": true, "join": true, "inner": true, "order": true, "group": true}
+	for _, am := range aliasRE.FindAllStringSubmatch(stmt, -1) {
+		alias := strings.ToLower(am[1])
+		if alias == "" || keywords[alias] {
+			if regexp.MustCompile(`(?i)(^|[^.\w])location_id\b`).MatchString(stmt) &&
+				!regexp.MustCompile(`(?i)\b(FROM|JOIN|UPDATE|INTO)\s+(public\.)?(locations|departments|tags|transactions)\b`).MatchString(stmt) {
+				return true
+			}
+			continue
+		}
+		if regexp.MustCompile(`\b` + regexp.QuoteMeta(alias) + `\.location_id\b`).MatchString(stmt) {
+			return true
+		}
+	}
+	return regexp.MustCompile(`(?i)\bINSERT\s+INTO\s+employees\s*\([^)]*\blocation_id\b`).MatchString(stmt)
 }
 
 // ------------------------------------------------------------------- RLS --

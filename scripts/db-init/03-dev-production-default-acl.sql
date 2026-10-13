@@ -1,0 +1,29 @@
+-- Tappa -- DEVELOPMENT and CI only: a fresh database gets production's default ACL (arwd).
+--
+-- WHY (ADR 0028 §1, CLAUDE.md §6 "`arwd` varsayilanina guvenilmez", M11 API-1). 01-roles.sql
+-- hands every FUTURE table to tappa_app with SELECT, INSERT (`ar`, M8-02 phase E); production's
+-- live pg_default_acl hands it all four verbs (`arwd`), and so does every restored database
+-- until its last step narrows it (01-roles.sql records both measurements). A database migrated
+-- under `ar` is STRICTER than production in the direction that hides defects: a migration that
+-- forgot its `REVOKE ALL ... FROM tappa_app` changes nothing here and is wide open there. So
+-- development and CI build under production's default, BEFORE the first migration -- goose's own
+-- table is born under it too, and that table is the witness
+-- internal/db's TestM11Catalog_EveryNewTableMatchesTheMatrixUnderArwd reads before it compares
+-- every table born after 00035 with its matrix. Measured on a pair of databases at 00035
+-- (2026-10-11, ADR 0028): the only grant a narrow and a wide build differ in is
+-- goose_db_version's UPDATE and DELETE -- every application table is identical. CI used to run
+-- this statement as a workflow step between `make up` and `make migrate`; here it is the same
+-- for CI, a new developer and `make db-reset`, and it runs before the server accepts a
+-- connection, so it cannot race one.
+--
+-- ⚠️ ONLY ON A FRESH VOLUME. The postgres entrypoint runs scripts/db-init/* on an EMPTY PGDATA
+-- and never again: a development database built before this file keeps the default it was
+-- built with. The catalogue test names that case and the way out (`make db-reset`).
+--
+-- NOT IN PRODUCTION, BY CONSTRUCTION. deploy.yml builds the init ConfigMap from two files BY
+-- NAME (01-roles.sql and deploy/k8s/postgres-init/02-app-password.sh); were it ever switched to
+-- the whole directory, 02-dev-only-password.sh would refuse first and abort the init. On a
+-- fresh production volume 01-roles.sql's narrow line stays what it is: this file widens only
+-- what development and CI verify against, to what production already holds.
+ALTER DEFAULT PRIVILEGES FOR ROLE tappa_owner IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO tappa_app;

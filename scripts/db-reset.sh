@@ -181,6 +181,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# THE TARGET MUST AGREE WITH THE ENVIRONMENT, AND THIS IS ASKED BEFORE DOCKER IS. This script
+# deletes the compose volume whatever DATABASE_URL says; somebody whose DATABASE_URL names another
+# database would otherwise destroy the shared one believing they reset their own. The reasoning
+# and the accepted addresses: scripts/compose-db-only.sh (shared with seed.sh).
+. scripts/compose-db-only.sh
+compose_db_only db-reset.sh rebuilds
+
 # Two failures, two messages -- the same rule seed.sh states: "docker missing" and
 # "postgres not running" are different problems and one message sends the hunt the
 # wrong way. Here the second case is not an error at all: a stopped database is a
