@@ -918,7 +918,7 @@ on üç test, adlarının öneki bunlardır. (f)'nin kuralları:
 `go test ./cmd/tappa/ -run 'TestSignozRules_'` — beş test. ⚠️ Yanlış önekle süzülen bir
 `-run` hiçbir testi koşmaz ve `ok` basar — yeşil ama boş.
 🔴 **`Q28 (a)`:** M8-03'ün log sinyalleri 2026-10-11'den beri (f) üzerinden teslim
-ediliyor (o gün yedisi; 8.si T122'de dosyaya girdi ve kümeye kurulduğu gün katılır);
+ediliyor (o gün yedisi; 8.si T122'de, 2026-10-13'te kümeye kuruldu);
 kalanı — SigNoz'un tek başına ölümü, basitleştirmeler, tek kontrolün bütün kuralları
 taşıması — sınır 25'te sayılı. `Q28 (b)` (log saklama) açık (sınır 24).
 
@@ -5161,10 +5161,12 @@ ki bu bugün ~günlerdir. İki sınırın **küçüğü** geçerlidir.
 > kadar bu alanları hiçbir test okumuyordu); dosyada adres ve healthchecks.io anahtar
 > kelimesi yok (`TestSignozRules_CarryNoAddressAndNoDeliveryKeyword`).
 >
-> **T122 (2026-10-13) — 8. kural dosyada ve tabloda; kümeye kurulumu ayrı bir adımdır.**
-> Yukarıdaki *"Ölçülen"* cümlesi 1–7 içindir: 8. kuralın sorgusu bu repodan ClickHouse'a
-> karşı **koşulmadı**. Kurulduğu gün aynı zincire (`tappa-healthchecks` → `tappa-signals`)
-> girer. ⚠️ Kümede 1–7 zaten varken dosyanın tamamını adım 10 (f) (2)'deki döngüyle
+> **T122 (2026-10-13) — 8. kural dosyada, tabloda ve kümede.** Orkestratör `548f194`'ün
+> deploy'undan sonra kurdu: SigNoz'da sekiz `tappa` kuralı, 8.si `inactive`, kanal
+> `tappa-healthchecks` → `tappa-signals`. Sorgusu ClickHouse'a karşı bir kez koşuldu
+> (`/api/v5/query_range`, son 6 saat): HTTP 200, 0 seri — kontrol olarak koşulan 3. kuralla
+> aynı; yani sorgu **hatasız**, olay henüz **yok**. Uçtan uca ateşleme (olay → bildirim)
+> 8. kural için **ölçülmedi**. ⚠️ Kümede 1–7 zaten varken dosyanın tamamını adım 10 (f) (2)'deki döngüyle
 > yeniden göndermek 1–7'nin **ikinci kopyalarını** doğurur — yalnız 8. kural gönderilir
 > (dizinin sekizinci elemanı). Şiddeti `warning`: hiçbir dokunuş sessizce onaylanmaz —
 > kayıt çoğunlukla `flag` olarak yazılır ve müdür görür (§4.6); veritabanı bütünüyle
