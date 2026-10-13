@@ -1692,6 +1692,24 @@ yazılır.
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 
+### 2026-10-13 (28. oturum, otuz beşinci yarı) — ✅ **API-1 DONE** · 📌 **DEVAM: API-1a**
+
+**Çalışma düzeni:** bir alttaki kaydın (otuz dördüncü yarı) "M11'in çalışma düzeni" maddeleri aynen geçerli. **Ek kural (bu yarıda öğrenildi):** her yapıcı ve denetçi brief'ine "`scripts/seed.sh`, `make up/seed/db-reset`, `scripts/db-reset.sh` KOŞMA — compose projesi `tappa` → `tappa-db`'yi hedefler" yazılır; atılabilir konteyner `docker run` ile, compose kopyasında `container_name` değiştirilerek kurulur (orijinalde `container_name: tappa-db` sabit).
+
+**Yapılanlar:**
+- **CI kırmızısı (`9114e7a`):** sebep bekleme eksikliği değildi. Resmi imaj init betiklerini yalnız sokette dinleyen **geçici** bir sunucuyla koşar; soket `pg_isready`'si o sunucuda "hazır" der (veritabanı ve roller henüz yokken), ardından gelen soket `psql` taze hacimde 8 koşunun 5'inde düştü (ölçüldü). `make up` beklemesi ve `psql` TCP'ye (`-h 127.0.0.1`, imajın pg_hba'sı loopback'e trust) alındı → 18/18. CI yeşil (run 38443152604; yerelde ortamdan düşen dört test CI'da geçti).
+- **İki mercek ONAY, ORTA/BLOKLAYAN yok.** Üçüncü göz: 22 mutant + 5 okuyucu mutantı kendi `arwd` konteynerinde, kabul çekirdeğinin beş maddesi testli; 39→35 down şeması doğrudan 35 kurulumla `pg_dump` düzeyinde birebir. Güvenlik: `arwd` altında ACL ölçümü (`tappa_app` `tenants.api_*`'yi hiçbir yoldan yazamıyor), `op_enable/disable_tenant_api` sözleşmesi, `invite_requests` RLS'i, tenant'lı tekillik, `updated_at` tetikleyicisinin `TG_RELID` assert'i.
+- **DÜŞÜK'ler (`6b2604d`):** panel yazma rotalarının köken kapısı artık `mountWriting`'den türetilen kümeyle testli (`TestPanelWrites_EveryRouteMountWritingRegistersRefusesAForeignOriginBeforeTheResolver`; elle yazılmış listelerde iki external-ref rotası yoktu) · 00039 ön koşulu iki fonksiyonun gövde `md5(prosrc)`'sini de karşılaştırır · `arwd` CI adımı yerine `scripts/db-init/03-dev-production-default-acl.sql` (dev = CI = prod, yalnız taze hacim); katalog testi dar DB'de CI'da düşer, yerelde atlanır · `TestEmployeeLocationReaders_Counted` geniş aday + açık "okuyucu değil" listesi (iki kaçan biçim yakalanıyor) · `seed.sh`/`db-reset.sh` başka DB'ye işaret eden `DATABASE_URL`'i docker'a dokunmadan reddeder (`TestComposeScripts_RefuseADatabaseURLThatNamesAnotherDatabase`) · plan §5 API-13'e K-22'nin operatör yüzeyi. CLAUDE.md §6 `arwd` maddesi buna göre (ana oturum).
+- **Olay:** üçüncü göz kendi konteynerini seed'lemek için `seed.sh`'i koştu → betik `tappa-db`'ye yazdı (12 demo plaketin `aes_key_ref`'i CI'ın sahte KEK'iyle yeniden sarmalandı; silme yok, gerçek plaket yok). Kullanıcı kararıyla ana oturum, ana checkout'un kendi `.env`'iyle `make seed` koştu (exit 0). Kalıcı önlem yukarıdaki koruma + brief kuralı.
+
+**Devredilenler (sahibine yazıldı, unutulmasın):**
+- **API-1a:** (1) `goose_db_version` üzerinde `REVOKE ALL … FROM tappa_app` migration'ı — `tappa_app`'in **INSERT**'i tek başına gelecekteki bir migration'ı sessizce atlatıyor (ölçüldü: sahte sürüm satırı → `no migrations to run`); dar `ar` da bunu kapatmaz. Katalog testinin `arwd` tanığı bugün tam bu yetkiye bakıyor → tanık `pg_default_acl`'e taşınmalı; ADR 0028'deki yan bulgu notu INSERT'i de içerecek şekilde düzeltilmeli. (2) `api_code` holding içinde ayırt edici olmalı: `op_add_holding_member` aynı kodu reddetsin.
+- **API-2 / API-5:** K-22 "kapı her yolda" denetimi. **API-6:** `invite_requests` DELETE'i işçiye daraltma. **API-8:** K-21 izlenen küme ↔ rehber sütunları eşlemesi. **API-13:** üretimde `pg_default_acl`'de fonksiyon satırı (`defaclobjtype='f'`) var mı ölç; operatör yüzeyi (plan §5).
+- **OP-15 rebase (00036 gelince):** 00039 ön koşulu artık gövde değişikliğinde de yüksek sesle düşer (55000) → 00039 yeniden yazılır; katalog testinin 00035 tabanı OP-15'in sütun/fonksiyonlarını "yeni" sayar; sonra birleşen dal goose'un sıra dışı migration hatasına çarpar → numaralar yeniden sıralanır.
+- **Yerel ortam:** `TestRotateScript_AccountsForEveryGoToolchainVariable` yerel Go 1.27.1'de kırmızı (CI 1.26.9) — ortam.
+
+**🔴 DEVAM PLANI:** **API-1a** (plan §5 + kabul çekirdeği; ADR 0027 §2 imza tablosu, `holding_peer` beş kip, fiil × sütun matrisi, K-29, K-31 ön-kilit, K-33 H2 fikstürü, K-34, K-36) + yukarıdaki iki API-1a devri → sonra API-1b → API-1c → API-2 → API-3 → API-4 → API-4b (OP-15) → API-5…API-10 → API-11 → API-12 → API-13. Kullanıcıda bekleyenler bir alttaki kayıtta aynen.
+
 ### 2026-10-13 (28. oturum, otuz dördüncü yarı) — ✅ **GATE-1 DONE** · 🟡 **API-1 commit'li, CI kırmızı (CI adımı), denetimi yarıda** · 📌 **SIKIŞTIRMA ÖNCESİ DEVAM PLANI**
 
 **M11'in çalışma düzeni (bir sonraki oturum buradan başlar):**

@@ -247,12 +247,14 @@ başlayan bir test durumu olmalı.
   adı `tenant_id` **olmaz** — R5 ve RLS testleri tabloyu o addan tenant tablosu sayar.
 - **`arwd` varsayılanına güvenilmez** (M11'de kondu, **kalıcıdır** — her yeni tablo ve
   fonksiyon; ADR 0028 §1). Üretimde
-  `pg_default_acl` yeni tabloyu `tappa_app`'e dört fiille (`arwd`) doğurur, taze CI'da `ar` —
-  CI fazla yetkiyi göremez. Bu yüzden her yeni tabloda `REVOKE ALL … FROM tappa_app` + yalnız
+  `pg_default_acl` yeni tabloyu `tappa_app`'e dört fiille (`arwd`) doğurur; eskiden taze CI'da
+  `ar` idi ve CI fazla yetkiyi göremiyordu. Bu yüzden her yeni tabloda `REVOKE ALL … FROM tappa_app` + yalnız
   gereken fiil ve **sütunlara** açık `GRANT`; **UPDATE hep sütun listesiyle** (tablo düzeyi
   UPDATE sütun kısıtını ezer). Her yeni fonksiyonda `REVOKE ALL ON FUNCTION … FROM PUBLIC`;
-  tetikleyici fonksiyonlarında `EXECUTE` yalnız sahipte. CI migration'lardan önce `arwd`'i
-  kurar, katalog testi tablo × fiil × sütunu matrisle karşılaştırır.
+  tetikleyici fonksiyonlarında `EXECUTE` yalnız sahipte. Taze hacimde (dev ve CI)
+  `scripts/db-init/03-dev-production-default-acl.sql` üretimin `arwd`'ini kurar; katalog testi
+  tablo × fiil × sütunu matrisle karşılaştırır ve dar kurulmuş DB'de CI'da düşer, yerelde atlanır
+  (eski hacim → `make db-reset`).
 - Tenant bağlamı bağlantı başına `SET LOCAL app.tenant_id` ile verilir; politikalar
   **`NULLIF(current_setting('app.tenant_id', true), '')::uuid`** okur. `SET LOCAL` →
   transaction dışında sızmaz. Havuzdan alınan bağlantıda `SET` (LOCAL'siz) **kullanma**.
