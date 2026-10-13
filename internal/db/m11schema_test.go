@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -166,13 +167,121 @@ const m11DefaultACLStatement = `ALTER DEFAULT PRIVILEGES FOR ROLE tappa_owner IN
 // m11DefaultACLInit is the init script that runs m11DefaultACLStatement on an empty PGDATA.
 const m11DefaultACLInit = "scripts/db-init/03-dev-production-default-acl.sql"
 
+// m11Witness is the catalogue test's premise, read by m11ArwdWitness.
+type m11Witness struct {
+	// wide: the default ACL tappa_owner's new tables in public get hands tappa_app UPDATE and
+	// DELETE -- production's `arwd`, not 01-roles.sql's narrow `ar`.
+	wide bool
+	// beforeTheChain: that default was last written BEFORE goose recorded its first ledger row,
+	// i.e. before the first migration ran -- so every table of the chain was born under it.
+	beforeTheChain bool
+	why            string
+}
+
+// m11ArwdWitness reads the witness of `arwd` from two facts a REVOKE on a table cannot move
+// (migration 00040, M11 API-1a). Until 00040 the witness was tappa_app's UPDATE and DELETE on
+// goose_db_version -- the table goose creates before the first migration, under whatever
+// default the database had then; 00040 takes every privilege on the ledger away from tappa_app
+// (INSERT alone let a stolen application credential mark a future migration as applied), so
+// that table proves nothing any more. What it proved is read directly instead:
+//
+//   - pg_default_acl's row for tappa_owner's tables in public grants tappa_app UPDATE and DELETE
+//     (the default is wide), and
+//   - that row's last write is OLDER than goose_db_version's first row: age(xmin) of the default's
+//     catalogue row is larger than age(xmin) of the ledger's version-0 row, which goose inserts in
+//     the transaction that creates the table. A default widened AFTER the chain ran (by hand, on
+//     an old narrow volume) is a newer write than that row, and the tables born before it did
+//     not get it -- the case the old witness caught, caught again.
+//
+// age() counts transactions back from the current one modulo the 2^31 horizon, so the order is
+// sound on any database younger than two billion transactions -- every development and CI volume
+// this test meets. TestM11Catalog_TheWitnessReadsTheDefaultAndItsOrder drives both halves.
+func m11ArwdWitness(t *testing.T, ctx context.Context, q opQuerier) m11Witness {
+	t.Helper()
+	var (
+		w                  m11Witness
+		found              bool
+		update, del        bool
+		defaultAge, ledger *int64
+	)
+	if err := q.QueryRow(ctx, `
+		SELECT count(*) > 0,
+		       coalesce(bool_or(a.privilege_type = 'UPDATE' AND a.grantee = 'tappa_app'::regrole), false),
+		       coalesce(bool_or(a.privilege_type = 'DELETE' AND a.grantee = 'tappa_app'::regrole), false),
+		       max(age(d.xmin))::bigint
+		  FROM pg_default_acl d
+		  LEFT JOIN LATERAL aclexplode(d.defaclacl) AS a ON true
+		 WHERE d.defaclrole = 'tappa_owner'::regrole
+		   AND d.defaclnamespace = 'public'::regnamespace
+		   AND d.defaclobjtype = 'r'`).Scan(&found, &update, &del, &defaultAge); err != nil {
+		t.Fatalf("read the default ACL: %v", err)
+	}
+	if err := q.QueryRow(ctx, `SELECT age(g.xmin)::bigint FROM public.goose_db_version g ORDER BY g.id LIMIT 1`).Scan(&ledger); err != nil {
+		t.Fatalf("read goose's first ledger row: %v", err)
+	}
+	w.wide = found && update && del
+	w.beforeTheChain = defaultAge != nil && ledger != nil && *defaultAge > *ledger
+	switch {
+	case !found:
+		w.why = "pg_default_acl holds no default for tappa_owner's tables in public"
+	case !w.wide:
+		w.why = fmt.Sprintf("the default for tappa_owner's tables in public gives tappa_app UPDATE=%v DELETE=%v (narrow)", update, del)
+	case !w.beforeTheChain:
+		w.why = "the wide default for tappa_owner's tables in public was written AFTER goose recorded its first ledger row " +
+			"(age of the default's row is not larger than the ledger's), so the tables the chain created before it did not get it"
+	}
+	return w
+}
+
+// TestM11Catalog_TheWitnessReadsTheDefaultAndItsOrder drives m11ArwdWitness's two halves on
+// this database, each inside a savepoint that is rolled back: a REVOKE of UPDATE and DELETE
+// from the default turns `wide` false; the same default granted again (in this transaction,
+// i.e. AFTER goose's first ledger row) keeps `wide` and turns `beforeTheChain` false -- the
+// old volume widened by hand, which must not pass. The live answer is only reported (it is the
+// catalogue test's to judge): a narrow volume must still be able to run this test.
+func TestM11Catalog_TheWitnessReadsTheDefaultAndItsOrder(t *testing.T) {
+	ctx, tx := opTx(t)
+	live := m11ArwdWitness(t, ctx, tx)
+	t.Logf("this database: wide=%v beforeTheChain=%v %s", live.wide, live.beforeTheChain, live.why)
+	for _, c := range []struct {
+		what       string
+		stmts      []string
+		wide, prev bool
+	}{
+		{"the default narrowed", []string{
+			`ALTER DEFAULT PRIVILEGES FOR ROLE tappa_owner IN SCHEMA public REVOKE UPDATE, DELETE ON TABLES FROM tappa_app`},
+			false, false},
+		{"the default widened after the chain", []string{
+			`ALTER DEFAULT PRIVILEGES FOR ROLE tappa_owner IN SCHEMA public REVOKE UPDATE, DELETE ON TABLES FROM tappa_app`,
+			`ALTER DEFAULT PRIVILEGES FOR ROLE tappa_owner IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO tappa_app`},
+			true, false},
+	} {
+		sp, err := tx.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, s := range c.stmts {
+			if _, err := sp.Exec(ctx, s); err != nil {
+				t.Fatalf("%s: %v", c.what, err)
+			}
+		}
+		if w := m11ArwdWitness(t, ctx, sp); w.wide != c.wide || w.beforeTheChain != c.prev || w.why == "" {
+			t.Errorf("%s: witness wide=%v beforeTheChain=%v (%q), want wide=%v beforeTheChain=%v and a reason",
+				c.what, w.wide, w.beforeTheChain, w.why, c.wide, c.prev)
+		}
+		if err := sp.Rollback(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 // TestM11Catalog_EveryNewTableMatchesTheMatrixUnderArwd is ADR 0028 §1's general catalogue
 // test:
 //
-//   - PREMISE, the witness of `arwd`: goose_db_version is the first table goose creates, before
-//     any migration and under whatever default ACL the database had then. tappa_app holding
-//     UPDATE and DELETE on it means the WHOLE migration chain ran under production's wide
-//     default -- so a REVOKE a new migration forgot shows up below as an extra verb. Under the
+//   - PREMISE, the witness of `arwd` (m11ArwdWitness, since 00040): the default ACL hands
+//     tappa_app UPDATE and DELETE on tappa_owner's new tables, and it was set before goose
+//     recorded its first ledger row -- so the WHOLE migration chain ran under production's wide
+//     default, and a REVOKE a new migration forgot shows up below as an extra verb. Under the
 //     narrow default (`ar`, 01-roles.sql alone) the missing REVOKE would hide and this test
 //     would be green for the wrong reason, so it does not judge there: red in CI, where every
 //     volume is fresh and a narrow one is a broken build; SKIPPED elsewhere -- not a pass --,
@@ -202,13 +311,7 @@ func TestM11Catalog_EveryNewTableMatchesTheMatrixUnderArwd(t *testing.T) {
 
 	ctx, tx := opTx(t)
 
-	var appUpdate, appDelete bool
-	if err := tx.QueryRow(ctx, `SELECT has_table_privilege('tappa_app', 'public.goose_db_version', 'UPDATE'),
-	                                   has_table_privilege('tappa_app', 'public.goose_db_version', 'DELETE')`).
-		Scan(&appUpdate, &appDelete); err != nil {
-		t.Fatalf("read the witness: %v", err)
-	}
-	if !appUpdate || !appDelete {
+	if w := m11ArwdWitness(t, ctx, tx); !w.wide || !w.beforeTheChain {
 		// CI (GitHub Actions sets CI) builds every database on a fresh volume, so a narrow one there
 		// is a broken build. Anywhere else it is a volume older than m11DefaultACLInit -- init runs on
 		// an empty PGDATA only -- and red would fail `make check` on the database, not on a defect.
@@ -216,12 +319,11 @@ func TestM11Catalog_EveryNewTableMatchesTheMatrixUnderArwd(t *testing.T) {
 		if os.Getenv("CI") != "" {
 			report = t.Fatalf
 		}
-		report("this database was NOT migrated under production's default ACL: tappa_app holds UPDATE=%v DELETE=%v "+
-			"on goose_db_version, the table goose creates before the first migration. Under the narrow default a "+
+		report("this database was NOT migrated under production's default ACL: %s. Under the narrow default a "+
 			"forgotten REVOKE ALL is invisible, so this test proves nothing here -- THIS IS NOT A PASS. %s gives a "+
 			"FRESH volume production's default: rebuild the compose database with `make db-reset`, or build any other "+
 			"from an empty PGDATA with scripts/db-init mounted (or run, as tappa_owner, BEFORE its first migrate\n  %s;)",
-			appUpdate, appDelete, m11DefaultACLInit, m11DefaultACLStatement)
+			w.why, m11DefaultACLInit, m11DefaultACLStatement)
 	}
 
 	// The relations and their columns.

@@ -112,6 +112,7 @@ var opAuditKindsAddedBy = map[int][]string{
 var opAtVersionSkips = map[int]string{
 	37: "employees, locations and the invitation queue (M11 API-1) -- no operator object",
 	38: "the two API columns of tenants (M11 API-1); 00039 is their operator surface and IS walked",
+	40: "the migration ledger's privileges (M11 API-1a) -- no operator object; its Down keeps the ledger closed",
 }
 
 // opAtVersion takes the test's transaction to migration `version`: from the newest file

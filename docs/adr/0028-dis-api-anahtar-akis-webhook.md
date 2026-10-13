@@ -827,12 +827,26 @@ holding dışı izolasyon prod'da örneklenir.
 (`scripts/db-init/03-dev-production-default-acl.sql`; ilk hali `ci.yml`'de ayrı bir adımdı). 00035'teki
 iki veritabanı karşılaştırıldı — dar ve geniş yapımlar arasında uygulama tablolarında **fark yok**, tek
 fark `goose_db_version`'ın UPDATE/DELETE'i. O tablo ilk migration'dan önce doğduğu için katalog testinin
-tanığıdır: tanık dar ise test CI'da kırmızıdır, başka yerde (init dosyasından eski bir hacim) atlanır —
-geçiş sayılmaz — ve yeniden kurmayı söyler. Test, 00035'teki
+tanığıydı; `00040` (API-1a, aşağıda) o tablodaki bütün yetkiyi `tappa_app`'ten aldığından tanık **taşındı**:
+artık `pg_default_acl`'in `tappa_owner` tabloları için satırının `tappa_app`'e UPDATE ve DELETE vermesi
+**ve** o satırın son yazımının göç defterinin ilk satırından **önce** olması (`age(xmin)` karşılaştırması —
+zinciri sonradan elle genişletilmiş eski bir dar hacim de geçemez; `m11ArwdWitness`,
+`TestM11Catalog_TheWitnessReadsTheDefaultAndItsOrder`). Tanık dar ise test CI'da kırmızıdır, başka yerde
+(init dosyasından eski bir hacim) atlanır — geçiş sayılmaz — ve yeniden kurmayı söyler (ölçüldü: dar kap
+yerelde SKIP, `CI=1` ile FAIL; dar zincir + sonradan genişletme `CI=1` ile FAIL; geniş kap PASS). Test, 00035'teki
 ilişki/sütun/fonksiyon/dizi kümesini **dondurur** ve ondan sonra doğan her nesnenin rolü rolüne matriste
 olmasını ister (`m11Tables`, `m11Columns`, `m11Functions` — `internal/db/m11schema_test.go`).
-*Adlandırılmış yan bulgu:* üretimde `tappa_app`, `goose_db_version` üzerinde UPDATE ve DELETE tutuyor
-(göç defteri uygulama rolüyle değiştirilebilir) — kapsam dışı, API-13 runbook'una aday.
+*Adlandırılmış yan bulgu — API-1a'da KAPATILDI (`00040`, 2026-10-13):* `tappa_app` göç defterinde
+(`goose_db_version`) üretimin geniş varsayılanıyla UPDATE ve DELETE, **dar varsayılanla bile INSERT**
+tutuyordu — ve **INSERT tek başına yeter** (API-1 güvenlik denetimi ölçtü, API-1a yeniden üretti: dar bir
+kapta `tappa_app` olarak sahte bir sürüm satırı eklenince `goose up` *"no migrations to run"* dedi ve o
+migration — burada `00040`'ın kendisi — hiç koşmadı; bir güvenlik düzeltmesi sessizce atlanır, defter
+uygulandığını söylerdi). `00040` defterden ve dizisinden `tappa_app`'in bütün yetkisini alır ve bir son
+koşulla (üyelik ya da PUBLIC üzerinden hâlâ erişiyorsa 55000) doğrular; Down defteri **kapalı tutar**
+(00039'daki kodun deftere ihtiyacı yok; eski durum zaten tek bir durum değildi — `ar` ya da `arwd` — ve
+hiçbiri bir karar değildi). Defteri okuyanlar goose (göç rolü), `scripts/pg-backup.sh` ve
+`scripts/pg-restore-verify.sh` (ikisi `tappa_owner`) ve testlerin sahip bağlantısıdır — uygulama okumaz.
+`TestMigrationLedger_AppCannotForgeAVersion`.
 
 **`opAtVersion`.** Operatör testlerinin eski bir sürüme inmek için çalıştırdığı Down zinciri `00037` ve
 `00038`'i **atlar** (`opAtVersionSkips`): ikisi operatör nesnesine dokunmaz
