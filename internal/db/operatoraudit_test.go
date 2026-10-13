@@ -114,7 +114,8 @@ var opAuditKinds39 = []string{"login_failed", "unknown_email", "totp_failed", "l
 	"tenant_api_enabled", "tenant_api_disabled"}
 
 // opHoldingKinds is operator_audit_log_holding_write_shape's list (00042): the rows of the three
-// holding writers, each naming its holding in detail and nothing else.
+// holding writers, each naming its holding in detail and nothing else
+// (TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree holds the CHECK to it).
 var opHoldingKinds = []string{"holding_created", "holding_member_added", "holding_member_removed"}
 
 // opAuditKinds34 is the set at 00034 -- what 00034's own tests pin (they reach 00034 through
@@ -1203,7 +1204,9 @@ func TestOperator00031_CallersTempTableIsNeverRead(t *testing.T) {
 //     for "all", and not for a kind outside it;
 //   - (00034) operator_audit_log_tenant_write_shape names exactly opTenantWriteKinds, each a member
 //     of the kind CHECK and of neither of actor_shape's session-less arms -- a tenant-writing
-//     row carries its session and its operator.
+//     row carries its session and its operator;
+//   - (00042) operator_audit_log_holding_write_shape names exactly opHoldingKinds, holding_created
+//     alone as its tenant-less kind, each a session kind of the CHECK and none a tenant-write kind.
 //
 // So a migration that widens the kind CHECK (OP-15, OP-16) and not the two functions' lists
 // and the Go list turns this red, and the other way round.
@@ -1234,6 +1237,26 @@ func TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree(t *testing.T)
 	for _, k := range opTenantWriteKinds {
 		if !slices.Contains(schema, k) || slices.Contains(sessionless, k) {
 			t.Errorf("the tenant-writing kind %s is not a session kind of the CHECK", k)
+		}
+	}
+	// (00042) The holding shape's list, and the one kind it names alone -- the tenant-less
+	// holding_created -- out of that list: a kind added to the shape and not to the writers, or
+	// one the shape drops, is red here, not only in the full-text pins of the 00042 tests.
+	holdingWrite, _ := opConstraint(t, ctx, tx, "operator_audit_log", "operator_audit_log_holding_write_shape")
+	if lists := opQuotedArrays(holdingWrite); len(lists) != 1 || !slices.Equal(lists[0], opHoldingKinds) {
+		t.Errorf("operator_audit_log_holding_write_shape names %v, want exactly %v", lists, opHoldingKinds)
+	}
+	var tenantless []string
+	for _, m := range regexp.MustCompile(`kind = '([^']*)'::text`).FindAllStringSubmatch(holdingWrite, -1) {
+		tenantless = append(tenantless, m[1])
+	}
+	if !slices.Equal(tenantless, []string{"holding_created"}) || !slices.Contains(opHoldingKinds, tenantless[0]) {
+		t.Errorf("operator_audit_log_holding_write_shape names %v as its tenant-less kind, want [holding_created] of %v",
+			tenantless, opHoldingKinds)
+	}
+	for _, k := range opHoldingKinds {
+		if !slices.Contains(schema, k) || slices.Contains(sessionless, k) || slices.Contains(opTenantWriteKinds, k) {
+			t.Errorf("the holding kind %s is not a session kind of the CHECK outside the tenant-write shape", k)
 		}
 	}
 	var goList, goOwner []string
