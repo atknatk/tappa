@@ -178,9 +178,12 @@ jobs:
         # Measured on a pair of databases at 00035 (2026-10-11): the only grant that differs is
         # goose_db_version's UPDATE and DELETE -- every application table is identical, so this
         # step changes no existing test. The statement is m11DefaultACLStatement in that test.
+        # -h 127.0.0.1: over the socket this psql can land on the entrypoint's temporary init
+        # server (run 38132539511 met its socket already gone); TCP reaches only the real
+        # server, which `make up` now waits for the same way (see the Makefile's `up`).
         run: |
           docker compose -f docker-compose.yml -p tappa exec -T db \
-            psql -v ON_ERROR_STOP=1 --no-psqlrc -U tappa_owner -d tappa \
+            psql -h 127.0.0.1 -v ON_ERROR_STOP=1 --no-psqlrc -U tappa_owner -d tappa \
             -c "ALTER DEFAULT PRIVILEGES FOR ROLE tappa_owner IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO tappa_app" \
             -c "SELECT defaclobjtype, defaclacl FROM pg_default_acl"
 

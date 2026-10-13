@@ -70,9 +70,16 @@ css: $(TAILWIND)
 
 # --------------------------------------------------------------------- dev --
 ## up: postgres'i ayaga kaldir
+# The wait goes over TCP (-h 127.0.0.1, which the image's pg_hba trusts) because on a
+# fresh volume the entrypoint runs scripts/db-init against a TEMPORARY server that
+# listens only on the unix socket (listen_addresses=''), then stops it and starts the
+# real one. A socket pg_isready answers "ready" for that temporary server: measured
+# 2026-10-13 on fresh volumes, the next socket psql failed 5 of 8 times (database not
+# yet created, role not yet created, server shutting down), and CI run 38132539511 hit
+# the socket gone. TCP opens only on the real server.
 up:
 	$(COMPOSE) up -d db
-	@until $(COMPOSE) exec -T db pg_isready -U tappa_owner -d tappa >/dev/null 2>&1; do sleep 1; done
+	@until $(COMPOSE) exec -T db pg_isready -h 127.0.0.1 -U tappa_owner -d tappa >/dev/null 2>&1; do sleep 1; done
 	@echo "postgres hazir"
 
 ## down: dev servislerini durdur
