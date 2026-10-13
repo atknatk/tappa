@@ -527,7 +527,8 @@ func TestOperator00034_TheFunctionsAndTheirExactSignatures(t *testing.T) {
 
 	// HEAD's exact CHECKs.
 	for _, c := range []struct{ table, name, want string }{
-		{"operator_read_tickets", "operator_read_tickets_kind_check", opKindCheckDef(opKindsAt34)},
+		// HEAD's read kinds: 00034's seven and, since 00042 (M11 API-1a), 'holdings'.
+		{"operator_read_tickets", "operator_read_tickets_kind_check", opKindCheckDef(opKindsAt42)},
 		{"operator_audit_log", "operator_audit_log_kind_check", opKindCheckDef(opAuditKinds)},
 		{"operator_audit_log", opTenantWriteShape, opTenantWriteShapeDefOf(opTenantWriteKinds)},
 		{"operator_audit_log", "operator_audit_log_actor_shape", opActorShapeDef33(opAuthEventKinds, opOwnerKinds)},
@@ -597,7 +598,10 @@ func TestOperator00034_TheFunctionsAndTheirExactSignatures(t *testing.T) {
 		// Since 00039 (M11 API-1) two more definer functions write tenants and audit_log: the API
 		// gate's pair, whose own test holds the columns they reach.
 		{"write tenants", `(update|insert into|delete from)\s+public\.tenants`, []string{"op_disable_tenant_api", "op_enable_tenant_api", "op_record_vat_check"}},
-		{"name audit_log", `public\.audit_log\M`, []string{"op_disable_tenant_api", "op_enable_tenant_api", "op_record_vat_check"}},
+		// Since 00042 (M11 API-1a) the two membership writers name it too (K6 rows of the tenants
+		// whose membership changed); their own test holds which rows.
+		{"name audit_log", `public\.audit_log\M`, []string{"op_add_holding_member", "op_disable_tenant_api", "op_enable_tenant_api",
+			"op_record_vat_check", "op_remove_holding_member"}},
 		{"name the kind tenant_vat_checked", `tenant_vat_checked`, []string{"op_begin_read", "op_read_audit", "op_record_vat_check"}},
 	} {
 		if got := naming(c.re); !slices.Equal(got, c.want) {
@@ -659,8 +663,9 @@ func TestOperator00034_TheFunctionsAndTheirExactSignatures(t *testing.T) {
 func TestOperator00034_TheDefinerWritesTheVerdictAndNotTheNumber(t *testing.T) {
 	ctx, tx := opTx(t)
 	for _, c := range []struct{ role, table, priv, want string }{
-		// At HEAD: 00034's lists plus 00039's API columns (opDefinerTenantsSel39/Upd39).
-		{"tappa_opdefiner", "tenants", "SELECT", opDefinerTenantsSel39},
+		// At HEAD: 00034's lists plus 00039's API columns (opDefinerTenantsSel39/Upd39) and
+		// 00042's SELECT on api_code (opDefinerTenantsSel42).
+		{"tappa_opdefiner", "tenants", "SELECT", opDefinerTenantsSel42},
 		{"tappa_opdefiner", "tenants", "UPDATE", opDefinerTenantsUpd39},
 		{"tappa_opdefiner", "tenants", "INSERT", ""},
 		{"tappa_opdefiner", "audit_log", "INSERT", opDefinerAuditIns34},

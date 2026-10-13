@@ -126,6 +126,16 @@ var (
 	// ErrTimezoneMovesBilling: the zone is a valid one, but adopting it would move
 	// the first month this business can be billed for. See the guard in Save.
 	ErrTimezoneMovesBilling = errors.New("tenant: that timezone would move the first chargeable month")
+
+	// ErrTimezoneHeldByHolding: this business is a member of a holding (or left one less
+	// than a minute ago), and a member's zone does not change (M11 API-1a, K-36; ADR 0027 §1).
+	// A holding's members read one clock -- a lateness worked out at one member's venue for
+	// another member's employee needs both on the same zone -- so the database refuses the
+	// UPDATE itself (migration 00041's holding_timezone_lock trigger: 23514 naming it), for this
+	// panel's statement as for any other. The application cannot ask whether the tenant is a
+	// member (tappa_app reads no membership -- ADR 0027 §1), so this error is the database's
+	// refusal recognised, not a check made first.
+	ErrTimezoneHeldByHolding = errors.New("tenant: a holding member's timezone does not change")
 )
 
 // VATState is what the product knows about this business's VAT number.
@@ -420,6 +430,9 @@ func (a *Accounts) Save(ctx context.Context, c AccountCommand) (Settings, error)
 			if isBusinessTypeViolation(err) {
 				return ErrBusinessType
 			}
+			if isHoldingTimezoneLock(err) {
+				return ErrTimezoneHeldByHolding
+			}
 			return fmt.Errorf("save account: %w", err)
 		}
 		out = settingsOf(row.Name, row.VatNumber, row.BusinessType,
@@ -573,6 +586,13 @@ func isBusinessTypeViolation(err error) bool {
 	return strings.Contains(pg.ConstraintName, "business_type")
 }
 
+// isHoldingTimezoneLock recognises migration 00041's holding_timezone_lock refusal: SQLSTATE
+// 23514 carrying that constraint name (the trigger's RAISE names it; no table constraint has it).
+func isHoldingTimezoneLock(err error) bool {
+	var pg *pgconn.PgError
+	return errors.As(err, &pg) && pg.Code == "23514" && pg.ConstraintName == "holding_timezone_lock"
+}
+
 // wrapAccount keeps the typed refusals typed and wraps everything else with context
 // (section 7). It is this file's copy of wrapVenue's rule: a caller must be able to
 // tell "you cannot do that" from "we could not do that".
@@ -584,7 +604,8 @@ func wrapAccount(op string, err error) error {
 		errors.Is(err, ErrAccountName),
 		errors.Is(err, ErrBusinessType),
 		errors.Is(err, ErrTimezone),
-		errors.Is(err, ErrTimezoneMovesBilling):
+		errors.Is(err, ErrTimezoneMovesBilling),
+		errors.Is(err, ErrTimezoneHeldByHolding):
 		return err
 	default:
 		return fmt.Errorf("%s: %w", op, err)

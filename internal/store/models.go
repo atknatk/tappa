@@ -110,6 +110,20 @@ type EmployeeInvite struct {
 	ConsentBindingHash *string
 }
 
+type Holding struct {
+	ID        uuid.UUID
+	Name      string
+	CreatedAt time.Time
+}
+
+type HoldingMember struct {
+	HoldingID      uuid.UUID
+	MemberTenantID uuid.UUID
+	JoinedAt       time.Time
+	LeftAt         *time.Time
+	LockAnchor     bool
+}
+
 type InviteRequest struct {
 	TenantID    uuid.UUID
 	EmployeeID  uuid.UUID

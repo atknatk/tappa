@@ -213,11 +213,18 @@ var auditKindWords = map[db.OperatorAuditKind]string{
 	// applied; the tenant's own audit row says the tenant changed.
 	db.OperatorAuditTenantAPIEnabled:  "Integration API opened",
 	db.OperatorAuditTenantAPIDisabled: "Integration API closed",
+	// M11 API-1a (migration 00042): a holding is created whenever the call is accepted, so its
+	// word says so. The two membership rows are written on every accepted call WHETHER OR NOT the
+	// database changed the membership (ADR 0021 §2 v 7: it refuses silently), so their words say
+	// what was ASKED; the tenants' own audit rows say a membership changed.
+	db.OperatorAuditHoldingCreated:       "Holding created",
+	db.OperatorAuditHoldingMemberAdded:   "Asked to add a business to a holding",
+	db.OperatorAuditHoldingMemberRemoved: "Asked to remove a business from a holding",
 }
 
 // auditScopeWords is the word for each read kind op_read_audit returns as a row's scope --
-// the seven kinds of operator_read_tickets_kind_check (00032 added OP-12's tenant_billing,
-// 00034 OP-16's tenant_vat).
+// the eight kinds of operator_read_tickets_kind_check (00032 added OP-12's tenant_billing,
+// 00034 OP-16's tenant_vat, 00042 M11 API-1a's holdings).
 // The end-to-end test reads that CHECK and op_read_audit's own list from the catalog and
 // holds this map's keys equal to both
 // (TestE2E_AuditWordsCoverEveryScopeAndSearchClassTheDatabaseReturns), and a test without a
@@ -232,6 +239,7 @@ var auditScopeWords = map[string]string{
 	"operator_audit": "this audit log",
 	"tenant_billing": "a tenant's billing",
 	"tenant_vat":     "a tenant's VAT number",
+	"holdings":       "the holdings",
 }
 
 // auditSearchWords is the word for each search class a tenant-list read records (00029:

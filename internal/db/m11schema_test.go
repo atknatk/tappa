@@ -91,7 +91,7 @@ var preM11Sequences = []string{"goose_db_version_id_seq"}
 
 // m11Roles are the roles every matrix row is read for. A role absent from a row holds NOTHING
 // on that object.
-var m11Roles = []string{"tappa_app", "tappa_operator", "tappa_opdefiner", "tappa_resolver"}
+var m11Roles = []string{"tappa_app", "tappa_operator", "tappa_opdefiner", "tappa_resolver", "tappa_holdingdefiner"}
 
 // m11TableACL is one role's whole reach on one table: the columns per verb (attnum order, ""
 // for none) and the table-level verbs.
@@ -113,7 +113,33 @@ var m11Tables = map[string]map[string]m11TableACL{
 			Delete: true,
 		},
 	},
+	// 00041/00042 (M11 API-1a, ADR 0027 §1, §3): the holding tables -- TENANT-SCOPE-LESS
+	// (m11ScopelessTables). tappa_app holds nothing (ADR 0028 §1's row: "hiçbir fiil"); the op_*
+	// of 00042 write and read them through tappa_opdefiner's column grants; tappa_holdingdefiner
+	// holds ADR 0027 §3's holding_members row -- SELECT on the four membership columns, UPDATE on
+	// lock_anchor alone -- and nothing on holdings.
+	"holdings": {
+		"tappa_opdefiner": {Select: "id,name,created_at", Insert: "name"},
+	},
+	"holding_members": {
+		"tappa_opdefiner": {
+			Select: "holding_id,member_tenant_id,joined_at,left_at",
+			Insert: "holding_id,member_tenant_id",
+			Update: "left_at",
+		},
+		"tappa_holdingdefiner": {
+			Select: "holding_id,member_tenant_id,joined_at,left_at",
+			Update: "lock_anchor",
+		},
+	},
 }
+
+// m11ScopelessTables are the matrix's tenant-scope-less tables (CLAUDE.md §6): ENABLE and FORCE
+// row level security like every other, and NO policy at all -- no role that obeys RLS reads or
+// writes them (a policy would be a door for somebody); the BYPASSRLS definers reach them through
+// their column grants alone. Each carries its redline R5 waiver
+// (TestHoldingSchema_AppRoleHasNoVerbOnHoldingTables reads the waivers).
+var m11ScopelessTables = map[string]bool{"holdings": true, "holding_members": true}
 
 // m11Column is one column added at or after 00037 to a table that existed before, with each
 // role's verbs on it ("S", "I", "U" in that order; "" for nothing).
@@ -138,7 +164,9 @@ var m11Columns = []m11Column{
 	// 00038/00039 (K-22): tappa_app READS the gate and cannot write it; the one writer is the
 	// operator's definer.
 	{"tenants", "api_enabled_at", map[string]string{"tappa_app": "S", "tappa_opdefiner": "SU"}},
-	{"tenants", "api_code", map[string]string{"tappa_app": "S", "tappa_opdefiner": "U"}},
+	// 00042 (M11 API-1a): tappa_opdefiner READS the code too -- the code rule in both directions
+	// (op_add_holding_member, op_enable_tenant_api) and op_read_holdings.
+	{"tenants", "api_code", map[string]string{"tappa_app": "S", "tappa_opdefiner": "SU"}},
 }
 
 // m11FunctionACL is one function's owner, SECURITY DEFINER flag and EXACT EXECUTE grantees
@@ -157,6 +185,17 @@ var m11Functions = map[string]m11FunctionACL{
 	// 00039 (K-22): op_* of ADR 0021's class.
 	"op_enable_tenant_api(text,uuid,text)": {owner: "tappa_opdefiner", definer: true, execute: "tappa_opdefiner,tappa_operator"},
 	"op_disable_tenant_api(text,uuid)":     {owner: "tappa_opdefiner", definer: true, execute: "tappa_opdefiner,tappa_operator"},
+	// 00041 (M11 API-1a, ADR 0027 §2): the closed list's two members born here. holding_peer is
+	// SECURITY INVOKER and EXECUTE in its owner alone; the timezone lock is a trigger function,
+	// EXECUTE in its owner alone (HoldingCatalog_TheFunctionsAndTheirExactSignatures pins them
+	// further).
+	"holding_peer(uuid,uuid,text)": {owner: "tappa_holdingdefiner", execute: "tappa_holdingdefiner"},
+	"holding_timezone_lock()":      {owner: "tappa_holdingdefiner", definer: true, execute: "tappa_holdingdefiner"},
+	// 00042 (M11 API-1a): op_* of ADR 0021's class.
+	"op_create_holding(text,text)":                {owner: "tappa_opdefiner", definer: true, execute: "tappa_opdefiner,tappa_operator"},
+	"op_add_holding_member(text,uuid,uuid)":       {owner: "tappa_opdefiner", definer: true, execute: "tappa_opdefiner,tappa_operator"},
+	"op_remove_holding_member(text,uuid,uuid)":    {owner: "tappa_opdefiner", definer: true, execute: "tappa_opdefiner,tappa_operator"},
+	"op_read_holdings(text,text,integer,integer)": {owner: "tappa_opdefiner", definer: true, execute: "tappa_opdefiner,tappa_operator"},
 }
 
 // m11DefaultACLStatement is production's pg_default_acl, which m11DefaultACLInit gives every
@@ -402,7 +441,11 @@ func TestM11Catalog_EveryNewTableMatchesTheMatrixUnderArwd(t *testing.T) {
 			Scan(&enabled, &forced); err != nil {
 			t.Fatal(err)
 		}
-		if !enabled || !forced || opInt(t, ctx, tx, `SELECT count(*) FROM pg_policy WHERE polrelid = ('public.' || $1)::regclass`, table) == 0 {
+		policies := opInt(t, ctx, tx, `SELECT count(*) FROM pg_policy WHERE polrelid = ('public.' || $1)::regclass`, table)
+		switch {
+		case m11ScopelessTables[table] && (!enabled || !forced || policies != 0):
+			t.Errorf("%s (tenant-scope-less): ENABLE=%v FORCE=%v and %d policies; want ENABLE, FORCE and NO policy (CLAUDE.md §6)", table, enabled, forced, policies)
+		case !m11ScopelessTables[table] && (!enabled || !forced || policies == 0):
 			t.Errorf("%s: ENABLE=%v FORCE=%v and a policy are all required (CLAUDE.md §6)", table, enabled, forced)
 		}
 	}

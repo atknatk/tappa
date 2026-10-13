@@ -33,6 +33,10 @@ const (
 	// instant), UPDATE both.
 	opDefinerTenantsSel39 = opDefinerTenantsSel34 + ",api_enabled_at"
 	opDefinerTenantsUpd39 = opDefinerTenantsUpd34 + ",api_enabled_at,api_code"
+
+	// tappa_opdefiner's SELECT on tenants at 00042 (M11 API-1a, HEAD): 00039's plus api_code (the
+	// holding code rule in both directions, and op_read_holdings).
+	opDefinerTenantsSel42 = opDefinerTenantsSel39 + ",api_code"
 )
 
 // op00039Functions are the two writes 00039 creates, by their exact catalogue identity: the
@@ -191,8 +195,10 @@ func TestOperator00039_TheFunctionsAndTheirExactSignatures(t *testing.T) {
 		                             WHERE n.nspname = 'public' AND p.proname = $1`, fn).Scan(&live); err != nil {
 			t.Fatal(err)
 		}
-		if live != b39 || live != opNewestUpBody(t, fn) {
-			t.Errorf("the live %s is not 00039's body (or 00039 is not its newest definition)", fn)
+		// Since 00042 (M11 API-1a) 00039's body is no longer the newest: the live one is the
+		// newest migration's, and 00042's own test holds that one to 00039's plus its edits.
+		if live != opNewestUpBody(t, fn) {
+			t.Errorf("the live %s is not its newest migration's body", fn)
 		}
 	}
 
@@ -557,6 +563,8 @@ func TestTenantApiColumns_AppCannotWrite(t *testing.T) {
 // columns' values STAY); the Up takes 00039's state again, over those rows too.
 func TestOperator00039_DownGivesBack00034AndUpTakesItAgain(t *testing.T) {
 	ctx, tx := opTx(t)
+	// Since 00042 (M11 API-1a) HEAD is past 00039: reach it through 00042's Down first.
+	opAtVersion(t, ctx, tx, 39, opKindsAt34...)
 	up, down := opMigrationSections(t, op00039File)
 	up34, _ := opMigrationSections(t, op00034File)
 	begin34, audit34 := opLogFunctionBody(t, up34, "CREATE OR REPLACE FUNCTION", "op_begin_read"), opLogFunctionBody(t, up34, "CREATE OR REPLACE FUNCTION", "op_read_audit")
@@ -598,7 +606,7 @@ func TestOperator00039_DownGivesBack00034AndUpTakesItAgain(t *testing.T) {
 	}
 	at39 := func(s state, when string) {
 		t.Helper()
-		if s.fns != 2 || s.begin != begin39 || s.audit != audit39 || s.kinds != opKindCheckDef(opAuditKinds) || !s.kindsOK ||
+		if s.fns != 2 || s.begin != begin39 || s.audit != audit39 || s.kinds != opKindCheckDef(opAuditKinds39) || !s.kindsOK ||
 			s.shape != opTenantWriteShapeDefOf(opTenantWriteKinds) || !s.shapeOK ||
 			s.tenantsSel != opDefinerTenantsSel39 || s.updates != opDefinerTenantsUpd39 {
 			t.Errorf("%s: not 00039's state: %+v", when, s)
@@ -616,7 +624,7 @@ func TestOperator00039_DownGivesBack00034AndUpTakesItAgain(t *testing.T) {
 			t.Errorf("%s: not 00034's state (kinds NOT VALID=%v): %+v", when, kindsNV, s)
 		}
 	}
-	at39(read(tx), "PREMISE at HEAD")
+	at39(read(tx), "PREMISE at 00039")
 
 	// Branch 1: no row of this file's kinds -> VALIDATED; Up again.
 	sp, err := tx.Begin(ctx)

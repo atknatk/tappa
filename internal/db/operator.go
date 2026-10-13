@@ -870,6 +870,7 @@ var operatorAuditKinds = [...]OperatorAuditKind{
 	OperatorAuditOperatorCreated, OperatorAuditOperatorMFAReset, OperatorAuditOperatorDisabled,
 	OperatorAuditTenantVATChecked,
 	OperatorAuditTenantAPIEnabled, OperatorAuditTenantAPIDisabled,
+	OperatorAuditHoldingCreated, OperatorAuditHoldingMemberAdded, OperatorAuditHoldingMemberRemoved,
 }
 
 // OperatorAuditKinds returns the closed set of audit kinds, in the CHECK's order -- a fresh
@@ -1394,6 +1395,150 @@ func readTenantVAT(ctx context.Context, c OperatorConn, sessionHash string, t re
 func RecordTenantVATCheck(ctx context.Context, c OperatorConn, sessionHash string, tenantID uuid.UUID, number string, valid bool) error {
 	_, err := c.Exec(ctx, recordTenantVATCheckSQL, sessionHash, tenantID, number, valid)
 	return operatorErr("record tenant vat check", err)
+}
+
+// --------------------------------------------------------------- M11 API-1a --
+//
+// Holdings on the operator's surface (migration 00041; ADR 0027 §1, ADR 0021 §2 v): the three
+// writers of a holding's membership -- op_create_holding, op_add_holding_member,
+// op_remove_holding_member -- and their one read, op_read_holdings. Free functions over an
+// OperatorConn in the shape of the sections above; *OperatorDB delegates to each, as
+// internal/handler/operator's HoldingStore (the /operator/holdings screen's interface).
+//
+// 🔴 THE WRITES SAY NOTHING ABOUT WHAT THEY FOUND (ADR 0021 §2 v 7, B14). AddHoldingMember
+// answers nil when it added the tenant AND when the database refused it -- an unknown holding
+// or tenant, a membership the tenant still has (live, or ended less than 60 seconds ago), a
+// timezone that is not the holding's (K-36), an API code a member already carries --, and
+// RemoveHoldingMember answers nil whether there was a live membership to end or not. Each call
+// leaves the operator's row either way, and the tenants' rows only when something changed.
+// What happened is read back with Holdings, a two-phase audited read.
+
+// holdingsReadKind is 00041's read kind -- a member of operator_read_tickets_kind_check. Its
+// parameter object is the paged lists' {page_number, page_size} (legalVersionsParams' shape).
+const holdingsReadKind = "holdings"
+
+// The three kinds of migration 00041 (CHECK order: after tenant_api_disabled): the operator's
+// row of every accepted call of the three writers. Each names the holding in its detail
+// ({"holding_id": "<uuid>"}) and nothing else; the two membership kinds name their tenant, and
+// holding_created names none (operator_audit_log_holding_write_shape). The tenants' own rows --
+// 'tenant.holding_joined' / 'tenant.holding_member_joined' / 'tenant.holding_left' /
+// 'tenant.holding_member_left' -- are the ones that say a membership changed.
+const (
+	OperatorAuditHoldingCreated       OperatorAuditKind = "holding_created"
+	OperatorAuditHoldingMemberAdded   OperatorAuditKind = "holding_member_added"
+	OperatorAuditHoldingMemberRemoved OperatorAuditKind = "holding_member_removed"
+)
+
+// The four statements; phase one of the read is beginOperatorReadSQL. Mirrored in
+// db/queries/operator.sql.
+const (
+	createHoldingSQL       = `SELECT public.op_create_holding($1, $2)`
+	addHoldingMemberSQL    = `SELECT public.op_add_holding_member($1, $2, $3)`
+	removeHoldingMemberSQL = `SELECT public.op_remove_holding_member($1, $2, $3)`
+	readHoldingsSQL        = `SELECT holding_id, holding_name, holding_created_at, member_tenant_id, member_name,
+       member_timezone, member_api_code, joined_at, left_at
+FROM public.op_read_holdings($1, $2, $3, $4)`
+)
+
+// The holdings page: HoldingsPerPage rows (one per membership, and one per holding without
+// any), pages from 1. op_begin_read refuses a page size outside 1..200 with 22023 and
+// op_read_holdings bounds it in its body as well.
+const HoldingsPerPage = 200
+
+// MaxHoldingNameRunes is holdings_name_shape's length bound (00041): a name is trimmed, 1 to
+// 120 characters, with no control character -- op_create_holding refuses any other with 22023
+// before it writes.
+const MaxHoldingNameRunes = 120
+
+// HoldingRow is one row of op_read_holdings -- a fixed column list (ADR 0021 §2 ii). The
+// member columns are all nil for a holding that has never had a member; otherwise they are one
+// membership, live (LeftAt nil) or ended. Of the member tenant only what explains a membership
+// the operator expected and does not see: its name, its timezone (K-36) and its API code (the
+// code rule) -- nothing else of the tenant.
+type HoldingRow struct {
+	HoldingID        uuid.UUID
+	HoldingName      string
+	HoldingCreatedAt time.Time
+	MemberTenantID   *uuid.UUID
+	MemberName       *string
+	MemberTimezone   *string
+	MemberAPICode    *string
+	JoinedAt         *time.Time
+	LeftAt           *time.Time
+}
+
+// Holdings is the two-phase read of ADR 0021 §2 v for the holdings and their memberships:
+// op_begin_read writes the read's 'read' row (target_scope 'holdings', the page, no tenant,
+// detail {}) and a ticket bound to the session and the page; op_read_holdings consumes it and
+// returns the page, newest holding first, a holding's live memberships before its ended ones.
+// page counts from 1. A dead session is ErrOperatorRefused, and so is a pgx.Tx (the two phases
+// are two transactions only on a pool, as for TenantList).
+func Holdings(ctx context.Context, c OperatorConn, sessionHash string, page int32) ([]HoldingRow, error) {
+	params, err := json.Marshal(legalVersionsParams{PageNumber: page, PageSize: HoldingsPerPage})
+	if err != nil {
+		return nil, fmt.Errorf("db: holdings: encode the page: %w", err)
+	}
+	t, err := beginOperatorRead(ctx, c, sessionHash, holdingsReadKind, params)
+	if err != nil {
+		return nil, err
+	}
+	return readHoldings(ctx, c, sessionHash, t, page)
+}
+
+// readHoldings is op_read_holdings: consume the ticket (bound to the session, the kind and the
+// page), then the page.
+func readHoldings(ctx context.Context, c OperatorConn, sessionHash string, t readTicket, page int32) ([]HoldingRow, error) {
+	rows, err := c.Query(ctx, readHoldingsSQL, sessionHash, t.reveal(), page, int32(HoldingsPerPage))
+	if err != nil {
+		return nil, operatorErr("read holdings", err)
+	}
+	defer rows.Close()
+	var out []HoldingRow
+	for rows.Next() {
+		var r HoldingRow
+		if err := rows.Scan(&r.HoldingID, &r.HoldingName, &r.HoldingCreatedAt, &r.MemberTenantID, &r.MemberName,
+			&r.MemberTimezone, &r.MemberAPICode, &r.JoinedAt, &r.LeftAt); err != nil {
+			return nil, operatorErr("read holdings", err)
+		}
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, operatorErr("read holdings", err)
+	}
+	return out, nil
+}
+
+// CreateHolding is op_create_holding: an empty holding named name, and the operator's
+// 'holding_created' row naming it, in one statement. The answer is the new holding's id. A
+// name outside holdings_name_shape is a database error carrying SQLSTATE 22023 and nothing is
+// written; a dead session is ErrOperatorRefused.
+func CreateHolding(ctx context.Context, c OperatorConn, sessionHash, name string) (uuid.UUID, error) {
+	var id uuid.UUID
+	if err := c.QueryRow(ctx, createHoldingSQL, sessionHash, name).Scan(&id); err != nil {
+		return uuid.Nil, operatorErr("create holding", err)
+	}
+	return id, nil
+}
+
+// AddHoldingMember is op_add_holding_member: the tenant joins the holding -- when the database
+// finds every rule met -- with the tenants' rows (the joining tenant's and every other live
+// member's) and, whatever it found, the operator's row. nil does NOT say the tenant was added
+// (the section's comment); read it back with Holdings. A dead session is ErrOperatorRefused;
+// any other failure is a database error carrying its SQLSTATE and nothing else.
+func AddHoldingMember(ctx context.Context, c OperatorConn, sessionHash string, holdingID, tenantID uuid.UUID) error {
+	_, err := c.Exec(ctx, addHoldingMemberSQL, sessionHash, holdingID, tenantID)
+	return operatorErr("add holding member", err)
+}
+
+// RemoveHoldingMember is op_remove_holding_member: the tenant's live membership of the holding
+// ends now, by the database's clock -- when there is one -- with the tenants' rows (the leaving
+// tenant's and every remaining member's) and, whatever it found, the operator's row. For 60
+// seconds after it ends, a tap that was already under way may still land on either side (ADR
+// 0027 §6); the tenant cannot rejoin any holding until they are over. nil does not say a
+// membership ended; read it back with Holdings.
+func RemoveHoldingMember(ctx context.Context, c OperatorConn, sessionHash string, holdingID, tenantID uuid.UUID) error {
+	_, err := c.Exec(ctx, removeHoldingMemberSQL, sessionHash, holdingID, tenantID)
+	return operatorErr("remove holding member", err)
 }
 
 // readTicket is op_begin_read's answer: the RAW read ticket, which CLAUDE.md §7 and ADR

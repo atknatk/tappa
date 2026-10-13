@@ -122,6 +122,39 @@ GRANT USAGE ON SCHEMA public TO tappa_operator;
 GRANT USAGE ON SCHEMA public TO tappa_opdefiner;
 -- <<< OPERATOR ROLES (M10 OP-5) <<< ------------------------------------------------
 
+-- >>> HOLDING ROLE (M11 API-1a) >>> ------------------------------------------------
+-- Holding fonksiyonlarinin sahibi (ADR 0027 §2, K-33/K-34). OPERATOR ROLES blogunun
+-- kalibi, ayni gerekceyle IKI yerde AYNI BAYTLARLA kosar ve IDEMPOTENT'tir:
+--   (a) bos bir PGDATA'da, bu dosyanin geri kalaniyla birlikte (initdb, CI, db-reset,
+--       ve geri yukleme provasinin SIFIRDAN kurulan pod'u -- pg_dump rol tasimaz);
+--   (b) HALIHAZIRDA CALISAN bir kumede, deploy/README.md -> "Holding role (M11 API-1a)"
+--       runbook'unun `sed` ile bu iki isaretin arasini kesip psql'e vermesiyle.
+--
+--   tappa_holdingdefiner : kapali `holding_*` listesinin ve holding tetikleyicilerinin
+--                          SAHIBI. NOLOGIN, BYPASSRLS, NOSUPERUSER -- tappa_resolver ve
+--                          tappa_opdefiner'in sekli, ama AYRI bir rol: patlama
+--                          yaricaplari birlesmez (ADR 0027 §2 "Neden ayri bir rol").
+--                          Hicbir DEFAULT PRIVILEGE almaz, UYESI YOKTUR ve hicbir rolun
+--                          uyesi DEGILDIR: yetkisi migration'larin tek tek verdigi SUTUN
+--                          grant'larindan (K-34 matrisi) ibarettir.
+--
+-- 🔴 ALTER ROLE SATIRI BILEREK KOSULSUZ (OPERATOR ROLES blogunun gerekcesi): yanlis
+-- niteliklerle var olan bir rol her kosuda bu satira indirgenir.
+-- ⚠️ Uyelik burada TEMIZLENMEZ; migration 00041'in on kosulu iki yonu de sinar ve biri
+-- varsa REDDEDER (rolun bir UYESI BYPASSRLS'e bir SET ROLE uzaktadir; rolun KENDI
+-- uyeligi fonksiyonlarina o rolun yetkisini miras birakirdi).
+-- Bu dosya redline R5b'nin kapsami disindadir (BYPASSRLS mesru; scripts/redline-check.sh).
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'tappa_holdingdefiner') THEN
+        CREATE ROLE tappa_holdingdefiner NOLOGIN NOSUPERUSER BYPASSRLS NOCREATEDB NOCREATEROLE;
+    END IF;
+END
+$$;
+ALTER ROLE tappa_holdingdefiner NOLOGIN NOSUPERUSER BYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
+GRANT USAGE ON SCHEMA public TO tappa_holdingdefiner;
+-- <<< HOLDING ROLE (M11 API-1a) <<< ------------------------------------------------
+
 -- Migration'larin bundan sonra yaratacagi her tabloda tappa_app'e taban yetki.
 --
 -- 🔴 UPDATE VE DELETE BILEREK YOK, VE BU M8-02 FAZ E'DE OLCULMUS BIR GUVENLIK

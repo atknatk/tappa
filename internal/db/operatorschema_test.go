@@ -504,11 +504,21 @@ func opReverseFindings(ctx context.Context, q opQuerier) ([]string, error) {
 			  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
 			 WHERE n.nspname = 'public' AND p.proname LIKE 'op\_%'
 			   AND p.proowner <> 'tappa_opdefiner'::regrole`},
-		{"a SECURITY DEFINER owned outside {tappa_resolver, tappa_opdefiner} or by a superuser", `
+		// M11 API-1a (ADR 0021's M11 note, ADR 0027 §2): the set grows by tappa_holdingdefiner,
+		// the owner of ADR 0027's closed list (holding_timezone_lock since 00041). holding_peer is
+		// SECURITY INVOKER and outside this check; its own catalogue row is
+		// TestHoldingPeer_InvokerVolatileOwnedByDefinerExecutableOnlyByOwner.
+		{"a SECURITY DEFINER owned outside {tappa_resolver, tappa_opdefiner, tappa_holdingdefiner} or by a superuser", `
 			SELECT p.oid::regprocedure::text || ' owned by ' || r.rolname || ' rolsuper=' || r.rolsuper
 			  FROM pg_proc p JOIN pg_roles r ON r.oid = p.proowner
 			 WHERE p.prosecdef
-			   AND (r.rolname NOT IN ('tappa_resolver', 'tappa_opdefiner') OR r.rolsuper)`},
+			   AND (r.rolname NOT IN ('tappa_resolver', 'tappa_opdefiner', 'tappa_holdingdefiner') OR r.rolsuper)`},
+		{"tappa_holdingdefiner has a member (one SET ROLE from BYPASSRLS)", `
+			SELECT pg_get_userbyid(m.member) FROM pg_auth_members m
+			 WHERE m.roleid = 'tappa_holdingdefiner'::regrole`},
+		{"tappa_holdingdefiner is a member of a role (its holding_* would inherit that role's reach)", `
+			SELECT pg_get_userbyid(m.roleid) FROM pg_auth_members m
+			 WHERE m.member = 'tappa_holdingdefiner'::regrole`},
 		{"tappa_opdefiner has a member (one SET ROLE from BYPASSRLS)", `
 			SELECT pg_get_userbyid(m.member) FROM pg_auth_members m
 			 WHERE m.roleid = 'tappa_opdefiner'::regrole`},
@@ -535,17 +545,18 @@ func opReverseFindings(ctx context.Context, q opQuerier) ([]string, error) {
 		{"an operator role carries a role-level setting (pg_db_role_setting)", `
 			SELECT pg_get_userbyid(s.setrole) || ' ' || array_to_string(s.setconfig, ',')
 			  FROM pg_db_role_setting s
-			 WHERE s.setrole IN ('tappa_operator'::regrole, 'tappa_opdefiner'::regrole)`},
+			 WHERE s.setrole IN ('tappa_operator'::regrole, 'tappa_opdefiner'::regrole, 'tappa_holdingdefiner'::regrole)`},
 		{"a role has the wrong attributes (ADR 0021 §1)", `
 			SELECT rolname || ' super=' || rolsuper || ' bypassrls=' || rolbypassrls || ' login=' || rolcanlogin
 			  FROM pg_roles
 			 WHERE (rolname = 'tappa_opdefiner' AND (rolsuper OR NOT rolbypassrls OR rolcanlogin OR rolcreaterole OR rolcreatedb))
-			    OR (rolname = 'tappa_operator'  AND (rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb))`},
+			    OR (rolname = 'tappa_operator'  AND (rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb))
+			    OR (rolname = 'tappa_holdingdefiner' AND (rolsuper OR NOT rolbypassrls OR rolcanlogin OR rolcreaterole OR rolcreatedb OR rolreplication))`},
 		{"a default privilege names an operator role (ADR 0021 §1: none)", `
 			SELECT pg_get_userbyid(d.defaclrole) || ' ' || d.defaclobjtype::text || ' ' || d.defaclacl::text
 			  FROM pg_default_acl d
-			 WHERE d.defaclrole IN ('tappa_operator'::regrole, 'tappa_opdefiner'::regrole)
-			    OR d.defaclacl::text ~ '(^|[{,])tappa_op(erator|definer)='`},
+			 WHERE d.defaclrole IN ('tappa_operator'::regrole, 'tappa_opdefiner'::regrole, 'tappa_holdingdefiner'::regrole)
+			    OR d.defaclacl::text ~ '(^|[{,])tappa_(op(erator|definer)|holdingdefiner)='`},
 	}
 	for _, c := range checks {
 		if err := collect(c.sql, c.label); err != nil {
@@ -589,6 +600,10 @@ func TestOperator00026_ReverseCatalogPin(t *testing.T) {
 		{"tappa_operator sets its own log_parameter_max_length_on_error", `ALTER ROLE tappa_operator SET log_parameter_max_length_on_error = -1`, "role-level setting"},
 		{"a role-level setting on tappa_opdefiner", `ALTER ROLE tappa_opdefiner SET search_path = public`, "role-level setting"},
 		{"a superuser tappa_opdefiner", `ALTER ROLE tappa_opdefiner SUPERUSER`, "wrong attributes"},
+		// M11 API-1a: the holding definer's four.
+		{"a member of tappa_holdingdefiner", `GRANT tappa_holdingdefiner TO tappa_app`, "tappa_holdingdefiner has a member"},
+		{"tappa_holdingdefiner made a member of the owner", `GRANT tappa_owner TO tappa_holdingdefiner`, "tappa_holdingdefiner is a member of a role"},
+		{"a holding definer that logs in", `ALTER ROLE tappa_holdingdefiner LOGIN`, "wrong attributes"},
 		{"a default privilege for the operator", `ALTER DEFAULT PRIVILEGES FOR ROLE tappa_owner IN SCHEMA public
 			GRANT SELECT ON TABLES TO tappa_operator`, "default privilege"},
 	}
@@ -959,7 +974,7 @@ func TestOperator00026_PrivilegeMatrix(t *testing.T) {
 	opdefinerTenantGrants := map[string]string{
 		"legal_documents:SELECT": "id,slug,body,published_at,published_by",
 		"legal_documents:INSERT": "slug,body,published_by",
-		"tenants:SELECT":         "id,name,vat_number,business_type,plan,timezone,created_at,price_per_employee_month,vat_verified,vat_checked_at,api_enabled_at",
+		"tenants:SELECT":         "id,name,vat_number,business_type,plan,timezone,created_at,price_per_employee_month,vat_verified,vat_checked_at,api_enabled_at,api_code",
 		"tenants:UPDATE":         "vat_verified,vat_checked_at,api_enabled_at,api_code",
 		"audit_log:INSERT":       "tenant_id,actor_id,action,target,detail,at",
 		"locations:SELECT":       "id,tenant_id,name",
@@ -968,6 +983,16 @@ func TestOperator00026_PrivilegeMatrix(t *testing.T) {
 		"admin_users:SELECT":     "tenant_id,email,status",
 		"billing_periods:SELECT": "tenant_id,period_month,period_from,period_to,timezone,plan,free_period,employee_count," +
 			"unstamped_employees,unit_price,currency,amount_due,closed_at",
+		// 00042 (M11 API-1a): the holding writers and their read -- op_create_holding inserts a
+		// name (id and created_at are DEFAULTs), op_add_holding_member inserts a membership
+		// (joined_at is the DEFAULT), op_remove_holding_member writes left_at and nothing else, and
+		// the rules and op_read_holdings read the columns below; tenants gains api_code above (the
+		// code rule, both directions). No DELETE or TRUNCATE on either table.
+		"holdings:SELECT":        "id,name,created_at",
+		"holdings:INSERT":        "name",
+		"holding_members:SELECT": "holding_id,member_tenant_id,joined_at,left_at",
+		"holding_members:INSERT": "holding_id,member_tenant_id",
+		"holding_members:UPDATE": "left_at",
 	}
 	neverSelect := [][2]string{
 		{"tags", "aes_key_ref"}, {"tags", "app_key_ref"}, {"admin_users", "password_hash"},

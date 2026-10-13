@@ -5241,6 +5241,16 @@ Bu ADR'nin sözleşmesi (§1–§6) `op_*` için aynen geçerlidir. Değişenler
   - **API erişimi:** `tenants.api_enabled_at`'i açan/kapatan ve `tenants.api_code`'u yazan `op_*`
     ([ADR 0028](0028-dis-api-anahtar-akis-webhook.md) §2, K-22) — tenant'ı **değiştiren** `op_*`'ların
     (OP-16, OP-15) sınıfı.
+  - **API-1a eki (2026-10-13, migration `00042`):** holding'in okuması **`op_read_holdings`**
+    (`op_begin_read` türü `holdings`, `{page_number, page_size}`) — üç yazarın v 7 gereği hiçbir şey
+    söylemeyen `void`'unu operatörün görebilmesi için (yapıcının otonom kararı; ADR 0027'nin kapalı
+    `holding_*` listesini genişletmez, bu sınıfa bir okuma ekler). Üç yazar her ret durumunda (ADR 0027
+    §1) eklediği/çıkardığı zamankiyle aynı `void`'u döner; operatör türleri `holding_created`,
+    `holding_member_added`, `holding_member_removed` (`detail = {"holding_id": …}`, CHECK
+    `operator_audit_log_holding_write_shape`). `op_enable_tenant_api` holding içi kod kuralıyla değiştirildi
+    (ADR 0027 §1). §6'nın ters katalog pini `tappa_holdingdefiner` ile genişletildi
+    (`TestOperator00026_ReverseCatalogPin`); sayılı sınır: geri alınan bir çağrının istatistik/kilit izi bir
+    tenant'ın katılıp katılamayacağını söyler (sınır 15 / LV3 sınıfı) — ADR 0027 *"API-1a uygulama notu"*.
 - **§6 testlerinin genişlemesi.** *"`prosecdef` olan her fonksiyonun sahibi {`tappa_resolver`,
   `tappa_opdefiner`} içinde"* ters yön testi **`tappa_feedwriter`** (ADR 0028 §4) ve
   **`tappa_holdingdefiner`** (ADR 0027 §2) ile genişler; iki rolün de üye sayısı 0 ve `rolsuper = f`.

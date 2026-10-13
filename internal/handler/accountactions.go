@@ -194,6 +194,14 @@ func (a *AdminAuth) accountSave(w http.ResponseWriter, r *http.Request) {
 				"which is why the zone decides which month is your first paid one. Ask Taptime and "+
 				"we will change it with you.")
 		return
+	case errors.Is(err, tenant.ErrTimezoneHeldByHolding):
+		// M11 API-1a (K-36, ADR 0027 §1): the business is a member of a holding, and a member's
+		// zone does not change -- the database refused it. ONE sentence, beside the field: what
+		// holds the zone and who can change it. Nothing was written.
+		a.log.Warn("panel account save refused: the business is a holding member and its timezone is locked",
+			"tenant_id", id.Admin.TenantID)
+		a.renderAccountFormAgain(w, r, id, form, "timezone", accountHoldingZoneSentence)
+		return
 	case errors.Is(err, tenant.ErrUnknownTenantAccount):
 		// A SIGNED SESSION WHOSE OWN TENANT IS NOT VISIBLE IS OUR PROBLEM, NOT THE
 		// OWNER'S. Under RLS this is the same answer for "does not exist" and "belongs
@@ -217,6 +225,12 @@ func (a *AdminAuth) accountSave(w http.ResponseWriter, r *http.Request) {
 	a.log.Info("panel account saved", "actor_id", id.Admin.AdminUserID, "timezone", saved.Timezone)
 	a.redirect(w, accountReturn("saved", ""))
 }
+
+// accountHoldingZoneSentence is the owner panel's one sentence for K-36 (ADR 0027 §1): the
+// business belongs to a group of businesses on Taptime, the group shares one clock, so its
+// timezone stays as it is -- and Taptime is who changes it.
+const accountHoldingZoneSentence = "This business is part of a group of businesses on Taptime that share one clock, " +
+	"so its timezone cannot be changed here. Ask Taptime if the whole group needs to move."
 
 // validateAccountForm is the boundary's own check (§7). It returns the FIELD and the
 // sentence, so a message renders beside the input it is about.

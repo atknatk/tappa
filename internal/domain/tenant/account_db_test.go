@@ -615,3 +615,72 @@ func TestAccountDB_ATimezoneEditMayNotMoveTheFirstChargeableMonth(t *testing.T) 
 		t.Errorf("the accepted zone stored %q, want Europe/Rome", out.Timezone)
 	}
 }
+
+// TestAccountDB_AHoldingMembersTimezoneIsLocked is K-36 through the panel's own path (M11
+// API-1a, ADR 0027 §1): a business that is a member of a holding -- the membership written by
+// the owner role, as only the operator's op_* write it in the product -- cannot save a new zone:
+// Save answers ErrTimezoneHeldByHolding, the zone is unchanged and no 'tenant.account_updated' row
+// is written; a save that keeps the zone (a rename) goes through. CONTROL: the other business of
+// the fixture, not a member, can change its zone.
+func TestAccountDB_AHoldingMembersTimezoneIsLocked(t *testing.T) {
+	f := newAccountFixture(t)
+	ctx := context.Background()
+	raw := os.Getenv("DATABASE_MIGRATE_URL")
+	if raw == "" {
+		t.Skip("DATABASE_MIGRATE_URL not set; the membership needs the owner role")
+	}
+	owner, err := pgx.Connect(ctx, raw)
+	if err != nil {
+		t.Fatalf("connect as the owner: %v", err)
+	}
+	t.Cleanup(func() { _ = owner.Close(context.Background()) })
+	var holding uuid.UUID
+	if err := owner.QueryRow(ctx, `INSERT INTO holdings (name) VALUES ('api1a account lock') RETURNING id`).Scan(&holding); err != nil {
+		t.Fatalf("a holding: %v", err)
+	}
+	if _, err := owner.Exec(ctx, `INSERT INTO holding_members (holding_id, member_tenant_id) VALUES ($1, $2)`, holding, f.tenantID); err != nil {
+		t.Fatalf("the membership: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx := context.Background()
+		if _, err := owner.Exec(ctx, `DELETE FROM holding_members WHERE holding_id = $1`, holding); err != nil {
+			t.Errorf("cleanup: %v", err)
+		}
+		if _, err := owner.Exec(ctx, `DELETE FROM holdings WHERE id = $1`, holding); err != nil {
+			t.Errorf("cleanup: %v", err)
+		}
+	})
+	trailRows := func() int64 {
+		var n int64
+		if err := owner.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND action = 'tenant.account_updated'`, f.tenantID).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	before := trailRows()
+	if _, err := f.accounts.Save(ctx, AccountCommand{
+		TenantID: f.tenantID, ActorID: f.actorID,
+		Name: "Kebab Factory Ltd", BusinessType: "restaurant", Timezone: "Europe/Istanbul",
+	}); !errors.Is(err, ErrTimezoneHeldByHolding) {
+		t.Fatalf("a member's zone change answered %v, want ErrTimezoneHeldByHolding", err)
+	}
+	var zone string
+	if err := owner.QueryRow(ctx, `SELECT timezone FROM tenants WHERE id = $1`, f.tenantID).Scan(&zone); err != nil {
+		t.Fatal(err)
+	}
+	if zone != "Europe/Malta" || trailRows() != before {
+		t.Errorf("after the refusal: zone %q (want Europe/Malta), %d trail row(s) written", zone, trailRows()-before)
+	}
+	if _, err := f.accounts.Save(ctx, AccountCommand{
+		TenantID: f.tenantID, ActorID: f.actorID,
+		Name: "Kebab Factory Holding Ltd", BusinessType: "restaurant", Timezone: "Europe/Malta",
+	}); err != nil {
+		t.Errorf("a member's save that keeps its zone: %v", err)
+	}
+	if _, err := f.accounts.Save(ctx, AccountCommand{
+		TenantID: f.foreignTenant, ActorID: f.actorID,
+		Name: "Kebab Factory Ltd", BusinessType: "restaurant", Timezone: "Europe/Istanbul",
+	}); err != nil {
+		t.Errorf("CONTROL: a business outside any holding could not change its zone: %v", err)
+	}
+}

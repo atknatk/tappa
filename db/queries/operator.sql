@@ -226,3 +226,37 @@
 -- still carry it as their company); the tenant's 'tenant.api_disabled' row ({actor_kind}); the
 -- operator's 'tenant_api_disabled' row on every accepted call.
 --   SELECT public.op_disable_tenant_api($1, $2);
+
+-- M11 API-1a (migration 00041; ADR 0027 §1): the operator's holdings. Three one-phase writes
+-- and one two-phase read. The writes answer the same whatever they find (ADR 0021 §2 v 7,
+-- B14): void (or the created id) on every accepted call, the operator's row on every accepted
+-- call, the tenants' rows only when a membership changed; what happened is read back with
+-- ReadHoldings. Inside the four functions no row level security applies: every statement names
+-- $2/$3 -- the holding and the tenant -- explicitly.
+
+-- CreateHolding -- $2 the holding's name (trimmed, 1..120 characters, no control character;
+-- else 22023 before anything is written). An empty holding and the operator's 'holding_created'
+-- row naming it ({"holding_id": ...}, no tenant). The answer is the new holding's id.
+--   SELECT public.op_create_holding($1, $2);
+
+-- AddHoldingMember -- $2 the holding, $3 the tenant. Under the holding's advisory lock and the
+-- canonical tenants row locks, the tenant joins only if the holding and the tenant exist, the
+-- tenant has no membership live or ended less than 60 seconds ago, every member's timezone is
+-- the tenant's (K-36) and no member carries the tenant's API code; then 'tenant.holding_joined'
+-- in the tenant's audit_log and 'tenant.holding_member_joined' in every other live member's. On
+-- every accepted call the operator's 'holding_member_added' row naming the tenant and the holding.
+--   SELECT public.op_add_holding_member($1, $2, $3);
+
+-- RemoveHoldingMember -- $2 the holding, $3 the tenant. Under the same advisory lock, the
+-- tenant's live membership (if any) ends at the wall clock; then 'tenant.holding_left' and, for
+-- every remaining live member, 'tenant.holding_member_left'. On every accepted call the
+-- operator's 'holding_member_removed' row.
+--   SELECT public.op_remove_holding_member($1, $2, $3);
+
+-- ReadHoldings -- phase one is BeginOperatorRead with kind 'holdings' and
+-- {"page_number": n, "page_size": s}; phase two: $2 is the RAW ticket, $3/$4 the page, bound in
+-- it. One row per membership (live first, then ended) and one per holding that never had a
+-- member (NULL member columns); newest holding first; at most 200 rows.
+--   SELECT holding_id, holding_name, holding_created_at, member_tenant_id, member_name,
+--          member_timezone, member_api_code, joined_at, left_at
+--   FROM public.op_read_holdings($1, $2, $3, $4);

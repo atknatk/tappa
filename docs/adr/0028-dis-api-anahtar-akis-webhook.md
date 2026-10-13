@@ -853,4 +853,6 @@ hiçbiri bir karar değildi). Defteri okuyanlar goose (göç rolü), `scripts/pg
 (`TestOpAtVersion_SkipsOnlyMigrationsWithoutAnOperatorObject`), Down'ları `employees`/`tenants` üzerinde
 ACCESS EXCLUSIVE alır ve `00037`'ninki, ev lokasyonu olmayan ya da pasif/aktif aynı adresi paylaşan
 satır varsa (K-14/K-24 testleri bunları commit eder) bilerek reddeder. `00039`'un Down'ı yürütülür.
+API-1a'dan beri `00040` (defter) ve `00041` (holding şeması — Down'ı `tenants`'ı ACCESS EXCLUSIVE kilitler)
+de atlanır; `00042` (holding'in operatör yüzeyi) yürütülür (ADR 0027 *"API-1a uygulama notu"*).
 

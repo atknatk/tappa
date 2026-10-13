@@ -99,11 +99,23 @@ const (
 // against the database, TestOperatorAuditKinds_TheTypedConstantsAreTheList against the Go
 // constants). 00031 made it eleven; 00033 (OP-14 D) added the three owner kinds, opOwnerKinds;
 // 00034 (OP-16) the first tenant-writing kind, opTenantWriteKinds; 00039 (M11 API-1) the two
-// API-gate kinds.
+// API-gate kinds; 00042 (M11 API-1a) the three holding kinds, opHoldingKinds.
 var opAuditKinds = []string{"login_failed", "unknown_email", "totp_failed", "locked", "enrollment_failed",
 	"password_ok", "login", "enrollment", "logout", "read", "legal_publish",
 	"operator_created", "operator_mfa_reset", "operator_disabled", "tenant_vat_checked",
+	"tenant_api_enabled", "tenant_api_disabled",
+	"holding_created", "holding_member_added", "holding_member_removed"}
+
+// opAuditKinds39 is the set at 00039 -- what 00039's own tests pin (they reach 00039 through
+// 00042's Down) and what 00042's Down gives back.
+var opAuditKinds39 = []string{"login_failed", "unknown_email", "totp_failed", "locked", "enrollment_failed",
+	"password_ok", "login", "enrollment", "logout", "read", "legal_publish",
+	"operator_created", "operator_mfa_reset", "operator_disabled", "tenant_vat_checked",
 	"tenant_api_enabled", "tenant_api_disabled"}
+
+// opHoldingKinds is operator_audit_log_holding_write_shape's list (00042): the rows of the three
+// holding writers, each naming its holding in detail and nothing else.
+var opHoldingKinds = []string{"holding_created", "holding_member_added", "holding_member_removed"}
 
 // opAuditKinds34 is the set at 00034 -- what 00034's own tests pin (they reach 00034 through
 // 00039's Down) and what 00039's Down gives back.
@@ -2066,6 +2078,13 @@ func TestOpReadAudit_TheDetailIsShownOnlyInAShapeOnTheList(t *testing.T) {
 		// 00034's operator row: the session, the actor, the tenant and nothing else (the
 		// tenant-write CHECK refuses any other shape of it, so there is no off-list case to write).
 		{name: "tenant_vat_checked {}", row: opLogRow{kind: string(OperatorAuditTenantVATChecked), session: &session, actor: &a.id, tenant: &tenant}, recog: true},
+		// 00042's three holding rows: the holding in detail and nothing else -- the tenant for the
+		// two membership kinds, none for holding_created (operator_audit_log_holding_write_shape
+		// refuses any other shape, so there is no off-list case to write; nothing of the detail is
+		// read out).
+		{name: "holding_created {holding_id}", row: sess(string(OperatorAuditHoldingCreated), "", `{"holding_id": `+q(doc.String())+`}`), recog: true},
+		{name: "holding_member_added {holding_id}", row: opLogRow{kind: string(OperatorAuditHoldingMemberAdded), session: &session, actor: &a.id, tenant: &tenant, detail: `{"holding_id": ` + q(doc.String()) + `}`}, recog: true},
+		{name: "holding_member_removed {holding_id}", row: opLogRow{kind: string(OperatorAuditHoldingMemberRemoved), session: &session, actor: &a.id, tenant: &tenant, detail: `{"holding_id": ` + q(doc.String()) + `}`}, recog: true},
 		{name: "read tenants none", row: readOf(tenantsReadKind, `{"search": "none"}`), recog: true, scope: tenantsReadKind, search: "none"},
 		{name: "read tenants text", row: readOf(tenantsReadKind, `{"search": "text"}`), recog: true, scope: tenantsReadKind, search: "text"},
 		{name: "read tenants address", row: readOf(tenantsReadKind, `{"search": "address"}`), recog: true, scope: tenantsReadKind, search: "address"},
@@ -2114,7 +2133,8 @@ func TestOpReadAudit_TheDetailIsShownOnlyInAShapeOnTheList(t *testing.T) {
 	}
 	// The read kinds the ticket CHECK names, each with its shipped detail.
 	shipped := map[string]string{legalVersionsReadKind: "", tenantsReadKind: `{"search": "text"}`, tenantDetailReadKind: "",
-		tenantPlaquesReadKind: "", operatorAuditReadKind: `{"filter": "all"}`, tenantBillingReadKind: "", tenantVATReadKind: ""}
+		tenantPlaquesReadKind: "", operatorAuditReadKind: `{"filter": "all"}`, tenantBillingReadKind: "", tenantVATReadKind: "",
+		holdingsReadKind: ""}
 	ticketKinds, _ := opConstraint(t, ctx, tx, "operator_read_tickets", "operator_read_tickets_kind_check")
 	for _, arr := range opQuotedArrays(ticketKinds) {
 		for _, k := range arr {

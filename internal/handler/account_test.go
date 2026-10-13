@@ -687,6 +687,41 @@ func TestAccountSave_RefusesAZoneThisBuildCannotLoad(t *testing.T) {
 	}
 }
 
+// TestAccountSave_SaysAHoldingMembersZoneIsLocked is K-36's panel half (M11 API-1a, ADR 0027
+// §1): when the database refuses the zone because the business is a holding member
+// (tenant.ErrTimezoneHeldByHolding -- migration 00041's trigger), the owner gets the form again,
+// 200, with ONE sentence on the timezone field saying what holds the zone and who can change it,
+// and keeps what they typed. The application cannot ask in advance (tappa_app reads no
+// membership), so the refusal is where the panel learns it.
+func TestAccountSave_SaysAHoldingMembersZoneIsLocked(t *testing.T) {
+	acc := newFakeAccount()
+	acc.saveErr = tenant.ErrTimezoneHeldByHolding
+	b := accountBrowser(t, acc, &fakeTrail{}, accountTestOwnerRole)
+	rec := b.do(http.MethodPost, accountHref, url.Values{
+		"name":          {"Kebab Factory Ltd."},
+		"business_type": {"restaurant"},
+		"timezone":      {"Europe/Istanbul"},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("a locked zone answered %d, want 200 with the form again", rec.Code)
+	}
+	html := htmlOf(t, rec)
+	if got := fieldError(t, html, "timezone"); got != htmlText(accountHoldingZoneSentence) {
+		t.Errorf("the timezone field says %q, want the holding sentence %q", got, accountHoldingZoneSentence)
+	}
+	for _, other := range []string{"name", "business_type"} {
+		if got := fieldError(t, html, other); got != "" {
+			t.Errorf("the %s field carries a message (%q) for a refusal about the zone", other, got)
+		}
+	}
+	if !strings.Contains(html, htmlText("Europe/Istanbul")) {
+		t.Error("the re-rendered form lost the zone the owner typed")
+	}
+	if strings.Count(accountHoldingZoneSentence, ".") != 2 || !strings.Contains(accountHoldingZoneSentence, "Taptime") {
+		t.Errorf("the sentence %q should say why and who, in two short sentences", accountHoldingZoneSentence)
+	}
+}
+
 // TestAccountSave_RefusesABusinessTypeOutsideTheSchemasList — the <select> is drawn from
 // the schema's own vocabulary, and a value that did not come from it is refused.
 func TestAccountSave_RefusesABusinessTypeOutsideTheSchemasList(t *testing.T) {

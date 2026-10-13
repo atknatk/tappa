@@ -933,6 +933,79 @@ bırakılabilir: NOLOGIN, üyesiz ve (00026 olmadan) hiçbir nesnenin sahibi de�
 
 ---
 
+## Holding role (M11 API-1a) — tek seferlik kurulum
+
+**Ne:** migration `00041` (holding varlığı — ADR 0027 §1–§3) bir **küme** rolüne dayanır:
+`tappa_holdingdefiner` — kapalı `holding_*` listesinin ve holding tetikleyicilerinin sahibi;
+NOLOGIN, BYPASSRLS, NOSUPERUSER, NOCREATEDB, NOCREATEROLE, NOREPLICATION, **üyesi yok ve
+hiçbir rolün üyesi değil**. Migration onu **yaratmaz** (rol küme nesnesidir; R5b bir
+migration'daki BYPASSRLS rolünü FAIL eder — *"Operator roles (M10 OP-5)"* bölümünün
+gerekçesi). Tanımı `scripts/db-init/01-roles.sql`'in
+`>>> HOLDING ROLE (M11 API-1a) >>>` … `<<< HOLDING ROLE (M11 API-1a) <<<` bloğudur: taze
+kurulum, CI, `make db-reset` ve **B YOLU geri yüklemesinin sıfırdan kurulan pod'u** onu
+kendiliğinden alır (`pg_dump` rol taşımaz — rol pod'un init'inden gelir); **halihazırda
+çalışan** bir veritabanı almaz. Blok **idempotenttir** (var olan rolde no-op; yanlış
+nitelikleri satırına indirger; üyeliği temizlemez — `00041`'in ön koşulu iki yönü de sınar ve
+reddeder). Bloğu ve ön koşulu `internal/db` → `TestRestore_FreshPodCarriesTheHoldingRole`
+koşar.
+
+**Sıra:** önce bu bölüm, sonra `main`'e birleştirme. Rol yoksa `00041`'in ilk ifadesi bu
+bölümü adıyla gösterip **düşer** (`SQLSTATE 55000`, *"Nothing was changed."*); migrate Job'ı
+kırmızıdır, eski pod servis vermeye devam eder — *"Operator roles (M10 OP-5)"* bölümündeki
+*"Sıra ters olursa ne olur"* paragrafının aynısı.
+
+### Geliştirme veritabanı
+
+```bash
+sed -n '/^-- >>> HOLDING ROLE (M11 API-1a) >>>/,/^-- <<< HOLDING ROLE (M11 API-1a) <<</p' \
+    scripts/db-init/01-roles.sql \
+  | docker exec -i tappa-db \
+      sh -c 'psql -X -1 -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+make migrate
+```
+
+Ölçüldü (M11 geliştirme veritabanı, 2026-10-13): `DO · ALTER ROLE · GRANT`, rc=0; sonra rol
+`NOLOGIN, NOSUPERUSER, BYPASSRLS, NOCREATEDB, NOCREATEROLE, NOREPLICATION`.
+
+### Canlı küme (kullanıcı / orkestratör — ajan `kubectl` koşmaz)
+
+```bash
+# 0) Kesimi doğrula (boş girdiyle psql -1 exit 0 verir): bir CREATE ROLE ve kapanış işareti.
+sed -n '/^-- >>> HOLDING ROLE (M11 API-1a) >>>/,/^-- <<< HOLDING ROLE (M11 API-1a) <<</p' \
+    scripts/db-init/01-roles.sql | grep -cE '^ *CREATE ROLE|^-- <<< HOLDING ROLE'
+# beklenen: 2 (başka bir sayı -> DUR)
+
+# 1) Uygula: tek transaction (-1), ilk hatada dur.
+sed -n '/^-- >>> HOLDING ROLE (M11 API-1a) >>>/,/^-- <<< HOLDING ROLE (M11 API-1a) <<</p' \
+    scripts/db-init/01-roles.sql \
+  | kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+      sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -1 -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+# beklenen: DO · ALTER ROLE · GRANT
+
+# 2) Doğrula
+kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+    sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -At -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+SELECT r.rolname, r.rolcanlogin, r.rolsuper, r.rolbypassrls,
+       (SELECT count(*) FROM pg_auth_members m WHERE m.roleid = r.oid) AS members,
+       (SELECT count(*) FROM pg_auth_members m WHERE m.member = r.oid) AS member_of,
+       has_schema_privilege(r.rolname, 'public', 'USAGE') AS usage,
+       (SELECT count(*) FROM pg_db_role_setting s WHERE s.setrole = r.oid) AS role_settings
+  FROM pg_roles r
+ WHERE r.rolname = 'tappa_holdingdefiner';
+SQL
+# beklenen: tappa_holdingdefiner|f|f|t|0|0|t|0
+```
+
+Sonra `main`'e birleştir; deploy `00040`–`00042`'yi uygular.
+
+**Geri alma:** `00042`'nin Down'ı operatör yüzeyini (`op_*`'lar, türler) geri alır; `00041`'in
+Down'ı holding tablolarını **üyelikleriyle birlikte** düşürür (izleri operatörün ve
+tenant'ların append-only audit satırlarında kalır) ve `tenants` üzerinde ACCESS EXCLUSIVE
+alır — canlıda koşulmaz. Rol bırakılabilir: NOLOGIN, üyesiz, (`00041` olmadan) hiçbir nesnenin
+sahibi değil.
+
+---
+
 ## Operator surface (M10 OP-7) — `tappa_operator`'ın girişi ve dört anahtar
 
 **Ne:** platform operatörünün yüzeyi (ADR 0020/0021) **dört değişkenle, tek küme olarak**
