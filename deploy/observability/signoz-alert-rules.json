@@ -278,5 +278,45 @@
       "tappa-healthchecks"
     ],
     "version": "v5"
+  },
+  {
+    "alert": "tappa 8: tap decided on guardrails alone",
+    "alertType": "LOGS_BASED_ALERT",
+    "ruleType": "threshold_rule",
+    "evalWindow": "15m0s",
+    "frequency": "5m0s",
+    "condition": {
+      "compositeQuery": {
+        "queries": [
+          {
+            "type": "clickhouse_sql",
+            "spec": {
+              "name": "A",
+              "query": "SELECT toStartOfInterval(fromUnixTimestamp64Nano(timestamp), INTERVAL 5 MINUTE) AS ts, toFloat64(count()) AS value FROM signoz_logs.distributed_logs_v2 WHERE timestamp BETWEEN {{.start_timestamp_nano}} AND {{.end_timestamp_nano}} AND resources_string['k8s.namespace.name'] = 'tappa' AND resources_string['k8s.container.name'] = 'tappa' AND JSONExtractString(body, 'msg') = 'policy.guardrails_alone' GROUP BY ts",
+              "disabled": false
+            }
+          }
+        ],
+        "panelType": "graph",
+        "queryType": "clickhouse_sql"
+      },
+      "op": "1",
+      "target": 0,
+      "matchType": "1",
+      "selectedQueryName": "A"
+    },
+    "labels": {
+      "app": "tappa",
+      "severity": "warning"
+    },
+    "annotations": {
+      "description": "A tap was decided without the tenant's baseline: its policy set could not be read, written or completed, so an ok tap is usually recorded as a flag for a manager. If the database is unreachable altogether the record fails too and readiness alerts as well. Read the line's tenant_id, reason, sqlstate and constraint. See M8-03 rule 8.",
+      "summary": "tappa 8: tap decided on guardrails alone"
+    },
+    "disabled": false,
+    "preferredChannels": [
+      "tappa-healthchecks"
+    ],
+    "version": "v5"
   }
 ]

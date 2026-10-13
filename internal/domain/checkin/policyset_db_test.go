@@ -17,6 +17,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -172,6 +173,108 @@ func TestPolicySetDB_BaselineDecisionIsUnwritableWithoutAVersion(t *testing.T) {
 	// AFTER. The same row, citing a version that now exists.
 	if err := insertBaselineRow(set.Baseline[0].VersionID); err != nil {
 		t.Fatalf("a baseline decision is STILL unwritable after materialising: %v", err)
+	}
+}
+
+// poisonedMaterialise is the real pool with one change: the SECOND WithTenant — the
+// call forTenant makes to write a missing baseline — first inserts the same
+// tenant-layer policy name twice, so that transaction rolls back on a genuine unique
+// violation from the server, carrying the server's own Detail. Every other call is
+// the pool's, untouched.
+type poisonedMaterialise struct {
+	*db.DB
+	marker string
+	calls  int
+	got    *pgconn.PgError
+}
+
+func (p *poisonedMaterialise) WithTenant(ctx context.Context, tenantID uuid.UUID, fn db.TxFunc) error {
+	p.calls++
+	if p.calls != 2 {
+		return p.DB.WithTenant(ctx, tenantID, fn)
+	}
+	err := p.DB.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		for range 2 {
+			if _, e := tx.Exec(ctx,
+				`INSERT INTO policies (tenant_id, name, layer) VALUES ($1, $2, 'tenant')`,
+				tenantID, p.marker); e != nil {
+				return e
+			}
+		}
+		return fn(ctx, tx)
+	})
+	var pg *pgconn.PgError
+	if asPgError(err, &pg) {
+		p.got = pg
+	}
+	return err
+}
+
+// TestPolicySetDB_AFallbackCarriesTheRealSQLStateAndNotTheKey — T122, against the
+// real driver and the real server rather than a constructed PgError.
+//
+// What it holds: a PgError raised by Postgres reaches forTenant's fallback line
+// through db.WithTenant and materialise's own wrapping (errors.As is not defeated
+// anywhere on the way), the line names its SQLSTATE and constraint, and the value the
+// collision was ON — a marker of this test's choosing — appears nowhere in the output.
+//
+// ⚠️ WHAT THE SERVER SENT, MEASURED (2026-10-13, dev database, as tappa_app): 23505
+// on policies_tenant_layer_name_key with an EMPTY Detail. Postgres leaves the
+// "Key (…)=(…)" description out for a role row-level security applies to, and every
+// table tappa_app writes has RLS — so on this path the marker cannot reach the log
+// whatever pgErrorAttrs does, and this test does not prove the helper drops Detail.
+// TestPolicyFallback_CarriesTheSQLStateAndNeverTheDetail does, with a constructed
+// error whose Detail is filled. The exclusion is still the rule: by PostgreSQL's own
+// rule (BuildIndexValueDescription; read, not measured here) a role RLS does not bind
+// — the owner that runs migrations — gets the full Detail, and the helper must not
+// depend on which role it is. The t.Logf below re-measures this path each run.
+func TestPolicySetDB_AFallbackCarriesTheRealSQLStateAndNotTheKey(t *testing.T) {
+	data := openPolicyDB(t)
+	tenantID := newPolicyTenant(t, data)
+	poisoned := &poisonedMaterialise{DB: data, marker: "T122KEY-" + uuid.NewString()}
+	var out bytes.Buffer
+	sets := policySets{data: poisoned, params: policy.DefaultParams(),
+		log: slog.New(slog.NewJSONHandler(&out, nil))}
+
+	set := sets.forTenant(context.Background(), tenantID)
+
+	pg := poisoned.got
+	if pg == nil {
+		t.Fatalf("the probe raised no PgError (calls: %d); this test measures nothing. Output:\n%s",
+			poisoned.calls, out.String())
+	}
+	t.Logf("server answered SQLSTATE %s on %q; Detail is %d bytes and names the marker: %v",
+		pg.Code, pg.ConstraintName, len(pg.Detail), strings.Contains(pg.Detail, poisoned.marker))
+	if len(set.Baseline) != 0 {
+		t.Fatalf("materialise failed and the Set still has %d baseline policies", len(set.Baseline))
+	}
+
+	var ev map[string]any
+	for _, ln := range bytes.Split(bytes.TrimSpace(out.Bytes()), []byte("\n")) {
+		m := map[string]any{}
+		if err := json.Unmarshal(ln, &m); err != nil {
+			t.Fatalf("a log line is not JSON: %q: %v", ln, err)
+		}
+		if m[slog.MessageKey] == EventPolicyFallback {
+			ev = m
+		}
+	}
+	if ev == nil {
+		t.Fatalf("no %s line. Output:\n%s", EventPolicyFallback, out.String())
+	}
+	if ev[LogReason] != FallbackMaterialiseFailed {
+		t.Errorf("%s = %v, want %s", LogReason, ev[LogReason], FallbackMaterialiseFailed)
+	}
+	if ev[LogSQLState] != pg.Code || ev[LogConstraint] != pg.ConstraintName || pg.ConstraintName == "" {
+		t.Errorf("%s = %v, %s = %v; the server said %s on %q",
+			LogSQLState, ev[LogSQLState], LogConstraint, ev[LogConstraint], pg.Code, pg.ConstraintName)
+	}
+	if strings.Contains(out.String(), poisoned.marker) {
+		t.Errorf("the colliding VALUE reached the log; only the SQLSTATE and the constraint may:\n%s",
+			out.String())
+	}
+	if n := countRows(t, data, tenantID, "policies"); n != 0 {
+		t.Errorf("the probe left %d policies rows behind; its transaction must have rolled back", n)
 	}
 }
 

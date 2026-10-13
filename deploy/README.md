@@ -35,7 +35,7 @@ Hedef: `https://taptime.mt` · küme: k3s v1.35.4, tek node
 | `k8s/41-operator-ingress.yaml` | operatör host'u `ops.taptime.mt`'nin iki Ingress'i (`/` 24k, `/operator/legal` Exact 320k; K4 IP kısıtı **yok**, karar bekliyor) — T112 | `deploy.yml` (silmek **operatör**: deploy kimliğinde `delete` yok; yüzey kapanırken — *"Geri alma — yüzeyi kapat"*) |
 | `k8s/50-backup.yaml` | 🔴 **gecelik yedek CronJob'ı** (02:30 Malta) | **operatör** (bir kez; deploy'un `batch/cronjobs` yetkisi **yok** ve bilerek yok) |
 | `k8s/55-heartbeat.yaml` | 🔴 **uptime heartbeat CronJob'ı** (her 5 dk; healthchecks.io'ya *"yaşıyor"* ya da `/fail` — T116) | **operatör** (bir kez; aynı gerekçe — adım 10) |
-| `observability/signoz-alert-rules.json` | 🔴 **SigNoz'un yedi uyarı kuralı** (M8-03 tablosunun 1–7'si, ClickHouse-SQL; T118) — kanal yalnız **adıyla** (`tappa-healthchecks`), adres yok; küme manifesti **değildir** | **operatör** (SigNoz API'siyle, bir kez — adım 10 (f)) |
+| `observability/signoz-alert-rules.json` | 🔴 **SigNoz'un uyarı kuralları** (M8-03 tablosunun her satırı için bir kural, ClickHouse-SQL; T118, 8. kural T122) — kanal yalnız **adıyla** (`tappa-healthchecks`), adres yok; küme manifesti **değildir** | **operatör** (SigNoz API'siyle, bir kez — adım 10 (f)) |
 | `k8s/postgres-init/02-app-password.sh` | `tappa_app`'e **girişi açan** üretim script'i | ConfigMap içinde |
 | `../scripts/pg-backup.sh` | dump **ve içeriğinin doğrulanması** (satır sayısı, tablo kümesi, RLS/GRANT) | ConfigMap içinde (`deploy.yml` `--from-file`) |
 | `../scripts/pg-backup-ship.sh` | dump'ı **node dışına** taşır + saklama süresini uygular + sonucu healthchecks.io'ya bildirir (T116; bildirim yedeğin sonucunu **değiştirmez**) | ConfigMap içinde (`deploy.yml` `--from-file`) |
@@ -662,20 +662,20 @@ indirilmiş döküm ve yerel config **0**, checkout'ta yeni dosya **0**. Ayrınt
 > bakımından da doğru yer burası: yedek sinyalini gönderen `scripts/pg-backup-ship.sh`
 > `configmap/tappa-backup-scripts`'e ancak **bu değişikliği içeren bir deploy**'la girer.
 
-**Ne ve neden.** *"M8-03 — UYARI KURALLARI"*nın yedi kuralı kümenin **kendi log'undan**
+**Ne ve neden.** *"M8-03 — UYARI KURALLARI"*nın kuralları kümenin **kendi log'undan**
 hesaplanır; ölü bir node log yazmaz, yani hiçbiri *"küme gitti"* diyemez. healthchecks.io
 bunun tersini yapar: belli aralıklarla *"yaşıyorum"* denmesini bekler ve **söylenmesi
 kesilince** bildirim atar — Telegram **ve** e-posta (kullanıcı kararı 2026-10-09: AB'de
 barındırılan dış servis, ücretsiz plan; ⚠️ e-posta 2026-10-11'e kadar **hiçbir** kontrole
 bağlı değildi — tuzak 1, (f)). Kontrolün sinyal adresine bir `GET` *"yaşıyor"*, adresin
-sonuna `/fail` *"hemen uyar"* demektir. Üç kontrol kurulu — üçüncüsü yedi log kuralının
+sonuna `/fail` *"hemen uyar"* demektir. Üç kontrol kurulu — üçüncüsü M8-03 log kurallarının
 teslimatıdır (T118) ve sinyali adresten değil **gövdedeki kelimeden** okur:
 
 | Kontrol | Takvim / tolerans | Sinyali gönderen | *"Yaşıyor"* | `/fail` — hemen uyarı | Sinyal yok — tolerans sonunda uyarı |
 |---|---|---|---|---|---|
 | `tappa-uptime` | her 5 dk / 5 dk | `k8s/55-heartbeat.yaml` (CronJob `tappa-heartbeat`) | halka açık `$TAPPA_BASE_URL/healthz` → 200 | `/healthz` 200 değil: TLS, DNS, bağlantı, zaman aşımı, 5xx — ve hazırlığı düşen pod Service'ten çıktığı için veritabanı arızası da (`replicas: 1`) | node/küme yok, CronJob askıda, Secret yok, imaj çekilemiyor, sinyal teslim edilemedi |
 | `tappa-backup` | cron `30 2 * * *` Europe/Malta / 1 saat | `k8s/50-backup.yaml`'ın `ship` konteyneri (`scripts/pg-backup-ship.sh`'ın EXIT tuzağı) | dump R2'ye gönderildi **ve** hedefte doğrulandı | `ship` kırmızı bitti (hedef, şifreleme kanıtı, yükleme, doğrulama, budama) | `dump-and-verify` düştü (`ship` o zaman **hiç başlamaz** — bilerek), CronJob koşmadı, sinyal teslim edilemedi |
-| `tappa-signals` | 365 gün / 1 saat — yani fiilen **ölü adam anahtarı DEĞİL** | SigNoz'un webhook kanalı `tappa-healthchecks` (yedi kuralın hepsi; `POST`) | gövdede `resolved` — bir kural kapandı | gövdede `firing` — bir kural ateşlendi | 365 gün hiç bildirim yok. SigNoz'un **kendi** ölümünü bu kontrol **görmez** (sınır 25) |
+| `tappa-signals` | 365 gün / 1 saat — yani fiilen **ölü adam anahtarı DEĞİL** | SigNoz'un webhook kanalı `tappa-healthchecks` (M8-03 kurallarının hepsi; `POST`) | gövdede `resolved` — bir kural kapandı | gövdede `firing` — bir kural ateşlendi | 365 gün hiç bildirim yok. SigNoz'un **kendi** ölümünü bu kontrol **görmez** (sınır 25) |
 
 🔴 **Sinyal adresi bir SIRdır:** bilen biri *"yaşıyor"* gönderip uyarıyı susturabilir.
 `secret/tappa-alert-pings`'te durur (`UPTIME_PING_URL`, `BACKUP_PING_URL` — tam
@@ -792,15 +792,15 @@ e-postanın ikisinin de açık olduğunu ayrıca gör.
 | `tappa-uptime` **down**, tolerans dolunca | hiç sinyal gelmedi | önce dışarıdan `https://taptime.mt/healthz`; sonra `get nodes`, `get cronjob tappa-heartbeat` (askıda mı) ve son işin kendisi: `describe job <iş>` — `DeadlineExceeded` = pod 60 sn'yi aştı; ⚠️ Job denetleyicisi o anda **pod'u siler**, yani `get pod -l app.kubernetes.io/component=heartbeat` çoğu zaman **boş** döner. Sebep pod olaylarındadır (~1 saat kalır): `get events --field-selector involvedObject.kind=Pod --sort-by=.lastTimestamp` — `CreateContainerConfigError` = Secret ya da ConfigMap yok · `ErrImagePull`/`ImagePullBackOff` = imaj ya da Docker Hub bütçesi (sınır 12). Pod kaldıysa log'unda `signal NOT delivered` = healthchecks.io'ya ulaşılamıyor |
 | `tappa-backup` **down**, hemen | `ship` kırmızı bitti ve `/fail` gönderdi | `logs job/<iş> -c ship` → `FAILED:` satırı; *"Yedek ve geri yükleme"* |
 | `tappa-backup` **down**, 03:30'dan sonra (Malta) | sinyal yok | `get job -l app.kubernetes.io/component=backup`; `logs job/<iş> -c dump-and-verify`; `ship` log'unda `alert signal skipped` ya da `NOT delivered` |
-| `tappa-signals` **down** | SigNoz'da yedi kuraldan **en az biri** ateşlendi | SigNoz arayüzü → *Alerts* — ateşteki kuralın adı `tappa <n>: …`'dir ve `<n>` *"M8-03 — UYARI KURALLARI"* tablosunun satırıdır; o satırın *"İlk bakılacak yer"* sütunu |
-| `tappa-signals` **up** | bir kural kapandı | ⚠️ **ötekilerin de kapandığı anlamına gelmez** — tek kontrol yedi kuralı taşır (sınır 25); SigNoz → *Alerts*'te ateşte kural kalmadığını gör |
+| `tappa-signals` **down** | SigNoz'da M8-03 kurallarından **en az biri** ateşlendi | SigNoz arayüzü → *Alerts* — ateşteki kuralın adı `tappa <n>: …`'dir ve `<n>` *"M8-03 — UYARI KURALLARI"* tablosunun satırıdır; o satırın *"İlk bakılacak yer"* sütunu |
+| `tappa-signals` **up** | bir kural kapandı | ⚠️ **ötekilerin de kapandığı anlamına gelmez** — tek kontrol bütün kuralları taşır (sınır 25); SigNoz → *Alerts*'te ateşte kural kalmadığını gör |
 
 **(e) Sınırlar — sayılı, ayrıntısı sınır 33'te (`tappa-signals`'ınki sınır 25'te):** tek
 sağlayıcı ve tek hesap (iki kanal: Telegram + e-posta); ücretsiz planın kotası/SLA'sı
 ölçülmedi; yoklama küme **içinden** başlar (node dışındaki bir ağ arızası görünmez;
 hairpin'in **çalıştığı** 2026-10-09'da ölçüldü); yedek sinyalinin adresi kısa bir an argv'de.
 
-**(f) `tappa-signals` — M8-03'ün yedi log kuralının teslimatı (T118, 2026-10-11).**
+**(f) `tappa-signals` — M8-03'ün log kurallarının teslimatı (T118, 2026-10-11; 8. kural T122).**
 Orkestratör kümede kurdu; bu alt adım bir **sonraki** kurulum içindir. Zincir:
 
 > SigNoz kuralı (kaynağı `deploy/observability/signoz-alert-rules.json`) → SigNoz webhook
@@ -873,7 +873,7 @@ rm -f "$HC_CFG"
 Beklenen: `name` `tappa-signals`, `status` `new`, `channels` **boş değil**. Sonra kontrolün
 ping adresini panelden Infisical `/tappa-alerts/TAPPA_HC_SIGNALS_PING_URL`'e yaz.
 
-(2) SigNoz — oturum, kanal, yedi kural. Sıra önemlidir: kurallar kanalı **adıyla** anar,
+(2) SigNoz — oturum, kanal, kurallar. Sıra önemlidir: kurallar kanalı **adıyla** anar,
 yani kanal önce kurulur. Kurallar ikinci kez gönderilirse aynı adla **ikinci** bir kopya
 doğar — taze olmayan bir SigNoz'da önce *Alerts*'te var olanlara bak.
 
@@ -902,23 +902,24 @@ done
 rm -f "$SZ_CFG"
 ```
 
-Beklenen: `org ok`, `token ok`, `channel: HTTP 2xx` ve yedi satır `2xx tappa <n>: …`. İlk
+Beklenen: `org ok`, `token ok`, `channel: HTTP 2xx` ve dosyadaki her kural için bir satır `2xx tappa <n>: …`. İlk
 ikisinden biri gelmezse **dur** — sonraki çağrılar boş bir kimlikle gider. 🔴
 **`send_resolved: true` zorunludur:** yoksa kapanış bildirimi hiç gönderilmez ve
 `tappa-signals` ilk ateşten sonra **sonsuza dek** `down` kalır — sonraki her uyarı o
 gürültünün içinde kaybolur. ⚠️ Canlı kanalda bu ayarın açık olduğu bu repodan
 **doğrulanmadı**; SigNoz arayüzünün kanal ayarlarında `tappa-healthchecks`'i açıp gör.
-Son olarak SigNoz → *Alerts*: yedi kural, durumları `inactive` (hatasız değerlendiriliyor)
+Son olarak SigNoz → *Alerts*: dosyadaki bütün kurallar, durumları `inactive` (hatasız değerlendiriliyor)
 — `firing` görünürse o gerçek bir uyarıdır. Kural JSON'unun `version` alanı `v5`'tir; bu
 SigNoz `v4`'ü **reddediyor** (ölçüldü).
 
 **Testler** (yalnız bu adımın; tam takım değil):
 `go test ./cmd/tappa/ -run 'TestHeartbeat_|TestBackup_|TestBackupShip_|TestCronJobs_'` —
 on üç test, adlarının öneki bunlardır. (f)'nin kuralları:
-`go test ./cmd/tappa/ -run 'TestSignozRules_'` — dört test. ⚠️ Yanlış önekle süzülen bir
+`go test ./cmd/tappa/ -run 'TestSignozRules_'` — beş test. ⚠️ Yanlış önekle süzülen bir
 `-run` hiçbir testi koşmaz ve `ok` basar — yeşil ama boş.
-🔴 **`Q28 (a)`:** M8-03'ün yedi log sinyali 2026-10-11'den beri (f) üzerinden teslim
-ediliyor; kalanı — SigNoz'un tek başına ölümü, basitleştirmeler, tek kontrolün yedi kuralı
+🔴 **`Q28 (a)`:** M8-03'ün log sinyalleri 2026-10-11'den beri (f) üzerinden teslim
+ediliyor (o gün yedisi; 8.si T122'de dosyaya girdi ve kümeye kurulduğu gün katılır);
+kalanı — SigNoz'un tek başına ölümü, basitleştirmeler, tek kontrolün bütün kuralları
 taşıması — sınır 25'te sayılı. `Q28 (b)` (log saklama) açık (sınır 24).
 
 ---
@@ -5154,8 +5155,23 @@ ki bu bugün ~günlerdir. İki sınırın **küçüğü** geçerlidir.
 > eşlemesinden), her kural bu tablonun aynı numaralı satırıyla — filtresi ve eşiği
 > satırın yazdığıyla aynı (`TestSignozRules_OneRuleForEachRunbookRow`), her sorgu
 > `tappa` namespace'i ve konteyneriyle sınırlı (`TestSignozRules_EveryQueryIsScopedToTappa`);
-> dosyada adres ve healthchecks.io anahtar kelimesi yok
-> (`TestSignozRules_CarryNoAddressAndNoDeliveryKeyword`).
+> her kuralın penceresi, frekansı, `op`/`target`/`matchType`'ı ve `app`/`severity`
+> etiketleri kural başına yazılı değerlerine, pencere ayrıca satırın *"N dk'lık
+> pencere"*sine bağlı (`TestSignozRules_ConditionsAndLabelsArePinned`, T122 — o zamana
+> kadar bu alanları hiçbir test okumuyordu); dosyada adres ve healthchecks.io anahtar
+> kelimesi yok (`TestSignozRules_CarryNoAddressAndNoDeliveryKeyword`).
+>
+> **T122 (2026-10-13) — 8. kural dosyada ve tabloda; kümeye kurulumu ayrı bir adımdır.**
+> Yukarıdaki *"Ölçülen"* cümlesi 1–7 içindir: 8. kuralın sorgusu bu repodan ClickHouse'a
+> karşı **koşulmadı**. Kurulduğu gün aynı zincire (`tappa-healthchecks` → `tappa-signals`)
+> girer. ⚠️ Kümede 1–7 zaten varken dosyanın tamamını adım 10 (f) (2)'deki döngüyle
+> yeniden göndermek 1–7'nin **ikinci kopyalarını** doğurur — yalnız 8. kural gönderilir
+> (dizinin sekizinci elemanı). Şiddeti `warning`: hiçbir dokunuş sessizce onaylanmaz —
+> kayıt çoğunlukla `flag` olarak yazılır ve müdür görür (§4.6); veritabanı bütünüyle
+> erişilemiyorsa kayıt da düşer ama dokunuş kişiye görünür biçimde reddedilir ve o
+> arızayı `critical` olan 6. kural taşır. Bedeli müdür kuyruğudur. Bu dosyada
+> `critical`, sunucunun bozuk olduğuna (5, 6) ya da bir güvenlik olayına (3)
+> ayrılmıştır.
 >
 > ❌ **Sayılı sınırlar — kurulu kural tablodan DARDIR ve zincirin kör noktaları var:**
 > - **Basitleştirmeler.** 1. kural *"≥ 5 reject **ve** oran > %10"*u tek ifadede tutar
@@ -5167,14 +5183,14 @@ ki bu bugün ~günlerdir. İki sınırın **küçüğü** geçerlidir.
 > - **Pencereler kayan değil, saate hizalı kovalardır** (`toStartOfInterval`; SQL'den
 >   okundu, ölçülmedi). Değerlendirme penceresi genellikle iki kovaya bölünür, yani eşiğin
 >   hemen üstünde bir patlama sınırdan ikiye ayrılıp **ateşlemeyebilir** — 1., 2. ve 5.
->   kuralda. Eşiği `0` olan 3., 4., 6. ve 7. kuralı etkilemez (tek satır yeter).
+>   kuralda. Eşiği `0` olan 3., 4., 6., 7. ve 8. kuralı etkilemez (tek satır yeter).
 > - **SigNoz'un kendi e-postası kapalı** — tek teslim yolu healthchecks.io (sınır 33 (a):
 >   tek sağlayıcı).
-> - **SigNoz kümede.** Küme ya da node ölürse yedisi **birlikte susar** — o durumu
+> - **SigNoz kümede.** Küme ya da node ölürse hepsi **birlikte susar** — o durumu
 >   `tappa-uptime` (heartbeat, adım 10) yakalar. Ama SigNoz'un **tek başına** ölmesi
 >   (pod'u, ClickHouse'u, log toplayan ajan) **hiçbir yerde uyarı üretmez**:
 >   `tappa-signals`'ın toleransı 365 gündür, yani bir ölü adam anahtarı değildir (sınır 25).
-> - **Tek kontrol, yedi kural.** Herhangi bir kuralın `resolved`'ı kontrolü `up`'a çeker —
+> - **Tek kontrol, bütün kurallar.** Herhangi bir kuralın `resolved`'ı kontrolü `up`'a çeker —
 >   başka bir kural hâlâ ateşteyken bile; ve kontrol zaten `down` iken ikinci bir kuralın
 >   ateşlenmesi **yeni bildirim üretmez** (healthchecks.io durum **değişiminde** bildirir).
 >   Bu tasarımın sonucudur, **ölçülmedi**. Hangi kuralların ateşte olduğunu SigNoz →
@@ -5210,9 +5226,9 @@ ki bu bugün ~günlerdir. İki sınırın **küçüğü** geçerlidir.
 > geçerlidir.~~ → **T118 (2026-10-11): yedi kural da aynı sağlayıcıya, `tappa-signals`
 > üzerinden gidiyor** (yukarıdaki kutu).
 
-**Yedi sinyal**, dört olaydan ve bir açılış satırından hesaplanır (aşağıdaki tablo yedi
+**Sekiz sinyal**, beş olaydan ve bir açılış satırından hesaplanır (aşağıdaki tablo sekiz
 satırdır; bir tur boyunca burada *"beş"* yazıyordu ve 6. kural eklendikten sonra belge
-kendisiyle çelişiyordu; 7. kural M10 OP-8'de eklendi — sınır 32):
+kendisiyle çelişiyordu; 7. kural M10 OP-8'de eklendi — sınır 32; 8. kural T122'de):
 
 | # | Sinyal | Olay (`msg`) | Filtre | Eşik / pencere | Ne anlama gelir | İlk bakılacak yer |
 |---|---|---|---|---|---|---|
@@ -5223,6 +5239,7 @@ kendisiyle çelişiyordu; 7. kural M10 OP-8'de eklendi — sınır 32):
 | 5 | **5xx oranı** | `http.request` | `level = "ERROR"` (yani `status >= 500`) | 5 dk'lık pencerede **> 5** olay **veya** toplam isteğin **%1**'i | Sunucu bozuk. Panik `middleware.Recoverer` tarafından 500'e çevrilir ve **bu olayda görünür**. 🔴 **Sağlık sondaları bu olayın DIŞINDADIR** — aşağıdaki bloğa bak; `/readyz`'in 503'ü tasarımdır ve bu kuralı ateşlemez, ama `/readyz`'den gelen bir **500** ateşler. | `route` + `request_id`; aynı `request_id` ile o isteğin diğer satırları |
 | 6 | **hazırlık kaybı** | `readiness.lost` | olayın kendisi | **≥ 1** olay = uyarı. Pencere yok. Kapanışı `readiness.regained`'dir. | Veritabanı cevap vermiyor, `/readyz` 503 dönüyor ve pod rotasyondan düşüyor (M8-01). 🔴 **M8-03 4. TUR: kayıt artık sürücünün METNİNİ taşımıyor.** Bir tur boyunca taşıyordu ve bu, `health.go`'nun aynı metni kimliksiz bir HTTP çağıranından esirgeme gerekçesiyle çelişiyordu (rol · veritabanı · host · port · TLS duruşu — ölçüldü; **parola yok**). Yerine iki alan geçti: `err_class` **kapalı kümedir** (`server` · `timeout` · `canceled` · `dns` · `dial` · `other`) ve `err_cause` adres taşımayan en özgül sebeptir — `server` için **SQLSTATE** (yanlış parola `28P01`, olmayan veritabanı `3D000`), `dial` için çağrının kendi kelimesi (`connect: connection refused`), `dns` için `no such host`. **Kaybedilen:** sürücünün cümlesi; `other` sınıfı sebep taşımaz. | `err_class`, sonra `err_cause`; ardından bölüm 1'deki `connection refused` ve bölüm 5'teki DNS akışı |
 | 7 | **operatör yüzeyi ulaşılamaz** (M10 OP-8) | açılış satırı — `msg` bir cümledir, filtre ALANDADIR | `operator_surface = "unavailable"` | **≥ 1** olay = uyarı. Pencere yok. Kapanışı bir sonraki açılışın `"operator_surface":"configured"` satırıdır. | Operatör yapılandırması tam ama süreç açılırken operatör veritabanına **ulaşılamadı** (ağ, ad çözümü, zaman aşımı, `28P01` yanlış parola, `3D000` veritabanı yok, sunucu dolu/açılıyor/kapanıyor — `internal/db` `unreachableSQLSTATEs`); `/operator` ve altı 503 (`TestSurface_OffAnswers503UnderThePrefixAndNowhereElse`; bu 503 tasarımdır ve 5. kuralı ateşlemez — sınır 32), müşteri ürünü servis verir. **Süreç yeniden denemez:** nedeni düzelt, sonra rollout. Satır süreç açılışında **bir kez** yazılır; log döndürülmüşse sinyal gitmiştir (6. kuralın aynı daralması). | `err` alanı (bir kod: sunucunun mesajını taşımadığını `internal/db`'nin `TestOperatorConnectErr_OnlyTheTableIsUnreachable`'ı tablosunun SQLSTATE'lerinde ölçer; `TestOpenOperatorSurface_PrintsNoValue`'nun sürdüğü değerlerden DSN ve parola ham biçimiyle, iki anahtar base64, hex ve ondalık liste biçimleriyle satırda bulunmadı), sonra *"Operator surface (M10 OP-7)"* bölümünün 5. adımı |
+| 8 | **dokunuş yalnız guardrail'lerle karar verdi** (T122) | `policy.guardrails_alone` | olayın kendisi | 15 dk'lık pencerede **≥ 1** olay = uyarı | `forTenant` işletmenin politika kümesini kuramadı (okuyamadı, yazamadı ya da yazdıktan sonra tamamlayamadı/ayrıştıramadı) ve dokunuşa **yalnız guardrail'lerle** karar verdi. Hiçbir baseline ifadesi eşleşemediği için `ok` olacak dokunuş **çoğunlukla `flag` olarak yazılır** ve müdür kuyruğuna düşer (§4.6). ⚠️ Veritabanına **bütünüyle** ulaşılamıyorsa kaydı yazacak `WithTenant` da düşer: kayıt yazılmaz, kişiye yeniden dokunması söylenir — o durumda 6. kural da ateşler. T121'den (`f2c7771`) sonra bilinen zararsız kaynağı yok — eşzamanlı ilk dokunuşların 23505'i kapandı —, yani tek satır gerçek bir sorundur. ⚠️ Panelin `StoredSet` okuması bu olayı **basmaz**: oradaki geri düşüş bir yetki reddidir ve hiç dokunulmamış bir işletmede beklenen durumdur. ⚠️ İsteğin **kendi** bağlamı bittiyse (istemci gitti ya da `httpx.RequestTimeout` doldu) olay da **basılmaz**: o dokunuş zaten kaydedilmez (kaydı yazacak `WithTenant` aynı ölü bağlamla düşer); yerine sayfalamayan bir WARN cümlesi yazılır (`reason` taşır). İstek canlıyken sürücünün kendi zaman aşımı ise sayfalar. | `tenant_id` (hangi işletme) ve `reason` (hangi yol): `load_failed` / `reload_failed` = politika katmanı okunamadı (önce 6. kural ve `sqlstate`; `42501` bir GRANT kaymasıdır) · `materialise_failed` = eksik baseline yazılamadı (`sqlstate` + `constraint` hangi ifadenin düştüğünü söyler; örnekler: `23505` = bir benzersiz indekste çakışma — T121'in kapattığı sınıf geri gelmiş olabilir —, `23503` = aynı adla ama türetilmemiş bir id'yle duran bir `policies` satırı, `db/queries/policies.sql`'in *foreign-id container* notu) · `incomplete_after_materialise` = yazıldı, geri okundu, hâlâ eksik; SQL hatası yok, çoğu zaman saklı bir baseline belgesini bu sürüm okuyamıyor (ör. bir kod geri alımından sonra) — panelin kural sayfası onu gösterir. `sqlstate` ve `constraint` yalnız bir PostgreSQL hatası varsa yazılır; `Detail` **bilerek yazılmaz** (satır değeri taşır) |
 
 **Yapıştırılabilir SigNoz/ClickHouse tarzı filtreler** (alan adları koddaki
 sabitlerdir ve `TestObservability_AlertSignalNames` ikisinin aynı kaldığını
@@ -5253,6 +5270,9 @@ body.msg = "readiness.lost"
 
 # 7 — operator yuzeyi ulasilamaz (acilista bir kez; tek satir bile uyaridir)
 body.operator_surface = "unavailable"
+
+# 8 — dokunus yalniz guardrail'lerle karar verdi (tek satir bile uyaridir) — yolu reason soyler
+body.msg = "policy.guardrails_alone"                     # group by body.reason, body.sqlstate
 ```
 
 > 🔴 **BU TABLODA BİR ZAMANLAR OLMAYAN BİR SID YAZIYORDU, VE ONU KURALI YAZAN TUR
@@ -6025,7 +6045,7 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     tablodan dardır** — beş basitleştirme kutuda adıyla (1, 2, 4, 5, 7), ve pencereler kayan
     değil saate hizalı kovalar olduğundan 1., 2. ve 5. kural sınırda bölünen bir patlamayı
     kaçırabilir. (c) **Tek kontrol,
-    yedi kural:** bir kuralın `resolved`'ı kontrolü `up`'a çeker, başka bir kural hâlâ
+    bütün kurallar:** bir kuralın `resolved`'ı kontrolü `up`'a çeker, başka bir kural hâlâ
     ateşteyken bile; kontrol `down` iken yeni bir kural yeni bildirim üretmez (tasarımın
     sonucu, ölçülmedi). (d) Canlı kanalda `send_resolved` **açık** (orkestratör ölçtü, 2026-10-11;
     kanal yapılandırması API'den okundu, adres basılmadan). (e) Tek sağlayıcı — sınır 33 (a) aynen.

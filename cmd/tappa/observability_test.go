@@ -95,6 +95,17 @@ func TestObservability_AlertSignalNames(t *testing.T) {
 		// its unavailable value (cmd/tappa/operator.go).
 		"main.operatorSurfaceKey":         "operator_surface",
 		"main.operatorSurfaceUnavailable": "unavailable",
+
+		// Rule 8 (T122) filters on the fallback event; the rest is what its row tells
+		// the responder to read, and the closed set of reasons that row explains.
+		"checkin.EventPolicyFallback":       "policy.guardrails_alone",
+		"checkin.LogReason":                 "reason",
+		"checkin.LogSQLState":               "sqlstate",
+		"checkin.LogConstraint":             "constraint",
+		"checkin.FallbackLoadFailed":        "load_failed",
+		"checkin.FallbackMaterialiseFailed": "materialise_failed",
+		"checkin.FallbackReloadFailed":      "reload_failed",
+		"checkin.FallbackIncomplete":        "incomplete_after_materialise",
 	}
 	got := alertSignalConstants()
 
@@ -132,7 +143,8 @@ func TestObservability_AlertSignalNames(t *testing.T) {
 	// reads "look at employee_id" rather than pasting it — so requiring them here
 	// would be requiring a filter that should not exist. Measured on this document:
 	// channel, tenant_id, employee_id, request_id and readiness.regained are prose;
-	// the four below are filters.
+	// the events below are filters (T122 added the fifth, policy.guardrails_alone,
+	// whose reason/sqlstate/constraint are prose for the same reason).
 	block := pasteableFilterBlock(t)
 	// Rule 7's filter is an ATTRIBUTE, not an event: the whole filter line is held to the
 	// constants, because a renamed key or value makes the pasted rule match no record.
@@ -145,6 +157,7 @@ func TestObservability_AlertSignalNames(t *testing.T) {
 		checkin.EventTapSecurityAlert,
 		httpx.EventHTTPRequest,
 		handler.EventReadinessLost,
+		checkin.EventPolicyFallback,
 	} {
 		if !mentionsWholeName(block, event) {
 			t.Errorf("the paste-able filter block in deploy/README.md does not contain %q as a "+
@@ -177,6 +190,16 @@ func alertSignalConstants() map[string]string {
 		"handler.EventReadinessRegained":  handler.EventReadinessRegained,
 		"main.operatorSurfaceKey":         operatorSurfaceKey,
 		"main.operatorSurfaceUnavailable": operatorSurfaceUnavailable,
+
+		// Rule 8 (T122).
+		"checkin.EventPolicyFallback":       checkin.EventPolicyFallback,
+		"checkin.LogReason":                 checkin.LogReason,
+		"checkin.LogSQLState":               checkin.LogSQLState,
+		"checkin.LogConstraint":             checkin.LogConstraint,
+		"checkin.FallbackLoadFailed":        checkin.FallbackLoadFailed,
+		"checkin.FallbackMaterialiseFailed": checkin.FallbackMaterialiseFailed,
+		"checkin.FallbackReloadFailed":      checkin.FallbackReloadFailed,
+		"checkin.FallbackIncomplete":        checkin.FallbackIncomplete,
 	}
 }
 

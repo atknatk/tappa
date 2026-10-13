@@ -151,7 +151,8 @@ ORDER BY p.id, v.version_no DESC;
 -- policies_tenant_layer_name_key; after, this statement does nothing and the NEXT
 -- one is refused by policy_versions_policy_fk (23503), because the derived policy id
 -- it cites was never written. Both roll the transaction back, both leave the rows as
--- they were (1/0/0), both decide on the guardrails alone with the same ERROR line.
+-- they were (1/0/0), both decide on the guardrails alone with one policy.guardrails_alone
+-- line, reason materialise_failed (since T122 its sqlstate and constraint tell them apart).
 -- The failure moved one statement down; it did not go quiet.
 --
 -- 🔬 METHOD, because this class is easy to measure wrongly and an earlier
@@ -200,7 +201,8 @@ ON CONFLICT DO NOTHING;
 -- hand-written fixture makes one -- no production statement writes a derived id
 -- to another policy). The old form raised 23505 on the primary key; this one
 -- inserts nothing, materialise commits without that document's version, and the
--- reload logs "incomplete after materialising" and decides on guardrails alone:
+-- reload logs policy.guardrails_alone with reason incomplete_after_materialise and
+-- decides on guardrails alone:
 -- loud and fail-safe (a flag, never a silent approval -- T121 security review).
 --
 -- On a VIRGIN tenant this statement does not race at all: the racers meet on the

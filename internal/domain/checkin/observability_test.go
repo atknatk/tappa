@@ -1,14 +1,27 @@
 package checkin
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io"
 	"log/slog"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/domain/tap"
+	"github.com/atknatk/tappa/internal/policy"
 )
 
 // TestDecisionLevel_NothingIsError pins the normative invariant observability.go
@@ -270,5 +283,382 @@ func TestSecurityAlert_TheDecisionLineComesAfterTheEvidence(t *testing.T) {
 	if !checked {
 		t.Fatalf("no block containing the %s line was found in checkin.go — this test is "+
 			"measuring nothing", EventTapDecision)
+	}
+}
+
+// scriptedData is a Database whose WithTenant answers from a script, one entry per
+// call, and NEVER runs the callback. A nil entry is a call that succeeded and read
+// nothing — to load that is a tenant with no policy rows, to materialise a write that
+// went through — so each of forTenant's four fallback paths is one script:
+//
+//	load fails                      [err]
+//	materialise fails               [nil, err]
+//	re-load fails                   [nil, nil, err]
+//	incomplete after materialising  [nil, nil, nil]  (the read-back still finds nothing)
+//
+// The last two are why this is a script and not a database: both need the SECOND
+// read to disagree with the write just before it, which a healthy Postgres will not
+// do on request. calls is checked after every run, so a test cannot pass by walking
+// a different path than its script names.
+type scriptedData struct {
+	script []error
+	calls  int
+}
+
+func (s *scriptedData) WithTenant(_ context.Context, _ uuid.UUID, _ db.TxFunc) error {
+	i := s.calls
+	s.calls++
+	if i < len(s.script) {
+		return s.script[i]
+	}
+	return nil
+}
+
+func (s *scriptedData) GetTagByUID(context.Context, string) (db.ResolvedTag, error) {
+	return db.ResolvedTag{}, errors.New("scriptedData: the policy set never resolves a tag")
+}
+
+// logRecords decodes a JSON handler's output, one record per line.
+func logRecords(t *testing.T, out []byte) []map[string]any {
+	t.Helper()
+	var recs []map[string]any
+	for _, ln := range bytes.Split(bytes.TrimSpace(out), []byte("\n")) {
+		if len(ln) == 0 {
+			continue
+		}
+		m := map[string]any{}
+		if err := json.Unmarshal(ln, &m); err != nil {
+			t.Fatalf("a log line is not JSON: %q: %v", ln, err)
+		}
+		recs = append(recs, m)
+	}
+	return recs
+}
+
+// probePgError is a unique violation as pgx hands one over, wrapped once the way
+// materialise wraps its statements.
+func probePgError() (*pgconn.PgError, error) {
+	pg := &pgconn.PgError{
+		Severity:       "ERROR",
+		Code:           "23505",
+		Message:        `duplicate key value violates unique constraint "policies_pkey"`,
+		ConstraintName: "policies_pkey",
+	}
+	return pg, fmt.Errorf("ensure baseline policy %q: %w", "probe", pg)
+}
+
+// TestPolicyFallback_EachForTenantPathNamesItsReason — T122. Each of the four paths on
+// which forTenant decides a tap on the guardrails alone writes EXACTLY ONE
+// EventPolicyFallback record at ERROR, carrying the tenant and its own LogReason —
+// and, where a PostgreSQL error is behind it, the SQLSTATE pair.
+//
+// 🔴 THE FAILURE THIS EXISTS FOR IS A PATH THAT FALLS BACK WITHOUT PAGING.
+// deploy/README.md's M8-03 rule 8 counts this event and nothing else, so a path that
+// answers with the guardrails alone under any other msg is a tap recorded as a `flag`
+// that no operator hears about. cmd/tappa's pins hold the NAME; only running the
+// paths holds the EMISSION.
+func TestPolicyFallback_EachForTenantPathNamesItsReason(t *testing.T) {
+	t.Parallel()
+
+	pg, wrapped := probePgError()
+	tests := []struct {
+		name    string
+		script  []error
+		reason  string
+		withErr bool
+	}{
+		{"the first read fails", []error{wrapped}, FallbackLoadFailed, true},
+		{"writing the missing baseline fails", []error{nil, wrapped}, FallbackMaterialiseFailed, true},
+		{"reading it back fails", []error{nil, nil, wrapped}, FallbackReloadFailed, true},
+		{"the read-back is still incomplete", []error{nil, nil, nil}, FallbackIncomplete, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			data := &scriptedData{script: tc.script}
+			var out bytes.Buffer
+			sets := policySets{data: data, params: policy.DefaultParams(), log: slog.New(slog.NewJSONHandler(&out, nil))}
+			tenantID := uuid.New()
+
+			set := sets.forTenant(context.Background(), tenantID)
+
+			if data.calls != len(tc.script) {
+				t.Fatalf("forTenant made %d database calls, the script names %d: the path under test "+
+					"is not the one this case describes", data.calls, len(tc.script))
+			}
+			if len(set.Baseline) != 0 || len(set.Guardrails) == 0 {
+				t.Fatalf("the Set has %d baseline and %d guardrail policies; this path must answer with "+
+					"the guardrails ALONE", len(set.Baseline), len(set.Guardrails))
+			}
+
+			var events []map[string]any
+			for _, r := range logRecords(t, out.Bytes()) {
+				if r[slog.MessageKey] == EventPolicyFallback {
+					events = append(events, r)
+				}
+			}
+			if len(events) != 1 {
+				t.Fatalf("%d %s records, want exactly 1. A tap decided on the guardrails alone that "+
+					"writes no such record pages nobody (M8-03 rule 8). Output:\n%s",
+					len(events), EventPolicyFallback, out.String())
+			}
+			ev := events[0]
+			if ev[slog.LevelKey] != slog.LevelError.String() {
+				t.Errorf("level = %v, want %s", ev[slog.LevelKey], slog.LevelError)
+			}
+			if ev[LogReason] != tc.reason {
+				t.Errorf("%s = %v, want %q", LogReason, ev[LogReason], tc.reason)
+			}
+			if ev[LogTenantID] != tenantID.String() {
+				t.Errorf("%s = %v, want %s", LogTenantID, ev[LogTenantID], tenantID)
+			}
+			_, hasErr := ev["err"]
+			_, hasState := ev[LogSQLState]
+			_, hasConstraint := ev[LogConstraint]
+			if !tc.withErr {
+				if hasErr || hasState || hasConstraint {
+					t.Errorf("a path with no error carries err/%s/%s: %v", LogSQLState, LogConstraint, ev)
+				}
+				return
+			}
+			if !hasErr {
+				t.Errorf("the record does not carry the error at all: %v", ev)
+			}
+			if ev[LogSQLState] != pg.Code || ev[LogConstraint] != pg.ConstraintName {
+				t.Errorf("%s = %v, %s = %v; want %s and %s from the PgError in the chain",
+					LogSQLState, ev[LogSQLState], LogConstraint, ev[LogConstraint], pg.Code, pg.ConstraintName)
+			}
+		})
+	}
+}
+
+// TestPolicyFallback_TheStoredSetNeverPages: the panel's read (StoredSet) answers its
+// own failures with the guardrails alone too, and writes a line for each — but never
+// EventPolicyFallback. There the fallback is an authorisation REFUSAL, and for a
+// business no tap has provisioned yet it is the expected state; paging on it would
+// teach the operator to ignore rule 8.
+func TestPolicyFallback_TheStoredSetNeverPages(t *testing.T) {
+	t.Parallel()
+
+	_, wrapped := probePgError()
+	tests := []struct {
+		name   string
+		script []error
+		level  slog.Level
+	}{
+		{"the stored read fails", []error{wrapped}, slog.LevelError},
+		{"the stored baseline is incomplete", []error{nil}, slog.LevelWarn},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			data := &scriptedData{script: tc.script}
+			var out bytes.Buffer
+			svc := &Service{policies: policySets{data: data, params: policy.DefaultParams(),
+				log: slog.New(slog.NewJSONHandler(&out, nil))}}
+
+			set := svc.StoredSet(context.Background(), uuid.New())
+
+			if data.calls != len(tc.script) || len(set.Baseline) != 0 {
+				t.Fatalf("StoredSet made %d calls (script %d) and kept %d baseline policies: not the "+
+					"guardrails-alone path this case describes", data.calls, len(tc.script), len(set.Baseline))
+			}
+			// POSITIVE CONTROL: the line IS written. Without it, "no fallback event" would
+			// also be what a silenced logger says.
+			var written bool
+			for _, r := range logRecords(t, out.Bytes()) {
+				if r[slog.LevelKey] == tc.level.String() {
+					written = true
+				}
+				if r[slog.MessageKey] == EventPolicyFallback {
+					t.Errorf("StoredSet wrote %s; the panel's refusal must not page the operator: %v",
+						EventPolicyFallback, r)
+				}
+			}
+			if !written {
+				t.Fatalf("StoredSet wrote no %s line on this path; the case proves nothing. Output:\n%s",
+					tc.level, out.String())
+			}
+		})
+	}
+}
+
+// TestPolicyFallback_AnEndedRequestDoesNotPage — T122 round 2. When the tap request's
+// OWN context is over (client gone, httpx.RequestTimeout reached), every forTenant
+// path writes the non-paging policyFallbackAbandoned line at WARN and not
+// EventPolicyFallback: the WithTenant that would record the tap runs on the same dead
+// context and fails, so "an ok recorded as a flag" would be a false page.
+//
+// THE OTHER HALF IS THE POINT AS MUCH AS THIS ONE: the guard reads ctx.Err(), not
+// the error. A context error from inside the driver while the request is ALIVE (a
+// pool or statement deadline) is a database problem and must still page — so does
+// every path under a live context.
+func TestPolicyFallback_AnEndedRequestDoesNotPage(t *testing.T) {
+	t.Parallel()
+
+	_, pgWrapped := probePgError()
+	ended := func() context.Context {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		return ctx
+	}
+	expired := func() context.Context {
+		ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+		t.Cleanup(cancel)
+		return ctx
+	}
+	live := context.Background
+	canceledErr := fmt.Errorf("checkin: list policy set: %w", context.Canceled)
+	driverDeadline := fmt.Errorf("checkin: list policy set: %w", context.DeadlineExceeded)
+
+	tests := []struct {
+		name   string
+		ctx    func() context.Context
+		script []error
+		reason string
+		pages  bool
+	}{
+		{"cancelled request, load fails", ended, []error{canceledErr}, FallbackLoadFailed, false},
+		{"cancelled request, materialise fails", ended, []error{nil, canceledErr}, FallbackMaterialiseFailed, false},
+		{"cancelled request, re-load fails", ended, []error{nil, nil, canceledErr}, FallbackReloadFailed, false},
+		{"cancelled request, read-back incomplete", ended, []error{nil, nil, nil}, FallbackIncomplete, false},
+		{"timed-out request, load fails", expired, []error{driverDeadline}, FallbackLoadFailed, false},
+		// The guard is the REQUEST, not the error: the same deadline error under a live
+		// request is the driver's, and pages.
+		{"live request, the driver's own deadline", live, []error{driverDeadline}, FallbackLoadFailed, true},
+		{"live request, load fails", live, []error{pgWrapped}, FallbackLoadFailed, true},
+		{"live request, read-back incomplete", live, []error{nil, nil, nil}, FallbackIncomplete, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			data := &scriptedData{script: tc.script}
+			var out bytes.Buffer
+			sets := policySets{data: data, params: policy.DefaultParams(), log: slog.New(slog.NewJSONHandler(&out, nil))}
+
+			set := sets.forTenant(tc.ctx(), uuid.New())
+
+			if data.calls != len(tc.script) || len(set.Baseline) != 0 {
+				t.Fatalf("forTenant made %d calls (script %d) and kept %d baseline policies: not the "+
+					"path this case describes", data.calls, len(tc.script), len(set.Baseline))
+			}
+			var events, abandoned []map[string]any
+			for _, r := range logRecords(t, out.Bytes()) {
+				switch r[slog.MessageKey] {
+				case EventPolicyFallback:
+					events = append(events, r)
+				case policyFallbackAbandoned:
+					abandoned = append(abandoned, r)
+				}
+			}
+			if tc.pages {
+				if len(events) != 1 || len(abandoned) != 0 {
+					t.Fatalf("%d %s and %d abandoned lines under a live request, want 1 and 0. A live "+
+						"request's fallback is a real one and must page. Output:\n%s",
+						len(events), EventPolicyFallback, len(abandoned), out.String())
+				}
+				return
+			}
+			if len(events) != 0 {
+				t.Fatalf("an ENDED request wrote %s: rule 8 would page on a tap that was never "+
+					"recorded. Output:\n%s", EventPolicyFallback, out.String())
+			}
+			if len(abandoned) != 1 {
+				t.Fatalf("%d abandoned lines, want exactly 1 — the failure must still be visible, "+
+					"just not paged. Output:\n%s", len(abandoned), out.String())
+			}
+			if a := abandoned[0]; a[slog.LevelKey] != slog.LevelWarn.String() || a[LogReason] != tc.reason {
+				t.Errorf("abandoned line: level %v reason %v, want %s and %q", a[slog.LevelKey], a[LogReason],
+					slog.LevelWarn, tc.reason)
+			}
+		})
+	}
+}
+
+// t122Mark prefixes every PgError field a log line must NOT carry.
+const t122Mark = "T122MARK"
+
+// TestPolicyFallback_CarriesTheSQLStateAndNeverTheDetail — T122. A PostgreSQL error
+// behind a fallback line leaves as its SQLSTATE and constraint name and NOTHING ELSE
+// of the PgError, on every line that carries the pair, in both log formats.
+//
+// 🔴 DETAIL IS THE FIELD THAT CARRIES ROW VALUES ("Key (id)=(…) already exists",
+// "Failing row contains (…)"), and errors.As hands the whole struct to whoever asks.
+// So every string field of the PgError other than the four that may appear —
+// Severity, Code and Message (they are err.Error()) and ConstraintName — is set to a
+// recognisable marker, by reflection so a field pgx adds later is covered too, and the
+// marker is searched for in the WHOLE output rather than in one attribute.
+//
+// POSITIVE CONTROL: the same PgError logged as a struct value DOES print the markers,
+// so a clean scan below is the helper's doing and not a blind search.
+func TestPolicyFallback_CarriesTheSQLStateAndNeverTheDetail(t *testing.T) {
+	t.Parallel()
+
+	pg, _ := probePgError()
+	allowed := map[string]bool{"Severity": true, "Code": true, "Message": true, "ConstraintName": true}
+	v := reflect.ValueOf(pg).Elem()
+	var marked []string
+	for i := 0; i < v.NumField(); i++ {
+		f := v.Type().Field(i)
+		if f.Type.Kind() != reflect.String || allowed[f.Name] {
+			continue
+		}
+		v.Field(i).SetString(t122Mark + "-" + f.Name + "-" + uuid.NewString())
+		marked = append(marked, f.Name)
+	}
+	if !strings.HasPrefix(pg.Detail, t122Mark) || !strings.HasPrefix(pg.Where, t122Mark) ||
+		!strings.HasPrefix(pg.Hint, t122Mark) {
+		t.Fatalf("Detail, Where and Hint were not all marked (marked: %v); pgx renamed a field and "+
+			"this test would scan for nothing", marked)
+	}
+	wrapped := fmt.Errorf("ensure baseline policy %q: %w", "probe", pg)
+
+	var ctl bytes.Buffer
+	slog.New(slog.NewJSONHandler(&ctl, nil)).Info("probe", "pg", *pg)
+	if !strings.Contains(ctl.String(), pg.Detail) {
+		t.Fatalf("the positive control did not print the Detail marker: %s", ctl.String())
+	}
+
+	formats := []struct {
+		name string
+		make func(w io.Writer) slog.Handler
+	}{
+		{"json", func(w io.Writer) slog.Handler { return slog.NewJSONHandler(w, nil) }},
+		{"text", func(w io.Writer) slog.Handler { return slog.NewTextHandler(w, nil) }},
+	}
+	decide := func(p policySets) { p.forTenant(context.Background(), uuid.New()) }
+	paths := []struct {
+		name   string
+		script []error
+		run    func(p policySets)
+	}{
+		{"forTenant: load", []error{wrapped}, decide},
+		{"forTenant: materialise", []error{nil, wrapped}, decide},
+		{"forTenant: re-load", []error{nil, nil, wrapped}, decide},
+		{"stored: load", []error{wrapped}, func(p policySets) { p.stored(context.Background(), uuid.New()) }},
+	}
+	for _, f := range formats {
+		for _, pc := range paths {
+			var out bytes.Buffer
+			pc.run(policySets{data: &scriptedData{script: pc.script}, params: policy.DefaultParams(),
+				log: slog.New(f.make(&out))})
+			got := out.String()
+			if strings.Contains(got, t122Mark) {
+				t.Errorf("%s / %s: the output carries a PgError field outside Code and ConstraintName "+
+					"(marked: %v). Detail holds row values; it must never reach a log:\n%s",
+					f.name, pc.name, marked, got)
+			}
+			// Both formats print a key next to its value; only the quoting differs.
+			wantState := LogSQLState + "=" + pg.Code
+			wantConstraint := LogConstraint + "=" + pg.ConstraintName
+			if f.name == "json" {
+				wantState = `"` + LogSQLState + `":"` + pg.Code + `"`
+				wantConstraint = `"` + LogConstraint + `":"` + pg.ConstraintName + `"`
+			}
+			if !strings.Contains(got, wantState) || !strings.Contains(got, wantConstraint) {
+				t.Errorf("%s / %s: the line does not carry %s and %s:\n%s",
+					f.name, pc.name, wantState, wantConstraint, got)
+			}
+		}
 	}
 }

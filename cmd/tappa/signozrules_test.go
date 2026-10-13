@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atknatk/tappa/internal/domain/checkin"
 	"github.com/atknatk/tappa/internal/domain/tap"
@@ -18,8 +19,8 @@ import (
 	"github.com/atknatk/tappa/internal/httpx"
 )
 
-// signozrules_test.go — T118 / Q28 (a). The seven M8-03 alert rules are installed in
-// the cluster's SigNoz as ClickHouse-SQL threshold rules, and
+// signozrules_test.go — T118 / Q28 (a). The M8-03 alert rules are installed in the
+// cluster's SigNoz as ClickHouse-SQL threshold rules, and
 // deploy/observability/signoz-alert-rules.json is their source for the next install.
 //
 // 🔴 THE FAILURE THESE EXIST FOR IS THE SAME ONE observability_test.go NAMES: A RULE
@@ -29,9 +30,10 @@ import (
 // tap.decision would have left SigNoz evaluating a query that returns zero rows for
 // ever — "inactive", which is also what a healthy system looks like.
 //
-// The file is held to three things, each a separate test so a failure names its own
+// The file is held to four things, each a separate test so a failure names its own
 // cause: the code's constants (the names), the runbook's table (one rule per row,
-// the same filter in both), and the delivery chain (scoped to this container, no
+// the same filter in both), the condition each rule speaks on (window, frequency,
+// threshold, labels — T122), and the delivery chain (scoped to this container, no
 // address in the tree, no word the healthchecks.io keyword filter reads).
 
 // signozRulesDir holds the SigNoz export. The leak scan reads every file in it, so a
@@ -53,12 +55,19 @@ const signozChannel = "tappa-healthchecks"
 const tappaWorkload = "tappa"
 
 type signozRule struct {
-	Alert     string `json:"alert"`
-	AlertType string `json:"alertType"`
-	RuleType  string `json:"ruleType"`
-	Version   string `json:"version"`
-	Disabled  bool   `json:"disabled"`
-	Condition struct {
+	Alert      string `json:"alert"`
+	AlertType  string `json:"alertType"`
+	RuleType   string `json:"ruleType"`
+	Version    string `json:"version"`
+	Disabled   bool   `json:"disabled"`
+	EvalWindow string `json:"evalWindow"`
+	Frequency  string `json:"frequency"`
+	Condition  struct {
+		// Op, Target and MatchType are WHEN the rule speaks. A pointer for Target so a
+		// missing threshold reads as missing rather than as 0, which is a real value.
+		Op             string   `json:"op"`
+		Target         *float64 `json:"target"`
+		MatchType      string   `json:"matchType"`
 		CompositeQuery struct {
 			QueryType string `json:"queryType"`
 			Queries   []struct {
@@ -172,7 +181,7 @@ func runbookRuleRows(t *testing.T) map[int]string {
 // runbook's table lists, one per row, in order, and each rule's filters are the ones
 // that row publishes.
 //
-// 🔴 THE ROW CHECK IS WHAT MAKES "SEVEN" MEAN SOMETHING. A count alone passes a
+// 🔴 THE ROW CHECK IS WHAT MAKES THE COUNT MEAN SOMETHING. A count alone passes a
 // file whose rule 4 filters on a different threshold than the table tells the
 // operator, or whose rule 2 forgot its verdict filter. So every equality and every
 // numeric comparison the SQL makes on the log body must appear, as the table writes
@@ -261,6 +270,88 @@ func TestSignozRules_OneRuleForEachRunbookRow(t *testing.T) {
 	}
 }
 
+// ruleExpect is one rule's row of signozRuleExpectations.
+type ruleExpect struct {
+	// What the query reads: the exact body equalities and the exact set of body
+	// fields (TestSignozRules_FilterOnThePinnedNames).
+	eqs    []strEq
+	fields []string
+	// When the rule speaks, and how loudly (TestSignozRules_ConditionsAndLabelsArePinned).
+	evalWindow, frequency string
+	op, matchType         string
+	target                float64
+	severity              string
+}
+
+// signozRuleExpectations is the per-rule table both tests read: one row per rule in
+// the export, numbered as the runbook's table is.
+//
+// THE CONDITION COLUMNS ARE THE INSTALLED VALUES, WRITTEN OUT (T122 round 3). Until
+// then nothing read op/target/matchType/evalWindow/frequency, so a rule could be made
+// silent — target raised past anything the query returns, op flipped to "below" — with
+// every test green; an auditor's mutations measured exactly that. In SigNoz's own
+// codes (its ruletypes package; read, not measured from this repository), op "1" is
+// "above" and matchType "1" is "at least once in the window", so
+// target 0 reads "one row is enough" (the runbook box's own reading of rules 3, 4, 6,
+// 7 and 8). Literals rather than a parse of the runbook row, because the rows state
+// thresholds in the reader's terms — rule 2's "> 20 flags" is target 0 over a 0/1
+// value, rule 3's "no window" is a 5 min evaluation — and a parser that translated
+// one into the other would be a second rule set to keep right. The one column the
+// rows DO state in the rule's own terms, the window, is bound to them where they name
+// it (see the test).
+func signozRuleExpectations() map[int]ruleExpect {
+	msg := slog.MessageKey
+	return map[int]ruleExpect{
+		1: {
+			eqs:        []strEq{{msg, checkin.EventTapDecision}, {checkin.LogVerdict, string(tap.VerdictReject)}},
+			fields:     []string{msg, checkin.LogVerdict},
+			evalWindow: "15m0s", frequency: "5m0s", op: "1", target: 10, matchType: "1", severity: "warning",
+		},
+		2: {
+			eqs:        []strEq{{msg, checkin.EventTapDecision}, {checkin.LogVerdict, string(tap.VerdictFlag)}},
+			fields:     []string{msg, checkin.LogVerdict, checkin.LogMatchedSid},
+			evalWindow: "60m0s", frequency: "10m0s", op: "1", target: 0, matchType: "1", severity: "warning",
+		},
+		3: {
+			eqs:        []strEq{{msg, checkin.EventTapSecurityAlert}},
+			fields:     []string{msg},
+			evalWindow: "5m0s", frequency: "1m0s", op: "1", target: 0, matchType: "1", severity: "critical",
+		},
+		4: {
+			eqs:        []strEq{{msg, checkin.EventTapDecision}},
+			fields:     []string{msg, checkin.LogCtrGap},
+			evalWindow: "15m0s", frequency: "5m0s", op: "1", target: 0, matchType: "1", severity: "warning",
+		},
+		5: {
+			// Rule 5 reads the record's level, not its status: the access log writes
+			// a 5xx at ERROR, and the level is slog's own key.
+			eqs:        []strEq{{msg, httpx.EventHTTPRequest}, {slog.LevelKey, slog.LevelError.String()}},
+			fields:     []string{msg, slog.LevelKey},
+			evalWindow: "5m0s", frequency: "1m0s", op: "1", target: 5, matchType: "1", severity: "critical",
+		},
+		6: {
+			eqs:        []strEq{{msg, handler.EventReadinessLost}},
+			fields:     []string{msg},
+			evalWindow: "5m0s", frequency: "1m0s", op: "1", target: 0, matchType: "1", severity: "critical",
+		},
+		7: {
+			// Rule 7 has no event: the start-up line's msg is a sentence, the filter is
+			// the attribute (cmd/tappa/operator.go).
+			eqs:        []strEq{{operatorSurfaceKey, operatorSurfaceUnavailable}},
+			fields:     []string{operatorSurfaceKey},
+			evalWindow: "10m0s", frequency: "1m0s", op: "1", target: 0, matchType: "1", severity: "warning",
+		},
+		8: {
+			// Rule 8 (T122) counts the event alone. Which forTenant path fired, and the
+			// SQLSTATE behind it, are attributes the responder READS; filtering on them
+			// would drop a path the rule exists to page on.
+			eqs:        []strEq{{msg, checkin.EventPolicyFallback}},
+			fields:     []string{msg},
+			evalWindow: "15m0s", frequency: "5m0s", op: "1", target: 0, matchType: "1", severity: "warning",
+		},
+	}
+}
+
 // TestSignozRules_FilterOnThePinnedNames: every body field and every msg value the
 // installed rules filter on is a constant TestObservability_AlertSignalNames already
 // pins to its literal, and each rule filters on the event its row is about.
@@ -276,48 +367,9 @@ func TestSignozRules_FilterOnThePinnedNames(t *testing.T) {
 		pinned[v] = true
 	}
 
-	// Per rule: the exact body equalities and the exact set of body fields read.
-	type expect struct {
-		eqs    []strEq
-		fields []string
-	}
-	msg := slog.MessageKey
-	want := map[int]expect{
-		1: {
-			eqs:    []strEq{{msg, checkin.EventTapDecision}, {checkin.LogVerdict, string(tap.VerdictReject)}},
-			fields: []string{msg, checkin.LogVerdict},
-		},
-		2: {
-			eqs:    []strEq{{msg, checkin.EventTapDecision}, {checkin.LogVerdict, string(tap.VerdictFlag)}},
-			fields: []string{msg, checkin.LogVerdict, checkin.LogMatchedSid},
-		},
-		3: {
-			eqs:    []strEq{{msg, checkin.EventTapSecurityAlert}},
-			fields: []string{msg},
-		},
-		4: {
-			eqs:    []strEq{{msg, checkin.EventTapDecision}},
-			fields: []string{msg, checkin.LogCtrGap},
-		},
-		5: {
-			// Rule 5 reads the record's level, not its status: the access log writes
-			// a 5xx at ERROR, and the level is slog's own key.
-			eqs:    []strEq{{msg, httpx.EventHTTPRequest}, {slog.LevelKey, slog.LevelError.String()}},
-			fields: []string{msg, slog.LevelKey},
-		},
-		6: {
-			eqs:    []strEq{{msg, handler.EventReadinessLost}},
-			fields: []string{msg},
-		},
-		7: {
-			// Rule 7 has no event: the start-up line's msg is a sentence, the filter is
-			// the attribute (cmd/tappa/operator.go).
-			eqs:    []strEq{{operatorSurfaceKey, operatorSurfaceUnavailable}},
-			fields: []string{operatorSurfaceKey},
-		},
-	}
+	want := signozRuleExpectations()
 
-	// The expectations above are themselves held to the pin, so this test cannot
+	// The expectations are themselves held to the pin, so this test cannot
 	// drift into filtering on a name the pin does not cover.
 	for n, e := range want {
 		for _, f := range e.fields {
@@ -377,6 +429,83 @@ func TestSignozRules_FilterOnThePinnedNames(t *testing.T) {
 			t.Errorf("rule %d is missing from %s", n, signozRulesRel)
 		}
 	}
+}
+
+// rowWindow is how a runbook row states an evaluation window in the rule's own terms:
+// "15 dk'lik pencere…". \x{0131} is the dotless i, kept escaped so the source stays
+// ASCII.
+var rowWindow = regexp.MustCompile(`([0-9]+) dk'l\x{0131}k pencere`)
+
+// TestSignozRules_ConditionsAndLabelsArePinned: every rule is evaluated over the
+// window, at the frequency, against the threshold (op, target, matchType) and with
+// the labels its row of signozRuleExpectations names — one subtest per rule, so a
+// failure names the rule.
+//
+// 🔴 THE GAP IT CLOSES IS T118's, FOUND IN T122's AUDIT. The other three tests read
+// what a rule FILTERS and where it is SCOPED, never WHEN it speaks: raising rule 8's
+// target from 0 to 1, flipping op/matchType, or relabelling app left all of them
+// green. A rule whose threshold its query can never cross is as silent as one keyed
+// on a renamed field, and it reads "inactive" just the same.
+//
+// The labels: app is the routing key every rule must carry as "tappa", and severity
+// is pinned per rule, so a downgrade is an edit to this table and not a typo in the
+// export. disabled is already refused by TestSignozRules_EveryQueryIsScopedToTappa.
+//
+// The window is ALSO bound to the runbook: where a rule's row names one ("N dk'lik
+// pencere"), it must be the rule's evalWindow. Rows that say "no window" mean "one
+// event is enough", which is the threshold's business, so they bind nothing.
+func TestSignozRules_ConditionsAndLabelsArePinned(t *testing.T) {
+	t.Parallel()
+
+	want := signozRuleExpectations()
+	rows := runbookRuleRows(t)
+	rules := readSignozRules(t)
+	if len(rules) != len(want) {
+		t.Errorf("%s holds %d rules and signozRuleExpectations %d", signozRulesRel, len(rules), len(want))
+	}
+	bound := 0
+	for _, r := range rules {
+		n := r.number()
+		e, ok := want[n]
+		if !ok {
+			t.Errorf("rule %q has no row in signozRuleExpectations", r.Alert)
+			continue
+		}
+		if m := rowWindow.FindStringSubmatch(rows[n]); m != nil {
+			bound++
+			d, err := time.ParseDuration(r.EvalWindow)
+			if err != nil || strconv.Itoa(int(d.Minutes())) != m[1] {
+				t.Errorf("rule %d: evalWindow %q, but its runbook row says a %s-minute window", n, r.EvalWindow, m[1])
+			}
+		}
+		t.Run(fmt.Sprintf("rule %d", n), func(t *testing.T) {
+			c := r.Condition
+			if r.EvalWindow != e.evalWindow || r.Frequency != e.frequency {
+				t.Errorf("evalWindow %q / frequency %q, want %q / %q", r.EvalWindow, r.Frequency, e.evalWindow, e.frequency)
+			}
+			if c.Op != e.op || c.MatchType != e.matchType {
+				t.Errorf("op %q / matchType %q, want %q / %q — a flipped comparison makes the rule speak on "+
+					"the healthy state or never", c.Op, c.MatchType, e.op, e.matchType)
+			}
+			if c.Target == nil || *c.Target != e.target {
+				got := "missing"
+				if c.Target != nil {
+					got = strconv.FormatFloat(*c.Target, 'g', -1, 64)
+				}
+				t.Errorf("target %s, want %v — a threshold the query cannot cross is a silent rule", got, e.target)
+			}
+			if r.Labels["app"] != tappaWorkload {
+				t.Errorf("labels.app = %q, want %q", r.Labels["app"], tappaWorkload)
+			}
+			if r.Labels["severity"] == "" || r.Labels["severity"] != e.severity {
+				t.Errorf("labels.severity = %q, want %q", r.Labels["severity"], e.severity)
+			}
+		})
+	}
+	if bound == 0 {
+		t.Error("no runbook row named a window in the expected form; the binding above checked nothing")
+	}
+	t.Logf("windows bound to their runbook row: %d of %d rules", bound, len(rules))
 }
 
 // TestSignozRules_EveryQueryIsScopedToTappa: each rule is a live, enabled ClickHouse
