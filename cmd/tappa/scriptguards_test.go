@@ -884,19 +884,25 @@ func TestRestoreVerify_FeedManifestGate(t *testing.T) {
 }
 
 // TestRedline_TheCounterSetMarkIsTheTriggersAlone pins redline-check.sh's R5c (M11 API-2,
-// ADR 0028's API-2 note, round 3): the counter-set mark -- the transaction-local setting by which
-// 00049's triggers refuse a second counter set (TF001) -- is named nowhere but db/migrations. A
-// caller that writes it first steps past the check, and the deadlock it reopens falls on OTHER
-// tenants' holding taps (40P01, the NFC record not written). On a tree holding only the two
-// scripts and one line each: the name in a migration -- no R5c; the same line in a Go file, a
-// script or a deploy file -- R5c FAIL and a non-zero exit.
+// ADR 0028's API-2 note, rounds 3 and 4): the counter-set mark -- the transaction-local setting by
+// which 00049's triggers refuse a second counter set (TF001) -- is named nowhere but db/migrations.
+// A caller that writes it first steps past the check, and the deadlock it reopens falls on OTHER
+// tenants' holding taps (40P01, the NFC record not written). PostgreSQL reads a setting's name
+// without regard to case and takes it quoted or spaced, so every spelling counts. On a tree
+// holding only the two scripts: every spelling in a migration -- no R5c; each spelling, and the
+// plain one in a Go file, a test, a script, a deploy file and the root Makefile -- each file named
+// under R5c FAIL, and a non-zero exit. (A name built from pieces is beyond any line grep -- the
+// rule's header says so; this test builds its own that way, the rule scanning this very file.)
 func TestRedline_TheCounterSetMarkIsTheTriggersAlone(t *testing.T) {
 	if _, err := exec.LookPath("rg"); err != nil {
 		t.Skip("rg is not installed; redline-check needs it (CI installs it)")
 	}
-	// Spelled in two halves: this file is scanned by the very rule it pins.
-	mark := `PERFORM pg_catalog.set_config('tappa.` + `feed_counters', 'x', true);`
-	run := func(rel, body string) (string, int) {
+	spellings := []string{
+		"tappa." + "feed_counters", "TAPPA." + "FEED_COUNTERS", "Tappa." + "Feed_Counters",
+		`"tappa"."` + `feed_counters"`, "tappa . " + "feed_counters", "tappa\t.\t" + "feed_counters",
+	}
+	mark := func(name string) string { return "PERFORM pg_catalog.set_config('" + name + "', 'x', true);\n" }
+	run := func(files map[string]string) (string, int) {
 		t.Helper()
 		r := &hookRepo{t: t, dir: t.TempDir()}
 		r.git("init", "-q")
@@ -911,7 +917,12 @@ func TestRedline_TheCounterSetMarkIsTheTriggersAlone(t *testing.T) {
 		for _, d := range []string{"cmd", "internal", "db", "web/templates", "web/static/js", "test", "deploy", ".github"} {
 			r.write(d+"/keep.txt", "\n")
 		}
-		r.write(rel, body)
+		if _, ok := files["Makefile"]; !ok {
+			r.write("Makefile", "all:\n")
+		}
+		for rel, body := range files {
+			r.write(rel, body)
+		}
 		cmd := exec.Command("bash", "scripts/redline-check.sh")
 		cmd.Dir = r.dir
 		out, err := cmd.CombinedOutput()
@@ -923,13 +934,34 @@ func TestRedline_TheCounterSetMarkIsTheTriggersAlone(t *testing.T) {
 		}
 		return string(out), code
 	}
-	if out, _ := run("db/migrations/00099_x.sql", mark+"\n"); strings.Contains(out, "R5c") {
-		t.Errorf("the mark in a migration is the triggers' own -- R5c fired:\n%s", out)
+	migration := ""
+	for _, sp := range spellings {
+		migration += mark(sp)
 	}
-	for _, rel := range []string{"internal/domain/checkin/x.go", "scripts/x.sh", "deploy/x.yaml", "internal/db/x_test.go"} {
-		out, code := run(rel, "// "+mark+"\n")
-		if !strings.Contains(out, "R5c · FAIL") || code == 0 {
-			t.Errorf("the mark in %s: exit %d, want R5c FAIL and a non-zero exit:\n%s", rel, code, out)
+	if out, code := run(map[string]string{"db/migrations/00099_x.sql": migration}); strings.Contains(out, "R5c") || code != 0 {
+		t.Errorf("every spelling in a migration is the triggers' own -- exit %d, R5c fired:\n%s", code, out)
+	}
+	files := map[string]string{}
+	for i, sp := range spellings {
+		files[fmt.Sprintf("internal/domain/checkin/spelling%d.go", i)] = "// " + mark(sp)
+	}
+	for _, rel := range []string{"internal/db/x_test.go", "scripts/x.sh", "deploy/x.yaml", "Makefile"} {
+		files[rel] = "# " + mark(spellings[0])
+	}
+	out, code := run(files)
+	section := ""
+	if i := strings.Index(out, "R5c · FAIL"); i >= 0 {
+		section = out[i:]
+		if j := strings.Index(section, "\n\n"); j >= 0 {
+			section = section[:j]
+		}
+	}
+	if code == 0 {
+		t.Errorf("the mark outside the migrations: exit 0, want non-zero:\n%s", out)
+	}
+	for rel := range files {
+		if !strings.Contains(section, rel+":") {
+			t.Errorf("the mark in %s (%q) is not named under R5c FAIL:\n%s", rel, strings.TrimSpace(files[rel]), out)
 		}
 	}
 }

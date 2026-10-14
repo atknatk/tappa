@@ -1393,8 +1393,16 @@ report WARN R5 "SET LOCAL degil duz SET — havuzdaki baglantiyi kirletir" \
 # NFC kaydi yazilmaz -- iki mercek pgbench ile olctu: 29'da 18, 155'te 88). Bu yuzden adi
 # migration disinda HICBIR YERDE gecmez: urun kodu, betik, dagitim, test. (docs/ taranmaz;
 # ADR onu anlatir.) Pin: cmd/tappa TestRedline_TheCounterSetMarkIsTheTriggersAlone.
+# DESEN BICIME DEGIL ADA BAKAR (API-2 4. tur, ucuncu goz olctu): PostgreSQL ayar adini harf
+# ayirmadan okur ve tirnakli/boslukli yazilisi da kabul eder -- `TAPPA.FEED_COUNTERS`,
+# `Tappa.Feed_Counters`, `"tappa"."feed_counters"`, `tappa . feed_counters` ilk desenden
+# kaciyordu. Kapsam SRC + kok Makefile (Makefile'in tarifleri psql koşar ve SRC disindaydi).
+# ⚠️ KANIT DEGILDIR: ad PARCALANARAK kurulursa (Go'da `"tappa." + "feed_counters"`, SQL'de
+# format()/concat, bir degiskenden okunan ad) hicbir satir-grep'i onu gormez -- bu kuralin pin
+# testi kendisi adi tam bu yolla yazar. Kuralin yakaladigi, adin DUZ yazildigi yollardir.
+R5C_SCOPE=("${SRC[@]}" Makefile)
 report FAIL R5c "tappa.feed_counters migration disinda — TF001'in tek sayac kumesi kontrolunu atlatma yolu" \
-  "$(scan -e 'tappa\.feed_counters' --glob '!db/migrations/**' || true)"
+  "$(scan_in R5C_SCOPE -i -e 'tappa\s*"?\s*\.\s*"?\s*feed_counters' --glob '!db/migrations/**' || true)"
 
 # --- R7: sir sizintisi -------------------------------------------------------
 # `code[_a-z]*hash` ve `"code"[[:space:]]*,` (M5-02): davet AKISINDA hash bir
