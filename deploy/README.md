@@ -920,7 +920,24 @@ on üç test, adlarının öneki bunlardır. (f)'nin kuralları:
 🔴 **`Q28 (a)`:** M8-03'ün log sinyalleri 2026-10-11'den beri (f) üzerinden teslim
 ediliyor (o gün yedisi; 8.si T122'de, 2026-10-13'te kümeye kuruldu);
 kalanı — SigNoz'un tek başına ölümü, basitleştirmeler, tek kontrolün bütün kuralları
-taşıması — sınır 25'te sayılı. `Q28 (b)` (log saklama) açık (sınır 24).
+taşıması — sınır 25'te sayılı. `Q28 (b)` (log saklama) **CEVAPLANDI (2026-10-14,
+kullanıcı): 15 gün** — sınır 24, operatör eylemi `log-retention-signoz`.
+
+**Log saklama — salt-okur kontrol (`log-retention-signoz`, `Q28 (b)`).** SigNoz'un TTL'i
+**SigNoz genelidir** (aynı kurulumu ~20 uygulama paylaşıyor); `tappa`'ya özel bir ayar
+ölçülen sürümde (v0.131) yoktur, yani tappa'nın süresi bu repodan **pinlenemez** — biri
+SigNoz'un TTL'ini değiştirirse tappa'nınki de sessizce değişir. Bu yüzden periyodik olarak
+ve her SigNoz yükseltmesinden sonra okunur; **yalnız okunur, buradan ayarlanmaz.**
+Oturum (2)'deki bloğun **ilk 13 satırıdır** (`umask 077`'den yapılandırma dosyasına
+`Authorization` başlığının yazıldığı satır ve ardındaki `unset`'e kadar); `org ok` ve ikinci
+onay satırı gelmezse **dur**. Sonra yalnız şu iki satır — ikisi de bir `GET`'tir ve kimlik
+değeri ekrana düşmez:
+`curl -fsS -K "$SZ_CFG" "$SIGNOZ/api/v2/settings/ttl?type=logs" | jq '{default_ttl_days, cold_storage_ttl_days}'`
+`rm -f "$SZ_CFG"`
+Beklenen: `default_ttl_days` **15**, `cold_storage_ttl_days` **-1** (soğuk katman yok).
+Orkestratör 2026-10-14'te tam bunu okudu (traces ve metrics de 15). 15'ten farklıysa
+gizlilik metnindeki sayı yanlıştır: SigNoz'u işletenle konuş ya da kullanıcıya sor —
+**SigNoz'un TTL'ini tappa için değiştirme**, öteki uygulamaların saklamasını da değiştirir.
 
 ---
 
@@ -5275,10 +5292,25 @@ ki bu bugün ~günlerdir. İki sınırın **küçüğü** geçerlidir.
    satıra yazılır**. Sahibi: kümeyi işleten operatör (Tappa değil — SigNoz kurulumu
    başka bir ürünün altyapısı ve `tappa` namespace'i ona **rıza vermeden** dahil
    edilmiş durumda).
+   ✅ **2026-10-14 — ÖLÇÜLDÜ VE KARARA BAĞLANDI (`Q28 (b)`).** Orkestratör SigNoz API'sini
+   okudu: `GET /api/v2/settings/ttl?type=logs` → `default_ttl_days: 15`,
+   `cold_storage_ttl_days: -1`; traces ve metrics de 15. Kullanıcı (7 / 15 / 30 arasından)
+   **15 günü** seçti, yani bugünkü değer karardır ve **SigNoz'da hiçbir şey değişmedi**.
+   Yukarıdaki *"okunur/ayarlanır ve bu satıra yazılır"* artık **yalnız okunur**: kontrol
+   satırı adım 10 (f)'nin sonunda (*"Log saklama — salt-okur kontrol"*). ⚠️ TTL SigNoz
+   genelidir — bu repodan pinlenemez; periyodik okuma onun tek bekçisidir.
 3. **🔴 M8-06 PİLOT KAPISI.** Yukarıdaki 2. madde kapanmadan gerçek çalışan tap
    atmamalı: Tappa'nın kendi kayıtları için `TAPPA_RETENTION_YEARS` bir beyan taşıyor
    (Q13), ama **log'lar o beyanın kapsamında değil** ve bugün süreleri bilinmiyor.
    Bilinmeyen bir saklama süresi, GDPR Art. 13 metninde verilen sayıyı yalanlayabilir.
+   ✅ **2026-10-14:** süre artık **biliniyor ve karar**: toplayıcıda 15 gün. Node kopyasının
+   üst sınırı ise bir süre **değildir** — pod değişene (deploy) ya da 50 MiB dolana kadar
+   yaşar, deploy seyrekse **15 günü aşabilir** (sınır 24 (b)). Q13'ün silme akışı log'a yine ulaşmaz;
+   iz, süre dolunca kendiliğinden kalkar (≤ 15 gün). Bu kapının **log yarısında kalan**
+   tek iş yayındır: gizlilik metni bu sayıyı söylemeli (`docs/backlog.md` T117 —
+   kullanıcının yayını). Yedekler bu süreyi uzatmaz: `scripts/pg-backup.sh` yalnız
+   veritabanını döker (`pg_dump`) ve gönderilen yalnız o döküm + manifesttir — konteyner
+   ya da SigNoz log'u yedekte yoktur.
 
 ### 🔴 M8-03 — UYARI KURALLARI
 
@@ -5344,10 +5376,16 @@ ki bu bugün ~günlerdir. İki sınırın **küçüğü** geçerlidir.
 >   *Alerts* söyler.
 > - **Log saklama `Q28 (b)` hâlâ açık** (sınır 24, operatör eylemi `log-retention-signoz`)
 >   — bir uyarıyı araştırmak için log'un hâlâ orada olması gerekir.
+>   ✅ **2026-10-14:** `Q28 (b)` **cevaplandı** — 15 gün (kullanıcı kararı; SigNoz API'sinden
+>   okunan `default_ttl_days: 15`, değiştirilmedi). Bir uyarının olay incelemesi için iki
+>   hafta yeter. Node kopyası süreyle değil boyutla (50 MiB) ve deploy'la silinir; deploy
+>   seyrekse 15 günü aşabilir (sınır 24 (b)).
 >
 > **Sahibi:** kümeyi işleten operatör (SigNoz ve healthchecks.io hesabı). **Neye bağlı:**
 > `Q28 (b)` — log saklama süresi (**saklama**) · operatör eylemi `log-retention-signoz`
 > (SigNoz'un logları gerçekten tuttuğu süre, `Q28 (b)`'nin ölçülmemiş yarısı).
+> ✅ 2026-10-14: o yarı ölçüldü (15 gün) ve karar oldu; eylem artık **salt-okur** periyodik
+> kontroldür (adım 10 (f)'nin sonu).
 >
 > ⚠️ **BURADA BİR TUR BOYUNCA `Q12` YAZIYORDU VE ÜÇ YERDE YANLIŞTI.** `Q12`
 > ***barındırma*** sorusudur (VPS sağlayıcı, managed Postgres, AB bölgesi, yedek
@@ -6179,6 +6217,26 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     ⚠️ `Q12` (barındırma) bu maddeye **dolaylı** bağlıdır: nerede barındığımız node
     kopyasının rotasyon ayarını ve toplayıcının varlığını belirler. Ama *"ne kadar
     saklanacak"* sorusu `Q28 (b)`'dir, `Q12` değil.
+    ✅ **2026-10-14 — `Q28 (b)` CEVAPLANDI, bilinmeyen kapandı.** Orkestratör SigNoz
+    API'sini okudu (`GET /api/v2/settings/ttl?type=logs`): logs `default_ttl_days: 15`,
+    `cold_storage_ttl_days: -1`; traces ve metrics de 15. Kullanıcı 7 / 15 / 30 arasından
+    **15 günü** seçti — ölçülen değer karardır, SigNoz'da hiçbir şey değişmedi. Gerekçe:
+    GDPR veri en aza indirme (log IP, `employee_id`, `tenant_id`, `request_id` taşır;
+    e-posta, token ve anahtar taşımaz — §7) · olay incelemesi için iki hafta yeterli ·
+    paylaşılan SigNoz'un (~20 uygulama) ayarına dokunulmuyor. ❌ **Kalan sınırlar:**
+    (a) TTL **SigNoz genelidir** — biri değiştirirse tappa'nınki de değişir ve bu repodan
+    pinlenemez; tek bekçi adım 10 (f)'nin sonundaki salt-okur kontroldür. (b) **Node kopyasının
+    üst sınırı bir süre değildir:** kubelet log'u süreye göre değil boyuta göre (10Mi × 5)
+    döndürür; kopya pod değişene (deploy) ya da 50 MiB dolana kadar yaşar, yani deploy
+    seyrekse ve hacim düşükse **15 günü aşabilir**. Çare (uygulanmadı): kubelet'te
+    `containerLogMaxAge` gibi bir süre ayarı yok — ya düzenli deploy ya da en geç 15 günde
+    bir rollout. (c) Q13'ün silme akışı log'a yine
+    **ulaşmaz**; iz, süre dolunca kendiliğinden kalkar (≤ 15 gün). (d) Yedekler log
+    **içermez**: `scripts/pg-backup.sh` yalnız `pg_dump --format=plain` koşar ve
+    `scripts/pg-backup-ship.sh` R2'ye yalnız o `.sql.gz`'yi ve manifestini gönderir.
+    Veritabanının **kendi** IP sütunu (`transactions.source_ip`) yedektedir — o bir log
+    değil kayıttır ve `TAPPA_RETENTION_YEARS` / Q13 kapsamındadır. (e) Yayın: gizlilik
+    metni bu sayıyı henüz söylemiyor (`docs/backlog.md` T117).
 25. **[uyarıların teslimatı: ~~kanal yok~~ → kümenin İÇİNDEN, tek kontrol üzerinden]** —
     🔴 **T118 (2026-10-11) — TESLİMAT KURULDU, kör noktaları sayılı.** Yedi kural kümedeki
     SigNoz'da ClickHouse-SQL eşik kuralı olarak koşuyor (kaynak
@@ -6422,7 +6480,8 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     (e) ~~**`Q28 (a)`'nın KALANI:** M8-03'ün yedi log sinyali hâlâ hiçbir yere
     gönderilmiyor (sınır 25).~~ → **T118 (2026-10-11):** yedi log sinyali de aynı
     sağlayıcıya, `tappa-signals` üzerinden gidiyor; kör noktaları sınır 25'te. Bu madde
-    yalnız log **dışı** iki sinyali anlatır. `Q28 (b)` (log saklama) açık (sınır 24).
+    yalnız log **dışı** iki sinyali anlatır. `Q28 (b)` (log saklama) **cevaplandı**
+    (2026-10-14, kullanıcı: 15 gün; sınır 24).
     ⚠️ **T118 DÜZELTMESİ — bu madde ve adım 10 *"e-postayla"* diyordu, ve iki gün boyunca
     DOĞRU DEĞİLDİ.** Ölçüldü (orkestratör, 2026-10-11): API ile kurulan bir kontrol hiçbir
     bildirim kanalına bağlanmaz; `tappa-uptime` ve `tappa-backup` yalnız Telegram'a bağlıydı,
