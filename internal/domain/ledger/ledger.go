@@ -292,8 +292,13 @@ type Record struct {
 	// SiteLocationID is the peer's venue of such a row, nil for every other (and for a refusal on
 	// a peer's plaque that hangs on no wall).
 	SiteLocationID *uuid.UUID
-	// matchedSid is the rule that decided -- read for a row at a partner venue only, to tell an
-	// evidence sentence from any other (evidenceSids). Unexported: never rendered.
+	// matchedSid is the rule that decided. It is filled for EVERY row (record, queueRecord) but
+	// read only for a row at a partner venue, to tell an evidence sentence from any other
+	// (evidenceSids, site.go). Unexported, so no template and no exported accessor reaches it.
+	// Record has no LogValue/Format/MarshalJSON guard on purpose: nothing logs or encodes a
+	// Record (it goes to a template only), and a sid names a rule, not a piece of evidence --
+	// the rule a peer's tap matched is what the residue in ADR 0027 §13 item 5 (e) is about,
+	// and that residue lives in the order of rules, not in this field.
 	matchedSid string
 }
 

@@ -788,7 +788,7 @@ işaretleri ve **kanıt anlatan** bir kuralın notu (kapalı küme, sid'e göre 
 `gps-only-allow`, `no-evidence-review`, `qr-requires-ip`, `gps-conflict-review`, ve `sys:cross-tenant-qr-site-ip`;
 yerine *"Decided by your rules at a partner venue — evidence is not shown."*); anomali ekranında hiçbir kanıt
 sayısı (judged, *GPS alone*, *outside the venue*, mekân satırının iki rakamı) ve kural dağılımında kuralın adı
-(eş satırları tek *"partner venue"* kovası). Okuyucuların envanteri
+(eş satırları sorguya girmez; sayısı toplam kartından gelen tek, her zaman **sonda** duran *"partner venue"* kovası). Okuyucuların envanteri
 `TestEvidenceReaders_EveryOneIsClassified`'tadır. Kalan dolaylı açılma §13 madde 5.
 
 **Lokasyon silme:** KF'nin `CountLocationReferences`'ı KM'deki `site_location_id`'leri göremez →
@@ -910,17 +910,24 @@ adlandırılmış kalan risk (1. tur, güvenlik merceği; §13 madde 13).
    `gps-only-allow`, `no-evidence-review`, `qr-requires-ip`, `gps-conflict-review`, ve `sys:cross-tenant-qr-site-ip`;
    yerine *"Decided by your rules at a partner venue — evidence is not shown."*); anomali ekranında hiçbir kanıt
    sayısı (judged, *GPS alone*, *outside the venue*, mekân satırının iki rakamı) ve kural dağılımında kuralın adı
-   (eş satırları tek *"partner venue"* kovası) (§9). **Gösterdikleri — adlandırılmış artık:** (a) satırın **verdict
+   (eş satırları sorguya girmez; tek, her zaman sonda duran *"partner venue"* kovası) (§9). **Gösterdikleri — adlandırılmış artık:** (a) satırın **verdict
    kaşesi** (ok / flag / reject) ve bekleyen onay sayısı — bir kuralın sonucu, kanıtı ima edebilir
    (*flag* çoğu zaman kanıt yetmedi demektir); (b) **`NoteIsTenants` etiketi** (*"Your own policy
    rule"*) — tenant'ın tek bir kuralı GPS-only'yi incelemeye çeviriyorsa, eş mekândaki bir `flag`'de bu
    etiket *IP hayır, GPS evet* demek olabilir (denetim D-2; not değiştirmesi bunu kapatmaz: etiket
    kimin kuralı olduğunu söylemeye devam eder); (c) kanıt kümesi dışındaki kuralların notları
    (kayıp plaket, imza, deaktive, tekrar, sayaç boşluğu, farklı şube, yön notu) ve manuel kaydın
-   yöneticinin yazdığı notu — kanıt anlatmazlar; (d) tenant'ın kuralı serbest metin değildir (sevk
+   yöneticinin yazdığı notu — **IP/GPS kanıtını cümleye dökmezler**, ama hangi kuralın eşleştiği
+   kendi başına bir şey söyler, bkz. (e); (d) tenant'ın kuralı serbest metin değildir (sevk
    edilmiş bir ifadenin gerekçesiyle kopyası, sid'i `own:<aynı ad>`), bu yüzden küme kopyaları da
-   yakalar — M9-07'nin ham JSON editörü gelirse bu varsayım yeniden ölçülür. İşveren kendi verisini
-   dışa aktarabilir.
+   yakalar — M9-07'nin ham JSON editörü gelirse bu varsayım yeniden ölçülür; (e) **kural önceliği**
+   (üçüncü denetim, DÜŞÜK): kanıt dışı bir kural kanıt kurallarından **sonra** değerlendirilir ve
+   ilk eşleşen kazanır, bu yüzden bir eş satırında kanıt dışı bir notun (ör. `base:cross-location-note`)
+   görünmesi, önündeki kanıt kurallarının eşleşmediğini — yani kanıtın o kuralların koşullarını
+   karşılamadığını — dolaylı söyleyebilir. Not metni kanıt anlatmaz; artık sıradadır. Kapatmak not
+   değiştirmesini kanıt dışı kurallara da yaymak olurdu (ikinci denetimin ORTA-B'si tam onu geri
+   aldı: kayıp plaket, sayaç boşluğu, farklı şube notu işverenin bilmesi gerekendir) — bu yüzden
+   adlandırılmış artık, kod değişmedi. İşveren kendi verisini dışa aktarabilir.
 6. **K-38:** çapraz QR guardrail'ı işverence ne gevşetilir ne `deny`'e sıkılaştırılır.
 7. **K-29:** üyeliğin **commit edilmiş** bitişinden sonra verilen onay/ret KF'ye düşmez (60 sn'lik
    çıkış penceresinde de — onay katıdır; `TestHoldingFeed_ApprovalInsideTheExitWindowIsNotProjected`);
@@ -963,8 +970,12 @@ adlandırılmış kalan risk (1. tur, güvenlik merceği; §13 madde 13).
       tabloyu okumuştur ve tabloda zaten kilit tutan bir arka uç kuyruktaki ACCESS EXCLUSIVE'in
       önüne geçer (ölçüldü: dokunuş 404 ms'de yazıldı, kilit ardından verildi). İşlemden **önce**
       alınmış bir kilit ise `gather`'ı bekletir — orada `lock_timeout` yoktur (ölçüldü: 5 sn
-      tutulan kilit, dokunuş 5,05 sn'de yazıldı); 30 sn'lik istek zaman aşımını aşan bir tutma
-      ilerletmeden sonraki kaydı düşürür (çıkarım, ölçülmedi). Bugün tek site yazıcısı tap yoludur;
+      tutulan kilit, dokunuş 5,05 sn'de yazıldı); isteğin zaman aşımını aşan bir tutma
+      ilerletmeden sonraki kaydı düşürür — **ölçüldü** (API-1c üçüncü denetimi): KF'nin `tags`/`locations`
+      satırı `FOR UPDATE` tutulurken 7 sn bağlamlı `svc.Record` *context deadline exceeded* ile
+      döndü, KM'de 0 satır, KF'nin `last_ctr`'ı 101'e ilerlemişti. Üretimde sınır 30 sn'lik istek
+      zaman aşımıdır; aynı sınıf madde 18'in üçüncü kaynağıdır (orada `lock_timeout` ve yeniden deneme
+      yok). Bugün tek site yazıcısı tap yoludur;
       API-1c'nin manuel saha kaydı ham yazıcı olacaktır. **Kural (deploy/README.md):** bu tablolara
       dokunan bir migration kendi `lock_timeout`'unu 2 sn'nin altına koyar.
 17. **Üyelik bittikten sonra işverenin geçmiş saha satırları adsız (API-1c):** `holding_site_locations`
@@ -1739,8 +1750,9 @@ dört DÜŞÜK).**
   eş satırlarını saymaya devam eder. Test: `TestAnomalies_APartnerVenueRowAddsNoEvidenceFigure`;
   mutantlar (toplamın judged'ı, kişi sorgusunun HAVING'i, kural katlaması) kırmızı. **Envanter:**
   `TestEvidenceReaders_EveryOneIsClassified` — `db/queries`'te `transactions` ve bir kanıt/karar sütunu
-  okuyan her ifade (15) sınıflandırılmış ve sınıfının dayandığı parçayı taşır; yeni bir okuyucu
-  kırmızıdır (kontrol: eklenen bir `ip_match` okuyucusu yakalandı). Go'da elle yazılmış bir
+  okuyan her ifade (15) sınıflandırılmış ve sınıfının dayandığı parçayı taşır; envanterin
+  tanıdığı sütun listesini okuyan yeni bir okuyucu kırmızıdır (kontrol: eklenen bir `ip_match` okuyucusu
+  yakalandı) — kapsamı üçüncü denetimden sonra genişledi, aşağıda. Go'da elle yazılmış bir
   `transactions` okuyucusu yok; dışa aktarım (`ListWorkedShiftEvents`) ve onay sayısı (`CountPendingFlagged`)
   yalnız verdict okur — madde 5 (a).
 - **ORTA-B (üçüncü göz — not değiştirmesi fazla genişti):** değiştirme artık yalnız kanıt anlatan
@@ -1757,3 +1769,30 @@ dört DÜŞÜK).**
 - **D-2:** madde 5 (b). **D-3:** holding'siz rapor ve anomali sayfasının bayt eşliği pinli
   (`TestHoldinglessPanels_AreByteIdenticalToTheGolden`, altın dosyalar `85b4b8d`'nin koduyla yazıldı;
   mutant: kardeş bileşen çağrısına dönüş → 1 bayt, kırmızı).
+
+**Üçüncü denetimden sonra (2026-10-14 — güvenlik ONAY, üçüncü göz RED: bir ORTA + yedi DÜŞÜK).**
+- **ORTA (kovanın yeri kuralı söylüyordu):** kova, eş satırlarını kendi kural satırlarına katlayıp
+  sorgunun `ORDER BY count(*)` sırasında duruyordu — kovanın konumu eşin kuralının kaç kayıt aldığını,
+  bir kural satırının eksilmesi hangi kural olduğunu ele veriyordu; eş satırları da sorgunun 50'lik
+  `LIMIT`'ini tüketiyordu. Şimdi `ListAnomalyPolicySids` eş satırlarını `site_tenant_id IS NULL` ile
+  dışlar (eş sütunu kalktı, sıra `count DESC, sid, katman` — belirleyici), ledger kovayı sayısını
+  `Totals.Partner`'dan alarak **her zaman sona** ekler. Test: `TestAnomalies_ThePartnerBucketSaysNothingByItsPlace`
+  (eşin iki farklı kuralı → kural listesi aynı; 60 farklı kurallı eş satırı 3 kendi kuralının yanında
+  `LIMIT`'i tüketmez — liste kısalmaz, kova son ve 60); mutantlar — süzgeç kalktı, kova başa, kova sayısı sorgudan — üçü de kırmızı.
+- **D-1:** madde 5 (e) (kural önceliği artığı) ve (c)'nin ifadesi.
+- **D-2:** yeşil kalan SQL mutantları için vakalar (`TestAnomalies_EveryEvidenceFigureLeavesThePartnerOut`:
+  IP evet + çakışma, kişi ve mekân sırası, eşte manuel satır); yedi mutantın yedisi kırmızı.
+- **D-3:** envanterin sütun listesi `source_ip`, `gps_lat`, `gps_lng`, `gps_distance_m`, `sun_valid`, `ctr`
+  ve bütün satır okumalarıyla (`SELECT *`, `t.*`, `RETURNING *`, `sqlc.embed`) genişledi; `must` artık
+  süzgecin **kaç** rakamda durduğunu sayar (bir rakamdan düşürülen süzgeç kırmızı). Neyi görmediği
+  testin başında yazılı (db/queries dışındaki SQL, başka adla erişen okuyucu, süzgecin doğru rakamda
+  olup olmadığı — o yarıyı SQL mutantları taşır).
+- **D-4:** holding'siz eşlik handler katmanında da pinli (`TestHoldinglessViews_AreByteIdenticalToTheGolden`:
+  domain ekranı → `fillReportsView` / `fillAnomaliesView` → sayfa; altın dosyalar `85b4b8d`'nin koduyla
+  yazıldı); mutant `partnerLine`'da `n <= 0` → `n < 0` kırmızı.
+- **D-5:** madde 16'nın *"çıkarım, ölçülmedi"* cümlesi denetimin ölçümüyle değişti.
+- **D-6:** `Record.matchedSid`'in yorumu düzeldi (her satıra yazılır, yalnız eş satırında okunur);
+  `Record` hiçbir yerde loglanmaz/kodlanmaz, sid kanıt değildir — koruyucu metod eklenmedi.
+- **Kapsam dışı gözlem:** Q16'nın *"IP iste"* kolu (`base:gps-only-allow`'u kapatmak) başka şubedeki
+  GPS-only dokunuşu `base:cross-location-note` üzerinden `ok` bırakıyor — ölçüldü
+  (`TestBaseline_RequiringIPLeavesACrossLocationGPSTapAllowed`), backlog T125; kod değişmedi.
