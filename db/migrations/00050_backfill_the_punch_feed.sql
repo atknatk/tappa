@@ -27,12 +27,24 @@
 --     event -- a live event committed meanwhile is seen and its punch skipped -- numbered after
 --     the counter in (occurred_at, id) order; the counter moved to the last; COMMIT;
 --   * so what a tap of that tenant waits for is one window's inserts behind the counter --
---     bounded by FEED_CHUNK, independent of the tenant's size (measured: TestFeedBackfill_* and
---     the API-2 note) -- far under the triggers' 2 s lock_timeout; other tenants' taps never wait
---     on it. The three tables are ANALYZEd first, and each chunk's transaction turns sequential
---     scans, hash and merge joins off (SET LOCAL): the window and the insert probe
---     transactions, transaction_reviews and punch_events by their indexes, whatever the
---     statistics say -- punch_events' go stale under the loop itself.
+--     bounded by FEED_CHUNK -- far under the triggers' 2 s lock_timeout; other tenants' taps never
+--     wait on it. That bound needs the PLAN to be the text's, and the second version's claim that
+--     enable_* settings made it so "whatever the statistics say" was measured false (the API-2
+--     review, round 3): with punch_events' statistics taken full and the table emptied, the
+--     window's NOT EXISTS became a Nested Loop Anti Join over a Materialize of the tenant's events
+--     (a window of over 7 minutes; hash join off made it worse), and with no statistics the locked
+--     insert took 4.4 s a chunk and 270 live 55P03. So now (round 3) the TEXT fixes the plan: every
+--     lookup is a scalar subquery or a LATERAL one fenced by OFFSET 0, on a unique id, the tenant
+--     compared by IS NOT DISTINCT FROM (which no index serves -- every other index leads with
+--     tenant_id, and statistics that call a tenant small price a scan of its whole range at one
+--     row: measured, punch_events_tenant_time_idx chosen for the probe), punch_events_once leads
+--     with punch_id (00048), and per chunk sequential and bitmap scans, a full Sort and JIT are off.
+--     Measured, one 650 000-row tenant in the REAL tables of a throwaway container (553 chunks):
+--     with this file's ANALYZE, with no statistics at all, and with punch_events' taken full and the
+--     table emptied -- window median 3-4 ms (longest 8-59 ms), counter held median 64-76 ms
+--     (longest 0.10-0.32 s), the first and the last 50 chunks alike; with 2 820 live taps of the
+--     tenant during it, 0 failed, the longest wait 0.23 s, the feed 1..n, one event per punch.
+--     The tables are still ANALYZEd first: it costs one pass and no plan depends on it.
 -- Nothing slips between: 00049 created the triggers under SHARE ROW EXCLUSIVE on transactions and
 -- transaction_reviews -- a row committed before that has no event, every row after has the
 -- triggers'; this file takes exactly the rows with no event.
@@ -52,6 +64,8 @@
 -- RE-RUNNABLE: it writes only what has no event, so a run cut short (goose records the version
 -- only at the end of a NO TRANSACTION file) is finished by the next; and after a Down of 00049 and
 -- its Up again, this file's Up again writes the punches recorded while the writers were down.
+-- Every run walks every tenant's eligible rows once, with no lock: a tenant with nothing missing
+-- costs that one unlocked pass (measured: 650 000 rows, all with events, 1.8 s, cold cache).
 -- lock_timeout 1 s on each chunk's counter lock: a counter held by a stuck writer fails the run
 -- (the migrate Job is red, nothing half-written is wrong -- every committed chunk is whole) rather
 -- than queueing the tenant's taps behind it.
@@ -83,28 +97,39 @@ BEGIN
             USING ERRCODE = 'object_not_in_prerequisite_state';
     END IF;
 
-    FOR v_tenant IN
-        SELECT DISTINCT t.tenant_id
-          FROM public.transactions AS t
-         WHERE t.site_tenant_id IS NULL
-           AND t.channel IN ('nfc', 'qr') AND t.practice IS FALSE AND t.type IS NOT NULL
-           AND (t.verdict = 'ok'
-                OR (t.verdict = 'flag' AND EXISTS (SELECT 1 FROM public.transaction_reviews AS r
-                                                    WHERE r.transaction_id = t.id AND r.tenant_id = t.tenant_id
-                                                      AND r.outcome = 'approved')))
-           AND NOT EXISTS (SELECT 1 FROM public.punch_events AS p WHERE p.tenant_id = t.tenant_id AND p.punch_id = t.id)
-         ORDER BY 1
+    -- Every tenant, not "the tenants with a punch missing": that question is the whole table's
+    -- anti-join, planned by statistics this file cannot trust (below); a tenant with nothing
+    -- missing costs one pass of its window, with no lock.
+    FOR v_tenant IN SELECT s.id FROM public.tenants AS s ORDER BY s.id
     LOOP
         v_at := '-infinity';
         v_id := '00000000-0000-0000-0000-000000000000';
         LOOP
-            -- The plan, pinned to index probes for this chunk's transaction (transaction-local):
-            -- punch_events grows under this very loop, so its statistics go stale from the first
-            -- chunk on, and a plan chosen for an "empty" punch_events probed it by sequential
-            -- scan -- O(tenant) a chunk again (measured: windows of 1.5 s on a 50 000-row tenant).
+            -- THE PLAN IS THE TEXT'S, NOT THE STATISTICS' (the API-2 review, round 3). Every lookup
+            -- below is a SCALAR subquery or a LATERAL one fenced by OFFSET 0 -- PostgreSQL never turns
+            -- either into a join, a Materialize or a hashed SubPlan, so it runs once per row as an
+            -- index probe -- and its ONLY sargable predicate is a unique id: the tenant is compared
+            -- with IS NOT DISTINCT FROM, which no index can serve. That matters because every other
+            -- index of these tables LEADS with tenant_id: given "tenant_id = $1 AND punch_id = $2",
+            -- statistics that call the tenant small (punch_events ANALYZEd empty -- this very file's
+            -- first state -- or before the tenant's rows) price an index scan of the tenant's whole
+            -- (tenant_id, punch_time) range at one row, the same as the unique probe, and the planner
+            -- took it (measured: punch_events_tenant_time_idx chosen, O(the tenant's events) a probe).
+            -- So punch_events_once leads with punch_id (00048) and the probe names punch_id alone.
+            -- The walk itself is the one path that yields (occurred_at) order for one tenant --
+            -- transactions_tenant_occurred_idx, then an Incremental Sort on id -- once sequential and
+            -- bitmap scans and a full Sort are off for this chunk's transaction (transaction-local).
+            -- And JIT off: a path the settings refuse is still priced (disable_cost), so the plans
+            -- here cost past jit_above_cost and every chunk's statements were compiled -- measured,
+            -- 235 ms of a 237 ms window, 1.7 ms without.
+            -- Measured (a throwaway container, one 650 000-row tenant, ADR 0028 API-2 note round 3):
+            -- with no statistics, with punch_events' taken full and the table emptied, and with this
+            -- file's ANALYZE, the windows and the locked writes of the first and the last 50 chunks
+            -- take the same time.
             PERFORM pg_catalog.set_config('enable_seqscan', 'off', true);
-            PERFORM pg_catalog.set_config('enable_hashjoin', 'off', true);
-            PERFORM pg_catalog.set_config('enable_mergejoin', 'off', true);
+            PERFORM pg_catalog.set_config('enable_bitmapscan', 'off', true);
+            PERFORM pg_catalog.set_config('enable_sort', 'off', true);
+            PERFORM pg_catalog.set_config('jit', 'off', true);
             -- The window, with no lock: keyset on (occurred_at, id).
             SELECT pg_catalog.array_agg(w.id ORDER BY w.occurred_at, w.id),
                    (pg_catalog.array_agg(w.occurred_at ORDER BY w.occurred_at DESC, w.id DESC))[1],
@@ -117,10 +142,12 @@ BEGIN
                        AND t.site_tenant_id IS NULL
                        AND t.channel IN ('nfc', 'qr') AND t.practice IS FALSE AND t.type IS NOT NULL
                        AND (t.verdict = 'ok'
-                            OR (t.verdict = 'flag' AND EXISTS (SELECT 1 FROM public.transaction_reviews AS r
-                                                                WHERE r.transaction_id = t.id AND r.tenant_id = v_tenant
-                                                                  AND r.outcome = 'approved')))
-                       AND NOT EXISTS (SELECT 1 FROM public.punch_events AS p WHERE p.tenant_id = v_tenant AND p.punch_id = t.id)
+                            OR (t.verdict = 'flag'
+                                AND (SELECT r.id FROM public.transaction_reviews AS r
+                                      WHERE r.transaction_id = t.id AND r.tenant_id IS NOT DISTINCT FROM v_tenant
+                                        AND r.outcome = 'approved') IS NOT NULL))
+                       AND (SELECT 1 FROM public.punch_events AS p
+                             WHERE p.punch_id = t.id AND p.tenant_id IS NOT DISTINCT FROM v_tenant LIMIT 1) IS NULL
                      ORDER BY t.occurred_at, t.id
                      LIMIT v_chunk) AS w;
             EXIT WHEN v_ids IS NULL;
@@ -131,30 +158,47 @@ BEGIN
             ON CONFLICT (tenant_id) DO NOTHING;
             PERFORM 1 FROM public.feed_counters AS c WHERE c.tenant_id = v_tenant FOR UPDATE;
 
+            -- Driven by the window's ids, row by row, every lookup as above (a scalar subquery or a
+            -- LATERAL one fenced by OFFSET 0, on a unique id): under the lock the cost is the window's,
+            -- never the tenant's. (Measured with no statistics, a plain JOIN of the ids to
+            -- transactions: a nested loop over the tenant's every row, 20-63 s a chunk UNDER THE LOCK,
+            -- until PL/pgSQL's plan cache went generic after five.)
             WITH pending AS (
-                SELECT t.id AS punch_id, t.occurred_at, coalesce(r.reviewed_at, t.created_at) AS recorded_at, t.channel,
-                       t.type, t.employee_id, t.location_id, t.tag_uid
-                  FROM public.transactions AS t
-                  LEFT JOIN public.transaction_reviews AS r
-                         ON r.transaction_id = t.id AND r.tenant_id = v_tenant AND r.outcome = 'approved' AND t.verdict = 'flag'
-                 WHERE t.tenant_id = v_tenant AND t.id = ANY (v_ids)
-                   AND (t.verdict = 'ok' OR r.transaction_id IS NOT NULL)
-                   AND NOT EXISTS (SELECT 1 FROM public.punch_events AS p WHERE p.tenant_id = v_tenant AND p.punch_id = t.id)
+                SELECT t.id AS punch_id, t.occurred_at,
+                       CASE WHEN t.verdict = 'flag'
+                            THEN coalesce((SELECT r.reviewed_at FROM public.transaction_reviews AS r
+                                            WHERE r.transaction_id = t.id AND r.tenant_id IS NOT DISTINCT FROM v_tenant AND r.outcome = 'approved'),
+                                          t.created_at)
+                            ELSE t.created_at END AS recorded_at,
+                       t.channel, t.type, t.employee_id, t.location_id, t.tag_uid
+                  FROM pg_catalog.unnest(v_ids) AS u(id)
+                 CROSS JOIN LATERAL (SELECT x.* FROM public.transactions AS x
+                                      WHERE x.id = u.id AND x.tenant_id IS NOT DISTINCT FROM v_tenant OFFSET 0) AS t
+                 WHERE (t.verdict = 'ok'
+                        OR (t.verdict = 'flag'
+                            AND (SELECT r.id FROM public.transaction_reviews AS r
+                                  WHERE r.transaction_id = t.id AND r.tenant_id IS NOT DISTINCT FROM v_tenant
+                                    AND r.outcome = 'approved') IS NOT NULL))
+                   AND (SELECT 1 FROM public.punch_events AS p
+                         WHERE p.punch_id = t.id AND p.tenant_id IS NOT DISTINCT FROM v_tenant LIMIT 1) IS NULL
             ), numbered AS (
-                SELECT pd.*, c.last_seq + row_number() OVER (ORDER BY pd.occurred_at, pd.punch_id) AS seq
+                SELECT pd.*,
+                       (SELECT c.last_seq FROM public.feed_counters AS c WHERE c.tenant_id = v_tenant)
+                       + row_number() OVER (ORDER BY pd.occurred_at, pd.punch_id) AS seq
                   FROM pending AS pd
-                  JOIN public.feed_counters AS c ON c.tenant_id = v_tenant
             )
             INSERT INTO public.punch_events (tenant_id, seq, punch_id, punch_tenant_id, roles, punch_time, recorded_at, channel,
                                              direction, employee_id, employee_ref, employee_code, employee_company, location_id,
                                              location_ref, location_name, location_company, tag_uid)
             SELECT v_tenant, n.seq, n.punch_id, v_tenant, '{employer,location}'::text[], n.occurred_at, n.recorded_at, n.channel,
-                   n.type, n.employee_id, e.external_ref, e.employee_code, s.api_code, n.location_id, l.external_ref, l.name,
-                   s.api_code, n.tag_uid
+                   n.type, n.employee_id, e.external_ref, e.employee_code,
+                   (SELECT s.api_code FROM public.tenants AS s WHERE s.id = v_tenant), n.location_id, l.external_ref, l.name,
+                   (SELECT s.api_code FROM public.tenants AS s WHERE s.id = v_tenant), n.tag_uid
               FROM numbered AS n
-              JOIN public.tenants AS s ON s.id = v_tenant
-              LEFT JOIN public.employees AS e ON e.id = n.employee_id AND e.tenant_id = v_tenant
-              LEFT JOIN public.locations AS l ON l.id = n.location_id AND l.tenant_id = v_tenant;
+              LEFT JOIN LATERAL (SELECT e.external_ref, e.employee_code FROM public.employees AS e
+                                  WHERE e.id = n.employee_id AND e.tenant_id IS NOT DISTINCT FROM v_tenant OFFSET 0) AS e ON true
+              LEFT JOIN LATERAL (SELECT l.external_ref, l.name FROM public.locations AS l
+                                  WHERE l.id = n.location_id AND l.tenant_id IS NOT DISTINCT FROM v_tenant OFFSET 0) AS l ON true;
             GET DIAGNOSTICS v_n = ROW_COUNT;
 
             UPDATE public.feed_counters AS c SET last_seq = c.last_seq + v_n

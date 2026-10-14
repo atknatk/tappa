@@ -160,7 +160,10 @@ CREATE TABLE punch_events (
     CONSTRAINT punch_events_pkey PRIMARY KEY (tenant_id, seq),
     CONSTRAINT punch_events_seq_positive CHECK (seq > 0),
     -- K-31's "exactly once per target": a second event of one punch in one feed is refused.
-    CONSTRAINT punch_events_once UNIQUE (tenant_id, punch_id, version),
+    -- punch_id LEADS: it is the one index of this table that does not lead with tenant_id, so a
+    -- probe by punch id has exactly one index to use whatever the statistics say (00050's history
+    -- writer relies on it; ADR 0028 API-2 note, round 3).
+    CONSTRAINT punch_events_once UNIQUE (punch_id, tenant_id, version),
     CONSTRAINT punch_events_roles CHECK (roles IN ('{employer,location}'::text[], '{employer}'::text[], '{location}'::text[])),
     -- the location row is the only one written into a tenant other than the punch's
     CONSTRAINT punch_events_location_is_another_tenant CHECK ((roles = '{location}'::text[]) = (punch_tenant_id <> tenant_id)),

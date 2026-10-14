@@ -336,8 +336,8 @@ func TestRestore_FreshPodCarriesTheFeedRole(t *testing.T) {
 // ------------------------------------------------------------ (l) the backfill's time --
 
 // feedBackfillRows is how many transactions rows TestFeedBackfill_WithinTwoSeconds backfills in
-// CI. The production-sized measurement (ADR 0028's "API-2 uygulama notu") is the throwaway
-// container's: 700 000 real rows, 595 000 events, 510 chunks, the longest 0.37 s.
+// CI. The production-sized measurements (ADR 0028's "API-2 uygulama notu", rounds 2 and 3) are
+// the throwaway container's, on one 650 000-row tenant in the real tables.
 const feedBackfillRows = 200000
 
 // TestFeedBackfill_WithinTwoSeconds is plan §5 API-2 (l), ADR 0028 §4 ("eşik 2 sn"). The single-
@@ -348,8 +348,9 @@ const feedBackfillRows = 200000
 // feed_counters holding feedBackfillRows punches over 200 tenants (90% ok, half the flags
 // approved), the employees, venues and tenants joined being this database's: 00050's own block
 // (COMMITs taken out) writes exactly one event per eligible punch, numbered 1..n densely per
-// tenant in occurred_at order, every counter at its tenant's last seq, and its LONGEST chunk is
-// under 2 s. And 00049's own work under its lock does not grow with the rows (no backfill in it).
+// tenant in occurred_at order, each carrying its punch's own direction (in and out mixed: the
+// backfill's K-40 pin -- a direction written reversed or constant is red), every counter at its
+// tenant's last seq, and its LONGEST chunk is under 2 s. And 00049's own work under its lock does not grow with the rows (no backfill in it).
 func TestFeedBackfill_WithinTwoSeconds(t *testing.T) {
 	var notice string
 	ctx, tx := opTx(t, func(_ *pgconn.PgConn, n *pgconn.Notice) {
@@ -376,7 +377,8 @@ func TestFeedBackfill_WithinTwoSeconds(t *testing.T) {
 		`CREATE INDEX zz_api2_rev_tx ON zz_api2_rev (transaction_id)`,
 		fmt.Sprintf(`INSERT INTO zz_api2_tx (id, tenant_id, employee_id, occurred_at, created_at, verdict, channel, type, practice)
 		             SELECT gen_random_uuid(), ($1::uuid[])[1 + (g %% 200)], gen_random_uuid(), now() - make_interval(secs => g), now(),
-		                    CASE WHEN g %% 10 = 0 THEN 'flag' ELSE 'ok' END, CASE WHEN g %% 3 = 0 THEN 'qr' ELSE 'nfc' END, 'in', false
+		                    CASE WHEN g %% 10 = 0 THEN 'flag' ELSE 'ok' END, CASE WHEN g %% 3 = 0 THEN 'qr' ELSE 'nfc' END,
+		                    CASE WHEN g %% 7 < 3 THEN 'in' ELSE 'out' END, false
 		               FROM generate_series(1, %d) AS g`, feedBackfillRows),
 		`INSERT INTO zz_api2_rev (tenant_id, transaction_id, reviewer_id, outcome, reviewed_at)
 		 SELECT x.tenant_id, x.id, gen_random_uuid(), 'approved', now() FROM zz_api2_tx x WHERE x.verdict = 'flag' AND random() < 0.5`,
@@ -420,6 +422,7 @@ func TestFeedBackfill_WithinTwoSeconds(t *testing.T) {
 		                                                    FROM zz_api2_events e) d WHERE d.seq <> d.rn`); n != 0 {
 			t.Errorf("%d backfilled events are out of occurred_at order", n)
 		}
+		feedBackfillDirections(t, ctx, sp, "zz_api2_events", "zz_api2_tx", nil)
 		if n := opInt(t, ctx, sp, `SELECT count(*) FROM zz_api2_counters c
 		                             WHERE c.last_seq <> coalesce((SELECT max(seq) FROM zz_api2_events e WHERE e.tenant_id = c.tenant_id), 0)`); n != 0 {
 			t.Errorf("%d counters do not stand at their tenant's last backfilled seq", n)
@@ -626,5 +629,125 @@ func TestFeedBackfill_BigTenantLiveTapsLoseNothing(t *testing.T) {
 	                                   OR (x.verdict = 'flag' AND EXISTS (SELECT 1 FROM L.rev r WHERE r.transaction_id = x.id)))
 	                                   AND x.tenant_id = $1 AND (SELECT count(*) FROM L.ev e WHERE e.punch_id = x.id AND e.tenant_id = $1) <> 1`), big); n != 0 {
 		t.Errorf("%d of the big tenant's eligible punches do not have exactly one event in its feed", n)
+	}
+	feedBackfillDirections(t, ctx, f.owner, lab+".ev", lab+".tx", big)
+}
+
+// feedBackfillDirections pins the backfill's K-40 (ADR 0028 §4): every event in events whose punch
+// is in txs (of tenant, when given) carries that punch's own transactions.type -- and both values
+// occur, so a direction written constant or reversed is red, not a coincidence of the data.
+func feedBackfillDirections(t *testing.T, ctx context.Context, q interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, events, txs string, tenant any) {
+	t.Helper()
+	var wrong, in, out int64
+	if err := q.QueryRow(ctx, `SELECT count(*) FILTER (WHERE e.direction IS DISTINCT FROM x.type),
+	                                  count(*) FILTER (WHERE e.direction = 'in'), count(*) FILTER (WHERE e.direction = 'out')
+	                             FROM `+events+` e JOIN `+txs+` x ON x.id = e.punch_id
+	                            WHERE $1::uuid IS NULL OR e.tenant_id = $1::uuid`, tenant).Scan(&wrong, &in, &out); err != nil {
+		t.Fatal(err)
+	}
+	if wrong != 0 || in == 0 || out == 0 {
+		t.Errorf("backfilled directions: %d differ from their punch's type (in %d, out %d) -- K-40: the event's direction is transactions.type", wrong, in, out)
+	}
+}
+
+// TestFeedBackfill_ThePlanIsTheTexts is the API-2 review's round-3 finding on 00050: the bound on
+// a chunk (its window's rows, never the tenant's) held only for the statistics it was measured
+// with -- with punch_events' taken full and the table emptied the window's NOT EXISTS became a
+// Nested Loop Anti Join over a Materialize of the tenant's events, and a probe naming
+// "tenant_id = $1 AND punch_id = $2" was served by punch_events_tenant_time_idx (a scan of the
+// tenant's whole range) once the statistics priced both at one row. The fix is in the text, so
+// the text is pinned: punch_events_once LEADS with punch_id (the one index of the table that does
+// not lead with tenant_id); and, EXPLAINed under the chunk's own settings, the window walks
+// transactions_tenant_occurred_idx and probes punch_events_once and transaction_reviews_txn_key
+// per row, the locked insert reaches every row by its id -- no Materialize, no hash, no
+// sequential scan, no full Sort of the tenant. (The throwaway-container measurements under the
+// adversarial statistics themselves are in ADR 0028's API-2 note, round 3: ANALYZE on this shared
+// database would not stay in a test's transaction.)
+func TestFeedBackfill_ThePlanIsTheTexts(t *testing.T) {
+	ctx, tx := opTx(t)
+	var def string
+	if err := tx.QueryRow(ctx, `SELECT pg_get_indexdef('public.punch_events_once'::regclass)`).Scan(&def); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(def, "(punch_id, tenant_id, version)") {
+		t.Errorf("punch_events_once is %q: its first column must be punch_id (00048, 00050's probe)", def)
+	}
+	if n := opInt(t, ctx, tx, `SELECT count(*) FROM pg_index i JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = i.indkey[0]
+	                            WHERE i.indrelid = 'public.punch_events'::regclass AND a.attname = 'punch_id'`); n != 1 {
+		t.Errorf("%d indexes of punch_events lead with punch_id, want exactly punch_events_once", n)
+	}
+	block := feedBackfillBlock(t, false)
+	// The shapes the planner may re-plan by statistics, refused in the text (the EXPLAINs below see
+	// only this database's statistics, where an EXISTS or a plain join happens to plan well): an
+	// EXISTS (a semi/anti join, or a hashed SubPlan), a JOIN that is not LATERAL, and a lookup that
+	// compares a probed table's tenant_id with "=" (an index scan of the tenant's whole range).
+	for _, re := range []string{`(?i)\bEXISTS\s*\(\s*SELECT\s[^)]*\bFROM\s+public\.`, `(?i)\bJOIN\s+(public\.|pg_catalog\.)`, `\b[prxel]\.tenant_id\s*=\s*v_tenant`} {
+		if m := regexp.MustCompile(re).FindString(block); m != "" {
+			t.Errorf("00050's block carries %q: a lookup the planner may turn by statistics (round 3)", m)
+		}
+	}
+	cut := func(from, to string) string {
+		t.Helper()
+		i := strings.Index(block, from)
+		j := strings.Index(block[i+1:], to)
+		if i < 0 || j < 0 {
+			t.Fatalf("00050's block no longer carries %q ... %q", from, to)
+		}
+		return block[i : i+1+j+len(to)]
+	}
+	// v_ids before v_id: a Replacer tries its pairs in order at each position.
+	lit := strings.NewReplacer("v_ids", "ARRAY['00000000-0000-4000-8000-000000000001'::uuid]",
+		"v_tenant", "'b1000000-0000-4000-8000-000000000001'::uuid", "v_at", "'-infinity'::timestamptz",
+		"v_id", "'00000000-0000-0000-0000-000000000000'::uuid", "v_chunk", "1000")
+	window := lit.Replace(strings.Replace(cut("SELECT pg_catalog.array_agg(w.id", "LIMIT v_chunk) AS w;"), "INTO v_ids, v_at, v_id", "", 1))
+	insert := lit.Replace(cut("WITH pending AS (", "AS l ON true;"))
+	settings := regexp.MustCompile(`set_config\('([a-z_]+)', '([a-z0-9]+)', true\)`).FindAllStringSubmatch(cut("PERFORM pg_catalog.set_config('enable_seqscan'", "EXIT WHEN v_ids IS NULL;"), -1)
+	if len(settings) < 4 {
+		t.Fatalf("00050's chunk sets %d planner settings, want enable_seqscan, enable_bitmapscan, enable_sort and jit", len(settings))
+	}
+	for _, kv := range settings {
+		if _, err := tx.Exec(ctx, `SELECT set_config($1, $2, true)`, kv[1], kv[2]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	plan := func(sql string) string {
+		t.Helper()
+		rows, err := tx.Query(ctx, `EXPLAIN (COSTS OFF) `+strings.TrimSuffix(strings.TrimSpace(sql), ";"))
+		if err != nil {
+			t.Fatalf("EXPLAIN %.80s: %v", sql, err)
+		}
+		defer rows.Close()
+		var b strings.Builder
+		for rows.Next() {
+			var l string
+			if err := rows.Scan(&l); err != nil {
+				t.Fatal(err)
+			}
+			b.WriteString(l + "\n")
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		return b.String()
+	}
+	for _, c := range []struct {
+		what, plan string
+		must       []string
+	}{
+		{"the window", plan(window), []string{"transactions_tenant_occurred_idx", "punch_events_once", "transaction_reviews_txn_key"}},
+		{"the locked insert", plan(insert), []string{"punch_events_once", "transaction_reviews_txn_key"}},
+	} {
+		for _, w := range c.must {
+			if !strings.Contains(c.plan, w) {
+				t.Errorf("%s does not use %s:\n%s", c.what, w, c.plan)
+			}
+		}
+		for _, bad := range []string{"Materialize", "Hash", "Seq Scan", "Bitmap", "Merge", "punch_events_tenant_time_idx", "punch_events_pkey", "hashed SubPlan"} {
+			if strings.Contains(c.plan, bad) {
+				t.Errorf("%s's plan carries %s:\n%s", c.what, bad, c.plan)
+			}
+		}
 	}
 }
