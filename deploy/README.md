@@ -1009,7 +1009,8 @@ sahibi değil.
 **Kural:** `holding_members`'a ya da kapının (`holding_site_gate`, migration `00043`) kendi
 `lock_timeout`'u altında okuduğu `tags`'e — **ve (API-1c) izdüşümün (`holding_feed`, migration
 `00046`) kendi `lock_timeout`'u altında yazdığı `site_punches`'a ya da anahtarıyla `KEY SHARE`
-kilitlediği `tenants`, `locations`, `tags` ve `transactions` satırlarına** — kilit alan bir migration,
+kilitlediği sahanın `tenants` satırına** (`locations` ve `tags` satırlarını o işlemde önce
+`transactions`'ın kendi anahtarları kilitler — aşağıda) — kilit alan bir migration,
 ilk ifadesinde kendi `lock_timeout`'unu **2 sn'nin altına** koyar ve kilit altındaki işini kısa tutar:
 
 ```sql
@@ -1026,7 +1027,12 @@ olan migration ise kilidi alamazsa **kendisi** düşer: migrate Job'ı `Failed`,
 Kilidi aldıktan sonraki iş de 2 sn'nin altında kalmalıdır (ölçü emsali:
 `TestHoldingMigration_AlterWithinTwoSeconds` — `00043`'ün ALTER'ı 2 M satırda 0,39–0,46 sn).
 `VACUUM FULL` ve `CLUSTER` bu tablolarda trafik akarken koşulmaz; elle `LOCK` da öyle — ve elle bir
-`SELECT … FROM tenants … FOR UPDATE` da (izdüşümün `tenants` anahtarı onu bekler). Ölçüldü (API-1c,
+`SELECT … FROM tenants … FOR UPDATE` da (izdüşümün `tenants` anahtarı onu bekler), `site_punches`'ta
+`CONCURRENTLY` olmayan bir `CREATE INDEX` ya da `REINDEX` da. **`tags` / `locations` üzerinde elle bir
+`FOR UPDATE` daha ağırdır:** o satırlara `KEY SHARE`'i `holding_feed`'den önce `transactions`'ın kendi
+anahtarları alır (`transactions_site_tag_fk`, `transactions_site_location_fk`) — orada `lock_timeout` ve
+yeniden deneme yoktur, dokunuş isteğin zaman aşımına (30 sn) kadar bekler (ikinci API-1c denetimi ölçtü;
+M11'den eski sınıf, ADR 0027 §13 madde 16 ve 18). Ölçüldü (API-1c,
 ADR 0027 §13 madde 18): `site_punches` 3 sn `SHARE` kilitliyken site satırının ilk denemesi 2,02 sn'de
 55P03, checkin'in savepoint'li tek yeniden denemesi kaydı yazdı; iki bekleme (> 4 sn) dolarsa kayıt
 kaybolur (`TestHoldingWindow_ProjectionLockHeldThroughBothWaitsIsTheNamedCost`).
