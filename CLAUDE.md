@@ -111,7 +111,10 @@ ediyorsa **dur ve sor**, sessizce uygulama.
    izleme YOK. Bu hem GDPR gereği hem satış argümanı.
 3. **`transactions` immutable.** UPDATE/DELETE yok. Düzeltme = yeni kayıt +
    `audit_log`. Mesai kaydı hukuki delil olabilir. Dışa bakan izdüşümleri de append-only'dir:
-   `punch_events` (ADR 0028 §4) ve `site_punches` (ADR 0027 §9); onları yalnız tetikleyiciler yazar.
+   `punch_events` (ADR 0028 §4) ve `site_punches` (ADR 0027 §9). `site_punches`'ı yalnız `holding_feed`
+   yazar; `punch_events`'i iki tetikleyici (`holding_feed`, `punch_feed`) ve bir kez koşan `00050`
+   geri doldurması yazar — üçü dışında yazan yoktur. `punch_events.direction` (`in`/`out`) işverenin
+   `transactions.type`'ıdır; onay olayı ana kaydın yönünü taşır (K-40, kullanıcı kararı 2026-10-14).
 4. **`ctr` kontrolü atomik.** Oku-sonra-yaz replay açığıdır. Tek ifadede:
    `UPDATE tags SET last_ctr=$2 WHERE uid=$1 AND last_ctr < $2 RETURNING …`
    Etkilenen satır 0 ise → REJECT. Bunu asla transaction dışı iki adıma bölme.
@@ -135,8 +138,9 @@ ediyorsa **dur ve sor**, sessizce uygulama.
    yazar, sahanın okumaları sıradan RLS'li sorgulardır. Bu iki istisnanın dışında kalan dış akış
    yazıcısı `tappa_feedwriter`'dır (NOLOGIN, **NOBYPASSRLS**, üyesiz; ADR 0028 §4): kendi-tenant
    olay tetikleyicisinin sahibidir, tenant sınırını aşmaz; holding punch'ının iki olayını holding
-   tetikleyicisi yazar (K-31). Bir işlem en çok **bir** olay yazan satır yazar — sayaç kilit
-   sırası buna dayanır. **Listeye
+   tetikleyicisi yazar (K-31). Bir işlem tek bir sayaç kümesine olay yazar — sayaç kilit sırası
+   buna dayanır ve kural mekaniktir: kümenin dışında olay yazan ikinci satır kilitten önce
+   `SQLSTATE TF001` ile reddedilir (ADR 0028, API-2 uygulama notu). **Listeye
    fonksiyon eklemek, bir fonksiyonun dönüş sütunlarını ya da definer'ın sütun matrisini
    genişletmek, `holding_peer`'e kip eklemek ya da bir kipin süzgecini veya zaman kuralını
    gevşetmek kullanıcı onayı + ADR 0027 değişikliği ister** (ADR 0027 §2; testler: ADR 0027
