@@ -32,6 +32,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
@@ -941,6 +942,116 @@ func TestHoldingWindow_QRDecisionAfterLeftIs403(t *testing.T) {
 	}
 	if res.Outcome != OutcomeForeignTenant || w.rows(w.km) != 0 {
 		t.Errorf("the retry after left_at: %s, %d rows; want the foreign-tenant refusal and none", res.Outcome, w.rows(w.km))
+	}
+}
+
+// holdRemoval opens its own owner connection and, in a transaction it keeps OPEN, ends tenant's
+// membership -- what op_remove_holding_member's UPDATE does, holding the membership row's lock
+// until commit is called (or the test ends: rolled back). The gate's FOR SHARE on that row waits.
+func (w *holdingWorld) holdRemoval(tenant uuid.UUID) (commit func()) {
+	w.t.Helper()
+	conn, err := pgx.Connect(w.ctx, os.Getenv("DATABASE_MIGRATE_URL"))
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	w.t.Cleanup(func() { _ = conn.Close(context.Background()) })
+	tx, err := conn.Begin(w.ctx)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	w.t.Cleanup(func() { _ = tx.Rollback(context.Background()) })
+	if _, err := tx.Exec(w.ctx, `UPDATE holding_members SET left_at = clock_timestamp() WHERE member_tenant_id = $1 AND left_at IS NULL`, tenant); err != nil {
+		w.t.Fatal(err)
+	}
+	return func() {
+		if err := tx.Commit(w.ctx); err != nil {
+			w.t.Errorf("commit the removal: %v", err)
+		}
+	}
+}
+
+// TestHoldingWindow_GateLockWaitIsWrittenOnceMore is the security review's DÜŞÜK-1 (ADR 0027 §13):
+// KM's employee touches KF's plaque from KF's network, the counter advances and the decision is
+// made while KM is a member -- and before the INSERT an operator's removal of KM takes KM's
+// membership row and holds it (hook, uncommitted). The gate's FOR SHARE waits its 2 s lock_timeout
+// and the INSERT fails 55P03; that used to be the whole tap -- a 500 over a counter already moved,
+// the record lost (§4.6). Now the INSERT is made once more after the removal committed (the hook
+// between the two attempts commits it): the advanced NFC row lands through the gate's tolerant arm
+// -- written, the site named, once. A QR row in the same race is then refused by the strict arm:
+// ErrSiteMembershipEnded, "tap again", nothing written. MUTANT (measured, ADR 0027's API-1b note):
+// no second attempt -> both cases end in the 55P03 error and the NFC record is lost.
+func TestHoldingWindow_GateLockWaitIsWrittenOnceMore(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		req  func(w *holdingWorld) Request
+		qr   bool
+	}{
+		{"an advanced NFC tap", func(w *holdingWorld) Request { return w.nfc(w.km, w.kmEmp, w.kfTag, w.kf, 101, w.kfOnNet) }, false},
+		{"a QR scan", func(w *holdingWorld) Request { return w.qr(w.km, w.kmEmp, w.kfTag, w.kf, w.kfOnNet) }, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			w := newHoldingWorld(t)
+			var commit func()
+			between := 0
+			w.svc.hooks.beforeWrite = func(context.Context) { commit = w.holdRemoval(w.km) }
+			w.svc.hooks.betweenSiteWrites = func(context.Context) {
+				between++
+				commit()
+			}
+			start := time.Now()
+			res, err := w.svc.Record(w.ctx, c.req(w))
+			took := time.Since(start)
+			w.svc.hooks = recordHooks{}
+			if between != 1 || took < 2*time.Second {
+				t.Errorf("the hook between the attempts ran %d times after %v; want once, after the gate's 2 s wait", between, took)
+			}
+			if c.qr {
+				if !errors.Is(err, ErrSiteMembershipEnded) || w.rows(w.km) != 0 {
+					t.Errorf("QR: %v and %d rows, want ErrSiteMembershipEnded and none -- the strict arm, not a lock error", err, w.rows(w.km))
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Record: %v -- the second attempt must land the advanced NFC record", err)
+			}
+			r := w.record(res.TransactionID)
+			if err := isSite(r, w, w.kfTag, &w.kfVenue); err != nil {
+				t.Error(err)
+			}
+			if r.sunValid == nil || !*r.sunValid || w.rows(w.km) != 1 {
+				t.Errorf("sun_valid %v, %d rows at KM; want one advanced row", r.sunValid, w.rows(w.km))
+			}
+		})
+	}
+}
+
+// TestHoldingWindow_GateLockHeldThroughBothWaitsIsTheNamedCost is the path DÜŞÜK-1's retry does
+// not close, named in ADR 0027 §13: the removal holds KM's membership row through BOTH waits (the
+// hook between them commits nothing). The tap fails with the gate's 55P03 after two 2-second
+// waits -- not ErrSiteMembershipEnded, nothing written -- and KF's counter has moved: that record
+// is lost. It needs an operator transaction open for more than 4 s on that one row, which
+// op_remove_holding_member (one UPDATE and one INSERT) is not.
+func TestHoldingWindow_GateLockHeldThroughBothWaitsIsTheNamedCost(t *testing.T) {
+	w := newHoldingWorld(t)
+	between := 0
+	w.svc.hooks.beforeWrite = func(context.Context) { _ = w.holdRemoval(w.km) }
+	w.svc.hooks.betweenSiteWrites = func(context.Context) { between++ }
+	start := time.Now()
+	_, err := w.svc.Record(w.ctx, w.nfc(w.km, w.kmEmp, w.kfTag, w.kf, 101, w.kfOnNet))
+	took := time.Since(start)
+	w.svc.hooks = recordHooks{}
+	var pg *pgconn.PgError
+	if !errors.As(err, &pg) || pg.Code != "55P03" || errors.Is(err, ErrSiteMembershipEnded) {
+		t.Fatalf("Record: %v, want the gate's 55P03 after the second wait", err)
+	}
+	if between != 1 || took < 4*time.Second {
+		t.Errorf("%d attempts' worth of hooks after %v; want one retry, two 2 s waits", between, took)
+	}
+	if n := w.rows(w.km); n != 0 {
+		t.Errorf("%d rows at KM, want none", n)
+	}
+	if got := w.lastCtr(w.kfTag); got != 101 {
+		t.Errorf("KF's last_ctr %d, want 101 -- the advance committed before the write, which is why this path is a cost", got)
 	}
 }
 

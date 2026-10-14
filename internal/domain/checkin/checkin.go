@@ -111,6 +111,7 @@ import (
 	"log/slog"
 	"net/netip"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -200,6 +201,9 @@ func dbHolding(tx pgx.Tx) holdingQuerier { return db.HoldingOn(tx) }
 // nil in production (New leaves them so); a nil hook is not called.
 type recordHooks struct {
 	afterResolve, afterAdvance, beforeWrite func(ctx context.Context)
+	// betweenSiteWrites runs after the site gate's lock wait ran out and before the one
+	// retry (insertSite).
+	betweenSiteWrites func(ctx context.Context)
 }
 
 func (h recordHooks) call(f func(context.Context), ctx context.Context) {
@@ -258,6 +262,10 @@ var (
 
 // siteGateConstraint is the constraint name holding_site_gate refuses a row with (23514).
 const siteGateConstraint = "holding_site_gate"
+
+// sqlstateLockNotAvailable is lock_timeout running out (55P03) -- for a site row, the gate's
+// 2-second wait on a membership row an operator's removal holds (migration 00043).
+const sqlstateLockNotAvailable = "55P03"
 
 // Service records taps. Dependencies are injected as struct fields (§7); there is
 // no package-level state and no init magic.
@@ -1454,7 +1462,7 @@ func (s *Service) write(ctx context.Context, tx pgx.Tx, req Request, tagRow db.R
 	if err != nil {
 		return uuid.Nil, err
 	}
-	row, err := store.New(tx).InsertTransaction(ctx, params)
+	row, err := s.insert(ctx, tx, params)
 	if err != nil {
 		var pg *pgconn.PgError
 		if errors.As(err, &pg) && pg.Code == "23514" && pg.ConstraintName == siteGateConstraint {
@@ -1465,6 +1473,48 @@ func (s *Service) write(ctx context.Context, tx pgx.Tx, req Request, tagRow db.R
 		return uuid.Nil, fmt.Errorf("checkin: record tap: %w", err)
 	}
 	return row.ID, nil
+}
+
+// insert is the INSERT -- and for a row that names a site, the INSERT in a savepoint, made a
+// SECOND time when the first ran out the site gate's lock wait (the security review's DÜŞÜK-1,
+// ADR 0027 §13). holding_site_gate takes the two membership rows FOR SHARE with lock_timeout 2s;
+// an operator's op_remove_holding_member that holds KM's row longer than that made the INSERT
+// fail with 55P03, and that failure took the whole tap: a 500, and for an NFC tap whose counter
+// had already advanced the record was lost -- the person's retry is decided not_peer, no row
+// (§4.6). The second attempt reads the removal COMMITTED (the usual case: the operator's
+// statement is short) and the gate's tolerant arm accepts an advanced NFC row, and a refusal on
+// either channel, within the 60-second window; a strict row (QR, an unadvanced NFC) is then
+// refused 23514 -- ErrSiteMembershipEnded, "tap again", nothing lost that was ever owed. If the
+// removal holds the row through the second wait too, the error goes up as before: that path,
+// two waits of 2 s with the row held throughout, is the cost ADR 0027 §13 names. Nothing else is
+// retried, and a row without a site never meets the gate's wait, so it has no savepoint.
+func (s *Service) insert(ctx context.Context, tx pgx.Tx, params store.InsertTransactionParams) (store.Transaction, error) {
+	if params.SiteTenantID == nil {
+		return store.New(tx).InsertTransaction(ctx, params)
+	}
+	for attempt := 1; ; attempt++ {
+		sp, err := tx.Begin(ctx)
+		if err != nil {
+			return store.Transaction{}, fmt.Errorf("checkin: savepoint for a site row: %w", err)
+		}
+		row, err := store.New(sp).InsertTransaction(ctx, params)
+		if err == nil {
+			if err := sp.Commit(ctx); err != nil {
+				return store.Transaction{}, fmt.Errorf("checkin: release the site row's savepoint: %w", err)
+			}
+			return row, nil
+		}
+		if rbErr := sp.Rollback(ctx); rbErr != nil {
+			return store.Transaction{}, errors.Join(err, fmt.Errorf("checkin: roll back the site row's savepoint: %w", rbErr))
+		}
+		var pg *pgconn.PgError
+		if attempt > 1 || !errors.As(err, &pg) || pg.Code != sqlstateLockNotAvailable || !strings.Contains(pg.Where, siteGateConstraint) {
+			return store.Transaction{}, err
+		}
+		s.log.WarnContext(ctx, "checkin: the site gate's lock wait ran out (a membership being removed); writing the record once more",
+			"employee_id", params.EmployeeID, "session_tenant_id", params.TenantID)
+		s.hooks.call(s.hooks.betweenSiteWrites, ctx)
+	}
 }
 
 // insertParams maps a Decision onto the record's columns.
