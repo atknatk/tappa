@@ -321,22 +321,24 @@ LIMIT @row_limit;
 -- allows a record with no policy decision at all (everything written before M3-07,
 -- and every manager-typed row), and folding those into another bucket would make the
 -- column sum disagree with the record count above it.
--- M11 API-1c (ORTA-A, K-39): a row at a holding peer's venue is marked (partner) and the reader
--- folds every such group into ONE bucket with no sid and no layer (ledger's Anomalies) -- which rule
--- decided it (gps-only-allow, no-evidence-review, the cross-tenant QR guardrail ...) says what the
--- peer's network and coordinate showed. The fold is in Go because sqlc v1.28 types every SQL
--- spelling of "the sid unless partner" as bool or interface{} (measured: CASE, NULLIF).
+-- M11 API-1c (K-39; the third review's ORTA): a row at a holding peer's venue is NOT in this
+-- breakdown at all -- which rule decided it (gps-only-allow, no-evidence-review, the cross-tenant QR
+-- guardrail ...) says what the peer's network and coordinate showed, and so would the place a
+-- folded bucket took in an order by count and sid (measured: two partner rules of the same count
+-- sorted the bucket before or after the employer's own rule by the partner rule's name). The reader
+-- shows them as one bucket, ALWAYS LAST, counted from CountAnomalySignals' partner_records; leaving
+-- them out here also keeps them from spending the row limit. The order is total: count, sid, layer.
 SELECT
     t.matched_sid                                                  AS matched_sid,
     t.policy_layer                                                 AS policy_layer,
-    (t.site_tenant_id IS NOT NULL)::boolean                        AS partner,
     count(*)                                                       AS records
 FROM transactions t
 WHERE t.tenant_id = @tenant_id
   AND t.occurred_at >= @from_at
   AND t.occurred_at < @to_at
-GROUP BY t.matched_sid, t.policy_layer, (t.site_tenant_id IS NOT NULL)
-ORDER BY count(*) DESC, t.matched_sid NULLS FIRST
+  AND t.site_tenant_id IS NULL
+GROUP BY t.matched_sid, t.policy_layer
+ORDER BY count(*) DESC, t.matched_sid NULLS FIRST, t.policy_layer NULLS FIRST
 LIMIT @row_limit;
 
 -- name: ListTapsTakenTogether :many

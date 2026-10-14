@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -872,5 +873,155 @@ func TestAnomalies_APartnerVenueRowAddsNoEvidenceFigure(t *testing.T) {
 	}
 	if partner != 2 {
 		t.Errorf("the partner bucket holds %d records, want 2", partner)
+	}
+}
+
+// TestAnomalies_ThePartnerBucketSaysNothingByItsPlace is the third review's ORTA (K-39): the rule
+// breakdown's partner bucket must not say which rule decided the partner rows by WHERE it sits. KM's
+// own two no-evidence rows beside two partner rows, once decided by gps-only-allow / ip-or-gps-ok and
+// once (another week) by qr-requires-ip / the cross-tenant QR guardrail: the two breakdowns are
+// identical -- KM's rule, then the bucket of 2, LAST. And the partner rows do not spend the row
+// limit: 60 partner rows under 60 distinct rules beside KM's three rules leave the listing whole
+// (three rules, the bucket of 60, nothing shortened). MUTANTS (measured): the query's site filter
+// removed; the bucket put first; the bucket counted from the listed groups instead of the totals.
+func TestAnomalies_ThePartnerBucketSaysNothingByItsPlace(t *testing.T) {
+	w := newHWorld(t)
+	insert := func(day, clock, sid string, site bool) {
+		t.Helper()
+		var siteTenant, siteVenue, siteTag, venue, tag any
+		if site {
+			siteTenant, siteVenue, siteTag = w.kf, w.venue[w.kf], w.plaque[w.kf]
+		} else {
+			venue, tag = w.venue[w.km], w.plaque[w.km]
+		}
+		w.exec(`INSERT INTO transactions (tenant_id, employee_id, occurred_at, verdict, channel, type, sun_valid, ctr, trust,
+		                                  policy_layer, matched_sid, location_id, tag_uid, site_tenant_id, site_location_id, site_tag_uid)
+		        VALUES ($1, $2, $3, 'ok', 'nfc', 'in', true, 1000, 50, 'guardrail', $4, $5, $6, $7, $8, $9)`,
+			w.km, w.staff[w.km][0], hLocal(t, day, clock), sid, venue, tag, siteTenant, siteVenue, siteTag)
+	}
+	breakdown := func(day Date) ([]AnomalyPolicyRule, bool) {
+		t.Helper()
+		a, err := w.r.Anomalies(w.ctx, w.km, ReportFilter{Day: day})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return a.Policies, a.MorePolicies
+	}
+	for _, c := range []struct {
+		day   string
+		date  Date
+		rules [2]string
+	}{
+		{"2026-06-03", Date{Year: 2026, Month: time.June, Day: 3}, [2]string{"base:gps-only-allow", "base:ip-or-gps-ok"}},
+		{"2026-06-10", Date{Year: 2026, Month: time.June, Day: 10}, [2]string{"base:qr-requires-ip", "sys:cross-tenant-qr-site-ip"}},
+	} {
+		insert(c.day, "09:00:00", "base:no-evidence-review", false)
+		insert(c.day, "09:10:00", "base:no-evidence-review", false)
+		insert(c.day, "09:20:00", c.rules[0], true)
+		insert(c.day, "09:30:00", c.rules[1], true)
+		got, more := breakdown(c.date)
+		want := []AnomalyPolicyRule{{SID: "base:no-evidence-review", Layer: "guardrail", Records: 2}, {Partner: true, Records: 2}}
+		if more || !slices.Equal(got, want) {
+			t.Errorf("partner rules %v: the breakdown is %+v (more %v), want %+v -- the same for any partner rule", c.rules, got, more, want)
+		}
+	}
+	day := "2026-06-17"
+	for i, sid := range []string{"base:ip-or-gps-ok", "base:ctr-gap-review", "base:no-evidence-review"} {
+		insert(day, fmt.Sprintf("08:0%d:00", i), sid, false)
+	}
+	for i := range 60 {
+		insert(day, fmt.Sprintf("10:%02d:00", i), fmt.Sprintf("sys:zz-partner-%02d", i), true)
+	}
+	got, more := breakdown(Date{Year: 2026, Month: time.June, Day: 17})
+	if more || len(got) != 4 || !got[3].Partner || got[3].Records != 60 {
+		t.Errorf("60 partner rules beside 3 own: %d rows (more %v), last %+v -- want 3 rules and the bucket of 60, whole", len(got), more, got[len(got)-1])
+	}
+}
+
+// TestAnomalies_EveryEvidenceFigureLeavesThePartnerOut pins each evidence figure's filter on its
+// own (the third review's D-2: five SQL mutants stayed green). One week, KM:
+//
+//	Aaa  own: GPS alone + outside the radius
+//	Zzz  own: the same as Aaa's; partner: GPS alone + outside three times (more GPS-alone rows at
+//	     the partner venue than at the own one, and more than Aaa's, so a ranking by them would
+//	     flip both orders), and ip yes + outside FIVE times (on the partner's network)
+//	own venue: Aaa's and Zzz's own rows; partner venue: their partner rows and a typed partner row
+//
+// Each person's figures are their own-venue ones (1 and 1, never 3 or 6); Aaa sorts before Zzz (the
+// partner rows do not move the order); the own venue sorts before the partner venue; the totals'
+// on-network figure is 0 (only partner rows were on the network); AnswerableOwn is the own rows
+// with a snapshot (the typed partner row has none and is counted as the partner's, not as the
+// business's unanswerable). MUTANTS (measured, anomalies.sql, one at a time): the filter out of
+// outside_venue_on_network, out of the person select's distance_only, out of its outside_venue, out
+// of the person ORDER, out of the venue ORDER, partner_answerable without its snapshot condition --
+// each red.
+func TestAnomalies_EveryEvidenceFigureLeavesThePartnerOut(t *testing.T) {
+	w := newHWorld(t)
+	aaa, zzz := w.staff[w.km][0], w.staff[w.km][1]
+	w.exec(`UPDATE employees SET full_name = 'Aaa ' || left(id::text, 4) WHERE id = $1`, aaa)
+	w.exec(`UPDATE employees SET full_name = 'Zzz ' || left(id::text, 4) WHERE id = $1`, zzz)
+	n := 0
+	insert := func(employee uuid.UUID, site, ipMatch bool, channel string) {
+		t.Helper()
+		n++
+		var siteTenant, siteVenue, siteTag, venue, tag any
+		if site {
+			siteTenant, siteVenue, siteTag = w.kf, w.venue[w.kf], w.plaque[w.kf]
+		} else {
+			venue, tag = w.venue[w.km], w.plaque[w.km]
+		}
+		var sun, ctr, ip, gps, ctx any = true, 1000, ipMatch, true, `{"tap:gpsConflict": true, "tap:ctrGap": 0}`
+		if channel == "manual" {
+			sun, ctr, ip, gps, ctx, siteTag, tag = nil, nil, nil, nil, nil, nil, nil
+		}
+		w.exec(`INSERT INTO transactions (tenant_id, employee_id, occurred_at, verdict, channel, type, sun_valid, ctr, ip_match, gps_match, trust,
+		                                  policy_context, location_id, tag_uid, site_tenant_id, site_location_id, site_tag_uid)
+		        VALUES ($1, $2, $3, 'ok', $4, 'in', $5, $6, $7, $8, 50, $9::jsonb, $10, $11, $12, $13, $14)`,
+			w.km, employee, hLocal(t, "2026-05-13", fmt.Sprintf("%02d:%02d:00", 6+n/60, n%60)), channel, sun, ctr, ip, gps, ctx,
+			venue, tag, siteTenant, siteVenue, siteTag)
+	}
+	insert(aaa, false, false, "nfc")
+	insert(zzz, false, false, "nfc")
+	for range 3 {
+		insert(zzz, true, false, "nfc")
+	}
+	for range 5 {
+		insert(zzz, true, true, "nfc")
+	}
+	insert(zzz, true, false, "manual")
+	a, err := w.r.Anomalies(w.ctx, w.km, ReportFilter{Day: Date{Year: 2026, Month: time.May, Day: 13}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Totals.OutsideVenueOnNetwork != 0 {
+		t.Errorf("on-network outside the venue: %d, want 0 (only the partner's rows were on its network)", a.Totals.OutsideVenueOnNetwork)
+	}
+	if a.Totals.AnswerableOwn != 2 || a.Totals.Partner != 9 {
+		t.Errorf("answerable own %d, partner %d; want 2 and 9", a.Totals.AnswerableOwn, a.Totals.Partner)
+	}
+	var order []uuid.UUID
+	for _, p := range a.People {
+		if p.EmployeeID != aaa && p.EmployeeID != zzz {
+			continue
+		}
+		order = append(order, p.EmployeeID)
+		if p.DistanceOnly != 1 || p.OutsideVenue != 1 {
+			t.Errorf("%s: distance-only %d, outside %d; want 1 and 1 (own venue only)", p.Name, p.DistanceOnly, p.OutsideVenue)
+		}
+	}
+	if len(order) != 2 || order[0] != aaa {
+		t.Errorf("the people list's order is %v, want Aaa then Zzz -- the partner rows moved it", order)
+	}
+	own, partner := -1, -1
+	for i, v := range a.Venues {
+		switch {
+		case v.LocationID == w.venue[w.km]:
+			own = i
+		case v.LocationID == w.venue[w.kf]:
+			partner = i
+		}
+	}
+	if own < 0 || partner < 0 || own > partner {
+		t.Errorf("venue order: own at %d, partner at %d -- want the own venue first (the partner's rows do not rank it)", own, partner)
 	}
 }

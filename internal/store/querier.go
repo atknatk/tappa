@@ -2865,11 +2865,13 @@ type Querier interface {
 	// allows a record with no policy decision at all (everything written before M3-07,
 	// and every manager-typed row), and folding those into another bucket would make the
 	// column sum disagree with the record count above it.
-	// M11 API-1c (ORTA-A, K-39): a row at a holding peer's venue is marked (partner) and the reader
-	// folds every such group into ONE bucket with no sid and no layer (ledger's Anomalies) -- which rule
-	// decided it (gps-only-allow, no-evidence-review, the cross-tenant QR guardrail ...) says what the
-	// peer's network and coordinate showed. The fold is in Go because sqlc v1.28 types every SQL
-	// spelling of "the sid unless partner" as bool or interface{} (measured: CASE, NULLIF).
+	// M11 API-1c (K-39; the third review's ORTA): a row at a holding peer's venue is NOT in this
+	// breakdown at all -- which rule decided it (gps-only-allow, no-evidence-review, the cross-tenant QR
+	// guardrail ...) says what the peer's network and coordinate showed, and so would the place a
+	// folded bucket took in an order by count and sid (measured: two partner rules of the same count
+	// sorted the bucket before or after the employer's own rule by the partner rule's name). The reader
+	// shows them as one bucket, ALWAYS LAST, counted from CountAnomalySignals' partner_records; leaving
+	// them out here also keeps them from spending the row limit. The order is total: count, sid, layer.
 	ListAnomalyPolicySids(ctx context.Context, arg ListAnomalyPolicySidsParams) ([]ListAnomalyPolicySidsRow, error)
 	// The same window split by the venue whose plaque was touched.
 	//

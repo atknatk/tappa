@@ -655,27 +655,19 @@ func (r *Reader) Anomalies(ctx context.Context, tenantID uuid.UUID, f ReportFilt
 			return fmt.Errorf("list anomaly policy sids: %w", err)
 		}
 		rules, body.MorePolicies = trimAnomalyRows(rules)
-		body.Policies = make([]AnomalyPolicyRule, 0, len(rules))
-		partner := -1
+		body.Policies = make([]AnomalyPolicyRule, 0, len(rules)+1)
 		for _, s := range rules {
-			if s.Partner {
-				// M11 API-1c (K-39): every rule that decided a row at a peer's venue folds into
-				// one bucket with no name -- the name would say what the peer's evidence showed.
-				if partner < 0 {
-					partner = len(body.Policies)
-					body.Policies = append(body.Policies, AnomalyPolicyRule{Partner: true})
-				}
-				body.Policies[partner].Records += int(s.Records)
-				continue
-			}
 			body.Policies = append(body.Policies, AnomalyPolicyRule{
 				SID:     deref(s.MatchedSid),
 				Layer:   deref(s.PolicyLayer),
 				Records: int(s.Records),
 			})
 		}
-		if partner >= 0 {
-			sort.SliceStable(body.Policies, func(i, j int) bool { return body.Policies[i].Records > body.Policies[j].Records })
+		// M11 API-1c (K-39): every row at a peer's venue is one bucket with no name, ALWAYS LAST,
+		// counted from the totals -- the query leaves those rows out, so neither a rule's name nor
+		// the bucket's place in an order by count and sid can say what the peer's evidence showed.
+		if body.Totals.Partner > 0 {
+			body.Policies = append(body.Policies, AnomalyPolicyRule{Partner: true, Records: body.Totals.Partner})
 		}
 
 		body.Queried = true

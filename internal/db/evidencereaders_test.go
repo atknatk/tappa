@@ -3,9 +3,16 @@ package db
 // evidencereaders_test.go -- M11 API-1c, the second review's ORTA-A (K-39): every statement of
 // db/queries that reads transactions' evidence or decision columns is classified -- does it keep a
 // row taken at a holding PEER's venue from describing the peer's network and coordinate, and how.
-// A new reader is red until somebody files it.
+// WHAT IT CATCHES, AND WHAT IT DOES NOT (the third review's D-3, stated rather than implied): a
+// statement in db/queries that names `transactions` and one of evidenceColumnRE's columns or a
+// whole-row read is red until somebody files it. It does not see SQL outside db/queries (no Go
+// file writes SQL by hand today; the holding_* functions live in migrations and are proven by
+// their own catalog tests), a reader that reaches the table under another name (a view), or
+// whether a counted filter sits on the RIGHT figure -- `must` is a fragment counted, not parsed;
+// the one-filter-dropped control and the anomaly tests' SQL mutants carry that half.
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -22,32 +29,48 @@ type evidenceReaderClass struct {
 	// "not-rendered" (a decision input or a writer, never on a screen), "residue" (named in ADR
 	// 0027 §13 item 5).
 	how string
-	// must is a fragment the statement must carry for the class to hold ("" for none).
-	must string
-	why  string
+	// must is a fragment the statement must carry for the class to hold ("" for none), and
+	// times how often, exactly (0: at least once) -- for a filtered statement it is the number of
+	// figures that carry the filter, so dropping it from ONE of them is red (the third review's D-3:
+	// "somewhere, once" let a statement lose all but one filter and stay green).
+	must  string
+	times int
+	why   string
 }
 
 // evidenceReaders is the inventory (2026-10-14).
 var evidenceReaders = map[string]evidenceReaderClass{
-	"CountAnomalySignals":           {"sql-filter", "site_tenant_id IS NULL", "judged, distance_only, outside_venue(_on_network) own venues only; partner rows counted apart"},
-	"ListAnomalyPeople":             {"sql-filter", "site_tenant_id IS NULL", "distance_only and outside_venue (select, HAVING, ORDER) own venues only"},
-	"ListAnomalyVenues":             {"sql-filter", "site_tenant_id IS NULL", "the two evidence figures own venues only; the partner venue is its own row"},
-	"ListAnomalyPolicySids":         {"sql-filter", "site_tenant_id IS NOT NULL", "a partner row is marked; ledger folds them into one unnamed bucket"},
-	"ListAnomalyPlaques":            {"excluded", "tag_uid IS NOT NULL", "a site row's tag_uid is NULL (K-30): the peer's plaque is never the employer's anomaly"},
-	"ListPanelTransactions":         {"go-blank", "site_location_id", "ledger.nameSiteRecords blanks ip/gps/trust and replaces an evidence rule's note"},
-	"ListFlaggedForReview":          {"go-blank", "site_location_id", "the same mapping as the day list (review queue)"},
-	"ListWorkedShiftEvents":         {"residue", "", "verdict decides the hours state only; it is not printed as evidence (§13 item 5: the verdict residue)"},
-	"CountPendingFlagged":           {"residue", "", "a count of flags to decide; a flag's existence is the verdict residue (§13 item 5)"},
-	"GetLastOpenTransaction":        {"not-rendered", "", "the tap decision's input (direction chain), never shown"},
-	"GetLastTransactionForEmployee": {"not-rendered", "", "the tap decision's input (debounce), never shown"},
-	"InsertTransaction":             {"not-rendered", "", "the writer"},
-	"InsertManualTransaction":       {"not-rendered", "", "the writer (manual)"},
-	"InsertManualSiteTransaction":   {"not-rendered", "", "the writer (manual at a peer's venue)"},
-	"InsertTransactionReview":       {"not-rendered", "", "the review writer reads the decided row's verdict to refuse a non-flag"},
+	"CountAnomalySignals": {"sql-filter", "site_tenant_id IS NULL", 4,
+		"judged, distance_only, outside_venue, outside_venue_on_network own venues only; partner rows counted apart (site_tenant_id IS NOT NULL, twice)"},
+	"ListAnomalyPeople": {"sql-filter", "site_tenant_id IS NULL", 6,
+		"distance_only and outside_venue in the select, the HAVING and the ORDER, own venues only"},
+	"ListAnomalyVenues": {"sql-filter", "site_tenant_id IS NULL", 3,
+		"the two evidence figures and the ORDER own venues only; the partner venue is its own row"},
+	"ListAnomalyPolicySids": {"excluded", "site_tenant_id IS NULL", 1,
+		"partner rows are not in the breakdown; ledger appends one unnamed bucket, last, from the totals"},
+	"ListAnomalyPlaques": {"excluded", "tag_uid IS NOT NULL", 0,
+		"a site row's tag_uid is NULL (K-30): the peer's plaque is never the employer's anomaly"},
+	"ListPanelTransactions": {"go-blank", "site_location_id", 0,
+		"ledger.nameSiteRecords blanks ip/gps/trust and replaces an evidence rule's note (matched_sid read for that)"},
+	"ListFlaggedForReview": {"go-blank", "site_location_id", 0, "the same mapping as the day list (review queue)"},
+	"ListWorkedShiftEvents": {"residue", "", 0,
+		"verdict decides the hours state only; it is not printed as evidence (§13 item 5: the verdict residue)"},
+	"CountPendingFlagged":           {"residue", "", 0, "a count of flags to decide; a flag's existence is the verdict residue (§13 item 5)"},
+	"GetLastOpenTransaction":        {"not-rendered", "", 0, "the tap decision's input (direction chain), never shown"},
+	"GetLastTransactionForEmployee": {"not-rendered", "", 0, "the tap decision's input (debounce), never shown"},
+	"InsertTransaction":             {"not-rendered", "", 0, "the writer"},
+	"InsertManualTransaction":       {"not-rendered", "", 0, "the writer (manual)"},
+	"InsertManualSiteTransaction":   {"not-rendered", "", 0, "the writer (manual at a peer's venue)"},
+	"InsertTransactionReview":       {"not-rendered", "", 0, "the review writer reads the decided row's verdict to refuse a non-flag"},
 }
 
 // evidenceColumnRE names the columns a K-39 leak would be computed from.
-var evidenceColumnRE = regexp.MustCompile(`(?i)\b(ip_match|gps_match|gps_distance_m|trust|matched_sid|note|policy_context|policy_layer|verdict)\b`)
+// The evidence itself (source_ip, gps_lat, gps_lng -- and gps_distance_m should a column of that
+// name ever exist; today the distance lives in policy_context), the decision built on it, the chip
+// facts (sun_valid, ctr), and a read of the whole row (SELECT *, alias.*, RETURNING *, sqlc.embed),
+// which carries all of them under no column name (the third review's D-3).
+var evidenceColumnRE = regexp.MustCompile(`(?i)\b(ip_match|gps_match|gps_distance_m|gps_lat|gps_lng|source_ip|sun_valid|ctr|trust|matched_sid|note|policy_context|policy_layer|verdict)\b` +
+	`|\bSELECT\s+(?:DISTINCT\s+)?\*|\b\w+\.\*|\bRETURNING\s+\*|\bsqlc\.embed\s*\(`)
 
 // TestEvidenceReaders_EveryOneIsClassified: the statements of db/queries that name transactions and
 // one of evidenceColumnRE's columns are exactly evidenceReaders' keys, and each carries the
@@ -76,8 +99,12 @@ func TestEvidenceReaders_EveryOneIsClassified(t *testing.T) {
 					"decide what a row at a partner venue does there (K-39) and file it")
 				continue
 			}
-			if c.must != "" && !strings.Contains(stmt, c.must) {
+			switch n := strings.Count(stmt, c.must); {
+			case c.must == "":
+			case c.times == 0 && n == 0:
 				out = append(out, name+": filed as "+c.how+" but does not carry "+c.must)
+			case c.times > 0 && n != c.times:
+				out = append(out, fmt.Sprintf("%s: filed as %s with %q %d times, the statement carries it %d times", name, c.how, c.must, c.times, n))
 			}
 		}
 		for name := range evidenceReaders {
@@ -94,9 +121,16 @@ func TestEvidenceReaders_EveryOneIsClassified(t *testing.T) {
 	if len(evidenceReaders) < 15 {
 		t.Fatalf("anti-vacuity: %d readers", len(evidenceReaders))
 	}
-	control := src.String() + "\n-- name: ZZProbe :many\nSELECT t.ip_match FROM transactions t WHERE t.tenant_id = @tenant_id;\n"
-	if got := check(control); len(got) != 1 || !strings.HasPrefix(got[0], "ZZProbe") {
-		t.Errorf("CONTROL: a new reader of ip_match was not caught: %v", got)
+	for _, probe := range []string{"t.ip_match", "t.source_ip", "t.gps_lat", "t.sun_valid", "t.ctr", "t.*", "*", "sqlc.embed(t)"} {
+		control := src.String() + "\n-- name: ZZProbe :many\nSELECT " + probe + " FROM transactions t WHERE t.tenant_id = @tenant_id;\n"
+		if got := check(control); len(got) != 1 || !strings.HasPrefix(got[0], "ZZProbe") {
+			t.Errorf("CONTROL: a new reader of %s was not caught: %v", probe, got)
+		}
+	}
+	dropped := strings.Replace(src.String(), "count(*) FILTER (WHERE t.gps_match AND NOT t.ip_match AND t.site_tenant_id IS NULL) AS distance_only",
+		"count(*) FILTER (WHERE t.gps_match AND NOT t.ip_match) AS distance_only", 1)
+	if dropped == src.String() || len(check(dropped)) == 0 {
+		t.Error("CONTROL: one filter taken out of one figure was not caught")
 	}
 }
 
