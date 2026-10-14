@@ -1061,8 +1061,9 @@ func TestHoldingWindow_GateLockWaitIsWrittenOnceMore(t *testing.T) {
 // not close, named in ADR 0027 §13: the removal holds KM's membership row through BOTH waits (the
 // hook between them commits nothing). The tap fails with the gate's 55P03 after two 2-second
 // waits -- not ErrSiteMembershipEnded, nothing written -- and KF's counter has moved: that record
-// is lost. It needs an operator transaction open for more than 4 s on that one row, which
-// op_remove_holding_member (one UPDATE and one INSERT) is not.
+// is lost. It needs the membership row held for more than 4 s: op_remove_holding_member is one
+// UPDATE and up to three INSERTs (two audit_log rows, one operator_audit_log row), each of which
+// can wait -- behind a migration's DDL on those tables, say -- while the row stays locked.
 func TestHoldingWindow_GateLockHeldThroughBothWaitsIsTheNamedCost(t *testing.T) {
 	w := newHoldingWorld(t)
 	between := 0

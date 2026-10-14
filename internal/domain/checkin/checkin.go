@@ -202,7 +202,7 @@ func dbHolding(tx pgx.Tx) holdingQuerier { return db.HoldingOn(tx) }
 type recordHooks struct {
 	afterResolve, afterAdvance, beforeWrite func(ctx context.Context)
 	// betweenSiteWrites runs after the site gate's lock wait ran out and before the one
-	// retry (insertSite).
+	// retry (insert).
 	betweenSiteWrites func(ctx context.Context)
 }
 
@@ -1481,13 +1481,22 @@ func (s *Service) write(ctx context.Context, tx pgx.Tx, req Request, tagRow db.R
 // an operator's op_remove_holding_member that holds KM's row longer than that made the INSERT
 // fail with 55P03, and that failure took the whole tap: a 500, and for an NFC tap whose counter
 // had already advanced the record was lost -- the person's retry is decided not_peer, no row
-// (§4.6). The second attempt reads the removal COMMITTED (the usual case: the operator's
-// statement is short) and the gate's tolerant arm accepts an advanced NFC row, and a refusal on
-// either channel, within the 60-second window; a strict row (QR, an unadvanced NFC) is then
-// refused 23514 -- ErrSiteMembershipEnded, "tap again", nothing lost that was ever owed. If the
-// removal holds the row through the second wait too, the error goes up as before: that path,
-// two waits of 2 s with the row held throughout, is the cost ADR 0027 §13 names. Nothing else is
-// retried, and a row without a site never meets the gate's wait, so it has no savepoint.
+// (§4.6).
+//
+// WHAT THE RETRY RESCUES, AND WHAT IT DOES NOT. A removal that commits inside the first 2 s never
+// reaches it: the first attempt's gate reads the committed left_at and decides. The retry is for a
+// removal that holds the row between 2 and 4 s -- op_remove_holding_member is one UPDATE and up
+// to three INSERTs (two audit_log rows, one operator_audit_log row), and any of those INSERTs can
+// itself wait (behind a migration's DDL on those tables, say) with the membership row still
+// locked. The second attempt then reads the removal committed: the gate's tolerant arm accepts an
+// advanced NFC row, and a refusal on either channel, within the 60-second window; a strict row
+// (QR, an unadvanced NFC) is refused 23514 -- ErrSiteMembershipEnded, "tap again", nothing lost
+// that was ever owed. A row held through the second wait too sends the error up as before: the
+// cost ADR 0027 §13 names. A TABLE lock on holding_members does not reach this wait on the tap
+// path (measured): the gather read the table in this same transaction, and a backend already
+// holding a lock on a table is granted ahead of a queued ACCESS EXCLUSIVE; one taken before the
+// transaction stalls the gather instead, which has no lock_timeout. Nothing else is retried, and
+// a row without a site never meets the gate's wait, so it has no savepoint.
 func (s *Service) insert(ctx context.Context, tx pgx.Tx, params store.InsertTransactionParams) (store.Transaction, error) {
 	if params.SiteTenantID == nil {
 		return store.New(tx).InsertTransaction(ctx, params)
