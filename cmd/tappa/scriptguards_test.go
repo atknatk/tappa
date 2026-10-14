@@ -882,3 +882,54 @@ func TestRestoreVerify_FeedManifestGate(t *testing.T) {
 		}
 	}
 }
+
+// TestRedline_TheCounterSetMarkIsTheTriggersAlone pins redline-check.sh's R5c (M11 API-2,
+// ADR 0028's API-2 note, round 3): the counter-set mark -- the transaction-local setting by which
+// 00049's triggers refuse a second counter set (TF001) -- is named nowhere but db/migrations. A
+// caller that writes it first steps past the check, and the deadlock it reopens falls on OTHER
+// tenants' holding taps (40P01, the NFC record not written). On a tree holding only the two
+// scripts and one line each: the name in a migration -- no R5c; the same line in a Go file, a
+// script or a deploy file -- R5c FAIL and a non-zero exit.
+func TestRedline_TheCounterSetMarkIsTheTriggersAlone(t *testing.T) {
+	if _, err := exec.LookPath("rg"); err != nil {
+		t.Skip("rg is not installed; redline-check needs it (CI installs it)")
+	}
+	// Spelled in two halves: this file is scanned by the very rule it pins.
+	mark := `PERFORM pg_catalog.set_config('tappa.` + `feed_counters', 'x', true);`
+	run := func(rel, body string) (string, int) {
+		t.Helper()
+		r := &hookRepo{t: t, dir: t.TempDir()}
+		r.git("init", "-q")
+		for _, s := range []string{"scripts/redline-check.sh", "scripts/secretscan.sh"} {
+			b, err := os.ReadFile(filepath.Join(repoRoot, s))
+			if err != nil {
+				t.Fatal(err)
+			}
+			r.write(s, string(b))
+		}
+		// Every tree the script reads exists (a missing one is a scan error, not a clean scan).
+		for _, d := range []string{"cmd", "internal", "db", "web/templates", "web/static/js", "test", "deploy", ".github"} {
+			r.write(d+"/keep.txt", "\n")
+		}
+		r.write(rel, body)
+		cmd := exec.Command("bash", "scripts/redline-check.sh")
+		cmd.Dir = r.dir
+		out, err := cmd.CombinedOutput()
+		code := 0
+		if ee, ok := err.(*exec.ExitError); ok {
+			code = ee.ExitCode()
+		} else if err != nil {
+			t.Fatal(err)
+		}
+		return string(out), code
+	}
+	if out, _ := run("db/migrations/00099_x.sql", mark+"\n"); strings.Contains(out, "R5c") {
+		t.Errorf("the mark in a migration is the triggers' own -- R5c fired:\n%s", out)
+	}
+	for _, rel := range []string{"internal/domain/checkin/x.go", "scripts/x.sh", "deploy/x.yaml", "internal/db/x_test.go"} {
+		out, code := run(rel, "// "+mark+"\n")
+		if !strings.Contains(out, "R5c · FAIL") || code == 0 {
+			t.Errorf("the mark in %s: exit %d, want R5c FAIL and a non-zero exit:\n%s", rel, code, out)
+		}
+	}
+}

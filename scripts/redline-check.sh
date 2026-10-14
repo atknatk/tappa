@@ -1384,6 +1384,18 @@ report FAIL R5 "Uygulama migration rolu ile baglaniyor — RLS etkisiz kalir" \
 report WARN R5 "SET LOCAL degil duz SET — havuzdaki baglantiyi kirletir" \
   "$(scan -e "SET +app\.tenant_id" | grep -viE "SET +LOCAL" | grep -vE "^db/migrations/[^:]+:[0-9]+:[[:space:]]*SET app\.tenant_id = ''[[:space:]]*\$" || true)"
 
+# R5c -- TEK SAYAC KUMESI ISARETI YALNIZ TETIKLEYICININDIR (M11 API-2 3. tur, ADR 0028
+# "API-2 uygulama notu"). 00049'un punch_feed/holding_feed'i islemin ILK olayinin sayac
+# kumesini islem-yerel `tappa.feed_counters` GUC'una yazar; kume disindaki ikinci olay
+# TF001 ile reddedilir. GUC'u CAGIRAN da yazabilir: isareti onceden yazan bir islem kontrolu
+# atlatir ve iki ters yonlu holding dokunusu yeniden kilitlenir -- KURBAN atlatan degil,
+# BASKA tenant ciftlerinin holding dokunuslaridir (40P01; checkin 40P01'i yeniden denemez,
+# NFC kaydi yazilmaz -- iki mercek pgbench ile olctu: 29'da 18, 155'te 88). Bu yuzden adi
+# migration disinda HICBIR YERDE gecmez: urun kodu, betik, dagitim, test. (docs/ taranmaz;
+# ADR onu anlatir.) Pin: cmd/tappa TestRedline_TheCounterSetMarkIsTheTriggersAlone.
+report FAIL R5c "tappa.feed_counters migration disinda — TF001'in tek sayac kumesi kontrolunu atlatma yolu" \
+  "$(scan -e 'tappa\.feed_counters' --glob '!db/migrations/**' || true)"
+
 # --- R7: sir sizintisi -------------------------------------------------------
 # `code[_a-z]*hash` ve `"code"[[:space:]]*,` (M5-02): davet AKISINDA hash bir
 # TASIYICI (bearer) kimlik bilgisidir -- hash -> resolver -> tenant -> tuketim.

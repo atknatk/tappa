@@ -171,7 +171,11 @@ GRANT INSERT (tenant_id, endpoint_id, punch_event_seq) ON webhook_deliveries TO 
 --   the snapshot (K-32) and the gate (K-22: api_enabled_at, an active endpoint) -- read before the
 --      counter, so the counter's lock is held for the writes alone;
 --   one counter set per transaction: a later event-writing row of the same transaction that needs
---      a counter the first one did not lock is refused (SQLSTATE TF001), before any lock;
+--      a counter the first one did not lock is refused (SQLSTATE TF001), before any lock. The mark
+--      (tappa.feed_counters) is a setting any session may write: one that writes it first steps
+--      past the check, and the deadlock that reopens falls on OTHER tenants' holding taps (40P01,
+--      their record not written -- measured, ADR 0028's API-2 note round 3). No product path
+--      writes it; scripts/redline-check.sh R5c refuses the name outside db/migrations;
 --   the counter raised -- the row locked until commit (ADR 0028 §5) -- the event, the delivery.
 -- recorded_at is now(): the server's instant the punch entered the feed (an approved flag's is
 -- its approval's).
@@ -290,7 +294,7 @@ BEGIN
     v_held := pg_catalog.current_setting('tappa.feed_counters', true);
     IF v_held IS NOT NULL AND pg_catalog.split_part(v_held, ':', 1) = v_xact THEN
         IF pg_catalog.strpos(v_held, v_tenant::text) = 0 THEN
-            RAISE EXCEPTION 'punch feed: this transaction already wrote an event under another counter; write one event-writing row per transaction (ADR 0028 §5)'
+            RAISE EXCEPTION 'punch feed: this event needs a counter outside the set this transaction''s first event locked; one counter set per transaction (ADR 0028 §5)'
                 USING ERRCODE = 'TF001';
         END IF;
     ELSE
@@ -502,7 +506,7 @@ BEGIN
         v_held := pg_catalog.current_setting('tappa.feed_counters', true);
         IF v_held IS NOT NULL AND pg_catalog.split_part(v_held, ':', 1) = v_xact THEN
             IF pg_catalog.strpos(v_held, v_employer::text) = 0 OR (v_peer AND pg_catalog.strpos(v_held, v_site::text) = 0) THEN
-                RAISE EXCEPTION 'punch feed: this transaction already wrote an event under another counter; write one event-writing row per transaction (ADR 0028 §5)'
+                RAISE EXCEPTION 'punch feed: this event needs a counter outside the set this transaction''s first event locked; one counter set per transaction (ADR 0028 §5)'
                     USING ERRCODE = 'TF001';
             END IF;
         ELSIF v_peer THEN
