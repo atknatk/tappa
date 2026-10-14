@@ -32,6 +32,7 @@ package checkin
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"math"
@@ -159,10 +160,11 @@ func TestAdvance_IssuesTheAtomicQueryExactlyOnce(t *testing.T) {
 		TagUID: tagRow.UID, Ctr: 701, Channel: tap.ChannelNFC, CMACVerified: true,
 	}
 
-	sunValid, gap, err := s.advance(context.Background(), req, tagRow)
+	res, err := s.advance(context.Background(), req, tagRow)
 	if err != nil {
 		t.Fatalf("advance: %v", err)
 	}
+	sunValid, gap := res.sunValid, res.gap
 	if !sunValid {
 		t.Fatal("a verified CMAC with an advancing counter must be SUN-valid")
 	}
@@ -195,7 +197,6 @@ func TestAdvance_IssuesTheAtomicQueryExactlyOnce(t *testing.T) {
 func TestAdvance_SkipsTheQueryEntirelyWhenItMust(t *testing.T) {
 	t.Parallel()
 	tenantID := uuid.New()
-	other := uuid.New()
 	base := db.ResolvedTag{UID: "04AC7E55000601", TenantID: tenantID, Status: string(tap.TagActive)}
 	baseReq := Request{SessionTenantID: tenantID, TagUID: base.UID, Ctr: 701,
 		Channel: tap.ChannelNFC, CMACVerified: true}
@@ -231,11 +232,6 @@ func TestAdvance_SkipsTheQueryEntirelyWhenItMust(t *testing.T) {
 			tag:  func(g db.ResolvedTag) db.ResolvedTag { g.Status = string(tap.TagLost); return g },
 			why:  "same as retired, plus a security alert downstream",
 		},
-		{
-			name: "the plaque belongs to another organisation",
-			tag:  func(g db.ResolvedTag) db.ResolvedTag { g.TenantID = other; return g },
-			why:  "§4.5: a session must not change another tenant's state (the F1 finding)",
-		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -250,21 +246,89 @@ func TestAdvance_SkipsTheQueryEntirelyWhenItMust(t *testing.T) {
 			adv := &countingAdvancer{}
 			data := &tenantRecorder{}
 			s := advanceService(t, data, adv)
+			peer := &countingHolding{}
+			s.holding = func(pgx.Tx) holdingQuerier { return peer }
 
-			sunValid, gap, err := s.advance(context.Background(), req, tag)
+			res, err := s.advance(context.Background(), req, tag)
 			if err != nil {
 				t.Fatalf("advance: %v", err)
 			}
-			if sunValid || gap != 0 {
-				t.Fatalf("sunValid=%v gap=%d, want false/0", sunValid, gap)
+			if res.sunValid || res.gap != 0 || res.peer != nil {
+				t.Fatalf("result %+v, want SUN-invalid, no gap and no peer answer", res)
 			}
-			if len(adv.calls) != 0 {
-				t.Fatalf("the atomic statement was issued anyway (%d times): %s", len(adv.calls), tc.why)
+			if len(adv.calls) != 0 || len(peer.advances) != 0 {
+				t.Fatalf("an atomic statement was issued anyway (%d single, %d holding): %s", len(adv.calls), len(peer.advances), tc.why)
 			}
 			if len(data.tenants) != 0 {
 				t.Fatalf("a transaction was opened against %v: %s", data.tenants, tc.why)
 			}
 		})
+	}
+}
+
+// countingHolding records every holding advance it is asked for (the peer-plaque seam).
+type countingHolding struct {
+	advances []string
+	answer   db.HoldingAdvance
+	err      error
+}
+
+func (c *countingHolding) HoldingAdvanceTagCounter(_ context.Context, uid string, ctr uint32) (db.HoldingAdvance, error) {
+	c.advances = append(c.advances, fmt.Sprintf("%s@%d", uid, ctr))
+	return c.answer, c.err
+}
+
+func (c *countingHolding) TapSite(context.Context, string) (db.HoldingSite, bool, error) {
+	return db.HoldingSite{}, false, errors.New("not used by the advance")
+}
+
+// TestAdvance_APeersPlaqueGoesThroughTheHoldingStatementOnly is the wiring pin of the
+// second copy of §4.4's statement (M11 API-1b, ADR 0027 §5): a plaque of ANOTHER tenant
+// never reaches the single-tenant AdvanceTagCounter; it reaches
+// holding_advance_tag_counter exactly once, with this tap's uid and counter, inside the
+// SESSION's tenant context (the function asks the membership of app.tenant_id), issuing no
+// statement of its own -- and each of the four outcomes maps to its fact: advanced is
+// SUN-valid and a peer; replay and peer_inactive are SUN-invalid peers carrying the status
+// of the lock; not_peer is no peer and nothing else. An error is an error.
+func TestAdvance_APeersPlaqueGoesThroughTheHoldingStatementOnly(t *testing.T) {
+	t.Parallel()
+	session, site := uuid.New(), uuid.New()
+	tagRow := db.ResolvedTag{UID: "04AC7E55000602", TenantID: site, LocationID: mountedAt(uuid.New()), Status: string(tap.TagActive), LastCtr: 700}
+	req := Request{SessionTenantID: session, EmployeeID: uuid.New(), TagUID: tagRow.UID, Ctr: 701, Channel: tap.ChannelNFC, CMACVerified: true}
+	for _, c := range []struct {
+		answer   db.HoldingAdvance
+		sunValid bool
+		peer     bool
+		status   string
+	}{
+		{db.HoldingAdvance{Outcome: db.HoldingAdvanced, TagStatus: "active"}, true, true, "active"},
+		{db.HoldingAdvance{Outcome: db.HoldingReplay, TagStatus: "active"}, false, true, "active"},
+		{db.HoldingAdvance{Outcome: db.HoldingPeerInactive, TagStatus: "lost"}, false, true, "lost"},
+		{db.HoldingAdvance{Outcome: db.HoldingNotPeer}, false, false, ""},
+	} {
+		single := &countingAdvancer{}
+		data := &tenantRecorder{}
+		s := advanceService(t, data, single)
+		peer := &countingHolding{answer: c.answer}
+		s.holding = func(pgx.Tx) holdingQuerier { return peer }
+		res, err := s.advance(context.Background(), req, tagRow)
+		if err != nil {
+			t.Fatalf("%s: %v", c.answer.Outcome, err)
+		}
+		if len(single.calls) != 0 || len(peer.advances) != 1 || peer.advances[0] != tagRow.UID+"@701" {
+			t.Fatalf("%s: single-tenant calls %d, holding calls %v; want 0 and exactly [%s@701]", c.answer.Outcome, len(single.calls), peer.advances, tagRow.UID)
+		}
+		if len(data.tenants) != 1 || data.tenants[0] != session || data.statements != 0 {
+			t.Fatalf("%s: ran under %v with %d statements of its own; want exactly the SESSION's tenant and none", c.answer.Outcome, data.tenants, data.statements)
+		}
+		if res.sunValid != c.sunValid || res.peer == nil || *res.peer != c.peer || res.status != c.status || res.gap != 0 {
+			t.Fatalf("%s: %+v (peer %v), want sunValid=%v peer=%v status=%q", c.answer.Outcome, res, res.peer, c.sunValid, c.peer, c.status)
+		}
+	}
+	broken := advanceService(t, &tenantRecorder{}, &countingAdvancer{})
+	broken.holding = func(pgx.Tx) holdingQuerier { return &countingHolding{err: errors.New("connection refused")} }
+	if _, err := broken.advance(context.Background(), req, tagRow); err == nil {
+		t.Fatal("a failed holding advance was swallowed")
 	}
 }
 
@@ -281,17 +345,17 @@ func TestAdvance_ReplayIsNotAnErrorAndOutageIs(t *testing.T) {
 
 	// The atomic UPDATE matched no row: the counter did not advance.
 	replay := advanceService(t, &tenantRecorder{}, &countingAdvancer{err: pgx.ErrNoRows})
-	sunValid, _, err := replay.advance(context.Background(), req, tagRow)
+	res, err := replay.advance(context.Background(), req, tagRow)
 	if err != nil {
 		t.Fatalf("a replay must not be an error, got %v", err)
 	}
-	if sunValid {
+	if res.sunValid {
 		t.Fatal("a replay reported SUN-valid")
 	}
 
 	// The database was unreachable.
 	outage := advanceService(t, &tenantRecorder{err: errors.New("connection refused")}, &countingAdvancer{})
-	if _, _, err := outage.advance(context.Background(), req, tagRow); err == nil {
+	if _, err := outage.advance(context.Background(), req, tagRow); err == nil {
 		t.Fatal("an outage was swallowed: the tap would be recorded as SUN-invalid rather than surfaced")
 	}
 }
@@ -314,6 +378,13 @@ func TestNew_WiresTheProductionAdvancer(t *testing.T) {
 	// real tx — the point is that it is store.New and not a leftover double.
 	if _, ok := s.advancer(nil).(*store.Queries); !ok {
 		t.Fatalf("New wired %T as the advancer, want *store.Queries", s.advancer(nil))
+	}
+	// The peer-plaque seam (M11 API-1b) the same way: db.HoldingOn, not a double.
+	if s.holding == nil {
+		t.Fatal("New left the holding querier nil: the first tap on a peer's plaque would fail")
+	}
+	if _, ok := s.holding(nil).(db.Holding); !ok {
+		t.Fatalf("New wired %T as the holding querier, want db.Holding", s.holding(nil))
 	}
 }
 

@@ -79,7 +79,10 @@
 //	        · §5 row 3, no session — there is no person to record against, and
 //	          this package cannot even be reached (the handler answers it);
 //	        · sys:tenant-mismatch — a REDIRECT, so the tap lands in neither
-//	          tenant, which is the isolation outcome rather than a lost record;
+//	          tenant, which is the isolation outcome rather than a lost record
+//	          (since M11 API-1b only for a tenant that is NOT a peer in one
+//	          holding: a peer's plaque is the employer's record, with the site
+//	          named in transactions.site_* -- ADR 0027 §5);
 //	        · an unknown tag uid — no tag, no location, nothing to attribute a
 //	          record to, so the attempt leaves an audit_log row instead.
 //	      Every OTHER outcome is a row, and a failure to write one is surfaced
@@ -112,6 +115,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/atknatk/tappa/internal/audit"
@@ -173,6 +177,37 @@ type counterAdvancer interface {
 // so the seam cannot quietly become the place the real querier went missing.
 func storeAdvancer(tx pgx.Tx) counterAdvancer { return store.New(tx) }
 
+// holdingQuerier is the slice of ADR 0027 §2's closed list the tap path calls (M11
+// API-1b), declared here at the consumer (§7): the second copy of §4.4's replay
+// statement for a PEER's plaque, and the strict read of that plaque and its venue.
+// Both run on the SESSION tenant's transaction -- the functions take the caller's
+// tenant from app.tenant_id -- and there is no WithTenant(site) on this path (ADR
+// 0016 §2): a peer's row is reached through these two calls and nothing else.
+type holdingQuerier interface {
+	HoldingAdvanceTagCounter(ctx context.Context, uid string, ctr uint32) (db.HoldingAdvance, error)
+	TapSite(ctx context.Context, uid string) (db.HoldingSite, bool, error)
+}
+
+// dbHolding is the production seam for holdingQuerier, a field for the reason
+// storeAdvancer is one: a test pins that the holding advance goes through
+// holding_advance_tag_counter and nothing else.
+func dbHolding(tx pgx.Tx) holdingQuerier { return db.HoldingOn(tx) }
+
+// recordHooks are points a test may stop a tap at, to stage a race DETERMINISTICALLY
+// against a real database (ADR 0027 "Test edilecekler": "kanca ile kurulan yarış") --
+// the plaque changing status between the resolve and the advance, the membership
+// ending between the advance and the gather, between the decision and the write. All
+// nil in production (New leaves them so); a nil hook is not called.
+type recordHooks struct {
+	afterResolve, afterAdvance, beforeWrite func(ctx context.Context)
+}
+
+func (h recordHooks) call(f func(context.Context), ctx context.Context) {
+	if f != nil {
+		f(ctx)
+	}
+}
+
 // Audit actions this package writes.
 const (
 	// ActionTapSecurityAlert is §5 row 4's "log the attempt and raise a security
@@ -211,7 +246,18 @@ var (
 	// missing session tenant, a missing employee) — a programming error at the
 	// handler boundary, never something a person tapping can cause.
 	ErrInvalidRequest = errors.New("checkin: invalid request")
+
+	// ErrSiteMembershipEnded: a tap on a peer's plaque was decided while the two
+	// tenants were peers, and by the INSERT the membership had ended -- the site gate
+	// (migration 00043, holding_site_gate) refused the row. ADR 0027 §6 names this
+	// race for the strict rows (QR, an NFC row whose counter was not advanced): the
+	// answer is "try again", and the retry is decided not_peer -- a 403 with no
+	// record. Nothing was written. It wraps the database's refusal.
+	ErrSiteMembershipEnded = errors.New("checkin: the plaque's business left the group before the record was written")
 )
+
+// siteGateConstraint is the constraint name holding_site_gate refuses a row with (23514).
+const siteGateConstraint = "holding_site_gate"
 
 // Service records taps. Dependencies are injected as struct fields (§7); there is
 // no package-level state and no init magic.
@@ -231,6 +277,11 @@ type Service struct {
 	// storeAdvancer; a test substitutes a counting double to pin that this path
 	// issues AdvanceTagCounter and nothing else (see counterAdvancer).
 	advancer func(pgx.Tx) counterAdvancer
+	// holding builds the querier of the peer-plaque path (M11 API-1b): production is
+	// dbHolding.
+	holding func(pgx.Tx) holdingQuerier
+	// hooks are a test's stopping points (recordHooks); production leaves them nil.
+	hooks recordHooks
 	// now is injectable for tests; production leaves it nil and reads the clock.
 	//
 	// It is the only clock in the DECISION: tap.Decide never calls time.Now(), so
@@ -323,6 +374,7 @@ func New(data Database, trail AuditRecorder, cfg *config.Config, log *slog.Logge
 		data:       data,
 		trail:      trail,
 		advancer:   storeAdvancer,
+		holding:    dbHolding,
 		policies:   policySets{data: data, params: params, log: log},
 		gpsRadiusM: cfg.GPSRadiusMeters,
 		debounce:   params.DebounceWindow,
@@ -428,6 +480,12 @@ const (
 	// organisation. It REDIRECTS, so no `transactions` row is written in EITHER
 	// tenant and no manager sees another tenant's employee.
 	//
+	// SINCE M11 API-1b (ADR 0027 §5): only for an organisation that is NOT the
+	// session's peer in one holding -- a peer's plaque is recorded at the employer.
+	// For the non-peer the guarantee below is unchanged: holding_advance_tag_counter
+	// answers not_peer in the statement that would have moved the counter, and moves
+	// nothing.
+	//
 	// ⚠️ "WRITES NOTHING" IS WHAT THIS COMMENT USED TO SAY AND IT WAS FALSE, which
 	// an audit measured: the advance ran before the decision, so a cross-tenant tap
 	// moved the OTHER tenant's tags.last_ctr (900 -> 901) while leaving no row
@@ -470,6 +528,13 @@ type Result struct {
 	// (§6: convert at render, never in storage or in the decision, which is where
 	// overnight-shift bugs come from).
 	Timezone string
+	// SiteLogo is the SITE's logo for the confirmation screen of a tap on a peer's
+	// plaque (ADR 0027 §10, K-1c: the plaque's business's brand; on this screen the
+	// logo only, never the accent), or nil -- a same-tenant tap, a site with no logo,
+	// or one VIES has not verified (holding_tap_site gives no digest then). It is
+	// read in the record's own transaction, from the same holding_tap_site row the
+	// decision's evidence came from, so the screen names the business the record does.
+	SiteLogo *SiteLogo
 	// BusinessType is the tenant's own category — one of the eight CHECK-
 	// constrained values in migration 00001 ('restaurant', 'production', …). It
 	// travels for ONE reason (M5-06): the confirmation screen ends with a brand
@@ -484,6 +549,18 @@ type Result struct {
 	// system says nothing about WHICH tenant this is, so it does not widen what a
 	// screen could disclose (§4.5/§4.7). Per-tenant editable copy is M9-04.
 	BusinessType string
+}
+
+// SiteLogo is a peer business's logo as the confirmation screen draws it: the digest
+// and box the logo route serves it by, the business's name as its alt, and the plaque's
+// uid -- the logo route asks holding_logo for the logo of THAT plaque's business, in the
+// session's context (internal/handler, brandlogo.go). No evidence, no id of the site.
+type SiteLogo struct {
+	SHA256       string
+	Width        int
+	Height       int
+	BusinessName string
+	TagUID       string
 }
 
 // Params returns the bounded guardrail windows this service DECIDES with (ADR
@@ -634,11 +711,14 @@ func (s *Service) Record(ctx context.Context, req Request) (Result, error) {
 			"tag_uid", req.TagUID, "context_tenant_id", req.TagTenantID, "resolved_tenant_id", tagRow.TenantID)
 	}
 
+	s.hooks.call(s.hooks.afterResolve, ctx)
+
 	// --- 2. §4.4: the atomic advance -----------------------------------------
-	sunValid, ctrGap, err := s.advance(ctx, req, tagRow)
+	adv, err := s.advance(ctx, req, tagRow)
 	if err != nil {
 		return Result{}, err
 	}
+	s.hooks.call(s.hooks.afterAdvance, ctx)
 
 	// --- 3. THE SERIALISED SECTION: lock, gather, decide, write --------------
 	//
@@ -713,9 +793,26 @@ func (s *Service) Record(ctx context.Context, req Request) (Result, error) {
 			return fmt.Errorf("lock employee: %w", e)
 		}
 
-		facts, err = s.gather(ctx, tx, req, tappedWall(tagRow.LocationID))
+		// A PEER'S PLAQUE (M11 API-1b, ADR 0027 §5): its venue's evidence, shift and
+		// brand come from holding_tap_site -- strict, in this locked transaction, on
+		// the session's context -- and SameHolding from K-29's one source.
+		site, sameHolding, err := s.peerSite(ctx, tx, req, tagRow, adv)
 		if err != nil {
 			return err
+		}
+		facts, err = s.gatherWith(ctx, tx, req, tappedWall(tagRow.LocationID), site)
+		if err != nil {
+			return err
+		}
+		facts.sameHolding = sameHolding
+		// The plaque's status the decision reads: the holding advance's (taken at its
+		// lock), else the strict site read's, else the resolver's.
+		status := tagRow.Status
+		switch {
+		case adv.status != "":
+			status = adv.status
+		case site != nil:
+			status = site.TagStatus
 		}
 
 		// --- 4. Decide (one pure call, no rules here) ------------------------
@@ -725,14 +822,15 @@ func (s *Service) Record(ctx context.Context, req Request) (Result, error) {
 			OccurredAtFromClient: fromClient,
 			PageIssuedAt:         req.PageIssuedAt,
 			Channel:              req.Channel,
-			SUN:                  tap.SUNResult{Valid: sunValid, CtrGap: int(ctrGap)},
+			SUN:                  tap.SUNResult{Valid: adv.sunValid, CtrGap: int(adv.gap)},
 			Tag: &tap.Tag{
-				Status:   tap.TagStatus(tagRow.Status),
+				Status:   tap.TagStatus(status),
 				Location: tappedWall(tagRow.LocationID),
 			},
 			Employee:                    facts.employee,
 			TagTenantID:                 &tagRow.TenantID,
 			SessionTenantID:             &req.SessionTenantID,
+			SameHolding:                 facts.sameHolding,
 			SourceIP:                    req.SourceIP,
 			LocationIPs:                 facts.locationIPs,
 			GPS:                         req.GPS,
@@ -753,6 +851,7 @@ func (s *Service) Record(ctx context.Context, req Request) (Result, error) {
 			// transaction still commits — it wrote nothing to commit.
 			return nil
 		}
+		s.hooks.call(s.hooks.beforeWrite, ctx)
 		id, err = s.write(ctx, tx, req, tagRow, facts, dec, occurredAt)
 		return err
 	})
@@ -863,7 +962,7 @@ func (s *Service) Record(ctx context.Context, req Request) (Result, error) {
 		LogMatchedSid, dec.MatchedSid,
 		LogPolicyLayer, string(dec.Layer),
 		LogTrust, dec.Trust,
-		LogCtrGap, int(ctrGap),
+		LogCtrGap, int(adv.gap),
 		LogPractice, dec.Practice,
 		LogTenantID, req.SessionTenantID.String(),
 		LogEmployeeID, req.EmployeeID.String(),
@@ -877,7 +976,59 @@ func (s *Service) Record(ctx context.Context, req Request) (Result, error) {
 		LocationName:  facts.locationName,
 		Timezone:      facts.timezone,
 		BusinessType:  facts.businessType,
+		SiteLogo:      siteLogoOf(facts.site, tagRow.UID),
 	}, nil
+}
+
+// peerSite is K-29's "SameHolding" and the site's row for a plaque of ANOTHER tenant
+// (ADR 0027 §5), on the session tenant's locked transaction:
+//
+//	the holding advance ran         SameHolding is its answer (advanced, replay,
+//	                                peer_inactive -> peers; not_peer -> not), and the
+//	                                site is read for its evidence -- unless not_peer,
+//	                                when no read of a plaque that is not ours is made;
+//	it did not (QR, a CMAC that did  SameHolding is the strict holding_tap_site read:
+//	not verify, a dead plaque)       a row -> peers, none -> not.
+//
+// An advanced tap whose read then finds nothing -- the membership ended between the
+// advance and here -- stays a peer's tap with NO site evidence: decided (to flag, there
+// being no evidence) and written, the gate's tolerant arm accepting it (K-29: "hata
+// değil"). For the session's own plaque this returns (nil, false, nil).
+func (s *Service) peerSite(ctx context.Context, tx pgx.Tx, req Request, tagRow db.ResolvedTag, adv advanceResult) (*db.HoldingSite, bool, error) {
+	if tagRow.TenantID == req.SessionTenantID {
+		return nil, false, nil
+	}
+	if adv.peer != nil && !*adv.peer {
+		return nil, false, nil
+	}
+	if s.holding == nil {
+		return nil, false, errors.New("checkin: no holding querier wired")
+	}
+	site, ok, err := s.holding(tx).TapSite(ctx, tagRow.UID)
+	if err != nil {
+		return nil, false, fmt.Errorf("checkin: read a peer's plaque: %w", err)
+	}
+	var out *db.HoldingSite
+	if ok {
+		out = &site
+	}
+	if adv.peer != nil {
+		return out, *adv.peer, nil
+	}
+	return out, ok, nil
+}
+
+// siteLogoOf is the site's logo for the confirmation screen, or nil. holding_tap_site
+// gives the four logo fields together or not at all (only for a business VIES verified).
+func siteLogoOf(site *db.HoldingSite, uid string) *SiteLogo {
+	if site == nil || site.LogoSHA256 == nil || site.LogoWidth == nil || site.LogoHeight == nil {
+		return nil
+	}
+	l := &SiteLogo{SHA256: *site.LogoSHA256, Width: int(*site.LogoWidth), Height: int(*site.LogoHeight), TagUID: uid}
+	if site.BusinessName != nil {
+		l.BusinessName = *site.BusinessName
+	}
+	return l
 }
 
 // sidTenantMismatch is the guardrail whose redirect is NOT an activation
@@ -924,9 +1075,12 @@ func (r Request) validate() error {
 // tap is SUN-invalid and lands on §5 row 2 as a recorded reject. Only an
 // infrastructure failure is returned as an error, because only that leaves us
 // unable to say whether the counter moved.
-func (s *Service) advance(ctx context.Context, req Request, tagRow db.ResolvedTag) (sunValid bool, gap int32, err error) {
+//
+// A PEER'S PLAQUE (M11 API-1b, ADR 0027 §5) goes to advanceAtAPeer instead -- the
+// three conditions above hold for it unchanged.
+func (s *Service) advance(ctx context.Context, req Request, tagRow db.ResolvedTag) (advanceResult, error) {
 	if req.Channel != tap.ChannelNFC || !req.CMACVerified || tagRow.Status != string(tap.TagActive) {
-		return false, 0, nil
+		return advanceResult{}, nil
 	}
 	// 🔴 THE FOURTH CONDITION, ADDED AFTER AN AUDIT MEASURED THE THIRD ONE MISSING
 	// IT: a session belonging to ANOTHER organisation must not move this tag's
@@ -951,10 +1105,19 @@ func (s *Service) advance(ctx context.Context, req Request, tagRow db.ResolvedTa
 	// VERDICT for a cross-tenant tap is still sys:tenant-mismatch's, decided by
 	// the policy engine below, and this function does not short-circuit it —
 	// Decide still runs, still redirects, and still produces no record.
+	//
+	// 🔴 SINCE M11 API-1b THE OTHER TENANT'S PLAQUE IS NOT LEFT ALONE OUTRIGHT: it is
+	// handed to advanceAtAPeer, whose ONE statement moves the counter only if the
+	// plaque's tenant is a PEER of the session's in one holding, asked in that same
+	// statement (holding_advance_tag_counter). For every other tenant -- the case
+	// this paragraph measured -- that statement changes nothing and answers
+	// not_peer, and the decision redirects as before: no row, no foreign state moved
+	// (TestHoldingTap_OutsiderSessionOnAPeerPlaqueIsRefusedAndCounterUnchanged).
 	if tagRow.TenantID != req.SessionTenantID {
-		return false, 0, nil
+		return s.advanceAtAPeer(ctx, req, tagRow)
 	}
-	err = s.data.WithTenant(ctx, tagRow.TenantID, func(ctx context.Context, tx pgx.Tx) error {
+	var gap int32
+	err := s.data.WithTenant(ctx, tagRow.TenantID, func(ctx context.Context, tx pgx.Tx) error {
 		var e error
 		// ONE STATEMENT, and the comparison lives inside it. Nothing here reads
 		// last_ctr into Go and compares it — that is the TOCTOU §4.4 forbids by
@@ -965,12 +1128,58 @@ func (s *Service) advance(ctx context.Context, req Request, tagRow db.ResolvedTa
 	})
 	switch {
 	case err == nil:
-		return true, gap, nil
+		return advanceResult{sunValid: true, gap: gap}, nil
 	case errors.Is(err, sun.ErrReplay):
-		return false, 0, nil
+		return advanceResult{}, nil
 	default:
-		return false, 0, fmt.Errorf("checkin: advance counter: %w", err)
+		return advanceResult{}, fmt.Errorf("checkin: advance counter: %w", err)
 	}
+}
+
+// advanceResult is what the advance established.
+type advanceResult struct {
+	// sunValid is the second half of SUN validity: the counter really moved.
+	sunValid bool
+	// gap is the reads skipped since the last advance (single-tenant only: the holding
+	// statement's result has no gap column -- ADR 0027 §2's signature table).
+	gap int32
+	// peer is K-29's answer when the HOLDING statement ran: true for advanced, replay
+	// and peer_inactive -- the two tenants are peers -- false for not_peer; nil when it
+	// did not run (the gather's strict holding_tap_site answers then).
+	peer *bool
+	// status is the plaque's status AT THE HOLDING STATEMENT'S LOCK, "" otherwise. The
+	// decision takes it over the resolver's, which an ordinary read made earlier
+	// (ADR 0027 §5: a plaque that turned lost during the advance is decided lost).
+	status string
+}
+
+// advanceAtAPeer is §4.4's advance for a plaque of ANOTHER tenant (M11 API-1b, ADR 0027
+// §5, K-29): holding_advance_tag_counter, in the SESSION's tenant context -- the
+// function asks whether the plaque's tenant is a peer of app.tenant_id, strictly
+// (left_at > clock_timestamp()), in the same statement that locks and moves the
+// counter, so a non-peer's plaque is never touched. Its four outcomes:
+//
+//	advanced        the counter moved: SUN valid, a peer.
+//	replay          a peer's active plaque whose counter did not go up: SUN invalid
+//	                (§5 row 2's recorded reject, with the site named).
+//	peer_inactive   a peer's plaque not active at the lock: SUN invalid, and the status
+//	                of NOW decides (§5 row 1's recorded reject -- not a 403).
+//	not_peer        not a peer: nothing moved, and the decision redirects (no record).
+//
+// Like the single-tenant statement, the comparison is inside the statement and nothing
+// here compares a counter in Go.
+func (s *Service) advanceAtAPeer(ctx context.Context, req Request, tagRow db.ResolvedTag) (advanceResult, error) {
+	var out db.HoldingAdvance
+	err := s.data.WithTenant(ctx, req.SessionTenantID, func(ctx context.Context, tx pgx.Tx) error {
+		var e error
+		out, e = s.holding(tx).HoldingAdvanceTagCounter(ctx, tagRow.UID, req.Ctr)
+		return e
+	})
+	if err != nil {
+		return advanceResult{}, fmt.Errorf("checkin: advance a peer's counter: %w", err)
+	}
+	peer := out.Outcome != db.HoldingNotPeer
+	return advanceResult{sunValid: out.Outcome == db.HoldingAdvanced, peer: &peer, status: out.TagStatus}, nil
 }
 
 // tapFacts is everything the decision needs that lives in the tenant's own rows.
@@ -996,6 +1205,14 @@ type tapFacts struct {
 	// record was written, measured on the DATABASE clock — the one debounce leg no
 	// caller can steer, and the one that survives lock contention (ADR 0006).
 	secondsSinceLastRecordedTap *float64
+
+	// site is a PEER's plaque, its venue and brand (holding_tap_site, M11 API-1b), or
+	// nil -- the session's own plaque, or a peer's that the strict read no longer
+	// returned. Its evidence is a server-side decision input only (K-39): never
+	// logged, never rendered (db.HoldingSite redacts itself in both).
+	site *db.HoldingSite
+	// sameHolding is K-29's answer for a plaque of another tenant (peerSite).
+	sameHolding bool
 }
 
 // gather reads the tenant-scoped evidence in ONE transaction, so every fact the
@@ -1040,7 +1257,19 @@ func tappedWall(id *uuid.UUID) uuid.UUID {
 }
 
 func (s *Service) gather(ctx context.Context, tx pgx.Tx, req Request, tappedLocationID uuid.UUID) (tapFacts, error) {
+	return s.gatherWith(ctx, tx, req, tappedLocationID, nil)
+}
+
+// gatherWith is gather with a PEER's plaque (M11 API-1b, ADR 0027 §5): when site is set the
+// tapped venue's evidence -- its ranges, its coordinate, its shift, its name -- is the
+// site's, from holding_tap_site, and the session tenant's own location read is not made
+// (the venue is not this tenant's; it would find nothing). Everything about the PERSON --
+// the employee, the department shift, the last tap, the debounce, the last open check-in --
+// is the employer's, read by the same queries as any tap: the record is the employer's
+// (K-1a), the debounce and the direction chain span both tenants' plaques (ADR 0027 §7).
+func (s *Service) gatherWith(ctx context.Context, tx pgx.Tx, req Request, tappedLocationID uuid.UUID, site *db.HoldingSite) (tapFacts, error) {
 	var f tapFacts
+	f.site = site
 	err := func(ctx context.Context, tx pgx.Tx) error {
 		q := store.New(tx)
 
@@ -1067,6 +1296,22 @@ func (s *Service) gather(ctx context.Context, tx pgx.Tx, req Request, tappedLoca
 
 		// The TAPPED location — the venue whose IP, GPS and shift this tap is
 		// matched against (§5), never the employee's profile location.
+		if site != nil {
+			// A peer's venue (ADR 0027 §5): the evidence is holding_tap_site's. A
+			// plaque on no wall carries none -- the refusal is still decided and
+			// written (§4.6).
+			if site.LocationID != nil {
+				f.locationIPs = site.StaticIPs
+				f.locationName = site.LocationName
+				f.locationGPS = point(site.GPSLat, site.GPSLng)
+				zone := site.Timezone
+				if zone == "" {
+					zone = emp.TenantTimezone
+				}
+				f.shift = shiftOf(site.ShiftStart, site.ShiftEnd, site.Overnight, zone)
+			}
+			return s.gatherPerson(ctx, q, req, emp, &f)
+		}
 		loc, err := q.GetLocationForTap(ctx, store.GetLocationForTapParams{
 			TenantID: req.SessionTenantID, ID: tappedLocationID,
 		})
@@ -1084,109 +1329,115 @@ func (s *Service) gather(ctx context.Context, tx pgx.Tx, req Request, tappedLoca
 		default:
 			return fmt.Errorf("load tapped location: %w", err)
 		}
-
-		// The department shift BEATS the location shift when there is one (§5, Q17).
-		if emp.DepartmentID != nil {
-			dept, err := q.GetDepartmentShift(ctx, store.GetDepartmentShiftParams{
-				TenantID: req.SessionTenantID, ID: *emp.DepartmentID,
-			})
-			switch {
-			case err == nil:
-				if sh := shiftOf(dept.ShiftStart, dept.ShiftEnd, dept.Overnight, emp.TenantTimezone); sh != nil {
-					f.shift = sh
-				}
-			case errors.Is(err, pgx.ErrNoRows):
-				// No department row visible: keep the location shift.
-			default:
-				return fmt.Errorf("load department shift: %w", err)
-			}
-		}
-
-		// The person's own history: the debounce basis and the direction basis.
-		last, err := q.GetLastTransactionForEmployee(ctx, store.GetLastTransactionForEmployeeParams{
-			TenantID: req.SessionTenantID, EmployeeID: &req.EmployeeID,
-		})
-		switch {
-		case err == nil:
-			f.lastForPerson = transaction(last)
-		case errors.Is(err, pgx.ErrNoRows):
-			// First tap ever: nil never debounces (§4.6 — the safe zero value).
-		default:
-			return fmt.Errorf("load last tap: %w", err)
-		}
-
-		// THE SERVER-CLOCK LEG OF THE DEBOUNCE (ADR 0006), and it is a SEPARATE
-		// query on purpose. The row above is chosen by ORDER BY occurred_at — a
-		// client-declarable column — so a caller can steer which record is treated
-		// as the predecessor as well as how far away it claims to be. This one is
-		// ordered by created_at over the nfc/qr channels, so neither its value nor
-		// its selection is reachable from a POST body.
-		// The window is the SAME one the guardrail applies, so bounding the query
-		// cannot change a decision: anything at or beyond it would have lost the
-		// min() anyway. It runs inside the advisory lock, so an unbounded sort over
-		// a flooded person's whole history would be paid while holding a pool
-		// connection (ADR 0006).
-		since, err := q.SecondsSinceLastRecordedTap(ctx, store.SecondsSinceLastRecordedTapParams{
-			TenantID: req.SessionTenantID, EmployeeID: &req.EmployeeID,
-			WindowSeconds: s.debounce.Seconds(),
-		})
-		switch {
-		case err == nil:
-			f.secondsSinceLastRecordedTap = &since
-		case errors.Is(err, pgx.ErrNoRows):
-			// No recorded tap: nil never debounces (§4.6's safe zero value).
-		default:
-			return fmt.Errorf("load last recorded tap: %w", err)
-		}
-
-		open, err := q.GetLastOpenTransaction(ctx, store.GetLastOpenTransactionParams{
-			TenantID: req.SessionTenantID, EmployeeID: &req.EmployeeID,
-		})
-		switch {
-		case err == nil:
-			// A PRACTICE record never holds the chain open (§5, M4-04): a training
-			// tap must not make the next real tap a checkout.
-			//
-			// 🔴 THE QUERY DECIDES THIS NOW, AND UNTIL M5-11 IT DID NOT (ADR 0008).
-			// GetLastOpenTransaction used to be practice-neutral and this branch was
-			// the whole enforcement — but it only ever saw ONE row, so discarding a
-			// practice row meant NOT LOOKING AT THE ONE BENEATH IT. A practice row
-			// that merely sorted newest hid a real, still-open check-in: the next
-			// tap became an `in`, the entry never closed, and nothing said so.
-			// `AND NOT t.practice` moved the question to where the ordering is.
-			//
-			// The check below therefore CANNOT be false today, and it stays anyway —
-			// but be precise about WHY, because the tempting reason is the wrong one.
-			// It is NOT a safety net for "someday the predicate gets dropped": that
-			// cannot happen quietly. MEASURED (M5-11, second round) — replacing the
-			// predicate with `AND TRUE` turns THREE named tests red across two
-			// packages: TestGatherDB_APracticeRowDoesNotHideAnOlderOpenCheckIn (two
-			// subtests), TestSeedDB_APracticeRowNeverHidesAnOlderOpenCheckIn, and
-			// TestSeedDB_ADayAtKFStJulians ("Ivan's 02:10 tap = in, want out").
-			//
-			// The real reason is the PACKAGE BOUNDARY CONTRACT: tap.Input.LastOpenIn
-			// is documented as the last open NON-PRACTICE check-in, and this line is
-			// what a caller does to make that documented sentence true — the engine
-			// is a pure function that cannot verify its own inputs. Unreachable code
-			// that is CORRECTLY LABELLED is safer than reachable code that is
-			// mislabelled, and this whole ADR exists because of the second kind (see
-			// resolveDirection's old "primary enforcement" comment). It is NOT what
-			// pins the fix — TestGatherDB_APracticeRowDoesNotHideAnOlderOpenCheckIn
-			// is, and deleting this branch alone leaves the suite green (measured).
-			if !open.Practice {
-				f.lastOpenIn = transaction(open)
-			}
-		case errors.Is(err, pgx.ErrNoRows):
-			// No open check-in: this tap is an `in`.
-		default:
-			return fmt.Errorf("load open check-in: %w", err)
-		}
-		return nil
+		return s.gatherPerson(ctx, q, req, emp, &f)
 	}(ctx, tx)
 	if err != nil {
 		return tapFacts{}, fmt.Errorf("checkin: gather: %w", err)
 	}
 	return f, nil
+}
+
+// gatherPerson is the half of the gather that is about the PERSON, read in the session's
+// tenant whatever plaque was tapped: the department shift (which beats the venue's), the
+// last tap, the server-clock debounce leg and the last open check-in.
+func (s *Service) gatherPerson(ctx context.Context, q *store.Queries, req Request, emp store.GetEmployeeForTapRow, f *tapFacts) error {
+	// The department shift BEATS the location shift when there is one (§5, Q17).
+	if emp.DepartmentID != nil {
+		dept, err := q.GetDepartmentShift(ctx, store.GetDepartmentShiftParams{
+			TenantID: req.SessionTenantID, ID: *emp.DepartmentID,
+		})
+		switch {
+		case err == nil:
+			if sh := shiftOf(dept.ShiftStart, dept.ShiftEnd, dept.Overnight, emp.TenantTimezone); sh != nil {
+				f.shift = sh
+			}
+		case errors.Is(err, pgx.ErrNoRows):
+			// No department row visible: keep the location shift.
+		default:
+			return fmt.Errorf("load department shift: %w", err)
+		}
+	}
+
+	// The person's own history: the debounce basis and the direction basis.
+	last, err := q.GetLastTransactionForEmployee(ctx, store.GetLastTransactionForEmployeeParams{
+		TenantID: req.SessionTenantID, EmployeeID: &req.EmployeeID,
+	})
+	switch {
+	case err == nil:
+		f.lastForPerson = transaction(last)
+	case errors.Is(err, pgx.ErrNoRows):
+		// First tap ever: nil never debounces (§4.6 — the safe zero value).
+	default:
+		return fmt.Errorf("load last tap: %w", err)
+	}
+
+	// THE SERVER-CLOCK LEG OF THE DEBOUNCE (ADR 0006), and it is a SEPARATE
+	// query on purpose. The row above is chosen by ORDER BY occurred_at — a
+	// client-declarable column — so a caller can steer which record is treated
+	// as the predecessor as well as how far away it claims to be. This one is
+	// ordered by created_at over the nfc/qr channels, so neither its value nor
+	// its selection is reachable from a POST body.
+	// The window is the SAME one the guardrail applies, so bounding the query
+	// cannot change a decision: anything at or beyond it would have lost the
+	// min() anyway. It runs inside the advisory lock, so an unbounded sort over
+	// a flooded person's whole history would be paid while holding a pool
+	// connection (ADR 0006).
+	since, err := q.SecondsSinceLastRecordedTap(ctx, store.SecondsSinceLastRecordedTapParams{
+		TenantID: req.SessionTenantID, EmployeeID: &req.EmployeeID,
+		WindowSeconds: s.debounce.Seconds(),
+	})
+	switch {
+	case err == nil:
+		f.secondsSinceLastRecordedTap = &since
+	case errors.Is(err, pgx.ErrNoRows):
+		// No recorded tap: nil never debounces (§4.6's safe zero value).
+	default:
+		return fmt.Errorf("load last recorded tap: %w", err)
+	}
+
+	open, err := q.GetLastOpenTransaction(ctx, store.GetLastOpenTransactionParams{
+		TenantID: req.SessionTenantID, EmployeeID: &req.EmployeeID,
+	})
+	switch {
+	case err == nil:
+		// A PRACTICE record never holds the chain open (§5, M4-04): a training
+		// tap must not make the next real tap a checkout.
+		//
+		// 🔴 THE QUERY DECIDES THIS NOW, AND UNTIL M5-11 IT DID NOT (ADR 0008).
+		// GetLastOpenTransaction used to be practice-neutral and this branch was
+		// the whole enforcement — but it only ever saw ONE row, so discarding a
+		// practice row meant NOT LOOKING AT THE ONE BENEATH IT. A practice row
+		// that merely sorted newest hid a real, still-open check-in: the next
+		// tap became an `in`, the entry never closed, and nothing said so.
+		// `AND NOT t.practice` moved the question to where the ordering is.
+		//
+		// The check below therefore CANNOT be false today, and it stays anyway —
+		// but be precise about WHY, because the tempting reason is the wrong one.
+		// It is NOT a safety net for "someday the predicate gets dropped": that
+		// cannot happen quietly. MEASURED (M5-11, second round) — replacing the
+		// predicate with `AND TRUE` turns THREE named tests red across two
+		// packages: TestGatherDB_APracticeRowDoesNotHideAnOlderOpenCheckIn (two
+		// subtests), TestSeedDB_APracticeRowNeverHidesAnOlderOpenCheckIn, and
+		// TestSeedDB_ADayAtKFStJulians ("Ivan's 02:10 tap = in, want out").
+		//
+		// The real reason is the PACKAGE BOUNDARY CONTRACT: tap.Input.LastOpenIn
+		// is documented as the last open NON-PRACTICE check-in, and this line is
+		// what a caller does to make that documented sentence true — the engine
+		// is a pure function that cannot verify its own inputs. Unreachable code
+		// that is CORRECTLY LABELLED is safer than reachable code that is
+		// mislabelled, and this whole ADR exists because of the second kind (see
+		// resolveDirection's old "primary enforcement" comment). It is NOT what
+		// pins the fix — TestGatherDB_APracticeRowDoesNotHideAnOlderOpenCheckIn
+		// is, and deleting this branch alone leaves the suite green (measured).
+		if !open.Practice {
+			f.lastOpenIn = transaction(open)
+		}
+	case errors.Is(err, pgx.ErrNoRows):
+		// No open check-in: this tap is an `in`.
+	default:
+		return fmt.Errorf("load open check-in: %w", err)
+	}
+	return nil
 }
 
 // write appends the record. ONE INSERT, no UPDATE, ever (§4.3).
@@ -1201,6 +1452,12 @@ func (s *Service) write(ctx context.Context, tx pgx.Tx, req Request, tagRow db.R
 	}
 	row, err := store.New(tx).InsertTransaction(ctx, params)
 	if err != nil {
+		var pg *pgconn.PgError
+		if errors.As(err, &pg) && pg.Code == "23514" && pg.ConstraintName == siteGateConstraint {
+			// ADR 0027 §6's named race (a strict row whose membership ended between the
+			// decision and this INSERT): nothing written, "try again".
+			return uuid.Nil, fmt.Errorf("%w: %w", ErrSiteMembershipEnded, err)
+		}
 		return uuid.Nil, fmt.Errorf("checkin: record tap: %w", err)
 	}
 	return row.ID, nil
@@ -1281,7 +1538,22 @@ func (s *Service) insertParams(req Request, tagRow db.ResolvedTag, f tapFacts, d
 	}
 	if req.Channel != tap.ChannelManual {
 		uid := tagRow.UID
-		p.TagUid = &uid
+		if tagRow.TenantID != req.SessionTenantID {
+			// A PEER'S PLAQUE (M11 API-1b, ADR 0027 §4, K-30): the row is the employer's
+			// and names the site in its own columns -- never in tag_uid / location_id,
+			// which a CHECK keeps off a site row (and the composite key would refuse).
+			// The venue is the strict read's, NULL when the plaque has no wall or the
+			// read found nothing (an advanced tap whose membership ended -- the gate's
+			// tolerant arm still takes the row).
+			site := tagRow.TenantID
+			p.SiteTenantID, p.SiteTagUid = &site, &uid
+			if f.site != nil && f.site.LocationID != nil {
+				venue := *f.site.LocationID
+				p.SiteLocationID = &venue
+			}
+		} else {
+			p.TagUid = &uid
+		}
 	}
 	if req.Channel == tap.ChannelNFC {
 		// A QR arrival has no chip counter and a manual record has no chip. Writing

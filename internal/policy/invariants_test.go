@@ -33,8 +33,17 @@ import (
 // not be a red line, and this is the structural reason the property test holds: the
 // terminal first-match layer can only ever restrict. (TestGuardrails_NormativeOrder
 // already pins the sids/order; this adds the effect invariant, not covered there.)
+//
+// ONE NAMED EXCEPTION, review (reviewGuardrails): ADR 0027 §7's cross-tenant QR guardrail
+// FLAGS -- it may not reject, because a QR scan at a peer's venue without that venue's
+// network is still somebody's attendance and §4.6 keeps it -- and it is as terminal as
+// the rest: no policy turns it into allow (TestGuardrail_NoTenantPolicyCanLoosen carries
+// its scenario), and no policy turns it into deny either (K-38's named cost).
 func TestInvariant_GuardrailsAreOnlyRestrictive(t *testing.T) {
 	for _, g := range DefaultGuardrails() {
+		if g.Effect == EffectReview && reviewGuardrails[g.Sid] != "" {
+			continue
+		}
 		if !isRestrictive(g.Effect) {
 			t.Errorf("guardrail %q has effect %q; a guardrail may only be restrictive (deny/ignore/redirect), never allow/review",
 				g.Sid, g.Effect)
@@ -43,6 +52,14 @@ func TestInvariant_GuardrailsAreOnlyRestrictive(t *testing.T) {
 			t.Errorf("guardrail %q leaked outside the reserved sys: namespace", g.Sid)
 		}
 	}
+}
+
+// reviewGuardrails are the guardrails whose effect is review, each with the decision
+// behind it. Adding one is an ADR and a user decision, not an edit here alone.
+var reviewGuardrails = map[string]string{
+	"sys:cross-tenant-qr-site-ip": "ADR 0027 §7 (K-1g, the user's decision 2026-10-10; K-38): a QR scan at a peer's " +
+		"venue without that venue's network is recorded and queued -- flag, never a silent reject (§4.6) -- and the " +
+		"employer can neither loosen nor tighten it",
 }
 
 // --- §4.1: no context key or Context field is body-derived --------------------
@@ -99,6 +116,9 @@ func TestInvariant_NoBodyDerivedContextKey(t *testing.T) {
 		"Action": true, "Resources": true, "Keys": true,
 		"SessionTenantID": true, "TagTenantID": true,
 		"SecondsSincePersonLastTap": true, "ReviewerID": true, "SubjectEmployeeID": true,
+		// ADR 0027 §7 (M11 API-1b): whether the two tenants are peers in one holding --
+		// a membership fact the database answers (holding_peer), never a person's body.
+		"SameHolding": true,
 	}
 	rt := reflect.TypeOf(Context{})
 	if rt.NumField() != len(wantFields) {

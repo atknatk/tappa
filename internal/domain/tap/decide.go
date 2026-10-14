@@ -170,6 +170,9 @@ func Decide(in Input) Decision {
 		if in.SessionTenantID != nil {
 			ctx.SessionTenantID = in.SessionTenantID
 			ctx.TagTenantID = in.TagTenantID
+			// ADR 0027 §7: the peer fact travels with the real tenant pair and only with
+			// it -- beside the presence placeholder there is no pair to be peers.
+			ctx.SameHolding = in.SameHolding
 		} else {
 			ctx.SessionTenantID = &markSessionPresent
 		}

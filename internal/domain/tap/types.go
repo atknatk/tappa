@@ -382,6 +382,16 @@ type Input struct {
 	TagTenantID     *uuid.UUID
 	SessionTenantID *uuid.UUID
 
+	// SameHolding is ADR 0027's fact (M11 API-1b, K-29): the TAG's tenant and the
+	// SESSION's are peers in one holding -- the tag's tenant is the SITE, the session's
+	// the EMPLOYER. With it, a tap across the two is the employer's record (sys:tenant-
+	// mismatch steps aside) and a QR one needs the site's IP (sys:cross-tenant-qr-site-ip).
+	// SERVER-DERIVED and never computed here: the orchestrator takes it from the
+	// database's one predicate -- holding_advance_tag_counter's outcome when the counter
+	// was advanced, a strict holding_tap_site read otherwise. Meaningful only beside a
+	// real SessionTenantID (Decide hands it on only then); false keeps today's isolation.
+	SameHolding bool
+
 	// SourceIP is the request's real client IP (resolved through the trusted proxy
 	// at the httpx layer), the "where" evidence.
 	SourceIP netip.Addr

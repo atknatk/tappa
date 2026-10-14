@@ -811,6 +811,8 @@ var guardrailRules = map[string]string{
 		"tolerance is yours to set; accepting any time at all is not.",
 	"sys:person-debounce": "§5 row 5 — one person's repeat inside the window is recorded and not " +
 		"counted, so a double tap never becomes a double shift.",
+	"sys:cross-tenant-qr-site-ip": "ADR 0027 §7 — a QR scan at another business of your group counts only " +
+		"from that venue's own network; anything else waits for your approval. Neither you nor they can change it.",
 	"sys:policy-edit-owner-only": "ADR 0004 K2 — only the owner may change the rules. A manager who could " +
 		"widen a rule could widen their own pay.",
 	"sys:no-self-review": "ADR 0004 Y-C — nobody approves their own record. This is the one " +

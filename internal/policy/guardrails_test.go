@@ -43,9 +43,10 @@ func cleanTap(tenant uuid.UUID) Context {
 	}
 }
 
-// --- normative order (ADR 0004 §5; the 1->10 slice) -------------------------
+// --- normative order (ADR 0004 §5; the 1->11 slice) -------------------------
 
-// TestGuardrails_NormativeOrder pins the exact 1->10 order and sys: namespace.
+// TestGuardrails_NormativeOrder pins the exact 1->11 order and sys: namespace (the
+// ninth -- sys:cross-tenant-qr-site-ip -- is ADR 0027 §7's, K-38).
 // This is the ONE place the order lives; the deeper property test is M3-08.
 func TestGuardrails_NormativeOrder(t *testing.T) {
 	want := []string{
@@ -57,6 +58,7 @@ func TestGuardrails_NormativeOrder(t *testing.T) {
 		"sys:tap-freshness",
 		"sys:occurred-at-bound",
 		"sys:person-debounce",
+		"sys:cross-tenant-qr-site-ip",
 		"sys:policy-edit-owner-only",
 		"sys:no-self-review",
 	}
@@ -332,6 +334,13 @@ func TestGuardrails_EachFiresOnItsOwnCondition(t *testing.T) {
 			wantSid: "sys:tenant-mismatch", wantEff: EffectRedirect,
 		},
 		{
+			// ADR 0027 §7: the same tag-vs-session pair, the two tenants PEERS in one
+			// holding -- no mismatch; the tap goes on to the rest of the list.
+			name:    "1 tenant-mismatch does NOT fire for two peers of one holding",
+			build:   func() Context { c := cleanTap(tenant); c.TagTenantID = &otherTenant; c.SameHolding = true; return c },
+			wantSid: "default", wantEff: EffectReview,
+		},
+		{
 			name:    "2 tag retired -> deny, NO alert",
 			build:   func() Context { c := cleanTap(tenant); c.Keys[CtxTagStatus] = "retired"; return c },
 			wantSid: "sys:tag-not-active", wantEff: EffectDeny,
@@ -399,21 +408,31 @@ func TestGuardrails_EachFiresOnItsOwnCondition(t *testing.T) {
 			wantSid: "sys:person-debounce", wantEff: EffectIgnore,
 		},
 		{
-			name: "9 policy:edit non-owner -> deny",
+			name: "9 cross-tenant QR without the site's IP -> review",
+			build: func() Context {
+				c := cleanTap(tenant)
+				c.TagTenantID, c.SameHolding = &otherTenant, true
+				c.Keys[CtxTapChannel], c.Keys[CtxTapSunValid], c.Keys[CtxTapIPMatch] = "qr", false, false
+				return c
+			},
+			wantSid: "sys:cross-tenant-qr-site-ip", wantEff: EffectReview,
+		},
+		{
+			name: "10 policy:edit non-owner -> deny",
 			build: func() Context {
 				return Context{Action: ActionPolicyEdit, Resources: []string{"*"}, Keys: map[ContextKey]any{CtxActorRole: "manager"}}
 			},
 			wantSid: "sys:policy-edit-owner-only", wantEff: EffectDeny,
 		},
 		{
-			name: "9 policy:edit missing role -> deny (fail-closed)",
+			name: "10 policy:edit missing role -> deny (fail-closed)",
 			build: func() Context {
 				return Context{Action: ActionPolicyEdit, Resources: []string{"*"}}
 			},
 			wantSid: "sys:policy-edit-owner-only", wantEff: EffectDeny,
 		},
 		{
-			name: "10 self-review -> deny",
+			name: "11 self-review -> deny",
 			build: func() Context {
 				return Context{Action: ActionTapApprove, Resources: []string{"employee/x"}, ReviewerID: &reviewer, SubjectEmployeeID: &reviewer}
 			},
@@ -918,5 +937,149 @@ func TestGuardrails_TagNotActiveIsAnAllowList(t *testing.T) {
 			"schema declares. That means the fourth status is missing from the schema, or " +
 			"the guardrail is still enumerating bad values -- either way the inversion is " +
 			"not in effect.")
+	}
+}
+
+// --- sys:cross-tenant-qr-site-ip (ADR 0027 §7; K-1g, K-38) -------------------
+
+// crossQR is a QR tap by a session of `employer` on a plaque of `site`, the two
+// peers in one holding, with the site's IP matched or not.
+func crossQR(employer, site uuid.UUID, ipMatch bool) Context {
+	c := cleanTap(employer)
+	s := site
+	c.TagTenantID, c.SameHolding = &s, true
+	c.Keys[CtxTapChannel], c.Keys[CtxTapSunValid], c.Keys[CtxTapIPMatch] = "qr", false, ipMatch
+	return c
+}
+
+// TestGuardrails_CrossTenantQRSitsRightAfterDebounce is K-38: the guardrail's slot
+// is IMMEDIATELY after sys:person-debounce and before the baseline, and the slot is
+// measured by what it decides, not only by its index:
+//   - a cross-tenant QR repeated inside the debounce window is IGNORED (the debounce
+//     is QR's one brake -- ahead of it, the repeat would be flagged and fill the
+//     approval queue);
+//   - a deactivated employee's cross-tenant QR is denied WITH the alert (#5 wins --
+//     ADR 0007's rule holds);
+//   - a cross-tenant QR with no SUN is NOT sys:sun-invalid's (that one is NFC-only),
+//     and a future declared time is still sys:occurred-at-bound's;
+//   - a SAME-tenant QR without IP never reaches it (base:qr-requires-ip's case), and a
+//     cross-tenant NFC tap without IP never matches it (it is QR-only).
+func TestGuardrails_CrossTenantQRSitsRightAfterDebounce(t *testing.T) {
+	gs := DefaultGuardrails()
+	idx := map[string]int{}
+	for i, g := range gs {
+		idx[g.Sid] = i
+	}
+	if idx["sys:cross-tenant-qr-site-ip"] != idx["sys:person-debounce"]+1 {
+		t.Fatalf("sys:cross-tenant-qr-site-ip at %d, sys:person-debounce at %d: want it RIGHT after the debounce (K-38)",
+			idx["sys:cross-tenant-qr-site-ip"]+1, idx["sys:person-debounce"]+1)
+	}
+	km, kf := uuid.New(), uuid.New()
+	for _, c := range []struct {
+		name      string
+		ctx       func() Context
+		wantSid   string
+		wantEff   Effect
+		wantAlert SecurityAlert
+	}{
+		{"a repeat inside the debounce window", func() Context {
+			c := crossQR(km, kf, false)
+			g := 10.0
+			c.SecondsSincePersonLastTap = &g
+			return c
+		}, "sys:person-debounce", EffectIgnore, ""},
+		{"a repeat after the window", func() Context {
+			c := crossQR(km, kf, false)
+			g := 600.0
+			c.SecondsSincePersonLastTap = &g
+			return c
+		}, "sys:cross-tenant-qr-site-ip", EffectReview, ""},
+		{"a deactivated employee", func() Context {
+			c := crossQR(km, kf, false)
+			c.Keys[CtxEmployeeStatus] = "deactivated"
+			return c
+		}, "sys:employee-deactivated", EffectDeny, AlertDeactivatedEmployeeTapped},
+		{"a future declared time", func() Context {
+			c := crossQR(km, kf, false)
+			c.Keys[CtxTapOccurredAtSkewSeconds] = -5.0
+			return c
+		}, "sys:occurred-at-bound", EffectDeny, ""},
+		{"a lost plaque", func() Context {
+			c := crossQR(km, kf, false)
+			c.Keys[CtxTagStatus] = "lost"
+			return c
+		}, "sys:tag-not-active", EffectDeny, AlertLostTagTapped},
+		{"a same-tenant QR without IP", func() Context {
+			c := crossQR(km, km, false)
+			return c
+		}, "default", EffectReview, ""},
+		{"a cross-tenant NFC tap without IP", func() Context {
+			c := crossQR(km, kf, false)
+			c.Keys[CtxTapChannel], c.Keys[CtxTapSunValid] = "nfc", true
+			return c
+		}, "default", EffectReview, ""},
+		{"a cross-tenant QR, the two tenants NOT peers", func() Context {
+			c := crossQR(km, kf, false)
+			c.SameHolding = false
+			return c
+		}, "sys:tenant-mismatch", EffectRedirect, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			d := Evaluate(defaultSet(), c.ctx())
+			if d.MatchedSid != c.wantSid || d.Effect != c.wantEff || d.SecurityAlert != c.wantAlert {
+				t.Fatalf("got %s / %s / alert %q, want %s / %s / alert %q", d.Effect, d.MatchedSid, d.SecurityAlert, c.wantEff, c.wantSid, c.wantAlert)
+			}
+		})
+	}
+	// CONTROL: moved AHEAD of the debounce, the repeat is flagged instead of ignored --
+	// the measurement that fixes the slot.
+	moved := moveAhead(t, DefaultGuardrails(), "sys:cross-tenant-qr-site-ip", "sys:person-debounce")
+	c := crossQR(km, kf, false)
+	g := 10.0
+	c.SecondsSincePersonLastTap = &g
+	if d := Evaluate(Set{Guardrails: moved}, c); d.MatchedSid != "sys:cross-tenant-qr-site-ip" {
+		t.Errorf("CONTROL: ahead of the debounce the repeat went to %s, want it flagged -- the test cannot see the slot", d.MatchedSid)
+	}
+}
+
+// TestGuardrails_CrossTenantQRCannotBeLoosenedOrTightened is K-38's "terminal": the
+// EMPLOYER's policy cannot change the guardrail's answer either way. With the
+// production baseline AND a tenant layer that allows every tap at the site's venue
+// (the most specific resource, "location/<id>") -- or the baseline's QR rule switched
+// off by simply not being there -- a cross-tenant QR without the site's IP is still
+// flagged by the guardrail; with a tenant layer that DENIES every tap there, it is
+// still flagged, not denied. With the site's IP matched, the guardrail steps aside and
+// the employer's policy decides (the allow -> ok; the deny -> reject).
+func TestGuardrails_CrossTenantQRCannotBeLoosenedOrTightened(t *testing.T) {
+	km, kf := uuid.New(), uuid.New()
+	venue := "location/rusty-bar"
+	tenantDoc := func(eff Effect) []Policy {
+		return []Policy{{VersionID: uuid.New(), Layer: LayerTenant, Document: Document{Version: BaselineVersion, Name: "km exception",
+			Statements: []Statement{{Sid: "km-site-" + string(eff), Effect: eff, Action: []Action{ActionTapRecord}, Resource: []string{venue}, Reason: "the employer's own rule"}}}}}
+	}
+	baseline := BaselinePolicies(func(string) uuid.UUID { return uuid.New() })
+	for _, c := range []struct {
+		name            string
+		set             Set
+		ipMatch         bool
+		wantSid         string
+		wantEff         Effect
+		wantFromTheRule bool
+	}{
+		{"the employer allows everything at the venue, no site IP", Set{Guardrails: DefaultGuardrails(), Baseline: baseline, Tenant: tenantDoc(EffectAllow)}, false, "sys:cross-tenant-qr-site-ip", EffectReview, false},
+		{"no baseline at all (base:qr-requires-ip gone), no site IP", Set{Guardrails: DefaultGuardrails(), Tenant: tenantDoc(EffectAllow)}, false, "sys:cross-tenant-qr-site-ip", EffectReview, false},
+		{"the employer denies everything at the venue, no site IP", Set{Guardrails: DefaultGuardrails(), Baseline: baseline, Tenant: tenantDoc(EffectDeny)}, false, "sys:cross-tenant-qr-site-ip", EffectReview, false},
+		{"the employer allows, the site IP matched", Set{Guardrails: DefaultGuardrails(), Baseline: baseline, Tenant: tenantDoc(EffectAllow)}, true, "km-site-allow", EffectAllow, true},
+		{"the employer denies, the site IP matched", Set{Guardrails: DefaultGuardrails(), Baseline: baseline, Tenant: tenantDoc(EffectDeny)}, true, "km-site-deny", EffectDeny, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			d := Evaluate(c.set, crossQR(km, kf, c.ipMatch))
+			if d.MatchedSid != c.wantSid || d.Effect != c.wantEff {
+				t.Fatalf("got %s / %s, want %s / %s", d.Effect, d.MatchedSid, c.wantEff, c.wantSid)
+			}
+			if (d.Layer == LayerTenant) != c.wantFromTheRule {
+				t.Fatalf("decided by layer %s", d.Layer)
+			}
+		})
 	}
 }

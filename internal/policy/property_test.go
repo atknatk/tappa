@@ -58,7 +58,7 @@ func TestGuardrail_NoTenantPolicyCanLoosen(t *testing.T) {
 		// (0) SANITY: the scenario really trips a RESTRICTIVE guardrail with no
 		// policies present — the very verdict a tenant must not be able to flip.
 		bare := Evaluate(Set{Guardrails: DefaultGuardrails()}, ctx)
-		if bare.Layer != LayerGuardrail || !isRestrictive(bare.Effect) {
+		if bare.Layer != LayerGuardrail || !(isRestrictive(bare.Effect) || (bare.Effect == EffectReview && reviewGuardrails[bare.MatchedSid] != "")) {
 			t.Fatalf("iter %d [%s]: scenario did not trip a restrictive guardrail (got %s/%s) — generator bug; ctx=%s",
 				i, sc.name, bare.Effect, bare.MatchedSid, ctxSummary(ctx))
 		}
@@ -195,6 +195,14 @@ func guardrailScenarios() []gscenario {
 			c := cleanTap(uuid.New())
 			gap := float64(rng.Intn(60)) // 0..59 s, inside the 60 s default window
 			c.SecondsSincePersonLastTap = &gap
+			c.Resources = []string{randLoc(rng)}
+			return c
+		}},
+		{"9 cross-tenant QR without the site's IP -> review (ADR 0027 §7)", func(rng *rand.Rand) Context {
+			c := cleanTap(uuid.New())
+			site := uuid.New()
+			c.TagTenantID, c.SameHolding = &site, true
+			c.Keys[CtxTapChannel], c.Keys[CtxTapSunValid], c.Keys[CtxTapIPMatch] = "qr", false, false
 			c.Resources = []string{randLoc(rng)}
 			return c
 		}},

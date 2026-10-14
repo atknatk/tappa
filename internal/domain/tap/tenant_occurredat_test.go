@@ -339,3 +339,129 @@ func TestDecide_TapFreshnessIsFedAndCanFire(t *testing.T) {
 		t.Fatal("a QR tap was denied for page age; the guardrail is NFC-only (§5)")
 	}
 }
+
+// --- M11 API-1b: two peers of one holding (ADR 0027 §5, §7) -------------------
+
+// TestDecide_TenantMismatchRespectsSameHolding is CLAUDE.md §5's TestDecide_ rule for
+// guardrail #1's peer arm (ADR 0027 §7): the session's tenant and the tag's differ,
+// and the two are PEERS in one holding -- the tap is decided like any other (here,
+// with the site's own network matched: ok, recorded) instead of redirected. The same
+// pair NOT peers is today's redirect; and SameHolding beside the presence placeholder
+// (no real session tenant) changes nothing -- there is no pair to be peers.
+func TestDecide_TenantMismatchRespectsSameHolding(t *testing.T) {
+	t.Parallel()
+	site, employer := uuid.New(), uuid.New()
+
+	peers := evidencedInput()
+	peers.TagTenantID, peers.SessionTenantID, peers.SameHolding = &site, &employer, true
+	got := Decide(peers)
+	if got.Redirect != RedirectNone || got.Verdict != VerdictOK || got.MatchedSid == "sys:tenant-mismatch" {
+		t.Fatalf("peers: %q/%q/%q, want an ok record and no redirect", got.Verdict, got.Redirect, got.MatchedSid)
+	}
+
+	strangers := evidencedInput()
+	strangers.TagTenantID, strangers.SessionTenantID = &site, &employer
+	if got := Decide(strangers); got.Redirect != RedirectActivation || got.MatchedSid != "sys:tenant-mismatch" {
+		t.Fatalf("not peers: %q/%q, want the mismatch redirect", got.Redirect, got.MatchedSid)
+	}
+
+	placeholder := evidencedInput()
+	placeholder.TagTenantID, placeholder.SameHolding = &site, true
+	if got := Decide(placeholder); got.Verdict != VerdictOK || got.Redirect != RedirectNone {
+		t.Fatalf("placeholder session: %q/%q, want the pre-N5 ok", got.Verdict, got.Redirect)
+	}
+}
+
+// crossQRInput is a QR scan by an employer's session on a site's plaque, the two peers,
+// with the site's ranges registered and the source address on them or not.
+func crossQRInput(onSiteNet bool) Input {
+	in := baseInput()
+	site, employer := uuid.New(), uuid.New()
+	in.TagTenantID, in.SessionTenantID, in.SameHolding = &site, &employer, true
+	in.Channel, in.SUN = ChannelQR, SUNResult{}
+	in.LocationIPs = []netip.Prefix{netip.MustParsePrefix("203.0.113.0/24")}
+	in.SourceIP = netip.MustParseAddr("198.51.100.9")
+	if onSiteNet {
+		in.SourceIP = netip.MustParseAddr("203.0.113.5")
+	}
+	return in
+}
+
+// TestDecide_CrossTenantQRWithoutSiteIPIsFlagged is K-1g (ADR 0027 §7): a QR scan on a
+// peer's plaque without the SITE's network is flagged by sys:cross-tenant-qr-site-ip --
+// recorded, queued, never ok -- even with GPS matching the site's venue, and even when the
+// employer's policy set has NO baseline (base:qr-requires-ip "switched off") and allows
+// every tap at the venue. A list too wide to tell a venue apart is no match either.
+func TestDecide_CrossTenantQRWithoutSiteIPIsFlagged(t *testing.T) {
+	t.Parallel()
+	here := geo.Point{Lat: 35.8989, Lng: 14.5146}
+	allowAll := func(in Input) policy.Set {
+		return policy.Set{Guardrails: policy.DefaultGuardrails(), Tenant: []policy.Policy{{VersionID: uuid.New(), Layer: policy.LayerTenant,
+			Document: policy.Document{Version: policy.BaselineVersion, Name: "km allows", Statements: []policy.Statement{{
+				Sid: "km-allow", Effect: policy.EffectAllow, Action: []policy.Action{policy.ActionTapRecord},
+				Resource: []string{"location/" + in.Tag.Location.String()}, Reason: "the employer allows"}}}}}}
+	}
+	for _, c := range []struct {
+		name   string
+		mutate func(in *Input)
+	}{
+		{"no site IP", func(*Input) {}},
+		{"no site IP, GPS at the venue", func(in *Input) { in.GPS, in.LocationGPS = &here, &here }},
+		{"no site IP, the employer allows everything there and has no baseline", func(in *Input) { in.PolicySet = allowAll(*in) }},
+		{"a site list too wide to be evidence", func(in *Input) {
+			in.LocationIPs = []netip.Prefix{netip.MustParsePrefix("0.0.0.0/1"), netip.MustParsePrefix("128.0.0.0/1")}
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			in := crossQRInput(false)
+			c.mutate(&in)
+			got := Decide(in)
+			if got.Verdict != VerdictFlag || got.MatchedSid != "sys:cross-tenant-qr-site-ip" || got.Redirect != RedirectNone {
+				t.Fatalf("%q/%q/%q, want flag by sys:cross-tenant-qr-site-ip", got.Verdict, got.MatchedSid, got.Redirect)
+			}
+			if got.Type == nil {
+				t.Fatal("a flagged record carries a direction (it may be approved)")
+			}
+		})
+	}
+}
+
+// TestDecide_CrossTenantQRWithSiteIPIsOK: the same scan from the SITE's own network is
+// decided by the employer's policy as any QR with its IP -- ok with the production baseline
+// (base:ip-or-gps-ok), trust 70 with GPS too.
+func TestDecide_CrossTenantQRWithSiteIPIsOK(t *testing.T) {
+	t.Parallel()
+	got := Decide(crossQRInput(true))
+	if got.Verdict != VerdictOK || got.MatchedSid == "sys:cross-tenant-qr-site-ip" || !got.IPMatch {
+		t.Fatalf("%q/%q ip=%v, want ok from the employer's baseline with the site's IP matched", got.Verdict, got.MatchedSid, got.IPMatch)
+	}
+}
+
+// TestDecide_PersonDebounceSpansBothTenantsPlaques is ADR 0027 §7's debounce rule (ADR 0006
+// note; plan §5 API-1b (d)): the debounce is the PERSON's, held at the employer, so a tap on
+// a peer's plaque 20 s after the person's last tap on the EMPLOYER's own plaque (that row is
+// LastForPerson -- gather reads it at the employer whatever plaque it was) is ignored, and
+// so is the reverse. The end-to-end proof is internal/domain/checkin's
+// TestHoldingTap_PersonDebounceSpansBothTenantsPlaques.
+func TestDecide_PersonDebounceSpansBothTenantsPlaques(t *testing.T) {
+	t.Parallel()
+	site, employer := uuid.New(), uuid.New()
+	twentySecondsAgo := 20.0
+	for _, c := range []struct {
+		name string
+		tag  *uuid.UUID
+		peer bool
+	}{
+		{"a peer's plaque after the employer's own", &site, true},
+		{"the employer's own plaque after a peer's", &employer, false},
+	} {
+		in := evidencedInput()
+		in.TagTenantID, in.SessionTenantID, in.SameHolding = c.tag, &employer, c.peer
+		in.LastForPerson = &Transaction{ID: uuid.New(), OccurredAt: in.Now.Add(-20 * time.Second), Direction: TypeIn}
+		in.SecondsSinceLastRecordedTap = &twentySecondsAgo
+		got := Decide(in)
+		if got.Verdict != VerdictIgnored || got.MatchedSid != "sys:person-debounce" {
+			t.Errorf("%s: %q/%q, want ignored by sys:person-debounce", c.name, got.Verdict, got.MatchedSid)
+		}
+	}
+}

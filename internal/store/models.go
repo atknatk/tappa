@@ -337,6 +337,9 @@ type Transaction struct {
 	MatchedSid      *string
 	PolicyLayer     *string
 	PolicyContext   []byte
+	SiteTenantID    *uuid.UUID
+	SiteLocationID  *uuid.UUID
+	SiteTagUid      *string
 }
 
 type TransactionReview struct {

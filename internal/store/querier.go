@@ -2636,6 +2636,15 @@ type Querier interface {
 	// (guardrail|baseline|tenant) and policy_context (the section 4.7-safe input
 	// snapshot). The caller passes them from policy.Decision; passing all four NULL is
 	// valid too (the consistency CHECK permits the all-absent state, section 4.6).
+	//
+	// THE THREE SITE COLUMNS (M11 API-1b, migration 00043, ADR 0027 §4): a tap on a PEER's
+	// plaque (two tenants of one holding) is the employer's record -- tenant_id is the
+	// session's -- with the plaque's tenant, venue and uid in site_tenant_id,
+	// site_location_id and site_tag_uid, and location_id / tag_uid NULL (the local and the
+	// site columns never share a row -- a CHECK). The caller passes the three NULL for
+	// every other tap. What may stand there is not the caller's word: the composite keys
+	// tie the venue and the plaque to the site tenant, the CHECKs hold the shape by channel,
+	// and holding_site_gate refuses a site that is not a peer of the employer.
 	InsertTransaction(ctx context.Context, arg InsertTransactionParams) (Transaction, error)
 	// THE decision. One row, append-only, and it is the ONLY write this flow makes to
 	// the record besides audit_log.

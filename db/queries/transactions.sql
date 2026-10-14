@@ -66,7 +66,8 @@
 SELECT id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
        type, occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match,
        sun_valid, trust, verdict, note, channel, entered_by, practice, queued,
-       created_at, policy_version_id, matched_sid, policy_layer, policy_context
+       created_at, policy_version_id, matched_sid, policy_layer, policy_context,
+       site_tenant_id, site_location_id, site_tag_uid
 FROM transactions t
 WHERE t.tenant_id = @tenant_id
   AND t.employee_id = @employee_id
@@ -201,7 +202,8 @@ LIMIT 1;
 SELECT id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
        type, occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match,
        sun_valid, trust, verdict, note, channel, entered_by, practice, queued,
-       created_at, policy_version_id, matched_sid, policy_layer, policy_context
+       created_at, policy_version_id, matched_sid, policy_layer, policy_context,
+       site_tenant_id, site_location_id, site_tag_uid
 FROM transactions
 WHERE tenant_id = @tenant_id
   AND employee_id = @employee_id
@@ -239,21 +241,33 @@ LIMIT 1;
 -- (guardrail|baseline|tenant) and policy_context (the section 4.7-safe input
 -- snapshot). The caller passes them from policy.Decision; passing all four NULL is
 -- valid too (the consistency CHECK permits the all-absent state, section 4.6).
+--
+-- THE THREE SITE COLUMNS (M11 API-1b, migration 00043, ADR 0027 §4): a tap on a PEER's
+-- plaque (two tenants of one holding) is the employer's record -- tenant_id is the
+-- session's -- with the plaque's tenant, venue and uid in site_tenant_id,
+-- site_location_id and site_tag_uid, and location_id / tag_uid NULL (the local and the
+-- site columns never share a row -- a CHECK). The caller passes the three NULL for
+-- every other tap. What may stand there is not the caller's word: the composite keys
+-- tie the venue and the plaque to the site tenant, the CHECKs hold the shape by channel,
+-- and holding_site_gate refuses a site that is not a peer of the employer.
 INSERT INTO transactions (
     tenant_id, employee_id, location_id, department_id, tag_uid, ctr, type,
     occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match, sun_valid,
     trust, verdict, note, channel, entered_by, practice, queued,
-    policy_version_id, matched_sid, policy_layer, policy_context
+    policy_version_id, matched_sid, policy_layer, policy_context,
+    site_tenant_id, site_location_id, site_tag_uid
 ) VALUES (
     @tenant_id, @employee_id, @location_id, @department_id, @tag_uid, @ctr, @type,
     @occurred_at, @source_ip, @ip_match, @gps_lat, @gps_lng, @gps_match,
     @sun_valid, @trust, @verdict, @note, @channel, @entered_by, @practice, @queued,
-    @policy_version_id, @matched_sid, @policy_layer, @policy_context
+    @policy_version_id, @matched_sid, @policy_layer, @policy_context,
+    @site_tenant_id, @site_location_id, @site_tag_uid
 )
 RETURNING id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
           type, occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match,
           sun_valid, trust, verdict, note, channel, entered_by, practice, queued,
-          created_at, policy_version_id, matched_sid, policy_layer, policy_context;
+          created_at, policy_version_id, matched_sid, policy_layer, policy_context,
+          site_tenant_id, site_location_id, site_tag_uid;
 
 -- name: InsertManualTransaction :one
 -- THE MANAGER'S OWN RECORD (M6-08). Somebody with no phone worked a shift, or an

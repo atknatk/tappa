@@ -2,7 +2,8 @@ package policy
 
 // This file is the GUARDRAIL layer (ADR 0004 §4-§5; M3-05 card; CLAUDE.md §4,
 // §5 rows 1-5). Guardrails are the product's reason for existing made
-// unbreakable: the ten immutable system rules that no customer policy can loosen.
+// unbreakable: the eleven immutable system rules that no customer policy can loosen
+// (ten until M11 API-1b added sys:cross-tenant-qr-site-ip, ADR 0027 §7).
 //
 // THREE properties are structural, not disciplinary:
 //
@@ -14,9 +15,9 @@ package policy
 //     document is even looked at.
 //
 //   - ORDER IS A SECURITY BOUNDARY (ADR 0004 §5). Guardrails() returns them in
-//     the NORMATIVE 1->10 order and that order is defined in exactly ONE place
+//     the NORMATIVE 1->11 order and that order is defined in exactly ONE place
 //     (the slice literal below). §5 says "first match wins"; a wrong order is
-//     exploitable, so it is fixed in code and locked by the 1->10 property test
+//     exploitable, so it is fixed in code and locked by the 1->11 property test
 //     (M3-08). The two exploits the order defends against (both hunted by
 //     tappa-security-auditor R8) are called out on sys:sun-invalid.
 //
@@ -223,8 +224,9 @@ func boundedParams() map[ContextKey]NumericRange {
 // that has not resolved tenant-specific windows should use.
 func DefaultGuardrails() []Guardrail { return Guardrails(DefaultParams()) }
 
-// Guardrails returns the ten immutable system guardrails in their NORMATIVE
-// 1->10 order (ADR 0004 §5; M3-05 card). This slice literal is the ONE place the
+// Guardrails returns the eleven immutable system guardrails in their NORMATIVE
+// 1->11 order (ADR 0004 §5; M3-05 card; the ninth, sys:cross-tenant-qr-site-ip,
+// is ADR 0027 §7's -- M11 API-1b). This slice literal is the ONE place the
 // order is defined; Evaluate runs them in slice order and the first match is
 // terminal (evaluate.go). p supplies the three bounded windows (ADR 0004 §11);
 // pass a Validate()'d Params.
@@ -303,22 +305,27 @@ func Guardrails(p Params) []Guardrail {
 	skewMax := p.OccurredAtSkewMax.Seconds()
 
 	return []Guardrail{
-		// 1. sys:tenant-mismatch — a session for tenant B tapping tenant A's tag.
-		// redirect, and (because redirect writes NOTHING) the tap lands in NEITHER
-		// tenant, so a KF manager never sees a KM employee's name or GPS
-		// (§4.5; ADR 0002 Y2). M11 will change this for two tenants of the SAME
-		// holding (ADR 0027): such a tap will be recorded at the employer and the
-		// site will see a closed projection (name and code, never GPS). Fires only
-		// when BOTH a tag and a session exist and their tenants differ; a request
-		// with no tag (authz) or no session (falls to #4, sys:no-session) does not
-		// match.
+		// 1. sys:tenant-mismatch — a session for tenant B tapping tenant A's tag, B and A
+		// NOT peers in one holding. redirect, and (because redirect writes NOTHING) the
+		// tap lands in NEITHER tenant (§4.5; ADR 0002 Y2). Fires only when BOTH a tag and
+		// a session exist, their tenants differ AND they are not peers; a request with no
+		// tag (authz) or no session (falls to #4, sys:no-session) does not match.
+		//
+		// 🔴 THE PEER ARM IS ADR 0027 §7 (K-1, M11 API-1b): when the two tenants are
+		// peers in one holding (Context.SameHolding -- a fact the caller takes from the
+		// database's one predicate, never computed here), the tap is the EMPLOYER's: it
+		// is decided by the employer's policy (K-1a) and recorded at the employer with
+		// the site named (transactions.site_*), and the site sees a closed projection
+		// (name, code, time, venue, direction, outcome -- never GPS, IP, a note or a
+		// reason; K-1d, K-1h, API-1c). A tenant outside the holding, or one whose
+		// membership has ended, keeps today's answer exactly: redirect, no record.
 		{
 			Sid:    "sys:tenant-mismatch",
 			Effect: EffectRedirect,
 			Reason: "the tapped tag belongs to a different organisation than your session; no record is written",
 			Match: func(c Context) bool {
 				return c.TagTenantID != nil && c.SessionTenantID != nil &&
-					*c.TagTenantID != *c.SessionTenantID
+					*c.TagTenantID != *c.SessionTenantID && !c.SameHolding
 			},
 		},
 
@@ -549,7 +556,42 @@ func Guardrails(p Params) []Guardrail {
 			},
 		},
 
-		// 9. sys:policy-edit-owner-only — policy:edit is restricted to the tenant
+		// 9. sys:cross-tenant-qr-site-ip — a QR scan on a PEER's plaque (ADR 0027 §7,
+		// K-1g -- the user's decision: "o şubenin IP'si şart") whose source address does
+		// not match THAT venue's network is flagged: recorded, queued for the employer's
+		// approval (§4.6). tap:ipMatch is the site's here -- the tapped location is the
+		// site's, its ranges come from holding_tap_site, and a list too wide to tell a
+		// venue apart is no match (internal/netx, decide.go's ipMatches).
+		//
+		// TERMINAL, AND THAT IS THE DECISION (K-38): the employer can neither LOOSEN it
+		// (no allow without the site's IP, even with base:qr-requires-ip switched off --
+		// a guardrail match ends the evaluation before the baseline and the tenant layer
+		// run, ADR 0004 §4) nor TIGHTEN it to deny. The cost is named in ADR 0027 §13.
+		//
+		// POSITION: right after sys:person-debounce (#8), before the baseline (K-38).
+		// Behind the debounce because the debounce is QR's ONE brake (CLAUDE.md §5 --
+		// no counter): ahead of it, a repeated QR inside the window would be flagged
+		// instead of ignored and fill the approval queue. Behind #5 and the timing rules
+		// so their alerts and denials keep winning (ADR 0007); it alerts nothing itself,
+		// so it pre-empts no alert (TestGuardrails_NothingUnnamedPreemptsAnAlert).
+		{
+			Sid:    "sys:cross-tenant-qr-site-ip",
+			Effect: EffectReview,
+			Reason: "a QR scan at another business of the group needs that venue's own network; sent for approval",
+			Match: func(c Context) bool {
+				if c.Action != ActionTapRecord || !c.SameHolding ||
+					c.TagTenantID == nil || c.SessionTenantID == nil || *c.TagTenantID == *c.SessionTenantID {
+					return false
+				}
+				if ch, _ := c.Keys[CtxTapChannel].(string); ch != channelQR {
+					return false
+				}
+				matched, ok := c.Keys[CtxTapIPMatch].(bool)
+				return !(ok && matched)
+			},
+		},
+
+		// 10. sys:policy-edit-owner-only — policy:edit is restricted to the tenant
 		// owner; anyone else, or an absent role, is denied (ADR 0004 K2,
 		// fail-closed). Scopes itself by action.
 		{
@@ -565,7 +607,7 @@ func Guardrails(p Params) []Guardrail {
 			},
 		},
 
-		// 10. sys:no-self-review — an actor may not approve/review their own
+		// 11. sys:no-self-review — an actor may not approve/review their own
 		// transaction (ADR 0004 Y-C). Fires whenever both ids are present and
 		// equal, which scopes it to review actions.
 		{

@@ -123,6 +123,15 @@ type Context struct {
 	// TagTenantID is the tenant that owns the tapped tag (server-resolved from the
 	// tag UID), or nil for a request with no tag (an authorization action).
 	TagTenantID *uuid.UUID
+	// SameHolding reports that TagTenantID and SessionTenantID are PEERS in one holding
+	// (ADR 0027, K-1): the tag's tenant is the SITE, the session's the EMPLOYER, and a tap
+	// across them is recorded at the employer (sys:tenant-mismatch does not fire) under the
+	// cross-tenant QR guardrail. A FACT the caller supplies -- the engine never computes it
+	// (ADR 0004's note, ADR 0027 §7): internal/domain/checkin takes it from the database's
+	// one predicate, holding_peer, through holding_advance_tag_counter's outcome or a strict
+	// holding_tap_site read (K-29). The zero value, false, is "not peers": a caller that
+	// forgets it keeps today's isolation (a mismatch redirects, nothing is written).
+	SameHolding bool
 	// SecondsSincePersonLastTap is the gap to the SAME PERSON's previous tap,
 	// computed server-side — person-based, never tag-based (§5), so different
 	// people can tap one plaque back-to-back and each is recorded. nil means the
