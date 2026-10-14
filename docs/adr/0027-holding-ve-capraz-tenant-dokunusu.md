@@ -8,7 +8,8 @@
   yarısı ([m11-entegrasyon-api.md](../plan/m11-entegrasyon-api.md) §5). **API-1a uygulandı
   (2026-10-13, migration `00040`–`00042`):** `holdings`, `holding_members`, `tappa_holdingdefiner`,
   `holding_peer`, saat dilimi kilidi ve holding'in operatör yüzeyi var — en sondaki *"API-1a uygulama
-  notu"*. **API-1b uygulandı (2026-10-14, migration `00043`–`00044`):** `transactions.site_*` + K-30
+  notu"*. **API-1b uygulandı (2026-10-14, migration `00043`–`00045`; `00045` kullanıcının K-1i
+  kararı — `ctr_gap`):** `transactions.site_*` + K-30
   CHECK'leri, `holding_tap_site`, `holding_advance_tag_counter`, `holding_logo`, `holding_site_gate`;
   guardrail #1'in eşlik şartı ve `sys:cross-tenant-qr-site-ip`; checkin'in holding yolu, K-35, logo
   rotasının eş biçimi ve tap/sonuç ekranında sahanın markası — en sondaki *"API-1b uygulama notu"*.
@@ -116,6 +117,7 @@ mekanik olarak sabitler (§2).
 | **K-1f** | Çapraz punch'ta karşı tarafın kimlikleri | **Paylaşılır:** çalışan `externalRef`/kod, lokasyon `externalRef`/ad, `tagId`, şirket kodu | K-1d'nin genişlemesi; e-posta/GPS/IP/not yine asla. Dış akıştaki biçimi ADR 0028 §4 (anlık görüntü, K-32) |
 | **K-1g** | Çapraz QR okutması | **Sistem kuralı: o şubenin IP'si şart**, yoksa `flag`; işveren kapatamaz | Yeni `sys:` guardrail (§7) → CLAUDE.md §5, ADR 0004/0007 notları |
 | **K-1h** | Holding içi görünürlüğün genişlemesi | **Kabul** (2026-10-10): KF kendi plaketindeki KM dokunuşunun **sonucunu** (sayıldı / onay bekliyor / onaylandı / reddedildi — **nedeni değil**) ve **yönünü** (giriş/çıkış) görür; rehber **aktif/pasif** durumunu verir (spec şartı) | KF, KM'de işten ayrılanı dolaylı öğrenir (tersi de); DPA notuna eklenir |
+| **K-1i** | Holding dokunuşunda sayaç atlaması (`ctr_gap`) | **İşverene ulaşır** (2026-10-14): `holding_advance_tag_counter`'ın dönüşüne `ctr_gap integer` eklenir — yalnız `advanced`'ta, **aynı ifadede** `p_ctr − eski last_ctr − 1`, öteki sonuçlarda NULL; işverenin `base:ctr-gap-review`'ı holding dokunuşuna tek-tenant dokunuştaki anlamıyla uygulanır. Gerekçe: *"URL toplama sinyali karar veren işverene ulaşsın"* | Kapalı listenin bir dönüşü genişledi (§2, migration `00045`). Atlama **bir kez**, holding dokunuşunda yakalanır: eski `last_ctr` ilerletme ifadesinden sonra yoktur, sonraki KF dokunuşu onu yeniden görmez (§13). KF tarafındaki iz API-1c'nin (§9) |
 
 ### Otonom kararlar — bu ADR'nin konusu olanlar (öneri uygulandı)
 
@@ -270,11 +272,11 @@ gerekçe).
 2. **Sabit dönüş sütunları** (`RETURNS TABLE(…)`; `SELECT *` yüzeyi yok) ve **LIMIT** (çok satır
    dönenlerde en çok 1000, sayfalı).
 3. **Çağıranın tenant'ı GUC'tan:** `NULLIF(current_setting('app.tenant_id', true), '')::uuid` —
-   parametre olarak **alınmaz**. Bağlam yoksa (NULL) cevap **0 satırdır**.
+   parametre olarak **alınmaz**. Bağlam yoksa (NULL) cevap **0 satırdır**.¹
 4. **Girdi yalnız sunucunun çözdüğü anahtardır** (plaket uid'i, sayaç değeri, logo özeti, imleç,
    `updatedSince`); istemcinin seçtiği bir tenant kimliği hiçbir fonksiyonun parametresi değildir.
 5. **Süzgeç (K-33, normatif):** *anahtar satırının tenant'ı ∈ eşler(GUC tenant'ı) ∧ GUC tenant'ı bir
-   holding'in üyesi* — ikisi **aynı** holding'de (`holding_id` eşitliği). Eş değilse **0 satır**,
+   holding'in üyesi* — ikisi **aynı** holding'de (`holding_id` eşitliği). Eş değilse **0 satır**,¹
    bilinmeyen anahtarla **aynı** cevap (kehanet yok — ADR 0026'nın *"aynı ekran ve durum kodu"*
    ilkesi).
 6. **Gövdede RLS yoktur** (sahip BYPASSRLS) → açık süzgeç ve her ifadedeki açık tenant filtresi
@@ -282,6 +284,12 @@ gerekçe).
 7. **Hata yutan `EXCEPTION` bloğu yok** (savepoint geri alımı kilidi bırakır ve yazma sessizce
    düşerdi — ADR 0028 §4); eşlik bittiğinde bir dalı atlamak açık bir `IF`'tir, hata yutma değil.
 8. **Ağ, uzun iş, uç nokta adresi okuma yok.**
+
+¹ **Adlandırılmış tek istisna — `holding_advance_tag_counter` (API-1b, 2026-10-14; denetimde onay
+gerektirmeyen netleştirme sayıldı).** İmza `not_peer`'i bir **sonuç** olarak adlandırır, bu yüzden
+fonksiyon **her zaman tek satır** döner: bağlamsız çağrının, eş olmayanın ve bilinmeyen uid'in cevabı
+aynı `('not_peer', NULL, NULL)` satırıdır. Madde 5'in amacı (kehanet yok) korunur — üç durum ayırt
+edilemez; değişen yalnız *"0 satır"*ın yerine *"tek, aynı satır"*dır.
 
 **Tek yüklem — `holding_peer(a, b, mod)` (K-33).** *"İki tenant aynı holding'de eş mi"* sorusunun
 **tek** cevabı budur; bütün `holding_*` fonksiyonları **ve iki tetikleyici** (BEFORE INSERT üyelik
@@ -355,7 +363,7 @@ dönüş sütunu, tenant sınırının ne kadar açıldığının kendisidir. Ku
 | Fonksiyon | Ne döner / ne yapar | Çağrı yeri | EXECUTE |
 |---|---|---|---|
 | `holding_tap_site(p_uid)` | Eş tenant'ın plaketi: `site_tenant_id`, plaketin durumu; varsa `location_id`, lokasyon adı, `external_ref`, `static_ips`, GPS, vardiya, `overnight`; saha tenant'ının saat dilimi ve `api_code`'u; marka meta (accent, logo boyutu ve logo `alt`'ı olan işletme adı — **logo özeti yalnız VIES-doğrulanmış** tenant için). `static_ips`/GPS yalnız sunucu içi karar girdisidir (K-39) | `GET /t` (sayfa: KF mekân adı + KF markası) · `checkin.gather` (kilitli işlem içinde — `SameHolding`'in kaynağı, §5) | `tappa_app` |
-| `holding_advance_tag_counter(p_uid, p_ctr)` | **Tek ifade** (`db/queries/tags.sql:33-46`'nın CTE + `FOR UPDATE` kalıbı): eş şartı `prev`'de **ve** `UPDATE … WHERE`'de, **katı** üyelik (`left_at > clock_timestamp()`), üyelik **tek CTE'de bir kez** hesaplanır (`clock_timestamp()` iki kez değerlendirilmez). Dönüş `(sonuç, plaketin güncel durumu)`; sonuç dört değerden biri: eş değil → `not_peer` · eş ama plaket `active` değil → `peer_inactive` · eş, aktif, güncelleme boş → `replay` · güncelleme dolu → `advanced` (6.–10. turda ölçüldü: 20 eşzamanlı çağrıda tam 1 `advanced`, 19 `replay`) | **`checkin.advance`** — `sun.Verify`'a dokunulmaz (o yalnız aktivasyon yoludur) | `tappa_app` |
+| `holding_advance_tag_counter(p_uid, p_ctr)` | **Tek ifade** (`db/queries/tags.sql:33-46`'nın CTE + `FOR UPDATE` kalıbı): eş şartı `prev`'de **ve** `UPDATE … WHERE`'de, **katı** üyelik (`left_at > clock_timestamp()`), üyelik **tek CTE'de bir kez** hesaplanır (`clock_timestamp()` iki kez değerlendirilmez). Dönüş `(sonuç, plaketin güncel durumu, ctr_gap)`; sonuç dört değerden biri: eş değil → `not_peer` · eş ama plaket `active` değil → `peer_inactive` · eş, aktif, güncelleme boş → `replay` · güncelleme dolu → `advanced` (6.–10. turda ölçüldü: 20 eşzamanlı çağrıda tam 1 `advanced`, 19 `replay`). `ctr_gap` (K-1i, 2026-10-14) yalnız `advanced`'ta dolu: aynı ifadede `p_ctr − eski last_ctr − 1` — tek-tenant ifadesinin `t.last_ctr − prev.old_ctr − 1`'inin aynısı; öteki sonuçlarda NULL | **`checkin.advance`** — `sun.Verify`'a dokunulmaz (o yalnız aktivasyon yoludur) | `tappa_app` |
 | `holding_logo(p_uid, p_digest)` | Eş tenant'ın **güncel** logo baytı ve türü; yalnız tenant VIES-doğrulanmışsa **ve** özet `holding_tap_site`'ın verdiğiyle aynıysa (eski ya da başka tenant'ın özeti → 0 satır) | logo rotası (ADR 0024 notu) | `tappa_app` |
 | `holding_site_locations(p_cursor)` | Eş tenant'ların lokasyonları: lokasyonun tenant'ı (manuel kaydın `site_tenant_id`'si için anahtar), id, ad, `external_ref`, vardiya, `overnight` — sayfalı, en çok 1000. **`static_ips` ve GPS asla** (K-39) | KM panelinde manuel kayıt lokasyon seçimi; işverenin raporları (§9) | `tappa_app` |
 | `holding_directory(p_updated_since, p_cursor)` | **Eş** tenant'ların çalışanları — **çağıranın kendi tenant'ı hariç** (kendi çalışanları her zaman RLS'li sorgudan gelir, ADR 0028 §2): kimlik, `api_code`, `external_ref`, kod, ad, soyad, **aktif/pasif** (K-1h) — **e-posta yok**; sayfalı, en çok 1000 | `GET /v1/directory` (ADR 0028) | `tappa_app` |
@@ -372,7 +380,7 @@ olarak** bu tablodur.
 | Fonksiyon | Argümanlar | Dönüş |
 |---|---|---|
 | `holding_tap_site` | `p_uid character` | `TABLE(site_tenant_id uuid, tag_status text, location_id uuid, location_name text, location_external_ref text, static_ips cidr[], gps_lat numeric, gps_lng numeric, shift_start time without time zone, shift_end time without time zone, overnight boolean, timezone text, api_code text, accent character, logo_sha256 text, logo_mime text, logo_width integer, logo_height integer, business_name text)` |
-| `holding_advance_tag_counter` | `p_uid character, p_ctr integer` | `TABLE(outcome text, tag_status text)` — `outcome ∈ {advanced, not_peer, replay, peer_inactive}` |
+| `holding_advance_tag_counter` | `p_uid character, p_ctr integer` | `TABLE(outcome text, tag_status text, ctr_gap integer)` — `outcome ∈ {advanced, not_peer, replay, peer_inactive}`; `ctr_gap` yalnız `advanced`'ta dolu (K-1i, migration `00045`) |
 | `holding_logo` | `p_uid character, p_digest text` | `TABLE(logo bytea, logo_mime text)` |
 | `holding_site_locations` | `p_cursor uuid` | `TABLE(site_tenant_id uuid, location_id uuid, location_name text, location_external_ref text, shift_start time without time zone, shift_end time without time zone, overnight boolean)` |
 | `holding_directory` | `p_updated_since timestamp with time zone, p_cursor uuid` | `TABLE(employee_id uuid, employer_tenant_id uuid, api_code text, external_ref text, employee_code text, first_name text, last_name text, active boolean, updated_at timestamp with time zone)` |
@@ -576,7 +584,7 @@ her kanalda yanlıştı (7. tur), bu yüzden kural kanal ve satır şekline gör
 
 | Yol | Zaman kuralı | `left_at`'i kesen dokunuşun sonucu |
 |---|---|---|
-| NFC ilerletme (`holding_advance_tag_counter`) | **katı** (`left_at > clock_timestamp()`) | `left_at`'ten sonra → `not_peer` → 403, kayıt yok, sayaç ilerlemez |
+| NFC ilerletme (`holding_advance_tag_counter`) | **katı** (`left_at > clock_timestamp()`) | `left_at`'ten sonra → `not_peer` → 403, kayıt yok, sayaç ilerlemez. `advanced` atlanan okumaları da (`ctr_gap`) aynı ifadede döndürür — işverenin `base:ctr-gap-review`'ı onu okur (K-1i) |
 | NFC yazma — ilerletilmiş dokunuş | **60 sn tolerans**, kol (i): `sun_valid IS TRUE` ∧ saha plaketinin `last_ctr ≥ NEW.ctr` | ilerletme `left_at`'ten önce, yazma sonra → holding kaydı **yazılır** |
 | Red satırı (NFC **ve** QR) | **60 sn tolerans**, kol (ii): `channel IN ('nfc','qr')` ∧ `verdict='reject'` ∧ (`sun_valid IS NOT TRUE` ∨ saha `last_ctr ≥ NEW.ctr`) | replay, `peer_inactive`, kayıp plaket ve QR reddi (ör. deaktive çalışanın güvenlik uyarılı denemesi) karar ile yazma arasında `left_at` geçse de **kaybolmaz** (10.–11. tur ölçtü). Red satırı mesai doğuramaz: yön NULL'a zorlanır, yalnız `flag` onaylanır. Son şart `sun_valid=true` taşıyıp ileri `ctr` yazan bir ham yazıcıyı sınırlar |
 | İlerletilmemiş NFC satırı (`last_ctr < ctr`, `sun_valid` yanlış, `ok`/`flag`) | tolerans yok | `left_at`'ten sonra INSERT'te **reddedilir** |
@@ -601,7 +609,12 @@ ortak saat, commit edilmemiş `left_at`'i göremiyordu). Karşılaştırmalar `s
 `transactions` kolu eşliği yeniden sormaz:** BEFORE'dan geçmiş bir `site_*` satırı eştir — kabul
 kapısı BEFORE'dur; böylece *"BEFORE kabul etti, AFTER KF tarafını atladı"* satırı yoktur (FK
 beklemesinde `left_at` geçen yarışta da, commit edilmemiş `op_remove` ile kesişen INSERT'te de).
-`FOR SHARE`'in yetki şartı §3 *"kilit çapası"*.
+`FOR SHARE`'in yetki şartı §3 *"kilit çapası"*. **Kilit beklemesi sınırlıdır** (kapının
+`lock_timeout = 2s`'i): bir `op_remove` üyelik satırını 2 sn'den uzun tutarsa INSERT 55P03 ile düşer.
+Checkin site satırını bu yüzden savepoint içinde yazar ve **yalnız** kapının 55P03'ünde aynı istekte
+**bir kez** yeniden dener (API-1b denetimi, güvenlik DÜŞÜK-1): çıkarma o arada commit edildiyse
+toleranslı kol ilerletilmiş NFC satırını yazar, katı satır 23514 ile reddedilir (*"tekrar dokunun"*);
+ikinci bekleme de dolarsa hata yukarı çıkar — §13'ün adlandırılmış bedeli.
 
 **Tolerans ≥ 2 × istek zaman aşımı.** İstek zaman aşımı 30 sn (`internal/httpx/router.go:32,90`);
 60 sn tolerans bunun iki katıdır ve bir testle pinlenir — zaman aşımı yükselirse test kırmızıdır.
@@ -743,6 +756,13 @@ KF'nin **kendi** çalışanlarının süreleri değişmez (KF ledger'ı yalnız 
   *"son görülme"*yi kalıcı olarak 2099'a çekebiliyordu).
 - KF panelinde holding dokunuşları (liste), plaket son görülme ve **sayaç boşlukları** (`ctr_gap`)
   izdüşümden. **KF onay vermez** (plan §8: KF'nin KM çalışanı için onay vermesi kapsam dışı).
+- **`ctr_gap`'in kaynağı (K-1i, 2026-10-14 — eski metnin *"KF bunu izdüşümde görür"*ü kaynağı
+  adlandırmıyordu).** Atlama yalnız ilerletme ifadesinin **içinde** hesaplanabilir: eski `last_ctr`'ı
+  ifade kendisi üzerine yazar, sonra hiçbir okuma onu bulamaz. `holding_advance_tag_counter` onu
+  `ctr_gap` olarak döndürür ve karar onu `tap:ctrGap` olarak satırın `policy_context`'ine dondurur;
+  izdüşüm KF'nin `ctr_gap`'ini **oradan** — tetikleyicinin `NEW`'inden — alır. Bu bir **devirdir**
+  (API-1c): K-34'ün `policy_context` SELECT pinini bozmadığı ve sütunun KF'ye yalnız bu sayıyı
+  taşıdığı orada ölçülür.
 
 **İşverenin okuyucuları** (rol geneldir — KF@KM'de saha KM'dir): `transactions.location_id`/`tag_uid`
 okuyan **dokuz** çağıran (7. tur saydı) `site_*` satırını doğru mekân ve vardiyayla göstermelidir;
@@ -891,6 +911,16 @@ adlandırılmış kalan risk (1. tur, güvenlik merceği; §13 madde 13).
 14. **K-29'un 60 sn'lik çıkış penceresi** (§12 madde 1): bir üyelik bittikten sonraki 60 sn içinde
     toleranslı kollardan yazılan satırlar **iki yönde de** (çıkandan kalana, kalandan çıkana) karşı
     tarafın izdüşümüne, akışına ve webhook'una düşer; tekilleştirmeyle ve örtüşme şartıyla sınırlı.
+15. **K-1i:** holding dokunuşunun sayaç atlaması **bir kez**, o dokunuşu karara bağlayan işverende
+    yakalanır. Plaketin kendi işletmesi (KF) sonraki tek-tenant dokunuşunda o atlamayı yeniden görmez
+    (eski `last_ctr` yoktur — ölçüldü: KF@100, KM 150 → KM'de `base:ctr-gap-review` `flag`, `tap:ctrGap`
+    49; ardından KF 151 → `ok`, `tap:ctrGap` 0). KF'nin görünürlüğü API-1c'nin izdüşümündedir (§9).
+16. **Kapının kilit beklemesi (API-1b denetimi, güvenlik DÜŞÜK-1):** checkin site satırını 2 sn'lik
+    beklemeden sonra bir kez yeniden yazar (§6); bir operatör işlemi aynı üyelik satırını **iki**
+    beklemenin boyunca (> 4 sn) açık tutarsa INSERT 55P03 ile düşer — ilerletilmiş bir NFC
+    dokunuşunda sayaç ilerlemiş, kayıt yazılmamış olur (kişinin tekrarı `not_peer`, 403). Bunun için
+    `op_remove_holding_member`'ın (tek UPDATE + tek INSERT) dışında, satırı saniyelerce tutan bir
+    operatör işlemi gerekir; v1'de yoktur. Ölçüldü: `TestHoldingWindow_GateLockHeldThroughBothWaitsIsTheNamedCost`.
 
 ## Elenen seçenekler
 
@@ -1004,6 +1034,9 @@ satırları.)*
   görünümü API-1c'nin) · `TestHoldingAdvance_InactivePlaqueIsPeerInactiveNot403` ·
   `TestHoldingWindow_RefusalsSurviveTheLeftRace` (replay, `peer_inactive`, kayıp plaket) ·
   `TestHoldingAdvance_DecideSeesTheCurrentStatus` (kanca ile kurulan yarış) ·
+  `TestHoldingAdvance_StatusAtTheAdvanceOutranksTheLaterRead` (ilerletmenin durumu katı okumanınkinden önce) ·
+  `TestHoldingWindow_GateLockWaitIsWrittenOnceMore` · `TestHoldingWindow_GateLockHeldThroughBothWaitsIsTheNamedCost`
+  (kapının `lock_timeout`'u — §6, §13 madde 16) ·
   `TestHoldingWindow_NoRowPassesBeforeAndSkipsAfter` (FK beklemesi + commit edilmemiş `op_remove`;
   `FOR SHARE` sıralaması; *"AFTER KF tarafını atlamaz"* yarısı API-1c'nin) · `TestHoldingWindow_QRRefusalSurvivesTheLeftRace` ·
   `TestHoldingWindow_UnadvancedNFCRowAfterLeftIsRefused` · `TestHoldingWindow_QRDecisionAfterLeftIs403` ·
@@ -1019,10 +1052,13 @@ satırları.)*
   `site_tenant_id = tenant_id` ret; `site_tenant_id` NULL iken `site_*` dolu ret)
 - (k) `TestHoldingMigration_AlterWithinTwoSeconds` (ölçüm; `NOT VALID` yolu seçildi)
 - (l) `TestHoldingAdvance_KeepsReplayProtection` (eşit/geri `ctr` → `replay`, sayaç değişmez;
-  holding dışı → `not_peer`)
+  holding dışı → `not_peer`; `ctr_gap` yalnız `advanced`'ta) · `TestHoldingAdvance_CounterGapReachesTheEmployersReview`
+  (K-1i: KF@100, KM 150 → `base:ctr-gap-review`; ardından KF 151 → boşluk yok)
 - `TestDecide_TenantMismatchRespectsSameHolding` (CLAUDE.md §5'in `TestDecide_…` kuralı)
 - Ek (API-1b): `TestAdvance_APeersPlaqueGoesThroughTheHoldingStatementOnly` ·
   `TestHoldingDefiner_EveryGrantIsUsed` · `TestHolding00043And00044_DownGiveBackAndUpTakesItAgain`
+  (`00045`'in Down/Up'ı dahil) · `TestHoldingSite_EvidenceLeavesByNoRoute` (K-39, Go tarafı) ·
+  `TestCheckin_SiteMembershipEndedIs409TapAgain`
 
 **İzdüşüm ve paneller (API-1c)**
 - `SitePunches_CatalogCarriesNoEvidenceColumns` · `SitePunches_OutcomeMappingIsTotal`
@@ -1253,7 +1289,10 @@ VALIDATE'leri > 0; kontrol olarak `NOT VALID`'siz biçim tarar.
 
 **Kapı (`holding_site_gate`).** §6'nın modeli: önce `holding_peer(işveren, saha, 'lock')`, sonra kol.
 Kol (i) **`channel = 'nfc'`** ile daraltıldı (§6'nın metni kanal adlandırmıyordu; QR'ın `sun_valid`'i hep
-yanlıştır, ham bir yazıcının `sun_valid=true` bir QR satırı toleransa girmesin). Ret 23514,
+yanlıştır, ham bir yazıcının `sun_valid=true` bir QR satırı toleransa girmesin). Bu daraltma
+`TestHoldingWindow_GateArms`'ın `QRAdvancedShapeAfterLeftIsRefused` satırıyla pinli (QR, `sun_valid`
+doğru, `ctr ≤ last_ctr`, 10 sn → ret): kanal şartı çıkarılınca kırmızı — ilk turda bu mutant yeşildi
+(denetim, üçüncü göz madde 1). Ret 23514,
 `CONSTRAINT = 'holding_site_gate'`; checkin bunu `ErrSiteMembershipEnded` diye tanır, ekran 409 +
 *"tekrar dokunun"* (`tapProblemServer`; hiçbir şey yazılmadı). **FK beklemesi ölçüldü:** kapının
 `FOR SHARE`'i satırın commit'ine kadar tutulur, bu yüzden FK denetimi plakette beklerken bir
@@ -1266,12 +1305,17 @@ toleranslı / hiçbiri toleranslı / kol (ii)'nin sayaç sınırı yok → ilgil
 materyalize) `prev`'de ve `UPDATE`'te, `prev` `FOR UPDATE OF g`, `v.old_ctr < p_ctr`, `old_status =
 'active'`. **Açık kalan bir sözleşme noktası, kararıyla:** §2'nin 3. maddesi *"bağlam yoksa 0 satır"*
 der ama imza `not_peer`'i bir sonuç olarak adlandırır; fonksiyon **her zaman tek satır** döner ve eş
-olmayan, bilinmeyen uid ve bağlamsız çağrının cevabı aynıdır: `('not_peer', NULL)` (kehanet yok). Durum
+olmayan, bilinmeyen uid ve bağlamsız çağrının cevabı aynıdır: `('not_peer', NULL, NULL)` (kehanet
+yok) — denetim onay gerektirmediğine hükmetti, §2'ye dipnot (¹) olarak yazıldı. Durum
 sütunu kilitteki durumdur (`prev`'in `FOR UPDATE`'i READ COMMITTED'de satırı yeniden okur). Mutantlar:
 `<` → `<=` (eşit sayaç ilerledi; dört test kırmızı), `FOR UPDATE` yok (iki ifadeli yarışta birden
 fazla kazanan — SQL düzeyindeki yarış testi kırmızı; ürün yolundan 20 Record'luk yarış bu mutantı
 **görmedi**: istekler arasındaki gidiş dönüşler pencereyi kapatıyor — deponun bilinen dersi, pin SQL
-düzeyindedir), `peer` süzgeci kaldırıldı (C'nin sayacı KM'den ilerledi; beş test kırmızı).
+düzeyindedir), `peer` süzgeci kaldırıldı (C'nin sayacı KM'den ilerledi; beş test kırmızı). **Yarış
+testinin tek-tenant yarısı ürünün kendi sorgusudur** (denetim, üçüncü göz madde 7): ilk biçim
+`store.AdvanceTagCounter`'ın SQL'inin bir **kopyasını** koşuyordu — kopya, gerçek sorgu kilidini
+kaybetse de yeşil kalırdı. Artık `store.New(tx).AdvanceTagCounter`; `internal/store`'daki sorgudan
+`FOR UPDATE` çıkarılınca test 3/3 koşuda kırmızı (20 yarışçıda 6–10 kazanan).
 
 **`holding_tap_site` / `holding_logo`.** `business_name` de logo ile birlikte kapılıdır (yalnız
 VIES-doğrulanmış sahada; §2 *"logo alt'ı olan işletme adı"*) — daha dar. Accent her durumda döner.
@@ -1291,16 +1335,30 @@ her sütunu **tek başına** geri alıp üç fonksiyonu ve kapıyı sürer: her 
 `holding_advance_tag_counter`; tek-tenant ifadesine asla — `TestAdvance_APeersPlaqueGoesThroughTheHoldingStatementOnly`).
 `not_peer`'de `gather`'ın saha okuması **yapılmaz** (eş olmayanın plaketi okunmaz). Kararın okuduğu plaket
 durumu: ilerletmenin kilitteki durumu, yoksa katı saha okumasınınki, yoksa çözümleyicininki. Bayat
-çözümleyici durumu mutantı kırmızı (`TestHoldingAdvance_DecideSeesTheCurrentStatus`); **ilerletme ile
-saha okumasının kendi aralarındaki önceliği bir testle pinlenmedi** (ikisi de taze; mutant yeşil —
-denetçilere not). Kancalar (`recordHooks`: çözümlemeden sonra, ilerletmeden sonra, yazmadan önce) üretimde
-nil'dir; yarışlar zamanlamayla değil kancayla kurulur.
+çözümleyici durumu mutantı kırmızı (`TestHoldingAdvance_DecideSeesTheCurrentStatus`); ilerletme ile saha
+okumasının kendi aralarındaki önceliği `TestHoldingAdvance_StatusAtTheAdvanceOutranksTheLaterRead` ile
+pinli (denetim, üçüncü göz madde 4: plaket ilerletmeden sonra kayba çevrilir; sıra ters çevrilince
+sayacı ilerletmiş dokunuş `sys:tag-not-active` ile reddedildi — kırmızı; ilk turda bu mutant yeşildi).
+Kancalar (`recordHooks`: çözümlemeden sonra, ilerletmeden sonra, yazmadan önce, site satırının iki yazma
+denemesi arasında) üretimde nil'dir; yarışlar zamanlamayla değil kancayla kurulur.
 
-**⚠️ Adlandırılmış sınır — holding NFC dokunuşunda `ctr_gap` 0.** İmza tablosunun
-`holding_advance_tag_counter` dönüşünde bir boşluk sütunu yok (`TABLE(outcome text, tag_status text)`);
-bu yüzden holding dokunuşunda `tap:ctrGap` 0'dır ve **`base:ctr-gap-review` holding NFC dokunuşunda hiç
-ateşlenmez** (KF sayaç boşluğunu API-1c'nin izdüşümünde `ctr_gap` ile görür). Dönüşü genişletmek §2'nin
-kuralıyla kullanıcı onayı + bu ADR'nin değişikliğidir — yapılmadı, soruldu.
+**`ctr_gap` — kullanıcının K-1i kararı (2026-10-14), migration `00045`.** İlk teslimde dönüşte boşluk
+sütunu yoktu, holding dokunuşunda `tap:ctrGap` 0'dı ve `base:ctr-gap-review` hiç ateşlenmiyordu; bu
+adlandırılmış sınır kullanıcıya soruldu ve kullanıcı genişletmeyi seçti. `00045` fonksiyonu
+`TABLE(outcome text, tag_status text, ctr_gap integer)` ile yeniden kurar (DROP + CREATE — dönüş tipi
+`CREATE OR REPLACE` ile değişmez; sahip, `REVOKE ALL … FROM PUBLIC` ve tek `EXECUTE` yeniden verilir;
+ön koşul canlı dönüşün `00043`'ünkü olduğunu doğrular). `ctr_gap` `moved` CTE'sinin `RETURNING`'inde
+`(t.last_ctr − v.old_ctr − 1)::integer` — tek-tenant ifadesinin birebir aynı hesabı, aynı ifadede;
+`advanced` dışındaki sonuçlarda NULL; Go tarafı (`db.HoldingAdvance.CtrGap`) NULL'un `advanced`'la
+birlikte gelmesini hata sayar. **Neden `00043`'ü yerinde değil:** `00043`'ün Down'ı site satırı varken
+reddeder (tasarımı gereği) ve paylaşılan `tappa-m11-db` 362 site satırı taşıyordu — geri alınamayan
+bir migration'ı yerinde düzeltmek, uygulanmış veritabanlarında eski gövdeyi bırakırdı. `00045`'in
+Down'ı `00043`'ün iki sütunlu fonksiyonunu birebir geri kurar. Ölçüldü: KF@100, KM 150 → KM'de `flag`,
+`base:ctr-gap-review`, `policy_context`'te `tap:ctrGap` 49; ardından KF 151 → `ok`, `tap:ctrGap` 0
+(atlama holding dokunuşunda tüketildi — §13 madde 15). Mutantlar: `00045`'in ifadesinde `ctr_gap` hep 0
+(atılabilir kapta) → `TestHoldingAdvance_KeepsReplayProtection` ve
+`TestHoldingAdvance_CounterGapReachesTheEmployersReview` kırmızı; `advanceAtAPeer`'de `gap: 0` → aynı
+uçtan uca test ve `TestAdvance_APeersPlaqueGoesThroughTheHoldingStatementOnly` kırmızı.
 
 **Karar motoru.** `policy.Context.SameHolding` (motor hesaplamaz); #1 `… ∧ ¬SameHolding`; yeni #9
 `sys:cross-tenant-qr-site-ip` (effect `review`), #10/#11 yetkilendirme guardrail'ları. **Değişmez
@@ -1324,6 +1382,57 @@ koşmaz (ADR 0026'nın testi değişmedi); davet çözülmezse aktivasyon akış
 
 **Devredilenler (adıyla, nedeniyle):** *"BEFORE kabul edip AFTER'ın KF tarafını atladığı satır yok"*'un
 AFTER yarısı ve *"C'nin `site_punches`'ı 0"*, KF'nin `refused_tag_not_active` görünümü ve kayıp plaket
-uyarı yüzeyi → **API-1c** (`holding_feed`, `site_punches` orada doğar); `HoldingDirectory_ReturnsPeersNeverTheCaller`
-→ **API-8** (`holding_directory`); R4 tarayıcısının şema nitelikli `UPDATE public.tags SET last_ctr`
+uyarı yüzeyi, ve K-1i'nin KF tarafı (`ctr_gap`'in `policy_context`'teki `tap:ctrGap`'ten izdüşüme
+taşınması — §9) → **API-1c** (`holding_feed`, `site_punches` orada doğar; plan §5 API-1c kabulüne
+yazıldı); `HoldingDirectory_ReturnsPeersNeverTheCaller` → **API-8** (`holding_directory`; plan §5 API-8
+satırı ve kabulüne yazıldı); R4 tarayıcısının şema nitelikli `UPDATE public.tags SET last_ctr`
 biçimi → **API-3** (plan §5'in satırı; yeni ifade zaten çok satırlıdır ve R4 satır yereldir — ADR 0028 §3).
+
+**Denetimden sonra (2026-10-14 — güvenlik ONAY + iki DÜŞÜK, üçüncü göz RED: bir ORTA + yedi DÜŞÜK).**
+Ölçümler atılabilir bir PostgreSQL 17 kabında; paylaşılan veritabanına yalnız `goose up` (`00045`).
+- **ORTA-1 — Down yürüyen testlerin kilitleri.** `holdingLockForDowns` altı tabloyu kilitliyordu;
+  `holding_members`, `holdings`, `operator_audit_log`, `operator_read_tickets` eklendi (on tablo, tek
+  `LOCK … NOWAIT`, 25 ms'de bir yeniden, en çok 90 sn). Denetçinin sondası kendi kabımda yeniden
+  koşuldu — `TestHolding00041_PreconditionRefusesAWrongCluster -count=10` sürerken ayrı bir bağlantı
+  her işlemde bir üyelik yazıp siliyor: **altı tabloyla 1 361 üyelik yazımında 90 deadlock** (her
+  Down yürüyüşü bir tane — 10 koşu × 9 savepoint; kurban hep döngü, test 110 sn), **on tabloyla 2 324
+  yazımda 0** (39 sn). Liste artık **sürüklenemez:** `holdingInSavepoint` savepoint'i geri almadan önce
+  bu arka ucun **güçlü** (ShareUpdateExclusive ve üstü) kilitlerini okur; listede olmayan bir tablo
+  varsa test kırmızıdır (`strongTableLocksOutside`; mutant: `holding_members` listeden çıkarılınca
+  tabloyu yeniden kuran üç test kırmızı — tabloyu düşürüp öyle bırakan bir savepoint'te kilit düşen
+  OID'dedir ve adı okunamaz, denetim orada kördür). Hata beklenen ifadeler iç savepoint'te koşar (`holdingNestedRun`), yoksa kilitler
+  okunamazdı. **Taranan öteki Down yürüyücüsü `opAtVersion`'dır** (M10'un operatör testleri; `00042`
+  dahil): onun Down'ları `operator_audit_log`'u sonra `operator_read_tickets`'ı kilitliyordu, oysa
+  `op_read_audit` önce bileti günceller sonra günlüğü okur — ters sıra, aynı sınıf. `opAtVersion` artık
+  yürüyeceği Down'ların DDL'inin adlandırdığı tabloları (`downTables`) ve sildiği iki tabloyu önce, tek
+  `NOWAIT` ifadesiyle alır ve aynı sürüklenme denetimini yapar (mutant: `downTables` boş →
+  `employee_invites` (`00035`'in Down'ı) on testte kırmızı). Yorumdaki *"bir işlem asla beklemez"*
+  iddiası daraltıldı: iddia yalnız listedeki tablolar içindir.
+- **Güvenlik DÜŞÜK-1 — kapının `lock_timeout`'u.** §6 ve §13 madde 16: site satırı savepoint içinde,
+  yalnız kapının 55P03'ünde bir kez yeniden yazılır. Kancayla kurulan yarış
+  (`TestHoldingWindow_GateLockWaitIsWrittenOnceMore`): çıkarma üyelik satırını commit etmeden tutar,
+  ilk INSERT 2 sn sonra 55P03, kanca çıkarmayı commit eder, ikinci deneme ilerletilmiş NFC satırını
+  **yazar** (QR'da 23514 → `ErrSiteMembershipEnded`). Kalan yol `TestHoldingWindow_GateLockHeldThroughBothWaitsIsTheNamedCost`:
+  iki bekleme (≥ 4 sn), 55P03, kayıt yok, KF sayacı 101. Mutant (yeniden deneme yok) → iki test kırmızı.
+- **Güvenlik DÜŞÜK-2 — `HoldingSite`'ın JSON yolu.** K-39'un üç değeri artık alan değildir:
+  dışa açılmayan bir **kapanışın** içindedir (`StaticIPs()`, `GPS()` erişimcileri). İşaretçi yetmedi
+  (ölçüldü): dışa açılmayan bir alanın içindeki `HoldingSite`'ın `%s`/`%q`'su fmt'nin hatalı fiil
+  yolunda işaretçiyi izleyip adresin tamsayısını basıyordu (sekiz yol). `MarshalJSON` eklendi (site +
+  durum). `TestHoldingSite_EvidenceLeavesByNoRoute`: sekiz fmt fiili, bir hata, slog'un iki işleyicisi
+  (öznitelik, grup, `With`), `json.Marshal` × on üç sarmalama (değer, işaretçi, dışa açık / açılmayan
+  alan, dilim, harita) — kanarya (`198.51.100.77/32`, 35.111327/14.222391; noktalı, hex, netip'in
+  tamsayıları, numeric'in rakamları) hiçbirinde yok. `LogValue`/`Format`/`MarshalJSON` artık kanıtı
+  tutan şey değildir (üçü birden kaldırılınca kanarya sızmadı — ölçüldü); satırın geri kalanını
+  (mekân adı, accent, logo) günlükten ve JSON'dan uzak tutarlar.
+- **Üçüncü göz DÜŞÜK'leri:** (1) kapının QR satırı — yukarıda *"Kapı"*; (2) duvarsız eş plaketinde
+  marka çizilmez — `TestHoldingBrand_TapAndResultShowTheSiteBrand`'in son yarısı (`PeerTapPage`'in
+  `LocationID == nil` dönüşü çıkarılınca kırmızı); (3) `ErrSiteMembershipEnded` → 409 + *"Tap the
+  plaque again"* — `TestCheckin_SiteMembershipEndedIs409TapAgain` (dal çıkarılınca 500, kırmızı);
+  (4) durum önceliği — yukarıda *"Tap yolu"*; (5) plan §5'in API-1c kabulüne devredilen dört madde ve
+  API-8 satırı/kabulü yazıldı; (6) K-1i ile çözüldü; (7) yarış testi gerçek sorguyu koşar — yukarıda.
+- **(k) — indeks notu.** `00043`'ün kısmi indeksi (`transactions_site_idx`) boş da olsa yapılırken
+  tabloyu **ACCESS EXCLUSIVE altında bir kez tarar**: O(n) — 688 000 satırda 0,12 sn, 2 000 000'de
+  0,35 sn, doğrusal uzatımla 2 sn eşiği **~11 M satırda**. Üretimin `transactions` boyutu bu oturumdan
+  ölçülemedi (üretim veritabanına erişim yok — `00043` uygulanmadan önce `SELECT count(*) FROM
+  transactions` ile bakılmalı); el kitabının ölçeği (100+ kullanıcı, kişi başı günde ~2 dokunuş) yılda
+  ~75 000 satırdır, yani eşik bu ölçekte on yıllar ötededir. Paylaşılan `tappa-m11-db`'de ~9 700 satır.
