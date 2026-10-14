@@ -110,6 +110,8 @@ ediyorsa **dur ve sor**, sessizce uygulama.
 4. **`ctr` kontrolü atomik.** Oku-sonra-yaz replay açığıdır. Tek ifadede:
    `UPDATE tags SET last_ctr=$2 WHERE uid=$1 AND last_ctr < $2 RETURNING …`
    Etkilenen satır 0 ise → REJECT. Bunu asla transaction dışı iki adıma bölme.
+   Holding'deki ikinci kopya `holding_advance_tag_counter` (ADR 0027 §2) aynı tek ifade
+   kalıbıdır (`FOR UPDATE` + katı `<`); SQL düzeyindeki yarış testi ikisini birlikte koşar.
 5. **Tenant izolasyonu her katmanda.** Her tabloda `tenant_id`, her tabloda RLS
    politikası, uygulama `tappa_app` rolüyle bağlanır (NOBYPASSRLS, tablo sahibi
    değil). Sorgularda ayrıca açık `tenant_id` filtresi — kuşak+kemer.
@@ -197,7 +199,9 @@ kanal `qr` ∧ holding dokunuşu ∧ **saha IP'si eşleşmedi** → `flag`; yeri
 (satır 5) **hemen sonra**, baseline'dan (satır 6–7) önce; işveren onu ne gevşetebilir ne `deny`'e
 sıkılaştırabilir. **Aktivasyon** (satır 3) yalnız davetin **kendi** tenant'ının plaketinde
 tamamlanır — ADR 0026 değişmez; canlı oturumlu ve aktivasyonu bekleyen bir tarayıcıda eş tenant'ın
-plaketi aktivasyonu değil holding dokunuşunu üretir (K-35).
+plaketi aktivasyonu değil holding dokunuşunu üretir (K-35). **Sayaç atlaması** (`ctr_gap`)
+holding NFC dokunuşunda ilerletme ifadesinin içinde hesaplanır ve işverenin `base:ctr-gap-review`'ı
+onu tek-tenant'taki anlamıyla uygular (kullanıcı kararı K-1i, 2026-10-14).
 
 - **Debounce KİŞİ bazlıdır, etiket bazlı değil.** Sıra halinde farklı kişiler
   aynı plakete art arda dokunabilmeli.
