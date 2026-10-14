@@ -1370,14 +1370,19 @@ report WARN R5 "Tablo yaratimi R5'in gorus alani disinda — elle denetle" "${un
 report FAIL R5 "Uygulama migration rolu ile baglaniyor — RLS etkisiz kalir" \
   "$(scan_in SRC_CODE -e 'DATABASE_MIGRATE_URL' --glob '!cmd/migrate/*' --glob '!internal/config/*' --glob '!**/*_test.go' || true)"
 
-# BOS DEGER MUAF (M11 API-2, 00048): `SET app.tenant_id = ''` bir baglantiya TENANT
+# BOS DEGER MUAF -- DAR (M11 API-2, 00048): `SET app.tenant_id = ''` bir baglantiya TENANT
 # BIRAKMAZ -- birakabilecegi tek sey "baglam yok"tur, yani RLS'li her tablo bos okunur
 # (fail-closed). 00048'in feed_open_counter() tetikleyicisi bu bicimi bir FONKSIYON
 # OZNITELIGI olarak tasir: PostgreSQL, ozniteligi ayni degiskeni adlandiran bir
 # fonksiyonun icinde yapilan SET LOCAL'i fonksiyon donunce geri alir (olculdu) --
-# havuzu kirleten bir SET degil, tam tersi. Bir tenant degeri yazan duz SET yine WARN.
+# havuzu kirleten bir SET degil, tam tersi. Muafiyet YALNIZ db/migrations altindaki ve
+# satirin TAMAMI bu bicim olan satira verilir (API-2 guvenlik denetimi: ilk hali satir
+# SONUNDAKI `''`'a bakiyordu, ayni satirda once bir tenant degeri yazan duz SET
+# gizlenebiliyordu -- `SET app.tenant_id = 'x'; SET app.tenant_id = ''` muaf sayiliyordu).
+# Grep'in `-v`'si satirin tamamini eslestirir: `yol:satir:` oneki + istege bagli bosluk +
+# tek ifade + sonda yalniz bosluk. Bir tenant degeri yazan duz SET yine WARN.
 report WARN R5 "SET LOCAL degil duz SET — havuzdaki baglantiyi kirletir" \
-  "$(scan -e "SET +app\.tenant_id" | grep -viE "SET +LOCAL|SET +app\.tenant_id *= *'' *\$" || true)"
+  "$(scan -e "SET +app\.tenant_id" | grep -viE "SET +LOCAL" | grep -vE "^db/migrations/[^:]+:[0-9]+:[[:space:]]*SET app\.tenant_id = ''[[:space:]]*\$" || true)"
 
 # --- R7: sir sizintisi -------------------------------------------------------
 # `code[_a-z]*hash` ve `"code"[[:space:]]*,` (M5-02): davet AKISINDA hash bir
