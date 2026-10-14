@@ -91,7 +91,7 @@ var preM11Sequences = []string{"goose_db_version_id_seq"}
 
 // m11Roles are the roles every matrix row is read for. A role absent from a row holds NOTHING
 // on that object.
-var m11Roles = []string{"tappa_app", "tappa_operator", "tappa_opdefiner", "tappa_resolver", "tappa_holdingdefiner"}
+var m11Roles = []string{"tappa_app", "tappa_operator", "tappa_opdefiner", "tappa_resolver", "tappa_holdingdefiner", "tappa_feedwriter"}
 
 // m11TableACL is one role's whole reach on one table: the columns per verb (attnum order, ""
 // for none) and the table-level verbs.
@@ -147,7 +147,46 @@ var m11Tables = map[string]map[string]m11TableACL{
 				"employee_name,site_location_id,site_tag_uid,ctr,sun_valid,bucket_hour,occurred_at,channel,type,outcome,ctr_gap",
 		},
 	},
+	// 00048/00049 (M11 API-2, ADR 0028 §1, §4-§6): the punch feed. tappa_app READS the counter and
+	// the events and writes neither (the triggers are the one writer); it creates and changes its
+	// endpoint (never the tenant) and moves a delivery's lease and result (API-9, API-10). The two
+	// writers -- tappa_feedwriter (punch_feed, feed_open_counter) and tappa_holdingdefiner
+	// (holding_feed, K-31) -- make the counter exist, lock and raise it, insert the event and the
+	// delivery, and read the endpoint's id, tenant and switch: never its url or its key (K-34).
+	"feed_counters": {
+		"tappa_app":            {Select: "tenant_id,last_seq"},
+		"tappa_feedwriter":     {Select: "tenant_id,last_seq", Insert: "tenant_id,last_seq", Update: "last_seq"},
+		"tappa_holdingdefiner": {Select: "tenant_id,last_seq", Insert: "tenant_id,last_seq", Update: "last_seq"},
+	},
+	"punch_events": {
+		"tappa_app": {Select: "tenant_id,seq,punch_id,punch_tenant_id,roles,version,status,punch_time,recorded_at,channel," +
+			"employee_id,employee_ref,employee_code,employee_company,location_id,location_ref,location_name,location_company,tag_uid,created_at"},
+		"tappa_feedwriter":     {Insert: feedEventInsertColumns},
+		"tappa_holdingdefiner": {Insert: feedEventInsertColumns},
+	},
+	"webhook_endpoints": {
+		"tappa_app": {
+			Select: "tenant_id,id,url,signing_key_sealed,active,created_at,rotated_at",
+			Insert: "tenant_id,id,url,signing_key_sealed,active",
+			Update: "url,signing_key_sealed,active,rotated_at",
+		},
+		"tappa_feedwriter":     {Select: "tenant_id,id,active"},
+		"tappa_holdingdefiner": {Select: "tenant_id,id,active"},
+	},
+	"webhook_deliveries": {
+		"tappa_app": {
+			Select: "tenant_id,id,endpoint_id,punch_event_seq,attempt,next_attempt_at,lease_until,state,last_status,last_error_class,created_at,delivered_at",
+			Update: "attempt,next_attempt_at,lease_until,state,last_status,last_error_class,delivered_at",
+		},
+		"tappa_feedwriter":     {Insert: "tenant_id,endpoint_id,punch_event_seq"},
+		"tappa_holdingdefiner": {Insert: "tenant_id,endpoint_id,punch_event_seq"},
+	},
 }
+
+// feedEventInsertColumns are the columns both feed writers insert into punch_events (attnum order;
+// version, status and created_at take their defaults).
+const feedEventInsertColumns = "tenant_id,seq,punch_id,punch_tenant_id,roles,punch_time,recorded_at,channel,employee_id," +
+	"employee_ref,employee_code,employee_company,location_id,location_ref,location_name,location_company,tag_uid"
 
 // m11ScopelessTables are the matrix's tenant-scope-less tables (CLAUDE.md §6): ENABLE and FORCE
 // row level security like every other, and NO policy at all -- no role that obeys RLS reads or
@@ -171,27 +210,34 @@ var m11Columns = []m11Column{
 	// overruled.
 	// 00046 (M11 API-1c): and tappa_holdingdefiner reads the ref and the code -- the snapshot of
 	// who tapped that holding_feed writes into the site's projection (K-1f).
-	{"employees", "external_ref", map[string]string{"tappa_app": "SIU", "tappa_holdingdefiner": "S"}},
-	{"employees", "employee_code", map[string]string{"tappa_app": "SIU", "tappa_holdingdefiner": "S"}},
+	// 00049 (M11 API-2): and tappa_feedwriter reads both -- the punch event's snapshot (K-32).
+	{"employees", "external_ref", map[string]string{"tappa_app": "SIU", "tappa_holdingdefiner": "S", "tappa_feedwriter": "S"}},
+	{"employees", "employee_code", map[string]string{"tappa_app": "SIU", "tappa_holdingdefiner": "S", "tappa_feedwriter": "S"}},
 	{"employees", "first_name", map[string]string{"tappa_app": "SIU"}},
 	{"employees", "last_name", map[string]string{"tappa_app": "SIU"}},
 	{"employees", "updated_at", map[string]string{"tappa_app": "SIU"}},
 	// 00043 (M11 API-1b): tappa_holdingdefiner reads a peer's venue ref (holding_tap_site).
-	{"locations", "external_ref", map[string]string{"tappa_app": "SIU", "tappa_holdingdefiner": "S"}},
+	// 00049 (M11 API-2): and tappa_feedwriter (the event's venue snapshot).
+	{"locations", "external_ref", map[string]string{"tappa_app": "SIU", "tappa_holdingdefiner": "S", "tappa_feedwriter": "S"}},
 	{"locations", "active", map[string]string{"tappa_app": "SIU"}},
 	// 00038/00039 (K-22): tappa_app READS the gate and cannot write it; the one writer is the
 	// operator's definer.
-	{"tenants", "api_enabled_at", map[string]string{"tappa_app": "S", "tappa_opdefiner": "SU"}},
+	// 00049 (M11 API-2): both feed writers read the gate (a delivery row only while it is open --
+	// K-22, ADR 0028 §2).
+	{"tenants", "api_enabled_at", map[string]string{"tappa_app": "S", "tappa_opdefiner": "SU", "tappa_holdingdefiner": "S", "tappa_feedwriter": "S"}},
 	// 00042 (M11 API-1a): tappa_opdefiner READS the code too -- the code rule in both directions
 	// (op_add_holding_member, op_enable_tenant_api) and op_read_holdings.
 	// 00043 (M11 API-1b): and tappa_holdingdefiner reads the site's code (holding_tap_site).
-	{"tenants", "api_code", map[string]string{"tappa_app": "S", "tappa_opdefiner": "SU", "tappa_holdingdefiner": "S"}},
+	// 00049 (M11 API-2): and tappa_feedwriter (the event's company code).
+	{"tenants", "api_code", map[string]string{"tappa_app": "S", "tappa_opdefiner": "SU", "tappa_holdingdefiner": "S", "tappa_feedwriter": "S"}},
 	// 00043 (M11 API-1b, ADR 0027 §4): the site of a tap on a peer's plaque. transactions hands
 	// tappa_app table-level SELECT and INSERT (00005) and nothing else, which the new columns
 	// fall under -- the tap path writes them (checkin), never updates them (§4.3).
 	// The gate reads NEW, which needs no privilege; 00046 (API-1c) gives tappa_holdingdefiner
 	// SELECT on them -- holding_feed's approval path reads the decided row by its key.
-	{"transactions", "site_tenant_id", map[string]string{"tappa_app": "SI", "tappa_holdingdefiner": "S"}},
+	// 00049 (M11 API-2): tappa_feedwriter reads site_tenant_id on an approval -- a site row's
+	// approval is the holding trigger's, and punch_feed returns on it.
+	{"transactions", "site_tenant_id", map[string]string{"tappa_app": "SI", "tappa_holdingdefiner": "S", "tappa_feedwriter": "S"}},
 	{"transactions", "site_location_id", map[string]string{"tappa_app": "SI", "tappa_holdingdefiner": "S"}},
 	{"transactions", "site_tag_uid", map[string]string{"tappa_app": "SI", "tappa_holdingdefiner": "S"}},
 }
@@ -233,6 +279,10 @@ var m11Functions = map[string]m11FunctionACL{
 	// alone; 00047: a peer's venues -- EXECUTE to tappa_app alone.
 	"holding_feed()":               {owner: "tappa_holdingdefiner", definer: true, execute: "tappa_holdingdefiner"},
 	"holding_site_locations(uuid)": {owner: "tappa_holdingdefiner", definer: true, execute: "tappa_app,tappa_holdingdefiner"},
+	// 00048/00049 (M11 API-2, ADR 0028 §4): the own-tenant feed's two trigger functions -- EXECUTE in
+	// their owner alone, bodies asserting TG_RELID (FeedTriggers_RefuseVerbsUnderArwdAndTempTableBinding).
+	"feed_open_counter()": {owner: "tappa_feedwriter", definer: true, execute: "tappa_feedwriter"},
+	"punch_feed()":        {owner: "tappa_feedwriter", definer: true, execute: "tappa_feedwriter"},
 }
 
 // m11DefaultACLStatement is production's pg_default_acl, which m11DefaultACLInit gives every

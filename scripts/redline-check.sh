@@ -336,8 +336,10 @@ report FAIL R2 "Surekli konum takibi — GPS yalnizca tap aninda okunur" \
 # bilerek tercih edildi: bir suzgec genisletmesi agin kendisini asindirir, dosya adi
 # ise bir kez yazilir ve gozden gecirilir. Bedeli sayiliyor: o dosyadan `WHERE false`
 # kaldirilirsa R3 ARTIK GORMEZ -- onu goren sey, ayni dosyanin kendi 42501 assert'idir.
-report FAIL R3 "transactions tablosuna UPDATE/DELETE — kayitlar immutable" \
-  "$(scan -i -e '(UPDATE|DELETE +FROM) +([a-zA-Z_][a-zA-Z0-9_]*\.)?"?transactions"?\b' \
+# M11 API-2 (ADR 0028 §4: "R3 tarayıcısının kapsamına girer"): punch_events -- the integrators'
+# feed, append-only like transactions -- is the same rule's second table.
+report FAIL R3 "transactions / punch_events tablosuna UPDATE/DELETE — kayitlar immutable" \
+  "$(scan -i -e '(UPDATE|DELETE +FROM) +([a-zA-Z_][a-zA-Z0-9_]*\.)?"?(transactions|punch_events)"?\b' \
         --glob '!**/*_test.go' --glob '!scripts/pg-restore-verify.sh' || true)"
 
 # --- R4: atomik ctr / replay koruması ---------------------------------------
@@ -708,14 +710,15 @@ policy_tautology() {
 # APPEND_ONLY — CLAUDE.md §4.3'un bagladigi `transactions` ve onunla ayni
 # muameleyi goren tablolar: `00021`in TRUNCATE korumasindaki alti tablo, 00026'nin
 # yedincisi `operator_audit_log` (platform operatorunun append-only izi) ve 00046'nin
-# sekizincisi `site_punches` (holding sahasinin izdusumu — M11 API-1c). Bu liste,
+# sekizincisi `site_punches` (holding sahasinin izdusumu — M11 API-1c) ve 00048'in
+# dokuzuncusu `punch_events` (dis punch akisi — M11 API-2). Bu liste,
 # scripts/pg-restore-verify.sh'in `trunc_tables` listesi ve migration'lardaki
 # tappa_forbid_mutation tetikleyicileri UC temsildir; cmd/tappa/scriptguards_test.go
 # kumeyi migration'lardan TURETIP ikisini de karsilastirir, yani bir sekizincisi
 # eklenip burada unutulursa test kirmizi verir.
 # ⚠️ `operator_audit_log` asagidaki `[^ ]*` onekiyle `audit_log` alt dizgisinden de
 # yakalanirdi (tesadufen); acikca yazilir ki liste turetilmis kumeyle esit olsun.
-APPEND_ONLY='(transactions|audit_log|transaction_reviews|policy_versions|billing_periods|legal_documents|operator_audit_log|site_punches)'
+APPEND_ONLY='(transactions|audit_log|transaction_reviews|policy_versions|billing_periods|legal_documents|operator_audit_log|site_punches|punch_events)'
 
 for f in db/migrations/*.sql; do
   [[ -e $f ]] || continue
@@ -1367,8 +1370,14 @@ report WARN R5 "Tablo yaratimi R5'in gorus alani disinda — elle denetle" "${un
 report FAIL R5 "Uygulama migration rolu ile baglaniyor — RLS etkisiz kalir" \
   "$(scan_in SRC_CODE -e 'DATABASE_MIGRATE_URL' --glob '!cmd/migrate/*' --glob '!internal/config/*' --glob '!**/*_test.go' || true)"
 
+# BOS DEGER MUAF (M11 API-2, 00048): `SET app.tenant_id = ''` bir baglantiya TENANT
+# BIRAKMAZ -- birakabilecegi tek sey "baglam yok"tur, yani RLS'li her tablo bos okunur
+# (fail-closed). 00048'in feed_open_counter() tetikleyicisi bu bicimi bir FONKSIYON
+# OZNITELIGI olarak tasir: PostgreSQL, ozniteligi ayni degiskeni adlandiran bir
+# fonksiyonun icinde yapilan SET LOCAL'i fonksiyon donunce geri alir (olculdu) --
+# havuzu kirleten bir SET degil, tam tersi. Bir tenant degeri yazan duz SET yine WARN.
 report WARN R5 "SET LOCAL degil duz SET — havuzdaki baglantiyi kirletir" \
-  "$(scan -e "SET +app\.tenant_id" | grep -viE 'SET +LOCAL' || true)"
+  "$(scan -e "SET +app\.tenant_id" | grep -viE "SET +LOCAL|SET +app\.tenant_id *= *'' *\$" || true)"
 
 # --- R7: sir sizintisi -------------------------------------------------------
 # `code[_a-z]*hash` ve `"code"[[:space:]]*,` (M5-02): davet AKISINDA hash bir

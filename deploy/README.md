@@ -1037,6 +1037,83 @@ ADR 0027 §13 madde 18): `site_punches` 3 sn `SHARE` kilitliyken site satırın�
 55P03, checkin'in savepoint'li tek yeniden denemesi kaydı yazdı; iki bekleme (> 4 sn) dolarsa kayıt
 kaybolur (`TestHoldingWindow_ProjectionLockHeldThroughBothWaitsIsTheNamedCost`).
 
+## Feed role (M11 API-2) — tek seferlik kurulum
+
+**Ne:** migration `00048` (punch akışının tabloları — ADR 0028 §4, §5) bir **küme** rolüne dayanır:
+`tappa_feedwriter` — kendi-tenant akış tetikleyicisinin (`punch_feed`) ve yeni tenant'ın sayaç
+satırını açan tetikleyicinin (`feed_open_counter`) sahibi; NOLOGIN, **NOBYPASSRLS**, NOSUPERUSER,
+NOCREATEDB, NOCREATEROLE, NOREPLICATION, **üyesi yok ve hiçbir rolün üyesi değil**. Tenant sınırını
+aşmaz (yazdığı her satır RLS `WITH CHECK`'inden geçer); yalnız olay yazma hakkını tetikleyiciye
+kilitler — `tappa_app` olay yazamaz. Migration onu **yaratmaz** (rol küme nesnesidir — *"Holding
+role (M11 API-1a)"* bölümünün gerekçesi). Tanımı `scripts/db-init/01-roles.sql`'in
+`>>> FEED ROLE (M11 API-2) >>>` … `<<< FEED ROLE (M11 API-2) <<<` bloğudur: taze kurulum, CI,
+`make db-reset` ve **B YOLU geri yüklemesinin sıfırdan kurulan pod'u** onu kendiliğinden alır;
+**halihazırda çalışan** bir veritabanı almaz. Blok **idempotenttir**; üyeliği temizlemez —
+`00048`'in ön koşulu iki yönü de sınar ve reddeder. Bloğu ve ön koşulu `internal/db` →
+`TestRestore_FreshPodCarriesTheFeedRole` koşar.
+
+**Sıra:** önce bu bölüm, sonra `main`'e birleştirme. Rol yoksa `00048`'in ilk ifadesi bu bölümü
+adıyla gösterip **düşer** (`SQLSTATE 55000`, *"Nothing was changed."*).
+
+### Geliştirme veritabanı
+
+```bash
+sed -n '/^-- >>> FEED ROLE (M11 API-2) >>>/,/^-- <<< FEED ROLE (M11 API-2) <<</p' \
+    scripts/db-init/01-roles.sql \
+  | docker exec -i tappa-db \
+      sh -c 'psql -X -1 -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+make migrate
+```
+
+### Canlı küme (kullanıcı / orkestratör — ajan `kubectl` koşmaz)
+
+```bash
+# 0) Kesimi doğrula (boş girdiyle psql -1 exit 0 verir): bir CREATE ROLE ve kapanış işareti.
+sed -n '/^-- >>> FEED ROLE (M11 API-2) >>>/,/^-- <<< FEED ROLE (M11 API-2) <<</p' \
+    scripts/db-init/01-roles.sql | grep -cE '^ *CREATE ROLE|^-- <<< FEED ROLE'
+# beklenen: 2 (başka bir sayı -> DUR)
+
+# 1) Uygula: tek transaction (-1), ilk hatada dur.
+sed -n '/^-- >>> FEED ROLE (M11 API-2) >>>/,/^-- <<< FEED ROLE (M11 API-2) <<</p' \
+    scripts/db-init/01-roles.sql \
+  | kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+      sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -1 -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+# beklenen: DO · ALTER ROLE · GRANT
+
+# 2) Doğrula
+kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+    sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -At -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+SELECT r.rolname, r.rolcanlogin, r.rolsuper, r.rolbypassrls,
+       (SELECT count(*) FROM pg_auth_members m WHERE m.roleid = r.oid) AS members,
+       (SELECT count(*) FROM pg_auth_members m WHERE m.member = r.oid) AS member_of,
+       has_schema_privilege(r.rolname, 'public', 'USAGE') AS usage,
+       (SELECT count(*) FROM pg_db_role_setting s WHERE s.setrole = r.oid) AS role_settings
+  FROM pg_roles r
+ WHERE r.rolname = 'tappa_feedwriter';
+SQL
+# beklenen: tappa_feedwriter|f|f|f|0|0|t|0
+```
+
+Sonra `main`'e birleştir; deploy `00048`–`00049`'u uygular. `00049` `transactions` ve
+`transaction_reviews`'u `SHARE ROW EXCLUSIVE` kilitler (kendi `lock_timeout`'u 1 sn — aşağıdaki kural),
+tetikleyicileri kurar ve geçmişi geri doldurur; kilit süresi geri doldurmanınkidir
+(`TestFeedBackfill_WithinTwoSeconds`). Kilit 1 sn içinde alınamazsa migrate Job'ı düşer, sakin bir
+anda yeniden koşulur — kayıt kaybolmaz.
+
+**Geri alma:** `00049`'un Down'ı yazıcıları kaldırır ve `holding_feed`'i `00046`'nın gövdesine döndürür;
+yazılmış olaylar **kalır** (append-only). Down süresince yazılan kayıtların olayı yoktur; bir sonraki
+Up onları sayaçtan sonraki `seq`'lerle geri doldurur (kayıp yok, sıra sonra). `00048`'in Down'ı akışta
+olay, uç nokta ya da teslim satırı varken **reddeder** — canlıda koşulmaz.
+
+### Akış sayaçlarına dokunan el işi — `lock_timeout` kuralı
+
+İki tetikleyici sayaç satırını kendi `lock_timeout`'u (2 sn) altında kilitler ve checkin bir kez
+yeniden dener (ADR 0027 §13 madde 23). Bu yüzden `feed_counters`'a ya da `punch_events`'e kilit alan
+bir migration ilk ifadesinde kendi `lock_timeout`'unu **2 sn'nin altına** koyar (yukarıdaki holding
+kuralının aynısı); trafik akarken bu tablolarda elle `SELECT … FOR UPDATE`, `LOCK`, `VACUUM FULL`,
+`CLUSTER` ya da `CONCURRENTLY` olmayan `CREATE INDEX` koşulmaz. Geri yükleme adımının
+`UPDATE public.feed_counters …`'u uygulama **kapalıyken** koşar (aşağıda).
+
 ---
 
 ## Operator surface (M10 OP-7) — `tappa_operator`'ın girişi ve dört anahtar

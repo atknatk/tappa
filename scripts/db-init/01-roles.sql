@@ -155,6 +155,38 @@ ALTER ROLE tappa_holdingdefiner NOLOGIN NOSUPERUSER BYPASSRLS NOCREATEDB NOCREAT
 GRANT USAGE ON SCHEMA public TO tappa_holdingdefiner;
 -- <<< HOLDING ROLE (M11 API-1a) <<< ------------------------------------------------
 
+-- >>> FEED ROLE (M11 API-2) >>> ----------------------------------------------------
+-- Kendi-tenant punch akisi tetikleyicilerinin sahibi (ADR 0028 §4). HOLDING ROLE blogunun
+-- kalibi, ayni gerekceyle IKI yerde AYNI BAYTLARLA kosar ve IDEMPOTENT'tir:
+--   (a) bos bir PGDATA'da, bu dosyanin geri kalaniyla birlikte (initdb, CI, db-reset,
+--       ve geri yukleme provasinin SIFIRDAN kurulan pod'u -- pg_dump rol tasimaz);
+--   (b) HALIHAZIRDA CALISAN bir kumede, deploy/README.md -> "Feed role (M11 API-2)"
+--       runbook'unun `sed` ile bu iki isaretin arasini kesip psql'e vermesiyle.
+--
+--   tappa_feedwriter : punch_feed() ve feed_open_counter() tetikleyici fonksiyonlarinin
+--                      SAHIBI. NOLOGIN, NOBYPASSRLS, NOSUPERUSER -- tenant sinirini ASMAZ
+--                      (politikalar GUC'a bagli, tetikleyici GUC'u assert eder); yalniz
+--                      punch_events / webhook_deliveries / feed_counters'a yazma hakkini
+--                      tetikleyiciye kilitler (tappa_app olay yazamaz). Hicbir DEFAULT
+--                      PRIVILEGE almaz, UYESI YOKTUR ve hicbir rolun uyesi DEGILDIR:
+--                      yetkisi migration 00048'in tek tek verdigi SUTUN grant'larindan ibarettir.
+--
+-- 🔴 ALTER ROLE SATIRI BILEREK KOSULSUZ (OPERATOR ROLES blogunun gerekcesi): yanlis
+-- niteliklerle (LOGIN, BYPASSRLS ...) var olan bir rol her kosuda bu satira indirgenir.
+-- ⚠️ Uyelik burada TEMIZLENMEZ; migration 00048'in on kosulu iki yonu de sinar ve biri
+-- varsa REDDEDER (rolun bir UYESI olay tablolarina tetikleyicisiz yazar; rolun KENDI
+-- uyeligi fonksiyonlarina o rolun yetkisini miras birakirdi).
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'tappa_feedwriter') THEN
+        CREATE ROLE tappa_feedwriter NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
+    END IF;
+END
+$$;
+ALTER ROLE tappa_feedwriter NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
+GRANT USAGE ON SCHEMA public TO tappa_feedwriter;
+-- <<< FEED ROLE (M11 API-2) <<< ----------------------------------------------------
+
 -- Migration'larin bundan sonra yaratacagi her tabloda tappa_app'e taban yetki.
 --
 -- 🔴 UPDATE VE DELETE BILEREK YOK, VE BU M8-02 FAZ E'DE OLCULMUS BIR GUVENLIK
