@@ -288,8 +288,9 @@ func (c *countingHolding) TapSite(context.Context, string) (db.HoldingSite, bool
 // holding_advance_tag_counter exactly once, with this tap's uid and counter, inside the
 // SESSION's tenant context (the function asks the membership of app.tenant_id), issuing no
 // statement of its own -- and each of the four outcomes maps to its fact: advanced is
-// SUN-valid and a peer; replay and peer_inactive are SUN-invalid peers carrying the status
-// of the lock; not_peer is no peer and nothing else. An error is an error.
+// SUN-valid and a peer, carrying the statement's ctr_gap (migration 00045); replay and
+// peer_inactive are SUN-invalid peers carrying the status of the lock; not_peer is no peer and
+// nothing else. An error is an error.
 func TestAdvance_APeersPlaqueGoesThroughTheHoldingStatementOnly(t *testing.T) {
 	t.Parallel()
 	session, site := uuid.New(), uuid.New()
@@ -300,11 +301,12 @@ func TestAdvance_APeersPlaqueGoesThroughTheHoldingStatementOnly(t *testing.T) {
 		sunValid bool
 		peer     bool
 		status   string
+		gap      int32
 	}{
-		{db.HoldingAdvance{Outcome: db.HoldingAdvanced, TagStatus: "active"}, true, true, "active"},
-		{db.HoldingAdvance{Outcome: db.HoldingReplay, TagStatus: "active"}, false, true, "active"},
-		{db.HoldingAdvance{Outcome: db.HoldingPeerInactive, TagStatus: "lost"}, false, true, "lost"},
-		{db.HoldingAdvance{Outcome: db.HoldingNotPeer}, false, false, ""},
+		{db.HoldingAdvance{Outcome: db.HoldingAdvanced, TagStatus: "active", CtrGap: 7}, true, true, "active", 7},
+		{db.HoldingAdvance{Outcome: db.HoldingReplay, TagStatus: "active"}, false, true, "active", 0},
+		{db.HoldingAdvance{Outcome: db.HoldingPeerInactive, TagStatus: "lost"}, false, true, "lost", 0},
+		{db.HoldingAdvance{Outcome: db.HoldingNotPeer}, false, false, "", 0},
 	} {
 		single := &countingAdvancer{}
 		data := &tenantRecorder{}
@@ -321,8 +323,8 @@ func TestAdvance_APeersPlaqueGoesThroughTheHoldingStatementOnly(t *testing.T) {
 		if len(data.tenants) != 1 || data.tenants[0] != session || data.statements != 0 {
 			t.Fatalf("%s: ran under %v with %d statements of its own; want exactly the SESSION's tenant and none", c.answer.Outcome, data.tenants, data.statements)
 		}
-		if res.sunValid != c.sunValid || res.peer == nil || *res.peer != c.peer || res.status != c.status || res.gap != 0 {
-			t.Fatalf("%s: %+v (peer %v), want sunValid=%v peer=%v status=%q", c.answer.Outcome, res, res.peer, c.sunValid, c.peer, c.status)
+		if res.sunValid != c.sunValid || res.peer == nil || *res.peer != c.peer || res.status != c.status || res.gap != c.gap {
+			t.Fatalf("%s: %+v (peer %v), want sunValid=%v peer=%v status=%q gap=%d", c.answer.Outcome, res, res.peer, c.sunValid, c.peer, c.status, c.gap)
 		}
 	}
 	broken := advanceService(t, &tenantRecorder{}, &countingAdvancer{})

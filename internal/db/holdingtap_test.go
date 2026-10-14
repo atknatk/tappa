@@ -206,12 +206,20 @@ func holdingLogoRows(t *testing.T, ctx context.Context, tx pgx.Tx, tenant uuid.U
 // counter after it (read as the owner).
 func holdingAdvanceIn(t *testing.T, ctx context.Context, tx pgx.Tx, tenant uuid.UUID, uid string, ctr int32) (outcome string, status *string, lastCtr int64) {
 	t.Helper()
+	outcome, status, _, lastCtr = holdingAdvanceGapIn(t, ctx, tx, tenant, uid, ctr)
+	return outcome, status, lastCtr
+}
+
+// holdingAdvanceGapIn is holdingAdvanceIn with the statement's ctr_gap too (migration 00045, the
+// user's decision K-1i).
+func holdingAdvanceGapIn(t *testing.T, ctx context.Context, tx pgx.Tx, tenant uuid.UUID, uid string, ctr int32) (outcome string, status *string, gap *int32, lastCtr int64) {
+	t.Helper()
 	if err := holdingAppIn(t, ctx, tx, tenant, func(sp pgx.Tx) error {
-		return sp.QueryRow(ctx, `SELECT outcome, tag_status FROM public.holding_advance_tag_counter($1, $2)`, uid, ctr).Scan(&outcome, &status)
+		return sp.QueryRow(ctx, `SELECT outcome, tag_status, ctr_gap FROM public.holding_advance_tag_counter($1, $2)`, uid, ctr).Scan(&outcome, &status, &gap)
 	}); err != nil {
 		t.Fatalf("holding_advance_tag_counter: %v", err)
 	}
-	return outcome, status, opInt(t, ctx, tx, `SELECT coalesce((SELECT last_ctr FROM tags WHERE uid = $1), -1)`, uid)
+	return outcome, status, gap, opInt(t, ctx, tx, `SELECT coalesce((SELECT last_ctr FROM tags WHERE uid = $1), -1)`, uid)
 }
 
 // holdingStr is a nullable text as a test compares it ("" for NULL).
@@ -499,38 +507,48 @@ func TestHoldingFilter_MutantsM1M2M3AreRedInFunctionsAndTriggers(t *testing.T) {
 // ------------------------------------------------- (l) the advance keeps replay --
 
 // TestHoldingAdvance_KeepsReplayProtection is plan §5 API-1b (l) and ADR 0027 §2's four outcomes,
-// in KM's context on KF's plaque at counter 100: 101 advances (last_ctr 101, status active); 101
-// again is a replay and 50 is a replay, the counter staying at 101; a lost plaque is
+// in KM's context on KF's plaque at counter 100: 101 advances (last_ctr 101, status active, ctr_gap
+// 0); 101 again is a replay and 50 is a replay, the counter staying at 101; 150 advances with
+// ctr_gap 48 (150 - 101 - 1: the OLD counter, read inside the statement -- K-1i); a lost plaque is
 // peer_inactive with its status and its counter unmoved; and a plaque that turns lost before the
 // advance is peer_inactive with the status of NOW. Outside the holding -- C's plaque -- not_peer,
-// unmoved.
+// unmoved. ctr_gap is NULL on every outcome but advanced (ADR 0027 §2).
 func TestHoldingAdvance_KeepsReplayProtection(t *testing.T) {
 	ctx, tx := opTx(t)
 	w := holdingWorldTx(t, ctx, tx, "")
+	gapText := func(g *int32) string {
+		if g == nil {
+			return "NULL"
+		}
+		return fmt.Sprint(*g)
+	}
 	for _, c := range []struct {
 		uid        string
 		ctr        int32
 		outcome    string
 		status     string
+		gap        string
 		wantLast   int64
 		whatBefore string
 	}{
-		{w.kfTag, 101, "advanced", "active", 101, ""},
-		{w.kfTag, 101, "replay", "active", 101, "an equal counter"},
-		{w.kfTag, 50, "replay", "active", 101, "a lower counter"},
-		{w.kfLost, 500, "peer_inactive", "lost", 100, "a lost plaque"},
-		{w.cTag, 500, "not_peer", "", 100, "an outsider's plaque"},
+		{w.kfTag, 101, "advanced", "active", "0", 101, "the next counter"},
+		{w.kfTag, 101, "replay", "active", "NULL", 101, "an equal counter"},
+		{w.kfTag, 50, "replay", "active", "NULL", 101, "a lower counter"},
+		{w.kfTag, 150, "advanced", "active", "48", 150, "a jump"},
+		{w.kfLost, 500, "peer_inactive", "lost", "NULL", 100, "a lost plaque"},
+		{w.cTag, 500, "not_peer", "", "NULL", 100, "an outsider's plaque"},
 	} {
-		out, status, last := holdingAdvanceIn(t, ctx, tx, w.km, c.uid, c.ctr)
-		if out != c.outcome || holdingStr(status) != c.status || last != c.wantLast {
-			t.Errorf("%s at %d: (%s, %s), last_ctr %d; want (%s, %s), %d", c.whatBefore, c.ctr, out, holdingStr(status), last, c.outcome, c.status, c.wantLast)
+		out, status, gap, last := holdingAdvanceGapIn(t, ctx, tx, w.km, c.uid, c.ctr)
+		if out != c.outcome || holdingStr(status) != c.status || gapText(gap) != c.gap || last != c.wantLast {
+			t.Errorf("%s at %d: (%s, %s, %s), last_ctr %d; want (%s, %s, %s), %d", c.whatBefore, c.ctr, out, holdingStr(status), gapText(gap), last,
+				c.outcome, c.status, c.gap, c.wantLast)
 		}
 	}
 	if _, err := tx.Exec(ctx, `UPDATE tags SET status = 'retired' WHERE uid = $1`, w.kfTag); err != nil {
 		t.Fatal(err)
 	}
-	if out, status, last := holdingAdvanceIn(t, ctx, tx, w.km, w.kfTag, 200); out != "peer_inactive" || holdingStr(status) != "retired" || last != 101 {
-		t.Errorf("a plaque retired before the advance: (%s, %s), %d; want (peer_inactive, retired), 101", out, holdingStr(status), last)
+	if out, status, gap, last := holdingAdvanceGapIn(t, ctx, tx, w.km, w.kfTag, 200); out != "peer_inactive" || holdingStr(status) != "retired" || gap != nil || last != 150 {
+		t.Errorf("a plaque retired before the advance: (%s, %s, %s), %d; want (peer_inactive, retired, NULL), 150", out, holdingStr(status), gapText(gap), last)
 	}
 }
 
@@ -995,6 +1013,7 @@ func TestHoldingDefiner_EveryGrantIsUsed(t *testing.T) {
 const (
 	op00043File = "00043_record_a_tap_on_a_peers_plaque.sql"
 	op00044File = "00044_validate_the_site_constraints.sql"
+	op00045File = "00045_report_the_counter_gap_of_a_peers_plaque.sql"
 )
 
 // holdingSiteConstraints are the six constraints 00043 adds NOT VALID and 00044 validates.
@@ -1117,7 +1136,9 @@ func TestHoldingMigration_AlterWithinTwoSeconds(t *testing.T) {
 	})
 }
 
-// TestHolding00043And00044_DownGiveBackAndUpTakesItAgain: 00044's Down gives back 00043's state
+// TestHolding00043And00044_DownGiveBackAndUpTakesItAgain: 00045's Down gives back 00043's
+// two-column holding_advance_tag_counter with its owner and its one grant, and nothing else; 00044's
+// Down gives back 00043's state
 // (the six constraints by the same text, NOT VALID); 00043's Down then takes the gate, the three
 // functions, the definer's 00043 grants and the site columns away -- and REFUSES, changing nothing,
 // while a row names a site (a recorded tap's "where" is not erased -- §4.3, §4.6). The Ups take
@@ -1128,8 +1149,9 @@ func TestHolding00043And00044_DownGiveBackAndUpTakesItAgain(t *testing.T) {
 	ctx, tx := opTx(t)
 	up43, down43 := opMigrationSections(t, op00043File)
 	up44, down44 := opMigrationSections(t, op00044File)
+	up45, down45 := opMigrationSections(t, op00045File)
 	type surface struct {
-		defs, validated, columns, functions, trigger, reach string
+		defs, validated, columns, functions, trigger, reach, advance string
 	}
 	read := func(q pgx.Tx) surface {
 		var s surface
@@ -1142,6 +1164,8 @@ func TestHolding00043And00044_DownGiveBackAndUpTakesItAgain(t *testing.T) {
 			              WHERE attrelid = 'public.transactions'::regclass AND attname LIKE 'site\_%' AND NOT attisdropped`,
 			&s.functions: `SELECT coalesce(string_agg(proname, ',' ORDER BY proname), '') FROM pg_proc WHERE proowner = 'tappa_holdingdefiner'::regrole`,
 			&s.trigger:   `SELECT coalesce(string_agg(tgname, ',' ORDER BY tgname), '') FROM pg_trigger WHERE tgrelid = 'public.transactions'::regclass AND NOT tgisinternal`,
+			&s.advance: `SELECT coalesce((SELECT pg_get_function_result(p.oid) || ' ' || coalesce(array_to_string(p.proacl, ','), '')
+			                                FROM pg_proc p WHERE p.proname = 'holding_advance_tag_counter'), '')`,
 		} {
 			if err := q.QueryRow(ctx, sql).Scan(dst); err != nil {
 				t.Fatal(err)
@@ -1154,12 +1178,20 @@ func TestHolding00043And00044_DownGiveBackAndUpTakesItAgain(t *testing.T) {
 	}
 	head := read(tx)
 	if head.validated != strings.Join(holdingSiteConstraints, ",") || head.columns != "site_tenant_id,site_location_id,site_tag_uid" ||
-		!strings.Contains(head.trigger, "transactions_holding_site_gate") {
+		!strings.Contains(head.trigger, "transactions_holding_site_gate") ||
+		!strings.HasPrefix(head.advance, "TABLE(outcome text, tag_status text, ctr_gap integer) ") {
 		t.Fatalf("PREMISE at HEAD: %+v", head)
 	}
 	holdingInSavepoint(t, tx, func(sp pgx.Tx) {
 		holdingLockForDowns(t, ctx, sp)
 		holdingSetAsideSiteRows(t, ctx, sp)
+		opRunSection(t, ctx, sp, down45, "00045 Down")
+		at44 := read(sp)
+		want44 := head
+		want44.advance = strings.Replace(head.advance, ", ctr_gap integer)", ")", 1)
+		if at44 != want44 {
+			t.Errorf("after 00045's Down:\n %+v\nwant 00044's (00043's two-column advance, the same grants)\n %+v", at44, want44)
+		}
 		opRunSection(t, ctx, sp, down44, "00044 Down")
 		at43 := read(sp)
 		if at43.validated != "" || strings.ReplaceAll(at43.defs, " NOT VALID", "") != head.defs {
@@ -1176,17 +1208,19 @@ func TestHolding00043And00044_DownGiveBackAndUpTakesItAgain(t *testing.T) {
 		}
 		opRunSection(t, ctx, sp, up43, "00043 Up again")
 		opRunSection(t, ctx, sp, up44, "00044 Up again")
+		opRunSection(t, ctx, sp, up45, "00045 Up again")
 		if again := read(sp); again != head {
 			t.Errorf("after the Ups again:\n %+v\nwant HEAD's\n %+v", again, head)
 		}
 	})
 	holdingInSavepoint(t, tx, func(sp pgx.Tx) {
+		holdingLockForDowns(t, ctx, sp)
 		w := holdingWorldTx(t, ctx, sp, "")
 		if err := holdingInsertRow(t, ctx, sp, holdingRow{employer: w.km, employee: w.kmEmployee, channel: "manual", verdict: "flag", kind: "in",
 			siteTenant: &w.kf, siteVenue: &w.kfVenue}); err != nil {
 			t.Fatal(err)
 		}
-		holdingLockForDowns(t, ctx, sp)
+		opRunSection(t, ctx, sp, down45, "00045 Down with a site row")
 		opRunSection(t, ctx, sp, down44, "00044 Down with a site row")
 		err := holdingTryDown(t, ctx, sp, down43)
 		opWant(t, err, sqlstatePrerequisiteState, "00043's Down while a row names a site")
@@ -1266,16 +1300,20 @@ func holdingSetAsideSiteRows(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	}
 }
 
-// holdingBelow43 takes the savepoint's database below 00043 -- 00044's Down, then 00043's -- for
-// the API-1a tests that walk 00042 and 00041 back: 00041's precondition refuses a definer that
-// reaches anything but its own holding_members row, 00043 gives it more, and 00043's functions
-// are the definer's too. The site rows are set aside first (holdingSetAsideSiteRows).
+// holdingBelow43 takes the savepoint's database below 00043 -- 00045's Down, 00044's, then
+// 00043's -- for the API-1a tests that walk 00042 and 00041 back: 00041's precondition refuses a
+// definer that reaches anything but its own holding_members row, 00043 gives it more, and
+// 00043's functions are the definer's too. The site rows are set aside first
+// (holdingSetAsideSiteRows). The caller has taken holdingLockForDowns first; it is taken again
+// here (a lock already held is granted at once) so no caller can forget it.
 func holdingBelow43(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	t.Helper()
 	holdingLockForDowns(t, ctx, sp)
 	holdingSetAsideSiteRows(t, ctx, sp)
+	_, down45 := opMigrationSections(t, op00045File)
 	_, down44 := opMigrationSections(t, op00044File)
 	_, down43 := opMigrationSections(t, op00043File)
+	opRunSection(t, ctx, sp, down45, "00045 Down")
 	opRunSection(t, ctx, sp, down44, "00044 Down")
 	opRunSection(t, ctx, sp, down43, "00043 Down")
 }

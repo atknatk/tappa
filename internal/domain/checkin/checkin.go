@@ -1140,8 +1140,10 @@ func (s *Service) advance(ctx context.Context, req Request, tagRow db.ResolvedTa
 type advanceResult struct {
 	// sunValid is the second half of SUN validity: the counter really moved.
 	sunValid bool
-	// gap is the reads skipped since the last advance (single-tenant only: the holding
-	// statement's result has no gap column -- ADR 0027 §2's signature table).
+	// gap is the reads skipped since the last advance -- the SAME number on both paths:
+	// store.AdvanceTagCounter's `t.last_ctr - prev.old_ctr - 1` for the session's own plaque,
+	// holding_advance_tag_counter's identical expression for a peer's (migration 00045, the
+	// user's decision K-1i), so base:ctr-gap-review judges a holding tap as it judges any tap.
 	gap int32
 	// peer is K-29's answer when the HOLDING statement ran: true for advanced, replay
 	// and peer_inactive -- the two tenants are peers -- false for not_peer; nil when it
@@ -1159,7 +1161,9 @@ type advanceResult struct {
 // (left_at > clock_timestamp()), in the same statement that locks and moves the
 // counter, so a non-peer's plaque is never touched. Its four outcomes:
 //
-//	advanced        the counter moved: SUN valid, a peer.
+//	advanced        the counter moved: SUN valid, a peer, and the reads skipped since the
+//	                last advance (ctr_gap -- migration 00045, the user's decision K-1i), the
+//	                same number store.AdvanceTagCounter gives for an own plaque.
 //	replay          a peer's active plaque whose counter did not go up: SUN invalid
 //	                (§5 row 2's recorded reject, with the site named).
 //	peer_inactive   a peer's plaque not active at the lock: SUN invalid, and the status
@@ -1179,7 +1183,7 @@ func (s *Service) advanceAtAPeer(ctx context.Context, req Request, tagRow db.Res
 		return advanceResult{}, fmt.Errorf("checkin: advance a peer's counter: %w", err)
 	}
 	peer := out.Outcome != db.HoldingNotPeer
-	return advanceResult{sunValid: out.Outcome == db.HoldingAdvanced, peer: &peer, status: out.TagStatus}, nil
+	return advanceResult{sunValid: out.Outcome == db.HoldingAdvanced, gap: out.CtrGap, peer: &peer, status: out.TagStatus}, nil
 }
 
 // tapFacts is everything the decision needs that lives in the tenant's own rows.

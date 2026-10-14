@@ -139,14 +139,19 @@ const (
 	HoldingPeerInactive HoldingAdvanceOutcome = "peer_inactive"
 )
 
-// HoldingAdvance is holding_advance_tag_counter's row: the outcome and the plaque's status AT
-// THE LOCK ("" for not_peer).
+// HoldingAdvance is holding_advance_tag_counter's row: the outcome, the plaque's status AT
+// THE LOCK ("" for not_peer) and, for an advance, the reads skipped since the last one.
 type HoldingAdvance struct {
 	Outcome   HoldingAdvanceOutcome
 	TagStatus string
+	// CtrGap is the reads the plaque made that never reached the server (p_ctr - old - 1),
+	// computed in the advancing statement exactly as store.AdvanceTagCounter computes it for
+	// the session's own plaque (migration 00045; the user's decision K-1i). 0 for every
+	// outcome but HoldingAdvanced, where the function answers NULL.
+	CtrGap int32
 }
 
-const holdingAdvanceSQL = `SELECT outcome, tag_status FROM public.holding_advance_tag_counter($1, $2)`
+const holdingAdvanceSQL = `SELECT outcome, tag_status, ctr_gap FROM public.holding_advance_tag_counter($1, $2)`
 
 // HoldingAdvanceTagCounter runs §4.4's replay statement on a peer's plaque. A replay is an
 // OUTCOME, not an error; an error means the database could not say whether the counter moved.
@@ -154,8 +159,9 @@ func (h Holding) HoldingAdvanceTagCounter(ctx context.Context, uid string, ctr u
 	var (
 		outcome string
 		status  *string
+		gap     *int32
 	)
-	if err := h.tx.QueryRow(ctx, holdingAdvanceSQL, uid, int32(ctr)).Scan(&outcome, &status); err != nil { //nolint:gosec // a 24-bit chip counter (sun.Params), always inside int32
+	if err := h.tx.QueryRow(ctx, holdingAdvanceSQL, uid, int32(ctr)).Scan(&outcome, &status, &gap); err != nil { //nolint:gosec // a 24-bit chip counter (sun.Params), always inside int32
 		return HoldingAdvance{}, fmt.Errorf("db: holding_advance_tag_counter: %w", err)
 	}
 	out := HoldingAdvance{Outcome: HoldingAdvanceOutcome(outcome)}
@@ -166,6 +172,13 @@ func (h Holding) HoldingAdvanceTagCounter(ctx context.Context, uid string, ctr u
 	}
 	if status != nil {
 		out.TagStatus = *status
+	}
+	if (gap != nil) != (out.Outcome == HoldingAdvanced) {
+		// The function sets the gap exactly when it advanced; anything else is not 00045's.
+		return HoldingAdvance{}, fmt.Errorf("db: holding_advance_tag_counter: outcome %s with a gap present=%v", outcome, gap != nil)
+	}
+	if gap != nil {
+		out.CtrGap = *gap
 	}
 	return out, nil
 }

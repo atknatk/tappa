@@ -754,6 +754,65 @@ func TestHoldingAdvance_DecideSeesTheCurrentStatus(t *testing.T) {
 	}
 }
 
+// TestHoldingAdvance_CounterGapReachesTheEmployersReview is the user's decision K-1i (2026-10-14;
+// ADR 0027 §2, the third-eye audit's measurement made a regression): KF's plaque is at 100 and KM's
+// employee touches it at 150 from KF's own network. holding_advance_tag_counter moves the counter
+// AND reports the 49 reads that never reached the server (150 - 100 - 1, the expression
+// store.AdvanceTagCounter uses for an own plaque), so KM's baseline judges the holding tap as it
+// judges any tap: base:ctr-gap-review flags it, though the address alone would have been ok. The
+// row carries tap:ctrGap 49 in its policy_context -- the gap's one durable trace, the source
+// API-1c's KF projection reads (ADR 0027 §13).
+//
+// THEN KF's own employee touches the same plaque at 151: store.AdvanceTagCounter's gap is 0 -- the
+// 49 reads were consumed by the holding tap, the old last_ctr is gone after that statement, and
+// the single-tenant path has nothing to see again. That is CORRECT, not a loss: the signal was
+// caught once, at the tap that skipped the reads, by the employer who decided it (K-1i: "URL
+// toplama sinyali karar veren işverene ulaşsın"). MUTANT (measured, ADR 0027's API-1b note):
+// ctr_gap always 0 (in 00045's statement or in advanceAtAPeer) turns the first tap into ok by
+// base:ip-or-gps-ok.
+func TestHoldingAdvance_CounterGapReachesTheEmployersReview(t *testing.T) {
+	w := newHoldingWorld(t)
+	gapOf := func(id uuid.UUID) any {
+		t.Helper()
+		var raw []byte
+		if err := w.owner.QueryRow(w.ctx, `SELECT policy_context FROM transactions WHERE id = $1`, id).Scan(&raw); err != nil {
+			t.Fatal(err)
+		}
+		var keys map[string]any
+		if err := json.Unmarshal(raw, &keys); err != nil {
+			t.Fatal(err)
+		}
+		return keys["tap:ctrGap"]
+	}
+	res, err := w.svc.Record(w.ctx, w.nfc(w.km, w.kmEmp, w.kfTag, w.kf, 150, w.kfOnNet))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Outcome != OutcomeRecorded || res.Decision.Verdict != tap.VerdictFlag || res.Decision.MatchedSid != policy.SidCtrGapReview {
+		t.Fatalf("KM at 150 on KF's 100: %s / %s by %s, want a recorded flag by %s", res.Outcome, res.Decision.Verdict, res.Decision.MatchedSid, policy.SidCtrGapReview)
+	}
+	if err := isSite(w.record(res.TransactionID), w, w.kfTag, &w.kfVenue); err != nil {
+		t.Error(err)
+	}
+	if g := gapOf(res.TransactionID); g != float64(49) {
+		t.Errorf("tap:ctrGap %v in the holding row's policy_context, want 49", g)
+	}
+	if got := w.lastCtr(w.kfTag); got != 150 {
+		t.Errorf("KF's last_ctr %d, want 150", got)
+	}
+
+	own, err := w.svc.Record(w.ctx, w.nfc(w.kf, w.kfEmp, w.kfTag, w.kf, 151, w.kfOnNet))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if own.Outcome != OutcomeRecorded || own.Decision.Verdict != tap.VerdictOK || own.Decision.MatchedSid == policy.SidCtrGapReview {
+		t.Errorf("KF at 151: %s / %s by %s, want an ok -- the gap was already caught at KM's tap", own.Outcome, own.Decision.Verdict, own.Decision.MatchedSid)
+	}
+	if g := gapOf(own.TransactionID); g != float64(0) {
+		t.Errorf("tap:ctrGap %v on KF's own tap at 151, want 0", g)
+	}
+}
+
 // TestHoldingWindow_LeftBetweenAdvanceAndGatherFlagsWithoutSiteEvidence is K-29's "advanced, then
 // the strict read finds nothing" (plan §5 API-1b (g)): KM's employee touches KF's plaque from KF's
 // network, the counter advances (a peer), and a hook ends KM's membership BEFORE the gather. The

@@ -122,6 +122,7 @@ var opAtVersionSkips = map[int]string{
 		"row names a site",
 	44: "the validation of 00043's six site constraints (M11 API-1b) -- no operator object; its Down drops and adds " +
 		"them again NOT VALID under ACCESS EXCLUSIVE on transactions",
+	45: "holding_advance_tag_counter's ctr_gap (M11 API-1b, the user's decision K-1i) -- no operator object",
 }
 
 // opAtVersion takes the test's transaction to migration `version`: from the newest file

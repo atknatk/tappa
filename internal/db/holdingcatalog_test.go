@@ -73,7 +73,8 @@ var holdingSignatures = []holdingSignature{
 			"static_ips cidr[], gps_lat numeric, gps_lng numeric, shift_start time without time zone, shift_end time without time zone, " +
 			"overnight boolean, timezone text, api_code text, accent character, logo_sha256 text, logo_mime text, logo_width integer, " +
 			"logo_height integer, business_name text)", holdingCallable},
-	{"holding_advance_tag_counter", "p_uid character, p_ctr integer", "TABLE(outcome text, tag_status text)", holdingCallable},
+	// 00045 (the user's decision K-1i, 2026-10-14): ctr_gap joins the advance's result.
+	{"holding_advance_tag_counter", "p_uid character, p_ctr integer", "TABLE(outcome text, tag_status text, ctr_gap integer)", holdingCallable},
 	{"holding_logo", "p_uid character, p_digest text", "TABLE(logo bytea, logo_mime text)", holdingCallable},
 	{"holding_site_gate", "", "trigger", holdingTrigger},
 }
