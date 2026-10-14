@@ -62,7 +62,7 @@ func Holdings(v HoldingsView) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<section class=\"op-card\"><p class=\"docket-label\">Holdings</p><h1 class=\"mt-1 font-display text-2xl font-bold tracking-tight\">Holdings</h1><p class=\"mt-3 text-sm\">A holding groups businesses that work in one timezone, so that their people can tap in at each other's sites. Only this screen changes who is in one.</p><p class=\"mt-2 text-sm\"><a href=\"/operator\" class=\"op-link\">Back to the console</a></p></section>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<section class=\"op-card\"><p class=\"docket-label\">Holdings</p><h1 class=\"mt-1 font-display text-2xl font-bold tracking-tight\">Holdings</h1><p class=\"mt-3 text-sm\">A holding groups businesses that work in one timezone; while a business is in one, its owner cannot change its timezone. Only this screen changes who is in a holding.</p><p class=\"mt-2 text-sm\"><a href=\"/operator\" class=\"op-link\">Back to the console</a></p></section>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

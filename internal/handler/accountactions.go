@@ -226,11 +226,11 @@ func (a *AdminAuth) accountSave(w http.ResponseWriter, r *http.Request) {
 	a.redirect(w, accountReturn("saved", ""))
 }
 
-// accountHoldingZoneSentence is the owner panel's one sentence for K-36 (ADR 0027 §1): the
-// business belongs to a group of businesses on Taptime, the group shares one clock, so its
-// timezone stays as it is -- and Taptime is who changes it.
-const accountHoldingZoneSentence = "This business is part of a group of businesses on Taptime that share one clock, " +
-	"so its timezone cannot be changed here. Ask Taptime if the whole group needs to move."
+// accountHoldingZoneSentence is the owner panel's ONE sentence for K-36 (ADR 0027 §1): the
+// business shares one clock with its group on Taptime, so its timezone stays as it is. It names
+// no way to move the zone, because v1 has none (ADR 0027 §1: no op_* moves every member's zone).
+const accountHoldingZoneSentence = "This business shares one clock with the other businesses in its group on Taptime, " +
+	"so its timezone cannot be changed here."
 
 // validateAccountForm is the boundary's own check (§7). It returns the FIELD and the
 // sentence, so a message renders beside the input it is about.

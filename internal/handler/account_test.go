@@ -690,8 +690,8 @@ func TestAccountSave_RefusesAZoneThisBuildCannotLoad(t *testing.T) {
 // TestAccountSave_SaysAHoldingMembersZoneIsLocked is K-36's panel half (M11 API-1a, ADR 0027
 // §1): when the database refuses the zone because the business is a holding member
 // (tenant.ErrTimezoneHeldByHolding -- migration 00041's trigger), the owner gets the form again,
-// 200, with ONE sentence on the timezone field saying what holds the zone and who can change it,
-// and keeps what they typed. The application cannot ask in advance (tappa_app reads no
+// 200, with ONE sentence on the timezone field saying what holds the zone (ADR 0027 §1 -- the
+// API-1a review cut it from two to one), and keeps what they typed. The application cannot ask in advance (tappa_app reads no
 // membership), so the refusal is where the panel learns it.
 func TestAccountSave_SaysAHoldingMembersZoneIsLocked(t *testing.T) {
 	acc := newFakeAccount()
@@ -717,8 +717,9 @@ func TestAccountSave_SaysAHoldingMembersZoneIsLocked(t *testing.T) {
 	if !strings.Contains(html, htmlText("Europe/Istanbul")) {
 		t.Error("the re-rendered form lost the zone the owner typed")
 	}
-	if strings.Count(accountHoldingZoneSentence, ".") != 2 || !strings.Contains(accountHoldingZoneSentence, "Taptime") {
-		t.Errorf("the sentence %q should say why and who, in two short sentences", accountHoldingZoneSentence)
+	if strings.Count(accountHoldingZoneSentence, ".") != 1 || !strings.HasSuffix(accountHoldingZoneSentence, ".") ||
+		!strings.Contains(accountHoldingZoneSentence, "Taptime") {
+		t.Errorf("the sentence %q should say why, in ONE sentence that names Taptime", accountHoldingZoneSentence)
 	}
 }
 
