@@ -1692,6 +1692,18 @@ yazılır.
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 
+### 2026-10-14 (28. oturum, otuz yedinci yarı) — ✅ **API-1b DONE** (iki mercek ONAY) · ⏸ **bilgisayar yeniden başlatılıyor** · 📌 **DEVAM: API-1c**
+
+**Yeniden başlatmadan sonra ilk iş:** `docker start tappa-m11-db` (yeniden başlatma politikası `no`; goose 45). Çalışma düzeni otuz dördüncü–otuz altıncı yarıların kayıtlarındaki gibi.
+
+**API-1b** (`58debf0` · `08b1544` · `fb4f3cf` · `7c8c51c` · `c50dd89` · `af87f82` · `8d392e5` · `fd9c96b` · `dc80e6b` · `43c546d` · `7f38d31` · `c6a443d` · `342b4c3` · `3be9206` · `78ab9f5`):
+- 00043 `site_*` + K-30 CHECK/FK `NOT VALID` + `holding_tap_site`, `holding_advance_tag_counter`, `holding_logo`, `holding_site_gate`; 00044 VALIDATE ((k): 2 M satırda ALTER içi doğrulama 2–3,5 sn → `NOT VALID` yolu); 00045 **K-1i**. Guardrail #1 `∧ ¬SameHolding`, #9 `sys:cross-tenant-qr-site-ip`; checkin peer ilerletme/okuma/yazma; tap/sonuç ekranında KF markası; K-35.
+- **🟢 KULLANICI KARARI K-1i (2026-10-14):** `holding_advance_tag_counter` `ctr_gap` da döndürür; KM'nin `base:ctr-gap-review`'ı holding dokunuşuna uygulanır (aksi hâlde holding yolu atlamayı sonraki KF dokunuşundan da siliyordu — ölçüldü). Bedel: KM, KF plaketinin önceki mutlak sayacını türetebilir (ADR §12.3'te adlandırıldı).
+- **Denetim:** 1. tur güvenlik ONAY, üçüncü göz RED (ORTA: test Down kilit listesinde dört tablo eksikti → paralel paketlerle deadlock, 75 eklemede 35) → düzeltme + K-1i → 2. tur **iki mercek ONAY**; son DÜŞÜK'ler (`342b4c3`, `3be9206`, `78ab9f5`: kilit savepoint yardımcısında + kuyruk yedeği; yeniden deneme yorumu; kapı beklemesinin tetikleyicileri ADR §13.16 + `deploy/README.md` migration `lock_timeout` kuralı) — yapıcının kapanış raporu yeniden başlatma yüzünden alınamadı; commit'ler ve ağaç temiz, **push + CI ile doğrulanacak**.
+- **Devredilen (API-1c kabulünde yazılı):** `site_punches`/`holding_feed` yarıları, `refused_tag_not_active`, K-1i'nin KF tarafı (`tap:ctrGap`, gövde taramasıyla pin). `HoldingDirectory_ReturnsPeersNeverTheCaller` → API-8.
+
+**🔴 DEVAM PLANI:** (1) `docker start tappa-m11-db`; (2) bu kaydın commit'inin CI'ı yeşil mi bak (değilse önce o); (3) **API-1c** — brief hazır: `~/.claude/projects/-Users-everva-Documents-GitHub-atknatk-tappa/m11-briefs/brief-api1c-builder.md` (yanında önceki brief'ler ve `m11env.sh`; brief'teki scratchpad yollarını yeni oturumun scratchpad'ine çevir) → iki mercek → API-2 → … Kullanıcıda bekleyenler otuz dördüncü yarıda aynen + DPA notunda `site_punches` saklama süresi.
+
 ### 2026-10-14 (28. oturum, otuz altıncı yarı) — ✅ **API-1a DONE** · 📌 **DEVAM: API-1b**
 
 **Çalışma düzeni:** otuz dördüncü yarının maddeleri + otuz beşinci yarının ek kuralı geçerli. **Ek (bu yarıda öğrenildi):** yerel Go 1.27.1 staticcheck'i koşturamıyor → her yapıcı lint'i CI'ın sürümüyle koşar: `GOTOOLCHAIN=go1.26.9` + staticcheck 2025.1.1 (API-1a CI'ı bir kez yalnız bu yüzden kırmızı oldu: pini yazılmamış bir test değişkeni, U1000). `tappa-m11-db` goose 42'de, `01-roles.sql`'in HOLDING ROLE bloğu uygulanmış.
