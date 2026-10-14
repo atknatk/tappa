@@ -303,7 +303,7 @@ func TestHoldingCheck_ChannelRules(t *testing.T) {
 	holdingWantGate(t, holdingInsertRow(t, ctx, tx, holdingRow{employer: w.km, employee: w.kmEmployee, channel: "qr", verdict: "flag", kind: "in",
 		siteTenant: &w.km, siteTag: &w.kfTag}), "a row naming its own tenant as the site (the gate)")
 
-	holdingInSavepoint(t, tx, func(sp pgx.Tx) {
+	holdingLockedSavepoint(t, tx, func(sp pgx.Tx) {
 		if _, err := sp.Exec(ctx, `ALTER TABLE transactions DISABLE TRIGGER transactions_holding_site_gate`); err != nil {
 			t.Fatal(err)
 		}
@@ -1192,8 +1192,7 @@ func TestHolding00043And00044_DownGiveBackAndUpTakesItAgain(t *testing.T) {
 		!strings.HasPrefix(head.advance, "TABLE(outcome text, tag_status text, ctr_gap integer) ") {
 		t.Fatalf("PREMISE at HEAD: %+v", head)
 	}
-	holdingInSavepoint(t, tx, func(sp pgx.Tx) {
-		holdingLockForDowns(t, ctx, sp)
+	holdingLockedSavepoint(t, tx, func(sp pgx.Tx) {
 		holdingSetAsideSiteRows(t, ctx, sp)
 		opRunSection(t, ctx, sp, down45, "00045 Down")
 		at44 := read(sp)
@@ -1223,8 +1222,7 @@ func TestHolding00043And00044_DownGiveBackAndUpTakesItAgain(t *testing.T) {
 			t.Errorf("after the Ups again:\n %+v\nwant HEAD's\n %+v", again, head)
 		}
 	})
-	holdingInSavepoint(t, tx, func(sp pgx.Tx) {
-		holdingLockForDowns(t, ctx, sp)
+	holdingLockedSavepoint(t, tx, func(sp pgx.Tx) {
 		w := holdingWorldTx(t, ctx, sp, "")
 		if err := holdingInsertRow(t, ctx, sp, holdingRow{employer: w.km, employee: w.kmEmployee, channel: "manual", verdict: "flag", kind: "in",
 			siteTenant: &w.kf, siteVenue: &w.kfVenue}); err != nil {
@@ -1269,9 +1267,9 @@ var holdingDownTables = []string{
 }
 
 // holdingLockForDowns takes, inside the savepoint sp, ACCESS EXCLUSIVE on every one of
-// holdingDownTables -- in ONE statement, NOWAIT, retried until it is granted -- and is called
-// FIRST in every savepoint that walks a Down (before holdingClearKinds too), so no statement
-// after it ever waits for a lock on one of those tables while holding one. That is the claim, and
+// holdingDownTables (lockForDowns: never blocking) -- FIRST in every savepoint that walks a Down,
+// because holdingLockedSavepoint takes it before the body runs, so no statement after it ever waits
+// for a lock on one of those tables while holding one. That is the claim, and
 // it is narrower than "this transaction never waits": it can still wait on an object outside the
 // list (a catalog row, an advisory lock), none of which a tap or a membership write holds while
 // waiting for these tables.
@@ -1285,19 +1283,29 @@ var holdingDownTables = []string{
 // held tenants and waited for holding_members) deadlocked in 35 of 75 inserts; with the four
 // tables added, 0 of 76. Re-measured (ADR 0027's API-1b note): ten runs of that test beside a
 // membership-writing loop -- six tables, 90 deadlocks in 1 361 writes; ten tables, 0 in 2 324.
-// The locks go with the savepoint, and holdingInSavepoint fails the test when the savepoint ends
+// The locks go with the savepoint, and holdingLockedSavepoint fails the test when the savepoint ends
 // holding a strong lock on a table outside this list (strongTableLocksOutside) -- the list cannot
 // fall behind the Downs silently (except for a table the savepoint dropped and left dropped: its
-// lock is on an OID with no name left to read).
+// lock is on an OID with no name left to read) -- or without every listed table held.
 func holdingLockForDowns(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	t.Helper()
 	lockForDowns(t, ctx, sp, holdingDownTables)
 }
 
-// lockForDowns takes ACCESS EXCLUSIVE on every one of tables (those that exist) inside tx -- in
-// ONE statement, NOWAIT, in a nested savepoint retried every 25 ms until it is granted (90 s at
-// most) -- so a caller that walks Downs afterwards never waits for a lock on one of them while
-// holding another. opAtVersion takes it too, with the tables its Downs name.
+// lockForDowns takes ACCESS EXCLUSIVE on every one of tables (those that exist) inside tx, so a
+// caller that walks Downs afterwards never waits for a lock on one of them while holding another.
+// opAtVersion takes it too, with the tables its Downs name. Two ways, in turn, every 25 ms:
+//
+//  1. ALL AT ONCE, NOWAIT: one LOCK statement over the whole list, in a nested savepoint. It never
+//     waits, so it is in no deadlock. The common case.
+//  2. IN TURN, AFTER 40 MISSES OF 1. (about a second): the API-1b review's DÜŞÜK-B -- under steady
+//     load some table of ten always has a holder, and 1. alone missed for the whole test context
+//     (measured: two tests, 90 s each, then 55P03; a NOWAIT one-by-one variant that kept what it
+//     took missed too: polling never gets in a table's queue). lockInTurn queues for each table,
+//     holding the ones it took -- and the waits are BOUNDED so that this backend is never the
+//     one a deadlock check finds a cycle through (see there).
+//
+// The deadline is 90 s, or the context's deadline less 10 s when that is sooner.
 func lockForDowns(t *testing.T, ctx context.Context, tx pgx.Tx, tables []string) {
 	t.Helper()
 	var list []string
@@ -1313,28 +1321,137 @@ func lockForDowns(t *testing.T, ctx context.Context, tx pgx.Tx, tables []string)
 	if len(list) == 0 {
 		return
 	}
-	stmt := `LOCK TABLE ` + strings.Join(list, ", ") + ` IN ACCESS EXCLUSIVE MODE NOWAIT`
 	deadline := time.Now().Add(90 * time.Second)
-	for {
-		nested, err := tx.Begin(ctx)
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, err = nested.Exec(ctx, stmt)
-		if err == nil {
-			if err := nested.Commit(ctx); err != nil {
-				t.Fatal(err)
-			}
+	if d, ok := ctx.Deadline(); ok && d.Add(-10*time.Second).Before(deadline) {
+		deadline = d.Add(-10 * time.Second)
+	}
+	order := slices.Clone(list)
+	for round := 0; ; round++ {
+		if lockNowait(t, ctx, tx, list) {
 			return
 		}
-		if rbErr := nested.Rollback(ctx); rbErr != nil {
-			t.Fatal(rbErr)
+		if round >= 40 {
+			busy, ok := lockInTurn(t, ctx, tx, order)
+			if ok {
+				return
+			}
+			if i := slices.Index(order, busy); i > 0 {
+				// The table whose wait ran out goes FIRST next time: its holder was most likely
+				// waiting on a table this round had taken (a membership writer holds holding_members
+				// and waits for tenants on the key check -- measured: with tenants taken first,
+				// every round timed out on holding_members, 90 s). Taken first, the writer queues
+				// behind it holding nothing.
+				order = append([]string{busy}, slices.Delete(order, i, i+1)...)
+			}
 		}
-		if code, _ := opCode(err); code != "55P03" || time.Now().After(deadline) {
-			t.Fatalf("lock the tables the Downs touch: %v", err)
+		if time.Now().After(deadline) {
+			t.Fatalf("lock the tables the Downs touch: %d rounds, still busy", round+1)
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
+}
+
+// lockNowait runs LOCK ... NOWAIT over tables in a savepoint nested in tx: true and the locks
+// kept, or false (55P03) and nothing kept. Any other error fails the test.
+func lockNowait(t *testing.T, ctx context.Context, tx pgx.Tx, tables []string) bool {
+	t.Helper()
+	nested, err := tx.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = nested.Exec(ctx, `LOCK TABLE `+strings.Join(tables, ", ")+` IN ACCESS EXCLUSIVE MODE NOWAIT`)
+	if err == nil {
+		if err := nested.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+		return true
+	}
+	if rbErr := nested.Rollback(ctx); rbErr != nil {
+		t.Fatal(rbErr)
+	}
+	if code, _ := opCode(err); code != "55P03" {
+		t.Fatalf("lock the tables the Downs touch: %v", err)
+	}
+	return false
+}
+
+// lockInTurn is lockForDowns' second way: the tables one at a time, in the order given, each a
+// BLOCKING LOCK -- so it takes its place in the table's queue and new holders line up behind it --
+// keeping the ones it took; true with all of them held, or false with none (the nested savepoint
+// rolled back) and the table whose wait ran out ("" when the hold budget below ran out first).
+//
+// WHY IT DOES NOT HAND ANOTHER TRANSACTION A DEADLOCK (one exception, named below). Holding some
+// tables while waiting for the next is how a cycle forms (a tap holds tags and waits for our
+// transactions while we wait for its tags), and PostgreSQL breaks a cycle by failing the backend
+// whose deadlock check finds it -- a check each waiter runs deadlock_timeout (D) after ITS wait
+// began. Measured: the review's
+// proposal, one blocking LOCK over the whole list under lock_timeout 5 s, made three backends of
+// the load deadlock victims in one run. Here two bounds keep every check that could see a cycle
+// through this backend after the cycle is gone:
+//   - each wait is at most L = D/5 (lock_timeout, restored after the LOCK); a wait that times out
+//     gives everything back. L < D, so this backend's own check never runs either;
+//   - no wait STARTS later than H = D/2 after the first table was taken.
+//
+// A transaction waiting on a table we hold began waiting after we took it, so its check runs at
+// least D after our first lock -- later than H + L, the end of our last possible wait. (Not
+// covered by this arithmetic: a cycle of three, whose third member began waiting on the second
+// independently of us. The probe -- ADR 0027's API-1b note -- did not produce one; it is named,
+// not excluded.)
+func lockInTurn(t *testing.T, ctx context.Context, tx pgx.Tx, tables []string) (busy string, ok bool) {
+	t.Helper()
+	var deadlockMs int64
+	var prev string
+	if err := tx.QueryRow(ctx, `SELECT setting::bigint, current_setting('lock_timeout') FROM pg_catalog.pg_settings WHERE name = 'deadlock_timeout'`).
+		Scan(&deadlockMs, &prev); err != nil {
+		t.Fatal(err)
+	}
+	wait, hold := deadlockMs/5, time.Duration(deadlockMs/2)*time.Millisecond
+	held, err := tx.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var first time.Time
+	for _, tb := range tables {
+		if !first.IsZero() && time.Since(first) > hold {
+			if err := held.Rollback(ctx); err != nil {
+				t.Fatal(err)
+			}
+			return "", false
+		}
+		one, err := held.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = one.Exec(ctx, fmt.Sprintf(`SET LOCAL lock_timeout = '%dms'`, wait))
+		if err == nil {
+			_, err = one.Exec(ctx, `LOCK TABLE `+tb+` IN ACCESS EXCLUSIVE MODE`)
+		}
+		if err == nil {
+			_, err = one.Exec(ctx, `SELECT set_config('lock_timeout', $1, true)`, prev)
+		}
+		if err != nil {
+			if rbErr := one.Rollback(ctx); rbErr != nil {
+				t.Fatal(rbErr)
+			}
+			if rbErr := held.Rollback(ctx); rbErr != nil {
+				t.Fatal(rbErr)
+			}
+			if code, _ := opCode(err); code != "55P03" {
+				t.Fatalf("lock %s in turn: %v", tb, err)
+			}
+			return tb, false
+		}
+		if err := one.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if first.IsZero() {
+			first = time.Now()
+		}
+	}
+	if err := held.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	return "", true
 }
 
 // strongTableLocksOutside returns the tables of public this backend holds a lock STRONGER than a
@@ -1345,6 +1462,9 @@ func lockForDowns(t *testing.T, ctx context.Context, tx pgx.Tx, tables []string)
 // every one zz_*) are left out: created in the test's transaction, no other session sees them.
 func strongTableLocksOutside(t *testing.T, ctx context.Context, q opQuerier, allowed []string) []string {
 	t.Helper()
+	if allowed == nil {
+		allowed = []string{} // a nil slice is SQL NULL, and `<> ALL (NULL)` is never true: every lock would hide
+	}
 	rows, err := q.Query(ctx, `
 		SELECT DISTINCT c.relname FROM pg_catalog.pg_locks l JOIN pg_catalog.pg_class c ON c.oid = l.relation
 		 WHERE l.locktype = 'relation' AND l.granted AND l.pid = pg_backend_pid()
@@ -1386,8 +1506,9 @@ func holdingSetAsideSiteRows(t *testing.T, ctx context.Context, sp pgx.Tx) {
 // 00043's -- for the API-1a tests that walk 00042 and 00041 back: 00041's precondition refuses a
 // definer that reaches anything but its own holding_members row, 00043 gives it more, and
 // 00043's functions are the definer's too. The site rows are set aside first
-// (holdingSetAsideSiteRows). The caller has taken holdingLockForDowns first; it is taken again
-// here (a lock already held is granted at once) so no caller can forget it.
+// (holdingSetAsideSiteRows). The caller's savepoint is a holdingLockedSavepoint, which took
+// holdingLockForDowns first; it is taken again here (a lock already held is granted at once), and
+// called from holdingInSavepoint it would leave strong locks that savepoint refuses.
 func holdingBelow43(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	t.Helper()
 	holdingLockForDowns(t, ctx, sp)

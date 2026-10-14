@@ -79,10 +79,31 @@ func holdingPrecondition(t *testing.T, file string) string {
 	return up[i:j]
 }
 
-// holdingInSavepoint runs body in a savepoint of tx that is rolled back when body returns -- and,
-// before the rollback, fails the test if the savepoint holds a strong lock on a table outside
-// holdingDownTables (strongTableLocksOutside; holdingLockForDowns says why).
+// holdingInSavepoint runs body in a savepoint of tx that is rolled back when body returns. It is
+// for bodies that take NO strong table lock: one that does -- a Down, a DISABLE TRIGGER, any DDL on
+// a table of public -- fails the test here, because such a body belongs in holdingLockedSavepoint,
+// which takes holdingDownTables FIRST. (The API-1b review's DÜŞÜK-A: the lock was a call each
+// Down-walking body had to remember, and the measured mutant -- the call left out of
+// TestHolding00043And00044_DownGiveBackAndUpTakesItAgain's first savepoint -- stayed green and
+// deadlocked 20 times under load.)
 func holdingInSavepoint(t *testing.T, tx pgx.Tx, body func(sp pgx.Tx)) {
+	t.Helper()
+	holdingSavepoint(t, tx, false, body)
+}
+
+// holdingLockedSavepoint runs body in a savepoint of tx, rolled back when body returns, with
+// holdingDownTables taken FIRST (holdingLockForDowns) -- the only way a body that walks a Down or
+// changes a table (TestHoldingCheck_ChannelRules' DISABLE TRIGGER: the check below found it
+// taking ACCESS EXCLUSIVE on transactions with nothing taken first) gets its savepoint, so no such
+// body can forget the lock. Before the rollback it fails the test
+// when the savepoint holds a strong lock on a table outside the list (the list fell behind the
+// Downs) or does not hold every listed table that still exists (the lock was not taken).
+func holdingLockedSavepoint(t *testing.T, tx pgx.Tx, body func(sp pgx.Tx)) {
+	t.Helper()
+	holdingSavepoint(t, tx, true, body)
+}
+
+func holdingSavepoint(t *testing.T, tx pgx.Tx, downs bool, body func(sp pgx.Tx)) {
 	t.Helper()
 	ctx := t.Context()
 	sp, err := tx.Begin(ctx)
@@ -94,6 +115,9 @@ func holdingInSavepoint(t *testing.T, tx pgx.Tx, body func(sp pgx.Tx)) {
 			t.Fatalf("rollback to savepoint: %v", err)
 		}
 	}()
+	if downs {
+		holdingLockForDowns(t, ctx, sp)
+	}
 	body(sp)
 	if t.Failed() {
 		return
@@ -102,15 +126,35 @@ func holdingInSavepoint(t *testing.T, tx pgx.Tx, body func(sp pgx.Tx)) {
 		t.Errorf("the savepoint ended aborted, so its locks cannot be read: run a statement that is meant to fail in a nested savepoint")
 		return
 	}
+	if !downs {
+		if strong := strongTableLocksOutside(t, ctx, sp, nil); len(strong) > 0 {
+			t.Errorf("the savepoint took a strong lock on %v: a body that walks a Down or changes a table belongs in "+
+				"holdingLockedSavepoint, which takes holdingDownTables first (ADR 0027's API-1b note, DÜŞÜK-A)", strong)
+		}
+		return
+	}
 	if extra := strongTableLocksOutside(t, ctx, sp, holdingDownTables); len(extra) > 0 {
 		t.Errorf("the savepoint took a strong lock on %v, outside holdingDownTables: a Down touches a table "+
 			"holdingLockForDowns does not take first (the 40P01 class ADR 0027's API-1b note measured) -- add it", extra)
+	}
+	var missing []string
+	if err := sp.QueryRow(ctx, `
+		SELECT coalesce(array_agg(n ORDER BY n), '{}') FROM unnest($1::text[]) AS n
+		 WHERE to_regclass('public.' || n) IS NOT NULL
+		   AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_locks l
+		                    WHERE l.locktype = 'relation' AND l.pid = pg_backend_pid() AND l.granted
+		                      AND l.mode = 'AccessExclusiveLock' AND l.relation = to_regclass('public.' || n))`,
+		holdingDownTables).Scan(&missing); err != nil {
+		t.Fatalf("read the savepoint's locks: %v", err)
+	}
+	if len(missing) > 0 {
+		t.Errorf("the savepoint does not hold %v ACCESS EXCLUSIVE: holdingLockedSavepoint's lock was not taken", missing)
 	}
 }
 
 // holdingNestedRun runs sql (a migration's DO block, with its own dollar quoting -- the simple
 // protocol) in a savepoint nested in sp and rolls it back, so a statement that is meant to fail
-// leaves sp usable: holdingInSavepoint reads its locks before the rollback. Its error, nil when
+// leaves sp usable: holdingSavepoint reads its locks before the rollback. Its error, nil when
 // it ran.
 func holdingNestedRun(t *testing.T, ctx context.Context, sp pgx.Tx, sql string) error {
 	t.Helper()
@@ -191,8 +235,7 @@ func TestHoldingSchema_AppRoleHasNoVerbOnHoldingTables(t *testing.T) {
 
 	up41, down41 := opMigrationSections(t, op00041File)
 	up42, down42 := opMigrationSections(t, op00042File)
-	holdingInSavepoint(t, tx, func(sp pgx.Tx) {
-		holdingLockForDowns(t, ctx, sp)
+	holdingLockedSavepoint(t, tx, func(sp pgx.Tx) {
 		holdingClearKinds(t, sp)
 		if _, err := sp.Exec(ctx, `ALTER DEFAULT PRIVILEGES FOR ROLE tappa_owner IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO tappa_app`); err != nil {
 			t.Fatal(err)
@@ -270,8 +313,7 @@ func TestHolding00041_PreconditionRefusesAWrongCluster(t *testing.T) {
 		{"the role reaches a key column", []string{`GRANT SELECT (aes_key_ref) ON tags TO tappa_holdingdefiner`}, "already reaches"},
 		{"the role reaches a sequence", []string{`GRANT USAGE ON SEQUENCE goose_db_version_id_seq TO tappa_holdingdefiner`}, "already reaches"},
 	} {
-		holdingInSavepoint(t, tx, func(sp pgx.Tx) {
-			holdingLockForDowns(t, ctx, sp)
+		holdingLockedSavepoint(t, tx, func(sp pgx.Tx) {
 			holdingClearKinds(t, sp)
 			holdingBelow43(t, ctx, sp)
 			opRunSection(t, ctx, sp, down42, "00042 Down")
@@ -330,8 +372,7 @@ func TestOperator00042_PreconditionRefusesAWrongCluster(t *testing.T) {
 		{"the definer already reads api_code", []string{`GRANT SELECT (api_code) ON tenants TO tappa_opdefiner`}, "a privilege no migration gave"},
 		{"the definer already reads the holdings", []string{`GRANT SELECT ON holdings TO tappa_opdefiner`}, "a privilege no migration gave"},
 	} {
-		holdingInSavepoint(t, tx, func(sp pgx.Tx) {
-			holdingLockForDowns(t, ctx, sp)
+		holdingLockedSavepoint(t, tx, func(sp pgx.Tx) {
 			holdingClearKinds(t, sp)
 			opRunSection(t, ctx, sp, down42, "00042 Down")
 			for _, s := range c.setup {
@@ -423,8 +464,7 @@ func TestHolding00041And00042_DownGiveBackAndUpTakesItAgain(t *testing.T) {
 		head.opdefHoldings != "id,name,created_at|holding_id,member_tenant_id,joined_at,left_at|left_at" {
 		t.Fatalf("PREMISE at HEAD: %+v", head)
 	}
-	holdingInSavepoint(t, tx, func(sp pgx.Tx) {
-		holdingLockForDowns(t, ctx, sp)
+	holdingLockedSavepoint(t, tx, func(sp pgx.Tx) {
 		holdingClearKinds(t, sp)
 		holdingBelow43(t, ctx, sp)
 		opRunSection(t, ctx, sp, down42, "00042 Down")
@@ -441,8 +481,7 @@ func TestHolding00041And00042_DownGiveBackAndUpTakesItAgain(t *testing.T) {
 			t.Errorf("after the Ups again:\n %+v\nwant HEAD's\n %+v", again, head)
 		}
 	})
-	holdingInSavepoint(t, tx, func(sp pgx.Tx) {
-		holdingLockForDowns(t, ctx, sp)
+	holdingLockedSavepoint(t, tx, func(sp pgx.Tx) {
 		a := opNewActive(t, ctx, sp)
 		hash, session := opNewSession(t, ctx, sp, a.id, true)
 		h, err := holdingCreateAs(t, ctx, sp, hash, "api1a down "+opToken(t))
@@ -521,8 +560,7 @@ func TestRestore_FreshPodCarriesTheHoldingRole(t *testing.T) {
 	}
 	up41, down41 := opMigrationSections(t, op00041File)
 	_, down42 := opMigrationSections(t, op00042File)
-	holdingInSavepoint(t, tx, func(sp pgx.Tx) {
-		holdingLockForDowns(t, ctx, sp)
+	holdingLockedSavepoint(t, tx, func(sp pgx.Tx) {
 		holdingClearKinds(t, sp)
 		holdingBelow43(t, ctx, sp)
 		opRunSection(t, ctx, sp, down42, "00042 Down")
