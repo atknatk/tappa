@@ -164,12 +164,6 @@ func (w *holdingWorld) leave(tenant uuid.UUID) {
 	w.exec(`UPDATE holding_members SET left_at = clock_timestamp() WHERE member_tenant_id = $1 AND left_at IS NULL`, tenant)
 }
 
-// leftAgo ends tenant's membership `ago` in the past.
-func (w *holdingWorld) leftAgo(tenant uuid.UUID, ago string) {
-	w.t.Helper()
-	w.exec(`UPDATE holding_members SET left_at = clock_timestamp() - $2::interval WHERE member_tenant_id = $1 AND left_at IS NULL`, tenant, ago)
-}
-
 func (w *holdingWorld) venue(tenant uuid.UUID, name, ips, lat, lng string) uuid.UUID {
 	w.t.Helper()
 	var id uuid.UUID

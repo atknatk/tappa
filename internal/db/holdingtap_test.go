@@ -33,15 +33,14 @@ import (
 // ------------------------------------------------------------------- the world --
 
 type holdingWorld struct {
-	kf, km, c, d     uuid.UUID
-	h, h2            uuid.UUID
-	kfVenue, cVenue  uuid.UUID
-	kfTag, cTag      string // active, last_ctr 100
-	kfLost, kfLoose  string // lost (on the KF venue), unassigned (no wall)
-	kmEmployee       uuid.UUID
-	cEmployee        uuid.UUID
-	kfDigest         string
-	kfAdmin, kmAdmin uuid.UUID
+	kf, km, c, d    uuid.UUID
+	h, h2           uuid.UUID
+	kfVenue, cVenue uuid.UUID
+	kfTag, cTag     string // active, last_ctr 100
+	kfLost, kfLoose string // lost (on the KF venue), unassigned (no wall)
+	kmEmployee      uuid.UUID
+	cEmployee       uuid.UUID
+	kfDigest        string
 }
 
 // holdingNewTag inserts a plaque of tenant's (a random uid, a 44-byte stand-in envelope -- no
@@ -1159,6 +1158,7 @@ func TestHolding00043And00044_DownGiveBackAndUpTakesItAgain(t *testing.T) {
 		t.Fatalf("PREMISE at HEAD: %+v", head)
 	}
 	holdingInSavepoint(t, tx, func(sp pgx.Tx) {
+		holdingLockForDowns(t, ctx, sp)
 		holdingSetAsideSiteRows(t, ctx, sp)
 		opRunSection(t, ctx, sp, down44, "00044 Down")
 		at43 := read(sp)
@@ -1186,6 +1186,7 @@ func TestHolding00043And00044_DownGiveBackAndUpTakesItAgain(t *testing.T) {
 			siteTenant: &w.kf, siteVenue: &w.kfVenue}); err != nil {
 			t.Fatal(err)
 		}
+		holdingLockForDowns(t, ctx, sp)
 		opRunSection(t, ctx, sp, down44, "00044 Down with a site row")
 		err := holdingTryDown(t, ctx, sp, down43)
 		opWant(t, err, sqlstatePrerequisiteState, "00043's Down while a row names a site")
@@ -1209,6 +1210,40 @@ func holdingTryDown(t *testing.T, ctx context.Context, tx pgx.Tx, section string
 		return err
 	}
 	return sp.Commit(ctx)
+}
+
+// holdingLockForDowns takes, inside the savepoint sp, ACCESS EXCLUSIVE on every table 00043's
+// and 00044's Downs and Ups (and the API-1a Downs that follow them) lock -- in ONE statement,
+// NOWAIT, retried until it is granted -- so the DDL after it never WAITS while holding a lock.
+// Measured in the first full -race run: the Downs taking their locks one by one, against the
+// other packages' taps writing transactions, tags and locations at the same time, ended in a
+// deadlock (40P01 in TestHolding00041_PreconditionRefusesAWrongCluster): this test held
+// transactions and waited for tags while a tap held tags and waited for transactions. A
+// transaction that never waits cannot be in a wait cycle. The locks go with the savepoint.
+func holdingLockForDowns(t *testing.T, ctx context.Context, sp pgx.Tx) {
+	t.Helper()
+	deadline := time.Now().Add(90 * time.Second)
+	for {
+		nested, err := sp.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = nested.Exec(ctx, `LOCK TABLE public.transactions, public.transaction_reviews, public.tags, public.locations,
+		                                       public.tenants, public.tenant_branding IN ACCESS EXCLUSIVE MODE NOWAIT`)
+		if err == nil {
+			if err := nested.Commit(ctx); err != nil {
+				t.Fatal(err)
+			}
+			return
+		}
+		if rbErr := nested.Rollback(ctx); rbErr != nil {
+			t.Fatal(rbErr)
+		}
+		if code, _ := opCode(err); code != "55P03" || time.Now().After(deadline) {
+			t.Fatalf("lock the tables the Downs touch: %v", err)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
 }
 
 // holdingSetAsideSiteRows deletes, inside the savepoint sp, every transactions row that names a
@@ -1237,6 +1272,7 @@ func holdingSetAsideSiteRows(t *testing.T, ctx context.Context, sp pgx.Tx) {
 // are the definer's too. The site rows are set aside first (holdingSetAsideSiteRows).
 func holdingBelow43(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	t.Helper()
+	holdingLockForDowns(t, ctx, sp)
 	holdingSetAsideSiteRows(t, ctx, sp)
 	_, down44 := opMigrationSections(t, op00044File)
 	_, down43 := opMigrationSections(t, op00043File)
