@@ -1004,6 +1004,27 @@ tenant'ların append-only audit satırlarında kalır) ve `tenants` üzerinde AC
 alır — canlıda koşulmaz. Rol bırakılabilir: NOLOGIN, üyesiz, (`00041` olmadan) hiçbir nesnenin
 sahibi değil.
 
+### Holding tablolarına dokunan migration — `lock_timeout` kuralı (M11 API-1b)
+
+**Kural:** `holding_members`'a ya da kapının (`holding_site_gate`, migration `00043`) kendi
+`lock_timeout`'u altında okuduğu `tags`'e kilit alan bir migration, ilk ifadesinde kendi
+`lock_timeout`'unu **2 sn'nin altına** koyar ve kilit altındaki işini kısa tutar:
+
+```sql
+-- +goose Up
+SET LOCAL lock_timeout = '1s';   -- kapının 2 sn'sinin altında: bekleyen taraf migration olsun
+```
+
+**Neden (ADR 0027 §13 madde 16, ölçüldü):** kapı bir site satırı yazılırken üyelik satırlarını
+`FOR SHARE` ile en çok 2 sn bekler, checkin bir kez yeniden dener; tablo bir migration'ın elindeyse
+(ya da kilit kuyruğunda bir ACCESS EXCLUSIVE bekliyorsa) bekleyen **dokunuştur**, ve ilerletilmiş bir
+NFC dokunuşunda iki bekleme dolarsa sayaç ilerlemiş, kayıt yazılmamış olur. `lock_timeout`'u kısa
+olan migration ise kilidi alamazsa **kendisi** düşer: migrate Job'ı `Failed`, rollout yapılmaz
+(*"Olay müdahalesi"* madde 4) ve migration sakin bir anda yeniden koşulur — kayıt kaybolmaz.
+Kilidi aldıktan sonraki iş de 2 sn'nin altında kalmalıdır (ölçü emsali:
+`TestHoldingMigration_AlterWithinTwoSeconds` — `00043`'ün ALTER'ı 2 M satırda 0,39–0,46 sn).
+`VACUUM FULL` ve `CLUSTER` bu tablolarda trafik akarken koşulmaz; elle `LOCK` da öyle.
+
 ---
 
 ## Operator surface (M10 OP-7) — `tappa_operator`'ın girişi ve dört anahtar

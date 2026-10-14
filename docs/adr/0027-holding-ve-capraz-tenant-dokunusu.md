@@ -117,7 +117,7 @@ mekanik olarak sabitler (§2).
 | **K-1f** | Çapraz punch'ta karşı tarafın kimlikleri | **Paylaşılır:** çalışan `externalRef`/kod, lokasyon `externalRef`/ad, `tagId`, şirket kodu | K-1d'nin genişlemesi; e-posta/GPS/IP/not yine asla. Dış akıştaki biçimi ADR 0028 §4 (anlık görüntü, K-32) |
 | **K-1g** | Çapraz QR okutması | **Sistem kuralı: o şubenin IP'si şart**, yoksa `flag`; işveren kapatamaz | Yeni `sys:` guardrail (§7) → CLAUDE.md §5, ADR 0004/0007 notları |
 | **K-1h** | Holding içi görünürlüğün genişlemesi | **Kabul** (2026-10-10): KF kendi plaketindeki KM dokunuşunun **sonucunu** (sayıldı / onay bekliyor / onaylandı / reddedildi — **nedeni değil**) ve **yönünü** (giriş/çıkış) görür; rehber **aktif/pasif** durumunu verir (spec şartı) | KF, KM'de işten ayrılanı dolaylı öğrenir (tersi de); DPA notuna eklenir |
-| **K-1i** | Holding dokunuşunda sayaç atlaması (`ctr_gap`) | **İşverene ulaşır** (2026-10-14): `holding_advance_tag_counter`'ın dönüşüne `ctr_gap integer` eklenir — yalnız `advanced`'ta, **aynı ifadede** `p_ctr − eski last_ctr − 1`, öteki sonuçlarda NULL; işverenin `base:ctr-gap-review`'ı holding dokunuşuna tek-tenant dokunuştaki anlamıyla uygulanır. Gerekçe: *"URL toplama sinyali karar veren işverene ulaşsın"* | Kapalı listenin bir dönüşü genişledi (§2, migration `00045`). Atlama **bir kez**, holding dokunuşunda yakalanır: eski `last_ctr` ilerletme ifadesinden sonra yoktur, sonraki KF dokunuşu onu yeniden görmez (§13). KF tarafındaki iz API-1c'nin (§9) |
+| **K-1i** | Holding dokunuşunda sayaç atlaması (`ctr_gap`) | **İşverene ulaşır** (2026-10-14): `holding_advance_tag_counter`'ın dönüşüne `ctr_gap integer` eklenir — yalnız `advanced`'ta, **aynı ifadede** `p_ctr − eski last_ctr − 1`, öteki sonuçlarda NULL; işverenin `base:ctr-gap-review`'ı holding dokunuşuna tek-tenant dokunuştaki anlamıyla uygulanır. Gerekçe: *"URL toplama sinyali karar veren işverene ulaşsın"* | Kapalı listenin bir dönüşü genişledi (§2, migration `00045`). Atlama **bir kez**, holding dokunuşunda yakalanır: eski `last_ctr` ilerletme ifadesinden sonra yoktur, sonraki KF dokunuşu onu yeniden görmez (§13). KF tarafındaki iz API-1c'nin (§9). **K-1i ile KM kendi satırından plaketin dokunuştan önceki mutlak `last_ctr`'ını türetebilir** (`ctr − tap:ctrGap − 1`; ölçüldü: 150, 49 → 100) — `ctr` KF'nin yeni değerini `00043`'ten beri zaten taşıyor; K-1i'nin eklediği, KM'nin iki dokunuşu arasında KF'nin ya da başka bir eşin kabul edilmiş son okumasının sayaç değeridir; replay için sömürülemez (sayaç yalnız artar, ilerletme katı `<`) (§12 madde 3) |
 
 ### Otonom kararlar — bu ADR'nin konusu olanlar (öneri uygulandı)
 
@@ -850,6 +850,7 @@ e-postaları, iki tenant'ın mesai kayıtları (CLAUDE.md §4.3, §4.6), holding
    bağlamı, e-posta, `verdict`, `matched_sid` ve (`tappa_app` için) `sun_valid` **asla** (katalog
    pinleri). KM, KF'nin `static_ips`'ini ve GPS'ini görmez (K-39); KM satırının `ip_match`'i ve
    `policy_context`'i KF'nin ağını/koordinatını **dolaylı** açabilir — adlandırılmış bedel (§13).
+   **K-1i (2026-10-14) ile KM kendi satırından plaketin dokunuştan önceki mutlak `last_ctr`'ını türetebilir** (`ctr − tap:ctrGap − 1`; ölçüldü: 150, 49 → 100) — `ctr` KF'nin yeni değerini `00043`'ten beri zaten taşıyor; K-1i'nin eklediği, KM'nin iki dokunuşu arasında KF'nin ya da başka bir eşin kabul edilmiş son okumasının sayaç değeridir; replay için sömürülemez (sayaç yalnız artar, ilerletme katı `<`).
 4. **Kendi tenant'ındaki ayrıcalıklı olmayan kod yolu (SQL kusuru, enjeksiyon) `tappa_app` olarak.**
    Erişebileceği en geniş yüzey: kapalı listedeki fonksiyonların sabit dönüşleri, yalnız eş
    tenant'ın anahtarlarıyla. Tetikleyicileri bağlayamaz (EXECUTE yalnız sahipte + `TG_RELID`
@@ -915,12 +916,26 @@ adlandırılmış kalan risk (1. tur, güvenlik merceği; §13 madde 13).
     yakalanır. Plaketin kendi işletmesi (KF) sonraki tek-tenant dokunuşunda o atlamayı yeniden görmez
     (eski `last_ctr` yoktur — ölçüldü: KF@100, KM 150 → KM'de `base:ctr-gap-review` `flag`, `tap:ctrGap`
     49; ardından KF 151 → `ok`, `tap:ctrGap` 0). KF'nin görünürlüğü API-1c'nin izdüşümündedir (§9).
-16. **Kapının kilit beklemesi (API-1b denetimi, güvenlik DÜŞÜK-1):** checkin site satırını 2 sn'lik
-    beklemeden sonra bir kez yeniden yazar (§6); bir operatör işlemi aynı üyelik satırını **iki**
-    beklemenin boyunca (> 4 sn) açık tutarsa INSERT 55P03 ile düşer — ilerletilmiş bir NFC
-    dokunuşunda sayaç ilerlemiş, kayıt yazılmamış olur (kişinin tekrarı `not_peer`, 403). Bunun için
-    `op_remove_holding_member`'ın (tek UPDATE + tek INSERT) dışında, satırı saniyelerce tutan bir
-    operatör işlemi gerekir; v1'de yoktur. Ölçüldü: `TestHoldingWindow_GateLockHeldThroughBothWaitsIsTheNamedCost`.
+16. **Kapının kilit beklemesi (API-1b denetimi, güvenlik DÜŞÜK-1 ve D-2):** kapı üyelik satırlarını
+    `FOR SHARE` ile en çok 2 sn bekler; checkin site satırını bir kez yeniden yazar (§6). Kalan yol:
+    bekleme **iki kez** (> 4 sn) dolarsa INSERT 55P03 ile düşer — ilerletilmiş bir NFC dokunuşunda
+    sayaç ilerlemiş, kayıt yazılmamış olur (kişinin tekrarı `not_peer`, 403). **Tetikleyiciler:**
+    - **Üyelik satırının kilidi** > 4 sn tutulursa. `op_remove_holding_member` bir UPDATE ve en çok
+      üç INSERT'tür (iki `audit_log`, bir `operator_audit_log`); bu INSERT'ler satır kilitliyken
+      kendileri bekleyebilir (ör. o tablolarda bir migration'ın DDL'i arkasında). Yeniden deneme
+      2–4 sn arası tutmaları kurtarır; ilk 2 sn içinde commit edilen bir çıkarma onu hiç görmez.
+      Ölçüldü: `TestHoldingWindow_GateLockHeldThroughBothWaitsIsTheNamedCost`.
+    - **`holding_members` üzerinde bir tablo kilidi** — o tabloya dokunan bir migration,
+      `VACUUM FULL`/`CLUSTER`, elle `LOCK`, kuyrukta bekleyen bir ACCESS EXCLUSIVE isteği. Ölçüldü
+      (atılabilir kap): ham bir site INSERT'i (işlemi `holding_members`'ı önceden okumamış) tablo
+      kilitliyken 2,01 sn'de 55P03 alır. **Tap yolu bu beklemeye düşmez:** `gather` aynı işlemde
+      tabloyu okumuştur ve tabloda zaten kilit tutan bir arka uç kuyruktaki ACCESS EXCLUSIVE'in
+      önüne geçer (ölçüldü: dokunuş 404 ms'de yazıldı, kilit ardından verildi). İşlemden **önce**
+      alınmış bir kilit ise `gather`'ı bekletir — orada `lock_timeout` yoktur (ölçüldü: 5 sn
+      tutulan kilit, dokunuş 5,05 sn'de yazıldı); 30 sn'lik istek zaman aşımını aşan bir tutma
+      ilerletmeden sonraki kaydı düşürür (çıkarım, ölçülmedi). Bugün tek site yazıcısı tap yoludur;
+      API-1c'nin manuel saha kaydı ham yazıcı olacaktır. **Kural (deploy/README.md):** bu tablolara
+      dokunan bir migration kendi `lock_timeout`'unu 2 sn'nin altına koyar.
 
 ## Elenen seçenekler
 
@@ -1436,3 +1451,41 @@ biçimi → **API-3** (plan §5'in satırı; yeni ifade zaten çok satırlıdır
   ölçülemedi (üretim veritabanına erişim yok — `00043` uygulanmadan önce `SELECT count(*) FROM
   transactions` ile bakılmalı); el kitabının ölçeği (100+ kullanıcı, kişi başı günde ~2 dokunuş) yılda
   ~75 000 satırdır, yani eşik bu ölçekte on yıllar ötededir. Paylaşılan `tappa-m11-db`'de ~9 700 satır.
+
+**Yeniden denetimden sonra (2026-10-14 — iki mercek ONAY; kalan DÜŞÜK'ler).** Ölçümler yeni bir
+atılabilir PostgreSQL 17 kabında.
+- **Üçüncü göz DÜŞÜK-A — kilit önce, mekanik olarak.** Kilit, Down yürüyen her gövdenin hatırlaması
+  gereken bir çağrıydı (ölçülen mutant: `TestHolding00043And00044_DownGiveBackAndUpTakesItAgain`'in
+  ilk savepoint'inden çağrı çıkarılınca test yeşil, yük altında 20 deadlock). Artık iki yardımcı var:
+  `holdingLockedSavepoint` kilidi gövdeden **önce** kendisi alır ve sonunda listedeki her tablonun
+  ACCESS EXCLUSIVE tutulduğunu doğrular; `holdingInSavepoint` güçlü tablo kilidi alan bir gövdeyi
+  **reddeder**. Mutantlar kırmızı: o savepoint `holdingInSavepoint`'e çevrilince (*"güçlü kilit:
+  locations, tags, transaction_reviews, transactions"*); yardımcının kilit çağrısı çıkarılınca üç
+  test. Denetim bir gerçek bulgu da verdi: `TestHoldingCheck_ChannelRules` kapıyı `DISABLE TRIGGER`
+  ile kapatırken `transactions`'ı önce hiçbir şey almadan ACCESS EXCLUSIVE kilitliyordu — artık
+  `holdingLockedSavepoint`'te. (`strongTableLocksOutside`'a nil liste SQL NULL gidiyordu ve
+  `<> ALL (NULL)` her kilidi gizliyordu — mutant yeşil kalınca bulundu, düzeltildi.)
+- **Üçüncü göz DÜŞÜK-B — tek ifadeli NOWAIT'in açlığı.** Sonda: tablo başına beş oturumun kısa
+  işlemleri (10 ms tut, 10 ms boş) + iki tut-ve-bekle oturumu (dokunuş: `tags` → `transactions`;
+  fikstür: `locations` → `tags`); son koşuda ayrıca bir üyelik yazıcısı. **Eski yol (yalnız NOWAIT):** iki test
+  90 sn'de 55P03 ile düştü (~3 000 tur). **Önerilen yedek — listenin tamamına engelleyici `LOCK`,
+  `lock_timeout` 5 sn:** testler geçti ama yükte **3 deadlock kurbanı**, testin kendisi de bir kez — aldığı
+  tabloları tutarak bir sonrakini beklemek ORTA-1'in sınıfıdır. **NOWAIT tek tek, aldığını tutarak:**
+  yine 90 sn (yoklama tablonun kuyruğuna hiç girmez). **Uygulanan (`lockInTurn`):** 40 NOWAIT
+  ıskasından sonra tablolar sırayla, her biri **engelleyici** ama **sınırlı** bekler — tek bekleme
+  `deadlock_timeout`/5'i, yeni bir beklemenin başlangıcı ilk kilitten `deadlock_timeout`/2 sonrasını
+  geçmez; böylece bizi bekleyen bir işlemin deadlock denetimi (beklemesinden `deadlock_timeout`
+  sonra koşar) döngü bittikten sonra koşar, kendi denetimimiz hiç koşmaz. Süresi dolan tablo bir
+  sonraki turda başa alınır (üyelik yazıcısı `holding_members`'ı tutup anahtar denetiminde
+  `tenants`'ı bekliyor — `tenants` önce alındığında her tur `holding_members`'ta doluyordu, 90 sn;
+  başa alınınca geçti). Üyelik yazıcısız yükte üç koşu 17–21 sn, yazıcılı yükte **6/6 test geçti
+  (64 sn), yükte 0 deadlock, 2 815 üyelik yazımı**. Aritmetiğin kapsamadığı tek durum adıyla yazıldı: üçüncü üyesi ikinciyi bizden bağımsız
+  bekleyen üçlü bir döngü (sonda üretmedi).
+- **Güvenlik D-1 — `last_ctr` türetimi** K-1i'nin bedel sütununa ve §12 madde 3'e yazıldı.
+- **Güvenlik D-2 — kilit beklemesinin tetikleyicileri** §13 madde 16'da, ölçümleriyle; kural
+  `deploy/README.md`'de (*"Holding tablolarına dokunan migration — `lock_timeout` kuralı"*).
+- **Üçüncü göz DÜŞÜK-C:** `insert`'in yorumu ölçümle uyumlu yazıldı (yeniden deneme 2–4 sn arası
+  tutmaları kurtarır); `op_remove_holding_member` bir UPDATE ve en çok üç INSERT'tür (§13 madde 16,
+  `NamedCost` testinin yorumu).
+- **API-1c devri:** K-1i'nin KF tarafının tetikleyici gövdesinin `policy_context`'ten yalnız
+  `tap:ctrGap`'i okuduğu bir gövde taramasıyla pinlenmesi plan §5'in API-1c kabulüne yazıldı.
