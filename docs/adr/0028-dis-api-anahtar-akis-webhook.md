@@ -1124,3 +1124,23 @@ manifest'li yedek": tek yedek oysa sayaçları elle ileri at, iki sorguyla denet
 *Migration'lar yine yerinde* (`00048`'in `punch_events_once` sütun sırası, `00049`'un hata mesajı ve yorumu,
 `00050`'nin bloğu) — ikinci turun gerekçesiyle: yayınlanmamış migration, M11 dalı.
 
+**Dördüncü tur (2026-10-14 — üçüncü göz RED: bir ORTA, iki DÜŞÜK; ürün davranışında kusur yok).**
+*ORTA:* `TestFeedBackfill_ThePlanIsTheTexts` istatistiğe bağlıydı — taze, yalnız migrate edilmiş bir kapta tek
+başına her seferinde kırmızı (ölçüldü, önceki sürüm): boş `transaction_reviews`'ta planlayıcı onay sondası için
+`transaction_reviews_tenant_idx (tenant_id, transaction_id)`'i seçer ve kimliği **ikinci sütun** koşulu yapar
+(bütün indeksin taraması). Zararsızdır ve `00050`'de adlandırıldı: indeksin boyutu istatistikten değil dosyadan
+okunur, tam tarama gerçek sayfalarla fiyatlanır ve yalnız indeks küçükken seçilir (`reltuples = 0` ve büyük
+tabloyla `txn_key` seçildi; en uzun tutma 0,437 sn). `00050`'nin "başka her indeks `tenant_id` ile başlar"
+cümlesi `punch_events`'e daraltıldı. Test artık indeks adı istemez, planın **biçimini** yargılar: Materialize,
+hash, merge, hashed SubPlan, sıralı/bitmap tarama, koşulsuz indeks taraması ve bir tenant'ın **aralığını**
+tarayan (kimliksiz `tenant_id` koşullu) tarama yasak; izinli olan pencerenin `(tenant_id, occurred_at)` ile tek
+yürüyüşü ve sayaç satırı (`feed_counters`'ın anahtarı `tenant_id`). Taze kapta tek başına 5/5 yeşil; VACUUM'lu
+boş `transaction_reviews`'la, büyük yığınla istatistiksiz, `ANALYZE`'lı ve `reltuples = 0` iken yeşil.
+*DÜŞÜK:* test ayarları ad ve değerle pinler (`enable_seqscan`, `enable_bitmapscan`, `enable_sort`, `jit` = `off`
+— tam küme) ve üç `LATERAL`'ın üç `OFFSET 0` çitini sayar; dört ayarın her biri tek tek `on` ve bir çit
+kaldırılınca kırmızı (üçüncü göz: `jit on` tek başına tutma medyanını 0,544 sn'ye, toplamı 25 sn'den 5 dk'ya
+çıkarıyordu). *DÜŞÜK:* R5c harf ayırmaz ve ayar adının tırnaklı/boşluklu yazılışını da arar
+(`tappa\s*"?\s*\.\s*"?\s*feed_counters`), kök `Makefile`'ı da tarar; pin altı yazılışı ve beş konumu
+dener; eski desen, `-i`'siz, Makefile'sız ve tırnaksız mutantlar kırmızı. **Sınırı (kuralın başlığında):** parçalardan
+kurulan ad (Go'da birleştirme, SQL'de `format()`) satır grep'inin göremeyeceği yoldur — kural kanıt değildir.
+
