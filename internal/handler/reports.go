@@ -252,6 +252,53 @@ func fillReportsView(v *pages.ReportsView, s ledger.ReportScreen) {
 			Shifts: l.Shifts,
 		})
 	}
+
+	// M11 API-1c: a partner business's staff at this business's venues -- listed, never
+	// summed (ADR 0027 §9).
+	v.PartnersMore = s.Partners.More
+	for _, t := range s.Partners.Taps {
+		v.Partners = append(v.Partners, partnerView(t, zone))
+	}
+	for _, t := range s.Partners.Manual {
+		v.PartnerManual = append(v.PartnerManual, partnerView(t, zone))
+	}
+}
+
+// partnerOutcomes are the projection's closed outcome set (ADR 0027 §9, K-1h) as the reports
+// section says them, with their chip. A pending flag is ALWAYS "result at their employer": a
+// decision taken after the two businesses parted never reaches this side (ADR 0027 §13 item 7),
+// and this business cannot tell the two apart.
+var partnerOutcomes = map[string][2]string{
+	"counted":                {"Counted by their employer", "tally--approved"},
+	"pending_review":         {"Result at their employer", "tally--queued"},
+	"approved":               {"Approved by their employer", "tally--approved"},
+	"rejected":               {"Rejected by their employer", "tally--rejected"},
+	"refused_tag_not_active": {"Refused — plaque out of service", "tally--rejected"},
+	"refused":                {"Refused", "tally--rejected"},
+	"employer_manual":        {"Entered by their employer", "tally--manual"},
+}
+
+// partnerView maps one partner-staff record onto its docket (the instant converted here, §6).
+func partnerView(t ledger.PartnerTap, zone *time.Location) pages.ReportPartnerView {
+	out := pages.ReportPartnerView{
+		At:        t.At.In(zone).Format("Mon 2 Jan 15:04"),
+		Direction: t.Direction,
+		Who:       personName(t.EmployeeName),
+		Ref:       t.EmployeeCode,
+		Employer:  t.Employer,
+		Venue:     venueName(t.Venue),
+	}
+	if out.Ref == "" {
+		out.Ref = t.EmployeeRef
+	}
+	o, ok := partnerOutcomes[t.Outcome]
+	if !ok {
+		// A value outside the closed set (a CHECK holds the column to it) is said as what it
+		// is not -- never as counted.
+		o = [2]string{"Unknown result", "tally--queued"}
+	}
+	out.Outcome, out.Tally = o[0], o[1]
+	return out
 }
 
 // reportRowView maps one person's week onto one docket.

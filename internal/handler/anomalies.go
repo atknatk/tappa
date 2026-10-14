@@ -276,6 +276,18 @@ func fillAnomaliesView(v *pages.AnomaliesView, s ledger.AnomalyScreen) {
 			// OUT OF THIS VENUE'S SNAPSHOT-CARRYING RECORDS, not its judged ones —
 			// the same split the totals docket makes, for the same reason.
 			OutsideVenue: outOfLine(l.OutsideVenue, l.Answerable, "read outside the venue"),
+			Partner:      l.Partner,
+		})
+	}
+
+	// M11 API-1c: this business's lost plaques a partner business's staff touched.
+	v.MoreLost = s.MoreLost
+	for _, l := range s.LostPlaques {
+		v.LostPlaques = append(v.LostPlaques, pages.AnomalyLostPlaqueView{
+			TagUID:       plaqueName(l.TagUID),
+			LocationName: venueName(l.LocationName),
+			Refusals:     plural(l.Refusals, "refused tap", "refused taps"),
+			Last:         "last " + l.Last.In(zone).Format("Mon 2 Jan 15:04"),
 		})
 	}
 

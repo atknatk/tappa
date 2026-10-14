@@ -62,6 +62,7 @@ templ AdminReports(v ReportsView) {
 			@reportPeople(v)
 			@reportVenues(v)
 			@reportOpen(v)
+			@reportPartners(v)
 		}
 	}
 }
@@ -414,4 +415,69 @@ func unattributableLine(n int) string {
 		return "1 record in this week names no employee, so no hours could be attributed to anybody. It is still in Transactions."
 	}
 	return itoa(n) + " records in this week name no employee, so no hours could be attributed to anybody. They are still in Transactions."
+}
+
+// reportPartners lists the week's records of a PARTNER business's staff at this business's
+// venues (M11 API-1c, ADR 0027 §9). Rendered only when there is one, so a business in no holding
+// sees this section exactly as before.
+//
+// 🔴 NO HOURS, ON PURPOSE: the record is the employer's, and so are its hours. This business sees
+// only the taps on its own plaques -- never the chain between them -- so a total here would count
+// time nobody worked. The records a partner's manager typed by hand are listed apart and counted
+// in nothing (K-1a: they carry no physical evidence and cannot be disputed here).
+templ reportPartners(v ReportsView) {
+	if len(v.Partners) > 0 || len(v.PartnerManual) > 0 {
+		<h2 class="font-display text-lg font-bold tracking-tight text-ink">Partner staff at your venues</h2>
+		<p class="text-sm text-ink/85">
+			Staff of another business in your group tapped your plaques. The records and the
+			hours are their employer&#39;s; they are in none of the totals above.
+		</p>
+		if v.PartnersMore {
+			@components.Notice(components.ToneWarn, "Not every record is listed") {
+				<p>This week holds more partner-staff records than one page lists.</p>
+			}
+		}
+		<div class="flex flex-col gap-4">
+			for _, p := range v.Partners {
+				@reportPartnerDocket(p)
+			}
+		</div>
+		if len(v.PartnerManual) > 0 {
+			<h3 class="font-display text-base font-bold tracking-tight text-ink">Entered by their employer</h3>
+			<p class="text-sm text-ink/85">
+				Their manager typed these for one of your venues. They carry no tap, and they
+				are counted in nothing here.
+			</p>
+			<div class="flex flex-col gap-4">
+				for _, p := range v.PartnerManual {
+					@reportPartnerDocket(p)
+				}
+			</div>
+		}
+	}
+}
+
+templ reportPartnerDocket(p ReportPartnerView) {
+	<section class="docket">
+		<div class="report-head">
+			<p class="report-who">{ p.Who }</p>
+			<p class="report-day">{ p.At }</p>
+		</div>
+		<p class="docket-label mt-1">
+			{ p.Venue }
+			if p.Employer != "" {
+				· { p.Employer }
+			}
+			if p.Ref != "" {
+				· { p.Ref }
+			}
+		</p>
+		<div class="mt-2 flex flex-wrap items-center gap-2">
+			if p.Direction != "" {
+				<span class="font-mono text-sm uppercase tracking-widest text-ink">{ p.Direction }</span>
+			}
+			<span class={ "tally", p.Tally }>{ p.Outcome }</span>
+			<span class="font-mono text-xs text-ink/70">Hours: at their employer</span>
+		</div>
+	</section>
 }

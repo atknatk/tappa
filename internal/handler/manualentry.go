@@ -212,7 +212,7 @@ func (a *AdminAuth) manualEntryReview(w http.ResponseWriter, r *http.Request) {
 	}
 
 	token, err := a.setConfirmation(w, r, confirmActionRecordManual,
-		manualConfirmSubject(f.employeeID, f.direction, at, manualVenueOf(subject, f)))
+		manualConfirmSubject(f.employeeID, f.direction, at, manualVenueOf(subject, f), manualSiteOf(f)))
 	if err != nil {
 		// §4.6: a manager whose confirmation could not be minted is told the action is
 		// unavailable, not shown a button that would fail.
@@ -225,7 +225,11 @@ func (a *AdminAuth) manualEntryReview(w http.ResponseWriter, r *http.Request) {
 	v.Date, v.Time, v.Note = f.date, f.clock, f.note
 	v.Direction = string(f.direction)
 	v.LocationID = manualVenueValue(subject, f)
-	v.ChosenVenue = subject.VenueName(f.locationID)
+	v.ChosenVenue = subject.VenueName(manualVenueOf(subject, f))
+	if site := manualSiteOf(f); site != uuid.Nil {
+		v.SiteID = site.String()
+		v.ChosenPartnerVenue = subject.PartnerVenueName(site)
+	}
 	v.Confirming = true
 	v.ConfirmToken = token
 	v.RecordAction = manualRecordHref
@@ -311,7 +315,7 @@ func (a *AdminAuth) manualEntryRecord(w http.ResponseWriter, r *http.Request) {
 	// this direction, this instant — so changing any of the three in the posted form
 	// after the warning was served produces a value that does not verify.
 	if why := a.confirmationRefusalFor(r, confirmActionRecordManual,
-		manualConfirmSubject(f.employeeID, f.direction, at, manualVenueOf(subject, f))); why != "" {
+		manualConfirmSubject(f.employeeID, f.direction, at, manualVenueOf(subject, f), manualSiteOf(f))); why != "" {
 		// 🔴 IT RE-RENDERS RATHER THAN REDIRECTING, AND A MEASURED SCENARIO IS WHY. The
 		// confirmation lasts ten minutes; a manager who fills the form, reads the two
 		// warnings, is interrupted, and then presses "Record it" lands exactly here — and
@@ -355,6 +359,9 @@ func (a *AdminAuth) manualEntryRecord(w http.ResponseWriter, r *http.Request) {
 		Note:      f.note,
 		// Read by the statement only for a person with no home venue (K-14).
 		LocationID: manualVenueOf(subject, f),
+		// M11 API-1c: a partner business's venue -- resolved again by the domain, in its own
+		// transaction, and checked by the database's site gate.
+		SiteLocationID: manualSiteOf(f),
 	})
 	switch {
 	case err == nil:
@@ -395,6 +402,8 @@ type manualForm struct {
 	// locationID is the posted venue, uuid.Nil when none (or not a uuid). It means
 	// something only for a person with no home venue (K-14); see manualVenueOf.
 	locationID uuid.UUID
+	// siteID is a partner business's venue the manager chose (M11 API-1c), uuid.Nil for none.
+	siteID uuid.UUID
 }
 
 // readManualForm bounds the body, parses it and validates every field.
@@ -453,6 +462,13 @@ func (a *AdminAuth) readManualForm(w http.ResponseWriter, r *http.Request) (manu
 	if err != nil {
 		locationID = uuid.Nil
 	}
+	// M11 API-1c: a partner business's venue, or none. An unreadable value is "none" -- and a
+	// readable one that is not a partner venue is refused below (manualVenueProblem), then again
+	// by the domain's own read and by the database's site gate.
+	siteID, err := uuid.Parse(strings.TrimSpace(r.PostFormValue("site")))
+	if err != nil {
+		siteID = uuid.Nil
+	}
 	return manualForm{
 		employeeID: employeeID,
 		direction:  direction,
@@ -460,6 +476,7 @@ func (a *AdminAuth) readManualForm(w http.ResponseWriter, r *http.Request) (manu
 		clock:      strings.TrimSpace(r.PostFormValue("time")),
 		note:       note,
 		locationID: locationID,
+		siteID:     siteID,
 	}, true
 }
 
@@ -544,19 +561,28 @@ func manualZone(name string) *time.Location {
 // manager's choice there, so a warning served for one venue must not be spent on
 // another. For everybody else venue is uuid.Nil and the subject is the three parts
 // above, unchanged.
-func manualConfirmSubject(employeeID uuid.UUID, d manual.Direction, at time.Time, venue uuid.UUID) string {
+func manualConfirmSubject(employeeID uuid.UUID, d manual.Direction, at time.Time, venue, site uuid.UUID) string {
 	s := employeeID.String() + "/" + string(d) + "/" + at.UTC().Format(time.RFC3339)
 	if venue != uuid.Nil {
 		s += "/" + venue.String()
 	}
+	// A partner venue is part of what was confirmed (M11 API-1c): confirming one placement and
+	// recording another is the substitution the MAC'd confirmation exists to refuse.
+	if site != uuid.Nil {
+		s += "/site/" + site.String()
+	}
 	return s
 }
+
+// manualSiteOf is the partner venue the form chose (M11 API-1c), uuid.Nil for none.
+func manualSiteOf(f manualForm) uuid.UUID { return f.siteID }
 
 // manualVenueOf is the venue a record will be filed at by the manager's choice: the
 // posted one for a person with no home venue, uuid.Nil for everybody else (their home
 // venue is read by the statement, and a posted value is ignored).
 func manualVenueOf(s manual.Subject, f manualForm) uuid.UUID {
-	if !s.NeedsVenue {
+	if !s.NeedsVenue || f.siteID != uuid.Nil {
+		// A partner venue decides the placement; this business's venue is then not read.
 		return uuid.Nil
 	}
 	return f.locationID
@@ -574,6 +600,13 @@ func manualVenueValue(s manual.Subject, f manualForm) string {
 // business -- before the warning is served, so the manager is not shown a summary the
 // write would refuse. The domain and the statement refuse it again.
 func manualVenueProblem(s manual.Subject, f manualForm) string {
+	if f.siteID != uuid.Nil {
+		// K-33: a partner venue this business may read -- a peer's, nobody else's.
+		if s.PartnerVenueName(f.siteID) == "" {
+			return "venue"
+		}
+		return ""
+	}
 	if s.NeedsVenue && s.VenueName(f.locationID) == "" {
 		return "venue"
 	}
@@ -655,20 +688,21 @@ func (a *AdminAuth) manualSubject(w http.ResponseWriter, r *http.Request, employ
 // manualView is the parts of the screen that are the same on both steps.
 func (a *AdminAuth) manualView(r *http.Request, s manual.Subject, employeeID uuid.UUID) pages.ManualEntryView {
 	return pages.ManualEntryView{
-		PanelChrome:  a.chrome(r, pages.TabTransactions),
-		Action:       manualEntryHref,
-		ConfirmField: confirmField,
-		EmployeeID:   employeeID.String(),
-		Name:         s.Name,
-		Venue:        s.LocationName,
-		Department:   s.DepartmentName,
-		NeedsVenue:   s.NeedsVenue,
-		Venues:       manualVenueOptions(s),
-		Deactivated:  s.Deactivated(),
-		Zone:         manualZone(s.Zone).String(),
-		Directions:   manualDirections,
-		BackHref:     employeesHref + "?manage=" + employeeID.String(),
-		MaxNote:      maxManualNote,
+		PanelChrome:   a.chrome(r, pages.TabTransactions),
+		Action:        manualEntryHref,
+		ConfirmField:  confirmField,
+		EmployeeID:    employeeID.String(),
+		Name:          s.Name,
+		Venue:         s.LocationName,
+		Department:    s.DepartmentName,
+		NeedsVenue:    s.NeedsVenue,
+		Venues:        manualVenueOptions(s),
+		PartnerVenues: manualPartnerOptions(s),
+		Deactivated:   s.Deactivated(),
+		Zone:          manualZone(s.Zone).String(),
+		Directions:    manualDirections,
+		BackHref:      employeesHref + "?manage=" + employeeID.String(),
+		MaxNote:       maxManualNote,
 	}
 }
 
@@ -679,6 +713,9 @@ func (a *AdminAuth) renderManualForm(w http.ResponseWriter, r *http.Request, s m
 	v.Date, v.Time, v.Note = f.date, f.clock, f.note
 	v.Direction = string(f.direction)
 	v.LocationID = manualVenueValue(s, f)
+	if f.siteID != uuid.Nil {
+		v.SiteID = f.siteID.String()
+	}
 	v.Problem = problem
 	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminManualEntry(v))
 }
@@ -691,6 +728,19 @@ func manualVenueOptions(s manual.Subject) []components.OptionView {
 	}
 	out := make([]components.OptionView, 0, len(s.Venues))
 	for _, v := range s.Venues {
+		out = append(out, components.OptionView{Value: v.ID.String(), Label: v.Name})
+	}
+	return out
+}
+
+// manualPartnerOptions are the partner venues the form offers (M11 API-1c), none for a business
+// in no holding.
+func manualPartnerOptions(s manual.Subject) []components.OptionView {
+	if len(s.PartnerVenues) == 0 {
+		return nil
+	}
+	out := make([]components.OptionView, 0, len(s.PartnerVenues))
+	for _, v := range s.PartnerVenues {
 		out = append(out, components.OptionView{Value: v.ID.String(), Label: v.Name})
 	}
 	return out

@@ -39,6 +39,7 @@ templ AdminAnomalies(v AnomaliesView) {
 		</p>
 		if v.Queried {
 			@anomalyTotals(v)
+			@anomalyLostPlaques(v)
 			@anomalyMissingSources()
 			@anomalyPeople(v)
 			@anomalyVenues(v)
@@ -234,10 +235,16 @@ templ anomalyVenues(v AnomaliesView) {
 						<p class="report-who">{ l.Name }</p>
 						<p class="report-total">{ l.Records }</p>
 					</div>
-					<div class="mt-2 flex flex-wrap gap-2">
-						<span class="tally tally--queued">{ l.DistanceOnly }</span>
-						<span class="tally tally--queued">{ l.OutsideVenue }</span>
-					</div>
+					if l.Partner {
+						// M11 API-1c, K-39: the evidence at a partner business's venue is that
+						// business's network and coordinate -- not counted here.
+						<p class="docket-label mt-1">Partner venue · evidence not shown</p>
+					} else {
+						<div class="mt-2 flex flex-wrap gap-2">
+							<span class="tally tally--queued">{ l.DistanceOnly }</span>
+							<span class="tally tally--queued">{ l.OutsideVenue }</span>
+						</div>
+					}
 				</section>
 			}
 		</div>
@@ -430,4 +437,39 @@ templ anomalyPolicies(v AnomaliesView) {
 func moreRowsLine(kind string, cap int) string {
 	return "More " + kind + " match than one page lists, so this list stops at " +
 		itoa(cap) + ". The counts at the top of the page cover every record."
+}
+
+// anomalyLostPlaques is the alert for this business's LOST plaques that a partner business's
+// staff touched (M11 API-1c, ADR 0027 §5 and §9). Their employer refused and recorded the tap in
+// its own books; this list -- read from this business's projection, by the server's clock -- is
+// the only trace of it here. Rendered only when there is one.
+templ anomalyLostPlaques(v AnomaliesView) {
+	if len(v.LostPlaques) > 0 {
+		@components.Notice(components.ToneAlert, "A lost plaque was tapped") {
+			<p>
+				Staff of another business in your group touched a plaque you reported lost or
+				retired. Their employer refused the tap. If the plaque is still on a wall, take
+				it down.
+			</p>
+		}
+		if v.MoreLost {
+			@components.Notice(components.ToneWarn, "This list is shortened") {
+				<p>{ moreRowsLine("plaques", v.ListCap) }</p>
+			}
+		}
+		<div class="flex flex-col gap-4">
+			for _, l := range v.LostPlaques {
+				<section class="docket">
+					<div class="report-head">
+						<p class="report-who">{ l.LocationName }</p>
+						<p class="report-day">{ l.Last }</p>
+					</div>
+					<p class="docket-label mt-1">Plaque { l.TagUID }</p>
+					<div class="mt-2 flex flex-wrap gap-2">
+						<span class="tally tally--rejected">{ l.Refusals }</span>
+					</div>
+				</section>
+			}
+		</div>
+	}
 }

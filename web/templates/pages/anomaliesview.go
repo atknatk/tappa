@@ -77,6 +77,10 @@ type AnomaliesView struct {
 	// The six "…and there are more" flags. Each is set when its listing hit the cap.
 	MorePeople   bool
 	MoreVenues   bool
+	// LostPlaques and MoreLost: this business's lost plaques a partner business's staff
+	// touched (M11 API-1c). Empty for a business in no holding -- the block is then absent.
+	LostPlaques []AnomalyLostPlaqueView
+	MoreLost    bool
 	MorePlaques  bool
 	MorePairs    bool
 	MoreOpen     bool
@@ -173,6 +177,18 @@ type AnomalyVenueView struct {
 	Records      string
 	DistanceOnly string
 	OutsideVenue string
+	// Partner marks a partner business's venue where this business's staff tapped (M11
+	// API-1c): its row carries no evidence figure (K-39) and says so.
+	Partner bool
+}
+
+// AnomalyLostPlaqueView is one of this business's lost plaques a partner business's staff
+// touched this week (M11 API-1c, ADR 0027 §9). Last is the server's clock, in the tenant's zone.
+type AnomalyLostPlaqueView struct {
+	TagUID       string
+	LocationName string
+	Refusals     string
+	Last         string
 }
 
 // AnomalyPlaqueView is one wall tag's counter gaps.

@@ -185,11 +185,13 @@ func TestManualEntryReview_ShowsTheRecordAndMintsAConfirmationBoundToIt(t *testi
 		subject string
 		wantOK  bool
 	}{
-		{"the record it was minted for", manualConfirmSubject(entryID, manual.Out, at, uuid.Nil), true},
-		{"the other direction", manualConfirmSubject(entryID, manual.In, at, uuid.Nil), false},
-		{"one hour later", manualConfirmSubject(entryID, manual.Out, at.Add(time.Hour), uuid.Nil), false},
-		{"one minute later", manualConfirmSubject(entryID, manual.Out, at.Add(time.Minute), uuid.Nil), false},
-		{"another person", manualConfirmSubject(uuid.New(), manual.Out, at, uuid.Nil), false},
+		{"the record it was minted for", manualConfirmSubject(entryID, manual.Out, at, uuid.Nil, uuid.Nil), true},
+		{"the other direction", manualConfirmSubject(entryID, manual.In, at, uuid.Nil, uuid.Nil), false},
+		{"one hour later", manualConfirmSubject(entryID, manual.Out, at.Add(time.Hour), uuid.Nil, uuid.Nil), false},
+		{"one minute later", manualConfirmSubject(entryID, manual.Out, at.Add(time.Minute), uuid.Nil, uuid.Nil), false},
+		{"another person", manualConfirmSubject(uuid.New(), manual.Out, at, uuid.Nil, uuid.Nil), false},
+		// M11 API-1c: the same record placed at a partner venue is another record.
+		{"at a partner venue", manualConfirmSubject(entryID, manual.Out, at, uuid.Nil, uuid.New()), false},
 	}
 	confirm, err := newAdminConfirm(adminTestConfig())
 	if err != nil {
@@ -926,7 +928,7 @@ func staleConfirmation(t *testing.T, employeeID uuid.UUID, d manual.Direction, a
 		return "", err
 	}
 	c.now = func() time.Time { return time.Now().Add(-(adminConfirmTTL + time.Minute)) }
-	return c.mint(confirmActionRecordManual, manualConfirmSubject(employeeID, d, at, uuid.Nil), panelTestSession)
+	return c.mint(confirmActionRecordManual, manualConfirmSubject(employeeID, d, at, uuid.Nil, uuid.Nil), panelTestSession)
 }
 
 // TestManualEntry_AWriteFailureSaysNothingWasWrittenRatherThanNothingIsSHOWING.

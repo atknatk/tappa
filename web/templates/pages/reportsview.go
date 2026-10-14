@@ -107,6 +107,14 @@ type ReportsView struct {
 	// silently differs from the transactions list is a total nobody can check.
 	StartedEarlier int
 	Unattributable int
+
+	// Partners are the week's records of a partner business's staff at this business's
+	// venues (M11 API-1c, ADR 0027 §9), PartnerManual the ones their employer typed for one of
+	// these venues; PartnersMore is true when the week held more than were listed. All three
+	// are empty for a business in no holding, and the block is then not rendered.
+	Partners      []ReportPartnerView
+	PartnerManual []ReportPartnerView
+	PartnersMore  bool
 }
 
 // ReportTotalsView is the week in one docket.
@@ -170,4 +178,20 @@ type ReportOpenView struct {
 	// the same shape on disk.
 	NeedsAction bool
 	Manual      bool
+}
+
+// ReportPartnerView is one record a partner business's employee made at this business's venue
+// (M11 API-1c). 🔴 IT HAS NO HOURS -- the record and its hours are the employer's (ADR 0027 §9:
+// this business sees only the taps on its own plaques, never the chain between them, so any
+// pairing here would count time nobody worked). Outcome is the projection's result as a phrase
+// and Tally its chip's modifier; never a reason (K-1h).
+type ReportPartnerView struct {
+	At        string
+	Direction string
+	Who       string
+	Ref       string
+	Employer  string
+	Venue     string
+	Outcome   string
+	Tally     string
 }

@@ -73,10 +73,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/db"
@@ -291,6 +293,12 @@ type Subject struct {
 	NeedsVenue bool
 	// Venues is this business's venues, loaded only when NeedsVenue.
 	Venues []Venue
+	// PartnerVenues are the venues of the OTHER members of this business's holding (M11 API-1c,
+	// ADR 0027 §9 "Manuel kayıt"): a record may be filed at one of them, for anybody -- the
+	// record stays this business's (K-1a) and the peer sees it as employer_manual. Read through
+	// holding_site_locations, the one way into a peer's venue list (K-33: a peer's, nobody
+	// else's); empty for a business in no holding.
+	PartnerVenues []Venue
 	// Zone is the tenant's IANA timezone name. The render layer converts the
 	// manager's wall clock with it, and shows it, so nobody types 17:00 meaning one
 	// zone into a field the server reads as another.
@@ -305,6 +313,16 @@ func (s Subject) Deactivated() bool { return s.Status == "deactivated" }
 type Venue struct {
 	ID   uuid.UUID
 	Name string
+}
+
+// PartnerVenueName names a venue of PartnerVenues, or "" when id is not one of them.
+func (s Subject) PartnerVenueName(id uuid.UUID) string {
+	for _, v := range s.PartnerVenues {
+		if v.ID == id {
+			return v.Name
+		}
+	}
+	return ""
 }
 
 // VenueName names a venue of Venues, or "" when id is not one of them.
@@ -337,6 +355,12 @@ type Entry struct {
 	// venue (K-14); for everybody else the record is filed at their home venue and the
 	// statement itself never reads this (db/queries/transactions.sql).
 	LocationID uuid.UUID
+	// SiteLocationID is a holding PEER's venue the manager chose (M11 API-1c), uuid.Nil for
+	// none. When set it decides where the record is filed -- LocationID is not read -- and Record
+	// resolves it again, in its own transaction, through holding_site_locations: a venue that is
+	// not a peer's is ErrVenue, and the database's site gate refuses a membership that ended
+	// meanwhile (manual is strict -- ADR 0027 §6).
+	SiteLocationID uuid.UUID
 }
 
 // Recorded is what was written, read back from the row itself.
@@ -383,6 +407,9 @@ type detail struct {
 	RecordID   string `json:"record_id"`
 	Backdated  bool   `json:"backdated"`
 	HasNote    bool   `json:"has_note"`
+	// PartnerVenue is true for a record filed at a holding peer's venue (M11 API-1c); absent
+	// otherwise, so every other record's trail row is what it was.
+	PartnerVenue bool `json:"partner_venue,omitempty"`
 }
 
 // Recorder writes manager-entered records. Dependencies are injected as struct
@@ -455,6 +482,19 @@ func (r *Recorder) Subject(ctx context.Context, tenantID, employeeID uuid.UUID) 
 			NeedsVenue:     row.LocationID == nil,
 			Zone:           clock.Timezone,
 		}
+		partners, err := db.HoldingOn(tx).SiteLocations(ctx)
+		if err != nil {
+			return fmt.Errorf("list the partner venues: %w", err)
+		}
+		for _, v := range partners {
+			out.PartnerVenues = append(out.PartnerVenues, Venue{ID: v.LocationID, Name: v.Name})
+		}
+		sort.Slice(out.PartnerVenues, func(i, j int) bool {
+			if out.PartnerVenues[i].Name != out.PartnerVenues[j].Name {
+				return out.PartnerVenues[i].Name < out.PartnerVenues[j].Name
+			}
+			return out.PartnerVenues[i].ID.String() < out.PartnerVenues[j].ID.String()
+		})
 		if !out.NeedsVenue {
 			return nil
 		}
@@ -548,6 +588,9 @@ func (r *Recorder) Record(ctx context.Context, e Entry) (Recorded, error) {
 		if err != nil {
 			return err
 		}
+		if e.SiteLocationID != uuid.Nil {
+			return r.recordAtPartner(ctx, tx, e, backdated, &out)
+		}
 		if who.LocationID == nil && e.LocationID == uuid.Nil {
 			return ErrVenue
 		}
@@ -593,33 +636,7 @@ func (r *Recorder) Record(ctx context.Context, e Entry) (Recorded, error) {
 		if row.Trust != nil {
 			out.Trust = *row.Trust
 		}
-		// THE TRAIL IS WRITTEN SECOND AND INSIDE THE SAME TRANSACTION. If it fails,
-		// the record above is rolled back with it -- see Trail's comment for why that
-		// is the right direction here and the wrong one almost everywhere else.
-		auditID, err := r.trail.RecordTx(ctx, tx, audit.Event{
-			TenantID: e.TenantID,
-			ActorID:  &e.EnteredBy,
-			Action:   Action,
-			Target:   e.EmployeeID.String(),
-			Detail: detail{
-				Direction: string(e.Direction),
-				// BOTH INSTANTS COME FROM THE ROW, NOT FROM THE REQUEST. occurred_at is
-				// what the database stored and created_at is what it stamped, so the
-				// trail cannot disagree with the record it describes.
-				OccurredAt: row.OccurredAt.UTC().Format(time.RFC3339),
-				CreatedAt:  row.CreatedAt.UTC().Format(time.RFC3339),
-				Verdict:    row.Verdict,
-				Channel:    row.Channel,
-				RecordID:   row.ID.String(),
-				Backdated:  backdated,
-				HasNote:    e.Note != "",
-			},
-		})
-		if err != nil {
-			return err
-		}
-		out.AuditID = auditID
-		return nil
+		return r.trailOf(ctx, tx, e, backdated, false, &out)
 	})
 	switch {
 	case err == nil:
@@ -639,8 +656,94 @@ func (r *Recorder) Record(ctx context.Context, e Entry) (Recorded, error) {
 	// the direction is a two-value vocabulary (sections 4.7, 7).
 	r.log.Info("attendance record entered by hand",
 		"record_id", out.ID, "employee_id", e.EmployeeID, "entered_by", e.EnteredBy,
-		"direction", string(e.Direction), "backdated", backdated)
+		"direction", string(e.Direction), "backdated", backdated, "partner_venue", e.SiteLocationID != uuid.Nil)
 	return out, nil
+}
+
+// recordAtPartner is Record's write for a holding PEER's venue (M11 API-1c, ADR 0027 §9): the
+// venue is resolved through holding_site_locations IN THIS TRANSACTION (a venue that is no peer's
+// -- C's, an unknown id, a peer whose membership ended -- is ErrVenue, K-33), the row is written by
+// InsertManualSiteTransaction, and the database's site gate has the last word (strict: a
+// membership that ends between the read and the INSERT refuses it -- 23514, ErrVenue). The trail
+// row is this business's, in the same transaction, like every manual record's.
+func (r *Recorder) recordAtPartner(ctx context.Context, tx pgx.Tx, e Entry, backdated bool, out *Recorded) error {
+	venues, err := db.HoldingOn(tx).SiteLocations(ctx)
+	if err != nil {
+		return fmt.Errorf("read the partner venues: %w", err)
+	}
+	venue, ok := venues[e.SiteLocationID]
+	if !ok {
+		return ErrVenue
+	}
+	params := store.InsertManualSiteTransactionParams{
+		TenantID:       e.TenantID,
+		EmployeeID:     e.EmployeeID,
+		EnteredBy:      e.EnteredBy,
+		Type:           string(e.Direction),
+		OccurredAt:     e.At.UTC(),
+		Trust:          tap.TrustBase,
+		SiteTenantID:   venue.SiteTenantID,
+		SiteLocationID: venue.LocationID,
+	}
+	if e.Note != "" {
+		n := e.Note
+		params.Note = &n
+	}
+	row, err := store.New(tx).InsertManualSiteTransaction(ctx, params)
+	if err != nil {
+		var pg *pgconn.PgError
+		if errors.As(err, &pg) && pg.Code == "23514" && pg.ConstraintName == "holding_site_gate" {
+			return ErrVenue
+		}
+		return err
+	}
+	*out = Recorded{
+		ID:         row.ID,
+		At:         row.OccurredAt,
+		CreatedAt:  row.CreatedAt,
+		Direction:  Direction(deref(row.Type)),
+		Verdict:    row.Verdict,
+		Channel:    row.Channel,
+		Backdated:  backdated,
+		EmployeeID: e.EmployeeID,
+	}
+	if row.Trust != nil {
+		out.Trust = *row.Trust
+	}
+	return r.trailOf(ctx, tx, e, backdated, true, out)
+}
+
+// trailOf writes a manual record's audit row in the record's transaction and keeps its id on out.
+//
+// THE TRAIL IS WRITTEN SECOND AND INSIDE THE SAME TRANSACTION. If it fails, the record is rolled
+// back with it -- see Trail's comment for why that is the right direction here and the wrong one
+// almost everywhere else.
+func (r *Recorder) trailOf(ctx context.Context, tx pgx.Tx, e Entry, backdated, partner bool, out *Recorded) error {
+	auditID, err := r.trail.RecordTx(ctx, tx, audit.Event{
+		TenantID: e.TenantID,
+		ActorID:  &e.EnteredBy,
+		Action:   Action,
+		Target:   e.EmployeeID.String(),
+		Detail: detail{
+			Direction: string(e.Direction),
+			// BOTH INSTANTS COME FROM THE ROW, NOT FROM THE REQUEST. occurred_at is what the
+			// database stored and created_at is what it stamped, so the trail cannot disagree
+			// with the record it describes.
+			OccurredAt:   out.At.UTC().Format(time.RFC3339),
+			CreatedAt:    out.CreatedAt.UTC().Format(time.RFC3339),
+			Verdict:      out.Verdict,
+			Channel:      out.Channel,
+			RecordID:     out.ID.String(),
+			Backdated:    backdated,
+			HasNote:      e.Note != "",
+			PartnerVenue: partner,
+		},
+	})
+	if err != nil {
+		return err
+	}
+	out.AuditID = auditID
+	return nil
 }
 
 func deref(s *string) string {

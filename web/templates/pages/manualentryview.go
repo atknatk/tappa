@@ -74,6 +74,14 @@ type ManualEntryView struct {
 	LocationID  string
 	ChosenVenue string
 
+	// PartnerVenues are the venues of the other members of this business's holding (M11
+	// API-1c, ADR 0027 §9): the record may be filed at one of them instead. Empty for a
+	// business in no holding -- the control is then not rendered and the screen is what it was.
+	// SiteID is the chosen one's id ("" for none) and ChosenPartnerVenue its name.
+	PartnerVenues      []components.OptionView
+	SiteID             string
+	ChosenPartnerVenue string
+
 	// Zone is the IANA name every wall clock on this screen is read and printed in. It
 	// is DISPLAYED rather than assumed, because the whole screen is a person typing a
 	// time and a server deciding which instant that is (§6).

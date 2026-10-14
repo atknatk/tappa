@@ -169,6 +169,23 @@ templ manualFormStep(v ManualEntryView) {
 				</p>
 			</div>
 		}
+		if len(v.PartnerVenues) > 0 {
+			// M11 API-1c: a shift worked at another business of the group (ADR 0027 §9). The
+			// record stays this business's; the other business sees that one of its venues was
+			// named on it, marked as entered by this business, and counted in nothing.
+			<div class="filter-field">
+				<label class="docket-label" for="record-site">At a partner business&#39;s venue (optional)</label>
+				<select class="filter-input" id="record-site" name="site">
+					<option value="" selected?={ v.SiteID == "" }>No — one of this business&#39;s venues</option>
+					for _, o := range v.PartnerVenues {
+						<option value={ o.Value } selected?={ o.Value == v.SiteID }>{ o.Label }</option>
+					}
+				</select>
+				<p class="mt-1 text-sm text-ink/85">
+					Choose one only if the shift was worked at another business of your group.
+				</p>
+			</div>
+		}
 		<div class="flex flex-wrap gap-4">
 			<div class="filter-field">
 				<label class="docket-label" for="record-date">Date</label>
@@ -238,7 +255,9 @@ templ manualConfirmStep(v ManualEntryView) {
 				{ v.WhenLocal } <span class="text-ink/70">· { v.Zone }</span>
 			</p>
 			<p class="font-mono text-sm text-ink/70">{ v.WhenUTC } UTC</p>
-			if v.ChosenVenue != "" {
+			if v.ChosenPartnerVenue != "" {
+				<p class="font-mono text-sm text-ink">At { v.ChosenPartnerVenue } <span class="text-ink/70">· a partner business&#39;s venue</span></p>
+			} else if v.ChosenVenue != "" {
 				<p class="font-mono text-sm text-ink">At { v.ChosenVenue }</p>
 			}
 			if v.Backdated {
@@ -286,6 +305,9 @@ templ manualConfirmStep(v ManualEntryView) {
 			<input type="hidden" name="note" value={ v.Note }/>
 			if v.LocationID != "" {
 				<input type="hidden" name="location" value={ v.LocationID }/>
+			}
+			if v.SiteID != "" {
+				<input type="hidden" name="site" value={ v.SiteID }/>
 			}
 			<input type="hidden" name={ v.ConfirmField } value={ v.ConfirmToken }/>
 			<div class="flex flex-wrap items-center gap-3">

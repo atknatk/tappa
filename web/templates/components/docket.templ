@@ -75,20 +75,31 @@ templ TransactionDocket(d DocketView) {
 				<dt class="docket-label">Time</dt>
 				<dd class="text-ink">{ d.At }</dd>
 			</div>
-			<div>
-				<dt class="docket-label">Trust</dt>
-				<dd class="text-ink">
-					if d.Trust != "" {
-						{ d.Trust }
-					} else {
-						none
-					}
-				</dd>
-			</div>
-			<div>
-				<dt class="docket-label">Evidence</dt>
-				<dd class="text-ink">IP { d.IPSign } · GPS { d.GPSSign }</dd>
-			</div>
+			if d.PartnerVenue {
+				// M11 API-1c, K-39: a record at a partner business's venue was judged against
+				// that business's network and coordinate, which are not this panel's to
+				// describe -- the score and the signs are not shown, and the docket says so
+				// rather than printing a value that would claim nothing was assessed.
+				<div class="col-span-2">
+					<dt class="docket-label">Trust · Evidence</dt>
+					<dd class="text-ink/85">not shown at a partner venue</dd>
+				</div>
+			} else {
+				<div>
+					<dt class="docket-label">Trust</dt>
+					<dd class="text-ink">
+						if d.Trust != "" {
+							{ d.Trust }
+						} else {
+							none
+						}
+					</dd>
+				</div>
+				<div>
+					<dt class="docket-label">Evidence</dt>
+					<dd class="text-ink">IP { d.IPSign } · GPS { d.GPSSign }</dd>
+				</div>
+			}
 		</dl>
 		<p class="mt-2 text-xs text-ink/85">
 			if d.TagUID != "" {

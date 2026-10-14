@@ -240,6 +240,9 @@ func docketView(rec ledger.Record, zone *time.Location) components.DocketView {
 		// comment for what the audit measured and why the answer is a label rather
 		// than a refusal.
 		NoteIsTenants: rec.NoteIsTenants,
+		// M11 API-1c (K-39): ledger blanked the score and the signs of such a record; the
+		// docket says why instead of "none" and "n/a".
+		PartnerVenue: rec.AtPartnerVenue,
 	}
 	if rec.Trust != nil {
 		d.Trust = strconv.Itoa(int(*rec.Trust))

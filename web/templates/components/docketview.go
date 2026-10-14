@@ -50,6 +50,9 @@ type DocketView struct {
 	// recorded none. A STRING RATHER THAN AN INT because 0 is a real score and
 	// "absent" must not render as one.
 	Trust string
+	// PartnerVenue marks a record taken at a partner business's venue (M11 API-1c, ADR 0027
+	// §9): Venue is that venue, and the score and the evidence signs are not printed (K-39).
+	PartnerVenue bool
 	// IPSign and GPSSign are the two evidence signs, as text. THREE VALUES, NOT
 	// TWO — migration 0005 keeps both columns three-state, and collapsing "not
 	// assessed on this channel" into "failed" would report a manual entry as
