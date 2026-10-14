@@ -77,10 +77,12 @@ GROUP BY s.site_tag_uid;
 -- name: ListSitePlaqueGaps :many
 -- The counter gaps of this business's plaques that the holding staff's taps revealed (K-1i: the
 -- employer's tap:ctrGap, carried by holding_feed), in [from_at, to_at) by the SERVER's clock.
--- Same shape as ListAnomalyPlaques; the caller adds the two per plaque.
+-- Same shape as ListAnomalyPlaques; the caller adds the two per plaque. records counts the TAPS --
+-- an approval or rejection is a later row about the same tap (the API-1c review's E-D4), so it is
+-- not counted again.
 SELECT s.site_tag_uid::text                                   AS tag_uid,
        l.name                                                 AS location_name,
-       count(*)                                               AS records,
+       count(*) FILTER (WHERE s.outcome NOT IN ('approved', 'rejected')) AS records,
        count(*) FILTER (WHERE s.ctr_gap > 0)                  AS counter_gaps,
        coalesce(max(s.ctr_gap), 0)::int                       AS largest_gap
 FROM site_punches s

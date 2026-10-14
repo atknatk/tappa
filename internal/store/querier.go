@@ -3753,7 +3753,9 @@ type Querier interface {
 	ListSiteLostPlaqueAlerts(ctx context.Context, arg ListSiteLostPlaqueAlertsParams) ([]ListSiteLostPlaqueAlertsRow, error)
 	// The counter gaps of this business's plaques that the holding staff's taps revealed (K-1i: the
 	// employer's tap:ctrGap, carried by holding_feed), in [from_at, to_at) by the SERVER's clock.
-	// Same shape as ListAnomalyPlaques; the caller adds the two per plaque.
+	// Same shape as ListAnomalyPlaques; the caller adds the two per plaque. records counts the TAPS --
+	// an approval or rejection is a later row about the same tap (the API-1c review's E-D4), so it is
+	// not counted again.
 	ListSitePlaqueGaps(ctx context.Context, arg ListSitePlaqueGapsParams) ([]ListSitePlaqueGapsRow, error)
 	// sitepunches.sql -- the SITE's reads of its projection (M11 API-1c, ADR 0027 §9): what a
 	// holding member sees of a peer's employees' taps on its own plaques and at its own venues.

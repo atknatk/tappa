@@ -9,7 +9,9 @@ package ledger
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -652,4 +654,122 @@ func TestSitePanel_LostPlaqueAlertUsesTheServerClock(t *testing.T) {
 			t.Errorf("the declared week %v carries the alert -- the declared time moved it", d)
 		}
 	}
+}
+
+// partnerNoteCanaries are the engine's sentences that describe the evidence K-39 hides (the API-1c
+// review's G-ORTA-1): three baseline reasons and the cross-tenant QR guardrail's (internal/policy).
+var partnerNoteCanaries = []string{
+	"network proof of place: the source IP matches the location",
+	"verified via GPS only — no network proof of place",
+	"neither IP nor GPS could place this tap",
+	"a QR scan at another business of the group needs that venue's own network; sent for approval",
+}
+
+// TestEmployerReaders_APartnerVenueRowCarriesNoEvidenceSentence is K-39 in words (ADR 0027 §13 item
+// 5; the API-1c review's G-ORTA-1): the employer's rows at a peer's venue carry the engine's
+// sentences -- each canary, as an ok row on the day list and a flagged row in the review queue --
+// and neither list carries any of them: the note is PartnerVenueNote, whatever layer decided (the
+// replacement does not read the layer: a TENANT statement is a copy of a shipped one, reason
+// included -- TestCopyOfShipped_KeepsTheRulesAndChangesOnlyTheScopeAndTheSid). CONTROL: the
+// same sentence on a row at the employer's OWN venue is shown as written. MUTANT (measured: the
+// replacement taken out of nameSiteRecords) -> every canary reaches both lists.
+func TestEmployerReaders_APartnerVenueRowCarriesNoEvidenceSentence(t *testing.T) {
+	w := newHWorld(t)
+	day := Date{Year: 2026, Month: time.July, Day: 22}
+	insert := func(verdict, note, layer string, site bool, clock string) uuid.UUID {
+		t.Helper()
+		at := hLocal(t, "2026-07-22", clock)
+		var id uuid.UUID
+		var siteTenant, siteVenue, siteTag, venue, tag any
+		if site {
+			siteTenant, siteVenue, siteTag = w.kf, w.venue[w.kf], w.plaque[w.kf]
+		} else {
+			venue, tag = w.venue[w.km], w.plaque[w.km]
+		}
+		if err := w.owner.QueryRow(w.ctx, `
+			INSERT INTO transactions (tenant_id, employee_id, occurred_at, verdict, channel, type, sun_valid, ctr, trust, queued, note,
+			                          policy_layer, matched_sid, location_id, tag_uid, site_tenant_id, site_location_id, site_tag_uid)
+			VALUES ($1, $2, $3, $4, 'nfc', 'in', true, 1000, 50, $4 = 'flag', $5, NULLIF($6, ''),
+			        CASE WHEN $6 <> '' THEN 'sys:canary' END, $7, $8, $9, $10, $11) RETURNING id`,
+			w.km, w.staff[w.km][0], at, verdict, note, layer, venue, tag, siteTenant, siteVenue, siteTag).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	var siteRows []uuid.UUID
+	for i, note := range partnerNoteCanaries {
+		siteRows = append(siteRows,
+			insert("ok", note, "", true, fmt.Sprintf("09:%02d:00", i)),
+			insert("flag", note, "guardrail", true, fmt.Sprintf("10:%02d:00", i)))
+	}
+	own := insert("ok", partnerNoteCanaries[1], "", false, "12:00:00")
+
+	page, err := w.r.Day(w.ctx, w.km, Filter{Date: day})
+	if err != nil {
+		t.Fatal(err)
+	}
+	queue, err := w.r.Queue(w.ctx, w.km, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := 0
+	for _, rec := range append(page.Records, queue.Records...) {
+		if rec.ID == own {
+			if rec.Note != partnerNoteCanaries[1] {
+				t.Errorf("CONTROL: the own-venue row's note is %q, want the engine's sentence", rec.Note)
+			}
+			continue
+		}
+		if !slices.Contains(siteRows, rec.ID) {
+			continue
+		}
+		seen++
+		for _, c := range partnerNoteCanaries {
+			if strings.Contains(rec.Note, c) {
+				t.Errorf("a partner-venue row carries %q", c)
+			}
+		}
+		if rec.Note != PartnerVenueNote {
+			t.Errorf("a partner-venue row's note is %q, want PartnerVenueNote", rec.Note)
+		}
+	}
+	if seen != len(siteRows)+len(partnerNoteCanaries) {
+		t.Errorf("read %d partner-venue records across the two lists, want %d (every row on the day, every flag in the queue)", seen, len(siteRows)+len(partnerNoteCanaries))
+	}
+}
+
+// TestSitePanel_PlaqueGapCountsTheTapOnce (the API-1c review's E-D4): KM's flagged tap on KF's
+// plaque that revealed a gap of 7, then KM's approval of it -- KF's gap list shows that plaque with
+// ONE record and one gap: the approval is a later row about the same tap, not a second tap.
+// MUTANT (measured: records as count(*)): 2 records.
+func TestSitePanel_PlaqueGapCountsTheTapOnce(t *testing.T) {
+	w := newHWorld(t)
+	uid := w.tag(w.kf, w.venue[w.kf])
+	var id uuid.UUID
+	if err := w.owner.QueryRow(w.ctx, `
+		INSERT INTO transactions (tenant_id, employee_id, occurred_at, verdict, channel, type, sun_valid, ctr, queued, policy_context,
+		                          site_tenant_id, site_location_id, site_tag_uid)
+		VALUES ($1, $2, now(), 'flag', 'nfc', 'in', true, 1000, true, '{"tap:ctrGap": 7}', $3, $4, $5) RETURNING id`,
+		w.km, w.staff[w.km][0], w.kf, w.venue[w.kf], uid).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.data.WithTenant(w.ctx, w.km, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `INSERT INTO transaction_reviews (tenant_id, transaction_id, reviewer_id, outcome) VALUES ($1, $2, $3, 'approved')`, w.km, id, w.admin[w.km])
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	site, err := w.r.Anomalies(w.ctx, w.kf, ReportFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range site.Plaques {
+		if p.TagUID == uid {
+			if p.Records != 1 || p.CounterGaps != 1 || p.LargestGap != 7 {
+				t.Errorf("KF's gap row: %d records, %d gaps, largest %d; want 1, 1, 7", p.Records, p.CounterGaps, p.LargestGap)
+			}
+			return
+		}
+	}
+	t.Error("KF's gap list does not show its plaque")
 }

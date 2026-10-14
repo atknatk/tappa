@@ -27,8 +27,9 @@ import (
 // own ip_match / gps_match / trust, computed against the PEER's address ranges and coordinate
 // (holding_tap_site, server-side only). Printing them would tell the employer, tap by tap, whether
 // the phone stood on the peer's network -- ADR 0027 §13 item 5 names that as the residue the panel
-// does NOT show. sitePrivacy blanks them on every record that names a site, and the docket says
-// why instead of printing "n/a" (which would claim nothing was assessed).
+// does NOT show. nameSiteRecords blanks them -- and replaces the engine's note, which says the same
+// thing in words (PartnerVenueNote) -- on every record that names a site, and the docket says why
+// instead of printing "n/a" (which would claim nothing was assessed).
 
 // PartnerVenueUnknown is the name of a peer's venue the employer can no longer read: the
 // membership has ended (holding_site_locations is strict -- ADR 0027 §6), so the row's venue id
@@ -82,9 +83,22 @@ func nameSiteRecords(ctx context.Context, tx pgx.Tx, recs []Record) error {
 			recs[i].LocationName = venues.name(*recs[i].SiteLocationID)
 		}
 		recs[i].IPMatch, recs[i].GPSMatch, recs[i].Trust = nil, nil, nil
+		if recs[i].Note != "" {
+			recs[i].Note = PartnerVenueNote
+		}
 	}
 	return nil
 }
+
+// PartnerVenueNote stands in for the engine's sentence on a record taken at a partner venue
+// (K-39; the API-1c review's G-ORTA-1). The engine's sentences describe the very evidence the
+// docket hides -- "verified via GPS only — no network proof of place" says the phone was not on
+// the peer's network, "network proof of place: the source IP matches the location" that it was,
+// and the cross-tenant QR guardrail's names the peer's network outright. A note from the
+// business's OWN policy is no safer: a tenant statement is a copy of a shipped one, its reason
+// included (tenant.copyOfShipped), so the same words arrive with policy_layer = 'tenant'. So
+// every note on such a record is replaced; NoteIsTenants still says whose rule decided.
+const PartnerVenueNote = "Decided by your rules at a partner venue — evidence is not shown."
 
 // PartnerTapCap is how many of a holding peer's staff's records the reports section LISTS for a
 // week -- a bound on the page, never on anything summed (nothing here is summed: see PartnerTaps).
