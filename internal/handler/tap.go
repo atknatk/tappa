@@ -108,6 +108,11 @@ type (
 	}
 	tapDirectory interface {
 		TapPage(ctx context.Context, tenantID, employeeID, locationID uuid.UUID) (tenant.TapPageFacts, error)
+		// PeerTapPage is the page's facts for a plaque of a PEER business of the session's
+		// (M11 API-1b, ADR 0027 §5/§10, K-1c): the peer's venue and brand, read through
+		// holding_tap_site on the session's context, and the peer business (uuid.Nil: not
+		// a peer) -- an id to compare, never to render.
+		PeerTapPage(ctx context.Context, tenantID, employeeID uuid.UUID, uid string) (tenant.TapPageFacts, uuid.UUID, error)
 		// ResultBrand is the confirmation screen's half of the business's brand: its
 		// logo and name, never its accent (user decision D-C; checkin.go).
 		ResultBrand(ctx context.Context, tenantID uuid.UUID) (tenant.PageBrand, error)
@@ -120,6 +125,9 @@ type (
 		Pending(r *http.Request) bool
 		CompleteByTap(w http.ResponseWriter, r *http.Request, p sun.Params)
 		HolderDeactivated(ctx context.Context, tenantID, employeeID uuid.UUID) (bool, error)
+		// PendingTenant is the business of the pending invitation (K-35): the tap page
+		// asks it only for a live session in front of another business's plaque.
+		PendingTenant(r *http.Request) (uuid.UUID, bool)
 	}
 )
 
@@ -378,11 +386,12 @@ func (t *Tap) Page(w http.ResponseWriter, r *http.Request) {
 				t.renderRetryableProblem(w, r, http.StatusInternalServerError, tapProblemServer)
 				return
 			}
-			if !deactivated {
+			if !deactivated && !t.peerTapInstead(ctx, r, p, id) {
 				t.activation.CompleteByTap(w, r, p)
 				return
 			}
-			// fall through: the ordinary page, whose POST records row 4
+			// fall through: the ordinary page -- whose POST records row 4 for a
+			// deactivated holder, or (K-35) records a holding tap on a peer's plaque
 		} else {
 			t.activation.CompleteByTap(w, r, p)
 			return
@@ -469,6 +478,20 @@ func (t *Tap) Page(w http.ResponseWriter, r *http.Request) {
 	// refusal (§4.6) instead of the page silently dropping it.
 	wall := tappedWallOf(pv)
 	facts, err := t.directory.TapPage(r.Context(), id.Session.TenantID, id.Session.EmployeeID, wall)
+	if errors.Is(err, tenant.ErrForeignLocation) && pv.TenantID != id.Session.TenantID {
+		// A PEER'S PLAQUE (M11 API-1b; ADR 0027 §5, §10; K-1c): another business of the
+		// session's holding. holding_tap_site answers on the session's context, and the
+		// page then names the peer's venue and draws the peer's brand -- the plaque is
+		// theirs. Not a peer: the ordinary foreign-plaque page below, and the POST's
+		// sys:tenant-mismatch refuses it.
+		peerFacts, site, perr := t.directory.PeerTapPage(r.Context(), id.Session.TenantID, id.Session.EmployeeID, p.UID)
+		switch {
+		case perr != nil && !errors.Is(perr, tenant.ErrBrandUnread):
+			err = perr
+		case site != uuid.Nil:
+			facts, err = peerFacts, perr
+		}
+	}
 	// look is the business's brand as this page draws it (M10 WL-9). It stays the
 	// zero value -- Taptime's own screen -- unless the directory answered without an
 	// error, so the two cases below that keep the page also keep it unbranded no
@@ -549,12 +572,44 @@ func tapBrandOf(b tenant.PageBrand) layout.Brand {
 	return layout.TapBrand(logoOf(b), theme)
 }
 
-// logoOf is the logo half of a page brand, for either screen.
+// logoOf is the logo half of a page brand, for either screen. A peer business's logo (M11
+// API-1b) is drawn from the tap route's peer form, which asks holding_logo for the plaque's
+// business.
 func logoOf(b tenant.PageBrand) layout.Logo {
 	if !b.HasLogo {
 		return layout.Logo{}
 	}
+	if b.PeerTag != "" {
+		return layout.PeerTapLogo(b.PeerTag, b.Logo.SHA256, b.Logo.Width, b.Logo.Height, b.Name)
+	}
 	return layout.TapLogo(b.Logo.SHA256, b.Logo.Width, b.Logo.Height, b.Name)
+}
+
+// peerTapInstead is K-35 (ADR 0027 §5): a browser holding a CONSENTED activation and a LIVE
+// session, in front of a plaque of another business, taps as the HOLDING tap it is -- not as an
+// activation -- when that business is a peer of the session's and is NOT the invitation's
+// business. The invitation's own plaque still completes the activation (K-1b, ADR 0026 is
+// unchanged), and every other plaque goes to the activation flow as before.
+//
+// It reads the invitation's business (no write, no budget) and the plaque through
+// holding_tap_site on the session's context -- which answers only for a PEER's plaque and names
+// its business -- and nothing else: no preview, no context minted (ADR 0026's activating tap
+// still runs neither). Any failure answers false: the activation flow then runs and gives its
+// own answer.
+func (t *Tap) peerTapInstead(ctx context.Context, r *http.Request, p sun.Params, id httpx.Identity) bool {
+	if !p.HasSUN() {
+		return false
+	}
+	_, site, err := t.directory.PeerTapPage(ctx, id.Session.TenantID, id.Session.EmployeeID, p.UID)
+	if err != nil && !errors.Is(err, tenant.ErrBrandUnread) {
+		t.log.ErrorContext(ctx, "tap page: reading a peer's plaque for a pending activation failed", "tag_uid", p.UID, "err", err)
+		return false
+	}
+	if site == uuid.Nil {
+		return false // the session's own plaque, or not a peer's: the activation flow answers
+	}
+	invited, ok := t.activation.PendingTenant(r)
+	return ok && site != invited
 }
 
 // EnableDevTools turns on the DEV-ONLY simulate-tap strip on the result page

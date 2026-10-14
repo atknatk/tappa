@@ -107,6 +107,11 @@ type fakeDirectory struct {
 	resultBrand    tenant.PageBrand
 	resultBrandErr error
 	resultTenants  []uuid.UUID
+	// The peer-plaque read (M11 API-1b): what PeerTapPage answers, and the uids asked.
+	peerFacts tenant.TapPageFacts
+	peerSite  uuid.UUID
+	peerErr   error
+	peerAsked []string
 	// resultBrandStall makes ResultBrand wait until its context ends -- a saturated
 	// pool or a stuck read (WL-9 2nd round, S1) -- and then fail as the real reader
 	// would, with ErrBrandUnread wrapping the context's error (resultStallCap if
@@ -121,6 +126,12 @@ const resultStallCap = 8 * time.Second
 func (f *fakeDirectory) TapPage(_ context.Context, tenantID, employeeID, locationID uuid.UUID) (tenant.TapPageFacts, error) {
 	f.gotTenant, f.gotEmployee, f.gotLocation = tenantID, employeeID, locationID
 	return f.facts, f.err
+}
+
+// PeerTapPage answers f.peerSite / f.peerFacts / f.peerErr (M11 API-1b), recording the plaque.
+func (f *fakeDirectory) PeerTapPage(_ context.Context, tenantID, employeeID uuid.UUID, uid string) (tenant.TapPageFacts, uuid.UUID, error) {
+	f.peerAsked = append(f.peerAsked, uid)
+	return f.peerFacts, f.peerSite, f.peerErr
 }
 
 func (f *fakeDirectory) ResultBrand(ctx context.Context, tenantID uuid.UUID) (tenant.PageBrand, error) {
@@ -188,6 +199,7 @@ func (noActivation) Pending(*http.Request) bool { return false }
 func (noActivation) HolderDeactivated(context.Context, uuid.UUID, uuid.UUID) (bool, error) {
 	return false, nil
 }
+func (noActivation) PendingTenant(*http.Request) (uuid.UUID, bool) { return uuid.Nil, false }
 func (noActivation) CompleteByTap(http.ResponseWriter, *http.Request, sun.Params) {
 	panic("CompleteByTap reached for a phone with no pending activation")
 }
@@ -199,6 +211,8 @@ type pendingActivation struct {
 	got   sun.Params
 	// deactivated is what HolderDeactivated answers for the live session.
 	deactivated bool
+	// inviteTenant is the pending invitation's business (K-35).
+	inviteTenant uuid.UUID
 }
 
 func (p *pendingActivation) HolderDeactivated(context.Context, uuid.UUID, uuid.UUID) (bool, error) {
@@ -206,6 +220,11 @@ func (p *pendingActivation) HolderDeactivated(context.Context, uuid.UUID, uuid.U
 }
 
 func (*pendingActivation) Pending(*http.Request) bool { return true }
+
+// PendingTenant is the invitation's business the fake was given (uuid.Nil: unknown).
+func (p *pendingActivation) PendingTenant(*http.Request) (uuid.UUID, bool) {
+	return p.inviteTenant, p.inviteTenant != uuid.Nil
+}
 func (p *pendingActivation) CompleteByTap(w http.ResponseWriter, _ *http.Request, sp sun.Params) {
 	p.calls++
 	p.got = sp

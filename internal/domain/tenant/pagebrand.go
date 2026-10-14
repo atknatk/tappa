@@ -56,6 +56,11 @@ type PageBrand struct {
 	// AccentRefused: an accent is stored and brand.Check refuses it today (accentOf's
 	// third answer). There is then no accent to draw; the caller logs it.
 	AccentRefused bool
+	// PeerTag is set when this is a PEER business's brand (M11 API-1b, K-1c --
+	// PeerTapPage): the uid of the plaque in front of the person. The logo is then
+	// served by the tap route's peer form, which asks holding_logo for that plaque's
+	// business on the session's context; "" for the session's own business.
+	PeerTag string
 }
 
 // pageBrandOf turns GetTenantBrand's answer into a page's brand: logoRefOf's

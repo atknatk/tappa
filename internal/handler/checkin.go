@@ -247,7 +247,7 @@ func (t *Tap) Checkin(w http.ResponseWriter, r *http.Request) {
 		// measurements).
 		post := context.WithoutCancel(r.Context())
 		readCtx, cancel := context.WithTimeout(post, t.brandWait)
-		logo := t.resultLogo(readCtx, id, tctx)
+		logo := t.resultLogo(readCtx, id, tctx, res)
 		cancel()
 		t.render(w, r.WithContext(post), http.StatusOK, withDevStrip(pages.Result(resultView(res), logo), t.devTools, false), logo.Drawn())
 	}
@@ -317,7 +317,16 @@ const resultBrandWait = 2 * time.Second
 // A failure, its own timeout included, is logged and costs only the logo, because the
 // screen is rendered with a context the request's deadline cannot end (§4.6). The
 // accent is not asked for: this screen has no accent slot.
-func (t *Tap) resultLogo(ctx context.Context, id httpx.Identity, tctx tapContext) layout.Logo {
+//
+// A PEER'S PLAQUE (M11 API-1b, ADR 0027 §10, K-1c) is the one other-business tap this screen
+// brands: the record names the site, and the site's logo came with the record (checkin's
+// Result.SiteLogo -- the holding_tap_site row the decision read, VIES-gated in the database),
+// so no further read is made; the logo is served by the tap route's peer form.
+func (t *Tap) resultLogo(ctx context.Context, id httpx.Identity, tctx tapContext, res checkin.Result) layout.Logo {
+	if res.SiteLogo != nil && tctx.LocationID != uuid.Nil {
+		l := res.SiteLogo
+		return layout.PeerTapLogo(l.TagUID, l.SHA256, l.Width, l.Height, l.BusinessName)
+	}
 	if tctx.TagTenantID != id.Session.TenantID || tctx.LocationID == uuid.Nil {
 		return layout.Logo{}
 	}
@@ -339,6 +348,14 @@ func (t *Tap) resultLogo(ctx context.Context, id httpx.Identity, tctx tapContext
 func (t *Tap) renderCheckinFailure(w http.ResponseWriter, r *http.Request, id httpx.Identity, err error) {
 	ctx := r.Context() // see Checkin: since round 4 this buys R7/R7b/R7c one extra level of paren depth, not visibility itself.
 	switch {
+	case errors.Is(err, checkin.ErrSiteMembershipEnded):
+		// ADR 0027 §6's named race: decided while the two businesses were peers, the
+		// membership ended before the INSERT, the site gate refused it. Nothing was
+		// written and nothing is wrong with the request -- "tap again" is the true
+		// instruction (the retry is decided as another business's plaque).
+		t.log.WarnContext(ctx, "checkin: the plaque's business left the group before the record was written; nothing was written",
+			"employee_id", id.EmployeeID())
+		t.renderProblem(w, r, http.StatusConflict, tapProblemServer)
 	case errors.Is(err, checkin.ErrUnknownTag):
 		// The signed context named a plaque that no longer resolves. The domain has
 		// already logged it and left an audit row; there is no tag and no location,

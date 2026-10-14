@@ -11,7 +11,8 @@ package layout
 // compares the listed renders with goldens written before this file existed.
 //
 // THE FIELDS ARE UNEXPORTED AND THE CONSTRUCTORS VALIDATE, so the only image URLs a
-// header can write are the three built here: "/t/logo/" (TapLogo), for the Account
+// header can write are the ones built here: "/t/logo/" (TapLogo, and since M11 API-1b its
+// peer form "/t/logo/<sha>?tag=<uid>" -- PeerTapLogo), for the Account
 // editor's preview inside the panel "/admin/brand/logo/" (PreviewLogo, M10 WL-7), and
 // for the activation wizard "/activate/logo/" (ActivationLogo, M10 WL-13), plus a
 // 64-digit lower-case hex digest, with a box in 1..512. Any other shape becomes the
@@ -64,6 +65,35 @@ func TapLogo(sha256 string, width, height int, alt string) Logo {
 		return Logo{}
 	}
 	return Logo{src: tapLogoRoute + sha256, width: width, height: height, alt: alt}
+}
+
+// PeerTapLogo describes a PEER business's logo on the tap and result screens (M11 API-1b,
+// ADR 0027 §10, K-1c): the tap route with the plaque's uid as `tag`, so the route asks
+// holding_logo for that plaque's business on the session's context ("/t/logo/<sha>?tag=<uid>").
+// The digest and box follow TapLogo's rule; a uid that is not 14 upper-case hex digits (the
+// spelling tags.uid stores) gives the zero Logo.
+func PeerTapLogo(uid, sha256 string, width, height int, alt string) Logo {
+	l := TapLogo(sha256, width, height, alt)
+	if !l.Drawn() || !isPlaqueUID(uid) {
+		return Logo{}
+	}
+	l.src += "?tag=" + uid
+	return l
+}
+
+// isPlaqueUID reports whether s is a plaque's uid as tags.uid stores it: 14 upper-case hex
+// digits (tags_uid_canonical_hex).
+func isPlaqueUID(s string) bool {
+	if len(s) != 14 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c < '0' || c > '9') && (c < 'A' || c > 'F') {
+			return false
+		}
+	}
+	return true
 }
 
 // PreviewLogo describes the same logo as TapLogo, served by the panel's route: the

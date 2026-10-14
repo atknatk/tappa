@@ -472,6 +472,23 @@ func TestLayoutBrand_RefusesAnyOtherShape(t *testing.T) {
 	if !layout.TapLogo(good, 512, 1, "").Drawn() {
 		t.Error("control: a valid logo is not drawn")
 	}
+	// The peer form (M11 API-1b): the tap route plus ?tag=<the plaque's uid>, the uid in
+	// tags.uid's one spelling -- 14 upper-case hex digits -- or nothing at all.
+	for name, uid := range map[string]string{
+		"lower-case uid": "04aabbccddeeff", "short uid": "04AABBCCDDEEF", "long uid": "04AABBCCDDEEFF0",
+		"a query in the uid": "04AABB&tag=CCDD", "an empty uid": "",
+	} {
+		if l := layout.PeerTapLogo(uid, good, 10, 10, "x"); l.Drawn() || l != (layout.Logo{}) {
+			t.Errorf("peer form, %s: drawn", name)
+		}
+	}
+	if l := layout.PeerTapLogo("04AABBCCDDEEFF", strings.ToUpper(good), 10, 10, "x"); l.Drawn() {
+		t.Error("peer form, an upper-case digest: drawn")
+	}
+	peer := renderString(t, layout.BrandedPage("x", layout.PeerTapLogo("04AABBCCDDEEFF", good, 10, 10, "KF")))
+	if !strings.Contains(peer, `src="/t/logo/`+good+`?tag=04AABBCCDDEEFF"`) {
+		t.Errorf("control: the peer form draws %q", peer)
+	}
 	if href := layout.TapBrand(layout.Logo{}, layout.Theme{}).ThemeHref(); href != "" {
 		t.Errorf("the zero Theme linked %q", href)
 	}

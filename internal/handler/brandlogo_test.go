@@ -77,6 +77,11 @@ type fakeLogoReader struct {
 	logos map[uuid.UUID]map[string]tenant.StoredLogo
 	err   error
 	calls []logoCall
+	// The peer form (M11 API-1b): which business a plaque uid belongs to, and which
+	// businesses are its peers; peerCalls records the uids asked for.
+	peers     map[string]uuid.UUID
+	peerOf    map[uuid.UUID]map[uuid.UUID]bool
+	peerCalls []string
 }
 
 func newFakeLogoReader() *fakeLogoReader {
@@ -94,6 +99,27 @@ func (f *fakeLogoReader) Logo(_ context.Context, tenantID uuid.UUID, digest stri
 		return tenant.StoredLogo{}, f.err
 	}
 	if l, ok := f.logos[tenantID][digest]; ok {
+		return l, nil
+	}
+	return tenant.StoredLogo{}, tenant.ErrLogoNotFound
+}
+
+// PeerLogo keeps tenant.BrandReader.PeerLogo's contract on the fake's own map: the logo of
+// the business f.peers names for the plaque, when the session's business is in f.peerOf of
+// it (a peer), and every miss is tenant.ErrLogoNotFound itself.
+func (f *fakeLogoReader) PeerLogo(_ context.Context, tenantID uuid.UUID, uid, digest string) (tenant.StoredLogo, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, logoCall{tenantID, digest})
+	f.peerCalls = append(f.peerCalls, uid)
+	if f.err != nil {
+		return tenant.StoredLogo{}, f.err
+	}
+	owner, ok := f.peers[uid]
+	if !ok || !f.peerOf[owner][tenantID] {
+		return tenant.StoredLogo{}, tenant.ErrLogoNotFound
+	}
+	if l, ok := f.logos[owner][digest]; ok {
 		return l, nil
 	}
 	return tenant.StoredLogo{}, tenant.ErrLogoNotFound

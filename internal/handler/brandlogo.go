@@ -165,6 +165,9 @@ func logoImagePolicy(policy string, hasLogo bool) string {
 // consumer (section 7).
 type logoReader interface {
 	Logo(ctx context.Context, tenantID uuid.UUID, digest string) (tenant.StoredLogo, error)
+	// PeerLogo is a PEER business's logo, by the plaque in front of the person (M11 API-1b,
+	// ADR 0027 §10): holding_logo on the session's context.
+	PeerLogo(ctx context.Context, tenantID uuid.UUID, uid, digest string) (tenant.StoredLogo, error)
 }
 
 // BrandLogos serves the two logo routes.
@@ -237,10 +240,30 @@ func (b *BrandLogos) panelLogo(w http.ResponseWriter, r *http.Request) {
 // the chain was not mounted or resolution failed (BySession answers the second with
 // 500 before this runs), so it is logged and answered 500 rather than read as "no
 // session" -- the distinction tap.go draws for the same state.
+//
+// THE PEER FORM (M11 API-1b; ADR 0027 §10, K-1c): /t/logo/{sha}?tag=<uid> serves the logo of
+// the business whose plaque uid is -- a PEER of the session's business in one holding, VIES
+// verified, holding exactly that digest now -- through holding_logo on the SESSION's context.
+// The tenant still comes from the session alone (the function asks the membership of
+// app.tenant_id); the uid is a key, not an authority. A malformed uid, a second `tag`, a plaque
+// of a business that is not a peer, an old digest and another business's digest are the one
+// 404 (writeLogoNotFound) -- a malformed uid without a read. Without `tag` the route is
+// unchanged.
 func (b *BrandLogos) tapLogo(w http.ResponseWriter, r *http.Request) {
 	id := httpx.IdentityOf(r)
 	switch id.State {
 	case httpx.SessionLive:
+		if tags, ok := r.URL.Query()["tag"]; ok {
+			if len(tags) != 1 || !isPlaqueUID(tags[0]) {
+				writeLogoNotFound(w, b.log)
+				return
+			}
+			uid := tags[0]
+			serveLogo(w, r, b.log, id.TenantID(), func(ctx context.Context, tenantID uuid.UUID, digest string) (tenant.StoredLogo, error) {
+				return b.logos.PeerLogo(ctx, tenantID, uid, digest)
+			})
+			return
+		}
 		b.serve(w, r, id.TenantID())
 	case httpx.SessionUnresolved:
 		b.log.ErrorContext(r.Context(), "tap logo: no resolved identity on the request",
@@ -330,6 +353,22 @@ func isLogoDigest(s string) bool {
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+// isPlaqueUID reports whether s is a plaque's uid as tags.uid stores it: 14 upper-case hex
+// digits (tags_uid_canonical_hex). Checked before the peer read, so a malformed `tag` never
+// reaches holding_logo.
+func isPlaqueUID(s string) bool {
+	if len(s) != 14 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c < '0' || c > '9') && (c < 'A' || c > 'F') {
 			return false
 		}
 	}

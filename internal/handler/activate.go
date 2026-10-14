@@ -842,6 +842,29 @@ func (a *Activation) CompleteByTap(w http.ResponseWriter, r *http.Request, p sun
 	a.finishActivation(w, r, ip, st, activationTap{UID: res.Tag.UID, LocationID: *res.Location})
 }
 
+// PendingTenant is the business of this browser's CONSENTED invitation (K-35, ADR 0027 §5):
+// the tap page asks it for a live session in front of another business's plaque, to tell
+// the invitation's own plaque (the activation completes) from a peer's (a holding tap). It
+// reads the cookie and resolves the invitation -- no write, no budget charged; an invitation
+// that no longer resolves to a business answers false, and the activation flow then gives
+// its own answer.
+func (a *Activation) PendingTenant(r *http.Request) (uuid.UUID, bool) {
+	st, ok := a.codes.read(r)
+	if !ok || !st.pending() {
+		return uuid.Nil, false
+	}
+	// Lookup returns the invitation's business even with a refusal (a used, cancelled or
+	// expired code) -- it is still THAT business's invitation; only an unknown one has none.
+	ictx, err := a.invites.Lookup(r.Context(), st.code)
+	if ictx.TenantID == uuid.Nil {
+		if err != nil {
+			a.log.Info("tap page: the pending invitation does not resolve", "err", err)
+		}
+		return uuid.Nil, false
+	}
+	return ictx.TenantID, true
+}
+
 // HolderDeactivated reports whether the employee a live session belongs to has
 // been deactivated. The Tap handler asks it before letting a pending activation
 // take over a live session (§5 row 4 must still fire for that person).
