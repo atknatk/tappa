@@ -1141,3 +1141,92 @@ func TestHoldingWindow_ToleranceIsAtLeastTwiceTheRequestTimeout(t *testing.T) {
 		t.Errorf("the tolerance %v is under twice the request timeout %v", tolerance, httpx.RequestTimeout)
 	}
 }
+
+// holdSiteTenant takes the SITE's tenants row FOR UPDATE on a connection of its own and holds it
+// (uncommitted) -- the lock holding_feed's key from site_punches to tenants (KEY SHARE) waits for.
+// The release commits; the returned func is it. Only the projection's insert reaches this row on
+// the tap path (the gate and the site read take no lock on tenants).
+func (w *holdingWorld) holdSiteTenant(tenant uuid.UUID) (release func()) {
+	w.t.Helper()
+	conn, err := pgx.Connect(w.ctx, os.Getenv("DATABASE_MIGRATE_URL"))
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	w.t.Cleanup(func() { _ = conn.Close(context.Background()) })
+	tx, err := conn.Begin(w.ctx)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	w.t.Cleanup(func() { _ = tx.Rollback(context.Background()) })
+	if _, err := tx.Exec(w.ctx, `SELECT 1 FROM tenants WHERE id = $1 FOR UPDATE`, tenant); err != nil {
+		w.t.Fatal(err)
+	}
+	return func() {
+		if err := tx.Commit(w.ctx); err != nil {
+			w.t.Errorf("release the site's tenants row: %v", err)
+		}
+	}
+}
+
+// TestHoldingWindow_ProjectionLockWaitIsWrittenOnceMore is the API-1c review's E-ORTA-1 (ADR 0027
+// §13): KM's employee touches KF's plaque, the counter advances, and before the INSERT another
+// transaction holds KF's tenants row FOR UPDATE -- the row holding_feed's projection keys to. The
+// projection's KEY SHARE waits its 2 s lock_timeout and the INSERT fails 55P03 inside holding_feed;
+// the retry (the hook between the two attempts releases the hold) writes the advanced record at KM
+// AND its projection at KF. MUTANT (measured: the holding_feed arm taken out of insert's retry
+// condition): Record fails 55P03, no row at KM, KF's counter advanced -- the record lost.
+func TestHoldingWindow_ProjectionLockWaitIsWrittenOnceMore(t *testing.T) {
+	w := newHoldingWorld(t)
+	var release func()
+	between := 0
+	w.svc.hooks.beforeWrite = func(context.Context) { release = w.holdSiteTenant(w.kf) }
+	w.svc.hooks.betweenSiteWrites = func(context.Context) {
+		between++
+		release()
+	}
+	start := time.Now()
+	res, err := w.svc.Record(w.ctx, w.nfc(w.km, w.kmEmp, w.kfTag, w.kf, 101, w.kfOnNet))
+	took := time.Since(start)
+	w.svc.hooks = recordHooks{}
+	if err != nil {
+		t.Fatalf("Record: %v -- the second attempt must land the advanced record", err)
+	}
+	if between != 1 || took < 2*time.Second {
+		t.Errorf("the hook between the attempts ran %d times after %v; want once, after the projection's 2 s wait", between, took)
+	}
+	if w.rows(w.km) != 1 {
+		t.Errorf("%d rows at KM, want the advanced record", w.rows(w.km))
+	}
+	var n int64
+	if err := w.owner.QueryRow(w.ctx, `SELECT count(*) FROM site_punches WHERE transaction_id = $1 AND tenant_id = $2`, res.TransactionID, w.kf).Scan(&n); err != nil || n != 1 {
+		t.Errorf("KF's projection of the record: %d rows (%v), want 1", n, err)
+	}
+}
+
+// TestHoldingWindow_ProjectionLockHeldThroughBothWaitsIsTheNamedCost is the path E-ORTA-1's retry
+// does not close (ADR 0027 §13): KF's tenants row held through BOTH waits -- 55P03 from
+// holding_feed after two 2-second waits, nothing written at KM, KF's counter advanced: the record
+// is lost, the same class as the gate's named cost.
+func TestHoldingWindow_ProjectionLockHeldThroughBothWaitsIsTheNamedCost(t *testing.T) {
+	w := newHoldingWorld(t)
+	between := 0
+	w.svc.hooks.beforeWrite = func(context.Context) { _ = w.holdSiteTenant(w.kf) }
+	w.svc.hooks.betweenSiteWrites = func(context.Context) { between++ }
+	start := time.Now()
+	_, err := w.svc.Record(w.ctx, w.nfc(w.km, w.kmEmp, w.kfTag, w.kf, 101, w.kfOnNet))
+	took := time.Since(start)
+	w.svc.hooks = recordHooks{}
+	var pg *pgconn.PgError
+	if !errors.As(err, &pg) || pg.Code != "55P03" || !strings.Contains(pg.Where, "holding_feed") {
+		t.Fatalf("Record: %v, want holding_feed's 55P03 after the second wait", err)
+	}
+	if between != 1 || took < 4*time.Second {
+		t.Errorf("%d retries after %v; want one, two 2 s waits", between, took)
+	}
+	if n := w.rows(w.km); n != 0 {
+		t.Errorf("%d rows at KM, want none", n)
+	}
+	if got := w.lastCtr(w.kfTag); got != 101 {
+		t.Errorf("KF's last_ctr %d, want 101", got)
+	}
+}

@@ -1004,11 +1004,13 @@ tenant'ların append-only audit satırlarında kalır) ve `tenants` üzerinde AC
 alır — canlıda koşulmaz. Rol bırakılabilir: NOLOGIN, üyesiz, (`00041` olmadan) hiçbir nesnenin
 sahibi değil.
 
-### Holding tablolarına dokunan migration — `lock_timeout` kuralı (M11 API-1b)
+### Holding tablolarına dokunan migration — `lock_timeout` kuralı (M11 API-1b, API-1c)
 
 **Kural:** `holding_members`'a ya da kapının (`holding_site_gate`, migration `00043`) kendi
-`lock_timeout`'u altında okuduğu `tags`'e kilit alan bir migration, ilk ifadesinde kendi
-`lock_timeout`'unu **2 sn'nin altına** koyar ve kilit altındaki işini kısa tutar:
+`lock_timeout`'u altında okuduğu `tags`'e — **ve (API-1c) izdüşümün (`holding_feed`, migration
+`00046`) kendi `lock_timeout`'u altında yazdığı `site_punches`'a ya da anahtarıyla `KEY SHARE`
+kilitlediği `tenants`, `locations`, `tags` ve `transactions` satırlarına** — kilit alan bir migration,
+ilk ifadesinde kendi `lock_timeout`'unu **2 sn'nin altına** koyar ve kilit altındaki işini kısa tutar:
 
 ```sql
 -- +goose Up
@@ -1023,7 +1025,11 @@ olan migration ise kilidi alamazsa **kendisi** düşer: migrate Job'ı `Failed`,
 (*"Olay müdahalesi"* madde 4) ve migration sakin bir anda yeniden koşulur — kayıt kaybolmaz.
 Kilidi aldıktan sonraki iş de 2 sn'nin altında kalmalıdır (ölçü emsali:
 `TestHoldingMigration_AlterWithinTwoSeconds` — `00043`'ün ALTER'ı 2 M satırda 0,39–0,46 sn).
-`VACUUM FULL` ve `CLUSTER` bu tablolarda trafik akarken koşulmaz; elle `LOCK` da öyle.
+`VACUUM FULL` ve `CLUSTER` bu tablolarda trafik akarken koşulmaz; elle `LOCK` da öyle — ve elle bir
+`SELECT … FROM tenants … FOR UPDATE` da (izdüşümün `tenants` anahtarı onu bekler). Ölçüldü (API-1c,
+ADR 0027 §13 madde 18): `site_punches` 3 sn `SHARE` kilitliyken site satırının ilk denemesi 2,02 sn'de
+55P03, checkin'in savepoint'li tek yeniden denemesi kaydı yazdı; iki bekleme (> 4 sn) dolarsa kayıt
+kaybolur (`TestHoldingWindow_ProjectionLockHeldThroughBothWaitsIsTheNamedCost`).
 
 ---
 

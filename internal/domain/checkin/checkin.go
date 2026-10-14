@@ -263,6 +263,10 @@ var (
 // siteGateConstraint is the constraint name holding_site_gate refuses a row with (23514).
 const siteGateConstraint = "holding_site_gate"
 
+// siteFeedFunction is the holding trigger that projects a site row to the site (migration 00046,
+// holding_feed); its lock_timeout running out names it in the error's context.
+const siteFeedFunction = "holding_feed"
+
 // sqlstateLockNotAvailable is lock_timeout running out (55P03) -- for a site row, the gate's
 // 2-second wait on a membership row an operator's removal holds (migration 00043).
 const sqlstateLockNotAvailable = "55P03"
@@ -1497,6 +1501,14 @@ func (s *Service) write(ctx context.Context, tx pgx.Tx, req Request, tagRow db.R
 // holding a lock on a table is granted ahead of a queued ACCESS EXCLUSIVE; one taken before the
 // transaction stalls the gather instead, which has no lock_timeout. Nothing else is retried, and
 // a row without a site never meets the gate's wait, so it has no savepoint.
+//
+// AND THE SAME FOR THE PROJECTION'S WAIT (M11 API-1c; the review's E-ORTA-1). holding_feed, the
+// AFTER trigger of the same INSERT, writes the site's site_punches row under its own lock_timeout
+// 2s: a lock on site_punches (a reader queued behind a migration's ALTER, VACUUM FULL, a hand's
+// LOCK) or on the SITE's tenants row (the projection's key to it, KEY SHARE, against a FOR UPDATE
+// there) made the INSERT fail 55P03 and the advanced tap's record was lost exactly like the gate's
+// -- measured on the product path. Its 55P03 (holding_feed in the context) gets the same one
+// retry, in the same savepoint; a hold through both waits is the named cost (ADR 0027 §13).
 func (s *Service) insert(ctx context.Context, tx pgx.Tx, params store.InsertTransactionParams) (store.Transaction, error) {
 	if params.SiteTenantID == nil {
 		return store.New(tx).InsertTransaction(ctx, params)
@@ -1517,11 +1529,13 @@ func (s *Service) insert(ctx context.Context, tx pgx.Tx, params store.InsertTran
 			return store.Transaction{}, errors.Join(err, fmt.Errorf("checkin: roll back the site row's savepoint: %w", rbErr))
 		}
 		var pg *pgconn.PgError
-		if attempt > 1 || !errors.As(err, &pg) || pg.Code != sqlstateLockNotAvailable || !strings.Contains(pg.Where, siteGateConstraint) {
+		if attempt > 1 || !errors.As(err, &pg) || pg.Code != sqlstateLockNotAvailable ||
+			(!strings.Contains(pg.Where, siteGateConstraint) && !strings.Contains(pg.Where, siteFeedFunction)) {
 			return store.Transaction{}, err
 		}
-		s.log.WarnContext(ctx, "checkin: the site gate's lock wait ran out (a membership being removed); writing the record once more",
-			"employee_id", params.EmployeeID, "session_tenant_id", params.TenantID)
+		s.log.WarnContext(ctx, "checkin: a site row's lock wait ran out (the site gate's or the projection's); writing the record once more",
+			"employee_id", params.EmployeeID, "session_tenant_id", params.TenantID,
+			"in_projection", strings.Contains(pg.Where, siteFeedFunction))
 		s.hooks.call(s.hooks.betweenSiteWrites, ctx)
 	}
 }
