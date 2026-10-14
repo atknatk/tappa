@@ -13,7 +13,11 @@
   CHECK'leri, `holding_tap_site`, `holding_advance_tag_counter`, `holding_logo`, `holding_site_gate`;
   guardrail #1'in eşlik şartı ve `sys:cross-tenant-qr-site-ip`; checkin'in holding yolu, K-35, logo
   rotasının eş biçimi ve tap/sonuç ekranında sahanın markası — en sondaki *"API-1b uygulama notu"*.
-  İzdüşüm ve paneller (API-1c), olaylar (API-2) hâlâ yok.
+  **API-1c uygulandı (2026-10-14, migration `00046`–`00047`):** `site_punches` ve `holding_feed`'in
+  izdüşüm yarısı, red tekilleştirmesi, `holding_site_locations`, işverenin dokuz okuyucusu, sahanın
+  panel görünümleri (rapor listesi, kayıp plaket uyarısı, sayaç boşlukları, son görülme), eşin
+  mekânında manuel kayıt ve lokasyon silme sayımı — en sondaki *"API-1c uygulama notu"*. Olaylar
+  (API-2) hâlâ yok.
 - **Tarih:** 2026-10-11. Plan 2026-10-09/10'da on bir denetim turundan geçti; 11. sürüm (`480df19`)
   üçüncü göz ve güvenlik merceğinden **ONAY** aldı, onaylı plan `bcbff6d`.
 - **Karar veren:** kullanıcı (ürün sahibi) — **K-1** (2026-10-10: *"KF ve KM aynı holding altında
@@ -726,7 +730,10 @@ CMAC satırda ayırt edilemiyor — ikisi de `sys:sun-invalid` ve `sun_valid=fal
   **sunucu saatinden** saat kovasıyla: `bucket_hour timestamptz = date_trunc('hour', now(), 'UTC')`
   — tetikleyici `now()`'dan yazar (çağıranın yazabildiği `created_at`'ten de, istemcinin
   `occurred_at`'inden de değil); üç argümanlı `date_trunc` oturum saat diliminden bağımsızdır (11.
-  tur: iki argümanlı biçim UTC ve Malta oturumlarında iki kova üretiyordu). `UNIQUE NULLS NOT DISTINCT
+  tur: iki argümanlı biçim UTC ve Malta oturumlarında iki kova üretiyordu — **API-1c düzeltmesi,
+  ölçüldü:** saat kovası için tam saat farklı bir bölge (Malta) iki biçimi ayıramaz; ayrım yarım saat
+  farklı bir bölgede görünür (Asia/Kolkata: 13:30+05:30 ile 14:00+05:30) — kural aynı, testi üç
+  bölgeyle kuruldu). `UNIQUE NULLS NOT DISTINCT
   (tenant_id, site_tag_uid, employee_id, outcome, bucket_hour) WHERE sun_valid IS NOT TRUE AND
   outcome LIKE 'refused%'` — NULL `sun_valid`/`employee_id` delikleri kapalı; **`outcome` anahtarda**
   (sahte bir `refused` kayıp plaket uyarısını bastıramaz);
@@ -760,9 +767,10 @@ KF'nin **kendi** çalışanlarının süreleri değişmez (KF ledger'ı yalnız 
   adlandırmıyordu).** Atlama yalnız ilerletme ifadesinin **içinde** hesaplanabilir: eski `last_ctr`'ı
   ifade kendisi üzerine yazar, sonra hiçbir okuma onu bulamaz. `holding_advance_tag_counter` onu
   `ctr_gap` olarak döndürür ve karar onu `tap:ctrGap` olarak satırın `policy_context`'ine dondurur;
-  izdüşüm KF'nin `ctr_gap`'ini **oradan** — tetikleyicinin `NEW`'inden — alır. Bu bir **devirdir**
-  (API-1c): K-34'ün `policy_context` SELECT pinini bozmadığı ve sütunun KF'ye yalnız bu sayıyı
-  taşıdığı orada ölçülür.
+  izdüşüm KF'nin `ctr_gap`'ini **oradan** — tetikleyicinin `NEW`'inden — alır. Bu bir **devirdi**
+  (API-1c) ve kapandı: K-34'ün `policy_context` SELECT pini bozulmadı (tanımlayıcı sütunu okuyamaz,
+  `TestSitePunches_CounterGapComesFromTheEmployersRow`) ve gövde bağlamdan yalnız bu anahtarı okur
+  (`TestHoldingFeed_ReadsOnlyTheCounterGapOfThePolicyContext`).
 
 **İşverenin okuyucuları** (rol geneldir — KF@KM'de saha KM'dir): `transactions.location_id`/`tag_uid`
 okuyan **dokuz** çağıran (7. tur saydı) `site_*` satırını doğru mekân ve vardiyayla göstermelidir;
@@ -936,6 +944,23 @@ adlandırılmış kalan risk (1. tur, güvenlik merceği; §13 madde 13).
       ilerletmeden sonraki kaydı düşürür (çıkarım, ölçülmedi). Bugün tek site yazıcısı tap yoludur;
       API-1c'nin manuel saha kaydı ham yazıcı olacaktır. **Kural (deploy/README.md):** bu tablolara
       dokunan bir migration kendi `lock_timeout`'unu 2 sn'nin altına koyar.
+17. **Üyelik bittikten sonra işverenin geçmiş saha satırları adsız (API-1c):** `holding_site_locations`
+    katıdır (§6); üyelik bittiğinde işveren eşin mekânlarını okuyamaz ve geçmiş `site_*` satırları
+    *"Another business's venue"* diye, vardiyasız (geç kalma hesaplanmaz) listelenir. Kayıt kaybolmaz
+    (§4.6), yalnız adı ve vardiyası. Ad ve vardiyanın yazma anı anlık görüntüsü API-2'nin
+    `punch_events`'idir (K-32).
+18. **İzdüşümün tekillik beklemesi (API-1c, ölçüldü):** `holding_feed`'in red eklemesi aynı anahtarlı
+    commit edilmemiş bir ikizi indeks üzerinde bekler; ikiz 2 sn'den (tetikleyicinin `lock_timeout`'u)
+    uzun tutulursa işverenin INSERT'i 55P03 ile düşer (atılabilir kapta: 2,14 sn). **Ürün yolunda
+    erişilemez:** anahtar çalışanı içerir ve checkin aynı çalışanın her dokunuşunu kişi başına
+    danışma kilidi altında sıraya sokar (`LockEmployeeForTap`, işlemin ilk ifadesi); çalışansız bir
+    holding satırı yoktur (holding yolu oturum ister). Kalan yol ham bir yazıcıdır (§12 (d)).
+19. **Manuel kayıt seçicisi eşin pasif mekânlarını da gösterir (API-1c):** `holding_site_locations`'ın
+    dönüşünde `active` yoktur; eklemek kapalı listeyi genişletir (§2 — kullanıcı onayı). Pasif bir
+    mekâna yazılan manuel kayıt yazılır ve sahada `employer_manual` olarak görünür.
+20. **Geri doldurma yok (API-1c):** `00046`'dan önce yazılmış `site_*` satırları (yalnız M11
+    geliştirme/CI veritabanlarında; üretimde holding satırı yok) izdüşüme taşınmadı — saha onları
+    görmez. Üretimde `00046` holding üyeliğinden önce uygulanır (API-13 sırası).
 
 ## Elenen seçenekler
 
@@ -960,7 +985,9 @@ adlandırılmış kalan risk (1. tur, güvenlik merceği; §13 madde 13).
 - **İşverenin raporundaki *"<şirket> — <mekân>"* kovasının şirket etiketi.** Plan kaynağı
   `holding_site_locations` diye adlandırır ama o fonksiyonun dönüşü (imza tablosu) bir şirket
   etiketi taşımaz. API-1c etiketi imza tablosundaki **mevcut** dönüşlerden seçer; o güne dek kova
-  yalnız **mekân adıyla** etiketlenir. `holding_site_locations`'ın (ya da herhangi bir holding
+  yalnız **mekân adıyla** etiketlenir. *(API-1c, 2026-10-14: mevcut dönüşlerin hiçbiri şirket
+  etiketi vermiyor — `holding_tap_site`'ın `api_code`'u bir plaket uid'i ister, raporun kovası
+  plaketsizdir; kova **yalnız mekân adıyla** etiketlendi.)* `holding_site_locations`'ın (ya da herhangi bir holding
   fonksiyonunun) dönüşünü genişletmek §2'nin kuralına tabidir — **kullanıcı onayı + bu ADR'nin
   değişikliği**; tarihli bir not tek başına yetmez (1. tur düzeltmesi, güvenlik merceği).
 - **KF'nin KM çalışanı için onay vermesi** (plan §8) — kapsam dışı.
@@ -1030,9 +1057,10 @@ satırları.)*
   `TestHoldingTap_PeerSessionOnAnOutsiderPlaqueLeavesItsCounter` ·
   `TestHoldingFunctions_ReturnNothingForAnOutsiderOrAnOutsiderKey` ·
   `TestHoldingFilter_MutantsM1M2M3AreRedInFunctionsAndTriggers` (C, H2'nin üyesi; mutantlar fonksiyonlarda
-  **ve** `holding_site_gate`'te kırmızı — ikinci tetikleyici `holding_feed` API-1c'de doğar ve aynı yüklemi
-  çağırır) · `TestHoldingManual_PeerManagerCannotNameAnOutsiderLocation` (C'yi saha diye adlandıran
-  satır hiç yazılamaz; *"C'nin `site_punches`'ı 0"* yarısı API-1c'nin — tablo orada doğar) ·
+  **ve** `holding_site_gate`'te kırmızı — API-1c'den beri `holding_site_locations`'ta ve ikinci
+  tetikleyici `holding_feed`'in onay kolunda da) · `TestHoldingManual_PeerManagerCannotNameAnOutsiderLocation`
+  (C'yi saha diye adlandıran satır hiç yazılamaz; *"C'nin `site_punches`'ı 0"* yarısı
+  `TestSitePunches_OutsiderSeesNothing`) ·
   `HoldingDirectory_ReturnsPeersNeverTheCaller` (**devredildi: API-8** — `holding_directory` orada doğar)
 - (c) `TestHoldingAdvance_ConcurrentSameCounterExactlyOneWins` (SQL düzeyinde, iki ifade yarı/yarı) ·
   `TestHoldingTap_ConcurrentSameCounterExactlyOneSUNValid` (ürün yolundan, `Service.Record`) — `-race`
@@ -1075,27 +1103,38 @@ satırları.)*
   (`00045`'in Down/Up'ı dahil) · `TestHoldingSite_EvidenceLeavesByNoRoute` (K-39, Go tarafı) ·
   `TestCheckin_SiteMembershipEndedIs409TapAgain`
 
-**İzdüşüm ve paneller (API-1c)**
-- `SitePunches_CatalogCarriesNoEvidenceColumns` · `SitePunches_OutcomeMappingIsTotal`
+**İzdüşüm ve paneller (API-1c)** *(API-1c'de yazıldı, 2026-10-14 — gerçek adlar; ölçümler ve
+mutantlar *"API-1c uygulama notu"*nda)*
+- `TestSitePunches_CatalogCarriesNoEvidenceColumns` · `TestSitePunches_OutcomeMappingIsTotal`
   (`ignored` yazılmaz, işverenin kaydı geri alınmaz)
-- `SitePunches_ReplayURLCollapsesAtTheSite` (N → KF'de 1, işverende N) ·
-  `SitePunches_DifferentEmployeesReplaysStaySeparate` ·
-  `SitePunches_ForgedCountersCollapsePerHourBucket` (200 sahte URL) ·
-  `SitePunches_RealRefusalsAreKeptOneEach` (3 → 3) ·
-  `SitePunches_LostPlaqueRepeatsGiveOneRowAndOneAlert` ·
-  `SitePunches_LostPlaqueAlertCannotBeSuppressed` ·
-  `SitePunches_BucketIsServerClockAndZoneFree` (UTC ve Europe/Malta aynı kova) ·
-  `SitePunches_NullHolesAreDeduplicated` · `SitePunches_AppCannotReadSunValid` ·
-  `SitePunches_LastSeenIgnoresDeclaredTime` (`occurred_at=2099`) ·
-  `SitePanel_LostPlaqueAlertUsesTheServerClock` (KF kayıp plaket uyarısının zamanı
+- `TestSitePunches_ReplayURLCollapsesAtTheSite` (N → KF'de 1, işverende N) ·
+  `TestSitePunches_DifferentEmployeesReplaysStaySeparate` ·
+  `TestSitePunches_ForgedCountersCollapsePerHourBucket` (200 sahte URL) ·
+  `TestSitePunches_RealRefusalsAreKeptOneEach` (3 → 3) ·
+  `TestSitePunches_LostPlaqueRepeatsGiveOneRowAndOneAlert` ·
+  `TestSitePunches_LostPlaqueAlertCannotBeSuppressed` ·
+  `TestSitePunches_BucketIsServerClockAndZoneFree` (UTC, Europe/Malta ve Asia/Kolkata aynı kova) ·
+  `TestSitePunches_NullHolesAreDeduplicated` · `TestSitePunches_AppCannotReadSunValid` ·
+  `TestSitePunches_LastSeenIgnoresDeclaredTime` (`occurred_at=2099`) ·
+  `TestSitePanel_LostPlaqueAlertUsesTheServerClock` (KF kayıp plaket uyarısının zamanı
   `site_punches.created_at`'ten; `occurred_at` beyanı uyarıyı ne öne ne geriye kaydırır)
-- `SiteReport_HoldingStaffHaveNoHoursAtTheSite` (KF→KM ve KM→KF ardışık iki vardiya, aynı gün ve
-  iki güne yayılan → 0 sa + dokunuş listesi) · `SiteReport_ApprovedFlagFoldsToItsLastOutcome` ·
-  `SiteReport_OwnStaffHoursUnchanged` · `SiteReport_EmployerManualSeparateAndExcluded`
-- `SitePunches_DeactivatedEmployeeRefusalIsOnlyRefused` · `SitePanel_LostPlaqueAlertAtTheSite` ·
-  `SitePanel_CannotReview`
-- `EmployerReaders_NineReadersNameTheSite` (her yönde, dokuzunun her biri ayrı vaka)
-- `LocationDelete_CountsHoldingReferences` · `SitePunches_OutsiderSeesNothing`
+- `TestSiteReport_HoldingStaffHaveNoHoursAtTheSite` (KF→KM ve KM→KF ardışık iki vardiya, aynı gün ve
+  iki güne yayılan → 0 sa + dokunuş listesi) · `TestSiteReport_ApprovedFlagFoldsToItsLastOutcome` ·
+  `TestSiteReport_OwnStaffHoursUnchanged` · `TestSiteReport_EmployerManualSeparateAndExcluded`
+- `TestSitePunches_DeactivatedEmployeeRefusalIsOnlyRefused` · `TestSitePanel_LostPlaqueAlertAtTheSite` ·
+  `TestSitePanel_CannotReview`
+- `TestEmployerReaders_NineReadersNameTheSite` (her yönde, dokuzunun her biri ayrı vaka)
+- `TestLocationDelete_CountsHoldingReferences` · `TestSitePunches_OutsiderSeesNothing`
+- Ek (API-1c): `TestSitePunches_AppendOnly` · `TestSitePunches_CounterGapComesFromTheEmployersRow` ·
+  `TestHoldingFeed_ReadsOnlyTheCounterGapOfThePolicyContext` (K-1i'nin gövde taraması) ·
+  `TestHoldingFeed_NameOrderIsFirst` · `TestHolding00046And00047_DownGiveBackAndUpTakesItAgain` ·
+  `TestHoldingManual_RecordAtAPeersVenue` ·
+  `TestHoldingManual_PeerManagerCannotNameAnOutsiderLocationThroughThePanel` ·
+  `TestHoldingPanel_PartnerViewsSayTheOutcomeNeverTheReason`; API-1b'den devralınan yarılar var olan
+  testlere eklendi: `TestHoldingFilter_MutantsM1M2M3AreRedInFunctionsAndTriggers` (`holding_feed`,
+  `holding_site_locations`), `TestHoldingWindow_NoRowPassesBeforeAndSkipsAfter` (AFTER yarısı),
+  `TestHoldingTap_LostPlaqueRefusalRecordedAtEmployerSeenAtSite` (KF'nin `refused_tag_not_active`'i),
+  `TestHoldingAdvance_CounterGapReachesTheEmployersReview` (K-1i'nin saha yarısı)
 
 **Holding tetikleyicisi (API-2'nin holding satırları)**
 - `HoldingTrigger_WritesBothTargetRows` (KM@KF: KM satırında KF lokasyon id/ref/ad/şirket kodu;
@@ -1104,7 +1143,10 @@ satırları.)*
 - `HoldingTrigger_ApprovalAfterExitWritesEmployerEventAndDeliveryOnce` (karşı taraf NULL; KF
   atlanır, hata yok)
 - `HoldingTrigger_MissingCounterRowsNoDeadlock` (*"var et"*siz mutant kırmızı) ·
-  `HoldingTrigger_NameOrderIsFirst` · `HoldingTrigger_WrittenTablesColumnPins`
+  `HoldingTrigger_NameOrderIsFirst` · `HoldingTrigger_WrittenTablesColumnPins` *(API-1c'de kısmen var:
+  ad sırası `TestHoldingFeed_NameOrderIsFirst`, `site_punches`'ın sütun pini
+  `TestSitePunches_CatalogCarriesNoEvidenceColumns`; API-2 kendi tablolarını ve kendi-tenant
+  tetikleyicisini aynı testlere ekler)*
 
 ## Sonuçlar
 
@@ -1489,3 +1531,114 @@ atılabilir PostgreSQL 17 kabında.
   `NamedCost` testinin yorumu).
 - **API-1c devri:** K-1i'nin KF tarafının tetikleyici gövdesinin `policy_context`'ten yalnız
   `tap:ctrGap`'i okuduğu bir gövde taramasıyla pinlenmesi plan §5'in API-1c kabulüne yazıldı.
+
+## API-1c uygulama notu (2026-10-14)
+
+Yapıcının uygulaması ve ölçümleri; ADR'nin kararları değişmedi — sapmalar ve ADR'nin açık bıraktığı
+kararlar aşağıda adıyla. Yıkıcı ölçümler ve mutantlar atılabilir bir PostgreSQL 17 kabında
+(`scripts/db-init` ile kurulu, `arwd` varsayılanı) koşuldu; paylaşılan `tappa-m11-db`'ye yalnız
+`goose up` (`00046`, `00047`).
+
+**İki migration.** `00046` `site_punches`'ı (RLS beşlisi, satır + TRUNCATE korumalı append-only,
+`APPEND_ONLY`/`trunc_tables` listelerine sekizinci tablo olarak), `tappa_app`'in `sun_valid` hariç
+sütun listeli SELECT'ini, tanımlayıcının yetkilerini ve `holding_feed`'i iki tetikleyiciyle
+(`transactions_holding_feed`, `transaction_reviews_holding_feed`) kurar; `00047`
+`holding_site_locations`'ı (yeni yetki yok — `00043`'ün sütunları yeter). `00046`'nın Down'ı
+izdüşümde satır varken **reddeder** (`00043` emsali: sahanın gördüğü şey — tekilleştirmesi ve sunucu
+saati — işverenin satırlarından yeniden kurulamaz). İkisi de operatör nesnesi adlandırmaz,
+`opAtVersion` atlar; Down yürüyen testlerin kilit listesine (`holdingDownTables`) `site_punches`
+eklendi ve `holdingBelow43`, `00047`/`00046`'yı önce yürür (`holdingBelow46`).
+
+**Tablo — otonom eklemeler (sütun eklemez, §9'un listesi birebir):** FK'ler `(transaction_id,
+employer_tenant_id) → transactions(id, tenant_id)`, `(site_location_id, tenant_id) → locations`,
+`(site_tag_uid, tenant_id) → tags`, `tenant_id → tenants` (hepsi RESTRICT; lokasyon silmenin ikinci
+kemeri); CHECK'ler `employer_tenant_id <> tenant_id` ve `bucket_hour` bir UTC saat başı (iki argümanlı
+`date_trunc` mutantı bu CHECK'e çarpıp işverenin kaydını düşürürdü — ölçüldü; testi CHECK'i kaldırarak
+koşar). İndeksler: `(tenant_id, created_at DESC)`, `(tenant_id, site_tag_uid, created_at DESC)`,
+`(tenant_id, site_location_id)` ve §9'un iki kısmi tekil indeksi birebir.
+
+**Eşleme — açık bırakılanların kararı.** `manual` × `ok`/`flag`/`reject` → `employer_manual`
+(`ignored` yazılmaz); bir manuel `flag`'in onayı da `approved`/`rejected` olarak düşer (ürün manuel
+`flag` yazmaz — `InsertManualTransaction` `ok` sabitler). `CASE` kapalı `verdict`/`channel` kümeleri
+üzerinde eksiksizdir; bilinmeyen bir hücre hata değil boş dal olurdu (§4.6) — katalog testi
+(`TestSitePunches_OutcomeMappingIsTotal`) her hücreyi dolaşır. Onay kolu `holding_peer
+'strict_stmt'` sorar, **`lock` almaz** (otonom: bir onay üyelik satırında beklemez; eşzamanlı commit
+edilmemiş bir `op_remove` ile kesişen onay sahaya düşebilir — onay anında eşlik sürüyordur).
+Mutantlar (gövde `CREATE OR REPLACE` ile değiştirilip): `ignored` dalı yok + eşlenmemiş hücre hata →
+işverenin kaydı yazılmadı (kırmızı); yalnız `ignored` dalı yok → manuel `ignored` sahaya
+`employer_manual` düştü (kırmızı); `sys:tag-not-active` kolu yok → kayıp plaket `refused` (kırmızı).
+
+**Ölçülenler.** (1) Hedefli `ON CONFLICT … WHERE … DO NOTHING` hedef sütunlarda **ve yüklemin
+sütunlarında** SELECT ister: `sun_valid` SELECT'i geri alınınca 42501 — §3'ün yedi sütunu (yükleminkiler
+dahil) bu yüzden. (2) `NULLS NOT DISTINCT`: çalışansız ve `sun_valid` NULL/false üç red → 1 satır.
+(3) `date_trunc('hour', now(), 'UTC')` UTC, Malta ve Kolkata oturumlarında aynı an; iki argümanlı
+biçim yalnız Kolkata'da 30 dk kaydı (§9'daki düzeltme). (4) Tekillik beklemesi 2,14 sn'de 55P03 (§13
+madde 18 — ürün yolunda erişilemez). (5) 200 sahte URL tek ifadede → KF'de 1 satır, KM'de 200; mutant
+(saat anahtarına `ctr`) → 200. (6) `outcome` anahtardan çıkarılınca sahte `refused` kayıp plaket
+uyarısını yuttu (0) — gerçek indeksle 1.
+
+**Tanımlayıcının yetkisi — her sütun ölçülerek** (`TestHoldingDefiner_EveryGrantIsUsed` artık bir
+onay, iki red biçimi ve `holding_site_locations` da sürer): `site_punches` INSERT (18 sütun) ve SELECT
+(7 — iki çakışma hedefi); `transactions` SELECT (`id, tenant_id, employee_id, ctr, type, occurred_at,
+sun_valid, channel, site_tenant_id, site_location_id, site_tag_uid` — yalnız onay kolu okur;
+`transactions` kolu `NEW`'i okur, yetki istemez); `employees` SELECT (`id, tenant_id, full_name,
+external_ref, employee_code`). §3 matrisinin `employees.first_name/last_name/status/updated_at`
+(API-8) ve `transactions.verdict/practice` (API-2) satırları verilmedi — matris üst sınırdır.
+
+**K-1i'nin saha yarısı.** `ctr_gap` = `NEW.policy_context -> 'tap:ctrGap'` bir sayı, tam ve
+0 ≤ x < 2^24 ise; değilse NULL — iç içe `IF` ile (SQL bir `AND`'in sırasını vaat etmez; bir jsonb
+metninin cast'i hata verip işverenin kaydını düşürürdü). Gövde taraması: yorumları ayıklanmış
+tanımda `policy_context` tam bir kez ve yalnız bu biçimde geçer; üç mutant (başka anahtar, bağlamın
+tamamı, `->>`) işaretlenir. Uçtan uca: KF@100, KM 150 → KF'nin satırı `pending_review`, `ctr_gap` 49.
+
+**K-33 — tek yüklem `holding_feed`'de.** `transactions` kolu eşliği sormaz (§6); mutantların
+ulaştığı kol onayınkidir: KM'nin KF'deki `flag` satırı eşlik sürerken yazılır, KM H'den çıkıp H2'ye
+katılır, KM'nin yöneticisi onaylar — gerçek yüklemle KF'ye onay düşmez, M1/M2/M3'ün her biriyle düşer
+(`holdingFeedProbes`). `holding_site_locations` için C/D bağlamı KF/KM mekânı, KM bağlamı C/D mekânı,
+bağlamsız çağrı herhangi bir mekân okursa kırmızı; üç mutantın üçü de kırmızı. Sonda **bütün
+sayfaları** okur: ilk biçim yalnız ilk sayfaya bakıyordu ve paylaşılan veritabanında M1'in sızıntısı
+(her tenant'ın her mekânı, kimliğe göre 1000'er) sonraki bir sayfadaydı — M1 yeşil kaldı (ölçüldü,
+tam koşuda).
+
+**"BEFORE kabul edip AFTER KF tarafını atladı" satırı yok.** `TestHoldingWindow_NoRowPassesBeforeAndSkipsAfter`'a
+iki alt test: commit edilmemiş bir çıkarmayı bekleyip toleranslı kolla kabul edilen ilerletilmiş NFC
+satırı aynı işlemde KF'nin izdüşümünde (mutant: `transactions` koluna `strict_stmt` sorusu eklenince
+KM'de 1, KF'de 0); anahtar beklemesinden sonra commit edilen satır KF'de.
+
+**İşverenin dokuz okuyucusu** (`internal/domain/ledger/site.go`): `holding_site_locations` işlem başına
+**bir kez** ve yalnız sayfada `site_*` satırı varken okunur (holding verisi olmayan işletme aynı
+ifadeleri koşar; panel testleri bayt düzeyinde değişmedi). `ListPanelTransactions`/`ListFlaggedForReview`
+eşin mekânını ve plaketini adlandırır, güven puanını ve IP/GPS işaretlerini **boşaltır** (K-39 —
+§13 madde 5'in *"panel göstermez"*i; fiş *"not shown at a partner venue"* der); `ListOpenCheckIns`
+adlandırır; `ListWorkedShiftEvents` + `resolveShift` eşin mekânının kovası ve vardiyası (geç kalma,
+departman vardiyası yoksa tap edilen eş mekânın vardiyasıyla — K-36 aynı saat dilimini garanti
+eder); `ListAnomalyVenues` eş mekânı ayrı satır olarak sayar, iki kanıt rakamını (`distance_only`,
+`outside_venue`) yalnız kendi mekânlarında sayar (K-39); `ListTapsTakenTogether` artık eş mekânı
+dahil eder; `ListAnomalyPlaques` ve `ListTagLastSeen` işverende eşin plaketini **dışarıda** tutar
+(sahaya kendi izdüşümünden gelir); `CountLocationReferences` sahada izdüşümden sayar.
+`TestEmployerReaders_NineReadersNameTheSite` dokuzunu iki yönde ayrı vakalarla sürer; Go tarafı
+mutantları (ad yok, K-39 boşaltma yok, eş vardiyası çözülmez, çift adsız) ve SQL mutantı (K-39
+filtresi yok) ilgili vakada kırmızı.
+
+**Sahanın paneli.** Rapor: haftanın eş-personel dokunuşları `transaction_id` başına **son** sonuçla
+(`DISTINCT ON`, onay/ret aynı işlemdeki `pending_review`'u geçer), `occurred_at` penceresiyle (raporun
+kendi penceresi), süre yok (*"Hours: at their employer"*), `employer_manual` ayrı başlıkta ve hiçbir
+toplamda değil; `pending_review` her zaman *"Result at their employer"*. Anomaliler: kayıp plaket
+uyarısı (sunucu saati — `created_at` penceresi ve zamanı), sayaç boşlukları (izdüşümün `ctr_gap`'i,
+plaketin kendi satırına eklenir). Plaket listesi: *"son görülme"* kendi dokunuşunun ve izdüşümün
+`created_at`'inin geç olanı. Lokasyon silme: *"N taps by a partner business's staff"*; yalnız
+`ignored` bir eş satırı izdüşümde yoktur, sayım 0'dır ve FK RESTRICT silmeyi yine reddeder
+(`ErrVenueInUse`). KF onay veremez: inceleme ifadesi satırını inceleyenin tenant'ındaki bir `flag`
+kayıttan kurar — KM'nin kaydı 0 satır (`TestSitePanel_CannotReview`).
+
+**Manuel kayıt** (`InsertManualSiteTransaction`): form eşlerin mekânlarını ayrı, isteğe bağlı bir
+seçimde sunar (holding'de olmayan işletmede çizilmez); seçim MAC'lı onayın konusuna girer
+(`/site/<id>`); alan adı `domain`'de **aynı işlemde** `holding_site_locations` ile yeniden çözülür
+(eş değil, bilinmeyen ya da üyeliği bitmiş → `ErrVenue`) ve kapının 23514'ü `ErrVenue`'ya çevrilir;
+satır işverenin, `location_id`/`tag_uid` NULL, `department_id` çalışanınki; audit ayrıntısına
+`partner_venue: true` (yalnız o kayıtlarda). Kapının 23514 dalı ürün yolundan test edilmedi (alan adı
+okuması aynı işlemde önce düşürür; yarış kancası yok) — veritabanı yarısı
+`TestHoldingWindow_ManualAfterLeftIsRefused`.
+
+**Saklama.** `site_punches` süresiz tutulur; süre kullanıcının DPA/aydınlatma notuyla belirlenecek
+(§13 madde 4). Append-only olduğu için bir silme yolu yazılmadı.
