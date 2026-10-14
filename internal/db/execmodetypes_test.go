@@ -978,6 +978,7 @@ var reviewedBodies = map[string]string{
 		return nil, err
 	}
 	pinLogParameters(poolCfg, "DATABASE_URL", before)
+	pinFeedTimeouts(poolCfg)
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		return nil, fmt.Errorf("db: new pool: %w", err)
@@ -987,6 +988,10 @@ var reviewedBodies = map[string]string{
 		return nil, fmt.Errorf("db: ping: %w", err)
 	}
 	d := &DB{pool: pool}
+	if err := d.requireFeedTimeouts(ctx); err != nil {
+		pool.Close()
+		return nil, err
+	}
 	facts, err := d.readRole(ctx)
 	if err != nil {
 		pool.Close()

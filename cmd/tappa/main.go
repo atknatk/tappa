@@ -218,6 +218,7 @@ func run() error {
 			"role", role.User, "rolsuper", role.Super, "rolbypassrls", role.BypassRLS,
 			"owns_or_can_become_owner_of_an_rls_table", role.OwnsScopedTable,
 			"member_of_a_superuser_or_bypassrls_role", role.InheritsPrivilege,
+			"member_of_any_role", role.MemberOfARole,
 			"session_user", role.Session,
 			"why", db.RoleRiskWhy)
 	}

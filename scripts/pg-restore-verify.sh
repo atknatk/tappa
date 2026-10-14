@@ -593,6 +593,56 @@ else
   bad "tappa_app holds the TRUNCATE privilege on: $(tr '\n' ' ' < "$TMP/have.truncpriv")"
 fi
 
+# =================================================================================
+# 6. THE PUNCH FEED'S COUNTERS (M11 API-2, ADR 0028 §5) — read from the restored data
+#
+# An integrator holds a cursor: the last `seq` of its tenant's feed it has read. A dump
+# carries each tenant's counter (feed_counters.last_seq) as it was at the BACKUP; events
+# written after it are gone from this database but NOT from the integrator's cursor. If
+# the application wrote again from the dumped counter, the next events would reuse seqs
+# the integrator has already passed -- and `seq > cursor` would skip them forever. So the
+# restore runbook (deploy/README.md, A YOLU step 6 and B YOLU B4) moves every counter
+# FEED_RESTORE_GAP ahead BEFORE the application starts, and this section refuses a
+# database where that did not happen -- judged from the restored rows themselves (the
+# ENABLE/FORCE count gate's precedent), not from a list:
+#   * every tenant has a counter row: count(tenants) = count(feed_counters), and no tenant
+#     lacks one (a holding punch's pre-lock makes a missing row exist, but a missing row is
+#     still a restore that lost one);
+#   * every counter stands at least FEED_RESTORE_GAP past its last restored event:
+#     last_seq >= coalesce(max(punch_events.seq), 0) + FEED_RESTORE_GAP.
+# A dump from before migration 00048 has no feed and this section says so and passes.
+# internal/db's TestRestoreVerify_CountersAheadOfEvents and
+# TestRestoreVerify_EveryTenantHasACounter run FEED_COUNTERS_SQL itself, cut from this
+# file, against the states it must tell apart.
+# =================================================================================
+FEED_RESTORE_GAP=1000000
+FEED_COUNTERS_SQL="SELECT concat_ws(' ',
+    (SELECT count(*) FROM public.tenants),
+    (SELECT count(*) FROM public.feed_counters),
+    (SELECT count(*) FROM public.tenants s WHERE NOT EXISTS (SELECT 1 FROM public.feed_counters c WHERE c.tenant_id = s.id)),
+    (SELECT count(*) FROM public.feed_counters c
+      WHERE c.last_seq < coalesce((SELECT max(p.seq) FROM public.punch_events p WHERE p.tenant_id = c.tenant_id), 0) + $FEED_RESTORE_GAP));"
+feed_present="$($OWNER_PSQL -c "SELECT to_regclass('public.feed_counters') IS NOT NULL AND to_regclass('public.punch_events') IS NOT NULL;")" \
+  || die "a catalog query failed against $PGDATABASE; no verdict is issued"
+if [ "$feed_present" != "t" ]; then
+  note "no punch feed in this database (a dump older than migration 00048): no counter to check"
+else
+  feed_line="$($OWNER_PSQL -c "$FEED_COUNTERS_SQL")" \
+    || die "the feed counter query failed against $PGDATABASE; no verdict is issued"
+  set -- $feed_line
+  f_tenants="$1"; f_counters="$2"; f_missing="$3"; f_behind="$4"
+  if [ "$f_tenants" = "$f_counters" ] && [ "$f_missing" = "0" ]; then
+    ok "punch feed: all $f_tenants tenants have a counter row"
+  else
+    bad "punch feed: $f_tenants tenants, $f_counters counter rows, $f_missing tenants without one — a tenant's feed would start from a counter that is not there"
+  fi
+  if [ "$f_behind" = "0" ]; then
+    ok "punch feed: every counter stands at least $FEED_RESTORE_GAP past its last restored event"
+  else
+    bad "punch feed: $f_behind counters stand less than $FEED_RESTORE_GAP past their last restored event, so the next events would reuse seqs an integrator may already have read and its cursor would skip them. Move them ahead BEFORE the application writes (deploy/README.md, 'Yedek ve geri yükleme' — the feed counter step): UPDATE public.feed_counters SET last_seq = last_seq + $FEED_RESTORE_GAP;"
+  fi
+fi
+
 echo
 if [ "$fails" -eq 0 ]; then
   # THE SENTENCE CLAIMS WHAT WAS MEASURED AND NOT ONE WORD MORE. Section 4 sees the
@@ -601,7 +651,7 @@ if [ "$fails" -eq 0 ]; then
   # catalog, including whether it would fire. Neither one executes a TRUNCATE, so
   # "the guards are present and would fire" is the claim, not "TRUNCATE was tried
   # and refused" -- that one is internal/db/appendonly_truncate_test.go's.
-  echo "pg-restore-verify: PASS — the restored database matches $(basename "$DUMP") in rows, schema, policies, BOTH table- and column-level privileges, every function's owner/SECURITY DEFINER/search_path/EXECUTE and the attributes of every role behind them, the UPDATE/DELETE privilege belt, and an enabled TRUNCATE guard on each of the nine append-only tables."
+  echo "pg-restore-verify: PASS — the restored database matches $(basename "$DUMP") in rows, schema, policies, BOTH table- and column-level privileges, every function's owner/SECURITY DEFINER/search_path/EXECUTE and the attributes of every role behind them, the UPDATE/DELETE privilege belt, an enabled TRUNCATE guard on each of the nine append-only tables, and, where the database carries the punch feed, a counter for every tenant moved past its last restored event."
   exit 0
 fi
 echo "pg-restore-verify: $fails CHECK(S) FAILED — do not put this database into service." >&2

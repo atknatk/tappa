@@ -211,7 +211,7 @@ type rowQuerier interface {
 
 func readOperatorRoleOn(ctx context.Context, q rowQuerier) (operatorRoleFacts, error) {
 	var f operatorRoleFacts
-	if err := q.QueryRow(ctx, roleFactsQuery).Scan(&f.User, &f.Super, &f.BypassRLS, &f.OwnsScopedTable, &f.InheritsPrivilege); err != nil {
+	if err := q.QueryRow(ctx, roleFactsQuery).Scan(&f.User, &f.Super, &f.BypassRLS, &f.OwnsScopedTable, &f.InheritsPrivilege, &f.MemberOfARole); err != nil {
 		return operatorRoleFacts{}, operatorStepErr("read its role", err)
 	}
 	if err := q.QueryRow(ctx, operatorRoleQuery).Scan(&f.Session, &f.MemberOfAny, &f.HasMembers,

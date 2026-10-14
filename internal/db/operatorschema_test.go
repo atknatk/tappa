@@ -508,11 +508,19 @@ func opReverseFindings(ctx context.Context, q opQuerier) ([]string, error) {
 		// the owner of ADR 0027's closed list (holding_timezone_lock since 00041). holding_peer is
 		// SECURITY INVOKER and outside this check; its own catalogue row is
 		// TestHoldingPeer_InvokerVolatileOwnedByDefinerExecutableOnlyByOwner.
-		{"a SECURITY DEFINER owned outside {tappa_resolver, tappa_opdefiner, tappa_holdingdefiner} or by a superuser", `
+		// M11 API-2 (ADR 0028 §4): and by tappa_feedwriter, the owner of the own-tenant feed
+		// triggers (punch_feed, feed_open_counter -- 00048/00049) -- NOBYPASSRLS, member of nothing.
+		{"a SECURITY DEFINER owned outside {tappa_resolver, tappa_opdefiner, tappa_holdingdefiner, tappa_feedwriter} or by a superuser", `
 			SELECT p.oid::regprocedure::text || ' owned by ' || r.rolname || ' rolsuper=' || r.rolsuper
 			  FROM pg_proc p JOIN pg_roles r ON r.oid = p.proowner
 			 WHERE p.prosecdef
-			   AND (r.rolname NOT IN ('tappa_resolver', 'tappa_opdefiner', 'tappa_holdingdefiner') OR r.rolsuper)`},
+			   AND (r.rolname NOT IN ('tappa_resolver', 'tappa_opdefiner', 'tappa_holdingdefiner', 'tappa_feedwriter') OR r.rolsuper)`},
+		{"tappa_feedwriter has a member (it would write the feed with no trigger in the way)", `
+			SELECT pg_get_userbyid(m.member) FROM pg_auth_members m
+			 WHERE m.roleid = 'tappa_feedwriter'::regrole`},
+		{"tappa_feedwriter is a member of a role (its triggers would inherit that role's reach)", `
+			SELECT pg_get_userbyid(m.roleid) FROM pg_auth_members m
+			 WHERE m.member = 'tappa_feedwriter'::regrole`},
 		{"tappa_holdingdefiner has a member (one SET ROLE from BYPASSRLS)", `
 			SELECT pg_get_userbyid(m.member) FROM pg_auth_members m
 			 WHERE m.roleid = 'tappa_holdingdefiner'::regrole`},
@@ -545,18 +553,21 @@ func opReverseFindings(ctx context.Context, q opQuerier) ([]string, error) {
 		{"an operator role carries a role-level setting (pg_db_role_setting)", `
 			SELECT pg_get_userbyid(s.setrole) || ' ' || array_to_string(s.setconfig, ',')
 			  FROM pg_db_role_setting s
-			 WHERE s.setrole IN ('tappa_operator'::regrole, 'tappa_opdefiner'::regrole, 'tappa_holdingdefiner'::regrole)`},
+			 WHERE s.setrole IN ('tappa_operator'::regrole, 'tappa_opdefiner'::regrole, 'tappa_holdingdefiner'::regrole,
+			                     'tappa_feedwriter'::regrole)`},
 		{"a role has the wrong attributes (ADR 0021 §1)", `
 			SELECT rolname || ' super=' || rolsuper || ' bypassrls=' || rolbypassrls || ' login=' || rolcanlogin
 			  FROM pg_roles
 			 WHERE (rolname = 'tappa_opdefiner' AND (rolsuper OR NOT rolbypassrls OR rolcanlogin OR rolcreaterole OR rolcreatedb))
 			    OR (rolname = 'tappa_operator'  AND (rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb))
-			    OR (rolname = 'tappa_holdingdefiner' AND (rolsuper OR NOT rolbypassrls OR rolcanlogin OR rolcreaterole OR rolcreatedb OR rolreplication))`},
+			    OR (rolname = 'tappa_holdingdefiner' AND (rolsuper OR NOT rolbypassrls OR rolcanlogin OR rolcreaterole OR rolcreatedb OR rolreplication))
+			    OR (rolname = 'tappa_feedwriter' AND (rolsuper OR rolbypassrls OR rolcanlogin OR rolcreaterole OR rolcreatedb OR rolreplication))`},
 		{"a default privilege names an operator role (ADR 0021 §1: none)", `
 			SELECT pg_get_userbyid(d.defaclrole) || ' ' || d.defaclobjtype::text || ' ' || d.defaclacl::text
 			  FROM pg_default_acl d
-			 WHERE d.defaclrole IN ('tappa_operator'::regrole, 'tappa_opdefiner'::regrole, 'tappa_holdingdefiner'::regrole)
-			    OR d.defaclacl::text ~ '(^|[{,])tappa_(op(erator|definer)|holdingdefiner)='`},
+			 WHERE d.defaclrole IN ('tappa_operator'::regrole, 'tappa_opdefiner'::regrole, 'tappa_holdingdefiner'::regrole,
+			                        'tappa_feedwriter'::regrole)
+			    OR d.defaclacl::text ~ '(^|[{,])tappa_(op(erator|definer)|holdingdefiner|feedwriter)='`},
 	}
 	for _, c := range checks {
 		if err := collect(c.sql, c.label); err != nil {
@@ -604,6 +615,12 @@ func TestOperator00026_ReverseCatalogPin(t *testing.T) {
 		{"a member of tappa_holdingdefiner", `GRANT tappa_holdingdefiner TO tappa_app`, "tappa_holdingdefiner has a member"},
 		{"tappa_holdingdefiner made a member of the owner", `GRANT tappa_owner TO tappa_holdingdefiner`, "tappa_holdingdefiner is a member of a role"},
 		{"a holding definer that logs in", `ALTER ROLE tappa_holdingdefiner LOGIN`, "wrong attributes"},
+		// M11 API-2: the feed writer's four (ADR 0028 §4).
+		{"a member of tappa_feedwriter", `GRANT tappa_feedwriter TO tappa_app`, "tappa_feedwriter has a member"},
+		{"tappa_feedwriter made a member of the owner", `GRANT tappa_owner TO tappa_feedwriter`, "tappa_feedwriter is a member of a role"},
+		{"a feed writer that bypasses RLS", `ALTER ROLE tappa_feedwriter BYPASSRLS`, "wrong attributes"},
+		{"a definer owned by tappa_feedwriter is in the set; a superuser-owned one is not", `CREATE FUNCTION public.zz_probe_feed_definer() RETURNS void
+			LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS 'SELECT 1'`, "SECURITY DEFINER owned outside"},
 		{"a default privilege for the operator", `ALTER DEFAULT PRIVILEGES FOR ROLE tappa_owner IN SCHEMA public
 			GRANT SELECT ON TABLES TO tappa_operator`, "default privilege"},
 	}
@@ -1243,7 +1260,7 @@ func TestOperator00026_OperatorRoleIsNotPrivileged(t *testing.T) {
 		t.Helper()
 		var f RoleFacts
 		if err := opAs(t, ctx, tx, "tappa_operator", func(sp pgx.Tx) error {
-			return sp.QueryRow(ctx, roleFactsQuery).Scan(&f.User, &f.Super, &f.BypassRLS, &f.OwnsScopedTable, &f.InheritsPrivilege)
+			return sp.QueryRow(ctx, roleFactsQuery).Scan(&f.User, &f.Super, &f.BypassRLS, &f.OwnsScopedTable, &f.InheritsPrivilege, &f.MemberOfARole)
 		}); err != nil {
 			t.Fatalf("run the boot probe as tappa_operator: %v", err)
 		}

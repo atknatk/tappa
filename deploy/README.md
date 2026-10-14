@@ -596,6 +596,15 @@ ALTER DEFAULT PRIVILEGES FOR ROLE tappa_owner IN SCHEMA public
 SQL
 ```
 
+(d3b) **B4**'ün ilk bloğu — punch akışının sayaçları. Yalnız goose 48 ve sonrasının dökümünde: daha
+eskisinde tablo yoktur, bu blok atlanır ve araç *"no punch feed"* deyip geçer:
+
+```bash
+docker exec -i tappa-drill-db sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -v ON_ERROR_STOP=1 -U tappa_owner -d tappa' <<'SQL'
+UPDATE public.feed_counters SET last_seq = last_seq + 1000000;
+SQL
+```
+
 (d4) **B4** — doğrulama aracı, `tappa_app` olarak TCP üzerinden. `PGPASSWORD` docker'a
 **adıyla** verilir (`-e PGPASSWORD`, değersiz): değer argv'ye değil ortamdan geçer.
 `PASS` ve `exit 0` görmeden prova başarılı sayılmaz:
@@ -2844,6 +2853,22 @@ kaydın gerçekte nasıl doğduğunun dürüst hâlidir.
 
 **6. Geri yüklenen kopyayı DOĞRULA — takastan önce.**
 
+🔴 **Önce punch akışının sayaçlarını ileri at (M11 API-2, ADR 0028 §5).** Döküm her tenant'ın
+sayacını **yedek anındaki** değerle getirir; yedekten sonra yazılıp entegratörce okunmuş olaylar bu
+kopyada yok, ama entegratörün imleci onların ötesinde. Uygulama bu sayaçtan yazmaya başlarsa yeni
+olaylar entegratörün geçtiği `seq`'leri yeniden kullanır ve `seq > imleç` onları **hiç görmez**.
+Uygulama yazmadan önce, bir kez:
+
+```bash
+kubectl -n tappa exec -i statefulset/tappa-postgres -- \
+  sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -v ON_ERROR_STOP=1 -U tappa_owner -d tappa_restore' <<'SQL'
+UPDATE public.feed_counters SET last_seq = last_seq + 1000000;
+SQL
+```
+
+Doğrulama aracı bunu geri yüklenen verinin kendisinden denetler (her tenant'ın sayaç satırı var ve
+son olayının en az `1000000` ötesinde) ve atlanmışsa reddeder.
+
 ```bash
 PGHOST=<postgres> PGDATABASE=tappa_restore PGUSER=tappa_owner \
 PGPASSWORD=<owner> TAPPA_APP_PASSWORD=<app> \
@@ -2999,6 +3024,15 @@ SQL
 **B4. 🔴 DOĞRULA — VE BU YOLDA ARAÇ İSTEĞE BAĞLI DEĞİL.** A YOLU'nda yanında
 karşılaştıracağın bozuk bir veritabanı var; burada **yok**, yani geri yüklemenin
 doğru olduğuna dair tek kanıt bu araçtır.
+
+Önce — uygulama açılmadan — punch akışının sayaçlarını ileri at (A YOLU 6. adımın gerekçesi):
+
+```bash
+kubectl -n tappa exec -i statefulset/tappa-postgres -- \
+  sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -v ON_ERROR_STOP=1 -U tappa_owner -d tappa' <<'SQL'
+UPDATE public.feed_counters SET last_seq = last_seq + 1000000;
+SQL
+```
 
 ```bash
 PGHOST=<postgres> PGDATABASE=tappa PGUSER=tappa_owner \

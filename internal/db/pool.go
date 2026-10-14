@@ -102,6 +102,9 @@ func newDB(ctx context.Context, cfg *config.Config, before func(context.Context,
 		return nil, err
 	}
 	pinLogParameters(poolCfg, "DATABASE_URL", before)
+	// The stuck-writer timeouts (ADR 0028 §5) -- this pool's alone: the operator pool writes no
+	// punch and holds no feed counter.
+	pinFeedTimeouts(poolCfg)
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		return nil, fmt.Errorf("db: new pool: %w", err)
@@ -111,6 +114,10 @@ func newDB(ctx context.Context, cfg *config.Config, before func(context.Context,
 		return nil, fmt.Errorf("db: ping: %w", err)
 	}
 	d := &DB{pool: pool}
+	if err := d.requireFeedTimeouts(ctx); err != nil {
+		pool.Close()
+		return nil, err
+	}
 	facts, err := d.readRole(ctx)
 	if err != nil {
 		pool.Close()
@@ -176,6 +183,14 @@ type RoleFacts struct {
 	// transitively, of some role that is SUPERUSER or BYPASSRLS. Membership is one
 	// SET ROLE away from the attribute itself.
 	InheritsPrivilege bool
+	// MemberOfARole is true when this role is a direct member of ANY role (ADR 0028 §4, M11
+	// API-2). InheritsPrivilege sees only a superuser or a BYPASSRLS role; the punch feed's
+	// writer, tappa_feedwriter, is neither -- it obeys RLS -- and yet it alone may write the
+	// feed (tappa_app may not: an event the triggers did not write is a forged punch for every
+	// integrator). A `GRANT tappa_feedwriter TO tappa_app` slipped in after the migrations would
+	// pass every other fact here; the application role is a member of nothing (measured on
+	// fresh init and on development, ADR 0028 §4), so any membership is refused.
+	MemberOfARole bool
 	// Session is session_user -- the role the connection SIGNED IN as. It differs from
 	// User when the DSN asks for another role at start-up (`role=` is a startup
 	// parameter pgx sends from a query parameter). Measured (M10 OP-7, 2nd round): the
@@ -193,7 +208,7 @@ type RoleFacts struct {
 // position of a party for which RLS is skipped or removable (membership, ownership,
 // or a session that signed in as a different role and is one SET ROLE NONE from it).
 func (f RoleFacts) Privileged() bool {
-	return f.Super || f.BypassRLS || f.OwnsScopedTable || f.InheritsPrivilege || f.switchedRole()
+	return f.Super || f.BypassRLS || f.OwnsScopedTable || f.InheritsPrivilege || f.MemberOfARole || f.switchedRole()
 }
 
 // switchedRole: the session signed in as one role and runs as another.
@@ -273,7 +288,7 @@ func (d *DB) readRole(ctx context.Context) (RoleFacts, error) {
 	defer conn.Release()
 	var f RoleFacts
 	row := conn.QueryRow(ctx, roleFactsQuery)
-	if err := row.Scan(&f.User, &f.Super, &f.BypassRLS, &f.OwnsScopedTable, &f.InheritsPrivilege); err != nil {
+	if err := row.Scan(&f.User, &f.Super, &f.BypassRLS, &f.OwnsScopedTable, &f.InheritsPrivilege, &f.MemberOfARole); err != nil {
 		return RoleFacts{}, fmt.Errorf("db: read connection role: %w", err)
 	}
 	if err := conn.QueryRow(ctx, sessionUserQuery).Scan(&f.Session); err != nil {
@@ -316,7 +331,10 @@ const roleFactsQuery = `
 	       EXISTS (SELECT 1
 	                 FROM pg_catalog.pg_roles p
 	                WHERE (p.rolsuper OR p.rolbypassrls)
-	                  AND pg_catalog.pg_has_role(current_user, p.oid, 'MEMBER'))
+	                  AND pg_catalog.pg_has_role(current_user, p.oid, 'MEMBER')),
+	       EXISTS (SELECT 1
+	                 FROM pg_catalog.pg_auth_members m
+	                WHERE m.member OPERATOR(pg_catalog.=) r.oid)
 	  FROM pg_catalog.pg_roles r
 	 WHERE r.rolname OPERATOR(pg_catalog.=) current_user`
 
@@ -373,8 +391,8 @@ func roleRefusal(f RoleFacts, isProd bool) error {
 		return nil
 	}
 	return fmt.Errorf("db: role %q (session_user %q) has rolsuper=%v rolbypassrls=%v owns_or_can_become_owner_of_an_rls_table=%v "+
-		"member_of_a_superuser_or_bypassrls_role=%v signed_in_as_another_role=%v: %s",
-		f.User, f.Session, f.Super, f.BypassRLS, f.OwnsScopedTable, f.InheritsPrivilege, f.switchedRole(), RoleRiskWhy)
+		"member_of_a_superuser_or_bypassrls_role=%v member_of_any_role=%v signed_in_as_another_role=%v: %s",
+		f.User, f.Session, f.Super, f.BypassRLS, f.OwnsScopedTable, f.InheritsPrivilege, f.MemberOfARole, f.switchedRole(), RoleRiskWhy)
 }
 
 // Tenant resolution (ADR 0002 madde 7) is intentionally NOT provided here.

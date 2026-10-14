@@ -355,7 +355,7 @@ func TestReadRoleSeesAnOwnerThatIsNotASuperuser(t *testing.T) {
 
 	var f RoleFacts
 	if err := tx.QueryRow(ctx, roleFactsQuery).
-		Scan(&f.User, &f.Super, &f.BypassRLS, &f.OwnsScopedTable, &f.InheritsPrivilege); err != nil {
+		Scan(&f.User, &f.Super, &f.BypassRLS, &f.OwnsScopedTable, &f.InheritsPrivilege, &f.MemberOfARole); err != nil {
 		t.Fatalf("running the shipped role probe as %s: %v", role, err)
 	}
 
