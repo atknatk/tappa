@@ -1109,8 +1109,9 @@ yalnız tetikleyicileri kurar (kilit altındaki iş milisaniyeler; geçmiş yazm
 alınamazsa migrate Job'ı düşer, sakin bir anda yeniden koşulur — kayıt kaybolmaz. `00050`
 (`NO TRANSACTION`) geçmişi tenant başına en çok 1 000 punch'lık işlemlerle geri doldurur; her işlem
 yalnız o tenant'ın sayaç satırını tutar, tutma süresi tenant'ın büyüklüğünden bağımsızdır
-(`TestFeedBackfill_BigTenantLiveTapsLoseNothing`); büyük bir veritabanında migrate Job'ı dakikalar
-sürebilir (atılabilir kapta 650 000 satırlık tek tenant: ~52 sn), dokunuşlar bu sırada yazılmaya devam eder.
+(`TestFeedBackfill_BigTenantLiveTapsLoseNothing`) ve istatistiğe değil sorgunun metnine bağlıdır
+(`TestFeedBackfill_ThePlanIsTheTexts`); büyük bir veritabanında migrate Job'ı dakikalar sürebilir
+(atılabilir kapta 650 000 satırlık tek tenant: ~40 sn), dokunuşlar bu sırada yazılmaya devam eder.
 
 **Geri alma:** `00049`'un Down'ı yazıcıları kaldırır ve `holding_feed`'i `00046`'nın gövdesine döndürür;
 yazılmış olaylar **kalır** (append-only). Down süresince yazılan kayıtların olayı yoktur; `00049`'un ve
@@ -2871,6 +2872,31 @@ SQL
 
 Doğrulama aracı bunu geri yüklenen verinin kendisinden denetler (her tenant'ın sayaç satırı var ve
 son olayının en az `1000000` ötesinde) ve atlanmışsa reddeder.
+
+**Eski manifest'li yedek** (M11 API-2 öncesi bir `scripts/pg-backup.sh`'nin yazdığı; manifest'te
+`feed_counters <n>` başlığı yok). Araç bu yedeğin 6. bölümünü **reddeder**, çünkü sayaçların **bu**
+geri yüklemede ileri atıldığını dökümün kendi sayaç değerleriyle kanıtlayamaz. Önce yeni bir yedek
+al. Felakette o yedek **tek** yedekse, punch akışını bir insan doğrular:
+
+1. Yukarıdaki `UPDATE public.feed_counters SET last_seq = last_seq + 1000000;` bloğunu uygulama
+   **kapalıyken**, bu geri yükleme için **bir kez** koş. Fazladan bir koşu yalnız boşluğu büyütür
+   (entegratörün imleci zarar görmez); hiç koşmamak olayları kaybettirir.
+2. Elle denetle, iki sorgunun ikisi de `0` dönmeli:
+
+   ```sql
+   SELECT count(*) FROM public.tenants s
+    WHERE NOT EXISTS (SELECT 1 FROM public.feed_counters c WHERE c.tenant_id = s.id);
+   SELECT count(*) FROM public.feed_counters c
+    WHERE c.last_seq < coalesce((SELECT max(p.seq) FROM public.punch_events p WHERE p.tenant_id = c.tenant_id), 0) + 1000000;
+   ```
+
+3. Aracın **öteki** bütün bölümleri yine `ok` vermeli; kabul edilen tek `FAIL` 6. bölümün
+   *"no 'feed_counters' header"* satırıdır.
+4. Olay kaydına yaz: yedeğin damgası, `UPDATE`'in koştuğu an, koşturan kişi, iki sorgunun sonucu.
+   Bu kayıt, aracın kanıtlayamadığı adımın kanıtıdır.
+
+Boş bir veritabanının (henüz tenant yok) yedeği bu yola girmez: yeni `pg-backup.sh` onun
+manifest'ine de `feed_counters 0` yazar ve araç geçer.
 
 ```bash
 PGHOST=<postgres> PGDATABASE=tappa_restore PGUSER=tappa_owner \

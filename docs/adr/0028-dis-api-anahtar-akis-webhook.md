@@ -742,7 +742,11 @@ büyük tenant'ın geri doldurması — `TestFeedBackfill_BigTenantLiveTapsLoseN
 `TestFeed_OneCounterSetPerTransaction`, `TestFeed_TwoEventRowsInOneTransactionAreRefusedNotDeadlocked`,
 `TestFeedMutant_TwoEventRowsWithoutTheCheckDeadlock`; dökümün sayaçları —
 `TestPgBackup_ManifestCarriesTheDumpsFeedCounters` (+ `TestRestoreVerify_CountersAheadOfEvents`'in iki ardışık
-geri yükleme vakası).
+geri yükleme vakası). **Üçüncü tur:** planın metne bağlılığı — `TestFeedBackfill_ThePlanIsTheTexts`; geri
+doldurmanın yönü — `TestFeedBackfill_WithinTwoSeconds` ve `TestFeedBackfill_BigTenantLiveTapsLoseNothing`
+(karışık in/out); işaretin yalnız tetikleyicinin olması — `TestRedline_TheCounterSetMarkIsTheTriggersAlone`;
+tenant'sız veritabanının geri yüklemesi — `TestRestoreVerify_FeedManifestGate` (+
+`TestRestoreVerify_EveryTenantHasACounter`'ın sıfır tenant vakası).
 
 **API-3** — `ApiKeysCatalog` · `ApiKeyRevocation_IsOneWay` · `ApiKeyRevocation_ConcurrentAndBulkAreSafe` ·
 `ApiKeyAuth_RevokedIs401ClosedIs403` · `ApiKeyAuth_WrongPrefixNeverReachesTheDatabase` ·
@@ -953,12 +957,13 @@ eklendi ve `holdingBelow46` önce `feedBelow48`'i (olay satırları kenara, `000
 9. **Kendi-tenant GUC assert'i olay yazan yoldadır.** `ok`/onay dışındaki satır kilitsiz ve okumasız döner;
    olay yazan bir satır bağlamsız (ya da başka bağlamla) yazılırsa 55000. Ürünün her yazarı bağlamlıdır;
    sahip olarak bağlamsız `ok` satırı yazan test fikstürleri (ledger) bağlamla yazacak şekilde düzeltildi.
-10. **Adlandırılmış ön koşul — işlem başına en çok bir olay-yazan satır.** §5'in sıra argümanı ve K-31'in
-    kanonik kilidi bir işlemin **tek** olay-yazan ifadesine dayanır: tap yolu işlem başına bir kayıt,
-    onay yolu bir inceleme yazar (ölçüldü — `checkin.insert`, `review.Record`). Aynı işlemde bir
-    kendi-tenant ve bir holding satırı yazan ham bir yazıcı sayaçları ters sırada alabilir; stres bu
-    yüzden ürün şeklini (işlem başına bir satır) sürer.
-11. **Eklenen kısıtlar (sütun eklemez):** `punch_events_once UNIQUE (tenant_id, punch_id, version)` (hedef
+10. **Ön koşul — işlem başına tek sayaç kümesi** *(ilk sürümde "en çok bir olay-yazan satır" diye
+    adlandırılmış bir ön koşuldu; ikinci turda mekanikleşti — aşağıda "İkinci tur", D-1).* §5'in sıra
+    argümanı ve K-31'in kanonik kilidi bir işlemin olaylarının **tek** sayaç kümesini kilitlemesine dayanır:
+    tap yolu işlem başına bir kayıt, onay yolu bir inceleme yazar (ölçüldü — `checkin.insert`,
+    `review.Record`). Kümenin dışında olay yazan ikinci satır kilitten önce `TF001` ile reddedilir; kümenin
+    içinde kalan (örn. önce `A@B`, sonra kendi `A`) serbesttir.
+11. **Eklenen kısıtlar (sütun eklemez):** `punch_events_once UNIQUE (punch_id, tenant_id, version)` (hedef
     başına olay tam bir kez — bir hata çift olay değil yüksek sesli hata olur), `roles` kapalı küme,
     `{location}` ⇔ başka tenant, v1 değerleri, kanal; `webhook_deliveries` için §6'nın kapalı kümeleri ve
     `UNIQUE(endpoint_id, punch_event_seq)`; `webhook_endpoints` `UNIQUE(tenant_id)`, `https://` ve 2 048
@@ -1025,7 +1030,9 @@ en uzun 1,03 sn, 0,5 sn üstü 20; **650 000 satır** (553 parça): medyan **15 
 0,5 sn üstü 29, toplam 52 sn; iki koşuda canlı yazmalarda **0 55P03, 0 kilitlenme**, akış 1..n, her uygun punch
 tam bir olay. Medyan tenant büyüklüğünden bağımsızdır; kuyruk G/Ç duraklamalarıdır (aynı dağılım 300 bin ile
 650 bin arasında büyümüyor). Eski sürümün 700 000 satır / 0,37 sn sayısı 300 tenant'a yayılmış satırdaydı ve
-geçersizdir.
+geçersizdir. *(Üçüncü turda düzeltildi: bu paragrafın "15 ms" medyanları `TestFeedBackfill_BigTenantLiveTapsLoseNothing`'in
+FK'sız kazıma tablolarındandı, ve sıralı tarama/hash/merge kapatmasının planı "istatistik ne derse desin"
+sabitlediği iddiası ölçümle çürüdü — aşağıda "Üçüncü tur".)*
 
 *D-1 (tek sayaç kümesi — artık mekanik):* bir işlemin İLK olayı sayaç kümesini kilitler (kendi dokunuş
 {tenant}, holding {işveren, saha}); aynı işlemin sonraki olay-yazan satırı ancak bu kümenin içinde kalırsa
@@ -1035,8 +1042,13 @@ yeniden denemesi bu yüzden etkilenmez). Olay yazmayan satırlar (flag, red, man
 etkilenmez; geri doldurma tetikleyiciden geçmez. Ölçüldü: inceleyenin ham şekli (kendi A + B@A, kendi B +
 A@B; 12 yazıcı × 20 tur) gerçek tetikleyicilerle 240'ın 240'ı TF001, **0 kilitlenme**, hiçbir satır yazılmadı;
 kontrol olmadan (atılabilir kapta gerçek fonksiyonlardan kontrol çıkarılınca) **182 kilitlenme**, laboratuvarda
-177. **Sınırı (adlandırıldı):** GUC'u çağıran da yazabilir — `tappa_app` kendi işleminde işareti önceden yazıp
-kontrolü atlatabilir; bunun bedeli kendi işleminin kilitlenme riskidir (ürün yolu değil, veri bütünlüğü değil).
+177. **Sınırı (adlandırıldı; üçüncü turda düzeltildi):** GUC'u çağıran da yazabilir — işareti önceden yazan bir
+işlem kontrolü atlatır. Atlatan işlem **başka tenant çiftlerinin** holding dokunuşlarını 40P01'e sürükleyebilir;
+o kayıt yazılmaz (checkin 40P01'i yeniden denemez). Ulaşmak `tappa_app` SQL erişimi ister — aynı erişimle sayacı
+tutup 55P03 kaybı üretmek zaten mümkündür —, ürün kodunda bu GUC'u yazan yol yoktur ve redline R5c adı
+migration dışında reddeder. *(İlk hali "bedeli kendi işleminin kilitlenme riskidir" diyordu; iki mercek
+ölçtü: pgbench, işareti önceden yazan X'e karşı ürün biçimli holding dokunuşu Z — Z'nin 29 işleminden 18'i
+40P01; üçüncü göz 155'te 88 kurban.)*
 Birden çok tenant'ta olay yazan test işlemleri savepoint'lere bölündü.
 
 *Güvenlik D1 (geri yükleme):* `scripts/pg-backup.sh` dökümün kendi `COPY public.feed_counters` bölümünden
@@ -1045,8 +1057,70 @@ Birden çok tenant'ta olay yazan test işlemleri savepoint'lere bölündü.
 satırını reddeder; özellik dosyalı bir veritabanında `feed_counter` satırı olmayan manifest (eski
 pg-backup.sh) reddedilir. Manifest satırları SQL'e girmeden `<uuid> <tamsayı>` biçimine denetlenir. İki ardışık
 geri yükleme vakası (ikincisinde adım atlanmış): ilk yarı tek başına PASS veriyordu, şimdi FAIL; adımla PASS.
+*(Üçüncü turda: kapı satırlara değil `feed_counters <n>` başlığına bakar — aşağıda.)*
 
 *Redline:* R5'in boş değer muafiyeti yalnız `db/migrations/` altındaki ve satırın **tamamı**
 `SET app.tenant_id = ''` olan satıra verilir; aynı satırda önce tenant değeri yazan `SET` (sonda) ve
 migration dışındaki boş-değer satırı artık WARN (iki sonda ile gösterildi).
+
+**Üçüncü tur (2026-10-14 — iki mercek ONAY + DÜŞÜK'ler; yeniden denetim yok, her değişiklik ölçüldü).**
+
+*00050'nin planı istatistikten bağımsız değildi.* İkinci turun başlığı ("istatistik ne derse desin") ölçümle
+çürüdü (üçüncü göz): `punch_events`'in istatistiği dolu hâliyle alınıp tablo boşalınca pencerenin `NOT EXISTS`'i
+bir `Materialize` üstünde `Nested Loop Anti Join` oldu — her pencere tenant'ın bütün olaylarını okudu, 7 dakikayı
+aşan pencere; istatistiksizken kilitli INSERT parça başına 4,4 sn ve 270 canlı 55P03. Bu turda ayrıca ölçüldü:
+(1) önerilen "tam UNIQUE anahtarla ara" da yetmez — `tenant_id = $1 AND punch_id = $2` iki indeksle karşılanabilir
+ve tenant'ı küçük sanan istatistik (boşken `ANALYZE` — dosyanın kendi ilk durumu) ikisini de bir satıra
+fiyatlar: planlayıcı `punch_events_tenant_time_idx`'i seçti, yani tenant'ın bütün aralığını tarayan sondayı;
+(2) istatistiksizken kimliklerin `transactions`'a düz JOIN'i, PL/pgSQL'in plan önbelleği beşinci parçadan sonra
+genele dönene kadar tenant'ın her satırı üstünde iç içe döngü oldu — kilit altında parça başına 20–63 sn;
+(3) `enable_*` kapatmaları planı `disable_cost` kadar pahalı gösterdiği için her parçanın ifadeleri JIT ile
+derleniyordu — 237 ms'lik pencerenin 235 ms'i, JIT kapalı 1,7 ms. **Çözüm metindedir:** her arama skaler bir
+alt sorgu ya da `OFFSET 0` ile çitlenmiş bir `LATERAL` alt sorgudur (PostgreSQL ikisini de join'e, `Materialize`'a
+ya da hashed SubPlan'a çevirmez — satır başına bir indeks sondası), tek sargable yüklemi benzersiz bir kimliktir,
+tenant `IS NOT DISTINCT FROM` ile karşılaştırılır (onu hiçbir indeks karşılamaz), `punch_events_once`
+`punch_id` ile başlar (`00048`; tablonun `tenant_id` ile başlamayan tek indeksi) ve her parçada sıralı ve
+bitmap tarama, tam Sort ve JIT kapalıdır. Onayın `EXISTS`'i (bir `OR`'un içinde hashed SubPlan'dı — tenant'ın
+bütün onaylarını her pencerede okuyordu) aynı biçime geçti: satır başına `transaction_reviews_txn_key` sondası
+(madde 6 çözüldü). **Ölçüm** — atılabilir kap, **gerçek tablolar**, tek tenant 650 000 satır (552 091 uygun),
+553 parça: `ANALYZE`'lı (gönderilen yol) pencere medyanı 3 ms (en uzun 8 ms), sayaç tutma medyanı 64 ms
+(p99 84 ms, en uzun 0,10 sn), toplam 39 sn; **istatistiksiz** 3 ms / 65 ms (en uzun 0,32 sn), 40 sn;
+**bayat** (`punch_events` dolu `ANALYZE`'lı, sonra boşaltılmış) 4 ms / 76 ms (en uzun 0,10 sn), 46 sn; üçünde de
+ilk ve son 50 parçanın ortalamaları aynı (tutma 64/64, 67/80, 66/65 ms). Gönderilen yolda tenant'ın 2 820 canlı
+dokunuşu sürerken: 0 hata, en uzun bekleme 0,23 sn, akış 1..554 911, her uygun punch tam bir olay, yönleri
+`transactions.type`. Karşılaştırma için ikinci turun dosyası aynı kapta: bayat istatistikle pencere medyanı
+238 ms, istatistiksiz ~1 sn ve bir pencerede 53 sn. Kazıma tablolarındaki test (`TestFeedBackfill_BigTenantLiveTapsLoseNothing`,
+300 000 satır) artık 13 ms medyan, toplam 5 sn. **Pin:** `TestFeedBackfill_ThePlanIsTheTexts` — `punch_events_once`'ın
+ilk sütunu ve onunla başlayan tek indeks; bloğun metninde olay/onay `EXISTS`'i, `LATERAL` olmayan `JOIN` ve
+sondalanan tablonun `tenant_id = v_tenant`'ı yok; parçanın kendi ayarlarıyla `EXPLAIN` — pencere
+`transactions_tenant_occurred_idx` + `punch_events_once` + `transaction_reviews_txn_key`, kilitli yazma kimlikle;
+`Materialize`, hash, sıralı tarama, bitmap, merge, `punch_events_tenant_time_idx` yok. Mutantlar: olay
+`NOT EXISTS`'e dönünce, onay `EXISTS`'e dönünce, kimlikler düz `JOIN`'e dönünce kırmızı. **Kalan, adlandırıldı:**
+yürüyüş `transactions`'ın `(tenant_id, occurred_at)` indeksine dayanır; tam Sort kapalıyken o tenant için
+`occurred_at` sırası veren tek yol odur. Her koşu her tenant'ın uygun satırlarını kilitsiz bir kez yürür
+(650 000 satırın hepsi olaylıyken 1,8 sn, soğuk önbellekle).
+
+*Geri doldurmanın yönü pinlendi.* `00050`'de `n.type` ters çevrilince üç geri doldurma testi yeşil kalıyordu
+(biri yalnız `'in'` yazıyordu). İki test artık karışık in/out yazar ve her olayın `direction`'ının punch'ının
+`transactions.type`'ı olduğunu, iki değerin de geçtiğini ister. Mutantlar (ters; sabit `'in'`) iki testte de
+kırmızı.
+
+*TF001 atlatmasının bedeli düzeltildi* (yukarıda D-1'in sınırı) ve **redline R5c** eklendi: `tappa.feed_counters`
+adı `db/migrations/` dışında hiçbir yerde (ürün kodu, betik, dağıtım, test) geçemez — FAIL.
+`TestRedline_TheCounterSetMarkIsTheTriggersAlone`: migration'da yok, Go/test/betik/dağıtım dosyasında FAIL;
+kapsam genişletme ve ad değiştirme mutantları kırmızı. Hata mesajı da kurala uyduruldu: *"this event needs a
+counter outside the set this transaction's first event locked; one counter set per transaction"* (`A@B` →
+kendi `A` serbesttir; testler mesaja değil koda bakar).
+
+*Tenant'sız veritabanının geri yüklemesi.* Boş `feed_counters` manifest'e satır yazmıyordu; kapı satıra
+baktığı için böyle bir manifest eski `pg-backup.sh`'ninkine benziyordu ve geri yükleme kalıcı reddediliyordu
+(yeni yedek de aynı). `pg-backup.sh` artık döküm tabloyu taşıdığında, 0 dahil, `feed_counters <n>` başlığını
+yazar; `pg-restore-verify.sh` bölüm 6 başlığa bakar: yoksa eski yedek (FAIL, `deploy/README.md`'nin elle yolu),
+birden fazla ya da sayı değilse veya satır sayısını tutmuyorsa FAIL, 0 ve satırsızsa SQL boş bir döküm
+tablosuyla koşar ve geçer. `TestRestoreVerify_FeedManifestGate` bölümü veritabanı taklit edilerek koşar
+(yedi manifest); eski kapı mutantı ve sayı denetimini kaldıran mutant kırmızı. `deploy/README.md` "Eski
+manifest'li yedek": tek yedek oysa sayaçları elle ileri at, iki sorguyla denetle, olay kaydına yaz.
+
+*Migration'lar yine yerinde* (`00048`'in `punch_events_once` sütun sırası, `00049`'un hata mesajı ve yorumu,
+`00050`'nin bloğu) — ikinci turun gerekçesiyle: yayınlanmamış migration, M11 dalı.
 

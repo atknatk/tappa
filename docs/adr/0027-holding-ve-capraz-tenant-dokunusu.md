@@ -1059,11 +1059,14 @@ adlandırılmış kalan risk (1. tur, güvenlik merceği; §13 madde 13).
     beklemez (`TestFeedCounter_RowsThatAreNoEventAreWrittenPlainly`). **Kural (deploy/README.md):**
     `feed_counters`'a ya da `punch_events`'e kilit alan bir migration kendi `lock_timeout`'unu 2 sn'nin
     altına koyar; `00050`'nin geri doldurma parçaları (keyset, ≤ 1 000 punch) bir tenant'ın sayacını en
-    çok bir parça süresince tutar ve süre tenant'ın büyüklüğünden bağımsızdır (ölçüldü, tek tenant 650 000
-    satır, canlı dokunuşlar sürerken: medyan 15 ms, p99 1,16 sn, en uzun 1,34 sn, 0 canlı 55P03 — ADR 0028
-    "API-2 uygulama notu", ikinci tur). **Tek sayaç kümesi:** bir işlemin ilk olayı kilitlediği sayaç
+    çok bir parça süresince tutar ve süre tenant'ın büyüklüğünden de istatistikten de bağımsızdır (ölçüldü,
+    gerçek tablolarda tek tenant 650 000 satır, istatistiksiz, bayat istatistikli ve `ANALYZE`'lı üç durumda:
+    tutma medyanı 64–76 ms, en uzun 0,10–0,32 sn; 2 820 canlı dokunuş sürerken 0 hata — ADR 0028
+    "API-2 uygulama notu", üçüncü tur). **Tek sayaç kümesi:** bir işlemin ilk olayı kilitlediği sayaç
     kümesinin dışında olay yazan ikinci satır kilitten önce `SQLSTATE TF001` ile reddedilir — iki yönlü
-    kilitlenme yerine yüksek sesli hata (aynı not, D-1).
+    kilitlenme yerine yüksek sesli hata (aynı not, D-1). İşareti (`tappa.feed_counters`) önceden yazan bir
+    işlem kontrolü atlatır ve **başka** tenant çiftlerinin holding dokunuşlarını 40P01'e sürükler; ürün kodunda
+    onu yazan yol yoktur, redline R5c adı migration dışında reddeder (aynı not, üçüncü tur).
 
 ## Elenen seçenekler
 
