@@ -1692,6 +1692,23 @@ yazılır.
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 
+### 2026-10-14 (29. oturum, otuz sekizinci yarı) — ✅ **API-1c DONE** (güvenlik 3. turda, üçüncü göz 4. turda ONAY) · 📌 **DEVAM: API-2**
+
+**Yeniden başlatmadan sonra:** `docker start tappa-m11-db` (goose **47**). Görev brief'leri ve `m11env.sh`: `~/.claude/projects/-Users-everva-Documents-GitHub-atknatk-tappa/m11-briefs/` (scratchpad /private/tmp'de silinir; brief'ler oturum scratchpad'ine kopyalanır).
+
+**API-1c** (`2dacbfc` … `5359864`, 22 commit, `85b4b8d..5359864`):
+- 00046 `site_punches` (RLS beşlisi, append-only, `tappa_app` SELECT `sun_valid` hariç) + `holding_feed` izdüşüm yarısı (iki tetikleyici); 00047 `holding_site_locations` (kapalı listeye girdi). Red tekilleştirmesi (iki kısmi tekil indeks, `bucket_hour` UTC). İşverenin dokuz okuyucusu (`internal/domain/ledger/site.go`), KF raporunda eş personel süresiz, kayıp plaket uyarısı, eş mekânda manuel kayıt (`employer_manual`), lokasyon silme sayımı.
+- **Denetim izi (4 tur):**
+  - 1. tur: güvenlik ORTA (K-39: motor notu kanıtı düz metinle veriyordu) + üçüncü göz ORTA (§4.6: `holding_feed`'in `lock_timeout`'u işveren kaydını düşürüyordu) → tap yolunda `holding_feed` 55P03'ünde de tek yeniden deneme; not değiştirme.
+  - 2. tur: güvenlik ORTA (anomali ekranı kanıtı sayı olarak veriyordu) + üçüncü göz ORTA (not değiştirme manuel notu/yön notunu da yutuyordu) → anomali süzgeçleri + `TestEvidenceReaders_EveryOneIsClassified` envanteri; sid'e göre kapalı kanıt kümesi, manuel muaf.
+  - 3. tur: güvenlik ONAY; üçüncü göz ORTA (eş kovasının yeri eşin kuralını sızdırıyordu) → eş satırları kural sorgusuna girmez, kova hep sonda.
+  - 4. tur: üçüncü göz ONAY. Son DÜŞÜK'ler `ae5a14a`, `bda0dca`, `5359864`.
+- **Adlandırılmış bedeller (ADR 0027 §13):** madde 5 (a)–(e) K-39 artıkları (verdict kaşesi, `NoteIsTenants`, kural önceliği); madde 16 (KF `tags`/`locations` kilidinde istek zaman aşımında kayıp — M11'den eski sınıf, ölçüldü); 17–22.
+- **Backlog:** T124 (`holding_site_locations` ölçeği), **T125** (M3'ten kalma: `base:gps-only-allow` kapatılınca başka şubedeki GPS-only dokunuş `base:cross-location-note` ile yine `ok` — ölçüldü, kod değişmedi; kullanıcının kararı).
+- **Kullanıcıya rapor edildi, onay bekleyen yok:** madde 19 (pasif eş mekânlar seçicide; kapalı listeyi genişletmemek için adlandırılmış bedel).
+
+**🔴 DEVAM PLANI:** (1) bu kaydın commit'inin CI'ı yeşil mi; (2) **API-2** — brief `m11-briefs/brief-api2-builder.md` → iki mercek → API-3 → … Kullanıcıda bekleyenler otuz dördüncü yarıdaki gibi + `site_punches` saklama süresi (DPA) + T125.
+
 ### 2026-10-14 (28. oturum, otuz yedinci yarı) — ✅ **API-1b DONE** (iki mercek ONAY) · ⏸ **bilgisayar yeniden başlatılıyor** · 📌 **DEVAM: API-1c**
 
 **Yeniden başlatmadan sonra ilk iş:** `docker start tappa-m11-db` (yeniden başlatma politikası `no`; goose 45). Çalışma düzeni otuz dördüncü–otuz altıncı yarıların kayıtlarındaki gibi.
