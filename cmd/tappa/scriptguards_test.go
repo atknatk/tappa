@@ -770,3 +770,44 @@ func TestBackupAndRestoreVerify_ShareTheInventory(t *testing.T) {
 		}
 	}
 }
+
+// TestPgBackup_ManifestCarriesTheDumpsFeedCounters is the API-2 security review's D1 on the backup
+// side: scripts/pg-backup.sh's FEED COUNTERS block -- run here as the script runs it, with sh, on
+// a plain-format dump excerpt -- writes one `feed_counter <tenant> <last_seq>` line per row of the
+// dump's COPY public.feed_counters section and nothing for any other table (a punch_events row, a
+// COPY of another table whose name starts the same), and the manifest carries the file it wrote.
+// scripts/pg-restore-verify.sh section 6 compares every restored counter to those values
+// (internal/db's TestRestoreVerify_CountersAheadOfEvents runs its SQL).
+func TestPgBackup_ManifestCarriesTheDumpsFeedCounters(t *testing.T) {
+	src := readScript(t, "pg-backup.sh")
+	const begin, end = "# >>> FEED COUNTERS >>>", "# <<< FEED COUNTERS <<<"
+	i, j := strings.Index(src, begin), strings.Index(src, end)
+	if i < 0 || j < i {
+		t.Fatal("scripts/pg-backup.sh carries no FEED COUNTERS block")
+	}
+	for _, want := range []string{`cat "$STAGE/.feedcounters.$$"`, `"$STAGE/.feedcounters.$$"`} {
+		if !strings.Contains(src[j:], want) {
+			t.Errorf("scripts/pg-backup.sh's manifest does not carry %s", want)
+		}
+	}
+	dir := t.TempDir()
+	dump := "COPY public.feed_counters_archive (tenant_id, last_seq) FROM stdin;\n" +
+		"99999999-9999-4999-8999-999999999999\t7\n\\.\n" +
+		"COPY public.feed_counters (tenant_id, last_seq) FROM stdin;\n" +
+		"aaaaaaaa-0000-4000-8000-000000000001\t12\n" +
+		"bbbbbbbb-0000-4000-8000-000000000002\t0\n\\.\n" +
+		"COPY public.punch_events (tenant_id, seq) FROM stdin;\n" +
+		"aaaaaaaa-0000-4000-8000-000000000001\t12\n\\.\n"
+	if err := os.WriteFile(filepath.Join(dir, "d.sql"), []byte(dump), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	script := "set -eu\nSQL=" + filepath.Join(dir, "d.sql") + "\nSTAGE=" + dir + "\n" + src[i:j+len(end)] + "\ncat \"$STAGE/.feedcounters.$$\"\n"
+	out, err := exec.Command("sh", "-c", script).CombinedOutput()
+	if err != nil {
+		t.Fatalf("the FEED COUNTERS block: %v\n%s", err, out)
+	}
+	want := "feed_counter aaaaaaaa-0000-4000-8000-000000000001 12\nfeed_counter bbbbbbbb-0000-4000-8000-000000000002 0\n"
+	if string(out) != want {
+		t.Errorf("the block wrote\n%s\nwant\n%s", out, want)
+	}
+}

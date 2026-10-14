@@ -281,6 +281,21 @@ awk '
   END { for (n in rows) printf "%s %d\n", n, rows[n] }
 ' "$SQL" > "$STAGE/.dumpcounts.$$"
 
+# 4c2. THE PUNCH FEED'S COUNTERS AS THE DUMP HOLDS THEM (M11 API-2; ADR 0028 §5 "Geri yükleme").
+#     scripts/pg-restore-verify.sh demands that every restored counter stands FEED_RESTORE_GAP
+#     past THIS value -- not merely past the restored events: a counter moved ahead by an
+#     earlier restore and never written since would otherwise pass a restore whose own step
+#     was skipped (the API-2 security review's D1). Read from the dump's own COPY section, so
+#     the value is the dump's snapshot and not a later live read. A dump older than migration
+#     00048 has no such section and the manifest has no feed_counter line.
+# >>> FEED COUNTERS >>>
+awk '
+  /^COPY public\.feed_counters / { inside = 1; next }
+  inside && $0 == "\\." { inside = 0; next }
+  inside { print "feed_counter", $1, $2 }
+' "$SQL" > "$STAGE/.feedcounters.$$"
+# <<< FEED COUNTERS <<<
+
 # 4d. LIVE COUNTS, taken AFTER the dump. The dump is a single repeatable-read
 #     snapshot from before this moment, so a live count can legitimately be HIGHER
 #     (rows written while the dump ran) — and for public.transactions it can only ever
@@ -394,9 +409,11 @@ SHA="$(sha256sum "$GZ" | awk '{print $1}')"
   done < "$STAGE/.livecounts.$$"
   echo "# per function and per role (section 2b): what scripts/pg-restore-verify.sh compares"
   cat "$STAGE/.functions.$$" "$STAGE/.roles.$$"
+  echo "# per punch feed counter (4c2): tenant last_seq_in_dump -- what pg-restore-verify.sh section 6 compares"
+  cat "$STAGE/.feedcounters.$$"
 } > "$MANIFEST"
 
-rm -f "$STAGE/.dumpcounts.$$" "$STAGE/.livecounts.$$" "$STAGE/.functions.$$" "$STAGE/.roles.$$"
+rm -f "$STAGE/.dumpcounts.$$" "$STAGE/.livecounts.$$" "$STAGE/.functions.$$" "$STAGE/.roles.$$" "$STAGE/.feedcounters.$$"
 
 say "wrote $(basename "$GZ") ($BYTES_GZ bytes) and $(basename "$MANIFEST")"
 say "sha256 $SHA"

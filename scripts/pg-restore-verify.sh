@@ -603,43 +603,64 @@ fi
 # the integrator has already passed -- and `seq > cursor` would skip them forever. So the
 # restore runbook (deploy/README.md, A YOLU step 6 and B YOLU B4) moves every counter
 # FEED_RESTORE_GAP ahead BEFORE the application starts, and this section refuses a
-# database where that did not happen -- judged from the restored rows themselves (the
-# ENABLE/FORCE count gate's precedent), not from a list:
+# database where that did not happen -- judged from the restored rows themselves and from
+# the manifest's record of the DUMPED counters (scripts/pg-backup.sh 4c2):
 #   * every tenant has a counter row: count(tenants) = count(feed_counters), and no tenant
-#     lacks one (a holding punch's pre-lock makes a missing row exist, but a missing row is
-#     still a restore that lost one);
-#   * every counter stands at least FEED_RESTORE_GAP past its last restored event:
-#     last_seq >= coalesce(max(punch_events.seq), 0) + FEED_RESTORE_GAP.
-# A dump from before migration 00048 has no feed and this section says so and passes.
-# internal/db's TestRestoreVerify_CountersAheadOfEvents and
-# TestRestoreVerify_EveryTenantHasACounter run FEED_COUNTERS_SQL itself, cut from this
-# file, against the states it must tell apart.
+#     lacks one;
+#   * every counter stands at least FEED_RESTORE_GAP past its last restored event AND past
+#     the value the DUMP held for it: last_seq >= dump.last_seq + FEED_RESTORE_GAP. The
+#     second half is what proves the step ran on THIS restore (the API-2 security review's
+#     D1, measured: a database restored and moved ahead once, backed up with no event
+#     written since and restored again WITHOUT the step passed the first half alone);
+#   * and every counter row has its dumped value in the manifest.
+# A dump from before migration 00048 has no feed and this section says so and passes; a
+# database with the feed and a manifest without feed_counter lines (a pg-backup.sh older
+# than this check) is refused. internal/db's TestRestoreVerify_* run FEED_COUNTERS_SQL
+# itself, cut from this file, against the states it must tell apart.
 # =================================================================================
 FEED_RESTORE_GAP=1000000
 FEED_COUNTERS_SQL="SELECT concat_ws(' ',
     (SELECT count(*) FROM public.tenants),
     (SELECT count(*) FROM public.feed_counters),
     (SELECT count(*) FROM public.tenants s WHERE NOT EXISTS (SELECT 1 FROM public.feed_counters c WHERE c.tenant_id = s.id)),
-    (SELECT count(*) FROM public.feed_counters c
-      WHERE c.last_seq < coalesce((SELECT max(p.seq) FROM public.punch_events p WHERE p.tenant_id = c.tenant_id), 0) + $FEED_RESTORE_GAP));"
+    (SELECT count(*) FROM public.feed_counters c JOIN zz_feed_dumped d ON d.tenant_id = c.tenant_id
+      WHERE c.last_seq < coalesce((SELECT max(p.seq) FROM public.punch_events p WHERE p.tenant_id = c.tenant_id), 0) + $FEED_RESTORE_GAP
+         OR c.last_seq < d.last_seq + $FEED_RESTORE_GAP),
+    (SELECT count(*) FROM public.feed_counters c WHERE NOT EXISTS (SELECT 1 FROM zz_feed_dumped d WHERE d.tenant_id = c.tenant_id)));"
 feed_present="$($OWNER_PSQL -c "SELECT to_regclass('public.feed_counters') IS NOT NULL AND to_regclass('public.punch_events') IS NOT NULL;")" \
   || die "a catalog query failed against $PGDATABASE; no verdict is issued"
 if [ "$feed_present" != "t" ]; then
   note "no punch feed in this database (a dump older than migration 00048): no counter to check"
+elif ! grep -q '^feed_counter ' "$MANIFEST"; then
+  bad "the database has the punch feed and the manifest carries no 'feed_counter' lines, so it cannot be told whether the counters were moved ahead on THIS restore. It was written by a scripts/pg-backup.sh older than M11 API-2; take a new backup rather than trusting this restore's feed."
 else
-  feed_line="$($OWNER_PSQL -c "$FEED_COUNTERS_SQL")" \
-    || die "the feed counter query failed against $PGDATABASE; no verdict is issued"
-  set -- $feed_line
-  f_tenants="$1"; f_counters="$2"; f_missing="$3"; f_behind="$4"
-  if [ "$f_tenants" = "$f_counters" ] && [ "$f_missing" = "0" ]; then
-    ok "punch feed: all $f_tenants tenants have a counter row"
+  # Every manifest line is checked before it becomes SQL: a uuid and a non-negative integer,
+  # nothing else (the manifest is a file an operator handles; it is not trusted text).
+  bad_lines="$(awk '$1 == "feed_counter" && !($2 ~ /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/ && $3 ~ /^[0-9]+$/ && NF == 3) {n++} END {print n+0}' "$MANIFEST")"
+  if [ "$bad_lines" != "0" ]; then
+    bad "$bad_lines 'feed_counter' lines of the manifest are not '<uuid> <integer>'; the counters were not compared"
   else
-    bad "punch feed: $f_tenants tenants, $f_counters counter rows, $f_missing tenants without one — a tenant's feed would start from a counter that is not there"
-  fi
-  if [ "$f_behind" = "0" ]; then
-    ok "punch feed: every counter stands at least $FEED_RESTORE_GAP past its last restored event"
-  else
-    bad "punch feed: $f_behind counters stand less than $FEED_RESTORE_GAP past their last restored event, so the next events would reuse seqs an integrator may already have read and its cursor would skip them. Move them ahead BEFORE the application writes (deploy/README.md, 'Yedek ve geri yükleme' — the feed counter step): UPDATE public.feed_counters SET last_seq = last_seq + $FEED_RESTORE_GAP;"
+    {
+      echo "CREATE TEMP TABLE zz_feed_dumped (tenant_id uuid PRIMARY KEY, last_seq bigint NOT NULL);"
+      awk '$1 == "feed_counter" { printf "INSERT INTO zz_feed_dumped VALUES (%c%s%c, %s);\n", 39, $2, 39, $3 }' "$MANIFEST"
+      echo "$FEED_COUNTERS_SQL"
+    } > "$TMP/feed.sql"
+    # Not `psql | tail`: on the left of a pipe `set -eu` is blind (section 3's note).
+    $OWNER_PSQL -f "$TMP/feed.sql" > "$TMP/feed.out" \
+      || die "the feed counter query failed against $PGDATABASE; no verdict is issued"
+    feed_line="$(tail -n 1 "$TMP/feed.out")"
+    set -- $feed_line
+    f_tenants="$1"; f_counters="$2"; f_missing="$3"; f_behind="$4"; f_undumped="$5"
+    if [ "$f_tenants" = "$f_counters" ] && [ "$f_missing" = "0" ] && [ "$f_undumped" = "0" ]; then
+      ok "punch feed: all $f_tenants tenants have a counter row, each with its dumped value in the manifest"
+    else
+      bad "punch feed: $f_tenants tenants, $f_counters counter rows, $f_missing tenants without one, $f_undumped counter rows with no dumped value in the manifest"
+    fi
+    if [ "$f_behind" = "0" ]; then
+      ok "punch feed: every counter stands at least $FEED_RESTORE_GAP past its dumped value and its last restored event"
+    else
+      bad "punch feed: $f_behind counters stand less than $FEED_RESTORE_GAP past their dumped value or their last restored event, so the next events would reuse seqs an integrator may already have read and its cursor would skip them. Move them ahead BEFORE the application writes (deploy/README.md, 'Yedek ve geri yükleme' — the feed counter step): UPDATE public.feed_counters SET last_seq = last_seq + $FEED_RESTORE_GAP;"
+    fi
   fi
 fi
 

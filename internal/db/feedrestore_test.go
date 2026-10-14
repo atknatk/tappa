@@ -37,8 +37,9 @@ func feedRestoreScript(t *testing.T) (sql string, gap int64) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		`if [ "$f_tenants" = "$f_counters" ] && [ "$f_missing" = "0" ]; then`,
+		`if [ "$f_tenants" = "$f_counters" ] && [ "$f_missing" = "0" ] && [ "$f_undumped" = "0" ]; then`,
 		`if [ "$f_behind" = "0" ]; then`,
+		`elif ! grep -q '^feed_counter ' "$MANIFEST"; then`,
 	} {
 		if !strings.Contains(src, want) {
 			t.Errorf("scripts/pg-restore-verify.sh section 6 no longer decides by %q", want)
@@ -47,10 +48,12 @@ func feedRestoreScript(t *testing.T) (sql string, gap int64) {
 	return strings.ReplaceAll(q[1], "$FEED_RESTORE_GAP", g[1]), gap
 }
 
-// feedVerdict is FEED_COUNTERS_SQL's four numbers.
-type feedVerdict struct{ tenants, counters, missing, behind int64 }
+// feedVerdict is FEED_COUNTERS_SQL's five numbers.
+type feedVerdict struct{ tenants, counters, missing, behind, undumped int64 }
 
-func (v feedVerdict) pass() bool { return v.tenants == v.counters && v.missing == 0 && v.behind == 0 }
+func (v feedVerdict) pass() bool {
+	return v.tenants == v.counters && v.missing == 0 && v.behind == 0 && v.undumped == 0
+}
 
 // feedVerifyScratch is the verifier's SQL with its three tables renamed to this test's scratch
 // copies (feedScratchCopies). The verifier judges a RESTORED database -- the whole of it, every
@@ -67,7 +70,7 @@ func feedVerify(t *testing.T, sql string, q pgx.Tx) feedVerdict {
 		t.Fatalf("FEED_COUNTERS_SQL: %v", err)
 	}
 	var v feedVerdict
-	if _, err := fmt.Sscanf(line, "%d %d %d %d", &v.tenants, &v.counters, &v.missing, &v.behind); err != nil {
+	if _, err := fmt.Sscanf(line, "%d %d %d %d %d", &v.tenants, &v.counters, &v.missing, &v.behind, &v.undumped); err != nil {
 		t.Fatalf("FEED_COUNTERS_SQL answered %q: %v", line, err)
 	}
 	return v
@@ -75,12 +78,16 @@ func feedVerify(t *testing.T, sql string, q pgx.Tx) feedVerdict {
 
 // feedScratchCopies copies, inside the test's transaction, this database's tenants (ids),
 // counters and events (tenant, seq) into the scratch tables feedVerifyScratch names -- the
-// restored database the verifier is shown.
+// restored database the verifier is shown -- and the counters again into zz_feed_dumped, the
+// table the script fills from the manifest's feed_counter lines (the DUMP's values: a restore
+// is the dump, so as restored they are equal).
 func feedScratchCopies(t *testing.T, tx pgx.Tx) {
 	t.Helper()
 	for _, s := range []string{
 		`CREATE TABLE zz_api2_rv_tenants AS SELECT id FROM tenants`,
 		`CREATE TABLE zz_api2_rv_counters AS SELECT tenant_id, last_seq FROM feed_counters`,
+		`CREATE TABLE zz_feed_dumped AS SELECT tenant_id, last_seq FROM feed_counters`,
+		`CREATE INDEX ON zz_feed_dumped (tenant_id)`,
 		`CREATE TABLE zz_api2_rv_events AS SELECT tenant_id, seq FROM punch_events`,
 		`CREATE INDEX ON zz_api2_rv_events (tenant_id, seq)`,
 		`CREATE INDEX ON zz_api2_rv_counters (tenant_id)`,
@@ -107,7 +114,10 @@ func feedBumpStatement(gap int64) string {
 //   - after the step, one tenant's counter set back to its last event (the step forgotten for a
 //     tenant): FAIL, that one;
 //   - after the step, an event written past a tenant's counter (a dump whose counter is older than
-//     its events): FAIL, that one.
+//     its events): FAIL, that one;
+//   - two restores in a row, the second without its step (the dump holds counters an earlier
+//     restore moved): FAIL by the dumped values (scripts/pg-backup.sh writes them to the
+//     manifest), PASS with the step; a counter with no dumped value: FAIL.
 func TestRestoreVerify_CountersAheadOfEvents(t *testing.T) {
 	ctx, tx := opTx(t)
 	sql, gap := feedRestoreScript(t)
@@ -147,6 +157,31 @@ func TestRestoreVerify_CountersAheadOfEvents(t *testing.T) {
 			}
 			if v := feedVerify(t, sql, q); v.pass() || v.behind != 1 {
 				t.Errorf("an event past a moved counter: %+v, want FAIL with 1 behind", v)
+			}
+		})
+		// TWO RESTORES IN A ROW (the security review's D1): the database above -- restored and
+		// moved ahead -- is backed up with no event written since (its dump holds the MOVED
+		// counters) and restored again; the step is skipped this time. Every counter still
+		// stands GAP past its last event, so the first half alone passed it; the dumped values
+		// fail it. CONTROL: with the step, PASS.
+		holdingInSavepoint(t, sp, func(q pgx.Tx) {
+			if _, err := q.Exec(ctx, `UPDATE zz_feed_dumped d SET last_seq = c.last_seq FROM zz_api2_rv_counters c WHERE c.tenant_id = d.tenant_id`); err != nil {
+				t.Fatal(err)
+			}
+			if v := feedVerify(t, sql, q); v.pass() || v.behind != v.counters {
+				t.Errorf("the second restore, its step skipped: %+v, want FAIL with every counter behind its dumped value", v)
+			}
+			if _, err := q.Exec(ctx, feedVerifyScratch.Replace(bump)); err != nil {
+				t.Fatal(err)
+			}
+			if v := feedVerify(t, sql, q); !v.pass() {
+				t.Errorf("CONTROL: the second restore with its step: %+v, want PASS", v)
+			}
+			if _, err := q.Exec(ctx, `DELETE FROM zz_feed_dumped WHERE tenant_id = $1`, w.kf); err != nil {
+				t.Fatal(err)
+			}
+			if v := feedVerify(t, sql, q); v.pass() || v.undumped != 1 {
+				t.Errorf("a counter with no dumped value in the manifest: %+v, want FAIL with 1 undumped", v)
 			}
 		})
 	})
@@ -191,6 +226,9 @@ func TestRestoreVerify_EveryTenantHasACounter(t *testing.T) {
 		}()
 		{
 			if _, err := q.Exec(ctx, `INSERT INTO zz_api2_rv_counters VALUES ($1, $2)`, unborn, gap); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := q.Exec(ctx, `INSERT INTO zz_feed_dumped VALUES ($1, 0)`, unborn); err != nil {
 				t.Fatal(err)
 			}
 			if v := feedVerify(t, sql, q); !v.pass() {
