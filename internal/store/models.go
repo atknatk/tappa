@@ -110,6 +110,11 @@ type EmployeeInvite struct {
 	ConsentBindingHash *string
 }
 
+type FeedCounter struct {
+	TenantID uuid.UUID
+	LastSeq  int64
+}
+
 type Holding struct {
 	ID        uuid.UUID
 	Name      string
@@ -251,6 +256,30 @@ type PolicyVersion struct {
 	CreatedBy *uuid.UUID
 }
 
+type PunchEvent struct {
+	TenantID        uuid.UUID
+	Seq             int64
+	PunchID         uuid.UUID
+	PunchTenantID   uuid.UUID
+	Roles           []string
+	Version         int32
+	Status          string
+	PunchTime       time.Time
+	RecordedAt      time.Time
+	Channel         string
+	Direction       string
+	EmployeeID      uuid.UUID
+	EmployeeRef     *string
+	EmployeeCode    *string
+	EmployeeCompany *string
+	LocationID      *uuid.UUID
+	LocationRef     *string
+	LocationName    *string
+	LocationCompany *string
+	TagUid          *string
+	CreatedAt       time.Time
+}
+
 type Session struct {
 	ID         uuid.UUID
 	TenantID   uuid.UUID
@@ -373,4 +402,29 @@ type TransactionReview struct {
 	Outcome       string
 	Note          *string
 	ReviewedAt    time.Time
+}
+
+type WebhookDelivery struct {
+	TenantID       uuid.UUID
+	ID             uuid.UUID
+	EndpointID     uuid.UUID
+	PunchEventSeq  int64
+	Attempt        int32
+	NextAttemptAt  time.Time
+	LeaseUntil     *time.Time
+	State          string
+	LastStatus     *int32
+	LastErrorClass *string
+	CreatedAt      time.Time
+	DeliveredAt    *time.Time
+}
+
+type WebhookEndpoint struct {
+	TenantID         uuid.UUID
+	ID               uuid.UUID
+	Url              string
+	SigningKeySealed []byte
+	Active           bool
+	CreatedAt        time.Time
+	RotatedAt        *time.Time
 }
