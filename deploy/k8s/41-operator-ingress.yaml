@@ -20,16 +20,28 @@
 # TestOperatorHostOnly_EveryEscapeAttemptLandsOnOneSide). With the four OP-7 keys
 # absent, a request to ops.taptime.mt is served the CUSTOMER product: the landing page,
 # the sign-in forms, the tap and activation routes. That breaks 40-ingress.yaml's
-# "EXACTLY ONE HOST SERVES THE APP", whose proxy-off gate checks taptime.mt alone.
-# What softens it today, read rather than tested here: the product sets no cookie
+# "EXACTLY ONE HOST SERVES THE APP", whose proxy-off gate checked taptime.mt alone
+# (since T119 it checks this host as well). What softens it, read rather than tested
+# here: the product sets no cookie
 # Domain (host-only, so no session from taptime.mt reaches this host and a tap here is
 # CLAUDE.md §5 row 3: the activation page, no record), and the record resolved
 # DNS-only on 2026-10-10 (dig +short ops.taptime.mt -> 144.76.158.60, the origin, not
 # a proxy edge). Neither makes a second customer origin acceptable. So CLOSING THE
-# SURFACE MEANS REMOVING THESE TWO OBJECTS TOO, and that takes a commit (drop the
-# apply line in deploy.yml, or this file) AND a cluster-admin delete
+# SURFACE MEANS REMOVING THESE TWO OBJECTS TOO, and that takes a cluster-admin delete
 # (the deploy identity has no `delete` on ingresses — 01-rbac.yaml). deploy/README.md,
 # "Geri alma — yüzeyi kapat", carries the commands.
+#
+# 🔴 SINCE T119 THE DEPLOY APPLIES THIS FILE ONLY BEHIND THE SURFACE. A preflight
+# (scripts/verify-deployment.sh operator-surface) reads NO VALUE of tappa-secrets: `kubectl
+# describe` gives key names and byte counts, and the gate prints `on` when
+# TAPPA_OPERATOR_HOST has more than 0 bytes -- then this file is applied AFTER the rollout
+# wait, so every pod the host reaches started with the gate -- `off` when the key is absent
+# or empty and these objects do not exist -- then it is not applied -- and goes red, before
+# anything is applied, when the key is absent but these objects exist. A key naming ANOTHER
+# host reads as `on` there (no value is read); after the rollout, operator-host asks this
+# host what it serves (`/` must be the gate's 303 or a 404, never a 200), which is where that
+# case turns red. No commit is needed to close the surface any more; the cluster-admin
+# delete still is.
 #
 # 🔴 TWO OBJECTS, BECAUSE THE BODY LIMIT DEPENDS ON THE PATH. ingress-nginx applies an
 # annotation such as proxy-body-size to EVERY path of the Ingress that carries it, so a
@@ -54,16 +66,20 @@
 # annotation, so exactly one Certificate is derived for the secret. The live pair is
 # exactly that (the legal object has no issuer annotation).
 #
-# ⚠️ K4 IS STILL OPEN (the user's decision): there is NO source-address restriction
-# today, and this file says so rather than implying one. If an allow-list is decided,
-# it goes on BOTH objects — an annotation is per object, so a list on one leaves the
-# other path open to every address — and its name must be checked against the cluster's
-# ingress-nginx version (older releases read whitelist-source-range, newer ones
-# allowlist-source-range). It is only meaningful while the record stays DNS-only: behind
-# a proxy the controller sees the proxy's edge address (40-ingress.yaml, options a/b/c).
+# K4 IS DECIDED (2026-10-14, the user: "ip limiti olmasın"): NO source-address
+# restriction, on either object. The counted limits whose remedy was written as "K4"
+# (the distributed enrollment, L2; no process-wide ceiling on the sign-in's bcrypt, L20)
+# stay counted limits with no remedy; deploy/README.md, "Uygulandı: K2". Were it ever
+# reopened: the list goes on BOTH objects — an annotation is per object, so a list on
+# one leaves the other path open to every address — its name is checked against the
+# cluster's ingress-nginx version (whitelist-source-range in older releases,
+# allowlist-source-range in newer), and it means something only while the record stays
+# DNS-only (40-ingress.yaml, options a/b/c). TestPackaging_TheOperatorIngressesAreTheLiveObjects
+# and TestPackaging_TheOperatorIngressesShareOneHostAndOneCertificate turn red on one.
 #
-# Applied by deploy.yml's "Roll out the server" step, right after 40-ingress.yaml; the
-# deploy identity's ingresses verbs (get, list, create, patch) are 01-rbac.yaml's.
+# Applied by deploy.yml's "Roll out the server" step, after the rollout wait and only
+# when the preflight above read `on` (T119); the deploy identity's ingresses verbs (get,
+# list, create, patch) are 01-rbac.yaml's.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -78,7 +94,7 @@ metadata:
     nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
     # Every path but /operator/legal: maxFormBytes (16 KiB) + 8 KiB.
     nginx.ingress.kubernetes.io/proxy-body-size: "24k"
-    # K4 placeholder — see the header. Not set today.
+    # K4: no source-address list, decided 2026-10-14 (the header).
 spec:
   ingressClassName: nginx
   tls:
@@ -112,7 +128,7 @@ metadata:
     # session can also send up to 320 KiB to this one path (the application then
     # redirects it to sign-in) — a counted limit, one path.
     nginx.ingress.kubernetes.io/proxy-body-size: "320k"
-    # K4 placeholder — the SAME list as tappa-operator's, or this path is open to all.
+    # K4: no source-address list here either (decided 2026-10-14; the header).
 spec:
   ingressClassName: nginx
   tls:

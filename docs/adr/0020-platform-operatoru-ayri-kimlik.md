@@ -727,6 +727,10 @@ bir restoran hesabına bağlı olmamalı* (m10-platform.md §1).
   girişin bcrypt'i için süreç geneli tavan yok, yalnız adres başına `work` bütçesi (20/10 dk);
   dağıtık bir istemci paylaşılan süreçte CPU'yu doyurabilir (panelin `/admin/login`'i aynı
   sınıfta ve bugün canlıda erişilebilir; operatör host'u canlıda erişilemez); devir OP-9, K4.
+  → *Düzeltme (2026-10-14, T119):* *"operatör host'u canlıda erişilemez"* 2026-10-09'dan beri
+  yanlış — o gün `ops.taptime.mt` canlıya açıldı (K2, iki Ingress elle; T112'den beri
+  `deploy/k8s/41-operator-ingress.yaml`). K4 = IP kısıtı yok (kullanıcı kararı, 2026-10-14), yani
+  L20 canlıda erişilebilir ve çaresiz bir sayılı sınırdır.
   **L21** — araya sokulan aynı adlı bir çerez operatörü tarayıcıdan atabilir: sunucu yarısında
   ilk çerez okunur ve çöp-önce istek 303'tür; tarayıcı yarısı doğrulanamadı; sonucu zorla
   çıkıştır, erişim vermez.
@@ -1187,6 +1191,17 @@ m10-platform.md §3'ün ölçütleriyle:
   D-B ile, IP kısıtının **opsiyonel** olduğu K4 ile verildi; DNS kaydı, TLS sertifikası,
   Ingress kuralı, IP kısıtının mekanizması (Ingress mi uygulama mı) ve hangi adresler
   **sorulmadı**. OP-9 ile birlikte (kullanıcı ops adımı).
+  → **Karara bağlandı (2026-10-14, kullanıcı): K4 — IP kısıtı YOK.** Kullanıcının sözü: *"ip
+  limiti olmasın"*. K2 uygulandı: `ops.taptime.mt` (DNS-only), iki Ingress
+  `deploy/k8s/41-operator-ingress.yaml`'da (T112). T119: `deploy.yml` 41'i yalnız yüzey
+  yapılandırılmışken (`TAPPA_OPERATOR_HOST` 0 bayttan büyükken — `kubectl describe` ile; Secret'ın
+  hiçbir değeri okunmaz, çünkü `TAPPA_TAG_KEK`'i taşır ve Actions log'ları herkese açıktır) ve
+  rollout'tan sonra uygular, rollout'tan sonra host'un müşteri ürününü sunmadığını yoklar (başka
+  bir host'u adlandıran anahtarı bu yoklama yakalar) ve Cloudflare kapısını bu host'ta da koşar
+  (K4'süz operatör girişini adres başına bütçeler tutar; proxy onları kenar adreslerinde
+  birleştirirdi). Sonucu: çaresi *"K4"* diye yazılmış sayılı sınırlar — L20 (§4, girişin
+  bcrypt'i için süreç geneli tavan yok) ve OP-8 kartının L2'si (dağıtık enrollment) — çaresiz
+  sayılı sınır olarak kalır. Ayrıntı: `deploy/README.md`, *"Uygulandı: K2"*.
 - **OP-K5 — askıdaki ayın faturalanması** (ADR 0025 / OP-15; bu ADR'nin konusu değil).
 - **OP-K12 — T27/T37 plan geçmişi** (OP-17'nin önkoşulu).
 

@@ -114,6 +114,15 @@ rules:
   # some-other-secret` -> Forbidden, `get secrets` (list) -> Forbidden.
   # ⚠️ resourceNames CANNOT restrict list or watch — that is a Kubernetes rule, not a
   # choice here, and it is why neither verb appears.
+  # Since T119 also STEP "Preflight — the operator host is routed only to a server that
+  # gates it" (scripts/verify-deployment.sh operator-surface): `kubectl describe secret
+  # tappa-secrets`, which prints key names and byte counts, never a value. The same get:
+  # k8s.io/kubectl v0.35.4's SecretDescriber makes one call, `get secrets` (run against a
+  # fake clientset; no event list), and the command's lookup is a GET too. If the Secret
+  # were missing, describe would fall back to LISTING secrets -- Forbidden here, so the gate
+  # fails closed. No new verb. Measured 2026-10-14 by the orchestrator WITH THIS IDENTITY
+  # (`--as` this ServiceAccount, kubectl v1.36.1) on the live Secret: the describe answered,
+  # line 8 `Data`, line 9 `====`, `TAPPA_OPERATOR_HOST:            14 bytes` -- no value.
   - apiGroups: [""]
     resources: ["secrets"]
     resourceNames: ["tappa-secrets"]
@@ -248,6 +257,12 @@ rules:
   # `kubectl get pods,svc,ingress`. Measured with `list` removed: exit 1,
   # "ingresses.networking.k8s.io is forbidden". No `delete`: removing the operator
   # host's Ingresses (closing the surface) is the operator's, with cluster-admin.
+  # Since T119 the operator-surface preflight `get`s those two by name (are they still
+  # there while the surface is off?). Measured 2026-10-14 by the orchestrator WITH THIS
+  # IDENTITY (`--as` this ServiceAccount): `kubectl -n tappa get ingress tappa-operator
+  # tappa-operator-legal --ignore-not-found -o name` answered both names
+  # (ingress.networking.k8s.io/tappa-operator, ingress.networking.k8s.io/tappa-operator-legal),
+  # no Forbidden.
   - apiGroups: ["networking.k8s.io"]
     resources: ["ingresses"]
     verbs: ["get", "list", "create", "patch"]

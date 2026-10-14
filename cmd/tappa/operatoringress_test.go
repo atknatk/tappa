@@ -522,14 +522,16 @@ func TestPackaging_TheOperatorIngressesShareOneHostAndOneCertificate(t *testing.
 		t.Errorf("%d of the two objects carry cert-manager.io/cluster-issuer, want exactly 1: one secret, one "+
 			"Certificate", issuers)
 	}
-	// K4, whenever it lands: an address list is per object, so one carried by a single
-	// object leaves the other path open to every address. Any *source-range annotation
-	// (whitelist- or allowlist-, by controller version) must be the same on both.
+	// K4 is decided (2026-10-14, the user: "ip limiti olmasın"): no source-address list on
+	// either object. A *source-range annotation (whitelist- or allowlist-, by controller
+	// version) is a reversal of that decision, made in review with this line — and were it
+	// made, the list would have to be the same on both, since an annotation is per object
+	// and a list on one leaves the other path open to every address.
 	for _, o := range []ingressObject{console, legal} {
 		for k := range o.annotations {
-			if strings.Contains(k, "source-range") && console.annotations[k] != legal.annotations[k] {
-				t.Errorf("%s = %q on tappa-operator but %q on tappa-operator-legal: the path without it is open to "+
-					"every address", k, console.annotations[k], legal.annotations[k])
+			if strings.Contains(k, "source-range") {
+				t.Errorf("%s carries %s = %q: K4 was decided as NO source-address list (2026-10-14)", o.name, k,
+					o.annotations[k])
 			}
 		}
 	}
@@ -927,10 +929,11 @@ func codeLinesOf(src string) []string {
 // TestPackaging_TheDeployAppliesEveryIngressFile closes T112's class for Ingresses: a
 // top-level manifest carrying a `kind: Ingress` that deploy.yml does not apply is the
 // cluster-only object this backlog item was. 41 is applied in "Roll out the server",
-// after 40 and before the rollout wait, and the deploy identity's ingresses rule in
-// 01-rbac.yaml carries the verbs `kubectl apply` needs on an existing or a new object
-// (get, create, patch) — and no delete, which is why closing the surface is the
-// operator's (41's header).
+// AFTER the rollout wait since T119 (so the operator host reaches only pods that started
+// with the gate; the condition around it is TestPackaging_TheOperatorIngressFollowsTheOperatorSurface),
+// 40 before the wait, and the deploy identity's ingresses rule in 01-rbac.yaml carries
+// the verbs `kubectl apply` needs on an existing or a new object (get, create, patch) —
+// and no delete, which is why closing the surface is the operator's (41's header).
 func TestPackaging_TheDeployAppliesEveryIngressFile(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join(repoRoot, ".github", "workflows", "deploy.yml"))
 	if err != nil {
@@ -977,8 +980,8 @@ func TestPackaging_TheDeployAppliesEveryIngressFile(t *testing.T) {
 	if ingressFiles != 2 {
 		t.Errorf("CONTROL FAILED: %d Ingress files found, want 2 (40 and 41)", ingressFiles)
 	}
-	if line40 < 0 || line41 < 0 || rollout < 0 || line40 > line41 || line41 > rollout {
-		t.Errorf("in \"Roll out the server\": 40 at %d, 41 at %d, rollout wait at %d; want 40 < 41 < the wait",
+	if line40 < 0 || line41 < 0 || rollout < 0 || line40 > rollout || rollout > line41 {
+		t.Errorf("in \"Roll out the server\": 40 at %d, 41 at %d, rollout wait at %d; want 40 < the wait < 41",
 			line40, line41, rollout)
 	}
 

@@ -3589,6 +3589,7 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 > - **L1** — Fragment'taki token, `replaceState`'ten ÖNCE tarayıcının genel geçmişine yazılmış
 >   olabilir; tarayıcıda ölçülmedi. Token tek kullanımlık, 30 dk.
 > - **L2** — Dağıtık enrollment (P8 aynen): dört hız anahtarı süreç bütçesini tüketir; çare K4 (OP-9).
+>   *(Not, 2026-10-14, T119: K4 = IP kısıtı yok — kullanıcı kararı; L2 çaresiz sayılı sınırdır.)*
 > - **L3** — Operatör host'u ingress'in bir müşteri host'una eşit verilirse o host'un müşteri sayfaları
 >   404 olur (md. 6); config bunu reddetmez (ingress listesini bilmez, operatör host'u bir Secret
 >   değeridir — repoda değil).

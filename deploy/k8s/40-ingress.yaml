@@ -20,7 +20,9 @@
 # application refuses every customer route there (404; a bare / goes to the console)
 # — but ONLY while
 # TAPPA_OPERATOR_HOST is set; with the operator surface unconfigured this invariant
-# breaks, which is why closing that surface removes 41's objects too (41's header).
+# breaks, which is why closing that surface removes 41's objects too (41's header), and
+# why, since T119, the deploy applies 41 only while the surface is configured and the
+# proxy-off gate checks ops.taptime.mt as well.
 #
 # 🔴 THIS HOSTNAME MUST NOT BE PROXIED BY CLOUDFLARE, AND THAT IS THE SINGLE MOST
 # CONSEQUENTIAL LINE IN THIS DIRECTORY. The rule predates taptime.mt; it was measured

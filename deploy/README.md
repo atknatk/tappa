@@ -32,7 +32,7 @@ Hedef: `https://taptime.mt` · küme: k3s v1.35.4, tek node
 | `k8s/20-app.yaml` | Deployment + Service | `deploy.yml` |
 | `k8s/30-migrate-job.yaml` | goose Job (`tappa_owner`) | `deploy.yml` |
 | `k8s/40-ingress.yaml` | Ingress (`nginx`, `letsencrypt-prod`) | `deploy.yml` |
-| `k8s/41-operator-ingress.yaml` | operatör host'u `ops.taptime.mt`'nin iki Ingress'i (`/` 24k, `/operator/legal` Exact 320k; K4 IP kısıtı **yok**, karar bekliyor) — T112 | `deploy.yml` (silmek **operatör**: deploy kimliğinde `delete` yok; yüzey kapanırken — *"Geri alma — yüzeyi kapat"*) |
+| `k8s/41-operator-ingress.yaml` | operatör host'u `ops.taptime.mt`'nin iki Ingress'i (`/` 24k, `/operator/legal` Exact 320k; K4: IP kısıtı **yok** — karar 2026-10-14) — T112 | `deploy.yml`, **yalnız yüzey yapılandırılmışken** (`tappa-secrets`'ta `TAPPA_OPERATOR_HOST` 0 bayttan büyükken; değeri okunmaz) ve rollout beklendikten **sonra** — T119 (silmek **operatör**: deploy kimliğinde `delete` yok; yüzey kapanırken — *"Geri alma — yüzeyi kapat"*) |
 | `k8s/50-backup.yaml` | 🔴 **gecelik yedek CronJob'ı** (02:30 Malta) | **operatör** (bir kez; deploy'un `batch/cronjobs` yetkisi **yok** ve bilerek yok) |
 | `k8s/55-heartbeat.yaml` | 🔴 **uptime heartbeat CronJob'ı** (her 5 dk; healthchecks.io'ya *"yaşıyor"* ya da `/fail` — T116) | **operatör** (bir kez; aynı gerekçe — adım 10) |
 | `observability/signoz-alert-rules.json` | 🔴 **SigNoz'un uyarı kuralları** (M8-03 tablosunun her satırı için bir kural, ClickHouse-SQL; T118, 8. kural T122) — kanal yalnız **adıyla** (`tappa-healthchecks`), adres yok; küme manifesti **değildir** | **operatör** (SigNoz API'siyle, bir kez — adım 10 (f)) |
@@ -107,8 +107,8 @@ temizlendi (bozuk StatefulSet + `ImagePullBackOff` + Failed Job + bağlı 20Gi P
 **Elle deploy etmek gerekiyorsa** `.github/workflows/deploy.yml`'in adımlarını sırayla
 izle: namespace → **`01-rbac.yaml`** (bir kez, cluster-admin ile) → `tappa-secrets`
 (elle) → ConfigMap'ler (`--from-file` dahil) → Postgres → NetworkPolicy → migration
-Job (**bekle**) → Deployment → Ingress'ler (`40`, sonra `41` — `41` yalnız operatör yüzeyi
-yapılandırılmışsa; *"Uygulandı: K2"*). Tek tek `apply` etmek güvenlidir; **dizini toptan**
+Job (**bekle**) → Deployment → Ingress'ler (`40`; rollout'u bekle; sonra `41` — `41` yalnız
+operatör yüzeyi yapılandırılmışsa; *"Uygulandı: K2"*, T119). Tek tek `apply` etmek güvenlidir; **dizini toptan**
 `apply` etmek değildir.
 
 ---
@@ -1210,6 +1210,21 @@ kubectl --context hetzner-k8s-1 -n tappa rollout restart deployment/tappa
 kubectl --context hetzner-k8s-1 -n tappa rollout status deployment/tappa --timeout=180s
 ```
 
+**Sonra deploy'u yeniden koştur (T119).** Operatör host'unun iki Ingress'ini (`41-operator-ingress.yaml`)
+`deploy.yml` yalnız `tappa-secrets`'ta `TAPPA_OPERATOR_HOST` 0 bayttan büyükken ve rollout
+beklendikten sonra uygular; bu adıma kadarki her deploy *"the operator surface is off"* notunu basıp
+41'i atlamıştır (taze kümede doğru olan budur). Yani yüzey ilk kez açılıyorsa `ops.taptime.mt` ancak
+bir sonraki deploy'da yönlendirilir:
+
+```bash
+gh workflow run deploy.yml --ref main
+# beklenen: "Preflight — the operator host is routed only to a server that gates it" adımı
+# `operator-surface: on` basar, "Roll out the server" 41'i uygular, "Gate — the operator host
+# must not serve the customer product" `303 to /operator ... (try N)` basar -- 41 yeni
+# yaratıldığı için ilk denemeler 404 görebilir (denetleyici yeni Ingress'i eşzamansız
+# yapılandırır); yoklama 404'ü ~90 sn boyunca yeniden dener, sonra kırmızı biter
+```
+
 **Doğrulama — başlangıç satırı.** Her süreç tam olarak biri olan bir olgu yazar (yokluğu
 okumamak için; KEK döndürme kapısının gerekçesi):
 
@@ -1249,8 +1264,10 @@ curl -sS -o /dev/null -w '%{http_code}\n' https://taptime.mt/operator
 (OP-8: operatör host'unun kendisi — `https://ops.taptime.mt/operator/login` — `40-ingress.yaml`
 ile **erişilemez**: o dosya bu host için kural taşımaz. Host'un iki Ingress'i
 `41-operator-ingress.yaml`'dadır — 2026-10-09'dan beri canlıda (elle), T112'den beri ağaçta ve
-`deploy.yml`'de; bkz. *"Uygulandı: K2"* bölümü. K4 (IP kısıtı) hâlâ açık. ⚠️ Yüzey kapalıyken
-o Ingress'ler `ops.taptime.mt`'de müşteri ürününü açar: aşağıdaki *"Geri alma"*.)
+`deploy.yml`'de; bkz. *"Uygulandı: K2"* bölümü. K4: IP kısıtı **yok** (karar 2026-10-14). ⚠️ Yüzey
+kapalıyken o Ingress'ler `ops.taptime.mt`'de müşteri ürününü açar; T119'dan beri deploy 41'i yalnız
+yüzey yapılandırılmışken uygular ve nesneler yüzeyden uzun yaşıyorsa hiçbir şey uygulamadan kırmızı
+biter: aşağıdaki *"Geri alma"*.)
 
 (`pg_stat_activity`'de bir `tappa_operator` bağlantısı aramak bir kanıt DEĞİLDİR: havuz
 boştaki bağlantıyı en çok ~30 dk tutar — pgxpool `MaxConnIdleTime` — ve `MinConns` 0'dır,
@@ -1285,24 +1302,21 @@ yüzeyi `unavailable` bırakır.
 
 ### Geri alma — yüzeyi kapat
 
-🔴 **Önce operatör host'unun iki Ingress'i (T112'den beri).** Dört anahtar gidince uygulama
-operatör-host kapısını (`operatorHostOnly`) **bağlamaz**; `deploy/k8s/41-operator-ingress.yaml`
-ise `ops.taptime.mt`'yi hâlâ aynı Service'e yönlendirir — o host müşteri ürününün ikinci,
-kapısız bir origin'i olur (gerekçe: *"Uygulandı: K2"* bölümü). Sıra: (1) bir commit
-`deploy.yml`'deki `kubectl apply -f deploy/k8s/41-operator-ingress.yaml` satırını kaldırır —
-yoksa sıradaki deploy nesneleri geri yaratır (ve `TestPackaging_TheDeployAppliesEveryIngressFile`
-dosya ağaçta kaldıkça satırı ister: dosyayı da kaldır ya da pini aynı commit'te güncelle);
-(2) nesneleri **cluster-admin** ile sil — deploy kimliğinin `ingresses` üzerinde `delete`
-yetkisi yok (`01-rbac.yaml`):
+🔴 **Operatör host'unun iki Ingress'i yüzeyle birlikte gider (T112; sıra T119'dan beri).** Dört
+anahtar gidince uygulama operatör-host kapısını (`operatorHostOnly`) **bağlamaz**;
+`deploy/k8s/41-operator-ingress.yaml`'ın nesneleri ise `ops.taptime.mt`'yi hâlâ aynı Service'e
+yönlendirir — o host müşteri ürününün ikinci, kapısız bir origin'i olur (gerekçe: *"Uygulandı: K2"*
+bölümü). **T119'dan beri commit gerekmez:** `deploy.yml` 41'i yalnız `tappa-secrets`'ta
+`TAPPA_OPERATOR_HOST` 0 bayttan büyükken uygular, ve anahtar yokken nesneler duruyorsa
+**hiçbir şey uygulamadan** kırmızı biter (`scripts/verify-deployment.sh operator-surface`; adım
+*"Preflight — the operator host is routed only to a server that gates it"*). Nesneleri yine
+**cluster-admin** siler — deploy kimliğinin `ingresses` üzerinde `delete` yetkisi yok
+(`01-rbac.yaml`). Sıra bu yüzden **yama → sil → yeniden başlat**:
 
-```bash
-kubectl --context hetzner-k8s-1 -n tappa delete ingress tappa-operator tappa-operator-legal
-# beklenen: iki satır deleted; host artık uygulamaya ulaşmaz (varsayılan arka uç, ölçülmedi)
-```
-
-Acil durumda (2) (1)'den önce gelebilir — ama **sıradaki deploy'dan önce** ikisi de yapılmış
-olmalı. `ops-taptime-tls` sırrı kalır; cert-manager'ın bu Ingress'ten türettiği `Certificate`'ın
-silinmeyle gidip gitmediği ölçülmedi. Sonra (3) aşağıdaki anahtar yaması:
+(1) dört anahtarı tek yamada kaldır — **`rollout restart` HENÜZ YOK.** Çalışan pod'lar ortamlarını
+açılışta okudu, kapıyı taşımaya devam ederler; bu arada koşan bir deploy anahtarın gittiğini ve
+nesnelerin durduğunu görür ve rollout'tan **önce** kırmızı biter, yani kapılı pod'lar kapısız
+olanlarla değişmez:
 
 ```bash
 kubectl --context hetzner-k8s-1 -n tappa patch secret tappa-secrets --type json -p '[
@@ -1310,10 +1324,31 @@ kubectl --context hetzner-k8s-1 -n tappa patch secret tappa-secrets --type json 
   {"op":"remove","path":"/data/TAPPA_OPERATOR_TOTP_KEK"},
   {"op":"remove","path":"/data/TAPPA_OPERATOR_TOKEN_HMAC_KEY"},
   {"op":"remove","path":"/data/TAPPA_OPERATOR_HOST"}]'
+```
+
+(2) iki nesneyi sil:
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa delete ingress tappa-operator tappa-operator-legal
+# beklenen: iki satır deleted. Host artık uygulamaya ulaşmaz; kümenin varsayılan sunucusu
+# cevaplar -- ölçüldü 2026-10-14, hiçbir Ingress'in yönlendirmediği bir ad için (curl --resolve
+# ile origin'e, salt-okur): `/` -> 404 text/html, `/healthz` -> 200 boş gövde (denetleyicinin
+# kendi /healthz'i; bu yüzden T119'un yoklaması /healthz'e değil `/`'ye bakar)
+```
+
+`ops-taptime-tls` sırrı kalır; cert-manager'ın bu Ingress'ten türettiği `Certificate`'ın silinmeyle
+gidip gitmediği ölçülmedi. (3) pod'ları yeniden başlat ve rolün girişini kapat:
+
+```bash
 kubectl --context hetzner-k8s-1 -n tappa rollout restart deployment/tappa
 kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
     sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "ALTER ROLE tappa_operator NOLOGIN PASSWORD NULL"'
 ```
+
+Acil durumda (2) (1)'den önce gelebilir; ama o aralıkta koşan bir deploy anahtarı hâlâ görür ve
+nesneleri **yeniden yaratır** (41'i uygular) — o zaman (2)'yi (1)'den sonra yinele. (1)–(3)'ten
+sonraki deploy 41'i atlar (*"the operator surface is off"* notu) ve rollout'tan sonraki yoklama
+`ops.taptime.mt` için `404 -- not routed to the application, as the surface is off` basar.
 
 Dördü yine **tek** yamada (yarım küme yok); sonra başlangıç satırı `"operator_surface":"off"`.
 
@@ -1321,8 +1356,9 @@ Dördü yine **tek** yamada (yarım küme yok); sonra başlangıç satırı `"op
 sonraki eşitleme (`refreshInterval: 1h`, ya da `ExternalSecret`'e dokunan ilk değişiklik)
 silinen anahtarları Secret'a geri yazar ve yüzey bir sonraki yeniden başlamada geri açılır.
 Sıra: önce canlı `ExternalSecret`'in `data:` listesinden dört `TAPPA_OPERATOR_*` girdisini
-**birlikte** kaldır ve uygula, eşitlemeyi zorla, Secret'ta kalmadığını doğrula; **ondan
-sonra** `rollout restart` ve `NOLOGIN` satırları:
+**birlikte** kaldır ve uygula, eşitlemeyi zorla, Secret'ta kalmadığını doğrula (bu, yukarıdaki
+(1)'in yerini alır); **ondan sonra** (2) iki Ingress'i sil ve (3) `rollout restart` ve `NOLOGIN`
+satırları:
 
 ```bash
 # (canlı ExternalSecret manifestinden dört girdi kaldırılıp uygulandıktan sonra)
@@ -1661,7 +1697,7 @@ bağlanır ve sorgular yalnız `usename = 'tappa_operator'` satırlarını seçe
   bir damga verebilir — ölçülmedi. Geliştirme makinesi ↔ DB farkı: **~1 ms** (test log'u);
   üretimdeki fark ölçülmedi.
 
-### Uygulandı: K2 — `ops.taptime.mt`'nin iki Ingress'i (2026-10-09 elle; T112 ile repoda) · K4 hâlâ açık
+### Uygulandı: K2 — `ops.taptime.mt`'nin iki Ingress'i (2026-10-09 elle; T112 ile repoda) · K4: IP kısıtı yok (karar 2026-10-14)
 
 **Durum.** 2026-10-09'da operatör yüzeyi açılırken bu bölümün o günkü **taslağı** (iki Ingress,
 IP kısıtı yok) `kubectl apply` ile **elle** uygulandı; `deploy.yml` onu uygulamadığı için küme
@@ -1670,7 +1706,9 @@ Artık iki nesne **`deploy/k8s/41-operator-ingress.yaml`**'dadır ve `deploy.yml
 the server"* adımı onu `40-ingress.yaml`'dan hemen sonra uygular — aynı kimlik, aynı fiiller
 (`01-rbac.yaml`: `ingresses` → `get, list, create, patch`; **yeni yetki yok**). Pin:
 `TestPackaging_TheDeployAppliesEveryIngressFile` (ağaçtaki her Ingress dosyası deploy'da
-uygulanır; T112'nin sınıfı Ingress'ler için kapalı).
+uygulanır; T112'nin sınıfı Ingress'ler için kapalı). ⚠️ **T119 (2026-10-14):** "hemen sonra"
+artık geçerli değil — 41 rollout **beklendikten sonra** ve yalnız yüzey yapılandırılmışken
+uygulanır; aşağıdaki *"T119 — üç kapı"*.
 
 Dosya, orkestratörün 2026-10-10'da aldığı canlı dökümle (status, managedFields ve
 last-applied atılmış) **alan alan aynıdır**: iki belge PyYAML ile bütün olarak karşılaştırıldı,
@@ -1720,6 +1758,10 @@ host'unun sırrı değil, yani takılan bir ops sınaması müşteri sertifikas�
 Cloudflare kenar adresi değil). ⚠️ `deploy.yml`'in Cloudflare kapısı
 (`scripts/verify-deployment.sh cloudflare`) yalnız `taptime.mt`'yi yoklar; `ops.taptime.mt`
 için bir kapı **yoktur** (bugün tap işlemediği için; K4 gelirse gerekir — aşağıda).
+→ **T119 (2026-10-14): kapı eklendi** (*"Preflight — the operator hostname must NOT be proxied
+by Cloudflare"*), K4'süz de — gerekçe aşağıdaki *"T119 — üç kapı"*. Yeniden ölçüldü
+(2026-10-14, dışarıdan, salt-okur): `dig +short ops.taptime.mt` → `144.76.158.60`; `curl -sSI -k
+https://ops.taptime.mt/healthz` → `HTTP/2 404`, `cf-ray` yok.
 
 🔴 **Bu iki Ingress yalnız yüzey YAPILANDIRILMIŞKEN zararsızdır.** Uygulamanın müşteri
 yarısındaki host kapısı (`internal/httpx/operatorhost.go`, `operatorHostOnly`) operatör
@@ -1738,20 +1780,123 @@ bunu da pinler): sıra yukarıdaki *"Geri alma — yüzeyi kapat"*ta. ⚠️ **T
 aralık kendiliğinden doğar: yüzey ancak ilk deploy'dan SONRA yapılandırılabilir (OP-7'nin
 sırası: 00026 önce iner), ve o deploy 41'i de uygular — DNS o kümeye bakıyorsa, OP-7'nin 3.
 adımına kadar `ops.taptime.mt` müşteri ürününü sunar. O adımı ilk deploy'un hemen ardından koş.
+→ **T119 (2026-10-14): bu aralık artık doğmaz** — taze kümedeki deploy 41'i uygulamaz (yüzey
+kapalı); OP-7'nin 5. adımından sonra deploy yeniden koşturulur (o bölümde).
 
-**K4 — hâlâ AÇIK (kullanıcı kararı).** Bugün **hiçbir** kaynak adres kısıtı yok; dosya bunu
-yer tutucu yorumlarla söyler, kısıt varmış gibi yapmaz. Karar verilirse: (1) liste **iki
-kaynağa da** yazılır — ek açıklama kaynak başınadır, yalnız birine yazılırsa öbür yol (ör.
-`/operator/legal`) her adrese açık kalır; (2) ek açıklamanın adı kümenin ingress-nginx sürümüne
-göre doğrulanır (eski sürümler `whitelist-source-range`, yeniler `allowlist-source-range`
-okur — ölçülmedi); (3) liste ancak kayıt **DNS-only** kaldıkça anlamlıdır: proxy (turuncu
-bulut) açıksa ingress istemciyi değil kenarın adresini görür ve liste kenarı sınar;
-`use-forwarded-headers` + `proxy-real-ip-cidr` (40-ingress.yaml'ın (b) seçeneği) PAYLAŞILAN
-ConfigMap'tedir (~20 uygulama) ve CIDR yanlışsa origin'e doğrudan gelen biri sahte
-`X-Forwarded-For` ile listeyi geçer — bu yüzden K4 ile birlikte `deploy.yml`'e
-`cloudflare ops.taptime.mt` kapısı da gelmeli; (4) liste eklenince
-`TestPackaging_TheOperatorIngressesAreTheLiveObjects` bilerek kırmızıya döner ve listeyle
-birlikte güncellenir (canlıyı değiştiren bir alan).
+**T119 — üç kapı (2026-10-14).** Seçenekler ölçüldü (kart: T119); uygulanan (A) + (C) + Cloudflare
+kapısı, (B) uygulanmadı:
+
+- **(A) Koşullu uygulama — ön kapı.** `deploy.yml`'in *"Preflight — the operator host is routed
+  only to a server that gates it"* adımı, hiçbir şey uygulanmadan önce,
+  `scripts/verify-deployment.sh operator-surface tappa` koşar. **`tappa-secrets`'ın hiçbir değeri
+  okunmaz** (2. tur): `kubectl describe secret tappa-secrets` anahtar adlarını ve **bayt
+  sayılarını** basar, değerleri tasarım gereği basmaz, ve yalnız `TAPPA_OPERATOR_HOST`'un bayt
+  sayısı ayrıştırılır; describe'ın çıktısı doğrudan `awk`'a gider, bir kabuk değişkenine girmez
+  ve basılmaz. Yetki: deploy kimliğinin **zaten sahip olduğu** `get` (`01-rbac.yaml`, tek
+  `resourceName`; yeni fiil yok). Ölçüldü (k8s.io/kubectl v0.35.4'ün `SecretDescriber`'ı, kazıma
+  modülde sahte bir clientset'e karşı, kümeye bağlanmadan): tek API çağrısı `get secrets` (olay
+  listesi yok); çıktı `KEY:  N bytes` satırları; `last-applied` ek açıklaması atlanır; marker
+  değerler çıktıda yok. (Tek istisnası, servis hesabı türündeki bir Secret'ın kendi anahtarı —
+  bu Opaque Secret'ın değil. Secret bulunamazsa komut Secret'ları LİSTELEMEYE düşer;
+  bu kimlikte `list` yok → hata, `UNCHECKED`.) Anahtar **>0 bayt** → `on` → *"Roll out the
+  server"* 41'i rollout **beklendikten sonra** uygular (her pod anahtarla açılmış ve
+  `config.Load`'dan geçmiş olur); yok ya da **0 bayt** ve 41'in iki nesnesi yok → `off`, 41
+  atlanır (`::notice::`); yok/0 bayt ama nesneler duruyor → **kırmızı, rollout'tan önce** (deploy
+  kimliği nesneleri silemez; komut mesajda). Okumalardan biri düşerse ya da describe'ın çıktısı
+  ayrıştırılan biçimde değilse `UNCHECKED`, çıkış 2. **Pinler (4. tur: kötü yazımların listesi
+  değil, BEYAZ LİSTE — kara liste iki tur üst üste aşıldı):**
+  `TestVerifyDeployment_NothingReadsTheSecretsValues` — betik ve `deploy.yml` mantıksal
+  satırlarla okunur (yorum atılır, `\` devamları birleştirilir); kubectl taşıyan ve saf bir
+  `echo`/`printf` mesajı olmayan her satır bir çağrıdır (`sh -c '…'`, `eval`, `| sh`, tırnak
+  içi `$(…)`, heredoc gövdesi dahil); secret'ı herhangi bir harf ya da tırnakla anan her çağrı,
+  o dosyanın beyaz listesindeki satırlardan biri olmak **zorundadır** — betikte yalnız bu
+  describe, `deploy.yml`'de yalnız Secret ön kapısının varlık kontrolü; değişkende/alias'ta
+  tutulan ya da `"$@"` ile argüman aktaran kubectl reddedilir. Biçim tablosu:
+  `TestVerifyDeployment_TheSecretCallScanClassifiesEveryShape`. Çalışma anı:
+  `TestVerifyDeployment_EveryBranchTouchesTheSecretOnlyByDescribe` betiğin her modunu ve her
+  hata dalını (404 döngüsünün sonu dahil) sahte bir kubectl'e karşı koşar; kaydedilen
+  çağrılardan secret anan tek çağrı `describe secret tappa-secrets`'tır ve betiğin bastığı her
+  `::error::`/`::warning::`/`::notice::` en az bir koşuda basılmış olmalıdır (sürülmeyen dal
+  kırmızı). Statik olanın göremediği tek biçim kendi satırında `$x get secret …` (değişken başka
+  yerde kurulmuş) — onu çalışma anı testi görür, dal koşulduysa.
+  ⚠️ **Tarihli not — neden değer okunmuyor (1. tur, 2026-10-14):** ön kapı önce değeri
+  `-o go-template` ile okuyup kubectl'in içinde 41'in host'uyla karşılaştırıyordu. Ölçüldü
+  (k8s.io/cli-runtime v0.35.4'ün `GoTemplatePrinter`'ı, kazıma modülde): şablon bir **çalıştırma**
+  hatası verirse kubectl nesnenin **tamamını — Secret'ın her değerini, `TAPPA_TAG_KEK` dahil,
+  base64 — stdout'a** yazar (*"raw data was: …"*). Betik onu basmıyordu; ama depo ve Actions
+  log'ları herkese açık ve tek satırlık bir düzenleme (`set -x`, bir `echo`) bütün sırları
+  yayımlardı. Savunmayı sıkılaştırmak yerine sınıf kaldırıldı (orkestratör bulgusu F1).
+- **(C) Rollout sonrası yoklama.** *"Gate — the operator host must not serve the customer
+  product"*: `verify-deployment.sh operator-host "$OPERATOR_SURFACE" ops.taptime.mt` host'un
+  `/`'sine `HEAD` atar ve cevabı **ön kapının kelimesine göre** yargılar (`OPERATOR_SURFACE` aynı
+  adımın çıktısından). **`/healthz` değil, ölçüldüğü için:** bu kümenin ingress-nginx'i hiçbir
+  Ingress'in yönlendirmediği bir ada `/healthz` için **200** (boş gövde) döner — kapısız
+  uygulamanın verdiği durumun aynısı. `/` üçünü ayırır (ölçüldü 2026-10-14, dışarıdan,
+  salt-okur): kapısız uygulama `200` (açılış sayfası; `taptime.mt`), kapılı uygulama
+  `303 → /operator` (`ops.taptime.mt`), yönlendirilmeyen ad `404`. Sözlük (3. tur):
+
+  | Kelime | geçer (pass, çıkış 0) | VIOLATION (çıkış 1) | UNCHECKED |
+  |---|---|---|---|
+  | `on` | **yalnız** `303 → /operator` | `2xx`, hemen | `404` 18 denemede de (5 sn arayla, ~90 sn) → çıkış 1; başka her cevap → çıkış 1; ad çözülmüyor → uyarı, çıkış 0 |
+  | `off` | `404`; çözülmeyen ad | `2xx` | başka her cevap (`303` dahil) → çıkış 1 |
+  | yok (`all`'da ön kapı kelime vermediyse) | — | `2xx` | çözülmeyen ad → uyarı, çıkış 0; başka her cevap → çıkış 1 |
+
+  **Neden `on` iken 404 geçmez (3. tur, orkestratör bulgusu T119-C):** ingress-nginx yeni bir
+  Ingress'i **eşzamansız** yayına alır; 41'in ilk yaratıldığı koşuda tek bir deneme büyük
+  olasılıkla varsayılan sunucunun 404'ünü görürdü — yoklamanın yakalamak için var olduğu iki
+  durum (başka bir host'u adlandıran anahtar, yeniden başlatılmamış pod'larla yeniden koşu) tam o
+  koşuda doğar. **Neden 18 × 5 sn (gerekçe, kümede ölçülmedi):** ingress-nginx yapılandırma
+  eşitlemelerini hız sınırıyla yapar (`--sync-rate-limit`, belgelenmiş varsayılan saniyede 0,3 →
+  ~3,3 sn'de bir) ve her birinden sonra yeniden yükler; 5 sn bir eşitleme döneminden uzun, yani her
+  deneme yeni bir yapılandırma görebilir; 90 sn ~27 dönemdir — paylaşılan, yoğun bir denetleyiciye
+  yeter, işin 30 dk zaman aşımına göre kısadır. Sayılar ortamdan (`OPERATOR_HOST_PROBE_TRIES`,
+  `OPERATOR_HOST_PROBE_INTERVAL`) değiştirilebilir — testler beklemeden koşsun diye; deploy ikisini
+  de vermez. Yalnız **raporlar** (apply'dan sonra koşar), ama anahtarın bayt sayısının
+  söyleyemediğini görür: başka bir host'u adlandıran bir `TAPPA_OPERATOR_HOST` ve aynı commit'in
+  yeniden koşusu (pod yenilenmez, pod'lar açıldıkları ortamla kalır).
+- **Cloudflare kapısı `ops.taptime.mt` için de.** K4 kalktığı için XFF atlatması konu değil; ama
+  operatör girişi artık yalnız `internal/operatorauth`'un **adres başına** bütçeleriyle tutulur
+  (flood 300, iş 20, enrollment 3 / 10 dk — `limits.go`'dan okundu, proxy arkasında ölçülmedi).
+  Proxy açıkken ingress `X-Forwarded-For`'u kenarın adresiyle değiştirir ve uygulama
+  (`TAPPA_TRUSTED_PROXIES` = `10.42.0.1/32`) her istemciyi bir kenar adresi olarak görür: aynı
+  kenardan geçen bir yabancı bu bütçeleri harcayıp operatörü pencere boyunca kilitler (`429`, ya
+  da doğru parolanın reddi). Kapı `taptime.mt`'ninkinin aynısı, kendi adımında.
+- **(B) Uygulama içi — uygulanmadı.** `TAPPA_OPERATOR_HOST` boşken uygulama operatör host'unu
+  bilmez (o anahtarın kendisi); host listesi (`TAPPA_BASE_URL`'in host'u dışını reddet) kubelet
+  sondalarını (Host = pod IP'si), geliştirmeyi (`localhost`) ve testlerde 66 dosyadaki 128
+  `NewRouter` çağrısını etkiler — bir güvenlik sınırı değişikliği ve ADR ister. (A)+(C) deploy
+  yolunu kapatıyor; (B) derinlemesine savunma olarak açık iş.
+
+**Kalan, sayılı:** (i) deploy nesneleri **silemez** — yüzey kapanırken silmek operatörün (artık
+deploy bunu sessizce geçmez, kırmızı biter); (ii) ön kapı ile rollout arasında Secret'a yazılan bir
+değişiklik görülmez; (iii) aynı commit'in yeniden koşusunda pod'lar eski ortamlarıyla kalır —
+(C) bunu **raporlar**, önlemez (yüzey `on` iken 41'in yeni yaratıldığı koşuda da: 404'ü geçirmez,
+`303`'ü ya da `2xx`'i bekler); (iv) ad çözülmüyorsa (C) yüzey `on` iken UNCHECKED geçer (uyarı,
+çıkış 0), `off` iken pass — o durumda ada bir tarayıcı da ulaşamaz; (v) (B) yok: kümede elle uygulanan bir Ingress (deploy dışı) yine kapısız bir
+origin açabilir — (C) onu da görür, sonradan; (vi) **değer okunmadığı için** (A), başka bir host'u
+adlandıran bir `TAPPA_OPERATOR_HOST`'u `on` sayar (bir uzunluk karşılaştırması eşitlik değildir,
+yarım bir kontrol bilerek eklenmedi): uygulama o host'u kapılar ve `ops.taptime.mt`'de müşteri
+ürününü sunar — bunu rollout'tan sonra (C) `2xx` → VIOLATION olarak yakalar; (vii) (C)'nin
+18 × 5 sn'lik beklemesi ölçülmedi: daha yavaş bir denetleyicide `on` koşusu UNCHECKED ile kırmızı
+biter (yeniden koşturulur; fail-closed).
+
+**K4 — KARAR VERİLDİ (2026-10-14): IP kısıtı YOK.** Kullanıcının sözü: *"ip limiti olmasın"*.
+İki nesnede de kaynak adres listesi yoktur ve olmayacaktır; dosyanın yer tutucu yorumları artık
+kararı söyler. Sonucu, sayılı: çaresi *"K4"* diye yazılmış sınırlar — **L2** (dağıtık enrollment:
+dört hız anahtarı süreç geneli bütçeyi tüketir; `internal/operatorauth/limits.go`) ve **L20**
+(girişin bcrypt'i için süreç geneli tavan yok; ADR 0020 §4 OP-8 notu) — artık **çaresi olmayan**
+sayılı sınırlardır. Pin: bir `*source-range` ek açıklaması iki testi kırmızıya çevirir
+(`TestPackaging_TheOperatorIngressesAreTheLiveObjects`,
+`TestPackaging_TheOperatorIngressesShareOneHostAndOneCertificate`). Karar bir gün geri alınırsa
+eski taslağın dört kuralı geçerlidir: (1) liste **iki kaynağa da** yazılır — ek açıklama kaynak
+başınadır, yalnız birine yazılırsa öbür yol (ör. `/operator/legal`) her adrese açık kalır; (2) ek
+açıklamanın adı kümenin ingress-nginx sürümüne göre doğrulanır (eski sürümler
+`whitelist-source-range`, yeniler `allowlist-source-range` okur — ölçülmedi); (3) liste ancak
+kayıt **DNS-only** kaldıkça anlamlıdır: proxy açıksa ingress istemciyi değil kenarın adresini
+görür; `use-forwarded-headers` + `proxy-real-ip-cidr` (40-ingress.yaml'ın (b) seçeneği)
+PAYLAŞILAN ConfigMap'tedir (~20 uygulama) ve CIDR yanlışsa origin'e doğrudan gelen biri sahte
+`X-Forwarded-For` ile listeyi geçer (`cloudflare ops.taptime.mt` kapısı T119'dan beri var);
+(4) liste canlıyı değiştiren bir alandır, iki pin onunla birlikte güncellenir.
 
 **`nginx -T` — orkestratörün ölçeceği (salt-okur, ajan koşmaz).** İki kaynağın tek `server`
 bloğunda birleştiğini ve her `location`'ın kendi sınırını taşıdığını gösterir:
