@@ -1692,6 +1692,21 @@ yazılır.
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 
+### 2026-10-14 (29. oturum, otuz dokuzuncu yarı) — ✅ **API-2 DONE** (iki mercek ONAY + iki odaklı son kontrol ONAY) · 📌 **DEVAM: API-3**
+
+**Yeniden başlatmadan sonra:** `docker start tappa-m11-db` (goose **50**). Brief'ler ve `m11env.sh`: `~/.claude/projects/-Users-everva-Documents-GitHub-atknatk-tappa/m11-briefs/`.
+
+**API-2** (`75a15ea` … `1a077be`, `8b6feb4..1a077be`; CI `1a077be` yeşil):
+- 00048 `punch_events` (append-only, R3), `feed_counters`, `webhook_endpoints`, `webhook_deliveries`, `tappa_feedwriter` (NOLOGIN NOBYPASSRLS üyesiz), `feed_open_counter`; 00049 `punch_feed` + `holding_feed`'in olay yarısı (K-31 "var et" + kanonik kilit); 00050 parçalı geri doldurma (NO TRANSACTION; plan metne bağlı — keyset, `OFFSET 0` çitleri, seqscan/bitmapscan/sort/**JIT** kapalı; tek tenant 650 bin satırda en uzun sayaç tutma ≤ 0,32 sn, istatistik durumundan bağımsız). `checkin.insert` tek yeniden denemesi `punch_feed` 55P03'ünü de kapsar. Geri yükleme: manifest `feed_counters <n>` + satırlar, bölüm 6 `last_seq ≥ dump.last_seq + GAP`.
+- **🟢 KULLANICI KARARI K-40 (2026-10-14):** `punch_events.direction` (`in`/`out`, NOT NULL) = işverenin `transactions.type`'ı; onay olayı ana kaydın yönü. Yönü olmayan satır punch değildir (K-4 inceltmesi; ürün yolu her `ok`/`flag` satırına yön yazar — iki mercek ölçtü).
+- **Otonom karar:** 00048–00050 yayınlanmadığı için yerinde düzeltildi (ADR 0028 API-2 notu); `tappa-m11-db` DDL ile yerinde güncellendi, şema parmak izi taze kapla birebir (ölçüldü), `tags` silinmedi.
+- **Denetim izi:** 1. tur güvenlik ONAY / üçüncü göz RED (B-1 sqlc üretilmemiş; O-1 geri doldurma parça maliyeti O(N) → canlı 55P03) → 2. tur iki mercek ONAY (+K-40, TF001, keyset) → son DÜŞÜK turu (plan metne bağlı, R5c, sıfır tenant yedeği) → odaklı kontrol RED (pin testi istatistiğe bağlı) → düzeltme → kısa kontrol ONAY.
+- **TF001:** işlem başına tek sayaç kümesi mekanik; işareti önceden yazan `tappa_app` kodu atlatabilir ve başka çiftlerin holding dokunuşlarını 40P01'e sürükler — ürün kodunda yol yok, redline R5c adı migration dışında reddeder (ADR 0028).
+- **Açık DÜŞÜK notlar (bilgi):** R5c deseni sol sınırsız (tutucu); kök `docker-compose.yml`/`Dockerfile`/`android/` taranmıyor; plan yargısı `tenant_idx` üzerindeki id koşulunu ayırmıyor (planlayıcı maliyeti güvence).
+- **Backlog:** T126 kararsız `TestHeartbeat_TellsUpAsAliveAndDownAsFail` (M11'den bağımsız).
+
+**🔴 DEVAM PLANI:** **API-3** (API anahtarları) — brief `m11-briefs/brief-api3-builder.md` → iki mercek → API-4 → … Kullanıcıda bekleyenler: otuz dördüncü yarıdakiler + `site_punches` saklama süresi (DPA) + T125.
+
 ### 2026-10-14 (29. oturum, otuz sekizinci yarı) — ✅ **API-1c DONE** (güvenlik 3. turda, üçüncü göz 4. turda ONAY) · 📌 **DEVAM: API-2**
 
 **Yeniden başlatmadan sonra:** `docker start tappa-m11-db` (goose **47**). Görev brief'leri ve `m11env.sh`: `~/.claude/projects/-Users-everva-Documents-GitHub-atknatk-tappa/m11-briefs/` (scratchpad /private/tmp'de silinir; brief'ler oturum scratchpad'ine kopyalanır).
