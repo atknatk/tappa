@@ -61,8 +61,6 @@ type holdingSignature struct {
 // tappa_holdingdefiner owns is EXACTLY this list (TestHoldingCatalog_TheFunctionsAndTheirExactSignatures).
 // Still to come, in the ADR's own words (add each row with its migration):
 //
-//	API-1c: holding_site_locations(p_cursor uuid) -> TABLE(...)  -- static_ips and GPS NEVER (K-39)
-//	        holding_feed() -> trigger (the projection half)
 //	API-8:  holding_directory(p_updated_since timestamp with time zone, p_cursor uuid) -> TABLE(...)
 var holdingSignatures = []holdingSignature{
 	{"holding_peer", "a uuid, b uuid, mod text", "boolean", holdingPredicate},
@@ -77,6 +75,12 @@ var holdingSignatures = []holdingSignature{
 	{"holding_advance_tag_counter", "p_uid character, p_ctr integer", "TABLE(outcome text, tag_status text, ctr_gap integer)", holdingCallable},
 	{"holding_logo", "p_uid character, p_digest text", "TABLE(logo bytea, logo_mime text)", holdingCallable},
 	{"holding_site_gate", "", "trigger", holdingTrigger},
+	// 00046 (M11 API-1c): the projection half of the one holding trigger (API-2 adds the events).
+	{"holding_feed", "", "trigger", holdingTrigger},
+	// 00047 (M11 API-1c): a peer's venues -- static_ips and GPS NEVER (K-39).
+	{"holding_site_locations", "p_cursor uuid",
+		"TABLE(site_tenant_id uuid, location_id uuid, location_name text, location_external_ref text, " +
+			"shift_start time without time zone, shift_end time without time zone, overnight boolean)", holdingCallable},
 }
 
 // holdingTriggerConfig is a holding trigger function's exact proconfig: the search path and
@@ -217,16 +221,14 @@ func TestHoldingCatalog_TheFunctionsAndTheirExactSignatures(t *testing.T) {
 		t.Fatalf("anti-vacuity: tappa_holdingdefiner owns %d functions, the table has %d", n, len(holdingSignatures))
 	}
 
-	siteLocations := holdingSignature{"holding_site_locations", "p_cursor uuid",
-		"TABLE(site_tenant_id uuid, location_id uuid, location_name text, location_external_ref text, shift_start time without time zone, shift_end time without time zone, overnight boolean)",
-		holdingCallable}
 	controls := []struct {
 		name  string
 		sql   []string
 		sigs  []holdingSignature
 		wantF string
 	}{
-		{"holding_site_locations returning static_ips (the 1st round's mutant)", []string{
+		{"holding_site_locations returning static_ips (the 1st round's mutant; 00047's function replaced)", []string{
+			`DROP FUNCTION public.holding_site_locations(uuid)`,
 			`CREATE FUNCTION public.holding_site_locations(p_cursor uuid)
 			     RETURNS TABLE(site_tenant_id uuid, location_id uuid, location_name text, location_external_ref text,
 			                   shift_start time, shift_end time, overnight boolean, static_ips cidr[])
@@ -235,11 +237,11 @@ func TestHoldingCatalog_TheFunctionsAndTheirExactSignatures(t *testing.T) {
 			`ALTER FUNCTION public.holding_site_locations(uuid) OWNER TO tappa_holdingdefiner`,
 			`REVOKE ALL ON FUNCTION public.holding_site_locations(uuid) FROM PUBLIC`,
 			`GRANT EXECUTE ON FUNCTION public.holding_site_locations(uuid) TO tappa_app`},
-			append(slices.Clone(holdingSignatures), siteLocations), "(ii)"},
-		{"the same, not in the table at all", []string{
-			`CREATE FUNCTION public.holding_site_locations(p_cursor uuid) RETURNS TABLE(location_name text)
+			holdingSignatures, "(ii)"},
+		{"a definer function not in the table at all", []string{
+			`CREATE FUNCTION public.holding_zz_sites(p_cursor uuid) RETURNS TABLE(location_name text)
 			     LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS 'SELECT NULL::text'`,
-			`ALTER FUNCTION public.holding_site_locations(uuid) OWNER TO tappa_holdingdefiner`},
+			`ALTER FUNCTION public.holding_zz_sites(uuid) OWNER TO tappa_holdingdefiner`},
 			holdingSignatures, "(i)"},
 		{"EXECUTE on holding_peer to tappa_operator", []string{
 			`GRANT EXECUTE ON FUNCTION public.holding_peer(uuid, uuid, text) TO tappa_operator`}, holdingSignatures, "(vi)"},
@@ -945,19 +947,35 @@ var holdingTriggerBindings = map[string]struct {
 		bind:      `CREATE TRIGGER zz_holding_bound BEFORE INSERT ON zz_holding_bind_gate FOR EACH ROW EXECUTE FUNCTION public.holding_site_gate()`,
 		fire:      `INSERT INTO zz_holding_bind_gate VALUES (gen_random_uuid(), gen_random_uuid(), 'AAAAAAAAAAAAAA', 'qr', 'flag', false, NULL)`,
 	},
+	// 00046: the projection on a temp table shaped like a site row -- it refuses before reading a
+	// field (55000), so it never writes a site row for a table that is not transactions.
+	"holding_feed": {
+		tempTable: `CREATE TEMP TABLE zz_holding_bind_feed (id uuid, tenant_id uuid, site_tenant_id uuid, verdict text, channel text)`,
+		bind:      `CREATE TRIGGER zz_holding_bound AFTER INSERT ON zz_holding_bind_feed FOR EACH ROW EXECUTE FUNCTION public.holding_feed()`,
+		fire:      `INSERT INTO zz_holding_bind_feed VALUES (gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 'ok', 'nfc')`,
+	},
 }
 
 // holdingTriggerDefs are the holding triggers as pg_get_triggerdef prints them, keyed by the
 // trigger function: each function is bound exactly once, enabled ('O'), with its WHEN (the API-1a
 // review's DÜŞÜK-2 -- the timezone lock fires only when the zone changes; without the WHEN it
 // would ask holding_peer on every update of a tenant).
-var holdingTriggerDefs = map[string]string{
-	"holding_timezone_lock": `CREATE TRIGGER tenants_holding_timezone_lock BEFORE UPDATE ON public.tenants FOR EACH ROW ` +
-		`WHEN ((old.timezone IS DISTINCT FROM new.timezone)) EXECUTE FUNCTION holding_timezone_lock()`,
+var holdingTriggerDefs = map[string][]string{
+	"holding_timezone_lock": {`CREATE TRIGGER tenants_holding_timezone_lock BEFORE UPDATE ON public.tenants FOR EACH ROW ` +
+		`WHEN ((old.timezone IS DISTINCT FROM new.timezone)) EXECUTE FUNCTION holding_timezone_lock()`},
 	// 00043: only a row that names a site reaches the gate (the employer's own rows never ask
 	// holding_peer).
-	"holding_site_gate": `CREATE TRIGGER transactions_holding_site_gate BEFORE INSERT ON public.transactions FOR EACH ROW ` +
-		`WHEN ((new.site_tenant_id IS NOT NULL)) EXECUTE FUNCTION holding_site_gate()`,
+	"holding_site_gate": {`CREATE TRIGGER transactions_holding_site_gate BEFORE INSERT ON public.transactions FOR EACH ROW ` +
+		`WHEN ((new.site_tenant_id IS NOT NULL)) EXECUTE FUNCTION holding_site_gate()`},
+	// 00046: the one holding trigger, bound TWICE (sorted as pg_get_triggerdef prints them): a
+	// transactions row that names a site, and every approval (its NEW names no site -- the body
+	// looks the decided row up). TestHoldingFeed_NameOrderIsFirst pins its place among the AFTER
+	// INSERT triggers of each table (ADR 0027 §8, K-31).
+	"holding_feed": {
+		`CREATE TRIGGER transaction_reviews_holding_feed AFTER INSERT ON public.transaction_reviews FOR EACH ROW EXECUTE FUNCTION holding_feed()`,
+		`CREATE TRIGGER transactions_holding_feed AFTER INSERT ON public.transactions FOR EACH ROW ` +
+			`WHEN ((new.site_tenant_id IS NOT NULL)) EXECUTE FUNCTION holding_feed()`,
+	},
 }
 
 // TestHoldingTriggers_ExecuteOnlyOwnerAndAssertRelid: every trigger function of the signature
@@ -981,9 +999,14 @@ func TestHoldingTriggers_ExecuteOnlyOwnerAndAssertRelid(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want, ok := holdingTriggerDefs[s.name]
-		if !ok || len(defs) != 1 || defs[0] != "O "+want {
-			t.Errorf("%s is bound as %q,\n want once, enabled: %q", s.name, defs, "O "+want)
+		var want []string
+		for _, d := range holdingTriggerDefs[s.name] {
+			want = append(want, "O "+d)
+		}
+		slices.Sort(defs)
+		slices.Sort(want)
+		if len(want) == 0 || !slices.Equal(defs, want) {
+			t.Errorf("%s is bound as %q,\n want exactly these, enabled: %q", s.name, defs, want)
 		}
 	}
 	n := 0
@@ -1100,15 +1123,23 @@ func TestHoldingFunctions_ExecuteGrantedOnlyToApp(t *testing.T) {
 
 // ------------------------------------------------------------- the definer's reach --
 
-// holdingDefinerMatrix is ADR 0027 §3's verb x column matrix AS FAR AS API-1a AND API-1b HAVE
-// EARNED IT: "table:VERB" -> the exact column list in attnum order. Every relation, verb and
-// column not listed is "no privilege". The ADR's other rows (tenants.api_enabled_at, employees,
-// transactions, webhook_endpoints, site_punches, punch_events, webhook_deliveries, feed_counters)
+// holdingDefinerMatrix is ADR 0027 §3's verb x column matrix AS FAR AS API-1a, API-1b AND API-1c
+// HAVE EARNED IT: "table:VERB" -> the exact column list in attnum order. Every relation, verb and
+// column not listed is "no privilege". The ADR's other rows (tenants.api_enabled_at, the rest of
+// employees and transactions, webhook_endpoints, punch_events, webhook_deliveries, feed_counters)
 // are granted with the function that needs them and added here in the same change (ADR 0027 §3:
 // "matris kesin listenin üst sınırıdır"); TestHoldingDefiner_EveryGrantIsUsed revokes each column
 // below, one at a time, and shows a function or the gate refused without it.
 var holdingDefinerMatrix = map[string]string{
 	"holding_members:SELECT": "holding_id,member_tenant_id,joined_at,left_at",
+	// 00046 (API-1c): holding_feed -- the projection's columns, the two conflict targets (their
+	// columns and their predicates' -- a targeted ON CONFLICT needs SELECT on both, measured), the
+	// approval path's read of the decided row, and the employer's snapshot of who tapped.
+	"site_punches:INSERT": "tenant_id,transaction_id,employer_tenant_id,employer_api_code,employee_id,employee_ref,employee_code," +
+		"employee_name,site_location_id,site_tag_uid,ctr,sun_valid,bucket_hour,occurred_at,channel,type,outcome,ctr_gap",
+	"site_punches:SELECT":    "tenant_id,employee_id,site_tag_uid,ctr,sun_valid,bucket_hour,outcome",
+	"transactions:SELECT":    "id,tenant_id,employee_id,ctr,type,occurred_at,sun_valid,channel,site_tenant_id,site_location_id,site_tag_uid",
+	"employees:SELECT":       "id,tenant_id,full_name,external_ref,employee_code",
 	"holding_members:UPDATE": "lock_anchor",
 	// 00043 (API-1b): holding_tap_site, holding_advance_tag_counter, holding_logo, holding_site_gate.
 	"tags:SELECT":            "uid,tenant_id,location_id,last_ctr,status",
@@ -1406,6 +1437,10 @@ var holdingCanary = struct {
 	needles        []string
 }{"198.51.100.77/32", "35.111327", "14.222391", []string{"198.51.100.77", "35.111327", "14.222391"}}
 
+// holdingCanaryContext is a policy context carrying the canary beside the one key holding_feed
+// reads (the same three needles as holdingCanary, spelled out: a JSON document, not a format).
+const holdingCanaryContext = `{"tap:ctrGap": 0, "tap:ipMatch": "198.51.100.77/32", "tap:gpsDistanceM": 35.111327, "tap:gpsHint": 14.222391}`
+
 // holdingCanaryCall is how one callable holding_* is called in the PEER's context: the
 // statement (run as tappa_app with app.tenant_id = the caller tenant) and its arguments, built
 // from the fixture. exempt are the result columns the canary may appear in (ADR 0027 §2: only
@@ -1441,6 +1476,11 @@ var holdingCanaryCalls = map[string]holdingCanaryCall{
 	"holding_logo": {
 		sql:  `SELECT * FROM public.holding_logo($1, $2)`,
 		args: func(f holdingCanaryFixture) []any { return []any{f.uid, f.digest} },
+	},
+	// 00047 (API-1c): the peer's venues, the canary venue among them -- no exemption (K-39).
+	"holding_site_locations": {
+		sql:  `SELECT * FROM public.holding_site_locations(NULL)`,
+		args: func(holdingCanaryFixture) []any { return nil },
 	},
 }
 
@@ -1505,6 +1545,41 @@ func TestHoldingFunctions_SiteEvidenceCanaryNeverLeaks(t *testing.T) {
 	// API-1b: a plaque of the peer's at the canary venue, and the peer VIES verified with a logo.
 	f.uid = holdingNewTag(t, ctx, tx, f.peer, &f.location, "active", 900)
 	f.digest = holdingNewLogo(t, ctx, tx, f.peer, true)
+	// API-1c: the caller's employee taps the peer's plaque at the canary venue -- ok, flagged then
+	// approved, and refused -- with the canary in EVERY evidence column of the employer's row
+	// (source_ip, the phone's GPS, the note, the policy context beside the one key the projection
+	// reads), so the rows holding_feed writes into the peer's site_punches are searched below.
+	employee := holdingNewEmployee(t, ctx, tx, f.caller, "active")
+	reviewer := holdingNewAdmin(t, ctx, tx, f.caller)
+	before := opInt(t, ctx, tx, `SELECT count(*) FROM site_punches WHERE tenant_id = $1`, f.peer)
+	var flagged uuid.UUID
+	if err := holdingAppIn(t, ctx, tx, f.caller, func(sp pgx.Tx) error {
+		for _, v := range []struct{ verdict, kind string }{{"ok", "in"}, {"flag", "out"}, {"reject", ""}} {
+			var id uuid.UUID
+			if err := sp.QueryRow(ctx, `
+				INSERT INTO transactions (tenant_id, employee_id, occurred_at, verdict, channel, type, sun_valid, ctr, source_ip,
+				                          gps_lat, gps_lng, note, policy_context, site_tenant_id, site_location_id, site_tag_uid)
+				VALUES ($1, $2, now(), $3, 'nfc', NULLIF($4, ''), true, 900, $5::inet, $6::numeric, $7::numeric, $8, $9::jsonb, $10, $11, $12)
+				RETURNING id`,
+				f.caller, employee, v.verdict, v.kind, holdingCanary.needles[0], holdingCanary.lat, holdingCanary.lng,
+				"canary "+strings.Join(holdingCanary.needles, " "),
+				holdingCanaryContext,
+				f.peer, f.location, f.uid).Scan(&id); err != nil {
+				return err
+			}
+			if v.verdict == "flag" {
+				flagged = id
+			}
+		}
+		_, err := sp.Exec(ctx, `INSERT INTO transaction_reviews (tenant_id, transaction_id, reviewer_id, outcome, note) VALUES ($1, $2, $3, 'approved', $4)`,
+			f.caller, flagged, reviewer, "canary "+strings.Join(holdingCanary.needles, " "))
+		return err
+	}); err != nil {
+		t.Fatalf("the canary holding taps: %v", err)
+	}
+	if n := opInt(t, ctx, tx, `SELECT count(*) FROM site_punches WHERE tenant_id = $1`, f.peer) - before; n != 4 {
+		t.Fatalf("anti-vacuity: the canary taps wrote %d site_punches rows, want 4 (counted, pending_review, refused, approved)", n)
+	}
 
 	callFindings := func(q pgx.Tx, calls map[string]holdingCanaryCall) []string {
 		var out []string
@@ -1630,7 +1705,13 @@ type holdingMultiRowCall struct {
 // holdingMultiRowCalls are the callable holding_* that return many rows (ADR 0027 §2's
 // "Maliyet": holding_site_locations -- API-1c -- and holding_directory -- API-8). Each must compute
 // the peer set ONCE (a materialised CTE over tenants), not call holding_peer per data row.
-var holdingMultiRowCalls = map[string]holdingMultiRowCall{}
+var holdingMultiRowCalls = map[string]holdingMultiRowCall{
+	// 00047 (API-1c): the peer's venues.
+	"holding_site_locations": {
+		sql:  `SELECT * FROM public.holding_site_locations(NULL)`,
+		grow: `INSERT INTO locations (tenant_id, name) SELECT $1, 'api1c peerset ' || g FROM generate_series(1, 50) AS g`,
+	},
+}
 
 // holdingSingleRowCalls are the set-returning callables keyed by ONE primary key -- a plaque's
 // uid (tags_pkey) -- so at most one data row exists to answer: API-1b's three (00043). For them

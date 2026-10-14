@@ -132,6 +132,21 @@ var m11Tables = map[string]map[string]m11TableACL{
 			Update: "lock_anchor",
 		},
 	},
+	// 00046 (M11 API-1c, ADR 0027 §9): the site's projection. tappa_app READS it, column by
+	// column, sun_valid NOT among them (K-1h), and writes nothing; the one writer is holding_feed,
+	// whose owner inserts the projection's columns and reads the two conflict targets (their
+	// columns and their predicates' -- a targeted ON CONFLICT needs SELECT on both).
+	"site_punches": {
+		"tappa_app": {
+			Select: "tenant_id,id,transaction_id,employer_tenant_id,employer_api_code,employee_id,employee_ref,employee_code," +
+				"employee_name,site_location_id,site_tag_uid,ctr,bucket_hour,occurred_at,channel,type,outcome,ctr_gap,created_at",
+		},
+		"tappa_holdingdefiner": {
+			Select: "tenant_id,employee_id,site_tag_uid,ctr,sun_valid,bucket_hour,outcome",
+			Insert: "tenant_id,transaction_id,employer_tenant_id,employer_api_code,employee_id,employee_ref,employee_code," +
+				"employee_name,site_location_id,site_tag_uid,ctr,sun_valid,bucket_hour,occurred_at,channel,type,outcome,ctr_gap",
+		},
+	},
 }
 
 // m11ScopelessTables are the matrix's tenant-scope-less tables (CLAUDE.md §6): ENABLE and FORCE
@@ -154,8 +169,10 @@ var m11Columns = []m11Column{
 	// panel's external ref; API-5/6). updated_at is writable but OWNED by its trigger:
 	// TestEmployeeUpdatedAt_OnlyDirectoryColumnsOnEveryUpdatePath shows a written value is
 	// overruled.
-	{"employees", "external_ref", map[string]string{"tappa_app": "SIU"}},
-	{"employees", "employee_code", map[string]string{"tappa_app": "SIU"}},
+	// 00046 (M11 API-1c): and tappa_holdingdefiner reads the ref and the code -- the snapshot of
+	// who tapped that holding_feed writes into the site's projection (K-1f).
+	{"employees", "external_ref", map[string]string{"tappa_app": "SIU", "tappa_holdingdefiner": "S"}},
+	{"employees", "employee_code", map[string]string{"tappa_app": "SIU", "tappa_holdingdefiner": "S"}},
 	{"employees", "first_name", map[string]string{"tappa_app": "SIU"}},
 	{"employees", "last_name", map[string]string{"tappa_app": "SIU"}},
 	{"employees", "updated_at", map[string]string{"tappa_app": "SIU"}},
@@ -172,11 +189,11 @@ var m11Columns = []m11Column{
 	// 00043 (M11 API-1b, ADR 0027 §4): the site of a tap on a peer's plaque. transactions hands
 	// tappa_app table-level SELECT and INSERT (00005) and nothing else, which the new columns
 	// fall under -- the tap path writes them (checkin), never updates them (§4.3).
-	// tappa_holdingdefiner holds nothing on transactions: the gate reads NEW, which needs no
-	// privilege; the matrix's transactions row is API-1c's/API-2's to earn.
-	{"transactions", "site_tenant_id", map[string]string{"tappa_app": "SI"}},
-	{"transactions", "site_location_id", map[string]string{"tappa_app": "SI"}},
-	{"transactions", "site_tag_uid", map[string]string{"tappa_app": "SI"}},
+	// The gate reads NEW, which needs no privilege; 00046 (API-1c) gives tappa_holdingdefiner
+	// SELECT on them -- holding_feed's approval path reads the decided row by its key.
+	{"transactions", "site_tenant_id", map[string]string{"tappa_app": "SI", "tappa_holdingdefiner": "S"}},
+	{"transactions", "site_location_id", map[string]string{"tappa_app": "SI", "tappa_holdingdefiner": "S"}},
+	{"transactions", "site_tag_uid", map[string]string{"tappa_app": "SI", "tappa_holdingdefiner": "S"}},
 }
 
 // m11FunctionACL is one function's owner, SECURITY DEFINER flag and EXACT EXECUTE grantees
@@ -212,6 +229,10 @@ var m11Functions = map[string]m11FunctionACL{
 	"holding_advance_tag_counter(character,integer)": {owner: "tappa_holdingdefiner", definer: true, execute: "tappa_app,tappa_holdingdefiner"},
 	"holding_logo(character,text)":                   {owner: "tappa_holdingdefiner", definer: true, execute: "tappa_app,tappa_holdingdefiner"},
 	"holding_site_gate()":                            {owner: "tappa_holdingdefiner", definer: true, execute: "tappa_holdingdefiner"},
+	// 00046 (M11 API-1c): the projection half of the one holding trigger -- EXECUTE in its owner
+	// alone; 00047: a peer's venues -- EXECUTE to tappa_app alone.
+	"holding_feed()":               {owner: "tappa_holdingdefiner", definer: true, execute: "tappa_holdingdefiner"},
+	"holding_site_locations(uuid)": {owner: "tappa_holdingdefiner", definer: true, execute: "tappa_app,tappa_holdingdefiner"},
 }
 
 // m11DefaultACLStatement is production's pg_default_acl, which m11DefaultACLInit gives every

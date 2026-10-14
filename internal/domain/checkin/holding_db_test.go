@@ -663,9 +663,10 @@ func TestHoldingAdvance_EqualCounterIsReplayWithSiteColumns(t *testing.T) {
 // the counter), SameHolding comes from the strict holding_tap_site, and the refusal is §5 row 1's
 // at KM: sys:tag-not-active with the lost-plaque alert, the site columns set, KF's counter unmoved,
 // and the alert in KM's OWN audit trail (no cross-tenant audit -- ADR 0027 §5). The same for KF's
-// UNASSIGNED plaque (no wall: site_location_id NULL, K-30). "Seen at the site" -- KF's
-// refused_tag_not_active row in site_punches and its panel alert -- is API-1c's: the projection
-// is born there, from these rows.
+// UNASSIGNED plaque (no wall: site_location_id NULL, K-30). SEEN AT THE SITE (API-1c, taken over
+// from API-1b): KF's projection holds ONE refused_tag_not_active row for each refusal -- the outcome,
+// the plaque, no reason -- the unassigned plaque's with no venue; the panel's alert reads these rows
+// (TestSitePanel_LostPlaqueAlertAtTheSite).
 func TestHoldingTap_LostPlaqueRefusalRecordedAtEmployerSeenAtSite(t *testing.T) {
 	w := newHoldingWorld(t)
 	res, err := w.svc.Record(w.ctx, w.nfc(w.km, w.kmEmp, w.kfLost, w.kf, 150, w.kfOnNet))
@@ -702,6 +703,24 @@ func TestHoldingTap_LostPlaqueRefusalRecordedAtEmployerSeenAtSite(t *testing.T) 
 	}
 	if err := isSite(w.record(loose.TransactionID), w, w.kfLoose, nil); err != nil {
 		t.Errorf("unassigned: %v", err)
+	}
+	for _, c := range []struct {
+		id    uuid.UUID
+		uid   string
+		venue *uuid.UUID
+	}{{res.TransactionID, w.kfLost, &w.kfVenue}, {loose.TransactionID, w.kfLoose, nil}} {
+		var (
+			outcome string
+			uid     *string
+			venue   *uuid.UUID
+		)
+		if err := w.owner.QueryRow(w.ctx, `SELECT outcome, site_tag_uid, site_location_id FROM site_punches WHERE transaction_id = $1 AND tenant_id = $2`,
+			c.id, w.kf).Scan(&outcome, &uid, &venue); err != nil {
+			t.Fatalf("KF's projection of the refusal on %s: %v", c.uid, err)
+		}
+		if outcome != "refused_tag_not_active" || uid == nil || *uid != c.uid || (venue == nil) != (c.venue == nil) || (venue != nil && *venue != *c.venue) {
+			t.Errorf("KF sees %s on %v at %v, want refused_tag_not_active on %s at %v", outcome, uid, venue, c.uid, c.venue)
+		}
 	}
 }
 
@@ -832,6 +851,19 @@ func TestHoldingAdvance_CounterGapReachesTheEmployersReview(t *testing.T) {
 	}
 	if got := w.lastCtr(w.kfTag); got != 150 {
 		t.Errorf("KF's last_ctr %d, want 150", got)
+	}
+	// K-1i's SITE half (API-1c): KF's projection of the holding tap carries the 49 -- read by
+	// holding_feed from the row's tap:ctrGap, the only trace of the old counter.
+	var (
+		outcome string
+		siteGap *int32
+	)
+	if err := w.owner.QueryRow(w.ctx, `SELECT outcome, ctr_gap FROM site_punches WHERE transaction_id = $1 AND tenant_id = $2`,
+		res.TransactionID, w.kf).Scan(&outcome, &siteGap); err != nil {
+		t.Fatalf("KF's projection of the holding tap: %v", err)
+	}
+	if outcome != "pending_review" || siteGap == nil || *siteGap != 49 {
+		t.Errorf("KF sees %s with ctr_gap %v, want pending_review with 49", outcome, siteGap)
 	}
 
 	own, err := w.svc.Record(w.ctx, w.nfc(w.kf, w.kfEmp, w.kfTag, w.kf, 151, w.kfOnNet))

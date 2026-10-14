@@ -387,6 +387,27 @@ func holdingOutsiderProbes(t *testing.T, ctx context.Context, tx pgx.Tx, w holdi
 			functions = append(functions, leak(last != want, fmt.Sprintf("%s moved %s's counter %d -> %d", p.who, p.whose, want, last)))
 		}
 	}
+	// holding_site_locations (00047, API-1c): an outsider's context reads no venue of H's members,
+	// KM's context no venue of H2's, and no context no venue at all.
+	for _, p := range []struct {
+		who       string
+		ctx       uuid.UUID
+		forbidden []uuid.UUID
+	}{
+		{"C (H2)", w.c, []uuid.UUID{w.kf, w.km}},
+		{"D (H2, C's peer)", w.d, []uuid.UUID{w.kf, w.km}},
+		{"KM", w.km, []uuid.UUID{w.c, w.d}},
+		{"no context", uuid.Nil, nil},
+	} {
+		var n int64
+		if err := holdingAppIn(t, ctx, tx, p.ctx, func(sp pgx.Tx) error {
+			return sp.QueryRow(ctx, `SELECT count(*) FROM public.holding_site_locations(NULL) WHERE $1::uuid[] IS NULL OR site_tenant_id = ANY($1)`,
+				p.forbidden).Scan(&n)
+		}); err != nil {
+			t.Fatalf("holding_site_locations: %v", err)
+		}
+		functions = append(functions, leak(n != 0, fmt.Sprintf("%s read %d venue(s) it is no peer of through holding_site_locations", p.who, n)))
+	}
 	// The gate: KM names C's venue on a manual record and C's plaque on a QR; C names KF's.
 	gate = append(gate,
 		leak(holdingInsertRow(t, ctx, tx, holdingRow{employer: w.km, employee: w.kmEmployee, channel: "manual", verdict: "flag", kind: "in",
@@ -396,6 +417,62 @@ func holdingOutsiderProbes(t *testing.T, ctx context.Context, tx pgx.Tx, w holdi
 		leak(holdingInsertRow(t, ctx, tx, holdingRow{employer: w.c, employee: w.cEmployee, channel: "qr", verdict: "flag", kind: "in",
 			siteTenant: &w.kf, siteTag: &w.kfTag}) == nil, "C's QR row named KF's plaque"))
 	return holdingNonEmpty(functions), holdingNonEmpty(gate)
+}
+
+// holdingFeedProbes is K-33's question to holding_feed's projection (API-1c; plan §5 API-1c's
+// devir: "M1, M2, M3 mutantlarının her biri holding_feed'de de kırmızı"). The transactions arm does
+// not ask holding_peer (the gate's acceptance is the answer -- ADR 0027 §6), so the arm a filter
+// reaches is the APPROVAL's: KM's employee's flagged row on KF's plaque is written while the two
+// are peers; then KM leaves H and joins H2 (C's holding) and KM's manager approves the row. KM and
+// KF are no longer peers -- the site is not told -- yet each wrong filter answers "peer" (M1: KM is
+// a member of H2; M2: KF of H; M3: both of some holding) and writes KF an 'approved' row. All in a
+// nested savepoint, rolled back. "" when nothing leaked.
+func holdingFeedProbes(t *testing.T, ctx context.Context, tx pgx.Tx, w holdingWorld) []string {
+	t.Helper()
+	sp, err := tx.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := sp.Rollback(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}()
+	reviewer := holdingNewAdmin(t, ctx, sp, w.km)
+	var id uuid.UUID
+	if err := holdingAppIn(t, ctx, sp, w.km, func(q pgx.Tx) error {
+		return q.QueryRow(ctx, `INSERT INTO transactions (tenant_id, employee_id, occurred_at, verdict, channel, type, sun_valid, ctr,
+		                            site_tenant_id, site_location_id, site_tag_uid)
+		                        VALUES ($1, $2, now(), 'flag', 'nfc', 'in', true, 100, $3, $4, $5) RETURNING id`,
+			w.km, w.kmEmployee, w.kf, w.kfVenue, w.kfTag).Scan(&id)
+	}); err != nil {
+		t.Fatalf("KM's flagged row on KF's plaque: %v", err)
+	}
+	for _, s := range []string{
+		`UPDATE holding_members SET left_at = clock_timestamp() - interval '2 minutes' WHERE member_tenant_id = $1 AND holding_id = $2 AND left_at IS NULL`,
+		`INSERT INTO holding_members (holding_id, member_tenant_id, joined_at) VALUES ($2, $1, clock_timestamp() - interval '1 minute')`,
+	} {
+		h := w.h
+		if strings.Contains(s, "INSERT") {
+			h = w.h2
+		}
+		if _, err := sp.Exec(ctx, s, w.km, h); err != nil {
+			t.Fatalf("move KM to H2: %v", err)
+		}
+	}
+	if err := holdingAppIn(t, ctx, sp, w.km, func(q pgx.Tx) error {
+		_, err := q.Exec(ctx, `INSERT INTO transaction_reviews (tenant_id, transaction_id, reviewer_id, outcome) VALUES ($1, $2, $3, 'approved')`, w.km, id, reviewer)
+		return err
+	}); err != nil {
+		return []string{"the approval after the move was not written (it must be: the employer's own record): " + err.Error()}
+	}
+	if n := opInt(t, ctx, sp, `SELECT count(*) FROM site_punches WHERE transaction_id = $1 AND outcome = 'approved'`, id); n != 0 {
+		return []string{fmt.Sprintf("KF was told of an approval %d time(s) after KM left H for H2", n)}
+	}
+	if n := opInt(t, ctx, sp, `SELECT count(*) FROM site_punches WHERE transaction_id = $1 AND outcome = 'pending_review'`, id); n != 1 {
+		return []string{fmt.Sprintf("PREMISE: the flagged row while KM was KF's peer reached KF %d time(s), want 1", n)}
+	}
+	return nil
 }
 
 func holdingNonEmpty(in []string) []string {
@@ -429,6 +506,21 @@ func TestHoldingFunctions_ReturnNothingForAnOutsiderOrAnOutsiderKey(t *testing.T
 	}
 	if out, _, last := holdingAdvanceIn(t, ctx, tx, w.km, w.kfTag, 101); out != "advanced" || last != 101 {
 		t.Errorf("CONTROL: KM advancing KF's plaque: %s, last_ctr %d; want advanced, 101", out, last)
+	}
+	for _, c := range []struct {
+		who         string
+		ctx, venue  uuid.UUID
+		owner, name string
+	}{{"KM", w.km, w.kfVenue, "KF", "KF St Julians"}, {"D", w.d, w.cVenue, "C", "C Venue"}} {
+		var n int64
+		if err := holdingAppIn(t, ctx, tx, c.ctx, func(sp pgx.Tx) error {
+			return sp.QueryRow(ctx, `SELECT count(*) FROM public.holding_site_locations(NULL) WHERE location_id = $1 AND location_name = $2`, c.venue, c.name).Scan(&n)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if n != 1 {
+			t.Errorf("CONTROL: %s reads its peer %s's venue through holding_site_locations %d time(s), want 1", c.who, c.owner, n)
+		}
 	}
 }
 
@@ -471,14 +563,15 @@ var holdingPeerMutants = map[string]string{
 // with each of M1, M2 and M3 put in its place -- in a savepoint, by CREATE OR REPLACE, the owner
 // and the grants kept -- the probes of the FUNCTIONS find a leak AND the probes of the GATE find
 // a leak. C is a member of H2: without it M3 would answer false for C and stay green (7th round).
-// (The second trigger -- holding_feed, the AFTER one -- is API-1c's; it is born asking
-// holding_peer too, and this test will reach it through its probes then.)
+// Since API-1c the probes reach holding_site_locations (00047) and the second trigger, holding_feed
+// (00046), through its approval arm -- the one that asks holding_peer (holdingFeedProbes).
 func TestHoldingFilter_MutantsM1M2M3AreRedInFunctionsAndTriggers(t *testing.T) {
 	ctx, tx := opTx(t)
 	w := holdingWorldTx(t, ctx, tx, "")
 	functions, gate := holdingOutsiderProbes(t, ctx, tx, w)
-	if len(functions)+len(gate) != 0 {
-		t.Fatalf("the real holding_peer leaks: %v %v", functions, gate)
+	feed := holdingFeedProbes(t, ctx, tx, w)
+	if len(functions)+len(gate)+len(feed) != 0 {
+		t.Fatalf("the real holding_peer leaks: %v %v %v", functions, gate, feed)
 	}
 	for _, name := range []string{"M1", "M2", "M3"} {
 		t.Run(name, func(t *testing.T) {
@@ -494,13 +587,20 @@ func TestHoldingFilter_MutantsM1M2M3AreRedInFunctionsAndTriggers(t *testing.T) {
 					t.Fatalf("install %s: %v", name, err)
 				}
 				functions, gate := holdingOutsiderProbes(t, ctx, sp, w)
+				feed := holdingFeedProbes(t, ctx, sp, w)
 				if len(functions) == 0 {
 					t.Errorf("%s in holding_peer: the functions' probes stayed green -- K-33's test does not catch it", name)
+				}
+				if !slices.ContainsFunc(functions, func(f string) bool { return strings.Contains(f, "holding_site_locations") }) {
+					t.Errorf("%s in holding_peer: holding_site_locations' probes stayed green -- K-33's test does not catch it", name)
 				}
 				if len(gate) == 0 {
 					t.Errorf("%s in holding_peer: the gate's probes stayed green -- K-33's test does not catch it", name)
 				}
-				t.Logf("%s: functions leaked %d, gate leaked %d", name, len(functions), len(gate))
+				if len(feed) == 0 {
+					t.Errorf("%s in holding_peer: holding_feed's probe stayed green -- K-33's test does not catch it", name)
+				}
+				t.Logf("%s: functions leaked %d, gate leaked %d, feed leaked %d", name, len(functions), len(gate), len(feed))
 			})
 		})
 	}
@@ -683,8 +783,17 @@ func TestHoldingWindow_GateArms(t *testing.T) {
 //     the first version of this subtest let the remover commit during the key wait and hung on
 //     exactly that lock.)
 //
-// "...and the AFTER trigger does not skip KF's side" is API-1c's half: holding_feed is born there
-// and does not re-ask the membership for a transactions row (ADR 0027 §6).
+// "...AND THE AFTER TRIGGER DOES NOT SKIP KF's SIDE" (API-1c, taken over from API-1b; ADR 0027
+// §6: holding_feed's transactions arm does not re-ask the membership -- a row the gate accepted is
+// a peer's):
+//
+//  4. AN UNCOMMITTED REMOVE, A TOLERANT ROW: an advanced NFC row (sun_valid, the counter reached)
+//     waits in the gate for the remove, the remove commits, the gate's tolerant arm accepts it --
+//     and KF's projection HAS the row, in the same transaction. MUTANT (holding_feed's transactions
+//     arm made to ask 'strict_stmt' again, in the writer's own transaction): the row is written at
+//     KM and NOT at KF -- the "BEFORE kabul etti, AFTER KF tarafını atladı" row.
+//  5. THE KEY WAIT (3. above): the accepted row, committed after its key wait, is in KF's
+//     projection too.
 func TestHoldingWindow_NoRowPassesBeforeAndSkipsAfter(t *testing.T) {
 	f := holdingLiveFixture(t)
 	w := holdingWorldLive(t, f)
@@ -747,6 +856,75 @@ func TestHoldingWindow_NoRowPassesBeforeAndSkipsAfter(t *testing.T) {
 		waited, err := run(t, true)
 		if waited || err != nil {
 			t.Errorf("the mutant: waited=%v err=%v; want no wait and the row written (the ordering's measurement)", waited, err)
+		}
+	})
+	// 4. The tolerant row through an uncommitted remove, and KF's side of it.
+	tolerant := func(t *testing.T, feedMutant bool) (atKM, atKF int64) {
+		t.Helper()
+		if _, err := f.owner.Exec(f.ctx, `DELETE FROM holding_members WHERE member_tenant_id = $1`, w.km); err != nil {
+			t.Fatal(err)
+		}
+		f.member(t, w.h, w.km, "10 minutes", "")
+		rt := holdingBegin(t, f.ctx, remover, "")
+		if _, err := rt.Exec(f.ctx, removeKM, w.h, w.km); err != nil {
+			t.Fatal(err)
+		}
+		wt := holdingBegin(t, f.ctx, writer, "")
+		if feedMutant {
+			var body string
+			if err := wt.QueryRow(f.ctx, `SELECT pg_get_functiondef('public.holding_feed()'::regprocedure)`).Scan(&body); err != nil {
+				t.Fatal(err)
+			}
+			anchor := "        v_txid     := NEW.id;\n"
+			if !strings.Contains(body, anchor) {
+				t.Fatal("the mutant's anchor is not in holding_feed's body")
+			}
+			mutant := strings.Replace(body, anchor, anchor+
+				"        IF public.holding_peer(NEW.tenant_id, NEW.site_tenant_id, 'strict_stmt') IS NOT TRUE THEN RETURN NULL; END IF;\n", 1)
+			if _, err := wt.Exec(f.ctx, mutant); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := wt.Exec(f.ctx, `SET LOCAL SESSION AUTHORIZATION tappa_app`); err != nil {
+			t.Fatal(err)
+		}
+		var id uuid.UUID
+		errs := make(chan error, 1)
+		go func() {
+			if _, err := wt.Exec(f.ctx, `SELECT set_config('app.tenant_id', $1, true)`, w.km.String()); err != nil {
+				errs <- err
+				return
+			}
+			errs <- wt.QueryRow(f.ctx, `
+				INSERT INTO transactions (tenant_id, employee_id, occurred_at, verdict, channel, type, sun_valid, ctr, site_tenant_id, site_location_id, site_tag_uid)
+				VALUES ($1, $2, now(), 'ok', 'nfc', 'in', true, 100, $3, $4, $5) RETURNING id`,
+				w.km, w.kmEmployee, w.kf, w.kfVenue, w.kfTag).Scan(&id)
+		}()
+		if !holdingWaitsWithin(t, f, writer, 2*time.Second) {
+			t.Error("the tolerant row did not wait for the uncommitted remove")
+		}
+		if err := rt.Commit(f.ctx); err != nil {
+			t.Fatal(err)
+		}
+		if err := <-errs; err != nil {
+			t.Fatalf("the tolerant row 0 s after a remove it waited for: %v -- arm (i) must write it", err)
+		}
+		if _, err := wt.Exec(f.ctx, `SET LOCAL SESSION AUTHORIZATION DEFAULT`); err != nil {
+			t.Fatal(err)
+		}
+		atKM = opInt(t, f.ctx, wt, `SELECT count(*) FROM transactions WHERE id = $1`, id)
+		atKF = opInt(t, f.ctx, wt, `SELECT count(*) FROM site_punches WHERE transaction_id = $1 AND tenant_id = $2`, id, w.kf)
+		_ = wt.Rollback(f.ctx)
+		return atKM, atKF
+	}
+	t.Run("an uncommitted remove, a tolerant row, and KF's side", func(t *testing.T) {
+		if atKM, atKF := tolerant(t, false); atKM != 1 || atKF != 1 {
+			t.Errorf("the row the gate accepted: %d at KM, %d at KF; want 1 and 1 -- AFTER must not skip KF's side", atKM, atKF)
+		}
+	})
+	t.Run("MUTANT: holding_feed asks the membership again", func(t *testing.T) {
+		if atKM, atKF := tolerant(t, true); atKM != 1 || atKF != 0 {
+			t.Errorf("the mutant: %d at KM, %d at KF; want 1 and 0 (the measurement the subtest above stands on)", atKM, atKF)
 		}
 	})
 	t.Run("the remover waits for the gate", func(t *testing.T) {
@@ -823,6 +1001,9 @@ func TestHoldingWindow_NoRowPassesBeforeAndSkipsAfter(t *testing.T) {
 		}
 		if n := opInt(t, f.ctx, f.owner, `SELECT count(*) FROM transactions WHERE id = $1 AND site_tenant_id = $2`, id, w.kf); n != 1 {
 			t.Errorf("the accepted row is not there after the race: %d", n)
+		}
+		if n := opInt(t, f.ctx, f.owner, `SELECT count(*) FROM site_punches WHERE transaction_id = $1 AND tenant_id = $2`, id, w.kf); n != 1 {
+			t.Errorf("the accepted row is not in KF's projection after the key wait: %d, want 1", n)
 		}
 	})
 }
@@ -951,14 +1132,17 @@ func TestHoldingAdvance_ConcurrentSameCounterExactlyOneWins(t *testing.T) {
 
 // ---------------------------------------------------------- the definer's grants --
 
-// TestHoldingDefiner_EveryGrantIsUsed re-earns ADR 0027 §3's matrix rows 00043 grants (the
-// matrix is a ceiling -- "gereksiz çıkan sütun düşer"): each (table, verb, column) beyond 00041's
-// holding_members row is revoked ALONE, in a savepoint, and the three functions and the gate are
-// driven through the paths that read it -- and at least one of them is refused 42501. A column
-// none of them needed would stay green here, and this test is red on it.
+// TestHoldingDefiner_EveryGrantIsUsed re-earns ADR 0027 §3's matrix rows 00043 and 00046 grant
+// (the matrix is a ceiling -- "gereksiz çıkan sütun düşer"): each (table, verb, column) beyond
+// 00041's holding_members row is revoked ALONE, in a savepoint, and the callable functions, the
+// gate and the projection are driven through the paths that read it -- and at least one of them
+// is refused 42501. A column none of them needed would stay green here, and this test is red on
+// it. Since API-1c the drive also writes the two refusal shapes (each dedup target's ON CONFLICT
+// needs SELECT on its own columns) and an approval (the only path that reads transactions).
 func TestHoldingDefiner_EveryGrantIsUsed(t *testing.T) {
 	ctx, tx := opTx(t)
 	w := holdingWorldTx(t, ctx, tx, "")
+	reviewer := holdingNewAdmin(t, ctx, tx, w.km)
 	drive := func(sp pgx.Tx) []error {
 		var errs []error
 		for _, c := range []struct {
@@ -968,6 +1152,7 @@ func TestHoldingDefiner_EveryGrantIsUsed(t *testing.T) {
 			{`SELECT * FROM public.holding_tap_site($1)`, []any{w.kfTag}},
 			{`SELECT * FROM public.holding_logo($1, $2)`, []any{w.kfTag, w.kfDigest}},
 			{`SELECT * FROM public.holding_advance_tag_counter($1, 101)`, []any{w.kfTag}},
+			{`SELECT * FROM public.holding_site_locations(NULL)`, nil},
 		} {
 			errs = append(errs, holdingAppIn(t, ctx, sp, w.km, func(q pgx.Tx) error {
 				rows, err := q.Query(ctx, c.sql, c.args...)
@@ -982,6 +1167,22 @@ func TestHoldingDefiner_EveryGrantIsUsed(t *testing.T) {
 		}
 		errs = append(errs, holdingInsertRow(t, ctx, sp, holdingRow{employer: w.km, employee: w.kmEmployee, channel: "nfc", verdict: "ok", kind: "in",
 			sunValid: ptr(true), ctr: ptr(int32(100)), siteTenant: &w.kf, siteVenue: &w.kfVenue, siteTag: &w.kfTag}))
+		for _, sun := range []bool{true, false} {
+			errs = append(errs, holdingInsertRow(t, ctx, sp, holdingRow{employer: w.km, employee: w.kmEmployee, channel: "nfc", verdict: "reject",
+				sunValid: ptr(sun), ctr: ptr(int32(100)), siteTenant: &w.kf, siteVenue: &w.kfVenue, siteTag: &w.kfTag}))
+		}
+		errs = append(errs, holdingAppIn(t, ctx, sp, w.km, func(q pgx.Tx) error {
+			var id uuid.UUID
+			if err := q.QueryRow(ctx, `INSERT INTO transactions (tenant_id, employee_id, occurred_at, verdict, channel, type, sun_valid, ctr,
+			                               site_tenant_id, site_location_id, site_tag_uid)
+			                           VALUES ($1, $2, now(), 'flag', 'nfc', 'in', true, 100, $3, $4, $5) RETURNING id`,
+				w.km, w.kmEmployee, w.kf, w.kfVenue, w.kfTag).Scan(&id); err != nil {
+				return err
+			}
+			_, err := q.Exec(ctx, `INSERT INTO transaction_reviews (tenant_id, transaction_id, reviewer_id, outcome) VALUES ($1, $2, $3, 'approved')`,
+				w.km, id, reviewer)
+			return err
+		}))
 		return errs
 	}
 	for _, e := range drive(tx) {
@@ -1008,12 +1209,12 @@ func TestHoldingDefiner_EveryGrantIsUsed(t *testing.T) {
 					}
 				}
 				if !refused {
-					t.Errorf("%s (%s) ON %s: revoked, and every function and the gate still ran -- a grant nothing reads (drop it from 00043 and the matrix)", verb, col, table)
+					t.Errorf("%s (%s) ON %s: revoked, and every function, the gate and the projection still ran -- a grant nothing reads (drop it from its migration and the matrix)", verb, col, table)
 				}
 			})
 		}
 	}
-	if checked < 25 {
+	if checked < 60 {
 		t.Fatalf("anti-vacuity: %d columns checked", checked)
 	}
 }
@@ -1024,6 +1225,8 @@ const (
 	op00043File = "00043_record_a_tap_on_a_peers_plaque.sql"
 	op00044File = "00044_validate_the_site_constraints.sql"
 	op00045File = "00045_report_the_counter_gap_of_a_peers_plaque.sql"
+	op00046File = "00046_project_a_holding_tap_to_its_site.sql"
+	op00047File = "00047_list_a_peers_venues.sql"
 )
 
 // holdingSiteConstraints are the six constraints 00043 adds NOT VALID and 00044 validates.
@@ -1186,14 +1389,22 @@ func TestHolding00043And00044_DownGiveBackAndUpTakesItAgain(t *testing.T) {
 		}
 		return s
 	}
-	head := read(tx)
-	if head.validated != strings.Join(holdingSiteConstraints, ",") || head.columns != "site_tenant_id,site_location_id,site_tag_uid" ||
-		!strings.Contains(head.trigger, "transactions_holding_site_gate") ||
-		!strings.HasPrefix(head.advance, "TABLE(outcome text, tag_status text, ctr_gap integer) ") {
-		t.Fatalf("PREMISE at HEAD: %+v", head)
+	up46, _ := opMigrationSections(t, op00046File)
+	up47, _ := opMigrationSections(t, op00047File)
+	atHead := read(tx)
+	if !strings.Contains(atHead.trigger, "transactions_holding_feed") || !strings.Contains(atHead.functions, "holding_site_locations") {
+		t.Fatalf("PREMISE at HEAD (00047): %+v", atHead)
 	}
 	holdingLockedSavepoint(t, tx, func(sp pgx.Tx) {
-		holdingSetAsideSiteRows(t, ctx, sp)
+		// 00047's and 00046's Downs first (their own test is TestHolding00046And00047_DownGiveBackAndUpTakesItAgain);
+		// what this test walks is 00045 down to 00043 and back, from the state they leave.
+		holdingBelow46(t, ctx, sp)
+		head := read(sp)
+		if head.validated != strings.Join(holdingSiteConstraints, ",") || head.columns != "site_tenant_id,site_location_id,site_tag_uid" ||
+			!strings.Contains(head.trigger, "transactions_holding_site_gate") ||
+			!strings.HasPrefix(head.advance, "TABLE(outcome text, tag_status text, ctr_gap integer) ") {
+			t.Fatalf("PREMISE at 00045: %+v", head)
+		}
 		opRunSection(t, ctx, sp, down45, "00045 Down")
 		at44 := read(sp)
 		want44 := head
@@ -1219,10 +1430,17 @@ func TestHolding00043And00044_DownGiveBackAndUpTakesItAgain(t *testing.T) {
 		opRunSection(t, ctx, sp, up44, "00044 Up again")
 		opRunSection(t, ctx, sp, up45, "00045 Up again")
 		if again := read(sp); again != head {
-			t.Errorf("after the Ups again:\n %+v\nwant HEAD's\n %+v", again, head)
+			t.Errorf("after the Ups again:\n %+v\nwant 00045's\n %+v", again, head)
+		}
+		opRunSection(t, ctx, sp, up46, "00046 Up again")
+		opRunSection(t, ctx, sp, up47, "00047 Up again")
+		if again := read(sp); again != atHead {
+			t.Errorf("after 00046's and 00047's Ups again:\n %+v\nwant HEAD's\n %+v", again, atHead)
 		}
 	})
 	holdingLockedSavepoint(t, tx, func(sp pgx.Tx) {
+		holdingBelow46(t, ctx, sp)
+		head := read(sp)
 		w := holdingWorldTx(t, ctx, sp, "")
 		if err := holdingInsertRow(t, ctx, sp, holdingRow{employer: w.km, employee: w.kmEmployee, channel: "manual", verdict: "flag", kind: "in",
 			siteTenant: &w.kf, siteVenue: &w.kfVenue}); err != nil {
@@ -1264,6 +1482,10 @@ func holdingTryDown(t *testing.T, ctx context.Context, tx pgx.Tx, section string
 var holdingDownTables = []string{
 	"transactions", "transaction_reviews", "tags", "locations", "tenants", "tenant_branding",
 	"holding_members", "holdings", "operator_audit_log", "operator_read_tickets",
+	// 00046 (API-1c): site_punches itself (its rows set aside, the table dropped); its Down's DROP
+	// TABLE also takes the four tables its keys name -- transactions, locations, tags, tenants --
+	// and its DROP TRIGGERs transactions and transaction_reviews, all already above.
+	"site_punches",
 }
 
 // holdingLockForDowns takes, inside the savepoint sp, ACCESS EXCLUSIVE on every one of
@@ -1483,11 +1705,23 @@ func strongTableLocksOutside(t *testing.T, ctx context.Context, q opQuerier, all
 }
 
 // holdingSetAsideSiteRows deletes, inside the savepoint sp, every transactions row that names a
-// site and the reviews of those rows (both tables are append-only: their row triggers are
-// disabled for the delete and enabled again) -- the rows the tap tests commit, which 00043's Down
-// refuses to drop the columns under. The savepoint's rollback puts them back.
+// site, the reviews of those rows and -- while it exists -- every site_punches row (the three
+// tables are append-only: their row triggers are disabled for the delete and enabled again) --
+// the rows the tap tests commit, which 00046's Down refuses to drop the projection under and
+// 00043's to drop the columns under. The savepoint's rollback puts them back.
 func holdingSetAsideSiteRows(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	t.Helper()
+	if opInt(t, ctx, sp, `SELECT count(*) FROM pg_class WHERE oid = to_regclass('public.site_punches')`) == 1 {
+		for _, s := range []string{
+			`ALTER TABLE site_punches DISABLE TRIGGER site_punches_no_mutation`,
+			`DELETE FROM site_punches`,
+			`ALTER TABLE site_punches ENABLE TRIGGER site_punches_no_mutation`,
+		} {
+			if _, err := sp.Exec(ctx, s); err != nil {
+				t.Fatalf("%s: %v", s, err)
+			}
+		}
+	}
 	for _, s := range []string{
 		`ALTER TABLE transaction_reviews DISABLE TRIGGER transaction_reviews_no_mutation`,
 		`ALTER TABLE transactions DISABLE TRIGGER transactions_no_mutation`,
@@ -1502,8 +1736,8 @@ func holdingSetAsideSiteRows(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	}
 }
 
-// holdingBelow43 takes the savepoint's database below 00043 -- 00045's Down, 00044's, then
-// 00043's -- for the API-1a tests that walk 00042 and 00041 back: 00041's precondition refuses a
+// holdingBelow43 takes the savepoint's database below 00043 -- 00047's Down, 00046's, 00045's,
+// 00044's, then 00043's -- for the API-1a tests that walk 00042 and 00041 back: 00041's precondition refuses a
 // definer that reaches anything but its own holding_members row, 00043 gives it more, and
 // 00043's functions are the definer's too. The site rows are set aside first
 // (holdingSetAsideSiteRows). The caller's savepoint is a holdingLockedSavepoint, which took
@@ -1511,14 +1745,26 @@ func holdingSetAsideSiteRows(t *testing.T, ctx context.Context, sp pgx.Tx) {
 // called from holdingInSavepoint it would leave strong locks that savepoint refuses.
 func holdingBelow43(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	t.Helper()
-	holdingLockForDowns(t, ctx, sp)
-	holdingSetAsideSiteRows(t, ctx, sp)
+	holdingBelow46(t, ctx, sp)
 	_, down45 := opMigrationSections(t, op00045File)
 	_, down44 := opMigrationSections(t, op00044File)
 	_, down43 := opMigrationSections(t, op00043File)
 	opRunSection(t, ctx, sp, down45, "00045 Down")
 	opRunSection(t, ctx, sp, down44, "00044 Down")
 	opRunSection(t, ctx, sp, down43, "00043 Down")
+}
+
+// holdingBelow46 takes the savepoint's database below 00046 -- 00047's Down, then 00046's -- with
+// the site rows set aside first (00046's Down refuses while site_punches holds a row). The caller's
+// savepoint is a holdingLockedSavepoint; the lock is taken again here, as holdingBelow43 does.
+func holdingBelow46(t *testing.T, ctx context.Context, sp pgx.Tx) {
+	t.Helper()
+	holdingLockForDowns(t, ctx, sp)
+	holdingSetAsideSiteRows(t, ctx, sp)
+	_, down47 := opMigrationSections(t, op00047File)
+	_, down46 := opMigrationSections(t, op00046File)
+	opRunSection(t, ctx, sp, down47, "00047 Down")
+	opRunSection(t, ctx, sp, down46, "00046 Down")
 }
 
 // TestHoldingWindow_UnadvancedNFCRowAfterLeftIsRefused is K-29's "ilerletilmemiş NFC satırı"

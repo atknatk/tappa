@@ -123,6 +123,10 @@ var opAtVersionSkips = map[int]string{
 	44: "the validation of 00043's six site constraints (M11 API-1b) -- no operator object; its Down drops and adds " +
 		"them again NOT VALID under ACCESS EXCLUSIVE on transactions",
 	45: "holding_advance_tag_counter's ctr_gap (M11 API-1b, the user's decision K-1i) -- no operator object",
+	46: "site_punches and holding_feed (M11 API-1c) -- no operator object; its Down takes ACCESS EXCLUSIVE on " +
+		"transactions and transaction_reviews (DROP TRIGGER) and on the four tables site_punches' keys name, and " +
+		"refuses while the projection holds a row",
+	47: "holding_site_locations (M11 API-1c) -- no operator object",
 }
 
 // opAtVersion takes the test's transaction to migration `version`: from the newest file
