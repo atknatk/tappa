@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -673,10 +674,11 @@ func feedBackfillDirections(t *testing.T, ctx context.Context, q interface {
 // "tenant_id = $1 AND punch_id = $2" was served by punch_events_tenant_time_idx (a scan of the
 // tenant's whole range) once the statistics priced both at one row. The fix is in the text, so
 // the text is pinned: punch_events_once LEADS with punch_id (the one index of the table that does
-// not lead with tenant_id); and, EXPLAINed under the chunk's own settings, the window walks
-// transactions_tenant_occurred_idx and probes punch_events_once and transaction_reviews_txn_key
-// per row, the locked insert reaches every row by its id -- no Materialize, no hash, no
-// sequential scan, no full Sort of the tenant. (The throwaway-container measurements under the
+// not lead with tenant_id); the chunk's four settings by name and value; three LATERALs, three
+// OFFSET 0 fences; and, EXPLAINed under the chunk's own settings, the window walks transactions
+// by (tenant_id, occurred_at) once and every other access is a probe by an id -- no Materialize,
+// no hash or merge, no sequential or bitmap scan, no scan of a tenant's range -- whichever
+// id-bearing index the statistics pick (round 4). (The throwaway-container measurements under the
 // adversarial statistics themselves are in ADR 0028's API-2 note, round 3: ANALYZE on this shared
 // database would not stay in a test's transaction.)
 func TestFeedBackfill_ThePlanIsTheTexts(t *testing.T) {
@@ -717,9 +719,20 @@ func TestFeedBackfill_ThePlanIsTheTexts(t *testing.T) {
 		"v_id", "'00000000-0000-0000-0000-000000000000'::uuid", "v_chunk", "1000")
 	window := lit.Replace(strings.Replace(cut("SELECT pg_catalog.array_agg(w.id", "LIMIT v_chunk) AS w;"), "INTO v_ids, v_at, v_id", "", 1))
 	insert := lit.Replace(cut("WITH pending AS (", "AS l ON true;"))
+	// The chunk's settings, by name AND value (the API-2 review, round 4: a count let five of six
+	// mutants through, and `jit` on alone took the counter hold's median to 0.544 s and the run
+	// from 25 s to 5 min).
 	settings := regexp.MustCompile(`set_config\('([a-z_]+)', '([a-z0-9]+)', true\)`).FindAllStringSubmatch(cut("PERFORM pg_catalog.set_config('enable_seqscan'", "EXIT WHEN v_ids IS NULL;"), -1)
-	if len(settings) < 4 {
-		t.Fatalf("00050's chunk sets %d planner settings, want enable_seqscan, enable_bitmapscan, enable_sort and jit", len(settings))
+	got := map[string]string{}
+	for _, kv := range settings {
+		got[kv[1]] = kv[2]
+	}
+	if want := map[string]string{"enable_seqscan": "off", "enable_bitmapscan": "off", "enable_sort": "off", "jit": "off"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("00050's chunk sets %v, want exactly %v", got, want)
+	}
+	// Every LATERAL is fenced: without OFFSET 0 the planner flattens it into a join it may turn.
+	if lat, off := strings.Count(block, "JOIN LATERAL ("), strings.Count(block, " OFFSET 0)"); lat != 3 || off != 3 {
+		t.Errorf("00050's block carries %d LATERAL subqueries and %d OFFSET 0 fences, want 3 and 3 (transactions, employees, locations)", lat, off)
 	}
 	for _, kv := range settings {
 		if _, err := tx.Exec(ctx, `SELECT set_config($1, $2, true)`, kv[1], kv[2]); err != nil {
@@ -746,22 +759,53 @@ func TestFeedBackfill_ThePlanIsTheTexts(t *testing.T) {
 		}
 		return b.String()
 	}
-	for _, c := range []struct {
-		what, plan string
-		must       []string
-	}{
-		{"the window", plan(window), []string{"transactions_tenant_occurred_idx", "punch_events_once", "transaction_reviews_txn_key"}},
-		{"the locked insert", plan(insert), []string{"punch_events_once", "transaction_reviews_txn_key"}},
-	} {
-		for _, w := range c.must {
-			if !strings.Contains(c.plan, w) {
-				t.Errorf("%s does not use %s:\n%s", c.what, w, c.plan)
+	// The plan, judged by its SHAPE and not by an index name (the API-2 review, round 4: which of
+	// two id-bearing indexes answers the review probe is the statistics' choice, and on a freshly
+	// migrated, empty transaction_reviews it is transaction_reviews_tenant_idx -- a whole-index scan
+	// with the id as its second-column condition, priced by the index's real size and harmless; see
+	// 00050). Refused: a join or SubPlan the planner built from statistics (Materialize, hash, merge,
+	// a hashed SubPlan), a sequential or bitmap scan, an index scan with no condition, and a scan of a
+	// tenant's range -- a condition on tenant_id with no id in it -- except the window's one walk of
+	// transactions by (tenant_id, occurred_at) and the counter row (feed_counters' key is tenant_id).
+	scanRe := regexp.MustCompile(`Index (?:Only )?Scan(?: Backward)? using (\S+) on (\S+)`)
+	idEq := regexp.MustCompile(`\b(id|punch_id|transaction_id) = `)
+	judge := func(what, plan string, walks int) {
+		t.Helper()
+		for _, bad := range []string{"Materialize", "Hash", "Merge", "Seq Scan", "Bitmap", "hashed SubPlan"} {
+			if strings.Contains(plan, bad) {
+				t.Errorf("%s's plan carries %s:\n%s", what, bad, plan)
 			}
 		}
-		for _, bad := range []string{"Materialize", "Hash", "Seq Scan", "Bitmap", "Merge", "punch_events_tenant_time_idx", "punch_events_pkey", "hashed SubPlan"} {
-			if strings.Contains(c.plan, bad) {
-				t.Errorf("%s's plan carries %s:\n%s", c.what, bad, c.plan)
+		lines := strings.Split(plan, "\n")
+		walked := 0
+		for i, l := range lines {
+			m := scanRe.FindStringSubmatch(l)
+			if m == nil {
+				continue
 			}
+			cond := ""
+			for j := i + 1; j < len(lines) && !strings.Contains(lines[j], "->") && !strings.Contains(lines[j], "SubPlan"); j++ {
+				if k := strings.Index(lines[j], "Index Cond: "); k >= 0 {
+					cond = lines[j][k+len("Index Cond: "):]
+				}
+			}
+			switch {
+			case cond == "":
+				t.Errorf("%s scans %s on %s with no condition:\n%s", what, m[1], m[2], plan)
+			case m[2] == "transactions" && strings.Contains(cond, "tenant_id = ") && strings.Contains(cond, "occurred_at >= "):
+				walked++
+			case m[2] == "feed_counters" && m[1] == "feed_counters_pkey" && strings.HasPrefix(cond, "(tenant_id = "):
+				// the counter row: tenant_id IS its key (one row), not a range
+			case strings.Contains(cond, "tenant_id") && !idEq.MatchString(cond):
+				t.Errorf("%s scans a tenant's range of %s by %s (%s):\n%s", what, m[2], m[1], cond, plan)
+			case !idEq.MatchString(cond):
+				t.Errorf("%s probes %s by %s with no id (%s):\n%s", what, m[2], m[1], cond, plan)
+			}
+		}
+		if walked != walks {
+			t.Errorf("%s walks transactions by (tenant_id, occurred_at) %d times, want %d:\n%s", what, walked, walks, plan)
 		}
 	}
+	judge("the window", plan(window), 1)
+	judge("the locked insert", plan(insert), 0)
 }

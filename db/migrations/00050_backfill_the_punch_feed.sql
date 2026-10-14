@@ -35,9 +35,10 @@
 --     (a window of over 7 minutes; hash join off made it worse), and with no statistics the locked
 --     insert took 4.4 s a chunk and 270 live 55P03. So now (round 3) the TEXT fixes the plan: every
 --     lookup is a scalar subquery or a LATERAL one fenced by OFFSET 0, on a unique id, the tenant
---     compared by IS NOT DISTINCT FROM (which no index serves -- every other index leads with
---     tenant_id, and statistics that call a tenant small price a scan of its whole range at one
---     row: measured, punch_events_tenant_time_idx chosen for the probe), punch_events_once leads
+--     compared by IS NOT DISTINCT FROM (which no index serves as a bound -- the other indexes of
+--     punch_events lead with tenant_id, and statistics that call a tenant small price a scan of its
+--     whole range at one row: measured, punch_events_tenant_time_idx chosen for the probe; one
+--     index that does not lead with the probed id is harmless, below), punch_events_once leads
 --     with punch_id (00048), and per chunk sequential and bitmap scans, a full Sort and JIT are off.
 --     Measured, one 650 000-row tenant in the REAL tables of a throwaway container (553 chunks):
 --     with this file's ANALYZE, with no statistics at all, and with punch_events' taken full and the
@@ -109,13 +110,21 @@ BEGIN
             -- below is a SCALAR subquery or a LATERAL one fenced by OFFSET 0 -- PostgreSQL never turns
             -- either into a join, a Materialize or a hashed SubPlan, so it runs once per row as an
             -- index probe -- and its ONLY sargable predicate is a unique id: the tenant is compared
-            -- with IS NOT DISTINCT FROM, which no index can serve. That matters because every other
-            -- index of these tables LEADS with tenant_id: given "tenant_id = $1 AND punch_id = $2",
+            -- with IS NOT DISTINCT FROM, which no index can use as a bound. That matters because the
+            -- other indexes of punch_events LEAD with tenant_id: given "tenant_id = $1 AND punch_id = $2",
             -- statistics that call the tenant small (punch_events ANALYZEd empty -- this very file's
             -- first state -- or before the tenant's rows) price an index scan of the tenant's whole
             -- (tenant_id, punch_time) range at one row, the same as the unique probe, and the planner
             -- took it (measured: punch_events_tenant_time_idx chosen, O(the tenant's events) a probe).
             -- So punch_events_once leads with punch_id (00048) and the probe names punch_id alone.
+            -- One index can still answer a probe without leading with its id:
+            -- transaction_reviews_tenant_idx (tenant_id, transaction_id) takes "transaction_id = t.id"
+            -- as a condition on its SECOND column -- a scan of the whole index (the API-2 review,
+            -- round 4: chosen on a freshly migrated, empty transaction_reviews). It is harmless and
+            -- named: an index's size is read from the file, not from the statistics, so the planner
+            -- prices that whole scan by the index's real pages and takes it only while the index is
+            -- tiny; with a large one and reltuples = 0 it took transaction_reviews_txn_key (measured,
+            -- the longest hold 0.437 s). Never a range of the tenant, and never a seq scan.
             -- The walk itself is the one path that yields (occurred_at) order for one tenant --
             -- transactions_tenant_occurred_idx, then an Incremental Sort on id -- once sequential and
             -- bitmap scans and a full Sort are off for this chunk's transaction (transaction-local).
