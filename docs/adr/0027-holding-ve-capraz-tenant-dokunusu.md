@@ -921,10 +921,20 @@ adlandırılmış kalan risk (1. tur, güvenlik merceği; §13 madde 13).
    kendi başına bir şey söyler, bkz. (e); (d) tenant'ın kuralı serbest metin değildir (sevk
    edilmiş bir ifadenin gerekçesiyle kopyası, sid'i `own:<aynı ad>`), bu yüzden küme kopyaları da
    yakalar — M9-07'nin ham JSON editörü gelirse bu varsayım yeniden ölçülür; (e) **kural önceliği**
-   (üçüncü denetim, DÜŞÜK): kanıt dışı bir kural kanıt kurallarından **sonra** değerlendirilir ve
-   ilk eşleşen kazanır, bu yüzden bir eş satırında kanıt dışı bir notun (ör. `base:cross-location-note`)
-   görünmesi, önündeki kanıt kurallarının eşleşmediğini — yani kanıtın o kuralların koşullarını
-   karşılamadığını — dolaylı söyleyebilir. Not metni kanıt anlatmaz; artık sıradadır. Kapatmak not
+   (üçüncü denetim, DÜŞÜK; dördüncü turda düzeltildi): değerlendirici "ilk eşleşen kazanır" diye
+   çalışmaz (o yalnız guardrail'ların kuralıdır). Baseline ve tenant ifadeleri birlikte tartılır:
+   önce **özgüllük** (`location/<id>` > `location/*` > `*`), eşitse **kısıtlayıcılık** (deny > ignore >
+   review > allow), tam eşitlikte **belge sırası** (baseline önce, ifadeler belgedeki sırayla) —
+   `internal/policy/evaluate.go` başlığı. Bu yüzden eş satırında görünen kanıt dışı bir kural, kendisini
+   yenebilecek kanıt kurallarının eşleşmediğini dolaylı söyler. Ölçüldü (tam baseline, varsayılan
+   bağlam): (1) **review etkili** kanıt dışı bir kural — `base:ctr-gap-review` — `base:no-evidence-review`
+   ile aynı özgüllükte ve aynı etkidedir, belge sırasında ondan sonra gelir; IP ve GPS ikisi de yokken
+   `no-evidence-review` kazanır, biri varken `ctr-gap-review` kazanır. Yani bir eş satırında
+   sayaç boşluğu notu *"IP ya da GPS eşleşti"* demektir. (2) **allow etkili** `base:cross-location-note`,
+   tam baseline'da hiç kazanmaz (IP varken `ip-or-gps-ok`, yalnız GPS varken `gps-only-allow` belge
+   sırasında öndedir; ikisi de yokken `no-evidence-review` kısıtlayıcılıkla kazanır). Yalnız bir kanıt
+   kuralı kapatılmışsa kazanır — T125'in şekli, ve o zaman *"yalnız GPS eşleşti"* der. Not metni kanıt
+   anlatmaz; artık öncelik sırasındadır. Kapatmak not
    değiştirmesini kanıt dışı kurallara da yaymak olurdu (ikinci denetimin ORTA-B'si tam onu geri
    aldı: kayıp plaket, sayaç boşluğu, farklı şube notu işverenin bilmesi gerekendir) — bu yüzden
    adlandırılmış artık, kod değişmedi. İşveren kendi verisini dışa aktarabilir.
@@ -971,11 +981,14 @@ adlandırılmış kalan risk (1. tur, güvenlik merceği; §13 madde 13).
       önüne geçer (ölçüldü: dokunuş 404 ms'de yazıldı, kilit ardından verildi). İşlemden **önce**
       alınmış bir kilit ise `gather`'ı bekletir — orada `lock_timeout` yoktur (ölçüldü: 5 sn
       tutulan kilit, dokunuş 5,05 sn'de yazıldı); isteğin zaman aşımını aşan bir tutma
-      ilerletmeden sonraki kaydı düşürür — **ölçüldü** (API-1c üçüncü denetimi): KF'nin `tags`/`locations`
-      satırı `FOR UPDATE` tutulurken 7 sn bağlamlı `svc.Record` *context deadline exceeded* ile
-      döndü, KM'de 0 satır, KF'nin `last_ctr`'ı 101'e ilerlemişti. Üretimde sınır 30 sn'lik istek
-      zaman aşımıdır; aynı sınıf madde 18'in üçüncü kaynağıdır (orada `lock_timeout` ve yeniden deneme
-      yok). Bugün tek site yazıcısı tap yoludur;
+      ilerletmeden sonraki kaydı düşürür — ama **yalnız kilit ilerletmeyi engellemiyorsa**. Ölçüldü
+      (API-1c dördüncü tur, 7 sn bağlamlı `svc.Record`, üçü de *context deadline exceeded*): KF'nin
+      `tags` satırı ilerletmeden **önce** `FOR UPDATE` tutulursa ilerletmenin kendisi bekler —
+      `last_ctr` 100 kalır, KM'de 0 satır, kayıt **kaybolmaz** (sayaç harcanmadı, kişi yeniden
+      dokunabilir); `tags` kilidi ilerletmeden **sonra** (ayrı commit'ten sonra, yazımdan önce)
+      alınırsa, ya da `locations` satırı herhangi bir anda tutulursa (ilerletme ona dokunmaz)
+      `last_ctr` 101, KM'de 0 satır — kayıt kaybolur. Üretimde sınır 30 sn'lik istek zaman aşımıdır;
+      aynı sınıf madde 18'in üçüncü kaynağıdır (orada `lock_timeout` ve yeniden deneme yok). Bugün tek site yazıcısı tap yoludur;
       API-1c'nin manuel saha kaydı ham yazıcı olacaktır. **Kural (deploy/README.md):** bu tablolara
       dokunan bir migration kendi `lock_timeout`'unu 2 sn'nin altına koyar.
 17. **Üyelik bittikten sonra işverenin geçmiş saha satırları adsız (API-1c):** `holding_site_locations`
@@ -1796,3 +1809,18 @@ dört DÜŞÜK).**
 - **Kapsam dışı gözlem:** Q16'nın *"IP iste"* kolu (`base:gps-only-allow`'u kapatmak) başka şubedeki
   GPS-only dokunuşu `base:cross-location-note` üzerinden `ok` bırakıyor — ölçüldü
   (`TestBaseline_RequiringIPLeavesACrossLocationGPSTapAllowed`), backlog T125; kod değişmedi.
+
+**Dördüncü turdan sonra (2026-10-14 — iki mercek ONAY; kalan DÜŞÜK'ler, yeniden denetimsiz).**
+- **D-a:** holding'siz işletmenin anomali sayfasında *"partner business"* yok (`TestHoldingPanel_PartnerViewsSayTheOutcomeNeverTheReason`'ın
+  kontrolü); mutant `Partner >= 0` (boş haftada 0 kayıtlı kova) kırmızı.
+- **D-b, D-c, D-d:** `TestAnomalies_ThePolicyListIsCutInSQLAndItsOrderIsTotal` — 52 kendi kuralı ve 3 eş
+  satırı: liste sorguda kesilir (50 satır + *"more"*), son satır 3'lük kova. Aynı sid iki katmanda
+  (NULL ve guardrail): NULL önce. Mutantlar — kova `Records − Σ listelenen` (5 verdi), okuma sınırı bir
+  eksik (*"more"* yok), `policy_layer NULLS FIRST` kalktı — üçü de kırmızı. Üçüncü turdaki *"kova sayısı
+  sorgudan → kırmızı"* cümlesi bu vakayla doğrulandı.
+- **D-e:** envanter çıplak adı da yakalar (`readsWholeRow`: `SELECT t`, `to_jsonb(t)`, `row_to_json(t)`)
+  ve `*`'ın her SELECT biçimini (`ALL`, `DISTINCT ON (…)`). Mutantlar — çıplak ad denetimi kalktı (4
+  sonda kırmızı), eski `SELECT *` biçimi (`ALL *`, `DISTINCT ON … *` sondaları kırmızı).
+- **D-f:** madde 16'nın ölçümü üç şekle ayrıldı (`tags` ilerletmeden önce/sonra, `locations`).
+- **D-g:** madde 5 (e) değerlendiricinin gerçek sırasıyla yeniden yazıldı; review etkili kanıt dışı kuralın
+  (`ctr-gap-review`) söylediği eklendi.
