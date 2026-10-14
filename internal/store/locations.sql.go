@@ -23,7 +23,13 @@ SELECT
     (SELECT count(*) FROM tags t
       WHERE t.tenant_id = $1 AND t.location_id = $2) AS tag_count,
     (SELECT count(*) FROM transactions x
-      WHERE x.tenant_id = $1 AND x.location_id = $2) AS transaction_count
+      WHERE x.tenant_id = $1 AND x.location_id = $2) AS transaction_count,
+    -- M11 API-1c (ADR 0027 §9, "lokasyon silme"): a peer's employee's tap here is the PEER's row
+    -- (its site_location_id), which this tenant cannot read -- so the count is read from this
+    -- tenant's projection of it. transactions_site_location_fk (RESTRICT) is the last belt for a
+    -- row the projection does not carry (an 'ignored' repeat).
+    (SELECT count(*) FROM site_punches s
+      WHERE s.tenant_id = $1 AND s.site_location_id = $2) AS holding_count
 `
 
 type CountLocationReferencesParams struct {
@@ -36,6 +42,7 @@ type CountLocationReferencesRow struct {
 	EmployeeCount    int64
 	TagCount         int64
 	TransactionCount int64
+	HoldingCount     int64
 }
 
 // What still points at this venue, so the screen can say WHY it cannot be deleted.
@@ -93,6 +100,7 @@ func (q *Queries) CountLocationReferences(ctx context.Context, arg CountLocation
 		&i.EmployeeCount,
 		&i.TagCount,
 		&i.TransactionCount,
+		&i.HoldingCount,
 	)
 	return i, err
 }

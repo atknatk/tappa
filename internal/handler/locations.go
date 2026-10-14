@@ -1400,6 +1400,9 @@ func venueReasons(r tenant.References) []string {
 	out = appendReason(out, r.Employees, "employee", "employees")
 	out = appendReason(out, r.Tags, "plaque", "plaques")
 	out = appendReason(out, r.Transactions, "recorded tap", "recorded taps")
+	// M11 API-1c: the taps a partner business's staff recorded here (their records, counted
+	// from this business's projection -- ADR 0027 §9).
+	out = appendReason(out, r.HoldingTaps, "tap by a partner business's staff", "taps by a partner business's staff")
 	return out
 }
 

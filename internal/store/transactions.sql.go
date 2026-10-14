@@ -239,6 +239,88 @@ func (q *Queries) GetLastTransactionForEmployee(ctx context.Context, arg GetLast
 	return i, err
 }
 
+const insertManualSiteTransaction = `-- name: InsertManualSiteTransaction :one
+INSERT INTO transactions (
+    tenant_id, employee_id, location_id, department_id, type, occurred_at,
+    trust, verdict, note, channel, entered_by, practice, queued, site_tenant_id, site_location_id
+)
+SELECT $1, e.id, NULL, e.department_id, $2::text,
+       $3, $4::smallint, 'ok', $5::text, 'manual',
+       $6::uuid, false, false, $7::uuid, $8::uuid
+FROM employees e
+WHERE e.tenant_id = $1
+  AND e.id = $9::uuid
+RETURNING id, occurred_at, created_at, type, verdict, channel, trust, practice, queued
+`
+
+type InsertManualSiteTransactionParams struct {
+	TenantID       uuid.UUID
+	Type           string
+	OccurredAt     time.Time
+	Trust          int16
+	Note           *string
+	EnteredBy      uuid.UUID
+	SiteTenantID   uuid.UUID
+	SiteLocationID uuid.UUID
+	EmployeeID     uuid.UUID
+}
+
+type InsertManualSiteTransactionRow struct {
+	ID         uuid.UUID
+	OccurredAt time.Time
+	CreatedAt  time.Time
+	Type       *string
+	Verdict    string
+	Channel    string
+	Trust      *int16
+	Practice   bool
+	Queued     bool
+}
+
+// THE MANAGER'S OWN RECORD AT A PEER'S VENUE (M11 API-1c, ADR 0027 §9 "Manuel kayıt"; K-1a: the
+// record is the EMPLOYER's). InsertManualTransaction's statement and its narrowing, with the
+// venue a PEER's: site_tenant_id and site_location_id are set, location_id and tag_uid are NULL
+// (K-30: a row naming a site names no local venue and no plaque). Everything above that statement
+// says about verdict, channel, practice, queued, the absent evidence columns, trust and the
+// deactivated employee holds here word for word.
+//
+// 🔴 WHERE THE TWO SITE VALUES COME FROM. Not the form: the form posts a location id, and the
+// caller resolves it through holding_site_locations -- the closed list's reader of a PEER's venues
+// (K-33) -- and passes that row's site_tenant_id and location_id. Past this statement the
+// database decides again: holding_site_gate (00043) refuses a site that is not the employer's
+// peer right now (manual is STRICT -- ADR 0027 §6) and the composite key ties the venue to that
+// tenant. The site then sees the record as employer_manual (holding_feed), separate and out of
+// every total.
+//
+// department_id IS THE EMPLOYEE'S (their department's shift, if any, is theirs wherever they work
+// -- CLAUDE.md §5); a department is not a venue, and K-30 does not touch it.
+func (q *Queries) InsertManualSiteTransaction(ctx context.Context, arg InsertManualSiteTransactionParams) (InsertManualSiteTransactionRow, error) {
+	row := q.db.QueryRow(ctx, insertManualSiteTransaction,
+		arg.TenantID,
+		arg.Type,
+		arg.OccurredAt,
+		arg.Trust,
+		arg.Note,
+		arg.EnteredBy,
+		arg.SiteTenantID,
+		arg.SiteLocationID,
+		arg.EmployeeID,
+	)
+	var i InsertManualSiteTransactionRow
+	err := row.Scan(
+		&i.ID,
+		&i.OccurredAt,
+		&i.CreatedAt,
+		&i.Type,
+		&i.Verdict,
+		&i.Channel,
+		&i.Trust,
+		&i.Practice,
+		&i.Queued,
+	)
+	return i, err
+}
+
 const insertManualTransaction = `-- name: InsertManualTransaction :one
 INSERT INTO transactions (
     tenant_id, employee_id, location_id, department_id, type, occurred_at,
@@ -584,7 +666,8 @@ SELECT t.id, t.occurred_at, t.type, t.trust, t.verdict, t.channel, t.practice,
        d.name AS department_name,
        e.full_name AS employee_name,
        rv.outcome AS review_outcome,
-       rv.note AS review_note
+       rv.note AS review_note,
+       t.site_location_id, t.site_tag_uid
 FROM transactions t
 LEFT JOIN locations   l ON l.tenant_id = t.tenant_id AND l.id = t.location_id
 LEFT JOIN departments d ON d.tenant_id = t.tenant_id AND d.id = t.department_id
@@ -645,6 +728,8 @@ type ListPanelTransactionsRow struct {
 	EmployeeName   *string
 	ReviewOutcome  *string
 	ReviewNote     *string
+	SiteLocationID *uuid.UUID
+	SiteTagUid     *string
 }
 
 // The PANEL's read of the day (M6-03). One page of the immutable record, newest
@@ -837,6 +922,11 @@ type ListPanelTransactionsRow struct {
 // (guardrail|baseline|tenant, migration 0008). It carries no coordinate, no
 // address and no free text -- unlike policy_context, which stays unselected for
 // the reason given above.
+// 🔴 M11 API-1c: site_location_id AND site_tag_uid NAME THE VENUE AND THE PLAQUE OF A ROW
+// TAKEN AT A PEER'S VENUE (ADR 0027 §4, §9 -- one of the employer's nine readers). Such a row's
+// location_id and tag_uid are NULL (K-30), so the join below finds no name for it; the reader
+// names it from holding_site_locations (internal/domain/ledger's siteVenues), the one way into
+// the peer's venue list. Ids only -- no evidence column is added (K-39).
 func (q *Queries) ListPanelTransactions(ctx context.Context, arg ListPanelTransactionsParams) ([]ListPanelTransactionsRow, error) {
 	rows, err := q.db.Query(ctx, listPanelTransactions,
 		arg.TenantID,
@@ -878,6 +968,8 @@ func (q *Queries) ListPanelTransactions(ctx context.Context, arg ListPanelTransa
 			&i.EmployeeName,
 			&i.ReviewOutcome,
 			&i.ReviewNote,
+			&i.SiteLocationID,
+			&i.SiteTagUid,
 		); err != nil {
 			return nil, err
 		}
@@ -891,6 +983,7 @@ func (q *Queries) ListPanelTransactions(ctx context.Context, arg ListPanelTransa
 
 const listWorkedShiftEvents = `-- name: ListWorkedShiftEvents :many
 SELECT t.employee_id, t.occurred_at, t.type, t.verdict, t.channel, t.location_id,
+       t.site_location_id,
        rv.outcome AS review_outcome,
        e.full_name AS employee_name,
        l.name AS location_name,
@@ -929,6 +1022,7 @@ type ListWorkedShiftEventsRow struct {
 	Verdict              string
 	Channel              string
 	LocationID           *uuid.UUID
+	SiteLocationID       *uuid.UUID
 	ReviewOutcome        *string
 	EmployeeName         *string
 	LocationName         *string
@@ -1073,6 +1167,11 @@ type ListWorkedShiftEventsRow struct {
 // one: the busy figure is a development-database shape (a tenant whose entire history
 // is one week wide), and a business with a year of records behind a one-week window is
 // the selective case.
+// 🔴 M11 API-1c: site_location_id NAMES THE VENUE OF A ROW
+// TAKEN AT A PEER'S VENUE (ADR 0027 §4, §9 -- one of the employer's nine readers). Such a row's
+// location_id is NULL (K-30), so the join below finds no name for it; the reader
+// names it -- and finds its SHIFT -- from holding_site_locations (internal/domain/ledger's siteVenues), the one way into
+// the peer's venue list. Ids only -- no evidence column is added (K-39).
 func (q *Queries) ListWorkedShiftEvents(ctx context.Context, arg ListWorkedShiftEventsParams) ([]ListWorkedShiftEventsRow, error) {
 	rows, err := q.db.Query(ctx, listWorkedShiftEvents,
 		arg.TenantID,
@@ -1094,6 +1193,7 @@ func (q *Queries) ListWorkedShiftEvents(ctx context.Context, arg ListWorkedShift
 			&i.Verdict,
 			&i.Channel,
 			&i.LocationID,
+			&i.SiteLocationID,
 			&i.ReviewOutcome,
 			&i.EmployeeName,
 			&i.LocationName,

@@ -675,7 +675,14 @@ func (p *Plaques) Screen(ctx context.Context, tenantID uuid.UUID) (PlaqueScreen,
 		if err != nil {
 			return fmt.Errorf("list plaque last seen: %w", err)
 		}
-		out = plaqueScreenOf(rows, seen)
+		// M11 API-1c: a holding peer's staff touching this business's plaque is the PEER's
+		// record; this business sees it in its projection, stamped by the SERVER's clock
+		// (ADR 0027 §9 -- a declared 2099 moves nothing). The later of the two stamps wins.
+		atSite, err := q.ListSiteTagLastSeen(ctx, tenantID)
+		if err != nil {
+			return fmt.Errorf("list plaque last seen at the site: %w", err)
+		}
+		out = plaqueScreenOf(rows, mergeLastSeen(seen, atSite))
 		// THE ZONE IS READ IN THE SAME TRANSACTION as the rows it will render, so a
 		// tenant renamed mid-request cannot produce stamps in one zone and a label in
 		// another. GetTenantClock is an EXISTING query (M6-03's) rather than a new one.
@@ -1593,4 +1600,30 @@ func (p *Plaques) recordRefusedMount(ctx context.Context, tenantID, actorID uuid
 		p.log.Error("tenant: could not record a refused mount; the refusal stands",
 			"err", err, "tag_uid", uid, "actor_id", actorID, "act", d.Act)
 	}
+}
+
+// mergeLastSeen keeps, per plaque, the later of its own last tap and a holding peer's staff's
+// (M11 API-1c). A plaque in neither list was never tapped -- still represented by absence.
+func mergeLastSeen(own []store.ListTagLastSeenRow, site []store.ListSiteTagLastSeenRow) []store.ListTagLastSeenRow {
+	if len(site) == 0 {
+		return own
+	}
+	at := make(map[string]int, len(own))
+	for i, r := range own {
+		if r.TagUid != nil {
+			at[*r.TagUid] = i
+		}
+	}
+	for _, r := range site {
+		if i, ok := at[r.TagUid]; ok {
+			if r.LastSeen.After(own[i].LastSeen) {
+				own[i].LastSeen = r.LastSeen
+			}
+			continue
+		}
+		uid := r.TagUid
+		at[uid] = len(own)
+		own = append(own, store.ListTagLastSeenRow{TagUid: &uid, LastSeen: r.LastSeen})
+	}
+	return own
 }

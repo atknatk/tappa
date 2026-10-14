@@ -353,7 +353,13 @@ SELECT
     (SELECT count(*) FROM tags t
       WHERE t.tenant_id = @tenant_id AND t.location_id = @id) AS tag_count,
     (SELECT count(*) FROM transactions x
-      WHERE x.tenant_id = @tenant_id AND x.location_id = @id) AS transaction_count;
+      WHERE x.tenant_id = @tenant_id AND x.location_id = @id) AS transaction_count,
+    -- M11 API-1c (ADR 0027 §9, "lokasyon silme"): a peer's employee's tap here is the PEER's row
+    -- (its site_location_id), which this tenant cannot read -- so the count is read from this
+    -- tenant's projection of it. transactions_site_location_fk (RESTRICT) is the last belt for a
+    -- row the projection does not carry (an 'ignored' repeat).
+    (SELECT count(*) FROM site_punches s
+      WHERE s.tenant_id = @tenant_id AND s.site_location_id = @id) AS holding_count;
 
 -- name: DeleteLocation :one
 -- Removes a venue that nothing points at.

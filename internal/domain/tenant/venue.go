@@ -563,16 +563,20 @@ type References struct {
 	Employees    int
 	Tags         int
 	Transactions int
+	// HoldingTaps are the taps a holding PEER's staff made at this venue (M11 API-1c, ADR 0027
+	// §9): the peer's records, which this business cannot read, counted from its own projection
+	// (site_punches). The peer's rows hold the venue by a RESTRICT key too -- the last belt.
+	HoldingTaps int
 }
 
 // InUse reports whether anything at all points at the row.
 func (r References) InUse() bool {
-	return r.Departments > 0 || r.Employees > 0 || r.Tags > 0 || r.Transactions > 0
+	return r.Departments > 0 || r.Employees > 0 || r.Tags > 0 || r.Transactions > 0 || r.HoldingTaps > 0
 }
 
 // Total is the number of rows that would have to be dealt with first.
 func (r References) Total() int {
-	return r.Departments + r.Employees + r.Tags + r.Transactions
+	return r.Departments + r.Employees + r.Tags + r.Transactions + r.HoldingTaps
 }
 
 // ErrVenueInUse / ErrDepartmentInUse: something still points at the row, so the
@@ -613,6 +617,7 @@ func (v *Venues) VenueReferences(ctx context.Context, tenantID, venueID uuid.UUI
 			Employees:    int(row.EmployeeCount),
 			Tags:         int(row.TagCount),
 			Transactions: int(row.TransactionCount),
+			HoldingTaps:  int(row.HoldingCount),
 		}
 		return nil
 	})

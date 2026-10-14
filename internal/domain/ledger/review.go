@@ -190,6 +190,9 @@ func (r *Reader) Queue(ctx context.Context, tenantID uuid.UUID, after *Cursor) (
 		for _, row := range rows {
 			out.Records = append(out.Records, queueRecord(row))
 		}
+		if err := nameSiteRecords(ctx, tx, out.Records); err != nil {
+			return err
+		}
 		if more && len(out.Records) > 0 {
 			last := out.Records[len(out.Records)-1]
 			out.Next = &Cursor{At: last.OccurredAt, ID: last.ID}
@@ -215,7 +218,7 @@ func (r *Reader) Queue(ctx context.Context, tenantID uuid.UUID, after *Cursor) (
 // yet, so there is nothing to map. That is not the same as "not selected" -- it is
 // the queue's defining predicate.
 func queueRecord(row store.ListFlaggedForReviewRow) Record {
-	return Record{
+	rec := Record{
 		ID:             row.ID,
 		OccurredAt:     row.OccurredAt,
 		Direction:      deref(row.Type),
@@ -235,4 +238,6 @@ func queueRecord(row store.ListFlaggedForReviewRow) Record {
 		DepartmentName: deref(row.DepartmentName),
 		EmployeeName:   deref(row.EmployeeName),
 	}
+	atSite(&rec, row.SiteLocationID, row.SiteTagUid)
+	return rec
 }

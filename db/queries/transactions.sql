@@ -390,6 +390,36 @@ WHERE e.tenant_id = @tenant_id
   AND (e.location_id IS NOT NULL OR l.id IS NOT NULL)
 RETURNING id, occurred_at, created_at, type, verdict, channel, trust, practice, queued;
 
+-- name: InsertManualSiteTransaction :one
+-- THE MANAGER'S OWN RECORD AT A PEER'S VENUE (M11 API-1c, ADR 0027 §9 "Manuel kayıt"; K-1a: the
+-- record is the EMPLOYER's). InsertManualTransaction's statement and its narrowing, with the
+-- venue a PEER's: site_tenant_id and site_location_id are set, location_id and tag_uid are NULL
+-- (K-30: a row naming a site names no local venue and no plaque). Everything above that statement
+-- says about verdict, channel, practice, queued, the absent evidence columns, trust and the
+-- deactivated employee holds here word for word.
+--
+-- 🔴 WHERE THE TWO SITE VALUES COME FROM. Not the form: the form posts a location id, and the
+-- caller resolves it through holding_site_locations -- the closed list's reader of a PEER's venues
+-- (K-33) -- and passes that row's site_tenant_id and location_id. Past this statement the
+-- database decides again: holding_site_gate (00043) refuses a site that is not the employer's
+-- peer right now (manual is STRICT -- ADR 0027 §6) and the composite key ties the venue to that
+-- tenant. The site then sees the record as employer_manual (holding_feed), separate and out of
+-- every total.
+--
+-- department_id IS THE EMPLOYEE'S (their department's shift, if any, is theirs wherever they work
+-- -- CLAUDE.md §5); a department is not a venue, and K-30 does not touch it.
+INSERT INTO transactions (
+    tenant_id, employee_id, location_id, department_id, type, occurred_at,
+    trust, verdict, note, channel, entered_by, practice, queued, site_tenant_id, site_location_id
+)
+SELECT @tenant_id, e.id, NULL, e.department_id, @type::text,
+       @occurred_at, @trust::smallint, 'ok', sqlc.narg('note')::text, 'manual',
+       @entered_by::uuid, false, false, @site_tenant_id::uuid, @site_location_id::uuid
+FROM employees e
+WHERE e.tenant_id = @tenant_id
+  AND e.id = sqlc.arg('employee_id')::uuid
+RETURNING id, occurred_at, created_at, type, verdict, channel, trust, practice, queued;
+
 -- name: ListPanelTransactions :many
 -- The PANEL's read of the day (M6-03). One page of the immutable record, newest
 -- first, filtered by the six things a manager asks about: a day, a location, a
@@ -590,13 +620,19 @@ WITH matched_employees AS MATERIALIZED (
 -- (guardrail|baseline|tenant, migration 0008). It carries no coordinate, no
 -- address and no free text -- unlike policy_context, which stays unselected for
 -- the reason given above.
+-- 🔴 M11 API-1c: site_location_id AND site_tag_uid NAME THE VENUE AND THE PLAQUE OF A ROW
+-- TAKEN AT A PEER'S VENUE (ADR 0027 §4, §9 -- one of the employer's nine readers). Such a row's
+-- location_id and tag_uid are NULL (K-30), so the join below finds no name for it; the reader
+-- names it from holding_site_locations (internal/domain/ledger's siteVenues), the one way into
+-- the peer's venue list. Ids only -- no evidence column is added (K-39).
 SELECT t.id, t.occurred_at, t.type, t.trust, t.verdict, t.channel, t.practice,
        t.queued, t.tag_uid, t.ctr, t.ip_match, t.gps_match, t.note, t.policy_layer,
        l.name AS location_name,
        d.name AS department_name,
        e.full_name AS employee_name,
        rv.outcome AS review_outcome,
-       rv.note AS review_note
+       rv.note AS review_note,
+       t.site_location_id, t.site_tag_uid
 FROM transactions t
 LEFT JOIN locations   l ON l.tenant_id = t.tenant_id AND l.id = t.location_id
 LEFT JOIN departments d ON d.tenant_id = t.tenant_id AND d.id = t.department_id
@@ -756,7 +792,13 @@ LIMIT sqlc.arg('page_size')::int;
 -- one: the busy figure is a development-database shape (a tenant whose entire history
 -- is one week wide), and a business with a year of records behind a one-week window is
 -- the selective case.
+-- 🔴 M11 API-1c: site_location_id NAMES THE VENUE OF A ROW
+-- TAKEN AT A PEER'S VENUE (ADR 0027 §4, §9 -- one of the employer's nine readers). Such a row's
+-- location_id is NULL (K-30), so the join below finds no name for it; the reader
+-- names it -- and finds its SHIFT -- from holding_site_locations (internal/domain/ledger's siteVenues), the one way into
+-- the peer's venue list. Ids only -- no evidence column is added (K-39).
 SELECT t.employee_id, t.occurred_at, t.type, t.verdict, t.channel, t.location_id,
+       t.site_location_id,
        rv.outcome AS review_outcome,
        e.full_name AS employee_name,
        l.name AS location_name,

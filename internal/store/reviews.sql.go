@@ -223,7 +223,8 @@ SELECT t.id, t.occurred_at, t.type, t.trust, t.verdict, t.channel, t.practice,
        t.queued, t.tag_uid, t.ctr, t.ip_match, t.gps_match, t.note, t.policy_layer,
        l.name AS location_name,
        d.name AS department_name,
-       e.full_name AS employee_name
+       e.full_name AS employee_name,
+       t.site_location_id, t.site_tag_uid
 FROM transactions t
 LEFT JOIN locations   l ON l.tenant_id = t.tenant_id AND l.id = t.location_id
 LEFT JOIN departments d ON d.tenant_id = t.tenant_id AND d.id = t.department_id
@@ -267,6 +268,8 @@ type ListFlaggedForReviewRow struct {
 	LocationName   *string
 	DepartmentName *string
 	EmployeeName   *string
+	SiteLocationID *uuid.UUID
+	SiteTagUid     *string
 }
 
 // One page of the queue, newest first.
@@ -293,6 +296,11 @@ type ListFlaggedForReviewRow struct {
 // here is a `flag` awaiting a human, and whether the rule that flagged it is one
 // the reader can change is part of deciding. The column is a CHECK-constrained
 // three-word enum, so it is section 4.7-safe; policy_context still is not selected.
+// 🔴 M11 API-1c: site_location_id AND site_tag_uid NAME THE VENUE AND THE PLAQUE OF A ROW
+// TAKEN AT A PEER'S VENUE (ADR 0027 §4, §9 -- one of the employer's nine readers). Such a row's
+// location_id and tag_uid are NULL (K-30), so the join below finds no name for it; the reader
+// names it from holding_site_locations (internal/domain/ledger's siteVenues), the one way into
+// the peer's venue list. Ids only -- no evidence column is added (K-39).
 func (q *Queries) ListFlaggedForReview(ctx context.Context, arg ListFlaggedForReviewParams) ([]ListFlaggedForReviewRow, error) {
 	rows, err := q.db.Query(ctx, listFlaggedForReview,
 		arg.TenantID,
@@ -325,6 +333,8 @@ func (q *Queries) ListFlaggedForReview(ctx context.Context, arg ListFlaggedForRe
 			&i.LocationName,
 			&i.DepartmentName,
 			&i.EmployeeName,
+			&i.SiteLocationID,
+			&i.SiteTagUid,
 		); err != nil {
 			return nil, err
 		}

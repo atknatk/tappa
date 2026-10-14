@@ -71,6 +71,7 @@ package ledger
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -216,6 +217,23 @@ type AnomalyVenue struct {
 	Answerable   int
 	DistanceOnly int
 	OutsideVenue int
+	// Partner marks ANOTHER holding member's venue where this business's staff tapped (M11
+	// API-1c, ADR 0027 §9): Name is the peer's venue, and DistanceOnly / OutsideVenue are zero
+	// by construction -- the query counts the two evidence figures at this business's own venues
+	// only (K-39: the peer's network and coordinate are not this panel's to describe).
+	Partner bool
+}
+
+// AnomalyLostPlaque is one of THIS business's lost or retired plaques that a holding peer's
+// employee touched (M11 API-1c, ADR 0027 §5 and §9): the peer refused and recorded the tap in its
+// own books, and this row -- from this business's projection -- is the only trace here. Refusals
+// counts what reached this business (repeats of one URL within an hour are one); Last is the
+// SERVER's clock (site_punches.created_at), never a phone's claim.
+type AnomalyLostPlaque struct {
+	TagUID       string
+	LocationName string
+	Refusals     int
+	Last         time.Time
 }
 
 // AnomalyPlaque is one wall tag's counter gaps.
@@ -306,6 +324,9 @@ type Anomalies struct {
 	Open     []AnomalyOpen
 	Masked   MaskedOpenTally
 	Policies []AnomalyPolicyRule
+	// LostPlaques are this business's lost plaques a holding peer's staff touched this week (M11
+	// API-1c). Empty for a business in no holding.
+	LostPlaques []AnomalyLostPlaque
 
 	// The five "…and there are more" flags. Each is true when its listing hit
 	// AnomalyRowCap, which is detected by asking for one row more than can be used --
@@ -317,6 +338,7 @@ type Anomalies struct {
 	MoreOpen    bool
 	// MorePolicies is its twin for the rule breakdown.
 	MorePolicies bool
+	MoreLost     bool
 
 	// TogetherWithinSeconds and TogetherMinDays are the pair listing's own thresholds,
 	// carried to the screen so it can print them. A list filtered by a constant the
@@ -433,18 +455,18 @@ func (r *Reader) Anomalies(ctx context.Context, tenantID uuid.UUID, f ReportFilt
 		venues, body.MoreVenues = trimAnomalyRows(venues)
 		body.Venues = make([]AnomalyVenue, 0, len(venues))
 		for _, v := range venues {
-			row := AnomalyVenue{
+			body.Venues = append(body.Venues, AnomalyVenue{
+				LocationID:   v.LocationID,
 				Name:         deref(v.LocationName),
 				Records:      int(v.Records),
 				Judged:       int(v.Judged),
 				Answerable:   int(v.Answerable),
 				DistanceOnly: int(v.DistanceOnly),
 				OutsideVenue: int(v.OutsideVenue),
-			}
-			if v.LocationID != nil {
-				row.LocationID = *v.LocationID
-			}
-			body.Venues = append(body.Venues, row)
+				// A venue of this business always has a name (the join's key is a foreign key);
+				// one with none is a peer's -- the group the query made from site_location_id.
+				Partner: v.LocationName == nil,
+			})
 		}
 
 		plaques, err := q.ListAnomalyPlaques(ctx, store.ListAnomalyPlaquesParams{
@@ -467,6 +489,23 @@ func (r *Reader) Anomalies(ctx context.Context, tenantID uuid.UUID, f ReportFilt
 				LargestGap:   int(p.LargestGap),
 			})
 		}
+		// M11 API-1c: the gaps a holding peer's staff revealed on THIS business's plaques (K-1i,
+		// from the projection -- ADR 0027 §9). Added to the plaque's own row; a business in no
+		// holding reads an empty list and the listing above is unchanged.
+		sitePlaques, err := q.ListSitePlaqueGaps(ctx, store.ListSitePlaqueGapsParams{
+			TenantID: tenantID,
+			FromAt:   period.From,
+			ToAt:     period.To,
+			RowLimit: anomalyReadLimit(),
+		})
+		if err != nil {
+			return fmt.Errorf("list the site's plaque gaps: %w", err)
+		}
+		var moreSite bool
+		sitePlaques, moreSite = trimAnomalyRows(sitePlaques)
+		if len(sitePlaques) > 0 {
+			body.Plaques, body.MorePlaques = mergeSitePlaques(body.Plaques, sitePlaques, body.MorePlaques || moreSite)
+		}
 
 		pairs, err := q.ListTapsTakenTogether(ctx, store.ListTapsTakenTogetherParams{
 			TenantID: tenantID,
@@ -486,6 +525,7 @@ func (r *Reader) Anomalies(ctx context.Context, tenantID uuid.UUID, f ReportFilt
 		}
 		pairs, body.MorePairs = trimAnomalyRows(pairs)
 		body.Pairs = make([]AnomalyPair, 0, len(pairs))
+		pairSites := make([]*uuid.UUID, 0, len(pairs))
 		for _, p := range pairs {
 			body.Pairs = append(body.Pairs, AnomalyPair{
 				First:          deref(p.FirstEmployeeName),
@@ -495,6 +535,12 @@ func (r *Reader) Anomalies(ctx context.Context, tenantID uuid.UUID, f ReportFilt
 				Days:           int(p.Days),
 				ClosestSeconds: int(p.ClosestSeconds),
 			})
+			var site *uuid.UUID
+			if p.LocationName == nil {
+				id := p.LocationID
+				site = &id
+			}
+			pairSites = append(pairSites, site)
 		}
 
 		open, err := q.ListOpenCheckIns(ctx, store.ListOpenCheckInsParams{
@@ -515,6 +561,60 @@ func (r *Reader) Anomalies(ctx context.Context, tenantID uuid.UUID, f ReportFilt
 				At:           o.OccurredAt,
 				ManagerTyped: o.ManagerTyped,
 				WasMaskable:  o.WasMaskable,
+			})
+		}
+
+		// M11 API-1c: name the peers' venues the three listings above reached (ADR 0027 §9) --
+		// one holding_site_locations read, and none when no row names a peer's venue.
+		need := false
+		for _, v := range body.Venues {
+			need = need || v.Partner
+		}
+		for _, id := range pairSites {
+			need = need || id != nil
+		}
+		for _, o := range open {
+			need = need || o.SiteLocationID != nil
+		}
+		venuesOfPeers, err := siteVenuesFor(ctx, tx, need)
+		if err != nil {
+			return err
+		}
+		for i := range body.Venues {
+			if body.Venues[i].Partner {
+				body.Venues[i].Name = venuesOfPeers.name(body.Venues[i].LocationID)
+			}
+		}
+		for i, id := range pairSites {
+			if id != nil {
+				body.Pairs[i].Venue = venuesOfPeers.name(*id)
+			}
+		}
+		for i, o := range open {
+			if o.SiteLocationID != nil {
+				body.Open[i].LocationName = venuesOfPeers.name(*o.SiteLocationID)
+			}
+		}
+
+		// M11 API-1c: this business's lost plaques a holding peer's staff touched (ADR 0027 §9),
+		// by the server's clock. A business in no holding reads an empty list.
+		lost, err := q.ListSiteLostPlaqueAlerts(ctx, store.ListSiteLostPlaqueAlertsParams{
+			TenantID: tenantID,
+			FromAt:   period.From,
+			ToAt:     period.To,
+			RowLimit: anomalyReadLimit(),
+		})
+		if err != nil {
+			return fmt.Errorf("list the site's lost plaque alerts: %w", err)
+		}
+		lost, body.MoreLost = trimAnomalyRows(lost)
+		body.LostPlaques = make([]AnomalyLostPlaque, 0, len(lost))
+		for _, l := range lost {
+			body.LostPlaques = append(body.LostPlaques, AnomalyLostPlaque{
+				TagUID:       l.TagUid,
+				LocationName: deref(l.LocationName),
+				Refusals:     int(l.Refusals),
+				Last:         l.LastAt,
 			})
 		}
 
@@ -585,4 +685,43 @@ func trimAnomalyRows[T any](rows []T) (kept []T, more bool) {
 		return rows[:AnomalyRowCap], true
 	}
 	return rows, false
+}
+
+// mergeSitePlaques adds the projection's gaps to the plaques' own rows (one row per plaque: the
+// counts summed, the largest gap the larger), keeps the listing's order -- largest gap, then
+// most gaps, then the uid -- and its cap, and reports whether anything was left out.
+func mergeSitePlaques(own []AnomalyPlaque, site []store.ListSitePlaqueGapsRow, more bool) ([]AnomalyPlaque, bool) {
+	at := make(map[string]int, len(own))
+	for i, p := range own {
+		at[p.TagUID] = i
+	}
+	for _, sp := range site {
+		if i, ok := at[sp.TagUid]; ok {
+			own[i].Records += int(sp.Records)
+			own[i].CounterGaps += int(sp.CounterGaps)
+			own[i].LargestGap = max(own[i].LargestGap, int(sp.LargestGap))
+			continue
+		}
+		at[sp.TagUid] = len(own)
+		own = append(own, AnomalyPlaque{
+			TagUID:       sp.TagUid,
+			LocationName: deref(sp.LocationName),
+			Records:      int(sp.Records),
+			CounterGaps:  int(sp.CounterGaps),
+			LargestGap:   int(sp.LargestGap),
+		})
+	}
+	sort.SliceStable(own, func(i, j int) bool {
+		if own[i].LargestGap != own[j].LargestGap {
+			return own[i].LargestGap > own[j].LargestGap
+		}
+		if own[i].CounterGaps != own[j].CounterGaps {
+			return own[i].CounterGaps > own[j].CounterGaps
+		}
+		return own[i].TagUID < own[j].TagUID
+	})
+	if len(own) > AnomalyRowCap {
+		own, more = own[:AnomalyRowCap], true
+	}
+	return own, more
 }

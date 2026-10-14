@@ -284,6 +284,14 @@ type Record struct {
 	LocationName   string
 	DepartmentName string
 	EmployeeName   string
+	// AtPartnerVenue marks a row taken at ANOTHER member of this business's holding (M11 API-1c,
+	// ADR 0027 §9): the record is this business's, the venue and the plaque are the peer's.
+	// LocationName is then the peer's venue (siteVenues), TagUID the peer's plaque, and the three
+	// evidence fields above are blank -- K-39, see site.go.
+	AtPartnerVenue bool
+	// SiteLocationID is the peer's venue of such a row, nil for every other (and for a refusal on
+	// a peer's plaque that hangs on no wall).
+	SiteLocationID *uuid.UUID
 }
 
 // Option is one entry of a filter's dropdown.
@@ -426,7 +434,7 @@ func (r *Reader) Day(ctx context.Context, tenantID uuid.UUID, f Filter) (Page, e
 		if err != nil {
 			return fmt.Errorf("load tenant clock: %w", err)
 		}
-		out, err = r.page(ctx, q, tenantID, f, clock.Timezone)
+		out, err = r.page(ctx, tx, q, tenantID, f, clock.Timezone)
 		return err
 	})
 	if err != nil {
@@ -459,7 +467,7 @@ func (r *Reader) Screen(ctx context.Context, tenantID uuid.UUID, f Filter) (Scre
 			return fmt.Errorf("load tenant clock: %w", err)
 		}
 		out.TenantName = clock.Name
-		if out.Page, err = r.page(ctx, q, tenantID, f, clock.Timezone); err != nil {
+		if out.Page, err = r.page(ctx, tx, q, tenantID, f, clock.Timezone); err != nil {
 			return err
 		}
 		if out.Options, err = options(ctx, q, tenantID); err != nil {
@@ -612,7 +620,7 @@ func inSavepoint(ctx context.Context, tx pgx.Tx, fn func(*store.Queries) error) 
 }
 
 // page is the shared body of Day and Screen.
-func (r *Reader) page(ctx context.Context, q *store.Queries, tenantID uuid.UUID, f Filter, zoneName string) (Page, error) {
+func (r *Reader) page(ctx context.Context, tx pgx.Tx, q *store.Queries, tenantID uuid.UUID, f Filter, zoneName string) (Page, error) {
 	zone := r.loadZone(zoneName)
 	day := f.Date
 	if day.Zero() {
@@ -669,6 +677,9 @@ func (r *Reader) page(ctx context.Context, q *store.Queries, tenantID uuid.UUID,
 	for _, row := range rows {
 		page.Records = append(page.Records, record(row))
 	}
+	if err := nameSiteRecords(ctx, tx, page.Records); err != nil {
+		return Page{}, err
+	}
 	if more && len(page.Records) > 0 {
 		last := page.Records[len(page.Records)-1]
 		page.Next = &Cursor{At: last.OccurredAt, ID: last.ID}
@@ -683,7 +694,7 @@ func (r *Reader) page(ctx context.Context, q *store.Queries, tenantID uuid.UUID,
 // flattens the nullable names, so nothing downstream has to know that a record
 // without an employee is normal.
 func record(row store.ListPanelTransactionsRow) Record {
-	return Record{
+	rec := Record{
 		ID:             row.ID,
 		OccurredAt:     row.OccurredAt,
 		Direction:      deref(row.Type),
@@ -704,6 +715,22 @@ func record(row store.ListPanelTransactionsRow) Record {
 		LocationName:   deref(row.LocationName),
 		DepartmentName: deref(row.DepartmentName),
 		EmployeeName:   deref(row.EmployeeName),
+	}
+	atSite(&rec, row.SiteLocationID, row.SiteTagUid)
+	return rec
+}
+
+// atSite marks a record whose row names a peer's venue or plaque (M11 API-1c): the plaque shown
+// is the peer's; the venue's name and the K-39 blanking are nameSiteRecords', once the page is
+// read.
+func atSite(rec *Record, venue *uuid.UUID, tag *string) {
+	if venue == nil && tag == nil {
+		return
+	}
+	rec.AtPartnerVenue = true
+	rec.SiteLocationID = venue
+	if tag != nil {
+		rec.TagUID = *tag
 	}
 }
 

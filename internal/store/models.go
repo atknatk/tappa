@@ -262,6 +262,29 @@ type Session struct {
 	RevokedAt  *time.Time
 }
 
+type SitePunch struct {
+	TenantID         uuid.UUID
+	ID               uuid.UUID
+	TransactionID    uuid.UUID
+	EmployerTenantID uuid.UUID
+	EmployerApiCode  *string
+	EmployeeID       *uuid.UUID
+	EmployeeRef      *string
+	EmployeeCode     *string
+	EmployeeName     *string
+	SiteLocationID   *uuid.UUID
+	SiteTagUid       *string
+	Ctr              *int32
+	SunValid         *bool
+	BucketHour       time.Time
+	OccurredAt       time.Time
+	Channel          string
+	Type             *string
+	Outcome          string
+	CtrGap           *int32
+	CreatedAt        time.Time
+}
+
 type Tag struct {
 	Uid      string
 	TenantID uuid.UUID

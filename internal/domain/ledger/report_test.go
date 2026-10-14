@@ -867,7 +867,7 @@ func TestResolveShift_PrefersTheDepartmentThenTheTAPPEDLocation(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			got := resolveShift(c.row, "Europe/Malta")
+			got := resolveShift(c.row, "Europe/Malta", nil)
 			switch {
 			case c.want == nil && got != nil:
 				t.Fatalf("resolved %+v, want %s", *got, c.wantWhich)
@@ -895,7 +895,7 @@ func TestEvents_CountsTheRecordsNoChainCanHold(t *testing.T) {
 		{EmployeeID: &who, Verdict: "ok", Channel: "nfc"}, // no direction
 		{EmployeeID: &who, Type: &in, Verdict: "ok", Channel: "manual"},
 	}
-	got, unattributable := events(rows, "Europe/Malta")
+	got, unattributable := events(rows, "Europe/Malta", nil)
 	if len(got) != 2 {
 		t.Fatalf("mapped %d event(s), want 2", len(got))
 	}

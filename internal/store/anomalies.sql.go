@@ -564,7 +564,7 @@ func (q *Queries) ListAnomalyPolicySids(ctx context.Context, arg ListAnomalyPoli
 
 const listAnomalyVenues = `-- name: ListAnomalyVenues :many
 SELECT
-    t.location_id                                                  AS location_id,
+    coalesce(t.location_id, t.site_location_id)::uuid              AS location_id,
     l.name                                                         AS location_name,
     count(*)                                                       AS records,
     count(*) FILTER (
@@ -575,9 +575,9 @@ SELECT
     -- DIFFERENT populations. Returning both bases is what lets the screen say so
     -- instead of quietly dividing by whichever one is to hand.
     count(*) FILTER (WHERE t.policy_context IS NOT NULL)            AS answerable,
-    count(*) FILTER (WHERE t.gps_match AND NOT t.ip_match)         AS distance_only,
+    count(*) FILTER (WHERE t.gps_match AND NOT t.ip_match AND t.site_tenant_id IS NULL) AS distance_only,
     count(*) FILTER (
-        WHERE t.policy_context ->> 'tap:gpsConflict' = 'true'
+        WHERE t.policy_context ->> 'tap:gpsConflict' = 'true' AND t.site_tenant_id IS NULL
     )                                                              AS outside_venue
 FROM transactions t
 LEFT JOIN locations l
@@ -586,12 +586,12 @@ LEFT JOIN locations l
 WHERE t.tenant_id = $1
   AND t.occurred_at >= $2
   AND t.occurred_at < $3
-  AND t.location_id IS NOT NULL
-GROUP BY t.location_id, l.name
+  AND (t.location_id IS NOT NULL OR t.site_location_id IS NOT NULL)
+GROUP BY coalesce(t.location_id, t.site_location_id), l.name
 ORDER BY
-    count(*) FILTER (WHERE t.gps_match AND NOT t.ip_match) DESC,
+    count(*) FILTER (WHERE t.gps_match AND NOT t.ip_match AND t.site_tenant_id IS NULL) DESC,
     l.name,
-    t.location_id
+    coalesce(t.location_id, t.site_location_id)
 LIMIT $4
 `
 
@@ -603,7 +603,7 @@ type ListAnomalyVenuesParams struct {
 }
 
 type ListAnomalyVenuesRow struct {
-	LocationID   *uuid.UUID
+	LocationID   uuid.UUID
 	LocationName *string
 	Records      int64
 	Judged       int64
@@ -619,6 +619,13 @@ type ListAnomalyVenuesRow struct {
 // stood at. Every venue with taps in the window is returned, including the clean
 // ones -- unlike the people list, because a rate of zero at one branch beside a rate
 // of a third at another is the comparison this section exists to make.
+// 🔴 M11 API-1c: A ROW TAKEN AT A PEER'S VENUE IS COUNTED UNDER THAT VENUE (ADR 0027 §9, one of
+// the employer's nine readers): its location_id is NULL and site_location_id names the peer's
+// venue (K-30), so the group is the one that is set. The peer's name is not in this tenant's
+// locations -- l.name is NULL for that group, and internal/domain/ledger names it from
+// holding_site_locations. K-39: the two EVIDENCE figures (distance_only, outside_venue) count the
+// employer's own venues only -- a peer's network and coordinate are not this panel's to describe,
+// even as a count of matches.
 func (q *Queries) ListAnomalyVenues(ctx context.Context, arg ListAnomalyVenuesParams) ([]ListAnomalyVenuesRow, error) {
 	rows, err := q.db.Query(ctx, listAnomalyVenues,
 		arg.TenantID,
@@ -656,6 +663,7 @@ const listOpenCheckIns = `-- name: ListOpenCheckIns :many
 SELECT
     e.full_name                                                    AS employee_name,
     l.name                                                         AS location_name,
+    t.site_location_id                                             AS site_location_id,
     t.occurred_at                                                  AS occurred_at,
     t.channel = 'manual'                                           AS manager_typed,
     EXISTS (
@@ -698,11 +706,12 @@ type ListOpenCheckInsParams struct {
 }
 
 type ListOpenCheckInsRow struct {
-	EmployeeName *string
-	LocationName *string
-	OccurredAt   time.Time
-	ManagerTyped bool
-	WasMaskable  bool
+	EmployeeName   *string
+	LocationName   *string
+	SiteLocationID *uuid.UUID
+	OccurredAt     time.Time
+	ManagerTyped   bool
+	WasMaskable    bool
 }
 
 // Check-ins in the window that no later checkout closes.
@@ -733,6 +742,8 @@ type ListOpenCheckInsRow struct {
 //
 // ORDERED OLDEST FIRST, which is the order a manager works a backlog in, so a
 // shortened page keeps the entries that have been waiting longest.
+// M11 API-1c: site_location_id names the venue of an open check-in taken at a PEER's venue (its
+// location_id is NULL -- K-30); internal/domain/ledger names it from holding_site_locations.
 func (q *Queries) ListOpenCheckIns(ctx context.Context, arg ListOpenCheckInsParams) ([]ListOpenCheckInsRow, error) {
 	rows, err := q.db.Query(ctx, listOpenCheckIns,
 		arg.TenantID,
@@ -750,6 +761,7 @@ func (q *Queries) ListOpenCheckIns(ctx context.Context, arg ListOpenCheckInsPara
 		if err := rows.Scan(
 			&i.EmployeeName,
 			&i.LocationName,
+			&i.SiteLocationID,
 			&i.OccurredAt,
 			&i.ManagerTyped,
 			&i.WasMaskable,
@@ -772,22 +784,24 @@ WITH ordered AS (
         -- the tenant to -- and section 4.5's belt is a per-block property, not a
         -- per-statement one. It costs one column and it means every WHERE in this
         -- statement says the same thing.
+        -- M11 API-1c: a row at a PEER's venue joins that venue's sequence (ADR 0027 §9: this
+        -- reader left it out before) -- its location_id is NULL, site_location_id names the venue.
         t.tenant_id,
         t.employee_id,
-        t.location_id,
+        coalesce(t.location_id, t.site_location_id) AS location_id,
         t.occurred_at,
         lag(t.employee_id) OVER (
-            PARTITION BY t.location_id ORDER BY t.occurred_at, t.id
+            PARTITION BY coalesce(t.location_id, t.site_location_id) ORDER BY t.occurred_at, t.id
         ) AS prev_employee_id,
         lag(t.occurred_at) OVER (
-            PARTITION BY t.location_id ORDER BY t.occurred_at, t.id
+            PARTITION BY coalesce(t.location_id, t.site_location_id) ORDER BY t.occurred_at, t.id
         ) AS prev_occurred_at
     FROM transactions t
     WHERE t.tenant_id = $1
       AND t.occurred_at >= $4
       AND t.occurred_at < $5
       AND t.employee_id IS NOT NULL
-      AND t.location_id IS NOT NULL
+      AND (t.location_id IS NOT NULL OR t.site_location_id IS NOT NULL)
       AND t.type IS NOT NULL
       AND NOT t.practice
 ), pairs AS (
@@ -808,6 +822,7 @@ SELECT
     a.full_name                                                    AS first_employee_name,
     b.full_name                                                    AS second_employee_name,
     l.name                                                         AS location_name,
+    p.location_id::uuid                                            AS location_id,
     count(*)                                                       AS together,
     count(DISTINCT p.local_day)                                    AS days,
     min(p.apart_seconds)::int                                      AS closest_seconds
@@ -815,7 +830,7 @@ FROM pairs p
 LEFT JOIN employees a ON a.id = p.first_id  AND a.tenant_id = $1
 LEFT JOIN employees b ON b.id = p.second_id AND b.tenant_id = $1
 LEFT JOIN locations l ON l.id = p.location_id AND l.tenant_id = $1
-GROUP BY p.first_id, a.full_name, p.second_id, b.full_name, l.name
+GROUP BY p.first_id, a.full_name, p.second_id, b.full_name, l.name, p.location_id
 HAVING count(DISTINCT p.local_day) >= $2::int
 ORDER BY
     count(DISTINCT p.local_day) DESC,
@@ -841,6 +856,7 @@ type ListTapsTakenTogetherRow struct {
 	FirstEmployeeName  *string
 	SecondEmployeeName *string
 	LocationName       *string
+	LocationID         uuid.UUID
 	Together           int64
 	Days               int64
 	ClosestSeconds     int32
@@ -934,6 +950,7 @@ func (q *Queries) ListTapsTakenTogether(ctx context.Context, arg ListTapsTakenTo
 			&i.FirstEmployeeName,
 			&i.SecondEmployeeName,
 			&i.LocationName,
+			&i.LocationID,
 			&i.Together,
 			&i.Days,
 			&i.ClosestSeconds,

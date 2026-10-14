@@ -2502,6 +2502,24 @@ type Querier interface {
 	// foreign transaction id simply matches nothing here, so this cannot become an
 	// oracle for whether an id exists in another business.
 	GetTransactionReview(ctx context.Context, arg GetTransactionReviewParams) (GetTransactionReviewRow, error)
+	// THE MANAGER'S OWN RECORD AT A PEER'S VENUE (M11 API-1c, ADR 0027 §9 "Manuel kayıt"; K-1a: the
+	// record is the EMPLOYER's). InsertManualTransaction's statement and its narrowing, with the
+	// venue a PEER's: site_tenant_id and site_location_id are set, location_id and tag_uid are NULL
+	// (K-30: a row naming a site names no local venue and no plaque). Everything above that statement
+	// says about verdict, channel, practice, queued, the absent evidence columns, trust and the
+	// deactivated employee holds here word for word.
+	//
+	// 🔴 WHERE THE TWO SITE VALUES COME FROM. Not the form: the form posts a location id, and the
+	// caller resolves it through holding_site_locations -- the closed list's reader of a PEER's venues
+	// (K-33) -- and passes that row's site_tenant_id and location_id. Past this statement the
+	// database decides again: holding_site_gate (00043) refuses a site that is not the employer's
+	// peer right now (manual is STRICT -- ADR 0027 §6) and the composite key ties the venue to that
+	// tenant. The site then sees the record as employer_manual (holding_feed), separate and out of
+	// every total.
+	//
+	// department_id IS THE EMPLOYEE'S (their department's shift, if any, is theirs wherever they work
+	// -- CLAUDE.md §5); a department is not a venue, and K-30 does not touch it.
+	InsertManualSiteTransaction(ctx context.Context, arg InsertManualSiteTransactionParams) (InsertManualSiteTransactionRow, error)
 	// THE MANAGER'S OWN RECORD (M6-08). Somebody with no phone worked a shift, or an
 	// entry was left open and nobody tapped out (Q18: the system produces NO checkout of
 	// its own). A named administrator types it, and their id is on the row forever.
@@ -2847,6 +2865,13 @@ type Querier interface {
 	// stood at. Every venue with taps in the window is returned, including the clean
 	// ones -- unlike the people list, because a rate of zero at one branch beside a rate
 	// of a third at another is the comparison this section exists to make.
+	// 🔴 M11 API-1c: A ROW TAKEN AT A PEER'S VENUE IS COUNTED UNDER THAT VENUE (ADR 0027 §9, one of
+	// the employer's nine readers): its location_id is NULL and site_location_id names the peer's
+	// venue (K-30), so the group is the one that is set. The peer's name is not in this tenant's
+	// locations -- l.name is NULL for that group, and internal/domain/ledger names it from
+	// holding_site_locations. K-39: the two EVIDENCE figures (distance_only, outside_venue) count the
+	// employer's own venues only -- a peer's network and coordinate are not this panel's to describe,
+	// even as a count of matches.
 	ListAnomalyVenues(ctx context.Context, arg ListAnomalyVenuesParams) ([]ListAnomalyVenuesRow, error)
 	// The frozen history, newest month first.
 	//
@@ -2896,6 +2921,11 @@ type Querier interface {
 	// here is a `flag` awaiting a human, and whether the rule that flagged it is one
 	// the reader can change is part of deciding. The column is a CHECK-constrained
 	// three-word enum, so it is section 4.7-safe; policy_context still is not selected.
+	// 🔴 M11 API-1c: site_location_id AND site_tag_uid NAME THE VENUE AND THE PLAQUE OF A ROW
+	// TAKEN AT A PEER'S VENUE (ADR 0027 §4, §9 -- one of the employer's nine readers). Such a row's
+	// location_id and tag_uid are NULL (K-30), so the join below finds no name for it; the reader
+	// names it from holding_site_locations (internal/domain/ledger's siteVenues), the one way into
+	// the peer's venue list. Ids only -- no evidence column is added (K-39).
 	ListFlaggedForReview(ctx context.Context, arg ListFlaggedForReviewParams) ([]ListFlaggedForReviewRow, error)
 	// The resets of one administrator that could still be spent RIGHT NOW: not consumed,
 	// not retired, not expired.
@@ -2969,6 +2999,8 @@ type Querier interface {
 	//
 	// ORDERED OLDEST FIRST, which is the order a manager works a backlog in, so a
 	// shortened page keeps the entries that have been waiting longest.
+	// M11 API-1c: site_location_id names the venue of an open check-in taken at a PEER's venue (its
+	// location_id is NULL -- K-30); internal/domain/ledger names it from holding_site_locations.
 	ListOpenCheckIns(ctx context.Context, arg ListOpenCheckInsParams) ([]ListOpenCheckInsRow, error)
 	// ---------------------------------------------------------------------------
 	// THE DEPARTMENTS HALF OF THE LOCATIONS SECTION (M6-06 phase A).
@@ -3402,6 +3434,11 @@ type Querier interface {
 	// (guardrail|baseline|tenant, migration 0008). It carries no coordinate, no
 	// address and no free text -- unlike policy_context, which stays unselected for
 	// the reason given above.
+	// 🔴 M11 API-1c: site_location_id AND site_tag_uid NAME THE VENUE AND THE PLAQUE OF A ROW
+	// TAKEN AT A PEER'S VENUE (ADR 0027 §4, §9 -- one of the employer's nine readers). Such a row's
+	// location_id and tag_uid are NULL (K-30), so the join below finds no name for it; the reader
+	// names it from holding_site_locations (internal/domain/ledger's siteVenues), the one way into
+	// the peer's venue list. Ids only -- no evidence column is added (K-39).
 	ListPanelTransactions(ctx context.Context, arg ListPanelTransactionsParams) ([]ListPanelTransactionsRow, error)
 	// The invites of one employee that are still usable RIGHT NOW: not consumed and
 	// not expired. Phase B reads this for the "this employee is already active --
@@ -3707,6 +3744,44 @@ type Querier interface {
 	// included on purpose; the caller filters on revoked_at, so history stays visible.
 	// token_hash is NOT selected: nothing outside the resolution path needs it.
 	ListSessionsForEmployee(ctx context.Context, arg ListSessionsForEmployeeParams) ([]ListSessionsForEmployeeRow, error)
+	// This business's LOST or retired plaques a peer's employee touched, in [from_at, to_at) by the
+	// SERVER's clock (created_at -- ADR 0027 §9, 11th round: one forged URL declaring 2099 must
+	// neither move an alert nor hide one). One row per plaque: how many refusals reached this
+	// business (the dedup already collapsed repeats of one URL within the hour) and the last time.
+	// The panel's alert surface for a tap the EMPLOYER refused (ADR 0027 §5: no audit row crosses
+	// tenants; this row is the site's only trace).
+	ListSiteLostPlaqueAlerts(ctx context.Context, arg ListSiteLostPlaqueAlertsParams) ([]ListSiteLostPlaqueAlertsRow, error)
+	// The counter gaps of this business's plaques that the holding staff's taps revealed (K-1i: the
+	// employer's tap:ctrGap, carried by holding_feed), in [from_at, to_at) by the SERVER's clock.
+	// Same shape as ListAnomalyPlaques; the caller adds the two per plaque.
+	ListSitePlaqueGaps(ctx context.Context, arg ListSitePlaqueGapsParams) ([]ListSitePlaqueGapsRow, error)
+	// sitepunches.sql -- the SITE's reads of its projection (M11 API-1c, ADR 0027 §9): what a
+	// holding member sees of a peer's employees' taps on its own plaques and at its own venues.
+	//
+	// 🔴 ORDINARY, ROW-LEVEL-SECURED, TENANT-FILTERED READS (ADR 0027 §9: "KF'nin bütün okumaları
+	// sıradan, RLS'li, açık tenant_id filtreli sorgulardır -- KF hiçbir holding_* fonksiyonunu izdüşüm
+	// için çağırmaz"). The tenant is the panel session's; the join to locations re-states it.
+	//
+	// 🔴 WHAT NONE OF THEM CAN SELECT: sun_valid (tappa_app holds no SELECT on it -- K-1h, migration
+	// 00046), and nothing the projection does not carry (no coordinate, no address, no note, no
+	// policy context, no verdict, no matched rule, no e-mail -- the table has no such column).
+	//
+	// 🔴 NO HOURS ARE COMPUTED FROM THESE ROWS, ANYWHERE (ADR 0027 §9, 10th round: the projection
+	// does not see the employer's chain between two taps, and pairing "the latest in with the
+	// earliest out" counted 9 h and 32 h intervals nobody worked). The employer computes its
+	// employees' hours; the site lists the taps.
+	// The holding staff's taps at this business's venues in [from_at, until_at) by the DECLARED
+	// time -- the window the reports section reads its own staff by -- one row per employer record,
+	// its LAST outcome ("transaction_id başına son satır": an approval or a rejection supersedes the
+	// pending_review it decides; a decision outranks a pending row written in the same transaction).
+	// Ordered by time, the earliest first; the limit is a bound on the request, one row more than
+	// the screen lists so it can say "showing N of M".
+	ListSitePunchesForPeriod(ctx context.Context, arg ListSitePunchesForPeriodParams) ([]ListSitePunchesForPeriodRow, error)
+	// "Last seen" of this business's plaques from the holding staff's taps -- by the SERVER's clock
+	// (created_at), never the declared occurred_at (ADR 0027 §9). The caller keeps the later of this
+	// and ListTagLastSeen's stamp. Like that query, a plaque with no row here was never touched by a
+	// peer's employee; the GROUP BY makes max() NOT NULL.
+	ListSiteTagLastSeen(ctx context.Context, tenantID uuid.UUID) ([]ListSiteTagLastSeenRow, error)
 	// "Last seen" for every plaque of this tenant that HAS been tapped -- the fifth
 	// column of the M6-06 plaque list. The caller joins it to ListTagsForTenant by uid.
 	//
@@ -4040,6 +4115,11 @@ type Querier interface {
 	// one: the busy figure is a development-database shape (a tenant whose entire history
 	// is one week wide), and a business with a year of records behind a one-week window is
 	// the selective case.
+	// 🔴 M11 API-1c: site_location_id NAMES THE VENUE OF A ROW
+	// TAKEN AT A PEER'S VENUE (ADR 0027 §4, §9 -- one of the employer's nine readers). Such a row's
+	// location_id is NULL (K-30), so the join below finds no name for it; the reader
+	// names it -- and finds its SHIFT -- from holding_site_locations (internal/domain/ledger's siteVenues), the one way into
+	// the peer's venue list. Ids only -- no evidence column is added (K-39).
 	ListWorkedShiftEvents(ctx context.Context, arg ListWorkedShiftEventsParams) ([]ListWorkedShiftEventsRow, error)
 	// SERIALISE ONE ADMINISTRATOR'S RECOVERY ISSUING (M10 EM-7C round 3, ADR 0022's
 	// "EM-7C note").

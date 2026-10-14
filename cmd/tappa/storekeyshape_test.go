@@ -201,6 +201,13 @@ const storeDir = "internal/store"
 // calls a definer; internal/db's TestTenantBranding_PerPageReadsDoNotSelectTheLogo pins
 // the first's select list and the second's positive control.
 var storeSurface = map[string]string{
+	// M11 API-1c: the site's reads of its projection (db/queries/sitepunches.sql) and the manager's
+	// record at a peer's venue -- ids, names, counts and instants; no key, no evidence.
+	"ListSitePunchesForPeriod":           "(context.Context, ListSitePunchesForPeriodParams{TenantID uuid.UUID; FromAt time.Time; UntilAt time.Time; RowLimit int32}) ([]ListSitePunchesForPeriodRow{TransactionID uuid.UUID; EmployerApiCode *string; EmployeeID *uuid.UUID; EmployeeRef *string; EmployeeCode *string; EmployeeName *string; SiteLocationID *uuid.UUID; LocationName *string; SiteTagUid *string; OccurredAt time.Time; Channel string; Type *string; Outcome string; CreatedAt time.Time}, error)",
+	"ListSiteTagLastSeen":                "(context.Context, uuid.UUID) ([]ListSiteTagLastSeenRow{TagUid string; LastSeen time.Time}, error)",
+	"InsertManualSiteTransaction":        "(context.Context, InsertManualSiteTransactionParams{TenantID uuid.UUID; Type string; OccurredAt time.Time; Trust int16; Note *string; EnteredBy uuid.UUID; SiteTenantID uuid.UUID; SiteLocationID uuid.UUID; EmployeeID uuid.UUID}) (InsertManualSiteTransactionRow{ID uuid.UUID; OccurredAt time.Time; CreatedAt time.Time; Type *string; Verdict string; Channel string; Trust *int16; Practice bool; Queued bool}, error)",
+	"ListSitePlaqueGaps":                 "(context.Context, ListSitePlaqueGapsParams{TenantID uuid.UUID; FromAt time.Time; ToAt time.Time; RowLimit int32}) ([]ListSitePlaqueGapsRow{TagUid string; LocationName *string; Records int64; CounterGaps int64; LargestGap int32}, error)",
+	"ListSiteLostPlaqueAlerts":           "(context.Context, ListSiteLostPlaqueAlertsParams{TenantID uuid.UUID; FromAt time.Time; ToAt time.Time; RowLimit int32}) ([]ListSiteLostPlaqueAlertsRow{TagUid string; LocationName *string; Refusals int64; LastAt time.Time}, error)",
 	"AdvanceTagCounter":                  "(context.Context, AdvanceTagCounterParams{Ctr int32; TenantID uuid.UUID; Uid string}) (AdvanceTagCounterRow{Uid string; CtrGap int32}, error)",
 	"AppendPolicyVersion":                "(context.Context, AppendPolicyVersionParams{TenantID uuid.UUID; PolicyID uuid.UUID; VersionNo int32; Document []byte; CreatedBy *uuid.UUID}) (AppendPolicyVersionRow{ID uuid.UUID; VersionNo int32; CreatedAt time.Time}, error)",
 	"AssignTagToLocation":                "(context.Context, AssignTagToLocationParams{LocationID uuid.UUID; TenantID uuid.UUID; Uid string}) (AssignTagToLocationRow{Uid string; TenantID uuid.UUID; LocationID *uuid.UUID; LastCtr int32; Status string; RetiredAt *time.Time; ReplacedBy *string; CreatedAt time.Time; EncodedAt *time.Time}, error)",
@@ -214,7 +221,7 @@ var storeSurface = map[string]string{
 	"ConsumePasswordResetAndSetPassword": "(context.Context, ConsumePasswordResetAndSetPasswordParams{PasswordHash string; TenantID uuid.UUID; TokenHash string}) (ConsumePasswordResetAndSetPasswordRow{AdminUserID uuid.UUID; TenantID uuid.UUID; ResetID uuid.UUID; RetiredCount int64}, error)",
 	"CountAnomalySignals":                "(context.Context, CountAnomalySignalsParams{TenantID uuid.UUID; FromAt time.Time; ToAt time.Time}) (CountAnomalySignalsRow{Records int64; Judged int64; Unanswerable int64; DistanceOnly int64; OutsideVenue int64; OutsideVenueOnNetwork int64; CounterGaps int64; OtherVenue int64; Training int64; ManagerTyped int64}, error)",
 	"CountDepartmentReferences":          "(context.Context, CountDepartmentReferencesParams{TenantID uuid.UUID; ID uuid.UUID}) (CountDepartmentReferencesRow{EmployeeCount int64; TransactionCount int64}, error)",
-	"CountLocationReferences":            "(context.Context, CountLocationReferencesParams{TenantID uuid.UUID; ID uuid.UUID}) (CountLocationReferencesRow{DepartmentCount int64; EmployeeCount int64; TagCount int64; TransactionCount int64}, error)",
+	"CountLocationReferences":            "(context.Context, CountLocationReferencesParams{TenantID uuid.UUID; ID uuid.UUID}) (CountLocationReferencesRow{DepartmentCount int64; EmployeeCount int64; TagCount int64; TransactionCount int64; HoldingCount int64}, error)",
 	"CountMaskedOpenCheckIns":            "(context.Context, CountMaskedOpenCheckInsParams{TenantID uuid.UUID; FromAt time.Time; ToAt time.Time}) (CountMaskedOpenCheckInsRow{StillOpen int64; ClosedLater int64}, error)",
 	"CountPendingFlagged":                "(context.Context, CountPendingFlaggedParams{TenantID uuid.UUID; Cap int32}) (int32, error)",
 	"CountPracticeTaps":                  "(context.Context, CountPracticeTapsParams{TenantID uuid.UUID; FromAt time.Time; ToAt time.Time}) (int64, error)",
@@ -283,17 +290,17 @@ var storeSurface = map[string]string{
 	"ListAnomalyPeople":                "(context.Context, ListAnomalyPeopleParams{TenantID uuid.UUID; FromAt time.Time; ToAt time.Time; RowLimit int32}) ([]ListAnomalyPeopleRow{EmployeeID *uuid.UUID; EmployeeName *string; Records int64; DistanceOnly int64; OutsideVenue int64; CounterGaps int64; OtherVenue int64}, error)",
 	"ListAnomalyPlaques":               "(context.Context, ListAnomalyPlaquesParams{TenantID uuid.UUID; FromAt time.Time; ToAt time.Time; RowLimit int32}) ([]ListAnomalyPlaquesRow{TagUid *string; LocationName *string; Records int64; CounterGaps int64; LargestGap int32}, error)",
 	"ListAnomalyPolicySids":            "(context.Context, ListAnomalyPolicySidsParams{TenantID uuid.UUID; FromAt time.Time; ToAt time.Time; RowLimit int32}) ([]ListAnomalyPolicySidsRow{MatchedSid *string; PolicyLayer *string; Records int64}, error)",
-	"ListAnomalyVenues":                "(context.Context, ListAnomalyVenuesParams{TenantID uuid.UUID; FromAt time.Time; ToAt time.Time; RowLimit int32}) ([]ListAnomalyVenuesRow{LocationID *uuid.UUID; LocationName *string; Records int64; Judged int64; Answerable int64; DistanceOnly int64; OutsideVenue int64}, error)",
+	"ListAnomalyVenues":                "(context.Context, ListAnomalyVenuesParams{TenantID uuid.UUID; FromAt time.Time; ToAt time.Time; RowLimit int32}) ([]ListAnomalyVenuesRow{LocationID uuid.UUID; LocationName *string; Records int64; Judged int64; Answerable int64; DistanceOnly int64; OutsideVenue int64}, error)",
 	"ListBillingPeriods":               "(context.Context, ListBillingPeriodsParams{TenantID uuid.UUID; RowLimit int32}) ([]ListBillingPeriodsRow{ID uuid.UUID; TenantID uuid.UUID; TenantName string; PeriodMonth pgtype.Date; PeriodFrom time.Time; PeriodTo time.Time; Timezone string; Plan string; FreePeriod bool; EmployeeCount int32; UnstampedEmployees int32; UnitPrice pgtype.Numeric; Currency string; AmountDue pgtype.Numeric; ClosedBy uuid.UUID; ClosedAt time.Time}, error)",
 	"ListDepartmentsForTenant":         "(context.Context, uuid.UUID) ([]ListDepartmentsForTenantRow{ID uuid.UUID; TenantID uuid.UUID; LocationID uuid.UUID; Name string; LocationName string}, error)",
-	"ListFlaggedForReview":             "(context.Context, ListFlaggedForReviewParams{TenantID uuid.UUID; CursorAt *time.Time; CursorID *uuid.UUID; PageSize int32}) ([]ListFlaggedForReviewRow{ID uuid.UUID; OccurredAt time.Time; Type *string; Trust *int16; Verdict string; Channel string; Practice bool; Queued bool; TagUid *string; Ctr *int32; IpMatch *bool; GpsMatch *bool; Note *string; PolicyLayer *string; LocationName *string; DepartmentName *string; EmployeeName *string}, error)",
+	"ListFlaggedForReview":             "(context.Context, ListFlaggedForReviewParams{TenantID uuid.UUID; CursorAt *time.Time; CursorID *uuid.UUID; PageSize int32}) ([]ListFlaggedForReviewRow{ID uuid.UUID; OccurredAt time.Time; Type *string; Trust *int16; Verdict string; Channel string; Practice bool; Queued bool; TagUid *string; Ctr *int32; IpMatch *bool; GpsMatch *bool; Note *string; PolicyLayer *string; LocationName *string; DepartmentName *string; EmployeeName *string; SiteLocationID *uuid.UUID; SiteTagUid *string}, error)",
 	"ListLivePasswordResetsForAdmin":   "(context.Context, ListLivePasswordResetsForAdminParams{TenantID uuid.UUID; AdminUserID uuid.UUID}) ([]ListLivePasswordResetsForAdminRow{ID uuid.UUID; TenantID uuid.UUID; AdminUserID uuid.UUID; CreatedAt time.Time; ExpiresAt time.Time}, error)",
 	"ListLocationsForTenant":           "(context.Context, uuid.UUID) ([]Location{ID uuid.UUID; TenantID uuid.UUID; Name string; StaticIps []netip.Prefix; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; CreatedAt time.Time; WifiSsid *string; ExternalRef *string; Active bool}, error)",
-	"ListOpenCheckIns":                 "(context.Context, ListOpenCheckInsParams{TenantID uuid.UUID; FromAt time.Time; ToAt time.Time; RowLimit int32}) ([]ListOpenCheckInsRow{EmployeeName *string; LocationName *string; OccurredAt time.Time; ManagerTyped bool; WasMaskable bool}, error)",
+	"ListOpenCheckIns":                 "(context.Context, ListOpenCheckInsParams{TenantID uuid.UUID; FromAt time.Time; ToAt time.Time; RowLimit int32}) ([]ListOpenCheckInsRow{EmployeeName *string; LocationName *string; SiteLocationID *uuid.UUID; OccurredAt time.Time; ManagerTyped bool; WasMaskable bool}, error)",
 	"ListPanelDepartments":             "(context.Context, ListPanelDepartmentsParams{TenantID uuid.UUID; RowLimit int32}) ([]ListPanelDepartmentsRow{ID uuid.UUID; TenantID uuid.UUID; LocationID uuid.UUID; Name string; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; CreatedAt time.Time; LocationName string}, error)",
 	"ListPanelEmployees":               "(context.Context, ListPanelEmployeesParams{TenantID uuid.UUID; Status *string; LocationID *uuid.UUID; DepartmentID *uuid.UUID; FullName *string; CursorName *string; CursorID *uuid.UUID; PageSize int32}) ([]ListPanelEmployeesRow{ID uuid.UUID; FullName string; Status string; InvitedAt *time.Time; ActivatedAt *time.Time; DeactivatedAt *time.Time; LocationID *uuid.UUID; LocationName *string; DepartmentName *string; LiveSessions int64; SessionLastUsedAt *time.Time}, error)",
 	"ListPanelLocations":               "(context.Context, ListPanelLocationsParams{TenantID uuid.UUID; RowLimit int32}) ([]ListPanelLocationsRow{ID uuid.UUID; Name string; StaticIps []netip.Prefix; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; WifiSsid *string; CreatedAt time.Time; ExternalRef *string; DepartmentCount int64}, error)",
-	"ListPanelTransactions":            "(context.Context, ListPanelTransactionsParams{TenantID uuid.UUID; FromAt time.Time; ToAt time.Time; LocationID *uuid.UUID; DepartmentID *uuid.UUID; EmployeeName *string; Verdict *string; Channel *string; CursorAt *time.Time; CursorID *uuid.UUID; PageSize int32}) ([]ListPanelTransactionsRow{ID uuid.UUID; OccurredAt time.Time; Type *string; Trust *int16; Verdict string; Channel string; Practice bool; Queued bool; TagUid *string; Ctr *int32; IpMatch *bool; GpsMatch *bool; Note *string; PolicyLayer *string; LocationName *string; DepartmentName *string; EmployeeName *string; ReviewOutcome *string; ReviewNote *string}, error)",
+	"ListPanelTransactions":            "(context.Context, ListPanelTransactionsParams{TenantID uuid.UUID; FromAt time.Time; ToAt time.Time; LocationID *uuid.UUID; DepartmentID *uuid.UUID; EmployeeName *string; Verdict *string; Channel *string; CursorAt *time.Time; CursorID *uuid.UUID; PageSize int32}) ([]ListPanelTransactionsRow{ID uuid.UUID; OccurredAt time.Time; Type *string; Trust *int16; Verdict string; Channel string; Practice bool; Queued bool; TagUid *string; Ctr *int32; IpMatch *bool; GpsMatch *bool; Note *string; PolicyLayer *string; LocationName *string; DepartmentName *string; EmployeeName *string; ReviewOutcome *string; ReviewNote *string; SiteLocationID *uuid.UUID; SiteTagUid *string}, error)",
 	"ListPendingInvitesForEmployee":    "(context.Context, ListPendingInvitesForEmployeeParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) ([]ListPendingInvitesForEmployeeRow{ID uuid.UUID; TenantID uuid.UUID; EmployeeID uuid.UUID; CreatedAt time.Time; ExpiresAt time.Time}, error)",
 	"ListPlaqueHistory":                "(context.Context, ListPlaqueHistoryParams{TenantID uuid.UUID; Target string; RowLimit int32}) ([]ListPlaqueHistoryRow{Action string; At time.Time; ActorName string; BySystem bool}, error)",
 	"ListPolicyAttachments":            "(context.Context, ListPolicyAttachmentsParams{TenantID uuid.UUID; RowLimit int32}) ([]ListPolicyAttachmentsRow{PolicyID uuid.UUID; Resource string}, error)",
@@ -305,8 +312,8 @@ var storeSurface = map[string]string{
 	"ListSessionsForEmployee":          "(context.Context, ListSessionsForEmployeeParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) ([]ListSessionsForEmployeeRow{ID uuid.UUID; TenantID uuid.UUID; EmployeeID uuid.UUID; DeviceInfo *string; CreatedAt time.Time; LastUsedAt *time.Time; RevokedAt *time.Time}, error)",
 	"ListTagLastSeen":                  "(context.Context, uuid.UUID) ([]ListTagLastSeenRow{TagUid *string; LastSeen time.Time}, error)",
 	"ListTagsForTenant":                "(context.Context, uuid.UUID) ([]ListTagsForTenantRow{Uid string; TenantID uuid.UUID; LocationID *uuid.UUID; LastCtr int32; Status string; RetiredAt *time.Time; ReplacedBy *string; CreatedAt time.Time; EncodedAt *time.Time}, error)",
-	"ListTapsTakenTogether":            "(context.Context, ListTapsTakenTogetherParams{TenantID uuid.UUID; MinDays int32; RowLimit int32; FromAt time.Time; ToAt time.Time; Zone string; WithinSeconds float64}) ([]ListTapsTakenTogetherRow{FirstEmployeeName *string; SecondEmployeeName *string; LocationName *string; Together int64; Days int64; ClosestSeconds int32}, error)",
-	"ListWorkedShiftEvents":            "(context.Context, ListWorkedShiftEventsParams{TenantID uuid.UUID; FromAt time.Time; UntilAt time.Time; RowLimit int32}) ([]ListWorkedShiftEventsRow{EmployeeID *uuid.UUID; OccurredAt time.Time; Type *string; Verdict string; Channel string; LocationID *uuid.UUID; ReviewOutcome *string; EmployeeName *string; LocationName *string; LocationShiftStart pgtype.Time; LocationShiftEnd pgtype.Time; LocationOvernight *bool; DepartmentShiftStart pgtype.Time; DepartmentShiftEnd pgtype.Time; DepartmentOvernight *bool}, error)",
+	"ListTapsTakenTogether":            "(context.Context, ListTapsTakenTogetherParams{TenantID uuid.UUID; MinDays int32; RowLimit int32; FromAt time.Time; ToAt time.Time; Zone string; WithinSeconds float64}) ([]ListTapsTakenTogetherRow{FirstEmployeeName *string; SecondEmployeeName *string; LocationName *string; LocationID uuid.UUID; Together int64; Days int64; ClosestSeconds int32}, error)",
+	"ListWorkedShiftEvents":            "(context.Context, ListWorkedShiftEventsParams{TenantID uuid.UUID; FromAt time.Time; UntilAt time.Time; RowLimit int32}) ([]ListWorkedShiftEventsRow{EmployeeID *uuid.UUID; OccurredAt time.Time; Type *string; Verdict string; Channel string; LocationID *uuid.UUID; SiteLocationID *uuid.UUID; ReviewOutcome *string; EmployeeName *string; LocationName *string; LocationShiftStart pgtype.Time; LocationShiftEnd pgtype.Time; LocationOvernight *bool; DepartmentShiftStart pgtype.Time; DepartmentShiftEnd pgtype.Time; DepartmentOvernight *bool}, error)",
 	"LockAdminForResetIssue":           "(context.Context, LockAdminForResetIssueParams{AdminUserID uuid.UUID; TenantID uuid.UUID}) (error)",
 	"LockEmployeeForEmailChange":       "(context.Context, LockEmployeeForEmailChangeParams{TenantID uuid.UUID; ID uuid.UUID}) (LockEmployeeForEmailChangeRow{ID uuid.UUID; Email *string}, error)",
 	"LockEmployeeForTap":               "(context.Context, LockEmployeeForTapParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (error)",
@@ -839,9 +846,11 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// query (the count below is unchanged) and no statement line this scan reads.
 	// 18 -> 19 on 2026-10-03 (M10 WL-1): db/queries/branding.sql, eight named queries
 	// over tenant_branding; none calls a definer.
-	if files != 19 {
-		t.Fatalf("read %d .sql file(s) under db/queries; NINETEEN were there when this was "+
-			"pinned (2026-10-03; seventeen on 2026-08-24, plus operator.sql and branding.sql)", files)
+	// 19 -> 20 on 2026-10-14 (M11 API-1c): db/queries/sitepunches.sql, four named queries
+	// over site_punches (the site's projection); none calls a definer.
+	if files != 20 {
+		t.Fatalf("read %d .sql file(s) under db/queries; TWENTY were there when this was "+
+			"pinned (2026-10-14; seventeen on 2026-08-24, plus operator.sql, branding.sql and sitepunches.sql)", files)
 	}
 	// A file count alone does not prove the STATEMENT lines were reached; this does.
 	// EXACT, by this file's own standard 130 lines down ("a floor with slack cannot
@@ -876,14 +885,17 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// 134 -> 138 on 2026-10-11 (M11 API-1): employees.sql's LockEmployeeForExternalRefChange
 	// and SetEmployeeExternalRef, locations.sql's LockLocationForExternalRefChange and
 	// SetLocationExternalRef -- the panel's external-ref writes (K-18); none calls a definer.
-	if named != 138 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; ONE HUNDRED AND THIRTY-EIGHT were "+
-			"there when this was pinned (2026-10-11: 111 on 2026-08-24, + T73's three "+
+	// 138 -> 143 on 2026-10-14 (M11 API-1c): sitepunches.sql's four reads of the site's
+	// projection and transactions.sql's InsertManualSiteTransaction; none calls a definer (the
+	// peer's venue is read through holding_site_locations by internal/db/holding.go, by hand).
+	if named != 143 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; ONE HUNDRED AND FORTY-THREE were "+
+			"there when this was pinned (2026-10-14: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
 			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+
 			"+ EM-7B's three invitation e-mail queries, + EM-7C's two recovery queries, "+
 			"+ the activation tap's two consent queries, + WL-13's two activation brand queries, "+
-			"+ API-1's four external-ref queries). "+
+			"+ API-1's four external-ref queries, + API-1c's five site queries). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {
@@ -1055,9 +1067,11 @@ func parseStore(t *testing.T) (map[string]*ast.File, *token.FileSet) {
 	// 19 -> 20 (2026-10-03, M10 WL-1): db/queries/branding.sql adds branding.sql.go. The
 	// eight methods it generates are in storeSurface, and GetTenantLogo is the sixth
 	// []byte carrier counted in TestStoreSurface_NoByteCarryingQueryReadsTags.
-	if len(out) != 20 {
-		t.Fatalf("parsed %d file(s) under %s; TWENTY were generated when this floor was last set "+
-			"(2026-10-03). If sqlc genuinely emits a different number now, change this number "+
+	// 20 -> 21 (2026-10-14, M11 API-1c): db/queries/sitepunches.sql adds sitepunches.sql.go --
+	// four reads of the site's projection, in storeSurface; none carries bytes.
+	if len(out) != 21 {
+		t.Fatalf("parsed %d file(s) under %s; TWENTY-ONE were generated when this floor was last set "+
+			"(2026-10-14). If sqlc genuinely emits a different number now, change this number "+
 			"in the same edit and say why -- do not widen it", len(out), storeDir)
 	}
 	return out, fset

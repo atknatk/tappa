@@ -13,9 +13,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// holding.go -- the Go side of ADR 0027 §2's callable holding functions (M11 API-1b): the tap
-// path's three, holding_tap_site, holding_advance_tag_counter and holding_logo (migration
-// 00043).
+// holding.go -- the Go side of ADR 0027 §2's callable holding functions: the tap path's three
+// (M11 API-1b, migration 00043), holding_tap_site, holding_advance_tag_counter and holding_logo,
+// and the employer's readers' one (M11 API-1c, migration 00047), holding_site_locations.
 //
 // HAND-WRITTEN AND TYPED, for resolve.go's reason: sqlc v1.28 cannot type a call to a
 // `RETURNS TABLE(...)` function (ADR 0002 md.7, measured three times). The SQL strings below
@@ -33,6 +33,7 @@ import (
 // pgx.Tx is one.
 type HoldingTx interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
 
 // Holding is the three tap functions on one transaction.
@@ -257,4 +258,77 @@ func (h Holding) Logo(ctx context.Context, uid, digest string) (HoldingLogo, boo
 		l.MIME = *mime
 	}
 	return l, true, nil
+}
+
+// HoldingSiteLocation is holding_site_locations' row: one venue of a peer of the caller's tenant
+// (ADR 0027 §9) -- the name the employer's readers print for a row taken there, its shift, and
+// the tenant a manual record at it names. 🔴 No evidence: the function returns no address range
+// and no coordinate (K-39), so there is nothing to keep out of a log here.
+type HoldingSiteLocation struct {
+	SiteTenantID uuid.UUID
+	LocationID   uuid.UUID
+	Name         string
+	ExternalRef  *string
+	ShiftStart   pgtype.Time
+	ShiftEnd     pgtype.Time
+	Overnight    bool
+}
+
+// holdingSiteLocationsPage is the function's page size (ADR 0027 §2: "en çok 1000").
+const holdingSiteLocationsPage = 1000
+
+// HoldingSiteLocationsMaxPages bounds how many pages SiteLocations reads -- 20 000 venues across a
+// tenant's peers, far past any holding this product serves (v1's is two tenants, nine venues). A
+// read that reaches it says so (ErrHoldingSiteLocationsTruncated) rather than naming some rows
+// and not others without a word.
+const HoldingSiteLocationsMaxPages = 20
+
+// ErrHoldingSiteLocationsTruncated: the peers hold more venues than SiteLocations reads.
+var ErrHoldingSiteLocationsTruncated = errors.New("db: holding_site_locations: more venues than one read takes")
+
+const holdingSiteLocationsSQL = `SELECT site_tenant_id, location_id, location_name, location_external_ref, shift_start, shift_end, overnight
+  FROM public.holding_site_locations($1)`
+
+// SiteLocations reads every venue of every peer of the caller's tenant, page by page, keyed by
+// the venue's id. No peer, no context and a membership past its end are one answer: an empty map
+// (the function's 0 rows -- ADR 0027 §6, the reads are strict).
+func (h Holding) SiteLocations(ctx context.Context) (map[uuid.UUID]HoldingSiteLocation, error) {
+	out := map[uuid.UUID]HoldingSiteLocation{}
+	var cursor *uuid.UUID
+	for range HoldingSiteLocationsMaxPages {
+		rows, err := h.tx.Query(ctx, holdingSiteLocationsSQL, cursor)
+		if err != nil {
+			return nil, fmt.Errorf("db: holding_site_locations: %w", err)
+		}
+		n := 0
+		for rows.Next() {
+			var (
+				l        HoldingSiteLocation
+				name     *string
+				overnite *bool
+			)
+			if err := rows.Scan(&l.SiteTenantID, &l.LocationID, &name, &l.ExternalRef, &l.ShiftStart, &l.ShiftEnd, &overnite); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("db: holding_site_locations: %w", err)
+			}
+			if name != nil {
+				l.Name = *name
+			}
+			if overnite != nil {
+				l.Overnight = *overnite
+			}
+			out[l.LocationID] = l
+			id := l.LocationID
+			cursor = &id
+			n++
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("db: holding_site_locations: %w", err)
+		}
+		if n < holdingSiteLocationsPage {
+			return out, nil
+		}
+	}
+	return nil, ErrHoldingSiteLocationsTruncated
 }

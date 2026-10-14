@@ -351,6 +351,9 @@ type Report struct {
 type ReportScreen struct {
 	Report
 	TenantName string
+	// Partners are the week's records of holding PEERS' staff at this business's venues (M11
+	// API-1c) -- listed, never summed; empty for a business in no holding.
+	Partners PartnerTaps
 }
 
 // ReportFilter is what the manager asks for: any day inside the week they want.
@@ -413,7 +416,21 @@ func (r *Reader) Hours(ctx context.Context, tenantID uuid.UUID, f ReportFilter) 
 			return fmt.Errorf("count practice taps: %w", err)
 		}
 
-		evs, unattributable := events(rows, clock.Timezone)
+		// M11 API-1c: a row taken at a holding peer's venue is filed under THAT venue and judged
+		// against ITS shift (ADR 0027 §9, CLAUDE.md §5: the tapped location) -- read once, and only
+		// when such a row is on hand.
+		need := false
+		for _, row := range rows {
+			need = need || row.SiteLocationID != nil
+		}
+		sites, err := siteVenuesFor(ctx, tx, need)
+		if err != nil {
+			return err
+		}
+		evs, unattributable := events(rows, clock.Timezone, sites)
+		if out.Partners, err = partnerTaps(ctx, q, tenantID, period); err != nil {
+			return err
+		}
 		body := accumulate(evs, period, zone, time.Now())
 		body.Unattributable = unattributable
 		body.Truncated = truncatedBy(len(rows))
@@ -517,7 +534,7 @@ type reportEvent struct {
 // IT IS A NARROWING, NOT A COPY, exactly like record() and person(): the query is
 // already free of coordinates, and this step additionally resolves the shift and
 // drops the rows no chain can hold.
-func events(rows []store.ListWorkedShiftEventsRow, zoneName string) (out []reportEvent, unattributable int) {
+func events(rows []store.ListWorkedShiftEventsRow, zoneName string, sites siteVenues) (out []reportEvent, unattributable int) {
 	out = make([]reportEvent, 0, len(rows))
 	for _, row := range rows {
 		if row.EmployeeID == nil || row.Type == nil {
@@ -539,10 +556,16 @@ func events(rows []store.ListWorkedShiftEventsRow, zoneName string) (out []repor
 			Review:       deref(row.ReviewOutcome),
 			Manual:       row.Channel == "manual",
 			LocationName: deref(row.LocationName),
-			Shift:        resolveShift(row, zoneName),
+			Shift:        resolveShift(row, zoneName, sites),
 		}
-		if row.LocationID != nil {
+		switch {
+		case row.LocationID != nil:
 			e.LocationID = *row.LocationID
+		case row.SiteLocationID != nil:
+			// A holding peer's venue (K-30: location_id NULL): its own bucket, named from
+			// holding_site_locations -- before API-1c it fell into the nameless uuid.Nil one.
+			e.LocationID = *row.SiteLocationID
+			e.LocationName = sites.name(*row.SiteLocationID)
 		}
 		out = append(out, e)
 	}
@@ -562,12 +585,29 @@ func events(rows []store.ListWorkedShiftEventsRow, zoneName string) (out []repor
 // without an end, so this cannot happen through the schema; guessing an end would
 // invent a wall clock, which is the same reasoning internal/domain/checkin's shiftOf
 // gives for the identical branch.
-func resolveShift(row store.ListWorkedShiftEventsRow, zoneName string) *tap.Shift {
+//
+// M11 API-1c: a row at a holding PEER's venue has no location_id (K-30); its tapped location is
+// site_location_id, and the shift is that venue's, read from holding_site_locations (sites). A
+// peer the employer can no longer read (the membership ended) gives no shift -- no lateness is
+// computed, which is the answer for "unknown", not "on time".
+func resolveShift(row store.ListWorkedShiftEventsRow, zoneName string, sites siteVenues) *tap.Shift {
 	if row.DepartmentShiftStart.Valid && row.DepartmentShiftEnd.Valid {
 		return &tap.Shift{
 			Start:     time.Duration(row.DepartmentShiftStart.Microseconds) * time.Microsecond,
 			End:       time.Duration(row.DepartmentShiftEnd.Microseconds) * time.Microsecond,
 			Overnight: row.DepartmentOvernight != nil && *row.DepartmentOvernight,
+			Timezone:  zoneName,
+		}
+	}
+	if row.SiteLocationID != nil {
+		v, ok := sites[*row.SiteLocationID]
+		if !ok || !v.ShiftStart.Valid || !v.ShiftEnd.Valid {
+			return nil
+		}
+		return &tap.Shift{
+			Start:     time.Duration(v.ShiftStart.Microseconds) * time.Microsecond,
+			End:       time.Duration(v.ShiftEnd.Microseconds) * time.Microsecond,
+			Overnight: v.Overnight,
 			Timezone:  zoneName,
 		}
 	}
