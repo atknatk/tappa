@@ -1039,6 +1039,27 @@ adlandırılmış kalan risk (1. tur, güvenlik merceği; §13 madde 13).
     saklıdır, ama bir `refused` satırın `ctr_gap > 0`'ı (yalnız ilerletilmiş dokunuşta dolu, K-1i) ve
     `ctr`'ının plaketin `last_ctr`'ına eşitliği *"imza geçerliydi"*yi söyler. K-1i'nin KF tarafındaki
     sinyalini korumak için kod değişmedi; K-1h'nin *"nedeni değil"*i sütun düzeyindedir.
+23. **Akış sayacının kilit beklemesi (API-2; ADR 0028 §5 — madde 16 ve 18'in sınıfı).** Bir `ok` dokunuşun
+    AFTER tetikleyicisi — site'sız satırda `punch_feed`, site satırında `holding_feed` (K-31'in iki sayaç
+    satırı) — hedef tenant'ın `feed_counters` satırını commit'e kadar kilitler ve kendi `lock_timeout`'u
+    (2 sn) altında bekler. Satırı daha uzun tutan bir işlem (takılı bir yazıcı, elle bir `FOR UPDATE`)
+    INSERT'i 55P03 ile düşürüyordu — ilerletilmiş plaketin kaydı kaybolurdu. **Kapatılan:** checkin bu
+    beklemeye düşebilen her satırı (site satırı ya da `punch_feed`'in olay yazdığı `ok`/nfc-qr/practice
+    olmayan satır) savepoint içinde yazar ve `punch_feed`'in 55P03'ünde de **bir kez** yeniden dener
+    (`holding_feed`'inki API-1c'den beri) — `TestFeedCounter_LockWaitIsWrittenOnceMore`,
+    `TestFeedCounter_HoldingTapLockWaitIsWrittenOnceMore` (mutant: `punch_feed` koşulu yok → kayıt
+    kayboldu, ölçüldü). **Kalan bedel:** satır iki beklemeden uzun (> ~4 sn) tutulursa kayıt kaybolur,
+    sayaç ilerlemiştir (`TestFeedCounter_LockHeldThroughBothWaitsIsTheNamedCost`). **Sınırı:** tutma
+    süresinin üst sınırı müşteri havuzunun takılı yazıcı zaman aşımlarıdır (`idle_in_transaction_session_timeout`
+    30 sn, TCP keepalive 30/10/3 — açılışta okunur, `TestFeedTimeouts_ShownAtStartup`). **Holding'de
+    tenant'lar arası:** KF'de sayacı tutan bir işlem KM'nin KF plaketindeki dokunuşlarını da bekletir
+    (§8'in adlandırılmış bağımlılığı). Onay yolu (inceleme) aynı beklemede panel hatası verir, yönetici
+    yeniden dener — kayıt değil karar, geri alınamaz bir şey harcanmadı (madde 18'in onay kolu gibi).
+    Olay yazmayan satırlar (flag, red, ignored, manuel, practice) hiçbir sayaç kilidi almaz ve
+    beklemez (`TestFeedCounter_RowsThatAreNoEventAreWrittenPlainly`). **Kural (deploy/README.md):**
+    `feed_counters`'a ya da `punch_events`'e kilit alan bir migration kendi `lock_timeout`'unu 2 sn'nin
+    altına koyar; `00050`'nin geri doldurma parçaları bir tenant'ın sayacını en çok bir parça süresince
+    tutar (ölçüldü: 700 000 satırda en uzun 0,37 sn — ADR 0028 "API-2 uygulama notu").
 
 ## Elenen seçenekler
 
@@ -1214,17 +1235,20 @@ mutantlar *"API-1c uygulama notu"*nda)*
   `TestHoldingTap_LostPlaqueRefusalRecordedAtEmployerSeenAtSite` (KF'nin `refused_tag_not_active`'i),
   `TestHoldingAdvance_CounterGapReachesTheEmployersReview` (K-1i'nin saha yarısı)
 
-**Holding tetikleyicisi (API-2'nin holding satırları)**
-- `HoldingTrigger_WritesBothTargetRows` (KM@KF: KM satırında KF lokasyon id/ref/ad/şirket kodu;
-  KF satırında KM çalışan id/ref/kod/şirket kodu) · `OwnTenantTrigger_NeverTouchesSiteRows` ·
-  `HoldingTrigger_EmployerEventExactlyOnce`
-- `HoldingTrigger_ApprovalAfterExitWritesEmployerEventAndDeliveryOnce` (karşı taraf NULL; KF
-  atlanır, hata yok)
-- `HoldingTrigger_MissingCounterRowsNoDeadlock` (*"var et"*siz mutant kırmızı) ·
-  `HoldingTrigger_NameOrderIsFirst` · `HoldingTrigger_WrittenTablesColumnPins` *(API-1c'de kısmen var:
-  ad sırası `TestHoldingFeed_NameOrderIsFirst`, `site_punches`'ın sütun pini
-  `TestSitePunches_CatalogCarriesNoEvidenceColumns`; API-2 kendi tablolarını ve kendi-tenant
-  tetikleyicisini aynı testlere ekler)*
+**Holding tetikleyicisi (API-2'nin holding satırları)** *(API-2'de yazıldı, 2026-10-14 — ADR 0028
+"API-2 uygulama notu"; önerilen adlar ADR 0028'in (j), (p), (q), (m) testleriyle birleşti)*
+- KM@KF'nin iki hedef satırı ve anlık görüntüsü (KM satırında KF lokasyon id/ref/ad/şirket kodu, KF
+  satırında KM çalışan id/ref/kod/şirket kodu), kendi-tenant tetikleyicisinin site satırına ve onayına
+  hiç dokunmaması, işveren olayının tam bir kez: `TestFeed_TargetRowsAndSnapshots`
+- `TestFeed_ApprovalAfterExitWritesEmployerEventAndDeliveryOnce` (karşı taraf NULL; KF atlanır, hata yok)
+- `TestFeed_MissingCounterRowsNoDeadlock` (*"var et"*siz mutant: `TestFeedMutant_PreLockWithoutMakeExistDeadlocks`) ·
+  ad sırası `TestHoldingFeed_NameOrderIsFirst` + `TestFeedCatalog_TwoRolesTriggerOrderExecuteOwnerOnlyRelid`
+  (holding ilk, `punch_feed` ikinci) · yazılan dört tablonun sütun pini
+  `TestFeedCatalog_TwoRolesTriggerOrderExecuteOwnerOnlyRelid` (+ `site_punches` için
+  `TestSitePunches_CatalogCarriesNoEvidenceColumns`) · kanarya dört tabloda
+  `TestHoldingFunctions_SiteEvidenceCanaryNeverLeaks` · K-33 mutantları olay dalında
+  `TestHoldingFilter_MutantsM1M2M3AreRedInFunctionsAndTriggers` · matrisin API-2 satırları
+  `TestHoldingDefiner_ColumnMatrix` + `TestHoldingDefiner_EveryGrantIsUsed`
 
 ## Sonuçlar
 

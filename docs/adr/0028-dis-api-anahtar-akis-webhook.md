@@ -283,6 +283,9 @@ kanıtıyla pinler):
   `created_at`), `employees` (`id`, `tenant_id`, `external_ref`, `employee_code`), `locations`
   (`id`, `tenant_id`, `external_ref`, `name`), `tenants` (`id`, `api_code`, `api_enabled_at`),
   `webhook_endpoints` (`id`, `tenant_id`, `active`) — **adres ve imza anahtarı asla**.
+  *(API-2'de yeniden ölçüldü — `TestFeedwriter_EveryGrantIsIndividuallyNecessary`: `transactions.created_at`
+  gereksiz çıktı ve verilmedi (`recorded_at` tetikleyicinin `now()`'ıdır); `USAGE`'ın tek başına
+  zorunluluğu PUBLIC'in `USAGE`'ı alınarak ölçüldü — "API-2 uygulama notu".)*
 
 **Tetikleyicilerin değişmezleri** (ikisi için; API-2'de testli): `SET search_path = pg_catalog,
 pg_temp` ve bütün adlar nitelikli; her sorguda açık `tenant_id` (kuşak + kemer); kendi-tenant
@@ -316,7 +319,9 @@ fonksiyonda `EXECUTE` yalnız sahipte; **tetikleyici ad sırası**; `proconfig` 
 kilitlenir, tetikleyiciler kurulur, **sonra** geçmiş uygun tek-tenant satırlar için olay yazılır
 (sıra `occurred_at`; sayaçlar buna göre ilerler; bugün holding satırı yok). Geri doldurulan olaylar
 için teslim satırı yazılmaz. Kilit süresi prod boyutunda bir kopyada ölçülür; **eşik 2 sn** — aşılırsa
-geri doldurma tenant başına küçük işlemlere bölünür.
+geri doldurma tenant başına küçük işlemlere bölünür. *(API-2'de aşıldı — 700 000 satırda 5,2 sn —
+ve bölündü: `00049` tetikleyicileri kısa kilitle kurar, `00050` geçmişi tenant ve 2 000 olaylık
+parçalar hâlinde, her parçada yalnız o tenant'ın sayaç satırını tutarak yazar; "API-2 uygulama notu".)*
 
 **Bedel (adlandırılmış):** tetikleyicinin her hatası `ok` dokunuşun kaydını **geri alır** (sayaç
 ilerlemiş, kayıt yok — bugünkü her INSERT hatasıyla aynı sınıf); başarısız kayıt kimlikleriyle
@@ -357,7 +362,8 @@ gider, kilit bırakılır — tutarlı (`EXCEPTION` yasağı bunu korur).
 alınmaz ve ağ/uzun iş yapılmaz (onay yolunda ardından gelen `audit_log` INSERT'i ve teslim satırının
 FK'sinin aldığı KEY SHARE çakışmaz — 2. tur kodda doğruladı).
 
-**Takılı yazıcı** (ölçüldü: tenant'ın 8 yazıcısının 8'i bekledi; holding'de KF'deki takılı işlem KM'yi
+**Takılı yazıcı** *(API-2'de uygulandı: havuz parametreleri `internal/db/feedtimeouts.go`, açılışta
+okunup doğrulanır — `TestFeedTimeouts_ShownAtStartup`)* (ölçüldü: tenant'ın 8 yazıcısının 8'i bekledi; holding'de KF'deki takılı işlem KM'yi
 de bekletir — ADR 0027 §8). API-2'nin ön koşulu:
 - `tappa_app` bağlantıları için `idle_in_transaction_session_timeout` ve TCP keepalive — **havuzun
   `RuntimeParams`'ıyla** verilir ve açılışta `SHOW` ile doğrulanır (`ALTER ROLE … SET` `pg_dump`'la
@@ -701,21 +707,30 @@ testi; katı kopyalarda `Origin` yokken başlıksız/`none` RED) · `TestSameOri
 iki aktif açılamaz) · `TestEmployeeUpdatedAt_OnlyDirectoryColumnsOnEveryUpdatePath` (dört yol + panelin
 external-ref yazması) · `TestEmployeeLocationReaders_Counted` · `TestTenantApiColumns_AppCannotWrite`.
 
-**API-2** — (a) `Feed_PlainInsertIntoTransactionsBearsAnEvent` · (b) `Feed_StressNoMissNoDeadlock`
-(≥ 12 yazıcı, ≥ 3 tenant, ters yönlü holding dokunuşları, abort/savepoint karışık, eşzamanlı okuyucu;
-`seq` yoğun) + mutasyonlar `FeedMutant_UnlockedSequenceMisses`,
-`FeedMutant_CounterInSeparateTransactionMisses`, `FeedMutant_TwoTriggersLockingCountersDeadlock` ·
-(c) `RestoreVerify_CountersAheadOfEvents` · (d) `Feed_FlagApprovalManualPractice` ·
-(e) `Feed_OutsiderSeesNothing` · (f) `FeedTriggers_RefuseVerbsUnderArwdAndTempTableBinding`
-(iki definer) · (g)–(i) `FeedTrigger_ErrorRollsBackTheRecord`, `FeedTrigger_SavepointKeepsCounterAndEventTogether`,
-`FeedTimeouts_ShownAtStartup` · (j) `Feed_TargetRowsAndSnapshots` (iki hedef satırı holding
-tetikleyicisi yazar; kendi-tenant tetikleyicisi `site_*` satırına ve onayına hiç olay yazmaz; işveren
-olayı tam bir kez) + `WebhookDeliveries_KMatKFIsTwo` · (k) `Feed_ClosedApiWritesEventsButNoDeliveries` ·
-(l) `FeedBackfill_WithinTwoSeconds` · (m) `FeedCatalog_TwoRolesTriggerOrderExecuteOwnerOnlyRelid`
-+ K-34'ün `webhook_endpoints.url`/`signing_key_sealed` pinleri + yazılan dört tablonun sütun pini ·
-(n) `Restore_FreshPodCarriesTheFeedRole` · (o) `Feedwriter_EveryGrantIsIndividuallyNecessary` ·
-(p) `Feed_ApprovalAfterExitWritesEmployerEventAndDeliveryOnce` · (q)
-`Feed_MissingCounterRowsNoDeadlock` + `RestoreVerify_EveryTenantHasACounter`.
+**API-2** *(yazıldı — "API-2 uygulama notu"; adlar önerilenle aynı, önek eklendi)* —
+(a) `TestFeed_PlainInsertIntoTransactionsBearsAnEvent` · (b) `TestFeed_StressNoMissNoDeadlock`
+(12 yazıcı × 100, 4 tenant, ters yönlü holding dokunuşları, abort/savepoint karışık, tenant başına
+eşzamanlı okuyucu; `seq` yoğun) + mutasyonlar (laboratuvar şemasında — not) `TestFeedMutant_UnlockedSequenceMisses`,
+`TestFeedMutant_CounterInSeparateTransactionMisses`, `TestFeedMutant_TwoTriggersLockingCountersDeadlock`
+ve kontrolü `TestFeedMutant_LabControlPasses` ·
+(c) `TestRestoreVerify_CountersAheadOfEvents` · (d) `TestFeed_FlagApprovalManualPractice` ·
+(e) `TestFeed_OutsiderSeesNothing` (+ K-33 mutantları olay dalında: `TestHoldingFilter_MutantsM1M2M3AreRedInFunctionsAndTriggers`) ·
+(f) `TestFeedTriggers_RefuseVerbsUnderArwdAndTempTableBinding` (iki definer) · (g)–(i)
+`TestFeedTrigger_ErrorRollsBackTheRecord`, `TestFeedTrigger_SavepointKeepsCounterAndEventTogether`,
+`TestFeedTimeouts_ShownAtStartup` (+ ürün yolunda sayaç beklemesi: `TestFeedCounter_LockWaitIsWrittenOnceMore`,
+`TestFeedCounter_HoldingTapLockWaitIsWrittenOnceMore`, `TestFeedCounter_LockHeldThroughBothWaitsIsTheNamedCost`,
+`TestFeedCounter_RowsThatAreNoEventAreWrittenPlainly`) · (j) `TestFeed_TargetRowsAndSnapshots` (iki hedef
+satırı holding tetikleyicisi yazar; kendi-tenant tetikleyicisi `site_*` satırına ve onayına hiç olay
+yazmaz; işveren olayı tam bir kez) + `TestWebhookDeliveries_KMatKFIsTwo` ·
+(k) `TestFeed_ClosedApiWritesEventsButNoDeliveries` · (l) `TestFeedBackfill_WithinTwoSeconds` ·
+(m) `TestFeedCatalog_TwoRolesTriggerOrderExecuteOwnerOnlyRelid` (K-34'ün `webhook_endpoints.url`/`signing_key_sealed`
+pinleri ve yazılan dört tablonun sütun pini dahil; ayrıca `TestHoldingDefiner_NeverSelectColumns`,
+`TestM11Catalog_EveryNewTableMatchesTheMatrixUnderArwd`, `TestOperator00026_ReverseCatalogPin`) ·
+(n) `TestRestore_FreshPodCarriesTheFeedRole` · (o) `TestFeedwriter_EveryGrantIsIndividuallyNecessary` ·
+(p) `TestFeed_ApprovalAfterExitWritesEmployerEventAndDeliveryOnce` · (q)
+`TestFeed_MissingCounterRowsNoDeadlock` (+ mutantı `TestFeedMutant_PreLockWithoutMakeExistDeadlocks`) +
+`TestRestoreVerify_EveryTenantHasACounter` · ek: `TestFeed00048And00049_DownGiveBackAndUpTakesItAgain`,
+`TestRoleGate_MemberOfAnyRoleIsRefused`.
 
 **API-3** — `ApiKeysCatalog` · `ApiKeyRevocation_IsOneWay` · `ApiKeyRevocation_ConcurrentAndBulkAreSafe` ·
 `ApiKeyAuth_RevokedIs401ClosedIs403` · `ApiKeyAuth_WrongPrefixNeverReachesTheDatabase` ·
@@ -856,3 +871,107 @@ satır varsa (K-14/K-24 testleri bunları commit eder) bilerek reddeder. `00039`
 API-1a'dan beri `00040` (defter) ve `00041` (holding şeması — Down'ı `tenants`'ı ACCESS EXCLUSIVE kilitler)
 de atlanır; `00042` (holding'in operatör yüzeyi) yürütülür (ADR 0027 *"API-1a uygulama notu"*).
 
+
+## API-2 uygulama notu (2026-10-14)
+
+Yapıcının uygulaması ve ölçümleri; kararlar değişmedi — sapmalar ve ADR'nin açık bıraktıkları aşağıda
+adıyla. Yıkıcı ölçümler ve gerçek tetikleyici mutantları atılabilir PostgreSQL 17 kaplarında
+(`scripts/db-init` ile kurulu, `arwd`) koşuldu; paylaşılan `tappa-m11-db`'ye yalnız FEED ROLE bloğu
+(runbook'un yolu) ve `goose up`.
+
+**Üç migration ve bir rol.** `00048` dört tabloyu (RLS beşlisi; `punch_events` satır + TRUNCATE korumalı
+append-only, `APPEND_ONLY`/`trunc_tables` listelerine dokuzuncu), `tappa_app`'in §1 matrisindeki
+erişimini, her tenant'ın sayaç satırını ve yeni tenant'ın satırını açan `feed_open_counter()` +
+`tenants_feed_counter` tetikleyicisini kurar. `00049` iki yazıcıyı kurar: kendi-tenant `punch_feed()`
+(`tappa_feedwriter`, NOBYPASSRLS; `transactions_punch_feed` `WHEN (site_tenant_id IS NULL)` ve
+`transaction_reviews_punch_feed`, ad sırasında `holding_feed`'den sonra) ve `holding_feed()`'in olay
+yarısı (K-31 ön-kilidi, iki hedef olay ve teslim; `00046`'nın gövdesi `md5` ile pinli, Down onu bayt bayt
+geri verir). `00050` geçmişi yazar (aşağıda, sapma 1). Rol `01-roles.sql`'in `FEED ROLE (M11 API-2)`
+bloğunda, canlı küme için `deploy/README.md` → *"Feed role (M11 API-2)"*. Üçü de operatör nesnesi
+adlandırmaz, `opAtVersion` atlar; Down yürüyen testlerin kilit listesine (`holdingDownTables`) dört tablo
+eklendi ve `holdingBelow46` önce `feedBelow48`'i (olay satırları kenara, `00049` ve `00048` Down) yürür.
+
+**Sapmalar — ölçümüyle:**
+1. **Geri doldurma bölündü (§4'ün kendi yedeği).** `00049`'un kilidi altında tek işlemde: kazıma
+   kopyalarında 700 000 satır (595 000 olay) **5,2 sn**, 2 000 000 satır **14,5 sn** — eşik 2 sn,
+   önceki turların üretim vekili 688 000 satırdı. Şimdi `00049` tetikleyicileri `SHARE ROW EXCLUSIVE`
+   altında kurar ve geçmiş yazmaz (700 000 satırlık kapta kilit altındaki iş 31 ms); `00050`
+   (`NO TRANSACTION`) geçmişi **tenant başına, en çok 2 000 olaylık işlemlerle** yazar: her parça önce o
+   tenant'ın sayaç satırını `FOR UPDATE` alır (canlı tetikleyiciyle aynı satır — commit sırası = `seq`
+   sırası, §5'in ispatı aynen), sonra yeni anlık görüntüde olayı olmayan punch'ları `occurred_at`
+   sırasıyla numaralar, sayacı ilerletir, `COMMIT`. Gerçek tablolarda 700 000 satırlık kapta: 510 parça,
+   **en uzun 0,37 sn**, toplam 40 sn; bir dokunuş en çok bir parça bekler (tetikleyicinin 2 sn
+   `lock_timeout`'unun çok altında). `TestFeedBackfill_WithinTwoSeconds` bloğun kendisini (COMMIT'leri
+   çıkarılmış) 200 000 satırda koşar ve en uzun parçayı ölçer. **Bedel (adlandırılmış):** bir tenant'ın
+   geçmişi, `00049` ile o tenant'ın parçası arasında yazılan canlı olayların **arkasından** numaralanabilir
+   (imleç yine atlamaz; o sınırda `seq` sırası `occurred_at` sırası değildir); geri doldurulan olayın
+   anlık görüntüsü migration anınındır (K-32 geçmiş için kurulamaz); holding satırları geri doldurulmaz
+   (yalnız geliştirme/CI); teslim satırı yazılmaz. Yeniden koşulabilir (yalnız olayı olmayanı yazar).
+2. **Tenants tetikleyicisi `app.tenant_id`'yi kendi kapsamında yazar.** `tappa_feedwriter` NOBYPASSRLS;
+   uygulama tenant'ı kendi bağlamında ekler, ama seed, operatör araçları ve testler sahip olarak
+   bağlamsız ekler ve sayaç INSERT'i `WITH CHECK`'e takılırdı (42501 — tenant'ı düşürürdü). Fonksiyon
+   `SET app.tenant_id = ''` özniteliğini taşır ve gövdede `set_config(…, NEW.id, true)` yapar: ölçüldü —
+   PostgreSQL, özniteliği aynı değişkeni adlandıran fonksiyondaki `SET LOCAL`'i dönüşte geri alır,
+   çağıranın değeri (boş da başka bir tenant da) aynen döndü (§5'in *"gövdede set_config sızıyordu"*
+   ölçümü özniteliksiz gövdeydi). Satır yalnız `NEW.id`'nindir, `last_seq` 0, `ON CONFLICT DO NOTHING`.
+   `scripts/redline-check.sh`'in R5 *"düz SET"* uyarısı **boş değer** için muaf tutuldu (boş değer
+   bağlantıya tenant bırakmaz — fail-closed); tenant değeri yazan düz SET yine WARN.
+3. **`recorded_at` = tetikleyicinin `now()`'ı**, `transactions.created_at` değil: `created_at` çağıranın
+   yazabildiği bir sütun (ADR 0027 §9'un *"son görülme"* gerekçesi); onaylı flag'de onay anı (plan §2
+   madde 2: *"onay anında akışa girer"*). Bu yüzden `tappa_feedwriter`'ın §4 listesinden
+   `transactions.created_at` düştü. Geri doldurmada `created_at` / `reviewed_at` (tarihî tek kaynak).
+4. **Eşlik bitmişken onay (p).** İşverenin olayında karşı taraf anlık görüntüsü — sahanın lokasyon
+   id/ref/ad/şirket kodu — NULL; `tag_uid` **tutuldu** (işverenin kendi satırındadır, `site_tag_uid`;
+   sözleşme `tagId`'yi her satırda dolu verir — §8). Bu durumda yalnız işverenin sayacı kilitlenir (tek
+   hedef; sahanın sayacına dokunmak eşi bitmiş tenant'a yeni bir bağımlılık olurdu).
+5. **`USAGE ON SCHEMA public`.** Bu kümelerde (geliştirme, CI, atılabilir kap — PostgreSQL 15+'ın
+   varsayılanı) PUBLIC'in `USAGE`'ı **var**; §4'ün *"bu kümede PUBLIC'in USAGE'ı yok — 4. tur"* cümlesi
+   bu kümeler için geçerli değil. Rolün kendi grant'ı kemer olarak kalır; tek başına zorunluluğu PUBLIC'in
+   grant'ı da alınarak ölçülür (`TestFeedwriter_EveryGrantIsIndividuallyNecessary`).
+6. **Takılı yazıcı zaman aşımları açılışta bir kez okunur**, bağlantı başına değil: `execmodetypes_test`
+   bir havuz kancası yazımını yalnız `pinLogParameters`'a tanıyor; aynı startup parametreleri her
+   bağlantıyla gider, bir pooler hepsine aynı davranır. Unix soketinde TCP keepalive `0` okunur (ölçüldü)
+   — orada kabul edilir. Sapmayan: değerler §5'in başlangıç değerleri (2 s / 30 s / 30·10·3).
+7. **Rol reddi genel üyelikle genişledi** (`RoleFacts.MemberOfARole`, `roleFactsQuery`'nin altıncı
+   sütunu): `tappa_feedwriter` BYPASSRLS olmadığı için `InheritsPrivilege` onu görmüyordu. Kapı bugün
+   `IsProd()`'a bağlı; K-28'in `IsHardened()`'ı API-11'de genelleştirir.
+8. **Mutantlar laboratuvarda.** Gerçek tetikleyicinin `CREATE OR REPLACE`'i paylaşılan veritabanında öteki
+   paketlerin testlerine dokunurdu; bu yüzden §9'un elediği üç tasarım ve *"var et"*siz ön-kilit, aynı
+   koşum aracıyla bir **kazıma şemasında** (`zz_api2_lab_*`, test kurar ve siler) ölçülür; laboratuvarın
+   kontrolü gerçek sayaç mantığıdır ve yeşildir. Ölçümler (CI boyu): küresel dizi `CACHE 20` → 530 kaçan;
+   ayrı işlemde sayaç → 84 kaçan; iki tetikleyici → 101 kilitlenme; *"var et"*siz ön-kilit → 59 kilitlenme
+   (12 tur); kontrol 0/0. **Gerçek** `holding_feed`'in *"var et"* adımı (ve sayımı) çıkarılınca atılabilir
+   kapta `TestFeed_MissingCounterRowsNoDeadlock` **52 kilitlenmeyle** kırmızı, geri yükleyince yeşil.
+9. **Kendi-tenant GUC assert'i olay yazan yoldadır.** `ok`/onay dışındaki satır kilitsiz ve okumasız döner;
+   olay yazan bir satır bağlamsız (ya da başka bağlamla) yazılırsa 55000. Ürünün her yazarı bağlamlıdır;
+   sahip olarak bağlamsız `ok` satırı yazan test fikstürleri (ledger) bağlamla yazacak şekilde düzeltildi.
+10. **Adlandırılmış ön koşul — işlem başına en çok bir olay-yazan satır.** §5'in sıra argümanı ve K-31'in
+    kanonik kilidi bir işlemin **tek** olay-yazan ifadesine dayanır: tap yolu işlem başına bir kayıt,
+    onay yolu bir inceleme yazar (ölçüldü — `checkin.insert`, `review.Record`). Aynı işlemde bir
+    kendi-tenant ve bir holding satırı yazan ham bir yazıcı sayaçları ters sırada alabilir; stres bu
+    yüzden ürün şeklini (işlem başına bir satır) sürer.
+11. **Eklenen kısıtlar (sütun eklemez):** `punch_events_once UNIQUE (tenant_id, punch_id, version)` (hedef
+    başına olay tam bir kez — bir hata çift olay değil yüksek sesli hata olur), `roles` kapalı küme,
+    `{location}` ⇔ başka tenant, v1 değerleri, kanal; `webhook_deliveries` için §6'nın kapalı kümeleri ve
+    `UNIQUE(endpoint_id, punch_event_seq)`; `webhook_endpoints` `UNIQUE(tenant_id)`, `https://` ve 2 048
+    karakter. Tablolar `tenants`'a FK taşır — sahanın `tenants` satırına `KEY SHARE` holding dokunuşunda
+    `site_punches`'ınkiyle aynı işlemde, aynı sınıfta (ADR 0027 §13 madde 18).
+
+**Kilit beklemesi — adlandırıldı (ADR 0027 §13 madde 23).** Sayaç satırı yeni bir beklemedir; checkin
+olay yazan her satırı savepoint'te yazar ve `punch_feed`'in 55P03'ünde de bir kez yeniden dener
+(`TestFeedCounter_LockWaitIsWrittenOnceMore`; mutant — `punch_feed` koşulu çıkarılınca kayıt kayboldu).
+Kalan: iki beklemeden uzun tutma (`TestFeedCounter_LockHeldThroughBothWaitsIsTheNamedCost`), sınırı
+havuzun zaman aşımları.
+
+**Ölçülen diğerleri.** Stres (CI): 12 yazıcı × 100, 4 tenant, ~1 080 commit, ~1 610 olay — 0 kaçan,
+0 kilitlenme, yoğun; atılabilir kapta 16 × 400 üç koşu (~5 800 commit, ~8 700 olay her biri) — 0/0.
+`tappa_feedwriter`'ın 49 (tablo, fiil, sütun) kalemi + `USAGE` tek tek zorunlu (5. sürümün 25/26'sının yerine); `tappa_holdingdefiner`'ın API-2 satırları
+(`transactions.verdict/practice`, `tenants.api_enabled_at`, `webhook_endpoints (tenant_id, id, active)`,
+sayaç S/I/U, iki INSERT) tek tek zorunlu (`TestHoldingDefiner_EveryGrantIsUsed`) — K-34 matrisinin
+içinde, genişleme yok. K-33: M1/M2/M3 olay dalında kırmızı (KF'ye olay düştü). Kanarya dört yazılan
+tabloda temiz.
+
+**Geri yükleme.** `scripts/pg-restore-verify.sh` bölüm 6: `FEED_RESTORE_GAP=1000000`; her tenant'ın
+sayaç satırı var ve son olayının en az aralık kadar ötesinde, değilse FAIL ve runbook adımını söyler;
+`00048`'den eski döküm *"no punch feed"* deyip geçer. Runbook adımı (`UPDATE public.feed_counters SET
+last_seq = last_seq + 1000000;`) A YOLU 6, B YOLU B4 ve tatbikatta (d3b), uygulama yazmadan önce.
