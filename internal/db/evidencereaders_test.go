@@ -5,7 +5,9 @@ package db
 // row taken at a holding PEER's venue from describing the peer's network and coordinate, and how.
 // WHAT IT CATCHES, AND WHAT IT DOES NOT (the third review's D-3, stated rather than implied): a
 // statement in db/queries that names `transactions` and one of evidenceColumnRE's columns or a
-// whole-row read is red until somebody files it. It does not see SQL outside db/queries (no Go
+// whole-row read -- `*` in any SELECT form (ALL, DISTINCT, DISTINCT ON), `alias.*`, `RETURNING *`,
+// sqlc.embed, or the table's bare name or alias (`SELECT t`, `to_jsonb(t)`, `row_to_json(t)`;
+// readsWholeRow, the fourth review's D-e) -- is red until somebody files it. It does not see SQL outside db/queries (no Go
 // file writes SQL by hand today; the holding_* functions live in migrations and are proven by
 // their own catalog tests), a reader that reaches the table under another name (a view), or
 // whether a counted filter sits on the RIGHT figure -- `must` is a fragment counted, not parsed;
@@ -70,7 +72,43 @@ var evidenceReaders = map[string]evidenceReaderClass{
 // facts (sun_valid, ctr), and a read of the whole row (SELECT *, alias.*, RETURNING *, sqlc.embed),
 // which carries all of them under no column name (the third review's D-3).
 var evidenceColumnRE = regexp.MustCompile(`(?i)\b(ip_match|gps_match|gps_distance_m|gps_lat|gps_lng|source_ip|sun_valid|ctr|trust|matched_sid|note|policy_context|policy_layer|verdict)\b` +
-	`|\bSELECT\s+(?:DISTINCT\s+)?\*|\b\w+\.\*|\bRETURNING\s+\*|\bsqlc\.embed\s*\(`)
+	`|\bSELECT\s+(?:ALL\s+|DISTINCT\s+(?:ON\s*\([^)]*\)\s*)?)?\*|\b\w+\.\*|\bRETURNING\s+\*|\bsqlc\.embed\s*\(`)
+
+// transactionsAliasRE finds the names a statement gives transactions (the table itself and its
+// alias), so a read of the BARE name -- `SELECT t`, `to_jsonb(t)`, `row_to_json(t)`, a row
+// constructor -- is caught as the whole-row read it is (the fourth review's D-e).
+var transactionsAliasRE = regexp.MustCompile(`(?i)\btransactions\b(?:\s+(?:AS\s+)?(\w+))?`)
+
+// sqlWords are the words that can follow a table name and are not an alias.
+var sqlWords = map[string]bool{"where": true, "join": true, "left": true, "right": true, "inner": true, "full": true,
+	"cross": true, "on": true, "using": true, "group": true, "order": true, "limit": true, "set": true, "values": true,
+	"returning": true, "union": true, "except": true, "intersect": true, "for": true, "having": true, "window": true,
+	"natural": true, "lateral": true, "default": true, "select": true}
+
+// readsWholeRow: some name of transactions in stmt is used bare -- not followed by a dot, and not
+// where the statement names the table or declares the alias.
+func readsWholeRow(stmt string) bool {
+	decl := transactionsAliasRE.FindAllStringSubmatchIndex(stmt, -1)
+	names := map[string]bool{"transactions": true}
+	declared := map[int]bool{}
+	for _, m := range decl {
+		declared[m[0]] = true
+		if m[2] >= 0 && !sqlWords[strings.ToLower(stmt[m[2]:m[3]])] {
+			names[strings.ToLower(stmt[m[2]:m[3]])] = true
+			declared[m[2]] = true
+		}
+	}
+	for name := range names {
+		re := regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(name) + `\b`)
+		for _, at := range re.FindAllStringIndex(stmt, -1) {
+			if declared[at[0]] || (at[1] < len(stmt) && stmt[at[1]] == '.') {
+				continue
+			}
+			return true
+		}
+	}
+	return false
+}
 
 // TestEvidenceReaders_EveryOneIsClassified: the statements of db/queries that name transactions and
 // one of evidenceColumnRE's columns are exactly evidenceReaders' keys, and each carries the
@@ -121,7 +159,8 @@ func TestEvidenceReaders_EveryOneIsClassified(t *testing.T) {
 	if len(evidenceReaders) < 15 {
 		t.Fatalf("anti-vacuity: %d readers", len(evidenceReaders))
 	}
-	for _, probe := range []string{"t.ip_match", "t.source_ip", "t.gps_lat", "t.sun_valid", "t.ctr", "t.*", "*", "sqlc.embed(t)"} {
+	for _, probe := range []string{"t.ip_match", "t.source_ip", "t.gps_lat", "t.sun_valid", "t.ctr", "t.*", "*", "sqlc.embed(t)",
+		"t", "to_jsonb(t)", "row_to_json(t)", "ALL *", "DISTINCT ON (t.id) *", "t.id, t"} {
 		control := src.String() + "\n-- name: ZZProbe :many\nSELECT " + probe + " FROM transactions t WHERE t.tenant_id = @tenant_id;\n"
 		if got := check(control); len(got) != 1 || !strings.HasPrefix(got[0], "ZZProbe") {
 			t.Errorf("CONTROL: a new reader of %s was not caught: %v", probe, got)
@@ -152,7 +191,7 @@ func evidenceCandidates(src string) map[string]string {
 			}
 		}
 		stmt := body.String()
-		if regexp.MustCompile(`(?i)\btransactions\b`).MatchString(stmt) && evidenceColumnRE.MatchString(stmt) {
+		if regexp.MustCompile(`(?i)\btransactions\b`).MatchString(stmt) && (evidenceColumnRE.MatchString(stmt) || readsWholeRow(stmt)) {
 			out[src[m[2]:m[3]]] = stmt
 		}
 	}
