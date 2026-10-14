@@ -89,7 +89,7 @@ internal/sandbox/     sandbox simülasyonu; YALNIZ `sandbox` build tag'li cmd do
 internal/db/holding.go  kapalı listedeki holding_* çağrıları, elle ve tipli (resolve.go
                       emsali); ayrı bir holding paketi yok (ADR 0027 §2).
 internal/domain/ledger/site.go  işverenin okuyucularında eş mekân satırını adlandırır ve
-                      K-39'u uygular (kanıt bitleri, puan ve motor notu gösterilmez — ADR 0027 §9).
+                      fişte/kuyrukta K-39'u uygular (ADR 0027 §9; kapsam aşağıda §9).
 db/migrations/        goose SQL. Uygulanmış migration DEĞİŞTİRİLMEZ, yenisi yazılır.
 db/queries/           sqlc kaynak SQL
 web/templates/        .templ dosyaları
@@ -136,10 +136,12 @@ ediyorsa **dur ve sor**, sessizce uygulama.
    §2'deki imza katalog testi ve sütun matrisi testi).
 6. **Kayıt asla kaybolmaz.** Kanıt yetersizse REJECT edip atma: kaydı yaz,
    `verdict='flag'` ver, müdür onay kuyruğuna düşür. Sessiz onay da yok.
-   Holding'de site satırı, kapının (`holding_site_gate`) ya da izdüşümün (`holding_feed`) kilit
-   beklemesinde (55P03) aynı istekte savepoint içinde **bir kez** yeniden yazılır; iki beklemeden
-   uzun tutulan bir kilit adlandırılmış bedeldir (ADR 0027 §13 madde 16 ve 18) — bu yüzden bu
-   tablolara dokunan migration kendi `lock_timeout`'unu koyar (`deploy/README.md`).
+   Holding dokunuşunun site satırı checkin'de savepoint içinde yazılır ve **yalnız tap yolunda**,
+   yalnız kapının (`holding_site_gate`) ya da izdüşümün (`holding_feed`) 55P03'ünde **bir kez**
+   yeniden denenir; iki beklemeden (> ~4 sn) uzun bir kilit adlandırılmış bedeldir (ADR 0027 §13
+   madde 16, 18). Sahanın `tags`/`locations` satırlarını `transactions`'ın kendi anahtarları
+   bekler — orada süre sınırı yoktur, sınır isteğin zaman aşımıdır. Bu tablolara dokunan migration
+   ve el işi kendi `lock_timeout`'unu koyar (`deploy/README.md`).
 7. **NTAG AES anahtarları repoda yer almaz.** DB'de KEK ile sarmalanmış saklanır
    (`tags.aes_key_ref`), log'a asla yazılmaz. Test vektörleri ayrı ve sahte.
 
@@ -330,7 +332,7 @@ dokunuş gerektirir. Bu ekrana özellik eklemek istiyorsan önce sor.
 
 **Tenant markası (M10 white-label — ADR 0023/0024, skill `tappa-brand` → "Tenant slotları").** İşletme sayılı slotları boyar: bir logo (tap ve sonuç ekranında 24 px yuva + altında "taptime · punchless", panelde 32 px; aktivasyon ailesinde — sihirbazın dört adımı, "Activation complete", "already set up" — tap ekranının başlığı, ama **yalnız VIES-doğrulanmış** işletmede) ve tek bir accent. Accent'in ürün yüzeyinde boyadığı CSS slotları iki tanedir: tap düğmesinin zemini (tap ekranı ve aktivasyon sihirbazının 1–3. adımlarının birincil düğmesi) ve panelin 4 px şeridi (editörün renk seçicisi kendi rengini gösterir — ADR 0023 §2); accent WCAG kapısından geçer; accent varken sihirbazın öteki yeşil işaretleri (ilerleme çubuğu, 01/02/03, işaretli onay kutusu) ink olur. Kaşe damgaları, durum→renk eşlemesi, docket, sonuç ekranının renkleri, aktivasyonun problem ve onay ekranları ve bekleme ekranının plaket çizimi değişmez; sonuç ekranında accent yoktur. Bu, "paletin dışına çıkma" ve tap ekranı kuralına kullanıcının §9 kararlarıyla (D-C; K-2a, K-2b; aktivasyon ailesi 2026-10-09 — ADR 0023 WL-13 notu) verilmiş sayılı istisnadır — tap/sonuç/aktivasyon ekranlarındaki başka her değişiklik yine önce sorulur. Marka taklidi kabul edilmiş bir risktir (ADR 0005, risk 9).
 
-**Holding plaketinde marka plaketin tenant'ınındır (M11 — ADR 0027 §10, kullanıcı kararı K-1c).** Bir holding dokunuşunda (KM çalışanı KF plaketinde) tap ekranı **KF'nin** logosunu ve accent'ini, sonuç ekranı **KF'nin** logosunu taşır — oturumun tenant'ınınkini değil; logo yalnız VIES-doğrulanmış saha tenant'ında ve `holding_logo` ile. Slotlar, sayılı istisna ve sonuç ekranında accent olmaması aynen geçerlidir; değişen yalnız markanın **sahibidir**. Aktivasyon ailesi değişmez (aktivasyon yalnız kendi tenant'ının plaketinde — ADR 0026). **Saha ve işveren panelinde holding (API-1c — ADR 0027 §9):** sahanın raporu eş personelin dokunuşlarını **süresiz** listeler (süre işverende); işverenin fişinde ve onay kuyruğunda eş mekân satırı puan, IP/GPS işareti ve motor notu taşımaz — yerine *"Decided by your rules at a partner venue — evidence is not shown."* yazılır (K-39).
+**Holding plaketinde marka plaketin tenant'ınındır (M11 — ADR 0027 §10, kullanıcı kararı K-1c).** Bir holding dokunuşunda (KM çalışanı KF plaketinde) tap ekranı **KF'nin** logosunu ve accent'ini, sonuç ekranı **KF'nin** logosunu taşır — oturumun tenant'ınınkini değil; logo yalnız VIES-doğrulanmış saha tenant'ında ve `holding_logo` ile. Slotlar, sayılı istisna ve sonuç ekranında accent olmaması aynen geçerlidir; değişen yalnız markanın **sahibidir**. Aktivasyon ailesi değişmez (aktivasyon yalnız kendi tenant'ının plaketinde — ADR 0026). **Saha ve işveren panelinde holding (API-1c — ADR 0027 §9):** sahanın raporu eş personelin dokunuşlarını **süresiz** listeler (süre işverende). İşverenin panelinde eş mekân satırı (K-39) için gösterilmeyenler: fişte ve onay kuyruğunda güven puanı, IP/GPS işaretleri ve **kanıt anlatan kuralın notu** (sid'e göre kapalı küme: `base:`/`own:` × `ip-or-gps-ok`, `gps-only-allow`, `no-evidence-review`, `qr-requires-ip`, `gps-conflict-review`, ve `sys:cross-tenant-qr-site-ip`) — yerine *"Decided by your rules at a partner venue — evidence is not shown."*; manuel kaydın notu ve kanıt dışı notlar korunur. Anomali ekranında eş satırları hiçbir kanıt sayısına ve kural adına girmez (tek *"partner venue"* kovası). Okuyucuların envanteri `TestEvidenceReaders_EveryOneIsClassified`'tadır; holding'siz işletmenin rapor ve anomali sayfası bayt bayt aynıdır (`TestHoldinglessPanels_AreByteIdenticalToTheGolden`). Verdict kaşesi ve `NoteIsTenants` etiketi adlandırılmış artıktır (ADR 0027 §13 madde 5).
 
 ## 10. Çalışma şekli
 
