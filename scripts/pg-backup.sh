@@ -289,10 +289,16 @@ awk '
 #     the value is the dump's snapshot and not a later live read. A dump older than migration
 #     00048 has no such section and the manifest has no feed_counter line.
 # >>> FEED COUNTERS >>>
+# The header `feed_counters <n>` is written whenever the dump HAS the table, n = 0 included: a
+# database with no tenant yet has no counter row, and without the header its manifest could not
+# be told from one written by a pg-backup.sh older than this block (the API-2 review: section 6
+# refused every restore of an empty database, a new backup included). No section, no header:
+# a dump from before migration 00048.
 awk '
-  /^COPY public\.feed_counters / { inside = 1; next }
+  /^COPY public\.feed_counters / { inside = 1; seen = 1; next }
   inside && $0 == "\\." { inside = 0; next }
-  inside { print "feed_counter", $1, $2 }
+  inside { print "feed_counter", $1, $2; n++ }
+  END { if (seen) print "feed_counters", n + 0 }
 ' "$SQL" > "$STAGE/.feedcounters.$$"
 # <<< FEED COUNTERS <<<
 
@@ -409,7 +415,7 @@ SHA="$(sha256sum "$GZ" | awk '{print $1}')"
   done < "$STAGE/.livecounts.$$"
   echo "# per function and per role (section 2b): what scripts/pg-restore-verify.sh compares"
   cat "$STAGE/.functions.$$" "$STAGE/.roles.$$"
-  echo "# per punch feed counter (4c2): tenant last_seq_in_dump -- what pg-restore-verify.sh section 6 compares"
+  echo "# per punch feed counter (4c2): tenant last_seq_in_dump, then their count -- what pg-restore-verify.sh section 6 compares"
   cat "$STAGE/.feedcounters.$$"
 } > "$MANIFEST"
 

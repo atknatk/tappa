@@ -613,10 +613,15 @@ fi
 #     D1, measured: a database restored and moved ahead once, backed up with no event
 #     written since and restored again WITHOUT the step passed the first half alone);
 #   * and every counter row has its dumped value in the manifest.
-# A dump from before migration 00048 has no feed and this section says so and passes; a
-# database with the feed and a manifest without feed_counter lines (a pg-backup.sh older
-# than this check) is refused. internal/db's TestRestoreVerify_* run FEED_COUNTERS_SQL
-# itself, cut from this file, against the states it must tell apart.
+# A dump from before migration 00048 has no feed and this section says so and passes. The
+# manifest's `feed_counters <n>` header says how many counter lines the dump gave -- 0 for a
+# database with no tenant yet, which then passes (the API-2 review: without the header an empty
+# database's manifest looked like an old one and was refused forever, a new backup included); a
+# database with the feed and a manifest without the header (a pg-backup.sh older than this
+# check) is refused, with the manual way to restore it in deploy/README.md; a header that does
+# not match its lines is refused. internal/db's TestRestoreVerify_* run FEED_COUNTERS_SQL
+# itself, cut from this file, against the states it must tell apart; cmd/tappa's
+# TestRestoreVerify_FeedManifestGate runs the gate below with the database stubbed.
 # =================================================================================
 FEED_RESTORE_GAP=1000000
 FEED_COUNTERS_SQL="SELECT concat_ws(' ',
@@ -631,14 +636,20 @@ feed_present="$($OWNER_PSQL -c "SELECT to_regclass('public.feed_counters') IS NO
   || die "a catalog query failed against $PGDATABASE; no verdict is issued"
 if [ "$feed_present" != "t" ]; then
   note "no punch feed in this database (a dump older than migration 00048): no counter to check"
-elif ! grep -q '^feed_counter ' "$MANIFEST"; then
-  bad "the database has the punch feed and the manifest carries no 'feed_counter' lines, so it cannot be told whether the counters were moved ahead on THIS restore. It was written by a scripts/pg-backup.sh older than M11 API-2; take a new backup rather than trusting this restore's feed."
+elif ! grep -q '^feed_counters ' "$MANIFEST"; then
+  bad "the database has the punch feed and the manifest carries no 'feed_counters' header, so it cannot be told whether the counters were moved ahead on THIS restore. It was written by a scripts/pg-backup.sh older than M11 API-2: take a new backup, or -- that backup being the only one -- follow deploy/README.md 'Eski manifest'li yedek' (move the counters ahead by hand and record it)."
 else
   # Every manifest line is checked before it becomes SQL: a uuid and a non-negative integer,
-  # nothing else (the manifest is a file an operator handles; it is not trusted text).
-  bad_lines="$(awk '$1 == "feed_counter" && !($2 ~ /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/ && $3 ~ /^[0-9]+$/ && NF == 3) {n++} END {print n+0}' "$MANIFEST")"
+  # nothing else (the manifest is a file an operator handles; it is not trusted text); and the
+  # header's count is the count of lines (a cut manifest is not a smaller database).
+  bad_lines="$(awk '$1 == "feed_counter" && !($2 ~ /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/ && $3 ~ /^[0-9]+$/ && NF == 3) {n++}
+                    $1 == "feed_counters" { h++; if (!($2 ~ /^[0-9]+$/ && NF == 2)) n++ } END {print (h == 1 ? n + 0 : n + 1)}' "$MANIFEST")"
+  f_header="$(awk '$1 == "feed_counters" { print $2; exit }' "$MANIFEST")"
+  f_lines="$(awk '$1 == "feed_counter" {n++} END {print n+0}' "$MANIFEST")"
   if [ "$bad_lines" != "0" ]; then
-    bad "$bad_lines 'feed_counter' lines of the manifest are not '<uuid> <integer>'; the counters were not compared"
+    bad "$bad_lines 'feed_counter'/'feed_counters' lines of the manifest are not '<uuid> <integer>' / one '<integer>' header; the counters were not compared"
+  elif [ "$f_header" != "$f_lines" ]; then
+    bad "the manifest's 'feed_counters' header says $f_header counter lines and it carries $f_lines; the counters were not compared"
   else
     {
       echo "CREATE TEMP TABLE zz_feed_dumped (tenant_id uuid PRIMARY KEY, last_seq bigint NOT NULL);"

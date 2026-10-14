@@ -43,7 +43,7 @@ func feedRestoreScript(t *testing.T) (sql string, gap int64) {
 	for _, want := range []string{
 		`if [ "$f_tenants" = "$f_counters" ] && [ "$f_missing" = "0" ] && [ "$f_undumped" = "0" ]; then`,
 		`if [ "$f_behind" = "0" ]; then`,
-		`elif ! grep -q '^feed_counter ' "$MANIFEST"; then`,
+		`elif ! grep -q '^feed_counters ' "$MANIFEST"; then`,
 	} {
 		if !strings.Contains(src, want) {
 			t.Errorf("scripts/pg-restore-verify.sh section 6 no longer decides by %q", want)
@@ -244,6 +244,20 @@ func TestRestoreVerify_EveryTenantHasACounter(t *testing.T) {
 			if v := feedVerify(t, sql, q); v.pass() || v.missing != 1 || v.tenants != v.counters+1 {
 				t.Errorf("a tenant whose counter row was lost: %+v, want FAIL, 1 missing", v)
 			}
+		}
+	})
+	// A DATABASE WITH NO TENANT YET (the API-2 review): no tenant, no counter, no event, and a
+	// manifest whose header says 0 counter lines (scripts/pg-backup.sh 4c2) -- PASS. The shell gate
+	// in front of this SQL is cmd/tappa's TestRestoreVerify_FeedManifestGate.
+	holdingInSavepoint(t, tx, func(sp pgx.Tx) {
+		feedScratchCopies(t, sp)
+		for _, tbl := range []string{"zz_api2_rv_tenants", "zz_api2_rv_counters", "zz_api2_rv_events", "zz_feed_dumped"} {
+			if _, err := sp.Exec(ctx, `DELETE FROM `+tbl); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if v := feedVerify(t, sql, sp); !v.pass() || v.tenants != 0 {
+			t.Errorf("a database with no tenant: %+v, want PASS with 0 tenants", v)
 		}
 	})
 }

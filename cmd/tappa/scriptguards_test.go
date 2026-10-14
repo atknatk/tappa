@@ -806,8 +806,79 @@ func TestPgBackup_ManifestCarriesTheDumpsFeedCounters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the FEED COUNTERS block: %v\n%s", err, out)
 	}
-	want := "feed_counter aaaaaaaa-0000-4000-8000-000000000001 12\nfeed_counter bbbbbbbb-0000-4000-8000-000000000002 0\n"
+	want := "feed_counter aaaaaaaa-0000-4000-8000-000000000001 12\nfeed_counter bbbbbbbb-0000-4000-8000-000000000002 0\nfeed_counters 2\n"
 	if string(out) != want {
 		t.Errorf("the block wrote\n%s\nwant\n%s", out, want)
+	}
+	// A database with no tenant yet: the section is there and empty -- the header says 0 (the
+	// API-2 review: without it the manifest looked like an old pg-backup.sh's). A dump from before
+	// 00048: no section, no header.
+	for _, c := range []struct{ what, dump, want string }{
+		{"an empty feed_counters", "COPY public.feed_counters (tenant_id, last_seq) FROM stdin;\n\\.\n", "feed_counters 0\n"},
+		{"no feed_counters", "COPY public.tenants (id) FROM stdin;\n\\.\n", ""},
+	} {
+		if err := os.WriteFile(filepath.Join(dir, "d.sql"), []byte(c.dump), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		out, err := exec.Command("sh", "-c", script).CombinedOutput()
+		if err != nil {
+			t.Fatalf("the FEED COUNTERS block on %s: %v\n%s", c.what, err, out)
+		}
+		if string(out) != c.want {
+			t.Errorf("%s: the block wrote %q, want %q", c.what, out, c.want)
+		}
+	}
+}
+
+// TestRestoreVerify_FeedManifestGate runs scripts/pg-restore-verify.sh section 6's shell -- as the
+// script runs it, with sh -- with the database stubbed (feed present; FEED_COUNTERS_SQL answers
+// "0 0 0 0 0", a database with no tenant) against the manifests it must tell apart:
+//   - the header `feed_counters 0` and no line: PASS (the API-2 review: this restore was refused
+//     forever, a new backup included);
+//   - no header (a pg-backup.sh older than M11 API-2): FAIL, naming deploy/README.md's manual way;
+//   - a header that does not count its lines, or two headers: FAIL, nothing compared;
+//   - the header and its lines: the SQL runs and its answer decides.
+func TestRestoreVerify_FeedManifestGate(t *testing.T) {
+	src := readScript(t, "pg-restore-verify.sh")
+	i := strings.Index(src, "FEED_RESTORE_GAP=1000000")
+	j := strings.Index(src, "\necho\nif [ \"$fails\" -eq 0 ]; then")
+	if i < 0 || j < i {
+		t.Fatal("scripts/pg-restore-verify.sh section 6 is not where this test cuts it")
+	}
+	dir := t.TempDir()
+	stub := filepath.Join(dir, "psql")
+	// -c: the feed-present question; -f: the counters' SQL, whose file must hold one INSERT per line.
+	if err := os.WriteFile(stub, []byte("#!/bin/sh\ncase \"$1\" in\n-c) echo t ;;\n-f) echo \"inserts $(grep -c '^INSERT INTO zz_feed_dumped' \"$2\")\" >&2; echo '0 0 0 0 0' ;;\nesac\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const tenant = "aaaaaaaa-0000-4000-8000-000000000001"
+	for _, c := range []struct {
+		what, manifest string
+		pass           bool
+		say            string
+	}{
+		{"the header 0 and no line", "table x 1 1\nfeed_counters 0\n", true, "inserts 0"},
+		{"no header", "table x 1 1\n", false, "Eski manifest"},
+		{"no header, lines", "feed_counter " + tenant + " 3\n", false, "no 'feed_counters' header"},
+		{"a header that does not count its lines", "feed_counter " + tenant + " 3\nfeed_counters 2\n", false, "says 2 counter lines and it carries 1"},
+		{"two headers", "feed_counters 0\nfeed_counters 0\n", false, "not compared"},
+		{"a header that is not a count", "feed_counters x\n", false, "not compared"},
+		{"the header and its line", "feed_counter " + tenant + " 3\nfeed_counters 1\n", true, "inserts 1"},
+	} {
+		manifest := filepath.Join(dir, "manifest")
+		if err := os.WriteFile(manifest, []byte(c.manifest), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		script := "set -eu\nfails=0\nbad()  { echo \"  FAIL  $*\" >&2; fails=$((fails + 1)); }\nok()   { echo \"  ok    $*\"; }\n" +
+			"note() { echo \"  --    $*\"; }\ndie()  { echo \"die: $*\" >&2; exit 2; }\n" +
+			"MANIFEST=" + manifest + "\nTMP=" + dir + "\nOWNER_PSQL=" + stub + "\nPGDATABASE=x\n" + src[i:j] + "\necho \"fails=$fails\"\n"
+		out, err := exec.Command("sh", "-c", script).CombinedOutput()
+		if err != nil {
+			t.Fatalf("%s: section 6: %v\n%s", c.what, err, out)
+		}
+		passed := strings.Contains(string(out), "fails=0")
+		if passed != c.pass || !strings.Contains(string(out), c.say) {
+			t.Errorf("%s: pass %v, want %v, saying %q:\n%s", c.what, passed, c.pass, c.say, out)
+		}
 	}
 }
