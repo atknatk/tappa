@@ -38,8 +38,7 @@ templ AdminAnomalies(v AnomaliesView) {
 			<span class="text-ink/70">· { v.ZoneLabel }</span>
 		</p>
 		if v.Queried {
-			@anomalyTotals(v)
-			@anomalyLostPlaques(v)
+			@templ.Join(anomalyTotals(v), anomalyLostPlaques(v))
 			@anomalyMissingSources()
 			@anomalyPeople(v)
 			@anomalyVenues(v)
@@ -439,6 +438,9 @@ func moreRowsLine(kind string, cap int) string {
 		itoa(cap) + ". The counts at the top of the page cover every record."
 }
 
+// anomalyLostPlaques is JOINED to anomalyTotals (templ.Join) for reportPartners' reason: a business
+// in no holding gets its page byte for byte.
+//
 // anomalyLostPlaques is the alert for this business's LOST plaques that a partner business's
 // staff touched (M11 API-1c, ADR 0027 §5 and §9). Their employer refused and recorded the tap in
 // its own books; this list -- read from this business's projection, by the server's clock -- is

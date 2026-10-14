@@ -61,8 +61,7 @@ templ AdminReports(v ReportsView) {
 			@reportTotals(v)
 			@reportPeople(v)
 			@reportVenues(v)
-			@reportOpen(v)
-			@reportPartners(v)
+			@templ.Join(reportOpen(v), reportPartners(v))
 		}
 	}
 }
@@ -417,6 +416,10 @@ func unattributableLine(n int) string {
 	return itoa(n) + " records in this week name no employee, so no hours could be attributed to anybody. They are still in Transactions."
 }
 
+// reportPartners is JOINED to reportOpen (templ.Join) rather than called as a sibling: a sibling
+// call writes a separator into every page, a business in no holding included (measured: one byte
+// against the page before M11 API-1c). Empty, it renders nothing, so that page is byte-identical.
+//
 // reportPartners lists the week's records of a PARTNER business's staff at this business's
 // venues (M11 API-1c, ADR 0027 §9). Rendered only when there is one, so a business in no holding
 // sees this section exactly as before.

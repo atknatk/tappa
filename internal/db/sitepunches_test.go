@@ -926,3 +926,72 @@ func TestHolding00046And00047_DownGiveBackAndUpTakesItAgain(t *testing.T) {
 		}
 	})
 }
+
+// spApprovedAfterLeaving writes KM's flagged row on KF's plaque while the two are peers, ends KM's
+// membership leftAgo before now (committed in the test's transaction), approves the row as KM's
+// manager and answers how many 'approved' rows KF's projection holds for it.
+func spApprovedAfterLeaving(t *testing.T, ctx context.Context, q pgx.Tx, w holdingWorld, leftAgo string) int64 {
+	t.Helper()
+	reviewer := holdingNewAdmin(t, ctx, q, w.km)
+	id := spMust(t, ctx, q, spKFTap(w, "nfc", "flag", "in", true, 100))
+	if _, err := q.Exec(ctx, `UPDATE holding_members SET left_at = clock_timestamp() - $2::interval WHERE member_tenant_id = $1 AND left_at IS NULL`,
+		w.km, leftAgo); err != nil {
+		t.Fatal(err)
+	}
+	if err := holdingAppIn(t, ctx, q, w.km, func(sp pgx.Tx) error {
+		_, err := sp.Exec(ctx, `INSERT INTO transaction_reviews (tenant_id, transaction_id, reviewer_id, outcome) VALUES ($1, $2, $3, 'approved')`, w.km, id, reviewer)
+		return err
+	}); err != nil {
+		t.Fatalf("the employer's approval must be written whatever the membership: %v", err)
+	}
+	return spCount(t, ctx, q, w.kf, "transaction_id = $2 AND outcome = 'approved'", id)
+}
+
+// TestHoldingFeed_ApprovalInsideTheExitWindowIsNotProjected is ADR 0027 §6's "onaylar katı" inside
+// the 60-second exit window (the API-1c review's E-D1: the H2 probe ends the membership two minutes
+// back, so a 'tolerant_stmt' approval arm stayed green there): KM left H 10 seconds ago -- inside
+// the window the gate tolerates for an advanced tap -- and KM's approval of its earlier flagged row
+// is written at KM and NOT projected to KF. CONTROL: while KM is a member, the approval is.
+// MUTANT (the approval arm asks 'tolerant_stmt'): KF is told -- red.
+func TestHoldingFeed_ApprovalInsideTheExitWindowIsNotProjected(t *testing.T) {
+	ctx, tx := opTx(t)
+	run := func(q pgx.Tx, leftAgo string) int64 {
+		t.Helper()
+		var n int64
+		holdingInSavepoint(t, q, func(sp pgx.Tx) {
+			w := holdingWorldTx(t, ctx, sp, "")
+			n = spApprovedAfterLeaving(t, ctx, sp, w, leftAgo)
+		})
+		return n
+	}
+	if n := run(tx, "10 seconds"); n != 0 {
+		t.Errorf("an approval 10 s after KM left reached KF %d time(s), want 0 (strict)", n)
+	}
+	holdingInSavepoint(t, tx, func(sp pgx.Tx) {
+		w := holdingWorldTx(t, ctx, sp, "")
+		reviewer := holdingNewAdmin(t, ctx, sp, w.km)
+		id := spMust(t, ctx, sp, spKFTap(w, "nfc", "flag", "in", true, 100))
+		if err := holdingAppIn(t, ctx, sp, w.km, func(q pgx.Tx) error {
+			_, err := q.Exec(ctx, `INSERT INTO transaction_reviews (tenant_id, transaction_id, reviewer_id, outcome) VALUES ($1, $2, $3, 'approved')`, w.km, id, reviewer)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if n := spCount(t, ctx, sp, w.kf, "transaction_id = $2 AND outcome = 'approved'", id); n != 1 {
+			t.Errorf("CONTROL: an approval while KM is a member reached KF %d time(s), want 1", n)
+		}
+	})
+	holdingInSavepoint(t, tx, func(sp pgx.Tx) {
+		body := spFeedBody(t, ctx, sp)
+		mutant := strings.Replace(body, "public.holding_peer(v_employer, v_site, 'strict_stmt')", "public.holding_peer(v_employer, v_site, 'tolerant_stmt')", 1)
+		if mutant == body {
+			t.Fatal("the approval arm's question is not in holding_feed's body")
+		}
+		if _, err := sp.Exec(ctx, mutant); err != nil {
+			t.Fatal(err)
+		}
+		if n := run(sp, "10 seconds"); n != 1 {
+			t.Errorf("MUTANT (tolerant approval arm): KF told %d time(s), want 1 -- the measure cannot tell", n)
+		}
+	})
+}
