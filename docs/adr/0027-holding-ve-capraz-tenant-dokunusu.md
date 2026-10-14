@@ -742,7 +742,8 @@ CMAC satırda ayırt edilemiyor — ikisi de `sys:sun-invalid` ve `sun_valid=fal
   1 satır, gerçek 3 → 3, işverende 240/240; eşliği bitmiş tenant'ın 60 sn penceresinde KF'ye düşen
   satır tekilleştirmeyle sınırlı (2 200 red → 44).
 
-**`tappa_app` erişimi:** `site_punches`'ta **sütun listesiyle** `SELECT`, **`sun_valid` hariç**
+**`tappa_app` erişimi:** `site_punches`'ta **sütun listesiyle** `SELECT`, **`sun_valid` hariç** — *sütun
+olarak*; değeri bir `refused` satırın `ctr_gap`'inden ve `ctr`'ından türetilebilir (§13 madde 22)
 (K-1h *"nedeni değil"*: `refused ∧ sun_valid` *"imza geçerli ama reddedildi"* demekti — 11. tur);
 INSERT/UPDATE/DELETE yok. KF'nin bütün okumaları sıradan, RLS'li, açık `tenant_id` filtreli
 sorgulardır — KF hiçbir `holding_*` fonksiyonunu izdüşüm için çağırmaz.
@@ -855,8 +856,8 @@ e-postaları, iki tenant'ın mesai kayıtları (CLAUDE.md §4.3, §4.6), holding
      sayesinde mutant tek yere uygulanır ve her yolu kırmızıya çevirir).
 3. **Eş tenant'ın kullanıcıları — görünürlük K-1d/K-1f/K-1h ile sınırlı.** KF, KM çalışanının adını,
    kodunu, `externalRef`'ini, dokunuş zamanını, yönünü ve **sonucunu** görür; GPS, IP, not, policy
-   bağlamı, e-posta, `verdict`, `matched_sid` ve (`tappa_app` için) `sun_valid` **asla** (katalog
-   pinleri). KM, KF'nin `static_ips`'ini ve GPS'ini görmez (K-39); KM satırının `ip_match`'i ve
+   bağlamı, e-posta, `verdict`, `matched_sid` ve (`tappa_app` için) `sun_valid` **sütun olarak asla**
+   (katalog pinleri; `sun_valid`'in değeri başka sütunlardan türetilebilir — §13 madde 22). KM, KF'nin `static_ips`'ini ve GPS'ini görmez (K-39); KM satırının `ip_match`'i ve
    `policy_context`'i KF'nin ağını/koordinatını **dolaylı** açabilir — adlandırılmış bedel (§13).
    **K-1i (2026-10-14) ile KM kendi satırından plaketin dokunuştan önceki mutlak `last_ctr`'ını türetebilir** (`ctr − tap:ctrGap − 1`; ölçüldü: 150, 49 → 100) — `ctr` KF'nin yeni değerini `00043`'ten beri zaten taşıyor; K-1i'nin eklediği, KM'nin iki dokunuşu arasında KF'nin ya da başka bir eşin kabul edilmiş son okumasının sayaç değeridir; replay için sömürülemez (sayaç yalnız artar, ilerletme katı `<`).
 4. **Kendi tenant'ındaki ayrıcalıklı olmayan kod yolu (SQL kusuru, enjeksiyon) `tappa_app` olarak.**
@@ -901,8 +902,10 @@ adlandırılmış kalan risk (1. tur, güvenlik merceği; §13 madde 13).
 5. **K-39 artığı:** işverenin kendi satırındaki `ip_match` / `policy_context` sahanın ağını ve
    koordinatını dolaylı açabilir; panel göstermez, işveren kendi verisini dışa aktarabilir.
 6. **K-38:** çapraz QR guardrail'ı işverence ne gevşetilir ne `deny`'e sıkılaştırılır.
-7. **K-29:** üyelik bittikten sonra verilen onay/ret KF'ye düşmez; KF `pending_review`'u hep
-   *"sonuç işverende"* görür. QR'da `left_at` yarışı *"tekrar dene"* üretir.
+7. **K-29:** üyeliğin **commit edilmiş** bitişinden sonra verilen onay/ret KF'ye düşmez (60 sn'lik
+   çıkış penceresinde de — onay katıdır; `TestHoldingFeed_ApprovalInsideTheExitWindowIsNotProjected`);
+   commit edilmemiş bir `op_remove` ile kesişen onay ise düşer (onay kolu `lock` almaz — MVCC'de
+   *"önce onay, sonra çıkarma"*). KF `pending_review`'u hep *"sonuç işverende"* görür. QR'da `left_at` yarışı *"tekrar dene"* üretir.
 8. **K-31 / ADR 0028 §5:** KF'de takılı bir işlem KM'nin holding dokunuşlarını bekletir
    (tenant'lar arası yeni bağımlılık; `lock_timeout` + idle zaman aşımı sınırlar).
 9. **K-36:** holding üyesinin saat dilimi v1'de değiştirilemez (koordineli değişiklik için `op_*`
@@ -949,18 +952,43 @@ adlandırılmış kalan risk (1. tur, güvenlik merceği; §13 madde 13).
     *"Another business's venue"* diye, vardiyasız (geç kalma hesaplanmaz) listelenir. Kayıt kaybolmaz
     (§4.6), yalnız adı ve vardiyası. Ad ve vardiyanın yazma anı anlık görüntüsü API-2'nin
     `punch_events`'idir (K-32).
-18. **İzdüşümün tekillik beklemesi (API-1c, ölçüldü):** `holding_feed`'in red eklemesi aynı anahtarlı
-    commit edilmemiş bir ikizi indeks üzerinde bekler; ikiz 2 sn'den (tetikleyicinin `lock_timeout`'u)
-    uzun tutulursa işverenin INSERT'i 55P03 ile düşer (atılabilir kapta: 2,14 sn). **Ürün yolunda
-    erişilemez:** anahtar çalışanı içerir ve checkin aynı çalışanın her dokunuşunu kişi başına
-    danışma kilidi altında sıraya sokar (`LockEmployeeForTap`, işlemin ilk ifadesi); çalışansız bir
-    holding satırı yoktur (holding yolu oturum ister). Kalan yol ham bir yazıcıdır (§12 (d)).
+18. **İzdüşümün kilit beklemesi (API-1c; denetimden sonra düzeltildi — E-ORTA-1).** `holding_feed`
+    `site_punches`'a kendi `lock_timeout`'u (2 sn) altında yazar; beklemenin üç kaynağı var:
+    - **`site_punches` üzerinde bir tablo kilidi** (bir okuyucunun arkasında kuyrukta bekleyen
+      `ALTER TABLE`, `VACUUM FULL`, `CLUSTER`, elle `LOCK`) ve **sahanın `tenants` satırında bir
+      `FOR UPDATE`** (izdüşümün anahtarı `KEY SHARE` alır). Denetim ürün yolunda ölçtü: 2,08 sn'de
+      55P03, KM'de kayıt yok, KF sayacı ilerlemiş — §4.6. **Kapatılan:** checkin site satırını
+      kapının 55P03'ündeki gibi `holding_feed`'in 55P03'ünde de savepoint içinde **bir kez** yeniden
+      yazar (`TestHoldingWindow_ProjectionLockWaitIsWrittenOnceMore`; mutant: yeniden deneme yok →
+      kayıt kayboldu). Atılabilir kapta `site_punches` 3 sn `SHARE` kilitliyken ilk deneme 2,02 sn'de
+      55P03, ikinci deneme yazdı. **Kalan bedel:** kilit iki beklemeden uzun (> ~4 sn) tutulursa
+      kayıt kaybolur, sayaç ilerlemiştir (`TestHoldingWindow_ProjectionLockHeldThroughBothWaitsIsTheNamedCost`)
+      — kural `deploy/README.md`'de (bu tablolara dokunan migration kendi `lock_timeout`'unu 2 sn'nin
+      altına koyar).
+    - **Aynı anahtarlı commit edilmemiş bir red ikizi** (tekillik indeksi): ölçüldü 2,14 sn'de 55P03;
+      **ürün yolunda erişilemez** — anahtar çalışanı içerir ve checkin aynı çalışanın her dokunuşunu
+      kişi başına danışma kilidi altında sıraya sokar (`LockEmployeeForTap`); çalışansız holding
+      satırı yoktur. Kalan yol ham bir yazıcıdır (§12 (d)).
+    - **Onay kolu:** onay INSERT'i, KF plaket satırı başka bir işlemde `FOR UPDATE` tutulurken (ör.
+      eşzamanlı bir ilerletme) izdüşümün anahtarında bekler; denetim 2,12 sn'de 55P03 ölçtü. Onay
+      geri alınır ama **kaybolmaz** — kayıt değil yöneticinin kararıdır, panel hatayı söyler ve
+      yönetici yeniden dener. Yeniden deneme yazılmadı (inceleme yolunun ilk kilit beklemesi; tap
+      yolunun aksine sayaç gibi geri alınamaz bir şey harcanmadı).
 19. **Manuel kayıt seçicisi eşin pasif mekânlarını da gösterir (API-1c):** `holding_site_locations`'ın
     dönüşünde `active` yoktur; eklemek kapalı listeyi genişletir (§2 — kullanıcı onayı). Pasif bir
     mekâna yazılan manuel kayıt yazılır ve sahada `employer_manual` olarak görünür.
 20. **Geri doldurma yok (API-1c):** `00046`'dan önce yazılmış `site_*` satırları (yalnız M11
     geliştirme/CI veritabanlarında; üretimde holding satırı yok) izdüşüme taşınmadı — saha onları
     görmez. Üretimde `00046` holding üyeliğinden önce uygulanır (API-13 sırası).
+21. **`holding_site_locations`'ın maliyeti (API-1c denetimi, E-D2, ölçüldü):** eş kümesini bütün
+    `tenants` üzerinde `holding_peer` ile hesaplar — 21 bin tenant'ta çağrı başına 0,69–1,08 sn; manuel
+    kayıt formu onu holding'siz işletmede de çağırır (üyelik uygulamada elde değil; yeni bir
+    `holding_*` çağrısı kapalı listenin genişlemesi olurdu). Ön-süzme (`holding_members` üzerinden,
+    karar yine `holding_peer`'de) bir migration ister — `docs/backlog.md` T124.
+22. **`sun_valid`'in değeri türetilebilir (API-1c denetimi, güvenlik G-D1):** sütun `tappa_app`'ten
+    saklıdır, ama bir `refused` satırın `ctr_gap > 0`'ı (yalnız ilerletilmiş dokunuşta dolu, K-1i) ve
+    `ctr`'ının plaketin `last_ctr`'ına eşitliği *"imza geçerliydi"*yi söyler. K-1i'nin KF tarafındaki
+    sinyalini korumak için kod değişmedi; K-1h'nin *"nedeni değil"*i sütun düzeyindedir.
 
 ## Elenen seçenekler
 
@@ -1606,8 +1634,10 @@ satırı aynı işlemde KF'nin izdüşümünde (mutant: `transactions` koluna `s
 KM'de 1, KF'de 0); anahtar beklemesinden sonra commit edilen satır KF'de.
 
 **İşverenin dokuz okuyucusu** (`internal/domain/ledger/site.go`): `holding_site_locations` işlem başına
-**bir kez** ve yalnız sayfada `site_*` satırı varken okunur (holding verisi olmayan işletme aynı
-ifadeleri koşar; panel testleri bayt düzeyinde değişmedi). `ListPanelTransactions`/`ListFlaggedForReview`
+**bir kez** ve yalnız sayfada `site_*` satırı varken okunur (holding verisi olmayan işletme
+`holding_site_locations`'ı çağırmaz; ama sahanın üç izdüşüm okuması — rapor, uyarı, boşluklar — her
+tenant için koşar, son görülme de plaket listesinde — ve sayfaları, denetimden sonra, bayt bayt
+aynıdır: aşağıda E-D3). `ListPanelTransactions`/`ListFlaggedForReview`
 eşin mekânını ve plaketini adlandırır, güven puanını ve IP/GPS işaretlerini **boşaltır** (K-39 —
 §13 madde 5'in *"panel göstermez"*i; fiş *"not shown at a partner venue"* der); `ListOpenCheckIns`
 adlandırır; `ListWorkedShiftEvents` + `resolveShift` eşin mekânının kovası ve vardiyası (geç kalma,
@@ -1642,3 +1672,33 @@ okuması aynı işlemde önce düşürür; yarış kancası yok) — veritabanı
 
 **Saklama.** `site_punches` süresiz tutulur; süre kullanıcının DPA/aydınlatma notuyla belirlenecek
 (§13 madde 4). Append-only olduğu için bir silme yolu yazılmadı.
+
+**Denetimden sonra (2026-10-14 — iki mercek RED: güvenlik bir ORTA + bir DÜŞÜK, üçüncü göz bir ORTA +
+dört DÜŞÜK).**
+- **G-ORTA-1 (K-39, not):** işverenin fişi ve onay kuyruğu eş mekân satırında motorun notunu
+  basıyordu — *"verified via GPS only — no network proof of place"*, *"network proof of place: the
+  source IP matches the location"*, *"neither IP nor GPS could place this tap"*, çapraz QR
+  guardrail'ının *"needs that venue's own network"* cümlesi: gizlenen bitlerin düz metni. Artık
+  `nameSiteRecords` böyle bir satırın notunu `PartnerVenueNote` ile değiştirir (*"Decided by your
+  rules at a partner venue — evidence is not shown."*), katmana bakmadan: tenant'ın kendi kuralı
+  sevk edilmiş bir ifadenin kopyasıdır, gerekçesi dahil (`TestCopyOfShipped_KeepsTheRulesAndChangesOnlyTheScopeAndTheSid`),
+  yani aynı cümle `policy_layer = 'tenant'` ile de gelir. `NoteIsTenants` yine kimin kuralı olduğunu
+  söyler. Test: `TestEmployerReaders_APartnerVenueRowCarriesNoEvidenceSentence` (dört kanarya, gün
+  listesi ve kuyruk; kontrol: kendi mekânındaki satırın notu aynen) ve panel HTML'inde
+  `TestHoldingPanel_PartnerViewsSayTheOutcomeNeverTheReason`. Mutant (değiştirme yok) → 12 kanarya
+  sızıntısı, kırmızı.
+- **E-ORTA-1 (§4.6, izdüşümün kilit beklemesi):** §13 madde 18 — checkin'in tek yeniden denemesi
+  `holding_feed`'in 55P03'üne genişledi; sınama sahanın `tenants` satırını `FOR UPDATE` tutarak
+  (yalnız o testin tenant'ı — bir tablo kilidi paralel paketleri bekletirdi); tablo kilidi biçimi
+  atılabilir kapta ölçüldü. Onay kolu adlandırıldı.
+- **E-D1:** onay kolunun katılığı 60 sn penceresinde pinli
+  (`TestHoldingFeed_ApprovalInsideTheExitWindowIsNotProjected`; mutant `tolerant_stmt` → KF'ye düştü,
+  kırmızı); §13 madde 7 *"commit edilmiş bitiş"* diye nitelendi.
+- **E-D2:** §13 madde 21 ve backlog T124 — bu turda migration yok.
+- **E-D3:** holding'siz işletmenin rapor ve anomali sayfası bir bayt (kardeş bileşen çağrısının
+  boşluğu) farklıydı. Yeni bloklar `templ.Join` ile önceki bileşene bağlandı; `85b4b8d`'deki şablonla
+  karşılaştırma (aynı görünüm, iki sürüm): rapor, anomali, fiş ve manuel form (iki adım) bayt bayt
+  aynı.
+- **E-D4:** `ListSitePlaqueGaps`'in `records`'u onay/ret satırlarını da sayıyordu; artık dokunuşları
+  sayar (`TestSitePanel_PlaqueGapCountsTheTapOnce`; mutant `count(*)` → 2, kırmızı).
+- **G-D1:** §9 ve §12'de *"sütun olarak"*; §13 madde 22.
