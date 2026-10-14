@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -21,6 +20,7 @@ import (
 
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
+	"github.com/atknatk/tappa/internal/domain/tap"
 	"github.com/atknatk/tappa/internal/store"
 )
 
@@ -656,53 +656,82 @@ func TestSitePanel_LostPlaqueAlertUsesTheServerClock(t *testing.T) {
 	}
 }
 
-// partnerNoteCanaries are the engine's sentences that describe the evidence K-39 hides (the API-1c
-// review's G-ORTA-1): three baseline reasons and the cross-tenant QR guardrail's (internal/policy).
-var partnerNoteCanaries = []string{
-	"network proof of place: the source IP matches the location",
-	"verified via GPS only — no network proof of place",
-	"neither IP nor GPS could place this tap",
-	"a QR scan at another business of the group needs that venue's own network; sent for approval",
+// partnerNoteCase is one note on a row at a partner venue, the rule that decided it, and whether
+// the employer's lists may show it as written.
+type partnerNoteCase struct {
+	sid, note string
+	manual    bool
+	shown     bool   // false: replaced by PartnerVenueNote
+	want      string // what is shown when replaced ("" = PartnerVenueNote)
+}
+
+// partnerNoteCases: the engine's EVIDENCE sentences (K-39 -- the five baseline reasons that describe
+// the peer's network or coordinate, a tenant's copy of one, the cross-tenant QR guardrail's) are
+// replaced; the manager's own words on a manual record, a lost plaque's reason, a non-evidence rule
+// (the counter gap K-1i hands the employer) and the direction's annotation are kept (the second
+// review's ORTA-B).
+var partnerNoteCases = []partnerNoteCase{
+	{sid: "base:ip-or-gps-ok", note: "network proof of place: the source IP matches the location"},
+	{sid: "base:gps-only-allow", note: "verified via GPS only — no network proof of place"},
+	{sid: "base:no-evidence-review", note: "neither IP nor GPS could place this tap"},
+	{sid: "base:qr-requires-ip", note: "QR tap without an IP match: GPS alone is not sufficient proof of place"},
+	{sid: "base:gps-conflict-review", note: "GPS was read and puts the device outside this location's radius"},
+	{sid: "sys:cross-tenant-qr-site-ip", note: "a QR scan at another business of the group needs that venue's own network; sent for approval"},
+	{sid: "own:gps-only-allow", note: "verified via GPS only — no network proof of place"},
+	{sid: "base:gps-only-allow", note: "verified via GPS only — no network proof of place; " + tap.StaleOpenInNote,
+		want: PartnerVenueNote + "; " + tap.StaleOpenInNote},
+	// A manual record carries no rule in the product; an evidence sid here pins that the
+	// CHANNEL exempts it -- the manager's words describe no evidence whatever the sid says.
+	{sid: "base:no-evidence-review", note: "MANUAL-CANARY phone was flat, worked the KF lunch shift", manual: true, shown: true},
+	{sid: "sys:tag-not-active", note: "this tag is not in service", shown: true},
+	{sid: "base:ctr-gap-review", note: "the tag counter jumped: reads happened that the server never saw", shown: true},
+	{sid: "base:cross-location-note", note: "different branch; " + tap.StaleOpenInNote, shown: true},
 }
 
 // TestEmployerReaders_APartnerVenueRowCarriesNoEvidenceSentence is K-39 in words (ADR 0027 §13 item
-// 5; the API-1c review's G-ORTA-1): the employer's rows at a peer's venue carry the engine's
-// sentences -- each canary, as an ok row on the day list and a flagged row in the review queue --
-// and neither list carries any of them: the note is PartnerVenueNote, whatever layer decided (the
-// replacement does not read the layer: a TENANT statement is a copy of a shipped one, reason
-// included -- TestCopyOfShipped_KeepsTheRulesAndChangesOnlyTheScopeAndTheSid). CONTROL: the
-// same sentence on a row at the employer's OWN venue is shown as written. MUTANT (measured: the
-// replacement taken out of nameSiteRecords) -> every canary reaches both lists.
+// 5; the review's G-ORTA-1 and the second review's ORTA-B): each partnerNoteCases row, as an ok (or
+// typed) row on the day list and a flagged row in the review queue -- every evidence sentence is
+// replaced by PartnerVenueNote (the direction's annotation kept), every other note is shown as
+// written. CONTROL: an evidence sentence on a row at the employer's OWN venue is shown as written.
+// MUTANTS (measured, site.go): the manual exemption removed -> the manual canary is lost; the sid
+// set narrowed (no gps-conflict-review) -> its sentence leaks; widened (every base: sid) -> the
+// counter gap's sentence is lost; the own: namespace dropped -> the tenant copy leaks.
 func TestEmployerReaders_APartnerVenueRowCarriesNoEvidenceSentence(t *testing.T) {
 	w := newHWorld(t)
 	day := Date{Year: 2026, Month: time.July, Day: 22}
-	insert := func(verdict, note, layer string, site bool, clock string) uuid.UUID {
+	insert := func(c partnerNoteCase, verdict string, site bool, clock string) uuid.UUID {
 		t.Helper()
 		at := hLocal(t, "2026-07-22", clock)
 		var id uuid.UUID
 		var siteTenant, siteVenue, siteTag, venue, tag any
+		channel := "nfc"
+		var sun, ctr any = true, 1000
 		if site {
 			siteTenant, siteVenue, siteTag = w.kf, w.venue[w.kf], w.plaque[w.kf]
 		} else {
 			venue, tag = w.venue[w.km], w.plaque[w.km]
 		}
+		if c.manual {
+			channel, sun, ctr, siteTag, tag = "manual", nil, nil, nil, nil
+		}
 		if err := w.owner.QueryRow(w.ctx, `
 			INSERT INTO transactions (tenant_id, employee_id, occurred_at, verdict, channel, type, sun_valid, ctr, trust, queued, note,
 			                          policy_layer, matched_sid, location_id, tag_uid, site_tenant_id, site_location_id, site_tag_uid)
-			VALUES ($1, $2, $3, $4, 'nfc', 'in', true, 1000, 50, $4 = 'flag', $5, NULLIF($6, ''),
-			        CASE WHEN $6 <> '' THEN 'sys:canary' END, $7, $8, $9, $10, $11) RETURNING id`,
-			w.km, w.staff[w.km][0], at, verdict, note, layer, venue, tag, siteTenant, siteVenue, siteTag).Scan(&id); err != nil {
+			VALUES ($1, $2, $3, $4, $5, 'in', $6, $7, 50, $4 = 'flag', $8, CASE WHEN $9 <> '' THEN 'guardrail' END, NULLIF($9, ''),
+			        $10, $11, $12, $13, $14) RETURNING id`,
+			w.km, w.staff[w.km][0], at, verdict, channel, sun, ctr, c.note, c.sid, venue, tag, siteTenant, siteVenue, siteTag).Scan(&id); err != nil {
 			t.Fatal(err)
 		}
 		return id
 	}
-	var siteRows []uuid.UUID
-	for i, note := range partnerNoteCanaries {
-		siteRows = append(siteRows,
-			insert("ok", note, "", true, fmt.Sprintf("09:%02d:00", i)),
-			insert("flag", note, "guardrail", true, fmt.Sprintf("10:%02d:00", i)))
+	cases := map[uuid.UUID]partnerNoteCase{}
+	for i, c := range partnerNoteCases {
+		cases[insert(c, "ok", true, fmt.Sprintf("09:%02d:00", i))] = c
+		if !c.manual {
+			cases[insert(c, "flag", true, fmt.Sprintf("10:%02d:00", i))] = c
+		}
 	}
-	own := insert("ok", partnerNoteCanaries[1], "", false, "12:00:00")
+	own := insert(partnerNoteCases[1], "ok", false, "12:00:00")
 
 	page, err := w.r.Day(w.ctx, w.km, Filter{Date: day})
 	if err != nil {
@@ -715,26 +744,35 @@ func TestEmployerReaders_APartnerVenueRowCarriesNoEvidenceSentence(t *testing.T)
 	seen := 0
 	for _, rec := range append(page.Records, queue.Records...) {
 		if rec.ID == own {
-			if rec.Note != partnerNoteCanaries[1] {
+			if rec.Note != partnerNoteCases[1].note {
 				t.Errorf("CONTROL: the own-venue row's note is %q, want the engine's sentence", rec.Note)
 			}
 			continue
 		}
-		if !slices.Contains(siteRows, rec.ID) {
+		c, ok := cases[rec.ID]
+		if !ok {
 			continue
 		}
 		seen++
-		for _, c := range partnerNoteCanaries {
-			if strings.Contains(rec.Note, c) {
-				t.Errorf("a partner-venue row carries %q", c)
+		want := c.note
+		if !c.shown {
+			want = c.want
+			if want == "" {
+				want = PartnerVenueNote
 			}
 		}
-		if rec.Note != PartnerVenueNote {
-			t.Errorf("a partner-venue row's note is %q, want PartnerVenueNote", rec.Note)
+		if rec.Note != want {
+			t.Errorf("%s (%s): the note reads %q, want %q", c.sid, rec.Verdict, rec.Note, want)
 		}
 	}
-	if seen != len(siteRows)+len(partnerNoteCanaries) {
-		t.Errorf("read %d partner-venue records across the two lists, want %d (every row on the day, every flag in the queue)", seen, len(siteRows)+len(partnerNoteCanaries))
+	queued := 0
+	for _, c := range partnerNoteCases {
+		if !c.manual {
+			queued++
+		}
+	}
+	if seen != len(cases)+queued {
+		t.Errorf("read %d partner-venue records across the two lists, want %d (every row on the day, every flag in the queue)", seen, len(cases)+queued)
 	}
 }
 
@@ -772,4 +810,67 @@ func TestSitePanel_PlaqueGapCountsTheTapOnce(t *testing.T) {
 		}
 	}
 	t.Error("KF's gap list does not show its plaque")
+}
+
+// TestAnomalies_APartnerVenueRowAddsNoEvidenceFigure is K-39 on the anomalies screen (the second
+// review's ORTA-A): two KM employees each with ONE tap that week, at KF's venue, judged GPS-only and
+// outside the radius (gps yes, ip no, tap:gpsConflict), decided by base:gps-only-allow and
+// base:no-evidence-review -- and the screen counts them as records (Partner 2) but in NO evidence
+// figure: not in the totals' judged / distance-only / outside-venue, not on the people list's
+// evidence, and the rule breakdown has one "partner" bucket of 2 and no row naming either rule.
+// CONTROL: the same shape at KM's OWN venue by a third employee is counted everywhere. MUTANTS
+// (measured, anomalies.sql): the site filter taken out of the people query's distance_only -> the
+// two partner-only employees are listed; out of the totals' judged -> judged counts them.
+func TestAnomalies_APartnerVenueRowAddsNoEvidenceFigure(t *testing.T) {
+	w := newHWorld(t)
+	day := Date{Year: 2026, Month: time.July, Day: 8}
+	insert := func(employee uuid.UUID, site bool, sid, clock string) {
+		t.Helper()
+		var siteTenant, siteVenue, siteTag, venue, tag any
+		if site {
+			siteTenant, siteVenue, siteTag = w.kf, w.venue[w.kf], w.plaque[w.kf]
+		} else {
+			venue, tag = w.venue[w.km], w.plaque[w.km]
+		}
+		w.exec(`INSERT INTO transactions (tenant_id, employee_id, occurred_at, verdict, channel, type, sun_valid, ctr, ip_match, gps_match, trust,
+		                                  policy_layer, matched_sid, policy_context, location_id, tag_uid, site_tenant_id, site_location_id, site_tag_uid)
+		        VALUES ($1, $2, $3, 'ok', 'nfc', 'in', true, 1000, false, true, 50, 'guardrail', $4, '{"tap:gpsConflict": true, "tap:ctrGap": 0}',
+		                $5, $6, $7, $8, $9)`,
+			w.km, employee, hLocal(t, "2026-07-08", clock), sid, venue, tag, siteTenant, siteVenue, siteTag)
+	}
+	e := w.staff[w.km]
+	insert(e[0], true, "base:gps-only-allow", "09:00:00")
+	insert(e[1], true, "base:no-evidence-review", "09:30:00")
+	insert(e[2], false, "base:gps-only-allow", "10:00:00")
+	a, err := w.r.Anomalies(w.ctx, w.km, ReportFilter{Day: day})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Totals.Records != 3 || a.Totals.Partner != 2 || a.Totals.Judged != 1 || a.Totals.DistanceOnly != 1 || a.Totals.OutsideVenue != 1 {
+		t.Errorf("totals: records %d partner %d judged %d distance-only %d outside %d; want 3, 2, 1, 1, 1 (the partner rows in no evidence figure)",
+			a.Totals.Records, a.Totals.Partner, a.Totals.Judged, a.Totals.DistanceOnly, a.Totals.OutsideVenue)
+	}
+	for _, p := range a.People {
+		switch p.EmployeeID {
+		case e[0], e[1]:
+			t.Errorf("a partner-only employee is on the people list: %+v", p)
+		case e[2]:
+			if p.DistanceOnly != 1 || p.OutsideVenue != 1 {
+				t.Errorf("CONTROL: the own-venue employee: %+v, want 1 and 1", p)
+			}
+		}
+	}
+	partner := 0
+	for _, r := range a.Policies {
+		if r.Partner {
+			partner += r.Records
+			continue
+		}
+		if r.SID == "base:no-evidence-review" || (r.SID == "base:gps-only-allow" && r.Records != 1) {
+			t.Errorf("the rule breakdown names a rule of a partner-venue row: %+v", r)
+		}
+	}
+	if partner != 2 {
+		t.Errorf("the partner bucket holds %d records, want 2", partner)
+	}
 }

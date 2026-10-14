@@ -224,7 +224,7 @@ SELECT t.id, t.occurred_at, t.type, t.trust, t.verdict, t.channel, t.practice,
        l.name AS location_name,
        d.name AS department_name,
        e.full_name AS employee_name,
-       t.site_location_id, t.site_tag_uid
+       t.site_location_id, t.site_tag_uid, t.matched_sid
 FROM transactions t
 LEFT JOIN locations   l ON l.tenant_id = t.tenant_id AND l.id = t.location_id
 LEFT JOIN departments d ON d.tenant_id = t.tenant_id AND d.id = t.department_id
@@ -270,6 +270,7 @@ type ListFlaggedForReviewRow struct {
 	EmployeeName   *string
 	SiteLocationID *uuid.UUID
 	SiteTagUid     *string
+	MatchedSid     *string
 }
 
 // One page of the queue, newest first.
@@ -300,7 +301,9 @@ type ListFlaggedForReviewRow struct {
 // TAKEN AT A PEER'S VENUE (ADR 0027 §4, §9 -- one of the employer's nine readers). Such a row's
 // location_id and tag_uid are NULL (K-30), so the join below finds no name for it; the reader
 // names it from holding_site_locations (internal/domain/ledger's siteVenues), the one way into
-// the peer's venue list. Ids only -- no evidence column is added (K-39).
+// the peer's venue list. Ids only -- no evidence column is added (K-39). matched_sid is read for
+// the same rows: it names the rule whose sentence (note) describes the peer's evidence, which the
+// reader replaces for such a row (internal/domain/ledger's evidenceSids); it is not rendered.
 func (q *Queries) ListFlaggedForReview(ctx context.Context, arg ListFlaggedForReviewParams) ([]ListFlaggedForReviewRow, error) {
 	rows, err := q.db.Query(ctx, listFlaggedForReview,
 		arg.TenantID,
@@ -335,6 +338,7 @@ func (q *Queries) ListFlaggedForReview(ctx context.Context, arg ListFlaggedForRe
 			&i.EmployeeName,
 			&i.SiteLocationID,
 			&i.SiteTagUid,
+			&i.MatchedSid,
 		); err != nil {
 			return nil, err
 		}

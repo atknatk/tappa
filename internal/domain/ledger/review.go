@@ -239,5 +239,6 @@ func queueRecord(row store.ListFlaggedForReviewRow) Record {
 		EmployeeName:   deref(row.EmployeeName),
 	}
 	atSite(&rec, row.SiteLocationID, row.SiteTagUid)
+	rec.matchedSid = deref(row.MatchedSid)
 	return rec
 }

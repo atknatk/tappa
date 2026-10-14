@@ -3,12 +3,14 @@ package ledger
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/atknatk/tappa/internal/db"
+	"github.com/atknatk/tappa/internal/domain/tap"
 	"github.com/atknatk/tappa/internal/store"
 )
 
@@ -83,21 +85,62 @@ func nameSiteRecords(ctx context.Context, tx pgx.Tx, recs []Record) error {
 			recs[i].LocationName = venues.name(*recs[i].SiteLocationID)
 		}
 		recs[i].IPMatch, recs[i].GPSMatch, recs[i].Trust = nil, nil, nil
-		if recs[i].Note != "" {
-			recs[i].Note = PartnerVenueNote
-		}
+		recs[i].Note = partnerNote(recs[i])
 	}
 	return nil
 }
 
-// PartnerVenueNote stands in for the engine's sentence on a record taken at a partner venue
-// (K-39; the API-1c review's G-ORTA-1). The engine's sentences describe the very evidence the
-// docket hides -- "verified via GPS only — no network proof of place" says the phone was not on
-// the peer's network, "network proof of place: the source IP matches the location" that it was,
-// and the cross-tenant QR guardrail's names the peer's network outright. A note from the
-// business's OWN policy is no safer: a tenant statement is a copy of a shipped one, its reason
-// included (tenant.copyOfShipped), so the same words arrive with policy_layer = 'tenant'. So
-// every note on such a record is replaced; NoteIsTenants still says whose rule decided.
+// evidenceSids are the rules whose sentence DESCRIBES the evidence K-39 hides -- a closed set, by
+// sid (the second review's ORTA-B: the first fix replaced every note and lost the manager's own
+// words on a manual record, a lost plaque's reason and the direction's annotation):
+//
+//	ip-or-gps-ok          "network proof of place: the source IP matches the location"
+//	gps-only-allow        "verified via GPS only — no network proof of place"
+//	no-evidence-review    "neither IP nor GPS could place this tap"
+//	qr-requires-ip        "QR tap without an IP match: GPS alone is not sufficient proof of place"
+//	gps-conflict-review   "GPS was read and puts the device outside this location's radius"
+//	                      (the coordinate's relation to the peer's venue: evidence too)
+//	sys:cross-tenant-qr-site-ip  "... needs that venue's own network; sent for approval"
+//
+// The first five are matched in the shipped namespace (base:) AND the tenant's (own:): a tenant
+// statement is a shipped one copied with its reason and its sid moved to own:<the same rest>
+// (tenant.tenantSid). Every other rule's sentence -- a lost plaque, a bad signature, a deactivated
+// person, a repeat, the counter gap K-1i hands the employer -- says nothing about the peer's network
+// or coordinate and is kept.
+var evidenceSids = map[string]bool{
+	"ip-or-gps-ok": true, "gps-only-allow": true, "no-evidence-review": true,
+	"qr-requires-ip": true, "gps-conflict-review": true,
+}
+
+// isEvidenceSid reports whether the rule's sentence describes the peer's evidence.
+func isEvidenceSid(sid string) bool {
+	if sid == "sys:cross-tenant-qr-site-ip" {
+		return true
+	}
+	ns, rest, ok := strings.Cut(sid, ":")
+	return ok && (ns == "base" || ns == "own") && evidenceSids[rest]
+}
+
+// partnerNote is the note a record at a partner venue shows: a MANUAL record's (the manager's own
+// sentence, no evidence at all) and any non-evidence rule's as stored; an evidence rule's replaced
+// by PartnerVenueNote -- keeping the direction's annotation when the engine appended it (tap's
+// appendNote: "<rule sentence>; <direction note>", the direction note one known constant).
+func partnerNote(r Record) string {
+	if r.Manual || r.Note == "" || !isEvidenceSid(r.matchedSid) {
+		return r.Note
+	}
+	if strings.HasSuffix(r.Note, "; "+tap.StaleOpenInNote) {
+		return PartnerVenueNote + "; " + tap.StaleOpenInNote
+	}
+	return PartnerVenueNote
+}
+
+// PartnerVenueNote stands in for an EVIDENCE rule's sentence on a record taken at a partner venue
+// (K-39; the API-1c review's G-ORTA-1, narrowed by the second review's ORTA-B -- evidenceSids):
+// "verified via GPS only — no network proof of place" says the phone was not on the peer's
+// network, "network proof of place: the source IP matches the location" that it was, and the
+// cross-tenant QR guardrail's names the peer's network outright. A tenant's copy of such a rule is
+// matched too (own:<rest>); NoteIsTenants still says whose rule decided.
 const PartnerVenueNote = "Decided by your rules at a partner venue — evidence is not shown."
 
 // PartnerTapCap is how many of a holding peer's staff's records the reports section LISTS for a

@@ -118,6 +118,9 @@ templ anomalyTotals(v AnomaliesView) {
 			// that column existed, and every manager-typed row, do not have one.
 			<p class="mt-2 text-xs text-ink/70">{ v.Totals.UnanswerableLine }</p>
 		}
+		if v.Totals.PartnerLine != "" {
+			<p class="mt-2 text-xs text-ink/70">{ v.Totals.PartnerLine }</p>
+		}
 	</section>
 }
 

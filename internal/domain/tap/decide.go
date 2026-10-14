@@ -476,6 +476,12 @@ const StaleOpenIn = 18 * time.Hour
 // deciding policy's reason.
 const staleOpenInNote = "stale open check-in (possible forgotten checkout)"
 
+// StaleOpenInNote is staleOpenInNote for a reader that has to tell the direction's annotation
+// apart from the deciding rule's sentence in a stored note (appendNote joins them with "; "):
+// internal/domain/ledger keeps it on a record at a partner venue whose rule sentence it replaces
+// (M11 API-1c, K-39).
+const StaleOpenInNote = staleOpenInNote
+
 // resolveDirection decides whether this tap is a check-IN or check-OUT by TOGGLING
 // against the person's last OPEN check-in (Input.LastOpenIn) — the §5/M4-04 rule.
 // It returns the direction and an optional note to append.

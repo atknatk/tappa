@@ -234,7 +234,8 @@ func fillAnomaliesView(v *pages.AnomaliesView, s ledger.AnomalyScreen) {
 		DistanceOnlyLine: outOfLine(t.DistanceOnly, t.Judged, "verified by GPS alone"),
 
 		OutsideVenue:              t.OutsideVenue,
-		OutsideVenueLine:          outOfLine(t.OutsideVenue, t.Answerable, "read outside the venue"),
+		OutsideVenueLine:          outOfLine(t.OutsideVenue, t.AnswerableOwn, "read outside the venue"),
+		PartnerLine:               partnerLine(t.Partner),
 		OutsideVenueOnNetworkLine: onNetworkLine(t.OutsideVenueOnNetwork, t.OutsideVenue),
 
 		CounterGaps:     t.CounterGaps,
@@ -342,7 +343,7 @@ func fillAnomaliesView(v *pages.AnomaliesView, s ledger.AnomalyScreen) {
 	v.Policies = make([]pages.AnomalyPolicyView, 0, len(s.Policies))
 	for _, s := range s.Policies {
 		v.Policies = append(v.Policies, pages.AnomalyPolicyView{
-			SID:     ruleName(s.SID),
+			SID:     policyBucketName(s),
 			Layer:   s.Layer,
 			Records: plural(s.Records, "record", "records"),
 		})
@@ -514,4 +515,25 @@ func parseAnomalyFilter(r *http.Request) ledger.ReportFilter {
 		f.Day = d
 	}
 	return f
+}
+
+// partnerLine says what the figures above do with the records taken at a partner business's venue
+// (M11 API-1c, K-39), "" when there are none -- so a business in no holding renders as before.
+func partnerLine(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	what := plural(n, "record was", "records were")
+	return what + " taken at a partner business's venue. They are counted in the record total, " +
+		"the counter-gap and other-venue figures, and left out of every evidence figure (judged, " +
+		"GPS alone, outside the venue): that evidence is the partner's, and it is not described here."
+}
+
+// policyBucketName names one row of the rule breakdown; the partner bucket says what it is
+// without naming the rules inside it (K-39).
+func policyBucketName(r ledger.AnomalyPolicyRule) string {
+	if r.Partner {
+		return "At a partner business's venue (rules not shown)"
+	}
+	return ruleName(r.SID)
 }

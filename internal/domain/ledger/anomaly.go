@@ -174,6 +174,14 @@ type AnomalyTotals struct {
 	// CounterGaps is records whose plaque counter jumped by more than one -- the only
 	// live trace of somebody collecting tap URLs (A1 / Q21).
 	CounterGaps int
+	// Partner is records taken at a holding PEER's venue (M11 API-1c). They are in Records and
+	// in the non-evidence figures (CounterGaps -- K-1i --, OtherVenue, Unanswerable), and OUT of
+	// every evidence figure (Judged, DistanceOnly, OutsideVenue, OutsideVenueOnNetwork): those
+	// would describe the peer's network and coordinate (K-39; the second review's ORTA-A).
+	Partner int
+	// AnswerableOwn is Answerable less the partner records that carry a snapshot: the base
+	// OutsideVenue is out of, now that it counts the business's own venues only.
+	AnswerableOwn int
 	// OtherVenue is records taken at a venue other than the person's own. §5 treats
 	// moving down the chain as ordinary; the number is here because the ABSENCE of it
 	// is half of the card's Y-D signal, and because a change in it is worth seeing.
@@ -298,7 +306,11 @@ type MaskedOpenTally struct {
 type AnomalyPolicyRule struct {
 	// SID is the rule's stable id (M3-07), or "" for a record with no policy
 	// decision at all -- everything written before M3-07, and every manager-typed row.
+	// "" too for the Partner bucket.
 	SID string
+	// Partner is the one bucket of every record at a holding peer's venue, whatever rule
+	// decided it (M11 API-1c, K-39: the rule's name says what the peer's evidence showed).
+	Partner bool
 	// Layer is guardrail / baseline / tenant, or "" with SID.
 	Layer   string
 	Records int
@@ -408,11 +420,13 @@ func (r *Reader) Anomalies(ctx context.Context, tenantID uuid.UUID, f ReportFilt
 			// second `count(*) FILTER (WHERE policy_context IS NOT NULL)` beside the
 			// one that produces Unanswerable would be two representations of one split.
 			Answerable:            int(signals.Records) - int(signals.Unanswerable),
+			AnswerableOwn:         int(signals.Records) - int(signals.Unanswerable) - int(signals.PartnerAnswerable),
 			DistanceOnly:          int(signals.DistanceOnly),
 			OutsideVenue:          int(signals.OutsideVenue),
 			OutsideVenueOnNetwork: int(signals.OutsideVenueOnNetwork),
 			CounterGaps:           int(signals.CounterGaps),
 			OtherVenue:            int(signals.OtherVenue),
+			Partner:               int(signals.PartnerRecords),
 			Training:              int(signals.Training),
 			ManagerTyped:          int(signals.ManagerTyped),
 		}
@@ -642,12 +656,26 @@ func (r *Reader) Anomalies(ctx context.Context, tenantID uuid.UUID, f ReportFilt
 		}
 		rules, body.MorePolicies = trimAnomalyRows(rules)
 		body.Policies = make([]AnomalyPolicyRule, 0, len(rules))
+		partner := -1
 		for _, s := range rules {
+			if s.Partner {
+				// M11 API-1c (K-39): every rule that decided a row at a peer's venue folds into
+				// one bucket with no name -- the name would say what the peer's evidence showed.
+				if partner < 0 {
+					partner = len(body.Policies)
+					body.Policies = append(body.Policies, AnomalyPolicyRule{Partner: true})
+				}
+				body.Policies[partner].Records += int(s.Records)
+				continue
+			}
 			body.Policies = append(body.Policies, AnomalyPolicyRule{
 				SID:     deref(s.MatchedSid),
 				Layer:   deref(s.PolicyLayer),
 				Records: int(s.Records),
 			})
+		}
+		if partner >= 0 {
+			sort.SliceStable(body.Policies, func(i, j int) bool { return body.Policies[i].Records > body.Policies[j].Records })
 		}
 
 		body.Queried = true

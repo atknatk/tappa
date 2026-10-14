@@ -78,8 +78,8 @@ func TestHoldingPanel_PartnerViewsSayTheOutcomeNeverTheReason(t *testing.T) {
 		km, kmStaff, canary+" refusal", p.tenantID, kfVenue, kfLost)
 	// KF's own employee at KM's venue, with evidence signs KF's panel must not print.
 	exec(`INSERT INTO transactions (tenant_id, employee_id, occurred_at, verdict, channel, type, sun_valid, ctr, ip_match, gps_match, trust,
-	                                note, site_tenant_id, site_location_id, site_tag_uid)
-	      VALUES ($1, $2, $3, 'ok', 'nfc', 'in', true, 1000, false, true, 50, $4, $5, $6, $7)`,
+	                                note, policy_layer, matched_sid, site_tenant_id, site_location_id, site_tag_uid)
+	      VALUES ($1, $2, $3, 'ok', 'nfc', 'in', true, 1000, false, true, 50, $4, 'guardrail', 'base:gps-only-allow', $5, $6, $7)`,
 		p.tenantID, kfStaff, day.Add(time.Hour), "verified via GPS only — no network proof of place", km, kmVenue, kmPlaque)
 
 	page := func(path string) string {

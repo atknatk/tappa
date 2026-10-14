@@ -292,6 +292,9 @@ type Record struct {
 	// SiteLocationID is the peer's venue of such a row, nil for every other (and for a refusal on
 	// a peer's plaque that hangs on no wall).
 	SiteLocationID *uuid.UUID
+	// matchedSid is the rule that decided -- read for a row at a partner venue only, to tell an
+	// evidence sentence from any other (evidenceSids). Unexported: never rendered.
+	matchedSid string
 }
 
 // Option is one entry of a filter's dropdown.
@@ -717,6 +720,7 @@ func record(row store.ListPanelTransactionsRow) Record {
 		EmployeeName:   deref(row.EmployeeName),
 	}
 	atSite(&rec, row.SiteLocationID, row.SiteTagUid)
+	rec.matchedSid = deref(row.MatchedSid)
 	return rec
 }
 

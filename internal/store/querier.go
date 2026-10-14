@@ -605,6 +605,14 @@ type Querier interface {
 	// evidence is real evidence, so excluding it from a signal count would hide a
 	// genuine anomaly behind a new starter. They are excluded from ONE thing only -- the
 	// open check-in list -- for the reason the M6-11 card gives.
+	// 🔴 M11 API-1c (the second review's ORTA-A, K-39): the EVIDENCE figures -- judged (the base of
+	// distance_only), distance_only, outside_venue and outside_venue_on_network -- count the business's
+	// OWN venues only (site_tenant_id IS NULL): a row at a holding peer's venue was judged against the
+	// PEER's network and coordinate, which this screen does not describe even as a count. Those rows
+	// are counted apart (partner_records, partner_answerable -- the second the share of the snapshot
+	// base that is a partner's), so a figure out of a base never mixes the two. The non-evidence figures
+	// (counter_gaps -- K-1i hands the employer the gap --, other_venue, training, manager_typed,
+	// unanswerable) count every row. The inventory is TestEvidenceReaders_EveryOneIsClassified.
 	CountAnomalySignals(ctx context.Context, arg CountAnomalySignalsParams) (CountAnomalySignalsRow, error)
 	// What still points at this department. Two keys rather than the venue's four:
 	// employees_department_fk and transactions_department_fk, both ON DELETE RESTRICT.
@@ -2857,6 +2865,11 @@ type Querier interface {
 	// allows a record with no policy decision at all (everything written before M3-07,
 	// and every manager-typed row), and folding those into another bucket would make the
 	// column sum disagree with the record count above it.
+	// M11 API-1c (ORTA-A, K-39): a row at a holding peer's venue is marked (partner) and the reader
+	// folds every such group into ONE bucket with no sid and no layer (ledger's Anomalies) -- which rule
+	// decided it (gps-only-allow, no-evidence-review, the cross-tenant QR guardrail ...) says what the
+	// peer's network and coordinate showed. The fold is in Go because sqlc v1.28 types every SQL
+	// spelling of "the sid unless partner" as bool or interface{} (measured: CASE, NULLIF).
 	ListAnomalyPolicySids(ctx context.Context, arg ListAnomalyPolicySidsParams) ([]ListAnomalyPolicySidsRow, error)
 	// The same window split by the venue whose plaque was touched.
 	//
@@ -2925,7 +2938,9 @@ type Querier interface {
 	// TAKEN AT A PEER'S VENUE (ADR 0027 §4, §9 -- one of the employer's nine readers). Such a row's
 	// location_id and tag_uid are NULL (K-30), so the join below finds no name for it; the reader
 	// names it from holding_site_locations (internal/domain/ledger's siteVenues), the one way into
-	// the peer's venue list. Ids only -- no evidence column is added (K-39).
+	// the peer's venue list. Ids only -- no evidence column is added (K-39). matched_sid is read for
+	// the same rows: it names the rule whose sentence (note) describes the peer's evidence, which the
+	// reader replaces for such a row (internal/domain/ledger's evidenceSids); it is not rendered.
 	ListFlaggedForReview(ctx context.Context, arg ListFlaggedForReviewParams) ([]ListFlaggedForReviewRow, error)
 	// The resets of one administrator that could still be spent RIGHT NOW: not consumed,
 	// not retired, not expired.
@@ -3438,7 +3453,9 @@ type Querier interface {
 	// TAKEN AT A PEER'S VENUE (ADR 0027 §4, §9 -- one of the employer's nine readers). Such a row's
 	// location_id and tag_uid are NULL (K-30), so the join below finds no name for it; the reader
 	// names it from holding_site_locations (internal/domain/ledger's siteVenues), the one way into
-	// the peer's venue list. Ids only -- no evidence column is added (K-39).
+	// the peer's venue list. Ids only -- no evidence column is added (K-39). matched_sid is read for
+	// the same rows: it names the rule whose sentence (note) describes the peer's evidence, which the
+	// reader replaces for such a row (internal/domain/ledger's evidenceSids); it is not rendered.
 	ListPanelTransactions(ctx context.Context, arg ListPanelTransactionsParams) ([]ListPanelTransactionsRow, error)
 	// The invites of one employee that are still usable RIGHT NOW: not consumed and
 	// not expired. Phase B reads this for the "this employee is already active --

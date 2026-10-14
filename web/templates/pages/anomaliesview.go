@@ -142,6 +142,10 @@ type AnomalyTotalsView struct {
 	Training         int
 	ManagerTypedLine string
 	ManagerTyped     int
+
+	// PartnerLine is the sentence for the records taken at a partner business's venue (M11
+	// API-1c, K-39), "" for none -- the paragraph is then not rendered.
+	PartnerLine string
 }
 
 // AnomalyPersonView is one employee's row. Only people with a non-zero signal reach it.

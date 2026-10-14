@@ -102,25 +102,33 @@
 -- evidence is real evidence, so excluding it from a signal count would hide a
 -- genuine anomaly behind a new starter. They are excluded from ONE thing only -- the
 -- open check-in list -- for the reason the M6-11 card gives.
+-- 🔴 M11 API-1c (the second review's ORTA-A, K-39): the EVIDENCE figures -- judged (the base of
+-- distance_only), distance_only, outside_venue and outside_venue_on_network -- count the business's
+-- OWN venues only (site_tenant_id IS NULL): a row at a holding peer's venue was judged against the
+-- PEER's network and coordinate, which this screen does not describe even as a count. Those rows
+-- are counted apart (partner_records, partner_answerable -- the second the share of the snapshot
+-- base that is a partner's), so a figure out of a base never mixes the two. The non-evidence figures
+-- (counter_gaps -- K-1i hands the employer the gap --, other_venue, training, manager_typed,
+-- unanswerable) count every row. The inventory is TestEvidenceReaders_EveryOneIsClassified.
 SELECT
     count(*)                                                       AS records,
     count(*) FILTER (
-        WHERE t.ip_match IS NOT NULL OR t.gps_match IS NOT NULL
+        WHERE (t.ip_match IS NOT NULL OR t.gps_match IS NOT NULL) AND t.site_tenant_id IS NULL
     )                                                              AS judged,
     count(*) FILTER (WHERE t.policy_context IS NULL)               AS unanswerable,
     -- Verified by distance alone: a reading inside the venue's radius, with no
     -- address match to corroborate it.
-    count(*) FILTER (WHERE t.gps_match AND NOT t.ip_match)         AS distance_only,
+    count(*) FILTER (WHERE t.gps_match AND NOT t.ip_match AND t.site_tenant_id IS NULL) AS distance_only,
     -- A reading was taken and it was OUTSIDE the venue. This is NOT "the address
     -- matched but the distance did not" -- see internal/domain/tap's gpsFacts, where
     -- the flag is set from the distance alone.
     count(*) FILTER (
-        WHERE t.policy_context ->> 'tap:gpsConflict' = 'true'
+        WHERE t.policy_context ->> 'tap:gpsConflict' = 'true' AND t.site_tenant_id IS NULL
     )                                                              AS outside_venue,
     -- The subset of those that ALSO matched the venue's registered address range,
     -- which is the shape a device left behind on the premises would produce.
     count(*) FILTER (
-        WHERE t.policy_context ->> 'tap:gpsConflict' = 'true' AND t.ip_match
+        WHERE t.policy_context ->> 'tap:gpsConflict' = 'true' AND t.ip_match AND t.site_tenant_id IS NULL
     )                                                              AS outside_venue_on_network,
     count(*) FILTER (
         WHERE CASE
@@ -133,7 +141,11 @@ SELECT
         WHERE t.policy_context ->> 'employee:crossLocation' = 'true'
     )                                                              AS other_venue,
     count(*) FILTER (WHERE t.practice)                             AS training,
-    count(*) FILTER (WHERE t.channel = 'manual')                   AS manager_typed
+    count(*) FILTER (WHERE t.channel = 'manual')                   AS manager_typed,
+    count(*) FILTER (WHERE t.site_tenant_id IS NOT NULL)            AS partner_records,
+    count(*) FILTER (
+        WHERE t.site_tenant_id IS NOT NULL AND t.policy_context IS NOT NULL
+    )                                                              AS partner_answerable
 FROM transactions t
 WHERE t.tenant_id = @tenant_id
   AND t.occurred_at >= @from_at
@@ -154,9 +166,9 @@ SELECT
     t.employee_id                                                  AS employee_id,
     e.full_name                                                    AS employee_name,
     count(*)                                                       AS records,
-    count(*) FILTER (WHERE t.gps_match AND NOT t.ip_match)         AS distance_only,
+    count(*) FILTER (WHERE t.gps_match AND NOT t.ip_match AND t.site_tenant_id IS NULL) AS distance_only,
     count(*) FILTER (
-        WHERE t.policy_context ->> 'tap:gpsConflict' = 'true'
+        WHERE t.policy_context ->> 'tap:gpsConflict' = 'true' AND t.site_tenant_id IS NULL
     )                                                              AS outside_venue,
     count(*) FILTER (
         WHERE CASE
@@ -177,8 +189,8 @@ WHERE t.tenant_id = @tenant_id
   AND t.occurred_at < @to_at
   AND t.employee_id IS NOT NULL
 GROUP BY t.employee_id, e.full_name
-HAVING count(*) FILTER (WHERE t.gps_match AND NOT t.ip_match) > 0
-    OR count(*) FILTER (WHERE t.policy_context ->> 'tap:gpsConflict' = 'true') > 0
+HAVING count(*) FILTER (WHERE t.gps_match AND NOT t.ip_match AND t.site_tenant_id IS NULL) > 0
+    OR count(*) FILTER (WHERE t.policy_context ->> 'tap:gpsConflict' = 'true' AND t.site_tenant_id IS NULL) > 0
     OR count(*) FILTER (
            WHERE CASE
                      WHEN jsonb_typeof(t.policy_context -> 'tap:ctrGap') = 'number'
@@ -195,8 +207,8 @@ ORDER BY
                   ELSE 0
               END > 0
     ) DESC,
-    count(*) FILTER (WHERE t.policy_context ->> 'tap:gpsConflict' = 'true') DESC,
-    count(*) FILTER (WHERE t.gps_match AND NOT t.ip_match) DESC,
+    count(*) FILTER (WHERE t.policy_context ->> 'tap:gpsConflict' = 'true' AND t.site_tenant_id IS NULL) DESC,
+    count(*) FILTER (WHERE t.gps_match AND NOT t.ip_match AND t.site_tenant_id IS NULL) DESC,
     e.full_name,
     t.employee_id
 LIMIT @row_limit;
@@ -309,15 +321,21 @@ LIMIT @row_limit;
 -- allows a record with no policy decision at all (everything written before M3-07,
 -- and every manager-typed row), and folding those into another bucket would make the
 -- column sum disagree with the record count above it.
+-- M11 API-1c (ORTA-A, K-39): a row at a holding peer's venue is marked (partner) and the reader
+-- folds every such group into ONE bucket with no sid and no layer (ledger's Anomalies) -- which rule
+-- decided it (gps-only-allow, no-evidence-review, the cross-tenant QR guardrail ...) says what the
+-- peer's network and coordinate showed. The fold is in Go because sqlc v1.28 types every SQL
+-- spelling of "the sid unless partner" as bool or interface{} (measured: CASE, NULLIF).
 SELECT
     t.matched_sid                                                  AS matched_sid,
     t.policy_layer                                                 AS policy_layer,
+    (t.site_tenant_id IS NOT NULL)::boolean                        AS partner,
     count(*)                                                       AS records
 FROM transactions t
 WHERE t.tenant_id = @tenant_id
   AND t.occurred_at >= @from_at
   AND t.occurred_at < @to_at
-GROUP BY t.matched_sid, t.policy_layer
+GROUP BY t.matched_sid, t.policy_layer, (t.site_tenant_id IS NOT NULL)
 ORDER BY count(*) DESC, t.matched_sid NULLS FIRST
 LIMIT @row_limit;
 
