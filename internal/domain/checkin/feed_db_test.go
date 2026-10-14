@@ -160,3 +160,41 @@ func TestFeedCounter_RowsThatAreNoEventAreWrittenPlainly(t *testing.T) {
 		t.Errorf("a flag waited %v, was retried %d time(s) and is %d event(s); want no wait, no retry, no event", took, between, w.events(res.TransactionID))
 	}
 }
+
+// TestFeedDirection_NightShiftInThenOutAcrossMidnight is the user's decision K-40 on the tap path
+// (ADR 0028 §4; CLAUDE.md §5's Rusty Bar rule): KF's employee checks in at 18:00 and taps again at
+// 02:00 the next day. Tappa computes the second as OUT against the last OPEN check-in, never the
+// calendar day, and the feed carries exactly that: the 18:00 event 'in', the 02:00 event 'out'.
+// The 18:00 row is written as tappa_app in KF's context (Record cannot move the database's clock);
+// the 02:00 tap goes through Record with the service's clock set to 02:00.
+func TestFeedDirection_NightShiftInThenOutAcrossMidnight(t *testing.T) {
+	w := newHoldingWorld(t)
+	day := time.Now().UTC().Truncate(24 * time.Hour)
+	checkIn, checkOut := day.Add(-6*time.Hour), day.Add(2*time.Hour) // 18:00, then 02:00 the next day
+	var inID uuid.UUID
+	if err := w.data.WithTenant(w.ctx, w.kf, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `INSERT INTO transactions (tenant_id, employee_id, location_id, tag_uid, occurred_at, created_at, verdict, channel, type, sun_valid, ctr)
+		                         VALUES ($1, $2, $3, $4, $5, $5, 'ok', 'nfc', 'in', true, 100) RETURNING id`,
+			w.kf, w.kfEmp, w.kfVenue, w.kfTag, checkIn).Scan(&inID)
+	}); err != nil {
+		t.Fatalf("the 18:00 check-in: %v", err)
+	}
+	w.svc.now = func() time.Time { return checkOut }
+	res, err := w.svc.Record(w.ctx, w.nfc(w.kf, w.kfEmp, w.kfTag, w.kf, 101, w.kfOnNet))
+	w.svc.now = nil
+	if err != nil {
+		t.Fatalf("Record at 02:00: %v", err)
+	}
+	if r := w.record(res.TransactionID); r.verdict != "ok" || str(r.kind) != "out" {
+		t.Fatalf("PREMISE: the 02:00 tap is %s/%s, want ok/out", r.verdict, str(r.kind))
+	}
+	for id, want := range map[uuid.UUID]string{inID: "in", res.TransactionID: "out"} {
+		var dir string
+		if err := w.owner.QueryRow(w.ctx, `SELECT direction FROM punch_events WHERE punch_id = $1 AND tenant_id = $2`, id, w.kf).Scan(&dir); err != nil {
+			t.Fatalf("the event of %v: %v", id, err)
+		}
+		if dir != want {
+			t.Errorf("the event of the %s tap says %q", want, dir)
+		}
+	}
+}

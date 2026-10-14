@@ -2,7 +2,7 @@
 -- projection of a transactions row; the DATABASE writes it (00049's two triggers), into the TARGET
 -- tenant's feed, numbered by that tenant's own counter row. This file is the schema half: the four
 -- tables, tappa_app's reach on them, the counter rows of every tenant and the trigger that opens a
--- new tenant's counter row. The writers and the backfill are 00049's.
+-- new tenant's counter row. The writers are 00049's, the history 00050's.
 --
 -- NORMATIVE SOURCES: docs/adr/0028-dis-api-anahtar-akis-webhook.md §1 (the `arwd` rule: REVOKE ALL,
 -- then column-listed grants; UPDATE always with a column list; REVOKE ALL ON FUNCTION FROM PUBLIC;
@@ -129,6 +129,9 @@ CREATE TABLE feed_counters (
 -- plaque's uid. No coordinate, address, distance, note, policy context, verdict or e-mail (ADR 0028
 -- §6 "Yük"; FeedCatalog pins the column list). version / status are v1's only values (K-5).
 --   punch_time   the transactions row's occurred_at -- the instant the phone declared
+--   direction    'in' or 'out': the direction Tappa computed at the EMPLOYER (transactions.type of
+--                the punch -- an approval's, the approved row's), the same in both rows of a holding
+--                punch (the user's decision K-40, 2026-10-14)
 --   recorded_at  the server's instant the punch entered the feed: the trigger's now() (a
 --                single-tenant row's own INSERT; an approved flag's approval), never a column a
 --                caller writes
@@ -143,6 +146,7 @@ CREATE TABLE punch_events (
     punch_time       timestamptz   NOT NULL,
     recorded_at      timestamptz   NOT NULL,
     channel          text          NOT NULL,
+    direction        text          NOT NULL,
     employee_id      uuid          NOT NULL,
     employee_ref     text,
     employee_code    text,
@@ -162,6 +166,7 @@ CREATE TABLE punch_events (
     CONSTRAINT punch_events_location_is_another_tenant CHECK ((roles = '{location}'::text[]) = (punch_tenant_id <> tenant_id)),
     CONSTRAINT punch_events_v1 CHECK (version = 1 AND status = 'valid'),
     CONSTRAINT punch_events_channel CHECK (channel IN ('nfc', 'qr')),
+    CONSTRAINT punch_events_direction CHECK (direction IN ('in', 'out')),
     -- the employer's row: an append-only table that names it cannot point at nothing
     CONSTRAINT punch_events_punch_fk FOREIGN KEY (punch_id, punch_tenant_id)
         REFERENCES transactions (id, tenant_id) ON DELETE RESTRICT
@@ -262,7 +267,7 @@ REVOKE ALL ON webhook_deliveries FROM tappa_app;
 -- The counter and the events: READ only -- the triggers are the one writer.
 GRANT SELECT (tenant_id, last_seq) ON feed_counters TO tappa_app;
 GRANT SELECT (tenant_id, seq, punch_id, punch_tenant_id, roles, version, status, punch_time, recorded_at, channel,
-              employee_id, employee_ref, employee_code, employee_company, location_id, location_ref, location_name,
+              direction, employee_id, employee_ref, employee_code, employee_company, location_id, location_ref, location_name,
               location_company, tag_uid, created_at)
     ON punch_events TO tappa_app;
 -- The endpoint: the panel creates it (the id is chosen first -- it is the sealed key's AAD), and

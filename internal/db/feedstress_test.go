@@ -668,3 +668,111 @@ func TestFeedMutant_PreLockWithoutMakeExistDeadlocks(t *testing.T) {
 		t.Errorf("CONTROL: the pre-lock with make-exist, rows missing: %d deadlocks", d)
 	}
 }
+
+// ------------------------------------------------- one counter set per transaction (D-1) --
+
+// feedTwoRowBurst starts writers transactions at once, each TWO event-writing rows -- an own tap
+// of its tenant, then a holding tap of the peer on that tenant's plaque (A: own A, then B@A; B:
+// own B, then A@B) -- the raw shape the API-2 review measured deadlocking (175 of 240). It returns
+// the deadlocks, the refusals with SQLSTATE TF001 and the other errors.
+func feedTwoRowBurst(t *testing.T, ctx context.Context, writers []*feedWriter, design feedDesign, tenants [4]uuid.UUID) (deadlocks, refused int, other []error) {
+	t.Helper()
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	pairs := [][2]uuid.UUID{{tenants[0], tenants[1]}, {tenants[1], tenants[0]}, {tenants[2], tenants[3]}, {tenants[3], tenants[2]}}
+	for i, w := range writers {
+		p := pairs[i%len(pairs)]
+		wg.Add(1)
+		go func(w *feedWriter) {
+			defer wg.Done()
+			<-start
+			err := func() error {
+				tx, err := w.c.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+				if err != nil {
+					return err
+				}
+				defer func() { _ = tx.Rollback(context.Background()) }()
+				if _, err := tx.Exec(ctx, `SET LOCAL lock_timeout = '20s'; SET LOCAL deadlock_timeout = '100ms'`); err != nil {
+					return err
+				}
+				if _, err := design.write(ctx, tx, w, p[0], uuid.Nil); err != nil {
+					return err
+				}
+				time.Sleep(time.Duration(feedRandN(3)) * time.Millisecond)
+				if _, err := design.write(ctx, tx, w, p[1], p[0]); err != nil {
+					return err
+				}
+				return tx.Commit(ctx)
+			}()
+			mu.Lock()
+			defer mu.Unlock()
+			switch code, _ := opCode(err); {
+			case err == nil:
+			case code == sqlstateDeadlockDetected:
+				deadlocks++
+			case code == "TF001":
+				refused++
+			default:
+				other = append(other, err)
+			}
+		}(w)
+	}
+	close(start)
+	wg.Wait()
+	return deadlocks, refused, other
+}
+
+// TestFeed_TwoEventRowsInOneTransactionAreRefusedNotDeadlocked is the API-2 review's D-1 on the
+// shipped triggers: ADR 0028 §5's counter order rests on a transaction locking ONE counter set,
+// and 00049 now enforces it -- the second row of a raw two-row transaction that reaches for a
+// counter its first row did not lock is refused at once with SQLSTATE TF001, before any lock. 20
+// rounds of 12 writers in the review's shape: 0 deadlocks, every transaction refused, nothing
+// written. CONTROL (the review's measurement without the check): the lab's counter logic with no
+// such check, the same shape -- deadlocks (TestFeedMutant_TwoEventRowsWithoutTheCheckDeadlock).
+func TestFeed_TwoEventRowsInOneTransactionAreRefusedNotDeadlocked(t *testing.T) {
+	f := holdingLiveFixture(t)
+	writers := feedWriters(t, f, 12)
+	w := feedRealWorldLive(t, f)
+	deadlocks, refused := 0, 0
+	for round := 0; round < 20; round++ {
+		d, r, other := feedTwoRowBurst(t, f.ctx, writers, feedRealDesign(w), w.tenants)
+		deadlocks += d
+		refused += r
+		for _, e := range other {
+			t.Errorf("round %d: %v", round, e)
+		}
+	}
+	t.Logf("shipped triggers, two event rows a transaction: 240 transactions, %d refused (TF001), %d deadlocks", refused, deadlocks)
+	if deadlocks != 0 || refused != 240 {
+		t.Errorf("%d deadlocks and %d TF001 refusals of 240, want 0 and 240", deadlocks, refused)
+	}
+	if n := opInt(t, f.ctx, f.owner, `SELECT count(*) FROM transactions WHERE tenant_id = ANY($1)`, w.tenants[:]); n != 0 {
+		t.Errorf("%d rows written by refused transactions", n)
+	}
+}
+
+// TestFeedMutant_TwoEventRowsWithoutTheCheckDeadlock: the lab's counter logic -- the shipped
+// logic without the one-counter-set check -- in the review's two-row shape deadlocks. So the shape
+// is the deadlock class the check closes, and the harness sees it.
+func TestFeedMutant_TwoEventRowsWithoutTheCheckDeadlock(t *testing.T) {
+	f := holdingLiveFixture(t)
+	writers := feedWriters(t, f, 12)
+	l := newFeedLab(t, f, feedLabControl(true, true))
+	deadlocks := 0
+	for round := 0; round < 20; round++ {
+		tenants := feedLabTenants()
+		if _, err := f.owner.Exec(f.ctx, fmt.Sprintf(`INSERT INTO %s.counters SELECT unnest($1::uuid[]), 0`, l.schema), tenants[:]); err != nil {
+			t.Fatal(err)
+		}
+		d, _, other := feedTwoRowBurst(t, f.ctx, writers, l.design(false), tenants)
+		deadlocks += d
+		for _, e := range other {
+			t.Errorf("round %d: %v", round, e)
+		}
+	}
+	t.Logf("lab, no check, two event rows a transaction: %d deadlocks in 240", deadlocks)
+	if deadlocks == 0 {
+		t.Error("two event rows a transaction met no deadlock without the check -- the shape is not the class")
+	}
+}

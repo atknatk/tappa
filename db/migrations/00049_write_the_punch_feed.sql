@@ -126,14 +126,14 @@ LOCK TABLE public.transactions, public.transaction_reviews IN SHARE ROW EXCLUSIV
 -- tappa_feedwriter (NOBYPASSRLS: every read below also meets the table's policy, in the row's own
 -- tenant): the approved row's shape; the snapshot's employee, venue and company code; the gate
 -- (K-22) and the active endpoint -- never its address or key; the two rows it writes.
-GRANT SELECT (id, tenant_id, employee_id, location_id, tag_uid, occurred_at, channel, verdict, practice, site_tenant_id)
+GRANT SELECT (id, tenant_id, employee_id, location_id, tag_uid, type, occurred_at, channel, verdict, practice, site_tenant_id)
     ON transactions TO tappa_feedwriter;
 GRANT SELECT (id, tenant_id, external_ref, employee_code) ON employees TO tappa_feedwriter;
 GRANT SELECT (id, tenant_id, external_ref, name) ON locations TO tappa_feedwriter;
 GRANT SELECT (id, api_code, api_enabled_at) ON tenants TO tappa_feedwriter;
 GRANT SELECT (id, tenant_id, active) ON webhook_endpoints TO tappa_feedwriter;
-GRANT INSERT (tenant_id, seq, punch_id, punch_tenant_id, roles, punch_time, recorded_at, channel, employee_id,
-              employee_ref, employee_code, employee_company, location_id, location_ref, location_name,
+GRANT INSERT (tenant_id, seq, punch_id, punch_tenant_id, roles, punch_time, recorded_at, channel, direction,
+              employee_id, employee_ref, employee_code, employee_company, location_id, location_ref, location_name,
               location_company, tag_uid)
     ON punch_events TO tappa_feedwriter;
 GRANT INSERT (tenant_id, endpoint_id, punch_event_seq) ON webhook_deliveries TO tappa_feedwriter;
@@ -148,8 +148,8 @@ GRANT SELECT (id, tenant_id, active) ON webhook_endpoints TO tappa_holdingdefine
 GRANT SELECT (tenant_id, last_seq) ON feed_counters TO tappa_holdingdefiner;
 GRANT INSERT (tenant_id, last_seq) ON feed_counters TO tappa_holdingdefiner;
 GRANT UPDATE (last_seq) ON feed_counters TO tappa_holdingdefiner;
-GRANT INSERT (tenant_id, seq, punch_id, punch_tenant_id, roles, punch_time, recorded_at, channel, employee_id,
-              employee_ref, employee_code, employee_company, location_id, location_ref, location_name,
+GRANT INSERT (tenant_id, seq, punch_id, punch_tenant_id, roles, punch_time, recorded_at, channel, direction,
+              employee_id, employee_ref, employee_code, employee_company, location_id, location_ref, location_name,
               location_company, tag_uid)
     ON punch_events TO tappa_holdingdefiner;
 GRANT INSERT (tenant_id, endpoint_id, punch_event_seq) ON webhook_deliveries TO tappa_holdingdefiner;
@@ -161,12 +161,17 @@ GRANT INSERT (tenant_id, endpoint_id, punch_event_seq) ON webhook_deliveries TO 
 -- that names a site -- and an approval of one -- is holding_feed's and this body touches neither.
 -- In order:
 --   the entry rule (K-4, K-6) from what the row carries, BEFORE any lock: transactions -- ok on
---      nfc/qr, not practice; reviews -- 'approved' of a flag on nfc/qr, not practice;
+--      nfc/qr, not practice, with a direction; reviews -- 'approved' of a flag on nfc/qr, not
+--      practice, with a direction (K-40: the event carries the direction the employer computed,
+--      transactions.type; the product writes one on every ok and flag row -- tap.Decide -- so a
+--      row without one is a raw writer's or a pre-M4-04 row's, and is not a punch);
 --   the context: NEW.tenant_id must be the transaction's app.tenant_id (asserted: this owner obeys
 --      RLS, so a write into another feed is refused anyway -- the assert names it, and on an
 --      approval it keeps a context-less read from finding "no row" and writing nothing);
 --   the snapshot (K-32) and the gate (K-22: api_enabled_at, an active endpoint) -- read before the
 --      counter, so the counter's lock is held for the writes alone;
+--   one counter set per transaction: a later event-writing row of the same transaction that needs
+--      a counter the first one did not lock is refused (SQLSTATE TF001), before any lock;
 --   the counter raised -- the row locked until commit (ADR 0028 §5) -- the event, the delivery.
 -- recorded_at is now(): the server's instant the punch entered the feed (an approved flag's is
 -- its approval's).
@@ -187,6 +192,7 @@ DECLARE
     v_tag       character(14);
     v_occurred  timestamptz;
     v_channel   text;
+    v_type      text;
     v_verdict   text;
     v_practice  boolean;
     v_site      uuid;
@@ -198,6 +204,8 @@ DECLARE
     v_loc_name  text;
     v_endpoint  uuid;
     v_seq       bigint;
+    v_xact      text;
+    v_held      text;
 BEGIN
     IF TG_WHEN <> 'AFTER' OR TG_LEVEL <> 'ROW' OR TG_OP <> 'INSERT'
        OR TG_RELID NOT IN ('public.transactions'::pg_catalog.regclass, 'public.transaction_reviews'::pg_catalog.regclass) THEN
@@ -209,7 +217,7 @@ BEGIN
         IF NEW.site_tenant_id IS NOT NULL THEN
             RETURN NULL;
         END IF;
-        IF NEW.verdict <> 'ok' OR NEW.channel NOT IN ('nfc', 'qr') OR NEW.practice IS NOT FALSE THEN
+        IF NEW.verdict <> 'ok' OR NEW.channel NOT IN ('nfc', 'qr') OR NEW.practice IS NOT FALSE OR NEW.type IS NULL THEN
             RETURN NULL;
         END IF;
         v_tenant   := NEW.tenant_id;
@@ -219,6 +227,7 @@ BEGIN
         v_tag      := NEW.tag_uid;
         v_occurred := NEW.occurred_at;
         v_channel  := NEW.channel;
+        v_type     := NEW.type;
     ELSE
         IF NEW.outcome <> 'approved' THEN
             RETURN NULL;
@@ -232,8 +241,8 @@ BEGIN
     END IF;
 
     IF TG_RELID = 'public.transaction_reviews'::pg_catalog.regclass THEN
-        SELECT t.id, t.employee_id, t.location_id, t.tag_uid, t.occurred_at, t.channel, t.verdict, t.practice, t.site_tenant_id
-          INTO v_punch, v_employee, v_location, v_tag, v_occurred, v_channel, v_verdict, v_practice, v_site
+        SELECT t.id, t.employee_id, t.location_id, t.tag_uid, t.type, t.occurred_at, t.channel, t.verdict, t.practice, t.site_tenant_id
+          INTO v_punch, v_employee, v_location, v_tag, v_type, v_occurred, v_channel, v_verdict, v_practice, v_site
           FROM public.transactions AS t
          WHERE t.id = NEW.transaction_id
            AND t.tenant_id = v_tenant;
@@ -246,7 +255,7 @@ BEGIN
         IF v_site IS NOT NULL THEN
             RETURN NULL;
         END IF;
-        IF v_verdict <> 'flag' OR v_channel NOT IN ('nfc', 'qr') OR v_practice IS NOT FALSE THEN
+        IF v_verdict <> 'flag' OR v_channel NOT IN ('nfc', 'qr') OR v_practice IS NOT FALSE OR v_type IS NULL THEN
             RETURN NULL;
         END IF;
     END IF;
@@ -271,15 +280,32 @@ BEGIN
            AND w.active;
     END IF;
 
+    -- ONE COUNTER SET PER TRANSACTION (ADR 0028 §5's lock invariant, made mechanical -- the API-2
+    -- review's D-1): the counter row(s) the transaction's FIRST event locked are the only ones a
+    -- later event of the same transaction may use. A transaction that holds tenant A's counter and
+    -- reaches for B's is the half of a deadlock (measured: two rows in one raw transaction, 175 of
+    -- 240 attempts 40P01) -- refused here, loudly, before the lock. The mark is transaction-local and
+    -- undone with a rolled-back savepoint (checkin's retry).
+    v_xact := pg_catalog.pg_current_xact_id()::text;
+    v_held := pg_catalog.current_setting('tappa.feed_counters', true);
+    IF v_held IS NOT NULL AND pg_catalog.split_part(v_held, ':', 1) = v_xact THEN
+        IF pg_catalog.strpos(v_held, v_tenant::text) = 0 THEN
+            RAISE EXCEPTION 'punch feed: this transaction already wrote an event under another counter; write one event-writing row per transaction (ADR 0028 §5)'
+                USING ERRCODE = 'TF001';
+        END IF;
+    ELSE
+        PERFORM pg_catalog.set_config('tappa.feed_counters', v_xact || ':' || v_tenant::text, true);
+    END IF;
+
     INSERT INTO public.feed_counters AS c (tenant_id, last_seq) VALUES (v_tenant, 1)
     ON CONFLICT (tenant_id) DO UPDATE SET last_seq = c.last_seq + 1
     RETURNING c.last_seq INTO v_seq;
 
     INSERT INTO public.punch_events (tenant_id, seq, punch_id, punch_tenant_id, roles, punch_time, recorded_at, channel,
-                                     employee_id, employee_ref, employee_code, employee_company, location_id, location_ref,
-                                     location_name, location_company, tag_uid)
+                                     direction, employee_id, employee_ref, employee_code, employee_company, location_id,
+                                     location_ref, location_name, location_company, tag_uid)
     VALUES (v_tenant, v_seq, v_punch, v_tenant, '{employer,location}'::text[], v_occurred, pg_catalog.now(), v_channel,
-            v_employee, v_ref, v_emp_code, v_code, v_location, v_loc_ref, v_loc_name, v_code, v_tag);
+            v_type, v_employee, v_ref, v_emp_code, v_code, v_location, v_loc_ref, v_loc_name, v_code, v_tag);
     IF v_endpoint IS NOT NULL THEN
         INSERT INTO public.webhook_deliveries (tenant_id, endpoint_id, punch_event_seq) VALUES (v_tenant, v_endpoint, v_seq);
     END IF;
@@ -309,7 +335,7 @@ CREATE TRIGGER transaction_reviews_punch_feed
 -- transactions arm from NEW, the approval arm from the decided row):
 --   1. the membership: the transactions arm does not ask (the BEFORE gate's acceptance IS the
 --      peer answer -- ADR 0027 §6); an approval asks holding_peer 'strict_stmt';
---   2. the counters: with the site still a peer, BOTH rows made to exist (`INSERT ... ON CONFLICT DO
+--   2. the counters -- after the one-counter-set check (punch_feed's): with the site still a peer, BOTH rows made to exist (`INSERT ... ON CONFLICT DO
 --      NOTHING`, the smaller tenant id first), then locked in ONE statement `... ORDER BY tenant_id
 --      FOR UPDATE` and counted -- 2, or the function raises (7th round: a missing row was skipped by
 --      FOR UPDATE and the deadlock came back; the "make exist" step closed it). Past the
@@ -317,7 +343,8 @@ CREATE TRIGGER transaction_reviews_punch_feed
 --   3. the employer's event and delivery -- EXACTLY ONCE, whatever the membership; its counterpart
 --      columns (the site venue's id, ref, name and company code) NULL past the membership, the
 --      plaque's uid kept (the employer's own row carries it; the contract keeps tagId filled);
---   4. with the site a peer, the site's event and delivery: the same snapshot, roles {location};
+--   4. with the site a peer, the site's event and delivery: the same snapshot and the same direction
+--      (the employer's -- K-40), roles {location};
 --   5. 00046's projection (K-4-independent; a peer only).
 -- The employer's snapshot of the SITE's venue can be read only here: tappa_feedwriter (NOBYPASSRLS,
 -- the employer's context) cannot see the site's rows -- which is why both targets are this
@@ -365,6 +392,8 @@ DECLARE
     v_loc_name    text;
     v_emp_hook    uuid;
     v_site_hook   uuid;
+    v_xact        text;
+    v_held        text;
 BEGIN
     IF TG_WHEN <> 'AFTER' OR TG_LEVEL <> 'ROW' OR TG_OP <> 'INSERT'
        OR TG_RELID NOT IN ('public.transactions'::pg_catalog.regclass, 'public.transaction_reviews'::pg_catalog.regclass) THEN
@@ -385,7 +414,7 @@ BEGIN
             WHEN NEW.verdict = 'reject' THEN 'refused'
         END;
         -- K-4: an ok tap of a real channel enters the feed; the gate's acceptance is the peer answer.
-        v_event := NEW.verdict = 'ok' AND NEW.channel IN ('nfc', 'qr') AND NEW.practice IS FALSE;
+        v_event := NEW.verdict = 'ok' AND NEW.channel IN ('nfc', 'qr') AND NEW.practice IS FALSE AND NEW.type IS NOT NULL;
         v_peer  := true;
         IF v_outcome IS NULL AND NOT v_event THEN
             -- 'ignored' (a repeat inside 60 s): neither the site nor a feed is told -- and nothing is raised.
@@ -426,7 +455,8 @@ BEGIN
         -- Past the membership the employer's approval stands and its event is written; the site is
         -- told nothing (ADR 0027 §13 item 7).
         v_peer := public.holding_peer(v_employer, v_site, 'strict_stmt') IS TRUE;
-        v_event := NEW.outcome = 'approved' AND v_verdict = 'flag' AND v_channel IN ('nfc', 'qr') AND v_practice IS FALSE;
+        v_event := NEW.outcome = 'approved' AND v_verdict = 'flag' AND v_channel IN ('nfc', 'qr') AND v_practice IS FALSE
+                   AND v_type IS NOT NULL;
         v_outcome := NULL;
         IF v_peer THEN
             v_outcome := CASE NEW.outcome WHEN 'approved' THEN 'approved' WHEN 'rejected' THEN 'rejected' END;
@@ -466,6 +496,21 @@ BEGIN
             SELECT w.id INTO v_emp_hook FROM public.webhook_endpoints AS w WHERE w.tenant_id = v_employer AND w.active;
         END IF;
 
+        -- One counter set per transaction (punch_feed's comment): a later event of the transaction may
+        -- use only the counters its first event locked.
+        v_xact := pg_catalog.pg_current_xact_id()::text;
+        v_held := pg_catalog.current_setting('tappa.feed_counters', true);
+        IF v_held IS NOT NULL AND pg_catalog.split_part(v_held, ':', 1) = v_xact THEN
+            IF pg_catalog.strpos(v_held, v_employer::text) = 0 OR (v_peer AND pg_catalog.strpos(v_held, v_site::text) = 0) THEN
+                RAISE EXCEPTION 'punch feed: this transaction already wrote an event under another counter; write one event-writing row per transaction (ADR 0028 §5)'
+                    USING ERRCODE = 'TF001';
+            END IF;
+        ELSIF v_peer THEN
+            PERFORM pg_catalog.set_config('tappa.feed_counters', v_xact || ':' || v_employer::text || ',' || v_site::text, true);
+        ELSE
+            PERFORM pg_catalog.set_config('tappa.feed_counters', v_xact || ':' || v_employer::text, true);
+        END IF;
+
         -- K-31: the counter rows made to exist, then locked in ONE canonical statement, then counted.
         IF v_peer THEN
             INSERT INTO public.feed_counters (tenant_id, last_seq)
@@ -498,10 +543,10 @@ BEGIN
         ON CONFLICT (tenant_id) DO UPDATE SET last_seq = c.last_seq + 1
         RETURNING c.last_seq INTO v_seq;
         INSERT INTO public.punch_events (tenant_id, seq, punch_id, punch_tenant_id, roles, punch_time, recorded_at, channel,
-                                         employee_id, employee_ref, employee_code, employee_company, location_id, location_ref,
-                                         location_name, location_company, tag_uid)
+                                         direction, employee_id, employee_ref, employee_code, employee_company, location_id,
+                                         location_ref, location_name, location_company, tag_uid)
         VALUES (v_employer, v_seq, v_txid, v_employer, '{employer}'::text[], v_occurred, pg_catalog.now(), v_channel,
-                v_employee, v_ref, v_emp_code, v_code, v_loc_id, v_loc_ref, v_loc_name, v_site_code, v_tag);
+                v_type, v_employee, v_ref, v_emp_code, v_code, v_loc_id, v_loc_ref, v_loc_name, v_site_code, v_tag);
         IF v_emp_hook IS NOT NULL THEN
             INSERT INTO public.webhook_deliveries (tenant_id, endpoint_id, punch_event_seq) VALUES (v_employer, v_emp_hook, v_seq);
         END IF;
@@ -512,10 +557,10 @@ BEGIN
             ON CONFLICT (tenant_id) DO UPDATE SET last_seq = c.last_seq + 1
             RETURNING c.last_seq INTO v_seq;
             INSERT INTO public.punch_events (tenant_id, seq, punch_id, punch_tenant_id, roles, punch_time, recorded_at, channel,
-                                             employee_id, employee_ref, employee_code, employee_company, location_id, location_ref,
-                                             location_name, location_company, tag_uid)
+                                             direction, employee_id, employee_ref, employee_code, employee_company, location_id,
+                                             location_ref, location_name, location_company, tag_uid)
             VALUES (v_site, v_seq, v_txid, v_employer, '{location}'::text[], v_occurred, pg_catalog.now(), v_channel,
-                    v_employee, v_ref, v_emp_code, v_code, v_loc_id, v_loc_ref, v_loc_name, v_site_code, v_tag);
+                    v_type, v_employee, v_ref, v_emp_code, v_code, v_loc_id, v_loc_ref, v_loc_name, v_site_code, v_tag);
             IF v_site_hook IS NOT NULL THEN
                 INSERT INTO public.webhook_deliveries (tenant_id, endpoint_id, punch_event_seq) VALUES (v_site, v_site_hook, v_seq);
             END IF;
@@ -727,8 +772,8 @@ $$;
 -- +goose StatementEnd
 
 REVOKE INSERT (tenant_id, endpoint_id, punch_event_seq) ON webhook_deliveries FROM tappa_holdingdefiner;
-REVOKE INSERT (tenant_id, seq, punch_id, punch_tenant_id, roles, punch_time, recorded_at, channel, employee_id,
-               employee_ref, employee_code, employee_company, location_id, location_ref, location_name,
+REVOKE INSERT (tenant_id, seq, punch_id, punch_tenant_id, roles, punch_time, recorded_at, channel, direction,
+               employee_id, employee_ref, employee_code, employee_company, location_id, location_ref, location_name,
                location_company, tag_uid)
     ON punch_events FROM tappa_holdingdefiner;
 REVOKE UPDATE (last_seq) ON feed_counters FROM tappa_holdingdefiner;
@@ -739,13 +784,13 @@ REVOKE SELECT (api_enabled_at) ON tenants FROM tappa_holdingdefiner;
 REVOKE SELECT (verdict, practice) ON transactions FROM tappa_holdingdefiner;
 
 REVOKE INSERT (tenant_id, endpoint_id, punch_event_seq) ON webhook_deliveries FROM tappa_feedwriter;
-REVOKE INSERT (tenant_id, seq, punch_id, punch_tenant_id, roles, punch_time, recorded_at, channel, employee_id,
-               employee_ref, employee_code, employee_company, location_id, location_ref, location_name,
+REVOKE INSERT (tenant_id, seq, punch_id, punch_tenant_id, roles, punch_time, recorded_at, channel, direction,
+               employee_id, employee_ref, employee_code, employee_company, location_id, location_ref, location_name,
                location_company, tag_uid)
     ON punch_events FROM tappa_feedwriter;
 REVOKE SELECT (id, tenant_id, active) ON webhook_endpoints FROM tappa_feedwriter;
 REVOKE SELECT (id, api_code, api_enabled_at) ON tenants FROM tappa_feedwriter;
 REVOKE SELECT (id, tenant_id, external_ref, name) ON locations FROM tappa_feedwriter;
 REVOKE SELECT (id, tenant_id, external_ref, employee_code) ON employees FROM tappa_feedwriter;
-REVOKE SELECT (id, tenant_id, employee_id, location_id, tag_uid, occurred_at, channel, verdict, practice, site_tenant_id)
+REVOKE SELECT (id, tenant_id, employee_id, location_id, tag_uid, type, occurred_at, channel, verdict, practice, site_tenant_id)
     ON transactions FROM tappa_feedwriter;

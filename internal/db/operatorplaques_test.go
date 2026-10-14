@@ -130,7 +130,7 @@ var opAtVersionSkips = map[int]string{
 	48: "the punch feed's tables, their grants and the tenants trigger that opens a counter row (M11 API-2) -- no " +
 		"operator object; its Down takes ACCESS EXCLUSIVE on tenants (DROP TRIGGER, the tables' keys) and transactions, " +
 		"and refuses while the feed holds an event, an endpoint or a delivery",
-	49: "punch_feed, its two triggers, holding_feed's event half and the backfill (M11 API-2) -- no operator object; " +
+	49: "punch_feed, its two triggers and holding_feed's event half (M11 API-2) -- no operator object; " +
 		"its Down takes ACCESS EXCLUSIVE on transactions and transaction_reviews (DROP TRIGGER)",
 	50: "the punch feed's backfill (M11 API-2) -- no operator object; a NO TRANSACTION file whose Up commits chunk by " +
 		"chunk (it cannot run inside a test's transaction) and whose Down is empty",

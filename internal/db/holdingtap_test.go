@@ -793,21 +793,25 @@ func TestHoldingWindow_GateArms(t *testing.T) {
 	}
 	ctx, tx := opTx(t)
 	for _, left := range []string{"", "10 seconds", "61 seconds"} {
-		w := holdingWorldTx(t, ctx, tx, left)
-		for _, c := range cases {
-			t.Run(fmt.Sprintf("left=%q/%s", left, c.name), func(t *testing.T) {
-				r := c.row(w)
-				r.employer, r.employee = w.km, w.kmEmployee
-				err := holdingInsertRow(t, ctx, tx, r)
-				want := left == "" || (left == "10 seconds" && c.inWindow)
-				switch {
-				case want && err != nil:
-					t.Errorf("refused, want written: %v", err)
-				case !want:
-					holdingWantGate(t, err, c.name)
-				}
-			})
-		}
+		// One world per savepoint, rolled back: since API-2 a transaction writes feed events
+		// under one counter set (ADR 0028 §5, SQLSTATE TF001) -- and each world is a new pair.
+		holdingInSavepoint(t, tx, func(sp pgx.Tx) {
+			w := holdingWorldTx(t, ctx, sp, left)
+			for _, c := range cases {
+				t.Run(fmt.Sprintf("left=%q/%s", left, c.name), func(t *testing.T) {
+					r := c.row(w)
+					r.employer, r.employee = w.km, w.kmEmployee
+					err := holdingInsertRow(t, ctx, sp, r)
+					want := left == "" || (left == "10 seconds" && c.inWindow)
+					switch {
+					case want && err != nil:
+						t.Errorf("refused, want written: %v", err)
+					case !want:
+						holdingWantGate(t, err, c.name)
+					}
+				})
+			}
+		})
 	}
 }
 

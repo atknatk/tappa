@@ -1,12 +1,16 @@
 package db
 
 import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -357,7 +361,7 @@ func TestFeedBackfill_WithinTwoSeconds(t *testing.T) {
 	if strings.Contains(up49, "INSERT INTO public.punch_events (") && strings.Contains(up49, "row_number()") {
 		t.Error("00049 writes history under its lock again -- the 2 s rule (00050 is where the backfill lives)")
 	}
-	block := feedBackfillBlock(t)
+	block := feedBackfillBlock(t, false)
 	var tenants []uuid.UUID
 	for i := 0; i < 200; i++ {
 		tenants = append(tenants, opNewTenant(t, ctx, tx, "api2 backfill "+strconv.Itoa(i)+" "+opToken(t), 0))
@@ -389,6 +393,9 @@ func TestFeedBackfill_WithinTwoSeconds(t *testing.T) {
 	}
 	scratch := strings.NewReplacer("public.transactions", "zz_api2_tx", "public.transaction_reviews", "zz_api2_rev",
 		"public.punch_events", "zz_api2_events", "public.feed_counters", "zz_api2_counters")
+	if _, err := tx.Exec(ctx, `CREATE TEMP TABLE zz_api2_chunks (held double precision)`); err != nil {
+		t.Fatal(err)
+	}
 	holdingInSavepoint(t, tx, func(sp pgx.Tx) {
 		start := time.Now()
 		if _, err := sp.Conn().PgConn().Exec(ctx, scratch.Replace(block)).ReadAll(); err != nil {
@@ -396,8 +403,8 @@ func TestFeedBackfill_WithinTwoSeconds(t *testing.T) {
 		}
 		took := time.Since(start)
 		var chunks int
-		var longest float64
-		if _, err := fmt.Sscanf(notice, "api2 chunks %d max %g", &chunks, &longest); err != nil {
+		var longest, window, lockwait float64
+		if _, err := fmt.Sscanf(notice, "api2 chunks %d max %g window %g lockwait %g", &chunks, &longest, &window, &lockwait); err != nil {
 			t.Fatalf("the block's timing notice %q: %v", notice, err)
 		}
 		want := opInt(t, ctx, sp, `SELECT count(*) FROM zz_api2_tx x WHERE x.verdict = 'ok'
@@ -409,7 +416,7 @@ func TestFeedBackfill_WithinTwoSeconds(t *testing.T) {
 		                                                  HAVING min(seq) <> 1 OR max(seq) <> count(*)) d`); n != 0 {
 			t.Errorf("%d tenants' backfilled seqs are not 1..n", n)
 		}
-		if n := opInt(t, ctx, sp, `SELECT count(*) FROM (SELECT e.seq, row_number() OVER (PARTITION BY e.tenant_id ORDER BY e.punch_time, e.recorded_at, e.punch_id) AS rn
+		if n := opInt(t, ctx, sp, `SELECT count(*) FROM (SELECT e.seq, row_number() OVER (PARTITION BY e.tenant_id ORDER BY e.punch_time, e.punch_id) AS rn
 		                                                    FROM zz_api2_events e) d WHERE d.seq <> d.rn`); n != 0 {
 			t.Errorf("%d backfilled events are out of occurred_at order", n)
 		}
@@ -420,6 +427,204 @@ func TestFeedBackfill_WithinTwoSeconds(t *testing.T) {
 		if chunks < 200 || time.Duration(longest*float64(time.Second)) > 2*time.Second {
 			t.Errorf("00050's backfill: %d chunks, the longest held a tenant's counter %.3f s -- ADR 0028 §4's 2 s", chunks, longest)
 		}
-		t.Logf("00050's backfill on %d rows: %d chunks, the longest %.3f s, %v in all", feedBackfillRows, chunks, longest, took)
+		t.Logf("00050's backfill on %d rows: %d chunks, the longest %.3f s (window %.3f s), %v in all", feedBackfillRows, chunks, longest, window, took)
 	})
+}
+
+// feedBigTenantRows is the single tenant's history TestFeedBackfill_BigTenantLiveTapsLoseNothing
+// backfills: 300 000 by default; TAPPA_API2_BACKFILL_TENANT_ROWS sets another (the throwaway
+// container measured 650 000 -- ADR 0028's API-2 note).
+func feedBigTenantRows(t *testing.T) int {
+	t.Helper()
+	if v := os.Getenv("TAPPA_API2_BACKFILL_TENANT_ROWS"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1000 {
+			t.Fatalf("TAPPA_API2_BACKFILL_TENANT_ROWS=%q is not a count of at least 1000", v)
+		}
+		return n
+	}
+	return 300000
+}
+
+// TestFeedBackfill_BigTenantLiveTapsLoseNothing is the API-2 review's O-1 (ADR 0028 §4, §5;
+// CLAUDE.md §4.6): ONE tenant with feedBigTenantRows punches and no event, backfilled by 00050's
+// own block (its COMMITs KEPT -- a connection of its own, at top level) while that tenant's own
+// taps and holding taps with a peer arrive the whole time. The tables are a committed scratch
+// schema (copies of transactions, transaction_reviews, punch_events and feed_counters with their
+// indexes; the tenants, employees and venues joined are this database's) and the live writer is a
+// trigger with the shipped counter logic and the shipped lock_timeout (2 s) -- the real triggers
+// would write into the real feed. Measured and pinned:
+//   - every chunk holds the tenant's counter row well under the triggers' 2 s, whatever the
+//     tenant's size (the first version's chunk was O(tenant): a 650 000-row tenant measured 7.1 s);
+//   - 0 live writes met a lock timeout (55P03) or a deadlock: no tap ever reached even its first
+//     wait, let alone the second one that would lose an advanced record;
+//   - the tenant's feed is 1..n, every eligible historical punch has exactly one event, every
+//     live write its own.
+func TestFeedBackfill_BigTenantLiveTapsLoseNothing(t *testing.T) {
+	f := holdingLiveFixture(t)
+	ctx := f.ctx
+	rows := feedBigTenantRows(t)
+	big, peer := f.tenant(t, "Europe/Malta", "BIG"), f.tenant(t, "Europe/Malta", "PEER")
+	b := make([]byte, 4)
+	if _, err := rand.Read(b); err != nil {
+		t.Fatal(err)
+	}
+	lab := "zz_api2_bf_" + hex.EncodeToString(b)
+	t.Cleanup(func() {
+		if _, err := f.owner.Exec(context.Background(), `DROP SCHEMA `+lab+` CASCADE`); err != nil {
+			t.Errorf("drop the scratch schema: %v", err)
+		}
+	})
+	l := func(s string) string { return strings.ReplaceAll(s, "L.", lab+".") }
+	for _, s := range []string{
+		`CREATE SCHEMA ` + lab,
+		l(`CREATE TABLE L.tx (LIKE public.transactions INCLUDING DEFAULTS INCLUDING INDEXES)`),
+		l(`CREATE TABLE L.rev (LIKE public.transaction_reviews INCLUDING DEFAULTS INCLUDING INDEXES)`),
+		l(`CREATE TABLE L.ev (LIKE public.punch_events INCLUDING DEFAULTS INCLUDING CONSTRAINTS INCLUDING INDEXES)`),
+		l(`CREATE TABLE L.ctr (LIKE public.feed_counters INCLUDING DEFAULTS INCLUDING CONSTRAINTS INCLUDING INDEXES)`),
+		fmt.Sprintf(l(`INSERT INTO L.tx (tenant_id, employee_id, occurred_at, created_at, verdict, channel, type, practice)
+		   SELECT $1, gen_random_uuid(), now() - interval '1 day' - make_interval(secs => g), now(),
+		          CASE WHEN g %% 10 = 0 THEN 'flag' WHEN g %% 10 = 1 THEN 'reject' ELSE 'ok' END,
+		          CASE WHEN g %% 3 = 0 THEN 'qr' ELSE 'nfc' END,
+		          CASE WHEN g %% 10 = 1 THEN NULL WHEN g %% 2 = 0 THEN 'in' ELSE 'out' END, false
+		     FROM generate_series(1, %d) AS g`), rows),
+		l(`INSERT INTO L.rev (tenant_id, transaction_id, reviewer_id, outcome) SELECT tenant_id, id, gen_random_uuid(), 'approved' FROM L.tx WHERE verdict = 'flag' AND random() < 0.5`),
+		l(`INSERT INTO L.ctr VALUES ($1, 0), ($2, 0)`),
+		l(`ANALYZE L.tx`), l(`ANALYZE L.rev`), l(`ANALYZE L.ev`),
+		// The live writer: the shipped counter logic (punch_feed for an own row, holding_feed's
+		// K-31 pre-lock for a holding row) with the shipped lock_timeout.
+		l(`CREATE FUNCTION L.live() RETURNS trigger LANGUAGE plpgsql SET lock_timeout = '2s' AS $$
+		    DECLARE s bigint; n integer;
+		    BEGIN
+		      IF NEW.verdict <> 'ok' THEN RETURN NULL; END IF;
+		      IF NEW.site_tenant_id IS NULL THEN
+		        INSERT INTO L.ctr AS c VALUES (NEW.tenant_id, 1) ON CONFLICT (tenant_id) DO UPDATE SET last_seq = c.last_seq + 1 RETURNING c.last_seq INTO s;
+		        INSERT INTO L.ev (tenant_id, seq, punch_id, punch_tenant_id, roles, punch_time, recorded_at, channel, direction, employee_id)
+		        VALUES (NEW.tenant_id, s, NEW.id, NEW.tenant_id, '{employer,location}', NEW.occurred_at, now(), NEW.channel, NEW.type, NEW.employee_id);
+		      ELSE
+		        INSERT INTO L.ctr VALUES (LEAST(NEW.tenant_id, NEW.site_tenant_id), 0), (GREATEST(NEW.tenant_id, NEW.site_tenant_id), 0) ON CONFLICT (tenant_id) DO NOTHING;
+		        SELECT count(*) INTO n FROM (SELECT 1 FROM L.ctr WHERE tenant_id IN (NEW.tenant_id, NEW.site_tenant_id) ORDER BY tenant_id FOR UPDATE) k;
+		        INSERT INTO L.ctr AS c VALUES (NEW.tenant_id, 1) ON CONFLICT (tenant_id) DO UPDATE SET last_seq = c.last_seq + 1 RETURNING c.last_seq INTO s;
+		        INSERT INTO L.ev (tenant_id, seq, punch_id, punch_tenant_id, roles, punch_time, recorded_at, channel, direction, employee_id)
+		        VALUES (NEW.tenant_id, s, NEW.id, NEW.tenant_id, '{employer}', NEW.occurred_at, now(), NEW.channel, NEW.type, NEW.employee_id);
+		        INSERT INTO L.ctr AS c VALUES (NEW.site_tenant_id, 1) ON CONFLICT (tenant_id) DO UPDATE SET last_seq = c.last_seq + 1 RETURNING c.last_seq INTO s;
+		        INSERT INTO L.ev (tenant_id, seq, punch_id, punch_tenant_id, roles, punch_time, recorded_at, channel, direction, employee_id)
+		        VALUES (NEW.site_tenant_id, s, NEW.id, NEW.tenant_id, '{location}', NEW.occurred_at, now(), NEW.channel, NEW.type, NEW.employee_id);
+		      END IF;
+		      RETURN NULL;
+		    END $$`),
+		l(`CREATE TRIGGER live AFTER INSERT ON L.tx FOR EACH ROW EXECUTE FUNCTION L.live()`),
+	} {
+		var args []any
+		switch {
+		case strings.Contains(s, "$2"):
+			args = []any{big, peer}
+		case strings.Contains(s, "$1") && !strings.Contains(s, "$$"):
+			args = []any{big}
+		}
+		if _, err := f.owner.Exec(ctx, s, args...); err != nil {
+			t.Fatalf("build the scratch schema: %v\n%.200s", err, s)
+		}
+	}
+	eligible := opInt(t, ctx, f.owner, l(`SELECT count(*) FROM L.tx x WHERE x.type IS NOT NULL AND (x.verdict = 'ok'
+	                                     OR (x.verdict = 'flag' AND EXISTS (SELECT 1 FROM L.rev r WHERE r.transaction_id = x.id)))`))
+
+	// The backfill: 00050's block on a connection of its own, at top level (its COMMITs run).
+	block := strings.NewReplacer("public.transactions", lab+".tx", "public.transaction_reviews", lab+".rev",
+		"public.punch_events", lab+".ev", "public.feed_counters", lab+".ctr").Replace(feedBackfillBlock(t, true))
+	var notice string
+	cfg, err := pgx.ParseConfig(opOwnerDSN(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.OnNotice = func(_ *pgconn.PgConn, n *pgconn.Notice) {
+		if strings.HasPrefix(n.Message, "api2 chunks") {
+			notice = n.Message
+		}
+	}
+	bf, err := pgx.ConnectConfig(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = bf.Close(context.Background()) })
+	if _, err := bf.Exec(ctx, `CREATE TEMP TABLE zz_api2_chunks (held double precision)`); err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan struct{})
+	var mu sync.Mutex
+	codes := map[string]int{}
+	written := 0
+	var wg sync.WaitGroup
+	for i := 0; i < 6; i++ {
+		c := f.connect(t, ctx)
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			for k := 0; ; k++ {
+				select {
+				case <-done:
+					return
+				default:
+				}
+				employer, site := big, any(nil)
+				switch {
+				case i >= 4 && k%2 == 0:
+					site = peer
+				case i >= 4:
+					employer, site = peer, big
+				}
+				_, err := c.Exec(ctx, l(`INSERT INTO L.tx (tenant_id, site_tenant_id, employee_id, occurred_at, verdict, channel, type)
+				                          VALUES ($1, $2, gen_random_uuid(), now(), 'ok', 'nfc', 'in')`), employer, site)
+				mu.Lock()
+				if err != nil {
+					code, _ := opCode(err)
+					codes[code]++
+				} else {
+					written++
+				}
+				mu.Unlock()
+				time.Sleep(time.Duration(20+feedRandN(30)) * time.Millisecond)
+			}
+		}(i)
+	}
+	start := time.Now()
+	_, bfErr := bf.PgConn().Exec(ctx, block).ReadAll()
+	took := time.Since(start)
+	close(done)
+	wg.Wait()
+	if bfErr != nil {
+		t.Fatalf("00050's block: %v", bfErr)
+	}
+	var chunks int
+	var longest, window, lockwait float64
+	if _, err := fmt.Sscanf(notice, "api2 chunks %d max %g window %g lockwait %g", &chunks, &longest, &window, &lockwait); err != nil {
+		t.Fatalf("the block's timing notice %q: %v", notice, err)
+	}
+	var median, p99 float64
+	var over500 int64
+	if err := bf.QueryRow(ctx, `SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY held), percentile_cont(0.99) WITHIN GROUP (ORDER BY held),
+	                                   count(*) FILTER (WHERE held > 0.5) FROM pg_temp.zz_api2_chunks`).Scan(&median, &p99, &over500); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("00050 on one tenant of %d rows (%d eligible): %d chunks, the counter held median %.3f s, p99 %.3f s, longest %.3f s, %d over 0.5 s "+
+		"(the longest window read, unlocked, %.3f s; the longest wait for the counter %.3f s), %v in all; %d live writes, errors %v",
+		rows, eligible, chunks, median, p99, longest, over500, window, lockwait, took, written, codes)
+	if len(codes) != 0 {
+		t.Errorf("live writes during the backfill met errors %v (55P03: a tap waited out the counter's lock_timeout)", codes)
+	}
+	if time.Duration(longest*float64(time.Second)) > 2*time.Second || chunks < rows/2000 {
+		t.Errorf("%d chunks, the longest held the counter %.3f s -- over the triggers' 2 s", chunks, longest)
+	}
+	if written < 20 {
+		t.Errorf("anti-vacuity: only %d live writes during the backfill", written)
+	}
+	if n := opInt(t, ctx, f.owner, l(`SELECT count(*) FROM (SELECT 1 FROM L.ev WHERE tenant_id = $1 HAVING min(seq) <> 1 OR max(seq) <> count(*)) d`), big); n != 0 {
+		t.Error("the big tenant's feed is not 1..n")
+	}
+	if n := opInt(t, ctx, f.owner, l(`SELECT count(*) FROM L.tx x WHERE x.type IS NOT NULL AND (x.verdict = 'ok'
+	                                   OR (x.verdict = 'flag' AND EXISTS (SELECT 1 FROM L.rev r WHERE r.transaction_id = x.id)))
+	                                   AND x.tenant_id = $1 AND (SELECT count(*) FROM L.ev e WHERE e.punch_id = x.id AND e.tenant_id = $1) <> 1`), big); n != 0 {
+		t.Errorf("%d of the big tenant's eligible punches do not have exactly one event in its feed", n)
+	}
 }

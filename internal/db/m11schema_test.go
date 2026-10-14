@@ -160,7 +160,7 @@ var m11Tables = map[string]map[string]m11TableACL{
 	},
 	"punch_events": {
 		"tappa_app": {Select: "tenant_id,seq,punch_id,punch_tenant_id,roles,version,status,punch_time,recorded_at,channel," +
-			"employee_id,employee_ref,employee_code,employee_company,location_id,location_ref,location_name,location_company,tag_uid,created_at"},
+			"direction,employee_id,employee_ref,employee_code,employee_company,location_id,location_ref,location_name,location_company,tag_uid,created_at"},
 		"tappa_feedwriter":     {Insert: feedEventInsertColumns},
 		"tappa_holdingdefiner": {Insert: feedEventInsertColumns},
 	},
@@ -185,7 +185,7 @@ var m11Tables = map[string]map[string]m11TableACL{
 
 // feedEventInsertColumns are the columns both feed writers insert into punch_events (attnum order;
 // version, status and created_at take their defaults).
-const feedEventInsertColumns = "tenant_id,seq,punch_id,punch_tenant_id,roles,punch_time,recorded_at,channel,employee_id," +
+const feedEventInsertColumns = "tenant_id,seq,punch_id,punch_tenant_id,roles,punch_time,recorded_at,channel,direction,employee_id," +
 	"employee_ref,employee_code,employee_company,location_id,location_ref,location_name,location_company,tag_uid"
 
 // m11ScopelessTables are the matrix's tenant-scope-less tables (CLAUDE.md §6): ENABLE and FORCE

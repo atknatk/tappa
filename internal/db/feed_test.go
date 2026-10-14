@@ -36,7 +36,7 @@ var feedTables = []string{"feed_counters", "punch_events", "webhook_endpoints", 
 type feedEvent struct {
 	tenant, punchTenant, employee                   uuid.UUID
 	seq                                             int64
-	roles, channel                                  string
+	roles, channel, direction                       string
 	employeeRef, employeeCode, employeeCompany      *string
 	locationID                                      *uuid.UUID
 	locationRef, locationName, locationCompany, tag *string
@@ -49,7 +49,7 @@ type feedEvent struct {
 func feedEventsOf(t *testing.T, ctx context.Context, q opQuerier, punch uuid.UUID) []feedEvent {
 	t.Helper()
 	rows, err := q.Query(ctx, `
-		SELECT tenant_id, punch_tenant_id, employee_id, seq, array_to_string(roles, ','), channel, employee_ref, employee_code,
+		SELECT tenant_id, punch_tenant_id, employee_id, seq, array_to_string(roles, ','), channel, direction, employee_ref, employee_code,
 		       employee_company, location_id, location_ref, location_name, location_company, tag_uid, punch_time, recorded_at,
 		       created_at, version, status
 		  FROM punch_events WHERE punch_id = $1
@@ -59,7 +59,7 @@ func feedEventsOf(t *testing.T, ctx context.Context, q opQuerier, punch uuid.UUI
 	}
 	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (feedEvent, error) {
 		var e feedEvent
-		err := r.Scan(&e.tenant, &e.punchTenant, &e.employee, &e.seq, &e.roles, &e.channel, &e.employeeRef, &e.employeeCode,
+		err := r.Scan(&e.tenant, &e.punchTenant, &e.employee, &e.seq, &e.roles, &e.channel, &e.direction, &e.employeeRef, &e.employeeCode,
 			&e.employeeCompany, &e.locationID, &e.locationRef, &e.locationName, &e.locationCompany, &e.tag, &e.punchTime,
 			&e.recordedAt, &e.createdAt, &e.version, &e.status)
 		return e, err
@@ -404,18 +404,43 @@ func TestFeed_FlagApprovalManualPractice(t *testing.T) {
 		t.Errorf("the counter is %d, want %d (one event)", c, start+1)
 	}
 
-	// A holding punch: the flag is no event; its approval is two (K-31).
-	hf := feedMust(t, ctx, tx, w.kmAtKF("nfc", "flag"))
+	// A holding approval in THIS transaction -- which already wrote KF's own events -- is refused:
+	// a transaction writes events under ONE counter set (SQLSTATE TF001, ADR 0028 §5). The holding
+	// half in a transaction of its own: TestFeed_HoldingFlagApprovalManualReject.
+	holdingInSavepoint(t, tx, func(sp pgx.Tx) {
+		hf := feedMust(t, ctx, sp, w.kmAtKF("nfc", "flag"))
+		if ev := feedEventsOf(t, ctx, sp, hf); len(ev) != 0 {
+			t.Errorf("KM's flagged row on KF's plaque is an event before review: %+v", ev)
+		}
+		if err := feedReview(t, ctx, sp, w.km, kmReviewer, hf, "approved"); err == nil {
+			t.Error("the holding approval in a transaction that wrote KF's own events was written -- TF001 expected")
+		} else if code, _ := opCode(err); code != "TF001" {
+			t.Errorf("the holding approval after KF's own events: %v, want TF001", err)
+		}
+	})
+}
+
+// TestFeed_HoldingFlagApprovalManualReject is TestFeed_FlagApprovalManualPractice's holding half,
+// in a transaction of its own: KM's flagged row on KF's plaque is no event; its approval is two
+// (K-31), each carrying the flagged row's direction (K-40); a holding manual record and a holding
+// reject: none.
+func TestFeed_HoldingFlagApprovalManualReject(t *testing.T) {
+	ctx, tx := opTx(t)
+	w := feedWorldTx(t, ctx, tx, "")
+	kmReviewer := holdingNewAdmin(t, ctx, tx, w.km)
+	r := w.kmAtKF("nfc", "flag")
+	r.kind = "out"
+	hf := feedMust(t, ctx, tx, r)
 	if ev := feedEventsOf(t, ctx, tx, hf); len(ev) != 0 {
 		t.Errorf("KM's flagged row on KF's plaque is an event before review: %+v", ev)
 	}
 	if err := feedReview(t, ctx, tx, w.km, kmReviewer, hf, "approved"); err != nil {
 		t.Fatal(err)
 	}
-	if ev := feedEventsOf(t, ctx, tx, hf); len(ev) != 2 || ev[0].tenant != w.km || ev[1].tenant != w.kf {
-		t.Errorf("the approved holding flag's events: %+v, want KM's and KF's", ev)
+	if ev := feedEventsOf(t, ctx, tx, hf); len(ev) != 2 || ev[0].tenant != w.km || ev[1].tenant != w.kf ||
+		ev[0].direction != "out" || ev[1].direction != "out" {
+		t.Errorf("the approved holding flag's events: %+v, want KM's and KF's, both 'out'", ev)
 	}
-	// A holding manual record and a holding reject: none.
 	for _, r := range []feedRow{w.kmAtKF("manual", "ok"), w.kmAtKF("nfc", "reject")} {
 		id := feedMust(t, ctx, tx, r)
 		if ev := feedEventsOf(t, ctx, tx, id); len(ev) != 0 {
@@ -521,29 +546,121 @@ func TestWebhookDeliveries_KMatKFIsTwo(t *testing.T) {
 		{"KM@KF", w.kmAtKF("nfc", "ok")},
 		{"KF@KM", w.kfAtKM("nfc", "ok")},
 	} {
-		before := opInt(t, ctx, tx, `SELECT count(*) FROM webhook_deliveries WHERE tenant_id IN ($1, $2)`, w.kf, w.km)
-		ev := feedEventsOf(t, ctx, tx, feedMust(t, ctx, tx, c.row))
-		for _, e := range ev {
-			var endpoint uuid.UUID
-			var state string
-			var attempt int32
-			if err := tx.QueryRow(ctx, `SELECT endpoint_id, state, attempt FROM webhook_deliveries WHERE tenant_id = $1 AND punch_event_seq = $2`,
-				e.tenant, e.seq).Scan(&endpoint, &state, &attempt); err != nil {
-				t.Errorf("%s: no delivery for %v's event %d: %v", c.what, e.tenant, e.seq, err)
-				continue
+		// Each shape in a savepoint of its own, rolled back: a transaction writes events under one
+		// counter set (SQLSTATE TF001, ADR 0028 §5).
+		holdingInSavepoint(t, tx, func(sp pgx.Tx) {
+			before := opInt(t, ctx, sp, `SELECT count(*) FROM webhook_deliveries WHERE tenant_id IN ($1, $2)`, w.kf, w.km)
+			ev := feedEventsOf(t, ctx, sp, feedMust(t, ctx, sp, c.row))
+			for _, e := range ev {
+				var endpoint uuid.UUID
+				var state string
+				var attempt int32
+				if err := sp.QueryRow(ctx, `SELECT endpoint_id, state, attempt FROM webhook_deliveries WHERE tenant_id = $1 AND punch_event_seq = $2`,
+					e.tenant, e.seq).Scan(&endpoint, &state, &attempt); err != nil {
+					t.Errorf("%s: no delivery for %v's event %d: %v", c.what, e.tenant, e.seq, err)
+					continue
+				}
+				if endpoint != hooks[e.tenant] || state != "pending" || attempt != 0 {
+					t.Errorf("%s: %v's delivery goes to %v (%s, attempt %d), want its own endpoint %v, pending, 0", c.what, e.tenant, endpoint, state, attempt, hooks[e.tenant])
+				}
 			}
-			if endpoint != hooks[e.tenant] || state != "pending" || attempt != 0 {
-				t.Errorf("%s: %v's delivery goes to %v (%s, attempt %d), want its own endpoint %v, pending, 0", c.what, e.tenant, endpoint, state, attempt, hooks[e.tenant])
+			after := opInt(t, ctx, sp, `SELECT count(*) FROM webhook_deliveries WHERE tenant_id IN ($1, $2)`, w.kf, w.km)
+			want := int64(1)
+			if c.what[:2] != c.what[3:] {
+				want = 2
+			}
+			if after-before != want || int64(len(ev)) != want {
+				t.Errorf("%s: %d events and %d deliveries, want %d of each", c.what, len(ev), after-before, want)
+			}
+		})
+	}
+}
+
+// feedDirectionFindings is K-40 on q: every one of the four shapes (KF@KF in, KM@KM out, KM@KF
+// out, KF@KM in) and an approved flag (the flagged row's 'out') -- each in a savepoint of its own,
+// rolled back -- answers in every target row the direction the EMPLOYER computed
+// (transactions.type). Empty when all hold.
+func feedDirectionFindings(t *testing.T, ctx context.Context, q pgx.Tx, w feedWorld, reviewer uuid.UUID) []string {
+	t.Helper()
+	with := func(r feedRow, kind string) feedRow { r.kind = kind; return r }
+	var out []string
+	for _, c := range []struct {
+		what   string
+		row    feedRow
+		review bool
+	}{
+		{"KF@KF in", with(w.own(w.kf, w.kfEmployee, w.kfVenue, w.kfTag, "nfc", "ok"), "in"), false},
+		{"KM@KM out", with(w.own(w.km, w.kmEmployee, w.kmVenue, w.kmTag, "qr", "ok"), "out"), false},
+		{"KM@KF out", with(w.kmAtKF("nfc", "ok"), "out"), false},
+		{"KF@KM in", with(w.kfAtKM("qr", "ok"), "in"), false},
+		{"KM@KM approved flag out", with(w.own(w.km, w.kmEmployee, w.kmVenue, w.kmTag, "nfc", "flag"), "out"), true},
+	} {
+		sp, err := q.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, err := feedInsert(t, ctx, sp, c.row)
+		if err == nil && c.review {
+			err = feedReview(t, ctx, sp, c.row.tenant, reviewer, id, "approved")
+		}
+		if err != nil {
+			out = append(out, c.what+": "+err.Error())
+		} else {
+			ev := feedEventsOf(t, ctx, sp, id)
+			if len(ev) == 0 {
+				out = append(out, c.what+": no event")
+			}
+			for _, e := range ev {
+				if e.direction != c.row.kind {
+					out = append(out, fmt.Sprintf("%s: %v's event says %q", c.what, e.tenant, e.direction))
+				}
 			}
 		}
-		after := opInt(t, ctx, tx, `SELECT count(*) FROM webhook_deliveries WHERE tenant_id IN ($1, $2)`, w.kf, w.km)
-		want := int64(1)
-		if strings.Count(c.what, "K") == 2 && c.what[:2] != c.what[3:] {
-			want = 2
+		if err := sp.Rollback(ctx); err != nil {
+			t.Fatal(err)
 		}
-		if after-before != want || int64(len(ev)) != want {
-			t.Errorf("%s: %d events and %d deliveries, want %d of each", c.what, len(ev), after-before, want)
-		}
+	}
+	return out
+}
+
+// TestFeed_DirectionIsTheEmployers is the user's decision K-40 (2026-10-14; ADR 0028 §4): a punch
+// event carries the direction Tappa computed at the employer -- transactions.type; an approval's,
+// the approved row's; both rows of a holding punch the employer's. Four shapes and an approved
+// flag (feedDirectionFindings). MUTANTS, each in a savepoint, both writers replaced by CREATE OR
+// REPLACE (owner and grants kept): the direction written reversed -> red; not written (NULL) ->
+// the INSERT is refused (punch_events.direction NOT NULL) -> red. The night shift across midnight,
+// through the tap path: internal/domain/checkin's TestFeedDirection_NightShiftInThenOutAcrossMidnight.
+func TestFeed_DirectionIsTheEmployers(t *testing.T) {
+	ctx, tx := opTx(t)
+	w := feedWorldTx(t, ctx, tx, "")
+	reviewer := holdingNewAdmin(t, ctx, tx, w.km)
+	for _, f := range feedDirectionFindings(t, ctx, tx, w, reviewer) {
+		t.Error(f)
+	}
+	for name, written := range map[string]string{
+		"reversed":    "CASE v_type WHEN 'in' THEN 'out' ELSE 'in' END",
+		"not written": "NULL",
+	} {
+		holdingInSavepoint(t, tx, func(sp pgx.Tx) {
+			for _, fn := range []string{"punch_feed", "holding_feed"} {
+				var def string
+				if err := sp.QueryRow(ctx, `SELECT pg_get_functiondef(('public.' || $1 || '()')::regprocedure)`, fn).Scan(&def); err != nil {
+					t.Fatal(err)
+				}
+				n := strings.Count(def, "v_type, v_employee")
+				if n == 0 {
+					t.Fatalf("%s writes no v_type into an event -- the mutant does not fit", fn)
+				}
+				if _, err := sp.Exec(ctx, strings.ReplaceAll(def, "v_type, v_employee", written+", v_employee")); err != nil {
+					t.Fatalf("install the %s mutant in %s: %v", name, fn, err)
+				}
+			}
+			if got := feedDirectionFindings(t, ctx, sp, w, reviewer); len(got) == 0 {
+				t.Errorf("the direction %s: the four shapes and the approval stayed green", name)
+			} else {
+				t.Logf("mutant %s: %d findings, e.g. %s", name, len(got), got[0])
+			}
+		})
 	}
 }
 
@@ -560,6 +677,18 @@ func TestFeed_ClosedApiWritesEventsButNoDeliveries(t *testing.T) {
 	w := feedWorldTx(t, ctx, tx, "")
 	feedOpen(t, ctx, tx, w.kf, "KF", true)
 	kmHook := feedOpen(t, ctx, tx, w.km, "KM", true)
+	// A holding punch, each target's gate its own: KM closed, KF open -- first, in a savepoint
+	// rolled back (a transaction writes events under one counter set, SQLSTATE TF001).
+	holdingInSavepoint(t, tx, func(sp pgx.Tx) {
+		if _, err := sp.Exec(ctx, `UPDATE tenants SET api_enabled_at = NULL WHERE id = $1`, w.km); err != nil {
+			t.Fatal(err)
+		}
+		ev := feedEventsOf(t, ctx, sp, feedMust(t, ctx, sp, w.kmAtKF("nfc", "ok")))
+		if len(ev) != 2 || feedDeliveries(t, ctx, sp, w.km, ev[0].seq) != 0 || feedDeliveries(t, ctx, sp, w.kf, ev[1].seq) != 1 {
+			t.Errorf("KM@KF with KM closed and KF open: %d events; KM delivered %d, KF delivered %d -- want 2, 0, 1", len(ev),
+				feedDeliveries(t, ctx, sp, w.km, ev[0].seq), feedDeliveries(t, ctx, sp, w.kf, ev[1].seq))
+		}
+	})
 	tap := func() []feedEvent {
 		return feedEventsOf(t, ctx, tx, feedMust(t, ctx, tx, w.own(w.km, w.kmEmployee, w.kmVenue, w.kmTag, "nfc", "ok")))
 	}
@@ -590,15 +719,6 @@ func TestFeed_ClosedApiWritesEventsButNoDeliveries(t *testing.T) {
 			t.Errorf("%s: %d deliveries, want %d", c.what, n, c.delivered)
 		}
 	}
-	// A holding punch, each target's gate its own: KM closed, KF open.
-	if _, err := tx.Exec(ctx, `UPDATE tenants SET api_enabled_at = NULL WHERE id = $1`, w.km); err != nil {
-		t.Fatal(err)
-	}
-	ev := feedEventsOf(t, ctx, tx, feedMust(t, ctx, tx, w.kmAtKF("nfc", "ok")))
-	if len(ev) != 2 || feedDeliveries(t, ctx, tx, w.km, ev[0].seq) != 0 || feedDeliveries(t, ctx, tx, w.kf, ev[1].seq) != 1 {
-		t.Errorf("KM@KF with KM closed and KF open: %d events; KM delivered %d, KF delivered %d -- want 2, 0, 1", len(ev),
-			feedDeliveries(t, ctx, tx, w.km, ev[0].seq), feedDeliveries(t, ctx, tx, w.kf, ev[1].seq))
-	}
 }
 
 // ------------------------------------------------- (p) an approval past the membership --
@@ -616,6 +736,17 @@ func TestFeed_ApprovalAfterExitWritesEmployerEventAndDeliveryOnce(t *testing.T) 
 	feedOpen(t, ctx, tx, w.kf, "KF", true)
 	feedOpen(t, ctx, tx, w.km, "KM", true)
 	reviewer := holdingNewAdmin(t, ctx, tx, w.km)
+	// CONTROL first, in a savepoint rolled back (a transaction writes events under one counter set,
+	// SQLSTATE TF001): the same while the two are peers is two events.
+	holdingInSavepoint(t, tx, func(sp pgx.Tx) {
+		f2 := feedMust(t, ctx, sp, w.kmAtKF("nfc", "flag"))
+		if err := feedReview(t, ctx, sp, w.km, reviewer, f2, "approved"); err != nil {
+			t.Fatal(err)
+		}
+		if n := len(feedEventsOf(t, ctx, sp, f2)); n != 2 {
+			t.Errorf("CONTROL: an approval while peers is %d events, want 2", n)
+		}
+	})
 	flag := feedMust(t, ctx, tx, w.kmAtKF("nfc", "flag"))
 	if _, err := tx.Exec(ctx, `UPDATE holding_members SET left_at = clock_timestamp() - interval '2 minutes' WHERE member_tenant_id = $1 AND left_at IS NULL`, w.km); err != nil {
 		t.Fatal(err)
@@ -641,16 +772,6 @@ func TestFeed_ApprovalAfterExitWritesEmployerEventAndDeliveryOnce(t *testing.T) 
 	}
 	if n := opInt(t, ctx, tx, `SELECT count(*) FROM site_punches WHERE transaction_id = $1 AND outcome = 'approved'`, flag); n != 0 {
 		t.Errorf("KF's projection was told of the approval %d time(s)", n)
-	}
-	// CONTROL: the same while the two are peers is two events.
-	w2 := feedWorldTx(t, ctx, tx, "")
-	r2 := holdingNewAdmin(t, ctx, tx, w2.km)
-	f2 := feedMust(t, ctx, tx, w2.kmAtKF("nfc", "flag"))
-	if err := feedReview(t, ctx, tx, w2.km, r2, f2, "approved"); err != nil {
-		t.Fatal(err)
-	}
-	if n := len(feedEventsOf(t, ctx, tx, f2)); n != 2 {
-		t.Errorf("CONTROL: an approval while peers is %d events, want 2", n)
 	}
 }
 
@@ -909,7 +1030,7 @@ var feedTriggerOrder = map[string][]string{
 var feedWrittenColumns = map[string]string{
 	"site_punches": "tenant_id,id,transaction_id,employer_tenant_id,employer_api_code,employee_id,employee_ref,employee_code," +
 		"employee_name,site_location_id,site_tag_uid,ctr,sun_valid,bucket_hour,occurred_at,channel,type,outcome,ctr_gap,created_at",
-	"punch_events": "tenant_id,seq,punch_id,punch_tenant_id,roles,version,status,punch_time,recorded_at,channel,employee_id," +
+	"punch_events": "tenant_id,seq,punch_id,punch_tenant_id,roles,version,status,punch_time,recorded_at,channel,direction,employee_id," +
 		"employee_ref,employee_code,employee_company,location_id,location_ref,location_name,location_company,tag_uid,created_at",
 	"webhook_deliveries": "tenant_id,id,endpoint_id,punch_event_seq,attempt,next_attempt_at,lease_until,state,last_status," +
 		"last_error_class,created_at,delivered_at",
@@ -1065,7 +1186,7 @@ var feedwriterMatrix = map[string]string{
 	"punch_events:INSERT":       feedEventInsertColumns,
 	"webhook_deliveries:INSERT": "tenant_id,endpoint_id,punch_event_seq",
 	"webhook_endpoints:SELECT":  "tenant_id,id,active",
-	"transactions:SELECT":       "id,tenant_id,employee_id,location_id,tag_uid,occurred_at,verdict,channel,practice,site_tenant_id",
+	"transactions:SELECT":       "id,tenant_id,employee_id,location_id,tag_uid,type,occurred_at,verdict,channel,practice,site_tenant_id",
 	"employees:SELECT":          "id,tenant_id,external_ref,employee_code",
 	"locations:SELECT":          "id,tenant_id,name,external_ref",
 	"tenants:SELECT":            "id,api_enabled_at,api_code",
@@ -1262,7 +1383,10 @@ func TestFeed00048And00049_DownGiveBackAndUpTakesItAgain(t *testing.T) {
 		if ev := feedEventsOf(t, ctx, sp, during); len(ev) != 0 {
 			t.Errorf("00049's Up wrote history (%+v) -- that is 00050's, in small transactions", ev)
 		}
-		if _, err := sp.Conn().PgConn().Exec(ctx, feedBackfillBlock(t)).ReadAll(); err != nil {
+		if _, err := sp.Exec(ctx, `CREATE TEMP TABLE zz_api2_chunks (held double precision)`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := sp.Conn().PgConn().Exec(ctx, feedBackfillBlock(t, false)).ReadAll(); err != nil {
 			t.Fatalf("00050's block (its COMMITs taken out): %v", err)
 		}
 		if ev := feedEventsOf(t, ctx, sp, during); len(ev) != 1 || ev[0].seq != seqBefore+1 {
@@ -1291,23 +1415,36 @@ func TestFeed00048And00049_DownGiveBackAndUpTakesItAgain(t *testing.T) {
 	})
 }
 
-// feedBackfillBlock cuts 00050's DO block from the file goose runs, its COMMITs taken out (a
-// test's transaction cannot commit inside), timed per chunk -- each chunk's span from before its
-// counter lock to before its COMMIT, the time a tap of that tenant can wait behind it -- and the
-// longest span and the count RAISEd as a NOTICE.
-func feedBackfillBlock(t *testing.T) string {
+// feedBackfillBlock cuts 00050's DO block from the file goose runs -- its COMMITs taken out (a
+// test's transaction cannot commit inside) unless keepCommit -- timed per chunk: each chunk's span
+// from holding its tenant's counter to its COMMIT (the time a tap of that tenant can wait behind
+// it) goes into pg_temp.zz_api2_chunks (the caller creates it: held double precision, seconds),
+// and the count, the longest hold, the longest unlocked window read and the longest wait for the
+// counter are RAISEd as a NOTICE.
+func feedBackfillBlock(t *testing.T, keepCommit bool) string {
 	t.Helper()
 	up, _ := opMigrationSections(t, op00050File)
-	i, j := strings.Index(up, "DO $$"), strings.Index(up, "-- +goose StatementEnd")
-	if i < 0 || j < i {
+	i := strings.Index(up, "DO $$")
+	if i < 0 {
 		t.Fatal("00050's Up carries no DO block")
 	}
-	do := up[i:j]
+	j := strings.Index(up[i:], "-- +goose StatementEnd")
+	if j < 0 {
+		t.Fatal("00050's DO block has no end")
+	}
+	do := up[i : i+j]
+	commit := ""
+	if keepCommit {
+		commit = "\n            COMMIT;"
+	}
 	for _, r := range [][2]string{
-		{"    v_n      bigint;", "    v_n      bigint;\n    v_t      timestamptz;\n    v_max    interval := interval '0';\n    v_chunks integer := 0;"},
-		{"            PERFORM pg_catalog.set_config('lock_timeout', '1s', true);", "            v_t := clock_timestamp();\n            PERFORM pg_catalog.set_config('lock_timeout', '1s', true);"},
-		{"            COMMIT;", "            v_chunks := v_chunks + 1; v_max := greatest(v_max, clock_timestamp() - v_t);"},
-		{"END\n$$;", "RAISE NOTICE 'api2 chunks % max %', v_chunks, extract(epoch FROM v_max);\nEND\n$$;"},
+		{"    v_n      bigint;", "    v_n      bigint;\n    v_t      timestamptz;\n    v_w      timestamptz;\n    v_l      timestamptz;\n    v_max    interval := interval '0';\n    v_wmax   interval := interval '0';\n    v_lmax   interval := interval '0';\n    v_chunks integer := 0;"},
+		{"            PERFORM 1 FROM public.feed_counters AS c WHERE c.tenant_id = v_tenant FOR UPDATE;", "            PERFORM 1 FROM public.feed_counters AS c WHERE c.tenant_id = v_tenant FOR UPDATE;\n            v_l := clock_timestamp();"},
+		{"            -- The window, with no lock: keyset on (occurred_at, id).", "            v_w := clock_timestamp();\n            -- The window, with no lock: keyset on (occurred_at, id)."},
+		{"            PERFORM pg_catalog.set_config('lock_timeout', '1s', true);", "            v_t := clock_timestamp();\n            v_wmax := greatest(v_wmax, v_t - v_w);\n            PERFORM pg_catalog.set_config('lock_timeout', '1s', true);"},
+		{"            COMMIT;", "            v_chunks := v_chunks + 1; v_max := greatest(v_max, clock_timestamp() - v_l); v_lmax := greatest(v_lmax, v_l - v_t);\n" +
+			"            INSERT INTO pg_temp.zz_api2_chunks VALUES (extract(epoch FROM clock_timestamp() - v_l));" + commit},
+		{"END\n$$;", "RAISE NOTICE 'api2 chunks % max % window % lockwait %', v_chunks, extract(epoch FROM v_max), extract(epoch FROM v_wmax), extract(epoch FROM v_lmax);\nEND\n$$;"},
 	} {
 		if strings.Count(do, r[0]) != 1 {
 			t.Fatalf("00050's DO block no longer carries %q exactly once -- the instrumentation does not fit", r[0])
@@ -1315,4 +1452,61 @@ func feedBackfillBlock(t *testing.T) string {
 		do = strings.Replace(do, r[0], r[1], 1)
 	}
 	return do
+}
+
+// TestFeed_OneCounterSetPerTransaction is the API-2 review's D-1, row by row (ADR 0028 §5): a
+// transaction's FIRST event locks its counter set ({tenant} for an own tap, {employer, site} for
+// a holding tap); a later event-writing row of the same transaction may use only that set, or it
+// is refused with SQLSTATE TF001 before any lock. Each case in a savepoint of its own:
+//   - own KF, own KF again: written; own KM after them: TF001;
+//   - KM@KF first: then own KF, own KM and KF@KM are all inside {KF, KM}: written;
+//   - own KF, then KM@KF (needs KM too): TF001;
+//   - a row that writes no event (KM's flag, KM's manual record) after own KF: written -- the
+//     check is on the events, not the rows;
+//   - an event in a savepoint rolled back leaves no mark: own KF there, rolled back, then own KM:
+//     written (checkin's one retry writes its record this way).
+func TestFeed_OneCounterSetPerTransaction(t *testing.T) {
+	ctx, tx := opTx(t)
+	w := feedWorldTx(t, ctx, tx, "")
+	kfOwn := w.own(w.kf, w.kfEmployee, w.kfVenue, w.kfTag, "nfc", "ok")
+	kmOwn := w.own(w.km, w.kmEmployee, w.kmVenue, w.kmTag, "nfc", "ok")
+	refused := func(err error) bool { code, _ := opCode(err); return code == "TF001" }
+	for _, c := range []struct {
+		what  string
+		rows  []feedRow
+		wants []bool // true = written, false = TF001
+	}{
+		{"own KF, own KF, own KM", []feedRow{kfOwn, kfOwn, kmOwn}, []bool{true, true, false}},
+		{"KM@KF, own KF, own KM, KF@KM", []feedRow{w.kmAtKF("nfc", "ok"), kfOwn, kmOwn, w.kfAtKM("nfc", "ok")}, []bool{true, true, true, true}},
+		{"own KF, KM@KF", []feedRow{kfOwn, w.kmAtKF("nfc", "ok")}, []bool{true, false}},
+		{"own KF, KM's flag, KM's manual record", []feedRow{kfOwn, w.own(w.km, w.kmEmployee, w.kmVenue, w.kmTag, "nfc", "flag"),
+			{tenant: w.km, employee: w.kmEmployee, location: &w.kmVenue, verdict: "ok", channel: "manual", kind: "in"}}, []bool{true, true, true}},
+	} {
+		holdingInSavepoint(t, tx, func(sp pgx.Tx) {
+			for i, r := range c.rows {
+				_, err := feedInsert(t, ctx, sp, r)
+				switch {
+				case c.wants[i] && err != nil:
+					t.Errorf("%s: row %d refused: %v", c.what, i+1, err)
+				case !c.wants[i] && !refused(err):
+					t.Errorf("%s: row %d: %v, want TF001", c.what, i+1, err)
+				}
+			}
+		})
+	}
+	holdingInSavepoint(t, tx, func(sp pgx.Tx) {
+		inner, err := sp.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := feedInsert(t, ctx, inner, kfOwn); err != nil {
+			t.Fatal(err)
+		}
+		if err := inner.Rollback(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := feedInsert(t, ctx, sp, kmOwn); err != nil {
+			t.Errorf("own KM after own KF was rolled back to a savepoint: %v, want written", err)
+		}
+	})
 }
