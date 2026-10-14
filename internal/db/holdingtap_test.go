@@ -1246,24 +1246,71 @@ func holdingTryDown(t *testing.T, ctx context.Context, tx pgx.Tx, section string
 	return sp.Commit(ctx)
 }
 
-// holdingLockForDowns takes, inside the savepoint sp, ACCESS EXCLUSIVE on every table 00043's
-// and 00044's Downs and Ups (and the API-1a Downs that follow them) lock -- in ONE statement,
-// NOWAIT, retried until it is granted -- so the DDL after it never WAITS while holding a lock.
-// Measured in the first full -race run: the Downs taking their locks one by one, against the
-// other packages' taps writing transactions, tags and locations at the same time, ended in a
-// deadlock (40P01 in TestHolding00041_PreconditionRefusesAWrongCluster): this test held
-// transactions and waited for tags while a tap held tags and waited for transactions. A
-// transaction that never waits cannot be in a wait cycle. The locks go with the savepoint.
+// holdingDownTables are the tables the Downs and Ups these tests walk take a STRONG lock on --
+// 00045/00044/00043 (transactions and its review table, tags, locations, tenants and
+// tenant_branding: ALTER TABLE, DROP/CREATE TRIGGER, keys added or dropped, the site rows set
+// aside), 00042 (operator_audit_log, operator_read_tickets: kind CHECKs; holdingClearKinds' delete
+// and trigger switch) and 00041 (tenants: the timezone trigger; holdings and holding_members: the
+// tables and their keys to tenants). GRANT and REVOKE take no relation lock (measured), so the
+// column grants of 00042/00043 are not why a table is here.
+var holdingDownTables = []string{
+	"transactions", "transaction_reviews", "tags", "locations", "tenants", "tenant_branding",
+	"holding_members", "holdings", "operator_audit_log", "operator_read_tickets",
+}
+
+// holdingLockForDowns takes, inside the savepoint sp, ACCESS EXCLUSIVE on every one of
+// holdingDownTables -- in ONE statement, NOWAIT, retried until it is granted -- and is called
+// FIRST in every savepoint that walks a Down (before holdingClearKinds too), so no statement
+// after it ever waits for a lock on one of those tables while holding one. That is the claim, and
+// it is narrower than "this transaction never waits": it can still wait on an object outside the
+// list (a catalog row, an advisory lock), none of which a tap or a membership write holds while
+// waiting for these tables.
+//
+// MEASURED TWICE. The first full -race run: the Downs taking their locks one by one while other
+// packages' taps wrote transactions, tags and locations ended in 40P01 in
+// TestHolding00041_PreconditionRefusesAWrongCluster (this test held transactions and waited for
+// tags; a tap held tags and waited for transactions). The API-1b review then measured the same
+// class on the API-1a half: with six tables locked, a membership written concurrently (checkin's
+// and handler's fixtures hold holding_members and wait for tenants on the key check, this test
+// held tenants and waited for holding_members) deadlocked in 35 of 75 inserts; with the four
+// tables added, 0 of 76. Re-measured (ADR 0027's API-1b note): ten runs of that test beside a
+// membership-writing loop -- six tables, 90 deadlocks in 1 361 writes; ten tables, 0 in 2 324.
+// The locks go with the savepoint, and holdingInSavepoint fails the test when the savepoint ends
+// holding a strong lock on a table outside this list (strongTableLocksOutside) -- the list cannot
+// fall behind the Downs silently (except for a table the savepoint dropped and left dropped: its
+// lock is on an OID with no name left to read).
 func holdingLockForDowns(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	t.Helper()
+	lockForDowns(t, ctx, sp, holdingDownTables)
+}
+
+// lockForDowns takes ACCESS EXCLUSIVE on every one of tables (those that exist) inside tx -- in
+// ONE statement, NOWAIT, in a nested savepoint retried every 25 ms until it is granted (90 s at
+// most) -- so a caller that walks Downs afterwards never waits for a lock on one of them while
+// holding another. opAtVersion takes it too, with the tables its Downs name.
+func lockForDowns(t *testing.T, ctx context.Context, tx pgx.Tx, tables []string) {
+	t.Helper()
+	var list []string
+	for _, tb := range tables {
+		var exists bool
+		if err := tx.QueryRow(ctx, `SELECT to_regclass('public.' || $1) IS NOT NULL`, tb).Scan(&exists); err != nil {
+			t.Fatal(err)
+		}
+		if exists {
+			list = append(list, "public."+tb)
+		}
+	}
+	if len(list) == 0 {
+		return
+	}
+	stmt := `LOCK TABLE ` + strings.Join(list, ", ") + ` IN ACCESS EXCLUSIVE MODE NOWAIT`
 	deadline := time.Now().Add(90 * time.Second)
 	for {
-		nested, err := sp.Begin(ctx)
+		nested, err := tx.Begin(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = nested.Exec(ctx, `LOCK TABLE public.transactions, public.transaction_reviews, public.tags, public.locations,
-		                                       public.tenants, public.tenant_branding IN ACCESS EXCLUSIVE MODE NOWAIT`)
+		_, err = nested.Exec(ctx, stmt)
 		if err == nil {
 			if err := nested.Commit(ctx); err != nil {
 				t.Fatal(err)
@@ -1278,6 +1325,31 @@ func holdingLockForDowns(t *testing.T, ctx context.Context, sp pgx.Tx) {
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
+}
+
+// strongTableLocksOutside returns the tables of public this backend holds a lock STRONGER than a
+// writer's on (ShareUpdateExclusive and up) that are not in allowed -- a Down that locked a table
+// lockForDowns did not take first, i.e. a list that drifted from the Downs it guards. The
+// callers fail on a non-empty answer, so a new Down that touches one more table turns red here
+// instead of deadlocking now and then in a full run. A test's own scratch tables (this suite names
+// every one zz_*) are left out: created in the test's transaction, no other session sees them.
+func strongTableLocksOutside(t *testing.T, ctx context.Context, q opQuerier, allowed []string) []string {
+	t.Helper()
+	rows, err := q.Query(ctx, `
+		SELECT DISTINCT c.relname FROM pg_catalog.pg_locks l JOIN pg_catalog.pg_class c ON c.oid = l.relation
+		 WHERE l.locktype = 'relation' AND l.granted AND l.pid = pg_backend_pid()
+		   AND c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'p')
+		   AND l.mode IN ('ShareUpdateExclusiveLock', 'ShareLock', 'ShareRowExclusiveLock', 'ExclusiveLock', 'AccessExclusiveLock')
+		   AND c.relname <> ALL ($1) AND c.relname NOT LIKE 'zz\_%'
+		 ORDER BY 1`, allowed)
+	if err != nil {
+		t.Fatalf("read this backend's strong table locks: %v", err)
+	}
+	out, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		t.Fatalf("read this backend's strong table locks: %v", err)
+	}
+	return out
 }
 
 // holdingSetAsideSiteRows deletes, inside the savepoint sp, every transactions row that names a

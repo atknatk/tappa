@@ -9,6 +9,7 @@ package db
 // package's test waits for more than the savepoint's own few statements).
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -78,7 +79,9 @@ func holdingPrecondition(t *testing.T, file string) string {
 	return up[i:j]
 }
 
-// holdingInSavepoint runs body in a savepoint of tx that is rolled back when body returns.
+// holdingInSavepoint runs body in a savepoint of tx that is rolled back when body returns -- and,
+// before the rollback, fails the test if the savepoint holds a strong lock on a table outside
+// holdingDownTables (strongTableLocksOutside; holdingLockForDowns says why).
 func holdingInSavepoint(t *testing.T, tx pgx.Tx, body func(sp pgx.Tx)) {
 	t.Helper()
 	ctx := t.Context()
@@ -92,6 +95,34 @@ func holdingInSavepoint(t *testing.T, tx pgx.Tx, body func(sp pgx.Tx)) {
 		}
 	}()
 	body(sp)
+	if t.Failed() {
+		return
+	}
+	if sp.Conn().PgConn().TxStatus() == 'E' {
+		t.Errorf("the savepoint ended aborted, so its locks cannot be read: run a statement that is meant to fail in a nested savepoint")
+		return
+	}
+	if extra := strongTableLocksOutside(t, ctx, sp, holdingDownTables); len(extra) > 0 {
+		t.Errorf("the savepoint took a strong lock on %v, outside holdingDownTables: a Down touches a table "+
+			"holdingLockForDowns does not take first (the 40P01 class ADR 0027's API-1b note measured) -- add it", extra)
+	}
+}
+
+// holdingNestedRun runs sql (a migration's DO block, with its own dollar quoting -- the simple
+// protocol) in a savepoint nested in sp and rolls it back, so a statement that is meant to fail
+// leaves sp usable: holdingInSavepoint reads its locks before the rollback. Its error, nil when
+// it ran.
+func holdingNestedRun(t *testing.T, ctx context.Context, sp pgx.Tx, sql string) error {
+	t.Helper()
+	nested, err := sp.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, runErr := nested.Conn().PgConn().Exec(ctx, sql).ReadAll()
+	if err := nested.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	return runErr
 }
 
 // holdingClearKinds removes, inside the transaction, the operator rows of the holding kinds and
@@ -161,6 +192,7 @@ func TestHoldingSchema_AppRoleHasNoVerbOnHoldingTables(t *testing.T) {
 	up41, down41 := opMigrationSections(t, op00041File)
 	up42, down42 := opMigrationSections(t, op00042File)
 	holdingInSavepoint(t, tx, func(sp pgx.Tx) {
+		holdingLockForDowns(t, ctx, sp)
 		holdingClearKinds(t, sp)
 		if _, err := sp.Exec(ctx, `ALTER DEFAULT PRIVILEGES FOR ROLE tappa_owner IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO tappa_app`); err != nil {
 			t.Fatal(err)
@@ -214,8 +246,7 @@ func TestHolding00041_PreconditionRefusesAWrongCluster(t *testing.T) {
 	ctx, tx := opTx(t)
 	pre := holdingPrecondition(t, op00041File)
 	run := func(sp pgx.Tx) (string, string) {
-		_, err := sp.Conn().PgConn().Exec(ctx, pre).ReadAll()
-		return opCode(err)
+		return opCode(holdingNestedRun(t, ctx, sp, pre))
 	}
 	holdingInSavepoint(t, tx, func(sp pgx.Tx) {
 		if code, msg := run(sp); code != sqlstatePrerequisiteState || !strings.Contains(msg, "already there") || !strings.Contains(msg, "00041") {
@@ -240,6 +271,7 @@ func TestHolding00041_PreconditionRefusesAWrongCluster(t *testing.T) {
 		{"the role reaches a sequence", []string{`GRANT USAGE ON SEQUENCE goose_db_version_id_seq TO tappa_holdingdefiner`}, "already reaches"},
 	} {
 		holdingInSavepoint(t, tx, func(sp pgx.Tx) {
+			holdingLockForDowns(t, ctx, sp)
 			holdingClearKinds(t, sp)
 			holdingBelow43(t, ctx, sp)
 			opRunSection(t, ctx, sp, down42, "00042 Down")
@@ -299,6 +331,7 @@ func TestOperator00042_PreconditionRefusesAWrongCluster(t *testing.T) {
 		{"the definer already reads the holdings", []string{`GRANT SELECT ON holdings TO tappa_opdefiner`}, "a privilege no migration gave"},
 	} {
 		holdingInSavepoint(t, tx, func(sp pgx.Tx) {
+			holdingLockForDowns(t, ctx, sp)
 			holdingClearKinds(t, sp)
 			opRunSection(t, ctx, sp, down42, "00042 Down")
 			for _, s := range c.setup {
@@ -306,7 +339,7 @@ func TestOperator00042_PreconditionRefusesAWrongCluster(t *testing.T) {
 					t.Fatalf("%s: setup: %v", c.what, err)
 				}
 			}
-			_, err := sp.Conn().PgConn().Exec(ctx, pre).ReadAll()
+			err := holdingNestedRun(t, ctx, sp, pre)
 			code, msg := opCode(err)
 			switch {
 			case c.want == "" && err != nil:
@@ -391,6 +424,7 @@ func TestHolding00041And00042_DownGiveBackAndUpTakesItAgain(t *testing.T) {
 		t.Fatalf("PREMISE at HEAD: %+v", head)
 	}
 	holdingInSavepoint(t, tx, func(sp pgx.Tx) {
+		holdingLockForDowns(t, ctx, sp)
 		holdingClearKinds(t, sp)
 		holdingBelow43(t, ctx, sp)
 		opRunSection(t, ctx, sp, down42, "00042 Down")
@@ -408,6 +442,7 @@ func TestHolding00041And00042_DownGiveBackAndUpTakesItAgain(t *testing.T) {
 		}
 	})
 	holdingInSavepoint(t, tx, func(sp pgx.Tx) {
+		holdingLockForDowns(t, ctx, sp)
 		a := opNewActive(t, ctx, sp)
 		hash, session := opNewSession(t, ctx, sp, a.id, true)
 		h, err := holdingCreateAs(t, ctx, sp, hash, "api1a down "+opToken(t))
@@ -487,7 +522,9 @@ func TestRestore_FreshPodCarriesTheHoldingRole(t *testing.T) {
 	up41, down41 := opMigrationSections(t, op00041File)
 	_, down42 := opMigrationSections(t, op00042File)
 	holdingInSavepoint(t, tx, func(sp pgx.Tx) {
+		holdingLockForDowns(t, ctx, sp)
 		holdingClearKinds(t, sp)
+		holdingBelow43(t, ctx, sp)
 		opRunSection(t, ctx, sp, down42, "00042 Down")
 		opRunSection(t, ctx, sp, down41, "00041 Down")
 		if _, err := sp.Exec(ctx, `ALTER ROLE tappa_holdingdefiner RENAME TO zz_api1a_was_holdingdefiner`); err != nil {

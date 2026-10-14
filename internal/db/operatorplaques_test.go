@@ -155,6 +155,23 @@ func opAtVersion(t *testing.T, ctx context.Context, tx pgx.Tx, version int, kind
 		}
 	}
 	sort.Slice(later, func(i, j int) bool { return later[i].n > later[j].n })
+	// THE TABLES THE DOWNS NAME, LOCKED FIRST (M11 API-1b review, ORTA-1's scan): the Downs below
+	// take ACCESS EXCLUSIVE table by table -- 00042's on operator_audit_log, then on
+	// operator_read_tickets -- while op_read_audit, in another package's test, holds the tickets
+	// and reads the log: the opposite order, a 40P01 waiting to happen. So every table a walked
+	// Down names (downTables), and the two this function deletes from, are taken in ONE NOWAIT
+	// statement before anything else, and after the walk no strong lock may sit outside them.
+	var lockFirst []string
+	if len(later) > 0 {
+		lockFirst = []string{"operator_read_tickets", "operator_audit_log"}
+		for _, f := range later {
+			_, down := opMigrationSections(t, f.name)
+			lockFirst = append(lockFirst, downTables(down)...)
+		}
+		slices.Sort(lockFirst)
+		lockFirst = slices.Compact(lockFirst)
+		lockForDowns(t, ctx, tx, lockFirst)
+	}
 	if _, err := tx.Exec(ctx, `DELETE FROM public.operator_read_tickets WHERE kind <> ALL ($1)`, kinds); err != nil {
 		t.Fatalf("remove the tickets version %d does not know, inside the transaction: %v", version, err)
 	}
@@ -216,11 +233,36 @@ func opAtVersion(t *testing.T, ctx context.Context, tx pgx.Tx, version int, kind
 	if err != nil {
 		t.Fatalf("read the locks the Downs left: %v", err)
 	}
+	if extra := strongTableLocksOutside(t, ctx, tx, lockFirst); len(extra) > 0 {
+		t.Errorf("opAtVersion(%d): the Downs took a strong lock on %v, which downTables did not find in them -- "+
+			"teach downTables the statement (the lock must be taken first, ORTA-1)", version, extra)
+	}
 	start := time.Now()
 	t.Logf("OP16-T9: opAtVersion(%d) ran %d Down(s); this transaction holds %v", version, len(later), strong)
 	t.Cleanup(func() {
 		t.Logf("OP16-T9: opAtVersion(%d)'s locks held %v, until the rollback", version, time.Since(start).Round(time.Millisecond))
 	})
+}
+
+// downTables names the tables of a Down section's DDL -- ALTER/DROP/LOCK/TRUNCATE TABLE and a
+// trigger, index, policy or rule ON a table, and a key's REFERENCES -- the tables whose locks the
+// Down takes. GRANT and REVOKE take none (measured, ADR 0027's API-1b note), and a function body
+// takes its locks when it runs, not when it is created, so neither is read. Comments are dropped
+// first: they name tables too.
+func downTables(down string) []string {
+	var b strings.Builder
+	for _, line := range strings.Split(down, "\n") {
+		if i := strings.Index(line, "--"); i >= 0 {
+			line = line[:i]
+		}
+		b.WriteString(line + "\n")
+	}
+	re := regexp.MustCompile(`(?i)\b(?:(?:ALTER|DROP|LOCK)\s+TABLE(?:\s+IF\s+EXISTS)?(?:\s+ONLY)?|TRUNCATE(?:\s+TABLE)?|(?:TRIGGER|INDEX|POLICY|RULE)\s+(?:IF\s+(?:NOT\s+)?EXISTS\s+)?[a-z_][a-z0-9_]*\s+ON|REFERENCES)\s+(?:public\.)?([a-z_][a-z0-9_]*)`)
+	var out []string
+	for _, m := range re.FindAllStringSubmatch(b.String(), -1) {
+		out = append(out, strings.ToLower(m[1]))
+	}
+	return out
 }
 
 // opBeginReadBody returns the body (prosrc) of op_begin_read as a migration file's UP
