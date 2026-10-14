@@ -399,10 +399,40 @@ func holdingOutsiderProbes(t *testing.T, ctx context.Context, tx pgx.Tx, w holdi
 		{"KM", w.km, []uuid.UUID{w.c, w.d}},
 		{"no context", uuid.Nil, nil},
 	} {
+		// Every page, not the first: under a wrong filter the function answers every venue of every
+		// tenant in the database, 1000 a page by id, and the outsider's venue need not be on page one
+		// (measured on the shared database: M1's leak was on a later page and the first-page probe
+		// stayed green).
 		var n int64
 		if err := holdingAppIn(t, ctx, tx, p.ctx, func(sp pgx.Tx) error {
-			return sp.QueryRow(ctx, `SELECT count(*) FROM public.holding_site_locations(NULL) WHERE $1::uuid[] IS NULL OR site_tenant_id = ANY($1)`,
-				p.forbidden).Scan(&n)
+			var cursor *uuid.UUID
+			for range 200 {
+				rows, err := sp.Query(ctx, `SELECT site_tenant_id, location_id FROM public.holding_site_locations($1)`, cursor)
+				if err != nil {
+					return err
+				}
+				got := 0
+				for rows.Next() {
+					var site, loc uuid.UUID
+					if err := rows.Scan(&site, &loc); err != nil {
+						rows.Close()
+						return err
+					}
+					got++
+					cursor = &loc
+					if p.forbidden == nil || slices.Contains(p.forbidden, site) {
+						n++
+					}
+				}
+				rows.Close()
+				if err := rows.Err(); err != nil {
+					return err
+				}
+				if got < 1000 {
+					return nil
+				}
+			}
+			return fmt.Errorf("holding_site_locations answered more than 200 pages")
 		}); err != nil {
 			t.Fatalf("holding_site_locations: %v", err)
 		}

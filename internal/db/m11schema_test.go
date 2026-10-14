@@ -905,6 +905,10 @@ var employeeLocationNonReaders = map[string]string{
 	"ListPanelTransactions": "t.location_id and the venue filter on transactions; employees is matched and joined for full_name",
 	"ListTapsTakenTogether": "transactions' location_id through its ordered/pairs CTEs; employees is joined for full_name",
 	"ListWorkedShiftEvents": "t.location_id, the record's venue; employees is joined for full_name",
+	// M11 API-1c: the manager's record at a holding peer's venue -- location_id is WRITTEN NULL (K-30:
+	// a site row names no local venue) and the venue is the peer's site_location_id; employees is
+	// read for the id and the department alone, so an employee with no home venue is filed the same.
+	"InsertManualSiteTransaction": "writes location_id NULL and the peer's site_location_id; employees is read for id and department_id",
 }
 
 // TestEmployeeLocationReaders_Counted pins K-14's count: the statements of db/queries that

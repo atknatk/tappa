@@ -73,14 +73,14 @@ type AnomaliesView struct {
 	Masked MaskedOpenView
 
 	Policies []AnomalyPolicyView
-
-	// The six "…and there are more" flags. Each is set when its listing hit the cap.
-	MorePeople   bool
-	MoreVenues   bool
 	// LostPlaques and MoreLost: this business's lost plaques a partner business's staff
 	// touched (M11 API-1c). Empty for a business in no holding -- the block is then absent.
 	LostPlaques []AnomalyLostPlaqueView
 	MoreLost    bool
+
+	// The six "…and there are more" flags. Each is set when its listing hit the cap.
+	MorePeople   bool
+	MoreVenues   bool
 	MorePlaques  bool
 	MorePairs    bool
 	MoreOpen     bool
