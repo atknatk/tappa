@@ -112,8 +112,9 @@ ediyorsa **dur ve sor**, sessizce uygulama.
 3. **`transactions` immutable.** UPDATE/DELETE yok. Düzeltme = yeni kayıt +
    `audit_log`. Mesai kaydı hukuki delil olabilir. Dışa bakan izdüşümleri de append-only'dir:
    `punch_events` (ADR 0028 §4) ve `site_punches` (ADR 0027 §9). `site_punches`'ı yalnız `holding_feed`
-   yazar; `punch_events`'i iki tetikleyici (`holding_feed`, `punch_feed`) ve bir kez koşan `00050`
-   geri doldurması yazar — üçü dışında yazan yoktur. `punch_events.direction` (`in`/`out`) işverenin
+   yazar; `punch_events`'i iki tetikleyici (`holding_feed`, `punch_feed`) ve `00050` geri doldurması
+   yazar — üçü dışında yazan yoktur. `00050` yeniden koşulabilir (yalnız olayı olmayan punch'ı
+   yazar); planı istatistiğe değil sorgunun metnine bağlıdır (`TestFeedBackfill_ThePlanIsTheTexts`). `punch_events.direction` (`in`/`out`) işverenin
    `transactions.type`'ıdır; onay olayı ana kaydın yönünü taşır (K-40, kullanıcı kararı 2026-10-14).
 4. **`ctr` kontrolü atomik.** Oku-sonra-yaz replay açığıdır. Tek ifadede:
    `UPDATE tags SET last_ctr=$2 WHERE uid=$1 AND last_ctr < $2 RETURNING …`
@@ -140,7 +141,10 @@ ediyorsa **dur ve sor**, sessizce uygulama.
    olay tetikleyicisinin sahibidir, tenant sınırını aşmaz; holding punch'ının iki olayını holding
    tetikleyicisi yazar (K-31). Bir işlem tek bir sayaç kümesine olay yazar — sayaç kilit sırası
    buna dayanır ve kural mekaniktir: kümenin dışında olay yazan ikinci satır kilitten önce
-   `SQLSTATE TF001` ile reddedilir (ADR 0028, API-2 uygulama notu). **Listeye
+   `SQLSTATE TF001` ile reddedilir (ADR 0028, API-2 uygulama notu). İşareti
+   (`tappa.feed_counters`) önceden yazan bir işlem kontrolü atlatır ve başka tenant çiftlerinin
+   holding dokunuşlarını 40P01'e sürükler — o kayıt yazılmaz; ürün kodunda bu ayarı yazan yol
+   yoktur ve redline R5c adı `db/migrations/` dışında reddeder. **Listeye
    fonksiyon eklemek, bir fonksiyonun dönüş sütunlarını ya da definer'ın sütun matrisini
    genişletmek, `holding_peer`'e kip eklemek ya da bir kipin süzgecini veya zaman kuralını
    gevşetmek kullanıcı onayı + ADR 0027 değişikliği ister** (ADR 0027 §2; testler: ADR 0027
