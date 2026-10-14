@@ -1313,9 +1313,9 @@ func (s *Service) gatherWith(ctx context.Context, tx pgx.Tx, req Request, tapped
 			// plaque on no wall carries none -- the refusal is still decided and
 			// written (§4.6).
 			if site.LocationID != nil {
-				f.locationIPs = site.StaticIPs
+				f.locationIPs = site.StaticIPs()
 				f.locationName = site.LocationName
-				f.locationGPS = point(site.GPSLat, site.GPSLng)
+				f.locationGPS = point(site.GPS())
 				zone := site.Timezone
 				if zone == "" {
 					zone = emp.TenantTimezone

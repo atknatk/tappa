@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -42,10 +43,22 @@ func HoldingOn(tx HoldingTx) Holding { return Holding{tx: tx} }
 
 // HoldingSite is holding_tap_site's row: a peer's plaque, its venue and the site's brand meta.
 //
-// 🔴 K-39: StaticIPs, GPSLat and GPSLng are SERVER-SIDE DECISION INPUTS ONLY. They feed
-// tap.Decide's IP and GPS facts and are shown on no screen, written to no log and carried in no
-// response (ADR 0027 §2, K-39). LogValue and Format below redact them, so a slog attribute or a
-// %v of this struct carries the site tenant and the plaque's status and nothing else.
+// 🔴 K-39: the venue's address ranges and its coordinate are SERVER-SIDE DECISION INPUTS ONLY.
+// They feed tap.Decide's IP and GPS facts and are shown on no screen, written to no log and
+// carried in no response (ADR 0027 §2, K-39). So they are not fields: they sit inside an
+// unexported CLOSURE, read through StaticIPs and GPS. Every way out redacts them, each for its
+// own reason (the security review's DÜŞÜK-2 measured the JSON ones leaking when they were fields):
+//
+//	slog attribute      LogValue: the site tenant and the plaque's status.
+//	fmt, any verb       Format: the same two -- an error's %v and a test failure's %+v included,
+//	                    and the struct nested in an exported field, a slice or a map.
+//	encoding/json       MarshalJSON: the same two -- json.Marshal, and slog's JSONHandler, which
+//	                    marshals a nested struct with encoding/json and never asks LogValue.
+//	reflection          a HoldingSite reached through an UNEXPORTED field cannot have its
+//	                    methods called, and fmt prints such a struct field by field -- a
+//	                    pointer it FOLLOWS under a malformed verb (%s, %q: measured, the
+//	                    address's integer in the output). A func is the one value reflection
+//	                    cannot open: fmt prints it as an address under every verb.
 type HoldingSite struct {
 	// SiteTenantID is the plaque's tenant -- the site.
 	SiteTenantID uuid.UUID
@@ -56,11 +69,11 @@ type HoldingSite struct {
 	LocationID          *uuid.UUID
 	LocationName        string
 	LocationExternalRef *string
-	StaticIPs           []netip.Prefix
-	GPSLat, GPSLng      pgtype.Numeric
-	ShiftStart          pgtype.Time
-	ShiftEnd            pgtype.Time
-	Overnight           bool
+	// evidence is K-39's, nil when the plaque is on no wall.
+	evidence   func() holdingEvidence
+	ShiftStart pgtype.Time
+	ShiftEnd   pgtype.Time
+	Overnight  bool
 	// Timezone is the site tenant's zone (K-36: a holding's members share one).
 	Timezone string
 	APICode  *string
@@ -75,6 +88,30 @@ type HoldingSite struct {
 	BusinessName *string
 }
 
+// holdingEvidence is the venue's place evidence (K-39), inside HoldingSite's unexported closure.
+type holdingEvidence struct {
+	staticIPs      []netip.Prefix
+	gpsLat, gpsLng pgtype.Numeric
+}
+
+// StaticIPs is the venue's address ranges -- for tap.Decide's IP fact, and nothing else.
+func (s HoldingSite) StaticIPs() []netip.Prefix {
+	if s.evidence == nil {
+		return nil
+	}
+	return s.evidence().staticIPs
+}
+
+// GPS is the venue's coordinate (invalid numerics when it has none) -- for tap.Decide's GPS
+// fact, and nothing else.
+func (s HoldingSite) GPS() (lat, lng pgtype.Numeric) {
+	if s.evidence == nil {
+		return pgtype.Numeric{}, pgtype.Numeric{}
+	}
+	ev := s.evidence()
+	return ev.gpsLat, ev.gpsLng
+}
+
 // LogValue keeps K-39's evidence out of every log line: the site and the plaque's status only.
 func (s HoldingSite) LogValue() slog.Value {
 	return slog.GroupValue(slog.String("site_tenant_id", s.SiteTenantID.String()), slog.String("tag_status", s.TagStatus))
@@ -84,6 +121,15 @@ func (s HoldingSite) LogValue() slog.Value {
 // evidence -- a %v in an error or a %+v in a test failure included.
 func (s HoldingSite) Format(f fmt.State, _ rune) {
 	_, _ = fmt.Fprintf(f, "HoldingSite{site_tenant_id:%s tag_status:%s}", s.SiteTenantID, s.TagStatus)
+}
+
+// MarshalJSON is LogValue's rule for encoding/json: the site and the status, never the evidence
+// -- json.Marshal's, and slog's JSONHandler's for a HoldingSite nested in another value.
+func (s HoldingSite) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		SiteTenantID uuid.UUID `json:"site_tenant_id"`
+		TagStatus    string    `json:"tag_status"`
+	}{s.SiteTenantID, s.TagStatus})
 }
 
 // holdingTapSiteSQL names holding_tap_site's nineteen result columns in the signature table's
@@ -98,13 +144,14 @@ const holdingTapSiteSQL = `SELECT site_tenant_id, tag_status, location_id, locat
 func (h Holding) TapSite(ctx context.Context, uid string) (HoldingSite, bool, error) {
 	var (
 		s        HoldingSite
+		ev       holdingEvidence
 		name     *string
 		overnite *bool
 		zone     *string
 	)
 	err := h.tx.QueryRow(ctx, holdingTapSiteSQL, uid).Scan(
 		&s.SiteTenantID, &s.TagStatus, &s.LocationID, &name, &s.LocationExternalRef,
-		&s.StaticIPs, &s.GPSLat, &s.GPSLng, &s.ShiftStart, &s.ShiftEnd, &overnite, &zone, &s.APICode, &s.Accent,
+		&ev.staticIPs, &ev.gpsLat, &ev.gpsLng, &s.ShiftStart, &s.ShiftEnd, &overnite, &zone, &s.APICode, &s.Accent,
 		&s.LogoSHA256, &s.LogoMIME, &s.LogoWidth, &s.LogoHeight, &s.BusinessName)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return HoldingSite{}, false, nil
@@ -112,6 +159,7 @@ func (h Holding) TapSite(ctx context.Context, uid string) (HoldingSite, bool, er
 	if err != nil {
 		return HoldingSite{}, false, fmt.Errorf("db: holding_tap_site: %w", err)
 	}
+	s.evidence = func() holdingEvidence { return ev }
 	if name != nil {
 		s.LocationName = *name
 	}
