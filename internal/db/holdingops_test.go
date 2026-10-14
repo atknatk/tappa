@@ -878,19 +878,26 @@ func TestHoldingOps_LeftAtCannotBeUndone(t *testing.T) {
 			t.Errorf("%s UPDATE on holding_members = (%s), want (%s)", role, got, want)
 		}
 	}
-	update := regexp.MustCompile(`(?is)update\s+public\.holding_members\s+(?:as\s+\w+\s+)?set\s+(.*?)\s+where\s+(.*?);`)
+	// The scan reads the body without comments and without double quotes, as its sibling
+	// (TestHoldingOps_OnlyOperatorFunctionsWriteMembership) does -- `UPDATE public."holding_members"`
+	// escaped it (the API-1a review's DÜŞÜK-5) -- and with the schema and ONLY optional. Every
+	// UPDATE naming the table must be one the detailed pattern reads (`updates` == `named`).
+	update := regexp.MustCompile(`(?is)\bupdate\s+(?:only\s+)?(?:public\s*\.\s*)?holding_members\b\s*(?:(?:as\s+)?\w+\s+)?set\s+(.*?)\s+where\s+(.*?);`)
+	named := regexp.MustCompile(`(?i)\bupdate\s+(?:only\s+)?(?:public\s*\.\s*)?holding_members\b`)
 	rows, err := tx.Query(ctx, `SELECT p.proname, p.prosrc FROM pg_proc p WHERE p.proowner = 'tappa_opdefiner'::regrole`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer rows.Close()
-	updates := 0
+	updates, names := 0, 0
 	for rows.Next() {
 		var name, src string
 		if err := rows.Scan(&name, &src); err != nil {
 			t.Fatal(err)
 		}
-		for _, m := range update.FindAllStringSubmatch(holdingStripComments(src), -1) {
+		body := strings.ReplaceAll(holdingStripComments(src), `"`, "")
+		names += len(named.FindAllString(body, -1))
+		for _, m := range update.FindAllStringSubmatch(body, -1) {
 			updates++
 			if !regexp.MustCompile(`^left_at\s*=\s*clock_timestamp\(\)$`).MatchString(strings.TrimSpace(m[1])) {
 				t.Errorf("%s: an UPDATE of holding_members sets %q, want left_at = clock_timestamp() alone", name, m[1])
@@ -900,8 +907,9 @@ func TestHoldingOps_LeftAtCannotBeUndone(t *testing.T) {
 			}
 		}
 	}
-	if updates != 1 {
-		t.Errorf("anti-vacuity: %d UPDATE(s) of holding_members in the definer's bodies, want op_remove_holding_member's one", updates)
+	if updates != 1 || names != updates {
+		t.Errorf("%d UPDATE(s) of holding_members read in the definer's bodies out of %d naming it, want op_remove_holding_member's one",
+			updates, names)
 	}
 }
 
@@ -1250,6 +1258,82 @@ func TestHoldingOps_ConcurrentAddsOfTwoTenantsKeepOneTimezone(t *testing.T) {
 		if members != 1 || zones != 1 {
 			t.Fatalf("round %d: %d members in %d zones, want one member", round, members, zones)
 		}
+	}
+}
+
+// holdingWaitOn waits until connection c waits on a lock (pg_locks, not granted) and reports
+// whether it came to wait within 5 s and on which lock types. When it does not come to wait the
+// caller reports it and goes on, so the race's OUTCOME is checked too.
+func holdingWaitOn(t *testing.T, f *holdingLive, c *pgx.Conn) (bool, string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		var types *string
+		if err := f.owner.QueryRow(f.ctx, `SELECT string_agg(DISTINCT locktype, ',') FROM pg_locks WHERE NOT granted AND pid = $1`,
+			c.PgConn().PID()).Scan(&types); err != nil {
+			t.Fatal(err)
+		}
+		if types != nil {
+			return true, *types
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return false, ""
+}
+
+// TestHoldingOps_RemoveWaitsForAnUncommittedAdd (the API-1a review's ORTA-2): X is a live member;
+// Y's add is called and NOT yet committed when X's remove is called. The remove queues on the
+// holding's advisory lock (measured on pg_locks: the remover's connection waits, on an advisory
+// lock), re-reads the members after the add commits, and writes 'tenant.holding_member_left'
+// naming X into Y's trail too -- every member live when X leaves is told. The mutant
+// (op_remove_holding_member without its advisory lock) does not wait, reads the members before
+// Y's add commits, and Y never gets the row -- measured on a throwaway database (waited=false,
+// Y's row missing; the original: waited on advisory, Y's row there). Two operator sessions: calls
+// of ONE session queue on op_touch_session's row whatever the holding's lock does.
+func TestHoldingOps_RemoveWaitsForAnUncommittedAdd(t *testing.T) {
+	f := holdingLiveFixture(t)
+	h := f.holding(t)
+	x := f.tenant(t, "Europe/Malta", nil)
+	f.member(t, h, x, "10 minutes", "")
+	y := f.tenant(t, "Europe/Malta", nil)
+	second, _ := f.newSession(t, f.ctx)
+	c1, c2 := f.conn(t), f.conn(t)
+	add := holdingBegin(t, f.ctx, c1, "tappa_operator")
+	if _, err := add.Exec(f.ctx, holdingAddSQL, f.hash, h, y); err != nil {
+		t.Fatalf("Y's add: %v", err)
+	}
+	errs := make(chan error, 1)
+	go func() { errs <- holdingCall(f.ctx, c2, holdingRemoveSQL, second, h, x) }()
+	waited, types := holdingWaitOn(t, f, c2)
+	if !waited || types != "advisory" {
+		t.Errorf("X's remove waited=%v on {%s} while Y's add was uncommitted, want a wait on the holding's advisory lock", waited, types)
+	}
+	if err := add.Commit(f.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-errs; err != nil {
+		t.Fatalf("X's remove answered %v, want void", err)
+	}
+	if holdingLiveIn(t, f.ctx, f.owner, h, x) || !holdingLiveIn(t, f.ctx, f.owner, h, y) {
+		t.Errorf("X live=%v, Y live=%v; want X removed and Y a member", holdingLiveIn(t, f.ctx, f.owner, h, x), holdingLiveIn(t, f.ctx, f.owner, h, y))
+	}
+	told := 0
+	for _, r := range holdingTrailOf(t, f.ctx, f.owner, y) {
+		if r.action == "tenant.holding_member_left" && r.detail["member_tenant_id"] == x.String() && r.detail["holding_id"] == h.String() {
+			told++
+		}
+	}
+	if told != 1 {
+		t.Errorf("Y's trail has %d 'tenant.holding_member_left' row(s) naming X, want 1 -- a member live when X left was not told", told)
+	}
+	left := 0
+	for _, r := range holdingTrailOf(t, f.ctx, f.owner, x) {
+		if r.action == "tenant.holding_left" {
+			left++
+		}
+	}
+	if left != 1 {
+		t.Errorf("X's trail has %d 'tenant.holding_left' row(s), want 1", left)
 	}
 }
 

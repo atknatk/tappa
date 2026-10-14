@@ -368,12 +368,94 @@ func TestHoldingPeer_AppCannotCallIt(t *testing.T) {
 		sqlstateInsufficientPrivi, "tappa_app asking holding_peer whether a tenant is a member")
 }
 
-// TestHoldingPeer_ModesAreAClosedSet: the five modes and nothing else -- an unknown mode, a
-// NULL mode, a mode in another case or with a space are 22023 (never a default); is_member takes
-// ONE tenant (a second is 22023); a tenant is never its own peer (a = b is false in the three
-// deciding modes, and the lock mode answers NULL); a NULL tenant is not a peer either.
+// holdingPeerModes are ADR 0027 §2's five modes, in the order holding_peer's guard lists them.
+var holdingPeerModes = []string{"strict", "strict_stmt", "tolerant_stmt", "lock", "is_member"}
+
+// holdingPeerBodyMD5 is md5(prosrc) of holding_peer as migration 00041 creates it. The modes and
+// their rules are ADR 0027 §2's closed set (CLAUDE.md §4.5): a body that changes -- a sixth mode
+// above all -- is red here until an ADR 0027 change the user approved moves this pin with it.
+const holdingPeerBodyMD5 = "8044a5597320487de4f1d19bed399a0e"
+
+// holdingPeerChangeNeeds is what every failure of the body pin says.
+const holdingPeerChangeNeeds = "holding_peer's modes and rules are ADR 0027 §2's closed set: a new mode or a changed rule " +
+	"needs an ADR 0027 change and the user's approval (CLAUDE.md §4.5) before this pin moves"
+
+// TestHoldingPeer_ModesAreAClosedSet: the five modes and nothing else.
+//   - THE BODY (the API-1a review's ORTA-1: a sixth mode 'any', yes for any two live members,
+//     stayed green everywhere): holding_peer's body is pinned by md5(prosrc), its guard lists
+//     exactly the five modes, and no other mode word is compared to `mod` anywhere in it.
+//   - EACH MODE IS ACCEPTED: a and b live in one holding -- strict, strict_stmt and tolerant_stmt
+//     answer true, lock answers NULL without an error, is_member(a) answers true.
+//   - THE REST IS REFUSED: an unknown mode, a NULL mode, a mode in another case or with a space
+//     are 22023 (never a default); is_member takes ONE tenant (a second is 22023); a tenant is
+//     never its own peer (a = b is false in the three deciding modes, and the lock mode answers
+//     NULL); a NULL tenant is not a peer either.
 func TestHoldingPeer_ModesAreAClosedSet(t *testing.T) {
 	ctx, tx := opTx(t)
+	var src, digest string
+	if err := tx.QueryRow(ctx, `SELECT prosrc, md5(prosrc) FROM pg_proc WHERE oid = 'public.holding_peer(uuid, uuid, text)'::regprocedure`).
+		Scan(&src, &digest); err != nil {
+		t.Fatalf("read holding_peer: %v", err)
+	}
+	if digest != holdingPeerBodyMD5 {
+		t.Errorf("holding_peer's body changed (md5 %s, want %s): %s", digest, holdingPeerBodyMD5, holdingPeerChangeNeeds)
+	}
+	body := strings.ReplaceAll(holdingStripComments(src), `"`, "")
+	guard := regexp.MustCompile(`(?is)\bmod\s+is\s+null\s+or\s+mod\s+not\s+in\s*\(([^)]*)\)`).FindAllStringSubmatch(body, -1)
+	var listed []string
+	if len(guard) == 1 {
+		for _, m := range regexp.MustCompile(`'([^']*)'`).FindAllStringSubmatch(guard[0][1], -1) {
+			listed = append(listed, m[1])
+		}
+	}
+	if !slices.Equal(listed, holdingPeerModes) {
+		t.Errorf("holding_peer's guard lists %v (%d guard(s)), want exactly %v: %s", listed, len(guard), holdingPeerModes, holdingPeerChangeNeeds)
+	}
+	compared := 0
+	for _, m := range regexp.MustCompile(`(?is)\bmod\s*(?:=|<>|!=)\s*'([^']*)'|\bmod\s+(?:not\s+)?in\s*\(([^)]*)\)|\bcase\s+mod\b`).FindAllStringSubmatch(body, -1) {
+		words := []string{m[1]}
+		if m[1] == "" {
+			words = nil
+			for _, w := range regexp.MustCompile(`'([^']*)'`).FindAllStringSubmatch(m[2], -1) {
+				words = append(words, w[1])
+			}
+		}
+		if m[0] != "" && strings.HasPrefix(strings.ToLower(m[0]), "case") {
+			t.Errorf("holding_peer dispatches with CASE mod, which this scan does not read: %s", holdingPeerChangeNeeds)
+		}
+		for _, w := range words {
+			compared++
+			if !slices.Contains(holdingPeerModes, w) {
+				t.Errorf("holding_peer compares mod to %q, not one of %v: %s", w, holdingPeerModes, holdingPeerChangeNeeds)
+			}
+		}
+	}
+	if compared < len(holdingPeerModes)+3 {
+		t.Errorf("anti-vacuity: %d mode words compared to mod in holding_peer's body, want the guard's five and the branches'", compared)
+	}
+
+	// Each of the five is accepted.
+	pa := opNewTenant(t, ctx, tx, "api1a modes a "+opToken(t), 0)
+	pb := opNewTenant(t, ctx, tx, "api1a modes b "+opToken(t), 0)
+	h := holdingNew(t, ctx, tx, "api1a modes "+opToken(t))
+	holdingInsertMember(t, ctx, tx, h, holdingMember{pa, "10 minutes", ""})
+	holdingInsertMember(t, ctx, tx, h, holdingMember{pb, "10 minutes", ""})
+	for _, m := range holdingPeerModes {
+		second := any(pb)
+		if m == "is_member" {
+			second = nil
+		}
+		got, err := holdingPeerAs(t, ctx, tx, pa, second, m)
+		switch {
+		case err != nil:
+			t.Errorf("the mode %s was refused for two live peers: %v", m, err)
+		case m == "lock" && got != nil:
+			t.Errorf("lock(a, b) = %v, want NULL -- the lock mode decides nothing", *got)
+		case m != "lock" && (got == nil || !*got):
+			t.Errorf("%s(a, b) = %v for two live peers, want true", m, opDeref(got))
+		}
+	}
+
 	a, b := uuid.New(), uuid.New()
 	for _, m := range []any{"bogus", nil, "STRICT", " strict", "strict ", "Is_Member", ""} {
 		_, err := holdingPeerAs(t, ctx, tx, a, b, m)
@@ -850,14 +932,41 @@ var holdingTriggerBindings = map[string]struct {
 	},
 }
 
+// holdingTriggerDefs are the holding triggers as pg_get_triggerdef prints them, keyed by the
+// trigger function: each function is bound exactly once, enabled ('O'), with its WHEN (the API-1a
+// review's DÜŞÜK-2 -- the timezone lock fires only when the zone changes; without the WHEN it
+// would ask holding_peer on every update of a tenant).
+var holdingTriggerDefs = map[string]string{
+	"holding_timezone_lock": `CREATE TRIGGER tenants_holding_timezone_lock BEFORE UPDATE ON public.tenants FOR EACH ROW ` +
+		`WHEN ((old.timezone IS DISTINCT FROM new.timezone)) EXECUTE FUNCTION holding_timezone_lock()`,
+}
+
 // TestHoldingTriggers_ExecuteOnlyOwnerAndAssertRelid: every trigger function of the signature
-// table has EXECUTE in its owner alone and a row in holdingTriggerBindings; bound by the owner
-// to a temp table it refuses to run (55000 -- TG_RELID and friends); tappa_app, which has TEMP
-// from PUBLIC, cannot bind it to a table of its own at all (42501 -- the 4th round's path); and
-// holding_timezone_lock bound to tenants for INSERT (the right table, the wrong event) refuses
-// too.
+// table has EXECUTE in its owner alone, a row in holdingTriggerBindings and one binding, enabled,
+// equal to its pg_get_triggerdef in holdingTriggerDefs; bound by the owner to a temp table it
+// refuses to run (55000 -- TG_RELID and friends); tappa_app, which has TEMP from PUBLIC, cannot
+// bind it to a table of its own at all (42501 -- the 4th round's path); and holding_timezone_lock
+// bound to tenants for INSERT (the right table, the wrong event) refuses too.
 func TestHoldingTriggers_ExecuteOnlyOwnerAndAssertRelid(t *testing.T) {
 	ctx, tx := opTx(t)
+	for _, s := range holdingSignatures {
+		if s.kind != holdingTrigger {
+			continue
+		}
+		rows, err := tx.Query(ctx, `SELECT t.tgenabled::text || ' ' || pg_get_triggerdef(t.oid) FROM pg_trigger t
+		                             WHERE t.tgfoid = ('public.' || $1 || '()')::regprocedure AND NOT t.tgisinternal ORDER BY 1`, s.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defs, err := pgx.CollectRows(rows, pgx.RowTo[string])
+		if err != nil {
+			t.Fatal(err)
+		}
+		want, ok := holdingTriggerDefs[s.name]
+		if !ok || len(defs) != 1 || defs[0] != "O "+want {
+			t.Errorf("%s is bound as %q,\n want once, enabled: %q", s.name, defs, "O "+want)
+		}
+	}
 	n := 0
 	for _, s := range holdingSignatures {
 		if s.kind != holdingTrigger {
@@ -1505,10 +1614,20 @@ func holdingPeerCalls(t *testing.T, ctx context.Context, tx pgx.Tx, tenant uuid.
 // holdingPeerSetFindings drives each call twice, around 50 more data rows for the peer: a
 // function that computes the peer set once makes as many holding_peer calls the second time as
 // the first; one that asks per data row makes at least 50 more.
+//
+// The peer is given its first 50 data rows BEFORE the first count (the API-1a review's DÜŞÜK-1):
+// with no data row at all the count depends on the plan, not on the function -- measured on a
+// seedless database (empty locations): a hash join that finds its other side empty stops after the
+// first peer the CTE yields or never reads the CTE ("63 then 173", "0 then 2", "0 then 230"), and
+// the CONTROL that computes the peer set once was flagged. With data on both sides every join
+// strategy reads the materialised peer set to its end.
 func holdingPeerSetFindings(t *testing.T, ctx context.Context, tx pgx.Tx, caller, peer uuid.UUID, calls map[string]holdingMultiRowCall) []string {
 	t.Helper()
 	var out []string
 	for name, c := range calls {
+		if _, err := tx.Exec(ctx, c.grow, peer); err != nil {
+			t.Fatalf("%s: the peer's first data rows: %v", name, err)
+		}
 		first := holdingPeerCalls(t, ctx, tx, caller, c.sql)
 		if _, err := tx.Exec(ctx, c.grow, peer); err != nil {
 			t.Fatalf("%s: grow the data: %v", name, err)

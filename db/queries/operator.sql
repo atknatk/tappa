@@ -227,7 +227,7 @@
 -- operator's 'tenant_api_disabled' row on every accepted call.
 --   SELECT public.op_disable_tenant_api($1, $2);
 
--- M11 API-1a (migration 00041; ADR 0027 §1): the operator's holdings. Three one-phase writes
+-- M11 API-1a (migration 00042; ADR 0027 §1): the operator's holdings. Three one-phase writes
 -- and one two-phase read. The writes answer the same whatever they find (ADR 0021 §2 v 7,
 -- B14): void (or the created id) on every accepted call, the operator's row on every accepted
 -- call, the tenants' rows only when a membership changed; what happened is read back with

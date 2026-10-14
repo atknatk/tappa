@@ -601,7 +601,7 @@ func (o *OperatorDB) RecordTenantVATCheck(ctx context.Context, sessionHash strin
 }
 
 // The four methods below are internal/handler/operator's HoldingStore (M11 API-1a): the
-// /operator/holdings screen's read and its three writes (migration 00041). Same shape as the
+// /operator/holdings screen's read and its three writes (migration 00042). Same shape as the
 // sixteen above. Holdings is two statements, each an implicit transaction on the POOL; each write
 // is one statement.
 

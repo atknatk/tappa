@@ -1399,7 +1399,7 @@ func RecordTenantVATCheck(ctx context.Context, c OperatorConn, sessionHash strin
 
 // --------------------------------------------------------------- M11 API-1a --
 //
-// Holdings on the operator's surface (migration 00041; ADR 0027 §1, ADR 0021 §2 v): the three
+// Holdings on the operator's surface (migration 00042; ADR 0027 §1, ADR 0021 §2 v): the three
 // writers of a holding's membership -- op_create_holding, op_add_holding_member,
 // op_remove_holding_member -- and their one read, op_read_holdings. Free functions over an
 // OperatorConn in the shape of the sections above; *OperatorDB delegates to each, as
@@ -1413,11 +1413,11 @@ func RecordTenantVATCheck(ctx context.Context, c OperatorConn, sessionHash strin
 // leaves the operator's row either way, and the tenants' rows only when something changed.
 // What happened is read back with Holdings, a two-phase audited read.
 
-// holdingsReadKind is 00041's read kind -- a member of operator_read_tickets_kind_check. Its
+// holdingsReadKind is 00042's read kind -- a member of operator_read_tickets_kind_check. Its
 // parameter object is the paged lists' {page_number, page_size} (legalVersionsParams' shape).
 const holdingsReadKind = "holdings"
 
-// The three kinds of migration 00041 (CHECK order: after tenant_api_disabled): the operator's
+// The three kinds of migration 00042 (CHECK order: after tenant_api_disabled): the operator's
 // row of every accepted call of the three writers. Each names the holding in its detail
 // ({"holding_id": "<uuid>"}) and nothing else; the two membership kinds name their tenant, and
 // holding_created names none (operator_audit_log_holding_write_shape). The tenants' own rows --
