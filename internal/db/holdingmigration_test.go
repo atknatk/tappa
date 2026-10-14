@@ -176,6 +176,7 @@ func TestHoldingSchema_AppRoleHasNoVerbOnHoldingTables(t *testing.T) {
 		if !(s && i && u && d) {
 			t.Fatalf("PREMISE: the widened default did not reach a new table (%v %v %v %v)", s, i, u, d)
 		}
+		holdingBelow43(t, ctx, sp)
 		opRunSection(t, ctx, sp, down42, "00042 Down")
 		opRunSection(t, ctx, sp, down41, "00041 Down")
 		opRunSection(t, ctx, sp, up41, "00041 Up under the production default")
@@ -240,6 +241,7 @@ func TestHolding00041_PreconditionRefusesAWrongCluster(t *testing.T) {
 	} {
 		holdingInSavepoint(t, tx, func(sp pgx.Tx) {
 			holdingClearKinds(t, sp)
+			holdingBelow43(t, ctx, sp)
 			opRunSection(t, ctx, sp, down42, "00042 Down")
 			opRunSection(t, ctx, sp, down41, "00041 Down")
 			for _, s := range c.setup {
@@ -390,6 +392,7 @@ func TestHolding00041And00042_DownGiveBackAndUpTakesItAgain(t *testing.T) {
 	}
 	holdingInSavepoint(t, tx, func(sp pgx.Tx) {
 		holdingClearKinds(t, sp)
+		holdingBelow43(t, ctx, sp)
 		opRunSection(t, ctx, sp, down42, "00042 Down")
 		at41(holdingSurfaceOf(t, sp), "after 00042's Down", false)
 		opRunSection(t, ctx, sp, down41, "00041 Down")
@@ -416,6 +419,7 @@ func TestHolding00041And00042_DownGiveBackAndUpTakesItAgain(t *testing.T) {
 			t.Fatal(err)
 		}
 		opForgeRead(t, ctx, sp, session, a.id, holdingsReadKind, opRandHex(t), nil, opCommittedXact(t, ctx), "30 seconds")
+		holdingBelow43(t, ctx, sp)
 		opRunSection(t, ctx, sp, down42, "00042 Down with holding rows present")
 		at41(holdingSurfaceOf(t, sp), "after 00042's Down (holding rows)", true)
 		if len(holdingOperatorRowsOf(t, ctx, sp, session)) != 2 || len(holdingTrailOf(t, ctx, sp, member)) != 1 || !holdingLiveIn(t, ctx, sp, h, member) {

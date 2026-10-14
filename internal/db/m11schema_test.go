@@ -159,14 +159,24 @@ var m11Columns = []m11Column{
 	{"employees", "first_name", map[string]string{"tappa_app": "SIU"}},
 	{"employees", "last_name", map[string]string{"tappa_app": "SIU"}},
 	{"employees", "updated_at", map[string]string{"tappa_app": "SIU"}},
-	{"locations", "external_ref", map[string]string{"tappa_app": "SIU"}},
+	// 00043 (M11 API-1b): tappa_holdingdefiner reads a peer's venue ref (holding_tap_site).
+	{"locations", "external_ref", map[string]string{"tappa_app": "SIU", "tappa_holdingdefiner": "S"}},
 	{"locations", "active", map[string]string{"tappa_app": "SIU"}},
 	// 00038/00039 (K-22): tappa_app READS the gate and cannot write it; the one writer is the
 	// operator's definer.
 	{"tenants", "api_enabled_at", map[string]string{"tappa_app": "S", "tappa_opdefiner": "SU"}},
 	// 00042 (M11 API-1a): tappa_opdefiner READS the code too -- the code rule in both directions
 	// (op_add_holding_member, op_enable_tenant_api) and op_read_holdings.
-	{"tenants", "api_code", map[string]string{"tappa_app": "S", "tappa_opdefiner": "SU"}},
+	// 00043 (M11 API-1b): and tappa_holdingdefiner reads the site's code (holding_tap_site).
+	{"tenants", "api_code", map[string]string{"tappa_app": "S", "tappa_opdefiner": "SU", "tappa_holdingdefiner": "S"}},
+	// 00043 (M11 API-1b, ADR 0027 §4): the site of a tap on a peer's plaque. transactions hands
+	// tappa_app table-level SELECT and INSERT (00005) and nothing else, which the new columns
+	// fall under -- the tap path writes them (checkin), never updates them (§4.3).
+	// tappa_holdingdefiner holds nothing on transactions: the gate reads NEW, which needs no
+	// privilege; the matrix's transactions row is API-1c's/API-2's to earn.
+	{"transactions", "site_tenant_id", map[string]string{"tappa_app": "SI"}},
+	{"transactions", "site_location_id", map[string]string{"tappa_app": "SI"}},
+	{"transactions", "site_tag_uid", map[string]string{"tappa_app": "SI"}},
 }
 
 // m11FunctionACL is one function's owner, SECURITY DEFINER flag and EXACT EXECUTE grantees
@@ -196,6 +206,12 @@ var m11Functions = map[string]m11FunctionACL{
 	"op_add_holding_member(text,uuid,uuid)":       {owner: "tappa_opdefiner", definer: true, execute: "tappa_opdefiner,tappa_operator"},
 	"op_remove_holding_member(text,uuid,uuid)":    {owner: "tappa_opdefiner", definer: true, execute: "tappa_opdefiner,tappa_operator"},
 	"op_read_holdings(text,text,integer,integer)": {owner: "tappa_opdefiner", definer: true, execute: "tappa_opdefiner,tappa_operator"},
+	// 00043 (M11 API-1b, ADR 0027 §2): the tap path's three callables -- EXECUTE to tappa_app
+	// alone -- and the site gate, a trigger function, EXECUTE in its owner alone.
+	"holding_tap_site(character)":                    {owner: "tappa_holdingdefiner", definer: true, execute: "tappa_app,tappa_holdingdefiner"},
+	"holding_advance_tag_counter(character,integer)": {owner: "tappa_holdingdefiner", definer: true, execute: "tappa_app,tappa_holdingdefiner"},
+	"holding_logo(character,text)":                   {owner: "tappa_holdingdefiner", definer: true, execute: "tappa_app,tappa_holdingdefiner"},
+	"holding_site_gate()":                            {owner: "tappa_holdingdefiner", definer: true, execute: "tappa_holdingdefiner"},
 }
 
 // m11DefaultACLStatement is production's pg_default_acl, which m11DefaultACLInit gives every

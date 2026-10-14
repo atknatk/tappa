@@ -117,6 +117,11 @@ var opAtVersionSkips = map[int]string{
 	41: "the holding tables, holding_peer and the timezone trigger (M11 API-1a) -- no operator object; its Down takes " +
 		"ACCESS EXCLUSIVE on tenants (DROP TRIGGER, and the holding_members FK the table drop removes -- measured), and " +
 		"00042 is their operator surface and IS walked",
+	43: "transactions' site columns, the tap path's holding functions and the site gate (M11 API-1b) -- no operator " +
+		"object; its Down takes ACCESS EXCLUSIVE on transactions (DROP TRIGGER, the columns' drop) and refuses while a " +
+		"row names a site",
+	44: "the validation of 00043's six site constraints (M11 API-1b) -- no operator object; its Down drops and adds " +
+		"them again NOT VALID under ACCESS EXCLUSIVE on transactions",
 }
 
 // opAtVersion takes the test's transaction to migration `version`: from the newest file

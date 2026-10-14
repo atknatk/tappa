@@ -5,9 +5,11 @@ package db
 // matrix and its "never SELECT" list) against real Postgres, owner session, everything rolled
 // back (opTx).
 //
-// 🔴 THIS FILE IS A SKELETON THE LATER TASKS FILL, NOT A LIST THEY REWRITE. API-1a brings two of
-// the closed list's nine members (holding_peer, holding_timezone_lock). API-1b, API-1c and API-2
-// add their functions, triggers and grants IN THE SAME CHANGE as their migration, by adding:
+// 🔴 THIS FILE IS A SKELETON THE LATER TASKS FILL, NOT A LIST THEY REWRITE. API-1a brought two of
+// the closed list's nine members (holding_peer, holding_timezone_lock); API-1b four more
+// (holding_tap_site, holding_advance_tag_counter, holding_logo, holding_site_gate -- 00043).
+// API-1c and API-2 add their functions, triggers and grants IN THE SAME CHANGE as their
+// migration, by adding:
 //   - a row to holdingSignatures (the ADR's signature table, verbatim) -- the catalogue,
 //     EXECUTE, binding and canary tests read it;
 //   - for a callable function, a row to holdingCanaryCalls (how to call it in a peer's context)
@@ -59,16 +61,21 @@ type holdingSignature struct {
 // tappa_holdingdefiner owns is EXACTLY this list (TestHoldingCatalog_TheFunctionsAndTheirExactSignatures).
 // Still to come, in the ADR's own words (add each row with its migration):
 //
-//	API-1b: holding_tap_site(p_uid character) -> TABLE(site_tenant_id uuid, tag_status text, ...)
-//	        holding_advance_tag_counter(p_uid character, p_ctr integer) -> TABLE(outcome text, tag_status text)
-//	        holding_logo(p_uid character, p_digest text) -> TABLE(logo bytea, logo_mime text)
-//	        holding_site_gate() -> trigger
 //	API-1c: holding_site_locations(p_cursor uuid) -> TABLE(...)  -- static_ips and GPS NEVER (K-39)
 //	        holding_feed() -> trigger (the projection half)
 //	API-8:  holding_directory(p_updated_since timestamp with time zone, p_cursor uuid) -> TABLE(...)
 var holdingSignatures = []holdingSignature{
 	{"holding_peer", "a uuid, b uuid, mod text", "boolean", holdingPredicate},
 	{"holding_timezone_lock", "", "trigger", holdingTrigger},
+	// 00043 (M11 API-1b): the tap path's three callables and the site gate -- the ADR's rows, verbatim.
+	{"holding_tap_site", "p_uid character",
+		"TABLE(site_tenant_id uuid, tag_status text, location_id uuid, location_name text, location_external_ref text, " +
+			"static_ips cidr[], gps_lat numeric, gps_lng numeric, shift_start time without time zone, shift_end time without time zone, " +
+			"overnight boolean, timezone text, api_code text, accent character, logo_sha256 text, logo_mime text, logo_width integer, " +
+			"logo_height integer, business_name text)", holdingCallable},
+	{"holding_advance_tag_counter", "p_uid character, p_ctr integer", "TABLE(outcome text, tag_status text)", holdingCallable},
+	{"holding_logo", "p_uid character, p_digest text", "TABLE(logo bytea, logo_mime text)", holdingCallable},
+	{"holding_site_gate", "", "trigger", holdingTrigger},
 }
 
 // holdingTriggerConfig is a holding trigger function's exact proconfig: the search path and
@@ -919,8 +926,8 @@ func TestHoldingPeer_OnlyRowLockIsForShare(t *testing.T) {
 // ------------------------------------------------------------- EXECUTE and binding --
 
 // holdingTriggerBindings are the holding triggers' own tables and events -- what each refuses
-// to run anywhere else for (ADR 0027 §2, plan §4.0). API-1b adds holding_site_gate (BEFORE
-// INSERT ON transactions), API-1c/API-2 holding_feed (AFTER INSERT ON transactions and
+// to run anywhere else for (ADR 0027 §2, plan §4.0). API-1b added holding_site_gate (BEFORE
+// INSERT ON transactions); API-1c/API-2 add holding_feed (AFTER INSERT ON transactions and
 // transaction_reviews).
 var holdingTriggerBindings = map[string]struct {
 	tempTable, bind, fire string
@@ -929,6 +936,13 @@ var holdingTriggerBindings = map[string]struct {
 		tempTable: `CREATE TEMP TABLE zz_holding_bind (id uuid, timezone text)`,
 		bind:      `CREATE TRIGGER zz_holding_bound BEFORE UPDATE ON zz_holding_bind FOR EACH ROW EXECUTE FUNCTION public.holding_timezone_lock()`,
 		fire:      `INSERT INTO zz_holding_bind VALUES (gen_random_uuid(), 'UTC'); UPDATE zz_holding_bind SET timezone = 'Europe/Malta'`,
+	},
+	// 00043: the gate on a temp table shaped like the columns it reads -- a row that names a site
+	// is what would make it ask holding_peer, and it refuses before that (55000).
+	"holding_site_gate": {
+		tempTable: `CREATE TEMP TABLE zz_holding_bind_gate (tenant_id uuid, site_tenant_id uuid, site_tag_uid character(14), channel text, verdict text, sun_valid boolean, ctr integer)`,
+		bind:      `CREATE TRIGGER zz_holding_bound BEFORE INSERT ON zz_holding_bind_gate FOR EACH ROW EXECUTE FUNCTION public.holding_site_gate()`,
+		fire:      `INSERT INTO zz_holding_bind_gate VALUES (gen_random_uuid(), gen_random_uuid(), 'AAAAAAAAAAAAAA', 'qr', 'flag', false, NULL)`,
 	},
 }
 
@@ -939,6 +953,10 @@ var holdingTriggerBindings = map[string]struct {
 var holdingTriggerDefs = map[string]string{
 	"holding_timezone_lock": `CREATE TRIGGER tenants_holding_timezone_lock BEFORE UPDATE ON public.tenants FOR EACH ROW ` +
 		`WHEN ((old.timezone IS DISTINCT FROM new.timezone)) EXECUTE FUNCTION holding_timezone_lock()`,
+	// 00043: only a row that names a site reaches the gate (the employer's own rows never ask
+	// holding_peer).
+	"holding_site_gate": `CREATE TRIGGER transactions_holding_site_gate BEFORE INSERT ON public.transactions FOR EACH ROW ` +
+		`WHEN ((new.site_tenant_id IS NOT NULL)) EXECUTE FUNCTION holding_site_gate()`,
 }
 
 // TestHoldingTriggers_ExecuteOnlyOwnerAndAssertRelid: every trigger function of the signature
@@ -1012,9 +1030,9 @@ func TestHoldingTriggers_ExecuteOnlyOwnerAndAssertRelid(t *testing.T) {
 // TestHoldingFunctions_ExecuteGrantedOnlyToApp: of everything tappa_holdingdefiner owns,
 // tappa_app may EXECUTE exactly the callable functions of the signature table, and no other
 // role but the owner may EXECUTE any of them (PUBLIC, tappa_operator, tappa_opdefiner,
-// tappa_resolver); the predicate and the triggers are the owner's alone. API-1a ships no callable
-// one, so the first half is held by the catalogue today -- and a CONTROL shows it fires: a
-// definer function granted to tappa_app that the table does not call callable.
+// tappa_resolver); the predicate and the triggers are the owner's alone. Since API-1b the table
+// has three callables (00043) -- and a CONTROL shows the scan fires: a definer function granted
+// to tappa_app and tappa_operator is flagged for tappa_operator.
 func TestHoldingFunctions_ExecuteGrantedOnlyToApp(t *testing.T) {
 	ctx, tx := opTx(t)
 	scan := func(q opQuerier, sigs []holdingSignature) []string {
@@ -1081,15 +1099,22 @@ func TestHoldingFunctions_ExecuteGrantedOnlyToApp(t *testing.T) {
 
 // ------------------------------------------------------------- the definer's reach --
 
-// holdingDefinerMatrix is ADR 0027 §3's verb x column matrix AS FAR AS API-1a HAS EARNED IT:
-// "table:VERB" -> the exact column list in attnum order. Every relation, verb and column not
-// listed is "no privilege". The ADR's other rows (tags, locations, tenants, tenant_branding,
-// employees, transactions, webhook_endpoints, site_punches, punch_events, webhook_deliveries,
-// feed_counters) are granted with the function that needs them and added here in the same
-// change (ADR 0027 §3: "matris kesin listenin üst sınırıdır").
+// holdingDefinerMatrix is ADR 0027 §3's verb x column matrix AS FAR AS API-1a AND API-1b HAVE
+// EARNED IT: "table:VERB" -> the exact column list in attnum order. Every relation, verb and
+// column not listed is "no privilege". The ADR's other rows (tenants.api_enabled_at, employees,
+// transactions, webhook_endpoints, site_punches, punch_events, webhook_deliveries, feed_counters)
+// are granted with the function that needs them and added here in the same change (ADR 0027 §3:
+// "matris kesin listenin üst sınırıdır"); TestHoldingDefiner_EveryGrantIsUsed revokes each column
+// below, one at a time, and shows a function or the gate refused without it.
 var holdingDefinerMatrix = map[string]string{
 	"holding_members:SELECT": "holding_id,member_tenant_id,joined_at,left_at",
 	"holding_members:UPDATE": "lock_anchor",
+	// 00043 (API-1b): holding_tap_site, holding_advance_tag_counter, holding_logo, holding_site_gate.
+	"tags:SELECT":            "uid,tenant_id,location_id,last_ctr,status",
+	"tags:UPDATE":            "last_ctr",
+	"locations:SELECT":       "id,tenant_id,name,static_ips,gps_lat,gps_lng,shift_start,shift_end,overnight,external_ref",
+	"tenants:SELECT":         "id,name,timezone,vat_verified,api_code",
+	"tenant_branding:SELECT": "tenant_id,accent,logo,logo_sha256,logo_mime,logo_width,logo_height",
 }
 
 // holdingDefinerReachFindings: tappa_holdingdefiner's privileges on every relation in public
@@ -1391,31 +1416,49 @@ type holdingCanaryCall struct {
 }
 
 // holdingCanaryFixture: the caller (KM) and its peer (KF) in one holding; KF's location carries
-// the canary. (API-1b adds a plaque of KF's at it, for holding_tap_site's call.)
+// the canary, and since API-1b a plaque of KF's hangs there (uid) and KF -- VIES verified -- holds
+// a logo (digest), so every callable of the tap path answers a row in the caller's context.
 type holdingCanaryFixture struct {
 	caller, peer, location uuid.UUID
+	uid, digest            string
 }
 
-// holdingCanaryCalls: API-1a ships no callable holding_*; API-1b adds holding_tap_site,
-// holding_advance_tag_counter and holding_logo, API-1c holding_site_locations, API-8
-// holding_directory -- each with its call here (TestHoldingFunctions_SiteEvidenceCanaryNeverLeaks
-// is red on a callable function the map does not name).
-var holdingCanaryCalls = map[string]holdingCanaryCall{}
+// holdingCanaryCalls: API-1b's three (00043), each with its call; API-1c adds
+// holding_site_locations, API-8 holding_directory (TestHoldingFunctions_SiteEvidenceCanaryNeverLeaks
+// is red on a callable function the map does not name, and on a call that answers no row -- a
+// canary that reads nothing proves nothing).
+var holdingCanaryCalls = map[string]holdingCanaryCall{
+	"holding_tap_site": {
+		sql:    `SELECT * FROM public.holding_tap_site($1)`,
+		args:   func(f holdingCanaryFixture) []any { return []any{f.uid} },
+		exempt: []string{"static_ips", "gps_lat", "gps_lng"},
+	},
+	"holding_advance_tag_counter": {
+		sql:  `SELECT * FROM public.holding_advance_tag_counter($1, $2)`,
+		args: func(f holdingCanaryFixture) []any { return []any{f.uid, int32(901)} },
+	},
+	"holding_logo": {
+		sql:  `SELECT * FROM public.holding_logo($1, $2)`,
+		args: func(f holdingCanaryFixture) []any { return []any{f.uid, f.digest} },
+	},
+}
 
 // holdingWrittenTables are the tables the holding trigger writes (ADR 0027 §3, "yazılan
 // tablolar"): the canary is looked for in every row of each one that exists.
 var holdingWrittenTables = []string{"site_punches", "punch_events", "webhook_deliveries", "feed_counters"}
 
 // holdingCanaryFindings reports every cell of rows whose text carries a canary needle, outside
-// the exempt columns.
-func holdingCanaryFindings(what string, rows pgx.Rows, exempt []string) ([]string, error) {
+// the exempt columns, and how many rows it searched.
+func holdingCanaryFindings(what string, rows pgx.Rows, exempt []string) ([]string, int, error) {
 	defer rows.Close()
 	var out []string
 	fields := rows.FieldDescriptions()
+	n := 0
 	for rows.Next() {
+		n++
 		vals, err := rows.Values()
 		if err != nil {
-			return nil, err
+			return nil, n, err
 		}
 		for i, v := range vals {
 			name := string(fields[i].Name)
@@ -1430,7 +1473,7 @@ func holdingCanaryFindings(what string, rows pgx.Rows, exempt []string) ([]strin
 			}
 		}
 	}
-	return out, rows.Err()
+	return out, n, rows.Err()
 }
 
 // TestHoldingFunctions_SiteEvidenceCanaryNeverLeaks is ADR 0027 §2's canary test as a skeleton
@@ -1438,7 +1481,8 @@ func holdingCanaryFindings(what string, rows pgx.Rows, exempt []string) ([]strin
 // transaction), every callable holding_* of holdingCanaryCalls is called in the caller's context
 // and every output cell is searched for the address and the GPS decimals (holding_tap_site's
 // three evidence columns aside), and every existing table of holdingWrittenTables is searched
-// whole. Today: no callable function and no written table exist -- the anti-vacuity is the
+// whole. Since API-1b the three tap callables are called (each must answer a row, or the canary
+// searched nothing); no written table exists yet (API-1c/API-2). The anti-vacuity is the
 // catalogue: every function tappa_holdingdefiner owns that tappa_app may EXECUTE must have a
 // call here. CONTROLS (the ADR's mutant and its exemption): a holding_site_locations-shaped probe
 // returning location_name || static_ips is flagged; a holding_tap_site-shaped probe returning the
@@ -1457,6 +1501,9 @@ func TestHoldingFunctions_SiteEvidenceCanaryNeverLeaks(t *testing.T) {
 		f.peer, holdingCanary.cidr, holdingCanary.lat, holdingCanary.lng).Scan(&f.location); err != nil {
 		t.Fatalf("seed the canary: %v", err)
 	}
+	// API-1b: a plaque of the peer's at the canary venue, and the peer VIES verified with a logo.
+	f.uid = holdingNewTag(t, ctx, tx, f.peer, &f.location, "active", 900)
+	f.digest = holdingNewLogo(t, ctx, tx, f.peer, true)
 
 	callFindings := func(q pgx.Tx, calls map[string]holdingCanaryCall) []string {
 		var out []string
@@ -1469,8 +1516,12 @@ func TestHoldingFunctions_SiteEvidenceCanaryNeverLeaks(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				got, err := holdingCanaryFindings(name, rows, c.exempt)
+				got, n, err := holdingCanaryFindings(name, rows, c.exempt)
 				out = append(out, got...)
+				if err == nil && n == 0 {
+					// A canary call that reads nothing proves nothing (anti-vacuity).
+					out = append(out, name+": answered no row in the peer's context, so nothing was searched")
+				}
 				return err
 			})
 			if err != nil {
@@ -1505,7 +1556,7 @@ func TestHoldingFunctions_SiteEvidenceCanaryNeverLeaks(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		got, err := holdingCanaryFindings(table, rows, nil)
+		got, _, err := holdingCanaryFindings(table, rows, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1580,6 +1631,16 @@ type holdingMultiRowCall struct {
 // the peer set ONCE (a materialised CTE over tenants), not call holding_peer per data row.
 var holdingMultiRowCalls = map[string]holdingMultiRowCall{}
 
+// holdingSingleRowCalls are the set-returning callables keyed by ONE primary key -- a plaque's
+// uid (tags_pkey) -- so at most one data row exists to answer: API-1b's three (00043). For them
+// "the peer set once" is "holding_peer exactly once per call", and that is what is counted: the
+// key's tenant against the caller's, in one materialised CTE ($1 is the peer's plaque).
+var holdingSingleRowCalls = map[string]string{
+	"holding_tap_site":            `SELECT * FROM public.holding_tap_site('%s')`,
+	"holding_advance_tag_counter": `SELECT * FROM public.holding_advance_tag_counter('%s', 2000000)`,
+	"holding_logo":                `SELECT * FROM public.holding_logo('%s', repeat('0', 64))`,
+}
+
 // holdingPeerCalls counts holding_peer's calls made by stmt (run as tappa_app in tenant's
 // context), with function tracking on for the test's transaction (track_functions is the
 // superuser's to set -- the owner session is one).
@@ -1642,11 +1703,13 @@ func holdingPeerSetFindings(t *testing.T, ctx context.Context, tx pgx.Tx, caller
 
 // TestHoldingFunctions_PeerSetComputedOnce is ADR 0027 §2's "eş kümesi bir kez" (2nd round: 5.54 s
 // -> 42 ms) as a call count: a multi-row holding_* calls holding_peer the same number of times
-// however many data rows it returns -- once per peer CANDIDATE, never once per data row. Today no
-// multi-row function exists; the anti-vacuity is the catalogue (every set-returning holding_*
-// tappa_app may call must have a row in holdingMultiRowCalls), and the CONTROLS show the measure
-// works: a probe that asks holding_peer for every location row grows with the rows (flagged), a
-// probe that computes the peer set once in a materialised CTE does not.
+// however many data rows it returns -- once per peer CANDIDATE, never once per data row. No
+// multi-row function exists yet (API-1c, API-8); the anti-vacuity is the catalogue (every
+// set-returning holding_* tappa_app may call is in exactly one of holdingMultiRowCalls and
+// holdingSingleRowCalls), API-1b's three single-row callables are counted at exactly one
+// holding_peer call each, and the CONTROLS show the measure works: a probe that asks holding_peer
+// for every location row grows with the rows (flagged), a probe that computes the peer set once in
+// a materialised CTE does not.
 func TestHoldingFunctions_PeerSetComputedOnce(t *testing.T) {
 	ctx, tx := opTx(t)
 	if _, err := tx.Exec(ctx, `SET LOCAL track_functions = 'all'`); err != nil {
@@ -1667,12 +1730,25 @@ func TestHoldingFunctions_PeerSetComputedOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range multi {
-		if _, ok := holdingMultiRowCalls[name]; !ok {
-			t.Errorf("%s returns rows to tappa_app and has no row in holdingMultiRowCalls", name)
+		_, isMulti := holdingMultiRowCalls[name]
+		_, isSingle := holdingSingleRowCalls[name]
+		if isMulti == isSingle {
+			t.Errorf("%s returns rows to tappa_app and is in %d of holdingMultiRowCalls / holdingSingleRowCalls, want exactly one", name, map[bool]int{true: 2, false: 0}[isMulti])
 		}
 	}
 	for _, x := range holdingPeerSetFindings(t, ctx, tx, caller, peer, holdingMultiRowCalls) {
 		t.Error(x)
+	}
+	// The single-row callables: a peer's plaque, and holding_peer asked exactly once per call.
+	var wall uuid.UUID
+	if err := tx.QueryRow(ctx, `INSERT INTO locations (tenant_id, name) VALUES ($1, 'api1b peerset venue') RETURNING id`, peer).Scan(&wall); err != nil {
+		t.Fatal(err)
+	}
+	uid := holdingNewTag(t, ctx, tx, peer, &wall, "active", 10)
+	for name, stmt := range holdingSingleRowCalls {
+		if n := holdingPeerCalls(t, ctx, tx, caller, fmt.Sprintf(stmt, uid)); n != 1 {
+			t.Errorf("%s asked holding_peer %d times for one plaque, want exactly 1 (the peer set once)", name, n)
+		}
 	}
 	grow := `INSERT INTO locations (tenant_id, name) SELECT $1, 'api1a peerset ' || g FROM generate_series(1, 50) AS g`
 	for _, c := range []struct {
