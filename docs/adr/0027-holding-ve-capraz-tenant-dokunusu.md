@@ -7,8 +7,12 @@
   yazılmaz (aşağıda *"Bağlam"*). Uygulama görevleri: API-1a, API-1b, API-1c ve API-2'nin holding
   yarısı ([m11-entegrasyon-api.md](../plan/m11-entegrasyon-api.md) §5). **API-1a uygulandı
   (2026-10-13, migration `00040`–`00042`):** `holdings`, `holding_members`, `tappa_holdingdefiner`,
-  `holding_peer`, saat dilimi kilidi ve holding'in operatör yüzeyi var; çapraz dokunuş (API-1b) hâlâ
-  yok — en sondaki *"API-1a uygulama notu"*.
+  `holding_peer`, saat dilimi kilidi ve holding'in operatör yüzeyi var — en sondaki *"API-1a uygulama
+  notu"*. **API-1b uygulandı (2026-10-14, migration `00043`–`00044`):** `transactions.site_*` + K-30
+  CHECK'leri, `holding_tap_site`, `holding_advance_tag_counter`, `holding_logo`, `holding_site_gate`;
+  guardrail #1'in eşlik şartı ve `sys:cross-tenant-qr-site-ip`; checkin'in holding yolu, K-35, logo
+  rotasının eş biçimi ve tap/sonuç ekranında sahanın markası — en sondaki *"API-1b uygulama notu"*.
+  İzdüşüm ve paneller (API-1c), olaylar (API-2) hâlâ yok.
 - **Tarih:** 2026-10-11. Plan 2026-10-09/10'da on bir denetim turundan geçti; 11. sürüm (`480df19`)
   üçüncü göz ve güvenlik merceğinden **ONAY** aldı, onaylı plan `bcbff6d`.
 - **Karar veren:** kullanıcı (ürün sahibi) — **K-1** (2026-10-10: *"KF ve KM aynı holding altında
@@ -974,44 +978,51 @@ satırları.)*
   (geçici tablo bağlama reddi)
 - `TestRestore_FreshPodCarriesTheHoldingRole` (sıfırdan pod; `01-roles.sql` idempotent)
 
-**Çapraz dokunuş (API-1b)** — harf, plan §5 API-1b kabulünün maddesidir
-- (a) `HoldingTap_RecordLandsAtTheEmployerWithSiteColumns`
-- (b) `HoldingTap_OutsiderSessionOnAPeerPlaqueIsRefusedAndCounterUnchanged` ·
-  `HoldingTap_PeerSessionOnAnOutsiderPlaqueLeavesItsCounter` ·
-  `HoldingFunctions_ReturnNothingForAnOutsiderOrAnOutsiderKey` ·
-  `HoldingFilter_MutantsM1M2M3AreRedInFunctionsAndTriggers` (C, H2'nin üyesi) ·
-  `HoldingManual_PeerManagerCannotNameAnOutsiderLocation` ·
-  `HoldingDirectory_ReturnsPeersNeverTheCaller` (çağıranın kendi tenant'ı `holding_directory`'den
-  hiç dönmez; C bağlamında 0 satır — K-33)
-- (c) `HoldingAdvance_ConcurrentSameCounterExactlyOneWins` (`-race`, yarı/yarı)
-- (d) `Decide_PersonDebounceSpansBothTenantsPlaques` · `HoldingTap_DirectionChainStaysAtTheEmployer`
-- (e) `HoldingTap_SiteLocationExceptionsDoNotApply`
-- (f) `Decide_CrossTenantQRWithoutSiteIPIsFlagged` (işveren QR kuralını gevşetse bile) ·
-  `Decide_CrossTenantQRWithSiteIPIsOK` · `Guardrails_CrossTenantQRSitsRightAfterDebounce` ·
-  `Guardrails_CrossTenantQRCannotBeLoosenedOrTightened`
-- (g) `HoldingWindow_AdvancedBeforeLeftWrittenAfterIsRecorded` ·
-  `HoldingWindow_LeftBetweenAdvanceAndGatherFlagsWithoutSiteEvidence` ·
-  `HoldingWindow_AdvanceAfterLeftIsNotPeer` · `HoldingAdvance_EqualCounterIsReplayWithSiteColumns` ·
-  `HoldingTap_LostPlaqueRefusalRecordedAtEmployerSeenAtSite` ·
-  `HoldingAdvance_InactivePlaqueIsPeerInactiveNot403` ·
-  `HoldingWindow_RefusalsSurviveTheLeftRace` (replay, `peer_inactive`, kayıp plaket) ·
-  `HoldingAdvance_DecideSeesTheCurrentStatus` (kanca ile kurulan yarış) ·
-  `HoldingWindow_NoRowPassesBeforeAndSkipsAfter` (FK beklemesi + commit edilmemiş `op_remove`;
-  `FOR SHARE` sıralaması) · `HoldingWindow_QRRefusalSurvivesTheLeftRace` ·
-  `HoldingWindow_UnadvancedNFCRowAfterLeftIsRefused` · `HoldingWindow_QRDecisionAfterLeftIs403` ·
-  `HoldingWindow_ManualAfterLeftIsRefused` · `HoldingReads_AfterLeftReturnNothing` ·
-  `HoldingWindow_ToleranceIsAtLeastTwiceTheRequestTimeout` ·
-  `TestHoldingPeer_AppCannotCallIt` (katalog satırı)
-- (h) `HoldingActivation_OnlyOnItsOwnTenantsPlaque` ·
-  `HoldingTap_PendingActivationBrowserWithLiveSessionTapsAsHolding`
-- (i) `HoldingBrand_TapAndResultShowTheSiteBrand` · `HoldingLogo_VIESGate` ·
-  `HoldingLogo_OutsiderOrStaleDigestIs404`
-- (j) `HoldingCheck_ChannelRules` (lokasyonsuz plaket reddi yazılır; manuel saha yazılır;
+**Çapraz dokunuş (API-1b)** — harf, plan §5 API-1b kabulünün maddesidir *(API-1b'de yazıldı,
+2026-10-14 — gerçek adlar; devredilen yarılar adıyla ve nedeniyle, *"API-1b uygulama notu"*)*
+- (a) `TestHoldingTap_RecordLandsAtTheEmployerWithSiteColumns`
+- (b) `TestHoldingTap_OutsiderSessionOnAPeerPlaqueIsRefusedAndCounterUnchanged` ·
+  `TestHoldingTap_PeerSessionOnAnOutsiderPlaqueLeavesItsCounter` ·
+  `TestHoldingFunctions_ReturnNothingForAnOutsiderOrAnOutsiderKey` ·
+  `TestHoldingFilter_MutantsM1M2M3AreRedInFunctionsAndTriggers` (C, H2'nin üyesi; mutantlar fonksiyonlarda
+  **ve** `holding_site_gate`'te kırmızı — ikinci tetikleyici `holding_feed` API-1c'de doğar ve aynı yüklemi
+  çağırır) · `TestHoldingManual_PeerManagerCannotNameAnOutsiderLocation` (C'yi saha diye adlandıran
+  satır hiç yazılamaz; *"C'nin `site_punches`'ı 0"* yarısı API-1c'nin — tablo orada doğar) ·
+  `HoldingDirectory_ReturnsPeersNeverTheCaller` (**devredildi: API-8** — `holding_directory` orada doğar)
+- (c) `TestHoldingAdvance_ConcurrentSameCounterExactlyOneWins` (SQL düzeyinde, iki ifade yarı/yarı) ·
+  `TestHoldingTap_ConcurrentSameCounterExactlyOneSUNValid` (ürün yolundan, `Service.Record`) — `-race`
+- (d) `TestDecide_PersonDebounceSpansBothTenantsPlaques` · `TestHoldingTap_PersonDebounceSpansBothTenantsPlaques` ·
+  `TestHoldingTap_DirectionChainStaysAtTheEmployer`
+- (e) `TestHoldingTap_SiteLocationExceptionsDoNotApply`
+- (f) `TestDecide_CrossTenantQRWithoutSiteIPIsFlagged` (işveren QR kuralını gevşetse bile) ·
+  `TestDecide_CrossTenantQRWithSiteIPIsOK` · `TestGuardrails_CrossTenantQRSitsRightAfterDebounce` ·
+  `TestGuardrails_CrossTenantQRCannotBeLoosenedOrTightened` · `TestHoldingTap_CrossTenantQRNeedsTheSiteIP`
+- (g) `TestHoldingWindow_AdvancedBeforeLeftWrittenAfterIsRecorded` ·
+  `TestHoldingWindow_LeftBetweenAdvanceAndGatherFlagsWithoutSiteEvidence` ·
+  `TestHoldingWindow_AdvanceAfterLeftIsNotPeer` · `TestHoldingAdvance_EqualCounterIsReplayWithSiteColumns` ·
+  `TestHoldingTap_LostPlaqueRefusalRecordedAtEmployerSeenAtSite` (KF'nin `refused_tag_not_active`
+  görünümü API-1c'nin) · `TestHoldingAdvance_InactivePlaqueIsPeerInactiveNot403` ·
+  `TestHoldingWindow_RefusalsSurviveTheLeftRace` (replay, `peer_inactive`, kayıp plaket) ·
+  `TestHoldingAdvance_DecideSeesTheCurrentStatus` (kanca ile kurulan yarış) ·
+  `TestHoldingWindow_NoRowPassesBeforeAndSkipsAfter` (FK beklemesi + commit edilmemiş `op_remove`;
+  `FOR SHARE` sıralaması; *"AFTER KF tarafını atlamaz"* yarısı API-1c'nin) · `TestHoldingWindow_QRRefusalSurvivesTheLeftRace` ·
+  `TestHoldingWindow_UnadvancedNFCRowAfterLeftIsRefused` · `TestHoldingWindow_QRDecisionAfterLeftIs403` ·
+  `TestHoldingWindow_ManualAfterLeftIsRefused` · `TestHoldingReads_AfterLeftReturnNothing` ·
+  `TestHoldingWindow_ToleranceIsAtLeastTwiceTheRequestTimeout` · `TestHoldingWindow_GateArms` (kapının
+  iki kolu satır satır, 10 sn ve 61 sn) · `TestHoldingPeer_AppCannotCallIt` (katalog satırı)
+- (h) `TestHoldingActivation_OnlyOnItsOwnTenantsPlaque` ·
+  `TestHoldingTap_PendingActivationBrowserWithLiveSessionTapsAsHolding` ·
+  `TestHoldingTap_PendingActivationOnTheInvitationsPlaqueStillActivates`
+- (i) `TestHoldingBrand_TapAndResultShowTheSiteBrand` · `TestHoldingLogo_VIESGate` ·
+  `TestHoldingLogo_OutsiderOrStaleDigestIs404` · `TestHoldingTapSite_LogoOnlyForAVIESVerifiedSite`
+- (j) `TestHoldingCheck_ChannelRules` (lokasyonsuz plaket reddi yazılır; manuel saha yazılır;
   `site_tenant_id = tenant_id` ret; `site_tenant_id` NULL iken `site_*` dolu ret)
-- (k) `HoldingMigration_AlterWithinTwoSeconds` (ölçüm; aşılırsa `NOT VALID` yolu)
-- (l) `HoldingAdvance_KeepsReplayProtection` (eşit/geri `ctr` → `replay`, sayaç değişmez;
+- (k) `TestHoldingMigration_AlterWithinTwoSeconds` (ölçüm; `NOT VALID` yolu seçildi)
+- (l) `TestHoldingAdvance_KeepsReplayProtection` (eşit/geri `ctr` → `replay`, sayaç değişmez;
   holding dışı → `not_peer`)
-- `Decide_TenantMismatchRespectsSameHolding` (CLAUDE.md §5'in `TestDecide_…` kuralı)
+- `TestDecide_TenantMismatchRespectsSameHolding` (CLAUDE.md §5'in `TestDecide_…` kuralı)
+- Ek (API-1b): `TestAdvance_APeersPlaqueGoesThroughTheHoldingStatementOnly` ·
+  `TestHoldingDefiner_EveryGrantIsUsed` · `TestHolding00043And00044_DownGiveBackAndUpTakesItAgain`
 
 **İzdüşüm ve paneller (API-1c)**
 - `SitePunches_CatalogCarriesNoEvidenceColumns` · `SitePunches_OutcomeMappingIsTotal`
@@ -1214,3 +1225,105 @@ davranışı değişmedi.** Üçüncü gözün iki ORTA'sı ve iki denetçinin D
 - **`left_at` taraması tırnaklı adı da okuyor** (DÜŞÜK-5): `UPDATE public."holding_members"` artık
   kaçamıyor; tabloyu adlandıran her UPDATE ayrıntılı desenle okunmak zorunda. Mutant → kırmızı.
 - Yorumlardaki yanlış migration numarası (00041 → 00042) düzeltildi (DÜŞÜK-4).
+
+## API-1b uygulama notu (2026-10-14)
+
+Yapıcının uygulaması ve ölçümleri; ADR'nin kararları değişmedi — sapmalar ve ADR'nin açık bıraktığı
+kararlar aşağıda adıyla. Yıkıcı ölçümler ve mutantlar atılabilir PostgreSQL 17.10 kaplarında koşuldu
+(paylaşılan veritabanlarına DDL yapılmadı; kaplar silindi).
+
+**İki migration.** `00043` sütunları, dört CHECK'i ve iki FK'yi **`NOT VALID`** ekler, kısmi indeksi,
+`tappa_holdingdefiner`'ın dört tablodaki yetkilerini, üç çağrılabilir fonksiyonu ve kapıyı kurar;
+`00044` altı kısıtı **kendi işleminde** `VALIDATE` eder. Down'lar: `00044` altı kısıtı aynı metinle
+`NOT VALID` geri ekler (VALIDATE'in tersi olan durum); `00043` bir satır site adlandırdığı sürece
+**reddeder** ve hiçbir şey değiştirmez (kaydın *"nerede"*si silinmez — CLAUDE.md §4.3/§4.6; `00037`
+emsali). İkisi de operatör nesnesi adlandırmaz, `opAtVersion` ikisini atlar.
+
+**(k) ALTER süresi — ölçüm ve yol.** Üretim biçimli satırlarla (ortalama 582 bayt) doldurulmuş atılabilir
+kapta, kısıtları ALTER içinde doğrulayan ilk biçim `transactions`'ı ACCESS EXCLUSIVE altında tuttu:
+688 000 satırda **0,68–0,90 sn**, 2 000 000 satırda **2,06–3,46 sn** (üç koşu). Parçalar (2 M, sıcak):
+dört CHECK 0,64 sn, iki FK 0,58 + 0,56 sn, indeks 0,35 sn. Eşik tablonun öngörülebilir boyutu içinde
+aşıldığı için **`NOT VALID` yolu**: `00043` 2 M satırda 0,39–0,46 sn (tek tarama indeks yapımı, boş bir
+kısmi indeks), `00044` 2,8–3,3 sn ama SHARE UPDATE EXCLUSIVE altında — doğrulama sürerken bir
+`tappa_app` INSERT'i beklemeden yazıldı (ölçüldü). Mevcut her satırda üç site sütunu NULL'dur ve altı
+kısıt bunu kabul eder; `NOT VALID` kısıt bundan sonraki her satırda zorlanır — yani ara durumda hiçbir
+şey açık kalmaz. `TestHoldingMigration_AlterWithinTwoSeconds` bunu **tarama sayısıyla** pinler
+(`pg_stat_xact_user_tables.seq_scan`): `00043`'ün ALTER'ı karalama kopyada 0 tarama, indeks 1, `00044`'ün
+VALIDATE'leri > 0; kontrol olarak `NOT VALID`'siz biçim tarar.
+
+**Kapı (`holding_site_gate`).** §6'nın modeli: önce `holding_peer(işveren, saha, 'lock')`, sonra kol.
+Kol (i) **`channel = 'nfc'`** ile daraltıldı (§6'nın metni kanal adlandırmıyordu; QR'ın `sun_valid`'i hep
+yanlıştır, ham bir yazıcının `sun_valid=true` bir QR satırı toleransa girmesin). Ret 23514,
+`CONSTRAINT = 'holding_site_gate'`; checkin bunu `ErrSiteMembershipEnded` diye tanır, ekran 409 +
+*"tekrar dokunun"* (`tapProblemServer`; hiçbir şey yazılmadı). **FK beklemesi ölçüldü:** kapının
+`FOR SHARE`'i satırın commit'ine kadar tutulur, bu yüzden FK denetimi plakette beklerken bir
+çıkarıcının `left_at` yazması **o da bekler** — üyelik, kapının kararı ile satırın commit'i arasında
+bitemez (`TestHoldingWindow_NoRowPassesBeforeAndSkipsAfter`, *"the key wait"*). Mutantlar: `lock`
+çağrısı yok → commit edilmemiş `op_remove` ile kesişen katı satır beklemeden **yazıldı**; her satır
+toleranslı / hiçbiri toleranslı / kol (ii)'nin sayaç sınırı yok → ilgili testler kırmızı.
+
+**`holding_advance_tag_counter`.** Tek ifade, `db/queries/tags.sql`'in kalıbı: `peer` (bir kez,
+materyalize) `prev`'de ve `UPDATE`'te, `prev` `FOR UPDATE OF g`, `v.old_ctr < p_ctr`, `old_status =
+'active'`. **Açık kalan bir sözleşme noktası, kararıyla:** §2'nin 3. maddesi *"bağlam yoksa 0 satır"*
+der ama imza `not_peer`'i bir sonuç olarak adlandırır; fonksiyon **her zaman tek satır** döner ve eş
+olmayan, bilinmeyen uid ve bağlamsız çağrının cevabı aynıdır: `('not_peer', NULL)` (kehanet yok). Durum
+sütunu kilitteki durumdur (`prev`'in `FOR UPDATE`'i READ COMMITTED'de satırı yeniden okur). Mutantlar:
+`<` → `<=` (eşit sayaç ilerledi; dört test kırmızı), `FOR UPDATE` yok (iki ifadeli yarışta birden
+fazla kazanan — SQL düzeyindeki yarış testi kırmızı; ürün yolundan 20 Record'luk yarış bu mutantı
+**görmedi**: istekler arasındaki gidiş dönüşler pencereyi kapatıyor — deponun bilinen dersi, pin SQL
+düzeyindedir), `peer` süzgeci kaldırıldı (C'nin sayacı KM'den ilerledi; beş test kırmızı).
+
+**`holding_tap_site` / `holding_logo`.** `business_name` de logo ile birlikte kapılıdır (yalnız
+VIES-doğrulanmış sahada; §2 *"logo alt'ı olan işletme adı"*) — daha dar. Accent her durumda döner.
+Mutantlar: logo özeti VIES'siz → `TestHoldingTapSite_LogoOnlyForAVIESVerifiedSite` ve tap ekranı testi
+kırmızı (bu mutant ilk turda **yeşil kalmıştı**; test bu yüzden eklendi); `holding_logo`'da VIES ya da
+özet şartı yok → logo rotası testleri kırmızı; okuma `tolerant_stmt` → `TestHoldingReads_AfterLeftReturnNothing`
+kırmızı. Tek satırlı üç fonksiyonun `holding_peer`'i çağrı başına **tam bir kez** sorduğu sayılır
+(`TestHoldingFunctions_PeerSetComputedOnce`, `holdingSingleRowCalls`).
+
+**Yetki matrisi — her sütun ölçülerek.** `tags` SELECT (`uid, tenant_id, location_id, last_ctr, status`)
++ UPDATE (`last_ctr`); `locations` SELECT (on sütun); `tenants` SELECT (`id, name, timezone,
+vat_verified, api_code`); `tenant_branding` SELECT (yedi sütun). `TestHoldingDefiner_EveryGrantIsUsed`
+her sütunu **tek başına** geri alıp üç fonksiyonu ve kapıyı sürer: her geri alma en az bir 42501 üretir
+(gereksiz sütun yok). `tenants.api_enabled_at`, `employees`, `transactions` satırları API-1c/API-2'nin.
+
+**Tap yolu (checkin).** Başka tenant'ın plaketi `advanceAtAPeer`'e gider (oturumun bağlamında
+`holding_advance_tag_counter`; tek-tenant ifadesine asla — `TestAdvance_APeersPlaqueGoesThroughTheHoldingStatementOnly`).
+`not_peer`'de `gather`'ın saha okuması **yapılmaz** (eş olmayanın plaketi okunmaz). Kararın okuduğu plaket
+durumu: ilerletmenin kilitteki durumu, yoksa katı saha okumasınınki, yoksa çözümleyicininki. Bayat
+çözümleyici durumu mutantı kırmızı (`TestHoldingAdvance_DecideSeesTheCurrentStatus`); **ilerletme ile
+saha okumasının kendi aralarındaki önceliği bir testle pinlenmedi** (ikisi de taze; mutant yeşil —
+denetçilere not). Kancalar (`recordHooks`: çözümlemeden sonra, ilerletmeden sonra, yazmadan önce) üretimde
+nil'dir; yarışlar zamanlamayla değil kancayla kurulur.
+
+**⚠️ Adlandırılmış sınır — holding NFC dokunuşunda `ctr_gap` 0.** İmza tablosunun
+`holding_advance_tag_counter` dönüşünde bir boşluk sütunu yok (`TABLE(outcome text, tag_status text)`);
+bu yüzden holding dokunuşunda `tap:ctrGap` 0'dır ve **`base:ctr-gap-review` holding NFC dokunuşunda hiç
+ateşlenmez** (KF sayaç boşluğunu API-1c'nin izdüşümünde `ctr_gap` ile görür). Dönüşü genişletmek §2'nin
+kuralıyla kullanıcı onayı + bu ADR'nin değişikliğidir — yapılmadı, soruldu.
+
+**Karar motoru.** `policy.Context.SameHolding` (motor hesaplamaz); #1 `… ∧ ¬SameHolding`; yeni #9
+`sys:cross-tenant-qr-site-ip` (effect `review`), #10/#11 yetkilendirme guardrail'ları. **Değişmez
+testi:** *"guardrail yalnız kısıtlayıcıdır (deny/ignore/redirect)"* değişmezine **adlandırılmış tek
+istisna** (`reviewGuardrails`: bu guardrail, K-1g kararı); gevşetilemezlik özellik testine bu guardrail'ın
+senaryosu eklendi (2 000 rastgele düşman belge — hiçbiri `allow`'a çeviremez). Panelin kural defterine
+gerekçe cümlesi eklendi (`guardrailRules`).
+
+**Marka ve rota.** Tap sayfası eşin plaketinde `tenant.Directory.PeerTapPage` ile (oturum bağlamında
+`holding_tap_site`) eşin mekânını, accent'ini ve — VIES'li ise — logosunu çizer; duvarsız plakette
+marka çizilmez (ADR 0023'ün kuralı). Sonuç ekranı logoyu kaydın kendi `holding_tap_site` satırından alır
+(ek okuma yok). **ADR 0024 M11 notunun açık bıraktığı `p_uid` kaynağı:** logo rotasının **eş biçimi**
+`/t/logo/{sha}?tag=<uid>` — uid 14 büyük harf hex değilse ya da `tag` iki kez verilirse okumaya gitmeden
+tek 404; eş değil / eski özet / başka işletmenin özeti / VIES yok aynı bayt-aynı 404. `tag`'siz rota
+değişmedi.
+
+**K-35.** Canlı oturum + bekleyen onaylı aktivasyon + NFC: `holding_tap_site` (oturum bağlamı) eşin plaketi
+diyorsa ve plaketin işletmesi davetinkinden farklıysa sayfa sıradan holding dokunuşudur; davetin kendi
+plaketi (oturum eşin çalışanınınki olsa bile) aktivasyonu tamamlar. Aktivasyon yolunun önizlemesi
+koşmaz (ADR 0026'nın testi değişmedi); davet çözülmezse aktivasyon akışı cevaplar.
+
+**Devredilenler (adıyla, nedeniyle):** *"BEFORE kabul edip AFTER'ın KF tarafını atladığı satır yok"*'un
+AFTER yarısı ve *"C'nin `site_punches`'ı 0"*, KF'nin `refused_tag_not_active` görünümü ve kayıp plaket
+uyarı yüzeyi → **API-1c** (`holding_feed`, `site_punches` orada doğar); `HoldingDirectory_ReturnsPeersNeverTheCaller`
+→ **API-8** (`holding_directory`); R4 tarayıcısının şema nitelikli `UPDATE public.tags SET last_ctr`
+biçimi → **API-3** (plan §5'in satırı; yeni ifade zaten çok satırlıdır ve R4 satır yereldir — ADR 0028 §3).

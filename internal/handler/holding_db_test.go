@@ -149,6 +149,19 @@ func TestHoldingBrand_TapAndResultShowTheSiteBrand(t *testing.T) {
 	if got := h.lastCtr(t, kfUID); got != 101 {
 		t.Errorf("the peer's counter %d, want 101 (the holding advance)", got)
 	}
+
+	// THE VIES GATE ON THE PAGE (ADR 0027 §10): KF's VIES answer withdrawn -- the page keeps
+	// KF's venue and accent and draws NO logo (holding_tap_site gives no digest).
+	for _, answer := range []any{false, nil} {
+		holdingVIES(t, owner, kf, answer)
+		body := h.get(t, tapURLFor(kfUID), cookie).Body.String()
+		if strings.Contains(body, "/t/logo/") || strings.Contains(body, "<img") {
+			t.Errorf("VIES %v: the tap page draws a logo", answer)
+		}
+		if !strings.Contains(body, `href="/brand/theme/FFC72C.css"`) || !strings.Contains(body, "KF Sliema") {
+			t.Errorf("VIES %v: the tap page lost KF's accent or venue", answer)
+		}
+	}
 }
 
 // logoPeerFixture is two peers KM and KF (a plaque of KF's, KF's logo stored by the product's

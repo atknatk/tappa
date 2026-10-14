@@ -1750,4 +1750,7 @@ ama **md.7'de değil**: tenant'lar arası okuma ADR 0027'nin kapalı listesindek
 kimliksiz değildir — canlı oturum + eşlik + özet eşitliği. Holding dışı bir tenant'ın ya da eski bir
 özetin baytı **asla**: aynı bayt-aynı 404. Rotanın `p_uid`'i nereden aldığı (sayfanın taşıdığı plaket)
 API-1b'de kesinleşir; hangi biçimde olursa olsun uid istemciden gelir ve süzgeç eşliktir — eş olmayan
-ya da bilinmeyen uid 0 satır, 404.
+ya da bilinmeyen uid 0 satır, 404. **API-1b (2026-10-14):** biçim `GET /t/logo/{sha}?tag=<uid>` — sayfa
+(`layout.PeerTapLogo`) plaketin uid'ini sorgu parametresi olarak yazar; rota uid'i 14 büyük harf hex
+değilse ya da `tag` iki kez verilmişse okumaya gitmeden aynı 404'ü verir; `tag`'siz rota değişmedi
+(ADR 0027 *"API-1b uygulama notu"*).

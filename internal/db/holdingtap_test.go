@@ -344,7 +344,7 @@ func TestHoldingCheck_ChannelRules(t *testing.T) {
 
 // holdingOutsiderProbes are (b)'s questions, each answered "nothing" by a correct filter: what
 // an outsider's context or an outsider's key gets out of the three functions and the gate. They
-// run on the real holding_peer and on each mutant (TestHoldingFilter_MutantsM1M2M3...). Each
+// run on the real holding_peer and on each mutant (TestHoldingFilter_MutantsM1M2M3AreRedInFunctionsAndTriggers). Each
 // returns "" when nothing leaked, else what leaked.
 func holdingOutsiderProbes(t *testing.T, ctx context.Context, tx pgx.Tx, w holdingWorld) (functions, gate []string) {
 	t.Helper()
@@ -1242,4 +1242,84 @@ func holdingBelow43(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	_, down43 := opMigrationSections(t, op00043File)
 	opRunSection(t, ctx, sp, down44, "00044 Down")
 	opRunSection(t, ctx, sp, down43, "00043 Down")
+}
+
+// TestHoldingWindow_UnadvancedNFCRowAfterLeftIsRefused is K-29's "ilerletilmemiş NFC satırı"
+// (ADR 0027 §6; plan §5 API-1b (g)): KM left H 10 seconds ago, and an NFC row the counter was
+// NOT advanced for -- ok with a counter past the plaque's (101 > 100), flag with sun_valid false,
+// or a refusal claiming sun_valid with a counter the plaque never reached (the raw writer arm
+// (ii)'s last condition bounds) -- is refused at the gate. CONTROL: the advanced shape (sun_valid,
+// 100 <= 100) is written. (The tap path never writes the first two shapes itself -- an NFC tap whose
+// counter did not move is §5 row 2's reject; these are the rows a raw writer would try.)
+func TestHoldingWindow_UnadvancedNFCRowAfterLeftIsRefused(t *testing.T) {
+	ctx, tx := opTx(t)
+	w := holdingWorldTx(t, ctx, tx, "10 seconds")
+	row := func(verdict, kind string, sun bool, ctr int32) holdingRow {
+		return holdingRow{employer: w.km, employee: w.kmEmployee, channel: "nfc", verdict: verdict, kind: kind, sunValid: ptr(sun), ctr: ptr(ctr),
+			siteTenant: &w.kf, siteVenue: &w.kfVenue, siteTag: &w.kfTag}
+	}
+	for name, r := range map[string]holdingRow{
+		"ok, a counter past the plaque's":           row("ok", "in", true, 101),
+		"flag, sun_valid false":                     row("flag", "in", false, 100),
+		"a refusal claiming sun_valid at a new ctr": row("reject", "", true, 101),
+	} {
+		holdingWantGate(t, holdingInsertRow(t, ctx, tx, r), name)
+	}
+	if err := holdingInsertRow(t, ctx, tx, row("ok", "in", true, 100)); err != nil {
+		t.Errorf("CONTROL: the advanced shape 10 s after left_at: %v", err)
+	}
+}
+
+// TestHoldingWindow_ManualAfterLeftIsRefused (ADR 0027 §6, §9: a manual record for the site is
+// STRICT; plan §5 API-1b (g)): 10 seconds after KM left, KM's manual record for KF's venue is
+// refused; while KM is a member the same record is written.
+func TestHoldingWindow_ManualAfterLeftIsRefused(t *testing.T) {
+	ctx, tx := opTx(t)
+	for _, left := range []string{"", "10 seconds"} {
+		w := holdingWorldTx(t, ctx, tx, left)
+		err := holdingInsertRow(t, ctx, tx, holdingRow{employer: w.km, employee: w.kmEmployee, channel: "manual", verdict: "flag", kind: "in",
+			siteTenant: &w.kf, siteVenue: &w.kfVenue})
+		if left == "" {
+			if err != nil {
+				t.Errorf("CONTROL: a manual site record while KM is a member: %v", err)
+			}
+			continue
+		}
+		holdingWantGate(t, err, "a manual site record 10 s after left_at")
+	}
+}
+
+// TestHoldingTapSite_LogoOnlyForAVIESVerifiedSite is ADR 0027 §2/§10's "logo özeti yalnız
+// VIES-doğrulanmış tenant için": holding_tap_site gives KF's logo digest, type, box and name (the
+// logo's alt) only while KF's VIES answer is true -- false and never asked (NULL) give all five
+// NULL -- and the accent in every case.
+func TestHoldingTapSite_LogoOnlyForAVIESVerifiedSite(t *testing.T) {
+	ctx, tx := opTx(t)
+	w := holdingWorldTx(t, ctx, tx, "")
+	for _, vies := range []any{true, false, nil} {
+		if _, err := tx.Exec(ctx, `UPDATE tenants SET vat_verified = $2 WHERE id = $1`, w.kf, vies); err != nil {
+			t.Fatal(err)
+		}
+		var (
+			accent          *string
+			sha, mime, name *string
+			width, height   *int32
+		)
+		if err := holdingAppIn(t, ctx, tx, w.km, func(sp pgx.Tx) error {
+			return sp.QueryRow(ctx, `SELECT accent, logo_sha256, logo_mime, logo_width, logo_height, business_name FROM public.holding_tap_site($1)`, w.kfTag).
+				Scan(&accent, &sha, &mime, &width, &height, &name)
+		}); err != nil {
+			t.Fatalf("VIES %v: %v", vies, err)
+		}
+		logo := sha != nil && mime != nil && width != nil && height != nil && name != nil
+		none := sha == nil && mime == nil && width == nil && height == nil && name == nil
+		switch {
+		case holdingStr(accent) != "1F5C41":
+			t.Errorf("VIES %v: accent %q, want the stored one whatever the answer", vies, holdingStr(accent))
+		case vies == true && (!logo || *sha != w.kfDigest):
+			t.Errorf("VIES true: the logo is not given (digest %q)", holdingStr(sha))
+		case vies != true && !none:
+			t.Errorf("VIES %v: a logo field is given (digest %q, name %q)", vies, holdingStr(sha), holdingStr(name))
+		}
+	}
 }
