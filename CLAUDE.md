@@ -90,6 +90,8 @@ internal/db/holding.go  kapalı listedeki holding_* çağrıları, elle ve tipli
                       emsali); ayrı bir holding paketi yok (ADR 0027 §2).
 internal/domain/ledger/site.go  işverenin okuyucularında eş mekân satırını adlandırır ve
                       fişte/kuyrukta K-39'u uygular (ADR 0027 §9; kapsam aşağıda §9).
+internal/db/feedtimeouts.go  olay yazan tetikleyicilerin (punch akışı) takılı yazıcı zaman
+                      aşımları; açılışta bir kez okunur (ADR 0028 §5).
 db/migrations/        goose SQL. Uygulanmış migration DEĞİŞTİRİLMEZ, yenisi yazılır.
 db/queries/           sqlc kaynak SQL
 web/templates/        .templ dosyaları
@@ -108,7 +110,8 @@ ediyorsa **dur ve sor**, sessizce uygulama.
 2. **GPS yalnızca tap anında okunur.** Arka plan konum, sürekli takip, geofence
    izleme YOK. Bu hem GDPR gereği hem satış argümanı.
 3. **`transactions` immutable.** UPDATE/DELETE yok. Düzeltme = yeni kayıt +
-   `audit_log`. Mesai kaydı hukuki delil olabilir.
+   `audit_log`. Mesai kaydı hukuki delil olabilir. Dışa bakan izdüşümleri de append-only'dir:
+   `punch_events` (ADR 0028 §4) ve `site_punches` (ADR 0027 §9); onları yalnız tetikleyiciler yazar.
 4. **`ctr` kontrolü atomik.** Oku-sonra-yaz replay açığıdır. Tek ifadede:
    `UPDATE tags SET last_ctr=$2 WHERE uid=$1 AND last_ctr < $2 RETURNING …`
    Etkilenen satır 0 ise → REJECT. Bunu asla transaction dışı iki adıma bölme.
@@ -129,17 +132,21 @@ ediyorsa **dur ve sor**, sessizce uygulama.
    yönde de** karşı tarafın izdüşümüne ve akışına düşer: çıkandan kalana, kalandan çıkana), eş bir
    tenant holding dışı bir tenant'ın anahtarını (plaket uid'i, lokasyon id'si) veremez. Saha
    görünürlüğü `site_punches` izdüşümüdür (append-only); onu yalnız `holding_feed` tetikleyicisi
-   yazar, sahanın okumaları sıradan RLS'li sorgulardır. **Listeye
+   yazar, sahanın okumaları sıradan RLS'li sorgulardır. Bu iki istisnanın dışında kalan dış akış
+   yazıcısı `tappa_feedwriter`'dır (NOLOGIN, **NOBYPASSRLS**, üyesiz; ADR 0028 §4): kendi-tenant
+   olay tetikleyicisinin sahibidir, tenant sınırını aşmaz; holding punch'ının iki olayını holding
+   tetikleyicisi yazar (K-31). Bir işlem en çok **bir** olay yazan satır yazar — sayaç kilit
+   sırası buna dayanır. **Listeye
    fonksiyon eklemek, bir fonksiyonun dönüş sütunlarını ya da definer'ın sütun matrisini
    genişletmek, `holding_peer`'e kip eklemek ya da bir kipin süzgecini veya zaman kuralını
    gevşetmek kullanıcı onayı + ADR 0027 değişikliği ister** (ADR 0027 §2; testler: ADR 0027
    §2'deki imza katalog testi ve sütun matrisi testi).
 6. **Kayıt asla kaybolmaz.** Kanıt yetersizse REJECT edip atma: kaydı yaz,
    `verdict='flag'` ver, müdür onay kuyruğuna düşür. Sessiz onay da yok.
-   Holding dokunuşunun site satırı checkin'de savepoint içinde yazılır ve **yalnız tap yolunda**,
-   yalnız kapının (`holding_site_gate`) ya da izdüşümün (`holding_feed`) 55P03'ünde **bir kez**
-   yeniden denenir; iki beklemeden (> ~4 sn) uzun bir kilit adlandırılmış bedeldir (ADR 0027 §13
-   madde 16, 18). Sahanın `tags`/`locations` satırlarını `transactions`'ın kendi anahtarları
+   Holding dokunuşunun site satırı ve olay yazan her satır checkin'de savepoint içinde yazılır ve
+   **yalnız tap yolunda**, yalnız kapının (`holding_site_gate`), izdüşümün (`holding_feed`) ya da
+   akışın (`punch_feed`) 55P03'ünde **bir kez** yeniden denenir; iki beklemeden (> ~4 sn) uzun bir
+   kilit adlandırılmış bedeldir (ADR 0027 §13 madde 16, 18, 23). Sahanın `tags`/`locations` satırlarını `transactions`'ın kendi anahtarları
    bekler — orada süre sınırı yoktur, sınır isteğin zaman aşımıdır. Bu tablolara dokunan migration
    ve el işi kendi `lock_timeout`'unu koyar (`deploy/README.md`).
 7. **NTAG AES anahtarları repoda yer almaz.** DB'de KEK ile sarmalanmış saklanır
