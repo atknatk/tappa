@@ -228,7 +228,7 @@ doğurur), saf `tap.Decide`, `internal/policy` ve sayaç ilerletme yolu **dokunu
 
 ```
 punch_events(tenant_id, seq, punch_id, punch_tenant_id, roles, version, status, punch_time,
-             recorded_at, channel, employee_id, employee_ref, employee_code, employee_company,
+             recorded_at, channel, direction, employee_id, employee_ref, employee_code, employee_company,
              location_id, location_ref, location_name, location_company, tag_uid, created_at)
 feed_counters(tenant_id, last_seq)
 webhook_endpoints(…), webhook_deliveries(…)   -- §6
@@ -240,7 +240,10 @@ webhook_endpoints(…), webhook_deliveries(…)   -- §6
   (K-32) olay anında yazılır ve bir daha değişmez; append-only (`UPDATE`/`DELETE`/`TRUNCATE`
   tetikleyicileri, `transactions` gibi); R3 tarayıcısının kapsamına girer.
 - `version = 1`, `status = 'valid'` (K-5). `punch_time` = `occurred_at` (telefonun beyan ettiği an);
-  `recorded_at` = sunucunun yazdığı an.
+  `recorded_at` = sunucunun yazdığı an. **`direction`** (`in`/`out`, NOT NULL — **K-40, kullanıcı kararı
+  2026-10-14**): Tappa'nın **işverende** hesapladığı yön, `transactions.type`; onay olayında ana kaydın
+  yönü; holding punch'ının iki satırı da işverenin yönünü taşır. Yönü olmayan satır (ham yazıcı ya da
+  M4-04 öncesi bir kayıt — ürün her `ok` ve `flag` satırına yön yazar) punch değildir, olay yazılmaz.
 - **Akışa giriş şartı (K-4):** `verdict='ok'` ∧ `channel ∈ {nfc, qr}` ∧ ¬`practice`; ya da aynı
   kanal/practice şartını sağlayan bir `flag` satırının **onayı** (`transaction_reviews.outcome =
   'approved'`) — onay anında, onayın kendi olayı olarak. Manuel (K-6), practice, `reject`, `ignored`
@@ -320,8 +323,9 @@ kilitlenir, tetikleyiciler kurulur, **sonra** geçmiş uygun tek-tenant satırla
 (sıra `occurred_at`; sayaçlar buna göre ilerler; bugün holding satırı yok). Geri doldurulan olaylar
 için teslim satırı yazılmaz. Kilit süresi prod boyutunda bir kopyada ölçülür; **eşik 2 sn** — aşılırsa
 geri doldurma tenant başına küçük işlemlere bölünür. *(API-2'de aşıldı — 700 000 satırda 5,2 sn —
-ve bölündü: `00049` tetikleyicileri kısa kilitle kurar, `00050` geçmişi tenant ve 2 000 olaylık
-parçalar hâlinde, her parçada yalnız o tenant'ın sayaç satırını tutarak yazar; "API-2 uygulama notu".)*
+ve bölündü: `00049` tetikleyicileri kısa kilitle kurar, `00050` geçmişi tenant başına, **keyset**
+pencereleriyle en çok 1 000 punch'lık işlemlerde, her işlemde yalnız o tenant'ın sayaç satırını tutarak
+yazar; "API-2 uygulama notu", ikinci tur.)*
 
 **Bedel (adlandırılmış):** tetikleyicinin her hatası `ok` dokunuşun kaydını **geri alır** (sayaç
 ilerlemiş, kayıt yok — bugünkü her INSERT hatasıyla aynı sınıf); başarısız kayıt kimlikleriyle
@@ -707,7 +711,8 @@ testi; katı kopyalarda `Origin` yokken başlıksız/`none` RED) · `TestSameOri
 iki aktif açılamaz) · `TestEmployeeUpdatedAt_OnlyDirectoryColumnsOnEveryUpdatePath` (dört yol + panelin
 external-ref yazması) · `TestEmployeeLocationReaders_Counted` · `TestTenantApiColumns_AppCannotWrite`.
 
-**API-2** *(yazıldı — "API-2 uygulama notu"; adlar önerilenle aynı, önek eklendi)* —
+**API-2** *(yazıldı — "API-2 uygulama notu"; adlar önerilenle aynı, önek eklendi; ikinci turun ekleri
+satırın sonunda)* —
 (a) `TestFeed_PlainInsertIntoTransactionsBearsAnEvent` · (b) `TestFeed_StressNoMissNoDeadlock`
 (12 yazıcı × 100, 4 tenant, ters yönlü holding dokunuşları, abort/savepoint karışık, tenant başına
 eşzamanlı okuyucu; `seq` yoğun) + mutasyonlar (laboratuvar şemasında — not) `TestFeedMutant_UnlockedSequenceMisses`,
@@ -730,7 +735,14 @@ pinleri ve yazılan dört tablonun sütun pini dahil; ayrıca `TestHoldingDefine
 (p) `TestFeed_ApprovalAfterExitWritesEmployerEventAndDeliveryOnce` · (q)
 `TestFeed_MissingCounterRowsNoDeadlock` (+ mutantı `TestFeedMutant_PreLockWithoutMakeExistDeadlocks`) +
 `TestRestoreVerify_EveryTenantHasACounter` · ek: `TestFeed00048And00049_DownGiveBackAndUpTakesItAgain`,
-`TestRoleGate_MemberOfAnyRoleIsRefused`.
+`TestRoleGate_MemberOfAnyRoleIsRefused`. **İkinci tur (2026-10-14):** K-40 yön —
+`TestFeed_DirectionIsTheEmployers` (dört şekil + onaylı flag; mutantlar: ters yazılan ve yazılmayan yön),
+`TestFeedDirection_NightShiftInThenOutAcrossMidnight`, `TestFeed_HoldingFlagApprovalManualReject`;
+büyük tenant'ın geri doldurması — `TestFeedBackfill_BigTenantLiveTapsLoseNothing`; tek sayaç kümesi —
+`TestFeed_OneCounterSetPerTransaction`, `TestFeed_TwoEventRowsInOneTransactionAreRefusedNotDeadlocked`,
+`TestFeedMutant_TwoEventRowsWithoutTheCheckDeadlock`; dökümün sayaçları —
+`TestPgBackup_ManifestCarriesTheDumpsFeedCounters` (+ `TestRestoreVerify_CountersAheadOfEvents`'in iki ardışık
+geri yükleme vakası).
 
 **API-3** — `ApiKeysCatalog` · `ApiKeyRevocation_IsOneWay` · `ApiKeyRevocation_ConcurrentAndBulkAreSafe` ·
 `ApiKeyAuth_RevokedIs401ClosedIs403` · `ApiKeyAuth_WrongPrefixNeverReachesTheDatabase` ·
@@ -896,13 +908,9 @@ eklendi ve `holdingBelow46` önce `feedBelow48`'i (olay satırları kenara, `000
    kopyalarında 700 000 satır (595 000 olay) **5,2 sn**, 2 000 000 satır **14,5 sn** — eşik 2 sn,
    önceki turların üretim vekili 688 000 satırdı. Şimdi `00049` tetikleyicileri `SHARE ROW EXCLUSIVE`
    altında kurar ve geçmiş yazmaz (700 000 satırlık kapta kilit altındaki iş 31 ms); `00050`
-   (`NO TRANSACTION`) geçmişi **tenant başına, en çok 2 000 olaylık işlemlerle** yazar: her parça önce o
-   tenant'ın sayaç satırını `FOR UPDATE` alır (canlı tetikleyiciyle aynı satır — commit sırası = `seq`
-   sırası, §5'in ispatı aynen), sonra yeni anlık görüntüde olayı olmayan punch'ları `occurred_at`
-   sırasıyla numaralar, sayacı ilerletir, `COMMIT`. Gerçek tablolarda 700 000 satırlık kapta: 510 parça,
-   **en uzun 0,37 sn**, toplam 40 sn; bir dokunuş en çok bir parça bekler (tetikleyicinin 2 sn
-   `lock_timeout`'unun çok altında). `TestFeedBackfill_WithinTwoSeconds` bloğun kendisini (COMMIT'leri
-   çıkarılmış) 200 000 satırda koşar ve en uzun parçayı ölçer. **Bedel (adlandırılmış):** bir tenant'ın
+   (`NO TRANSACTION`) geçmişi **tenant başına küçük işlemlerle** yazar. *(Bu paragrafın ilk sürümündeki
+   parça biçimi ve "700 000 satırda en uzun 0,37 sn" sayısı ikinci turda düzeltildi — aşağıda O-1: o
+   ölçüm 300 tenant'a yayılmış satırlardaydı; parça başına iş tenant'ın büyüklüğüyle büyüyordu.)* **Bedel (adlandırılmış):** bir tenant'ın
    geçmişi, `00049` ile o tenant'ın parçası arasında yazılan canlı olayların **arkasından** numaralanabilir
    (imleç yine atlamaz; o sınırda `seq` sırası `occurred_at` sırası değildir); geri doldurulan olayın
    anlık görüntüsü migration anınındır (K-32 geçmiş için kurulamaz); holding satırları geri doldurulmaz
@@ -975,3 +983,70 @@ tabloda temiz.
 sayaç satırı var ve son olayının en az aralık kadar ötesinde, değilse FAIL ve runbook adımını söyler;
 `00048`'den eski döküm *"no punch feed"* deyip geçer. Runbook adımı (`UPDATE public.feed_counters SET
 last_seq = last_seq + 1000000;`) A YOLU 6, B YOLU B4 ve tatbikatta (d3b), uygulama yazmadan önce.
+
+**İkinci tur (2026-10-14 — güvenlik ONAY + 3 DÜŞÜK, üçüncü göz RED: B-1, O-1, D-1).**
+
+*Migration'lar yerinde düzeltildi (orkestratör kararı, otonom).* `00048`–`00050` hiçbir zaman `main`'e ya da
+üretime gitmedi; yalnız CI'nın taze veritabanlarında ve `tappa-m11-db`'de koştu. CLAUDE.md §3'ün
+*"uygulanmış migration değiştirilmez, yenisi yazılır"* kuralı **yayınlanmış** migration içindir; burada bir
+`00051` ya append-only `punch_events`'e UPDATE (yön sütununu sonradan doldurmak) ya da üretimde uzun
+kilitli bir doldurma gerektirirdi. Ölçüldü: depoda migration dosyalarının değişmediğini denetleyen bir test,
+kanca ya da checksum yok (goose sürüm tablosu yalnız numara tutar). `tappa-m11-db` 47'ye indirildi
+(eski dosyalarla — yeni `00049`'un Down'ı eski şemada olmayan `direction` sütununu adlandırır): `00048`'in
+Down'ı 12 002 olay varken **reddetti** (55000, tasarım gereği); yalnız test artığı olaylar silindi
+(`punch_events` 12 002, uç nokta ve teslim 0; `tags` 9 649 satır **dokunulmadı**), sonra Down ve yeni
+dosyalarla Up → sürüm 50 (geri doldurma 8 376 olay).
+
+*B-1:* `make gen` (sqlc v1.28.0) — `internal/store/models.go` `FeedCounter`, `PunchEvent` (`Direction` dahil),
+`WebhookDelivery`, `WebhookEndpoint`; `make gen` + `git diff --exit-code` temiz.
+
+*K-40 (yön):* `punch_events.direction text NOT NULL CHECK (direction IN ('in','out'))`; iki tetikleyici
+`transactions.type`'ı (onayda ana kaydınkini) yazar, geri doldurma da. `tappa_feedwriter`'a
+`transactions.type` SELECT eklendi (onay kolu okur — tek başına zorunlu, ölçüldü); `tappa_holdingdefiner`
+onu zaten okuyordu (izdüşüm) — K-34 matrisi genişlemedi. **Yönü olmayan satır:** ürün `ok` ve `flag`
+satırına her zaman yön yazar (`tap.Decide`, M4-04); paylaşılan geliştirme veritabanında 614 onaylı yönsüz
+flag vardı, hepsi test fikstürü. NOT NULL ile bu satırın olayı yazılamaz; onayı reddetmek (kayıt değil
+ama yöneticinin kararı) yerine böyle bir satır **punch sayılmaz** — tetikleyiciler ve geri doldurma ona olay
+yazmaz (K-4'ün inceltmesi, adlandırıldı).
+
+*O-1 (geri doldurmanın maliyeti):* ilk sürüm her parçada tenant'ın bütün uygun satırlarını yeniden okuyor,
+sıralıyor ve olay yokluğunu sorguluyordu — parça başına O(tenant), toplam O(N²) (üçüncü gözün ölçümü: tek
+tenant 650 000 satırda medyan parça 982 ms, en uzun 7 118 ms, 326 parçanın 49'u 2 sn üstünde; ANALYZE'sız
+80 000 satırda 62 sn ve 172 canlı 55P03). Şimdi her parça iki yarıdır: **kilitsiz pencere** — `(occurred_at,
+id)` üzerinde keyset, `transactions`'ın `(tenant_id, occurred_at)` indeksiyle, en çok 1 000 punch — ve
+**kilitli yazma** — o tenant'ın sayaç satırı, pencerenin hâlâ olayı olmayan punch'ları, sayaç, `COMMIT`.
+Döngüden önce üç tablo `ANALYZE` edilir ve her parçanın işlemi sıralı taramayı, hash ve merge join'i kapatır
+(`SET LOCAL`): `punch_events` döngünün altında büyüdüğü için istatistiği ilk parçadan sonra bayatlıyordu ve
+"boş" sanılan tabloyu sıralı tarayan plan parçayı yine O(tenant) yapıyordu (ölçüldü: 50 000 satırlık tenant'ta
+1,5 sn'lik pencereler; kapatınca 0,15 sn). Sıra artık `(occurred_at, id)` (eşitlikte `recorded_at` yok).
+Ölçüm — atılabilir kap (Docker Desktop, macOS), tek tenant, geri doldurma sürerken o tenant'ın kendi ve
+holding dokunuşları yazılırken: **300 000 satır** (255 parça): sayaç tutma medyanı **15 ms**, p99 0,93 sn,
+en uzun 1,03 sn, 0,5 sn üstü 20; **650 000 satır** (553 parça): medyan **15 ms**, p99 1,16 sn, en uzun 1,34 sn,
+0,5 sn üstü 29, toplam 52 sn; iki koşuda canlı yazmalarda **0 55P03, 0 kilitlenme**, akış 1..n, her uygun punch
+tam bir olay. Medyan tenant büyüklüğünden bağımsızdır; kuyruk G/Ç duraklamalarıdır (aynı dağılım 300 bin ile
+650 bin arasında büyümüyor). Eski sürümün 700 000 satır / 0,37 sn sayısı 300 tenant'a yayılmış satırdaydı ve
+geçersizdir.
+
+*D-1 (tek sayaç kümesi — artık mekanik):* bir işlemin İLK olayı sayaç kümesini kilitler (kendi dokunuş
+{tenant}, holding {işveren, saha}); aynı işlemin sonraki olay-yazan satırı ancak bu kümenin içinde kalırsa
+yazılır, değilse **kilitten önce** `SQLSTATE TF001` ile reddedilir. İşaret işlem-yerel bir GUC'tur
+(`tappa.feed_counters` = `<xid>:<tenant[,tenant]>`), geri alınan bir savepoint'le geri alınır (checkin'in tek
+yeniden denemesi bu yüzden etkilenmez). Olay yazmayan satırlar (flag, red, manuel, ignored, practice)
+etkilenmez; geri doldurma tetikleyiciden geçmez. Ölçüldü: inceleyenin ham şekli (kendi A + B@A, kendi B +
+A@B; 12 yazıcı × 20 tur) gerçek tetikleyicilerle 240'ın 240'ı TF001, **0 kilitlenme**, hiçbir satır yazılmadı;
+kontrol olmadan (atılabilir kapta gerçek fonksiyonlardan kontrol çıkarılınca) **182 kilitlenme**, laboratuvarda
+177. **Sınırı (adlandırıldı):** GUC'u çağıran da yazabilir — `tappa_app` kendi işleminde işareti önceden yazıp
+kontrolü atlatabilir; bunun bedeli kendi işleminin kilitlenme riskidir (ürün yolu değil, veri bütünlüğü değil).
+Birden çok tenant'ta olay yazan test işlemleri savepoint'lere bölündü.
+
+*Güvenlik D1 (geri yükleme):* `scripts/pg-backup.sh` dökümün kendi `COPY public.feed_counters` bölümünden
+`feed_counter <tenant> <last_seq>` satırlarını manifest'e yazar; `pg-restore-verify.sh` bölüm 6 her sayacın
+**dökümdeki değerinin** de en az `FEED_RESTORE_GAP` ötesinde olmasını ister ve manifest'te değeri olmayan sayaç
+satırını reddeder; özellik dosyalı bir veritabanında `feed_counter` satırı olmayan manifest (eski
+pg-backup.sh) reddedilir. Manifest satırları SQL'e girmeden `<uuid> <tamsayı>` biçimine denetlenir. İki ardışık
+geri yükleme vakası (ikincisinde adım atlanmış): ilk yarı tek başına PASS veriyordu, şimdi FAIL; adımla PASS.
+
+*Redline:* R5'in boş değer muafiyeti yalnız `db/migrations/` altındaki ve satırın **tamamı**
+`SET app.tenant_id = ''` olan satıra verilir; aynı satırda önce tenant değeri yazan `SET` (sonda) ve
+migration dışındaki boş-değer satırı artık WARN (iki sonda ile gösterildi).
+

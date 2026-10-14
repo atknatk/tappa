@@ -89,7 +89,7 @@ API-12'nin rehberinde bu liste **açıkça** yazılır.
 1. Aktivasyon dokunuşu punch **değildir**; ilk punch ikinci dokunuştur (K-2). Aktivasyon yalnız **kendi şirketinin** bir plaketinde tamamlanır (K-1b).
 2. `flag` verdict'li dokunuş yalnız **işveren şirketin yöneticisi onaylarsa**, onay anında akışa girer; reddedilen hiç gelmez (K-4, K-1a).
 3. v1'de `version` hep `1`, `voided` üretilmez (K-5).
-4. Ek alan: `channel` (`nfc` | `qr`); her iki kanalda `tagId` dolu.
+4. Ek alanlar: `channel` (`nfc` | `qr`) ve `direction` (`in` | `out` — işverenin hesapladığı yön, K-40); her iki kanalda `tagId` dolu.
 5. `punchTime` = telefonun beyan ettiği an; çevrimdışı kuyruk **varsayılan** 120 sn'ye kadar `ok` (tenant'ça ayarlanabilir — `internal/policy/baseline.go:109-118`); tavan 72 sa. `recordedAt` = sunucunun yazdığı an.
 6. 60 sn içindeki tekrar dokunuş punch değildir — kişi bazlı, **iki şirketin plaketleri arasında da**.
 7. Lokasyon `timezone`'u tenant'ınkine eşit olmalı, değilse 422 (K-7).
@@ -115,8 +115,8 @@ API-12'nin rehberinde bu liste **açıkça** yazılır.
 27. **Şirketler arası punch'ta karşı tarafın kimlikleri** gelir: çalışanın `id`/`externalRef`/`employeeCode`/`company`'si ve lokasyonun `id`/`externalRef`/`name`/`company`'si, `tagId` (K-1f). Punch alanları **punch anındaki** değerlerdir (sonradan ad değişse de punch değişmez — K-32).
 28. Başka şirketin kayıp/emekli bir plaketine dokunuş reddedilir; punch olmaz (K-4).
 29. Rehber (`GET /v1/directory`) **sayfalıdır** (`cursor`, en çok 1000) — spec düz dizi gösteriyor.
-30. KF şubesinde başlayıp **KM plaketinde** biten bir KM vardiyasında KF-RMS (`scope=location`) yalnız **girişi** alır; çıkış bir KM lokasyonu punch'ıdır ve KM-ERP'nin iki kapsamında gelir. KF panelinde holding çalışanlarının **dokunuşları** listelenir, **süreleri hesaplanmaz** ("süre işverende") — K-1e kaldırıldı.
-31. **`scope=location` ile çalışma süresi hesaplayan entegratör dikkat:** başka şirketin çalışanının şube punch'ları, aradaki işveren olaylarını (diğer şirketin plaketlerindeki dokunuşlar) içermez; giriş/çıkışı yalnız bu kapsamdan eşlemek süreyi **fazla** sayabilir. Holding çalışanlarının süresi için işveren şirketin verisi (onun `employer` kapsamı) esastır.
+30. KF şubesinde başlayıp **KM plaketinde** biten bir KM vardiyasında KF-RMS (`scope=location`) yalnız **girişi** alır; çıkış bir KM lokasyonu punch'ıdır ve KM-ERP'nin iki kapsamında gelir. Her punch Tappa'nın **işverende** hesapladığı yönü taşır (`direction`: `in`/`out` — K-40); entegratör yönü kendisi çıkarmak zorunda değildir. KF panelinde holding çalışanlarının **dokunuşları** listelenir, **süreleri hesaplanmaz** ("süre işverende") — K-1e kaldırıldı.
+31. **`scope=location` ile çalışma süresi hesaplayan entegratör dikkat:** başka şirketin çalışanının şube punch'ları, aradaki işveren olaylarını (diğer şirketin plaketlerindeki dokunuşlar) içermez; giriş/çıkışı yalnız bu kapsamdan eşlemek süreyi **fazla** sayabilir. **Yön alanıyla da geçerli** (K-40): her punch'ın yönü doğrudur, ama eksik olan **aradaki olaylardır** — bir şube `in`'inin eşi o şubede hiç görünmeyebilir ya da başka bir şubenin `out`'u olabilir. Holding çalışanlarının süresi için işveren şirketin verisi (onun `employer` kapsamı) esastır.
 
 ---
 
@@ -141,6 +141,7 @@ API-12'nin rehberinde bu liste **açıkça** yazılır.
 | **K-19** | Arka plan işçisi tenant'lar arası tarama yapsın mı? | **Etkinlikle kurulan işçi — tarama YOK** | §2 madde 20 |
 | **K-25** | API pasifleştirme ADR 0010'un iki adımlı onayını atlar | **Anında + anahtar başına saatlik bütçe** | §4.9 |
 | **K-26** | Askıda savunma yazmaları | **Açık**: anahtar iptali, uç nokta devre dışı | §4.7 |
+| **K-40** | Punch olayında yön | **Eklenir** (kullanıcı kararı 2026-10-14): `punch_events.direction` (`in`/`out`, NOT NULL) = Tappa'nın **işverende** hesapladığı yön (`transactions.type`); onay olayında ana kaydın yönü; holding punch'ının iki satırı da işverenin yönünü taşır. Yönü olmayan satır (ham yazıcı ya da M4-04 öncesi) punch değildir, olay yazılmaz | §2 madde 30–31; ADR 0028 §4; API-2'de uygulandı |
 
 ### Otonom kararlar (öneri uygulandı — gerekçeli)
 
@@ -350,7 +351,7 @@ karşılığı), 0023, 0024 (logo rotası), 0026 (değişmediği notu); `guardra
 ### 4.3 Punch olayı — yapısal yayın
 
 - **Tablolar (API-2):** `punch_events(tenant_id, seq, punch_id, punch_tenant_id, roles, version,
-  status, punch_time, recorded_at, channel, employee_id, employee_ref, employee_code, employee_company,
+  status, punch_time, recorded_at, channel, direction, employee_id, employee_ref, employee_code, employee_company,
   location_id, location_ref, location_name, location_company, tag_uid, created_at)` — `tenant_id`
   = **hedef**; `roles ⊆ {employer, location}`; `UNIQUE(tenant_id, seq)`; FK
   `(punch_id, punch_tenant_id) → transactions(id, tenant_id)`; **anlık görüntü** sütunları (K-32);

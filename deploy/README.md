@@ -1103,15 +1103,18 @@ SQL
 # beklenen: tappa_feedwriter|f|f|f|0|0|t|0
 ```
 
-Sonra `main`'e birleştir; deploy `00048`–`00049`'u uygular. `00049` `transactions` ve
-`transaction_reviews`'u `SHARE ROW EXCLUSIVE` kilitler (kendi `lock_timeout`'u 1 sn — aşağıdaki kural),
-tetikleyicileri kurar ve geçmişi geri doldurur; kilit süresi geri doldurmanınkidir
-(`TestFeedBackfill_WithinTwoSeconds`). Kilit 1 sn içinde alınamazsa migrate Job'ı düşer, sakin bir
-anda yeniden koşulur — kayıt kaybolmaz.
+Sonra `main`'e birleştir; deploy `00048`–`00050`'yi uygular. `00049` `transactions` ve
+`transaction_reviews`'u `SHARE ROW EXCLUSIVE` kilitler (kendi `lock_timeout`'u 1 sn — aşağıdaki kural) ve
+yalnız tetikleyicileri kurar (kilit altındaki iş milisaniyeler; geçmiş yazmaz). Kilit 1 sn içinde
+alınamazsa migrate Job'ı düşer, sakin bir anda yeniden koşulur — kayıt kaybolmaz. `00050`
+(`NO TRANSACTION`) geçmişi tenant başına en çok 1 000 punch'lık işlemlerle geri doldurur; her işlem
+yalnız o tenant'ın sayaç satırını tutar, tutma süresi tenant'ın büyüklüğünden bağımsızdır
+(`TestFeedBackfill_BigTenantLiveTapsLoseNothing`); büyük bir veritabanında migrate Job'ı dakikalar
+sürebilir (atılabilir kapta 650 000 satırlık tek tenant: ~52 sn), dokunuşlar bu sırada yazılmaya devam eder.
 
 **Geri alma:** `00049`'un Down'ı yazıcıları kaldırır ve `holding_feed`'i `00046`'nın gövdesine döndürür;
-yazılmış olaylar **kalır** (append-only). Down süresince yazılan kayıtların olayı yoktur; bir sonraki
-Up onları sayaçtan sonraki `seq`'lerle geri doldurur (kayıp yok, sıra sonra). `00048`'in Down'ı akışta
+yazılmış olaylar **kalır** (append-only). Down süresince yazılan kayıtların olayı yoktur; `00049`'un ve
+`00050`'nin bir sonraki Up'ı onları sayaçtan sonraki `seq`'lerle geri doldurur (kayıp yok, sıra sonra). `00048`'in Down'ı akışta
 olay, uç nokta ya da teslim satırı varken **reddeder** — canlıda koşulmaz.
 
 ### Akış sayaçlarına dokunan el işi — `lock_timeout` kuralı
