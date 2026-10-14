@@ -28,6 +28,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/atknatk/tappa/internal/store"
 )
 
 // ------------------------------------------------------------------- the world --
@@ -598,6 +600,7 @@ func TestHoldingReads_AfterLeftReturnNothing(t *testing.T) {
 //	NFC flag, sun_valid false (not advanced)                    refused   refused
 //	NFC refusal, sun_valid true, ctr > last_ctr (raw writer)    refused   refused
 //	QR flag                                                     refused   refused   (strict)
+//	QR ok, sun_valid true, ctr <= last_ctr (arm i's shape)      refused   refused   (strict)
 //	manual                                                      refused   refused   (strict)
 //
 // and with KM a live member every row is written. Named rows of ADR 0027's list it carries:
@@ -631,6 +634,12 @@ func TestHoldingWindow_GateArms(t *testing.T) {
 		{"UnadvancedNFCRowAfterLeftIsRefused/raw_reject", nfc("reject", "", true, 101), false},
 		{"QRFlagAfterLeftIsRefused", func(w holdingWorld) holdingRow {
 			return holdingRow{channel: "qr", verdict: "flag", kind: "in", sunValid: ptr(false), siteTenant: &w.kf, siteVenue: &w.kfVenue, siteTag: &w.kfTag}
+		}, false},
+		// Arm (i) is NFC's alone: a QR row shaped like an advanced tap -- sun_valid true, a counter
+		// the plaque has reached -- is still strict. MUTANT (the third-eye review's, measured): arm
+		// (i) without its channel test writes this row 10 s after left_at.
+		{"QRAdvancedShapeAfterLeftIsRefused", func(w holdingWorld) holdingRow {
+			return holdingRow{channel: "qr", verdict: "ok", kind: "in", sunValid: ptr(true), ctr: ptr(int32(100)), siteTenant: &w.kf, siteVenue: &w.kfVenue, siteTag: &w.kfTag}
 		}, false},
 		{"ManualAfterLeftIsRefused", func(w holdingWorld) holdingRow {
 			return holdingRow{channel: "manual", verdict: "flag", kind: "in", siteTenant: &w.kf, siteVenue: &w.kfVenue}
@@ -842,11 +851,14 @@ func holdingWaitsWithin(t *testing.T, f *holdingLive, c *pgx.Conn, d time.Durati
 
 // TestHoldingAdvance_ConcurrentSameCounterExactlyOneWins is CLAUDE.md §4.4 and §8 for the second
 // copy of the replay statement (plan §5 API-1b (c); ADR 0027 §12.5): one KF plaque, one counter,
-// N racers on N connections released together -- HALF the single-tenant statement
-// (store.AdvanceTagCounter's SQL, as tappa_app in KF's context), HALF holding_advance_tag_counter
-// (as tappa_app in KM's context) -- and exactly ONE advances. Five rounds, a fresh counter each.
-// tags_counter_monotonic does not stop an equal counter (it refuses only a smaller one), so the
-// single winner is the two statements' FOR UPDATE + strict `<` alone.
+// N racers on N connections released together -- HALF the single-tenant statement (the store
+// package's own store.AdvanceTagCounter, the query the tap path runs, as tappa_app in KF's
+// context), HALF holding_advance_tag_counter (as tappa_app in KM's context) -- and exactly ONE
+// advances. Five rounds, a fresh counter each. tags_counter_monotonic does not stop an equal
+// counter (it refuses only a smaller one), so the single winner is the two statements' FOR UPDATE
+// + strict `<` alone. MUTANT (measured, ADR 0027's API-1b note): FOR UPDATE taken out of
+// internal/store's advanceTagCounter -> more than one winner. (The test once carried a copy of
+// that SQL; a copy would have stayed green while the real query lost its lock.)
 func TestHoldingAdvance_ConcurrentSameCounterExactlyOneWins(t *testing.T) {
 	f := holdingLiveFixture(t)
 	w := holdingWorldLive(t, f)
@@ -855,8 +867,6 @@ func TestHoldingAdvance_ConcurrentSameCounterExactlyOneWins(t *testing.T) {
 	for i := range conns {
 		conns[i] = f.conn(t)
 	}
-	const single = `WITH prev AS (SELECT p.uid AS old_uid, p.last_ctr AS old_ctr FROM tags p WHERE p.uid = $1 AND p.tenant_id = $2 FOR UPDATE)
-		UPDATE tags t SET last_ctr = $3 FROM prev WHERE t.uid = prev.old_uid AND t.tenant_id = $2 AND prev.old_ctr < $3 RETURNING t.uid`
 	for round := 0; round < 5; round++ {
 		ctr := int32(200 + round)
 		var (
@@ -891,8 +901,8 @@ func TestHoldingAdvance_ConcurrentSameCounterExactlyOneWins(t *testing.T) {
 				won := false
 				if err == nil {
 					if path == "single" {
-						var uid string
-						switch e := tx.QueryRow(f.ctx, single, w.kfTag, w.kf, ctr).Scan(&uid); {
+						_, e := store.New(tx).AdvanceTagCounter(f.ctx, store.AdvanceTagCounterParams{Ctr: ctr, TenantID: w.kf, Uid: w.kfTag})
+						switch {
 						case e == nil:
 							won = true
 						case errors.Is(e, pgx.ErrNoRows):

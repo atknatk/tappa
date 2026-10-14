@@ -8,6 +8,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -425,6 +426,39 @@ func TestCheckin_AFailedWriteSaysSoAndDoesNotClaimSuccess(t *testing.T) {
 	}
 	if !strings.Contains(body, "again") {
 		t.Fatalf("a failed write did not tell the person what to do next: %s", body)
+	}
+}
+
+// TestCheckin_SiteMembershipEndedIs409TapAgain is ADR 0027 §6's named race at the boundary (M11
+// API-1b; the third-eye review's item 3): the domain answers ErrSiteMembershipEnded -- decided while
+// the two businesses were peers, refused by the site gate because the membership ended before the
+// INSERT; NOTHING was written. The screen is a 409 (the request was fine; the world changed under
+// it), says nothing was recorded and that the next step is to tap again, and claims no record.
+// MUTANT (measured, ADR 0027's API-1b note): the case removed -> the 500 of an unknown failure.
+func TestCheckin_SiteMembershipEndedIs409TapAgain(t *testing.T) {
+	sess := fixedSessions()
+	svc := &fakeCheckins{err: fmt.Errorf("checkin: %w: %w", checkin.ErrSiteMembershipEnded, errors.New("holding_site_gate (23514)"))}
+	h, tp := newCheckinHandler(t, svc, sess)
+	ctxValue := mintedContext(t, tp, fixedResolved().ID, tapContext{
+		UID: "04AC7E55000601", Ctr: 7, Channel: "nfc", CMACVerified: true,
+		TagTenantID: uuid.New(), LocationID: uuid.New(),
+	})
+
+	w := postForm(t, h, url.Values{"ctx": {ctxValue}}, sessionCookie())
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409", w.Code)
+	}
+	body := w.Body.String()
+	for _, want := range []string{"Nothing was recorded", "Tap the plaque again"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the 409 lacks %q:\n%s", want, body)
+		}
+	}
+	for _, forbidden := range []string{"All done", "APPROVED", "Tapped in"} {
+		if strings.Contains(body, forbidden) {
+			t.Errorf("the 409 rendered %q -- a record that does not exist", forbidden)
+		}
 	}
 }
 

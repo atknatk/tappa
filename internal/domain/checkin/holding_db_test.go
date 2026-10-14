@@ -755,6 +755,38 @@ func TestHoldingAdvance_DecideSeesTheCurrentStatus(t *testing.T) {
 	}
 }
 
+// TestHoldingAdvance_StatusAtTheAdvanceOutranksTheLaterRead pins the ORDER of the status the
+// decision reads (the third-eye review's item 4; ADR 0027 §5): the advance's (taken under its row
+// lock), then the strict holding_tap_site's, then the resolver's. KF's plaque is active at the
+// resolve and at the advance -- the counter moves -- and a hook turns it LOST after the advance and
+// before the gather, so the strict read sees "lost". The tap that moved an active plaque's counter
+// is decided on that status: ok, not a sys:tag-not-active refusal. MUTANT (measured, ADR 0027's
+// API-1b note): the site's status taken before the advance's -> a recorded sys:tag-not-active
+// reject with the lost-plaque alert for a tap the plaque itself accepted.
+func TestHoldingAdvance_StatusAtTheAdvanceOutranksTheLaterRead(t *testing.T) {
+	w := newHoldingWorld(t)
+	uid := w.tag(w.kf, &w.kfVenue, "active", 100)
+	w.svc.hooks.afterAdvance = func(context.Context) {
+		w.exec(`UPDATE tags SET status = 'lost' WHERE uid = $1`, uid)
+	}
+	res, err := w.svc.Record(w.ctx, w.nfc(w.km, w.kmEmp, uid, w.kf, 101, w.kfOnNet))
+	w.svc.hooks = recordHooks{}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Outcome != OutcomeRecorded || res.Decision.Verdict != tap.VerdictOK || res.Decision.MatchedSid == "sys:tag-not-active" || res.Decision.Security {
+		t.Errorf("%s / %s by %s security=%v, want a recorded ok -- the status at the advance's lock was active",
+			res.Outcome, res.Decision.Verdict, res.Decision.MatchedSid, res.Decision.Security)
+	}
+	if got := w.lastCtr(uid); got != 101 {
+		t.Errorf("last_ctr %d, want 101", got)
+	}
+	var status string
+	if err := w.owner.QueryRow(w.ctx, `SELECT status FROM tags WHERE uid = $1`, uid).Scan(&status); err != nil || status != "lost" {
+		t.Errorf("anti-vacuity: the plaque is %q (%v) after the hook, want lost -- the later read did see it", status, err)
+	}
+}
+
 // TestHoldingAdvance_CounterGapReachesTheEmployersReview is the user's decision K-1i (2026-10-14;
 // ADR 0027 §2, the third-eye audit's measurement made a regression): KF's plaque is at 100 and KM's
 // employee touches it at 150 from KF's own network. holding_advance_tag_counter moves the counter

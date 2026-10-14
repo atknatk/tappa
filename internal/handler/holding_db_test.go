@@ -162,6 +162,25 @@ func TestHoldingBrand_TapAndResultShowTheSiteBrand(t *testing.T) {
 			t.Errorf("VIES %v: the tap page lost KF's accent or venue", answer)
 		}
 	}
+
+	// A PEER'S PLAQUE ON NO WALL (ADR 0023 §2: a brand only for a plaque on a wall; the third-eye
+	// review's item 2): KF verified again, a second KF plaque taken off its wall. holding_tap_site
+	// still answers -- a peer's plaque -- and the page draws NEITHER KF's logo NOR its accent, and
+	// names no venue. MUTANT (measured, ADR 0027's API-1b note): PeerTapPage without its
+	// LocationID == nil return draws both.
+	holdingVIES(t, owner, kf, true)
+	loose := h.newTag(t, kek, kf, uuid.New(), 100)
+	if _, err := owner.Exec(context.Background(), `UPDATE tags SET location_id = NULL, status = 'unassigned' WHERE uid = $1`, loose); err != nil {
+		t.Fatal(err)
+	}
+	unwalled := h.get(t, tapURLFor(loose), cookie)
+	ub := unwalled.Body.String()
+	if unwalled.Code != http.StatusOK || !strings.Contains(ub, "<form") {
+		t.Fatalf("anti-vacuity: GET /t on a peer's plaque on no wall = %d, without the tap form:\n%s", unwalled.Code, ub)
+	}
+	if strings.Contains(ub, "/t/logo/") || strings.Contains(ub, "FFC72C") || strings.Contains(ub, "/brand/theme/") {
+		t.Errorf("a peer's plaque on no wall drew a brand:\n%s", ub)
+	}
 }
 
 // logoPeerFixture is two peers KM and KF (a plaque of KF's, KF's logo stored by the product's
