@@ -383,20 +383,22 @@ func TestLocations_WiFiSSIDNeedsNoNewGrantOrPolicy(t *testing.T) {
 	if resolverSelect {
 		t.Error("tappa_resolver can read locations.wifi_ssid; the bounded-bypass role has no business on this table (ADR 0002 madde 7)")
 	}
-	// The named column-level entries, every one a SELECT of a BYPASSRLS definer (ordered by
+	// The named column-level entries, every one a SELECT of a definer (ordered by
 	// column, then role name): tappa_opdefiner's 00029 tenant_id (the tenant overview counts a
 	// tenant's places) and 00030 id and name (the plaque inventory names the entrance a plaque
 	// is mounted at); tappa_holdingdefiner's 00043 columns (M11 API-1b, ADR 0027 §3 --
 	// holding_tap_site reads a PEER's venue and its evidence: id, tenant_id, name, static_ips,
-	// GPS, the shift, external_ref). Not wifi_ssid.
-	const named = "id:tappa_holdingdefiner:SELECT,id:tappa_opdefiner:SELECT," +
-		"tenant_id:tappa_holdingdefiner:SELECT,tenant_id:tappa_opdefiner:SELECT," +
-		"name:tappa_holdingdefiner:SELECT,name:tappa_opdefiner:SELECT," +
+	// GPS, the shift, external_ref); and tappa_feedwriter's 00049 columns (M11 API-2, ADR 0028 §4 --
+	// NOBYPASSRLS, reading its own tenant's venue for a punch event's snapshot: id, tenant_id, name,
+	// external_ref -- never the evidence). Not wifi_ssid.
+	const named = "id:tappa_feedwriter:SELECT,id:tappa_holdingdefiner:SELECT,id:tappa_opdefiner:SELECT," +
+		"tenant_id:tappa_feedwriter:SELECT,tenant_id:tappa_holdingdefiner:SELECT,tenant_id:tappa_opdefiner:SELECT," +
+		"name:tappa_feedwriter:SELECT,name:tappa_holdingdefiner:SELECT,name:tappa_opdefiner:SELECT," +
 		"static_ips:tappa_holdingdefiner:SELECT,gps_lat:tappa_holdingdefiner:SELECT,gps_lng:tappa_holdingdefiner:SELECT," +
 		"shift_start:tappa_holdingdefiner:SELECT,shift_end:tappa_holdingdefiner:SELECT,overnight:tappa_holdingdefiner:SELECT," +
-		"external_ref:tappa_holdingdefiner:SELECT"
+		"external_ref:tappa_feedwriter:SELECT,external_ref:tappa_holdingdefiner:SELECT"
 	if colACLs != named {
-		t.Errorf("locations' column-level ACL entries are (%s), want only 00029's, 00030's and 00043's (%s); "+
+		t.Errorf("locations' column-level ACL entries are (%s), want only 00029's, 00030's, 00043's and 00049's (%s); "+
 			"00010's reasoning ('the table grant covers new columns') holds only while tappa_app has none and every other is named", colACLs, named)
 	}
 	if policies != 1 || !rowSec || !forceSec {

@@ -899,6 +899,7 @@ func TestHolding00046And00047_DownGiveBackAndUpTakesItAgain(t *testing.T) {
 		t.Fatalf("PREMISE at HEAD: %s", head)
 	}
 	holdingLockedSavepoint(t, tx, func(sp pgx.Tx) {
+		feedBelow48(t, ctx, sp) // API-2: the feed's Downs first -- its events' keys name the site rows
 		holdingSetAsideSiteRows(t, ctx, sp)
 		opRunSection(t, ctx, sp, down47, "00047 Down")
 		if s := read(sp); strings.Contains(s, "holding_site_locations") || !strings.Contains(s, "holding_feed") {
@@ -911,11 +912,13 @@ func TestHolding00046And00047_DownGiveBackAndUpTakesItAgain(t *testing.T) {
 		}
 		opRunSection(t, ctx, sp, up46, "00046 Up again")
 		opRunSection(t, ctx, sp, up47, "00047 Up again")
+		feedUpAgain(t, ctx, sp)
 		if again := read(sp); again != head {
 			t.Errorf("after the Ups again:\n %s\nwant HEAD's\n %s", again, head)
 		}
 	})
 	holdingLockedSavepoint(t, tx, func(sp pgx.Tx) {
+		feedBelow48(t, ctx, sp)
 		holdingSetAsideSiteRows(t, ctx, sp)
 		w := holdingWorldTx(t, ctx, sp, "")
 		spMust(t, ctx, sp, spKFTap(w, "nfc", "ok", "in", true, 100))

@@ -455,8 +455,11 @@ func holdingOutsiderProbes(t *testing.T, ctx context.Context, tx pgx.Tx, w holdi
 // reaches is the APPROVAL's: KM's employee's flagged row on KF's plaque is written while the two
 // are peers; then KM leaves H and joins H2 (C's holding) and KM's manager approves the row. KM and
 // KF are no longer peers -- the site is not told -- yet each wrong filter answers "peer" (M1: KM is
-// a member of H2; M2: KF of H; M3: both of some holding) and writes KF an 'approved' row. All in a
-// nested savepoint, rolled back. "" when nothing leaked.
+// a member of H2; M2: KF of H; M3: both of some holding) and writes KF an 'approved' row. Since
+// API-2 the same approval is a feed event (K-4), and the event branch asks the same answer: with
+// the real predicate KM's {employer} event is written with KF's venue NULL and KF's feed gets
+// NOTHING; each mutant writes KF a {location} event too ("a feed event" below). All in a nested
+// savepoint, rolled back. Empty when nothing leaked.
 func holdingFeedProbes(t *testing.T, ctx context.Context, tx pgx.Tx, w holdingWorld) []string {
 	t.Helper()
 	sp, err := tx.Begin(ctx)
@@ -496,13 +499,20 @@ func holdingFeedProbes(t *testing.T, ctx context.Context, tx pgx.Tx, w holdingWo
 	}); err != nil {
 		return []string{"the approval after the move was not written (it must be: the employer's own record): " + err.Error()}
 	}
+	var out []string
 	if n := opInt(t, ctx, sp, `SELECT count(*) FROM site_punches WHERE transaction_id = $1 AND outcome = 'approved'`, id); n != 0 {
-		return []string{fmt.Sprintf("KF was told of an approval %d time(s) after KM left H for H2", n)}
+		out = append(out, fmt.Sprintf("KF was told of an approval %d time(s) after KM left H for H2", n))
+	}
+	if n := opInt(t, ctx, sp, `SELECT count(*) FROM punch_events WHERE punch_id = $1 AND tenant_id = $2`, id, w.kf); n != 0 {
+		out = append(out, fmt.Sprintf("KF's feed got a feed event of the approval %d time(s) after KM left H for H2", n))
 	}
 	if n := opInt(t, ctx, sp, `SELECT count(*) FROM site_punches WHERE transaction_id = $1 AND outcome = 'pending_review'`, id); n != 1 {
-		return []string{fmt.Sprintf("PREMISE: the flagged row while KM was KF's peer reached KF %d time(s), want 1", n)}
+		out = append(out, fmt.Sprintf("PREMISE: the flagged row while KM was KF's peer reached KF %d time(s), want 1", n))
 	}
-	return nil
+	if n := opInt(t, ctx, sp, `SELECT count(*) FROM punch_events WHERE punch_id = $1 AND tenant_id = $2 AND roles = '{employer}'`, id, w.km); n != 1 {
+		out = append(out, fmt.Sprintf("PREMISE: KM's own feed got the approval %d time(s), want exactly 1 (the employer's event, whatever the membership)", n))
+	}
+	return out
 }
 
 func holdingNonEmpty(in []string) []string {
@@ -629,6 +639,12 @@ func TestHoldingFilter_MutantsM1M2M3AreRedInFunctionsAndTriggers(t *testing.T) {
 				}
 				if len(feed) == 0 {
 					t.Errorf("%s in holding_peer: holding_feed's probe stayed green -- K-33's test does not catch it", name)
+				}
+				if !slices.ContainsFunc(feed, func(f string) bool { return strings.Contains(f, "a feed event") }) {
+					t.Errorf("%s in holding_peer: holding_feed's EVENT branch stayed green (API-2) -- K-33's test does not catch it", name)
+				}
+				if slices.ContainsFunc(feed, func(f string) bool { return strings.HasPrefix(f, "PREMISE") }) {
+					t.Errorf("%s in holding_peer: %v", name, feed)
 				}
 				t.Logf("%s: functions leaked %d, gate leaked %d, feed leaked %d", name, len(functions), len(gate), len(feed))
 			})
@@ -1168,10 +1184,15 @@ func TestHoldingAdvance_ConcurrentSameCounterExactlyOneWins(t *testing.T) {
 // gate and the projection are driven through the paths that read it -- and at least one of them
 // is refused 42501. A column none of them needed would stay green here, and this test is red on
 // it. Since API-1c the drive also writes the two refusal shapes (each dedup target's ON CONFLICT
-// needs SELECT on its own columns) and an approval (the only path that reads transactions).
+// needs SELECT on its own columns) and an approval (the only path that reads transactions). Since
+// API-2 both tenants' API is open with an active endpoint, so the ok tap and the approval write
+// the two targets' events AND deliveries (00049's grants: the counters, punch_events,
+// webhook_deliveries, the endpoint's id/tenant/switch, api_enabled_at, verdict and practice).
 func TestHoldingDefiner_EveryGrantIsUsed(t *testing.T) {
 	ctx, tx := opTx(t)
 	w := holdingWorldTx(t, ctx, tx, "")
+	feedOpen(t, ctx, tx, w.kf, "KF", true)
+	feedOpen(t, ctx, tx, w.km, "KM", true)
 	reviewer := holdingNewAdmin(t, ctx, tx, w.km)
 	drive := func(sp pgx.Tx) []error {
 		var errs []error
@@ -1464,6 +1485,7 @@ func TestHolding00043And00044_DownGiveBackAndUpTakesItAgain(t *testing.T) {
 		}
 		opRunSection(t, ctx, sp, up46, "00046 Up again")
 		opRunSection(t, ctx, sp, up47, "00047 Up again")
+		feedUpAgain(t, ctx, sp)
 		if again := read(sp); again != atHead {
 			t.Errorf("after 00046's and 00047's Ups again:\n %+v\nwant HEAD's\n %+v", again, atHead)
 		}
@@ -1516,6 +1538,10 @@ var holdingDownTables = []string{
 	// TABLE also takes the four tables its keys name -- transactions, locations, tags, tenants --
 	// and its DROP TRIGGERs transactions and transaction_reviews, all already above.
 	"site_punches",
+	// 00048/00049 (API-2): the four feed tables (their rows set aside, the tables dropped); 00048's
+	// DROP TRIGGER and the tables' keys take tenants and transactions, 00049's DROP TRIGGERs
+	// transactions and transaction_reviews -- all already above.
+	"feed_counters", "punch_events", "webhook_endpoints", "webhook_deliveries",
 }
 
 // holdingLockForDowns takes, inside the savepoint sp, ACCESS EXCLUSIVE on every one of
@@ -1784,11 +1810,14 @@ func holdingBelow43(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	opRunSection(t, ctx, sp, down43, "00043 Down")
 }
 
-// holdingBelow46 takes the savepoint's database below 00046 -- 00047's Down, then 00046's -- with
-// the site rows set aside first (00046's Down refuses while site_punches holds a row). The caller's
-// savepoint is a holdingLockedSavepoint; the lock is taken again here, as holdingBelow43 does.
+// holdingBelow46 takes the savepoint's database below 00046 -- 00049's and 00048's Downs (the feed,
+// API-2: feedBelow48, its rows set aside first -- punch_events' keys name the site rows), then
+// 00047's and 00046's -- with the site rows set aside first (00046's Down refuses while
+// site_punches holds a row). The caller's savepoint is a holdingLockedSavepoint; the lock is taken
+// again here, as holdingBelow43 does.
 func holdingBelow46(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	t.Helper()
+	feedBelow48(t, ctx, sp)
 	holdingLockForDowns(t, ctx, sp)
 	holdingSetAsideSiteRows(t, ctx, sp)
 	_, down47 := opMigrationSections(t, op00047File)

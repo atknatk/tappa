@@ -264,8 +264,13 @@ var (
 const siteGateConstraint = "holding_site_gate"
 
 // siteFeedFunction is the holding trigger that projects a site row to the site (migration 00046,
-// holding_feed); its lock_timeout running out names it in the error's context.
+// holding_feed) -- and, since 00049, writes both targets' feed events under the two counters'
+// lock; its lock_timeout running out names it in the error's context.
 const siteFeedFunction = "holding_feed"
+
+// ownFeedFunction is the own-tenant feed trigger (migration 00049, punch_feed): it raises the
+// tenant's feed counter, locked until commit, for an ok tap; its lock_timeout running out names it.
+const ownFeedFunction = "punch_feed"
 
 // sqlstateLockNotAvailable is lock_timeout running out (55P03) -- for a site row, the gate's
 // 2-second wait on a membership row an operator's removal holds (migration 00043).
@@ -1509,8 +1514,17 @@ func (s *Service) write(ctx context.Context, tx pgx.Tx, req Request, tagRow db.R
 // there) made the INSERT fail 55P03 and the advanced tap's record was lost exactly like the gate's
 // -- measured on the product path. Its 55P03 (holding_feed in the context) gets the same one
 // retry, in the same savepoint; a hold through both waits is the named cost (ADR 0027 §13).
+//
+// AND THE SAME FOR THE FEED COUNTER'S WAIT (M11 API-2, ADR 0028 §5; ADR 0027 §13 item 23). An ok
+// tap's AFTER trigger -- punch_feed for a row without a site, holding_feed for a site row -- raises
+// its tenant's feed counter, whose row lock is held until the writer commits, under lock_timeout
+// 2s. A transaction that holds that row longer (a stuck writer, a hand's FOR UPDATE) made the
+// INSERT fail 55P03 and the advanced tap's record was lost: the gate's class again. A row that can
+// meet that wait -- a site row, or one punch_feed writes an event for (ok, nfc or qr, not
+// practice) -- is written in a savepoint and once more on punch_feed's 55P03 too; every other row
+// returns from both feed triggers before any lock and is written plainly.
 func (s *Service) insert(ctx context.Context, tx pgx.Tx, params store.InsertTransactionParams) (store.Transaction, error) {
-	if params.SiteTenantID == nil {
+	if params.SiteTenantID == nil && !feedEligible(params) {
 		return store.New(tx).InsertTransaction(ctx, params)
 	}
 	for attempt := 1; ; attempt++ {
@@ -1530,14 +1544,23 @@ func (s *Service) insert(ctx context.Context, tx pgx.Tx, params store.InsertTran
 		}
 		var pg *pgconn.PgError
 		if attempt > 1 || !errors.As(err, &pg) || pg.Code != sqlstateLockNotAvailable ||
-			(!strings.Contains(pg.Where, siteGateConstraint) && !strings.Contains(pg.Where, siteFeedFunction)) {
+			(!strings.Contains(pg.Where, siteGateConstraint) && !strings.Contains(pg.Where, siteFeedFunction) &&
+				!strings.Contains(pg.Where, ownFeedFunction)) {
 			return store.Transaction{}, err
 		}
-		s.log.WarnContext(ctx, "checkin: a site row's lock wait ran out (the site gate's or the projection's); writing the record once more",
+		s.log.WarnContext(ctx, "checkin: a record's lock wait ran out (the site gate's, the projection's or a feed counter's); writing the record once more",
 			"employee_id", params.EmployeeID, "session_tenant_id", params.TenantID,
-			"in_projection", strings.Contains(pg.Where, siteFeedFunction))
+			"in_projection", strings.Contains(pg.Where, siteFeedFunction),
+			"in_own_feed", strings.Contains(pg.Where, ownFeedFunction))
 		s.hooks.call(s.hooks.betweenSiteWrites, ctx)
 	}
+}
+
+// feedEligible is K-4's entry rule as the own-tenant feed trigger applies it to a row without a
+// site (migration 00049, punch_feed): an ok tap on nfc or qr that is not practice -- the one row
+// that trigger takes its tenant's counter lock for.
+func feedEligible(p store.InsertTransactionParams) bool {
+	return p.Verdict == string(tap.VerdictOK) && (p.Channel == string(tap.ChannelNFC) || p.Channel == string(tap.ChannelQR)) && !p.Practice
 }
 
 // insertParams maps a Decision onto the record's columns.

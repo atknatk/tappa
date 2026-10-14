@@ -96,11 +96,36 @@ func newHWorld(t *testing.T) *hWorld {
 	return w
 }
 
+// exec runs one statement as the owner. A transactions row is written in its tenant's context
+// (the first argument) -- the product's shape: since M11 API-2 the own-tenant feed trigger
+// (migration 00049, punch_feed) asserts that an event-worthy row's tenant is the context's.
 func (w *hWorld) exec(sql string, args ...any) {
 	w.t.Helper()
-	if _, err := w.owner.Exec(w.ctx, sql, args...); err != nil {
+	if _, err := w.inContext(sql, args, func(tx pgx.Tx) error {
+		_, err := tx.Exec(w.ctx, sql, args...)
+		return err
+	}); err != nil {
 		w.t.Fatalf("%s: %v", sql, err)
 	}
+}
+
+// inContext runs fn in a transaction of the owner's, with app.tenant_id set to args[0] when sql
+// writes transactions.
+func (w *hWorld) inContext(sql string, args []any, fn func(tx pgx.Tx) error) (bool, error) {
+	tx, err := w.owner.Begin(w.ctx)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if id, ok := args[0].(uuid.UUID); ok && strings.Contains(sql, "INSERT INTO transactions") {
+		if _, err := tx.Exec(w.ctx, `SELECT set_config('app.tenant_id', $1, true)`, id.String()); err != nil {
+			return false, err
+		}
+	}
+	if err := fn(tx); err != nil {
+		return false, err
+	}
+	return true, tx.Commit(w.ctx)
 }
 
 func (w *hWorld) tenant(name string) uuid.UUID {
@@ -715,12 +740,15 @@ func TestEmployerReaders_APartnerVenueRowCarriesNoEvidenceSentence(t *testing.T)
 		if c.manual {
 			channel, sun, ctr, siteTag, tag = "manual", nil, nil, nil, nil
 		}
-		if err := w.owner.QueryRow(w.ctx, `
+		const insertRow = `
 			INSERT INTO transactions (tenant_id, employee_id, occurred_at, verdict, channel, type, sun_valid, ctr, trust, queued, note,
 			                          policy_layer, matched_sid, location_id, tag_uid, site_tenant_id, site_location_id, site_tag_uid)
 			VALUES ($1, $2, $3, $4, $5, 'in', $6, $7, 50, $4 = 'flag', $8, CASE WHEN $9 <> '' THEN 'guardrail' END, NULLIF($9, ''),
-			        $10, $11, $12, $13, $14) RETURNING id`,
-			w.km, w.staff[w.km][0], at, verdict, channel, sun, ctr, c.note, c.sid, venue, tag, siteTenant, siteVenue, siteTag).Scan(&id); err != nil {
+			        $10, $11, $12, $13, $14) RETURNING id`
+		args := []any{w.km, w.staff[w.km][0], at, verdict, channel, sun, ctr, c.note, c.sid, venue, tag, siteTenant, siteVenue, siteTag}
+		if _, err := w.inContext(insertRow, args, func(tx pgx.Tx) error {
+			return tx.QueryRow(w.ctx, insertRow, args...).Scan(&id)
+		}); err != nil {
 			t.Fatal(err)
 		}
 		return id

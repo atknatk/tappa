@@ -1123,13 +1123,13 @@ func TestHoldingFunctions_ExecuteGrantedOnlyToApp(t *testing.T) {
 
 // ------------------------------------------------------------- the definer's reach --
 
-// holdingDefinerMatrix is ADR 0027 §3's verb x column matrix AS FAR AS API-1a, API-1b AND API-1c
-// HAVE EARNED IT: "table:VERB" -> the exact column list in attnum order. Every relation, verb and
-// column not listed is "no privilege". The ADR's other rows (tenants.api_enabled_at, the rest of
-// employees and transactions, webhook_endpoints, punch_events, webhook_deliveries, feed_counters)
-// are granted with the function that needs them and added here in the same change (ADR 0027 §3:
-// "matris kesin listenin üst sınırıdır"); TestHoldingDefiner_EveryGrantIsUsed revokes each column
-// below, one at a time, and shows a function or the gate refused without it.
+// holdingDefinerMatrix is ADR 0027 §3's verb x column matrix AS FAR AS API-1a, API-1b, API-1c AND
+// API-2 HAVE EARNED IT: "table:VERB" -> the exact column list in attnum order. Every relation, verb
+// and column not listed is "no privilege". The ADR's rows not granted (the rest of employees --
+// first_name, last_name, status, updated_at: API-8's holding_directory) are granted with the
+// function that needs them and added here in the same change (ADR 0027 §3: "matris kesin listenin
+// üst sınırıdır"); TestHoldingDefiner_EveryGrantIsUsed revokes each column below, one at a time,
+// and shows a function, the gate or the feed refused without it.
 var holdingDefinerMatrix = map[string]string{
 	"holding_members:SELECT": "holding_id,member_tenant_id,joined_at,left_at",
 	// 00046 (API-1c): holding_feed -- the projection's columns, the two conflict targets (their
@@ -1137,16 +1137,26 @@ var holdingDefinerMatrix = map[string]string{
 	// approval path's read of the decided row, and the employer's snapshot of who tapped.
 	"site_punches:INSERT": "tenant_id,transaction_id,employer_tenant_id,employer_api_code,employee_id,employee_ref,employee_code," +
 		"employee_name,site_location_id,site_tag_uid,ctr,sun_valid,bucket_hour,occurred_at,channel,type,outcome,ctr_gap",
-	"site_punches:SELECT":    "tenant_id,employee_id,site_tag_uid,ctr,sun_valid,bucket_hour,outcome",
-	"transactions:SELECT":    "id,tenant_id,employee_id,ctr,type,occurred_at,sun_valid,channel,site_tenant_id,site_location_id,site_tag_uid",
+	"site_punches:SELECT": "tenant_id,employee_id,site_tag_uid,ctr,sun_valid,bucket_hour,outcome",
+	// 00049 (API-2) adds verdict and practice: K-4 on the approval arm.
+	"transactions:SELECT":    "id,tenant_id,employee_id,ctr,type,occurred_at,sun_valid,verdict,channel,practice,site_tenant_id,site_location_id,site_tag_uid",
 	"employees:SELECT":       "id,tenant_id,full_name,external_ref,employee_code",
 	"holding_members:UPDATE": "lock_anchor",
 	// 00043 (API-1b): holding_tap_site, holding_advance_tag_counter, holding_logo, holding_site_gate.
 	"tags:SELECT":            "uid,tenant_id,location_id,last_ctr,status",
 	"tags:UPDATE":            "last_ctr",
 	"locations:SELECT":       "id,tenant_id,name,static_ips,gps_lat,gps_lng,shift_start,shift_end,overnight,external_ref",
-	"tenants:SELECT":         "id,name,timezone,vat_verified,api_code",
 	"tenant_branding:SELECT": "tenant_id,accent,logo,logo_sha256,logo_mime,logo_width,logo_height",
+	// 00049 (API-2): api_enabled_at -- both targets' gate (K-22); the feed's four rows (K-31): the
+	// endpoint's id, tenant and switch (never its url or key), the counters made to exist, locked
+	// and raised, the two rows written.
+	"tenants:SELECT":            "id,name,timezone,vat_verified,api_enabled_at,api_code",
+	"webhook_endpoints:SELECT":  "tenant_id,id,active",
+	"feed_counters:SELECT":      "tenant_id,last_seq",
+	"feed_counters:INSERT":      "tenant_id,last_seq",
+	"feed_counters:UPDATE":      "last_seq",
+	"punch_events:INSERT":       feedEventInsertColumns,
+	"webhook_deliveries:INSERT": "tenant_id,endpoint_id,punch_event_seq",
 }
 
 // holdingDefinerReachFindings: tappa_holdingdefiner's privileges on every relation in public
@@ -1551,6 +1561,10 @@ func TestHoldingFunctions_SiteEvidenceCanaryNeverLeaks(t *testing.T) {
 	// reads), so the rows holding_feed writes into the peer's site_punches are searched below.
 	employee := holdingNewEmployee(t, ctx, tx, f.caller, "active")
 	reviewer := holdingNewAdmin(t, ctx, tx, f.caller)
+	// API-2: both APIs open with an active endpoint, so the ok tap and the approval are written into
+	// the two remaining tables too -- punch_events and webhook_deliveries (and the counters).
+	feedOpen(t, ctx, tx, f.caller, "KM", true)
+	feedOpen(t, ctx, tx, f.peer, "KF", true)
 	before := opInt(t, ctx, tx, `SELECT count(*) FROM site_punches WHERE tenant_id = $1`, f.peer)
 	var flagged uuid.UUID
 	if err := holdingAppIn(t, ctx, tx, f.caller, func(sp pgx.Tx) error {
@@ -1579,6 +1593,10 @@ func TestHoldingFunctions_SiteEvidenceCanaryNeverLeaks(t *testing.T) {
 	}
 	if n := opInt(t, ctx, tx, `SELECT count(*) FROM site_punches WHERE tenant_id = $1`, f.peer) - before; n != 4 {
 		t.Fatalf("anti-vacuity: the canary taps wrote %d site_punches rows, want 4 (counted, pending_review, refused, approved)", n)
+	}
+	if n := opInt(t, ctx, tx, `SELECT count(*) FROM punch_events e JOIN webhook_deliveries d ON d.tenant_id = e.tenant_id AND d.punch_event_seq = e.seq
+	                            WHERE e.punch_tenant_id = $1`, f.caller); n != 4 {
+		t.Fatalf("anti-vacuity: the canary taps wrote %d delivered events, want 4 (the ok tap and the approval, each in both feeds)", n)
 	}
 
 	callFindings := func(q pgx.Tx, calls map[string]holdingCanaryCall) []string {
