@@ -28,7 +28,8 @@ import (
 //     "not shown at a partner venue" -- not the signs (K-39);
 //   - the manual form offers KM's venue as a partner venue.
 //
-// And the CONTROLS: a business in no holding gets none of the four additions.
+// And the CONTROLS: a business in no holding gets none of the four additions, and its anomalies
+// screen names no partner business at all (no bucket, no sentence).
 func TestHoldingPanel_PartnerViewsSayTheOutcomeNeverTheReason(t *testing.T) {
 	p := newPanelHarness(t)
 	p.signIn(t)
@@ -128,6 +129,9 @@ func TestHoldingPanel_PartnerViewsSayTheOutcomeNeverTheReason(t *testing.T) {
 	q.signIn(t)
 	for _, c := range []struct{ path, absent string }{
 		{weekHref(day), "Partner staff"}, {anomaliesHref, "A lost plaque was tapped"},
+		// D-a (fourth review): no partner bucket and no partner sentence -- MUTANT (measured): the
+		// bucket appended at Partner >= 0 put a 0-record bucket on this empty week -> red.
+		{anomaliesHref, "partner business"},
 		{transactionsHref + "?date=2026-07-01", "partner venue"},
 	} {
 		res, body := q.get(t, c.path)

@@ -1025,3 +1025,63 @@ func TestAnomalies_EveryEvidenceFigureLeavesThePartnerOut(t *testing.T) {
 		t.Errorf("venue order: own at %d, partner at %d -- want the own venue first (the partner's rows do not rank it)", own, partner)
 	}
 }
+
+// TestAnomalies_ThePolicyListIsCutInSQLAndItsOrderIsTotal pins what the fourth review found
+// unpinned (D-b, D-c, D-d). One week, KM: 52 own rules of one record each beside 3 partner rows --
+// the list is cut by the QUERY (AnomalyRowCap rows and "more"), and the partner bucket, last, is 3:
+// the totals' partner count, not the records the listed rules leave over (55 - 50 = 5). Another
+// week: one sid under two layers, NULL and guardrail, one record each -- the NULL layer sorts
+// first, so the order is total and does not hang on the plan. MUTANTS (measured): the bucket
+// counted as Records minus the listed rules; the read limit one smaller (no row past the cap, so
+// no "more"); policy_layer's NULLS FIRST removed -- each red.
+func TestAnomalies_ThePolicyListIsCutInSQLAndItsOrderIsTotal(t *testing.T) {
+	w := newHWorld(t)
+	n := 0
+	insert := func(day, sid string, layer any, site bool) {
+		t.Helper()
+		n++
+		var siteTenant, siteVenue, siteTag, venue, tag any
+		if site {
+			siteTenant, siteVenue, siteTag = w.kf, w.venue[w.kf], w.plaque[w.kf]
+		} else {
+			venue, tag = w.venue[w.km], w.plaque[w.km]
+		}
+		w.exec(`INSERT INTO transactions (tenant_id, employee_id, occurred_at, verdict, channel, type, sun_valid, ctr, trust,
+		                                  policy_layer, matched_sid, location_id, tag_uid, site_tenant_id, site_location_id, site_tag_uid)
+		        VALUES ($1, $2, $3, 'ok', 'nfc', 'in', true, 1000, 50, $4, $5, $6, $7, $8, $9, $10)`,
+			w.km, w.staff[w.km][0], hLocal(t, day, fmt.Sprintf("%02d:%02d:00", 6+n/60, n%60)), layer, sid,
+			venue, tag, siteTenant, siteVenue, siteTag)
+	}
+	for i := range AnomalyRowCap + 2 {
+		insert("2026-04-08", fmt.Sprintf("own:rule-%02d", i), "guardrail", false)
+	}
+	for range 3 {
+		insert("2026-04-08", "base:gps-only-allow", "guardrail", true)
+	}
+	a, err := w.r.Anomalies(w.ctx, w.km, ReportFilter{Day: Date{Year: 2026, Month: time.April, Day: 8}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !a.MorePolicies || len(a.Policies) != AnomalyRowCap+1 {
+		t.Fatalf("52 own rules: %d rows listed (more %v), want %d and the bucket, and more", len(a.Policies), a.MorePolicies, AnomalyRowCap)
+	}
+	if last := a.Policies[AnomalyRowCap]; !last.Partner || last.Records != 3 {
+		t.Errorf("the last row is %+v, want the partner bucket of 3 (the totals' partner count)", last)
+	}
+	for _, r := range a.Policies[:AnomalyRowCap] {
+		if r.Partner || !strings.HasPrefix(r.SID, "own:rule-") {
+			t.Errorf("a listed rule is %+v, want KM's own", r)
+		}
+	}
+
+	insert("2026-04-15", "base:no-evidence-review", "guardrail", false)
+	insert("2026-04-15", "base:no-evidence-review", nil, false)
+	a, err = w.r.Anomalies(w.ctx, w.km, ReportFilter{Day: Date{Year: 2026, Month: time.April, Day: 15}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []AnomalyPolicyRule{{SID: "base:no-evidence-review", Records: 1}, {SID: "base:no-evidence-review", Layer: "guardrail", Records: 1}}
+	if !slices.Equal(a.Policies, want) {
+		t.Errorf("one sid under two layers: %+v, want %+v (the NULL layer first)", a.Policies, want)
+	}
+}
