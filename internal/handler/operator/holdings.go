@@ -447,7 +447,7 @@ var holdingSentences = map[holdingNotice]holdingSentence{
 	holdingNoticeNotAdded: {operatorpages.HoldingNoticeWarn, "Not added — nothing changed.",
 		"The database adds a business only when every rule below holds. The list shows each member's timezone and API code.", true},
 	holdingNoticeRemoved: {operatorpages.HoldingNoticeOK, "Removed.",
-		"The business can join a holding again after 60 seconds.", false},
+		"The business can join a holding again, and its owner can change its timezone, after 60 seconds.", false},
 	holdingNoticeNotRemoved: {operatorpages.HoldingNoticeWarn, "Nothing was removed — it was not a live member.",
 		"The list below shows the holding as the database holds it now.", false},
 	holdingNoticeStillLive: {operatorpages.HoldingNoticeWarn, "It is a live member of this holding.",

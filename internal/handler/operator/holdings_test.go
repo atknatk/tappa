@@ -53,7 +53,7 @@ const (
 	headingElsewhere   = "The result is not on this page."
 	headingNameRefused = "That name cannot be used"
 	headingIDRefused   = "That is not a business id"
-	sentenceRemoved    = "The business can join a holding again after 60 seconds."
+	sentenceRemoved    = "The business can join a holding again, and its owner can change its timezone, after 60 seconds."
 	ruleTimezone       = "Its timezone is the timezone of every member of the holding."
 	ruleOneHolding     = "It is in no other holding, and at least 60 seconds have passed since it last left one."
 	ruleAPICode        = "Its API code is not one a member of the holding already has."

@@ -1112,9 +1112,11 @@ sahipte, `TG_RELID`/`TG_WHEN`/`TG_LEVEL`/`TG_OP` assert'i (yanlış bağlama 550
 `tenants_holding_timezone_lock BEFORE UPDATE … WHEN (OLD.timezone IS DISTINCT FROM NEW.timezone)`. Ret
 **23514**, `CONSTRAINT = 'holding_timezone_lock'` ile; `internal/domain/tenant` bunu
 `ErrTimezoneHeldByHolding` olarak tanır ve owner paneli zaman dilimi alanının yanında **bir cümle**
-söyler (*"This business shares one clock with the other businesses in its group on Taptime, so its
-timezone cannot be changed here."* — API-1a denetimi iki cümleyi bire indirdi; v1'de bütün üyelerin
-saat dilimini taşıyan bir yol olmadığı için cümle bir yol göstermez). Uygulama üyeliği
+söyler (*"This business shares one clock with the other businesses in its group on Taptime, or left that
+group less than 60 seconds ago, so its timezone cannot be changed here."* — API-1a denetimi iki cümleyi
+bire indirdi ve yeniden denetimi çıkış penceresini ekledi: kilit `is_member` penceresinden gelir, çıkıştan
+sonra 60 sn daha sürer; v1'de bütün üyelerin saat dilimini taşıyan bir yol olmadığı için cümle bir yol
+göstermez). Uygulama üyeliği
 önceden soramaz (`tappa_app` üyelik okumaz) — cümle ret anında gelir. Tetikleyici devre dışıyken
 `TestHoldingTimezone_OwnerCannotChangeAMembersTimezone` kırmızı.
 
@@ -1206,8 +1208,9 @@ davranışı değişmedi.** Üçüncü gözün iki ORTA'sı ve iki denetçinin D
 - **Tetikleyicinin bağlanışı pinli** (DÜŞÜK-2): `pg_get_triggerdef`, `WHEN` dahil, etkin ve tek
   (`TestHoldingTriggers_ExecuteOnlyOwnerAndAssertRelid`); `WHEN`'siz bağlama → kırmızı.
 - **Metinler bugün doğru olanı söylüyor** (DÜŞÜK-3): *"Removed."* altında *"The business can join a
-  holding again after 60 seconds."*; ekranın girişi API-1b'nin tap yolunu anlatmıyor; owner panelinin
-  K-36 metni tek cümle.
+  holding again, and its owner can change its timezone, after 60 seconds."*; ekranın girişi API-1b'nin
+  tap yolunu anlatmıyor ve saat dilimi kilidinin çıkıştan sonra 60 sn sürdüğünü söylüyor; owner
+  panelinin K-36 metni tek cümle ve pencereyi de söylüyor (yeniden denetimin DÜŞÜK'ü).
 - **`left_at` taraması tırnaklı adı da okuyor** (DÜŞÜK-5): `UPDATE public."holding_members"` artık
   kaçamıyor; tabloyu adlandıran her UPDATE ayrıntılı desenle okunmak zorunda. Mutant → kırmızı.
 - Yorumlardaki yanlış migration numarası (00041 → 00042) düzeltildi (DÜŞÜK-4).
