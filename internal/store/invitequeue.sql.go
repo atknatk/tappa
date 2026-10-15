@@ -260,6 +260,25 @@ func (q *Queries) LockEmployeeForQueuedInvite(ctx context.Context, arg LockEmplo
 	return status, err
 }
 
+const nextInviteRequestDue = `-- name: NextInviteRequestDue :one
+SELECT lease_until
+FROM invite_requests
+WHERE tenant_id = $1
+  AND lease_until IS NOT NULL
+ORDER BY lease_until
+LIMIT 1
+`
+
+// When the tenant's next waiting request is due: the worker found none due now, and tells
+// internal/webhook's worker to notice this tenant again then (K-19: a timer for ONE tenant, never
+// a scan). No row: the queue is empty.
+func (q *Queries) NextInviteRequestDue(ctx context.Context, tenantID uuid.UUID) (*time.Time, error) {
+	row := q.db.QueryRow(ctx, nextInviteRequestDue, tenantID)
+	var lease_until *time.Time
+	err := row.Scan(&lease_until)
+	return lease_until, err
+}
+
 const renewInviteRequestLease = `-- name: RenewInviteRequestLease :one
 UPDATE invite_requests
 SET lease_until = clock_timestamp() + interval '60 seconds'

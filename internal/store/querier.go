@@ -4661,6 +4661,10 @@ type Querier interface {
 	// bound to the caller's parameter as top-level conjuncts of the statement's own
 	// WHERE, on top of RLS.
 	MoveEmployee(ctx context.Context, arg MoveEmployeeParams) (MoveEmployeeRow, error)
+	// When the tenant's next waiting request is due: the worker found none due now, and tells
+	// internal/webhook's worker to notice this tenant again then (K-19: a timer for ONE tenant, never
+	// a scan). No row: the queue is empty.
+	NextInviteRequestDue(ctx context.Context, tenantID uuid.UUID) (*time.Time, error)
 	// The next version number for one policy: max + 1, or 1 when there is none.
 	//
 	// 🔴 THE APPLICATION ASSIGNS version_no AND THE DATABASE ONLY REFUSES A CLASH.

@@ -147,3 +147,14 @@ FROM employees
 WHERE tenant_id = @tenant_id
   AND id = @employee_id
 FOR SHARE;
+
+-- name: NextInviteRequestDue :one
+-- When the tenant's next waiting request is due: the worker found none due now, and tells
+-- internal/webhook's worker to notice this tenant again then (K-19: a timer for ONE tenant, never
+-- a scan). No row: the queue is empty.
+SELECT lease_until
+FROM invite_requests
+WHERE tenant_id = @tenant_id
+  AND lease_until IS NOT NULL
+ORDER BY lease_until
+LIMIT 1;

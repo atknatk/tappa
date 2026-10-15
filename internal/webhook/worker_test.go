@@ -2,6 +2,7 @@ package webhook
 
 import (
 	"context"
+	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -306,4 +307,87 @@ func unscopedCalls(name, src string, queries map[string]string) []string {
 		}
 	}
 	return bad
+}
+
+// laterJob answers "come back in after" the first n times it runs, then nil; failing joins a
+// failure to the first answer.
+type laterJob struct {
+	mu      sync.Mutex
+	runs    int
+	n       int
+	after   time.Duration
+	failing bool
+}
+
+type dueIn time.Duration
+
+func (d dueIn) Error() string        { return "due later" }
+func (d dueIn) DueIn() time.Duration { return time.Duration(d) }
+
+func (j *laterJob) RunFor(context.Context, uuid.UUID) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.runs++
+	if j.runs > j.n {
+		return nil
+	}
+	if j.failing && j.runs == 1 {
+		return errors.Join(errors.New("one request failed"), dueIn(j.after))
+	}
+	return dueIn(j.after)
+}
+
+func (j *laterJob) count() int {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.runs
+}
+
+// recordingHandler counts error records.
+type recordingHandler struct {
+	slog.Handler
+	errors atomic.Int32
+}
+
+func (h *recordingHandler) Enabled(context.Context, slog.Level) bool { return true }
+
+func (h *recordingHandler) Handle(ctx context.Context, r slog.Record) error {
+	if r.Level >= slog.LevelError {
+		h.errors.Add(1)
+	}
+	return nil
+}
+
+// TestWorker_ALaterTenantIsNoticedAgainAndIsNoFailure (M11 API-6, K-19): a job that answers DueLater
+// (the invitation queue's *invite.Later: a limit, a back-off) has its tenant noticed AGAIN after the
+// delay -- a timer for that one tenant, nothing else -- and a bare DueLater is not logged as a
+// failure; one joined with a failure is. Nothing is noticed after Drain.
+func TestWorker_ALaterTenantIsNoticedAgainAndIsNoFailure(t *testing.T) {
+	for _, failing := range []bool{false, true} {
+		h := &recordingHandler{Handler: slog.DiscardHandler}
+		j := &laterJob{n: 2, after: 20 * time.Millisecond, failing: failing}
+		w, err := NewWorker(slog.New(h), j)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := w.Start(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		w.Notice(uuid.New())
+		waitFor(t, func() bool { return j.count() == 3 })
+		want := int32(0)
+		if failing {
+			want = 1
+		}
+		if got := h.errors.Load(); got != want {
+			t.Fatalf("failing=%v: %d error records, want %d", failing, got, want)
+		}
+		if err := w.Drain(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(50 * time.Millisecond)
+		if j.count() != 3 {
+			t.Fatalf("the job ran %d times; after it answered nil nothing noticed the tenant again", j.count())
+		}
+	}
 }

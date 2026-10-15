@@ -24,6 +24,7 @@ import (
 	"errors"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -107,15 +108,45 @@ func (w *Worker) loop(ctx context.Context) {
 				if ctx.Err() != nil {
 					return
 				}
-				if err := j.RunFor(ctx, tenant); err != nil && !errors.Is(err, context.Canceled) {
-					// The tenant id and the job's place only: a job's error must name no URL, key or
-					// address (ADR 0028 §3, §6 -- API-10's job wraps its errors to a closed class).
-					w.log.ErrorContext(ctx, "webhook: a job failed for a tenant; it runs again on the tenant's next activity",
-						"tenant_id", tenant.String(), "job", i, "err", err)
+				err := j.RunFor(ctx, tenant)
+				if err == nil || errors.Is(err, context.Canceled) {
+					continue
 				}
+				// A job may say its tenant has work due LATER (API-6's invitation queue: a limit, a
+				// back-off): the tenant is noticed again then -- a timer for that one tenant, never a
+				// scan (K-19).
+				var later DueLater
+				if errors.As(err, &later) {
+					w.noticeAfter(tenant, later.DueIn())
+				}
+				if _, only := err.(DueLater); only {
+					continue
+				}
+				// The tenant id and the job's place only: a job's error must name no URL, key or
+				// address (ADR 0028 §3, §6 -- API-10's job wraps its errors to a closed class).
+				w.log.ErrorContext(ctx, "webhook: a job failed for a tenant; it runs again on the tenant's next activity",
+					"tenant_id", tenant.String(), "job", i, "err", err)
 			}
 		}
 	}
+}
+
+// DueLater is what a Job's error may carry to say "this tenant has work that is not due yet" (the
+// invitation queue's *invite.Later). Declared here, at the consumer (§7). A job that returns ONLY a
+// DueLater has not failed; one joined with other errors has, and is logged.
+type DueLater interface {
+	error
+	DueIn() time.Duration
+}
+
+// noticeAfter notices tenant again after d (at once for d <= 0). A notice after Drain is ignored by
+// Notice itself, so a timer that fires during shutdown does nothing.
+func (w *Worker) noticeAfter(tenant uuid.UUID, d time.Duration) {
+	if d <= 0 {
+		w.Notice(tenant)
+		return
+	}
+	time.AfterFunc(d, func() { w.Notice(tenant) })
 }
 
 // take empties the set and returns what it held.

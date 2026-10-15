@@ -204,6 +204,7 @@ var storeSurface = map[string]string{
 	// M11 API-6: the API's employee (employees.sql), K-25's budget and the owner's alert (audit.sql)
 	// and the invitation queue (invitequeue.sql). No address is returned (has_email / same_email are
 	// booleans computed in SQL), no code and no hash; ids, names, instants and counts.
+	"NextInviteRequestDue":           "(context.Context, uuid.UUID) (*time.Time, error)",
 	"ClaimInviteRequest":             "(context.Context, uuid.UUID) (ClaimInviteRequestRow{EmployeeID uuid.UUID; LeaseUntil *time.Time; Attempts int32}, error)",
 	"CountAPIBudgetAlerts":           "(context.Context, CountAPIBudgetAlertsParams{TenantID uuid.UUID; KeyID string}) (int32, error)",
 	"CountAPIDeactivations":          "(context.Context, CountAPIDeactivationsParams{TenantID uuid.UUID; KeyID uuid.UUID}) (CountAPIDeactivationsRow{Deactivations int32; Oldest time.Time}, error)",
@@ -954,14 +955,16 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// K-18, lock, create, names, two reads, the administrator-address check), audit.sql's four
 	// (K-25's lock and count, the alert's dedupe and list) and invitequeue.sql's eleven; none
 	// calls a definer.
-	if named != 183 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; ONE HUNDRED AND EIGHTY-THREE were "+
+	// 183 -> 184 on 2026-10-15 (M11 API-6, the worker): invitequeue.sql's NextInviteRequestDue,
+	// when the tenant's next deferred request is due; it calls no definer.
+	if named != 184 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; ONE HUNDRED AND EIGHTY-FOUR were "+
 			"there when this was pinned (2026-10-15: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
 			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+
 			"+ EM-7B's three invitation e-mail queries, + EM-7C's two recovery queries, "+
 			"+ the activation tap's two consent queries, + WL-13's two activation brand queries, "+
-			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-four employee, budget and queue queries). "+
+			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-five employee, budget and queue queries). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {

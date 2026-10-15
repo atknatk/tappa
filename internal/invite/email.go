@@ -225,6 +225,16 @@ type EmailChannel struct {
 	// actorID is the admin who asked for the invitation (audit_log.actor_id holds
 	// admin identities — ManagerVisibleChannel's precedent).
 	actorID *uuid.UUID
+	// channel is the detail.channel of the rows it writes: "" is emailChannelName (the panel's
+	// press); the invitation queue (queue.go) writes its own, so the trail tells the two apart.
+	channel string
+}
+
+func (c *EmailChannel) channelName() string {
+	if c.channel == "" {
+		return emailChannelName
+	}
+	return c.channel
 }
 
 // NewEmailChannel wires the e-mail route for one request. Both dependencies are
@@ -307,7 +317,7 @@ func (c *EmailChannel) DeliverInvite(ctx context.Context, d Delivery) error {
 		InviteID:   d.Invite.ID,
 		EmployeeID: d.Invite.EmployeeID,
 		ExpiresAt:  expires,
-		Channel:    emailChannelName,
+		Channel:    c.channelName(),
 		MessageID:  messageID,
 	}
 	if sendErr != nil {
@@ -316,7 +326,7 @@ func (c *EmailChannel) DeliverInvite(ctx context.Context, d Delivery) error {
 			InviteID:   d.Invite.ID,
 			EmployeeID: d.Invite.EmployeeID,
 			ExpiresAt:  expires,
-			Channel:    emailChannelName,
+			Channel:    c.channelName(),
 		}
 		var se *mail.SendError
 		if errors.As(sendErr, &se) {
@@ -371,7 +381,7 @@ func (c *EmailChannel) refused(ctx context.Context, p IssueParams, reason string
 			Outcome:    "refused",
 			Reason:     reason,
 			EmployeeID: p.EmployeeID,
-			Channel:    emailChannelName,
+			Channel:    c.channelName(),
 		},
 	}); err != nil {
 		return fmt.Errorf("%w: %s: %w", ErrNotRecorded, ActionEmailRefused, err)
