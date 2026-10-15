@@ -1692,6 +1692,17 @@ yazılır.
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 
+### 2026-10-15 (29. oturum, kırk beşinci yarı) — ✅ **API-7b DONE** (güvenlik 2. turda ONAY; üçüncü göz 4. turda ONAY, bulgu yok) · 📌 **DEVAM: API-8**
+
+**Yeniden başlatmadan sonra:** `docker start tappa-m11-db` (goose **54**; 00048'in zaman indeksi yerinde `(tenant_id, punch_time, seq)`). Brief'ler: `~/.claude/projects/-Users-everva-Documents-GitHub-atknatk-tappa/m11-briefs/`.
+
+**API-7b** (`2a109fd` … `18c80cd`): `GET /v1/punches?scope=…&from=…&to=…` — anlık görüntü S₀ (ilk sayfadan önce okunur, yalnız `seq ≤ S₀`), sıra `(punch_time, seq)`, imleç `hst_<S₀>_<µs>_<seq>_<bağ>` (bağ = işletme + kapsam + aralık; uyuşmazlık 400; `cur_` ile karışmaz), aralık `[from, to)` ≤ **31 gün + 1 saat** (DST ayı tek sorguda — otonom karar), katı RFC 3339, `unencoded_plus` ipucu. Pencere `seq`'ten bağımsız (bayat/sahte S₀ sayfa başına ≤ pencere + 1; 1 M olayda ~19 ms); API okumalarına `statement_timeout` 5 sn (LOCAL; akış, geçmiş, çalışan okumaları). 00048 indeksi yerinde `(tenant_id, punch_time, seq)` (eşit anlarda tarama sınırlı).
+- **Denetim izi:** 1. tur iki mercek RED (G-ORTA: pencere `seq ≤ S₀` ile süzüp bütün aralığı tarıyordu; E-ORTA: eşitlik sırası pinsiz) → 2. tur güvenlik ONAY / üçüncü göz RED (kırılgan EXPLAIN testi) → 3. tur RED (pin planlayıcı kaçışını kapatmıyordu) → 4. tur ONAY.
+- **API-6 yan düzeltme:** `TestAPIWiring_AnEmployeeRunsThroughTheShippedSurfaceAndTheQueue` CI'da kararsızdı — test yarışı (işçinin teslim satırı/`finish` gönderimden sonra), ürün değil; sınırlı bekleme (`c66c460`).
+- **Gözlenen kararsız test (backlog'a değil, izleniyor):** `TestTapDB_ARecordedTapIsConfirmedInFullWhileThePoolIsHeld` tam koşuda bir kez 500, tek başına yeşil.
+
+**🔴 DEVAM PLANI:** **API-8** (`GET /v1/directory`, `holding_directory` doğar) — brief `m11-briefs/brief-api8-builder.md` → iki mercek → API-9 → API-10 → API-12; API-4b (OP-15), API-11 (DNS), API-13 (deploy kararı) kullanıcıya bağlı. Kullanıcıda bekleyenler: otuz dördüncü yarıdakiler + `site_punches` saklama süresi (DPA) + T125.
+
 ### 2026-10-15 (29. oturum, kırk dördüncü yarı) — ✅ **API-7 DONE** (güvenlik ONAY; üçüncü göz kod için ONAY, plan maddesi düzeltilip kısa kontrolde ONAY) · 📌 **DEVAM: API-7b**
 
 **Yeniden başlatmadan sonra:** `docker start tappa-m11-db` (goose **54**). Brief'ler: `~/.claude/projects/-Users-everva-Documents-GitHub-atknatk-tappa/m11-briefs/`.
