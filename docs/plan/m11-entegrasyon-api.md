@@ -569,8 +569,10 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
   sorgu dizgesi 400. Yanıt `{data, nextCursor, hasMore}`: `nextCursor` **her zaman** doludur (boş sayfada okuyucunun
   yetiştiği konum) ve geri gitmez; entegratör tek bir değer saklar. Bir sayfa `limit`'ten az, **hatta boş**, olup
   `hasMore: true` diyebilir (sayfa akışın en çok 10 000 konumunu okur) — döngü `hasMore` false olana kadar sürer, sonra
-  aynı `nextCursor` ile yoklanır. İmleç opaktır, işletmenin kendi akışına aittir, başka işletmede anlamı yoktur; akışın
-  ötesindeki imleç 400'dür (yedekten geri yüklemeden sonra sayaç adımı atlanmışsa bu yüksek sesli durma bilinçlidir).
+  aynı `nextCursor` ile yoklanır. İmleç işletmenin kendi akışında bir konumdur; akışın ötesindeki imleç 400'dür. Bir
+  imleç başka bir işletmeye taşınmamalıdır: o işletmenin aralığı içindeyse reddedilmez ve öncesindeki olaylar sessizce
+  atlanır. Akışın ötesindeki imlece 400 bilinçlidir: yedekten geri yüklemeden sonra sayaç adımı atlanmışsa entegratör
+  sessizce beklemez, durur.
   Punch alanları: `id` (`pch_`, holding punch'ının iki kapsamında aynı), `version` 1, `status` `valid`, `punchTime`,
   `recordedAt` (onaylı flag'de onay anı), `channel`, `direction`, `employee {id, externalRef, employeeCode, company}`,
   `location {id, externalRef, name, company}` (her zaman nesne; lokasyonsuz plaket ve eşlik bitmişken onay → null

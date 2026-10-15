@@ -2015,5 +2015,5 @@ tek bir `tenant.NewPunchFeed(data)` (panelden paylaşılacak kural ya da iz yok 
   (soğuk); yoğun 1 M yürüyüş 1 001 sayfa, toplam 6,7 sn, en kötü 50 ms. Süre plana bağlı olduğu için pinlenmez.
 
 **Devredilen / açık — orkestratöre:** **Geçmiş sorgusu** (`from`/`to`, ≤ 31 gün — §5 son cümlesi, plan §2 madde 18,
-`punch_events_tenant_time_idx`): API-7 brief'inin kapsamında değildi ve plan §5'te sahibi olan bir görev yok. Bugün
+`punch_events_tenant_time_idx`): API-7 brief'inin kapsamında değildi; sahibi artık plan §5'in **API-7b** görevidir. Bugün
 `from`/`to` 400'dür (2. madde); eklenmesi geriye uyumludur. Kendi imleci (`punch_time` sırası) ve kendi ölçümü ister.

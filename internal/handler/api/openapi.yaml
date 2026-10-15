@@ -336,8 +336,9 @@ paths:
         has caught up to -- and never goes back. A page can hold fewer punches than `limit`, even
         none, while `hasMore` is true; read on while it is. `hasMore` false: every punch the feed
         held when the page was read has been answered; poll again later with `nextCursor`. A cursor
-        is opaque, belongs to this business's feed (it means nothing in another's) and is refused
-        (400) when it is not one this feed handed out.
+        is a position in this business's feed; a position past the feed's end is refused (400). Do
+        not carry a cursor to another business: inside that business's range it is not refused, and
+        the events before it are skipped silently.
 
         Only `scope`, `cursor` and `limit` are accepted, each at most once; any other parameter,
         and a query string that does not parse, is 400. No punch carries an e-mail address, a
