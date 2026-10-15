@@ -95,6 +95,11 @@ func NewRouter(cfg *config.Config, log *slog.Logger, features ...Mounter) http.H
 	if cfg != nil && cfg.OperatorHost != "" {
 		r.Use(operatorHostOnly(cfg.OperatorHost))
 	}
+	// THE NON-API HALF OF THE API HOST GATE (M11 API-4, apihost.go): with an API host configured,
+	// everything but /v1 answers 404 on it. Same place and same reasons as the operator's.
+	if cfg != nil && cfg.APIHost != "" {
+		r.Use(apiHostOnly(cfg.APIHost))
+	}
 
 	// LIVENESS. It lives HERE, on the router, rather than in a feature, and that
 	// placement is the guarantee (M8-01): NewRouter is handed no database, no

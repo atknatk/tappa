@@ -105,6 +105,15 @@ type Config struct {
 	// configuration, not a secret: it is the one operator value a log line may name.
 	OperatorHost string
 
+	// APIHost is the integration API's own host (M11 API-4, ADR 0028 §13, K-9: api.taptime.mt,
+	// TAPPA_API_HOST). OPTIONAL: unset, the /v1 surface is not built and /v1 answers 404 on every
+	// host (fail closed -- a deployment that has not chosen a host for the API has no API). Set, it
+	// is ONE spelling, validated as OperatorHost is (a lower-case DNS name, nothing else), and it is
+	// neither TAPPA_BASE_URL's host nor the operator host: the two-way host gate (internal/httpx's
+	// apiHostOnly and internal/handler/api's hostGate) keeps the panel, the tap and the operator off
+	// it and /v1 off every other host. Configuration, not a secret.
+	APIHost string
+
 	// ResetDelivery names the transport that carries an admin password-reset link
 	// to the administrator's own address (M7-04 phase B, TAPPA_RESET_DELIVERY):
 	// ResetDeliveryNone or ResetDeliveryEmail. Since M10 EM-9 the same value decides
@@ -338,6 +347,10 @@ func Load() (*Config, error) {
 		push(err)
 	}
 	push(keysSeparation(c))
+	// After the operator surface: the API host must differ from the operator host too.
+	if c.APIHost, err = apiHost(os.Getenv(envAPIHost), c.BaseURL, c.OperatorHost); err != nil {
+		push(err)
+	}
 	// RetentionYears is required (no default): see the field comment.
 	if c.RetentionYears, err = intEnvRequiredRange("TAPPA_RETENTION_YEARS", retentionYearsMin, retentionYearsMax); err != nil {
 		push(err)
@@ -669,6 +682,35 @@ func isDNSHostName(s string) bool {
 		}
 	}
 	return true
+}
+
+// envAPIHost is the integration API's host variable (M11 API-4, ADR 0028 §13).
+const envAPIHost = "TAPPA_API_HOST"
+
+// apiHost validates TAPPA_API_HOST: empty is "no API" and is not an error; anything else is ONE
+// spelling (isDNSHostName -- operatorHost's reason: the value is compared with a request's host by
+// the two-way gate, and a second spelling here would be a second thing for the gate to get wrong),
+// and never the base URL's host or the operator host -- either would put /v1 and a cookie-bearing
+// surface on one origin, which the separate host exists to prevent (K-9). The error never repeats
+// the value.
+func apiHost(v, baseURL, operator string) (string, error) {
+	if v == "" {
+		return "", nil
+	}
+	if !isDNSHostName(v) {
+		return "", errors.New("TAPPA_API_HOST: must be a lower-case DNS host name such as api.taptime.mt: " +
+			"letters, digits, hyphens and dots only, with no scheme, port, path, user part or trailing dot " +
+			"(the value is not repeated here, because a mis-pasted DSN or key would reach the log)")
+	}
+	if u, err := url.Parse(baseURL); err == nil && strings.EqualFold(u.Hostname(), v) {
+		return "", errors.New("TAPPA_API_HOST: must not be TAPPA_BASE_URL's host. The integration API lives on a host " +
+			"of its own, where no panel or tap cookie is ever sent (ADR 0028 §13)")
+	}
+	if operator != "" && strings.EqualFold(operator, v) {
+		return "", errors.New("TAPPA_API_HOST: must not be TAPPA_OPERATOR_HOST. The integration API and the operator " +
+			"surface each live on a host of their own (ADR 0020 §4, ADR 0028 §13)")
+	}
+	return v, nil
 }
 
 // The integration API's two key variables (M11 API-3, ADR 0028 §3).

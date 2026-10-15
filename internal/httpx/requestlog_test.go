@@ -225,6 +225,49 @@ func TestRequestID_AnUnacceptableHeaderIsSilentlyReplaced(t *testing.T) {
 	}
 }
 
+// TestRequestID_AKeyShapedIDIsReplaced (M11 API-4, ADR 0028 §3): an X-Request-Id carrying an
+// integration key's or a webhook signing key's prefix -- in any case -- is replaced like any other
+// unacceptable value, so a key a client put there never reaches a record. The values are built at
+// run time (redline R7d reads a key-shaped literal in source as a leak). CONTROL: a plain id of the
+// same characters and length is carried.
+//
+// MUTANT (measured, API-4 report): the prefix check removed -> the key-shaped id is carried verbatim.
+func TestRequestID_AKeyShapedIDIsReplaced(t *testing.T) {
+	t.Parallel()
+	body := strings.Repeat("Ab9_", 10) + "Ab9"
+	for _, tc := range []struct {
+		name, value string
+		carried     bool
+	}{
+		{"a live key", "tt" + "_live_" + body, false},
+		{"a sandbox key", "tt" + "_test_" + body, false},
+		{"a signing key", "tt" + "_whsec_" + body, false},
+		{"a live key in capitals", "TT" + "_LIVE_" + body, false},
+		{"a live key after a prefix", "req-tt" + "_live_" + body[:20], false},
+		{"CONTROL: the same characters, no prefix", "tt_xyz_" + body, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var buf bytes.Buffer
+			r := httpx.NewRouter(nil, jsonLogger(&buf))
+			req := httptest.NewRequest(http.MethodGet, "/nope", nil)
+			req.Header.Set(httpx.RequestIDHeader, tc.value)
+			r.ServeHTTP(httptest.NewRecorder(), req)
+			recs := records(t, &buf)
+			if len(recs) != 1 {
+				t.Fatalf("want 1 record, got %d", len(recs))
+			}
+			got, _ := recs[0][httpx.LogRequestIDKey].(string)
+			if (got == tc.value) != tc.carried {
+				t.Fatalf("request_id %q for %q: carried=%v, want %v", got, tc.value, got == tc.value, tc.carried)
+			}
+			if !tc.carried && strings.Contains(strings.ToLower(buf.String()), strings.ToLower(body[:20])) {
+				t.Fatalf("the key's body reached the log: %s", buf.String())
+			}
+		})
+	}
+}
+
 // TestRequestID_AMintedIDPassesItsOwnFilter. A generated id that this package's own
 // inbound rule would reject is a contradiction waiting to be found by whoever next
 // puts a proxy in front of another one — chi's generator was exactly that shape

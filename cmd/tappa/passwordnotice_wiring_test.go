@@ -174,6 +174,15 @@ func TestPasswordNoticeWiring_ThePanelIsGivenTheMountedRecoveryFlow(t *testing.T
 			if id, ok := a.(*ast.Ident); ok && id.Name == flow.Name {
 				return
 			}
+			// Since M11 API-4 shutdown drains a drainers{...} list (the reset outbox beside K-19's
+			// worker): the flow passed as one of the list's elements is passed.
+			if lit, ok := a.(*ast.CompositeLit); ok {
+				for _, e := range lit.Elts {
+					if id, ok := e.(*ast.Ident); ok && id.Name == flow.Name {
+						return
+					}
+				}
+			}
 		}
 		t.Errorf("the panel's notifier %q is not passed to %s: the flow that announces changes is not "+
 			"the one the binary %s", flow.Name, what, map[string]string{"NewRouter": "mounts", "shutdown": "drains"}[what])

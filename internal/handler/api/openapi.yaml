@@ -1,0 +1,138 @@
+openapi: 3.1.0
+info:
+  title: Taptime integration API
+  version: "1"
+  description: |
+    The integration API of Taptime (punchless time and attendance). A business's HR or ERP system
+    writes the business's own locations and employees and reads its punches.
+
+    Authentication: every request but this document carries `Authorization: Bearer <key>`, a key
+    the business's owner issues in the Taptime panel. The API must also be enabled for the business
+    by Taptime; until then a valid key is answered 403 `api_disabled`.
+
+    Errors: every refusal is a JSON body `{code, message, details}` (the `Error` schema). A 429
+    carries `Retry-After` (seconds). Request bodies are limited to 65536 bytes and are not accepted
+    compressed.
+
+    Idempotency: a write may carry `Idempotency-Key` (1-255 visible ASCII characters). A retry with
+    the same key and the same request within 24 hours returns the first request's result without
+    doing the work again (with `Idempotent-Replayed: true`); the same key with a different request
+    is 422 `idempotency_key_reused`. Concurrent requests with one key are answered one after the
+    other.
+
+    Identifiers: `emp_`, `loc_`, `pch_` and `dlv_` followed by a UUID; `tag_` followed by the plaque's UID.
+servers:
+  - url: https://api.taptime.mt
+security:
+  - bearer: []
+paths:
+  /v1/openapi.yaml:
+    get:
+      operationId: getOpenAPI
+      summary: This document.
+      security: []
+      responses:
+        "200":
+          description: The OpenAPI 3.1 document of this API.
+          content:
+            application/yaml:
+              schema:
+                type: string
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+      description: An integration key, `tt_live_` followed by 43 base64url characters.
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: Makes a write safe to retry for 24 hours.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 255
+        pattern: "^[!-~]{1,255}$"
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Page size.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 1000
+        default: 500
+  headers:
+    RetryAfter:
+      description: Seconds to wait before retrying.
+      schema:
+        type: integer
+        minimum: 1
+  schemas:
+    Error:
+      type: object
+      additionalProperties: false
+      required: [code, message, details]
+      properties:
+        code:
+          type: string
+          enum: [invalid_request, body_too_large, unauthorized, api_disabled, tenant_suspended, not_found, idempotency_key_reused, rate_limited, unavailable]
+        message:
+          type: string
+          description: A sentence for a person. Never contains the request's own values.
+        details:
+          type: object
+          description: Machine-readable specifics, such as the parameter at fault; may be empty.
+  responses:
+    BadRequest:
+      description: "invalid_request or body_too_large: a parameter, header or body the contract refuses."
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: "unauthorized: no key, or a key that is not valid."
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: "api_disabled: the API is not enabled for this business; tenant_suspended: the business is suspended and this change is not accepted."
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: "not_found: no such resource."
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unprocessable:
+      description: "idempotency_key_reused: the Idempotency-Key was used with a different request."
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    TooManyRequests:
+      description: "rate_limited: wait for Retry-After seconds."
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfter"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unavailable:
+      description: "unavailable: the request could not be completed on our side; retry."
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"

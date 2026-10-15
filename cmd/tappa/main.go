@@ -62,6 +62,7 @@ import (
 	"github.com/atknatk/tappa/internal/mail"
 	"github.com/atknatk/tappa/internal/session"
 	"github.com/atknatk/tappa/internal/sun"
+	"github.com/atknatk/tappa/internal/webhook"
 )
 
 // httpShutdownGrace is how long the server drains in-flight requests after a signal.
@@ -354,6 +355,19 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// K-19's WORKER (M11 API-4, ADR 0028 §6): the in-process set of tenants with work, drained by one
+	// loop. A recorded tap puts its tenant -- both tenants of a holding tap -- into it, and so does
+	// every authenticated /v1 request (openAPISurface, below): no path ever scans across tenants. Its
+	// jobs (API-6's invitation sender, API-10's delivery) arrive with those tasks; today the set
+	// fills and drains. It drains beside the HTTP server at shutdown.
+	work, err := webhook.NewWorker(slog.Default())
+	if err != nil {
+		return err
+	}
+	if err := work.Start(ctx); err != nil {
+		return err
+	}
+	checkins.NoticeWorkTo(work)
 	// cfg.TagKEKPrevious is nil unless a KEK rotation is in progress, and
 	// NewVerifier drops empty entries — so this is the one-KEK wiring in the
 	// steady state and the two-KEK wiring during the rotation window, with no
@@ -824,9 +838,16 @@ func run() error {
 		return err
 	}
 
+	// THE INTEGRATION API (M11 API-4): /v1 on TAPPA_API_HOST, or nothing (a nil Mounter, which
+	// NewRouter skips). It is handed the pool and K-19's worker; api.go says the rest.
+	integrationAPI, err := openAPISurface(cfg, data, work, slog.Default())
+	if err != nil {
+		return err
+	}
+
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpx.NewRouter(cfg, slog.Default(), activation, tap, panelAuth, logos, marketing, signupFlow, resetFlow, ready, handler.NewBrandTheme(), operatorSurface, devTools),
+		Handler:           httpx.NewRouter(cfg, slog.Default(), activation, tap, panelAuth, logos, marketing, signupFlow, resetFlow, ready, handler.NewBrandTheme(), operatorSurface, integrationAPI, devTools),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       90 * time.Second,
 		// NO WriteTimeout, deliberately (WL-9 round 3): a recorded tap's confirmation
@@ -862,7 +883,7 @@ func run() error {
 		// attendance record, and records are never lost (CLAUDE.md §4). The reset
 		// outbox drains beside them; the deferred closes above run after both.
 		slog.Info("shutting down")
-		return shutdown(srv, httpShutdownGrace, resetFlow, handler.ResetDrainGrace)
+		return shutdown(srv, httpShutdownGrace, drainers{resetFlow, work}, handler.ResetDrainGrace)
 	}
 }
 

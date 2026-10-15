@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -214,8 +215,18 @@ func RequestID(next http.Handler) http.Handler {
 // out of an `X-Request-Id: a" level=ERROR msg="…` header — no synthetic line was
 // produced. The encoders were doing their job; this makes the property hold without
 // depending on which encoder TAPPA_LOG_FORMAT selected.
+//
+// 🔴 AND NEVER A CREDENTIAL'S SHAPE (M11 API-4, ADR 0028 §3: "Request id ve erişim log'u anahtarı
+// taşımaz"). An integration key -- tt_live_ / tt_test_ and 43 base64url characters -- and a webhook
+// signing key (tt_whsec_) are made of exactly this character set and fit in MaxRequestIDLen, so a
+// client that put its key into X-Request-Id would have it written on every record of its requests.
+// A value carrying one of the three prefixes, in any case, is replaced like any other unacceptable
+// value (TestRequestID_AKeyShapedIDIsReplaced).
 func acceptableRequestID(v string) bool {
 	if v == "" || len(v) > MaxRequestIDLen {
+		return false
+	}
+	if l := strings.ToLower(v); strings.Contains(l, "tt_live_") || strings.Contains(l, "tt_test_") || strings.Contains(l, "tt_whsec_") {
 		return false
 	}
 	for i := 0; i < len(v); i++ {
