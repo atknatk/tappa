@@ -721,6 +721,7 @@ func scopeFindings(body string, scoped map[string]bool) (findings []string, chec
 	findings, checked = append(findings, ifs...), checked+ichecked
 	sfs, schecked := insertSelectFindings(body, scoped)
 	findings, checked = append(findings, sfs...), checked+schecked
+	findings = append(findings, doUpdateSetFindings(body, scoped)...)
 	for _, whole := range statementBlocks(body) {
 		// An ON CONFLICT ... DO UPDATE is a second statement about a DIFFERENT subject -- the
 		// INSERT's target, not the SELECT's source -- so it is cut off and walked on its own
@@ -850,92 +851,84 @@ func insertFindings(body string, scoped map[string]bool) (findings []string, che
 // text after its cast and `AS name` are removed; an expression that merely EVALUATES to the right
 // value (a CASE, a COALESCE) is refused rather than understood. RLS's WITH CHECK stays the last
 // belt for the value itself.
-var insertSelectRE = regexp.MustCompile(`(?is)\bINSERT\s+INTO\s+(?:public\.)?([a-z_][a-z0-9_]*)(?:\s+AS\s+[a-z_][a-z0-9_]*)?\s*(\(([^)]*)\))?\s*(\(\s*)?SELECT\b`)
-
 var (
-	castRE    = regexp.MustCompile(`::\s*[a-zA-Z_][a-zA-Z0-9_]*`)
-	asNameRE  = regexp.MustCompile(`(?is)\s+AS\s+[a-z_][a-z0-9_]*$`)
-	sourceRE  = regexp.MustCompile(`(?is)^FROM\s+(?:ONLY\s+)?(?:public\.)?([a-z_][a-z0-9_]*)\s*(?:AS\s+)?([a-z_][a-z0-9_]*)?`)
-	doUpdRE   = regexp.MustCompile(`(?is)\bDO\s+UPDATE\b`)
-	targetRE  = regexp.MustCompile(`(?is)\bINSERT\s+INTO\s+(?:public\.)?([a-z_][a-z0-9_]*)(?:\s+AS\s+([a-z_][a-z0-9_]*))?`)
-	fromWords = regexp.MustCompile(`(?i)\bFROM\b`)
+	doUpdRE  = regexp.MustCompile(`(?is)\bDO\s+UPDATE\b`)
+	targetRE = regexp.MustCompile(`(?is)\bINSERT\s+INTO\s+(?:public\.)?([a-z_][a-z0-9_]*)(?:\s+AS\s+([a-z_][a-z0-9_]*))?`)
 )
 
-// insertSelectFindings checks the tenant column of every INSERT ... SELECT in a query body.
+// insertSelectFindings checks the tenant column of every INSERT ... SELECT in a query body. The
+// statements are found by insertSelectHeads (queryinsert_test.go -- the same file all six belts
+// carry): a bare SELECT, a parenthesised one, and one behind a CTE (second and fourth rounds).
 func insertSelectFindings(body string, scoped map[string]bool) (findings []string, checked int) {
-	for _, loc := range insertSelectRE.FindAllStringSubmatchIndex(body, -1) {
-		table := strings.ToLower(body[loc[2]:loc[3]])
+	for _, h := range insertSelectHeads(body) {
+		table := h.table
 		if !scoped[table] {
 			continue
 		}
 		checked++
-		// Second round (API-5 review): a statement with NO column list, and a parenthesised
-		// `(SELECT ...)`, were invisible to this arm. The first is refused (which value lands in
-		// tenant_id cannot be read off it); the second is read like a bare SELECT.
-		if loc[4] < 0 {
+		if !h.hasCols {
 			findings = append(findings, fmt.Sprintf("has an INSERT ... SELECT into %s with no column list; which "+
-				"value lands in its %s cannot be read off it", table, "tenant_id"))
+				"value lands in its tenant_id cannot be read off it", table))
 			continue
 		}
-		cols := splitTopLevel(body[loc[6]:loc[7]])
-		rest := body[loc[1]:]
-		// The select list ends at the first FROM outside parentheses.
-		end := -1
-		depth := 0
-		for i := 0; i < len(rest) && end < 0; i++ {
-			switch rest[i] {
-			case '(':
-				depth++
-			case ')':
-				depth--
-			default:
-				if depth == 0 && (rest[i] == 'F' || rest[i] == 'f') && fromWords.MatchString(rest[i:min(i+4, len(rest))]) && wordBoundary(strings.ToUpper(rest), i, 4) {
-					end = i
-				}
-			}
-		}
-		if end < 0 {
-			findings = append(findings, fmt.Sprintf("has an INSERT ... SELECT into %s whose source this scan cannot find; "+
-				"a statement a checker cannot read is a statement nothing is checking", table))
-			continue
-		}
-		items := splitTopLevel(rest[:end])
 		want := "tenant_id"
 		if table == "tenants" {
 			want = "id"
 		}
 		at := -1
-		for i, c := range cols {
-			if strings.EqualFold(strings.TrimSpace(c), want) {
+		for i, c := range h.cols {
+			if strings.EqualFold(strings.Trim(strings.TrimSpace(c), `"`), want) {
 				at = i
 			}
 		}
-		if at < 0 || len(items) != len(cols) {
-			findings = append(findings, fmt.Sprintf("has an INSERT ... SELECT into %s that names %s at column %d of %d "+
-				"with %d select item(s); the written row's scope cannot be read off it", table, want, at, len(cols), len(items)))
+		if at < 0 {
+			findings = append(findings, fmt.Sprintf("has an INSERT ... SELECT into %s that does not name %s, so the "+
+				"row it writes is scoped by nothing this statement says", table, want))
 			continue
 		}
-		val := strings.ToLower(strings.Join(strings.Fields(asNameRE.ReplaceAllString(castRE.ReplaceAllString(strings.TrimSpace(items[at]), ""), "")), " "))
-		var src subject
-		if m := sourceRE.FindStringSubmatch(rest[end:]); m != nil {
-			src = newSubject(m[1], m[2])
-		}
-		accepted := map[string]bool{tenantParam: true}
-		if src.table != "" && scoped[src.table] {
-			accepted[src.column] = true
-			accepted[src.table+"."+src.column] = true
-			if src.alias != "" {
-				accepted[strings.ToLower(src.alias)+"."+src.column] = true
-			}
+		val, accepted, ok := isSelectItem(h.rest, at, len(h.cols))
+		if !ok {
+			findings = append(findings, fmt.Sprintf("has an INSERT ... SELECT into %s whose select list cannot be "+
+				"lined up with its %d column(s); the written row's scope cannot be read off it", table, len(h.cols)))
+			continue
 		}
 		if !accepted[val] {
 			findings = append(findings, fmt.Sprintf(
-				"has an INSERT ... SELECT into %s whose %s is %q: neither %s nor the scoped source row's own %s. "+
+				"has an INSERT ... SELECT into %s whose %s is %q: neither %s nor the source row's own scope column. "+
 					"The source's WHERE can be perfectly scoped while the row is written for another tenant.",
-				table, want, strings.TrimSpace(items[at]), tenantParam, src.qualified()))
+				table, want, val, tenantParam))
 		}
 	}
 	return findings, checked
+}
+
+// doUpdateSetFindings refuses an ON CONFLICT ... DO UPDATE whose SET list assigns the target's scope
+// column -- the conflicting row would be moved to whatever tenant the statement names (second round:
+// `SET tenant_id = @other WHERE loc.tenant_id = @tenant_id` had zero findings; fourth round: the
+// quoted `"tenant_id" =` and the row form `(name, tenant_id) = (...)` too). It reads the RAW body: the
+// block walk masks parentheses, and the row form lives inside them.
+func doUpdateSetFindings(body string, scoped map[string]bool) []string {
+	m := targetRE.FindStringSubmatch(body)
+	if m == nil || !scoped[strings.ToLower(m[1])] {
+		return nil
+	}
+	column := newSubject(m[1], "").column
+	col := `"?` + regexp.QuoteMeta(column) + `"?`
+	assign := regexp.MustCompile(`(?is)(?:^|[\s,])(?:[a-z_][a-z0-9_]*\.)?` + col + `\s*=`)
+	row := regexp.MustCompile(`(?is)\([^)]*(?:^|[\s,(])` + col + `\s*[,)]`)
+	stop := regexp.MustCompile(`(?is)\b(WHERE|RETURNING)\b|;`)
+	var out []string
+	for _, loc := range doUpdRE.FindAllStringIndex(body, -1) {
+		set := body[loc[1]:]
+		if k := stop.FindStringIndex(set); k != nil {
+			set = set[:k[0]]
+		}
+		if assign.MatchString(set) || row.MatchString(set) {
+			out = append(out, fmt.Sprintf("has an ON CONFLICT ... DO UPDATE that assigns %s: the conflicting row "+
+				"would be moved to whatever tenant the statement names", column))
+		}
+	}
+	return out
 }
 
 // splitDoUpdate cuts a block at a top-level ON CONFLICT ... DO UPDATE: before is the INSERT (and
@@ -957,17 +950,6 @@ func doUpdateFindings(block, upd string, scoped map[string]bool) (findings []str
 	subj := newSubject(m[1], m[2])
 	if m[2] == "" {
 		subj.alias = strings.ToLower(m[1])
-	}
-	// The SET list must not move the row to another tenant (second round, API-5 review: `DO UPDATE
-	// SET tenant_id = @other WHERE loc.tenant_id = @tenant_id` had zero findings). Any assignment of
-	// the scope column is refused -- a conflict on a tenant's row never needs to rewrite its tenant.
-	set := upd
-	if w := regexp.MustCompile(`(?is)\bWHERE\b`).FindStringIndex(set); w != nil {
-		set = set[:w[0]]
-	}
-	if regexp.MustCompile(`(?is)(?:^|[\s,.])` + regexp.QuoteMeta(subj.column) + `\s*=`).MatchString(set) {
-		findings = append(findings, fmt.Sprintf("has an ON CONFLICT ... DO UPDATE that assigns %s: the "+
-			"conflicting row would be moved to whatever tenant the statement names", subj.column))
 	}
 	clauses := whereClauses(upd)
 	if len(clauses) == 0 {
@@ -1523,6 +1505,16 @@ func TestInsertSelectAndDoUpdate_TheBeltReadsThem(t *testing.T) {
 			SELECT t.id, @name, @external_ref FROM tenants t WHERE t.id = @tenant_id
 			ON CONFLICT (tenant_id, external_ref) DO UPDATE SET tenant_id = @other, name = EXCLUDED.name
 			WHERE loc.tenant_id = @tenant_id;`,
+		"a DO UPDATE that moves the row, quoted": `
+			INSERT INTO policies AS p (tenant_id, name) VALUES (@tenant_id, @name)
+			ON CONFLICT (id) DO UPDATE SET "tenant_id" = @other WHERE p.tenant_id = @tenant_id;`,
+		"a DO UPDATE that moves the row, row form": `
+			INSERT INTO policies AS p (tenant_id, name) VALUES (@tenant_id, @name)
+			ON CONFLICT (id) DO UPDATE SET (name, tenant_id) = (EXCLUDED.name, @other) WHERE p.tenant_id = @tenant_id;`,
+		"an insert-select behind a CTE": `
+			INSERT INTO locations (tenant_id, name)
+			WITH z AS (SELECT t.id FROM tenants t WHERE t.id = @tenant_id)
+			SELECT @other::uuid, @name FROM z;`,
 		"a DO UPDATE whose WHERE scopes nothing": `
 			INSERT INTO policies (tenant_id, name) VALUES (@tenant_id, @name)
 			ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
@@ -1551,6 +1543,9 @@ func TestInsertSelectAndDoUpdate_TheBeltReadsThem(t *testing.T) {
 			FROM locations l
 			WHERE l.tenant_id = @tenant_id
 			  AND l.id = @id;`,
+		"a DO UPDATE that rewrites another column from EXCLUDED": `
+			INSERT INTO policies AS p (tenant_id, name) VALUES (@tenant_id, @name)
+			ON CONFLICT (id) DO UPDATE SET (name) = (EXCLUDED.name) WHERE p.tenant_id = @tenant_id;`,
 		"a DO UPDATE whose WHERE binds the target's tenant": `
 			INSERT INTO policies (tenant_id, name) VALUES (@tenant_id, @name)
 			ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
