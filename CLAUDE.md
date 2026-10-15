@@ -122,6 +122,9 @@ ediyorsa **dur ve sor**, sessizce uygulama.
    Etkilenen satır 0 ise → REJECT. Bunu asla transaction dışı iki adıma bölme.
    Holding'deki ikinci kopya `holding_advance_tag_counter` (ADR 0027 §2) aynı tek ifade
    kalıbıdır (`FOR UPDATE` + katı `<`); SQL düzeyindeki yarış testi ikisini birlikte koşar.
+   `make audit`'in R4'ü sayaç yazmasını ifade olarak okur (çok satırlı, takma adlı; `_test.go`
+   hariç), ama kanıt değildir — garanti katı yüklem, `tags_counter_monotonic` tetikleyicisi ve
+   yarış testleridir.
 5. **Tenant izolasyonu her katmanda.** Her tabloda `tenant_id`, her tabloda RLS
    politikası, uygulama `tappa_app` rolüyle bağlanır (NOBYPASSRLS, tablo sahibi
    değil). Sorgularda ayrıca açık `tenant_id` filtresi — kuşak+kemer.

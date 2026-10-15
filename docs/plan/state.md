@@ -1692,6 +1692,16 @@ yazılır.
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 
+### 2026-10-15 (29. oturum, kırkıncı yarı) — ✅ **API-3 DONE** (ilk turda iki mercek ONAY; son DÜŞÜK turu) · 📌 **DEVAM: API-4**
+
+**Yeniden başlatmadan sonra:** `docker start tappa-m11-db` (goose **51**). Brief'ler ve `m11env.sh`: `~/.claude/projects/-Users-everva-Documents-GitHub-atknatk-tappa/m11-briefs/`.
+
+**API-3** (`5ff245d` … `0c40bd0`): 00051 `api_keys` (RLS beşlisi; `token_hash` küresel UNIQUE, `tappa_app` okuyamaz; canlı ad tekilliği; tek yönlü iptal tetikleyicisi + CHECK; iptaller `clock_timestamp()`), yedinci çözümleyici `resolve_api_key_by_hash` (md.7; `tappa_resolver`'a yalnız `tenants(id, api_enabled_at)`); `internal/apikey` (32 bayt `crypto/rand`, `tt_live_`/`tt_test_` + 43 base64url, HMAC `TAPPA_API_KEY_HMAC_KEY`; `Token`/`Checked` her yazdırma yolunda yer tutucu); owner paneli `/admin/api-keys` (yalnız owner, oluşturma API kapalıyken yok, iptal + toplu iptal açık — K-26; `IntegrationKeys` bağlantısı AST ile pinli); config: 8 env anahtarı 28 çift ayrım; redline R4 ifade kolu, R7 (`RevealToTheOwnerOnce`, `new_key`, `Header.Values("Authorization")`), R7b, R7d (`tt_live_`/`tt_test_`/`tt_whsec_`, `%XX` ve `\n` öncülleri, ≥ 32).
+- **⚠️ Deploy notu (API-13 runbook'una girer, `main` birleştirmesinden önce):** (1) `TAPPA_API_KEY_HMAC_KEY` `tappa-secrets`'a eklenmeden pod başlamaz (`20-app.yaml` zorunlu `secretKeyRef`); (2) env anahtarlarının **bütün çiftleri** ayrı olmalı — prod'daki çiftler değer basılmadan önceden ölçülür.
+- **Devir:** API-4 zinciri panelle aynı önekle kurar ve `Touch`'ı çağırır; API-11 sandbox `tt_test_`, prod `tt_live_` (plan §5'e yazıldı).
+
+**🔴 DEVAM PLANI:** **API-4** (`/v1` iskeleti) — brief `m11-briefs/brief-api4-builder.md` → iki mercek → API-4b (OP-15'e bağlı) / API-5 → … Kullanıcıda bekleyenler: otuz dördüncü yarıdakiler + `site_punches` saklama süresi (DPA) + T125.
+
 ### 2026-10-14 (29. oturum, otuz dokuzuncu yarı) — ✅ **API-2 DONE** (iki mercek ONAY + iki odaklı son kontrol ONAY) · 📌 **DEVAM: API-3**
 
 **Yeniden başlatmadan sonra:** `docker start tappa-m11-db` (goose **50**). Brief'ler ve `m11env.sh`: `~/.claude/projects/-Users-everva-Documents-GitHub-atknatk-tappa/m11-briefs/`.
