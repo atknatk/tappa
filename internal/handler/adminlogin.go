@@ -477,6 +477,16 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 	if err := invitationMode(cfg.InviteDelivery, a.inviteMail); err != nil {
 		return nil, err
 	}
+	// 🔴 A CONFIGURATION THAT HOLDS THE API KEY'S HMAC KEY IS ONE THAT ISSUES KEYS (M11 API-3, the
+	// second round's D3): config.Load makes TAPPA_API_KEY_HMAC_KEY required, so every production
+	// Config carries it, and a panel built from one WITHOUT the keys service would draw the
+	// section with "not available" -- and with it take away the owner's revocation, the defence
+	// K-26 keeps open. Refused here at start-up rather than discovered on an incident.
+	// TestNewAdminAuth_TheKeysServiceMatchesTheConfiguration; cmd/tappa's wiring is pinned by
+	// TestAPIKeyWiring_TheKeysServiceReachesThePanel.
+	if len(cfg.APIKeyHMACKey) > 0 && a.apiKeys == nil {
+		return nil, errors.New("handler: the configuration holds the API key's HMAC key and the panel was given no keys service (IntegrationKeys)")
+	}
 	return a, nil
 }
 
