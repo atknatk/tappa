@@ -30,7 +30,7 @@ templ AdminAPIKeys(v APIKeysView) {
 			@apiKeyShownOnce(v)
 		}
 		@apiKeysIntro(v)
-		if v.Available {
+		if v.Available && !v.ListFailed {
 			if v.APIEnabled {
 				@apiKeyCreateForm(v)
 			}
@@ -74,7 +74,7 @@ templ apiKeysIntro(v APIKeysView) {
 			<p class="mt-2 max-w-2xl text-sm text-ink/85">
 				Integration keys are not available on this deployment.
 			</p>
-		} else if !v.APIEnabled {
+		} else if !v.APIEnabled && !v.ListFailed {
 			@components.Notice(components.ToneWarn, "API access is off for this business") {
 				<p>
 					Taptime switches the integration API on for a business on request. Until then no

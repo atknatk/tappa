@@ -16,6 +16,10 @@ type APIKeysView struct {
 	// APIEnabled is K-22's gate: the operator has opened the integration API for this business.
 	// Closed, no key can be created, and the existing keys are refused with 403.
 	APIEnabled bool
+	// ListFailed: the keys could not be read on this response (only the creation answer renders
+	// with it -- the key it carries is shown anyway). Neither the gate's note nor the list nor
+	// the form is drawn, since none of them would be true.
+	ListFailed bool
 
 	// NewKey is the raw key on the creation response, "" everywhere else.
 	NewKey     string

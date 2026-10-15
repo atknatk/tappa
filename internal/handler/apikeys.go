@@ -142,18 +142,7 @@ func (a *AdminAuth) apiKeysSection(w http.ResponseWriter, r *http.Request) {
 
 // apiKeysView reads the keys and builds the screen; on a failed read it has answered already.
 func (a *AdminAuth) apiKeysView(w http.ResponseWriter, r *http.Request, id httpx.AdminIdentity) (pages.APIKeysView, bool) {
-	v := pages.APIKeysView{
-		PanelChrome:   a.chrome(r, pages.TabAPIKeys),
-		PostHref:      apiKeysHref,
-		RevokeHref:    apiKeyRevokeHref,
-		RevokeAllHref: apiKeyRevokeAllHref,
-		NameMaxLength: apikey.NameLimit,
-	}
-	if a.apiKeys == nil {
-		return v, true
-	}
-	v.Available = true
-	list, err := a.apiKeys.List(r.Context(), id.TenantID(), id.Admin.AdminUserID)
+	v, err := a.readAPIKeysView(r, id)
 	if errors.Is(err, apikey.ErrNotPermitted) {
 		a.log.Warn("panel api keys page refused by the domain: the actor is not an active owner",
 			"actor_id", id.Admin.AdminUserID)
@@ -164,6 +153,27 @@ func (a *AdminAuth) apiKeysView(w http.ResponseWriter, r *http.Request, id httpx
 		a.log.Error("panel: could not read the api keys", "err", err)
 		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
 		return v, false
+	}
+	return v, true
+}
+
+// readAPIKeysView builds the screen and answers nothing: the chrome and the hrefs are always
+// there, the list only when its read succeeded (err is the read's failure).
+func (a *AdminAuth) readAPIKeysView(r *http.Request, id httpx.AdminIdentity) (pages.APIKeysView, error) {
+	v := pages.APIKeysView{
+		PanelChrome:   a.chrome(r, pages.TabAPIKeys),
+		PostHref:      apiKeysHref,
+		RevokeHref:    apiKeyRevokeHref,
+		RevokeAllHref: apiKeyRevokeAllHref,
+		NameMaxLength: apikey.NameLimit,
+	}
+	if a.apiKeys == nil {
+		return v, nil
+	}
+	v.Available = true
+	list, err := a.apiKeys.List(r.Context(), id.TenantID(), id.Admin.AdminUserID)
+	if err != nil {
+		return v, err
 	}
 	zone := time.UTC
 	if s, err := a.accounts.Settings(r.Context(), id.TenantID()); err != nil {
@@ -186,7 +196,7 @@ func (a *AdminAuth) apiKeysView(w http.ResponseWriter, r *http.Request, id httpx
 		}
 		v.Keys = append(v.Keys, row)
 	}
-	return v, true
+	return v, nil
 }
 
 // readAPIKeyForm bounds and parses a form of this section; false when it has answered.
@@ -236,9 +246,15 @@ func (a *AdminAuth) apiKeyCreate(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case err == nil:
 		a.log.Info("panel api key created", "actor_id", id.Admin.AdminUserID, "key_id", created.ID)
-		v, ok := a.apiKeysView(w, r, id)
-		if !ok {
-			return
+		// 🔴 THE KEY IS SHOWN WHATEVER THE LIST READ SAYS (second round, security note): the key
+		// is live from the commit above and this response is the only one that can ever carry it,
+		// so a failed list read must not swallow it -- it becomes a sentence beside the key.
+		v, lerr := a.readAPIKeysView(r, id)
+		if lerr != nil {
+			a.log.Error("panel: an api key was created and the list could not be read after it", "err", lerr,
+				"key_id", created.ID)
+			v.ListFailed, v.Keys = true, nil
+			v.Problem = "The key below was created and works. The list of this business's keys could not be read just now -- reload the page to see it."
 		}
 		v.NewKey = created.Key.RevealToTheOwnerOnce()
 		v.NewKeyName = created.Name
