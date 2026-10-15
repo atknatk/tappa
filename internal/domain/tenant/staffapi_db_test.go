@@ -580,10 +580,14 @@ func TestStaffAdd_TheNameRuleIsTheVenueRule(t *testing.T) {
 //	B  a live invitation whose only row is invite.undelivered           undelivered (never "sent")
 //	C  no invitation, an invite.email_refused row                       undelivered
 //	D  a delivered live invitation, then a newer undelivered attempt    sent (a live delivered link wins)
+//	E  an undelivered attempt, then a delivered one now expired         none (the LAST attempt counts)
+//	G  the business's newest trail row: an undelivered attempt          undelivered (E never reads it)
 //
 // MUTANTS (measured): the list's delivery join removed -> B reads "sent"; the list's
 // last_undelivered fixed to false -> B and C read "none"; email_refused dropped from the single
-// read -> C reads "none". Each red.
+// read -> C reads "none"; the list's per-person predicate (la_a.target = e.id) removed -> E reads G's
+// row; the last attempt read oldest first (ORDER BY at ASC), in the list or the single read -> E
+// reads its first, undelivered row. Each red.
 func TestAPIEmployees_TheListAndTheSingleReadAgree(t *testing.T) {
 	f := newStaffFixture(t)
 	hire := func() uuid.UUID {
@@ -607,14 +611,21 @@ func TestAPIEmployees_TheListAndTheSingleReadAgree(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	a, b, c, d := hire(), hire(), hire(), hire()
+	a, b, c, d, e, g := hire(), hire(), hire(), hire(), hire(), hire()
 	row(a, "invite.code_emailed", f.seedInvite(t, f.tenantID, a, time.Hour, false))
 	row(b, "invite.undelivered", f.seedInvite(t, f.tenantID, b, time.Hour, false))
 	row(c, "invite.email_refused", uuid.Nil)
 	dInv := f.seedInvite(t, f.tenantID, d, time.Hour, false)
 	row(d, "invite.code_emailed", dInv)
 	row(d, "invite.undelivered", dInv)
-	want := map[uuid.UUID]InvitationState{a: InvitationSent, b: InvitationUndelivered, c: InvitationUndelivered, d: InvitationSent}
+	// E (API-6 review D-e): first a failed attempt, then a delivered one whose link is no longer live
+	// (expired) -- the LAST attempt was delivered, nothing is live, nothing waits: "none". And the
+	// business's newest trail row is ANOTHER person's (G's) failed attempt.
+	row(e, "invite.undelivered", f.seedInvite(t, f.tenantID, e, time.Hour, false))
+	row(e, "invite.code_emailed", f.seedInvite(t, f.tenantID, e, -time.Hour, false))
+	row(g, "invite.undelivered", uuid.New())
+	want := map[uuid.UUID]InvitationState{a: InvitationSent, b: InvitationUndelivered, c: InvitationUndelivered, d: InvitationSent,
+		e: InvitationNone, g: InvitationUndelivered}
 	listed := map[uuid.UUID]InvitationState{}
 	var after *uuid.UUID
 	for {

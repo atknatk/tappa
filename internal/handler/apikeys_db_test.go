@@ -474,10 +474,12 @@ func TestPanelHome_TheKeyBudgetBannerIsTheOwnersAlone(t *testing.T) {
 
 // TestApiKeyPanel_AMalformedBudgetIsReadAsNone (API-6 review D-4: a detail.budget that is not a whole
 // number failed the whole read -- a 500 on the owner's section and no home banner): alert rows whose
-// budget is text, a fraction, negative or past nine digits are listed with no limit shown, the
-// section answers 200 and names every key; a well-formed one shows its limit.
+// budget is text, a number written as a string ("20"), a fraction, negative or past nine digits (ten
+// and eleven) are listed with no limit shown, the section answers 200 and names every key; a
+// well-formed one shows its limit.
 //
-// MUTANT (measured): the plain ::int cast back -> 500, red.
+// MUTANTS (measured): the plain ::int cast back -> 500; the jsonb_typeof check removed -> "20" shows
+// a limit; the digit bound widened to ten -> 1234567890 shows one. Each red.
 func TestApiKeyPanel_AMalformedBudgetIsReadAsNone(t *testing.T) {
 	f := newAPIKeysDBFixture(t)
 	b := f.browserAs(t, f.owner, "owner")
@@ -485,7 +487,9 @@ func TestApiKeyPanel_AMalformedBudgetIsReadAsNone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i, budget := range []any{"twenty", 2.5, -3, 12345678901, 9} {
+	// The edges (API-6 review): a NUMBER in a string ("20") is not a number; ten digits is past the
+	// nine the read allows (1234567890 still fits an int, so only the bound refuses it).
+	for i, budget := range []any{"twenty", 2.5, -3, 12345678901, "20", 1234567890, 9} {
 		c, err := f.keys.Create(context.Background(), apikey.CreateCommand{TenantID: f.tenantID, ActorID: f.owner, Name: fmt.Sprintf("odd-%d", i)})
 		if err != nil {
 			t.Fatal(err)
@@ -500,7 +504,7 @@ func TestApiKeyPanel_AMalformedBudgetIsReadAsNone(t *testing.T) {
 		t.Fatalf("the section with malformed budgets: %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	for i := range 5 {
+	for i := range 7 {
 		if !strings.Contains(body, fmt.Sprintf("odd-%d", i)) {
 			t.Errorf("the alert of odd-%d is missing", i)
 		}
