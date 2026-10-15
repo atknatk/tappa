@@ -57,10 +57,7 @@ templ AdminTransactions(v TransactionsView) {
 		// the same class of fact as the times inside the dockets below it, which are
 		// mono. The section's actual heading is the <h1> in PanelShell, set in the
 		// display face; this is not a second one.
-		if v.KeyBudget.Show() {
-			@keyBudgetBanner(v.KeyBudget)
-		}
-		@plaqueNotice(v)
+		@templ.Join(keyBudgetBanner(v.KeyBudget), plaqueNotice(v))
 		<p class="font-mono text-sm text-ink/85">
 			{ v.DayLabel }
 			<span class="text-ink/70">· { v.ZoneLabel }</span>
@@ -254,6 +251,16 @@ func emptyHeading(v TransactionsView) string {
 // the API keys section does -- and links there. Status is the heading's word; the warning tone
 // reinforces it.
 templ keyBudgetBanner(b KeyBudgetBanner) {
+	if b.Show() {
+		@keyBudgetNotice(b)
+	}
+}
+
+// keyBudgetNotice is the banner itself. The condition sits in keyBudgetBanner, joined to the plaque
+// notice with templ.Join: an `if` -- or a second call on its own line -- in the page body made templ
+// emit a separating space even when it drew nothing, and the page without a banner was one byte
+// longer than before the banner existed (API-6 review D-1, measured 3395 -> 3396).
+templ keyBudgetNotice(b KeyBudgetBanner) {
 	@components.Notice(components.ToneWarn, "An integration key reached its limit for deactivating employees") {
 		<p>
 			In the last day your HR or payroll system tried to deactivate more employees in an hour than an

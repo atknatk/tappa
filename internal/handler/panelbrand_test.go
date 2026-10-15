@@ -953,9 +953,15 @@ func brandEditorDrawsNoSecondHeader(t *testing.T, href, region string) {
 	}
 }
 
-// TestKeyBudgetBanner_AbsentAddsNothing (the user's decision, 2026-10-15): the home page rendered with
-// an empty banner -- the zero value, or a link with no key -- is byte for byte the page rendered
-// without the field ever touched, and a banner with a key draws the notice once.
+// TestKeyBudgetBanner_AbsentAddsNothing (the user's decision, 2026-10-15; API-6 review D-1): the home
+// page rendered without a banner -- the zero value, a link with no key, a key with no link -- is byte
+// for byte the page the template rendered BEFORE the banner existed: the two golden files under
+// testdata/key-budget-golden were rendered from commit c4f6f74's template (the commit before the
+// banner), for an empty view and for a queried day with the plaque notice beside the banner's place.
+// A banner with a key and a link draws the notice once.
+//
+// MUTANT (measured): the banner's `if` back in the page body -> one separating space too many
+// (3395 -> 3396 bytes), red.
 func TestKeyBudgetBanner_AbsentAddsNothing(t *testing.T) {
 	render := func(v pages.TransactionsView) string {
 		t.Helper()
@@ -965,18 +971,25 @@ func TestKeyBudgetBanner_AbsentAddsNothing(t *testing.T) {
 		}
 		return b.String()
 	}
-	base := pages.TransactionsView{}
-	plain := render(base)
-	for _, kb := range []pages.KeyBudgetBanner{{}, {Href: "/admin/api-keys"}, {Keys: 1}} {
-		v := base
-		v.KeyBudget = kb
-		if got := render(v); got != plain {
-			t.Fatalf("banner %+v changed the page's bytes", kb)
+	for name, base := range map[string]pages.TransactionsView{
+		"zero":    {},
+		"plaques": {Queried: true, DayLabel: "Wednesday 5 August 2026", ZoneLabel: "Europe/Malta", Plaques: pages.PlaqueCounts{Queried: true}},
+	} {
+		golden, err := os.ReadFile(filepath.Join("testdata", "key-budget-golden", "transactions-home-"+name+".golden"))
+		if err != nil {
+			t.Fatal(err)
 		}
-	}
-	v := base
-	v.KeyBudget = pages.KeyBudgetBanner{Keys: 2, Href: "/admin/api-keys"}
-	if got := render(v); strings.Count(got, "reached its limit for deactivating employees") != 1 {
-		t.Fatal("a banner with a key is not drawn exactly once")
+		for _, kb := range []pages.KeyBudgetBanner{{}, {Href: "/admin/api-keys"}, {Keys: 1}} {
+			v := base
+			v.KeyBudget = kb
+			if got := render(v); got != string(golden) {
+				t.Fatalf("%s with banner %+v: %d bytes, the template before the banner rendered %d", name, kb, len(got), len(golden))
+			}
+		}
+		v := base
+		v.KeyBudget = pages.KeyBudgetBanner{Keys: 2, Href: "/admin/api-keys"}
+		if got := render(v); strings.Count(got, "reached its limit for deactivating employees") != 1 {
+			t.Fatalf("%s: a banner with a key is not drawn exactly once", name)
+		}
 	}
 }
