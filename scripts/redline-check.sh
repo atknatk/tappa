@@ -366,16 +366,65 @@ report FAIL R3 "transactions / punch_events tablosuna UPDATE/DELETE — kayitlar
 # garantisi bu grep degil, db/queries/tags.sql'deki kati `prev.old_ctr < @ctr`
 # yuklemi, 00013'un tags_counter_monotonic trigger'i ve onlari kosan yaris
 # testleridir. Ayrintili kayit: internal/db/tagsinventory_test.go dosya basligi.
-# 🔴 M11 API-3 (ADR 0028 §3): SEMA NITELIKLI BICIM DE. Holding'in ilerletmesi (00043'un
-# holding_advance_tag_counter'i) `UPDATE public.tags` yazar ve eski desen `UPDATE +tags`
-# onu GORMUYORDU. Desen artik istege bagli `public.` (tirnakli ya da bosluklu yazilisi dahil)
-# ve tirnakli `"tags"`/`"last_ctr"` kabul eder. ONCE AGACTA SAYILDI (2026-10-14, API-3'un kendi
-# agaci): yeni desen eski desenden 0 FAZLA isabet verir (ikisi de 0 FAIL; ham isabetlerin
-# ucu de `last_ctr <` tasiyan korunmus ifadeler). Takma ad bicimi (`UPDATE tags t SET`)
-# DENENDI VE SECILMEDI: agacta 1 yanlis pozitif verdi (marketing_claims_test.go'nun KASITLI
-# mutant dizesi, korumasi `prev.old_ctr <=` -- satir-yerel suzgec onu goremez). Pin:
+# 🔴 M11 API-3 (ADR 0028 §3) -- IKI KOL. İlk turun eki (yalniz `public.` onekli satir-yerel
+# desen) BOSA CALISIYORDU (iki mercek olctu): gercek sayac yazmalarinin BESI DE cok satirli ve
+# takma adli -- db/queries/tags.sql'in AdvanceTagCounter'i (`UPDATE tags t` / `SET last_ctr`),
+# 00043'un holding_advance_tag_counter'i ve 00045'in iki govdesi (`UPDATE public.tags AS t` /
+# `SET last_ctr = p_ctr`) -- ve `UPDATE ONLY`, takma adli ve satir bolunmus sondalarin ucu de
+# geciyordu. Simdi:
+#
+#   SATIR KOLU (her dosya, testler dahil) -- eski desen + istege bagli `ONLY`, sema niteligi
+#     (`public.`, tirnakli/bosluklu), tirnakli `"tags"`/`"last_ctr"`; suzgec ayni satirdaki
+#     `last_ctr <`. Takma ad YOK: satir-yerel suzgec korumayi (`prev.old_ctr <`) goremez.
+#   IFADE KOLU (`_test.go` HARIC) -- `rg -U` ile `UPDATE [ONLY] [public.]tags [[AS] t] SET
+#     last_ctr` basindan ilk `;` ya da backtick'e kadar IFADENIN TAMAMI; awk her ifadede
+#     `<ad>ctr <` bicimli kati bir karsilastirma arar (`<=` sayilmaz) ve yoksa ifadenin ilk
+#     satirini basar. Koruma takma adli CTE'de (`prev.old_ctr < @ctr`, `v.old_ctr < p_ctr`)
+#     olsa da gorur.
+#
+# OLCULDU (2026-10-15, ayni SRC/GEN_EXCLUDE): ifade kolu agacta 78 satirlik ham eslesmeden 0
+# FAIL; bes gercek ifadenin korumasi silinmis sondada DORDU (tags.sql:39, 00043:257,
+# 00045:75 ve :131) FAIL. `_test.go` HARIC, cunku testler
+# KASITLI korumasiz yazmalar tasir: tagsinventory_test.go'nun uc tetikleyici sondasi (geri sarma
+# 23001 ile reddedilmeli) ve marketing_claims_test.go'nun `<=` mutant dizesi -- testleri dahil
+# etmek bu dort satiri FAIL yapardi. Testler SATIR koluyla taranmaya devam eder.
+#
+# ⚠️ KALAN SINIRLAR, ADIYLA (kanit degildir): (1) Go'da `"UPDATE tags " + "SET last_ctr..."`
+# gibi parcalanmis dize ifade basini kurmaz; (2) koruma SOZDIZIMSEL olarak aranir -- `ctr <
+# 999999` gibi anlamsiz bir karsilastirma da yeter; (3) ifade `;`/backtick'e kadar okunur,
+# PL/pgSQL'de govdenin baska bir parcasindaki `ctr <` korumayi saglamis sayilabilir; (4)
+# dinamik SQL (format/EXECUTE) gorunmez. §4.4'un GERCEK garantisi yine yukaridaki uclu:
+# kati yuklem, 00013'un tags_counter_monotonic tetikleyicisi ve yaris testleri. Pin:
 # cmd/tappa TestRedline_R4R7R7bR7dCatchDeliberateViolations.
-bad_ctr=$(scan -i -e 'UPDATE\s+("?public"?\s*\.\s*)?"?tags"?\s+SET\s+"?last_ctr' | grep -viE 'last_ctr"? *<' || true)
+R4_HEAD='UPDATE\s+(ONLY\s+)?("?public"?\s*\.\s*)?"?tags"?'
+bad_ctr=$(scan -i -e "${R4_HEAD}"'\s+SET\s+"?last_ctr' | grep -viE 'last_ctr"? *<' || true)
+r4_stmt_raw=$(scan -U -i --glob '!*_test.go' -e "${R4_HEAD}"'(\s+(AS\s+)?[A-Za-z_][A-Za-z0-9_]*)?\s+SET\s+"?last_ctr[^;`]*' || true)
+r4_stmt=$(printf '%s\n' "$r4_stmt_raw" | awk '
+  # Ardisik ayni-dosya satirlari bir bolge; bolgedeki HER ifade basi ayri yargilanir, yani iki
+  # bitisik bolgenin birlesmesi korumasiz ifadeyi komsusunun korumasiyla AFFETMEZ.
+  function flush(   t, rest, body, k, bad) {
+    if (n == 0) return
+    t = tolower(text); bad = 0
+    while (match(t, /update[[:space:]]+(only[[:space:]]+)?("?public"?[[:space:]]*\.[[:space:]]*)?"?tags"?([[:space:]]+(as[[:space:]]+)?[a-z_][a-z0-9_]*)?[[:space:]]+set[[:space:]]+"?last_ctr/)) {
+      rest = substr(t, RSTART + RLENGTH)
+      k = match(rest, /[;`]/); body = (k ? substr(rest, 1, k - 1) : rest)
+      if (body !~ /ctr"?[[:space:]]*<[^=]/) bad = 1
+      t = rest
+    }
+    if (bad) print first
+    n = 0; text = ""
+  }
+  length($0) == 0 { next }
+  {
+    p = $0; sub(/:[0-9]+:.*$/, "", p)
+    no = $0; sub(/^[^:]*:/, "", no); sub(/:.*$/, "", no)
+    c = $0; sub(/^[^:]*:[0-9]+:/, "", c)
+    if (n > 0 && (p != path || no + 0 != prev + 1)) flush()
+    if (n == 0) first = $0
+    path = p; prev = no + 0; n++; text = text " " c
+  }
+  END { flush() }')
+bad_ctr=$(printf '%s\n%s\n' "$bad_ctr" "$r4_stmt" | grep -v '^$' || true)
 report FAIL R4 "Kosulsuz last_ctr guncellemesi — 'WHERE last_ctr < \$n' sart" "$bad_ctr"
 
 # 🔴 DESEN IKI YONE DE BAKAR — ONCEDEN YALNIZ BIR YONE BAKIYORDU (M8-04, olculdu).
@@ -1515,10 +1564,17 @@ report FAIL R5c "tappa.feed_counters migration disinda — TF001'in tek sayac ku
 # daha GENIS `authorization` kelimesi verilir (R7_AWK_TRIGGERS) -- muafiyet yolunda bir
 # bolgeyi affetmeyi ZORLASTIRIR, kolaylastirmaz.
 R7_TRIGGERS='token|cmac|aes_?key|secret|invite_?code|code[_a-z]*hash|password|"code"[[:space:]]*,|api_?key|bearer|signing_?key'
-R7_AUTH_HEADER='Header\.Get\("Authorization"\)|Header\["Authorization"\]'
-R7_AWK_TRIGGERS="$R7_TRIGGERS|authorization"
+# 2. TUR (2026-10-15, iki mercek): kokler DEGERIN KENDISINI tasiyan iki adi gormuyordu --
+# `created.Key.RevealToTheOwnerOnce()` (ham anahtarin TEK cikis kapisi) ve panelin `v.NewKey`
+# alani -- ve baslik kalibi `Header.Values("Authorization")`'i. Uc alternatif eklendi
+# (R7_VALUE_NAMES, R7_AUTH_HEADER); ONCE AGACTA SAYILDI: log/fmt cagrisi icinde 0 isabet.
+# `\b` awk ERE'sinde yoktur (BSD awk onu geri silme sayar), o yuzden awk'a yine daha GENIS
+# kelimeler gider (`revealtotheowneronce`, `new_?key`).
+R7_VALUE_NAMES='RevealToTheOwnerOnce|\bnew_?key\b'
+R7_AUTH_HEADER='Header\.Get\("Authorization"\)|Header\["Authorization"\]|Header\.Values\("Authorization"\)'
+R7_AWK_TRIGGERS="$R7_TRIGGERS|authorization|revealtotheowneronce|new_?key"
 # Pencere: bir seviye dengeli parantez, tekrar edebilir -> `f(a(), b(), TETIK`.
-R7_PATTERN="(slog|log|fmt)\\.[A-Za-z]+\\((?:[^()]|\\([^()]*\\))*($R7_TRIGGERS|$R7_AUTH_HEADER)"
+R7_PATTERN="(slog|log|fmt)\\.[A-Za-z]+\\((?:[^()]|\\([^()]*\\))*($R7_TRIGGERS|$R7_VALUE_NAMES|$R7_AUTH_HEADER)"
 
 # MUAFIYET TABLOSU -- her satir: <yol deseni>;;<masum belirtec>[;;<masum belirtec>...]
 #

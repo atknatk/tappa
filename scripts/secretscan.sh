@@ -42,12 +42,20 @@
 #               glpat- (+20), AIza (+35), JWT (eyJ<10+>.eyJ<10+>.). Govdesinde 4'ten
 #               az farkli karakter olan (ghp_xxxx...) dolgudur.
 #   tappa-key   Tappa'nin KENDI onekli degerleri (M11 API-3, ADR 0028 §3, K-10): entegrasyon
-#               API anahtari `tt_live_` / `tt_test_` + >=43 base64url ve webhook uc noktasinin
-#               imza anahtari `tt_whsec_` + >=43 base64url (oneki API-3 secti, API-9 onu
-#               uretir). Solunda harf/rakam/_ olan eslesme bir kelimenin ortasidir; govdesinde
-#               4'ten az farkli karakter olan (`tt_live_` + 43 `x`) dolgudur -- belgelerde
-#               ornek bunlarla yazilir. Sir kelimesi ya da anahtar baglami ISTEMEZ: onek kendisi
-#               baglamdir. ONCE AGACTA SAYILDI (2026-10-14): 0 isabet.
+#               API anahtari `tt_live_` / `tt_test_` ve webhook uc noktasinin imza anahtari
+#               `tt_whsec_` (oneki API-3 secti, API-9 onu uretir), ardindan >=32 base64url.
+#               Tam bir anahtarin govdesi 43 karakterdir; esik 32'ye cekildi (API-3 2. tur,
+#               iki mercek): KIRPILMIS bir anahtar (42 karakter -- 4 bilinmeyen bit) da
+#               sizintidir. Solunda harf/rakam/_ olan eslesme bir kelimenin ortasidir --
+#               iki ISTISNA ile: `%XX` (URL kodlamasi: `Bearer%20tt_live_...`, `%3Dtt_...`)
+#               ve `\n` / `\r` / `\t` (JSON ya da Go dizesindeki kacis: `\ntt_live_...`).
+#               Govdesinde en cok 4 farkli karakter olan (`tt_live_` + 43 `x`) dolgudur --
+#               belgelerde ornek bunlarla ya da `<...>` yer tutucusuyla yazilir. Sir kelimesi
+#               ya da anahtar baglami ISTEMEZ: onek kendisi baglamdir. ONCE AGACTA SAYILDI
+#               (2026-10-14 ve esik 32 ile 2026-10-15): 0 isabet.
+#               ⚠️ KANIT DEGILDIR -- iki satira BOLUNMUS bir anahtar (onek bir satirda, govde
+#               otekinde ya da govde iki parcada) satir tabanli bu siniflandiriciya gorunmez;
+#               32 karakterden kisa bir parca da sayilmaz.
 #   pw-assign   ANAHTAR=DEGER (bosluksuz `=`): anahtar password/passwd/passphrase
 #               ile BITER (PGPASSWORD=x) YA DA son `_`/`-` parcasi pass/pwd/apikey/
 #               api_key/secret_key/access_key/auth_token'dir (db_pass=x; bypass=x
@@ -873,15 +881,22 @@ r7d_awk() {
       return 0
     }
     # c_tappa: Tappanin kendi onekli degerleri (tappa-key; basliktaki SINIFLAR).
+    # tappa_escaped: eslesmenin solundaki kelime karakteri bir kacisin parcasi mi -- %XX ya da
+    # ters egik cizgi + n/r/t. s henuz kesilmeden cagrilir (at = eslesmenin s icindeki yeri).
+    function tappa_escaped(t, s, at,    two, three) {
+      two = (at > 2) ? substr(s, at - 2, 2) : ""
+      three = (at > 3) ? substr(s, at - 3, 3) : ""
+      return (three ~ /^%[0-9A-Fa-f][0-9A-Fa-f]$/ || two ~ /^[\\][nrt]$/)
+    }
     function c_tappa(t,    s, tok, pre, body) {
       s = t
       while (match(s, /tt_(live|test|whsec)_[A-Za-z0-9_-]+/)) {
         tok = substr(s, RSTART, RLENGTH)
         pre = (RSTART > 1) ? substr(s, RSTART - 1, 1) : " "
+        if (pre ~ /[A-Za-z0-9_]/ && !tappa_escaped(t, s, RSTART)) { s = substr(s, RSTART + RLENGTH); continue }
         s = substr(s, RSTART + RLENGTH)
-        if (pre ~ /[A-Za-z0-9_]/) continue
         body = tok; sub(/^tt_(live|test|whsec)_/, "", body)
-        if (length(body) >= 43 && distinct(body) > 4) return 1
+        if (length(body) >= 32 && distinct(body) > 4) return 1
       }
       return 0
     }

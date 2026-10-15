@@ -80,15 +80,22 @@ func randomKeyBody(t *testing.T) string {
 // comment); here each is shown to fire on a deliberate violation and to stay quiet on its control:
 //
 //	R4   the schema-qualified counter write (the table named public.tags), quoted
-//	     `"public"."tags"` -- and the old bare form still; the guarded one (`last_ctr <`) is quiet
+//	     `"public"."tags"` -- and the old bare form still; the guarded one (`last_ctr <`) is quiet.
+//	     2nd round, the statement arm: ONLY, an alias, the statement split over lines (SQL, a
+//	     migration's body, a Go raw string) and a non-strict `<=` guard fire; AdvanceTagCounter's
+//	     own guarded shape is quiet, and so is a _test.go file (the arm's named exclusion)
 //	R7   `api_key`, `apiKey`, `bearer`, `signing_key` inside a log/fmt call, and the Authorization
 //	     header read inside one (`Header.Get("Authorization")`, `Header["Authorization"]`, across
-//	     lines); "api key created" with a key id, and another header, are quiet
+//	     lines); "api key created" with a key id, and another header, are quiet. 2nd round: the
+//	     raw key's one exit (`RevealToTheOwnerOnce()`), the panel's `NewKey` and
+//	     `Header.Values("Authorization")`
 //	R7b  `.FirstName`, `.LastName`, `.EmployeeName`, `"first_name"`, `"employee_name"` in a log call;
 //	     `"employee_id"` is quiet
 //	R7d  a value of the key's shape after `tt_live_`, `tt_test_` and the webhook signing key's
 //	     `tt_whsec_` -- in a document and in Go source; a filler (43 `x`) and a `<…>` placeholder
-//	     -- the way the documents write an example -- are quiet
+//	     -- the way the documents write an example -- are quiet. 2nd round: `%20`/`%3D` and the
+//	     `\n`/`\t`/`\r` escapes on the left, and a key cut to 42 or 32 characters, fire; 31
+//	     characters and a word that only ends in the prefix's letters are quiet
 //
 // Every violation file is named under its rule's FAIL and the exit is non-zero; the controls'
 // tree exits 0 with none of the four FAIL sections.
@@ -113,6 +120,11 @@ func TestRedline_R4R7R7bR7dCatchDeliberateViolations(t *testing.T) {
 			"internal/x/r4_bare.go":       goFile("_ = `UPD@TE tags SET last_ctr = $2 WHERE uid = $1`"),
 			"internal/x/r4_lower.go":      goFile("_ = `upd@te public.tags set last_ctr = $2`"),
 			"db/queries/r4_quotedcol.sql": "UPD@TE public.tags SET \"last_ctr\" = $2 WHERE uid = $1;\n",
+			// 2nd round: the statement arm -- ONLY, an alias, split lines, a non-strict guard.
+			"db/queries/r4_only.sql":             "UPD@TE ONLY tags SET last_ctr = $2 WHERE uid = $1;\n",
+			"db/queries/r4_alias_split.sql":      "UPD@TE tags t\nSET last_ctr = @ctr\nFROM prev\nWHERE t.uid = prev.old_uid;\n",
+			"db/migrations/99998_r4_holding.sql": "    UPD@TE public.tags AS t\n       SET last_ctr = p_ctr\n     WHERE t.uid = v.old_uid\n       AND v.old_ctr <= p_ctr;\n",
+			"internal/x/r4_raw.go":               goFile("_ = `UPD@TE tags AS t\n\t\tSET last_ctr = $2\n\t\tWHERE t.uid = $1`"),
 		},
 		"R7": {
 			"internal/x/r7_apikey.go":    goFile(`S@.Info("issued", "api_key", k)`),
@@ -121,6 +133,10 @@ func TestRedline_R4R7R7bR7dCatchDeliberateViolations(t *testing.T) {
 			"internal/x/r7_signing.go":   goFile(`a.L@.Warn("x", "signing_key", sk)`),
 			"internal/x/r7_header.go":    goFile(`S@.Info("x", "h", r.Header.Get("Authorization"))`),
 			"internal/x/r7_headermap.go": goFile("S@.Warn(\"x\",\n\t\t\"h\", r.Header[\"Authorization\"],\n\t)"),
+			// 2nd round: the value's own names and Header.Values.
+			"internal/x/r7_reveal.go": goFile(`S@.Info("x", "k", created.Key.RevealToTheOwnerOnce())`),
+			"internal/x/r7_newkey.go": goFile(`a.L@.Info("x", "k", v.NewKey)`),
+			"internal/x/r7_values.go": goFile(`S@.Info("x", "h", r.Header.Values("Authorization"))`),
 		},
 		"R7b": {
 			"internal/x/r7b_first.go":    goFile(`S@.Info("x", "n", e.FirstName)`),
@@ -134,6 +150,14 @@ func TestRedline_R4R7R7bR7dCatchDeliberateViolations(t *testing.T) {
 			"docs/r7d_test.md":  "sandbox: tt_test_" + body + "\n",
 			"docs/r7d_whsec.md": "signing: `tt_whsec_" + body + "`\n",
 			"internal/x/r7d.go": goFile(`_ = "tt_live_` + body + `"`),
+			// 2nd round: an escape or a URL encoding on the left, and a cut key.
+			"docs/r7d_url.md":   "curl -H Authorization:Bearer%20tt_live_" + body + "\n",
+			"docs/r7d_pct.md":   "?key%3Dtt_live_" + body + "\n",
+			"docs/r7d_json.md":  `{"log":"first line\ntt_live_` + body + `"}` + "\n",
+			"docs/r7d_tab.md":   `"col\ttt_test_` + body + `"` + "\n",
+			"docs/r7d_cr.md":    `"x\rtt_whsec_` + body + `"` + "\n",
+			"docs/r7d_cut42.md": "tt_live_" + body[:42] + "\n",
+			"docs/r7d_cut32.md": "tt_live_" + body[:32] + "\n",
 		},
 	}
 	all := map[string]string{}
@@ -165,6 +189,13 @@ func TestRedline_R4R7R7bR7dCatchDeliberateViolations(t *testing.T) {
 		"internal/x/c_r7b.go":       goFile(`S@.Info("x", "employee_id", id)`),
 		"docs/c_r7d_filler.md":      "an example: tt_live_" + strings.Repeat("x", 43) + "\n",
 		"docs/c_r7d_placeholder.md": "Authorization: Bearer tt_live_<43 characters of base64url>\n",
+		// 2nd round: the guarded statement in AdvanceTagCounter's own shape (the guard in the CTE's
+		// alias); the statement arm's NAMED exclusion -- a test file's deliberate unguarded write;
+		// a piece shorter than 32; and a word that merely ends in the prefix's letters.
+		"db/queries/c_r4_cte.sql": "UPD@TE tags t\nSET last_ctr = @ctr\nFROM prev\nWHERE t.uid = prev.old_uid\n  AND prev.old_ctr < @ctr\nRETURNING t.uid;\n",
+		"internal/x/c_r4_test.go": goFile("_ = `UPD@TE tags\n\t\tSET last_ctr = 0\n\t\tWHERE uid = $1`"),
+		"docs/c_r7d_cut31.md":     "tt_live_" + body[:31] + "\n",
+		"docs/c_r7d_word.md":      "xtt_live_" + body + "\n",
 	}
 	for rel, src := range controls {
 		controls[rel] = spell.Replace(src)
