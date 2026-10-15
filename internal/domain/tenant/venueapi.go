@@ -11,7 +11,7 @@ package tenant
 // (SaveVenue): ADR 0028 §9 and plan §2 item 10 say a venue the API opens sends its taps to the
 // approval queue until the panel gives it an address range or a coordinate. Concretely: such a
 // venue has neither half of CLAUDE.md §5 row 6, so every tap there reaches row 7 and is
-// RECORDED as `flag` (§4.6 -- recorded, never refused); the API's tap test (internal/handler/api)
+// RECORDED as `flag` (§4.6 -- recorded, never refused); TestLocationsPut_AVenueWithoutEvidenceRecordsATapAsFlag
 // measures it through the real tap path. For the same reason §5's netx width rule has nothing
 // to apply to on this path: no address range enters through it.
 //

@@ -21,14 +21,18 @@ import (
 //	             TestAPIKeyWiring_TheKeysServiceReachesThePanel pins on the panel's apikey.NewKeys, so a
 //	             key the panel issues is a key the chain accepts (plan §5, API-3's hand-over; API-11
 //	             changes both together)
-//	the surface  api.New once, with api.NoSuspensionColumn{} (until OP-15) and the worker parameter as
-//	             its Work
+//	the surface  api.New once, with api.NoSuspensionColumn{} (until OP-15), the worker parameter as
+//	             its Work and the venues parameter as its Locations (API-5)
+//	the venues   run() hands openAPISurface, as its venues argument, the identifier it assigned from
+//	             tenant.NewVenues -- the PANEL's venue domain, so a venue the API writes passes the
+//	             panel's rules and leaves its trail through the panel's recorder
 //	K-19         run() calls webhook.NewWorker once, assigning one identifier W, and in its OWN body
 //	             starts W, hands W to checkins.NoticeWorkTo and to openAPISurface, and passes W inside
 //	             the drainers list shutdown drains
 //
 // MUTANTS (measured, API-4 report): the chain built with apikey.SandboxPrefix; NoticeWorkTo removed;
-// W left out of the drainers -- each red.
+// W left out of the drainers -- each red. API-5 report: Locations left out of api.New; another
+// tenant.NewVenues built for the API -- each red.
 func TestAPIWiring_TheChainTakesThePanelsPrefixAndTheOneWorker(t *testing.T) {
 	fset := token.NewFileSet()
 	parse := func(name string) *ast.File {
@@ -83,7 +87,8 @@ func TestAPIWiring_TheChainTakesThePanelsPrefixAndTheOneWorker(t *testing.T) {
 		t.Fatalf("api.New is called %d times", len(news))
 	}
 	workParam := open.Type.Params.List[2].Names[0].Name
-	var suspension, work bool
+	venuesParam := open.Type.Params.List[3].Names[0].Name
+	var suspension, work, locations bool
 	if lit, ok := news[0].Args[0].(*ast.CompositeLit); ok {
 		for _, e := range lit.Elts {
 			kv, ok := e.(*ast.KeyValueExpr)
@@ -99,29 +104,43 @@ func TestAPIWiring_TheChainTakesThePanelsPrefixAndTheOneWorker(t *testing.T) {
 				if id, ok := kv.Value.(*ast.Ident); ok && id.Name == workParam {
 					work = true
 				}
+			case "Locations":
+				if id, ok := kv.Value.(*ast.Ident); ok && id.Name == venuesParam {
+					locations = true
+				}
 			}
 		}
 	}
-	if !suspension || !work {
-		t.Fatalf("api.New: Suspension api.NoSuspensionColumn{} %v, Work the %q parameter %v", suspension, workParam, work)
+	if !suspension || !work || !locations {
+		t.Fatalf("api.New: Suspension api.NoSuspensionColumn{} %v, Work the %q parameter %v, Locations the %q parameter %v",
+			suspension, workParam, work, venuesParam, locations)
+	}
+	if n := len(calls(apiFile, "tenant", "NewVenues")); n != 0 {
+		t.Fatalf("api.go builds its own tenant.NewVenues (%d); the API takes run()'s", n)
 	}
 
 	run := fn(mainFile, "run")
 	if n := len(calls(mainFile, "webhook", "NewWorker")); n != 1 {
 		t.Fatalf("main.go calls webhook.NewWorker %d times, want 1", n)
 	}
-	worker := ""
+	worker, venues := "", ""
 	for _, st := range run.Body.List {
 		if as, ok := st.(*ast.AssignStmt); ok && len(as.Rhs) == 1 {
 			if c, ok := as.Rhs[0].(*ast.CallExpr); ok && isSel(c.Fun, "webhook", "NewWorker") {
 				worker = as.Lhs[0].(*ast.Ident).Name
 			}
+			if c, ok := as.Rhs[0].(*ast.CallExpr); ok && isSel(c.Fun, "tenant", "NewVenues") {
+				venues = as.Lhs[0].(*ast.Ident).Name
+			}
 		}
+	}
+	if n := len(calls(mainFile, "tenant", "NewVenues")); n != 1 || venues == "" {
+		t.Fatalf("main.go calls tenant.NewVenues %d times (assigned in run()'s body: %q), want once", n, venues)
 	}
 	if worker == "" {
 		t.Fatal("webhook.NewWorker is not assigned in run()'s own body")
 	}
-	started, noticed, surfaced, drained := false, false, false, false
+	started, noticed, surfaced, drained, venuesSurfaced := false, false, false, false, false
 	ast.Inspect(run.Body, func(n ast.Node) bool {
 		c, ok := n.(*ast.CallExpr)
 		if !ok {
@@ -141,6 +160,11 @@ func TestAPIWiring_TheChainTakesThePanelsPrefixAndTheOneWorker(t *testing.T) {
 			noticed = true
 		case exprName(c.Fun) == "openAPISurface" && argIs(2):
 			surfaced = true
+			if len(c.Args) > 3 {
+				if id, ok := c.Args[3].(*ast.Ident); ok && id.Name == venues {
+					venuesSurfaced = true
+				}
+			}
 		case exprName(c.Fun) == "shutdown":
 			for _, a := range c.Args {
 				if lit, ok := a.(*ast.CompositeLit); ok {
@@ -157,6 +181,9 @@ func TestAPIWiring_TheChainTakesThePanelsPrefixAndTheOneWorker(t *testing.T) {
 	if !started || !noticed || !surfaced || !drained {
 		t.Fatalf("the worker %q: started %v, given to the tap path %v, to the API %v, drained %v -- want all four",
 			worker, started, noticed, surfaced, drained)
+	}
+	if !venuesSurfaced {
+		t.Fatalf("openAPISurface is not handed %q (tenant.NewVenues's result) as its venues argument", venues)
 	}
 }
 

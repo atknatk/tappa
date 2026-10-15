@@ -33,7 +33,11 @@ const (
 //
 // The suspension checkpoint is api.NoSuspensionColumn until OP-15 adds tenants.suspended_at
 // (internal/handler/api/suspension.go; API-4b).
-func openAPISurface(cfg *config.Config, data *db.DB, work api.WorkNoticer, log *slog.Logger) (httpx.Mounter, error) {
+//
+// PUT /v1/locations (API-5) is handed venues -- run()'s *tenant.Venues, the PANEL's venue domain
+// with the panel's audit recorder -- so a venue the API writes passes the rules a manager's does
+// and leaves its trail in the same table (TestAPIWiring_TheChainTakesThePanelsPrefixAndTheOneWorker).
+func openAPISurface(cfg *config.Config, data *db.DB, work api.WorkNoticer, venues api.Locations, log *slog.Logger) (httpx.Mounter, error) {
 	if cfg.APIHost == "" {
 		log.Info("the integration API is off: TAPPA_API_HOST is not set, so /v1 answers 404 on every host",
 			integrationAPIState, integrationAPIOff)
@@ -48,7 +52,7 @@ func openAPISurface(cfg *config.Config, data *db.DB, work api.WorkNoticer, log *
 		return nil, err
 	}
 	surface, err := api.New(api.Config{
-		Host: cfg.APIHost, Keys: chain, Writes: writes, Suspension: api.NoSuspensionColumn{}, Work: work, Log: log,
+		Host: cfg.APIHost, Keys: chain, Writes: writes, Suspension: api.NoSuspensionColumn{}, Work: work, Locations: venues, Log: log,
 	})
 	if err != nil {
 		return nil, err

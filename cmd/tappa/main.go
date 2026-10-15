@@ -839,8 +839,9 @@ func run() error {
 	}
 
 	// THE INTEGRATION API (M11 API-4): /v1 on TAPPA_API_HOST, or nothing (a nil Mounter, which
-	// NewRouter skips). It is handed the pool and K-19's worker; api.go says the rest.
-	integrationAPI, err := openAPISurface(cfg, data, work, slog.Default())
+	// NewRouter skips). It is handed the pool, K-19's worker and the panel's venue domain (API-5);
+	// api.go says the rest.
+	integrationAPI, err := openAPISurface(cfg, data, work, venues, slog.Default())
 	if err != nil {
 		return err
 	}

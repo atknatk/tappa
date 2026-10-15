@@ -1,0 +1,275 @@
+package api
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+
+	"github.com/atknatk/tappa/internal/apikey"
+	"github.com/atknatk/tappa/internal/domain/tenant"
+)
+
+// PUT /v1/locations/{ref} (M11 API-5; ADR 0028 §9, K-7, K-18, K-20, K-24). The integrator's
+// venue, addressed by ITS ref inside the KEY's business: a new ref opens a venue (201), a known
+// one is renamed / relabelled (200), an identical PUT changes nothing (200, no trail row). The
+// evidence a tap is judged on -- address ranges, the coordinate -- is never written here: a
+// venue the API opens records its taps as `flag` until the panel gives it some (plan §2 item 10).
+// The work is internal/domain/tenant's PutVenueTx, the panel's own venue domain, so the name
+// passes the panel's rule and the ref the schema's.
+//
+// THE BODY (decided here -- ADR 0028 names no unknown-field policy):
+//
+//	name         string, required; the panel's venue-name rule (trimmed, 1..80 runes)
+//	active       boolean, required; K-20's label -- the tap path never reads it
+//	timezone     string, optional; when present it must be the business's zone (K-7) -> else
+//	             422 timezone_mismatch naming the business's zone
+//	externalRef  string, optional; when present it must be the path's ref
+//
+// ANY OTHER KEY IS 422 (validation_failed, reason unknown_field), and keys match EXACTLY (not
+// encoding/json's case-folding): a misspelt "acitve":false silently dropped would leave the
+// label as it was and answer 200, and a coordinate or an address range sent here must not look
+// accepted when the API never sets evidence. A refusal names the field from a fixed list,
+// never the unknown key the request sent (errors.go: no message repeats the request).
+//
+// ORDER: the ref (422), the body (400/422), then the write -- the runner's transaction, the
+// suspension checkpoint FIRST (WriteLocationPut is closed while the business is suspended:
+// ADR 0028 §10), then the domain. Every refusal inside the write rolls it back, so it leaves no
+// venue, no trail row and no Idempotency-Key row.
+
+// Locations is the venue domain's API half (*tenant.Venues), declared at the consumer (§7).
+type Locations interface {
+	PutVenueTx(ctx context.Context, tx pgx.Tx, c tenant.VenuePut) (tenant.VenuePutResult, error)
+	APIVenue(ctx context.Context, tenantID, venueID uuid.UUID) (tenant.APIVenue, error)
+}
+
+var _ Locations = (*tenant.Venues)(nil)
+
+// locationPath is the route under Prefix.
+const locationPath = "/locations/{ref}"
+
+// locationIDPrefix is K-8's external id prefix of a venue.
+const locationIDPrefix = "loc_"
+
+// The body's keys, exactly.
+const (
+	fieldName        = "name"
+	fieldActive      = "active"
+	fieldTimezone    = "timezone"
+	fieldExternalRef = "externalRef"
+	fieldRef         = "ref" // the path parameter
+)
+
+var locationFields = []string{fieldName, fieldActive, fieldTimezone, fieldExternalRef}
+
+// The validation reasons: a closed set, so details.reason is machine-readable.
+const (
+	reasonRequired     = "required"
+	reasonType         = "type"
+	reasonInvalid      = "invalid"
+	reasonMismatch     = "mismatch"
+	reasonUnknownField = "unknown_field"
+)
+
+func invalidField(field, reason, message string) *Problem {
+	return &Problem{Code: CodeValidationFailed, Message: message, Details: map[string]any{"field": field, "reason": reason}}
+}
+
+var (
+	problemLocationBody = &Problem{Code: CodeInvalidRequest,
+		Message: "The request body must be one JSON object.", Details: map[string]any{"reason": "malformed_json"}}
+	problemLocationRef = invalidField(fieldRef, reasonInvalid,
+		"The location reference must be 1 to 64 characters of A-Z, a-z, 0-9, '.', '_', '~' and '-', starting with a letter or a digit.")
+	problemUnknownField = &Problem{Code: CodeValidationFailed,
+		Message: "The body carries a field this endpoint does not accept.",
+		Details: map[string]any{"reason": reasonUnknownField, "allowed": locationFields}}
+	problemNameRequired = invalidField(fieldName, reasonRequired, "name is required.")
+	problemNameType     = invalidField(fieldName, reasonType, "name must be a string.")
+	problemNameInvalid  = invalidField(fieldName, reasonInvalid,
+		"name must be 1 to 80 characters once surrounding spaces are removed.")
+	problemActiveRequired = invalidField(fieldActive, reasonRequired, "active is required.")
+	problemActiveType     = invalidField(fieldActive, reasonType, "active must be true or false.")
+	problemTimezoneType   = invalidField(fieldTimezone, reasonType, "timezone must be a non-empty string.")
+	problemRefType        = invalidField(fieldExternalRef, reasonType, "externalRef must be a string.")
+	problemRefMismatch    = invalidField(fieldExternalRef, reasonMismatch,
+		"externalRef in the body must be the reference in the path.")
+	problemVenueGone = &Problem{Code: CodeNotFound,
+		Message: "The location this Idempotency-Key recorded no longer exists."}
+)
+
+func timezoneMismatch(zone string) *Problem {
+	return &Problem{Code: CodeTimezoneMismatch,
+		Message: "A location's time zone is its business's; send the business's zone or none.",
+		Details: map[string]any{"field": fieldTimezone, "businessTimezone": zone}}
+}
+
+// locationPut is a parsed body.
+type locationPut struct {
+	name     string
+	active   bool
+	timezone string
+}
+
+// parseLocationBody reads exactly one JSON object with locationFields' keys and types.
+func parseLocationBody(body []byte, ref string) (locationPut, *Problem) {
+	dec := json.NewDecoder(bytes.NewReader(body))
+	var raw map[string]json.RawMessage
+	if err := dec.Decode(&raw); err != nil || raw == nil {
+		return locationPut{}, problemLocationBody
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return locationPut{}, problemLocationBody
+	}
+	for k := range raw {
+		known := false
+		for _, f := range locationFields {
+			known = known || k == f
+		}
+		if !known {
+			return locationPut{}, problemUnknownField
+		}
+	}
+	var out locationPut
+	str := func(key string, required, typ *Problem) (string, bool, *Problem) {
+		v, ok := raw[key]
+		if !ok {
+			return "", false, required
+		}
+		var s string
+		if bytes.Equal(bytes.TrimSpace(v), []byte("null")) || json.Unmarshal(v, &s) != nil {
+			return "", true, typ
+		}
+		return s, true, nil
+	}
+	name, _, prob := str(fieldName, problemNameRequired, problemNameType)
+	if prob != nil {
+		return locationPut{}, prob
+	}
+	out.name = name
+	act, ok := raw[fieldActive]
+	if !ok {
+		return locationPut{}, problemActiveRequired
+	}
+	if bytes.Equal(bytes.TrimSpace(act), []byte("null")) || json.Unmarshal(act, &out.active) != nil {
+		return locationPut{}, problemActiveType
+	}
+	tz, present, prob := str(fieldTimezone, nil, problemTimezoneType)
+	switch {
+	case prob != nil:
+		return locationPut{}, prob
+	case present && tz == "":
+		return locationPut{}, problemTimezoneType
+	}
+	out.timezone = tz
+	bodyRef, present, prob := str(fieldExternalRef, nil, problemRefType)
+	switch {
+	case prob != nil:
+		return locationPut{}, prob
+	case present && bodyRef != ref:
+		return locationPut{}, problemRefMismatch
+	}
+	return out, nil
+}
+
+// locationBody is the response.
+type locationBody struct {
+	ID          string    `json:"id"`
+	ExternalRef string    `json:"externalRef"`
+	Name        string    `json:"name"`
+	Timezone    string    `json:"timezone"`
+	Active      bool      `json:"active"`
+	CreatedAt   time.Time `json:"createdAt"`
+}
+
+func locationOf(v tenant.APIVenue) locationBody {
+	return locationBody{ID: locationIDPrefix + v.ID.String(), ExternalRef: v.ExternalRef, Name: v.Name,
+		Timezone: v.Timezone, Active: v.Active, CreatedAt: v.CreatedAt.UTC()}
+}
+
+func (s *Surface) putLocation(w http.ResponseWriter, r *http.Request) {
+	ref := chi.URLParam(r, "ref")
+	if !tenant.ValidAPIExternalRef(ref) {
+		writeProblem(w, problemLocationRef)
+		return
+	}
+	body, prob := readBody(r)
+	if prob != nil {
+		writeProblem(w, prob)
+		return
+	}
+	in, prob := parseLocationBody(body, ref)
+	if prob != nil {
+		writeProblem(w, prob)
+		return
+	}
+	p, _ := PrincipalOf(r)
+	var done tenant.VenuePutResult
+	out, replayed, ok := s.write(w, r, body, func(ctx context.Context, tx pgx.Tx, g *Gate) (apikey.Outcome, error) {
+		if err := g.Admit(ctx, WriteLocationPut); err != nil {
+			return apikey.Outcome{}, err
+		}
+		res, err := s.locations.PutVenueTx(ctx, tx, tenant.VenuePut{
+			TenantID: p.TenantID, ActorID: *p.Actor(), Via: p.Attribution().Via,
+			ExternalRef: ref, Name: in.name, Timezone: in.timezone, Active: in.active,
+		})
+		var tz *tenant.TimezoneMismatch
+		switch {
+		case err == nil:
+		case errors.As(err, &tz):
+			return apikey.Outcome{}, timezoneMismatch(tz.BusinessZone)
+		case errors.Is(err, tenant.ErrVenueName):
+			return apikey.Outcome{}, problemNameInvalid
+		case errors.Is(err, tenant.ErrExternalRef):
+			return apikey.Outcome{}, problemLocationRef
+		default:
+			return apikey.Outcome{}, err
+		}
+		done = res
+		status := http.StatusOK
+		if res.Created {
+			status = http.StatusCreated
+		}
+		id := res.Venue.ID
+		return apikey.Outcome{Status: status, Ref: &id}, nil
+	})
+	if !ok {
+		return
+	}
+	venue := done.Venue
+	if replayed {
+		if out.Ref == nil {
+			s.unavailable(w, r, "a replayed location write carries no venue id", errors.New("nil result_ref"))
+			return
+		}
+		v, err := s.locations.APIVenue(r.Context(), p.TenantID, *out.Ref)
+		switch {
+		case errors.Is(err, tenant.ErrUnknownVenue):
+			writeProblem(w, problemVenueGone)
+			return
+		case err != nil:
+			s.unavailable(w, r, "reading a replayed location failed", err)
+			return
+		}
+		venue = v
+	}
+	writeJSON(w, out.Status, locationOf(venue))
+}
+
+// writeJSON answers status with v as JSON.
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		writeProblem(w, problemUnavailable)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_, _ = w.Write(append(b, '\n'))
+}

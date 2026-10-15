@@ -29,6 +29,8 @@ const (
 	CodeTenantSuspended      Code = "tenant_suspended"       // 403: a write the suspension closes (ADR 0028 §10)
 	CodeNotFound             Code = "not_found"              // 404: no such route or resource (and an unsupported method)
 	CodeIdempotencyKeyReused Code = "idempotency_key_reused" // 422: the Idempotency-Key was used with another request
+	CodeValidationFailed     Code = "validation_failed"      // 422: a field or the path's ref the contract refuses (details.field, details.reason)
+	CodeTimezoneMismatch     Code = "timezone_mismatch"      // 422: a venue's time zone is its business's (K-7)
 	CodeRateLimited          Code = "rate_limited"           // 429: a bucket is empty; Retry-After says when to come back
 	CodeUnavailable          Code = "unavailable"            // 503: anything on our side; the cause is in our log only
 )
@@ -36,7 +38,7 @@ const (
 // Codes is the closed set, in a stable order (the OpenAPI enum's).
 func Codes() []Code {
 	return []Code{CodeInvalidRequest, CodeBodyTooLarge, CodeUnauthorized, CodeAPIDisabled, CodeTenantSuspended,
-		CodeNotFound, CodeIdempotencyKeyReused, CodeRateLimited, CodeUnavailable}
+		CodeNotFound, CodeIdempotencyKeyReused, CodeValidationFailed, CodeTimezoneMismatch, CodeRateLimited, CodeUnavailable}
 }
 
 // Section8Statuses are the statuses ADR 0028 §8 allows an error body to carry.
@@ -56,7 +58,7 @@ func StatusOf(c Code) int {
 		return http.StatusForbidden
 	case CodeNotFound:
 		return http.StatusNotFound
-	case CodeIdempotencyKeyReused:
+	case CodeIdempotencyKeyReused, CodeValidationFailed, CodeTimezoneMismatch:
 		return http.StatusUnprocessableEntity
 	case CodeRateLimited:
 		return http.StatusTooManyRequests
@@ -71,6 +73,8 @@ type Problem struct {
 	Code    Code
 	Message string
 	// Details is built by the server from constants (a parameter's name, a bound); never input.
+	// The one value that is not a constant is timezone_mismatch's businessTimezone: the
+	// business's OWN setting, read from its row -- still nothing the request sent.
 	Details map[string]any
 	// retryAfter is 429's Retry-After.
 	retryAfter time.Duration

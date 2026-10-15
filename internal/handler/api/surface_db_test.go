@@ -27,19 +27,43 @@ import (
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
+	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/test/fixtures"
 )
 
 type dbRig struct {
-	t     *testing.T
-	d     *db.DB
-	owner *pgx.Conn
-	keys  *apikey.Keys
-	trail *audit.Recorder
-	work  *workSet
-	s     *Surface
-	h     http.Handler
+	t      *testing.T
+	d      *db.DB
+	owner  *pgx.Conn
+	keys   *apikey.Keys
+	trail  *audit.Recorder
+	work   *workSet
+	venues *tenant.Venues
+	// suspended stands in for OP-15's column (this branch has none): the businesses it names are
+	// suspended, every other is not -- NoSuspensionColumn's answer.
+	suspended *suspendedSet
+	writes    *apikey.Writes
+	s         *Surface
+	h         http.Handler
+}
+
+// suspendedSet is a Suspension over a set of tenants; it reads nothing.
+type suspendedSet struct {
+	mu  sync.Mutex
+	set map[uuid.UUID]bool
+}
+
+func (s *suspendedSet) Suspended(_ context.Context, _ pgx.Tx, t uuid.UUID) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.set[t], nil
+}
+
+func (s *suspendedSet) suspend(t uuid.UUID) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.set[t] = true
 }
 
 func newDBRig(t *testing.T) *dbRig {
@@ -80,12 +104,18 @@ func newDBRig(t *testing.T) *dbRig {
 		t.Fatal(err)
 	}
 	work := &workSet{}
-	s, err := New(Config{Host: apiHost, Keys: chain, Writes: writes, Suspension: NoSuspensionColumn{}, Work: work,
-		Log: slog.New(slog.DiscardHandler)})
+	venues, err := tenant.NewVenues(d, trail, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := &dbRig{t: t, d: d, owner: owner, keys: keys, trail: trail, work: work, s: s}
+	suspended := &suspendedSet{set: map[uuid.UUID]bool{}}
+	s, err := New(Config{Host: apiHost, Keys: chain, Writes: writes, Suspension: suspended, Work: work,
+		Locations: venues, Log: slog.New(slog.DiscardHandler)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &dbRig{t: t, d: d, owner: owner, keys: keys, trail: trail, work: work, venues: venues, suspended: suspended,
+		writes: writes, s: s}
 	withTestRoutes(s, func(rt chi.Router) {
 		// A read in the key's tenant: an api_keys row by id, WithTenant + an explicit filter -- the
 		// shape every API-5..8 read takes.

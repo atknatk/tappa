@@ -41,6 +41,7 @@ import (
 	"github.com/atknatk/tappa/internal/apikey"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
+	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/httpx"
 )
 
@@ -142,7 +143,8 @@ func newRig(t *testing.T, answer func(hash string) (db.ResolvedAPIKey, error), o
 	logs := &bytes.Buffer{}
 	log := slog.New(slog.NewJSONHandler(&syncWriter{w: logs}, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	work := &workSet{}
-	c := Config{Host: apiHost, Keys: chain, Writes: refuseWrites{}, Suspension: NoSuspensionColumn{}, Work: work, Log: log}
+	c := Config{Host: apiHost, Keys: chain, Writes: refuseWrites{}, Suspension: NoSuspensionColumn{}, Work: work,
+		Locations: refuseLocations{}, Log: log}
 	for _, o := range opts {
 		o(&c)
 	}
@@ -209,6 +211,17 @@ type refuseWrites struct{}
 
 func (refuseWrites) Run(context.Context, apikey.WriteRequest, apikey.WorkFunc) (apikey.Outcome, bool, error) {
 	return apikey.Outcome{}, false, errors.New("this rig does not write")
+}
+
+// refuseLocations is a Locations for tests that write no venue.
+type refuseLocations struct{}
+
+func (refuseLocations) PutVenueTx(context.Context, pgx.Tx, tenant.VenuePut) (tenant.VenuePutResult, error) {
+	return tenant.VenuePutResult{}, errors.New("this rig writes no venue")
+}
+
+func (refuseLocations) APIVenue(context.Context, uuid.UUID, uuid.UUID) (tenant.APIVenue, error) {
+	return tenant.APIVenue{}, errors.New("this rig reads no venue")
 }
 
 func known(tenant, key uuid.UUID) func(string) (db.ResolvedAPIKey, error) {

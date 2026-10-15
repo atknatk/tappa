@@ -42,6 +42,69 @@ paths:
           $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/locations/{ref}:
+    put:
+      operationId: putLocation
+      summary: Create or update one of the business's locations by its external reference.
+      description: |
+        The location is addressed by the business's own reference (`ref`). An unknown reference
+        creates a location (201); a known one is renamed and relabelled (200); a request that
+        matches the location as it is changes nothing (200). A location is never matched by its
+        name: to update a location that already exists in Taptime, its owner first sets its
+        "External ref" in the Taptime panel.
+
+        Only the name and the `active` label are written. `active` is a label and changes nothing
+        about how taps there are judged. Address ranges and the coordinate that prove a tap
+        happened at the location are set in the Taptime panel only: until they are, every tap at a
+        location created here is recorded and waits for a manager's approval.
+
+        A location has no time zone of its own: `timezone`, when sent, must be the business's
+        (422 `timezone_mismatch` otherwise, naming the business's zone).
+
+        The body accepts exactly the fields below; any other field is 422 `validation_failed`
+        (`details.reason` `unknown_field`). While the business is suspended this endpoint is 403
+        `tenant_suspended`.
+      parameters:
+        - name: ref
+          in: path
+          required: true
+          description: The business's reference for the location.
+          schema:
+            $ref: "#/components/schemas/ExternalRef"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LocationPut"
+      responses:
+        "200":
+          description: The location existed; it is now as sent.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Location"
+        "201":
+          description: The location was created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Location"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
 components:
   securitySchemes:
     bearer:
@@ -76,6 +139,49 @@ components:
         type: integer
         minimum: 1
   schemas:
+    ExternalRef:
+      type: string
+      minLength: 1
+      maxLength: 64
+      pattern: "^[A-Za-z0-9][A-Za-z0-9._~-]{0,63}$"
+    LocationPut:
+      type: object
+      additionalProperties: false
+      required: [name, active]
+      properties:
+        name:
+          type: string
+          description: 1 to 80 characters once surrounding spaces are removed (they are removed).
+        active:
+          type: boolean
+          description: A label. It does not change how taps at the location are judged.
+        timezone:
+          type: string
+          minLength: 1
+          description: Optional. When present it must be the business's time zone.
+        externalRef:
+          type: string
+          description: Optional. When present it must be the reference in the path.
+    Location:
+      type: object
+      additionalProperties: false
+      required: [id, externalRef, name, timezone, active, createdAt]
+      properties:
+        id:
+          type: string
+          pattern: "^loc_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        externalRef:
+          $ref: "#/components/schemas/ExternalRef"
+        name:
+          type: string
+        timezone:
+          type: string
+          description: The business's time zone (a location has none of its own).
+        active:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
     Error:
       type: object
       additionalProperties: false
@@ -83,7 +189,7 @@ components:
       properties:
         code:
           type: string
-          enum: [invalid_request, body_too_large, unauthorized, api_disabled, tenant_suspended, not_found, idempotency_key_reused, rate_limited, unavailable]
+          enum: [invalid_request, body_too_large, unauthorized, api_disabled, tenant_suspended, not_found, idempotency_key_reused, validation_failed, timezone_mismatch, rate_limited, unavailable]
         message:
           type: string
           description: A sentence for a person. Never contains the request's own values.
@@ -110,13 +216,13 @@ components:
           schema:
             $ref: "#/components/schemas/Error"
     NotFound:
-      description: "not_found: no such resource."
+      description: "not_found: no such resource (on an Idempotency-Key replay: the location it recorded no longer exists)."
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
     Unprocessable:
-      description: "idempotency_key_reused: the Idempotency-Key was used with a different request."
+      description: "idempotency_key_reused: the Idempotency-Key was used with a different request; validation_failed: a field or the path's reference the contract refuses (details.field and details.reason -- required, type, invalid, mismatch, unknown_field); timezone_mismatch: a location's time zone must be its business's (details.businessTimezone)."
       content:
         application/json:
           schema:

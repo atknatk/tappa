@@ -1,7 +1,7 @@
 // Package api is the integration API's /v1 surface (M11 API-4; ADR 0028 §3, §8, §10, §13): its own
 // host, the Bearer chain, the JSON error contract, the body bound, Idempotency-Key, the suspension
-// checkpoint and the hand-written OpenAPI document. The endpoints themselves arrive with API-5..8 and
-// mount into the authenticated group Mount builds.
+// checkpoint and the hand-written OpenAPI document. The endpoints mount into the authenticated group
+// Mount builds: PUT /v1/locations/{ref} (API-5, locations.go); API-6..8 follow.
 //
 // 🔴 IT IMPORTS NO PANEL. Like internal/handler/operator, this package is a surface of its own:
 // it does not import internal/handler (the customer panel, the tap) and internal/handler does not
@@ -73,7 +73,9 @@ type Config struct {
 	Writes     Writer
 	Suspension Suspension
 	Work       WorkNoticer
-	Log        *slog.Logger
+	// Locations is the venue domain (*tenant.Venues -- the panel's own) behind PUT /v1/locations.
+	Locations Locations
+	Log       *slog.Logger
 	// The buckets; zero means the shipped value. A test shrinks them.
 	AddressLimit, KeyLimit   int
 	AddressPeriod, KeyPeriod time.Duration
@@ -86,6 +88,7 @@ type Surface struct {
 	writes     Writer
 	suspension Suspension
 	work       WorkNoticer
+	locations  Locations
 	byAddress  *httpx.Limiter
 	byKey      *httpx.Limiter
 	log        *slog.Logger
@@ -108,6 +111,8 @@ func New(c Config) (*Surface, error) {
 		return nil, errors.New("api: nil suspension checkpoint")
 	case c.Work == nil:
 		return nil, errors.New("api: nil work set")
+	case c.Locations == nil:
+		return nil, errors.New("api: nil venue domain")
 	}
 	log := c.Log
 	if log == nil {
@@ -126,7 +131,7 @@ func New(c Config) (*Surface, error) {
 		return v
 	}
 	return &Surface{
-		host: c.Host, keys: c.Keys, writes: c.Writes, suspension: c.Suspension, work: c.Work, log: log,
+		host: c.Host, keys: c.Keys, writes: c.Writes, suspension: c.Suspension, work: c.Work, locations: c.Locations, log: log,
 		byAddress: httpx.NewLimiter(pick(c.AddressLimit, addressLimit), pickd(c.AddressPeriod, addressPeriod)),
 		byKey:     httpx.NewLimiter(pick(c.KeyLimit, keyLimit), pickd(c.KeyPeriod, keyPeriod)),
 	}, nil
@@ -147,7 +152,8 @@ func (s *Surface) Mount(r chi.Router) {
 		})
 		r.Group(func(r chi.Router) {
 			r.Use(s.authenticate)
-			// API-5..8 mount their endpoints here.
+			r.Put(locationPath, s.putLocation)
+			// API-6..8 mount their endpoints here.
 			if s.testRoutes != nil {
 				s.testRoutes(r)
 			}
