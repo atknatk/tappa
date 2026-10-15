@@ -7,9 +7,10 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
@@ -178,6 +179,28 @@ func parseLocationBody(body []byte, ref string) (locationPut, *Problem) {
 	return out, nil
 }
 
+// locationRef is the path's ref, PERCENT-DECODED EXACTLY ONCE and then held to the strict pattern
+// (API-5 review). chi's {ref} is not a stable source for that: it is the segment as the client
+// escaped it when net/url keeps a RawPath and the already-decoded segment when it does not (a
+// "%2541" arrives as "%41" -- decoding that again would decode twice). So the segment is read
+// off the request's ESCAPED path, which is what the client sent, and decoded once. An
+// unnecessarily encoded but legal ref -- "%41BC", or "~" as Java's URLEncoder writes it, "%7E" --
+// is then the ref it spells; whatever decodes to a character outside the pattern ("/", a control
+// character, the "%" of a double encoding) is still 422. Two spellings of one ref are one venue;
+// for an Idempotency-Key they are two requests (the request hash reads the escaped path -- ADR
+// 0028 "API-4 uygulama notu").
+func locationRef(r *http.Request) (string, bool) {
+	seg, found := strings.CutPrefix(r.URL.EscapedPath(), Prefix+strings.TrimSuffix(locationPath, "{ref}"))
+	if !found || strings.Contains(seg, "/") {
+		return "", false
+	}
+	ref, err := url.PathUnescape(seg)
+	if err != nil || !tenant.ValidAPIExternalRef(ref) {
+		return "", false
+	}
+	return ref, true
+}
+
 // locationBody is the response.
 type locationBody struct {
 	ID          string    `json:"id"`
@@ -194,8 +217,8 @@ func locationOf(v tenant.APIVenue) locationBody {
 }
 
 func (s *Surface) putLocation(w http.ResponseWriter, r *http.Request) {
-	ref := chi.URLParam(r, "ref")
-	if !tenant.ValidAPIExternalRef(ref) {
+	ref, ok := locationRef(r)
+	if !ok {
 		writeProblem(w, problemLocationRef)
 		return
 	}

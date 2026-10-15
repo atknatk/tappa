@@ -693,12 +693,14 @@ func TestLocationsPut_SuspendedAndClosedWriteNothing(t *testing.T) {
 // JSON object (400 invalid_request), with name and active required and of their types, timezone
 // optional and non-empty, externalRef optional and equal to the path's, any other key -- matched
 // exactly, so "Name" is unknown -- 422 unknown_field WITHOUT echoing the key; the name passes the
-// panel's rule (trimmed, 1..80 runes, no control or format character inside -- BEL, ESC, a line
+// panel's rule; the ref is percent-decoded ONCE ("%41"/"%7E" are A/~; "%2F", "%00", a double
+// encoding stay 422) (trimmed, 1..80 runes, no control or format character inside -- BEL, ESC, a line
 // break, U+202E, a zero-width space); 64 KiB is the bound (one byte over: 400 body_too_large;
 // a 64 KiB object padded with whitespace: accepted). No refusal leaves a row.
 //
-// MUTANTS (measured, API-5 report): the hidden-character refusal removed from venueName -> five
-// names 201; the key check made case-insensitive (encoding/json's own matching)
+// MUTANTS (measured, API-5 report): the decoding removed -> "%41..." 422; the segment read off the
+// already-decoded r.URL.Path (decoded twice) -> "%2541BC" 201 as "ABC"; the hidden-character
+// refusal removed from venueName -> five names 201; the key check made case-insensitive (encoding/json's own matching)
 // -> "Name" passes as a known key and the answer is "name required", not unknown_field.
 func TestLocationsPut_TheBodyAndTheRefContract(t *testing.T) {
 	r := newDBRig(t)
@@ -714,6 +716,9 @@ func TestLocationsPut_TheBodyAndTheRefContract(t *testing.T) {
 		{"ref starts with a dot", ".x", `{"name":"n","active":true}`, 422, CodeValidationFailed, "ref", "invalid"},
 		{"ref of 65", "a" + strings.Repeat("b", 64), `{"name":"n","active":true}`, 422, CodeValidationFailed, "ref", "invalid"},
 		{"ref with @", "a@b", `{"name":"n","active":true}`, 422, CodeValidationFailed, "ref", "invalid"},
+		{"ref with an encoded slash", "a%2Fb", `{"name":"n","active":true}`, 422, CodeValidationFailed, "ref", "invalid"},
+		{"ref with an encoded NUL", "a%00b", `{"name":"n","active":true}`, 422, CodeValidationFailed, "ref", "invalid"},
+		{"ref double-encoded", "%2541BC", `{"name":"n","active":true}`, 422, CodeValidationFailed, "ref", "invalid"},
 		{"ref with a leading space", "%20" + ref, `{"name":"n","active":true}`, 422, CodeValidationFailed, "ref", "invalid"},
 		{"empty body", ref, ``, 400, CodeInvalidRequest, "", ""},
 		{"not an object", ref, `[]`, 400, CodeInvalidRequest, "", ""},
@@ -757,6 +762,22 @@ func TestLocationsPut_TheBodyAndTheRefContract(t *testing.T) {
 	}
 	if w := r.putLoc(raw, ref, `{"name":"`+strings.Repeat("ż", 80)+`","active":true,"externalRef":"`+ref+`"}`); w.Code != http.StatusCreated {
 		t.Fatalf("80 runes and a matching externalRef: %d %s", w.Code, w.Body.String())
+	}
+	// An unnecessarily encoded ref is the ref it spells (decoded once, API-5 review): "%41" is
+	// "A" and "%7E" is "~" -- one venue under the decoded ref, answered with it.
+	enc := newRef("ANC")
+	if w := r.putLoc(raw, "%41"+enc[1:], `{"name":"Encoded","active":true}`); w.Code != http.StatusCreated || locOf(t, w).ExternalRef != enc {
+		t.Fatalf("%%41 for A: %d %s, want 201 under %s", w.Code, w.Body.String(), enc)
+	}
+	if w := r.putLoc(raw, enc, `{"name":"Encoded","active":true,"externalRef":"`+enc+`"}`); w.Code != http.StatusOK {
+		t.Fatalf("the decoded spelling of the same ref: %d, want 200 on the same venue", w.Code)
+	}
+	tilde := newRef("T") + "~x"
+	if w := r.putLoc(raw, strings.Replace(tilde, "~", "%7E", 1), `{"name":"Tilde","active":true,"externalRef":"`+tilde+`"}`); w.Code != http.StatusCreated || locOf(t, w).ExternalRef != tilde {
+		t.Fatalf("%%7E for ~: %d %s", w.Code, w.Body.String())
+	}
+	if rows := r.venuesByRef(biz, enc); len(rows) != 1 {
+		t.Fatalf("two spellings of one ref made %d venues", len(rows))
 	}
 	over := `{"name":"n","active":true}` + strings.Repeat(" ", MaxBody-len(`{"name":"n","active":true}`)+1)
 	if w := r.putLoc(raw, newRef("BIG"), over); w.Code != 400 || problemOf(t, w).Code != CodeBodyTooLarge {
