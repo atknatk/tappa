@@ -187,6 +187,30 @@ type Querier interface {
 	// start), so it is the instant this statement ran; the worker keeps the returned value and
 	// matches it at every later step.
 	ClaimInviteRequest(ctx context.Context, tenantID uuid.UUID) (ClaimInviteRequestRow, error)
+	// ---------------------------------------------------------------------------------------------
+	// THE DELIVERIES (M11 API-10, ADR 0028 §6). A webhook_deliveries row is written by the punch feed's
+	// triggers (00049: one per target event whose business has its API open and its endpoint on); the
+	// worker (internal/webhook/delivery) leases it, sends it OUTSIDE any transaction and records the
+	// result; the owner reads the log and asks for a resend (internal/webhook/endpoints). tappa_app
+	// holds SELECT and UPDATE (lease_until, attempt, next_attempt_at, state, last_status,
+	// last_error_class, delivered_at) -- no INSERT, no DELETE (00048). K-19: every statement is handed
+	// ONE business and carries its tenant_id as a top-level conjunct; nothing here reads across
+	// businesses.
+	// ---------------------------------------------------------------------------------------------
+	// THE LEASE (ADR 0028 §6, step 1): the business's ONE oldest-due delivery -- pending, its
+	// next_attempt_at reached, no live lease -- taken for @lease_seconds. SKIP LOCKED: a second worker
+	// claiming at the same moment skips the row this one holds and takes another or none; the lease
+	// keeps it from a later claim until it ends (a worker that died mid-send leaves it to expire, and the
+	// delivery is tried again). ORDER BY next_attempt_at alone, so webhook_deliveries_tenant_due_idx
+	// (tenant_id, next_attempt_at) WHERE state = 'pending' hands the first row without a sort; there is
+	// no order guarantee to keep (plan §2 item 16). THE DUE BOUND IS statement_timestamp(), NOT
+	// clock_timestamp(): a stable function is an Index Cond, a volatile one only a Filter -- and a claim that
+	// finds nothing due (every run's last) then walked EVERY pending row of the business (measured, 5 000
+	// pending all due in an hour: 85 buffers as a Filter, 2 as an Index Cond; ADR 0028 "API-10 uygulama
+	// notu"). The statement's start is microseconds from its clock; the lease stays on clock_timestamp(). attempt is NOT counted here: a claim is not a try
+	// (a closed gate gives the row back untouched). The lease is clock_timestamp()-based; the worker
+	// keeps the returned value and matches it when it records the result.
+	ClaimWebhookDelivery(ctx context.Context, arg ClaimWebhookDeliveryParams) (ClaimWebhookDeliveryRow, error)
 	// Resets the accent: the button goes back to the default colour. An UPDATE, not a
 	// DELETE (section 4.6; the row may still carry a logo).
 	ClearTenantAccent(ctx context.Context, arg ClearTenantAccentParams) (int64, error)
@@ -2495,6 +2519,10 @@ type Querier interface {
 	// explicit same-tenant LEFT JOIN, so an id that names nobody this tenant can see
 	// is reported as unresolvable rather than printed (§4.5 doing its job).
 	GetPolicyVersionDocument(ctx context.Context, arg GetPolicyVersionDocumentParams) (GetPolicyVersionDocumentRow, error)
+	// The event a delivery carries, in the delivering business's own feed (a delivery points at its
+	// tenant's (tenant_id, seq) -- 00048's webhook_deliveries_event_fk). The snapshot columns only: the
+	// table has no address, coordinate, note, policy context or verdict to read.
+	GetPunchEventForDelivery(ctx context.Context, arg GetPunchEventForDeliveryParams) (GetPunchEventForDeliveryRow, error)
 	// THE HISTORY QUERY (M11 API-7b; ADR 0028 §5's last sentence, plan §2 item 18 and §5 API-7b):
 	// GET /v1/punches?from=…&to=…, the events whose punch_time is in [from, to), in (punch_time, seq)
 	// order, page by page. punch_time is the phone's declared instant (72 h back at most for an
@@ -2552,6 +2580,11 @@ type Querier interface {
 	// at one instant is entered at the cursor, not read whole to sort it (API-7b third round). The
 	// redundant punch_time >= after_time is kept as a plain range bound.
 	GetPunchHistoryWindow(ctx context.Context, arg GetPunchHistoryWindowParams) (GetPunchHistoryWindowRow, error)
+	// K-19's second tenant of an APPROVAL (M11 API-10, ADR 0028 §6: "holding punch'ında iki tenant da"):
+	// the reviewed record's site business -- NULL for a tap on the business's own plaque. Read in the
+	// review's own transaction, after the insert; the record is this business's (the explicit predicate
+	// and RLS). Only the id is read: the approval puts that business into the worker's set, nothing more.
+	GetReviewedPunchSite(ctx context.Context, arg GetReviewedPunchSiteParams) (*uuid.UUID, error)
 	// The name of ONE employee, by id -- the anchor a roster page continues from.
 	//
 	// 🔴 IT EXISTS SO THE PAGING CURSOR CAN CARRY AN ID INSTEAD OF A NAME, and that is a
@@ -4348,6 +4381,12 @@ type Querier interface {
 	// screen now ("together N times"), because "twice on two days" and "forty times on two
 	// days" are different rows and the day count alone cannot tell them apart.
 	ListTapsTakenTogether(ctx context.Context, arg ListTapsTakenTogetherParams) ([]ListTapsTakenTogetherRow, error)
+	// THE DELIVERY LOG (the owner's panel): the business's deliveries, newest first, a page at a time.
+	// The position is the last row shown, (created_at, id): every row strictly before it in that order.
+	// created_at <= @before_at is the index condition (webhook_deliveries_tenant_created_idx); the id
+	// breaks a tie at one instant. The punch's id comes from the business's OWN feed row (the event the
+	// delivery carries); nothing of the endpoint's address is read.
+	ListWebhookDeliveries(ctx context.Context, arg ListWebhookDeliveriesParams) ([]ListWebhookDeliveriesRow, error)
 	// The REPORTS section's read (M6-07 phase A): the raw material worked hours are
 	// computed from. One row per DIRECTION-CARRYING record, ordered so that one pass
 	// over the result reconstructs each person's in/out chain.
@@ -4683,6 +4722,9 @@ type Querier interface {
 	// takes no lock, which the caller treats as a failure. The namespace keeps it apart from every other
 	// advisory key.
 	LockWebhookBucket(ctx context.Context, tenantID uuid.UUID) (LockWebhookBucketRow, error)
+	// The owner's "resend" (ADR 0028 §6): the delivery, locked for the act's transaction, and whether a
+	// worker holds a live lease on it right now (a resend then would race the send in flight).
+	LockWebhookDeliveryForResend(ctx context.Context, arg LockWebhookDeliveryForResendParams) (LockWebhookDeliveryForResendRow, error)
 	// Stamps last_login_at after a SUCCESSFUL login. The status test keeps the stamp
 	// honest: a disabled admin never gets one, so "last successful login" cannot be
 	// advanced by an attempt that did not produce a session.
@@ -4836,6 +4878,11 @@ type Querier interface {
 	// clash is rare rather than routine. It is still possible: a policy created and
 	// versioned in one transaction is not locked by anybody until it exists.
 	NextPolicyVersionNo(ctx context.Context, arg NextPolicyVersionNoParams) (int32, error)
+	// When the business's next pending delivery comes due -- its back-off's end, or a live lease's end
+	// (another worker's, or one that died) -- as whole seconds from now (0 or less: due now), and how
+	// many are pending (0: nothing waits, and due_in_seconds means nothing). K-19: the worker notices
+	// the business again then, a timer for ONE business, never a scan.
+	NextWebhookDeliveryDue(ctx context.Context, tenantID uuid.UUID) (NextWebhookDeliveryDueRow, error)
 	// Does this business already have a policy with this name?
 	//
 	// 🔴 IT EXISTS BECAUSE A DUPLICATE CANNOT BE UNDONE. `policies` has no
@@ -5056,6 +5103,12 @@ type Querier interface {
 	// code_hash and consent_binding_hash are matched or written, never returned
 	// (section 4.7).
 	RecordInviteConsent(ctx context.Context, arg RecordInviteConsentParams) (RecordInviteConsentRow, error)
+	// THE RESULT (ADR 0028 §6, step 3), in a short transaction of its own -- and only under THIS
+	// worker's lease: a row whose lease expired and was claimed again (or resent) is not this worker's
+	// any more, and matches nothing. The caller has decided the state (delivered, pending with
+	// @delay_seconds of back-off, dead) from the class and the claimed attempt; the remote's text is
+	// never here (ADR 0028 §6: only the closed class and the status). The lease ends with the result.
+	RecordWebhookDeliveryResult(ctx context.Context, arg RecordWebhookDeliveryResultParams) (RecordWebhookDeliveryResultRow, error)
 	// Change a customer policy's NAME, and only a customer's.
 	//
 	// 🔴 IT EXISTS BECAUSE THE CONFIRMATION SCREEN PROMISED IT. The authoring form makes
@@ -5089,6 +5142,10 @@ type Querier interface {
 	// the queue afterwards (FinishInviteRequest matches its own lease only) and the next run mints
 	// for the new address. tenant_id is not in the SET list.
 	RequeueInviteRequest(ctx context.Context, arg RequeueInviteRequestParams) error
+	// Makes a pending or dead delivery due NOW. attempt is kept: a dead delivery (its sixth try spent)
+	// revived by a resend gets ONE try -- failing, it is dead again -- so one bucket slot is one request;
+	// a pending one keeps the rest of its schedule. Not under a live lease (the caller refused that).
+	ResendWebhookDelivery(ctx context.Context, arg ResendWebhookDeliveryParams) (int64, error)
 	// RETIRE: the old plaque of a "Replace tag", stamped with what replaced it.
 	//
 	// THE ROW IS NOT DELETED AND CANNOT BE (00004 revokes DELETE from tappa_app):

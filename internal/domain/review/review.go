@@ -216,7 +216,24 @@ type Reviewer struct {
 	data  Database
 	trail Trail
 	log   *slog.Logger
+	// work is K-19's set of tenants with work (ADR 0028 §6; internal/webhook's worker): an APPROVAL
+	// writes the punch's feed events and webhook deliveries (00049's review triggers), so after its
+	// commit it puts the business -- and, for a record on a holding peer's plaque, the site's business
+	// too -- into the set. nil until NoticeWorkTo.
+	work WorkNoticer
 }
+
+// WorkNoticer is K-19's "tenants with work" set (internal/webhook.Worker), declared at the consumer
+// (§7). Notice must not block.
+type WorkNoticer interface {
+	Notice(tenant uuid.UUID)
+}
+
+// NoticeWorkTo makes every committed APPROVAL notice its business and its record's site business
+// (M11 API-10, ADR 0028 §6: "Bir tenant kümeye, o tenant'ta bir dokunuş ya da onay commit
+// edildiğinde (holding punch'ında iki tenant da) ... girer"). A rejection writes no event and notices
+// nobody. cmd/tappa wires it once.
+func (r *Reviewer) NoticeWorkTo(n WorkNoticer) { r.work = n }
 
 // NewReviewer wires it. A nil database or a nil trail is REFUSED rather than
 // tolerated: a reviewer that cannot write the trail would record decisions with no
@@ -251,6 +268,7 @@ func (r *Reviewer) Record(ctx context.Context, d Decision) error {
 		return fmt.Errorf("review: %q is not an outcome", d.Outcome)
 	}
 
+	var site *uuid.UUID
 	err := r.data.WithTenant(ctx, d.TenantID, func(ctx context.Context, tx pgx.Tx) error {
 		q := store.New(tx)
 		params := store.InsertTransactionReviewParams{
@@ -288,6 +306,12 @@ func (r *Reviewer) Record(ctx context.Context, d Decision) error {
 		}); err != nil {
 			return err
 		}
+		if d.Outcome == Approved && r.work != nil {
+			// The second tenant K-19 needs: read in this transaction, used after the commit.
+			if site, err = q.GetReviewedPunchSite(ctx, store.GetReviewedPunchSiteParams{TenantID: d.TenantID, ID: d.TransactionID}); err != nil {
+				return fmt.Errorf("read the record's site: %w", err)
+			}
+		}
 		return nil
 	})
 	if err != nil {
@@ -309,6 +333,12 @@ func (r *Reviewer) Record(ctx context.Context, d Decision) error {
 	r.log.Info("flagged record decided",
 		"transaction_id", d.TransactionID, "reviewer_id", d.ReviewerID,
 		"outcome", string(d.Outcome))
+	if d.Outcome == Approved && r.work != nil {
+		r.work.Notice(d.TenantID)
+		if site != nil {
+			r.work.Notice(*site)
+		}
+	}
 	return nil
 }
 

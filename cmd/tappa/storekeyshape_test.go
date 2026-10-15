@@ -434,6 +434,19 @@ var storeSurface = map[string]string{
 	"SetWebhookEndpointActive":     "(context.Context, SetWebhookEndpointActiveParams{Active bool; TenantID uuid.UUID; ID uuid.UUID}) (int64, error)",
 	"LockWebhookBucket":            "(context.Context, uuid.UUID) (LockWebhookBucketRow{ID uuid.UUID; Unlocked bool}, error)",
 	"ReadWebhookBucket":            "(context.Context, ReadWebhookBucketParams{TenantID uuid.UUID; Actions []string; WindowSeconds int32}) (ReadWebhookBucketRow{Spent int32; Oldest time.Time}, error)",
+	// M11 API-10 (table from 00048): the deliveries. A lease, a result (a closed class and a status --
+	// never the remote's text), the event's snapshot columns (no address, coordinate, note or policy
+	// context exist to read), the log's page and the resend. No key and no address: the one read
+	// that carries the sealed key stays GetWebhookEndpointForSigning.
+	"ClaimWebhookDelivery":         "(context.Context, ClaimWebhookDeliveryParams{LeaseSeconds int32; TenantID uuid.UUID}) (ClaimWebhookDeliveryRow{ID uuid.UUID; EndpointID uuid.UUID; PunchEventSeq int64; Attempt int32; LeaseUntil *time.Time}, error)",
+	"GetPunchEventForDelivery":     "(context.Context, GetPunchEventForDeliveryParams{TenantID uuid.UUID; Seq int64}) (GetPunchEventForDeliveryRow{Seq int64; PunchID uuid.UUID; Version int32; Status string; PunchTime time.Time; RecordedAt time.Time; Channel string; Direction string; EmployeeID uuid.UUID; EmployeeRef *string; EmployeeCode *string; EmployeeCompany *string; LocationID *uuid.UUID; LocationRef *string; LocationName *string; LocationCompany *string; TagUid *string}, error)",
+	"RecordWebhookDeliveryResult":  "(context.Context, RecordWebhookDeliveryResultParams{State string; DelaySeconds int32; LastStatus *int32; LastErrorClass *string; TenantID uuid.UUID; ID uuid.UUID; LeaseUntil *time.Time}) (RecordWebhookDeliveryResultRow{Attempt int32; State string; NextAttemptAt time.Time}, error)",
+	"NextWebhookDeliveryDue":       "(context.Context, uuid.UUID) (NextWebhookDeliveryDueRow{Pending int32; DueInSeconds int64}, error)",
+	"ListWebhookDeliveries":        "(context.Context, ListWebhookDeliveriesParams{TenantID uuid.UUID; BeforeAt time.Time; BeforeID uuid.UUID; PageSize int32}) ([]ListWebhookDeliveriesRow{ID uuid.UUID; PunchEventSeq int64; Attempt int32; NextAttemptAt time.Time; LeaseUntil *time.Time; State string; LastStatus *int32; LastErrorClass *string; CreatedAt time.Time; DeliveredAt *time.Time; PunchID uuid.UUID; InFlight bool}, error)",
+	"LockWebhookDeliveryForResend": "(context.Context, LockWebhookDeliveryForResendParams{TenantID uuid.UUID; ID uuid.UUID}) (LockWebhookDeliveryForResendRow{ID uuid.UUID; EndpointID uuid.UUID; State string; InFlight bool}, error)",
+	"ResendWebhookDelivery":        "(context.Context, ResendWebhookDeliveryParams{TenantID uuid.UUID; ID uuid.UUID}) (int64, error)",
+	// M11 API-10: an approval's site business (K-19's second tenant) -- an id, nothing of the record.
+	"GetReviewedPunchSite": "(context.Context, GetReviewedPunchSiteParams{TenantID uuid.UUID; ID uuid.UUID}) (*uuid.UUID, error)",
 }
 
 // TestStoreSurface_IsTheOneRecorded is the inventory check.
@@ -1010,14 +1023,17 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// by internal/db/holding.go by hand).
 	// 193 -> 201 on 2026-10-15 (M11 API-9): webhooks.sql's eight -- the endpoint's two reads, its four
 	// writes and the bucket's lock and count; none calls a definer.
-	if named != 201 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND ONE were "+
+	// 201 -> 209 on 2026-10-15 (M11 API-10): webhooks.sql's seven delivery queries (the lease, the event,
+	// the result, the next due, the log, the resend's lock and the resend) and reviews.sql's
+	// GetReviewedPunchSite; none calls a definer.
+	if named != 209 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND NINE were "+
 			"there when this was pinned (2026-10-15: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
 			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+
 			"+ EM-7B's three invitation e-mail queries, + EM-7C's two recovery queries, "+
 			"+ the activation tap's two consent queries, + WL-13's two activation brand queries, "+
-			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries). "+
+			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {

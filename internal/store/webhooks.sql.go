@@ -12,6 +12,135 @@ import (
 	"github.com/google/uuid"
 )
 
+const claimWebhookDelivery = `-- name: ClaimWebhookDelivery :one
+
+UPDATE webhook_deliveries d
+SET lease_until = clock_timestamp() + make_interval(secs => $1::int)
+WHERE d.tenant_id = $2
+  AND d.id = (
+      SELECT q.id
+      FROM webhook_deliveries q
+      WHERE q.tenant_id = $2
+        AND q.state = 'pending'
+        AND q.next_attempt_at <= statement_timestamp()
+        AND (q.lease_until IS NULL OR q.lease_until <= clock_timestamp())
+      ORDER BY q.next_attempt_at
+      LIMIT 1
+      FOR UPDATE SKIP LOCKED)
+RETURNING d.id, d.endpoint_id, d.punch_event_seq, d.attempt, d.lease_until
+`
+
+type ClaimWebhookDeliveryParams struct {
+	LeaseSeconds int32
+	TenantID     uuid.UUID
+}
+
+type ClaimWebhookDeliveryRow struct {
+	ID            uuid.UUID
+	EndpointID    uuid.UUID
+	PunchEventSeq int64
+	Attempt       int32
+	LeaseUntil    *time.Time
+}
+
+// ---------------------------------------------------------------------------------------------
+// THE DELIVERIES (M11 API-10, ADR 0028 §6). A webhook_deliveries row is written by the punch feed's
+// triggers (00049: one per target event whose business has its API open and its endpoint on); the
+// worker (internal/webhook/delivery) leases it, sends it OUTSIDE any transaction and records the
+// result; the owner reads the log and asks for a resend (internal/webhook/endpoints). tappa_app
+// holds SELECT and UPDATE (lease_until, attempt, next_attempt_at, state, last_status,
+// last_error_class, delivered_at) -- no INSERT, no DELETE (00048). K-19: every statement is handed
+// ONE business and carries its tenant_id as a top-level conjunct; nothing here reads across
+// businesses.
+// ---------------------------------------------------------------------------------------------
+// THE LEASE (ADR 0028 §6, step 1): the business's ONE oldest-due delivery -- pending, its
+// next_attempt_at reached, no live lease -- taken for @lease_seconds. SKIP LOCKED: a second worker
+// claiming at the same moment skips the row this one holds and takes another or none; the lease
+// keeps it from a later claim until it ends (a worker that died mid-send leaves it to expire, and the
+// delivery is tried again). ORDER BY next_attempt_at alone, so webhook_deliveries_tenant_due_idx
+// (tenant_id, next_attempt_at) WHERE state = 'pending' hands the first row without a sort; there is
+// no order guarantee to keep (plan §2 item 16). THE DUE BOUND IS statement_timestamp(), NOT
+// clock_timestamp(): a stable function is an Index Cond, a volatile one only a Filter -- and a claim that
+// finds nothing due (every run's last) then walked EVERY pending row of the business (measured, 5 000
+// pending all due in an hour: 85 buffers as a Filter, 2 as an Index Cond; ADR 0028 "API-10 uygulama
+// notu"). The statement's start is microseconds from its clock; the lease stays on clock_timestamp(). attempt is NOT counted here: a claim is not a try
+// (a closed gate gives the row back untouched). The lease is clock_timestamp()-based; the worker
+// keeps the returned value and matches it when it records the result.
+func (q *Queries) ClaimWebhookDelivery(ctx context.Context, arg ClaimWebhookDeliveryParams) (ClaimWebhookDeliveryRow, error) {
+	row := q.db.QueryRow(ctx, claimWebhookDelivery, arg.LeaseSeconds, arg.TenantID)
+	var i ClaimWebhookDeliveryRow
+	err := row.Scan(
+		&i.ID,
+		&i.EndpointID,
+		&i.PunchEventSeq,
+		&i.Attempt,
+		&i.LeaseUntil,
+	)
+	return i, err
+}
+
+const getPunchEventForDelivery = `-- name: GetPunchEventForDelivery :one
+SELECT seq, punch_id, version, status, punch_time, recorded_at, channel, direction,
+       employee_id, employee_ref, employee_code, employee_company,
+       location_id, location_ref, location_name, location_company, tag_uid
+FROM punch_events
+WHERE tenant_id = $1
+  AND seq = $2
+`
+
+type GetPunchEventForDeliveryParams struct {
+	TenantID uuid.UUID
+	Seq      int64
+}
+
+type GetPunchEventForDeliveryRow struct {
+	Seq             int64
+	PunchID         uuid.UUID
+	Version         int32
+	Status          string
+	PunchTime       time.Time
+	RecordedAt      time.Time
+	Channel         string
+	Direction       string
+	EmployeeID      uuid.UUID
+	EmployeeRef     *string
+	EmployeeCode    *string
+	EmployeeCompany *string
+	LocationID      *uuid.UUID
+	LocationRef     *string
+	LocationName    *string
+	LocationCompany *string
+	TagUid          *string
+}
+
+// The event a delivery carries, in the delivering business's own feed (a delivery points at its
+// tenant's (tenant_id, seq) -- 00048's webhook_deliveries_event_fk). The snapshot columns only: the
+// table has no address, coordinate, note, policy context or verdict to read.
+func (q *Queries) GetPunchEventForDelivery(ctx context.Context, arg GetPunchEventForDeliveryParams) (GetPunchEventForDeliveryRow, error) {
+	row := q.db.QueryRow(ctx, getPunchEventForDelivery, arg.TenantID, arg.Seq)
+	var i GetPunchEventForDeliveryRow
+	err := row.Scan(
+		&i.Seq,
+		&i.PunchID,
+		&i.Version,
+		&i.Status,
+		&i.PunchTime,
+		&i.RecordedAt,
+		&i.Channel,
+		&i.Direction,
+		&i.EmployeeID,
+		&i.EmployeeRef,
+		&i.EmployeeCode,
+		&i.EmployeeCompany,
+		&i.LocationID,
+		&i.LocationRef,
+		&i.LocationName,
+		&i.LocationCompany,
+		&i.TagUid,
+	)
+	return i, err
+}
+
 const getWebhookEndpoint = `-- name: GetWebhookEndpoint :one
 
 SELECT id, url, active, created_at, rotated_at
@@ -106,6 +235,85 @@ func (q *Queries) InsertWebhookEndpoint(ctx context.Context, arg InsertWebhookEn
 	return created_at, err
 }
 
+const listWebhookDeliveries = `-- name: ListWebhookDeliveries :many
+SELECT d.id, d.punch_event_seq, d.attempt, d.next_attempt_at, d.lease_until, d.state, d.last_status,
+       d.last_error_class, d.created_at, d.delivered_at, e.punch_id,
+       (d.lease_until IS NOT NULL AND d.lease_until > clock_timestamp())::boolean AS in_flight
+FROM webhook_deliveries d
+JOIN punch_events e ON e.tenant_id = d.tenant_id AND e.seq = d.punch_event_seq
+WHERE d.tenant_id = $1
+  AND e.tenant_id = $1
+  AND d.created_at <= $2
+  AND (d.created_at < $2 OR d.id < $3)
+ORDER BY d.created_at DESC, d.id DESC
+LIMIT $4
+`
+
+type ListWebhookDeliveriesParams struct {
+	TenantID uuid.UUID
+	BeforeAt time.Time
+	BeforeID uuid.UUID
+	PageSize int32
+}
+
+type ListWebhookDeliveriesRow struct {
+	ID             uuid.UUID
+	PunchEventSeq  int64
+	Attempt        int32
+	NextAttemptAt  time.Time
+	LeaseUntil     *time.Time
+	State          string
+	LastStatus     *int32
+	LastErrorClass *string
+	CreatedAt      time.Time
+	DeliveredAt    *time.Time
+	PunchID        uuid.UUID
+	InFlight       bool
+}
+
+// THE DELIVERY LOG (the owner's panel): the business's deliveries, newest first, a page at a time.
+// The position is the last row shown, (created_at, id): every row strictly before it in that order.
+// created_at <= @before_at is the index condition (webhook_deliveries_tenant_created_idx); the id
+// breaks a tie at one instant. The punch's id comes from the business's OWN feed row (the event the
+// delivery carries); nothing of the endpoint's address is read.
+func (q *Queries) ListWebhookDeliveries(ctx context.Context, arg ListWebhookDeliveriesParams) ([]ListWebhookDeliveriesRow, error) {
+	rows, err := q.db.Query(ctx, listWebhookDeliveries,
+		arg.TenantID,
+		arg.BeforeAt,
+		arg.BeforeID,
+		arg.PageSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListWebhookDeliveriesRow{}
+	for rows.Next() {
+		var i ListWebhookDeliveriesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.PunchEventSeq,
+			&i.Attempt,
+			&i.NextAttemptAt,
+			&i.LeaseUntil,
+			&i.State,
+			&i.LastStatus,
+			&i.LastErrorClass,
+			&i.CreatedAt,
+			&i.DeliveredAt,
+			&i.PunchID,
+			&i.InFlight,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockWebhookBucket = `-- name: LockWebhookBucket :one
 SELECT t.id,
        (pg_advisory_xact_lock(hashtextextended('webhook-bucket:' || ($1::uuid)::text, 0)) IS NULL)::boolean AS unlocked
@@ -129,6 +337,65 @@ func (q *Queries) LockWebhookBucket(ctx context.Context, tenantID uuid.UUID) (Lo
 	row := q.db.QueryRow(ctx, lockWebhookBucket, tenantID)
 	var i LockWebhookBucketRow
 	err := row.Scan(&i.ID, &i.Unlocked)
+	return i, err
+}
+
+const lockWebhookDeliveryForResend = `-- name: LockWebhookDeliveryForResend :one
+SELECT id, endpoint_id, state,
+       (lease_until IS NOT NULL AND lease_until > clock_timestamp())::boolean AS in_flight
+FROM webhook_deliveries
+WHERE tenant_id = $1
+  AND id = $2
+FOR UPDATE
+`
+
+type LockWebhookDeliveryForResendParams struct {
+	TenantID uuid.UUID
+	ID       uuid.UUID
+}
+
+type LockWebhookDeliveryForResendRow struct {
+	ID         uuid.UUID
+	EndpointID uuid.UUID
+	State      string
+	InFlight   bool
+}
+
+// The owner's "resend" (ADR 0028 §6): the delivery, locked for the act's transaction, and whether a
+// worker holds a live lease on it right now (a resend then would race the send in flight).
+func (q *Queries) LockWebhookDeliveryForResend(ctx context.Context, arg LockWebhookDeliveryForResendParams) (LockWebhookDeliveryForResendRow, error) {
+	row := q.db.QueryRow(ctx, lockWebhookDeliveryForResend, arg.TenantID, arg.ID)
+	var i LockWebhookDeliveryForResendRow
+	err := row.Scan(
+		&i.ID,
+		&i.EndpointID,
+		&i.State,
+		&i.InFlight,
+	)
+	return i, err
+}
+
+const nextWebhookDeliveryDue = `-- name: NextWebhookDeliveryDue :one
+SELECT count(*)::int AS pending,
+       coalesce(ceil(extract(epoch FROM min(greatest(q.next_attempt_at, coalesce(q.lease_until, q.next_attempt_at))) - clock_timestamp())), 0)::bigint AS due_in_seconds
+FROM webhook_deliveries q
+WHERE q.tenant_id = $1
+  AND q.state = 'pending'
+`
+
+type NextWebhookDeliveryDueRow struct {
+	Pending      int32
+	DueInSeconds int64
+}
+
+// When the business's next pending delivery comes due -- its back-off's end, or a live lease's end
+// (another worker's, or one that died) -- as whole seconds from now (0 or less: due now), and how
+// many are pending (0: nothing waits, and due_in_seconds means nothing). K-19: the worker notices
+// the business again then, a timer for ONE business, never a scan.
+func (q *Queries) NextWebhookDeliveryDue(ctx context.Context, tenantID uuid.UUID) (NextWebhookDeliveryDueRow, error) {
+	row := q.db.QueryRow(ctx, nextWebhookDeliveryDue, tenantID)
+	var i NextWebhookDeliveryDueRow
+	err := row.Scan(&i.Pending, &i.DueInSeconds)
 	return i, err
 }
 
@@ -185,6 +452,87 @@ type ReaddressWebhookEndpointParams struct {
 // A new address for THIS endpoint; its key is unchanged.
 func (q *Queries) ReaddressWebhookEndpoint(ctx context.Context, arg ReaddressWebhookEndpointParams) (int64, error) {
 	result, err := q.db.Exec(ctx, readdressWebhookEndpoint, arg.Url, arg.TenantID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const recordWebhookDeliveryResult = `-- name: RecordWebhookDeliveryResult :one
+UPDATE webhook_deliveries
+SET attempt          = attempt + 1,
+    state            = $1::text,
+    next_attempt_at  = CASE WHEN $1::text = 'pending'
+                            THEN clock_timestamp() + make_interval(secs => $2::int)
+                            ELSE next_attempt_at END,
+    last_status      = $3::int,
+    last_error_class = $4::text,
+    delivered_at     = CASE WHEN $1::text = 'delivered' THEN clock_timestamp() ELSE delivered_at END,
+    lease_until      = NULL
+WHERE tenant_id = $5
+  AND id = $6
+  AND state = 'pending'
+  AND lease_until = $7
+RETURNING attempt, state, next_attempt_at
+`
+
+type RecordWebhookDeliveryResultParams struct {
+	State          string
+	DelaySeconds   int32
+	LastStatus     *int32
+	LastErrorClass *string
+	TenantID       uuid.UUID
+	ID             uuid.UUID
+	LeaseUntil     *time.Time
+}
+
+type RecordWebhookDeliveryResultRow struct {
+	Attempt       int32
+	State         string
+	NextAttemptAt time.Time
+}
+
+// THE RESULT (ADR 0028 §6, step 3), in a short transaction of its own -- and only under THIS
+// worker's lease: a row whose lease expired and was claimed again (or resent) is not this worker's
+// any more, and matches nothing. The caller has decided the state (delivered, pending with
+// @delay_seconds of back-off, dead) from the class and the claimed attempt; the remote's text is
+// never here (ADR 0028 §6: only the closed class and the status). The lease ends with the result.
+func (q *Queries) RecordWebhookDeliveryResult(ctx context.Context, arg RecordWebhookDeliveryResultParams) (RecordWebhookDeliveryResultRow, error) {
+	row := q.db.QueryRow(ctx, recordWebhookDeliveryResult,
+		arg.State,
+		arg.DelaySeconds,
+		arg.LastStatus,
+		arg.LastErrorClass,
+		arg.TenantID,
+		arg.ID,
+		arg.LeaseUntil,
+	)
+	var i RecordWebhookDeliveryResultRow
+	err := row.Scan(&i.Attempt, &i.State, &i.NextAttemptAt)
+	return i, err
+}
+
+const resendWebhookDelivery = `-- name: ResendWebhookDelivery :execrows
+UPDATE webhook_deliveries
+SET state = 'pending',
+    next_attempt_at = clock_timestamp(),
+    lease_until = NULL
+WHERE tenant_id = $1
+  AND id = $2
+  AND state IN ('pending', 'dead')
+  AND (lease_until IS NULL OR lease_until <= clock_timestamp())
+`
+
+type ResendWebhookDeliveryParams struct {
+	TenantID uuid.UUID
+	ID       uuid.UUID
+}
+
+// Makes a pending or dead delivery due NOW. attempt is kept: a dead delivery (its sixth try spent)
+// revived by a resend gets ONE try -- failing, it is dead again -- so one bucket slot is one request;
+// a pending one keeps the rest of its schedule. Not under a live lease (the caller refused that).
+func (q *Queries) ResendWebhookDelivery(ctx context.Context, arg ResendWebhookDeliveryParams) (int64, error) {
+	result, err := q.db.Exec(ctx, resendWebhookDelivery, arg.TenantID, arg.ID)
 	if err != nil {
 		return 0, err
 	}

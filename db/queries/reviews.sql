@@ -200,3 +200,13 @@ WHERE t.tenant_id = @tenant_id
   AND t.id = sqlc.arg('transaction_id')::uuid
   AND t.verdict = 'flag'
 RETURNING id, reviewed_at;
+
+-- name: GetReviewedPunchSite :one
+-- K-19's second tenant of an APPROVAL (M11 API-10, ADR 0028 §6: "holding punch'ında iki tenant da"):
+-- the reviewed record's site business -- NULL for a tap on the business's own plaque. Read in the
+-- review's own transaction, after the insert; the record is this business's (the explicit predicate
+-- and RLS). Only the id is read: the approval puts that business into the worker's set, nothing more.
+SELECT site_tenant_id
+FROM transactions
+WHERE tenant_id = @tenant_id
+  AND id = @id;

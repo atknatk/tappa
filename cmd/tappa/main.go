@@ -64,6 +64,7 @@ import (
 	"github.com/atknatk/tappa/internal/session"
 	"github.com/atknatk/tappa/internal/sun"
 	"github.com/atknatk/tappa/internal/webhook"
+	"github.com/atknatk/tappa/internal/webhook/delivery"
 	"github.com/atknatk/tappa/internal/webhook/endpoints"
 )
 
@@ -363,8 +364,9 @@ func run() error {
 	// loop. A recorded tap puts its tenant -- both tenants of a holding tap -- into it, and so does
 	// every authenticated /v1 request (openAPISurface, below): no path ever scans across tenants. Its
 	// first job, API-6's invitation queue, is added once the e-mail transport exists (below, after
-	// the panel's invitation route) and the worker is started there; API-10's delivery follows. It
-	// drains beside the HTTP server at shutdown.
+	// the panel's invitation route); API-10's delivery job beside the webhook endpoint (below); an
+	// approval and a resend notice too. The worker is started once every job is added. It drains
+	// beside the HTTP server at shutdown.
 	work, err := webhook.NewWorker(slog.Default())
 	if err != nil {
 		return err
@@ -410,6 +412,9 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// An APPROVAL writes the punch's feed events and webhook deliveries (00049), so its commit puts
+	// the business -- and a holding record's site business -- into K-19's set (M11 API-10).
+	reviewer.NoticeWorkTo(work)
 	// The employees section's WRITE side (M6-05 phase B): deactivate, and move
 	// somebody between venues or departments. It takes the SAME audit recorder for
 	// the same reason the reviewer does — the employee change and its trail row have
@@ -794,7 +799,20 @@ func run() error {
 		if err != nil {
 			return err
 		}
+		// A resend from the delivery log puts its business into K-19's set (M11 API-10).
+		webhookEndpoints.NoticeWorkTo(work)
 		panelOptions = append(panelOptions, handler.IntegrationWebhook(webhookEndpoints))
+		// THE WEBHOOK SENDER (M11 API-10, ADR 0028 §6): a job of K-19's worker, through the SAME
+		// egress client as the ping -- one SSRF gate for every request to an owner's address. It runs
+		// for a business the worker hands it (a tap, an approval, an API call, a resend), never across
+		// businesses, and drains with the worker beside the HTTP server's Shutdown.
+		deliveries, err := delivery.New(cfg.WebhookKEK, data, webhookEgress, slog.Default())
+		if err != nil {
+			return err
+		}
+		if err := work.Add(deliveries); err != nil {
+			return err
+		}
 	}
 	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, ruleWriter, books, accounts, brandReader, brandWriter, encoder, resetFlow, cfg, slog.Default(), panelOptions...)
 	if err != nil {

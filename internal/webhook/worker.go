@@ -1,12 +1,13 @@
-// Package webhook is the integration API's outbound side (ADR 0028 §6, §13). Today (M11 API-4) it is
-// the SKELETON of K-19's worker: the in-process set of "tenants with work" and the loop that drains
-// it. Delivery itself -- the lease, the signature, the retries, the dial-time address gate -- is
-// API-10's; the invitation queue's sender is API-6's. Both arrive as a Job.
+// Package webhook is the integration API's outbound side (ADR 0028 §6, §13): K-19's worker -- the
+// in-process set of "tenants with work" and the loop that drains it (M11 API-4) -- and the signing key
+// (API-9). The work itself arrives as Jobs: API-6's invitation queue (internal/invite) and API-10's
+// delivery -- the lease, the signature, the retries, through the dial-time address gate -- in
+// internal/webhook/delivery (a package of its own: this one reads nothing, see below).
 //
 // 🔴 K-19 (the user's decision, 2026-10-09): THE WORKER NEVER SCANS ACROSS TENANTS. There is no
 // "every tenant" anywhere in this package: a tenant enters the set when something HAPPENED to it in
-// this process -- a tap recorded (both tenants of a holding tap), an authenticated /v1 request (and,
-// with API-9/10, an approval and the panel's "resend") -- and the loop hands each tenant it takes to
+// this process -- a tap recorded (both tenants of a holding tap), an authenticated /v1 request, an
+// approval (both tenants of a holding record -- API-10) and the panel's "resend" -- and the loop hands each tenant it takes to
 // each Job, which reads ONLY that tenant's rows, in WithTenant with an explicit tenant_id filter. A
 // pod that restarts starts with an empty set: work that was pending waits for the tenant's next tap
 // or API call (plan §2 item 20 -- the named cost). TestWorker_NoTenantWideRead pins the package
@@ -16,7 +17,8 @@
 // The set is per PROCESS. Two pods each hold their own and may hand the same tenant to their own
 // Job at the same moment (TestWorker_TwoProcessesBothRunTheJob): a Job must therefore take its rows
 // under a lease (FOR UPDATE SKIP LOCKED -- ADR 0028 §6) and may assume nothing about being alone.
-// The product runs one replica today; the lease is still API-10's acceptance.
+// The product runs one replica today; the delivery's lease is measured with two
+// (TestWebhookWorker_TwoPodsSendOnce, internal/egress).
 package webhook
 
 import (

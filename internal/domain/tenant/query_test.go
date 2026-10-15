@@ -404,7 +404,7 @@ func fileBelt(t *testing.T, file string, floor int) {
 // GetWebhookEndpointForSigning (`WHERE true`), from ReadWebhookBucket and from
 // RotateWebhookEndpointKey, and `t.id = @tenant_id` replaced in LockWebhookBucket -> red, each.
 func TestWebhookQueries_CarryAnExplicitTenantPredicate(t *testing.T) {
-	fileBelt(t, "webhooks.sql", 8)
+	fileBelt(t, "webhooks.sql", 15)
 }
 
 // TestAPIKeyQueries_CarryAnExplicitTenantPredicate is the same belt over apikeys.sql (M11 API-3):
@@ -1321,6 +1321,13 @@ func tenantTablesIn(block string, scoped map[string]bool) []string {
 // `UPDATE employees e ... FROM locations l` block ask about employees rather than
 // about locations.
 func subjectOf(block string) subject {
+	// A LOCKING CLAUSE IS NOT A STATEMENT (M11 API-10): `FOR UPDATE SKIP LOCKED` inside a subquery
+	// matched the UPDATE arm below as "UPDATE skip locked" -- a table called skip aliased locked --
+	// and a correctly scoped claim (ClaimWebhookDelivery's `WHERE q.tenant_id = @tenant_id ...
+	// FOR UPDATE SKIP LOCKED`) was flagged for not binding LOCKED.tenant_id (measured: red without
+	// this line, green with it; the subject is then the subquery's FROM). The clause is blanked
+	// before the subject is read; whereClauses already stops at it.
+	block = lockingClauseRE.ReplaceAllStringFunc(block, func(m string) string { return strings.Repeat(" ", len(m)) })
 	for _, re := range []*regexp.Regexp{
 		regexp.MustCompile(`(?is)\b(?:UPDATE|DELETE\s+FROM)\s+(?:ONLY\s+)?(?:public\.)?([a-z_][a-z0-9_]*)\s*(?:AS\s+)?([a-z_][a-z0-9_]*)?`),
 		regexp.MustCompile(`(?is)\bFROM\s+(?:ONLY\s+)?(?:public\.)?([a-z_][a-z0-9_]*)\s*(?:AS\s+)?([a-z_][a-z0-9_]*)?`),
@@ -1331,6 +1338,9 @@ func subjectOf(block string) subject {
 	}
 	return subject{column: "tenant_id"}
 }
+
+// lockingClauseRE is a row-locking clause (FOR [NO KEY] UPDATE, FOR [KEY] SHARE).
+var lockingClauseRE = regexp.MustCompile(`(?is)\bFOR\s+(?:NO\s+KEY\s+)?UPDATE\b|\bFOR\s+(?:KEY\s+)?SHARE\b`)
 
 func newSubject(table, alias string) subject {
 	switch strings.ToUpper(alias) {

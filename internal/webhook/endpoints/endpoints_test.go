@@ -9,7 +9,7 @@ import "testing"
 func TestEndpoints_SuspensionClassesAreSection10(t *testing.T) {
 	for act, open := range map[Act]bool{
 		actUnnamed: false, ActCreate: false, ActRotate: false, ActReaddress: false,
-		ActDisable: true, ActEnable: false, ActPing: false,
+		ActDisable: true, ActEnable: false, ActPing: false, ActResend: false,
 	} {
 		if OpenWhileSuspended(act) != open {
 			t.Errorf("act %d: open while suspended %v, want %v", act, OpenWhileSuspended(act), open)

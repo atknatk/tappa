@@ -108,6 +108,29 @@ func (q *Queries) CountPendingFlagged(ctx context.Context, arg CountPendingFlagg
 	return pending, err
 }
 
+const getReviewedPunchSite = `-- name: GetReviewedPunchSite :one
+SELECT site_tenant_id
+FROM transactions
+WHERE tenant_id = $1
+  AND id = $2
+`
+
+type GetReviewedPunchSiteParams struct {
+	TenantID uuid.UUID
+	ID       uuid.UUID
+}
+
+// K-19's second tenant of an APPROVAL (M11 API-10, ADR 0028 §6: "holding punch'ında iki tenant da"):
+// the reviewed record's site business -- NULL for a tap on the business's own plaque. Read in the
+// review's own transaction, after the insert; the record is this business's (the explicit predicate
+// and RLS). Only the id is read: the approval puts that business into the worker's set, nothing more.
+func (q *Queries) GetReviewedPunchSite(ctx context.Context, arg GetReviewedPunchSiteParams) (*uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, getReviewedPunchSite, arg.TenantID, arg.ID)
+	var site_tenant_id *uuid.UUID
+	err := row.Scan(&site_tenant_id)
+	return site_tenant_id, err
+}
+
 const getTransactionReview = `-- name: GetTransactionReview :one
 SELECT r.reviewer_id, r.outcome
 FROM transaction_reviews r

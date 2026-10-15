@@ -1,8 +1,8 @@
 // Package endpoints is the owner's webhook endpoint (M11 API-9, ADR 0028 §6, §7, §10): create it,
 // rotate its signing key, change its address, switch it off and on, and send it a test ping. One
-// endpoint per business (webhook_endpoints_one_per_tenant). The deliveries themselves -- the table,
-// the worker, the retries, the delivery log, "resend" -- are API-10's; this package hands that work
-// two things it needs: the sealed key's AAD rule (the endpoint id) and the ping/resend bucket.
+// endpoint per business (webhook_endpoints_one_per_tenant). The deliveries are API-10's: the sender is
+// internal/webhook/delivery (it opens the sealed key by this package's AAD rule -- the endpoint id);
+// the owner's delivery log and "resend" (which spends the ping's bucket) are in deliveries.go.
 //
 // It is a package of its own, beside internal/webhook rather than in it, because internal/webhook is
 // K-19's worker and is pinned to read nothing itself (TestWorker_NoTenantWideRead: no internal/db, no
@@ -29,6 +29,7 @@
 //	rotate the key               403                "döndürme"
 //	change the address           403                "adres değiştirme"
 //	test ping                    403                "test ping"
+//	resend a delivery (API-10)   403                "panelden yeniden gönder"
 //	switch on (Enable)           403                not named -> closed by default ("tabloda adı
 //	                                                geçmeyen her M11 yazması askıda kapalıdır")
 //
@@ -148,6 +149,9 @@ type Service struct {
 	trail Trail
 	send  Sender
 	now   func() time.Time
+	// work is K-19's set: a committed resend puts the business into it (deliveries.go). nil until
+	// NoticeWorkTo.
+	work WorkNoticer
 }
 
 // New builds the service. The KEK is TAPPA_WEBHOOK_KEK (32 bytes); a deployment without it builds no
@@ -174,6 +178,8 @@ const (
 	ActDisable
 	ActEnable
 	ActPing
+	// ActResend is API-10's "resend" from the delivery log (deliveries.go).
+	ActResend
 )
 
 // openWhileSuspended is ADR 0028 §10's left column as far as the endpoint goes. Everything else --

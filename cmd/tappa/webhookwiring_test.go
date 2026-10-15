@@ -19,8 +19,14 @@ import (
 // production package but cmd/tappa, internal/webhook/endpoints and internal/handler (the client is
 // built in one place; a second, hand-assembled client would escape these pins).
 //
+// API-10 (the sender): run() calls delivery.New ONCE, with cfg.WebhookKEK and THE SAME egress client
+// (one SSRF gate for the ping and every delivery), adds its result to K-19's worker (W.Add), and hands W
+// to the endpoint service's and the reviewer's NoticeWorkTo (a resend and an approval enter K-19's set);
+// internal/webhook/delivery joins the packages that import internal/egress.
+//
 // MUTANTS (measured): the allowance set to true -> red; the Blocked option dropped -> red; the panel
-// option appended with another value -> red.
+// option appended with another value -> red. API-10: delivery.New given another sender, the job not
+// added to W, either NoticeWorkTo removed -> each red.
 func TestWebhookWiring_TheEndpointServiceReachesThePanel(t *testing.T) {
 	f, err := parser.ParseFile(token.NewFileSet(), filepath.Join(repoRoot, "cmd", "tappa", "main.go"), nil, 0)
 	if err != nil {
@@ -43,8 +49,8 @@ func TestWebhookWiring_TheEndpointServiceReachesThePanel(t *testing.T) {
 		id, ok := sel.X.(*ast.Ident)
 		return ok && id.Name == pkg
 	}
-	var egressCalls, endpointCalls, panelCalls int
-	egressVar, endpointsVar := "", ""
+	var egressCalls, endpointCalls, panelCalls, deliveryCalls int
+	egressVar, endpointsVar, deliveryVar, workVar, reviewerVar := "", "", "", "", ""
 	panelOK := false
 	ast.Inspect(run, func(n ast.Node) bool {
 		if c, ok := n.(*ast.CallExpr); ok && isSel(c.Fun, "handler", "IntegrationWebhook") {
@@ -85,6 +91,23 @@ func TestWebhookWiring_TheEndpointServiceReachesThePanel(t *testing.T) {
 					t.Errorf("egress.New takes an unexpected option %s", kv.Key.(*ast.Ident).Name)
 				}
 			}
+		case isSel(c.Fun, "webhook", "NewWorker"):
+			if lhs != nil {
+				workVar = lhs.Name
+			}
+		case isSel(c.Fun, "review", "NewReviewer"):
+			if lhs != nil {
+				reviewerVar = lhs.Name
+			}
+		case isSel(c.Fun, "delivery", "New"):
+			deliveryCalls++
+			if lhs != nil {
+				deliveryVar = lhs.Name
+			}
+			sender, _ := c.Args[2].(*ast.Ident)
+			if len(c.Args) != 4 || !isSel(c.Args[0], "cfg", "WebhookKEK") || sender == nil || sender.Name != egressVar {
+				t.Error("delivery.New is not given cfg.WebhookKEK and the egress client built above")
+			}
 		case isSel(c.Fun, "endpoints", "New"):
 			endpointCalls++
 			if lhs != nil {
@@ -112,7 +135,38 @@ func TestWebhookWiring_TheEndpointServiceReachesThePanel(t *testing.T) {
 			egressCalls, endpointCalls, panelCalls, panelOK)
 	}
 
-	allowed := map[string]bool{"cmd/tappa": true, "internal/webhook/endpoints": true, "internal/handler": true}
+	// API-10: the job joins the worker, and a resend and an approval notice it.
+	var added, endpointsNotice, reviewerNotice bool
+	ast.Inspect(run, func(n ast.Node) bool {
+		c, ok := n.(*ast.CallExpr)
+		if !ok || len(c.Args) != 1 {
+			return true
+		}
+		sel, ok := c.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		recv, _ := sel.X.(*ast.Ident)
+		arg, _ := c.Args[0].(*ast.Ident)
+		if recv == nil || arg == nil {
+			return true
+		}
+		switch {
+		case sel.Sel.Name == "Add" && recv.Name == workVar && arg.Name == deliveryVar:
+			added = true
+		case sel.Sel.Name == "NoticeWorkTo" && recv.Name == endpointsVar && arg.Name == workVar:
+			endpointsNotice = true
+		case sel.Sel.Name == "NoticeWorkTo" && recv.Name == reviewerVar && arg.Name == workVar:
+			reviewerNotice = true
+		}
+		return true
+	})
+	if deliveryCalls != 1 || workVar == "" || deliveryVar == "" || !added || !endpointsNotice || !reviewerNotice {
+		t.Fatalf("run(): delivery.New %d (as %q), added to the worker %q: %v; NoticeWorkTo -- endpoints %v, reviewer %v",
+			deliveryCalls, deliveryVar, workVar, added, endpointsNotice, reviewerNotice)
+	}
+
+	allowed := map[string]bool{"cmd/tappa": true, "internal/webhook/endpoints": true, "internal/handler": true, "internal/webhook/delivery": true}
 	importers := 0
 	err = filepath.WalkDir(repoRoot, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -145,7 +199,7 @@ func TestWebhookWiring_TheEndpointServiceReachesThePanel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if importers < 3 {
+	if importers < 4 {
 		t.Fatalf("CONTROL: only %d production files import internal/egress", importers)
 	}
 }

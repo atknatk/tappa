@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/atknatk/tappa/internal/domain/tenant"
+	"github.com/atknatk/tappa/internal/punchwire"
 )
 
 // THE PUNCH FEED (M11 API-7; ADR 0028 §2, §4, §5, §8, §10; K-4, K-5, K-13, K-31, K-32, K-40):
@@ -58,9 +59,7 @@ type Punches interface {
 var _ Punches = (*tenant.PunchFeed)(nil)
 
 const (
-	punchesPath   = "/punches"
-	punchIDPrefix = "pch_"
-	tagIDPrefix   = "tag_"
+	punchesPath = "/punches"
 	// cursorPrefix makes the cursor a value of its own shape: a bare number would invite arithmetic
 	// on it, and a later cursor of another meaning (the history query's) can be told apart.
 	cursorPrefix = "cur_"
@@ -177,33 +176,9 @@ func punchQuery(r *http.Request, tenantID uuid.UUID) (punchRequest, *Problem) {
 	return req, nil
 }
 
-// punchBody is one punch on the wire.
-type punchBody struct {
-	ID         string        `json:"id"`
-	Version    int32         `json:"version"`
-	Status     string        `json:"status"`
-	PunchTime  time.Time     `json:"punchTime"`
-	RecordedAt time.Time     `json:"recordedAt"`
-	Channel    string        `json:"channel"`
-	Direction  string        `json:"direction"`
-	Employee   punchEmployee `json:"employee"`
-	Location   punchLocation `json:"location"`
-	TagID      *string       `json:"tagId"`
-}
-
-type punchEmployee struct {
-	ID           string  `json:"id"`
-	ExternalRef  *string `json:"externalRef"`
-	EmployeeCode *string `json:"employeeCode"`
-	Company      *string `json:"company"`
-}
-
-type punchLocation struct {
-	ID          *string `json:"id"`
-	ExternalRef *string `json:"externalRef"`
-	Name        *string `json:"name"`
-	Company     *string `json:"company"`
-}
+// punchBody is one punch on the wire -- punchwire's, the same struct a webhook delivery carries
+// (ADR 0028 §6: the webhook's body is this item plus its event name and delivery id).
+type punchBody = punchwire.Punch
 
 type punchPage struct {
 	Data       []punchBody `json:"data"`
@@ -211,25 +186,7 @@ type punchPage struct {
 	HasMore    bool        `json:"hasMore"`
 }
 
-func punchOf(e tenant.PunchEvent) punchBody {
-	b := punchBody{
-		ID: punchIDPrefix + e.PunchID.String(), Version: e.Version, Status: e.Status,
-		PunchTime: e.PunchTime.UTC(), RecordedAt: e.RecordedAt.UTC(), Channel: e.Channel, Direction: e.Direction,
-		Employee: punchEmployee{ID: employeeIDPrefix + e.EmployeeID.String(), ExternalRef: e.EmployeeRef,
-			EmployeeCode: e.EmployeeCode, Company: e.EmployeeCompany},
-		Location: punchLocation{ExternalRef: e.LocationRef, Name: e.LocationName, Company: e.LocationCompany},
-	}
-	if e.LocationID != nil {
-		id := locationIDPrefix + e.LocationID.String()
-		b.Location.ID = &id
-	}
-	if e.TagUID != nil {
-		// tags.uid is character(14): a full UID fills it; the trim keeps a padded value off the wire.
-		id := tagIDPrefix + strings.TrimRight(*e.TagUID, " ")
-		b.TagID = &id
-	}
-	return b
-}
+func punchOf(e tenant.PunchEvent) punchBody { return punchwire.Of(e) }
 
 func (s *Surface) listPunches(w http.ResponseWriter, r *http.Request) {
 	p, _ := PrincipalOf(r)
