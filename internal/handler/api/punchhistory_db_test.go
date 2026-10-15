@@ -299,6 +299,11 @@ func TestPunchHistory_TheRangeAndTheCursorAreTheContract(t *testing.T) {
 	bad("a lower-case t", "scope=employer&from=2026-10-01t00:00:00Z&to="+ts, "range", "01t00")
 	bad("an hour of 25", "scope=employer&from=2026-10-01T25:00:00Z&to="+ts, "range")
 	bad("a 31st of February", "scope=employer&from=2026-02-31T00:00:00Z&to=2026-03-02T00:00:00Z", "range")
+	// A space in the date-time's middle is a malformed instant, not an unencoded '+': no hint.
+	spaced := w.get(w.kf.raw, "scope=employer&from=2026-09-01+00:00:00Z&to="+ts)
+	if pr := problemOf(t, spaced); spaced.Code != http.StatusBadRequest || pr.Details["reason"] != nil || fmt.Sprint(pr.Details["parameters"]) != "[from to]" {
+		t.Errorf("a space for the T: %d %s, want the range's 400 without the '+' hint", spaced.Code, spaced.Body.String())
+	}
 	plus := w.get(w.kf.raw, "scope=employer&from=2026-10-01T00:00:00+02:00&to=2026-10-02T00:00:00+02:00")
 	if pr := problemOf(t, plus); plus.Code != http.StatusBadRequest || pr.Details["reason"] != "unencoded_plus" || strings.Contains(plus.Body.String(), "02:00") {
 		t.Errorf("an unencoded '+': %d %s, want 400 naming the encoding and repeating nothing", plus.Code, plus.Body.String())
@@ -573,10 +578,12 @@ func TestPunchHistory_WalksNeitherSkipNorRepeatUnderConcurrentWriters(t *testing
 }
 
 // tieGroup gives b n events at ONE punch_time whose heap order is the REVERSE of their feed order.
-// The triggers cannot produce that (a tenant's seq and its row are written under one lock, so the
-// heap follows seq and an index scan of (tenant_id, punch_time) returns ties in seq order by
-// accident); a tie broken by anything but seq is then invisible. So the rows are a fixture: n flags
-// (no event), and as the owner -- in b's context, append-only respected (INSERT only) -- their events
+// The product CAN produce such a heap -- the API-7b third round measured it on the shipped path
+// (tappa_app, the real triggers): a rolled-back bulk write, a committed tap, VACUUM, a second tap at
+// the same instant, and heap and index order were seq=2, seq=1 -- but only by that chance; in an
+// ordinary run the heap follows seq and a scan returns ties in seq order by accident, so a tie broken
+// by anything but seq stays invisible. The fixture makes the reverse order certain: n flags (no
+// event), and as the owner -- in b's context, append-only respected (INSERT only) -- their events
 // with seq counter+n down to counter+1, the counter moved to counter+n. Returns the punch ids in feed
 // (seq) order.
 func (w *punchWorld) tieGroup(b punchBiz, n int, at time.Time) []uuid.UUID {
@@ -619,9 +626,12 @@ func (w *punchWorld) tieGroup(b punchBiz, n int, at time.Time) []uuid.UUID {
 // TestPunchHistory_ATieIsBrokenByTheFeedOrder (API-7b review, E-ORTA): 32 punches at one instant,
 // written so the heap holds them in the REVERSE of their feed order (tieGroup), between two
 // punches before and after them. Walked with every page size from 1 to 7 and with 50, the range
-// answers them in feed order, each once -- the tie is broken by the feed position everywhere it
-// is ordered (the window, its end, the page). MUTANT (measured): ORDER BY punch_time alone, in the
-// window, its end and the page -- red.
+// answers them in feed order, each once -- the behaviour, end to end. It does NOT pin the statements'
+// ORDER BY texts: with seq in punch_events_tenant_time_idx (API-7b third round) the index walk
+// returns ties in seq order whatever the ORDER BY says, so seq dropped from the page's, the window's
+// or the end's ORDER BY stays green here (measured; before the index change the page's was red here
+// and the window's and the end's were equivalent mutants). The texts are pinned with the index scans
+// off: internal/domain/tenant's TestPunchHistory_TheTieBreakIsTheTextsNotThePlans (all three red).
 func TestPunchHistory_ATieIsBrokenByTheFeedOrder(t *testing.T) {
 	w := newPunchWorld(t)
 	t0 := histBase()
