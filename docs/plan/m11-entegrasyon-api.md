@@ -556,8 +556,11 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
   **(API-6 ikinci tur)** `activationEmail.status` dört değerlidir: `queued` (başarısız gönderim yeniden denenirken de),
   `sent` (teslim edilmiş ve hâlâ geçerli bağlantı), `undelivered` (son deneme ulaşmadı, kuyrukta bir şey yok — resend yeniden
   ister), `none`. **(Üçüncü tur)** Kuyruktaki bir davet en çok 72 saat bekler (tavan, kesici ya da kapalı API — operatör
-  API'yi kapattığında kuyruk durur, açılınca sürer); gerçek gönderim hatası (4xx dahil) 5 kez denenir; ikisinden biri dolunca
-  durum `undelivered`'dır. **Tenant içi kehanet:** 409 `email_unavailable`, 422 `administrator_address` ve adresle bağlama, anahtar
+  API'yi kapattığında kuyruk durur, açılınca sürer — ömür kapalıyken de işler); gerçek gönderim hatası (4xx dahil) 5 kez
+  denenir; ikisinden biri dolunca durum `undelivered`'dır. **(Dördüncü tur — toplu ilk senkron)** İşletme günde en çok 300
+  davet basar (ADR 0022 §9): tek seferde ~900'den fazla çalışan açan bir senkronda kalanlar 72 saat içinde gönderilemez ve
+  `undelivered` olur — nedeni (tavan mı, röle mi) API'de ayrılmaz; çare her ikisinde resend'dir. Büyük ilk senkronu günlere
+  yaymak ya da `undelivered` olanlara resend göndermek önerilir. **Tenant içi kehanet:** 409 `email_unavailable`, 422 `administrator_address` ve adresle bağlama, anahtar
   sahibine kendi işletmesinde bir adresin kimde olduğunu söyler — rehber bunu açıkça yazar.
 - **API-13:** **(API-6 ikinci turundan, 2026-10-15 — deploy öncesi)** Aşağıdaki isim sayımına `employees`'in `full_name`,
   `first_name` ve `last_name` sütunları da girer (panelin ekleme yolu artık aynı kurala bağlı; kayıtlı adlar yeniden

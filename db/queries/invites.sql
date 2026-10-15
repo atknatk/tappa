@@ -477,8 +477,11 @@ WHERE e.tenant_id = @tenant_id
 -- invite.code_emailed (or, in the panel mode, invite.code_shown_to_manager) row names it (M11 API-6,
 -- K-17, internal/invite queue.go): the queue gives up on the person (five failed sends, or a request
 -- older than its lifetime), and a live link nobody received is neither "sent" nor safe to leave
--- standing. A DELIVERED link -- a panel press that reached the person -- is never touched; nor is a
--- spent, retired or expired one. The same one-way discipline as CancelPendingInvitesForEmployee
+-- standing. A link with a RECORDED delivery -- its invite.code_emailed / code_shown_to_manager row
+-- written -- is never touched; nor is a spent, retired or expired one. ⚠️ "Recorded", not "sent": a
+-- panel press minted and committed but whose e-mail row is not written yet (the send is after the
+-- commit) looks undelivered here and is retired if the queue gives up at that moment (API-6 review
+-- D-g, named in ADR 0028). The same one-way discipline as CancelPendingInvitesForEmployee
 -- (cancelled_at NULL -> now(), never back). It writes cancelled_at only.
 --
 -- TENANT SCOPE (section 4.5, belt + braces): explicit predicates on top of RLS, the sub-query's too.

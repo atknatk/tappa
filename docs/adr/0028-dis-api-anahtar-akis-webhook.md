@@ -1829,7 +1829,9 @@ adlandırıldı). Anahtar bölümündeki "20" artık satırın `detail.budget`'�
 bildirimi de kapalı tenant'ın kuyruğunu işletiyordu). §2 kapıyı "her yolda", işçinin gönderim anı dahil ister. Basım işlemi
 artık kişinin durumundan sonra `tenants.api_enabled_at`'i okur: kapalıysa hiçbir şey basılmaz ve gönderilmez, deneme
 harcanmaz, istek **silinmez**, 15 dk sonra yeniden vadelidir (`queued` kalır — durumun anlamı "bekliyor"dur, yeni bir değer
-eklemek entegratöre kendi kapatılmamış API'sinde görünmeyecek bir hâli anlatırdı); yeniden açılınca kaldığı yerden gider.
+eklemek entegratöre kendi kapatılmamış API'sinde görünmeyecek bir hâli anlatırdı); yeniden açılınca kaldığı yerden gider. *Adlandırılmış yarış (dördüncü tur D-c):* kapı basım işleminde **kilitsiz** okunur; o okumadan sonra commit edilen bir
+kapatma, uçuştaki tek gönderimi durdurmaz — kapanıştan sonra en çok bir e-posta gider (denetim ölçtü); sonraki her koşu kapıyı
+yeniden okur. `tenants` satırını kilitlemek her basımı operatörün yazmasıyla sıraya sokardı; bir e-posta için değmez.
 `TestInviteQueue_AClosedAPISendsNothingAndWaits` (kapalı → 0 basım, 0 gönderim, istek duruyor, `queued`; açılınca gönderilir).
 Mutant (kapı kaldırılınca kapalı tenant'a gönderim) kırmızı. Kuyruk testlerinin işletmesi artık sahip bağlantısıyla açılır.
 *Sınır:* 72 saatten uzun kapalı kalan bir işletmenin istekleri açıldığında ömrünü doldurmuş olur ve `undelivered`'a düşer
@@ -1841,8 +1843,8 @@ sayar (`CountRecentInvites` `employee_invites` satırlarını sayar — kod okum
 (a) basımdan **önce** sırayla: tavanlar, adresin kalıcı retleri, kesici (`RecipientCap.Refusing` → `Breaker.Refusing`; kuyruğun
 kendi `invite.QueueSink` arayüzü) ve kutu tavanı — ret basım yapmaz, sayaç harcamaz, deneme harcamaz; adres basımdan sonra
 yeniden okunur ve gideceği yerin otoritesi o kalır; (b) sınıftan bağımsız **72 saatlik ömür**: `requested_at` daha eskiyse
-vazgeçilir — kişinin teslim edilmemiş bağlantıları emekliye ayrılır (`RetireUndeliveredInvites`: teslim edilmiş bir bağlantıya
-asla dokunmaz; ikinci turun id'li `RetireUndeliveredInvite`'ının yerini aldı), `invite.email_refused` `reason:
+vazgeçilir — kişinin teslim edilmemiş bağlantıları emekliye ayrılır (`RetireUndeliveredInvites`: teslimi **kaydedilmiş** bir bağlantıya
+asla dokunmaz — dördüncü turda daraltıldı, aşağıda D-g; ikinci turun id'li `RetireUndeliveredInvite`'ının yerini aldı), `invite.email_refused` `reason:
 "request_expired"` yazılır, istek çıkar, API `undelivered` der; (c) **4xx bir denemedir** (gerekçe: `internal/mail` bir 4xx'i
 gönderimin içinde bir kez yeniden dener; burada görülen ikinci ret; erteleme sayılınca bir alan adının her alıcıya 450
 vermesi isteği ömür boyunca canlı tutuyor, her denemede kod basıyordu). Gönderimde dönen kesici/kutu reddi (basım öncesi
@@ -1883,3 +1885,39 @@ anahtar, tek limit; bant çizilir). Mutant (çıplak `::int`) 500 — kırmızı
 işçi log'a yazar) davet `sent` görünmez: istek kuyruktan çıkar, durum `none` ya da önceki denemenin `undelivered`'ıdır, ve bir
 resend ikinci bir e-posta gönderip ilk bağlantıyı emekliye ayırır. Teslimin kanıtı iz satırıdır; satırsız bir gönderim
 kanıtsızdır.
+
+**Dördüncü tur (2026-10-15 — üçüncü tur iki mercekten ONAY; kalan DÜŞÜK'ler, yeniden denetim yok, her değişiklik ölçüldü).**
+
+*D-a — ömür kapıdan önce.* Kapalı kontrolü ömürden önce geldiği için kapalı bir işletmenin kuyruğu 15 dakikada bir sonsuza dek
+işleniyordu; plan §5 API-12 "en çok 72 saat" diyor. Ömür artık K-22 kapısından **önce** yargılanır: kapalıyken de 72 saatte
+`undelivered`. `TestInviteQueue_AClosedAPIStillEndsAtTheLifetime`; mutant (sıra değişince `*Later`, istek kalır) kırmızı.
+
+*D-d — ömür ve vazgeçme pinlendi.* `TestInviteQueue_ALifetimeEndsEveryRequest` artık alt kenarı (71 saatlik istek bekler) ve
+vazgeçmenin emekliye ayırmasını (önceki bir koşunun bastığı, gönderimi kesicinin reddettiği bağlantı vazgeçmeden sonra ölü)
+pinler. Mutantlar — `queueLifetime` bir dakika, `giveUp`'tan emekliye ayırma kaldırılınca, sıra değişince — her biri kırmızı.
+
+*D-b — `00054`'e `lock_timeout`.* Ölçüldü (denetim): açık bir `audit_log` işleminin arkasında `CREATE INDEX` 5,3 sn bekledi,
+ardındaki iz yazması 3 sn'de düştü; `op_remove_holding_member` `audit_log`'u beklerken üyelik satırını tutar (ADR 0027 §13
+madde 16). `00054` henüz yayınlanmadığı için yerinde değişti: Up ve Down ilk ifade olarak `SET LOCAL lock_timeout = '1s'`
+(API-2 emsali). `TestAuditLog00054_GivesUpAfterASecondBehindAnOpenWrite`: `00054`'ün kendi Up bölümü açık bir `audit_log`
+INSERT'inin arkasında 1,06 sn'de 55P03; mutant (`SET LOCAL` kaldırılınca 4 sn bekler) kırmızı. `deploy/README.md`'nin
+`lock_timeout` bölümüne eşikle yazıldı (~1 M satır ≈ 0,8 sn; ~2,5 M satırın üstünde `CONCURRENTLY` ile ayrı migration).
+
+*D-e — liste koruması.* `TestAPIEmployees_TheListAndTheSingleReadAgree`'ye iki kişi: E (önce başarısız, sonra teslim edilmiş ama
+süresi dolmuş deneme → `none`) ve işletmenin en yeni iz satırının sahibi G (başarısız → `undelivered`). Yeşil kalan mutantlar —
+listede kişi yüklemi (`la_a.target = e.id`) kaldırılınca; son deneme eskiden yeniye okununca, listede ve tekil okumada — artık
+kırmızı. D-4'ün sınırları: `"20"` (JSON dizesi) ve on haneli `1234567890` limit göstermez; `jsonb_typeof` kaldırılınca ve hane
+sınırı ona çıkınca kırmızı (`TestApiKeyPanel_AMalformedBudgetIsReadAsNone`).
+
+*D-f — toplu davet ve ömür (karar).* ADR 0022 §9'un işletme tavanı günde 300 basım; tek seferde ~900'den fazla çalışan açan bir
+senkronda kalanlar 72 saatte `request_expired` olur ve API onları `undelivered` olarak gösterir. Nedeni (`request_expired` mi,
+röle reddi mi) API'de **ayrıştırılmadı**: iki durumda da çare aynıdır (resend — adresin kendisi PUT'ta zaten 422 ile
+doğrulanır, kalan ret nedenleri röle ya da kutu kaynaklıdır ve entegratörün düzeltebileceği bir alan değildir); yeni bir alan
+(`activationEmail.reason`) kapalı bir neden sözlüğünü dış sözleşmeye taşır ve iz satırının `detail`'ini API yanıtına bağlardı.
+Plan §5 API-12 rehber notuna yazıldı: büyük ilk senkron saatlere ve günlere yayılır; 72 saatte gitmeyen `undelivered` olur,
+resend yeniden ister.
+
+*D-g — "teslim edilmiş" değil "kaydedilmiş teslim".* `RetireUndeliveredInvites` teslim satırı yazılmış bağlantıya dokunmaz;
+panelin basıp commit ettiği ama e-posta satırını henüz yazmadığı (gönderim commit'ten sonradır) bir bağlantı o anda
+teslimsiz görünür ve kuyruk tam o anda vazgeçerse emekliye ayrılır. Pencere tek bir gönderimin süresidir (≤ 10 sn); çare resend
+ya da yeni bir panel basışıdır. Cümle ve `invites.sql` yorumu daraltıldı.
