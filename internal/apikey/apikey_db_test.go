@@ -3,12 +3,15 @@ package apikey_test
 import (
 	"bytes"
 	"context"
+	"encoding/gob"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -18,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/atknatk/tappa/internal/apikey"
+	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/store"
 )
 
@@ -155,9 +159,14 @@ func TestApiKeyAuth_WrongPrefixNeverReachesTheDatabase(t *testing.T) {
 // a real key (created through the panel act), its keyed hash and the Authorization header carrying
 // it never appear in -- every error the chain returns, for each outcome (ok, unknown, revoked,
 // closed, malformed), with %v, %+v and %#v; the Token, the Checked hash and the Principal through
-// fmt, slog (text and JSON) and encoding/json, alone and inside a caller's struct with an
-// unexported field; or any audit_log row of the business (action, target, detail). The CONTROL: the
+// fmt (every verb a caller reaches for -- %v %+v %#v %s %q %x %X %d -- alone, in a slice and in a
+// map), slog (text and JSON), encoding/json and encoding/gob, alone and inside a caller's struct
+// with an unexported field; or any audit_log row of the business (action, target, detail). The CONTROL: the
 // same renderings of a plain string do carry the value, and the audit rows do carry the key's id.
+//
+// MUTANTS (measured, second round): Token's Format leaking on %q alone, or writing the key's hex
+// on %x alone; Checked's Format leaking the hash on %s; Token gaining a MarshalBinary that returns
+// the value (gob) -- each red.
 func TestApiKeyAuth_NothingLogged(t *testing.T) {
 	d := appDB(t)
 	ctx := context.Background()
@@ -171,11 +180,16 @@ func TestApiKeyAuth_NothingLogged(t *testing.T) {
 	raw := created.Key.RevealToTheOwnerOnce()
 	header := "Bearer " + raw
 	hash := hashOf(t, s.macKey, raw)
-	canaries := map[string]string{"the key": raw, "the key's body": raw[len(apikey.LivePrefix):], "the hash": hash, "the header": header}
+	canaries := map[string]string{"the key": raw, "the key's body": raw[len(apikey.LivePrefix):], "the hash": hash, "the header": header,
+		"the key in hex": hex.EncodeToString([]byte(raw)), "the key in upper hex": strings.ToUpper(hex.EncodeToString([]byte(raw))),
+		"the key in quoted form": strconv.Quote(raw)}
 
 	var texts []string
+	// Every fmt verb a caller might reach for, the value alone and inside a slice and a map.
 	collect := func(what string, v any) {
-		texts = append(texts, what+": "+fmt.Sprintf("%v | %+v | %#v", v, v, v))
+		for _, x := range []any{v, []any{v}, map[string]any{"k": v}} {
+			texts = append(texts, what+": "+fmt.Sprintf("%v | %+v | %#v | %s | %q | %x | %X | %d", x, x, x, x, x, x, x, x))
+		}
 	}
 	tok, _ := apikey.ParseBearer(header)
 	checked, err := s.auth.Check(tok)
@@ -207,6 +221,13 @@ func TestApiKeyAuth_NothingLogged(t *testing.T) {
 		t.Fatal(err)
 	}
 	texts = append(texts, "json: "+string(js))
+	// encoding/gob: Token and Checked have no exported field and no gob/binary marshaller, so gob
+	// refuses them (an error, nothing encoded); either way no byte of the value may come out.
+	for what, v := range map[string]any{"token": struct{ T apikey.Token }{tok}, "checked": struct{ C apikey.Checked }{checked}} {
+		var g bytes.Buffer
+		gerr := gob.NewEncoder(&g).Encode(v)
+		texts = append(texts, "gob "+what+": "+g.String()+fmt.Sprint(gerr))
+	}
 
 	// Every outcome's error.
 	if _, err := s.keys.Revoke(ctx, apikey.RevokeCommand{TenantID: b.tenant, ActorID: b.owner, KeyID: created.ID}); err != nil {
@@ -318,7 +339,10 @@ func TestApiKeyAuth_OutsiderKeyCannotSeeAnotherTenant(t *testing.T) {
 // careless revocation would be is shown to FAIL on a revoked key (55 -- restrict_violation), which
 // is the failure the guard avoids.
 //
-// MUTANTS (measured): RevokeAPIKey's `revoked_at IS NULL` removed -> the losers' COALESCE matches
+// The detail's bulk flag is read back: false on the single revocation, true on each row of a
+// "revoke all" over fresh keys.
+//
+// MUTANTS (measured): RevokeAll writing bulk=false -> red; RevokeAPIKey's `revoked_at IS NULL` removed -> the losers' COALESCE matches
 // the committed row, so all 16 "succeed" and each writes a trail row; RevokeAllAPIKeys' guard
 // removed -> a key revoked singly first gets a second, bulk row (round 0: 2 rows).
 func TestApiKeyRevocation_ConcurrentAndBulkAreSafe(t *testing.T) {
@@ -361,6 +385,9 @@ func TestApiKeyRevocation_ConcurrentAndBulkAreSafe(t *testing.T) {
 	}
 	if n := countAction(auditRows(t, d, b.tenant), apikey.ActionRevoked, one.ID.String()); n != 1 {
 		t.Fatalf("%d api_key.revoked rows for one key revoked by %d racers, want 1", n, racers)
+	}
+	if bulk := revokedBulkFlags(t, d, b.tenant)[one.ID.String()]; bulk != "false" {
+		t.Fatalf("a single revocation's row says bulk %q, want false", bulk)
 	}
 
 	for round := range 20 {
@@ -405,6 +432,25 @@ func TestApiKeyRevocation_ConcurrentAndBulkAreSafe(t *testing.T) {
 			if n := countAction(rows, apikey.ActionRevoked, id.String()); n != 1 {
 				t.Fatalf("round %d: key %s has %d revoked rows, want 1", round, id, n)
 			}
+		}
+	}
+	// The bulk flag, deterministically: three fresh keys, "revoke all" alone -> three rows, each
+	// bulk true.
+	var fresh []uuid.UUID
+	for i := range 3 {
+		k, err := s.keys.Create(ctx, apikey.CreateCommand{TenantID: b.tenant, ActorID: b.owner, Name: fmt.Sprintf("Flag %d", i)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		fresh = append(fresh, k.ID)
+	}
+	if got, err := s.keys.RevokeAll(ctx, b.tenant, b.owner); err != nil || len(got) != 3 {
+		t.Fatalf("revoke all over three fresh keys: %d, %v", len(got), err)
+	}
+	flags := revokedBulkFlags(t, d, b.tenant)
+	for _, id := range fresh {
+		if flags[id.String()] != "true" {
+			t.Fatalf("a bulk revocation's row for %s says bulk %q, want true", id, flags[id.String()])
 		}
 	}
 	l, err := s.keys.List(ctx, b.tenant, b.owner)
@@ -582,4 +628,34 @@ func TestApiKeyRevocation_AKeyCreatedDuringRevokeAllIsRevokedToo(t *testing.T) {
 			t.Fatalf("key %q: revoked %v, created %v", k.Name, k.RevokedAt, k.CreatedAt)
 		}
 	}
+}
+
+// revokedBulkFlags maps each revoked key's id to its api_key.revoked row's detail.bulk (the last
+// row's, as text: "true", "false", or "" when the key is missing).
+func revokedBulkFlags(t *testing.T, d *db.DB, tenantID uuid.UUID) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	err := d.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `SELECT target, detail->>'bulk' FROM audit_log WHERE tenant_id = $1 AND action = $2 ORDER BY at, id`,
+			tenantID, apikey.ActionRevoked)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var target string
+			var bulk *string
+			if err := rows.Scan(&target, &bulk); err != nil {
+				return err
+			}
+			if bulk != nil {
+				out[target] = *bulk
+			}
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
 }
