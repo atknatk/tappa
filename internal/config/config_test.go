@@ -21,7 +21,11 @@ func setRequired(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://app@localhost/tappa")
 	t.Setenv("DATABASE_MIGRATE_URL", "") // must NOT equal DATABASE_URL
 	t.Setenv("TAPPA_SESSION_HMAC_KEY", key)
-	t.Setenv("TAPPA_TAG_KEK", key)
+	// Every key must differ from every other (keysSeparation, M11 API-3), so each gets its own
+	// bytes here rather than sharing `key`.
+	t.Setenv("TAPPA_TAG_KEK", tagKey)
+	t.Setenv("TAPPA_API_KEY_HMAC_KEY", apiKeyHMACKey)
+	t.Setenv("TAPPA_WEBHOOK_KEK", "") // optional until API-9; unset is the steady state
 	// The KEK rotation fallback is OPTIONAL and unset is the steady state, so the
 	// fixture clears it explicitly rather than inheriting whatever the developer's
 	// shell happens to hold — an ambient value would make these tests pass or fail
@@ -55,6 +59,13 @@ func setRequired(t *testing.T) {
 // otherKey is a valid 32-byte key that is NOT all zeroes, so it differs from the
 // one setRequired gives the session.
 var otherKey = base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
+
+// tagKey and apiKeyHMACKey are two more valid keys, distinct from the two above and from each
+// other (keysSeparation refuses any equal pair).
+var (
+	tagKey        = base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{11}, 32))
+	apiKeyHMACKey = base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{13}, 32))
+)
 
 // TestLoad_InviteKeyMustDifferFromSessionKey measures the domain-separation
 // guard: the two MAC keys may not be the same bytes.

@@ -59,6 +59,20 @@ type Config struct {
 	// the measurement and the reasoning.
 	InviteHMACKey []byte // 32 bytes
 
+	// APIKeyHMACKey keys the integration API key's stored hash (M11 API-3, ADR 0028 §3,
+	// TAPPA_API_KEY_HMAC_KEY): api_keys.token_hash is HMAC-SHA256 under it, so a dump of the
+	// table alone cannot be tried against the API. REQUIRED -- the owner's panel issues keys and
+	// a deployment that could not hash one must not start -- 32 bytes, and different from every
+	// other key here (keysSeparation).
+	APIKeyHMACKey []byte
+
+	// WebhookKEK seals each webhook endpoint's signing key (ADR 0028 §6, TAPPA_WEBHOOK_KEK). It
+	// is OPTIONAL until its consumer exists (API-9 makes it required): nothing in this binary
+	// reads it yet, and a required variable nothing reads would be a secret every deployment
+	// must hold for no use. Set, it must be 32 bytes and differ from every other key -- it is in
+	// namedKeys from the day it is read, so the separation rule sees it before anything uses it.
+	WebhookKEK []byte
+
 	// The platform operator's surface (M10 OP-7; ADR 0020, ADR 0021): its own pool,
 	// its two keys and its own host. FOUR VARIABLES, ONE SET — all four or none
 	// (loadOperatorSurface): none leaves every field empty and the surface off
@@ -309,13 +323,21 @@ func Load() (*Config, error) {
 	}
 	// The invite key must not simply BE the session key. See keySeparation.
 	push(keySeparation(c.SessionHMACKey, c.InviteHMACKey))
-	// The operator surface: all four variables or none, then each one valid, then
-	// neither operator key equal to any other key. It runs after every other key is
-	// read because the last check compares against all of them.
+	// The integration API's two keys (M11 API-3, ADR 0028 §3): the key-hash key is required,
+	// the webhook KEK optional until API-9 reads it.
+	if c.APIKeyHMACKey, err = key32(envAPIKeyHMACKey); err != nil {
+		push(err)
+	}
+	if c.WebhookKEK, err = optionalKey32(envWebhookKEK); err != nil {
+		push(err)
+	}
+	// The operator surface: all four variables or none, then each one valid. Then no key equal
+	// to any other key -- every pair (keysSeparation). It runs after every key is read because
+	// it compares all of them.
 	for _, err := range loadOperatorSurface(c) {
 		push(err)
 	}
-	push(operatorKeySeparation(c))
+	push(keysSeparation(c))
 	// RetentionYears is required (no default): see the field comment.
 	if c.RetentionYears, err = intEnvRequiredRange("TAPPA_RETENTION_YEARS", retentionYearsMin, retentionYearsMax); err != nil {
 		push(err)
@@ -649,12 +671,16 @@ func isDNSHostName(s string) bool {
 	return true
 }
 
-// namedKey is one key of this Config with the variable it came from. operator marks
-// the two keys operatorKeySeparation holds apart from everything else.
+// The integration API's two key variables (M11 API-3, ADR 0028 §3).
+const (
+	envAPIKeyHMACKey = "TAPPA_API_KEY_HMAC_KEY"
+	envWebhookKEK    = "TAPPA_WEBHOOK_KEK"
+)
+
+// namedKey is one key of this Config with the variable it came from.
 type namedKey struct {
-	name     string
-	v        []byte
-	operator bool
+	name string
+	v    []byte
 }
 
 // namedKeys is EVERY key this Config holds. TestNamedKeys_ListEveryKeyFieldOfTheConfig
@@ -662,48 +688,62 @@ type namedKey struct {
 // and not listed here is a red test rather than a key the separation rule never sees.
 func (c *Config) namedKeys() []namedKey {
 	return []namedKey{
-		{"TAPPA_SESSION_HMAC_KEY", c.SessionHMACKey, false},
-		{"TAPPA_TAG_KEK", c.TagKEK, false},
-		{"TAPPA_TAG_KEK_PREVIOUS", c.TagKEKPrevious, false},
-		{"TAPPA_INVITE_HMAC_KEY", c.InviteHMACKey, false},
-		{envOperatorTOTPKEK, c.OperatorTOTPKEK, true},
-		{envOperatorTokenHMACKey, c.OperatorTokenHMACKey, true},
+		{"TAPPA_SESSION_HMAC_KEY", c.SessionHMACKey},
+		{"TAPPA_TAG_KEK", c.TagKEK},
+		{"TAPPA_TAG_KEK_PREVIOUS", c.TagKEKPrevious},
+		{"TAPPA_INVITE_HMAC_KEY", c.InviteHMACKey},
+		{envAPIKeyHMACKey, c.APIKeyHMACKey},
+		{envWebhookKEK, c.WebhookKEK},
+		{envOperatorTOTPKEK, c.OperatorTOTPKEK},
+		{envOperatorTokenHMACKey, c.OperatorTokenHMACKey},
 	}
 }
 
-// operatorKeySeparation refuses an operator key that is byte-identical to ANY other
-// key of this Config — the other operator key included (ADR 0020 §1, §2; the
-// OP-7 acceptance).
+// dedicatedPairs are the two pairs that have their own check and their own sentence
+// (keySeparation, kekSeparation). keysSeparation skips them so one mistake is reported once.
+var dedicatedPairs = [][2]string{
+	{"TAPPA_SESSION_HMAC_KEY", "TAPPA_INVITE_HMAC_KEY"},
+	{"TAPPA_TAG_KEK", "TAPPA_TAG_KEK_PREVIOUS"},
+}
+
+func dedicated(a, b string) bool {
+	for _, p := range dedicatedPairs {
+		if (p[0] == a && p[1] == b) || (p[0] == b && p[1] == a) {
+			return true
+		}
+	}
+	return false
+}
+
+// keysSeparation refuses ANY key of this Config that is byte-identical to any other --
+// every unordered pair (M11 API-3, ADR 0028 §3: "bütün anahtarlarla çift çift").
 //
-// WHY, IN THIS REPOSITORY'S TERMS. The TOTP KEK seals every operator's second factor
-// with the same AES-256-GCM layout internal/sun.Wrap uses for plaque keys (OP-6
-// measured that a Wrap ref IS a Seal envelope: what keeps the two apart is the KEK
-// and the AAD length), so a TOTP KEK equal to TAPPA_TAG_KEK collapses that separation
-// to the AAD alone. The token HMAC key is its own variable precisely so that the
-// operator's sessions are independent of the customer's keys
-// (internal/adminauth/token.go's own warning), and an equal pair of bytes is that
-// independence absent while every surface reports it present. The realistic cause is
-// keySeparation's: one generated value pasted into two variables.
+// WHY EVERY PAIR, AND WHY NOW. Until API-3 only pairs involving an operator key were compared
+// (OP-7's operatorKeySeparation), on the argument that widening the rule would refuse
+// production configurations nobody had measured. ADR 0028 §3 widens it on purpose when the
+// integration API's two keys arrive: the API-key hash key equal to the session key makes a
+// session cookie's hash and an integration key's hash the same function of different inputs,
+// the webhook KEK equal to the tag KEK makes a sealed signing key and a wrapped plaque key
+// openable by one secret -- and the realistic cause of each is keySeparation's: one generated
+// value pasted into two variables. The cost is named in the ADR: a production deployment whose
+// unmeasured pair is equal stops starting, so API-13's runbook measures the pairs (without
+// printing a value) before the deploy.
 //
-// ONLY PAIRS THAT INVOLVE AN OPERATOR KEY are checked. Widening the rule to every
-// pair (say, the tag KEK against the invite key) would add refusals for a production
-// configuration nobody has measured against them; keySeparation and kekSeparation
-// keep their own two pairs. A key of the wrong length is skipped: key32 already
-// reported it, and a second message about the same variable is noise.
+// The two pairs with a dedicated check are skipped here (dedicatedPairs) -- they already refuse
+// with their own sentence. A key of the wrong length or unset is skipped: key32 reported it, or
+// it is an optional key that is absent.
 //
-// Constant time, for keySeparation's reason: hygiene on a path with no attacker
-// input, so "secrets are never compared with ==" grows no exception.
-func operatorKeySeparation(c *Config) error {
+// Constant time, for keySeparation's reason: hygiene on a path with no attacker input, so
+// "secrets are never compared with ==" grows no exception.
+func keysSeparation(c *Config) error {
 	keys := c.namedKeys()
 	var clashes []string
 	for i, a := range keys {
-		if !a.operator || len(a.v) != 32 {
+		if len(a.v) != 32 {
 			continue
 		}
-		for j, b := range keys {
-			// Each unordered pair once: an operator key against a key listed before it
-			// is skipped when that key is an operator key too (it was compared already).
-			if j == i || len(b.v) != 32 || (b.operator && j < i) {
+		for _, b := range keys[i+1:] {
+			if len(b.v) != 32 || dedicated(a.name, b.name) {
 				continue
 			}
 			if subtle.ConstantTimeCompare(a.v, b.v) == 1 {
@@ -714,7 +754,7 @@ func operatorKeySeparation(c *Config) error {
 	if len(clashes) == 0 {
 		return nil
 	}
-	return errors.New("operator keys must differ from each other and from every other key " +
+	return errors.New("every key must differ from every other key " +
 		"(identical: " + strings.Join(clashes, "; ") + "). Generate each one separately: openssl rand -base64 32")
 }
 

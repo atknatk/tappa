@@ -2530,7 +2530,7 @@ type Querier interface {
 	// double click, or "revoke one" against "revoke all" -- and the trigger's exception would roll the
 	// WINNING transaction's caller back: the panel reports failure while the key lives. With the
 	// guard, the loser re-reads the committed row under its lock, matches nothing and returns no row,
-	// so it writes no audit row either (internal/apikey's concurrency test).
+	// so it writes no audit row either (TestApiKeyRevocation_ConcurrentAndBulkAreSafe).
 	// id and created_at are the table's defaults; tappa_app cannot write them (00051).
 	InsertAPIKey(ctx context.Context, arg InsertAPIKeyParams) (InsertAPIKeyRow, error)
 	// THE MANAGER'S OWN RECORD AT A PEER'S VENUE (M11 API-1c, ADR 0027 §9 "Manuel kayıt"; K-1a: the

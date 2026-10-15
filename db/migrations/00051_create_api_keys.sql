@@ -24,7 +24,7 @@
 --   * BOUNDARY 2 is the queries' (db/queries/apikeys.sql): every write to revoked_at carries
 --     `revoked_at IS NULL` and COALESCE, so two revocations racing -- or a single one racing the
 --     bulk one -- never reach the trigger, and the loser writes nothing rather than rolling the
---     winner's transaction back. internal/apikey's concurrency test measures it, and its
+--     winner's transaction back. TestApiKeyRevocation_ConcurrentAndBulkAreSafe measures it, and its
 --     mutant (the guard removed) is red.
 --
 -- THE SEVENTH RESOLVER carries, never applies (internal/db/resolve.go): it returns the key's

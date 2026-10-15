@@ -121,6 +121,7 @@ func TestArtifact_ServesFromAnEmptyWorkingDirectory(t *testing.T) {
 	sessionKey := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("S"), 32))
 	tagKEK := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("K"), 32))
 	inviteKey := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("I"), 32))
+	apiKeyHMACKey := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("A"), 32))
 
 	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 	defer cancel()
@@ -137,6 +138,7 @@ func TestArtifact_ServesFromAnEmptyWorkingDirectory(t *testing.T) {
 		"TAPPA_SESSION_HMAC_KEY=" + sessionKey,
 		"TAPPA_TAG_KEK=" + tagKEK,
 		"TAPPA_INVITE_HMAC_KEY=" + inviteKey,
+		"TAPPA_API_KEY_HMAC_KEY=" + apiKeyHMACKey,
 		"TAPPA_RETENTION_YEARS=2",
 	}
 	var out lockedBuffer
@@ -244,10 +246,11 @@ func TestArtifact_ServesFromAnEmptyWorkingDirectory(t *testing.T) {
 	// ⚠️ AND IT SAYS NOTHING ELSE. A start-up line is the easiest place in a product
 	// to print a configuration dump; §4.7 forbids exactly that.
 	for name, secret := range map[string]string{
-		"the session key": sessionKey,
-		"the tag KEK":     tagKEK,
-		"the invite key":  inviteKey,
-		"the DSN":         dsn,
+		"the session key":        sessionKey,
+		"the tag KEK":            tagKEK,
+		"the invite key":         inviteKey,
+		"the API key's HMAC key": apiKeyHMACKey,
+		"the DSN":                dsn,
 	} {
 		if strings.Contains(logged, secret) {
 			t.Errorf("the process printed %s", name)
@@ -296,6 +299,7 @@ func TestArtifact_SaysWhatItIsEVENWhenTheBootFails(t *testing.T) {
 		"TAPPA_SESSION_HMAC_KEY=" + base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("S"), 32)),
 		"TAPPA_TAG_KEK=" + base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("K"), 32)),
 		"TAPPA_INVITE_HMAC_KEY=" + base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("I"), 32)),
+		"TAPPA_API_KEY_HMAC_KEY=" + base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("A"), 32)),
 		"TAPPA_RETENTION_YEARS=2",
 	}
 	out, err := cmd.CombinedOutput()

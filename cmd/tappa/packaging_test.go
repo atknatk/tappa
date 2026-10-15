@@ -1291,7 +1291,7 @@ func TestPackaging_EverySecretEnvEntryUsesSecretKeyRef(t *testing.T) {
 	envBlock := strings.Join(blockUnder(strings.Join(item, "\n"), "env:"), "\n")
 
 	mustBeSecret := []string{"DATABASE_URL", "TAPPA_SESSION_HMAC_KEY", "TAPPA_TAG_KEK",
-		"TAPPA_INVITE_HMAC_KEY", "TAPPA_TAG_KEK_PREVIOUS"}
+		"TAPPA_INVITE_HMAC_KEY", "TAPPA_TAG_KEK_PREVIOUS", "TAPPA_API_KEY_HMAC_KEY", "TAPPA_WEBHOOK_KEK"}
 	for _, name := range mustBeSecret {
 		i := strings.Index(envBlock, "- name: "+name)
 		if i < 0 {

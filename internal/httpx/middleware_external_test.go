@@ -267,8 +267,10 @@ func setEnvForLoad(t *testing.T, env, trustedProxies string) {
 	t.Setenv("DATABASE_URL", "postgres://app@localhost/tappa")
 	t.Setenv("DATABASE_MIGRATE_URL", "")
 	t.Setenv("TAPPA_SESSION_HMAC_KEY", key)
-	t.Setenv("TAPPA_TAG_KEK", key)
+	// Every key differs from every other (config's keysSeparation, M11 API-3).
+	t.Setenv("TAPPA_TAG_KEK", base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{9}, 32)))
 	t.Setenv("TAPPA_INVITE_HMAC_KEY", base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32)))
+	t.Setenv("TAPPA_API_KEY_HMAC_KEY", base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{5}, 32)))
 	t.Setenv("TAPPA_RETENTION_YEARS", "2")
 	t.Setenv("TAPPA_GPS_RADIUS_M", "")
 	t.Setenv("TAPPA_DEBOUNCE_SECONDS", "")

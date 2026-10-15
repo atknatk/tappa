@@ -369,6 +369,7 @@ func TestArtifact_BootsAndStopsWithTheResetEmailChannel(t *testing.T) {
 		"TAPPA_SESSION_HMAC_KEY=" + base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("S"), 32)),
 		"TAPPA_TAG_KEK=" + base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("K"), 32)),
 		"TAPPA_INVITE_HMAC_KEY=" + base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("I"), 32)),
+		"TAPPA_API_KEY_HMAC_KEY=" + base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("A"), 32)),
 		"TAPPA_RETENTION_YEARS=2",
 		"TAPPA_RESET_DELIVERY=" + config.ResetDeliveryEmail,
 		"TAPPA_INVITE_DELIVERY=" + config.InviteDeliveryPanel,

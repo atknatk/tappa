@@ -963,6 +963,7 @@ func shippedPodEnv(t *testing.T, dsn string) (cm, env map[string]string) {
 		"TAPPA_SESSION_HMAC_KEY": base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("S"), 32)),
 		"TAPPA_TAG_KEK":          base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("K"), 32)),
 		"TAPPA_INVITE_HMAC_KEY":  base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("I"), 32)),
+		"TAPPA_API_KEY_HMAC_KEY": base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("A"), 32)),
 		creds[0]:                 shippedStandInUser,
 		creds[1]:                 shippedStandInPass,
 	}
@@ -1301,6 +1302,7 @@ func TestArtifact_RefusesAnEmailDeliveryThisBuildLacks(t *testing.T) {
 			"TAPPA_SESSION_HMAC_KEY=" + base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("S"), 32)),
 			"TAPPA_TAG_KEK=" + base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("K"), 32)),
 			"TAPPA_INVITE_HMAC_KEY=" + base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("I"), 32)),
+			"TAPPA_API_KEY_HMAC_KEY=" + base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("A"), 32)),
 			"TAPPA_RETENTION_YEARS=2",
 			"TAPPA_RESET_DELIVERY=" + reset,
 			"TAPPA_INVITE_DELIVERY=" + invite,

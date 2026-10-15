@@ -189,7 +189,7 @@ func TestLoad_OperatorKeysDifferFromEveryOtherKey(t *testing.T) {
 	setDistinct := func(t *testing.T) {
 		t.Helper()
 		setRequired(t)
-		for _, n := range []string{"TAPPA_SESSION_HMAC_KEY", "TAPPA_TAG_KEK", "TAPPA_TAG_KEK_PREVIOUS", "TAPPA_INVITE_HMAC_KEY"} {
+		for _, n := range []string{"TAPPA_SESSION_HMAC_KEY", "TAPPA_TAG_KEK", "TAPPA_TAG_KEK_PREVIOUS", "TAPPA_INVITE_HMAC_KEY", "TAPPA_API_KEY_HMAC_KEY", "TAPPA_WEBHOOK_KEK"} {
 			k, _ := randKey(t)
 			t.Setenv(n, k)
 		}
@@ -199,12 +199,12 @@ func TestLoad_OperatorKeysDifferFromEveryOtherKey(t *testing.T) {
 	t.Run("control: all distinct loads", func(t *testing.T) {
 		setDistinct(t)
 		if _, err := config.Load(); err != nil {
-			t.Fatalf("six distinct keys must load: %v", err)
+			t.Fatalf("eight distinct keys must load: %v", err)
 		}
 	})
 
 	operatorKeys := []string{"TAPPA_OPERATOR_TOTP_KEK", "TAPPA_OPERATOR_TOKEN_HMAC_KEY"}
-	others := []string{"TAPPA_SESSION_HMAC_KEY", "TAPPA_TAG_KEK", "TAPPA_TAG_KEK_PREVIOUS", "TAPPA_INVITE_HMAC_KEY"}
+	others := []string{"TAPPA_SESSION_HMAC_KEY", "TAPPA_TAG_KEK", "TAPPA_TAG_KEK_PREVIOUS", "TAPPA_INVITE_HMAC_KEY", "TAPPA_API_KEY_HMAC_KEY", "TAPPA_WEBHOOK_KEK"}
 	for _, op := range operatorKeys {
 		for _, other := range append(slices.Clone(others), operatorKeys...) {
 			if other == op {
@@ -227,18 +227,9 @@ func TestLoad_OperatorKeysDifferFromEveryOtherKey(t *testing.T) {
 		}
 	}
 
-	// The OTHER keys' own pairs are not this rule's: the tag KEK equal to the invite
-	// key is not refused by it (widening that would be a new refusal for production
-	// configurations nobody has measured) -- the boundary is the rule's text.
-	t.Run("boundary: a pair without an operator key is not this rule's", func(t *testing.T) {
-		setDistinct(t)
-		same, _ := randKey(t)
-		t.Setenv("TAPPA_TAG_KEK", same)
-		t.Setenv("TAPPA_INVITE_HMAC_KEY", same)
-		if _, err := config.Load(); err != nil {
-			t.Fatalf("a non-operator pair was refused by a rule about operator keys: %v", err)
-		}
-	})
+	// (Until M11 API-3 a pair without an operator key was NOT refused, and a subtest here pinned
+	// that boundary. ADR 0028 §3 widened the rule to every pair; TestConfig_EqualEnvKeysRefuseToStart
+	// walks all of them.)
 }
 
 // TestLoad_OperatorHostIsOneSpelling: TAPPA_OPERATOR_HOST is a lower-case DNS name
