@@ -748,11 +748,18 @@ doldurmanın yönü — `TestFeedBackfill_WithinTwoSeconds` ve `TestFeedBackfill
 tenant'sız veritabanının geri yüklemesi — `TestRestoreVerify_FeedManifestGate` (+
 `TestRestoreVerify_EveryTenantHasACounter`'ın sıfır tenant vakası).
 
-**API-3** — `ApiKeysCatalog` · `ApiKeyRevocation_IsOneWay` · `ApiKeyRevocation_ConcurrentAndBulkAreSafe` ·
-`ApiKeyAuth_RevokedIs401ClosedIs403` · `ApiKeyAuth_WrongPrefixNeverReachesTheDatabase` ·
-`ApiKeyAuth_NothingLogged` ·
-`Redline_R4R7R7bR7dCatchDeliberateViolations` ·
-`Config_EqualEnvKeysRefuseToStart` · `ApiKeyAuth_OutsiderKeyCannotSeeAnotherTenant`.
+**API-3** *(yazıldı — "API-3 uygulama notu"; adlar önerilenle aynı, önek eklendi)* — `TestApiKeysCatalog`
+(+ `TestM11Catalog_EveryNewTableMatchesTheMatrixUnderArwd`'in `api_keys` satırı ve iki fonksiyonu,
+`TestRLS_ApiKeys_AnotherTenantsKeysAreInvisible`, `TestApiKeys00051_DownGivesBackAndUpTakesItAgain`) ·
+`TestApiKeyRevocation_IsOneWay` · `TestApiKeyRevocation_ConcurrentAndBulkAreSafe` ·
+`TestApiKeyAuth_RevokedIs401ClosedIs403` · `TestApiKeyAuth_WrongPrefixNeverReachesTheDatabase` ·
+`TestApiKeyAuth_NothingLogged` (+ panel log'u: `TestApiKeyPanel_TheKeyIsShownOnceAndNeverAgain`) ·
+`TestRedline_R4R7R7bR7dCatchDeliberateViolations` ·
+`TestConfig_EqualEnvKeysRefuseToStart` · `TestApiKeyAuth_OutsiderKeyCannotSeeAnotherTenant`. Ekler:
+`TestApiKeyTouch_AtMostOncePerMinute`, `TestApiKeyPanel_OnlyAnActiveOwnerOfThisBusiness`,
+`TestApiKeyPanel_ManagerIs403EverywhereAndLeavesATrail`, `TestApiKeyPanel_AnotherBusinessCannotRevokeByGuessingTheID`,
+`TestApiKeyPanel_CrossSiteWritesAreRefusedBeforeTheResolver`, `TestApiKeyPanel_AClosedAPIOffersNoCreateAndStillRevokes`,
+`TestKeyedHash_KnownAnswer`, `TestShape_RefusesEveryOtherForm`, `TestPrincipal_AttributesAnAPIActToTheKey`.
 
 **API-4 / API-4b** — `ApiCatalog_Idempotency` · `ApiHost_TwoWayGate` (API host'unda `/admin`
 404, ana host'ta `/v1` 404) · `ApiAuth_IPBucketBeforeResolver` · `Idempotency_SameKeyDifferentBodyIs422` ·
@@ -1144,3 +1151,80 @@ kaldırılınca kırmızı (üçüncü göz: `jit on` tek başına tutma medyan�
 dener; eski desen, `-i`'siz, Makefile'sız ve tırnaksız mutantlar kırmızı. **Sınırı (kuralın başlığında):** parçalardan
 kurulan ad (Go'da birleştirme, SQL'de `format()`) satır grep'inin göremeyeceği yoldur — kural kanıt değildir.
 
+
+## API-3 uygulama notu (2026-10-15)
+
+Yapıcının uygulaması ve ölçümleri; kararlar değişmedi — sapmalar ve ADR'nin açık bıraktıkları aşağıda
+adıyla. Yıkıcı ölçümler ve mutantlar atılabilir bir PostgreSQL 17 kabında (`scripts/db-init` ile, `arwd`);
+paylaşılan `tappa-m11-db`'ye yalnız `goose up` (→ 51).
+
+**Migration `00051`.** `api_keys(tenant_id, id, name, token_hash, prefix_hint, created_by, created_at,
+last_used_at, revoked_at)` — RLS beşlisi (`api_keys_tenant_created_idx` `tenant_id` ile başlar), `token_hash`
+**küresel** tek sütunlu UNIQUE (çözümleyicinin en çok bir satırı oradan), `created_by` aynı tenant'ın
+yöneticisine bileşik FK. `resolve_api_key_by_hash(p_token_hash text) → TABLE(tenant_id, key_id, revoked_at,
+api_enabled_at)`: `tappa_resolver` sahipli, `SECURITY DEFINER`, `STABLE`, `search_path = pg_catalog, pg_temp`,
+nitelikli adlar, `tenants`'a birincil anahtarla join, EXECUTE yalnız `tappa_app`'te (PUBLIC'ten alındı).
+`tappa_resolver`'ın `tenants` üzerindeki erişimi **yalnız** `SELECT (id, api_enabled_at)`; ön koşul rolün
+`tenants`'a önceden bir erişimi varsa düşer (sütun grant'ı onu daraltamaz), son koşul başka bir sütunu okuyamadığını
+ölçer. Go tarafı `internal/db.GetAPIKeyByHash` (elle — sqlc `RETURNS TABLE`'ı tipleyemez; M1-08 notunun beşinci
+tekrarı). Down tabloyu ve iki fonksiyonu düşürür, iki sütun grant'ını geri alır — anahtarlar tabloyla gider (fail-closed:
+hiçbir entegrasyon anahtarı çözülmez), izleri `audit_log`'da kalır. `opAtVersion` atlar (operatör nesnesi yok);
+DROP TABLE `tenants` ve `admin_users`'ı kilitlediği için ikisi `holdingDownTables`'a eklendi.
+
+**Sapmalar ve ADR'nin açık bıraktıkları — kararıyla (otonom, gerekçeli):**
+1. **`tappa_app` `token_hash`'i okuyamaz** — §1 matrisinin çıplak *"SELECT"*inden **dar**: paneli hiçbir yol hash
+   okumaz, okuyan tek yol çözümleyicidir; sütun SELECT'i yokken bağlamsız doğrudan okuma 42501 (`TestApiKeysCatalog`).
+   INSERT sütun listesiyle `(tenant_id, name, token_hash, prefix_hint, created_by)` — `id`/`created_at` varsayılan.
+2. **Tek yönlü iptalin kendi tetikleyici fonksiyonu** (`api_keys_revocation_is_one_way`, `00011`'in
+   `tappa_forbid_revocation_reset`'i değil): §1 madde 3 M11'in tetikleyici fonksiyonunda EXECUTE'u yalnız sahipte ve
+   `TG_RELID` assert'i ister; `00011`'inki PUBLIC EXECUTE'lu ve assert'siz. WHEN koşulu `00011`'inkinin aynısı.
+   `00011`'in BOUNDARY 1'i burada `api_keys_revoked_after_created` CHECK'iyle kapatıldı; BOUNDARY 2 sorgularda
+   (`revoked_at IS NULL` + `COALESCE`). Mutantlar: tekli iptalin bekçisi çıkınca 16 yarışçının 16'sı "kazanır" ve her biri
+   iz satırı yazar; toplu iptalin bekçisi çıkınca önce tek tek iptal edilen anahtar ikinci (bulk) satırı alır — ikisi de kırmızı.
+   Bekçisiz ifadenin iptal edilmiş anahtarda 23001 ile düştüğü testin içinde gösterilir.
+3. **Canlı ad tekilliği** (`api_keys_live_name_key`, `(tenant_id, lower(name)) WHERE revoked_at IS NULL`): ham anahtar
+   yalnız oluşturma yanıtında olduğu için form idempotent yapılamaz; yeniden gönderilen form (yenileme, geri tuşu) bu
+   indekse çarpar — **422, ikinci anahtar yok** (`TestApiKeyPanel_TheKeyIsShownOnceAndNeverAgain`). İptal edilen
+   anahtarın adı yeniden kullanılabilir.
+4. **`prefix_hint` = önek + gövdenin ilk 4 karakteri** (ör. `tt_live_` + 4): 256 rastgele bitin 24'ü. Sahibin birkaç
+   anahtarını listede ayırmaya yeter; geriye 232 bilinmeyen bit kalır, tahmin uzayını anlamlı küçültmez. Log'a yazılmaz
+   (log yalnız anahtar kimliği taşır); audit `detail`'inde ad ile birlikte durur.
+5. **HMAC girdisi** `"tappa/apikey/v1|"` + anahtarın **tamamı** (önek dahil) — `internal/invite`'ın alan etiketi
+   kalıbı; ayrı env anahtarına ek ikinci ayrım. Bilinen-cevap vektörü Go dışında (Python `hmac`) hesaplandı
+   (`TestKeyedHash_KnownAnswer`). Base64url **katı** çözülür (kanonik olmayan son karakter reddedilir).
+6. **Zincirin yapı taşları** (`internal/apikey`): `ParseBearer` → `Authenticator.Check` (biçim; DB yok) → *(API-4'ün IP
+   kovası)* → `Resolve` (çözümleyici + karar: bilinmeyen/iptal 401, kapalı 403; iptal kapalıdan önce gelir — iptal edilmiş
+   anahtar hiç kimlik değildir) → *(API-4'ün anahtar kovası)* → `Touch` (`last_used_at`, dakikada en çok bir, iptalde yok).
+   `StatusOf` hata→durum eşlemesi; veritabanı hatası 500. K-23: `Principal.Actor()` (= anahtar kimliği) ve
+   `Attribution{Via: "api"}` API-4+'ün audit satırları için hazır; panelin satırları `via: "panel"`.
+7. **Panel** yeni bir sekme: **API keys** (`/admin/api-keys`, `OwnerOnly`) — Billing emsali: yönetici sayfada ve üç
+   yazmada **403**, reddedilen yazma `api_key.refused` iz satırı bırakır (sayfa görüntüleme yalnız log — `refuseBillingRead`
+   gerekçesi). Alan da rolü kendi işleminde `admin_users`'tan yeniden okur (`mayEditBrand` emsali). **Toplu iptal**
+   (*"Revoke every key"*, işaretli onay kutusu) panel eylemi olarak eklendi: sızıntıda hangi anahtar bilinmiyorsa;
+   iptal ettiği her anahtar için `bulk: true` tek satır. Yazmalar `mountWriting` zincirinde (Origin kontrolü çözümleyiciden
+   önce; çapraz site POST rol kapısına bile ulaşmaz — `TestApiKeyPanel_CrossSiteWritesAreRefusedBeforeTheResolver`).
+8. **API erişimi kapalı tenant'ta (K-22) anahtar oluşturulmaz** — §2'nin kapı listesinde anahtar oluşturma yoktu; *"kapı
+   her yolda"* ilkesiyle eklendi (alan `ErrAPIClosed`; panel bilgi notu gösterir, oluşturma formunu çizmez). **İptal kapalıyken
+   de açıktır** (K-26'nın savunma yazması).
+9. **Webhook imza anahtarının öneki API-3'te seçildi: `tt_whsec_`** — §6 *"önek API-9'da seçilir"* diyordu, ama R7d'nin
+   ikinci değer kalıbı bu görevde isteniyor. API-9 bu öneki kullanır ya da R7d'yi aynı değişiklikte günceller.
+10. **`TAPPA_API_KEY_HMAC_KEY` zorunlu, `TAPPA_WEBHOOK_KEK` API-9'a kadar isteğe bağlı** (okuyan kod yok; zorunlu yapmak
+    her kurulumu kullanılmayan bir sır tutmaya zorlardı); ikisi de `namedKeys()`'te. **Ayrım kuralı genelleşti:** sekiz
+    anahtarın 28 çiftinin hepsi karşılaştırılır (`keysSeparation`; `operator` bayrağı kalktı); kendi cümlesi olan iki çift
+    (oturum/davet, KEK/önceki KEK) iki kez raporlanmasın diye genel kuraldan atlanır. Mutant (eski operatör-çifti kuralı):
+    28 çiftin 13'ü açılır. **Bedel (adlandırıldı):** ölçülmemiş bir eşit çift artık açılışı reddeder — prod'da API-13
+    runbook'u, geliştiricide yerel `.env` (ör. aynı değeri taşıyan oturum anahtarı ve etiket KEK'i artık başlamaz).
+    `deploy/k8s/20-app.yaml` `TAPPA_API_KEY_HMAC_KEY`'i **isteğe bağlı olmayan** `secretKeyRef` ile alır: değer
+    `tappa-secrets`'ta yokken manifest kümeye ulaşırsa kubelet pod'u başlatmaz — API-13'ün deploy öncesi adımı.
+11. **Redline eklemeleri önce ağaçta sayıldı (hepsi 0 yeni isabet):** R4 şema nitelikli (`public.`, tırnaklı, boşluklu) ve
+    tırnaklı `"last_ctr"`; takma ad biçimi (`UPDATE tags t SET`) **denendi, seçilmedi** — 1 yanlış pozitif
+    (`marketing_claims_test.go`'nun kasıtlı mutant dizesi). R7 kökleri `api_?key`, `bearer`, `signing_?key` ve log çağrısı
+    içinde `Header.Get("Authorization")`/`Header["Authorization"]`; awk'ın muafiyet kararı kaçışlı başlık kalıbı yerine daha
+    geniş `authorization` kelimesini okur (muafiyeti zorlaştırır). Bu yüzden API-3'ün hata ve log metinleri `apikey:` değil
+    `api key:` yazar. R7b `.FirstName`/`.LastName`/`.EmployeeName` ve `first_name`/`employeeName` anahtarları. R7d yeni sınıf
+    `tappa-key`: `tt_live_`/`tt_test_`/`tt_whsec_` + ≥ 43 base64url, dolgu (4'ten az farklı karakter) sayılmaz — belgede
+    örnek böyle yazılır (`tt_live_` + 43 `x`, ya da `<…>` yer tutucusu). Her eklemenin tek başına geri alınması testi tam o
+    kuralın dosyalarında kırmızıya çevirir (ölçüldü).
+12. **Log ve sır:** `Token` ve `Checked` (hash) her yazdırma yolunda yer tutucu basar (`fmt` fiilleri, dışa kapalı alan,
+    `slog` metin/JSON, `encoding/json`); paket log yazmaz, hataları sabit nöbetçilerdir. Panel log'u yalnız tenant, aktör ve
+    anahtar kimliği taşır; ham anahtar yalnız oluşturma yanıtının sayfasında (`Cache-Control: no-store` — panelin her sayfası).
