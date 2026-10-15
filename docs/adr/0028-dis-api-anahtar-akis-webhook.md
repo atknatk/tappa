@@ -761,10 +761,23 @@ tenant'sız veritabanının geri yüklemesi — `TestRestoreVerify_FeedManifestG
 `TestApiKeyPanel_CrossSiteWritesAreRefusedBeforeTheResolver`, `TestApiKeyPanel_AClosedAPIOffersNoCreateAndStillRevokes`,
 `TestKeyedHash_KnownAnswer`, `TestShape_RefusesEveryOtherForm`, `TestPrincipal_AttributesAnAPIActToTheKey`.
 
-**API-4 / API-4b** — `ApiCatalog_Idempotency` · `ApiHost_TwoWayGate` (API host'unda `/admin`
-404, ana host'ta `/v1` 404) · `ApiAuth_IPBucketBeforeResolver` · `Idempotency_SameKeyDifferentBodyIs422` ·
-`Idempotency_ConcurrentSameKeyOneEffect` · `Idempotency_DeathMidRequestLeavesNoStuckKey` ·
-`ApiSuspension_EveryCellOfTheTable` (API-4b, OP-15'e bağlı).
+**API-4 / API-4b** *(API-4 yazıldı — "API-4 uygulama notu"; adlar önerilenle aynı, önek eklendi)* —
+`TestApiCatalog_Idempotency` (+ `TestM11Catalog_EveryNewTableMatchesTheMatrixUnderArwd`'in `api_idempotency` satırı,
+`TestRLS_ApiIdempotency_AnotherTenantsRowsAreInvisible`, `TestApiIdempotency00052_DownGivesBackAndUpTakesItAgain`) ·
+`TestApiHost_TwoWayGate` (API host'unda `/admin` 404, ana host'ta `/v1` 404) · `TestApiAuth_IPBucketBeforeResolver` ·
+`TestIdempotency_SameKeyDifferentBodyIs422` · `TestIdempotency_ConcurrentSameKeyOneEffect` ·
+`TestIdempotency_DeathMidRequestLeavesNoStuckKey` · `ApiSuspension_EveryCellOfTheTable` (API-4b, OP-15'e bağlı —
+yazılmadı). Ekler: `TestIdempotency_LazyDeleteIsThisTenantsAlone`, `TestApiIdempotency_OverHTTP`,
+`TestApiSurface_RevocationAndClosingTakeEffectOnTheNextRequest`, `TestApiSurface_CKeyCannotSeeAnotherTenant`,
+`TestChain_ResolverAnswersAreTheContract`, `TestChain_NothingOfTheKeyReachesALogOrAResponse`,
+`TestRequestID_AKeyShapedIDIsReplaced`, `TestBody_The64KiBBound`, `TestLimit_DefaultAndTheBound`,
+`TestErrors_TheCodeSetIsSection8`, `TestOpenAPI_PathsAreTheRoutersAndTheErrorIsSection8`,
+`TestWrite_ACommitWithoutTheCheckpointIsRefused`, `TestWrite_IdempotencyKeyThroughHTTP`,
+`TestPackage_ImportsNoPanelAndNoPanelImportsIt`, `TestLoad_APIHostIsOptionalAndOneSpelling`,
+`TestAPIWiring_TheChainTakesThePanelsPrefixAndTheOneWorker`; K-19 —
+`TestWorker_NoticedTenantsReachEveryJob`, `TestWorker_DrainsWithinTheShutdownBudget`,
+`TestWorker_TwoProcessesBothRunTheJob`, `TestWorker_NoTenantWideRead`,
+`TestK19_ARecordedTapNoticesItsTenantsAndARefusalNobody`.
 
 **API-5** — `LocationsPut_OutsiderKeyCannotTouchAnotherTenant` · `LocationsPut_DifferentTimezoneIs422` ·
 `LocationsPut_RepeatOpensNoRow`.
@@ -1277,3 +1290,76 @@ notu çizilmez) — `TestApiKeyPanel_TheKeyIsShownEvenWhenTheListCannotBeRead`; 
 
 *Devir.* `tt_test_`'in (ve panelin ve zincirin aynı önekle kurulmasının) seçimi API-4/API-11'e devredildi; plan §5'in API-4 ve
 API-11 kabullerine yazıldı.
+
+
+## API-4 uygulama notu (2026-10-15)
+
+Yapıcının uygulaması ve ölçümleri; kararlar değişmedi — sapmalar ve ADR'nin açık bıraktıkları aşağıda adıyla.
+Yıkıcı ölçümler ve migration mutantları atılabilir bir PostgreSQL 17 kabında (`scripts/db-init` ile, `arwd`);
+paylaşılan `tappa-m11-db`'ye yalnız `goose up` (→ 52).
+
+**Migration `00052`.** `api_idempotency(tenant_id, key_id, idem_key, request_hash, status, result_ref, created_at)` —
+§8'in `UNIQUE(tenant_id, key_id, idem_key)`'i birincil anahtar (önce `tenant_id`: RLS beşlisinin indeksi), anahtar
+tenant'ın **kendi** `api_keys` satırına bileşik FK (başka tenant'ın anahtar kimliği 23503), `idem_key` 1–255 görünür
+ASCII, `request_hash` 64 hex, `status` NULL ya da 200–299. `tappa_app`: REVOKE ALL; SELECT bütün sütunlar; INSERT
+`(tenant_id, key_id, idem_key, request_hash)`; **UPDATE yalnız `(status, result_ref)`**; DELETE (tembel silme); son
+koşul bloğu başka sütunda UPDATE'i ve TRUNCATE/REFERENCES/TRIGGER'ı reddeder (ölçüldü: REVOKE ALL çıkarılınca `arwd`
+altında migration **kendi** son koşulunda düşer; son koşul da çıkarılınca katalog testi kırmızı). Fonksiyon yok.
+`opAtVersion` atlar; `api_idempotency` `holdingDownTables`'a girdi ve `00051`'in Down testi önce `00052`'nin Down'ını yürür.
+
+**Sapmalar ve ADR'nin açık bıraktıkları — kararıyla (otonom, gerekçeli):**
+1. **Idempotency'nin mekaniği** (`internal/apikey`, `Writes.Run`): tek işlem, anahtarın tenant bağlamı — (a) o tenant'ın
+   24 saatten eski en çok 100 satırı (`FOR UPDATE SKIP LOCKED`: bir tenant'ın iki yazması birbirinin temizliğini
+   beklemez), (b) aynı anahtarın süresi dolmuş satırı, (c) **iş'ten önce** `INSERT … ON CONFLICT DO NOTHING` ile talep
+   (eşzamanlı ikinci istek birincil anahtarda bekler — beklemenin kendisi eşzamanlılık denetimidir), (d) iş, (e) sonuç
+   (`status`, `result_ref`). `status` yalnız talep eden işlemin içinde NULL'dır; NULL'lı bir commit görülürse kesinti
+   sayılır (`ErrUnrecorded`, başarı değil). Hata alan yazma hiçbir şey kaydetmez (yeniden deneme işi yeniden koşar).
+   Replay aynı durum + kayıt kimliğiyle ve `Idempotent-Replayed: true` başlığıyla döner (gövde saklanmadığı için
+   gövdeyi kimlikten uç kurar — API-5/6). **Ölçüm:** 16 eşzamanlı istek, ilk talep 300 ms açık tutulurken → 1 iş,
+   15 replay, 1 audit satırı; okuma-sonra-yazma mutantı → 16 iş. Süreç ölümü (`pg_terminate_backend`) ve istemci
+   iptali → defterde 0 satır, sonraki istek ilk istek; ADR'nin elediği seçenek (talep ayrı işlemde) mutantı kırmızı.
+2. **`request_hash`** = SHA-256(`"tappa/v1-request|"` + yöntem + kaçışlı yol + sorgu + gövde, `0` baytlarıyla ayrık);
+   anahtar aynı + bunlardan **herhangi biri** farklı → 422. Ad alanı `(tenant, api anahtarı)` — §8'in UNIQUE'i gereği
+   bir tenant'ın iki anahtarı aynı Idempotency-Key'i paylaşmaz. Başlık tek değer, 1–255 görünür ASCII; değilse 400.
+3. **Hata kodu kümesi kapalı** (`internal/handler/api/errors.go`, OpenAPI `Error.code` enum'u ile iki yönlü pinli):
+   `invalid_request`, `body_too_large` (400) · `unauthorized` (401) · `api_disabled`, `tenant_suspended` (403) ·
+   `not_found` (404) · `idempotency_key_reused` (422) · `rate_limited` (429) · `unavailable` (503). §8'in kümesinde 405,
+   413, 415 ve 500 olmadığı için: desteklenmeyen yöntem **404 `not_found`**, büyük gövde **400 `body_too_large`**,
+   kodlanmış gövde **400 `invalid_request`**, bizdeki her hata (veritabanı dahil) **503 `unavailable`**, nedeni yalnız
+   log'da. Bir panik `/v1`'de de router'ın `Recoverer`'ının gövdesiz 500'üdür (sözleşme dışı, adlandırıldı). 409'un kodu
+   henüz yok — API-6 `email_unavailable` ve `already_activated`'ı iki tarafa birden ekler. Bilinmeyen ve iptal edilmiş
+   anahtar **aynı** 401 gövdesini alır (hangi anahtarın var olduğuna kehanet yok; mutantı kırmızı).
+4. **Kovalar** bellekte (`httpx.Limiter`): adres 1 200/dk (biçimden sonra, çözümleyiciden önce; ayrıca anahtarsız
+   `openapi.yaml`), anahtar 600/dk (çözümleyiciden sonra). `Retry-After` pencerenin tamamıdır (Limiter kalan süreyi
+   vermiyor; bugünkü tap kovasıyla aynı). **Ölçüm:** tek adresten 20 biçimli bilinmeyen anahtar, kova 3 → 3 çözümleyici
+   çağrısı, 17 × 429; kova çözümleyiciden sonra konunca 20 çağrı. Kısılan istek `Touch` edilmez.
+5. **`TAPPA_API_HOST` isteğe bağlı:** yoksa yüzey kurulmaz, `/v1` her host'ta 404, açılış satırı
+   `integration_api=off`. Varsa tek yazım (operatör host'unun kuralı), taban URL'nin ve operatör host'unun host'u olamaz.
+   `deploy/k8s/20-app.yaml` onu `tappa-secrets`'tan **`optional: true`** alır ve Secret'ta yoktur — API, API-13'ün
+   adımına (ingress kuralı, K-22, runbook) kadar kapalı kalır.
+6. **İki yönlü host kapısı** operatörünkinin genellemesidir: `httpx.apiHostOnly` API host'unda `/v1` dışını, yüzeyin
+   `hostGate`'i başka her host'ta `/v1`'i router'ın **kendi** 404'üyle yanıtlar (ana host API'nin varlığını bile
+   söylemez). Sınıflama `OnHost` (port, büyük harf, tek sondaki nokta) ve `routingPath`; `X-Forwarded-Host` **hiç**
+   okunmaz (real-ip'in ilkesi: hiçbir yönlendirme başlığı burada bir şey adlandırmaz). Mutantlar (iki yarının her biri)
+   kırmızı.
+7. **Zincirden sonra `Authorization` başlığı istekten silinir**; bir `X-Request-Id` `tt_live_`/`tt_test_`/`tt_whsec_`
+   öneki taşıyorsa (harf ayırmadan) değiştirilir — bir anahtar erişim log'una istek kimliği olarak da giremez.
+   `Touch` hatası 503'tür (sessiz geçilmez).
+8. **Askı kontrol noktası** (`internal/handler/api/suspension.go`): her `/v1` yazması `Surface.write`'tan geçer; işin
+   `Gate.Admit`'ten geçmediği yazma **commit edilmez** (mutantı kırmızı). Askıdayken yalnız `WriteEmployeeCreate` ve
+   `WriteResendActivation` açıktır; sıfır sınıf (adlandırılmamış yazma) kapalıdır. Durum okuyucusu bu dalda
+   `NoSuspensionColumn`'dır (OP-15'in `tenants.suspended_at`'i dalda yok); §4.7'nin hücre hücre tablo testi API-4b'dir.
+   Panel hücreleri (anahtar oluşturma, uç nokta işlemleri, ping, "yeniden gönder"; K-26'nın iki savunma yazması açık)
+   OP-15'in panel kapısındadır — eşleme dosyanın başında.
+9. **K-19 işçisi** (`internal/webhook`): süreç içi küme + tek döngü; iş (`Job.RunFor(ctx, tenant)`) API-6/API-10'la
+   gelir. Kümeye girenler bugün: kaydedilmiş her dokunuş (holding'de **iki** tenant — `checkin.Service.NoticeWorkTo`) ve
+   kimliği doğrulanmış her `/v1` isteği. **Devredildi:** onay ve panelin "yeniden gönder"i (teslimle birlikte —
+   API-9/API-10). Küme **süreç başınadır**: iki işçi aynı tenant'ı kendi işine verir (ölçüldü) — "iki pod tek gönderim"
+   garantisi işçiden değil işin kirasından gelir (API-10'un kabulü). Kapanış: `drainers{resetFlow, work}`, HTTP
+   `Shutdown` ile eşzamanlı, aynı bütçede.
+10. **Idempotency çalıştırıcısı `internal/apikey`'de** (`writes.go`): handler paketi `store`'u import etmez (CLAUDE.md §3);
+    anahtarın kimliğiyle anahtarlanan defter anahtar paketinin yanında durur. `internal/handler/api` paneli import etmez,
+    panel onu import etmez (`go list -deps` ile iki yönlü ölçüldü); paket çerez okumaz, koymaz.
+11. **Üretimde boş uç yok:** zinciri ve yazmayı sınayan uçlar yalnız testte (`export_test.go`'nun `withTestRoutes`'u)
+    bağlanır; üretimdeki tek uç `GET /v1/openapi.yaml`'dır (anahtarsız, adres kovalı).
+
