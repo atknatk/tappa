@@ -423,7 +423,7 @@ func whereBlocks(body string) []whereBlock {
 	// RETURNING is in the stop list here (as in review's and tenant's copies, and
 	// unlike ledger's): CloseBillingPeriod ends in one, and without the stop its
 	// RETURNING list is read as part of its WHERE clause.
-	stopRE := regexp.MustCompile(`(?is)\b(ORDER\s+BY|GROUP\s+BY|LIMIT|HAVING|RETURNING|FOR\s+NO\s+KEY\s+UPDATE|FOR\s+UPDATE|FOR\s+SHARE)\b`)
+	stopRE := regexp.MustCompile(`(?is)\b(ORDER\s+BY|GROUP\s+BY|LIMIT|HAVING|RETURNING|FOR\s+NO\s+KEY\s+UPDATE|FOR\s+UPDATE|FOR\s+SHARE|ON\s+CONFLICT)\b`)
 	for _, loc := range whereRE.FindAllStringIndex(body, -1) {
 		if filterRE.MatchString(body[:loc[0]]) {
 			continue

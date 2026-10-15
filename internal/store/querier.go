@@ -1229,6 +1229,19 @@ type Querier interface {
 	// half-filled pair; nothing in the schema can refuse a plausible zero, so the
 	// boundary that builds these arguments is the only guard and it is tested.
 	CreateLocation(ctx context.Context, arg CreateLocationParams) (CreateLocationRow, error)
+	// Opens the venue for a ref this business does not hold yet.
+	//
+	// 🔴 ON CONFLICT (tenant_id, external_ref) DO NOTHING IS THE CONCURRENCY GUARD. Two PUTs of a
+	// new ref race past the lookup above (no row to lock); the second INSERT waits on the first's
+	// index entry, and when the first commits it returns NO ROW instead of 23505 -- the caller then
+	// locks the row the first one made and treats the request as an update. The unique constraint
+	// (locations_tenant_external_ref_key, 00037) is what makes "a repeated PUT opens no row" true
+	// under concurrency, not the lookup.
+	//
+	// THE TENANT IS SELECTED, NOT ASSIGNED -- CreateLocation's shape and reason (the belt can see a
+	// WHERE; the INSERT happens only if the caller's own tenant row is visible). static_ips takes its
+	// default ('{}'), GPS and the shift stay NULL: no evidence, no lateness.
+	CreateLocationFromAPI(ctx context.Context, arg CreateLocationFromAPIParams) (CreateLocationFromAPIRow, error)
 	// passwordresets.sql -- the TENANT-SCOPED half of the admin password reset
 	// (M7-04 phase A): issuing a single-use token, spending it exactly once, and
 	// listing what is still live.
@@ -2153,6 +2166,10 @@ type Querier interface {
 	// TestGetLocationByIP_MatchesEverybodyWhenARangeDoes is the sign hung on this
 	// sleeping surface.
 	GetLocationByIP(ctx context.Context, arg GetLocationByIPParams) (Location, error)
+	// One venue as the API answers with it -- for an Idempotency-Key REPLAY, whose ledger row keeps
+	// only the venue's id (ADR 0028 §8: no response body is stored), so the answer is the venue as
+	// it is NOW.
+	GetLocationForAPI(ctx context.Context, arg GetLocationForAPIParams) (GetLocationForAPIRow, error)
 	// PROOF OF PLACE FOR ONE LOCATION -- the TAPPED one (M5-05). This is the third
 	// proof-of-place query and the three do not overlap: GetLocationByIP asks "which
 	// location does this address belong to" (a search), ListLocationsForTenant asks
@@ -4290,6 +4307,28 @@ type Querier interface {
 	// lock (a 200-request flood finished in 40 ms, all rate limited), which reads as
 	// "no difference". Use distinct sessions for the flood and one shot for the victim.
 	LockEmployeeForTap(ctx context.Context, arg LockEmployeeForTapParams) error
+	// ---------------------------------------------------------------------------
+	// THE INTEGRATION API'S VENUE WRITE (M11 API-5, ADR 0028 §9: PUT /v1/locations/{ref}).
+	// internal/domain/tenant/venueapi.go is the one caller; it runs inside the API's write
+	// runner (internal/apikey.Writes: WithTenant of the KEY's tenant, never one the request
+	// names).
+	//
+	// 🔴 THESE STATEMENTS NAME name, external_ref AND active AND NOTHING OF THE EVIDENCE. The
+	// API never writes static_ips, gps_lat/gps_lng, the shift or wifi_ssid (ADR 0028 §9, plan §2
+	// item 10): a venue the API opens has no proof of place, so every tap there is recorded as
+	// `flag` (CLAUDE.md §5 row 7 -- recorded, never refused) until the panel gives it an address
+	// range or a coordinate. That is also why CLAUDE.md §5's netx rule has nothing to apply to
+	// here: no address range enters through this path. active is K-20's LABEL; nothing on the
+	// tap path reads it (the header of this file).
+	//
+	// TENANT SCOPE (section 4.5, belt + braces): every statement binds tenant_id to @tenant_id as
+	// a top-level conjunct of its own WHERE, on top of RLS.
+	// The venue this business has bound to the integrator's ref (K-24: one per (tenant_id,
+	// external_ref)), row-locked until the write's transaction ends -- FOR NO KEY UPDATE, the lock
+	// the UPDATE below takes anyway, so the comparison ("unchanged?") and the trail's "before"
+	// describe the row the UPDATE replaces. A venue is found by its ref ONLY: K-18, no match by
+	// name.
+	LockLocationByExternalRef(ctx context.Context, arg LockLocationByExternalRefParams) (LockLocationByExternalRefRow, error)
 	// The integration identity on file for ONE venue, row-locked until the transaction ends
 	// (M11 API-1, internal/domain/tenant.Venues.ChangeExternalRef) -- the employee twin's
 	// shape (LockEmployeeForExternalRefChange): FOR NO KEY UPDATE, the lock the UPDATE below
@@ -5105,6 +5144,9 @@ type Querier interface {
 	// this statement's transaction -- without it, a change to the evidence a tap is
 	// judged on would leave no trace anywhere.
 	UpdateLocation(ctx context.Context, arg UpdateLocationParams) (UpdateLocationRow, error)
+	// Renames the venue and sets its label. Nothing else: the evidence, the shift and the network
+	// name are the panel's (see the block header), and tenant_id is not in the SET list.
+	UpdateLocationFromAPI(ctx context.Context, arg UpdateLocationFromAPIParams) (UpdateLocationFromAPIRow, error)
 	// Rewrites the three facts a business may change about itself (M7-05).
 	//
 	// 🔴 THE THREE COLUMNS tappa_app MAY UPDATE, AND THE TWO ABSENCES ARE THE DECISION

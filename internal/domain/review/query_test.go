@@ -108,7 +108,7 @@ func whereClauses(body string) []string {
 	// copies identical; the measurement is recorded in internal/domain/tenant's
 	// copy. It is a no-op for the queries this package covers (none takes a row
 	// lock) and stops the matcher mis-reading one that does.
-	stopRE := regexp.MustCompile(`(?is)\b(ORDER\s+BY|GROUP\s+BY|LIMIT|HAVING|RETURNING|FOR\s+NO\s+KEY\s+UPDATE|FOR\s+UPDATE|FOR\s+SHARE)\b`)
+	stopRE := regexp.MustCompile(`(?is)\b(ORDER\s+BY|GROUP\s+BY|LIMIT|HAVING|RETURNING|FOR\s+NO\s+KEY\s+UPDATE|FOR\s+UPDATE|FOR\s+SHARE|ON\s+CONFLICT)\b`)
 	for _, loc := range whereRE.FindAllStringIndex(body, -1) {
 		rest := body[loc[1]:]
 		depth, end := 0, len(rest)

@@ -455,7 +455,7 @@ func whereBlocks(body string) []whereBlock {
 	// does not flag a scoped one. That is why it is named rather than closed here --
 	// closing it changes what this package's belt accepts and belongs with its own
 	// mutation run, not with a task about `tags`.
-	stopRE := regexp.MustCompile(`(?is)\b(ORDER\s+BY|GROUP\s+BY|LIMIT|HAVING|FOR\s+NO\s+KEY\s+UPDATE|FOR\s+UPDATE|FOR\s+SHARE)\b`)
+	stopRE := regexp.MustCompile(`(?is)\b(ORDER\s+BY|GROUP\s+BY|LIMIT|HAVING|FOR\s+NO\s+KEY\s+UPDATE|FOR\s+UPDATE|FOR\s+SHARE|ON\s+CONFLICT)\b`)
 	for _, loc := range whereRE.FindAllStringIndex(body, -1) {
 		if filterRE.MatchString(body[:loc[0]]) {
 			// An aggregate's row filter, not a query's scope. See the block comment.

@@ -648,7 +648,14 @@ func whereClauses(body string) []string {
 	// tokens are added to all three copies of this scanner: copies that DISAGREE are
 	// worse than copies that agree, and this one is a no-op for the other two (no
 	// query they cover takes a row lock -- grepped).
-	stopRE := regexp.MustCompile(`(?is)\b(ORDER\s+BY|GROUP\s+BY|LIMIT|HAVING|RETURNING|FOR\s+NO\s+KEY\s+UPDATE|FOR\s+UPDATE|FOR\s+SHARE)\b`)
+	//
+	// ON CONFLICT ADDED 2026-10-15 (M11 API-5), the same kind of blind spot: an
+	// `INSERT ... SELECT ... FROM tenants t WHERE t.id = @tenant_id ON CONFLICT (...) DO
+	// NOTHING` (CreateLocationFromAPI) read its WHERE as "t.id = @tenant_id ON CONFLICT
+	// (tenant_id, external_ref) DO NOTHING" and flagged a correctly scoped statement
+	// (measured: red without the token, green with it). An ON CONFLICT ... DO UPDATE ...
+	// WHERE has a WHERE of its own, which whereRE still finds. Added to every copy.
+	stopRE := regexp.MustCompile(`(?is)\b(ORDER\s+BY|GROUP\s+BY|LIMIT|HAVING|RETURNING|FOR\s+NO\s+KEY\s+UPDATE|FOR\s+UPDATE|FOR\s+SHARE|ON\s+CONFLICT)\b`)
 	for _, loc := range whereRE.FindAllStringIndex(body, -1) {
 		rest := body[loc[1]:]
 		depth, end := 0, len(rest)

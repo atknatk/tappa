@@ -205,6 +205,66 @@ func (q *Queries) CreateLocation(ctx context.Context, arg CreateLocationParams) 
 	return i, err
 }
 
+const createLocationFromAPI = `-- name: CreateLocationFromAPI :one
+INSERT INTO locations (tenant_id, name, external_ref, active)
+SELECT t.id, $1, $2, $3
+FROM tenants t
+WHERE t.id = $4
+ON CONFLICT (tenant_id, external_ref) DO NOTHING
+RETURNING id, name, external_ref, active, created_at, static_ips, gps_lat, gps_lng
+`
+
+type CreateLocationFromAPIParams struct {
+	Name        string
+	ExternalRef *string
+	Active      bool
+	TenantID    uuid.UUID
+}
+
+type CreateLocationFromAPIRow struct {
+	ID          uuid.UUID
+	Name        string
+	ExternalRef *string
+	Active      bool
+	CreatedAt   time.Time
+	StaticIps   []netip.Prefix
+	GpsLat      pgtype.Numeric
+	GpsLng      pgtype.Numeric
+}
+
+// Opens the venue for a ref this business does not hold yet.
+//
+// 🔴 ON CONFLICT (tenant_id, external_ref) DO NOTHING IS THE CONCURRENCY GUARD. Two PUTs of a
+// new ref race past the lookup above (no row to lock); the second INSERT waits on the first's
+// index entry, and when the first commits it returns NO ROW instead of 23505 -- the caller then
+// locks the row the first one made and treats the request as an update. The unique constraint
+// (locations_tenant_external_ref_key, 00037) is what makes "a repeated PUT opens no row" true
+// under concurrency, not the lookup.
+//
+// THE TENANT IS SELECTED, NOT ASSIGNED -- CreateLocation's shape and reason (the belt can see a
+// WHERE; the INSERT happens only if the caller's own tenant row is visible). static_ips takes its
+// default ('{}'), GPS and the shift stay NULL: no evidence, no lateness.
+func (q *Queries) CreateLocationFromAPI(ctx context.Context, arg CreateLocationFromAPIParams) (CreateLocationFromAPIRow, error) {
+	row := q.db.QueryRow(ctx, createLocationFromAPI,
+		arg.Name,
+		arg.ExternalRef,
+		arg.Active,
+		arg.TenantID,
+	)
+	var i CreateLocationFromAPIRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.ExternalRef,
+		&i.Active,
+		&i.CreatedAt,
+		&i.StaticIps,
+		&i.GpsLat,
+		&i.GpsLng,
+	)
+	return i, err
+}
+
 const deleteLocation = `-- name: DeleteLocation :one
 DELETE FROM locations
 WHERE tenant_id = $1
@@ -340,6 +400,48 @@ func (q *Queries) GetLocationByIP(ctx context.Context, arg GetLocationByIPParams
 		&i.WifiSsid,
 		&i.ExternalRef,
 		&i.Active,
+	)
+	return i, err
+}
+
+const getLocationForAPI = `-- name: GetLocationForAPI :one
+SELECT id, name, external_ref, active, created_at, static_ips, gps_lat, gps_lng
+FROM locations
+WHERE tenant_id = $1
+  AND id = $2
+`
+
+type GetLocationForAPIParams struct {
+	TenantID uuid.UUID
+	ID       uuid.UUID
+}
+
+type GetLocationForAPIRow struct {
+	ID          uuid.UUID
+	Name        string
+	ExternalRef *string
+	Active      bool
+	CreatedAt   time.Time
+	StaticIps   []netip.Prefix
+	GpsLat      pgtype.Numeric
+	GpsLng      pgtype.Numeric
+}
+
+// One venue as the API answers with it -- for an Idempotency-Key REPLAY, whose ledger row keeps
+// only the venue's id (ADR 0028 §8: no response body is stored), so the answer is the venue as
+// it is NOW.
+func (q *Queries) GetLocationForAPI(ctx context.Context, arg GetLocationForAPIParams) (GetLocationForAPIRow, error) {
+	row := q.db.QueryRow(ctx, getLocationForAPI, arg.TenantID, arg.ID)
+	var i GetLocationForAPIRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.ExternalRef,
+		&i.Active,
+		&i.CreatedAt,
+		&i.StaticIps,
+		&i.GpsLat,
+		&i.GpsLng,
 	)
 	return i, err
 }
@@ -705,6 +807,68 @@ func (q *Queries) ListPanelLocations(ctx context.Context, arg ListPanelLocations
 	return items, nil
 }
 
+const lockLocationByExternalRef = `-- name: LockLocationByExternalRef :one
+
+SELECT id, name, external_ref, active, created_at, static_ips, gps_lat, gps_lng
+FROM locations
+WHERE tenant_id = $1
+  AND external_ref = $2
+FOR NO KEY UPDATE
+`
+
+type LockLocationByExternalRefParams struct {
+	TenantID    uuid.UUID
+	ExternalRef *string
+}
+
+type LockLocationByExternalRefRow struct {
+	ID          uuid.UUID
+	Name        string
+	ExternalRef *string
+	Active      bool
+	CreatedAt   time.Time
+	StaticIps   []netip.Prefix
+	GpsLat      pgtype.Numeric
+	GpsLng      pgtype.Numeric
+}
+
+// ---------------------------------------------------------------------------
+// THE INTEGRATION API'S VENUE WRITE (M11 API-5, ADR 0028 §9: PUT /v1/locations/{ref}).
+// internal/domain/tenant/venueapi.go is the one caller; it runs inside the API's write
+// runner (internal/apikey.Writes: WithTenant of the KEY's tenant, never one the request
+// names).
+//
+// 🔴 THESE STATEMENTS NAME name, external_ref AND active AND NOTHING OF THE EVIDENCE. The
+// API never writes static_ips, gps_lat/gps_lng, the shift or wifi_ssid (ADR 0028 §9, plan §2
+// item 10): a venue the API opens has no proof of place, so every tap there is recorded as
+// `flag` (CLAUDE.md §5 row 7 -- recorded, never refused) until the panel gives it an address
+// range or a coordinate. That is also why CLAUDE.md §5's netx rule has nothing to apply to
+// here: no address range enters through this path. active is K-20's LABEL; nothing on the
+// tap path reads it (the header of this file).
+//
+// TENANT SCOPE (section 4.5, belt + braces): every statement binds tenant_id to @tenant_id as
+// a top-level conjunct of its own WHERE, on top of RLS.
+// The venue this business has bound to the integrator's ref (K-24: one per (tenant_id,
+// external_ref)), row-locked until the write's transaction ends -- FOR NO KEY UPDATE, the lock
+// the UPDATE below takes anyway, so the comparison ("unchanged?") and the trail's "before"
+// describe the row the UPDATE replaces. A venue is found by its ref ONLY: K-18, no match by
+// name.
+func (q *Queries) LockLocationByExternalRef(ctx context.Context, arg LockLocationByExternalRefParams) (LockLocationByExternalRefRow, error) {
+	row := q.db.QueryRow(ctx, lockLocationByExternalRef, arg.TenantID, arg.ExternalRef)
+	var i LockLocationByExternalRefRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.ExternalRef,
+		&i.Active,
+		&i.CreatedAt,
+		&i.StaticIps,
+		&i.GpsLat,
+		&i.GpsLng,
+	)
+	return i, err
+}
+
 const lockLocationForExternalRefChange = `-- name: LockLocationForExternalRefChange :one
 SELECT id, external_ref
 FROM locations
@@ -858,6 +1022,56 @@ func (q *Queries) UpdateLocation(ctx context.Context, arg UpdateLocationParams) 
 		&i.Overnight,
 		&i.WifiSsid,
 		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const updateLocationFromAPI = `-- name: UpdateLocationFromAPI :one
+UPDATE locations
+SET name   = $1,
+    active = $2
+WHERE tenant_id = $3
+  AND id = $4
+RETURNING id, name, external_ref, active, created_at, static_ips, gps_lat, gps_lng
+`
+
+type UpdateLocationFromAPIParams struct {
+	Name     string
+	Active   bool
+	TenantID uuid.UUID
+	ID       uuid.UUID
+}
+
+type UpdateLocationFromAPIRow struct {
+	ID          uuid.UUID
+	Name        string
+	ExternalRef *string
+	Active      bool
+	CreatedAt   time.Time
+	StaticIps   []netip.Prefix
+	GpsLat      pgtype.Numeric
+	GpsLng      pgtype.Numeric
+}
+
+// Renames the venue and sets its label. Nothing else: the evidence, the shift and the network
+// name are the panel's (see the block header), and tenant_id is not in the SET list.
+func (q *Queries) UpdateLocationFromAPI(ctx context.Context, arg UpdateLocationFromAPIParams) (UpdateLocationFromAPIRow, error) {
+	row := q.db.QueryRow(ctx, updateLocationFromAPI,
+		arg.Name,
+		arg.Active,
+		arg.TenantID,
+		arg.ID,
+	)
+	var i UpdateLocationFromAPIRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.ExternalRef,
+		&i.Active,
+		&i.CreatedAt,
+		&i.StaticIps,
+		&i.GpsLat,
+		&i.GpsLng,
 	)
 	return i, err
 }

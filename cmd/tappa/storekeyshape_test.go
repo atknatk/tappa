@@ -375,6 +375,13 @@ var storeSurface = map[string]string{
 	"ClaimIdempotency":               "(context.Context, ClaimIdempotencyParams{TenantID uuid.UUID; KeyID uuid.UUID; IdemKey string; RequestHash string}) (int64, error)",
 	"GetIdempotency":                 "(context.Context, GetIdempotencyParams{TenantID uuid.UUID; KeyID uuid.UUID; IdemKey string}) (GetIdempotencyRow{RequestHash string; Status *int16; ResultRef *uuid.UUID}, error)",
 	"RecordIdempotency":              "(context.Context, RecordIdempotencyParams{Status *int16; ResultRef *uuid.UUID; TenantID uuid.UUID; KeyID uuid.UUID; IdemKey string}) (int64, error)",
+	// M11 API-5: PUT /v1/locations/{ref} -- a venue's name, ref and K-20 label go in; the row comes
+	// back with its evidence columns only so the trail can say whether it has proof of place. No key,
+	// no tag, nothing of a person.
+	"LockLocationByExternalRef": "(context.Context, LockLocationByExternalRefParams{TenantID uuid.UUID; ExternalRef *string}) (LockLocationByExternalRefRow{ID uuid.UUID; Name string; ExternalRef *string; Active bool; CreatedAt time.Time; StaticIps []netip.Prefix; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric}, error)",
+	"CreateLocationFromAPI":     "(context.Context, CreateLocationFromAPIParams{Name string; ExternalRef *string; Active bool; TenantID uuid.UUID}) (CreateLocationFromAPIRow{ID uuid.UUID; Name string; ExternalRef *string; Active bool; CreatedAt time.Time; StaticIps []netip.Prefix; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric}, error)",
+	"UpdateLocationFromAPI":     "(context.Context, UpdateLocationFromAPIParams{Name string; Active bool; TenantID uuid.UUID; ID uuid.UUID}) (UpdateLocationFromAPIRow{ID uuid.UUID; Name string; ExternalRef *string; Active bool; CreatedAt time.Time; StaticIps []netip.Prefix; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric}, error)",
+	"GetLocationForAPI":         "(context.Context, GetLocationForAPIParams{TenantID uuid.UUID; ID uuid.UUID}) (GetLocationForAPIRow{ID uuid.UUID; Name string; ExternalRef *string; Active bool; CreatedAt time.Time; StaticIps []netip.Prefix; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric}, error)",
 }
 
 // TestStoreSurface_IsTheOneRecorded is the inventory check.
@@ -912,14 +919,16 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// peer's venue is read through holding_site_locations by internal/db/holding.go, by hand).
 	// 143 -> 150 on 2026-10-15 (M11 API-3): apikeys.sql's seven queries; none calls a definer.
 	// 150 -> 155 on 2026-10-15 (M11 API-4): apiidempotency.sql's five queries; none calls a definer.
-	if named != 155 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; ONE HUNDRED AND FIFTY-FIVE were "+
+	// 155 -> 159 on 2026-10-15 (M11 API-5): locations.sql's four venue queries of PUT
+	// /v1/locations; none calls a definer.
+	if named != 159 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; ONE HUNDRED AND FIFTY-NINE were "+
 			"there when this was pinned (2026-10-15: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
 			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+
 			"+ EM-7B's three invitation e-mail queries, + EM-7C's two recovery queries, "+
 			"+ the activation tap's two consent queries, + WL-13's two activation brand queries, "+
-			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries). "+
+			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {
