@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -15,7 +16,8 @@ import (
 
 // holding.go -- the Go side of ADR 0027 §2's callable holding functions: the tap path's three
 // (M11 API-1b, migration 00043), holding_tap_site, holding_advance_tag_counter and holding_logo,
-// and the employer's readers' one (M11 API-1c, migration 00047), holding_site_locations.
+// the employer's readers' one (M11 API-1c, migration 00047), holding_site_locations, and the
+// integration API's directory (M11 API-8, migration 00055), holding_directory.
 //
 // HAND-WRITTEN AND TYPED, for resolve.go's reason: sqlc v1.28 cannot type a call to a
 // `RETURNS TABLE(...)` function (ADR 0002 md.7, measured three times). The SQL strings below
@@ -331,4 +333,50 @@ func (h Holding) SiteLocations(ctx context.Context) (map[uuid.UUID]HoldingSiteLo
 		}
 	}
 	return nil, ErrHoldingSiteLocationsTruncated
+}
+
+// HoldingDirectoryEntry is holding_directory's row: one employee of a PEER of the caller's tenant
+// (ADR 0027 §2; ADR 0028 §2, §9) -- never one of the caller's own. 🔴 No e-mail: the function
+// returns none (K-1f, K-24; employees.email is on K-34's "never SELECT" list).
+type HoldingDirectoryEntry struct {
+	EmployeeID uuid.UUID
+	// EmployerTenantID is the peer the employee works for, and APICode its company code (nil when
+	// the peer's API was never given one -- K-22).
+	EmployerTenantID uuid.UUID
+	APICode          *string
+	ExternalRef      *string
+	EmployeeCode     *string
+	FirstName        *string
+	LastName         *string
+	// Active is status <> 'deactivated' (K-1h).
+	Active    bool
+	UpdatedAt time.Time
+}
+
+// HoldingDirectoryPage is the function's page size (ADR 0027 §2: "en çok 1000"). A page this full
+// may have more behind it; a shorter one is the end.
+const HoldingDirectoryPage = 1000
+
+const holdingDirectorySQL = `SELECT employee_id, employer_tenant_id, api_code, external_ref, employee_code, first_name, last_name, active, updated_at
+  FROM public.holding_directory($1, $2)`
+
+// Directory reads one page of the peers' employees in (updated_at, id) order: with cursor nil, those
+// updated at or after since (nil: all of them); with a cursor, those after the position (since,
+// cursor) -- the last row a previous page handed out. No peer, no context and a membership past its
+// end are one answer: no row (ADR 0027 §6, the reads are strict).
+func (h Holding) Directory(ctx context.Context, since *time.Time, cursor *uuid.UUID) ([]HoldingDirectoryEntry, error) {
+	rows, err := h.tx.Query(ctx, holdingDirectorySQL, since, cursor)
+	if err != nil {
+		return nil, fmt.Errorf("db: holding_directory: %w", err)
+	}
+	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (HoldingDirectoryEntry, error) {
+		var e HoldingDirectoryEntry
+		err := r.Scan(&e.EmployeeID, &e.EmployerTenantID, &e.APICode, &e.ExternalRef, &e.EmployeeCode, &e.FirstName, &e.LastName,
+			&e.Active, &e.UpdatedAt)
+		return e, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("db: holding_directory: %w", err)
+	}
+	return out, nil
 }

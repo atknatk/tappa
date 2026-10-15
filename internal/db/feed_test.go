@@ -239,20 +239,25 @@ func feedSetAsideRows(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	}
 }
 
-// feedBelow48 takes the savepoint's database below 00048 -- 00049's Down, then 00048's -- with the
+// feedBelow48 takes the savepoint's database below 00048 -- 00055's Down (API-8), 00049's, then 00048's -- with the
 // feed rows set aside first. The caller's savepoint is a holdingLockedSavepoint; the lock is taken
 // again here, as holdingBelow46 does.
 func feedBelow48(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	t.Helper()
 	holdingLockForDowns(t, ctx, sp)
 	feedSetAsideRows(t, ctx, sp)
+	// API-8: 00055's Down first -- holding_directory is a definer's function and its four employees
+	// grants are the definer's, so a walk below 00047 must not find them (feedUpAgain gives them back).
+	// It takes no table lock; the directory's index is 00056's and is not walked.
+	_, down55 := opMigrationSections(t, op00055File)
+	opRunSection(t, ctx, sp, down55, "00055 Down")
 	_, down49 := opMigrationSections(t, op00049File)
 	_, down48 := opMigrationSections(t, op00048File)
 	opRunSection(t, ctx, sp, down49, "00049 Down")
 	opRunSection(t, ctx, sp, down48, "00048 Down")
 }
 
-// feedUpAgain runs 00048's and 00049's Ups -- after feedBelow48 and whatever the test walked
+// feedUpAgain runs 00048's, 00049's and 00055's Ups -- after feedBelow48 and whatever the test walked
 // below it, to compare with HEAD.
 func feedUpAgain(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	t.Helper()
@@ -260,6 +265,8 @@ func feedUpAgain(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	up49, _ := opMigrationSections(t, op00049File)
 	opRunSection(t, ctx, sp, up48, "00048 Up again")
 	opRunSection(t, ctx, sp, up49, "00049 Up again")
+	up55, _ := opMigrationSections(t, op00055File)
+	opRunSection(t, ctx, sp, up55, "00055 Up again")
 }
 
 func feedStr(p *string) string {

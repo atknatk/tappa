@@ -234,11 +234,13 @@ var m11Columns = []m11Column{
 	// 00046 (M11 API-1c): and tappa_holdingdefiner reads the ref and the code -- the snapshot of
 	// who tapped that holding_feed writes into the site's projection (K-1f).
 	// 00049 (M11 API-2): and tappa_feedwriter reads both -- the punch event's snapshot (K-32).
+	// 00055 (M11 API-8): and tappa_holdingdefiner reads the two names and updated_at -- a peer's
+	// directory row (holding_directory; ADR 0027 §3's employees row, complete).
 	{"employees", "external_ref", map[string]string{"tappa_app": "SIU", "tappa_holdingdefiner": "S", "tappa_feedwriter": "S"}},
 	{"employees", "employee_code", map[string]string{"tappa_app": "SIU", "tappa_holdingdefiner": "S", "tappa_feedwriter": "S"}},
-	{"employees", "first_name", map[string]string{"tappa_app": "SIU"}},
-	{"employees", "last_name", map[string]string{"tappa_app": "SIU"}},
-	{"employees", "updated_at", map[string]string{"tappa_app": "SIU"}},
+	{"employees", "first_name", map[string]string{"tappa_app": "SIU", "tappa_holdingdefiner": "S"}},
+	{"employees", "last_name", map[string]string{"tappa_app": "SIU", "tappa_holdingdefiner": "S"}},
+	{"employees", "updated_at", map[string]string{"tappa_app": "SIU", "tappa_holdingdefiner": "S"}},
 	// 00043 (M11 API-1b): tappa_holdingdefiner reads a peer's venue ref (holding_tap_site).
 	// 00049 (M11 API-2): and tappa_feedwriter (the event's venue snapshot).
 	{"locations", "external_ref", map[string]string{"tappa_app": "SIU", "tappa_holdingdefiner": "S", "tappa_feedwriter": "S"}},
@@ -304,6 +306,8 @@ var m11Functions = map[string]m11FunctionACL{
 	// alone; 00047: a peer's venues -- EXECUTE to tappa_app alone.
 	"holding_feed()":               {owner: "tappa_holdingdefiner", definer: true, execute: "tappa_holdingdefiner"},
 	"holding_site_locations(uuid)": {owner: "tappa_holdingdefiner", definer: true, execute: "tappa_app,tappa_holdingdefiner"},
+	// 00055 (M11 API-8): a peer's employees -- EXECUTE to tappa_app alone.
+	"holding_directory(timestamp with time zone,uuid)": {owner: "tappa_holdingdefiner", definer: true, execute: "tappa_app,tappa_holdingdefiner"},
 	// 00048/00049 (M11 API-2, ADR 0028 §4): the own-tenant feed's two trigger functions -- EXECUTE in
 	// their owner alone, bodies asserting TG_RELID (FeedTriggers_RefuseVerbsUnderArwdAndTempTableBinding).
 	"feed_open_counter()": {owner: "tappa_feedwriter", definer: true, execute: "tappa_feedwriter"},

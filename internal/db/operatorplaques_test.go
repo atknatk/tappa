@@ -140,6 +140,9 @@ var opAtVersionSkips = map[int]string{
 		"and api_keys (the table's two keys)",
 	53: "the application's INSERT on audit_log narrowed to six columns (M11 API-6 review) -- no operator object",
 	54: "a partial index on audit_log for the activation e-mail's state (M11 API-6 review) -- no operator object",
+	55: "holding_directory, its four employees grants and the membership gate (M11 API-8) -- no operator object",
+	56: "the directory's index on employees (M11 API-8) -- no operator object; its Down's DROP INDEX takes ACCESS " +
+		"EXCLUSIVE on employees",
 }
 
 // opAtVersion takes the test's transaction to migration `version`: from the newest file

@@ -1053,6 +1053,15 @@ lock_timeout = '1s'`. Ölçüm (API-6 denetimi): ~1 M `audit_log` satırında ku
 migration olarak kurulur (API-13 runbook'u satır sayısını deploy'dan önce ölçer). Gerekçe yukarıdaki kural:
 `op_remove_holding_member` `audit_log`'u beklerken üyelik satırını tutar (ADR 0027 §13 madde 16).
 
+**`employees` üzerinde indeks — `00056` (M11 API-8):** `employees_tenant_updated_idx (tenant_id, updated_at, id)` goose'un
+işleminde (`CONCURRENTLY` değil) kurulur ve kurulum süresince `employees`'i `SHARE` kilitler — çalışan yazmaları (panel,
+API, davet kabulü) bekler; dokunuşlar `employees`'i yalnız okur, beklemez. İlk ifadesi `SET LOCAL lock_timeout = '1s'`
+(açık bir çalışan yazmasının arkasında 55P03 ile düşer — `TestEmployees00056_GivesUpAfterASecondBehindAnOpenWrite`). Ölçüm
+(API-8, atılabilir kap): 42 M satırda kurulum 30,5–38,2 sn (≈ 0,8 sn / 1 M satır). **Eşik:** prod'da `employees` ~2 M satırı
+aşıyorsa `00056` bu hâliyle koşulmaz — indeks `CONCURRENTLY` ile, işlemsiz ayrı bir migration olarak önce kurulur (API-13
+runbook'u satır sayısını deploy'dan önce ölçer). Önündeki `00055` (`holding_directory`, `holding_site_locations`'ın gövdesi —
+`CREATE OR REPLACE`) tablo kilidi almaz.
+
 ## Feed role (M11 API-2) — tek seferlik kurulum
 
 **Ne:** migration `00048` (punch akışının tabloları — ADR 0028 §4, §5) bir **küme** rolüne dayanır:

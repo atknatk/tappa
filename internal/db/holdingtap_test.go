@@ -428,7 +428,10 @@ func holdingOutsiderProbes(t *testing.T, ctx context.Context, tx pgx.Tx, w holdi
 				if err := rows.Err(); err != nil {
 					return err
 				}
-				if got < 1000 {
+				// A short page is the end; a leak is the answer (API-8: on a database tests have filled
+				// -- 45 000 tenants -- a wrong filter's every page walks every tenant, and walking on past
+				// the first leaking page took the mutant test over its three minutes).
+				if got < 1000 || n > 0 {
 					return nil
 				}
 			}
@@ -437,6 +440,73 @@ func holdingOutsiderProbes(t *testing.T, ctx context.Context, tx pgx.Tx, w holdi
 			t.Fatalf("holding_site_locations: %v", err)
 		}
 		functions = append(functions, leak(n != 0, fmt.Sprintf("%s read %d venue(s) it is no peer of through holding_site_locations", p.who, n)))
+		if n != 0 {
+			break // one leak answers the probe (the real filter leaks none and walks every context)
+		}
+	}
+	// holding_directory (00055, API-8): an outsider's context reads no employee of H's members, KM's
+	// context none of H2's, no context none at all -- and no context reads its OWN employees through
+	// it (the caller is never its own peer). The walk follows the function's keyset (since, cursor)
+	// until a page is short or a forbidden row shows: under a wrong filter it answers every employee
+	// of every tenant, 1000 a page in (updated_at, id) order, and the row that leaks need not be on
+	// the first page. It starts at the world's first employee (its updated_at, an instant of this
+	// test): every employee the world holds is at or after it, and the walk does not begin at the
+	// oldest employee of a database tests have filled (measured: from the beginning, on the shared
+	// database, the M1 mutant's walk took 174 s).
+	var worldStart time.Time
+	if err := tx.QueryRow(ctx, `SELECT min(updated_at) FROM employees WHERE tenant_id = ANY($1)`,
+		[]uuid.UUID{w.kf, w.km, w.c, w.d}).Scan(&worldStart); err != nil {
+		t.Fatalf("the world's first employee: %v", err)
+	}
+	for _, p := range []struct {
+		who       string
+		ctx       uuid.UUID
+		forbidden []uuid.UUID
+	}{
+		{"C (H2)", w.c, []uuid.UUID{w.kf, w.km, w.c}},
+		{"D (H2, C's peer)", w.d, []uuid.UUID{w.kf, w.km, w.d}},
+		{"KM", w.km, []uuid.UUID{w.c, w.d, w.km}},
+		{"no context", uuid.Nil, nil},
+	} {
+		var n int64
+		if err := holdingAppIn(t, ctx, tx, p.ctx, func(sp pgx.Tx) error {
+			since := &worldStart
+			var cursor *uuid.UUID
+			for range 400 {
+				rows, err := sp.Query(ctx, `SELECT employee_id, employer_tenant_id, updated_at FROM public.holding_directory($1, $2)`, since, cursor)
+				if err != nil {
+					return err
+				}
+				got := 0
+				for rows.Next() {
+					var id, employer uuid.UUID
+					var at time.Time
+					if err := rows.Scan(&id, &employer, &at); err != nil {
+						rows.Close()
+						return err
+					}
+					got++
+					since, cursor = &at, &id
+					if p.forbidden == nil || slices.Contains(p.forbidden, employer) {
+						n++
+					}
+				}
+				rows.Close()
+				if err := rows.Err(); err != nil {
+					return err
+				}
+				if got < 1000 || n > 0 {
+					return nil
+				}
+			}
+			return fmt.Errorf("holding_directory answered more than 400 pages")
+		}); err != nil {
+			t.Fatalf("holding_directory: %v", err)
+		}
+		functions = append(functions, leak(n != 0, fmt.Sprintf("%s read %d employee(s) it is no peer of through holding_directory", p.who, n)))
+		if n != 0 {
+			break // one leak answers the probe (the real filter leaks none and walks every context)
+		}
 	}
 	// The gate: KM names C's venue on a manual record and C's plaque on a QR; C names KF's.
 	gate = append(gate,
@@ -604,7 +674,8 @@ var holdingPeerMutants = map[string]string{
 // and the grants kept -- the probes of the FUNCTIONS find a leak AND the probes of the GATE find
 // a leak. C is a member of H2: without it M3 would answer false for C and stay green (7th round).
 // Since API-1c the probes reach holding_site_locations (00047) and the second trigger, holding_feed
-// (00046), through its approval arm -- the one that asks holding_peer (holdingFeedProbes).
+// (00046), through its approval arm -- the one that asks holding_peer (holdingFeedProbes); since API-8
+// holding_directory (00055).
 func TestHoldingFilter_MutantsM1M2M3AreRedInFunctionsAndTriggers(t *testing.T) {
 	ctx, tx := opTx(t)
 	w := holdingWorldTx(t, ctx, tx, "")
@@ -616,10 +687,17 @@ func TestHoldingFilter_MutantsM1M2M3AreRedInFunctionsAndTriggers(t *testing.T) {
 	for _, name := range []string{"M1", "M2", "M3"} {
 		t.Run(name, func(t *testing.T) {
 			holdingInSavepoint(t, tx, func(sp pgx.Tx) {
+				// is_member keeps its real answer (API-8, 00055): the two multi-row functions ask it first,
+				// as a gate, and a mutant of the PEER filter that also broke the membership question
+				// would be hidden behind it -- the mutants are K-33's wrong filters, not a broken gate.
 				body := fmt.Sprintf(`CREATE OR REPLACE FUNCTION public.holding_peer(a uuid, b uuid, mod text)
 					RETURNS boolean LANGUAGE plpgsql VOLATILE SECURITY INVOKER SET search_path = pg_catalog, pg_temp AS $$
 					BEGIN
 					    IF mod = 'lock' THEN RETURN NULL; END IF;
+					    IF mod = 'is_member' THEN
+					        RETURN EXISTS (SELECT 1 FROM public.holding_members m
+					                        WHERE m.member_tenant_id = a AND (m.left_at IS NULL OR m.left_at + interval '60 seconds' > clock_timestamp()));
+					    END IF;
 					    IF a IS NULL OR b IS NULL OR a = b THEN RETURN false; END IF;
 					    RETURN %s;
 					END $$`, holdingPeerMutants[name])
@@ -633,6 +711,9 @@ func TestHoldingFilter_MutantsM1M2M3AreRedInFunctionsAndTriggers(t *testing.T) {
 				}
 				if !slices.ContainsFunc(functions, func(f string) bool { return strings.Contains(f, "holding_site_locations") }) {
 					t.Errorf("%s in holding_peer: holding_site_locations' probes stayed green -- K-33's test does not catch it", name)
+				}
+				if !slices.ContainsFunc(functions, func(f string) bool { return strings.Contains(f, "holding_directory") }) {
+					t.Errorf("%s in holding_peer: holding_directory's probes stayed green -- K-33's test does not catch it", name)
 				}
 				if len(gate) == 0 {
 					t.Errorf("%s in holding_peer: the gate's probes stayed green -- K-33's test does not catch it", name)
@@ -1191,13 +1272,15 @@ func TestHoldingAdvance_ConcurrentSameCounterExactlyOneWins(t *testing.T) {
 // needs SELECT on its own columns) and an approval (the only path that reads transactions). Since
 // API-2 both tenants' API is open with an active endpoint, so the ok tap and the approval write
 // the two targets' events AND deliveries (00049's grants: the counters, punch_events,
-// webhook_deliveries, the endpoint's id/tenant/switch, api_enabled_at, verdict and practice).
+// webhook_deliveries, the endpoint's id/tenant/switch, api_enabled_at, verdict and practice). Since
+// API-8 the drive reads the directory (00055's four employees columns).
 func TestHoldingDefiner_EveryGrantIsUsed(t *testing.T) {
 	ctx, tx := opTx(t)
 	w := holdingWorldTx(t, ctx, tx, "")
 	feedOpen(t, ctx, tx, w.kf, "KF", true)
 	feedOpen(t, ctx, tx, w.km, "KM", true)
 	reviewer := holdingNewAdmin(t, ctx, tx, w.km)
+	alone := opNewTenant(t, ctx, tx, "api8 grants alone "+opToken(t), 0)
 	drive := func(sp pgx.Tx) []error {
 		var errs []error
 		for _, c := range []struct {
@@ -1220,6 +1303,21 @@ func TestHoldingDefiner_EveryGrantIsUsed(t *testing.T) {
 				return rows.Err()
 			}))
 		}
+		// API-8: holding_directory in the context of a business in no holding -- its membership gate
+		// answers no before the peer set is walked (a member's call walks every tenant: on a database
+		// tests have filled, ~2 s a call, seventy calls), and a revoked column is still refused: the
+		// executor checks every column the statement names when it starts, whatever runs (measured --
+		// each of the four employees columns, 42501).
+		errs = append(errs, holdingAppIn(t, ctx, sp, alone, func(q pgx.Tx) error {
+			rows, err := q.Query(ctx, `SELECT * FROM public.holding_directory(NULL, NULL)`)
+			if err != nil {
+				return err
+			}
+			for rows.Next() {
+			}
+			rows.Close()
+			return rows.Err()
+		}))
 		errs = append(errs, holdingInsertRow(t, ctx, sp, holdingRow{employer: w.km, employee: w.kmEmployee, channel: "nfc", verdict: "ok", kind: "in",
 			sunValid: ptr(true), ctr: ptr(int32(100)), siteTenant: &w.kf, siteVenue: &w.kfVenue, siteTag: &w.kfTag}))
 		for _, sun := range []bool{true, false} {
@@ -1552,6 +1650,7 @@ var holdingDownTables = []string{
 	// 00052 (API-4): api_idempotency (the table dropped); its DROP TABLE also takes the two tables its
 	// keys name -- tenants and api_keys, both above.
 	"api_idempotency",
+	// 00055 (API-8) takes no table lock (its index is 00056's, never walked here).
 }
 
 // holdingLockForDowns takes, inside the savepoint sp, ACCESS EXCLUSIVE on every one of

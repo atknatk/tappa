@@ -57,11 +57,8 @@ type holdingSignature struct {
 	kind               holdingKind
 }
 
-// holdingSignatures is ADR 0027 §2's "İmza tablosu" AS FAR AS IT IS BORN. The set of functions
-// tappa_holdingdefiner owns is EXACTLY this list (TestHoldingCatalog_TheFunctionsAndTheirExactSignatures).
-// Still to come, in the ADR's own words (add each row with its migration):
-//
-//	API-8:  holding_directory(p_updated_since timestamp with time zone, p_cursor uuid) -> TABLE(...)
+// holdingSignatures is ADR 0027 §2's "İmza tablosu" -- since API-8 (00055) all of it. The set of
+// functions tappa_holdingdefiner owns is EXACTLY this list (TestHoldingCatalog_TheFunctionsAndTheirExactSignatures).
 var holdingSignatures = []holdingSignature{
 	{"holding_peer", "a uuid, b uuid, mod text", "boolean", holdingPredicate},
 	{"holding_timezone_lock", "", "trigger", holdingTrigger},
@@ -81,6 +78,10 @@ var holdingSignatures = []holdingSignature{
 	{"holding_site_locations", "p_cursor uuid",
 		"TABLE(site_tenant_id uuid, location_id uuid, location_name text, location_external_ref text, " +
 			"shift_start time without time zone, shift_end time without time zone, overnight boolean)", holdingCallable},
+	// 00055 (M11 API-8): a peer's employees -- never the caller's own, never an e-mail (K-1f, K-24, K-34).
+	{"holding_directory", "p_updated_since timestamp with time zone, p_cursor uuid",
+		"TABLE(employee_id uuid, employer_tenant_id uuid, api_code text, external_ref text, employee_code text, " +
+			"first_name text, last_name text, active boolean, updated_at timestamp with time zone)", holdingCallable},
 }
 
 // holdingTriggerConfig is a holding trigger function's exact proconfig: the search path and
@@ -1123,13 +1124,12 @@ func TestHoldingFunctions_ExecuteGrantedOnlyToApp(t *testing.T) {
 
 // ------------------------------------------------------------- the definer's reach --
 
-// holdingDefinerMatrix is ADR 0027 §3's verb x column matrix AS FAR AS API-1a, API-1b, API-1c AND
-// API-2 HAVE EARNED IT: "table:VERB" -> the exact column list in attnum order. Every relation, verb
-// and column not listed is "no privilege". The ADR's rows not granted (the rest of employees --
-// first_name, last_name, status, updated_at: API-8's holding_directory) are granted with the
-// function that needs them and added here in the same change (ADR 0027 §3: "matris kesin listenin
-// üst sınırıdır"); TestHoldingDefiner_EveryGrantIsUsed revokes each column below, one at a time,
-// and shows a function, the gate or the feed refused without it.
+// holdingDefinerMatrix is ADR 0027 §3's verb x column matrix AS FAR AS API-1a, API-1b, API-1c, API-2
+// AND API-8 HAVE EARNED IT: "table:VERB" -> the exact column list in attnum order. Every relation,
+// verb and column not listed is "no privilege". Each grant came with the function that needs it (ADR
+// 0027 §3: "matris kesin listenin üst sınırıdır" -- API-8's 00055 brought employees' last four);
+// TestHoldingDefiner_EveryGrantIsUsed revokes each column below, one at a time, and shows a
+// function, the gate or the feed refused without it.
 var holdingDefinerMatrix = map[string]string{
 	"holding_members:SELECT": "holding_id,member_tenant_id,joined_at,left_at",
 	// 00046 (API-1c): holding_feed -- the projection's columns, the two conflict targets (their
@@ -1139,8 +1139,10 @@ var holdingDefinerMatrix = map[string]string{
 		"employee_name,site_location_id,site_tag_uid,ctr,sun_valid,bucket_hour,occurred_at,channel,type,outcome,ctr_gap",
 	"site_punches:SELECT": "tenant_id,employee_id,site_tag_uid,ctr,sun_valid,bucket_hour,outcome",
 	// 00049 (API-2) adds verdict and practice: K-4 on the approval arm.
-	"transactions:SELECT":    "id,tenant_id,employee_id,ctr,type,occurred_at,sun_valid,verdict,channel,practice,site_tenant_id,site_location_id,site_tag_uid",
-	"employees:SELECT":       "id,tenant_id,full_name,external_ref,employee_code",
+	"transactions:SELECT": "id,tenant_id,employee_id,ctr,type,occurred_at,sun_valid,verdict,channel,practice,site_tenant_id,site_location_id,site_tag_uid",
+	// 00055 (API-8) adds status, first_name, last_name and updated_at: holding_directory -- the ADR's row,
+	// complete. email is K-34's "never SELECT" (TestHoldingDefiner_NeverSelectColumns).
+	"employees:SELECT":       "id,tenant_id,full_name,status,external_ref,employee_code,first_name,last_name,updated_at",
 	"holding_members:UPDATE": "lock_anchor",
 	// 00043 (API-1b): holding_tap_site, holding_advance_tag_counter, holding_logo, holding_site_gate.
 	"tags:SELECT":            "uid,tenant_id,location_id,last_ctr,status",
@@ -1463,7 +1465,9 @@ type holdingCanaryCall struct {
 
 // holdingCanaryFixture: the caller (KM) and its peer (KF) in one holding; KF's location carries
 // the canary, and since API-1b a plaque of KF's hangs there (uid) and KF -- VIES verified -- holds
-// a logo (digest), so every callable of the tap path answers a row in the caller's context.
+// a logo (digest), so every callable of the tap path answers a row in the caller's context. Since
+// API-8 KF employs a person whose e-mail address carries the canary (K-34's "never SELECT" column),
+// so holding_directory answers a row and its cells are searched for the address too.
 type holdingCanaryFixture struct {
 	caller, peer, location uuid.UUID
 	uid, digest            string
@@ -1490,6 +1494,11 @@ var holdingCanaryCalls = map[string]holdingCanaryCall{
 	// 00047 (API-1c): the peer's venues, the canary venue among them -- no exemption (K-39).
 	"holding_site_locations": {
 		sql:  `SELECT * FROM public.holding_site_locations(NULL)`,
+		args: func(holdingCanaryFixture) []any { return nil },
+	},
+	// 00055 (API-8): the peer's employees, the canary's e-mail holder among them -- no exemption.
+	"holding_directory": {
+		sql:  `SELECT * FROM public.holding_directory(NULL, NULL)`,
 		args: func(holdingCanaryFixture) []any { return nil },
 	},
 }
@@ -1555,6 +1564,13 @@ func TestHoldingFunctions_SiteEvidenceCanaryNeverLeaks(t *testing.T) {
 	// API-1b: a plaque of the peer's at the canary venue, and the peer VIES verified with a logo.
 	f.uid = holdingNewTag(t, ctx, tx, f.peer, &f.location, "active", 900)
 	f.digest = holdingNewLogo(t, ctx, tx, f.peer, true)
+	// API-8: a person of the peer's whose e-mail address carries every needle (employees.email is on
+	// K-34's "never SELECT" list) -- holding_directory answers the row, never the address.
+	if _, err := tx.Exec(ctx, `INSERT INTO employees (tenant_id, external_ref, full_name, email, status, invited_at)
+	                           VALUES ($1, $2, 'Canary Staff', $3, 'active', now())`,
+		f.peer, "canary-"+opToken(t), "canary-"+strings.Join(holdingCanary.needles, "-")+"@example.test"); err != nil {
+		t.Fatalf("seed the canary's e-mail holder: %v", err)
+	}
 	// API-1c: the caller's employee taps the peer's plaque at the canary venue -- ok, flagged then
 	// approved, and refused -- with the canary in EVERY evidence column of the employer's row
 	// (source_ip, the phone's GPS, the note, the policy context beside the one key the projection
@@ -1728,6 +1744,12 @@ var holdingMultiRowCalls = map[string]holdingMultiRowCall{
 	"holding_site_locations": {
 		sql:  `SELECT * FROM public.holding_site_locations(NULL)`,
 		grow: `INSERT INTO locations (tenant_id, name) SELECT $1, 'api1c peerset ' || g FROM generate_series(1, 50) AS g`,
+	},
+	// 00055 (API-8): the peer's employees (with refs: K-14 needs a home venue or a ref).
+	"holding_directory": {
+		sql: `SELECT * FROM public.holding_directory(NULL, NULL)`,
+		grow: `INSERT INTO employees (tenant_id, external_ref, full_name, status, invited_at)
+		       SELECT $1, 'api8-peerset-' || gen_random_uuid(), 'Peerset Staff', 'active', now() FROM generate_series(1, 50) AS g`,
 	},
 }
 
