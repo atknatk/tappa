@@ -16,9 +16,9 @@ import (
 // tenant. After these resolve, the caller reads the tenant off the result and
 // runs everything else inside WithTenant.
 //
-// There are SIX of them (M5-02 added the invite one, M6-01 phase A the two admin
-// ones, M7-04 phase A the password-reset one; ADR 0002 madde 7 was written when there
-// were two and carries dated update notes). The count is not the guarantee -- the five
+// There are SEVEN of them (M5-02 added the invite one, M6-01 phase A the two admin
+// ones, M7-04 phase A the password-reset one, M11 API-3 the API-key one; ADR 0002 madde 7
+// was written when there were two and carries dated update notes). The count is not the guarantee -- the five
 // normative constraints are, and each accessor here meets them: key-only input, a
 // bounded result underwritten by a UNIQUE index rather than by the function body, a
 // fixed column list with no SELECT * surface, EXECUTE granted to tappa_app alone with
@@ -50,9 +50,10 @@ import (
 //
 // STRUCTURAL CONTAINMENT (ADR 0002 madde 7): every query here calls a SECURITY
 // DEFINER function owned by tappa_resolver (NOLOGIN, BYPASSRLS, NOSUPERUSER,
-// column-level SELECT on exactly these six tables) -- NEVER public.tags /
-// public.sessions / public.employee_invites / public.admin_users /
-// public.admin_sessions / public.password_resets directly. tappa_app holds EXECUTE on
+// column-level SELECT on exactly these seven tables, and on tenants (id, api_enabled_at)
+// alone since 00051) -- NEVER public.tags / public.sessions / public.employee_invites /
+// public.admin_users / public.admin_sessions / public.password_resets /
+// public.api_keys directly. tappa_app holds EXECUTE on
 // the functions but no
 // cross-tenant SELECT on the tables, so the blast radius is those functions, not
 // the whole DB. These accessors deliberately DO NOT call set_config: they establish
@@ -231,6 +232,33 @@ type ResolvedPasswordReset struct {
 	CancelledAt *time.Time
 }
 
+// ResolvedAPIKey is the fixed column set returned by resolve_api_key_by_hash (migration
+// 00051, M11 API-3, ADR 0028 §3): whose integration key this is, and the two facts that decide
+// whether a request carrying it may proceed.
+//
+// THE SEVENTH CONTEXT-LESS LOOKUP, and it exists for the reason the other six do: a request to
+// the integration API carries only `Authorization: Bearer <key>`, so the tenant is the RESULT.
+// It earns ADR 0002 md.7's five constraints itself (TestApiKeysCatalog measures them): key-only
+// input (the hash), at most one row (api_keys.token_hash is globally UNIQUE and tenants is joined
+// by its primary key), these four columns and no others, EXECUTE to tappa_app alone, and the
+// standard NULLIF policy on the table.
+//
+// CARRIED, NOT APPLIED -- the 00003 sessions.revoked_at principle. RevokedAt non-nil means the
+// owner revoked the key (401); APIEnabledAt nil means the operator has not opened, or has closed,
+// this tenant's integration API (K-22, 403). internal/apikey decides, on every request, with no
+// cache: a revocation or a closing is in force on the very next request.
+//
+// tappa_resolver reads tenants.api_enabled_at for this and nothing else of tenants -- (id,
+// api_enabled_at) is its whole reach there (00051).
+//
+// Neither the key nor its hash is in this struct: the hash is the input and is not returned.
+type ResolvedAPIKey struct {
+	TenantID     uuid.UUID
+	KeyID        uuid.UUID
+	RevokedAt    *time.Time
+	APIEnabledAt *time.Time
+}
+
 // ResolvedAdminSession is the fixed column set returned by
 // resolve_admin_session_by_token_hash (migration 00011): the twin of
 // ResolvedSession over the SEPARATE admin table. An employee cookie can never
@@ -277,6 +305,9 @@ FROM resolve_admin_session_by_token_hash($1)`
 
 const getPasswordResetByTokenHashSQL = `SELECT id, tenant_id, admin_user_id, expires_at, used_at, cancelled_at
 FROM resolve_password_reset_by_token_hash($1)`
+
+const getAPIKeyByHashSQL = `SELECT tenant_id, key_id, revoked_at, api_enabled_at
+FROM resolve_api_key_by_hash($1)`
 
 // GetTagByUID resolves a wall-plaque uid to its tag WITHOUT a tenant context.
 // Returns pgx.ErrNoRows when the uid is unknown (the caller rejects the tap).
@@ -499,4 +530,23 @@ func (d *DB) GetPasswordResetByTokenHash(ctx context.Context, tokenHash string) 
 		return ResolvedPasswordReset{}, fmt.Errorf("db: resolve reset by hash: %w", err)
 	}
 	return r, nil
+}
+
+// GetAPIKeyByHash resolves an integration key's hash to its key (tenant, id, revocation) and the
+// tenant's API gate, WITHOUT a tenant context. Returns pgx.ErrNoRows when the hash is unknown
+// (the caller answers 401 and writes nothing that names the key).
+//
+// It answers "whose key is this and what state is it in", NOT "may this request proceed" --
+// internal/apikey.Authenticator.Resolve decides that from the result.
+func (d *DB) GetAPIKeyByHash(ctx context.Context, tokenHash string) (ResolvedAPIKey, error) {
+	var k ResolvedAPIKey
+	err := d.pool.QueryRow(ctx, getAPIKeyByHashSQL, tokenHash).Scan(
+		&k.TenantID, &k.KeyID, &k.RevokedAt, &k.APIEnabledAt,
+	)
+	if err != nil {
+		// Neither the key nor its hash is named: the argument is not interpolated and %w
+		// wraps only the DB error (section 4.7).
+		return ResolvedAPIKey{}, fmt.Errorf("db: resolve integration credential by hash: %w", err)
+	}
+	return k, nil
 }

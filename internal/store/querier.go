@@ -6,6 +6,7 @@ package store
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -1659,6 +1660,9 @@ type Querier interface {
 	// Go-side reimplementation of the month arithmetic would be a second answer that can
 	// disagree with the one the invoice is built from.
 	FirstChargeableMonthShift(ctx context.Context, arg FirstChargeableMonthShiftParams) (FirstChargeableMonthShiftRow, error)
+	// After a revocation matched no row: is the key unknown in this tenant (no row) or revoked
+	// already (a timestamp)? Read in the same transaction, for the panel's sentence only.
+	GetAPIKeyRevokedAt(ctx context.Context, arg GetAPIKeyRevokedAtParams) (*time.Time, error)
 	// The in-context identity read: who am I, what may I do, am I still enabled.
 	// This is where `role` comes from -- authorization is decided with a tenant
 	// context established, never from the pre-authentication resolver (00011).
@@ -2341,6 +2345,9 @@ type Querier interface {
 	// tenant's plaque row by guessing nothing at all -- just by typing a uid they
 	// read off a wall in another building. RLS refuses it too; this is the belt.
 	GetTagForTenant(ctx context.Context, arg GetTagForTenantParams) (GetTagForTenantRow, error)
+	// K-22's gate as the panel reads it: NULL is closed. The owner may revoke a key whatever this says
+	// (ADR 0028 §10, K-26); a new key needs it open.
+	GetTenantAPIEnabledAt(ctx context.Context, tenantID uuid.UUID) (*time.Time, error)
 	// The business's own facts, for the account settings screen (M7-05).
 	//
 	// 🔴 IT IS A SEPARATE QUERY FROM GetTenantClock RATHER THAN A WIDENING OF IT, AND THE
@@ -2510,6 +2517,22 @@ type Querier interface {
 	// foreign transaction id simply matches nothing here, so this cannot become an
 	// oracle for whether an id exists in another business.
 	GetTransactionReview(ctx context.Context, arg GetTransactionReviewParams) (GetTransactionReviewRow, error)
+	// apikeys.sql -- the integration API's keys (M11 API-3, ADR 0028 §3; migration 00051).
+	//
+	// Every statement here runs inside WithTenant and carries an explicit tenant_id filter (CLAUDE.md
+	// §4.5, belt and braces). The one context-less read of this table is the seventh resolver,
+	// resolve_api_key_by_hash, which is hand-written in internal/db/resolve.go (sqlc cannot type a
+	// RETURNS TABLE call -- resolve.sql).
+	//
+	// 🔴 EVERY WRITE TO revoked_at CARRIES `revoked_at IS NULL` AND COALESCE (00011's BOUNDARY 2). The
+	// api_keys_revocation_one_way trigger refuses a revoked_at that moves; a revocation written as a
+	// bare `SET revoked_at = now()` would reach it the moment two revocations race -- the owner's
+	// double click, or "revoke one" against "revoke all" -- and the trigger's exception would roll the
+	// WINNING transaction's caller back: the panel reports failure while the key lives. With the
+	// guard, the loser re-reads the committed row under its lock, matches nothing and returns no row,
+	// so it writes no audit row either (internal/apikey's concurrency test).
+	// id and created_at are the table's defaults; tappa_app cannot write them (00051).
+	InsertAPIKey(ctx context.Context, arg InsertAPIKeyParams) (InsertAPIKeyRow, error)
 	// THE MANAGER'S OWN RECORD AT A PEER'S VENUE (M11 API-1c, ADR 0027 §9 "Manuel kayıt"; K-1a: the
 	// record is the EMPLOYER's). InsertManualTransaction's statement and its narrowing, with the
 	// venue a PEER's: site_tenant_id and site_location_id are set, location_id and tag_uid are NULL
@@ -2825,6 +2848,9 @@ type Querier interface {
 	// refusals. It is NOT a gate -- the gate is the consuming statement's own WHERE,
 	// and nothing branches on this value before consuming.
 	InviteConsentMatches(ctx context.Context, arg InviteConsentMatchesParams) (bool, error)
+	// The panel's list: newest first, revoked ones included (the owner sees what was issued and
+	// when it stopped working). token_hash is not readable by tappa_app and is not named.
+	ListAPIKeys(ctx context.Context, tenantID uuid.UUID) ([]ListAPIKeysRow, error)
 	// Every session of one admin, newest first: the read side of "sign out everywhere"
 	// and of the panel's device list. Revoked rows are included on purpose; the caller
 	// filters on revoked_at, so the history stays visible (section 4.6).
@@ -4692,6 +4718,9 @@ type Querier interface {
 	// handles as "no such plaque". Handler-boundary validation is still owed (section
 	// 7); this makes forgetting it non-catastrophic instead of silent.
 	RetireTagForReplacement(ctx context.Context, arg RetireTagForReplacementParams) (RetireTagForReplacementRow, error)
+	// One key, by its id in this tenant. No row: the key is unknown here OR was revoked already
+	// (by another request that won the race, or earlier); the caller does not write an audit row.
+	RevokeAPIKey(ctx context.Context, arg RevokeAPIKeyParams) (RevokeAPIKeyRow, error)
 	// Revokes one panel session (sign out). COALESCE keeps the FIRST revocation
 	// timestamp: a repeated revoke is idempotent AND does not rewrite when the session
 	// actually died (audit truth). It is also what keeps the 00011 monotonicity
@@ -4726,6 +4755,9 @@ type Querier interface {
 	// trail rather than the protection itself. It costs nothing to call and the
 	// panel should.
 	RevokeAdminSessionsForAdmin(ctx context.Context, arg RevokeAdminSessionsForAdminParams) ([]uuid.UUID, error)
+	// Every live key of this tenant -- the incident button. Only the rows THIS statement revoked come
+	// back; a key another request revoked first is not among them.
+	RevokeAllAPIKeys(ctx context.Context, tenantID uuid.UUID) ([]RevokeAllAPIKeysRow, error)
 	// K3: when a password changes, every OTHER live session of that admin is revoked, but
 	// the session that made the change survives -- the user stays signed in on this device
 	// and is signed out everywhere else. That is the ONE difference from the reset flow's
@@ -4946,6 +4978,9 @@ type Querier interface {
 	//
 	// TENANT SCOPE (section 4.5): explicit predicate beside RLS.
 	TenantHasAnyTransaction(ctx context.Context, tenantID uuid.UUID) (bool, error)
+	// last_used_at at most once a minute per key (ADR 0028 §3): a busy integration writes this row
+	// once a minute rather than once a request. A revoked key is not touched.
+	TouchAPIKey(ctx context.Context, arg TouchAPIKeyParams) (int64, error)
 	// THE per-request authority for the panel, and the reason the session resolver
 	// does not need to carry the admin's status. It does three things in one
 	// statement, so no code path can perform two of them and skip the third:

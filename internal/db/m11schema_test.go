@@ -173,6 +173,18 @@ var m11Tables = map[string]map[string]m11TableACL{
 		"tappa_feedwriter":     {Select: "tenant_id,id,active"},
 		"tappa_holdingdefiner": {Select: "tenant_id,id,active"},
 	},
+	// 00051 (M11 API-3, ADR 0028 §1, §3): the integration API's keys. tappa_app reads every column
+	// but token_hash (only the resolver needs it), inserts a key by naming it, its hash, its hint
+	// and its issuer, and updates revoked_at and last_used_at alone -- never deletes; the seventh
+	// resolver's owner reads the resolution's four columns.
+	"api_keys": {
+		"tappa_app": {
+			Select: "tenant_id,id,name,prefix_hint,created_by,created_at,last_used_at,revoked_at",
+			Insert: "tenant_id,name,token_hash,prefix_hint,created_by",
+			Update: "last_used_at,revoked_at",
+		},
+		"tappa_resolver": {Select: "tenant_id,id,token_hash,revoked_at"},
+	},
 	"webhook_deliveries": {
 		"tappa_app": {
 			Select: "tenant_id,id,endpoint_id,punch_event_seq,attempt,next_attempt_at,lease_until,state,last_status,last_error_class,created_at,delivered_at",
@@ -224,7 +236,9 @@ var m11Columns = []m11Column{
 	// operator's definer.
 	// 00049 (M11 API-2): both feed writers read the gate (a delivery row only while it is open --
 	// K-22, ADR 0028 §2).
-	{"tenants", "api_enabled_at", map[string]string{"tappa_app": "S", "tappa_opdefiner": "SU", "tappa_holdingdefiner": "S", "tappa_feedwriter": "S"}},
+	// 00051 (M11 API-3): and tappa_resolver -- the seventh resolver's join, with tenants.id the one
+	// other column of tenants it reads (TestApiKeysCatalog pins the pair against every column).
+	{"tenants", "api_enabled_at", map[string]string{"tappa_app": "S", "tappa_opdefiner": "SU", "tappa_holdingdefiner": "S", "tappa_feedwriter": "S", "tappa_resolver": "S"}},
 	// 00042 (M11 API-1a): tappa_opdefiner READS the code too -- the code rule in both directions
 	// (op_add_holding_member, op_enable_tenant_api) and op_read_holdings.
 	// 00043 (M11 API-1b): and tappa_holdingdefiner reads the site's code (holding_tap_site).
@@ -283,6 +297,10 @@ var m11Functions = map[string]m11FunctionACL{
 	// their owner alone, bodies asserting TG_RELID (FeedTriggers_RefuseVerbsUnderArwdAndTempTableBinding).
 	"feed_open_counter()": {owner: "tappa_feedwriter", definer: true, execute: "tappa_feedwriter"},
 	"punch_feed()":        {owner: "tappa_feedwriter", definer: true, execute: "tappa_feedwriter"},
+	// 00051 (M11 API-3, ADR 0028 §3): the seventh resolver -- ADR 0002 md.7's shape, EXECUTE to
+	// tappa_app alone -- and the one-way revocation's trigger function, EXECUTE in its owner alone.
+	"resolve_api_key_by_hash(text)":    {owner: "tappa_resolver", definer: true, execute: "tappa_app,tappa_resolver"},
+	"api_keys_revocation_is_one_way()": {owner: "tappa_owner", execute: "tappa_owner"},
 }
 
 // m11DefaultACLStatement is production's pg_default_acl, which m11DefaultACLInit gives every

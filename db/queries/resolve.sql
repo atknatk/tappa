@@ -5,8 +5,9 @@
 -- the URL) or a session token hash (from the cookie), an activation with only an
 -- invite code hash (from the link) -- none of the three carries a tenant.
 --
--- THERE ARE SIX (M5-02 added GetInviteByCodeHash; M6-01 phase A added the two
--- admin ones; M7-04 phase A added GetPasswordResetByTokenHash; ADR 0002 madde 7 was
+-- THERE ARE SEVEN (M5-02 added GetInviteByCodeHash; M6-01 phase A added the two
+-- admin ones; M7-04 phase A added GetPasswordResetByTokenHash; M11 API-3 added
+-- GetAPIKeyByHash; ADR 0002 madde 7 was
 -- written when there were two and now carries dated update notes). The count was
 -- never the guarantee: the ADR's FIVE normative constraints are -- key-only input, a
 -- bounded result underwritten by a UNIQUE index, a fixed column list with no SELECT *
@@ -239,3 +240,15 @@
 --     value nobody can guess, and its output names no person.
 --   SELECT id, tenant_id, admin_user_id, expires_at, used_at, cancelled_at
 --   FROM resolve_password_reset_by_token_hash($1);
+
+-- GetAPIKeyByHash (hand-written: internal/db.(*DB).GetAPIKeyByHash, M11 API-3). Context-less;
+-- calls resolve_api_key_by_hash (00051), never public.api_keys or public.tenants. At most one row
+-- (api_keys.token_hash is globally UNIQUE; tenants is joined by its primary key). Fixed columns:
+-- tenant_id, key_id, revoked_at, api_enabled_at.
+--   * revoked_at and api_enabled_at are returned but NOT filtered -- internal/apikey decides: a
+--     revoked key is 401, a tenant whose API is closed is 403 (K-22), on every request.
+--   * token_hash is the INPUT and is never returned; the key's name, hint and issuer are not
+--     returned either (nothing pre-authentication reads them).
+--   * tappa_resolver reads (id, api_enabled_at) of tenants and nothing else there.
+--   SELECT tenant_id, key_id, revoked_at, api_enabled_at
+--   FROM resolve_api_key_by_hash($1);

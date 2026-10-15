@@ -359,6 +359,15 @@ var storeSurface = map[string]string{
 	"LockLocationForExternalRefChange": "(context.Context, LockLocationForExternalRefChangeParams{TenantID uuid.UUID; ID uuid.UUID}) (LockLocationForExternalRefChangeRow{ID uuid.UUID; ExternalRef *string}, error)",
 	"SetEmployeeExternalRef":           "(context.Context, SetEmployeeExternalRefParams{ExternalRef *string; TenantID uuid.UUID; ID uuid.UUID}) (SetEmployeeExternalRefRow{ID uuid.UUID; ExternalRef *string}, error)",
 	"SetLocationExternalRef":           "(context.Context, SetLocationExternalRefParams{ExternalRef *string; TenantID uuid.UUID; ID uuid.UUID}) (SetLocationExternalRefRow{ID uuid.UUID; ExternalRef *string}, error)",
+	// M11 API-3 (migration 00051): the integration keys. The hash goes IN (InsertAPIKey) and
+	// never comes back -- no row type carries token_hash, and tappa_app cannot read the column.
+	"InsertAPIKey":          "(context.Context, InsertAPIKeyParams{TenantID uuid.UUID; Name string; TokenHash string; PrefixHint string; CreatedBy uuid.UUID}) (InsertAPIKeyRow{ID uuid.UUID; CreatedAt time.Time}, error)",
+	"ListAPIKeys":           "(context.Context, uuid.UUID) ([]ListAPIKeysRow{ID uuid.UUID; Name string; PrefixHint string; CreatedBy uuid.UUID; CreatedAt time.Time; LastUsedAt *time.Time; RevokedAt *time.Time}, error)",
+	"RevokeAPIKey":          "(context.Context, RevokeAPIKeyParams{TenantID uuid.UUID; ID uuid.UUID}) (RevokeAPIKeyRow{ID uuid.UUID; Name string; PrefixHint string; RevokedAt *time.Time}, error)",
+	"RevokeAllAPIKeys":      "(context.Context, uuid.UUID) ([]RevokeAllAPIKeysRow{ID uuid.UUID; Name string; PrefixHint string; RevokedAt *time.Time}, error)",
+	"TouchAPIKey":           "(context.Context, TouchAPIKeyParams{TenantID uuid.UUID; ID uuid.UUID}) (int64, error)",
+	"GetTenantAPIEnabledAt": "(context.Context, uuid.UUID) (*time.Time, error)",
+	"GetAPIKeyRevokedAt":    "(context.Context, GetAPIKeyRevokedAtParams{TenantID uuid.UUID; ID uuid.UUID}) (*time.Time, error)",
 }
 
 // TestStoreSurface_IsTheOneRecorded is the inventory check.
@@ -848,9 +857,12 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// over tenant_branding; none calls a definer.
 	// 19 -> 20 on 2026-10-14 (M11 API-1c): db/queries/sitepunches.sql, four named queries
 	// over site_punches (the site's projection); none calls a definer.
-	if files != 20 {
-		t.Fatalf("read %d .sql file(s) under db/queries; TWENTY were there when this was "+
-			"pinned (2026-10-14; seventeen on 2026-08-24, plus operator.sql, branding.sql and sitepunches.sql)", files)
+	// 20 -> 21 on 2026-10-15 (M11 API-3): db/queries/apikeys.sql, seven named queries over
+	// api_keys and the tenants gate; none calls a definer (the seventh resolver is called by
+	// hand from internal/db/resolve.go).
+	if files != 21 {
+		t.Fatalf("read %d .sql file(s) under db/queries; TWENTY-ONE were there when this was "+
+			"pinned (2026-10-15; seventeen on 2026-08-24, plus operator.sql, branding.sql, sitepunches.sql and apikeys.sql)", files)
 	}
 	// A file count alone does not prove the STATEMENT lines were reached; this does.
 	// EXACT, by this file's own standard 130 lines down ("a floor with slack cannot
@@ -888,14 +900,15 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// 138 -> 143 on 2026-10-14 (M11 API-1c): sitepunches.sql's four reads of the site's
 	// projection and transactions.sql's InsertManualSiteTransaction; none calls a definer (the
 	// peer's venue is read through holding_site_locations by internal/db/holding.go, by hand).
-	if named != 143 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; ONE HUNDRED AND FORTY-THREE were "+
-			"there when this was pinned (2026-10-14: 111 on 2026-08-24, + T73's three "+
+	// 143 -> 150 on 2026-10-15 (M11 API-3): apikeys.sql's seven queries; none calls a definer.
+	if named != 150 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; ONE HUNDRED AND FIFTY were "+
+			"there when this was pinned (2026-10-15: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
 			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+
 			"+ EM-7B's three invitation e-mail queries, + EM-7C's two recovery queries, "+
 			"+ the activation tap's two consent queries, + WL-13's two activation brand queries, "+
-			"+ API-1's four external-ref queries, + API-1c's five site queries). "+
+			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {
@@ -1069,9 +1082,11 @@ func parseStore(t *testing.T) (map[string]*ast.File, *token.FileSet) {
 	// []byte carrier counted in TestStoreSurface_NoByteCarryingQueryReadsTags.
 	// 20 -> 21 (2026-10-14, M11 API-1c): db/queries/sitepunches.sql adds sitepunches.sql.go --
 	// four reads of the site's projection, in storeSurface; none carries bytes.
-	if len(out) != 21 {
-		t.Fatalf("parsed %d file(s) under %s; TWENTY-ONE were generated when this floor was last set "+
-			"(2026-10-14). If sqlc genuinely emits a different number now, change this number "+
+	// 21 -> 22 (2026-10-15, M11 API-3): db/queries/apikeys.sql adds apikeys.sql.go -- seven
+	// methods over api_keys and the tenants gate, in storeSurface; none carries bytes.
+	if len(out) != 22 {
+		t.Fatalf("parsed %d file(s) under %s; TWENTY-TWO were generated when this floor was last set "+
+			"(2026-10-15). If sqlc genuinely emits a different number now, change this number "+
 			"in the same edit and say why -- do not widen it", len(out), storeDir)
 	}
 	return out, fset

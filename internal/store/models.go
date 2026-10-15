@@ -34,6 +34,18 @@ type AdminUser struct {
 	LastLoginAt  *time.Time
 }
 
+type ApiKey struct {
+	TenantID   uuid.UUID
+	ID         uuid.UUID
+	Name       string
+	TokenHash  string
+	PrefixHint string
+	CreatedBy  uuid.UUID
+	CreatedAt  time.Time
+	LastUsedAt *time.Time
+	RevokedAt  *time.Time
+}
+
 type AuditLog struct {
 	ID       uuid.UUID
 	TenantID uuid.UUID

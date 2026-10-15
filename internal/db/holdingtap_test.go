@@ -1546,6 +1546,9 @@ var holdingDownTables = []string{
 	// DROP TRIGGER and the tables' keys take tenants and transactions, 00049's DROP TRIGGERs
 	// transactions and transaction_reviews -- all already above.
 	"feed_counters", "punch_events", "webhook_endpoints", "webhook_deliveries",
+	// 00051 (API-3): api_keys (the table dropped); its DROP TABLE also takes the two tables its keys
+	// name -- tenants, above, and admin_users.
+	"api_keys", "admin_users",
 }
 
 // holdingLockForDowns takes, inside the savepoint sp, ACCESS EXCLUSIVE on every one of
