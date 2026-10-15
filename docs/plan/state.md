@@ -1692,6 +1692,16 @@ yazılır.
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 
+### 2026-10-15 (29. oturum, kırk dördüncü yarı) — ✅ **API-7 DONE** (güvenlik ONAY; üçüncü göz kod için ONAY, plan maddesi düzeltilip kısa kontrolde ONAY) · 📌 **DEVAM: API-7b**
+
+**Yeniden başlatmadan sonra:** `docker start tappa-m11-db` (goose **54**). Brief'ler: `~/.claude/projects/-Users-everva-Documents-GitHub-atknatk-tappa/m11-briefs/`.
+
+**API-7** (`cc7851b`, `2962597`, `0254676`, `7c85676`): `GET /v1/punches?scope=employer|location&cursor=cur_<seq>&limit=` — `tenant.PunchFeed`; sayaç önce, sayfa sonra (`upto ≤ S`) — eşzamanlı yazıcılarda 0 kaçan/0 yinelenen (mutantlar 11–86 kaçan/yinelenen); `scope` zorunlu, bilinmeyen parametre 400, akışın ötesindeki imleç 400, pencere 10 000 (boş sayfa `hasMore:true`); 1 M olayda sayfa ~5 ms, seyrek yürüyüş 0,6–1,4 sn; C görmez, K-4 dışı satır yok, gizlilik kanaryası temiz.
+- **Plan boşluğu kapatıldı:** geçmiş sorgusunun (`from`/`to`, ADR §5 + §2 madde 18) görev kartı yoktu → **API-7b** açıldı (`2730920`); kabul maddesi üçüncü gözün ORTA-1'iyle **S₀ anlık görüntüsüne** bağlandı (`3df67d2` + kesinleştirme) — `punch_time` beyan edilen an olduğu için `(punch_time, seq)` sayfalaması geç olayı atlıyordu (ölçüldü).
+- **Açık belge DÜŞÜK'leri → API-7b'nin ilk işi:** ADR 0028 §5 "imleç opak" sözcüğü (`cur_<seq>` saydam); OpenAPI + plan API-12: imleç kapsama özgü değil — her `scope` için ayrı `nextCursor` saklanır.
+
+**🔴 DEVAM PLANI:** **API-7b** (brief `m11-briefs/brief-api7b-builder.md`; normatif metin plan §5 API-7b) → iki mercek → API-8 → API-9 → … Kullanıcıda bekleyenler: otuz dördüncü yarıdakiler + `site_punches` saklama süresi (DPA) + T125.
+
 ### 2026-10-15 (29. oturum, kırk üçüncü yarı) — ✅ **API-6 DONE** (iki mercek 3. turda ONAY; son DÜŞÜK turu) · 📌 **DEVAM: API-7**
 
 **Yeniden başlatmadan sonra:** `docker start tappa-m11-db` (goose **54**). Brief'ler: `~/.claude/projects/-Users-everva-Documents-GitHub-atknatk-tappa/m11-briefs/`.
