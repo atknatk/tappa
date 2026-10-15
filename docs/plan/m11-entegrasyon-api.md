@@ -494,6 +494,7 @@ Aşılınca 429 + owner uyarısı + audit. ADR 0010 sapma notu.
 | API-5 | `PUT /v1/locations/{ref}` | S | yapıcı | API-4 |
 | API-6 | Çalışan uçları, davet kuyruğu işçisi, K-25 | L | yapıcı | API-4 |
 | API-7 | `GET /v1/punches` | M | yapıcı | API-2, API-4 |
+| API-7b | `GET /v1/punches?from=…&to=…` — geçmiş sorgusu (§2 madde 18: en çok 31 gün, sayfalı; `punch_time` sırasıyla kendi imleci; `punch_events_tenant_time_idx`) | S | yapıcı | API-7 |
 | API-8 | `GET /v1/directory` (`holding_directory`) + ADR 0027'den devralınan `HoldingDirectory_ReturnsPeersNeverTheCaller` | S | yapıcı | API-1a, API-4 |
 | API-9 | Uç nokta paneli + SSRF-güvenli istemci | M | yapıcı (`tappa-brand`) | **GATE-1**, API-2, API-4 |
 | API-10 | Webhook gönderici + teslim günlüğü | L | yapıcı (`tappa-brand`) | API-9 |
@@ -524,6 +525,7 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
   verilen askıyı görmeyen yazmanın bedeli ölçülür; `tenants` satırında `FOR SHARE` (operatörün askı yazmasının
   `FOR NO KEY UPDATE`'iyle çakışır) gerekip gerekmediği karara bağlanır.
 - **API-7:** dört şekil × iki kapsam doğru tenant'a, anlık görüntü alanlarıyla; C hiçbirini görmez; manuel/reddedilmiş yok; `limit` 1001 → 400.
+- **API-7b** *(2026-10-15 — API-7 yapıcısının bulduğu plan boşluğu: ADR 0028 §5 ve §2 madde 18 geçmiş sorgusunu vaat ediyor, görev kartı yoktu)*: `from`/`to` ile `punch_time` aralığı ≤ 31 gün (fazlası → 400); kapsam ve tenant süzgeci `scope` ile aynı; sayfalı, kendi imleciyle (aynı `punch_time`'da `seq` ile kırılır — atlama/yineleme yok); `from`/`to` ile akış imleci `cursor`'ın birlikteliği sözleşmede açık; manuel/reddedilmiş yok; C görmez; 1 M olayda sayfa süresi ölçülür (`punch_events_tenant_time_idx`); API-7'nin bugünkü "`from`/`to` → 400" davranışı geriye uyumlu biçimde kalkar.
 - **API-8:** holding'deki iki tenant, C yok, e-posta yok, `active` var (K-1h), sayfalı (≤ 1000); örtüşme penceresi; **`HoldingDirectory_ReturnsPeersNeverTheCaller`** (ADR 0027'den devralındı, API-1b devir notu): eşlerin çalışanları gelir, çağıranın kendi tenant'ınınki asla.
 - **API-9:** katalog; tenant başına tek uç nokta; anahtar bir kez; ping/yeniden gönderim kovası; kapalı erişimde ret.
 - **API-10:** dört yönlendirme; SSRF ret listesi + iki aşamalı DNS; devre dışı uç noktaya teslim yok; proxy'ye rağmen doğrudan; iki pod tek gönderim; açık işlem yok; kapanış.
