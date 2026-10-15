@@ -698,7 +698,12 @@ func TestLocationsPut_SuspendedAndClosedWriteNothing(t *testing.T) {
 // break, U+202E, a zero-width space); 64 KiB is the bound (one byte over: 400 body_too_large;
 // a 64 KiB object padded with whitespace: accepted). No refusal leaves a row.
 //
-// MUTANTS (measured, API-5 report): the decoding removed -> "%41..." 422; the segment read off the
+// A key named twice is 422 duplicate_field, escaped spellings included; a body that is not UTF-8 is
+// 400 (encoding/json would have stored U+FFFD for each bad byte).
+//
+// MUTANTS (measured, API-5 report): the UTF-8 check removed -> a name with U+FFFD 201; the
+// duplicate check removed -> {"active":true,"active":false}
+// 201; the decoding removed -> "%41..." 422; the segment read off the
 // already-decoded r.URL.Path (decoded twice) -> "%2541BC" 201 as "ABC"; the hidden-character
 // refusal removed from venueName -> five names 201; the key check made case-insensitive (encoding/json's own matching)
 // -> "Name" passes as a known key and the answer is "name required", not unknown_field.
@@ -724,6 +729,7 @@ func TestLocationsPut_TheBodyAndTheRefContract(t *testing.T) {
 		{"not an object", ref, `[]`, 400, CodeInvalidRequest, "", ""},
 		{"null", ref, `null`, 400, CodeInvalidRequest, "", ""},
 		{"two objects", ref, `{"name":"n","active":true}{}`, 400, CodeInvalidRequest, "", ""},
+		{"a body that is not UTF-8", ref, "{\"name\":\"Rusty\xffBar\",\"active\":true}", 400, CodeInvalidRequest, "", "invalid_utf8"},
 		{"broken JSON", ref, `{"name":"n",`, 400, CodeInvalidRequest, "", ""},
 		{"no name", ref, `{"active":true}`, 422, CodeValidationFailed, "name", "required"},
 		{"name null", ref, `{"name":null,"active":true}`, 422, CodeValidationFailed, "name", "type"},
@@ -740,6 +746,8 @@ func TestLocationsPut_TheBodyAndTheRefContract(t *testing.T) {
 		{"active null", ref, `{"name":"n","active":null}`, 422, CodeValidationFailed, "active", "type"},
 		{"empty timezone", ref, `{"name":"n","active":true,"timezone":""}`, 422, CodeValidationFailed, "timezone", "type"},
 		{"externalRef not the path's", ref, `{"name":"n","active":true,"externalRef":"other"}`, 422, CodeValidationFailed, "externalRef", "mismatch"},
+		{"a key twice", ref, `{"name":"n","active":true,"active":false}`, 422, CodeValidationFailed, "", "duplicate_field"},
+		{"a key twice, once escaped", ref, `{"name":"n","n\u0061me":"m","active":true}`, 422, CodeValidationFailed, "", "duplicate_field"},
 		{"a misspelt key", ref, `{"name":"n","active":true,"acitve":false}`, 422, CodeValidationFailed, "", "unknown_field"},
 		{"a key of another case", ref, `{"Name":"n","active":true}`, 422, CodeValidationFailed, "", "unknown_field"},
 		{"a coordinate", ref, `{"name":"n","active":true,"latitude":35.9}`, 422, CodeValidationFailed, "", "unknown_field"},

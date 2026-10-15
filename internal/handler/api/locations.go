@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -34,6 +35,7 @@ import (
 //	             422 timezone_mismatch naming the business's zone
 //	externalRef  string, optional; when present it must be the path's ref
 //
+// A KEY NAMED TWICE IS 422 (validation_failed, reason duplicate_field), not "the last one wins".
 // ANY OTHER KEY IS 422 (validation_failed, reason unknown_field), and keys match EXACTLY (not
 // encoding/json's case-folding): a misspelt "acitve":false silently dropped would leave the
 // label as it was and answer 200, and a coordinate or an address range sent here must not look
@@ -77,6 +79,8 @@ const (
 	reasonInvalid      = "invalid"
 	reasonMismatch     = "mismatch"
 	reasonUnknownField = "unknown_field"
+	// reasonDuplicateField: a key twice in the object (API-5 review).
+	reasonDuplicateField = "duplicate_field"
 )
 
 func invalidField(field, reason, message string) *Problem {
@@ -91,6 +95,10 @@ var (
 	problemUnknownField = &Problem{Code: CodeValidationFailed,
 		Message: "The body carries a field this endpoint does not accept.",
 		Details: map[string]any{"reason": reasonUnknownField, "allowed": locationFields}}
+	problemNotUTF8 = &Problem{Code: CodeInvalidRequest,
+		Message: "The request body must be UTF-8.", Details: map[string]any{"reason": "invalid_utf8"}}
+	problemDuplicateField = &Problem{Code: CodeValidationFailed,
+		Message: "The body names one field twice.", Details: map[string]any{"reason": reasonDuplicateField}}
 	problemNameRequired = invalidField(fieldName, reasonRequired, "name is required.")
 	problemNameType     = invalidField(fieldName, reasonType, "name must be a string.")
 	problemNameInvalid  = invalidField(fieldName, reasonInvalid,
@@ -120,13 +128,23 @@ type locationPut struct {
 
 // parseLocationBody reads exactly one JSON object with locationFields' keys and types.
 func parseLocationBody(body []byte, ref string) (locationPut, *Problem) {
+	// A body that is not UTF-8 is not JSON (RFC 8259 §8.1), and encoding/json would turn each bad
+	// byte into U+FFFD and STORE that -- where the panel's form path drops the bytes instead
+	// (venueName's ToValidUTF8). Neither is what the integrator sent, so it is refused (API-5
+	// review).
+	if !utf8.Valid(body) {
+		return locationPut{}, problemNotUTF8
+	}
 	dec := json.NewDecoder(bytes.NewReader(body))
-	var raw map[string]json.RawMessage
-	if err := dec.Decode(&raw); err != nil || raw == nil {
+	raw, duplicate, ok := readObject(dec)
+	if !ok {
 		return locationPut{}, problemLocationBody
 	}
 	if _, err := dec.Token(); err != io.EOF {
 		return locationPut{}, problemLocationBody
+	}
+	if duplicate {
+		return locationPut{}, problemDuplicateField
 	}
 	for k := range raw {
 		known := false
@@ -199,6 +217,40 @@ func locationRef(r *http.Request) (string, bool) {
 		return "", false
 	}
 	return ref, true
+}
+
+// readObject reads ONE JSON object member by member -- encoding/json's map decoding keeps the last
+// of two equal keys and says nothing, and {"active":true,"active":false} would then be a silent
+// "false" (API-5 review: the same "nothing is dropped quietly" argument as the unknown key). Keys
+// are compared after JSON unescaping ("n\u0061me" is "name"). ok=false for anything that is not one
+// well-formed object.
+func readObject(dec *json.Decoder) (raw map[string]json.RawMessage, duplicate, ok bool) {
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+		return nil, false, false
+	}
+	raw = map[string]json.RawMessage{}
+	for dec.More() {
+		t, err := dec.Token()
+		if err != nil {
+			return nil, false, false
+		}
+		k, isKey := t.(string)
+		if !isKey {
+			return nil, false, false
+		}
+		var v json.RawMessage
+		if err := dec.Decode(&v); err != nil {
+			return nil, false, false
+		}
+		if _, seen := raw[k]; seen {
+			duplicate = true
+		}
+		raw[k] = v
+	}
+	if t, err := dec.Token(); err != nil || t != json.Delim('}') {
+		return nil, false, false
+	}
+	return raw, duplicate, true
 }
 
 // locationBody is the response.

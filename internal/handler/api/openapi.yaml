@@ -61,9 +61,11 @@ paths:
         A location has no time zone of its own: `timezone`, when sent, must be the business's
         (422 `timezone_mismatch` otherwise, naming the business's zone).
 
-        The body accepts exactly the fields below; any other field is 422 `validation_failed`
-        (`details.reason` `unknown_field`). While the business is suspended this endpoint is 403
-        `tenant_suspended`.
+        The body is one UTF-8 JSON object with exactly the fields below, each at most once: any
+        other field is 422 `validation_failed` (`details.reason` `unknown_field`) and a field named
+        twice is 422 (`duplicate_field`). The reference may be percent-encoded; it is decoded once
+        and must then match the pattern (so `%41BC` is `ABC`, and an encoded `/` is refused). While
+        the business is suspended this endpoint is 403 `tenant_suspended`.
       parameters:
         - name: ref
           in: path
@@ -222,7 +224,7 @@ components:
           schema:
             $ref: "#/components/schemas/Error"
     Unprocessable:
-      description: "idempotency_key_reused: the Idempotency-Key was used with a different request; validation_failed: a field or the path's reference the contract refuses (details.field and details.reason -- required, type, invalid, mismatch, unknown_field); timezone_mismatch: a location's time zone must be its business's (details.businessTimezone)."
+      description: "idempotency_key_reused: the Idempotency-Key was used with a different request; validation_failed: a field or the path's reference the contract refuses (details.field and details.reason -- required, type, invalid, mismatch, unknown_field, duplicate_field); timezone_mismatch: a location's time zone must be its business's (details.businessTimezone)."
       content:
         application/json:
           schema:
