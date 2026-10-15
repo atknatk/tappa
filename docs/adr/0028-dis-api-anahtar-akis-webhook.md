@@ -1309,8 +1309,8 @@ altında migration **kendi** son koşulunda düşer; son koşul da çıkarılın
 
 **Sapmalar ve ADR'nin açık bıraktıkları — kararıyla (otonom, gerekçeli):**
 1. **Idempotency'nin mekaniği** (`internal/apikey`, `Writes.Run`): tek işlem, anahtarın tenant bağlamı — (a) o tenant'ın
-   24 saatten eski en çok 100 satırı (`FOR UPDATE SKIP LOCKED`: bir tenant'ın iki yazması birbirinin temizliğini
-   beklemez), (b) aynı anahtarın süresi dolmuş satırı, (c) **iş'ten önce** `INSERT … ON CONFLICT DO NOTHING` ile talep
+   24 saatten eski en çok 100 satırı (`FOR UPDATE SKIP LOCKED`; *ikinci turda kendi kısa işlemine taşındı — yazma
+   işleminin içindeyken iki yazma birbirinin süpürdüğü satırda kilitleniyordu, aşağıda "İkinci tur"*), (b) aynı anahtarın süresi dolmuş satırı, (c) **iş'ten önce** `INSERT … ON CONFLICT DO NOTHING` ile talep
    (eşzamanlı ikinci istek birincil anahtarda bekler — beklemenin kendisi eşzamanlılık denetimidir), (d) iş, (e) sonuç
    (`status`, `result_ref`). `status` yalnız talep eden işlemin içinde NULL'dır; NULL'lı bir commit görülürse kesinti
    sayılır (`ErrUnrecorded`, başarı değil). Hata alan yazma hiçbir şey kaydetmez (yeniden deneme işi yeniden koşar).
@@ -1326,7 +1326,7 @@ altında migration **kendi** son koşulunda düşer; son koşul da çıkarılın
    `not_found` (404) · `idempotency_key_reused` (422) · `rate_limited` (429) · `unavailable` (503). §8'in kümesinde 405,
    413, 415 ve 500 olmadığı için: desteklenmeyen yöntem **404 `not_found`**, büyük gövde **400 `body_too_large`**,
    kodlanmış gövde **400 `invalid_request`**, bizdeki her hata (veritabanı dahil) **503 `unavailable`**, nedeni yalnız
-   log'da. Bir panik `/v1`'de de router'ın `Recoverer`'ının gövdesiz 500'üdür (sözleşme dışı, adlandırıldı). 409'un kodu
+   log'da. Bir panik ve kaçırılmış bir süre sınırı da *(ikinci turdan beri)* 503 `unavailable` JSON'dur. 409'un kodu
    henüz yok — API-6 `email_unavailable` ve `already_activated`'ı iki tarafa birden ekler. Bilinmeyen ve iptal edilmiş
    anahtar **aynı** 401 gövdesini alır (hangi anahtarın var olduğuna kehanet yok; mutantı kırmızı).
 4. **Kovalar** bellekte (`httpx.Limiter`): adres 1 200/dk (biçimden sonra, çözümleyiciden önce; ayrıca anahtarsız
@@ -1343,7 +1343,8 @@ altında migration **kendi** son koşulunda düşer; son koşul da çıkarılın
    okunmaz (real-ip'in ilkesi: hiçbir yönlendirme başlığı burada bir şey adlandırmaz). Mutantlar (iki yarının her biri)
    kırmızı.
 7. **Zincirden sonra `Authorization` başlığı istekten silinir**; bir `X-Request-Id` `tt_live_`/`tt_test_`/`tt_whsec_`
-   öneki taşıyorsa (harf ayırmadan) değiştirilir — bir anahtar erişim log'una istek kimliği olarak da giremez.
+   öneki taşıyorsa (harf ayırmadan) değiştirilir — **önek taşıyan** bir değer erişim log'una istek kimliği olarak giremez
+   *(ikinci turda daraltıldı: öneksiz 43 karakterlik gövde sıradan bir kimlik gibi taşınır — ölçüldü)*.
    `Touch` hatası 503'tür (sessiz geçilmez).
 8. **Askı kontrol noktası** (`internal/handler/api/suspension.go`): her `/v1` yazması `Surface.write`'tan geçer; işin
    `Gate.Admit`'ten geçmediği yazma **commit edilmez** (mutantı kırmızı). Askıdayken yalnız `WriteEmployeeCreate` ve
@@ -1362,4 +1363,45 @@ altında migration **kendi** son koşulunda düşer; son koşul da çıkarılın
     panel onu import etmez (`go list -deps` ile iki yönlü ölçüldü); paket çerez okumaz, koymaz.
 11. **Üretimde boş uç yok:** zinciri ve yazmayı sınayan uçlar yalnız testte (`export_test.go`'nun `withTestRoutes`'u)
     bağlanır; üretimdeki tek uç `GET /v1/openapi.yaml`'dır (anahtarsız, adres kovalı).
+
+**İkinci tur (2026-10-15 — iki mercek ONAY + DÜŞÜK'ler; yeniden denetim yok, her değişiklik ölçüldü).**
+
+*Tembel silmede kilitlenme (üçüncü göz D1).* Süpürme yazma işleminin içinde ve anahtarın kendi silmesinden önceydi: A
+tenant'ın en eski 100 süresi dolmuş satırını kilitliyor, B onları atlayıp sonraki 100'ü kilitliyordu; A'nın anahtar satırı
+B'nin kümesinde, B'ninki A'nınkinde iken iki anahtar silmesi birbirini bekliyordu — **40P01**, deterministik. Döngü
+olmasa da süpürülen satır yazmanın ömrü boyunca tutulduğu için başka anahtarlı bir yazma onu bekliyordu. Şimdi süpürme
+**kendi kısa işleminde** commit eder, yazma işleminin ilk ifadesi anahtarın kendi süresi dolmuş satırını siler: yazma
+işleminin bekleyebileceği tek şey **aynı anahtarlı** istektir. Ölçüm (`TestIdempotency_TwoKeysOverAFullSweepNeitherDeadlockNorWait`):
+251 süresi dolmuş satır, A'nın ve B'nin anahtar satırı birbirinin süpürmesinde, önce A süpürür, ikisi birlikte salınır,
+A işlemini 1 sn açık tutar → hata yok, B ~14 ms'de döner; 150 eski satırın arkasındaki anahtar satırı da silinir.
+Mutantlar: süpürme yazma işlemine geri → 40P01; anahtar başına silme kaldırılınca → 422. Bedel (adlandırıldı): süpürme
+ile yazma arasında süreç ölürse süpürme yine commit edilmiştir — süresi dolmuş satırlar içindir, kayıp yok.
+
+*Test edilmemiş dallar (D2).* `Touch` hatası 503 (`TestChain_ATouchThatFailsIs503`; yok sayan mutant 200). Askı okuması
+hata verirse kontrol noktası **kapalıdır** — davranış zaten buydu, pinlenmemişti: her sınıf, askıda açık iki sınıf dahil,
+503 ve commit yok (`TestWrite_ACheckpointThatCannotReadIsClosed`; hatayı "askıda değil" sayan mutant 201). İlk turun
+*"commit anlık görüntüsünde askıda değildi"* cümlesi READ COMMITTED altında fazlaydı: `Admit` askıyı **okuduğu anda**
+görür; okuma ile commit arasında commit edilen bir askı o yazma tarafından görülmez. Okumanın `tenants` satırını kilitlemesi
+gerekip gerekmediğini (`FOR SHARE`, operatörün `FOR NO KEY UPDATE`'ine karşı) API-4b ölçer (plan §5).
+
+*Askı okuyucusunun teli (iki mercek).* `TestAPIWiring_TheSuspensionReaderFollowsTheColumn`: `tenants.suspended_at` canlı
+katalogda **ya da** bir migration dosyasında varken kablolama hâlâ `NoSuspensionColumn` ise kırmızı. Mutantlar: sütun
+atılabilir kapta eklenince ve sütunu adlandıran bir migration dosyası konunca kırmızı. API-4b bu tel kırmızıya döndükten
+sonra kapanır.
+
+*Panik ve süre sınırı (iki mercek).* `/v1` grubunun `guard`'ı (gövde sınırından sonra): panik yığınıyla loglanır (isteğin
+bağlamı; `Authorization` zincirde zaten silinmiş — kanaryayla doğrulandı) ve 503 `unavailable` JSON döner; bağlamı biten ve
+hiçbir şey yazmamış istek, router'ın `middleware.Timeout`'u gövdesiz 504'ünü yazmadan önce 503 `unavailable` alır. Yazılmış
+durum korunur, `http.ErrAbortHandler` yeniden fırlatılır (`TestGuard_PanicAndDeadlineAreSection8`; guard yokken 500,
+süre kolu yokken 504).
+
+*Request-id iddiası (güvenlik D1).* Mekanizma yalnız **önektir**: öneksiz 43 karakterlik anahtar gövdesi `X-Request-Id`
+olarak log'a yazılır (ölçüldü; testin CONTROL satırı). Cümleler buna daraltıldı.
+
+*Sözleşme notları.* (1) `request_hash` **bayt düzeyindedir**: sorgu parametrelerinin sırası ya da JSON'daki boşluk farkı
+aynı anahtarla **422** verir; başlık farkı (ör. `Content-Type`, `User-Agent`) hash'e girmez ve **replay** verir — API-12
+rehberinde entegratöre bildirilir (plan §5 API-12). (2) Anahtarsız bir istek rotanın varlığını ayırt edebilir: kayıtsız
+yol 404, kayıtlı (kimlikli gruptaki) yol 401. `openapi.yaml` herkese açık olduğu için bu yeni bir bilgi vermez.
+(3) `TAPPA_API_HOST` yokken `api.*` adı paneldeki her şeyi yakalayan rotalara düşer; çift noktalı host
+(`api.taptime.mt..`) API host'u sayılmaz, panele gider — API-13'ün runbook adımı (plan §5 API-13).
 

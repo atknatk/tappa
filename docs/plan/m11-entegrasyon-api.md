@@ -518,7 +518,11 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
 - **API-3:** katalog `api_keys`; iptal geri alınamaz; eşzamanlı çift/toplu iptal; 401/403; yanlış önek; log yok; R4/R7/R7b/R7d kasıtlı ihlalde kırmızı; eşit env anahtarıyla başlamaz; C'nin anahtarı A'yı göremez.
 - **API-4 / API-4b / API-5 / API-6:** **(API-3'ten devralınan, 2026-10-15)** zincir `apikey.NewAuthenticator` ile **panelin
   `apikey.NewKeys`'iyle aynı önekle** kurulur — sertleştirilmemiş ve prod derlemesinde `apikey.LivePrefix` (`tt_live_`); `tt_test_`
-  yalnız sandbox derlemesinde (API-11); zincir `Touch`'ı çözümlemeden sonra çağırır (`last_used_at`). 5. sürümdeki gibi (katalog `api_idempotency`; host kapıları; IP kovası; Idempotency eşzamanlılığı; §4.7 her hücre; C anahtarı başka tenant'ı göremez; e-posta değişimi, resend döngüsü, kuyrukta kod yok, iki pod tek basım, bütçe DB'den ve eşzamanlılıkta tam 1; `GET`'te e-posta yok).
+  yalnız sandbox derlemesinde (API-11); zincir `Touch`'ı çözümlemeden sonra çağırır (`last_used_at`). 5. sürümdeki gibi (katalog `api_idempotency`; host kapıları; IP kovası; Idempotency eşzamanlılığı; §4.7 her hücre; C anahtarı başka tenant'ı göremez; e-posta değişimi, resend döngüsü, kuyrukta kod yok, iki pod tek basım, bütçe DB'den ve eşzamanlılıkta tam 1; `GET`'te e-posta yok). **(API-4'ten devralınan, 2026-10-15 — API-4b):** (i) `TestAPIWiring_TheSuspensionReaderFollowsTheColumn` OP-15'in
+  `tenants.suspended_at`'i gelince kırmızıya döner; API-4b `NoSuspensionColumn`'ı sütunun okumasıyla değiştirip bu tel
+  yeşile dönmeden **kapanmaz**. (ii) Askı okuması READ COMMITTED altında okunduğu anı görür: okuma ile commit arasında
+  verilen askıyı görmeyen yazmanın bedeli ölçülür; `tenants` satırında `FOR SHARE` (operatörün askı yazmasının
+  `FOR NO KEY UPDATE`'iyle çakışır) gerekip gerekmediği karara bağlanır.
 - **API-7:** dört şekil × iki kapsam doğru tenant'a, anlık görüntü alanlarıyla; C hiçbirini görmez; manuel/reddedilmiş yok; `limit` 1001 → 400.
 - **API-8:** holding'deki iki tenant, C yok, e-posta yok, `active` var (K-1h), sayfalı (≤ 1000); örtüşme penceresi; **`HoldingDirectory_ReturnsPeersNeverTheCaller`** (ADR 0027'den devralındı, API-1b devir notu): eşlerin çalışanları gelir, çağıranın kendi tenant'ınınki asla.
 - **API-9:** katalog; tenant başına tek uç nokta; anahtar bir kez; ping/yeniden gönderim kovası; kapalı erişimde ret.
@@ -527,8 +531,12 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
   kurulur, prod ikilisi `tt_live_` ile — `TestAPIKeyWiring_TheKeysServiceReachesThePanel`'in `LivePrefix` pini derleme etiketine
   göre genişler; bir `tt_test_` anahtarı prod'da biçim kontrolünde (DB'ye gitmeden) 401, bir `tt_live_` anahtarı sandbox'ta
   401; prod derlemesinde simülasyon yok; CI `-tags sandbox`; deploy kapısı; gerçek UID reddi; dokuz `IsHardened` kapısı; operatörsüz anahtar 403; holding simülasyonu.
-- **API-12:** OpenAPI her uç/hata; §2'nin 31 maddesi (madde 31 — `scope=location` ile süre hesaplama uyarısı — zorunlu).
-- **API-13:** spec §7'nin dokuz maddesi (6. madde sözleşme farkı); güvenlik ONAY; KF+KM holding'i kuruldu; holding dışı izolasyon prod'da örneklendi.
+- **API-12:** OpenAPI her uç/hata; §2'nin 31 maddesi (madde 31 — `scope=location` ile süre hesaplama uyarısı — zorunlu). **(API-4'ten, 2026-10-15)** Rehber entegratöre ayrıca bildirir: Idempotency-Key'in istek hash'i bayt düzeyindedir —
+  sorgu parametresi sırası ya da JSON boşluk farkı aynı anahtarla 422 verir, başlık farkı replay verir (ADR 0028
+  "API-4 uygulama notu", ikinci tur).
+- **API-13:** spec §7'nin dokuz maddesi (6. madde sözleşme farkı); güvenlik ONAY; KF+KM holding'i kuruldu; holding dışı izolasyon prod'da örneklendi. **(API-4'ten, 2026-10-15 — runbook)** `TAPPA_API_HOST` set edilmeden `api.*` adı ingress'ten pod'a gelirse panelin her
+  şeyi yakalayan rotalarına düşer: ingress kuralı env ile **aynı adımda** eklenir (önce değil). Çift noktalı host
+  (`api.taptime.mt..`) API host'u sayılmaz, panel olarak yanıtlanır — ingress onu yönlendirmemelidir.
 
 ---
 

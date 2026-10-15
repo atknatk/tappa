@@ -221,7 +221,9 @@ func RequestID(next http.Handler) http.Handler {
 // signing key (tt_whsec_) are made of exactly this character set and fit in MaxRequestIDLen, so a
 // client that put its key into X-Request-Id would have it written on every record of its requests.
 // A value carrying one of the three prefixes, in any case, is replaced like any other unacceptable
-// value (TestRequestID_AKeyShapedIDIsReplaced).
+// value (TestRequestID_AKeyShapedIDIsReplaced). ⚠️ THE MECHANISM IS THE PREFIX AND NOTHING MORE: a
+// key's 43-character body sent WITHOUT its prefix is an ordinary acceptable id and is carried
+// (measured -- the test's CONTROL row); telling it apart from a proxy's id would take a guess.
 func acceptableRequestID(v string) bool {
 	if v == "" || len(v) > MaxRequestIDLen {
 		return false

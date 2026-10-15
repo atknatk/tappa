@@ -227,7 +227,8 @@ func TestRequestID_AnUnacceptableHeaderIsSilentlyReplaced(t *testing.T) {
 
 // TestRequestID_AKeyShapedIDIsReplaced (M11 API-4, ADR 0028 §3): an X-Request-Id carrying an
 // integration key's or a webhook signing key's prefix -- in any case -- is replaced like any other
-// unacceptable value, so a key a client put there never reaches a record. The values are built at
+// unacceptable value, so a PREFIXED value a client put there never reaches a record (a bare key body
+// carries no mark and is carried -- the CONTROL row). The values are built at
 // run time (redline R7d reads a key-shaped literal in source as a leak). CONTROL: a plain id of the
 // same characters and length is carried.
 //
