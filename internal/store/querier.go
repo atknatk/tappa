@@ -175,6 +175,10 @@ type Querier interface {
 	// TENANT SCOPE (section 4.5, belt + braces): explicit tenant_id predicate on top of
 	// RLS. A foreign employee id retires nothing.
 	CancelPendingInvitesForEmployee(ctx context.Context, arg CancelPendingInvitesForEmployeeParams) ([]uuid.UUID, error)
+	// The claim, before the work. 1: this request is the first with the key. 0: a row exists -- a
+	// committed one, or one a concurrent transaction committed while this statement waited on the
+	// primary key (the wait is the concurrency control, ADR 0028 §8).
+	ClaimIdempotency(ctx context.Context, arg ClaimIdempotencyParams) (int64, error)
 	// Resets the accent: the button goes back to the default colour. An UPDATE, not a
 	// DELETE (section 4.6; the row may still carry a logo).
 	ClearTenantAccent(ctx context.Context, arg ClearTenantAccentParams) (int64, error)
@@ -1500,6 +1504,20 @@ type Querier interface {
 	// Removes a department that nothing points at. Same argument as DeleteLocation: the
 	// foreign keys are the guard, the count is what the screen says.
 	DeleteDepartment(ctx context.Context, arg DeleteDepartmentParams) (DeleteDepartmentRow, error)
+	// The lazy delete: at most 100 of this tenant's rows older than 24 hours, oldest first. SKIP LOCKED,
+	// so two writes of one tenant never queue behind each other's clean-up.
+	DeleteExpiredIdempotency(ctx context.Context, tenantID uuid.UUID) (int64, error)
+	// apiidempotency.sql -- the integration API's Idempotency-Key ledger (M11 API-4, ADR 0028 §8;
+	// migration 00052). internal/apikey's Writes.Run is the one caller.
+	//
+	// Every statement runs inside WithTenant(the key's tenant) and carries an explicit tenant_id filter
+	// (CLAUDE.md §4.5, belt and braces). None of them reaches another tenant's rows: there is no
+	// cross-tenant sweep (K-19) -- the 24-hour expiry is applied lazily, on the request path, to the
+	// requesting tenant's rows alone.
+	// The one row this request's key would collide with, when it is older than 24 hours: after it the
+	// key is free again. It may wait for a concurrent request that is deleting the same row -- a request
+	// with the same key is meant to wait.
+	DeleteExpiredIdempotencyForKey(ctx context.Context, arg DeleteExpiredIdempotencyForKeyParams) (int64, error)
 	// Removes a venue that nothing points at.
 	//
 	// 🔴 THE FOREIGN KEYS ARE THE GUARD, NOT THE COUNT ABOVE. Six ON DELETE RESTRICT keys
@@ -1989,6 +2007,8 @@ type Querier interface {
 	// presentation columns exist precisely because the screen that follows the
 	// decision has to say something, and neither of them is a name.
 	GetEmployeeForTap(ctx context.Context, arg GetEmployeeForTapParams) (GetEmployeeForTapRow, error)
+	// The recorded request after a claim found a row.
+	GetIdempotency(ctx context.Context, arg GetIdempotencyParams) (GetIdempotencyRow, error)
 	// Where an e-mailed invitation goes and what it may say (M10 EM-7B, ADR 0022 §7).
 	//
 	// 🔴 IT RUNS INSIDE THE TRANSACTION THAT MINTS THE INVITATION, AFTER CreateInvite --
@@ -4638,6 +4658,9 @@ type Querier interface {
 	// RETURNING id, at: the caller logs the id (a stable, non-secret handle) instead
 	// of the payload, and `at` lets a test assert the row exists without re-reading.
 	RecordAuditEvent(ctx context.Context, arg RecordAuditEventParams) (RecordAuditEventRow, error)
+	// The result, in the claiming transaction: the status and the record's id, never a body. Only the
+	// claim's own row (status IS NULL) is written.
+	RecordIdempotency(ctx context.Context, arg RecordIdempotencyParams) (int64, error)
 	// The wizard's consent POST (ADR 0026). It records WHEN the employee agreed to the
 	// GDPR Art. 13 notice and WHICH browser did (the HMAC of a token that lives only in
 	// that browser's HttpOnly cookie). It consumes NOTHING and activates NOBODY:

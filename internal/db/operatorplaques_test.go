@@ -136,6 +136,8 @@ var opAtVersionSkips = map[int]string{
 		"chunk (it cannot run inside a test's transaction) and whose Down is empty",
 	51: "api_keys and the seventh resolver (M11 API-3) -- no operator object; its Down's DROP TABLE takes ACCESS " +
 		"EXCLUSIVE on tenants and admin_users (the table's two keys)",
+	52: "api_idempotency (M11 API-4) -- no operator object; its Down's DROP TABLE takes ACCESS EXCLUSIVE on tenants " +
+		"and api_keys (the table's two keys)",
 }
 
 // opAtVersion takes the test's transaction to migration `version`: from the newest file

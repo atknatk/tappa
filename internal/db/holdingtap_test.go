@@ -1549,6 +1549,9 @@ var holdingDownTables = []string{
 	// 00051 (API-3): api_keys (the table dropped); its DROP TABLE also takes the two tables its keys
 	// name -- tenants, above, and admin_users.
 	"api_keys", "admin_users",
+	// 00052 (API-4): api_idempotency (the table dropped); its DROP TABLE also takes the two tables its
+	// keys name -- tenants and api_keys, both above.
+	"api_idempotency",
 }
 
 // holdingLockForDowns takes, inside the savepoint sp, ACCESS EXCLUSIVE on every one of

@@ -368,6 +368,13 @@ var storeSurface = map[string]string{
 	"TouchAPIKey":           "(context.Context, TouchAPIKeyParams{TenantID uuid.UUID; ID uuid.UUID}) (int64, error)",
 	"GetTenantAPIEnabledAt": "(context.Context, uuid.UUID) (*time.Time, error)",
 	"GetAPIKeyRevokedAt":    "(context.Context, GetAPIKeyRevokedAtParams{TenantID uuid.UUID; ID uuid.UUID}) (*time.Time, error)",
+	// M11 API-4 (migration 00052): the Idempotency-Key ledger -- a request hash goes in, a status and
+	// a record's id come back; no body, no key.
+	"DeleteExpiredIdempotency":       "(context.Context, uuid.UUID) (int64, error)",
+	"DeleteExpiredIdempotencyForKey": "(context.Context, DeleteExpiredIdempotencyForKeyParams{TenantID uuid.UUID; KeyID uuid.UUID; IdemKey string}) (int64, error)",
+	"ClaimIdempotency":               "(context.Context, ClaimIdempotencyParams{TenantID uuid.UUID; KeyID uuid.UUID; IdemKey string; RequestHash string}) (int64, error)",
+	"GetIdempotency":                 "(context.Context, GetIdempotencyParams{TenantID uuid.UUID; KeyID uuid.UUID; IdemKey string}) (GetIdempotencyRow{RequestHash string; Status *int16; ResultRef *uuid.UUID}, error)",
+	"RecordIdempotency":              "(context.Context, RecordIdempotencyParams{Status *int16; ResultRef *uuid.UUID; TenantID uuid.UUID; KeyID uuid.UUID; IdemKey string}) (int64, error)",
 }
 
 // TestStoreSurface_IsTheOneRecorded is the inventory check.
@@ -860,9 +867,12 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// 20 -> 21 on 2026-10-15 (M11 API-3): db/queries/apikeys.sql, seven named queries over
 	// api_keys and the tenants gate; none calls a definer (the seventh resolver is called by
 	// hand from internal/db/resolve.go).
-	if files != 21 {
-		t.Fatalf("read %d .sql file(s) under db/queries; TWENTY-ONE were there when this was "+
-			"pinned (2026-10-15; seventeen on 2026-08-24, plus operator.sql, branding.sql, sitepunches.sql and apikeys.sql)", files)
+	// 21 -> 22 on 2026-10-15 (M11 API-4): db/queries/apiidempotency.sql, five named queries
+	// over api_idempotency (the Idempotency-Key ledger); none calls a definer.
+	if files != 22 {
+		t.Fatalf("read %d .sql file(s) under db/queries; TWENTY-TWO were there when this was "+
+			"pinned (2026-10-15; seventeen on 2026-08-24, plus operator.sql, branding.sql, sitepunches.sql, apikeys.sql "+
+			"and apiidempotency.sql)", files)
 	}
 	// A file count alone does not prove the STATEMENT lines were reached; this does.
 	// EXACT, by this file's own standard 130 lines down ("a floor with slack cannot
@@ -901,14 +911,15 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// projection and transactions.sql's InsertManualSiteTransaction; none calls a definer (the
 	// peer's venue is read through holding_site_locations by internal/db/holding.go, by hand).
 	// 143 -> 150 on 2026-10-15 (M11 API-3): apikeys.sql's seven queries; none calls a definer.
-	if named != 150 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; ONE HUNDRED AND FIFTY were "+
+	// 150 -> 155 on 2026-10-15 (M11 API-4): apiidempotency.sql's five queries; none calls a definer.
+	if named != 155 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; ONE HUNDRED AND FIFTY-FIVE were "+
 			"there when this was pinned (2026-10-15: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
 			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+
 			"+ EM-7B's three invitation e-mail queries, + EM-7C's two recovery queries, "+
 			"+ the activation tap's two consent queries, + WL-13's two activation brand queries, "+
-			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries). "+
+			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {
@@ -1084,8 +1095,10 @@ func parseStore(t *testing.T) (map[string]*ast.File, *token.FileSet) {
 	// four reads of the site's projection, in storeSurface; none carries bytes.
 	// 21 -> 22 (2026-10-15, M11 API-3): db/queries/apikeys.sql adds apikeys.sql.go -- seven
 	// methods over api_keys and the tenants gate, in storeSurface; none carries bytes.
-	if len(out) != 22 {
-		t.Fatalf("parsed %d file(s) under %s; TWENTY-TWO were generated when this floor was last set "+
+	// 22 -> 23 (2026-10-15, M11 API-4): db/queries/apiidempotency.sql adds apiidempotency.sql.go --
+	// five methods over api_idempotency, in storeSurface; none carries bytes.
+	if len(out) != 23 {
+		t.Fatalf("parsed %d file(s) under %s; TWENTY-THREE were generated when this floor was last set "+
 			"(2026-10-15). If sqlc genuinely emits a different number now, change this number "+
 			"in the same edit and say why -- do not widen it", len(out), storeDir)
 	}

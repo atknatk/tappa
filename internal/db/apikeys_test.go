@@ -345,11 +345,14 @@ func TestRLS_ApiKeys_AnotherTenantsKeysAreInvisible(t *testing.T) {
 // and tappa_resolver's two columns of tenants -- the role reaches no column of tenants after it,
 // as before -- and the Up builds them again to the same catalogue (the resolver's signature and
 // the grants). Walked in a holdingLockedSavepoint (the Down's DROP TABLE takes tenants and
-// admin_users, which holdingDownTables lists).
+// admin_users, which holdingDownTables lists). Since API-4, 00052's api_idempotency keys on
+// api_keys, so its Down runs first and its Up last.
 func TestApiKeys00051_DownGivesBackAndUpTakesItAgain(t *testing.T) {
 	ctx, tx := opTx(t)
 	up, down := opMigrationSections(t, op00051File)
+	up52, down52 := opMigrationSections(t, op00052File)
 	holdingLockedSavepoint(t, tx, func(sp pgx.Tx) {
+		opRunSection(t, ctx, sp, down52, "00052 Down")
 		opRunSection(t, ctx, sp, down, "00051 Down")
 		if n := opInt(t, ctx, sp, `SELECT count(*) FROM pg_class WHERE relname = 'api_keys'`); n != 0 {
 			t.Fatalf("api_keys survives the Down")
@@ -369,5 +372,6 @@ func TestApiKeys00051_DownGivesBackAndUpTakesItAgain(t *testing.T) {
 		if n := opInt(t, ctx, sp, `SELECT count(*) FROM pg_proc WHERE oid = 'public.resolve_api_key_by_hash(text)'::regprocedure AND prosecdef`); n != 1 {
 			t.Fatal("the resolver is not back as a definer")
 		}
+		opRunSection(t, ctx, sp, up52, "00052 Up again")
 	})
 }

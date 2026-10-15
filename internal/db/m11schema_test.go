@@ -185,6 +185,17 @@ var m11Tables = map[string]map[string]m11TableACL{
 		},
 		"tappa_resolver": {Select: "tenant_id,id,token_hash,revoked_at"},
 	},
+	// 00052 (M11 API-4, ADR 0028 §1, §8): the Idempotency-Key ledger. tappa_app reads it, claims a
+	// key by naming the tenant, the API key, the idempotency key and the request hash, writes the
+	// result into status and result_ref alone, and deletes the expired rows (the lazy delete).
+	"api_idempotency": {
+		"tappa_app": {
+			Select: "tenant_id,key_id,idem_key,request_hash,status,result_ref,created_at",
+			Insert: "tenant_id,key_id,idem_key,request_hash",
+			Update: "status,result_ref",
+			Delete: true,
+		},
+	},
 	"webhook_deliveries": {
 		"tappa_app": {
 			Select: "tenant_id,id,endpoint_id,punch_event_seq,attempt,next_attempt_at,lease_until,state,last_status,last_error_class,created_at,delivered_at",

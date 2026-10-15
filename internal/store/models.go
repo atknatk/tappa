@@ -34,6 +34,16 @@ type AdminUser struct {
 	LastLoginAt  *time.Time
 }
 
+type ApiIdempotency struct {
+	TenantID    uuid.UUID
+	KeyID       uuid.UUID
+	IdemKey     string
+	RequestHash string
+	Status      *int16
+	ResultRef   *uuid.UUID
+	CreatedAt   time.Time
+}
+
 type ApiKey struct {
 	TenantID   uuid.UUID
 	ID         uuid.UUID
