@@ -174,8 +174,12 @@ CREATE TABLE punch_events (
     CONSTRAINT punch_events_punch_fk FOREIGN KEY (punch_id, punch_tenant_id)
         REFERENCES transactions (id, tenant_id) ON DELETE RESTRICT
 );
--- The history query (from/to, <= 31 days -- ADR 0028 §5).
-CREATE INDEX punch_events_tenant_time_idx ON punch_events (tenant_id, punch_time);
+-- The history query (from/to -- ADR 0028 §5; API-7b), which walks (punch_time, seq): seq is the index's
+-- third column so the walk's order and its keyset's tie-break are both the index's -- with
+-- (tenant_id, punch_time) alone a group of events at one instant was read whole to sort it, past
+-- the page's window (API-7b review, second round: 50 000 at one instant, 25 000-49 999 rows removed a
+-- page). Changed in place: 00048 is not published (ADR 0028, API-2 note -- the same decision).
+CREATE INDEX punch_events_tenant_time_idx ON punch_events (tenant_id, punch_time, seq);
 
 -- One endpoint per tenant (ADR 0028 §6). The url and the sealed signing key are the panel's to
 -- write and the worker's to read (API-9, API-10); no trigger and no definer reads either (K-34).

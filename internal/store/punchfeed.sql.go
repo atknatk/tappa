@@ -139,9 +139,10 @@ type GetPunchHistoryWindowRow struct {
 // removed by the filter, 230-660 ms a request). Counted without it, a page reads at most window + 1
 // positions whatever its S0; the snapshot's filter is ListPunchHistory's. The guarantee is untouched:
 // the keyset walks the whole order, and the set at or below S0 is fixed. The
-// range is a walk of punch_events_tenant_time_idx (tenant_id, punch_time); the redundant
-// punch_time >= after_time is the predicate that index can bound, the row comparison breaks ties
-// by seq.
+// range is a walk of punch_events_tenant_time_idx (tenant_id, punch_time, seq): the walk's order is
+// the index's, and the row comparison on (punch_time, seq) is an index condition -- a group of events
+// at one instant is entered at the cursor, not read whole to sort it (API-7b third round). The
+// redundant punch_time >= after_time is kept as a plain range bound.
 func (q *Queries) GetPunchHistoryWindow(ctx context.Context, arg GetPunchHistoryWindowParams) (GetPunchHistoryWindowRow, error) {
 	row := q.db.QueryRow(ctx, getPunchHistoryWindow,
 		arg.AfterTime,

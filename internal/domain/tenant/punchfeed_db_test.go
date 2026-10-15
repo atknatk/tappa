@@ -239,7 +239,8 @@ func TestPunchHistory_TheWindowBoundsASparseScope(t *testing.T) {
 }
 
 // kfTieGroup gives KF n own events at ONE punch_time with the heap in the REVERSE of their feed order
-// (the API package's tieGroup, for this package's fixture): n flags (no event), then as the owner in
+// (the API package's tieGroup, for this package's fixture -- its comment says why the product's own
+// heap is not relied on, and that the product can produce this order): n flags (no event), then as the owner in
 // KF's context their events with seq counter+n down to counter+1 and the counter moved. Returns the
 // seqs in feed order.
 func (f *siteFixture) kfTieGroup(t *testing.T, emp, venue uuid.UUID, uid string, n int, at time.Time) []int64 {
@@ -326,8 +327,19 @@ func TestPunchHistory_ATieAcrossTheWindowsEndIsCutByTheFeedOrder(t *testing.T) {
 	f.exec(`INSERT INTO employees (id, tenant_id, external_ref, full_name, status, invited_at) VALUES ($1, $2, 'KF-TIE', 'KF Staff', 'active', now())`, emp, f.kf)
 	at := time.Now().UTC().Truncate(time.Second).Add(-72 * time.Hour)
 	want := f.kfTieGroup(t, emp, venue, uid, 30, at)
+	// Inside the group (after its 10th, the 4-window ends at its 14th): the window and the page each
+	// read at most window + 1 rows -- the index's third column is the tie-break, so neither reads the
+	// rest of the group to sort it (API-7b third round, DÜŞÜK-1: with (tenant_id, punch_time) alone a
+	// page read the whole group -- 50 000 at one instant: 25 000-49 999 rows removed).
+	from, to := at.Add(-time.Hour), at.Add(time.Hour)
+	if n, plan := shippedReads(t, f, "getPunchHistoryWindow", at, want[9], f.kf, from, to, int32(5), int32(4)); n > 5 {
+		t.Fatalf("the window statement read %d rows inside a group of 30 at a window of four:\n%s", n, plan)
+	}
+	if n, plan := shippedReads(t, f, "listPunchHistory", f.kf, want[29], from, to, at, want[9], at, want[13], "employer", int32(51)); n > 5 {
+		t.Fatalf("the page statement read %d rows inside a group of 30 up to a window's end four on:\n%s", n, plan)
+	}
 	for _, limits := range [][]int{{1}, {2}, {3}, {4}, {5}, {6}, {7}, {50}, {1, 7, 3, 50}} {
-		got, _ := historyWalk(t, f, feed, FeedEmployer, at.Add(-time.Hour), at.Add(time.Hour), limits)
+		got, _ := historyWalk(t, f, feed, FeedEmployer, from, to, limits)
 		if !slices.Equal(got, want) {
 			t.Fatalf("page sizes %v: %v, want %v", limits, got, want)
 		}
@@ -339,9 +351,9 @@ func TestPunchHistory_ATieAcrossTheWindowsEndIsCutByTheFeedOrder(t *testing.T) {
 // window of three positions, seven pages of at most three positions each (empty, hasMore true) and
 // ends; with the snapshot's filter in the window (the reviewed shape) the first page read all 20 rows,
 // found none and ended. The same through the database: the shipped window statement at a window of
-// three examines at most five rows of punch_events and removes none by a filter (EXPLAIN ANALYZE;
-// the count is window + 1, plus the one row the Incremental Sort reads past the LIMIT to close its
-// last group -- measured).
+// three examines at most four rows of punch_events -- window + 1 -- and removes none by a filter
+// (EXPLAIN ANALYZE of the index walk, shippedReads; before the index carried seq, an Incremental
+// Sort read one row more to close its last group).
 // MUTANT (measured): seq <= S0 back in the window -- red.
 func TestPunchHistory_AStaleSnapshotReadsAtMostTheWindow(t *testing.T) {
 	f := newSiteFixture(t)
@@ -388,10 +400,28 @@ func TestPunchHistory_AStaleSnapshotReadsAtMostTheWindow(t *testing.T) {
 	if pages != 7 {
 		t.Fatalf("the stale walk took %d pages, want 7 (20 positions, three a page)", pages)
 	}
+	if n, plan := shippedReads(t, f, "getPunchHistoryWindow", from, int64(0), f.kf, from, to, int32(4), int32(3)); n > 4 {
+		t.Fatalf("the window statement read %d rows of punch_events at a window of three (want <= 4):\n%s", n, plan)
+	}
+}
+
+// shippedReads runs the SHIPPED statement name (the store's unexported constant, read from the
+// generated file) under EXPLAIN ANALYZE in KF's context and returns the most rows any scan of
+// punch_events produced, failing on a row a filter threw away. The planner's choice of scan is pinned
+// first (SET LOCAL enable_seqscan / enable_bitmapscan = off, the 00050 emsali): the claim is the
+// shape of the INDEX walk -- "a page reads at most its window" -- and on this suite's small,
+// unanalysed tables the planner would otherwise read the whole table by a sequential scan, which is
+// the right plan there and says nothing about the walk (the API-7b third round: a fresh database
+// went red 3/3 on that plan, a shared one green only because other packages' rows grew the table).
+// At a million events the planner picks the index walk by itself (the API-7b notes' EXPLAIN).
+func shippedReads(t *testing.T, f *siteFixture, name string, args ...any) (int, string) {
+	t.Helper()
 	var plan []string
 	if err := f.data.WithTenant(f.ctx, f.kf, func(ctx context.Context, tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF) `+getPunchHistoryWindowSQL(),
-			from, int64(0), f.kf, from, to, int32(4), int32(3))
+		if _, err := tx.Exec(ctx, `SET LOCAL enable_seqscan = off; SET LOCAL enable_bitmapscan = off`); err != nil {
+			return err
+		}
+		rows, err := tx.Query(ctx, `EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF) `+shippedSQL(name), args...)
 		if err != nil {
 			return err
 		}
@@ -400,35 +430,43 @@ func TestPunchHistory_AStaleSnapshotReadsAtMostTheWindow(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	most := 0
 	for _, line := range plan {
 		if strings.Contains(line, "on punch_events") {
-			var n int
 			if i := strings.Index(line, "rows="); i >= 0 {
-				if _, err := fmt.Sscanf(line[i:], "rows=%d", &n); err == nil && n > 5 {
-					t.Fatalf("the window statement read %d rows of punch_events at a window of three: %s", n, line)
+				var n int
+				if _, err := fmt.Sscanf(line[i:], "rows=%d", &n); err == nil && n > most {
+					most = n
 				}
 			}
 		}
 		if strings.Contains(line, "Rows Removed by Filter") {
-			t.Fatalf("the window statement filters rows it reads: %s\n%s", line, strings.Join(plan, "\n"))
+			t.Fatalf("%s filters rows it reads: %s\n%s", name, line, strings.Join(plan, "\n"))
 		}
 	}
+	if most == 0 && !strings.Contains(strings.Join(plan, "\n"), "on punch_events") {
+		t.Fatalf("%s: no scan of punch_events in the plan:\n%s", name, strings.Join(plan, "\n"))
+	}
+	return most, strings.Join(plan, "\n")
 }
 
-// getPunchHistoryWindowSQL is the SHIPPED window statement, read from the generated file (the store
-// keeps it unexported), positional as the store sends it: $1 after_time, $2 after_seq, $3 tenant_id,
-// $4 from_time, $5 to_time, $6 scan_size, $7 window_size.
-func getPunchHistoryWindowSQL() string {
+// shippedSQL is the store's constant name, read from the generated file (the store keeps it
+// unexported), positional as the store sends it -- getPunchHistoryWindow: $1 after_time, $2
+// after_seq, $3 tenant_id, $4 from_time, $5 to_time, $6 scan_size, $7 window_size; listPunchHistory:
+// $1 tenant_id, $2 s0, $3 from_time, $4 to_time, $5 after_time, $6 after_seq, $7 end_time, $8
+// end_seq, $9 role, $10 page_size.
+func shippedSQL(name string) string {
 	b, err := os.ReadFile(filepath.Join("..", "..", "store", "punchfeed.sql.go"))
 	if err != nil {
 		panic(err)
 	}
 	src := string(b)
-	i := strings.Index(src, "const getPunchHistoryWindow = `")
+	head := "const " + name + " = `"
+	i := strings.Index(src, head)
 	if i < 0 {
-		panic("no getPunchHistoryWindow in internal/store/punchfeed.sql.go")
+		panic("no " + name + " in internal/store/punchfeed.sql.go")
 	}
-	rest := src[i+len("const getPunchHistoryWindow = `"):]
+	rest := src[i+len(head):]
 	return rest[:strings.Index(rest, "`")]
 }
 
@@ -506,5 +544,74 @@ func TestAPIRead_EveryReadCarriesTheBound(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// shippedRowsUnsorted runs the SHIPPED statement name with every index scan off -- a sequential scan
+// and a Sort decide the order -- and returns its rows' first column as int64 (or the row's columns
+// for the window statement: scanned, end seq).
+func shippedRowsUnsorted(t *testing.T, f *siteFixture, name string, scan func(pgx.Rows) ([]int64, error), args ...any) []int64 {
+	t.Helper()
+	var out []int64
+	if err := f.data.WithTenant(f.ctx, f.kf, func(ctx context.Context, tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `SET LOCAL enable_indexscan = off; SET LOCAL enable_indexonlyscan = off; SET LOCAL enable_bitmapscan = off`); err != nil {
+			return err
+		}
+		rows, err := tx.Query(ctx, shippedSQL(name), args...)
+		if err != nil {
+			return err
+		}
+		out, err = scan(rows)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// TestPunchHistory_TheTieBreakIsTheTextsNotThePlans (API-7b third round, DÜŞÜK-3): since the index
+// carries seq, an index walk returns ties in seq order whatever the statement says -- a seq dropped
+// from an ORDER BY would stay invisible to every test that runs the planner's choice. So the shipped
+// statements run here with the index scans OFF (a sequential scan of a heap in the reverse of the
+// feed order, then a Sort): the page answers a group of 30 ties in feed order, and the window's end
+// four positions into the group is the group's 4th. MUTANTS (measured), each red: seq removed from
+// the page's ORDER BY; from the window's; from the end's DESC.
+func TestPunchHistory_TheTieBreakIsTheTextsNotThePlans(t *testing.T) {
+	f := newSiteFixture(t)
+	venue := f.venue("KF texts venue")
+	uid := f.plaque(venue)
+	emp := uuid.New()
+	f.exec(`INSERT INTO employees (id, tenant_id, external_ref, full_name, status, invited_at) VALUES ($1, $2, 'KF-TEXT', 'KF Staff', 'active', now())`, emp, f.kf)
+	at := time.Now().UTC().Truncate(time.Second).Add(-120 * time.Hour)
+	want := f.kfTieGroup(t, emp, venue, uid, 30, at)
+	from, to := at.Add(-time.Hour), at.Add(time.Hour)
+	page := shippedRowsUnsorted(t, f, "listPunchHistory", func(r pgx.Rows) ([]int64, error) {
+		var seqs []int64
+		for r.Next() {
+			vals, err := r.Values()
+			if err != nil {
+				return nil, err
+			}
+			seqs = append(seqs, vals[0].(int64))
+		}
+		return seqs, r.Err()
+	}, f.kf, want[29], from, to, from, int64(0), at, want[29], "employer", int32(31))
+	if !slices.Equal(page, want) {
+		t.Fatalf("the page under a Sort answered %v, want the feed order %v", page, want)
+	}
+	end := shippedRowsUnsorted(t, f, "getPunchHistoryWindow", func(r pgx.Rows) ([]int64, error) {
+		defer r.Close()
+		if !r.Next() {
+			return nil, errors.New("no window row")
+		}
+		var scanned, endSeq int64
+		var endTime time.Time
+		if err := r.Scan(&scanned, &endTime, &endSeq); err != nil {
+			return nil, err
+		}
+		return []int64{scanned, endSeq}, r.Err()
+	}, from, int64(0), f.kf, from, to, int32(5), int32(4))
+	if len(end) != 2 || end[0] != 5 || end[1] != want[3] {
+		t.Fatalf("the window under a Sort: scanned %v, want 5 and the end at the group's 4th (%d)", end, want[3])
 	}
 }
