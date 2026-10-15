@@ -529,7 +529,7 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
 - **API-7b** *(2026-10-15 — API-7 yapıcısının bulduğu plan boşluğu: ADR 0028 §5 ve §2 madde 18 geçmiş sorgusunu vaat ediyor, görev kartı yoktu)*: `from`/`to` ile `punch_time` aralığı ≤ 31 gün + 1 saat *(API-7b denetimi, 2026-10-15 — yerel takvim ayı, DST dahil: Malta Ekim ayı `+02:00`→`+01:00` 31 gün 1 saattir)* (fazlası, ters ya da bozuk aralık → 400, değer yankılanmaz); kapsam ve tenant süzgeci `scope` ile aynı — iki sorguda açık `tenant_id` + kemer testi + filtresiz RLS sondası; sayfalı, kendi imleciyle. **Garanti bir anlık görüntüye bağlıdır** *(üçüncü göz ORTA-1, 2026-10-15 — `punch_time` beyan edilen andır, 72 sa geriye tarihlenebilir; onaylı flag eski `punch_time`'ıyla günler sonra girer: `(punch_time, seq)` sayfalaması okunmuş bölgeye sonradan düşen olayı atlar, ölçüldü)*: sayaç **S₀** ilk sayfayla **aynı ifadede ya da ondan önce** okunur (`punchfeed.sql`'deki "the order is the proof" emsali — ters sıra, okunmuş bölgeye arada commit edilen `seq ≤ S₀` bir olayı kaçırır; mutant olarak ölçülür); yalnız `seq ≤ S₀` olaylar yanıtlanır; sıra `(punch_time, seq)`; imleç S₀'ı, son okunan konumu (pencereye takılan boş sayfada taranan konumu) **ve** `from`/`to`/`scope`'u bağlar — uyuşmazlık 400; geçmiş imlecinin öneki akış imlecininkinden **ayrıdır** (birine verilen öteki 400 alır, sessizce konum olmaz); güncel sayaçtan büyük S₀ 400 (`ErrCursorAhead` karşılığı); aralık `[from, to)`, `from < to`, `to − from ≤ 31 gün + 1 saat` (`from = to` → 400); atlama/yineleme yokluğu **S₀'a göre** tanımlanır ve sayfalama sürerken geç bir olay (onaylı flag, çevrimdışı kuyruk) eklenerek ölçülür. Sözleşme entegratöre açıkça söyler: geç gelen olaylar yalnız akışta (`cursor`) kesin görünür; aynı aralığı sonra yeniden sorgulamak daha fazla satır döndürebilir. `from`/`to` ile akış imleci `cursor`'ın birlikteliği sözleşmede açık. K-4 listesinin tamamı yok (manuel, practice, reject, ignored, reddedilmiş flag); onaylı flag bir kez. C görmez. **Pencere sınırı:** seyrek kapsamda (rol süzgeci) `punch_time` aralığında sınırsız yürüyüş olmaz — API-7'nin pencere çözümünün karşılığı ölçülür. 1 M olayda sayfa süresi ölçülür (`punch_events_tenant_time_idx`). API-7'nin bugünkü "`from`/`to` → 400" davranışı geriye uyumlu biçimde kalkar.
 - **API-8:** holding'deki iki tenant, C yok, e-posta yok, `active` var (K-1h), sayfalı (≤ 1000); örtüşme penceresi; **`HoldingDirectory_ReturnsPeersNeverTheCaller`** (ADR 0027'den devralındı, API-1b devir notu): eşlerin çalışanları gelir, çağıranın kendi tenant'ınınki asla. *(API-8'de yazıldı, 2026-10-15 — gerçek test adları ve ölçümler ADR 0028 "API-8 uygulama notu"nda; T124'ün üye olmayan yarısı `00055`'te kapandı; üye yarısı **kullanıcı kararıyla (2026-10-15) şimdilik bırakıldı** — eşik tenant sayısı ~1 000, backlog T124'te izlenir; indeks `00056`.)*
 - **API-9:** katalog; tenant başına tek uç nokta; anahtar bir kez; ping/yeniden gönderim kovası; kapalı erişimde ret. *(API-9'da yazıldı, 2026-10-15 — gerçek test adları, ölçümler ve mutantlar ADR 0028 "Test edilecekler" ve "API-9 uygulama notu"nda; migration yok — tablo `00048`'de; `Egress_*` ve imza vektörü API-10'dan buraya taşındı.)*
-- **API-10:** dört yönlendirme; SSRF ret listesi + iki aşamalı DNS; devre dışı uç noktaya teslim yok; proxy'ye rağmen doğrudan; iki pod tek gönderim; açık işlem yok; kapanış.
+- **API-10:** dört yönlendirme; SSRF ret listesi + iki aşamalı DNS; devre dışı uç noktaya teslim yok; proxy'ye rağmen doğrudan; iki pod tek gönderim; açık işlem yok; kapanış. *(API-10'da yazıldı, 2026-10-15 — gerçek test adları, ölçümler ve mutantlar ADR 0028 "Test edilecekler" ve "API-10 uygulama notu"nda; migration yok — tablo ve iki indeks `00048`'de; işçinin uçtan uca testleri `internal/egress`'te.)*
 - **API-11:** **(API-3'ten devralınan, 2026-10-15)** sandbox ikilisi panelde ve zincirde `apikey.SandboxPrefix` (`tt_test_`) ile
   kurulur, prod ikilisi `tt_live_` ile — `TestAPIKeyWiring_TheKeysServiceReachesThePanel`'in `LivePrefix` pini derleme etiketine
   göre genişler; bir `tt_test_` anahtarı prod'da biçim kontrolünde (DB'ye gitmeden) 401, bir `tt_live_` anahtarı sandbox'ta
@@ -628,6 +628,21 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
   **bir kez** gösterilir; döndürmeden sonra eski anahtarla imzalı mesaj gelmez — entegrasyon yeni anahtara hemen geçer. **Test
   ping:** `{"event":"ping","id":"<uuid>","sentAt":"<RFC 3339 UTC>"}`, aynı imzayla; panelden, işletme başına saatte en çok **10**
   (ping ve API-10'un *"yeniden gönder"*i aynı kovadan). Ping `event` alanıyla ayırt edilir, punch sayılmamalıdır.
+  **(API-10'dan, 2026-10-15)** **Punch teslimi:** `POST`, gövde `{"event":"punch","deliveryId":"dlv_<uuid>", …}` — geri kalanı
+  `GET /v1/punches`'in öğesiyle **aynı alanlar** (`id`, `version`, `status`, `punchTime`, `recordedAt`, `channel`, `direction`,
+  `employee{…}`, `location{…}`, `tagId`); başlıklar ping'inkiler ve aynı imza. **2xx = teslim edildi**; başka her cevap (3xx dahil —
+  yönlendirme izlenmez), 10 sn içinde gelmeyen cevap, TLS ya da bağlantı hatası bir başarısız denemedir. **Takvim:** ilk deneme
+  hemen; başarısızsa 1 dk, 5 dk, 30 dk, 2 sa, 6 sa sonra yeniden; **altıncı** deneme de başarısızsa teslim *"failed"* (`dead`)
+  olur ve kendiliğinden bir daha denenmez. **Tekilleştirme `id` + `version` ile** (§2 madde 16): aynı punch birden çok kez gelebilir
+  — yeniden deneme, sunucu kapanışında uçuşta kalmış bir istek, panelden *"yeniden gönder"* — `deliveryId` bir teslimin her
+  denemesinde aynıdır, gövde baytları da. **Sıra garantisi yok;** holding punch'ı iki işletmenin iki uç noktasına iki ayrı teslimdir.
+  **Kesin kaynak akıştır:** uç nokta kapalıyken kaydedilen punch'lar hiç teslim edilmez, `dead` olanlar kendiliğinden gelmez — entegratör
+  akışı (`GET /v1/punches`, imleçle) düzenli okumalı, webhook'u *"anında haber"* saymalıdır. **K-19 gecikmesi** (§2 madde 20): sunucu
+  yeniden başlayınca (her deploy) bekleyen yeniden denemeler işletmenin bir sonraki dokunuşuna, onayına ya da API çağrısına kadar
+  bekler. **Panel:** sahip teslim günlüğünü görür (punch kimliği, durum, deneme, son cevabın sınıfı ve durum kodu — adres ve alıcının
+  cevap metni yok) ve `pending`/`dead` bir teslimi *"Send again now"* ile yeniden gönderebilir (ping ile aynı kovadan, saatte 10; bir
+  `dead` teslim tek deneme alır). Uç nokta kapalıyken ya da API kapalıyken kuyruktaki teslimler **gitmez ve bekler**; açılınca gider.
+  Olay adının (`punch`) spec §5 ile karşılaştırılması bu görevdedir (ADR 0028 "API-10 uygulama notu" madde 6).
 - **API-13:** **(API-8'den, 2026-10-15 — deploy öncesi, kullanıcı kararı)** Prod'daki **tenant sayısı ölçülür**: bir holding
   üyesinin rehber sayfası ve `holding_site_locations` çağrısı her tenant'ı `holding_peer`'den geçirir (T124'ün üye yarısı —
   21 000 tenant'ta ~1 sn, yük altında 5 sn sınırını aşıp 503). Sayı ~1 000'i geçmeden T124 ele alınır (backlog T124'ün eşiği).
@@ -661,6 +676,12 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
   değildir ve webhook istemcisi engel listesiz kurulur (API-9'dan önceki varsayılan, kod değişmedi). Deploy sonrası ölçüm: panelden `https://taptime.mt/` adresli bir uç nokta kurulup ping atılır → sonuç
   `blocked_address` olmalıdır (deploy/README.md *"Webhook (M11 API-9)"*). Egress NetworkPolicy yine kapsam dışı (§8): `internal/egress`
   tek savunmadır.
+  **(API-10'dan, 2026-10-15 — runbook)** Gönderici yalnız `TAPPA_WEBHOOK_KEK` varken kurulur (ping'le aynı koşul ve aynı istemci);
+  deploy'dan sonra K-19 kümesi boştur — deploy anında bekleyen teslimler işletmenin bir sonraki dokunuşunu bekler (§2 madde 20).
+  Deploy sonrası ölçüm: K-22'si açık, uç noktası olan bir işletmede bir dokunuş → panelin *"Deliveries"* listesinde `Delivered`
+  (ya da kapalı sınıf); süreç log'unda `webhook: delivered` / `webhook: a delivery failed` satırları yalnız kimlik + sınıf + durum
+  taşır (adres yok). `webhook_deliveries` saklama kuralı yok, satırlar birikir (backlog T130) — deploy öncesi satır sayısı bilgi
+  için ölçülür.
 
 ---
 

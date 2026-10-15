@@ -879,12 +879,24 @@ parametre), `TestStoreSurface_IsTheOneRecorded`, `TestOpenAPI_PathsAreTheRouters
 `TestAPIKeyQueries_CarryAnExplicitTenantPredicate`; genişleyenler: `TestStoreSurface_IsTheOneRecorded` (+
 `TestStoreSurface_NoByteCarryingQueryReadsTags`'ın sekizinci taşıyıcısı).
 
-**API-10** — `WebhookRouting_FourShapes` · `WebhookWorker_DisabledEndpointGetsNothing` · `WebhookWorker_TwoPodsSendOnce` ·
-`WebhookWorker_NoOpenTransactionDuringHTTP` · `WebhookWorker_DrainsWithinShutdownBudget` ·
-`WebhookWorker_URLAndURLErrorNeverReachLogOrAudit`
-(CLAUDE.md §7: başarısız gönderimlerde — DNS, TLS, zaman aşımı, ret — süreç log'unda ve audit
-`detail`'inde uç noktanın adresi ve `url.Error` metni yok; yalnız uç nokta kimliği ve hata sınıfı). *(`Egress_*` ve imza
-vektörü API-9'da yazıldı — yukarıda; API-10'un işçisi aynı `egress.Client`'ı ve `webhook.SigningKey.Sign`'ı kullanır.)*
+**API-10** *(yazıldı — "API-10 uygulama notu"; adlar önerilenle aynı, önek eklendi; işçinin uçtan uca testleri
+`internal/egress`'te, çünkü dial dikişleri yalnız orada açıktır)* — `TestWebhookRouting_FourShapes` ·
+`TestWebhookWorker_DisabledEndpointGetsNothing` · `TestWebhookWorker_TwoPodsSendOnce` (`-race`) ·
+`TestWebhookWorker_NoOpenTransactionDuringHTTP` · `TestWebhookWorker_DrainsWithinShutdownBudget` ·
+`TestWebhookWorker_URLAndURLErrorNeverReachLogOrAudit`
+(CLAUDE.md §7: başarısız gönderimlerde — DNS, TLS, zaman aşımı, ret, engelli adres, 4xx, 5xx — süreç log'unda ve audit
+`detail`'inde uç noktanın adresi ve `url.Error` metni yok; yalnız uç nokta kimliği ve hata sınıfı). Ekler:
+`TestWebhookWorker_TheScheduleIsTheADRsAndResendRevivesTheDead`, `TestWebhookWorker_SSRFRefusedThroughTheWorker` (ret
+listesi, iki aşamalı DNS ve `HTTPS_PROXY` işçi yolundan), `TestWebhookWorker_AClaimInProgressDoesNotStallAnother`,
+`TestWebhookWorker_AnApprovalNoticesBothBusinesses`, `TestWebhookPayload_CarriesNothingButTheFeedItem`,
+`TestWebhookResend_TheGatesTheBucketAndTheNotice`, `TestWebhookDeliveries_PagesNewestFirstAndNamesNoAddress`,
+`TestBackoff_TheScheduleIsTheADRs`, `TestBody_IsTheFeedItemPlusEventAndDeliveryID`, `TestDeliveryJob_NamesOnlyBeltedQueries`,
+`TestWebhookPanel_TheDeliveryLogAndResend`, `TestParseDeliveryPosition_OnlyWhatTheLogHandsOut`; genişleyenler:
+`TestWebhookQueries_CarryAnExplicitTenantPredicate` (15 sorgu), `TestStoreSurface_IsTheOneRecorded`,
+`TestWebhookWiring_TheEndpointServiceReachesThePanel` (gönderici, iki `NoticeWorkTo`), `TestEndpoints_SuspensionClassesAreSection10`
+(`ActResend`), `TestWebhookPanel_ManagerIs403EverywhereAndLeavesATrail` ve `TestWebhookPanel_CrossSiteWritesAreRefusedBeforeTheResolver`
+(yedinci yazma: yeniden gönder). *(`Egress_*` ve imza vektörü API-9'da yazıldı — yukarıda; API-10'un işçisi aynı
+`egress.Client`'ı ve `webhook.SigningKey.Sign`'ı kullanır.)*
 
 **API-11** — `Packaging_ProdBuildHasNoSandboxPackage` · `Packaging_SandboxBuildHasIt` ·
 `Config_UntaggedBinaryRefusesSandbox` · `Sandbox_RealNXPUIDRefusedOnEveryResolveAndInsert` ·
@@ -2478,3 +2490,105 @@ ping süresince (≤ 10 sn) bekler. (e) Kova slotu cevap gelmese de harcanır.
 **Devredilenler.** Teslim tablosu, işçi, geri çekilme, dört yönlendirme, teslim günlüğü ve *"yeniden gönder"* → **API-10**
 (`ActionResend` ve kovanın kilidi hazır; işçi aynı `egress.Client`'ı ve `SigningKey.Sign`'ı kullanır). Askı tablosunun testi →
 **API-4b**. Deploy adımları (KEK sırrı, adres listesinin IPv6'sı, `blocked_address` ölçümü) → **API-13** (plan §5).
+
+## API-10 uygulama notu (2026-10-15)
+
+Yapıcının uygulaması ve ölçümleri; kararlar değişmedi — ADR'nin açık bıraktıkları ve sapmalar aşağıda adıyla. **Migration
+yok:** teslim tablosu, iki indeksi (`webhook_deliveries_tenant_due_idx`, `webhook_deliveries_tenant_created_idx`) ve `tappa_app`'in
+sütun listeli `UPDATE`'i API-2'de `00048` ile doğdu; kiralama ve günlük sorgularının planı bu iki indekste ölçüldü (madde 9).
+Paylaşılan `tappa-m11-db`'ye DDL yok; ölçek ve mutantlar atılabilir PostgreSQL 17 kabında (`scripts/db-init`, goose 56).
+
+**Parçalar.** `internal/webhook/delivery` (K-19'un işi: kira, gönderim, sonuç, geri çekilme) · `internal/punchwire` (bir punch'ın
+tel biçimi — `/v1/punches` öğesi ve teslim gövdesi aynı yapı, aynı fonksiyon) · `db/queries/webhooks.sql`'e yedi sorgu (kira,
+olay, sonuç, sonraki vade, günlük, yeniden gönderim kilidi, yeniden gönderim) · `db/queries/reviews.sql`'e `GetReviewedPunchSite` ·
+`internal/webhook/endpoints/deliveries.go` (sahibin günlüğü ve *"yeniden gönder"*i) · panel `webhooks.go` + `apikeys.templ`'in
+*"Deliveries"* bölümü · `internal/domain/review` (onayın K-19 girişi) · kablolama `cmd/tappa/main.go`.
+
+**ADR'nin açık bıraktıkları ve sapmalar — kararıyla (otonom, gerekçeli):**
+1. **Kira — parti 1, tur başına en çok 50, kira 60 sn.** Bir kira bir gönderimi (10 sn) ve sonuç satırını örter; N'lik parti ya
+   N × 10 sn kira (sırayla gönderim) ya da N eşzamanlı bağlantı (paralel) isterdi — punch hacminde ikisi de bir şey kazandırmaz,
+   ölen bir pod bir teslimi tutar, N'yi değil. Tur sınırı (50) uzun kuyruklu bir işletmenin döngüyü öbürlerinden almasını önler
+   (işçiye *"hemen yeniden"* denir). Kira ifadesi tek: `FOR UPDATE SKIP LOCKED` + `lease_until`, ORDER BY yalnız
+   `next_attempt_at` (sıra garantisi yok — plan §2 madde 16; sıralama indeksten gelir).
+2. **Kapalı kapı → teslim BEKLER, ölmez.** Kira işleminde K-22, uç noktanın `active`'i, kayıtlı adresin URL kuralı ve mühürlü
+   anahtarın açılması yeniden okunur; biri kapalıysa kira **geri alınır** (satır `pending`, deneme harcanmaz, kira yok), hiçbir
+   şey gitmez (K-26 gerçekten durdurur) ve tur *"15 dk sonra"* der (o tek işletme için bir zamanlayıcı — K-19). Gerekçe: dördü de
+   sahibin ya da operatörün geri alacağı bir durumdur; uç nokta açıkken kaydedilmiş bir punch ona borçludur — kapatınca kuyruğu
+   düşürmek *"bir dakikalığına kapattım"*ı sessiz kayba çevirirdi (CLAUDE.md §4.6'nın ruhu); bekleyen teslim kapı açılınca gider.
+   Uç nokta kapalıyken kaydedilen olaylara zaten teslim yazılmaz (`00049`), o boşluk akışındır. **Bedel:** kontrol, istekten hemen
+   önce commit edilen kira işlemindedir — ondan sonra commit edilen bir kapatma uçuştaki tek isteği durdurmaz (davet kuyruğunun
+   adlandırdığı aynı bedel). Bekleyen teslimin ömrü yok (madde 11).
+3. **Takvim — altı deneme, her sınıf yeniden denenir.** *"1 dk · 5 dk · 30 dk · 2 sa · 6 sa → dead"* harfiyen: ilk deneme hemen;
+   başarısız denemeden sonra 1 dk, 5 dk, 30 dk, 2 sa, 6 sa beklenir; 6 sa bekleyişinden sonraki **altıncı** deneme de başarısızsa
+   `dead` (`delivery.MaxAttempts = 6`, `TestBackoff_TheScheduleIsTheADRs` sayıları kendisi yazar). `timeout`, `tls`, `refused`,
+   `http_5xx` (alıcı ya da ağ düşük), **`http_4xx`** (döndürülmüş anahtara henüz geçmemiş bir alıcının 401'i, düzeltilmekte olan
+   bir yolun 404'ü — sahibin takvim içinde düzelteceği yapılandırma; sınır takvimin kendisidir) ve **`blocked_address`** (dial
+   paket çıkmadan reddedilir, tekrar uzak tarafa bir şeye mal olmaz; DNS cevabı değişebilir) — hepsi aynı takvimle. Taptime
+   tarafından kalıcı sayılacak bir sınıf yok; altı deneme ~8,6 saatte biter. Vade ve kira tek saattir: veritabanınınki.
+4. **Yeniden gönder — `pending` ya da `dead`; deneme sayısı korunur.** `delivered` (`ErrDelivered`), başka işletmenin ya da
+   bilinmeyen kimlik (`ErrNoDelivery`), canlı kiralı (`ErrInFlight` — uçuştaki gönderimle yarışırdı), kapalı API, kapalı uç nokta
+   ve yönetici reddedilir; **hiçbiri slot harcamaz**. Kabul: kovanın kilidi altında (ping'in sırası: önce kova, sonra satır) slot
+   satırı `webhook_delivery.resend` (target = teslimin kimliği, detail = `endpoint_id` + `via`) ve satırın vadesi `now` **aynı
+   işlemde**; commit'ten sonra işletme K-19 kümesine girer. Deneme sayısı sıfırlanmaz: `dead` bir teslim canlanınca **tek** deneme
+   alır, başarısızsa yine `dead` — bir kova slotu bir istektir (sıfırlamak tek slota altı istek verirdi). Askıda kapalı
+   (`endpoints.ActResend`, §10 *"panelden yeniden gönder"*; kapının testi API-4b).
+5. **Kapanış — uçuştaki isteğin sonucu YAZILMAZ.** `Drain` işçinin bağlamını iptal eder; `egress.Post` hemen döner, iş bağlamın
+   bittiğini görür ve hiçbir şey yazmaz: uzağın alıp almadığı bilinmez ve `timeout` yazmak Taptime'ın kendi yeniden başlatması için
+   bir deneme harcardı. Kira dolar, teslim yeniden denenir (alıcı `id` + `version` ile tekilleştirir) — işletme yeniden fark
+   edilince (K-19, plan §2 madde 20). Ölçüldü: uçuşta bir istekle `Drain` < 2 sn; satır `pending`, deneme 0, kira duruyor; kira
+   geçmişe alınınca sonraki tur aynı `deliveryId`'yi ikinci kez gönderir.
+6. **Gövde = `/v1/punches` öğesi + iki alan.** `{"event":"punch","deliveryId":"dlv_…", …}` — geri kalanı `punchwire.Of`'un
+   (API-7'nin öğesi; `internal/handler/api` artık aynı yapıyı takma adla kullanır). Gövde bir teslimin her denemesinde **aynı
+   baytlardır** (gönderim anı yok). Başlıklar ping'inkiler: `Content-Type`, `User-Agent: Taptime-Webhooks/1`,
+   `X-Taptime-Signature`. **Olay adı `punch` bir karardır:** spec §5 depoda değil (public) — API-12'nin rehberi ve denetçi
+   kullanıcının belgesiyle karşılaştırsın. K-1f/K-39: e-posta, GPS, IP, not, policy bağlamı, `verdict`, `matched_sid` yok (tablo
+   taşımaz; kanarya testi anahtar kümesini birebir pinler).
+7. **K-19'un iki yeni girişi.** Onay: `review.Reviewer.NoticeWorkTo` — **onaylanan** kayıt commit edilince işletme ve kaydın
+   `site_tenant_id`'si (holding'de iki tenant; okuma onayın kendi işleminde, `GetReviewedPunchSite`); red kimseyi fark ettirmez
+   (olay yazmaz). Yeniden gönder: `endpoints.Service.NoticeWorkTo`. Dokunuş ve `/v1` isteği zaten giriyordu. Hiçbir yeni sorgu
+   tenant'lar arası okumaz: işin sorguları yalnız `webhooks.sql` ve `apikeys.sql`'dendir (`TestDeliveryJob_NamesOnlyBeltedQueries`),
+   ikisi de dosyadan türetilen kemerde.
+8. **Kemerin kör noktası kapandı.** `internal/domain/tenant`'ın `subjectOf`'u bir alt sorgudaki `FOR UPDATE SKIP LOCKED`'ı
+   *"UPDATE skip locked"* (tablo `skip`, takma ad `locked`) okuyup doğru kapsamlı kirayı kırmızıya çeviriyordu — kilit yan
+   cümlesi özne okunmadan boşaltılır (ölçüldü: satırsız kırmızı, satırla yeşil).
+9. **Ölçek (atılabilir kap: 21 işletme × 5 000 teslim, 105 316 satır; genel plan, `tappa_app` + RLS).** Kira:
+   `webhook_deliveries_tenant_due_idx` üzerinde Index Scan, 0,8 ms. **Vade sınırı `statement_timestamp()`:** `clock_timestamp()`
+   oynaktır, yalnız Filter olur — hiçbir teslimin vadesi gelmemişken (her turun son kirası) işletmenin **bütün** bekleyen
+   satırları yürünüyordu: 5 000 bekleyen, hepsi bir saat sonra → 85 tampon; `statement_timestamp()` kararlıdır, Index Cond olur →
+   **2 tampon**. Kira `clock_timestamp()`'ta kalır. Sonraki vade: Bitmap Index Scan, 5 000 bekleyen 1,7 ms. Günlük: ilk sayfa
+   `webhook_deliveries_tenant_created_idx` + `punch_events_pkey`, 0,9 ms; **eşit an** — 5 000 teslim tek işlemde yazılmışsa
+   (toplu ham yükleme; ürün yolunda bir dokunuş bir işlemdir) grup bütün okunur: 11,5 ms, 20 092 tampon. İndeks eklenmedi.
+10. **Testlerin yeri.** İşçinin uçtan uca testleri `internal/egress`'te (`webhook_worker_db_test.go`, paket `egress_test`):
+    gerçek bir `egress.Client` — süreç içi DNS, döngü adresindeki httptest TLS sunucusu, gerçek dial reddi — ancak paketin kapalı
+    dikişleriyle kurulur ve `export_test.go` onları yalnız o dizinin test ikilisine açar (API-9 notu madde 12 değişmez). DNS
+    cevaplarında genel adres **yok** (döngü, özel, link-local ya da NXDOMAIN).
+11. **Saklama — karar verilmedi, bedel adlandırıldı.** `delivered` ve `dead` satırları birikir (bir punch'ın hedefi başına bir
+    satır; `tappa_app`'te DELETE yok). Ne kadar tutulacağı DPA'nın saklama sorusudur (kullanıcıda — B3/Q13 ile aynı aile):
+    backlog **T130**. Bekleyen bir teslimin de ömrü yok (madde 2: kapı kapalı kaldıkça bekler).
+
+**Ölçümler ve mutantlar** (atılabilir kapta, her biri tek başına uygulandı, ilgili test tek başına koşuldu, geri alındı): kira
+lease koşulsuz → `TwoPodsSendOnce` kırmızı (bir teslim 8 kez geldi); `SKIP LOCKED`'sız → `TwoPodsSendOnce` **yeşil** — güvenlik
+kiradan gelir; `SKIP LOCKED`'ın kazandırdığı canlılıktır ve onu `AClaimInProgressDoesNotStallAnother` ölçer: aynı mutantla ikinci iş
+kilitli satırda bekleyip 3 sn'de `context deadline exceeded` aldı → kırmızı; ikisi birden yok → çift gönderim, kırmızı. Gönderim
+işlem içinde → `NoOpenTransactionDuringHTTP` kırmızı (işin oturumu işlemde, satır kilidi `55P03`). `active` kontrolü yok, K-22
+kontrolü yok → `DisabledEndpointGetsNothing` kırmızı (ikisi de). Kapanışta sonuç yazılır → `DrainsWithinShutdownBudget` kırmızı
+(deneme 1). İkinci bekleyiş 10 dk, beşinci denemede `dead`, yeniden gönderim deneme sayısını sıfırlar → schedule testi kırmızı
+(üçü). Onay sahayı fark ettirmez, red de fark ettirir → `AnApprovalNoticesBothBusinesses` kırmızı (ikisi). Gövdeye `verdict`
+alanı → payload testi kırmızı. Başarısızlık satırına adres → log kanaryası kırmızı. İmza başka baytlar üzerinde → routing testi
+kırmızı. Yeniden gönderimde kova yok, uçuş kontrolü yok, `active` kontrolü yok, K-19 girişi yok → resend testi kırmızı (dördü).
+Günlükte eşitlik ayırıcı sınırı içerir, günlük eskiden yeniye → günlük testi kırmızı (ikisi). Kemer: yedi yeni sorgunun her birinden
+(ve kiranın alt sorgusundan ayrıca) `tenant_id` yüklemi düşürülünce → `TestWebhookQueries_CarryAnExplicitTenantPredicate` kırmızı
+(sekizi). Kablolama: `delivery.New`'a başka gönderici, iş işçiye eklenmez, iki `NoticeWorkTo`'dan biri yok → wiring testi kırmızı
+(dördü). Panel: yeniden gönder okuma zincirine taşınınca çapraz site POST handler'a ulaştı → kırmızı; handler'ın sahip kapısı yok →
+ret satırı 6 (7 beklenirken) → kırmızı.
+
+**Adlandırılmış bedeller.** (a) Kapı, istekten hemen önce commit edilen kira işleminde okunur; sonra commit edilen bir kapatma
+uçuştaki tek isteği durdurmaz. (b) Kapanışta ya da kira dolduğunda alıcı aynı teslimi iki kez alabilir (`deliveryId` ve `id` +
+`version` aynı). (c) Her tur, bekleyen bir teslim için bir zamanlayıcı kurar (K-19 işçisinin tasarımı — davet kuyruğuyla aynı); bir
+işletmenin sık dokunuşları süreç içinde birden çok zamanlayıcı bırakabilir, her biri tek bir `Notice`'tir. (d) Deneme başına iz
+satırı yok — günlük teslim satırının kendisidir; iz yalnız *"yeniden gönder"*in slotudur. (e) Saklama ve bekleyen teslimin ömrü
+yok (T130). (f) Eşit an grubunun günlükte bütün okunması (madde 9).
+
+**Devredilenler.** Askı tablosunun testi (`ActResend` dahil) → **API-4b**. Entegratör rehberi (gövde, olay adı, imza doğrulama,
+takvim, `dead` ve yeniden gönder, sıra yok, K-19 gecikmesi) → **API-12** (plan §5'e not yazıldı). Deploy notları → **API-13**
+(plan §5). Saklama süresi → **T130** (kullanıcı/DPA).
