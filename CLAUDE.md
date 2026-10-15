@@ -78,11 +78,15 @@ internal/qrcode/      QR kodlayıcı (ISO/IEC 18004, byte modu, sürüm 1-40), y
 internal/apikey/      dış API anahtarı (M11 API-3): üretim, biçim kontrolü, HMAC; çözümleyicinin
                       taşıdığı olguyu (iptal, API erişimi) değerlendirir; owner paneli eylemleri.
                       Anahtar her yazdırma yolunda yer tutucu basar; log yok (ADR 0028 §3).
+                      Idempotency çalıştırıcısı da buradadır (`Writes`: tek işlem — talep → iş →
+                      sonuç; ADR 0028 §8).
+internal/handler/api/ /v1 yüzeyi (M11 API-4), ayrı host `TAPPA_API_HOST` — isteğe bağlı, yoksa
+                      `/v1` her host'ta 404: iki yönlü host kapısı, kimlik zinciri, JSON hata,
+                      64 KiB sınırı, askı kontrol noktası, openapi.yaml. Müşteri paneli import
+                      etmez, o da paneli import etmez (ADR 0028 §13).
+internal/webhook/     K-19'un süreç içi "işi olan tenant'lar" kümesi ve işçi iskeleti (M11 API-4)
+                      — tenant'lar arası tarama YOK; teslim, kira ve imza API-10/13'te (ADR 0028 §6).
   — aşağıdakiler HENÜZ YOK, M11'de doğacak (ADR 0027/0028) —
-internal/handler/api/ /v1 yüzeyi, ayrı host (api.taptime.mt): JSON hata, Idempotency, askı
-                      kontrol noktası, openapi.yaml. Müşteri paneli import etmez (ADR 0028).
-internal/webhook/     webhook teslim işçisi (kiralama, geri çekilme), imza, K-19'un süreç içi
-                      "işi olan tenant'lar" kümesi — tenant'lar arası tarama YOK (ADR 0028 §6).
 internal/egress/      SSRF-güvenli giden HTTP istemcisi: dial anında izin listesi, Proxy nil,
                       yönlendirme yok. Egress açıkken tek savunma (ADR 0028 §7).
 internal/sandbox/     sandbox simülasyonu; YALNIZ `sandbox` build tag'li cmd dosyası import
