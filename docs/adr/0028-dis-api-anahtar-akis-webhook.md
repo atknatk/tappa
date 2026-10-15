@@ -813,7 +813,12 @@ genişleyenler: `TestEmployeeUpdatedAt_OnlyDirectoryColumnsOnEveryUpdatePath` (A
 `TestAuditLog_TheAppCannotWriteTheTime`, `TestAuditLog00053_DownGivesBackAndUpTakesItAgain`,
 `TestStaffAdd_TheNameRuleIsTheVenueRule`, `TestEmployeeAddDB_AHiddenCharacterIsASentence`,
 `TestPanelHome_TheKeyBudgetBannerIsTheOwnersAlone`, `TestKeyBudgetBanner_AbsentAddsNothing`; genişleyenler:
-`TestDeactivationBudget_ComesFromTheDatabase` (pencerenin iki kenarı), `TestAuditLog_IsAppendOnlyForTheApp` (00053).
+`TestDeactivationBudget_ComesFromTheDatabase` (pencerenin iki kenarı), `TestAuditLog_IsAppendOnlyForTheApp` (00053). Üçüncü tur:
+`TestInviteQueue_AClosedAPISendsNothingAndWaits`, `TestInviteQueue_AnOpenBreakerMintsNothingAndSparesThePanelsCount`,
+`TestInviteQueue_AThrottlingDomainEndsUndelivered`, `TestInviteQueue_ALifetimeEndsEveryRequest`,
+`TestAPIEmployees_TheListAndTheSingleReadAgree`, `TestAuditLog00054_TheDeliveryIndexIsPartialAndGoesBack`,
+`TestApiKeyPanel_AMalformedBudgetIsReadAsNone`; genişleyenler: `TestInviteQueue_ACeilingDelaysAndSpendsNoTry`,
+`TestKeyBudgetBanner_AbsentAddsNothing` (altın dosyalar).
 
 **API-7** — `Punches_FourShapesTimesTwoScopes` (anlık görüntü alanlarıyla, doğru tenant'a) ·
 `Punches_OutsiderSeesNone` · `Punches_NoManualNoRejected` · `Punches_Limit1001Is400`.
@@ -1682,7 +1687,9 @@ listesi), yeni `invitequeue.sql` (on iki); kuyruk işçisi `internal/invite/queu
      alınır). Yenilenen kira basımdan 60 s — gönderim (10 s) + iz (5 s) bütçesini kapsar; istek kuyruktan **yalnız bu
      kirayla** çıkar (`FinishInviteRequest`).
    - Tavan ya da kutu tavanı → istek kalır, 10 dk sonra vadeli (ret yok, `invite.email_refused` yok); başarısız gönderim
-     → 1/5/15 dk geri çekilme, 5 denemeden sonra bırakılır (her deneme `invite.undelivered` yazar). Adresin kalıcı
+     → 1/5/15 dk geri çekilme, 5 denemeden sonra bırakılır (her deneme `invite.undelivered` yazar). *(İkinci ve üçüncü
+     turda değişti — aşağıda: tavanlar ve kesici basımdan önce sorulur, 4xx bir denemedir, 72 saatlik ömür sınırı,
+     K-22 kapısı.)* Adresin kalıcı
      retleri (adres yok, ASCII değil, röle almıyor, yöneticinin) → `invite.email_refused` + istek düşer.
    - Kuyruğun iz satırları `detail.channel = "email_queue"` (panelin basışı `"email"`), aktör NULL (sistem — bir isteğin
      değil işçinin eylemi; K-23 API isteklerinin satırları içindir).
@@ -1771,7 +1778,8 @@ canlı; "sent" teslim satırı olmadan okununca panelin başarısız basışı "
 
 *O-2 — tavan deneme hakkı harcamaz.* Talep artık deneme saymaz; yalnız gerçek gönderim hatası sayar (`FailInviteRequest`).
 Kutu tavanı (basım işleminde sorulan ve gönderimde dönen), süreç kesicisi ve 4xx kısıtlama (`mail.ClassRecipientCap`,
-`ClassBreaker`, `ClassThrottled`) isteği 10 dk erteler, sayaç artmaz. Gerçek hatada 1/5/15 dk geri çekilme ve 5 deneme kaldı.
+`ClassBreaker`, `ClassThrottled`) isteği 10 dk erteler, sayaç artmaz. *(Üçüncü turda düzeltildi: 4xx yeniden deneme
+sayılır ve ertelemelerin bir sınırı var — aşağıda O-B.)* Gerçek hatada 1/5/15 dk geri çekilme ve 5 deneme kaldı.
 `TestInviteQueue_ACeilingDelaysAndSpendsNoTry`: altı tavan reddi → 0 deneme (her birinden sonra API `queued`), bir 550 → 1.
 Mutantlar: tavan sınıfları hata sayılınca ve talep yeniden deneme sayınca — ikisi de kırmızı. *Not:* sıkıştırılmış testte
 ADR 0022 §9'un kişi başına saatlik 3 basım tavanı bir sonraki denemeyi geciktirir (o da erteler); test önceki davetleri sahip
@@ -1809,8 +1817,69 @@ adlandırıldı). Anahtar bölümündeki "20" artık satırın `detail.budget`'�
 - **Tenant içi kehanet (güvenlik D-2).** 409 `email_unavailable`, 422 `administrator_address` ve K-18 bağlaması, anahtar
   sahibine **kendi işletmesinde** bir adresin bir çalışana ya da yöneticiye ait olduğunu doğrular. Anahtar zaten o işletmenin
   çalışanlarını yazan yetkidir; başka tenant'a dair bir şey söylenmez (K-24). Plan §5 API-12 rehber notuna yazıldı.
-- **Anahtar iptali ya da API kapatma kuyruğu temizlemez (güvenlik D-3).** `invite_requests` isteği hangi anahtarın açtığını
-  tutmuyor (beş sütun, §9); ayırt etmek bir migration ve sütun ister. Kuyruğu topluca silmek meşru davetleri de keserdi —
-  seçilmedi. Sızmış bir anahtarın açtığı istekler tavanlar içinde gitmeye devam eder; owner anahtarı iptal edip yeni çalışanları
-  panelden pasifleştirebilir. (Kod okuması, ölçülmedi: işçi `api_enabled_at`'i okumaz, yani API kapatıldıktan sonra da
-  bekleyen davetleri gönderir — §10'un "davet kuyruğu işçisi askıda kod basıp gönderir" kuralıyla aynı yön.)
+- **Anahtar iptali kuyruğu temizlemez (güvenlik D-3).** `invite_requests` isteği hangi anahtarın açtığını tutmuyor (beş
+  sütun, §9); ayırt etmek bir migration ve sütun ister. Kuyruğu topluca silmek meşru davetleri de keserdi — seçilmedi.
+  *(Üçüncü turda daraldı:)* operatörün API'yi kapatması kuyruğu artık **durdurur** (K-22 basımdan önce okunur — aşağıda O-A);
+  kalan bedel yalnız anahtar iptalidir: API açıkken, iptal edilen bir anahtarın açtığı istekler tavanlar ve 72 saatlik ömür
+  içinde gitmeye devam eder; owner o çalışanları panelden pasifleştirebilir ya da operatörden kapatmayı isteyebilir.
+
+**Üçüncü tur (2026-10-15 — iki mercek RED: iki ORTA; ikinci turun maddeleri kapandı).**
+
+*O-A — davet kuyruğu K-22'yi okumuyordu* (ölçüldü: `api_enabled_at` NULL bir tenant'ta 1 gönderim, durum `sent`; tap'in
+bildirimi de kapalı tenant'ın kuyruğunu işletiyordu). §2 kapıyı "her yolda", işçinin gönderim anı dahil ister. Basım işlemi
+artık kişinin durumundan sonra `tenants.api_enabled_at`'i okur: kapalıysa hiçbir şey basılmaz ve gönderilmez, deneme
+harcanmaz, istek **silinmez**, 15 dk sonra yeniden vadelidir (`queued` kalır — durumun anlamı "bekliyor"dur, yeni bir değer
+eklemek entegratöre kendi kapatılmamış API'sinde görünmeyecek bir hâli anlatırdı); yeniden açılınca kaldığı yerden gider.
+`TestInviteQueue_AClosedAPISendsNothingAndWaits` (kapalı → 0 basım, 0 gönderim, istek duruyor, `queued`; açılınca gönderilir).
+Mutant (kapı kaldırılınca kapalı tenant'a gönderim) kırmızı. Kuyruk testlerinin işletmesi artık sahip bağlantısıyla açılır.
+*Sınır:* 72 saatten uzun kapalı kalan bir işletmenin istekleri açıldığında ömrünü doldurmuş olur ve `undelivered`'a düşer
+(resend yeniden ister).
+
+*O-B — ertelemelerin sınırı yoktu ve basım sonrası erteleme tavanları yakıyordu* (ölçüldü: 25 × 450 → 25 kod, 25 e-posta,
+25 iz satırı, hep `queued`; dört kesici döngüsü panelin kişi tavanını doldurdu). ADR 0022 §9'un tavanları **basımları**
+sayar (`CountRecentInvites` `employee_invites` satırlarını sayar — kod okuması ve testle ölçüldü). Üç değişiklik:
+(a) basımdan **önce** sırayla: tavanlar, adresin kalıcı retleri, kesici (`RecipientCap.Refusing` → `Breaker.Refusing`; kuyruğun
+kendi `invite.QueueSink` arayüzü) ve kutu tavanı — ret basım yapmaz, sayaç harcamaz, deneme harcamaz; adres basımdan sonra
+yeniden okunur ve gideceği yerin otoritesi o kalır; (b) sınıftan bağımsız **72 saatlik ömür**: `requested_at` daha eskiyse
+vazgeçilir — kişinin teslim edilmemiş bağlantıları emekliye ayrılır (`RetireUndeliveredInvites`: teslim edilmiş bir bağlantıya
+asla dokunmaz; ikinci turun id'li `RetireUndeliveredInvite`'ının yerini aldı), `invite.email_refused` `reason:
+"request_expired"` yazılır, istek çıkar, API `undelivered` der; (c) **4xx bir denemedir** (gerekçe: `internal/mail` bir 4xx'i
+gönderimin içinde bir kez yeniden dener; burada görülen ikinci ret; erteleme sayılınca bir alan adının her alıcıya 450
+vermesi isteği ömür boyunca canlı tutuyor, her denemede kod basıyordu). Gönderimde dönen kesici/kutu reddi (basım öncesi
+soruyla bir yarış) hâlâ ertelemedir ve ömürle sınırlıdır. **"5 deneme" taahhüdü:** gerçek gönderim hatası (5xx, ağ, zaman aşımı,
+4xx) 5 kez; tavan ve kesici ertelemeleri deneme saymaz, onları ömür sınırlar.
+Testler: `TestInviteQueue_ACeilingDelaysAndSpendsNoTry` (basım öncesi kutu tavanı ve kesici: 0 basım; gönderimdeki kutu/kesici
+reddi: 0 deneme; bir 550: 1), `TestInviteQueue_AnOpenBreakerMintsNothingAndSparesThePanelsCount` (beş koşu → 0 basım; ardından
+panelin basışı geçer), `TestInviteQueue_AThrottlingDomainEndsUndelivered` (5 × 450 → `undelivered`, canlı bağlantı yok),
+`TestInviteQueue_ALifetimeEndsEveryRequest` (73 saatlik istek → `request_expired`, `undelivered`). Mutantlar, her biri kırmızı:
+kesicinin basım öncesi sorusu kaldırılınca 3 basım ve panelin kişi tavanı doldu; 4xx yeniden erteleme sayılınca istek kuyrukta
+kaldı; ömür kontrolü kaldırılınca istek bekledi.
+
+*D-1 — bant yokken ana sayfa 1 bayt uzundu* (sayfa gövdesindeki `if`'ten sonra templ bir ayırıcı boşluk yazıyordu: 3395 →
+3396). Koşul bant bileşeninin içine alındı ve bileşen plaket uyarısına `templ.Join` ile bağlandı (iki satırlık ardışık `@`
+çağrısı da boşluk yazıyordu — ölçüldü). `TestKeyBudgetBanner_AbsentAddsNothing` artık bantsız sayfayı `c4f6f74`'ün (bant
+öncesi) şablonundan render edilmiş iki altın dosyayla (`internal/handler/testdata/key-budget-golden/`) karşılaştırır.
+Mutant (`if` sayfa gövdesine dönünce 3396 bayt) kırmızı.
+
+*D-2 — liste ve tekil okuma aynı dört durumda pinlendi:* `TestAPIEmployees_TheListAndTheSingleReadAgree` (teslim edilmiş canlı
+bağlantı `sent`; tek satırı `undelivered` olan canlı bağlantı `undelivered`; `email_refused` → `undelivered`; teslim edilmiş canlı
+bağlantı + daha yeni başarısız deneme → `sent`). Önceki turda yeşil kalan üç mutant (listede teslim kontrolü yok;
+`last_undelivered` sabit false; tekil okumada `email_refused` yok) artık kırmızı.
+
+*D-3 — performans, migration `00054`.* Liste her sayfada işletmenin bütün izini okuyup sıralıyordu (denetim 127–156 ms
+ölçtü; bu kapta 51–58 ms). Liste önce sayfayı seçer (CTE), son teslim denemesini ve teslim edilmiş canlı daveti satır başına
+`LATERAL` ile okur. `00054`, `audit_log (tenant_id, target, at)` üzerinde dört teslim eylemine **kısmi** bir indeks ekler;
+tekil okumanın teslim join'i kişiye bağlandı. Ölçüldü (atılabilir PostgreSQL 17; 2 000 çalışan, 240 000 iz satırı): 500'lük
+sayfa **6,3–6,8 ms** (1 000: 13 ms); aynı sorgu indeks devre dışıyken 75–125 ms; tekil okuma 3,6 → 0,2 ms.
+`TestAuditLog00054_TheDeliveryIndexIsPartialAndGoesBack` indeksin biçimini ve Down/Up'ını pinler; süre bir plana bağlı olduğu
+için pinlenmez. *Bedel:* indeks goose'un işleminde (`CONCURRENTLY` değil) kurulur ve kurulum süresince `audit_log` yazmalarını
+bekletir — API-13 runbook'u tablonun boyutunu deploy'dan önce ölçer.
+
+*D-4 — bozuk `detail.budget` 500 veriyordu.* `ListAPIBudgetAlerts` bütçeyi yalnız en çok dokuz haneli bir JSON sayısıysa okur,
+değilse 0 (limit gösterilmez). `TestApiKeyPanel_AMalformedBudgetIsReadAsNone` (metin, 2.5, -3, on bir hane ve 9: bölüm 200, beş
+anahtar, tek limit; bant çizilir). Mutant (çıplak `::int`) 500 — kırmızı.
+
+*Adlandırılan bedel — kaydedilemeyen teslim.* Gönderim kabul edilip `invite.code_emailed` satırı yazılamazsa (`ErrNotRecorded`;
+işçi log'a yazar) davet `sent` görünmez: istek kuyruktan çıkar, durum `none` ya da önceki denemenin `undelivered`'ıdır, ve bir
+resend ikinci bir e-posta gönderip ilk bağlantıyı emekliye ayırır. Teslimin kanıtı iz satırıdır; satırsız bir gönderim
+kanıtsızdır.

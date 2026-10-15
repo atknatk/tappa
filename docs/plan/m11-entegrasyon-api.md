@@ -555,12 +555,15 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
   adressiz çalışana 422; adın içinde TAB/satır sonu `hidden_character` (ADR 0028 "API-6 uygulama notu").
   **(API-6 ikinci tur)** `activationEmail.status` dört değerlidir: `queued` (başarısız gönderim yeniden denenirken de),
   `sent` (teslim edilmiş ve hâlâ geçerli bağlantı), `undelivered` (son deneme ulaşmadı, kuyrukta bir şey yok — resend yeniden
-  ister), `none`. **Tenant içi kehanet:** 409 `email_unavailable`, 422 `administrator_address` ve adresle bağlama, anahtar
+  ister), `none`. **(Üçüncü tur)** Kuyruktaki bir davet en çok 72 saat bekler (tavan, kesici ya da kapalı API — operatör
+  API'yi kapattığında kuyruk durur, açılınca sürer); gerçek gönderim hatası (4xx dahil) 5 kez denenir; ikisinden biri dolunca
+  durum `undelivered`'dır. **Tenant içi kehanet:** 409 `email_unavailable`, 422 `administrator_address` ve adresle bağlama, anahtar
   sahibine kendi işletmesinde bir adresin kimde olduğunu söyler — rehber bunu açıkça yazar.
 - **API-13:** **(API-6 ikinci turundan, 2026-10-15 — deploy öncesi)** Aşağıdaki isim sayımına `employees`'in `full_name`,
   `first_name` ve `last_name` sütunları da girer (panelin ekleme yolu artık aynı kurala bağlı; kayıtlı adlar yeniden
   yargılanmaz, sayı yalnız bilgidir — değer basılmaz). `00053` deploy'da koşar: `tappa_app`'in `audit_log` INSERT'i sütun
-  listesine daralır (`at` hariç).
+  listesine daralır (`at` hariç). `00054` `audit_log` üzerinde kısmi bir indeks kurar (`CONCURRENTLY` değil): deploy'dan önce
+  `audit_log`'un satır sayısı ölçülür; kurulum süresince iz yazmaları bekler.
   **(API-6'dan, 2026-10-15 — runbook)** API'nin davetleri yalnız `TAPPA_INVITE_DELIVERY=email` iken gönderilir;
   `panel` modunda kuyruk kapalıdır (açılış satırı söyler) ve istekler bekler. Deploy'dan önce ConfigMap'in `email` olduğu
   doğrulanır. **(API-5'ten, 2026-10-15 — deploy öncesi)** prod'da `locations` ve `departments` adlarından yeni isim
