@@ -158,9 +158,12 @@ func TestEgress_TheTableIsTheRegistry(t *testing.T) {
 // registry and not a neighbour. Then named literals either side of the well-known blocks.
 //
 // MUTANTS (measured): an entry not covered by another one removed from ianaSpecialPurpose (e.g.
-// 192.31.196.0/24, 2620:4f:8000::/48, 5f00::/16) -> red here; the IPv4 multicast rule removed -> red
-// (224.0.0.0); the rule replaced by IsGlobalUnicast -> red (TestEgress_IsGlobalUnicastIsNotTheRule
-// too).
+// 192.31.196.0/24) -> red here; an entry the other rules cover anyway (5f00::/16 lies outside
+// 2000::/3; 0.0.0.0/32 inside 0.0.0.0/8) changes no answer and is red in
+// TestEgress_TheTableIsTheRegistry only; the IPv4 multicast rule removed -> red (224.0.0.0); the
+// rule replaced by IsGlobalUnicast -> red (TestEgress_IsGlobalUnicastIsNotTheRule too); Unmap()
+// removed -> red (::ffff:8.8.8.8 refused -- the mapped form fails closed without it, which is why the
+// public mapped address is the measure).
 func TestEgress_RefusesEveryIANASpecialPurposeEntry(t *testing.T) {
 	g := productionGate()
 	entries := registryEntries(t)
@@ -205,6 +208,9 @@ func TestEgress_RefusesEveryIANASpecialPurposeEntry(t *testing.T) {
 		{"100.100.100.200", false}, {"2606:4700:4700::1111", true}, {"2a00:1450::1", true},
 		{"1fff:ffff:ffff:ffff:ffff:ffff:ffff:ffff", false}, {"4000::", false}, {"ff02::1", false},
 		{"fd00:ec2::254", false}, {"2001:200::1", true}, {"2001:1ff:ffff::", false},
+		// Unmap() FIRST, then the IPv4 rules (ADR 0028 §7): a v4-mapped public address is judged as the
+		// IPv4 address it is -- reachable -- and a v4-mapped private one is refused as IPv4.
+		{"::ffff:8.8.8.8", true}, {"::ffff:10.0.0.1", false},
 	} {
 		if got := g.allowed(on443(netip.MustParseAddr(c.addr))); got != c.ok {
 			t.Errorf("%s: allowed %v, want %v", c.addr, got, c.ok)

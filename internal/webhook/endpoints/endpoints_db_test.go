@@ -228,8 +228,8 @@ const hookURL = "https://hooks.api9-canary.example.com/taptime/in"
 // endpoint and one trail row; every other answer is ErrExists; a later creation is ErrExists too.
 // Another business creates its own.
 //
-// MUTANT (measured, a throwaway container): webhook_endpoints_one_per_tenant dropped -> sixteen rows,
-// red.
+// MUTANT (measured, a throwaway PostgreSQL 17 container): webhook_endpoints_one_per_tenant dropped ->
+// sixteen creations succeed, red.
 func TestWebhookEndpoint_OnePerTenant(t *testing.T) {
 	d := appDB(t)
 	svc := newService(t, d, randomKEK(t), &fakeSender{})
@@ -282,8 +282,8 @@ func TestWebhookEndpoint_OnePerTenant(t *testing.T) {
 // endpoint and no key; rotating gives a new key, and from then on the ping is signed by the new key
 // and not by the old one; List carries no key field at all.
 //
-// MUTANT (measured): the AAD made a constant (the same for every endpoint) -> the seal opens under
-// another endpoint's id -> red.
+// MUTANT (measured): the AAD made a constant (the same for every endpoint) -> the seal no longer opens
+// with the endpoint's own id (and would open on any row) -> red.
 func TestWebhookEndpoint_KeyShownOnce(t *testing.T) {
 	d := appDB(t)
 	kek := randomKEK(t)
@@ -372,9 +372,10 @@ func TestWebhookEndpoint_KeyShownOnce(t *testing.T) {
 // a fresh business spend exactly ten slots and send exactly ten requests (the lock); and a ping that
 // was refused for another reason (switched off) spends nothing.
 //
-// MUTANTS (measured): the advisory lock removed from LockWebhookBucket -> the concurrent case spends
-// more than ten (16 in the measured run), red; ActionResend dropped from BucketActions -> the shared
-// case sends a fifth ping, red.
+// MUTANTS (measured): the advisory lock removed from LockWebhookBucket (in the generated statement) ->
+// the concurrent case spends more than ten (11 in the measured run), red; ActionResend dropped from
+// BucketActions -> the shared case sends a fifth ping, red; the count's refusal removed -> the eleventh
+// ping is sent, red.
 func TestWebhookPing_SharesTheResendBucket(t *testing.T) {
 	d := appDB(t)
 	snd := &fakeSender{}
