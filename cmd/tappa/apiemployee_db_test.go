@@ -203,7 +203,18 @@ func TestAPIWiring_AnEmployeeRunsThroughTheShippedSurfaceAndTheQueue(t *testing.
 	if err != nil || lc.EmployeeID != id || !lc.FirstActivation() || lc.LocationID != uuid.Nil {
 		t.Fatalf("the link resolves to %+v %v; want a first activation of the employee, no home venue", lc, err)
 	}
-	w = do(http.MethodGet, apiHost, "/v1/employees/"+ref, "")
+	// THE MESSAGE IS VISIBLE BEFORE THE WORKER IS DONE (a flake on CI, run 38725207282, measured): the
+	// capturing sender records the message, then the worker writes invite.code_emailed and takes the
+	// request out of the queue, each in a transaction of its own -- until both commit the API rightly
+	// answers "queued" (a waiting request outranks "sent"). So the GET waits for the worker, bounded:
+	// at most 10 s, every 20 ms, until the answer is no longer "queued". A worker that never finishes
+	// stays "queued" and fails below.
+	for wait := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		w = do(http.MethodGet, apiHost, "/v1/employees/"+ref, "")
+		if !strings.Contains(w.Body.String(), `"status":"queued"`) || time.Now().After(wait) {
+			break
+		}
+	}
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"status":"sent"`) || strings.Contains(strings.ToLower(w.Body.String()), strings.ToLower(email)) {
 		t.Fatalf("GET after the send: %d %s", w.Code, w.Body.String())
 	}
