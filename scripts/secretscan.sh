@@ -603,6 +603,8 @@ IFS= read -r -d '' R7D_WAIVERS <<'R7DW' || true
 ^internal/sun/preview_test[.]go$;b487e373b59ed2f4cd6b830f4b953ae6d1f8cb0c9ad20d5b26908749007982a6;sahte test KEK degeri (yanlis KEK testi)
 ^internal/sun/rotate_test[.]go$;9c99bc95e3395488dd120089259b6c4de81ec4b90c468d50016300fec60b2314;sahte test KEK degeri (ucuncu, adinda fake)
 ^internal/sun/verify_mac_test[.]go$;0c355ab3b688a40cd24187493a5c1a05800a39ad79d2b72cc1594fd0e6e301c1;sun_vectors.json sahte tag_key_A ile ayni sahte deger
+# M11 API-9 (2026-10-15): sentetik kimlikli URL, webhook adres kuralinin userinfo reddini sinar
+^internal/egress/endpoint_test[.]go$;94ce46457c252631baaa8f5adbb9024f28d68fbf6dc297d34ffbe19079a0b53f;sentetik kimlikli URL: adres kuralinin userinfo reddi testi
 R7DW
 
 # r7d_hasher — sha256 araci: sha256sum ya da `shasum -a 256`. Bilinen bir vektorle
