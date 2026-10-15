@@ -93,7 +93,7 @@ type InsertWebhookEndpointParams struct {
 
 // The id is chosen by the caller BEFORE the insert: it is the sealed key's AAD. created_at and
 // rotated_at are the table's (default, NULL). A second endpoint of the business meets
-// webhook_endpoints_one_per_tenant (23505).
+// webhook_endpoints_one_per_tenant: a unique violation, SQLSTATE 23505.
 func (q *Queries) InsertWebhookEndpoint(ctx context.Context, arg InsertWebhookEndpointParams) (time.Time, error) {
 	row := q.db.QueryRow(ctx, insertWebhookEndpoint,
 		arg.TenantID,

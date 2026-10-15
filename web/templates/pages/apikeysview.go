@@ -42,7 +42,61 @@ type APIKeysView struct {
 
 	Done    string
 	Problem string
+
+	// Webhook is the business's webhook endpoint (M11 API-9), drawn below the keys.
+	Webhook WebhookView
 }
+
+// WebhookView is the webhook part of the API keys section (M11 API-9, ADR 0028 §6): the business's
+// one endpoint -- its address, its switch, its key's age, the test ping and its bucket.
+//
+// 🔴 ONE FIELD HOLDS A SECRET, ON TWO RESPONSES ONLY: NewKey is the endpoint's signing key, filled on
+// the answer to "create" and to "rotate the key", and on no other (the key is stored sealed and is
+// never read back for display -- K-12: there is no "show"). Address is the owner's own address,
+// printed to the owner on their own page and logged nowhere.
+type WebhookView struct {
+	// Configured is false when this deployment has no webhook KEK (dev only): the part says so and
+	// offers nothing.
+	Configured bool
+	// APIEnabled is K-22's gate. Closed, nothing but switching off is offered.
+	APIEnabled bool
+
+	Exists         bool
+	Address        string
+	AddressRefused bool
+	Active         bool
+	CreatedOn      string
+	RotatedOn      string
+
+	// NewKey is the signing key on the create and rotate responses, "" everywhere else.
+	NewKey string
+
+	// The bucket the ping shares with API-10's "resend": spent of Limit this hour, and when the
+	// next slot frees once it is full.
+	Spent    int
+	Limit    int
+	NextSlot string
+
+	// The last ping's result, from the redirect after it.
+	PingShown     bool
+	PingDelivered bool
+	PingSentence  string
+
+	// The address form (create and change).
+	AddressValue     string
+	AddressError     string
+	AddressMaxLength int
+
+	CreateHref  string
+	AddressHref string
+	RotateHref  string
+	DisableHref string
+	EnableHref  string
+	PingHref    string
+}
+
+// BucketFull reports whether the hour's test messages are spent.
+func (v WebhookView) BucketFull() bool { return v.Limit > 0 && v.Spent >= v.Limit }
 
 // APIKeyBudgetAlert is one key that reached its deactivation budget: its name ("an unnamed key"
 // when the list no longer has it) and when, in the business's time zone.

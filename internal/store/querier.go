@@ -3116,7 +3116,7 @@ type Querier interface {
 	InsertUnassigned(ctx context.Context, arg InsertUnassignedParams) (InsertUnassignedRow, error)
 	// The id is chosen by the caller BEFORE the insert: it is the sealed key's AAD. created_at and
 	// rotated_at are the table's (default, NULL). A second endpoint of the business meets
-	// webhook_endpoints_one_per_tenant (23505).
+	// webhook_endpoints_one_per_tenant: a unique violation, SQLSTATE 23505.
 	InsertWebhookEndpoint(ctx context.Context, arg InsertWebhookEndpointParams) (time.Time, error)
 	// A READ used ONLY to label a refused activation for audit_log (internal/invite
 	// classify): "nobody consented / another browser consented" versus the other

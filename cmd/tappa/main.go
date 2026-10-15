@@ -55,6 +55,7 @@ import (
 	"github.com/atknatk/tappa/internal/domain/review"
 	"github.com/atknatk/tappa/internal/domain/signup"
 	"github.com/atknatk/tappa/internal/domain/tenant"
+	"github.com/atknatk/tappa/internal/egress"
 	"github.com/atknatk/tappa/internal/encode"
 	"github.com/atknatk/tappa/internal/handler"
 	"github.com/atknatk/tappa/internal/httpx"
@@ -63,6 +64,7 @@ import (
 	"github.com/atknatk/tappa/internal/session"
 	"github.com/atknatk/tappa/internal/sun"
 	"github.com/atknatk/tappa/internal/webhook"
+	"github.com/atknatk/tappa/internal/webhook/endpoints"
 )
 
 // httpShutdownGrace is how long the server drains in-flight requests after a signal.
@@ -267,8 +269,10 @@ func run() error {
 		log := slog.Default()
 		log.Error("the published legal texts could not be read at start-up; /legal will show its placeholders until a refresh succeeds (the next publication, or the operator's legal screen)", "err", err)
 	}
-	// THE VIES CHECKER IS BUILT HERE AND IS THE ONLY OUTBOUND HTTP CLIENT IN THIS
-	// PROCESS. Q09 (2026-08-13) made the check BEST EFFORT: a timeout or an outage
+	// THE VIES CHECKER IS BUILT HERE AND WAS THE ONLY OUTBOUND HTTP CLIENT IN THIS
+	// PROCESS until M11 API-9 added the webhook's (internal/egress, built below beside the
+	// panel -- to an owner-typed address, behind the dial-time gate; VIES is a constant URL and
+	// does not go through it, ADR 0028's API-9 note). Q09 (2026-08-13) made the check BEST EFFORT: a timeout or an outage
 	// records "not verified" and never stops a registration, so this dependency
 	// cannot take the sign-up flow down with it. It is net/http and nothing else
 	// (§1: no new dependency), it is pointed at a constant URL, and each endpoint that
@@ -772,6 +776,26 @@ func run() error {
 		return err
 	}
 	panelOptions = append(panelOptions, handler.IntegrationKeys(apiKeys))
+	// THE WEBHOOK ENDPOINT (M11 API-9, ADR 0028 §6, §7): the owner's one endpoint and its test ping,
+	// sent through internal/egress -- the SSRF-safe client, the only defence while egress is open. It
+	// is built whenever TAPPA_WEBHOOK_KEK is set, which config.Load requires outside dev; a dev
+	// deployment without the KEK gets a panel that says the webhook is not configured. The client
+	// refuses the node's own and the ingress's addresses (TAPPA_WEBHOOK_BLOCKED_ADDRESSES), required
+	// outside dev too; in dev the registry rules alone apply.
+	if len(cfg.WebhookKEK) > 0 {
+		webhookEgress, err := egress.New(egress.Options{
+			Blocked:                       cfg.WebhookBlockedAddresses,
+			DevelopmentWithoutBlockedList: cfg.Env == config.EnvDev,
+		})
+		if err != nil {
+			return err
+		}
+		webhookEndpoints, err := endpoints.New(cfg.WebhookKEK, data, trail, webhookEgress)
+		if err != nil {
+			return err
+		}
+		panelOptions = append(panelOptions, handler.IntegrationWebhook(webhookEndpoints))
+	}
 	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, ruleWriter, books, accounts, brandReader, brandWriter, encoder, resetFlow, cfg, slog.Default(), panelOptions...)
 	if err != nil {
 		return err

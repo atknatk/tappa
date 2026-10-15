@@ -36,12 +36,18 @@ templ AdminAPIKeys(v APIKeysView) {
 		if len(v.BudgetAlerts) > 0 {
 			@apiKeyBudgetAlerts(v)
 		}
+		if v.Webhook.NewKey != "" {
+			@webhookKeyShownOnce(v.Webhook)
+		}
 		@apiKeysIntro(v)
 		if v.Available && !v.ListFailed {
 			if v.APIEnabled {
 				@apiKeyCreateForm(v)
 			}
 			@apiKeysList(v)
+		}
+		if !v.ListFailed {
+			@webhookSection(v.Webhook)
 		}
 	}
 }
@@ -206,4 +212,193 @@ templ apiKeysList(v APIKeysView) {
 			}
 		}
 	</section>
+}
+
+// ---------------------------------------------------------------- the webhook (M11 API-9) --
+//
+// 🔴 THE SIGNING KEY IS DRAWN ON TWO RESPONSES ONLY: the answers to "create the webhook" and
+// "rotate its key". Every other render has NewKey empty; the endpoint's docket shows the address
+// (the owner's own, on the owner's own page), its switch and its key's age -- never the key.
+//
+// 🔴 NO SCRIPT, like the rest of the section: every act is a form post on the panel's write chain.
+// The test ping redirects back with its result, so a reload shows the result and sends nothing.
+//
+// skill tappa-brand: stored values in IBM Plex Mono, the switch is a WORD (On, Off), the result of a
+// ping is a sentence in a Notice whose heading carries its meaning.
+
+// webhookKeyShownOnce is the one place the signing key is ever printed.
+templ webhookKeyShownOnce(w WebhookView) {
+	@components.Notice(components.ToneOK, "Copy the webhook's signing key now — it is shown once") {
+		<p>
+			Your system uses this key to check that a webhook really comes from Taptime: every message
+			carries an X-Taptime-Signature header, sha256= and the HMAC-SHA256 of the message body under
+			this key. Taptime keeps it sealed and cannot show it again: if it is lost, rotate it below.
+		</p>
+		<label class="docket-label mt-3 block" for="webhook-key-new">Signing key</label>
+		<input
+			class="filter-input mt-1 w-full font-mono"
+			id="webhook-key-new"
+			type="text"
+			readonly
+			autocomplete="off"
+			spellcheck="false"
+			value={ w.NewKey }
+		/>
+	}
+}
+
+templ webhookSection(w WebhookView) {
+	<section class="bg-paper border border-line px-4 py-4" id="webhook">
+		<h2 class="font-display text-lg font-bold tracking-tight">Webhook</h2>
+		<p class="mt-2 max-w-2xl text-sm text-ink/85">
+			Taptime can send each punch to your HR or payroll system the moment it is recorded. Give the
+			address your system receives webhooks at: one address for this business.
+		</p>
+		if !w.Configured {
+			<p class="mt-2 max-w-2xl text-sm text-ink/85">The webhook is not configured on this deployment.</p>
+		}
+		if w.Configured {
+			if !w.APIEnabled {
+				@components.Notice(components.ToneWarn, "API access is off for this business") {
+					<p>
+						Taptime switches the integration API on for a business on request. Until then the
+						webhook cannot be created, changed or tested, and nothing is sent to it. You can
+						still switch it off.
+					</p>
+				}
+			}
+			if w.PingShown {
+				if w.PingDelivered {
+					@components.Notice(components.ToneOK, "The test message arrived") {
+						<p>{ w.PingSentence }</p>
+					}
+				} else {
+					@components.Notice(components.ToneAlert, "The test message did not arrive") {
+						<p>{ w.PingSentence }</p>
+					}
+				}
+			}
+			if w.Exists {
+				@webhookDocket(w)
+			} else if w.APIEnabled {
+				@webhookAddressForm(w, w.CreateHref, "Create webhook", "webhook-address-new")
+			} else {
+				<p class="mt-2 text-sm text-ink/85">This business has no webhook.</p>
+			}
+		}
+	</section>
+}
+
+templ webhookDocket(w WebhookView) {
+	<div class="docket mt-3">
+		<div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+			<p class="font-display font-bold tracking-tight text-ink">This business's webhook</p>
+			if w.Active {
+				<p class="font-mono text-xs uppercase tracking-widest text-ink">On</p>
+			} else {
+				<p class="font-mono text-xs uppercase tracking-widest text-ink/70">Off</p>
+			}
+		</div>
+		<dl class="mt-2 grid grid-cols-1 gap-x-4 gap-y-1">
+			<div>
+				<dt class="docket-label">Address</dt>
+				if w.AddressRefused {
+					<dd class="text-sm text-ink">The saved address no longer passes the address rules. Give a new one below.</dd>
+				} else {
+					<dd class="font-mono text-sm text-ink break-all">{ w.Address }</dd>
+				}
+			</div>
+			<div>
+				<dt class="docket-label">Created</dt>
+				<dd class="font-mono text-sm text-ink">{ w.CreatedOn }</dd>
+			</div>
+			<div>
+				<dt class="docket-label">Signing key</dt>
+				if w.RotatedOn != "" {
+					<dd class="font-mono text-sm text-ink">Rotated { w.RotatedOn }</dd>
+				} else {
+					<dd class="font-mono text-sm text-ink">Since it was created</dd>
+				}
+			</div>
+			if w.APIEnabled {
+				<div>
+					<dt class="docket-label">Test messages this hour</dt>
+					<dd class="font-mono text-sm text-ink">{ itoa(w.Spent) } of { itoa(w.Limit) }</dd>
+				</div>
+			}
+		</dl>
+		if w.APIEnabled {
+			if w.Active {
+				if w.BucketFull() {
+					<p class="mt-3 text-sm text-ink">
+						The hour's { itoa(w.Limit) } test messages are used. The next one is free at
+						<span class="font-mono">{ w.NextSlot }</span>.
+					</p>
+				} else {
+					<form method="post" action={ templ.URL(w.PingHref) } class="mt-3">
+						<p class="max-w-2xl text-sm text-ink/85">
+							Send a signed test message (event "ping") to the address and see what your system answers.
+						</p>
+						<button class="btn btn--primary mt-2" type="submit">Send a test message</button>
+					</form>
+				}
+			}
+			<div class="mt-4 border-t border-line pt-4">
+				@webhookAddressForm(w, w.AddressHref, "Change address", "webhook-address-change")
+			</div>
+			<form method="post" action={ templ.URL(w.RotateHref) } class="mt-4 border-t border-line pt-4">
+				<p class="max-w-2xl text-sm text-ink/85">
+					If the signing key may have leaked, give the webhook a new one. Your system must switch to
+					the new key: messages signed with the old one stop at once.
+				</p>
+				<label class="mt-2 flex min-h-11 items-center gap-2 text-sm text-ink">
+					<input type="checkbox" name="confirm" value="yes" required class="min-h-11 w-11 accent-tappa-green"/>
+					Yes, replace the signing key now
+				</label>
+				<button class="btn btn--quiet mt-2" type="submit">Rotate the signing key</button>
+			</form>
+		}
+		if w.Active {
+			<form method="post" action={ templ.URL(w.DisableHref) } class="mt-4 border-t border-line pt-4">
+				<p class="max-w-2xl text-sm text-ink/85">
+					Switching the webhook off stops every message to it at once. It can be switched on again.
+				</p>
+				<button class="btn btn--quiet mt-2" type="submit">Switch the webhook off</button>
+			</form>
+		} else if w.APIEnabled {
+			<form method="post" action={ templ.URL(w.EnableHref) } class="mt-4 border-t border-line pt-4">
+				<button class="btn btn--quiet" type="submit">Switch the webhook on</button>
+			</form>
+		}
+	</div>
+}
+
+templ webhookAddressForm(w WebhookView, action, label, fieldID string) {
+	<form method="post" action={ templ.URL(action) } class="mt-3">
+		<div class="flex flex-col gap-1">
+			<label class="docket-label" for={ fieldID }>Address</label>
+			<input
+				class="filter-input font-mono"
+				id={ fieldID }
+				type="url"
+				name="address"
+				required
+				maxlength={ itoa(w.AddressMaxLength) }
+				value={ w.AddressValue }
+				placeholder="https://hooks.example.com/taptime"
+				autocomplete="off"
+				spellcheck="false"
+				aria-describedby={ fieldID + "-help" }
+			/>
+			<p class="text-xs text-ink/70" id={ fieldID + "-help" }>
+				https:// and a host name, on the standard port, with no user name, query string or fragment.
+			</p>
+			if w.AddressError != "" {
+				<p class="text-sm text-ink">{ w.AddressError }</p>
+			}
+		</div>
+		<div class="mt-3">
+			<button class="btn btn--primary" type="submit">{ label }</button>
+		</div>
+	</form>
 }

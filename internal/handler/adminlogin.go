@@ -214,6 +214,10 @@ type AdminAuth struct {
 	// apiKeys is the integration API's keys service (M11 API-3), given by the IntegrationKeys
 	// option. Nil draws the section with a sentence and refuses its writes (apikeys.go).
 	apiKeys panelAPIKeys
+	// webhook is the business's webhook endpoint service (M11 API-9), given by the
+	// IntegrationWebhook option. Nil (a dev deployment without TAPPA_WEBHOOK_KEK) draws the API
+	// keys section's webhook part with a sentence and refuses its writes (webhooks.go).
+	webhook panelWebhook
 
 	// brands reads the business's brand for the chrome of every panel section (M10
 	// WL-8, panelbrand.go): one more read per panel request. It is a field of its own,
@@ -486,6 +490,14 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 	// TestAPIKeyWiring_TheKeysServiceReachesThePanel.
 	if len(cfg.APIKeyHMACKey) > 0 && a.apiKeys == nil {
 		return nil, errors.New("handler: the configuration holds the API key's HMAC key and the panel was given no keys service (IntegrationKeys)")
+	}
+	// 🔴 THE SAME FOR THE WEBHOOK (M11 API-9): a configuration that holds TAPPA_WEBHOOK_KEK (every
+	// production one -- config.Load requires it outside dev) is one that offers the webhook, and a
+	// panel built without the service would take away the owner's switch-off (K-26). Pinned by
+	// TestNewAdminAuth_TheWebhookServiceMatchesTheConfiguration and cmd/tappa's
+	// TestWebhookWiring_TheEndpointServiceReachesThePanel.
+	if len(cfg.WebhookKEK) > 0 && a.webhook == nil {
+		return nil, errors.New("handler: the configuration holds the webhook KEK and the panel was given no webhook service (IntegrationWebhook)")
 	}
 	return a, nil
 }

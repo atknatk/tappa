@@ -235,6 +235,15 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		r.Post(apiKeysHref, a.apiKeyCreate)
 		r.Post(apiKeyRevokeHref, a.apiKeyRevoke)
 		r.Post(apiKeyRevokeAllHref, a.apiKeyRevokeAll)
+		// 🔴 THE WEBHOOK'S SIX WRITES (M11 API-9). Here for the ordinary reason -- the Origin check
+		// runs AHEAD of the resolver (GATE-1) -- and owner-only inside the handlers. The test ping is
+		// the one panel write that makes an outbound request: a cross-site POST must never reach it.
+		r.Post(webhookHref, a.webhookCreate)
+		r.Post(webhookAddressHref, a.webhookReaddress)
+		r.Post(webhookRotateHref, a.webhookRotate)
+		r.Post(webhookDisableHref, a.webhookSwitch(false))
+		r.Post(webhookEnableHref, a.webhookSwitch(true))
+		r.Post(webhookPingHref, a.webhookPing)
 		// 🔴 THE ACCOUNT SECTION'S BRAND EDITOR (M10 WL-7): the colour and taking a logo
 		// or a colour back are two ordinary writes on this chain. The LOGO UPLOAD is a
 		// nested group for the encode relay's reason below: its gate (brandupload.go)

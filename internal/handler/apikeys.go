@@ -5,13 +5,13 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/atknatk/tappa/internal/apikey"
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/httpx"
+	"github.com/atknatk/tappa/internal/webhook/endpoints"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
@@ -138,13 +138,20 @@ func (a *AdminAuth) apiKeysSection(w http.ResponseWriter, r *http.Request) {
 	if word := oneOfWords(strings.TrimSpace(r.URL.Query().Get("problem")), apiKeysProblemWords...); word != "" {
 		v.Problem = apiKeysProblemSentence(word)
 	}
+	// The webhook part's sentences (webhooks.go, M11 API-9) share the page's two notices.
+	if word := oneOfWords(strings.TrimSpace(r.URL.Query().Get("done")), webhookDoneWords...); word != "" {
+		v.Done = webhookDoneSentence(word)
+	}
+	if word := oneOfWords(strings.TrimSpace(r.URL.Query().Get("problem")), webhookProblemWords...); word != "" {
+		v.Problem = webhookProblemSentence(word)
+	}
 	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminAPIKeys(v))
 }
 
 // apiKeysView reads the keys and builds the screen; on a failed read it has answered already.
 func (a *AdminAuth) apiKeysView(w http.ResponseWriter, r *http.Request, id httpx.AdminIdentity) (pages.APIKeysView, bool) {
 	v, err := a.readAPIKeysView(r, id)
-	if errors.Is(err, apikey.ErrNotPermitted) {
+	if errors.Is(err, apikey.ErrNotPermitted) || errors.Is(err, endpoints.ErrNotPermitted) {
 		a.log.Warn("panel api keys page refused by the domain: the actor is not an active owner",
 			"actor_id", id.Admin.AdminUserID)
 		a.renderProblem(w, r, http.StatusForbidden, problemAPIKeysOwnerOnly)
@@ -168,6 +175,17 @@ func (a *AdminAuth) readAPIKeysView(r *http.Request, id httpx.AdminIdentity) (pa
 		RevokeAllHref: apiKeyRevokeAllHref,
 		NameMaxLength: apikey.NameLimit,
 	}
+	if a.apiKeys == nil && a.webhook == nil {
+		return v, nil
+	}
+	zone := a.webhookZone(r, id)
+	// The webhook part (M11 API-9) is read first and on its own: it has its own service and its
+	// own "not configured" state.
+	wh, err := a.readWebhookView(r, id, zone)
+	v.Webhook = wh
+	if err != nil {
+		return v, err
+	}
 	if a.apiKeys == nil {
 		return v, nil
 	}
@@ -175,12 +193,6 @@ func (a *AdminAuth) readAPIKeysView(r *http.Request, id httpx.AdminIdentity) (pa
 	list, err := a.apiKeys.List(r.Context(), id.TenantID(), id.Admin.AdminUserID)
 	if err != nil {
 		return v, err
-	}
-	zone := time.UTC
-	if s, err := a.accounts.Settings(r.Context(), id.TenantID()); err != nil {
-		a.log.Error("panel: could not read the business timezone for the api keys; showing UTC", "err", err)
-	} else {
-		zone = a.accountZone(s.Timezone)
 	}
 	v.APIEnabled = list.APIEnabled
 	for _, al := range list.BudgetAlerts {

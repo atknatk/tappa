@@ -25,7 +25,7 @@ WHERE tenant_id = @tenant_id;
 -- name: InsertWebhookEndpoint :one
 -- The id is chosen by the caller BEFORE the insert: it is the sealed key's AAD. created_at and
 -- rotated_at are the table's (default, NULL). A second endpoint of the business meets
--- webhook_endpoints_one_per_tenant (23505).
+-- webhook_endpoints_one_per_tenant: a unique violation, SQLSTATE 23505.
 INSERT INTO webhook_endpoints (tenant_id, id, url, signing_key_sealed, active)
 VALUES (@tenant_id, @id, @url, @signing_key_sealed, true)
 RETURNING created_at;
