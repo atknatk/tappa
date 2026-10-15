@@ -1529,8 +1529,9 @@ func venueName(raw string, sentinel error) (string, error) {
 //	refused   Cc (BEL, ESC, a tab or line break INSIDE), U+2028/U+2029 (line and paragraph
 //	          separators), the bidi embeddings/overrides/isolates U+202A-U+202E and
 //	          U+2066-U+2069, U+200B (zero-width space), U+2060 (word joiner), U+FEFF inside
-//	allowed   U+200D ZWJ (emoji sequences: a chef, a family), U+200C ZWNJ (Persian and Indic
-//	          words need it), U+E0020-U+E007F tags (the Scotland and England flags), the
+//	allowed   U+200D ZWJ (emoji sequences: a chef, a family) and U+200C ZWNJ (Persian and Indic
+//	          words) BETWEEN two visible characters, U+E0020-U+E007F tags INSIDE a flag (the
+//	          Scotland and England flags) -- NameHasHiddenCharacters says where --, the
 //	          variation selectors, Arabic and Hebrew letters themselves
 //	removed   U+00AD (soft hyphen), U+200E/U+200F/U+061C (LRM, RLM, ALM) and a BOM at either
 //	          end. They arrive in PASTED text and mean nothing in a name; the marks could also
@@ -1558,8 +1559,32 @@ func CleanName(raw string) string {
 }
 
 // NameHasHiddenCharacters reports whether a CLEANED name carries a character the rule refuses.
+//
+// THE TWO JOINERS AND THE TAG CHARACTERS ARE ALLOWED ONLY WHERE A REAL NAME PUTS THEM (fourth round,
+// API-5 review). Allowed anywhere, they carry text nobody sees ("ASCII smuggling": U+E0041.. spells
+// ASCII invisibly):
+//
+//	tags     U+E0020-U+E007E only in a run that starts right after U+1F3F4 (the black flag) and is
+//	         closed by U+E007F (the Scotland, England and Wales flags); U+E007F only as that close
+//	joiners  U+200D (ZWJ) and U+200C (ZWNJ) only BETWEEN two visible characters -- an emoji
+//	         sequence, a Persian or Indic word -- never at an end, doubled, or next to a space
+//
+// ⚠️ NOT COVERED, NAMED: variation selectors (U+FE00-U+FE0F, U+E0100-U+E01EF) are combining marks
+// (Mn), allowed after any character; a run of them after one letter can carry hidden data the same
+// way. They are not refused because emoji presentation needs U+FE0F after a base; a bound on how many
+// may follow one base is the next step if it is ever needed.
 func NameHasHiddenCharacters(s string) bool {
-	for _, r := range s {
+	rs := []rune(s)
+	visible := func(i int) bool {
+		if i < 0 || i >= len(rs) {
+			return false
+		}
+		r := rs[i]
+		return !unicode.IsSpace(r) && !unicode.Is(unicode.Cc, r) && !unicode.Is(unicode.Cf, r) &&
+			!unicode.Is(unicode.Zl, r) && !unicode.Is(unicode.Zp, r)
+	}
+	for i := 0; i < len(rs); i++ {
+		r := rs[i]
 		switch {
 		case unicode.Is(unicode.Cc, r),
 			r == '\u2028', r == '\u2029',
@@ -1567,6 +1592,23 @@ func NameHasHiddenCharacters(s string) bool {
 			r >= '\u2066' && r <= '\u2069',
 			r == '\u200B', r == '\u2060', r == '\uFEFF':
 			return true
+		case r == '\u200C' || r == '\u200D':
+			if !visible(i-1) || !visible(i+1) {
+				return true
+			}
+		case r >= 0xE0020 && r <= 0xE007F:
+			// A tag run is legal only as a flag: U+1F3F4, one or more of U+E0020-U+E007E, U+E007F.
+			if r == 0xE007F || i == 0 || rs[i-1] != 0x1F3F4 {
+				return true
+			}
+			j := i
+			for j < len(rs) && rs[j] >= 0xE0020 && rs[j] <= 0xE007E {
+				j++
+			}
+			if j >= len(rs) || rs[j] != 0xE007F {
+				return true
+			}
+			i = j // the close is consumed with its run
 		}
 	}
 	return false
@@ -1587,8 +1629,13 @@ func (h hiddenName) Is(target error) bool {
 
 // refuseHiddenName applies the rule to name, unless it is the name on file (onFile; "" for a new
 // row): an unchanged name is never refused, so a row named before the rule stays editable.
+//
+// The name on file is compared CLEANED (fourth round, API-5 review): a stored name that carries a
+// refused character AND one CleanName removes (`Rusty<RLO><LRM>Bar`, `Ru<ZWSP>sty<BOM>` -- the
+// panel used to TrimSpace only, so a trailing BOM may be on file) is cleaned on its way back in, and
+// compared raw it was never "unchanged": it stayed locked.
 func refuseHiddenName(name, onFile string, sentinel error) error {
-	if name != onFile && NameHasHiddenCharacters(name) {
+	if name != CleanName(onFile) && NameHasHiddenCharacters(name) {
 		return hiddenName{sentinel: sentinel}
 	}
 	return nil

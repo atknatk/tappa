@@ -79,6 +79,9 @@ const (
 	reasonInvalid      = "invalid"
 	reasonMismatch     = "mismatch"
 	reasonUnknownField = "unknown_field"
+	// reasonHiddenCharacter: a new or changed name carries a character the name rule refuses (API-5
+	// review, fourth round: "invalid" could not be told from a length refusal).
+	reasonHiddenCharacter = "hidden_character"
 	// reasonDuplicateField: a key twice in the object (API-5 review).
 	reasonDuplicateField = "duplicate_field"
 )
@@ -104,8 +107,8 @@ var (
 	problemNameType     = invalidField(fieldName, reasonType, "name must be a string.")
 	problemNameInvalid  = invalidField(fieldName, reasonInvalid,
 		"name must be 1 to 80 characters once surrounding spaces are removed.")
-	problemNameHidden = invalidField(fieldName, reasonInvalid,
-		"name cannot carry a control character, a line or paragraph separator, a direction override or isolate (U+202A-U+202E, U+2066-U+2069), a zero-width space or a word joiner; emoji, flags and every script's letters are fine.")
+	problemNameHidden = invalidField(fieldName, reasonHiddenCharacter,
+		"name cannot carry a control character, a line or paragraph separator, a direction override or isolate (U+202A-U+202E, U+2066-U+2069), a zero-width space, a word joiner or an inner U+FEFF, nor a joiner or tag character outside an emoji, a flag or a word; emoji, flags and every script's letters are fine.")
 	problemActiveRequired = invalidField(fieldActive, reasonRequired, "active is required.")
 	problemActiveType     = invalidField(fieldActive, reasonType, "active must be true or false.")
 	problemTimezoneType   = invalidField(fieldTimezone, reasonType, "timezone must be a non-empty string.")
@@ -234,7 +237,21 @@ func brokenEscape(raw []byte, decoded string) bool {
 	if got == 0 {
 		return false
 	}
-	sent := bytes.Count(raw, []byte("\uFFFD")) + strings.Count(strings.ToLower(string(raw)), `\ufffd`)
+	// Count the \ufffd ESCAPES only where the backslash starts an escape: in `\\ufffd` the backslash is
+	// itself escaped and the text after it is plain (fourth round, API-5 review -- that spelling made a
+	// following "\ud800" pass).
+	escapes := 0
+	lower := strings.ToLower(string(raw))
+	for i := 0; i < len(lower); i++ {
+		if lower[i] != '\\' || i+1 >= len(lower) {
+			continue
+		}
+		if strings.HasPrefix(lower[i+1:], "ufffd") {
+			escapes++
+		}
+		i++ // the escaped character, whatever it is, is not the start of another escape
+	}
+	sent := bytes.Count(raw, []byte("\uFFFD")) + escapes
 	return got > sent
 }
 

@@ -31,8 +31,10 @@ import (
 //	a new venue named with the chef emoji (a ZWJ sequence) and one with the Scotland flag (tag
 //	characters): both saved, the names stored as typed
 //
-// MUTANT (measured, API-5 report): the "unchanged name is exempt" arm removed from
-// refuseHiddenName -> the first save comes back with the sentence, red.
+// MUTANTS (measured, API-5 report): the "unchanged name is exempt" arm removed from refuseHiddenName
+// -> the first save comes back with the sentence; the name on file compared RAW (not cleaned) ->
+// `Rusty<RLO><LRM>Bar` stays locked; the department's rename rule removed, or the handler's
+// department branch -> the department rename is saved or answered as a fault. Each red.
 func TestVenueSave_ANameOnFileStaysEditableAndANewHiddenOneIsASentence(t *testing.T) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
@@ -117,6 +119,39 @@ func TestVenueSave_ANameOnFileStaysEditableAndANewHiddenOneIsASentence(t *testin
 	}
 	if _, name := read(`SELECT 0, name FROM locations WHERE tenant_id = $1 AND id = $2`, tenantID, venueID); name != onFile {
 		t.Fatalf("a refused rename changed the name to %q", name)
+	}
+
+	// The department RENAMED to a new name with U+202E: its own sentence, nothing changes (fourth round:
+	// the department's rule and the handler's department branch were untested).
+	rec = b.do(http.MethodPost, departmentSaveHref, url.Values{"id": {deptID.String()}, "location_id": {venueID.String()},
+		"name": {"Grill\u202eLine"}, "shift_start": {"09:00"}, "shift_end": {"17:00"}})
+	if saved(rec) || !strings.Contains(rec.Body.String(), "direction override") {
+		t.Fatalf("a department renamed with U+202E: %d %q, want the form with the sentence", rec.Code, rec.Header().Get("Location"))
+	}
+	if _, name := read(`SELECT 0, name FROM departments WHERE tenant_id = $1 AND id = $2`, tenantID, deptID); name != onFile {
+		t.Fatalf("a refused department rename changed the name to %q", name)
+	}
+
+	// A name on file that carries a refused character AND one CleanName removes stays editable
+	// (fourth round): it is compared cleaned. Resent as it is, and without the removable character.
+	for _, c := range []struct{ stored, sent, kept string }{
+		{"Rusty\u202e\u200eBar", "Rusty\u202e\u200eBar", "Rusty\u202eBar"},
+		{"Rusty\u202e\u200eBar", "Rusty\u202eBar", "Rusty\u202eBar"},
+		{"Ru\u200bsty\ufeff", "Ru\u200bsty\ufeff", "Ru\u200bsty"},
+	} {
+		var id uuid.UUID
+		if err := data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+			return tx.QueryRow(ctx, `INSERT INTO locations (tenant_id, name) VALUES ($1, $2) RETURNING id`, tenantID, c.stored).Scan(&id)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		rec = b.do(http.MethodPost, venueSaveHref, url.Values{"id": {id.String()}, "name": {c.sent}, "static_ips": {"198.51.100.0/24"}})
+		if !saved(rec) {
+			t.Fatalf("stored %q, sent %q: %d %s -- want saved", c.stored, c.sent, rec.Code, rec.Body.String())
+		}
+		if n, name := read(`SELECT cardinality(static_ips), name FROM locations WHERE tenant_id = $1 AND id = $2`, tenantID, id); n != 1 || name != c.kept {
+			t.Fatalf("stored %q, sent %q: %d range(s), name %q, want %q", c.stored, c.sent, n, name, c.kept)
+		}
 	}
 
 	for _, name := range []string{"Kitchen \U0001F468\u200d\U0001F373", "Glasgow \U0001F3F4\U000E0067\U000E0062\U000E0073\U000E0063\U000E0074\U000E007F"} {

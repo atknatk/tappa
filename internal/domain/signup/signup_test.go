@@ -111,6 +111,17 @@ func TestValidateVenues_StructureDecidesTheShape(t *testing.T) {
 			[]Venue{{Name: "Front door"}, {Name: "front DOOR"}}, true, 2},
 		{"a venue name past the bound", StructureMulti,
 			[]Venue{{Name: strings.Repeat("x", MaxVenueNameRunes+1)}}, true, 1},
+		// The venue editor's character rule (API-5 review, fourth round): a venue the wizard opens
+		// would be exempt from it forever after (an unchanged name on file is never refused).
+		{"a direction override", StructureMulti, []Venue{{Name: "Rusty\u202eBar"}}, true, 1},
+		{"a zero-width space", StructureMulti, []Venue{{Name: "Rusty\u200bBar"}}, true, 1},
+		{"a BEL", StructureMulti, []Venue{{Name: "Rusty\aBar"}}, true, 1},
+		{"a direction isolate", StructureMulti, []Venue{{Name: "Rusty\u2066Bar"}}, true, 1},
+		{"tag characters outside a flag", StructureMulti, []Venue{{Name: "Bar\U000E0041\U000E007F"}}, true, 1},
+		{"the chef emoji and the Scotland flag", StructureMulti, []Venue{{Name: "Kitchen \U0001F468\u200d\U0001F373"},
+			{Name: "Glasgow \U0001F3F4\U000E0067\U000E0062\U000E0073\U000E0063\U000E0074\U000E007F"}}, false, 2},
+		{"a Persian name", StructureMulti, []Venue{{Name: "\u0645\u06cc\u200c\u062e\u0627\u0646\u0647"}}, false, 1},
+		{"only removable marks is a blank row", StructureMulti, []Venue{{Name: "A"}, {Name: "\u200e\u00ad"}}, false, 1},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -445,5 +456,23 @@ func TestValidate_RefusesTheBytesPostgresRefuses(t *testing.T) {
 		}); errs.Any() {
 			t.Errorf("%q was refused: %v", good, map[string]string(errs))
 		}
+	}
+}
+
+// TestValidateVenues_CleansLikeTheVenueEditor (API-5 review, fourth round): the wizard stores what
+// the panel's editor would -- a soft hyphen, a direction mark and a BOM at either end removed -- and
+// refuses a hidden character with its own sentence, not the "cannot store" one.
+//
+// MUTANT (measured, API-5 report): the character rule removed from ValidateVenues -> the four
+// refusals in TestValidateVenues_StructureDecidesTheShape's table pass, red.
+func TestValidateVenues_CleansLikeTheVenueEditor(t *testing.T) {
+	t.Parallel()
+	out, errs := ValidateVenues(StructureMulti, []Venue{{Name: "\ufeffRusty\u00adBar\u200e"}})
+	if errs.Any() || len(out) != 1 || out[0].Name != "RustyBar" {
+		t.Fatalf("cleaned to %+v (%v), want RustyBar", out, map[string]string(errs))
+	}
+	_, errs = ValidateVenues(StructureMulti, []Venue{{Name: "Rusty\u202eBar"}})
+	if msg := errs["venue_0"]; !strings.Contains(msg, "hidden character") {
+		t.Fatalf("the refusal says %q, want the hidden-character sentence", msg)
 	}
 }

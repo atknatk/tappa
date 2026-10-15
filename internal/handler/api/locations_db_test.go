@@ -735,18 +735,19 @@ func TestLocationsPut_TheBodyAndTheRefContract(t *testing.T) {
 		{"two objects", ref, `{"name":"n","active":true}{}`, 400, CodeInvalidRequest, "", ""},
 		{"a body that is not UTF-8", ref, "{\"name\":\"Rusty\xffBar\",\"active\":true}", 400, CodeInvalidRequest, "", "invalid_utf8"},
 		{"an unpaired surrogate escape", ref, `{"name":"Bar \ud800","active":true}`, 400, CodeInvalidRequest, "", "invalid_utf8"},
+		{"an escaped backslash before a surrogate", ref, `{"name":"\\ufffd \ud800","active":true}`, 400, CodeInvalidRequest, "", "invalid_utf8"},
 		{"an unpaired low surrogate", ref, `{"name":"Bar \uDC00x","active":true}`, 400, CodeInvalidRequest, "", "invalid_utf8"},
 		{"broken JSON", ref, `{"name":"n",`, 400, CodeInvalidRequest, "", ""},
 		{"no name", ref, `{"active":true}`, 422, CodeValidationFailed, "name", "required"},
 		{"name null", ref, `{"name":null,"active":true}`, 422, CodeValidationFailed, "name", "type"},
 		{"name a number", ref, `{"name":5,"active":true}`, 422, CodeValidationFailed, "name", "type"},
 		{"name blank", ref, `{"name":"   ","active":true}`, 422, CodeValidationFailed, "name", "invalid"},
-		{"name with BEL", ref, `{"name":"Rusty\u0007Bar","active":true}`, 422, CodeValidationFailed, "name", "invalid"},
-		{"name with ESC", ref, `{"name":"Rusty\u001b[31mBar","active":true}`, 422, CodeValidationFailed, "name", "invalid"},
-		{"name with a line break inside", ref, `{"name":"Rusty\nBar","active":true}`, 422, CodeValidationFailed, "name", "invalid"},
-		{"name with RTL override", ref, `{"name":"Rusty\u202eraB","active":true}`, 422, CodeValidationFailed, "name", "invalid"},
-		{"name with a line separator", ref, `{"name":"Rusty\u2028Bar","active":true}`, 422, CodeValidationFailed, "name", "invalid"},
-		{"name with a zero-width space", ref, `{"name":"Rusty\u200bBar","active":true}`, 422, CodeValidationFailed, "name", "invalid"},
+		{"name with BEL", ref, `{"name":"Rusty\u0007Bar","active":true}`, 422, CodeValidationFailed, "name", "hidden_character"},
+		{"name with ESC", ref, `{"name":"Rusty\u001b[31mBar","active":true}`, 422, CodeValidationFailed, "name", "hidden_character"},
+		{"name with a line break inside", ref, `{"name":"Rusty\nBar","active":true}`, 422, CodeValidationFailed, "name", "hidden_character"},
+		{"name with RTL override", ref, `{"name":"Rusty\u202eraB","active":true}`, 422, CodeValidationFailed, "name", "hidden_character"},
+		{"name with a line separator", ref, `{"name":"Rusty\u2028Bar","active":true}`, 422, CodeValidationFailed, "name", "hidden_character"},
+		{"name with a zero-width space", ref, `{"name":"Rusty\u200bBar","active":true}`, 422, CodeValidationFailed, "name", "hidden_character"},
 		{"name of 81 runes", ref, `{"name":"` + strings.Repeat("ż", 81) + `","active":true}`, 422, CodeValidationFailed, "name", "invalid"},
 		{"no active", ref, `{"name":"n"}`, 422, CodeValidationFailed, "active", "required"},
 		{"active a string", ref, `{"name":"n","active":"false"}`, 422, CodeValidationFailed, "active", "type"},
@@ -962,7 +963,12 @@ func TestLocationsPut_ActiveIsALabelTheTapNeverReads(t *testing.T) {
 // in the panel) takes a PUT of that same name and a new label (200, the label written), while a
 // NEW name with U+202E is 422 and changes nothing.
 //
-// MUTANTS (measured, API-5 report): the "unchanged name is exempt" arm removed -> the first PUT 422;
+// A name on file that carries a refused AND a removable character (`Rusty<RLO><LRM>Bar`,
+// `Ru<ZWSP>sty<BOM>`) is compared cleaned, so it stays writable; the refusal's reason is
+// "hidden_character", told apart from a length refusal ("invalid").
+//
+// MUTANTS (measured, API-5 report): the name on file compared raw -> the cleaned cases 422; the
+// "unchanged name is exempt" arm removed -> the first PUT 422;
 // the rule widened back to every Cc and Cf -> the emoji, the flag and the Persian name 422.
 func TestLocationsPut_TheNameRuleJudgesOnlyWhatChanges(t *testing.T) {
 	r := newDBRig(t)
@@ -998,9 +1004,24 @@ func TestLocationsPut_TheNameRuleJudgesOnlyWhatChanges(t *testing.T) {
 	if rows := r.venuesByRef(biz, ref); len(rows) != 1 || rows[0].active || rows[0].name != onFile {
 		t.Fatalf("after the label change: %+v", rows)
 	}
+	// A name on file carrying a refused AND a removable character is compared cleaned (fourth round).
+	for _, c := range []struct{ stored, sent, kept string }{
+		{"Rusty\u202e\u200eBar", "Rusty\u202e\u200eBar", "Rusty\u202eBar"},
+		{"Rusty\u202e\u200eBar", "Rusty\u202eBar", "Rusty\u202eBar"},
+		{"Ru\u200bsty\ufeff", "Ru\u200bsty\ufeff", "Ru\u200bsty"},
+	} {
+		cref := newRef("CLEAN")
+		if _, err := r.owner.Exec(context.Background(), `INSERT INTO locations (tenant_id, name, external_ref) VALUES ($1, $2, $3)`, biz, c.stored, cref); err != nil {
+			t.Fatal(err)
+		}
+		b, _ := json.Marshal(map[string]any{"name": c.sent, "active": true})
+		if w := r.putLoc(raw, cref, string(b)); w.Code != http.StatusOK || locOf(t, w).Name != c.kept {
+			t.Fatalf("stored %q, sent %q: %d %s, want 200 as %q", c.stored, c.sent, w.Code, w.Body.String(), c.kept)
+		}
+	}
 	body, _ = json.Marshal(map[string]any{"name": "Rusty\u202eBaz", "active": false})
 	w := r.putLoc(raw, ref, string(body))
-	if w.Code != http.StatusUnprocessableEntity || problemOf(t, w).Details["field"] != "name" || !strings.Contains(w.Body.String(), "direction override") {
+	if p := problemOf(t, w); w.Code != http.StatusUnprocessableEntity || p.Details["field"] != "name" || p.Details["reason"] != "hidden_character" || !strings.Contains(w.Body.String(), "direction override") {
 		t.Fatalf("a NEW name with U+202E: %d %s, want 422 naming the rule", w.Code, w.Body.String())
 	}
 	if rows := r.venuesByRef(biz, ref); rows[0].name != onFile {

@@ -380,6 +380,11 @@ func ValidateVenues(structure string, venues []Venue) ([]Venue, Errors) {
 	out := make([]Venue, 0, len(venues))
 	for _, v := range venues {
 		name := collapseSpaces(v.Name)
+		if isStorableText(name) {
+			// The venue editor's cleaning (tenant.CleanName: the soft hyphen, the direction marks and
+			// a BOM at either end go) -- the wizard writes the same column (API-5 review, fourth round).
+			name = collapseSpaces(tenant.CleanName(name))
+		}
 		if name == "" {
 			// A blank row is somebody who pressed "add" and changed their mind, not
 			// an error. Dropping it is the only interpretation that is not annoying.
@@ -406,6 +411,12 @@ func ValidateVenues(structure string, venues []Venue) ([]Venue, Errors) {
 		case !isStorableText(v.Name):
 			errs.add(fmt.Sprintf("venue_%d", i),
 				"That name contains a character we cannot store. Retype it.")
+		case tenant.NameHasHiddenCharacters(v.Name):
+			// The venue editor's character rule (internal/domain/tenant): the wizard opens venues
+			// too, and a name it let through would be exempt from the rule forever after (an
+			// unchanged name on file is never refused).
+			errs.add(fmt.Sprintf("venue_%d", i),
+				"That name has a hidden character in it, such as a direction override or a zero-width space, usually from pasted text. Type it again.")
 		}
 	}
 	// Two venues with the same name are not refused by the schema and are refused
