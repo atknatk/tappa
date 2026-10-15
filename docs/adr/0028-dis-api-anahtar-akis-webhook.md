@@ -396,7 +396,8 @@ aralık` şartını geri yüklenmiş verinin kendisinden denetler, sağlanmıyor
 ENABLE/FORCE sayım kapısının emsali). Bugün gece geri yükleme provası yok
 (`deploy/k8s/50-backup.yaml` yalnız yedek alır); bu adım T45 tipi elle provada sınanır.
 
-**Geçmiş sorgusu** (`from`/`to`): `punch_events` üzerinden, ≤ 31 gün, sayfalı.
+**Geçmiş sorgusu** (`from`/`to`): `punch_events` üzerinden, ≤ 31 gün, sayfalı. *(API-7b'de uygulandı — garanti
+ilk sayfanın okuduğu sayaca, S₀'a bağlı bir anlık görüntünündür; "API-7b uygulama notu".)*
 
 ### 6. Webhook (K-11, K-12, K-19)
 
@@ -829,6 +830,13 @@ genişleyenler: `TestEmployeeUpdatedAt_OnlyDirectoryColumnsOnEveryUpdatePath` (A
 `TestPunchFeed_TheWindowBoundsASparseScopeAndAGapIsCrossed`, `TestAPIWiring_ThePunchFeedRunsThroughTheShippedSurface`;
 genişleyenler: `TestAPIWiring_TheChainTakesThePanelsPrefixAndTheOneWorker` (`Punches`), `TestOpenAPI_PathsAreTheRoutersAndTheErrorIsSection8`,
 `TestStoreSurface_IsTheOneRecorded`.
+
+**API-7b** *(yazıldı — "API-7b uygulama notu")* — `TestPunchHistory_FourShapesTimesTwoScopes` ·
+`TestPunchHistory_NoManualNoRejected` · `TestPunchHistory_OutsiderSeesNone` · `TestPunchHistory_TheRangeAndTheCursorAreTheContract` ·
+`TestPunchHistory_ALateEventIsTheFeedsNotTheSnapshots` · `TestPunchHistory_WalksNeitherSkipNorRepeatUnderConcurrentWriters` ·
+`TestPunchHistory_RLSHoldsWithoutTheFilter` · `TestPunchHistory_TheWindowBoundsASparseScope`; genişleyenler:
+`TestPunches_NothingButTheFeedsColumnsAnswers` (geçmiş sorgusu da), `TestPunches_TheQueryIsTheContract` (`from`/`to` artık
+parametre), `TestStoreSurface_IsTheOneRecorded`, `TestOpenAPI_PathsAreTheRoutersAndTheErrorIsSection8`.
 
 **API-8** — `Directory_HoldingTenantsOnlyNoEmailWithActive` · `Directory_Paged` ·
 `Directory_OverlapWindow` · `Directory_OwnStaffAlwaysFromTheRLSQuery` ·
@@ -2016,5 +2024,68 @@ tek bir `tenant.NewPunchFeed(data)` (panelden paylaşılacak kural ya da iz yok 
   (soğuk); yoğun 1 M yürüyüş 1 001 sayfa, toplam 6,7 sn, en kötü 50 ms. Süre plana bağlı olduğu için pinlenmez.
 
 **Devredilen / açık — orkestratöre:** **Geçmiş sorgusu** (`from`/`to`, ≤ 31 gün — §5 son cümlesi, plan §2 madde 18,
-`punch_events_tenant_time_idx`): API-7 brief'inin kapsamında değildi; sahibi artık plan §5'in **API-7b** görevidir. Bugün
-`from`/`to` 400'dür (2. madde); eklenmesi geriye uyumludur. Kendi imleci (`punch_time` sırası) ve kendi ölçümü ister.
+`punch_events_tenant_time_idx`): API-7 brief'inin kapsamında değildi; sahibi plan §5'in **API-7b** görevidir. API-7'de
+`from`/`to` 400'dü (2. madde); API-7b bunu geriye uyumlu biçimde kaldırdı ("API-7b uygulama notu").
+
+
+## API-7b uygulama notu (2026-10-15)
+
+Yapıcının uygulaması ve ölçümleri; normatif metin plan §5 API-7b maddesi (iki kez düzeltilmiş hâli) — kararlar
+değişmedi, ADR'nin açık bıraktıkları aşağıda adıyla. **Migration yok** (`punch_events_tenant_time_idx (tenant_id,
+punch_time)` API-2'den). Mutantlar paylaşılan `tappa-m11-db`'de yalnız testlerin yazdığı satırlarla, ölçek ölçümü atılabilir
+PostgreSQL 17 kabında.
+
+**Parçalar.** `db/queries/punchfeed.sql`'e üç sorgu (`GetPunchFeedCounter`, `GetPunchHistoryWindow`, `ListPunchHistory` —
+üçünde de açık `tenant_id`; tenant paketinin kemeri okur); `tenant.PunchFeed.HistoryPage` (`internal/domain/tenant/punchfeed.go`);
+uç aynı rota, `internal/handler/api/history.go` (`from`/`to` varsa geçmiş sorgusu, yoksa akış).
+
+**Sözleşme ve kararlar (otonom, gerekçeli):**
+1. **Garanti bir anlık görüntünündür** (plan §5 API-7b): ilk sayfa sayacı **S₀**'ı pencere ve sayfa ifadelerinden **önce**,
+   ayrı bir ifadede okur; her ifade yalnız `seq ≤ S₀` satırları okur. §5'in ispatıyla `≤ S₀` her olay S₀ okunmadan commit
+   edilmiştir — yürünen küme sabit ve eksiksizdir; `(punch_time, seq)` anahtar sayfalaması bu kümede atlamaz, yinelemez. S₀'dan
+   büyük olay (geç onaylanan flag, çevrimdışı kuyruk) bu yürüyüşün değil akışındır.
+2. **Aralık** `[from, to)`, `from < to`, `to − from ≤ 31 gün` (tam 31 gün kabul, bir mikrosaniye fazlası 400); RFC 3339 **saat
+   farkıyla**; **mikrosaniyeden ince an 400** — `punch_time`'ın hassasiyeti mikrosaniyedir, yuvarlamak aralığın sınırını
+   sessizce oynatırdı. `from` ya da `to` tek başına 400. Ret değeri yankılamaz.
+3. **Geçmiş imleci** `hst_<S₀>_<punch_time µs>_<seq>_<bağ>`: konum ve anlık görüntü saydam; **bağ** `(scope, from, to)`'nun
+   SHA-256'sının ilk 8 baytı (hex) — başka kapsam ya da aralıkla gelen imleç 400. Bağ bir imza değildir: sahte bir imleç okuyanın
+   kendi akışında başka bir konum seçmekten öte bir şey kazandırmaz; S₀ güncel sayaçtan büyükse 400 (`ErrCursorAhead`), konum
+   aralığın dışında ya da `seq`'i S₀'ın ötesindeyse 400 (`ErrHistoryRange`). **Önekler ayrı:** `from`/`to` ile `cur_`, `from`/`to`'suz
+   `hst_` 400 — hiçbiri sessizce ötekinin konumu olmaz. Akış imlecinin kapsamlar arası tuzağı (öteki kapsama taşınan `cur_`
+   öncesini atlar) geçmiş imlecinde yoktur.
+4. **Pencere** (`PunchFeedWindow` = 10 000 konum, her kapsam, `seq ≤ S₀`): sayfa imleçten sonraki en çok 10 000 konumu tarar;
+   pencere ifadesi 10 001'i sayar — biri fazlası "aralık sürüyor" (`hasMore`) demektir, tam pencerede biten aralık fazladan boş
+   sayfa vermez. Pencerenin sonu bir sonraki konumdur. Bedel (adlandırıldı): seyrek kapsamda boş sayfa + `hasMore: true`.
+5. **Yanıt** akışınkiyle aynı (`{data, nextCursor, hasMore}`, aynı punch alanları). `hasMore: false` → yürüyüş bitti; aynı
+   imleç sonra da boş döner (S₀ sabit).
+
+**Ölçümler.**
+- **Dört şekil × iki kapsam** — `TestPunchHistory_FourShapesTimesTwoScopes`: yazma sırasından farklı bildirilen anlar; `from`'daki olay
+  içeride, `to`'daki ve bir saniye öncesindeki dışarıda; aynı andaki iki olay akış sırasıyla; her kapsam 1, 2 ve 1 000'lik
+  sayfalarla tam beklenen kümeyi verir, her yanıt kendi akış satırına alan alan eşit; C ve D hiçbirini.
+- **K-4 ve C** — `TestPunchHistory_NoManualNoRejected` (manuel, practice, onaylı practice flag, reject, ignored, reddedilmiş,
+  bekleyen, onaylı manuel flag, holding manuel ve reddi yok; onaylı flag — kendi ve holding — bir kez, bildirilen anın yerinde),
+  `TestPunchHistory_OutsiderSeesNone` (KF'nin imleci C'nin elinde 400). Filtresiz RLS sondası — `TestPunchHistory_RLSHoldsWithoutTheFilter`:
+  aralık yüklemi tenant süzgeci olmadan, KF bağlamında `tappa_app` olarak yalnız KF'nin 3 satırını okur (KM'nin 3 satırı var).
+- **Geç olay** — `TestPunchHistory_ALateEventIsTheFeedsNotTheSnapshots`: ilk sayfadan sonra okunmuş bölgeden önceki bir flag onaylanır,
+  okunmuş bölgeye ve okunmamış bölgeye birer çevrimdışı dokunuş yazılır → yürüyüş tam altıyı verir, üçü yok; akış üçünü verir; yeni
+  yürüyüş dokuzu sırayla verir.
+- **Eşzamanlı yazıcılar** — `TestPunchHistory_WalksNeitherSkipNorRepeatUnderConcurrentWriters`: 12 yazıcı × 40, dört işletme, aralığın
+  rastgele anlarına geriye tarihlenmiş kendi ve holding dokunuşları, onda bir geri alma, onda bir savepoint; işletme × kapsam başına
+  sürekli yürüyen okuyucu (1–7'lik sayfalar). Koşu: 95 yürüyüş, 2 580 olay, **anlık görüntüsünden sapan yürüyüş 0**.
+  **Mutant S₀-sayfadan-sonra** (ilk sayfa sınırsız okunur, S₀ sonra okunur): 3/3 kırmızı — her koşuda 4–6 yürüyüş birer olay kaçırdı.
+- **Diğer mutantlar** (her biri kırmızı): `seq ≤ S₀` süzgeci kalkınca → geç olay testi ve stres; bağ denetlenmeyince ve `from`/`to` ile
+  `cur_` ilk sayfa sayılınca → sözleşme testi; S₀ sayaçtan büyükken kabul → sözleşme, C ve pencere testleri; `hasMore` yalnız
+  kesilen sayfadan → `TestPunchHistory_TheWindowBoundsASparseScope`; 31 gün sınırı kalkınca → sözleşme ve pencere testleri;
+  nanosaniye kabul edilince → sözleşme testi; rol sabit `location` → dört şekil, K-4, stres, pencere.
+- **Ölçek** (atılabilir kap, KM'de 1 001 000 olay; 990 000'i 11,5 güne yayılmış, laboratuvarda toplu yazıldı; 31 günlük aralık):
+  `EXPLAIN (ANALYZE)` — pencere ve sayfa `punch_events_tenant_time_idx` Index Scan + Incremental Sort (`punch_time, seq`), sıralı tarama
+  yok; pencere ifadesi 13 ms (10 001 satır), sayfa 0,8 ms. Okuyucu üzerinden: `limit` 500 → 1 980 sayfa, medyan 14,2 ms, p99 22,5 ms,
+  toplam 28,8 sn; `limit` 1 000 → 990 sayfa, medyan 16,1 ms, p99 20,8 ms, toplam 16,2 sn; seyrek kapsam (aralıkta 0 eşleşme) → 99
+  boş sayfa, medyan 22,9 ms, toplam 2,3 sn. **Adlandırılmış bedel:** her sayfa pencereyi tam sayar (yoğun kapsamda da 10 001 konum) —
+  sayfa süresinin çoğu odur; süre plana bağlı olduğu için pinlenmez.
+
+*API-7 testinin yük altındaki kırmızısı (adlandırıldı, düzeltildi).* Tam `-race` koşusunda (paketler eşzamanlı)
+`TestPunches_PagesNeitherSkipNorRepeatUnderConcurrentWriters` 429 `rate_limited` aldı: sekiz okuyucu tek adresten yokladığı için
+yavaş makinede adres kovası (1 200/dk) doldu — bulgu değil, ölçüm düzeneği. İki eşzamanlı okuyucu testi artık kovaları
+kaldırarak (`unmetered`) kurulur; kova davranışının kendisi API-4'ün testlerinde.
