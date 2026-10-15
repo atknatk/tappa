@@ -1692,6 +1692,18 @@ yazılır.
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 
+### 2026-10-15 (29. oturum, kırk üçüncü yarı) — ✅ **API-6 DONE** (iki mercek 3. turda ONAY; son DÜŞÜK turu) · 📌 **DEVAM: API-7**
+
+**Yeniden başlatmadan sonra:** `docker start tappa-m11-db` (goose **54**). Brief'ler: `~/.claude/projects/-Users-everva-Documents-GitHub-atknatk-tappa/m11-briefs/`.
+
+**API-6** (`69d241b` … `11f3ff9`, `49599e3..HEAD`): `PUT/GET/DELETE /v1/employees[/{ref}]` + `resend-activation` (`staffapi.go`); K-18 e-postayla bağlama (yalnız aynı tenant), K-15 e-posta değişiminde bekleyen davet aynı işlemde ölür, ADR 0010 pasif → `active:true` yeni satır, 409 `email_unavailable`/`already_activated`, `GET` e-postasız (`activationEmail`: `sent` yalnız **kaydedilmiş teslim** ile, `undelivered`, `queued`, `none`); **K-17 kuyruk işçisi** (`internal/invite/queue.go`: kira 60 sn, kod gönderim anında, K-22 kapısı + kesici + tavanlar basımdan önce, 4xx/5xx deneme sayılır 5'te biter, ömür 72 sa, vazgeçmede teslim edilmemiş bağlantılar emekliye ayrılır); **K-25** anahtar başına saatlik 20 pasifleştirme (DB'den, advisory kilit, 35 eşzamanlıda tam 20). Migration **00053** (`audit_log` INSERT sütun listesi — `at` hariç) ve **00054** (teslim eylemlerine kısmi indeks, `lock_timeout 1s`; liste 500'lük sayfa ~6 ms).
+- **🟢 KULLANICI KARARLARI (2026-10-15):** (1) panelde çalışan adları da isim kuralına bağlı (`Staff.Add`); (2) bütçe aşım uyarısı dashboard'da owner'a özel bant.
+- **Adlandırılmış bedeller (ADR 0028 API-6 notu):** tenant içi kehanet (409/422/K-18); anahtar iptali kuyruğu temizlemez (K-22 kapatma durdurur); K-22 kapısı kilitsiz okunur — kapatma anında en çok 1 e-posta; kira dolduktan sonra çift gönderim (canlı bağlantı tek); `ErrNotRecorded`; toplu senkron > ~900 kişi 72 sa'te `request_expired` (API-12 rehberi).
+- **Deploy notları (API-13'e):** 00054 kurulumu `audit_log` yazmalarını bekletir (~1 M satır ≈ 0,8 sn; > ~2,5 M → `CONCURRENTLY`); `employees` adları da yeni kural sayımına.
+- **Backlog:** T127 kararsız `TestResetOutboxDB_TheFallbackWithdrawalsStayUnderTheFloor` (M11'den bağımsız).
+
+**🔴 DEVAM PLANI:** **API-7** (`GET /v1/punches`) → iki mercek → API-8 → API-9 → … Kullanıcıda bekleyenler: otuz dördüncü yarıdakiler + `site_punches` saklama süresi (DPA) + T125.
+
 ### 2026-10-15 (29. oturum, kırk ikinci yarı) — ✅ **API-5 DONE** (güvenlik 1. turda ONAY; üçüncü göz 3. turda ONAY; son DÜŞÜK turu) · 📌 **DEVAM: API-6**
 
 **Yeniden başlatmadan sonra:** `docker start tappa-m11-db` (goose **52**). Brief'ler: `~/.claude/projects/-Users-everva-Documents-GitHub-atknatk-tappa/m11-briefs/`.
