@@ -93,7 +93,33 @@ type WebhookView struct {
 	DisableHref string
 	EnableHref  string
 	PingHref    string
+	ResendHref  string
+
+	// The delivery log (M11 API-10): one page, newest first, and the links to the older page and
+	// back to the newest ("" when there is none).
+	Deliveries           []WebhookDeliveryRow
+	DeliveriesOlderHref  string
+	DeliveriesNewestHref string
 }
+
+// WebhookDeliveryRow is one delivery in the log. It names the punch and the outcome -- never the
+// address, never the receiver's text (neither is stored).
+type WebhookDeliveryRow struct {
+	// ID is the delivery's id, the resend form's value.
+	ID         string
+	PunchID    string
+	Queued     string
+	State      string
+	Attempts   int
+	LastAnswer string
+	NextTry    string
+	Delivered  string
+	Resendable bool
+}
+
+// CanResend reports whether the resend button is offered at all: the API open, the endpoint on, a
+// slot of the bucket free.
+func (v WebhookView) CanResend() bool { return v.APIEnabled && v.Active && !v.BucketFull() }
 
 // BucketFull reports whether the hour's test messages are spent.
 func (v WebhookView) BucketFull() bool { return v.Limit > 0 && v.Spent >= v.Limit }

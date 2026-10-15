@@ -10,10 +10,13 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -215,7 +218,7 @@ func TestWebhookPanel_TheKeyIsShownOnceAndNeverAgain(t *testing.T) {
 }
 
 // TestWebhookPanel_ManagerIs403EverywhereAndLeavesATrail: a manager gets 403 at the section and at the
-// six writes; each refused write leaves one webhook_endpoint.refused row naming the act and the role;
+// seven writes (API-10's resend included); each refused write leaves one webhook_endpoint.refused row naming the act and the role;
 // nothing is created, changed or sent.
 func TestWebhookPanel_ManagerIs403EverywhereAndLeavesATrail(t *testing.T) {
 	f := newWebhookPanelFixture(t)
@@ -228,6 +231,7 @@ func TestWebhookPanel_ManagerIs403EverywhereAndLeavesATrail(t *testing.T) {
 	writes := map[string]url.Values{
 		webhookHref: {"address": {"https://other.example.com/"}}, webhookAddressHref: {"address": {"https://other.example.com/"}},
 		webhookRotateHref: {"confirm": {"yes"}}, webhookDisableHref: {}, webhookEnableHref: {}, webhookPingHref: {},
+		webhookResendHref: {"delivery": {uuid.NewString()}},
 	}
 	for path, form := range writes {
 		if rec := m.do(http.MethodPost, path, form); rec.Code != http.StatusForbidden {
@@ -247,7 +251,8 @@ func TestWebhookPanel_ManagerIs403EverywhereAndLeavesATrail(t *testing.T) {
 	}
 }
 
-// TestWebhookPanel_CrossSiteWritesAreRefusedBeforeTheResolver is GATE-1 on the six writes: a POST whose
+// TestWebhookPanel_CrossSiteWritesAreRefusedBeforeTheResolver is GATE-1 on the seven writes (API-10's
+// resend included): a POST whose
 // Origin is another site changes nothing, sends nothing (the ping is the one panel write that makes an
 // outbound request) and is answered before the role gate (no refusal row); the same ping from the
 // panel's own origin is sent.
@@ -261,6 +266,7 @@ func TestWebhookPanel_CrossSiteWritesAreRefusedBeforeTheResolver(t *testing.T) {
 	for path, form := range map[string]url.Values{
 		webhookHref: {"address": {"https://other.example.com/"}}, webhookAddressHref: {"address": {"https://other.example.com/"}},
 		webhookRotateHref: {"confirm": {"yes"}}, webhookDisableHref: {}, webhookEnableHref: {}, webhookPingHref: {},
+		webhookResendHref: {"delivery": {uuid.NewString()}},
 	} {
 		rec := evil.do(http.MethodPost, path, form)
 		// The write chain answers a cross-site POST with a redirect away from the section (never to
@@ -381,7 +387,7 @@ func TestWebhookPanel_PingResultsAndTheBucket(t *testing.T) {
 		t.Fatalf("the eleventh ping: %d %s, %d sent", rec.Code, rec.Header().Get("Location"), f.sender.count())
 	}
 	page := b.do(http.MethodGet, rec.Header().Get("Location"), nil).Body.String()
-	if !strings.Contains(page, "used its 10 test messages for this hour") || !strings.Contains(page, "The next one is free at") ||
+	if !strings.Contains(page, "used its 10 test messages and resends for this hour") || !strings.Contains(page, "The next one is free at") ||
 		strings.Contains(page, `action="`+webhookPingHref+`"`) {
 		t.Fatal("a full bucket: the sentence, the next slot or the absent ping button")
 	}
@@ -433,5 +439,115 @@ func TestWebhookPanel_NotConfiguredSaysSo(t *testing.T) {
 	}
 	if u, _, _ := f.endpointRow(t); u != "" {
 		t.Fatal("an endpoint was created")
+	}
+}
+
+// tapForDelivery commits one ok NFC record in the fixture's business (a venue, a plaque and an employee
+// are made for it by the owner role) -- the punch-feed triggers write its event and, the API being open
+// and the endpoint on, its delivery. It returns the record's id.
+func (f *webhookPanelFixture) tapForDelivery(t *testing.T) uuid.UUID {
+	t.Helper()
+	ctx := context.Background()
+	c, err := pgx.Connect(ctx, os.Getenv("DATABASE_MIGRATE_URL"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close(ctx) }()
+	var venue uuid.UUID
+	if err := c.QueryRow(ctx, `INSERT INTO locations (tenant_id, name) VALUES ($1, 'Hook Venue') RETURNING id`, f.tenantID).Scan(&venue); err != nil {
+		t.Fatal(err)
+	}
+	tag := strings.ToUpper(strings.ReplaceAll(uuid.NewString(), "-", "")[:14])
+	emp := uuid.New()
+	if _, err := c.Exec(ctx, `INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status) VALUES ($1, $2, $3, $4, 1000000, 'active')`,
+		tag, f.tenantID, venue, []byte(strings.Repeat("k", 44))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Exec(ctx, `INSERT INTO employees (id, tenant_id, location_id, full_name, status, invited_at) VALUES ($1, $2, $3, 'Hook Staff', 'active', now())`,
+		emp, f.tenantID, venue); err != nil {
+		t.Fatal(err)
+	}
+	var id uuid.UUID
+	if err := f.data.WithTenant(ctx, f.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `INSERT INTO transactions (tenant_id, employee_id, location_id, tag_uid, occurred_at, verdict, channel, type, trust)
+		                          VALUES ($1, $2, $3, $4, clock_timestamp() - interval '1 minute', 'ok', 'nfc', 'in', 70) RETURNING id`,
+			f.tenantID, emp, venue, tag).Scan(&id)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+// TestWebhookPanel_TheDeliveryLogAndResend is API-10's panel part (ADR 0028 §6): the owner's section
+// lists the business's deliveries -- the punch's pch_ id, the state as a word ("Queued"), the tries --
+// with a "Send again now" form; the log holds no address; the resend answers with a done word, writes
+// one webhook_delivery.resend slot and counts against the bucket the page shows; a malformed or unknown
+// delivery id is said and spends nothing; a manager's page is 403 (TestWebhookPanel_ManagerIs403EverywhereAndLeavesATrail
+// covers the write). Nothing of the address or a key reaches a log or the trail.
+func TestWebhookPanel_TheDeliveryLogAndResend(t *testing.T) {
+	f := newWebhookPanelFixture(t)
+	b := f.browserAs(t, f.owner, "owner", true)
+	key := f.create(t, b)
+	punch := f.tapForDelivery(t)
+	page := b.do(http.MethodGet, apiKeysHref, nil).Body.String()
+	if !strings.Contains(page, `id="webhook-deliveries"`) || !strings.Contains(page, "pch_"+punch.String()) ||
+		!strings.Contains(page, ">Queued<") || !strings.Contains(page, "Send again now") ||
+		!strings.Contains(page, `action="`+webhookResendHref+`"`) {
+		t.Fatal("the section does not list the delivery with its punch, its state and the resend form")
+	}
+	log := page[strings.Index(page, `id="webhook-deliveries"`):]
+	if strings.Contains(log, webhookCanaryHost) || strings.Contains(log, "hook-token-path") {
+		t.Fatal("the delivery log names the address")
+	}
+	var delivery uuid.UUID
+	if err := f.data.WithTenant(context.Background(), f.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT id FROM webhook_deliveries WHERE tenant_id = $1`, f.tenantID).Scan(&delivery)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"not-a-uuid", uuid.NewString()} {
+		rec := b.do(http.MethodPost, webhookResendHref, url.Values{"delivery": {bad}})
+		if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "problem=webhook-delivery-unknown") {
+			t.Fatalf("resend %q: %d %s", bad, rec.Code, rec.Header().Get("Location"))
+		}
+	}
+	rec := b.do(http.MethodPost, webhookResendHref, url.Values{"delivery": {delivery.String()}})
+	if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "done=webhook-resent") {
+		t.Fatalf("resend: %d %s", rec.Code, rec.Header().Get("Location"))
+	}
+	slots := f.trail(t, endpoints.ActionResend)
+	if len(slots) != 1 {
+		t.Fatalf("%d resend slots, want 1", len(slots))
+	}
+	after := b.do(http.MethodGet, apiKeysHref+"?done=webhook-resent", nil).Body.String()
+	if !strings.Contains(after, "queued to be sent again") || !strings.Contains(after, "1 of 10") {
+		t.Fatal("after the resend the page does not say so, or the bucket does not count it")
+	}
+	if rec := f.browserAs(t, f.manager, "manager", true).do(http.MethodGet, apiKeysHref, nil); rec.Code != http.StatusForbidden {
+		t.Fatalf("the manager's section: %d", rec.Code)
+	}
+	f.assertNoLeak(t, key)
+}
+
+// TestParseDeliveryPosition_OnlyWhatTheLogHandsOut: the log's position round-trips; a position dated
+// before the epoch or more than a day ahead, a signed or non-decimal instant, a short or extra id, and
+// no separator are refused (read as the newest page) -- the instant is bounded before any query.
+func TestParseDeliveryPosition_OnlyWhatTheLogHandsOut(t *testing.T) {
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	p := endpoints.DeliveryPosition{At: time.Date(2026, 10, 15, 11, 59, 58, 123456000, time.UTC), ID: uuid.New()}
+	got, ok := parseDeliveryPosition(formatDeliveryPosition(p), now)
+	if !ok || !got.At.Equal(p.At) || got.ID != p.ID {
+		t.Fatalf("round trip: %+v %v", got, ok)
+	}
+	id := uuid.NewString()
+	for _, bad := range []string{
+		"", id, "1." + id, strconv.FormatInt(time.Date(2025, 12, 31, 0, 0, 0, 0, time.UTC).UnixMicro(), 10) + "." + id,
+		strconv.FormatInt(now.Add(25*time.Hour).UnixMicro(), 10) + "." + id, "-1." + id, "+1760529600000000." + id,
+		"0x1." + id, strconv.FormatInt(now.UnixMicro(), 10) + "." + id[:35], strconv.FormatInt(now.UnixMicro(), 10) + "." + id + "0",
+		strconv.FormatInt(now.UnixMicro(), 10) + "." + strings.ReplaceAll(id, "-", ""), "99999999999999999999." + id,
+	} {
+		if _, ok := parseDeliveryPosition(bad, now); ok {
+			t.Errorf("%q was read as a position", bad)
+		}
 	}
 }

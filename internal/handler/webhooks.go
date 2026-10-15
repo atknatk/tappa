@@ -20,7 +20,9 @@ import (
 // THE WEBHOOK PART OF THE API KEYS SECTION -- M11 API-9 (ADR 0028 §6, §7, §10). The owner keeps the
 // business's ONE endpoint: creates it (its signing key shown ONCE, on that response), changes its
 // address, rotates its key (the new key shown once, the old one dead), switches it off and on, and
-// sends it a test ping. The deliveries and their log are API-10's.
+// sends it a test ping. M11 API-10 adds the DELIVERY LOG under it (the business's deliveries, newest
+// first, a page at a time -- no address, no receiver's text) and "resend" on a pending or dead one (one
+// slot of the ping's bucket; on the write chain like every write here).
 //
 // 🔴 OWNER-ONLY, LIKE THE REST OF THE SECTION (apikeys.go): a manager is 403 at every route and a
 // refused write leaves a webhook_endpoint.refused row; the domain re-reads the role in its own
@@ -44,6 +46,7 @@ var (
 	webhookDisableHref = webhookHref + "/disable"
 	webhookEnableHref  = webhookHref + "/enable"
 	webhookPingHref    = webhookHref + "/ping"
+	webhookResendHref  = webhookHref + "/resend"
 )
 
 // ActionWebhookRefused records a webhook write the role gate refused.
@@ -61,6 +64,8 @@ type panelWebhook interface {
 	Disable(ctx context.Context, tenantID, actorID uuid.UUID) (uuid.UUID, error)
 	Enable(ctx context.Context, tenantID, actorID uuid.UUID) (uuid.UUID, error)
 	Ping(ctx context.Context, tenantID, actorID uuid.UUID) (endpoints.Pinged, error)
+	Deliveries(ctx context.Context, tenantID, actorID uuid.UUID, pos endpoints.DeliveryPosition) (endpoints.DeliveryPage, error)
+	Resend(ctx context.Context, tenantID, actorID, deliveryID uuid.UUID) error
 }
 
 // IntegrationWebhook gives the panel the webhook endpoint service. cmd/tappa passes it whenever
@@ -71,10 +76,11 @@ func IntegrationWebhook(w panelWebhook) AdminAuthOption {
 }
 
 var (
-	webhookDoneWords    = []string{"webhook-readdressed", "webhook-disabled", "webhook-enabled"}
+	webhookDoneWords    = []string{"webhook-readdressed", "webhook-disabled", "webhook-enabled", "webhook-resent"}
 	webhookProblemWords = []string{"webhook-unreadable", "webhook-api-closed", "webhook-exists", "webhook-none",
 		"webhook-unchanged", "webhook-not-confirmed", "webhook-switched-off", "webhook-key-unreadable",
-		"webhook-stored-address", "webhook-bucket-full"}
+		"webhook-stored-address", "webhook-bucket-full", "webhook-delivery-unknown", "webhook-delivery-delivered",
+		"webhook-delivery-in-flight"}
 )
 
 func webhookDoneSentence(word string) string {
@@ -85,6 +91,8 @@ func webhookDoneSentence(word string) string {
 		return "The webhook is switched off. Taptime sends it nothing until you switch it on again."
 	case "webhook-enabled":
 		return "The webhook is switched on."
+	case "webhook-resent":
+		return "The delivery is queued to be sent again now. Its new state shows in the list below in a moment."
 	default:
 		return ""
 	}
@@ -111,7 +119,13 @@ func webhookProblemSentence(word string) string {
 	case "webhook-stored-address":
 		return "The webhook's saved address no longer passes Taptime's address rules, so nothing was sent. Give it a new address."
 	case "webhook-bucket-full":
-		return "This business has used its 10 test messages for this hour, so none was sent."
+		return "This business has used its 10 test messages and resends for this hour, so nothing was sent."
+	case "webhook-delivery-unknown":
+		return "That delivery is not one of this business's deliveries. Nothing was sent."
+	case "webhook-delivery-delivered":
+		return "That delivery already arrived, so it was not sent again."
+	case "webhook-delivery-in-flight":
+		return "That delivery is being sent right now. Wait a minute and look at the list again."
 	default:
 		return "That did not happen."
 	}
@@ -182,7 +196,7 @@ func (a *AdminAuth) readWebhookView(r *http.Request, id httpx.AdminIdentity, zon
 	v := pages.WebhookView{
 		CreateHref: webhookHref, AddressHref: webhookAddressHref, RotateHref: webhookRotateHref,
 		DisableHref: webhookDisableHref, EnableHref: webhookEnableHref, PingHref: webhookPingHref,
-		AddressMaxLength: egress.MaxEndpointLength, Limit: endpoints.BucketLimit,
+		AddressMaxLength: egress.MaxEndpointLength, Limit: endpoints.BucketLimit, ResendHref: webhookResendHref,
 	}
 	if a.webhook == nil {
 		return v, nil
@@ -207,6 +221,11 @@ func (a *AdminAuth) readWebhookView(r *http.Request, id httpx.AdminIdentity, zon
 		v.CreatedOn = e.CreatedAt.In(zone).Format("2 January 2006, 15:04")
 		if e.RotatedAt != nil {
 			v.RotatedOn = e.RotatedAt.In(zone).Format("2 January 2006, 15:04")
+		}
+	}
+	if v.Exists {
+		if err := a.readWebhookDeliveries(r, id, zone, &v); err != nil {
+			return v, err
 		}
 	}
 	if q := r.URL.Query(); q.Has("ping") {
@@ -478,4 +497,174 @@ func (a *AdminAuth) refuseWebhookWrite(r *http.Request, id httpx.AdminIdentity, 
 			Outcome: "refused", Act: act, Role: id.Admin.Role, RequiredRole: adminRoleOwner, Via: "panel",
 		},
 	})
+}
+
+// THE DELIVERY LOG (M11 API-10, ADR 0028 §6): the business's deliveries, newest first, a page at a
+// time, under the endpoint's docket; "resend" on a pending or dead one. The position of a page is
+// the last row of the one before, written into the link as <unix microseconds>.<delivery id> --
+// opaque to the owner, checked here before it reaches a query (CLAUDE.md §7: an instant a client
+// hands in is bounded first): a malformed one, or one dated outside [deliveryEpoch, now + a day], is
+// read as the newest page.
+
+// webhookDeliveriesParam is the log's position in the section's query string.
+const webhookDeliveriesParam = "deliveries"
+
+// deliveryEpoch is before any delivery could exist (M11 is 2026): a position dated earlier is not one
+// this page handed out.
+var deliveryEpoch = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+func formatDeliveryPosition(p endpoints.DeliveryPosition) string {
+	return strconv.FormatInt(p.At.UnixMicro(), 10) + "." + p.ID.String()
+}
+
+// parseDeliveryPosition reads a position the log handed out; false for anything else.
+func parseDeliveryPosition(raw string, now time.Time) (endpoints.DeliveryPosition, bool) {
+	micro, id, ok := strings.Cut(raw, ".")
+	if !ok || micro == "" || len(micro) > 17 || strings.TrimLeft(micro, "0123456789") != "" {
+		return endpoints.DeliveryPosition{}, false
+	}
+	n, err := strconv.ParseInt(micro, 10, 64)
+	if err != nil {
+		return endpoints.DeliveryPosition{}, false
+	}
+	at := time.UnixMicro(n).UTC()
+	if at.Before(deliveryEpoch) || at.After(now.Add(24*time.Hour)) {
+		return endpoints.DeliveryPosition{}, false
+	}
+	u, err := uuid.Parse(id)
+	if err != nil || len(id) != 36 {
+		return endpoints.DeliveryPosition{}, false
+	}
+	return endpoints.DeliveryPosition{At: at, ID: u}, true
+}
+
+// webhookDeliveryWord is the state as the owner reads it: a WORD (skill tappa-brand: status is never a
+// colour alone).
+func webhookDeliveryWord(d endpoints.Delivery) string {
+	switch {
+	case d.State == "delivered":
+		return "Delivered"
+	case d.State == "dead":
+		return "Failed"
+	case d.InFlight:
+		return "Sending"
+	case d.Attempts > 0:
+		return "Retrying"
+	default:
+		return "Queued"
+	}
+}
+
+// webhookAnswerWords is the last try's answer: the closed class in words and the status code.
+func webhookAnswerWords(class string, status int) string {
+	code := ""
+	if status > 0 {
+		code = "HTTP " + strconv.Itoa(status)
+	}
+	word := ""
+	switch egress.Class(class) {
+	case "":
+	case egress.ClassTimeout:
+		word = "no answer in 10 s"
+	case egress.ClassTLS:
+		word = "secure connection failed"
+	case egress.ClassRefused:
+		word = "could not be reached"
+	case egress.ClassHTTP4xx:
+		word = "refused by your system"
+		if status >= 300 && status < 400 {
+			word = "a redirect (not followed)"
+		}
+	case egress.ClassHTTP5xx:
+		word = "an error on your system's side"
+	case egress.ClassBlocked:
+		word = "an address Taptime does not send to"
+	default:
+		word = "failed"
+	}
+	switch {
+	case word != "" && code != "":
+		return code + ", " + word
+	case word != "":
+		return word
+	default:
+		return code
+	}
+}
+
+// readWebhookDeliveries fills the log into v.
+func (a *AdminAuth) readWebhookDeliveries(r *http.Request, id httpx.AdminIdentity, zone *time.Location, v *pages.WebhookView) error {
+	var pos endpoints.DeliveryPosition
+	if raw := r.URL.Query().Get(webhookDeliveriesParam); raw != "" {
+		if p, ok := parseDeliveryPosition(raw, time.Now()); ok {
+			pos = p
+			v.DeliveriesNewestHref = apiKeysHref + "#webhook-deliveries"
+		}
+	}
+	page, err := a.webhook.Deliveries(r.Context(), id.TenantID(), id.Admin.AdminUserID, pos)
+	if err != nil {
+		return err
+	}
+	for _, d := range page.Deliveries {
+		row := pages.WebhookDeliveryRow{
+			ID:         d.ID.String(),
+			PunchID:    "pch_" + d.PunchID.String(),
+			Queued:     d.CreatedAt.In(zone).Format("2 Jan 2006, 15:04:05"),
+			State:      webhookDeliveryWord(d),
+			Attempts:   d.Attempts,
+			LastAnswer: webhookAnswerWords(d.Class, d.Status),
+			Resendable: d.Resendable(),
+		}
+		if d.State == "pending" && d.Attempts > 0 && !d.InFlight {
+			row.NextTry = d.NextAt.In(zone).Format("2 Jan 2006, 15:04")
+		}
+		if d.DeliveredAt != nil {
+			row.Delivered = d.DeliveredAt.In(zone).Format("2 Jan 2006, 15:04:05")
+		}
+		v.Deliveries = append(v.Deliveries, row)
+	}
+	if !page.Next.IsZero() {
+		v.DeliveriesOlderHref = apiKeysHref + "?" + webhookDeliveriesParam + "=" + formatDeliveryPosition(page.Next) + "#webhook-deliveries"
+	}
+	return nil
+}
+
+// webhookResend asks for one pending or dead delivery to be sent again now (one slot of the bucket).
+func (a *AdminAuth) webhookResend(w http.ResponseWriter, r *http.Request) {
+	id := httpx.AdminOf(r)
+	if !a.webhookWriteGate(w, r, id, "resend") {
+		return
+	}
+	raw := strings.TrimSpace(r.PostFormValue("delivery"))
+	did, perr := uuid.Parse(raw)
+	if perr != nil || len(raw) != 36 {
+		a.log.Warn("panel webhook resend refused: not a delivery id", "actor_id", id.Admin.AdminUserID)
+		a.redirect(w, apiKeysHref+"?problem=webhook-delivery-unknown#webhook-deliveries")
+		return
+	}
+	err := a.webhook.Resend(r.Context(), id.TenantID(), id.Admin.AdminUserID, did)
+	var full *endpoints.BucketFull
+	word := ""
+	switch {
+	case err == nil:
+		a.log.Info("panel webhook delivery resent", "actor_id", id.Admin.AdminUserID, "delivery_id", did)
+		a.redirect(w, apiKeysHref+"?done=webhook-resent#webhook-deliveries")
+		return
+	case errors.As(err, &full):
+		word = "webhook-bucket-full"
+	case errors.Is(err, endpoints.ErrNoDelivery):
+		word = "webhook-delivery-unknown"
+	case errors.Is(err, endpoints.ErrDelivered):
+		word = "webhook-delivery-delivered"
+	case errors.Is(err, endpoints.ErrInFlight):
+		word = "webhook-delivery-in-flight"
+	case a.webhookRefusal(w, r, id, "resend", err):
+		return
+	default:
+		a.log.Error("panel: could not resend a webhook delivery", "err", err, "delivery_id", did)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteFailed)
+		return
+	}
+	a.log.Warn("panel webhook resend refused", "actor_id", id.Admin.AdminUserID, "delivery_id", did, "reason", word)
+	a.redirect(w, apiKeysHref+"?problem="+word+"#webhook-deliveries")
 }

@@ -244,6 +244,9 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		r.Post(webhookDisableHref, a.webhookSwitch(false))
 		r.Post(webhookEnableHref, a.webhookSwitch(true))
 		r.Post(webhookPingHref, a.webhookPing)
+		// API-10's "resend" from the delivery log: an outbound request like the ping (one slot of
+		// the same bucket), so it is on this chain for the same reason.
+		r.Post(webhookResendHref, a.webhookResend)
 		// 🔴 THE ACCOUNT SECTION'S BRAND EDITOR (M10 WL-7): the colour and taking a logo
 		// or a colour back are two ordinary writes on this chain. The LOGO UPLOAD is a
 		// nested group for the encode relay's reason below: its gate (brandupload.go)

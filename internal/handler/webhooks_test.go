@@ -35,6 +35,10 @@ func (stubWebhook) Enable(context.Context, uuid.UUID, uuid.UUID) (uuid.UUID, err
 func (stubWebhook) Ping(context.Context, uuid.UUID, uuid.UUID) (endpoints.Pinged, error) {
 	return endpoints.Pinged{}, nil
 }
+func (stubWebhook) Deliveries(context.Context, uuid.UUID, uuid.UUID, endpoints.DeliveryPosition) (endpoints.DeliveryPage, error) {
+	return endpoints.DeliveryPage{}, nil
+}
+func (stubWebhook) Resend(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) error { return nil }
 
 // TestNewAdminAuth_TheWebhookServiceMatchesTheConfiguration: a configuration that holds the webhook KEK
 // (every one outside dev) builds no panel without the webhook service -- that panel would take away
