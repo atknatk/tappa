@@ -1504,8 +1504,10 @@ type Querier interface {
 	// Removes a department that nothing points at. Same argument as DeleteLocation: the
 	// foreign keys are the guard, the count is what the screen says.
 	DeleteDepartment(ctx context.Context, arg DeleteDepartmentParams) (DeleteDepartmentRow, error)
-	// The lazy delete: at most 100 of this tenant's rows older than 24 hours, oldest first. SKIP LOCKED,
-	// so two writes of one tenant never queue behind each other's clean-up.
+	// The lazy delete: at most 100 of this tenant's rows older than 24 hours, oldest first, SKIP LOCKED.
+	// It runs in a short transaction of its own (internal/apikey, Writes.Run): inside a write's
+	// transaction its locks lived as long as the write and two writes deadlocked on each other's swept
+	// rows (measured, API-4 review D1).
 	DeleteExpiredIdempotency(ctx context.Context, tenantID uuid.UUID) (int64, error)
 	// apiidempotency.sql -- the integration API's Idempotency-Key ledger (M11 API-4, ADR 0028 §8;
 	// migration 00052). internal/apikey's Writes.Run is the one caller.

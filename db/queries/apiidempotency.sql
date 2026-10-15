@@ -17,8 +17,10 @@ WHERE tenant_id = @tenant_id
   AND created_at < now() - interval '24 hours';
 
 -- name: DeleteExpiredIdempotency :execrows
--- The lazy delete: at most 100 of this tenant's rows older than 24 hours, oldest first. SKIP LOCKED,
--- so two writes of one tenant never queue behind each other's clean-up.
+-- The lazy delete: at most 100 of this tenant's rows older than 24 hours, oldest first, SKIP LOCKED.
+-- It runs in a short transaction of its own (internal/apikey, Writes.Run): inside a write's
+-- transaction its locks lived as long as the write and two writes deadlocked on each other's swept
+-- rows (measured, API-4 review D1).
 DELETE FROM api_idempotency AS d
 WHERE d.tenant_id = @tenant_id
   AND (d.tenant_id, d.key_id, d.idem_key) IN (

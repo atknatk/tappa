@@ -16,8 +16,11 @@ import (
 // transaction in the key's tenant context (WithTenant + an explicit tenant_id filter on every
 // statement -- CLAUDE.md §4.5):
 //
-//	the lazy delete     at most 100 of THIS tenant's ledger rows older than 24 hours (K-19: no
-//	                    cross-tenant sweep, ever)
+//	the sweep           at most 100 of THIS tenant's ledger rows older than 24 hours (K-19: no
+//	                    cross-tenant sweep, ever), SKIP LOCKED, in a SHORT TRANSACTION OF ITS OWN
+//	                    that commits before the write's begins
+//	the key's own row   the one expired row this request's key would collide with -- the first
+//	                    statement of the write's transaction
 //	the claim           with an Idempotency-Key: INSERT ... ON CONFLICT DO NOTHING on
 //	                    api_idempotency's primary key, BEFORE the work. A concurrent request with
 //	                    the same key waits on that key until this transaction ends; then it finds
@@ -25,6 +28,15 @@ import (
 //	                    it itself
 //	the work            the caller's, in the same transaction
 //	the result          the status and the record's id into the claimed row (never a body)
+//
+// 🔴 WHY THE SWEEP IS NOT IN THE WRITE'S TRANSACTION (API-4 review D1, measured). It was, and it ran
+// before the key's own delete: write A's sweep locked the tenant's 100 oldest expired rows, B's sweep
+// skipped them and locked the next 100, and with A's key's row in B's set and B's in A's, the two
+// per-key deletes waited on each other -- 40P01, deterministically, on a tenant with more than 100
+// expired rows. Even without the cycle, a sweep row held for a write's whole lifetime made a write
+// with ANOTHER key wait for it. Committed on its own, a sweep's locks last one statement, so the
+// only thing a write's transaction can wait on is a request with the SAME key -- which is meant to
+// wait (TestIdempotency_TwoKeysOverAFullSweepNeitherDeadlockNorWait).
 //
 // A process that dies anywhere in between rolls the whole transaction back, the claim with it: no
 // "processing" row can be left behind (the ADR's eliminated option -- a claim in a transaction of
@@ -103,6 +115,9 @@ type Writes struct {
 	// afterClaim, when set, runs right after a fresh claim, inside the transaction -- a test's
 	// stopping point (the checkin package's recordHooks precedent). nil in production.
 	afterClaim func(ctx context.Context, tx pgx.Tx)
+	// beforeKey, when set, runs at the start of the write's transaction, after the sweep committed
+	// and before the key's own expired row is deleted -- a test's stopping point. nil in production.
+	beforeKey func(ctx context.Context)
 }
 
 // NewWrites builds the runner.
@@ -129,10 +144,18 @@ func (w *Writes) Run(ctx context.Context, req WriteRequest, work WorkFunc) (out 
 		return Outcome{}, false, errors.New("api key: an idempotent write needs its request hash")
 	}
 	idem := req.IdempotencyKey != ""
+	// The sweep commits ON ITS OWN, before the write's transaction: its row locks live for one
+	// statement, never for the write's lifetime (see the package comment's measurement).
+	if err := w.data.WithTenant(ctx, p.TenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := store.New(tx).DeleteExpiredIdempotency(ctx, p.TenantID)
+		return err
+	}); err != nil {
+		return Outcome{}, false, fmt.Errorf("api key: the lazy delete: %w", err)
+	}
 	err = w.data.WithTenant(ctx, p.TenantID, func(ctx context.Context, tx pgx.Tx) error {
 		q := store.New(tx)
-		if _, err := q.DeleteExpiredIdempotency(ctx, p.TenantID); err != nil {
-			return fmt.Errorf("api key: the lazy delete: %w", err)
+		if w.beforeKey != nil {
+			w.beforeKey(ctx)
 		}
 		if idem {
 			key := store.DeleteExpiredIdempotencyForKeyParams{TenantID: p.TenantID, KeyID: p.KeyID, IdemKey: req.IdempotencyKey}

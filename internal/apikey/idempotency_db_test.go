@@ -331,3 +331,95 @@ func TestIdempotency_LazyDeleteIsThisTenantsAlone(t *testing.T) {
 		t.Fatalf("B with A's idempotency key: err %v replayed %v work %d; want B's own first request", err, replayed, bCalls.Load())
 	}
 }
+
+type whoKey struct{}
+
+// TestIdempotency_TwoKeysOverAFullSweepNeitherDeadlockNorWait (API-4 review D1): a tenant with more
+// than 100 expired ledger rows, and two writes with DIFFERENT keys whose own expired rows sit in each
+// other's sweep -- B's key's row the oldest, A's at rank 151. A sweeps first, then B; both are then
+// released together, and A holds its transaction open for a second after its claim. Neither write
+// fails (no 40P01) and B does not wait for A: it returns well inside A's second. Second part: the
+// key's own expired row is deleted even when the sweep does not reach it (150 older rows in front of
+// it) -- the same key with another request is a first request, not 422.
+//
+// MUTANTS (measured, API-4 review report): the sweep moved back into the write's transaction ->
+// 40P01; DeleteExpiredIdempotencyForKey removed -> 422 in the second part.
+func TestIdempotency_TwoKeysOverAFullSweepNeitherDeadlockNorWait(t *testing.T) {
+	d := appDB(t)
+	owner := ownerConn(t)
+	expired := func(w writeWorld, idem string, age string) {
+		t.Helper()
+		if _, err := owner.Exec(context.Background(), `INSERT INTO api_idempotency (tenant_id, key_id, idem_key, request_hash, status, created_at)
+		                                                VALUES ($1, $2, $3, $4, 201, now() - $5::interval)`,
+			w.p.TenantID, w.p.KeyID, idem, reqHash("old"), age); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fillers := func(w writeWorld, n int) {
+		t.Helper()
+		if _, err := owner.Exec(context.Background(), `INSERT INTO api_idempotency (tenant_id, key_id, idem_key, request_hash, status, created_at)
+		                                                SELECT $1, $2, 'f-' || i, $3, 201, now() - interval '48 hours' - i * interval '1 minute'
+		                                                  FROM generate_series(1, $4::int) AS i`,
+			w.p.TenantID, w.p.KeyID, reqHash("old"), n); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	w := newWriteWorld(t, d)
+	fillers(w, 249)
+	ka, kb := "ka-"+uuid.NewString(), "kb-"+uuid.NewString()
+	expired(w, kb, "100 hours")                       // rank 1: A's sweep takes it
+	expired(w, ka, "48 hours 100 minutes 30 seconds") // rank 151: B's sweep takes it
+	aSwept, bSwept, release := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	apikey.SetBeforeKeyForTest(w.writes, func(ctx context.Context) {
+		switch ctx.Value(whoKey{}) {
+		case "A":
+			close(aSwept)
+		case "B":
+			close(bSwept)
+		}
+		<-release
+	})
+	apikey.SetAfterClaimForTest(w.writes, func(ctx context.Context, _ pgx.Tx) {
+		if ctx.Value(whoKey{}) == "A" {
+			time.Sleep(time.Second)
+		}
+	})
+	var calls atomic.Int64
+	type result struct {
+		err  error
+		took time.Duration
+	}
+	run := func(who, idem string, out chan<- result) {
+		ctx := context.WithValue(context.Background(), whoKey{}, who)
+		_, _, err := w.writes.Run(ctx, apikey.WriteRequest{Principal: w.p, IdempotencyKey: idem, RequestHash: reqHash("new")}, w.probe(idem, &calls))
+		out <- result{err: err}
+	}
+	aDone, bDone := make(chan result, 1), make(chan result, 1)
+	go run("A", ka, aDone)
+	<-aSwept
+	go run("B", kb, bDone)
+	<-bSwept
+	start := time.Now()
+	close(release)
+	b := <-bDone
+	b.took = time.Since(start)
+	a := <-aDone
+	if a.err != nil || b.err != nil {
+		t.Fatalf("A: %v; B: %v -- want both to succeed (no deadlock)", a.err, b.err)
+	}
+	if b.took > 600*time.Millisecond {
+		t.Fatalf("B took %v while A held its transaction open for 1s: a write waited on another key's", b.took)
+	}
+	t.Logf("B returned %v after the release, A held its transaction 1s", b.took.Round(time.Millisecond))
+
+	// Second part: the key's own row behind 150 older ones.
+	w2 := newWriteWorld(t, d)
+	fillers(w2, 150)
+	kc := "kc-" + uuid.NewString()
+	expired(w2, kc, "25 hours")
+	var c2 atomic.Int64
+	if _, replayed, err := w2.writes.Run(context.Background(), apikey.WriteRequest{Principal: w2.p, IdempotencyKey: kc, RequestHash: reqHash("another")}, w2.probe(kc, &c2)); err != nil || replayed || c2.Load() != 1 {
+		t.Fatalf("an expired key behind 150 older rows, reused: err %v replayed %v work %d; want a first request", err, replayed, c2.Load())
+	}
+}

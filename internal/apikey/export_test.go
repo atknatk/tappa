@@ -17,3 +17,6 @@ func KeyedHashForTest(macKey []byte, raw string) string {
 
 // SetAfterClaimForTest installs the runner's stopping point right after a fresh claim.
 func SetAfterClaimForTest(w *Writes, f func(ctx context.Context, tx pgx.Tx)) { w.afterClaim = f }
+
+// SetBeforeKeyForTest installs the runner's stopping point after the sweep, before the key's own delete.
+func SetBeforeKeyForTest(w *Writes, f func(ctx context.Context)) { w.beforeKey = f }
