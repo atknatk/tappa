@@ -7,12 +7,19 @@ package tenant
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/atknatk/tappa/internal/db"
+	"github.com/atknatk/tappa/internal/httpx"
 )
 
 // TestPunchFeed_TheWindowBoundsASparseScopeAndAGapIsCrossed: KF's feed is one own tap, seven taps of
@@ -134,8 +141,9 @@ func TestPunchFeed_TheWindowBoundsASparseScopeAndAGapIsCrossed(t *testing.T) {
 // three positions KF's employer walk reads the first tap, then an EMPTY page that still says hasMore,
 // then the last tap -- each page touched at most three positions of the range, the position always
 // moved forward in (punch_time, seq), and the walk's S0 never changed. The location walk, two at a
-// time, reads all nine in punch_time order. A position past the range or past its S0 is
-// ErrHistoryRange; an S0 past the counter is ErrCursorAhead.
+// time, reads all nine in punch_time order. A position outside the range is ErrHistoryRange (one
+// past its S0 is not: the window counts every position -- API-7b review G-ORTA); an S0 past the
+// counter is ErrCursorAhead.
 func TestPunchHistory_TheWindowBoundsASparseScope(t *testing.T) {
 	f := newSiteFixture(t)
 	feed, err := NewPunchFeed(f.data)
@@ -217,7 +225,6 @@ func TestPunchHistory_TheWindowBoundsASparseScope(t *testing.T) {
 	}{
 		{HistoryPosition{S0: s0, Time: to}, ErrHistoryRange},
 		{HistoryPosition{S0: s0, Time: from.Add(-time.Microsecond)}, ErrHistoryRange},
-		{HistoryPosition{S0: s0, Time: from, Seq: s0 + 1}, ErrHistoryRange},
 		{HistoryPosition{S0: s0 + 1, Time: from}, ErrCursorAhead},
 	} {
 		if _, err := feed.HistoryPage(f.ctx, f.kf, FeedLocation, HistoryQuery{From: from, To: to, At: c.at}, 1); !errors.Is(err, c.want) {
@@ -228,5 +235,276 @@ func TestPunchHistory_TheWindowBoundsASparseScope(t *testing.T) {
 		if _, err := feed.HistoryPage(f.ctx, f.kf, FeedLocation, HistoryQuery{From: r[0], To: r[1], First: true}, 1); !errors.Is(err, ErrHistoryRange) {
 			t.Errorf("range %v..%v: %v, want ErrHistoryRange", r[0], r[1], err)
 		}
+	}
+}
+
+// kfTieGroup gives KF n own events at ONE punch_time with the heap in the REVERSE of their feed order
+// (the API package's tieGroup, for this package's fixture): n flags (no event), then as the owner in
+// KF's context their events with seq counter+n down to counter+1 and the counter moved. Returns the
+// seqs in feed order.
+func (f *siteFixture) kfTieGroup(t *testing.T, emp, venue uuid.UUID, uid string, n int, at time.Time) []int64 {
+	t.Helper()
+	ids := make([]uuid.UUID, n)
+	for i := range ids {
+		if err := f.data.WithTenant(f.ctx, f.kf, func(ctx context.Context, tx pgx.Tx) error {
+			return tx.QueryRow(ctx, `INSERT INTO transactions (tenant_id, employee_id, location_id, tag_uid, occurred_at, verdict, channel, type)
+			                         VALUES ($1, $2, $3, $4, $5, 'flag', 'nfc', 'in') RETURNING id`, f.kf, emp, venue, uid, at).Scan(&ids[i])
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tx, err := f.owner.Begin(f.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if _, err := tx.Exec(f.ctx, `SELECT set_config('app.tenant_id', $1, true)`, f.kf.String()); err != nil {
+		t.Fatal(err)
+	}
+	var base int64
+	if err := tx.QueryRow(f.ctx, `SELECT last_seq FROM feed_counters WHERE tenant_id = $1 FOR UPDATE`, f.kf).Scan(&base); err != nil {
+		t.Fatal(err)
+	}
+	for i := n - 1; i >= 0; i-- {
+		if _, err := tx.Exec(f.ctx, `INSERT INTO punch_events (tenant_id, seq, punch_id, punch_tenant_id, roles, punch_time, recorded_at, channel, direction, employee_id, location_id, tag_uid)
+		                             VALUES ($1, $2, $3, $1, '{employer,location}', $4, now(), 'nfc', 'in', $5, $6, $7)`,
+			f.kf, base+int64(i)+1, ids[i], at, emp, venue, uid); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := tx.Exec(f.ctx, `UPDATE feed_counters SET last_seq = $2 WHERE tenant_id = $1`, f.kf, base+int64(n)); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(f.ctx); err != nil {
+		t.Fatal(err)
+	}
+	out := make([]int64, n)
+	for i := range out {
+		out[i] = base + int64(i) + 1
+	}
+	return out
+}
+
+// historyWalk walks role over [from, to) with the given page sizes in turn; it returns the seqs.
+func historyWalk(t *testing.T, f *siteFixture, feed *PunchFeed, role FeedRole, from, to time.Time, limits []int) ([]int64, int) {
+	t.Helper()
+	var seqs []int64
+	q := HistoryQuery{From: from, To: to, First: true}
+	for i := range 10000 {
+		p, err := feed.HistoryPage(f.ctx, f.kf, role, q, limits[i%len(limits)])
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range p.Events {
+			seqs = append(seqs, e.Seq)
+		}
+		q = HistoryQuery{From: from, To: to, At: p.Next}
+		if !p.HasMore {
+			return seqs, i + 1
+		}
+	}
+	t.Fatal("the walk did not end")
+	return nil, 0
+}
+
+// TestPunchHistory_ATieAcrossTheWindowsEndIsCutByTheFeedOrder (API-7b review, DÜŞÜK-1 with E-ORTA):
+// 30 KF events at one instant, heap in the reverse of the feed order, with a window of four
+// positions -- so the window's end falls inside the tie, again and again. Walked with page sizes 1-7
+// and 50, the range answers the 30 in feed order, each once. MUTANT (measured): the page's bound
+// without seq ((punch_time) <= (end_time) instead of (punch_time, seq) <= (end_time, end_seq)) --
+// red.
+func TestPunchHistory_ATieAcrossTheWindowsEndIsCutByTheFeedOrder(t *testing.T) {
+	f := newSiteFixture(t)
+	feed, err := NewPunchFeed(f.data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	feed.window = 4
+	venue := f.venue("KF tie venue")
+	uid := f.plaque(venue)
+	emp := uuid.New()
+	f.exec(`INSERT INTO employees (id, tenant_id, external_ref, full_name, status, invited_at) VALUES ($1, $2, 'KF-TIE', 'KF Staff', 'active', now())`, emp, f.kf)
+	at := time.Now().UTC().Truncate(time.Second).Add(-72 * time.Hour)
+	want := f.kfTieGroup(t, emp, venue, uid, 30, at)
+	for _, limits := range [][]int{{1}, {2}, {3}, {4}, {5}, {6}, {7}, {50}, {1, 7, 3, 50}} {
+		got, _ := historyWalk(t, f, feed, FeedEmployer, at.Add(-time.Hour), at.Add(time.Hour), limits)
+		if !slices.Equal(got, want) {
+			t.Fatalf("page sizes %v: %v, want %v", limits, got, want)
+		}
+	}
+}
+
+// TestPunchHistory_AStaleSnapshotReadsAtMostTheWindow (API-7b review, G-ORTA): KF holds 20 events in
+// the range; a walk resumed with a STALE S0 -- one at or below which none of them is -- reads, with a
+// window of three positions, seven pages of at most three positions each (empty, hasMore true) and
+// ends; with the snapshot's filter in the window (the reviewed shape) the first page read all 20 rows,
+// found none and ended. The same through the database: the shipped window statement at a window of
+// three examines at most five rows of punch_events and removes none by a filter (EXPLAIN ANALYZE;
+// the count is window + 1, plus the one row the Incremental Sort reads past the LIMIT to close its
+// last group -- measured).
+// MUTANT (measured): seq <= S0 back in the window -- red.
+func TestPunchHistory_AStaleSnapshotReadsAtMostTheWindow(t *testing.T) {
+	f := newSiteFixture(t)
+	feed, err := NewPunchFeed(f.data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	feed.window = 3
+	venue := f.venue("KF stale venue")
+	uid := f.plaque(venue)
+	emp := uuid.New()
+	f.exec(`INSERT INTO employees (id, tenant_id, external_ref, full_name, status, invited_at) VALUES ($1, $2, 'KF-STALE', 'KF Staff', 'active', now())`, emp, f.kf)
+	t0 := time.Now().UTC().Truncate(time.Second).Add(-96 * time.Hour)
+	var s0 int64 // the counter before the 20: a snapshot that holds none of them
+	if err := f.owner.QueryRow(f.ctx, `SELECT last_seq FROM feed_counters WHERE tenant_id = $1`, f.kf).Scan(&s0); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 20 {
+		if err := f.data.WithTenant(f.ctx, f.kf, func(ctx context.Context, tx pgx.Tx) error {
+			_, err := tx.Exec(ctx, `INSERT INTO transactions (tenant_id, employee_id, location_id, tag_uid, occurred_at, verdict, channel, type)
+			                        VALUES ($1, $2, $3, $4, $5, 'ok', 'nfc', 'in')`, f.kf, emp, venue, uid, t0.Add(time.Duration(i)*time.Minute))
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	from, to := t0, t0.Add(time.Hour)
+	q := HistoryQuery{From: from, To: to, At: HistoryPosition{S0: s0, Time: from}}
+	pages := 0
+	for range 100 {
+		p, err := feed.HistoryPage(f.ctx, f.kf, FeedEmployer, q, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pages++
+		if len(p.Events) != 0 || p.Next.S0 != s0 {
+			t.Fatalf("page %d with the stale S0 %d: %d events, S0 %d", pages, s0, len(p.Events), p.Next.S0)
+		}
+		q.At = p.Next
+		if !p.HasMore {
+			break
+		}
+	}
+	if pages != 7 {
+		t.Fatalf("the stale walk took %d pages, want 7 (20 positions, three a page)", pages)
+	}
+	var plan []string
+	if err := f.data.WithTenant(f.ctx, f.kf, func(ctx context.Context, tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF) `+getPunchHistoryWindowSQL(),
+			from, int64(0), f.kf, from, to, int32(4), int32(3))
+		if err != nil {
+			return err
+		}
+		plan, err = pgx.CollectRows(rows, pgx.RowTo[string])
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range plan {
+		if strings.Contains(line, "on punch_events") {
+			var n int
+			if i := strings.Index(line, "rows="); i >= 0 {
+				if _, err := fmt.Sscanf(line[i:], "rows=%d", &n); err == nil && n > 5 {
+					t.Fatalf("the window statement read %d rows of punch_events at a window of three: %s", n, line)
+				}
+			}
+		}
+		if strings.Contains(line, "Rows Removed by Filter") {
+			t.Fatalf("the window statement filters rows it reads: %s\n%s", line, strings.Join(plan, "\n"))
+		}
+	}
+}
+
+// getPunchHistoryWindowSQL is the SHIPPED window statement, read from the generated file (the store
+// keeps it unexported), positional as the store sends it: $1 after_time, $2 after_seq, $3 tenant_id,
+// $4 from_time, $5 to_time, $6 scan_size, $7 window_size.
+func getPunchHistoryWindowSQL() string {
+	b, err := os.ReadFile(filepath.Join("..", "..", "store", "punchfeed.sql.go"))
+	if err != nil {
+		panic(err)
+	}
+	src := string(b)
+	i := strings.Index(src, "const getPunchHistoryWindow = `")
+	if i < 0 {
+		panic("no getPunchHistoryWindow in internal/store/punchfeed.sql.go")
+	}
+	rest := src[i+len("const getPunchHistoryWindow = `"):]
+	return rest[:strings.Index(rest, "`")]
+}
+
+// boundProbe is a Database that, after each read's work, asks the same transaction what its
+// statement timeout is -- what the read's statements ran under.
+type boundProbe struct {
+	data Database
+	seen []string
+}
+
+func (b *boundProbe) WithTenant(ctx context.Context, tenantID uuid.UUID, fn db.TxFunc) error {
+	return b.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		if err := fn(ctx, tx); err != nil {
+			return err
+		}
+		var v string
+		if err := tx.QueryRow(ctx, `SHOW statement_timeout`).Scan(&v); err != nil {
+			return err
+		}
+		b.seen = append(b.seen, v)
+		return nil
+	})
+}
+
+// TestAPIRead_EveryReadCarriesTheBound (API-7b review, G-ORTA's extra guard): each read the
+// integration API makes -- the feed, the history query, the employee list, one employee by ref and
+// by id -- runs its statements under APIReadTimeout (5 s), and two of them fit in the request's own
+// deadline. The pool's default stays unbounded (the server's 0): the bound is the API read's alone.
+// MUTANT (measured): the bound removed from one read -- red, naming it.
+func TestAPIRead_EveryReadCarriesTheBound(t *testing.T) {
+	if 2*APIReadTimeout > httpx.RequestTimeout {
+		t.Fatalf("APIReadTimeout %v: two of them must fit in the request's deadline %v", APIReadTimeout, httpx.RequestTimeout)
+	}
+	f := newSiteFixture(t)
+	probe := &boundProbe{data: f.data}
+	feed, err := NewPunchFeed(probe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	staff, err := NewStaff(probe, f.trail, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	reads := []struct {
+		name string
+		run  func() error
+	}{
+		{"PunchPage", func() error { _, err := feed.PunchPage(f.ctx, f.km, FeedEmployer, 0, 10); return err }},
+		{"HistoryPage", func() error {
+			_, err := feed.HistoryPage(f.ctx, f.km, FeedEmployer, HistoryQuery{From: now.Add(-time.Hour), To: now, First: true}, 10)
+			return err
+		}},
+		{"ListAPIEmployees", func() error { _, err := staff.ListAPIEmployees(f.ctx, f.km, nil, 10); return err }},
+		{"APIEmployeeByRef", func() error { _, err := staff.APIEmployeeByRef(f.ctx, f.km, "ext-"+f.emp.String()[:8]); return err }},
+		{"APIEmployeeByID", func() error { _, err := staff.APIEmployeeByID(f.ctx, f.km, f.emp); return err }},
+	}
+	for _, r := range reads {
+		before := len(probe.seen)
+		if err := r.run(); err != nil {
+			t.Fatalf("%s: %v", r.name, err)
+		}
+		if len(probe.seen) != before+1 || probe.seen[before] != "5s" {
+			t.Errorf("%s ran under statement_timeout %v, want 5s", r.name, probe.seen[before:])
+		}
+	}
+	if err := f.data.WithTenant(f.ctx, f.km, func(ctx context.Context, tx pgx.Tx) error {
+		var v string
+		if err := tx.QueryRow(ctx, `SHOW statement_timeout`).Scan(&v); err != nil {
+			return err
+		}
+		if v != "0" {
+			return fmt.Errorf("a plain transaction of the pool runs under %s, want the server's 0 (the bound is LOCAL)", v)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 }

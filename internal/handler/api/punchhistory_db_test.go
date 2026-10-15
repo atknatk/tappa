@@ -233,7 +233,7 @@ func TestPunchHistory_OutsiderSeesNone(t *testing.T) {
 // naming both parameters; a feed cursor (cur_) with from/to, and a history cursor (hst_) without them,
 // are 400 -- never silently a position of the other kind; a history cursor sent with another scope,
 // from or to, a malformed one, one whose S0 is past the counter, one whose position is outside the
-// range and one whose position is past its S0 are 400. No refusal repeats what was sent.
+// range are 400 (a position past its S0 is not: the window counts every position). No refusal repeats what was sent.
 func TestPunchHistory_TheRangeAndTheCursorAreTheContract(t *testing.T) {
 	w := newPunchWorld(t)
 	t0 := histBase()
@@ -294,7 +294,6 @@ func TestPunchHistory_TheRangeAndTheCursorAreTheContract(t *testing.T) {
 	bad("S0 past the counter", historyQ("employer", from, to, 1, forge(hc.pos.S0+1, hc.pos.Time, hc.pos.Seq)), "cursor")
 	bad("a position before from", historyQ("employer", from, to, 1, forge(hc.pos.S0, from.Add(-time.Microsecond), 0)), "cursor")
 	bad("a position at to", historyQ("employer", from, to, 1, forge(hc.pos.S0, to, 0)), "cursor")
-	bad("a position past S0", historyQ("employer", from, to, 1, forge(hc.pos.S0, hc.pos.Time, hc.pos.S0+1)), "cursor")
 	for _, junk := range []string{"hst_", "hst_1_2_3", "hst_1_2_3_XYZ", "hst_01_2_3_" + bind, "hst_1_-0_3_" + bind, "hst_1_2_3_" + strings.ToUpper(bind),
 		"hst_-1_2_3_" + bind, "hst_1_2_3_" + bind + "_4", "HST_1_2_3_" + bind, "hst_99999999999999999999_2_3_" + bind} {
 		bad("junk "+junk, historyQ("employer", from, to, 1, junk), "cursor", junk)

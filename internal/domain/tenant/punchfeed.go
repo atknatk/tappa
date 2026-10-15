@@ -117,6 +117,9 @@ func (f *PunchFeed) PunchPage(ctx context.Context, tenantID uuid.UUID, role Feed
 	}
 	var page PunchPage
 	err := f.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		if err := boundAPIRead(ctx, tx); err != nil {
+			return err
+		}
 		q := store.New(tx)
 		// 1. The head FIRST (punchfeed.sql: the order is the proof).
 		head, err := q.GetPunchFeedHead(ctx, store.GetPunchFeedHeadParams{TenantID: tenantID, AfterSeq: after})
@@ -238,11 +241,15 @@ func (f *PunchFeed) HistoryPage(ctx context.Context, tenantID uuid.UUID, role Fe
 		return HistoryPage{}, errors.New("tenant: a page needs a size")
 	case !from.Before(to) || to.Sub(from) > MaxHistoryRange:
 		return HistoryPage{}, ErrHistoryRange
-	case !q.First && (at.S0 < 0 || at.Seq < 0 || at.Seq > at.S0 || at.Time.Before(from) || !at.Time.Before(to)):
+	// The position's seq may be past S0: the window counts every position (punchfeed.sql).
+	case !q.First && (at.S0 < 0 || at.Seq < 0 || at.Time.Before(from) || !at.Time.Before(to)):
 		return HistoryPage{}, ErrHistoryRange
 	}
 	var page HistoryPage
 	err := f.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		if err := boundAPIRead(ctx, tx); err != nil {
+			return err
+		}
 		qs := store.New(tx)
 		// 1. The counter FIRST (punchfeed.sql: S0 before the window and the page).
 		last, err := qs.GetPunchFeedCounter(ctx, tenantID)
@@ -258,7 +265,7 @@ func (f *PunchFeed) HistoryPage(ctx context.Context, tenantID uuid.UUID, role Fe
 			return ErrCursorAhead
 		}
 		win, err := qs.GetPunchHistoryWindow(ctx, store.GetPunchHistoryWindowParams{
-			TenantID: tenantID, S0: at.S0, FromTime: from, ToTime: to, AfterTime: at.Time, AfterSeq: at.Seq,
+			TenantID: tenantID, FromTime: from, ToTime: to, AfterTime: at.Time, AfterSeq: at.Seq,
 			ScanSize: int32(f.window + 1), WindowSize: int32(f.window),
 		})
 		if err != nil {

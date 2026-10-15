@@ -32,9 +32,8 @@ WHERE fc.tenant_id = $1
 // above S0 is the feed's (cursor=cur_…) to deliver, never the history's.
 //
 // A page is three statements: the counter, the window's end (at most window positions of the
-// range after the cursor, any scope), the page (the scope's events up to that end). The window
-// bounds a sparse scope's walk as the feed's does; the two later statements see the same rows
-// because both read seq <= S0 only.
+// range after the cursor, any scope, any seq), the page (the scope's events at or below S0 up to
+// that end). The window bounds a page's walk whatever the scope's density and whatever the S0.
 // The tenant's counter: the history query's S0 on a first page, the bound a later page's S0 is held
 // to. No row means no counter row, which §5 says never happens (the caller treats it as an outage).
 func (q *Queries) GetPunchFeedCounter(ctx context.Context, tenantID uuid.UUID) (int64, error) {
@@ -100,15 +99,14 @@ WITH win AS (
     SELECT pe.punch_time, pe.seq
     FROM punch_events pe
     WHERE pe.tenant_id = $3
-      AND pe.seq <= $4::bigint
-      AND pe.punch_time >= $5::timestamptz
-      AND pe.punch_time < $6::timestamptz
+      AND pe.punch_time >= $4::timestamptz
+      AND pe.punch_time < $5::timestamptz
       AND pe.punch_time >= $1::timestamptz
       AND (pe.punch_time, pe.seq) > ($1::timestamptz, $2::bigint)
     ORDER BY pe.punch_time, pe.seq
-    LIMIT $7
+    LIMIT $6
 ), inside AS (
-    SELECT w.punch_time, w.seq FROM win w ORDER BY w.punch_time, w.seq LIMIT $8
+    SELECT w.punch_time, w.seq FROM win w ORDER BY w.punch_time, w.seq LIMIT $7
 )
 SELECT (SELECT count(*) FROM win)::bigint AS scanned,
        coalesce((SELECT i.punch_time FROM inside i ORDER BY i.punch_time DESC, i.seq DESC LIMIT 1), $1::timestamptz)::timestamptz AS end_time,
@@ -119,7 +117,6 @@ type GetPunchHistoryWindowParams struct {
 	AfterTime  time.Time
 	AfterSeq   int64
 	TenantID   uuid.UUID
-	S0         int64
 	FromTime   time.Time
 	ToTime     time.Time
 	ScanSize   int32
@@ -132,9 +129,16 @@ type GetPunchHistoryWindowRow struct {
 	EndSeq  int64
 }
 
-// How many positions of the range follow the cursor (counted to scan_size = window_size + 1, every scope,
-// seq <= S0 -- one more than the window, to know whether the range goes on past it) and the last of
-// the first window_size of them; with none, the cursor's own position comes back. The
+// How many positions of the range follow the cursor (counted to scan_size = window_size + 1, every scope
+// and EVERY seq -- one more than the window, to know whether the range goes on past it) and the last
+// of the first window_size of them; with none, the cursor's own position comes back.
+//
+// 🔴 THE WINDOW COUNTS POSITIONS, NOT THE SNAPSHOT'S ROWS (API-7b review, G-ORTA). seq <= S0 is NOT
+// here: the walk is over (tenant_id, punch_time), so a seq filter is a heap read per row that no
+// LIMIT stops -- a stale or forged S0 made one page read every row of the range (measured: 1 M rows
+// removed by the filter, 230-660 ms a request). Counted without it, a page reads at most window + 1
+// positions whatever its S0; the snapshot's filter is ListPunchHistory's. The guarantee is untouched:
+// the keyset walks the whole order, and the set at or below S0 is fixed. The
 // range is a walk of punch_events_tenant_time_idx (tenant_id, punch_time); the redundant
 // punch_time >= after_time is the predicate that index can bound, the row comparison breaks ties
 // by seq.
@@ -143,7 +147,6 @@ func (q *Queries) GetPunchHistoryWindow(ctx context.Context, arg GetPunchHistory
 		arg.AfterTime,
 		arg.AfterSeq,
 		arg.TenantID,
-		arg.S0,
 		arg.FromTime,
 		arg.ToTime,
 		arg.ScanSize,

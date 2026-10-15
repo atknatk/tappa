@@ -2492,9 +2492,8 @@ type Querier interface {
 	// above S0 is the feed's (cursor=cur_…) to deliver, never the history's.
 	//
 	// A page is three statements: the counter, the window's end (at most window positions of the
-	// range after the cursor, any scope), the page (the scope's events up to that end). The window
-	// bounds a sparse scope's walk as the feed's does; the two later statements see the same rows
-	// because both read seq <= S0 only.
+	// range after the cursor, any scope, any seq), the page (the scope's events at or below S0 up to
+	// that end). The window bounds a page's walk whatever the scope's density and whatever the S0.
 	// The tenant's counter: the history query's S0 on a first page, the bound a later page's S0 is held
 	// to. No row means no counter row, which §5 says never happens (the caller treats it as an outage).
 	GetPunchFeedCounter(ctx context.Context, tenantID uuid.UUID) (int64, error)
@@ -2522,9 +2521,16 @@ type Querier interface {
 	// none when the tenant has no counter row -- which §5 says never happens (00048 opens one for every
 	// tenant, the tenants trigger for a new one); the caller treats it as an outage, not as "empty".
 	GetPunchFeedHead(ctx context.Context, arg GetPunchFeedHeadParams) (GetPunchFeedHeadRow, error)
-	// How many positions of the range follow the cursor (counted to scan_size = window_size + 1, every scope,
-	// seq <= S0 -- one more than the window, to know whether the range goes on past it) and the last of
-	// the first window_size of them; with none, the cursor's own position comes back. The
+	// How many positions of the range follow the cursor (counted to scan_size = window_size + 1, every scope
+	// and EVERY seq -- one more than the window, to know whether the range goes on past it) and the last
+	// of the first window_size of them; with none, the cursor's own position comes back.
+	//
+	// 🔴 THE WINDOW COUNTS POSITIONS, NOT THE SNAPSHOT'S ROWS (API-7b review, G-ORTA). seq <= S0 is NOT
+	// here: the walk is over (tenant_id, punch_time), so a seq filter is a heap read per row that no
+	// LIMIT stops -- a stale or forged S0 made one page read every row of the range (measured: 1 M rows
+	// removed by the filter, 230-660 ms a request). Counted without it, a page reads at most window + 1
+	// positions whatever its S0; the snapshot's filter is ListPunchHistory's. The guarantee is untouched:
+	// the keyset walks the whole order, and the set at or below S0 is fixed. The
 	// range is a walk of punch_events_tenant_time_idx (tenant_id, punch_time); the redundant
 	// punch_time >= after_time is the predicate that index can bound, the row comparison breaks ties
 	// by seq.

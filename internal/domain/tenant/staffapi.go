@@ -976,6 +976,9 @@ func (s *Staff) APIEmployeeByRef(ctx context.Context, tenantID uuid.UUID, ref st
 	}
 	var out APIEmployee
 	err = s.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		if err := boundAPIRead(ctx, tx); err != nil {
+			return err
+		}
 		q := store.New(tx)
 		id, err := q.GetLatestEmployeeByExternalRef(ctx, store.GetLatestEmployeeByExternalRefParams{TenantID: tenantID, ExternalRef: &r})
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -1001,6 +1004,9 @@ func (s *Staff) APIEmployeeByID(ctx context.Context, tenantID, id uuid.UUID) (AP
 	}
 	var out APIEmployee
 	err := s.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		if err := boundAPIRead(ctx, tx); err != nil {
+			return err
+		}
 		var err error
 		out, err = s.apiEmployeeTx(ctx, store.New(tx), tenantID, id)
 		return err
@@ -1022,6 +1028,9 @@ func (s *Staff) ListAPIEmployees(ctx context.Context, tenantID uuid.UUID, after 
 	}
 	var out []APIEmployee
 	err := s.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		if err := boundAPIRead(ctx, tx); err != nil {
+			return err
+		}
 		rows, err := store.New(tx).ListAPIEmployees(ctx, store.ListAPIEmployeesParams{TenantID: tenantID, After: after, PageSize: int32(limit)})
 		if err != nil {
 			return err

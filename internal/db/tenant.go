@@ -3,6 +3,8 @@ package db
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -85,6 +87,21 @@ func (d *DB) WithTenant(ctx context.Context, tenantID uuid.UUID, fn TxFunc) (err
 
 	if err = tx.Commit(ctx); err != nil {
 		return fmt.Errorf("db: commit tx: %w", err)
+	}
+	return nil
+}
+
+// BoundStatements gives every later statement of tx a statement timeout of d -- LOCAL, so it ends
+// with the transaction and never reaches the pooled connection's next user (set_config's third
+// argument, the same rule as app.tenant_id above). The integration API's reads take it as their
+// first statement (internal/domain/tenant: APIReadTimeout); a statement past it is SQLSTATE 57014
+// and the request's 503, not a backend kept busy for the rest of the request's life.
+func BoundStatements(ctx context.Context, tx pgx.Tx, d time.Duration) error {
+	if d <= 0 {
+		return fmt.Errorf("db: a statement bound must be positive, not %v", d)
+	}
+	if _, err := tx.Exec(ctx, "SELECT set_config('statement_timeout', $1, true)", strconv.FormatInt(d.Milliseconds(), 10)); err != nil {
+		return fmt.Errorf("db: bound statements: %w", err)
 	}
 	return nil
 }
