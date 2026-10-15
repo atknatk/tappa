@@ -1692,6 +1692,17 @@ yazılır.
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 
+### 2026-10-15 (29. oturum, kırk yedinci yarı) — ✅ **API-9 DONE** (güvenlik 1. turda ONAY; üçüncü göz 2. turda ONAY) · 📌 **DEVAM: API-10**
+
+**API-9** (`522235c` … `6e0555c`): webhook uç nokta paneli + `internal/egress`. Sahibin tek uç noktası (`webhook_endpoints` 00048'de vardı — migration yok), `tt_whsec_` anahtarı `TAPPA_WEBHOOK_KEK` ile mühürlü (AAD = uç nokta kimliği), bir kez gösterilir; döndür / adres / kapat-aç / ping. Ping ve "yeniden gönder" kovası `audit_log`'dan sayılır (saatte 10, işletme başına advisory kilit, slot istekten önce aynı işlemde; pencere tek kaynak `endpoints.BucketWindow`, SQL'e parametre). `egress`: dial anında IANA kayıtlarından birebir 51 girdi + düğüm/ingress listesi, `Unmap()`, IPv6 yalnız `2000::/3` eksi oyuklar, Proxy nil, yönlendirme yok, keep-alive yok, 10 sn, gövde okunmaz, sonuç yalnız kapalı sınıf + durum. `TAPPA_WEBHOOK_KEK` ve `TAPPA_WEBHOOK_BLOCKED_ADDRESSES` dev dışında zorunlu. `Egress_*` testleri ve imza vektörü API-10'dan buraya taşındı.
+- **🟢 Kullanıcı kararı:** imza başlığı `X-Taptime-Signature` (değer `sha256=` + hex HMAC-SHA256).
+- **Denetim izi:** 1. tur güvenlik ONAY (51 = 51 kayıt girdisi, 8 M rastgele adreste model = kapı) / üçüncü göz RED — O-1: kovanın 1 saatlik penceresi testsizdi (`'1 minute'` mutantı yeşil) → düzeltme (pencere parametre + 59/61 dk kenar testi; `webhooks.sql`/`apikeys.sql` açık `tenant_id` pini) → 2. tur yeni üçüncü göz ONAY. Yapıcının 12 kararı iki mercekte KABUL. Kalan üç DÜŞÜK (Go↔DB saatli ±5 sn tolerans, ADR'de "aynı plan" ifadesi, `fileBelt` yorumu) API-10'un ilk işi.
+- **API-13'e bloklayan iki madde:** düğümün IPv6 adresi engel listesine; `TAPPA_WEBHOOK_KEK` deploy'dan önce uzak sır deposuna (`externalsecret` zorunlu çeker). Manifestte `TAPPA_ENV` açıkça verilir.
+- **Not:** bir denetçi probu istemeden genel bir adrese (8.8.8.8) yüksüz bir TCP denemesi yaptı; brief'lere "DNS cevabına gerçek genel adres koyma" eklendi.
+- **CLAUDE.md:** §3 `internal/egress/` ve `internal/webhook/endpoints/` satırları; §7 log yasağına webhook host'u ve yolu.
+
+**🔴 DEVAM PLANI:** **API-10** (webhook gönderici + teslim günlüğü) — brief `m11-briefs/brief-api10-builder.md` → iki mercek → API-12; API-4b (OP-15), API-11 (DNS), API-13 (deploy kararı) kullanıcıya bağlı. Kullanıcıda bekleyenler: otuz dördüncü yarıdakiler + `site_punches` saklama süresi (DPA) + T125.
+
 ### 2026-10-15 (29. oturum, kırk altıncı yarı) — ✅ **API-8 DONE** (güvenlik 1. turda ONAY; üçüncü göz 2. turda ONAY) · 📌 **DEVAM: API-9**
 
 **Sıkıştırma sonrası:** giriş noktası `m11-briefs/DEVAM.md` (state.md'den güncel olabilir). `tappa-m11-db` goose **56**.

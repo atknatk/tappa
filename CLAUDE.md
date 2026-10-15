@@ -91,10 +91,15 @@ internal/invite/      davet basımı ve gönderimi; K-17 davet kuyruğu işçisi
                       K-22 kapısını, kesiciyi ve tavanları basımdan **önce** okur; istek en çok 72 sa bekler.
 internal/webhook/     K-19'un süreç içi "işi olan tenant'lar" kümesi ve işçi iskeleti (M11 API-4)
                       — tenant'lar arası tarama YOK; uç nokta ve mühürlü imza anahtarı API-9'da,
-                      teslim (kira, geri çekilme, `sha256=` imzası) API-10'da (ADR 0028 §6).
+                      teslim (kira, geri çekilme) API-10'da (ADR 0028 §6). İmza (`X-Taptime-Signature:
+                      sha256=…`) ve `tt_whsec_` anahtarı burada (`signing.go`).
+internal/webhook/endpoints/  sahibin tek uç noktası (M11 API-9): adres kuralı, `TAPPA_WEBHOOK_KEK` ile
+                      mühürlü anahtar (bir kez gösterilir), ping, ping + "yeniden gönder" kovası
+                      (`audit_log`'dan, saatte 10). Ayrı paket: `internal/webhook` DB okumaz.
+internal/egress/      SSRF-güvenli giden HTTP istemcisi (M11 API-9): dial anında izin listesi (IANA
+                      kaydı birebir + düğüm/ingress listesi), Proxy nil, yönlendirme yok, 10 sn, gövde
+                      okunmaz; sonuç yalnız kapalı sınıf + durum. Egress açıkken tek savunma (ADR 0028 §7).
   — aşağıdakiler HENÜZ YOK, M11'de doğacak (ADR 0027/0028) —
-internal/egress/      SSRF-güvenli giden HTTP istemcisi: dial anında izin listesi, Proxy nil,
-                      yönlendirme yok. Egress açıkken tek savunma (ADR 0028 §7).
 internal/sandbox/     sandbox simülasyonu; YALNIZ `sandbox` build tag'li cmd dosyası import
                       eder — prod derlemesinde yoktur (ADR 0028 §11).
 internal/db/holding.go  kapalı listedeki holding_* çağrıları, elle ve tipli (resolve.go
@@ -336,7 +341,7 @@ başlayan bir test durumu olmalı.
   AES anahtarı, davet kodu, e-posta adresi (ADR 0022 §10), tam GPS koordinatı; operatör tarafında okuma bileti,
   TOTP kodu ve sırrı, enrollment token'ı (ADR 0020/0021 — hata mesajı ve audit
   `detail`'i dahil); dış API tarafında API anahtarı ve hash'i, `Authorization` başlığı,
-  webhook imza anahtarı (`tt_whsec_` önekli), webhook URL'si ve
+  webhook imza anahtarı (`tt_whsec_` önekli), webhook URL'si (host'u ve yolu dahil) ve
   `*url.Error` metni (Go o metinde URL'yi taşır — ADR 0028 §3, §6; bunlarda da hata mesajı ve
   audit `detail`'i dahil).
 - Env anahtarları (`namedKeys()`) **çift çift** birbirinden farklı olmak zorundadır — iki anahtarın
