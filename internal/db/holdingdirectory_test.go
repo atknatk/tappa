@@ -33,6 +33,7 @@ const (
 type holdingDirRow struct {
 	id, employer                    uuid.UUID
 	apiCode, ref, code, first, last *string
+	full                            string
 	active                          bool
 	updatedAt                       time.Time
 }
@@ -44,8 +45,8 @@ func (r holdingDirRow) String() string {
 		}
 		return *p
 	}
-	return fmt.Sprintf("{%s of %s %s %s %s %s %s active=%v %s}", r.id, r.employer, s(r.apiCode), s(r.ref), s(r.code), s(r.first), s(r.last),
-		r.active, r.updatedAt.UTC().Format(time.RFC3339Nano))
+	return fmt.Sprintf("{%s of %s %s %s %s %s %s %q active=%v %s}", r.id, r.employer, s(r.apiCode), s(r.ref), s(r.code), s(r.first), s(r.last),
+		r.full, r.active, r.updatedAt.UTC().Format(time.RFC3339Nano))
 }
 
 // holdingDirectoryIn calls holding_directory(since, cursor) as tappa_app in tenant's context.
@@ -53,14 +54,15 @@ func holdingDirectoryIn(t *testing.T, ctx context.Context, tx pgx.Tx, tenant uui
 	t.Helper()
 	var out []holdingDirRow
 	if err := holdingAppIn(t, ctx, tx, tenant, func(sp pgx.Tx) error {
-		rows, err := sp.Query(ctx, `SELECT employee_id, employer_tenant_id, api_code, external_ref, employee_code, first_name, last_name, active, updated_at
+		rows, err := sp.Query(ctx, `SELECT employee_id, employer_tenant_id, api_code, external_ref, employee_code, first_name, last_name, full_name,
+		                                   active, updated_at
 		                              FROM public.holding_directory($1, $2)`, since, cursor)
 		if err != nil {
 			return err
 		}
 		out, err = pgx.CollectRows(rows, func(r pgx.CollectableRow) (holdingDirRow, error) {
 			var d holdingDirRow
-			err := r.Scan(&d.id, &d.employer, &d.apiCode, &d.ref, &d.code, &d.first, &d.last, &d.active, &d.updatedAt)
+			err := r.Scan(&d.id, &d.employer, &d.apiCode, &d.ref, &d.code, &d.first, &d.last, &d.full, &d.active, &d.updatedAt)
 			return d, err
 		})
 		return err
@@ -74,7 +76,7 @@ func holdingDirectoryIn(t *testing.T, ctx context.Context, tx pgx.Tx, tenant uui
 // the answer holding_directory must give for them.
 func holdingDirTruth(t *testing.T, ctx context.Context, q opQuerier, tenants ...uuid.UUID) []holdingDirRow {
 	t.Helper()
-	rows, err := q.Query(ctx, `SELECT e.id, e.tenant_id, t.api_code, e.external_ref, e.employee_code, e.first_name, e.last_name,
+	rows, err := q.Query(ctx, `SELECT e.id, e.tenant_id, t.api_code, e.external_ref, e.employee_code, e.first_name, e.last_name, e.full_name,
 	                                  e.status <> 'deactivated', e.updated_at
 	                             FROM employees e JOIN tenants t ON t.id = e.tenant_id
 	                            WHERE e.tenant_id = ANY($1) ORDER BY e.updated_at, e.id`, tenants)
@@ -83,7 +85,7 @@ func holdingDirTruth(t *testing.T, ctx context.Context, q opQuerier, tenants ...
 	}
 	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (holdingDirRow, error) {
 		var d holdingDirRow
-		err := r.Scan(&d.id, &d.employer, &d.apiCode, &d.ref, &d.code, &d.first, &d.last, &d.active, &d.updatedAt)
+		err := r.Scan(&d.id, &d.employer, &d.apiCode, &d.ref, &d.code, &d.first, &d.last, &d.full, &d.active, &d.updatedAt)
 		return d, err
 	})
 	if err != nil {
@@ -119,13 +121,20 @@ func holdingDirStaff(t *testing.T, ctx context.Context, q opQuerier, tenant, ven
 		}
 		var id uuid.UUID
 		if err := q.QueryRow(ctx, `INSERT INTO employees (tenant_id, location_id, external_ref, employee_code, first_name, last_name, full_name, email, status, invited_at)
-		                           VALUES ($1, $2, $3, $4, $5, $6, 'Dir Staff', $7, $8, now()) RETURNING id`,
-			tenant, home, p.ref, p.code, p.first, p.last, fmt.Sprintf("dir%d-%s@example.test", i, marker), p.status).Scan(&id); err != nil {
+		                           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now()) RETURNING id`,
+			tenant, home, p.ref, p.code, p.first, p.last, holdingDirFullName(i, marker), fmt.Sprintf("dir%d-%s@example.test", i, marker), p.status).Scan(&id); err != nil {
 			t.Fatalf("insert a %s person: %v", p.status, err)
 		}
 		ids = append(ids, id)
 	}
 	return ids
+}
+
+// holdingDirFullName is the full name holdingDirStaff gives its i-th person: distinct per business,
+// so a full_name cell can be matched to the person it names. The 4th (i = 3) is the panel-made one
+// -- no first or last name, the full name its only name (the user's decision, 2026-10-15).
+func holdingDirFullName(i int, marker string) string {
+	return fmt.Sprintf("Dir Staff %d %s", i, marker)
 }
 
 // holdingSetUpdatedAt writes updated_at as the owner with the triggers off (00037's clock overwrites
@@ -151,7 +160,8 @@ func holdingSetUpdatedAt(t *testing.T, ctx context.Context, q opQuerier, at time
 // H2 -- K-33's fixture). Each of KF, KM, C and D employs the directory's four shapes of person (named,
 // deactivated, invited, panel-made), each with an e-mail address. In each one's context
 // holding_directory answers EXACTLY its peer's people, every column as the owner reads it (the peer's
-// company code; active false for the deactivated one -- K-1h), and never one of its own; no e-mail
+// company code; active false for the deactivated one -- K-1h; the panel-made person by its full name,
+// first and last null -- the user's decision, 2026-10-15), and never one of its own; no e-mail
 // address appears in any cell (K-1f, K-24, K-34). No context answers nothing. Ten seconds after KM left
 // H -- inside the 60-second window the gate tolerates -- neither KM nor KF reads the other (§6: the reads
 // are strict).
@@ -160,6 +170,7 @@ func TestHoldingDirectory_ReturnsPeersNeverTheCaller(t *testing.T) {
 	w := holdingWorldTx(t, ctx, tx, "")
 	marker := strings.ToLower(opToken(t))
 	venues := map[uuid.UUID]uuid.UUID{w.kf: w.kfVenue, w.c: w.cVenue}
+	peerCode := map[uuid.UUID]string{w.kf: "KF", w.km: "KM", w.c: "CC", w.d: "DD"}
 	for _, b := range []struct {
 		id   uuid.UUID
 		code string
@@ -198,6 +209,18 @@ func TestHoldingDirectory_ReturnsPeersNeverTheCaller(t *testing.T) {
 		}
 		if inactive != 1 {
 			t.Errorf("%s's context answered %d inactive people, want exactly the deactivated one (K-1h)", c.who, inactive)
+		}
+		// The peer's panel-made person -- no first or last name -- is named by full_name (the user's
+		// decision, 2026-10-15), in that cell.
+		panelMade := holdingDirFullName(3, marker+"-"+strings.ToLower(peerCode[c.peer]))
+		found := false
+		for _, r := range got {
+			if r.full == panelMade {
+				found = r.first == nil && r.last == nil
+			}
+		}
+		if !found {
+			t.Errorf("%s's context did not answer its peer's panel-made person by full name %q, with no first or last name", c.who, panelMade)
 		}
 	}
 	if got := holdingDirectoryIn(t, ctx, tx, uuid.Nil, nil, nil); len(got) != 0 {

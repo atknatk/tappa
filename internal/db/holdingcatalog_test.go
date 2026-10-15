@@ -78,10 +78,11 @@ var holdingSignatures = []holdingSignature{
 	{"holding_site_locations", "p_cursor uuid",
 		"TABLE(site_tenant_id uuid, location_id uuid, location_name text, location_external_ref text, " +
 			"shift_start time without time zone, shift_end time without time zone, overnight boolean)", holdingCallable},
-	// 00055 (M11 API-8): a peer's employees -- never the caller's own, never an e-mail (K-1f, K-24, K-34).
+	// 00055 (M11 API-8): a peer's employees -- never the caller's own, never an e-mail (K-1f, K-24, K-34);
+	// full_name the user's decision of 2026-10-15.
 	{"holding_directory", "p_updated_since timestamp with time zone, p_cursor uuid",
 		"TABLE(employee_id uuid, employer_tenant_id uuid, api_code text, external_ref text, employee_code text, " +
-			"first_name text, last_name text, active boolean, updated_at timestamp with time zone)", holdingCallable},
+			"first_name text, last_name text, full_name text, active boolean, updated_at timestamp with time zone)", holdingCallable},
 }
 
 // holdingTriggerConfig is a holding trigger function's exact proconfig: the search path and
@@ -1565,10 +1566,13 @@ func TestHoldingFunctions_SiteEvidenceCanaryNeverLeaks(t *testing.T) {
 	f.uid = holdingNewTag(t, ctx, tx, f.peer, &f.location, "active", 900)
 	f.digest = holdingNewLogo(t, ctx, tx, f.peer, true)
 	// API-8: a person of the peer's whose e-mail address carries every needle (employees.email is on
-	// K-34's "never SELECT" list) -- holding_directory answers the row, never the address.
+	// K-34's "never SELECT" list) -- holding_directory answers the row, never the address. Its full name
+	// is a value of its own: the directory answers it (the user's decision, 2026-10-15) -- in the
+	// full_name cell and nowhere else (checked below, after the needles).
+	canaryName := "Canary Staff " + opToken(t)
 	if _, err := tx.Exec(ctx, `INSERT INTO employees (tenant_id, external_ref, full_name, email, status, invited_at)
-	                           VALUES ($1, $2, 'Canary Staff', $3, 'active', now())`,
-		f.peer, "canary-"+opToken(t), "canary-"+strings.Join(holdingCanary.needles, "-")+"@example.test"); err != nil {
+	                           VALUES ($1, $2, $3, $4, 'active', now())`,
+		f.peer, "canary-"+opToken(t), canaryName, "canary-"+strings.Join(holdingCanary.needles, "-")+"@example.test"); err != nil {
 		t.Fatalf("seed the canary's e-mail holder: %v", err)
 	}
 	// API-1c: the caller's employee taps the peer's plaque at the canary venue -- ok, flagged then
@@ -1642,6 +1646,42 @@ func TestHoldingFunctions_SiteEvidenceCanaryNeverLeaks(t *testing.T) {
 	}
 	for _, x := range callFindings(tx, holdingCanaryCalls) {
 		t.Error(x)
+	}
+	// The expected cell (API-8): the e-mail holder's full name is answered, in full_name, and its value
+	// is in no other cell of the directory's answer.
+	if err := opAs(t, ctx, tx, "tappa_app", func(sp pgx.Tx) error {
+		if _, err := sp.Exec(ctx, `SELECT set_config('app.tenant_id', $1, true)`, f.caller.String()); err != nil {
+			return err
+		}
+		rows, err := sp.Query(ctx, `SELECT * FROM public.holding_directory(NULL, NULL)`)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		fields := rows.FieldDescriptions()
+		inFull, elsewhere := 0, 0
+		for rows.Next() {
+			vals, err := rows.Values()
+			if err != nil {
+				return err
+			}
+			for i, v := range vals {
+				if v == nil || !strings.Contains(fmt.Sprint(v), canaryName) {
+					continue
+				}
+				if string(fields[i].Name) == "full_name" && fmt.Sprint(v) == canaryName {
+					inFull++
+				} else {
+					elsewhere++
+				}
+			}
+		}
+		if inFull != 1 || elsewhere != 0 {
+			t.Errorf("holding_directory answered the canary's full name in full_name %d time(s) and in another cell %d time(s); want once and never", inFull, elsewhere)
+		}
+		return rows.Err()
+	}); err != nil {
+		t.Fatal(err)
 	}
 	// Anti-vacuity: every callable holding_* has its call here.
 	rows, err := tx.Query(ctx, `SELECT p.proname FROM pg_proc p WHERE p.proowner = 'tappa_holdingdefiner'::regrole

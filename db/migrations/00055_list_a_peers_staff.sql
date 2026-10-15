@@ -7,12 +7,14 @@
 -- NORMATIVE SOURCES: docs/adr/0027-holding-ve-capraz-tenant-dokunusu.md §2 (the signature table,
 -- verbatim: `p_updated_since timestamp with time zone, p_cursor uuid` -> TABLE(employee_id uuid,
 -- employer_tenant_id uuid, api_code text, external_ref text, employee_code text, first_name text,
--- last_name text, active boolean, updated_at timestamp with time zone); the contract -- the caller's
+-- last_name text, full_name text, active boolean, updated_at timestamp with time zone -- full_name
+-- the user's decision of 2026-10-15); the contract -- the caller's
 -- tenant from the GUC, never an argument; a fixed result; at most 1000 rows a page; no dynamic SQL;
 -- no error-swallowing block; "Maliyet -- eş kümesi bir kez": the peer set is computed ONCE, over
 -- tenants, in a materialised CTE, and joined to the data rows -- holding_peer is never asked per
 -- employee), §3 (K-34: the definer's employees row is the matrix's -- this file grants the four
--- columns API-1a left for API-8: first_name, last_name, status, updated_at; employees.email is on the
+-- columns API-1a left for API-8: first_name, last_name, status, updated_at; full_name the definer has
+-- held since 00046 (holding_feed's snapshot of who tapped); employees.email is on the
 -- "never SELECT" list and is not granted, not read), §6 (the reads are strict); ADR 0028 §2 (the
 -- directory is the union of the two sources), §9 (K-21's overlap window, asOf, paged, active/inactive
 -- -- K-1h --, no e-mail -- K-1f, K-24).
@@ -34,10 +36,12 @@
 -- (db/queries/directory.sql), which walks it from the position.
 --
 -- WHAT A ROW SAYS (K-1f, K-1h): the employee's id and employer, the employer's company code
--- (tenants.api_code), the external ref, the code, the first and last names, whether the person is
+-- (tenants.api_code), the external ref, the code, the first and last names, the full name (the
+-- user's decision, 2026-10-15: a person the panel created has no first or last name, and full_name is
+-- the name the directory can show -- K-21 counts it a directory column), whether the person is
 -- active (status <> 'deactivated' -- an invited person is active, as in GET /v1/employees), and
--- updated_at. No e-mail, no home venue, no full_name: the signature table names the columns, and a
--- column more is the user's decision (ADR 0027 §2).
+-- updated_at. No e-mail, no home venue: the signature table names the columns, and a column more is
+-- the user's decision (ADR 0027 §2).
 --
 -- No tenant context, an outsider's context (C, a member of another holding) and a context whose
 -- membership has ended are one answer: 0 rows.
@@ -97,7 +101,7 @@ GRANT SELECT (first_name, last_name, status, updated_at) ON employees TO tappa_h
 -- +goose StatementBegin
 CREATE FUNCTION public.holding_directory(p_updated_since timestamptz, p_cursor uuid)
     RETURNS TABLE(employee_id uuid, employer_tenant_id uuid, api_code text, external_ref text, employee_code text,
-                  first_name text, last_name text, active boolean, updated_at timestamptz)
+                  first_name text, last_name text, full_name text, active boolean, updated_at timestamptz)
     LANGUAGE sql
     VOLATILE
     SECURITY DEFINER
@@ -118,12 +122,12 @@ AS $$
                    - CASE WHEN p_cursor IS NULL THEN interval '1 microsecond' ELSE interval '0' END AS at,
                coalesce(p_cursor, 'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid) AS id
     )
-    SELECT e.id, e.tenant_id, p.api_code, e.external_ref, e.employee_code, e.first_name, e.last_name,
+    SELECT e.id, e.tenant_id, p.api_code, e.external_ref, e.employee_code, e.first_name, e.last_name, e.full_name,
            e.status <> 'deactivated', e.updated_at
       FROM peers AS p
      CROSS JOIN bound AS a
      CROSS JOIN LATERAL (
-            SELECT x.id, x.tenant_id, x.external_ref, x.employee_code, x.first_name, x.last_name, x.status, x.updated_at
+            SELECT x.id, x.tenant_id, x.external_ref, x.employee_code, x.first_name, x.last_name, x.full_name, x.status, x.updated_at
               FROM public.employees AS x
              WHERE x.tenant_id = p.id
                AND (x.updated_at, x.id) > (a.at, a.id)
@@ -176,7 +180,7 @@ BEGIN
        OR pg_catalog.pg_get_function_identity_arguments('public.holding_directory(timestamptz, uuid)'::pg_catalog.regprocedure)
           <> 'p_updated_since timestamp with time zone, p_cursor uuid'
        OR pg_catalog.pg_get_function_result('public.holding_directory(timestamptz, uuid)'::pg_catalog.regprocedure)
-          <> 'TABLE(employee_id uuid, employer_tenant_id uuid, api_code text, external_ref text, employee_code text, first_name text, last_name text, active boolean, updated_at timestamp with time zone)'
+          <> 'TABLE(employee_id uuid, employer_tenant_id uuid, api_code text, external_ref text, employee_code text, first_name text, last_name text, full_name text, active boolean, updated_at timestamp with time zone)'
        OR pg_catalog.has_column_privilege('tappa_holdingdefiner', 'public.employees', 'email', 'SELECT') THEN
         RAISE EXCEPTION 'migration 00055 (M11 API-8): holding_directory is not what ADR 0027 §2''s signature table says, tappa_app cannot call it, or the definer reaches the e-mail. Nothing was changed.'
             USING ERRCODE = 'object_not_in_prerequisite_state';

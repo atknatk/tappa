@@ -348,6 +348,9 @@ type HoldingDirectoryEntry struct {
 	EmployeeCode     *string
 	FirstName        *string
 	LastName         *string
+	// FullName is the name the panel shows -- the one name a person the panel created has (the user's
+	// decision, 2026-10-15).
+	FullName string
 	// Active is status <> 'deactivated' (K-1h).
 	Active    bool
 	UpdatedAt time.Time
@@ -357,7 +360,7 @@ type HoldingDirectoryEntry struct {
 // may have more behind it; a shorter one is the end.
 const HoldingDirectoryPage = 1000
 
-const holdingDirectorySQL = `SELECT employee_id, employer_tenant_id, api_code, external_ref, employee_code, first_name, last_name, active, updated_at
+const holdingDirectorySQL = `SELECT employee_id, employer_tenant_id, api_code, external_ref, employee_code, first_name, last_name, full_name, active, updated_at
   FROM public.holding_directory($1, $2)`
 
 // Directory reads one page of the peers' employees in (updated_at, id) order: with cursor nil, those
@@ -371,8 +374,12 @@ func (h Holding) Directory(ctx context.Context, since *time.Time, cursor *uuid.U
 	}
 	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (HoldingDirectoryEntry, error) {
 		var e HoldingDirectoryEntry
+		var full *string
 		err := r.Scan(&e.EmployeeID, &e.EmployerTenantID, &e.APICode, &e.ExternalRef, &e.EmployeeCode, &e.FirstName, &e.LastName,
-			&e.Active, &e.UpdatedAt)
+			&full, &e.Active, &e.UpdatedAt)
+		if full != nil {
+			e.FullName = *full
+		}
 		return e, err
 	})
 	if err != nil {

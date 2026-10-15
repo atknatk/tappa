@@ -63,8 +63,9 @@ var directoryOrigin = time.Date(1, time.January, 1, 0, 0, 0, 0, time.UTC)
 // ErrDirectoryCursor: the cursor's asOf is past the database's clock -- not a value a walk handed out.
 var ErrDirectoryCursor = errors.New("tenant: the directory cursor is not one this business's walk handed out")
 
-// DirectoryEntry is one employee as the API answers with it. No e-mail, address, home venue or
-// full name: the signature of holding_directory is the shape, and the own rows take the same one.
+// DirectoryEntry is one employee as the API answers with it. No e-mail, address or home venue: the
+// signature of holding_directory is the shape, and the own rows take the same one. FullName is the
+// panel's name -- the one a person the panel created has (the user's decision, 2026-10-15).
 type DirectoryEntry struct {
 	EmployeeID uuid.UUID
 	// Company is the employer's company code (tenants.api_code; K-22, the spec's `company`).
@@ -73,6 +74,7 @@ type DirectoryEntry struct {
 	EmployeeCode *string
 	FirstName    *string
 	LastName     *string
+	FullName     string
 	Active       bool
 	UpdatedAt    time.Time
 }
@@ -210,13 +212,13 @@ func mergeDirectory(own []store.ListDirectoryEmployeesRow, company *string, peer
 		if j >= len(peers) || (i < len(own) && directoryBefore(own[i].UpdatedAt, own[i].ID, peers[j].UpdatedAt, peers[j].EmployeeID)) {
 			o := own[i]
 			out = append(out, DirectoryEntry{EmployeeID: o.ID, Company: company, ExternalRef: o.ExternalRef, EmployeeCode: o.EmployeeCode,
-				FirstName: o.FirstName, LastName: o.LastName, Active: o.Active, UpdatedAt: o.UpdatedAt})
+				FirstName: o.FirstName, LastName: o.LastName, FullName: o.FullName, Active: o.Active, UpdatedAt: o.UpdatedAt})
 			i++
 			continue
 		}
 		p := peers[j]
 		out = append(out, DirectoryEntry{EmployeeID: p.EmployeeID, Company: p.APICode, ExternalRef: p.ExternalRef, EmployeeCode: p.EmployeeCode,
-			FirstName: p.FirstName, LastName: p.LastName, Active: p.Active, UpdatedAt: p.UpdatedAt})
+			FirstName: p.FirstName, LastName: p.LastName, FullName: p.FullName, Active: p.Active, UpdatedAt: p.UpdatedAt})
 		j++
 	}
 	more := i < len(own) || j < len(peers) || len(peers) >= db.HoldingDirectoryPage

@@ -93,7 +93,7 @@ func (w *punchWorld) dirWalk(b punchBiz, since string, limit int) ([]directoryEn
 func (w *punchWorld) staffOf(tenants ...uuid.UUID) []directoryEntryBody {
 	w.r.t.Helper()
 	rows, err := w.r.owner.Query(w.ctx, `
-		SELECT e.id, t.api_code, e.external_ref, e.employee_code, e.first_name, e.last_name, e.status <> 'deactivated', e.updated_at
+		SELECT e.id, t.api_code, e.external_ref, e.employee_code, e.first_name, e.last_name, e.full_name, e.status <> 'deactivated', e.updated_at
 		  FROM employees e JOIN tenants t ON t.id = e.tenant_id
 		 WHERE e.tenant_id = ANY($1) ORDER BY e.updated_at, e.id`, tenants)
 	if err != nil {
@@ -102,7 +102,7 @@ func (w *punchWorld) staffOf(tenants ...uuid.UUID) []directoryEntryBody {
 	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (directoryEntryBody, error) {
 		var e directoryEntryBody
 		var id uuid.UUID
-		err := r.Scan(&id, &e.Company, &e.ExternalRef, &e.EmployeeCode, &e.FirstName, &e.LastName, &e.Active, &e.UpdatedAt)
+		err := r.Scan(&id, &e.Company, &e.ExternalRef, &e.EmployeeCode, &e.FirstName, &e.LastName, &e.FullName, &e.Active, &e.UpdatedAt)
 		e.ID, e.UpdatedAt = employeeIDPrefix+id.String(), e.UpdatedAt.UTC()
 		return e, err
 	})
@@ -128,19 +128,21 @@ func sameEntries(a, b []directoryEntryBody) error {
 }
 
 // person gives b one more employee: status, names (first "" = none -- a panel-made person, homed at
-// b's venue) and an e-mail address carrying the world's canary.
+// b's venue, named only by its full name) and an e-mail address carrying the world's canary. The full
+// name is "<first> <last>", or "Panel <code> <id>" for a panel-made person.
 func (w *punchWorld) person(b punchBiz, status, first, last string) uuid.UUID {
 	w.r.t.Helper()
 	id := uuid.New()
 	var ref, f, l, home any
+	full := "Panel " + b.code + " " + id.String()[:8]
 	if first != "" {
-		ref, f, l = "dir-"+id.String()[:8], first, last
+		ref, f, l, full = "dir-"+id.String()[:8], first, last, first+" "+last
 	} else {
 		home = b.venue
 	}
 	w.exec(`INSERT INTO employees (id, tenant_id, location_id, external_ref, employee_code, first_name, last_name, full_name, email, status, invited_at)
-	        VALUES ($1, $2, $3, $4, $5, $6, $7, 'Directory Staff', $8, $9, now())`,
-		id, b.id, home, ref, "DC-"+id.String()[:4], f, l, strings.ToLower(w.canary)+"."+id.String()[:8]+"@directory.example.test", status)
+	        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())`,
+		id, b.id, home, ref, "DC-"+id.String()[:4], f, l, full, strings.ToLower(w.canary)+"."+id.String()[:8]+"@directory.example.test", status)
 	return id
 }
 
@@ -156,9 +158,10 @@ func (w *punchWorld) staffShapes(b punchBiz) {
 // TestDirectory_HoldingTenantsOnlyNoEmailWithActive is plan §5 API-8's core: each business's walk is
 // EXACTLY its own staff and its holding peers' -- KF: KF + KM; KM: KM + KF; C (a member of H2): C + D,
 // nothing of H's; E (in no holding): E alone -- every entry, field by field, as the owner reads it, in
-// (updatedAt, id) order, with the employer's company code and active false for the deactivated (K-1h).
-// No answer carries an e-mail address, the canary, a full name or the words email, location or venue
-// (K-1f, K-24), and each entry carries exactly the contract's eight keys.
+// (updatedAt, id) order, with the employer's company code and active false for the deactivated (K-1h);
+// the panel-made person -- no first or last name -- by its fullName, its own business's and its peer's
+// (the user's decision, 2026-10-15). No answer carries an e-mail address, the canary or the words email,
+// location or venue (K-1f, K-24), and each entry carries exactly the contract's nine keys.
 func TestDirectory_HoldingTenantsOnlyNoEmailWithActive(t *testing.T) {
 	w := newPunchWorld(t)
 	e := w.biz("EE")
@@ -184,17 +187,28 @@ func TestDirectory_HoldingTenantsOnlyNoEmailWithActive(t *testing.T) {
 		if err := sameEntries(got, want); err != nil {
 			t.Errorf("%s's directory: %v", c.b.code, err)
 		}
-		inactive := 0
+		inactive, panelMade := 0, map[string]bool{}
 		for _, x := range got {
 			if !x.Active {
 				inactive++
+			}
+			// The panel-made person -- no first or last name -- is named by fullName, its own business's
+			// and its peer's alike (the user's decision, 2026-10-15).
+			if x.FirstName == nil && x.LastName == nil && strings.HasPrefix(x.FullName, "Panel ") && x.Company != nil {
+				panelMade[*x.Company] = true
+			}
+		}
+		for _, id := range c.with {
+			code := map[uuid.UUID]string{w.kf.id: "KF", w.km.id: "KM", w.c.id: "CC", w.d.id: "DD", e.id: "EE"}[id]
+			if !panelMade[code] {
+				t.Errorf("%s's directory does not name %s's panel-made person by fullName", c.b.code, code)
 			}
 		}
 		if inactive != len(c.with) {
 			t.Errorf("%s's directory has %d inactive entries, want one per business (the deactivated person)", c.b.code, inactive)
 		}
 		body := strings.ToLower(rec.Body.String())
-		for _, never := range []string{strings.ToLower(w.canary), "@", "example.test", "directory staff", "punch staff", "email", "location", "venue"} {
+		for _, never := range []string{strings.ToLower(w.canary), "@", "example.test", "email", "location", "venue"} {
 			if strings.Contains(body, never) {
 				t.Errorf("%s's directory carries %q", c.b.code, never)
 			}
@@ -210,7 +224,7 @@ func TestDirectory_HoldingTenantsOnlyNoEmailWithActive(t *testing.T) {
 			t.Errorf("the page's keys: %v", keysOf(top))
 		}
 		for _, x := range raw.Data {
-			if k := keysOf(x); !slices.Equal(k, []string{"active", "company", "employeeCode", "externalRef", "firstName", "id", "lastName", "updatedAt"}) {
+			if k := keysOf(x); !slices.Equal(k, []string{"active", "company", "employeeCode", "externalRef", "firstName", "fullName", "id", "lastName", "updatedAt"}) {
 				t.Errorf("an entry's keys: %v", k)
 			}
 		}

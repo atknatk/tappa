@@ -304,7 +304,7 @@ var storeSurface = map[string]string{
 	// M11 API-8: the directory's own half -- the walk's clock and the business's company code, and a
 	// page of its employees: identities, refs, codes, names, the active flag. No e-mail, no bytes.
 	"GetDirectoryHead":                 "(context.Context, uuid.UUID) (GetDirectoryHeadRow{AsOf time.Time; ApiCode *string}, error)",
-	"ListDirectoryEmployees":           "(context.Context, ListDirectoryEmployeesParams{TenantID uuid.UUID; AfterAt time.Time; AfterID uuid.UUID; PageSize int32}) ([]ListDirectoryEmployeesRow{ID uuid.UUID; ExternalRef *string; EmployeeCode *string; FirstName *string; LastName *string; Active bool; UpdatedAt time.Time}, error)",
+	"ListDirectoryEmployees":           "(context.Context, ListDirectoryEmployeesParams{TenantID uuid.UUID; AfterAt time.Time; AfterID uuid.UUID; PageSize int32}) ([]ListDirectoryEmployeesRow{ID uuid.UUID; ExternalRef *string; EmployeeCode *string; FirstName *string; LastName *string; FullName string; Active bool; UpdatedAt time.Time}, error)",
 	"GetPunchFeedHead":                 "(context.Context, GetPunchFeedHeadParams{TenantID uuid.UUID; AfterSeq int64}) (GetPunchFeedHeadRow{LastSeq int64; NextSeq int64}, error)",
 	"GetPunchHistoryWindow":            "(context.Context, GetPunchHistoryWindowParams{AfterTime time.Time; AfterSeq int64; TenantID uuid.UUID; FromTime time.Time; ToTime time.Time; ScanSize int32; WindowSize int32}) (GetPunchHistoryWindowRow{Scanned int64; EndTime time.Time; EndSeq int64}, error)",
 	"GetRosterCursorAnchor":            "(context.Context, GetRosterCursorAnchorParams{TenantID uuid.UUID; ID uuid.UUID}) (string, error)",

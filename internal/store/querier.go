@@ -1910,7 +1910,8 @@ type Querier interface {
 	// on (updated_at, id) by internal/domain/tenant (employeedirectory.go).
 	//
 	// No statement here names transactions, and none reads the e-mail (K-1f, K-24): a directory row is
-	// an identity, a code, two names, the active flag and updated_at.
+	// an identity, a code, the first, last and full names, the active flag and updated_at -- the same
+	// columns holding_directory returns for a peer's person, so the two sources answer one shape.
 	// The walk's clock and the business's company code. as_of is the TRANSACTION's start
 	// (transaction_timestamp): it is taken before any snapshot this transaction reads, so a change that
 	// the reads below do not see either committed after it or was written by a transaction still open at

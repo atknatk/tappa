@@ -31,7 +31,8 @@ type GetDirectoryHeadRow struct {
 // on (updated_at, id) by internal/domain/tenant (employeedirectory.go).
 //
 // No statement here names transactions, and none reads the e-mail (K-1f, K-24): a directory row is
-// an identity, a code, two names, the active flag and updated_at.
+// an identity, a code, the first, last and full names, the active flag and updated_at -- the same
+// columns holding_directory returns for a peer's person, so the two sources answer one shape.
 // The walk's clock and the business's company code. as_of is the TRANSACTION's start
 // (transaction_timestamp): it is taken before any snapshot this transaction reads, so a change that
 // the reads below do not see either committed after it or was written by a transaction still open at
@@ -45,7 +46,7 @@ func (q *Queries) GetDirectoryHead(ctx context.Context, tenantID uuid.UUID) (Get
 }
 
 const listDirectoryEmployees = `-- name: ListDirectoryEmployees :many
-SELECT e.id, e.external_ref, e.employee_code, e.first_name, e.last_name,
+SELECT e.id, e.external_ref, e.employee_code, e.first_name, e.last_name, e.full_name,
        (e.status <> 'deactivated')::boolean AS active, e.updated_at
 FROM employees e
 WHERE e.tenant_id = $1
@@ -67,6 +68,7 @@ type ListDirectoryEmployeesRow struct {
 	EmployeeCode *string
 	FirstName    *string
 	LastName     *string
+	FullName     string
 	Active       bool
 	UpdatedAt    time.Time
 }
@@ -103,6 +105,7 @@ func (q *Queries) ListDirectoryEmployees(ctx context.Context, arg ListDirectoryE
 			&i.EmployeeCode,
 			&i.FirstName,
 			&i.LastName,
+			&i.FullName,
 			&i.Active,
 			&i.UpdatedAt,
 		); err != nil {

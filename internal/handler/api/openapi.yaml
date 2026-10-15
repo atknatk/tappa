@@ -415,8 +415,8 @@ paths:
       description: |
         The directory: this business's own employees and, when it belongs to a group of companies
         in Taptime, the partner companies' employees -- each with its `company` code, `externalRef`,
-        `employeeCode`, `firstName`, `lastName`, whether it is `active` (false: deactivated) and
-        `updatedAt`. No entry carries an e-mail address. A business in no group reads its own
+        `employeeCode`, `firstName`, `lastName`, `fullName`, whether it is `active` (false:
+        deactivated) and `updatedAt`. No entry carries an e-mail address. A business in no group reads its own
         employees only.
 
         Order and paging: entries come in (`updatedAt`, `id`) order. A WALK is the pages from a
@@ -748,7 +748,7 @@ components:
     DirectoryEntry:
       type: object
       additionalProperties: false
-      required: [id, company, externalRef, employeeCode, firstName, lastName, active, updatedAt]
+      required: [id, company, externalRef, employeeCode, firstName, lastName, fullName, active, updatedAt]
       properties:
         id:
           type: string
@@ -766,6 +766,9 @@ components:
           description: null for an employee the panel created and no integration named yet.
         lastName:
           type: ["string", "null"]
+        fullName:
+          type: string
+          description: The name Taptime shows -- always present, also for an employee the panel created without a first and last name.
         active:
           type: boolean
           description: false for a deactivated employee.

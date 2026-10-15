@@ -5,7 +5,8 @@
 -- on (updated_at, id) by internal/domain/tenant (employeedirectory.go).
 --
 -- No statement here names transactions, and none reads the e-mail (K-1f, K-24): a directory row is
--- an identity, a code, two names, the active flag and updated_at.
+-- an identity, a code, the first, last and full names, the active flag and updated_at -- the same
+-- columns holding_directory returns for a peer's person, so the two sources answer one shape.
 
 -- name: GetDirectoryHead :one
 -- The walk's clock and the business's company code. as_of is the TRANSACTION's start
@@ -30,7 +31,7 @@ WHERE t.id = @tenant_id;
 -- `coalesce(@after_at, '-infinity')` in its place the generic plan read the index from the business's
 -- first row and filtered 150 001 rows away (90 ms a page); bare, it reads the page (0.8 ms).
 -- TestEmployeeDirectory_TheBoundIsTheIndexsNotAFilter pins it.
-SELECT e.id, e.external_ref, e.employee_code, e.first_name, e.last_name,
+SELECT e.id, e.external_ref, e.employee_code, e.first_name, e.last_name, e.full_name,
        (e.status <> 'deactivated')::boolean AS active, e.updated_at
 FROM employees e
 WHERE e.tenant_id = @tenant_id

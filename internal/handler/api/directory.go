@@ -23,7 +23,7 @@ import (
 //
 // The employees the key's business may know of, in (updatedAt, id) order: its OWN (the ordinary RLS
 // read) and, when it is a member of a holding, its PEERS' (holding_directory -- never its own). Each
-// entry is {id, company, externalRef, employeeCode, firstName, lastName, active, updatedAt}: no
+// entry is {id, company, externalRef, employeeCode, firstName, lastName, fullName, active, updatedAt}: no
 // e-mail (K-1f, K-24), no address, no venue; active is false for a deactivated person (K-1h). An
 // outsider's key -- a business in no holding, or in another one -- reads its own staff and nothing
 // else (K-33: holding_directory answers it no row).
@@ -184,6 +184,7 @@ type directoryEntryBody struct {
 	EmployeeCode *string   `json:"employeeCode"`
 	FirstName    *string   `json:"firstName"`
 	LastName     *string   `json:"lastName"`
+	FullName     string    `json:"fullName"`
 	Active       bool      `json:"active"`
 	UpdatedAt    time.Time `json:"updatedAt"`
 }
@@ -220,7 +221,7 @@ func (s *Surface) listDirectory(w http.ResponseWriter, r *http.Request) {
 	for _, e := range page.Entries {
 		out.Data = append(out.Data, directoryEntryBody{ID: employeeIDPrefix + e.EmployeeID.String(), Company: e.Company,
 			ExternalRef: e.ExternalRef, EmployeeCode: e.EmployeeCode, FirstName: e.FirstName, LastName: e.LastName,
-			Active: e.Active, UpdatedAt: e.UpdatedAt.UTC()})
+			FullName: e.FullName, Active: e.Active, UpdatedAt: e.UpdatedAt.UTC()})
 	}
 	if page.Next != nil {
 		c := formatDirectoryCursor(page.AsOf, *page.Next, directoryBinding(p.TenantID, req.since))
