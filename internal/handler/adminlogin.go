@@ -211,6 +211,9 @@ type AdminAuth struct {
 	// product is anchored to — so keeping it behind its own two-method interface is what
 	// stops a change to the roster or the venue side reaching it.
 	accounts panelAccounts
+	// apiKeys is the integration API's keys service (M11 API-3), given by the IntegrationKeys
+	// option. Nil draws the section with a sentence and refuses its writes (apikeys.go).
+	apiKeys panelAPIKeys
 
 	// brands reads the business's brand for the chrome of every panel section (M10
 	// WL-8, panelbrand.go): one more read per panel request. It is a field of its own,

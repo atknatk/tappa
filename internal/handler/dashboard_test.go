@@ -208,7 +208,8 @@ func TestPanelSections_RenderTheirOwnContentAndNoOthers(t *testing.T) {
 	// The task id is rendered, so it has to look like one. A section whose Task
 	// drifted to "TODO" or "" would otherwise satisfy the containment checks below
 	// trivially (every body contains "").
-	taskRE := regexp.MustCompile(`^M[0-9]-[0-9]{2}$`)
+	// M11's tasks are named API-N (docs/plan/m11-entegrasyon-api.md §5).
+	taskRE := regexp.MustCompile(`^(M[0-9]-[0-9]{2}|API-[0-9]+)$`)
 	tasks := map[string]string{}
 	for _, s := range pages.PanelSections {
 		if !taskRE.MatchString(s.Task) {

@@ -55,6 +55,11 @@ func unbrandedChromeRenders() []unbrandedRender {
 	// The scriptless panel shell on every section's tab, as an owner (who sees every
 	// tab, OwnerOnly included) with records waiting.
 	for _, s := range pages.PanelSections {
+		if s.Tab == pages.TabAPIKeys {
+			// Born after WL-8 (M11 API-3): there is no "before" for its own page -- the other
+			// renders below carry its tab, which unbrandedAfterWL8Tabs takes out.
+			continue
+		}
 		out = append(out, unbrandedRender{
 			"PanelShell, owner, tab " + string(s.Tab), pages.PanelShell(chrome("owner", s.Tab, waiting)), body,
 		})
@@ -168,11 +173,32 @@ func TestPanelBrand_AnUnbrandedChromeIsTheChromeBeforeWL8(t *testing.T) {
 			t.Errorf("%s: no digest from before WL-8", r.name)
 			continue
 		}
-		body := renderUnbranded(t, r)
+		body := withoutTabsBornAfterWL8(t, r.name, renderUnbranded(t, r))
 		if got := digestUnbranded(body); got != want {
 			t.Errorf("%s: %d bytes sha256 %s; before WL-8 it was %d bytes sha256 %s.\nrendered:\n%s",
 				r.name, got.n, got.sum, want.n, want.sum, body)
 		}
 	}
 	t.Logf("%d unbranded renders byte-identical to df544c1: %s", len(renders), strings.Join(names, "; "))
+}
+
+// unbrandedAfterWL8Tab is the one tab added to the panel after WL-8: API keys (M11 API-3), an
+// OwnerOnly section, so an OWNER's chrome draws it, not current, between Account and the end of
+// the bar. The golden's claim is about the brand -- an unbranded chrome is the chrome before
+// WL-8 -- so the tab is taken out of an owner's render, exactly once, before the comparison: the
+// rest of the bytes are still the bytes of df544c1. A manager's chrome and the layouts must not
+// carry it at all.
+const unbrandedAfterWL8Tab = `<a href="/admin/api-keys" class="tab-link">API keys</a>`
+
+func withoutTabsBornAfterWL8(t *testing.T, name string, body []byte) []byte {
+	t.Helper()
+	owner := strings.Contains(name, "owner") || name == "PanelShell, a name to escape"
+	n := bytes.Count(body, []byte(unbrandedAfterWL8Tab))
+	switch {
+	case owner && n != 1:
+		t.Errorf("%s: an owner's chrome carries the API keys tab %d times, want once", name, n)
+	case !owner && n != 0:
+		t.Errorf("%s: carries the owner-only API keys tab %d times, want none", name, n)
+	}
+	return bytes.Replace(body, []byte(unbrandedAfterWL8Tab), nil, 1)
 }

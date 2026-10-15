@@ -42,6 +42,7 @@ import (
 	_ "time/tzdata"
 
 	"github.com/atknatk/tappa/internal/adminauth"
+	"github.com/atknatk/tappa/internal/apikey"
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/buildinfo"
 	"github.com/atknatk/tappa/internal/config"
@@ -735,6 +736,14 @@ func run() error {
 		// closed, never default to "the screen says the link was mailed".
 		return fmt.Errorf("main: TAPPA_INVITE_DELIVERY=%q passed config validation but nothing implements it", cfg.InviteDelivery)
 	}
+	// THE INTEGRATION API'S KEYS (M11 API-3, ADR 0028 §3): the owner's panel issues, lists and
+	// revokes them. Every build but the sandbox's issues tt_live_ keys (§11, K-10; API-11 gives
+	// the sandbox build its own prefix). The /v1 chain that resolves them is API-4's.
+	apiKeys, err := apikey.NewKeys(apikey.LivePrefix, cfg.APIKeyHMACKey, data, trail)
+	if err != nil {
+		return err
+	}
+	panelOptions = append(panelOptions, handler.IntegrationKeys(apiKeys))
 	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, ruleWriter, books, accounts, brandReader, brandWriter, encoder, resetFlow, cfg, slog.Default(), panelOptions...)
 	if err != nil {
 		return err

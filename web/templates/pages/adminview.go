@@ -195,6 +195,9 @@ const (
 	// what the register said about it, its kind, its timezone, and the sentence its
 	// staff read after a good tap. It is NOT the money — that is TabBilling.
 	TabAccount PanelTab = "account"
+	// TabAPIKeys is the integration API's keys (M11 API-3, ADR 0028 §3): the owner issues a key
+	// for the business's HR/ERP system, sees it once, lists and revokes them.
+	TabAPIKeys PanelTab = "api-keys"
 	// (M7-06's legal-texts section -- Tappa's own documents, drawn for an env
 	// allow-list of customer admins -- was removed in M10 OP-10 phase B: publishing
 	// moved to the platform operator's own surface, /operator/legal, ADR 0020 §7. The
@@ -328,6 +331,16 @@ var PanelSections = []PanelSection{
 		// habit for a screen read twice a year.
 		Tab: TabAccount, Label: "Account", Href: "/admin/account", Task: "M7-05",
 		Blurb: "This business as Taptime has it on file: its name, its VAT number and what the register said about it, its timezone, and the send-off your staff read after a good tap.",
+	},
+	{
+		// 🔴 OWNER-ONLY, READ INCLUDED -- Billing's shape (M11 API-3, ADR 0028 §3). A key is a
+		// credential that writes this business's staff and venues and reads its punches; who
+		// holds which key, and the power to issue one, is the owner's. The tab is not drawn for
+		// a manager and the server refuses the route on its own (apikeys.go, 403). It is last:
+		// like Account it is read when something about the business changes, not during a shift.
+		Tab: TabAPIKeys, Label: "API keys", Href: "/admin/api-keys", Task: "API-3",
+		Blurb:     "The keys your HR or payroll system uses to talk to Taptime: issue one, see it once, revoke it.",
+		OwnerOnly: true,
 	},
 }
 

@@ -79,6 +79,9 @@ func (a *AdminAuth) mountSections(r chi.Router) {
 		// in mountWriting; account.go carries the argument for the asymmetry.
 		case pages.TabAccount:
 			r.Get(s.Href, a.accountSection)
+		// M11 API-3: owner-only, read included (apikeys.go).
+		case pages.TabAPIKeys:
+			r.Get(s.Href, a.apiKeysSection)
 		default:
 			r.Get(s.Href, a.section(s.Tab))
 		}
@@ -226,6 +229,12 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		// (K-A), so it is NOT owner-only. It is a separate route from accountSave for
 		// exactly that reason: the two must never share a gate.
 		r.Post(accountPasswordHref, a.accountPasswordSave)
+		// 🔴 THE INTEGRATION KEYS' THREE WRITES (M11 API-3). Here for the ordinary reason -- the
+		// Origin check runs AHEAD of the resolver -- and owner-only inside the handlers. The first
+		// answers with the one page that shows a raw key.
+		r.Post(apiKeysHref, a.apiKeyCreate)
+		r.Post(apiKeyRevokeHref, a.apiKeyRevoke)
+		r.Post(apiKeyRevokeAllHref, a.apiKeyRevokeAll)
 		// 🔴 THE ACCOUNT SECTION'S BRAND EDITOR (M10 WL-7): the colour and taking a logo
 		// or a colour back are two ordinary writes on this chain. The LOGO UPLOAD is a
 		// nested group for the encode relay's reason below: its gate (brandupload.go)

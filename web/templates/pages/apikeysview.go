@@ -1,0 +1,60 @@
+package pages
+
+// APIKeysView is the API keys section (M11 API-3, ADR 0028 §3): the owner's integration keys --
+// issue one (shown once), list them, revoke one or all.
+//
+// 🔴 §4.7 -- ONE FIELD OF THIS VIEW EVER HOLDS A SECRET, AND ONLY ON ONE RESPONSE. NewKey is the
+// raw key, filled by the handler on the response to a successful "create" and on no other: the
+// list carries hints, never keys, and nothing reads a key back from the database (only its keyed
+// hash is stored). The response that carries it is Cache-Control: no-store like every panel page.
+type APIKeysView struct {
+	PanelChrome
+
+	// Available is false when this deployment was built without the keys service: the section
+	// says so and offers nothing.
+	Available bool
+	// APIEnabled is K-22's gate: the operator has opened the integration API for this business.
+	// Closed, no key can be created, and the existing keys are refused with 403.
+	APIEnabled bool
+
+	// NewKey is the raw key on the creation response, "" everywhere else.
+	NewKey     string
+	NewKeyName string
+
+	Keys []APIKeyRow
+
+	// The create form.
+	PostHref      string
+	NameValue     string
+	NameMaxLength int
+	NameError     string
+
+	RevokeHref    string
+	RevokeAllHref string
+
+	Done    string
+	Problem string
+}
+
+// APIKeyRow is one key in the list. The hint is the prefix and four characters -- not the key.
+type APIKeyRow struct {
+	ID         string
+	Name       string
+	PrefixHint string
+	CreatedOn  string
+	LastUsed   string
+	RevokedOn  string
+}
+
+// Live reports whether the key still opens the API (subject to the business's gate).
+func (r APIKeyRow) Live() bool { return r.RevokedOn == "" }
+
+// AnyLive reports whether "revoke all" has anything to do.
+func (v APIKeysView) AnyLive() bool {
+	for _, k := range v.Keys {
+		if k.Live() {
+			return true
+		}
+	}
+	return false
+}

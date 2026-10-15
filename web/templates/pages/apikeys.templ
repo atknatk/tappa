@@ -1,0 +1,178 @@
+package pages
+
+import "github.com/atknatk/tappa/web/templates/components"
+
+// The API KEYS section (M11 API-3, ADR 0028 §3) -- the owner's integration keys.
+//
+// 🔴 THE RAW KEY IS DRAWN ON ONE RESPONSE ONLY: the answer to "create". Every other render has
+// v.NewKey empty and the list shows each key's hint -- its prefix and four characters -- which is
+// not the key and cannot be turned into it.
+//
+// 🔴 IT LOADS NO SCRIPT. Copying the key is the browser's own selection; every act is a form post
+// on the panel's write chain (the Origin check before the resolver, owner-only in the handler and
+// again in the domain).
+//
+// skill tappa-brand: every stored value is IBM Plex Mono, status is a WORD (Live, Revoked) and
+// never a colour alone, notices carry their meaning in the heading.
+templ AdminAPIKeys(v APIKeysView) {
+	@PanelShell(v.PanelChrome) {
+		if v.Problem != "" {
+			@components.Notice(components.ToneAlert, "That did not happen") {
+				<p>{ v.Problem }</p>
+			}
+		}
+		if v.Done != "" {
+			@components.Notice(components.ToneOK, "Done") {
+				<p>{ v.Done }</p>
+			}
+		}
+		if v.NewKey != "" {
+			@apiKeyShownOnce(v)
+		}
+		@apiKeysIntro(v)
+		if v.Available {
+			if v.APIEnabled {
+				@apiKeyCreateForm(v)
+			}
+			@apiKeysList(v)
+		}
+	}
+}
+
+// apiKeyShownOnce is the one place the raw key is ever printed.
+templ apiKeyShownOnce(v APIKeysView) {
+	@components.Notice(components.ToneOK, "Copy this key now — it is shown once") {
+		<p>
+			This is the key named <span class="font-mono">{ v.NewKeyName }</span>. Give it to your
+			HR or payroll system now. Taptime keeps only a one-way check value of it, so it cannot be shown
+			again: if it is lost, revoke it below and create another.
+		</p>
+		<label class="docket-label mt-3 block" for="api-key-new">Your new key</label>
+		<input
+			class="filter-input mt-1 w-full font-mono"
+			id="api-key-new"
+			type="text"
+			readonly
+			autocomplete="off"
+			spellcheck="false"
+			value={ v.NewKey }
+		/>
+	}
+}
+
+// apiKeysIntro says what a key is and, when the operator has not opened the API, why nothing can
+// be created.
+templ apiKeysIntro(v APIKeysView) {
+	<section class="bg-paper border border-line px-4 py-4">
+		<h2 class="font-display text-lg font-bold tracking-tight">Integration keys</h2>
+		<p class="mt-2 max-w-2xl text-sm text-ink/85">
+			A key lets your HR or payroll system keep your staff and venues in step with Taptime and
+			collect your punches. Anybody holding a key can do that for this business, so give each
+			system its own key and revoke one the moment it is no longer needed.
+		</p>
+		if !v.Available {
+			<p class="mt-2 max-w-2xl text-sm text-ink/85">
+				Integration keys are not available on this deployment.
+			</p>
+		} else if !v.APIEnabled {
+			@components.Notice(components.ToneWarn, "API access is off for this business") {
+				<p>
+					Taptime switches the integration API on for a business on request. Until then no
+					key can be created, and any key listed below is refused. You can still revoke them.
+				</p>
+			}
+		}
+	</section>
+}
+
+templ apiKeyCreateForm(v APIKeysView) {
+	<form method="post" action={ templ.URL(v.PostHref) } class="bg-paper border border-line px-4 py-4">
+		<h2 class="font-display text-lg font-bold tracking-tight">Create a key</h2>
+		<div class="mt-4 flex flex-col gap-1">
+			<label class="docket-label" for="api-key-name">Name</label>
+			<input
+				class="filter-input"
+				id="api-key-name"
+				type="text"
+				name="name"
+				required
+				maxlength={ itoa(v.NameMaxLength) }
+				value={ v.NameValue }
+				autocomplete="off"
+				aria-describedby="api-key-name-help"
+			/>
+			<p class="text-xs text-ink/70" id="api-key-name-help">
+				Which system will use it, for example "Payroll". Two live keys cannot share a name.
+			</p>
+			if v.NameError != "" {
+				<p class="text-sm text-ink">{ v.NameError }</p>
+			}
+		</div>
+		<div class="mt-4">
+			<button class="btn btn--primary" type="submit">Create key</button>
+		</div>
+	</form>
+}
+
+templ apiKeysList(v APIKeysView) {
+	<section class="bg-paper border border-line px-4 py-4">
+		<h2 class="font-display text-lg font-bold tracking-tight">Keys</h2>
+		if len(v.Keys) == 0 {
+			<p class="mt-2 text-sm text-ink/85">No key has been created for this business.</p>
+		} else {
+			<ul class="mt-3 flex flex-col gap-3">
+				for _, k := range v.Keys {
+					<li class="docket">
+						<div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+							<p class="font-display font-bold tracking-tight text-ink">{ k.Name }</p>
+							if k.Live() {
+								<p class="font-mono text-xs uppercase tracking-widest text-ink">Live</p>
+							} else {
+								<p class="font-mono text-xs uppercase tracking-widest text-ink/70">Revoked</p>
+							}
+						</div>
+						<dl class="mt-2 grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-2">
+							<div>
+								<dt class="docket-label">Starts with</dt>
+								<dd class="font-mono text-sm text-ink">{ k.PrefixHint }…</dd>
+							</div>
+							<div>
+								<dt class="docket-label">Created</dt>
+								<dd class="font-mono text-sm text-ink">{ k.CreatedOn }</dd>
+							</div>
+							<div>
+								<dt class="docket-label">Last used</dt>
+								<dd class="font-mono text-sm text-ink">{ k.LastUsed }</dd>
+							</div>
+							if !k.Live() {
+								<div>
+									<dt class="docket-label">Revoked</dt>
+									<dd class="font-mono text-sm text-ink">{ k.RevokedOn }</dd>
+								</div>
+							}
+						</dl>
+						if k.Live() {
+							<form method="post" action={ templ.URL(v.RevokeHref) } class="mt-3">
+								<input type="hidden" name="key_id" value={ k.ID }/>
+								<button class="btn btn--quiet" type="submit">Revoke</button>
+							</form>
+						}
+					</li>
+				}
+			</ul>
+			if v.AnyLive() {
+				<form method="post" action={ templ.URL(v.RevokeAllHref) } class="mt-4 border-t border-line pt-4">
+					<p class="max-w-2xl text-sm text-ink/85">
+						If a key may have leaked and you do not know which, revoke them all. Every
+						integration stops at once until you give it a new key.
+					</p>
+					<label class="mt-2 flex min-h-11 items-center gap-2 text-sm text-ink">
+						<input type="checkbox" name="confirm" value="yes" required class="min-h-11 w-11 accent-tappa-green"/>
+						Yes, stop every integration now
+					</label>
+					<button class="btn btn--quiet mt-2" type="submit">Revoke every key</button>
+				</form>
+			}
+		}
+	</section>
+}
