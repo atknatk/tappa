@@ -27,11 +27,18 @@ FROM api_keys
 WHERE tenant_id = @tenant_id
 ORDER BY created_at DESC, id;
 
+-- 🔴 THE STAMP IS clock_timestamp(), NOT now() (API-3 second round, D2 -- measured with two psql
+-- sessions). now() is the TRANSACTION's start: "revoke all" begun at T0, a key created and
+-- committed after T0, then the UPDATE reaching that key wrote revoked_at = T0 < created_at, the
+-- api_keys_revoked_after_created CHECK refused it (23514) and the WHOLE revocation rolled back --
+-- every key stayed live. The wall clock at the statement is never before a committed key's
+-- created_at. TestApiKeyRevocation_AKeyCreatedDuringRevokeAllIsRevokedToo.
+
 -- name: RevokeAPIKey :one
 -- One key, by its id in this tenant. No row: the key is unknown here OR was revoked already
 -- (by another request that won the race, or earlier); the caller does not write an audit row.
 UPDATE api_keys
-SET revoked_at = COALESCE(revoked_at, now())
+SET revoked_at = COALESCE(revoked_at, clock_timestamp())
 WHERE tenant_id = @tenant_id
   AND id = @id
   AND revoked_at IS NULL
@@ -41,7 +48,7 @@ RETURNING id, name, prefix_hint, revoked_at;
 -- Every live key of this tenant -- the incident button. Only the rows THIS statement revoked come
 -- back; a key another request revoked first is not among them.
 UPDATE api_keys
-SET revoked_at = COALESCE(revoked_at, now())
+SET revoked_at = COALESCE(revoked_at, clock_timestamp())
 WHERE tenant_id = @tenant_id
   AND revoked_at IS NULL
 RETURNING id, name, prefix_hint, revoked_at;

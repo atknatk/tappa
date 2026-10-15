@@ -4718,6 +4718,12 @@ type Querier interface {
 	// handles as "no such plaque". Handler-boundary validation is still owed (section
 	// 7); this makes forgetting it non-catastrophic instead of silent.
 	RetireTagForReplacement(ctx context.Context, arg RetireTagForReplacementParams) (RetireTagForReplacementRow, error)
+	// 🔴 THE STAMP IS clock_timestamp(), NOT now() (API-3 second round, D2 -- measured with two psql
+	// sessions). now() is the TRANSACTION's start: "revoke all" begun at T0, a key created and
+	// committed after T0, then the UPDATE reaching that key wrote revoked_at = T0 < created_at, the
+	// api_keys_revoked_after_created CHECK refused it (23514) and the WHOLE revocation rolled back --
+	// every key stayed live. The wall clock at the statement is never before a committed key's
+	// created_at. TestApiKeyRevocation_AKeyCreatedDuringRevokeAllIsRevokedToo.
 	// One key, by its id in this tenant. No row: the key is unknown here OR was revoked already
 	// (by another request that won the race, or earlier); the caller does not write an audit row.
 	RevokeAPIKey(ctx context.Context, arg RevokeAPIKeyParams) (RevokeAPIKeyRow, error)

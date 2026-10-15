@@ -8,14 +8,17 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/atknatk/tappa/internal/apikey"
+	"github.com/atknatk/tappa/internal/store"
 )
 
 // TestApiKeyAuth_RevokedIs401ClosedIs403 is plan §5 API-3's "401/403" (ADR 0028 §3): the seventh
@@ -522,4 +525,61 @@ func TestApiKeyPanel_OnlyAnActiveOwnerOfThisBusiness(t *testing.T) {
 func hashOf(t *testing.T, macKey []byte, raw string) string {
 	t.Helper()
 	return apikey.KeyedHashForTest(macKey, raw)
+}
+
+// TestApiKeyRevocation_AKeyCreatedDuringRevokeAllIsRevokedToo is the second round's D2, built as a
+// hook: "revoke all"'s transaction begins (its now() is fixed there), a key is created and
+// committed on another connection, and only then does the product's RevokeAllAPIKeys statement
+// run in the first transaction. It succeeds and revokes the new key too; the stamp is not before
+// the key's created_at.
+//
+// MUTANT (measured): the stamp back to now() -> 23514 (api_keys_revoked_after_created) and the
+// whole revocation rolls back; red.
+func TestApiKeyRevocation_AKeyCreatedDuringRevokeAllIsRevokedToo(t *testing.T) {
+	d := appDB(t)
+	ctx := context.Background()
+	s := newService(t, d, apikey.LivePrefix)
+	b := newBusiness(t, d)
+	setAPI(t, b.tenant, true)
+	old, err := s.keys.Create(ctx, apikey.CreateCommand{TenantID: b.tenant, ActorID: b.owner, Name: "Before"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var late apikey.Created
+	var revoked []uuid.UUID
+	err = d.WithTenant(ctx, b.tenant, func(ctx context.Context, tx pgx.Tx) error {
+		var start time.Time
+		if err := tx.QueryRow(ctx, `SELECT now()`).Scan(&start); err != nil {
+			return err
+		}
+		// THE HOOK: another connection creates and commits a key after this transaction began.
+		var cerr error
+		late, cerr = s.keys.Create(ctx, apikey.CreateCommand{TenantID: b.tenant, ActorID: b.owner, Name: "During"})
+		if cerr != nil {
+			return cerr
+		}
+		rows, err := store.New(tx).RevokeAllAPIKeys(ctx, b.tenant)
+		if err != nil {
+			return err
+		}
+		for _, r := range rows {
+			revoked = append(revoked, r.ID)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("revoke all with a key created during it: %v", err)
+	}
+	if !slices.Contains(revoked, old.ID) || !slices.Contains(revoked, late.ID) {
+		t.Fatalf("revoked %v, want both %s and %s", revoked, old.ID, late.ID)
+	}
+	l, err := s.keys.List(ctx, b.tenant, b.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range l.Keys {
+		if k.RevokedAt == nil || k.RevokedAt.Before(k.CreatedAt) {
+			t.Fatalf("key %q: revoked %v, created %v", k.Name, k.RevokedAt, k.CreatedAt)
+		}
+	}
 }
