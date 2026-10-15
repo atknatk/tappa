@@ -179,6 +179,12 @@ type Querier interface {
 	// committed one, or one a concurrent transaction committed while this statement waited on the
 	// primary key (the wait is the concurrency control, ADR 0028 §8).
 	ClaimIdempotency(ctx context.Context, arg ClaimIdempotencyParams) (int64, error)
+	// The worker's lease: the OLDEST due request of the tenant, taken for 60 seconds. SKIP LOCKED:
+	// a second pod claiming at the same moment skips this row and takes another or none -- the two
+	// never hold one request together. The lease is clock_timestamp()-based (not the transaction's
+	// start), so it is the instant this statement ran; the worker keeps the returned value and
+	// matches it at every later step.
+	ClaimInviteRequest(ctx context.Context, tenantID uuid.UUID) (ClaimInviteRequestRow, error)
 	// Resets the accent: the button goes back to the default colour. An UPDATE, not a
 	// DELETE (section 4.6; the row may still carry a logo).
 	ClearTenantAccent(ctx context.Context, arg ClearTenantAccentParams) (int64, error)
@@ -508,6 +514,16 @@ type Querier interface {
 	// DIFFERENT name. An audit named it as a trap. Naming both columns for what they are
 	// makes the generated struct say it instead of a comment asking somebody to remember.
 	ConsumePasswordResetAndSetPassword(ctx context.Context, arg ConsumePasswordResetAndSetPasswordParams) (ConsumePasswordResetAndSetPasswordRow, error)
+	// Whether THIS key's api.deactivation_budget_exceeded row was already written in the last hour:
+	// the row is the owner's alert, and one per key per budget window says all there is to say (a
+	// flood of refused requests would otherwise be a flood of rows).
+	CountAPIBudgetAlerts(ctx context.Context, arg CountAPIBudgetAlertsParams) (int32, error)
+	// How many employees THIS key deactivated in the last hour, and when the oldest of them was --
+	// the budget's whole memory (ADR 0028 §12: never in process memory, so a restart cannot reset
+	// it). A row counts when it is employee.deactivated, its actor is the key (K-23: actor_id =
+	// api_keys.id) and its detail says it came through the API -- an administrator's deactivation in
+	// the panel is never charged to a key. `at` is the database's clock (00005's DEFAULT).
+	CountAPIDeactivations(ctx context.Context, arg CountAPIDeactivationsParams) (CountAPIDeactivationsRow, error)
 	// anomalies.sql -- the reads behind the ANOMALIES section (M6-11).
 	//
 	// WHAT THIS FILE IS FOR. The panel's other sections answer "what happened".
@@ -817,6 +833,10 @@ type Querier interface {
 	// TENANT SCOPE (section 4.5, belt + braces): explicit predicate on top of RLS. The
 	// index employee_invites_tenant_idx (tenant_id, employee_id) serves the predicate.
 	CountRecentInvites(ctx context.Context, arg CountRecentInvitesParams) (CountRecentInvitesRow, error)
+	// resend-activation's second no-op (ADR 0028 §9): an invitation minted in the last hour that can
+	// still be spent -- not used, not retired, not expired. "Sent" is read off the row the worker
+	// (or the panel) minted; created_at is the database's clock.
+	CountRecentLiveInvites(ctx context.Context, arg CountRecentLiveInvitesParams) (int32, error)
 	// HOW MANY PLAQUES THIS BUSINESS HAS, AND HOW MANY OF THEM A TAP CAN ACTUALLY USE.
 	//
 	// IT EXISTS FOR ONE SENTENCE ON ONE SCREEN (M7-03 phase B): the panel's landing
@@ -1129,6 +1149,24 @@ type Querier interface {
 	// an audit confirmed them independently: an INSERT with a forged tenant_id is refused
 	// by the policy's WITH CHECK, not merely by the predicate above.
 	CreateEmployee(ctx context.Context, arg CreateEmployeeParams) (CreateEmployeeRow, error)
+	// Opens the employee for a ref this business holds no live row under (a new person, or a
+	// re-hire: ADR 0010). location_id stays NULL -- K-14: the integrator names no home venue, the
+	// ref is the row's anchor (employees_home_or_external_ref). status is the column's DEFAULT,
+	// 'invited' (CreateEmployee's argument: no literal here can be widened into 'active').
+	//
+	// 🔴 THE CONCURRENCY GUARD IS THE UNIQUE INDEX, ANSWERED BY NAME. Two PUTs of a new ref race past
+	// the lookup (no row to lock); the second INSERT waits on the first's index entry and, when the
+	// first commits, raises 23505 on employees_tenant_external_ref_key. The caller runs this inside a
+	// SAVEPOINT, rolls back to it on that name and takes the row the first one made as a change. An
+	// address another live person holds raises 23505 on employees_tenant_email_key instead -- 409
+	// email_unavailable (isEmailTaken), no row opened. It is not ON CONFLICT ... DO NOTHING
+	// (CreateLocationFromAPI's form): the arbiter of a PARTIAL index needs its predicate restated,
+	// and that trailing WHERE is read by internal/domain/tenant's §4.5 scan as the statement's own
+	// (measured -- the scan went red on it); the belt is not loosened, the statement is written so it
+	// has one WHERE.
+	//
+	// THE TENANT IS SELECTED, NOT ASSIGNED (CreateLocationFromAPI's shape: the belt reads a WHERE).
+	CreateEmployeeFromAPI(ctx context.Context, arg CreateEmployeeFromAPIParams) (CreateEmployeeFromAPIRow, error)
 	// invites.sql -- the TENANT-SCOPED half of activation (M5-02): issuing an invite,
 	// consuming it exactly once, and flipping the employee to 'active'.
 	//
@@ -1514,6 +1552,10 @@ type Querier interface {
 	// TENANT SCOPE (section 4.5, belt + braces): explicit predicate on top of RLS. A
 	// foreign id matches nothing, so this cannot end another tenant's employment.
 	DeactivateEmployee(ctx context.Context, arg DeactivateEmployeeParams) (DeactivateEmployeeRow, error)
+	// Not now: a limit is reached (ADR 0022 §9 -- the limit delays the send, never refuses the
+	// request) or the send failed (back-off). The request stays, due again at @due. Only under this
+	// worker's lease.
+	DeferInviteRequest(ctx context.Context, arg DeferInviteRequestParams) (*time.Time, error)
 	// Removes a department that nothing points at. Same argument as DeleteLocation: the
 	// foreign keys are the guard, the count is what the screen says.
 	DeleteDepartment(ctx context.Context, arg DeleteDepartmentParams) (DeleteDepartmentRow, error)
@@ -1533,6 +1575,9 @@ type Querier interface {
 	// key is free again. It may wait for a concurrent request that is deleting the same row -- a request
 	// with the same key is meant to wait.
 	DeleteExpiredIdempotencyForKey(ctx context.Context, arg DeleteExpiredIdempotencyForKeyParams) (int64, error)
+	// Takes the employee out of the queue whatever its lease: they were deactivated, or their
+	// address was removed -- nothing is left to send.
+	DeleteInviteRequest(ctx context.Context, arg DeleteInviteRequestParams) error
 	// Removes a venue that nothing points at.
 	//
 	// 🔴 THE FOREIGN KEYS ARE THE GUARD, NOT THE COUNT ABOVE. Six ON DELETE RESTRICT keys
@@ -1563,6 +1608,34 @@ type Querier interface {
 	// RETURNING makes "nothing was bound there" distinguishable from "it was removed"
 	// without a second SELECT.
 	DetachPolicyResource(ctx context.Context, arg DetachPolicyResourceParams) (DetachPolicyResourceRow, error)
+	// invitequeue.sql -- K-17's invitation queue (M11 API-6; ADR 0028 §9, ADR 0022's M11 note).
+	//
+	// WHAT A ROW IS. invite_requests (00037) holds ONE request per employee -- (tenant_id,
+	// employee_id) is its key -- and nothing else than when it was asked for (requested_at, the
+	// DEFAULT), the lease (lease_until) and the try count (attempts). 🔴 NO CODE AND NO HASH OF ONE:
+	// a code is minted at SEND time, inside the worker's minting transaction (internal/invite,
+	// queue.go), and never waits in a table. internal/invite's queue test reads the table's columns
+	// and the worker's log, trail and queue rows to say so (ADR 0028 "API-6 uygulama notu").
+	//
+	// WHO WRITES IT. The API (internal/domain/tenant, staffapi.go) asks: a new employee with an
+	// address (K-16), an address change of somebody not activated yet (K-15), resend-activation.
+	// The worker (internal/invite) leases, mints, sends and deletes. tappa_app holds SELECT, INSERT
+	// (tenant_id, employee_id), UPDATE (lease_until, attempts) and DELETE (00037) -- requested_at
+	// cannot be re-dated and a request cannot be moved to another person.
+	//
+	// THE LEASE (K-17: 60 seconds; two pods never mint the same invitation twice). lease_until is
+	// also the "not before" of a deferred request (a limit reached, a failed send's back-off): a row
+	// is DUE when lease_until IS NULL or has passed. A pod claims ONE due row at a time (SKIP LOCKED,
+	// so a second pod takes another row or none) and renews the lease INSIDE its minting
+	// transaction, so the lease covers the send (10 s) and its audit row (5 s) from the mint on.
+	//
+	// TENANT SCOPE (section 4.5, belt + braces): every statement binds tenant_id to @tenant_id as a
+	// top-level conjunct of its own WHERE (or as the VALUE an INSERT writes), on top of RLS. K-19:
+	// the worker is handed ONE tenant and reads only its rows -- nothing here scans across tenants.
+	// Puts the employee into the queue, or leaves the request that is already there as it is (plan
+	// §2 item 12: a second ask while one waits is a no-op). requested_at is the DEFAULT. Returns
+	// whether a row was inserted.
+	EnqueueInviteRequest(ctx context.Context, arg EnqueueInviteRequestParams) (uuid.UUID, error)
 	// Materialise one managed-baseline policy CONTAINER. layer is fixed to 'baseline'
 	// in the statement rather than taken as a parameter: this query exists for the
 	// Tappa-authored baseline only, and a caller that could pass 'tenant' would be
@@ -1673,6 +1746,17 @@ type Querier interface {
 	// updated_by are written; created_at and updated_at take their defaults and every
 	// brand field stays NULL until step 3.
 	EnsureTenantBrand(ctx context.Context, arg EnsureTenantBrandParams) error
+	// K-18's first binding: a live employee of THIS business with no ref yet whose address is the
+	// one the PUT carries (citext -- the column's own equality, which is also the unique index's).
+	// At most one live row holds an address (employees_tenant_email_key), so at most one row.
+	// NEVER across tenants: a holding's peers are not searched (K-24; ADR 0027 §13 item 10).
+	// same_email says whether the bytes match too (a match in capitals only is still an address
+	// change once bound -- ErrSameEmail's rule).
+	FindLinkableEmployeeByEmail(ctx context.Context, arg FindLinkableEmployeeByEmailParams) (FindLinkableEmployeeByEmailRow, error)
+	// The request is done (sent, or given up): it leaves the queue -- but only if the lease is still
+	// this worker's. A request an address change re-queued in the meantime (RequeueInviteRequest)
+	// stays, and the next run mints for the new address.
+	FinishInviteRequest(ctx context.Context, arg FinishInviteRequestParams) (uuid.UUID, error)
 	// Would changing this tenant's time zone MOVE the first month it can be billed for?
 	//
 	// 🔴 IT EXISTS BECAUSE THE ZONE IS AN EDITABLE FIELD AND THE FREE WINDOW IS DERIVED
@@ -1693,6 +1777,14 @@ type Querier interface {
 	// Go-side reimplementation of the month arithmetic would be a second answer that can
 	// disagree with the one the invoice is built from.
 	FirstChargeableMonthShift(ctx context.Context, arg FirstChargeableMonthShiftParams) (FirstChargeableMonthShiftRow, error)
+	// One employee as the API answers with it (ADR 0028 §8, §9): NO ADDRESS -- whether there is one
+	// (has_email), and the activation e-mail's state: a request waiting in the queue
+	// (invite_requests, K-17) and the newest invitation that can still be spent (not used, not
+	// retired, not expired -- ListPendingInvitesForEmployee's three conditions). No code and no
+	// hash: employee_invites is read for created_at alone. Both are LEFT JOINs: queued_at NULL is no
+	// request; has_live_invite false is no live invitation (live_invite_at is then a placeholder --
+	// sqlc cannot see a derived table's LEFT JOIN as nullable, so the flag carries the absence).
+	GetAPIEmployee(ctx context.Context, arg GetAPIEmployeeParams) (GetAPIEmployeeRow, error)
 	// After a revocation matched no row: is the key unknown in this tenant (no row) or revoked
 	// already (a timestamp)? Read in the same transaction, for the panel's sentence only.
 	GetAPIKeyRevokedAt(ctx context.Context, arg GetAPIKeyRevokedAtParams) (*time.Time, error)
@@ -1866,12 +1958,14 @@ type Querier interface {
 	//	db/queries/employees.sql:...  MoveEmployee              location_id / department_id
 	//	db/queries/employees.sql:...  SetEmployeeEmail          email (M10 EM-6)
 	//	db/queries/employees.sql:...  SetEmployeeExternalRef    external_ref (M11 API-1)
+	//	db/queries/employees.sql:...  UpdateEmployeeNamesFromAPI  first/last/full name, code (M11 API-6)
 	//	db/queries/invites.sql:...    ConsumeInviteAndActivate  status -> 'active'
 	//
 	// None of them writes updated_at: migration 00037's trigger owns it (K-21) and moves it
-	// only when a column the integration directory shows changes -- so of the five,
-	// DeactivateEmployee, SetEmployeeExternalRef and a FIRST ConsumeInviteAndActivate move
-	// it, MoveEmployee and SetEmployeeEmail never do.
+	// only when a column the integration directory shows changes -- so of the six,
+	// DeactivateEmployee, SetEmployeeExternalRef, UpdateEmployeeNamesFromAPI (when a value
+	// changes) and a FIRST ConsumeInviteAndActivate move it, MoveEmployee and SetEmployeeEmail
+	// never do.
 	//
 	// ⚠️ THE ANCHOR IS PART OF THE COMMAND. Without `^` the same grep returns SIX lines:
 	// the three statements plus three sentences of prose that name them, one of which is
@@ -1891,8 +1985,9 @@ type Querier interface {
 	//
 	//	$ grep -rn '^INSERT INTO employees' db/queries/
 	//	db/queries/employees.sql:...  CreateEmployee            status -> (schema default)
+	//	db/queries/employees.sql:...  CreateEmployeeFromAPI     status -> (schema default) (M11 API-6)
 	//
-	// ONE, and the anchor matters here for the same reason it does above: unanchored,
+	// TWO, and the anchor matters here for the same reason it does above: unanchored,
 	// the prose in this header that NAMES the statement is matched too. If that list
 	// ever grows, the question to ask of the newcomer is the one this file already
 	// answers three times over -- which column of the lifecycle does it write, and does
@@ -2022,6 +2117,10 @@ type Querier interface {
 	// presentation columns exist precisely because the screen that follows the
 	// decision has to say something, and neither of them is a name.
 	GetEmployeeForTap(ctx context.Context, arg GetEmployeeForTapParams) (GetEmployeeForTapRow, error)
+	// The person's lifecycle state, read BEFORE the minting transaction retires anything: only an
+	// 'invited' person is sent an invitation by the queue (K-15: an activated person gets none; a
+	// deactivated one could never spend it).
+	GetEmployeeInviteStatus(ctx context.Context, arg GetEmployeeInviteStatusParams) (string, error)
 	// The recorded request after a claim found a row.
 	GetIdempotency(ctx context.Context, arg GetIdempotencyParams) (GetIdempotencyRow, error)
 	// Where an e-mailed invitation goes and what it may say (M10 EM-7B, ADR 0022 §7).
@@ -2053,6 +2152,8 @@ type Querier interface {
 	// predicate bound to the parameter, on top of RLS -- employees, tenants and the
 	// admin_users sub-query alike.
 	GetInviteRecipient(ctx context.Context, arg GetInviteRecipientParams) (GetInviteRecipientRow, error)
+	// Whether a request for the employee waits in the queue (resend-activation's first no-op).
+	GetInviteRequest(ctx context.Context, arg GetInviteRequestParams) (time.Time, error)
 	// transactions.sql -- tenant-scoped reads and the single append-only write for
 	// the product's core record. Every query carries an explicit tenant_id filter
 	// (CLAUDE.md section 4.5, belt + braces on RLS). transactions is IMMUTABLE
@@ -2122,6 +2223,34 @@ type Querier interface {
 	// tap the same wall plaque back to back. The domain compares this row's
 	// occurred_at with the new tap's time against the 60s window.
 	GetLastTransactionForEmployee(ctx context.Context, arg GetLastTransactionForEmployeeParams) (Transaction, error)
+	// The most recent row under the ref, live or not: what GET /v1/employees/{ref} answers when
+	// no live row holds the ref (the deactivated one; ADR 0010 -- a ref's history is its rows).
+	GetLatestEmployeeByExternalRef(ctx context.Context, arg GetLatestEmployeeByExternalRefParams) (uuid.UUID, error)
+	// ===========================================================================================
+	// THE INTEGRATION API'S EMPLOYEE (M11 API-6; ADR 0028 §9, K-14, K-15, K-16, K-18, K-21, K-24).
+	// internal/domain/tenant (staffapi.go) is the one caller; it runs these inside the API's write
+	// runner (internal/apikey.Writes), whose transaction is in the KEY's tenant context.
+	//
+	// NONE OF THEM SELECTS email OR location_id. The API never answers with an address (ADR 0028
+	// §8: GET /v1/employees is e-mail-less) -- the address is compared in SQL where it has to be
+	// (FindLinkableEmployeeByEmail, the unique index) and read back only as "is there one"
+	// (has_email); and K-14's home venue is not part of the API's employee, so these statements
+	// are not among the location_id readers internal/db's TestEmployeeLocationReaders_Counted
+	// counts.
+	//
+	// A LIVE ROW IS status <> 'deactivated' -- the predicate of employees_tenant_external_ref_key
+	// and employees_tenant_email_key (00037, K-24). A deactivated row keeps its ref; a re-hire is a
+	// NEW row under the same ref (ADR 0010, plan §2 item 9).
+	//
+	// TENANT SCOPE (section 4.5, belt + braces): every statement binds tenant_id to @tenant_id as
+	// a top-level conjunct of its own WHERE (and of every sub-query's), on top of RLS.
+	// ===========================================================================================
+	// The live employee this business holds under the integrator's ref -- at most one
+	// (employees_tenant_external_ref_key). NOT locked: it decides which path a PUT takes; the path
+	// then locks the row by id (LockEmployeeForAPI) in the order ChangeEmail's comment argues.
+	// same_email compares the address on file with the PUT's BYTE FOR BYTE (ErrSameEmail's rule: a
+	// change of capitals is a change) without the address ever reaching Go.
+	GetLiveEmployeeByExternalRef(ctx context.Context, arg GetLiveEmployeeByExternalRefParams) (GetLiveEmployeeByExternalRefRow, error)
 	// locations.sql -- tenant-scoped location reads for proof-of-place, plus the one
 	// read the activation page needs. EVERY query here carries an explicit tenant_id
 	// filter (CLAUDE.md section 4.5, belt + braces on RLS).
@@ -2887,6 +3016,19 @@ type Querier interface {
 	// refusals. It is NOT a gate -- the gate is the consuming statement's own WHERE,
 	// and nothing branches on this value before consuming.
 	InviteConsentMatches(ctx context.Context, arg InviteConsentMatchesParams) (bool, error)
+	// Whether an address is, as citext, the address of an administrator of THIS business (ADR
+	// 0022 §7: an activation link mailed to the panel's own inbox is ADR 0005 Y-D with one step
+	// fewer). GetInviteRecipient asks the same at send time; the API asks it at the request, so the
+	// integrator hears 422 instead of a queued request the worker would refuse.
+	IsAdministratorAddress(ctx context.Context, arg IsAdministratorAddressParams) (bool, error)
+	// The owner's alert (ADR 0028 §12): every key that ran out of its deactivation budget in the last
+	// @window_seconds, newest first, with the key's name as it is now (a LEFT JOIN: a key cannot be
+	// deleted, but the trail must still show a row whose key it cannot name).
+	ListAPIBudgetAlerts(ctx context.Context, arg ListAPIBudgetAlertsParams) ([]ListAPIBudgetAlertsRow, error)
+	// A page of this business's employees, live and deactivated, panel-made (no ref) and API-made,
+	// in id order after the cursor (the previous page's last id; NULL for the first page). The same
+	// columns as GetAPIEmployee, for the same reasons -- no address.
+	ListAPIEmployees(ctx context.Context, arg ListAPIEmployeesParams) ([]ListAPIEmployeesRow, error)
 	// The panel's list: newest first, revoked ones included (the owner sees what was issued and
 	// when it stopped working). token_hash is not readable by tappa_app and is not named.
 	ListAPIKeys(ctx context.Context, tenantID uuid.UUID) ([]ListAPIKeysRow, error)
@@ -4207,6 +4349,26 @@ type Querier interface {
 	// names it -- and finds its SHIFT -- from holding_site_locations (internal/domain/ledger's siteVenues), the one way into
 	// the peer's venue list. Ids only -- no evidence column is added (K-39).
 	ListWorkedShiftEvents(ctx context.Context, arg ListWorkedShiftEventsParams) ([]ListWorkedShiftEventsRow, error)
+	// SERIALISE ONE API KEY'S DEACTIVATIONS (M11 API-6, ADR 0028 §12, K-25). The budget is a
+	// READ-THEN-DECIDE over this table (CountAPIDeactivations), and without a lock N concurrent
+	// deactivations all count before any of them has committed and all pass -- the budget exceeded
+	// by the degree of concurrency. The lock is taken in the transaction that counts, deactivates
+	// and writes the trail row with RecordTx, so the count each holder sees includes every
+	// deactivation committed by the holder before it (LockTenantForInviteLimits' argument, verbatim:
+	// READ COMMITTED takes a fresh snapshot per statement and a transaction-scoped advisory lock is
+	// released only after its COMMIT is visible).
+	//
+	// THE KEY IS THE API KEY, NAMESPACED ('api-deactivation-budget:' keeps it apart from
+	// 'invite-limits:' and LockEmployeeForTap's string). A hash collision serialises two unrelated
+	// keys -- it can never mix their counts, every statement after it carries its own predicates
+	// and runs under RLS.
+	//
+	// IT READS THE CALLER'S TENANT ROW, and that is the §4.5 belt's shape rather than decoration
+	// (internal/domain/tenant's scan found a bare advisory lock checking nothing): the lock is taken
+	// in the SELECT LIST, so once per row the WHERE admitted -- this business's row, under RLS and the
+	// explicit predicate -- and a context in which the row is not visible returns NO ROW and takes no
+	// lock, which the caller treats as a failure, never as "locked".
+	LockAPIDeactivationBudget(ctx context.Context, arg LockAPIDeactivationBudgetParams) (LockAPIDeactivationBudgetRow, error)
 	// SERIALISE ONE ADMINISTRATOR'S RECOVERY ISSUING (M10 EM-7C round 3, ADR 0022's
 	// "EM-7C note").
 	//
@@ -4229,6 +4391,13 @@ type Querier interface {
 	// "<tenant>:<employee>" string and the invitation limits' 'invite-limits:' one; a hash
 	// collision serialises two unrelated requests and never mixes their data.
 	LockAdminForResetIssue(ctx context.Context, arg LockAdminForResetIssueParams) error
+	// One employee, row-locked FOR UPDATE until the API write's transaction ends -- the mode
+	// LockEmployeeForEmailChange takes and for its reason: it conflicts with the FOR KEY SHARE a
+	// concurrent CreateInvite's foreign-key check holds, so an invitation being minted right now
+	// for this person commits (or rolls back) before the PUT reads the row, and the PUT's second
+	// retirement (staffapi.go) then sees it. activated_at says whether the person has ever
+	// activated (K-15: an activated person's new address gets no invitation).
+	LockEmployeeForAPI(ctx context.Context, arg LockEmployeeForAPIParams) (LockEmployeeForAPIRow, error)
 	// The same row as GetEmployeeEmail, ROW-LOCKED FOR UPDATE until the transaction ends
 	// (M10 EM-6, step 2 of internal/domain/tenant.Staff.ChangeEmail).
 	//
@@ -4263,6 +4432,13 @@ type Querier interface {
 	//
 	// TENANT SCOPE (section 4.5, belt + braces): explicit predicate on top of RLS.
 	LockEmployeeForExternalRefChange(ctx context.Context, arg LockEmployeeForExternalRefChangeParams) (LockEmployeeForExternalRefChangeRow, error)
+	// The same state, FOR SHARE, inside the minting transaction after the retirements and before
+	// the insert: FOR SHARE conflicts with the FOR NO KEY UPDATE an activation's UPDATE employees
+	// and a deactivation take, and with the FOR UPDATE an address change takes, so none of them can
+	// commit between this read and the mint's commit. The lock order is the activation's and
+	// ChangeEmail's -- invitations first, then the employee -- so none of the three deadlocks
+	// against it.
+	LockEmployeeForQueuedInvite(ctx context.Context, arg LockEmployeeForQueuedInviteParams) (string, error)
 	// SERIALISE ONE PERSON'S TAP DECISION (ADR 0006, layer 4).
 	//
 	// 🔴 THE DEBOUNCE IS A READ-THEN-DECIDE, and without this it loses the same way
@@ -4738,6 +4914,18 @@ type Querier interface {
 	// already another rule's. That is the same refusal a CREATE gets and the caller maps
 	// it the same way -- the index protects the rename as well as the insert.
 	RenameTenantPolicy(ctx context.Context, arg RenameTenantPolicyParams) (RenameTenantPolicyRow, error)
+	// Inside the minting transaction, after the invitation is inserted: the lease is still THIS
+	// worker's (nobody re-queued or re-claimed the request) and runs 60 seconds from now, so it
+	// covers the send and its audit row. No row: the lease was lost -- the caller rolls the mint
+	// back.
+	RenewInviteRequestLease(ctx context.Context, arg RenewInviteRequestLeaseParams) (*time.Time, error)
+	// Puts the employee into the queue AFTER AN ADDRESS CHANGE (K-15), and -- unlike
+	// EnqueueInviteRequest -- RELEASES a request that is already there: its lease is cleared and its
+	// tries reset. A worker that minted for the OLD address before the change committed sends a
+	// link the change has already retired; its lease is gone, so it cannot take the request out of
+	// the queue afterwards (FinishInviteRequest matches its own lease only) and the next run mints
+	// for the new address. tenant_id is not in the SET list.
+	RequeueInviteRequest(ctx context.Context, arg RequeueInviteRequestParams) error
 	// RETIRE: the old plaque of a "Replace tag", stamped with what replaced it.
 	//
 	// THE ROW IS NOT DELETED AND CANNOT BE (00004 revokes DELETE from tappa_app):
@@ -5125,6 +5313,12 @@ type Querier interface {
 	// UpdateLocation gives: a partial update needs "leave this alone" to be distinct
 	// from "make this NULL", and one shape for both is how a clear becomes a no-op.
 	UpdateDepartment(ctx context.Context, arg UpdateDepartmentParams) (Department, error)
+	// Writes the integrator's names and code. NOTHING ELSE: not status (a PUT deactivates through
+	// DeactivateEmployee, and nothing here can activate anybody), not the address (SetEmployeeEmail,
+	// with the retirements beside it), not the placement. full_name is the two names joined -- the
+	// name the panel's roster shows -- so a rename reaches the panel. updated_at moves through
+	// 00037's trigger (K-21): every column named here is a directory column.
+	UpdateEmployeeNamesFromAPI(ctx context.Context, arg UpdateEmployeeNamesFromAPIParams) (uuid.UUID, error)
 	// Rewrites a venue's configuration.
 	//
 	// 🔴 EVERY COLUMN IS ASSIGNED, INCLUDING THE ONES BEING CLEARED, and that is the

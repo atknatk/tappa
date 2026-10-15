@@ -201,6 +201,33 @@ const storeDir = "internal/store"
 // calls a definer; internal/db's TestTenantBranding_PerPageReadsDoNotSelectTheLogo pins
 // the first's select list and the second's positive control.
 var storeSurface = map[string]string{
+	// M11 API-6: the API's employee (employees.sql), K-25's budget and the owner's alert (audit.sql)
+	// and the invitation queue (invitequeue.sql). No address is returned (has_email / same_email are
+	// booleans computed in SQL), no code and no hash; ids, names, instants and counts.
+	"ClaimInviteRequest":             "(context.Context, uuid.UUID) (ClaimInviteRequestRow{EmployeeID uuid.UUID; LeaseUntil *time.Time; Attempts int32}, error)",
+	"CountAPIBudgetAlerts":           "(context.Context, CountAPIBudgetAlertsParams{TenantID uuid.UUID; KeyID string}) (int32, error)",
+	"CountAPIDeactivations":          "(context.Context, CountAPIDeactivationsParams{TenantID uuid.UUID; KeyID uuid.UUID}) (CountAPIDeactivationsRow{Deactivations int32; Oldest time.Time}, error)",
+	"CountRecentLiveInvites":         "(context.Context, CountRecentLiveInvitesParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (int32, error)",
+	"CreateEmployeeFromAPI":          "(context.Context, CreateEmployeeFromAPIParams{ExternalRef *string; EmployeeCode *string; FirstName *string; LastName *string; FullName string; Email *string; TenantID uuid.UUID}) (CreateEmployeeFromAPIRow{ID uuid.UUID; ExternalRef *string; EmployeeCode *string; FirstName *string; LastName *string; FullName string; Status string; HasEmail bool}, error)",
+	"DeferInviteRequest":             "(context.Context, DeferInviteRequestParams{Due *time.Time; TenantID uuid.UUID; EmployeeID uuid.UUID; LeaseUntil *time.Time}) (*time.Time, error)",
+	"DeleteInviteRequest":            "(context.Context, DeleteInviteRequestParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (error)",
+	"EnqueueInviteRequest":           "(context.Context, EnqueueInviteRequestParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (uuid.UUID, error)",
+	"FindLinkableEmployeeByEmail":    "(context.Context, FindLinkableEmployeeByEmailParams{Email string; TenantID uuid.UUID}) (FindLinkableEmployeeByEmailRow{ID uuid.UUID; SameEmail bool}, error)",
+	"FinishInviteRequest":            "(context.Context, FinishInviteRequestParams{TenantID uuid.UUID; EmployeeID uuid.UUID; LeaseUntil *time.Time}) (uuid.UUID, error)",
+	"GetAPIEmployee":                 "(context.Context, GetAPIEmployeeParams{TenantID uuid.UUID; ID uuid.UUID}) (GetAPIEmployeeRow{ID uuid.UUID; ExternalRef *string; EmployeeCode *string; FirstName *string; LastName *string; FullName string; Status string; HasEmail bool; ActivatedAt *time.Time; CreatedAt time.Time; UpdatedAt time.Time; QueuedAt *time.Time; HasLiveInvite bool; LiveInviteAt time.Time}, error)",
+	"GetEmployeeInviteStatus":        "(context.Context, GetEmployeeInviteStatusParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (string, error)",
+	"GetInviteRequest":               "(context.Context, GetInviteRequestParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (time.Time, error)",
+	"GetLatestEmployeeByExternalRef": "(context.Context, GetLatestEmployeeByExternalRefParams{TenantID uuid.UUID; ExternalRef *string}) (uuid.UUID, error)",
+	"GetLiveEmployeeByExternalRef":   "(context.Context, GetLiveEmployeeByExternalRefParams{Email *string; TenantID uuid.UUID; ExternalRef *string}) (GetLiveEmployeeByExternalRefRow{ID uuid.UUID; Status string; SameEmail bool}, error)",
+	"IsAdministratorAddress":         "(context.Context, IsAdministratorAddressParams{TenantID uuid.UUID; Email string}) (bool, error)",
+	"ListAPIBudgetAlerts":            "(context.Context, ListAPIBudgetAlertsParams{TenantID uuid.UUID; WindowSeconds int32}) ([]ListAPIBudgetAlertsRow{At time.Time; Target *string; KeyName string}, error)",
+	"ListAPIEmployees":               "(context.Context, ListAPIEmployeesParams{TenantID uuid.UUID; After *uuid.UUID; PageSize int32}) ([]ListAPIEmployeesRow{ID uuid.UUID; ExternalRef *string; EmployeeCode *string; FirstName *string; LastName *string; FullName string; Status string; HasEmail bool; ActivatedAt *time.Time; CreatedAt time.Time; UpdatedAt time.Time; QueuedAt *time.Time; HasLiveInvite bool; LiveInviteAt time.Time}, error)",
+	"LockAPIDeactivationBudget":      "(context.Context, LockAPIDeactivationBudgetParams{KeyID uuid.UUID; TenantID uuid.UUID}) (LockAPIDeactivationBudgetRow{ID uuid.UUID; Unlocked bool}, error)",
+	"LockEmployeeForAPI":             "(context.Context, LockEmployeeForAPIParams{Email *string; TenantID uuid.UUID; ID uuid.UUID}) (LockEmployeeForAPIRow{ID uuid.UUID; ExternalRef *string; EmployeeCode *string; FirstName *string; LastName *string; FullName string; Status string; HasEmail bool; SameEmail bool; ActivatedAt *time.Time}, error)",
+	"LockEmployeeForQueuedInvite":    "(context.Context, LockEmployeeForQueuedInviteParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (string, error)",
+	"RenewInviteRequestLease":        "(context.Context, RenewInviteRequestLeaseParams{TenantID uuid.UUID; EmployeeID uuid.UUID; LeaseUntil *time.Time}) (*time.Time, error)",
+	"RequeueInviteRequest":           "(context.Context, RequeueInviteRequestParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (error)",
+	"UpdateEmployeeNamesFromAPI":     "(context.Context, UpdateEmployeeNamesFromAPIParams{FirstName *string; LastName *string; FullName string; EmployeeCode *string; TenantID uuid.UUID; ID uuid.UUID}) (uuid.UUID, error)",
 	// M11 API-1c: the site's reads of its projection (db/queries/sitepunches.sql) and the manager's
 	// record at a peer's venue -- ids, names, counts and instants; no key, no evidence.
 	"ListSitePunchesForPeriod":           "(context.Context, ListSitePunchesForPeriodParams{TenantID uuid.UUID; FromAt time.Time; UntilAt time.Time; RowLimit int32}) ([]ListSitePunchesForPeriodRow{TransactionID uuid.UUID; EmployerApiCode *string; EmployeeID *uuid.UUID; EmployeeRef *string; EmployeeCode *string; EmployeeName *string; SiteLocationID *uuid.UUID; LocationName *string; SiteTagUid *string; OccurredAt time.Time; Channel string; Type *string; Outcome string; CreatedAt time.Time}, error)",
@@ -876,10 +903,12 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// hand from internal/db/resolve.go).
 	// 21 -> 22 on 2026-10-15 (M11 API-4): db/queries/apiidempotency.sql, five named queries
 	// over api_idempotency (the Idempotency-Key ledger); none calls a definer.
-	if files != 22 {
-		t.Fatalf("read %d .sql file(s) under db/queries; TWENTY-TWO were there when this was "+
-			"pinned (2026-10-15; seventeen on 2026-08-24, plus operator.sql, branding.sql, sitepunches.sql, apikeys.sql "+
-			"and apiidempotency.sql)", files)
+	// 22 -> 23 on 2026-10-15 (M11 API-6): db/queries/invitequeue.sql, the invitation queue's
+	// named queries over invite_requests (and the person's status); none calls a definer.
+	if files != 23 {
+		t.Fatalf("read %d .sql file(s) under db/queries; TWENTY-THREE were there when this was "+
+			"pinned (2026-10-15; seventeen on 2026-08-24, plus operator.sql, branding.sql, sitepunches.sql, apikeys.sql, "+
+			"apiidempotency.sql and invitequeue.sql)", files)
 	}
 	// A file count alone does not prove the STATEMENT lines were reached; this does.
 	// EXACT, by this file's own standard 130 lines down ("a floor with slack cannot
@@ -921,14 +950,18 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// 150 -> 155 on 2026-10-15 (M11 API-4): apiidempotency.sql's five queries; none calls a definer.
 	// 155 -> 159 on 2026-10-15 (M11 API-5): locations.sql's four venue queries of PUT
 	// /v1/locations; none calls a definer.
-	if named != 159 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; ONE HUNDRED AND FIFTY-NINE were "+
+	// 159 -> 183 on 2026-10-15 (M11 API-6): employees.sql's nine (the API's employee: lookup,
+	// K-18, lock, create, names, two reads, the administrator-address check), audit.sql's four
+	// (K-25's lock and count, the alert's dedupe and list) and invitequeue.sql's eleven; none
+	// calls a definer.
+	if named != 183 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; ONE HUNDRED AND EIGHTY-THREE were "+
 			"there when this was pinned (2026-10-15: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
 			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+
 			"+ EM-7B's three invitation e-mail queries, + EM-7C's two recovery queries, "+
 			"+ the activation tap's two consent queries, + WL-13's two activation brand queries, "+
-			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries). "+
+			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-four employee, budget and queue queries). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {
@@ -1106,8 +1139,10 @@ func parseStore(t *testing.T) (map[string]*ast.File, *token.FileSet) {
 	// methods over api_keys and the tenants gate, in storeSurface; none carries bytes.
 	// 22 -> 23 (2026-10-15, M11 API-4): db/queries/apiidempotency.sql adds apiidempotency.sql.go --
 	// five methods over api_idempotency, in storeSurface; none carries bytes.
-	if len(out) != 23 {
-		t.Fatalf("parsed %d file(s) under %s; TWENTY-THREE were generated when this floor was last set "+
+	// 23 -> 24 (2026-10-15, M11 API-6): db/queries/invitequeue.sql adds invitequeue.sql.go -- the
+	// invitation queue's methods, in storeSurface; none carries bytes, none returns a code or a hash.
+	if len(out) != 24 {
+		t.Fatalf("parsed %d file(s) under %s; TWENTY-FOUR were generated when this floor was last set "+
 			"(2026-10-15). If sqlc genuinely emits a different number now, change this number "+
 			"in the same edit and say why -- do not widen it", len(out), storeDir)
 	}

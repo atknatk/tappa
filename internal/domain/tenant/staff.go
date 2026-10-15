@@ -284,6 +284,10 @@ type Staff struct {
 	data  Database
 	trail Trail
 	log   *slog.Logger
+	// beforeBudget, when set, runs inside an API deactivation's transaction right before K-25's
+	// budget lock (staffapi.go) -- a test's meeting point, so concurrent deactivations reach the
+	// lock together. nil in production.
+	beforeBudget func(ctx context.Context)
 }
 
 // NewStaff wires it. A nil database or a nil trail is REFUSED rather than

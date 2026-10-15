@@ -90,6 +90,108 @@ func (q *Queries) ConfirmRecentRemoval(ctx context.Context, arg ConfirmRecentRem
 	return removed_name, err
 }
 
+const countAPIBudgetAlerts = `-- name: CountAPIBudgetAlerts :one
+SELECT count(*)::int AS alerts
+FROM audit_log
+WHERE tenant_id = $1
+  AND target = $2::text
+  AND action = 'api.deactivation_budget_exceeded'
+  AND at > now() - interval '1 hour'
+`
+
+type CountAPIBudgetAlertsParams struct {
+	TenantID uuid.UUID
+	KeyID    string
+}
+
+// Whether THIS key's api.deactivation_budget_exceeded row was already written in the last hour:
+// the row is the owner's alert, and one per key per budget window says all there is to say (a
+// flood of refused requests would otherwise be a flood of rows).
+func (q *Queries) CountAPIBudgetAlerts(ctx context.Context, arg CountAPIBudgetAlertsParams) (int32, error) {
+	row := q.db.QueryRow(ctx, countAPIBudgetAlerts, arg.TenantID, arg.KeyID)
+	var alerts int32
+	err := row.Scan(&alerts)
+	return alerts, err
+}
+
+const countAPIDeactivations = `-- name: CountAPIDeactivations :one
+SELECT count(*)::int AS deactivations,
+       coalesce(min(at), now())::timestamptz AS oldest
+FROM audit_log
+WHERE tenant_id = $1
+  AND actor_id = $2::uuid
+  AND action = 'employee.deactivated'
+  AND detail->>'via' = 'api'
+  AND at > now() - interval '1 hour'
+`
+
+type CountAPIDeactivationsParams struct {
+	TenantID uuid.UUID
+	KeyID    uuid.UUID
+}
+
+type CountAPIDeactivationsRow struct {
+	Deactivations int32
+	Oldest        time.Time
+}
+
+// How many employees THIS key deactivated in the last hour, and when the oldest of them was --
+// the budget's whole memory (ADR 0028 §12: never in process memory, so a restart cannot reset
+// it). A row counts when it is employee.deactivated, its actor is the key (K-23: actor_id =
+// api_keys.id) and its detail says it came through the API -- an administrator's deactivation in
+// the panel is never charged to a key. `at` is the database's clock (00005's DEFAULT).
+func (q *Queries) CountAPIDeactivations(ctx context.Context, arg CountAPIDeactivationsParams) (CountAPIDeactivationsRow, error) {
+	row := q.db.QueryRow(ctx, countAPIDeactivations, arg.TenantID, arg.KeyID)
+	var i CountAPIDeactivationsRow
+	err := row.Scan(&i.Deactivations, &i.Oldest)
+	return i, err
+}
+
+const listAPIBudgetAlerts = `-- name: ListAPIBudgetAlerts :many
+SELECT a.at, a.target, coalesce(k.name, '')::text AS key_name
+FROM audit_log a
+LEFT JOIN api_keys k ON k.tenant_id = $1 AND k.id::text = a.target
+WHERE a.tenant_id = $1
+  AND a.action = 'api.deactivation_budget_exceeded'
+  AND a.at > now() - make_interval(secs => $2::int)
+ORDER BY a.at DESC
+LIMIT 20
+`
+
+type ListAPIBudgetAlertsParams struct {
+	TenantID      uuid.UUID
+	WindowSeconds int32
+}
+
+type ListAPIBudgetAlertsRow struct {
+	At      time.Time
+	Target  *string
+	KeyName string
+}
+
+// The owner's alert (ADR 0028 §12): every key that ran out of its deactivation budget in the last
+// @window_seconds, newest first, with the key's name as it is now (a LEFT JOIN: a key cannot be
+// deleted, but the trail must still show a row whose key it cannot name).
+func (q *Queries) ListAPIBudgetAlerts(ctx context.Context, arg ListAPIBudgetAlertsParams) ([]ListAPIBudgetAlertsRow, error) {
+	rows, err := q.db.Query(ctx, listAPIBudgetAlerts, arg.TenantID, arg.WindowSeconds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAPIBudgetAlertsRow{}
+	for rows.Next() {
+		var i ListAPIBudgetAlertsRow
+		if err := rows.Scan(&i.At, &i.Target, &i.KeyName); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPlaqueHistory = `-- name: ListPlaqueHistory :many
 SELECT a.action, a.at, coalesce(u.full_name, '')::text AS actor_name,
        (a.actor_id IS NULL)::boolean AS by_system
@@ -235,6 +337,49 @@ func (q *Queries) ListPlaqueHistory(ctx context.Context, arg ListPlaqueHistoryPa
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockAPIDeactivationBudget = `-- name: LockAPIDeactivationBudget :one
+SELECT t.id,
+       (pg_advisory_xact_lock(hashtextextended('api-deactivation-budget:' || ($1::uuid)::text, 0)) IS NULL)::boolean AS unlocked
+FROM tenants t
+WHERE t.id = $2
+`
+
+type LockAPIDeactivationBudgetParams struct {
+	KeyID    uuid.UUID
+	TenantID uuid.UUID
+}
+
+type LockAPIDeactivationBudgetRow struct {
+	ID       uuid.UUID
+	Unlocked bool
+}
+
+// SERIALISE ONE API KEY'S DEACTIVATIONS (M11 API-6, ADR 0028 §12, K-25). The budget is a
+// READ-THEN-DECIDE over this table (CountAPIDeactivations), and without a lock N concurrent
+// deactivations all count before any of them has committed and all pass -- the budget exceeded
+// by the degree of concurrency. The lock is taken in the transaction that counts, deactivates
+// and writes the trail row with RecordTx, so the count each holder sees includes every
+// deactivation committed by the holder before it (LockTenantForInviteLimits' argument, verbatim:
+// READ COMMITTED takes a fresh snapshot per statement and a transaction-scoped advisory lock is
+// released only after its COMMIT is visible).
+//
+// THE KEY IS THE API KEY, NAMESPACED ('api-deactivation-budget:' keeps it apart from
+// 'invite-limits:' and LockEmployeeForTap's string). A hash collision serialises two unrelated
+// keys -- it can never mix their counts, every statement after it carries its own predicates
+// and runs under RLS.
+//
+// IT READS THE CALLER'S TENANT ROW, and that is the §4.5 belt's shape rather than decoration
+// (internal/domain/tenant's scan found a bare advisory lock checking nothing): the lock is taken
+// in the SELECT LIST, so once per row the WHERE admitted -- this business's row, under RLS and the
+// explicit predicate -- and a context in which the row is not visible returns NO ROW and takes no
+// lock, which the caller treats as a failure, never as "locked".
+func (q *Queries) LockAPIDeactivationBudget(ctx context.Context, arg LockAPIDeactivationBudgetParams) (LockAPIDeactivationBudgetRow, error) {
+	row := q.db.QueryRow(ctx, lockAPIDeactivationBudget, arg.KeyID, arg.TenantID)
+	var i LockAPIDeactivationBudgetRow
+	err := row.Scan(&i.ID, &i.Unlocked)
+	return i, err
 }
 
 const recordAuditEvent = `-- name: RecordAuditEvent :one

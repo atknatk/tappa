@@ -68,12 +68,14 @@
 --	db/queries/employees.sql:...  MoveEmployee              location_id / department_id
 --	db/queries/employees.sql:...  SetEmployeeEmail          email (M10 EM-6)
 --	db/queries/employees.sql:...  SetEmployeeExternalRef    external_ref (M11 API-1)
+--	db/queries/employees.sql:...  UpdateEmployeeNamesFromAPI  first/last/full name, code (M11 API-6)
 --	db/queries/invites.sql:...    ConsumeInviteAndActivate  status -> 'active'
 --
 -- None of them writes updated_at: migration 00037's trigger owns it (K-21) and moves it
--- only when a column the integration directory shows changes -- so of the five,
--- DeactivateEmployee, SetEmployeeExternalRef and a FIRST ConsumeInviteAndActivate move
--- it, MoveEmployee and SetEmployeeEmail never do.
+-- only when a column the integration directory shows changes -- so of the six,
+-- DeactivateEmployee, SetEmployeeExternalRef, UpdateEmployeeNamesFromAPI (when a value
+-- changes) and a FIRST ConsumeInviteAndActivate move it, MoveEmployee and SetEmployeeEmail
+-- never do.
 --
 -- ⚠️ THE ANCHOR IS PART OF THE COMMAND. Without `^` the same grep returns SIX lines:
 -- the three statements plus three sentences of prose that name them, one of which is
@@ -93,8 +95,9 @@
 --
 --	$ grep -rn '^INSERT INTO employees' db/queries/
 --	db/queries/employees.sql:...  CreateEmployee            status -> (schema default)
+--	db/queries/employees.sql:...  CreateEmployeeFromAPI     status -> (schema default) (M11 API-6)
 --
--- ONE, and the anchor matters here for the same reason it does above: unanchored,
+-- TWO, and the anchor matters here for the same reason it does above: unanchored,
 -- the prose in this header that NAMES the statement is matched too. If that list
 -- ever grows, the question to ask of the newcomer is the one this file already
 -- answers three times over -- which column of the lifecycle does it write, and does
@@ -844,3 +847,185 @@ SET external_ref = sqlc.narg('external_ref')::text
 WHERE tenant_id = @tenant_id
   AND id = @id
 RETURNING id, external_ref;
+
+-- ===========================================================================================
+-- THE INTEGRATION API'S EMPLOYEE (M11 API-6; ADR 0028 §9, K-14, K-15, K-16, K-18, K-21, K-24).
+-- internal/domain/tenant (staffapi.go) is the one caller; it runs these inside the API's write
+-- runner (internal/apikey.Writes), whose transaction is in the KEY's tenant context.
+--
+-- NONE OF THEM SELECTS email OR location_id. The API never answers with an address (ADR 0028
+-- §8: GET /v1/employees is e-mail-less) -- the address is compared in SQL where it has to be
+-- (FindLinkableEmployeeByEmail, the unique index) and read back only as "is there one"
+-- (has_email); and K-14's home venue is not part of the API's employee, so these statements
+-- are not among the location_id readers internal/db's TestEmployeeLocationReaders_Counted
+-- counts.
+--
+-- A LIVE ROW IS status <> 'deactivated' -- the predicate of employees_tenant_external_ref_key
+-- and employees_tenant_email_key (00037, K-24). A deactivated row keeps its ref; a re-hire is a
+-- NEW row under the same ref (ADR 0010, plan §2 item 9).
+--
+-- TENANT SCOPE (section 4.5, belt + braces): every statement binds tenant_id to @tenant_id as
+-- a top-level conjunct of its own WHERE (and of every sub-query's), on top of RLS.
+-- ===========================================================================================
+
+-- name: GetLiveEmployeeByExternalRef :one
+-- The live employee this business holds under the integrator's ref -- at most one
+-- (employees_tenant_external_ref_key). NOT locked: it decides which path a PUT takes; the path
+-- then locks the row by id (LockEmployeeForAPI) in the order ChangeEmail's comment argues.
+-- same_email compares the address on file with the PUT's BYTE FOR BYTE (ErrSameEmail's rule: a
+-- change of capitals is a change) without the address ever reaching Go.
+SELECT id, status,
+       (email::text IS NOT DISTINCT FROM sqlc.narg('email')::text)::boolean AS same_email
+FROM employees
+WHERE tenant_id = @tenant_id
+  AND external_ref = @external_ref
+  AND status <> 'deactivated';
+
+-- name: GetLatestEmployeeByExternalRef :one
+-- The most recent row under the ref, live or not: what GET /v1/employees/{ref} answers when
+-- no live row holds the ref (the deactivated one; ADR 0010 -- a ref's history is its rows).
+SELECT id
+FROM employees
+WHERE tenant_id = @tenant_id
+  AND external_ref = @external_ref
+ORDER BY (status <> 'deactivated') DESC, created_at DESC, id DESC
+LIMIT 1;
+
+-- name: FindLinkableEmployeeByEmail :one
+-- K-18's first binding: a live employee of THIS business with no ref yet whose address is the
+-- one the PUT carries (citext -- the column's own equality, which is also the unique index's).
+-- At most one live row holds an address (employees_tenant_email_key), so at most one row.
+-- NEVER across tenants: a holding's peers are not searched (K-24; ADR 0027 §13 item 10).
+-- same_email says whether the bytes match too (a match in capitals only is still an address
+-- change once bound -- ErrSameEmail's rule).
+SELECT id,
+       (email::text = @email::text)::boolean AS same_email
+FROM employees
+WHERE tenant_id = @tenant_id
+  AND external_ref IS NULL
+  AND status <> 'deactivated'
+  AND email = @email::citext;
+
+-- name: LockEmployeeForAPI :one
+-- One employee, row-locked FOR UPDATE until the API write's transaction ends -- the mode
+-- LockEmployeeForEmailChange takes and for its reason: it conflicts with the FOR KEY SHARE a
+-- concurrent CreateInvite's foreign-key check holds, so an invitation being minted right now
+-- for this person commits (or rolls back) before the PUT reads the row, and the PUT's second
+-- retirement (staffapi.go) then sees it. activated_at says whether the person has ever
+-- activated (K-15: an activated person's new address gets no invitation).
+SELECT id, external_ref, employee_code, first_name, last_name, full_name, status,
+       (email IS NOT NULL)::boolean AS has_email,
+       (email::text IS NOT DISTINCT FROM sqlc.narg('email')::text)::boolean AS same_email,
+       activated_at
+FROM employees
+WHERE tenant_id = @tenant_id
+  AND id = @id
+FOR UPDATE;
+
+-- name: CreateEmployeeFromAPI :one
+-- Opens the employee for a ref this business holds no live row under (a new person, or a
+-- re-hire: ADR 0010). location_id stays NULL -- K-14: the integrator names no home venue, the
+-- ref is the row's anchor (employees_home_or_external_ref). status is the column's DEFAULT,
+-- 'invited' (CreateEmployee's argument: no literal here can be widened into 'active').
+--
+-- 🔴 THE CONCURRENCY GUARD IS THE UNIQUE INDEX, ANSWERED BY NAME. Two PUTs of a new ref race past
+-- the lookup (no row to lock); the second INSERT waits on the first's index entry and, when the
+-- first commits, raises 23505 on employees_tenant_external_ref_key. The caller runs this inside a
+-- SAVEPOINT, rolls back to it on that name and takes the row the first one made as a change. An
+-- address another live person holds raises 23505 on employees_tenant_email_key instead -- 409
+-- email_unavailable (isEmailTaken), no row opened. It is not ON CONFLICT ... DO NOTHING
+-- (CreateLocationFromAPI's form): the arbiter of a PARTIAL index needs its predicate restated,
+-- and that trailing WHERE is read by internal/domain/tenant's §4.5 scan as the statement's own
+-- (measured -- the scan went red on it); the belt is not loosened, the statement is written so it
+-- has one WHERE.
+--
+-- THE TENANT IS SELECTED, NOT ASSIGNED (CreateLocationFromAPI's shape: the belt reads a WHERE).
+INSERT INTO employees (tenant_id, external_ref, employee_code, first_name, last_name, full_name, email)
+SELECT t.id, @external_ref, sqlc.narg('employee_code'), @first_name, @last_name, @full_name,
+       sqlc.narg('email')::citext
+FROM tenants t
+WHERE t.id = @tenant_id
+RETURNING id, external_ref, employee_code, first_name, last_name, full_name, status,
+          (email IS NOT NULL)::boolean AS has_email;
+
+-- name: UpdateEmployeeNamesFromAPI :one
+-- Writes the integrator's names and code. NOTHING ELSE: not status (a PUT deactivates through
+-- DeactivateEmployee, and nothing here can activate anybody), not the address (SetEmployeeEmail,
+-- with the retirements beside it), not the placement. full_name is the two names joined -- the
+-- name the panel's roster shows -- so a rename reaches the panel. updated_at moves through
+-- 00037's trigger (K-21): every column named here is a directory column.
+UPDATE employees
+SET first_name    = @first_name,
+    last_name     = @last_name,
+    full_name     = @full_name,
+    employee_code = sqlc.narg('employee_code')
+WHERE tenant_id = @tenant_id
+  AND id = @id
+RETURNING id;
+
+-- name: GetAPIEmployee :one
+-- One employee as the API answers with it (ADR 0028 §8, §9): NO ADDRESS -- whether there is one
+-- (has_email), and the activation e-mail's state: a request waiting in the queue
+-- (invite_requests, K-17) and the newest invitation that can still be spent (not used, not
+-- retired, not expired -- ListPendingInvitesForEmployee's three conditions). No code and no
+-- hash: employee_invites is read for created_at alone. Both are LEFT JOINs: queued_at NULL is no
+-- request; has_live_invite false is no live invitation (live_invite_at is then a placeholder --
+-- sqlc cannot see a derived table's LEFT JOIN as nullable, so the flag carries the absence).
+SELECT e.id, e.external_ref, e.employee_code, e.first_name, e.last_name, e.full_name, e.status,
+       (e.email IS NOT NULL)::boolean AS has_email,
+       e.activated_at, e.created_at, e.updated_at,
+       r.requested_at AS queued_at,
+       (li.employee_id IS NOT NULL)::boolean AS has_live_invite,
+       coalesce(li.created_at, e.created_at)::timestamptz AS live_invite_at
+FROM employees e
+LEFT JOIN invite_requests r ON r.tenant_id = @tenant_id AND r.employee_id = e.id
+LEFT JOIN (
+    SELECT i.employee_id, max(i.created_at)::timestamptz AS created_at
+    FROM employee_invites i
+    WHERE i.tenant_id = @tenant_id
+      AND i.employee_id = @id
+      AND i.used_at IS NULL
+      AND i.cancelled_at IS NULL
+      AND now() < i.expires_at
+    GROUP BY i.employee_id
+) li ON li.employee_id = e.id
+WHERE e.tenant_id = @tenant_id
+  AND e.id = @id;
+
+-- name: ListAPIEmployees :many
+-- A page of this business's employees, live and deactivated, panel-made (no ref) and API-made,
+-- in id order after the cursor (the previous page's last id; NULL for the first page). The same
+-- columns as GetAPIEmployee, for the same reasons -- no address.
+SELECT e.id, e.external_ref, e.employee_code, e.first_name, e.last_name, e.full_name, e.status,
+       (e.email IS NOT NULL)::boolean AS has_email,
+       e.activated_at, e.created_at, e.updated_at,
+       r.requested_at AS queued_at,
+       (li.employee_id IS NOT NULL)::boolean AS has_live_invite,
+       coalesce(li.created_at, e.created_at)::timestamptz AS live_invite_at
+FROM employees e
+LEFT JOIN invite_requests r ON r.tenant_id = @tenant_id AND r.employee_id = e.id
+LEFT JOIN (
+    SELECT i.employee_id, max(i.created_at)::timestamptz AS created_at
+    FROM employee_invites i
+    WHERE i.tenant_id = @tenant_id
+      AND i.used_at IS NULL
+      AND i.cancelled_at IS NULL
+      AND now() < i.expires_at
+    GROUP BY i.employee_id
+) li ON li.employee_id = e.id
+WHERE e.tenant_id = @tenant_id
+  AND (sqlc.narg('after')::uuid IS NULL OR e.id > sqlc.narg('after')::uuid)
+ORDER BY e.id
+LIMIT @page_size;
+
+-- name: IsAdministratorAddress :one
+-- Whether an address is, as citext, the address of an administrator of THIS business (ADR
+-- 0022 §7: an activation link mailed to the panel's own inbox is ADR 0005 Y-D with one step
+-- fewer). GetInviteRecipient asks the same at send time; the API asks it at the request, so the
+-- integrator hears 422 instead of a queued request the worker would refuse.
+SELECT EXISTS (
+    SELECT 1
+    FROM admin_users a
+    WHERE a.tenant_id = @tenant_id
+      AND a.email = @email::citext
+)::boolean AS is_admin;

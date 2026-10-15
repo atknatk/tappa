@@ -933,6 +933,20 @@ func TestEmployeeUpdatedAt_OnlyDirectoryColumnsOnEveryUpdatePath(t *testing.T) {
 		{"the same employee_code again (no change)", func() error {
 			return m11Exec(t, d, tenantID, `UPDATE employees SET employee_code = '1001' WHERE tenant_id = $1 AND id = $2`, tenantID, employee)
 		}, false},
+		// M11 API-6: the API's name write. It names directory columns only, so it moves the clock
+		// when a value changes and not when the same values are written again.
+		{"UpdateEmployeeNamesFromAPI", q(func(ctx context.Context, s *store.Queries) error {
+			first, last, code := "Mary", "Borg", "1002"
+			_, err := s.UpdateEmployeeNamesFromAPI(ctx, store.UpdateEmployeeNamesFromAPIParams{
+				FirstName: &first, LastName: &last, FullName: "Mary Borg", EmployeeCode: &code, TenantID: tenantID, ID: employee})
+			return err
+		}), true},
+		{"UpdateEmployeeNamesFromAPI, the same values again", q(func(ctx context.Context, s *store.Queries) error {
+			first, last, code := "Mary", "Borg", "1002"
+			_, err := s.UpdateEmployeeNamesFromAPI(ctx, store.UpdateEmployeeNamesFromAPIParams{
+				FirstName: &first, LastName: &last, FullName: "Mary Borg", EmployeeCode: &code, TenantID: tenantID, ID: employee})
+			return err
+		}), false},
 		{"DeactivateEmployee", q(func(ctx context.Context, s *store.Queries) error {
 			_, err := s.DeactivateEmployee(ctx, store.DeactivateEmployeeParams{TenantID: tenantID, ID: employee})
 			return err

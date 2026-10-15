@@ -216,3 +216,67 @@ WHERE a.tenant_id = @tenant_id
   AND a.action LIKE 'plaque.%'
 ORDER BY a.at DESC
 LIMIT @row_limit::int;
+
+-- name: LockAPIDeactivationBudget :one
+-- SERIALISE ONE API KEY'S DEACTIVATIONS (M11 API-6, ADR 0028 §12, K-25). The budget is a
+-- READ-THEN-DECIDE over this table (CountAPIDeactivations), and without a lock N concurrent
+-- deactivations all count before any of them has committed and all pass -- the budget exceeded
+-- by the degree of concurrency. The lock is taken in the transaction that counts, deactivates
+-- and writes the trail row with RecordTx, so the count each holder sees includes every
+-- deactivation committed by the holder before it (LockTenantForInviteLimits' argument, verbatim:
+-- READ COMMITTED takes a fresh snapshot per statement and a transaction-scoped advisory lock is
+-- released only after its COMMIT is visible).
+--
+-- THE KEY IS THE API KEY, NAMESPACED ('api-deactivation-budget:' keeps it apart from
+-- 'invite-limits:' and LockEmployeeForTap's string). A hash collision serialises two unrelated
+-- keys -- it can never mix their counts, every statement after it carries its own predicates
+-- and runs under RLS.
+--
+-- IT READS THE CALLER'S TENANT ROW, and that is the §4.5 belt's shape rather than decoration
+-- (internal/domain/tenant's scan found a bare advisory lock checking nothing): the lock is taken
+-- in the SELECT LIST, so once per row the WHERE admitted -- this business's row, under RLS and the
+-- explicit predicate -- and a context in which the row is not visible returns NO ROW and takes no
+-- lock, which the caller treats as a failure, never as "locked".
+SELECT t.id,
+       (pg_advisory_xact_lock(hashtextextended('api-deactivation-budget:' || (sqlc.arg(key_id)::uuid)::text, 0)) IS NULL)::boolean AS unlocked
+FROM tenants t
+WHERE t.id = @tenant_id;
+
+-- name: CountAPIDeactivations :one
+-- How many employees THIS key deactivated in the last hour, and when the oldest of them was --
+-- the budget's whole memory (ADR 0028 §12: never in process memory, so a restart cannot reset
+-- it). A row counts when it is employee.deactivated, its actor is the key (K-23: actor_id =
+-- api_keys.id) and its detail says it came through the API -- an administrator's deactivation in
+-- the panel is never charged to a key. `at` is the database's clock (00005's DEFAULT).
+SELECT count(*)::int AS deactivations,
+       coalesce(min(at), now())::timestamptz AS oldest
+FROM audit_log
+WHERE tenant_id = @tenant_id
+  AND actor_id = @key_id::uuid
+  AND action = 'employee.deactivated'
+  AND detail->>'via' = 'api'
+  AND at > now() - interval '1 hour';
+
+-- name: CountAPIBudgetAlerts :one
+-- Whether THIS key's api.deactivation_budget_exceeded row was already written in the last hour:
+-- the row is the owner's alert, and one per key per budget window says all there is to say (a
+-- flood of refused requests would otherwise be a flood of rows).
+SELECT count(*)::int AS alerts
+FROM audit_log
+WHERE tenant_id = @tenant_id
+  AND target = @key_id::text
+  AND action = 'api.deactivation_budget_exceeded'
+  AND at > now() - interval '1 hour';
+
+-- name: ListAPIBudgetAlerts :many
+-- The owner's alert (ADR 0028 §12): every key that ran out of its deactivation budget in the last
+-- @window_seconds, newest first, with the key's name as it is now (a LEFT JOIN: a key cannot be
+-- deleted, but the trail must still show a row whose key it cannot name).
+SELECT a.at, a.target, coalesce(k.name, '')::text AS key_name
+FROM audit_log a
+LEFT JOIN api_keys k ON k.tenant_id = @tenant_id AND k.id::text = a.target
+WHERE a.tenant_id = @tenant_id
+  AND a.action = 'api.deactivation_budget_exceeded'
+  AND a.at > now() - make_interval(secs => @window_seconds::int)
+ORDER BY a.at DESC
+LIMIT 20;
