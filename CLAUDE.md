@@ -320,6 +320,11 @@ başlayan bir test durumu olmalı.
 - Para/saat hesabı `float` ile yapılmaz.
 - Migration geri alınabilir olmalı (`-- +goose Down` dolu).
 - Yeni sorgu = `db/queries/*.sql` + `make sqlc`. Handler içine ham SQL yazılmaz.
+- **Sıcak bir tabloya** (ör. `employees`) indeks, Down yürüyüşüne giren bir migration'a değil **ayrı bir
+  migration dosyasına** konur — o Down tabloya ACCESS EXCLUSIVE alır ve paralel testleri kilitler
+  (API-8, 00056); kendi `lock_timeout`'unu taşır, büyük tabloda `CONCURRENTLY` (`deploy/README.md`).
+- API sorgularında sayfa/aralık **sınır ifadeleri çıplak parametredir**: `coalesce(@x, …)` gibi bir
+  ifade genel planda indeks koşulu olmaktan çıkıp süzgece döner (API-8 ölçümü: 0,8 ms → 90 ms).
 
 ## 7. Go kod kuralları
 
