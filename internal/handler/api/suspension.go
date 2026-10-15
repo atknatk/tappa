@@ -32,8 +32,12 @@ import (
 //
 // HOW IT CANNOT BE SKIPPED: a /v1 write runs through Surface.write, whose work is handed a Gate;
 // the write commits only if the work passed Gate.Admit (write refuses otherwise and rolls back --
-// TestWrite_ACommitWithoutTheCheckpointIsRefused). Admit reads the suspension IN the write's own
-// transaction, so a write that passed it was not suspended at its commit's snapshot.
+// TestWrite_ACommitWithoutTheCheckpointIsRefused). Admit reads the suspension in the write's own
+// transaction -- under READ COMMITTED that is the state at the READ, not at the commit: a suspension
+// committed between Admit and the write's commit is not seen by that write. Whether the read must
+// lock the tenants row (FOR SHARE, against the operator's FOR NO KEY UPDATE) is API-4b's to measure
+// with OP-15's column (plan §5, API-4b). A failure to read the suspension is CLOSED: the write is
+// refused as an outage (503), never let through (TestWrite_ACheckpointThatCannotReadIsClosed).
 
 // WriteClass is a /v1 write's §4.7 class. The zero value names nothing and is CLOSED while the
 // business is suspended -- a write nobody classified is refused, never let through.

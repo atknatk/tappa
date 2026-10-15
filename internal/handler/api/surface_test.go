@@ -81,11 +81,18 @@ func (c *countingResolver) count() int {
 	return c.calls
 }
 
-// touchCounter is the Authenticator's Database: Touch's WithTenant, counted and not run.
-type touchCounter struct{ n atomic.Int64 }
+// touchCounter is the Authenticator's Database: Touch's WithTenant, counted and not run; fail makes
+// it fail the way an unreachable database would.
+type touchCounter struct {
+	n    atomic.Int64
+	fail atomic.Bool
+}
 
 func (t *touchCounter) WithTenant(context.Context, uuid.UUID, db.TxFunc) error {
 	t.n.Add(1)
+	if t.fail.Load() {
+		return errors.New("db: begin tx: connection refused")
+	}
 	return nil
 }
 
@@ -985,6 +992,48 @@ func TestPackage_ImportsNoPanelAndNoPanelImportsIt(t *testing.T) {
 			if strings.Contains(src, banned) {
 				t.Errorf("%s uses %s: the API host carries no cookie", f, banned)
 			}
+		}
+	}
+}
+
+// TestChain_ATouchThatFailsIs503 (API-4 review D2): when last_used_at cannot be written the request
+// is 503 unavailable -- the cause in the log, not in the response -- and the handler behind the chain
+// does not run; K-19 is not noticed. MUTANT (measured): Touch's error ignored -> 200.
+func TestChain_ATouchThatFailsIs503(t *testing.T) {
+	tenant, key := uuid.New(), uuid.New()
+	r := newRig(t, known(tenant, key))
+	r.touches.fail.Store(true)
+	w := r.do(http.MethodGet, "/v1/_whoami", "Bearer "+liveKey(t), "", nil)
+	if w.Code != http.StatusServiceUnavailable || problemOf(t, w).Code != CodeUnavailable {
+		t.Fatalf("a failing Touch: %d %s, want 503 unavailable", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "connection refused") || !strings.Contains(r.logs.String(), "connection refused") {
+		t.Fatal("the cause belongs in the log and not in the response")
+	}
+	if len(r.work.got()) != 0 {
+		t.Fatal("a request that failed in the chain noticed its tenant")
+	}
+}
+
+// failingSuspension cannot read the suspension.
+type failingSuspension struct{}
+
+func (failingSuspension) Suspended(context.Context, pgx.Tx, uuid.UUID) (bool, error) {
+	return false, errors.New("ERROR: canceling statement due to lock timeout")
+}
+
+// TestWrite_ACheckpointThatCannotReadIsClosed (API-4 review D2): when the suspension cannot be read,
+// every class -- the two open while suspended included -- is 503 and nothing commits: an unread
+// suspension is never a pass. MUTANT (measured): Admit treating the read error as "not suspended"
+// -> 201 and a commit.
+func TestWrite_ACheckpointThatCannotReadIsClosed(t *testing.T) {
+	tenant, key := uuid.New(), uuid.New()
+	for _, class := range []WriteClass{WriteLocationPut, WriteEmployeeCreate, WriteResendActivation, writeUnnamed} {
+		fw := &fakeWrites{}
+		r := newRig(t, known(tenant, key), func(c *Config) { c.Writes = fw; c.Suspension = failingSuspension{} })
+		w := r.do(http.MethodPut, fmt.Sprintf("/v1/_write/%d", class), "Bearer "+liveKey(t), "", strings.NewReader("{}"))
+		if w.Code != http.StatusServiceUnavailable || problemOf(t, w).Code != CodeUnavailable || fw.committed.Load() != 0 {
+			t.Fatalf("class %d with an unreadable suspension: %d %s, %d commits; want 503 and none", class, w.Code, w.Body.String(), fw.committed.Load())
 		}
 	}
 }
