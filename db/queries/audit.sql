@@ -272,9 +272,14 @@ WHERE tenant_id = @tenant_id
 -- The owner's alert (ADR 0028 §12): every key that ran out of its deactivation budget in the last
 -- @window_seconds, newest first, with the key's name as it is now (a LEFT JOIN: a key cannot be
 -- deleted, but the trail must still show a row whose key it cannot name) and the budget the row
--- recorded (detail.budget -- the panel never assumes the number; 0 when a row has none).
+-- recorded (detail.budget -- the panel never assumes the number; 0 when a row has none, or one
+-- that is not a whole number of at most nine digits: a cast of anything else would fail the whole
+-- read -- API-6 review D-4, measured as a 500).
 SELECT a.at, a.target, coalesce(k.name, '')::text AS key_name,
-       coalesce((a.detail->>'budget')::int, 0)::int AS budget
+       (CASE WHEN jsonb_typeof(a.detail->'budget') = 'number'
+                  AND (a.detail->>'budget') ~ '^[0-9]{1,9}$'
+             THEN (a.detail->>'budget')::int
+             ELSE 0 END)::int AS budget
 FROM audit_log a
 LEFT JOIN api_keys k ON k.tenant_id = @tenant_id AND k.id::text = a.target
 WHERE a.tenant_id = @tenant_id

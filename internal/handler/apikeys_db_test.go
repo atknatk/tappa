@@ -7,6 +7,7 @@ package handler
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -468,5 +469,46 @@ func TestPanelHome_TheKeyBudgetBannerIsTheOwnersAlone(t *testing.T) {
 	keysPage := owner.do(http.MethodGet, apiKeysHref, nil).Body.String()
 	if !strings.Contains(keysPage, `<span class="font-mono">7</span> an hour`) || strings.Contains(keysPage, "at most 20") {
 		t.Fatal("the API keys section does not show the budget the alert recorded")
+	}
+}
+
+// TestApiKeyPanel_AMalformedBudgetIsReadAsNone (API-6 review D-4: a detail.budget that is not a whole
+// number failed the whole read -- a 500 on the owner's section and no home banner): alert rows whose
+// budget is text, a fraction, negative or past nine digits are listed with no limit shown, the
+// section answers 200 and names every key; a well-formed one shows its limit.
+//
+// MUTANT (measured): the plain ::int cast back -> 500, red.
+func TestApiKeyPanel_AMalformedBudgetIsReadAsNone(t *testing.T) {
+	f := newAPIKeysDBFixture(t)
+	b := f.browserAs(t, f.owner, "owner")
+	trail, err := audit.New(f.data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, budget := range []any{"twenty", 2.5, -3, 12345678901, 9} {
+		c, err := f.keys.Create(context.Background(), apikey.CreateCommand{TenantID: f.tenantID, ActorID: f.owner, Name: fmt.Sprintf("odd-%d", i)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := trail.Record(context.Background(), audit.Event{TenantID: f.tenantID, ActorID: &c.ID, Action: "api.deactivation_budget_exceeded",
+			Target: c.ID.String(), Detail: map[string]any{"via": "api", "budget": budget, "window_seconds": 3600}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rec := b.do(http.MethodGet, apiKeysHref, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("the section with malformed budgets: %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	for i := range 5 {
+		if !strings.Contains(body, fmt.Sprintf("odd-%d", i)) {
+			t.Errorf("the alert of odd-%d is missing", i)
+		}
+	}
+	if strings.Count(body, "</span> an hour") != 1 || !strings.Contains(body, `<span class="font-mono">9</span> an hour`) {
+		t.Fatal("only the well-formed budget (9) may show a limit")
+	}
+	if home := b.do(http.MethodGet, "/admin", nil); home.Code != 200 || !strings.Contains(home.Body.String(), "reached its limit for deactivating employees") {
+		t.Fatalf("the home page with malformed budgets: %d, want 200 with the banner", home.Code)
 	}
 }
