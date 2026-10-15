@@ -1,11 +1,16 @@
 package main
 
 import (
+	"context"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // TestAPIWiring_TheChainTakesThePanelsPrefixAndTheOneWorker pins M11 API-4's wiring as the command
@@ -152,5 +157,70 @@ func TestAPIWiring_TheChainTakesThePanelsPrefixAndTheOneWorker(t *testing.T) {
 	if !started || !noticed || !surfaced || !drained {
 		t.Fatalf("the worker %q: started %v, given to the tap path %v, to the API %v, drained %v -- want all four",
 			worker, started, noticed, surfaced, drained)
+	}
+}
+
+// TestAPIWiring_TheSuspensionReaderFollowsTheColumn is the tripwire of the suspension checkpoint
+// (API-4 review, both lenses): openAPISurface wires api.NoSuspensionColumn because this branch has no
+// tenants.suspended_at -- a reader that always says "not suspended". The day OP-15 brings the column,
+// that wiring silently keeps every business unsuspendable through /v1. So this test reads whether
+// the column exists, two ways, and refuses the pair "column present + NoSuspensionColumn wired":
+//
+//	the schema     tenants.suspended_at in the live catalog (DATABASE_URL; skipped without one,
+//	               which CI always has)
+//	the migrations any db/migrations file naming suspended_at (no database needed)
+//
+// API-4b closes when this turns red and the reader is replaced (plan §5, API-4b).
+//
+// MUTANT (measured, API-4 review report): the column added to a throwaway database -> red; a
+// migration file naming it -> red.
+func TestAPIWiring_TheSuspensionReaderFollowsTheColumn(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join(repoRoot, "cmd", "tappa", "api.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wired := strings.Contains(string(src), "Suspension: api.NoSuspensionColumn{}")
+	if !wired {
+		t.Log("the checkpoint is no longer wired to api.NoSuspensionColumn; this tripwire has nothing left to guard")
+		return
+	}
+	files, err := filepath.Glob(filepath.Join(repoRoot, "db", "migrations", "*.sql"))
+	if err != nil || len(files) < 50 {
+		t.Fatalf("anti-vacuity: %d migration files (%v)", len(files), err)
+	}
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(b), "suspended_at") {
+			t.Errorf("%s names suspended_at while /v1's suspension checkpoint is wired to api.NoSuspensionColumn: "+
+				"replace the reader with the column's read and write API-4b's table test", filepath.Base(f))
+		}
+	}
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Log("DATABASE_URL not set: the schema arm is skipped (CI runs it)")
+		return
+	}
+	ctx := context.Background()
+	c, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = c.Close(ctx) }()
+	var has, tenants bool
+	if err := c.QueryRow(ctx, `SELECT to_regclass('public.tenants') IS NOT NULL,
+	                                  EXISTS (SELECT 1 FROM pg_catalog.pg_attribute
+	                                           WHERE attrelid = to_regclass('public.tenants') AND attname = 'suspended_at' AND NOT attisdropped)`).
+		Scan(&tenants, &has); err != nil {
+		t.Fatal(err)
+	}
+	if !tenants {
+		t.Fatal("CONTROL: the database has no tenants table")
+	}
+	if has {
+		t.Error("tenants.suspended_at exists while /v1's suspension checkpoint is wired to api.NoSuspensionColumn: " +
+			"every business is unsuspendable through /v1 -- replace the reader and write API-4b's table test")
 	}
 }
