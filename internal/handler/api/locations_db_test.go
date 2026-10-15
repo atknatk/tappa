@@ -135,10 +135,13 @@ func newRef(prefix string) string {
 // evidence (static_ips '{}', no coordinate, no shift, no network name) and one location.created
 // trail row whose actor_id is the KEY's id and whose detail says via "api", lost_proof_of_place
 // true, with exactly the documented keys and nothing of the key; the same PUT again is 200 with
-// the same id and NO trail row; a rename + active:false is 200 and one location.updated with the
-// before and after. K-19: the write noticed the key's tenant.
+// the same id and NO trail row; the LABEL alone -- the same name with active:false, then true
+// again -- is 200 each time, the row follows, and each leaves one location.updated with from_active
+// and to_active; a rename + active:false is 200 and one location.updated with the before and after.
+// K-19: the write noticed the key's tenant.
 //
-// MUTANT (measured, API-5 report): the "unchanged" short-circuit removed -> a second trail row.
+// MUTANTS (measured, API-5 report): the "unchanged" short-circuit removed -> a second trail row;
+// the short-circuit comparing the name alone (API-5 review) -> the label stays true, red.
 func TestLocationsPut_CreatesUpdatesAndAnswersUnchanged(t *testing.T) {
 	r := newDBRig(t)
 	biz, owner := r.business(true)
@@ -187,6 +190,27 @@ func TestLocationsPut_CreatesUpdatesAndAnswersUnchanged(t *testing.T) {
 		t.Fatalf("an unchanged PUT left %d trail rows, want the create's 1", n)
 	}
 
+	// The LABEL alone, both ways (API-5 review): the same name with active:false, then true again.
+	for i, label := range []bool{false, true} {
+		w = r.putLoc(raw, ref, fmt.Sprintf(`{"name":"St Julians","active":%v}`, label))
+		if w.Code != http.StatusOK {
+			t.Fatalf("the label %v alone: %d %s", label, w.Code, w.Body.String())
+		}
+		if b := locOf(t, w); b.ID != got.ID || b.Active != label {
+			t.Fatalf("the label %v alone: the answer %+v", label, b)
+		}
+		if rows := r.venuesByRef(biz, ref); len(rows) != 1 || rows[0].active != label || rows[0].name != "St Julians" {
+			t.Fatalf("the label %v alone: the row %+v", label, rows)
+		}
+		trail = r.venueTrail(biz, v.id)
+		if len(trail) != 2+i || trail[1+i].action != tenant.ActionLocationUpdated || *trail[1+i].actor != keyID {
+			t.Fatalf("the label %v alone: the trail %+v, want one location.updated more", label, trail)
+		}
+		if d := trail[1+i].detail; d["from_active"] != !label || d["to_active"] != label || d["from_name"] != "St Julians" || d["to_name"] != "St Julians" || d["via"] != "api" {
+			t.Errorf("the label %v alone: the detail %s", label, trail[1+i].raw)
+		}
+	}
+
 	w = r.putLoc(raw, ref, `{"name":"St Julian's","active":false}`)
 	if w.Code != http.StatusOK {
 		t.Fatalf("a rename: %d %s", w.Code, w.Body.String())
@@ -195,11 +219,11 @@ func TestLocationsPut_CreatesUpdatesAndAnswersUnchanged(t *testing.T) {
 		t.Fatalf("the rename's answer %+v", b)
 	}
 	trail = r.venueTrail(biz, v.id)
-	if len(trail) != 2 || trail[1].action != tenant.ActionLocationUpdated || *trail[1].actor != keyID {
+	if len(trail) != 4 || trail[3].action != tenant.ActionLocationUpdated || *trail[3].actor != keyID {
 		t.Fatalf("the trail after a rename: %+v", trail)
 	}
-	if d := trail[1].detail; d["from_name"] != "St Julians" || d["to_name"] != "St Julian's" || d["from_active"] != true || d["to_active"] != false || d["via"] != "api" {
-		t.Errorf("the update's detail %s", trail[1].raw)
+	if d := trail[3].detail; d["from_name"] != "St Julians" || d["to_name"] != "St Julian's" || d["from_active"] != true || d["to_active"] != false || d["via"] != "api" {
+		t.Errorf("the update's detail %s", trail[3].raw)
 	}
 	if rows := r.venuesByRef(biz, ref); len(rows) != 1 || rows[0].name != "St Julian's" || rows[0].active {
 		t.Fatalf("after the rename: %+v", rows)
