@@ -567,11 +567,11 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
   **(API-7'den, 2026-10-15)** `GET /v1/punches` için: `scope` zorunludur (`employer` | `location`), yalnız `scope`,
   `cursor`, `limit` kabul edilir, her biri bir kez — başka parametre (harf farkı, `from`/`to` dahil) ve ayrıştırılamayan
   sorgu dizgesi 400. Yanıt `{data, nextCursor, hasMore}`: `nextCursor` **her zaman** doludur (boş sayfada okuyucunun
-  yetiştiği konum) ve geri gitmez; entegratör tek bir değer saklar. Bir sayfa `limit`'ten az, **hatta boş**, olup
+  yetiştiği konum) ve geri gitmez; entegratör **her kapsam için ayrı** bir değer saklar. Bir sayfa `limit`'ten az, **hatta boş**, olup
   `hasMore: true` diyebilir (sayfa akışın en çok 10 000 konumunu okur) — döngü `hasMore` false olana kadar sürer, sonra
-  aynı `nextCursor` ile yoklanır. İmleç işletmenin kendi akışında bir konumdur; akışın ötesindeki imleç 400'dür. Bir
-  imleç başka bir işletmeye taşınmamalıdır: o işletmenin aralığı içindeyse reddedilmez ve öncesindeki olaylar sessizce
-  atlanır. Akışın ötesindeki imlece 400 bilinçlidir: yedekten geri yüklemeden sonra sayaç adımı atlanmışsa entegratör
+  aynı `nextCursor` ile yoklanır. İmleç işletmenin kendi akışında bir konumdur — iki kapsamın akışı tektir, imleç kapsama
+  özgü değildir; akışın ötesindeki imleç 400'dür. Bir imleç öteki kapsama ya da başka bir işletmeye taşınmamalıdır:
+  aralığın içindeyse reddedilmez ve öncesindeki olaylar sessizce atlanır. Akışın ötesindeki imlece 400 bilinçlidir: yedekten geri yüklemeden sonra sayaç adımı atlanmışsa entegratör
   sessizce beklemez, durur.
   Punch alanları: `id` (`pch_`, holding punch'ının iki kapsamında aynı), `version` 1, `status` `valid`, `punchTime`,
   `recordedAt` (onaylı flag'de onay anı), `channel`, `direction`, `employee {id, externalRef, employeeCode, company}`,

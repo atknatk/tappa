@@ -38,7 +38,8 @@ import (
 //
 // THE ANSWER is {data, nextCursor, hasMore}. nextCursor is ALWAYS a cursor -- also on an empty
 // page, where it is the position the reader has caught up to (the request's own, or further when the
-// feed had nothing of this scope in between) -- so a poller keeps one value and never goes back. A
+// feed had nothing of this scope in between) -- so a poller keeps one value per scope (the two scopes
+// share one feed, so a cursor carried across skips) and never goes back. A
 // page may hold fewer events than limit, even none, while hasMore is true (the window,
 // tenant.PunchFeedWindow); hasMore false says the reader has every event the feed held when the page
 // was read.

@@ -348,7 +348,8 @@ kadar commit edilmiş olayları gördüğü anda, o tenant'ta commit etmemiş ol
 (satırı kilitleyen) ve `seq`'i `S`'den büyüktür; sonrakiler daha da büyük. Dolayısıyla `WHERE
 tenant_id = $t AND seq > $cursor ORDER BY seq` **hiçbir satırı atlamaz**. Abort eden işlem sayacı da
 geri alır (boşluk bile kalmaz). Dizi yok → önbellek sorunu yok; sayaç tenant'a özgü → tenant'lar
-arası hacim sızmaz. İmleç `seq`'i opak taşır; tenant ve kapsam filtresi her sorguda ayrıca.
+arası hacim sızmaz. İmleç konumu `cur_<seq>` olarak taşır — saydam ve imzasızdır, tenant ya da kapsam taşımaz
+(gerekçe "API-7 uygulama notu" madde 3); tenant ve kapsam filtresi her sorguda ayrıca.
 
 **Ölçümler:** 2. tur — küresel dizi (`CACHE 20`) kilit altında 1234 olayın 1016'sını kaçırdı;
 3. tur — sayaç satırıyla 3 koşuda (1255–2416 olay, %10 abort, %10 savepoint geri alımı) **0 kaçan**;
