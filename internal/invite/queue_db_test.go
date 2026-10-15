@@ -715,20 +715,37 @@ func TestInviteQueue_AThrottlingDomainEndsUndelivered(t *testing.T) {
 	}
 }
 
-// TestInviteQueue_ALifetimeEndsEveryRequest (API-6 review O-B): whatever keeps a request waiting --
-// here the breaker, which never spends a try -- a request older than queueLifetime is given up on its
-// next run: it leaves the queue, an invite.email_refused row says "request_expired" (with no address
-// in it), and the API answers "undelivered"; a resend then asks again.
+// TestInviteQueue_ALifetimeEndsEveryRequest (API-6 review O-B, D-d): whatever keeps a request waiting
+// -- here the breaker, which never spends a try -- a request older than queueLifetime is given up on
+// its next run: it leaves the queue, an invite.email_refused row says "request_expired" (with no
+// address in it), the API answers "undelivered", and the link an earlier run minted and could not
+// deliver (the breaker refused that send) is RETIRED, not left spendable. A request 71 hours old is
+// not given up (the lifetime's lower edge).
 //
-// MUTANT (measured): the lifetime check removed -> the request waits for ever, red.
+// MUTANTS (measured): the lifetime check removed -> the request waits for ever; queueLifetime set to
+// a minute -> the 71-hour request is given up; the retirement removed from giveUp -> the undelivered
+// link stays spendable. Each red.
 func TestInviteQueue_ALifetimeEndsEveryRequest(t *testing.T) {
 	r := newQueueRig(t)
 	ref := apiRefFor("LIFE")
 	p := r.put(ref, addr("life")).Employee.ID
+	young := r.hire(addr("young"))
+	// An earlier run: the send itself refused by the breaker (a race with the question before the
+	// mint) -- a minted link nobody received, and the request delayed with no try spent.
+	r.failSends(&mail.SendError{Class: mail.ClassBreaker})
+	if err := r.q.RunFor(context.Background(), r.tenant); !settled(err) {
+		t.Fatal(err)
+	}
+	r.failSends(nil)
+	unsent := r.sink.calls()
+	if len(unsent) != 2 || r.queued(p) != 1 {
+		t.Fatalf("setup: %d refused sends, %d queued; want 2 and 1", len(unsent), r.queued(p))
+	}
 	r.sink.mu.Lock()
 	r.sink.refusing = true
 	r.sink.mu.Unlock()
-	ownerExecQ(t, `UPDATE invite_requests SET requested_at = now() - interval '73 hours' WHERE tenant_id = $1 AND employee_id = $2`, r.tenant, p)
+	ownerExecQ(t, `UPDATE invite_requests SET requested_at = now() - interval '73 hours', lease_until = NULL WHERE tenant_id = $1 AND employee_id = $2`, r.tenant, p)
+	ownerExecQ(t, `UPDATE invite_requests SET requested_at = now() - interval '71 hours', lease_until = NULL WHERE tenant_id = $1 AND employee_id = $2`, r.tenant, young)
 	err := r.q.RunFor(context.Background(), r.tenant)
 	if !errors.Is(err, ErrRequestExpired) {
 		t.Fatalf("a request past its lifetime: %v, want ErrRequestExpired", err)
@@ -738,6 +755,36 @@ func TestInviteQueue_ALifetimeEndsEveryRequest(t *testing.T) {
 	}
 	if n := r.count(`SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND target = $2 AND action = 'invite.email_refused' AND detail->>'reason' = 'request_expired'`, r.tenant, p.String()); n != 1 {
 		t.Fatalf("%d request_expired rows, want 1", n)
+	}
+	for _, d := range unsent {
+		if d.Invite.EmployeeID != p {
+			continue
+		}
+		if _, err := r.m.Lookup(context.Background(), codeOf(t, d)); err == nil {
+			t.Fatal("the link minted for the expired request and never delivered is still spendable")
+		}
+	}
+	if r.queued(young) != 1 || r.apiState(young) != tenant.InvitationQueued {
+		t.Fatalf("a request 71 hours old: %d queued, %q; want it still waiting", r.queued(young), r.apiState(young))
+	}
+}
+
+// TestInviteQueue_AClosedAPIStillEndsAtTheLifetime (API-6 review D-a; plan §5 API-12: "en çok 72
+// saat"): the lifetime is judged BEFORE the K-22 gate, so a closed business's request 73 hours old is
+// given up -- "undelivered", out of the queue -- instead of being run every 15 minutes for ever.
+//
+// MUTANT (measured): the gate read before the lifetime -> the run answers *Later and the request
+// stays, red.
+func TestInviteQueue_AClosedAPIStillEndsAtTheLifetime(t *testing.T) {
+	r := newQueueRig(t)
+	p := r.hire(addr("closedlife"))
+	ownerExecQ(t, `UPDATE tenants SET api_enabled_at = NULL WHERE id = $1`, r.tenant)
+	ownerExecQ(t, `UPDATE invite_requests SET requested_at = now() - interval '73 hours' WHERE tenant_id = $1 AND employee_id = $2`, r.tenant, p)
+	if err := r.q.RunFor(context.Background(), r.tenant); !errors.Is(err, ErrRequestExpired) {
+		t.Fatalf("a closed business's expired request: %v, want ErrRequestExpired", err)
+	}
+	if r.queued(p) != 0 || r.apiState(p) != tenant.InvitationUndelivered || len(r.sink.calls()) != 0 {
+		t.Fatalf("closed and expired: %d queued, %q, %d sends; want 0, undelivered, 0", r.queued(p), r.apiState(p), len(r.sink.calls()))
 	}
 }
 

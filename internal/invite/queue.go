@@ -278,19 +278,23 @@ func (q *Queue) process(ctx context.Context, tenant uuid.UUID, c store.ClaimInvi
 			result = skipped
 			return nil
 		}
+		// THE LIFETIME FIRST, before the gate (API-6 review D-a): "at most 72 hours" holds whatever
+		// keeps the request waiting -- a closed API included -- so a closed business's queue is not
+		// run every 15 minutes for ever.
+		if c.RequestedAt.Add(queueLifetime).Before(q.now()) {
+			result = expired
+			return errRollback
+		}
 		// K-22 (ADR 0028 §2: the gate "her yolda", the worker's send included): a business whose
 		// API the operator closed has nothing minted or sent for it. The request is NOT dropped --
-		// reopened, it goes on (API-6 review O-A).
+		// reopened within its lifetime, it goes on (API-6 review O-A). The read takes no lock: a
+		// closing committed after it does not stop the one send already in flight (named, ADR 0028).
 		open, err := s.GetTenantAPIEnabledAt(ctx, tenant)
 		if err != nil {
 			return fmt.Errorf("read the API gate: %w", err)
 		}
 		if open == nil {
 			result = closed
-			return errRollback
-		}
-		if c.RequestedAt.Add(queueLifetime).Before(q.now()) {
-			result = expired
 			return errRollback
 		}
 		// THE CEILINGS ARE ASKED BEFORE THE MINT (API-6 review O-B): the issuing limits, the
