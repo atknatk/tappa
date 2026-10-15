@@ -144,7 +144,7 @@ func newRig(t *testing.T, answer func(hash string) (db.ResolvedAPIKey, error), o
 	log := slog.New(slog.NewJSONHandler(&syncWriter{w: logs}, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	work := &workSet{}
 	c := Config{Host: apiHost, Keys: chain, Writes: refuseWrites{}, Suspension: NoSuspensionColumn{}, Work: work,
-		Locations: refuseLocations{}, Employees: refuseEmployees{}, Punches: refusePunches{}, Log: log}
+		Locations: refuseLocations{}, Employees: refuseEmployees{}, Punches: refusePunches{}, Directory: refuseDirectory{}, Log: log}
 	for _, o := range opts {
 		o(&c)
 	}
@@ -263,6 +263,12 @@ func (refusePunches) PunchPage(context.Context, uuid.UUID, tenant.FeedRole, int6
 
 func (refusePunches) HistoryPage(context.Context, uuid.UUID, tenant.FeedRole, tenant.HistoryQuery, int) (tenant.HistoryPage, error) {
 	return tenant.HistoryPage{}, errors.New("this rig reads no punch")
+}
+
+type refuseDirectory struct{}
+
+func (refuseDirectory) DirectoryPage(context.Context, uuid.UUID, tenant.DirectoryQuery, int) (tenant.DirectoryPage, error) {
+	return tenant.DirectoryPage{}, errors.New("this rig reads no directory")
 }
 
 func known(tenant, key uuid.UUID) func(string) (db.ResolvedAPIKey, error) {

@@ -47,6 +47,9 @@ const (
 // GET /v1/punches (API-7) reads the feed through a tenant.PunchFeed built HERE over the same pool:
 // it is a read with no trail and no rule of the panel's to share, so there is nothing of run()'s to
 // hand it (TestAPIWiring_ThePunchFeedRunsThroughTheShippedSurface reads it through this surface).
+//
+// GET /v1/directory (API-8) reads through a tenant.EmployeeDirectory built here the same way -- a read,
+// no trail (TestAPIWiring_TheDirectoryRunsThroughTheShippedSurface).
 func openAPISurface(cfg *config.Config, data *db.DB, work api.WorkNoticer, venues api.Locations, staff api.Employees, log *slog.Logger) (httpx.Mounter, error) {
 	if cfg.APIHost == "" {
 		log.Info("the integration API is off: TAPPA_API_HOST is not set, so /v1 answers 404 on every host",
@@ -65,9 +68,13 @@ func openAPISurface(cfg *config.Config, data *db.DB, work api.WorkNoticer, venue
 	if err != nil {
 		return nil, err
 	}
+	directory, err := tenant.NewEmployeeDirectory(data)
+	if err != nil {
+		return nil, err
+	}
 	surface, err := api.New(api.Config{
 		Host: cfg.APIHost, Keys: chain, Writes: writes, Suspension: api.NoSuspensionColumn{}, Work: work, Locations: venues,
-		Employees: staff, Punches: punches, Log: log,
+		Employees: staff, Punches: punches, Directory: directory, Log: log,
 	})
 	if err != nil {
 		return nil, err

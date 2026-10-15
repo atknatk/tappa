@@ -87,24 +87,28 @@ func historyRange(q url.Values) (from, to time.Time, prob *Problem) {
 	if unencodedPlusShape.MatchString(f[0]) || unencodedPlusShape.MatchString(t[0]) {
 		return time.Time{}, time.Time{}, problemHistoryPlus
 	}
-	parse := func(v string) (time.Time, bool) {
-		// The shape first: Go's parser is laxer than RFC 3339 (it takes a +24:00 offset and a comma
-		// before the fraction -- API-7b review), so only the RFC's own shape reaches it.
-		if !rfc3339Shape.MatchString(v) {
-			return time.Time{}, false
-		}
-		at, err := time.Parse(time.RFC3339Nano, v)
-		if err != nil || at.Nanosecond()%1000 != 0 {
-			return time.Time{}, false
-		}
-		return at.UTC(), true
-	}
-	from, okF = parse(f[0])
-	to, okT = parse(t[0])
+	from, okF = parseInstant(f[0])
+	to, okT = parseInstant(t[0])
 	if !okF || !okT || !from.Before(to) || to.Sub(from) > tenant.MaxHistoryRange {
 		return time.Time{}, time.Time{}, problemHistoryRange
 	}
 	return from, to, nil
+}
+
+// parseInstant reads one RFC 3339 instant of a query parameter: rfc3339Shape, then the parser, at
+// most microsecond precision (the database's), in UTC. The history range's from and to and the
+// directory's updatedSince (API-8) are read by it.
+func parseInstant(v string) (time.Time, bool) {
+	// The shape first: Go's parser is laxer than RFC 3339 (it takes a +24:00 offset and a comma
+	// before the fraction -- API-7b review), so only the RFC's own shape reaches it.
+	if !rfc3339Shape.MatchString(v) {
+		return time.Time{}, false
+	}
+	at, err := time.Parse(time.RFC3339Nano, v)
+	if err != nil || at.Nanosecond()%1000 != 0 {
+		return time.Time{}, false
+	}
+	return at.UTC(), true
 }
 
 // historyBinding is the digest a history cursor carries of the request it was issued for: the

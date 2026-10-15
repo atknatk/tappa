@@ -4,7 +4,7 @@ info:
   version: "1"
   description: |
     The integration API of Taptime (punchless time and attendance). A business's HR or ERP system
-    writes the business's own locations and employees and reads its punches.
+    writes the business's own locations and employees and reads its punches and its directory.
 
     Authentication: every request but this document carries `Authorization: Bearer <key>`, a key
     the business's owner issues in the Taptime panel. The API must also be enabled for the business
@@ -408,6 +408,73 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/Unavailable"
+  /v1/directory:
+    get:
+      operationId: listDirectory
+      summary: A page of the employees this business may know of -- its own and its group partners'.
+      description: |
+        The directory: this business's own employees and, when it belongs to a group of companies
+        in Taptime, the partner companies' employees -- each with its `company` code, `externalRef`,
+        `employeeCode`, `firstName`, `lastName`, whether it is `active` (false: deactivated) and
+        `updatedAt`. No entry carries an e-mail address. A business in no group reads its own
+        employees only.
+
+        Order and paging: entries come in (`updatedAt`, `id`) order. A WALK is the pages from a
+        request without `cursor` to the page whose `hasMore` is false: pass the previous page's
+        `nextCursor` as `cursor`, with the SAME `updatedSince` (or none) -- a cursor with another
+        `updatedSince`, or from another business, is 400. `nextCursor` is present exactly when
+        `hasMore` is true (null at the end of the walk).
+
+        Incremental reads: `updatedSince` (RFC 3339, `Z` or an offset ±hh:mm, at most microsecond
+        precision; a `+` must be sent as `%2B`, unencoded it reads as a space: 400 with
+        `details.reason` `unencoded_plus`) answers the entries changed since then -- the server reads
+        from 10 minutes before it, so a change whose write committed late is not missed. Every page
+        carries the walk's `asOf`: when the walk ends, keep it and start the next walk with
+        `updatedSince=asOf`. Expect entries you already have, within a walk too (an employee changed
+        while you read moves to the end of the order): overwrite by `id`. A change is in a later walk
+        unless the transaction that wrote it stayed open more than 10 minutes.
+
+        Keyed by `id`: a re-hired person (an inactive entry and a new active one) can share an
+        `externalRef`. A company joining or leaving the group changes no employee, so an incremental
+        read neither adds its staff nor says they are gone: after a group change, read the whole
+        directory (no `updatedSince`).
+
+        Only `updatedSince`, `cursor` and `limit` are accepted, each at most once; any other
+        parameter, and a query string that does not parse, is 400. While the business is suspended
+        this endpoint stays open.
+      parameters:
+        - name: updatedSince
+          in: query
+          required: false
+          description: "The previous walk's `asOf` (none: the whole directory). The server reads from 10 minutes before it."
+          schema:
+            type: string
+            format: date-time
+        - name: cursor
+          in: query
+          required: false
+          description: "The `nextCursor` of the previous page of this walk, sent with the same `updatedSince`."
+          schema:
+            type: string
+            pattern: "^dir_(0|[1-9][0-9]{0,18})_-?(0|[1-9][0-9]{0,18})_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_[0-9a-f]{16}$"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DirectoryPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
 components:
   securitySchemes:
     bearer:
@@ -678,6 +745,53 @@ components:
             $ref: "#/components/schemas/Employee"
         nextCursor:
           type: ["string", "null"]
+    DirectoryEntry:
+      type: object
+      additionalProperties: false
+      required: [id, company, externalRef, employeeCode, firstName, lastName, active, updatedAt]
+      properties:
+        id:
+          type: string
+          pattern: "^emp_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        company:
+          type: ["string", "null"]
+          description: The employee's business's company code -- this business's or a group partner's.
+        externalRef:
+          type: ["string", "null"]
+          description: null for an employee not bound to a reference yet.
+        employeeCode:
+          type: ["string", "null"]
+        firstName:
+          type: ["string", "null"]
+          description: null for an employee the panel created and no integration named yet.
+        lastName:
+          type: ["string", "null"]
+        active:
+          type: boolean
+          description: false for a deactivated employee.
+        updatedAt:
+          type: string
+          format: date-time
+          description: When a directory field of the employee last changed (UTC).
+    DirectoryPage:
+      type: object
+      additionalProperties: false
+      required: [data, nextCursor, hasMore, asOf]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/DirectoryEntry"
+        nextCursor:
+          type: ["string", "null"]
+          description: Pass as `cursor` (with the same `updatedSince`) for the walk's next page; null at its end.
+        hasMore:
+          type: boolean
+          description: The walk goes on; read the next page.
+        asOf:
+          type: string
+          format: date-time
+          description: The walk's clock (UTC), the same on each of its pages. After the last page, the next walk's `updatedSince`.
     Error:
       type: object
       additionalProperties: false
