@@ -788,7 +788,8 @@ yazılmadı). Ekler: `TestIdempotency_LazyDeleteIsThisTenantsAlone`, `TestApiIde
 `TestLocationsPut_ActiveIsALabelTheTapNeverReads`, `TestAPIWiring_ThePutOfALocationRunsThroughTheShippedSurface`;
 ikinci tur: `TestInsertSelectAndDoUpdate_TheBeltReadsThem` (+ adın gizli karakter kuralı `TestVenues_TheNameBoundIsEnforcedBeforeTheColumn`
 ve `TestParseName_RefusesRatherThanTruncates`'te); üçüncü tur: `TestVenueSave_ANameOnFileStaysEditableAndANewHiddenOneIsASentence`,
-`TestLocationsPut_TheNameRuleJudgesOnlyWhatChanges`, `TestInsertSelectWrites_TheArmFiresAndStaysQuiet` (beş kopyada).
+`TestLocationsPut_TheNameRuleJudgesOnlyWhatChanges`, `TestInsertSelectWrites_TheArmFiresAndStaysQuiet` (altı kopyada);
+dördüncü tur: `TestNameHasHiddenCharacters_JoinersAndTagsOnlyWhereANameUsesThem`, `TestValidateVenues_CleansLikeTheVenueEditor`.
 
 **API-6** — `EmployeesPut_ActiveEmailElsewhereIs409` · `EmployeesPut_InactiveToActiveOpensANewRow` ·
 `EmployeesPut_EmailChangeKillsOldInviteInSameTransaction` · `ResendActivation_LoopNeverKillsTheLiveInvite` ·
@@ -1561,5 +1562,44 @@ adlandırmayan sütun listesini yargılamaz; DO UPDATE kolları yoktur (çağrı
 gerçek bir `\ufffd` kabul (kontrol). Mutant kırmızı.
 
 *Deploy notu* plan §5 API-13'e yazıldı: deploy'dan önce prod'da `locations`/`departments` adlarında yeni kurala takılan
-satır sayısı ölçülür (değer basılmaz). Kayıtlı ad muaf olduğu için bu bir kilit değil, bilgi: sayı sıfır değilse sahibine
-söylenir.
+satır sayısı ölçülür (değer basılmaz). *(Dördüncü turda düzeltildi: bu paragraf "kayıtlı ad muaf, bu bir kilit değil"
+diyordu; ölçümle yanlıştı — muafiyet kayıtlı adı **ham** karşılaştırıyordu, reddedilen **ve** atılan karakter taşıyan bir
+ad (`Rusty<RLO><LRM>Bar`, `Ru<ZWSP>sty<BOM>`) hem panelde hem API'de 422 ile kilitliydi. Aşağıda.)*
+
+**Dördüncü tur (2026-10-15 — üçüncü tur kısa kontrolü ONAY; kalan DÜŞÜK'ler, yeniden denetim yok, her değişiklik
+ölçüldü).**
+
+*Muafiyet temizlenmiş kayıtlı adla.* `refuseHiddenName` artık `name != CleanName(onFile)` karşılaştırır: kayıtlı ad, gelen
+ad gibi temizlenerek "değişmedi" sayılır; ad bir sonraki kayıtta temizlenmiş hâliyle yazılır (ad değişikliği olarak iz
+satırı bırakır). Ölçüldü: iki örnek (aynen ve LRM'siz geri gönderim; `Ru<ZWSP>sty<BOM>`) panelde kaydedilir, API'de 200;
+ham karşılaştırma mutantı ikisinde de kırmızı. API-13 sayımına "temizlenince değişen" alt küme eklendi.
+
+*Kayıt sihirbazı.* `signup.ValidateVenues` artık venue editörünün temizliğini (`tenant.CleanName`) ve karakter kuralını
+uygular, kendi cümlesiyle ("hidden character"); yalnız atılabilir işaretlerden oluşan satır boş satırdır. Sihirbazdan
+geçen bir ad sonsuza kadar muaf kalacaktı. Mutant (kural kaldırılınca U+202E, U+200B, BEL, U+2066 ve bağlamsız etiket
+geçer) kırmızı. Sihirbazın altın dosyası yok; ekran metni değişmedi.
+
+*Departman.* `TestVenueSave_…` departmanı yeni U+202E'li adla yeniden adlandırır → cümleli form, ad değişmez. Departmanın
+yeniden adlandırma kuralı ve el yordamının departman kolu ayrı ayrı kaldırılınca kırmızı.
+
+*Etiket karakterleri ve birleştiriciler bağlamında (isteğe bağlı madde — yapıldı).* U+E0020–E007E yalnız U+1F3F4'ten hemen
+sonra başlayıp U+E007F ile kapanan dizide, U+E007F yalnız o kapanış olarak; ZWJ ve ZWNJ yalnız iki görünür karakter
+arasında (uçta, çift, boşluk ya da gizli karakter yanında değil). Gerekçe: ikisi de görünmez metin taşıyabilir ("ASCII
+smuggling"); bayrak, emoji dizisi ve Fars/Hint yazısı onları yalnız bu konumlarda kullanır. İskoçya/İngiltere/Galler
+bayrakları, aile, aşçı ve gökkuşağı bayrağı (ZWJ'den önce U+FE0F) kabul. `TestNameHasHiddenCharacters_JoinersAndTagsOnlyWhereANameUsesThem`;
+etiket ve birleştirici kolları ayrı ayrı kaldırılınca kırmızı. **Sınır (adlandırıldı):** varyasyon seçicileri (Mn) herhangi
+bir karakterden sonra serbest; bir tabanın ardına dizilerek aynı yoldan veri taşıyabilirler — emoji sunumu U+FE0F istediği
+için reddedilmedi.
+
+*Kemer.* Altı kopyanın `INSERT … SELECT` başlığı tek dosyada (`queryinsert_test.go`, `insertSelectHeads`) ve sütun listesi ile
+SELECT arasındaki CTE'yi (`WITH z AS (…) SELECT`) okur — beslenen SELECT, deyimin kendi derinliğindeki ilk SELECT'tir;
+tırnaklı sütun adı da okunur. Tenant kopyasının `DO UPDATE` SET denetimi ham gövdeyi okur (blok yürüyüşü parantezleri
+maskeler) ve tırnaklı `"tenant_id" =` ile satır biçimli `(…, tenant_id) = (…)`'ı da reddeder. Üç sonda; her genişlemenin
+kaldırılması kırmızı. **Sınır:** `SET x = (SELECT tenant_id …)` gibi bir alt sorgu satır biçimi sayılabilir (yanlış alarm
+yönünde); aynı değeri hesaplayan ifade hâlâ reddedilir, anlaşılmaz.
+
+*Mesajlar.* Gizli karakter reddi artık `reason: hidden_character` (uzunluk `invalid`'den ayrılır); `problemNameHidden`
+içteki U+FEFF'i ve bağlam kuralını sayar; OpenAPI ve test güncellendi.
+
+*D4 kaçağı.* `brokenEscape` artık yalnız bir kaçışı başlatan ters bölünün ardındaki `ufffd`'yi sayar; `"\\ufffd \ud800"`
+(kaçışlı ters bölü + düz metin, ardından eşsiz surrogate) 400. Eski sayım mutantı kırmızı.

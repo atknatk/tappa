@@ -539,13 +539,17 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
   kodlanabilir, **bir kez** çözülür ve sonra kalıba uymalıdır (`%41BC` = `ABC`; kodlu `/`, kontrol karakteri, çift kodlama
   422) — aynı ref'in farklı yazımları aynı lokasyondur ama aynı Idempotency-Key ile 422 verir; **yeni ya da değişen**
   lokasyon adında kontrol karakteri, satır/paragraf ayırıcı, bidi geçersiz kılma/yalıtım, sıfır genişlikli boşluk ya da
-  kelime birleştirici 422 — emoji, bayraklar ve her yazının harfleri kabul, yumuşak tire ve yön işaretleri (LRM/RLM/ALM)
-  sessizce atılır, kayıtlı ad olduğu gibi kabul edilir; gövdedeki eşsiz surrogate kaçışı (`\ud800`) 400 (ADR 0028
+  kelime birleştirici 422 (`reason: hidden_character` — uzunluk reddi `invalid`); birleştiriciler (ZWJ/ZWNJ) yalnız iki
+  görünür karakter arasında, etiket karakterleri yalnız bir bayrak dizisinin içinde — emoji, bayraklar ve her yazının
+  harfleri kabul, yumuşak tire, yön işaretleri (LRM/RLM/ALM) ve iki uçtaki BOM sessizce atılır, kayıtlı ad (temizlenmiş
+  hâliyle karşılaştırılarak) olduğu gibi kabul edilir; gövdedeki eşsiz surrogate kaçışı (`\ud800`) 400 (ADR 0028
   "API-5 uygulama notu", ikinci ve üçüncü tur).
 - **API-13:** **(API-5'ten, 2026-10-15 — deploy öncesi)** prod'da `locations` ve `departments` adlarından yeni isim
   kuralına takılan satır **sayısı** sorgulanır (değer basılmaz; `tenant.NameHasHiddenCharacters`'ın kümesi: Cc,
-  U+2028/2029, U+202A–202E, U+2066–2069, U+200B, U+2060, içte U+FEFF). Kayıtlı ad muaf olduğu için kilit değildir; sayı
-  sıfır değilse ilgili işletmelerin sahiplerine söylenir. Spec §7'nin dokuz maddesi (6. madde sözleşme farkı); güvenlik ONAY; KF+KM holding'i kuruldu; holding dışı izolasyon prod'da örneklendi. **(API-4'ten, 2026-10-15 — runbook)** `TAPPA_API_HOST` set edilmeden `api.*` adı ingress'ten pod'a gelirse panelin her
+  U+2028/2029, U+202A–202E, U+2066–2069, U+200B, U+2060, içte U+FEFF, bağlamı dışında birleştirici ya da etiket
+  karakteri) ve ayrıca bunun **`CleanName` ile değişen** alt kümesi (sessizce atılan bir karakter de taşıyanlar: bir
+  sonraki kayıtta temizlenmiş adla yazılır — kilit değil, ama ad sessizce değişir ve iz satırı bırakır). Kayıtlı ad
+  temizlenmiş hâliyle muaf olduğu için kilit değildir; sayı sıfır değilse ilgili işletmelerin sahiplerine söylenir. Spec §7'nin dokuz maddesi (6. madde sözleşme farkı); güvenlik ONAY; KF+KM holding'i kuruldu; holding dışı izolasyon prod'da örneklendi. **(API-4'ten, 2026-10-15 — runbook)** `TAPPA_API_HOST` set edilmeden `api.*` adı ingress'ten pod'a gelirse panelin her
   şeyi yakalayan rotalarına düşer: ingress kuralı env ile **aynı adımda** eklenir (önce değil). Çift noktalı host
   (`api.taptime.mt..`) API host'u sayılmaz, panel olarak yanıtlanır — ingress onu yönlendirmemelidir.
 
