@@ -24,6 +24,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
 )
@@ -567,6 +568,76 @@ func TestStaffAdd_TheNameRuleIsTheVenueRule(t *testing.T) {
 		p, err := add(name)
 		if err != nil || p.Name != want {
 			t.Errorf("%q: %q %v, want %q stored", name, p.Name, err, want)
+		}
+	}
+}
+
+// TestAPIEmployees_TheListAndTheSingleReadAgree (API-6 review D-2: three mutants of the list and the
+// single read stayed green): for four people the list (ListAPIEmployees) and the single read
+// (APIEmployeeByID) answer the same activationEmail state --
+//
+//	A  a live invitation with its invite.code_emailed row               sent
+//	B  a live invitation whose only row is invite.undelivered           undelivered (never "sent")
+//	C  no invitation, an invite.email_refused row                       undelivered
+//	D  a delivered live invitation, then a newer undelivered attempt    sent (a live delivered link wins)
+//
+// MUTANTS (measured): the list's delivery join removed -> B reads "sent"; the list's
+// last_undelivered fixed to false -> B and C read "none"; email_refused dropped from the single
+// read -> C reads "none". Each red.
+func TestAPIEmployees_TheListAndTheSingleReadAgree(t *testing.T) {
+	f := newStaffFixture(t)
+	hire := func() uuid.UUID {
+		a := uniqueAddress("st")
+		id := f.hire(t, f.tenantID, apiRef("ST"), &a).Employee.ID
+		if err := f.data.WithTenant(context.Background(), f.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+			_, e := tx.Exec(ctx, `DELETE FROM invite_requests WHERE tenant_id = $1 AND employee_id = $2`, f.tenantID, id)
+			return e
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	row := func(employee uuid.UUID, action string, invite uuid.UUID) {
+		t.Helper()
+		detail := map[string]string{"invite_id": invite.String(), "channel": "email_queue"}
+		if invite == uuid.Nil {
+			detail = map[string]string{"reason": "request_expired", "channel": "email_queue"}
+		}
+		if _, err := f.trail.Record(context.Background(), audit.Event{TenantID: f.tenantID, Action: action, Target: employee.String(), Detail: detail}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a, b, c, d := hire(), hire(), hire(), hire()
+	row(a, "invite.code_emailed", f.seedInvite(t, f.tenantID, a, time.Hour, false))
+	row(b, "invite.undelivered", f.seedInvite(t, f.tenantID, b, time.Hour, false))
+	row(c, "invite.email_refused", uuid.Nil)
+	dInv := f.seedInvite(t, f.tenantID, d, time.Hour, false)
+	row(d, "invite.code_emailed", dInv)
+	row(d, "invite.undelivered", dInv)
+	want := map[uuid.UUID]InvitationState{a: InvitationSent, b: InvitationUndelivered, c: InvitationUndelivered, d: InvitationSent}
+	listed := map[uuid.UUID]InvitationState{}
+	var after *uuid.UUID
+	for {
+		page, err := f.staff.ListAPIEmployees(context.Background(), f.tenantID, after, 2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range page {
+			listed[e.ID] = e.Invitation
+		}
+		if len(page) < 2 {
+			break
+		}
+		last := page[len(page)-1].ID
+		after = &last
+	}
+	for id, w := range want {
+		one, err := f.staff.APIEmployeeByID(context.Background(), f.tenantID, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if one.Invitation != w || listed[id] != w {
+			t.Errorf("person %s: the single read %q, the list %q; want %q", id, one.Invitation, listed[id], w)
 		}
 	}
 }

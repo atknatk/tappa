@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -71,5 +72,34 @@ func TestAuditLog00053_DownGivesBackAndUpTakesItAgain(t *testing.T) {
 	}
 	if got := opColumns(t, ctx, tx, "tappa_app", "audit_log", "INSERT"); got != "id,tenant_id,actor_id,action,target,detail" {
 		t.Fatalf("tappa_app inserts %q after the Up", got)
+	}
+}
+
+const op00054File = "00054_index_the_invitation_deliveries.sql"
+
+// TestAuditLog00054_TheDeliveryIndexIsPartialAndGoesBack (API-6 review D-3): the index the activation
+// e-mail's state is read through exists on (tenant_id, target, at) for the four delivery actions
+// alone; 00054's Down removes it and the Up builds it again. The time it buys is measured, not
+// pinned here (a plan depends on the data): ADR 0028's API-6 note.
+func TestAuditLog00054_TheDeliveryIndexIsPartialAndGoesBack(t *testing.T) {
+	ctx, tx := opTx(t)
+	def := `SELECT coalesce((SELECT indexdef FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'audit_log_invite_delivery_idx'), '')`
+	var got string
+	if err := tx.QueryRow(ctx, def).Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"(tenant_id, target, at)", "invite.code_emailed", "invite.code_shown_to_manager", "invite.undelivered", "invite.email_refused"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("the delivery index %q does not carry %q", got, want)
+		}
+	}
+	up, down := opMigrationSections(t, op00054File)
+	opRunSection(t, ctx, tx, down, "00054 Down")
+	if err := tx.QueryRow(ctx, def).Scan(&got); err != nil || got != "" {
+		t.Fatalf("after the Down the index is %q (%v)", got, err)
+	}
+	opRunSection(t, ctx, tx, up, "00054 Up again")
+	if err := tx.QueryRow(ctx, def).Scan(&got); err != nil || got == "" {
+		t.Fatalf("after the Up the index is missing (%v)", err)
 	}
 }

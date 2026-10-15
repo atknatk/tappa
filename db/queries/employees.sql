@@ -974,7 +974,8 @@ RETURNING id;
 --   la   the person's LAST delivery attempt in the trail -- emailed, shown, undelivered or refused;
 --        last_undelivered says the last one did not reach anybody.
 -- No code and no hash: employee_invites is read for id and created_at alone, audit_log for the
--- action, the time and the invitation's id. The has_* flags carry the absences (sqlc cannot see a
+-- action, the time and the invitation's id -- both trail reads bound to this person, served by
+-- audit_log_invite_delivery_idx (00054). The has_* flags carry the absences (sqlc cannot see a
 -- derived table's LEFT JOIN as nullable; the coalesced times are then placeholders).
 SELECT e.id, e.external_ref, e.employee_code, e.first_name, e.last_name, e.full_name, e.status,
        (e.email IS NOT NULL)::boolean AS has_email,
@@ -990,6 +991,7 @@ LEFT JOIN (
     SELECT i.employee_id, max(i.created_at)::timestamptz AS created_at
     FROM employee_invites i
     JOIN audit_log d ON d.tenant_id = @tenant_id
+                    AND d.target = (@id::uuid)::text
                     AND d.target = i.employee_id::text
                     AND d.action IN ('invite.code_emailed', 'invite.code_shown_to_manager')
                     AND d.detail->>'invite_id' = i.id::text
@@ -1015,40 +1017,57 @@ WHERE e.tenant_id = @tenant_id
 -- A page of this business's employees, live and deactivated, panel-made (no ref) and API-made,
 -- in id order after the cursor (the previous page's last id; NULL for the first page). The same
 -- columns as GetAPIEmployee, for the same reasons -- no address.
+--
+-- THE PAGE IS CHOSEN FIRST (the CTE) and the activation e-mail's two trail reads run PER ROW of it
+-- (LATERAL), each an index probe on audit_log_invite_delivery_idx (migration 00054: the four
+-- delivery actions, keyed by tenant, target and time) -- API-6 review D-3, measured on 2 000
+-- employees and 240 000 trail rows: reading the business's whole trail and sorting it took
+-- 127-156 ms a page. The figures before and after are in ADR 0028's API-6 note.
+WITH page AS (
+    SELECT pe.id
+    FROM employees pe
+    WHERE pe.tenant_id = @tenant_id
+      AND (sqlc.narg('after')::uuid IS NULL OR pe.id > sqlc.narg('after')::uuid)
+    ORDER BY pe.id
+    LIMIT @page_size
+)
 SELECT e.id, e.external_ref, e.employee_code, e.first_name, e.last_name, e.full_name, e.status,
        (e.email IS NOT NULL)::boolean AS has_email,
        e.activated_at, e.created_at, e.updated_at,
        r.requested_at AS queued_at,
-       (li.employee_id IS NOT NULL)::boolean AS has_live_invite,
+       (li.created_at IS NOT NULL)::boolean AS has_live_invite,
        coalesce(li.created_at, e.created_at)::timestamptz AS live_invite_at,
        coalesce(la.action IN ('invite.undelivered', 'invite.email_refused'), false)::boolean AS last_undelivered,
        coalesce(la.at, e.created_at)::timestamptz AS last_attempt_at
 FROM employees e
+JOIN page pg ON pg.id = e.id
 LEFT JOIN invite_requests r ON r.tenant_id = @tenant_id AND r.employee_id = e.id
-LEFT JOIN (
-    SELECT i.employee_id, max(i.created_at)::timestamptz AS created_at
+LEFT JOIN LATERAL (
+    SELECT max(i.created_at)::timestamptz AS created_at
     FROM employee_invites i
-    JOIN audit_log d ON d.tenant_id = @tenant_id
-                    AND d.target = i.employee_id::text
-                    AND d.action IN ('invite.code_emailed', 'invite.code_shown_to_manager')
-                    AND d.detail->>'invite_id' = i.id::text
     WHERE i.tenant_id = @tenant_id
+      AND i.employee_id = e.id
       AND i.used_at IS NULL
       AND i.cancelled_at IS NULL
       AND now() < i.expires_at
-    GROUP BY i.employee_id
-) li ON li.employee_id = e.id
-LEFT JOIN (
-    SELECT DISTINCT ON (la_a.target) la_a.target, la_a.action, la_a.at
+      AND EXISTS (SELECT 1
+                    FROM audit_log d
+                   WHERE d.tenant_id = @tenant_id
+                     AND d.target = e.id::text
+                     AND d.action IN ('invite.code_emailed', 'invite.code_shown_to_manager')
+                     AND d.detail->>'invite_id' = i.id::text)
+) li ON true
+LEFT JOIN LATERAL (
+    SELECT la_a.action, la_a.at
     FROM audit_log la_a
     WHERE la_a.tenant_id = @tenant_id
+      AND la_a.target = e.id::text
       AND la_a.action IN ('invite.code_emailed', 'invite.code_shown_to_manager', 'invite.undelivered', 'invite.email_refused')
-    ORDER BY la_a.target, la_a.at DESC, la_a.id DESC
-) la ON la.target = e.id::text
+    ORDER BY la_a.at DESC, la_a.id DESC
+    LIMIT 1
+) la ON true
 WHERE e.tenant_id = @tenant_id
-  AND (sqlc.narg('after')::uuid IS NULL OR e.id > sqlc.narg('after')::uuid)
-ORDER BY e.id
-LIMIT @page_size;
+ORDER BY e.id;
 
 -- name: IsAdministratorAddress :one
 -- Whether an address is, as citext, the address of an administrator of THIS business (ADR

@@ -1796,7 +1796,8 @@ type Querier interface {
 	//   la   the person's LAST delivery attempt in the trail -- emailed, shown, undelivered or refused;
 	//        last_undelivered says the last one did not reach anybody.
 	// No code and no hash: employee_invites is read for id and created_at alone, audit_log for the
-	// action, the time and the invitation's id. The has_* flags carry the absences (sqlc cannot see a
+	// action, the time and the invitation's id -- both trail reads bound to this person, served by
+	// audit_log_invite_delivery_idx (00054). The has_* flags carry the absences (sqlc cannot see a
 	// derived table's LEFT JOIN as nullable; the coalesced times are then placeholders).
 	GetAPIEmployee(ctx context.Context, arg GetAPIEmployeeParams) (GetAPIEmployeeRow, error)
 	// After a revocation matched no row: is the key unknown in this tenant (no row) or revoked
@@ -3038,11 +3039,19 @@ type Querier interface {
 	// The owner's alert (ADR 0028 §12): every key that ran out of its deactivation budget in the last
 	// @window_seconds, newest first, with the key's name as it is now (a LEFT JOIN: a key cannot be
 	// deleted, but the trail must still show a row whose key it cannot name) and the budget the row
-	// recorded (detail.budget -- the panel never assumes the number; 0 when a row has none).
+	// recorded (detail.budget -- the panel never assumes the number; 0 when a row has none, or one
+	// that is not a whole number of at most nine digits: a cast of anything else would fail the whole
+	// read -- API-6 review D-4, measured as a 500).
 	ListAPIBudgetAlerts(ctx context.Context, arg ListAPIBudgetAlertsParams) ([]ListAPIBudgetAlertsRow, error)
 	// A page of this business's employees, live and deactivated, panel-made (no ref) and API-made,
 	// in id order after the cursor (the previous page's last id; NULL for the first page). The same
 	// columns as GetAPIEmployee, for the same reasons -- no address.
+	//
+	// THE PAGE IS CHOSEN FIRST (the CTE) and the activation e-mail's two trail reads run PER ROW of it
+	// (LATERAL), each an index probe on audit_log_invite_delivery_idx (migration 00054: the four
+	// delivery actions, keyed by tenant, target and time) -- API-6 review D-3, measured on 2 000
+	// employees and 240 000 trail rows: reading the business's whole trail and sorting it took
+	// 127-156 ms a page. The figures before and after are in ADR 0028's API-6 note.
 	ListAPIEmployees(ctx context.Context, arg ListAPIEmployeesParams) ([]ListAPIEmployeesRow, error)
 	// The panel's list: newest first, revoked ones included (the owner sees what was issued and
 	// when it stopped working). token_hash is not readable by tappa_app and is not named.
