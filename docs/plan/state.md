@@ -1692,6 +1692,17 @@ yazılır.
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 
+### 2026-10-15 (29. oturum, kırk ikinci yarı) — ✅ **API-5 DONE** (güvenlik 1. turda ONAY; üçüncü göz 3. turda ONAY; son DÜŞÜK turu) · 📌 **DEVAM: API-6**
+
+**Yeniden başlatmadan sonra:** `docker start tappa-m11-db` (goose **52**). Brief'ler: `~/.claude/projects/-Users-everva-Documents-GitHub-atknatk-tappa/m11-briefs/`.
+
+**API-5** (`c75cbae` … `ea0b8f6`): `PUT /v1/locations/{ref}` — iş `tenant.Venues.PutVenueTx`'ten geçer; K-7 farklı `timezone` 422, K-20 `active` yalnız etiket (karar motoru okumaz), K-18 isimle eşleme yok, kanıt yazmaz (bilinmeyen alan 422 — `ip_ranges`/`gps` dahil; panel kanıtı API PUT'undan sonra bayt bayt aynı); askı kapalı sınıf; `Writes` + `Admit` + zincir uçtan uca pinli. Sözleşme: yinelenen JSON anahtarı 422, UTF-8 olmayan gövde ve yalnız surrogate 400, ref kodlu yoldan **bir kez** çözülür.
+- **Panelde de değişen isim kuralı (lokasyon + departman + signup sihirbazı):** reddedilen — Cc, bidi kontrolleri, U+200B/2060, içteki FEFF, U+2028/2029, bağlam dışı ZWJ/ZWNJ ve etiket karakterleri; sessizce atılan — yumuşak tire, LRM/RLM/ALM, uçtaki BOM; izinli — emoji ZWJ dizileri, bayrak etiket dizileri, Farsça ZWNJ, VS. **Kayıtlı ad muaf** (temizlenmiş biçimiyle karşılaştırılır — öteki alanların düzenlenmesi kilitlenmez).
+- **Sorgu kemeri:** altı kopyada `INSERT … SELECT`'in yazdığı `tenant_id` değeri ve `DO UPDATE SET tenant_id` okunur (`queryinsert_test.go` ortak).
+- **Plan §5'e devirler:** API-12 rehberi (bilinmeyen/yinelenen alan 422, UTF-8, ref bir kez çözülür, gizli karakter `reason: hidden_character`, atılanlar); **API-13** — deploy'dan önce prod'da `locations`/`departments` adlarında yeni kurala takılan ve `CleanName` ile değişen satır sayısı değer basılmadan sorgulanır.
+
+**🔴 DEVAM PLANI:** **API-6** (çalışan uçları + davet kuyruğu işçisi + K-25) — brief `m11-briefs/brief-api6-builder.md` → iki mercek → API-7 → … Kullanıcıda bekleyenler: otuz dördüncü yarıdakiler + `site_punches` saklama süresi (DPA) + T125.
+
 ### 2026-10-15 (29. oturum, kırk birinci yarı) — ✅ **API-4 DONE** (ilk turda iki mercek ONAY; son DÜŞÜK turu) · 📌 **DEVAM: API-5**
 
 **Yeniden başlatmadan sonra:** `docker start tappa-m11-db` (goose **52**). Brief'ler: `~/.claude/projects/-Users-everva-Documents-GitHub-atknatk-tappa/m11-briefs/`.
