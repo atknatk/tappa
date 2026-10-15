@@ -855,19 +855,34 @@ parametre), `TestStoreSurface_IsTheOneRecorded`, `TestOpenAPI_PathsAreTheRouters
 `TestAPIRead_EveryReadCarriesTheBound` (rehber + JIT kapalı). ADR 0027'den devralınan
 `TestHoldingDirectory_ReturnsPeersNeverTheCaller` ve holding tarafının adları ADR 0027 *"API-8 uygulama notu"*nda.
 
-**API-9** — `WebhookEndpointCatalog` · `WebhookEndpoint_OnePerTenant` ·
-`WebhookEndpoint_KeyShownOnce` · `WebhookPing_SharesTheResendBucket` ·
-`WebhookEndpoint_ClosedApiRefused`.
+**API-9** *(yazıldı — "API-9 uygulama notu"; adlar önerilenle aynı, önek eklendi)* — `TestWebhookEndpointCatalog` ·
+`TestWebhookEndpoint_OnePerTenant` · `TestWebhookEndpoint_KeyShownOnce` · `TestWebhookPing_SharesTheResendBucket` ·
+`TestWebhookEndpoint_ClosedApiRefused`. **API-10'dan taşınanlar** (`internal/egress` bu görevde doğdu; imza ping'le gider):
+`TestEgress_RefusesEveryIANASpecialPurposeEntry` · `TestEgress_DNSRebindingSecondAnswerRefused` ·
+`TestEgress_IPv6OnlyGlobalUnicastMinusCarveOuts` · `TestEgress_NodeAndIngressAddressesRefused` ·
+`TestEgress_EmptyNodeListRefusesToStart` · `TestEgress_ProxyEnvironmentIgnored` · `TestEgress_RedirectNotFollowed` ·
+`TestWebhookSignature_KnownAnswer`. Ekler: `TestEgress_TheTableIsTheRegistry`, `TestEgress_IsGlobalUnicastIsNotTheRule`,
+`TestEgress_OnlyPort443`, `TestEgress_EveryAddressOfAnAnswerAndBothFamiliesAreChecked`, `TestEgress_TheExchangeIsBounded`,
+`TestEgress_FailuresAreClassesAndCarryNoText`, `TestEgress_LogsNothingAndReturnsNoText`, `TestEgress_PostDeliversToAnAllowedAddress`,
+`TestFakeDNS_AnswersTheGoResolver`, `TestEndpoint_TheURLRule`, `TestEndpoint_PrintsAPlaceholderEverywhere`,
+`TestSigningKey_ShapeAndRedaction`, `TestWebhookEndpoint_OnlyAnActiveOwner`, `TestWebhookEndpoint_TheAddressRuleAndTheReaddress`,
+`TestWebhookPing_TheBodyIsSyntheticAndSigned`, `TestWebhookPing_NoTransactionOpenDuringTheRequest`,
+`TestWebhookPing_ASealMovedToAnotherEndpointDoesNotOpen`, `TestWebhookPing_NothingOfTheAddressOrTheKeyReachesATrail`,
+`TestRLS_WebhookEndpoints_AnotherTenantsEndpointIsInvisible`, `TestEndpoints_SuspensionClassesAreSection10`,
+`TestWebhookPanel_TheKeyIsShownOnceAndNeverAgain`, `TestWebhookPanel_ManagerIs403EverywhereAndLeavesATrail`,
+`TestWebhookPanel_CrossSiteWritesAreRefusedBeforeTheResolver`, `TestWebhookPanel_AClosedAPIOffersNothingButTheSwitchOff`,
+`TestWebhookPanel_PingResultsAndTheBucket`, `TestWebhookPanel_AnAddressTheRuleRefusesIsSaidAndNothingIsWritten`,
+`TestWebhookPanel_NotConfiguredSaysSo`, `TestWebhookPanel_EveryClassHasASentence`,
+`TestNewAdminAuth_TheWebhookServiceMatchesTheConfiguration`, `TestWebhookWiring_TheEndpointServiceReachesThePanel`,
+`TestConfig_WebhookSettingsAreRequiredOutsideDev`, `TestConfig_WebhookBlockedAddressesParse`; genişleyenler:
+`TestStoreSurface_IsTheOneRecorded` (+ `TestStoreSurface_NoByteCarryingQueryReadsTags`'ın sekizinci taşıyıcısı).
 
-**API-10** — `WebhookRouting_FourShapes` · `Egress_RefusesEveryIANASpecialPurposeEntry` ·
-`Egress_DNSRebindingSecondAnswerRefused` · `Egress_IPv6OnlyGlobalUnicastMinusCarveOuts` ·
-`Egress_NodeAndIngressAddressesRefused` · `Egress_EmptyNodeListRefusesToStart` ·
-`Egress_ProxyEnvironmentIgnored` · `Egress_RedirectNotFollowed` ·
-`WebhookWorker_DisabledEndpointGetsNothing` · `WebhookWorker_TwoPodsSendOnce` ·
+**API-10** — `WebhookRouting_FourShapes` · `WebhookWorker_DisabledEndpointGetsNothing` · `WebhookWorker_TwoPodsSendOnce` ·
 `WebhookWorker_NoOpenTransactionDuringHTTP` · `WebhookWorker_DrainsWithinShutdownBudget` ·
-`WebhookSignature_KnownAnswer` · `WebhookWorker_URLAndURLErrorNeverReachLogOrAudit`
+`WebhookWorker_URLAndURLErrorNeverReachLogOrAudit`
 (CLAUDE.md §7: başarısız gönderimlerde — DNS, TLS, zaman aşımı, ret — süreç log'unda ve audit
-`detail`'inde uç noktanın adresi ve `url.Error` metni yok; yalnız uç nokta kimliği ve hata sınıfı).
+`detail`'inde uç noktanın adresi ve `url.Error` metni yok; yalnız uç nokta kimliği ve hata sınıfı). *(`Egress_*` ve imza
+vektörü API-9'da yazıldı — yukarıda; API-10'un işçisi aynı `egress.Client`'ı ve `webhook.SigningKey.Sign`'ı kullanır.)*
 
 **API-11** — `Packaging_ProdBuildHasNoSandboxPackage` · `Packaging_SandboxBuildHasIt` ·
 `Config_UntaggedBinaryRefusesSandbox` · `Sandbox_RealNXPUIDRefusedOnEveryResolveAndInsert` ·
@@ -2327,3 +2342,121 @@ arasında tekil, sıra tektir); uç `internal/handler/api/directory.go`; kablola
   okur (sınır aynı denetlenir); stres testi kendi okuyucusunun sınırını yükseltir (`bound` — ölçtüğü şey garanti, sınır değil);
   HTTP testleri sevkedilen sınırla kalır, üye isteği sayısı azaltıldı (ikinci tam koşuda yeşil).
 
+
+## API-9 uygulama notu (2026-10-15)
+
+Yapıcının uygulaması ve ölçümleri; kararlar değişmedi — ADR'nin açık bıraktıkları ve sapmalar aşağıda adıyla. **Migration
+yok:** `webhook_endpoints` (RLS beşlisi, `UNIQUE (tenant_id)`, `tappa_app`'in sütun listeli `SELECT`/`INSERT`/`UPDATE`'i, DELETE
+yok) API-2'de `00048` ile doğdu; bu görev onu `TestWebhookEndpointCatalog` ile pinler, kova için tablo açmaz (madde 2). Paylaşılan
+`tappa-m11-db`'ye DDL yok; yıkıcı mutant atılabilir PostgreSQL 17 kabında (`scripts/db-init`, goose 56).
+
+**Parçalar.** `internal/egress` (§7'nin istemcisi: `allow.go` izin listesi, `endpoint.go` URL kuralı, `egress.go` istemci) ·
+`internal/webhook/signing.go` (`tt_whsec_` anahtarı, `sha256=` imzası) · `internal/webhook/endpoints` (sahibin altı eylemi; ayrı
+alt paket, çünkü `internal/webhook` K-19 işçisidir ve `TestWorker_NoTenantWideRead` onu veritabanı okumayan biçime pinler) ·
+`db/queries/webhooks.sql` (sekiz sorgu, hepsi `WithTenant` + açık `tenant_id`) · panel `internal/handler/webhooks.go` +
+`apikeys.templ`'in *"Webhook"* bölümü · `internal/config` (`TAPPA_WEBHOOK_KEK`, `TAPPA_WEBHOOK_BLOCKED_ADDRESSES`) · kablolama
+`cmd/tappa/main.go`.
+
+**ADR'nin açık bıraktıkları ve sapmalar — kararıyla (otonom, gerekçeli):**
+1. **İzin listesi kayıttan birebir.** IANA'nın iki özel amaçlı kaydı CSV dışa aktarımlarından **2026-10-15'te** indirildi (ikisi de
+   *"updated 2025-10-09"*); `ianaSpecialPurpose` 51 girdiyi kaydın sırasıyla taşır (IPv4 25 satır — `192.0.0.170/32, 192.0.0.171/32`
+   satırı iki girdi —, IPv6 25), iç içe girdiler (`0.0.0.0/32`, `2001::/32`…) dahil. Test kendi kopyasını CSV'nin ilk iki sütunu
+   olarak **harfiyen** taşır (`TestEgress_TheTableIsTheRegistry`). Kural `Unmap()` → düğüm/ingress listesi → kayıt → IPv4'te
+   `224.0.0.0/4` (çoklu yayın kendi kaydındadır, §7 onu adlandırır) / IPv6'da `2000::/3` eksi `2001::/23`, `3fff::/20`,
+   `2002::/16` (üçü kayıtta da var; §7 ayrıca adlandırdığı için yeniden yazıldı) → port 443. Bölgeli (zone) adres reddedilir.
+   `IsGlobalUnicast` hiç çağrılmaz (`TestEgress_IsGlobalUnicastIsNotTheRule` NAT64, 6to4, Teredo, belgeleme ve özel IPv4'te
+   `true` dediğini ölçer).
+2. **Ping/yeniden gönderim kovası kalıcı, `audit_log`'dan** — K-25'in emsali. Bellekte bir kova pod başınadır: iki pod'da saatte
+   **20**, her deploy'da sıfır; ADR'nin *"paylaşımlı oran deposu kapsam dışı"*sı yeni bir depo kurmayı dışlar, var olan iz
+   satırlarını saymayı değil. İşletme başına advisory kilit (`webhook-bucket:` ad alanı, `tenants` satırının seçim listesinde —
+   `LockAPIDeactivationBudget`'ın biçimi) altında son bir saatin `webhook_endpoint.ping` ve **`webhook_delivery.resend`**
+   satırları sayılır (`endpoints.BucketActions`; ikinci ad API-10 için burada sabitlendi), 10'dan azsa slot satırı **istek
+   gitmeden önce aynı işlemde** yazılır ve işlem kapanır; istek işlem **dışında** gider; sonuç ikinci bir satırdır
+   (`webhook_endpoint.ping_result`: sınıf + durum). Bedeli: cevap gelmese de slot harcanır, çöküş slotu geri vermez. Dolu kovada
+   cevap `BucketFull{NextAt}` (en eski slot + 1 sa) — panel *"bu saatin 10 test mesajı kullanıldı, sonraki HH:MM'de"* der.
+   İndeks: `audit_log_tenant_at_idx`.
+3. **İmza başlığı `X-Taptime-Signature`**, değeri `sha256=` + küçük harf hex HMAC-SHA256(gövdenin baytları), anahtar = anahtarın
+   **metni** (önek dahil — entegratörün elindeki dizedir). Spec repoda değil (atıf kuralı); başlık adı spec'te farklıysa tek
+   sabittir (`webhook.SignatureHeader`). `TestWebhookSignature_KnownAnswer` bu görevde yazıldı, çünkü ping imzalı gider; vektör Go
+   dışında (Python `hmac`) hesaplandı, anahtarı rehberin **açıkça sahte** anahtarı: önek + 43 `A` (32 sıfır bayt; R7d dolguyu
+   saymaz).
+4. **Ping gövdesi** `{"event":"ping","id":"<slot satırının kimliği>","sentAt":"<RFC 3339 UTC>"}`; başlıklar `Content-Type:
+   application/json`, `User-Agent: Taptime-Webhooks/1`, imza. Kapalı (switched off) uç noktaya ping **reddedilir** ve slot harcamaz
+   (işçinin `active` kuralıyla tutarlı). Ping **senkrondur** — panel isteği en çok 10 sn bekler (sunucuda `WriteTimeout` yok,
+   `main.go`); kuyruk yok.
+5. **K-19:** ping tenant'ı kümeye **sokmaz** — senkron gider, kuyrukta işi yoktur; kümeye sokmak boş bir iş turu olurdu. Onay ve
+   *"yeniden gönder"* API-10'da kalır (teslimle birlikte).
+6. **Kapalı küme eşlemesi** (`egress.classify`): zaman aşımı → `timeout`; sertifika/el sıkışma hatası ve 443'te düz HTTP
+   (`http.ErrSchemeMismatch`) → `tls`; çözülmeyen ad, dinlemeyen port, sıfırlama, sınırı aşan ya da bozuk yanıt başlığı →
+   `refused`; kapının reddi → `blocked_address`; 4xx → `http_4xx`; 5xx → `http_5xx`. **3xx için kümede sınıf yok:** izlenmez ve
+   `http_4xx` sayılır (sahibe söylediği aynı: adres alıcının istediği değil); durum kodu yanında gösterilir, panel *"yönlendirme
+   izlenmez"* der. Denetçinin bakması istenen nokta.
+7. **URL kuralının tek yazımı:** küçük harf host, `:443` atılır, boş yol `/`; büyük harf şema, boş sorgu (`?`) ve boş parça (`#`),
+   boş port (`h:/`), köşeli host, sayısal görünen host (tamamen rakam TLD, tamamen rakam/`0x` etiketler — `inet_aton`'un
+   okuyacağı biçimler), `xn--` etiketi ve Unicode IDN, sonda nokta, boşluk/kontrol/ASCII dışı bayt reddedilir; ayrıca kemer olarak
+   genel internette olmayan TLD'ler (`localhost`, `local`, `internal`, `arpa`, `invalid`, `onion`, `test`). Hatalar sabit
+   nöbetçilerdir, girdiyi taşımaz; `egress.Endpoint` her yazdırma yolunda yer tutucu basar (`apikey.Token` kalıbı), adresi yalnız
+   sahibin paneli (`ShowToTheOwner`) ve sütun (`StoredForm`) okur. Kayıtlı adres her okunuşta kuraldan **yeniden** geçer
+   (`EndpointFromStore`): sonradan sıkılaşan kuralı geçmeyen adrese ping gitmez (`ErrStoredAddress`). DB'nin `00048` CHECK'i
+   (`https://%`, ≤ 2048) kemer olarak kalır; kural tek ayrıştırıcıdadır.
+8. **K-22 her yolda, biri hariç:** oluşturma, adres değiştirme, döndürme, **yeniden açma** ve ping kapalı API'de ret
+   (`ErrAPIClosed`, hiçbir şey yazılmaz); **kapatma açık** (K-26). Yeniden açma §10 tablosunda adlandırılmadığı için askıda **kapalı**
+   sınıftadır (*"varsayılan kapalı"*); `endpoints.OpenWhileSuspended` askı tablosunu OP-15'in kapısı için taşır (yalnız kapatma
+   açık), testleri API-4b'nindir.
+9. **Anahtar:** `tt_whsec_` + 43 base64url (32 bayt), `sun.Seal(TAPPA_WEBHOOK_KEK, AAD = uç noktanın kimliğinin 16 baytı)`; kimlik
+   INSERT'ten **önce** Go'da seçilir. Yalnız oluşturma ve döndürme cevabında görünür; panelin okuması anahtar sütununu adlandırmaz,
+   mühürlü değeri okuyan tek sorgu `GetWebhookEndpointForSigning`'dir. Mühür açılmazsa (başka satırdan taşınmış ya da KEK değişmiş)
+   `ErrKeyUnreadable` — hiçbir şey imzalanmaz, slot harcanmaz.
+10. **`TAPPA_WEBHOOK_KEK` ve `TAPPA_WEBHOOK_BLOCKED_ADDRESSES` `dev` dışında zorunlu** (API-3 notu madde 10'un *"API-9'a kadar"*sı
+    kapandı). Dalda `sandbox` değeri henüz yok (API-11); kural *"`dev` dışındaki her `TAPPA_ENV`"* — `staging` dahil. Liste
+    virgüllü IP ya da CIDR; IPv4 IPv4 yazımıyla, `/0` ve bölgeli adres reddedilir; konumuyla adlandırılır. `dev`'de ikisi de boş
+    olabilir: KEK yoksa panel *"yapılandırılmamış"* der, liste yoksa `egress.New` yalnız `DevelopmentWithoutBlockedList`
+    (= `cfg.Env == dev`, AST ile pinli) ile kurulur. ConfigMap değeri `144.76.158.60` (apex kaydının ölçülen origin'i,
+    `40-ingress.yaml`); IPv6 ve ek düğümler API-13'te. `20-app.yaml` KEK'i isteğe bağlı olmadan alır; Infisical örneği onu zorunlu
+    çeker.
+11. **Panel:** API anahtarları sayfasının altında; ping PRG ile (`?ping=<sınıf>&status=`; sınıf kapalı kümede değilse çizilmez —
+    yeniden yükleme yeni ping göndermez); döndürme işaretli kutu ister; oluşturma formunun yeniden gönderimi `webhook-exists`.
+    `NewAdminAuth`, KEK'i taşıyan bir yapılandırmayı webhook servisi verilmeden **reddeder** (K-26'nın kapatmasını sessizce
+    kaldırmasın — `TestNewAdminAuth_TheWebhookServiceMatchesTheConfiguration`).
+12. **`egress`'in test dikişleri** dışa kapalıdır: `gate.testAllow` (127.0.0.1'i *"genel adres"* yerine koymak — başarılı bir dial'ı
+    ağa çıkmadan göstermenin tek yolu), `gate.port`, `gate.observe`, `build(resolver, roots, timeout)`. `New` hiçbirini kurmaz
+    (`TestEgress_TheExchangeIsBounded` `New`'in taşıyıcısını okur: `Proxy` nil, keep-alive kapalı, 10 sn, başlık 16 KiB, TLS
+    doğrulaması açık ve sistem kökleri, yönlendirme yok). DNS süreç içi bir sunucudan (`net.Resolver{PreferGo, Dial: net.Pipe}`);
+    **hiçbir test ağa çıkmaz**.
+13. **VIES `egress`'e taşınmadı** (kapsam dışı): sabit URL'ye gider, sahibin girdiği bir adres taşımaz; `main.go`'nun *"tek giden
+    istemci"* yorumu güncellendi.
+
+**Ölçümler ve mutantlar** (her biri tek başına uygulandı, ilgili test tek başına koşuldu, geri alındı): kayıttan çıkarılan, başka
+girdinin örtmediği bir girdi (`192.31.196.0/24`) → iki test kırmızı; örtülen bir girdi (`5f00::/16` `2000::/3` dışında,
+`0.0.0.0/32` `/8` içinde) → yalnız tablo testi kırmızı (davranış değişmez — beklenen); çoklu yayın kuralı yok → kırmızı;
+`IsGlobalUnicast` kısa yolu → kırmızı; `Unmap()` yok → kırmızı (`::ffff:8.8.8.8` reddedildi; eşlemeli biçim `Unmap`'siz de kapalı
+kalır, ölçü bu yüzden **genel** eşlemeli adrestir); port kuralı yok, düğüm listesi yok, `2000::/3` kuralı yok → kırmızı;
+`ControlContext` etkisiz → yeniden bağlama testinde ikinci cevap `timeout` (beklenen `blocked_address`) — kırmızı; `Proxy:
+ProxyFromEnvironment` (test tek başına; `net/http` ortamı süreç başına bir kez okur) → teslim düşer, kırmızı; yönlendirme izlenir →
+kırmızı; keep-alive açık → kırmızı; gövdenin tamamı okunur → `Post` 5 sn bekledi, kırmızı; boş liste kabul → kırmızı; `tls`
+sınıflaması yok → kırmızı. İmza: büyük harf hex, öneksiz, çözülmüş 32 baytla anahtarlanmış HMAC → üçü kırmızı. Alan: sabit AAD →
+kırmızı; kovanın advisory kilidi üretilmiş ifadeden çıkarılınca 16 eşzamanlı pingin **11**'i geçti → kırmızı; `ActionResend`
+kovadan çıkınca altı resend + beş ping geçti → kırmızı; sayımın reddi yok → kırmızı; kapatma K-22'ye bağlanınca → kırmızı; ping
+K-22'siz → kırmızı; alanın sahip kontrolü yok → kırmızı; atılabilir kapta `webhook_endpoints_one_per_tenant` düşürülünce 16
+eşzamanlı oluşturmanın 16'sı geçti → kırmızı. Panel: handler'ın sahip kapısı yok → ret satırı 0 (6 beklenirken) kırmızı; ping
+rotası okuma zincirine (`mountSections`) taşınınca çapraz site POST `ping=ok` aldı ve istek gitti → kırmızı. Yapılandırma ve
+kablolama: `webhookSettings` nil → kırmızı; geliştirme izni `true`, `Blocked` seçeneği yok, panele başka değer → üçü kırmızı;
+`NewAdminAuth`'un reddi yok → kırmızı.
+
+**Log ve iz kanaryası — kapsamı.** Alan ve panel testleri sahte bir gönderici kullanır: `egress.Result` yalnız sınıf + durum taşır
+(alan sayısı pinli), yani alana metin ulaşamaz; altı sınıfın her biri için iz satırlarında ve panel log'unda adres, host, yol,
+anahtar ve Go'nun hata sözcükleri **yok** (`TestWebhookPing_NothingOfTheAddressOrTheKeyReachesATrail`,
+`TestWebhookPanel_PingResultsAndTheBucket`). Gerçek hatalar (`untrusted certificate`, 443'te düz HTTP, dinlemeyen port, NXDOMAIN,
+4xx/5xx) `egress` düzeyinde ölçülür: `Result` her `fmt` fiiliyle host'u, yolu, adresi ve `dial`/`lookup`/`x509` sözcüklerini
+taşımaz; paket log yazmaz (`TestEgress_LogsNothingAndReturnsNoText`). **Bedel (adlandırıldı):** panelden gerçek bir ağ hatasıyla
+uçtan uca log testi yok — `egress`'in dikişleri dışa kapalı; API-10'un işçi testi (`WebhookWorker_URLAndURLErrorNeverReachLogOrAudit`)
+aynı soruyu işçi yolunda sorar.
+
+**Adlandırılmış bedeller.** (a) Eşzamanlı iki döndürmede son yazan kazanır; ilk cevabın gösterdiği anahtar sessizce ölür (sahibin
+sayfası en yenisini gösterir; koruma eklenmedi). (b) Döndürme cevabının yeniden yüklenmesi formu yeniden gönderir (tarayıcı
+sorar) ve bir anahtar daha basar — gösterilen yine canlı olandır. (c) Ping başına iki iz satırı (saatte en çok 20). (d) Panel isteği
+ping süresince (≤ 10 sn) bekler. (e) Kova slotu cevap gelmese de harcanır.
+
+**Devredilenler.** Teslim tablosu, işçi, geri çekilme, dört yönlendirme, teslim günlüğü ve *"yeniden gönder"* → **API-10**
+(`ActionResend` ve kovanın kilidi hazır; işçi aynı `egress.Client`'ı ve `SigningKey.Sign`'ı kullanır). Askı tablosunun testi →
+**API-4b**. Deploy adımları (KEK sırrı, adres listesinin IPv6'sı, `blocked_address` ölçümü) → **API-13** (plan §5).

@@ -528,7 +528,7 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
 - **API-7:** dört şekil × iki kapsam doğru tenant'a, anlık görüntü alanlarıyla; C hiçbirini görmez; manuel/reddedilmiş yok; `limit` 1001 → 400.
 - **API-7b** *(2026-10-15 — API-7 yapıcısının bulduğu plan boşluğu: ADR 0028 §5 ve §2 madde 18 geçmiş sorgusunu vaat ediyor, görev kartı yoktu)*: `from`/`to` ile `punch_time` aralığı ≤ 31 gün + 1 saat *(API-7b denetimi, 2026-10-15 — yerel takvim ayı, DST dahil: Malta Ekim ayı `+02:00`→`+01:00` 31 gün 1 saattir)* (fazlası, ters ya da bozuk aralık → 400, değer yankılanmaz); kapsam ve tenant süzgeci `scope` ile aynı — iki sorguda açık `tenant_id` + kemer testi + filtresiz RLS sondası; sayfalı, kendi imleciyle. **Garanti bir anlık görüntüye bağlıdır** *(üçüncü göz ORTA-1, 2026-10-15 — `punch_time` beyan edilen andır, 72 sa geriye tarihlenebilir; onaylı flag eski `punch_time`'ıyla günler sonra girer: `(punch_time, seq)` sayfalaması okunmuş bölgeye sonradan düşen olayı atlar, ölçüldü)*: sayaç **S₀** ilk sayfayla **aynı ifadede ya da ondan önce** okunur (`punchfeed.sql`'deki "the order is the proof" emsali — ters sıra, okunmuş bölgeye arada commit edilen `seq ≤ S₀` bir olayı kaçırır; mutant olarak ölçülür); yalnız `seq ≤ S₀` olaylar yanıtlanır; sıra `(punch_time, seq)`; imleç S₀'ı, son okunan konumu (pencereye takılan boş sayfada taranan konumu) **ve** `from`/`to`/`scope`'u bağlar — uyuşmazlık 400; geçmiş imlecinin öneki akış imlecininkinden **ayrıdır** (birine verilen öteki 400 alır, sessizce konum olmaz); güncel sayaçtan büyük S₀ 400 (`ErrCursorAhead` karşılığı); aralık `[from, to)`, `from < to`, `to − from ≤ 31 gün + 1 saat` (`from = to` → 400); atlama/yineleme yokluğu **S₀'a göre** tanımlanır ve sayfalama sürerken geç bir olay (onaylı flag, çevrimdışı kuyruk) eklenerek ölçülür. Sözleşme entegratöre açıkça söyler: geç gelen olaylar yalnız akışta (`cursor`) kesin görünür; aynı aralığı sonra yeniden sorgulamak daha fazla satır döndürebilir. `from`/`to` ile akış imleci `cursor`'ın birlikteliği sözleşmede açık. K-4 listesinin tamamı yok (manuel, practice, reject, ignored, reddedilmiş flag); onaylı flag bir kez. C görmez. **Pencere sınırı:** seyrek kapsamda (rol süzgeci) `punch_time` aralığında sınırsız yürüyüş olmaz — API-7'nin pencere çözümünün karşılığı ölçülür. 1 M olayda sayfa süresi ölçülür (`punch_events_tenant_time_idx`). API-7'nin bugünkü "`from`/`to` → 400" davranışı geriye uyumlu biçimde kalkar.
 - **API-8:** holding'deki iki tenant, C yok, e-posta yok, `active` var (K-1h), sayfalı (≤ 1000); örtüşme penceresi; **`HoldingDirectory_ReturnsPeersNeverTheCaller`** (ADR 0027'den devralındı, API-1b devir notu): eşlerin çalışanları gelir, çağıranın kendi tenant'ınınki asla. *(API-8'de yazıldı, 2026-10-15 — gerçek test adları ve ölçümler ADR 0028 "API-8 uygulama notu"nda; T124'ün üye olmayan yarısı `00055`'te kapandı; üye yarısı **kullanıcı kararıyla (2026-10-15) şimdilik bırakıldı** — eşik tenant sayısı ~1 000, backlog T124'te izlenir; indeks `00056`.)*
-- **API-9:** katalog; tenant başına tek uç nokta; anahtar bir kez; ping/yeniden gönderim kovası; kapalı erişimde ret.
+- **API-9:** katalog; tenant başına tek uç nokta; anahtar bir kez; ping/yeniden gönderim kovası; kapalı erişimde ret. *(API-9'da yazıldı, 2026-10-15 — gerçek test adları, ölçümler ve mutantlar ADR 0028 "Test edilecekler" ve "API-9 uygulama notu"nda; migration yok — tablo `00048`'de; `Egress_*` ve imza vektörü API-10'dan buraya taşındı.)*
 - **API-10:** dört yönlendirme; SSRF ret listesi + iki aşamalı DNS; devre dışı uç noktaya teslim yok; proxy'ye rağmen doğrudan; iki pod tek gönderim; açık işlem yok; kapanış.
 - **API-11:** **(API-3'ten devralınan, 2026-10-15)** sandbox ikilisi panelde ve zincirde `apikey.SandboxPrefix` (`tt_test_`) ile
   kurulur, prod ikilisi `tt_live_` ile — `TestAPIKeyWiring_TheKeysServiceReachesThePanel`'in `LivePrefix` pini derleme etiketine
@@ -615,6 +615,19 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
   `updatedSince` ile baştan alır — hemen baştan almak çare değildir (baştan başlayan yürüyüş de aynı satıra düşünce 400 alır);
   engel saat geri adımı kadar sürer, kayıp yoktur. Askıda açıktır.
   (ADR 0028 "API-8 uygulama notu".)
+  **(API-9'dan, 2026-10-15)** Webhook: işletme başına **tek** uç nokta, sahibin panelinden (API anahtarı ile yönetilmez). **Adres
+  kuralı:** `https://` + DNS adı (IP adresi değil), port yazılmaz (ya da `:443`), kullanıcı adı/parola, sorgu dizgesi (`?`) ve parça
+  (`#`) yok, IDN/`xn--` ve sonda nokta yok; adres panelde küçük harfli tek yazımıyla saklanır. Adres **bağlantı anında** denetlenir:
+  özel, loopback, link-local, ayrılmış ya da Taptime'ın kendi adresine çözülen bir ad ret alır (`blocked_address`) — ad bir kez
+  genel bir adrese çözülse bile; yönlendirme **izlenmez** (3xx bir hatadır), 10 sn içinde cevap gerekir, yanıt gövdesi okunmaz.
+  **İmza:** her istek `X-Taptime-Signature: sha256=<hex>` taşır — gövdenin **ham baytları** üzerinde, uç noktanın imza anahtarının
+  **metniyle** (`tt_whsec_…`, önek dahil) HMAC-SHA256, küçük harf hex; alıcı ham gövde üzerinden yeniden hesaplar ve sabit sürede
+  karşılaştırır (JSON'u yeniden serileştirip imzalamak yanlıştır); zaman damgası başlığı yoktur (K-11). Bilinen-cevap vektörü
+  (anahtar açıkça sahte — önek + 43 `A`): gövde `{"event":"ping"}` → `sha256=1deefe0009103810c89395f2d078e1ba71edb003b3692a3ebca6d0866bf99935`;
+  boş gövde → `sha256=88d05ff68b9d0e7585161401b08cb679fbf1701b3e28f683a3e96e4c33653576`. Anahtar yalnız oluşturma ve döndürmede
+  **bir kez** gösterilir; döndürmeden sonra eski anahtarla imzalı mesaj gelmez — entegrasyon yeni anahtara hemen geçer. **Test
+  ping:** `{"event":"ping","id":"<uuid>","sentAt":"<RFC 3339 UTC>"}`, aynı imzayla; panelden, işletme başına saatte en çok **10**
+  (ping ve API-10'un *"yeniden gönder"*i aynı kovadan). Ping `event` alanıyla ayırt edilir, punch sayılmamalıdır.
 - **API-13:** **(API-8'den, 2026-10-15 — deploy öncesi, kullanıcı kararı)** Prod'daki **tenant sayısı ölçülür**: bir holding
   üyesinin rehber sayfası ve `holding_site_locations` çağrısı her tenant'ı `holding_peer`'den geçirir (T124'ün üye yarısı —
   21 000 tenant'ta ~1 sn, yük altında 5 sn sınırını aşıp 503). Sayı ~1 000'i geçmeden T124 ele alınır (backlog T124'ün eşiği).
@@ -633,6 +646,13 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
   temizlenmiş hâliyle muaf olduğu için kilit değildir; sayı sıfır değilse ilgili işletmelerin sahiplerine söylenir. Spec §7'nin dokuz maddesi (6. madde sözleşme farkı); güvenlik ONAY; KF+KM holding'i kuruldu; holding dışı izolasyon prod'da örneklendi. **(API-4'ten, 2026-10-15 — runbook)** `TAPPA_API_HOST` set edilmeden `api.*` adı ingress'ten pod'a gelirse panelin her
   şeyi yakalayan rotalarına düşer: ingress kuralı env ile **aynı adımda** eklenir (önce değil). Çift noktalı host
   (`api.taptime.mt..`) API host'u sayılmaz, panel olarak yanıtlanır — ingress onu yönlendirmemelidir.
+  **(API-9'dan, 2026-10-15 — deploy öncesi)** `TAPPA_WEBHOOK_KEK` artık `dev` dışında **zorunlu** ve `20-app.yaml` onu isteğe bağlı
+  olmadan alır: değer `tappa-secrets`'a (ya da Infisical `/tappa/`'ya — örnek ExternalSecret onu zorunlu çeker) manifest kümeye
+  ulaşmadan **önce** yazılır, ayrı üretilir ve öteki yedi anahtardan farkı **değer basmadan** ölçülür. `TAPPA_WEBHOOK_BLOCKED_ADDRESSES`
+  (`05-config.yaml`, bugün `144.76.158.60`) `dev` dışında zorunlu: düğümün IPv6 adresi varsa ve kümede başka düğüm ya da yük dengeleyici
+  varsa listeye eklenir. Deploy sonrası ölçüm: panelden `https://taptime.mt/` adresli bir uç nokta kurulup ping atılır → sonuç
+  `blocked_address` olmalıdır (deploy/README.md *"Webhook (M11 API-9)"*). Egress NetworkPolicy yine kapsam dışı (§8): `internal/egress`
+  tek savunmadır.
 
 ---
 
