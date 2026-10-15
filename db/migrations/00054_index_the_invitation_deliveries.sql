@@ -15,11 +15,20 @@
 -- tenant_id leads (CLAUDE.md §6's index shape). Built inside goose's transaction (not CONCURRENTLY):
 -- it takes a SHARE lock on audit_log for the build, so trail writes wait for it -- the table is a
 -- pilot's today; API-13's runbook measures its size before the deploy.
+--
+-- 🔴 lock_timeout 1 s, THE FIRST STATEMENT (API-6 review D-b, measured: behind an open audit_log
+-- transaction the build waited 5.3 s and the next trail write queued behind it failed at 3 s; and
+-- op_remove_holding_member holds the membership row while it waits for audit_log -- the holding tap's
+-- loss class, ADR 0027 §13 item 16). With it the migration is the side that gives up: the migrate Job
+-- fails, nothing is rolled out, and the file is run again at a quiet moment (deploy/README.md, the
+-- lock_timeout rule; the size past which this needs CONCURRENTLY in a migration of its own is there).
 
 -- +goose Up
+SET LOCAL lock_timeout = '1s';
 CREATE INDEX audit_log_invite_delivery_idx
     ON public.audit_log (tenant_id, target, at)
     WHERE action IN ('invite.code_emailed', 'invite.code_shown_to_manager', 'invite.undelivered', 'invite.email_refused');
 
 -- +goose Down
+SET LOCAL lock_timeout = '1s';
 DROP INDEX public.audit_log_invite_delivery_idx;

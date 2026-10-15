@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -101,5 +102,55 @@ func TestAuditLog00054_TheDeliveryIndexIsPartialAndGoesBack(t *testing.T) {
 	opRunSection(t, ctx, tx, up, "00054 Up again")
 	if err := tx.QueryRow(ctx, def).Scan(&got); err != nil || got == "" {
 		t.Fatalf("after the Up the index is missing (%v)", err)
+	}
+}
+
+// TestAuditLog00054_GivesUpAfterASecondBehindAnOpenWrite (API-6 review D-b): 00054's first statement is
+// SET LOCAL lock_timeout = '1s', so behind an open audit_log write -- a trail row whose transaction
+// has not ended -- the index build gives up with 55P03 after about a second instead of queueing the
+// trail's next writes behind its SHARE lock. Measured by running 00054's own Up section (the index
+// renamed, so the existing one does not answer first) while another connection holds an INSERT open.
+//
+// MUTANT (measured): the SET LOCAL removed -> the build waits for the holder (released after 4 s), red.
+func TestAuditLog00054_GivesUpAfterASecondBehindAnOpenWrite(t *testing.T) {
+	d := appDB(t)
+	tenantID, _ := m11Tenant(t, d)
+	ctx, tx := opTx(t)
+	up, _ := opMigrationSections(t, op00054File)
+	up = strings.ReplaceAll(up, "audit_log_invite_delivery_idx", "audit_log_invite_delivery_probe")
+
+	held, release := make(chan struct{}), make(chan struct{})
+	holder := make(chan error, 1)
+	go func() {
+		holder <- d.WithTenant(context.Background(), tenantID, func(ctx context.Context, htx pgx.Tx) error {
+			if _, err := store.New(htx).RecordAuditEvent(ctx, store.RecordAuditEventParams{TenantID: tenantID, Action: "audit.lock_probe", Detail: []byte(`{}`)}); err != nil {
+				return err
+			}
+			close(held)
+			<-release
+			return nil
+		})
+	}()
+	<-held
+	timer := time.AfterFunc(4*time.Second, func() { close(release) })
+	defer func() {
+		if timer.Stop() {
+			close(release)
+		}
+		if err := <-holder; err != nil {
+			t.Error(err)
+		}
+	}()
+	sp, err := tx.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	_, err = sp.Exec(ctx, up)
+	took := time.Since(start)
+	_ = sp.Rollback(ctx)
+	var pg *pgconn.PgError
+	if !errors.As(err, &pg) || pg.Code != "55P03" || took > 3*time.Second {
+		t.Fatalf("00054's Up behind an open audit_log write: %v after %v, want 55P03 within about a second", err, took)
 	}
 }

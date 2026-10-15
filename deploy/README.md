@@ -1046,6 +1046,13 @@ ADR 0027 §13 madde 18): `site_punches` 3 sn `SHARE` kilitliyken site satırın�
 55P03, checkin'in savepoint'li tek yeniden denemesi kaydı yazdı; iki bekleme (> 4 sn) dolarsa kayıt
 kaybolur (`TestHoldingWindow_ProjectionLockHeldThroughBothWaitsIsTheNamedCost`).
 
+**`audit_log` üzerinde indeks — `00054` (M11 API-6):** `audit_log_invite_delivery_idx` goose'un işleminde
+(`CONCURRENTLY` değil) kurulur ve kurulum süresince `audit_log`'u `SHARE` kilitler; ilk ifadesi `SET LOCAL
+lock_timeout = '1s'`. Ölçüm (API-6 denetimi): ~1 M `audit_log` satırında kurulum ≈ 0,8 sn. **Eşik:** prod'da
+`audit_log` ~2,5 M satırı aşıyorsa `00054` bu hâliyle koşulmaz — indeks `CONCURRENTLY` ile, işlemsiz ayrı bir
+migration olarak kurulur (API-13 runbook'u satır sayısını deploy'dan önce ölçer). Gerekçe yukarıdaki kural:
+`op_remove_holding_member` `audit_log`'u beklerken üyelik satırını tutar (ADR 0027 §13 madde 16).
+
 ## Feed role (M11 API-2) — tek seferlik kurulum
 
 **Ne:** migration `00048` (punch akışının tabloları — ADR 0028 §4, §5) bir **küme** rolüne dayanır:
