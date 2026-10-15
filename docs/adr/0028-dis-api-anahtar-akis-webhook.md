@@ -779,8 +779,13 @@ yazılmadı). Ekler: `TestIdempotency_LazyDeleteIsThisTenantsAlone`, `TestApiIde
 `TestWorker_TwoProcessesBothRunTheJob`, `TestWorker_NoTenantWideRead`,
 `TestK19_ARecordedTapNoticesItsTenantsAndARefusalNobody`.
 
-**API-5** — `LocationsPut_OutsiderKeyCannotTouchAnotherTenant` · `LocationsPut_DifferentTimezoneIs422` ·
-`LocationsPut_RepeatOpensNoRow`.
+**API-5** *(yazıldı — "API-5 uygulama notu"; adlar önerilenle aynı, önek eklendi)* —
+`TestLocationsPut_OutsiderKeyCannotTouchAnotherTenant` · `TestLocationsPut_DifferentTimezoneIs422` ·
+`TestLocationsPut_RepeatOpensNoRow`. Ekler: `TestLocationsPut_CreatesUpdatesAndAnswersUnchanged`,
+`TestLocationsPut_APanelBoundVenueIsUpdatedNeverMatchedByName`, `TestLocationsPut_IdempotencyReplay`,
+`TestLocationsPut_AHoldingPeersVenueIsNeitherSeenNorChanged`, `TestLocationsPut_SuspendedAndClosedWriteNothing`,
+`TestLocationsPut_TheBodyAndTheRefContract`, `TestLocationsPut_AVenueWithoutEvidenceRecordsATapAsFlag`,
+`TestLocationsPut_ActiveIsALabelTheTapNeverReads`, `TestAPIWiring_ThePutOfALocationRunsThroughTheShippedSurface`.
 
 **API-6** — `EmployeesPut_ActiveEmailElsewhereIs409` · `EmployeesPut_InactiveToActiveOpensANewRow` ·
 `EmployeesPut_EmailChangeKillsOldInviteInSameTransaction` · `ResendActivation_LoopNeverKillsTheLiveInvite` ·
@@ -1405,3 +1410,68 @@ yol 404, kayıtlı (kimlikli gruptaki) yol 401. `openapi.yaml` herkese açık ol
 (3) `TAPPA_API_HOST` yokken `api.*` adı paneldeki her şeyi yakalayan rotalara düşer; çift noktalı host
 (`api.taptime.mt..`) API host'u sayılmaz, panele gider — API-13'ün runbook adımı (plan §5 API-13).
 
+
+## API-5 uygulama notu (2026-10-15)
+
+Yapıcının uygulaması ve ölçümleri; kararlar değişmedi — sapmalar ve ADR'nin açık bıraktıkları aşağıda adıyla.
+Migration yok (`locations`'ın `external_ref`/`active` sütunları ve `tappa_app`'in tablo düzeyi yetkileri API-1'den).
+Mutantlar atılabilir bir PostgreSQL 17 kabında (`scripts/db-init` ile, `arwd`, goose 52); paylaşılan `tappa-m11-db`'ye
+yalnız testlerin yazdığı satırlar.
+
+**Uç.** `PUT /v1/locations/{ref}` (`internal/handler/api/locations.go`): ref → gövde → yazma (çalıştırıcının işlemi; önce
+`Gate.Admit(WriteLocationPut)`, sonra alan). İş, panelin kendi lokasyon alanının yeni yöntemidir —
+`tenant.Venues.PutVenueTx` (`internal/domain/tenant/venueapi.go`): ad `venueName`'den (panelin kuralı: NUL ve geçersiz
+UTF-8 atılır, kırpılır, 1..80 rün; kesilmez, reddedilir), ref 00037'nin kalıbından **kırpılmadan** (yol parçası). Yeni ref
+→ **201**; var olan ref, ad ya da etiket değişince → **200** + `location.updated`; aynısı → **200**, yazma ve iz satırı yok.
+Yanıt `{id: loc_<uuid>, externalRef, name, timezone, active, createdAt}`; `timezone` işletmeninkidir (K-7). Üretim
+kablolaması `run()`'ın panel `*tenant.Venues`'ini (panelin audit kaydedicisiyle) `openAPISurface`'e verir; AST ile pinli.
+
+**Sapmalar ve ADR'nin açık bıraktıkları — kararıyla (otonom, gerekçeli):**
+1. **Kanıt yazılmaz** (§9, plan §2 madde 10): sorgular yalnız `name`, `external_ref`, `active` adlandırır; API'nin açtığı
+   lokasyon `static_ips = '{}'`, GPS/vardiya/ağ adı NULL doğar. Bu yüzden CLAUDE.md §5'in netx genişlik kuralının bu yolda
+   uygulanacağı bir adres aralığı **yoktur**. Gerçek tap yoluyla ölçüldü: böyle bir lokasyona NFC dokunuşu **yazılır**,
+   `flag`, güven 20 (`base:no-evidence-review`); panel aralık verince sonraki dokunuş `ok` (mutant: oluşturma bir aralık
+   yazınca ilk dokunuş `ok` — kırmızı).
+2. **K-20 ölçüldü:** `active:true`/`false` × kanıtsız/aralıklı dört dokunuş: kararlar ve güven çift çift aynı (flag/20,
+   ok/70). Mutant (`GetLocationForTap`'e `AND active`) kırmızı. Panelin `SaveVenue`'i API'nin etiketini sıfırlamaz.
+3. **Eşzamanlılık:** arama `FOR NO KEY UPDATE`, yeni ref `INSERT … SELECT FROM tenants … ON CONFLICT (tenant_id,
+   external_ref) DO NOTHING`; satır dönmezse (eşzamanlı PUT commit etti) satır kilitlenip güncelleme olarak sürer. Serbest
+   bir PUT seli INSERT'te nadiren buluşuyordu (yeniden denemesiz mutant 3 koşunun 2'sinde yeşil), bu yüzden test buluşmayı
+   **zorlar**: başka bir bağlantıda commit edilmemiş bir satır tutulur, dört PUT'un hepsi `pg_locks`'ta onun
+   `transactionid`'ini beklerken commit (→ 4 × 200, satır 1, iz 0) ya da rollback (→ 1 × 201 + 3 × 200, satır 1, bir
+   `location.created`). Mutantlar: yeniden deneme kaldırılınca 503 (3/3); düz INSERT → benzersizlik kısıtı ikinci satırı
+   reddeder, 503. *Ölçülmeyen:* kısıt da düşürülünce satır sayısı — `DROP CONSTRAINT` ortamın yıkıcı-yol kancasınca
+   atılabilir kapta da engellendi, aşılmadı.
+4. **Gövde sözleşmesi** (ADR bilinmeyen alan politikası koymuyor): `name` ve `active` zorunlu; `timezone` isteğe bağlı,
+   varsa işletmeninkiyle **bayt bayt** eşit (`europe/malta`, `UTC`, sonda boşluk → 422); `externalRef` isteğe bağlı, varsa
+   yoldakine eşit. **Başka her anahtar 422** ve anahtarlar **tam** eşleşir (`encoding/json`'un harf katlaması yok):
+   yanlış yazılmış `"acitve":false` sessizce düşseydi etiket değişmeden 200 dönerdi; bir koordinat ya da adres aralığı
+   kabul edilmiş görünmemeli (API kanıt yazmaz). Ret bilinmeyen anahtarı yankılamaz (`errors.go`'nun kuralı), izinli
+   listeyi verir. Mutant (harf katlamalı eşleme) kırmızı. Bozuk JSON / nesne değil / iki değer → 400 `invalid_request`.
+5. **İki yeni hata kodu** (`errors.go` ve OpenAPI `Error.code` enum'unda, iki yönlü pin): `validation_failed` (422;
+   `details.field` + kapalı `details.reason`: `required`, `type`, `invalid`, `mismatch`, `unknown_field`) ve
+   `timezone_mismatch` (422; `details.businessTimezone` — isteğin değil işletmenin kendi ayarı; kodun "details yalnız
+   sabit" kuralının adlandırılmış tek istisnası). Ref biçimi 422 (`field: ref`) — API-1 notunun "API-5/6 bu biçimleri
+   422 ile söyler"i.
+6. **K-7'nin okuması kilitsiz:** saat dilimi `GetTenantClock` ile işlemin içinde okunur; lokasyonun kendi dilimi
+   olmadığı için eşzamanlı bir dilim değişikliği hiçbir satırı eski dilimde bırakamaz.
+7. **Askı:** `WriteLocationPut` kapalı sınıf; yeni ref, var olan ref ve **değişmeyen** PUT da 403 `tenant_suspended`
+   (kontrol noktası alandan önce); hiçbiri lokasyon, iz ya da Idempotency-Key satırı bırakmaz. Bu dalda askı okuyucusu
+   `NoSuspensionColumn` olduğundan test kendi `Suspension`'ını verir; hücre tablosu yine API-4b'dir. Mutant (açık sınıf)
+   kırmızı.
+8. **Idempotency yanıtı:** defter yalnız durum + lokasyon kimliği tutar (§8); replay lokasyonu **şimdiki hâliyle**
+   döner (araya giren bir yeniden adlandırma replay'de görünür — ölçüldü). Defterdeki lokasyon panelden silinmişse
+   replay 404 `not_found`.
+9. **Audit (K-23):** `location.created` / `location.updated` (panelin eylem adları), `actor_id` = anahtar kimliği,
+   `detail` = `{via: "api", external_ref, [from_name], to_name, [from_active], to_active, lost_proof_of_place}` —
+   amaca özel struct, anahtar/başlık/gövde yok (test anahtarı ve `bearer`'ı arar).
+10. **Kapsam ağı (§4.5 kemeri):** altı `query_test.go` kopyasının `whereClauses`'ı `ON CONFLICT`'te durmuyordu —
+    `CreateLocationFromAPI`'nin WHERE'i "`t.id = @tenant_id ON CONFLICT …`" okunup doğru kapsamlı ifade bayraklanıyordu
+    (ölçüldü). Belirteç altı kopyaya da eklendi (kopyalar anlaşsın). Mutant: aramadan `tenant_id` yüklemi atılınca kemer
+    kırmızı; HTTP izolasyon testleri RLS sayesinde yeşil kalır (kuşak + kemer).
+
+**Uçtan uca (görevin ölçüsü).** `TestAPIWiring_ThePutOfALocationRunsThroughTheShippedSurface` yüzeyi komutun kurduğu gibi
+(`openAPISurface`, gerçek havuz, panelin anahtar servisi ve lokasyon alanı) kurar: panelin verdiği anahtar API host'unda
+kabul, ana host'ta 404; Idempotency-Key ile tek defter satırı (201, `result_ref` = lokasyon) lokasyon ve iz satırıyla aynı
+işlemde; tekrar replay; iz satırı anahtarın; `last_used_at` yazıldı; K-19 tenant'ı gördü. Mutant: iş `Gate.Admit`'i atlayınca
+503, hiçbir şey commit edilmez.
