@@ -808,7 +808,12 @@ dördüncü tur: `TestNameHasHiddenCharacters_JoinersAndTagsOnlyWhereANameUsesTh
 `TestInviteQueue_TheLinkActivatesThroughTheWizardsPath`, `TestWorker_ALaterTenantIsNoticedAgainAndIsNoFailure`,
 `TestAPIWiring_AnEmployeeRunsThroughTheShippedSurfaceAndTheQueue`, `TestApiKeyPanel_TheDeactivationBudgetAlertIsShownToTheOwner`;
 genişleyenler: `TestEmployeeUpdatedAt_OnlyDirectoryColumnsOnEveryUpdatePath` (API'nin ad yazması),
-`TestAPIWiring_TheChainTakesThePanelsPrefixAndTheOneWorker` (çalışan alanı, kuyruk, işçinin başlama sırası).
+`TestAPIWiring_TheChainTakesThePanelsPrefixAndTheOneWorker` (çalışan alanı, kuyruk, işçinin başlama sırası). İkinci tur:
+`TestInviteQueue_ACeilingDelaysAndSpendsNoTry`, `TestInviteQueue_GivingUpRetiresTheUnsentLinkAndSaysUndelivered`,
+`TestAuditLog_TheAppCannotWriteTheTime`, `TestAuditLog00053_DownGivesBackAndUpTakesItAgain`,
+`TestStaffAdd_TheNameRuleIsTheVenueRule`, `TestEmployeeAddDB_AHiddenCharacterIsASentence`,
+`TestPanelHome_TheKeyBudgetBannerIsTheOwnersAlone`, `TestKeyBudgetBanner_AbsentAddsNothing`; genişleyenler:
+`TestDeactivationBudget_ComesFromTheDatabase` (pencerenin iki kenarı), `TestAuditLog_IsAppendOnlyForTheApp` (00053).
 
 **API-7** — `Punches_FourShapesTimesTwoScopes` (anlık görüntü alanlarıyla, doğru tenant'a) ·
 `Punches_OutsiderSeesNone` · `Punches_NoManualNoRejected` · `Punches_Limit1001Is400`.
@@ -1743,3 +1748,69 @@ K-19 işçisinin işi komutun kurduğu gibi kuyruk (`invite.NewQueue` + `EmailIn
 host'unda 201, işçi commit'ten sonra uyanır, şablondan render edilmiş **tek** e-posta satırdaki adrese gider, bağlantısı
 `Lookup` ile çalışanın ilk aktivasyonuna (ev lokasyonu yok — K-14) çözülür; ADR 0026'nın onay + ilk dokunuş yolu
 `TestInviteQueue_TheLinkActivatesThroughTheWizardsPath`'te (`RecordConsent` + `Activate` → `active`). Ana host'ta 404.
+
+**İkinci tur (2026-10-15 — iki mercek RED: aynı ORTA çifti; kırmızı çizgi ihlali yok; iki kullanıcı kararı).**
+
+*O-1 — "gönderildi" teslime bağlandı.* Basım commit edildikten sonra gönderim başarısız olursa davet canlı ama
+gönderilmemiş kalıyordu; vazgeçmede istek siliniyor, davet emekliye ayrılmıyordu — `GET` "sent" diyor, resend etkisiz
+kalıyordu (ölçüldü). Artık "sent" = harcanabilir **ve** teslim satırı olan davet: `invite.code_emailed` (panel modunda
+`invite.code_shown_to_manager`) satırının `detail.invite_id`'si onu adlandırır — `activationEmail` ve resend'in "son 1
+saatte gönderilmiş" kontrolü (`CountRecentSentInvites`) bunu okur. Yeni durum **`undelivered`**: kuyrukta istek yok,
+teslim edilmiş canlı bağlantı yok ve kişinin izdeki **son** teslim denemesi `invite.undelivered` ya da
+`invite.email_refused` (öncelik: `queued` > `sent` > `undelivered` > `none`; OpenAPI güncellendi). Kuyruk vazgeçince
+bastığı ve hiç teslim etmediği daveti **id ile** emekliye ayırır (`RetireUndeliveredInvite` — `cancelled_at`'i yazan ikinci
+ifade; `invites.sql` başlığı güncellendi) ve isteği aynı işlemde siler. *Adlandırılmış:* süresi dolan bir gönderim veriden
+sonra kabul edilmiş olabilir (ADR 0022 sınır 15); vazgeçmede o bağlantı da ölür — owner `undelivered` görür, resend yenisini
+açar. *Owner'ın panel yüzeyi:* çalışan listesi bugün davet durumu göstermiyor (ölçüldü: roster sorgusu `employee_invites`'ı
+okumaz); `undelivered` API'de ve izde (`invite.undelivered` satırları) görünür — panelde göstermek ayrı bir iştir (yeni yüzey,
+§9 dışında ama `tappa-brand`li bir ekran değişikliği).
+Testler: `TestInviteQueue_GivingUpRetiresTheUnsentLinkAndSaysUndelivered` (beş 550 → vazgeçme, bütün bağlantılar ölü,
+`undelivered`; arada `queued`; resend yeni istek açar; teslim edilen gönderimden sonra `sent`; panelin e-postası başarısız
+basışı → `undelivered`, resend etkisiz değil). Mutantlar: vazgeçmedeki emekliye ayırma kaldırılınca gönderilmemiş bağlantı
+canlı; "sent" teslim satırı olmadan okununca panelin başarısız basışı "sent" ve resend etkisiz — ikisi de kırmızı.
+
+*O-2 — tavan deneme hakkı harcamaz.* Talep artık deneme saymaz; yalnız gerçek gönderim hatası sayar (`FailInviteRequest`).
+Kutu tavanı (basım işleminde sorulan ve gönderimde dönen), süreç kesicisi ve 4xx kısıtlama (`mail.ClassRecipientCap`,
+`ClassBreaker`, `ClassThrottled`) isteği 10 dk erteler, sayaç artmaz. Gerçek hatada 1/5/15 dk geri çekilme ve 5 deneme kaldı.
+`TestInviteQueue_ACeilingDelaysAndSpendsNoTry`: altı tavan reddi → 0 deneme (her birinden sonra API `queued`), bir 550 → 1.
+Mutantlar: tavan sınıfları hata sayılınca ve talep yeniden deneme sayınca — ikisi de kırmızı. *Not:* sıkıştırılmış testte
+ADR 0022 §9'un kişi başına saatlik 3 basım tavanı bir sonraki denemeyi geciktirir (o da erteler); test önceki davetleri sahip
+bağlantısıyla iki saat geri alır.
+
+*`audit_log.at` — migration `00053`.* K-25 ile güvenlik yükü taşıyan `at`'i `tappa_app` tablo düzeyi INSERT ile yazabiliyordu
+(iki mercek ölçtü). Ürünün tek INSERT'i (`RecordAuditEvent`) sütunu adlandırmıyor; tanımlayıcıların `at` yazması (`00034`,
+`00039`, `00042`) kendi rollerinin sütun yetkisiyle — dokunulmadı. `tappa_app`'in INSERT'i `(id, tenant_id, actor_id,
+action, target, detail)`'e daraltıldı; son koşul **etkin** yetkiyi okur. `TestAuditLog_TheAppCannotWriteTheTime` (`at`
+adlandıran INSERT 42501; ürünün INSERT'i ve `id` adlandıran yazar), `TestAuditLog00053_DownGivesBackAndUpTakesItAgain`.
+Mutant (00053 geri alınınca) kırmızı. Tarih yazan testler sahip bağlantısına taşındı. `opAtVersion` 53'ü atlar.
+
+*K-25 penceresi.* `TestDeactivationBudget_ComesFromTheDatabase` iki kenarı pinler: 61 dakikalık üç satır yer bırakır, 59
+dakikalık üç satır bütçeyi doldurur. Pencereyi 1 dakikaya indiren mutant artık kırmızı.
+
+*Kullanıcı kararı 1 — panelin çalışan adları.* Panelin ekleme yolu (`Staff.Add`) API-5'in lokasyon kuralını uygular
+(`CleanName` + `NameHasHiddenCharacters` → `ErrNameHiddenCharacter`, lokasyon editörünün cümlesi), sonra `personName`.
+Panelde bir kişinin adını değiştiren yol yok — kayıtlı ad muafiyetinin uygulanacağı bir şey yok (adlandırıldı).
+`TestStaffAdd_TheNameRuleIsTheVenueRule` (sekiz red, dört kabul), `TestEmployeeAddDB_AHiddenCharacterIsASentence`.
+Mutant (kontrol kaldırılınca BEL, ESC ve TAB saklanır) kırmızı. Ölçüldü: `seed.sql`'de kurala takılan ad 0; paylaşılan
+geliştirme veritabanında 30 120 çalışan satırından 25 ad (test fikstürleri; kayıtlı, yeniden yargılanmaz).
+
+*Kullanıcı kararı 2 — ana sayfa bandı.* Panelin ana sayfası (`/admin`) canlı bir owner'a son 24 saatte bütçesini aşan bir
+anahtar varsa küçük bir uyarı (`ToneWarn`, anahtar bölümüne bağlantı) gösterir; okuma handler'da ve alanda
+(`apikey.Keys.BudgetAlerts`) owner'a özel, okunamazsa bant yok. Bant yokken sayfa bayt bayt aynı
+(`TestKeyBudgetBanner_AbsentAddsNothing`); `TestPanelHome_TheKeyBudgetBannerIsTheOwnersAlone`. Mutant: iki owner kontrolü
+birlikte kaldırılınca manager bandı görür (kırmızı); handler'ınki tek başına kaldırılınca alan reddeder (yeşil —
+adlandırıldı). Anahtar bölümündeki "20" artık satırın `detail.budget`'ından okunur.
+
+*Adlandırılan bedeller (DÜŞÜK'ler):*
+- **Kira dolduktan sonra çift gönderim.** Gönderici kirayı (60 sn — gönderim 10 sn, iz 5 sn bütçesiyle) aşacak kadar asılırsa
+  başka bir pod isteği yeniden alıp basar ve gönderir: iki e-posta gider, ama ikinci basım birincinin bağlantısını emekliye
+  ayırdığı için **canlı bağlantı tektir**. Gönderim bağlamı süreyle sınırlı olduğu için bu ancak süreyi dinlemeyen bir
+  taşıyıcıda olur.
+- **Tenant içi kehanet (güvenlik D-2).** 409 `email_unavailable`, 422 `administrator_address` ve K-18 bağlaması, anahtar
+  sahibine **kendi işletmesinde** bir adresin bir çalışana ya da yöneticiye ait olduğunu doğrular. Anahtar zaten o işletmenin
+  çalışanlarını yazan yetkidir; başka tenant'a dair bir şey söylenmez (K-24). Plan §5 API-12 rehber notuna yazıldı.
+- **Anahtar iptali ya da API kapatma kuyruğu temizlemez (güvenlik D-3).** `invite_requests` isteği hangi anahtarın açtığını
+  tutmuyor (beş sütun, §9); ayırt etmek bir migration ve sütun ister. Kuyruğu topluca silmek meşru davetleri de keserdi —
+  seçilmedi. Sızmış bir anahtarın açtığı istekler tavanlar içinde gitmeye devam eder; owner anahtarı iptal edip yeni çalışanları
+  panelden pasifleştirebilir. (Kod okuması, ölçülmedi: işçi `api_enabled_at`'i okumaz, yani API kapatıldıktan sonra da
+  bekleyen davetleri gönderir — §10'un "davet kuyruğu işçisi askıda kod basıp gönderir" kuralıyla aynı yön.)
