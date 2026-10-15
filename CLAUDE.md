@@ -85,7 +85,8 @@ internal/handler/api/ /v1 yüzeyi (M11 API-4), ayrı host `TAPPA_API_HOST` — i
                       64 KiB sınırı, askı kontrol noktası, openapi.yaml. Müşteri paneli import
                       etmez, o da paneli import etmez (ADR 0028 §13).
 internal/webhook/     K-19'un süreç içi "işi olan tenant'lar" kümesi ve işçi iskeleti (M11 API-4)
-                      — tenant'lar arası tarama YOK; teslim, kira ve imza API-10/13'te (ADR 0028 §6).
+                      — tenant'lar arası tarama YOK; uç nokta ve mühürlü imza anahtarı API-9'da,
+                      teslim (kira, geri çekilme, `sha256=` imzası) API-10'da (ADR 0028 §6).
   — aşağıdakiler HENÜZ YOK, M11'de doğacak (ADR 0027/0028) —
 internal/egress/      SSRF-güvenli giden HTTP istemcisi: dial anında izin listesi, Proxy nil,
                       yönlendirme yok. Egress açıkken tek savunma (ADR 0028 §7).

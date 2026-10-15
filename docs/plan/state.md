@@ -1692,6 +1692,16 @@ yazılır.
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 
+### 2026-10-15 (29. oturum, kırk birinci yarı) — ✅ **API-4 DONE** (ilk turda iki mercek ONAY; son DÜŞÜK turu) · 📌 **DEVAM: API-5**
+
+**Yeniden başlatmadan sonra:** `docker start tappa-m11-db` (goose **52**). Brief'ler: `~/.claude/projects/-Users-everva-Documents-GitHub-atknatk-tappa/m11-briefs/`.
+
+**API-4** (`4cc0ed8` … `9ba2c24`): 00052 `api_idempotency` (RLS beşlisi; talep aynı işlemde, gövde saklanmaz, farklı gövde 422, süpürme ayrı kısa işlemde — kilitlenme ölçüldü ve giderildi); `internal/handler/api` (`TAPPA_API_HOST` isteğe bağlı, iki yönlü host kapısı; zincir Bearer → biçim [DB'siz 401] → IP kovası → çözümleyici → anahtar kovası → `Touch`; `Authorization` zincirden sonra silinir; JSON hata 9 kod; 64 KiB; `/v1` `guard` panik/süre aşımında 503 JSON; askı kontrol noktası okuma hatasında kapalı; `openapi.yaml` embed); `internal/webhook` K-19 iskeleti (dokunuş + `/v1` isteği tenant'ı kümeye ekler).
+- **Askı:** `NoSuspensionColumn` bugün doğru (OP-15 yok); **tel testi** `TestAPIWiring_TheSuspensionReaderFollowsTheColumn` `tenants.suspended_at` görününce kırmızı → API-4b o zaman kapanır (plan §5).
+- **Plan §5'e yazılan devirler:** API-12 rehberi — Idempotency `request_hash` bayt düzeyinde; API-13 — `TAPPA_API_HOST` + ingress kuralı **aynı adımda**, çift noktalı host yönlendirilmez.
+
+**🔴 DEVAM PLANI:** **API-5** (`PUT /v1/locations/{ref}`) — brief `m11-briefs/brief-api5-builder.md` → iki mercek → API-6 → … (API-4b OP-15'i bekler). Kullanıcıda bekleyenler: otuz dördüncü yarıdakiler + `site_punches` saklama süresi (DPA) + T125.
+
 ### 2026-10-15 (29. oturum, kırkıncı yarı) — ✅ **API-3 DONE** (ilk turda iki mercek ONAY; son DÜŞÜK turu) · 📌 **DEVAM: API-4**
 
 **Yeniden başlatmadan sonra:** `docker start tappa-m11-db` (goose **51**). Brief'ler ve `m11env.sh`: `~/.claude/projects/-Users-everva-Documents-GitHub-atknatk-tappa/m11-briefs/`.
