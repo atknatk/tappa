@@ -83,7 +83,8 @@ internal/apikey/      dış API anahtarı (M11 API-3): üretim, biçim kontrolü
 internal/handler/api/ /v1 yüzeyi (M11 API-4), ayrı host `TAPPA_API_HOST` — isteğe bağlı, yoksa
                       `/v1` her host'ta 404: iki yönlü host kapısı, kimlik zinciri, JSON hata,
                       64 KiB sınırı, askı kontrol noktası, openapi.yaml. Müşteri paneli import
-                      etmez, o da paneli import etmez (ADR 0028 §13).
+                      etmez, o da paneli import etmez (ADR 0028 §13). Uçların işi panelin domain'inden
+                      geçer (ör. `PUT /v1/locations` → `tenant.Venues`); API kanıt (IP/GPS) yazmaz.
 internal/webhook/     K-19'un süreç içi "işi olan tenant'lar" kümesi ve işçi iskeleti (M11 API-4)
                       — tenant'lar arası tarama YOK; uç nokta ve mühürlü imza anahtarı API-9'da,
                       teslim (kira, geri çekilme, `sha256=` imzası) API-10'da (ADR 0028 §6).
@@ -267,6 +268,9 @@ onu tek-tenant'taki anlamıyla uygular (kullanıcı kararı K-1i, 2026-10-14).
   satırı yazmaz**; sonraki dokunuş sıradan check-in'dir. Yeni kayıt `practice=true`
   olmaz; tarihsel practice satırları saate sayılmaz ve yön zincirine girmez (ADR 0008).
 - **Manuel kayıt:** `channel='manual'` + `entered_by` dolu; raporlarda ayrı görünür.
+- **API'nin açtığı lokasyon** (`PUT /v1/locations`, M11) kanıtsız doğar: panelden IP/GPS tanımlanana
+  kadar dokunuşları satır 7'ye (`flag`) düşer, kayıt yine yazılır. Lokasyonun `active` etiketi karar
+  motoruna girmez (K-20).
 
 Bu tablodaki her satırın — ve yukarıdaki iki holding kuralının — adı `TestDecide_...` ile
 başlayan bir test durumu olmalı.
