@@ -473,12 +473,12 @@ components:
           properties:
             status:
               type: string
-              enum: [queued, sent, none]
-              description: "queued: waiting to be sent; sent: a link was sent and still works; none: neither."
+              enum: [queued, sent, undelivered, none]
+              description: "queued: waiting to be sent (also while a failed send is retried); sent: a link was delivered and still works; undelivered: the last attempt did not reach the employee and nothing is queued -- resend-activation asks again; none: none of those."
             at:
               type: ["string", "null"]
               format: date-time
-              description: When it was queued or sent; null for none.
+              description: When it was queued, sent, or last failed; null for none.
         createdAt:
           type: string
           format: date-time

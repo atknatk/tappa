@@ -16,6 +16,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -27,6 +28,7 @@ import (
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/domain/tenant"
+	"github.com/atknatk/tappa/internal/mail"
 	"github.com/atknatk/tappa/internal/webhook"
 )
 
@@ -432,8 +434,10 @@ func TestInviteQueue_OnlyAnInvitedPersonIsSent(t *testing.T) {
 // and mints for the NEW address: the old link is dead (ErrCodeCancelled), the new one live.
 //
 // MUTANTS (measured; ADR 0028 "API-6 uygulama notu"): the change's second retirement removed ->
-// the old link survives; its lock taken FOR NO KEY UPDATE -> the old link survives; the re-queue
-// as ON CONFLICT DO NOTHING -> the worker settles the request and the new address never gets one.
+// the old link survives (red); the re-queue as ON CONFLICT DO NOTHING -> the worker settles the
+// request and the new address never gets one (red). The change's lock taken FOR NO KEY UPDATE, or
+// the worker's FOR SHARE removed, is each GREEN on its own -- either lock alone makes the change
+// wait for the mint -- and the two removed together are red (the change never waits).
 func TestEmployeesPut_EmailChangeKillsOldInviteInSameTransaction(t *testing.T) {
 	r := newQueueRig(t)
 	ref := apiRefFor("RACE")
@@ -551,5 +555,184 @@ func TestInviteQueue_TheLinkActivatesThroughTheWizardsPath(t *testing.T) {
 	})
 	if !errors.Is(err, tenant.ErrAlreadyActivated) {
 		t.Fatalf("resend after the activation: %v, want ErrAlreadyActivated", err)
+	}
+}
+
+// failSends makes the fake relay answer every send with err.
+func (r *queueRig) failSends(err error) {
+	r.sink.mu.Lock()
+	r.sink.err = err
+	r.sink.mu.Unlock()
+}
+
+// due makes the employee's waiting request due now (a deferral or a back-off has passed) and moves
+// the person's earlier invitations two hours back, as the real wait would -- so ADR 0022 §9's
+// per-person hourly limit (three mints) does not delay the next try in a test that compresses the
+// waits. created_at is not the application's to write; the owner's connection does it.
+func (r *queueRig) due(employee uuid.UUID) {
+	r.t.Helper()
+	dsn := os.Getenv("DATABASE_MIGRATE_URL")
+	if dsn == "" {
+		r.t.Skip("DATABASE_MIGRATE_URL is required to age the invitations")
+	}
+	owner, err := pgx.Connect(context.Background(), dsn)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	defer func() { _ = owner.Close(context.Background()) }()
+	if _, err := owner.Exec(context.Background(), `UPDATE employee_invites SET created_at = created_at - interval '2 hours' WHERE tenant_id = $1 AND employee_id = $2`, r.tenant, employee); err != nil {
+		r.t.Fatal(err)
+	}
+	if err := r.d.WithTenant(context.Background(), r.tenant, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx, `UPDATE invite_requests SET lease_until = clock_timestamp() - interval '1 second' WHERE tenant_id = $1 AND employee_id = $2`, r.tenant, employee)
+		return e
+	}); err != nil {
+		r.t.Fatal(err)
+	}
+}
+
+func (r *queueRig) attempts(employee uuid.UUID) int {
+	return r.count(`SELECT coalesce(max(attempts), -1) FROM invite_requests WHERE tenant_id = $1 AND employee_id = $2`, r.tenant, employee)
+}
+
+func (r *queueRig) apiState(employee uuid.UUID) tenant.InvitationState {
+	r.t.Helper()
+	e, err := r.staff.APIEmployeeByID(context.Background(), r.tenant, employee)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	return e.Invitation
+}
+
+// TestInviteQueue_ACeilingDelaysAndSpendsNoTry (ADR 0022 §9, plan §2 item 11: "tavan isteği
+// reddettirmez, gönderimi geciktirir"; API-6 review O-2): six refusals by a ceiling -- the
+// per-mailbox cap asked in the minting transaction, the cap and the process breaker answering the
+// send, a throttling 451 -- leave the request waiting with ZERO tries spent; one real failure (a
+// 550) then counts ONE. A ceiling never gives up on anybody.
+//
+// MUTANTS (measured): a ceiling's refusal counted as a failed send -> tries spent, red; the claim
+// counting a try again -> red.
+func TestInviteQueue_ACeilingDelaysAndSpendsNoTry(t *testing.T) {
+	r := newQueueRig(t)
+	p := r.hire(addr("ceil"))
+	r.sink.mu.Lock()
+	r.sink.capped = true
+	r.sink.mu.Unlock()
+	if err := r.q.RunFor(context.Background(), r.tenant); !settled(err) {
+		t.Fatal(err)
+	}
+	r.sink.mu.Lock()
+	r.sink.capped = false
+	r.sink.mu.Unlock()
+	if r.attempts(p) != 0 || len(r.sink.calls()) != 0 {
+		t.Fatalf("the cap asked before the mint: %d tries, %d sends; want 0, 0", r.attempts(p), len(r.sink.calls()))
+	}
+	for _, class := range []mail.Class{mail.ClassRecipientCap, mail.ClassBreaker, mail.ClassThrottled, mail.ClassBreaker, mail.ClassRecipientCap} {
+		r.due(p)
+		r.failSends(&mail.SendError{Class: class, SMTPCode: 451})
+		if err := r.q.RunFor(context.Background(), r.tenant); !settled(err) {
+			t.Fatalf("%s: %v", class, err)
+		}
+		if r.attempts(p) != 0 {
+			t.Fatalf("a %s refusal spent a try (%d); a ceiling delays and never counts", class, r.attempts(p))
+		}
+		if r.apiState(p) != tenant.InvitationQueued {
+			t.Fatalf("after a %s refusal the API says %q, want queued", class, r.apiState(p))
+		}
+	}
+	r.due(p)
+	r.failSends(&mail.SendError{Class: mail.ClassRejected, SMTPCode: 550})
+	_ = r.q.RunFor(context.Background(), r.tenant)
+	if r.attempts(p) != 1 {
+		t.Fatalf("one real failure after six ceilings: %d tries, want 1", r.attempts(p))
+	}
+}
+
+// TestInviteQueue_GivingUpRetiresTheUnsentLinkAndSaysUndelivered (ADR 0028 §9: "son 1 saatte
+// GÖNDERİLMİŞ canlı davet"; API-6 review O-1): five real failures make the queue give up -- the
+// request leaves the queue, every link it minted is dead (the last one RETIRED, not left live and
+// unsent), and the API answers activationEmail "undelivered"; while it still retried it answered
+// "queued", never "sent". A resend then queues a new request (it is not silenced by an unsent link),
+// and a successful send turns the answer "sent". The panel's own press whose e-mail failed leaves a
+// live but undelivered link: the API says "undelivered", not "sent", and a resend is not a no-op.
+//
+// MUTANTS (measured): the give-up's retirement removed -> a live unsent link survives, red;
+// "sent" read off a live invitation without its delivery row -> the panel's failed press reads
+// "sent" and the resend is a no-op, red.
+func TestInviteQueue_GivingUpRetiresTheUnsentLinkAndSaysUndelivered(t *testing.T) {
+	r := newQueueRig(t)
+	ref := apiRefFor("GIVE")
+	p := r.put(ref, addr("give")).Employee.ID
+	r.failSends(&mail.SendError{Class: mail.ClassRejected, SMTPCode: 550})
+	for i := 1; i <= queueMaxAttempts; i++ {
+		r.due(p)
+		_ = r.q.RunFor(context.Background(), r.tenant)
+		if i < queueMaxAttempts && (r.attempts(p) != i || r.apiState(p) != tenant.InvitationQueued) {
+			t.Fatalf("after failure %d: %d tries, the API says %q; want %d and queued", i, r.attempts(p), r.apiState(p), i)
+		}
+	}
+	if r.queued(p) != 0 {
+		t.Fatal("the queue did not give up after its last try")
+	}
+	for _, d := range r.sink.calls() {
+		if _, err := r.m.Lookup(context.Background(), codeOf(t, d)); err == nil {
+			t.Fatal("a link the queue minted and never delivered is still spendable after it gave up")
+		}
+	}
+	if got := r.apiState(p); got != tenant.InvitationUndelivered {
+		t.Fatalf("after giving up the API says %q, want undelivered", got)
+	}
+	resend := func() tenant.EmployeePutResult {
+		t.Helper()
+		var out tenant.EmployeePutResult
+		if err := r.d.WithTenant(context.Background(), r.tenant, func(ctx context.Context, tx pgx.Tx) error {
+			var err error
+			out, err = r.staff.ResendActivationTx(ctx, tx, tenant.EmployeeResend{TenantID: r.tenant, ActorID: r.key, Via: "api", ExternalRef: ref})
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	if res := resend(); !res.Queued || res.Employee.Invitation != tenant.InvitationQueued {
+		t.Fatalf("a resend after the queue gave up: %+v, want a new request", res.Employee.Invitation)
+	}
+	r.failSends(nil)
+	if err := r.q.RunFor(context.Background(), r.tenant); !settled(err) {
+		t.Fatal(err)
+	}
+	if got := r.apiState(p); got != tenant.InvitationSent {
+		t.Fatalf("after a delivered send the API says %q, want sent", got)
+	}
+
+	// The panel's press whose e-mail failed: a live, never-delivered link.
+	ref2 := apiRefFor("PANEL")
+	q := r.put(ref2, addr("panel")).Employee.ID
+	if err := r.d.WithTenant(context.Background(), r.tenant, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx, `DELETE FROM invite_requests WHERE tenant_id = $1 AND employee_id = $2`, r.tenant, q)
+		return e
+	}); err != nil {
+		t.Fatal(err)
+	}
+	failing := &fakeMailSink{err: &mail.SendError{Class: mail.ClassRejected, SMTPCode: 550}}
+	if _, err := r.m.IssueAndDeliver(context.Background(), IssueParams{TenantID: r.tenant, EmployeeID: q}, mailRoute(t, r.d, failing)); err == nil {
+		t.Fatal("the failing press reported success")
+	}
+	if r.count(`SELECT count(*) FROM employee_invites WHERE tenant_id = $1 AND employee_id = $2 AND used_at IS NULL AND cancelled_at IS NULL AND now() < expires_at`, r.tenant, q) != 1 {
+		t.Fatal("setup: the failed press should leave one live invitation")
+	}
+	if got := r.apiState(q); got != tenant.InvitationUndelivered {
+		t.Fatalf("a live but undelivered link: the API says %q, want undelivered", got)
+	}
+	var res tenant.EmployeePutResult
+	if err := r.d.WithTenant(context.Background(), r.tenant, func(ctx context.Context, tx pgx.Tx) error {
+		var err error
+		res, err = r.staff.ResendActivationTx(ctx, tx, tenant.EmployeeResend{TenantID: r.tenant, ActorID: r.key, Via: "api", ExternalRef: ref2})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !res.Queued {
+		t.Fatal("a resend beside a live but undelivered link was a no-op; only a SENT link silences it")
 	}
 }

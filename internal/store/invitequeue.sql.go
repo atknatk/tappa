@@ -14,8 +14,7 @@ import (
 
 const claimInviteRequest = `-- name: ClaimInviteRequest :one
 UPDATE invite_requests r
-SET lease_until = clock_timestamp() + interval '60 seconds',
-    attempts    = r.attempts + 1
+SET lease_until = clock_timestamp() + interval '60 seconds'
 WHERE r.tenant_id = $1
   AND r.employee_id = (
       SELECT q.employee_id
@@ -34,7 +33,9 @@ type ClaimInviteRequestRow struct {
 	Attempts   int32
 }
 
-// The worker's lease: the OLDEST due request of the tenant, taken for 60 seconds. SKIP LOCKED:
+// The worker's lease: the OLDEST due request of the tenant, taken for 60 seconds. attempts is NOT
+// counted here: a claim is not a try -- a limit or a refused mailbox cap delays a request without
+// spending it (ADR 0022 §9, plan §2 item 11); only a failed send counts (FailInviteRequest). SKIP LOCKED:
 // a second pod claiming at the same moment skips this row and takes another or none -- the two
 // never hold one request together. The lease is clock_timestamp()-based (not the transaction's
 // start), so it is the instant this statement ran; the worker keeps the returned value and
@@ -46,30 +47,37 @@ func (q *Queries) ClaimInviteRequest(ctx context.Context, tenantID uuid.UUID) (C
 	return i, err
 }
 
-const countRecentLiveInvites = `-- name: CountRecentLiveInvites :one
-SELECT count(*)::int AS live
-FROM employee_invites
-WHERE tenant_id = $1
-  AND employee_id = $2
-  AND used_at IS NULL
-  AND cancelled_at IS NULL
-  AND now() < expires_at
-  AND created_at > now() - interval '1 hour'
+const countRecentSentInvites = `-- name: CountRecentSentInvites :one
+SELECT count(*)::int AS sent
+FROM employee_invites i
+WHERE i.tenant_id = $1
+  AND i.employee_id = $2
+  AND i.used_at IS NULL
+  AND i.cancelled_at IS NULL
+  AND now() < i.expires_at
+  AND i.created_at > now() - interval '1 hour'
+  AND EXISTS (SELECT 1
+                FROM audit_log a
+               WHERE a.tenant_id = $1
+                 AND a.target = ($2::uuid)::text
+                 AND a.action IN ('invite.code_emailed', 'invite.code_shown_to_manager')
+                 AND a.detail->>'invite_id' = i.id::text)
 `
 
-type CountRecentLiveInvitesParams struct {
+type CountRecentSentInvitesParams struct {
 	TenantID   uuid.UUID
 	EmployeeID uuid.UUID
 }
 
-// resend-activation's second no-op (ADR 0028 §9): an invitation minted in the last hour that can
-// still be spent -- not used, not retired, not expired. "Sent" is read off the row the worker
-// (or the panel) minted; created_at is the database's clock.
-func (q *Queries) CountRecentLiveInvites(ctx context.Context, arg CountRecentLiveInvitesParams) (int32, error) {
-	row := q.db.QueryRow(ctx, countRecentLiveInvites, arg.TenantID, arg.EmployeeID)
-	var live int32
-	err := row.Scan(&live)
-	return live, err
+// resend-activation's second no-op (ADR 0028 §9: "son 1 saatte GÖNDERİLMİŞ canlı davet"): an
+// invitation minted in the last hour that can still be spent AND was delivered -- its
+// invite.code_emailed row (or, in the panel mode, invite.code_shown_to_manager) names it. A minted
+// invitation whose send failed is not sent, so it does not silence a resend.
+func (q *Queries) CountRecentSentInvites(ctx context.Context, arg CountRecentSentInvitesParams) (int32, error) {
+	row := q.db.QueryRow(ctx, countRecentSentInvites, arg.TenantID, arg.EmployeeID)
+	var sent int32
+	err := row.Scan(&sent)
+	return sent, err
 }
 
 const deferInviteRequest = `-- name: DeferInviteRequest :one
@@ -166,6 +174,39 @@ func (q *Queries) EnqueueInviteRequest(ctx context.Context, arg EnqueueInviteReq
 	var employee_id uuid.UUID
 	err := row.Scan(&employee_id)
 	return employee_id, err
+}
+
+const failInviteRequest = `-- name: FailInviteRequest :one
+UPDATE invite_requests
+SET lease_until = $1,
+    attempts    = attempts + 1
+WHERE tenant_id = $2
+  AND employee_id = $3
+  AND lease_until = $4
+RETURNING attempts
+`
+
+type FailInviteRequestParams struct {
+	Due        *time.Time
+	TenantID   uuid.UUID
+	EmployeeID uuid.UUID
+	LeaseUntil *time.Time
+}
+
+// A SEND FAILED (a relay refusal, a broken connection, a timeout -- not a limit, the breaker or the
+// mailbox cap, which DeferInviteRequest delays without counting): the request stays, due again at
+// @due, and its tries go up by one. The caller gives up at its maximum. Only under this worker's
+// lease; no row: the lease was lost.
+func (q *Queries) FailInviteRequest(ctx context.Context, arg FailInviteRequestParams) (int32, error) {
+	row := q.db.QueryRow(ctx, failInviteRequest,
+		arg.Due,
+		arg.TenantID,
+		arg.EmployeeID,
+		arg.LeaseUntil,
+	)
+	var attempts int32
+	err := row.Scan(&attempts)
+	return attempts, err
 }
 
 const finishInviteRequest = `-- name: FinishInviteRequest :one

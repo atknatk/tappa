@@ -204,25 +204,27 @@ var storeSurface = map[string]string{
 	// M11 API-6: the API's employee (employees.sql), K-25's budget and the owner's alert (audit.sql)
 	// and the invitation queue (invitequeue.sql). No address is returned (has_email / same_email are
 	// booleans computed in SQL), no code and no hash; ids, names, instants and counts.
+	"CountRecentSentInvites":         "(context.Context, CountRecentSentInvitesParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (int32, error)",
+	"FailInviteRequest":              "(context.Context, FailInviteRequestParams{Due *time.Time; TenantID uuid.UUID; EmployeeID uuid.UUID; LeaseUntil *time.Time}) (int32, error)",
+	"RetireUndeliveredInvite":        "(context.Context, RetireUndeliveredInviteParams{TenantID uuid.UUID; ID uuid.UUID; EmployeeID uuid.UUID}) (int64, error)",
 	"NextInviteRequestDue":           "(context.Context, uuid.UUID) (*time.Time, error)",
 	"ClaimInviteRequest":             "(context.Context, uuid.UUID) (ClaimInviteRequestRow{EmployeeID uuid.UUID; LeaseUntil *time.Time; Attempts int32}, error)",
 	"CountAPIBudgetAlerts":           "(context.Context, CountAPIBudgetAlertsParams{TenantID uuid.UUID; KeyID string}) (int32, error)",
 	"CountAPIDeactivations":          "(context.Context, CountAPIDeactivationsParams{TenantID uuid.UUID; KeyID uuid.UUID}) (CountAPIDeactivationsRow{Deactivations int32; Oldest time.Time}, error)",
-	"CountRecentLiveInvites":         "(context.Context, CountRecentLiveInvitesParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (int32, error)",
 	"CreateEmployeeFromAPI":          "(context.Context, CreateEmployeeFromAPIParams{ExternalRef *string; EmployeeCode *string; FirstName *string; LastName *string; FullName string; Email *string; TenantID uuid.UUID}) (CreateEmployeeFromAPIRow{ID uuid.UUID; ExternalRef *string; EmployeeCode *string; FirstName *string; LastName *string; FullName string; Status string; HasEmail bool}, error)",
 	"DeferInviteRequest":             "(context.Context, DeferInviteRequestParams{Due *time.Time; TenantID uuid.UUID; EmployeeID uuid.UUID; LeaseUntil *time.Time}) (*time.Time, error)",
 	"DeleteInviteRequest":            "(context.Context, DeleteInviteRequestParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (error)",
 	"EnqueueInviteRequest":           "(context.Context, EnqueueInviteRequestParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (uuid.UUID, error)",
 	"FindLinkableEmployeeByEmail":    "(context.Context, FindLinkableEmployeeByEmailParams{Email string; TenantID uuid.UUID}) (FindLinkableEmployeeByEmailRow{ID uuid.UUID; SameEmail bool}, error)",
 	"FinishInviteRequest":            "(context.Context, FinishInviteRequestParams{TenantID uuid.UUID; EmployeeID uuid.UUID; LeaseUntil *time.Time}) (uuid.UUID, error)",
-	"GetAPIEmployee":                 "(context.Context, GetAPIEmployeeParams{TenantID uuid.UUID; ID uuid.UUID}) (GetAPIEmployeeRow{ID uuid.UUID; ExternalRef *string; EmployeeCode *string; FirstName *string; LastName *string; FullName string; Status string; HasEmail bool; ActivatedAt *time.Time; CreatedAt time.Time; UpdatedAt time.Time; QueuedAt *time.Time; HasLiveInvite bool; LiveInviteAt time.Time}, error)",
+	"GetAPIEmployee":                 "(context.Context, GetAPIEmployeeParams{TenantID uuid.UUID; ID uuid.UUID}) (GetAPIEmployeeRow{ID uuid.UUID; ExternalRef *string; EmployeeCode *string; FirstName *string; LastName *string; FullName string; Status string; HasEmail bool; ActivatedAt *time.Time; CreatedAt time.Time; UpdatedAt time.Time; QueuedAt *time.Time; HasLiveInvite bool; LiveInviteAt time.Time; LastUndelivered bool; LastAttemptAt time.Time}, error)",
 	"GetEmployeeInviteStatus":        "(context.Context, GetEmployeeInviteStatusParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (string, error)",
 	"GetInviteRequest":               "(context.Context, GetInviteRequestParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (time.Time, error)",
 	"GetLatestEmployeeByExternalRef": "(context.Context, GetLatestEmployeeByExternalRefParams{TenantID uuid.UUID; ExternalRef *string}) (uuid.UUID, error)",
 	"GetLiveEmployeeByExternalRef":   "(context.Context, GetLiveEmployeeByExternalRefParams{Email *string; TenantID uuid.UUID; ExternalRef *string}) (GetLiveEmployeeByExternalRefRow{ID uuid.UUID; Status string; SameEmail bool}, error)",
 	"IsAdministratorAddress":         "(context.Context, IsAdministratorAddressParams{TenantID uuid.UUID; Email string}) (bool, error)",
 	"ListAPIBudgetAlerts":            "(context.Context, ListAPIBudgetAlertsParams{TenantID uuid.UUID; WindowSeconds int32}) ([]ListAPIBudgetAlertsRow{At time.Time; Target *string; KeyName string}, error)",
-	"ListAPIEmployees":               "(context.Context, ListAPIEmployeesParams{TenantID uuid.UUID; After *uuid.UUID; PageSize int32}) ([]ListAPIEmployeesRow{ID uuid.UUID; ExternalRef *string; EmployeeCode *string; FirstName *string; LastName *string; FullName string; Status string; HasEmail bool; ActivatedAt *time.Time; CreatedAt time.Time; UpdatedAt time.Time; QueuedAt *time.Time; HasLiveInvite bool; LiveInviteAt time.Time}, error)",
+	"ListAPIEmployees":               "(context.Context, ListAPIEmployeesParams{TenantID uuid.UUID; After *uuid.UUID; PageSize int32}) ([]ListAPIEmployeesRow{ID uuid.UUID; ExternalRef *string; EmployeeCode *string; FirstName *string; LastName *string; FullName string; Status string; HasEmail bool; ActivatedAt *time.Time; CreatedAt time.Time; UpdatedAt time.Time; QueuedAt *time.Time; HasLiveInvite bool; LiveInviteAt time.Time; LastUndelivered bool; LastAttemptAt time.Time}, error)",
 	"LockAPIDeactivationBudget":      "(context.Context, LockAPIDeactivationBudgetParams{KeyID uuid.UUID; TenantID uuid.UUID}) (LockAPIDeactivationBudgetRow{ID uuid.UUID; Unlocked bool}, error)",
 	"LockEmployeeForAPI":             "(context.Context, LockEmployeeForAPIParams{Email *string; TenantID uuid.UUID; ID uuid.UUID}) (LockEmployeeForAPIRow{ID uuid.UUID; ExternalRef *string; EmployeeCode *string; FirstName *string; LastName *string; FullName string; Status string; HasEmail bool; SameEmail bool; ActivatedAt *time.Time}, error)",
 	"LockEmployeeForQueuedInvite":    "(context.Context, LockEmployeeForQueuedInviteParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (string, error)",
@@ -957,14 +959,18 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// calls a definer.
 	// 183 -> 184 on 2026-10-15 (M11 API-6, the worker): invitequeue.sql's NextInviteRequestDue,
 	// when the tenant's next deferred request is due; it calls no definer.
-	if named != 184 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; ONE HUNDRED AND EIGHTY-FOUR were "+
+	// 184 -> 186 on 2026-10-15 (M11 API-6, second round): invitequeue.sql's FailInviteRequest
+	// (a failed send counts a try; a ceiling does not) and invites.sql's RetireUndeliveredInvite
+	// (the queue gives up on a link it never delivered); CountRecentLiveInvites became
+	// CountRecentSentInvites. None calls a definer.
+	if named != 186 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; ONE HUNDRED AND EIGHTY-SIX were "+
 			"there when this was pinned (2026-10-15: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
 			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+
 			"+ EM-7B's three invitation e-mail queries, + EM-7C's two recovery queries, "+
 			"+ the activation tap's two consent queries, + WL-13's two activation brand queries, "+
-			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-five employee, budget and queue queries). "+
+			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {

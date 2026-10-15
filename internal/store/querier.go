@@ -179,7 +179,9 @@ type Querier interface {
 	// committed one, or one a concurrent transaction committed while this statement waited on the
 	// primary key (the wait is the concurrency control, ADR 0028 §8).
 	ClaimIdempotency(ctx context.Context, arg ClaimIdempotencyParams) (int64, error)
-	// The worker's lease: the OLDEST due request of the tenant, taken for 60 seconds. SKIP LOCKED:
+	// The worker's lease: the OLDEST due request of the tenant, taken for 60 seconds. attempts is NOT
+	// counted here: a claim is not a try -- a limit or a refused mailbox cap delays a request without
+	// spending it (ADR 0022 §9, plan §2 item 11); only a failed send counts (FailInviteRequest). SKIP LOCKED:
 	// a second pod claiming at the same moment skips this row and takes another or none -- the two
 	// never hold one request together. The lease is clock_timestamp()-based (not the transaction's
 	// start), so it is the instant this statement ran; the worker keeps the returned value and
@@ -308,8 +310,9 @@ type Querier interface {
 	// is why the derivation is not optional.
 	// (✅ CANCELLATION EXISTS SINCE 2026-08-08 AND IT DID NOT REUSE used_at, exactly as
 	// this paragraph demanded: migration 00012 added cancelled_at plus its own
-	// column-level GRANT, and CancelPendingInvitesForEmployee below is the only
-	// statement that writes it. Every query that decides whether a code may be spent now
+	// column-level GRANT, and two statements write it: CancelPendingInvitesForEmployee
+	// below, and RetireUndeliveredInvite (M11 API-6: the queue gives up on one it never
+	// sent). Every query that decides whether a code may be spent now
 	// eliminates the two facts SEPARATELY -- `used_at IS NULL AND cancelled_at IS NULL`.
 	// Cancelling an invite from the panel -- which legitimately knows only the id --
 	// is a DIFFERENT operation and must NOT reuse used_at: that stamp means "the code
@@ -833,10 +836,11 @@ type Querier interface {
 	// TENANT SCOPE (section 4.5, belt + braces): explicit predicate on top of RLS. The
 	// index employee_invites_tenant_idx (tenant_id, employee_id) serves the predicate.
 	CountRecentInvites(ctx context.Context, arg CountRecentInvitesParams) (CountRecentInvitesRow, error)
-	// resend-activation's second no-op (ADR 0028 §9): an invitation minted in the last hour that can
-	// still be spent -- not used, not retired, not expired. "Sent" is read off the row the worker
-	// (or the panel) minted; created_at is the database's clock.
-	CountRecentLiveInvites(ctx context.Context, arg CountRecentLiveInvitesParams) (int32, error)
+	// resend-activation's second no-op (ADR 0028 §9: "son 1 saatte GÖNDERİLMİŞ canlı davet"): an
+	// invitation minted in the last hour that can still be spent AND was delivered -- its
+	// invite.code_emailed row (or, in the panel mode, invite.code_shown_to_manager) names it. A minted
+	// invitation whose send failed is not sent, so it does not silence a resend.
+	CountRecentSentInvites(ctx context.Context, arg CountRecentSentInvitesParams) (int32, error)
 	// HOW MANY PLAQUES THIS BUSINESS HAS, AND HOW MANY OF THEM A TAP CAN ACTUALLY USE.
 	//
 	// IT EXISTS FOR ONE SENTENCE ON ONE SCREEN (M7-03 phase B): the panel's landing
@@ -1746,6 +1750,11 @@ type Querier interface {
 	// updated_by are written; created_at and updated_at take their defaults and every
 	// brand field stays NULL until step 3.
 	EnsureTenantBrand(ctx context.Context, arg EnsureTenantBrandParams) error
+	// A SEND FAILED (a relay refusal, a broken connection, a timeout -- not a limit, the breaker or the
+	// mailbox cap, which DeferInviteRequest delays without counting): the request stays, due again at
+	// @due, and its tries go up by one. The caller gives up at its maximum. Only under this worker's
+	// lease; no row: the lease was lost.
+	FailInviteRequest(ctx context.Context, arg FailInviteRequestParams) (int32, error)
 	// K-18's first binding: a live employee of THIS business with no ref yet whose address is the
 	// one the PUT carries (citext -- the column's own equality, which is also the unique index's).
 	// At most one live row holds an address (employees_tenant_email_key), so at most one row.
@@ -1778,12 +1787,17 @@ type Querier interface {
 	// disagree with the one the invoice is built from.
 	FirstChargeableMonthShift(ctx context.Context, arg FirstChargeableMonthShiftParams) (FirstChargeableMonthShiftRow, error)
 	// One employee as the API answers with it (ADR 0028 §8, §9): NO ADDRESS -- whether there is one
-	// (has_email), and the activation e-mail's state: a request waiting in the queue
-	// (invite_requests, K-17) and the newest invitation that can still be spent (not used, not
-	// retired, not expired -- ListPendingInvitesForEmployee's three conditions). No code and no
-	// hash: employee_invites is read for created_at alone. Both are LEFT JOINs: queued_at NULL is no
-	// request; has_live_invite false is no live invitation (live_invite_at is then a placeholder --
-	// sqlc cannot see a derived table's LEFT JOIN as nullable, so the flag carries the absence).
+	// (has_email), and the activation e-mail's state, from three LEFT JOINs:
+	//   r    a request waiting in the queue (invite_requests, K-17) -- queued_at NULL is none;
+	//   li   the newest invitation that can still be spent (not used, not retired, not expired --
+	//        ListPendingInvitesForEmployee's three conditions) AND WAS DELIVERED: its
+	//        invite.code_emailed row (or, in the panel mode, invite.code_shown_to_manager) names it by
+	//        detail.invite_id. A minted invitation whose send failed is NOT "sent" (API-6 review O-1);
+	//   la   the person's LAST delivery attempt in the trail -- emailed, shown, undelivered or refused;
+	//        last_undelivered says the last one did not reach anybody.
+	// No code and no hash: employee_invites is read for id and created_at alone, audit_log for the
+	// action, the time and the invitation's id. The has_* flags carry the absences (sqlc cannot see a
+	// derived table's LEFT JOIN as nullable; the coalesced times are then placeholders).
 	GetAPIEmployee(ctx context.Context, arg GetAPIEmployeeParams) (GetAPIEmployeeRow, error)
 	// After a revocation matched no row: is the key unknown in this tenant (no row) or revoked
 	// already (a timestamp)? Read in the same transaction, for the panel's sentence only.
@@ -4974,6 +4988,15 @@ type Querier interface {
 	// handles as "no such plaque". Handler-boundary validation is still owed (section
 	// 7); this makes forgetting it non-catastrophic instead of silent.
 	RetireTagForReplacement(ctx context.Context, arg RetireTagForReplacementParams) (RetireTagForReplacementRow, error)
+	// Retires ONE invitation the invitation queue minted and gave up sending (M11 API-6, K-17,
+	// internal/invite queue.go): every try failed, so the link was never delivered and must not stay
+	// spendable -- a live, unsent link is neither "sent" nor safe to leave standing. By id, so a newer
+	// invitation (a panel press, another run) is never touched; the same one-way discipline as
+	// CancelPendingInvitesForEmployee (cancelled_at NULL -> now(), never back; a spent or already
+	// retired one is left alone). It writes cancelled_at only.
+	//
+	// TENANT SCOPE (section 4.5, belt + braces): explicit predicate on top of RLS.
+	RetireUndeliveredInvite(ctx context.Context, arg RetireUndeliveredInviteParams) (int64, error)
 	// 🔴 THE STAMP IS clock_timestamp(), NOT now() (API-3 second round, D2 -- measured with two psql
 	// sessions). now() is the TRANSACTION's start: "revoke all" begun at T0, a key created and
 	// committed after T0, then the UPDATE reaching that key wrote revoked_at = T0 < created_at, the

@@ -174,8 +174,9 @@ type ConsumeInviteAndActivateRow struct {
 // is why the derivation is not optional.
 // (✅ CANCELLATION EXISTS SINCE 2026-08-08 AND IT DID NOT REUSE used_at, exactly as
 // this paragraph demanded: migration 00012 added cancelled_at plus its own
-// column-level GRANT, and CancelPendingInvitesForEmployee below is the only
-// statement that writes it. Every query that decides whether a code may be spent now
+// column-level GRANT, and two statements write it: CancelPendingInvitesForEmployee
+// below, and RetireUndeliveredInvite (M11 API-6: the queue gives up on one it never
+// sent). Every query that decides whether a code may be spent now
 // eliminates the two facts SEPARATELY -- `used_at IS NULL AND cancelled_at IS NULL`.
 // Cancelling an invite from the panel -- which legitimately knows only the id --
 // is a DIFFERENT operation and must NOT reuse used_at: that stamp means "the code
@@ -708,4 +709,36 @@ func (q *Queries) RecordInviteConsent(ctx context.Context, arg RecordInviteConse
 	var i RecordInviteConsentRow
 	err := row.Scan(&i.ID, &i.ConsentedAt)
 	return i, err
+}
+
+const retireUndeliveredInvite = `-- name: RetireUndeliveredInvite :execrows
+UPDATE employee_invites
+SET cancelled_at = now()
+WHERE tenant_id = $1
+  AND id = $2
+  AND employee_id = $3
+  AND used_at IS NULL
+  AND cancelled_at IS NULL
+`
+
+type RetireUndeliveredInviteParams struct {
+	TenantID   uuid.UUID
+	ID         uuid.UUID
+	EmployeeID uuid.UUID
+}
+
+// Retires ONE invitation the invitation queue minted and gave up sending (M11 API-6, K-17,
+// internal/invite queue.go): every try failed, so the link was never delivered and must not stay
+// spendable -- a live, unsent link is neither "sent" nor safe to leave standing. By id, so a newer
+// invitation (a panel press, another run) is never touched; the same one-way discipline as
+// CancelPendingInvitesForEmployee (cancelled_at NULL -> now(), never back; a spent or already
+// retired one is left alone). It writes cancelled_at only.
+//
+// TENANT SCOPE (section 4.5, belt + braces): explicit predicate on top of RLS.
+func (q *Queries) RetireUndeliveredInvite(ctx context.Context, arg RetireUndeliveredInviteParams) (int64, error) {
+	result, err := q.db.Exec(ctx, retireUndeliveredInvite, arg.TenantID, arg.ID, arg.EmployeeID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

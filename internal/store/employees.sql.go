@@ -335,12 +335,18 @@ SELECT e.id, e.external_ref, e.employee_code, e.first_name, e.last_name, e.full_
        e.activated_at, e.created_at, e.updated_at,
        r.requested_at AS queued_at,
        (li.employee_id IS NOT NULL)::boolean AS has_live_invite,
-       coalesce(li.created_at, e.created_at)::timestamptz AS live_invite_at
+       coalesce(li.created_at, e.created_at)::timestamptz AS live_invite_at,
+       coalesce(la.action IN ('invite.undelivered', 'invite.email_refused'), false)::boolean AS last_undelivered,
+       coalesce(la.at, e.created_at)::timestamptz AS last_attempt_at
 FROM employees e
 LEFT JOIN invite_requests r ON r.tenant_id = $1 AND r.employee_id = e.id
 LEFT JOIN (
     SELECT i.employee_id, max(i.created_at)::timestamptz AS created_at
     FROM employee_invites i
+    JOIN audit_log d ON d.tenant_id = $1
+                    AND d.target = i.employee_id::text
+                    AND d.action IN ('invite.code_emailed', 'invite.code_shown_to_manager')
+                    AND d.detail->>'invite_id' = i.id::text
     WHERE i.tenant_id = $1
       AND i.employee_id = $2
       AND i.used_at IS NULL
@@ -348,6 +354,14 @@ LEFT JOIN (
       AND now() < i.expires_at
     GROUP BY i.employee_id
 ) li ON li.employee_id = e.id
+LEFT JOIN (
+    SELECT DISTINCT ON (la_a.target) la_a.target, la_a.action, la_a.at
+    FROM audit_log la_a
+    WHERE la_a.tenant_id = $1
+  AND la_a.target = ($2::uuid)::text
+      AND la_a.action IN ('invite.code_emailed', 'invite.code_shown_to_manager', 'invite.undelivered', 'invite.email_refused')
+    ORDER BY la_a.target, la_a.at DESC, la_a.id DESC
+) la ON la.target = e.id::text
 WHERE e.tenant_id = $1
   AND e.id = $2
 `
@@ -358,29 +372,38 @@ type GetAPIEmployeeParams struct {
 }
 
 type GetAPIEmployeeRow struct {
-	ID            uuid.UUID
-	ExternalRef   *string
-	EmployeeCode  *string
-	FirstName     *string
-	LastName      *string
-	FullName      string
-	Status        string
-	HasEmail      bool
-	ActivatedAt   *time.Time
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-	QueuedAt      *time.Time
-	HasLiveInvite bool
-	LiveInviteAt  time.Time
+	ID              uuid.UUID
+	ExternalRef     *string
+	EmployeeCode    *string
+	FirstName       *string
+	LastName        *string
+	FullName        string
+	Status          string
+	HasEmail        bool
+	ActivatedAt     *time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	QueuedAt        *time.Time
+	HasLiveInvite   bool
+	LiveInviteAt    time.Time
+	LastUndelivered bool
+	LastAttemptAt   time.Time
 }
 
 // One employee as the API answers with it (ADR 0028 §8, §9): NO ADDRESS -- whether there is one
-// (has_email), and the activation e-mail's state: a request waiting in the queue
-// (invite_requests, K-17) and the newest invitation that can still be spent (not used, not
-// retired, not expired -- ListPendingInvitesForEmployee's three conditions). No code and no
-// hash: employee_invites is read for created_at alone. Both are LEFT JOINs: queued_at NULL is no
-// request; has_live_invite false is no live invitation (live_invite_at is then a placeholder --
-// sqlc cannot see a derived table's LEFT JOIN as nullable, so the flag carries the absence).
+// (has_email), and the activation e-mail's state, from three LEFT JOINs:
+//
+//	r    a request waiting in the queue (invite_requests, K-17) -- queued_at NULL is none;
+//	li   the newest invitation that can still be spent (not used, not retired, not expired --
+//	     ListPendingInvitesForEmployee's three conditions) AND WAS DELIVERED: its
+//	     invite.code_emailed row (or, in the panel mode, invite.code_shown_to_manager) names it by
+//	     detail.invite_id. A minted invitation whose send failed is NOT "sent" (API-6 review O-1);
+//	la   the person's LAST delivery attempt in the trail -- emailed, shown, undelivered or refused;
+//	     last_undelivered says the last one did not reach anybody.
+//
+// No code and no hash: employee_invites is read for id and created_at alone, audit_log for the
+// action, the time and the invitation's id. The has_* flags carry the absences (sqlc cannot see a
+// derived table's LEFT JOIN as nullable; the coalesced times are then placeholders).
 func (q *Queries) GetAPIEmployee(ctx context.Context, arg GetAPIEmployeeParams) (GetAPIEmployeeRow, error) {
 	row := q.db.QueryRow(ctx, getAPIEmployee, arg.TenantID, arg.ID)
 	var i GetAPIEmployeeRow
@@ -399,6 +422,8 @@ func (q *Queries) GetAPIEmployee(ctx context.Context, arg GetAPIEmployeeParams) 
 		&i.QueuedAt,
 		&i.HasLiveInvite,
 		&i.LiveInviteAt,
+		&i.LastUndelivered,
+		&i.LastAttemptAt,
 	)
 	return i, err
 }
@@ -959,18 +984,31 @@ SELECT e.id, e.external_ref, e.employee_code, e.first_name, e.last_name, e.full_
        e.activated_at, e.created_at, e.updated_at,
        r.requested_at AS queued_at,
        (li.employee_id IS NOT NULL)::boolean AS has_live_invite,
-       coalesce(li.created_at, e.created_at)::timestamptz AS live_invite_at
+       coalesce(li.created_at, e.created_at)::timestamptz AS live_invite_at,
+       coalesce(la.action IN ('invite.undelivered', 'invite.email_refused'), false)::boolean AS last_undelivered,
+       coalesce(la.at, e.created_at)::timestamptz AS last_attempt_at
 FROM employees e
 LEFT JOIN invite_requests r ON r.tenant_id = $1 AND r.employee_id = e.id
 LEFT JOIN (
     SELECT i.employee_id, max(i.created_at)::timestamptz AS created_at
     FROM employee_invites i
+    JOIN audit_log d ON d.tenant_id = $1
+                    AND d.target = i.employee_id::text
+                    AND d.action IN ('invite.code_emailed', 'invite.code_shown_to_manager')
+                    AND d.detail->>'invite_id' = i.id::text
     WHERE i.tenant_id = $1
       AND i.used_at IS NULL
       AND i.cancelled_at IS NULL
       AND now() < i.expires_at
     GROUP BY i.employee_id
 ) li ON li.employee_id = e.id
+LEFT JOIN (
+    SELECT DISTINCT ON (la_a.target) la_a.target, la_a.action, la_a.at
+    FROM audit_log la_a
+    WHERE la_a.tenant_id = $1
+      AND la_a.action IN ('invite.code_emailed', 'invite.code_shown_to_manager', 'invite.undelivered', 'invite.email_refused')
+    ORDER BY la_a.target, la_a.at DESC, la_a.id DESC
+) la ON la.target = e.id::text
 WHERE e.tenant_id = $1
   AND ($2::uuid IS NULL OR e.id > $2::uuid)
 ORDER BY e.id
@@ -984,20 +1022,22 @@ type ListAPIEmployeesParams struct {
 }
 
 type ListAPIEmployeesRow struct {
-	ID            uuid.UUID
-	ExternalRef   *string
-	EmployeeCode  *string
-	FirstName     *string
-	LastName      *string
-	FullName      string
-	Status        string
-	HasEmail      bool
-	ActivatedAt   *time.Time
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-	QueuedAt      *time.Time
-	HasLiveInvite bool
-	LiveInviteAt  time.Time
+	ID              uuid.UUID
+	ExternalRef     *string
+	EmployeeCode    *string
+	FirstName       *string
+	LastName        *string
+	FullName        string
+	Status          string
+	HasEmail        bool
+	ActivatedAt     *time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	QueuedAt        *time.Time
+	HasLiveInvite   bool
+	LiveInviteAt    time.Time
+	LastUndelivered bool
+	LastAttemptAt   time.Time
 }
 
 // A page of this business's employees, live and deactivated, panel-made (no ref) and API-made,
@@ -1027,6 +1067,8 @@ func (q *Queries) ListAPIEmployees(ctx context.Context, arg ListAPIEmployeesPara
 			&i.QueuedAt,
 			&i.HasLiveInvite,
 			&i.LiveInviteAt,
+			&i.LastUndelivered,
+			&i.LastAttemptAt,
 		); err != nil {
 			return nil, err
 		}

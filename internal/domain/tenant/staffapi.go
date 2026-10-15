@@ -206,10 +206,14 @@ type InvitationState string
 const (
 	// InvitationQueued: a request waits in the queue (it is minted and sent at send time).
 	InvitationQueued InvitationState = "queued"
-	// InvitationSent: an invitation that can still be spent exists -- minted by the queue (or
-	// shown on the panel in its panel mode).
+	// InvitationSent: an invitation that can still be spent exists AND was delivered -- the trail
+	// holds its invite.code_emailed row (or invite.code_shown_to_manager in the panel mode).
 	InvitationSent InvitationState = "sent"
-	// InvitationNone: neither -- never asked, spent, expired, or retired.
+	// InvitationUndelivered: no request waits and no delivered link is live, and the person's
+	// LAST delivery attempt did not reach them (invite.undelivered or invite.email_refused): the
+	// queue gave up, or a press was refused. A resend asks again (API-6 review O-1).
+	InvitationUndelivered InvitationState = "undelivered"
+	// InvitationNone: none of those -- never asked, spent, expired, or retired.
 	InvitationNone InvitationState = "none"
 )
 
@@ -228,8 +232,8 @@ type APIEmployee struct {
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 	Invitation   InvitationState
-	// InvitationAt is when the request was queued (queued) or the invitation minted (sent); nil
-	// for none.
+	// InvitationAt is when the request was queued (queued), the delivered invitation minted (sent)
+	// or the last attempt failed (undelivered); nil for none.
 	InvitationAt *time.Time
 }
 
@@ -858,7 +862,7 @@ func (s *Staff) ResendActivationTx(ctx context.Context, tx pgx.Tx, c EmployeeRes
 	case emp.Invitation == InvitationQueued:
 		return EmployeePutResult{Employee: emp}, nil
 	}
-	recent, err := q.CountRecentLiveInvites(ctx, store.CountRecentLiveInvitesParams{TenantID: c.TenantID, EmployeeID: live.ID})
+	recent, err := q.CountRecentSentInvites(ctx, store.CountRecentSentInvitesParams{TenantID: c.TenantID, EmployeeID: live.ID})
 	if err != nil {
 		return EmployeePutResult{}, fmt.Errorf("tenant: resend: recent invitations: %w", err)
 	}
@@ -953,6 +957,9 @@ func apiEmployeeOf(r store.ListAPIEmployeesRow) APIEmployee {
 	case r.HasLiveInvite:
 		at := r.LiveInviteAt
 		e.Invitation, e.InvitationAt = InvitationSent, &at
+	case r.LastUndelivered:
+		at := r.LastAttemptAt
+		e.Invitation, e.InvitationAt = InvitationUndelivered, &at
 	}
 	return e
 }

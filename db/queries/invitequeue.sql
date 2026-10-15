@@ -60,28 +60,36 @@ FROM invite_requests
 WHERE tenant_id = @tenant_id
   AND employee_id = @employee_id;
 
--- name: CountRecentLiveInvites :one
--- resend-activation's second no-op (ADR 0028 §9): an invitation minted in the last hour that can
--- still be spent -- not used, not retired, not expired. "Sent" is read off the row the worker
--- (or the panel) minted; created_at is the database's clock.
-SELECT count(*)::int AS live
-FROM employee_invites
-WHERE tenant_id = @tenant_id
-  AND employee_id = @employee_id
-  AND used_at IS NULL
-  AND cancelled_at IS NULL
-  AND now() < expires_at
-  AND created_at > now() - interval '1 hour';
+-- name: CountRecentSentInvites :one
+-- resend-activation's second no-op (ADR 0028 §9: "son 1 saatte GÖNDERİLMİŞ canlı davet"): an
+-- invitation minted in the last hour that can still be spent AND was delivered -- its
+-- invite.code_emailed row (or, in the panel mode, invite.code_shown_to_manager) names it. A minted
+-- invitation whose send failed is not sent, so it does not silence a resend.
+SELECT count(*)::int AS sent
+FROM employee_invites i
+WHERE i.tenant_id = @tenant_id
+  AND i.employee_id = @employee_id
+  AND i.used_at IS NULL
+  AND i.cancelled_at IS NULL
+  AND now() < i.expires_at
+  AND i.created_at > now() - interval '1 hour'
+  AND EXISTS (SELECT 1
+                FROM audit_log a
+               WHERE a.tenant_id = @tenant_id
+                 AND a.target = (@employee_id::uuid)::text
+                 AND a.action IN ('invite.code_emailed', 'invite.code_shown_to_manager')
+                 AND a.detail->>'invite_id' = i.id::text);
 
 -- name: ClaimInviteRequest :one
--- The worker's lease: the OLDEST due request of the tenant, taken for 60 seconds. SKIP LOCKED:
+-- The worker's lease: the OLDEST due request of the tenant, taken for 60 seconds. attempts is NOT
+-- counted here: a claim is not a try -- a limit or a refused mailbox cap delays a request without
+-- spending it (ADR 0022 §9, plan §2 item 11); only a failed send counts (FailInviteRequest). SKIP LOCKED:
 -- a second pod claiming at the same moment skips this row and takes another or none -- the two
 -- never hold one request together. The lease is clock_timestamp()-based (not the transaction's
 -- start), so it is the instant this statement ran; the worker keeps the returned value and
 -- matches it at every later step.
 UPDATE invite_requests r
-SET lease_until = clock_timestamp() + interval '60 seconds',
-    attempts    = r.attempts + 1
+SET lease_until = clock_timestamp() + interval '60 seconds'
 WHERE r.tenant_id = @tenant_id
   AND r.employee_id = (
       SELECT q.employee_id
@@ -158,3 +166,16 @@ WHERE tenant_id = @tenant_id
   AND lease_until IS NOT NULL
 ORDER BY lease_until
 LIMIT 1;
+
+-- name: FailInviteRequest :one
+-- A SEND FAILED (a relay refusal, a broken connection, a timeout -- not a limit, the breaker or the
+-- mailbox cap, which DeferInviteRequest delays without counting): the request stays, due again at
+-- @due, and its tries go up by one. The caller gives up at its maximum. Only under this worker's
+-- lease; no row: the lease was lost.
+UPDATE invite_requests
+SET lease_until = @due,
+    attempts    = attempts + 1
+WHERE tenant_id = @tenant_id
+  AND employee_id = @employee_id
+  AND lease_until = @lease_until
+RETURNING attempts;
