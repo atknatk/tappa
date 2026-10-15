@@ -101,6 +101,9 @@ func TestBillingQueries_CarryAnExplicitTenantPredicate(t *testing.T) {
 				"so either it was renamed or this scan cannot see it", name)
 			continue
 		}
+		for _, f := range insertSelectWrites(body) {
+			t.Errorf("%s (%s) %s", name, file, f)
+		}
 		// A subquery that reads a tenant table must have a WHERE AT ALL, checked
 		// before the predicate check because a block with no WHERE is invisible to it.
 		for _, sub := range unscopedSubqueries(t, body) {

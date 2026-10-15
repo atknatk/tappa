@@ -658,8 +658,10 @@ func whereClauses(body string) []string {
 	// and checked against the INSERT's target (splitDoUpdate, doUpdateFindings) -- an
 	// earlier version of this sentence said whereRE "still finds" it, which was true and
 	// beside the point: it was then checked against a subject read off "DO UPDATE SET"
-	// (API-5 review). The other five copies have no INSERT arm at all (their packages'
-	// calls are reads and plain writes); that is their limit, not this rule's.
+	// (API-5 review). The five other copies carry a self-contained INSERT ... SELECT arm
+	// (their queryinsert_test.go; second round -- the first said they had none to need, and
+	// adminauth, signup and review do call INSERT ... SELECT); they have no DO UPDATE arm, and
+	// none of their calls has a DO UPDATE.
 	stopRE := regexp.MustCompile(`(?is)\b(ORDER\s+BY|GROUP\s+BY|LIMIT|HAVING|RETURNING|FOR\s+NO\s+KEY\s+UPDATE|FOR\s+UPDATE|FOR\s+SHARE|ON\s+CONFLICT)\b`)
 	for _, loc := range whereRE.FindAllStringIndex(body, -1) {
 		rest := body[loc[1]:]
@@ -848,7 +850,7 @@ func insertFindings(body string, scoped map[string]bool) (findings []string, che
 // text after its cast and `AS name` are removed; an expression that merely EVALUATES to the right
 // value (a CASE, a COALESCE) is refused rather than understood. RLS's WITH CHECK stays the last
 // belt for the value itself.
-var insertSelectRE = regexp.MustCompile(`(?is)\bINSERT\s+INTO\s+(?:public\.)?([a-z_][a-z0-9_]*)(?:\s+AS\s+[a-z_][a-z0-9_]*)?\s*\(([^)]*)\)\s*SELECT\b`)
+var insertSelectRE = regexp.MustCompile(`(?is)\bINSERT\s+INTO\s+(?:public\.)?([a-z_][a-z0-9_]*)(?:\s+AS\s+[a-z_][a-z0-9_]*)?\s*(\(([^)]*)\))?\s*(\(\s*)?SELECT\b`)
 
 var (
 	castRE    = regexp.MustCompile(`::\s*[a-zA-Z_][a-zA-Z0-9_]*`)
@@ -867,7 +869,15 @@ func insertSelectFindings(body string, scoped map[string]bool) (findings []strin
 			continue
 		}
 		checked++
-		cols := splitTopLevel(body[loc[4]:loc[5]])
+		// Second round (API-5 review): a statement with NO column list, and a parenthesised
+		// `(SELECT ...)`, were invisible to this arm. The first is refused (which value lands in
+		// tenant_id cannot be read off it); the second is read like a bare SELECT.
+		if loc[4] < 0 {
+			findings = append(findings, fmt.Sprintf("has an INSERT ... SELECT into %s with no column list; which "+
+				"value lands in its %s cannot be read off it", table, "tenant_id"))
+			continue
+		}
+		cols := splitTopLevel(body[loc[6]:loc[7]])
 		rest := body[loc[1]:]
 		// The select list ends at the first FROM outside parentheses.
 		end := -1
@@ -948,10 +958,21 @@ func doUpdateFindings(block, upd string, scoped map[string]bool) (findings []str
 	if m[2] == "" {
 		subj.alias = strings.ToLower(m[1])
 	}
+	// The SET list must not move the row to another tenant (second round, API-5 review: `DO UPDATE
+	// SET tenant_id = @other WHERE loc.tenant_id = @tenant_id` had zero findings). Any assignment of
+	// the scope column is refused -- a conflict on a tenant's row never needs to rewrite its tenant.
+	set := upd
+	if w := regexp.MustCompile(`(?is)\bWHERE\b`).FindStringIndex(set); w != nil {
+		set = set[:w[0]]
+	}
+	if regexp.MustCompile(`(?is)(?:^|[\s,.])` + regexp.QuoteMeta(subj.column) + `\s*=`).MatchString(set) {
+		findings = append(findings, fmt.Sprintf("has an ON CONFLICT ... DO UPDATE that assigns %s: the "+
+			"conflicting row would be moved to whatever tenant the statement names", subj.column))
+	}
 	clauses := whereClauses(upd)
 	if len(clauses) == 0 {
-		return []string{fmt.Sprintf("has an ON CONFLICT ... DO UPDATE of %s with no WHERE, so the conflicting row "+
-			"is rewritten with nothing in the statement scoping it", subj.table)}, 1
+		return append(findings, fmt.Sprintf("has an ON CONFLICT ... DO UPDATE of %s with no WHERE, so the conflicting row "+
+			"is rewritten with nothing in the statement scoping it", subj.table)), 1
 	}
 	for _, where := range clauses {
 		if !scopedBySubject(where, subj) {
@@ -1463,7 +1484,9 @@ func storeQueryNames(t *testing.T, declared map[string]bool) []string {
 //	ON CONFLICT DO      subjectOf read `DO UPDATE SET name ...` as an UPDATE of a table called
 //	UPDATE              "set", so a correctly scoped DO UPDATE ... WHERE was flagged (a false alarm)
 //
-// Both must fire on the wrong form and stay silent on the right one.
+// Both must fire on the wrong form and stay silent on the right one. Second round (API-5 review):
+// a parenthesised SELECT, a statement with no column list and a DO UPDATE that SETs tenant_id were
+// still invisible; each is a probe now.
 func TestInsertSelectAndDoUpdate_TheBeltReadsThem(t *testing.T) {
 	scoped := map[string]bool{"locations": true, "policies": true, "tenants": true}
 	for name, sql := range map[string]string{
@@ -1489,6 +1512,17 @@ func TestInsertSelectAndDoUpdate_TheBeltReadsThem(t *testing.T) {
 			SELECT @name
 			FROM tenants t
 			WHERE t.id = @tenant_id;`,
+		"a parenthesised SELECT writing another parameter": `
+			INSERT INTO locations (tenant_id, name)
+			(SELECT @other::uuid, @name FROM tenants t WHERE t.id = @tenant_id);`,
+		"an insert-select with no column list": `
+			INSERT INTO locations
+			SELECT t.id, @name FROM tenants t WHERE t.id = @tenant_id;`,
+		"a DO UPDATE that moves the row to another tenant": `
+			INSERT INTO locations AS loc (tenant_id, name, external_ref)
+			SELECT t.id, @name, @external_ref FROM tenants t WHERE t.id = @tenant_id
+			ON CONFLICT (tenant_id, external_ref) DO UPDATE SET tenant_id = @other, name = EXCLUDED.name
+			WHERE loc.tenant_id = @tenant_id;`,
 		"a DO UPDATE whose WHERE scopes nothing": `
 			INSERT INTO policies (tenant_id, name) VALUES (@tenant_id, @name)
 			ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name

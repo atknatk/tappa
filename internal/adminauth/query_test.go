@@ -82,6 +82,9 @@ func TestAdminAuthQueries_CarryAnExplicitTenantPredicate(t *testing.T) {
 			if !ok {
 				t.Fatalf("%s is declared somewhere but its body could not be read back", name)
 			}
+			for _, f := range insertSelectWrites(body) {
+				t.Errorf("%s (%s) %s", name, file, f)
+			}
 			clauses := whereClauses(body)
 			if len(clauses) == 0 {
 				t.Fatalf("%s (%s) has no WHERE clause at all: there is nothing for the §4.5 "+

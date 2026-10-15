@@ -79,6 +79,9 @@ func TestReviewQueries_CarryAnExplicitTenantPredicate(t *testing.T) {
 			t.Errorf("no query named %q anywhere in db/queries -- this package calls it", name)
 			continue
 		}
+		for _, f := range insertSelectWrites(body) {
+			t.Errorf("%s (%s) %s", name, file, f)
+		}
 		clauses := whereClauses(body)
 		if len(clauses) == 0 {
 			t.Errorf("%s (%s) has no WHERE clause at all, so it is scoped by RLS alone.\n"+

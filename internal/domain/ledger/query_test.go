@@ -144,6 +144,9 @@ func TestPanelQueries_CarryAnExplicitTenantPredicate(t *testing.T) {
 				"either it was renamed or this scan cannot see it", name)
 			continue
 		}
+		for _, f := range insertSelectWrites(body) {
+			t.Errorf("%s (%s) %s", name, file, f)
+		}
 		// 🔴 A SUBQUERY THAT READS A TENANT TABLE MUST HAVE A WHERE AT ALL, checked
 		// BEFORE the predicate check below because a block with no WHERE was invisible
 		// to it. See unscopedSubqueries.
