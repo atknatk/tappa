@@ -363,6 +363,115 @@ func TestEmployeeDirectory_TheWalksAsOfIsItsFirstPages(t *testing.T) {
 	t.Errorf("the rename committed after the walk passed it (written %v; the walk's asOf %v) is not in the next walk", wrote, first.AsOf)
 }
 
+// TestEmployeeDirectory_APositionPastAsOfIsTheWalksOwn: the position's upper bound is the database's
+// clock, NOT the cursor's asOf (ErrDirectoryCursor's comment) -- a row changed during the walk is
+// handed out again after asOf, so the cursor that follows it carries a position past asOf, and that
+// cursor is the walk's own. Built step by step (the API-8 low round, D-a -- the auditor's probe): KM's
+// walk reads its first page (one entry); two of KM's own people and two of its peer KF's are renamed
+// and committed, own and peer in turn (so a position past asOf falls on both sources); the walk reads
+// on, one entry a page, to its end. Every page answers (the HTTP end: 200), at least one of them after
+// a position past asOf, and the reader's view (overwritten by id) is then exactly the owner's KF and
+// KM staff, every field -- nobody missed, every rename in.
+//
+// MUTANT (measured, the API-8 low round): the bound read against the cursor's asOf
+// (q.After.At.After(q.AsOf)) -- the page after the first renamed person is ErrDirectoryCursor, red.
+func TestEmployeeDirectory_APositionPastAsOfIsTheWalksOwn(t *testing.T) {
+	f := newSiteFixture(t)
+	dir, err := NewEmployeeDirectory(f.data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir.bound = time.Minute // a member's page costs the peer set; the bound is TestAPIRead_EveryReadCarriesTheBound's
+	born := func(tenantID uuid.UUID) uuid.UUID {
+		var id uuid.UUID
+		if err := f.owner.QueryRow(f.ctx, `INSERT INTO employees (tenant_id, external_ref, first_name, last_name, full_name, status, invited_at)
+		                                   VALUES ($1, $2, 'Before', 'Walk', 'Before Walk', 'active', now()) RETURNING id`,
+			tenantID, "pa-"+uuid.NewString()[:8]).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	own := []uuid.UUID{f.emp, born(f.km), born(f.km)}
+	peers := []uuid.UUID{born(f.kf), born(f.kf), born(f.kf)}
+
+	first, err := dir.DirectoryPage(f.ctx, f.km, DirectoryQuery{}, 1)
+	if err != nil || !first.HasMore {
+		t.Fatalf("the first page: %+v %v", first, err)
+	}
+	view := map[uuid.UUID]DirectoryEntry{}
+	for _, e := range first.Entries {
+		view[e.EmployeeID] = e
+	}
+	for i, id := range []uuid.UUID{own[1], peers[0], own[2], peers[1]} {
+		f.exec(`UPDATE employees SET first_name = $2, full_name = $2 || ' Walk' WHERE id = $1`, id, fmt.Sprintf("Renamed%d", i))
+		var wrote time.Time
+		if err := f.owner.QueryRow(f.ctx, `SELECT updated_at FROM employees WHERE id = $1`, id).Scan(&wrote); err != nil {
+			t.Fatal(err)
+		}
+		if !wrote.After(first.AsOf) {
+			t.Fatalf("PREMISE: rename %d written at %v, not after the walk's asOf %v", i, wrote, first.AsOf)
+		}
+	}
+	pastAsOf, pages := 0, 1
+	q := DirectoryQuery{After: first.Next, AsOf: first.AsOf}
+	for {
+		p, err := dir.DirectoryPage(f.ctx, f.km, q, 1)
+		if err != nil {
+			t.Fatalf("page %d after the position %v (the walk's asOf %v): %v", pages+1, q.After.At, q.AsOf, err)
+		}
+		pages++
+		if q.After.At.After(first.AsOf) {
+			pastAsOf++
+		}
+		for _, e := range p.Entries {
+			view[e.EmployeeID] = e
+		}
+		if !p.HasMore {
+			break
+		}
+		q.After = p.Next
+	}
+	if pastAsOf == 0 {
+		t.Fatal("PREMISE: no page of the walk was read after a position past its asOf")
+	}
+
+	truth := map[uuid.UUID]DirectoryEntry{}
+	rows, err := f.owner.Query(f.ctx, `SELECT e.id, t.api_code, e.external_ref, e.employee_code, e.first_name, e.last_name,
+	                                          e.full_name, e.status <> 'deactivated', e.updated_at
+	                                     FROM employees e JOIN tenants t ON t.id = e.tenant_id WHERE e.tenant_id = ANY($1)`, []uuid.UUID{f.kf, f.km})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var e DirectoryEntry
+		if err := rows.Scan(&e.EmployeeID, &e.Company, &e.ExternalRef, &e.EmployeeCode, &e.FirstName, &e.LastName, &e.FullName, &e.Active, &e.UpdatedAt); err != nil {
+			t.Fatal(err)
+		}
+		truth[e.EmployeeID] = e
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(truth) != len(own)+len(peers) {
+		t.Fatalf("PREMISE: KF and KM hold %d people, want %d", len(truth), len(own)+len(peers))
+	}
+	missed, stale := 0, 0
+	for id, want := range truth {
+		got, ok := view[id]
+		switch {
+		case !ok:
+			missed++
+		case directoryEntryKey(got) != directoryEntryKey(want):
+			stale++
+		}
+	}
+	t.Logf("%d pages, %d after a position past asOf; %d people, missed %d, stale %d", pages, pastAsOf, len(truth), missed, stale)
+	if missed+stale > 0 || len(view) != len(truth) {
+		t.Errorf("the walk across positions past its asOf: %d missed, %d stale, %d held of %d", missed, stale, len(view), len(truth))
+	}
+}
+
 // ownDirectoryPlan runs stmt (ListDirectoryEmployees' shape: $1 tenant_id, $2 after_at, $3 after_id,
 // $4 page_size) as a GENERIC prepared statement -- the plan pgx's statement cache settles on -- as
 // tappa_app in tenant's context at the position (at, id), sequential and bitmap scans and sorts priced

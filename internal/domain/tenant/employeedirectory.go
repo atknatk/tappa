@@ -74,11 +74,20 @@ var directoryOrigin = time.Date(1, time.January, 1, 0, 0, 0, 0, time.UTC)
 //     position is the updated_at of a row an earlier page read -- written (00037's trigger: the
 //     write's clock_timestamp) and committed before that page, so before this page's transaction.
 //     NOT the cursor's asOf: a row changed during the walk is handed out again after asOf
-//     (repeats are expected), so a legitimate position can be past it.
+//     (repeats are expected), so a legitimate position can be past it
+//     (TestEmployeeDirectory_APositionPastAsOfIsTheWalksOwn).
 //
 // Both upper bounds are the database's own clock with no tolerance: every instant compared was
-// written by the same server's clock earlier (a step back of that clock would refuse a live walk's
-// cursor -- its integrator starts the walk again, nothing is lost).
+// written by the same server's clock earlier. A STEP BACK of that clock (the API-8 low round, D-b,
+// measured) leaves rows whose updated_at is ahead of it, and a walk's cursor that lands on one is
+// refused -- a walk started again too, once its cursor lands on that row; after a restore onto a server
+// whose clock is behind, created_at ahead of the clock refuses every later page the same way. Nothing
+// is lost and nothing is answered wrong: the refusal lasts until the clock passes the value (as long
+// as the step -- milliseconds under NTP). Then the SAME cursor answers when its position was the
+// value (measured: a row 3 s ahead, the same request answered 3.1 s later); when its asOf was before
+// created_at it never will (asOf is the cursor's), and a walk started again after that answers. The
+// guide (plan §5 API-12): retry the same request after a short wait, and start the walk again if the
+// refusal stays.
 var ErrDirectoryCursor = errors.New("tenant: the directory cursor is not one this business's walk handed out")
 
 // DirectoryEntry is one employee as the API answers with it. No e-mail, address or home venue: the

@@ -610,7 +610,11 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
   yeniden yazar — `00039`; kodu olmayan bir eşe sonradan kod verilebilir) hiçbir çalışan satırı değişmez: artımlı okuma o
   işletmenin çalışanlarını eski `company`'siyle bırakır. **İkisinin de entegratöre makine sinyali yoktur** — rehber bu yüzden
   **periyodik (ör. günlük) bir tam okuma** (`updatedSince`'siz yürüyüş) tavsiye eder; artımlı okuma aradaki değişiklikler
-  içindir. Askıda açıktır. (ADR 0028 "API-8 uygulama notu".)
+  içindir. **Sunucu saatinin geri adımı** *(API-8 DÜŞÜK turu D-b, 2026-10-15)*: sunucunun kendi verdiği bir `nextCursor` 400
+  alırsa entegratör **aynı isteği kısa bir beklemeyle (saniyeler, artan aralıkla) yeniden dener**, 400 sürerse yürüyüşü aynı
+  `updatedSince` ile baştan alır — hemen baştan almak çare değildir (baştan başlayan yürüyüş de aynı satıra düşünce 400 alır);
+  engel saat geri adımı kadar sürer, kayıp yoktur. Askıda açıktır.
+  (ADR 0028 "API-8 uygulama notu".)
 - **API-13:** **(API-8'den, 2026-10-15 — deploy öncesi, kullanıcı kararı)** Prod'daki **tenant sayısı ölçülür**: bir holding
   üyesinin rehber sayfası ve `holding_site_locations` çağrısı her tenant'ı `holding_peer`'den geçirir (T124'ün üye yarısı —
   21 000 tenant'ta ~1 sn, yük altında 5 sn sınırını aşıp 503). Sayı ~1 000'i geçmeden T124 ele alınır (backlog T124'ün eşiği).

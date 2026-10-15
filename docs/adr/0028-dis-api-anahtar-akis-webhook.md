@@ -849,6 +849,7 @@ parametre), `TestStoreSurface_IsTheOneRecorded`, `TestOpenAPI_PathsAreTheRouters
 `TestDirectory_KeyOfATenantWithoutHoldingSeesOnlyItsOwnStaff` (holding'siz anahtar: kendi
 çalışanları gelir, `holding_directory` 0 satır, başka tenant yok) · `TestDirectory_ClosedIs403RevokedIs401SuspendedIsOpen` ·
 `TestEmployeeDirectory_WalksMissNothingUnderConcurrentWriters` · `TestEmployeeDirectory_TheWalksAsOfIsItsFirstPages` ·
+`TestEmployeeDirectory_APositionPastAsOfIsTheWalksOwn` (DÜŞÜK turu D-a) ·
 `TestEmployeeDirectory_RLSHoldsWithoutTheFilter` · `TestEmployeeDirectory_TheBoundIsTheIndexsNotAFilter` ·
 `TestMergeDirectory_TheTwoSourcesInOneOrder` · `TestAPIWiring_TheDirectoryRunsThroughTheShippedSurface`; genişleyen:
 `TestAPIRead_EveryReadCarriesTheBound` (rehber + JIT kapalı). ADR 0027'den devralınan
@@ -2221,10 +2222,17 @@ arasında tekil, sıra tektir); uç `internal/handler/api/directory.go`; kablola
    saati]; dışı 400 (`tenant.ErrDirectoryCursor`), değer hiçbir ifadeye ulaşmadan. Denetimden önce aralık yoktu: konum
    `-219900000000000000` µs PostgreSQL'in `22008`'i (503 + hata günlüğü), int64'ün iki ucu pgx'te sessizce sarıp **200 boş
    sayfa `hasMore: false`** (yanlış cevap), `asOf` 0 (1970) 200 alıyordu. Üst sınır imlecin `asOf`'u **değildir**: yürüyüş
-   sırasında değişen kişi `asOf`'tan sonra yeniden verilir (tekrar beklenir), meşru bir konum `asOf`'u geçebilir; sınır,
+   sırasında değişen kişi `asOf`'tan sonra yeniden verilir (tekrar beklenir), meşru bir konum `asOf`'u geçebilir
+   (`TestEmployeeDirectory_APositionPastAsOfIsTheWalksOwn`); sınır,
    konumu yazan saatin kendisidir (tetikleyicinin `clock_timestamp()`'i; satır önceki sayfadan önce commit edildi, yani bu
-   sayfanın işleminden önce) — toleranssız: aynı sunucunun saati; geri adımı canlı bir imleci reddeder, yürüyüş baştan
-   alınır, hiçbir şey kaybolmaz. `asOf`'un alt sınırı: yürüyüşün ilk sayfası işletmenin commit edilmiş `tenants` satırını
+   sayfanın işleminden önce) — toleranssız: aynı sunucunun saati. **Saatin geri adımı** *(DÜŞÜK turu D-b, 2026-10-15 —
+   ölçüldü)*: `updated_at`'ı saatin ilerisinde kalan bir satır varken imleci o satıra düşen yürüyüş 400 alır — **baştan
+   alınan yürüyüş de**, imleci o satıra düştüğü anda; geri yükleme sonrası saati geride kalan sunucuda `created_at` > şimdi
+   olan işletmenin her sonraki sayfası da aynı biçimde 400 alır. Kayıp yok, yanlış cevap yok: engel saat o değeri geçene dek
+   sürer (geri adım kadar — NTP ölçeğinde ms). Sonra, engel konumdaysa **aynı imleç** cevap alır (ölçüm, atılabilir kap: 3 sn
+   ileride bir satır, aynı imleçli okuma 3,1 sn sonra cevap verdi); engel `asOf` < `created_at` ise aynı imleç hiç cevap
+   almaz (`asOf` imlecindir), saat `created_at`'ı geçtikten sonra baştan alınan yürüyüş alır. Rehber (plan §5 API-12): aynı
+   istek kısa bir beklemeyle yeniden denenir, 400 sürerse yürüyüş baştan alınır. `asOf`'un alt sınırı: yürüyüşün ilk sayfası işletmenin commit edilmiş `tenants` satırını
    okudu (`created_at` onun `now()`'ı; `tappa_app` yazamaz — `00024`). id kanonik yazımıyla (küçük harf, tireli); başka yazım 400.
 4. **Yanıt `{data, nextCursor, hasMore, asOf}`:** `nextCursor` yalnız `hasMore` true iken dolu, sonda null — bitmiş yürüyüşü
    imleçle sürdürmek örtüşme penceresini atlardı; doğru devam `updatedSince=asOf`'tur. Kayıt `{id (emp_), company (api_code),
@@ -2272,7 +2280,11 @@ arasında tekil, sıra tektir); uç `internal/handler/api/directory.go`; kablola
   ötesi; `asOf` 0, 1, işletmenin `created_at`'ından 1 µs önce, int64'ün üst ucu — hepsi 400, 5xx yok, değer yankılanmaz;
   her sınırın tam içi (`asOf` = `created_at`, konum = yürüyüşün başı — iki biçimde, konum = önceki bir sayfanın saati) 200.
   **Mutant** (atılabilir kap, goose 56): dört koşuldan her biri tek tek kaldırılınca kırmızı — konumun alt sınırı yokken
-  ilk değer 503, öteki üçü 200 alır.
+  ilk değer 503, öteki üçü 200 alır. *(DÜŞÜK turu D-a, 2026-10-15)* Konumun üst sınırı imlecin `asOf`'u **değil** saattir:
+  `TestEmployeeDirectory_APositionPastAsOfIsTheWalksOwn` — sayfa boyu 1, ilk sayfadan sonra iki kendi ve iki eş kişisi sırayla
+  yeniden adlandırılır, yürüyüş sürer: konum üç sayfada `asOf`'u geçer, her sayfa cevap verir, görünüm sahibin okumasına
+  alan alan eşit (0 kaçan, 0 bayat). **Mutant** `q.After.At.After(q.AsOf)` (atılabilir kap, goose 56): 3/3 kırmızı —
+  ilk yeniden adlandırılan kişiden sonraki sayfa `ErrDirectoryCursor` (uçta 400); denetçinin ölçümüyle bu turdan önce sevkedilen testlerde yeşildi.
 - **Örtüşme penceresi** — `TestDirectory_OverlapWindow`: `asOf − 9 dk 59 sn` ve tam `− 10 dk` içeride, `− 10 dk 1 sn` dışarıda;
   `asOf`'tan sonra yeniden adlandırılan kendi ve deaktive edilen eş kişi sonraki yürüyüşte; yürüyüşün ilk sayfasında **açık**
   olan, sonra commit edilen yeniden adlandırma o yürüyüşte yok, `updatedAt`'ı o yürüyüşün `asOf`'undan önce olduğu hâlde bir
