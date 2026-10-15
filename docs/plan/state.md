@@ -1692,6 +1692,19 @@ yazılır.
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 
+### 2026-10-15 (29. oturum, kırk altıncı yarı) — ✅ **API-8 DONE** (güvenlik 1. turda ONAY; üçüncü göz 2. turda ONAY) · 📌 **DEVAM: API-9**
+
+**Sıkıştırma sonrası:** giriş noktası `m11-briefs/DEVAM.md` (state.md'den güncel olabilir). `tappa-m11-db` goose **56**.
+
+**API-8** (`fa04d55` … `f5474c4`): `GET /v1/directory?updatedSince=…&cursor=…&limit=…` — iki kaynak tek işlemde: kendi çalışanları RLS'li sorgudan, eşlerinki `holding_directory`'den (00055; sahip `tappa_holdingdefiner`, imza ADR 0027 §2 ile birebir + **K-41 `full_name`**, `is_member` kapısı — holding'siz tenant ~1 ms; K-34 matrisinin kalan `employees` sütunları, `email` asla). 00056 `employees_tenant_updated_idx` ayrı migration, kendi `lock_timeout`'u. Birleşik keyset `(updated_at, id)`, 10 dk örtüşme, `asOf` = ilk sayfa; imleç `dir_` bağı (işletme, `updatedSince`), konum ve `asOf` sorgudan önce aralığa sınanır (`asOf` ∈ [`created_at`, şimdi], konum ∈ [yürüyüş başı, şimdi]) → dışı 400. JIT bütün API okumalarında kapalı.
+- **🟢 Kullanıcı kararları:** T124 üye yarısı şimdilik bırakıldı (eşik ~1 000 tenant — aynı zamanda DoS eşiği; bedel ADR 0027 API-8 notunda) · K-41 `full_name`.
+- **Denetim izi:** 1. tur güvenlik ONAY (yalnız DÜŞÜK) / üçüncü göz RED — O-1: imleç konumu aralıksız (`pos` uçları → PG 22008 → 503, int64 uçları pgx'te sarıp 200 boş sayfa) → düzeltme `cc2e812`+`8e3a6a2` → 2. tur yeni üçüncü göz ONAY → DÜŞÜK turu `f5474c4` (konumun `asOf`'u geçebildiği deterministik test; saat geri adımının bedeli doğru adlandırıldı; T129).
+- **Belge DÜŞÜK'leri:** `api_code` değişimi ve holding üyeliği değişimi artımlı okumaya düşmez → rehbere periyodik tam okuma (plan §5 API-12, OpenAPI).
+- **Yeni backlog T129:** paylaşılan `tappa-m11-db` ~50 900 tenant'a büyüdü → tam `-race`'te rehber testleri `holding_directory` 57014 → 503 (taze kapta yeşil; T124 kapanınca düşer).
+- **CLAUDE.md:** §6'ya iki kural (sıcak tabloya indeks ayrı migration; sınır ifadeleri çıplak parametre), §7'ye istemci zamanı/sayısının sorgudan önce aralığa sınanması.
+
+**🔴 DEVAM PLANI:** **API-9** (uç nokta paneli + `internal/egress`) — brief `m11-briefs/brief-api9-builder.md` → iki mercek → API-10 → API-12; API-4b (OP-15), API-11 (DNS), API-13 (deploy kararı) kullanıcıya bağlı. Kullanıcıda bekleyenler: otuz dördüncü yarıdakiler + `site_punches` saklama süresi (DPA) + T125.
+
 ### 2026-10-15 (29. oturum, kırk beşinci yarı) — ✅ **API-7b DONE** (güvenlik 2. turda ONAY; üçüncü göz 4. turda ONAY, bulgu yok) · 📌 **DEVAM: API-8**
 
 **Yeniden başlatmadan sonra:** `docker start tappa-m11-db` (goose **54**; 00048'in zaman indeksi yerinde `(tenant_id, punch_time, seq)`). Brief'ler: `~/.claude/projects/-Users-everva-Documents-GitHub-atknatk-tappa/m11-briefs/`.

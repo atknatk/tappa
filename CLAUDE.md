@@ -342,6 +342,9 @@ başlayan bir test durumu olmalı.
 - Env anahtarları (`namedKeys()`) **çift çift** birbirinden farklı olmak zorundadır — iki anahtarın
   eşitliği açılışı reddeder (ADR 0028 §3; bütün çiftler, yalnız operatör çiftleri değil).
 - Dış girdi handler sınırında doğrulanır; domain katmanı zaten geçerli veri görür.
+  İstemcinin taşıdığı zaman damgası ya da sayı (imleç alanları dahil) sorguya gitmeden **anlamlı
+  aralığa** sınanır, dışı 400: pgx int64 ↔ `timestamptz` dönüşümünde uçlar sessizce sarar (200 + yanlış
+  cevap), Postgres aralığını aşan değer 22008 → 503 olur (API-8, O-1).
 - Yorumlar *neden*i anlatır. Kodun ne yaptığını tekrar eden yorum yazma.
 - Türkçe karakter kodda yok: identifier, log, hata mesajı, commit → İngilizce.
   Kullanıcıya görünen metinler ve bu repodaki dokümanlar Türkçe/İngilizce olabilir.
