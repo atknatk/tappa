@@ -24,7 +24,8 @@
 // logger (TestEgress_LogsNothingAndReturnsNoText pins the import list).
 //
 // 🔴 TLS IS GO'S DEFAULT VERIFICATION. No InsecureSkipVerify, no private root: a Client New builds
-// has RootCAs nil (the system's). A test may hand its own test server's root (export_test.go).
+// has RootCAs nil (the system's). A test may hand its own test server's root to build (client_test.go's
+// clientFor).
 package egress
 
 import (

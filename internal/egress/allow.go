@@ -121,7 +121,8 @@ type gate struct {
 	// blocked are the node's public addresses and the ingress's (config), checked first.
 	blocked []netip.Prefix
 	// port is deliveryPort in every Client New builds. A test may move it to a test server's port
-	// (export_test.go); the rule "this one port and no other" is the same.
+	// (client_test.go's clientFor builds its gate and calls build directly); the rule "this one port
+	// and no other" is the same.
 	port uint16
 	// testAllow is nil in every Client New builds. A test sets it to the loopback address its
 	// TLS server listens on, as a stand-in for "a public address" -- the only way to show a dial

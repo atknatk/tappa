@@ -153,9 +153,9 @@ func TestEgress_TheTableIsTheRegistry(t *testing.T) {
 }
 
 // TestEgress_RefusesEveryIANASpecialPurposeEntry: for EVERY registry entry its first and its last
-// address (and its middle) are refused on port 443, Unmap()ed or not; the address just outside each
-// end is accepted whenever the rule, restated by this test, says it is public -- the list refuses the
-// registry and not a neighbour. Then named literals either side of the well-known blocks.
+// address are refused on port 443, Unmap()ed or not; the address just outside each end is accepted
+// whenever the rule, restated by this test, says it is public -- the list refuses the registry and not
+// a neighbour. Then named literals either side of the well-known blocks.
 //
 // MUTANTS (measured): an entry not covered by another one removed from ianaSpecialPurpose (e.g.
 // 192.31.196.0/24) -> red here; an entry the other rules cover anyway (5f00::/16 lies outside
