@@ -86,8 +86,14 @@ var BucketActions = []string{ActionPing, ActionResend}
 // BucketLimit is the bucket's size: ten an hour, per business (ADR 0028 §6).
 const BucketLimit = 10
 
-// BucketWindow is the bucket's window.
+// BucketWindow is the bucket's window -- its ONE source: ReadWebhookBucket counts over it
+// (bucketRead passes it as @window_seconds) and the next free slot is dated by it.
 const BucketWindow = time.Hour
+
+// bucketRead is ReadWebhookBucket's argument for this business: the bucket's actions and window.
+func bucketRead(tenantID uuid.UUID) store.ReadWebhookBucketParams {
+	return store.ReadWebhookBucketParams{TenantID: tenantID, Actions: BucketActions, WindowSeconds: int32(BucketWindow / time.Second)}
+}
 
 const (
 	ownerRole       = "owner"
@@ -303,7 +309,7 @@ func (s *Service) List(ctx context.Context, tenantID, actorID uuid.UUID) (Listin
 			}
 			out.Endpoint = e
 		}
-		b, err := q.ReadWebhookBucket(ctx, store.ReadWebhookBucketParams{TenantID: tenantID, Actions: BucketActions})
+		b, err := q.ReadWebhookBucket(ctx, bucketRead(tenantID))
 		if err != nil {
 			return fmt.Errorf("read the bucket: %w", err)
 		}
@@ -566,7 +572,7 @@ func (s *Service) Ping(ctx context.Context, tenantID, actorID uuid.UUID) (Pinged
 		if lock.ID != tenantID {
 			return errors.New("webhook endpoint: the bucket's lock named another business")
 		}
-		b, err := q.ReadWebhookBucket(ctx, store.ReadWebhookBucketParams{TenantID: tenantID, Actions: BucketActions})
+		b, err := q.ReadWebhookBucket(ctx, bucketRead(tenantID))
 		if err != nil {
 			return fmt.Errorf("read the bucket: %w", err)
 		}

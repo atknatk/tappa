@@ -399,7 +399,11 @@ func TestWebhookPing_SharesTheResendBucket(t *testing.T) {
 	if !errors.As(err, &full) {
 		t.Fatalf("the eleventh ping: %v", err)
 	}
-	if full.NextAt.Before(before.Add(BucketWindow-time.Minute)) || full.NextAt.After(time.Now().Add(BucketWindow+time.Minute)) {
+	// The hour is written as time.Hour, not BucketWindow: the test states ADR 0028 §6's number rather
+	// than reading it back from the constant it is checking. The slack is the two clocks' (Go's and
+	// the database's) -- seconds, so a window off by a minute does not fit in it.
+	const slack = 5 * time.Second
+	if full.NextAt.Before(before.Add(time.Hour-slack)) || full.NextAt.After(time.Now().Add(time.Hour+slack)) {
 		t.Fatalf("next slot at %v: not an hour after the oldest", full.NextAt)
 	}
 	if snd.count() != BucketLimit || len(trailRows(t, d, a.tenant, ActionPing)) != BucketLimit {
@@ -488,6 +492,74 @@ func TestWebhookPing_SharesTheResendBucket(t *testing.T) {
 	}
 	if n := len(trailRows(t, d, off.tenant, ActionPing)); n != 0 {
 		t.Fatalf("a refused ping spent %d slots", n)
+	}
+}
+
+// TestWebhookPing_CountsTheLastHourOnly is the bucket's "an hour" (ADR 0028 §6), measured at its
+// edge with slots the database itself dates: ten slots spent 59 minutes ago fill the bucket -- the
+// ping is BucketFull, nothing is sent, nothing is spent, and the next slot is EXACTLY an hour after
+// the oldest; ten slots spent 61 minutes ago are out of it -- the ping goes out. The rows are written
+// by the owner role because `at` is not tappa_app's to write (00053).
+//
+// MUTANTS (measured, each in its own container): the window in ReadWebhookBucket written as
+// interval '1 minute' -> the 59-minute business pings, red; as interval '100 years' -> the 61-minute
+// business is BucketFull, red; BucketWindow = time.Minute -> the 59-minute business pings (the SQL
+// takes its window from the constant), red.
+func TestWebhookPing_CountsTheLastHourOnly(t *testing.T) {
+	d := appDB(t)
+	snd := &fakeSender{}
+	svc := newService(t, d, randomKEK(t), snd)
+	// spend writes the bucket's ten slots for b, dated ago before the database's now, and returns the
+	// slots' moment as the database recorded it.
+	spend := func(b business, ago time.Duration) time.Time {
+		t.Helper()
+		if _, err := svc.Create(context.Background(), CreateCommand{TenantID: b.tenant, ActorID: b.owner, Address: hookURL}); err != nil {
+			t.Fatal(err)
+		}
+		var at time.Time
+		err := ownerConn(t).QueryRow(context.Background(), `
+			WITH spent AS (
+				INSERT INTO audit_log (tenant_id, actor_id, action, target, detail, at)
+				SELECT $1, $2, $3, gen_random_uuid()::text, '{"via":"panel"}', now() - make_interval(secs => $4::float8)
+				FROM generate_series(1, $5::int)
+				RETURNING at)
+			SELECT min(at) FROM spent`,
+			b.tenant, b.owner, ActionPing, ago.Seconds(), BucketLimit).Scan(&at)
+		if err != nil {
+			t.Fatalf("spend the bucket: %v", err)
+		}
+		return at
+	}
+
+	inside := newBusiness(t, d)
+	oldest := spend(inside, 59*time.Minute)
+	_, err := svc.Ping(context.Background(), inside.tenant, inside.owner)
+	var full *BucketFull
+	if !errors.As(err, &full) {
+		t.Fatalf("ten slots 59 minutes old: the ping was not refused (%v)", err)
+	}
+	if !full.NextAt.Equal(oldest.Add(time.Hour)) {
+		t.Fatalf("ten slots 59 minutes old: next slot at %v, want an hour after the oldest (%v)", full.NextAt, oldest.Add(time.Hour))
+	}
+	if snd.count() != 0 || len(trailRows(t, d, inside.tenant, ActionPing)) != BucketLimit {
+		t.Fatalf("ten slots 59 minutes old: %d sent, %d slots", snd.count(), len(trailRows(t, d, inside.tenant, ActionPing)))
+	}
+	if l, err := svc.List(context.Background(), inside.tenant, inside.owner); err != nil ||
+		l.Bucket.Spent != BucketLimit || !l.Bucket.NextAt.Equal(oldest.Add(time.Hour)) {
+		t.Fatalf("ten slots 59 minutes old: the listing's bucket %+v (%v)", l.Bucket, err)
+	}
+
+	outside := newBusiness(t, d)
+	spend(outside, 61*time.Minute)
+	if _, err := svc.Ping(context.Background(), outside.tenant, outside.owner); err != nil {
+		t.Fatalf("ten slots 61 minutes old: the ping was refused (%v)", err)
+	}
+	if snd.count() != 1 {
+		t.Fatalf("ten slots 61 minutes old: %d sent, want 1", snd.count())
+	}
+	if l, err := svc.List(context.Background(), outside.tenant, outside.owner); err != nil ||
+		l.Bucket.Spent != 1 || !l.Bucket.NextAt.IsZero() {
+		t.Fatalf("ten slots 61 minutes old: the listing's bucket %+v (%v)", l.Bucket, err)
 	}
 }
 

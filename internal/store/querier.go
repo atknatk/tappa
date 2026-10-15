@@ -4980,6 +4980,11 @@ type Querier interface {
 	// is written BEFORE the request goes out, in the transaction that holds the lock, so a slot is spent
 	// whether or not the remote answers and a crash after the commit cannot give it back. `at` is the
 	// database's clock (00053: tappa_app cannot write it). audit_log_tenant_at_idx serves the range.
+	//
+	// THE WINDOW HAS ONE SOURCE: @window_seconds is endpoints.BucketWindow, the same constant that dates
+	// the next free slot. make_interval keeps the bound a bare parameter (CLAUDE.md §6, as
+	// audit.sql's ConfirmRecentRemoval does) -- now() is evaluated once per statement, so `at > <constant>` stays the index condition
+	// under the generic plan. TestWebhookPing_CountsTheLastHourOnly dates slots 59 and 61 minutes back.
 	ReadWebhookBucket(ctx context.Context, arg ReadWebhookBucketParams) (ReadWebhookBucketRow, error)
 	// A new address for THIS endpoint; its key is unchanged.
 	ReaddressWebhookEndpoint(ctx context.Context, arg ReaddressWebhookEndpointParams) (int64, error)

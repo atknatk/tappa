@@ -138,12 +138,13 @@ SELECT count(*)::int AS spent,
 FROM audit_log
 WHERE tenant_id = $1
   AND action = ANY ($2::text[])
-  AND at > now() - interval '1 hour'
+  AND at > now() - make_interval(secs => $3::int)
 `
 
 type ReadWebhookBucketParams struct {
-	TenantID uuid.UUID
-	Actions  []string
+	TenantID      uuid.UUID
+	Actions       []string
+	WindowSeconds int32
 }
 
 type ReadWebhookBucketRow struct {
@@ -156,8 +157,13 @@ type ReadWebhookBucketRow struct {
 // is written BEFORE the request goes out, in the transaction that holds the lock, so a slot is spent
 // whether or not the remote answers and a crash after the commit cannot give it back. `at` is the
 // database's clock (00053: tappa_app cannot write it). audit_log_tenant_at_idx serves the range.
+//
+// THE WINDOW HAS ONE SOURCE: @window_seconds is endpoints.BucketWindow, the same constant that dates
+// the next free slot. make_interval keeps the bound a bare parameter (CLAUDE.md §6, as
+// audit.sql's ConfirmRecentRemoval does) -- now() is evaluated once per statement, so `at > <constant>` stays the index condition
+// under the generic plan. TestWebhookPing_CountsTheLastHourOnly dates slots 59 and 61 minutes back.
 func (q *Queries) ReadWebhookBucket(ctx context.Context, arg ReadWebhookBucketParams) (ReadWebhookBucketRow, error) {
-	row := q.db.QueryRow(ctx, readWebhookBucket, arg.TenantID, arg.Actions)
+	row := q.db.QueryRow(ctx, readWebhookBucket, arg.TenantID, arg.Actions, arg.WindowSeconds)
 	var i ReadWebhookBucketRow
 	err := row.Scan(&i.Spent, &i.Oldest)
 	return i, err

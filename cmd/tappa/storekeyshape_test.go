@@ -433,7 +433,7 @@ var storeSurface = map[string]string{
 	"ReaddressWebhookEndpoint":     "(context.Context, ReaddressWebhookEndpointParams{Url string; TenantID uuid.UUID; ID uuid.UUID}) (int64, error)",
 	"SetWebhookEndpointActive":     "(context.Context, SetWebhookEndpointActiveParams{Active bool; TenantID uuid.UUID; ID uuid.UUID}) (int64, error)",
 	"LockWebhookBucket":            "(context.Context, uuid.UUID) (LockWebhookBucketRow{ID uuid.UUID; Unlocked bool}, error)",
-	"ReadWebhookBucket":            "(context.Context, ReadWebhookBucketParams{TenantID uuid.UUID; Actions []string}) (ReadWebhookBucketRow{Spent int32; Oldest time.Time}, error)",
+	"ReadWebhookBucket":            "(context.Context, ReadWebhookBucketParams{TenantID uuid.UUID; Actions []string; WindowSeconds int32}) (ReadWebhookBucketRow{Spent int32; Oldest time.Time}, error)",
 }
 
 // TestStoreSurface_IsTheOneRecorded is the inventory check.
