@@ -127,3 +127,106 @@ func TestPunchFeed_TheWindowBoundsASparseScopeAndAGapIsCrossed(t *testing.T) {
 		}
 	}
 }
+
+// TestPunchHistory_TheWindowBoundsASparseScope (plan §5 API-7b: "seyrek kapsamda punch_time
+// aralığında sınırsız yürüyüş olmaz"): in KF's range, one own tap, seven taps of KM's employee on
+// KF's plaque (KF's location scope only) and one more own tap, declared an hour apart. With a window of
+// three positions KF's employer walk reads the first tap, then an EMPTY page that still says hasMore,
+// then the last tap -- each page touched at most three positions of the range, the position always
+// moved forward in (punch_time, seq), and the walk's S0 never changed. The location walk, two at a
+// time, reads all nine in punch_time order. A position past the range or past its S0 is
+// ErrHistoryRange; an S0 past the counter is ErrCursorAhead.
+func TestPunchHistory_TheWindowBoundsASparseScope(t *testing.T) {
+	f := newSiteFixture(t)
+	feed, err := NewPunchFeed(f.data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	feed.window = 3
+	venue := f.venue("KF history venue")
+	uid := f.plaque(venue)
+	kfEmp := uuid.New()
+	f.exec(`INSERT INTO employees (id, tenant_id, external_ref, full_name, status, invited_at) VALUES ($1, $2, 'KF-HIST', 'KF Staff', 'active', now())`, kfEmp, f.kf)
+	t0 := time.Now().UTC().Truncate(time.Second).Add(-48 * time.Hour)
+	own := func(at time.Time) {
+		t.Helper()
+		if err := f.data.WithTenant(f.ctx, f.kf, func(ctx context.Context, tx pgx.Tx) error {
+			_, err := tx.Exec(ctx, `INSERT INTO transactions (tenant_id, employee_id, location_id, tag_uid, occurred_at, verdict, channel, type)
+			                        VALUES ($1, $2, $3, $4, $5, 'ok', 'nfc', 'in')`, f.kf, kfEmp, venue, uid, at)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	own(t0.Add(time.Hour))
+	for i := range 7 {
+		f.tap(venue, uid, "ok", t0.Add(time.Duration(i+2)*time.Hour))
+	}
+	own(t0.Add(9 * time.Hour))
+	from, to := t0, t0.Add(24*time.Hour)
+
+	type step struct {
+		n    int
+		next HistoryPosition
+		more bool
+	}
+	walk := func(role FeedRole, limit int) ([]PunchEvent, []step) {
+		t.Helper()
+		var events []PunchEvent
+		var steps []step
+		q := HistoryQuery{From: from, To: to, First: true}
+		for range 100 {
+			p, err := feed.HistoryPage(f.ctx, f.kf, role, q, limit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			events = append(events, p.Events...)
+			steps = append(steps, step{len(p.Events), p.Next, p.HasMore})
+			if !q.First && (p.Next.S0 != q.At.S0 || p.Next.Time.Before(q.At.Time) || (p.Next.Time.Equal(q.At.Time) && p.Next.Seq < q.At.Seq)) {
+				t.Fatalf("the position went back or the snapshot moved: %+v after %+v", p.Next, q.At)
+			}
+			q = HistoryQuery{From: from, To: to, At: p.Next}
+			if !p.HasMore {
+				return events, steps
+			}
+		}
+		t.Fatal("the walk did not end")
+		return nil, nil
+	}
+	ev, steps := walk(FeedEmployer, 10)
+	if len(ev) != 2 || len(steps) != 3 || steps[0].n != 1 || !steps[0].more || steps[1].n != 0 || !steps[1].more || steps[2].n != 1 || steps[2].more {
+		t.Fatalf("employer walk: %d events over %+v; want 1, an empty page with hasMore, 1", len(ev), steps)
+	}
+	if !ev[0].PunchTime.Equal(t0.Add(time.Hour)) || !ev[1].PunchTime.Equal(t0.Add(9*time.Hour)) {
+		t.Fatalf("employer walk: %v, %v", ev[0].PunchTime, ev[1].PunchTime)
+	}
+	ev, _ = walk(FeedLocation, 2)
+	for i, e := range ev {
+		if len(ev) != 9 || !e.PunchTime.Equal(t0.Add(time.Duration(i+1)*time.Hour)) {
+			t.Fatalf("location walk: %d events, the %d-th at %v", len(ev), i, e.PunchTime)
+		}
+	}
+	first, err := feed.HistoryPage(f.ctx, f.kf, FeedLocation, HistoryQuery{From: from, To: to, First: true}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s0 := first.Next.S0
+	for _, c := range []struct {
+		at   HistoryPosition
+		want error
+	}{
+		{HistoryPosition{S0: s0, Time: to}, ErrHistoryRange},
+		{HistoryPosition{S0: s0, Time: from.Add(-time.Microsecond)}, ErrHistoryRange},
+		{HistoryPosition{S0: s0, Time: from, Seq: s0 + 1}, ErrHistoryRange},
+		{HistoryPosition{S0: s0 + 1, Time: from}, ErrCursorAhead},
+	} {
+		if _, err := feed.HistoryPage(f.ctx, f.kf, FeedLocation, HistoryQuery{From: from, To: to, At: c.at}, 1); !errors.Is(err, c.want) {
+			t.Errorf("%+v: %v, want %v", c.at, err, c.want)
+		}
+	}
+	for _, r := range [][2]time.Time{{from, from}, {to, from}, {from, from.Add(MaxHistoryRange + time.Microsecond)}} {
+		if _, err := feed.HistoryPage(f.ctx, f.kf, FeedLocation, HistoryQuery{From: r[0], To: r[1], First: true}, 1); !errors.Is(err, ErrHistoryRange) {
+			t.Errorf("range %v..%v: %v, want ErrHistoryRange", r[0], r[1], err)
+		}
+	}
+}

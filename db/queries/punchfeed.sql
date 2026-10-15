@@ -47,3 +47,71 @@ WHERE pe.tenant_id = @tenant_id
   AND @role::text = ANY (pe.roles)
 ORDER BY pe.seq
 LIMIT @page_size;
+
+-- THE HISTORY QUERY (M11 API-7b; ADR 0028 §5's last sentence, plan §2 item 18 and §5 API-7b):
+-- GET /v1/punches?from=…&to=…, the events whose punch_time is in [from, to), in (punch_time, seq)
+-- order, page by page. punch_time is the phone's declared instant (72 h back at most for an
+-- offline queue, and an approved flag enters with its old punch_time days later), so an event can
+-- be COMMITTED into a stretch of that order a reader has already passed. The guarantee is therefore
+-- tied to a snapshot: the first page reads the counter S0 (GetPunchFeedCounter) BEFORE its window
+-- and its page, the cursor carries S0, and every statement answers seq <= S0 only. Every event at or
+-- below S0 committed before S0 was read (§5), so the set the reader walks is fixed and complete;
+-- reading S0 after the page would let it cover an event committed between them into the stretch
+-- the page had passed -- a skipped event (measured as a mutant, ADR 0028 API-7b note). An event
+-- above S0 is the feed's (cursor=cur_…) to deliver, never the history's.
+--
+-- A page is three statements: the counter, the window's end (at most window positions of the
+-- range after the cursor, any scope), the page (the scope's events up to that end). The window
+-- bounds a sparse scope's walk as the feed's does; the two later statements see the same rows
+-- because both read seq <= S0 only.
+
+-- name: GetPunchFeedCounter :one
+-- The tenant's counter: the history query's S0 on a first page, the bound a later page's S0 is held
+-- to. No row means no counter row, which §5 says never happens (the caller treats it as an outage).
+SELECT fc.last_seq
+FROM feed_counters fc
+WHERE fc.tenant_id = @tenant_id;
+
+-- name: GetPunchHistoryWindow :one
+-- How many positions of the range follow the cursor (counted to scan_size = window_size + 1, every scope,
+-- seq <= S0 -- one more than the window, to know whether the range goes on past it) and the last of
+-- the first window_size of them; with none, the cursor's own position comes back. The
+-- range is a walk of punch_events_tenant_time_idx (tenant_id, punch_time); the redundant
+-- punch_time >= after_time is the predicate that index can bound, the row comparison breaks ties
+-- by seq.
+WITH win AS (
+    SELECT pe.punch_time, pe.seq
+    FROM punch_events pe
+    WHERE pe.tenant_id = @tenant_id
+      AND pe.seq <= @s0::bigint
+      AND pe.punch_time >= @from_time::timestamptz
+      AND pe.punch_time < @to_time::timestamptz
+      AND pe.punch_time >= @after_time::timestamptz
+      AND (pe.punch_time, pe.seq) > (@after_time::timestamptz, @after_seq::bigint)
+    ORDER BY pe.punch_time, pe.seq
+    LIMIT @scan_size
+), inside AS (
+    SELECT w.punch_time, w.seq FROM win w ORDER BY w.punch_time, w.seq LIMIT @window_size
+)
+SELECT (SELECT count(*) FROM win)::bigint AS scanned,
+       coalesce((SELECT i.punch_time FROM inside i ORDER BY i.punch_time DESC, i.seq DESC LIMIT 1), @after_time::timestamptz)::timestamptz AS end_time,
+       coalesce((SELECT i.seq FROM inside i ORDER BY i.punch_time DESC, i.seq DESC LIMIT 1), @after_seq::bigint)::bigint AS end_seq;
+
+-- name: ListPunchHistory :many
+-- The scope's events of the range after the cursor and up to the window's end, seq <= S0, in
+-- (punch_time, seq) order -- one more than the caller hands out. The same columns as ListPunchEvents.
+SELECT pe.seq, pe.punch_id, pe.version, pe.status, pe.punch_time, pe.recorded_at, pe.channel, pe.direction,
+       pe.employee_id, pe.employee_ref, pe.employee_code, pe.employee_company,
+       pe.location_id, pe.location_ref, pe.location_name, pe.location_company, pe.tag_uid
+FROM punch_events pe
+WHERE pe.tenant_id = @tenant_id
+  AND pe.seq <= @s0::bigint
+  AND pe.punch_time >= @from_time::timestamptz
+  AND pe.punch_time < @to_time::timestamptz
+  AND pe.punch_time >= @after_time::timestamptz
+  AND (pe.punch_time, pe.seq) > (@after_time::timestamptz, @after_seq::bigint)
+  AND pe.punch_time <= @end_time::timestamptz
+  AND (pe.punch_time, pe.seq) <= (@end_time::timestamptz, @end_seq::bigint)
+  AND @role::text = ANY (pe.roles)
+ORDER BY pe.punch_time, pe.seq
+LIMIT @page_size;

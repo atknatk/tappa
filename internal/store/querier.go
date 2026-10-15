@@ -2479,6 +2479,25 @@ type Querier interface {
 	// explicit same-tenant LEFT JOIN, so an id that names nobody this tenant can see
 	// is reported as unresolvable rather than printed (§4.5 doing its job).
 	GetPolicyVersionDocument(ctx context.Context, arg GetPolicyVersionDocumentParams) (GetPolicyVersionDocumentRow, error)
+	// THE HISTORY QUERY (M11 API-7b; ADR 0028 §5's last sentence, plan §2 item 18 and §5 API-7b):
+	// GET /v1/punches?from=…&to=…, the events whose punch_time is in [from, to), in (punch_time, seq)
+	// order, page by page. punch_time is the phone's declared instant (72 h back at most for an
+	// offline queue, and an approved flag enters with its old punch_time days later), so an event can
+	// be COMMITTED into a stretch of that order a reader has already passed. The guarantee is therefore
+	// tied to a snapshot: the first page reads the counter S0 (GetPunchFeedCounter) BEFORE its window
+	// and its page, the cursor carries S0, and every statement answers seq <= S0 only. Every event at or
+	// below S0 committed before S0 was read (§5), so the set the reader walks is fixed and complete;
+	// reading S0 after the page would let it cover an event committed between them into the stretch
+	// the page had passed -- a skipped event (measured as a mutant, ADR 0028 API-7b note). An event
+	// above S0 is the feed's (cursor=cur_…) to deliver, never the history's.
+	//
+	// A page is three statements: the counter, the window's end (at most window positions of the
+	// range after the cursor, any scope), the page (the scope's events up to that end). The window
+	// bounds a sparse scope's walk as the feed's does; the two later statements see the same rows
+	// because both read seq <= S0 only.
+	// The tenant's counter: the history query's S0 on a first page, the bound a later page's S0 is held
+	// to. No row means no counter row, which §5 says never happens (the caller treats it as an outage).
+	GetPunchFeedCounter(ctx context.Context, tenantID uuid.UUID) (int64, error)
 	// punchfeed.sql -- M11 API-7, GET /v1/punches: the read end of the punch feed (ADR 0028 §4, §5, §8).
 	//
 	// A page is TWO statements in one transaction of the key's tenant (WithTenant + the explicit
@@ -2503,6 +2522,13 @@ type Querier interface {
 	// none when the tenant has no counter row -- which §5 says never happens (00048 opens one for every
 	// tenant, the tenants trigger for a new one); the caller treats it as an outage, not as "empty".
 	GetPunchFeedHead(ctx context.Context, arg GetPunchFeedHeadParams) (GetPunchFeedHeadRow, error)
+	// How many positions of the range follow the cursor (counted to scan_size = window_size + 1, every scope,
+	// seq <= S0 -- one more than the window, to know whether the range goes on past it) and the last of
+	// the first window_size of them; with none, the cursor's own position comes back. The
+	// range is a walk of punch_events_tenant_time_idx (tenant_id, punch_time); the redundant
+	// punch_time >= after_time is the predicate that index can bound, the row comparison breaks ties
+	// by seq.
+	GetPunchHistoryWindow(ctx context.Context, arg GetPunchHistoryWindowParams) (GetPunchHistoryWindowRow, error)
 	// The name of ONE employee, by id -- the anchor a roster page continues from.
 	//
 	// 🔴 IT EXISTS SO THE PAGING CURSOR CAN CARRY AN ID INSTEAD OF A NAME, and that is a
@@ -4018,6 +4044,9 @@ type Querier interface {
 	// -- the plaque is this business's); a single-tenant punch carries both. The range is a walk of
 	// punch_events_pkey (tenant_id, seq); the role is a filter on it, bounded by the window.
 	ListPunchEvents(ctx context.Context, arg ListPunchEventsParams) ([]ListPunchEventsRow, error)
+	// The scope's events of the range after the cursor and up to the window's end, seq <= S0, in
+	// (punch_time, seq) order -- one more than the caller hands out. The same columns as ListPunchEvents.
+	ListPunchHistory(ctx context.Context, arg ListPunchHistoryParams) ([]ListPunchHistoryRow, error)
 	// All sessions of one employee, newest first: the read side of the optional
 	// device limit (M5-01 card: "config ile kapali gelebilir" -- NOT enforced here)
 	// and of the M5-02 "is this a new phone or an attack?" decision. Revoked rows are

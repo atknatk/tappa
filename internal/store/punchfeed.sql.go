@@ -12,6 +12,38 @@ import (
 	"github.com/google/uuid"
 )
 
+const getPunchFeedCounter = `-- name: GetPunchFeedCounter :one
+
+SELECT fc.last_seq
+FROM feed_counters fc
+WHERE fc.tenant_id = $1
+`
+
+// THE HISTORY QUERY (M11 API-7b; ADR 0028 §5's last sentence, plan §2 item 18 and §5 API-7b):
+// GET /v1/punches?from=…&to=…, the events whose punch_time is in [from, to), in (punch_time, seq)
+// order, page by page. punch_time is the phone's declared instant (72 h back at most for an
+// offline queue, and an approved flag enters with its old punch_time days later), so an event can
+// be COMMITTED into a stretch of that order a reader has already passed. The guarantee is therefore
+// tied to a snapshot: the first page reads the counter S0 (GetPunchFeedCounter) BEFORE its window
+// and its page, the cursor carries S0, and every statement answers seq <= S0 only. Every event at or
+// below S0 committed before S0 was read (§5), so the set the reader walks is fixed and complete;
+// reading S0 after the page would let it cover an event committed between them into the stretch
+// the page had passed -- a skipped event (measured as a mutant, ADR 0028 API-7b note). An event
+// above S0 is the feed's (cursor=cur_…) to deliver, never the history's.
+//
+// A page is three statements: the counter, the window's end (at most window positions of the
+// range after the cursor, any scope), the page (the scope's events up to that end). The window
+// bounds a sparse scope's walk as the feed's does; the two later statements see the same rows
+// because both read seq <= S0 only.
+// The tenant's counter: the history query's S0 on a first page, the bound a later page's S0 is held
+// to. No row means no counter row, which §5 says never happens (the caller treats it as an outage).
+func (q *Queries) GetPunchFeedCounter(ctx context.Context, tenantID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, getPunchFeedCounter, tenantID)
+	var last_seq int64
+	err := row.Scan(&last_seq)
+	return last_seq, err
+}
+
 const getPunchFeedHead = `-- name: GetPunchFeedHead :one
 
 SELECT fc.last_seq,
@@ -60,6 +92,65 @@ func (q *Queries) GetPunchFeedHead(ctx context.Context, arg GetPunchFeedHeadPara
 	row := q.db.QueryRow(ctx, getPunchFeedHead, arg.TenantID, arg.AfterSeq)
 	var i GetPunchFeedHeadRow
 	err := row.Scan(&i.LastSeq, &i.NextSeq)
+	return i, err
+}
+
+const getPunchHistoryWindow = `-- name: GetPunchHistoryWindow :one
+WITH win AS (
+    SELECT pe.punch_time, pe.seq
+    FROM punch_events pe
+    WHERE pe.tenant_id = $3
+      AND pe.seq <= $4::bigint
+      AND pe.punch_time >= $5::timestamptz
+      AND pe.punch_time < $6::timestamptz
+      AND pe.punch_time >= $1::timestamptz
+      AND (pe.punch_time, pe.seq) > ($1::timestamptz, $2::bigint)
+    ORDER BY pe.punch_time, pe.seq
+    LIMIT $7
+), inside AS (
+    SELECT w.punch_time, w.seq FROM win w ORDER BY w.punch_time, w.seq LIMIT $8
+)
+SELECT (SELECT count(*) FROM win)::bigint AS scanned,
+       coalesce((SELECT i.punch_time FROM inside i ORDER BY i.punch_time DESC, i.seq DESC LIMIT 1), $1::timestamptz)::timestamptz AS end_time,
+       coalesce((SELECT i.seq FROM inside i ORDER BY i.punch_time DESC, i.seq DESC LIMIT 1), $2::bigint)::bigint AS end_seq
+`
+
+type GetPunchHistoryWindowParams struct {
+	AfterTime  time.Time
+	AfterSeq   int64
+	TenantID   uuid.UUID
+	S0         int64
+	FromTime   time.Time
+	ToTime     time.Time
+	ScanSize   int32
+	WindowSize int32
+}
+
+type GetPunchHistoryWindowRow struct {
+	Scanned int64
+	EndTime time.Time
+	EndSeq  int64
+}
+
+// How many positions of the range follow the cursor (counted to scan_size = window_size + 1, every scope,
+// seq <= S0 -- one more than the window, to know whether the range goes on past it) and the last of
+// the first window_size of them; with none, the cursor's own position comes back. The
+// range is a walk of punch_events_tenant_time_idx (tenant_id, punch_time); the redundant
+// punch_time >= after_time is the predicate that index can bound, the row comparison breaks ties
+// by seq.
+func (q *Queries) GetPunchHistoryWindow(ctx context.Context, arg GetPunchHistoryWindowParams) (GetPunchHistoryWindowRow, error) {
+	row := q.db.QueryRow(ctx, getPunchHistoryWindow,
+		arg.AfterTime,
+		arg.AfterSeq,
+		arg.TenantID,
+		arg.S0,
+		arg.FromTime,
+		arg.ToTime,
+		arg.ScanSize,
+		arg.WindowSize,
+	)
+	var i GetPunchHistoryWindowRow
+	err := row.Scan(&i.Scanned, &i.EndTime, &i.EndSeq)
 	return i, err
 }
 
@@ -124,6 +215,108 @@ func (q *Queries) ListPunchEvents(ctx context.Context, arg ListPunchEventsParams
 	items := []ListPunchEventsRow{}
 	for rows.Next() {
 		var i ListPunchEventsRow
+		if err := rows.Scan(
+			&i.Seq,
+			&i.PunchID,
+			&i.Version,
+			&i.Status,
+			&i.PunchTime,
+			&i.RecordedAt,
+			&i.Channel,
+			&i.Direction,
+			&i.EmployeeID,
+			&i.EmployeeRef,
+			&i.EmployeeCode,
+			&i.EmployeeCompany,
+			&i.LocationID,
+			&i.LocationRef,
+			&i.LocationName,
+			&i.LocationCompany,
+			&i.TagUid,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPunchHistory = `-- name: ListPunchHistory :many
+SELECT pe.seq, pe.punch_id, pe.version, pe.status, pe.punch_time, pe.recorded_at, pe.channel, pe.direction,
+       pe.employee_id, pe.employee_ref, pe.employee_code, pe.employee_company,
+       pe.location_id, pe.location_ref, pe.location_name, pe.location_company, pe.tag_uid
+FROM punch_events pe
+WHERE pe.tenant_id = $1
+  AND pe.seq <= $2::bigint
+  AND pe.punch_time >= $3::timestamptz
+  AND pe.punch_time < $4::timestamptz
+  AND pe.punch_time >= $5::timestamptz
+  AND (pe.punch_time, pe.seq) > ($5::timestamptz, $6::bigint)
+  AND pe.punch_time <= $7::timestamptz
+  AND (pe.punch_time, pe.seq) <= ($7::timestamptz, $8::bigint)
+  AND $9::text = ANY (pe.roles)
+ORDER BY pe.punch_time, pe.seq
+LIMIT $10
+`
+
+type ListPunchHistoryParams struct {
+	TenantID  uuid.UUID
+	S0        int64
+	FromTime  time.Time
+	ToTime    time.Time
+	AfterTime time.Time
+	AfterSeq  int64
+	EndTime   time.Time
+	EndSeq    int64
+	Role      string
+	PageSize  int32
+}
+
+type ListPunchHistoryRow struct {
+	Seq             int64
+	PunchID         uuid.UUID
+	Version         int32
+	Status          string
+	PunchTime       time.Time
+	RecordedAt      time.Time
+	Channel         string
+	Direction       string
+	EmployeeID      uuid.UUID
+	EmployeeRef     *string
+	EmployeeCode    *string
+	EmployeeCompany *string
+	LocationID      *uuid.UUID
+	LocationRef     *string
+	LocationName    *string
+	LocationCompany *string
+	TagUid          *string
+}
+
+// The scope's events of the range after the cursor and up to the window's end, seq <= S0, in
+// (punch_time, seq) order -- one more than the caller hands out. The same columns as ListPunchEvents.
+func (q *Queries) ListPunchHistory(ctx context.Context, arg ListPunchHistoryParams) ([]ListPunchHistoryRow, error) {
+	rows, err := q.db.Query(ctx, listPunchHistory,
+		arg.TenantID,
+		arg.S0,
+		arg.FromTime,
+		arg.ToTime,
+		arg.AfterTime,
+		arg.AfterSeq,
+		arg.EndTime,
+		arg.EndSeq,
+		arg.Role,
+		arg.PageSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPunchHistoryRow{}
+	for rows.Next() {
+		var i ListPunchHistoryRow
 		if err := rows.Scan(
 			&i.Seq,
 			&i.PunchID,

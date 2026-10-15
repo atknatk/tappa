@@ -177,3 +177,124 @@ func punchEventOf(r store.ListPunchEventsRow) PunchEvent {
 		TagUID: r.TagUid,
 	}
 }
+
+// THE HISTORY QUERY (M11 API-7b; ADR 0028 §5, plan §2 item 18 and §5 API-7b): the events whose
+// punch_time is in [From, To), in (punch_time, seq) order, page by page.
+//
+// THE GUARANTEE IS A SNAPSHOT'S. punch_time is what the phone declared, so an event can be committed
+// into a stretch of that order a reader has already passed (an offline queue's tap, an approved
+// flag days later). A walk therefore answers the events of ONE snapshot: the first page reads the
+// counter S0 before anything else, every page answers seq <= S0 only, and the walk is complete and
+// free of repeats for that set (punchfeed.sql has the proof). An event above S0 is not this walk's:
+// the feed (PunchPage) is the only read that delivers every event for certain, and the same range
+// asked again later can hold more.
+//
+// The window bounds a page here as it does in the feed: at most window positions of the range after
+// the cursor (any scope), so a sparse scope costs a bounded amount per page; a page can then be
+// short, even empty, while HasMore says the range goes on.
+
+// HistoryPosition is where a history walk stands: its snapshot S0 and the last (punch_time, seq) it
+// has read -- (From, 0) before the first event.
+type HistoryPosition struct {
+	S0   int64
+	Time time.Time
+	Seq  int64
+}
+
+// HistoryQuery is one page's request. First: no cursor yet -- S0 is read now and At is ignored.
+type HistoryQuery struct {
+	From, To time.Time
+	First    bool
+	At       HistoryPosition
+}
+
+// HistoryPage is one page of a history walk.
+type HistoryPage struct {
+	Events  []PunchEvent
+	Next    HistoryPosition
+	HasMore bool
+}
+
+// MaxHistoryRange is the longest [From, To) a history query takes (ADR 0028 §5: 31 days).
+const MaxHistoryRange = 31 * 24 * time.Hour
+
+// ErrHistoryRange: From is not before To, or the range is longer than MaxHistoryRange, or the
+// position is not inside it.
+var ErrHistoryRange = errors.New("tenant: not a history range this query takes")
+
+// HistoryPage reads one page of role's events in [q.From, q.To).
+func (f *PunchFeed) HistoryPage(ctx context.Context, tenantID uuid.UUID, role FeedRole, q HistoryQuery, limit int) (HistoryPage, error) {
+	from, to := q.From.UTC(), q.To.UTC()
+	at := HistoryPosition{Time: from}
+	if !q.First {
+		at = HistoryPosition{S0: q.At.S0, Time: q.At.Time.UTC(), Seq: q.At.Seq}
+	}
+	switch {
+	case tenantID == uuid.Nil:
+		return HistoryPage{}, errors.New("tenant: tenant id is required")
+	case role != FeedEmployer && role != FeedLocation:
+		return HistoryPage{}, fmt.Errorf("tenant: unknown feed scope %q", role)
+	case limit < 1 || limit >= 1<<30:
+		return HistoryPage{}, errors.New("tenant: a page needs a size")
+	case !from.Before(to) || to.Sub(from) > MaxHistoryRange:
+		return HistoryPage{}, ErrHistoryRange
+	case !q.First && (at.S0 < 0 || at.Seq < 0 || at.Seq > at.S0 || at.Time.Before(from) || !at.Time.Before(to)):
+		return HistoryPage{}, ErrHistoryRange
+	}
+	var page HistoryPage
+	err := f.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		qs := store.New(tx)
+		// 1. The counter FIRST (punchfeed.sql: S0 before the window and the page).
+		last, err := qs.GetPunchFeedCounter(ctx, tenantID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errors.New("the business has no feed counter row (ADR 0028 §5 says every business has one)")
+		}
+		if err != nil {
+			return err
+		}
+		if q.First {
+			at.S0 = last
+		} else if at.S0 > last {
+			return ErrCursorAhead
+		}
+		win, err := qs.GetPunchHistoryWindow(ctx, store.GetPunchHistoryWindowParams{
+			TenantID: tenantID, S0: at.S0, FromTime: from, ToTime: to, AfterTime: at.Time, AfterSeq: at.Seq,
+			ScanSize: int32(f.window + 1), WindowSize: int32(f.window),
+		})
+		if err != nil {
+			return err
+		}
+		if win.Scanned == 0 {
+			page = HistoryPage{Events: []PunchEvent{}, Next: at}
+			return nil
+		}
+		rows, err := qs.ListPunchHistory(ctx, store.ListPunchHistoryParams{
+			TenantID: tenantID, S0: at.S0, FromTime: from, ToTime: to, AfterTime: at.Time, AfterSeq: at.Seq,
+			EndTime: win.EndTime, EndSeq: win.EndSeq, Role: string(role), PageSize: int32(limit + 1),
+		})
+		if err != nil {
+			return err
+		}
+		page.Events = make([]PunchEvent, 0, min(len(rows), limit))
+		for _, r := range rows[:min(len(rows), limit)] {
+			page.Events = append(page.Events, punchEventOf(store.ListPunchEventsRow(r)))
+		}
+		if len(rows) > limit {
+			e := page.Events[limit-1]
+			page.Next, page.HasMore = HistoryPosition{S0: at.S0, Time: e.PunchTime.UTC(), Seq: e.Seq}, true
+			return nil
+		}
+		// The whole window was read: its end is the next position, and the range goes on past it when
+		// the window's count found one more.
+		page.Next = HistoryPosition{S0: at.S0, Time: win.EndTime.UTC(), Seq: win.EndSeq}
+		page.HasMore = win.Scanned > f.window
+		return nil
+	})
+	if errors.Is(err, ErrCursorAhead) {
+		return HistoryPage{}, ErrCursorAhead
+	}
+	if err != nil {
+		return HistoryPage{}, fmt.Errorf("tenant: read the punch history: %w", err)
+	}
+	return page, nil
+}
