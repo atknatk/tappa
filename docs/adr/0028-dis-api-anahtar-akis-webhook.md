@@ -874,8 +874,10 @@ parametre), `TestStoreSurface_IsTheOneRecorded`, `TestOpenAPI_PathsAreTheRouters
 `TestWebhookPanel_PingResultsAndTheBucket`, `TestWebhookPanel_AnAddressTheRuleRefusesIsSaidAndNothingIsWritten`,
 `TestWebhookPanel_NotConfiguredSaysSo`, `TestWebhookPanel_EveryClassHasASentence`,
 `TestNewAdminAuth_TheWebhookServiceMatchesTheConfiguration`, `TestWebhookWiring_TheEndpointServiceReachesThePanel`,
-`TestConfig_WebhookSettingsAreRequiredOutsideDev`, `TestConfig_WebhookBlockedAddressesParse`; genişleyenler:
-`TestStoreSurface_IsTheOneRecorded` (+ `TestStoreSurface_NoByteCarryingQueryReadsTags`'ın sekizinci taşıyıcısı).
+`TestConfig_WebhookSettingsAreRequiredOutsideDev`, `TestConfig_WebhookBlockedAddressesParse`; düzeltme turunda
+`TestWebhookPing_CountsTheLastHourOnly`, `TestWebhookQueries_CarryAnExplicitTenantPredicate`,
+`TestAPIKeyQueries_CarryAnExplicitTenantPredicate`; genişleyenler: `TestStoreSurface_IsTheOneRecorded` (+
+`TestStoreSurface_NoByteCarryingQueryReadsTags`'ın sekizinci taşıyıcısı).
 
 **API-10** — `WebhookRouting_FourShapes` · `WebhookWorker_DisabledEndpointGetsNothing` · `WebhookWorker_TwoPodsSendOnce` ·
 `WebhookWorker_NoOpenTransactionDuringHTTP` · `WebhookWorker_DrainsWithinShutdownBudget` ·
@@ -2374,10 +2376,14 @@ alt paket, çünkü `internal/webhook` K-19 işçisidir ve `TestWorker_NoTenantW
    gitmeden önce aynı işlemde** yazılır ve işlem kapanır; istek işlem **dışında** gider; sonuç ikinci bir satırdır
    (`webhook_endpoint.ping_result`: sınıf + durum). Bedeli: cevap gelmese de slot harcanır, çöküş slotu geri vermez. Dolu kovada
    cevap `BucketFull{NextAt}` (en eski slot + 1 sa) — panel *"bu saatin 10 test mesajı kullanıldı, sonraki HH:MM'de"* der.
-   İndeks: `audit_log_tenant_at_idx`.
-3. **İmza başlığı `X-Taptime-Signature`**, değeri `sha256=` + küçük harf hex HMAC-SHA256(gövdenin baytları), anahtar = anahtarın
-   **metni** (önek dahil — entegratörün elindeki dizedir). Spec repoda değil (atıf kuralı); başlık adı spec'te farklıysa tek
-   sabittir (`webhook.SignatureHeader`). `TestWebhookSignature_KnownAnswer` bu görevde yazıldı, çünkü ping imzalı gider; vektör Go
+   İndeks: `audit_log_tenant_at_idx`. **Pencerenin tek kaynağı** *(düzeltme turu)* `endpoints.BucketWindow`'dur: `ReadWebhookBucket`
+   onu `make_interval(secs => @window_seconds)` ile parametre olarak alır (çıplak parametre, CLAUDE.md §6) ve aynı sabit `NextAt`'ı
+   tarihler; genel planda (`force_generic_plan`) sınır `audit_log_tenant_at_idx`'in Index Cond'unda kalır (EXPLAIN, eski sabit
+   `interval '1 hour'` ile aynı plan). Kenar `TestWebhookPing_CountsTheLastHourOnly`'dedir: 59 dk önce harcanmış 10 slot →
+   `BucketFull` ve `NextAt` tam olarak en eski + 1 sa; 61 dk önce → ping gider.
+3. **İmza başlığı `X-Taptime-Signature`** — **kullanıcı kararı (2026-10-15)**; değeri `sha256=` + küçük harf hex
+   HMAC-SHA256(gövdenin baytları), anahtar = anahtarın **metni** (önek dahil — entegratörün elindeki dizedir). Ad tek sabittir
+   (`webhook.SignatureHeader`). `TestWebhookSignature_KnownAnswer` bu görevde yazıldı, çünkü ping imzalı gider; vektör Go
    dışında (Python `hmac`) hesaplandı, anahtarı rehberin **açıkça sahte** anahtarı: önek + 43 `A` (32 sıfır bayt; R7d dolguyu
    saymaz).
 4. **Ping gövdesi** `{"event":"ping","id":"<slot satırının kimliği>","sentAt":"<RFC 3339 UTC>"}`; başlıklar `Content-Type:
@@ -2412,8 +2418,10 @@ alt paket, çünkü `internal/webhook` K-19 işçisidir ve `TestWorker_NoTenantW
     virgüllü IP ya da CIDR; IPv4 IPv4 yazımıyla, `/0` ve bölgeli adres reddedilir; konumuyla adlandırılır. `dev`'de ikisi de boş
     olabilir: KEK yoksa panel *"yapılandırılmamış"* der, liste yoksa `egress.New` yalnız `DevelopmentWithoutBlockedList`
     (= `cfg.Env == dev`, AST ile pinli) ile kurulur. ConfigMap değeri `144.76.158.60` (apex kaydının ölçülen origin'i,
-    `40-ingress.yaml`); IPv6 ve ek düğümler API-13'te. `20-app.yaml` KEK'i isteğe bağlı olmadan alır; Infisical örneği onu zorunlu
-    çeker.
+    `40-ingress.yaml`); IPv6 ve ek düğümler API-13'te — **deploy'u bloklayan** madde (plan §5 API-13). `20-app.yaml` KEK'i isteğe
+    bağlı olmadan alır; Infisical örneği onu zorunlu çeker — değer deploy'dan önce yazılmazsa bütün senkron durur (API-13'ün
+    bloklayan öteki maddesi). **Manifestte `TAPPA_ENV` açıkça verilir** (`05-config.yaml`: `prod`); **yokluğu dev kipidir** —
+    KEK ve liste zorunlu olmaz, istemci engel listesiz kurulur (API-9'dan önceki varsayılan; kod değişmedi).
 11. **Panel:** API anahtarları sayfasının altında; ping PRG ile (`?ping=<sınıf>&status=`; sınıf kapalı kümede değilse çizilmez —
     yeniden yükleme yeni ping göndermez); döndürme işaretli kutu ister; oluşturma formunun yeniden gönderimi `webhook-exists`.
     `NewAdminAuth`, KEK'i taşıyan bir yapılandırmayı webhook servisi verilmeden **reddeder** (K-26'nın kapatmasını sessizce
@@ -2442,6 +2450,15 @@ eşzamanlı oluşturmanın 16'sı geçti → kırmızı. Panel: handler'ın sahi
 rotası okuma zincirine (`mountSections`) taşınınca çapraz site POST `ping=ok` aldı ve istek gitti → kırmızı. Yapılandırma ve
 kablolama: `webhookSettings` nil → kırmızı; geliştirme izni `true`, `Blocked` seçeneği yok, panele başka değer → üçü kırmızı;
 `NewAdminAuth`'un reddi yok → kırmızı.
+
+**Düzeltme turu (2026-10-15) — ölçümler ve mutantlar** (atılabilir kapta, her biri tek başına, geri alındı). Kova penceresi:
+üretilmiş ifadede pencere `interval '1 minute'` → 59 dk'lık işletme ping attı, kırmızı; `interval '100 years'` → 61 dk'lık işletme
+`BucketFull` aldı, kırmızı; `BucketWindow = time.Minute` → 59 dk'lık işletme ping attı ve `TestWebhookPing_SharesTheResendBucket`'in
+`NextAt`'ı (tolerans 5 sn'ye daraldı, saat `time.Hour` olarak yazılı) kırmızı; `NextAt` bir dakika kaydırılınca → iki test kırmızı.
+Önceki turda bu üç mutant yeşildi (iki denetçinin ölçümü). §4.5 kemeri: `webhooks.sql` ve `apikeys.sql` dosyadan türetilen kemere
+girdi (`internal/domain/tenant`'ın eşleştiricisi; çağıranları kemer kopyası taşımayan paketlerde) — `GetWebhookEndpoint`,
+`GetWebhookEndpointForSigning`, `ReadWebhookBucket`, `RotateWebhookEndpointKey`, `LockWebhookBucket`, `ListAPIKeys`,
+`RevokeAPIKey`, `InsertAPIKey`, `GetTenantAPIEnabledAt`'ın yüklemi düşürülünce ya da gevşetilince → dokuzu kırmızı.
 
 **Log ve iz kanaryası — kapsamı.** Alan ve panel testleri sahte bir gönderici kullanır: `egress.Result` yalnız sınıf + durum taşır
 (alan sayısı pinli), yani alana metin ulaşamaz; altı sınıfın her biri için iz satırlarında ve panel log'unda adres, host, yol,

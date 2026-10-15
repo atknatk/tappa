@@ -646,11 +646,19 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
   temizlenmiş hâliyle muaf olduğu için kilit değildir; sayı sıfır değilse ilgili işletmelerin sahiplerine söylenir. Spec §7'nin dokuz maddesi (6. madde sözleşme farkı); güvenlik ONAY; KF+KM holding'i kuruldu; holding dışı izolasyon prod'da örneklendi. **(API-4'ten, 2026-10-15 — runbook)** `TAPPA_API_HOST` set edilmeden `api.*` adı ingress'ten pod'a gelirse panelin her
   şeyi yakalayan rotalarına düşer: ingress kuralı env ile **aynı adımda** eklenir (önce değil). Çift noktalı host
   (`api.taptime.mt..`) API host'u sayılmaz, panel olarak yanıtlanır — ingress onu yönlendirmemelidir.
-  **(API-9'dan, 2026-10-15 — deploy öncesi)** `TAPPA_WEBHOOK_KEK` artık `dev` dışında **zorunlu** ve `20-app.yaml` onu isteğe bağlı
-  olmadan alır: değer `tappa-secrets`'a (ya da Infisical `/tappa/`'ya — örnek ExternalSecret onu zorunlu çeker) manifest kümeye
-  ulaşmadan **önce** yazılır, ayrı üretilir ve öteki yedi anahtardan farkı **değer basmadan** ölçülür. `TAPPA_WEBHOOK_BLOCKED_ADDRESSES`
-  (`05-config.yaml`, bugün `144.76.158.60`) `dev` dışında zorunlu: düğümün IPv6 adresi varsa ve kümede başka düğüm ya da yük dengeleyici
-  varsa listeye eklenir. Deploy sonrası ölçüm: panelden `https://taptime.mt/` adresli bir uç nokta kurulup ping atılır → sonuç
+  **(API-9'dan, 2026-10-15 — deploy'u BLOKLAYAN iki madde; düzeltme turunda bloklayan olarak yazıldı)**
+  **(1) KEK uzak sır deposunda, deploy'dan önce.** `TAPPA_WEBHOOK_KEK` artık `dev` dışında **zorunlu** ve `20-app.yaml` onu isteğe
+  bağlı olmadan alır; `deploy/examples/externalsecret.example.yaml` onu **zorunlu** çeker (anahtar başına *"optional"* yok). Değer
+  Infisical `/tappa/TAPPA_WEBHOOK_KEK`'e (ya da doğrudan `tappa-secrets`'a) manifest kümeye ulaşmadan **önce** yazılır — yazılmazsa
+  ExternalSecret'in **bütün** senkronu durur (yalnız bu anahtar değil; sonraki her sır döndürmesi de kümeye ulaşmaz). Ayrı üretilir
+  ve öteki yedi anahtardan farkı **değer basmadan** ölçülür.
+  **(2) Düğümün IPv6 adresi.** `TAPPA_WEBHOOK_BLOCKED_ADDRESSES` (`05-config.yaml`) `dev` dışında zorunlu ve bugün **yalnız IPv4**
+  (`144.76.158.60`). Deploy'dan önce düğümde `ip -6 addr show scope global` koşulur; küresel bir IPv6 adresi varsa ve ingress
+  `[::]:443`'ü dinliyorsa (`ss -ltn`) o adres listeye eklenir. Eklenmezse o IPv6'ya çözülen bir webhook adresi Taptime'ın kendi
+  ingress'ine ulaşır: TLS adı uyuşmadığı için HTTP isteği gitmez, ama TCP bağlantısı ve TLS el sıkışması erişimi kalır. Kümede başka
+  düğüm ya da yük dengeleyici varsa onların adresleri de eklenir.
+  **`TAPPA_ENV` manifestte açıkça verilir** (`05-config.yaml`: `prod`); yokluğu `dev` kipidir — o kipte KEK ve adres listesi zorunlu
+  değildir ve webhook istemcisi engel listesiz kurulur (API-9'dan önceki varsayılan, kod değişmedi). Deploy sonrası ölçüm: panelden `https://taptime.mt/` adresli bir uç nokta kurulup ping atılır → sonuç
   `blocked_address` olmalıdır (deploy/README.md *"Webhook (M11 API-9)"*). Egress NetworkPolicy yine kapsam dışı (§8): `internal/egress`
   tek savunmadır.
 
