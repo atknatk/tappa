@@ -312,7 +312,7 @@ hata):
 | `strict_stmt` | aynı soru, `statement_timestamp()` ile | ifade saati | BEFORE kapısının katı kolları (QR, manuel, ilerletilmemiş NFC); AFTER tetikleyicisinin onay kolu |
 | `tolerant_stmt` | aynı holding, iki üyelik `left_at IS NULL OR left_at + 60 sn > statement_timestamp()` **ve iki üyelik zamanda örtüşür:** `ma.joined_at < coalesce(mb.left_at, 'infinity') AND mb.joined_at < coalesce(ma.left_at, 'infinity')` | ifade saati | **yalnız** BEFORE kapısının K-29 (i)/(ii) kolları (§6) |
 | `lock` | `tolerant_stmt`'in şartını (aynı holding + pencere + **örtüşme**) sağlayan aday üyelik satır çiftlerini kanonik sırada (küçük tenant id önce) **`FOR SHARE`** kilitler; karar vermez | — | **yalnız** BEFORE kapısı, karardan önce (§6) |
-| `is_member` | `a`'nın (`b` NULL) `left_at IS NULL OR left_at + 60 sn > clock_timestamp()` olan bir üyeliği var mı | `clock_timestamp()` | **yalnız** K-36 saat dilimi kilidi (§1) |
+| `is_member` | `a`'nın (`b` NULL) `left_at IS NULL OR left_at + 60 sn > clock_timestamp()` olan bir üyeliği var mı | `clock_timestamp()` | K-36 saat dilimi kilidi (§1) · *(API-8, 2026-10-15, `00055`)* `holding_directory` ve `holding_site_locations`'ın **üyelik kapısı**: hayırsa eş kümesi hiç hesaplanmaz; evetse karar yine `strict`'tir (kapı bir şey karara bağlamaz — toleranslı kip katının üst kümesidir, eş gizleyemez) |
 
 **Örtüşme şartı neden (2. tur, güvenlik merceği ölçtü):** yalnız *"aynı `holding_id` + pencere"*
 soran toleranslı kip, holding'den **çıkmış** A'nın pencerede kalan eski satırını, A çıktıktan
@@ -324,7 +324,9 @@ ADR 0028 §2). 60 sn'nin tek tanımı `holding_peer`'dedir (`op_add_holding_memb
 fonksiyon satır başına yeniden çağrılır; bu yüzden çok satırlı fonksiyonlar (`holding_directory`,
 `holding_site_locations`) eş kümesini **bir kez** hesaplar — `tenants` üzerinde `holding_peer(GUC
 tenant'ı, t.id, 'strict')` ile, materyalize bir CTE'de — ve veri satırlarını bu kümeyle birleştirir;
-`holding_peer`'i veri satırı başına **çağırmaz**.
+`holding_peer`'i veri satırı başına **çağırmaz**. *(API-8, 2026-10-15 — T124'ün yarısı)* Bu tarama, önünde tek bir
+`holding_peer(GUC tenant'ı, NULL, 'is_member')` kapısıyla koşar (bir InitPlan): holding'siz işletme `tenants`'ı hiç
+taramaz (21 bin tenant'ta ~0,7 sn → ~1 ms); bir üye taramanın bedelini hâlâ öder (~1 sn — §13 madde 21).
 `holding_peer` **VOLATILE**'dir (`lock` kipi satır kilidi alır; PostgreSQL kilitli `SELECT`'i volatil
 olmayan fonksiyonda reddeder — *"Bağlam"*), `holding_members` üzerindeki **tek satır kilidi
 `FOR SHARE`'dir** — gövdesinde `FOR UPDATE`, `FOR NO KEY UPDATE`, `FOR KEY SHARE`, `UPDATE`,
@@ -1035,6 +1037,11 @@ adlandırılmış kalan risk (1. tur, güvenlik merceği; §13 madde 13).
     kayıt formu onu holding'siz işletmede de çağırır (üyelik uygulamada elde değil; yeni bir
     `holding_*` çağrısı kapalı listenin genişlemesi olurdu). Ön-süzme (`holding_members` üzerinden,
     karar yine `holding_peer`'de) bir migration ister — `docs/backlog.md` T124.
+    *(API-8, 2026-10-15, `00055`)* **Holding'siz işletmenin yarısı kapandı:** `holding_site_locations` ve
+    `holding_directory` eş kümesinden önce tek bir `is_member` sorar (§2 kip tablosu) — 21 bin tenant'ta
+    0,68–0,79 sn → 1,0–1,4 ms. **Üyenin yarısı açık, adlandırılmış bedel:** bir üye çağrı başına 0,96–1,03 sn
+    öder (KM'nin rehberinin her sayfası). `holding_members` üzerinden ön-süzme ölçüldü (5,2–5,8 ms) ama §2'nin
+    *"`holding_members`'a değinen tek gövde `holding_peer`"* kuralına bir istisna ister — kullanıcı kararı (T124).
 22. **`sun_valid`'in değeri türetilebilir (API-1c denetimi, güvenlik G-D1):** sütun `tappa_app`'ten
     saklıdır, ama bir `refused` satırın `ctr_gap > 0`'ı (yalnız ilerletilmiş dokunuşta dolu, K-1i) ve
     `ctr`'ının plaketin `last_ctr`'ına eşitliği *"imza geçerliydi"*yi söyler. K-1i'nin KF tarafındaki
@@ -1167,7 +1174,8 @@ satırları.)*
   tetikleyici `holding_feed`'in onay kolunda da) · `TestHoldingManual_PeerManagerCannotNameAnOutsiderLocation`
   (C'yi saha diye adlandıran satır hiç yazılamaz; *"C'nin `site_punches`'ı 0"* yarısı
   `TestSitePunches_OutsiderSeesNothing`) ·
-  `HoldingDirectory_ReturnsPeersNeverTheCaller` (**devredildi: API-8** — `holding_directory` orada doğar)
+  `TestHoldingDirectory_ReturnsPeersNeverTheCaller` (*API-1b'den devredildi, API-8'de yazıldı* — `holding_directory` orada doğdu;
+  API-8'in öteki adları aşağıda, *"API-8 uygulama notu"*)
 - (c) `TestHoldingAdvance_ConcurrentSameCounterExactlyOneWins` (SQL düzeyinde, iki ifade yarı/yarı) ·
   `TestHoldingTap_ConcurrentSameCounterExactlyOneSUNValid` (ürün yolundan, `Service.Record`) — `-race`
 - (d) `TestDecide_PersonDebounceSpansBothTenantsPlaques` · `TestHoldingTap_PersonDebounceSpansBothTenantsPlaques` ·
@@ -1855,3 +1863,50 @@ dört DÜŞÜK).**
 - **D-f:** madde 16'nın ölçümü üç şekle ayrıldı (`tags` ilerletmeden önce/sonra, `locations`).
 - **D-g:** madde 5 (e) değerlendiricinin gerçek sırasıyla yeniden yazıldı; review etkili kanıt dışı kuralın
   (`ctr-gap-review`) söylediği eklendi.
+
+
+## API-8 uygulama notu (2026-10-15)
+
+Yapıcının uygulaması; kararlar değişmedi — holding tarafının özeti (uç ve ölçümlerin tamamı ADR 0028 *"API-8 uygulama
+notu"*nda). **Migration `00055`** (`db/migrations/00055_list_a_peers_staff.sql`: fonksiyon, dört sütun, kapı) ve **`00056`**
+(`employees_tenant_updated_idx` — kendi dosyasında, çünkü Down'ı `employees`'e ACCESS EXCLUSIVE alır ve holding testlerinin
+Down yürüyüşleri `00055`'in Down'ını koşar: ayrı tutulunca o yürüyüşler `employees`'i hiç kilitlemez).
+
+- **`holding_directory(p_updated_since, p_cursor)`** imza tablosunun satırıyla birebir (katalog testinin `holdingSignatures`'ı;
+  postkoşul da metni sınar): sahibi `tappa_holdingdefiner`, SECURITY DEFINER, `proconfig` yalnız `search_path` (§2 (v) —
+  çağrılabilir fonksiyonlarda `lock_timeout` yok; okumanın süre sınırı API okumalarının `statement_timeout`'udur, 5 sn),
+  `EXECUTE` tam olarak {sahip, `tappa_app`}, PUBLIC'ten REVOKE. Gövde: eş kümesi **bir kez** (`tenants` × `holding_peer(…,
+  'strict')`, materyalize CTE) ve önünde üyelik kapısı (§2, T124); eş kümesi ayrıca çağıranın kendi id'sini dışlar
+  (`s.id <> c.id` — `holding_peer(a, a)` yanlışken bile ikinci kemer, `TestHoldingDirectory_TheCallerIsKeptOutTwice` iki
+  katmanı ayrı ayrı ölçer); veri satırları eş başına LATERAL `ORDER BY updated_at, id LIMIT 1000`, konum LATERAL'ın
+  **içinde** (dışında olsa eşin ilk 1000 satırı imleçten sonrakileri iterdi — mutantı `TestHoldingDirectory_IsAKeysetOnUpdatedAtAndID`'de
+  kırmızı); dış sıra `(updated_at, id)`, en çok 1000. Sayfa anahtarı iki argümandır: `p_cursor` NULL → `updated_at >=
+  p_updated_since`; dolu → `(updated_at, id) > (p_updated_since, p_cursor)`. `active` = `status <> 'deactivated'` (K-1h;
+  GET /v1/employees ile aynı). E-posta, `full_name`, ev lokasyonu yok.
+- **Matris (§3):** `employees` satırının kalan dört sütunu verildi — `first_name`, `last_name`, `status`, `updated_at`
+  (`TestHoldingDefiner_ColumnMatrix`, `TestHoldingDefiner_EveryGrantIsUsed` — sürüş `holding_directory`'yi holding'siz bir
+  işletmenin bağlamında çağırır: kapı eş kümesini yürümeden hayır der, yürütücü ise ifadenin adlandırdığı her sütunu
+  başlarken denetler — dört sütunun her biri tek başına geri alınınca 42501; çağrı kaldırılınca dördü de *"a grant nothing
+  reads"* ile kırmızı, ölçüldü). `employees.email` verilmedi (*"asla SELECT"*; ön/son koşul da sınar).
+- **Kanarya:** fikstürde eşin e-postası iğneleri taşıyan bir çalışanı var; `holding_directory` o satırı döner, hiçbir hücrede
+  iğne yok (`TestHoldingFunctions_SiteEvidenceCanaryNeverLeaks`). **Eş kümesi bir kez:** `holdingMultiRowCalls`'ta
+  (`TestHoldingFunctions_PeerSetComputedOnce`).
+- **K-33, H2 ile:** `holdingOutsiderProbes` artık `holding_directory`'yi de yürür (C, D, KM, bağlamsız; dünyanın ilk
+  çalışanının `updated_at`'ından başlayarak, yasaklı bir satır görünene ya da sayfa kısalana dek). İki çok satırlı probun
+  yürüyüşü ilk sızıntıda durur ve ilk sızan bağlamdan sonra öteki bağlamlar sorulmaz (gerçek süzgeç sızdırmaz, hepsini
+  yürür): testlerin doldurduğu paylaşılan veritabanında (45 000 tenant) yanlış süzgecin her sayfası bütün tenant'ları yürür
+  ve mutant testi 3 dk sınırını aşıyordu — ölçüldü: 180 sn (zaman aşımı) → 37,6 sn. M1/M2/M3 her biri fonksiyonda kırmızı (`TestHoldingFilter_MutantsM1M2M3AreRedInFunctionsAndTriggers`).
+  **Not:** mutant gövdeleri `is_member`'e artık gerçek cevabı verir — iki çok satırlı fonksiyon onu kapı olarak sorar ve
+  süzgecin mutantı aynı zamanda üyelik sorusunu bozsaydı kapı onu gizlerdi (ölçüldü: eski harness'le iki fonksiyonun
+  probu yeşil kaldı); mutantlar K-33'ün yanlış süzgeçleridir, bozuk kapı değil. Bozuk bir kapı kapalı yönde düşer (0 satır).
+- **`holding_site_locations`'ın gövdesi** (`00047`) aynı migration'da kapıyla değişti (`CREATE OR REPLACE` — sahip, imza,
+  ACL aynı); ön koşul eski gövdenin md5'ini (`63bf5ecf…`) ister, Down onu bayt bayt geri verir
+  (`TestHolding00055_DownGivesBackAndUpTakesItAgain`). Down zincirleri: `feedBelow48` önce `00055`'in Down'ını, `feedUpAgain`
+  sonda Up'ını koşar (tablo kilidi yok; `holdingDownTables` değişmedi); `opAtVersionSkips`'e 55 ve 56. *(İlk hâlde indeks
+  `00055`'teydi ve `employees` `holdingDownTables`'a girmişti; tam `-race` koşusunda `TestHolding00041_PreconditionRefusesAWrongCluster`
+  180 sn'de düştü — en sıcak tablonun ACCESS EXCLUSIVE'i Down yürüyüşlerine eklenmişti. Bölündü.)*
+- **Yazılan testler:** `TestHoldingDirectory_ReturnsPeersNeverTheCaller` · `TestHoldingDirectory_IsAKeysetOnUpdatedAtAndID` ·
+  `TestHoldingDirectory_TheCallerIsKeptOutTwice` · `TestHoldingFunctions_AMemberOfNoHoldingAsksOnce` (kapı; mutant —
+  kapı iki gövdeden birinden kaldırılınca kırmızı) · `TestHolding00055_DownGivesBackAndUpTakesItAgain` ·
+  `TestEmployees00056_TheDirectoryIndexGoesBack` · `TestEmployees00056_GivesUpAfterASecondBehindAnOpenWrite`.
+

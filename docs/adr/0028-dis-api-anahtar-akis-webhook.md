@@ -843,10 +843,16 @@ parametre), `TestStoreSurface_IsTheOneRecorded`, `TestOpenAPI_PathsAreTheRouters
 `TestPunchHistory_TheRangeAndTheCursorAreTheContract` (31 gün + 1 saat, katı RFC 3339, kodlanmamış `+`). Üçüncü tur:
 `TestPunchHistory_TheTieBreakIsTheTextsNotThePlans`.
 
-**API-8** — `Directory_HoldingTenantsOnlyNoEmailWithActive` · `Directory_Paged` ·
-`Directory_OverlapWindow` · `Directory_OwnStaffAlwaysFromTheRLSQuery` ·
-`Directory_KeyOfATenantWithoutHoldingSeesOnlyItsOwnStaff` (holding'siz anahtar: kendi
-çalışanları gelir, `holding_directory` 0 satır, başka tenant yok).
+**API-8** *(API-8'de yazıldı, 2026-10-15 — gerçek adlar; ölçümler ve mutantlar *"API-8 uygulama notu"*nda)* —
+`TestDirectory_HoldingTenantsOnlyNoEmailWithActive` · `TestDirectory_Paged` ·
+`TestDirectory_OverlapWindow` · `TestDirectory_OwnStaffAlwaysFromTheRLSQuery` ·
+`TestDirectory_KeyOfATenantWithoutHoldingSeesOnlyItsOwnStaff` (holding'siz anahtar: kendi
+çalışanları gelir, `holding_directory` 0 satır, başka tenant yok) · `TestDirectory_ClosedIs403RevokedIs401SuspendedIsOpen` ·
+`TestEmployeeDirectory_WalksMissNothingUnderConcurrentWriters` · `TestEmployeeDirectory_TheWalksAsOfIsItsFirstPages` ·
+`TestEmployeeDirectory_RLSHoldsWithoutTheFilter` · `TestEmployeeDirectory_TheBoundIsTheIndexsNotAFilter` ·
+`TestMergeDirectory_TheTwoSourcesInOneOrder` · `TestAPIWiring_TheDirectoryRunsThroughTheShippedSurface`; genişleyen:
+`TestAPIRead_EveryReadCarriesTheBound` (rehber + JIT kapalı). ADR 0027'den devralınan
+`TestHoldingDirectory_ReturnsPeersNeverTheCaller` ve holding tarafının adları ADR 0027 *"API-8 uygulama notu"*nda.
 
 **API-9** — `WebhookEndpointCatalog` · `WebhookEndpoint_OnePerTenant` ·
 `WebhookEndpoint_KeyShownOnce` · `WebhookPing_SharesTheResendBucket` ·
@@ -2179,3 +2185,108 @@ metni değil (yorumu düzeltildi).
 alınan toplu yazma, commit edilen dokunuş, `VACUUM`, aynı anda ikinci dokunuş → heap ve indeks sırası `seq=2, seq=1`. `tieGroup`
 yorumu ve yukarıdaki E-ORTA cümlesi düzeltildi: fikstür bu sırayı **kesin** kılar; ürün onu şansa bağlı üretebilir — eşitlik sırasının
 metinde pinlenmesi bu yüzden süs değil.
+
+
+## API-8 uygulama notu (2026-10-15)
+
+Yapıcının uygulaması ve ölçümleri; kararlar değişmedi — ADR'nin açık bıraktıkları aşağıda adıyla. **Migration'lar `00055`**
+(`holding_directory`, tanımlayıcının dört `employees` sütunu ve T124'ün üyelik kapısı — holding tarafı ADR 0027 *"API-8 uygulama
+notu"*nda) **ve `00056`** (`employees_tenant_updated_idx (tenant_id, updated_at, id)`; `lock_timeout` 1 sn ilk ifade). Mutantlar ve testler atılabilir PostgreSQL 17
+kabında (goose 55); ölçek ölçümü ikinci bir atılabilir kapta.
+
+**Parçalar.** Kendi yarı `db/queries/directory.sql` (`GetDirectoryHead` — yürüyüşün saati ve işletmenin şirket kodu;
+`ListDirectoryEmployees` — ikisi de açık `tenant_id`, tenant paketinin kemeri okur); eşlerin yarısı `internal/db/holding.go`'da
+elle `Holding.Directory` (`holding_directory`); okuyucu `internal/domain/tenant/employeedirectory.go` (`tenant.EmployeeDirectory`,
+tek `WithTenant(anahtarın tenant'ı)` işleminde iki kaynak, `(updated_at, id)` üzerinde birleştirme — id'ler tenant'lar
+arasında tekil, sıra tektir); uç `internal/handler/api/directory.go`; kablolama `openAPISurface`'te `tenant.NewEmployeeDirectory(data)`.
+`transactions` adlandırılmaz — `TestEvidenceReaders_EveryOneIsClassified`'ın sınıflandıracağı yeni okuyucu yok.
+
+**Sözleşme ve ADR'nin açık bıraktıkları — kararıyla (otonom, gerekçeli):**
+1. **Parametreler API-7'nin kuralıyla:** yalnız `updatedSince`, `cursor`, `limit`, her biri en çok bir kez; başka ad (harf farkı
+   dahil), yinelenen ad, ayrıştırılamayan sorgu → 400, değer yankılanmaz. `updatedSince` geçmiş sorgusunun ayrıştırıcısıyla
+   (`parseInstant`, `history.go`'dan çıkarıldı): katı RFC 3339, en çok µs, kodlanmamış `+` → `reason: unencoded_plus`.
+2. **Yürüyüş ve `asOf` (K-21'in tanımı):** yürüyüş imleçsiz bir istekten `hasMore: false` sayfasına kadardır. `asOf` =
+   yürüyüşün **ilk sayfasının işleminin başlangıcı** (`transaction_timestamp()` — o işlemin her anlık görüntüsünden önce),
+   imleçle taşınır, her sayfada aynıdır. Sonraki yürüyüş `updatedSince=asOf`; sunucu `updatedSince − 10 dk`'dan okur.
+   **Garanti (ölçüldü):** bir rehber sütununun değişikliği (00037'nin tetikleyicisi `updated_at`'ı yazmanın saatine koyar),
+   onu yazan işlem yazma ile commit arasında 10 dk'dan uzun açık kalmadıkça, commit'inden sonra başlayan bir yürüyüştedir.
+   Gerekçe: yürüyüşün görmediği bir satır, konumunu okuyan anlık görüntüde görünmüyordu — işlemi o an (≥ `asOf`) açıktı;
+   yazma `asOf − 10 dk`'dan önceyse işlem 10 dk'dan uzun açıktı, değilse sonraki yürüyüş onu okur. Bugün `employees`'in her
+   yazıcısı bir istektir (≤ 30 sn). **Tekrar beklenir** (okurken değişen kişi sıranın sonuna gider): `id` ile ezilir.
+3. **İmleç `dir_<asOf µs>_<konum µs>_<id>_<bağ>`:** saydam (API-7 ve 7b'nin çizgisi); **bağ** `(işletme, updatedSince)`'in
+   SHA-256'sının ilk 8 baytı — başka işletmenin imleci ya da başka/eksik `updatedSince` ile gelen imleç 400. İmza değildir:
+   sahtesi okuyanın kendi rehberinde bir konum ve kendine dönecek bir `asOf` seçer; veritabanı saatinin ötesindeki `asOf`
+   400 (`tenant.ErrDirectoryCursor`). id kanonik yazımıyla (küçük harf, tireli); başka yazım 400.
+4. **Yanıt `{data, nextCursor, hasMore, asOf}`:** `nextCursor` yalnız `hasMore` true iken dolu, sonda null — bitmiş yürüyüşü
+   imleçle sürdürmek örtüşme penceresini atlardı; doğru devam `updatedSince=asOf`'tur. Kayıt `{id (emp_), company (api_code),
+   externalRef, employeeCode, firstName, lastName, active, updatedAt}` — kendi ve eş satırı aynı biçim (imza tablosunun
+   sütunları; `full_name` yok — panelin açtığı adsız kişide ad null; eklemek eşin dönüşünü genişletirdi, ADR 0027 §2).
+5. **Birleşik sayfa:** kendi sorgusu `limit + 1`, `holding_directory` en çok 1000 (`DirectoryMaxPage` = 1000 = fonksiyonun tavanı,
+   bu yüzden ilk `limit` satır her zaman doğru); `hasMore` = bir kaynakta sayfanın ötesinde satır var **ya da** fonksiyon tam
+   1000 döndü (arkasında daha olabilir — sonraki sayfa boş son olabilir).
+6. **Askıda açık** (§10); K-22 (403) ve iptal (401) zincirde (`TestDirectory_ClosedIs403RevokedIs401SuspendedIsOpen`).
+7. **API okumalarında JIT kapalı** (`db.BoundStatements`, `statement_timeout` ile aynı LOCAL ifade): planlayıcı
+   `holding_directory`'nin eş kümesini tenant'ların üçte biri sanıyor; 21 bin tenant'ta tahmin `jit_above_cost`'u geçti ve her
+   sayfa 250–320 ms derleme ödüyordu (ölçüldü: KM 1,21–1,27 sn → 0,97–1,01 sn; holding'siz C kapılı gövdede 237–316 ms →
+   1,0–1,3 ms). JIT bir satırı değiştirmez; havuzun düz işlemi sunucunun değerinde kalır (`TestAPIRead_EveryReadCarriesTheBound`;
+   mutant — JIT ayarı kaldırılınca kırmızı).
+8. **Kendi sorgusunun sınırı iki çıplak parametredir** (`(updated_at, id) > (@after_at, @after_id)`): `coalesce(@after_at,
+   '-infinity')` genel planda (pgx'in hazır ifadesi) indeks koşulu değil süzgeç oluyordu — 200 000 kişilik işletmede sayfanın
+   150 000 satır içinde 150 001 satır atılıp 90 ms; çıplak hâli 0,8 ms. `updatedSince`'siz yürüyüş yıl 1'i geçer
+   (`directoryOrigin`; `updated_at` tetikleyicinin saatidir). `TestEmployeeDirectory_TheBoundIsTheIndexsNotAFilter` metni pinler
+   (sıralı ve bitmap tarama, sort kapalı — API-7b'nin üçüncü tur dersi); kontrol: `coalesce` biçimi kırmızı.
+
+**Ölçümler.**
+- **Kabul çekirdeği** — `TestDirectory_HoldingTenantsOnlyNoEmailWithActive`: KF: KF + KM; KM: KM + KF; C (H2): C + D; E (holding'siz):
+  yalnız E — her kayıt sahibin okumasına alan alan eşit, `(updatedAt, id)` sırasında, deaktive kişi `active: false`; yanıt
+  baytlarında e-posta, kanarya, `full_name`, `email`/`location`/`venue` sözcükleri yok; kayıt tam sekiz anahtar.
+  `TestDirectory_KeyOfATenantWithoutHoldingSeesOnlyItsOwnStaff` (E: yalnız kendi; `holding_directory` E bağlamında 0 satır;
+  C: C + D). `TestDirectory_OwnStaffAlwaysFromTheRLSQuery` (KM holding'den çıkınca kendi çalışanları aynen, KF'ninkiler yok);
+  filtresiz RLS sondası `TestEmployeeDirectory_RLSHoldsWithoutTheFilter` (gönderilen ifade, tenant yüklemi etkisiz, KM bağlamında
+  KF'yi istemek → yalnız KM'nin satırları; sahip ikisini okur).
+- **Sayfalama** — `TestDirectory_Paged`: KM + KF'nin 60 kişisi `limit` 3, 7, 59, 60, 1000 ve varsayılanla aynı liste,
+  ⌈n/limit⌉ sayfa (tam dolan son sayfa zaten `hasMore: false`); `limit` 1 ilk kişinin tek kayıtlık sayfası, `hasMore` ile; `limit` 0/1001/harf/işaret/üs 400; sorgu sözleşmesi; imleç oyunları (bozuk, başka işletmenin, başka/eksik
+  `updatedSince`, gelecekteki `asOf`) 400 yankısız; kendi seçtiği konum = listenin geri kalanı.
+- **Örtüşme penceresi** — `TestDirectory_OverlapWindow`: `asOf − 9 dk 59 sn` ve tam `− 10 dk` içeride, `− 10 dk 1 sn` dışarıda;
+  `asOf`'tan sonra yeniden adlandırılan kendi ve deaktive edilen eş kişi sonraki yürüyüşte; yürüyüşün ilk sayfasında **açık**
+  olan, sonra commit edilen yeniden adlandırma o yürüyüşte yok, `updatedAt`'ı o yürüyüşün `asOf`'undan önce olduğu hâlde bir
+  sonrakinde var.
+- **Eşzamanlı yazıcılar** — `TestEmployeeDirectory_WalksMissNothingUnderConcurrentWriters`: 8 yazıcı × 60 değişiklik (KF, KM, C;
+  yazma 0–40 ms açık, onda bir geri alma), KM okuyucusu 1–200'lük sayfalarla sürekli yürür, pencere 120 ms'ye ölçeklenir. Koşular
+  (3, 1 800 tenant'lı taze kap — CI'nin boyu): 62–66 yürüyüş, **0 kaçan, 0 bayat, C'nin 0 satırı**. 45 000 tenant'lı paylaşılan
+  veritabanında bir üyenin sayfası ~1 sn (eş kümesi) olduğu için yürüyüş sayısı 3'e düşer; test doğru kalır, daha az kanıtlar
+  (yorumunda yazılı). **Mutant — pencere 0:** 3/3 kırmızı, koşu başına 56–62 kaçan ve 20–26
+  bayat. **Mutant — `asOf` her sayfada okunur** (son sayfanınki verilir): `TestEmployeeDirectory_TheWalksAsOfIsItsFirstPages`
+  (pencere 50 ms, ilk sayfadan sonra açılan ve yürüyüş geçtikten sonra commit edilen yazma) 3/3 kırmızı — eşitlik kontrolü
+  kapatılınca bile yazma sonraki yürüyüşte yok (ölçüldü).
+- **Diğer mutantlar** (her biri kırmızı): kablolamada `Directory` yok → `TestAPIWiring_TheDirectoryRunsThroughTheShippedSurface`;
+  bağdan işletme ya da `updatedSince` çıkınca, bilinmeyen parametre yok sayılınca, gelecekteki `asOf` kabul edilince, sonda
+  `nextCursor` verilince, `+` ipucu kapatılınca → `TestDirectory_Paged`; pencere sabiti 0 → `TestDirectory_OverlapWindow`;
+  birleştirmede eşitlik id yerine kaynakla ya da fonksiyonun tam sayfası "daha var" sayılmayınca → `TestMergeDirectory_TheTwoSourcesInOneOrder`;
+  fonksiyonda konum LATERAL'ın dışında → keyset testi; `active` = `status = 'active'` → `TestHoldingDirectory_ReturnsPeersNeverTheCaller`;
+  kapı kaldırılınca → `TestHoldingFunctions_AMemberOfNoHoldingAsksOnce`. *Adlandırılmış (yeşil kalan, kusur değil):* kendi
+  sorgusunda tenant yüklemi `OR true` → kemer (`TestStaffQueries_CarryAnExplicitTenantPredicate`) kırmızı, HTTP testleri RLS
+  sayesinde yeşil (kuşak + kemer — API-5/7 emsali).
+- **Ölçek** (atılabilir kap, Docker Desktop macOS 4 CPU; **21 000 tenant × 2 000 çalışan = 42 M satır** — laboratuvarda toplu
+  yazıldı, `updated_at` bir yıla yayıldı; 1 001 iki üyeli holding; KM/KF bir holding; `ANALYZE`'lı; JIT kapalı — 7. madde):
+  `00056`'nın indeksi 42 M satırda 30,5–38,2 sn. Okuyucu üzerinden (`DirectoryPage`): **holding'siz C** (2 000 kendi) sayfa medyanı
+  6,2–9,2 ms (`limit` 500 ve 1 000), artımlı (1 gün) 4,7 ms; **üye KM** (2 000 kendi + KF'nin 2 000'i) sayfa başına 0,97–1,05 sn —
+  süre neredeyse tamamen eş kümesidir (21 000 `holding_peer` çağrısı; T124'ün **açık** üye yarısı, ADR 0027 §13 madde 21):
+  4 000 kişi `limit` 1 000 ile 4 sayfa ≈ 3,9–4,0 sn, 500 ile 8 sayfa ≈ 7,8–8,3 sn; 200 000 kendi çalışanı olan bir üye 200 sayfada
+  medyan 0,99 sn, son sayfa ilki kadar (derin sayfa pahalılaşmıyor — kendi sorgusu indeksi konumdan yürür); 200 000 kişilik bir
+  eşi okuyan üye sayfa başına +35–60 ms (fonksiyonun genel planı eşi ortalama işletme sanır, `employees_tenant_idx` + sort ile
+  okur; adlandırılmış bedel). `holding_members` üzerinden ön-süzme (ADR 0027 §2'nin tek-gövde kuralının dışında — yalnız ölçüm)
+  üyeyi 5,2–5,8 ms'ye indirirdi → kullanıcı kararı (T124). Süre plana bağlı olduğu için pinlenmez.
+- **Üye yarısının sınırı, ölçüldü:** testlerin doldurduğu paylaşılan geliştirme veritabanında (**45 000 tenant**) bir üyenin
+  sayfası tek başına ~1,5–2 sn; tam `-race` koşusunun yükü altında **5 sn'lik `APIReadTimeout`'u aştı** — `57014`, uçta 503
+  (ilk tam koşuda üç test: `TestDirectory_HoldingTenantsOnlyNoEmailWithActive`'in bir sayfası, okuyucunun stres testi ve
+  `TestAPIRead_EveryReadCarriesTheBound`'un üye okuması). Yani bugünkü gövdeyle bir holding üyesinin rehberi, kayıtlı tenant
+  sayısı onbinlere çıkınca yük altında kullanılamaz hâle gelir; T124'ün üye yarısı (kullanıcı kararı) bunun çaresidir. Testler
+  ürün sınırını değiştirmeden sağlamlaştırıldı: `TestAPIRead_EveryReadCarriesTheBound` rehberi holding'siz bir işletme için
+  okur (sınır aynı denetlenir); stres testi kendi okuyucusunun sınırını yükseltir (`bound` — ölçtüğü şey garanti, sınır değil);
+  HTTP testleri sevkedilen sınırla kalır, üye isteği sayısı azaltıldı (ikinci tam koşuda yeşil).
+- **Ortamın kırmızısı (API-8'den değil, ölçüldü):** `TestHolding00041_PreconditionRefusesAWrongCluster` paylaşılan veritabanında
+  180 sn'de düşüyor — Down yürüyüşünün `holdingSetAsideSiteRows` adımı (birikmiş 33 559 site satırının silinmesi) yürüyüş başına
+  23,6 sn ve test dokuz kez yürür; adımlar tek tek ölçüldü (kilit 14 ms, akış satırları 0,6 sn, `00055` Down 5 ms, `00049`/`00048`
+  Down 45 ms). Taze kapta (1 800 tenant) yeşil. API-7b'nin koşusunda yeşildi; fark veritabanının birikimi.
+
