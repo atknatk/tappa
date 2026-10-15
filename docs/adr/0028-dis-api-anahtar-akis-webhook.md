@@ -840,7 +840,8 @@ genişleyenler: `TestAPIWiring_TheChainTakesThePanelsPrefixAndTheOneWorker` (`Pu
 parametre), `TestStoreSurface_IsTheOneRecorded`, `TestOpenAPI_PathsAreTheRoutersAndTheErrorIsSection8`. İkinci tur:
 `TestPunchHistory_AStaleSnapshotReadsAtMostTheWindow`, `TestAPIRead_EveryReadCarriesTheBound`, `TestPunchHistory_ATieIsBrokenByTheFeedOrder`,
 `TestPunchHistory_ATieAcrossTheWindowsEndIsCutByTheFeedOrder`; genişleyenler: `TestPunchHistory_OutsiderSeesNone` (bağdaki işletme),
-`TestPunchHistory_TheRangeAndTheCursorAreTheContract` (31 gün + 1 saat, katı RFC 3339, kodlanmamış `+`).
+`TestPunchHistory_TheRangeAndTheCursorAreTheContract` (31 gün + 1 saat, katı RFC 3339, kodlanmamış `+`). Üçüncü tur:
+`TestPunchHistory_TheTieBreakIsTheTextsNotThePlans`.
 
 **API-8** — `Directory_HoldingTenantsOnlyNoEmailWithActive` · `Directory_Paged` ·
 `Directory_OverlapWindow` · `Directory_OwnStaffAlwaysFromTheRLSQuery` ·
@@ -2120,8 +2121,8 @@ serbest kalır. `TestAPIRead_EveryReadCarriesTheBound`: beş okumanın her biri 
 işlemi `0` (sınır sızmaz); `2 × APIReadTimeout ≤ RequestTimeout` pinli. Mutant (bir okumadan kaldırılınca) kırmızı. Yazma yolları
 kapsam dışı (kendi kilit ve süre bütçeleri var).
 
-*E-ORTA — eşitlik sırası pinli değildi (üçüncü göz).* Bir tenant'ın `seq`'i ve satırı tek kilit altında yazıldığı için heap `seq`
-sırasını izler ve `(tenant_id, punch_time)` taraması eşit anları tesadüfen `seq` sırasıyla verir; `ORDER BY punch_time` mutantı bu
+*E-ORTA — eşitlik sırası pinli değildi (üçüncü göz).* Bir tenant'ın `seq`'i ve satırı tek kilit altında yazıldığı için heap
+**olağan bir koşuda** `seq` sırasını izler *(üçüncü turda düzeltildi: ürün yolu ters sırayı da üretebilir — aşağıda)* ve `(tenant_id, punch_time)` taraması eşit anları tesadüfen `seq` sırasıyla verir; `ORDER BY punch_time` mutantı bu
 yüzden görünmüyordu. Testler artık heap'i akış sırasının **tersine** dizen bir fikstür kullanır (`tieGroup`/`kfTieGroup`: flag'ler —
 olay yok —, sonra sahip olarak, işletmenin bağlamında, yalnız INSERT ile olayları `seq` azalan sırayla; sayaç ilerletilir).
 `TestPunchHistory_ATieIsBrokenByTheFeedOrder` (HTTP, 32 eşit an, sayfa 1–7 ve 50) ve
@@ -2138,3 +2139,43 @@ saklıyordu (mutant kırmızı). (4) **Katı RFC 3339** — Go'nun ayrıştırı
 küçük `t`, saat 25 ve 31 Şubat 400 (mutant — biçim denetimi kapalı — kırmızı).
 
 *API-7 testi* (`TestPunches_TheQueryIsTheContract`'ın `from`/`to` vakası API-7b'de `From`'a dönmüştü) değişmedi.
+
+
+**Üçüncü tur (2026-10-15 — güvenlik ONAY, üçüncü göz RED: bir ORTA test bulgusu; DÜŞÜK'ler).**
+
+*ORTA — taze veritabanında kırmızı test.* `TestPunchHistory_AStaleSnapshotReadsAtMostTheWindow`'un `EXPLAIN` kısmı küçük,
+istatistiksiz `punch_events`'te planlayıcının `Seq Scan`'ini ölçüyordu ("read 20 rows"); CI'da başka paketlerin satırları tabloyu
+büyüttüğü için yeşildi. Ölçü artık **yürüyüşün biçimidir**: ifade `enable_seqscan` ve `enable_bitmapscan` kapalıyken (`SET LOCAL`,
+00050 emsali) açıklanır — iddia "indeks yürüyüşü pencereyle sınırlı"dır; küçük tabloda sıralı tarama doğru plandır ve yürüyüş hakkında
+bir şey söylemez, 1 M olayda planlayıcı indeks yürüyüşünü kendisi seçer (ikinci turun `EXPLAIN`'i). Plandan bağımsız bir sayaç
+(`pg_stat_xact_*`) seçilmedi: sıralı taramada doğru kod da bütün tabloyu okur — sayaç planı ölçer, iddiayı değil. Sınır artık
+**pencere + 1** (yeni indeksle Incremental Sort yok). Taze kap (yalnız migrate): tek başına 5/5 yeşil; ayarlar kaldırılınca taze kapta
+3/3 kırmızı ("read 20 rows").
+
+*DÜŞÜK-1 — eşit anlarda tarama pencereyle sınırlı değildi.* `punch_events_tenant_time_idx` artık `(tenant_id, punch_time, seq)` —
+`00048` **yerinde** değişti (yayınlanmadı; API-2 notunun kararı). `tappa-m11-db`'de DDL ile yerinde uygulandı (`DROP INDEX` +
+`CREATE INDEX`, `lock_timeout` 2 sn, veri silinmedi); şema parmak izi (public'in indeks, kısıt ve sütun tanımlarının md5'i) taze kapla
+**aynı** (`034dbca5…`). Satır karşılaştırması artık indeks koşulu, yürüyüş indeks sırasında. Ölçüm (atılabilir kap, bir anda 50 000 olay,
+grubun ortasından, `ANALYZE`'lı, planlayıcının kendi seçimi): pencere ifadesi Index Only Scan **10 001 satır** (pencere + 1), süzgeçle
+atılan 0, 10 ms; sayfa Index Scan **1 001 satır** (limit + 1), 0,65 ms (öncesi sayfa başına 25 000–49 999 atılan satır, 36–55 ms).
+`TestPunchHistory_ATieAcrossTheWindowsEndIsCutByTheFeedOrder` artık grubun içinden pencere ve sayfa ifadesinin her biri için en çok
+pencere + 1 satır okunduğunu da pinler; iki sütunlu indeksle (atılabilir kapta) kırmızı. **Plan pinleri:** `TestFeedBackfill_ThePlanIsTheTexts`
+paylaşılan ve taze kapta yeşil (3/3), API-2/API-1 katalog ve geri yükleme testleri yeşil; akış sorguları `punch_events_pkey`'i kullanır,
+etkilenmez; `00054`'ün ölçümleri `audit_log` üzerindedir, etkilenmez.
+
+*DÜŞÜK-2 — yanıltıcı ipucu.* `unencoded_plus` yalnız boşluk bir saat farkının işaretinin yerindeyse (`…T00:00:00 02:00`) verilir;
+tarih ile saat arasındaki boşluk (`2026-09-01 00:00:00Z`) sıradan aralık reddidir. Test `TestPunchHistory_TheRangeAndTheCursorAreTheContract`;
+mutant ("her boşluk") kırmızı.
+
+*DÜŞÜK-3 — hangi `ORDER BY` pinli.* İkinci turun "pencere, sonu ve sayfa `ORDER BY punch_time` olunca kırmızı" cümlesi fazlaydı:
+pencerenin ve sonunun `seq`'siz `ORDER BY`'ı sonuç kümesi bakımından eşdeğer mutantlardı (yeşil), yalnız sayfanınki pinliydi. Yeni
+indeksle üçü de indeks yürüyüşünde görünmez olur (indeks `seq` sırasını kendisi verir; mutantların maliyet etkisi de yoktur). Metinler
+bu yüzden planlayıcıdan bağımsız pinlenir: `TestPunchHistory_TheTieBreakIsTheTextsNotThePlans` gönderilen ifadeleri indeks taramaları
+kapalıyken (ters heap üzerinde sıralı tarama + Sort) koşar — sayfa 30 eşit anı akış sırasıyla verir, pencere sonu grubun 4.'südür.
+Mutantlar — sayfanın, pencerenin, sonun `ORDER BY`'ından `seq` — her biri 3/3 kırmızı. HTTP eşitlik testi davranışı uçtan uca pinler,
+metni değil (yorumu düzeltildi).
+
+*DÜŞÜK-4 — "heap `seq` sırasını izler" yanlıştı.* Denetçi ürün yolunda (`tappa_app`, gerçek tetikleyiciler) ters heap'i üretti: geri
+alınan toplu yazma, commit edilen dokunuş, `VACUUM`, aynı anda ikinci dokunuş → heap ve indeks sırası `seq=2, seq=1`. `tieGroup`
+yorumu ve yukarıdaki E-ORTA cümlesi düzeltildi: fikstür bu sırayı **kesin** kılar; ürün onu şansa bağlı üretebilir — eşitlik sırasının
+metinde pinlenmesi bu yüzden süs değil.
