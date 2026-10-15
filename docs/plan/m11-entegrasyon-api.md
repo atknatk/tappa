@@ -533,7 +533,12 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
   401; prod derlemesinde simülasyon yok; CI `-tags sandbox`; deploy kapısı; gerçek UID reddi; dokuz `IsHardened` kapısı; operatörsüz anahtar 403; holding simülasyonu.
 - **API-12:** OpenAPI her uç/hata; §2'nin 31 maddesi (madde 31 — `scope=location` ile süre hesaplama uyarısı — zorunlu). **(API-4'ten, 2026-10-15)** Rehber entegratöre ayrıca bildirir: Idempotency-Key'in istek hash'i bayt düzeyindedir —
   sorgu parametresi sırası ya da JSON boşluk farkı aynı anahtarla 422 verir, başlık farkı replay verir (ADR 0028
-  "API-4 uygulama notu", ikinci tur).
+  "API-4 uygulama notu", ikinci tur). **(API-5'ten, 2026-10-15)** `PUT /v1/locations/{ref}` için: gövde tam olarak belgelenen alanları
+  taşır — bilinmeyen alan (harf farkı dahil: `Name` ≠ `name`) **422 `validation_failed` / `unknown_field`**, aynı alan
+  iki kez **422 / `duplicate_field`** (son değer kazanmaz); gövde UTF-8 olmalı (değilse 400 `invalid_utf8`); ref yüzde
+  kodlanabilir, **bir kez** çözülür ve sonra kalıba uymalıdır (`%41BC` = `ABC`; kodlu `/`, kontrol karakteri, çift kodlama
+  422) — aynı ref'in farklı yazımları aynı lokasyondur ama aynı Idempotency-Key ile 422 verir; lokasyon adı içinde
+  kontrol/biçim karakteri (satır sonu, RTL, sıfır genişlik) 422 (ADR 0028 "API-5 uygulama notu", ikinci tur).
 - **API-13:** spec §7'nin dokuz maddesi (6. madde sözleşme farkı); güvenlik ONAY; KF+KM holding'i kuruldu; holding dışı izolasyon prod'da örneklendi. **(API-4'ten, 2026-10-15 — runbook)** `TAPPA_API_HOST` set edilmeden `api.*` adı ingress'ten pod'a gelirse panelin her
   şeyi yakalayan rotalarına düşer: ingress kuralı env ile **aynı adımda** eklenir (önce değil). Çift noktalı host
   (`api.taptime.mt..`) API host'u sayılmaz, panel olarak yanıtlanır — ingress onu yönlendirmemelidir.

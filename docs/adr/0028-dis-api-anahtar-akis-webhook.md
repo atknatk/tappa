@@ -785,7 +785,9 @@ yazılmadı). Ekler: `TestIdempotency_LazyDeleteIsThisTenantsAlone`, `TestApiIde
 `TestLocationsPut_APanelBoundVenueIsUpdatedNeverMatchedByName`, `TestLocationsPut_IdempotencyReplay`,
 `TestLocationsPut_AHoldingPeersVenueIsNeitherSeenNorChanged`, `TestLocationsPut_SuspendedAndClosedWriteNothing`,
 `TestLocationsPut_TheBodyAndTheRefContract`, `TestLocationsPut_AVenueWithoutEvidenceRecordsATapAsFlag`,
-`TestLocationsPut_ActiveIsALabelTheTapNeverReads`, `TestAPIWiring_ThePutOfALocationRunsThroughTheShippedSurface`.
+`TestLocationsPut_ActiveIsALabelTheTapNeverReads`, `TestAPIWiring_ThePutOfALocationRunsThroughTheShippedSurface`;
+ikinci tur: `TestInsertSelectAndDoUpdate_TheBeltReadsThem` (+ adın gizli karakter kuralı `TestVenues_TheNameBoundIsEnforcedBeforeTheColumn`
+ve `TestParseName_RefusesRatherThanTruncates`'te).
 
 **API-6** — `EmployeesPut_ActiveEmailElsewhereIs409` · `EmployeesPut_InactiveToActiveOpensANewRow` ·
 `EmployeesPut_EmailChangeKillsOldInviteInSameTransaction` · `ResendActivation_LoopNeverKillsTheLiveInvite` ·
@@ -1420,8 +1422,10 @@ yalnız testlerin yazdığı satırlar.
 
 **Uç.** `PUT /v1/locations/{ref}` (`internal/handler/api/locations.go`): ref → gövde → yazma (çalıştırıcının işlemi; önce
 `Gate.Admit(WriteLocationPut)`, sonra alan). İş, panelin kendi lokasyon alanının yeni yöntemidir —
-`tenant.Venues.PutVenueTx` (`internal/domain/tenant/venueapi.go`): ad `venueName`'den (panelin kuralı: NUL ve geçersiz
-UTF-8 atılır, kırpılır, 1..80 rün; kesilmez, reddedilir), ref 00037'nin kalıbından **kırpılmadan** (yol parçası). Yeni ref
+`tenant.Venues.PutVenueTx` (`internal/domain/tenant/venueapi.go`): ad `venueName`'den (panelin kuralı: NUL atılır, kırpılır,
+1..80 rün, içte kontrol/biçim karakteri yok; kesilmez, reddedilir — *ikinci turda düzeltildi: ilk cümle "geçersiz UTF-8
+atılır" diyordu; JSON yolunda ölçümle yanlıştı, `encoding/json` her bozuk baytı U+FFFD yapıp saklatıyordu; artık UTF-8
+olmayan gövde 400*), ref 00037'nin kalıbından **kırpılmadan** (yol parçası; ikinci turdan beri bir kez yüzde-çözülmüş). Yeni ref
 → **201**; var olan ref, ad ya da etiket değişince → **200** + `location.updated`; aynısı → **200**, yazma ve iz satırı yok.
 Yanıt `{id: loc_<uuid>, externalRef, name, timezone, active, createdAt}`; `timezone` işletmeninkidir (K-7). Üretim
 kablolaması `run()`'ın panel `*tenant.Venues`'ini (panelin audit kaydedicisiyle) `openAPISurface`'e verir; AST ile pinli.
@@ -1475,3 +1479,44 @@ kablolaması `run()`'ın panel `*tenant.Venues`'ini (panelin audit kaydedicisiyl
 kabul, ana host'ta 404; Idempotency-Key ile tek defter satırı (201, `result_ref` = lokasyon) lokasyon ve iz satırıyla aynı
 işlemde; tekrar replay; iz satırı anahtarın; `last_used_at` yazıldı; K-19 tenant'ı gördü. Mutant: iş `Gate.Admit`'i atlayınca
 503, hiçbir şey commit edilmez.
+
+**İkinci tur (2026-10-15 — güvenlik ONAY + 3 DÜŞÜK, üçüncü göz RED: bir ORTA test açığı, kodda hata yok).**
+
+*ORTA — yalnız etiket değişimi testsizdi.* "Değişmedi" kısa devresi yalnız adı karşılaştıracak biçimde bozulunca
+(`before.Name == name`) iki paket yeşil kalıyordu: aynı ad + `active:false` 200 dönüp etiketi `true` bırakıyor, iz satırı
+yazmıyordu. `TestLocationsPut_CreatesUpdatesAndAnswersUnchanged` artık aynı adla `false`, sonra yeniden `true` gönderir: her
+biri 200, satır izler, her biri `from_active`/`to_active`'li bir `location.updated`. Mutant kırmızı.
+
+*Lokasyon adında kontrol ve biçim karakteri (güvenlik D1).* BEL, ESC, satır sonu, U+202E ve sıfır genişlikli karakterler
+201 alıyordu; ad holding eşine de anlık görüntüyle gider. `venueName` (lokasyon ve departman, panel ve API) kırpmadan sonra
+Cc/Cf karakterini reddeder; panelin sınırı aynı yüklemi (`tenant.NameHasHiddenCharacters`) cümleyle söyler (`parseName`).
+Ölçüldü: paylaşılan veritabanında böyle bir ad taşıyan 23 lokasyon satırının hepsi bir CSV testinin ham INSERT'i
+(`reportscsv_db_test.go`, bilerek `venueName`'i atlar); departmanda 0. NUL eskisi gibi önce atılır. Mutantlar (alan ve panel
+yarısı ayrı ayrı) kırmızı.
+
+*Kemer, INSERT … SELECT ve DO UPDATE (güvenlik D2, D3).* `internal/domain/tenant/query_test.go`: (i) INSERT … SELECT'in
+seçim listesinde `tenant_id` konumundaki değer `@tenant_id` ya da kapsamlı kaynak satırın kendi kapsam sütunu (`t.id`,
+`l.tenant_id`) olmalı — `SELECT @other_tenant::uuid, … FROM tenants t WHERE t.id = @tenant_id` artık bulgu; (ii) ON
+CONFLICT … DO UPDATE bloktan ayrılır ve WHERE'i INSERT'in **hedefine** karşı denetlenir — önce `DO UPDATE SET x` "set"
+adlı bir tablonun UPDATE'i okunuyordu (yanlış alarm). `TestInsertSelectAndDoUpdate_TheBeltReadsThem` (beş kırmızı, beş yeşil
+biçim); iki kolun her biri kaldırılınca kırmızı. **Sınır:** öğe metin olarak karşılaştırılır (döküm ve `AS` atılarak); aynı
+değeri *hesaplayan* bir ifade (CASE, COALESCE) reddedilir, anlaşılmaz; değerin son kemeri RLS `WITH CHECK`. Öteki beş
+kopyada INSERT kolu hiç yoktur (paketleri okur ya da düz yazar) — onların sınırı, bu kuralın değil.
+
+*Yüzde kodlanmış ref (üçüncü göz).* `%41BC` ve `%7E` (Java `URLEncoder`'ı `~`'yi kodlar) 422 alıyordu. Seçim: **bir kez
+çöz, sonra aynı katı kalıp** — rehbere "kodlamayın" yazmak her istemci kütüphanesini denetlemeyi entegratöre bırakırdı.
+chi'nin `{ref}`'i kararlı bir kaynak değil (net/url `RawPath` tutunca kodlu, tutmayınca çözülmüş parça — `%2541` ona
+`%41` olarak gelir, yeniden çözmek iki kez çözmektir); bu yüzden parça isteğin **kodlu** yolundan okunup bir kez çözülür.
+`/`, kontrol karakteri ve çift kodlama (`%2541BC`) yine 422. Aynı ref'in iki yazımı tek lokasyondur; Idempotency-Key için
+iki ayrı istektir (istek hash'i kodlu yolu okur). Mutantlar: çözme kaldırılınca `%41…` 422; çözülmüş `Path`'ten okuma
+(iki kez çözme) `%2541BC`'yi 201 `ABC` yapar — ikisi de kırmızı.
+
+*Yinelenen JSON anahtarı (üçüncü göz).* `{"active":true,"active":false}` sessizce `false` oluyordu; nesne artık üye üye
+okunur, kaçışlı yazım dahil (`"n\u0061me"`) iki kez geçen anahtar **422 `validation_failed`, `reason: duplicate_field`**.
+Mutant kırmızı.
+
+*Geçersiz UTF-8 (üçüncü göz).* UTF-8 olmayan gövde JSON değildir (RFC 8259 §8.1) — **400 `invalid_request`, `reason:
+invalid_utf8`**; U+FFFD'yi ad içinde reddetmek yerine bu seçildi: kaçışla gönderilmiş gerçek bir U+FFFD istemcinin kendi
+seçimidir, bozuk bayt değildir. Mutant (kontrol kaldırılınca U+FFFD'li ad 201) kırmızı.
+
+*Rehber notları* plan §5 API-12'ye yazıldı (bilinmeyen alan, yinelenen alan, UTF-8, ref kodlaması).
