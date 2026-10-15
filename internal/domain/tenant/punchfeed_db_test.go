@@ -497,19 +497,20 @@ func (b *boundProbe) WithTenant(ctx context.Context, tenantID uuid.UUID, fn db.T
 		if err := fn(ctx, tx); err != nil {
 			return err
 		}
-		var v string
-		if err := tx.QueryRow(ctx, `SHOW statement_timeout`).Scan(&v); err != nil {
+		var v, jit string
+		if err := tx.QueryRow(ctx, `SELECT current_setting('statement_timeout'), current_setting('jit')`).Scan(&v, &jit); err != nil {
 			return err
 		}
-		b.seen = append(b.seen, v)
+		b.seen = append(b.seen, v+" jit="+jit)
 		return nil
 	})
 }
 
 // TestAPIRead_EveryReadCarriesTheBound (API-7b review, G-ORTA's extra guard): each read the
 // integration API makes -- the feed, the history query, the employee list, one employee by ref and
-// by id -- runs its statements under APIReadTimeout (5 s), and two of them fit in the request's own
-// deadline. The pool's default stays unbounded (the server's 0): the bound is the API read's alone.
+// by id, and (API-8) a page of the directory -- runs its statements under APIReadTimeout (5 s) and,
+// since API-8, with JIT off (db.BoundStatements); two of them fit in the request's own deadline. The
+// pool's default stays unbounded (the server's 0) and JIT the server's: both are the API read's alone.
 // MUTANT (measured): the bound removed from one read -- red, naming it.
 func TestAPIRead_EveryReadCarriesTheBound(t *testing.T) {
 	if 2*APIReadTimeout > httpx.RequestTimeout {
@@ -525,6 +526,13 @@ func TestAPIRead_EveryReadCarriesTheBound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	directory, err := NewEmployeeDirectory(probe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	alone := uuid.New()
+	f.exec(`INSERT INTO tenants (id, name, vat_number, business_type, structure) VALUES ($1, 'api8 alone', $2, 'restaurant', 'multi')`,
+		alone, "VAT-API8-ALONE-"+alone.String())
 	now := time.Now().UTC()
 	reads := []struct {
 		name string
@@ -538,23 +546,28 @@ func TestAPIRead_EveryReadCarriesTheBound(t *testing.T) {
 		{"ListAPIEmployees", func() error { _, err := staff.ListAPIEmployees(f.ctx, f.km, nil, 10); return err }},
 		{"APIEmployeeByRef", func() error { _, err := staff.APIEmployeeByRef(f.ctx, f.km, "ext-"+f.emp.String()[:8]); return err }},
 		{"APIEmployeeByID", func() error { _, err := staff.APIEmployeeByID(f.ctx, f.km, f.emp); return err }},
+		// API-8: the directory -- its own read and holding_directory, in one transaction. Read for a
+		// business in no holding: a member's page costs the peer set (T124's member half), which on a
+		// database of tens of thousands of tenants under load can itself pass the 5 s this test checks.
+		{"DirectoryPage", func() error { _, err := directory.DirectoryPage(f.ctx, alone, DirectoryQuery{}, 10); return err }},
 	}
 	for _, r := range reads {
 		before := len(probe.seen)
 		if err := r.run(); err != nil {
 			t.Fatalf("%s: %v", r.name, err)
 		}
-		if len(probe.seen) != before+1 || probe.seen[before] != "5s" {
-			t.Errorf("%s ran under statement_timeout %v, want 5s", r.name, probe.seen[before:])
+		if len(probe.seen) != before+1 || probe.seen[before] != "5s jit=off" {
+			t.Errorf("%s ran under %v, want statement_timeout 5s and jit off (API-8)", r.name, probe.seen[before:])
 		}
 	}
 	if err := f.data.WithTenant(f.ctx, f.km, func(ctx context.Context, tx pgx.Tx) error {
-		var v string
-		if err := tx.QueryRow(ctx, `SHOW statement_timeout`).Scan(&v); err != nil {
+		var v, jit, jitDefault string
+		if err := tx.QueryRow(ctx, `SELECT current_setting('statement_timeout'), current_setting('jit'),
+		                                   (SELECT reset_val FROM pg_settings WHERE name = 'jit')`).Scan(&v, &jit, &jitDefault); err != nil {
 			return err
 		}
-		if v != "0" {
-			return fmt.Errorf("a plain transaction of the pool runs under %s, want the server's 0 (the bound is LOCAL)", v)
+		if v != "0" || jit != jitDefault {
+			return fmt.Errorf("a plain transaction of the pool runs under statement_timeout %s, jit %s, want the server's 0 and %s (the bound is LOCAL)", v, jit, jitDefault)
 		}
 		return nil
 	}); err != nil {

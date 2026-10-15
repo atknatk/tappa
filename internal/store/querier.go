@@ -1903,6 +1903,20 @@ type Querier interface {
 	// is NOT COMPUTED for it, which is different from "on time" and is why the domain
 	// carries a nil Shift rather than a zero one.
 	GetDepartmentShift(ctx context.Context, arg GetDepartmentShiftParams) (GetDepartmentShiftRow, error)
+	// directory.sql -- M11 API-8, GET /v1/directory: the business's OWN half of the directory (ADR 0028
+	// §2, §9). The peers' half is holding_directory (migration 00055 -- ADR 0027's closed list), called
+	// by hand in internal/db/holding.go; the two are read in ONE transaction of the key's tenant
+	// (WithTenant + the explicit tenant_id filter of every statement here -- CLAUDE.md §4.5) and merged
+	// on (updated_at, id) by internal/domain/tenant (employeedirectory.go).
+	//
+	// No statement here names transactions, and none reads the e-mail (K-1f, K-24): a directory row is
+	// an identity, a code, two names, the active flag and updated_at.
+	// The walk's clock and the business's company code. as_of is the TRANSACTION's start
+	// (transaction_timestamp): it is taken before any snapshot this transaction reads, so a change that
+	// the reads below do not see either committed after it or was written by a transaction still open at
+	// it -- the integrator's next walk starts at as_of minus K-21's ten minutes (employeedirectory.go
+	// says what that guarantees). One row: the key's tenant exists.
+	GetDirectoryHead(ctx context.Context, tenantID uuid.UUID) (GetDirectoryHeadRow, error)
 	// employees.sql -- the employee reads, the two lifecycle writes a manager can make
 	// from the panel (M6-05 phase B), AND SINCE M6-13 the statement that puts somebody
 	// on the roster in the first place.
@@ -3200,6 +3214,19 @@ type Querier interface {
 	// out -- a venue and the departments inside it -- rather than alphabetically
 	// across venues.
 	ListDepartmentsForTenant(ctx context.Context, tenantID uuid.UUID) ([]ListDepartmentsForTenantRow, error)
+	// The business's employees after a position in (updated_at, id) order -- live and deactivated, panel-
+	// made and API-made -- at most page_size of them. The first page of a walk passes (since - 1 µs, the
+	// greatest uuid): "after" it is exactly updated_at >= since, because timestamptz counts microseconds
+	// and no id is above the greatest one; a walk with no since passes the year 1 (tenant.directoryOrigin
+	// -- updated_at is 00037's trigger clock, never that early).
+	//
+	// 🔴 THE BOUND IS TWO BARE PARAMETERS, NOTHING COMPUTED: it is an index condition of
+	// employees_tenant_updated_idx (00056) in a GENERIC plan -- the one pgx's prepared statement settles
+	// on -- only so. Measured (API-8, one business of two hundred thousand rows, a page 150 000 rows in): with
+	// `coalesce(@after_at, '-infinity')` in its place the generic plan read the index from the business's
+	// first row and filtered 150 001 rows away (90 ms a page); bare, it reads the page (0.8 ms).
+	// TestEmployeeDirectory_TheBoundIsTheIndexsNotAFilter pins it.
+	ListDirectoryEmployees(ctx context.Context, arg ListDirectoryEmployeesParams) ([]ListDirectoryEmployeesRow, error)
 	// One page of the queue, newest first.
 	//
 	// THE COLUMN LIST IS ListPanelTransactions' LIST, and the reason is section 4.7:

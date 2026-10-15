@@ -96,11 +96,18 @@ func (d *DB) WithTenant(ctx context.Context, tenantID uuid.UUID, fn TxFunc) (err
 // argument, the same rule as app.tenant_id above). The integration API's reads take it as their
 // first statement (internal/domain/tenant: APIReadTimeout); a statement past it is SQLSTATE 57014
 // and the request's 503, not a backend kept busy for the rest of the request's life.
+//
+// It also turns JIT off for the rest of tx, LOCAL the same way (M11 API-8). The API's reads are short
+// index walks; the planner prices a definer's body by its guesses -- holding_directory's peer set is
+// estimated at a third of all tenants -- and at 21 000 tenants that estimate crossed jit_above_cost and
+// every directory page paid 250-320 ms of compilation for a plan that reads a few thousand rows
+// (measured, ADR 0028's API-8 note). JIT changes no row a statement reads.
 func BoundStatements(ctx context.Context, tx pgx.Tx, d time.Duration) error {
 	if d <= 0 {
 		return fmt.Errorf("db: a statement bound must be positive, not %v", d)
 	}
-	if _, err := tx.Exec(ctx, "SELECT set_config('statement_timeout', $1, true)", strconv.FormatInt(d.Milliseconds(), 10)); err != nil {
+	if _, err := tx.Exec(ctx, "SELECT set_config('statement_timeout', $1, true), set_config('jit', 'off', true)",
+		strconv.FormatInt(d.Milliseconds(), 10)); err != nil {
 		return fmt.Errorf("db: bound statements: %w", err)
 	}
 	return nil

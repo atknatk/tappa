@@ -10,7 +10,7 @@ import (
 )
 
 // APIReadTimeout bounds every statement of an integration API read -- the punch feed, the history
-// query and the employee reads (API-7b review, G-ORTA's extra guard). The surface's buckets bound how
+// query, the employee reads (API-7b review, G-ORTA's extra guard) and the directory (API-8). The surface's buckets bound how
 // many requests a key makes; this bounds what one of them can cost the database.
 //
 // THE NUMBER, AND WHY: the slowest API read measured is well under a second (a history page at a

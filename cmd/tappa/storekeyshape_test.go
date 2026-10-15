@@ -283,24 +283,28 @@ var storeSurface = map[string]string{
 	// test was already RED on the branch before ADR 0018's app_key_ref work. They are
 	// recorded here verbatim from the generated artifact -- none returns a []byte over
 	// `tags`, so none is a §4.7 finding -- purely to make the suite green again.
-	"GetAdminPasswordHashByID":         "(context.Context, GetAdminPasswordHashByIDParams{ID uuid.UUID; TenantID uuid.UUID}) (GetAdminPasswordHashByIDRow{ID uuid.UUID; PasswordHash string; Status string}, error)",
-	"GetBillingPeriod":                 "(context.Context, GetBillingPeriodParams{TenantID uuid.UUID; PeriodMonth pgtype.Date}) (GetBillingPeriodRow{ID uuid.UUID; TenantID uuid.UUID; TenantName string; PeriodMonth pgtype.Date; PeriodFrom time.Time; PeriodTo time.Time; Timezone string; Plan string; FreePeriod bool; EmployeeCount int32; UnstampedEmployees int32; UnitPrice pgtype.Numeric; Currency string; AmountDue pgtype.Numeric; ClosedBy uuid.UUID; ClosedAt time.Time}, error)",
-	"GetDepartmentShift":               "(context.Context, GetDepartmentShiftParams{TenantID uuid.UUID; ID uuid.UUID}) (GetDepartmentShiftRow{ID uuid.UUID; TenantID uuid.UUID; Name string; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool}, error)",
-	"GetEmployeeActivationContext":     "(context.Context, GetEmployeeActivationContextParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (GetEmployeeActivationContextRow{ID uuid.UUID; FullName string; Status string; LocationID *uuid.UUID; TenantName string}, error)",
-	"GetEmployeeEmail":                 "(context.Context, GetEmployeeEmailParams{TenantID uuid.UUID; ID uuid.UUID}) (GetEmployeeEmailRow{ID uuid.UUID; Email *string}, error)",
-	"GetEmployeeForTap":                "(context.Context, GetEmployeeForTapParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (GetEmployeeForTapRow{Status string; LocationID *uuid.UUID; DepartmentID *uuid.UUID; ActivatedAt *time.Time; TenantTimezone string; TenantBusinessType string}, error)",
-	"GetLastOpenTransaction":           "(context.Context, GetLastOpenTransactionParams{TenantID uuid.UUID; EmployeeID *uuid.UUID}) (Transaction{ID uuid.UUID; TenantID uuid.UUID; EmployeeID *uuid.UUID; LocationID *uuid.UUID; DepartmentID *uuid.UUID; TagUid *string; Ctr *int32; Type *string; OccurredAt time.Time; SourceIp *netip.Addr; IpMatch *bool; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; GpsMatch *bool; SunValid *bool; Trust *int16; Verdict string; Note *string; Channel string; EnteredBy *uuid.UUID; Practice bool; Queued bool; CreatedAt time.Time; PolicyVersionID *uuid.UUID; MatchedSid *string; PolicyLayer *string; PolicyContext []byte; SiteTenantID *uuid.UUID; SiteLocationID *uuid.UUID; SiteTagUid *string}, error)",
-	"GetInviteRecipient":               "(context.Context, GetInviteRecipientParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (GetInviteRecipientRow{Email *string; FullName string; TenantName string; TenantVerified bool; IsAdminAddress bool}, error)",
-	"GetLastTransactionForEmployee":    "(context.Context, GetLastTransactionForEmployeeParams{TenantID uuid.UUID; EmployeeID *uuid.UUID}) (Transaction{ID uuid.UUID; TenantID uuid.UUID; EmployeeID *uuid.UUID; LocationID *uuid.UUID; DepartmentID *uuid.UUID; TagUid *string; Ctr *int32; Type *string; OccurredAt time.Time; SourceIp *netip.Addr; IpMatch *bool; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; GpsMatch *bool; SunValid *bool; Trust *int16; Verdict string; Note *string; Channel string; EnteredBy *uuid.UUID; Practice bool; Queued bool; CreatedAt time.Time; PolicyVersionID *uuid.UUID; MatchedSid *string; PolicyLayer *string; PolicyContext []byte; SiteTenantID *uuid.UUID; SiteLocationID *uuid.UUID; SiteTagUid *string}, error)",
-	"GetLocationByIP":                  "(context.Context, GetLocationByIPParams{TenantID uuid.UUID; Src netip.Addr}) (Location{ID uuid.UUID; TenantID uuid.UUID; Name string; StaticIps []netip.Prefix; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; CreatedAt time.Time; WifiSsid *string; ExternalRef *string; Active bool}, error)",
-	"GetLocationForTap":                "(context.Context, GetLocationForTapParams{TenantID uuid.UUID; ID uuid.UUID}) (GetLocationForTapRow{ID uuid.UUID; TenantID uuid.UUID; Name string; StaticIps []netip.Prefix; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool}, error)",
-	"GetLocationWiFi":                  "(context.Context, GetLocationWiFiParams{TenantID uuid.UUID; ID uuid.UUID}) (GetLocationWiFiRow{ID uuid.UUID; TenantID uuid.UUID; Name string; WifiSsid *string}, error)",
-	"GetPanelDepartment":               "(context.Context, GetPanelDepartmentParams{TenantID uuid.UUID; ID uuid.UUID}) (GetPanelDepartmentRow{ID uuid.UUID; TenantID uuid.UUID; LocationID uuid.UUID; Name string; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; CreatedAt time.Time; LocationName string}, error)",
-	"GetPanelEmployeeForAction":        "(context.Context, GetPanelEmployeeForActionParams{TenantID uuid.UUID; ID uuid.UUID}) (GetPanelEmployeeForActionRow{ID uuid.UUID; FullName string; Status string; LocationID *uuid.UUID; DepartmentID *uuid.UUID; ExternalRef *string; LocationName *string; DepartmentName *string}, error)",
-	"GetPanelLocation":                 "(context.Context, GetPanelLocationParams{TenantID uuid.UUID; ID uuid.UUID}) (GetPanelLocationRow{ID uuid.UUID; TenantID uuid.UUID; Name string; StaticIps []netip.Prefix; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; WifiSsid *string; CreatedAt time.Time; ExternalRef *string}, error)",
-	"GetPolicyForUpdate":               "(context.Context, GetPolicyForUpdateParams{TenantID uuid.UUID; ID uuid.UUID}) (GetPolicyForUpdateRow{ID uuid.UUID; Name string; Layer string; Enabled bool}, error)",
-	"GetPolicyVersionDocument":         "(context.Context, GetPolicyVersionDocumentParams{TenantID uuid.UUID; PolicyID uuid.UUID; VersionNo int32}) (GetPolicyVersionDocumentRow{ID uuid.UUID; VersionNo int32; CreatedAt time.Time; CreatedBy *uuid.UUID; Document []byte; PolicyName string; Layer string; Enabled bool; AuthorName *string; DocumentBytes int32}, error)",
-	"GetPunchFeedCounter":              "(context.Context, uuid.UUID) (int64, error)",
+	"GetAdminPasswordHashByID":      "(context.Context, GetAdminPasswordHashByIDParams{ID uuid.UUID; TenantID uuid.UUID}) (GetAdminPasswordHashByIDRow{ID uuid.UUID; PasswordHash string; Status string}, error)",
+	"GetBillingPeriod":              "(context.Context, GetBillingPeriodParams{TenantID uuid.UUID; PeriodMonth pgtype.Date}) (GetBillingPeriodRow{ID uuid.UUID; TenantID uuid.UUID; TenantName string; PeriodMonth pgtype.Date; PeriodFrom time.Time; PeriodTo time.Time; Timezone string; Plan string; FreePeriod bool; EmployeeCount int32; UnstampedEmployees int32; UnitPrice pgtype.Numeric; Currency string; AmountDue pgtype.Numeric; ClosedBy uuid.UUID; ClosedAt time.Time}, error)",
+	"GetDepartmentShift":            "(context.Context, GetDepartmentShiftParams{TenantID uuid.UUID; ID uuid.UUID}) (GetDepartmentShiftRow{ID uuid.UUID; TenantID uuid.UUID; Name string; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool}, error)",
+	"GetEmployeeActivationContext":  "(context.Context, GetEmployeeActivationContextParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (GetEmployeeActivationContextRow{ID uuid.UUID; FullName string; Status string; LocationID *uuid.UUID; TenantName string}, error)",
+	"GetEmployeeEmail":              "(context.Context, GetEmployeeEmailParams{TenantID uuid.UUID; ID uuid.UUID}) (GetEmployeeEmailRow{ID uuid.UUID; Email *string}, error)",
+	"GetEmployeeForTap":             "(context.Context, GetEmployeeForTapParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (GetEmployeeForTapRow{Status string; LocationID *uuid.UUID; DepartmentID *uuid.UUID; ActivatedAt *time.Time; TenantTimezone string; TenantBusinessType string}, error)",
+	"GetLastOpenTransaction":        "(context.Context, GetLastOpenTransactionParams{TenantID uuid.UUID; EmployeeID *uuid.UUID}) (Transaction{ID uuid.UUID; TenantID uuid.UUID; EmployeeID *uuid.UUID; LocationID *uuid.UUID; DepartmentID *uuid.UUID; TagUid *string; Ctr *int32; Type *string; OccurredAt time.Time; SourceIp *netip.Addr; IpMatch *bool; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; GpsMatch *bool; SunValid *bool; Trust *int16; Verdict string; Note *string; Channel string; EnteredBy *uuid.UUID; Practice bool; Queued bool; CreatedAt time.Time; PolicyVersionID *uuid.UUID; MatchedSid *string; PolicyLayer *string; PolicyContext []byte; SiteTenantID *uuid.UUID; SiteLocationID *uuid.UUID; SiteTagUid *string}, error)",
+	"GetInviteRecipient":            "(context.Context, GetInviteRecipientParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (GetInviteRecipientRow{Email *string; FullName string; TenantName string; TenantVerified bool; IsAdminAddress bool}, error)",
+	"GetLastTransactionForEmployee": "(context.Context, GetLastTransactionForEmployeeParams{TenantID uuid.UUID; EmployeeID *uuid.UUID}) (Transaction{ID uuid.UUID; TenantID uuid.UUID; EmployeeID *uuid.UUID; LocationID *uuid.UUID; DepartmentID *uuid.UUID; TagUid *string; Ctr *int32; Type *string; OccurredAt time.Time; SourceIp *netip.Addr; IpMatch *bool; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; GpsMatch *bool; SunValid *bool; Trust *int16; Verdict string; Note *string; Channel string; EnteredBy *uuid.UUID; Practice bool; Queued bool; CreatedAt time.Time; PolicyVersionID *uuid.UUID; MatchedSid *string; PolicyLayer *string; PolicyContext []byte; SiteTenantID *uuid.UUID; SiteLocationID *uuid.UUID; SiteTagUid *string}, error)",
+	"GetLocationByIP":               "(context.Context, GetLocationByIPParams{TenantID uuid.UUID; Src netip.Addr}) (Location{ID uuid.UUID; TenantID uuid.UUID; Name string; StaticIps []netip.Prefix; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; CreatedAt time.Time; WifiSsid *string; ExternalRef *string; Active bool}, error)",
+	"GetLocationForTap":             "(context.Context, GetLocationForTapParams{TenantID uuid.UUID; ID uuid.UUID}) (GetLocationForTapRow{ID uuid.UUID; TenantID uuid.UUID; Name string; StaticIps []netip.Prefix; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool}, error)",
+	"GetLocationWiFi":               "(context.Context, GetLocationWiFiParams{TenantID uuid.UUID; ID uuid.UUID}) (GetLocationWiFiRow{ID uuid.UUID; TenantID uuid.UUID; Name string; WifiSsid *string}, error)",
+	"GetPanelDepartment":            "(context.Context, GetPanelDepartmentParams{TenantID uuid.UUID; ID uuid.UUID}) (GetPanelDepartmentRow{ID uuid.UUID; TenantID uuid.UUID; LocationID uuid.UUID; Name string; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; CreatedAt time.Time; LocationName string}, error)",
+	"GetPanelEmployeeForAction":     "(context.Context, GetPanelEmployeeForActionParams{TenantID uuid.UUID; ID uuid.UUID}) (GetPanelEmployeeForActionRow{ID uuid.UUID; FullName string; Status string; LocationID *uuid.UUID; DepartmentID *uuid.UUID; ExternalRef *string; LocationName *string; DepartmentName *string}, error)",
+	"GetPanelLocation":              "(context.Context, GetPanelLocationParams{TenantID uuid.UUID; ID uuid.UUID}) (GetPanelLocationRow{ID uuid.UUID; TenantID uuid.UUID; Name string; StaticIps []netip.Prefix; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; WifiSsid *string; CreatedAt time.Time; ExternalRef *string}, error)",
+	"GetPolicyForUpdate":            "(context.Context, GetPolicyForUpdateParams{TenantID uuid.UUID; ID uuid.UUID}) (GetPolicyForUpdateRow{ID uuid.UUID; Name string; Layer string; Enabled bool}, error)",
+	"GetPolicyVersionDocument":      "(context.Context, GetPolicyVersionDocumentParams{TenantID uuid.UUID; PolicyID uuid.UUID; VersionNo int32}) (GetPolicyVersionDocumentRow{ID uuid.UUID; VersionNo int32; CreatedAt time.Time; CreatedBy *uuid.UUID; Document []byte; PolicyName string; Layer string; Enabled bool; AuthorName *string; DocumentBytes int32}, error)",
+	"GetPunchFeedCounter":           "(context.Context, uuid.UUID) (int64, error)",
+	// M11 API-8: the directory's own half -- the walk's clock and the business's company code, and a
+	// page of its employees: identities, refs, codes, names, the active flag. No e-mail, no bytes.
+	"GetDirectoryHead":                 "(context.Context, uuid.UUID) (GetDirectoryHeadRow{AsOf time.Time; ApiCode *string}, error)",
+	"ListDirectoryEmployees":           "(context.Context, ListDirectoryEmployeesParams{TenantID uuid.UUID; AfterAt time.Time; AfterID uuid.UUID; PageSize int32}) ([]ListDirectoryEmployeesRow{ID uuid.UUID; ExternalRef *string; EmployeeCode *string; FirstName *string; LastName *string; Active bool; UpdatedAt time.Time}, error)",
 	"GetPunchFeedHead":                 "(context.Context, GetPunchFeedHeadParams{TenantID uuid.UUID; AfterSeq int64}) (GetPunchFeedHeadRow{LastSeq int64; NextSeq int64}, error)",
 	"GetPunchHistoryWindow":            "(context.Context, GetPunchHistoryWindowParams{AfterTime time.Time; AfterSeq int64; TenantID uuid.UUID; FromTime time.Time; ToTime time.Time; ScanSize int32; WindowSize int32}) (GetPunchHistoryWindowRow{Scanned int64; EndTime time.Time; EndSeq int64}, error)",
 	"GetRosterCursorAnchor":            "(context.Context, GetRosterCursorAnchorParams{TenantID uuid.UUID; ID uuid.UUID}) (string, error)",
@@ -915,10 +919,13 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// named queries over invite_requests (and the person's status); none calls a definer.
 	// 23 -> 24 on 2026-10-15 (M11 API-7): db/queries/punchfeed.sql, the punch feed's two reads
 	// over feed_counters and punch_events; neither calls a definer.
-	if files != 24 {
-		t.Fatalf("read %d .sql file(s) under db/queries; TWENTY-FOUR were there when this was "+
+	// 24 -> 25 on 2026-10-15 (M11 API-8): db/queries/directory.sql, the directory's own half over
+	// tenants and employees; neither query calls a definer (holding_directory is called by hand from
+	// internal/db/holding.go).
+	if files != 25 {
+		t.Fatalf("read %d .sql file(s) under db/queries; TWENTY-FIVE were there when this was "+
 			"pinned (2026-10-15; seventeen on 2026-08-24, plus operator.sql, branding.sql, sitepunches.sql, apikeys.sql, "+
-			"apiidempotency.sql, invitequeue.sql and punchfeed.sql)", files)
+			"apiidempotency.sql, invitequeue.sql, punchfeed.sql and directory.sql)", files)
 	}
 	// A file count alone does not prove the STATEMENT lines were reached; this does.
 	// EXACT, by this file's own standard 130 lines down ("a floor with slack cannot
@@ -974,14 +981,17 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// the read end of the punch feed; neither calls a definer.
 	// 188 -> 191 on 2026-10-15 (M11 API-7b): punchfeed.sql's GetPunchFeedCounter, GetPunchHistoryWindow
 	// and ListPunchHistory, the history query's snapshot, window and page; none calls a definer.
-	if named != 191 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; ONE HUNDRED AND NINETY-ONE were "+
+	// 191 -> 193 on 2026-10-15 (M11 API-8): directory.sql's GetDirectoryHead and ListDirectoryEmployees,
+	// the directory's own half; neither calls a definer (the peers' half is holding_directory, called
+	// by internal/db/holding.go by hand).
+	if named != 193 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; ONE HUNDRED AND NINETY-THREE were "+
 			"there when this was pinned (2026-10-15: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
 			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+
 			"+ EM-7B's three invitation e-mail queries, + EM-7C's two recovery queries, "+
 			"+ the activation tap's two consent queries, + WL-13's two activation brand queries, "+
-			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads). "+
+			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {
@@ -1164,8 +1174,10 @@ func parseStore(t *testing.T) (map[string]*ast.File, *token.FileSet) {
 	// 24 -> 25 (2026-10-15, M11 API-7): db/queries/punchfeed.sql adds punchfeed.sql.go -- the punch
 	// feed's two reads (the head and a page), in storeSurface; none carries bytes. (API-7b adds its
 	// three history reads to the same file.)
-	if len(out) != 25 {
-		t.Fatalf("parsed %d file(s) under %s; TWENTY-FIVE were generated when this floor was last set "+
+	// 25 -> 26 (2026-10-15, M11 API-8): db/queries/directory.sql adds directory.sql.go -- the
+	// directory's own half (the head and a page), in storeSurface; none carries bytes, none the e-mail.
+	if len(out) != 26 {
+		t.Fatalf("parsed %d file(s) under %s; TWENTY-SIX were generated when this floor was last set "+
 			"(2026-10-15). If sqlc genuinely emits a different number now, change this number "+
 			"in the same edit and say why -- do not widen it", len(out), storeDir)
 	}
