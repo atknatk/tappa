@@ -142,6 +142,7 @@ API-12'nin rehberinde bu liste **açıkça** yazılır.
 | **K-25** | API pasifleştirme ADR 0010'un iki adımlı onayını atlar | **Anında + anahtar başına saatlik bütçe** | §4.9 |
 | **K-26** | Askıda savunma yazmaları | **Açık**: anahtar iptali, uç nokta devre dışı | §4.7 |
 | **K-40** | Punch olayında yön | **Eklenir** (kullanıcı kararı 2026-10-14): `punch_events.direction` (`in`/`out`, NOT NULL) = Tappa'nın **işverende** hesapladığı yön (`transactions.type`); onay olayında ana kaydın yönü; holding punch'ının iki satırı da işverenin yönünü taşır. Yönü olmayan satır (ham yazıcı ya da M4-04 öncesi) punch değildir, olay yazılmaz | §2 madde 30–31; ADR 0028 §4; API-2'de uygulandı |
+| **K-41** | Rehberde panelin açtığı adsız kişi | **`full_name` eklenir** (kullanıcı kararı 2026-10-15): `holding_directory` `full_name text` de döndürür (ADR 0027 §2 imza tablosu — kapalı listenin onaylı dönüş genişlemesi); `GET /v1/directory` her kayıtta `fullName` verir, kendi ve eş çalışanında aynı biçim | Eşin çalışanının tam adı da paylaşılır (K-1d'nin "ad"ı); `tappa_holdingdefiner` `employees.full_name`'i 00046'dan beri tutar — matris genişlemedi |
 
 ### Otonom kararlar (öneri uygulandı — gerekçeli)
 
@@ -594,7 +595,8 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
   `hasMore: true` diyebilir (sayfa aralığın en çok 10 000 konumunu okur) (ADR 0028 "API-7b uygulama notu").
   **(API-8'den, 2026-10-15)** Rehber `GET /v1/directory[?updatedSince=…][&cursor=…][&limit=…]`: işletmenin kendi çalışanları
   ve holding'deki eşlerinkiler, `(updatedAt, id)` sırasıyla; her kayıt `{id, company, externalRef, employeeCode, firstName,
-  lastName, active, updatedAt}` — e-posta yok; panelin açtığı ve henüz adlandırılmamış kişide `firstName`/`lastName` null.
+  lastName, fullName, active, updatedAt}` — e-posta yok; panelin açtığı ve henüz adlandırılmamış kişide `firstName`/`lastName`
+  null, `fullName` her zaman dolu (K-41).
   Bir **yürüyüş** imleçsiz bir istekten `hasMore: false` olan sayfaya kadardır; sonraki sayfa `cursor=nextCursor` ile ve
   **aynı `updatedSince`** ile (ya da hiç) istenir — başka `updatedSince`, başka işletmenin imleci → 400. `nextCursor` yalnız
   `hasMore` true iken doludur, sonda null. Her sayfa yürüyüşün `asOf`'unu taşır (ilk sayfanın okunduğu an); yürüyüş bitince
@@ -604,7 +606,10 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
   kişinin pasif ve aktif iki kaydı aynı `externalRef`'i taşıyabilir. **Holding üyeliği değişince** (bir şirket gruba girer ya
   da çıkar) hiçbir çalışan satırı değişmez: artımlı okuma yeni eşin çalışanlarını getirmez, çıkan eşinkilerin gittiğini de
   söylemez — üyelik değişince rehber baştan (`updatedSince`'siz) okunur. Askıda açıktır. (ADR 0028 "API-8 uygulama notu".)
-- **API-13:** **(API-6 ikinci turundan, 2026-10-15 — deploy öncesi)** Aşağıdaki isim sayımına `employees`'in `full_name`,
+- **API-13:** **(API-8'den, 2026-10-15 — deploy öncesi, kullanıcı kararı)** Prod'daki **tenant sayısı ölçülür**: bir holding
+  üyesinin rehber sayfası ve `holding_site_locations` çağrısı her tenant'ı `holding_peer`'den geçirir (T124'ün üye yarısı —
+  21 000 tenant'ta ~1 sn, yük altında 5 sn sınırını aşıp 503). Sayı ~1 000'i geçmeden T124 ele alınır (backlog T124'ün eşiği).
+  **(API-6 ikinci turundan, 2026-10-15 — deploy öncesi)** Aşağıdaki isim sayımına `employees`'in `full_name`,
   `first_name` ve `last_name` sütunları da girer (panelin ekleme yolu artık aynı kurala bağlı; kayıtlı adlar yeniden
   yargılanmaz, sayı yalnız bilgidir — değer basılmaz). `00053` deploy'da koşar: `tappa_app`'in `audit_log` INSERT'i sütun
   listesine daralır (`at` hariç). `00054` `audit_log` üzerinde kısmi bir indeks kurar (`CONCURRENTLY` değil): deploy'dan önce

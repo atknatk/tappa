@@ -2219,8 +2219,10 @@ arasında tekil, sıra tektir); uç `internal/handler/api/directory.go`; kablola
    400 (`tenant.ErrDirectoryCursor`). id kanonik yazımıyla (küçük harf, tireli); başka yazım 400.
 4. **Yanıt `{data, nextCursor, hasMore, asOf}`:** `nextCursor` yalnız `hasMore` true iken dolu, sonda null — bitmiş yürüyüşü
    imleçle sürdürmek örtüşme penceresini atlardı; doğru devam `updatedSince=asOf`'tur. Kayıt `{id (emp_), company (api_code),
-   externalRef, employeeCode, firstName, lastName, active, updatedAt}` — kendi ve eş satırı aynı biçim (imza tablosunun
-   sütunları; `full_name` yok — panelin açtığı adsız kişide ad null; eklemek eşin dönüşünü genişletirdi, ADR 0027 §2).
+   externalRef, employeeCode, firstName, lastName, fullName, active, updatedAt}` — kendi ve eş satırı aynı biçim (imza
+   tablosunun sütunları). `fullName` **kullanıcı kararı 2026-10-15** (plan K-41): panelin açtığı adsız kişide `firstName`/`lastName`
+   null, `fullName` her zaman dolu — kendi rehberinde de eşinkinde de (`TestDirectory_HoldingTenantsOnlyNoEmailWithActive`;
+   mutantlar — fonksiyon ya da kendi sorgusu adı boş döndürünce — kırmızı).
 5. **Birleşik sayfa:** kendi sorgusu `limit + 1`, `holding_directory` en çok 1000 (`DirectoryMaxPage` = 1000 = fonksiyonun tavanı,
    bu yüzden ilk `limit` satır her zaman doğru); `hasMore` = bir kaynakta sayfanın ötesinde satır var **ya da** fonksiyon tam
    1000 döndü (arkasında daha olabilir — sonraki sayfa boş son olabilir).
@@ -2238,8 +2240,9 @@ arasında tekil, sıra tektir); uç `internal/handler/api/directory.go`; kablola
 
 **Ölçümler.**
 - **Kabul çekirdeği** — `TestDirectory_HoldingTenantsOnlyNoEmailWithActive`: KF: KF + KM; KM: KM + KF; C (H2): C + D; E (holding'siz):
-  yalnız E — her kayıt sahibin okumasına alan alan eşit, `(updatedAt, id)` sırasında, deaktive kişi `active: false`; yanıt
-  baytlarında e-posta, kanarya, `full_name`, `email`/`location`/`venue` sözcükleri yok; kayıt tam sekiz anahtar.
+  yalnız E — her kayıt sahibin okumasına alan alan eşit, `(updatedAt, id)` sırasında, deaktive kişi `active: false`, panelin
+  açtığı adsız kişi `fullName`'iyle (kendi ve eş); yanıt baytlarında e-posta, kanarya, `email`/`location`/`venue` sözcükleri yok;
+  kayıt tam dokuz anahtar.
   `TestDirectory_KeyOfATenantWithoutHoldingSeesOnlyItsOwnStaff` (E: yalnız kendi; `holding_directory` E bağlamında 0 satır;
   C: C + D). `TestDirectory_OwnStaffAlwaysFromTheRLSQuery` (KM holding'den çıkınca kendi çalışanları aynen, KF'ninkiler yok);
   filtresiz RLS sondası `TestEmployeeDirectory_RLSHoldsWithoutTheFilter` (gönderilen ifade, tenant yüklemi etkisiz, KM bağlamında
@@ -2285,8 +2288,4 @@ arasında tekil, sıra tektir); uç `internal/handler/api/directory.go`; kablola
   ürün sınırını değiştirmeden sağlamlaştırıldı: `TestAPIRead_EveryReadCarriesTheBound` rehberi holding'siz bir işletme için
   okur (sınır aynı denetlenir); stres testi kendi okuyucusunun sınırını yükseltir (`bound` — ölçtüğü şey garanti, sınır değil);
   HTTP testleri sevkedilen sınırla kalır, üye isteği sayısı azaltıldı (ikinci tam koşuda yeşil).
-- **Ortamın kırmızısı (API-8'den değil, ölçüldü):** `TestHolding00041_PreconditionRefusesAWrongCluster` paylaşılan veritabanında
-  180 sn'de düşüyor — Down yürüyüşünün `holdingSetAsideSiteRows` adımı (birikmiş 33 559 site satırının silinmesi) yürüyüş başına
-  23,6 sn ve test dokuz kez yürür; adımlar tek tek ölçüldü (kilit 14 ms, akış satırları 0,6 sn, `00055` Down 5 ms, `00049`/`00048`
-  Down 45 ms). Taze kapta (1 800 tenant) yeşil. API-7b'nin koşusunda yeşildi; fark veritabanının birikimi.
 

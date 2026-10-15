@@ -372,7 +372,7 @@ dönüş sütunu, tenant sınırının ne kadar açıldığının kendisidir. Ku
 | `holding_advance_tag_counter(p_uid, p_ctr)` | **Tek ifade** (`db/queries/tags.sql:33-46`'nın CTE + `FOR UPDATE` kalıbı): eş şartı `prev`'de **ve** `UPDATE … WHERE`'de, **katı** üyelik (`left_at > clock_timestamp()`), üyelik **tek CTE'de bir kez** hesaplanır (`clock_timestamp()` iki kez değerlendirilmez). Dönüş `(sonuç, plaketin güncel durumu, ctr_gap)`; sonuç dört değerden biri: eş değil → `not_peer` · eş ama plaket `active` değil → `peer_inactive` · eş, aktif, güncelleme boş → `replay` · güncelleme dolu → `advanced` (6.–10. turda ölçüldü: 20 eşzamanlı çağrıda tam 1 `advanced`, 19 `replay`). `ctr_gap` (K-1i, 2026-10-14) yalnız `advanced`'ta dolu: aynı ifadede `p_ctr − eski last_ctr − 1` — tek-tenant ifadesinin `t.last_ctr − prev.old_ctr − 1`'inin aynısı; öteki sonuçlarda NULL | **`checkin.advance`** — `sun.Verify`'a dokunulmaz (o yalnız aktivasyon yoludur) | `tappa_app` |
 | `holding_logo(p_uid, p_digest)` | Eş tenant'ın **güncel** logo baytı ve türü; yalnız tenant VIES-doğrulanmışsa **ve** özet `holding_tap_site`'ın verdiğiyle aynıysa (eski ya da başka tenant'ın özeti → 0 satır) | logo rotası (ADR 0024 notu) | `tappa_app` |
 | `holding_site_locations(p_cursor)` | Eş tenant'ların lokasyonları: lokasyonun tenant'ı (manuel kaydın `site_tenant_id`'si için anahtar), id, ad, `external_ref`, vardiya, `overnight` — sayfalı, en çok 1000. **`static_ips` ve GPS asla** (K-39) | KM panelinde manuel kayıt lokasyon seçimi; işverenin raporları (§9) | `tappa_app` |
-| `holding_directory(p_updated_since, p_cursor)` | **Eş** tenant'ların çalışanları — **çağıranın kendi tenant'ı hariç** (kendi çalışanları her zaman RLS'li sorgudan gelir, ADR 0028 §2): kimlik, `api_code`, `external_ref`, kod, ad, soyad, **aktif/pasif** (K-1h) — **e-posta yok**; sayfalı, en çok 1000 | `GET /v1/directory` (ADR 0028) | `tappa_app` |
+| `holding_directory(p_updated_since, p_cursor)` | **Eş** tenant'ların çalışanları — **çağıranın kendi tenant'ı hariç** (kendi çalışanları her zaman RLS'li sorgudan gelir, ADR 0028 §2): kimlik, `api_code`, `external_ref`, kod, ad, soyad, tam ad (`full_name` — kullanıcı kararı 2026-10-15, K-41), **aktif/pasif** (K-1h) — **e-posta yok**; sayfalı, en çok 1000 | `GET /v1/directory` (ADR 0028) | `tappa_app` |
 | `holding_peer(a, b, mod)` | İki tenant'ın **aynı** holding'de eş olup olmadığı (tek yüklem) ve yukarıdaki beş kip | yalnız bu listedeki definer'lar ve tetikleyiciler | **yalnız sahip** (INVOKER, VOLATILE) |
 | Tetikleyici `holding_site_gate()`: **`site_*` üyelik kapısı** | `BEFORE INSERT ON transactions`, `WHEN (NEW.site_tenant_id IS NOT NULL)`; K-29'un kanal × zaman şartı (§6) | `transactions` | yalnız sahip |
 | Tetikleyici `holding_feed()`: **holding akış/izdüşüm tetikleyicisi** | `AFTER INSERT ON transactions` ve `ON transaction_reviews`, tetikleyici adı **ad sırasında ilk** (K-31); `site_punches` (§9) ve iki hedefin olay/teslim satırları (§8; ADR 0028 §4) | `transactions`, `transaction_reviews` | yalnız sahip |
@@ -389,7 +389,7 @@ olarak** bu tablodur.
 | `holding_advance_tag_counter` | `p_uid character, p_ctr integer` | `TABLE(outcome text, tag_status text, ctr_gap integer)` — `outcome ∈ {advanced, not_peer, replay, peer_inactive}`; `ctr_gap` yalnız `advanced`'ta dolu (K-1i, migration `00045`) |
 | `holding_logo` | `p_uid character, p_digest text` | `TABLE(logo bytea, logo_mime text)` |
 | `holding_site_locations` | `p_cursor uuid` | `TABLE(site_tenant_id uuid, location_id uuid, location_name text, location_external_ref text, shift_start time without time zone, shift_end time without time zone, overnight boolean)` |
-| `holding_directory` | `p_updated_since timestamp with time zone, p_cursor uuid` | `TABLE(employee_id uuid, employer_tenant_id uuid, api_code text, external_ref text, employee_code text, first_name text, last_name text, active boolean, updated_at timestamp with time zone)` |
+| `holding_directory` | `p_updated_since timestamp with time zone, p_cursor uuid` | `TABLE(employee_id uuid, employer_tenant_id uuid, api_code text, external_ref text, employee_code text, first_name text, last_name text, full_name text, active boolean, updated_at timestamp with time zone)` — `full_name` **kullanıcı kararı 2026-10-15** (K-41; panelin açtığı adsız kişinin tek adı; dönüşün onaylı genişlemesi, yayınlanmamış `00055` yerinde düzeltildi) |
 | `holding_peer` | `a uuid, b uuid, mod text` | `boolean` |
 | `holding_site_gate` | — | `trigger` |
 | `holding_feed` | — | `trigger` |
@@ -1882,14 +1882,20 @@ Down yürüyüşleri `00055`'in Down'ını koşar: ayrı tutulunca o yürüyüş
   **içinde** (dışında olsa eşin ilk 1000 satırı imleçten sonrakileri iterdi — mutantı `TestHoldingDirectory_IsAKeysetOnUpdatedAtAndID`'de
   kırmızı); dış sıra `(updated_at, id)`, en çok 1000. Sayfa anahtarı iki argümandır: `p_cursor` NULL → `updated_at >=
   p_updated_since`; dolu → `(updated_at, id) > (p_updated_since, p_cursor)`. `active` = `status <> 'deactivated'` (K-1h;
-  GET /v1/employees ile aynı). E-posta, `full_name`, ev lokasyonu yok.
+  GET /v1/employees ile aynı). `full_name` döner (**kullanıcı kararı 2026-10-15**, K-41 — imza tablosu güncellendi;
+  `00055` yayınlanmadığı için yerinde düzeltildi, `tappa-m11-db`'ye DDL ile yerinde uygulandı — `DROP FUNCTION` + `CREATE`,
+  `lock_timeout` 2 sn, veri silinmedi; şema parmak izi — `public`'in sütun, indeks, kısıt, fonksiyon tanımı + sahip + ACL ve
+  sütun ACL'lerinin md5'leri — taze kapla **aynı**, `holding_directory`'nin tanımı `2bb37208…`). E-posta ve ev lokasyonu yok.
+  Matris genişlemedi: `employees.full_name` tanımlayıcıda `00046`'dan beri var (`holding_feed`'in kim-dokundu anlık görüntüsü);
+  `TestHoldingDefiner_EveryGrantIsUsed`'da tek başına geri alınması artık iki yoldan 42501.
 - **Matris (§3):** `employees` satırının kalan dört sütunu verildi — `first_name`, `last_name`, `status`, `updated_at`
   (`TestHoldingDefiner_ColumnMatrix`, `TestHoldingDefiner_EveryGrantIsUsed` — sürüş `holding_directory`'yi holding'siz bir
   işletmenin bağlamında çağırır: kapı eş kümesini yürümeden hayır der, yürütücü ise ifadenin adlandırdığı her sütunu
   başlarken denetler — dört sütunun her biri tek başına geri alınınca 42501; çağrı kaldırılınca dördü de *"a grant nothing
   reads"* ile kırmızı, ölçüldü). `employees.email` verilmedi (*"asla SELECT"*; ön/son koşul da sınar).
 - **Kanarya:** fikstürde eşin e-postası iğneleri taşıyan bir çalışanı var; `holding_directory` o satırı döner, hiçbir hücrede
-  iğne yok (`TestHoldingFunctions_SiteEvidenceCanaryNeverLeaks`). **Eş kümesi bir kez:** `holdingMultiRowCalls`'ta
+  iğne yok, ve çalışanın kendine özgü tam adı **beklenen hücrede** — `full_name`'de tam bir kez, başka hiçbir hücrede değil
+  (`TestHoldingFunctions_SiteEvidenceCanaryNeverLeaks`; mutant — gövde `full_name` yerine NULL döndürünce — kırmızı). **Eş kümesi bir kez:** `holdingMultiRowCalls`'ta
   (`TestHoldingFunctions_PeerSetComputedOnce`).
 - **K-33, H2 ile:** `holdingOutsiderProbes` artık `holding_directory`'yi de yürür (C, D, KM, bağlamsız; dünyanın ilk
   çalışanının `updated_at`'ından başlayarak, yasaklı bir satır görünene ya da sayfa kısalana dek). İki çok satırlı probun
@@ -1903,8 +1909,15 @@ Down yürüyüşleri `00055`'in Down'ını koşar: ayrı tutulunca o yürüyüş
   ACL aynı); ön koşul eski gövdenin md5'ini (`63bf5ecf…`) ister, Down onu bayt bayt geri verir
   (`TestHolding00055_DownGivesBackAndUpTakesItAgain`). Down zincirleri: `feedBelow48` önce `00055`'in Down'ını, `feedUpAgain`
   sonda Up'ını koşar (tablo kilidi yok; `holdingDownTables` değişmedi); `opAtVersionSkips`'e 55 ve 56. *(İlk hâlde indeks
-  `00055`'teydi ve `employees` `holdingDownTables`'a girmişti; tam `-race` koşusunda `TestHolding00041_PreconditionRefusesAWrongCluster`
-  180 sn'de düştü — en sıcak tablonun ACCESS EXCLUSIVE'i Down yürüyüşlerine eklenmişti. Bölündü.)*
+  `00055`'teydi ve `employees` — her paketin testlerinin yazdığı tablo — `holdingDownTables`'a girmişti: her Down yürüyüşü onu
+  ACCESS EXCLUSIVE alacaktı. Bölündü. O koşudaki `TestHolding00041_PreconditionRefusesAWrongCluster` zaman aşımının nedeni bu
+  değildi — bölünmeden sonra da sürdü, ölçüldü: biriken site satırları, backlog T128.)*
+- **Adlandırılmış bedel — üyenin eş kümesi (T124'ün üye yarısı; kullanıcı kararı 2026-10-15: şimdilik bırakılır).** Bir
+  holding **üyesinin** her `holding_directory` ve `holding_site_locations` çağrısı bütün `tenants`'ı `holding_peer`'den geçirir.
+  Ölçüldü: 21 000 tenant'ta üyenin rehber sayfası **0,97–1,05 sn**; testlerin doldurduğu paylaşılan veritabanında (45 000
+  tenant) tek başına ~1,5–2 sn, tam `-race` yükü altında **5 sn `APIReadTimeout`'u aştı → 57014, uçta 503**. Bugün prod'da
+  birkaç tenant var, sayfa birkaç ms. Kural değişmez (`holding_members`'a yalnız `holding_peer` değer, yeni kip yok); **eşik:
+  tenant sayısı ~1 000'i geçmeden önce ele alınır** (backlog T124; deploy öncesi sayım plan §5 API-13).
 - **Yazılan testler:** `TestHoldingDirectory_ReturnsPeersNeverTheCaller` · `TestHoldingDirectory_IsAKeysetOnUpdatedAtAndID` ·
   `TestHoldingDirectory_TheCallerIsKeptOutTwice` · `TestHoldingFunctions_AMemberOfNoHoldingAsksOnce` (kapı; mutant —
   kapı iki gövdeden birinden kaldırılınca kırmızı) · `TestHolding00055_DownGivesBackAndUpTakesItAgain` ·
