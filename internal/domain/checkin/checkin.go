@@ -309,6 +309,33 @@ type Service struct {
 	// sentence than the code deserves.
 	now func() time.Time
 	log *slog.Logger
+	// work is K-19's set of tenants with work (ADR 0028 §6; internal/webhook's worker): a recorded
+	// tap puts its tenant -- and a holding tap's site too -- into it after the commit. nil until
+	// NoticeWorkTo; then never blocks.
+	work WorkNoticer
+}
+
+// WorkNoticer is K-19's "tenants with work" set (internal/webhook.Worker), declared at the consumer
+// (§7). Notice must not block.
+type WorkNoticer interface {
+	Notice(tenant uuid.UUID)
+}
+
+// NoticeWorkTo makes every RECORDED tap notice its tenant -- and, for a tap on a peer's plaque, the
+// site's tenant as well (ADR 0028 §6: "holding punch'ında iki tenant da") -- to n, after the record
+// committed. The webhook delivery and the invitation queue of those tenants then run without a scan
+// across tenants (K-19). A tap that wrote nothing notices nobody. cmd/tappa wires it once.
+func (s *Service) NoticeWorkTo(n WorkNoticer) { s.work = n }
+
+// noticeWork is NoticeWorkTo's call, after a commit.
+func (s *Service) noticeWork(tenant uuid.UUID, site *db.HoldingSite) {
+	if s.work == nil {
+		return
+	}
+	s.work.Notice(tenant)
+	if site != nil {
+		s.work.Notice(site.SiteTenantID)
+	}
 }
 
 // New wires the service. Every dependency is required — a nil one on this path
@@ -877,6 +904,12 @@ func (s *Service) Record(ctx context.Context, req Request) (Result, error) {
 		// again; what must not happen is a screen that says "done" over a record
 		// that does not exist.
 		return Result{}, err
+	}
+
+	if id != uuid.Nil {
+		// K-19: the record (and its feed event and delivery rows, written by the triggers in the same
+		// transaction) is committed; the tenants it concerns have work.
+		s.noticeWork(req.SessionTenantID, facts.site)
 	}
 
 	if dec.Redirect != tap.RedirectNone {
