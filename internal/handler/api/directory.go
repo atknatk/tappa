@@ -41,13 +41,17 @@ import (
 // page. After the last page the integrator's next walk is updatedSince=asOf: every change committed
 // since is in it (tenant.EmployeeDirectory's header says exactly what that guarantees), and a person
 // already read may come again -- overwrite by id (plan §2 item 19). A business that joins or leaves a
-// holding changes no employee: after a membership change, a walk without updatedSince.
+// holding, or whose company code changes, changes no employee: neither reaches an incremental walk,
+// and neither is signalled -- the guide advises a periodic walk without updatedSince (plan §5 API-12).
 //
 // THE CURSOR is dir_<asOf µs>_<position µs>_<id>_<binding>: transparent like the feed's, bound like
 // the history query's -- the binding is a digest of the key's business and the updatedSince the walk
 // was asked with, so a cursor sent by another business or with another updatedSince is 400. It is
 // not a signature: a forged one chooses a position in this business's own directory and the asOf
-// handed back to its sender -- an asOf past the database's clock is 400 (tenant.ErrDirectoryCursor).
+// handed back to its sender -- within what a walk can hand out: an asOf before the business existed
+// or past the database's clock, a position before the walk's start or past the database's clock, is
+// 400 (tenant.ErrDirectoryCursor says why each bound; the API-8 review measured an unchecked position
+// as a 503 and, at int64's ends, a silently empty page).
 //
 // Open while the business is suspended (§10): a read does not pass the suspension checkpoint. Every
 // statement runs under tenant.APIReadTimeout.

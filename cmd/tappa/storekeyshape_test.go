@@ -303,7 +303,9 @@ var storeSurface = map[string]string{
 	"GetPunchFeedCounter":           "(context.Context, uuid.UUID) (int64, error)",
 	// M11 API-8: the directory's own half -- the walk's clock and the business's company code, and a
 	// page of its employees: identities, refs, codes, names, the active flag. No e-mail, no bytes.
-	"GetDirectoryHead":                 "(context.Context, uuid.UUID) (GetDirectoryHeadRow{AsOf time.Time; ApiCode *string}, error)",
+	// The head's CreatedAt (the API-8 review, O-1/D-5): the business's creation instant, the lowest
+	// asOf a cursor may carry -- a timestamp, harmless.
+	"GetDirectoryHead":                 "(context.Context, uuid.UUID) (GetDirectoryHeadRow{AsOf time.Time; ApiCode *string; CreatedAt time.Time}, error)",
 	"ListDirectoryEmployees":           "(context.Context, ListDirectoryEmployeesParams{TenantID uuid.UUID; AfterAt time.Time; AfterID uuid.UUID; PageSize int32}) ([]ListDirectoryEmployeesRow{ID uuid.UUID; ExternalRef *string; EmployeeCode *string; FirstName *string; LastName *string; FullName string; Active bool; UpdatedAt time.Time}, error)",
 	"GetPunchFeedHead":                 "(context.Context, GetPunchFeedHeadParams{TenantID uuid.UUID; AfterSeq int64}) (GetPunchFeedHeadRow{LastSeq int64; NextSeq int64}, error)",
 	"GetPunchHistoryWindow":            "(context.Context, GetPunchHistoryWindowParams{AfterTime time.Time; AfterSeq int64; TenantID uuid.UUID; FromTime time.Time; ToTime time.Time; ScanSize int32; WindowSize int32}) (GetPunchHistoryWindowRow{Scanned int64; EndTime time.Time; EndSeq int64}, error)",

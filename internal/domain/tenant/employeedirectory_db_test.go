@@ -100,7 +100,7 @@ func TestEmployeeDirectory_RLSHoldsWithoutTheFilter(t *testing.T) {
 
 // TestEmployeeDirectory_WalksMissNothingUnderConcurrentWriters is the walk guarantee (the header of
 // employeedirectory.go; K-21; plan §2 item 19) measured: eight writers make 60 changes each -- a new
-// person or a renamed one, in KF, KM or an outsider C, each transaction holding its write 0-40 ms
+// person or a renamed one (its first name, its full name -- K-41 -- or both), in KF, KM or an outsider C, each transaction holding its write 0-40 ms
 // before it commits, a tenth rolled back, 0-20 ms between two -- while KM's reader walks its
 // directory again and again, each walk from the previous one's asOf, pages of 1-200. Short walks on
 // purpose: a write open across a walk's START is what the overlap exists for, and a long walk reaches
@@ -130,6 +130,13 @@ func TestEmployeeDirectory_WalksMissNothingUnderConcurrentWriters(t *testing.T) 
 	dir.overlap = 120 * time.Millisecond
 	dir.bound = time.Minute // a member's page costs the peer set; the bound is TestAPIRead_EveryReadCarriesTheBound's
 	const writers, rounds, hold, pause = 8, 60, 40 * time.Millisecond, 20 * time.Millisecond
+	// A rename moves the first name, the full name (K-41: the panel's name, the only one a panel-made
+	// person has) or both -- each a directory column of 00037's trigger, each compared below.
+	renames := []string{
+		`UPDATE employees SET first_name = $3 WHERE tenant_id = $1 AND id = $2`,
+		`UPDATE employees SET full_name = $3 || ' Panel' WHERE tenant_id = $1 AND id = $2`,
+		`UPDATE employees SET first_name = $3, full_name = $3 || ' Both' WHERE tenant_id = $1 AND id = $2`,
+	}
 	tenants := []uuid.UUID{f.kf, f.km, c}
 	ctx, cancel := context.WithTimeout(f.ctx, 90*time.Second)
 	defer cancel()
@@ -161,7 +168,7 @@ func TestEmployeeDirectory_WalksMissNothingUnderConcurrentWriters(t *testing.T) 
 							tenantID, "st-"+uuid.NewString()[:13], name).Scan(&born); err != nil {
 							return err
 						}
-					} else if _, err := tx.Exec(ctx, `UPDATE employees SET first_name = $3 WHERE tenant_id = $1 AND id = $2`, tenantID, target, name); err != nil {
+					} else if _, err := tx.Exec(ctx, renames[rng.IntN(len(renames))], tenantID, target, name); err != nil {
 						return err
 					}
 					time.Sleep(time.Duration(rng.Int64N(int64(hold))))
@@ -231,7 +238,7 @@ func TestEmployeeDirectory_WalksMissNothingUnderConcurrentWriters(t *testing.T) 
 
 	truth := map[uuid.UUID]DirectoryEntry{}
 	rows, err := f.owner.Query(f.ctx, `SELECT e.id, e.tenant_id, t.api_code, e.external_ref, e.employee_code, e.first_name, e.last_name,
-	                                          e.status <> 'deactivated', e.updated_at
+	                                          e.full_name, e.status <> 'deactivated', e.updated_at
 	                                     FROM employees e JOIN tenants t ON t.id = e.tenant_id WHERE e.tenant_id = ANY($1)`, []uuid.UUID{f.kf, f.km, c})
 	if err != nil {
 		t.Fatal(err)
@@ -240,7 +247,7 @@ func TestEmployeeDirectory_WalksMissNothingUnderConcurrentWriters(t *testing.T) 
 	for rows.Next() {
 		var e DirectoryEntry
 		var tenantID uuid.UUID
-		if err := rows.Scan(&e.EmployeeID, &tenantID, &e.Company, &e.ExternalRef, &e.EmployeeCode, &e.FirstName, &e.LastName, &e.Active, &e.UpdatedAt); err != nil {
+		if err := rows.Scan(&e.EmployeeID, &tenantID, &e.Company, &e.ExternalRef, &e.EmployeeCode, &e.FirstName, &e.LastName, &e.FullName, &e.Active, &e.UpdatedAt); err != nil {
 			t.Fatal(err)
 		}
 		if tenantID == c {
@@ -256,7 +263,7 @@ func TestEmployeeDirectory_WalksMissNothingUnderConcurrentWriters(t *testing.T) 
 		switch {
 		case !ok:
 			missed++
-		case directoryEntryText(got) != directoryEntryText(want):
+		case directoryEntryKey(got) != directoryEntryKey(want):
 			stale++
 		}
 	}
@@ -433,14 +440,23 @@ func TestEmployeeDirectory_TheBoundIsTheIndexsNotAFilter(t *testing.T) {
 
 var errRolledBack = errors.New("rolled back on purpose")
 
-// directoryEntryText is every field of an entry, the pointers followed.
-func directoryEntryText(e DirectoryEntry) string {
+// directoryEntryFields is every field of an entry, the pointers followed, as one comparable value (a
+// struct, not a formatted string: a person's names never pass through a print call -- R7b).
+type directoryEntryFields struct {
+	id                                              uuid.UUID
+	company, externalRef, employeeCode, first, last string
+	fullName                                        string
+	active                                          bool
+	updatedAt                                       int64
+}
+
+func directoryEntryKey(e DirectoryEntry) directoryEntryFields {
 	s := func(p *string) string {
 		if p == nil {
 			return "<nil>"
 		}
 		return *p
 	}
-	return fmt.Sprintf("%s|%s|%s|%s|%s|%s|%v|%d", e.EmployeeID, s(e.Company), s(e.ExternalRef), s(e.EmployeeCode), s(e.FirstName), s(e.LastName),
-		e.Active, e.UpdatedAt.UnixMicro())
+	return directoryEntryFields{id: e.EmployeeID, company: s(e.Company), externalRef: s(e.ExternalRef), employeeCode: s(e.EmployeeCode),
+		first: s(e.FirstName), last: s(e.LastName), fullName: e.FullName, active: e.Active, updatedAt: e.UpdatedAt.UnixMicro()}
 }

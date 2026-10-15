@@ -41,7 +41,9 @@ import (
 // WHAT IT DOES NOT SAY. A business that JOINS or LEAVES the holding changes no employee row: its
 // staff appear in (or vanish from) a full walk, never in an incremental one, and nothing marks the
 // ones that vanished -- a membership change is the integrator's cue to read the whole directory
-// again (the rehber note, plan §5 API-12).
+// again (the rehber note, plan §5 API-12). Nor does a new company code (tenants.api_code, the
+// entries' Company): its business's people keep the old one in an incremental walk. Neither is
+// signalled, so the guide advises a periodic full walk (the API-8 review, D-2/D-3).
 
 // DirectoryOverlap is K-21's overlap window: a walk from updatedSince reads from updatedSince minus
 // this.
@@ -60,7 +62,23 @@ var maxUUID = uuid.UUID{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x
 // (directory.sql says what was measured).
 var directoryOrigin = time.Date(1, time.January, 1, 0, 0, 0, 0, time.UTC)
 
-// ErrDirectoryCursor: the cursor's asOf is past the database's clock -- not a value a walk handed out.
+// ErrDirectoryCursor: the cursor carries a value no walk of this business hands out -- the cursor is
+// a client's text, and both of its instants are checked against what a walk can have given before
+// either reaches a statement (the API-8 review: an unchecked position was PostgreSQL's 22008, a 503,
+// past its range, and pgx's silent wrap -- an empty last page, a wrong answer -- at int64's ends):
+//   - asOf is in [the business's created_at, the database's clock now]: a walk's asOf is the clock of
+//     its first page's transaction, which read the business's committed tenants row (created_at is
+//     its insert's now(), and tappa_app cannot write it -- 00024);
+//   - the position is in [the walk's start, the database's clock now]: the walk's start is the
+//     lowest updated_at its reads take (Since - overlap; directoryOrigin with no Since), and a
+//     position is the updated_at of a row an earlier page read -- written (00037's trigger: the
+//     write's clock_timestamp) and committed before that page, so before this page's transaction.
+//     NOT the cursor's asOf: a row changed during the walk is handed out again after asOf
+//     (repeats are expected), so a legitimate position can be past it.
+//
+// Both upper bounds are the database's own clock with no tolerance: every instant compared was
+// written by the same server's clock earlier (a step back of that clock would refuse a live walk's
+// cursor -- its integrator starts the walk again, nothing is lost).
 var ErrDirectoryCursor = errors.New("tenant: the directory cursor is not one this business's walk handed out")
 
 // DirectoryEntry is one employee as the API answers with it. No e-mail, address or home venue: the
@@ -88,7 +106,8 @@ type DirectoryPosition struct {
 // DirectoryQuery is one page's request.
 type DirectoryQuery struct {
 	// Since is the integrator's updatedSince (nil: the whole directory); the walk reads from
-	// Since - DirectoryOverlap. It is read on the first page only: a later page is after After.
+	// Since - DirectoryOverlap. A later page reads after After, and Since bounds that position from below
+	// (ErrDirectoryCursor).
 	Since *time.Time
 	// After is the last row the previous page handed out; nil on a walk's first page.
 	After *DirectoryPosition
@@ -164,7 +183,11 @@ func (d *EmployeeDirectory) DirectoryPage(ctx context.Context, tenantID uuid.UUI
 		}
 		page.AsOf = head.AsOf
 		if q.After != nil {
-			if q.AsOf.After(head.AsOf) {
+			start := directoryOrigin
+			if q.Since != nil {
+				start = q.Since.Add(-d.overlap)
+			}
+			if q.AsOf.Before(head.CreatedAt) || q.AsOf.After(head.AsOf) || q.After.At.Before(start) || q.After.At.After(head.AsOf) {
 				return ErrDirectoryCursor
 			}
 			page.AsOf = q.AsOf

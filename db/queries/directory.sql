@@ -13,8 +13,9 @@
 -- (transaction_timestamp): it is taken before any snapshot this transaction reads, so a change that
 -- the reads below do not see either committed after it or was written by a transaction still open at
 -- it -- the integrator's next walk starts at as_of minus K-21's ten minutes (employeedirectory.go
--- says what that guarantees). One row: the key's tenant exists.
-SELECT transaction_timestamp()::timestamptz AS as_of, t.api_code
+-- says what that guarantees). One row: the key's tenant exists. created_at is the earliest asOf a
+-- walk of this business can carry (a cursor's asOf before it is not one a walk handed out).
+SELECT transaction_timestamp()::timestamptz AS as_of, t.api_code, t.created_at
 FROM tenants t
 WHERE t.id = @tenant_id;
 

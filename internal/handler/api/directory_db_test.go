@@ -240,8 +240,11 @@ func TestDirectory_HoldingTenantsOnlyNoEmailWithActive(t *testing.T) {
 // case, a misspelling, a repeat, a malformed string: 400, nothing echoed); updatedSince is RFC 3339
 // (the unencoded '+' says so). The cursor: malformed, another business's, sent with another
 // updatedSince or without the one it was issued for, and one carrying an asOf past the database's
-// clock are 400 naming the cursor; a well-formed cursor of this business at a position it chose
-// answers this business's directory after it, nothing else.
+// clock are 400 naming the cursor; so is a well-formed cursor of this business whose position is before
+// the walk's start or past the database's clock (the int64 ends and a position PostgreSQL cannot hold
+// among them) or whose asOf is before the business was created (1970 among them) -- each bound beside
+// the value just inside it, which is answered; a well-formed cursor of this business at a position it
+// chose answers this business's directory after it, nothing else.
 func TestDirectory_Paged(t *testing.T) {
 	w := newPunchWorld(t)
 	for i := range 29 {
@@ -342,6 +345,75 @@ func TestDirectory_Paged(t *testing.T) {
 			t.Errorf("cursor=%q: the refusal repeats it", bad)
 		}
 	}
+	// The cursor's two instants against what a walk can hand out (the API-8 review's O-1 and D-5):
+	// well-formed and bound to KM's walk, each refused BEFORE the value reaches a statement -- 400, never
+	// a 5xx, never a silently empty page, the value not echoed. Before the fix the first position was
+	// PostgreSQL's 22008 (a 503) and the two int64 ends wrapped in pgx (200, an empty page, hasMore
+	// false); asOf 0 (1970, before KM existed) was a 200. Beside each bound, the value just inside it.
+	var kmBorn, dbNow time.Time
+	if err := w.r.owner.QueryRow(w.ctx, `SELECT created_at, clock_timestamp() FROM tenants WHERE id = $1`, w.km.id).Scan(&kmBorn, &dbNow); err != nil {
+		t.Fatal(err)
+	}
+	sinceT := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	origin := time.Date(1, time.January, 1, 0, 0, 0, 0, time.UTC).UnixMicro() // tenant.directoryOrigin
+	walkStart := sinceT.Add(-tenant.DirectoryOverlap).UnixMicro()
+	asOfOK, posOK := first.AsOf.UnixMicro(), want[0].UpdatedAt.UnixMicro()
+	forge := func(asOf, pos int64, since *time.Time) string {
+		return directoryCursorPrefix + strconv.FormatInt(asOf, 10) + "_" + strconv.FormatInt(pos, 10) + "_" + parts[2] + "_" +
+			directoryBinding(w.km.id, since)
+	}
+	for _, c := range []struct {
+		what      string
+		asOf, pos int64
+		since     *time.Time
+	}{
+		{"a position 7 000 years back (22008 in PostgreSQL)", asOfOK, -219900000000000000, nil},
+		{"the least int64 as the position", asOfOK, -9223372036854775808, nil},
+		{"the greatest int64 as the position", asOfOK, 9223372036854775807, nil},
+		{"a position a microsecond before the walk's start (no updatedSince: the year 1)", asOfOK, origin - 1, nil},
+		{"a position a microsecond before the walk's start (updatedSince - 10 min)", asOfOK, walkStart - 1, &sinceT},
+		{"a position past the database's clock", asOfOK, dbNow.Add(5 * time.Second).UnixMicro(), nil},
+		{"asOf 0 (1970)", 0, posOK, nil},
+		{"asOf a microsecond before the business was created", kmBorn.UnixMicro() - 1, posOK, nil},
+		{"asOf 1 µs past 1970", 1, posOK, nil},
+		{"the greatest int64 as asOf", 9223372036854775807, posOK, nil},
+	} {
+		cur := forge(c.asOf, c.pos, c.since)
+		q := "cursor=" + url.QueryEscape(cur)
+		if c.since != nil {
+			q += "&updatedSince=" + url.QueryEscape(c.since.Format(time.RFC3339Nano))
+		}
+		rec := w.dir(w.km.raw, q)
+		if pr := problemOf(t, rec); rec.Code != http.StatusBadRequest || pr.Code != CodeInvalidRequest || pr.Details["parameter"] != "cursor" {
+			t.Errorf("%s: %d %s", c.what, rec.Code, rec.Body.String())
+		}
+		for _, echo := range []string{cur, strconv.FormatInt(c.pos, 10), strconv.FormatInt(c.asOf, 10), parts[2]} {
+			if len(echo) > 4 && strings.Contains(rec.Body.String(), echo) {
+				t.Errorf("%s: the refusal repeats %q", c.what, echo)
+			}
+		}
+	}
+	for _, c := range []struct {
+		what      string
+		asOf, pos int64
+		since     *time.Time
+		entries   int
+	}{
+		{"asOf exactly the business's creation", kmBorn.UnixMicro(), posOK, nil, -1},
+		{"a position exactly at the walk's start (no updatedSince: the year 1)", asOfOK, origin, nil, len(want)},
+		{"a position exactly at the walk's start (updatedSince - 10 min)", asOfOK, walkStart, &sinceT, len(want)},
+		{"a position at an earlier page's clock", asOfOK, asOfOK, nil, -1},
+	} {
+		q := "limit=1000&cursor=" + url.QueryEscape(forge(c.asOf, c.pos, c.since))
+		if c.since != nil {
+			q += "&updatedSince=" + url.QueryEscape(c.since.Format(time.RFC3339Nano))
+		}
+		p := dirPageOf(t, w.dir(w.km.raw, q))
+		if c.entries >= 0 && len(p.Data) != c.entries {
+			t.Errorf("%s: %d entries, want %d", c.what, len(p.Data), c.entries)
+		}
+	}
+
 	// A cursor of KM's own, at a position it chose (a KF person's place in the order): KM's directory
 	// after that position -- the rest of the same list.
 	at := want[30]
