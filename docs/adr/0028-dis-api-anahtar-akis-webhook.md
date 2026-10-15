@@ -787,7 +787,8 @@ yazılmadı). Ekler: `TestIdempotency_LazyDeleteIsThisTenantsAlone`, `TestApiIde
 `TestLocationsPut_TheBodyAndTheRefContract`, `TestLocationsPut_AVenueWithoutEvidenceRecordsATapAsFlag`,
 `TestLocationsPut_ActiveIsALabelTheTapNeverReads`, `TestAPIWiring_ThePutOfALocationRunsThroughTheShippedSurface`;
 ikinci tur: `TestInsertSelectAndDoUpdate_TheBeltReadsThem` (+ adın gizli karakter kuralı `TestVenues_TheNameBoundIsEnforcedBeforeTheColumn`
-ve `TestParseName_RefusesRatherThanTruncates`'te).
+ve `TestParseName_RefusesRatherThanTruncates`'te); üçüncü tur: `TestVenueSave_ANameOnFileStaysEditableAndANewHiddenOneIsASentence`,
+`TestLocationsPut_TheNameRuleJudgesOnlyWhatChanges`, `TestInsertSelectWrites_TheArmFiresAndStaysQuiet` (beş kopyada).
 
 **API-6** — `EmployeesPut_ActiveEmailElsewhereIs409` · `EmployeesPut_InactiveToActiveOpensANewRow` ·
 `EmployeesPut_EmailChangeKillsOldInviteInSameTransaction` · `ResendActivation_LoopNeverKillsTheLiveInvite` ·
@@ -1490,8 +1491,9 @@ biri 200, satır izler, her biri `from_active`/`to_active`'li bir `location.upda
 *Lokasyon adında kontrol ve biçim karakteri (güvenlik D1).* BEL, ESC, satır sonu, U+202E ve sıfır genişlikli karakterler
 201 alıyordu; ad holding eşine de anlık görüntüyle gider. `venueName` (lokasyon ve departman, panel ve API) kırpmadan sonra
 Cc/Cf karakterini reddeder; panelin sınırı aynı yüklemi (`tenant.NameHasHiddenCharacters`) cümleyle söyler (`parseName`).
-Ölçüldü: paylaşılan veritabanında böyle bir ad taşıyan 23 lokasyon satırının hepsi bir CSV testinin ham INSERT'i
-(`reportscsv_db_test.go`, bilerek `venueName`'i atlar); departmanda 0. NUL eskisi gibi önce atılır. Mutantlar (alan ve panel
+Ölçüldü (**paylaşılan geliştirme veritabanı** `tappa-m11-db`, üretim değil): böyle bir ad taşıyan 23 lokasyon satırının
+hepsi bir CSV testinin ham INSERT'i (`reportscsv_db_test.go`, bilerek `venueName`'i atlar); departmanda 0. *(Üçüncü turda
+kural daraltıldı ve kayıtlı ad muaf tutuldu — aşağıda.)* NUL eskisi gibi önce atılır. Mutantlar (alan ve panel
 yarısı ayrı ayrı) kırmızı.
 
 *Kemer, INSERT … SELECT ve DO UPDATE (güvenlik D2, D3).* `internal/domain/tenant/query_test.go`: (i) INSERT … SELECT'in
@@ -1500,8 +1502,9 @@ seçim listesinde `tenant_id` konumundaki değer `@tenant_id` ya da kapsamlı ka
 CONFLICT … DO UPDATE bloktan ayrılır ve WHERE'i INSERT'in **hedefine** karşı denetlenir — önce `DO UPDATE SET x` "set"
 adlı bir tablonun UPDATE'i okunuyordu (yanlış alarm). `TestInsertSelectAndDoUpdate_TheBeltReadsThem` (beş kırmızı, beş yeşil
 biçim); iki kolun her biri kaldırılınca kırmızı. **Sınır:** öğe metin olarak karşılaştırılır (döküm ve `AS` atılarak); aynı
-değeri *hesaplayan* bir ifade (CASE, COALESCE) reddedilir, anlaşılmaz; değerin son kemeri RLS `WITH CHECK`. Öteki beş
-kopyada INSERT kolu hiç yoktur (paketleri okur ya da düz yazar) — onların sınırı, bu kuralın değil.
+değeri *hesaplayan* bir ifade (CASE, COALESCE) reddedilir, anlaşılmaz; değerin son kemeri RLS `WITH CHECK`. *(Bu
+paragrafın ilk hâli "öteki beş kopyada INSERT kolu hiç yoktur, paketleri okur ya da düz yazar" diyordu — yanlıştı:
+adminauth, signup ve review `INSERT … SELECT` çağırır; üçüncü turda düzeltildi, aşağıda.)*
 
 *Yüzde kodlanmış ref (üçüncü göz).* `%41BC` ve `%7E` (Java `URLEncoder`'ı `~`'yi kodlar) 422 alıyordu. Seçim: **bir kez
 çöz, sonra aynı katı kalıp** — rehbere "kodlamayın" yazmak her istemci kütüphanesini denetlemeyi entegratöre bırakırdı.
@@ -1520,3 +1523,43 @@ invalid_utf8`**; U+FFFD'yi ad içinde reddetmek yerine bu seçildi: kaçışla g
 seçimidir, bozuk bayt değildir. Mutant (kontrol kaldırılınca U+FFFD'li ad 201) kırmızı.
 
 *Rehber notları* plan §5 API-12'ye yazıldı (bilinmeyen alan, yinelenen alan, UTF-8, ref kodlaması).
+
+**Üçüncü tur (2026-10-15 — üçüncü göz RED: isim kuralı yeni bir ORTA getirdi; DÜŞÜK'ler).**
+
+*ORTA — isim kuralı meşru adları reddediyor, kayıtlı adı kilitliyordu.* İkinci turun "her Cc ve Cf" kuralı panelde aşçı
+emojisini (ZWJ), İskoçya bayrağını (etiket karakterleri U+E0020–E007F), Farsça ZWNJ'li adı, yapıştırılmış yumuşak tireyi,
+LRM'yi ve baştaki BOM'u reddediyordu; panel formu adı her kayıtta yeniden gönderdiği için böyle adlı bir lokasyonun
+IP/GPS/vardiya/SSID düzenlemesi kilitleniyordu. Kural **amaca** daraltıldı (`internal/domain/tenant/venue.go`):
+- **reddedilen:** Cc (içte TAB/satır sonu dahil), U+2028/U+2029, bidi gömme/geçersiz kılma/yalıtım (U+202A–202E,
+  U+2066–2069), U+200B, U+2060, içte U+FEFF;
+- **izinli:** ZWJ, ZWNJ, etiket karakterleri, varyasyon seçicileri, her yazının harfleri (Arapça, İbranice);
+- **sessizce atılan** (`CleanName`, panel ve API'nin ortak temizliği): U+00AD, U+200E/U+200F/U+061C (LRM/RLM/ALM) ve iki
+  uçtaki BOM. Gerekçe: yapıştırılan metinde gelirler, bir adda anlamları yoktur; işaretler nötr karakterlerin sırasını
+  oynatabilir — atmak riski alır ve yöneticiye göremediği bir karakteri aratmaz. Reddetmek, kimsenin yazmadığı bir karakter
+  hakkında bir cümle olurdu.
+- **Kayıtlı ad muaf:** kural yalnız **yeni ya da değişen** adı yargılar (`refuseHiddenName`, kayıtlı adı yazma işleminin
+  içinde okuyup karşılaştırır — panelin `SaveVenue`/`SaveDepartment`'ı ve API'nin `PutVenueTx`'i). Panel sınırı (`parseName`)
+  kuralı artık uygulamaz (kayıtlı adı bilmez); `tenant.ErrNameHiddenCharacter` el yordamıyla kendi cümlesine çevrilir.
+  API'nin mesajı (`problemNameHidden`) ve OpenAPI açıklaması güncellendi.
+Testler: `TestVenueSave_ANameOnFileStaysEditableAndANewHiddenOneIsASentence` (gerçek el yordamı + gerçek alan: U+202E'li
+kayıtlı lokasyon ve departman aynı adla yeni aralık/vardiya alır; aynı karakterli **yeni** ad cümleyle döner; emoji ve
+bayrak adlı yeni lokasyon kaydedilir), `TestLocationsPut_TheNameRuleJudgesOnlyWhatChanges` (API'de beş izinli biçim, üç
+temizlenen biçim, kayıtlı adla etiket değişimi 200, yeni U+202E'li ad 422), `TestVenues_TheNameBoundIsEnforcedBeforeTheColumn`
+(dokuz red, sekiz kabul). Mutantlar: "kayıtlı ad muaf" kolu kaldırılınca panel ve API testleri kırmızı; kural "her Cc+Cf"e
+geri genişletilince emoji/bayrak/Farsça kırmızı.
+
+*Kemer, ikinci delikler ve kopyalar (D2, D3).* Tenant kopyası artık parantezli `(SELECT …)`'i okur, sütun listesiz
+`INSERT INTO t SELECT …`'i reddeder ve `tenant_id`'ye atama yapan `DO UPDATE SET`'i reddeder (üç sonda; her kolun kaldırılması
+kırmızı). Öteki beş kopya (adminauth, billing, ledger, review, signup) kendi türetilmiş sorgularında koşan, kendi kendine
+yeten bir INSERT … SELECT kolu taşır (`queryinsert_test.go`, olumsuz kontrolüyle). Ölçüldü: `CreatePasswordReset`,
+`CreateAdminUser` ve `InsertTransactionReview` metinlerinde `tenant_id` değeri bozulunca üçü de kırmızı; teslim edilen
+metinlerde 0 yanlış alarm. **Sınır:** bu beş kopya hangi tablonun tenant kapsamlı olduğunu bilmez — `tenant_id`'yi
+adlandırmayan sütun listesini yargılamaz; DO UPDATE kolları yoktur (çağrılarında DO UPDATE yok).
+
+*Tek başına UTF-16 surrogate kaçışı (D4).* `"Bar \ud800"` `encoding/json`'da U+FFFD olarak saklanıyordu; artık **400
+`invalid_request`, `reason: invalid_utf8`** (ham değerde gönderilmemiş bir U+FFFD = bozuk kaçış). Kaçışla gönderilmiş
+gerçek bir `\ufffd` kabul (kontrol). Mutant kırmızı.
+
+*Deploy notu* plan §5 API-13'e yazıldı: deploy'dan önce prod'da `locations`/`departments` adlarında yeni kurala takılan
+satır sayısı ölçülür (değer basılmaz). Kayıtlı ad muaf olduğu için bu bir kilit değil, bilgi: sayı sıfır değilse sahibine
+söylenir.

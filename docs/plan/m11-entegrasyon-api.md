@@ -537,9 +537,15 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
   taşır — bilinmeyen alan (harf farkı dahil: `Name` ≠ `name`) **422 `validation_failed` / `unknown_field`**, aynı alan
   iki kez **422 / `duplicate_field`** (son değer kazanmaz); gövde UTF-8 olmalı (değilse 400 `invalid_utf8`); ref yüzde
   kodlanabilir, **bir kez** çözülür ve sonra kalıba uymalıdır (`%41BC` = `ABC`; kodlu `/`, kontrol karakteri, çift kodlama
-  422) — aynı ref'in farklı yazımları aynı lokasyondur ama aynı Idempotency-Key ile 422 verir; lokasyon adı içinde
-  kontrol/biçim karakteri (satır sonu, RTL, sıfır genişlik) 422 (ADR 0028 "API-5 uygulama notu", ikinci tur).
-- **API-13:** spec §7'nin dokuz maddesi (6. madde sözleşme farkı); güvenlik ONAY; KF+KM holding'i kuruldu; holding dışı izolasyon prod'da örneklendi. **(API-4'ten, 2026-10-15 — runbook)** `TAPPA_API_HOST` set edilmeden `api.*` adı ingress'ten pod'a gelirse panelin her
+  422) — aynı ref'in farklı yazımları aynı lokasyondur ama aynı Idempotency-Key ile 422 verir; **yeni ya da değişen**
+  lokasyon adında kontrol karakteri, satır/paragraf ayırıcı, bidi geçersiz kılma/yalıtım, sıfır genişlikli boşluk ya da
+  kelime birleştirici 422 — emoji, bayraklar ve her yazının harfleri kabul, yumuşak tire ve yön işaretleri (LRM/RLM/ALM)
+  sessizce atılır, kayıtlı ad olduğu gibi kabul edilir; gövdedeki eşsiz surrogate kaçışı (`\ud800`) 400 (ADR 0028
+  "API-5 uygulama notu", ikinci ve üçüncü tur).
+- **API-13:** **(API-5'ten, 2026-10-15 — deploy öncesi)** prod'da `locations` ve `departments` adlarından yeni isim
+  kuralına takılan satır **sayısı** sorgulanır (değer basılmaz; `tenant.NameHasHiddenCharacters`'ın kümesi: Cc,
+  U+2028/2029, U+202A–202E, U+2066–2069, U+200B, U+2060, içte U+FEFF). Kayıtlı ad muaf olduğu için kilit değildir; sayı
+  sıfır değilse ilgili işletmelerin sahiplerine söylenir. Spec §7'nin dokuz maddesi (6. madde sözleşme farkı); güvenlik ONAY; KF+KM holding'i kuruldu; holding dışı izolasyon prod'da örneklendi. **(API-4'ten, 2026-10-15 — runbook)** `TAPPA_API_HOST` set edilmeden `api.*` adı ingress'ten pod'a gelirse panelin her
   şeyi yakalayan rotalarına düşer: ingress kuralı env ile **aynı adımda** eklenir (önce değil). Çift noktalı host
   (`api.taptime.mt..`) API host'u sayılmaz, panel olarak yanıtlanır — ingress onu yönlendirmemelidir.
 
