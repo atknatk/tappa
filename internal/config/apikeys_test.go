@@ -34,7 +34,8 @@ func setEveryKeyDistinct(t *testing.T) {
 // naming both variables (the two pairs with a dedicated check -- session/invite, tag KEK/previous --
 // name both in their own sentence); with all eight distinct the configuration loads. And the API
 // key's HMAC key is required: unset, short or not base64 -- no start; the webhook KEK is optional
-// until API-9, and when set must be 32 bytes.
+// in dev (required elsewhere since API-9 -- TestConfig_WebhookSettingsAreRequiredOutsideDev), and
+// when set must be 32 bytes.
 //
 // MUTANT (measured): keysSeparation's inner loop restricted to pairs with an operator key (the
 // pre-API-3 rule) -> 13 of the 28 pairs load.

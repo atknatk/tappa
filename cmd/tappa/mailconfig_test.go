@@ -964,6 +964,7 @@ func shippedPodEnv(t *testing.T, dsn string) (cm, env map[string]string) {
 		"TAPPA_TAG_KEK":          base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("K"), 32)),
 		"TAPPA_INVITE_HMAC_KEY":  base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("I"), 32)),
 		"TAPPA_API_KEY_HMAC_KEY": base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("A"), 32)),
+		"TAPPA_WEBHOOK_KEK":      base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("W"), 32)),
 		creds[0]:                 shippedStandInUser,
 		creds[1]:                 shippedStandInPass,
 	}

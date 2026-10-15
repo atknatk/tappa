@@ -81,6 +81,22 @@ data:
   # narrow; if it is anything a caller could have chosen, it is too wide.
   TAPPA_TRUSTED_PROXIES: "10.42.0.1/32"
 
+  # 🔴 TAPPA_WEBHOOK_BLOCKED_ADDRESSES — M11 API-9, ADR 0028 §7. The addresses a webhook
+  # delivery must NEVER be dialled to although they are public: this node's own and the
+  # ingress's. Without them an owner could point a webhook at taptime.mt itself (443 is
+  # the ingress) and have the server sign requests to its own API. internal/egress
+  # already refuses every private, loopback, link-local and reserved address (IANA's
+  # special-purpose registries) -- so the cluster's 10.x addresses are covered by the
+  # rule and do not belong here; this list is what the rule cannot know.
+  #
+  # The value is the origin address measured for the apex record (40-ingress.yaml:
+  # `dig +short taptime.mt` -> 144.76.158.60, ingress-nginx runs with hostNetwork on this
+  # one node). config.Load REFUSES TO START outside TAPPA_ENV=dev with this empty.
+  # ⚠️ API-13 VERIFIES IT BEFORE THE DEPLOY: the node's IPv6 address, if it has one
+  # (`ip -6 addr show scope global` on the node), and every further node or load
+  # balancer address is added here in the same edit that adds the node.
+  TAPPA_WEBHOOK_BLOCKED_ADDRESSES: "144.76.158.60"
+
   # 🟡 TAPPA_RETENTION_YEARS — TEMPORARY, AND IT IS A LEGAL STATEMENT RATHER THAN A
   # SETTING (backlog B3 / open question Q13).
   #

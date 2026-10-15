@@ -66,12 +66,21 @@ type Config struct {
 	// other key here (keysSeparation).
 	APIKeyHMACKey []byte
 
-	// WebhookKEK seals each webhook endpoint's signing key (ADR 0028 §6, TAPPA_WEBHOOK_KEK). It
-	// is OPTIONAL until its consumer exists (API-9 makes it required): nothing in this binary
-	// reads it yet, and a required variable nothing reads would be a secret every deployment
-	// must hold for no use. Set, it must be 32 bytes and differ from every other key -- it is in
-	// namedKeys from the day it is read, so the separation rule sees it before anything uses it.
+	// WebhookKEK seals each webhook endpoint's signing key (ADR 0028 §6, TAPPA_WEBHOOK_KEK;
+	// internal/webhook/endpoints). REQUIRED outside TAPPA_ENV=dev since M11 API-9 (webhookSettings):
+	// a production or staging panel offers the webhook to every owner whose API the operator opened,
+	// and a deployment that could not seal a key must not start rather than answer 503 to the
+	// first owner who tries. OPTIONAL in dev: unset, the panel's webhook section says it is not
+	// configured. Set, it is 32 bytes and differs from every other key (namedKeys).
 	WebhookKEK []byte
+
+	// WebhookBlockedAddresses are the node's own public addresses and the ingress's
+	// (TAPPA_WEBHOOK_BLOCKED_ADDRESSES, M11 API-9, ADR 0028 §7): internal/egress refuses to dial
+	// them, so an owner cannot point a webhook back at Taptime itself. A comma-separated list of
+	// addresses or CIDR ranges, IPv4 in IPv4 form. REQUIRED outside TAPPA_ENV=dev ("liste boşsa prod
+	// ve sandbox başlamaz"); in dev it may be empty -- a laptop has no ingress, and the registry rules
+	// already refuse loopback and the private ranges. Configuration, not a secret.
+	WebhookBlockedAddresses []netip.Prefix
 
 	// The platform operator's surface (M10 OP-7; ADR 0020, ADR 0021): its own pool,
 	// its two keys and its own host. FOUR VARIABLES, ONE SET — all four or none
@@ -332,12 +341,18 @@ func Load() (*Config, error) {
 	}
 	// The invite key must not simply BE the session key. See keySeparation.
 	push(keySeparation(c.SessionHMACKey, c.InviteHMACKey))
-	// The integration API's two keys (M11 API-3, ADR 0028 §3): the key-hash key is required,
-	// the webhook KEK optional until API-9 reads it.
+	// The integration API's two keys (M11 API-3, ADR 0028 §3): the key-hash key is required; the
+	// webhook KEK and the node/ingress list are required outside dev (M11 API-9, webhookSettings).
 	if c.APIKeyHMACKey, err = key32(envAPIKeyHMACKey); err != nil {
 		push(err)
 	}
 	if c.WebhookKEK, err = optionalKey32(envWebhookKEK); err != nil {
+		push(err)
+	}
+	if c.WebhookBlockedAddresses, err = blockedAddresses(os.Getenv(envWebhookBlocked)); err != nil {
+		push(err)
+	}
+	for _, err := range webhookSettings(c) {
 		push(err)
 	}
 	// The operator surface: all four variables or none, then each one valid. Then no key equal
@@ -718,6 +733,68 @@ const (
 	envAPIKeyHMACKey = "TAPPA_API_KEY_HMAC_KEY"
 	envWebhookKEK    = "TAPPA_WEBHOOK_KEK"
 )
+
+// envWebhookBlocked is the node/ingress address list (M11 API-9, ADR 0028 §7).
+const envWebhookBlocked = "TAPPA_WEBHOOK_BLOCKED_ADDRESSES"
+
+// webhookSettings refuses, outside TAPPA_ENV=dev, a deployment without the webhook KEK or without
+// the node/ingress list (M11 API-9; ADR 0028 §6, §7). Dev may lack either: the panel's webhook
+// section then says it is not configured (no KEK), or the client dials with the registry rules
+// alone (no list).
+func webhookSettings(c *Config) []error {
+	if c.Env == EnvDev {
+		return nil
+	}
+	var errs []error
+	if c.WebhookKEK == nil && os.Getenv(envWebhookKEK) == "" {
+		errs = append(errs, fmt.Errorf("%s is required outside TAPPA_ENV=dev: it seals every webhook endpoint's signing key "+
+			"(generate: openssl rand -base64 32)", envWebhookKEK))
+	}
+	if len(c.WebhookBlockedAddresses) == 0 && strings.TrimSpace(os.Getenv(envWebhookBlocked)) == "" {
+		errs = append(errs, fmt.Errorf("%s is required outside TAPPA_ENV=dev: the node's own public addresses and the "+
+			"ingress's, which a webhook must never reach (ADR 0028 §7). A comma-separated list, e.g. 203.0.113.10,2001:db8::10", envWebhookBlocked))
+	}
+	return errs
+}
+
+// blockedAddresses parses TAPPA_WEBHOOK_BLOCKED_ADDRESSES: empty is no list; otherwise every
+// comma-separated entry is an address (a single host) or a CIDR range. IPv4 must be written as
+// IPv4 (prefixes' reason: a second spelling is how a range slips past a check), and a /0 is refused
+// -- it would block every delivery, which is a mistake, not a list. Entries are named by position.
+func blockedAddresses(v string) ([]netip.Prefix, error) {
+	if strings.TrimSpace(v) == "" {
+		return nil, nil
+	}
+	var out []netip.Prefix
+	for i, part := range strings.Split(v, ",") {
+		part = strings.TrimSpace(part)
+		var p netip.Prefix
+		var err error
+		if strings.Contains(part, "/") {
+			p, err = netip.ParsePrefix(part)
+		} else {
+			var a netip.Addr
+			if a, err = netip.ParseAddr(part); err == nil {
+				if a.Zone() != "" {
+					// PrefixFrom drops a zone; a zoned (link-scoped) address is no node address.
+					err = errors.New("zoned")
+				}
+				p = netip.PrefixFrom(a, a.BitLen())
+			}
+		}
+		if err != nil {
+			return nil, fmt.Errorf("%s: entry %d is not an IP address or a CIDR range", envWebhookBlocked, i+1)
+		}
+		if p.Addr().Is4In6() {
+			return nil, fmt.Errorf("%s: entry %d is IPv4 written as v4-mapped IPv6; write it in IPv4 form", envWebhookBlocked, i+1)
+		}
+		if p.Bits() == 0 {
+			return nil, fmt.Errorf("%s: entry %d is a /0, which would block every webhook; list the node and ingress addresses", envWebhookBlocked, i+1)
+		}
+		out = append(out, p.Masked())
+	}
+	return out, nil
+}
 
 // namedKey is one key of this Config with the variable it came from.
 type namedKey struct {

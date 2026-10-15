@@ -25,7 +25,10 @@ func setRequired(t *testing.T) {
 	// bytes here rather than sharing `key`.
 	t.Setenv("TAPPA_TAG_KEK", tagKey)
 	t.Setenv("TAPPA_API_KEY_HMAC_KEY", apiKeyHMACKey)
-	t.Setenv("TAPPA_WEBHOOK_KEK", "") // optional until API-9; unset is the steady state
+	// Required outside dev since API-9 (TestConfig_WebhookSettingsAreRequiredOutsideDev), so the
+	// fixture sets both -- the tests that move TAPPA_ENV to prod or staging still load.
+	t.Setenv("TAPPA_WEBHOOK_KEK", webhookKEK)
+	t.Setenv("TAPPA_WEBHOOK_BLOCKED_ADDRESSES", "203.0.113.10,2001:db8::10")
 	// The KEK rotation fallback is OPTIONAL and unset is the steady state, so the
 	// fixture clears it explicitly rather than inheriting whatever the developer's
 	// shell happens to hold — an ambient value would make these tests pass or fail
@@ -66,6 +69,7 @@ var otherKey = base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
 var (
 	tagKey        = base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{11}, 32))
 	apiKeyHMACKey = base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{13}, 32))
+	webhookKEK    = base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{17}, 32))
 )
 
 // TestLoad_InviteKeyMustDifferFromSessionKey measures the domain-separation

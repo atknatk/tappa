@@ -271,6 +271,9 @@ func setEnvForLoad(t *testing.T, env, trustedProxies string) {
 	t.Setenv("TAPPA_TAG_KEK", base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{9}, 32)))
 	t.Setenv("TAPPA_INVITE_HMAC_KEY", base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32)))
 	t.Setenv("TAPPA_API_KEY_HMAC_KEY", base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{5}, 32)))
+	// Required outside dev since M11 API-9 (config's webhookSettings).
+	t.Setenv("TAPPA_WEBHOOK_KEK", base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{3}, 32)))
+	t.Setenv("TAPPA_WEBHOOK_BLOCKED_ADDRESSES", "203.0.113.10")
 	t.Setenv("TAPPA_RETENTION_YEARS", "2")
 	t.Setenv("TAPPA_GPS_RADIUS_M", "")
 	t.Setenv("TAPPA_DEBOUNCE_SECONDS", "")

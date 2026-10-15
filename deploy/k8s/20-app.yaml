@@ -381,7 +381,10 @@ spec:
             # here: a Secret without it should stop the rollout at kubelet, not at boot.
             # ⚠️ IT MUST BE IN tappa-secrets BEFORE THIS MANIFEST REACHES THE CLUSTER (API-13's
             # runbook), and it must differ from every other key (the separation rule compares
-            # every pair since API-3). The webhook KEK is optional until API-9 reads it.
+            # every pair since API-3). The webhook KEK is REQUIRED too since API-9 (outside
+            # TAPPA_ENV=dev config.Load refuses to start without it -- it seals every
+            # endpoint's signing key), so it is not optional here either: ⚠️ it must be in
+            # tappa-secrets before this manifest reaches the cluster (API-13's runbook).
             - name: TAPPA_API_KEY_HMAC_KEY
               valueFrom:
                 secretKeyRef:
@@ -392,7 +395,6 @@ spec:
                 secretKeyRef:
                   name: tappa-secrets
                   key: TAPPA_WEBHOOK_KEK
-                  optional: true
             # 🔴 THE PLATFORM OPERATOR'S SURFACE (M10 OP-7): FOUR KEYS, ONE SET, ALL
             # `optional: true`, ALL FROM tappa-secrets -- and each of those three
             # facts is load-bearing.

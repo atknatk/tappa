@@ -1145,6 +1145,26 @@ kuralının aynısı); trafik akarken bu tablolarda elle `SELECT … FOR UPDATE`
 
 ---
 
+## Webhook (M11 API-9) — `TAPPA_WEBHOOK_KEK` ve düğüm/ingress adres listesi
+
+API-9'dan beri `TAPPA_ENV=dev` **dışında** iki değer **zorunludur**; biri yoksa `config.Load` açılışı
+reddeder (ADR 0028 §6, §7):
+
+| Değer | Nerede | Ne |
+|---|---|---|
+| `TAPPA_WEBHOOK_KEK` | `tappa-secrets` (sır) | uç noktaların imza anahtarlarını `sun.Seal` ile mühürler; 32 bayt base64, **her öteki anahtardan farklı** (`openssl rand -base64 32`, ayrı üretilir). `20-app.yaml` onu **isteğe bağlı olmayan** `secretKeyRef` ile alır: Secret'ta yoksa kubelet pod'u başlatmaz. |
+| `TAPPA_WEBHOOK_BLOCKED_ADDRESSES` | `05-config.yaml` (sır değil) | bir webhook'un **asla** bağlanamayacağı düğümün kendi genel adresleri ve ingress'in adresi; virgülle IP ya da CIDR. Özel, loopback, link-local ve ayrılmış adresleri `internal/egress` IANA kaydından zaten reddeder — bu liste kuralın bilemediğidir. Bugünkü değer `144.76.158.60` (apex kaydının ölçülen origin'i, `40-ingress.yaml`). |
+
+**Deploy'dan önce (API-13):** (1) `TAPPA_WEBHOOK_KEK` değeri `tappa-secrets`'a (ya da Infisical
+`/tappa/`'ya — `externalsecret.example.yaml` onu artık zorunlu çeker, eksik uzak değer bütün senkronu
+durdurur) **önce** yazılır; değer ekrana basılmaz, ayrımı öteki anahtarlarla **değer basmadan** ölçülür
+(API-3'ün çift ölçümü). (2) Düğümün IPv6 adresi varsa (`ip -6 addr show scope global`) ve kümeye
+düğüm ya da yük dengeleyici eklendiyse adresi listeye **aynı değişiklikte** eklenir. (3) Ölçüm:
+panelden kendi `https://taptime.mt/` adresine bir uç nokta kurulup ping atılır → sonuç
+`blocked_address` olmalıdır.
+
+---
+
 ## Operator surface (M10 OP-7) — `tappa_operator`'ın girişi ve dört anahtar
 
 **Ne:** platform operatörünün yüzeyi (ADR 0020/0021) **dört değişkenle, tek küme olarak**
