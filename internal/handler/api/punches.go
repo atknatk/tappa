@@ -30,10 +30,10 @@ import (
 // never one the request names, and the scope comes from the request every time: the cursor carries
 // neither (tenant.PunchFeed's header).
 //
-// THE QUERY PARAMETERS are API-5's body rule applied to the query: the three names exactly, each at
-// most once, scope required; any other name -- a misspelling, another case, `from`/`to` (the history
-// query is not this endpoint's yet, ADR 0028 §5) -- is 400, and so is a query string that does not
-// parse. A misspelled `curser` silently ignored would restart a reader at the beginning of the feed;
+// THE QUERY PARAMETERS are API-5's body rule applied to the query: scope, cursor, limit, from and to
+// exactly, each at most once, scope required; any other name -- a misspelling, another case -- is
+// 400, and so is a query string that does not parse. from and to together are the history query
+// (API-7b, history.go); without them the request reads the feed. A misspelled `curser` silently ignored would restart a reader at the beginning of the feed;
 // a misspelled `scop` defaulted would hand one scope's reader the other's punches.
 //
 // THE ANSWER is {data, nextCursor, hasMore}. nextCursor is ALWAYS a cursor -- also on an empty
@@ -52,6 +52,7 @@ import (
 // Punches is the feed's reader (*tenant.PunchFeed), declared at the consumer (§7).
 type Punches interface {
 	PunchPage(ctx context.Context, tenantID uuid.UUID, role tenant.FeedRole, after int64, limit int) (tenant.PunchPage, error)
+	HistoryPage(ctx context.Context, tenantID uuid.UUID, role tenant.FeedRole, q tenant.HistoryQuery, limit int) (tenant.HistoryPage, error)
 }
 
 var _ Punches = (*tenant.PunchFeed)(nil)
@@ -65,13 +66,15 @@ const (
 	cursorPrefix = "cur_"
 	paramScope   = "scope"
 	paramLimit   = "limit"
+	paramFrom    = "from"
+	paramTo      = "to"
 )
 
-var punchParameters = []string{paramScope, fieldCursor, paramLimit}
+var punchParameters = []string{paramScope, fieldCursor, paramLimit, paramFrom, paramTo}
 
 var (
 	problemPunchParameter = &Problem{Code: CodeInvalidRequest,
-		Message: "This endpoint takes the query parameters scope, cursor and limit only, each at most once, in a well-formed query string.",
+		Message: "This endpoint takes the query parameters scope, cursor, limit, from and to only, each at most once, in a well-formed query string.",
 		Details: map[string]any{"allowed": punchParameters}}
 	problemScope = &Problem{Code: CodeInvalidRequest,
 		Message: "scope is required: employer (this business's employees' punches) or location (every punch at this business's locations).",
@@ -102,11 +105,27 @@ func parseCursor(v string) (int64, bool) {
 
 func formatCursor(seq int64) string { return cursorPrefix + strconv.FormatInt(seq, 10) }
 
-// punchQuery reads the query string under the rule above.
-func punchQuery(r *http.Request) (role tenant.FeedRole, after int64, limit int, prob *Problem) {
+// punchRequest is a parsed query string: the feed (history false) or the history query.
+type punchRequest struct {
+	role  tenant.FeedRole
+	limit int
+	// The feed: the position after which to read.
+	after int64
+	// The history query (from and to present): the range and, past the first page, the cursor.
+	history bool
+	from    time.Time
+	to      time.Time
+	at      *historyCursor
+}
+
+// punchQuery reads the query string under the rule above. The cursor's prefix says which read it
+// belongs to: cur_ the feed (no from/to), hst_ the history query (with the from/to it was issued
+// for); either given to the other is 400 -- never silently a position of the other kind.
+func punchQuery(r *http.Request) (punchRequest, *Problem) {
+	var req punchRequest
 	q, err := url.ParseQuery(r.URL.RawQuery)
 	if err != nil {
-		return "", 0, 0, problemPunchParameter
+		return req, problemPunchParameter
 	}
 	for k, v := range q {
 		known := false
@@ -114,30 +133,48 @@ func punchQuery(r *http.Request) (role tenant.FeedRole, after int64, limit int, 
 			known = known || k == p
 		}
 		if !known || len(v) != 1 {
-			return "", 0, 0, problemPunchParameter
+			return req, problemPunchParameter
 		}
 	}
 	scope, present := q[paramScope]
 	switch {
 	case !present:
-		return "", 0, 0, problemScope
+		return req, problemScope
 	case scope[0] == string(tenant.FeedEmployer):
-		role = tenant.FeedEmployer
+		req.role = tenant.FeedEmployer
 	case scope[0] == string(tenant.FeedLocation):
-		role = tenant.FeedLocation
+		req.role = tenant.FeedLocation
 	default:
-		return "", 0, 0, problemScope
+		return req, problemScope
 	}
-	if limit, prob = parseLimit(q); prob != nil {
-		return "", 0, 0, prob
+	var prob *Problem
+	if req.limit, prob = parseLimit(q); prob != nil {
+		return req, prob
 	}
-	if c, present := q[fieldCursor]; present {
-		var ok bool
-		if after, ok = parseCursor(c[0]); !ok {
-			return "", 0, 0, problemPunchCursor
+	_, hasFrom := q[paramFrom]
+	_, hasTo := q[paramTo]
+	if hasFrom || hasTo {
+		req.history = true
+		if req.from, req.to, prob = historyRange(q); prob != nil {
+			return req, prob
 		}
 	}
-	return role, after, limit, nil
+	c, present := q[fieldCursor]
+	switch {
+	case !present:
+	case req.history:
+		hc, ok := parseHistoryCursor(c[0])
+		if !ok || hc.bind != historyBinding(req.role, req.from, req.to) {
+			return req, problemHistoryCursor
+		}
+		req.at = &hc
+	default:
+		var ok bool
+		if req.after, ok = parseCursor(c[0]); !ok {
+			return req, problemPunchCursor
+		}
+	}
+	return req, nil
 }
 
 // punchBody is one punch on the wire.
@@ -195,13 +232,17 @@ func punchOf(e tenant.PunchEvent) punchBody {
 }
 
 func (s *Surface) listPunches(w http.ResponseWriter, r *http.Request) {
-	role, after, limit, prob := punchQuery(r)
+	req, prob := punchQuery(r)
 	if prob != nil {
 		writeProblem(w, prob)
 		return
 	}
+	if req.history {
+		s.listPunchHistory(w, r, req)
+		return
+	}
 	p, _ := PrincipalOf(r)
-	page, err := s.punches.PunchPage(r.Context(), p.TenantID, role, after, limit)
+	page, err := s.punches.PunchPage(r.Context(), p.TenantID, req.role, req.after, req.limit)
 	switch {
 	case errors.Is(err, tenant.ErrCursorAhead):
 		writeProblem(w, problemPunchCursor)

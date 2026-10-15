@@ -50,9 +50,9 @@ type punchWorld struct {
 	canary string
 }
 
-func newPunchWorld(t *testing.T) *punchWorld {
+func newPunchWorld(t *testing.T, opts ...func(*Config)) *punchWorld {
 	t.Helper()
-	r := newDBRig(t)
+	r := newDBRig(t, opts...)
 	w := &punchWorld{r: r, ctx: context.Background(), canary: "CANARY" + strings.ToUpper(hex.EncodeToString(randomBytes(t, 6)))}
 	w.kf, w.km, w.c, w.d = w.biz("KF"), w.biz("KM"), w.biz("CC"), w.biz("DD")
 	w.h, w.h2 = w.holding(), w.holding()
@@ -71,6 +71,10 @@ func newPunchWorld(t *testing.T) *punchWorld {
 	w.join(w.h2, w.d.id)
 	return w
 }
+
+// unmetered lifts the buckets: the concurrent readers poll as fast as they can from one address,
+// and a slow machine (the whole suite under -race) turned them into a 429 (measured), not a finding.
+func unmetered(c *Config) { c.AddressLimit, c.KeyLimit = 1<<30, 1<<30 }
 
 func randomBytes(t *testing.T, n int) []byte {
 	t.Helper()
@@ -133,6 +137,8 @@ type punchRow struct {
 	kind     string // "" = no direction
 	practice bool
 	ago      time.Duration
+	// at, when set, is the declared instant itself (the history query's tests); ago is then unused.
+	at *time.Time
 }
 
 // own is an ok tap on b's own plaque.
@@ -182,12 +188,12 @@ func (w *punchWorld) insertPunch(ctx context.Context, tx pgx.Tx, row punchRow) (
 		INSERT INTO transactions (tenant_id, employee_id, location_id, tag_uid, occurred_at, verdict, channel, type, practice,
 		                          site_tenant_id, site_location_id, site_tag_uid, ctr, sun_valid, entered_by,
 		                          note, source_ip, gps_lat, gps_lng, trust, policy_layer, matched_sid, policy_context)
-		VALUES ($1, $2, $3, $4, date_trunc('milliseconds', clock_timestamp()) - $5::interval, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+		VALUES ($1, $2, $3, $4, coalesce($23::timestamptz, date_trunc('milliseconds', clock_timestamp()) - $5::interval), $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
 		        $16, $17::inet, $18, $19, 77, $20, $21, $22::jsonb)
 		RETURNING id`,
 		b.id, b.emp, location, tag, fmt.Sprintf("%d milliseconds", row.ago.Milliseconds()), row.verdict, row.channel, kind, row.practice,
 		siteTenant, siteLocation, siteTag, ctr, sun, enteredBy,
-		note, ip, lat, lng, layer, sid, pctx).Scan(&id)
+		note, ip, lat, lng, layer, sid, pctx, row.at).Scan(&id)
 	return id, err
 }
 
@@ -596,8 +602,8 @@ func TestPunches_Limit1001Is400(t *testing.T) {
 }
 
 // TestPunches_TheQueryIsTheContract (ADR 0028 §8; the API-5 body rule applied to the query): scope
-// is required and is one of the two names exactly; a name the endpoint does not take (another case,
-// a misspelling, from/to), a name twice and a query string that does not parse are 400 -- and no
+// is required and is one of the two names exactly; a name the endpoint does not take (another case --
+// From --, a misspelling), a name twice and a query string that does not parse are 400 -- and no
 // refusal repeats what the request sent.
 func TestPunches_TheQueryIsTheContract(t *testing.T) {
 	w := newPunchWorld(t)
@@ -606,7 +612,7 @@ func TestPunches_TheQueryIsTheContract(t *testing.T) {
 		{"", "scope"}, {"limit=5", "scope"}, {"scope=", "scope"}, {"scope=Employer", "scope"}, {"scope=employers", "scope"},
 		{"scope=both", "scope"}, {"scope=employer,location", "scope"},
 		{"scope=employer&scope=location", ""}, {"Scope=employer", ""}, {"scope=employer&curser=cur_0", ""},
-		{"scope=employer&from=2026-10-01T00:00:00Z&to=2026-10-02T00:00:00Z", ""}, {"scope=employer&zzunknownzz=1", ""},
+		{"scope=employer&From=2026-10-01T00:00:00Z", ""}, {"scope=employer&zzunknownzz=1", ""},
 		{"scope=employer&%zz=1", ""}, {"scope=employer;limit=5", ""},
 	} {
 		rec := w.get(w.kf.raw, c.query)
@@ -686,8 +692,8 @@ func TestPunches_CursorGames(t *testing.T) {
 // TestPunches_NothingButTheFeedsColumnsAnswers (K-1f, K-39; ADR 0028 §6 "Yük"): every row behind the
 // answers carries the world's canary in its note, source address, coordinate, rule, policy context
 // and trust, and every employee an e-mail address -- the bytes of every page, in both scopes of every
-// business, contain none of them, nor the words verdict, trust, note, email, gps, ip or policy; each
-// punch carries exactly the contract's keys.
+// business, through the feed and the history query (API-7b), contain none of them, nor the words
+// verdict, trust, note, email, gps, ip or policy; each punch carries exactly the contract's keys.
 func TestPunches_NothingButTheFeedsColumnsAnswers(t *testing.T) {
 	w := newPunchWorld(t)
 	w.write(own(w.kf, "nfc", "in"))
@@ -696,40 +702,47 @@ func TestPunches_NothingButTheFeedsColumnsAnswers(t *testing.T) {
 	flag := w.write(punchRow{employer: w.km, site: &w.kf, verdict: "flag", channel: "nfc", kind: "out", ago: time.Minute})
 	w.review(w.km, flag, "approved")
 	n := 0
+	now := time.Now().UTC().Truncate(time.Second)
 	for _, b := range []punchBiz{w.kf, w.km} {
 		for _, scope := range []string{"employer", "location"} {
-			rec := w.get(b.raw, "scope="+scope)
-			body := strings.ToLower(rec.Body.String())
-			for _, never := range []string{strings.ToLower(w.canary), "198.51.100.213", "35.98", "14.12", "@punches.example.test", "punch staff",
-				"verdict", "trust", "note", "email", "gps", "\"ip", "policy", "sid", "matched", "practice", "roles"} {
-				if strings.Contains(body, never) {
-					t.Errorf("%s scope=%s: the answer carries %q", b.code, scope, never)
+			// The feed and the history query (API-7b) answer the same shape.
+			for _, query := range []string{"scope=" + scope, historyQ(scope, now.Add(-time.Hour), now.Add(time.Hour), 500, "")} {
+				rec := w.get(b.raw, query)
+				if rec.Code != http.StatusOK {
+					t.Fatalf("%s %s: %d %s", b.code, query, rec.Code, rec.Body.String())
 				}
-			}
-			var raw struct {
-				Data []map[string]json.RawMessage `json:"data"`
-			}
-			if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
-				t.Fatal(err)
-			}
-			for _, p := range raw.Data {
-				n++
-				if got := keysOf(p); !slices.Equal(got, []string{"channel", "direction", "employee", "id", "location", "punchTime", "recordedAt", "status", "tagId", "version"}) {
-					t.Errorf("a punch's keys: %v", got)
+				body := strings.ToLower(rec.Body.String())
+				for _, never := range []string{strings.ToLower(w.canary), "198.51.100.213", "35.98", "14.12", "@punches.example.test", "punch staff",
+					"verdict", "trust", "note", "email", "gps", "\"ip", "policy", "sid", "matched", "practice", "roles"} {
+					if strings.Contains(body, never) {
+						t.Errorf("%s scope=%s: the answer carries %q", b.code, scope, never)
+					}
 				}
-				var e, l map[string]json.RawMessage
-				if json.Unmarshal(p["employee"], &e) != nil || json.Unmarshal(p["location"], &l) != nil {
-					t.Fatal("employee or location is not an object")
+				var raw struct {
+					Data []map[string]json.RawMessage `json:"data"`
 				}
-				if !slices.Equal(keysOf(e), []string{"company", "employeeCode", "externalRef", "id"}) ||
-					!slices.Equal(keysOf(l), []string{"company", "externalRef", "id", "name"}) {
-					t.Errorf("employee keys %v, location keys %v", keysOf(e), keysOf(l))
+				if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+					t.Fatal(err)
+				}
+				for _, p := range raw.Data {
+					n++
+					if got := keysOf(p); !slices.Equal(got, []string{"channel", "direction", "employee", "id", "location", "punchTime", "recordedAt", "status", "tagId", "version"}) {
+						t.Errorf("a punch's keys: %v", got)
+					}
+					var e, l map[string]json.RawMessage
+					if json.Unmarshal(p["employee"], &e) != nil || json.Unmarshal(p["location"], &l) != nil {
+						t.Fatal("employee or location is not an object")
+					}
+					if !slices.Equal(keysOf(e), []string{"company", "employeeCode", "externalRef", "id"}) ||
+						!slices.Equal(keysOf(l), []string{"company", "externalRef", "id", "name"}) {
+						t.Errorf("employee keys %v, location keys %v", keysOf(e), keysOf(l))
+					}
 				}
 			}
 		}
 	}
-	if n != 8 {
-		t.Fatalf("%d punches judged, want 8 (KF 2+2, KM 2+2)", n)
+	if n != 16 {
+		t.Fatalf("%d punches judged, want 16 (KF 2+2, KM 2+2, through the feed and the history query)", n)
 	}
 }
 
@@ -773,7 +786,7 @@ func TestPunches_ClosedIs403RevokedIs401SuspendedIsOpen(t *testing.T) {
 // every reader has every event of its scope exactly once, in feed order -- no skip, no repeat -- and
 // the feeds hold exactly the committed rows' targets.
 func TestPunches_PagesNeitherSkipNorRepeatUnderConcurrentWriters(t *testing.T) {
-	w := newPunchWorld(t)
+	w := newPunchWorld(t, unmetered)
 	bizs := []punchBiz{w.kf, w.km, w.c, w.d}
 	peer := map[uuid.UUID]punchBiz{w.kf.id: w.km, w.km.id: w.kf, w.c.id: w.d, w.d.id: w.c}
 	const writers, rounds = 12, 40

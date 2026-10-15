@@ -315,7 +315,7 @@ paths:
   /v1/punches:
     get:
       operationId: listPunches
-      summary: A page of the business's punches, in its feed order.
+      summary: A page of the business's punches -- its feed, or (with from and to) a history range.
       description: |
         The business's punch feed: every punch that counts -- an `ok` tap (`nfc` or `qr`), or a
         flagged tap once a manager of the employer approves it (it enters the feed at the approval,
@@ -341,8 +341,21 @@ paths:
         a cursor to another business: a cursor taken to the other scope, or to another business
         inside its range, is not refused, and the events before it are skipped silently.
 
-        Only `scope`, `cursor` and `limit` are accepted, each at most once; any other parameter,
-        and a query string that does not parse, is 400. No punch carries an e-mail address, a
+        History (`from` and `to`, together): the scope's punches whose `punchTime` is in [`from`,
+        `to`) -- `from` before `to`, at most 31 days apart, RFC 3339 instants with an offset and at
+        most microsecond precision (anything else is 400) -- in `punchTime` order (ties in feed
+        order). Page with `nextCursor` as with the feed; a history cursor (`hst_…`) belongs to the
+        `scope`, `from` and `to` it was issued for and is 400 with any other, and so is a feed cursor
+        (`cur_…`) sent with `from`/`to` or a history cursor sent without them. A history read is a
+        SNAPSHOT: its first page fixes the feed position it stands at, and its pages answer the
+        punches the feed held then. A punch that enters the feed later with an earlier `punchTime`
+        -- a flag approved days after the tap, a phone's offline queue -- is not in that read, even
+        inside its range; asking the same range again later can answer more. To receive every punch
+        for certain, read the feed (`cursor` without `from`/`to`). Unlike a feed cursor, a history
+        cursor cannot be carried to the other scope: it is bound to the one it was issued for.
+
+        Only `scope`, `cursor`, `limit`, `from` and `to` are accepted, each at most once; any other
+        parameter, and a query string that does not parse, is 400. No punch carries an e-mail address, a
         coordinate, a network address, a note or the reason of a decision. While the business is
         suspended this endpoint stays open.
       parameters:
@@ -356,10 +369,24 @@ paths:
         - name: cursor
           in: query
           required: false
-          description: The `nextCursor` of the previous page.
+          description: "The `nextCursor` of the previous page: `cur_…` for the feed, `hst_…` for a history read (with the same scope, from and to)."
           schema:
             type: string
-            pattern: "^cur_(0|[1-9][0-9]{0,18})$"
+            pattern: "^(cur_(0|[1-9][0-9]{0,18})|hst_(0|[1-9][0-9]{0,18})_-?(0|[1-9][0-9]{0,18})_(0|[1-9][0-9]{0,18})_[0-9a-f]{16})$"
+        - name: from
+          in: query
+          required: false
+          description: "History: the range's start (included), RFC 3339 with an offset, at most microsecond precision. Requires `to`."
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          description: "History: the range's end (excluded), at most 31 days after `from`. Requires `from`."
+          schema:
+            type: string
+            format: date-time
         - $ref: "#/components/parameters/Limit"
       responses:
         "200":

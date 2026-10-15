@@ -261,6 +261,10 @@ func (refusePunches) PunchPage(context.Context, uuid.UUID, tenant.FeedRole, int6
 	return tenant.PunchPage{}, errors.New("this rig reads no punch")
 }
 
+func (refusePunches) HistoryPage(context.Context, uuid.UUID, tenant.FeedRole, tenant.HistoryQuery, int) (tenant.HistoryPage, error) {
+	return tenant.HistoryPage{}, errors.New("this rig reads no punch")
+}
+
 func known(tenant, key uuid.UUID) func(string) (db.ResolvedAPIKey, error) {
 	now := time.Now()
 	return func(string) (db.ResolvedAPIKey, error) {
