@@ -300,6 +300,7 @@ var storeSurface = map[string]string{
 	"GetPanelLocation":                 "(context.Context, GetPanelLocationParams{TenantID uuid.UUID; ID uuid.UUID}) (GetPanelLocationRow{ID uuid.UUID; TenantID uuid.UUID; Name string; StaticIps []netip.Prefix; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; WifiSsid *string; CreatedAt time.Time; ExternalRef *string}, error)",
 	"GetPolicyForUpdate":               "(context.Context, GetPolicyForUpdateParams{TenantID uuid.UUID; ID uuid.UUID}) (GetPolicyForUpdateRow{ID uuid.UUID; Name string; Layer string; Enabled bool}, error)",
 	"GetPolicyVersionDocument":         "(context.Context, GetPolicyVersionDocumentParams{TenantID uuid.UUID; PolicyID uuid.UUID; VersionNo int32}) (GetPolicyVersionDocumentRow{ID uuid.UUID; VersionNo int32; CreatedAt time.Time; CreatedBy *uuid.UUID; Document []byte; PolicyName string; Layer string; Enabled bool; AuthorName *string; DocumentBytes int32}, error)",
+	"GetPunchFeedHead":                 "(context.Context, GetPunchFeedHeadParams{TenantID uuid.UUID; AfterSeq int64}) (GetPunchFeedHeadRow{LastSeq int64; NextSeq int64}, error)",
 	"GetRosterCursorAnchor":            "(context.Context, GetRosterCursorAnchorParams{TenantID uuid.UUID; ID uuid.UUID}) (string, error)",
 	"GetTagForTenant":                  "(context.Context, GetTagForTenantParams{TenantID uuid.UUID; Uid string}) (GetTagForTenantRow{Uid string; TenantID uuid.UUID; LocationID *uuid.UUID; LastCtr int32; Status string; RetiredAt *time.Time; ReplacedBy *string; CreatedAt time.Time; EncodedAt *time.Time}, error)",
 	"GetTenantAccount":                 "(context.Context, uuid.UUID) (GetTenantAccountRow{ID uuid.UUID; Name string; VatNumber string; BusinessType string; Timezone string; VatVerified *bool; VatCheckedAt *time.Time; CreatedAt time.Time}, error)",
@@ -338,6 +339,7 @@ var storeSurface = map[string]string{
 	"ListPolicySet":                    "(context.Context, uuid.UUID) ([]ListPolicySetRow{PolicyID uuid.UUID; Name string; Layer string; Enabled bool; VersionID uuid.UUID; VersionNo int32; Document []byte}, error)",
 	"ListPolicyVenueTargets":           "(context.Context, ListPolicyVenueTargetsParams{TenantID uuid.UUID; RowLimit int32}) ([]ListPolicyVenueTargetsRow{ID uuid.UUID; Name string}, error)",
 	"ListPolicyVersions":               "(context.Context, ListPolicyVersionsParams{TenantID uuid.UUID; RowLimit int32}) ([]ListPolicyVersionsRow{PolicyID uuid.UUID; Name string; Layer string; Enabled bool; VersionID *uuid.UUID; VersionNo *int32; VersionCreatedAt *time.Time; CreatedBy *uuid.UUID; AuthorName *string; DocumentBytes int32}, error)",
+	"ListPunchEvents":                  "(context.Context, ListPunchEventsParams{TenantID uuid.UUID; AfterSeq int64; UptoSeq int64; Role string; PageSize int32}) ([]ListPunchEventsRow{Seq int64; PunchID uuid.UUID; Version int32; Status string; PunchTime time.Time; RecordedAt time.Time; Channel string; Direction string; EmployeeID uuid.UUID; EmployeeRef *string; EmployeeCode *string; EmployeeCompany *string; LocationID *uuid.UUID; LocationRef *string; LocationName *string; LocationCompany *string; TagUid *string}, error)",
 	"ListPublishedLegalDocuments":      "(context.Context) ([]ListPublishedLegalDocumentsRow{ID uuid.UUID; Slug string; Body string; PublishedAt time.Time}, error)",
 	"ListSessionsForEmployee":          "(context.Context, ListSessionsForEmployeeParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) ([]ListSessionsForEmployeeRow{ID uuid.UUID; TenantID uuid.UUID; EmployeeID uuid.UUID; DeviceInfo *string; CreatedAt time.Time; LastUsedAt *time.Time; RevokedAt *time.Time}, error)",
 	"ListTagLastSeen":                  "(context.Context, uuid.UUID) ([]ListTagLastSeenRow{TagUid *string; LastSeen time.Time}, error)",
@@ -908,10 +910,12 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// over api_idempotency (the Idempotency-Key ledger); none calls a definer.
 	// 22 -> 23 on 2026-10-15 (M11 API-6): db/queries/invitequeue.sql, the invitation queue's
 	// named queries over invite_requests (and the person's status); none calls a definer.
-	if files != 23 {
-		t.Fatalf("read %d .sql file(s) under db/queries; TWENTY-THREE were there when this was "+
+	// 23 -> 24 on 2026-10-15 (M11 API-7): db/queries/punchfeed.sql, the punch feed's two reads
+	// over feed_counters and punch_events; neither calls a definer.
+	if files != 24 {
+		t.Fatalf("read %d .sql file(s) under db/queries; TWENTY-FOUR were there when this was "+
 			"pinned (2026-10-15; seventeen on 2026-08-24, plus operator.sql, branding.sql, sitepunches.sql, apikeys.sql, "+
-			"apiidempotency.sql and invitequeue.sql)", files)
+			"apiidempotency.sql, invitequeue.sql and punchfeed.sql)", files)
 	}
 	// A file count alone does not prove the STATEMENT lines were reached; this does.
 	// EXACT, by this file's own standard 130 lines down ("a floor with slack cannot
@@ -963,14 +967,16 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// (a failed send counts a try; a ceiling does not) and invites.sql's RetireUndeliveredInvite
 	// (the queue gives up on a link it never delivered); CountRecentLiveInvites became
 	// CountRecentSentInvites. None calls a definer.
-	if named != 186 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; ONE HUNDRED AND EIGHTY-SIX were "+
+	// 186 -> 188 on 2026-10-15 (M11 API-7): punchfeed.sql's GetPunchFeedHead and ListPunchEvents,
+	// the read end of the punch feed; neither calls a definer.
+	if named != 188 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; ONE HUNDRED AND EIGHTY-EIGHT were "+
 			"there when this was pinned (2026-10-15: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
 			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+
 			"+ EM-7B's three invitation e-mail queries, + EM-7C's two recovery queries, "+
 			"+ the activation tap's two consent queries, + WL-13's two activation brand queries, "+
-			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries). "+
+			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {
@@ -1150,8 +1156,10 @@ func parseStore(t *testing.T) (map[string]*ast.File, *token.FileSet) {
 	// five methods over api_idempotency, in storeSurface; none carries bytes.
 	// 23 -> 24 (2026-10-15, M11 API-6): db/queries/invitequeue.sql adds invitequeue.sql.go -- the
 	// invitation queue's methods, in storeSurface; none carries bytes, none returns a code or a hash.
-	if len(out) != 24 {
-		t.Fatalf("parsed %d file(s) under %s; TWENTY-FOUR were generated when this floor was last set "+
+	// 24 -> 25 (2026-10-15, M11 API-7): db/queries/punchfeed.sql adds punchfeed.sql.go -- the punch
+	// feed's two reads (the head and a page), in storeSurface; none carries bytes.
+	if len(out) != 25 {
+		t.Fatalf("parsed %d file(s) under %s; TWENTY-FIVE were generated when this floor was last set "+
 			"(2026-10-15). If sqlc genuinely emits a different number now, change this number "+
 			"in the same edit and say why -- do not widen it", len(out), storeDir)
 	}
