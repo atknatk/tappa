@@ -791,11 +791,24 @@ ve `TestParseName_RefusesRatherThanTruncates`'te); üçüncü tur: `TestVenueSav
 `TestLocationsPut_TheNameRuleJudgesOnlyWhatChanges`, `TestInsertSelectWrites_TheArmFiresAndStaysQuiet` (altı kopyada);
 dördüncü tur: `TestNameHasHiddenCharacters_JoinersAndTagsOnlyWhereANameUsesThem`, `TestValidateVenues_CleansLikeTheVenueEditor`.
 
-**API-6** — `EmployeesPut_ActiveEmailElsewhereIs409` · `EmployeesPut_InactiveToActiveOpensANewRow` ·
-`EmployeesPut_EmailChangeKillsOldInviteInSameTransaction` · `ResendActivation_LoopNeverKillsTheLiveInvite` ·
-`ResendActivation_ActivatedIs409` · `InviteQueue_HoldsNoCode` · `InviteQueue_TwoPodsMintOnce` ·
-`DeactivationBudget_ComesFromTheDatabase` · `DeactivationBudget_ConcurrentLastSlotExactlyOne`
-(`-race`) · `DeactivationBudget_ExceededIs429WithAlertAndAudit` · `EmployeesGet_NoEmail`.
+**API-6** *(yazıldı — "API-6 uygulama notu"; adlar önerilenle aynı, önek eklendi)* —
+`TestEmployeesPut_ActiveEmailElsewhereIs409` · `TestEmployeesPut_InactiveToActiveOpensANewRow` ·
+`TestEmployeesPut_EmailChangeKillsOldInviteInSameTransaction` (işçi tam basarken adres değişir — `internal/invite`) ·
+`TestResendActivation_LoopNeverKillsTheLiveInvite` · `TestResendActivation_ActivatedIs409` · `TestInviteQueue_HoldsNoCode` ·
+`TestInviteQueue_TwoPodsMintOnce` (`-race`) · `TestDeactivationBudget_ComesFromTheDatabase` ·
+`TestDeactivationBudget_ConcurrentLastSlotExactlyOne` (`-race`; `internal/domain/tenant`) ·
+`TestDeactivationBudget_ExceededIs429WithAlertAndAudit` · `TestEmployeesGet_NoEmail`. Ekler:
+`TestEmployeesPut_CreatesQueuesAndNoticesAfterTheCommit`, `TestEmployeesPut_TheBodyContract`,
+`TestEmployees_SuspensionClassesAreSection10`, `TestEmployees_IdempotencyReplay`,
+`TestEmployees_OutsiderKeyCannotTouchAnotherTenant`,
+`TestEmployees_NothingOfTheAddressOrTheKeyReachesALogOrATrail`,
+`TestEmployeesPutDomain_EmailChangeRetiresInTheSameTransaction`, `TestEmployeesPutDomain_LinkRehireAndNames`,
+`TestEmployeesPutDomain_ConcurrentNewRefOpensOneRow`,
+`TestInviteQueue_LimitsDelayAndNeverRefuse`, `TestInviteQueue_OnlyAnInvitedPersonIsSent`,
+`TestInviteQueue_TheLinkActivatesThroughTheWizardsPath`, `TestWorker_ALaterTenantIsNoticedAgainAndIsNoFailure`,
+`TestAPIWiring_AnEmployeeRunsThroughTheShippedSurfaceAndTheQueue`, `TestApiKeyPanel_TheDeactivationBudgetAlertIsShownToTheOwner`;
+genişleyenler: `TestEmployeeUpdatedAt_OnlyDirectoryColumnsOnEveryUpdatePath` (API'nin ad yazması),
+`TestAPIWiring_TheChainTakesThePanelsPrefixAndTheOneWorker` (çalışan alanı, kuyruk, işçinin başlama sırası).
 
 **API-7** — `Punches_FourShapesTimesTwoScopes` (anlık görüntü alanlarıyla, doğru tenant'a) ·
 `Punches_OutsiderSeesNone` · `Punches_NoManualNoRejected` · `Punches_Limit1001Is400`.
@@ -1603,3 +1616,130 @@ içteki U+FEFF'i ve bağlam kuralını sayar; OpenAPI ve test güncellendi.
 
 *D4 kaçağı.* `brokenEscape` artık yalnız bir kaçışı başlatan ters bölünün ardındaki `ufffd`'yi sayar; `"\\ufffd \ud800"`
 (kaçışlı ters bölü + düz metin, ardından eşsiz surrogate) 400. Eski sayım mutantı kırmızı.
+
+
+## API-6 uygulama notu (2026-10-15)
+
+Yapıcının uygulaması ve ölçümleri; kararlar değişmedi — sapmalar ve ADR'nin açık bıraktıkları aşağıda adıyla.
+**Migration yok** (`invite_requests`, `employees`'in API sütunları ve K-24 indeksleri API-1'den; K-25'in sayımı
+`audit_log_tenant_at_idx`'i kullanır). Mutantlar ve eşzamanlılık ölçümleri atılabilir bir PostgreSQL 17 kabında
+(`scripts/db-init` ile, goose 52); paylaşılan `tappa-m11-db`'ye yalnız testlerin yazdığı satırlar.
+
+**Parçalar.** Alan `internal/domain/tenant/staffapi.go` (panelin `*tenant.Staff`'ı — adres, ad ve iz kuralları
+panelinki); sorgular `employees.sql` (dokuz), `audit.sql` (dört: K-25 kilidi ve sayımı, uyarının tekilleştirmesi ve
+listesi), yeni `invitequeue.sql` (on iki); kuyruk işçisi `internal/invite/queue.go` (K-19 işçisinin işi); uçlar
+`internal/handler/api/employees.go`; owner uyarısı panelin API anahtarları bölümünde.
+
+**Sapmalar ve ADR'nin açık bıraktıkları — kararıyla (otonom, gerekçeli):**
+1. **Gövde** (API-5'in sözleşmesi): `firstName`, `lastName` (zorunlu dize), `email` (zorunlu anahtar; dize ya da
+   `null` = adres yok), `active` (zorunlu), `employeeCode` (isteğe bağlı, dize ya da `null`), `externalRef` (isteğe
+   bağlı, yoldakine eşit). Bilinmeyen/yinelenen anahtar 422, UTF-8 olmayan gövde 400. `email`'in **anahtar olarak**
+   zorunlu olması: PUT tam temsildir ve K-16'nın otomatik daveti adrese bağlıdır; "adres yok" açıkça `null` ile söylenir.
+2. **Adres** panelin *değiştirme* kuralıdır (`deliverableEmail` → `mail.ValidRecipient`: ASCII, görünen ad yok, ≤ 254),
+   ekleme formununki değil — API'nin adresi kuyruğun göndereceği adrestir. İşletmenin bir yöneticisinin adresi 422
+   `administrator_address` (citext eşitliği; `GetInviteRecipient`'in sorusu istek anında). Başka **canlı** çalışandaki
+   adres 409 `email_unavailable` — yeni satırda da adres değişikliğinde de; kısıt adıyla tanınır, işlem geri alınır
+   (satır, istek, iz yok — ölçüldü). Adres hiçbir yanıtta, iz satırında ya da log'da yok (`same_email`/`has_email`
+   SQL'de hesaplanan mantıksal değerler; kanarya testi).
+3. **K-18 bağlaması** citext eşitliğiyle bulur; harf farkı **bağlandıktan sonra adres değişikliğidir** (K-15 uygulanır).
+   Bağlama `EmployeeChanges` sınıfıdır (askıda kapalı). Holding eşleri aranmaz (K-24; testte başka işletmedeki aynı adres
+   bağlanmadı).
+4. **Ad kuralı** (brief'in sorusu — ölçüldü): API adı `CleanName` + panelin `personName`'i (boşluk birleştirme, boş ad,
+   ≤ 120) + API-5'in karakter kuralı (`NameHasHiddenCharacters`, kayıtlı ad temizlenmiş hâliyle muaf). İçte kontrol
+   karakteri (TAB/satır sonu dahil) ve bidi kontrolü **her zaman** `hidden_character` (00037'nin CHECK'i kontrol
+   karakterini zaten reddeder; 23514 yerine cümle). `fullName` = `firstName + " " + lastName`, toplam ≤ 120 rün
+   (rosterın gösterdiği ad; panelin sınırı). `employeeCode`: `CleanName`, 1..64, aynı karakter kuralı. **Ölçülen bulgu
+   (değiştirilmedi, kapsam dışı):** panelin çalışan ekleme yolu (`personName`) BEL ve ESC'yi saklıyor, U+2060'ı ve
+   bağlamsız ZWJ'yi kabul ediyor, TAB'ı boşluğa çeviriyor; U+202E'yi reddediyor. Kullanıcıya sorulacak madde olarak raporlandı.
+5. **Yeniden işe alım:** canlı satırı olmayan ref'e `active:true` önce K-18'i dener, yoksa **yeni satır** (201; iz satırında
+   `rehire_of` = önceki satır). `active:false` hiç tutulmamış ref'e 404; yalnız pasif satırı olan ref'e satır olduğu gibi
+   (200, bütçe harcanmaz, `EmployeeChanges`). `DELETE` aynı.
+6. **K-25:** sayım `audit_log`'dan — `action='employee.deactivated'`, `actor_id` = anahtar, `detail->>'via'='api'`,
+   son bir saat; anahtarın kimliğiyle ad alanlı `pg_advisory_xact_lock`, **satır kilitlerinden önce** (tek kilit sırası:
+   anahtar, sonra satırlar). Aşımda **429 `deactivation_budget_exceeded`** (`rate_limited`'dan ayrı kod: entegratör kova
+   kısıtlamasını bütçeden ayırt edebilsin), `Retry-After` = en eski sayılan satırın pencereden çıkışına kalan saniye.
+   `api.deactivation_budget_exceeded` satırı reddedilen işlem geri alındıktan sonra kendi işleminde, **anahtar başına
+   saatte bir** (aynı kilit altında tekilleştirilir — her ret bir satır yazsaydı ısrarcı bir entegrasyon izi doldururdu);
+   hedef ve aktör anahtarın kimliği, ayrıntı `{via, budget, window_seconds}`. Panel uyarısı API anahtarları bölümünde
+   (owner-only), son 24 saat, anahtarın şimdiki adıyla.
+   **Ölçümler** (`internal/domain/tenant`, buluşma noktalı — soğuk havuz yarışçıları sıraya dizip kilitsiz mutantı
+   gizliyordu, ilk denemede ölçüldü): bir hak kala 12 eşzamanlı → tam 1; bütçe 5, 12 eşzamanlı → tam 5. Mutantlar:
+   kilit kaldırılınca 10/2 ve 12/0 (kırmızı); iz satırı **commit'ten sonra** yazılınca 4/8 (kırmızı); süreç belleğinde
+   sayaç → "yeniden başlatma" kolunda bütçe sıfırlanır (kırmızı). *Adlandırılmış:* iz satırını **kilit içinde** ayrı bir
+   işlemde yazmak yeşil kalır — o işlem kilit bırakılmadan commit eder, ihlal değildir; ADR'nin cümlesi "kilit bırakıldıktan
+   sonra görünen iz"i hedefler.
+7. **Davet kuyruğu (K-17)** — `internal/invite/queue.go`:
+   - Talep **tek tek** alınır (`ClaimInviteRequest`: en eski vadesi gelmiş satır, `FOR UPDATE SKIP LOCKED`, kira
+     `clock_timestamp() + 60 s`, `attempts + 1`); toplu talep, sırayla gönderilirken sonrakilerin kirasını bitirirdi.
+   - Basım işlemi: durum okuması → panelin tavanları (`checkLimits`, aynı kilit ve sayaçlar) → eski davetlerin emekliye
+     ayrılması → çalışan `FOR SHARE` (yalnız `invited`'a gönderilir) → `CreateInvite` → adres okuması + dört ret +
+     kutu tavanı → **son ifade olarak kiranın yenilenmesi** (`lease_until = @talep edilen` ile; satır yoksa basım geri
+     alınır). Yenilenen kira basımdan 60 s — gönderim (10 s) + iz (5 s) bütçesini kapsar; istek kuyruktan **yalnız bu
+     kirayla** çıkar (`FinishInviteRequest`).
+   - Tavan ya da kutu tavanı → istek kalır, 10 dk sonra vadeli (ret yok, `invite.email_refused` yok); başarısız gönderim
+     → 1/5/15 dk geri çekilme, 5 denemeden sonra bırakılır (her deneme `invite.undelivered` yazar). Adresin kalıcı
+     retleri (adres yok, ASCII değil, röle almıyor, yöneticinin) → `invite.email_refused` + istek düşer.
+   - Kuyruğun iz satırları `detail.channel = "email_queue"` (panelin basışı `"email"`), aktör NULL (sistem — bir isteğin
+     değil işçinin eylemi; K-23 API isteklerinin satırları içindir).
+   - İşin "sonra gel" cevabı `*invite.Later` (`webhook.DueLater` arayüzü): işçi o tenant'ı gecikme sonunda yeniden
+     görür (o tenant'a bir zamanlayıcı, tarama yok — K-19). Yalnız `Later` dönen iş hata sayılmaz; başka hatayla
+     birleşmişse log'a yazılır. `webhook.Worker.Add` (Start'tan önce) eklendi; `cmd/tappa` işçiyi kuyruk eklendikten
+     **sonra** başlatır.
+   - **Ölçümler:** kuyrukta kod yok — şema beş sütun ve tipleri; işçi `webhook.Worker` üzerinden yakalanan log ile
+     koşarken kod, hash'i ve adres log'da, işletmenin iz satırlarında ve `invite_requests` satırlarında yok (başarısız
+     gönderimin log'a düştüğü doğrulanarak). İki "pod" 10 isteği aynı anda boşaltır → herkese tam 1 davet, 1 e-posta.
+     Kirası dolan pod: A basımın ortasında durur, kira geçmişe çekilir, B talep eder ve bekler (A işletmenin tavan
+     kilidini tutuyor), A'nın yenilemesi B'nin kirasını görür → A'nın basımı geri alınır: 1 davet, 1 e-posta. Mutantlar:
+     yenileme kontrolü kaldırılınca 2/2 (kırmızı); talepten kira koşulu kaldırılınca podlar birbirinin kirasını çalar,
+     kimseye davet basılmaz (kırmızı — çift basım değil canlı kilit). *Adlandırılmış:* `SKIP LOCKED` → `FOR UPDATE`
+     yeşil (bekleyen, EvalPlanQual ile kirayı görür ve satırı almaz): `SKIP LOCKED` güvenlik değil verim içindir;
+     güvenlik kira koşulu + yenilemedir.
+8. **K-15 yarışı** (brief'in "işçi tam basarken e-posta değişiyor"u): işçi basım işleminin içinde (ekleme ve adres okuması
+   yapılmış) durdurulur; API'nin adres değişikliği çalışan kilidinde bekler (`pg_stat_activity`'de `LockEmployeeForAPI`
+   bekleyişi görülür); işçi commit eder ve eski adrese gönderir; değişiklik o daveti **kendi işleminde** emekliye ayırır
+   ve isteği serbest bırakır (`RequeueInviteRequest`: `lease_until = NULL` — işçi isteği kuyruktan çıkaramaz); işçinin
+   aynı koşusu yeni adrese basar. Eski bağlantı, işçinin ikinci basımı **commit edilmeden** okunur — `ErrCodeCancelled`.
+   Mutantlar: değişikliğin ikinci emekliye ayırması kaldırılınca bağlantı canlı (kırmızı; testin ilk hâli işçinin ikinci
+   basımının emekliye ayırmasıyla maskeleniyordu — okuma o basımın commit'inden önceye alındı); yeniden kuyruğa alma
+   `ON CONFLICT DO NOTHING` olunca işçi isteği bitirir, yeni adrese davet gitmez (kırmızı). *Adlandırılmış:* değişikliğin
+   `FOR UPDATE`'i `FOR NO KEY UPDATE`'e çevrilince ya da işçinin `FOR SHARE`'i kaldırılınca **tek başına** yeşil — iki kilit
+   birbirine karşı ayrı ayrı yeterli; ikisi birlikte kaldırılınca değişiklik hiç beklemez (kırmızı).
+9. **resend-activation:** canlı istek **ya da** son bir saatte basılmış harcanabilir davet varken etkisiz (202, iz yok);
+   istek anında hiçbir davet emekliye ayrılmaz (bir saat sonraki resend'in kuyruğa aldığı anda bile eski bağlantı canlı —
+   ölçüldü; emeklilik işçinin basımında). Aktive çalışan 409 `already_activated`; adresi olmayan 422 (`field: email`,
+   `reason: required`); canlı satırı olmayan ref 404. Kuyruğa alan resend `invite.requested` yazar. Mutant (istek anında
+   emekliye ayırma) kırmızı.
+10. **Askı sınıfları** (§10): yeni satır (yeni kişi ve yeniden işe alım) `WriteEmployeeCreate`; var olanı değiştiren,
+    bağlayan, değişmeyen ve `active:false` PUT `WriteEmployeeChange`; DELETE `WriteEmployeeDelete`; resend
+    `WriteResendActivation`. PUT'un sınıfı aramadan sonra belli olduğu için alan, kontrol noktasını (`tenant.Admit`)
+    yazmadan önce sorar; eşzamanlı oluşturma ON CONFLICT'e düşerse ikinci kez `Change` ile sorar. Mutant (her PUT `Create`)
+    kırmızı.
+11. **K-19 bildirimi commit'ten sonra:** zincirin bildirimi yazmadan önce geldiği için, kuyruğa alan yazma commit'ten sonra
+    tenant'ı yeniden bildirir. Mutant (bildirim kaldırılınca) `cmd/tappa` uçtan uca testinde 5/5 kırmızı.
+12. **GET:** `/v1/employees` işletmenin **bütün** çalışanlarını (canlı/pasif, panelde açılmış ve henüz bağlanmamış —
+    `externalRef: null`) `id` sırasıyla sayfalar; imleç `emp_<uuid>`, yalnız `limit` ve `cursor` (başka parametre 400).
+    `/v1/employees/{ref}` canlı satırı, yoksa en son pasif satırı verir. `activationEmail.status` kapalı küme `queued` /
+    `sent` / `none` (`sent`: harcanabilir bir davet var — panel modunda ekranda gösterilen bağlantı da), `at` zamanı.
+13. **Teslim modu:** kuyruk yalnız `TAPPA_INVITE_DELIVERY=email`'de kurulur (e-posta taşıyıcısı ve panelin kutu tavanı
+    örneğiyle); `panel` modunda kapalıdır, açılış satırı söyler, istekler bekler (`activationEmail: queued`) ve owner
+    bağlantıyı panelde gösterir. Üretim `email`'dedir (ADR 0022 EM-5B notu); sandbox (`panel`) için API-11 karar verir.
+14. **Eşzamanlı değişiklik:** arama ile kilit arasında satır pasifleşir ya da ref'i değişirse `ErrEmployeeChangedConcurrently`
+    → 503 (yeniden denenebilir); hiçbir şey yazılmaz.
+15. **Kemer (§4.5) ve iki sorgu biçimi** — tam koşuda yakalandı, kemer gevşetilmedi, sorgular düzeltildi:
+    (a) `CreateEmployeeFromAPI` önce `ON CONFLICT (tenant_id, external_ref) WHERE status <> 'deactivated' DO NOTHING`
+    taşıyordu (API-5'in biçimi; kısmi indeksin hakemi yüklemini ister) ve tenant kopyası o sondaki `WHERE`'i ifadenin
+    kendi WHERE'i olarak okudu (kırmızı). Artık düz `INSERT … SELECT … FROM tenants t WHERE t.id = @tenant_id`; ekleme bir
+    **SAVEPOINT** içinde koşar, `employees_tenant_external_ref_key` adlı 23505 savepoint'e geri alınıp eşzamanlı oluşturma
+    olarak sürer (`TestEmployeesPutDomain_ConcurrentNewRefOpensOneRow`: tutulan commit edilmemiş satır, dört PUT bekler →
+    commit'te 0 oluşturma, geri almada tam 1; tek canlı satır. Mutant — kol kaldırılınca yarışan PUT 23505 ile düşer —
+    kırmızı). (b) K-25'in kilidi çıplak bir `pg_advisory_xact_lock` iken kemerin sorgu başına anti-vakuite kontrolü "hiçbir
+    tenant tablosu okunmadı" dedi; kilit artık çağıranın `tenants` satırını okuyan sorgunun **seçim listesinde** (WHERE'in
+    kabul ettiği tek satır için bir kez; bağlam satırı göremezse satır yok, kilit yok — hata sayılır).
+16. **Store envanteri** (`cmd/tappa/storekeyshape_test.go`): 25 yeni yöntem kayda girdi (adres, kod, hash döndüren yok);
+    sayılar 22 → 23 dosya, 159 → 184 sorgu, 23 → 24 üretilmiş dosya.
+
+**Uçtan uca.** `TestAPIWiring_AnEmployeeRunsThroughTheShippedSurfaceAndTheQueue`: `openAPISurface` panelin `tenant.NewStaff`'ıyla,
+K-19 işçisinin işi komutun kurduğu gibi kuyruk (`invite.NewQueue` + `EmailInvitations.QueueSink`, yakalayan gönderici); API
+host'unda 201, işçi commit'ten sonra uyanır, şablondan render edilmiş **tek** e-posta satırdaki adrese gider, bağlantısı
+`Lookup` ile çalışanın ilk aktivasyonuna (ev lokasyonu yok — K-14) çözülür; ADR 0026'nın onay + ilk dokunuş yolu
+`TestInviteQueue_TheLinkActivatesThroughTheWizardsPath`'te (`RecordConsent` + `Activate` → `active`). Ana host'ta 404.

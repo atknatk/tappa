@@ -544,7 +544,18 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
   harfleri kabul, yumuşak tire, yön işaretleri (LRM/RLM/ALM) ve iki uçtaki BOM sessizce atılır, kayıtlı ad (temizlenmiş
   hâliyle karşılaştırılarak) olduğu gibi kabul edilir; gövdedeki eşsiz surrogate kaçışı (`\ud800`) 400 (ADR 0028
   "API-5 uygulama notu", ikinci ve üçüncü tur).
-- **API-13:** **(API-5'ten, 2026-10-15 — deploy öncesi)** prod'da `locations` ve `departments` adlarından yeni isim
+  **(API-6'dan, 2026-10-15)** Çalışan uçları için: PUT gövdesi `firstName`, `lastName`, `email` (anahtar zorunlu;
+  dize ya da `null`), `active`, isteğe bağlı `employeeCode` ve `externalRef` — bilinmeyen/yinelenen alan 422; adres düz
+  ASCII ve işletmenin yönetici adresi değil (422 `administrator_address`); başka canlı çalışandaki adres 409
+  `email_unavailable` (yeni satırda da değişiklikte de); bilinmeyen ref önce aynı işletmede adresle eşleşen bağlanmamış
+  çalışanı bağlar (harf farkı bağlandıktan sonra adres değişikliği sayılır); yanıtta adres yok, `hasEmail` ve
+  `activationEmail` (`queued`/`sent`/`none` + `at`) var; `GET /v1/employees` panelde açılmış bağlanmamış çalışanları da
+  (`externalRef: null`) listeler, imleç `nextCursor`; pasifleştirme anahtar başına saatte 20, aşımda 429
+  `deactivation_budget_exceeded` (`rate_limited`'dan ayrı); `resend-activation` her durumda 202, aktive çalışana 409,
+  adressiz çalışana 422; adın içinde TAB/satır sonu `hidden_character` (ADR 0028 "API-6 uygulama notu").
+- **API-13:** **(API-6'dan, 2026-10-15 — runbook)** API'nin davetleri yalnız `TAPPA_INVITE_DELIVERY=email` iken gönderilir;
+  `panel` modunda kuyruk kapalıdır (açılış satırı söyler) ve istekler bekler. Deploy'dan önce ConfigMap'in `email` olduğu
+  doğrulanır. **(API-5'ten, 2026-10-15 — deploy öncesi)** prod'da `locations` ve `departments` adlarından yeni isim
   kuralına takılan satır **sayısı** sorgulanır (değer basılmaz; `tenant.NameHasHiddenCharacters`'ın kümesi: Cc,
   U+2028/2029, U+202A–202E, U+2066–2069, U+200B, U+2060, içte U+FEFF, bağlamı dışında birleştirici ya da etiket
   karakteri) ve ayrıca bunun **`CleanName` ile değişen** alt kümesi (sessizce atılan bir karakter de taşıyanlar: bir
