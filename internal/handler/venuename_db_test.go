@@ -45,7 +45,7 @@ func TestVenueSave_ANameOnFileStaysEditableAndANewHiddenOneIsASentence(t *testin
 	}
 	t.Cleanup(data.Close)
 	tenantID, adminID := uuid.New(), uuid.New()
-	const onFile = "Rusty‮Bar"
+	const onFile = "Rusty\u202eBar"
 	var venueID, deptID uuid.UUID
 	if err := data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		if _, e := tx.Exec(ctx, `INSERT INTO tenants (id, name, vat_number, business_type, structure) VALUES ($1, 'Name Rule Ltd', $2, 'restaurant', 'multi')`,
@@ -111,7 +111,7 @@ func TestVenueSave_ANameOnFileStaysEditableAndANewHiddenOneIsASentence(t *testin
 		t.Fatal("the department's shift was not stored")
 	}
 
-	rec = b.do(http.MethodPost, venueSaveHref, url.Values{"id": {venueID.String()}, "name": {"Rusty‮Baz"}, "static_ips": {"203.0.113.0/24"}})
+	rec = b.do(http.MethodPost, venueSaveHref, url.Values{"id": {venueID.String()}, "name": {"Rusty\u202eBaz"}, "static_ips": {"203.0.113.0/24"}})
 	if saved(rec) || !strings.Contains(rec.Body.String(), "direction override") {
 		t.Fatalf("a NEW name with U+202E: %d %q, want the form with the sentence", rec.Code, rec.Header().Get("Location"))
 	}
@@ -119,7 +119,7 @@ func TestVenueSave_ANameOnFileStaysEditableAndANewHiddenOneIsASentence(t *testin
 		t.Fatalf("a refused rename changed the name to %q", name)
 	}
 
-	for _, name := range []string{"Kitchen \U0001F468‍\U0001F373", "Glasgow \U0001F3F4\U000E0067\U000E0062\U000E0073\U000E0063\U000E0074\U000E007F"} {
+	for _, name := range []string{"Kitchen \U0001F468\u200d\U0001F373", "Glasgow \U0001F3F4\U000E0067\U000E0062\U000E0073\U000E0063\U000E0074\U000E007F"} {
 		rec = b.do(http.MethodPost, venueSaveHref, url.Values{"name": {name}})
 		if !saved(rec) {
 			t.Fatalf("a new venue named %q: %d %s", name, rec.Code, rec.Body.String())
