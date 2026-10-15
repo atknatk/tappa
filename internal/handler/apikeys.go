@@ -182,6 +182,13 @@ func (a *AdminAuth) readAPIKeysView(r *http.Request, id httpx.AdminIdentity) (pa
 		zone = a.accountZone(s.Timezone)
 	}
 	v.APIEnabled = list.APIEnabled
+	for _, al := range list.BudgetAlerts {
+		name := al.KeyName
+		if name == "" {
+			name = "an unnamed key"
+		}
+		v.BudgetAlerts = append(v.BudgetAlerts, pages.APIKeyBudgetAlert{KeyName: name, At: al.At.In(zone).Format("2 January 2006, 15:04")})
+	}
 	for _, k := range list.Keys {
 		row := pages.APIKeyRow{
 			ID: k.ID.String(), Name: k.Name, PrefixHint: k.PrefixHint,

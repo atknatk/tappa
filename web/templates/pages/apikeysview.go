@@ -27,6 +27,10 @@ type APIKeysView struct {
 
 	Keys []APIKeyRow
 
+	// BudgetAlerts is the owner's alert (ADR 0028 §12, K-25): keys that reached their hourly
+	// deactivation budget in the last day, newest first.
+	BudgetAlerts []APIKeyBudgetAlert
+
 	// The create form.
 	PostHref      string
 	NameValue     string
@@ -38,6 +42,13 @@ type APIKeysView struct {
 
 	Done    string
 	Problem string
+}
+
+// APIKeyBudgetAlert is one key that reached its deactivation budget: its name ("an unnamed key"
+// when the list no longer has it) and when, in the business's time zone.
+type APIKeyBudgetAlert struct {
+	KeyName string
+	At      string
 }
 
 // APIKeyRow is one key in the list. The hint is the prefix and four characters -- not the key.

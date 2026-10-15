@@ -29,6 +29,9 @@ templ AdminAPIKeys(v APIKeysView) {
 		if v.NewKey != "" {
 			@apiKeyShownOnce(v)
 		}
+		if len(v.BudgetAlerts) > 0 {
+			@apiKeyBudgetAlerts(v)
+		}
 		@apiKeysIntro(v)
 		if v.Available && !v.ListFailed {
 			if v.APIEnabled {
@@ -57,6 +60,25 @@ templ apiKeyShownOnce(v APIKeysView) {
 			spellcheck="false"
 			value={ v.NewKey }
 		/>
+	}
+}
+
+// apiKeyBudgetAlerts is the owner's alert of ADR 0028 §12 (K-25): a key that deactivated as many
+// employees in an hour as the integration may was refused further deactivations. The owner reads
+// which key and when, and what to do if the integration did not mean it. Status is the heading's
+// word; the warning tone only reinforces it.
+templ apiKeyBudgetAlerts(v APIKeysView) {
+	@components.Notice(components.ToneWarn, "A key reached its limit for deactivating employees") {
+		<p>
+			An integration key may deactivate at most 20 employees in an hour. These keys reached that
+			limit in the last day, and the deactivations past it were refused. If your HR or payroll
+			system did not mean to remove that many people, revoke the key below and check the system.
+		</p>
+		<ul class="mt-2 text-sm">
+			for _, a := range v.BudgetAlerts {
+				<li><span class="font-mono">{ a.KeyName }</span> — <span class="font-mono">{ a.At }</span></li>
+			}
+		</ul>
 	}
 }
 

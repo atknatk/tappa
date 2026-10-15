@@ -358,3 +358,58 @@ func TestApiKeyPanel_AClosedAPIOffersNoCreateAndStillRevokes(t *testing.T) {
 		t.Fatal("the key was not revoked, or a second appeared")
 	}
 }
+
+// TestApiKeyPanel_TheDeactivationBudgetAlertIsShownToTheOwner (M11 API-6; ADR 0028 §12, K-25: "owner'a
+// panelde görünür uyarı"): a key that ran out of its deactivation budget -- the
+// api.deactivation_budget_exceeded row internal/domain/tenant writes -- is named on the owner's API
+// keys section with the time, in the business's zone; an alert older than a day is not; another
+// business's alert never is; and without an alert the notice is absent (CONTROL).
+func TestApiKeyPanel_TheDeactivationBudgetAlertIsShownToTheOwner(t *testing.T) {
+	f := newAPIKeysDBFixture(t)
+	other := newAPIKeysDBFixture(t)
+	b := f.browserAs(t, f.owner, "owner")
+	const heading = "A key reached its limit for deactivating employees"
+	if page := b.do(http.MethodGet, apiKeysHref, nil); page.Code != 200 || strings.Contains(page.Body.String(), heading) {
+		t.Fatalf("CONTROL: the section without an alert: %d, notice drawn %v", page.Code, strings.Contains(page.Body.String(), heading))
+	}
+	mk := func(fx *apiKeysDBFixture, name string) uuid.UUID {
+		t.Helper()
+		c, err := fx.keys.Create(context.Background(), apikey.CreateCommand{TenantID: fx.tenantID, ActorID: fx.owner, Name: name})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c.ID
+	}
+	recent, old, foreign := mk(f, "Payroll-recent"), mk(f, "Payroll-old"), mk(other, "Foreign-key")
+	trail, err := audit.New(f.data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	staff, err := tenant.NewStaff(f.data, trail, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := staff.RecordDeactivationBudgetExceeded(context.Background(), f.tenantID, recent, "api", 20); err != nil {
+		t.Fatal(err)
+	}
+	if err := staff.RecordDeactivationBudgetExceeded(context.Background(), other.tenantID, foreign, "api", 20); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.data.WithTenant(context.Background(), f.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx, `INSERT INTO audit_log (tenant_id, actor_id, action, target, detail, at)
+		                      VALUES ($1, $2, 'api.deactivation_budget_exceeded', $3, '{"via":"api"}', now() - interval '25 hours')`,
+			f.tenantID, old, old.String())
+		return e
+	}); err != nil {
+		t.Fatal(err)
+	}
+	body := b.do(http.MethodGet, apiKeysHref, nil).Body.String()
+	if !strings.Contains(body, heading) || !strings.Contains(body, "Payroll-recent") {
+		t.Fatal("the owner's section does not name the key that reached its budget")
+	}
+	alert := body[strings.Index(body, heading):]
+	alert = alert[:strings.Index(alert, "</ul>")]
+	if strings.Contains(alert, "Payroll-old") || strings.Contains(alert, "Foreign-key") {
+		t.Fatal("the alert names a key past the day's window or another business's key")
+	}
+}

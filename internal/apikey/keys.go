@@ -97,7 +97,23 @@ type Key struct {
 type Listing struct {
 	Keys       []Key
 	APIEnabled bool
+	// BudgetAlerts are the owner's alert (ADR 0028 §12, K-25): every key that ran out of its hourly
+	// deactivation budget in the last BudgetAlertWindow, newest first -- the
+	// api.deactivation_budget_exceeded rows internal/domain/tenant writes.
+	BudgetAlerts []BudgetAlert
 }
+
+// BudgetAlert is one key that reached its deactivation budget: when, and the key as it is named
+// now ("" when the trail names a key the business no longer lists).
+type BudgetAlert struct {
+	At      time.Time
+	KeyID   string
+	KeyName string
+}
+
+// BudgetAlertWindow is how long the panel shows a budget alert: a day, so an owner who looks the
+// morning after still sees the night's.
+const BudgetAlertWindow = 24 * time.Hour
 
 // CreateCommand is the owner's "create a key". The actor and the tenant come from the session.
 type CreateCommand struct {
@@ -197,6 +213,17 @@ func (k *Keys) List(ctx context.Context, tenantID, actorID uuid.UUID) (Listing, 
 		for _, r := range rows {
 			out.Keys = append(out.Keys, Key{ID: r.ID, Name: r.Name, PrefixHint: r.PrefixHint, CreatedBy: r.CreatedBy,
 				CreatedAt: r.CreatedAt, LastUsedAt: r.LastUsedAt, RevokedAt: r.RevokedAt})
+		}
+		alerts, err := q.ListAPIBudgetAlerts(ctx, store.ListAPIBudgetAlertsParams{TenantID: tenantID, WindowSeconds: int32(BudgetAlertWindow / time.Second)})
+		if err != nil {
+			return fmt.Errorf("budget alerts: %w", err)
+		}
+		for _, a := range alerts {
+			id := ""
+			if a.Target != nil {
+				id = *a.Target
+			}
+			out.BudgetAlerts = append(out.BudgetAlerts, BudgetAlert{At: a.At, KeyID: id, KeyName: a.KeyName})
 		}
 		return nil
 	})
