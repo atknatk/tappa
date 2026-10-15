@@ -2378,8 +2378,9 @@ alt paket, çünkü `internal/webhook` K-19 işçisidir ve `TestWorker_NoTenantW
    cevap `BucketFull{NextAt}` (en eski slot + 1 sa) — panel *"bu saatin 10 test mesajı kullanıldı, sonraki HH:MM'de"* der.
    İndeks: `audit_log_tenant_at_idx`. **Pencerenin tek kaynağı** *(düzeltme turu)* `endpoints.BucketWindow`'dur: `ReadWebhookBucket`
    onu `make_interval(secs => @window_seconds)` ile parametre olarak alır (çıplak parametre, CLAUDE.md §6) ve aynı sabit `NextAt`'ı
-   tarihler; genel planda (`force_generic_plan`) sınır `audit_log_tenant_at_idx`'in Index Cond'unda kalır (EXPLAIN, eski sabit
-   `interval '1 hour'` ile aynı plan). Kenar `TestWebhookPing_CountsTheLastHourOnly`'dedir: 59 dk önce harcanmış 10 slot →
+   tarihler; genel planda (`force_generic_plan`) sınır `audit_log_tenant_at_idx`'in Index Cond'unda kalır (EXPLAIN: **aynı indeks,
+   sınır Index Cond'da** — eski sabit `interval '1 hour'`le aynı olan budur; düğüm tipi aynı **değil**: genel planda yeni sorgu
+   Bitmap Index Scan, eskisi Index Scan — *API-9 DÜŞÜK D-b, API-10'da düzeltildi*; "aynı plan" yazıyordu). Kenar `TestWebhookPing_CountsTheLastHourOnly`'dedir: 59 dk önce harcanmış 10 slot →
    `BucketFull` ve `NextAt` tam olarak en eski + 1 sa; 61 dk önce → ping gider.
 3. **İmza başlığı `X-Taptime-Signature`** — **kullanıcı kararı (2026-10-15)**; değeri `sha256=` + küçük harf hex
    HMAC-SHA256(gövdenin baytları), anahtar = anahtarın **metni** (önek dahil — entegratörün elindeki dizedir). Ad tek sabittir

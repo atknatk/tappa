@@ -359,7 +359,8 @@ func queriesDeclaredIn(t *testing.T, file string) []string {
 // fileBelt is the tags belt over one more query file, for the files whose callers live outside
 // every package that carries a copy of this net (M11: internal/apikey, internal/webhook/endpoints).
 // FILE-DERIVED like the tags one: a statement is checked because it exists. floor is an ANTI-VACUITY
-// floor, set below today's count so that deleting a query fails while adding one never does. No
+// floor, set AT today's count (the file's query count when the belt was last widened) so that deleting
+// a query fails while adding one never does. No
 // exemption list: every statement in these files is scoped today, and the day one is not this goes
 // red and somebody decides.
 func fileBelt(t *testing.T, file string, floor int) {

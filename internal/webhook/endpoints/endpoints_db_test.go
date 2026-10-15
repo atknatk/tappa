@@ -388,7 +388,6 @@ func TestWebhookPing_SharesTheResendBucket(t *testing.T) {
 
 	a := newBusiness(t, d)
 	create(a)
-	before := time.Now()
 	for i := range BucketLimit {
 		if _, err := svc.Ping(context.Background(), a.tenant, a.owner); err != nil {
 			t.Fatalf("ping %d: %v", i+1, err)
@@ -400,11 +399,17 @@ func TestWebhookPing_SharesTheResendBucket(t *testing.T) {
 		t.Fatalf("the eleventh ping: %v", err)
 	}
 	// The hour is written as time.Hour, not BucketWindow: the test states ADR 0028 §6's number rather
-	// than reading it back from the constant it is checking. The slack is the two clocks' (Go's and
-	// the database's) -- seconds, so a window off by a minute does not fit in it.
-	const slack = 5 * time.Second
-	if full.NextAt.Before(before.Add(time.Hour-slack)) || full.NextAt.After(time.Now().Add(time.Hour+slack)) {
-		t.Fatalf("next slot at %v: not an hour after the oldest", full.NextAt)
+	// than reading it back from the constant it is checking. The oldest slot is read back from the
+	// DATABASE (its `at` is the database's clock, 00053), so the comparison is exact and one clock's:
+	// Go's time.Now() against a NextAt dated by the database drifted with the Docker VM's clock (API-9
+	// DÜŞÜK D-a). TestWebhookPing_CountsTheLastHourOnly dates its slots the same way.
+	var oldest time.Time
+	if err := ownerConn(t).QueryRow(context.Background(),
+		`SELECT min(at) FROM audit_log WHERE tenant_id = $1 AND action = $2`, a.tenant, ActionPing).Scan(&oldest); err != nil {
+		t.Fatal(err)
+	}
+	if !full.NextAt.Equal(oldest.Add(time.Hour)) {
+		t.Fatalf("next slot at %v: want exactly an hour after the oldest slot (%v)", full.NextAt, oldest.Add(time.Hour))
 	}
 	if snd.count() != BucketLimit || len(trailRows(t, d, a.tenant, ActionPing)) != BucketLimit {
 		t.Fatalf("%d sent, %d slots: the refused ping was sent or spent", snd.count(), len(trailRows(t, d, a.tenant, ActionPing)))
