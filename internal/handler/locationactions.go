@@ -143,6 +143,10 @@ func (a *AdminAuth) saveVenue(w http.ResponseWriter, r *http.Request) {
 		a.log.Warn("panel venue save refused: no such venue in this tenant")
 		a.redirect(w, venueReturn("", "unknown-venue"))
 		return
+	case errors.Is(err, tenant.ErrNameHiddenCharacter):
+		a.log.Warn("panel venue save refused: a new name carries a refused character", "venue_id", sub.VenueID)
+		a.renderVenueFormAgain(w, r, venueFormFromSubmission(sub, r), "name", hiddenNameSentence)
+		return
 	case errors.Is(err, tenant.ErrVenueName):
 		// The domain's own bound refused a name the boundary let through, which means
 		// the two disagree. It is reported as a form failure rather than a 500 — the
@@ -176,6 +180,12 @@ func (a *AdminAuth) saveVenue(w http.ResponseWriter, r *http.Request) {
 		"proof_of_place", saved.HasProofOfPlace())
 	a.redirect(w, venueReturn(done, ""))
 }
+
+// hiddenNameSentence is the panel's answer to tenant.ErrNameHiddenCharacter. Emoji, flags, Persian
+// and Arabic or Hebrew names are fine; what is refused is mostly pasted: a line break, a direction
+// override, a zero-width space.
+const hiddenNameSentence = "That name has a line break, a direction override or a zero-width space in it, " +
+	"usually from pasted text. Type the name again."
 
 // saveDepartment adds a department or rewrites one.
 func (a *AdminAuth) saveDepartment(w http.ResponseWriter, r *http.Request) {
@@ -212,6 +222,10 @@ func (a *AdminAuth) saveDepartment(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, tenant.ErrUnknownDepartment):
 		a.log.Warn("panel department save refused: no such department in this tenant")
 		a.redirect(w, venueReturn("", "unknown-department"))
+		return
+	case errors.Is(err, tenant.ErrNameHiddenCharacter):
+		a.log.Warn("panel department save refused: a new name carries a refused character", "department_id", sub.DepartmentID)
+		a.renderDepartmentFormAgain(w, r, sub, "name", hiddenNameSentence)
 		return
 	case errors.Is(err, tenant.ErrDepartmentName):
 		a.log.Error("panel department save: the domain refused a name the boundary accepted")

@@ -153,7 +153,14 @@ components:
       properties:
         name:
           type: string
-          description: 1 to 80 characters once surrounding spaces are removed (they are removed).
+          description: |
+            1 to 80 characters once surrounding spaces are removed (they are removed). Emoji, flags and
+            every script's letters are accepted. A soft hyphen, the direction marks U+200E, U+200F and
+            U+061C and a byte-order mark at either end are removed. A NEW or CHANGED name cannot carry
+            a control character, a line or paragraph separator (U+2028, U+2029), a direction override
+            or isolate (U+202A-U+202E, U+2066-U+2069), a zero-width space (U+200B), a word joiner
+            (U+2060) or an inner U+FEFF (422 validation_failed); a name already on file is accepted
+            as it is.
         active:
           type: boolean
           description: A label. It does not change how taps at the location are judged.

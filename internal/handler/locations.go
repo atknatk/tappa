@@ -651,14 +651,12 @@ func parseDepartmentForm(r *http.Request) (departmentSubmission, string, string)
 // "invalid byte sequence for encoding UTF8" and the request becomes a 500, which
 // was measured on the roster's filter box and is the same driver here.
 func parseName(raw, what string) (string, string) {
-	s := strings.ToValidUTF8(strings.ReplaceAll(raw, "\x00", ""), "")
-	s = strings.TrimSpace(s)
+	// The domain's cleaning, so the count below is the stored name's. The character rule is NOT
+	// applied here: an unchanged name is exempt from it, and only the domain reads the name on
+	// file (saveVenue/saveDepartment turn tenant.ErrNameHiddenCharacter into a sentence).
+	s := tenant.CleanName(raw)
 	if s == "" {
 		return "", "Give the " + what + " a name."
-	}
-	// The domain's rule, said here as a sentence (tenant.NameHasHiddenCharacters).
-	if tenant.NameHasHiddenCharacters(s) {
-		return "", "The " + what + " name has an invisible or control character in it. Type it again without one."
 	}
 	// COUNTED IN RUNES, NOT BYTES. Maltese names carry ċ ġ ħ ż and the brand ships a
 	// latin-ext subset precisely because these names are not ASCII, so a byte bound

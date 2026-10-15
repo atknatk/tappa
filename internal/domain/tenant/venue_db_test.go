@@ -995,22 +995,45 @@ func TestVenues_TheNameBoundIsEnforcedBeforeTheColumn(t *testing.T) {
 	}); !errors.Is(err, ErrVenueName) {
 		t.Errorf("a blank venue name answered %v, want ErrVenueName", err)
 	}
-	// A control or format character inside is refused too (API-5 review): BEL, ESC, a line
-	// break, U+202E, a zero-width space -- for venues and departments alike.
-	for _, hidden := range []string{"\a", "\x1b", "\n", "\u202e", "\u200b"} {
+	// The character rule (API-5 review, two rounds) on a NEW name: BEL, ESC, a line break,
+	// U+2028, U+202E, U+2066, a zero-width space, a word joiner, an inner BOM -- refused, for
+	// venues and departments alike, as ErrNameHiddenCharacter AND the older sentinel.
+	for _, hidden := range []string{"\a", "\x1b", "\n", "\u2028", "\u202e", "\u2066", "\u200b", "\u2060", "\ufeff"} {
 		if _, err := f.venues.SaveVenue(ctx, VenueCommand{
 			TenantID: f.tenantID, ActorID: f.actorID, Name: "Rusty" + hidden + "Bar",
-		}); !errors.Is(err, ErrVenueName) {
-			t.Errorf("a venue name with %q answered %v, want ErrVenueName", hidden, err)
+		}); !errors.Is(err, ErrVenueName) || !errors.Is(err, ErrNameHiddenCharacter) {
+			t.Errorf("a venue name with %q answered %v, want ErrNameHiddenCharacter", hidden, err)
 		}
 		if _, err := f.venues.SaveDepartment(ctx, DepartmentCommand{
 			TenantID: f.tenantID, ActorID: f.actorID, LocationID: f.locationID, Name: "Grill" + hidden + "Line",
-		}); !errors.Is(err, ErrDepartmentName) {
-			t.Errorf("a department name with %q answered %v, want ErrDepartmentName", hidden, err)
+		}); !errors.Is(err, ErrDepartmentName) || !errors.Is(err, ErrNameHiddenCharacter) {
+			t.Errorf("a department name with %q answered %v, want ErrNameHiddenCharacter", hidden, err)
 		}
 	}
 	if after := f.venueCount(t, f.tenantID); after != before {
 		t.Error("a name with a hidden character was stored")
+	}
+	// ...and what it ALLOWS: the chef emoji (ZWJ), the Scotland flag (tag characters), a Persian
+	// name with its ZWNJ, Arabic, Hebrew -- stored as typed; a soft hyphen, an LRM and a leading
+	// BOM are removed (CleanName).
+	for _, c := range []struct{ in, stored string }{
+		{"Kitchen \U0001F468\u200D\U0001F373", "Kitchen \U0001F468\u200D\U0001F373"},
+		{"Glasgow \U0001F3F4\U000E0067\U000E0062\U000E0073\U000E0063\U000E0074\U000E007F", "Glasgow \U0001F3F4\U000E0067\U000E0062\U000E0073\U000E0063\U000E0074\U000E007F"},
+		{"\u0645\u06cc\u200c\u062e\u0627\u0646\u0647", "\u0645\u06cc\u200c\u062e\u0627\u0646\u0647"},
+		{"\u0645\u0637\u0639\u0645 Valletta", "\u0645\u0637\u0639\u0645 Valletta"},
+		{"\u05de\u05e1\u05e2\u05d3\u05d4", "\u05de\u05e1\u05e2\u05d3\u05d4"},
+		{"Rusty\u00adBar", "RustyBar"},
+		{"Rusty\u200e Bar\u200f", "Rusty Bar"},
+		{"\ufeffSliema", "Sliema"},
+	} {
+		v, err := f.venues.SaveVenue(ctx, VenueCommand{TenantID: f.tenantID, ActorID: f.actorID, Name: c.in})
+		if err != nil {
+			t.Errorf("the name %q was refused: %v", c.in, err)
+			continue
+		}
+		if got := f.nameOf(t, "locations", f.tenantID, v.ID); got != c.stored {
+			t.Errorf("the name %q was stored as %q, want %q", c.in, got, c.stored)
+		}
 	}
 	if _, err := f.venues.SaveDepartment(ctx, DepartmentCommand{
 		TenantID: f.tenantID, ActorID: f.actorID, LocationID: f.locationID,

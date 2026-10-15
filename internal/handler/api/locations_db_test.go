@@ -688,25 +688,29 @@ func TestLocationsPut_SuspendedAndClosedWriteNothing(t *testing.T) {
 	}
 }
 
-// TestLocationsPut_TheBodyAndTheRefContract (ADR 0028 §8, §9 and this endpoint's decisions): the
-// path's ref is the schema's pattern exactly (422 validation_failed, field "ref"); the body is ONE
-// JSON object (400 invalid_request), with name and active required and of their types, timezone
-// optional and non-empty, externalRef optional and equal to the path's, any other key -- matched
-// exactly, so "Name" is unknown -- 422 unknown_field WITHOUT echoing the key; the name passes the
-// panel's rule; the ref is percent-decoded ONCE ("%41"/"%7E" are A/~; "%2F", "%00", a double
-// encoding stay 422) (trimmed, 1..80 runes, no control or format character inside -- BEL, ESC, a line
-// break, U+202E, a zero-width space); 64 KiB is the bound (one byte over: 400 body_too_large;
-// a 64 KiB object padded with whitespace: accepted). No refusal leaves a row.
+// TestLocationsPut_TheBodyAndTheRefContract (ADR 0028 §8, §9 and this endpoint's decisions):
 //
-// A key named twice is 422 duplicate_field, escaped spellings included; a body that is not UTF-8 is
-// 400 (encoding/json would have stored U+FFFD for each bad byte).
+//	the ref     the schema's pattern after ONE percent-decoding ("%41"/"%7E" are A/~; "%2F", "%00"
+//	            and a double encoding stay 422 validation_failed, field "ref")
+//	the body    ONE UTF-8 JSON object (400 invalid_request), no unpaired surrogate escape (400 --
+//	            encoding/json would store U+FFFD for it), name and active required and of their
+//	            types, timezone optional and non-empty, externalRef optional and equal to the path's,
+//	            a key named twice 422 duplicate_field (escaped spellings included), any other key --
+//	            matched exactly, so "Name" is unknown -- 422 unknown_field WITHOUT echoing the key
+//	the name    the panel's rule: trimmed, 1..80 runes, and for a new name none of the refused
+//	            characters (BEL, ESC, a line break, U+2028, U+202E, a zero-width space) -- what it
+//	            allows is TestLocationsPut_TheNameRuleJudgesOnlyWhatChanges
+//	the bound   64 KiB (one byte over: 400 body_too_large; a 64 KiB object padded with whitespace:
+//	            accepted)
+//
+// No refusal leaves a row.
 //
 // MUTANTS (measured, API-5 report): the UTF-8 check removed -> a name with U+FFFD 201; the
-// duplicate check removed -> {"active":true,"active":false}
-// 201; the decoding removed -> "%41..." 422; the segment read off the
-// already-decoded r.URL.Path (decoded twice) -> "%2541BC" 201 as "ABC"; the hidden-character
-// refusal removed from venueName -> five names 201; the key check made case-insensitive (encoding/json's own matching)
-// -> "Name" passes as a known key and the answer is "name required", not unknown_field.
+// surrogate check removed -> "\ud800" 201; the duplicate check removed -> {"active":true,
+// "active":false} 201; the decoding removed -> "%41..." 422; the segment read off the
+// already-decoded r.URL.Path (decoded twice) -> "%2541BC" 201 as "ABC"; the character rule removed
+// -> the refused names 201; the key check made case-insensitive (encoding/json's own matching) ->
+// "Name" passes as a known key and the answer is "name required", not unknown_field.
 func TestLocationsPut_TheBodyAndTheRefContract(t *testing.T) {
 	r := newDBRig(t)
 	biz, owner := r.business(true)
@@ -730,6 +734,8 @@ func TestLocationsPut_TheBodyAndTheRefContract(t *testing.T) {
 		{"null", ref, `null`, 400, CodeInvalidRequest, "", ""},
 		{"two objects", ref, `{"name":"n","active":true}{}`, 400, CodeInvalidRequest, "", ""},
 		{"a body that is not UTF-8", ref, "{\"name\":\"Rusty\xffBar\",\"active\":true}", 400, CodeInvalidRequest, "", "invalid_utf8"},
+		{"an unpaired surrogate escape", ref, `{"name":"Bar \ud800","active":true}`, 400, CodeInvalidRequest, "", "invalid_utf8"},
+		{"an unpaired low surrogate", ref, `{"name":"Bar \uDC00x","active":true}`, 400, CodeInvalidRequest, "", "invalid_utf8"},
 		{"broken JSON", ref, `{"name":"n",`, 400, CodeInvalidRequest, "", ""},
 		{"no name", ref, `{"active":true}`, 422, CodeValidationFailed, "name", "required"},
 		{"name null", ref, `{"name":null,"active":true}`, 422, CodeValidationFailed, "name", "type"},
@@ -739,6 +745,7 @@ func TestLocationsPut_TheBodyAndTheRefContract(t *testing.T) {
 		{"name with ESC", ref, `{"name":"Rusty\u001b[31mBar","active":true}`, 422, CodeValidationFailed, "name", "invalid"},
 		{"name with a line break inside", ref, `{"name":"Rusty\nBar","active":true}`, 422, CodeValidationFailed, "name", "invalid"},
 		{"name with RTL override", ref, `{"name":"Rusty\u202eraB","active":true}`, 422, CodeValidationFailed, "name", "invalid"},
+		{"name with a line separator", ref, `{"name":"Rusty\u2028Bar","active":true}`, 422, CodeValidationFailed, "name", "invalid"},
 		{"name with a zero-width space", ref, `{"name":"Rusty\u200bBar","active":true}`, 422, CodeValidationFailed, "name", "invalid"},
 		{"name of 81 runes", ref, `{"name":"` + strings.Repeat("ż", 81) + `","active":true}`, 422, CodeValidationFailed, "name", "invalid"},
 		{"no active", ref, `{"name":"n"}`, 422, CodeValidationFailed, "active", "required"},
@@ -770,6 +777,10 @@ func TestLocationsPut_TheBodyAndTheRefContract(t *testing.T) {
 	}
 	if w := r.putLoc(raw, ref, `{"name":"`+strings.Repeat("ż", 80)+`","active":true,"externalRef":"`+ref+`"}`); w.Code != http.StatusCreated {
 		t.Fatalf("80 runes and a matching externalRef: %d %s", w.Code, w.Body.String())
+	}
+	// CONTROL for the surrogate check: an ESCAPED U+FFFD is the client's own character, accepted.
+	if w := r.putLoc(raw, newRef("FFFD"), `{"name":"Bar \ufffd","active":true}`); w.Code != http.StatusCreated {
+		t.Fatalf("an escaped U+FFFD: %d %s, want 201", w.Code, w.Body.String())
 	}
 	// An unnecessarily encoded ref is the ref it spells (decoded once, API-5 review): "%41" is
 	// "A" and "%7E" is "~" -- one venue under the decoded ref, answered with it.
@@ -941,5 +952,58 @@ func TestLocationsPut_ActiveIsALabelTheTapNeverReads(t *testing.T) {
 		if on != want[evidence] || off != want[evidence] {
 			t.Errorf("evidence %v: active:true %+v, active:false %+v, want both %+v", evidence, on, off, want[evidence])
 		}
+	}
+}
+
+// TestLocationsPut_TheNameRuleJudgesOnlyWhatChanges (API-5 review, second round): the character
+// rule allows what real names carry -- the chef emoji (ZWJ), the Scotland flag (tag characters), a
+// Persian name with its ZWNJ, Arabic, Hebrew -- and removes a soft hyphen, an LRM and a leading
+// BOM; and it judges what a PUT INTRODUCES: a venue already named with U+202E (before the rule, or
+// in the panel) takes a PUT of that same name and a new label (200, the label written), while a
+// NEW name with U+202E is 422 and changes nothing.
+//
+// MUTANTS (measured, API-5 report): the "unchanged name is exempt" arm removed -> the first PUT 422;
+// the rule widened back to every Cc and Cf -> the emoji, the flag and the Persian name 422.
+func TestLocationsPut_TheNameRuleJudgesOnlyWhatChanges(t *testing.T) {
+	r := newDBRig(t)
+	biz, owner := r.business(true)
+	raw, _ := r.key(biz, owner)
+	for _, c := range []struct{ in, stored string }{
+		{"Kitchen \U0001F468\u200D\U0001F373", "Kitchen \U0001F468\u200D\U0001F373"},
+		{"Glasgow \U0001F3F4\U000E0067\U000E0062\U000E0073\U000E0063\U000E0074\U000E007F", "Glasgow \U0001F3F4\U000E0067\U000E0062\U000E0073\U000E0063\U000E0074\U000E007F"},
+		{"\u0645\u06cc\u200c\u062e\u0627\u0646\u0647", "\u0645\u06cc\u200c\u062e\u0627\u0646\u0647"},
+		{"\u0645\u0637\u0639\u0645", "\u0645\u0637\u0639\u0645"},
+		{"\u05de\u05e1\u05e2\u05d3\u05d4", "\u05de\u05e1\u05e2\u05d3\u05d4"},
+		{"Rusty\u00adBar", "RustyBar"},
+		{"Rusty\u200e Bar", "Rusty Bar"},
+		{"\ufeffSliema", "Sliema"},
+	} {
+		ref := newRef("NAME")
+		body, _ := json.Marshal(map[string]any{"name": c.in, "active": true})
+		w := r.putLoc(raw, ref, string(body))
+		if w.Code != http.StatusCreated || locOf(t, w).Name != c.stored {
+			t.Errorf("the name %q: %d %s, want 201 stored as %q", c.in, w.Code, w.Body.String(), c.stored)
+		}
+	}
+
+	const onFile = "Rusty\u202eBar"
+	ref := newRef("ONFILE")
+	if _, err := r.owner.Exec(context.Background(), `INSERT INTO locations (tenant_id, name, external_ref) VALUES ($1, $2, $3)`, biz, onFile, ref); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(map[string]any{"name": onFile, "active": false})
+	if w := r.putLoc(raw, ref, string(body)); w.Code != http.StatusOK || locOf(t, w).Active {
+		t.Fatalf("the name on file resent with a new label: %d %s, want 200", w.Code, w.Body.String())
+	}
+	if rows := r.venuesByRef(biz, ref); len(rows) != 1 || rows[0].active || rows[0].name != onFile {
+		t.Fatalf("after the label change: %+v", rows)
+	}
+	body, _ = json.Marshal(map[string]any{"name": "Rusty\u202eBaz", "active": false})
+	w := r.putLoc(raw, ref, string(body))
+	if w.Code != http.StatusUnprocessableEntity || problemOf(t, w).Details["field"] != "name" || !strings.Contains(w.Body.String(), "direction override") {
+		t.Fatalf("a NEW name with U+202E: %d %s, want 422 naming the rule", w.Code, w.Body.String())
+	}
+	if rows := r.venuesByRef(biz, ref); rows[0].name != onFile {
+		t.Fatalf("a refused rename changed the name to %q", rows[0].name)
 	}
 }

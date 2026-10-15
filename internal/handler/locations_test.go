@@ -515,11 +515,15 @@ func TestParseName_RefusesRatherThanTruncates(t *testing.T) {
 			name: "a NUL byte is removed rather than exploded on",
 			raw:  "Rusty\x00 Bar", want: "Rusty Bar",
 		},
-		// The domain's hidden-character rule, said as a sentence (API-5 review).
-		{name: "BEL inside is refused", raw: "Rusty\aBar", wantMsg: true},
-		{name: "a line break inside is refused", raw: "Rusty\nBar", wantMsg: true},
-		{name: "RTL override is refused", raw: "Rusty\u202eraB", wantMsg: true},
-		{name: "a zero-width space is refused", raw: "Rusty\u200bBar", wantMsg: true},
+		// The domain's cleaning (tenant.CleanName, API-5 review): a soft hyphen and the direction
+		// marks are removed, a BOM at either end trimmed. The character RULE is not the
+		// boundary's -- an unchanged name is exempt, and only the domain reads the name on file
+		// (TestVenueSave_ANameOnFileStaysEditableAndANewHiddenOneIsASentence).
+		{name: "a soft hyphen is removed", raw: "Rusty\u00adBar", want: "RustyBar"},
+		{name: "a leading BOM is trimmed", raw: "\ufeffRusty Bar", want: "Rusty Bar"},
+		{name: "an LRM is removed", raw: "Rusty\u200e Bar", want: "Rusty Bar"},
+		{name: "a ZWJ emoji is kept", raw: "Kitchen \U0001F468\u200D\U0001F373", want: "Kitchen \U0001F468\u200D\U0001F373"},
+		{name: "a refused character is left to the domain", raw: "Rusty\u202eBar", want: "Rusty\u202eBar"},
 		{
 			name: "exactly the bound is accepted",
 			raw:  strings.Repeat("a", tenant.MaxVenueNameRunes),

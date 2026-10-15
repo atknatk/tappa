@@ -15,8 +15,9 @@ package tenant
 // measures it through the real tap path. For the same reason §5's netx width rule has nothing
 // to apply to on this path: no address range enters through it.
 //
-// THE SAME RULES AS THE PANEL. The name goes through venueName (SaveVenue's boundary: NUL and
-// invalid UTF-8 removed, trimmed, 1..MaxVenueNameRunes runes -- refused, never cut) and the ref
+// THE SAME RULES AS THE PANEL. The name goes through venueName and refuseHiddenName (SaveVenue's:
+// CleanName, 1..MaxVenueNameRunes runes -- refused, never cut -- and the character rule for a new
+// or changed name) and the ref
 // through the pattern ExternalRef checks (migration 00037's CHECK). Unlike the panel's field, the
 // ref is NOT trimmed here: it is a URL path segment, and a ref the integrator did not send
 // exactly is a ref it does not hold.
@@ -192,6 +193,9 @@ func (v *Venues) PutVenueTx(ctx context.Context, tx pgx.Tx, c VenuePut) (VenuePu
 		return VenuePutResult{}, err
 	}
 	if !found {
+		if err := refuseHiddenName(name, "", ErrVenueName); err != nil {
+			return VenuePutResult{}, err
+		}
 		created, err := q.CreateLocationFromAPI(ctx, store.CreateLocationFromAPIParams{
 			Name: name, ExternalRef: &ref, Active: c.Active, TenantID: c.TenantID,
 		})
@@ -225,6 +229,11 @@ func (v *Venues) PutVenueTx(ctx context.Context, tx pgx.Tx, c VenuePut) (VenuePu
 		}
 	}
 
+	// The name rule judges what this PUT introduces: the name on file is never refused (a venue
+	// named before the rule, or in the panel, stays writable by its integrator).
+	if err := refuseHiddenName(name, before.Name, ErrVenueName); err != nil {
+		return VenuePutResult{}, err
+	}
 	if before.Name == name && before.Active == c.Active {
 		return VenuePutResult{Venue: before.venue(clock.Timezone)}, nil
 	}

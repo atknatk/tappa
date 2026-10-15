@@ -1076,6 +1076,9 @@ func (v *Venues) SaveVenue(ctx context.Context, c VenueCommand) (Venue, error) {
 			row    venueRow
 		)
 		if c.VenueID == uuid.Nil {
+			if err := refuseHiddenName(name, "", ErrVenueName); err != nil {
+				return err
+			}
 			created, err := q.CreateLocation(ctx, store.CreateLocationParams{
 				TenantID:   c.TenantID,
 				Name:       name,
@@ -1117,6 +1120,9 @@ func (v *Venues) SaveVenue(ctx context.Context, c VenueCommand) (Venue, error) {
 					return ErrUnknownVenue
 				}
 				return fmt.Errorf("load venue: %w", err)
+			}
+			if err := refuseHiddenName(name, before.Name, ErrVenueName); err != nil {
+				return err
 			}
 			detail.FromName = before.Name
 			detail.FromStaticIPs = ipStrings(before.StaticIps)
@@ -1209,6 +1215,9 @@ func (v *Venues) SaveDepartment(ctx context.Context, c DepartmentCommand) (Depar
 			action string
 		)
 		if c.DepartmentID == uuid.Nil {
+			if err := refuseHiddenName(name, "", ErrDepartmentName); err != nil {
+				return err
+			}
 			created, err := q.CreateDepartment(ctx, store.CreateDepartmentParams{
 				TenantID:   c.TenantID,
 				LocationID: c.LocationID,
@@ -1245,6 +1254,9 @@ func (v *Venues) SaveDepartment(ctx context.Context, c DepartmentCommand) (Depar
 					return ErrUnknownDepartment
 				}
 				return fmt.Errorf("load department: %w", err)
+			}
+			if err := refuseHiddenName(name, before.Name, ErrDepartmentName); err != nil {
+				return err
 			}
 			detail.FromName = before.Name
 			detail.FromShift = shiftText(shiftOf(before.ShiftStart, before.ShiftEnd, before.Overnight))
@@ -1492,19 +1504,12 @@ func clockText(d time.Duration) string {
 // "invalid byte sequence for encoding UTF8" and the request becomes a 500, which
 // was measured on the roster's filter box and is the same driver here.
 //
-// 🔴 A CONTROL OR FORMAT CHARACTER INSIDE THE NAME IS REFUSED (API-5 review, 2026-10-15).
-// BEL, ESC, a line break, U+202E (right-to-left override), zero-width characters: none
-// is part of a place's name, and each can make a name READ as another one on a screen,
-// in a CSV a spreadsheet opens, or on a holding peer's panel (the name crosses the
-// tenant line in the punch snapshot -- ADR 0028 K-32). Measured before the rule: the
-// API stored all five; the only stored names carrying such a character were a CSV
-// test's raw INSERT (it bypasses this function on purpose). Surrounding whitespace is
-// still trimmed and NUL still removed first -- both as before.
+// THE HIDDEN-CHARACTER RULE IS NOT HERE: it depends on the name ON FILE (an unchanged name is
+// exempt), so the writers apply it with refuseHiddenName once they have read the row. This
+// function only cleans (CleanName) and bounds.
 func venueName(raw string, sentinel error) (string, error) {
-	s := strings.ReplaceAll(raw, "\x00", "")
-	s = strings.ToValidUTF8(s, "")
-	s = strings.TrimSpace(s)
-	if s == "" || NameHasHiddenCharacters(s) {
+	s := CleanName(raw)
+	if s == "" {
 		return "", sentinel
 	}
 	// COUNTED IN RUNES, NOT BYTES. Maltese names carry ċ ġ ħ ż and the brand ships
@@ -1516,16 +1521,77 @@ func venueName(raw string, sentinel error) (string, error) {
 	return s, nil
 }
 
-// NameHasHiddenCharacters reports whether s carries a control (Cc) or format (Cf) character --
-// the venue and department name rule's refusal, shared with the panel's boundary so the two
-// cannot disagree.
+// THE NAME'S CHARACTER RULE (API-5 review, two rounds, 2026-10-15). A venue or department name
+// is shown on screens, in CSVs a spreadsheet opens and -- through the punch snapshot (ADR 0028
+// K-32) -- on a holding peer's panel. What it must not carry is what makes one name READ as
+// another or break a line: the rule is aimed at that, not at "anything invisible".
+//
+//	refused   Cc (BEL, ESC, a tab or line break INSIDE), U+2028/U+2029 (line and paragraph
+//	          separators), the bidi embeddings/overrides/isolates U+202A-U+202E and
+//	          U+2066-U+2069, U+200B (zero-width space), U+2060 (word joiner), U+FEFF inside
+//	allowed   U+200D ZWJ (emoji sequences: a chef, a family), U+200C ZWNJ (Persian and Indic
+//	          words need it), U+E0020-U+E007F tags (the Scotland and England flags), the
+//	          variation selectors, Arabic and Hebrew letters themselves
+//	removed   U+00AD (soft hyphen), U+200E/U+200F/U+061C (LRM, RLM, ALM) and a BOM at either
+//	          end. They arrive in PASTED text and mean nothing in a name; the marks could also
+//	          nudge the order of neutral characters, and removing them takes that away without
+//	          making the manager hunt for something they cannot see. A refusal would be a
+//	          sentence about a character nobody typed.
+//
+// The first round refused every Cc and Cf, and a review measured what that cost: the chef emoji,
+// the Scotland flag, a Persian venue name and a pasted soft hyphen were all refused, and a venue
+// already NAMED like that could not have its address ranges edited at all (the panel form sends
+// the name with every save). Hence the second half of the rule: an UNCHANGED name is never refused
+// (refuseHiddenName) -- the rule judges what a write introduces, not what is on file.
+
+// removedFromNames are dropped by CleanName.
+var removedFromNames = strings.NewReplacer("\u00AD", "", "\u200E", "", "\u200F", "", "\u061C", "")
+
+// CleanName is the shared normalisation of a venue or department name, the panel's and the API's:
+// NUL and invalid UTF-8 removed, the soft hyphen and the implicit direction marks removed, then
+// surrounding whitespace AND a BOM trimmed (strings.TrimSpace does not treat U+FEFF as space).
+func CleanName(raw string) string {
+	s := strings.ReplaceAll(raw, "\x00", "")
+	s = strings.ToValidUTF8(s, "")
+	s = removedFromNames.Replace(s)
+	return strings.TrimFunc(s, func(r rune) bool { return unicode.IsSpace(r) || r == '\uFEFF' })
+}
+
+// NameHasHiddenCharacters reports whether a CLEANED name carries a character the rule refuses.
 func NameHasHiddenCharacters(s string) bool {
 	for _, r := range s {
-		if unicode.Is(unicode.Cc, r) || unicode.Is(unicode.Cf, r) {
+		switch {
+		case unicode.Is(unicode.Cc, r),
+			r == '\u2028', r == '\u2029',
+			r >= '\u202A' && r <= '\u202E',
+			r >= '\u2066' && r <= '\u2069',
+			r == '\u200B', r == '\u2060', r == '\uFEFF':
 			return true
 		}
 	}
 	return false
+}
+
+// ErrNameHiddenCharacter: a NEW or CHANGED venue or department name carries a character the rule
+// refuses. errors.Is(err, ErrVenueName) (or ErrDepartmentName) holds for it as well, so a caller
+// that only knows the older sentinel still refuses it.
+var ErrNameHiddenCharacter = errors.New("tenant: a name cannot carry a control, line-separator or direction-control character")
+
+type hiddenName struct{ sentinel error }
+
+func (h hiddenName) Error() string { return ErrNameHiddenCharacter.Error() }
+
+func (h hiddenName) Is(target error) bool {
+	return target == ErrNameHiddenCharacter || target == h.sentinel
+}
+
+// refuseHiddenName applies the rule to name, unless it is the name on file (onFile; "" for a new
+// row): an unchanged name is never refused, so a row named before the rule stays editable.
+func refuseHiddenName(name, onFile string, sentinel error) error {
+	if name != onFile && NameHasHiddenCharacters(name) {
+		return hiddenName{sentinel: sentinel}
+	}
+	return nil
 }
 
 // requireActor refuses the zero value for the two ids every command needs. THE

@@ -96,13 +96,16 @@ var (
 		Message: "The body carries a field this endpoint does not accept.",
 		Details: map[string]any{"reason": reasonUnknownField, "allowed": locationFields}}
 	problemNotUTF8 = &Problem{Code: CodeInvalidRequest,
-		Message: "The request body must be UTF-8.", Details: map[string]any{"reason": "invalid_utf8"}}
+		Message: "The request body must be UTF-8, and its strings cannot carry an unpaired surrogate escape.",
+		Details: map[string]any{"reason": "invalid_utf8"}}
 	problemDuplicateField = &Problem{Code: CodeValidationFailed,
 		Message: "The body names one field twice.", Details: map[string]any{"reason": reasonDuplicateField}}
 	problemNameRequired = invalidField(fieldName, reasonRequired, "name is required.")
 	problemNameType     = invalidField(fieldName, reasonType, "name must be a string.")
 	problemNameInvalid  = invalidField(fieldName, reasonInvalid,
 		"name must be 1 to 80 characters once surrounding spaces are removed.")
+	problemNameHidden = invalidField(fieldName, reasonInvalid,
+		"name cannot carry a control character, a line or paragraph separator, a direction override or isolate (U+202A-U+202E, U+2066-U+2069), a zero-width space or a word joiner; emoji, flags and every script's letters are fine.")
 	problemActiveRequired = invalidField(fieldActive, reasonRequired, "active is required.")
 	problemActiveType     = invalidField(fieldActive, reasonType, "active must be true or false.")
 	problemTimezoneType   = invalidField(fieldTimezone, reasonType, "timezone must be a non-empty string.")
@@ -165,6 +168,9 @@ func parseLocationBody(body []byte, ref string) (locationPut, *Problem) {
 		if bytes.Equal(bytes.TrimSpace(v), []byte("null")) || json.Unmarshal(v, &s) != nil {
 			return "", true, typ
 		}
+		if brokenEscape(v, s) {
+			return "", true, problemNotUTF8
+		}
 		return s, true, nil
 	}
 	name, _, prob := str(fieldName, problemNameRequired, problemNameType)
@@ -217,6 +223,19 @@ func locationRef(r *http.Request) (string, bool) {
 		return "", false
 	}
 	return ref, true
+}
+
+// brokenEscape reports whether decoding the JSON string raw produced a U+FFFD the client did not
+// send: encoding/json turns an unpaired surrogate escape ("\ud800") into U+FFFD silently (API-5
+// review). The body is already known to be UTF-8, so every U+FFFD in decoded is either a literal
+// one in raw, a "\ufffd" escape in raw, or a broken surrogate -- the last is refused.
+func brokenEscape(raw []byte, decoded string) bool {
+	got := strings.Count(decoded, "\uFFFD")
+	if got == 0 {
+		return false
+	}
+	sent := bytes.Count(raw, []byte("\uFFFD")) + strings.Count(strings.ToLower(string(raw)), `\ufffd`)
+	return got > sent
 }
 
 // readObject reads ONE JSON object member by member -- encoding/json's map decoding keeps the last
@@ -299,6 +318,8 @@ func (s *Surface) putLocation(w http.ResponseWriter, r *http.Request) {
 		case err == nil:
 		case errors.As(err, &tz):
 			return apikey.Outcome{}, timezoneMismatch(tz.BusinessZone)
+		case errors.Is(err, tenant.ErrNameHiddenCharacter):
+			return apikey.Outcome{}, problemNameHidden
 		case errors.Is(err, tenant.ErrVenueName):
 			return apikey.Outcome{}, problemNameInvalid
 		case errors.Is(err, tenant.ErrExternalRef):
