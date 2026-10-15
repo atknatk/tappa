@@ -1166,7 +1166,7 @@ api_enabled_at)`: `tappa_resolver` sahipli, `SECURITY DEFINER`, `STABLE`, `searc
 nitelikli adlar, `tenants`'a birincil anahtarla join, EXECUTE yalnız `tappa_app`'te (PUBLIC'ten alındı).
 `tappa_resolver`'ın `tenants` üzerindeki erişimi **yalnız** `SELECT (id, api_enabled_at)`; ön koşul rolün
 `tenants`'a önceden bir erişimi varsa düşer (sütun grant'ı onu daraltamaz), son koşul başka bir sütunu okuyamadığını
-ölçer. Go tarafı `internal/db.GetAPIKeyByHash` (elle — sqlc `RETURNS TABLE`'ı tipleyemez; M1-08 notunun beşinci
+ölçer. Go tarafı `internal/db.GetAPIKeyByHash` (elle — sqlc `RETURNS TABLE`'ı tipleyemez; M1-08 notunun dördüncü
 tekrarı). Down tabloyu ve iki fonksiyonu düşürür, iki sütun grant'ını geri alır — anahtarlar tabloyla gider (fail-closed:
 hiçbir entegrasyon anahtarı çözülmez), izleri `audit_log`'da kalır. `opAtVersion` atlar (operatör nesnesi yok);
 DROP TABLE `tenants` ve `admin_users`'ı kilitlediği için ikisi `holdingDownTables`'a eklendi.
@@ -1218,13 +1218,62 @@ DROP TABLE `tenants` ve `admin_users`'ı kilitlediği için ikisi `holdingDownTa
     `tappa-secrets`'ta yokken manifest kümeye ulaşırsa kubelet pod'u başlatmaz — API-13'ün deploy öncesi adımı.
 11. **Redline eklemeleri önce ağaçta sayıldı (hepsi 0 yeni isabet):** R4 şema nitelikli (`public.`, tırnaklı, boşluklu) ve
     tırnaklı `"last_ctr"`; takma ad biçimi (`UPDATE tags t SET`) **denendi, seçilmedi** — 1 yanlış pozitif
-    (`marketing_claims_test.go`'nun kasıtlı mutant dizesi). R7 kökleri `api_?key`, `bearer`, `signing_?key` ve log çağrısı
+    (`marketing_claims_test.go`'nun kasıtlı mutant dizesi). *(İkinci turda düzeltildi: bu satır-yerel ek **boşa
+    çalışıyordu** — gerçek sayaç yazmalarının beşi de çok satırlı ve takma adlı; R4'ün ifade kolu aşağıda, "İkinci tur".)* R7 kökleri `api_?key`, `bearer`, `signing_?key` ve log çağrısı
     içinde `Header.Get("Authorization")`/`Header["Authorization"]`; awk'ın muafiyet kararı kaçışlı başlık kalıbı yerine daha
     geniş `authorization` kelimesini okur (muafiyeti zorlaştırır). Bu yüzden API-3'ün hata ve log metinleri `apikey:` değil
     `api key:` yazar. R7b `.FirstName`/`.LastName`/`.EmployeeName` ve `first_name`/`employeeName` anahtarları. R7d yeni sınıf
-    `tappa-key`: `tt_live_`/`tt_test_`/`tt_whsec_` + ≥ 43 base64url, dolgu (4'ten az farklı karakter) sayılmaz — belgede
+    `tappa-key`: `tt_live_`/`tt_test_`/`tt_whsec_` + ≥ 43 base64url (ikinci turda ≥ 32), dolgu (en çok 4 farklı karakter) sayılmaz — belgede
     örnek böyle yazılır (`tt_live_` + 43 `x`, ya da `<…>` yer tutucusu). Her eklemenin tek başına geri alınması testi tam o
     kuralın dosyalarında kırmızıya çevirir (ölçüldü).
 12. **Log ve sır:** `Token` ve `Checked` (hash) her yazdırma yolunda yer tutucu basar (`fmt` fiilleri, dışa kapalı alan,
     `slog` metin/JSON, `encoding/json`); paket log yazmaz, hataları sabit nöbetçilerdir. Panel log'u yalnız tenant, aktör ve
     anahtar kimliği taşır; ham anahtar yalnız oluşturma yanıtının sayfasında (`Cache-Control: no-store` — panelin her sayfası).
+
+**İkinci tur (2026-10-15 — iki mercek ONAY + DÜŞÜK'ler; yeniden denetim yok, her değişiklik ölçüldü).**
+
+*R4'ün ifade kolu.* İlk turun eki (yalnız `public.` önekli satır-yerel desen) gerçek yazmaların hiçbirini görmüyordu: beşi de
+çok satırlı ve takma adlı (`tags.sql`'in `AdvanceTagCounter`'ı, `00043`'ün ve `00045`'in iki gövdesi); `UPDATE ONLY`,
+takma adlı ve bölünmüş sondaların üçü de geçiyordu. Şimdi ikinci bir kol `rg -U` ile `UPDATE [ONLY] [public.]tags [[AS] t] SET
+last_ctr`'dan ilk `;`'e ya da backtick'e kadar **ifadenin tamamını** okur ve her ifadede `<ad>ctr <` biçimli **katı** bir
+karşılaştırma arar (`<=` sayılmaz) — koruma CTE takma adında olsa da (`prev.old_ctr < @ctr`, `v.old_ctr < p_ctr`) görülür.
+Ölçüldü: ağaçta 0 FAIL; beş gerçek ifadenin korumasının silindiği kopyada dördü (`tags.sql:39`, `00043:257`, `00045:75` ve
+`:131`) FAIL. `_test.go` ifade kolunun **adlandırılmış istisnasıdır**: testler kasıtlı korumasız yazmalar taşır
+(`tagsinventory_test.go`'nun üç tetikleyici sondası, `marketing_claims_test.go`'nun `<=` mutant dizesi) — dahil etmek dört
+satırı FAIL yapardı; testler satır koluyla taranmaya devam eder (o kol `ONLY`'yi de öğrendi). **Kalan sınırlar (kanıt
+değildir):** Go'da parçalanmış dize (`"UPDATE tags " + "SET …"`), anlamsız bir karşılaştırma (`ctr < 999999`), PL/pgSQL
+gövdesinin başka bir parçasındaki `ctr <`, dinamik SQL. §4.4'ün gerçek garantisi değişmedi: katı yüklem, `00013`'ün
+`tags_counter_monotonic` tetikleyicisi ve yarış testleri.
+
+*R7d.* `tappa-key` sınıfı solundaki kelime karakterinde eşleşmeyi atlıyordu; iki istisna eklendi — `%XX` (URL kodlaması:
+`Bearer%20tt_live_…`, `%3Dtt_…`) ve `\n`/`\r`/`\t` (JSON ya da Go dizesi kaçışı). Gövde eşiği 43'ten **32**'ye indi (42
+karakterlik kırpılmış anahtar 4 bilinmeyen bit bırakır — sızıntıdır); ağaçta 0 isabet (sayıldı). İki satıra bölünmüş anahtar
+`secretscan.sh` başlığında **kanıt değildir** sınırı olarak adlandırıldı.
+
+*R7.* Değerin kendisini taşıyan iki ad — `RevealToTheOwnerOnce()` ve panelin `NewKey`'i — ve `Header.Values("Authorization")`
+eklendi (log çağrısında 0 isabet, sayıldı). Her yeni parçanın tek başına geri alınması
+`TestRedline_R4R7R7bR7dCatchDeliberateViolations`'ı tam o kuralın dosyalarında kırmızıya çevirir (ölçüldü: ifade kolu kapalı → 3
+dosya; `ONLY` düşünce → 1; koruma `<=`'yi kabul edince → 1; testler dahil edilince → kontrol FAIL; değer adları → 2;
+`Header.Values` → 1; kaçış istisnası → 5; eşik 43 → 2).
+
+*`IntegrationKeys` bağlantısı (D3).* `NewAdminAuth` `TAPPA_API_KEY_HMAC_KEY`'i taşıyan (yani her üretim) yapılandırmayı anahtar
+servisi verilmeden **reddeder** (`TestNewAdminAuth_TheKeysServiceMatchesTheConfiguration`); `main.go`'nun bağlantısı AST ile
+pinlendi (`TestAPIKeyWiring_TheKeysServiceReachesThePanel`: tek `apikey.NewKeys(apikey.LivePrefix, cfg.APIKeyHMACKey, …)`,
+sonucu `handler.IntegrationKeys` ile `NewAdminAuth`'un yaydığı seçeneklere, ikisi de `run()`'ın kendi gövdesinde).
+Mutantlar (ekleme silindi, bir `if` içine taşındı, önek `SandboxPrefix`, ret kaldırıldı) kırmızı.
+
+*Toplu iptal yarışı (D2).* `now()` işlemin başlangıcıdır: toplu iptal başladıktan sonra oluşturulup commit edilen bir anahtara
+`revoked_at < created_at` yazılıyor, `api_keys_revoked_after_created` (23514) bütün iptali geri alıyordu (iki psql oturumuyla
+ölçüldü). İki iptal de artık `COALESCE(revoked_at, clock_timestamp())`
+(`TestApiKeyRevocation_AKeyCreatedDuringRevokeAllIsRevokedToo`, kancayla kurulan yarış; `now()` mutantı 23514 ile kırmızı).
+
+*Test boşlukları (D4).* `bulk` bayrağı geri okunuyor (tekli iptalde `false`, taze anahtarlar üzerinde toplu iptalde her satır
+`true`; `bulk=false` mutantı kırmızı). `TestApiKeyAuth_NothingLogged` artık `%v %+v %#v %s %q %x %X %d` fiillerini, tek başına,
+dilim ve harita içinde, ve `encoding/gob`'u dener; hex ve tırnaklı kanaryalar eklendi. Mutantlar kırmızı: yalnız `%q`'da sızan
+`Format`, yalnız `%x`'te hex basan, `%s`'te hash'i basan `Checked`, değeri döndüren bir `MarshalBinary`.
+
+*Panel.* Oluşturma başarılı olup ardından liste okuması düşerse anahtar yine gösterilir (200, tek cümleyle; liste, form ve kapı
+notu çizilmez) — `TestApiKeyPanel_TheKeyIsShownEvenWhenTheListCannotBeRead`; ilk turun biçimi (500 sorun sayfası) kırmızı.
+
+*Devir.* `tt_test_`'in (ve panelin ve zincirin aynı önekle kurulmasının) seçimi API-4/API-11'e devredildi; plan §5'in API-4 ve
+API-11 kabullerine yazıldı.

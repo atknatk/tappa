@@ -7,7 +7,7 @@
 // 🔴 THIS PACKAGE LOGS NOTHING AND RETURNS NO SECRET IN AN ERROR (ADR 0028 §3, §13; CLAUDE.md §7).
 // The key, its hash and the Authorization header never reach a log line, an error's text or an
 // audit row's detail: the key travels as Token and the hash as Checked, both of which print a
-// placeholder through every rendering path (leak_external_test.go measures each), and the error
+// placeholder through every rendering path (TestApiKeyAuth_NothingLogged measures each), and the error
 // values are fixed sentinels that carry no input. A caller that logs logs ids.
 //
 // THE SHAPE (K-10): a prefix -- tt_live_ for a production-like deployment, tt_test_ for the
