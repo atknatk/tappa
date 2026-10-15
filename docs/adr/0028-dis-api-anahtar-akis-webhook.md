@@ -396,7 +396,8 @@ aralık` şartını geri yüklenmiş verinin kendisinden denetler, sağlanmıyor
 ENABLE/FORCE sayım kapısının emsali). Bugün gece geri yükleme provası yok
 (`deploy/k8s/50-backup.yaml` yalnız yedek alır); bu adım T45 tipi elle provada sınanır.
 
-**Geçmiş sorgusu** (`from`/`to`): `punch_events` üzerinden, ≤ 31 gün, sayfalı. *(API-7b'de uygulandı — garanti
+**Geçmiş sorgusu** (`from`/`to`): `punch_events` üzerinden, ≤ 31 gün + 1 saat (yerel takvim ayı, DST dahil — API-7b
+denetimi), sayfalı. *(API-7b'de uygulandı — garanti
 ilk sayfanın okuduğu sayaca, S₀'a bağlı bir anlık görüntünündür; "API-7b uygulama notu".)*
 
 ### 6. Webhook (K-11, K-12, K-19)
@@ -836,7 +837,10 @@ genişleyenler: `TestAPIWiring_TheChainTakesThePanelsPrefixAndTheOneWorker` (`Pu
 `TestPunchHistory_ALateEventIsTheFeedsNotTheSnapshots` · `TestPunchHistory_WalksNeitherSkipNorRepeatUnderConcurrentWriters` ·
 `TestPunchHistory_RLSHoldsWithoutTheFilter` · `TestPunchHistory_TheWindowBoundsASparseScope`; genişleyenler:
 `TestPunches_NothingButTheFeedsColumnsAnswers` (geçmiş sorgusu da), `TestPunches_TheQueryIsTheContract` (`from`/`to` artık
-parametre), `TestStoreSurface_IsTheOneRecorded`, `TestOpenAPI_PathsAreTheRoutersAndTheErrorIsSection8`.
+parametre), `TestStoreSurface_IsTheOneRecorded`, `TestOpenAPI_PathsAreTheRoutersAndTheErrorIsSection8`. İkinci tur:
+`TestPunchHistory_AStaleSnapshotReadsAtMostTheWindow`, `TestAPIRead_EveryReadCarriesTheBound`, `TestPunchHistory_ATieIsBrokenByTheFeedOrder`,
+`TestPunchHistory_ATieAcrossTheWindowsEndIsCutByTheFeedOrder`; genişleyenler: `TestPunchHistory_OutsiderSeesNone` (bağdaki işletme),
+`TestPunchHistory_TheRangeAndTheCursorAreTheContract` (31 gün + 1 saat, katı RFC 3339, kodlanmamış `+`).
 
 **API-8** — `Directory_HoldingTenantsOnlyNoEmailWithActive` · `Directory_Paged` ·
 `Directory_OverlapWindow` · `Directory_OwnStaffAlwaysFromTheRLSQuery` ·
@@ -2044,16 +2048,19 @@ uç aynı rota, `internal/handler/api/history.go` (`from`/`to` varsa geçmiş so
    ayrı bir ifadede okur; her ifade yalnız `seq ≤ S₀` satırları okur. §5'in ispatıyla `≤ S₀` her olay S₀ okunmadan commit
    edilmiştir — yürünen küme sabit ve eksiksizdir; `(punch_time, seq)` anahtar sayfalaması bu kümede atlamaz, yinelemez. S₀'dan
    büyük olay (geç onaylanan flag, çevrimdışı kuyruk) bu yürüyüşün değil akışındır.
-2. **Aralık** `[from, to)`, `from < to`, `to − from ≤ 31 gün` (tam 31 gün kabul, bir mikrosaniye fazlası 400); RFC 3339 **saat
+2. **Aralık** `[from, to)`, `from < to`, `to − from ≤ 31 gün + 1 saat` *(ikinci turda — ilk hâli 31 gündü)*; RFC 3339 **saat
    farkıyla**; **mikrosaniyeden ince an 400** — `punch_time`'ın hassasiyeti mikrosaniyedir, yuvarlamak aralığın sınırını
    sessizce oynatırdı. `from` ya da `to` tek başına 400. Ret değeri yankılamaz.
-3. **Geçmiş imleci** `hst_<S₀>_<punch_time µs>_<seq>_<bağ>`: konum ve anlık görüntü saydam; **bağ** `(scope, from, to)`'nun
-   SHA-256'sının ilk 8 baytı (hex) — başka kapsam ya da aralıkla gelen imleç 400. Bağ bir imza değildir: sahte bir imleç okuyanın
-   kendi akışında başka bir konum seçmekten öte bir şey kazandırmaz; S₀ güncel sayaçtan büyükse 400 (`ErrCursorAhead`), konum
-   aralığın dışında ya da `seq`'i S₀'ın ötesindeyse 400 (`ErrHistoryRange`). **Önekler ayrı:** `from`/`to` ile `cur_`, `from`/`to`'suz
+3. **Geçmiş imleci** `hst_<S₀>_<punch_time µs>_<seq>_<bağ>`: konum ve anlık görüntü saydam; **bağ** `(işletme, scope, from,
+   to)`'nun SHA-256'sının ilk 8 baytı (hex; işletme ikinci turda eklendi) — başka işletme, kapsam ya da aralıkla gelen imleç
+   400. Bağ bir imza değildir: sahte bir imleç okuyanın kendi akışında bir konum ve bir anlık görüntü seçer. *(İlk hâli "bir
+   konum seçmekten öte bir şey kazandırmaz" diyordu; ölçümle yanlıştı — sahte ya da bayat bir S₀ sayfanın maliyetini seçiyordu,
+   aşağıda "İkinci tur", G-ORTA.)* S₀ güncel sayaçtan büyükse 400 (`ErrCursorAhead`), konum aralığın dışındaysa 400
+   (`ErrHistoryRange`); konumun `seq`'i S₀'ı aşabilir (pencere her konumu sayar). **Önekler ayrı:** `from`/`to` ile `cur_`, `from`/`to`'suz
    `hst_` 400 — hiçbiri sessizce ötekinin konumu olmaz. Akış imlecinin kapsamlar arası tuzağı (öteki kapsama taşınan `cur_`
    öncesini atlar) geçmiş imlecinde yoktur.
-4. **Pencere** (`PunchFeedWindow` = 10 000 konum, her kapsam, `seq ≤ S₀`): sayfa imleçten sonraki en çok 10 000 konumu tarar;
+4. **Pencere** (`PunchFeedWindow` = 10 000 konum, her kapsam, **her `seq`** — ikinci turda `seq ≤ S₀` pencereden çıktı): sayfa
+   imleçten sonraki en çok 10 000 konumu tarar;
    pencere ifadesi 10 001'i sayar — biri fazlası "aralık sürüyor" (`hasMore`) demektir, tam pencerede biten aralık fazladan boş
    sayfa vermez. Pencerenin sonu bir sonraki konumdur. Bedel (adlandırıldı): seyrek kapsamda boş sayfa + `hasMore: true`.
 5. **Yanıt** akışınkiyle aynı (`{data, nextCursor, hasMore}`, aynı punch alanları). `hasMore: false` → yürüyüş bitti; aynı
@@ -2089,3 +2096,45 @@ uç aynı rota, `internal/handler/api/history.go` (`from`/`to` varsa geçmiş so
 `TestPunches_PagesNeitherSkipNorRepeatUnderConcurrentWriters` 429 `rate_limited` aldı: sekiz okuyucu tek adresten yokladığı için
 yavaş makinede adres kovası (1 200/dk) doldu — bulgu değil, ölçüm düzeneği. İki eşzamanlı okuyucu testi artık kovaları
 kaldırarak (`unmetered`) kurulur; kova davranışının kendisi API-4'ün testlerinde.
+
+
+**İkinci tur (2026-10-15 — iki mercek RED: G-ORTA, E-ORTA ve dört DÜŞÜK; S₀ garantisi, imleç, aralık, süzgeç ve gizlilik
+ölçümle tutuyordu).**
+
+*G-ORTA — pencere `seq ≤ S₀` süzgecini sınırlamıyordu (güvenlik).* Pencere `(tenant_id, punch_time)` üzerinde yürüdüğü için
+`seq > S₀` satırları heap'ten okunup tek tek eleniyordu ve bu yürüyüşü hiçbir LIMIT durdurmuyordu: bayat ya da sahte S₀ ile
+istek başına 230–660 ms (`Rows Removed by Filter: 1000000`). Pencere artık **konum sayar**: `seq ≤ S₀` ve rol süzgeci yalnız
+`ListPunchHistory`'de. Garanti değişmez: anahtar sırası sıranın tamamını yürür, `≤ S₀` kümesi sabittir; bayat S₀ yalnız boş sayfa
++ `hasMore: true` üretir. `TestPunchHistory_AStaleSnapshotReadsAtMostTheWindow`: hiçbir olayı kapsamayan S₀ ile, üç konumluk
+pencerede 20 olaylık aralık yedi boş sayfada biter; gönderilen pencere ifadesi `EXPLAIN ANALYZE`'da `punch_events`'ten en çok beş
+satır okur (pencere + 1, artı Incremental Sort'un son grubu kapatmak için LIMIT'in ötesinde okuduğu bir satır — ölçüldü) ve
+süzgeçle satır atmaz. Mutant (süzgeç pencereye geri) kırmızı. **Ölçek** (atılabilir kap, KM'de 1 000 000 olay, 31 gün + 1 saatlik
+aralık, aralığın 30 noktasından `limit` 1 000): bayat S₀ = 1 → medyan 19 ms, p90 38 ms, en kötü 41 ms (öncesi 230–660 ms); güncel
+S₀ → medyan 19 ms, en kötü 37 ms.
+*Ek koruma — `APIReadTimeout` = 5 sn* (`internal/domain/tenant/apiread.go`, `db.BoundStatements`: `set_config('statement_timeout',
+…, true)`, LOCAL). Akış, geçmiş sorgusu, çalışan listesi ve tek çalışan okumaları (ref ve id — replay'in okuması dahil) işlemlerinin
+ilk ifadesi olarak taşır. Gerekçe: ölçülen en yavaş API okuması 1 sn'nin altında (geçmiş sayfası medyan 16 ms, p99 23 ms; düzeltme
+öncesi sahte S₀ sayfası 660 ms; soğuk seyrek akış sayfası 273 ms) — 5 sn bunun birkaç katı; ikisi isteğin kendi süre sınırına
+(`httpx.RequestTimeout`, 30 sn) rahatça sığar, kaçak bir ifade router vazgeçmeden çok önce veritabanının 57014'ü ve 503 olur, backend
+serbest kalır. `TestAPIRead_EveryReadCarriesTheBound`: beş okumanın her biri işlemin içinde `statement_timeout = 5s` görür; havuzun düz
+işlemi `0` (sınır sızmaz); `2 × APIReadTimeout ≤ RequestTimeout` pinli. Mutant (bir okumadan kaldırılınca) kırmızı. Yazma yolları
+kapsam dışı (kendi kilit ve süre bütçeleri var).
+
+*E-ORTA — eşitlik sırası pinli değildi (üçüncü göz).* Bir tenant'ın `seq`'i ve satırı tek kilit altında yazıldığı için heap `seq`
+sırasını izler ve `(tenant_id, punch_time)` taraması eşit anları tesadüfen `seq` sırasıyla verir; `ORDER BY punch_time` mutantı bu
+yüzden görünmüyordu. Testler artık heap'i akış sırasının **tersine** dizen bir fikstür kullanır (`tieGroup`/`kfTieGroup`: flag'ler —
+olay yok —, sonra sahip olarak, işletmenin bağlamında, yalnız INSERT ile olayları `seq` azalan sırayla; sayaç ilerletilir).
+`TestPunchHistory_ATieIsBrokenByTheFeedOrder` (HTTP, 32 eşit an, sayfa 1–7 ve 50) ve
+`TestPunchHistory_ATieAcrossTheWindowsEndIsCutByTheFeedOrder` (DÜŞÜK-1 ile birleşik: dört konumluk pencerenin sonu eşit anların
+içine düşer, 30 olay, sayfa 1–7, 50 ve karışık). Mutantlar: pencere, sonu ve sayfa `ORDER BY punch_time` olunca HTTP testi 3/3 kırmızı;
+sayfanın sınırı `seq`'siz (`punch_time <= end_time`) olunca pencere testi kırmızı.
+
+*DÜŞÜK'ler.* (1) **Bağ işletmeyi taşır** — KF'nin imleci, sayacı KF'nin S₀'ını geçmiş C'de 400 (`TestPunchHistory_OutsiderSeesNone`:
+C beş olaylı, KF'nin S₀'ı 3; mutant — işletmesiz bağ — kırmızı). (2) **31 gün + 1 saat** — yerel takvim ayı, DST dahil: Malta'nın Ekim
+ve Mart ayları tek sorgu, 31 gün + 1 saat + 1 µs 400 (plan §2 madde 18 ve §5 API-7b, OpenAPI güncellendi; mutant — düz 31 gün —
+kırmızı). (3) **Kodlanmamış `+`** — boşluk içeren `from`/`to` 400 `reason: unencoded_plus` ve kodlama ipucu (değer yankılanmaz);
+rehbere de yazıldı. Seçim: ipucu, çünkü saat farkı `+` ile bir anı göndermenin en olağan hatasıdır ve genel bir 400 nedenini
+saklıyordu (mutant kırmızı). (4) **Katı RFC 3339** — Go'nun ayrıştırıcısından önce biçim (`rfc3339Shape`): `+24:00`, virgüllü kesir,
+küçük `t`, saat 25 ve 31 Şubat 400 (mutant — biçim denetimi kapalı — kırmızı).
+
+*API-7 testi* (`TestPunches_TheQueryIsTheContract`'ın `from`/`to` vakası API-7b'de `From`'a dönmüştü) değişmedi.
