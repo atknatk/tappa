@@ -75,9 +75,10 @@ internal/netx/        adres aralığı aritmetiği (bir liste yer kanıtı olama
                       kadar geniş mi). Saf: `net/netip` + `math/big`, başka hiçbir
                       şey — bu yüzden hem tenant hem tap ondan çağırabilir.
 internal/qrcode/      QR kodlayıcı (ISO/IEC 18004, byte modu, sürüm 1-40), yalnız stdlib — operatör kayıt QR'ı (ADR 0020 §3).
+internal/apikey/      dış API anahtarı (M11 API-3): üretim, biçim kontrolü, HMAC; çözümleyicinin
+                      taşıdığı olguyu (iptal, API erişimi) değerlendirir; owner paneli eylemleri.
+                      Anahtar her yazdırma yolunda yer tutucu basar; log yok (ADR 0028 §3).
   — aşağıdakiler HENÜZ YOK, M11'de doğacak (ADR 0027/0028) —
-internal/apikey/      dış API anahtarı: üretim, biçim kontrolü, HMAC; çözümleyicinin taşıdığı
-                      olguyu (iptal, API erişimi) değerlendirir. Log yok (ADR 0028 §3).
 internal/handler/api/ /v1 yüzeyi, ayrı host (api.taptime.mt): JSON hata, Idempotency, askı
                       kontrol noktası, openapi.yaml. Müşteri paneli import etmez (ADR 0028).
 internal/webhook/     webhook teslim işçisi (kiralama, geri çekilme), imza, K-19'un süreç içi
@@ -311,9 +312,11 @@ başlayan bir test durumu olmalı.
   AES anahtarı, davet kodu, e-posta adresi (ADR 0022 §10), tam GPS koordinatı; operatör tarafında okuma bileti,
   TOTP kodu ve sırrı, enrollment token'ı (ADR 0020/0021 — hata mesajı ve audit
   `detail`'i dahil); dış API tarafında API anahtarı ve hash'i, `Authorization` başlığı,
-  webhook imza anahtarı, webhook URL'si ve
+  webhook imza anahtarı (`tt_whsec_` önekli), webhook URL'si ve
   `*url.Error` metni (Go o metinde URL'yi taşır — ADR 0028 §3, §6; bunlarda da hata mesajı ve
   audit `detail`'i dahil).
+- Env anahtarları (`namedKeys()`) **çift çift** birbirinden farklı olmak zorundadır — iki anahtarın
+  eşitliği açılışı reddeder (ADR 0028 §3; bütün çiftler, yalnız operatör çiftleri değil).
 - Dış girdi handler sınırında doğrulanır; domain katmanı zaten geçerli veri görür.
 - Yorumlar *neden*i anlatır. Kodun ne yaptığını tekrar eden yorum yazma.
 - Türkçe karakter kodda yok: identifier, log, hata mesajı, commit → İngilizce.
