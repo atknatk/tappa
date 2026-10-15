@@ -416,3 +416,57 @@ func TestApiKeyPanel_TheDeactivationBudgetAlertIsShownToTheOwner(t *testing.T) {
 		t.Fatal("the alert names a key past the day's window or another business's key")
 	}
 }
+
+// TestPanelHome_TheKeyBudgetBannerIsTheOwnersAlone (the user's decision, 2026-10-15; ADR 0028 §12): the
+// panel's home (/admin) draws the owner a banner when an integration key reached its deactivation
+// budget in the last day, linking to the API keys section; before the alert it draws none, and the
+// page's bytes are the same as a render whose banner field is set but empty (the banner adds nothing
+// when it is absent); a manager of the same business never sees it -- the handler asks for the
+// owner alone and the domain refuses another role. The API keys section shows the budget each
+// alert recorded (detail.budget), not a number written into the page.
+//
+// MUTANT (measured): the owner check removed from the handler -> the manager's home asks the domain,
+// which refuses, so the banner stays absent; the domain's own owner check removed as well -> the
+// manager sees it, red.
+func TestPanelHome_TheKeyBudgetBannerIsTheOwnersAlone(t *testing.T) {
+	f := newAPIKeysDBFixture(t)
+	owner, manager := f.browserAs(t, f.owner, "owner"), f.browserAs(t, f.manager, "manager")
+	const heading = "An integration key reached its limit for deactivating employees"
+	home := func(b *browser) string {
+		t.Helper()
+		rec := b.do(http.MethodGet, "/admin", nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("the home page: %d", rec.Code)
+		}
+		return rec.Body.String()
+	}
+	if strings.Contains(home(owner), heading) {
+		t.Fatal("CONTROL: the banner is drawn with no alert")
+	}
+	c, err := f.keys.Create(context.Background(), apikey.CreateCommand{TenantID: f.tenantID, ActorID: f.owner, Name: "HR sync"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	trail, err := audit.New(f.data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	staff, err := tenant.NewStaff(f.data, trail, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := staff.RecordDeactivationBudgetExceeded(context.Background(), f.tenantID, c.ID, "api", 7); err != nil {
+		t.Fatal(err)
+	}
+	body := home(owner)
+	if !strings.Contains(body, heading) || !strings.Contains(body, `href="`+apiKeysHref+`"`) {
+		t.Fatal("the owner's home does not draw the banner with its link to the API keys section")
+	}
+	if strings.Contains(home(manager), heading) {
+		t.Fatal("a manager's home draws the owner's banner")
+	}
+	keysPage := owner.do(http.MethodGet, apiKeysHref, nil).Body.String()
+	if !strings.Contains(keysPage, `<span class="font-mono">7</span> an hour`) || strings.Contains(keysPage, "at most 20") {
+		t.Fatal("the API keys section does not show the budget the alert recorded")
+	}
+}

@@ -54,6 +54,7 @@ type panelAPIKeys interface {
 	Create(ctx context.Context, c apikey.CreateCommand) (apikey.Created, error)
 	Revoke(ctx context.Context, c apikey.RevokeCommand) (apikey.Revoked, error)
 	RevokeAll(ctx context.Context, tenantID, actorID uuid.UUID) ([]apikey.Revoked, error)
+	BudgetAlerts(ctx context.Context, tenantID, actorID uuid.UUID) ([]apikey.BudgetAlert, error)
 }
 
 // IntegrationKeys gives the panel the keys service. cmd/tappa always passes it; a panel built
@@ -187,7 +188,7 @@ func (a *AdminAuth) readAPIKeysView(r *http.Request, id httpx.AdminIdentity) (pa
 		if name == "" {
 			name = "an unnamed key"
 		}
-		v.BudgetAlerts = append(v.BudgetAlerts, pages.APIKeyBudgetAlert{KeyName: name, At: al.At.In(zone).Format("2 January 2006, 15:04")})
+		v.BudgetAlerts = append(v.BudgetAlerts, pages.APIKeyBudgetAlert{KeyName: name, At: al.At.In(zone).Format("2 January 2006, 15:04"), Budget: al.Budget})
 	}
 	for _, k := range list.Keys {
 		row := pages.APIKeyRow{

@@ -57,6 +57,9 @@ templ AdminTransactions(v TransactionsView) {
 		// the same class of fact as the times inside the dockets below it, which are
 		// mono. The section's actual heading is the <h1> in PanelShell, set in the
 		// display face; this is not a second one.
+		if v.KeyBudget.Show() {
+			@keyBudgetBanner(v.KeyBudget)
+		}
 		@plaqueNotice(v)
 		<p class="font-mono text-sm text-ink/85">
 			{ v.DayLabel }
@@ -244,4 +247,20 @@ func emptyHeading(v TransactionsView) string {
 		return "No records match these filters"
 	}
 	return "No taps recorded on this day"
+}
+
+// keyBudgetBanner is the owner's home banner (ADR 0028 §12, K-25): an integration key deactivated as
+// many employees in an hour as it may, and the rest were refused. It names no key and no person --
+// the API keys section does -- and links there. Status is the heading's word; the warning tone
+// reinforces it.
+templ keyBudgetBanner(b KeyBudgetBanner) {
+	@components.Notice(components.ToneWarn, "An integration key reached its limit for deactivating employees") {
+		<p>
+			In the last day your HR or payroll system tried to deactivate more employees in an hour than an
+			integration key may, and the rest were refused.
+		</p>
+		<p>
+			<a href={ templ.URL(b.Href) } class="inline-flex min-h-11 items-center font-bold underline underline-offset-4">Review your integration keys</a>
+		</p>
+	}
 }

@@ -148,7 +148,8 @@ func (q *Queries) CountAPIDeactivations(ctx context.Context, arg CountAPIDeactiv
 }
 
 const listAPIBudgetAlerts = `-- name: ListAPIBudgetAlerts :many
-SELECT a.at, a.target, coalesce(k.name, '')::text AS key_name
+SELECT a.at, a.target, coalesce(k.name, '')::text AS key_name,
+       coalesce((a.detail->>'budget')::int, 0)::int AS budget
 FROM audit_log a
 LEFT JOIN api_keys k ON k.tenant_id = $1 AND k.id::text = a.target
 WHERE a.tenant_id = $1
@@ -167,11 +168,13 @@ type ListAPIBudgetAlertsRow struct {
 	At      time.Time
 	Target  *string
 	KeyName string
+	Budget  int32
 }
 
 // The owner's alert (ADR 0028 §12): every key that ran out of its deactivation budget in the last
 // @window_seconds, newest first, with the key's name as it is now (a LEFT JOIN: a key cannot be
-// deleted, but the trail must still show a row whose key it cannot name).
+// deleted, but the trail must still show a row whose key it cannot name) and the budget the row
+// recorded (detail.budget -- the panel never assumes the number; 0 when a row has none).
 func (q *Queries) ListAPIBudgetAlerts(ctx context.Context, arg ListAPIBudgetAlertsParams) ([]ListAPIBudgetAlertsRow, error) {
 	rows, err := q.db.Query(ctx, listAPIBudgetAlerts, arg.TenantID, arg.WindowSeconds)
 	if err != nil {
@@ -181,7 +184,12 @@ func (q *Queries) ListAPIBudgetAlerts(ctx context.Context, arg ListAPIBudgetAler
 	items := []ListAPIBudgetAlertsRow{}
 	for rows.Next() {
 		var i ListAPIBudgetAlertsRow
-		if err := rows.Scan(&i.At, &i.Target, &i.KeyName); err != nil {
+		if err := rows.Scan(
+			&i.At,
+			&i.Target,
+			&i.KeyName,
+			&i.Budget,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

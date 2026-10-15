@@ -137,8 +137,30 @@ func (a *AdminAuth) transactionsSection(w http.ResponseWriter, r *http.Request) 
 		Any:     screen.History.Any,
 	}
 
+	v.KeyBudget = a.keyBudgetBanner(r, id)
+
 	// THE SCRIPTED POLICY IS NAMED HERE, on the one page that loads a script.
 	a.renderScripted(w, r, http.StatusOK, v.PanelChrome, pages.AdminTransactions(v))
+}
+
+// keyBudgetBanner is the panel home's owner banner (ADR 0028 §12, K-25; the user's decision,
+// 2026-10-15): drawn for a live OWNER when an integration key reached its deactivation budget in the
+// last day. A manager never gets it (the read is owner-only in the domain too). A failed read
+// draws no banner and logs -- the day's records are the page, the banner is not.
+func (a *AdminAuth) keyBudgetBanner(r *http.Request, id httpx.AdminIdentity) pages.KeyBudgetBanner {
+	if a.apiKeys == nil || !mayManageAPIKeys(id) {
+		return pages.KeyBudgetBanner{}
+	}
+	alerts, err := a.apiKeys.BudgetAlerts(r.Context(), id.TenantID(), id.Admin.AdminUserID)
+	if err != nil {
+		a.log.Warn("panel: could not read the integration keys' budget alerts; no banner", "err", err)
+		return pages.KeyBudgetBanner{}
+	}
+	keys := map[string]bool{}
+	for _, al := range alerts {
+		keys[al.KeyID] = true
+	}
+	return pages.KeyBudgetBanner{Keys: len(keys), Href: apiKeysHref}
 }
 
 // transactionDockets answers the HTMX paging request with the cards alone.

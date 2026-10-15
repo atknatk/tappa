@@ -3037,7 +3037,8 @@ type Querier interface {
 	IsAdministratorAddress(ctx context.Context, arg IsAdministratorAddressParams) (bool, error)
 	// The owner's alert (ADR 0028 §12): every key that ran out of its deactivation budget in the last
 	// @window_seconds, newest first, with the key's name as it is now (a LEFT JOIN: a key cannot be
-	// deleted, but the trail must still show a row whose key it cannot name).
+	// deleted, but the trail must still show a row whose key it cannot name) and the budget the row
+	// recorded (detail.budget -- the panel never assumes the number; 0 when a row has none).
 	ListAPIBudgetAlerts(ctx context.Context, arg ListAPIBudgetAlertsParams) ([]ListAPIBudgetAlertsRow, error)
 	// A page of this business's employees, live and deactivated, panel-made (no ref) and API-made,
 	// in id order after the cursor (the previous page's last id; NULL for the first page). The same

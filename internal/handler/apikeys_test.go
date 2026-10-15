@@ -19,6 +19,10 @@ import (
 // given.
 type stubAPIKeys struct{}
 
+func (stubAPIKeys) BudgetAlerts(context.Context, uuid.UUID, uuid.UUID) ([]apikey.BudgetAlert, error) {
+	return nil, nil
+}
+
 func (stubAPIKeys) List(context.Context, uuid.UUID, uuid.UUID) (apikey.Listing, error) {
 	return apikey.Listing{}, nil
 }

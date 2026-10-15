@@ -952,3 +952,31 @@ func brandEditorDrawsNoSecondHeader(t *testing.T, href, region string) {
 		}
 	}
 }
+
+// TestKeyBudgetBanner_AbsentAddsNothing (the user's decision, 2026-10-15): the home page rendered with
+// an empty banner -- the zero value, or a link with no key -- is byte for byte the page rendered
+// without the field ever touched, and a banner with a key draws the notice once.
+func TestKeyBudgetBanner_AbsentAddsNothing(t *testing.T) {
+	render := func(v pages.TransactionsView) string {
+		t.Helper()
+		var b strings.Builder
+		if err := pages.AdminTransactions(v).Render(context.Background(), &b); err != nil {
+			t.Fatal(err)
+		}
+		return b.String()
+	}
+	base := pages.TransactionsView{}
+	plain := render(base)
+	for _, kb := range []pages.KeyBudgetBanner{{}, {Href: "/admin/api-keys"}, {Keys: 1}} {
+		v := base
+		v.KeyBudget = kb
+		if got := render(v); got != plain {
+			t.Fatalf("banner %+v changed the page's bytes", kb)
+		}
+	}
+	v := base
+	v.KeyBudget = pages.KeyBudgetBanner{Keys: 2, Href: "/admin/api-keys"}
+	if got := render(v); strings.Count(got, "reached its limit for deactivating employees") != 1 {
+		t.Fatal("a banner with a key is not drawn exactly once")
+	}
+}

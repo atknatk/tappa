@@ -57,6 +57,12 @@ type TransactionsView struct {
 	// decides ONE thing — whether "Pick another day above" is offered — and is
 	// read through OffersAnotherDay().
 	History HistoryReading
+
+	// KeyBudget is the owner's home banner of ADR 0028 §12 (K-25; the user's decision, 2026-10-15):
+	// an integration key reached its hourly deactivation limit in the last day. The handler fills it
+	// for a live OWNER alone; the zero value draws nothing, so the page is byte for byte what it was
+	// when there is no alert.
+	KeyBudget KeyBudgetBanner
 }
 
 // HistoryReading is the ledger's "has this business any record" answer.
@@ -222,3 +228,13 @@ func (v TransactionsView) UnrecordedStock() int {
 
 // UnrecordedStockCount is UnrecordedStock as text, for a mono cell.
 func (v TransactionsView) UnrecordedStockCount() string { return strconv.Itoa(v.UnrecordedStock()) }
+
+// KeyBudgetBanner says how many keys reached their deactivation limit in the last day and where the
+// owner reviews them.
+type KeyBudgetBanner struct {
+	Keys int
+	Href string
+}
+
+// Show reports whether the banner is drawn.
+func (b KeyBudgetBanner) Show() bool { return b.Keys > 0 && b.Href != "" }

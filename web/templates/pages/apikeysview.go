@@ -49,6 +49,8 @@ type APIKeysView struct {
 type APIKeyBudgetAlert struct {
 	KeyName string
 	At      string
+	// Budget is the hourly limit the alert recorded; 0 when the row named none.
+	Budget int
 }
 
 // APIKeyRow is one key in the list. The hint is the prefix and four characters -- not the key.

@@ -109,6 +109,8 @@ type BudgetAlert struct {
 	At      time.Time
 	KeyID   string
 	KeyName string
+	// Budget is the hourly budget the alert row recorded (its detail.budget), 0 when it has none.
+	Budget int
 }
 
 // BudgetAlertWindow is how long the panel shows a budget alert: a day, so an owner who looks the
@@ -214,21 +216,47 @@ func (k *Keys) List(ctx context.Context, tenantID, actorID uuid.UUID) (Listing, 
 			out.Keys = append(out.Keys, Key{ID: r.ID, Name: r.Name, PrefixHint: r.PrefixHint, CreatedBy: r.CreatedBy,
 				CreatedAt: r.CreatedAt, LastUsedAt: r.LastUsedAt, RevokedAt: r.RevokedAt})
 		}
-		alerts, err := q.ListAPIBudgetAlerts(ctx, store.ListAPIBudgetAlertsParams{TenantID: tenantID, WindowSeconds: int32(BudgetAlertWindow / time.Second)})
-		if err != nil {
-			return fmt.Errorf("budget alerts: %w", err)
-		}
-		for _, a := range alerts {
-			id := ""
-			if a.Target != nil {
-				id = *a.Target
-			}
-			out.BudgetAlerts = append(out.BudgetAlerts, BudgetAlert{At: a.At, KeyID: id, KeyName: a.KeyName})
-		}
-		return nil
+		out.BudgetAlerts, err = budgetAlerts(ctx, q, tenantID)
+		return err
 	})
 	if err != nil {
 		return Listing{}, pass(err, "list")
+	}
+	return out, nil
+}
+
+// budgetAlerts reads the business's alerts of the last BudgetAlertWindow, newest first.
+func budgetAlerts(ctx context.Context, q *store.Queries, tenantID uuid.UUID) ([]BudgetAlert, error) {
+	rows, err := q.ListAPIBudgetAlerts(ctx, store.ListAPIBudgetAlertsParams{TenantID: tenantID, WindowSeconds: int32(BudgetAlertWindow / time.Second)})
+	if err != nil {
+		return nil, fmt.Errorf("budget alerts: %w", err)
+	}
+	var out []BudgetAlert
+	for _, a := range rows {
+		id := ""
+		if a.Target != nil {
+			id = *a.Target
+		}
+		out = append(out, BudgetAlert{At: a.At, KeyID: id, KeyName: a.KeyName, Budget: int(a.Budget)})
+	}
+	return out, nil
+}
+
+// BudgetAlerts is the owner's alert alone (ADR 0028 §12) -- what the panel's home banner reads,
+// without the key list. Owner-only, like every act here: another role is ErrNotPermitted.
+func (k *Keys) BudgetAlerts(ctx context.Context, tenantID, actorID uuid.UUID) ([]BudgetAlert, error) {
+	var out []BudgetAlert
+	err := k.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		q := store.New(tx)
+		if err := mayManage(ctx, q, tenantID, actorID); err != nil {
+			return err
+		}
+		var err error
+		out, err = budgetAlerts(ctx, q, tenantID)
+		return err
+	})
+	if err != nil {
+		return nil, pass(err, "budget alerts")
 	}
 	return out, nil
 }

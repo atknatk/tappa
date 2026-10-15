@@ -1,6 +1,10 @@
 package pages
 
-import "github.com/atknatk/tappa/web/templates/components"
+import (
+	"strconv"
+
+	"github.com/atknatk/tappa/web/templates/components"
+)
 
 // The API KEYS section (M11 API-3, ADR 0028 §3) -- the owner's integration keys.
 //
@@ -70,13 +74,18 @@ templ apiKeyShownOnce(v APIKeysView) {
 templ apiKeyBudgetAlerts(v APIKeysView) {
 	@components.Notice(components.ToneWarn, "A key reached its limit for deactivating employees") {
 		<p>
-			An integration key may deactivate at most 20 employees in an hour. These keys reached that
-			limit in the last day, and the deactivations past it were refused. If your HR or payroll
+			An integration key may deactivate only so many employees in an hour. These keys reached
+			that limit in the last day, and the deactivations past it were refused. If your HR or payroll
 			system did not mean to remove that many people, revoke the key below and check the system.
 		</p>
 		<ul class="mt-2 text-sm">
 			for _, a := range v.BudgetAlerts {
-				<li><span class="font-mono">{ a.KeyName }</span> — <span class="font-mono">{ a.At }</span></li>
+				<li>
+					<span class="font-mono">{ a.KeyName }</span> — <span class="font-mono">{ a.At }</span>
+					if a.Budget > 0 {
+						— limit <span class="font-mono">{ strconv.Itoa(a.Budget) }</span> an hour
+					}
+				</li>
 			}
 		</ul>
 	}
