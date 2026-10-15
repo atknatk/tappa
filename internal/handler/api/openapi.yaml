@@ -435,9 +435,12 @@ paths:
         unless the transaction that wrote it stayed open more than 10 minutes.
 
         Keyed by `id`: a re-hired person (an inactive entry and a new active one) can share an
-        `externalRef`. A company joining or leaving the group changes no employee, so an incremental
-        read neither adds its staff nor says they are gone: after a group change, read the whole
-        directory (no `updatedSince`).
+        `externalRef`. Two changes reach no incremental read, because they change no employee: a
+        company joining or leaving the group (an incremental read neither adds its staff nor says
+        they are gone), and a company's `company` code changing (its employees keep the old code in
+        an incremental read). Neither is signalled: read the whole directory (no `updatedSince`)
+        periodically -- daily, for instance -- and after a group change you know of; incremental
+        reads are for the changes in between.
 
         Only `updatedSince`, `cursor` and `limit` are accepted, each at most once; any other
         parameter, and a query string that does not parse, is 400. While the business is suspended
@@ -446,7 +449,7 @@ paths:
         - name: updatedSince
           in: query
           required: false
-          description: "The previous walk's `asOf` (none: the whole directory). The server reads from 10 minutes before it."
+          description: "The previous walk's `asOf` (none: the whole directory). The server reads from 10 minutes before it. A group membership change or a change of a company's `company` code is not in an incremental read -- read the whole directory periodically (daily, for instance)."
           schema:
             type: string
             format: date-time

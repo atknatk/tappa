@@ -2192,7 +2192,7 @@ metinde pinlenmesi bu yüzden süs değil.
 Yapıcının uygulaması ve ölçümleri; kararlar değişmedi — ADR'nin açık bıraktıkları aşağıda adıyla. **Migration'lar `00055`**
 (`holding_directory`, tanımlayıcının dört `employees` sütunu ve T124'ün üyelik kapısı — holding tarafı ADR 0027 *"API-8 uygulama
 notu"*nda) **ve `00056`** (`employees_tenant_updated_idx (tenant_id, updated_at, id)`; `lock_timeout` 1 sn ilk ifade). Mutantlar ve testler atılabilir PostgreSQL 17
-kabında (goose 55); ölçek ölçümü ikinci bir atılabilir kapta.
+kabında (goose 56); ölçek ölçümü ikinci bir atılabilir kapta.
 
 **Parçalar.** Kendi yarı `db/queries/directory.sql` (`GetDirectoryHead` — yürüyüşün saati ve işletmenin şirket kodu;
 `ListDirectoryEmployees` — ikisi de açık `tenant_id`, tenant paketinin kemeri okur); eşlerin yarısı `internal/db/holding.go`'da
@@ -2215,8 +2215,17 @@ arasında tekil, sıra tektir); uç `internal/handler/api/directory.go`; kablola
    yazıcısı bir istektir (≤ 30 sn). **Tekrar beklenir** (okurken değişen kişi sıranın sonuna gider): `id` ile ezilir.
 3. **İmleç `dir_<asOf µs>_<konum µs>_<id>_<bağ>`:** saydam (API-7 ve 7b'nin çizgisi); **bağ** `(işletme, updatedSince)`'in
    SHA-256'sının ilk 8 baytı — başka işletmenin imleci ya da başka/eksik `updatedSince` ile gelen imleç 400. İmza değildir:
-   sahtesi okuyanın kendi rehberinde bir konum ve kendine dönecek bir `asOf` seçer; veritabanı saatinin ötesindeki `asOf`
-   400 (`tenant.ErrDirectoryCursor`). id kanonik yazımıyla (küçük harf, tireli); başka yazım 400.
+   sahtesi okuyanın kendi rehberinde bir konum ve kendine dönecek bir `asOf` seçer — **bir yürüyüşün verebileceği aralıkta**
+   *(API-8 denetimi, üçüncü göz O-1 ve D-5, 2026-10-15)*: `asOf` ∈ [işletmenin `created_at`'ı, veritabanının şimdiki saati],
+   konum ∈ [yürüyüşün başı (`updatedSince − 10 dk`; `updatedSince`'siz `directoryOrigin`, yıl 1), veritabanının şimdiki
+   saati]; dışı 400 (`tenant.ErrDirectoryCursor`), değer hiçbir ifadeye ulaşmadan. Denetimden önce aralık yoktu: konum
+   `-219900000000000000` µs PostgreSQL'in `22008`'i (503 + hata günlüğü), int64'ün iki ucu pgx'te sessizce sarıp **200 boş
+   sayfa `hasMore: false`** (yanlış cevap), `asOf` 0 (1970) 200 alıyordu. Üst sınır imlecin `asOf`'u **değildir**: yürüyüş
+   sırasında değişen kişi `asOf`'tan sonra yeniden verilir (tekrar beklenir), meşru bir konum `asOf`'u geçebilir; sınır,
+   konumu yazan saatin kendisidir (tetikleyicinin `clock_timestamp()`'i; satır önceki sayfadan önce commit edildi, yani bu
+   sayfanın işleminden önce) — toleranssız: aynı sunucunun saati; geri adımı canlı bir imleci reddeder, yürüyüş baştan
+   alınır, hiçbir şey kaybolmaz. `asOf`'un alt sınırı: yürüyüşün ilk sayfası işletmenin commit edilmiş `tenants` satırını
+   okudu (`created_at` onun `now()`'ı; `tappa_app` yazamaz — `00024`). id kanonik yazımıyla (küçük harf, tireli); başka yazım 400.
 4. **Yanıt `{data, nextCursor, hasMore, asOf}`:** `nextCursor` yalnız `hasMore` true iken dolu, sonda null — bitmiş yürüyüşü
    imleçle sürdürmek örtüşme penceresini atlardı; doğru devam `updatedSince=asOf`'tur. Kayıt `{id (emp_), company (api_code),
    externalRef, employeeCode, firstName, lastName, fullName, active, updatedAt}` — kendi ve eş satırı aynı biçim (imza
@@ -2237,6 +2246,14 @@ arasında tekil, sıra tektir); uç `internal/handler/api/directory.go`; kablola
    150 000 satır içinde 150 001 satır atılıp 90 ms; çıplak hâli 0,8 ms. `updatedSince`'siz yürüyüş yıl 1'i geçer
    (`directoryOrigin`; `updated_at` tetikleyicinin saatidir). `TestEmployeeDirectory_TheBoundIsTheIndexsNotAFilter` metni pinler
    (sıralı ve bitmap tarama, sort kapalı — API-7b'nin üçüncü tur dersi); kontrol: `coalesce` biçimi kırmızı.
+9. **Artımlı okumanın göremediği iki değişiklik** *(API-8 denetimi, üçüncü göz D-2/D-3, 2026-10-15 — yalnız belge, kod değişmedi)*:
+   (i) **holding üyeliği** — bir işletme gruba girer ya da çıkar, hiçbir çalışan satırı değişmez: artımlı okuma yeni eşin
+   çalışanlarını getirmez, çıkanınkilerin gittiğini söylemez; (ii) **şirket kodu** — `tenants.api_code` (`company`) değişir
+   (`op_enable_tenant_api` kodu her çağrıda yeniden yazar, `00039`; kodu olmayan bir eşe sonradan kod verilebilir), ama
+   `employees.updated_at` oynamaz (tetikleyici yalnız `employees`'in rehber sütunlarına bakar): artımlı okuma o işletmenin
+   çalışanlarını eski `company`'siyle bırakır. İkisinin de entegratöre makine sinyali yoktur; rehber (plan §5 API-12) ve
+   OpenAPI'nin `updatedSince` açıklaması ikisini de yazar ve **periyodik (ör. günlük) tam okuma** (`updatedSince`'siz yürüyüş)
+   tavsiye eder.
 
 **Ölçümler.**
 - **Kabul çekirdeği** — `TestDirectory_HoldingTenantsOnlyNoEmailWithActive`: KF: KF + KM; KM: KM + KF; C (H2): C + D; E (holding'siz):
@@ -2249,14 +2266,23 @@ arasında tekil, sıra tektir); uç `internal/handler/api/directory.go`; kablola
   KF'yi istemek → yalnız KM'nin satırları; sahip ikisini okur).
 - **Sayfalama** — `TestDirectory_Paged`: KM + KF'nin 60 kişisi `limit` 3, 7, 59, 60, 1000 ve varsayılanla aynı liste,
   ⌈n/limit⌉ sayfa (tam dolan son sayfa zaten `hasMore: false`); `limit` 1 ilk kişinin tek kayıtlık sayfası, `hasMore` ile; `limit` 0/1001/harf/işaret/üs 400; sorgu sözleşmesi; imleç oyunları (bozuk, başka işletmenin, başka/eksik
-  `updatedSince`, gelecekteki `asOf`) 400 yankısız; kendi seçtiği konum = listenin geri kalanı.
+  `updatedSince`, gelecekteki `asOf`) 400 yankısız; kendi seçtiği konum = listenin geri kalanı. *(Denetim düzeltmesi, 2026-10-15
+  — 3. madde)* Bağı doğru, biçimi doğru sahte imleçler: konum `-219900000000000000`, `-9223372036854775808`,
+  `9223372036854775807`, yürüyüşün başından 1 µs önce (`updatedSince`'li ve `updatedSince`'siz), veritabanı saatinin 5 sn
+  ötesi; `asOf` 0, 1, işletmenin `created_at`'ından 1 µs önce, int64'ün üst ucu — hepsi 400, 5xx yok, değer yankılanmaz;
+  her sınırın tam içi (`asOf` = `created_at`, konum = yürüyüşün başı — iki biçimde, konum = önceki bir sayfanın saati) 200.
+  **Mutant** (atılabilir kap, goose 56): dört koşuldan her biri tek tek kaldırılınca kırmızı — konumun alt sınırı yokken
+  ilk değer 503, öteki üçü 200 alır.
 - **Örtüşme penceresi** — `TestDirectory_OverlapWindow`: `asOf − 9 dk 59 sn` ve tam `− 10 dk` içeride, `− 10 dk 1 sn` dışarıda;
   `asOf`'tan sonra yeniden adlandırılan kendi ve deaktive edilen eş kişi sonraki yürüyüşte; yürüyüşün ilk sayfasında **açık**
   olan, sonra commit edilen yeniden adlandırma o yürüyüşte yok, `updatedAt`'ı o yürüyüşün `asOf`'undan önce olduğu hâlde bir
   sonrakinde var.
 - **Eşzamanlı yazıcılar** — `TestEmployeeDirectory_WalksMissNothingUnderConcurrentWriters`: 8 yazıcı × 60 değişiklik (KF, KM, C;
   yazma 0–40 ms açık, onda bir geri alma), KM okuyucusu 1–200'lük sayfalarla sürekli yürür, pencere 120 ms'ye ölçeklenir. Koşular
-  (3, 1 800 tenant'lı taze kap — CI'nin boyu): 62–66 yürüyüş, **0 kaçan, 0 bayat, C'nin 0 satırı**. 45 000 tenant'lı paylaşılan
+  (3, 1 800 tenant'lı taze kap — CI'nin boyu): 62–66 yürüyüş, **0 kaçan, 0 bayat, C'nin 0 satırı**. *(Denetim düzeltmesi D-4,
+  2026-10-15)* Bayatlık karşılaştırması artık `fullName`'i de içerir (K-41) ve yeniden adlandırma ilk adı, tam adı ya da ikisini
+  birden değiştirir. **Mutant** (atılabilir kap): tetikleyici `full_name`'i rehber sütunu saymayınca 3/3 kırmızı (koşu başına
+  11–15 bayat); **kontrol** — aynı mutant, düzeltmeden önceki test: yeşil (0 bayat). 45 000 tenant'lı paylaşılan
   veritabanında bir üyenin sayfası ~1 sn (eş kümesi) olduğu için yürüyüş sayısı 3'e düşer; test doğru kalır, daha az kanıtlar
   (yorumunda yazılı). **Mutant — pencere 0:** 3/3 kırmızı, koşu başına 56–62 kaçan ve 20–26
   bayat. **Mutant — `asOf` her sayfada okunur** (son sayfanınki verilir): `TestEmployeeDirectory_TheWalksAsOfIsItsFirstPages`

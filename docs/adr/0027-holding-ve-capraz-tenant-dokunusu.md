@@ -1917,7 +1917,10 @@ Down yürüyüşleri `00055`'in Down'ını koşar: ayrı tutulunca o yürüyüş
   Ölçüldü: 21 000 tenant'ta üyenin rehber sayfası **0,97–1,05 sn**; testlerin doldurduğu paylaşılan veritabanında (45 000
   tenant) tek başına ~1,5–2 sn, tam `-race` yükü altında **5 sn `APIReadTimeout`'u aştı → 57014, uçta 503**. Bugün prod'da
   birkaç tenant var, sayfa birkaç ms. Kural değişmez (`holding_members`'a yalnız `holding_peer` değer, yeni kip yok); **eşik:
-  tenant sayısı ~1 000'i geçmeden önce ele alınır** (backlog T124; deploy öncesi sayım plan §5 API-13).
+  tenant sayısı ~1 000'i geçmeden önce ele alınır** (backlog T124; deploy öncesi sayım plan §5 API-13). **Bu eşik aynı zamanda
+  bir DoS eşiğidir** *(API-8 güvenlik denetimi, 2026-10-15)*: bir anahtar dakikada 600 istek yapabilir (`keyLimit`) ve 21 000
+  tenant'ta bir üyenin rehber isteği ~0,3–1 sn veritabanı süresi tutar — tek bir üye anahtarı sürekli ~3–10 veritabanı
+  bağlantısını meşgul edebilir.
 - **Yazılan testler:** `TestHoldingDirectory_ReturnsPeersNeverTheCaller` · `TestHoldingDirectory_IsAKeysetOnUpdatedAtAndID` ·
   `TestHoldingDirectory_TheCallerIsKeptOutTwice` · `TestHoldingFunctions_AMemberOfNoHoldingAsksOnce` (kapı; mutant —
   kapı iki gövdeden birinden kaldırılınca kırmızı) · `TestHolding00055_DownGivesBackAndUpTakesItAgain` ·
