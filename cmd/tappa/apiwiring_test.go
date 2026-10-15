@@ -34,11 +34,15 @@ import (
 //	             result (the PANEL's employee domain); run() builds invite.NewQueue once from its
 //	             invite.New result and the e-mail transport's QueueSink, adds it to W, and starts W
 //	             after that
+//	API-7        api.New's Punches is the result of the one tenant.NewPunchFeed call, made in
+//	             openAPISurface over its data parameter (the request pool -- tappa_app, RLS)
 //
 // MUTANTS (measured, API-4 report): the chain built with apikey.SandboxPrefix; NoticeWorkTo removed;
 // W left out of the drainers -- each red. API-5 report: Locations left out of api.New; another
 // tenant.NewVenues built for the API -- each red. API-6 report: Employees left out; W started before
-// the queue is added; the queue's sink not the transport's QueueSink -- each red.
+// the queue is added; the queue's sink not the transport's QueueSink -- each red. API-7 report:
+// Punches left out of api.New (New refuses it -- the build's own test is red); NewPunchFeed handed
+// another value than the data parameter; a second NewPunchFeed in main.go -- each red.
 func TestAPIWiring_TheChainTakesThePanelsPrefixAndTheOneWorker(t *testing.T) {
 	fset := token.NewFileSet()
 	parse := func(name string) *ast.File {
@@ -95,7 +99,25 @@ func TestAPIWiring_TheChainTakesThePanelsPrefixAndTheOneWorker(t *testing.T) {
 	workParam := open.Type.Params.List[2].Names[0].Name
 	venuesParam := open.Type.Params.List[3].Names[0].Name
 	staffParam := open.Type.Params.List[4].Names[0].Name
-	var suspension, work, locations, employees bool
+	dataParam := open.Type.Params.List[1].Names[0].Name
+	// API-7: the feed reader is built HERE, once, over the data parameter, and is api.New's Punches.
+	feeds := calls(apiFile, "tenant", "NewPunchFeed")
+	punchesIdent := ""
+	if len(feeds) == 1 && len(calls(open, "tenant", "NewPunchFeed")) == 1 && len(feeds[0].Args) == 1 {
+		if id, ok := feeds[0].Args[0].(*ast.Ident); ok && id.Name == dataParam {
+			ast.Inspect(open.Body, func(n ast.Node) bool {
+				if as, ok := n.(*ast.AssignStmt); ok && len(as.Rhs) == 1 && as.Rhs[0] == ast.Expr(feeds[0]) {
+					punchesIdent = as.Lhs[0].(*ast.Ident).Name
+				}
+				return true
+			})
+		}
+	}
+	if punchesIdent == "" || len(calls(mainFile, "tenant", "NewPunchFeed")) != 0 {
+		t.Fatalf("tenant.NewPunchFeed: %d call(s) in api.go, assigned to %q; want one, in openAPISurface, over its %q parameter (and none in main.go)",
+			len(feeds), punchesIdent, dataParam)
+	}
+	var suspension, work, locations, employees, punches bool
 	if lit, ok := news[0].Args[0].(*ast.CompositeLit); ok {
 		for _, e := range lit.Elts {
 			kv, ok := e.(*ast.KeyValueExpr)
@@ -119,12 +141,16 @@ func TestAPIWiring_TheChainTakesThePanelsPrefixAndTheOneWorker(t *testing.T) {
 				if id, ok := kv.Value.(*ast.Ident); ok && id.Name == staffParam {
 					employees = true
 				}
+			case "Punches":
+				if id, ok := kv.Value.(*ast.Ident); ok && id.Name == punchesIdent {
+					punches = true
+				}
 			}
 		}
 	}
-	if !suspension || !work || !locations || !employees {
-		t.Fatalf("api.New: Suspension api.NoSuspensionColumn{} %v, Work the %q parameter %v, Locations the %q parameter %v, Employees the %q parameter %v",
-			suspension, workParam, work, venuesParam, locations, staffParam, employees)
+	if !suspension || !work || !locations || !employees || !punches {
+		t.Fatalf("api.New: Suspension api.NoSuspensionColumn{} %v, Work the %q parameter %v, Locations the %q parameter %v, Employees the %q parameter %v, Punches %q %v",
+			suspension, workParam, work, venuesParam, locations, staffParam, employees, punchesIdent, punches)
 	}
 	if n := len(calls(apiFile, "tenant", "NewStaff")); n != 0 {
 		t.Fatalf("api.go builds its own tenant.NewStaff (%d); the API takes run()'s", n)

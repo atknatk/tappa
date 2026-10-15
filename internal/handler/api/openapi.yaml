@@ -312,6 +312,70 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/Unavailable"
+  /v1/punches:
+    get:
+      operationId: listPunches
+      summary: A page of the business's punches, in its feed order.
+      description: |
+        The business's punch feed: every punch that counts -- an `ok` tap (`nfc` or `qr`), or a
+        flagged tap once a manager of the employer approves it (it enters the feed at the approval,
+        once). A manual record, a practice tap, a refused tap, an ignored repeat and a rejected flag
+        never enter it. Punches are read in the order the business's feed received them; a punch's
+        `id` and `version` identify it (it is never changed in v1: `version` 1, `status` `valid`).
+
+        `scope` is required. `employer`: the punches of this business's own employees, at its own
+        locations and at a partner company's in the same group (there `location` names the partner's
+        location). `location`: every punch at this business's locations, a partner company's
+        employees' included (there `employee` names the partner's employee). A punch at a business's
+        own location by its own employee is in both. Working time computed from `scope=location`
+        alone can be too long for a partner's employee: their punches elsewhere are not in it -- use
+        the employer's `employer` scope for working time.
+
+        Paging: pass the previous page's `nextCursor` as `cursor` (none: from the beginning).
+        `nextCursor` is always present -- on an empty page too, where it is the position this reader
+        has caught up to -- and never goes back. A page can hold fewer punches than `limit`, even
+        none, while `hasMore` is true; read on while it is. `hasMore` false: every punch the feed
+        held when the page was read has been answered; poll again later with `nextCursor`. A cursor
+        is opaque, belongs to this business's feed (it means nothing in another's) and is refused
+        (400) when it is not one this feed handed out.
+
+        Only `scope`, `cursor` and `limit` are accepted, each at most once; any other parameter,
+        and a query string that does not parse, is 400. No punch carries an e-mail address, a
+        coordinate, a network address, a note or the reason of a decision. While the business is
+        suspended this endpoint stays open.
+      parameters:
+        - name: scope
+          in: query
+          required: true
+          description: "employer: this business's employees' punches; location: every punch at this business's locations."
+          schema:
+            type: string
+            enum: [employer, location]
+        - name: cursor
+          in: query
+          required: false
+          description: The `nextCursor` of the previous page.
+          schema:
+            type: string
+            pattern: "^cur_(0|[1-9][0-9]{0,18})$"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PunchPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
 components:
   securitySchemes:
     bearer:
@@ -485,6 +549,92 @@ components:
         updatedAt:
           type: string
           format: date-time
+    Punch:
+      type: object
+      additionalProperties: false
+      required: [id, version, status, punchTime, recordedAt, channel, direction, employee, location, tagId]
+      properties:
+        id:
+          type: string
+          pattern: "^pch_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          description: The punch. A punch between two companies of one group has the same id in both feeds.
+        version:
+          type: integer
+          enum: [1]
+        status:
+          type: string
+          enum: [valid]
+        punchTime:
+          type: string
+          format: date-time
+          description: The instant the employee's phone declared (UTC).
+        recordedAt:
+          type: string
+          format: date-time
+          description: The instant the punch entered the feed (UTC) -- for an approved flag, the approval's.
+        channel:
+          type: string
+          enum: [nfc, qr]
+        direction:
+          type: string
+          enum: [in, out]
+          description: In or out, as Taptime computed it for the employee's own business.
+        employee:
+          type: object
+          additionalProperties: false
+          required: [id, externalRef, employeeCode, company]
+          description: The employee as they were at the punch.
+          properties:
+            id:
+              type: string
+              pattern: "^emp_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            externalRef:
+              type: ["string", "null"]
+              description: null for an employee not bound to a reference yet.
+            employeeCode:
+              type: ["string", "null"]
+            company:
+              type: ["string", "null"]
+              description: The employee's business's company code.
+        location:
+          type: object
+          additionalProperties: false
+          required: [id, externalRef, name, company]
+          description: |
+            The location as it was at the punch. id, externalRef and name are null for a plaque that
+            was not mounted at a location (company still names the plaque's business); all four are
+            null for a punch at a partner's location approved after the two companies' group
+            membership ended.
+          properties:
+            id:
+              type: ["string", "null"]
+              pattern: "^loc_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            externalRef:
+              type: ["string", "null"]
+            name:
+              type: ["string", "null"]
+            company:
+              type: ["string", "null"]
+              description: The location's business's company code.
+        tagId:
+          type: ["string", "null"]
+          pattern: "^tag_[0-9A-Fa-f]{14}$"
+          description: The plaque touched (also for a QR punch).
+    PunchPage:
+      type: object
+      additionalProperties: false
+      required: [data, nextCursor, hasMore]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Punch"
+        nextCursor:
+          type: string
+          description: Pass as `cursor` for the next page. Always present; never goes back.
+        hasMore:
+          type: boolean
+          description: The feed held more than this page when it was read; read on.
     EmployeePage:
       type: object
       additionalProperties: false

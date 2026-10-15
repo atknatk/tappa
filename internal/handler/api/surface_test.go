@@ -144,7 +144,7 @@ func newRig(t *testing.T, answer func(hash string) (db.ResolvedAPIKey, error), o
 	log := slog.New(slog.NewJSONHandler(&syncWriter{w: logs}, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	work := &workSet{}
 	c := Config{Host: apiHost, Keys: chain, Writes: refuseWrites{}, Suspension: NoSuspensionColumn{}, Work: work,
-		Locations: refuseLocations{}, Employees: refuseEmployees{}, Log: log}
+		Locations: refuseLocations{}, Employees: refuseEmployees{}, Punches: refusePunches{}, Log: log}
 	for _, o := range opts {
 		o(&c)
 	}
@@ -253,6 +253,12 @@ func (refuseEmployees) ListAPIEmployees(context.Context, uuid.UUID, *uuid.UUID, 
 
 func (refuseEmployees) RecordDeactivationBudgetExceeded(context.Context, uuid.UUID, uuid.UUID, string, int) error {
 	return errors.New("this rig writes no trail")
+}
+
+type refusePunches struct{}
+
+func (refusePunches) PunchPage(context.Context, uuid.UUID, tenant.FeedRole, int64, int) (tenant.PunchPage, error) {
+	return tenant.PunchPage{}, errors.New("this rig reads no punch")
 }
 
 func known(tenant, key uuid.UUID) func(string) (db.ResolvedAPIKey, error) {

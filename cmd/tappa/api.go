@@ -8,6 +8,7 @@ import (
 	"github.com/atknatk/tappa/internal/apikey"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
+	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/handler/api"
 	"github.com/atknatk/tappa/internal/httpx"
 )
@@ -42,6 +43,10 @@ const (
 // domain -- for the same reason: an employee the API writes passes the panel's address and name
 // rules and leaves the panel's trail rows (TestAPIWiring_AnEmployeeRunsThroughTheShippedSurfaceAndTheQueue
 // measures the whole path, the invitation queue included).
+//
+// GET /v1/punches (API-7) reads the feed through a tenant.PunchFeed built HERE over the same pool:
+// it is a read with no trail and no rule of the panel's to share, so there is nothing of run()'s to
+// hand it (TestAPIWiring_ThePunchFeedRunsThroughTheShippedSurface reads it through this surface).
 func openAPISurface(cfg *config.Config, data *db.DB, work api.WorkNoticer, venues api.Locations, staff api.Employees, log *slog.Logger) (httpx.Mounter, error) {
 	if cfg.APIHost == "" {
 		log.Info("the integration API is off: TAPPA_API_HOST is not set, so /v1 answers 404 on every host",
@@ -56,9 +61,13 @@ func openAPISurface(cfg *config.Config, data *db.DB, work api.WorkNoticer, venue
 	if err != nil {
 		return nil, err
 	}
+	punches, err := tenant.NewPunchFeed(data)
+	if err != nil {
+		return nil, err
+	}
 	surface, err := api.New(api.Config{
 		Host: cfg.APIHost, Keys: chain, Writes: writes, Suspension: api.NoSuspensionColumn{}, Work: work, Locations: venues,
-		Employees: staff, Log: log,
+		Employees: staff, Punches: punches, Log: log,
 	})
 	if err != nil {
 		return nil, err
