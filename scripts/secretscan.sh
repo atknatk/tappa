@@ -41,6 +41,13 @@
 #               github_pat_ (+22), sk_live_/rk_live_ (+20), xoxb-/xoxp-/xoxa- (+10),
 #               glpat- (+20), AIza (+35), JWT (eyJ<10+>.eyJ<10+>.). Govdesinde 4'ten
 #               az farkli karakter olan (ghp_xxxx...) dolgudur.
+#   tappa-key   Tappa'nin KENDI onekli degerleri (M11 API-3, ADR 0028 §3, K-10): entegrasyon
+#               API anahtari `tt_live_` / `tt_test_` + >=43 base64url ve webhook uc noktasinin
+#               imza anahtari `tt_whsec_` + >=43 base64url (oneki API-3 secti, API-9 onu
+#               uretir). Solunda harf/rakam/_ olan eslesme bir kelimenin ortasidir; govdesinde
+#               4'ten az farkli karakter olan (`tt_live_` + 43 `x`) dolgudur -- belgelerde
+#               ornek bunlarla yazilir. Sir kelimesi ya da anahtar baglami ISTEMEZ: onek kendisi
+#               baglamdir. ONCE AGACTA SAYILDI (2026-10-14): 0 isabet.
 #   pw-assign   ANAHTAR=DEGER (bosluksuz `=`): anahtar password/passwd/passphrase
 #               ile BITER (PGPASSWORD=x) YA DA son `_`/`-` parcasi pass/pwd/apikey/
 #               api_key/secret_key/access_key/auth_token'dir (db_pass=x; bypass=x
@@ -468,7 +475,7 @@ R7D_KEYCAMEL='[a-z0-9](Key|KEY|KEK|Kek|HMAC|Hmac|Aes|AES)'
 # R7D_PREFILTER — rg'nin ucuz on-suzgeci: her sinifin OLMAZSA OLMAZ parcasi. Bir
 # satir buradan gecmezse hicbir sinif onu eslestiremez; gecmesi hicbir sey
 # kanitlamaz, karari awk verir. Yeni bir sinif eklenirse cipasi BURAYA da girer.
-R7D_PREFILTER="$R7D_TRIGGERS|kek|hmac|aes|key|anahtar|://|AKIA|ASIA|PRIVATE KEY|[\$]2|pass|pwd|api.?key|access.?key|auth.?token|identified|curl|gh[pousr]_|github_pat_|k_live_|xox[bpa]-|glpat-|AIza|eyJ"
+R7D_PREFILTER="$R7D_TRIGGERS|kek|hmac|aes|key|anahtar|://|AKIA|ASIA|PRIVATE KEY|[\$]2|pass|pwd|api.?key|access.?key|auth.?token|identified|curl|gh[pousr]_|github_pat_|k_live_|xox[bpa]-|glpat-|AIza|eyJ|tt_(live|test|whsec)_"
 
 # R7D_WAIVERS — MUAFIYET TABLOSU (7. tur): muafiyet SATIRIN TAMAMINA baglidir.
 # Satir basina:  <yol ERE>;<sha256>;<kisa aciklama>
@@ -865,6 +872,19 @@ r7d_awk() {
       }
       return 0
     }
+    # c_tappa: Tappanin kendi onekli degerleri (tappa-key; basliktaki SINIFLAR).
+    function c_tappa(t,    s, tok, pre, body) {
+      s = t
+      while (match(s, /tt_(live|test|whsec)_[A-Za-z0-9_-]+/)) {
+        tok = substr(s, RSTART, RLENGTH)
+        pre = (RSTART > 1) ? substr(s, RSTART - 1, 1) : " "
+        s = substr(s, RSTART + RLENGTH)
+        if (pre ~ /[A-Za-z0-9_]/) continue
+        body = tok; sub(/^tt_(live|test|whsec)_/, "", body)
+        if (length(body) >= 43 && distinct(body) > 4) return 1
+      }
+      return 0
+    }
     # val_at: (5) belge/yapilandirma degerini okur; acilan tirnak atlanir ve VQ=1
     # (tirnakli deger). 4. tur: buradaki "kapanan tirnak" (parite) denetimi SILINDI —
     # `=` atamalari artik shword ile okunuyor ve parite orada; val_at icin agacta da
@@ -1181,6 +1201,7 @@ r7d_awk() {
       if (c_pem(t)) c = add(c, "pem-key")
       if (c_bcrypt(t)) c = add(c, "bcrypt")
       if (c_known(t)) c = add(c, "known-token")
+      if (c_tappa(t)) c = add(c, "tappa-key")
       if (c_assign(t, path)) c = add(c, "pw-assign")
       if (c_a0(t)) c = add(c, "a0-token")
       return c

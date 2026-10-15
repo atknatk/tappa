@@ -366,7 +366,16 @@ report FAIL R3 "transactions / punch_events tablosuna UPDATE/DELETE — kayitlar
 # garantisi bu grep degil, db/queries/tags.sql'deki kati `prev.old_ctr < @ctr`
 # yuklemi, 00013'un tags_counter_monotonic trigger'i ve onlari kosan yaris
 # testleridir. Ayrintili kayit: internal/db/tagsinventory_test.go dosya basligi.
-bad_ctr=$(scan -i -e 'UPDATE +tags +SET +last_ctr' | grep -viE 'last_ctr *<' || true)
+# 🔴 M11 API-3 (ADR 0028 §3): SEMA NITELIKLI BICIM DE. Holding'in ilerletmesi (00043'un
+# holding_advance_tag_counter'i) `UPDATE public.tags` yazar ve eski desen `UPDATE +tags`
+# onu GORMUYORDU. Desen artik istege bagli `public.` (tirnakli ya da bosluklu yazilisi dahil)
+# ve tirnakli `"tags"`/`"last_ctr"` kabul eder. ONCE AGACTA SAYILDI (2026-10-14, API-3'un kendi
+# agaci): yeni desen eski desenden 0 FAZLA isabet verir (ikisi de 0 FAIL; ham isabetlerin
+# ucu de `last_ctr <` tasiyan korunmus ifadeler). Takma ad bicimi (`UPDATE tags t SET`)
+# DENENDI VE SECILMEDI: agacta 1 yanlis pozitif verdi (marketing_claims_test.go'nun KASITLI
+# mutant dizesi, korumasi `prev.old_ctr <=` -- satir-yerel suzgec onu goremez). Pin:
+# cmd/tappa TestRedline_R4R7R7bR7dCatchDeliberateViolations.
+bad_ctr=$(scan -i -e 'UPDATE\s+("?public"?\s*\.\s*)?"?tags"?\s+SET\s+"?last_ctr' | grep -viE 'last_ctr"? *<' || true)
 report FAIL R4 "Kosulsuz last_ctr guncellemesi — 'WHERE last_ctr < \$n' sart" "$bad_ctr"
 
 # 🔴 DESEN IKI YONE DE BAKAR — ONCEDEN YALNIZ BIR YONE BAKIYORDU (M8-04, olculdu).
@@ -1491,9 +1500,25 @@ report FAIL R5c "tappa.feed_counters migration disinda — TF001'in tek sayac ku
 # "cmac", v)` gibi TETIKLEYICIDEN ONCE IKI SEVIYE kapanan bir yazim hala gorunmez.
 # Iki seviye denendi ve secilmedi: rg'nin regex motorunda her seviye pencereyi
 # ustel olarak buyutuyor ve bu agacta yeni bir sey yakalamiyor (0 ek isabet).
-R7_TRIGGERS='token|cmac|aes_?key|secret|invite_?code|code[_a-z]*hash|password|"code"[[:space:]]*,'
+#
+# --- M11 API-3 EKLERI (ADR 0028 §3) -- ONCE AGACTA SAYILDI ------------------------------
+# Kokler `api_?key` (API anahtari), `bearer` (Authorization semasi) ve `signing_?key`
+# (webhook uc noktasinin imza anahtari, API-9) ve bir DAR kalip: log/fmt cagrisinin icinde
+# `Header.Get("Authorization")` ya da `Header["Authorization"]` -- baslik DEGERINI arayan
+# yazim, kelimeyi degil. Yalin `kek`/`signature`/`authorization` kokleri SECILMEDI: ADR'nin
+# 3. tur olcumuyle bugunku agacta 35 satiri kizartirdi ve "kelimeyi degil degeri hedefle"
+# ilkesine aykiridir. OLCULDU (2026-10-14, API-3'un kendi agaci, ayni SRC/GEN_EXCLUDE, -U -i):
+# yeni dort alternatif 0 isabet. Bu yuzden API-3'un kodu log/hata metinlerinde `apikey:`
+# DEGIL `api key:` yazar (Go'nun paket-oneki adeti burada bilerek bozuldu).
+# AWK TARAFI: muafiyet karari (r7_select) R7_TRIGGERS'i awk ERE'si olarak okur; baslik
+# kalibinin `\(`/`\[` kacislari awk -v'den gecerken bozulurdu, o yuzden awk'a onun yerine
+# daha GENIS `authorization` kelimesi verilir (R7_AWK_TRIGGERS) -- muafiyet yolunda bir
+# bolgeyi affetmeyi ZORLASTIRIR, kolaylastirmaz.
+R7_TRIGGERS='token|cmac|aes_?key|secret|invite_?code|code[_a-z]*hash|password|"code"[[:space:]]*,|api_?key|bearer|signing_?key'
+R7_AUTH_HEADER='Header\.Get\("Authorization"\)|Header\["Authorization"\]'
+R7_AWK_TRIGGERS="$R7_TRIGGERS|authorization"
 # Pencere: bir seviye dengeli parantez, tekrar edebilir -> `f(a(), b(), TETIK`.
-R7_PATTERN="(slog|log|fmt)\\.[A-Za-z]+\\((?:[^()]|\\([^()]*\\))*($R7_TRIGGERS)"
+R7_PATTERN="(slog|log|fmt)\\.[A-Za-z]+\\((?:[^()]|\\([^()]*\\))*($R7_TRIGGERS|$R7_AUTH_HEADER)"
 
 # MUAFIYET TABLOSU -- her satir: <yol deseni>;;<masum belirtec>[;;<masum belirtec>...]
 #
@@ -1612,7 +1637,7 @@ r7_raw="$(scan -U -i -e "$R7_PATTERN" || true)"
 # ⚠️ Iki AYRI bolge tesadufen bitisikse birlesirler; bu HATA YONU GUVENLIDIR --
 # birlesmis metinde muaf olmayan tetikleyici kalir ve bolgenin tamami FAIL olur.
 r7_select() {
-  awk -v mode="$1" -v waivers="$R7_WAIVERS" -v trig="$R7_TRIGGERS" '
+  awk -v mode="$1" -v waivers="$R7_WAIVERS" -v trig="$R7_AWK_TRIGGERS" '
     function flush(   i, m, rest, w) {
       if (nlines == 0) return
       w = 0
@@ -1798,8 +1823,12 @@ report FAIL R7c "Tam GPS koordinati log cagrisinda — §4.7: konum yalniz tap a
 # invaryanti ise `_test.go`'lari ATLAR. Yani bir test dosyasindaki
 # `a.logger.Error(..., r.PostFormValue(...))` hem bu uc kuralin hem invaryantin
 # kor noktasindadir. deploy/README.md §4.7 bolumu bunu sinir olarak yaziyor.
+# M11 API-3 (ADR 0028 §3): API-1'in yeni ad alanlari -- `first_name`, `last_name` ve holding
+# izdusumunun `employee_name`'i -- hem Go alani (`.FirstName`, `.LastName`, `.EmployeeName`)
+# hem yapilandirilmis log ANAHTARI ya da degisken adi (`first_name`, `employeeName`) olarak.
+# ONCE AGACTA SAYILDI (2026-10-14): 0 isabet, -i ile de 0.
 report FAIL R7b "Kisisel veri (ad/adres) log cagrisinda — §4.7/§7: surec log'unun saklama suresi ve tenant siniri yoktur" \
-  "$(scan -U -e '(slog|log|fmt)\.[A-Za-z]+\((?:[^()]|\([^()]*\))*(r\.(Post)?FormValue\(|\.FullName\b|\.Email\b|\bposted\.|\b(f|person|out|p|emp|employee|staff|subject)\.Name\b)' || true)"
+  "$(scan -U -e '(slog|log|fmt)\.[A-Za-z]+\((?:[^()]|\([^()]*\))*(r\.(Post)?FormValue\(|\.FullName\b|\.Email\b|\bposted\.|\b(f|person|out|p|emp|employee|staff|subject)\.Name\b|\.(FirstName|LastName|EmployeeName)\b|\b(first|last|employee)_?[Nn]ame\b)' || true)"
 
 report FAIL R7 "Repoda gomulu anahtar dosyasi" \
   "$(git ls-files '*.pem' '*.key' '*.aes' 'secrets/*' 2>/dev/null || true)"
