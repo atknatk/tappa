@@ -121,7 +121,7 @@ type punchRequest struct {
 // punchQuery reads the query string under the rule above. The cursor's prefix says which read it
 // belongs to: cur_ the feed (no from/to), hst_ the history query (with the from/to it was issued
 // for); either given to the other is 400 -- never silently a position of the other kind.
-func punchQuery(r *http.Request) (punchRequest, *Problem) {
+func punchQuery(r *http.Request, tenantID uuid.UUID) (punchRequest, *Problem) {
 	var req punchRequest
 	q, err := url.ParseQuery(r.URL.RawQuery)
 	if err != nil {
@@ -164,7 +164,7 @@ func punchQuery(r *http.Request) (punchRequest, *Problem) {
 	case !present:
 	case req.history:
 		hc, ok := parseHistoryCursor(c[0])
-		if !ok || hc.bind != historyBinding(req.role, req.from, req.to) {
+		if !ok || hc.bind != historyBinding(tenantID, req.role, req.from, req.to) {
 			return req, problemHistoryCursor
 		}
 		req.at = &hc
@@ -232,7 +232,8 @@ func punchOf(e tenant.PunchEvent) punchBody {
 }
 
 func (s *Surface) listPunches(w http.ResponseWriter, r *http.Request) {
-	req, prob := punchQuery(r)
+	p, _ := PrincipalOf(r)
+	req, prob := punchQuery(r, p.TenantID)
 	if prob != nil {
 		writeProblem(w, prob)
 		return
@@ -241,7 +242,6 @@ func (s *Surface) listPunches(w http.ResponseWriter, r *http.Request) {
 		s.listPunchHistory(w, r, req)
 		return
 	}
-	p, _ := PrincipalOf(r)
 	page, err := s.punches.PunchPage(r.Context(), p.TenantID, req.role, req.after, req.limit)
 	switch {
 	case errors.Is(err, tenant.ErrCursorAhead):

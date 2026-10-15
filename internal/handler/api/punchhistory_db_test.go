@@ -197,9 +197,9 @@ func TestPunchHistory_NoManualNoRejected(t *testing.T) {
 }
 
 // TestPunchHistory_OutsiderSeesNone (plan §5 API-7b: "C görmez"): C (holding H2) asks the range KF's
-// and KM's punches -- own and holding, both directions -- sit in: only its own punch, in both scopes;
-// KF's and KM's keys never answer C's. A cursor KF was handed, in C's hands with the same scope and
-// range, is a position in C's feed: past C's counter it is 400, never KF's events.
+// and KM's punches -- own and holding, both directions -- sit in: only its own five punches, in both
+// scopes; KF's and KM's keys never answer C's. A cursor KF was handed, in C's hands with the same
+// scope and range while C's counter is past KF's S0, is 400: the binding names the business.
 func TestPunchHistory_OutsiderSeesNone(t *testing.T) {
 	w := newPunchWorld(t)
 	t0 := histBase()
@@ -210,8 +210,13 @@ func TestPunchHistory_OutsiderSeesNone(t *testing.T) {
 	w.write(in(at(w.kf, w.km, "out"), 3))
 	w.write(in(own(w.km, "nfc", "in"), 4))
 	cc := w.write(in(own(w.c, "nfc", "in"), 5))
+	var cs []uuid.UUID
+	for range 4 {
+		cs = append(cs, w.write(in(own(w.c, "qr", "in"), 0)))
+	}
+	cAll := pchs(append(cs, cc)...)
 	for _, scope := range []string{"employer", "location"} {
-		if got, _ := w.walk(w.c, scope, from, to, 1); !slices.Equal(ids(got), pchs(cc)) {
+		if got, _ := w.walk(w.c, scope, from, to, 1); !slices.Equal(ids(got), cAll) {
 			t.Fatalf("C scope=%s answered %v", scope, ids(got))
 		}
 		for _, b := range []punchBiz{w.kf, w.km} {
@@ -221,19 +226,27 @@ func TestPunchHistory_OutsiderSeesNone(t *testing.T) {
 			}
 		}
 	}
+	// KF's cursor in C's hands -- C's counter (5) is past KF's S0 (3), so S0 alone no longer refuses
+	// it: the binding names the business, and it is 400 (API-7b review: it was a short, silent read).
 	p := pageOf(t, w.get(w.kf.raw, historyQ("employer", from, to, 1, "")))
-	if rec := w.get(w.c.raw, historyQ("employer", from, to, 1, p.NextCursor)); rec.Code != http.StatusBadRequest {
-		t.Fatalf("KF's history cursor in C's hands: %d %s, want 400 (KF's S0 is past C's counter)", rec.Code, rec.Body.String())
+	if hc := mustHist(t, p.NextCursor); hc.pos.S0 >= 5 {
+		t.Fatalf("KF's S0 %d; the case needs C's counter past it", hc.pos.S0)
+	}
+	if rec := w.get(w.c.raw, historyQ("employer", from, to, 1, p.NextCursor)); rec.Code != http.StatusBadRequest || problemOf(t, rec).Details["parameter"] != "cursor" {
+		t.Fatalf("KF's history cursor in C's hands: %d %s, want 400", rec.Code, rec.Body.String())
 	}
 }
 
-// TestPunchHistory_TheRangeAndTheCursorAreTheContract (plan §5 API-7b): [from, to), from before to,
-// at most 31 days (31 days exactly is taken, a microsecond more is not); from or to alone, from = to,
+// TestPunchHistory_TheRangeAndTheCursorAreTheContract (plan §5 API-7b): [from, to), from before to;
+// from or to alone, from = to,
 // a reversed range, a malformed instant, one with no offset and one finer than a microsecond are 400
 // naming both parameters; a feed cursor (cur_) with from/to, and a history cursor (hst_) without them,
 // are 400 -- never silently a position of the other kind; a history cursor sent with another scope,
-// from or to, a malformed one, one whose S0 is past the counter, one whose position is outside the
-// range are 400 (a position past its S0 is not: the window counts every position). No refusal repeats what was sent.
+// from or to, a malformed one, one whose S0 is past the counter and one whose position is outside the
+// range are 400. The range is at most 31 days and one hour (Malta's October and March are one query
+// each; an hour and a microsecond more is not); an offset of +24:00, a comma before the fraction, a
+// lower-case t, an hour of 25 and a 31st of February -- which Go's parser partly takes -- are 400; an
+// unencoded '+' is 400 with reason unencoded_plus. No refusal repeats what was sent.
 func TestPunchHistory_TheRangeAndTheCursorAreTheContract(t *testing.T) {
 	w := newPunchWorld(t)
 	t0 := histBase()
@@ -244,7 +257,16 @@ func TestPunchHistory_TheRangeAndTheCursorAreTheContract(t *testing.T) {
 	}
 	from, to := t0, t0.Add(24*time.Hour)
 	ok := func(q string) punchPage { t.Helper(); return pageOf(t, w.get(w.kf.raw, q)) }
-	ok(historyQ("employer", from, from.Add(31*24*time.Hour), 10, ""))
+	ok(historyQ("employer", from, from.Add(31*24*time.Hour+time.Hour), 10, ""))
+	// A calendar month of Malta, both daylight-saving changes (the user-facing reading of "31 days").
+	malta, err := time.LoadLocation("Europe/Malta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range []time.Month{time.October, time.March} {
+		a, b := time.Date(2026, m, 1, 0, 0, 0, 0, malta), time.Date(2026, m+1, 1, 0, 0, 0, 0, malta)
+		ok("scope=employer&from=" + url.QueryEscape(a.Format(time.RFC3339)) + "&to=" + url.QueryEscape(b.Format(time.RFC3339)))
+	}
 	ok("scope=employer&from=" + url.QueryEscape(from.In(time.FixedZone("x", 3600)).Format(time.RFC3339)) + "&to=" + rfc(to))
 	bad := func(name, q, param string, echo ...string) {
 		t.Helper()
@@ -271,7 +293,16 @@ func TestPunchHistory_TheRangeAndTheCursorAreTheContract(t *testing.T) {
 	bad("to alone", "scope=employer&to="+ts, "range")
 	bad("from = to", "scope=employer&from="+fs+"&to="+fs, "range")
 	bad("reversed", "scope=employer&from="+ts+"&to="+fs, "range")
-	bad("31 days and a microsecond", historyQ("employer", from, from.Add(31*24*time.Hour+time.Microsecond), 10, ""), "range")
+	bad("31 days, an hour and a microsecond", historyQ("employer", from, from.Add(31*24*time.Hour+time.Hour+time.Microsecond), 10, ""), "range")
+	bad("an offset of 24 hours", "scope=employer&from=2026-10-01T00:00:00%2B24:00&to="+ts, "range", "24:00")
+	bad("a comma before the fraction", "scope=employer&from=2026-10-01T00:00:00,5Z&to="+ts, "range", "00,5")
+	bad("a lower-case t", "scope=employer&from=2026-10-01t00:00:00Z&to="+ts, "range", "01t00")
+	bad("an hour of 25", "scope=employer&from=2026-10-01T25:00:00Z&to="+ts, "range")
+	bad("a 31st of February", "scope=employer&from=2026-02-31T00:00:00Z&to=2026-03-02T00:00:00Z", "range")
+	plus := w.get(w.kf.raw, "scope=employer&from=2026-10-01T00:00:00+02:00&to=2026-10-02T00:00:00+02:00")
+	if pr := problemOf(t, plus); plus.Code != http.StatusBadRequest || pr.Details["reason"] != "unencoded_plus" || strings.Contains(plus.Body.String(), "02:00") {
+		t.Errorf("an unencoded '+': %d %s, want 400 naming the encoding and repeating nothing", plus.Code, plus.Body.String())
+	}
 	bad("no offset", "scope=employer&from=2026-10-01T00:00:00&to="+ts, "range", "2026-10-01")
 	bad("a date", "scope=employer&from=2026-10-01&to="+ts, "range", "2026-10-01")
 	bad("garbage", "scope=employer&from=yesterday&to="+ts, "range", "yesterday")
@@ -287,7 +318,7 @@ func TestPunchHistory_TheRangeAndTheCursorAreTheContract(t *testing.T) {
 	bad("another scope", historyQ("location", from, to, 1, first.NextCursor), "cursor")
 	bad("another from", historyQ("employer", from.Add(-time.Second), to, 1, first.NextCursor), "cursor")
 	bad("another to", historyQ("employer", from, to.Add(time.Microsecond), 1, first.NextCursor), "cursor")
-	bind := historyBinding("employer", from, to)
+	bind := historyBinding(w.kf.id, "employer", from, to)
 	forge := func(s0 int64, at time.Time, seq int64) string {
 		return formatHistoryCursor(tenant.HistoryPosition{S0: s0, Time: at.UTC(), Seq: seq}, bind)
 	}
@@ -539,4 +570,75 @@ func TestPunchHistory_WalksNeitherSkipNorRepeatUnderConcurrentWriters(t *testing
 		t.Fatalf("only %d walks finished; the measure needs walks under way while the writers write", len(walks))
 	}
 	t.Logf("%d walks, %d events answered, %d walks off their snapshot", len(walks), events, bad)
+}
+
+// tieGroup gives b n events at ONE punch_time whose heap order is the REVERSE of their feed order.
+// The triggers cannot produce that (a tenant's seq and its row are written under one lock, so the
+// heap follows seq and an index scan of (tenant_id, punch_time) returns ties in seq order by
+// accident); a tie broken by anything but seq is then invisible. So the rows are a fixture: n flags
+// (no event), and as the owner -- in b's context, append-only respected (INSERT only) -- their events
+// with seq counter+n down to counter+1, the counter moved to counter+n. Returns the punch ids in feed
+// (seq) order.
+func (w *punchWorld) tieGroup(b punchBiz, n int, at time.Time) []uuid.UUID {
+	w.r.t.Helper()
+	ids := make([]uuid.UUID, n)
+	for i := range ids {
+		ids[i] = w.write(punchRow{employer: b, verdict: "flag", channel: "nfc", kind: "in", at: &at})
+	}
+	tx, err := w.r.owner.Begin(w.ctx)
+	if err != nil {
+		w.r.t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if _, err := tx.Exec(w.ctx, `SELECT set_config('app.tenant_id', $1, true)`, b.id.String()); err != nil {
+		w.r.t.Fatal(err)
+	}
+	var base int64
+	if err := tx.QueryRow(w.ctx, `SELECT last_seq FROM feed_counters WHERE tenant_id = $1 FOR UPDATE`, b.id).Scan(&base); err != nil {
+		w.r.t.Fatal(err)
+	}
+	for i := n - 1; i >= 0; i-- {
+		if _, err := tx.Exec(w.ctx, `
+			INSERT INTO punch_events (tenant_id, seq, punch_id, punch_tenant_id, roles, punch_time, recorded_at, channel, direction,
+			                          employee_id, employee_ref, employee_code, employee_company, location_id, location_ref, location_name,
+			                          location_company, tag_uid)
+			VALUES ($1, $2, $3, $1, '{employer,location}', $4, now(), 'nfc', 'in', $5, $6, $7, $8, $9, $10, $11, $8, $12)`,
+			b.id, base+int64(i)+1, ids[i], at, b.emp, b.code+"-EMP", b.code+"-C1", b.code, b.venue, b.code+"-LOC", b.code+" Venue", b.tag); err != nil {
+			w.r.t.Fatal(err)
+		}
+	}
+	if _, err := tx.Exec(w.ctx, `UPDATE feed_counters SET last_seq = $2 WHERE tenant_id = $1`, b.id, base+int64(n)); err != nil {
+		w.r.t.Fatal(err)
+	}
+	if err := tx.Commit(w.ctx); err != nil {
+		w.r.t.Fatal(err)
+	}
+	return ids
+}
+
+// TestPunchHistory_ATieIsBrokenByTheFeedOrder (API-7b review, E-ORTA): 32 punches at one instant,
+// written so the heap holds them in the REVERSE of their feed order (tieGroup), between two
+// punches before and after them. Walked with every page size from 1 to 7 and with 50, the range
+// answers them in feed order, each once -- the tie is broken by the feed position everywhere it
+// is ordered (the window, its end, the page). MUTANT (measured): ORDER BY punch_time alone, in the
+// window, its end and the page -- red.
+func TestPunchHistory_ATieIsBrokenByTheFeedOrder(t *testing.T) {
+	w := newPunchWorld(t)
+	t0 := histBase()
+	from, to := t0, t0.Add(3*time.Hour)
+	before := own(w.kf, "nfc", "in")
+	before.at = tp(t0.Add(30 * time.Minute))
+	first := w.write(before)
+	tie := w.tieGroup(w.kf, 32, t0.Add(time.Hour))
+	after := own(w.kf, "nfc", "out")
+	after.at = tp(t0.Add(2 * time.Hour))
+	last := w.write(after)
+	want := pchs(append(append([]uuid.UUID{first}, tie...), last)...)
+	for _, limit := range []int{1, 2, 3, 4, 5, 6, 7, 50} {
+		for _, scope := range []string{"employer", "location"} {
+			if got, _ := w.walk(w.kf, scope, from, to, limit); !slices.Equal(ids(got), want) {
+				t.Fatalf("scope=%s limit=%d answered %d punches %v, want the %d in feed order", scope, limit, len(got), ids(got), len(want))
+			}
+		}
+	}
 }

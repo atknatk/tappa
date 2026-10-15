@@ -342,10 +342,13 @@ paths:
         inside its range, is not refused, and the events before it are skipped silently.
 
         History (`from` and `to`, together): the scope's punches whose `punchTime` is in [`from`,
-        `to`) -- `from` before `to`, at most 31 days apart, RFC 3339 instants with an offset and at
-        most microsecond precision (anything else is 400) -- in `punchTime` order (ties in feed
+        `to`) -- `from` before `to`, at most 31 days and one hour apart (a calendar month in any time
+        zone, a daylight-saving change included); RFC 3339 instants (`YYYY-MM-DDThh:mm:ss`, an
+        optional `.fraction`, then `Z` or an offset `±hh:mm`) with at most microsecond precision --
+        anything else is 400; a `+` in an offset must be sent as `%2B` (unencoded it reads as a
+        space: 400 with `details.reason` `unencoded_plus`) -- in `punchTime` order (ties in feed
         order). Page with `nextCursor` as with the feed; a history cursor (`hst_…`) belongs to the
-        `scope`, `from` and `to` it was issued for and is 400 with any other, and so is a feed cursor
+        business, `scope`, `from` and `to` it was issued for and is 400 with any other, and so is a feed cursor
         (`cur_…`) sent with `from`/`to` or a history cursor sent without them. A history read is a
         SNAPSHOT: its first page fixes the feed position it stands at, and its pages answer the
         punches the feed held then. A punch that enters the feed later with an earlier `punchTime`
@@ -383,7 +386,7 @@ paths:
         - name: to
           in: query
           required: false
-          description: "History: the range's end (excluded), at most 31 days after `from`. Requires `from`."
+          description: "History: the range's end (excluded), at most 31 days and one hour after `from`. Requires `from`."
           schema:
             type: string
             format: date-time

@@ -218,8 +218,12 @@ type HistoryPage struct {
 	HasMore bool
 }
 
-// MaxHistoryRange is the longest [From, To) a history query takes (ADR 0028 §5: 31 days).
-const MaxHistoryRange = 31 * 24 * time.Hour
+// MaxHistoryRange is the longest [From, To) a history query takes: ADR 0028 §5's 31 days and one
+// hour, so that a local calendar month is one query in every time zone -- the month whose
+// daylight-saving change gives an hour back (October in Malta: 2026-10-01T00:00+02:00 to
+// 2026-11-01T00:00+01:00) is 31 days and an hour long (API-7b review, the user-facing reading of
+// "31 days").
+const MaxHistoryRange = 31*24*time.Hour + time.Hour
 
 // ErrHistoryRange: From is not before To, or the range is longer than MaxHistoryRange, or the
 // position is not inside it.

@@ -6,9 +6,12 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/atknatk/tappa/internal/domain/tenant"
 )
@@ -17,9 +20,11 @@ import (
 //
 //	GET /v1/punches?scope=…&from=…&to=…[&cursor=hst_…][&limit=…]
 //
-// The scope's punches whose punchTime is in [from, to) -- from before to, at most 31 days apart --
-// in (punchTime, feed position) order. from and to are RFC 3339 instants with an offset, at most
-// microsecond precision (punch_time's): a finer instant is refused, not rounded.
+// The scope's punches whose punchTime is in [from, to) -- from before to, at most 31 days and one
+// hour apart (tenant.MaxHistoryRange: a calendar month in any time zone, a daylight-saving change
+// included) -- in (punchTime, feed position) order. from and to are RFC 3339 instants (rfc3339Shape)
+// with Z or an offset, at most microsecond precision (punch_time's): a finer instant is refused, not
+// rounded; an unencoded '+' (a space) gets a refusal that says so.
 //
 // THE WALK IS A SNAPSHOT (tenant.PunchFeed.HistoryPage): its first page fixes the feed position S0
 // and every page answers the punches at or below it. A punch that enters the feed later -- an
@@ -28,18 +33,33 @@ import (
 // The same range asked again later can answer more.
 //
 // THE HISTORY CURSOR is hst_<S0>_<punchTime µs>_<position>_<binding>: transparent like the feed's,
-// and bound to the request it was issued for -- the binding is a digest of the scope, from and to, so
-// a cursor sent with another scope or range is 400 instead of silently answering a different set (the
-// feed cursor's cross-scope trap, which the binding closes here). It is not a secret and not a
-// signature: it names a position in the key's own feed, and a forged one can only pick another
-// position there. An S0 past the business's counter is 400 (tenant.ErrCursorAhead).
+// and bound to the request it was issued for -- the binding is a digest of the key's business, the
+// scope, from and to, so a cursor sent by another business or with another scope or range is 400
+// instead of silently answering a different set (the feed cursor's cross-scope trap, which the
+// binding closes here). It is not a secret and not a signature: a forged one names a position and an
+// S0 in the key's own feed, and that is all it can choose -- an S0 past the business's counter is 400
+// (tenant.ErrCursorAhead), and whatever S0 it carries a page reads at most the window's positions
+// (the window counts positions of the range, not the snapshot's rows -- API-7b review G-ORTA:
+// before that, a stale or forged S0 made one page read every row of the range, 230-660 ms at a
+// million). Every read here runs under tenant.APIReadTimeout.
 
 const historyCursorPrefix = "hst_"
 
+// rfc3339Shape is RFC 3339's date-time (§5.6) with upper-case T and Z: a full date, a full time, an
+// optional fraction after a dot, and Z or an offset of hours 00-23 and minutes 00-59. The calendar
+// itself (a 31st of February) is the parser's to refuse.
+var rfc3339Shape = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,9})?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$`)
+
 var (
 	problemHistoryRange = &Problem{Code: CodeInvalidRequest,
-		Message: "from and to go together: two RFC 3339 instants with an offset, at most microsecond precision, from before to and at most 31 days apart.",
-		Details: map[string]any{"parameters": []string{paramFrom, paramTo}, "maxDays": 31}}
+		Message: "from and to go together: two RFC 3339 instants (YYYY-MM-DDThh:mm:ss[.fraction] and Z or an offset ±hh:mm), at most microsecond precision, from before to and at most 31 days and one hour apart (a calendar month in any time zone).",
+		Details: map[string]any{"parameters": []string{paramFrom, paramTo}, "maxHours": 31*24 + 1}}
+	// problemHistoryPlus: an offset's '+' sent unencoded arrives as a space (form encoding) -- the
+	// commonest way to send a valid instant and get a refusal, so the refusal says so (without
+	// repeating the value).
+	problemHistoryPlus = &Problem{Code: CodeInvalidRequest,
+		Message: "from or to carries a space: a '+' in an offset must be percent-encoded as %2B in a query string (unencoded it reads as a space).",
+		Details: map[string]any{"parameters": []string{paramFrom, paramTo}, "reason": "unencoded_plus"}}
 	problemHistoryCursor = &Problem{Code: CodeInvalidRequest,
 		Message: "With from and to, cursor must be the nextCursor of an earlier page of the same scope, from and to.",
 		Details: map[string]any{"parameter": fieldCursor}}
@@ -59,7 +79,15 @@ func historyRange(q url.Values) (from, to time.Time, prob *Problem) {
 	if !okF || !okT {
 		return time.Time{}, time.Time{}, problemHistoryRange
 	}
+	if strings.Contains(f[0], " ") || strings.Contains(t[0], " ") {
+		return time.Time{}, time.Time{}, problemHistoryPlus
+	}
 	parse := func(v string) (time.Time, bool) {
+		// The shape first: Go's parser is laxer than RFC 3339 (it takes a +24:00 offset and a comma
+		// before the fraction -- API-7b review), so only the RFC's own shape reaches it.
+		if !rfc3339Shape.MatchString(v) {
+			return time.Time{}, false
+		}
 		at, err := time.Parse(time.RFC3339Nano, v)
 		if err != nil || at.Nanosecond()%1000 != 0 {
 			return time.Time{}, false
@@ -74,9 +102,11 @@ func historyRange(q url.Values) (from, to time.Time, prob *Problem) {
 	return from, to, nil
 }
 
-// historyBinding is the digest a history cursor carries of the request it was issued for.
-func historyBinding(role tenant.FeedRole, from, to time.Time) string {
-	sum := sha256.Sum256([]byte("tappa/v1-history\x00" + string(role) + "\x00" +
+// historyBinding is the digest a history cursor carries of the request it was issued for: the
+// key's business (API-7b review: without it another business's cursor was a short, silent read of
+// this one's feed), the scope and the range.
+func historyBinding(tenantID uuid.UUID, role tenant.FeedRole, from, to time.Time) string {
+	sum := sha256.Sum256([]byte("tappa/v1-history\x00" + tenantID.String() + "\x00" + string(role) + "\x00" +
 		strconv.FormatInt(from.UnixMicro(), 10) + "\x00" + strconv.FormatInt(to.UnixMicro(), 10)))
 	return hex.EncodeToString(sum[:8])
 }
@@ -147,7 +177,7 @@ func (s *Surface) listPunchHistory(w http.ResponseWriter, r *http.Request, req p
 		return
 	}
 	out := punchPage{Data: make([]punchBody, 0, len(page.Events)),
-		NextCursor: formatHistoryCursor(page.Next, historyBinding(req.role, req.from, req.to)), HasMore: page.HasMore}
+		NextCursor: formatHistoryCursor(page.Next, historyBinding(p.TenantID, req.role, req.from, req.to)), HasMore: page.HasMore}
 	for _, e := range page.Events {
 		out.Data = append(out.Data, punchOf(e))
 	}
