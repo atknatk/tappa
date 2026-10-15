@@ -358,13 +358,11 @@ func run() error {
 	// K-19's WORKER (M11 API-4, ADR 0028 §6): the in-process set of tenants with work, drained by one
 	// loop. A recorded tap puts its tenant -- both tenants of a holding tap -- into it, and so does
 	// every authenticated /v1 request (openAPISurface, below): no path ever scans across tenants. Its
-	// jobs (API-6's invitation sender, API-10's delivery) arrive with those tasks; today the set
-	// fills and drains. It drains beside the HTTP server at shutdown.
+	// first job, API-6's invitation queue, is added once the e-mail transport exists (below, after
+	// the panel's invitation route) and the worker is started there; API-10's delivery follows. It
+	// drains beside the HTTP server at shutdown.
 	work, err := webhook.NewWorker(slog.Default())
 	if err != nil {
-		return err
-	}
-	if err := work.Start(ctx); err != nil {
 		return err
 	}
 	checkins.NoticeWorkTo(work)
@@ -734,6 +732,10 @@ func run() error {
 	var panelOptions []handler.AdminAuthOption
 	switch cfg.InviteDelivery {
 	case config.InviteDeliveryPanel:
+		// No e-mail transport: the integration API's invitation requests wait in the queue (an
+		// employee it opens shows activationEmail "queued") and the owner shows a link on the panel.
+		log := slog.Default()
+		log.Info("the invitation queue is off: TAPPA_INVITE_DELIVERY is panel, so no invitation is e-mailed")
 	case config.InviteDeliveryEmail:
 		invitationCap, err := mail.NewRecipientCap(breaker)
 		if err != nil {
@@ -744,6 +746,18 @@ func run() error {
 			return err
 		}
 		panelOptions = append(panelOptions, handler.InvitationsByEmail(invitations))
+		// K-17's INVITATION QUEUE (M11 API-6, ADR 0028 §9): the integration API asks for
+		// invitations and this worker sends them -- through the SAME transport and per-mailbox cap
+		// as the panel's press (one set of ceilings, ADR 0022 §9) and the same invite.Manager (one
+		// code key). It is a job of K-19's worker: it runs for a tenant the worker hands it, never
+		// across tenants.
+		queue, err := invite.NewQueue(invites, invitations.QueueSink(slog.Default()), trail)
+		if err != nil {
+			return err
+		}
+		if err := work.Add(queue); err != nil {
+			return err
+		}
 	default:
 		// Unreachable (config.Load refuses every value outside the closed set) and
 		// written for the reason the reset switch's default is: a new value must fail
@@ -839,10 +853,14 @@ func run() error {
 	}
 
 	// THE INTEGRATION API (M11 API-4): /v1 on TAPPA_API_HOST, or nothing (a nil Mounter, which
-	// NewRouter skips). It is handed the pool, K-19's worker and the panel's venue domain (API-5);
-	// api.go says the rest.
-	integrationAPI, err := openAPISurface(cfg, data, work, venues, slog.Default())
+	// NewRouter skips). It is handed the pool, K-19's worker, the panel's venue domain (API-5) and
+	// the panel's employee domain (API-6); api.go says the rest.
+	integrationAPI, err := openAPISurface(cfg, data, work, venues, staff, slog.Default())
 	if err != nil {
+		return err
+	}
+	// The worker starts once every job is added (the invitation queue, above).
+	if err := work.Start(ctx); err != nil {
 		return err
 	}
 

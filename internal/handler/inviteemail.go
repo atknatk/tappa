@@ -228,21 +228,7 @@ type emailLinkSink struct {
 // which quote no value. An accepted send writes ONE line: the ids and the relay's
 // message id — never the address, the names, the link or the message.
 func (s *emailLinkSink) SendInvitation(ctx context.Context, d invite.Delivery) (string, error) {
-	m, err := email.RenderInvitation(ctx, d.ActivationURL, email.InvitationView{
-		BaseURL:        s.mail.baseURL,
-		EmployeeName:   d.Recipient.EmployeeName,
-		TenantName:     d.Recipient.TenantName,
-		TenantVerified: d.Recipient.TenantVerified,
-		ValidFor:       d.Invite.ExpiresAt.Sub(d.Invite.CreatedAt).Round(time.Minute),
-	})
-	if err != nil {
-		return "", fmt.Errorf("handler: rendering the invitation e-mail: %w", err)
-	}
-	m.To = d.Recipient.Address
-	m.Ref = d.Invite.ID.String()
-	// Counted under the business that minted it — the scope RecipientCapped was asked
-	// with inside the minting transaction (invite.MailSink).
-	receipt, err := s.mail.sender.Send(ctx, d.Invite.TenantID.String(), m)
+	receipt, err := s.mail.send(ctx, d)
 	if err != nil {
 		return "", err
 	}
@@ -251,6 +237,58 @@ func (s *emailLinkSink) SendInvitation(ctx context.Context, d invite.Delivery) (
 		"invite_id", d.Invite.ID, "message_id", receipt.MessageID)
 	s.to, s.sent = d.Recipient.Address, true
 	return receipt.MessageID, nil
+}
+
+// send renders one invitation and hands it to the relay -- the panel's press and the queue's
+// send alike. The message goes to Send and nowhere else.
+func (e *EmailInvitations) send(ctx context.Context, d invite.Delivery) (mail.Receipt, error) {
+	m, err := email.RenderInvitation(ctx, d.ActivationURL, email.InvitationView{
+		BaseURL:        e.baseURL,
+		EmployeeName:   d.Recipient.EmployeeName,
+		TenantName:     d.Recipient.TenantName,
+		TenantVerified: d.Recipient.TenantVerified,
+		ValidFor:       d.Invite.ExpiresAt.Sub(d.Invite.CreatedAt).Round(time.Minute),
+	})
+	if err != nil {
+		return mail.Receipt{}, fmt.Errorf("handler: rendering the invitation e-mail: %w", err)
+	}
+	m.To = d.Recipient.Address
+	m.Ref = d.Invite.ID.String()
+	// Counted under the business that minted it — the scope RecipientCapped was asked
+	// with inside the minting transaction (invite.MailSink).
+	return e.sender.Send(ctx, d.Invite.TenantID.String(), m)
+}
+
+// QueueSink is invite.MailSink for K-17's invitation queue (M11 API-6, internal/invite's
+// queue.go): the SAME transport -- this EmailInvitations' per-mailbox cap around the one breaker
+// -- so the queue and the panel share every ceiling (ADR 0022 §9, ADR 0028 §9), and the same
+// rendering. It keeps no per-request state (the queue has no screen to tell); an accepted send
+// writes one line of ids, never the address, the names or the link.
+func (e *EmailInvitations) QueueSink(log *slog.Logger) invite.MailSink {
+	if log == nil {
+		log = slog.Default()
+	}
+	return &queueLinkSink{mail: e, log: log}
+}
+
+type queueLinkSink struct {
+	mail *EmailInvitations
+	log  *slog.Logger
+}
+
+func (s *queueLinkSink) SendInvitation(ctx context.Context, d invite.Delivery) (string, error) {
+	receipt, err := s.mail.send(ctx, d)
+	if err != nil {
+		return "", err
+	}
+	s.log.InfoContext(ctx, "queued invitation: the relay accepted the e-mail",
+		"tenant_id", d.Invite.TenantID, "employee_id", d.Invite.EmployeeID,
+		"invite_id", d.Invite.ID, "message_id", receipt.MessageID)
+	return receipt.MessageID, nil
+}
+
+func (s *queueLinkSink) RecipientCapped(tenantID uuid.UUID, address string) bool {
+	return s.mail.sender.Capped(tenantID.String(), address)
 }
 
 // RecipientCapped asks the per-mailbox cap whether an invitation from business

@@ -62,6 +62,22 @@ func NewWorker(log *slog.Logger, jobs ...Job) (*Worker, error) {
 	return &Worker{jobs: jobs, log: log, pending: map[uuid.UUID]struct{}{}, wake: make(chan struct{}, 1)}, nil
 }
 
+// Add gives the worker one more job before it starts (cmd/tappa builds the invitation queue after
+// the worker, once the e-mail transport exists). After Start it is refused: the loop reads the jobs
+// without a lock.
+func (w *Worker) Add(j Job) error {
+	if j == nil {
+		return errors.New("webhook: nil job")
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.done != nil || w.closed {
+		return errors.New("webhook: a job is added before Start")
+	}
+	w.jobs = append(w.jobs, j)
+	return nil
+}
+
 // Notice puts tenant into the set. It never blocks and never fails (it is called on the tap path
 // and the API chain); the nil tenant and a notice after Drain are ignored. The set holds a tenant
 // once however many times it is noticed, so it is bounded by the number of tenants.

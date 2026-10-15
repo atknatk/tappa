@@ -28,17 +28,23 @@ const (
 	CodeAPIDisabled          Code = "api_disabled"           // 403: the operator has not opened this business's API (K-22)
 	CodeTenantSuspended      Code = "tenant_suspended"       // 403: a write the suspension closes (ADR 0028 §10)
 	CodeNotFound             Code = "not_found"              // 404: no such route or resource (and an unsupported method)
+	CodeEmailUnavailable     Code = "email_unavailable"      // 409: another active employee of the business has the address (K-24)
+	CodeAlreadyActivated     Code = "already_activated"      // 409: resend-activation for an employee who activated (ADR 0028 §9)
 	CodeIdempotencyKeyReused Code = "idempotency_key_reused" // 422: the Idempotency-Key was used with another request
 	CodeValidationFailed     Code = "validation_failed"      // 422: a field or the path's ref the contract refuses (details.field, details.reason)
 	CodeTimezoneMismatch     Code = "timezone_mismatch"      // 422: a venue's time zone is its business's (K-7)
 	CodeRateLimited          Code = "rate_limited"           // 429: a bucket is empty; Retry-After says when to come back
-	CodeUnavailable          Code = "unavailable"            // 503: anything on our side; the cause is in our log only
+	// CodeDeactivationBudgetExceeded is K-25's 429: the key deactivated its hourly budget's worth of
+	// employees (ADR 0028 §12); Retry-After says when the oldest leaves the window.
+	CodeDeactivationBudgetExceeded Code = "deactivation_budget_exceeded"
+	CodeUnavailable                Code = "unavailable" // 503: anything on our side; the cause is in our log only
 )
 
 // Codes is the closed set, in a stable order (the OpenAPI enum's).
 func Codes() []Code {
 	return []Code{CodeInvalidRequest, CodeBodyTooLarge, CodeUnauthorized, CodeAPIDisabled, CodeTenantSuspended,
-		CodeNotFound, CodeIdempotencyKeyReused, CodeValidationFailed, CodeTimezoneMismatch, CodeRateLimited, CodeUnavailable}
+		CodeNotFound, CodeEmailUnavailable, CodeAlreadyActivated, CodeIdempotencyKeyReused, CodeValidationFailed,
+		CodeTimezoneMismatch, CodeRateLimited, CodeDeactivationBudgetExceeded, CodeUnavailable}
 }
 
 // Section8Statuses are the statuses ADR 0028 §8 allows an error body to carry.
@@ -58,9 +64,11 @@ func StatusOf(c Code) int {
 		return http.StatusForbidden
 	case CodeNotFound:
 		return http.StatusNotFound
+	case CodeEmailUnavailable, CodeAlreadyActivated:
+		return http.StatusConflict
 	case CodeIdempotencyKeyReused, CodeValidationFailed, CodeTimezoneMismatch:
 		return http.StatusUnprocessableEntity
-	case CodeRateLimited:
+	case CodeRateLimited, CodeDeactivationBudgetExceeded:
 		return http.StatusTooManyRequests
 	default:
 		return http.StatusServiceUnavailable

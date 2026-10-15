@@ -37,7 +37,12 @@ const (
 // PUT /v1/locations (API-5) is handed venues -- run()'s *tenant.Venues, the PANEL's venue domain
 // with the panel's audit recorder -- so a venue the API writes passes the rules a manager's does
 // and leaves its trail in the same table (TestAPIWiring_TheChainTakesThePanelsPrefixAndTheOneWorker).
-func openAPISurface(cfg *config.Config, data *db.DB, work api.WorkNoticer, venues api.Locations, log *slog.Logger) (httpx.Mounter, error) {
+//
+// The employee endpoints (API-6) are handed staff -- run()'s *tenant.Staff, the PANEL's employee
+// domain -- for the same reason: an employee the API writes passes the panel's address and name
+// rules and leaves the panel's trail rows (TestAPIWiring_AnEmployeeRunsThroughTheShippedSurfaceAndTheQueue
+// measures the whole path, the invitation queue included).
+func openAPISurface(cfg *config.Config, data *db.DB, work api.WorkNoticer, venues api.Locations, staff api.Employees, log *slog.Logger) (httpx.Mounter, error) {
 	if cfg.APIHost == "" {
 		log.Info("the integration API is off: TAPPA_API_HOST is not set, so /v1 answers 404 on every host",
 			integrationAPIState, integrationAPIOff)
@@ -52,7 +57,8 @@ func openAPISurface(cfg *config.Config, data *db.DB, work api.WorkNoticer, venue
 		return nil, err
 	}
 	surface, err := api.New(api.Config{
-		Host: cfg.APIHost, Keys: chain, Writes: writes, Suspension: api.NoSuspensionColumn{}, Work: work, Locations: venues, Log: log,
+		Host: cfg.APIHost, Keys: chain, Writes: writes, Suspension: api.NoSuspensionColumn{}, Work: work, Locations: venues,
+		Employees: staff, Log: log,
 	})
 	if err != nil {
 		return nil, err

@@ -144,7 +144,7 @@ func newRig(t *testing.T, answer func(hash string) (db.ResolvedAPIKey, error), o
 	log := slog.New(slog.NewJSONHandler(&syncWriter{w: logs}, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	work := &workSet{}
 	c := Config{Host: apiHost, Keys: chain, Writes: refuseWrites{}, Suspension: NoSuspensionColumn{}, Work: work,
-		Locations: refuseLocations{}, Log: log}
+		Locations: refuseLocations{}, Employees: refuseEmployees{}, Log: log}
 	for _, o := range opts {
 		o(&c)
 	}
@@ -222,6 +222,37 @@ func (refuseLocations) PutVenueTx(context.Context, pgx.Tx, tenant.VenuePut) (ten
 
 func (refuseLocations) APIVenue(context.Context, uuid.UUID, uuid.UUID) (tenant.APIVenue, error) {
 	return tenant.APIVenue{}, errors.New("this rig reads no venue")
+}
+
+// refuseEmployees is an Employees for tests that write no employee.
+type refuseEmployees struct{}
+
+func (refuseEmployees) PutEmployeeTx(context.Context, pgx.Tx, tenant.EmployeePut, tenant.Admit) (tenant.EmployeePutResult, error) {
+	return tenant.EmployeePutResult{}, errors.New("this rig writes no employee")
+}
+
+func (refuseEmployees) DeleteEmployeeTx(context.Context, pgx.Tx, tenant.EmployeeDelete) (tenant.EmployeePutResult, error) {
+	return tenant.EmployeePutResult{}, errors.New("this rig writes no employee")
+}
+
+func (refuseEmployees) ResendActivationTx(context.Context, pgx.Tx, tenant.EmployeeResend) (tenant.EmployeePutResult, error) {
+	return tenant.EmployeePutResult{}, errors.New("this rig writes no employee")
+}
+
+func (refuseEmployees) APIEmployeeByRef(context.Context, uuid.UUID, string) (tenant.APIEmployee, error) {
+	return tenant.APIEmployee{}, errors.New("this rig reads no employee")
+}
+
+func (refuseEmployees) APIEmployeeByID(context.Context, uuid.UUID, uuid.UUID) (tenant.APIEmployee, error) {
+	return tenant.APIEmployee{}, errors.New("this rig reads no employee")
+}
+
+func (refuseEmployees) ListAPIEmployees(context.Context, uuid.UUID, *uuid.UUID, int) ([]tenant.APIEmployee, error) {
+	return nil, errors.New("this rig reads no employee")
+}
+
+func (refuseEmployees) RecordDeactivationBudgetExceeded(context.Context, uuid.UUID, uuid.UUID, string, int) error {
+	return errors.New("this rig writes no trail")
 }
 
 func known(tenant, key uuid.UUID) func(string) (db.ResolvedAPIKey, error) {

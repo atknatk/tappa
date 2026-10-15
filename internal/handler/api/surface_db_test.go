@@ -40,6 +40,7 @@ type dbRig struct {
 	trail  *audit.Recorder
 	work   *workSet
 	venues *tenant.Venues
+	staff  *tenant.Staff
 	// suspended stands in for OP-15's column (this branch has none): the businesses it names are
 	// suspended, every other is not -- NoSuspensionColumn's answer.
 	suspended *suspendedSet
@@ -66,7 +67,7 @@ func (s *suspendedSet) suspend(t uuid.UUID) {
 	s.set[t] = true
 }
 
-func newDBRig(t *testing.T) *dbRig {
+func newDBRig(t *testing.T, opts ...func(*Config)) *dbRig {
 	t.Helper()
 	appDSN, ownerDSN := os.Getenv("DATABASE_URL"), os.Getenv("DATABASE_MIGRATE_URL")
 	if appDSN == "" || ownerDSN == "" {
@@ -108,13 +109,21 @@ func newDBRig(t *testing.T) *dbRig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	suspended := &suspendedSet{set: map[uuid.UUID]bool{}}
-	s, err := New(Config{Host: apiHost, Keys: chain, Writes: writes, Suspension: suspended, Work: work,
-		Locations: venues, Log: slog.New(slog.DiscardHandler)})
+	staff, err := tenant.NewStaff(d, trail, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := &dbRig{t: t, d: d, owner: owner, keys: keys, trail: trail, work: work, venues: venues, suspended: suspended,
+	suspended := &suspendedSet{set: map[uuid.UUID]bool{}}
+	cfg := Config{Host: apiHost, Keys: chain, Writes: writes, Suspension: suspended, Work: work,
+		Locations: venues, Employees: staff, Log: slog.New(slog.DiscardHandler)}
+	for _, o := range opts {
+		o(&cfg)
+	}
+	s, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &dbRig{t: t, d: d, owner: owner, keys: keys, trail: trail, work: work, venues: venues, staff: staff, suspended: suspended,
 		writes: writes, s: s}
 	withTestRoutes(s, func(rt chi.Router) {
 		// A read in the key's tenant: an api_keys row by id, WithTenant + an explicit filter -- the

@@ -107,6 +107,211 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/Unavailable"
+  /v1/employees:
+    get:
+      operationId: listEmployees
+      summary: A page of the business's employees.
+      description: |
+        Every employee of the business -- active and deactivated, with or without an external
+        reference -- in a stable order, `limit` at a time (default 500, at most 1000). When a page is
+        full, `nextCursor` names the next one; pass it as `cursor`. No other query parameter is
+        accepted (400). No answer carries an e-mail address: `hasEmail` says whether there is one,
+        `activationEmail` the activation e-mail's state and time.
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - name: cursor
+          in: query
+          required: false
+          description: The `nextCursor` of the previous page.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: One page.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmployeePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/employees/{ref}:
+    get:
+      operationId: getEmployee
+      summary: One employee, by the business's reference.
+      description: |
+        The active employee under the reference, or -- when none is active -- the most recently
+        deactivated one (a re-hire is a new employee under the same reference). 404 when the business
+        never held the reference. No e-mail address is answered.
+      parameters:
+        - $ref: "#/components/parameters/EmployeeRef"
+      responses:
+        "200":
+          description: The employee.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Employee"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    put:
+      operationId: putEmployee
+      summary: Create, update or deactivate one of the business's employees by its external reference.
+      description: |
+        The employee is addressed by the business's own reference (`ref`).
+
+        An unknown reference first BINDS an employee the business already has in Taptime: an active
+        employee with no reference whose e-mail address is the one sent (in this business only).
+        Otherwise it creates a new employee (201) and, when `email` is an address, queues an
+        activation e-mail: the activation link is created when the e-mail is sent (`activationEmail`
+        is `queued`, then `sent`). The e-mail is sent within Taptime's sending limits; reaching a limit
+        delays it, it never refuses the request. The employee activates by opening the link and then
+        tapping a plaque of the business; that first tap is not a punch.
+
+        A known reference is updated (200). When the e-mail address changes, every activation link
+        sent to the old one stops working, in the same change; an employee who has not activated yet
+        is sent a new one, an activated employee is not. `active: false` deactivates the employee
+        (their taps are refused from then on); `active: true` on a reference whose employee is
+        deactivated creates a NEW employee (new `id`, same `externalRef`). A request that matches the
+        employee as they are changes nothing (200).
+
+        `email` must be one plain ASCII address and not the address of an administrator of the
+        business (422); an address another active employee of the business holds is 409
+        `email_unavailable` (nothing is created or sent).
+
+        Deactivation -- here or by DELETE -- is limited per key: past 20 in an hour it is 429
+        `deactivation_budget_exceeded` with `Retry-After`, and the business's owner is alerted.
+
+        The body is one UTF-8 JSON object with exactly the fields below, each at most once (any other
+        field 422 `unknown_field`, a field twice 422 `duplicate_field`). While the business is
+        suspended a request that creates a new employee is accepted; one that changes an existing
+        employee (deactivation included) is 403 `tenant_suspended`.
+      parameters:
+        - $ref: "#/components/parameters/EmployeeRef"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmployeePut"
+      responses:
+        "200":
+          description: The employee existed (or was bound by address); it is now as sent.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Employee"
+        "201":
+          description: A new employee was created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Employee"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    delete:
+      operationId: deleteEmployee
+      summary: Deactivate one of the business's employees.
+      description: |
+        Deactivates the active employee under the reference: their taps are refused from then on, and
+        their history stays. An employee already deactivated is answered as they are (200, nothing
+        spent); a reference the business never held is 404. Limited per key like `active: false` (429
+        `deactivation_budget_exceeded`). While the business is suspended, 403 `tenant_suspended`.
+      parameters:
+        - $ref: "#/components/parameters/EmployeeRef"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The employee, deactivated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Employee"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/employees/{ref}/resend-activation:
+    post:
+      operationId: resendActivation
+      summary: Ask for the activation e-mail to be sent again.
+      description: |
+        Queues an activation e-mail for an employee who has not activated. It never cancels a link at
+        request time: while an e-mail is already queued, or one was sent in the last hour and its link
+        still works, the request changes nothing -- the answer is 202 either way. The new link, when
+        one is sent, replaces the older ones. An activated employee is 409 `already_activated` (a new
+        phone is set up in the Taptime panel); an employee with no e-mail address is 422. Accepted
+        while the business is suspended.
+      parameters:
+        - $ref: "#/components/parameters/EmployeeRef"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "202":
+          description: Accepted; `activationEmail` says the state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Employee"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
 components:
   securitySchemes:
     bearer:
@@ -134,6 +339,13 @@ components:
         minimum: 1
         maximum: 1000
         default: 500
+    EmployeeRef:
+      name: ref
+      in: path
+      required: true
+      description: The business's reference for the employee (percent-decoded once, then matched).
+      schema:
+        $ref: "#/components/schemas/ExternalRef"
   headers:
     RetryAfter:
       description: Seconds to wait before retrying.
@@ -192,6 +404,98 @@ components:
         createdAt:
           type: string
           format: date-time
+    EmployeePut:
+      type: object
+      additionalProperties: false
+      required: [firstName, lastName, email, active]
+      properties:
+        firstName:
+          type: string
+          description: |
+            Surrounding spaces are removed and inner runs of spaces collapsed; firstName and lastName
+            together at most 120 characters. A NEW or CHANGED name cannot carry a control character
+            (a tab or a line break included), a line or paragraph separator, a direction override or
+            isolate, a zero-width space, a word joiner or an inner U+FEFF, nor a joiner or tag
+            character outside an emoji, a flag or a word (422, details.reason hidden_character).
+        lastName:
+          type: string
+          description: As firstName.
+        email:
+          type: ["string", "null"]
+          description: |
+            One plain ASCII address, at most 254 characters, not an administrator's of the business;
+            null for none. The activation e-mail goes here.
+        active:
+          type: boolean
+          description: false deactivates the employee (limited per key per hour).
+        employeeCode:
+          type: ["string", "null"]
+          description: Optional. 1 to 64 characters once surrounding spaces are removed; null for none.
+        externalRef:
+          type: string
+          description: Optional. When present it must be the reference in the path.
+    Employee:
+      type: object
+      additionalProperties: false
+      required: [id, externalRef, employeeCode, firstName, lastName, fullName, active, activated, activatedAt, hasEmail, activationEmail, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          pattern: "^emp_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        externalRef:
+          type: ["string", "null"]
+          description: null for an employee created in the Taptime panel and not bound yet.
+        employeeCode:
+          type: ["string", "null"]
+        firstName:
+          type: ["string", "null"]
+          description: null for an employee created in the Taptime panel (fullName is its name).
+        lastName:
+          type: ["string", "null"]
+        fullName:
+          type: string
+        active:
+          type: boolean
+          description: false once deactivated.
+        activated:
+          type: boolean
+          description: The employee has activated a phone.
+        activatedAt:
+          type: ["string", "null"]
+          format: date-time
+        hasEmail:
+          type: boolean
+          description: Whether an e-mail address is on file. The address itself is never answered.
+        activationEmail:
+          type: object
+          additionalProperties: false
+          required: [status, at]
+          properties:
+            status:
+              type: string
+              enum: [queued, sent, none]
+              description: "queued: waiting to be sent; sent: a link was sent and still works; none: neither."
+            at:
+              type: ["string", "null"]
+              format: date-time
+              description: When it was queued or sent; null for none.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    EmployeePage:
+      type: object
+      additionalProperties: false
+      required: [data, nextCursor]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Employee"
+        nextCursor:
+          type: ["string", "null"]
     Error:
       type: object
       additionalProperties: false
@@ -199,7 +503,7 @@ components:
       properties:
         code:
           type: string
-          enum: [invalid_request, body_too_large, unauthorized, api_disabled, tenant_suspended, not_found, idempotency_key_reused, validation_failed, timezone_mismatch, rate_limited, unavailable]
+          enum: [invalid_request, body_too_large, unauthorized, api_disabled, tenant_suspended, not_found, email_unavailable, already_activated, idempotency_key_reused, validation_failed, timezone_mismatch, rate_limited, deactivation_budget_exceeded, unavailable]
         message:
           type: string
           description: A sentence for a person. Never contains the request's own values.
@@ -226,19 +530,25 @@ components:
           schema:
             $ref: "#/components/schemas/Error"
     NotFound:
-      description: "not_found: no such resource (on an Idempotency-Key replay: the location it recorded no longer exists)."
+      description: "not_found: no such resource (on an Idempotency-Key replay: the location or employee it recorded no longer exists)."
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Conflict:
+      description: "email_unavailable: another active employee of the business has the address; already_activated: the employee has activated already."
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
     Unprocessable:
-      description: "idempotency_key_reused: the Idempotency-Key was used with a different request; validation_failed: a field or the path's reference the contract refuses (details.field and details.reason -- required, type, invalid, hidden_character, mismatch, unknown_field, duplicate_field); timezone_mismatch: a location's time zone must be its business's (details.businessTimezone)."
+      description: "idempotency_key_reused: the Idempotency-Key was used with a different request; validation_failed: a field or the path's reference the contract refuses (details.field and details.reason -- required, type, invalid, hidden_character, administrator_address, mismatch, unknown_field, duplicate_field); timezone_mismatch: a location's time zone must be its business's (details.businessTimezone)."
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
     TooManyRequests:
-      description: "rate_limited: wait for Retry-After seconds."
+      description: "rate_limited: wait for Retry-After seconds; deactivation_budget_exceeded: this key deactivated as many employees as it may in an hour -- wait for Retry-After seconds."
       headers:
         Retry-After:
           $ref: "#/components/headers/RetryAfter"

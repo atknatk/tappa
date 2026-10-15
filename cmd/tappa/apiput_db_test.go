@@ -75,8 +75,12 @@ func TestAPIWiring_ThePutOfALocationRunsThroughTheShippedSurface(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	staff, err := tenant.NewStaff(data, trail, quiet)
+	if err != nil {
+		t.Fatal(err)
+	}
 	work := &noticed{}
-	surface, err := openAPISurface(cfg, data, work, venues, quiet)
+	surface, err := openAPISurface(cfg, data, work, venues, staff, quiet)
 	if err != nil || surface == nil {
 		t.Fatalf("openAPISurface: %v %v", surface, err)
 	}
