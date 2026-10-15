@@ -693,10 +693,12 @@ func TestLocationsPut_SuspendedAndClosedWriteNothing(t *testing.T) {
 // JSON object (400 invalid_request), with name and active required and of their types, timezone
 // optional and non-empty, externalRef optional and equal to the path's, any other key -- matched
 // exactly, so "Name" is unknown -- 422 unknown_field WITHOUT echoing the key; the name passes the
-// panel's rule (trimmed, 1..80 runes); 64 KiB is the bound (one byte over: 400 body_too_large;
+// panel's rule (trimmed, 1..80 runes, no control or format character inside -- BEL, ESC, a line
+// break, U+202E, a zero-width space); 64 KiB is the bound (one byte over: 400 body_too_large;
 // a 64 KiB object padded with whitespace: accepted). No refusal leaves a row.
 //
-// MUTANT (measured, API-5 report): the key check made case-insensitive (encoding/json's own matching)
+// MUTANTS (measured, API-5 report): the hidden-character refusal removed from venueName -> five
+// names 201; the key check made case-insensitive (encoding/json's own matching)
 // -> "Name" passes as a known key and the answer is "name required", not unknown_field.
 func TestLocationsPut_TheBodyAndTheRefContract(t *testing.T) {
 	r := newDBRig(t)
@@ -722,6 +724,11 @@ func TestLocationsPut_TheBodyAndTheRefContract(t *testing.T) {
 		{"name null", ref, `{"name":null,"active":true}`, 422, CodeValidationFailed, "name", "type"},
 		{"name a number", ref, `{"name":5,"active":true}`, 422, CodeValidationFailed, "name", "type"},
 		{"name blank", ref, `{"name":"   ","active":true}`, 422, CodeValidationFailed, "name", "invalid"},
+		{"name with BEL", ref, `{"name":"Rusty\u0007Bar","active":true}`, 422, CodeValidationFailed, "name", "invalid"},
+		{"name with ESC", ref, `{"name":"Rusty\u001b[31mBar","active":true}`, 422, CodeValidationFailed, "name", "invalid"},
+		{"name with a line break inside", ref, `{"name":"Rusty\nBar","active":true}`, 422, CodeValidationFailed, "name", "invalid"},
+		{"name with RTL override", ref, `{"name":"Rusty\u202eraB","active":true}`, 422, CodeValidationFailed, "name", "invalid"},
+		{"name with a zero-width space", ref, `{"name":"Rusty\u200bBar","active":true}`, 422, CodeValidationFailed, "name", "invalid"},
 		{"name of 81 runes", ref, `{"name":"` + strings.Repeat("ż", 81) + `","active":true}`, 422, CodeValidationFailed, "name", "invalid"},
 		{"no active", ref, `{"name":"n"}`, 422, CodeValidationFailed, "active", "required"},
 		{"active a string", ref, `{"name":"n","active":"false"}`, 422, CodeValidationFailed, "active", "type"},

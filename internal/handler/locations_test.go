@@ -515,6 +515,11 @@ func TestParseName_RefusesRatherThanTruncates(t *testing.T) {
 			name: "a NUL byte is removed rather than exploded on",
 			raw:  "Rusty\x00 Bar", want: "Rusty Bar",
 		},
+		// The domain's hidden-character rule, said as a sentence (API-5 review).
+		{name: "BEL inside is refused", raw: "Rusty\aBar", wantMsg: true},
+		{name: "a line break inside is refused", raw: "Rusty\nBar", wantMsg: true},
+		{name: "RTL override is refused", raw: "Rusty\u202eraB", wantMsg: true},
+		{name: "a zero-width space is refused", raw: "Rusty\u200bBar", wantMsg: true},
 		{
 			name: "exactly the bound is accepted",
 			raw:  strings.Repeat("a", tenant.MaxVenueNameRunes),

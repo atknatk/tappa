@@ -656,6 +656,10 @@ func parseName(raw, what string) (string, string) {
 	if s == "" {
 		return "", "Give the " + what + " a name."
 	}
+	// The domain's rule, said here as a sentence (tenant.NameHasHiddenCharacters).
+	if tenant.NameHasHiddenCharacters(s) {
+		return "", "The " + what + " name has an invisible or control character in it. Type it again without one."
+	}
 	// COUNTED IN RUNES, NOT BYTES. Maltese names carry ċ ġ ħ ż and the brand ships a
 	// latin-ext subset precisely because these names are not ASCII, so a byte bound
 	// would refuse ordinary names at four fifths of the stated length.

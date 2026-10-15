@@ -995,6 +995,23 @@ func TestVenues_TheNameBoundIsEnforcedBeforeTheColumn(t *testing.T) {
 	}); !errors.Is(err, ErrVenueName) {
 		t.Errorf("a blank venue name answered %v, want ErrVenueName", err)
 	}
+	// A control or format character inside is refused too (API-5 review): BEL, ESC, a line
+	// break, U+202E, a zero-width space -- for venues and departments alike.
+	for _, hidden := range []string{"\a", "\x1b", "\n", "\u202e", "\u200b"} {
+		if _, err := f.venues.SaveVenue(ctx, VenueCommand{
+			TenantID: f.tenantID, ActorID: f.actorID, Name: "Rusty" + hidden + "Bar",
+		}); !errors.Is(err, ErrVenueName) {
+			t.Errorf("a venue name with %q answered %v, want ErrVenueName", hidden, err)
+		}
+		if _, err := f.venues.SaveDepartment(ctx, DepartmentCommand{
+			TenantID: f.tenantID, ActorID: f.actorID, LocationID: f.locationID, Name: "Grill" + hidden + "Line",
+		}); !errors.Is(err, ErrDepartmentName) {
+			t.Errorf("a department name with %q answered %v, want ErrDepartmentName", hidden, err)
+		}
+	}
+	if after := f.venueCount(t, f.tenantID); after != before {
+		t.Error("a name with a hidden character was stored")
+	}
 	if _, err := f.venues.SaveDepartment(ctx, DepartmentCommand{
 		TenantID: f.tenantID, ActorID: f.actorID, LocationID: f.locationID,
 		Name: strings.Repeat("b", MaxVenueNameRunes+1),

@@ -84,6 +84,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -1490,11 +1491,20 @@ func clockText(d time.Duration) string {
 // NUL IS REMOVED FIRST. PostgreSQL text cannot hold a zero byte -- it answers
 // "invalid byte sequence for encoding UTF8" and the request becomes a 500, which
 // was measured on the roster's filter box and is the same driver here.
+//
+// 🔴 A CONTROL OR FORMAT CHARACTER INSIDE THE NAME IS REFUSED (API-5 review, 2026-10-15).
+// BEL, ESC, a line break, U+202E (right-to-left override), zero-width characters: none
+// is part of a place's name, and each can make a name READ as another one on a screen,
+// in a CSV a spreadsheet opens, or on a holding peer's panel (the name crosses the
+// tenant line in the punch snapshot -- ADR 0028 K-32). Measured before the rule: the
+// API stored all five; the only stored names carrying such a character were a CSV
+// test's raw INSERT (it bypasses this function on purpose). Surrounding whitespace is
+// still trimmed and NUL still removed first -- both as before.
 func venueName(raw string, sentinel error) (string, error) {
 	s := strings.ReplaceAll(raw, "\x00", "")
 	s = strings.ToValidUTF8(s, "")
 	s = strings.TrimSpace(s)
-	if s == "" {
+	if s == "" || NameHasHiddenCharacters(s) {
 		return "", sentinel
 	}
 	// COUNTED IN RUNES, NOT BYTES. Maltese names carry ċ ġ ħ ż and the brand ships
@@ -1504,6 +1514,18 @@ func venueName(raw string, sentinel error) (string, error) {
 		return "", sentinel
 	}
 	return s, nil
+}
+
+// NameHasHiddenCharacters reports whether s carries a control (Cc) or format (Cf) character --
+// the venue and department name rule's refusal, shared with the panel's boundary so the two
+// cannot disagree.
+func NameHasHiddenCharacters(s string) bool {
+	for _, r := range s {
+		if unicode.Is(unicode.Cc, r) || unicode.Is(unicode.Cf, r) {
+			return true
+		}
+	}
+	return false
 }
 
 // requireActor refuses the zero value for the two ids every command needs. THE
