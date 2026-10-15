@@ -820,8 +820,14 @@ genişleyenler: `TestEmployeeUpdatedAt_OnlyDirectoryColumnsOnEveryUpdatePath` (A
 `TestApiKeyPanel_AMalformedBudgetIsReadAsNone`; genişleyenler: `TestInviteQueue_ACeilingDelaysAndSpendsNoTry`,
 `TestKeyBudgetBanner_AbsentAddsNothing` (altın dosyalar).
 
-**API-7** — `Punches_FourShapesTimesTwoScopes` (anlık görüntü alanlarıyla, doğru tenant'a) ·
-`Punches_OutsiderSeesNone` · `Punches_NoManualNoRejected` · `Punches_Limit1001Is400`.
+**API-7** *(yazıldı — "API-7 uygulama notu"; adlar önerilenle aynı, önek eklendi)* —
+`TestPunches_FourShapesTimesTwoScopes` (anlık görüntü alanlarıyla, doğru tenant'a) · `TestPunches_OutsiderSeesNone` ·
+`TestPunches_NoManualNoRejected` · `TestPunches_Limit1001Is400`. Ekler: `TestPunches_TheQueryIsTheContract`,
+`TestPunches_CursorGames`, `TestPunches_NothingButTheFeedsColumnsAnswers`, `TestPunches_ClosedIs403RevokedIs401SuspendedIsOpen`,
+`TestPunches_ApprovalAfterTheHoldingEndedNamesNoCounterpart`, `TestPunches_PagesNeitherSkipNorRepeatUnderConcurrentWriters`,
+`TestPunchFeed_TheWindowBoundsASparseScopeAndAGapIsCrossed`, `TestAPIWiring_ThePunchFeedRunsThroughTheShippedSurface`;
+genişleyenler: `TestAPIWiring_TheChainTakesThePanelsPrefixAndTheOneWorker` (`Punches`), `TestOpenAPI_PathsAreTheRoutersAndTheErrorIsSection8`,
+`TestStoreSurface_IsTheOneRecorded`.
 
 **API-8** — `Directory_HoldingTenantsOnlyNoEmailWithActive` · `Directory_Paged` ·
 `Directory_OverlapWindow` · `Directory_OwnStaffAlwaysFromTheRLSQuery` ·
@@ -1921,3 +1927,93 @@ resend yeniden ister.
 panelin basıp commit ettiği ama e-posta satırını henüz yazmadığı (gönderim commit'ten sonradır) bir bağlantı o anda
 teslimsiz görünür ve kuyruk tam o anda vazgeçerse emekliye ayrılır. Pencere tek bir gönderimin süresidir (≤ 10 sn); çare resend
 ya da yeni bir panel basışıdır. Cümle ve `invites.sql` yorumu daraltıldı.
+
+
+## API-7 uygulama notu (2026-10-15)
+
+Yapıcının uygulaması ve ölçümleri; kararlar değişmedi — sapmalar ve ADR'nin açık bıraktıkları aşağıda adıyla.
+**Migration yok** (`punch_events`, `feed_counters`, `punch_events_pkey (tenant_id, seq)` ve `tappa_app`'in SELECT'i
+API-2'den). Mutantlar ve ölçek ölçümü atılabilir bir PostgreSQL 17 kabında (`scripts/db-init` ile, goose 54); paylaşılan
+`tappa-m11-db`'ye yalnız testlerin yazdığı satırlar.
+
+**Parçalar.** Sorgular `db/queries/punchfeed.sql` (iki: `GetPunchFeedHead`, `ListPunchEvents` — ikisi de açık
+`tenant_id` taşır; `internal/domain/tenant`'ın §4.5 kemeri ikisini de okur); okuyucu `internal/domain/tenant/punchfeed.go`
+(`tenant.PunchFeed`, `WithTenant(anahtarın tenant'ı)`); uç `internal/handler/api/punches.go`; kablolama `openAPISurface`'te
+tek bir `tenant.NewPunchFeed(data)` (panelden paylaşılacak kural ya da iz yok — okuma). `transactions` adlandırılmaz:
+`TestEvidenceReaders_EveryOneIsClassified`'ın sınıflandıracağı yeni okuyucu yok.
+
+**Sözleşme ve ADR'nin açık bıraktıkları — kararıyla (otonom, gerekçeli):**
+1. **`scope` zorunlu, kapalı küme** (`employer` | `location`; §2'nin cümlesi: hedef = anahtarın tenant'ı ∧ satırın rolü).
+   Varsayılan bir kapsam plan §2 madde 31'in uyarısını sessiz bir veri hatasına çevirirdi. Tek-tenant punch iki kapsamda.
+2. **Sorgu parametreleri API-5'in gövde kuralıyla:** yalnız `scope`, `cursor`, `limit`, her biri en çok bir kez; başka ad
+   (harf farkı dahil — `Scope`), `from`/`to`, yinelenen ad ve ayrıştırılamayan sorgu dizgesi (`%zz`, `;`) **400
+   `invalid_request`** (§8'de parametre 400'dür, gövde alanı 422). Gerekçe: yok sayılan bir `curser` okuyucuyu akışın başına
+   döndürür, yok sayılan bir `scop` öteki kapsamın punch'larını verir. `r.URL.Query()` bozuk çifti sessizce attığı için
+   `url.ParseQuery`'nin hatası okunur. Ret istenen değeri yankılamaz.
+3. **İmleç `cur_<seq>` — yalnız konum** (brief'in önerisi): tenant anahtardan, kapsam parametreden, her istekte. Biçim katı
+   (önek, işaretsiz, baştaki sıfırsız ondalık, int64). Başka tenant'ın imleci bu akışta bir **konumdur**: akışın ötesindeyse
+   400, içindeyse bu tenant'ın o konumdan sonraki olayları — öteki tenant'a dair tek bir bayt vermez (söylediği, okuyanın
+   kendi akışının uzunluğudur). İmlecin imzası yoktur: taşıdığı tek şey okuyanın kendi akışında bir konum; sahte bir imleç bir
+   konum seçmekten öte bir şey kazandırmaz. **Akışın ötesindeki imleç 400** (`tenant.ErrCursorAhead`): sayacı ileri atma
+   adımını atlayan bir geri yükleme (§5) entegratörü sayaç onun imlecini geçene kadar sessizce boş sayfada bekletirdi; şimdi
+   yüksek sesle durur. Geri yükleme adımıyla açılan boşluktaki konumlar geçerlidir.
+4. **Yanıt `{data, nextCursor, hasMore}`; `nextCursor` her zaman dolu** — boş sayfada okuyucunun yetiştiği konum: isteğinki
+   ya da (imleçten sonra olay yoksa) sayacın değeri; hiç geri gitmez. `hasMore`: sayfa okunduğu anda akışta bu sayfadan
+   fazlası vardı. Employees'in "dolu sayfa → `nextCursor`" kuralı burada kullanılmadı: bir akışı yoklayan okuyucunun tek bir
+   değer saklaması gerekir, ve 6. maddenin boş sayfası "dolu sayfa" sezgisini bozar.
+5. **Okumanın ispatı — iki ifade, sıra ispattır** (§5'in okuma yarısı). Önce `GetPunchFeedHead`: sayaç `S` ve imleçten
+   sonraki ilk olay; sonra `ListPunchEvents`: `(after, upto]`, `upto ≤ S`, `seq` sırasıyla, `limit + 1` satır. Sayaç satırı
+   artıştan commit'e kadar kilitli olduğu için anlık görüntünün gördüğü olaylar tam olarak `1..S`'dir ve `≤ S` her olay
+   ilk ifade başlamadan commit edilmiştir — READ COMMITTED'da daha sonraki ikinci ifade hepsini görür. Kısa sayfa pencerenin
+   tamamını okumuştur; pencerenin sonu atlamayan bir imleçtir. Kesilen sayfanın imleci verilen son olaydır.
+6. **Pencere** (`tenant.PunchFeedWindow` = 10 000 konum). Kapsam bir rol süzgecidir; akışı çoğunlukla öteki kapsamın
+   satırları olan bir tenant (çalışanları eşin plaketlerinde çalışan işveren, `scope=location`) sayfayı doldurmak için
+   sınırsız yürürdü. Pencere imleçten sonraki **ilk olaydan** başlar (geri yükleme boşluğu ya da uzun bir aralık tek adımda
+   geçilir) ve `S`'de biter. **Bedel (adlandırıldı, OpenAPI'de ve plan §5 API-12'de):** `limit`'ten az, hatta boş bir sayfa
+   `hasMore: true` ile gelebilir; 1 M öteki-kapsam satırı 100 boş sayfadır.
+7. **Alanlar:** `pch_<işverenin kayıt id'si>` (holding punch'ının iki satırında aynı), `version`, `status`, `punchTime`
+   (`occurred_at`), `recordedAt` (olayın `recorded_at`'i — onaylı flag'de onay anı), `channel`, `direction`, `employee {id,
+   externalRef, employeeCode, company}`, `location {id, externalRef, name, company}` — her zaman nesne, alanları null
+   olabilir (lokasyonsuz plaket; eşlik bitmişken onay — API-2 sapma 4), `tagId` (`tag_` + uid; `character(14)`'ün dolgusu
+   kırpılır). Zamanlar UTC. `roles` ve `seq` yanıtta yoktur (kapsam istekten, konum imleçten). Yanıt alan alan kurulur.
+8. **Askı:** okuma kontrol noktasından geçmez — askıda açık (§10). K-22 (403) ve iptal (401) zincirde.
+
+**Ölçümler.**
+- **Dört şekil × iki kapsam** — `TestPunches_FourShapesTimesTwoScopes`: KF@KF, KM@KM, KM@KF, KF@KM; her işletmenin her
+  kapsamı tam beklenen kümeyi sırayla verir ve her yanıt kendi akış satırına alan alan eşittir; holding punch'ının iki yanıtı
+  aynı `id`, zaman ve yönü taşır; KM@KF'de KF'nin lokasyonu (şirket KF), KF@KM'de KM'nin. C ve D (H2) hiçbirini görmez
+  (`TestPunches_OutsiderSeesNone` — KF'nin her konumu C'nin elinde: yalnız C'nin punch'ı ya da 400). Eşlik bitmişken onay →
+  KM'de bir kez, lokasyon null, `tagId` KF'nin plaketi; KF'de yok (`TestPunches_ApprovalAfterTheHoldingEndedNamesNoCounterpart`).
+- **K-4** — `TestPunches_NoManualNoRejected`: manuel, practice (ok ve onaylı flag), reject, ignored, reddedilmiş, bekleyen ve
+  onaylı manuel flag hiçbir kapsamda yok; onaylı flag bir kez, onay anında, akış sırasındaki yerinde; KM'nin KF plaketindeki
+  onaylı flag'i KM `employer` ve KF `location`'da birer kez; holding manuel ve reddi yok.
+- **Eşzamanlı okuyucu** — `TestPunches_PagesNeitherSkipNorRepeatUnderConcurrentWriters` (API-2 stresi okuma ucundan): 12 yazıcı
+  × 40 satır, dört işletme, iki yönlü holding dokunuşları, onda bir tümden geri alma, onda bir savepoint geri alımı; işletme ve
+  kapsam başına bir okuyucu uçtan 1–7'lik sayfalarla. Koşu: 864 olay, 651 sayfa, **0 kaçan, 0 yinelenen**. **Mutantlar
+  (her biri 3/3 kırmızı):** sayaç sayfadan **sonra** okununca (sonraki anlık görüntü) kaçan 3–11 / okuyucu; `upto` sınırı
+  kaldırılınca yinelenen 3–11 / okuyucu.
+- **Diğer mutantlar** (her biri kırmızı): kesilen sayfanın imleci sayaç → `Limit1001Is400`, `CursorGames`, stres; rol süzgeci
+  sabit `employer` → dört şekil, K-4, stres; lokasyon şirketi çalışanınkinden → üç test; akışın ötesindeki imleç kabul →
+  `CursorGames`; önek denetimi gevşetilince (`"1"`) → `CursorGames`; bilinmeyen parametre yok sayılınca ve kapsam varsayılan
+  `employer` olunca → `TheQueryIsTheContract`; bozuk sorgu `r.URL.Query()`'ye düşünce → `TheQueryIsTheContract`; sayfa
+  sorgusunda `tenant_id` yüklemi `OR true` ile etkisizleşince → kemer (`TestStaffQueries_CarryAnExplicitTenantPredicate`)
+  kırmızı, HTTP izolasyon testleri RLS sayesinde yeşil (kuşak + kemer, API-5 emsali); baş sorgusunun alt sorgusunda yüklem
+  kaldırılınca → kemer kırmızı; `api.New`'e `Punches` verilmeyince → kablolama testi ve uçtan uca test kırmızı.
+  *Adlandırılmış (yeşil kalan, kusur değil):* yetişmiş okuyucunun imleci sayaç yerine isteğin imleci olunca dört HTTP
+  testi yeşil kaldı — atlama ya da yineleme doğurmaz, yalnız ilerlemez; `TestPunchFeed_TheWindowBoundsASparseScopeAndAGapIsCrossed`
+  bunu pinler (geri yükleme boşluğunda okuyucu yeni sayaçta yetişmiş sayılır).
+- **Kanarya** — `TestPunches_NothingButTheFeedsColumnsAnswers`: arkadaki her satırın notu, kaynak adresi, koordinatı,
+  kuralı, policy bağlamı ve güveni, her çalışanın e-postası kanarya taşır; iki işletmenin iki kapsamının yanıt baytlarında
+  hiçbiri ve `verdict`/`trust`/`note`/`email`/`gps`/`policy`/`sid`/`roles` sözcükleri yok; her punch tam sözleşme anahtarlarını
+  taşır.
+- **Ölçek** (atılabilir kap, Docker Desktop macOS; iki tenant, her birinde 1 001 000 olay — 10 000'i gerçek tetikleyicilerden,
+  990 000'i aynı biçimde toplu yazıldı (yalnız laboratuvar), 1 000'i gerçek tetikleyicilerden; `ANALYZE`'lı): `EXPLAIN
+  (ANALYZE)` — baş sorgusu `punch_events_pkey` üzerinde tek Index Only Scan (0,2 ms); sayfa `punch_events_pkey` Index Scan,
+  `(tenant_id, seq)` aralığı + rol süzgeci, Sort yok: 1 000 satır 1,0 ms, boş 10 000'lik pencere 7 ms (soğuk). Okuyucu
+  üzerinden (`PunchPage`, 20 tekrar): `limit` 500 medyan 4,7–5,6 ms, 1 000 medyan 6,8 ms (başta, ortada, sonda aynı); seyrek
+  kapsam (1 M `employer` satırının arkasında 1 000 `location`): 101 sayfa (100 boş), toplam 1,37 sn, en kötü sayfa 273 ms
+  (soğuk); yoğun 1 M yürüyüş 1 001 sayfa, toplam 6,7 sn, en kötü 50 ms. Süre plana bağlı olduğu için pinlenmez.
+
+**Devredilen / açık — orkestratöre:** **Geçmiş sorgusu** (`from`/`to`, ≤ 31 gün — §5 son cümlesi, plan §2 madde 18,
+`punch_events_tenant_time_idx`): API-7 brief'inin kapsamında değildi ve plan §5'te sahibi olan bir görev yok. Bugün
+`from`/`to` 400'dür (2. madde); eklenmesi geriye uyumludur. Kendi imleci (`punch_time` sırası) ve kendi ölçümü ister.

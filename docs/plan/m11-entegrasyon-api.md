@@ -562,6 +562,17 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
   `undelivered` olur — nedeni (tavan mı, röle mi) API'de ayrılmaz; çare her ikisinde resend'dir. Büyük ilk senkronu günlere
   yaymak ya da `undelivered` olanlara resend göndermek önerilir. **Tenant içi kehanet:** 409 `email_unavailable`, 422 `administrator_address` ve adresle bağlama, anahtar
   sahibine kendi işletmesinde bir adresin kimde olduğunu söyler — rehber bunu açıkça yazar.
+  **(API-7'den, 2026-10-15)** `GET /v1/punches` için: `scope` zorunludur (`employer` | `location`), yalnız `scope`,
+  `cursor`, `limit` kabul edilir, her biri bir kez — başka parametre (harf farkı, `from`/`to` dahil) ve ayrıştırılamayan
+  sorgu dizgesi 400. Yanıt `{data, nextCursor, hasMore}`: `nextCursor` **her zaman** doludur (boş sayfada okuyucunun
+  yetiştiği konum) ve geri gitmez; entegratör tek bir değer saklar. Bir sayfa `limit`'ten az, **hatta boş**, olup
+  `hasMore: true` diyebilir (sayfa akışın en çok 10 000 konumunu okur) — döngü `hasMore` false olana kadar sürer, sonra
+  aynı `nextCursor` ile yoklanır. İmleç opaktır, işletmenin kendi akışına aittir, başka işletmede anlamı yoktur; akışın
+  ötesindeki imleç 400'dür (yedekten geri yüklemeden sonra sayaç adımı atlanmışsa bu yüksek sesli durma bilinçlidir).
+  Punch alanları: `id` (`pch_`, holding punch'ının iki kapsamında aynı), `version` 1, `status` `valid`, `punchTime`,
+  `recordedAt` (onaylı flag'de onay anı), `channel`, `direction`, `employee {id, externalRef, employeeCode, company}`,
+  `location {id, externalRef, name, company}` (her zaman nesne; lokasyonsuz plaket ve eşlik bitmişken onay → null
+  alanlar), `tagId` (ADR 0028 "API-7 uygulama notu").
 - **API-13:** **(API-6 ikinci turundan, 2026-10-15 — deploy öncesi)** Aşağıdaki isim sayımına `employees`'in `full_name`,
   `first_name` ve `last_name` sütunları da girer (panelin ekleme yolu artık aynı kurala bağlı; kayıtlı adlar yeniden
   yargılanmaz, sayı yalnız bilgidir — değer basılmaz). `00053` deploy'da koşar: `tappa_app`'in `audit_log` INSERT'i sütun
