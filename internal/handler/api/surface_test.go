@@ -1037,3 +1037,60 @@ func TestWrite_ACheckpointThatCannotReadIsClosed(t *testing.T) {
 		}
 	}
 }
+
+// TestGuard_PanicAndDeadlineAreSection8 (API-4 review, both lenses): through the shipped router (its
+// Recoverer and its middleware.Timeout outside the surface), a /v1 handler that panics answers 503
+// unavailable as JSON -- not the Recoverer's bodiless 500 -- and the panic is logged with its stack
+// and without the key; a handler that returns having written nothing after the request's deadline
+// answers 503 unavailable -- not Timeout's bodiless 504; a handler that wrote its own status keeps it;
+// http.ErrAbortHandler still aborts. MUTANT (measured): the guard not mounted -> 500 and 504.
+func TestGuard_PanicAndDeadlineAreSection8(t *testing.T) {
+	tenant, key := uuid.New(), uuid.New()
+	r := newRig(t, known(tenant, key))
+	shipped := r.s.testRoutes
+	withTestRoutes(r.s, func(rt chi.Router) {
+		shipped(rt)
+		rt.Get("/_panic", func(http.ResponseWriter, *http.Request) { panic("boom in a handler") })
+		rt.Get("/_late", func(_ http.ResponseWriter, req *http.Request) { <-req.Context().Done() })
+		rt.Get("/_wrote", func(w http.ResponseWriter, req *http.Request) {
+			w.WriteHeader(http.StatusTeapot)
+			<-req.Context().Done()
+		})
+		rt.Get("/_abort", func(http.ResponseWriter, *http.Request) { panic(http.ErrAbortHandler) })
+	})
+	r.h = httpx.NewRouter(&config.Config{APIHost: apiHost}, slog.New(slog.NewJSONHandler(&syncWriter{w: r.logs}, nil)), r.s)
+	k := liveKey(t)
+	w := r.do(http.MethodGet, "/v1/_panic", "Bearer "+k, "", nil)
+	if w.Code != http.StatusServiceUnavailable || problemOf(t, w).Code != CodeUnavailable {
+		t.Fatalf("a panic: %d %q %q, want 503 unavailable JSON", w.Code, w.Header().Get("Content-Type"), w.Body.String())
+	}
+	logs := r.logs.String()
+	if !strings.Contains(logs, "boom in a handler") || !strings.Contains(logs, "runtime/debug.Stack") {
+		t.Fatalf("the panic was not logged with its stack: %s", logs)
+	}
+	if strings.Contains(logs, k) || strings.Contains(logs, k[len(apikey.LivePrefix):]) {
+		t.Fatal("the panic's log carries the key")
+	}
+	late := func(path string) *httptest.ResponseRecorder {
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		defer cancel()
+		req := httptest.NewRequest(http.MethodGet, "http://"+apiHost+path, nil).WithContext(ctx)
+		req.Header.Set("Authorization", "Bearer "+k)
+		rec := httptest.NewRecorder()
+		r.h.ServeHTTP(rec, req)
+		return rec
+	}
+	if w := late("/v1/_late"); w.Code != http.StatusServiceUnavailable || problemOf(t, w).Code != CodeUnavailable {
+		t.Fatalf("a missed deadline: %d %q, want 503 unavailable JSON", w.Code, w.Body.String())
+	}
+	if w := late("/v1/_wrote"); w.Code != http.StatusTeapot {
+		t.Fatalf("CONTROL: a handler that wrote its status before the deadline: %d", w.Code)
+	}
+	defer func() {
+		if v := recover(); v != http.ErrAbortHandler {
+			t.Fatalf("ErrAbortHandler was swallowed: %v", v)
+		}
+	}()
+	r.do(http.MethodGet, "/v1/_abort", "Bearer "+k, "", nil)
+	t.Fatal("ErrAbortHandler did not abort")
+}

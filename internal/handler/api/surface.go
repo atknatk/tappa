@@ -18,8 +18,10 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"runtime/debug"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -131,11 +133,12 @@ func New(c Config) (*Surface, error) {
 }
 
 // Mount registers /v1. Every request passes, in order: the host gate (404 off the API host), the
-// response headers, the body bound; then either the address bucket alone (the public document) or
-// the whole chain (everything else). Unknown paths and methods answer the JSON 404.
+// response headers, the body bound, the guard (a panic or a missed deadline is 503); then either
+// the address bucket alone (the public document) or the whole chain (everything else). Unknown paths
+// and methods answer the JSON 404.
 func (s *Surface) Mount(r chi.Router) {
 	r.Route(Prefix, func(r chi.Router) {
-		r.Use(s.hostGate, s.headers, s.bodyBound)
+		r.Use(s.hostGate, s.headers, s.bodyBound, s.guard)
 		r.NotFound(s.notFound)
 		r.MethodNotAllowed(s.notFound)
 		r.Group(func(r chi.Router) {
@@ -164,6 +167,63 @@ func (s *Surface) hostGate(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
+
+// guard keeps /v1's two failures that no handler answers inside §8 (API-4 review, both lenses):
+//
+//	a panic     the router's Recoverer answers 500 with no body and no Content-Type; here the panic
+//	            is logged WITH its stack (the request's context -- its request id; the Authorization
+//	            header is already deleted by the chain, and a stack carries no header values) and
+//	            answered 503 unavailable. http.ErrAbortHandler is re-raised: it is net/http's own
+//	            "drop this connection", not a fault.
+//	a deadline  the router's middleware.Timeout writes 504 with no body when a handler returns having
+//	            written nothing after the request's deadline; here such a request is answered 503
+//	            unavailable first, so Timeout's 504 is a superfluous WriteHeader.
+//
+// It is mounted AFTER bodyBound so http.MaxBytesReader is handed net/http's own writer (it signals a
+// too-large body to the server through an unexported method a wrapper cannot carry).
+//
+// Either way, nothing is written when the handler already wrote a status: a second status line is
+// impossible, and the access record keeps what the client got (TestGuard_PanicAndDeadlineAreSection8).
+func (s *Surface) guard(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gw := &guardWriter{ResponseWriter: w}
+		defer func() {
+			if v := recover(); v != nil {
+				if v == http.ErrAbortHandler {
+					panic(v)
+				}
+				s.log.ErrorContext(r.Context(), "api: a handler panicked", "panic", fmt.Sprint(v), "stack", string(debug.Stack()))
+				if !gw.wrote {
+					writeProblem(gw, problemUnavailable)
+				}
+				return
+			}
+			if !gw.wrote && r.Context().Err() != nil {
+				writeProblem(gw, problemUnavailable)
+			}
+		}()
+		next.ServeHTTP(gw, r)
+	})
+}
+
+// guardWriter records whether a status was written.
+type guardWriter struct {
+	http.ResponseWriter
+	wrote bool
+}
+
+func (g *guardWriter) WriteHeader(code int) {
+	g.wrote = true
+	g.ResponseWriter.WriteHeader(code)
+}
+
+func (g *guardWriter) Write(b []byte) (int, error) {
+	g.wrote = true
+	return g.ResponseWriter.Write(b)
+}
+
+// Unwrap lets http.ResponseController reach the underlying writer.
+func (g *guardWriter) Unwrap() http.ResponseWriter { return g.ResponseWriter }
 
 // headers sets what every /v1 response carries: no caching (a response names a tenant's data), no
 // sniffing, no referrer.
