@@ -395,12 +395,15 @@ func TestApiKeyPanel_TheDeactivationBudgetAlertIsShownToTheOwner(t *testing.T) {
 	if err := staff.RecordDeactivationBudgetExceeded(context.Background(), other.tenantID, foreign, "api", 20); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.data.WithTenant(context.Background(), f.tenantID, func(ctx context.Context, tx pgx.Tx) error {
-		_, e := tx.Exec(ctx, `INSERT INTO audit_log (tenant_id, actor_id, action, target, detail, at)
-		                      VALUES ($1, $2, 'api.deactivation_budget_exceeded', $3, '{"via":"api"}', now() - interval '25 hours')`,
-			f.tenantID, old, old.String())
-		return e
-	}); err != nil {
+	// `at` is the database's alone (00053); the owner dates the old alert.
+	ownerConn, err := pgx.Connect(context.Background(), os.Getenv("DATABASE_MIGRATE_URL"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ownerConn.Close(context.Background()) }()
+	if _, err := ownerConn.Exec(context.Background(), `INSERT INTO audit_log (tenant_id, actor_id, action, target, detail, at)
+	                      VALUES ($1, $2, 'api.deactivation_budget_exceeded', $3, '{"via":"api","budget":20,"window_seconds":3600}', now() - interval '25 hours')`,
+		f.tenantID, old, old.String()); err != nil {
 		t.Fatal(err)
 	}
 	body := b.do(http.MethodGet, apiKeysHref, nil).Body.String()

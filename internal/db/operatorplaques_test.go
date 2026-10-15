@@ -138,6 +138,7 @@ var opAtVersionSkips = map[int]string{
 		"EXCLUSIVE on tenants and admin_users (the table's two keys)",
 	52: "api_idempotency (M11 API-4) -- no operator object; its Down's DROP TABLE takes ACCESS EXCLUSIVE on tenants " +
 		"and api_keys (the table's two keys)",
+	53: "the application's INSERT on audit_log narrowed to six columns (M11 API-6 review) -- no operator object",
 }
 
 // opAtVersion takes the test's transaction to migration `version`: from the newest file

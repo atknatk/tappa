@@ -204,7 +204,10 @@ func TestAuditLog_IsAppendOnlyForTheApp(t *testing.T) {
 			want bool
 		}{
 			{"SELECT", true},
-			{"INSERT", true},
+			// Since 00053 (M11 API-6 review) INSERT is a COLUMN grant -- every column but `at`, which
+			// carries K-25's budget window and is the database's DEFAULT alone -- so the table-level
+			// answer is false; the columns are read below.
+			{"INSERT", false},
 			{"UPDATE", false},
 			{"DELETE", false},
 		} {
@@ -215,6 +218,16 @@ func TestAuditLog_IsAppendOnlyForTheApp(t *testing.T) {
 			}
 			if got != tc.want {
 				t.Errorf("has_table_privilege(tappa_app, audit_log, %s) = %v, want %v", tc.priv, got, tc.want)
+			}
+		}
+		for _, col := range []string{"id", "tenant_id", "actor_id", "action", "target", "detail", "at"} {
+			var got bool
+			if e := tx.QueryRow(ctx,
+				`SELECT has_column_privilege('tappa_app', 'audit_log', $1, 'INSERT')`, col).Scan(&got); e != nil {
+				return e
+			}
+			if want := col != "at"; got != want {
+				t.Errorf("has_column_privilege(tappa_app, audit_log, %s, INSERT) = %v, want %v", col, got, want)
 			}
 		}
 		return nil

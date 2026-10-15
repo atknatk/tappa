@@ -157,24 +157,48 @@ func TestDeactivationBudget_ComesFromTheDatabase(t *testing.T) {
 	if res, err := f.del(restarted, f.tenantID, key, refs[0], budget); err != nil || res.Deactivated || res.Changed || res.Employee.Active() {
 		t.Fatalf("an already deactivated ref past the budget: %+v %v, want the row as it is", res, err)
 	}
-	// The window: a trail row an hour and a minute old does not count.
+	// The window, both edges: a trail row 61 minutes old does not count, one 59 minutes old does
+	// (API-6 review: a mutant narrowing the window to a minute stayed green without the second half).
+	// `at` is the database's own (00053: tappa_app cannot write it); the owner backdates the rows.
 	f2 := newStaffFixture(t)
-	aged := uuid.New()
-	for range budget {
-		err := f2.data.WithTenant(context.Background(), f2.tenantID, func(ctx context.Context, tx pgx.Tx) error {
-			_, e := tx.Exec(ctx, `INSERT INTO audit_log (tenant_id, actor_id, action, target, detail, at)
-			                      VALUES ($1, $2, 'employee.deactivated', $3, '{"via":"api"}', now() - interval '61 minutes')`,
-				f2.tenantID, aged, uuid.NewString())
-			return e
-		})
-		if err != nil {
-			t.Fatal(err)
+	for _, c := range []struct {
+		age     string
+		refused bool
+	}{{"61 minutes", false}, {"59 minutes", true}} {
+		key := uuid.New()
+		for range budget {
+			ownerExec(t, `INSERT INTO audit_log (tenant_id, actor_id, action, target, detail, at)
+			              VALUES ($1, $2, 'employee.deactivated', $3, '{"via":"api"}', now() - $4::interval)`,
+				f2.tenantID, key, uuid.NewString(), c.age)
+		}
+		ref := apiRef("BUD")
+		f2.hire(t, f2.tenantID, ref, nil)
+		res, err := f2.del(f2.staff, f2.tenantID, key, ref, budget)
+		var over *DeactivationBudgetExceeded
+		switch {
+		case c.refused && !errors.As(err, &over):
+			t.Fatalf("%d deactivations %s old: %+v %v, want the budget spent", budget, c.age, res, err)
+		case !c.refused && (err != nil || !res.Deactivated):
+			t.Fatalf("%d deactivations %s old: %+v %v, want room in the budget", budget, c.age, res, err)
 		}
 	}
-	ref := apiRef("BUD")
-	f2.hire(t, f2.tenantID, ref, nil)
-	if res, err := f2.del(f2.staff, f2.tenantID, aged, ref, budget); err != nil || !res.Deactivated {
-		t.Fatalf("three deactivations an hour and a minute old: %+v %v, want room in the budget", res, err)
+}
+
+// ownerExec runs one statement as the owner (DATABASE_MIGRATE_URL) -- what the application role
+// may not do, such as dating a trail row.
+func ownerExec(t *testing.T, sql string, args ...any) {
+	t.Helper()
+	dsn := os.Getenv("DATABASE_MIGRATE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_MIGRATE_URL is required to date a trail row")
+	}
+	conn, err := pgx.Connect(context.Background(), dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close(context.Background()) }()
+	if _, err := conn.Exec(context.Background(), sql, args...); err != nil {
+		t.Fatal(err)
 	}
 }
 
