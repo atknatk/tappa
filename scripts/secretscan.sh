@@ -605,6 +605,7 @@ IFS= read -r -d '' R7D_WAIVERS <<'R7DW' || true
 ^internal/sun/verify_mac_test[.]go$;0c355ab3b688a40cd24187493a5c1a05800a39ad79d2b72cc1594fd0e6e301c1;sun_vectors.json sahte tag_key_A ile ayni sahte deger
 # M11 API-9 (2026-10-15): sentetik kimlikli URL, webhook adres kuralinin userinfo reddini sinar
 ^internal/egress/endpoint_test[.]go$;94ce46457c252631baaa8f5adbb9024f28d68fbf6dc297d34ffbe19079a0b53f;sentetik kimlikli URL: adres kuralinin userinfo reddi testi
+^internal/webhook/endpoints/endpoints_db_test[.]go$;4e3ee8f42cc1bb253bccd445ffd0a485fcc7938e0ad17838acd5f6bab7ad25c0;sentetik kimlikli URL: uc nokta olusturmanin userinfo reddi testi
 R7DW
 
 # r7d_hasher — sha256 araci: sha256sum ya da `shasum -a 256`. Bilinen bir vektorle

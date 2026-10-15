@@ -423,6 +423,17 @@ var storeSurface = map[string]string{
 	"CreateLocationFromAPI":     "(context.Context, CreateLocationFromAPIParams{Name string; ExternalRef *string; Active bool; TenantID uuid.UUID}) (CreateLocationFromAPIRow{ID uuid.UUID; Name string; ExternalRef *string; Active bool; CreatedAt time.Time; StaticIps []netip.Prefix; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric}, error)",
 	"UpdateLocationFromAPI":     "(context.Context, UpdateLocationFromAPIParams{Name string; Active bool; TenantID uuid.UUID; ID uuid.UUID}) (UpdateLocationFromAPIRow{ID uuid.UUID; Name string; ExternalRef *string; Active bool; CreatedAt time.Time; StaticIps []netip.Prefix; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric}, error)",
 	"GetLocationForAPI":         "(context.Context, GetLocationForAPIParams{TenantID uuid.UUID; ID uuid.UUID}) (GetLocationForAPIRow{ID uuid.UUID; Name string; ExternalRef *string; Active bool; CreatedAt time.Time; StaticIps []netip.Prefix; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric}, error)",
+	// M11 API-9 (table from 00048): the owner's webhook endpoint. The SEALED signing key goes in
+	// (InsertWebhookEndpoint, RotateWebhookEndpointKey) and comes back on ONE read -- the one that
+	// signs (GetWebhookEndpointForSigning); the panel's read names no key. No plaintext key anywhere.
+	"GetWebhookEndpoint":           "(context.Context, uuid.UUID) (GetWebhookEndpointRow{ID uuid.UUID; Url string; Active bool; CreatedAt time.Time; RotatedAt *time.Time}, error)",
+	"GetWebhookEndpointForSigning": "(context.Context, uuid.UUID) (GetWebhookEndpointForSigningRow{ID uuid.UUID; Url string; SigningKeySealed []byte; Active bool}, error)",
+	"InsertWebhookEndpoint":        "(context.Context, InsertWebhookEndpointParams{TenantID uuid.UUID; ID uuid.UUID; Url string; SigningKeySealed []byte}) (time.Time, error)",
+	"RotateWebhookEndpointKey":     "(context.Context, RotateWebhookEndpointKeyParams{SigningKeySealed []byte; TenantID uuid.UUID; ID uuid.UUID}) (*time.Time, error)",
+	"ReaddressWebhookEndpoint":     "(context.Context, ReaddressWebhookEndpointParams{Url string; TenantID uuid.UUID; ID uuid.UUID}) (int64, error)",
+	"SetWebhookEndpointActive":     "(context.Context, SetWebhookEndpointActiveParams{Active bool; TenantID uuid.UUID; ID uuid.UUID}) (int64, error)",
+	"LockWebhookBucket":            "(context.Context, uuid.UUID) (LockWebhookBucketRow{ID uuid.UUID; Unlocked bool}, error)",
+	"ReadWebhookBucket":            "(context.Context, ReadWebhookBucketParams{TenantID uuid.UUID; Actions []string}) (ReadWebhookBucketRow{Spent int32; Oldest time.Time}, error)",
 }
 
 // TestStoreSurface_IsTheOneRecorded is the inventory check.
@@ -598,11 +609,20 @@ func TestStoreSurface_NoByteCarryingQueryReadsTags(t *testing.T) {
 	// the same bytes for the activation wizard's logo route, read by tenant AND digest
 	// with the business's VIES verdict in the WHERE. Its statement reads tenant_branding
 	// joined to tenants; the word check above runs on it like on the other six.
-	if carriers != 7 {
-		t.Errorf("%d method(s) return a []byte-carrying struct; SEVEN did when this was last pinned "+
-			"(2026-10-09) -- two policy-document readers, three Transaction readers and the "+
-			"two tenant logo readers (the logo routes' and the activation wizard's). An eighth is "+
-			"either a new policy document or logo reader, or a §4.7 finding", carriers)
+	//
+	// 7 -> 8 (2026-10-15, M11 API-9), measured by this walk:
+	//
+	//	GetWebhookEndpointForSigning -> GetWebhookEndpointForSigningRow.SigningKeySealed
+	//
+	// the endpoint's signing key, SEALED under TAPPA_WEBHOOK_KEK with the endpoint's id as AAD
+	// (ADR 0028 §6) -- CLAUDE.md §4.7's class, and the reason it is counted here. Its statement
+	// reads webhook_endpoints by tenant; the word check above runs on it like on the other seven.
+	if carriers != 8 {
+		t.Errorf("%d method(s) return a []byte-carrying struct; EIGHT did when this was last pinned "+
+			"(2026-10-15) -- two policy-document readers, three Transaction readers, the "+
+			"two tenant logo readers (the logo routes' and the activation wizard's) and the webhook "+
+			"endpoint's sealed-key reader. A ninth is either a new policy document or logo reader, "+
+			"or a §4.7 finding", carriers)
 	}
 	if !t.Failed() {
 		// 🔴 THE MESSAGE SAYS WHAT THE CHECK KNOWS, AND THE PREVIOUS ONE DID NOT. It
@@ -924,10 +944,12 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// 24 -> 25 on 2026-10-15 (M11 API-8): db/queries/directory.sql, the directory's own half over
 	// tenants and employees; neither query calls a definer (holding_directory is called by hand from
 	// internal/db/holding.go).
-	if files != 25 {
-		t.Fatalf("read %d .sql file(s) under db/queries; TWENTY-FIVE were there when this was "+
+	// 25 -> 26 on 2026-10-15 (M11 API-9): db/queries/webhooks.sql, the owner's webhook endpoint and
+	// the ping bucket; none calls a definer.
+	if files != 26 {
+		t.Fatalf("read %d .sql file(s) under db/queries; TWENTY-SIX were there when this was "+
 			"pinned (2026-10-15; seventeen on 2026-08-24, plus operator.sql, branding.sql, sitepunches.sql, apikeys.sql, "+
-			"apiidempotency.sql, invitequeue.sql, punchfeed.sql and directory.sql)", files)
+			"apiidempotency.sql, invitequeue.sql, punchfeed.sql, directory.sql and webhooks.sql)", files)
 	}
 	// A file count alone does not prove the STATEMENT lines were reached; this does.
 	// EXACT, by this file's own standard 130 lines down ("a floor with slack cannot
@@ -986,14 +1008,16 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// 191 -> 193 on 2026-10-15 (M11 API-8): directory.sql's GetDirectoryHead and ListDirectoryEmployees,
 	// the directory's own half; neither calls a definer (the peers' half is holding_directory, called
 	// by internal/db/holding.go by hand).
-	if named != 193 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; ONE HUNDRED AND NINETY-THREE were "+
+	// 193 -> 201 on 2026-10-15 (M11 API-9): webhooks.sql's eight -- the endpoint's two reads, its four
+	// writes and the bucket's lock and count; none calls a definer.
+	if named != 201 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND ONE were "+
 			"there when this was pinned (2026-10-15: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
 			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+
 			"+ EM-7B's three invitation e-mail queries, + EM-7C's two recovery queries, "+
 			"+ the activation tap's two consent queries, + WL-13's two activation brand queries, "+
-			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads). "+
+			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {
@@ -1178,8 +1202,12 @@ func parseStore(t *testing.T) (map[string]*ast.File, *token.FileSet) {
 	// three history reads to the same file.)
 	// 25 -> 26 (2026-10-15, M11 API-8): db/queries/directory.sql adds directory.sql.go -- the
 	// directory's own half (the head and a page), in storeSurface; none carries bytes, none the e-mail.
-	if len(out) != 26 {
-		t.Fatalf("parsed %d file(s) under %s; TWENTY-SIX were generated when this floor was last set "+
+	// 26 -> 27 (2026-10-15, M11 API-9): db/queries/webhooks.sql adds webhooks.sql.go -- the owner's
+	// webhook endpoint (eight methods, in storeSurface). Two carry bytes, both the SEALED signing key
+	// of webhook_endpoints (InsertWebhookEndpoint's parameter, GetWebhookEndpointForSigning's row);
+	// neither reads tags.
+	if len(out) != 27 {
+		t.Fatalf("parsed %d file(s) under %s; TWENTY-SEVEN were generated when this floor was last set "+
 			"(2026-10-15). If sqlc genuinely emits a different number now, change this number "+
 			"in the same edit and say why -- do not widen it", len(out), storeDir)
 	}

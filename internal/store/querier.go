@@ -2773,6 +2773,21 @@ type Querier interface {
 	// foreign transaction id simply matches nothing here, so this cannot become an
 	// oracle for whether an id exists in another business.
 	GetTransactionReview(ctx context.Context, arg GetTransactionReviewParams) (GetTransactionReviewRow, error)
+	// webhooks.sql -- the owner's webhook endpoint (M11 API-9, ADR 0028 §6; table from migration 00048).
+	//
+	// Every statement runs inside WithTenant and carries an explicit tenant_id filter (CLAUDE.md §4.5,
+	// belt and braces). tappa_app holds SELECT, INSERT (tenant_id, id, url, signing_key_sealed, active)
+	// and UPDATE (url, signing_key_sealed, active, rotated_at) on the table -- never DELETE, never
+	// tenant_id (00048, ADR 0028 §1's matrix).
+	//
+	// 🔴 THE SEALED KEY IS READ BY ONE STATEMENT: GetWebhookEndpointForSigning, for the ping (and, with
+	// API-10, the delivery). The panel's read names no key column. The url is never logged by any
+	// caller (CLAUDE.md §7).
+	// The panel's read: the business's one endpoint (UNIQUE (tenant_id)), without its key.
+	GetWebhookEndpoint(ctx context.Context, tenantID uuid.UUID) (GetWebhookEndpointRow, error)
+	// The endpoint with its sealed key, for a request that signs (the ping). The key is opened with the
+	// row's own id as AAD, so a sealed value moved to another row does not open.
+	GetWebhookEndpointForSigning(ctx context.Context, tenantID uuid.UUID) (GetWebhookEndpointForSigningRow, error)
 	// apikeys.sql -- the integration API's keys (M11 API-3, ADR 0028 §3; migration 00051).
 	//
 	// Every statement here runs inside WithTenant and carries an explicit tenant_id filter (CLAUDE.md
@@ -3099,6 +3114,10 @@ type Querier interface {
 	// for aes_key_ref's reason (this file's header): a wrapped key does not travel back
 	// out through a query result.
 	InsertUnassigned(ctx context.Context, arg InsertUnassignedParams) (InsertUnassignedRow, error)
+	// The id is chosen by the caller BEFORE the insert: it is the sealed key's AAD. created_at and
+	// rotated_at are the table's (default, NULL). A second endpoint of the business meets
+	// webhook_endpoints_one_per_tenant (23505).
+	InsertWebhookEndpoint(ctx context.Context, arg InsertWebhookEndpointParams) (time.Time, error)
 	// A READ used ONLY to label a refused activation for audit_log (internal/invite
 	// classify): "nobody consented / another browser consented" versus the other
 	// refusals. It is NOT a gate -- the gate is the consuming statement's own WHERE,
@@ -4656,6 +4675,14 @@ type Querier interface {
 	// Only the e-mail mode takes it (internal/invite); the panel mode's issuing
 	// transaction is unchanged.
 	LockTenantForInviteLimits(ctx context.Context, tenantID uuid.UUID) error
+	// SERIALISE ONE BUSINESS'S PINGS (and, with API-10, its "resend"s -- ADR 0028 §6: one bucket, ten an
+	// hour). The bucket is a READ-THEN-DECIDE over audit_log (ReadWebhookBucket), and without a lock N
+	// concurrent pings all count before any has committed and all pass. LockAPIDeactivationBudget's
+	// shape and argument, verbatim: the lock is taken in the SELECT LIST of this business's tenants row
+	// (RLS and the explicit predicate), so a context in which the row is not visible returns NO ROW and
+	// takes no lock, which the caller treats as a failure. The namespace keeps it apart from every other
+	// advisory key.
+	LockWebhookBucket(ctx context.Context, tenantID uuid.UUID) (LockWebhookBucketRow, error)
 	// Stamps last_login_at after a SUCCESSFUL login. The status test keeps the stamp
 	// honest: a disabled admin never gets one, so "last successful login" cannot be
 	// advanced by an attempt that did not produce a session.
@@ -4948,6 +4975,14 @@ type Querier interface {
 	// amount_due comes from the same function the frozen column is generated from, so a
 	// preview and the row it becomes cannot print different totals.
 	PreviewBillingPeriod(ctx context.Context, arg PreviewBillingPeriodParams) (PreviewBillingPeriodRow, error)
+	// How many slots of the bucket this business spent in the last hour, and when the oldest was spent
+	// (the next slot frees an hour after it). A slot is a trail row of one of @actions -- the ping's row
+	// is written BEFORE the request goes out, in the transaction that holds the lock, so a slot is spent
+	// whether or not the remote answers and a crash after the commit cannot give it back. `at` is the
+	// database's clock (00053: tappa_app cannot write it). audit_log_tenant_at_idx serves the range.
+	ReadWebhookBucket(ctx context.Context, arg ReadWebhookBucketParams) (ReadWebhookBucketRow, error)
+	// A new address for THIS endpoint; its key is unchanged.
+	ReaddressWebhookEndpoint(ctx context.Context, arg ReaddressWebhookEndpointParams) (int64, error)
 	// audit.sql -- the append-only administrative/domain trail (migration 00005).
 	//
 	// WHY THIS FILE EXISTS NOW (M5-02 phase B): CLAUDE.md section 4.6 says a record is
@@ -5192,6 +5227,9 @@ type Querier interface {
 	// reject-with-alert (section 5 row 4) versus activation redirect (row 3) is the
 	// guardrail's call, not this query's.
 	RevokeSessionsForEmployee(ctx context.Context, arg RevokeSessionsForEmployeeParams) ([]uuid.UUID, error)
+	// A new sealed key for THIS endpoint (the id is the seal's AAD -- a key sealed for another id would
+	// not open here), and the moment it changed. The old key no longer signs anything from the commit on.
+	RotateWebhookEndpointKey(ctx context.Context, arg RotateWebhookEndpointKeyParams) (*time.Time, error)
 	// THE SERVER-CLOCK LEG OF THE DEBOUNCE (ADR 0006): when did this person's most
 	// recent TAP get WRITTEN? Not "claim to have happened" -- written.
 	//
@@ -5336,6 +5374,9 @@ type Querier interface {
 	// the bytes, a type outside image/png and image/jpeg, a size outside 1..512 and more
 	// than 262 144 bytes (migration 00028).
 	SetTenantLogo(ctx context.Context, arg SetTenantLogoParams) (int64, error)
+	// Switch the endpoint off or on. Only a change matches: switching off an endpoint that is off writes
+	// nothing, so the caller writes no second trail row.
+	SetWebhookEndpointActive(ctx context.Context, arg SetWebhookEndpointActiveParams) (int64, error)
 	// Does this business have a record -- ANY record, on ANY day (M7-03 phase B)?
 	//
 	// 🔴 IT EXISTS TO DECIDE WHETHER ONE PIECE OF ADVICE IS WORTH GIVING, and the advice
