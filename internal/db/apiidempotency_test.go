@@ -156,7 +156,7 @@ func repeatByte(b byte, n int) string {
 // TestRLS_ApiIdempotency_AnotherTenantsRowsAreInvisible is CLAUDE.md §8's RLS test for the ledger, in
 // the FILTERLESS shape (§6): in B's context a bare `WHERE idem_key = …` finds none of A's rows and
 // the positive control in A's context finds one; B cannot delete or update A's row (0 rows), and
-// cannot claim a row stamped with A's tenant (42501, WITH CHECK) -- so an idempotency key B sends can
+// cannot claim a row stamped with A's tenant (WITH CHECK refuses it, 42501) -- so an idempotency key B sends can
 // never return A's recorded result.
 func TestRLS_ApiIdempotency_AnotherTenantsRowsAreInvisible(t *testing.T) {
 	ctx, tx := opTx(t)
