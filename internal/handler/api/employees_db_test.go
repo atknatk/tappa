@@ -38,6 +38,8 @@ func (s *relay) SendInvitation(_ context.Context, d invite.Delivery) (string, er
 
 func (s *relay) RecipientCapped(uuid.UUID, string) bool { return false }
 
+func (s *relay) Refusing() bool { return false }
+
 func (s *relay) sent() []invite.Delivery {
 	s.mu.Lock()
 	defer s.mu.Unlock()

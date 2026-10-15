@@ -124,6 +124,7 @@ var refusalReasons = map[error]string{
 	ErrTenantDayLimit:          "business_daily_limit",
 	ErrEmployeeHourLimit:       "person_hourly_limit",
 	ErrRecipientCapped:         "recipient_limit",
+	ErrRequestExpired:          "request_expired",
 }
 
 // RefusalReason reports whether err is one of the e-mail route's refusals and, if

@@ -46,6 +46,8 @@ type fakeMailSender struct {
 	sentScopes  []string
 }
 
+func (f *fakeMailSender) Refusing() bool { return false }
+
 func (f *fakeMailSender) Capped(scope, to string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()

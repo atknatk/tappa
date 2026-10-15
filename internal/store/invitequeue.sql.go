@@ -24,13 +24,14 @@ WHERE r.tenant_id = $1
       ORDER BY q.requested_at, q.employee_id
       LIMIT 1
       FOR UPDATE SKIP LOCKED)
-RETURNING r.employee_id, r.lease_until, r.attempts
+RETURNING r.employee_id, r.lease_until, r.attempts, r.requested_at
 `
 
 type ClaimInviteRequestRow struct {
-	EmployeeID uuid.UUID
-	LeaseUntil *time.Time
-	Attempts   int32
+	EmployeeID  uuid.UUID
+	LeaseUntil  *time.Time
+	Attempts    int32
+	RequestedAt time.Time
 }
 
 // The worker's lease: the OLDEST due request of the tenant, taken for 60 seconds. attempts is NOT
@@ -43,7 +44,12 @@ type ClaimInviteRequestRow struct {
 func (q *Queries) ClaimInviteRequest(ctx context.Context, tenantID uuid.UUID) (ClaimInviteRequestRow, error) {
 	row := q.db.QueryRow(ctx, claimInviteRequest, tenantID)
 	var i ClaimInviteRequestRow
-	err := row.Scan(&i.EmployeeID, &i.LeaseUntil, &i.Attempts)
+	err := row.Scan(
+		&i.EmployeeID,
+		&i.LeaseUntil,
+		&i.Attempts,
+		&i.RequestedAt,
+	)
 	return i, err
 }
 

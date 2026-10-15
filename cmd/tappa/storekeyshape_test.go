@@ -204,11 +204,11 @@ var storeSurface = map[string]string{
 	// M11 API-6: the API's employee (employees.sql), K-25's budget and the owner's alert (audit.sql)
 	// and the invitation queue (invitequeue.sql). No address is returned (has_email / same_email are
 	// booleans computed in SQL), no code and no hash; ids, names, instants and counts.
+	"RetireUndeliveredInvites":       "(context.Context, RetireUndeliveredInvitesParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (int64, error)",
 	"CountRecentSentInvites":         "(context.Context, CountRecentSentInvitesParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (int32, error)",
 	"FailInviteRequest":              "(context.Context, FailInviteRequestParams{Due *time.Time; TenantID uuid.UUID; EmployeeID uuid.UUID; LeaseUntil *time.Time}) (int32, error)",
-	"RetireUndeliveredInvite":        "(context.Context, RetireUndeliveredInviteParams{TenantID uuid.UUID; ID uuid.UUID; EmployeeID uuid.UUID}) (int64, error)",
 	"NextInviteRequestDue":           "(context.Context, uuid.UUID) (*time.Time, error)",
-	"ClaimInviteRequest":             "(context.Context, uuid.UUID) (ClaimInviteRequestRow{EmployeeID uuid.UUID; LeaseUntil *time.Time; Attempts int32}, error)",
+	"ClaimInviteRequest":             "(context.Context, uuid.UUID) (ClaimInviteRequestRow{EmployeeID uuid.UUID; LeaseUntil *time.Time; Attempts int32; RequestedAt time.Time}, error)",
 	"CountAPIBudgetAlerts":           "(context.Context, CountAPIBudgetAlertsParams{TenantID uuid.UUID; KeyID string}) (int32, error)",
 	"CountAPIDeactivations":          "(context.Context, CountAPIDeactivationsParams{TenantID uuid.UUID; KeyID uuid.UUID}) (CountAPIDeactivationsRow{Deactivations int32; Oldest time.Time}, error)",
 	"CreateEmployeeFromAPI":          "(context.Context, CreateEmployeeFromAPIParams{ExternalRef *string; EmployeeCode *string; FirstName *string; LastName *string; FullName string; Email *string; TenantID uuid.UUID}) (CreateEmployeeFromAPIRow{ID uuid.UUID; ExternalRef *string; EmployeeCode *string; FirstName *string; LastName *string; FullName string; Status string; HasEmail bool}, error)",

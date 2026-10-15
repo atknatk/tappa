@@ -175,8 +175,8 @@ type ConsumeInviteAndActivateRow struct {
 // (✅ CANCELLATION EXISTS SINCE 2026-08-08 AND IT DID NOT REUSE used_at, exactly as
 // this paragraph demanded: migration 00012 added cancelled_at plus its own
 // column-level GRANT, and two statements write it: CancelPendingInvitesForEmployee
-// below, and RetireUndeliveredInvite (M11 API-6: the queue gives up on one it never
-// sent). Every query that decides whether a code may be spent now
+// below, and RetireUndeliveredInvites (M11 API-6: the queue gives up on the links it
+// never delivered). Every query that decides whether a code may be spent now
 // eliminates the two facts SEPARATELY -- `used_at IS NULL AND cancelled_at IS NULL`.
 // Cancelling an invite from the panel -- which legitimately knows only the id --
 // is a DIFFERENT operation and must NOT reuse used_at: that stamp means "the code
@@ -711,32 +711,38 @@ func (q *Queries) RecordInviteConsent(ctx context.Context, arg RecordInviteConse
 	return i, err
 }
 
-const retireUndeliveredInvite = `-- name: RetireUndeliveredInvite :execrows
-UPDATE employee_invites
+const retireUndeliveredInvites = `-- name: RetireUndeliveredInvites :execrows
+UPDATE employee_invites i
 SET cancelled_at = now()
-WHERE tenant_id = $1
-  AND id = $2
-  AND employee_id = $3
-  AND used_at IS NULL
-  AND cancelled_at IS NULL
+WHERE i.tenant_id = $1
+  AND i.employee_id = $2
+  AND i.used_at IS NULL
+  AND i.cancelled_at IS NULL
+  AND now() < i.expires_at
+  AND NOT EXISTS (SELECT 1
+                    FROM audit_log d
+                   WHERE d.tenant_id = $1
+                     AND d.target = ($2::uuid)::text
+                     AND d.action IN ('invite.code_emailed', 'invite.code_shown_to_manager')
+                     AND d.detail->>'invite_id' = i.id::text)
 `
 
-type RetireUndeliveredInviteParams struct {
+type RetireUndeliveredInvitesParams struct {
 	TenantID   uuid.UUID
-	ID         uuid.UUID
 	EmployeeID uuid.UUID
 }
 
-// Retires ONE invitation the invitation queue minted and gave up sending (M11 API-6, K-17,
-// internal/invite queue.go): every try failed, so the link was never delivered and must not stay
-// spendable -- a live, unsent link is neither "sent" nor safe to leave standing. By id, so a newer
-// invitation (a panel press, another run) is never touched; the same one-way discipline as
-// CancelPendingInvitesForEmployee (cancelled_at NULL -> now(), never back; a spent or already
-// retired one is left alone). It writes cancelled_at only.
+// Retires every invitation of ONE person that could still be spent and was NEVER DELIVERED -- no
+// invite.code_emailed (or, in the panel mode, invite.code_shown_to_manager) row names it (M11 API-6,
+// K-17, internal/invite queue.go): the queue gives up on the person (five failed sends, or a request
+// older than its lifetime), and a live link nobody received is neither "sent" nor safe to leave
+// standing. A DELIVERED link -- a panel press that reached the person -- is never touched; nor is a
+// spent, retired or expired one. The same one-way discipline as CancelPendingInvitesForEmployee
+// (cancelled_at NULL -> now(), never back). It writes cancelled_at only.
 //
-// TENANT SCOPE (section 4.5, belt + braces): explicit predicate on top of RLS.
-func (q *Queries) RetireUndeliveredInvite(ctx context.Context, arg RetireUndeliveredInviteParams) (int64, error) {
-	result, err := q.db.Exec(ctx, retireUndeliveredInvite, arg.TenantID, arg.ID, arg.EmployeeID)
+// TENANT SCOPE (section 4.5, belt + braces): explicit predicates on top of RLS, the sub-query's too.
+func (q *Queries) RetireUndeliveredInvites(ctx context.Context, arg RetireUndeliveredInvitesParams) (int64, error) {
+	result, err := q.db.Exec(ctx, retireUndeliveredInvites, arg.TenantID, arg.EmployeeID)
 	if err != nil {
 		return 0, err
 	}

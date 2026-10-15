@@ -99,7 +99,7 @@ WHERE r.tenant_id = @tenant_id
       ORDER BY q.requested_at, q.employee_id
       LIMIT 1
       FOR UPDATE SKIP LOCKED)
-RETURNING r.employee_id, r.lease_until, r.attempts;
+RETURNING r.employee_id, r.lease_until, r.attempts, r.requested_at;
 
 -- name: RenewInviteRequestLease :one
 -- Inside the minting transaction, after the invitation is inserted: the lease is still THIS

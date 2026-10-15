@@ -183,8 +183,11 @@ type fakeMailSink struct {
 	err    error
 	block  chan struct{} // if set, SendInvitation waits on it
 	capped bool
-	asked  []string
-	scopes []uuid.UUID // the business each question was asked for
+	// refusing is the breaker's answer (the queue asks Refusing before it mints); a send while it
+	// is true is refused with mail.ClassBreaker, as the real breaker would.
+	refusing bool
+	asked    []string
+	scopes   []uuid.UUID // the business each question was asked for
 }
 
 func (s *fakeMailSink) RecipientCapped(tenantID uuid.UUID, address string) bool {
@@ -202,7 +205,16 @@ func (s *fakeMailSink) SendInvitation(_ context.Context, d Delivery) (string, er
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.got = append(s.got, d)
+	if s.refusing {
+		return "", &mail.SendError{Class: mail.ClassBreaker}
+	}
 	return s.id, s.err
+}
+
+func (s *fakeMailSink) Refusing() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.refusing
 }
 
 func (s *fakeMailSink) calls() []Delivery {

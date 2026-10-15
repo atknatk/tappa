@@ -55,19 +55,39 @@ import (
 // QueueLease is K-17's lease, as invitequeue.sql writes it ('60 seconds').
 const QueueLease = 60 * time.Second
 
-// The queue's patience. A limit (ADR 0022 §9), a refused mailbox cap, the process breaker or a
-// throttling reply DELAYS a request by queueLimitDelay and spends no try (API-6 review O-2); a failed
-// send counts one and waits queueBackoff(tries). After queueMaxAttempts failed sends the queue gives
-// up: the minted, never-delivered invitation is retired and the request leaves the queue -- every
-// try left an invite.undelivered row, the API answers "undelivered", and a resend (or the panel)
-// asks again.
+// The queue's patience (API-6 review, two rounds).
+//
+//	a ceiling before the mint   ADR 0022 §9's issuing limits, the process breaker, the per-mailbox
+//	                            cap -- all asked BEFORE a code is minted, so a refusal costs no
+//	                            invitation row (the rows those limits count) and spends no try: the
+//	                            request is due again after queueLimitDelay
+//	K-22 closed                 the operator closed the business's API: nothing is minted, the request
+//	                            stays and is due again after queueClosedDelay; reopened, it goes on
+//	a ceiling after the mint    the breaker or the cap refusing the send itself (a race with the
+//	                            question above): delayed like a limit, no try spent
+//	a failed send               every other failure, a 4xx included (internal/mail already retried a
+//	                            4xx once inside the send): one try, queueBackoff(tries); at
+//	                            queueMaxAttempts the queue gives up
+//	the lifetime                whatever the class, a request older than queueLifetime is given up --
+//	                            so no mix of delays can keep one alive (and its rows growing) forever
+//
+// Giving up retires the person's undelivered links (RetireUndeliveredInvites) and takes the request
+// out of the queue in one transaction; the trail's last attempt is then an invite.undelivered (five
+// failures) or invite.email_refused ("request_expired") row, the API answers "undelivered", and a
+// resend asks again.
 const (
 	queueLimitDelay  = 10 * time.Minute
+	queueClosedDelay = 15 * time.Minute
 	queueMaxAttempts = 5
+	queueLifetime    = 72 * time.Hour
 	// queueRunMax bounds one RunFor: past it the worker is asked to come back at once, so one
 	// tenant's long queue cannot hold the loop away from every other tenant.
 	queueRunMax = 25
 )
+
+// ErrRequestExpired: the queue gave up on a request older than its lifetime without reaching the
+// person. Its invite.email_refused row carries "request_expired".
+var ErrRequestExpired = errors.New("invite: the queued invitation could not be sent within its lifetime")
 
 func queueBackoff(attempt int32) time.Duration {
 	switch {
@@ -97,7 +117,7 @@ func (l *Later) DueIn() time.Duration { return l.After }
 // Queue is the invitation queue's worker job. Dependencies are struct fields (§7).
 type Queue struct {
 	m     *Manager
-	sink  MailSink
+	sink  QueueSink
 	audit auditRecorder
 	// now is the wall clock (tests freeze it with the Manager's).
 	now func() time.Time
@@ -107,9 +127,18 @@ type Queue struct {
 	afterMint func(ctx context.Context, employee uuid.UUID)
 }
 
+// QueueSink is the queue's e-mail route: MailSink, and the breaker's question asked before a code
+// is minted (M11 API-6 review O-B). Declared here, at the consumer; internal/handler's
+// EmailInvitations.QueueSink implements it around the panel's one cap and breaker.
+type QueueSink interface {
+	MailSink
+	// Refusing reports whether the process breaker would refuse a send now.
+	Refusing() bool
+}
+
 // NewQueue builds the worker. The sink is the e-mail route's (the panel's per-mailbox cap and
 // breaker around the one transport — cmd/tappa); the recorder writes the outcome rows.
-func NewQueue(m *Manager, sink MailSink, rec auditRecorder) (*Queue, error) {
+func NewQueue(m *Manager, sink QueueSink, rec auditRecorder) (*Queue, error) {
 	switch {
 	case m == nil:
 		return nil, errors.New("invite: queue: nil manager")
@@ -213,7 +242,9 @@ type outcome int
 const (
 	minted   outcome = iota // an invitation exists; send it
 	skipped                 // the person is not 'invited' any more: the request is done
-	deferred                // a limit or the mailbox cap: due again later
+	deferred                // a limit, the breaker or the mailbox cap: due again later, nothing minted
+	closed                  // K-22: the business's API is closed -- nothing minted, the request waits
+	expired                 // older than queueLifetime: give up
 	refused                 // an address the route cannot use: the request is done, the row says why
 	lost                    // the lease is not this worker's any more: leave the request alone
 )
@@ -247,12 +278,44 @@ func (q *Queue) process(ctx context.Context, tenant uuid.UUID, c store.ClaimInvi
 			result = skipped
 			return nil
 		}
+		// K-22 (ADR 0028 §2: the gate "her yolda", the worker's send included): a business whose
+		// API the operator closed has nothing minted or sent for it. The request is NOT dropped --
+		// reopened, it goes on (API-6 review O-A).
+		open, err := s.GetTenantAPIEnabledAt(ctx, tenant)
+		if err != nil {
+			return fmt.Errorf("read the API gate: %w", err)
+		}
+		if open == nil {
+			result = closed
+			return errRollback
+		}
+		if c.RequestedAt.Add(queueLifetime).Before(q.now()) {
+			result = expired
+			return errRollback
+		}
+		// THE CEILINGS ARE ASKED BEFORE THE MINT (API-6 review O-B): the issuing limits, the
+		// address's own refusals, the breaker and the mailbox cap. A refusal here mints no row --
+		// and the rows are what ADR 0022 §9's limits count, the panel's included -- and spends no
+		// try. The address is read again after the insert (below), which stays the authority on
+		// where the link goes (GetInviteRecipient's ordering argument).
 		if err := checkLimits(ctx, s, p); err != nil {
 			if _, limit := RefusalReason(err); limit {
 				result = deferred
 				return errRollback
 			}
 			return err
+		}
+		ahead, err := readRecipient(ctx, s, p)
+		if err != nil {
+			if r, ok := RefusalReason(err); ok {
+				result, reason = refused, r
+				return errRollback
+			}
+			return err
+		}
+		if q.sink.Refusing() || q.sink.RecipientCapped(tenant, ahead.Address) {
+			result = deferred
+			return errRollback
 		}
 		if _, err := s.CancelPendingInvitesForEmployee(ctx, store.CancelPendingInvitesForEmployeeParams{TenantID: tenant, EmployeeID: c.EmployeeID}); err != nil {
 			return fmt.Errorf("retire invitations: %w", err)
@@ -311,6 +374,15 @@ func (q *Queue) process(ctx context.Context, tenant uuid.UUID, c store.ClaimInvi
 		return q.finish(ctx, tenant, c.EmployeeID, lease)
 	case deferred:
 		return q.deferTo(ctx, tenant, c.EmployeeID, lease, q.now().Add(queueLimitDelay))
+	case closed:
+		return q.deferTo(ctx, tenant, c.EmployeeID, lease, q.now().Add(queueClosedDelay))
+	case expired:
+		ch := &EmailChannel{sink: q.sink, audit: q.audit, channel: queueChannelName}
+		rerr := ch.refused(ctx, p, refusalReasons[ErrRequestExpired])
+		if err := q.giveUp(ctx, tenant, c.EmployeeID, lease); err != nil {
+			return errors.Join(err, rerr)
+		}
+		return errors.Join(fmt.Errorf("invite: queue: %s: %w", c.EmployeeID, ErrRequestExpired), rerr)
 	case lost:
 		return nil
 	case refused:
@@ -336,39 +408,65 @@ func (q *Queue) process(ctx context.Context, tenant uuid.UUID, c store.ClaimInvi
 		}
 		return sendErr
 	case deliveryDeferred(sendErr):
-		// The relay's own ceilings refused it -- the process breaker, the per-mailbox cap, a
-		// throttling 4xx: a LIMIT, which delays the request and does not spend a try (ADR 0022 §9,
-		// plan §2 item 11; API-6 review O-2). The minted link is retired by the next mint.
+		// The breaker or the per-mailbox cap refused the send itself -- a race with the question
+		// asked before the mint: a LIMIT, which delays the request and spends no try (ADR 0022 §9,
+		// plan §2 item 11; API-6 review O-2), bounded by queueLifetime. The minted link is retired
+		// by the next mint or by the give-up.
 		if err := q.deferTo(ctx, tenant, c.EmployeeID, lease, q.now().Add(queueLimitDelay)); err != nil {
 			return errors.Join(err, sendErr)
 		}
 		return nil
 	default:
-		return q.failed(ctx, tenant, c, inv.ID, lease, sendErr)
+		return q.failed(ctx, tenant, c, lease, sendErr)
 	}
 }
 
-// deliveryDeferred reports whether a failed send was refused by a ceiling rather than by the
-// relay or the network: the breaker, the per-mailbox cap or a throttling reply (mail.SendError's
-// classes). Those delay; every other failure is a try.
+// deliveryDeferred reports whether a failed send was refused by one of OUR ceilings -- the
+// breaker or the per-mailbox cap (mail.SendError's classes) -- rather than by the relay or the
+// network. Those delay; every other failure is a try.
+//
+// A 4xx (ClassThrottled) IS a try (API-6 review O-B, measured: counted as a delay, 25 × 450 kept a
+// request alive with 25 minted codes, 25 e-mails and 25 trail rows, and the delays spent the
+// business's issuing limits). internal/mail already retries a 4xx once inside the send, so a 4xx
+// here is the second refusal in a row; a domain that answers every recipient 450 is given up after
+// queueMaxAttempts like a 550.
 func deliveryDeferred(err error) bool {
 	var se *mail.SendError
 	if !errors.As(err, &se) {
 		return false
 	}
 	switch se.Class {
-	case mail.ClassBreaker, mail.ClassRecipientCap, mail.ClassThrottled:
+	case mail.ClassBreaker, mail.ClassRecipientCap:
 		return true
 	}
 	return false
 }
 
+// giveUp retires the person's undelivered links and takes the request out of the queue under this
+// worker's lease, in one transaction (the lifetime's end; failed does the same at its last try).
+func (q *Queue) giveUp(ctx context.Context, tenant, employee uuid.UUID, lease time.Time) error {
+	err := q.m.data.WithTenant(context.WithoutCancel(ctx), tenant, func(ctx context.Context, tx pgx.Tx) error {
+		s := store.New(tx)
+		if _, err := s.RetireUndeliveredInvites(ctx, store.RetireUndeliveredInvitesParams{TenantID: tenant, EmployeeID: employee}); err != nil {
+			return fmt.Errorf("retire the undelivered invitations: %w", err)
+		}
+		if _, err := s.FinishInviteRequest(ctx, store.FinishInviteRequestParams{TenantID: tenant, EmployeeID: employee, LeaseUntil: &lease}); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("take the request out of the queue: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("invite: queue: give up on %s: %w", employee, err)
+	}
+	return nil
+}
+
 // failed counts one failed send (FailInviteRequest): the request is due again after the back-off,
-// or -- at queueMaxAttempts -- the queue GIVES UP: the minted, never-delivered invitation is
-// retired (RetireUndeliveredInvite) and the request leaves the queue, in one transaction, so the
+// or -- at queueMaxAttempts -- the queue GIVES UP: the person's never-delivered invitations are
+// retired (RetireUndeliveredInvites) and the request leaves the queue, in one transaction, so the
 // person is left with no live unsent link and the API answers activationEmail "undelivered"
 // (the trail's last attempt is this invite.undelivered row). A resend asks again (API-6 review O-1).
-func (q *Queue) failed(ctx context.Context, tenant uuid.UUID, c store.ClaimInviteRequestRow, invite uuid.UUID, lease time.Time, sendErr error) error {
+func (q *Queue) failed(ctx context.Context, tenant uuid.UUID, c store.ClaimInviteRequestRow, lease time.Time, sendErr error) error {
 	gaveUp := false
 	var tries int32
 	due := q.now().Add(queueBackoff(c.Attempts + 1))
@@ -387,8 +485,8 @@ func (q *Queue) failed(ctx context.Context, tenant uuid.UUID, c store.ClaimInvit
 			return nil
 		}
 		gaveUp = true
-		if _, err := s.RetireUndeliveredInvite(ctx, store.RetireUndeliveredInviteParams{TenantID: tenant, ID: invite, EmployeeID: c.EmployeeID}); err != nil {
-			return fmt.Errorf("retire the undelivered invitation: %w", err)
+		if _, err := s.RetireUndeliveredInvites(ctx, store.RetireUndeliveredInvitesParams{TenantID: tenant, EmployeeID: c.EmployeeID}); err != nil {
+			return fmt.Errorf("retire the undelivered invitations: %w", err)
 		}
 		if _, err := s.FinishInviteRequest(ctx, store.FinishInviteRequestParams{TenantID: tenant, EmployeeID: c.EmployeeID, LeaseUntil: &due}); err != nil {
 			return fmt.Errorf("take the request out of the queue: %w", err)

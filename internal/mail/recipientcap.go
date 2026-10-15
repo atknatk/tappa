@@ -290,6 +290,17 @@ func (c *RecipientCap) Capped(scope, to string) bool {
 	return false
 }
 
+// Refusing reports whether the breaker this cap stands in front of would refuse a send now
+// (Breaker.Refusing: nothing is recorded; a true answer counts as a refusal). The invitation queue
+// asks it BEFORE it mints a code (M11 API-6 review O-B), so a tripped breaker costs no invitation
+// row -- the rows ADR 0022 §9's issuing limits count. A nil or zero cap answers false.
+func (c *RecipientCap) Refusing() bool {
+	if !c.configured() {
+		return false
+	}
+	return c.breaker.Refusing()
+}
+
 // admit is the one locked decision of a refusable send over BOTH ceilings: the cap
 // first (a refusal here never reaches the breaker), then the breaker's own step (its
 // refusal is not recorded here), then the record. It returns the refusing class, or

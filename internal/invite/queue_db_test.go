@@ -62,6 +62,8 @@ func newQueueRig(t *testing.T) *queueRig {
 		t.Fatal(err)
 	}
 	f := newMailFixture(t, d, "Queue Test Ltd", ptrBool(true))
+	// K-22: the queue sends only for a business whose API the operator opened (API-6 review O-A).
+	ownerExecQ(t, `UPDATE tenants SET api_code = 'QUEUE', api_enabled_at = now() WHERE id = $1`, f.tenantID)
 	return &queueRig{t: t, m: m, d: d, staff: staff, rec: rec, sink: sink, q: q, tenant: f.tenantID, key: uuid.New()}
 }
 
@@ -605,36 +607,38 @@ func (r *queueRig) apiState(employee uuid.UUID) tenant.InvitationState {
 }
 
 // TestInviteQueue_ACeilingDelaysAndSpendsNoTry (ADR 0022 §9, plan §2 item 11: "tavan isteği
-// reddettirmez, gönderimi geciktirir"; API-6 review O-2): six refusals by a ceiling -- the
-// per-mailbox cap asked in the minting transaction, the cap and the process breaker answering the
-// send, a throttling 451 -- leave the request waiting with ZERO tries spent; one real failure (a
-// 550) then counts ONE. A ceiling never gives up on anybody.
+// reddettirmez, gönderimi geciktirir"; API-6 review O-2 and O-B): the per-mailbox cap and the
+// process breaker asked BEFORE the mint refuse with no invitation minted and no try spent; the cap
+// and the breaker refusing the SEND itself (a race with that question) delay too, with no try spent;
+// one real failure (a 550) then counts ONE. While delayed the API says "queued".
 //
 // MUTANTS (measured): a ceiling's refusal counted as a failed send -> tries spent, red; the claim
 // counting a try again -> red.
 func TestInviteQueue_ACeilingDelaysAndSpendsNoTry(t *testing.T) {
 	r := newQueueRig(t)
 	p := r.hire(addr("ceil"))
-	r.sink.mu.Lock()
-	r.sink.capped = true
-	r.sink.mu.Unlock()
-	if err := r.q.RunFor(context.Background(), r.tenant); !settled(err) {
-		t.Fatal(err)
-	}
-	r.sink.mu.Lock()
-	r.sink.capped = false
-	r.sink.mu.Unlock()
-	if r.attempts(p) != 0 || len(r.sink.calls()) != 0 {
-		t.Fatalf("the cap asked before the mint: %d tries, %d sends; want 0, 0", r.attempts(p), len(r.sink.calls()))
-	}
-	for _, class := range []mail.Class{mail.ClassRecipientCap, mail.ClassBreaker, mail.ClassThrottled, mail.ClassBreaker, mail.ClassRecipientCap} {
+	for _, set := range []func(on bool){
+		func(on bool) { r.sink.mu.Lock(); r.sink.capped = on; r.sink.mu.Unlock() },
+		func(on bool) { r.sink.mu.Lock(); r.sink.refusing = on; r.sink.mu.Unlock() },
+	} {
 		r.due(p)
-		r.failSends(&mail.SendError{Class: class, SMTPCode: 451})
+		set(true)
+		if err := r.q.RunFor(context.Background(), r.tenant); !settled(err) {
+			t.Fatal(err)
+		}
+		set(false)
+		if r.attempts(p) != 0 || len(r.sink.calls()) != 0 || r.invites(p) != 0 {
+			t.Fatalf("a ceiling asked before the mint: %d tries, %d sends, %d invitations; want 0, 0, 0", r.attempts(p), len(r.sink.calls()), r.invites(p))
+		}
+	}
+	for _, class := range []mail.Class{mail.ClassRecipientCap, mail.ClassBreaker, mail.ClassRecipientCap} {
+		r.due(p)
+		r.failSends(&mail.SendError{Class: class})
 		if err := r.q.RunFor(context.Background(), r.tenant); !settled(err) {
 			t.Fatalf("%s: %v", class, err)
 		}
 		if r.attempts(p) != 0 {
-			t.Fatalf("a %s refusal spent a try (%d); a ceiling delays and never counts", class, r.attempts(p))
+			t.Fatalf("a %s refusal of the send spent a try (%d); a ceiling delays and never counts", class, r.attempts(p))
 		}
 		if r.apiState(p) != tenant.InvitationQueued {
 			t.Fatalf("after a %s refusal the API says %q, want queued", class, r.apiState(p))
@@ -644,7 +648,125 @@ func TestInviteQueue_ACeilingDelaysAndSpendsNoTry(t *testing.T) {
 	r.failSends(&mail.SendError{Class: mail.ClassRejected, SMTPCode: 550})
 	_ = r.q.RunFor(context.Background(), r.tenant)
 	if r.attempts(p) != 1 {
-		t.Fatalf("one real failure after six ceilings: %d tries, want 1", r.attempts(p))
+		t.Fatalf("one real failure after the ceilings: %d tries, want 1", r.attempts(p))
+	}
+}
+
+// dueNow makes the request due without touching the invitations' ages (due() moves them back two
+// hours; this test needs the per-person hourly count as it really is).
+func (r *queueRig) dueNow(employee uuid.UUID) {
+	r.t.Helper()
+	if err := r.d.WithTenant(context.Background(), r.tenant, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx, `UPDATE invite_requests SET lease_until = clock_timestamp() - interval '1 second' WHERE tenant_id = $1 AND employee_id = $2`, r.tenant, employee)
+		return e
+	}); err != nil {
+		r.t.Fatal(err)
+	}
+}
+
+// TestInviteQueue_AnOpenBreakerMintsNothingAndSparesThePanelsCount (API-6 review O-B, measured
+// before: four breaker cycles filled the panel's per-person limit): five runs while the breaker is
+// open mint no invitation, send nothing and spend no try; the panel's own press for the person then
+// goes through -- ADR 0022 §9's per-person count (three an hour) was not touched.
+//
+// MUTANT (measured): the breaker's question removed from before the mint -> five invitations minted
+// and the panel's press refused for the hour, red.
+func TestInviteQueue_AnOpenBreakerMintsNothingAndSparesThePanelsCount(t *testing.T) {
+	r := newQueueRig(t)
+	p := r.hire(addr("brk"))
+	r.sink.mu.Lock()
+	r.sink.refusing = true
+	r.sink.mu.Unlock()
+	for range 5 {
+		r.dueNow(p)
+		if err := r.q.RunFor(context.Background(), r.tenant); !settled(err) {
+			t.Fatal(err)
+		}
+	}
+	if n := r.invites(p); n != 0 || r.attempts(p) != 0 || r.queued(p) != 1 {
+		t.Fatalf("an open breaker: %d invitations minted, %d tries, %d queued; want 0, 0, 1", n, r.attempts(p), r.queued(p))
+	}
+	if _, err := r.m.IssueAndDeliver(context.Background(), IssueParams{TenantID: r.tenant, EmployeeID: p}, mailRoute(t, r.d, &fakeMailSink{})); err != nil {
+		t.Fatalf("the panel's press after the queue waited on the breaker: %v, want it sent (the count untouched)", err)
+	}
+}
+
+// TestInviteQueue_AThrottlingDomainEndsUndelivered (API-6 review O-B, measured before: 25 × 450 kept
+// the request queued with 25 codes, 25 e-mails and 25 trail rows): a domain that answers every send
+// 450 is given up after queueMaxAttempts like a 550 -- the request leaves the queue, the API says
+// "undelivered", no link it minted is spendable.
+//
+// MUTANT (measured): a 4xx counted as a delay again -> still queued with no try spent, red.
+func TestInviteQueue_AThrottlingDomainEndsUndelivered(t *testing.T) {
+	r := newQueueRig(t)
+	p := r.hire(addr("thr"))
+	r.failSends(&mail.SendError{Class: mail.ClassThrottled, SMTPCode: 450})
+	for range queueMaxAttempts {
+		r.due(p)
+		_ = r.q.RunFor(context.Background(), r.tenant)
+	}
+	if r.queued(p) != 0 || r.apiState(p) != tenant.InvitationUndelivered {
+		t.Fatalf("after %d × 450: %d queued, the API says %q; want 0 and undelivered", queueMaxAttempts, r.queued(p), r.apiState(p))
+	}
+	for _, d := range r.sink.calls() {
+		if _, err := r.m.Lookup(context.Background(), codeOf(t, d)); err == nil {
+			t.Fatal("a link minted for the throttling domain is still spendable after the give-up")
+		}
+	}
+}
+
+// TestInviteQueue_ALifetimeEndsEveryRequest (API-6 review O-B): whatever keeps a request waiting --
+// here the breaker, which never spends a try -- a request older than queueLifetime is given up on its
+// next run: it leaves the queue, an invite.email_refused row says "request_expired" (with no address
+// in it), and the API answers "undelivered"; a resend then asks again.
+//
+// MUTANT (measured): the lifetime check removed -> the request waits for ever, red.
+func TestInviteQueue_ALifetimeEndsEveryRequest(t *testing.T) {
+	r := newQueueRig(t)
+	ref := apiRefFor("LIFE")
+	p := r.put(ref, addr("life")).Employee.ID
+	r.sink.mu.Lock()
+	r.sink.refusing = true
+	r.sink.mu.Unlock()
+	ownerExecQ(t, `UPDATE invite_requests SET requested_at = now() - interval '73 hours' WHERE tenant_id = $1 AND employee_id = $2`, r.tenant, p)
+	err := r.q.RunFor(context.Background(), r.tenant)
+	if !errors.Is(err, ErrRequestExpired) {
+		t.Fatalf("a request past its lifetime: %v, want ErrRequestExpired", err)
+	}
+	if r.queued(p) != 0 || r.apiState(p) != tenant.InvitationUndelivered {
+		t.Fatalf("after the lifetime: %d queued, the API says %q; want 0 and undelivered", r.queued(p), r.apiState(p))
+	}
+	if n := r.count(`SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND target = $2 AND action = 'invite.email_refused' AND detail->>'reason' = 'request_expired'`, r.tenant, p.String()); n != 1 {
+		t.Fatalf("%d request_expired rows, want 1", n)
+	}
+}
+
+// TestInviteQueue_AClosedAPISendsNothingAndWaits (ADR 0028 §2, K-22: the gate "her yolda" --
+// the worker's send included; API-6 review O-A, measured before: a closed business's queue minted and
+// sent): with the operator's gate closed a run mints nothing, sends nothing, spends no try and keeps
+// the request (the API says "queued"); reopened, the request is sent.
+//
+// MUTANT (measured): the gate's read removed -> one invitation minted and sent while closed, red.
+func TestInviteQueue_AClosedAPISendsNothingAndWaits(t *testing.T) {
+	r := newQueueRig(t)
+	p := r.hire(addr("gate"))
+	ownerExecQ(t, `UPDATE tenants SET api_enabled_at = NULL WHERE id = $1`, r.tenant)
+	err := r.q.RunFor(context.Background(), r.tenant)
+	var later *Later
+	if !errors.As(err, &later) || later.DueIn() <= 0 {
+		t.Fatalf("a closed business's run: %v, want *Later", err)
+	}
+	if r.invites(p) != 0 || len(r.sink.calls()) != 0 || r.queued(p) != 1 || r.attempts(p) != 0 || r.apiState(p) != tenant.InvitationQueued {
+		t.Fatalf("closed: %d invitations, %d sends, %d queued, %d tries, %q; want 0, 0, 1, 0, queued",
+			r.invites(p), len(r.sink.calls()), r.queued(p), r.attempts(p), r.apiState(p))
+	}
+	ownerExecQ(t, `UPDATE tenants SET api_enabled_at = now() WHERE id = $1`, r.tenant)
+	r.dueNow(p)
+	if err := r.q.RunFor(context.Background(), r.tenant); !settled(err) {
+		t.Fatal(err)
+	}
+	if len(r.sink.calls()) != 1 || r.apiState(p) != tenant.InvitationSent {
+		t.Fatalf("reopened: %d sends, %q; want 1 and sent", len(r.sink.calls()), r.apiState(p))
 	}
 }
 
@@ -734,5 +856,23 @@ func TestInviteQueue_GivingUpRetiresTheUnsentLinkAndSaysUndelivered(t *testing.T
 	}
 	if !res.Queued {
 		t.Fatal("a resend beside a live but undelivered link was a no-op; only a SENT link silences it")
+	}
+}
+
+// ownerExecQ runs one statement as the owner (DATABASE_MIGRATE_URL): what tappa_app may not do --
+// open a business's API (K-22's writer is an op_* function), date a row.
+func ownerExecQ(t *testing.T, sql string, args ...any) {
+	t.Helper()
+	dsn := os.Getenv("DATABASE_MIGRATE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_MIGRATE_URL is required (the owner opens K-22's gate)")
+	}
+	conn, err := pgx.Connect(context.Background(), dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close(context.Background()) }()
+	if _, err := conn.Exec(context.Background(), sql, args...); err != nil {
+		t.Fatal(err)
 	}
 }

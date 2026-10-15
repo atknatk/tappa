@@ -124,6 +124,8 @@ import (
 type inviteSender interface {
 	Send(ctx context.Context, scope string, m mail.Message) (mail.Receipt, error)
 	Capped(scope, to string) bool
+	// Refusing: would the breaker refuse a send now (the invitation queue asks before it mints).
+	Refusing() bool
 }
 
 var _ inviteSender = (*mail.RecipientCap)(nil)
@@ -264,7 +266,7 @@ func (e *EmailInvitations) send(ctx context.Context, d invite.Delivery) (mail.Re
 // -- so the queue and the panel share every ceiling (ADR 0022 §9, ADR 0028 §9), and the same
 // rendering. It keeps no per-request state (the queue has no screen to tell); an accepted send
 // writes one line of ids, never the address, the names or the link.
-func (e *EmailInvitations) QueueSink(log *slog.Logger) invite.MailSink {
+func (e *EmailInvitations) QueueSink(log *slog.Logger) invite.QueueSink {
 	if log == nil {
 		log = slog.Default()
 	}
@@ -290,6 +292,10 @@ func (s *queueLinkSink) SendInvitation(ctx context.Context, d invite.Delivery) (
 func (s *queueLinkSink) RecipientCapped(tenantID uuid.UUID, address string) bool {
 	return s.mail.sender.Capped(tenantID.String(), address)
 }
+
+// Refusing answers whether the one breaker would refuse a send now -- asked by the queue before it
+// mints, so a tripped breaker costs no invitation row (M11 API-6 review O-B).
+func (s *queueLinkSink) Refusing() bool { return s.mail.sender.Refusing() }
 
 // RecipientCapped asks the per-mailbox cap whether an invitation from business
 // tenantID to address would be refused now — that business's count only

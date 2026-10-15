@@ -46,6 +46,8 @@ func (c *capturingSender) Send(_ context.Context, _ string, m mail.Message) (mai
 
 func (c *capturingSender) Capped(string, string) bool { return false }
 
+func (c *capturingSender) Refusing() bool { return false }
+
 func (c *capturingSender) messages() []mail.Message {
 	c.mu.Lock()
 	defer c.mu.Unlock()

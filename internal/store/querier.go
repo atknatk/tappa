@@ -311,8 +311,8 @@ type Querier interface {
 	// (✅ CANCELLATION EXISTS SINCE 2026-08-08 AND IT DID NOT REUSE used_at, exactly as
 	// this paragraph demanded: migration 00012 added cancelled_at plus its own
 	// column-level GRANT, and two statements write it: CancelPendingInvitesForEmployee
-	// below, and RetireUndeliveredInvite (M11 API-6: the queue gives up on one it never
-	// sent). Every query that decides whether a code may be spent now
+	// below, and RetireUndeliveredInvites (M11 API-6: the queue gives up on the links it
+	// never delivered). Every query that decides whether a code may be spent now
 	// eliminates the two facts SEPARATELY -- `used_at IS NULL AND cancelled_at IS NULL`.
 	// Cancelling an invite from the panel -- which legitimately knows only the id --
 	// is a DIFFERENT operation and must NOT reuse used_at: that stamp means "the code
@@ -4989,15 +4989,16 @@ type Querier interface {
 	// handles as "no such plaque". Handler-boundary validation is still owed (section
 	// 7); this makes forgetting it non-catastrophic instead of silent.
 	RetireTagForReplacement(ctx context.Context, arg RetireTagForReplacementParams) (RetireTagForReplacementRow, error)
-	// Retires ONE invitation the invitation queue minted and gave up sending (M11 API-6, K-17,
-	// internal/invite queue.go): every try failed, so the link was never delivered and must not stay
-	// spendable -- a live, unsent link is neither "sent" nor safe to leave standing. By id, so a newer
-	// invitation (a panel press, another run) is never touched; the same one-way discipline as
-	// CancelPendingInvitesForEmployee (cancelled_at NULL -> now(), never back; a spent or already
-	// retired one is left alone). It writes cancelled_at only.
+	// Retires every invitation of ONE person that could still be spent and was NEVER DELIVERED -- no
+	// invite.code_emailed (or, in the panel mode, invite.code_shown_to_manager) row names it (M11 API-6,
+	// K-17, internal/invite queue.go): the queue gives up on the person (five failed sends, or a request
+	// older than its lifetime), and a live link nobody received is neither "sent" nor safe to leave
+	// standing. A DELIVERED link -- a panel press that reached the person -- is never touched; nor is a
+	// spent, retired or expired one. The same one-way discipline as CancelPendingInvitesForEmployee
+	// (cancelled_at NULL -> now(), never back). It writes cancelled_at only.
 	//
-	// TENANT SCOPE (section 4.5, belt + braces): explicit predicate on top of RLS.
-	RetireUndeliveredInvite(ctx context.Context, arg RetireUndeliveredInviteParams) (int64, error)
+	// TENANT SCOPE (section 4.5, belt + braces): explicit predicates on top of RLS, the sub-query's too.
+	RetireUndeliveredInvites(ctx context.Context, arg RetireUndeliveredInvitesParams) (int64, error)
 	// 🔴 THE STAMP IS clock_timestamp(), NOT now() (API-3 second round, D2 -- measured with two psql
 	// sessions). now() is the TRANSACTION's start: "revoke all" begun at T0, a key created and
 	// committed after T0, then the UPDATE reaching that key wrote revoked_at = T0 < created_at, the
