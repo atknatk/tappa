@@ -356,6 +356,67 @@ func queriesDeclaredIn(t *testing.T, file string) []string {
 	return out
 }
 
+// fileBelt is the tags belt over one more query file, for the files whose callers live outside
+// every package that carries a copy of this net (M11: internal/apikey, internal/webhook/endpoints).
+// FILE-DERIVED like the tags one: a statement is checked because it exists. floor is an ANTI-VACUITY
+// floor, set below today's count so that deleting a query fails while adding one never does. No
+// exemption list: every statement in these files is scoped today, and the day one is not this goes
+// red and somebody decides.
+func fileBelt(t *testing.T, file string, floor int) {
+	t.Helper()
+	declared := declaredQueries(t)
+	names := queriesDeclaredIn(t, file)
+	if len(names) < floor {
+		t.Fatalf("derived %d query name(s) from db/queries/%s (%v); this file carries at least %d, "+
+			"so this scan is reading the wrong file", len(names), file, names, floor)
+	}
+	scoped := tenantScopedTables(t)
+	for _, n := range names {
+		if !declared[n] {
+			t.Errorf("%q is declared in %s but declaredQueries did not see it; the two readers "+
+				"disagree, so one of them is misparsing", n, file)
+		}
+		_, body, ok := findQuery(t, n)
+		if !ok {
+			t.Errorf("no body for %q -- declared in %s but unreadable", n, file)
+			continue
+		}
+		findings, checked := scopeFindings(body, scoped)
+		for _, f := range findings {
+			t.Errorf("%s (%s) %s", n, file, f)
+		}
+		if checked == 0 {
+			t.Errorf("%s (%s): the scan found no statement touching a tenant-scoped table, so it "+
+				"checked nothing -- every query in this file reads or writes one.", n, file)
+		}
+	}
+	t.Logf("section 4.5 belt over db/queries/%s (file-derived): %d queries", file, len(names))
+}
+
+// TestWebhookQueries_CarryAnExplicitTenantPredicate is the belt over webhooks.sql (M11 API-9): the
+// endpoint's reads and writes, the bucket's lock (scoped by the tenants row's own id) and its count.
+// Its callers are in internal/webhook/endpoints, which carries no copy of this net, and RLS alone
+// keeps TestRLS_WebhookEndpoints_AnotherTenantsEndpointIsInvisible green when a predicate is dropped -- so this is the only
+// place the second defence is visible.
+//
+// MUTANTS (measured): the tenant_id predicate dropped from GetWebhookEndpoint (no WHERE left), from
+// GetWebhookEndpointForSigning (`WHERE true`), from ReadWebhookBucket and from
+// RotateWebhookEndpointKey, and `t.id = @tenant_id` replaced in LockWebhookBucket -> red, each.
+func TestWebhookQueries_CarryAnExplicitTenantPredicate(t *testing.T) {
+	fileBelt(t, "webhooks.sql", 8)
+}
+
+// TestAPIKeyQueries_CarryAnExplicitTenantPredicate is the same belt over apikeys.sql (M11 API-3):
+// its callers (internal/apikey; GetTenantAPIEnabledAt also from internal/webhook/endpoints and
+// internal/invite) carry no copy of it.
+//
+// MUTANTS (measured): the tenant_id predicate dropped from ListAPIKeys and from RevokeAPIKey,
+// InsertAPIKey's tenant_id bound to another parameter, and `OR true` added to
+// GetTenantAPIEnabledAt's predicate -> red, each.
+func TestAPIKeyQueries_CarryAnExplicitTenantPredicate(t *testing.T) {
+	fileBelt(t, "apikeys.sql", 7)
+}
+
 // TestTransactionsQueries_CarryAnExplicitTenantPredicate is the tags belt pointed at
 // transactions.sql (M6-08). See txnQueryFile for why it exists and what widening
 // further would cost.
