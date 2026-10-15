@@ -85,6 +85,8 @@ internal/handler/api/ /v1 yüzeyi (M11 API-4), ayrı host `TAPPA_API_HOST` — i
                       64 KiB sınırı, askı kontrol noktası, openapi.yaml. Müşteri paneli import
                       etmez, o da paneli import etmez (ADR 0028 §13). Uçların işi panelin domain'inden
                       geçer (ör. `PUT /v1/locations` → `tenant.Venues`); API kanıt (IP/GPS) yazmaz.
+internal/invite/      davet basımı ve gönderimi; K-17 davet kuyruğu işçisi (M11 API-6 — `invite_requests`,
+                      kira 60 sn, kod **gönderim anında** basılır, kuyrukta kod yok; `webhook.Worker`'ın işi).
 internal/webhook/     K-19'un süreç içi "işi olan tenant'lar" kümesi ve işçi iskeleti (M11 API-4)
                       — tenant'lar arası tarama YOK; uç nokta ve mühürlü imza anahtarı API-9'da,
                       teslim (kira, geri çekilme, `sha256=` imzası) API-10'da (ADR 0028 §6).
