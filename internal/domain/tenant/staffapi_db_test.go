@@ -535,3 +535,38 @@ func TestEmployeesPutDomain_ConcurrentNewRefOpensOneRow(t *testing.T) {
 		}
 	}
 }
+
+// TestStaffAdd_TheNameRuleIsTheVenueRule (the user's decision, 2026-10-15: the panel's employee names
+// follow the API's -- API-5's venue -- rule): Add refuses, as ErrNameHiddenCharacter, every character
+// the rule refuses -- BEL, ESC, an inner TAB, a line separator, a direction override, a zero-width
+// space, a word joiner, a ZWJ at an end -- where personName alone stored BEL and ESC, accepted U+2060
+// and a stray ZWJ and turned a TAB into a space (measured before the change); and stores what a real
+// name carries: a chef emoji (ZWJ), the Scotland flag (tag characters), a Persian ZWNJ, with a soft
+// hyphen, a direction mark and an edge BOM removed and inner spaces collapsed.
+//
+// MUTANT (measured): the character check removed from Add -> BEL, ESC, the word joiner and the stray
+// ZWJ are stored again, red.
+func TestStaffAdd_TheNameRuleIsTheVenueRule(t *testing.T) {
+	f := newStaffFixture(t)
+	add := func(name string) (Person, error) {
+		return f.staff.Add(context.Background(), AddCommand{TenantID: f.tenantID, ActorID: f.actorID, FullName: name, LocationID: f.locationID})
+	}
+	for _, name := range []string{
+		"Ma\u0007ria", "Ma\u001bria", "Maria\tBorg", "Maria\u2028Borg", "Ma\u202eria", "Ma\u200bria", "Ma\u2060ria", "\u200dMaria",
+	} {
+		if p, err := add(name); !errors.Is(err, ErrNameHiddenCharacter) {
+			t.Errorf("%q: stored %q (%v), want ErrNameHiddenCharacter", name, p.Name, err)
+		}
+	}
+	for name, want := range map[string]string{
+		"Chef \U0001F468\u200d\U0001F373 Borg":                                       "Chef \U0001F468\u200d\U0001F373 Borg",
+		"Ian \U0001F3F4\U000E0067\U000E0062\U000E0073\U000E0063\U000E0074\U000E007F": "Ian \U0001F3F4\U000E0067\U000E0062\U000E0073\U000E0063\U000E0074\U000E007F",
+		"\u0645\u06cc\u200c\u0631\u0648\u0632":                                       "\u0645\u06cc\u200c\u0631\u0648\u0632",
+		"\ufeffMa\u00adria \u200eBorg  Grech":                                        "Maria Borg Grech",
+	} {
+		p, err := add(name)
+		if err != nil || p.Name != want {
+			t.Errorf("%q: %q %v, want %q stored", name, p.Name, err, want)
+		}
+	}
+}

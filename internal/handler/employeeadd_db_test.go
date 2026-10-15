@@ -545,3 +545,28 @@ func TestEmployeeAddDB_ASecondIdenticalSubmissionCreatesASecondPerson(t *testing
 		t.Fatal("the add did not redirect, so a refresh would re-post it")
 	}
 }
+
+// TestEmployeeAddDB_AHiddenCharacterIsASentence (the user's decision, 2026-10-15): the add form's
+// name with a control character, a word joiner or a direction override comes back as the form with
+// the venue editor's sentence for it (200, nothing stored); CONTROL: the same name without it is
+// added (303).
+func TestEmployeeAddDB_AHiddenCharacterIsASentence(t *testing.T) {
+	p := newPanelHarness(t)
+	venue := seedPanelVenue(t, p, "St Julians")
+	p.signIn(t)
+	for _, name := range []string{"Ma\u0007ria Borg", "Ma\u2060ria Borg", "Ma\u202eria Borg"} {
+		res, body := p.post(t, employeeAddHref, url.Values{"full_name": {name}, "location_id": {venue.String()}})
+		if res.StatusCode != http.StatusOK || !strings.Contains(body, "Type the name again") {
+			t.Errorf("%q: %d, want the form back with the hidden-character sentence", name, res.StatusCode)
+		}
+	}
+	var n int
+	if err := p.data.WithTenant(context.Background(), p.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT count(*) FROM employees WHERE tenant_id = $1 AND full_name LIKE 'Ma%ria Borg'`, p.tenantID).Scan(&n)
+	}); err != nil || n != 0 {
+		t.Fatalf("%d refused names were stored (%v)", n, err)
+	}
+	if res, _ := p.post(t, employeeAddHref, url.Values{"full_name": {"Maria Borg"}, "location_id": {venue.String()}}); res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("CONTROL: a plain name answered %d, want 303", res.StatusCode)
+	}
+}

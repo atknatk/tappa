@@ -420,7 +420,7 @@ func (s *Staff) Add(ctx context.Context, c AddCommand) (Person, error) {
 	// order means the message points at the field their eye is already on. Reporting
 	// the LAST one instead is how a form tells somebody their venue is wrong when
 	// what they actually mistyped was the name.
-	name, err := personName(c.FullName)
+	name, err := panelPersonName(c.FullName)
 	if err != nil {
 		return Person{}, err
 	}
@@ -517,6 +517,26 @@ func (s *Staff) Add(ctx context.Context, c AddCommand) (Person, error) {
 		"location_id", c.LocationID,
 		"has_email", email != nil, "status", out.Status)
 	return out, nil
+}
+
+// panelPersonName is the add form's name rule since the API-6 review (the user's decision,
+// 2026-10-15: "çalışan adları panelde de API kuralına bağlanır"): the venue rule of API-5 --
+// CleanName, then NameHasHiddenCharacters on the cleaned name, refused as ErrNameHiddenCharacter
+// (which is also ErrEmployeeName) -- and then personName's own cleaning and bounds.
+//
+// MEASURED BEFORE IT (2026-10-15): personName alone stored BEL and ESC, accepted U+2060 and a ZWJ
+// outside any emoji or word, and turned an inner TAB into a space; only the bidi controls were
+// refused. Now each of those is a sentence the manager reads (TestStaffAdd_TheNameRuleIsTheVenueRule).
+//
+// THERE IS NO NAME ON FILE TO EXEMPT: Add opens a row, and the panel has no rename of a person --
+// so the venue rule's "the name on file is never refused" has nothing to apply to here. The API's
+// writes (staffapi.go) keep it for first_name and last_name.
+func panelPersonName(raw string) (string, error) {
+	s := CleanName(raw)
+	if NameHasHiddenCharacters(s) {
+		return "", hiddenName{sentinel: ErrEmployeeName}
+	}
+	return personName(s)
 }
 
 // personName cleans and bounds a stored employee name.

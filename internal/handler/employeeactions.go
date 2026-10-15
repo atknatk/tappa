@@ -269,6 +269,11 @@ func (a *AdminAuth) employeeAdd(w http.ResponseWriter, r *http.Request) {
 	})
 	switch {
 	case err == nil:
+	case errors.Is(err, tenant.ErrNameHiddenCharacter):
+		// Before ErrEmployeeName: the character refusal is both, and its sentence is the useful one.
+		a.log.Warn("panel employee add refused: the name carries a refused character")
+		a.addFormAgain(w, r, posted, "full_name", hiddenNameSentence)
+		return
 	case errors.Is(err, tenant.ErrEmployeeName):
 		a.log.Warn("panel employee add refused: the name cannot be stored")
 		a.addFormAgain(w, r, posted, "full_name",
