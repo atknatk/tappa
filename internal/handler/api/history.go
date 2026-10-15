@@ -45,14 +45,14 @@ import (
 
 const historyCursorPrefix = "hst_"
 
-// rfc3339Shape is RFC 3339's date-time (§5.6) with upper-case T and Z: a full date, a full time, an
-// optional fraction after a dot, and Z or an offset of hours 00-23 and minutes 00-59. The calendar
-// itself (a 31st of February) is the parser's to refuse.
 // unencodedPlusShape is an RFC 3339 instant whose offset sign is a space -- a '+' that was not
 // percent-encoded. Only that shape gets problemHistoryPlus: a space anywhere else (between the date
 // and the time, say) is a malformed instant, and the hint would mislead (API-7b third round).
 var unencodedPlusShape = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,9})? [0-9]{2}:[0-9]{2}$`)
 
+// rfc3339Shape is RFC 3339's date-time (§5.6) with upper-case T and Z: a full date, a full time, an
+// optional fraction after a dot, and Z or an offset of hours 00-23 and minutes 00-59. The calendar
+// itself (a 31st of February) is the parser's to refuse.
 var rfc3339Shape = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,9})?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$`)
 
 var (

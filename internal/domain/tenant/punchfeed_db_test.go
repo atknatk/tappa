@@ -351,10 +351,11 @@ func TestPunchHistory_ATieAcrossTheWindowsEndIsCutByTheFeedOrder(t *testing.T) {
 // window of three positions, seven pages of at most three positions each (empty, hasMore true) and
 // ends; with the snapshot's filter in the window (the reviewed shape) the first page read all 20 rows,
 // found none and ended. The same through the database: the shipped window statement at a window of
-// three examines at most four rows of punch_events -- window + 1 -- and removes none by a filter
-// (EXPLAIN ANALYZE of the index walk, shippedReads; before the index carried seq, an Incremental
-// Sort read one row more to close its last group).
-// MUTANT (measured): seq <= S0 back in the window -- red.
+// three examines at most four rows of punch_events -- window + 1 -- on the time index, and its plan
+// names no seq bound (EXPLAIN ANALYZE, shippedReads).
+// MUTANT (measured): seq <= S0 back in the window -- red, by the PAGE COUNT (one page, not seven).
+// With seq in the index that filter becomes an Index Cond and the EXPLAIN half reads rows=0 -- it no
+// longer sees the mutant by its row count; it sees it by the "seq <=" in the plan's conditions.
 func TestPunchHistory_AStaleSnapshotReadsAtMostTheWindow(t *testing.T) {
 	f := newSiteFixture(t)
 	feed, err := NewPunchFeed(f.data)
@@ -400,25 +401,35 @@ func TestPunchHistory_AStaleSnapshotReadsAtMostTheWindow(t *testing.T) {
 	if pages != 7 {
 		t.Fatalf("the stale walk took %d pages, want 7 (20 positions, three a page)", pages)
 	}
-	if n, plan := shippedReads(t, f, "getPunchHistoryWindow", from, int64(0), f.kf, from, to, int32(4), int32(3)); n > 4 {
+	n, plan := shippedReads(t, f, "getPunchHistoryWindow", from, int64(0), f.kf, from, to, int32(4), int32(3))
+	if n > 4 {
 		t.Fatalf("the window statement read %d rows of punch_events at a window of three (want <= 4):\n%s", n, plan)
+	}
+	if strings.Contains(plan, "seq <=") {
+		t.Fatalf("the window statement bounds seq -- the snapshot's filter is the page's alone:\n%s", plan)
 	}
 }
 
 // shippedReads runs the SHIPPED statement name (the store's unexported constant, read from the
 // generated file) under EXPLAIN ANALYZE in KF's context and returns the most rows any scan of
-// punch_events produced, failing on a row a filter threw away. The planner's choice of scan is pinned
-// first (SET LOCAL enable_seqscan / enable_bitmapscan = off, the 00050 emsali): the claim is the
-// shape of the INDEX walk -- "a page reads at most its window" -- and on this suite's small,
-// unanalysed tables the planner would otherwise read the whole table by a sequential scan, which is
-// the right plan there and says nothing about the walk (the API-7b third round: a fresh database
-// went red 3/3 on that plan, a shared one green only because other packages' rows grew the table).
-// At a million events the planner picks the index walk by itself (the API-7b notes' EXPLAIN).
+// punch_events produced, failing on a row a filter threw away. The claim is the shape of the TIME
+// INDEX walk -- "a page reads at most its window" -- so the plan is pinned to it twice over: the
+// other ways in are switched off (SET LOCAL enable_seqscan, enable_bitmapscan and enable_sort = off,
+// the 00050 emsali -- without enable_sort the planner fled to punch_events_pkey + a filter + a
+// top-N Sort, API-7b fourth round), and every scan of punch_events must name
+// punch_events_tenant_time_idx, or the test says which plan it got instead of counting its rows. On
+// this suite's small, unanalysed tables the planner would otherwise pick a sequential scan, the right
+// plan there and one that says nothing about the walk; at a million events it picks the index walk
+// by itself (the API-7b notes' EXPLAIN).
+//
+// ⚠️ The statement is read from internal/store/punchfeed.sql.go ON DISK: a mutant laid over the
+// package (an overlay build) never reaches this half -- only an edit of the generated file does
+// (API-7b fourth round, measured).
 func shippedReads(t *testing.T, f *siteFixture, name string, args ...any) (int, string) {
 	t.Helper()
 	var plan []string
 	if err := f.data.WithTenant(f.ctx, f.kf, func(ctx context.Context, tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `SET LOCAL enable_seqscan = off; SET LOCAL enable_bitmapscan = off`); err != nil {
+		if _, err := tx.Exec(ctx, `SET LOCAL enable_seqscan = off; SET LOCAL enable_bitmapscan = off; SET LOCAL enable_sort = off`); err != nil {
 			return err
 		}
 		rows, err := tx.Query(ctx, `EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF) `+shippedSQL(name), args...)
@@ -433,6 +444,10 @@ func shippedReads(t *testing.T, f *siteFixture, name string, args ...any) (int, 
 	most := 0
 	for _, line := range plan {
 		if strings.Contains(line, "on punch_events") {
+			if !strings.Contains(line, "using punch_events_tenant_time_idx on punch_events") {
+				t.Fatalf("%s: the planner chose %q; the bound is about the time index (punch_events_tenant_time_idx), "+
+					"and rows read through another plan say nothing about it:\n%s", name, strings.TrimSpace(line), strings.Join(plan, "\n"))
+			}
 			if i := strings.Index(line, "rows="); i >= 0 {
 				var n int
 				if _, err := fmt.Sscanf(line[i:], "rows=%d", &n); err == nil && n > most {
