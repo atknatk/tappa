@@ -2,7 +2,8 @@
 // host, the Bearer chain, the JSON error contract, the body bound, Idempotency-Key, the suspension
 // checkpoint and the hand-written OpenAPI document. The endpoints mount into the authenticated group
 // Mount builds: PUT /v1/locations/{ref} (API-5, locations.go) and the employee endpoints (API-6,
-// employees.go), GET /v1/punches (API-7, punches.go) and GET /v1/directory (API-8, directory.go).
+// employees.go), GET /v1/punches (API-7, punches.go) and GET /v1/directory (API-8, directory.go);
+// beside them, without a key, the OpenAPI document and the integration guide (API-12, guide.go).
 //
 // 🔴 IT IMPORTS NO PANEL. Like internal/handler/operator, this package is a surface of its own:
 // it does not import internal/handler (the customer panel, the tap) and internal/handler does not
@@ -161,8 +162,8 @@ func New(c Config) (*Surface, error) {
 
 // Mount registers /v1. Every request passes, in order: the host gate (404 off the API host), the
 // response headers, the body bound, the guard (a panic or a missed deadline is 503); then either
-// the address bucket alone (the public document) or the whole chain (everything else). Unknown paths
-// and methods answer the JSON 404.
+// the address bucket alone (the public documents: openapi.yaml and the two guides) or the whole chain
+// (everything else). Unknown paths and methods answer the JSON 404.
 func (s *Surface) Mount(r chi.Router) {
 	r.Route(Prefix, func(r chi.Router) {
 		r.Use(s.hostGate, s.headers, s.bodyBound, s.guard)
@@ -171,6 +172,8 @@ func (s *Surface) Mount(r chi.Router) {
 		r.Group(func(r chi.Router) {
 			r.Use(s.addressOnly)
 			r.Get(openAPIPath, s.openAPI)
+			r.Get(guidePath, s.serveGuide(guideEnglish))
+			r.Get(guideTRPath, s.serveGuide(guideTurkish))
 		})
 		r.Group(func(r chi.Router) {
 			r.Use(s.authenticate)

@@ -4,23 +4,57 @@ info:
   version: "1"
   description: |
     The integration API of Taptime (punchless time and attendance). A business's HR or ERP system
-    writes the business's own locations and employees and reads its punches and its directory.
+    writes the business's own locations and employees and reads its punches and its directory; a
+    webhook tells it of a punch as it happens.
 
-    Authentication: every request but this document carries `Authorization: Bearer <key>`, a key
-    the business's owner issues in the Taptime panel. The API must also be enabled for the business
-    by Taptime; until then a valid key is answered 403 `api_disabled`.
+    The integration guide explains the whole contract in prose, with the story these examples come
+    from: GET /v1/guide.md (English) and GET /v1/guide.tr.md (Turkish), on this host, without a key.
 
-    Errors: every refusal is a JSON body `{code, message, details}` (the `Error` schema). A 429
-    carries `Retry-After` (seconds). Request bodies are limited to 65536 bytes and are not accepted
-    compressed.
+    Authentication: every request but the three documents carries `Authorization: Bearer <key>`, a
+    key the business's owner issues in the Taptime panel. The API must also be enabled for the
+    business by Taptime; until then a valid key is answered 403 `api_disabled`. The key's business is
+    the only business a request reads or writes -- no request names a business.
+
+    Errors: every refusal is a JSON body `{code, message, details}` (the `Error` schema). Each
+    operation lists the codes it can answer in `x-error-codes`. A 429 carries `Retry-After`
+    (seconds). Request bodies are limited to 65536 bytes and are not accepted compressed.
+
+    Rate limits (`x-limits`): per client address 1200 requests a minute -- the documents and every
+    request with a well-formed key, counted before the key is looked up -- and per key 600 a minute;
+    over either, 429 `rate_limited` with `Retry-After`. No other rate-limit header is sent.
+    Deactivations have a budget of their own (20 per key per hour, 429 `deactivation_budget_exceeded`).
 
     Idempotency: a write may carry `Idempotency-Key` (1-255 visible ASCII characters). A retry with
     the same key and the same request within 24 hours returns the first request's result without
     doing the work again (with `Idempotent-Replayed: true`); the same key with a different request
-    is 422 `idempotency_key_reused`. Concurrent requests with one key are answered one after the
-    other.
+    is 422 `idempotency_key_reused`. "The same request" is byte for byte: the method, the path as
+    sent (its percent-encoding included), the query string as sent and the body's bytes -- another
+    order of query parameters or other whitespace in the JSON is a different request; headers are
+    not part of it. Concurrent requests with one key are answered one after the other. Keys are kept
+    per integration key: two keys of one business do not share them.
 
-    Identifiers: `emp_`, `loc_`, `pch_` and `dlv_` followed by a UUID; `tag_` followed by the plaque's UID.
+    Identifiers: `emp_`, `loc_`, `pch_` and `dlv_` followed by a UUID; `tag_` followed by the plaque's
+    UID. Instants are RFC 3339 in UTC with at most microsecond precision.
+  x-limits:
+    requestsPerAddressPerMinute: 1200
+    requestsPerKeyPerMinute: 600
+    deactivationsPerKeyPerHour: 20
+    maxBodyBytes: 65536
+    defaultPageSize: 500
+    maxPageSize: 1000
+    idempotencyHours: 24
+    requestTimeoutSeconds: 30
+    feedWindowPositions: 10000
+    historyMaxHours: 745
+    directoryOverlapMinutes: 10
+    webhookTimeoutSeconds: 10
+    webhookAttempts: 6
+    webhookTestMessagesPerHour: 10
+    invitesPerBusinessPerHour: 50
+    invitesPerBusinessPerDay: 300
+    invitesPerEmployeePerHour: 3
+    invitationQueueHours: 72
+    invitationSendAttempts: 5
 servers:
   - url: https://api.taptime.mt
 security:
@@ -30,7 +64,9 @@ paths:
     get:
       operationId: getOpenAPI
       summary: This document.
+      description: Served without a key, metered by the client address. Its answer is not cached (`Cache-Control` `no-store`).
       security: []
+      x-error-codes: [invalid_request, body_too_large, rate_limited]
       responses:
         "200":
           description: The OpenAPI 3.1 document of this API.
@@ -38,8 +74,47 @@ paths:
             application/yaml:
               schema:
                 type: string
-        "404":
-          $ref: "#/components/responses/NotFound"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/guide.md:
+    get:
+      operationId: getGuide
+      summary: The integration guide, in English.
+      description: |
+        The integration guide (Markdown, English -- the original). Served without a key, metered by
+        the client address like this document. Revalidate a copy with `If-None-Match`: an unchanged
+        guide answers 304 without a body.
+      security: []
+      x-error-codes: [invalid_request, body_too_large, rate_limited]
+      parameters:
+        - $ref: "#/components/parameters/IfNoneMatch"
+      responses:
+        "200":
+          $ref: "#/components/responses/Guide"
+        "304":
+          $ref: "#/components/responses/GuideNotModified"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/guide.tr.md:
+    get:
+      operationId: getGuideTurkish
+      summary: The integration guide, in Turkish.
+      description: The guide's Turkish translation -- the same document, section by section. Served like `/v1/guide.md`.
+      security: []
+      x-error-codes: [invalid_request, body_too_large, rate_limited]
+      parameters:
+        - $ref: "#/components/parameters/IfNoneMatch"
+      responses:
+        "200":
+          $ref: "#/components/responses/Guide"
+        "304":
+          $ref: "#/components/responses/GuideNotModified"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   /v1/locations/{ref}:
@@ -51,7 +126,7 @@ paths:
         creates a location (201); a known one is renamed and relabelled (200); a request that
         matches the location as it is changes nothing (200). A location is never matched by its
         name: to update a location that already exists in Taptime, its owner first sets its
-        "External ref" in the Taptime panel.
+        "External ref" in the Taptime panel. (A KM department is a location.)
 
         Only the name and the `active` label are written. `active` is a label and changes nothing
         about how taps there are judged. Address ranges and the coordinate that prove a tap
@@ -66,13 +141,9 @@ paths:
         twice is 422 (`duplicate_field`). The reference may be percent-encoded; it is decoded once
         and must then match the pattern (so `%41BC` is `ABC`, and an encoded `/` is refused). While
         the business is suspended this endpoint is 403 `tenant_suspended`.
+      x-error-codes: [invalid_request, body_too_large, unauthorized, api_disabled, tenant_suspended, not_found, idempotency_key_reused, validation_failed, timezone_mismatch, rate_limited, unavailable]
       parameters:
-        - name: ref
-          in: path
-          required: true
-          description: The business's reference for the location.
-          schema:
-            $ref: "#/components/schemas/ExternalRef"
+        - $ref: "#/components/parameters/LocationRef"
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
@@ -80,19 +151,34 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/LocationPut"
+            examples:
+              valletta:
+                summary: KF puts its location KF-VLT.
+                value: {"name": "Valletta", "active": true, "timezone": "Europe/Malta"}
       responses:
         "200":
           description: The location existed; it is now as sent.
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Location"
         "201":
           description: The location was created.
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Location"
+              examples:
+                valletta:
+                  summary: The answer to the request above.
+                  value: {"id": "loc_166f3262-64af-46d0-8c53-36306b075dd9", "externalRef": "KF-VLT", "name": "Valletta",
+                    "timezone": "Europe/Malta", "active": true, "createdAt": "2026-10-16T06:48:50.664499Z"}
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -114,9 +200,11 @@ paths:
       description: |
         Every employee of the business -- active and deactivated, with or without an external
         reference -- in a stable order, `limit` at a time (default 500, at most 1000). When a page is
-        full, `nextCursor` names the next one; pass it as `cursor`. No other query parameter is
-        accepted (400). No answer carries an e-mail address: `hasEmail` says whether there is one,
+        full, `nextCursor` names the next one; pass it as `cursor` (a page with fewer than `limit`
+        employees is the last, and its `nextCursor` is null). No other query parameter is accepted
+        (400). No answer carries an e-mail address: `hasEmail` says whether there is one,
         `activationEmail` the activation e-mail's state and time.
+      x-error-codes: [invalid_request, body_too_large, unauthorized, api_disabled, rate_limited, unavailable]
       parameters:
         - $ref: "#/components/parameters/Limit"
         - name: cursor
@@ -125,6 +213,7 @@ paths:
           description: The `nextCursor` of the previous page.
           schema:
             type: string
+            pattern: "^emp_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
       responses:
         "200":
           description: One page.
@@ -132,6 +221,21 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/EmployeePage"
+              examples:
+                kf:
+                  summary: KF's employees, two a page (E-1043 was deactivated).
+                  value: {"data": [
+                      {"id": "emp_a7711ae9-3941-4749-96c7-c77f2a5878c0", "externalRef": "E-1042", "employeeCode": "1042",
+                        "firstName": "Jane", "lastName": "Example", "fullName": "Jane Example", "active": true,
+                        "activated": false, "activatedAt": null, "hasEmail": true,
+                        "activationEmail": {"status": "queued", "at": "2026-10-16T06:48:50.708573Z"},
+                        "createdAt": "2026-10-16T06:48:50.695693Z", "updatedAt": "2026-10-16T06:48:50.70598Z"},
+                      {"id": "emp_ebdc1c74-f631-4fad-9fa4-13dfbf12dcdd", "externalRef": "E-1043", "employeeCode": null,
+                        "firstName": "Sam", "lastName": "Placeholder", "fullName": "Sam Placeholder", "active": false,
+                        "activated": false, "activatedAt": null, "hasEmail": false,
+                        "activationEmail": {"status": "none", "at": null},
+                        "createdAt": "2026-10-16T06:48:50.722703Z", "updatedAt": "2026-10-16T06:48:50.760562Z"}],
+                    "nextCursor": "emp_ebdc1c74-f631-4fad-9fa4-13dfbf12dcdd"}
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -150,6 +254,7 @@ paths:
         The active employee under the reference, or -- when none is active -- the most recently
         deactivated one (a re-hire is a new employee under the same reference). 404 when the business
         never held the reference. No e-mail address is answered.
+      x-error-codes: [invalid_request, body_too_large, unauthorized, api_disabled, not_found, validation_failed, rate_limited, unavailable]
       parameters:
         - $ref: "#/components/parameters/EmployeeRef"
       responses:
@@ -159,6 +264,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Employee"
+              examples:
+                jane:
+                  summary: E-1042, invited and not activated yet.
+                  value: {"id": "emp_a7711ae9-3941-4749-96c7-c77f2a5878c0", "externalRef": "E-1042", "employeeCode": "1042",
+                    "firstName": "Jane", "lastName": "Example", "fullName": "Jane Example", "active": true,
+                    "activated": false, "activatedAt": null, "hasEmail": true,
+                    "activationEmail": {"status": "queued", "at": "2026-10-16T06:48:50.708573Z"},
+                    "createdAt": "2026-10-16T06:48:50.695693Z", "updatedAt": "2026-10-16T06:48:50.70598Z"}
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -190,13 +303,15 @@ paths:
         A known reference is updated (200). When the e-mail address changes, every activation link
         sent to the old one stops working, in the same change; an employee who has not activated yet
         is sent a new one, an activated employee is not. `active: false` deactivates the employee
-        (their taps are refused from then on); `active: true` on a reference whose employee is
-        deactivated creates a NEW employee (new `id`, same `externalRef`). A request that matches the
-        employee as they are changes nothing (200).
+        (their taps are refused from then on); `active: false` on a reference the business never held
+        is 404. `active: true` on a reference whose employee is deactivated creates a NEW employee (new
+        `id`, same `externalRef`). A request that matches the employee as they are changes nothing
+        (200).
 
         `email` must be one plain ASCII address and not the address of an administrator of the
-        business (422); an address another active employee of the business holds is 409
-        `email_unavailable` (nothing is created or sent).
+        business (422 `administrator_address`); an address another active employee of the business
+        holds is 409 `email_unavailable` (nothing is created or sent). These answers tell the key's
+        holder whose an address is inside its own business, and nothing of any other business.
 
         Deactivation -- here or by DELETE -- is limited per key: past 20 in an hour it is 429
         `deactivation_budget_exceeded` with `Retry-After`, and the business's owner is alerted.
@@ -205,6 +320,7 @@ paths:
         field 422 `unknown_field`, a field twice 422 `duplicate_field`). While the business is
         suspended a request that creates a new employee is accepted; one that changes an existing
         employee (deactivation included) is 403 `tenant_suspended`.
+      x-error-codes: [invalid_request, body_too_large, unauthorized, api_disabled, tenant_suspended, not_found, email_unavailable, idempotency_key_reused, validation_failed, rate_limited, deactivation_budget_exceeded, unavailable]
       parameters:
         - $ref: "#/components/parameters/EmployeeRef"
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -214,19 +330,38 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/EmployeePut"
+            examples:
+              jane:
+                summary: KF puts its employee E-1042.
+                value: {"firstName": "Jane", "lastName": "Example", "email": "jane.example@example.com", "active": true,
+                  "employeeCode": "1042"}
       responses:
         "200":
           description: The employee existed (or was bound by address); it is now as sent.
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Employee"
         "201":
           description: A new employee was created.
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Employee"
+              examples:
+                jane:
+                  summary: The answer to the request above -- the activation e-mail is queued.
+                  value: {"id": "emp_a7711ae9-3941-4749-96c7-c77f2a5878c0", "externalRef": "E-1042", "employeeCode": "1042",
+                    "firstName": "Jane", "lastName": "Example", "fullName": "Jane Example", "active": true,
+                    "activated": false, "activatedAt": null, "hasEmail": true,
+                    "activationEmail": {"status": "queued", "at": "2026-10-16T06:48:50.708573Z"},
+                    "createdAt": "2026-10-16T06:48:50.695693Z", "updatedAt": "2026-10-16T06:48:50.70598Z"}
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -251,16 +386,28 @@ paths:
         their history stays. An employee already deactivated is answered as they are (200, nothing
         spent); a reference the business never held is 404. Limited per key like `active: false` (429
         `deactivation_budget_exceeded`). While the business is suspended, 403 `tenant_suspended`.
+      x-error-codes: [invalid_request, body_too_large, unauthorized, api_disabled, tenant_suspended, not_found, idempotency_key_reused, validation_failed, rate_limited, deactivation_budget_exceeded, unavailable]
       parameters:
         - $ref: "#/components/parameters/EmployeeRef"
         - $ref: "#/components/parameters/IdempotencyKey"
       responses:
         "200":
           description: The employee, deactivated.
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Employee"
+              examples:
+                sam:
+                  summary: E-1043 (no e-mail address) deactivated.
+                  value: {"id": "emp_ebdc1c74-f631-4fad-9fa4-13dfbf12dcdd", "externalRef": "E-1043", "employeeCode": null,
+                    "firstName": "Sam", "lastName": "Placeholder", "fullName": "Sam Placeholder", "active": false,
+                    "activated": false, "activatedAt": null, "hasEmail": false,
+                    "activationEmail": {"status": "none", "at": null},
+                    "createdAt": "2026-10-16T06:48:50.722703Z", "updatedAt": "2026-10-16T06:48:50.760562Z"}
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -286,16 +433,28 @@ paths:
         one is sent, replaces the older ones. An activated employee is 409 `already_activated` (a new
         phone is set up in the Taptime panel); an employee with no e-mail address is 422. Accepted
         while the business is suspended.
+      x-error-codes: [invalid_request, body_too_large, unauthorized, api_disabled, not_found, already_activated, idempotency_key_reused, validation_failed, rate_limited, unavailable]
       parameters:
         - $ref: "#/components/parameters/EmployeeRef"
         - $ref: "#/components/parameters/IdempotencyKey"
       responses:
         "202":
           description: Accepted; `activationEmail` says the state.
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Employee"
+              examples:
+                jane:
+                  summary: An e-mail is already queued for E-1042, so nothing changes -- still 202.
+                  value: {"id": "emp_a7711ae9-3941-4749-96c7-c77f2a5878c0", "externalRef": "E-1042", "employeeCode": "1042",
+                    "firstName": "Jane", "lastName": "Example", "fullName": "Jane Example", "active": true,
+                    "activated": false, "activatedAt": null, "hasEmail": true,
+                    "activationEmail": {"status": "queued", "at": "2026-10-16T06:48:50.708573Z"},
+                    "createdAt": "2026-10-16T06:48:50.695693Z", "updatedAt": "2026-10-16T06:48:50.70598Z"}
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -334,12 +493,13 @@ paths:
         Paging: pass the previous page's `nextCursor` as `cursor` (none: from the beginning).
         `nextCursor` is always present -- on an empty page too, where it is the position this reader
         has caught up to -- and never goes back. A page can hold fewer punches than `limit`, even
-        none, while `hasMore` is true; read on while it is. `hasMore` false: every punch the feed
-        held when the page was read has been answered; poll again later with `nextCursor`. A cursor
-        is a position in this business's feed -- one feed for both scopes; a position past the feed's
-        end is refused (400). Keep a separate `nextCursor` for each scope you read, and do not carry
-        a cursor to another business: a cursor taken to the other scope, or to another business
-        inside its range, is not refused, and the events before it are skipped silently.
+        none, while `hasMore` is true (a page reads at most 10000 positions of the feed); read on while
+        it is. `hasMore` false: every punch the feed held when the page was read has been answered;
+        poll again later with `nextCursor`. A cursor is a position in this business's feed -- one feed
+        for both scopes; a position past the feed's end is refused (400). Keep a separate
+        `nextCursor` for each scope you read, and do not carry a cursor to another business: a cursor
+        taken to the other scope, or to another business inside its range, is not refused, and the
+        events before it are skipped silently.
 
         History (`from` and `to`, together): the scope's punches whose `punchTime` is in [`from`,
         `to`) -- `from` before `to`, at most 31 days and one hour apart (a calendar month in any time
@@ -361,6 +521,7 @@ paths:
         parameter, and a query string that does not parse, is 400. No punch carries an e-mail address, a
         coordinate, a network address, a note or the reason of a decision. While the business is
         suspended this endpoint stays open.
+      x-error-codes: [invalid_request, body_too_large, unauthorized, api_disabled, rate_limited, unavailable]
       parameters:
         - name: scope
           in: query
@@ -398,6 +559,47 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PunchPage"
+              examples:
+                feed:
+                  summary: "KF's feed, scope=location: Jane (KF) and Joe (KM) tapped in at KF's Valletta."
+                  value: {"data": [
+                      {"id": "pch_4aa969bd-1d3a-4371-bf0f-dd8ed792554a", "version": 1, "status": "valid",
+                        "punchTime": "2026-10-16T05:58:50.805Z", "recordedAt": "2026-10-16T06:48:50.802957Z",
+                        "channel": "nfc", "direction": "in",
+                        "employee": {"id": "emp_a7711ae9-3941-4749-96c7-c77f2a5878c0", "externalRef": "E-1042",
+                          "employeeCode": "1042", "company": "KF"},
+                        "location": {"id": "loc_166f3262-64af-46d0-8c53-36306b075dd9", "externalRef": "KF-VLT",
+                          "name": "Valletta", "company": "KF"},
+                        "tagId": "tag_4191371A1A7398"},
+                      {"id": "pch_17062bc7-a07c-4317-9571-d12afa2e6e97", "version": 1, "status": "valid",
+                        "punchTime": "2026-10-16T06:03:50.817Z", "recordedAt": "2026-10-16T06:48:50.816091Z",
+                        "channel": "nfc", "direction": "in",
+                        "employee": {"id": "emp_5dfc2b96-0d04-4732-abd1-340856dc1294", "externalRef": "M-2001",
+                          "employeeCode": "2001", "company": "KM"},
+                        "location": {"id": "loc_166f3262-64af-46d0-8c53-36306b075dd9", "externalRef": "KF-VLT",
+                          "name": "Valletta", "company": "KF"},
+                        "tagId": "tag_4191371A1A7398"}],
+                    "nextCursor": "cur_2", "hasMore": false}
+                history:
+                  summary: "KM's history, scope=employer: Joe in at KF's Valletta, out at KM's Production."
+                  value: {"data": [
+                      {"id": "pch_17062bc7-a07c-4317-9571-d12afa2e6e97", "version": 1, "status": "valid",
+                        "punchTime": "2026-10-16T06:03:50.817Z", "recordedAt": "2026-10-16T06:48:50.816091Z",
+                        "channel": "nfc", "direction": "in",
+                        "employee": {"id": "emp_5dfc2b96-0d04-4732-abd1-340856dc1294", "externalRef": "M-2001",
+                          "employeeCode": "2001", "company": "KM"},
+                        "location": {"id": "loc_166f3262-64af-46d0-8c53-36306b075dd9", "externalRef": "KF-VLT",
+                          "name": "Valletta", "company": "KF"},
+                        "tagId": "tag_4191371A1A7398"},
+                      {"id": "pch_91d7e258-e53b-42e0-bdf9-f62796553a75", "version": 1, "status": "valid",
+                        "punchTime": "2026-10-16T06:47:50.83Z", "recordedAt": "2026-10-16T06:48:50.829045Z",
+                        "channel": "nfc", "direction": "out",
+                        "employee": {"id": "emp_5dfc2b96-0d04-4732-abd1-340856dc1294", "externalRef": "M-2001",
+                          "employeeCode": "2001", "company": "KM"},
+                        "location": {"id": "loc_24ab23d4-5681-4783-8774-c6e32e3db489", "externalRef": "DEP-1",
+                          "name": "Production", "company": "KM"},
+                        "tagId": "tag_170E0E29BC2684"}],
+                    "nextCursor": "hst_2_1792133270830000_2_94085386467fb983", "hasMore": false}
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -442,9 +644,14 @@ paths:
         periodically -- daily, for instance -- and after a group change you know of; incremental
         reads are for the changes in between.
 
+        A `nextCursor` this server handed out can be refused (400) after the server's clock stepped
+        back; retry the same request after a short, growing wait (seconds), and restart the walk with
+        the same `updatedSince` if the refusal persists. Nothing is lost.
+
         Only `updatedSince`, `cursor` and `limit` are accepted, each at most once; any other
         parameter, and a query string that does not parse, is 400. While the business is suspended
         this endpoint stays open.
+      x-error-codes: [invalid_request, body_too_large, unauthorized, api_disabled, rate_limited, unavailable]
       parameters:
         - name: updatedSince
           in: query
@@ -468,6 +675,20 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DirectoryPage"
+              examples:
+                kf:
+                  summary: KF's whole directory -- its two employees and KM's one.
+                  value: {"data": [
+                      {"id": "emp_a7711ae9-3941-4749-96c7-c77f2a5878c0", "company": "KF", "externalRef": "E-1042",
+                        "employeeCode": "1042", "firstName": "Jane", "lastName": "Example", "fullName": "Jane Example",
+                        "active": true, "updatedAt": "2026-10-16T06:48:50.70598Z"},
+                      {"id": "emp_5dfc2b96-0d04-4732-abd1-340856dc1294", "company": "KM", "externalRef": "M-2001",
+                        "employeeCode": "2001", "firstName": "Joe", "lastName": "Sample", "fullName": "Joe Sample",
+                        "active": true, "updatedAt": "2026-10-16T06:48:50.742389Z"},
+                      {"id": "emp_ebdc1c74-f631-4fad-9fa4-13dfbf12dcdd", "company": "KF", "externalRef": "E-1043",
+                        "employeeCode": null, "firstName": "Sam", "lastName": "Placeholder", "fullName": "Sam Placeholder",
+                        "active": false, "updatedAt": "2026-10-16T06:48:50.760562Z"}],
+                    "nextCursor": null, "hasMore": false, "asOf": "2026-10-16T06:48:50.85826Z"}
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -478,6 +699,82 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/Unavailable"
+webhooks:
+  punch:
+    post:
+      operationId: receivePunch
+      summary: A punch, posted to the business's webhook endpoint as it enters the feed.
+      description: |
+        Taptime posts each punch of the business's feed -- in either scope -- to the business's one
+        webhook endpoint, set up by its owner in the Taptime panel (not through this API). The body is
+        the `GET /v1/punches` item with two fields more: `event` (`punch`) and `deliveryId` (`dlv_…`).
+        A punch between two companies of one group is two deliveries, one to each company's endpoint.
+
+        Signature: `X-Taptime-Signature` is `sha256=` and the lower-case hex HMAC-SHA256 of the
+        body's exact bytes, keyed by the endpoint's signing key as text (`tt_whsec_…`, the prefix
+        included). Recompute it over the raw body and compare in constant time; there is no timestamp
+        header. The guide has a known-answer vector.
+
+        Answer: any 2xx within 10 seconds is "delivered". Anything else -- another status (a redirect
+        included: it is not followed), no answer within 10 seconds, a TLS or connection failure -- is a
+        failed try. A failed delivery is tried again after 1 min, 5 min, 30 min, 2 h and 6 h; the
+        sixth failure makes it failed (`dead`), and it is not tried again unless the owner sends it
+        again from the panel. Every try of one delivery carries the same `deliveryId` and the same
+        bytes. A punch can arrive more than once and in any order: deduplicate by `id` + `version`.
+        The feed is the record: punches recorded while the endpoint was off are never delivered.
+      x-retry-schedule-seconds: [60, 300, 1800, 7200, 21600]
+      parameters:
+        - $ref: "#/components/parameters/Signature"
+        - $ref: "#/components/parameters/WebhookUserAgent"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PunchDelivery"
+            examples:
+              jane:
+                summary: Jane's punch in, posted to KF's endpoint.
+                value: {"event": "punch", "deliveryId": "dlv_2682e520-d961-43b5-9138-cd553aa0693f",
+                  "id": "pch_4aa969bd-1d3a-4371-bf0f-dd8ed792554a", "version": 1, "status": "valid",
+                  "punchTime": "2026-10-16T05:58:50.805Z", "recordedAt": "2026-10-16T06:48:50.802957Z",
+                  "channel": "nfc", "direction": "in",
+                  "employee": {"id": "emp_a7711ae9-3941-4749-96c7-c77f2a5878c0", "externalRef": "E-1042",
+                    "employeeCode": "1042", "company": "KF"},
+                  "location": {"id": "loc_166f3262-64af-46d0-8c53-36306b075dd9", "externalRef": "KF-VLT",
+                    "name": "Valletta", "company": "KF"},
+                  "tagId": "tag_4191371A1A7398"}
+      responses:
+        "2XX":
+          description: Delivered. The answer's body is not read.
+        default:
+          description: A failed try (as is no answer within 10 seconds); tried again on the schedule.
+  ping:
+    post:
+      operationId: receivePing
+      summary: A test message the business's owner sends from the Taptime panel.
+      description: |
+        A synthetic event with the same headers and the same signature as a punch. It names no punch,
+        employee or location: tell it apart by `event` and do not count it as a punch. The owner can
+        send ten an hour (the same ten that "send again now" spends).
+      parameters:
+        - $ref: "#/components/parameters/Signature"
+        - $ref: "#/components/parameters/WebhookUserAgent"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Ping"
+            examples:
+              ping:
+                summary: A test message to KF's endpoint.
+                value: {"event": "ping", "id": "7b6d9161-20d9-4a59-ae1a-e6446afa8614", "sentAt": "2026-10-16T06:48:50Z"}
+      responses:
+        "2XX":
+          description: Received. The panel shows the owner the answer's class and status.
+        default:
+          description: The panel shows the owner the failure's class and status.
 components:
   securitySchemes:
     bearer:
@@ -489,12 +786,13 @@ components:
       name: Idempotency-Key
       in: header
       required: false
-      description: Makes a write safe to retry for 24 hours.
+      description: Makes a write safe to retry for 24 hours. The same key with a request that differs in any byte of the method, path, query or body is 422.
       schema:
         type: string
         minLength: 1
         maxLength: 255
         pattern: "^[!-~]{1,255}$"
+      example: order-1042-v3
     Limit:
       name: limit
       in: query
@@ -505,6 +803,14 @@ components:
         minimum: 1
         maximum: 1000
         default: 500
+    LocationRef:
+      name: ref
+      in: path
+      required: true
+      description: The business's reference for the location (percent-decoded once, then matched).
+      schema:
+        $ref: "#/components/schemas/ExternalRef"
+      example: KF-VLT
     EmployeeRef:
       name: ref
       in: path
@@ -512,12 +818,55 @@ components:
       description: The business's reference for the employee (percent-decoded once, then matched).
       schema:
         $ref: "#/components/schemas/ExternalRef"
+      example: E-1042
+    IfNoneMatch:
+      name: If-None-Match
+      in: header
+      required: false
+      description: The `ETag` of a copy you hold; when it is the guide's current one the answer is 304.
+      schema:
+        type: string
+    Signature:
+      name: X-Taptime-Signature
+      in: header
+      required: true
+      description: "`sha256=` and the lower-case hex HMAC-SHA256 of the body's bytes, keyed by the signing key's text."
+      schema:
+        type: string
+        pattern: "^sha256=[0-9a-f]{64}$"
+    WebhookUserAgent:
+      name: User-Agent
+      in: header
+      required: true
+      schema:
+        type: string
+        enum: [Taptime-Webhooks/1]
   headers:
     RetryAfter:
       description: Seconds to wait before retrying.
       schema:
         type: integer
         minimum: 1
+    IdempotentReplayed:
+      description: "`true` when the answer is a replay of an earlier request with the same Idempotency-Key (the work was not done again). Absent otherwise."
+      schema:
+        type: string
+        enum: ["true"]
+    ETag:
+      description: The guide's version (a digest of its bytes).
+      schema:
+        type: string
+        pattern: '^"[0-9a-f]{32}"$'
+    CacheControl:
+      description: "`no-cache`: a copy may be kept but is revalidated with If-None-Match."
+      schema:
+        type: string
+        enum: [no-cache]
+    ContentLanguage:
+      description: The guide's language.
+      schema:
+        type: string
+        enum: [en, tr]
   schemas:
     ExternalRef:
       type: string
@@ -651,6 +1000,43 @@ components:
         updatedAt:
           type: string
           format: date-time
+    PunchEmployee:
+      type: object
+      additionalProperties: false
+      required: [id, externalRef, employeeCode, company]
+      description: The employee as they were at the punch.
+      properties:
+        id:
+          type: string
+          pattern: "^emp_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        externalRef:
+          type: ["string", "null"]
+          description: null for an employee not bound to a reference yet.
+        employeeCode:
+          type: ["string", "null"]
+        company:
+          type: ["string", "null"]
+          description: The employee's business's company code.
+    PunchLocation:
+      type: object
+      additionalProperties: false
+      required: [id, externalRef, name, company]
+      description: |
+        The location as it was at the punch. id, externalRef and name are null for a plaque that
+        was not mounted at a location (company still names the plaque's business); all four are
+        null for a punch at a partner's location approved after the two companies' group
+        membership ended.
+      properties:
+        id:
+          type: ["string", "null"]
+          pattern: "^loc_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        externalRef:
+          type: ["string", "null"]
+        name:
+          type: ["string", "null"]
+        company:
+          type: ["string", "null"]
+          description: The location's business's company code.
     Punch:
       type: object
       additionalProperties: false
@@ -682,46 +1068,74 @@ components:
           enum: [in, out]
           description: In or out, as Taptime computed it for the employee's own business.
         employee:
-          type: object
-          additionalProperties: false
-          required: [id, externalRef, employeeCode, company]
-          description: The employee as they were at the punch.
-          properties:
-            id:
-              type: string
-              pattern: "^emp_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-            externalRef:
-              type: ["string", "null"]
-              description: null for an employee not bound to a reference yet.
-            employeeCode:
-              type: ["string", "null"]
-            company:
-              type: ["string", "null"]
-              description: The employee's business's company code.
+          $ref: "#/components/schemas/PunchEmployee"
         location:
-          type: object
-          additionalProperties: false
-          required: [id, externalRef, name, company]
-          description: |
-            The location as it was at the punch. id, externalRef and name are null for a plaque that
-            was not mounted at a location (company still names the plaque's business); all four are
-            null for a punch at a partner's location approved after the two companies' group
-            membership ended.
-          properties:
-            id:
-              type: ["string", "null"]
-              pattern: "^loc_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-            externalRef:
-              type: ["string", "null"]
-            name:
-              type: ["string", "null"]
-            company:
-              type: ["string", "null"]
-              description: The location's business's company code.
+          $ref: "#/components/schemas/PunchLocation"
         tagId:
           type: ["string", "null"]
           pattern: "^tag_[0-9A-Fa-f]{14}$"
           description: The plaque touched (also for a QR punch).
+    PunchDelivery:
+      type: object
+      additionalProperties: false
+      required: [event, deliveryId, id, version, status, punchTime, recordedAt, channel, direction, employee, location, tagId]
+      description: A webhook delivery's body -- the Punch with event and deliveryId.
+      properties:
+        event:
+          type: string
+          enum: [punch]
+        deliveryId:
+          type: string
+          pattern: "^dlv_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          description: The delivery -- the same on every try of it.
+        id:
+          type: string
+          pattern: "^pch_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          description: The punch. A punch between two companies of one group has the same id in both feeds.
+        version:
+          type: integer
+          enum: [1]
+        status:
+          type: string
+          enum: [valid]
+        punchTime:
+          type: string
+          format: date-time
+          description: The instant the employee's phone declared (UTC).
+        recordedAt:
+          type: string
+          format: date-time
+          description: The instant the punch entered the feed (UTC) -- for an approved flag, the approval's.
+        channel:
+          type: string
+          enum: [nfc, qr]
+        direction:
+          type: string
+          enum: [in, out]
+          description: In or out, as Taptime computed it for the employee's own business.
+        employee:
+          $ref: "#/components/schemas/PunchEmployee"
+        location:
+          $ref: "#/components/schemas/PunchLocation"
+        tagId:
+          type: ["string", "null"]
+          pattern: "^tag_[0-9A-Fa-f]{14}$"
+          description: The plaque touched (also for a QR punch).
+    Ping:
+      type: object
+      additionalProperties: false
+      required: [event, id, sentAt]
+      properties:
+        event:
+          type: string
+          enum: [ping]
+        id:
+          type: string
+          format: uuid
+          description: The test message (not a punch, not a delivery).
+        sentAt:
+          type: string
+          format: date-time
     PunchPage:
       type: object
       additionalProperties: false
@@ -748,6 +1162,7 @@ components:
             $ref: "#/components/schemas/Employee"
         nextCursor:
           type: ["string", "null"]
+          description: Set when the page is full (it holds `limit` employees); null on a shorter page, the last.
     DirectoryEntry:
       type: object
       additionalProperties: false
@@ -810,8 +1225,54 @@ components:
           type: string
           description: A sentence for a person. Never contains the request's own values.
         details:
-          type: object
-          description: Machine-readable specifics, such as the parameter at fault; may be empty.
+          $ref: "#/components/schemas/ErrorDetails"
+    ErrorDetails:
+      type: object
+      additionalProperties: false
+      description: Machine-readable specifics; may be empty. Every key is optional; none repeats a value the request sent.
+      properties:
+        field:
+          type: string
+          description: The body field (or `ref`, the path's reference) at fault -- validation_failed, timezone_mismatch.
+          enum: [name, active, timezone, externalRef, ref, firstName, lastName, email, employeeCode]
+        reason:
+          type: string
+          description: "Why: required, type, invalid, mismatch, unknown_field, duplicate_field, hidden_character, administrator_address (validation_failed); malformed_json, invalid_utf8, unencoded_plus (invalid_request)."
+          enum: [required, type, invalid, mismatch, unknown_field, duplicate_field, hidden_character, administrator_address, malformed_json, invalid_utf8, unencoded_plus]
+        parameter:
+          type: string
+          description: The query parameter at fault.
+          enum: [limit, cursor, scope, updatedSince]
+        parameters:
+          type: array
+          items:
+            type: string
+            enum: [from, to]
+          description: The query parameters at fault together (from and to).
+        allowed:
+          type: array
+          items:
+            type: string
+          description: The names this endpoint accepts (fields, parameters or values).
+        header:
+          type: string
+          description: The request header at fault.
+          enum: [Content-Encoding, Idempotency-Key]
+        max:
+          type: integer
+          description: The largest value accepted (limit).
+        maxBytes:
+          type: integer
+          description: The largest body accepted.
+        maxHours:
+          type: integer
+          description: The longest history range accepted, in hours.
+        retryAfterSeconds:
+          type: integer
+          description: The same as Retry-After.
+        businessTimezone:
+          type: string
+          description: The business's own time zone -- the one value here that is not a constant, and not the request's.
   responses:
     BadRequest:
       description: "invalid_request or body_too_large: a parameter, header or body the contract refuses."
@@ -819,36 +1280,79 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+          examples:
+            limit:
+              value: {"code": "invalid_request", "message": "limit must be a whole number from 1 to 1000.",
+                "details": {"max": 1000, "parameter": "limit"}}
+            body_too_large:
+              value: {"code": "body_too_large", "message": "The request body is larger than the API accepts.",
+                "details": {"maxBytes": 65536}}
     Unauthorized:
-      description: "unauthorized: no key, or a key that is not valid."
+      description: "unauthorized: no key, or a key that is not valid (unknown and revoked keys get the same answer)."
+      headers:
+        WWW-Authenticate:
+          description: '`Bearer realm="taptime"`.'
+          schema:
+            type: string
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+          examples:
+            unauthorized:
+              value: {"code": "unauthorized", "message": "A valid integration key is required: Authorization: Bearer <key>.",
+                "details": {}}
     Forbidden:
       description: "api_disabled: the API is not enabled for this business; tenant_suspended: the business is suspended and this change is not accepted."
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+          examples:
+            api_disabled:
+              value: {"code": "api_disabled", "message": "The integration API is not enabled for this business. Ask Taptime to enable it.",
+                "details": {}}
+            tenant_suspended:
+              value: {"code": "tenant_suspended", "message": "This business is suspended; this change is not accepted until it is reinstated.",
+                "details": {}}
     NotFound:
       description: "not_found: no such resource (on an Idempotency-Key replay: the location or employee it recorded no longer exists)."
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+          examples:
+            not_found:
+              value: {"code": "not_found", "message": "This business has no employee with that reference.", "details": {}}
     Conflict:
       description: "email_unavailable: another active employee of the business has the address; already_activated: the employee has activated already."
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+          examples:
+            email_unavailable:
+              value: {"code": "email_unavailable", "message": "Another active employee of this business already has that address.",
+                "details": {}}
+            already_activated:
+              value: {"code": "already_activated", "message": "This employee has already activated. A new device is set up in the Taptime panel.",
+                "details": {}}
     Unprocessable:
-      description: "idempotency_key_reused: the Idempotency-Key was used with a different request; validation_failed: a field or the path's reference the contract refuses (details.field and details.reason -- required, type, invalid, hidden_character, administrator_address, mismatch, unknown_field, duplicate_field); timezone_mismatch: a location's time zone must be its business's (details.businessTimezone)."
+      description: "idempotency_key_reused: the Idempotency-Key was used with a different request; validation_failed: a field or the path's reference the contract refuses (details.field and details.reason); timezone_mismatch: a location's time zone must be its business's (details.businessTimezone)."
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+          examples:
+            unknown_field:
+              value: {"code": "validation_failed", "message": "The body carries a field this endpoint does not accept.",
+                "details": {"allowed": ["name", "active", "timezone", "externalRef"], "reason": "unknown_field"}}
+            timezone_mismatch:
+              value: {"code": "timezone_mismatch", "message": "A location's time zone is its business's; send the business's zone or none.",
+                "details": {"businessTimezone": "Europe/Malta", "field": "timezone"}}
+            idempotency_key_reused:
+              value: {"code": "idempotency_key_reused", "message": "This Idempotency-Key was used in the last 24 hours with a different request.",
+                "details": {}}
     TooManyRequests:
       description: "rate_limited: wait for Retry-After seconds; deactivation_budget_exceeded: this key deactivated as many employees as it may in an hour -- wait for Retry-After seconds."
       headers:
@@ -858,9 +1362,40 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+          examples:
+            rate_limited:
+              value: {"code": "rate_limited", "message": "Too many requests. Retry after the time in Retry-After.",
+                "details": {"retryAfterSeconds": 60}}
+            deactivation_budget_exceeded:
+              value: {"code": "deactivation_budget_exceeded", "message": "This key has deactivated as many employees as it may in an hour. Retry after the time in Retry-After.",
+                "details": {"retryAfterSeconds": 1500}}
     Unavailable:
-      description: "unavailable: the request could not be completed on our side; retry."
+      description: "unavailable: the request could not be completed on our side (the cause is in Taptime's log only); retry."
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+          examples:
+            unavailable:
+              value: {"code": "unavailable", "message": "The request could not be completed on our side. Try again shortly.",
+                "details": {}}
+    Guide:
+      description: The guide, Markdown (UTF-8).
+      headers:
+        ETag:
+          $ref: "#/components/headers/ETag"
+        Cache-Control:
+          $ref: "#/components/headers/CacheControl"
+        Content-Language:
+          $ref: "#/components/headers/ContentLanguage"
+      content:
+        text/markdown:
+          schema:
+            type: string
+    GuideNotModified:
+      description: The copy named by If-None-Match is the current guide; no body.
+      headers:
+        ETag:
+          $ref: "#/components/headers/ETag"
+        Cache-Control:
+          $ref: "#/components/headers/CacheControl"
