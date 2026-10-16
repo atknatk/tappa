@@ -688,7 +688,8 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
   **(API-10 düzeltme turundan, 2026-10-16)** K-22'nin operatör yüzeyi (bu görev) API'yi açtığında işletmeyi K-19 kümesine sokmalıdır
   (`Notice` — işçi aynı süreçteyse); sokmazsa kapalı API'de bekleyen teslimler en geç `delivery.GateRecheck` (15 dk) içinde, süreç
   yeniden başladıysa bir sonraki dokunuş/API çağrısında gider (ADR 0028 "API-10 uygulama notu" madde 2). Kapı kapalıyken bekleyen
-  işletme başına işçide **tek** zamanlayıcı vardır (ORTA-1); bir turun döngüyü tuttuğu süre < 20 sn'dir (ORTA-2).
+  işletme başına işçide **tek** zamanlayıcı vardır (ORTA-1); bir tur döngüyü en çok `RunBudget` + bir alışveriş + sonuç yazımı
+  (`recordGrace` ≤ 5 sn) + kira işleminin DB süresi tutar — ≈ 25 sn + DB (ORTA-2; DÜŞÜK turunda "< 20 sn"den düzeltildi).
 
 ---
 

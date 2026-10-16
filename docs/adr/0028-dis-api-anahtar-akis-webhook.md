@@ -894,7 +894,9 @@ listesi, iki aşamalı DNS ve `HTTPS_PROXY` işçi yolundan), `TestWebhookWorker
 `TestWebhookPanel_TheDeliveryLogAndResend`, `TestParseDeliveryPosition_OnlyWhatTheLogHandsOut`; düzeltme turunda
 `TestWorker_OneTimerPerTenant`, `TestWorker_TakesTenantsInTheOrderTheyCame`, `TestWebhookWorker_AHeldBusinessHasOneRecheck`,
 `TestWebhookWorker_ASlowReceiverDoesNotHoldTheOthers`, `TestWebhookWorker_AStaleResultIsDropped`,
-`TestWebhookEndpoints_ReopeningNoticesTheBusiness`, `TestReviewsQueries_CarryAnExplicitTenantPredicate`; genişleyenler:
+`TestWebhookEndpoints_ReopeningNoticesTheBusiness`, `TestReviewsQueries_CarryAnExplicitTenantPredicate`; DÜŞÜK turunda
+`TestWorker_TheEarliestDueSurvivesALaterOne`, `TestPace_IsReachedOnlyFromTests`,
+`TestHoldingSetAside_SeesRowsCommittedAfterTheSnapshot`; genişleyenler:
 `TestWebhookQueries_CarryAnExplicitTenantPredicate` (15 sorgu), `TestStoreSurface_IsTheOneRecorded`,
 `TestWebhookWiring_TheEndpointServiceReachesThePanel` (gönderici, iki `NoticeWorkTo`), `TestEndpoints_SuspensionClassesAreSection10`
 (`ActResend`), `TestWebhookPanel_ManagerIs403EverywhereAndLeavesATrail` ve `TestWebhookPanel_CrossSiteWritesAreRefusedBeforeTheResolver`
@@ -2590,7 +2592,11 @@ Günlükte eşitlik ayırıcı sınırı içerir, günlük eskiden yeniye → g�
 (ve kiranın alt sorgusundan ayrıca) `tenant_id` yüklemi düşürülünce → `TestWebhookQueries_CarryAnExplicitTenantPredicate` kırmızı
 (sekizi). Kablolama: `delivery.New`'a başka gönderici, iş işçiye eklenmez, iki `NoticeWorkTo`'dan biri yok → wiring testi kırmızı
 (dördü). Panel: yeniden gönder okuma zincirine taşınınca çapraz site POST handler'a ulaştı → kırmızı; handler'ın sahip kapısı yok →
-ret satırı 6 (7 beklenirken) → kırmızı.
+ret satırı 6 (7 beklenirken) → kırmızı. DÜŞÜK turunda: `noticeAfter`'ın *"en erken kalır"* satırı yok →
+`TheEarliestDueSurvivesALaterOne` kırmızı; `main.go`'dan `Pace`'e erişim → `TestPace_IsReachedOnlyFromTests` kırmızı;
+`holdingSetAsideSiteRows` eski `DELETE`'le → `TestHoldingSetAside_SeesRowsCommittedAfterTheSnapshot` kırmızı (23503); bütçe kontrolü
+yok → `ASlowReceiverDoesNotHoldTheOthers` sayımla kırmızı (49 alışveriş); işletme başına zamanlayıcı yok →
+`AHeldBusinessHasOneRecheck` kırmızı (periyot başına 40,0); `Enable`'ın bildirimi yok → `ReopeningNoticesTheBusiness` kırmızı.
 
 **Adlandırılmış bedeller.** (a) Kapı, istekten hemen önce commit edilen kira işleminde okunur; sonra commit edilen bir kapatma
 uçuştaki tek isteği durdurmaz. (b) Kapanışta ya da kira dolduğunda alıcı aynı teslimi iki kez alabilir (`deliveryId` ve `id` +
@@ -2616,9 +2622,12 @@ yok (T130). (f) Eşit an grubunun günlükte bütün okunması (madde 9).
   başladığından beri `delivery.RunBudget` (= `egress.TotalTimeout`, 10 sn) geçtiyse yeni kira almaz ve *"hemen yeniden"* (`Later{0}`)
   der; işçinin kümesi artık **geliş sırasıyla** alınır (`take`), dolayısıyla geri dönen işletme o tur sırasında fark edilenlerin
   **arkasına** girer (`TestWorker_TakesTenantsInTheOrderTheyCame`; mutant: harita sırası → kırmızı). **Bir tur döngüyü en çok
-  `RunBudget` + bir alışveriş (< 20 sn) tutar; hiç cevap vermeyen alıcıda tek alışveriş (10 sn)** — tek bir zaman aşımı bütçeyi zaten
-  harcar, ayrı bir *"ilk hatada kes"* kuralı gerekmedi. **En kötü bekleyiş:** şimdi fark edilen bir işletme, kümede önündeki her
-  işletmenin bir turunu (her biri < 20 sn, artı aynı işletmenin öbür işlerinin — davet kuyruğu — turu) bekler: N yavaş işletme × 20 sn.
+  `RunBudget` + bütçe içinde başlamış son kiranın bedeli kadar tutar: o kiranın işlemi + bir alışveriş (`egress.TotalTimeout`) +
+  sonuç yazımı (`recordGrace` ≤ 5 sn) — 10 + 10 + 5, yani ≈ 25 sn + kira işleminin DB süresi; hiç cevap vermeyen alıcıda tek
+  kira, tek alışveriş ve yazımı (≈ 15 sn + DB)** — tek bir zaman aşımı bütçeyi zaten harcar, ayrı bir *"ilk hatada kes"* kuralı
+  gerekmedi. *(Bu turda "< 20 sn" yazılmıştı; sonuç yazımını ve kira işlemini dışarıda bırakıyordu — DÜŞÜK turu düzeltti.)* **En kötü
+  bekleyiş:** şimdi fark edilen bir işletme, kümede önündeki her işletmenin bir turunu (her biri ≈ 25 sn + DB, artı aynı işletmenin
+  öbür işlerinin — davet kuyruğu — turu) bekler: N yavaş işletme × (≈ 25 sn + DB).
   **Eşzamanlı gönderim alınmadı:** uçuştaki her bağlantı için bir kira ve ikinci bir sınır (bağlantı sayısı) isterdi; tek goroutine ve
   bütçe aynı güvenceyi ikisi olmadan verir. **Ölçüm** (bütçe 300 ms; 50 teslimli yavaş işletme + tek teslimli hızlı işletme + döngüdeki
   ikinci iş — davet kuyruğunun yeri): (a) hiç cevap vermeyen alıcı, istemci zaman aşımı 300 ms → önce **15,5 sn**, sonra **0,33 sn**;
@@ -2637,6 +2646,40 @@ yok (T130). (f) Eşit an grubunun günlükte bütün okunması (madde 9).
   kırmızı (ikisi).
 - **Kullanıcı kararları (2026-10-16):** olay adı `punch` kalır (madde 6); `delivered`/`dead` saklama süresi DPA kararına bırakıldı,
   şimdilik silme yok (madde 11, T130).
+- **CI düzeltmesi (`82be583`, düzeltme turundan sonra).** Down testleri REPEATABLE READ işlemde koşar ve anlık görüntü testin ilk
+  sorgusunda, `holdingLockedSavepoint`'in kilitlerinden **önce** alınır; `DELETE` yalnız o görüntüyü görür. API-10'dan beri paralel
+  koşan `internal/egress` işçi testleri teslim commit ediyor: o pencerede commit edilen bir teslim `DELETE FROM webhook_deliveries`'ten
+  kurtuldu, `DELETE FROM webhook_endpoints`'in FK denetimi (güncel satırı okur) onu buldu → 23503. Çare: `feedSetAsideRows` savepoint
+  içinde `TRUNCATE` (görüntüden bağımsız boşaltır, savepoint'le geri alınır; `punch_events_no_truncate` savepoint içinde kapatılıp
+  açılır).
+
+**DÜŞÜK turu (2026-10-16 — iki merceğin ikinci turundaki ONAY'ın düşük bulguları).**
+- **"En erken vade kalır" sabitlendi.** `noticeAfter`'ın `if !r.at.After(at) { return }` satırı (son gelen `Later` kazanır mutantı)
+  bütün testlerde yeşildi. İki işli vaka: aynı turda biri *"20 ms sonra"*, öbürü *"bir saat sonra"* der; işletme 20 ms içinde
+  yeniden koşar — iki sırayla (üretimde sıra `[davet kuyruğu, teslim]`) (`TestWorker_TheEarliestDueSurvivesALaterOne`). Mutant →
+  `[erken, geç]` sırası kırmızı (`[geç, erken]` iki kodda da yeşil — iki sıranın birlikte durma sebebi).
+- **Yük altında kararsız testler (ürün doğruydu, test yarışlıydı).** `TestWorker_OneTimerPerTenant`: ateşlenen zamanlayıcı bir
+  sonrakini kurmadan haritadan çıkar → sayım koşulla beklenir (birden fazlası her okumada kırmızı), beş işletme bir saatlik cevapla
+  sayılır, *"zamanlayıcı geri gelir"* kontrolü oran değil beş tur bekler. `TestWebhookEndpoints_ReopeningNoticesTheBusiness`: alıcı
+  isteği **geldiğinde** sayar, sonuç sonra yazılır → satırın `delivered` olması beklenir. `TestWebhookWorker_AHeldBusinessHasOneRecheck`:
+  oranın alt sınırı yük altında ölçüm değildir (aç kalan zamanlayıcı geç koşar) → üst sınır oran kalır, kontrol beş kira işlemi bekler.
+  `TestWebhookWorker_ASlowReceiverDoesNotHoldTheOthers`: süre sınırı yerine **sayım** — hızlı işletme fark edildikten sonra ve hizmet
+  görmeden önce yavaş işletmenin **başlayabilen** alışverişleri ≤ `bütçe/alışveriş + 1` (ikisi de duvar saati: yük daha azını sığdırır,
+  fazlasını değil); süreler log'a yazılır. Mutant (bütçe yok) → 49 alışveriş (sınır 2 ve 4) → kırmızı. Yük altında (16 çekirdeğin
+  hepsinde meşgul döngü) `-race -count=20 -cpu=1,4` yeşil.
+- **`delivery.Job.Pace` yalnız testlerden.** Dışa açık test dikişi; depodaki her test dışı `.go` dosyası ayrıştırılır, `.Pace`
+  seçicisi (çağrı ya da yöntem değeri) yasaktır (`TestPace_IsReachedOnlyFromTests`; kontrol: testlerdeki kullanımlar ve sentetik bir
+  çağrı bulunur). Mutant: `cmd/tappa/main.go`'ya `_ = deliveries.Pace` → kırmızı.
+- **Aynı anlık görüntü açığı, `holdingSetAsideSiteRows`.** `82be583`'ün sınıfı: `site_punches`, `transactions`, `transaction_reviews`
+  REPEATABLE READ altında `DELETE` ediliyordu. Pencerede commit edilen, eski bir saha satırının onayı `DELETE FROM transaction_reviews`'ten
+  kurtulur, `DELETE FROM transactions`'ın FK denetimi onu bulur → **23503 — atılabilir kapta deterministik üretildi**
+  (`TestHoldingSetAside_SeesRowsCommittedAfterTheSnapshot`: saha satırı görüntüden önce, onayı başka oturumda görüntüden sonra commit
+  edilir). Çare: savepoint içinde tek `TRUNCATE transactions, transaction_reviews[, site_punches]`; üç tablonun `*_no_truncate`
+  tetikleyicisi savepoint içinde kapatılıp açılır, her yolda savepoint'le geri alınır. Bu **yalnız savepoint'te geri alınan test
+  temizliğidir, üretim yolu değil** (CLAUDE.md §4.3). `TRUNCATE`'in `WHERE`'i yok: saha satırı olmayanlar da gider — çağıranların hiçbiri
+  set-aside'dan önce commit ettiği bir satırı okumuyor. Mutant (eski `DELETE`) → 23503 → kırmızı.
+- **Belge:** tur sınırı yukarıda düzeltildi; `cmd/tappa`'daki kablolama yorumu artık yeniden gönder **ve** açma / yeniden adresleme /
+  döndürmenin kümeye soktuğunu söyler.
 
 **Devredilenler.** Askı tablosunun testi (`ActResend` dahil) → **API-4b**. Entegratör rehberi (gövde, olay adı, imza doğrulama,
 takvim, `dead` ve yeniden gönder, sıra yok, K-19 gecikmesi) → **API-12** (plan §5'e not yazıldı). Deploy notları → **API-13**
