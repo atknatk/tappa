@@ -45,7 +45,8 @@ type WorkNoticer interface {
 	Notice(tenant uuid.UUID)
 }
 
-// NoticeWorkTo makes a committed resend put its business into n (cmd/tappa wires the worker once).
+// NoticeWorkTo makes a committed resend -- and a committed switch-on, re-address or rotation
+// (endpoints.go: reopened) -- put its business into n (cmd/tappa wires the worker once).
 func (s *Service) NoticeWorkTo(n WorkNoticer) { s.work = n }
 
 // DeliveryPosition is where a page of the log starts: strictly before (At, ID) in newest-first order.

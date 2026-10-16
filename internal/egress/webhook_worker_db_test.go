@@ -1483,6 +1483,11 @@ func (c *countingDB) WithTenant(ctx context.Context, id uuid.UUID, fn db.TxFunc)
 //
 // Measured before the fix (a timer per answer): 50 notices -> ~50 claim transactions per period, growing
 // with every notice until a restart. MUTANT: the worker's per-tenant timer removed -> red.
+//
+// Under load (M11 API-10, DÜŞÜK round) a rate's LOWER bound is not a measurement: a starved timer runs
+// late, and 10 periods once held fewer than 5 claims. The upper bound stays a rate (load only slows
+// the timer, it cannot add runs); the control -- the recheck comes back -- waits for five claims caused
+// by nothing but the timer.
 func TestWebhookWorker_AHeldBusinessHasOneRecheck(t *testing.T) {
 	const period = 200 * time.Millisecond
 	w := newWorld(t)
@@ -1523,21 +1528,31 @@ func TestWebhookWorker_AHeldBusinessHasOneRecheck(t *testing.T) {
 	if per > 2 {
 		t.Fatalf("%.1f claim transactions per recheck period after 50 notices (want ~1): the rechecks multiplied", per)
 	}
-	if per < 0.5 || len(w.rcv.to(b.host)) != 0 {
-		t.Fatalf("CONTROL: %.1f per period, %d requests -- the recheck does not come back, or the gate let one through", per, len(w.rcv.to(b.host)))
+	deadline := time.Now().Add(10 * time.Second)
+	for cdb.n.Load()-before < 5 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n := cdb.n.Load() - before; n < 5 || len(w.rcv.to(b.host)) != 0 {
+		t.Fatalf("CONTROL: %d claim transactions since the notices stopped, %d requests -- the recheck does not come back, or the gate let one through",
+			n, len(w.rcv.to(b.host)))
 	}
 }
 
 // standIn is a second job in the loop -- API-6's invitation queue's place: it records when it was handed
-// the business it watches.
+// the business it watches, and what seen read at that moment (once).
 type standIn struct {
 	watch uuid.UUID
+	seen  func() int
 	at    atomic.Int64
+	saw   atomic.Int64
 }
 
 func (s *standIn) RunFor(_ context.Context, tenant uuid.UUID) error {
-	if tenant == s.watch {
-		s.at.CompareAndSwap(0, time.Now().UnixNano())
+	if tenant == s.watch && s.at.Load() == 0 {
+		if s.seen != nil {
+			s.saw.Store(int64(s.seen()))
+		}
+		s.at.Store(time.Now().UnixNano())
 	}
 	return nil
 }
@@ -1551,6 +1566,14 @@ func (s *standIn) RunFor(_ context.Context, tenant uuid.UUID) error {
 //
 // Measured before the fix (no budget, the set in map order): (a) ~15 s, (b) ~5 s -- 50 exchanges.
 // MUTANT: the budget check removed -> red (both).
+//
+// THE BOUND IS COUNTED, NOT TIMED (M11 API-10, DÜŞÜK round: under CPU load the database's slack passed
+// the second the time bound allowed). What the budget guarantees is how many of the slow business's
+// exchanges can START after the fast business was noticed and before it is served: the run in flight
+// keeps claiming only while its budget lasts, so at most budget/exchange + 1 more (the budget and the
+// exchange are both wall clock -- load makes fewer exchanges fit, never more). Both the fast delivery
+// (read by the receiver when its request arrives) and the other job (read when it runs) are held to
+// that count; the times are logged.
 func TestWebhookWorker_ASlowReceiverDoesNotHoldTheOthers(t *testing.T) {
 	const budget = 300 * time.Millisecond
 	w := newWorld(t)
@@ -1570,7 +1593,12 @@ func TestWebhookWorker_ASlowReceiverDoesNotHoldTheOthers(t *testing.T) {
 		}
 		w.tap(fast, nil, "ok")
 		inSlow := make(chan struct{}, 1)
+		var slowAtFast atomic.Int64
+		slowAtFast.Store(-1)
 		w.rcv.set(func(r *http.Request) int {
+			if r.Host == fast.host {
+				slowAtFast.CompareAndSwap(-1, int64(len(w.rcv.to(slow.host))))
+			}
 			if r.Host == slow.host {
 				select {
 				case inSlow <- struct{}{}:
@@ -1587,7 +1615,7 @@ func TestWebhookWorker_ASlowReceiverDoesNotHoldTheOthers(t *testing.T) {
 		if err := j.Pace(budget, delivery.GateRecheck); err != nil {
 			t.Fatal(err)
 		}
-		other := &standIn{watch: fast.id}
+		other := &standIn{watch: fast.id, seen: func() int { return len(w.rcv.to(slow.host)) }}
 		worker, err := webhook.NewWorker(discard(), j, other)
 		if err != nil {
 			t.Fatal(err)
@@ -1598,6 +1626,7 @@ func TestWebhookWorker_ASlowReceiverDoesNotHoldTheOthers(t *testing.T) {
 		worker.Notice(slow.id)
 		<-inSlow
 		began := time.Now()
+		atNotice := len(w.rcv.to(slow.host)) // the one in flight
 		worker.Notice(fast.id)
 		var delivered time.Duration
 		for time.Since(began) < 30*time.Second {
@@ -1610,11 +1639,15 @@ func TestWebhookWorker_ASlowReceiverDoesNotHoldTheOthers(t *testing.T) {
 		ranOther := time.Duration(other.at.Load() - began.UnixNano())
 		_ = worker.Drain(context.Background())
 		exchange := min(c.timeout, c.answersIn)
-		bound := budget + exchange + time.Second
-		t.Logf("%s: the fast business's delivery waited %v, the other job %v (budget %v, one exchange %v)", c.name, delivered, ranOther, budget, exchange)
-		if delivered == 0 || delivered > bound || ranOther > bound {
-			t.Errorf("%s: the fast business's delivery waited %v and the other job %v behind a slow receiver; want both < %v",
-				c.name, delivered, ranOther, bound)
+		limit := int64(budget/exchange) + 1
+		ahead, aheadOther := slowAtFast.Load()-int64(atNotice), other.saw.Load()-int64(atNotice)
+		t.Logf("%s: the fast business's delivery waited %v (%d slow exchanges began meanwhile), the other job %v (%d); budget %v, one exchange %v, at most %d",
+			c.name, delivered, ahead, ranOther, aheadOther, budget, exchange, limit)
+		if delivered == 0 || other.at.Load() == 0 || slowAtFast.Load() < 0 {
+			t.Errorf("%s: the fast business's delivery or the other job never ran within 30 s behind a slow receiver", c.name)
+		} else if ahead > limit || aheadOther > limit {
+			t.Errorf("%s: %d (delivery) and %d (other job) of the slow business's exchanges began after the fast business was noticed; want at most %d",
+				c.name, ahead, aheadOther, limit)
 		}
 		if n := len(w.rcv.to(slow.host)); n >= 50 {
 			t.Errorf("%s: the slow receiver got all %d requests before the fast one went", c.name, n)
@@ -1737,8 +1770,10 @@ func TestWebhookEndpoints_ReopeningNoticesTheBusiness(t *testing.T) {
 	if _, err := w.svc.Enable(w.ctx, b.id, b.owner); err != nil {
 		t.Fatal(err)
 	}
+	// The receiver counts the request when it ARRIVES; the result is written after it answered -- so the
+	// wait is for the row (M11 API-10, DÜŞÜK round: read on arrival, it was still pending under load).
 	deadline := time.Now().Add(5 * time.Second)
-	for len(w.rcv.to(b.host)) == 0 && time.Now().Before(deadline) {
+	for w.deliveries(b)[0].state != delivery.StateDelivered && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	if d := w.deliveries(b); len(w.rcv.to(b.host)) != 1 || d[0].state != delivery.StateDelivered {

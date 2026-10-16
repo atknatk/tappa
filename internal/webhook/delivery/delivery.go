@@ -32,10 +32,13 @@
 // behind it at a 200 ms client timeout, ~8 min 50 s at the production 10 s). So a run starts no new
 // claim once RunBudget has passed since it began, and answers "come back at once" (the worker puts the
 // business back BEHIND every business noticed meanwhile -- first come, first served). A turn therefore
-// holds the loop for less than RunBudget + one exchange: < 20 s, and ONE exchange (10 s) when the
-// receiver does not answer at all, since a single timeout already spends the budget. The worst wait of
-// a business noticed now is that bound times the businesses ahead of it in the set (and their other
-// jobs' turns). Sending in parallel was not taken: it would need one lease per connection in flight
+// holds the loop for at most RunBudget plus what the last claim begun inside it costs: that claim's
+// transaction, one exchange (egress.TotalTimeout) and its result write (recordGrace) -- 10 + 10 + 5 s,
+// i.e. ~25 s plus the claim transaction's database time (which has no clock of its own but the
+// context's). When the receiver does not answer at all, a single timeout already spends the budget:
+// one claim, one exchange and its write, ~15 s plus the database. (The review round wrote "< 20 s"; it
+// left out the result write and the claim's transaction -- DÜŞÜK round.) The worst wait of a business
+// noticed now is that bound times the businesses ahead of it in the set (and their other jobs' turns). Sending in parallel was not taken: it would need one lease per connection in flight
 // and a second bound (connections) for the same guarantee, which one goroutine and a budget give
 // without either.
 //
@@ -116,7 +119,8 @@ var Backoff = [MaxAttempts - 1]time.Duration{time.Minute, 5 * time.Minute, 30 * 
 // The run's two clocks (the defaults New sets; Pace changes them).
 const (
 	// RunBudget is how long one run may keep starting claims (see the header): one exchange's own
-	// ceiling, so a turn holds the loop for at most two exchanges' time.
+	// ceiling, so a turn holds the loop for about two exchanges' time and one result write (~25 s plus
+	// the database -- the header).
 	RunBudget = egress.TotalTimeout
 	// GateRecheck is when a business whose deliveries wait at a closed gate is looked at again.
 	GateRecheck = 15 * time.Minute
@@ -190,7 +194,8 @@ func New(kek []byte, data Database, send Sender, log *slog.Logger) (*Job, error)
 
 // Pace sets the run budget and the closed gate's recheck. cmd/tappa never calls it (the defaults are
 // the design); the tests of the worker's fairness shorten both, the way they shorten egress's timeout.
-// It is called before the job is handed to a worker: it is not safe beside a run.
+// No non-test file of the repository may reach it (TestPace_IsReachedOnlyFromTests). It is called
+// before the job is handed to a worker: it is not safe beside a run.
 func (j *Job) Pace(budget, recheck time.Duration) error {
 	if budget <= 0 || recheck <= 0 {
 		return errors.New("webhook delivery: a pace must be positive")

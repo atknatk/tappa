@@ -181,3 +181,71 @@ func TestNew_RefusesAMissingPart(t *testing.T) {
 		t.Fatal("no database or sender")
 	}
 }
+
+// TestPace_IsReachedOnlyFromTests pins Pace's doc ("cmd/tappa never calls it"): Pace is an exported
+// seam -- the worker's fairness tests in internal/egress shorten the run budget and the gate recheck
+// with it -- so the compiler lets any package call it, and a production call would silently change
+// the turn bound and the recheck the ADR measures (ADR 0028, the API-10 note). Every non-test .go file
+// of the repository is parsed and no selector `.Pace` may appear in one (a call or a method value).
+// CONTROL: the scanner finds the test files' uses, and a synthetic production file's call.
+//
+// MUTANT (measured): `_ = deliveries.Pace` / a `deliveries.Pace(...)` call added to cmd/tappa/main.go
+// -> red.
+func TestPace_IsReachedOnlyFromTests(t *testing.T) {
+	uses := func(name string, src []byte) int {
+		if !strings.Contains(string(src), "Pace") {
+			return 0
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), name, src, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		n := 0
+		ast.Inspect(file, func(node ast.Node) bool {
+			if sel, ok := node.(*ast.SelectorExpr); ok && sel.Sel.Name == "Pace" {
+				n++
+			}
+			return true
+		})
+		return n
+	}
+	if uses("synthetic.go", []byte("package main\nfunc f(j *x) { _ = j.Pace(1, 2) }\n")) != 1 {
+		t.Fatal("CONTROL: the scanner does not see a call")
+	}
+	root := filepath.Join("..", "..", "..")
+	inTests, files := 0, 0
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if path != root && (strings.HasPrefix(d.Name(), ".") || d.Name() == "testdata" || d.Name() == "vendor") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+		src, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		files++
+		n := uses(path, src)
+		if strings.HasSuffix(path, "_test.go") {
+			inTests += n
+			return nil
+		}
+		if n > 0 {
+			t.Errorf("%s reaches delivery.Job.Pace %d time(s); only tests may (the run budget and the recheck are the design)", path, n)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if files < 100 || inTests == 0 {
+		t.Fatalf("CONTROL: %d .go files read, %d uses in tests found -- the walk does not see the repository", files, inTests)
+	}
+}

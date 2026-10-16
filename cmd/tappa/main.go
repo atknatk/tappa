@@ -799,7 +799,9 @@ func run() error {
 		if err != nil {
 			return err
 		}
-		// A resend from the delivery log puts its business into K-19's set (M11 API-10).
+		// The owner's acts that may let a waiting delivery go put the business into K-19's set after
+		// their commit (M11 API-10): a resend from the delivery log, and switching the endpoint on,
+		// re-addressing it and rotating its key (each may open a gate a delivery is held at).
 		webhookEndpoints.NoticeWorkTo(work)
 		panelOptions = append(panelOptions, handler.IntegrationWebhook(webhookEndpoints))
 		// THE WEBHOOK SENDER (M11 API-10, ADR 0028 §6): a job of K-19's worker, through the SAME

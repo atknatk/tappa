@@ -422,6 +422,14 @@ func (j *periodJob) count() int {
 //
 // MUTANT (measured): noticeAfter without the per-tenant map (a timer per answer, the code before the
 // review) -> ~50 runs per period and 50 timers -> red.
+//
+// The counts are read so that load cannot move them (M11 API-10, DÜŞÜK round; measured: under CPU
+// load the first business's timer fired inside the five-tenant read and it counted 4): a timer that
+// fires leaves the map before its run sets the next one, and a run's answer becomes a timer only after
+// the job returned. So more than one per tenant is red at every read and "exactly one each" is waited
+// for (timersReach); the five tenants are counted on a worker whose answer is an hour (no timer can
+// fire inside the read); and the control "the timer comes back" waits for five runs caused by nothing
+// but the timer instead of reading a rate.
 func TestWorker_OneTimerPerTenant(t *testing.T) {
 	const period = 100 * time.Millisecond
 	j := &periodJob{after: func(int) time.Duration { return period }}
@@ -446,29 +454,38 @@ func TestWorker_OneTimerPerTenant(t *testing.T) {
 	if per > 2 {
 		t.Fatalf("%.1f runs per period after 50 notices; the timers multiplied (want ~1)", per)
 	}
-	if per < 0.5 {
-		t.Fatalf("CONTROL: %.1f runs per period -- the timer does not come back", per)
-	}
-	if n := w.waiting(); n != 1 {
-		t.Fatalf("one tenant noticed 50 times leaves %d timers, want 1", n)
-	}
-
-	others := make([]uuid.UUID, 4)
-	for i := range others {
-		others[i] = uuid.New()
-		for range 10 {
-			before := j.count()
-			w.Notice(others[i])
-			waitFor(t, func() bool { return j.count() > before })
-		}
-	}
-	if n := w.waiting(); n != 5 {
-		t.Fatalf("five tenants leave %d timers, want 5 (one each)", n)
-	}
+	// CONTROL: the timer comes back -- five more runs with nothing but the timer to cause them.
+	waitFor(t, func() bool { return j.count()-before >= 5 })
+	timersReach(t, w, 1) // one tenant noticed 50 times
 	if err := w.Drain(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if n := w.waiting(); n != 0 {
+		t.Fatalf("%d timers after Drain", n)
+	}
+
+	// Five tenants noticed ten times each: five timers, one each.
+	hour := &periodJob{after: func(int) time.Duration { return time.Hour }}
+	w5, err := NewWorker(quiet(), hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w5.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for range 5 {
+		tn := uuid.New()
+		for range 10 {
+			before := hour.count()
+			w5.Notice(tn)
+			waitFor(t, func() bool { return hour.count() > before })
+		}
+	}
+	timersReach(t, w5, 5)
+	if err := w5.Drain(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if n := w5.waiting(); n != 0 {
 		t.Fatalf("%d timers after Drain", n)
 	}
 
@@ -491,8 +508,66 @@ func TestWorker_OneTimerPerTenant(t *testing.T) {
 	waitFor(t, func() bool { return early.count() == 1 })
 	w2.Notice(tenant)
 	waitFor(t, func() bool { return early.count() >= 3 }) // the second run's 20 ms, not the first's hour
-	if n := w2.waiting(); n != 1 {
-		t.Fatalf("after an earlier answer: %d timers, want 1", n)
+	timersReach(t, w2, 1)
+}
+
+// timersReach waits until w holds exactly want re-notice timers, and is red at once if it ever holds
+// more (the bound: one per tenant).
+func timersReach(t *testing.T, w *Worker, want int) {
+	t.Helper()
+	waitFor(t, func() bool {
+		n := w.waiting()
+		if n > want {
+			t.Fatalf("%d timers, want at most %d (one per tenant)", n, want)
+		}
+		return n == want
+	})
+}
+
+// TestWorker_TheEarliestDueSurvivesALaterOne pins noticeAfter's "the earliest stays" (M11 API-10,
+// DÜŞÜK round): two jobs answer on the same run of one tenant -- one "in 20 ms", the other "in an
+// hour" -- and the tenant is run again within the 20 ms whichever job answers last. In production the
+// order is [the invitation queue, the delivery] (cmd/tappa adds them in that order), so a delivery's
+// 15-minute recheck must not push out an invitation due in a minute, nor the other way round. Each
+// order is its own worker.
+//
+// MUTANT (measured): `if !r.at.After(at) { return }` removed (the last answer wins) -> the order
+// [early, late] keeps only the hour -> red; [late, early] stays green (an earlier answer replaces in
+// both codes), which is why both orders are here.
+func TestWorker_TheEarliestDueSurvivesALaterOne(t *testing.T) {
+	for _, earlyFirst := range []bool{true, false} {
+		var earlyRuns atomic.Int32
+		early := jobFunc(func(context.Context, uuid.UUID) error {
+			if earlyRuns.Add(1) == 1 {
+				return dueIn(20 * time.Millisecond)
+			}
+			return nil
+		})
+		late := jobFunc(func(context.Context, uuid.UUID) error { return dueIn(time.Hour) })
+		jobs := []Job{early, late}
+		if !earlyFirst {
+			jobs = []Job{late, early}
+		}
+		w, err := NewWorker(quiet(), jobs...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := w.Start(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = w.Drain(context.Background()) })
+		w.Notice(uuid.New())
+		deadline := time.Now().Add(5 * time.Second)
+		for earlyRuns.Load() < 2 && time.Now().Before(deadline) {
+			time.Sleep(5 * time.Millisecond)
+		}
+		if n := earlyRuns.Load(); n < 2 {
+			t.Fatalf("early job first=%v: it ran %d time(s) in 5 s; its 20 ms was lost to the other job's hour", earlyFirst, n)
+		}
+		timersReach(t, w, 1) // the other job's hour, set again on the second run
+		if err := w.Drain(context.Background()); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

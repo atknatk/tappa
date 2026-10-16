@@ -149,8 +149,8 @@ type Service struct {
 	trail Trail
 	send  Sender
 	now   func() time.Time
-	// work is K-19's set: a committed resend puts the business into it (deliveries.go). nil until
-	// NoticeWorkTo.
+	// work is K-19's set: a committed resend (deliveries.go), switch-on, re-address or rotation
+	// (reopened) puts the business into it. nil until NoticeWorkTo.
 	work WorkNoticer
 }
 
