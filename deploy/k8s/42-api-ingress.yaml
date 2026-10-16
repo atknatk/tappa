@@ -1,0 +1,81 @@
+# Tappa — the integration API's host, api.taptime.mt (M11 API-13a; ADR 0028 §13, K-9).
+#
+# 🔴 THIS FILE AND TAPPA_API_HOST (05-config.yaml) MOVE TOGETHER, IN ONE CHANGE (plan §5, API-4's
+# hand-over). This Ingress sends api.taptime.mt to the SAME Service as taptime.mt. The application
+# answers /v1 on that host and 404 on every other path there (internal/httpx/apihost.go,
+# apiHostOnly) — but NewRouter mounts that gate only when TAPPA_API_HOST names the host. Without it a
+# request to api.taptime.mt falls through to the customer product's catch-all routes: a second,
+# ungated customer origin, the class backlog T119 closed for ops.taptime.mt.
+#
+# 🔴 APPLIED AFTER THE ROLLOUT WAIT, NOT WITH 40 (.github/workflows/deploy.yml, "Roll out the
+# server"). rollout status returns once every pod is of the new template, so each pod this host can
+# then reach started with TAPPA_API_HOST set and a binary that reads it. Applied before the wait, the
+# FIRST deploy of this file would route the host to the old pods for the length of the rollout — a
+# binary without the API surface, which serves the customer product on any host. (T119 measured the
+# same order for 41 on main; this branch applies 42 that way from its first commit.)
+#
+# 🔴 ONLY /v1 IS ROUTED (pathType Prefix: /v1 and /v1/…, not /v1x — Kubernetes matches Prefix path
+# ELEMENT by element). Every API route is under it, the two public documents included —
+# /v1/openapi.yaml, /v1/guide.md, /v1/guide.tr.md, served without a key (API-12) — so the whole
+# surface reaches the pod; anything else on the host is the controller's default backend (404) and
+# never reaches the application. cert-manager's HTTP-01 solver adds its own, more specific
+# /.well-known/acme-challenge/<token> path while it solves.
+#
+# A HOST WITH TWO TRAILING DOTS (api.taptime.mt..) MUST NOT BE ROUTED HERE: the application would
+# answer it as the panel (httpx.OnHost drops one trailing dot only — plan §5, API-4's note). The rule's
+# host is exact and no wildcard is written, so the controller has no server for that name and answers
+# it from its default server. NOT MEASURED IN THIS CLUSTER (no cluster access from the branch): the
+# deploy-day check in deploy/README.md ("M11 — deploy günü", (e)) sends that Host header to the origin
+# and expects a 404 that is not the application's.
+#
+# 🔴 DNS-ONLY, LIKE THE APEX (40-ingress.yaml's header; CLAUDE.md §5). The API takes no tap and has no
+# §5 proof of place, but it has per-ADDRESS buckets: the documents and every keyed request are counted
+# per client address before the key is looked up (ADR 0028 §8, 1200 a minute) — behind a proxy every
+# caller would share a handful of edge addresses, and TAPPA_TRUSTED_PROXIES trusts the node's own
+# forwarding hop alone, never an edge. The record is created DNS-only (grey cloud) BEFORE the deploy
+# that applies this file (deploy/README.md, "M11 — deploy günü"), and deploy.yml's Cloudflare
+# preflight checks it on every deploy.
+#
+# BODY SIZE: the application's own bound plus a margin, so the request just past the bound is
+# answered by the API's own 413 (JSON, `body_too_large`) rather than the controller's unbranded one —
+# internal/handler/api.MaxBody = 64 KiB, + 16 KiB = 80k; pinned against the constant by
+# TestPackaging_TheAPIIngressRoutesV1OnTheConfiguredHost.
+#
+# TLS: its own secret (api-taptime-tls), separate from every other host's, so a stuck challenge here
+# cannot hold the apex's or the operator's certificate hostage (40-ingress.yaml's reasoning for www).
+#
+# Applied by deploy.yml's "Roll out the server" step after the rollout wait; the deploy identity's
+# ingresses verbs (get, list, create, patch) are 01-rbac.yaml's.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tappa-api
+  namespace: tappa
+  labels:
+    app.kubernetes.io/name: tappa
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    # Plain HTTP is redirected: an integration key in an http:// request would cross the network in
+    # the clear. A redirect does not un-send it — integrators are told https only (the guide) — but it
+    # keeps a mistyped base URL from working silently.
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # internal/handler/api.MaxBody (64 KiB) + 16 KiB.
+    nginx.ingress.kubernetes.io/proxy-body-size: "80k"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - api.taptime.mt
+      secretName: api-taptime-tls
+  rules:
+    - host: api.taptime.mt
+      http:
+        paths:
+          - path: /v1
+            pathType: Prefix
+            backend:
+              service:
+                name: tappa
+                port:
+                  name: http

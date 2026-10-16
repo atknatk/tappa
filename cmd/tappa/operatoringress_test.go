@@ -28,12 +28,16 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/atknatk/tappa/internal/config"
+	"github.com/atknatk/tappa/internal/handler/api"
 	"github.com/atknatk/tappa/internal/handler/operator"
 )
 
 const (
 	operatorIngressFile = "41-operator-ingress.yaml"
 	customerIngressFile = "40-ingress.yaml"
+	// apiIngressFile is the integration API's host (M11 API-13a).
+	apiIngressFile = "42-api-ingress.yaml"
 )
 
 // ------------------------------------------------------------ a YAML subset parser --
@@ -393,7 +397,7 @@ func TestYAMLSubset_RefusesWhatItDoesNotRead(t *testing.T) {
 // check for 20-app.yaml and 05-config.yaml) and is the CONTROL that the parse sees what a
 // reader sees: 40's three hosts and 41's one.
 func TestPackaging_TheIngressFilesParseAsWritten(t *testing.T) {
-	for _, f := range []string{customerIngressFile, operatorIngressFile} {
+	for _, f := range []string{customerIngressFile, operatorIngressFile, apiIngressFile} {
 		for i, line := range strings.Split(readK8s(t, f), "\n") {
 			if h := strings.Index(line, "#"); h >= 0 && (strings.Count(line[:h], `"`)%2 == 1 || strings.Count(line[:h], `'`)%2 == 1) {
 				t.Errorf("%s:%d has a '#' inside a quoted string; the comment stripper would truncate it", f, i+1)
@@ -415,6 +419,9 @@ func TestPackaging_TheIngressFilesParseAsWritten(t *testing.T) {
 	}
 	if got := hosts(operatorIngressFile); strings.Join(got, ",") != "ops.taptime.mt,ops.taptime.mt" {
 		t.Errorf("CONTROL FAILED: %s parsed to hosts %v", operatorIngressFile, got)
+	}
+	if got := hosts(apiIngressFile); strings.Join(got, ",") != "api.taptime.mt" {
+		t.Errorf("CONTROL FAILED: %s parsed to hosts %v", apiIngressFile, got)
 	}
 }
 
@@ -876,8 +883,8 @@ func TestPackaging_EveryIngressHostIsRoutedByOneFile(t *testing.T) {
 			}
 		}
 	}
-	if ingressFiles != 2 || len(hostFiles) < 4 {
-		t.Fatalf("CONTROL FAILED: %d Ingress files and %d hosts found, want 2 files and at least 4 hosts", ingressFiles,
+	if ingressFiles != 3 || len(hostFiles) < 5 {
+		t.Fatalf("CONTROL FAILED: %d Ingress files and %d hosts found, want 3 files and at least 5 hosts", ingressFiles,
 			len(hostFiles))
 	}
 	for h, files := range hostFiles {
@@ -906,6 +913,14 @@ func TestPackaging_EveryIngressHostIsRoutedByOneFile(t *testing.T) {
 	}
 	if files := secretFiles["ops-taptime-tls"]; len(files) != 1 || !files[operatorIngressFile] {
 		t.Errorf("secret ops-taptime-tls is used by %v, want %s alone", files, operatorIngressFile)
+	}
+	// M11 API-13a: the API host is routed by 42 alone, with a certificate of its own.
+	apiHost := configMapValues(t, readK8s(t, "05-config.yaml"))["TAPPA_API_HOST"]
+	if files := hostFiles[apiHost]; apiHost == "" || len(files) != 1 || !files[apiIngressFile] {
+		t.Errorf("the API host %q is routed by %v, want %s alone", apiHost, files, apiIngressFile)
+	}
+	if files := secretFiles["api-taptime-tls"]; len(files) != 1 || !files[apiIngressFile] {
+		t.Errorf("secret api-taptime-tls is used by %v, want %s alone", files, apiIngressFile)
 	}
 }
 
@@ -938,7 +953,7 @@ func TestPackaging_TheDeployAppliesEveryIngressFile(t *testing.T) {
 	}
 	code := codeLinesOf(string(b))
 	applied := map[string]int{}
-	step, line40, line41, rollout := "", -1, -1, -1
+	step, line40, line41, line42, rollout := "", -1, -1, -1, -1
 	for i, l := range code {
 		if s, ok := strings.CutPrefix(strings.TrimSpace(l), "- name: "); ok {
 			step = s
@@ -951,6 +966,8 @@ func TestPackaging_TheDeployAppliesEveryIngressFile(t *testing.T) {
 					line40 = i
 				case operatorIngressFile:
 					line41 = i
+				case apiIngressFile:
+					line42 = i
 				}
 			}
 		}
@@ -974,12 +991,17 @@ func TestPackaging_TheDeployAppliesEveryIngressFile(t *testing.T) {
 				"in the cluster (T112)", file, applied[file])
 		}
 	}
-	if ingressFiles != 2 {
-		t.Errorf("CONTROL FAILED: %d Ingress files found, want 2 (40 and 41)", ingressFiles)
+	if ingressFiles != 3 {
+		t.Errorf("CONTROL FAILED: %d Ingress files found, want 3 (40, 41 and 42)", ingressFiles)
 	}
 	if line40 < 0 || line41 < 0 || rollout < 0 || line40 > line41 || line41 > rollout {
 		t.Errorf("in \"Roll out the server\": 40 at %d, 41 at %d, rollout wait at %d; want 40 < 41 < the wait",
 			line40, line41, rollout)
+	}
+	// M11 API-13a: 42 AFTER the wait -- every pod the API host can then reach runs with TAPPA_API_HOST
+	// (42-api-ingress.yaml's header).
+	if line42 < 0 || line42 < rollout {
+		t.Errorf("in \"Roll out the server\": 42 at %d, the rollout wait at %d; want 42 after the wait", line42, rollout)
 	}
 
 	rbac := stripYAMLComments(readK8s(t, "01-rbac.yaml"))
@@ -1067,5 +1089,69 @@ func TestPackaging_TheReadmeCountsTheManifestObjects(t *testing.T) {
 	if !strings.Contains(readme, want) {
 		t.Errorf("deploy/README.md does not say %q: the tree holds %d objects, %d cluster-scoped, %d namespaced",
 			want, total, cluster, namespaced)
+	}
+}
+
+// TestPackaging_TheAPIIngressRoutesV1OnTheConfiguredHost (M11 API-13a): 42-api-ingress.yaml is ONE
+// Ingress whose one rule's host is the ConfigMap's TAPPA_API_HOST -- the two move together (plan §5,
+// API-4's hand-over) -- and that host passes config.Load as a production pod loads the ConfigMap
+// (shippedPodEnv), so the pod's API surface answers on exactly the routed host; its one path is /v1
+// (Prefix) to the tappa Service's http port -- every /v1 route, the two keyless guides and
+// openapi.yaml among them, and nothing else; its TLS names that host with its own secret and the
+// cert-manager issuer; plain HTTP is redirected; and its body limit is above the API's own bound
+// (internal/handler/api.MaxBody) and at most twice it, so the request just past the bound gets the
+// API's JSON 413, not the controller's.
+//
+// MUTANT (measured): the rule's host spelled ap.taptime.mt -> red (not the ConfigMap's); the path
+// written / -> red; proxy-body-size 64k -> red (not above the bound).
+func TestPackaging_TheAPIIngressRoutesV1OnTheConfiguredHost(t *testing.T) {
+	objs := ingressesIn(t, apiIngressFile)
+	if len(objs) != 1 {
+		t.Fatalf("%s holds %d Ingress(es), want 1", apiIngressFile, len(objs))
+	}
+	o := objs[0]
+	_, env := shippedPodEnv(t, "postgres://tappa_app@127.0.0.1:1/tappa?sslmode=disable")
+	for k, v := range env {
+		t.Setenv(k, v)
+	}
+	for _, name := range config.OperatorSurfaceVariables() {
+		if _, set := env[name]; !set {
+			t.Setenv(name, "")
+		}
+	}
+	t.Setenv("DATABASE_MIGRATE_URL", "")
+	t.Setenv("TAPPA_TAG_KEK_PREVIOUS", "")
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load refused the shipped ConfigMap: %v", err)
+	}
+	if cfg.APIHost == "" || len(o.rules) != 1 || o.rules[0].host != cfg.APIHost {
+		t.Fatalf("the API Ingress routes %v, the pod's TAPPA_API_HOST is %q: they must be one host", o.rules, cfg.APIHost)
+	}
+	if o.namespace != "tappa" || o.class != "nginx" {
+		t.Errorf("namespace %q, class %q; want tappa, nginx", o.namespace, o.class)
+	}
+	want := []ingressPath{{path: "/v1", pathType: "Prefix", service: "tappa", port: "http"}}
+	if fmt.Sprint(o.rules[0].paths) != fmt.Sprint(want) {
+		t.Errorf("the API host's paths are %+v, want %+v alone", o.rules[0].paths, want)
+	}
+	if len(o.tls) != 1 || o.tls[0].secret != "api-taptime-tls" || strings.Join(o.tls[0].hosts, ",") != cfg.APIHost {
+		t.Errorf("the API Ingress's TLS is %+v, want the host %q with api-taptime-tls", o.tls, cfg.APIHost)
+	}
+	for k, v := range map[string]string{
+		"cert-manager.io/cluster-issuer":                 "letsencrypt-prod",
+		"nginx.ingress.kubernetes.io/ssl-redirect":       "true",
+		"nginx.ingress.kubernetes.io/force-ssl-redirect": "true",
+	} {
+		if o.annotations[k] != v {
+			t.Errorf("annotation %s = %q, want %q", k, o.annotations[k], v)
+		}
+	}
+	limit, err := nginxSize(o.annotations["nginx.ingress.kubernetes.io/proxy-body-size"])
+	if err != nil {
+		t.Fatalf("proxy-body-size: %v", err)
+	}
+	if limit <= api.MaxBody || limit > 2*api.MaxBody {
+		t.Errorf("proxy-body-size %d bytes, want above api.MaxBody = %d and at most twice it", limit, api.MaxBody)
 	}
 }

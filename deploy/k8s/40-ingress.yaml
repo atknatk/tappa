@@ -21,6 +21,12 @@
 # — but ONLY while
 # TAPPA_OPERATOR_HOST is set; with the operator surface unconfigured this invariant
 # breaks, which is why closing that surface removes 41's objects too (41's header).
+# ⚠️ Since M11 API-13a a third name reaches the same Service: api.taptime.mt, through
+# 42-api-ingress.yaml, and only its /v1 paths. The application answers the integration API there and
+# 404 on every other path -- while TAPPA_API_HOST (05-config.yaml) names it, which is why the two
+# move in one change and 42 is applied only after the rollout wait (42's header). The API takes no
+# tap; it gets the same proxy-off preflight because its per-address bucket needs the client's own
+# address (deploy.yml).
 #
 # 🔴 THIS HOSTNAME MUST NOT BE PROXIED BY CLOUDFLARE, AND THAT IS THE SINGLE MOST
 # CONSEQUENTIAL LINE IN THIS DIRECTORY. The rule predates taptime.mt; it was measured

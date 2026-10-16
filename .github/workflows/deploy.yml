@@ -469,6 +469,14 @@ jobs:
         # host that actually takes taps, not the legacy redirect target.
         run: scripts/verify-deployment.sh cloudflare taptime.mt
 
+      # The integration API's host, api.taptime.mt (M11 API-13a), through the same gate. It takes no
+      # tap; what a proxy would break there is the API's per-address bucket (ADR 0028 §8): behind
+      # Cloudflare every caller would share a handful of edge addresses. Its own step, so the customer
+      # host's gate above stays exactly what it was; a name not created yet is a warning, not a stop
+      # (check_cloudflare, curl exit 6).
+      - name: Preflight — the API hostname must NOT be proxied by Cloudflare
+        run: scripts/verify-deployment.sh cloudflare api.taptime.mt
+
       # 🔴 THE APPLICATION SECRET STAYS THE OPERATOR'S — THIS GATE DOES NOT MOVE.
       # tappa-secrets holds TAPPA_TAG_KEK, the session HMAC key and both DSNs. CI
       # creating those would mean a value that wraps every wall plaque's AES key
@@ -633,6 +641,20 @@ jobs:
           # maxUnavailable is 0, so the old pod keeps serving until the new one has
           # passed /readyz — i.e. until it has proved it can reach the database.
           kubectl -n tappa rollout status deployment/tappa --timeout=300s
+          # The integration API's host (M11 API-13a). AFTER the wait, on purpose: every pod this host
+          # can then reach started with TAPPA_API_HOST set (05-config.yaml, applied above) and a binary
+          # that reads it; applied before, a first rollout would route api.taptime.mt to the old pods,
+          # which serve the customer product on any host (42-api-ingress.yaml's header). The same
+          # identity and verbs as 40 (01-rbac.yaml: ingresses get, list, create, patch).
+          kubectl apply -f deploy/k8s/42-api-ingress.yaml
+
+      # 🔴 THE API HOST, MEASURED FROM OUTSIDE (M11 API-13a): /v1/guide.md is 200 text/markdown and the
+      # root is 404 -- the API is served there and nothing else is. scripts/verify-deployment.sh,
+      # check_api_host: a 404 on the guide is retried for about 90 s while ingress-nginx picks the new
+      # Ingress up; an unresolvable name is a warning (the DNS record is the user's step). It REPORTS:
+      # it cannot undo an apply.
+      - name: Gate — the API host serves the API and nothing else
+        run: scripts/verify-deployment.sh api-host api.taptime.mt
 
       - name: Gate — the running server must not be connected as the migration role
         # internal/config only refuses DATABASE_URL == DATABASE_MIGRATE_URL. An owner

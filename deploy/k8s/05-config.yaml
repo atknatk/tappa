@@ -23,6 +23,14 @@ data:
   # tappa.everva.com.tr → taptime.mt, 2026-09-02; the old host now 301-redirects here.
   TAPPA_BASE_URL: "https://taptime.mt"
   TAPPA_LOG_LEVEL: "info"
+  # 🔴 TAPPA_API_HOST — M11 API-13a, ADR 0028 §13 (K-9). The integration API's own host: /v1 answers
+  # on it alone, and every other path there is 404 (internal/httpx/apihost.go). It moves in LOCKSTEP
+  # with deploy/k8s/42-api-ingress.yaml, which routes this host to the Service: the ingress without
+  # this key would send api.taptime.mt to the customer product's catch-all routes (plan §5, API-4's
+  # hand-over), this key without the ingress serves nothing. config.Load refuses a value that is
+  # TAPPA_BASE_URL's host or TAPPA_OPERATOR_HOST, or not a lower-case DNS name.
+  # TestPackaging_TheAPIIngressRoutesV1OnTheConfiguredHost holds the two to one host.
+  TAPPA_API_HOST: "api.taptime.mt"
 
   # 🔴 json HERE AND text EVERYWHERE ELSE, BECAUSE THE READER IS DIFFERENT AND IT
   # WAS MEASURED IN THIS CLUSTER (M8-03, 2026-08-19).

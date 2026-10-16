@@ -33,6 +33,7 @@ Hedef: `https://taptime.mt` · küme: k3s v1.35.4, tek node
 | `k8s/30-migrate-job.yaml` | goose Job (`tappa_owner`) | `deploy.yml` |
 | `k8s/40-ingress.yaml` | Ingress (`nginx`, `letsencrypt-prod`) | `deploy.yml` |
 | `k8s/41-operator-ingress.yaml` | operatör host'u `ops.taptime.mt`'nin iki Ingress'i (`/` 24k, `/operator/legal` Exact 320k; K4 IP kısıtı **yok**, karar bekliyor) — T112 | `deploy.yml` (silmek **operatör**: deploy kimliğinde `delete` yok; yüzey kapanırken — *"Geri alma — yüzeyi kapat"*) |
+| `k8s/42-api-ingress.yaml` | entegrasyon API'sinin host'u `api.taptime.mt`'nin Ingress'i (yalnız `/v1`, 80k, kendi sertifikası `api-taptime-tls`) — M11 API-13a; `05-config.yaml`'ın `TAPPA_API_HOST`'u ile **aynı değişiklikte** | `deploy.yml` (rollout beklemesinden **sonra**) |
 | `k8s/50-backup.yaml` | 🔴 **gecelik yedek CronJob'ı** (02:30 Malta) | **operatör** (bir kez; deploy'un `batch/cronjobs` yetkisi **yok** ve bilerek yok) |
 | `k8s/55-heartbeat.yaml` | 🔴 **uptime heartbeat CronJob'ı** (her 5 dk; healthchecks.io'ya *"yaşıyor"* ya da `/fail` — T116) | **operatör** (bir kez; aynı gerekçe — adım 10) |
 | `k8s/postgres-init/02-app-password.sh` | `tappa_app`'e **girişi açan** üretim script'i | ConfigMap içinde |
@@ -78,7 +79,7 @@ küme kapsamlı olanlar **hâlâ 3**, çünkü `CronJob` namespace'li):
 > `CronJob`'ı. İkisi de namespace'li, yani küme kapsamlı sayı **hâlâ 3**. `--dry-run=client`
 > ölçümü orkestratörün küme adımlarında.
 > ⚠️ 2026-10-10 (T112): `41-operator-ingress.yaml`'ın iki `Ingress`'i (namespace'li) →
-> **Güncel sayım: 19/3/16** (toplam / küme kapsamlı / namespace'li). Bu satır artık elle
+> **Güncel sayım: 20/3/17** (toplam / küme kapsamlı / namespace'li). Bu satır artık elle
 > tutulmuyor: `TestPackaging_TheReadmeCountsTheManifestObjects` dosyalardaki sütun-0 `kind:`
 > satırlarını sayar (yukarıdaki `grep`'in aynısı), türleri kapsamına göre ayırır ve bu çapayı
 > arar — bir manifest eklenip sayı güncellenmezse kırmızı. `--dry-run=client` ölçümü yine

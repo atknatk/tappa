@@ -5,6 +5,7 @@
 #   scripts/verify-deployment.sh cloudflare [host]        default: taptime.mt
 #   scripts/verify-deployment.sh db-role    [namespace]   default: tappa
 #   scripts/verify-deployment.sh all        [host] [ns]
+#   scripts/verify-deployment.sh api-host   [host]        default: api.taptime.mt (M11 API-13a)
 #
 # 🔴 THE `pull-credential` MODE WAS REMOVED (M8-02 FAZ D). Its whole subject was
 # `secret/ghcr` -- it printed that Secret's managedFields timestamps beside the server
@@ -39,7 +40,7 @@
 # embedded in YAML cannot have done to it. Same reasoning as scripts/verify-image.sh.
 set -euo pipefail
 
-mode=${1:?usage: verify-deployment.sh <cloudflare|db-role|all> [host] [namespace]}
+mode=${1:?usage: verify-deployment.sh <cloudflare|db-role|all|api-host> [host] [namespace]}
 
 # CF_OUTCOME records WHICH of the three things happened, because the return code
 # cannot: this gate returns 0 both when the host is clean AND when the name does not
@@ -204,8 +205,67 @@ check_db_role() {
   echo "db-role: every network connection to the database is tappa_app or tappa_operator"
 }
 
+# check_api_host -- M11 API-13a: the integration API's host serves the API and nothing else, asked
+# from OUTSIDE after the rollout (deploy/k8s/42-api-ingress.yaml routes the host only once every pod
+# runs with TAPPA_API_HOST). Two questions, each a curl:
+#
+#   GET /v1/guide.md  must be 200 with text/markdown: the document is served without a key (API-12),
+#                     so a 200 there proves the /v1 surface is mounted on THIS host -- the pod runs
+#                     with TAPPA_API_HOST naming it (a pod without it answers /v1 with the router's
+#                     404). A 404 is retried for about 90 s: ingress-nginx configures a just-created
+#                     Ingress asynchronously. Anything else after the retries is a VIOLATION (exit 1).
+#   GET /             must be 404: the Ingress routes /v1 alone, so the root is the controller's
+#                     default backend (and, were it routed, apiHostOnly's 404). A 2xx or 3xx is the
+#                     customer product answering on the API host -- a VIOLATION.
+#
+# -k, for the reason check_cloudflare gives: on the first deploy the certificate is being issued
+# while this runs, and the origin answers with the controller's self-signed default; the question
+# here is routing, not the certificate (deploy/README.md's deploy-day list checks the certificate
+# without -k). A name that does not resolve (curl exit 6) is a WARNING and exit 0 -- the DNS record
+# is the user's step and may come after the merge -- and any other curl failure is exit 2: an
+# answer that never came is not a pass. It REPORTS: it cannot undo an apply.
+check_api_host() {
+  local host=${1:-api.taptime.mt} rc out code ctype
+  for _ in $(seq 1 18); do
+    rc=0
+    out=$(curl -sS -k -o /dev/null --connect-timeout 10 --max-time 20 -w '%{http_code} %{content_type}' \
+      "https://${host}/v1/guide.md" 2>&1) || rc=$?
+    if (( rc == 6 )); then
+      echo "::warning::${host} does not resolve. Create its A record to 144.76.158.60 with the proxy OFF (grey cloud), then re-run: the API host was not checked."
+      return 0
+    fi
+    if (( rc != 0 )); then
+      echo "::error::${host}: https could not be reached (curl exit ${rc}); the API host was NOT checked. Output: ${out}" >&2
+      return 2
+    fi
+    code=${out%% *}
+    ctype=${out#* }
+    # Only a 404 is worth waiting for (the Ingress not picked up yet); any other answer is final.
+    if [[ $code != 404 ]]; then
+      break
+    fi
+    sleep 5
+  done
+  if [[ $code != 200 || $ctype != text/markdown* ]]; then
+    echo "::error::https://${host}/v1/guide.md answered ${code} (${ctype}), want 200 text/markdown: the integration API is not served on its host (is TAPPA_API_HOST in the ConfigMap, and 42-api-ingress.yaml applied?)." >&2
+    return 1
+  fi
+  rc=0
+  code=$(curl -sS -k -o /dev/null --connect-timeout 10 --max-time 20 -w '%{http_code}' "https://${host}/" 2>&1) || rc=$?
+  if (( rc != 0 )); then
+    echo "::error::${host}: the root could not be asked (curl exit ${rc}); the API host was NOT fully checked." >&2
+    return 2
+  fi
+  if [[ $code != 404 ]]; then
+    echo "::error::https://${host}/ answered ${code}, want 404: something other than the API answers on the API host -- the customer product must never be served there." >&2
+    return 1
+  fi
+  echo "api-host: ${host} serves /v1 (guide 200 text/markdown) and 404 at its root"
+}
+
 case $mode in
   cloudflare)      check_cloudflare       "${2:-}" ;;
+  api-host)        check_api_host         "${2:-}" ;;
   db-role)         check_db_role          "${2:-}" ;;
   # 🔴 BOTH GATES RUN, ALWAYS, AND THE RESULTS ARE COLLECTED. The previous spelling
   # was `check_cloudflare ...; check_db_role ...` under `set -e`, which meant a
@@ -238,5 +298,5 @@ case $mode in
     if [[ $cfw == VIOLATION || $db -eq 1 ]]; then exit 1; fi
     if [[ $cfw == UNCHECKED || $db -ne 0 ]]; then exit 2; fi
     ;;
-  *) echo "unknown mode: $mode (expected cloudflare, db-role or all)" >&2; exit 2 ;;
+  *) echo "unknown mode: $mode (expected cloudflare, db-role, all or api-host)" >&2; exit 2 ;;
 esac
