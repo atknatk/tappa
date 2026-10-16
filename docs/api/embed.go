@@ -7,7 +7,7 @@
 //
 // The two files are one document in two languages: their heading tree, their numbered items, their
 // code blocks and their link targets are the same, byte for byte where they are not prose -- the
-// API package's tests hold that.
+// API package's tests hold that (TestGuide_TheTwoLanguagesAreOneDocument).
 package apidocs
 
 import _ "embed"

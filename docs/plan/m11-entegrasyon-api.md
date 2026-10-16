@@ -645,6 +645,12 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
   panelden açınca (ya da adresini düzeltince, anahtarını döndürünce) **hemen** gider; API (K-22) yeniden açılınca **en geç 15 dk
   içinde** — sunucu arada yeniden başladıysa işletmenin bir sonraki dokunuşunda, onayında ya da API çağrısında. **Olay adı `punch`**
   (kullanıcı kararı, 2026-10-16 — ADR 0028 "API-10 uygulama notu" madde 6); rehber bu adı yazar.
+  ✅ *Uygulandı (2026-10-16 — gerçek test adları, kararlar ve ölçümler ADR 0028 "API-12 uygulama notu"nda; migration yok):*
+  `openapi.yaml` her uç, durum ve hata koduyla (işlem başına `x-error-codes`, sevkedilen yüzeye karşı iki yönlü sondalarla), kapalı
+  `ErrorDetails`, `x-limits`, istek/cevap örnekleri sevkedilen handler'ların cevapları, OpenAPI 3.1 `webhooks:` (`punch`, `ping`);
+  rehber iki dilde `docs/api/` altında ve binary'de `GET /v1/guide.md` · `GET /v1/guide.tr.md` (anahtarsız, adres kovası,
+  `no-cache` + `ETag`); §2'nin 31 maddesi rehberin §11'inde numarasıyla, madde 31 §6.5'te de; bu maddenin 67 notunun rehber
+  bölümüne eşlemesi ADR'deki tabloda (testle); imza vektörünün tek kaynağı rehber; sandbox yer tutucu (API-11).
 - **API-13:** **(API-8'den, 2026-10-15 — deploy öncesi, kullanıcı kararı)** Prod'daki **tenant sayısı ölçülür**: bir holding
   üyesinin rehber sayfası ve `holding_site_locations` çağrısı her tenant'ı `holding_peer`'den geçirir (T124'ün üye yarısı —
   21 000 tenant'ta ~1 sn, yük altında 5 sn sınırını aşıp 503). Sayı ~1 000'i geçmeden T124 ele alınır (backlog T124'ün eşiği).
@@ -690,6 +696,10 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
   yeniden başladıysa bir sonraki dokunuş/API çağrısında gider (ADR 0028 "API-10 uygulama notu" madde 2). Kapı kapalıyken bekleyen
   işletme başına işçide **tek** zamanlayıcı vardır (ORTA-1); bir tur döngüyü en çok `RunBudget` + bir alışveriş + sonuç yazımı
   (`recordGrace` ≤ 5 sn) + kira işleminin DB süresi tutar — ≈ 25 sn + DB (ORTA-2; DÜŞÜK turunda "< 20 sn"den düzeltildi).
+  **(API-12'den, 2026-10-16 — deploy ve deploy sonrası)** API host'unun ingress kuralı `/v1`'in tamamını pod'a vermelidir: iki
+  rehber yolu (`/v1/guide.md`, `/v1/guide.tr.md`) `openapi.yaml` gibi **anahtarsız** erişilebilir olmalıdır. Deploy sonrası ölçüm:
+  anahtarsız `GET /v1/guide.md` → 200 `text/markdown; charset=utf-8`; cevabın `ETag`'iyle `If-None-Match` → 304; ana host'ta 404.
+  Entegratörlere (KF-RMS, KM-ERP) verilecek belge bu iki yol ve `GET /v1/openapi.yaml`'dır; müşteri spec'i değil.
 
 ---
 

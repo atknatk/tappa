@@ -5,34 +5,85 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 )
 
-// TestWebhookSignature_KnownAnswer is K-11's signature against a vector computed OUTSIDE Go (Python's
-// hmac module, 2026-10-15): the key is the guide's deliberately fake one -- the prefix and 43 'A's,
-// i.e. 32 zero bytes, which redline R7d does not count as a key (padding) -- the body the ping's
-// shape, then the empty body. The value is "sha256=" + lower-case hex, nothing else.
+// TestWebhookSignature_KnownAnswer is K-11's signature against the INTEGRATION GUIDE's known-answer
+// vector -- the vector's one source (M11 API-12): docs/api/integration-guide.md's block after the
+// "<!-- vector: webhook-signature -->" marker (the Turkish guide carries the same block byte for byte,
+// internal/handler/api's TestGuide_TheTwoLanguagesAreOneDocument). The values were computed OUTSIDE Go:
+// the ping body and the empty body with Python's hmac module (2026-10-15), the punch body -- a real
+// delivery's bytes -- with Python's hmac and openssl (2026-10-16). The key is the guide's
+// deliberately fake one: the prefix and 43 'A's, i.e. 32 zero bytes, which redline R7d does not
+// count as a key (padding). The value is "sha256=" + lower-case hex, nothing else.
 //
 // MUTANTS (measured): the HMAC keyed by the decoded 32 bytes instead of the key's text -> red; upper-case
-// hex -> red; the prefix dropped -> red.
+// hex -> red; the prefix dropped -> red; one hex digit of a signature in the guide edited -> red.
 func TestWebhookSignature_KnownAnswer(t *testing.T) {
-	k, err := ParseSigningKey(SigningKeyPrefix + strings.Repeat("A", 43))
-	if err != nil {
-		t.Fatal(err)
+	vs := guideSignatureVectors(t)
+	if len(vs) < 3 {
+		t.Fatalf("anti-vacuity: the guide's vector block has %d known answers", len(vs))
 	}
-	for _, c := range []struct{ body, want string }{
-		{`{"event":"ping"}`, "sha256=1deefe0009103810c89395f2d078e1ba71edb003b3692a3ebca6d0866bf99935"},
-		{``, "sha256=88d05ff68b9d0e7585161401b08cb679fbf1701b3e28f683a3e96e4c33653576"},
-	} {
-		if got := k.Sign([]byte(c.body)); got != c.want {
-			t.Errorf("body %q: %s, want %s", c.body, got, c.want)
+	for _, v := range vs {
+		if v.key != SigningKeyPrefix+strings.Repeat("A", 43) {
+			t.Fatalf("the guide's vector key is not the deliberately fake one")
+		}
+		k, err := ParseSigningKey(v.key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := k.Sign([]byte(v.body)); got != v.signature {
+			t.Errorf("body %.40q: %s, the guide says %s", v.body, got, v.signature)
 		}
 	}
 	if SignatureHeader != "X-Taptime-Signature" || SignaturePrefix != "sha256=" {
 		t.Fatal("the header or the prefix changed: the guide (API-12) names both")
 	}
+}
+
+type signatureVector struct{ key, body, signature string }
+
+// guideSignatureVectors reads the guide's vector block: a key line, then body and signature lines in
+// pairs ("(empty)" is the empty body).
+func guideSignatureVectors(t *testing.T) []signatureVector {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("..", "..", "docs", "api", "integration-guide.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, rest, ok := strings.Cut(string(b), "<!-- vector: webhook-signature -->\n```text\n")
+	if !ok {
+		t.Fatal("the guide has no signature vector block")
+	}
+	block, _, ok := strings.Cut(rest, "\n```")
+	if !ok {
+		t.Fatal("the guide's vector block is not closed")
+	}
+	var out []signatureVector
+	key := ""
+	for _, line := range strings.Split(block, "\n") {
+		k, v, ok := strings.Cut(line, ": ")
+		switch {
+		case !ok:
+			t.Fatalf("a vector line without a colon: %q", line)
+		case k == "key":
+			key = v
+		case k == "body":
+			if v == "(empty)" {
+				v = ""
+			}
+			out = append(out, signatureVector{key: key, body: v})
+		case k == "signature" && len(out) > 0:
+			out[len(out)-1].signature = v
+		default:
+			t.Fatalf("a vector line %q", line)
+		}
+	}
+	return out
 }
 
 // TestSigningKey_ShapeAndRedaction: a minted key is the prefix + 43 canonical base64url characters

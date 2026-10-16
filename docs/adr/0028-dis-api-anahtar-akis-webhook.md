@@ -912,7 +912,12 @@ dosyasını okuyan bir paketleme testi) · **deploy kapısı:** `verify-image.sh
 tag'i doğrular — sandbox imajı `sandbox` tag'siz, prod imajı tag'li ise reddedilir
 (`VerifyImage_RefusesAWrongBuildTag`).
 
-**API-12** — `OpenAPI_EveryRouteAndErrorDocumented` · `Guide_CarriesAll31ContractDifferences`.
+**API-12** *(yazıldı — "API-12 uygulama notu"; adlar önerilenle aynı, önek eklendi)* — `TestOpenAPI_EveryRouteAndErrorDocumented` ·
+`TestGuide_CarriesAll31ContractDifferences`. Ekler: `TestOpenAPI_TheDocumentIsOpenAPI31`, `TestOpenAPI_TheWebhooksAreTheSenders`,
+`TestOpenAPI_TheExamplesAreTheHandlersAnswers`, `TestGuide_TheTwoLanguagesAreOneDocument`, `TestGuide_EveryAPI12NoteHasItsSection`,
+`TestGuide_EveryEndpointCodeAndLimitIsTheDocuments`, `TestGuide_TheSignatureVectorIsTheSenders`, `TestGuide_NoSecretAddressOrPersonalData`,
+`TestGuide_IsServedUnderV1`; genişleyenler: `TestWebhookSignature_KnownAnswer` (vektör artık rehberden okunur),
+`TestOpenAPI_PathsAreTheRoutersAndTheErrorIsSection8` (iki rehber yolu).
 
 **API-13** — runbook: spec §7'nin dokuz maddesi; `tappa-security-auditor` tam tur ONAY; operatörden
 K-22 (`KF`/`KM`) ve KF+KM holding'i; K-18 bağlama; prod anahtar çiftleri ve `pg_auth_members`;
@@ -2684,3 +2689,196 @@ yok (T130). (f) Eşit an grubunun günlükte bütün okunması (madde 9).
 **Devredilenler.** Askı tablosunun testi (`ActResend` dahil) → **API-4b**. Entegratör rehberi (gövde, olay adı, imza doğrulama,
 takvim, `dead` ve yeniden gönder, sıra yok, K-19 gecikmesi) → **API-12** (plan §5'e not yazıldı). Deploy notları → **API-13**
 (plan §5). Saklama süresi → **T130** (kullanıcı/DPA).
+
+## API-12 uygulama notu (2026-10-16)
+
+Yapıcının uygulaması ve ölçümleri; kararlar değişmedi — ürün davranışı **değişmedi** (yalnız iki belge yolu eklendi),
+belge ile kod arasındaki her çelişki önce kodda ölçüldü ve belge düzeltildi (aşağıda *"Çelişkiler"*). **Migration yok.**
+Örnekler ve ölçümler taze bir PostgreSQL 17 kabında (`scripts/db-init`, goose 56); paylaşılan `tappa-m11-db`'ye yalnız
+testlerin yazdığı satırlar.
+
+**Kullanıcı kararları (2026-10-16).** Rehber **iki dilde**: İngilizce asıl (`docs/api/integration-guide.md`), Türkçe çevirisi
+(`docs/api/integration-guide.tr.md`); ikisinin yapısal eşliği testle pinlenir. Rehber **repoda ve `/v1` altında**, binary'ye
+gömülü, anahtarsız. Önceki kararlar aynen: imza başlığı `X-Taptime-Signature`, olay adı `punch`, teslim saklama DPA'ya (T130).
+
+**Parçalar.** `docs/api/` (iki rehber + `embed.go`: `apidocs` paketi — `web/embed.go` emsali; `go:embed` üst dizine
+ulaşmadığı için rehber kendi dizininde gömülür) · `internal/handler/api/guide.go` (iki yol) · `openapi.yaml` (tamamlandı) ·
+testler `internal/handler/api/{yamlsubset,openapi_validate,examples_db,guidedoc,guide}_test.go` ·
+`internal/webhook/signing_test.go` (vektör artık rehberden okunur).
+
+**Kararlar (otonom, gerekçeli):**
+1. **Yollar `GET /v1/guide.md` ve `GET /v1/guide.tr.md`** — `?lang=` ve `Accept-Language` değil: yol biçimini adlandırır
+   (`openapi.yaml` gibi), dili dosya adının yaptığı gibi; `/v1`'in her okuması adlandırmadığı parametreyi reddeder, `?lang=` o
+   kuralın tek istisnası olurdu; bir önbellek bir başlığa göre değişmeyi bilmeden yolu anahtarlar. Sunum `openapi.yaml`'ınkiyle
+   aynı: host kapısı (ana host'ta router'ın kendi 404'ü), zincir yok, **aynı adres kovası** (üç belge bir kovayı harcar),
+   `/v1`'in başlıkları ve gövde sınırı. `Content-Type: text/markdown; charset=utf-8` (RFC 7763), `Content-Language: en|tr`.
+2. **Önbellek: `Cache-Control: no-cache` + güçlü `ETag`** (gömülü baytların SHA-256'sının ilk 16 baytı), eşleşen
+   `If-None-Match` (zayıf, liste ya da `*` dahil) → 304, gövdesiz. Rehber deploy ile değişir; kopya her kullanımda ucuzca yeniden
+   doğrulanır. `/v1`'in geri kalanı `no-store` kalır (cevapları bir işletmenin verisidir); `openapi.yaml`'ın başlığı **değişmedi**
+   (ürün davranışı değişikliği bu görevin kapsamında değil — öneri olarak raporlandı).
+3. **OpenAPI doğrulaması kütüphanesiz.** Depoda YAML ayrıştırıcısı yok; yeni bağımlılık yerine belge **tanımlı bir YAML alt
+   kümesinde** tutulur ve test bu alt kümeyi birebir okur (`yamlsubset_test.go`: blok eşlemeler/diziler, iki boşluk girinti,
+   düz/çift/tek tırnaklı skalerler, `|` blokları, JSON olan akış koleksiyonları; çapa, takma ad, etiket, katlanmış skaler, satır
+   sonu yorumu ve `: ` içeren düz skaler **hata** — gerçek bir YAML okuyucusunun reddedeceği biçim geçemez). Şemalar yalnız
+   doğrulayıcının **uyguladığı** anahtar kelimeleri kullanabilir (`type`, `enum`, `properties`, `required`,
+   `additionalProperties`, `items`, `pattern`, `minLength`/`maxLength`, `minimum`/`maximum`, `format` date-time/uuid, `$ref`;
+   açıklama anahtarları) — `oneOf` gibi denetlenmeyen bir kısıt kırmızıdır.
+4. **İşlem başına `x-error-codes`** — her işlemin cevaplayabildiği kodların kapalı listesi; durumlar `responses`'ta. İkisi de
+   **iki yönlü ölçülür**: `TestOpenAPI_EveryRouteAndErrorDocumented` sevkedilen yüzeyi (gerçek zincir, sahte alanlar) her rotanın
+   her sonucuna ulaşan 102 sonda ile koşar; cevaplanan durum kümesi = belgelenen, cevaplanan kod kümesi = `x-error-codes`, her cevap
+   belgelenen şemaya uyar. Ayrıca: `info.x-limits` (sınırlar — her biri bir sabite pinli, davet sınırları dahil; kuyruğun iki
+   dışa kapalı sabiti kaynaktan okunur), `webhooks.punch.post.x-retry-schedule-seconds` (`delivery.Backoff`).
+5. **`Error.details` kapalı şema (`ErrorDetails`).** Anahtarları ve kapalı değerleri (`field`, `reason`, `parameter`,
+   `parameters`, `header`) paketin kaynağından AST ile okunur ve belgeyle iki yönlü karşılaştırılır; eksik `reason`'lar
+   (`malformed_json`, `invalid_utf8`, `unencoded_plus`) tamamlandı. Paylaşılan hata cevaplarının örnekleri `writeProblem`'in
+   gerçek gövdeleridir (test her örneği adlandırdığı `*Problem`'den üretip karşılaştırır).
+6. **Örnekler hikâyeden** (`examples_db_test.go`): rehberin hikâyesi (KF + KM, bir grup; lokasyon, iki KF çalışanı — biri
+   adressiz ve pasifleştirilmiş —, bir KM çalışanı, iki uç nokta; Jane KF'de giriş, Joe KF'de giriş + KM'de çıkış — plan §2 madde
+   30'un vardiyası) gerçek zincir, alan, tetikleyiciler ve **gerçek gönderici** (`delivery.Job`, yakalayan sahte `Sender`) üzerinden
+   koşar; cevaplar 2026-10-16'da taze kapta `-v` ile basıldı ve belgeye öyle kondu. `TestOpenAPI_TheExamplesAreTheHandlersAnswers`
+   her istek ve cevap örneğini yeniden koşturulan hikâyeyle karşılaştırır: her düzeyde aynı anahtarlar, koşuya ait değerler (id,
+   an, imleç — `volatileExampleKeys`) dışında aynı değerler, onlarda aynı tür (önek, JSON türü); iki yönlü (hikâyenin üretmediği
+   örnek kırmızı). Rehberin JSON blokları `<!-- example: … -->` işaretiyle belge örneğine bağlıdır.
+7. **İmza vektörünün tek kaynağı rehberdir.** `TestWebhookSignature_KnownAnswer` vektörü `docs/api/integration-guide.md`'nin
+   `<!-- vector: webhook-signature -->` bloğundan okur; Türkçe rehber aynı bloğu bayt bayt taşır (eşlik testi). Üçüncü vektör
+   gerçek bir teslim gövdesidir (hikâyedeki Jane'in punch'ı); imzası Go dışında hesaplandı — Python `hmac` ve `openssl dgst
+   -hmac`, ikisi aynı. `TestGuide_TheSignatureVectorIsTheSenders` o gövdenin `delivery.Body`'ye çözülüp yeniden kodlanınca **aynı
+   baytlar** olduğunu ve belgenin webhook örneği olduğunu pinler.
+8. **Webhook bölümü (OpenAPI 3.1 `webhooks:`).** `punch` ve `ping`; `X-Taptime-Signature` (desen `sha256=` + 64 küçük hex),
+   `User-Agent`, beklenen cevap (`2XX` teslim, `default` başarısız deneme), geri çekilme. `PunchDelivery`'nin özellikleri tam olarak
+   `Punch`'ınkiler + `event`, `deliveryId` ve paylaşılanlar `Punch`'ın kendileri; gönderici gövdesinin JSON anahtarları sırasıyla
+   aynı (`TestOpenAPI_TheWebhooksAreTheSenders`).
+9. **İki dilin eşliği** (`TestGuide_TheTwoLanguagesAreOneDocument`): başlık ağacı (düzey, çapa, numara), her başlığın önünde bir
+   `<a id>` çapası, numaralı maddeler, kod blokları **bayt bayt**, bağlantı hedefleri (hepsi var olan çapa), işaretler, tabloların
+   kod ve sayı hücreleri ve **her bölümün satır içi kodları** iki dilde aynı. Kod bloklarının içi dilden bağımsızdır (sözde kod
+   İngilizce tanımlayıcılarla). İngilizce asıldır.
+10. **31 madde** (`TestGuide_CarriesAll31ContractDifferences`): plan §2'nin tam 31 maddesi; rehberin §11'i iki dilde 1..31
+    numaralı, her madde planın maddesindeki kod belirteçlerini (kaynak dosya atıfları hariç — entegratör rehberi kaynak adlandırmaz)
+    ve maddenin anahtar ifadelerini taşır, açıklandığı bölüme bağlanır; madde 31'in uyarısı §6.5'in uyarı kutusunda da durur.
+11. **Gizlilik taraması** (`TestGuide_NoSecretAddressOrPersonalData`): e-posta yalnız `example.com`, IPv4/IPv6 yok, üç önekin
+    hiçbiriyle dört farklı karakterden fazla gövdeli değer yok (R7d'nin kuralı — vektörün 43 `A`'sı dolgudur), URL yalnız
+    `example.com`, kaynak ağacı yolu yok. Rehber API'nin adresini yazmaz: örnekler `$TAPTIME_API`/`$TAPTIME_KEY` yer tutucularıyla.
+12. **Rehber ↔ belge** (`TestGuide_EveryEndpointCodeAndLimitIsTheDocuments`): rehberin adlandırdığı uçlar = belgenin
+    işlemleri (iki yönlü); kod tablosu = `Codes()` ve durumları; ayrıntı tablosu = `ErrorDetails`; neden tablosu = kaynağın
+    nedenleri ve her birinin kodu; §3.5 = `x-limits`; §3.4 oranları; §9.6 = `delivery.Backoff` + `MaxAttempts`; JSON blokları ve
+    `curl` gövdeleri belge örnekleri.
+
+**Çelişkiler — kod ölçüldü, belge düzeltildi (kod hatası bulunmadı):**
+- `GET /v1/openapi.yaml` `404` listeliyordu: API host'unda üretilemez (host dışı 404 router'ındır, sözleşmenin değil) — çıkarıldı;
+  `400` eksikti: gövde sınırı ve `Content-Encoding` reddi **her** `/v1` rotasında, belgede de geçerlidir (sondayla ölçüldü) —
+  eklendi. Aynı sınır GET'lerde de 400 `body_too_large` verir; belge ve rehber artık bunu söyler.
+- `Error.details` serbest bir `object`'ti; şimdi ölçülen anahtarlarla kapalı.
+- `info.description` "bu belge dışında her istek anahtar taşır" diyordu — artık üç belge.
+- Plan §5 API-9 notu adresin "küçük harfli tek yazımıyla" saklandığını söyler; kod yalnız **host**'u küçültür ve `:443`'ü atar
+  (`egress.ParseEndpoint`, API-9 notu madde 7) — rehber kodun söylediğini yazar.
+- Plan §2 madde 5 bir kaynak dosyası atfı taşır; rehberde yok (madde metni korunarak).
+
+**Plan §5 API-12 notları → rehber bölümü** — `TestGuide_EveryAPI12NoteHasItsSection` bu tabloyu okur: her ifade plan §5'in API-12
+maddesinde kelimesi kelimesine geçer, her bağlantı iki rehberde de bir çapadır, satırlar 1..67 ve maddenin her bloğu (ilk
+başlıktan önceki metin ve her *"(API-…)"* başlığının metni) en az bir satırla eşlenir.
+
+<!-- api12-notes -->
+| # | Kaynak | Not (plan §5 API-12, anahtar ifade) | Rehber |
+|---|---|---|---|
+| 1 | plan §5 | "OpenAPI her uç/hata" | [§3.1](../api/integration-guide.md#errors) |
+| 2 | plan §5 | "§2'nin 31 maddesi" | [§11](../api/integration-guide.md#differences) |
+| 3 | plan §5 | "madde 31 — `scope=location` ile süre hesaplama uyarısı — zorunlu" | [§6.5](../api/integration-guide.md#feed-working-time) |
+| 4 | API-4 | "Idempotency-Key'in istek hash'i bayt düzeyindedir" | [§3.3](../api/integration-guide.md#idempotency) |
+| 5 | API-4 | "sorgu parametresi sırası ya da JSON boşluk farkı aynı anahtarla 422 verir, başlık farkı replay verir" | [§3.3](../api/integration-guide.md#idempotency) |
+| 6 | API-5 | "bilinmeyen alan (harf farkı dahil: `Name` ≠ `name`) **422 `validation_failed` / `unknown_field`**" | [§3.6](../api/integration-guide.md#bodies) |
+| 7 | API-5 | "aynı alan iki kez **422 / `duplicate_field`** (son değer kazanmaz)" | [§3.6](../api/integration-guide.md#bodies) |
+| 8 | API-5 | "gövde UTF-8 olmalı (değilse 400 `invalid_utf8`)" | [§3.6](../api/integration-guide.md#bodies) |
+| 9 | API-5 | "ref yüzde kodlanabilir, **bir kez** çözülür ve sonra kalıba uymalıdır" | [§3.8](../api/integration-guide.md#identifiers) |
+| 10 | API-5 | "aynı ref'in farklı yazımları aynı lokasyondur ama aynı Idempotency-Key ile 422 verir" | [§3.3](../api/integration-guide.md#idempotency) |
+| 11 | API-5 | "**yeni ya da değişen** lokasyon adında kontrol karakteri" | [§4](../api/integration-guide.md#locations) |
+| 12 | API-5 | "emoji, bayraklar ve her yazının harfleri kabul" | [§4](../api/integration-guide.md#locations) |
+| 13 | API-5 | "gövdedeki eşsiz surrogate kaçışı (`\ud800`) 400" | [§3.6](../api/integration-guide.md#bodies) |
+| 14 | API-6 | "PUT gövdesi `firstName`, `lastName`, `email` (anahtar zorunlu; dize ya da `null`)" | [§5.1](../api/integration-guide.md#employees-put) |
+| 15 | API-6 | "adres düz ASCII ve işletmenin yönetici adresi değil (422 `administrator_address`)" | [§5.1](../api/integration-guide.md#employees-put) |
+| 16 | API-6 | "başka canlı çalışandaki adres 409 `email_unavailable` (yeni satırda da değişiklikte de)" | [§5.1](../api/integration-guide.md#employees-put) |
+| 17 | API-6 | "bilinmeyen ref önce aynı işletmede adresle eşleşen bağlanmamış çalışanı bağlar" | [§5.1](../api/integration-guide.md#employees-put) |
+| 18 | API-6 | "yanıtta adres yok, `hasEmail` ve `activationEmail`" | [§5.1](../api/integration-guide.md#employees-put) |
+| 19 | API-6 | "`GET /v1/employees` panelde açılmış bağlanmamış çalışanları da (`externalRef: null`) listeler" | [§5.6](../api/integration-guide.md#employees-read) |
+| 20 | API-6 | "pasifleştirme anahtar başına saatte 20, aşımda 429 `deactivation_budget_exceeded` (`rate_limited`'dan ayrı)" | [§5.5](../api/integration-guide.md#employees-deactivate) |
+| 21 | API-6 | "`resend-activation` her durumda 202, aktive çalışana 409, adressiz çalışana 422" | [§5.4](../api/integration-guide.md#employees-resend) |
+| 22 | API-6 | "adın içinde TAB/satır sonu `hidden_character`" | [§5.1](../api/integration-guide.md#employees-put) |
+| 23 | API-6 ikinci tur | "`activationEmail.status` dört değerlidir" | [§5.3](../api/integration-guide.md#employees-email-state) |
+| 24 | API-6 üçüncü tur | "Kuyruktaki bir davet en çok 72 saat bekler" | [§5.3](../api/integration-guide.md#employees-email-state) |
+| 25 | API-6 üçüncü tur | "gerçek gönderim hatası (4xx dahil) 5 kez denenir" | [§5.3](../api/integration-guide.md#employees-email-state) |
+| 26 | API-6 dördüncü tur | "İşletme günde en çok 300 davet basar" | [§5.3](../api/integration-guide.md#employees-email-state) |
+| 27 | API-6 dördüncü tur | "Büyük ilk senkronu günlere yaymak ya da `undelivered` olanlara resend göndermek önerilir" | [§5.3](../api/integration-guide.md#employees-email-state) |
+| 28 | API-6 dördüncü tur | "**Tenant içi kehanet:**" | [§5.1](../api/integration-guide.md#employees-put) |
+| 29 | API-7 | "`scope` zorunludur" | [§6.2](../api/integration-guide.md#feed-scopes) |
+| 30 | API-7 | "başka parametre (harf farkı dahil) ve ayrıştırılamayan sorgu dizgesi 400" | [§3.7](../api/integration-guide.md#query) |
+| 31 | API-7 | "`nextCursor` **her zaman** doludur" | [§6.4](../api/integration-guide.md#feed-paging) |
+| 32 | API-7 | "entegratör **her kapsam için ayrı** bir değer saklar" | [§6.4](../api/integration-guide.md#feed-paging) |
+| 33 | API-7 | "`hasMore: true` diyebilir (sayfa akışın en çok 10 000 konumunu okur)" | [§6.4](../api/integration-guide.md#feed-paging) |
+| 34 | API-7 | "aralığın içindeyse reddedilmez ve öncesindeki olaylar sessizce atlanır" | [§6.4](../api/integration-guide.md#feed-paging) |
+| 35 | API-7 | "Akışın ötesindeki imlece 400 bilinçlidir" | [§6.4](../api/integration-guide.md#feed-paging) |
+| 36 | API-7 | "`location {id, externalRef, name, company}` (her zaman nesne" | [§6.3](../api/integration-guide.md#feed-punch) |
+| 37 | API-7b | "en çok 31 gün + 1 saat (bir yerel takvim ayı her saat diliminde tek sorgu, DST dahil)" | [§7](../api/integration-guide.md#history) |
+| 38 | API-7b | "saat farkındaki `+` sorgu dizgesinde `%2B` olarak kodlanmalıdır" | [§3.7](../api/integration-guide.md#query) |
+| 39 | API-7b | "**Geçmiş okuması bir anlık görüntüdür:**" | [§7](../api/integration-guide.md#history) |
+| 40 | API-7b | "**İki imlecin karşılaştırması:**" | [§7](../api/integration-guide.md#history) |
+| 41 | API-7b | "Seyrek kapsamda geçmiş sayfası da boş gelip `hasMore: true` diyebilir" | [§7](../api/integration-guide.md#history) |
+| 42 | API-8 | "panelin açtığı ve henüz adlandırılmamış kişide `firstName`/`lastName` null, `fullName` her zaman dolu" | [§8.1](../api/integration-guide.md#directory-entry) |
+| 43 | API-8 | "Bir **yürüyüş** imleçsiz bir istekten `hasMore: false` olan sayfaya kadardır" | [§8.2](../api/integration-guide.md#directory-walk) |
+| 44 | API-8 | "sonraki yürüyüş `updatedSince=asOf` ile başlar — sunucu 10 dk geriden okur" | [§8.2](../api/integration-guide.md#directory-walk) |
+| 45 | API-8 | "**Tekrar gelen kayıt beklenir**" | [§8.2](../api/integration-guide.md#directory-walk) |
+| 46 | API-8 | "Anahtar `id`'dir" | [§8.2](../api/integration-guide.md#directory-walk) |
+| 47 | API-8 | "**Holding üyeliği değişince**" | [§8.3](../api/integration-guide.md#directory-full) |
+| 48 | API-8 denetimi | "bir işletmenin `company`'si (`tenants.api_code`) değişince de" | [§8.3](../api/integration-guide.md#directory-full) |
+| 49 | API-8 denetimi | "**periyodik (ör. günlük) bir tam okuma**" | [§8.3](../api/integration-guide.md#directory-full) |
+| 50 | API-8 DÜŞÜK D-b | "**aynı isteği kısa bir beklemeyle (saniyeler, artan aralıkla) yeniden dener**" | [§8.4](../api/integration-guide.md#directory-clock) |
+| 51 | API-9 | "işletme başına **tek** uç nokta, sahibin panelinden (API anahtarı ile yönetilmez)" | [§9.1](../api/integration-guide.md#webhook-setup) |
+| 52 | API-9 | "**Adres kuralı:**" | [§9.1](../api/integration-guide.md#webhook-setup) |
+| 53 | API-9 | "Adres **bağlantı anında** denetlenir" | [§9.1](../api/integration-guide.md#webhook-setup) |
+| 54 | API-9 | "**İmza:** her istek `X-Taptime-Signature: sha256=<hex>` taşır" | [§9.3](../api/integration-guide.md#webhook-verify) |
+| 55 | API-9 | "Bilinen-cevap vektörü (anahtar açıkça sahte — önek + 43 `A`)" | [§9.3](../api/integration-guide.md#webhook-verify) |
+| 56 | API-9 | "döndürmeden sonra eski anahtarla imzalı mesaj gelmez" | [§9.2](../api/integration-guide.md#webhook-key) |
+| 57 | API-9 | "**Test ping:**" | [§9.4](../api/integration-guide.md#webhook-requests) |
+| 58 | API-10 | "**Punch teslimi:**" | [§9.4](../api/integration-guide.md#webhook-requests) |
+| 59 | API-10 | "**2xx = teslim edildi**" | [§9.5](../api/integration-guide.md#webhook-answer) |
+| 60 | API-10 | "**Takvim:**" | [§9.6](../api/integration-guide.md#webhook-retries) |
+| 61 | API-10 | "**Tekilleştirme `id` + `version` ile**" | [§9.7](../api/integration-guide.md#webhook-duplicates) |
+| 62 | API-10 | "**Sıra garantisi yok;**" | [§9.7](../api/integration-guide.md#webhook-duplicates) |
+| 63 | API-10 | "**Kesin kaynak akıştır:**" | [§9.9](../api/integration-guide.md#webhook-source) |
+| 64 | API-10 | "**K-19 gecikmesi**" | [§9.8](../api/integration-guide.md#webhook-delays) |
+| 65 | API-10 | "**Panel:** sahip teslim günlüğünü görür" | [§9.6](../api/integration-guide.md#webhook-retries) |
+| 66 | API-10 | "Uç nokta kapalıyken ya da API kapalıyken kuyruktaki teslimler **gitmez ve bekler**" | [§9.8](../api/integration-guide.md#webhook-delays) |
+| 67 | API-10 | "**Olay adı `punch`**" | [§9.4](../api/integration-guide.md#webhook-requests) |
+<!-- /api12-notes -->
+
+ADR'nin kendi API-12 atıfları da karşılandı: §6 *"Tappa'nın kendi bilinen-cevap vektörü rehbere konur"* → rehber §9.3 (karar 7);
+§8 *"31 madde … rehbere birebir girer"* → §11 (karar 10); API-4, API-5, API-6, API-10 notlarının *"API-12 rehberine"* cümleleri
+yukarıdaki tablonun 4–13, 14–28 ve 58–67. satırlarıdır.
+
+**Sandbox (API-11) rehberde yer tutucudur** (§1.4: *"henüz yok"*); `tt_test_` önekinden ve ayrı alan adından yalnız *"planlandı"*
+diye söz edilir. API-11 gelince §1.4 doldurulur, §12'ye bir baskı satırı eklenir.
+
+**Askı bölümü (§10) sözleşmeyi anlatır**: bu dalda askı sütunu yok (OP-15); her sınıfın davranışı kontrol noktasıyla ölçülmüştür
+(API-4/6 testleri, ve bu görevin sondaları `suspendedSwitch` ile), panel hücreleri OP-15'in kapısındadır. API-4b tabloyu hücre hücre
+pinlediğinde rehberin tablosu ona karşı yeniden okunur.
+
+**Mutantlar** (her biri tek başına uygulandı, ilgili test tek başına koşuldu, geri alındı; 42'nin 42'si kırmızı — betik ve çıktı
+yapıcının raporunda). Belge: eksik şemaya `$ref`, açıklamasız cevap, yolun adlandırmadığı yol parametresi, şemada olmayan örnek
+alanı, denetlenmeyen bir şema sözcüğü (`oneOf`) → `TheDocumentIsOpenAPI31`; bir işlemin `x-error-codes`'undan bir kod, akışa `404`,
+kaynağa belgesiz bir `reason`, bir hata örneğinin mesajı, `x-limits`'te bir sınır ±1 → `EveryRouteAndErrorDocumented`; geri çekilme
+takviminde bir değer, `PunchDelivery`'den bir alan → `TheWebhooksAreTheSenders`; bir örneğin adı, bir örneğe fazladan anahtar,
+`punchwire`'dan `tagId` (kod mutantı) → `TheExamplesAreTheHandlersAnswers` (veritabanlı). Rehber: Türkçeden bir başlık, yeniden
+numaralanan madde, bir kod bloğunun tek baytı, bir bağlantı hedefi, tek dilde bir sınır değeri, tek dilde bir satır içi kod →
+`TheTwoLanguagesAreOneDocument`; Türkçeden madde 31, madde 21'in belirteci, plana 32. madde → `CarriesAll31ContractDifferences`;
+tabloda yanlış çapa, planda olmayan ifade, API-9 bloğunun satırları → `EveryAPI12NoteHasItsSection`; belgede olmayan bir uç, bir
+kodun durumu, §3.5'te bir sınır, §9.6'da bir bekleme, bir örnekte alan adı → `EveryEndpointCodeAndLimitIsTheDocuments`; gerçek
+görünümlü anahtar, başka alan adında e-posta, IPv4, taptime URL'si, kaynak yolu → `NoSecretAddressOrPersonalData`; rehber
+kimlikli grupta, kendi kovasında, `ETag` denetimi yok, `/v1`'in `no-store`'u kalmış → `IsServedUnderV1`; rehberde bir imza
+hanesi → `TestWebhookSignature_KnownAnswer`.
+
+**API-13'e devredilen (plan §5 API-13'e yazıldı):** ingress kuralı API host'unda `/v1`'in tamamını pod'a verir — iki rehber yolu
+(`/v1/guide.md`, `/v1/guide.tr.md`) `openapi.yaml` ile birlikte anahtarsız erişilebilir olmalı; deploy sonrası ölçüm: anahtarsız
+`GET /v1/guide.md` → 200 `text/markdown`, aynı `ETag` ile `If-None-Match` → 304, ana host'ta 404. Ara bir önbellek (Cloudflare
+DNS-only — önbellek yok) varsa `no-cache` yeniden doğrulamayı zorunlu kılar.
+
+**Öneri (CLAUDE.md, kullanıcıya):** §3 dizin haritasına `docs/api/` satırı — *"entegrasyon rehberi (EN asıl + TR çeviri) ve onu
+binary'ye gömen `apidocs` paketi; `/v1/guide.md` ve `/v1/guide.tr.md` olarak sunulur; değişiklik iki dilde birlikte yapılır
+(eşlik testi)"*. `openapi.yaml`'a da rehberlerinki gibi `ETag` + `no-cache` vermek (bugün `no-store`) ayrı bir ürün kararıdır.
