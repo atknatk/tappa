@@ -14,8 +14,11 @@
 //   - no proxy (Transport.Proxy is nil: HTTPS_PROXY in the environment is not obeyed -- a proxy would
 //     move the dial, and the gate with it, to the proxy's address);
 //   - no redirect (the 3xx is the answer; a Location to an internal host is never followed);
-//   - 10 s for the whole exchange, a bounded response header, and the body NOT read (at most 1 KiB is
-//     drained and thrown away): a remote cannot hold a worker, fill memory or have its answer read.
+//   - 10 s for the whole exchange -- the TCP dial and the TLS handshake included, both under Post's
+//     own ctx (exchangeContext) --, a bounded response header, and the body NOT read (at most 1 KiB is
+//     drained and thrown away): a remote cannot hold a worker or a socket, fill memory or have its
+//     answer read;
+//   - HTTP/1.1 alone: no ALPN is offered (Transport.Protocols, and a handshake config of its own).
 //
 // 🔴 NOTHING LEAVES BUT A CLASS AND A STATUS. Post returns a Result -- one of six closed classes
 // (ADR 0028 §6: timeout, tls, refused, http_4xx, http_5xx, blocked_address) and the HTTP status when
@@ -104,6 +107,8 @@ type Client struct {
 	gate    *gate
 	http    *http.Client
 	timeout time.Duration
+	// tls is the handshake's configuration (build): never the transport's.
+	tls *tls.Config
 }
 
 // New builds the client. It refuses an empty Blocked list unless DevelopmentWithoutBlockedList.
@@ -158,21 +163,48 @@ func build(g *gate, resolver *net.Resolver, roots *x509.CertPool, timeout time.D
 		}
 		return dialer.DialContext(ctx, network, net.JoinHostPort(host, port))
 	}
+	// The handshake's own configuration, owned by the Client and never handed to the transport (whose
+	// TLSClientConfig stays nil): net/http rewrites the TLSClientConfig it is given -- it appends "h2"
+	// to its NextProtos when HTTP/2 is switched on -- and a shared pointer would carry that into this
+	// handshake. NextProtos is empty: no ALPN is offered, the connection is HTTP/1.1 (ADR 0028 §7).
+	// MinVersion is what Go's client already defaults to (TLS 1.2); written out so the rule is read
+	// here, not inferred -- a mutant that drops it is equivalent.
 	tlsConfig := &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}
+	var http1 http.Protocols
+	http1.SetHTTP1(true)
 	transport := &http.Transport{
-		Proxy:       nil,
-		DialContext: dial,
+		Proxy: nil,
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			ctx, cancel := exchangeContext(ctx, timeout)
+			defer cancel()
+			return dial(ctx, network, addr)
+		},
 		// THE HANDSHAKE IS DONE HERE, not by the transport, so that its failure can be told apart
 		// (classify): net/http returns a handshake's error as it is, and crypto/tls types only some of
 		// them -- a receiver's alert (TLS older than 1.2, a client certificate asked for, no common
 		// cipher suite) arrives as an untyped "remote error", a version the server chose that the
 		// client refuses as plain text. The TCP dial is the same dial, through the same gate; the
-		// config is tlsConfig with the URL's host as the name to verify -- what the transport did.
+		// config is tlsConfig with the URL's host as the name to verify.
+		//
+		// 🔴 THE DIAL AND THE HANDSHAKE ARE BOUNDED BY POST, NOT BY THE TRANSPORT (API-12 third fix).
+		// With DialTLSContext set, net/http applies no TLSHandshakeTimeout (that is its own TLS path's),
+		// and the ctx it dials with is detached from the request -- its cancellation AND its deadline
+		// (transport.go getConn: context.WithoutCancel; only CloseIdleConnections cancels it), so that
+		// a later request could use the connection. A receiver that took the ClientHello and never
+		// answered held the socket and a goroutine long after Post had returned "timeout" (measured:
+		// 20 Posts -> 20 sockets still open 60 s later). exchangeContext dials and shakes hands under
+		// Post's own ctx: both end at Post's deadline and when Post is cancelled (the worker's Drain),
+		// and crypto/tls closes the socket when that ctx ends mid-handshake. One mechanism, no
+		// conn.SetDeadline beside it: each of TestEgress_AHeldHandshakeIsClosedWithinTheBudget's
+		// mutants (the dial's own ctx; a handshake under context.Background()) is red only because
+		// nothing else would close the socket.
 		DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			host, _, err := net.SplitHostPort(addr)
 			if err != nil {
 				return nil, errBlocked
 			}
+			ctx, cancel := exchangeContext(ctx, timeout)
+			defer cancel()
 			raw, err := dial(ctx, network, addr)
 			if err != nil {
 				return nil, err
@@ -186,10 +218,12 @@ func build(g *gate, resolver *net.Resolver, roots *x509.CertPool, timeout time.D
 			}
 			return conn, nil
 		},
-		// Ignored by the transport once DialTLSContext is set; kept as the one place the
-		// configuration is read from (the handshake above clones it).
-		TLSClientConfig:        tlsConfig,
-		TLSHandshakeTimeout:    timeout,
+		// HTTP/1.1 alone, whatever ForceAttemptHTTP2 or a future default says: Protocols wins over
+		// both (net/http's Transport.protocols).
+		Protocols: &http1,
+		// No TLSClientConfig and no TLSHandshakeTimeout: with DialTLSContext set the transport reads
+		// neither (the handshake above is bounded by exchangeContext), and a field that is not obeyed
+		// is a setting that misleads.
 		ResponseHeaderTimeout:  timeout,
 		MaxResponseHeaderBytes: MaxResponseHeaderBytes,
 		DisableKeepAlives:      true,
@@ -199,6 +233,7 @@ func build(g *gate, resolver *net.Resolver, roots *x509.CertPool, timeout time.D
 	return &Client{
 		gate:    g,
 		timeout: timeout,
+		tls:     tlsConfig,
 		http: &http.Client{
 			Transport: transport,
 			Timeout:   timeout,
@@ -206,6 +241,22 @@ func build(g *gate, resolver *net.Resolver, roots *x509.CertPool, timeout time.D
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
 	}
+}
+
+// postKey carries Post's own ctx to the dial. net/http keeps a request ctx's values when it detaches
+// the dial from the request's cancellation and deadline (transport.go getConn), so the value is how
+// the dial learns both.
+type postKey struct{}
+
+// exchangeContext is the ctx a connection is made under: Post's own ctx, which ends at Post's deadline
+// (c.timeout, the whole exchange's budget) and when Post's caller cancels it. A dial that does not carry
+// it (no caller of this package dials without one) ends after fallback, never later -- the dial is
+// never unbounded.
+func exchangeContext(ctx context.Context, fallback time.Duration) (context.Context, context.CancelFunc) {
+	if post, ok := ctx.Value(postKey{}).(context.Context); ok {
+		return post, func() {}
+	}
+	return context.WithTimeout(ctx, fallback)
 }
 
 // Post sends body to the endpoint with the given headers (Content-Type and the signature are the
@@ -218,6 +269,9 @@ func (c *Client) Post(ctx context.Context, to Endpoint, body []byte, header http
 	}
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
+	// The dial and the handshake end with this ctx (exchangeContext): the whole exchange, the
+	// handshake included, is within c.timeout (ADR 0028 §7).
+	ctx = context.WithValue(ctx, postKey{}, ctx)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, to.reveal(), bytes.NewReader(body))
 	if err != nil {
 		return Result{Class: ClassRefused}

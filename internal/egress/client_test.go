@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -362,11 +363,201 @@ func TestEgress_TheExchangeIsBounded(t *testing.T) {
 		t.Fatalf("New's budgets: timeout %v/%v header %d keepalive-off %v", built.timeout, built.http.Timeout,
 			tr.MaxResponseHeaderBytes, tr.DisableKeepAlives)
 	}
-	if tr.TLSClientConfig.InsecureSkipVerify || tr.TLSClientConfig.RootCAs != nil {
+	if built.tls.InsecureSkipVerify || built.tls.RootCAs != nil {
 		t.Fatal("New's TLS is not Go's default verification against the system roots")
 	}
 	if built.http.CheckRedirect == nil || !errors.Is(built.http.CheckRedirect(nil, nil), http.ErrUseLastResponse) {
 		t.Fatal("New's client follows redirects")
+	}
+}
+
+// heldReceiver takes each TCP connection, reads the ClientHello and never answers -- the receiver an
+// owner can point a webhook at to hold a socket. It counts the connections the client has not closed
+// and reports when each one was closed (its own 10 s read limit is the only other way out).
+type heldReceiver struct {
+	l      net.Listener
+	open   atomic.Int64
+	closed chan time.Time
+}
+
+func newHeldReceiver(t *testing.T) *heldReceiver {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &heldReceiver{l: l, closed: make(chan time.Time, 1024)}
+	t.Cleanup(func() { _ = l.Close() })
+	go func() {
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				return
+			}
+			h.open.Add(1)
+			go func() {
+				defer func() { _ = c.Close() }()
+				_ = c.SetReadDeadline(time.Now().Add(10 * time.Second))
+				buf := make([]byte, 4096)
+				for {
+					if _, err := c.Read(buf); err != nil {
+						var ne net.Error
+						if errors.As(err, &ne) && ne.Timeout() {
+							return // the receiver gave up: the client still held it
+						}
+						h.open.Add(-1)
+						h.closed <- time.Now()
+						return
+					}
+				}
+			}()
+		}
+	}()
+	return h
+}
+
+func (h *heldReceiver) client(t *testing.T, timeout time.Duration) *Client {
+	t.Helper()
+	d := staticDNS(map[string][]string{"hook.example.com": {"127.0.0.1"}})
+	return build(&gate{port: portOf(t, h.l.Addr()), testAllow: []netip.Prefix{loopback}}, d.resolver(), nil, timeout)
+}
+
+// waitFor polls cond for up to limit.
+func waitFor(limit time.Duration, cond func() bool) bool {
+	for end := time.Now().Add(limit); ; time.Sleep(10 * time.Millisecond) {
+		if cond() {
+			return true
+		}
+		if time.Now().After(end) {
+			return false
+		}
+	}
+}
+
+// TestEgress_AHeldHandshakeIsClosedWithinTheBudget (API-12 third fix): a receiver that takes the
+// ClientHello and never answers sees the CLIENT CLOSE THE CONNECTION within Post's budget -- not only
+// Post returning. net/http dials with a ctx detached from the request and applies no
+// TLSHandshakeTimeout to a DialTLSContext, so until exchangeContext the socket and a goroutine
+// outlived every such Post (measured before the fix: 20 Posts -> 20 sockets open 60 s later; 200
+// concurrent -> +200 goroutines). Measured here, on the receiver's side:
+//   - one Post: the connection closes within the budget and a small margin;
+//   - Post's ctx cancelled mid-handshake (the worker's Drain): it closes at once, long before the budget;
+//   - 20 Posts one after another and 100 at once: no connection stays open and the goroutines return
+//     to where they were.
+//
+// MUTANTS (measured, each red): the dial's own (detached) ctx in place of Post's; the handshake under
+// context.Background(); Post's ctx not carried to the dial (the fallback bounds the time but not the
+// cancellation); not carried and a fallback with no limit.
+func TestEgress_AHeldHandshakeIsClosedWithinTheBudget(t *testing.T) {
+	const margin = 300 * time.Millisecond
+	h := newHeldReceiver(t)
+	base := runtime.NumGoroutine()
+
+	const budget = 400 * time.Millisecond
+	c := h.client(t, budget)
+	start := time.Now()
+	if res := c.Post(context.Background(), to(t, "https://hook.example.com/in"), []byte("{}"), nil); res != (Result{Class: ClassTimeout}) {
+		t.Fatalf("held handshake: %+v", res)
+	}
+	select {
+	case at := <-h.closed:
+		if el := at.Sub(start); el > budget+margin {
+			t.Fatalf("held handshake: the receiver saw the close %v after Post began (budget %v)", el, budget)
+		}
+	case <-time.After(budget + 2*time.Second):
+		t.Fatalf("held handshake: the connection is still open %v after a %v budget", time.Since(start).Round(time.Millisecond), budget)
+	}
+
+	c = h.client(t, 5*time.Second)
+	ctx, cancel := context.WithCancel(context.Background())
+	start = time.Now()
+	time.AfterFunc(150*time.Millisecond, cancel)
+	if res := c.Post(ctx, to(t, "https://hook.example.com/in"), []byte("{}"), nil); res.Delivered() {
+		t.Fatalf("cancelled: %+v", res)
+	}
+	select {
+	case at := <-h.closed:
+		if el := at.Sub(start); el > 150*time.Millisecond+margin {
+			t.Fatalf("cancelled: the receiver saw the close %v after Post began (cancelled at 150 ms, budget 5 s)", el)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("cancelled: Post's ctx ended, and the handshake under it did not")
+	}
+
+	c = h.client(t, 150*time.Millisecond)
+	for i := 0; i < 20; i++ {
+		if res := c.Post(context.Background(), to(t, "https://hook.example.com/in"), []byte("{}"), nil); res.Class != ClassTimeout {
+			t.Fatalf("sequential %d: %+v", i, res)
+		}
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if res := c.Post(context.Background(), to(t, "https://hook.example.com/in"), []byte("{}"), nil); res.Class != ClassTimeout {
+				t.Errorf("concurrent: %+v", res)
+			}
+		}()
+	}
+	wg.Wait()
+	if !waitFor(time.Second, func() bool { return h.open.Load() == 0 }) {
+		t.Fatalf("after 120 Posts: %d connections still open on the receiver", h.open.Load())
+	}
+	// The goroutines are the process's: the margin is for the runtime's and the test server's own.
+	if !waitFor(2*time.Second, func() bool { return runtime.NumGoroutine() <= base+3 }) {
+		t.Fatalf("after 120 Posts: %d goroutines, %d before", runtime.NumGoroutine(), base)
+	}
+}
+
+// TestEgress_OnlyHTTP11: the receiver offers HTTP/2 (ALPN "h2" before "http/1.1") and the connection
+// is HTTP/1.1 with no ALPN at all -- seen on the receiver's side. The CONTROL: a client that asks for
+// HTTP/2 gets it from the same server. And statically: the transport holds no TLSClientConfig (net/http
+// would append "h2" to it, and a pointer shared with the handshake would offer it), Protocols is
+// HTTP/1.1 alone, ForceAttemptHTTP2 is off and the handshake's NextProtos is empty (ADR 0028 §7).
+//
+// MUTANTS (measured, each red): NextProtos ["h2"] or ["h2","http/1.1"] in the handshake's config;
+// ForceAttemptHTTP2 true; Protocols removed with ForceAttemptHTTP2 true and the handshake's config
+// shared as the TLSClientConfig.
+func TestEgress_OnlyHTTP11(t *testing.T) {
+	var proto atomic.Value
+	r := &recorder{}
+	r.srv = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		proto.Store(fmt.Sprintf("%d %q", req.ProtoMajor, req.TLS.NegotiatedProtocol))
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	r.srv.EnableHTTP2 = true
+	r.srv.TLS = &tls.Config{NextProtos: []string{"h2", "http/1.1"}}
+	r.srv.Config.ErrorLog = log.New(io.Discard, "", 0)
+	r.srv.StartTLS()
+	t.Cleanup(r.srv.Close)
+
+	resp, err := r.srv.Client().Get(r.srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if got := proto.Load(); got != `2 "h2"` {
+		t.Fatalf("CONTROL: a client that asks for HTTP/2 got %v -- the server does not offer it", got)
+	}
+
+	c := clientFor(t, r, staticDNS(map[string][]string{"hook.example.com": {"127.0.0.1"}}), 5*time.Second, nil)
+	if res := c.Post(context.Background(), to(t, "https://hook.example.com/in"), []byte("{}"), nil); !res.Delivered() {
+		t.Fatalf("an HTTP/2 receiver: %+v", res)
+	}
+	if got := proto.Load(); got != `1 ""` {
+		t.Fatalf("the receiver saw %v, want HTTP/1.1 and no ALPN", got)
+	}
+
+	built, err := New(Options{DevelopmentWithoutBlockedList: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := built.http.Transport.(*http.Transport)
+	if tr.TLSClientConfig != nil || tr.ForceAttemptHTTP2 || tr.Protocols == nil || !tr.Protocols.HTTP1() ||
+		tr.Protocols.HTTP2() || tr.Protocols.UnencryptedHTTP2() || len(built.tls.NextProtos) != 0 || tr.TLSNextProto != nil {
+		t.Fatalf("New's transport is not HTTP/1.1 alone: TLSClientConfig %v force %v protocols %v next %v",
+			tr.TLSClientConfig != nil, tr.ForceAttemptHTTP2, tr.Protocols, built.tls.NextProtos)
 	}
 }
 
@@ -434,6 +625,16 @@ func TestEgress_FailuresAreClassesAndCarryNoText(t *testing.T) {
 		_, _ = c.Read(make([]byte, 64))
 	})
 	dropped := rawReceiver(t, d, func(c net.Conn) { _, _ = c.Read(make([]byte, 16)) })
+	// One that reads the whole ClientHello and closes cleanly: nothing is left unread, so the close is
+	// a FIN, not a reset, and the client's handshake ends in io.EOF -- refused too (the case above
+	// leaves bytes unread and resets).
+	finished := rawReceiver(t, d, func(c net.Conn) {
+		header := make([]byte, 5)
+		if _, err := io.ReadFull(c, header); err != nil {
+			return
+		}
+		_, _ = io.ReadFull(c, make([]byte, int(header[3])<<8|int(header[4])))
+	})
 
 	ep := to(t, "https://secret-host.example.com/token-path-123")
 	cases := []struct {
@@ -449,6 +650,7 @@ func TestEgress_FailuresAreClassesAndCarryNoText(t *testing.T) {
 		{"no cipher suite in common", noCipher, ep, Result{Class: ClassTLS}},
 		{"a ServerHello of TLS 1.1", downgrade, ep, Result{Class: ClassTLS}},
 		{"dropped under the ClientHello", dropped, ep, Result{Class: ClassRefused}},
+		{"closed cleanly after the ClientHello", finished, ep, Result{Class: ClassRefused}},
 		{"plain http on the port", plainC, ep, Result{Class: ClassTLS}},
 		{"nothing listening", goneC, ep, Result{Class: ClassRefused}},
 		{"no such host", nx, ep, Result{Class: ClassRefused}},
