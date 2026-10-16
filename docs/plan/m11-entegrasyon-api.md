@@ -680,9 +680,10 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
   **(2) Düğümün IPv6 adresi.** ✅ *Yapıldı (2026-10-16, API-13a): düğümde `ip -6 addr show scope global` →
   `2a01:4f8:200:3164::2` (`eno1`, hostNetwork ingress-nginx aynı düğümde); `05-config.yaml` artık
   `144.76.158.60,2a01:4f8:200:3164::/64` (bütün /64 — Hetzner onu yalnız bu sunucuya verir);
-  `TestEgress_TheShippedListRefusesTheNodesIPv6Network`.* `TAPPA_WEBHOOK_BLOCKED_ADDRESSES` (`05-config.yaml`) `dev` dışında zorunlu ve bugün **yalnız IPv4**
-  (`144.76.158.60`). Deploy'dan önce düğümde `ip -6 addr show scope global` koşulur; küresel bir IPv6 adresi varsa ve ingress
-  `[::]:443`'ü dinliyorsa (`ss -ltn`) o adres listeye eklenir. Eklenmezse o IPv6'ya çözülen bir webhook adresi Taptime'ın kendi
+  `TestEgress_TheShippedListRefusesTheNodesIPv6Network`.* `TAPPA_WEBHOOK_BLOCKED_ADDRESSES` (`05-config.yaml`) `dev` dışında zorunlu;
+  API-13a'dan önce **yalnız IPv4**'tü (`144.76.158.60`), bugün IPv4 origin + düğümün IPv6 /64'ü. Kural (yapılan ölçümün tarifi,
+  düğüm değişirse yinelenir): deploy'dan önce düğümde `ip -6 addr show scope global` koşulur; küresel bir IPv6 adresi varsa ve ingress
+  `[::]:443`'ü dinliyorsa (`ss -ltn`) o adresin ağı (Hetzner'de /64) listeye eklenir. Eklenmezse o IPv6'ya çözülen bir webhook adresi Taptime'ın kendi
   ingress'ine ulaşır: TLS adı uyuşmadığı için HTTP isteği gitmez, ama TCP bağlantısı ve TLS el sıkışması erişimi kalır. Kümede başka
   düğüm ya da yük dengeleyici varsa onların adresleri de eklenir.
   **`TAPPA_ENV` manifestte açıkça verilir** (`05-config.yaml`: `prod`); yokluğu `dev` kipidir — o kipte KEK ve adres listesi zorunlu

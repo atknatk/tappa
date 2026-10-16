@@ -1182,8 +1182,20 @@ geçmeden sonrakine geçilmez. `main`'e birleştirme bir **deploy kararıdır** 
 **(a) OP-15 canlıda.** Askı sütunları (`tenants.suspended_at`) olmadan API'nin §10 askı kontrol noktası
 `NoSuspensionColumn` ile çalışır (API-4b); plan API-13'ün bağımlılığı **OP-15**'tir. OP-15 başka
 oturumun işidir; birleşmeden önce canlıda olmalıdır. ⚠️ OP-15'in bekleyen migration'ı
-`op_read_tenant_detail`'i yeniden yazar; API-13a'nın `00057`'si de onu yazdı (iki API sütunu) —
-OP-15 bu dalın üstüne yeniden kurulurken ön koşulu `00057`'nin sonucuna göre güncellenir.
+`op_read_tenant_detail`'i yeniden yazar (iki askı sütunu); API-13a'nın `00057`'si de onu yazdı (iki API
+sütunu). **Yön: `00057` OP-15'in üstüne yeniden kurulur, tersi değil.** `00036` OP-15'e ayrıldı (ADR 0028
+*"API-1 uygulama notu"*) ve OP-15 birleşmeden **önce** canlıda olacağı için goose sırasında OP-15'in
+migration'ı `00057`'den **önce** koşar. Bu dal OP-15'in ardından birleşirken `00057` yeniden yazılır:
+Up 00029'un değil OP-15'in gövdesini taşır ve askı sütunlarını korur (satır 13 sütun: OP-15'in 11'i +
+`api_enabled_at`, `api_code`); Down 00029'a değil **OP-15'in hâline** döner; ön koşulun `md5(prosrc)`'i
+ve sonuç tipi metni OP-15'in gövdesine göre değişir; Go'daki sütun listesi ve `Scan` sırası
+(`internal/db/operator.go`: `readTenantDetailSQL`, `readTenantDetail`) 13 sütuna güncellenir. Emsal: 00039 için aynı yön (state.md, *"OP-15 rebase"*).
+Yanlış sıra **yüksek sesle** düşer, sessizce geri almaz — iki yönde de (55000,
+`object_not_in_prerequisite_state`): OP-15'in migration'ı `00057`'den sonra koşarsa kendi ön koşulu
+`op_read_tenant_detail`'in 00029'un sonuç tipi olmasını ister ve reddeder (*"Migrate in order"*);
+`00057` OP-15'in migration'ından sonra **yeniden yazılmadan** koşarsa onun ön koşulu 00029'un gövdesini
+ister ve reddeder (*"rebase this file onto it"*). Doğru sıra: OP-15 (`00036`) → yeniden yazılmış
+`00057`.
 
 **(b) Küme rolleri ve sırlar.**
 - Rol blokları **canlı veritabanında** bir kez koşulmuş olmalı: *"Holding role (M11 API-1a)"* ve
@@ -1216,12 +1228,41 @@ dinlediği ve `TAPPA_TRUSTED_PROXIES`'in gerçek istemci adresini verdiği ölç
 
 ### Deploy
 
-**(d) Birleştirme → CI → deploy.** `.github/workflows/deploy.yml` sırayla: Cloudflare ön kontrolleri
-(`taptime.mt`, `api.taptime.mt`) → ConfigMap (`TAPPA_API_HOST` dahil) → migration Job (**36…57**; `00054`
-kısmi indeks — ölçülen boyutta anında; `00056` `employees` indeksi kendi `lock_timeout`'uyla; `00057`
-yalnız bir fonksiyon) → `20-app.yaml` → `40`, `41` → **rollout beklemesi** → `42-api-ingress.yaml` →
+**(d) Birleştirme → CI → deploy.** Bu dalın `.github/workflows/deploy.yml`'i sırayla (T119 öncesi düzen —
+birleştirmede aşağıdaki *"Birleştirme çakışması"* maddesine göre yeniden yazılır): Cloudflare ön kontrolleri
+(`taptime.mt`, `api.taptime.mt`) → ConfigMap (`TAPPA_API_HOST` dahil) → migration Job (**37…57** — bu
+dalda `00036` yok, OP-15'inki (a) gereği önce canlıda koşmuş olur; `00054` kısmi indeks — ölçülen
+boyutta anında; `00056` `employees` indeksi kendi `lock_timeout`'uyla; `00057` yalnız bir fonksiyon,
+OP-15'in üstüne yeniden yazılmış hâliyle) → `20-app.yaml` → `40`, `41` → **rollout beklemesi** →
+`42-api-ingress.yaml` →
 `api-host` kapısı (`/v1/guide.md` 200 `text/markdown`, kök 404) → `db-role` kapısı. Migration Job
 `Failed` olursa rollout yapılmaz (*"4. Migration Job'ı Failed"*).
+
+**Birleştirme çakışması — `main`'in T119 değişiklikleri (birleştirmeden önce okunur).** Bu dal `main`'den
+`bcbff6d`'de ayrıldı; o noktadan bu yana `main` 25 dosya değiştirdi ve **11'i** bu dalın da değiştirdiği
+dosyalardır (2026-10-16, `git diff origin/main...m11-api --stat` ve `git log origin/main` ile okundu;
+birleştirme **denenmedi**, `origin/main` = `1ce79a3`): `.github/workflows/deploy.yml`,
+`scripts/verify-deployment.sh`, `deploy/README.md`, `deploy/k8s/40-ingress.yaml`,
+`cmd/tappa/operatoringress_test.go`, `internal/store/querier.go`, `docs/adr/0020-…`, `docs/backlog.md`,
+`docs/plan/m10-platform.md`, `docs/plan/open-questions.md`, `docs/plan/state.md`. `main`'in T119 düzeni
+(`80e25c1`): apex'in Cloudflare ön kontrolünün hemen ardına `ops.taptime.mt`'nin ön kontrolü (bu dalın
+`api.taptime.mt` ön kontrolüyle **aynı yer**); Secret ön kontrolünden sonra `opsurface` ön kontrolü
+(`verify-deployment.sh operator-surface` → `on`/`off`); *"Roll out the server"*da **41 rollout
+beklemesinden sonra** ve yalnız `on` iken; ardından *"Gate — the operator host must not serve the
+customer product"* (`operator-host` kipi). Yukarıdaki (d)'nin `40, 41 → rollout → 42` sırası **T119
+öncesine** aittir; birleştirmede `main`'in düzenine göre yeniden yazılır: `20 → 40 → rollout beklemesi →
+41 (opsurface on ise) → 42 → operatör host kapısı → api-host kapısı → db-role`. Çözüm kuralları:
+- `deploy.yml`: iki ön kontrol (`ops`, `api`) ikisi de kalır, ikisi de ilk `kubectl apply`'dan önce;
+  42'nin uygulanması 41'in `case`'inin **dışında** (API host'u operatör yüzeyine bağlı değil).
+- `operatoringress_test.go`: `TestPackaging_TheDeployAppliesEveryIngressFile`'ın sıra iddiası
+  `main`'inki (`40 < bekleme < 41`) **artı** bu dalın 42 iddiası, Ingress dosyası sayısı **3**;
+  `TestPackaging_TheDeployGatesTheCustomerAndAPIHosts` değişmeden kalır (iki adımı o pinler).
+- `verify-deployment.sh`: iki dalın kipleri yan yana (`operator-surface`, `operator-host`; `api-host`) ve
+  kullanım metninde ikisi de; `TestVerifyDeployment_TheAPIHostModeJudgesEveryAnswer` yeşil kalır.
+- `internal/store/querier.go` **elle çözülmez**: `db/queries/policies.sql` (`main`'in T121'i) birleşir,
+  sonra `make gen`.
+- `40-ingress.yaml`, `deploy/README.md`, belgeler: iki tarafın metni de kalır (T119 bölümleri ve bu
+  bölüm). Ardından `make check` ve `go test ./cmd/...`.
 
 ### Deploy'dan sonra — ölçümler (plan API-13'ün listesi, tek yerde)
 
@@ -1235,7 +1276,11 @@ yalnız bir fonksiyon) → `20-app.yaml` → `40`, `41` → **rollout beklemesi*
    `https://taptime.mt/v1/guide.md` → **404**; `https://api.taptime.mt/` ve `/admin/login` → **404**.
 3. **Çift noktalı host yönlendirilmez** (ölçülmedi, burada ölçülür):
    `curl -sk -o /dev/null -w '%{http_code}\n' -H 'Host: api.taptime.mt..' https://api.taptime.mt/v1/guide.md`
-   → **404** (rehber değil, panel sayfası değil).
+   → **400 ya da 404** — uygulamaya ulaşmaz (rehber değil, panel sayfası değil). Büyük olasılıkla
+   **400**: nginx'in `ngx_http_validate_host`'u art arda iki noktayı geçersiz host sayar ve isteği
+   sunucu seçiminden önce reddeder; kural host'u birebir yazdığı için geçerli sayılsa da adın sunucusu
+   yoktur → controller'ın varsayılan sunucusu (404). Hangisi olduğu ölçülemedi (küme erişimi yok); 200
+   ya da bir panel sayfası hatadır.
 4. **Webhook engel listesi:** panelden `https://taptime.mt/` ve `https://api.taptime.mt/` adresli bir uç
    nokta kurulup ping atılır → ikisi de **`blocked_address`**.
 5. **K-22 — operatör ekranından** (`ops.taptime.mt` → *Tenants* → işletmenin özeti → *Integration API*):

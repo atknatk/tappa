@@ -23,10 +23,12 @@
 #
 # A HOST WITH TWO TRAILING DOTS (api.taptime.mt..) MUST NOT BE ROUTED HERE: the application would
 # answer it as the panel (httpx.OnHost drops one trailing dot only — plan §5, API-4's note). The rule's
-# host is exact and no wildcard is written, so the controller has no server for that name and answers
-# it from its default server. NOT MEASURED IN THIS CLUSTER (no cluster access from the branch): the
+# host is exact and no wildcard is written. nginx's own host validation (ngx_http_validate_host)
+# treats consecutive dots as an invalid host, so the request most likely ends in a 400 before any
+# server is chosen; were it accepted, the controller has no server for that name and answers it from
+# its default server (404). NOT MEASURED IN THIS CLUSTER (no cluster access from the branch): the
 # deploy-day check in deploy/README.md ("M11 — deploy günü", (e)) sends that Host header to the origin
-# and expects a 404 that is not the application's.
+# and expects a 400 or a 404 that never reaches the application.
 #
 # 🔴 DNS-ONLY, LIKE THE APEX (40-ingress.yaml's header; CLAUDE.md §5). The API takes no tap and has no
 # §5 proof of place, but it has per-ADDRESS buckets: the documents and every keyed request are counted

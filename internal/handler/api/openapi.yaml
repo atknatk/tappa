@@ -813,7 +813,7 @@ components:
       name: Idempotency-Key
       in: header
       required: false
-      description: Makes a write safe to retry for 24 hours. The same key with a request that differs in any byte of the method, path, query or body is 422.
+      description: Makes a write safe to retry for 24 hours. The same key with a request that differs in any byte of the method, the path as sent (its percent-encoding included) or the body is 422. A write takes no query string; one is 400 before the key is looked at.
       schema:
         type: string
         minLength: 1

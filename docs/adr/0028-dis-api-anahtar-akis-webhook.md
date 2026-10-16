@@ -3157,8 +3157,16 @@ ve DNS'e dokunulmadı; sırlar ve prod ölçümleri ana oturumundur (aşağıda 
      DROP + CREATE, sahibi/REVOKE/GRANT yeniden yazılı). Sütunlar okumanın zaten `t.id = p_tenant_id` ile
      adlandırdığı satırdan gelir; yetki verilmedi (`SELECT (api_enabled_at)` 00039'un, `SELECT (api_code)`
      00042'nin). Ön koşul fonksiyonun 00029'unki olduğunu sonucu ve `md5(prosrc)` ile sınar — OP-15'in
-     bekleyen dalı aynı fonksiyonu askı sütunlarıyla yeniden yazar; o dal bu dalın üstüne kurulurken
-     ön koşulunu `00057`'nin sonucuna göre günceller (plan API-4b ile birlikte). Down 00029'u birebir
+     bekleyen dalı aynı fonksiyonu askı sütunlarıyla yeniden yazar. **Yön: `00057` OP-15'in üstüne
+     yeniden kurulur** (tersi değil): `00036` OP-15'e ayrıldı (API-1 notu) ve OP-15 birleşmeden önce
+     canlıda olacağı için (deploy/README.md *"M11 — deploy günü"* (a)) goose sırasında OP-15'in
+     migration'ı `00057`'den önce koşar. Bu dal birleşirken `00057`'nin Up'ı OP-15'in gövdesini askı
+     sütunlarıyla taşır (13 sütun), Down OP-15'in hâline döner, ön koşulun `md5`'i ve sonuç tipi OP-15'e
+     göre değişir, Go'nun `readTenantDetailSQL`/`Scan` sırası güncellenir — 00039'un aynı yöndeki emsali
+     (state.md *"OP-15 rebase"*). Yanlış sıra iki yönde de yüksek sesle düşer (55000): `00057`'den sonra
+     koşan OP-15 migration'ı kendi ön koşulunda 00029'un sonuç tipini ister (*"Migrate in order"*);
+     OP-15'ten sonra yeniden yazılmadan koşan `00057` 00029'un gövdesini ister (*"rebase this file onto
+     it"*). Bugünkü `00057` OP-15'siz şema için doğrudur; kod değişmedi. Down 00029'u birebir
      geri verir; `opAtVersion` onu yürür (yalnız katalog — tablo kilidi yok). Okuma türü yine
      `tenant_detail`: her görüntü `operator_audit_log`'a bir `read` satırı (CLAUDE.md §4.5).
    - **`internal/db`:** `EnableTenantAPI`, `DisableTenantAPI` (+ `APICodePattern`), `TenantOverview`'a
@@ -3209,7 +3217,9 @@ ve DNS'e dokunulmadı; sırlar ve prod ölçümleri ana oturumundur (aşağıda 
    kök 404; 404 rehber ~90 sn yeniden sorulur; ad çözülmezse uyarı. Dalları sahte `curl` ile
    `TestVerifyDeployment_TheAPIHostModeJudgesEveryAnswer`; manifest `TestPackaging_TheAPIIngressRoutesV1OnTheConfiguredHost`
    (Ingress host'u = `config.Load`'un kabul ettiği ConfigMap değeri). **Ölçülmedi** (küme erişimi yok):
-   çift noktalı `Host` (`api.taptime.mt..`) controller'ın varsayılan sunucusuna düşer — deploy günü (e) 3.
+   çift noktalı `Host` (`api.taptime.mt..`) uygulamaya ulaşmaz — nginx'in host doğrulaması art arda
+   noktayı geçersiz saydığı için büyük olasılıkla 400, geçerli sayılsa controller'ın varsayılan sunucusu
+   (404) — deploy günü (e) 3.
    AAAA kaydı açılmaz (IPv6 yolunda gerçek istemci adresi ölçülmedi).
 
 4. **T131 — yazmalar sorgu dizgesini reddeder.** Kimlikli grubun ara katmanı `writesTakeNoQuery`: GET
@@ -3221,7 +3231,8 @@ ve DNS'e dokunulmadı; sırlar ve prod ölçümleri ana oturumundur (aşağıda 
    sorgusuz bir yazmanın özeti API-4'ün biçimiyle alan alan yeniden hesaplanıp pinlendi, yani deploy'dan
    önce yazılmış bir defter satırı deploy'dan sonra replay olur. Bedeli adlandırıldı: deploy'dan önce
    sorguyla gönderilmiş bir yazmanın 24 saatlik kaydı replay edilemez (sorguyla yeniden deneme 400,
-   sorgusuz 422). Testler: `TestWrites_EveryWriteRefusesAQueryString` (sevkedilen router'ın yürüyüşü —
+   sorgusuz 422). Bu bedel pratikte boştur: prod'da `api_idempotency` tablosu bu deploy'la doğar,
+   deploy'dan önce sorguyla (ya da sorgusuz) yazılmış hiçbir defter satırı yoktur. Testler: `TestWrites_EveryWriteRefusesAQueryString` (sevkedilen router'ın yürüyüşü —
    sonradan eklenen bir yazma da kapsanır), `TestWrites_AQueryParameterIsRefusedNotIgnored` (gerçek DB:
    lokasyon yazılmaz, anahtar harcanmaz, DELETE pasifleştirmez), `TestWrite_IdempotencyKeyThroughHTTP`.
    Mutantlar: ara katman gruptan çıkar → kırmızı; test `len(r.URL.Query()) > 0` → `?&` geçer, kırmızı;
@@ -3230,6 +3241,31 @@ ve DNS'e dokunulmadı; sırlar ve prod ölçümleri ana oturumundur (aşağıda 
 
 5. **Runbook:** `deploy/README.md` *"M11 — deploy günü (API-13)"* — (a) OP-15, (b) roller, sırlar (yalnız
    ad + boyut ölçümü), prod sayımları, güvenlik turu, (c) DNS (kullanıcı), (d) birleştirme → CI → deploy
-   (migration 36…57), (e) deploy sonrası on iki ölçüm, (f) geri dönüş: Down'lar prodda koşulmaz, `main`'i
-   geri almak migration'ı geri almaz; deploy'suz kapatmalar (operatör ekranında *Close the API*).
+   (migration 37…57 — `00036` OP-15'indir, önce canlıda koşar) ve `main`'in T119'uyla birleştirme
+   çakışması (11 örtüşen dosya, çözüm kuralları), (e) deploy sonrası on iki ölçüm, (f) geri dönüş:
+   Down'lar prodda koşulmaz, `main`'i geri almak migration'ı geri almaz; deploy'suz kapatmalar
+   (operatör ekranında *Close the API*).
+
+**API-13a düzeltme turu (2026-10-16).** Güvenlik denetimi ONAY (yalnız DÜŞÜK), üçüncü göz RED (tek ORTA,
+belgede); ikisi de aynı turda:
+- *(ORTA) OP-15 ↔ `00057` yönü.* Madde 2 ve runbook (a) ters yazılmıştı ("OP-15 ön koşulunu `00057`'ye
+  göre günceller"); doğru yön `00057`'nin OP-15'in üstüne yeniden kurulmasıdır (madde 2, runbook (a));
+  (d) migration aralığı 37…57. Kod değişmedi.
+- *Deploy kapılarının pini.* `TestPackaging_TheDeployGatesTheCustomerAndAPIHosts`: apex ve API host'unun
+  Cloudflare ön kontrolleri ilk `kubectl apply`'dan önce, `verify-deployment.sh api-host` 42'den sonra,
+  her biri bir kez ve `if:`/`continue-on-error`'suz adımda (mutantlar: her biri silinir, kapı rollout'tan
+  önceye taşınır, `continue-on-error: true` → kırmızı).
+- *K-19 bağlantısının pini.* `TestWebhookWiring_TheEndpointServiceReachesThePanel` artık
+  `openOperatorSurface`'in sonucunun `httpx.NewRouter`'a verildiğini ve `NoticeWorkTo(work)`'ünü
+  sınar (mutant: çağrı silinir ya da `nil` verilir → kırmızı).
+- *Sonuç cümlesi.* API açıkken reddedilen bir kod değişikliği *"Not opened — nothing changed."* diyordu
+  (API kapalı izlenimi); okuma API'yi başka bir kodla açık gösterirse artık *"Code not changed — the API
+  stays open under its current code."* (kurallarla); kapalıysa yine *"Not opened"*.
+  `TestOperatorAPI_TheResultIsReadNotPosted` adım 6–8 (mutantlar: iki yön de kırmızı). İki operatörün
+  yarışı (biri başka kodla açarken öbürünün açması) aynı cümleyi alır — adlandırılmış sınır, değişmedi.
+- *Çift noktalı Host.* Beklenen sonuç "400 ya da 404 — uygulamaya ulaşmaz" (nginx'in host doğrulaması
+  art arda noktayı reddeder → büyük olasılıkla 400); ölçülemedi, deploy günü (e) 3.
+- *OpenAPI* `IdempotencyKey`: yazmanın kimliği yöntem + gönderildiği gibi yol + gövde; sorgu 400.
+- *T131 bedeli* (madde 4): pratikte boş — prod'da `api_idempotency` bu deploy'la doğar.
+- *Plan* §5 API-13 (2): "bugün yalnız IPv4" geçmişe çevrildi.
 
