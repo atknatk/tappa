@@ -3093,3 +3093,33 @@ yeniden gönderim kalıcı bir fd + goroutine; tek süreç bütün tenant'lar.
   Üç belge yeşil.
 - *§7 "Kapatılmayanlar (b)".* Sahip, kendi uç noktasının `tls` sınıfından alıcının TLS 1.2'den eski olduğunu ya da istemci sertifikası
   istediğini de öğrenebilir — genel internet için, (b)'nin erişilebilirlik bilgisiyle aynı sınıfta.
+
+## API-12 DÜŞÜK turu (2026-10-16)
+
+4. turda iki mercek ONAY verdi; bu son tur yeniden denetimsizdir (üç belge/test DÜŞÜK'ü + CI'daki iki kararsızlığın test tarafı).
+
+- *Doğrulanan TLS adı pinli.* `httptest`'in sertifikası `example.com`, `*.example.com` ve `127.0.0.1` taşıdığı için
+  `cfg.ServerName = "example.com"` ve `= <çevrilen IP>` mutantları bütün egress testlerinde yeşildi.
+  `TestEgress_PostDeliversToAnAllowedAddress` artık iki yarıyla pinler: alıcı el sıkışmanın sunucu adı olarak URL'nin host'unu görür
+  (`req.TLS.ServerName`), ve sertifikanın kapsamadığı izinli bir ad (`hook.example.net`, aynı sunucuya çözülür) `tls` sınıfıdır, alıcıya
+  0 istek. İki mutant da kırmızı — her yarı tek başına da.
+- *`base64Secrets` atlaması.* Önekli bir anahtar yer tutucusu **içeren** her dizi atlanıyordu (`tt_whsec_` + 43×`A` + `/` + standart
+  base64 32 bayt yeşildi). Artık yalnız **baştan sona** önekli anahtar biçimi olan dizi atlanır (`keyShapeText.FindString(run) == run`).
+  Mutantlar kırmızı: eski eşleme (öz-sınama vakası) ve rehbere yapıştırılmış dizi; üç belge yeşil.
+- *§6.1 "çevrimdışı kuyruk".* Bugün böyle bir kuyruk yok (dokunuş sayfası an beyan etmez ve kuyruk tutmaz; `android/`'da da yok).
+  Rehber §6.1'in iki cümlesi, geçmiş sorgusunun örneği (§7) ve §11 madde 5–6 (iki dil) ile OpenAPI'nin geçmiş açıklaması koşullu: *"bir an beyan eden
+  istemci — örneğin … (bugün hiçbir Taptime istemcisi bunu yapmaz)"*, *"bir istemci çevrimdışı bir kuyruktan iki dokunuşu arka arkaya
+  gönderirse"*. Sayılar ve eşlik testleri değişmedi.
+- *CI kararsızlığı 1 — `TestFeedBackfill_BigTenantLiveTapsLoseNothing` (backlog T132, kapandı).* 00050'nin parçası sayaç satırını 1 sn
+  `lock_timeout` ile testin kendi canlı yazıcısının arkasında bekleyip 55P03 aldı: migration'ın tasarlanmış davranışı (dokunuşlara yol
+  verir, yeniden koşu tamamlar). Test bloğu 55P03'te yeniden koşar (en çok 20 — bitme sınırı) ve aynı iddiaları son durumda sınar;
+  bir örnekleyici bloğun kilit beklemesini ve engelleyeni okur (hata mesajında). Ölçüm: canlı tetikleyicinin %1'inde sayacın altında
+  1,2 sn uyku → koşu başına 5–11 kesilme, yeşil; sınır 0 → kırmızı.
+- *CI kararsızlığı 2 — `TestEmployeeDirectory_WalksMissNothingUnderConcurrentWriters` (backlog T133, kapandı).* Bayat/kaçan satırlar,
+  commit'i yazmadan örtüşmeden (120 ms) geç görünür olan yazmalardı — API-8 sözleşmesinin dışarıda bıraktığı şey. Test artık her
+  yazmanın yazma→görünür süresini (`updated_at` `RETURNING` → COMMIT döndükten sonraki DB saati) ölçer; örtüşmeyi aşanların satırı
+  "sözleşme dışı" sayılıp ayrı raporlanır, yalnız sınır içindekiler hatadır. Adlandırılan sınır: ölçü bir üst sınırdır (geç okunan
+  saat, örtüşme içinde görünmüş bir commit'i de affeder); `updated_at`'i hareket etmeyen yazma asla affedilmez; örtüşme içinde 100'den
+  az yazma → kırmızı. Ölçüm: commit'te %5 olasılıkla 0,3 sn bekleten ertelenmiş tetikleyiciyle eski iddia 5/5 kırmızı, yenisi 5/5
+  yeşil; `-race -count=20` + DB CPU'su doygun 20/20 yeşil; `overlap=0` (100–104 kaçan) ve D-4 (`full_name`'e kör tetikleyici: 14 bayat,
+  55–58 hareket etmeyen yazma) mutantları kırmızı.
