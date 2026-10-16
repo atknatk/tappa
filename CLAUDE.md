@@ -92,10 +92,16 @@ internal/invite/      davet basımı ve gönderimi; K-17 davet kuyruğu işçisi
 internal/webhook/     K-19'un süreç içi "işi olan tenant'lar" kümesi ve işçi iskeleti (M11 API-4)
                       — tenant'lar arası tarama YOK; uç nokta ve mühürlü imza anahtarı API-9'da,
                       teslim (kira, geri çekilme) API-10'da (ADR 0028 §6). İmza (`X-Taptime-Signature:
-                      sha256=…`) ve `tt_whsec_` anahtarı burada (`signing.go`).
+                      sha256=…`) ve `tt_whsec_` anahtarı burada (`signing.go`). Tenant başına **tek**
+                      bekleyen zamanlayıcı (en erken vade kalır) — çağrı sayısıyla büyümez.
+internal/webhook/delivery/  K-19'un teslim işi (M11 API-10): kira (`FOR UPDATE SKIP LOCKED`, 60 sn),
+                      HTTP işlem DIŞINDA, sonuç kira eşleşmesine koşullu; geri çekilme 1/5/30 dk ·
+                      2/6 sa → `dead`; kapalı kapıda teslim bekler, ölmez; tur süre bütçeli (`RunBudget`).
+internal/punchwire/   punch olayının tel biçimi — `/v1/punches` öğesi ve webhook gövdesi aynı DTO.
 internal/webhook/endpoints/  sahibin tek uç noktası (M11 API-9): adres kuralı, `TAPPA_WEBHOOK_KEK` ile
                       mühürlü anahtar (bir kez gösterilir), ping, ping + "yeniden gönder" kovası
-                      (`audit_log`'dan, saatte 10). Ayrı paket: `internal/webhook` DB okumaz.
+                      (`audit_log`'dan, saatte 10), teslim günlüğü ve "yeniden gönder" (API-10). Ayrı paket: `internal/webhook`
+                      DB okumaz.
 internal/egress/      SSRF-güvenli giden HTTP istemcisi (M11 API-9): dial anında izin listesi (IANA
                       kaydı birebir + düğüm/ingress listesi), Proxy nil, yönlendirme yok, 10 sn, gövde
                       okunmaz; sonuç yalnız kapalı sınıf + durum. Egress açıkken tek savunma (ADR 0028 §7).
@@ -313,6 +319,10 @@ başlayan bir test durumu olmalı.
   dönmez, `''` kalır (`ROLLBACK`/`RESET`/`DISCARD ALL` üçü de) — çıplak cast o
   bağlantıda `NULL` değil **hata** verir, yani davranış bağlantı geçmişine bağlı olur.
   Ölçüm ve gerekçe: docs/plan/open-questions.md → Q27, ADR 0002.
+- **Paralel paketlerle paylaşılan test DB'sinde** REPEATABLE READ test işleminin anlık görüntüsü kilitlerden
+  önce alınır: `DELETE` paralel paketlerin sonradan commit ettiği satırları görmez, FK ise güncel satırı okur
+  (23503 — API-10, CI'da ölçüldü). Savepoint'te geri alınan temizlik `TRUNCATE` ile yapılır (gereken
+  `*_no_truncate` tetikleyicileri savepoint içinde kapatılıp açılır); paylaşılan dev DB'sinde değil.
 - **İzolasyon testi ile üretim sorgusu farklı şekiller ister.** Üretim sorguları
   §4.5 gereği açık `tenant_id` filtresi taşımak **zorunda**; RLS izolasyon testi
   ise taşımamalı — filtre varsa 0 satırın sebebi RLS değil `WHERE`'dir ve test RLS
@@ -344,6 +354,8 @@ başlayan bir test durumu olmalı.
   webhook imza anahtarı (`tt_whsec_` önekli), webhook URL'si (host'u ve yolu dahil) ve
   `*url.Error` metni (Go o metinde URL'yi taşır — ADR 0028 §3, §6; bunlarda da hata mesajı ve
   audit `detail`'i dahil).
+- Webhook log ve audit satırları yalnız uç nokta/teslim **kimliği**, kapalı **hata sınıfı** ve **durum kodu**
+  taşır — uzak sunucunun yanıt metni de saklanmaz (ADR 0028 §6).
 - Env anahtarları (`namedKeys()`) **çift çift** birbirinden farklı olmak zorundadır — iki anahtarın
   eşitliği açılışı reddeder (ADR 0028 §3; bütün çiftler, yalnız operatör çiftleri değil).
 - Dış girdi handler sınırında doğrulanır; domain katmanı zaten geçerli veri görür.
