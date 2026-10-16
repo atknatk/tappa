@@ -149,18 +149,46 @@ func build(g *gate, resolver *net.Resolver, roots *x509.CertPool, timeout time.D
 		},
 	}
 	port := strconv.Itoa(int(g.port))
+	dial := func(ctx context.Context, network, addr string) (net.Conn, error) {
+		// Every Endpoint is :443 (the URL rule); the dial names the gate's port so the two can
+		// never disagree. The host part is the URL's host, resolved by the dialer above.
+		host, _, err := net.SplitHostPort(addr)
+		if err != nil {
+			return nil, errBlocked
+		}
+		return dialer.DialContext(ctx, network, net.JoinHostPort(host, port))
+	}
+	tlsConfig := &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}
 	transport := &http.Transport{
-		Proxy: nil,
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			// Every Endpoint is :443 (the URL rule); the dial names the gate's port so the two can
-			// never disagree. The host part is the URL's host, resolved by the dialer above.
+		Proxy:       nil,
+		DialContext: dial,
+		// THE HANDSHAKE IS DONE HERE, not by the transport, so that its failure can be told apart
+		// (classify): net/http returns a handshake's error as it is, and crypto/tls types only some of
+		// them -- a receiver's alert (TLS older than 1.2, a client certificate asked for, no common
+		// cipher suite) arrives as an untyped "remote error", a version the server chose that the
+		// client refuses as plain text. The TCP dial is the same dial, through the same gate; the
+		// config is tlsConfig with the URL's host as the name to verify -- what the transport did.
+		DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			host, _, err := net.SplitHostPort(addr)
 			if err != nil {
 				return nil, errBlocked
 			}
-			return dialer.DialContext(ctx, network, net.JoinHostPort(host, port))
+			raw, err := dial(ctx, network, addr)
+			if err != nil {
+				return nil, err
+			}
+			cfg := tlsConfig.Clone()
+			cfg.ServerName = host
+			conn := tls.Client(raw, cfg)
+			if err := conn.HandshakeContext(ctx); err != nil {
+				_ = raw.Close()
+				return nil, handshakeFailure(err)
+			}
+			return conn, nil
 		},
-		TLSClientConfig:        &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12},
+		// Ignored by the transport once DialTLSContext is set; kept as the one place the
+		// configuration is read from (the handshake above clones it).
+		TLSClientConfig:        tlsConfig,
 		TLSHandshakeTimeout:    timeout,
 		ResponseHeaderTimeout:  timeout,
 		MaxResponseHeaderBytes: MaxResponseHeaderBytes,
@@ -224,6 +252,24 @@ func statusResult(status int) Result {
 	}
 }
 
+// errHandshake marks a failure of the TLS handshake itself (handshakeFailure).
+var errHandshake = errors.New("egress: the TLS handshake failed")
+
+// handshakeFailure marks a handshake's error as a TLS failure -- unless it is a timeout (the timeout
+// class) or the connection dropping under it (a reset, a broken pipe, an EOF: the endpoint could not
+// be reached, like a port nothing listens on). Everything else the handshake returns is the TLS
+// conversation failing: an alert from the receiver, a certificate refused, a version or a cipher
+// suite refused.
+func handshakeFailure(err error) error {
+	var ne net.Error
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || (errors.As(err, &ne) && ne.Timeout()) ||
+		errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, syscall.ECONNRESET) ||
+		errors.Is(err, syscall.EPIPE) || errors.Is(err, net.ErrClosed) {
+		return err
+	}
+	return errors.Join(errHandshake, err)
+}
+
 // classify maps a failed exchange to a class. The error itself goes no further.
 func classify(err error) Class {
 	if errors.Is(err, errBlocked) {
@@ -235,6 +281,14 @@ func classify(err error) Class {
 	var ne net.Error
 	if errors.As(err, &ne) && ne.Timeout() {
 		return ClassTimeout
+	}
+	// The handshake failed (handshakeFailure), or the receiver sent a TLS alert after it: in TLS 1.3
+	// a receiver that wants a client certificate -- Taptime presents none -- refuses it after the
+	// client's half of the handshake, and the alert arrives when the answer is read. crypto/tls
+	// reports every alert it receives as a *net.OpError with Op "remote error".
+	var op *net.OpError
+	if errors.Is(err, errHandshake) || (errors.As(err, &op) && op.Op == "remote error") {
+		return ClassTLS
 	}
 	var (
 		verify   *tls.CertificateVerificationError

@@ -371,8 +371,10 @@ func TestEgress_TheExchangeIsBounded(t *testing.T) {
 }
 
 // TestEgress_FailuresAreClassesAndCarryNoText: each failure is one of the six classes -- an untrusted
-// certificate and a plain-HTTP server are tls, a name that does not resolve and a port nothing listens
-// on are refused, a 4xx and a 5xx are their classes with the status -- and the Result, printed every
+// certificate, a plain-HTTP server and every failed TLS conversation (an old version, a client
+// certificate required, no common cipher suite) are tls; a name that does not resolve, a port nothing
+// listens on and a connection dropped under the handshake are refused; a 4xx and a 5xx are their
+// classes with the status -- and the Result, printed every
 // way, names neither the host, the path, the address nor Go's error words.
 func TestEgress_FailuresAreClassesAndCarryNoText(t *testing.T) {
 	tlsSrv := newRecorder(t, nil)
@@ -394,17 +396,44 @@ func TestEgress_FailuresAreClassesAndCarryNoText(t *testing.T) {
 	goneC := build(&gate{port: gonePort, testAllow: []netip.Prefix{loopback}}, d.resolver(), nil, 5*time.Second)
 	statusC := clientFor(t, status, d, 5*time.Second, nil)
 	nx := clientFor(t, status, staticDNS(nil), 5*time.Second, nil)
-	// A receiver that speaks no TLS newer than 1.1, with a certificate the client trusts: the
-	// handshake itself fails and nothing is delivered (the guide's "TLS 1.2 or newer", §9.1; the
-	// MinVersion of build's tls.Config). MEASURED (API-12 fix): the server's protocol_version alert
-	// arrives as crypto/tls's unexported remote alert, not a tls.AlertError, so classify answers
-	// refused rather than tls -- pinned as it is, reported, not changed here.
-	old := &recorder{srv: httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))}
-	old.srv.TLS = &tls.Config{MinVersion: tls.VersionTLS10, MaxVersion: tls.VersionTLS11}
-	old.srv.Config.ErrorLog = log.New(io.Discard, "", 0)
-	old.srv.StartTLS()
-	t.Cleanup(old.srv.Close)
-	oldC := clientFor(t, old, d, 5*time.Second, nil)
+	// Receivers whose TLS conversation fails, each with a certificate the client trusts: nothing is
+	// delivered, and the class is tls -- what the owner reads is "the secure connection failed",
+	// never "could not be reached" (API-12 second fix; until then a receiver's alert arrived as
+	// crypto/tls's untyped "remote error" and was refused). The guide's §9.1: TLS 1.2 or newer, and
+	// Taptime presents no client certificate.
+	//   - TLS 1.1 at most: the receiver's protocol_version alert, in the handshake;
+	//   - a client certificate required, in TLS 1.2 (the alert in the handshake) and in TLS 1.3 (the
+	//     alert after the client's half, when the answer is read);
+	//   - no cipher suite in common (the receiver offers only suites the client never does).
+	failing := func(cfg *tls.Config) *Client {
+		r := &recorder{srv: httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))}
+		r.srv.TLS = cfg
+		r.srv.Config.ErrorLog = log.New(io.Discard, "", 0)
+		r.srv.StartTLS()
+		t.Cleanup(r.srv.Close)
+		return clientFor(t, r, d, 5*time.Second, nil)
+	}
+	oldC := failing(&tls.Config{MinVersion: tls.VersionTLS10, MaxVersion: tls.VersionTLS11})
+	mtls12 := failing(&tls.Config{MaxVersion: tls.VersionTLS12, ClientAuth: tls.RequireAnyClientCert})
+	mtls13 := failing(&tls.Config{MinVersion: tls.VersionTLS13, ClientAuth: tls.RequireAnyClientCert})
+	var weak []uint16
+	for _, cs := range tls.InsecureCipherSuites() {
+		weak = append(weak, cs.ID)
+	}
+	noCipher := failing(&tls.Config{MaxVersion: tls.VersionTLS12, CipherSuites: weak})
+	// A receiver that negotiates down to TLS 1.1 instead of sending an alert (an old server): the
+	// client refuses its ServerHello with an error crypto/tls does not type -- only the handshake's
+	// own failure says it is TLS. And one that takes the connection and drops it under the
+	// ClientHello: the endpoint could not be reached, refused like a port nothing listens on.
+	downgrade := rawReceiver(t, d, func(c net.Conn) {
+		_, _ = c.Read(make([]byte, 4096))
+		hello := append([]byte{0x03, 0x02}, make([]byte, 32)...) // TLS 1.1, a random of zeros
+		hello = append(hello, 0x00, 0x00, 0x2f, 0x00)            // no session id, AES-128-CBC-SHA, no compression
+		msg := append([]byte{0x02, 0x00, 0x00, byte(len(hello))}, hello...)
+		_, _ = c.Write(append([]byte{0x16, 0x03, 0x02, 0x00, byte(len(msg))}, msg...))
+		_, _ = c.Read(make([]byte, 64))
+	})
+	dropped := rawReceiver(t, d, func(c net.Conn) { _, _ = c.Read(make([]byte, 16)) })
 
 	ep := to(t, "https://secret-host.example.com/token-path-123")
 	cases := []struct {
@@ -414,7 +443,12 @@ func TestEgress_FailuresAreClassesAndCarryNoText(t *testing.T) {
 		want Result
 	}{
 		{"untrusted certificate", untrusted, ep, Result{Class: ClassTLS}},
-		{"TLS older than 1.2", oldC, ep, Result{Class: ClassRefused}},
+		{"TLS older than 1.2", oldC, ep, Result{Class: ClassTLS}},
+		{"a client certificate required, TLS 1.2", mtls12, ep, Result{Class: ClassTLS}},
+		{"a client certificate required, TLS 1.3", mtls13, ep, Result{Class: ClassTLS}},
+		{"no cipher suite in common", noCipher, ep, Result{Class: ClassTLS}},
+		{"a ServerHello of TLS 1.1", downgrade, ep, Result{Class: ClassTLS}},
+		{"dropped under the ClientHello", dropped, ep, Result{Class: ClassRefused}},
 		{"plain http on the port", plainC, ep, Result{Class: ClassTLS}},
 		{"nothing listening", goneC, ep, Result{Class: ClassRefused}},
 		{"no such host", nx, ep, Result{Class: ClassRefused}},
@@ -440,6 +474,31 @@ func TestEgress_FailuresAreClassesAndCarryNoText(t *testing.T) {
 	if fields := reflect.TypeOf(Result{}).NumField(); fields != 2 {
 		t.Fatalf("Result has %d fields: it is a Class and a Status, nothing else", fields)
 	}
+}
+
+// rawReceiver is a TCP listener on the loopback that hands each connection to serve and closes it
+// -- a receiver that speaks no proper TLS -- and a Client that dials it.
+func rawReceiver(t *testing.T, d *fakeDNS, serve func(net.Conn)) *Client {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = l.Close() })
+	go func() {
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer func() { _ = c.Close() }()
+				_ = c.SetDeadline(time.Now().Add(5 * time.Second))
+				serve(c)
+			}()
+		}
+	}()
+	return build(&gate{port: portOf(t, l.Addr()), testAllow: []netip.Prefix{loopback}}, d.resolver(), x509.NewCertPool(), 5*time.Second)
 }
 
 // TestEgress_LogsNothingAndReturnsNoText: the package's non-test files import no logger and call none

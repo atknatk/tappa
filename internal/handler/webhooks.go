@@ -166,7 +166,7 @@ func webhookPingSentence(class egress.Class, status int) (string, bool) {
 	case egress.ClassTimeout:
 		return "Your system did not answer within 10 seconds.", false
 	case egress.ClassTLS:
-		return "The secure connection failed: your system's certificate was not accepted, or it does not speak HTTPS on port 443.", false
+		return "The secure connection failed: your system's certificate was not accepted, it does not speak HTTPS with TLS 1.2 or newer on port 443, or it asks for a client certificate (Taptime presents none).", false
 	case egress.ClassRefused:
 		return "Your system could not be reached: the name did not resolve, or nothing answered on port 443.", false
 	case egress.ClassHTTP4xx:
