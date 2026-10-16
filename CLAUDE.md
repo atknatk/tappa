@@ -119,6 +119,10 @@ db/queries/           sqlc kaynak SQL
 web/templates/        .templ dosyaları
 web/static/           css/img/js — Go binary'sine embed edilir
 docs/adr/             mimari kararlar (NNNN-baslik.md)
+docs/api/             dış entegratörün rehberi (M11 API-12): `integration-guide.md` (EN, asıl) + `.tr.md` (TR);
+                      `apidocs` paketiyle gömülü, `/v1/guide.md` ve `/v1/guide.tr.md` kimliksiz. İki dil
+                      **birlikte** değişir (yapısal + sayı eşlik testi); her iddia bir teste bağlı, örnekler
+                      gerçek handler'lardan basılır; gerçek sır/IP/e-posta yazılmaz (gizlilik taraması).
 test/fixtures/        seed.sql + test vektörleri
 ```
 
