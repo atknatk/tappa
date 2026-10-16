@@ -372,6 +372,10 @@ func run() error {
 		return err
 	}
 	checkins.NoticeWorkTo(work)
+	// The operator surface is mounted by this same process, so opening a business's API on its
+	// overview (M11 API-13a, K-22) puts the business into K-19's set at once: the deliveries that
+	// waited while the API was closed go now, not at the gate's next recheck.
+	operatorSurface.NoticeWorkTo(work)
 	// cfg.TagKEKPrevious is nil unless a KEK rotation is in progress, and
 	// NewVerifier drops empty entries — so this is the one-KEK wiring in the
 	// steady state and the two-KEK wiring during the rotation window, with no

@@ -94,6 +94,8 @@ func (s *Surface) mount(r chi.Router) {
 			r.Get("/tenants", s.tenantList)
 			r.Post("/tenants", s.searchTenants)
 			r.Get("/tenants/{id}", s.tenantOverview)
+			r.Post("/tenants/{id}/api", s.enableTenantAPI)
+			r.Post("/tenants/{id}/api/close", s.disableTenantAPI)
 			r.Get("/tenants/{id}/plaques", s.tenantPlaques)
 			r.Get("/tenants/{id}/billing", s.tenantBilling)
 			r.Post("/tenants/{id}/billing", s.pageTenantBilling)

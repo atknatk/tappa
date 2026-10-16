@@ -98,9 +98,11 @@
 
 -- ReadTenantDetail -- phase two of the overview: $2 is the RAW ticket, $3 the tenant id
 -- bound in it. Zero rows for an id that names no tenant; otherwise the identity and four
--- counts (locations; active employees, plaques and panel accounts).
+-- counts (locations; active employees, plaques and panel accounts), and -- since 00057 (M11
+-- API-13a) -- the integration API's state: api_enabled_at (NULL while closed) and api_code.
 --   SELECT tenant_id, tenant_name, created_at, plan, business_type,
---          location_count, active_employee_count, active_plaque_count, active_admin_count
+--          location_count, active_employee_count, active_plaque_count, active_admin_count,
+--          api_enabled_at, api_code
 --   FROM public.op_read_tenant_detail($1, $2, $3);
 
 -- ============================================================================
@@ -212,8 +214,9 @@
 -- integration API -- the ONLY writer of tenants.api_enabled_at and tenants.api_code. One-phase
 -- writes, RETURNS void, the answer the same whatever the tenant held or whether it exists (an id
 -- that names no tenant writes the operator's row alone). Inside both functions no row level
--- security applies: every reference to the tenant names $2, by its primary key alone. No
--- OperatorDB method calls them yet; the operator's screen for them is a later task.
+-- security applies: every reference to the tenant names $2, by its primary key alone. Since M11
+-- API-13a OperatorDB's EnableTenantAPI / DisableTenantAPI call them (the tenant overview's two
+-- forms), and op_read_tenant_detail returns api_enabled_at and api_code last (migration 00057).
 
 -- EnableTenantAPI -- $2 the tenant, $3 its API code (the spec's `company`: ^[A-Z][A-Z0-9]{1,15}$,
 -- else 22023 before anything is read). In one call, only if the tenant exists: api_enabled_at

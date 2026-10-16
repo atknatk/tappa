@@ -58,9 +58,11 @@ import (
 // The two functions 00029 creates and the one it replaces, by their exact catalogue
 // identity. op_begin_read's identity is 00027's: the replacement keeps it.
 var op00029Functions = map[string]struct{ args, result string }{
-	"op_begin_read":         {"p_session text, p_kind text, p_params jsonb", "text"},
-	"op_read_tenants":       {"p_session text, p_ticket text, p_query text, p_page_number integer, p_page_size integer", "TABLE(tenant_id uuid, tenant_name text, created_at timestamp with time zone, plan text)"},
-	"op_read_tenant_detail": {"p_session text, p_ticket text, p_tenant_id uuid", "TABLE(tenant_id uuid, tenant_name text, created_at timestamp with time zone, plan text, business_type text, location_count bigint, active_employee_count bigint, active_plaque_count bigint, active_admin_count bigint)"},
+	"op_begin_read":   {"p_session text, p_kind text, p_params jsonb", "text"},
+	"op_read_tenants": {"p_session text, p_ticket text, p_query text, p_page_number integer, p_page_size integer", "TABLE(tenant_id uuid, tenant_name text, created_at timestamp with time zone, plan text)"},
+	// Since 00057 (M11 API-13a) the overview ends with the API state; this pin reads the HEAD
+	// catalogue, so it carries 00057's result (00029's nine columns, then the two).
+	"op_read_tenant_detail": {"p_session text, p_ticket text, p_tenant_id uuid", "TABLE(tenant_id uuid, tenant_name text, created_at timestamp with time zone, plan text, business_type text, location_count bigint, active_employee_count bigint, active_plaque_count bigint, active_admin_count bigint, api_enabled_at timestamp with time zone, api_code text)"},
 }
 
 const (
@@ -206,9 +208,17 @@ func opScanTenants(ctx context.Context, q opQuerier, hash, ticket, query, number
 	return out, rows.Err()
 }
 
-// opScanDetail runs the shipped overview statement and scans every row it returns.
+// opDetailSQL is the overview statement with 00029's nine columns, named: it reads the same at
+// every version from 00029 on -- the shipped readTenantDetailSQL adds 00057's two API columns,
+// which the Down tests that walk the schema back to 00029-00056 would not find. The API columns
+// are read through the shipped statement in operatorapi_detail_test.go.
+const opDetailSQL = `SELECT tenant_id, tenant_name, created_at, plan, business_type,
+       location_count, active_employee_count, active_plaque_count, active_admin_count
+FROM public.op_read_tenant_detail($1, $2, $3)`
+
+// opScanDetail runs the overview statement (opDetailSQL) and scans every row it returns.
 func opScanDetail(ctx context.Context, q opQuerier, hash, ticket, tenant any) ([]TenantOverview, error) {
-	rows, err := q.Query(ctx, readTenantDetailSQL, hash, ticket, tenant)
+	rows, err := q.Query(ctx, opDetailSQL, hash, ticket, tenant)
 	if err != nil {
 		return nil, err
 	}

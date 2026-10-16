@@ -138,6 +138,18 @@ func (s *liveStore) TenantDetail(ctx context.Context, h string, id uuid.UUID) (d
 	return db.TenantDetail(ctx, s.conn, h, id)
 }
 
+func (s *liveStore) EnableTenantAPI(ctx context.Context, h string, id uuid.UUID, code string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return db.EnableTenantAPI(ctx, s.conn, h, id, code)
+}
+
+func (s *liveStore) DisableTenantAPI(ctx context.Context, h string, id uuid.UUID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return db.DisableTenantAPI(ctx, s.conn, h, id)
+}
+
 func (s *liveStore) TenantPlaques(ctx context.Context, h string, id uuid.UUID) (db.TenantPlaqueInventory, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

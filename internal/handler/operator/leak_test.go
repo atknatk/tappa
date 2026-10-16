@@ -334,6 +334,18 @@ func (h *hashRecorder) TenantDetail(ctx context.Context, s string, id uuid.UUID)
 	return h.fakeStore.TenantDetail(ctx, s, id)
 }
 
+// The integration API's two writes (M11 API-13a): the session hash. The tenant id is printed on the
+// overview by design, and the code is a public label.
+func (h *hashRecorder) EnableTenantAPI(ctx context.Context, s string, id uuid.UUID, code string) error {
+	h.record("EnableTenantAPI", s)
+	return h.fakeStore.EnableTenantAPI(ctx, s, id, code)
+}
+
+func (h *hashRecorder) DisableTenantAPI(ctx context.Context, s string, id uuid.UUID) error {
+	h.record("DisableTenantAPI", s)
+	return h.fakeStore.DisableTenantAPI(ctx, s, id)
+}
+
 // The plaque screen's call (OP-13): the session hash. The tenant id is printed on the
 // screen by design.
 func (h *hashRecorder) TenantPlaques(ctx context.Context, s string, id uuid.UUID) (db.TenantPlaqueInventory, error) {

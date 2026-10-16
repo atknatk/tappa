@@ -234,6 +234,26 @@ type TenantOverviewView struct {
 	// BillingPath its billing months, /operator/tenants/<id>/billing (OP-12); VATPath its VAT
 	// number, /operator/tenants/<id>/vat (OP-16).
 	PlaquesPath, BillingPath, VATPath string
+	// API is the integration API section (M11 API-13a, K-22).
+	API TenantAPIView
+}
+
+// TenantAPIView is the overview's integration API section (M11 API-13a; K-22): the state the
+// overview's read returned, the two forms' actions and the sentence about the last write.
+type TenantAPIView struct {
+	// Open is api_enabled_at set; OpenedAt its instant (UTC) -- the first opening, kept across code
+	// changes; Code the API code ("" for none: never opened). A closed business can keep a code.
+	Open     bool
+	OpenedAt string
+	Code     string
+	// OpenPath is the open form's action (/operator/tenants/<id>/api), ClosePath the Close button's
+	// (/operator/tenants/<id>/api/close).
+	OpenPath, ClosePath string
+	// The sentence (holdings' notice tones): none when NoticeTone is zero; NoticeRules, when set,
+	// are the enable's rules.
+	NoticeTone            HoldingNoticeTone
+	NoticeHeading, Notice string
+	NoticeRules           []string
 }
 
 // TenantPlaquesView is /operator/tenants/{id}/plaques (M10 OP-13): one tenant's plaques,

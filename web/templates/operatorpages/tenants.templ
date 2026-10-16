@@ -1,6 +1,10 @@
 package operatorpages
 
-import "strconv"
+import (
+	"strconv"
+
+	"github.com/atknatk/tappa/web/templates/components"
+)
 
 // Tenants is /operator/tenants (M10 OP-11; ADR 0020 §4): the search, a page of the tenant
 // list newest first, and the pager.
@@ -141,6 +145,7 @@ templ TenantOverview(v TenantOverviewView) {
 				<a href={ templ.URL(v.VATPath) } class="op-link">See this tenant's VAT number</a>
 			</p>
 		</section>
+		@tenantAPISection(v.API)
 		<p class="flex flex-wrap gap-x-6">
 			<a href="/operator/tenants" class="op-link">Back to the tenants</a>
 			<a href="/operator" class="op-link">Back to the console</a>
@@ -160,4 +165,76 @@ templ tenantCount(label, value string) {
 		<dt class="docket-label">{ label }</dt>
 		<dd class="mt-1 font-mono text-3xl font-bold">{ value }</dd>
 	</div>
+}
+
+// tenantAPISection is the overview's integration API section (M11 API-13a; K-22): whether the API is
+// open, since when and under which code, the form that opens it (or changes the code of an open one),
+// and -- open -- the button that closes it. The sentence above it is the overview's own read about the
+// last write: the write's answer says nothing about what the database found (ADR 0021 §2 v 7).
+templ tenantAPISection(a TenantAPIView) {
+	@apiNotice(a)
+	<section class="op-card" aria-labelledby="tenant-api">
+		<h2 id="tenant-api" class="docket-label">Integration API</h2>
+		<p class="mt-3 flex flex-wrap items-center gap-3">
+			if a.Open {
+				<span class="tally tally--active">Open</span>
+				<span class="text-sm">Since <span class="font-mono">{ a.OpenedAt }</span></span>
+			} else {
+				<span class="tally tally--deactivated">Closed</span>
+			}
+			if a.Code == "" {
+				<span class="text-sm">No API code</span>
+			} else {
+				<span class="text-sm">API code <span class="font-mono">{ a.Code }</span></span>
+			}
+		</p>
+		<p class="mt-2 text-sm">
+			if a.Open {
+				The business's integration keys work and its webhooks are sent. Every punch names it by this code.
+			} else if a.Code != "" {
+				The business's integration keys are refused and no webhook is sent. Punches are still recorded, and keep this code.
+			} else {
+				The API has never been opened for this business. Its owner can create keys in the panel; they work once it is open.
+			}
+		</p>
+		<form method="post" action={ templ.URL(a.OpenPath) } class="mt-4 flex flex-col gap-3">
+			<label for="tenant-api-code" class="docket-label">API code</label>
+			<input id="tenant-api-code" type="text" name="api_code" value={ a.Code } maxlength="16" required autocomplete="off" spellcheck="false" class="op-input font-mono"/>
+			<p class="text-xs text-ink/70">A capital letter followed by 1 to 15 capital letters or digits, such as KF. No other business in its holding may have it.</p>
+			<button type="submit" class="btn btn--primary">
+				if a.Open {
+					Change the code
+				} else {
+					Open the API
+				}
+			</button>
+		</form>
+		if a.Open {
+			<form method="post" action={ templ.URL(a.ClosePath) } class="mt-3">
+				<button type="submit" class="btn btn--quiet">Close the API</button>
+			</form>
+		}
+	</section>
+}
+
+// apiNotice is the sentence about the last API write, in the notice block of the tone the handler
+// chose; the enable's rules, when set, are listed under it.
+templ apiNotice(a TenantAPIView) {
+	switch a.NoticeTone {
+		case HoldingNoticeOK:
+			@components.Notice(components.ToneOK, a.NoticeHeading) {
+				<p>{ a.Notice }</p>
+			}
+		case HoldingNoticeWarn:
+			@components.Notice(components.ToneWarn, a.NoticeHeading) {
+				<p>{ a.Notice }</p>
+				if len(a.NoticeRules) > 0 {
+					<ul class="mt-2 flex flex-col gap-1">
+						for _, rule := range a.NoticeRules {
+							<li>{ rule }</li>
+						}
+					</ul>
+				}
+			}
+	}
 }

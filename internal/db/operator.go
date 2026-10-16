@@ -163,8 +163,10 @@ FROM public.op_read_legal_versions($1, $2, $3, $4)`
 	readTenantsSQL = `SELECT tenant_id, tenant_name, created_at, plan
 FROM public.op_read_tenants($1, $2, $3, $4, $5)`
 
+	// M11 API-13a (migration 00057): the API state at the end of the row.
 	readTenantDetailSQL = `SELECT tenant_id, tenant_name, created_at, plan, business_type,
-       location_count, active_employee_count, active_plaque_count, active_admin_count
+       location_count, active_employee_count, active_plaque_count, active_admin_count,
+       api_enabled_at, api_code
 FROM public.op_read_tenant_detail($1, $2, $3)`
 
 	// OP-13 (migration 00030). Phase one is beginOperatorReadSQL above.
@@ -511,6 +513,12 @@ type TenantOverview struct {
 	ActiveEmployees int64
 	ActivePlaques   int64
 	ActiveAdmins    int64
+	// The integration API's state (K-22; migration 00057, M11 API-13a): APIEnabledAt is the
+	// instant it was first opened and nil while it is closed (op_disable_tenant_api clears it, a
+	// later enable takes a new instant); APICode is the spec's `company` label, nil until the
+	// first enable and KEPT by a disable (punches still carry it).
+	APIEnabledAt *time.Time
+	APICode      *string
 }
 
 // tenantsParams and tenantDetailParams are the two kinds' parameter objects as
@@ -597,7 +605,7 @@ func readTenantDetail(ctx context.Context, c OperatorConn, sessionHash string, t
 	var o TenantOverview
 	err := c.QueryRow(ctx, readTenantDetailSQL, sessionHash, t.reveal(), tenantID).Scan(
 		&o.ID, &o.Name, &o.CreatedAt, &o.Plan, &o.BusinessType,
-		&o.Locations, &o.ActiveEmployees, &o.ActivePlaques, &o.ActiveAdmins)
+		&o.Locations, &o.ActiveEmployees, &o.ActivePlaques, &o.ActiveAdmins, &o.APIEnabledAt, &o.APICode)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return TenantOverview{}, ErrNoSuchTenant
 	}
@@ -1300,12 +1308,46 @@ const OperatorAuditTenantVATChecked OperatorAuditKind = "tenant_vat_checked"
 // the operator's row of every accepted op_enable_tenant_api / op_disable_tenant_api call -- the
 // session, the operator, the tenant and nothing else (operator_audit_log_tenant_write_shape).
 // The tenant's own audit_log row ('tenant.api_enabled' / 'tenant.api_disabled') is the one
-// that says the tenant was changed; it is written only for a tenant that exists. No method of
-// OperatorDB calls the two functions yet: the operator's screen for them is a later task.
+// that says the tenant was changed; it is written only for a tenant that exists. Since M11
+// API-13a the operator's tenant overview calls the two functions (EnableTenantAPI and
+// DisableTenantAPI below; *OperatorDB delegates to each as internal/handler/operator's
+// TenantStore) and reads their effect back through TenantDetail (00057).
 const (
 	OperatorAuditTenantAPIEnabled  OperatorAuditKind = "tenant_api_enabled"
 	OperatorAuditTenantAPIDisabled OperatorAuditKind = "tenant_api_disabled"
 )
+
+// The two writes of K-22 (migration 00039, 00042's enable). Mirrored in db/queries/operator.sql.
+const (
+	enableTenantAPISQL  = `SELECT public.op_enable_tenant_api($1, $2, $3)`
+	disableTenantAPISQL = `SELECT public.op_disable_tenant_api($1, $2)`
+)
+
+// APICodePattern is op_enable_tenant_api's rule for a code -- and 00038's CHECK on tenants.api_code
+// -- ^[A-Z][A-Z0-9]{1,15}$: a capital letter, then 1 to 15 capitals or digits. A code outside it is
+// refused with 22023 before anything is read. The operator screen checks the same rule at its
+// boundary (TestOperatorAPI_TheCodeRuleIsTheDatabases).
+const APICodePattern = `^[A-Z][A-Z0-9]{1,15}$`
+
+// EnableTenantAPI is op_enable_tenant_api: the tenant's API opens (api_enabled_at keeps its first
+// opening instant, or takes the wall clock) and its code becomes code -- when the tenant exists and,
+// in a holding, no live peer (or one within its 60-second exit window) carries the code -- with the
+// tenant's 'tenant.api_enabled' audit row; and, whatever it found, the operator's
+// 'tenant_api_enabled' row. nil does NOT say the API was opened (ADR 0021 §2 v 7): read it back
+// with TenantDetail. A code outside APICodePattern is a database error carrying SQLSTATE 22023 and
+// nothing is written; a dead session is ErrOperatorRefused.
+func EnableTenantAPI(ctx context.Context, c OperatorConn, sessionHash string, tenantID uuid.UUID, code string) error {
+	_, err := c.Exec(ctx, enableTenantAPISQL, sessionHash, tenantID, code)
+	return operatorErr("enable tenant api", err)
+}
+
+// DisableTenantAPI is op_disable_tenant_api: the tenant's API closes (api_enabled_at becomes NULL,
+// the code is kept), with the tenant's 'tenant.api_disabled' row when the tenant exists and the
+// operator's 'tenant_api_disabled' row on every accepted call. nil does not say it closed anything.
+func DisableTenantAPI(ctx context.Context, c OperatorConn, sessionHash string, tenantID uuid.UUID) error {
+	_, err := c.Exec(ctx, disableTenantAPISQL, sessionHash, tenantID)
+	return operatorErr("disable tenant api", err)
+}
 
 // The two statements; phase one of the read is beginOperatorReadSQL. Mirrored in
 // db/queries/operator.sql.

@@ -422,6 +422,25 @@ var (
 		BackLabel: "Back to the holdings",
 		SignedIn:  true,
 	}
+	// The integration API's two forms on the overview (tenantapi.go, M11 API-13a). An oversized
+	// form is refused before any store call. The fault page does not say nothing happened -- a write
+	// the database did not confirm may still have been made -- and sends the operator to the tenants,
+	// whose overview shows the API as the database holds it.
+	problemTenantAPIFormTooLarge = operatorpages.ProblemView{
+		Title:     "That form was too large",
+		Message:   "Open the business's overview again and send the form from there. Nothing was changed.",
+		Back:      pathTenants,
+		BackLabel: "Back to the tenants",
+		SignedIn:  true,
+	}
+	problemTenantAPINotConfirmed = operatorpages.ProblemView{
+		Title: "The change was not confirmed",
+		Message: "The database did not confirm it. Open the business's overview again — its API section shows " +
+			"the API as the database holds it — and try again from there if nothing changed.",
+		Back:      pathTenants,
+		BackLabel: "Back to the tenants",
+		SignedIn:  true,
+	}
 	problemHoldingChangeNotConfirmed = operatorpages.ProblemView{
 		Title: "The change was not confirmed",
 		Message: "The database did not confirm it. Open the holdings again — the list shows each holding's " +
@@ -448,5 +467,6 @@ func problemPages() []operatorpages.ProblemView {
 		problemVATUnreadable, problemVATNotRecorded,
 		problemHoldingsPageRefused, problemHoldingNotAnID, problemHoldingFormTooLarge, problemHoldingsUnreadable,
 		problemHoldingNotCreated, problemHoldingChangeNotConfirmed,
+		problemTenantAPIFormTooLarge, problemTenantAPINotConfirmed,
 	}
 }

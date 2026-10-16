@@ -128,6 +128,10 @@ type fakeStore struct {
 	holdingWrites    []fakeHoldingWrite
 	nextHolding      uuid.UUID
 	holdingClockTick int
+	// The tenant overview's integration API (M11 API-13a): the peers whose code an enable may not
+	// take (a holding's live members, by tenant), and the accepted writes in order.
+	apiPeers  map[uuid.UUID][]uuid.UUID
+	apiWrites []fakeAPIWrite
 }
 
 // fakeHolding is one holding as the fake holds it: its memberships in the order they were made.
@@ -548,6 +552,75 @@ func (f *fakeStore) TenantDetail(_ context.Context, h string, id uuid.UUID) (db.
 		return db.TenantOverview{}, db.ErrNoSuchTenant
 	}
 	return o, nil
+}
+
+// EnableTenantAPI answers as op_enable_tenant_api does (00039, 00042): the write's refusals (a
+// failure a test set, a cancelled context, a dead session), then -- nil either way -- the overview's
+// API opened under code (its first opening instant kept) only when the fake holds the tenant and no
+// tenant in apiPeers[tenant] carries the code. Every accepted call is recorded in apiWrites.
+func (f *fakeStore) EnableTenantAPI(ctx context.Context, h string, id uuid.UUID, code string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.apiWrite(ctx, "EnableTenantAPI", h, id, code); err != nil {
+		return err
+	}
+	o, ok := f.overviews[id]
+	if !ok {
+		return nil
+	}
+	for _, peer := range f.apiPeers[id] {
+		if p, ok := f.overviews[peer]; ok && p.APICode != nil && *p.APICode == code {
+			return nil
+		}
+	}
+	if o.APIEnabledAt == nil {
+		at := time.Unix(1_900_000_000, 0).UTC()
+		o.APIEnabledAt = &at
+	}
+	c := code
+	o.APICode = &c
+	f.overviews[id] = o
+	return nil
+}
+
+// DisableTenantAPI answers as op_disable_tenant_api does: the write's refusals, then the API closed
+// and the code kept, when the fake holds the tenant.
+func (f *fakeStore) DisableTenantAPI(ctx context.Context, h string, id uuid.UUID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.apiWrite(ctx, "DisableTenantAPI", h, id, ""); err != nil {
+		return err
+	}
+	if o, ok := f.overviews[id]; ok {
+		o.APIEnabledAt = nil
+		f.overviews[id] = o
+	}
+	return nil
+}
+
+// apiWrite is the two API writes' common entry: the call count, a failure a test set, the
+// context, the session; an accepted call is recorded.
+func (f *fakeStore) apiWrite(ctx context.Context, m, h string, id uuid.UUID, code string) error {
+	if err := f.enter(m); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if _, ok := f.live[h]; !ok {
+		return db.ErrOperatorRefused
+	}
+	f.apiWrites = append(f.apiWrites, fakeAPIWrite{method: m, tenant: id, code: code, deadline: deadlineOf(ctx)})
+	return nil
+}
+
+// fakeAPIWrite is one accepted API write: which, for whom, the code (enable only) and how far its
+// context's deadline was.
+type fakeAPIWrite struct {
+	method   string
+	tenant   uuid.UUID
+	code     string
+	deadline time.Duration
 }
 
 // TenantPlaques answers as op_begin_read + op_read_tenant_plaques do: a dead session is

@@ -766,9 +766,12 @@ func TestEnrollScreen_TheListedFormsRenderItOnlyInRenderEnroll(t *testing.T) {
 // .Get("slug") and .Get("body"), (OP-11) in (*Surface).searchTenants as .Get("page"),
 // (OP-14) in (*Surface).filterAudit as .Get("kind") and .Get("page"), (OP-12) in
 // (*Surface).pageTenantBilling as .Get("page"), and (M11 API-1a) in (*Surface).createHolding as
-// .Get("name") and in (*Surface).addHoldingMember as .Get("tenant_id"), once each. url.URL.Query
-// is read in (*Surface).enrollPage as .Get("id") and (M11 API-1a) in (*Surface).holdingsPage as
-// .Get("page"), .Get("done"), .Get("holding") and .Get("tenant"), once each. CONTROL:
+// .Get("name") and in (*Surface).addHoldingMember as .Get("tenant_id"), and (M11 API-13a) in
+// (*Surface).enableTenantAPI as .Get("api_code"), once each. url.URL.Query is read in
+// (*Surface).enrollPage as .Get("id"), (M11 API-1a) in (*Surface).holdingsPage as .Get("page"),
+// .Get("done"), .Get("holding") and .Get("tenant"), and (M11 API-13a) in (*Surface).tenantOverview
+// as .Get("done") and .Get("api_code") -- the 303's query: a closed word and a public label --,
+// once each. CONTROL:
 // postValue's eight calls resolve, each with a constant credential name.
 //
 // PART II -- red on:
@@ -813,6 +816,9 @@ func TestFormValues_TheListedSitesAloneRevealOrReadTheForm(t *testing.T) {
 	createHolding := tp.method(t, "Surface", "createHolding")
 	addHoldingMember := tp.method(t, "Surface", "addHoldingMember")
 	holdingsPage := tp.method(t, "Surface", "holdingsPage")
+	enableTenantAPI := tp.method(t, "Surface", "enableTenantAPI")
+	tenantOverview := tp.method(t, "Surface", "tenantOverview")
+	apiReads, apiQueries := map[string]int{}, map[string]int{}
 	listTenants := tp.method(t, "Surface", "listTenants")
 	searchTerm := lookupFunc(t, tp.pkg, "tenantSearchTerm")
 	tenantsView := lookupFunc(t, tp.pkg, "tenantsView")
@@ -950,6 +956,12 @@ func TestFormValues_TheListedSitesAloneRevealOrReadTheForm(t *testing.T) {
 					continue
 				}
 			}
+			if tp.in(enableTenantAPI, id.Pos()) {
+				if k := tp.getKey(id); k == "api_code" {
+					apiReads[k]++
+					continue
+				}
+			}
 			bad = append(bad, "FV5 r.PostForm at "+tp.where(id.Pos()))
 		case query:
 			if tp.in(enrollPage, id.Pos()) && tp.getKey(id) == "id" {
@@ -959,6 +971,12 @@ func TestFormValues_TheListedSitesAloneRevealOrReadTheForm(t *testing.T) {
 			if tp.in(holdingsPage, id.Pos()) {
 				if k := tp.getKey(id); k == "page" || k == "done" || k == "holding" || k == "tenant" {
 					holdingQueries[k]++
+					continue
+				}
+			}
+			if tp.in(tenantOverview, id.Pos()) {
+				if k := tp.getKey(id); k == "done" || k == "api_code" {
+					apiQueries[k]++
 					continue
 				}
 			}
@@ -992,6 +1010,12 @@ func TestFormValues_TheListedSitesAloneRevealOrReadTheForm(t *testing.T) {
 	if len(holdingQueries) != 4 || holdingQueries["page"] != 1 || holdingQueries["done"] != 1 || holdingQueries["holding"] != 1 ||
 		holdingQueries["tenant"] != 1 {
 		bad = append(bad, fmt.Sprintf("FV6 holdingsPage reads URL.Query %v, want page, done, holding and tenant once each", holdingQueries))
+	}
+	if len(apiReads) != 1 || apiReads["api_code"] != 1 {
+		bad = append(bad, fmt.Sprintf("FV5 enableTenantAPI reads r.PostForm %v, want api_code once", apiReads))
+	}
+	if len(apiQueries) != 2 || apiQueries["done"] != 1 || apiQueries["api_code"] != 1 {
+		bad = append(bad, fmt.Sprintf("FV6 tenantOverview reads URL.Query %v, want done and api_code once each", apiQueries))
 	}
 	sort.Strings(bad)
 	for _, b := range bad {
@@ -1173,7 +1197,9 @@ var guardedHeaders = map[string]map[string]int{
 // (*Surface).addHoldingMember and (*Surface).removeHoldingMember, one each, the accepted write's
 // 303 passes a call of holdingResultPath with a constant first argument -- its parameters are a
 // holdingDone word and two uuid.UUIDs, so its value is the list's path with a closed word and two
-// canonical ids
+// canonical ids -- and TWO (M11 API-13a): in (*Surface).enableTenantAPI and
+// (*Surface).disableTenantAPI, one each, a call of apiResultPath with the path's own tenant id
+// (tenantID's result) and a constant apiDone word
 // (TestOperatorHeaders_TheHoldingClassesCarryThePolicy measures it, C175, C184 and C193).
 // CONTROL: the five names are found and at least ten redirect calls resolve.
 //
@@ -1250,6 +1276,12 @@ func TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions(t *testing
 	holdingWriters := []*types.Func{tp.method(t, "Surface", "createHolding"), tp.method(t, "Surface", "addHoldingMember"),
 		tp.method(t, "Surface", "removeHoldingMember")}
 	toHoldings := map[string]int{}
+	// M11 API-13a: the two API writes' 303 passes apiResultPath of the path's own tenant id (which
+	// tenantID parsed) with a constant apiDone word -- the overview with a closed word and, for an
+	// open, the code apiCode passed.
+	apiResultPathFn := lookupFunc(t, tp.pkg, "apiResultPath")
+	apiWriters := []*types.Func{tp.method(t, "Surface", "enableTenantAPI"), tp.method(t, "Surface", "disableTenantAPI")}
+	toOverview := map[string]int{}
 	// pathTenant reports whether e is an identifier recheckVAT defines from tenantID's result.
 	pathTenant := func(e ast.Expr) bool {
 		id, ok := ast.Unparen(e).(*ast.Ident)
@@ -1298,6 +1330,19 @@ func TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions(t *testing
 				continue
 			}
 		}
+		if tc, ok := ast.Unparen(target).(*ast.CallExpr); ok && tp.callee(tc) == apiResultPathFn && len(tc.Args) == 3 &&
+			tp.info.Types[tc.Args[1]].Value != nil && pathTenant(tc.Args[0]) {
+			in := ""
+			for _, w := range apiWriters {
+				if tp.in(w, c.Pos()) {
+					in = w.Name()
+				}
+			}
+			if in != "" {
+				toOverview[in]++
+				continue
+			}
+		}
 		v := tp.info.Types[target].Value
 		if v == nil || v.Kind() != constant.String || !mounted[constant.StringVal(v)] {
 			bad = append(bad, "RH4 a redirect target that is not a mounted route's constant at "+tp.where(c.Pos()))
@@ -1309,6 +1354,11 @@ func TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions(t *testing
 	for name, n := range toHoldings {
 		if n > 1 {
 			bad = append(bad, fmt.Sprintf("RH4 %d redirects to holdingResultPath in %s, want at most the one", n, name))
+		}
+	}
+	for name, n := range toOverview {
+		if n > 1 {
+			bad = append(bad, fmt.Sprintf("RH4 %d redirects to apiResultPath in %s, want at most the one", n, name))
 		}
 	}
 	sort.Strings(bad)

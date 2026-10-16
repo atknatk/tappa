@@ -550,6 +550,17 @@ func (o *OperatorDB) TenantDetail(ctx context.Context, sessionHash string, tenan
 	return TenantDetail(ctx, o.pool, sessionHash, tenantID)
 }
 
+// EnableTenantAPI is op_enable_tenant_api (operator.go) -- since M11 API-13a a TenantStore method:
+// the overview's "Open the API" form. One statement.
+func (o *OperatorDB) EnableTenantAPI(ctx context.Context, sessionHash string, tenantID uuid.UUID, code string) error {
+	return EnableTenantAPI(ctx, o.pool, sessionHash, tenantID, code)
+}
+
+// DisableTenantAPI is op_disable_tenant_api (operator.go): the overview's "Close the API" form.
+func (o *OperatorDB) DisableTenantAPI(ctx context.Context, sessionHash string, tenantID uuid.UUID) error {
+	return DisableTenantAPI(ctx, o.pool, sessionHash, tenantID)
+}
+
 // The method below is internal/handler/operator's PlaqueStore (M10 OP-13, phase B): the
 // /operator/tenants/{id}/plaques screen's one read. Same shape as the eleven above; on the
 // POOL its two statements are two implicit transactions -- the method itself is driven on

@@ -736,6 +736,20 @@ var designedHeaders = map[string]designed{
 	"C193": {loc: "/operator/holdings?done=remove&holding=61000000-0000-4000-8000-0000000000a2&tenant=61000000-0000-4000-8000-0000000000a3"},
 	"C194": {loc: "/operator/login"}, "C195": {ct: pageType}, "C196": {ct: pageType}, "C197": {ct: pageType},
 	"C198": {loc: "/operator/login"}, "C199": {allow: "POST"},
+	// M11 API-13a's integration API on the tenant overview (tenantapi_test.go): the overview and the
+	// refusals are pages -- a 403, 404, 413, 422, 429 or 503 page, none carrying a Location; the
+	// sign-in redirects of the gate and of a session the store refuses at the write; the 405s. The
+	// Locations that are not the sign-in's are the two accepted writes' (C201, C211): the overview
+	// with the closed word and -- open -- the code that passed the boundary; nothing of the hostile
+	// query.
+	"C200": {ct: pageType},
+	"C201": {loc: "/operator/tenants/61300000-0000-4000-8000-0000000000c1?done=api-opened&api_code=KF"},
+	"C202": {loc: "/operator/login"}, "C203": {ct: pageType}, "C204": {ct: pageType}, "C205": {ct: pageType},
+	"C206": {ct: pageType}, "C207": {ct: pageType}, "C208": {ct: pageType}, "C209": {loc: "/operator/login"},
+	"C210": {allow: "POST"},
+	"C211": {loc: "/operator/tenants/61300000-0000-4000-8000-0000000000c1?done=api-closed"},
+	"C212": {loc: "/operator/login"}, "C213": {ct: pageType}, "C214": {ct: pageType}, "C215": {ct: pageType},
+	"C216": {loc: "/operator/login"}, "C217": {allow: "POST"},
 }
 
 // checkDesignedHeaders holds the response headers AT WriteHeader (w.Result().Header, the

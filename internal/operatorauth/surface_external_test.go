@@ -153,6 +153,12 @@ func (surfTenants) TenantList(context.Context, string, db.TenantListQuery) ([]db
 func (surfTenants) TenantDetail(context.Context, string, uuid.UUID) (db.TenantOverview, error) {
 	return db.TenantOverview{}, db.ErrOperatorRefused
 }
+func (surfTenants) EnableTenantAPI(context.Context, string, uuid.UUID, string) error {
+	return db.ErrOperatorRefused
+}
+func (surfTenants) DisableTenantAPI(context.Context, string, uuid.UUID) error {
+	return db.ErrOperatorRefused
+}
 func (surfTenants) TenantPlaques(context.Context, string, uuid.UUID) (db.TenantPlaqueInventory, error) {
 	return db.TenantPlaqueInventory{}, db.ErrOperatorRefused
 }

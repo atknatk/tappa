@@ -90,6 +90,9 @@ type Surface struct {
 	// holdingStore is the holdings screen's (holdings.go): the holdings and their memberships,
 	// a two-phase read, and the three one-phase writes of a membership.
 	holdingStore HoldingStore
+	// work is K-19's set (tenantapi.go, NoticeWorkTo): an accepted API open notices its business.
+	// nil -- never handed one -- notices nothing.
+	work WorkNoticer
 	// host is TAPPA_OPERATOR_HOST, validated by internal/config: the host gate's
 	// comparison (httpx.OnHost).
 	host string

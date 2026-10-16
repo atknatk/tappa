@@ -73,10 +73,16 @@ type TenantStore interface {
 	// tenant id; "" for every tenant). A term internal/db will not send is
 	// db.ErrTenantSearchRefused; a dead session db.ErrOperatorRefused.
 	TenantList(ctx context.Context, sessionHash string, q db.TenantListQuery) ([]db.TenantSummary, error)
-	// TenantDetail is op_begin_read + op_read_tenant_detail: one tenant's identity and four
-	// counts. An id no tenant has is db.ErrNoSuchTenant -- after the 'read' row naming it
-	// committed.
+	// TenantDetail is op_begin_read + op_read_tenant_detail: one tenant's identity, four
+	// counts and (00057, M11 API-13a) its integration API state. An id no tenant has is
+	// db.ErrNoSuchTenant -- after the 'read' row naming it committed.
 	TenantDetail(ctx context.Context, sessionHash string, tenantID uuid.UUID) (db.TenantOverview, error)
+	// EnableTenantAPI is op_enable_tenant_api (M11 API-13a, tenantapi.go): nil says the call was
+	// ACCEPTED, not that the API was opened -- the overview's read says that. A dead session is
+	// db.ErrOperatorRefused.
+	EnableTenantAPI(ctx context.Context, sessionHash string, tenantID uuid.UUID, code string) error
+	// DisableTenantAPI is op_disable_tenant_api: nil says the call was accepted.
+	DisableTenantAPI(ctx context.Context, sessionHash string, tenantID uuid.UUID) error
 }
 
 // tenantPageSize is the screens' page: 50 tenants, the panel's roster page (M6-05). The
@@ -177,24 +183,43 @@ func (s *Surface) tenantOverview(w http.ResponseWriter, r *http.Request) {
 		s.problem(w, r, http.StatusNotFound, problemTenantNotAnID)
 		return
 	}
+	// The sentence of the last API write (tenantapi.go), if the query names one; a malformed
+	// query is no sentence, never a refusal.
+	result := apiResultOf(r.URL.Query().Get("done"), r.URL.Query().Get("api_code"))
 	if !s.spendRead(w, r, id) {
 		return
 	}
+	o, ok := s.readOverview(w, r, hash, tenant)
+	if !ok {
+		return
+	}
+	s.renderOverview(w, r, http.StatusOK, o, apiResultNotice(result, o))
+}
+
+// readOverview reads one tenant's overview (both phases) and answers the read's refusals itself:
+// an unknown id is 404, a session the read refuses the sign-in, any other error 503. It reports
+// false when it has answered. The caller has charged the read budget.
+func (s *Surface) readOverview(w http.ResponseWriter, r *http.Request, hash string, tenant uuid.UUID) (db.TenantOverview, bool) {
 	o, err := s.tenantStore.TenantDetail(r.Context(), hash, tenant)
 	switch {
 	case errors.Is(err, db.ErrNoSuchTenant):
 		s.problem(w, r, http.StatusNotFound, problemNoSuchTenant)
-		return
+		return db.TenantOverview{}, false
 	case errors.Is(err, db.ErrOperatorRefused):
 		s.redirect(w, pathSignIn)
-		return
+		return db.TenantOverview{}, false
 	case err != nil:
 		// A tenant's id is not personal data and names what could not be read; the hash
 		// is not an argument of this line.
 		s.log.ErrorContext(r.Context(), "operator: a tenant's overview could not be read", "tenant_id", tenant.String(), "err", err)
 		s.problem(w, r, http.StatusServiceUnavailable, problemTenantUnreadable)
-		return
+		return db.TenantOverview{}, false
 	}
+	return o, true
+}
+
+// renderOverview renders the overview with the API notice (apiNoticeNone draws nothing).
+func (s *Surface) renderOverview(w http.ResponseWriter, r *http.Request, status int, o db.TenantOverview, notice apiNotice) {
 	name, err := tenantBanner(o.ID, o.Name)
 	if err != nil {
 		// Not reached: tenantBanner names a tenant without a visible name by its id,
@@ -202,7 +227,7 @@ func (s *Surface) tenantOverview(w http.ResponseWriter, r *http.Request) {
 		// TenantScreen refuse and render answers a plain 500 -- this line says why first.
 		s.log.ErrorContext(r.Context(), "operator: a tenant could not be named on its screen", "tenant_id", o.ID.String(), "err", err)
 	}
-	s.render(w, r, http.StatusOK, operatorpages.TenantOverview(tenantOverviewView(o, name)))
+	s.render(w, r, status, operatorpages.TenantOverview(tenantOverviewView(o, name, notice)))
 }
 
 // tenantSearchTerm is the posted term as the list sends it, or false for one this screen
@@ -308,11 +333,30 @@ func tenantsView(rows []db.TenantSummary, term formValue, page int32) operatorpa
 }
 
 // tenantOverviewView builds the overview screen: the identity facts and the four counts,
-// formatted for the page's mono figures, and the paths of the tenant's plaques (OP-13),
-// billing months (OP-12) and VAT number (OP-16).
-func tenantOverviewView(o db.TenantOverview, name operatorpages.TenantName) operatorpages.TenantOverviewView {
+// formatted for the page's mono figures, the paths of the tenant's plaques (OP-13), billing
+// months (OP-12) and VAT number (OP-16), and the integration API section (M11 API-13a): its state
+// as the read returned it, the two forms' paths and the notice.
+func tenantOverviewView(o db.TenantOverview, name operatorpages.TenantName, notice apiNotice) operatorpages.TenantOverviewView {
 	count := func(n int64) string { return strconv.FormatInt(n, 10) }
+	api := operatorpages.TenantAPIView{
+		Open:      o.APIEnabledAt != nil,
+		OpenPath:  tenantAPIPath(o.ID),
+		ClosePath: tenantAPIClosePath(o.ID),
+	}
+	if o.APIEnabledAt != nil {
+		api.OpenedAt = utcStamp(*o.APIEnabledAt)
+	}
+	if o.APICode != nil {
+		api.Code = *o.APICode
+	}
+	if n, ok := apiSentences[notice]; ok {
+		api.NoticeTone, api.NoticeHeading, api.Notice = n.tone, n.heading, n.sentence
+		if n.rules {
+			api.NoticeRules = apiEnableRules
+		}
+	}
 	return operatorpages.TenantOverviewView{
+		API:             api,
 		Name:            name,
 		ID:              o.ID.String(),
 		PlaquesPath:     plaquesPath(o.ID),
