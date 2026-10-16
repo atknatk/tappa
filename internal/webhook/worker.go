@@ -7,7 +7,8 @@
 // 🔴 K-19 (the user's decision, 2026-10-09): THE WORKER NEVER SCANS ACROSS TENANTS. There is no
 // "every tenant" anywhere in this package: a tenant enters the set when something HAPPENED to it in
 // this process -- a tap recorded (both tenants of a holding tap), an authenticated /v1 request, an
-// approval (both tenants of a holding record -- API-10) and the panel's "resend" -- and the loop hands each tenant it takes to
+// approval (both tenants of a holding record -- API-10), the panel's "resend" and the owner's acts
+// that may reopen a held endpoint (switch on, re-address, rotate) -- and the loop hands each tenant it takes to
 // each Job, which reads ONLY that tenant's rows, in WithTenant with an explicit tenant_id filter. A
 // pod that restarts starts with an empty set: work that was pending waits for the tenant's next tap
 // or API call (plan §2 item 20 -- the named cost). TestWorker_NoTenantWideRead pins the package
@@ -42,9 +43,15 @@ type Worker struct {
 	jobs []Job
 	log  *slog.Logger
 
-	mu      sync.Mutex
+	mu sync.Mutex
+	// pending is the set; order is the order its tenants entered it, so the loop takes them first
+	// come, first served (see take).
 	pending map[uuid.UUID]struct{}
-	closed  bool
+	order   []uuid.UUID
+	// timers is AT MOST ONE waiting re-notice per tenant (see noticeAfter), so it too is bounded by
+	// the number of tenants.
+	timers map[uuid.UUID]*recheck
+	closed bool
 
 	wake   chan struct{}
 	cancel context.CancelFunc
@@ -61,7 +68,8 @@ func NewWorker(log *slog.Logger, jobs ...Job) (*Worker, error) {
 			return nil, errors.New("webhook: nil job")
 		}
 	}
-	return &Worker{jobs: jobs, log: log, pending: map[uuid.UUID]struct{}{}, wake: make(chan struct{}, 1)}, nil
+	return &Worker{jobs: jobs, log: log, pending: map[uuid.UUID]struct{}{}, timers: map[uuid.UUID]*recheck{},
+		wake: make(chan struct{}, 1)}, nil
 }
 
 // Add gives the worker one more job before it starts (cmd/tappa builds the invitation queue after
@@ -82,7 +90,8 @@ func (w *Worker) Add(j Job) error {
 
 // Notice puts tenant into the set. It never blocks and never fails (it is called on the tap path
 // and the API chain); the nil tenant and a notice after Drain are ignored. The set holds a tenant
-// once however many times it is noticed, so it is bounded by the number of tenants.
+// once however many times it is noticed, so it is bounded by the number of tenants -- and so is
+// every timer a notice can lead to (noticeAfter keeps one per tenant).
 func (w *Worker) Notice(tenant uuid.UUID) {
 	if tenant == uuid.Nil {
 		return
@@ -92,7 +101,10 @@ func (w *Worker) Notice(tenant uuid.UUID) {
 		w.mu.Unlock()
 		return
 	}
-	w.pending[tenant] = struct{}{}
+	if _, in := w.pending[tenant]; !in {
+		w.pending[tenant] = struct{}{}
+		w.order = append(w.order, tenant)
+	}
 	w.mu.Unlock()
 	select {
 	case w.wake <- struct{}{}:
@@ -157,24 +169,74 @@ type DueLater interface {
 	DueIn() time.Duration
 }
 
-// noticeAfter notices tenant again after d (at once for d <= 0). A notice after Drain is ignored by
-// Notice itself, so a timer that fires during shutdown does nothing.
+// recheck is a tenant's one waiting re-notice: when it is due, and its timer.
+type recheck struct {
+	at time.Time
+	t  *time.Timer
+}
+
+// noticeAfter notices tenant again after d (at once for d <= 0).
+//
+// 🔴 ONE TIMER PER TENANT, THE EARLIEST (M11 API-10 review, ORTA-1). Every run of a tenant that has
+// work due later answers DueLater -- and a tenant is run on every tap and every authenticated /v1
+// request (up to 600 a minute). A timer per answer made every one of those runs a chain of its own:
+// a timer fires, the tenant runs, answers DueLater again, a new timer -- chains that never merge and
+// grow with the notices until the process restarts (measured: 50 notices of a business whose
+// deliveries wait at a closed gate -> ~50 runs per recheck period; TestWorker_OneTimerPerTenant). So
+// a tenant has at most one timer: a DueLater that falls due no earlier than the waiting one sets
+// nothing; an earlier one moves it forward. The timer is the TENANT's, not a job's: a notice runs
+// every job (the loop), so the earliest due of all of them is exactly when the tenant is wanted
+// again, and each job answers its own DueLater on that run (a job run before its own due finds
+// nothing due and says when -- one cheap read). Per job per tenant would buy nothing a notice can
+// express. A timer fires once and leaves the map before it notices; Drain stops every timer.
 func (w *Worker) noticeAfter(tenant uuid.UUID, d time.Duration) {
 	if d <= 0 {
 		w.Notice(tenant)
 		return
 	}
-	time.AfterFunc(d, func() { w.Notice(tenant) })
+	at := time.Now().Add(d)
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.closed {
+		return
+	}
+	if r, ok := w.timers[tenant]; ok {
+		if !r.at.After(at) {
+			return
+		}
+		// Stop may lose to a timer already firing: that one finds itself replaced, leaves the map
+		// alone and notices once more -- one extra run, not a chain.
+		r.t.Stop()
+	}
+	r := &recheck{at: at}
+	r.t = time.AfterFunc(d, func() {
+		w.mu.Lock()
+		if w.timers[tenant] == r {
+			delete(w.timers, tenant)
+		}
+		w.mu.Unlock()
+		w.Notice(tenant)
+	})
+	w.timers[tenant] = r
 }
 
-// take empties the set and returns what it held.
+// waiting is how many re-notice timers wait (a test's window on the bound: at most one per tenant).
+func (w *Worker) waiting() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return len(w.timers)
+}
+
+// take empties the set and returns what it held, in the order its tenants entered it. FIRST COME,
+// FIRST SERVED (M11 API-10 review, ORTA-2): a job that stops a long turn early (the delivery's run
+// budget, runMax) asks for its tenant at once (DueLater 0), which re-enters the set BEHIND every
+// tenant noticed while that turn ran -- so a busy tenant waits its turn rather than taking the next
+// one too.
 func (w *Worker) take() []uuid.UUID {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	out := make([]uuid.UUID, 0, len(w.pending))
-	for t := range w.pending {
-		out = append(out, t)
-	}
+	out := w.order
+	w.order = nil
 	clear(w.pending)
 	return out
 }
@@ -186,6 +248,10 @@ func (w *Worker) take() []uuid.UUID {
 func (w *Worker) Drain(ctx context.Context) error {
 	w.mu.Lock()
 	w.closed = true
+	for _, r := range w.timers {
+		r.t.Stop()
+	}
+	clear(w.timers)
 	cancel, done := w.cancel, w.done
 	w.mu.Unlock()
 	if done == nil {

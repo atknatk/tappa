@@ -437,6 +437,7 @@ func (s *Service) Rotate(ctx context.Context, tenantID, actorID uuid.UUID) (Rota
 	if err != nil {
 		return Rotated{}, pass(err, "rotate")
 	}
+	s.reopened(tenantID)
 	return out, nil
 }
 
@@ -471,6 +472,7 @@ func (s *Service) Readdress(ctx context.Context, tenantID, actorID uuid.UUID, ad
 	if err != nil {
 		return uuid.Nil, pass(err, "readdress")
 	}
+	s.reopened(tenantID)
 	return id, nil
 }
 
@@ -518,7 +520,22 @@ func (s *Service) setActive(ctx context.Context, tenantID, actorID uuid.UUID, ac
 	if err != nil {
 		return uuid.Nil, pass(err, "switch")
 	}
+	if active {
+		s.reopened(tenantID)
+	}
 	return id, nil
+}
+
+// reopened puts the business into K-19's set after a committed act that may open a gate its waiting
+// deliveries are held at (internal/webhook/delivery: endpoint_off, stored_address, key_unreadable):
+// switching the endpoint on, re-addressing it, rotating its key. Without it they waited for the
+// held run's recheck (up to delivery.GateRecheck) -- or, after a restart, for the business's next tap
+// or API call (M11 API-10 review, D-2). A notice is cheap: one run, which finds nothing due when
+// nothing waits. K-22's reopening is the operator's (API-13) and is not in this service.
+func (s *Service) reopened(tenantID uuid.UUID) {
+	if s.work != nil {
+		s.work.Notice(tenantID)
+	}
 }
 
 // pingBody is the ping's synthetic payload (ADR 0028 §6: event "ping"). It names no punch, no

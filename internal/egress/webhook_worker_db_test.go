@@ -1307,7 +1307,9 @@ func TestWebhookResend_TheGatesTheBucketAndTheNotice(t *testing.T) {
 			func() { w.exec(`UPDATE tenants SET api_enabled_at = now() WHERE id = $1`, b.id) }},
 		"switched off": {b.owner, pending, endpoints.ErrDisabled,
 			func() { _, _ = w.svc.Disable(w.ctx, b.id, b.owner) },
-			func() { _, _ = w.svc.Enable(w.ctx, b.id, b.owner) }},
+			// Switching on notices the business itself (TestWebhookEndpoints_ReopeningNoticesTheBusiness);
+			// this test counts the resend's notices only.
+			func() { w.svc.NoticeWorkTo(nil); _, _ = w.svc.Enable(w.ctx, b.id, b.owner); w.svc.NoticeWorkTo(rec) }},
 	} {
 		if c.prepare != nil {
 			c.prepare()
@@ -1453,5 +1455,293 @@ func TestWebhookWorker_AClaimInProgressDoesNotStallAnother(t *testing.T) {
 	if ctx.Err() != nil || len(w.rcv.to(b.host)) != 1 || got[0].state != delivery.StatePending || got[0].attempt != 0 ||
 		got[1].state != delivery.StateDelivered {
 		t.Fatalf("with the oldest row locked: run %v (ctx %v), %d sent, rows %s/%s", err, ctx.Err(), len(w.rcv.to(b.host)), got[0].state, got[1].state)
+	}
+}
+
+// ---------------------------------------------------------------------------------------------------
+// the review's round (M11 API-10 review: ORTA-1, ORTA-2, D-1, D-2)
+// ---------------------------------------------------------------------------------------------------
+
+func discard() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
+
+// countingDB counts the job's transactions (every claim, result and next-due read is one WithTenant).
+type countingDB struct {
+	inner *db.DB
+	n     atomic.Int64
+}
+
+func (c *countingDB) WithTenant(ctx context.Context, id uuid.UUID, fn db.TxFunc) error {
+	c.n.Add(1)
+	return c.inner.WithTenant(ctx, id, fn)
+}
+
+// TestWebhookWorker_AHeldBusinessHasOneRecheck (ORTA-1) is the closed gate's recheck through the real
+// worker and the real job: a business whose one delivery waits at a switched-off endpoint is noticed 50
+// times (taps, /v1 requests), each notice run -- and afterwards the job runs about ONCE per recheck
+// period (one claim transaction, rolled back; nothing sent), not once per notice. GateRecheck is
+// shortened with Pace.
+//
+// Measured before the fix (a timer per answer): 50 notices -> ~50 claim transactions per period, growing
+// with every notice until a restart. MUTANT: the worker's per-tenant timer removed -> red.
+func TestWebhookWorker_AHeldBusinessHasOneRecheck(t *testing.T) {
+	const period = 200 * time.Millisecond
+	w := newWorld(t)
+	b := w.biz("HR", false)
+	w.tap(b, nil, "ok")
+	if _, err := w.svc.Disable(w.ctx, b.id, b.owner); err != nil {
+		t.Fatal(err)
+	}
+	cdb := &countingDB{inner: w.app}
+	j, err := delivery.New(w.kek, cdb, w.client(time.Second, nil), discard())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := j.Pace(delivery.RunBudget, period); err != nil {
+		t.Fatal(err)
+	}
+	worker, err := webhook.NewWorker(discard(), j)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := worker.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = worker.Drain(context.Background()) }()
+	for range 50 {
+		before := cdb.n.Load()
+		worker.Notice(b.id)
+		deadline := time.Now().Add(5 * time.Second)
+		for cdb.n.Load() == before && time.Now().Before(deadline) {
+			time.Sleep(time.Millisecond)
+		}
+		time.Sleep(period / 50)
+	}
+	before := cdb.n.Load()
+	time.Sleep(10 * period)
+	per := float64(cdb.n.Load()-before) / 10
+	t.Logf("50 notices of a held business -> %.1f claim transactions per recheck period, %d requests", per, len(w.rcv.to(b.host)))
+	if per > 2 {
+		t.Fatalf("%.1f claim transactions per recheck period after 50 notices (want ~1): the rechecks multiplied", per)
+	}
+	if per < 0.5 || len(w.rcv.to(b.host)) != 0 {
+		t.Fatalf("CONTROL: %.1f per period, %d requests -- the recheck does not come back, or the gate let one through", per, len(w.rcv.to(b.host)))
+	}
+}
+
+// standIn is a second job in the loop -- API-6's invitation queue's place: it records when it was handed
+// the business it watches.
+type standIn struct {
+	watch uuid.UUID
+	at    atomic.Int64
+}
+
+func (s *standIn) RunFor(_ context.Context, tenant uuid.UUID) error {
+	if tenant == s.watch {
+		s.at.CompareAndSwap(0, time.Now().UnixNano())
+	}
+	return nil
+}
+
+// TestWebhookWorker_ASlowReceiverDoesNotHoldTheOthers (ORTA-2): K-19's loop is one goroutine. A business
+// with 50 due deliveries to a receiver that (a) never answers, (b) answers each slowly is being run when
+// a second business is noticed; that business's delivery AND the loop's other job (the invitation
+// queue's place) run within the run budget + one exchange (+ the database's slack) -- the slow run
+// stops claiming at its budget and goes back into the set BEHIND the business noticed meanwhile. Budget
+// and timeouts are shortened (Pace, the client's timeout).
+//
+// Measured before the fix (no budget, the set in map order): (a) ~15 s, (b) ~5 s -- 50 exchanges.
+// MUTANT: the budget check removed -> red (both).
+func TestWebhookWorker_ASlowReceiverDoesNotHoldTheOthers(t *testing.T) {
+	const budget = 300 * time.Millisecond
+	w := newWorld(t)
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	for _, c := range []struct {
+		name      string
+		timeout   time.Duration
+		answersIn time.Duration
+	}{
+		{"never answers", 300 * time.Millisecond, time.Minute},
+		{"answers slowly", 2 * time.Second, 100 * time.Millisecond},
+	} {
+		slow, fast := w.biz("SL", false), w.biz("FA", false)
+		for range 50 {
+			w.tap(slow, nil, "ok")
+		}
+		w.tap(fast, nil, "ok")
+		inSlow := make(chan struct{}, 1)
+		w.rcv.set(func(r *http.Request) int {
+			if r.Host == slow.host {
+				select {
+				case inSlow <- struct{}{}:
+				default:
+				}
+				select {
+				case <-time.After(c.answersIn):
+				case <-release:
+				}
+			}
+			return 204
+		}, nil)
+		j := w.job(w.client(c.timeout, nil), nil, nil)
+		if err := j.Pace(budget, delivery.GateRecheck); err != nil {
+			t.Fatal(err)
+		}
+		other := &standIn{watch: fast.id}
+		worker, err := webhook.NewWorker(discard(), j, other)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := worker.Start(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		worker.Notice(slow.id)
+		<-inSlow
+		began := time.Now()
+		worker.Notice(fast.id)
+		var delivered time.Duration
+		for time.Since(began) < 30*time.Second {
+			if d := w.deliveries(fast); d[0].state == delivery.StateDelivered && other.at.Load() != 0 {
+				delivered = time.Since(began)
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		ranOther := time.Duration(other.at.Load() - began.UnixNano())
+		_ = worker.Drain(context.Background())
+		exchange := min(c.timeout, c.answersIn)
+		bound := budget + exchange + time.Second
+		t.Logf("%s: the fast business's delivery waited %v, the other job %v (budget %v, one exchange %v)", c.name, delivered, ranOther, budget, exchange)
+		if delivered == 0 || delivered > bound || ranOther > bound {
+			t.Errorf("%s: the fast business's delivery waited %v and the other job %v behind a slow receiver; want both < %v",
+				c.name, delivered, ranOther, bound)
+		}
+		if n := len(w.rcv.to(slow.host)); n >= 50 {
+			t.Errorf("%s: the slow receiver got all %d requests before the fast one went", c.name, n)
+		}
+	}
+}
+
+// TestWebhookWorker_AStaleResultIsDropped (D-1) pins RecordWebhookDeliveryResult's `lease_until =
+// @lease_until`: worker A's request hangs past its lease; worker B claims the delivery again and is IN
+// FLIGHT; A's late answer (2xx) arrives -- and is dropped: B's claim is untouched (pending, no try
+// spent, still leased). B's answer (503) is then recorded as the one try.
+//
+// MUTANT (measured): the lease condition made vacuous (`@lease_until IS NOT NULL`) -> A's stale result
+// writes `delivered`, B's real one is then dropped -> red.
+func TestWebhookWorker_AStaleResultIsDropped(t *testing.T) {
+	w := newWorld(t)
+	b := w.biz("SR", false)
+	w.tap(b, nil, "ok")
+	var calls atomic.Int32
+	aIn, bIn := make(chan struct{}), make(chan struct{})
+	releaseA, releaseB := make(chan struct{}), make(chan struct{})
+	var onceA, onceB sync.Once
+	openA, openB := func() { onceA.Do(func() { close(releaseA) }) }, func() { onceB.Do(func() { close(releaseB) }) }
+	t.Cleanup(func() { openA(); openB() }) // a red run must not leave the receiver's handlers waiting
+	w.rcv.set(func(*http.Request) int {
+		switch calls.Add(1) {
+		case 1:
+			close(aIn)
+			<-releaseA
+			return 204
+		default:
+			close(bIn)
+			<-releaseB
+			return 503
+		}
+	}, nil)
+	run := func() chan error {
+		done := make(chan error, 1)
+		go func() { done <- w.job(w.client(10*time.Second, nil), nil, nil).RunFor(context.Background(), b.id) }()
+		return done
+	}
+	aDone := run()
+	<-aIn
+	w.exec(`UPDATE webhook_deliveries SET lease_until = clock_timestamp() - interval '1 second' WHERE tenant_id = $1`, b.id)
+	bDone := run()
+	<-bIn
+	openA()
+	if err := <-aDone; err != nil {
+		var later *delivery.Later
+		if !errors.As(err, &later) {
+			t.Fatalf("A: %v", err)
+		}
+	}
+	if d := w.deliveries(b)[0]; d.state != delivery.StatePending || d.attempt != 0 || !d.leased || d.class != nil {
+		t.Fatalf("A's stale answer overwrote B's claim: %+v", d)
+	}
+	openB()
+	<-bDone
+	if d := w.deliveries(b)[0]; d.state != delivery.StatePending || d.attempt != 1 || d.class == nil || *d.class != "http_5xx" {
+		t.Fatalf("B's answer: %+v (want pending, one try, http_5xx)", d)
+	}
+}
+
+// TestWebhookEndpoints_ReopeningNoticesTheBusiness (D-2): the owner's acts that may open a gate a
+// waiting delivery is held at -- switching the endpoint on, re-addressing it, rotating its key -- put the
+// business into K-19's set after their commit; switching it off and a refused switch-on (the API
+// closed) do not. End to end with the real worker (the recheck an hour away): a delivery held at a
+// switched-off endpoint goes at once when it is switched on.
+//
+// MUTANT (measured): Enable's notice removed -> red (the recorder, and the delivery waits the hour).
+func TestWebhookEndpoints_ReopeningNoticesTheBusiness(t *testing.T) {
+	w := newWorld(t)
+	b := w.biz("RN", false)
+	rec := &recorder{}
+	w.svc.NoticeWorkTo(rec)
+	t.Cleanup(func() { w.svc.NoticeWorkTo(nil) })
+	step := func(what string, act func() error, want int) {
+		t.Helper()
+		before := len(rec.got())
+		_ = act()
+		if got := len(rec.got()) - before; got != want {
+			t.Fatalf("%s noticed the business %d times, want %d", what, got, want)
+		}
+	}
+	step("switching off", func() error { _, err := w.svc.Disable(w.ctx, b.id, b.owner); return err }, 0)
+	w.exec(`UPDATE tenants SET api_enabled_at = NULL WHERE id = $1`, b.id)
+	step("a refused switch-on", func() error { _, err := w.svc.Enable(w.ctx, b.id, b.owner); return err }, 0)
+	w.exec(`UPDATE tenants SET api_enabled_at = now() WHERE id = $1`, b.id)
+	step("switching on", func() error { _, err := w.svc.Enable(w.ctx, b.id, b.owner); return err }, 1)
+	step("re-addressing", func() error { _, err := w.svc.Readdress(w.ctx, b.id, b.owner, "https://"+b.host+b.path); return err }, 1)
+	step("rotating", func() error { _, err := w.svc.Rotate(w.ctx, b.id, b.owner); return err }, 1)
+	for _, id := range rec.got() {
+		if id != b.id {
+			t.Fatalf("noticed another business: %s", id)
+		}
+	}
+
+	j := w.job(w.client(5*time.Second, nil), nil, nil)
+	if err := j.Pace(delivery.RunBudget, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	worker, err := webhook.NewWorker(discard(), j)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := worker.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = worker.Drain(context.Background()) }()
+	w.svc.NoticeWorkTo(worker)
+	w.tap(b, nil, "ok") // queued while on (a switched-off endpoint gets no row -- 00049)
+	if _, err := w.svc.Disable(w.ctx, b.id, b.owner); err != nil {
+		t.Fatal(err)
+	}
+	worker.Notice(b.id)
+	time.Sleep(300 * time.Millisecond)
+	if n := len(w.rcv.to(b.host)); n != 0 {
+		t.Fatalf("CONTROL: %d sent through a switched-off endpoint", n)
+	}
+	if _, err := w.svc.Enable(w.ctx, b.id, b.owner); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for len(w.rcv.to(b.host)) == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if d := w.deliveries(b); len(w.rcv.to(b.host)) != 1 || d[0].state != delivery.StateDelivered {
+		t.Fatalf("switched on: %d sent, row %+v (want the held delivery sent at once)", len(w.rcv.to(b.host)), d)
 	}
 }

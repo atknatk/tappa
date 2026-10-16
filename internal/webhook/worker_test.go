@@ -391,3 +391,154 @@ func TestWorker_ALaterTenantIsNoticedAgainAndIsNoFailure(t *testing.T) {
 		}
 	}
 }
+
+// periodJob answers "come back in after" every time (a business whose deliveries wait at a closed
+// gate: internal/webhook/delivery's GateRecheck), the first answer optionally first, and counts runs.
+type periodJob struct {
+	mu    sync.Mutex
+	runs  int
+	after func(run int) time.Duration
+}
+
+func (j *periodJob) RunFor(context.Context, uuid.UUID) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.runs++
+	return dueIn(j.after(j.runs))
+}
+
+func (j *periodJob) count() int {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.runs
+}
+
+// TestWorker_OneTimerPerTenant (M11 API-10 review, ORTA-1): a tenant whose job always answers "come
+// back in P" is noticed 50 times, each notice run (a tap, a /v1 request) -- and afterwards it is run
+// about ONCE per P, not once per notice per P: the worker keeps one timer per tenant, the earliest.
+// Five tenants noticed ten times each leave five timers; Drain leaves none. An EARLIER answer moves
+// the waiting timer forward (a job that first says "in an hour" and then "in 20 ms" runs again within
+// the 20 ms, not the hour).
+//
+// MUTANT (measured): noticeAfter without the per-tenant map (a timer per answer, the code before the
+// review) -> ~50 runs per period and 50 timers -> red.
+func TestWorker_OneTimerPerTenant(t *testing.T) {
+	const period = 100 * time.Millisecond
+	j := &periodJob{after: func(int) time.Duration { return period }}
+	w, err := NewWorker(quiet(), j)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	tenant := uuid.New()
+	for range 50 {
+		before := j.count()
+		w.Notice(tenant)
+		waitFor(t, func() bool { return j.count() > before })
+		time.Sleep(period / 50) // spread the answers over the period, as taps over a quarter hour
+	}
+	before := j.count()
+	time.Sleep(10 * period)
+	per := float64(j.count()-before) / 10
+	t.Logf("50 notices -> %.1f runs per period", per)
+	if per > 2 {
+		t.Fatalf("%.1f runs per period after 50 notices; the timers multiplied (want ~1)", per)
+	}
+	if per < 0.5 {
+		t.Fatalf("CONTROL: %.1f runs per period -- the timer does not come back", per)
+	}
+	if n := w.waiting(); n != 1 {
+		t.Fatalf("one tenant noticed 50 times leaves %d timers, want 1", n)
+	}
+
+	others := make([]uuid.UUID, 4)
+	for i := range others {
+		others[i] = uuid.New()
+		for range 10 {
+			before := j.count()
+			w.Notice(others[i])
+			waitFor(t, func() bool { return j.count() > before })
+		}
+	}
+	if n := w.waiting(); n != 5 {
+		t.Fatalf("five tenants leave %d timers, want 5 (one each)", n)
+	}
+	if err := w.Drain(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if n := w.waiting(); n != 0 {
+		t.Fatalf("%d timers after Drain", n)
+	}
+
+	// An earlier answer replaces a later one.
+	early := &periodJob{after: func(run int) time.Duration {
+		if run == 1 {
+			return time.Hour
+		}
+		return 20 * time.Millisecond
+	}}
+	w2, err := NewWorker(quiet(), early)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w2.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = w2.Drain(context.Background()) })
+	w2.Notice(tenant)
+	waitFor(t, func() bool { return early.count() == 1 })
+	w2.Notice(tenant)
+	waitFor(t, func() bool { return early.count() >= 3 }) // the second run's 20 ms, not the first's hour
+	if n := w2.waiting(); n != 1 {
+		t.Fatalf("after an earlier answer: %d timers, want 1", n)
+	}
+}
+
+// TestWorker_TakesTenantsInTheOrderTheyCame (M11 API-10 review, ORTA-2): the loop takes the set first
+// come, first served -- a tenant whose turn ended early and asked to come back at once (DueLater 0)
+// re-enters BEHIND a tenant noticed during its turn, so it cannot take the next turn too.
+//
+// MUTANT (measured): take() in map order -> the busy tenant goes first again in about half the trials
+// -> red.
+func TestWorker_TakesTenantsInTheOrderTheyCame(t *testing.T) {
+	for trial := range 20 {
+		busy, quick := uuid.New(), uuid.New()
+		var mu sync.Mutex
+		var order []uuid.UUID
+		inBusy := make(chan struct{})
+		release := make(chan struct{})
+		j := jobFunc(func(_ context.Context, tenant uuid.UUID) error {
+			mu.Lock()
+			order = append(order, tenant)
+			n := len(order)
+			mu.Unlock()
+			if tenant == busy && n == 1 {
+				close(inBusy)
+				<-release
+				return dueIn(0)
+			}
+			return nil
+		})
+		w, err := NewWorker(quiet(), j)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := w.Start(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		w.Notice(busy)
+		<-inBusy
+		w.Notice(quick)
+		close(release)
+		waitFor(t, func() bool { mu.Lock(); defer mu.Unlock(); return len(order) == 3 })
+		_ = w.Drain(context.Background())
+		mu.Lock()
+		got := slices.Clone(order)
+		mu.Unlock()
+		if !slices.Equal(got, []uuid.UUID{busy, quick, busy}) {
+			t.Fatalf("trial %d: the loop ran busy, then %v; want quick before busy's second turn", trial, got[1:])
+		}
+	}
+}

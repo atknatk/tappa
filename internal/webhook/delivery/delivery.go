@@ -23,8 +23,21 @@
 // delivery is one exchange (egress.TotalTimeout, 10 s) and its result row, so Lease is 60 s whatever
 // the backlog. A batch of N claimed together would need N × 10 s of lease (sent one after another) or
 // N connections at once (sent in parallel) -- neither buys anything at punch volumes, and a pod that
-// dies holds one delivery, not N. runMax bounds one RunFor so a business with a long backlog hands the
-// loop back to the others (the worker is told to come back at once).
+// dies holds one delivery, not N.
+//
+// ONE RUN IS ONE TURN OF A SHARED LOOP, AND IT IS BOUNDED IN TIME (M11 API-10 review, ORTA-2). K-19's
+// worker is one goroutine: while a run sends, every other business's deliveries -- and API-6's
+// invitation queue -- wait. runMax alone bounded the COUNT, not the time: 50 deliveries to a receiver
+// that never answers held the loop 50 × 10 s (measured: a fast business's one delivery waited 10.6 s
+// behind it at a 200 ms client timeout, ~8 min 50 s at the production 10 s). So a run starts no new
+// claim once RunBudget has passed since it began, and answers "come back at once" (the worker puts the
+// business back BEHIND every business noticed meanwhile -- first come, first served). A turn therefore
+// holds the loop for less than RunBudget + one exchange: < 20 s, and ONE exchange (10 s) when the
+// receiver does not answer at all, since a single timeout already spends the budget. The worst wait of
+// a business noticed now is that bound times the businesses ahead of it in the set (and their other
+// jobs' turns). Sending in parallel was not taken: it would need one lease per connection in flight
+// and a second bound (connections) for the same guarantee, which one goroutine and a budget give
+// without either.
 //
 // THE GATES (ADR 0028 §6: "gönderim anında ... K-22 ve uç noktanın active'i yeniden denetlenir"). The
 // claim's transaction reads the business's API gate and the endpoint's switch; when either is closed
@@ -34,9 +47,13 @@
 // one of these is the owner's or the operator's to undo (switch on, reopen, re-address, rotate), and a
 // punch recorded while the endpoint was on was owed to it; dropping the queue on a switch-off would make
 // "off for a minute" lose deliveries silently (CLAUDE.md §4.6's spirit), while a delivery left waiting
-// goes the moment the gate opens. The run then says "come back in gateRecheck", a timer for this one
-// business (K-19). (Events recorded WHILE the endpoint is off get no delivery at all -- 00049's trigger
-// writes one only for an active endpoint -- so the integrator's gap is the feed's to fill.) The
+// goes once the gate opens: at once when the owner switches the endpoint on, re-addresses it or
+// rotates its key (the panel's act notices the business -- internal/webhook/endpoints), otherwise at
+// the next recheck. The run then says "come back in GateRecheck", a timer for this one business (K-19)
+// -- ONE per business however often it is run meanwhile (the worker keeps the earliest; before the
+// review a held business grew a timer chain per tap and per /v1 request). (Events recorded WHILE the
+// endpoint is off get no delivery at all -- 00049's trigger writes one only for an active endpoint --
+// so the integrator's gap is the feed's to fill.) The
 // re-read is in the transaction that commits immediately before the request: a switch-off committed
 // after it does not stop the one request already leaving (named, as the invitation queue names it).
 //
@@ -96,11 +113,18 @@ const MaxAttempts = 6
 // Backoff is the wait after the n-th failed try (Backoff[n-1]), ADR 0028 §6's schedule.
 var Backoff = [MaxAttempts - 1]time.Duration{time.Minute, 5 * time.Minute, 30 * time.Minute, 2 * time.Hour, 6 * time.Hour}
 
+// The run's two clocks (the defaults New sets; Pace changes them).
 const (
-	// runMax bounds one RunFor (see the header).
+	// RunBudget is how long one run may keep starting claims (see the header): one exchange's own
+	// ceiling, so a turn holds the loop for at most two exchanges' time.
+	RunBudget = egress.TotalTimeout
+	// GateRecheck is when a business whose deliveries wait at a closed gate is looked at again.
+	GateRecheck = 15 * time.Minute
+)
+
+const (
+	// runMax bounds one RunFor's count (see the header).
 	runMax = 50
-	// gateRecheck is when a business whose deliveries wait at a closed gate is looked at again.
-	gateRecheck = 15 * time.Minute
 	// recordGrace bounds the result's write after the request returned (it is written even when the
 	// worker is being drained at that moment: the result is known).
 	recordGrace = 5 * time.Second
@@ -145,6 +169,8 @@ type Job struct {
 	data Database
 	send Sender
 	log  *slog.Logger
+	// budget and recheck are RunBudget and GateRecheck unless Pace changed them.
+	budget, recheck time.Duration
 }
 
 // New builds the job. The KEK is TAPPA_WEBHOOK_KEK (the endpoint's sealed key opens under it); the
@@ -159,7 +185,18 @@ func New(kek []byte, data Database, send Sender, log *slog.Logger) (*Job, error)
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Job{kek: append([]byte(nil), kek...), data: data, send: send, log: log}, nil
+	return &Job{kek: append([]byte(nil), kek...), data: data, send: send, log: log, budget: RunBudget, recheck: GateRecheck}, nil
+}
+
+// Pace sets the run budget and the closed gate's recheck. cmd/tappa never calls it (the defaults are
+// the design); the tests of the worker's fairness shorten both, the way they shorten egress's timeout.
+// It is called before the job is handed to a worker: it is not safe beside a run.
+func (j *Job) Pace(budget, recheck time.Duration) error {
+	if budget <= 0 || recheck <= 0 {
+		return errors.New("webhook delivery: a pace must be positive")
+	}
+	j.budget, j.recheck = budget, recheck
+	return nil
 }
 
 // Later is RunFor's "this business has deliveries due later" -- internal/webhook.DueLater.
@@ -172,17 +209,22 @@ func (l *Later) DueIn() time.Duration { return l.After }
 
 var _ webhook.DueLater = (*Later)(nil)
 
-// RunFor sends the business's due deliveries, one claim at a time, at most runMax. It returns nil when
-// nothing is pending, a *Later when deliveries wait (a back-off, another worker's lease, a closed
-// gate, or runMax reached), the context's error when the worker is draining, and an error -- that
-// names no address and no key -- when the database failed.
+// RunFor sends the business's due deliveries, one claim at a time, at most runMax and no new claim
+// after the run budget. It returns nil when nothing is pending, a *Later when deliveries wait (a
+// back-off, another worker's lease, a closed gate, or runMax or the budget reached), the context's
+// error when the worker is draining, and an error -- that names no address and no key -- when the
+// database failed.
 func (j *Job) RunFor(ctx context.Context, tenantID uuid.UUID) error {
 	if tenantID == uuid.Nil {
 		return errors.New("webhook delivery: no tenant")
 	}
+	began := time.Now()
 	for range runMax {
 		if err := ctx.Err(); err != nil {
 			return err
+		}
+		if time.Since(began) >= j.budget {
+			return &Later{After: 0}
 		}
 		w, outcome, err := j.claim(ctx, tenantID)
 		if err != nil {
@@ -194,7 +236,7 @@ func (j *Job) RunFor(ctx context.Context, tenantID uuid.UUID) error {
 		case held:
 			j.log.InfoContext(ctx, "webhook: the business's deliveries wait; nothing is sent",
 				"tenant_id", tenantID.String(), "endpoint_id", w.endpoint.String(), "reason", w.heldBy)
-			return &Later{After: gateRecheck}
+			return &Later{After: j.recheck}
 		}
 		if err := j.deliver(ctx, tenantID, w); err != nil {
 			return err
