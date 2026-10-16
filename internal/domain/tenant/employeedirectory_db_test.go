@@ -116,6 +116,27 @@ func TestEmployeeDirectory_RLSHoldsWithoutTheFilter(t *testing.T) {
 // correct: the final walk still has to find every change). (The second way to lose one -- asOf read at a later page instead of the walk's first --
 // needs a walk longer than the overlap that ends while a write is open across it:
 // TestEmployeeDirectory_TheWalksAsOfIsItsFirstPages builds exactly that.)
+//
+// ⏱ WHAT THE GUARANTEE SAYS IS WHAT IS ASSERTED (API-12 low round). The header promises a change to
+// some walk "unless its transaction stays open longer than the overlap between the write and the
+// commit"; on a loaded CI runner a write's commit became visible more than 120 ms after its write
+// (measured: commits that took ~200 ms to become visible; every bad row of a red run was one of them),
+// and the old assertion counted those against the reader. Now every writer records, for its write,
+// updated_at (the trigger's clock at the write, RETURNING) and the database clock read right after
+// its COMMIT returned -- an upper bound of the instant the commit became visible --, and a missed or
+// stale row is a failure unless the write it stands at was visible more than the overlap after it
+// was written ("out of contract", counted and logged apart). NAMED LIMIT: the bound is an upper one (a
+// commit visible within the overlap but measured past it, because the clock read came late, is
+// excused), so the run proves the guarantee only for the writes measured inside the overlap -- and
+// fails unless at least 100 were. A write whose RETURNING updated_at is older than its own
+// transaction (the trigger did not move it) is never excused: it is counted and fails.
+// MEASURED (API-12 low round, a throwaway container): with a deferred constraint trigger that sleeps
+// 0.3 s at COMMIT in 5% of the writes, the previous assertion was red 5/5 (2-5 missed, 2-4 stale --
+// CI's shape) and this one is green 5/5 with those rows counted out of contract; -race -count=20 with
+// the database's CPUs saturated, green 20/20.
+// MUTANTS (measured): dir.overlap = 0 -> red (100-104 missed and 14-15 stale within the contract);
+// 00037's trigger blind to full_name (D-4) -> red (14 stale within the contract, 55-58 writes that did
+// not move updated_at).
 func TestEmployeeDirectory_WalksMissNothingUnderConcurrentWriters(t *testing.T) {
 	f := newSiteFixture(t)
 	c := uuid.New()
@@ -127,15 +148,18 @@ func TestEmployeeDirectory_WalksMissNothingUnderConcurrentWriters(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir.overlap = 120 * time.Millisecond
+	const overlap = 120 * time.Millisecond
+	dir.overlap = overlap
 	dir.bound = time.Minute // a member's page costs the peer set; the bound is TestAPIRead_EveryReadCarriesTheBound's
 	const writers, rounds, hold, pause = 8, 60, 40 * time.Millisecond, 20 * time.Millisecond
 	// A rename moves the first name, the full name (K-41: the panel's name, the only one a panel-made
 	// person has) or both -- each a directory column of 00037's trigger, each compared below.
+	// RETURNING the trigger's updated_at and the transaction's own start (now()): an updated_at older
+	// than its transaction is one the write did not move.
 	renames := []string{
-		`UPDATE employees SET first_name = $3 WHERE tenant_id = $1 AND id = $2`,
-		`UPDATE employees SET full_name = $3 || ' Panel' WHERE tenant_id = $1 AND id = $2`,
-		`UPDATE employees SET first_name = $3, full_name = $3 || ' Both' WHERE tenant_id = $1 AND id = $2`,
+		`UPDATE employees SET first_name = $3 WHERE tenant_id = $1 AND id = $2 RETURNING updated_at, now()`,
+		`UPDATE employees SET full_name = $3 || ' Panel' WHERE tenant_id = $1 AND id = $2 RETURNING updated_at, now()`,
+		`UPDATE employees SET first_name = $3, full_name = $3 || ' Both' WHERE tenant_id = $1 AND id = $2 RETURNING updated_at, now()`,
 	}
 	tenants := []uuid.UUID{f.kf, f.km, c}
 	ctx, cancel := context.WithTimeout(f.ctx, 90*time.Second)
@@ -143,6 +167,14 @@ func TestEmployeeDirectory_WalksMissNothingUnderConcurrentWriters(t *testing.T) 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	people := map[uuid.UUID][]uuid.UUID{}
+	// Every committed write, by the row's id and its updated_at (µs, the directory's precision): the
+	// database clock after its COMMIT returned, and whether the write moved updated_at.
+	type writeTiming struct {
+		visible time.Time
+		moved   bool
+	}
+	timings := map[uuid.UUID]map[int64]writeTiming{}
+	committed, unmoved := 0, 0
 	errs := make(chan error, writers)
 	for i := range writers {
 		wg.Add(1)
@@ -160,15 +192,16 @@ func TestEmployeeDirectory_WalksMissNothingUnderConcurrentWriters(t *testing.T) 
 				mu.Unlock()
 				rollback := rng.IntN(10) == 0
 				var born uuid.UUID
+				var wrote, began time.Time
 				err := f.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
 					name := fmt.Sprintf("W%d-%d", i, r)
 					if target == uuid.Nil {
 						if err := tx.QueryRow(ctx, `INSERT INTO employees (tenant_id, external_ref, first_name, last_name, full_name, status, invited_at)
-						                            VALUES ($1, $2, $3, 'Stress', $3 || ' Stress', 'active', now()) RETURNING id`,
-							tenantID, "st-"+uuid.NewString()[:13], name).Scan(&born); err != nil {
+						                            VALUES ($1, $2, $3, 'Stress', $3 || ' Stress', 'active', now()) RETURNING id, updated_at, now()`,
+							tenantID, "st-"+uuid.NewString()[:13], name).Scan(&born, &wrote, &began); err != nil {
 							return err
 						}
-					} else if _, err := tx.Exec(ctx, renames[rng.IntN(len(renames))], tenantID, target, name); err != nil {
+					} else if err := tx.QueryRow(ctx, renames[rng.IntN(len(renames))], tenantID, target, name).Scan(&wrote, &began); err != nil {
 						return err
 					}
 					time.Sleep(time.Duration(rng.Int64N(int64(hold))))
@@ -182,9 +215,32 @@ func TestEmployeeDirectory_WalksMissNothingUnderConcurrentWriters(t *testing.T) 
 				case err != nil:
 					errs <- err
 					return
-				case born != uuid.Nil:
+				default:
+					// The database clock after COMMIT returned: the commit was visible by then.
+					var visible time.Time
+					if err := f.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+						return tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&visible)
+					}); err != nil {
+						errs <- err
+						return
+					}
+					id := target
+					if born != uuid.Nil {
+						id = born
+					}
+					moved := !wrote.Before(began)
 					mu.Lock()
-					people[tenantID] = append(people[tenantID], born)
+					if born != uuid.Nil {
+						people[tenantID] = append(people[tenantID], born)
+					}
+					if timings[id] == nil {
+						timings[id] = map[int64]writeTiming{}
+					}
+					timings[id][wrote.UnixMicro()] = writeTiming{visible: visible, moved: moved}
+					committed++
+					if !moved {
+						unmoved++
+					}
 					mu.Unlock()
 				}
 				time.Sleep(time.Duration(rng.Int64N(int64(pause))))
@@ -257,13 +313,40 @@ func TestEmployeeDirectory_WalksMissNothingUnderConcurrentWriters(t *testing.T) 
 		truth[e.EmployeeID] = e
 	}
 	rows.Close()
-	missed, stale := 0, 0
+	// A missed or stale row is the reader's failure unless the write the owner's row stands at (its
+	// updated_at) was out of contract: visible more than the overlap after it was written. A row no
+	// committed write of this test explains (the fixture's own, or a write that did not move
+	// updated_at) is never excused.
+	inContract := 0
+	var longest time.Duration
+	for _, ws := range timings {
+		for at, w := range ws {
+			if !w.moved {
+				continue
+			}
+			d := w.visible.Sub(time.UnixMicro(at))
+			longest = max(longest, d)
+			if d <= overlap {
+				inContract++
+			}
+		}
+	}
+	excused := func(id uuid.UUID, want DirectoryEntry) bool {
+		w, ok := timings[id][want.UpdatedAt.UnixMicro()]
+		return ok && w.moved && w.visible.Sub(want.UpdatedAt) > overlap
+	}
+	missed, stale, outMissed, outStale := 0, 0, 0, 0
 	for id, want := range truth {
 		got, ok := view[id]
 		switch {
+		case !ok && excused(id, want):
+			outMissed++
 		case !ok:
 			missed++
-		case directoryEntryKey(got) != directoryEntryKey(want):
+		case directoryEntryKey(got) == directoryEntryKey(want):
+		case excused(id, want):
+			outStale++
+		default:
 			stale++
 		}
 	}
@@ -273,12 +356,20 @@ func TestEmployeeDirectory_WalksMissNothingUnderConcurrentWriters(t *testing.T) 
 			leaked++
 		}
 	}
-	t.Logf("%d walks, %d pages, %d people of KF and KM, %d repeats; missed %d, stale %d, outsider's %d", walks, pages, len(truth), repeats, missed, stale, leaked)
+	t.Logf("%d walks, %d pages, %d people of KF and KM, %d repeats; missed %d, stale %d, outsider's %d; "+
+		"%d committed writes, %d visible within the %v overlap, the longest write->visible %v; out of contract: %d missed, %d stale",
+		walks, pages, len(truth), repeats, missed, stale, leaked, committed, inContract, overlap, longest.Round(time.Millisecond), outMissed, outStale)
 	if missed+stale+leaked > 0 || len(truth) < 100 || walks < 2 {
-		t.Errorf("the reader's view: %d missed, %d stale, %d of the outsider's (over %d people, %d walks)", missed, stale, leaked, len(truth), walks)
+		t.Errorf("the reader's view, within the contract: %d missed, %d stale, %d of the outsider's (over %d people, %d walks)", missed, stale, leaked, len(truth), walks)
 	}
-	if len(view) != len(truth) {
-		t.Errorf("the reader holds %d people, the two businesses %d", len(view), len(truth))
+	if unmoved > 0 {
+		t.Errorf("%d committed writes did not move updated_at (00037's trigger; K-21, K-41)", unmoved)
+	}
+	if inContract < 100 {
+		t.Errorf("only %d of %d committed writes were visible within the overlap: the run proves the guarantee for too few", inContract, committed)
+	}
+	if len(view)+outMissed != len(truth) {
+		t.Errorf("the reader holds %d people (%d more missed out of contract), the two businesses %d", len(view), outMissed, len(truth))
 	}
 }
 

@@ -478,6 +478,22 @@ func feedBigTenantRows(t *testing.T) int {
 //     wait, let alone the second one that would lose an advanced record;
 //   - the tenant's feed is 1..n, every eligible historical punch has exactly one event, every
 //     live write its own.
+//
+// 🔁 A CHUNK THAT WAITS OUT ITS OWN 1 s lock_timeout IS RE-RUN, as an operator re-runs the migration
+// (API-12 low round; 00050's header: "RE-RUNNABLE ... a run cut short ... writes what has no event").
+// A chunk takes the tenant's counter row behind whatever live tap holds it; on a loaded CI runner one
+// of THIS test's own writers once held it past 1 s and the block stopped with 55P03 -- the migration
+// doing what it is built to do (it gives way to the taps, never the other way round), not a lost
+// punch. So a 55P03 of the block is re-run, at most feedBackfillReruns times, and every assertion
+// below is on the state the LAST run leaves: the runs before it are committed chunks, so the 1..n
+// feed and "exactly one event for every eligible punch" pin that a re-run completes a cut run
+// without a gap or a duplicate. While the block runs, a sampler reads the backfill's own lock wait
+// (pg_locks.waitstart) and who blocks it (pg_blocking_pids): the longest wait and the blocker's query
+// are logged on a re-run and are in the failure when the re-runs are spent.
+// MEASURED (API-12 low round, a throwaway container): with the live trigger made to sleep 1.2 s
+// under the counter in 1% of its writes, the block was cut 5 to 11 times a run and re-run, and the test
+// was green with the re-runs logged (each blocker named: a live INSERT, its transaction open ~1 s,
+// itself in Timeout/PgSleep); with feedBackfillReruns 0 the same is red.
 func TestFeedBackfill_BigTenantLiveTapsLoseNothing(t *testing.T) {
 	f := holdingLiveFixture(t)
 	ctx := f.ctx
@@ -606,28 +622,45 @@ func TestFeedBackfill_BigTenantLiveTapsLoseNothing(t *testing.T) {
 			}
 		}(i)
 	}
+	sampler := feedLockSampler(t, ctx, f.connect(t, ctx), bf.PgConn().PID())
 	start := time.Now()
-	_, bfErr := bf.PgConn().Exec(ctx, block).ReadAll()
+	reruns := 0
+	var bfErr error
+	for {
+		sampler.reset()
+		_, bfErr = bf.PgConn().Exec(ctx, block).ReadAll()
+		if code, _ := opCode(bfErr); code != "55P03" || reruns == feedBackfillReruns {
+			break
+		}
+		reruns++
+		committed := opInt(t, ctx, bf, `SELECT count(*) FROM pg_temp.zz_api2_chunks`)
+		t.Logf("00050's block cut by its lock_timeout (55P03) with %d chunks committed so far, re-run %d of at most %d; %s",
+			committed, reruns, feedBackfillReruns, sampler.longest())
+	}
 	took := time.Since(start)
 	close(done)
 	wg.Wait()
+	sampler.stop()
 	if bfErr != nil {
-		t.Fatalf("00050's block: %v", bfErr)
+		t.Fatalf("00050's block, after %d re-runs: %v; %s", reruns, bfErr, sampler.longest())
 	}
-	var chunks int
-	var longest, window, lockwait float64
-	if _, err := fmt.Sscanf(notice, "api2 chunks %d max %g window %g lockwait %g", &chunks, &longest, &window, &lockwait); err != nil {
+	var lastChunks int
+	var lastLongest, window, lockwait float64
+	if _, err := fmt.Sscanf(notice, "api2 chunks %d max %g window %g lockwait %g", &lastChunks, &lastLongest, &window, &lockwait); err != nil {
 		t.Fatalf("the block's timing notice %q: %v", notice, err)
 	}
-	var median, p99 float64
+	// Every run's committed chunks: a run cut short raises no notice, and the chunks it committed are
+	// rows of the temp table all the same (each is written before its chunk's COMMIT).
+	var chunks int
+	var median, p99, longest float64
 	var over500 int64
-	if err := bf.QueryRow(ctx, `SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY held), percentile_cont(0.99) WITHIN GROUP (ORDER BY held),
-	                                   count(*) FILTER (WHERE held > 0.5) FROM pg_temp.zz_api2_chunks`).Scan(&median, &p99, &over500); err != nil {
+	if err := bf.QueryRow(ctx, `SELECT count(*), percentile_cont(0.5) WITHIN GROUP (ORDER BY held), percentile_cont(0.99) WITHIN GROUP (ORDER BY held),
+	                                   max(held), count(*) FILTER (WHERE held > 0.5) FROM pg_temp.zz_api2_chunks`).Scan(&chunks, &median, &p99, &longest, &over500); err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("00050 on one tenant of %d rows (%d eligible): %d chunks, the counter held median %.3f s, p99 %.3f s, longest %.3f s, %d over 0.5 s "+
-		"(the longest window read, unlocked, %.3f s; the longest wait for the counter %.3f s), %v in all; %d live writes, errors %v",
-		rows, eligible, chunks, median, p99, longest, over500, window, lockwait, took, written, codes)
+	t.Logf("00050 on one tenant of %d rows (%d eligible): %d chunks over %d re-runs, the counter held median %.3f s, p99 %.3f s, longest %.3f s, %d over 0.5 s "+
+		"(the last run: %d chunks, the longest window read, unlocked, %.3f s; the longest wait for the counter %.3f s), %v in all; %d live writes, errors %v; %s",
+		rows, eligible, chunks, reruns, median, p99, longest, over500, lastChunks, window, lockwait, took, written, codes, sampler.longest())
 	if len(codes) != 0 {
 		t.Errorf("live writes during the backfill met errors %v (55P03: a tap waited out the counter's lock_timeout)", codes)
 	}
@@ -646,6 +679,76 @@ func TestFeedBackfill_BigTenantLiveTapsLoseNothing(t *testing.T) {
 		t.Errorf("%d of the big tenant's eligible punches do not have exactly one event in its feed", n)
 	}
 	feedBackfillDirections(t, ctx, f.owner, lab+".ev", lab+".tx", big)
+}
+
+// feedBackfillReruns is how many times TestFeedBackfill_BigTenantLiveTapsLoseNothing re-runs 00050's
+// block after its lock_timeout cut it (55P03): a bound for the loop to end, not a budget the test
+// measures against. CI cut it once; the 1% / 1.2 s injection of the test's header cut it 5 to 11
+// times in five runs (measured) -- every one a live write sleeping under the counter.
+const feedBackfillReruns = 20
+
+// feedLockWatch samples one backend's lock wait while it runs: the longest wait seen since reset and
+// who blocked it then.
+type feedLockWatch struct {
+	mu      sync.Mutex
+	max     float64
+	blocker string
+	quit    chan struct{}
+	exited  chan struct{}
+}
+
+// feedLockSampler starts sampling pid's ungranted lock (pg_locks.waitstart) every 20 ms on c, a
+// connection of its own, until stop.
+func feedLockSampler(t *testing.T, ctx context.Context, c *pgx.Conn, pid uint32) *feedLockWatch {
+	t.Helper()
+	w := &feedLockWatch{quit: make(chan struct{}), exited: make(chan struct{})}
+	go func() {
+		defer close(w.exited)
+		for {
+			select {
+			case <-w.quit:
+				return
+			case <-time.After(20 * time.Millisecond):
+			}
+			var waited float64
+			var what string
+			err := c.QueryRow(ctx, `
+				SELECT extract(epoch FROM clock_timestamp() - l.waitstart)::float8,
+				       l.locktype || ' ' || l.mode || ' behind ' || coalesce((
+				         SELECT string_agg(format('pid %s (%s, transaction open %s s, itself waiting on %s): %s', b.pid, b.state,
+				                                  round(extract(epoch FROM clock_timestamp() - b.xact_start)::numeric, 3),
+				                                  coalesce(b.wait_event_type || '/' || b.wait_event, 'nothing'),
+				                                  left(regexp_replace(b.query, '\s+', ' ', 'g'), 160)), '; ')
+				           FROM pg_catalog.pg_stat_activity b WHERE b.pid = ANY (pg_catalog.pg_blocking_pids($1))), 'no one')
+				  FROM pg_catalog.pg_locks l
+				 WHERE l.pid = $1 AND NOT l.granted AND l.waitstart IS NOT NULL
+				 ORDER BY l.waitstart LIMIT 1`, int64(pid)).Scan(&waited, &what)
+			if err != nil {
+				// No lock awaited (no row), or the test is ending: nothing to record.
+				continue
+			}
+			w.mu.Lock()
+			if waited > w.max {
+				w.max, w.blocker = waited, what
+			}
+			w.mu.Unlock()
+		}
+	}()
+	return w
+}
+
+func (w *feedLockWatch) reset() { w.mu.Lock(); w.max, w.blocker = 0, ""; w.mu.Unlock() }
+
+func (w *feedLockWatch) stop() { close(w.quit); <-w.exited }
+
+// longest reports the longest wait since reset and its blocker.
+func (w *feedLockWatch) longest() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.blocker == "" {
+		return "the backfill was never seen waiting for a lock"
+	}
+	return fmt.Sprintf("the backfill's longest lock wait seen %.3f s, on %s", w.max, w.blocker)
 }
 
 // feedBackfillDirections pins the backfill's K-40 (ADR 0028 §4): every event in events whose punch
