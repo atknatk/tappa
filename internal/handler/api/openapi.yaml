@@ -64,7 +64,7 @@ paths:
     get:
       operationId: getOpenAPI
       summary: This document.
-      description: Served without a key, metered by the client address. Its answer is not cached (`Cache-Control` `no-store`).
+      description: Served without a key, metered by the client address. Its answer is not cached (`Cache-Control` `no-store`). It takes no query parameter -- any, and a query string that does not parse, is 400 (`details.allowed` empty).
       security: []
       x-error-codes: [invalid_request, body_too_large, rate_limited]
       responses:
@@ -85,7 +85,8 @@ paths:
       description: |
         The integration guide (Markdown, English -- the original). Served without a key, metered by
         the client address like this document. Revalidate a copy with `If-None-Match`: an unchanged
-        guide answers 304 without a body.
+        guide answers 304 without a body. It takes no query parameter -- any is 400 (`details.allowed`
+        empty).
       security: []
       x-error-codes: [invalid_request, body_too_large, rate_limited]
       parameters:
@@ -103,7 +104,7 @@ paths:
     get:
       operationId: getGuideTurkish
       summary: The integration guide, in Turkish.
-      description: The guide's Turkish translation -- the same document, section by section. Served like `/v1/guide.md`.
+      description: The guide's Turkish translation -- the same document, section by section. Served like `/v1/guide.md` (no query parameter).
       security: []
       x-error-codes: [invalid_request, body_too_large, rate_limited]
       parameters:
@@ -141,6 +142,10 @@ paths:
         twice is 422 (`duplicate_field`). The reference may be percent-encoded; it is decoded once
         and must then match the pattern (so `%41BC` is `ABC`, and an encoded `/` is refused). While
         the business is suspended this endpoint is 403 `tenant_suspended`.
+
+        A PUT sends the whole location: `name` and `active` every time. Its two optional fields hold
+        nothing of their own (`timezone` is the business's, `externalRef` the path's), so leaving
+        them out changes nothing.
       x-error-codes: [invalid_request, body_too_large, unauthorized, api_disabled, tenant_suspended, not_found, idempotency_key_reused, validation_failed, timezone_mismatch, rate_limited, unavailable]
       parameters:
         - $ref: "#/components/parameters/LocationRef"
@@ -177,8 +182,8 @@ paths:
               examples:
                 valletta:
                   summary: The answer to the request above.
-                  value: {"id": "loc_166f3262-64af-46d0-8c53-36306b075dd9", "externalRef": "KF-VLT", "name": "Valletta",
-                    "timezone": "Europe/Malta", "active": true, "createdAt": "2026-10-16T06:48:50.664499Z"}
+                  value: {"id": "loc_fc3dda7c-cd47-461e-b327-43ef68d0e4fc", "externalRef": "KF-VLT", "name": "Valletta",
+                    "timezone": "Europe/Malta", "active": true, "createdAt": "2026-10-16T08:23:20.461171Z"}
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -201,8 +206,8 @@ paths:
         Every employee of the business -- active and deactivated, with or without an external
         reference -- in a stable order, `limit` at a time (default 500, at most 1000). When a page is
         full, `nextCursor` names the next one; pass it as `cursor` (a page with fewer than `limit`
-        employees is the last, and its `nextCursor` is null). No other query parameter is accepted
-        (400). No answer carries an e-mail address: `hasEmail` says whether there is one,
+        employees is the last, and its `nextCursor` is null). No other query parameter is accepted,
+        each at most once, and a query string that does not parse is 400 too. No answer carries an e-mail address: `hasEmail` says whether there is one,
         `activationEmail` the activation e-mail's state and time.
       x-error-codes: [invalid_request, body_too_large, unauthorized, api_disabled, rate_limited, unavailable]
       parameters:
@@ -225,17 +230,17 @@ paths:
                 kf:
                   summary: KF's employees, two a page (E-1043 was deactivated).
                   value: {"data": [
-                      {"id": "emp_a7711ae9-3941-4749-96c7-c77f2a5878c0", "externalRef": "E-1042", "employeeCode": "1042",
+                      {"id": "emp_caa5e7b6-ab2b-4dc1-920b-1cbf9b9b6abb", "externalRef": "E-1042", "employeeCode": "1042",
                         "firstName": "Jane", "lastName": "Example", "fullName": "Jane Example", "active": true,
                         "activated": false, "activatedAt": null, "hasEmail": true,
-                        "activationEmail": {"status": "queued", "at": "2026-10-16T06:48:50.708573Z"},
-                        "createdAt": "2026-10-16T06:48:50.695693Z", "updatedAt": "2026-10-16T06:48:50.70598Z"},
-                      {"id": "emp_ebdc1c74-f631-4fad-9fa4-13dfbf12dcdd", "externalRef": "E-1043", "employeeCode": null,
+                        "activationEmail": {"status": "queued", "at": "2026-10-16T08:23:20.504798Z"},
+                        "createdAt": "2026-10-16T08:23:20.490688Z", "updatedAt": "2026-10-16T08:23:20.501899Z"},
+                      {"id": "emp_c6a23032-df9e-4914-bd30-4ceaaca03fe1", "externalRef": "E-1043", "employeeCode": null,
                         "firstName": "Sam", "lastName": "Placeholder", "fullName": "Sam Placeholder", "active": false,
                         "activated": false, "activatedAt": null, "hasEmail": false,
                         "activationEmail": {"status": "none", "at": null},
-                        "createdAt": "2026-10-16T06:48:50.722703Z", "updatedAt": "2026-10-16T06:48:50.760562Z"}],
-                    "nextCursor": "emp_ebdc1c74-f631-4fad-9fa4-13dfbf12dcdd"}
+                        "createdAt": "2026-10-16T08:23:20.517094Z", "updatedAt": "2026-10-16T08:23:20.554811Z"}],
+                    "nextCursor": "emp_c6a23032-df9e-4914-bd30-4ceaaca03fe1"}
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -253,7 +258,8 @@ paths:
       description: |
         The active employee under the reference, or -- when none is active -- the most recently
         deactivated one (a re-hire is a new employee under the same reference). 404 when the business
-        never held the reference. No e-mail address is answered.
+        never held the reference. No e-mail address is answered. It takes no query parameter -- any
+        is 400 (`details.allowed` empty).
       x-error-codes: [invalid_request, body_too_large, unauthorized, api_disabled, not_found, validation_failed, rate_limited, unavailable]
       parameters:
         - $ref: "#/components/parameters/EmployeeRef"
@@ -267,11 +273,11 @@ paths:
               examples:
                 jane:
                   summary: E-1042, invited and not activated yet.
-                  value: {"id": "emp_a7711ae9-3941-4749-96c7-c77f2a5878c0", "externalRef": "E-1042", "employeeCode": "1042",
+                  value: {"id": "emp_caa5e7b6-ab2b-4dc1-920b-1cbf9b9b6abb", "externalRef": "E-1042", "employeeCode": "1042",
                     "firstName": "Jane", "lastName": "Example", "fullName": "Jane Example", "active": true,
                     "activated": false, "activatedAt": null, "hasEmail": true,
-                    "activationEmail": {"status": "queued", "at": "2026-10-16T06:48:50.708573Z"},
-                    "createdAt": "2026-10-16T06:48:50.695693Z", "updatedAt": "2026-10-16T06:48:50.70598Z"}
+                    "activationEmail": {"status": "queued", "at": "2026-10-16T08:23:20.504798Z"},
+                    "createdAt": "2026-10-16T08:23:20.490688Z", "updatedAt": "2026-10-16T08:23:20.501899Z"}
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -308,6 +314,11 @@ paths:
         `id`, same `externalRef`). A request that matches the employee as they are changes nothing
         (200).
 
+        A PUT replaces, it does not patch: an optional field left out becomes null -- an employee
+        whose `employeeCode` was "77", put without the field, is answered with `employeeCode` null,
+        and so are their next punches and a partner's directory. Send every field you hold, every
+        time.
+
         `email` must be one plain ASCII address and not the address of an administrator of the
         business (422 `administrator_address`); an address another active employee of the business
         holds is 409 `email_unavailable` (nothing is created or sent). These answers tell the key's
@@ -318,8 +329,10 @@ paths:
 
         The body is one UTF-8 JSON object with exactly the fields below, each at most once (any other
         field 422 `unknown_field`, a field twice 422 `duplicate_field`). While the business is
-        suspended a request that creates a new employee is accepted; one that changes an existing
-        employee (deactivation included) is 403 `tenant_suspended`.
+        suspended a request that creates a new employee (a re-hire included) is accepted; every
+        request that lands on an existing employee -- a change, a binding by address, `active: false`
+        (also on an employee already deactivated) and one that changes nothing -- is 403
+        `tenant_suspended`.
       x-error-codes: [invalid_request, body_too_large, unauthorized, api_disabled, tenant_suspended, not_found, email_unavailable, idempotency_key_reused, validation_failed, rate_limited, deactivation_budget_exceeded, unavailable]
       parameters:
         - $ref: "#/components/parameters/EmployeeRef"
@@ -357,11 +370,11 @@ paths:
               examples:
                 jane:
                   summary: The answer to the request above -- the activation e-mail is queued.
-                  value: {"id": "emp_a7711ae9-3941-4749-96c7-c77f2a5878c0", "externalRef": "E-1042", "employeeCode": "1042",
+                  value: {"id": "emp_caa5e7b6-ab2b-4dc1-920b-1cbf9b9b6abb", "externalRef": "E-1042", "employeeCode": "1042",
                     "firstName": "Jane", "lastName": "Example", "fullName": "Jane Example", "active": true,
                     "activated": false, "activatedAt": null, "hasEmail": true,
-                    "activationEmail": {"status": "queued", "at": "2026-10-16T06:48:50.708573Z"},
-                    "createdAt": "2026-10-16T06:48:50.695693Z", "updatedAt": "2026-10-16T06:48:50.70598Z"}
+                    "activationEmail": {"status": "queued", "at": "2026-10-16T08:23:20.504798Z"},
+                    "createdAt": "2026-10-16T08:23:20.490688Z", "updatedAt": "2026-10-16T08:23:20.501899Z"}
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -385,7 +398,8 @@ paths:
         Deactivates the active employee under the reference: their taps are refused from then on, and
         their history stays. An employee already deactivated is answered as they are (200, nothing
         spent); a reference the business never held is 404. Limited per key like `active: false` (429
-        `deactivation_budget_exceeded`). While the business is suspended, 403 `tenant_suspended`.
+        `deactivation_budget_exceeded`). While the business is suspended every DELETE is 403
+        `tenant_suspended` -- one of an employee already deactivated too.
       x-error-codes: [invalid_request, body_too_large, unauthorized, api_disabled, tenant_suspended, not_found, idempotency_key_reused, validation_failed, rate_limited, deactivation_budget_exceeded, unavailable]
       parameters:
         - $ref: "#/components/parameters/EmployeeRef"
@@ -403,11 +417,11 @@ paths:
               examples:
                 sam:
                   summary: E-1043 (no e-mail address) deactivated.
-                  value: {"id": "emp_ebdc1c74-f631-4fad-9fa4-13dfbf12dcdd", "externalRef": "E-1043", "employeeCode": null,
+                  value: {"id": "emp_c6a23032-df9e-4914-bd30-4ceaaca03fe1", "externalRef": "E-1043", "employeeCode": null,
                     "firstName": "Sam", "lastName": "Placeholder", "fullName": "Sam Placeholder", "active": false,
                     "activated": false, "activatedAt": null, "hasEmail": false,
                     "activationEmail": {"status": "none", "at": null},
-                    "createdAt": "2026-10-16T06:48:50.722703Z", "updatedAt": "2026-10-16T06:48:50.760562Z"}
+                    "createdAt": "2026-10-16T08:23:20.517094Z", "updatedAt": "2026-10-16T08:23:20.554811Z"}
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -450,11 +464,11 @@ paths:
               examples:
                 jane:
                   summary: An e-mail is already queued for E-1042, so nothing changes -- still 202.
-                  value: {"id": "emp_a7711ae9-3941-4749-96c7-c77f2a5878c0", "externalRef": "E-1042", "employeeCode": "1042",
+                  value: {"id": "emp_caa5e7b6-ab2b-4dc1-920b-1cbf9b9b6abb", "externalRef": "E-1042", "employeeCode": "1042",
                     "firstName": "Jane", "lastName": "Example", "fullName": "Jane Example", "active": true,
                     "activated": false, "activatedAt": null, "hasEmail": true,
-                    "activationEmail": {"status": "queued", "at": "2026-10-16T06:48:50.708573Z"},
-                    "createdAt": "2026-10-16T06:48:50.695693Z", "updatedAt": "2026-10-16T06:48:50.70598Z"}
+                    "activationEmail": {"status": "queued", "at": "2026-10-16T08:23:20.504798Z"},
+                    "createdAt": "2026-10-16T08:23:20.490688Z", "updatedAt": "2026-10-16T08:23:20.501899Z"}
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -561,45 +575,45 @@ paths:
                 $ref: "#/components/schemas/PunchPage"
               examples:
                 feed:
-                  summary: "KF's feed, scope=location: Jane (KF) and Joe (KM) tapped in at KF's Valletta."
+                  summary: "KF's feed, scope=location: Joe (KM) and Jane (KF) tapped in at KF's Valletta."
                   value: {"data": [
-                      {"id": "pch_4aa969bd-1d3a-4371-bf0f-dd8ed792554a", "version": 1, "status": "valid",
-                        "punchTime": "2026-10-16T05:58:50.805Z", "recordedAt": "2026-10-16T06:48:50.802957Z",
+                      {"id": "pch_c9ddd4ac-baf5-4d85-a09a-3cf9fdce7940", "version": 1, "status": "valid",
+                        "punchTime": "2026-10-16T08:22:15.601Z", "recordedAt": "2026-10-16T08:23:20.599213Z",
                         "channel": "nfc", "direction": "in",
-                        "employee": {"id": "emp_a7711ae9-3941-4749-96c7-c77f2a5878c0", "externalRef": "E-1042",
-                          "employeeCode": "1042", "company": "KF"},
-                        "location": {"id": "loc_166f3262-64af-46d0-8c53-36306b075dd9", "externalRef": "KF-VLT",
-                          "name": "Valletta", "company": "KF"},
-                        "tagId": "tag_4191371A1A7398"},
-                      {"id": "pch_17062bc7-a07c-4317-9571-d12afa2e6e97", "version": 1, "status": "valid",
-                        "punchTime": "2026-10-16T06:03:50.817Z", "recordedAt": "2026-10-16T06:48:50.816091Z",
-                        "channel": "nfc", "direction": "in",
-                        "employee": {"id": "emp_5dfc2b96-0d04-4732-abd1-340856dc1294", "externalRef": "M-2001",
+                        "employee": {"id": "emp_3ed82a0f-c95b-4b49-836d-1eccbceb7180", "externalRef": "M-2001",
                           "employeeCode": "2001", "company": "KM"},
-                        "location": {"id": "loc_166f3262-64af-46d0-8c53-36306b075dd9", "externalRef": "KF-VLT",
+                        "location": {"id": "loc_fc3dda7c-cd47-461e-b327-43ef68d0e4fc", "externalRef": "KF-VLT",
                           "name": "Valletta", "company": "KF"},
-                        "tagId": "tag_4191371A1A7398"}],
+                        "tagId": "tag_229B1AB4766C99"},
+                      {"id": "pch_b79d3f18-f22e-456a-a386-466710dcb586", "version": 1, "status": "valid",
+                        "punchTime": "2026-10-16T08:23:17.62Z", "recordedAt": "2026-10-16T08:23:20.619065Z",
+                        "channel": "nfc", "direction": "in",
+                        "employee": {"id": "emp_caa5e7b6-ab2b-4dc1-920b-1cbf9b9b6abb", "externalRef": "E-1042",
+                          "employeeCode": "1042", "company": "KF"},
+                        "location": {"id": "loc_fc3dda7c-cd47-461e-b327-43ef68d0e4fc", "externalRef": "KF-VLT",
+                          "name": "Valletta", "company": "KF"},
+                        "tagId": "tag_229B1AB4766C99"}],
                     "nextCursor": "cur_2", "hasMore": false}
                 history:
                   summary: "KM's history, scope=employer: Joe in at KF's Valletta, out at KM's Production."
                   value: {"data": [
-                      {"id": "pch_17062bc7-a07c-4317-9571-d12afa2e6e97", "version": 1, "status": "valid",
-                        "punchTime": "2026-10-16T06:03:50.817Z", "recordedAt": "2026-10-16T06:48:50.816091Z",
+                      {"id": "pch_c9ddd4ac-baf5-4d85-a09a-3cf9fdce7940", "version": 1, "status": "valid",
+                        "punchTime": "2026-10-16T08:22:15.601Z", "recordedAt": "2026-10-16T08:23:20.599213Z",
                         "channel": "nfc", "direction": "in",
-                        "employee": {"id": "emp_5dfc2b96-0d04-4732-abd1-340856dc1294", "externalRef": "M-2001",
+                        "employee": {"id": "emp_3ed82a0f-c95b-4b49-836d-1eccbceb7180", "externalRef": "M-2001",
                           "employeeCode": "2001", "company": "KM"},
-                        "location": {"id": "loc_166f3262-64af-46d0-8c53-36306b075dd9", "externalRef": "KF-VLT",
+                        "location": {"id": "loc_fc3dda7c-cd47-461e-b327-43ef68d0e4fc", "externalRef": "KF-VLT",
                           "name": "Valletta", "company": "KF"},
-                        "tagId": "tag_4191371A1A7398"},
-                      {"id": "pch_91d7e258-e53b-42e0-bdf9-f62796553a75", "version": 1, "status": "valid",
-                        "punchTime": "2026-10-16T06:47:50.83Z", "recordedAt": "2026-10-16T06:48:50.829045Z",
+                        "tagId": "tag_229B1AB4766C99"},
+                      {"id": "pch_2be2fdc3-cebd-4bd7-9b17-2d4b5e0c46b8", "version": 1, "status": "valid",
+                        "punchTime": "2026-10-16T08:23:18.626Z", "recordedAt": "2026-10-16T08:23:20.625138Z",
                         "channel": "nfc", "direction": "out",
-                        "employee": {"id": "emp_5dfc2b96-0d04-4732-abd1-340856dc1294", "externalRef": "M-2001",
+                        "employee": {"id": "emp_3ed82a0f-c95b-4b49-836d-1eccbceb7180", "externalRef": "M-2001",
                           "employeeCode": "2001", "company": "KM"},
-                        "location": {"id": "loc_24ab23d4-5681-4783-8774-c6e32e3db489", "externalRef": "DEP-1",
+                        "location": {"id": "loc_9f8556c8-34b6-4ade-b094-33f3b0fc84f1", "externalRef": "DEP-1",
                           "name": "Production", "company": "KM"},
-                        "tagId": "tag_170E0E29BC2684"}],
-                    "nextCursor": "hst_2_1792133270830000_2_94085386467fb983", "hasMore": false}
+                        "tagId": "tag_A787E8840F05BC"}],
+                    "nextCursor": "hst_2_1792138998626000_2_8cc334c07fc173a5", "hasMore": false}
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -679,16 +693,16 @@ paths:
                 kf:
                   summary: KF's whole directory -- its two employees and KM's one.
                   value: {"data": [
-                      {"id": "emp_a7711ae9-3941-4749-96c7-c77f2a5878c0", "company": "KF", "externalRef": "E-1042",
+                      {"id": "emp_caa5e7b6-ab2b-4dc1-920b-1cbf9b9b6abb", "company": "KF", "externalRef": "E-1042",
                         "employeeCode": "1042", "firstName": "Jane", "lastName": "Example", "fullName": "Jane Example",
-                        "active": true, "updatedAt": "2026-10-16T06:48:50.70598Z"},
-                      {"id": "emp_5dfc2b96-0d04-4732-abd1-340856dc1294", "company": "KM", "externalRef": "M-2001",
+                        "active": true, "updatedAt": "2026-10-16T08:23:20.501899Z"},
+                      {"id": "emp_3ed82a0f-c95b-4b49-836d-1eccbceb7180", "company": "KM", "externalRef": "M-2001",
                         "employeeCode": "2001", "firstName": "Joe", "lastName": "Sample", "fullName": "Joe Sample",
-                        "active": true, "updatedAt": "2026-10-16T06:48:50.742389Z"},
-                      {"id": "emp_ebdc1c74-f631-4fad-9fa4-13dfbf12dcdd", "company": "KF", "externalRef": "E-1043",
+                        "active": true, "updatedAt": "2026-10-16T08:23:20.536218Z"},
+                      {"id": "emp_c6a23032-df9e-4914-bd30-4ceaaca03fe1", "company": "KF", "externalRef": "E-1043",
                         "employeeCode": null, "firstName": "Sam", "lastName": "Placeholder", "fullName": "Sam Placeholder",
-                        "active": false, "updatedAt": "2026-10-16T06:48:50.760562Z"}],
-                    "nextCursor": null, "hasMore": false, "asOf": "2026-10-16T06:48:50.85826Z"}
+                        "active": false, "updatedAt": "2026-10-16T08:23:20.554811Z"}],
+                    "nextCursor": null, "hasMore": false, "asOf": "2026-10-16T08:23:20.653691Z"}
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -715,6 +729,10 @@ webhooks:
         included). Recompute it over the raw body and compare in constant time; there is no timestamp
         header. The guide has a known-answer vector.
 
+        Connection: TLS 1.2 or newer, and a certificate valid for the endpoint's name that chains to
+        a publicly trusted certificate authority -- an older TLS, a self-signed certificate or a
+        private authority's fails every try.
+
         Answer: any 2xx within 10 seconds is "delivered". Anything else -- another status (a redirect
         included: it is not followed), no answer within 10 seconds, a TLS or connection failure -- is a
         failed try. A failed delivery is tried again after 1 min, 5 min, 30 min, 2 h and 6 h; the
@@ -735,15 +753,15 @@ webhooks:
             examples:
               jane:
                 summary: Jane's punch in, posted to KF's endpoint.
-                value: {"event": "punch", "deliveryId": "dlv_2682e520-d961-43b5-9138-cd553aa0693f",
-                  "id": "pch_4aa969bd-1d3a-4371-bf0f-dd8ed792554a", "version": 1, "status": "valid",
-                  "punchTime": "2026-10-16T05:58:50.805Z", "recordedAt": "2026-10-16T06:48:50.802957Z",
+                value: {"event": "punch", "deliveryId": "dlv_812ed053-f6d5-4c9e-9c94-1c878fa8de26",
+                  "id": "pch_b79d3f18-f22e-456a-a386-466710dcb586", "version": 1, "status": "valid",
+                  "punchTime": "2026-10-16T08:23:17.62Z", "recordedAt": "2026-10-16T08:23:20.619065Z",
                   "channel": "nfc", "direction": "in",
-                  "employee": {"id": "emp_a7711ae9-3941-4749-96c7-c77f2a5878c0", "externalRef": "E-1042",
+                  "employee": {"id": "emp_caa5e7b6-ab2b-4dc1-920b-1cbf9b9b6abb", "externalRef": "E-1042",
                     "employeeCode": "1042", "company": "KF"},
-                  "location": {"id": "loc_166f3262-64af-46d0-8c53-36306b075dd9", "externalRef": "KF-VLT",
+                  "location": {"id": "loc_fc3dda7c-cd47-461e-b327-43ef68d0e4fc", "externalRef": "KF-VLT",
                     "name": "Valletta", "company": "KF"},
-                  "tagId": "tag_4191371A1A7398"}
+                  "tagId": "tag_229B1AB4766C99"}
       responses:
         "2XX":
           description: Delivered. The answer's body is not read.
@@ -769,7 +787,7 @@ webhooks:
             examples:
               ping:
                 summary: A test message to KF's endpoint.
-                value: {"event": "ping", "id": "7b6d9161-20d9-4a59-ae1a-e6446afa8614", "sentAt": "2026-10-16T06:48:50Z"}
+                value: {"event": "ping", "id": "ca4a4f73-97af-40b5-a4e3-1031ea356cc9", "sentAt": "2026-10-16T08:23:20Z"}
       responses:
         "2XX":
           description: Received. The panel shows the owner the answer's class and status.
@@ -945,7 +963,7 @@ components:
           description: false deactivates the employee (limited per key per hour).
         employeeCode:
           type: ["string", "null"]
-          description: Optional. 1 to 64 characters once surrounding spaces are removed; null for none.
+          description: Optional. 1 to 64 characters once surrounding spaces are removed; null for none. A PUT replaces -- left out, it becomes null.
         externalRef:
           type: string
           description: Optional. When present it must be the reference in the path.
@@ -1253,7 +1271,7 @@ components:
           type: array
           items:
             type: string
-          description: The names this endpoint accepts (fields, parameters or values).
+          description: The names this endpoint accepts (fields, parameters or values); empty for a GET that takes no query parameter.
         header:
           type: string
           description: The request header at fault.

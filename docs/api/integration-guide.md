@@ -121,8 +121,11 @@ Authorization: Bearer <key>
 - An unknown key and a revoked key get the **same** 401, with
   `WWW-Authenticate: Bearer realm="taptime"`. A revocation, and Taptime's disabling of the API,
   take effect on the very next request: nothing is cached.
-- Keep the key out of logs, URLs and headers other than `Authorization`. A request id that looks
-  like a key is not carried into Taptime's logs.
+- Keep the key out of logs, URLs and headers other than `Authorization`.
+- **Never put a key or another secret into `X-Request-Id`.** Taptime may write the `X-Request-Id`
+  you send into its logs as the request's id. Only a value that contains `tt_live_`, `tt_test_` or
+  `tt_whsec_` (in any case) is replaced by an id of Taptime's own; anything else — a key's
+  characters without its prefix included — is written as it is.
 
 A business may have several keys (one per system is a good rule). Each key has its own request
 budget and its own deactivation budget, and its own Idempotency-Keys — see
@@ -204,8 +207,9 @@ that is not answered within 30 seconds is answered 503.
 ### 3.2 Pages and `limit`
 
 Every list is paged. `limit` is a whole number from 1 to 1000; without it a page holds up to 500.
-Anything else — 0, 1001, a sign, a fraction, a second `limit` — is **400 `invalid_request`** with
-`details.parameter` `limit`. Each list has its own cursor and its own rule for the last page;
+Anything else — 0, 1001, a sign, a fraction — is **400 `invalid_request`** with
+`details.parameter` `limit`; a second `limit` is a repeated parameter, answered like one
+([3.7](#query)). Each list has its own cursor and its own rule for the last page;
 they are described with the lists ([5.6](#employees-read), [6.4](#feed-paging),
 [7](#history), [8.2](#directory-walk)).
 
@@ -290,10 +294,13 @@ These are the OpenAPI document's `info.x-limits`, and the service's own values.
 <a id="query"></a>
 ### 3.7 Query parameters
 
-Each list takes exactly its documented parameters, each at most once, spelled exactly: any other
-parameter (`Scope`, `curser`), a repeated one and a query string that does not parse (`%zz`) are
-**400 `invalid_request`**, with the accepted names in `details.allowed`. A misspelt parameter is
-never ignored.
+Every `GET` takes exactly its documented parameters, each at most once, spelled exactly: any other
+parameter (`Scope`, `curser`), a repeated one and a query string that does not parse (`%zz`, a `;`
+between parameters) are **400 `invalid_request`**, with the accepted names in `details.allowed`.
+A misspelt parameter is never ignored. `GET /v1/employees/{ref}` and the three documents take no
+parameter at all: any is 400, with `details.allowed` empty. A write (`PUT`, `DELETE`, `POST`) has
+no query parameters: Taptime does not read its query string — send none — except as part of the
+request an Idempotency-Key names ([3.3](#idempotency)).
 
 Instants in a query string (`from`, `to`, `updatedSince`) are RFC 3339 —
 `YYYY-MM-DDThh:mm:ss`, an optional `.fraction` after a dot, then `Z` or an offset `±hh:mm` — with
@@ -338,6 +345,9 @@ Every `/v1` answer carries `Cache-Control: no-store`, `X-Content-Type-Options: n
 - An unknown reference **creates** the location: **201**. A known one is renamed or relabelled:
   **200**. A request that matches the location as it is changes nothing: 200, and nothing is
   written.
+- A `PUT` sends the whole location: `name` and `active` every time. Its two optional fields hold
+  nothing of their own — `timezone` is the business's, `externalRef` the path's — so leaving them
+  out changes nothing.
 - A location is **never matched by its name**. A location that already exists in Taptime (set up
   in the panel) is reached through the API only after its owner fills in its **External ref** in
   the Taptime panel; until then the same reference would create a second location.
@@ -372,12 +382,12 @@ curl -sS -X PUT "$TAPTIME_API/v1/locations/KF-VLT" \
 <!-- example: putLocation 201 -->
 ```json
 {
-  "id": "loc_166f3262-64af-46d0-8c53-36306b075dd9",
+  "id": "loc_fc3dda7c-cd47-461e-b327-43ef68d0e4fc",
   "externalRef": "KF-VLT",
   "name": "Valletta",
   "timezone": "Europe/Malta",
   "active": true,
-  "createdAt": "2026-10-16T06:48:50.664499Z"
+  "createdAt": "2026-10-16T08:23:20.461171Z"
 }
 ```
 
@@ -397,7 +407,7 @@ KM puts its department `DEP-1` ("Production") the same way: a KM department is a
 | `lastName` | string, required | Together with `firstName` at most 120 characters; spaces are collapsed. |
 | `email` | string or `null`, required | The activation e-mail's address; `null` for none. The key must be present. |
 | `active` | boolean, required | `false` deactivates ([5.5](#employees-deactivate)). |
-| `employeeCode` | string or `null`, optional | 1 to 64 characters. |
+| `employeeCode` | string or `null`, optional | 1 to 64 characters. Left out, it becomes `null`. |
 | `externalRef` | string, optional | When sent, it must be the reference in the path. |
 
 - **An unknown reference first binds** an employee the business already has in Taptime: an
@@ -408,6 +418,10 @@ KM puts its department `DEP-1` ("Production") the same way: a KM department is a
   activation e-mail is **queued** ([5.2](#employees-activation)).
 - A known reference is updated: **200**. A request that matches the employee as they are changes
   nothing: 200.
+- **A `PUT` replaces, it does not patch**: a left-out optional field becomes `null`. An employee
+  whose `employeeCode` is `77`, put without `employeeCode`, is answered with `employeeCode: null` —
+  and their next punches and a partner company's directory carry `null` too. Send every field you
+  hold, every time.
 - **The address**: one plain ASCII address (no display name, no spaces, at most 254 characters).
   An address of an administrator of the business is **422** (`reason` `administrator_address`). An
   address another **active** employee of the business holds is **409 `email_unavailable`**: nothing
@@ -434,7 +448,7 @@ curl -sS -X PUT "$TAPTIME_API/v1/employees/E-1042" \
 <!-- example: putEmployee 201 -->
 ```json
 {
-  "id": "emp_a7711ae9-3941-4749-96c7-c77f2a5878c0",
+  "id": "emp_caa5e7b6-ab2b-4dc1-920b-1cbf9b9b6abb",
   "externalRef": "E-1042",
   "employeeCode": "1042",
   "firstName": "Jane",
@@ -444,9 +458,9 @@ curl -sS -X PUT "$TAPTIME_API/v1/employees/E-1042" \
   "activated": false,
   "activatedAt": null,
   "hasEmail": true,
-  "activationEmail": {"status": "queued", "at": "2026-10-16T06:48:50.708573Z"},
-  "createdAt": "2026-10-16T06:48:50.695693Z",
-  "updatedAt": "2026-10-16T06:48:50.70598Z"
+  "activationEmail": {"status": "queued", "at": "2026-10-16T08:23:20.504798Z"},
+  "createdAt": "2026-10-16T08:23:20.490688Z",
+  "updatedAt": "2026-10-16T08:23:20.501899Z"
 }
 ```
 
@@ -510,14 +524,16 @@ are refused from then on, and their history stays.
   answer is **429 `deactivation_budget_exceeded`** with `Retry-After` — the seconds until the oldest
   of the hour's deactivations leaves the window — and the business's owner sees an alert in the
   panel. This code is not `rate_limited`, so your system can tell a budget from a request limit.
-- An employee already deactivated is answered as they are: 200, nothing spent.
+- An employee already deactivated is answered as they are: 200, nothing spent — except while the
+  business is suspended.
 - A reference the business never held is **404 `not_found`**.
-- While the business is suspended, deactivation is 403 `tenant_suspended`.
+- While the business is suspended, every `DELETE` and every `PUT` with `active: false` is 403
+  `tenant_suspended` — also for an employee already deactivated ([section 10](#suspension)).
 
 <!-- example: deleteEmployee 200 -->
 ```json
 {
-  "id": "emp_ebdc1c74-f631-4fad-9fa4-13dfbf12dcdd",
+  "id": "emp_c6a23032-df9e-4914-bd30-4ceaaca03fe1",
   "externalRef": "E-1043",
   "employeeCode": null,
   "firstName": "Sam",
@@ -528,8 +544,8 @@ are refused from then on, and their history stays.
   "activatedAt": null,
   "hasEmail": false,
   "activationEmail": {"status": "none", "at": null},
-  "createdAt": "2026-10-16T06:48:50.722703Z",
-  "updatedAt": "2026-10-16T06:48:50.760562Z"
+  "createdAt": "2026-10-16T08:23:20.517094Z",
+  "updatedAt": "2026-10-16T08:23:20.554811Z"
 }
 ```
 
@@ -663,36 +679,36 @@ repeat:
 - Deduplicate by `id` + `version`: the feed answers each punch once per scope, but a webhook can
   deliver it again ([section 9.7](#webhook-duplicates)).
 
-In the story, KF reads its `location` scope: Jane (KF) touched in at Valletta, and so did Joe, an
-employee of KM.
+In the story, KF reads its `location` scope: Joe, an employee of KM, touched in at Valletta, and so
+did Jane (KF).
 
 <!-- example: listPunches 200 feed -->
 ```json
 {
   "data": [
     {
-      "id": "pch_4aa969bd-1d3a-4371-bf0f-dd8ed792554a",
+      "id": "pch_c9ddd4ac-baf5-4d85-a09a-3cf9fdce7940",
       "version": 1,
       "status": "valid",
-      "punchTime": "2026-10-16T05:58:50.805Z",
-      "recordedAt": "2026-10-16T06:48:50.802957Z",
+      "punchTime": "2026-10-16T08:22:15.601Z",
+      "recordedAt": "2026-10-16T08:23:20.599213Z",
       "channel": "nfc",
       "direction": "in",
-      "employee": {"id": "emp_a7711ae9-3941-4749-96c7-c77f2a5878c0", "externalRef": "E-1042", "employeeCode": "1042", "company": "KF"},
-      "location": {"id": "loc_166f3262-64af-46d0-8c53-36306b075dd9", "externalRef": "KF-VLT", "name": "Valletta", "company": "KF"},
-      "tagId": "tag_4191371A1A7398"
+      "employee": {"id": "emp_3ed82a0f-c95b-4b49-836d-1eccbceb7180", "externalRef": "M-2001", "employeeCode": "2001", "company": "KM"},
+      "location": {"id": "loc_fc3dda7c-cd47-461e-b327-43ef68d0e4fc", "externalRef": "KF-VLT", "name": "Valletta", "company": "KF"},
+      "tagId": "tag_229B1AB4766C99"
     },
     {
-      "id": "pch_17062bc7-a07c-4317-9571-d12afa2e6e97",
+      "id": "pch_b79d3f18-f22e-456a-a386-466710dcb586",
       "version": 1,
       "status": "valid",
-      "punchTime": "2026-10-16T06:03:50.817Z",
-      "recordedAt": "2026-10-16T06:48:50.816091Z",
+      "punchTime": "2026-10-16T08:23:17.62Z",
+      "recordedAt": "2026-10-16T08:23:20.619065Z",
       "channel": "nfc",
       "direction": "in",
-      "employee": {"id": "emp_5dfc2b96-0d04-4732-abd1-340856dc1294", "externalRef": "M-2001", "employeeCode": "2001", "company": "KM"},
-      "location": {"id": "loc_166f3262-64af-46d0-8c53-36306b075dd9", "externalRef": "KF-VLT", "name": "Valletta", "company": "KF"},
-      "tagId": "tag_4191371A1A7398"
+      "employee": {"id": "emp_caa5e7b6-ab2b-4dc1-920b-1cbf9b9b6abb", "externalRef": "E-1042", "employeeCode": "1042", "company": "KF"},
+      "location": {"id": "loc_fc3dda7c-cd47-461e-b327-43ef68d0e4fc", "externalRef": "KF-VLT", "name": "Valletta", "company": "KF"},
+      "tagId": "tag_229B1AB4766C99"
     }
   ],
   "nextCursor": "cur_2",
@@ -721,31 +737,31 @@ both:
 {
   "data": [
     {
-      "id": "pch_17062bc7-a07c-4317-9571-d12afa2e6e97",
+      "id": "pch_c9ddd4ac-baf5-4d85-a09a-3cf9fdce7940",
       "version": 1,
       "status": "valid",
-      "punchTime": "2026-10-16T06:03:50.817Z",
-      "recordedAt": "2026-10-16T06:48:50.816091Z",
+      "punchTime": "2026-10-16T08:22:15.601Z",
+      "recordedAt": "2026-10-16T08:23:20.599213Z",
       "channel": "nfc",
       "direction": "in",
-      "employee": {"id": "emp_5dfc2b96-0d04-4732-abd1-340856dc1294", "externalRef": "M-2001", "employeeCode": "2001", "company": "KM"},
-      "location": {"id": "loc_166f3262-64af-46d0-8c53-36306b075dd9", "externalRef": "KF-VLT", "name": "Valletta", "company": "KF"},
-      "tagId": "tag_4191371A1A7398"
+      "employee": {"id": "emp_3ed82a0f-c95b-4b49-836d-1eccbceb7180", "externalRef": "M-2001", "employeeCode": "2001", "company": "KM"},
+      "location": {"id": "loc_fc3dda7c-cd47-461e-b327-43ef68d0e4fc", "externalRef": "KF-VLT", "name": "Valletta", "company": "KF"},
+      "tagId": "tag_229B1AB4766C99"
     },
     {
-      "id": "pch_91d7e258-e53b-42e0-bdf9-f62796553a75",
+      "id": "pch_2be2fdc3-cebd-4bd7-9b17-2d4b5e0c46b8",
       "version": 1,
       "status": "valid",
-      "punchTime": "2026-10-16T06:47:50.83Z",
-      "recordedAt": "2026-10-16T06:48:50.829045Z",
+      "punchTime": "2026-10-16T08:23:18.626Z",
+      "recordedAt": "2026-10-16T08:23:20.625138Z",
       "channel": "nfc",
       "direction": "out",
-      "employee": {"id": "emp_5dfc2b96-0d04-4732-abd1-340856dc1294", "externalRef": "M-2001", "employeeCode": "2001", "company": "KM"},
-      "location": {"id": "loc_24ab23d4-5681-4783-8774-c6e32e3db489", "externalRef": "DEP-1", "name": "Production", "company": "KM"},
-      "tagId": "tag_170E0E29BC2684"
+      "employee": {"id": "emp_3ed82a0f-c95b-4b49-836d-1eccbceb7180", "externalRef": "M-2001", "employeeCode": "2001", "company": "KM"},
+      "location": {"id": "loc_9f8556c8-34b6-4ade-b094-33f3b0fc84f1", "externalRef": "DEP-1", "name": "Production", "company": "KM"},
+      "tagId": "tag_A787E8840F05BC"
     }
   ],
-  "nextCursor": "hst_2_1792133270830000_2_94085386467fb983",
+  "nextCursor": "hst_2_1792138998626000_2_8cc334c07fc173a5",
   "hasMore": false
 }
 ```
@@ -793,13 +809,13 @@ created in the Taptime panel and not named by an integration has `firstName` and
 ```json
 {
   "data": [
-    {"id": "emp_a7711ae9-3941-4749-96c7-c77f2a5878c0", "company": "KF", "externalRef": "E-1042", "employeeCode": "1042", "firstName": "Jane", "lastName": "Example", "fullName": "Jane Example", "active": true, "updatedAt": "2026-10-16T06:48:50.70598Z"},
-    {"id": "emp_5dfc2b96-0d04-4732-abd1-340856dc1294", "company": "KM", "externalRef": "M-2001", "employeeCode": "2001", "firstName": "Joe", "lastName": "Sample", "fullName": "Joe Sample", "active": true, "updatedAt": "2026-10-16T06:48:50.742389Z"},
-    {"id": "emp_ebdc1c74-f631-4fad-9fa4-13dfbf12dcdd", "company": "KF", "externalRef": "E-1043", "employeeCode": null, "firstName": "Sam", "lastName": "Placeholder", "fullName": "Sam Placeholder", "active": false, "updatedAt": "2026-10-16T06:48:50.760562Z"}
+    {"id": "emp_caa5e7b6-ab2b-4dc1-920b-1cbf9b9b6abb", "company": "KF", "externalRef": "E-1042", "employeeCode": "1042", "firstName": "Jane", "lastName": "Example", "fullName": "Jane Example", "active": true, "updatedAt": "2026-10-16T08:23:20.501899Z"},
+    {"id": "emp_3ed82a0f-c95b-4b49-836d-1eccbceb7180", "company": "KM", "externalRef": "M-2001", "employeeCode": "2001", "firstName": "Joe", "lastName": "Sample", "fullName": "Joe Sample", "active": true, "updatedAt": "2026-10-16T08:23:20.536218Z"},
+    {"id": "emp_c6a23032-df9e-4914-bd30-4ceaaca03fe1", "company": "KF", "externalRef": "E-1043", "employeeCode": null, "firstName": "Sam", "lastName": "Placeholder", "fullName": "Sam Placeholder", "active": false, "updatedAt": "2026-10-16T08:23:20.554811Z"}
   ],
   "nextCursor": null,
   "hasMore": false,
-  "asOf": "2026-10-16T06:48:50.85826Z"
+  "asOf": "2026-10-16T08:23:20.653691Z"
 }
 ```
 
@@ -860,8 +876,10 @@ API keys, part Webhook); the API cannot. The address must be:
 The panel stores the address in one spelling (a lower-case host, no `:443`). The address is checked again **when
 Taptime connects**: a name that resolves to a private, loopback, link-local or reserved address, or
 to Taptime's own, is refused (`blocked_address`) — even if it once resolved to a public one.
-Redirects are **not followed**; an answer must come within **10 seconds**; the answer's body is not
-read.
+Taptime connects with **TLS 1.2 or newer** and checks the certificate: it must be valid for the
+endpoint's name and chain to a publicly trusted certificate authority — with an older TLS, a
+self-signed certificate or a private authority's, every try fails. Redirects are **not followed**;
+an answer must come within **10 seconds**; the answer's body is not read.
 
 <a id="webhook-key"></a>
 ### 9.2 The signing key
@@ -906,15 +924,20 @@ body: {"event":"ping"}
 signature: sha256=1deefe0009103810c89395f2d078e1ba71edb003b3692a3ebca6d0866bf99935
 body: (empty)
 signature: sha256=88d05ff68b9d0e7585161401b08cb679fbf1701b3e28f683a3e96e4c33653576
-body: {"event":"punch","deliveryId":"dlv_2682e520-d961-43b5-9138-cd553aa0693f","id":"pch_4aa969bd-1d3a-4371-bf0f-dd8ed792554a","version":1,"status":"valid","punchTime":"2026-10-16T05:58:50.805Z","recordedAt":"2026-10-16T06:48:50.802957Z","channel":"nfc","direction":"in","employee":{"id":"emp_a7711ae9-3941-4749-96c7-c77f2a5878c0","externalRef":"E-1042","employeeCode":"1042","company":"KF"},"location":{"id":"loc_166f3262-64af-46d0-8c53-36306b075dd9","externalRef":"KF-VLT","name":"Valletta","company":"KF"},"tagId":"tag_4191371A1A7398"}
-signature: sha256=7ef0f4ef163a61f6125481a0aa1dfef5bfe530cf06ef1668ea22265ac87fbce3
+body: {"event":"punch","deliveryId":"dlv_812ed053-f6d5-4c9e-9c94-1c878fa8de26","id":"pch_b79d3f18-f22e-456a-a386-466710dcb586","version":1,"status":"valid","punchTime":"2026-10-16T08:23:17.62Z","recordedAt":"2026-10-16T08:23:20.619065Z","channel":"nfc","direction":"in","employee":{"id":"emp_caa5e7b6-ab2b-4dc1-920b-1cbf9b9b6abb","externalRef":"E-1042","employeeCode":"1042","company":"KF"},"location":{"id":"loc_fc3dda7c-cd47-461e-b327-43ef68d0e4fc","externalRef":"KF-VLT","name":"Valletta","company":"KF"},"tagId":"tag_229B1AB4766C99"}
+signature: sha256=d06e40956d9a89a927462105f3f466a29796701d25fc38cbdf7581284d0d71dc
 ```
 
-The same check with `openssl`, for a body held without a trailing newline in `BODY`:
+The first known answer with `openssl` — it prints the first signature above:
 
 ```sh
-printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$TAPTIME_SIGNING_KEY" | sed 's/^.*= /sha256=/'
+printf '%s' '{"event":"ping"}' | openssl dgst -sha256 -hmac 'tt_whsec_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' | sed 's/^.*= /sha256=/'
 ```
+
+Use this with the **fake key only**: `-hmac` (and `-macopt`) take the key on the command line, where
+other users of the machine can read it (`ps`). With the real key, compute the HMAC in your
+receiver's own language — its standard HMAC-SHA256, with the key read from your secret store — and
+compare in constant time.
 
 <a id="webhook-requests"></a>
 ### 9.4 The requests
@@ -978,7 +1001,8 @@ now** (a failed one gets one more try). The failure classes are `timeout`, `tls`
 - **After Taptime restarts** (every deploy included) waiting retries — and queued activation
   e-mails — wait until the business's next tap, approval or API request. The feed is not affected.
 - **Endpoint switched off**: deliveries already queued **wait** (they are not dropped) and go at
-  once when the owner switches the endpoint on again (or changes its address, or rotates its key).
+  once when the owner switches the endpoint on again (or changes its address, or rotates its key)
+  — none of which the owner can do while the business is suspended ([section 10](#suspension)).
   Punches recorded **while it is off** are never delivered.
 - **API disabled by Taptime**: the same — queued deliveries wait, and go within 15 minutes of the
   API being enabled again (or at the business's next tap, approval or API request if Taptime
@@ -1002,9 +1026,9 @@ leaves reading — and the records — alone:
 | Open while suspended | 403 `tenant_suspended` while suspended |
 |---|---|
 | every `GET` — the feed, the history query, the directory, the employees | `PUT /v1/locations/{ref}` |
-| `PUT /v1/employees/{ref}` that creates a **new** employee | `PUT /v1/employees/{ref}` that changes an existing employee, `active: false` included |
-| `POST /v1/employees/{ref}/resend-activation` | `DELETE /v1/employees/{ref}` |
-| webhook deliveries, and the queue of activation e-mails | in the panel: creating a key; creating, re-addressing or rotating the endpoint; test messages; "Send again now" |
+| `PUT /v1/employees/{ref}` that creates a **new** employee, a re-hire included | every `PUT /v1/employees/{ref}` that lands on an existing employee — a change, a binding by address, `active: false` (also of an employee already deactivated), and one that changes nothing |
+| `POST /v1/employees/{ref}/resend-activation` | every `DELETE /v1/employees/{ref}`, also of an employee already deactivated |
+| webhook deliveries, and the queue of activation e-mails | in the panel: creating a key; creating, re-addressing, rotating or switching on the endpoint; test messages; "Send again now" |
 | taps are recorded and punches enter the feed (a group's too) | |
 | in the panel: revoking a key, switching the endpoint off | |
 

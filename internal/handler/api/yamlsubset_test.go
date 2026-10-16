@@ -7,7 +7,9 @@ package api
 //
 //	block mappings and block sequences, two-space indentation, no tabs
 //	"- key: value" sequence items (a mapping that starts on the dash's line)
-//	plain scalars (true, false, null, integers and decimals are typed; anything else is a string),
+//	plain scalars (true, false, null, integers and decimals are typed; anything a YAML reader would
+//	type otherwise -- True, NULL, 1e3, 0x10, +1, .inf, yes, 01, a date -- is an error; anything
+//	else is a string),
 //	double-quoted scalars (JSON escapes) and single-quoted scalars ('' is a quote)
 //	literal block scalars ("|" and "|-")
 //	flow collections that are JSON ({"a": [1, "x"]}, possibly over several lines) and flow
@@ -15,7 +17,7 @@ package api
 //	whole-line comments
 //
 // Not read (an error if met): anchors, aliases, tags, folded scalars, flow mappings that are not
-// JSON, trailing comments, multi-document streams. A mapping is ordered (ymap) so a test can say
+// JSON, trailing comments, multi-document streams, a byte-order mark. A mapping is ordered (ymap) so a test can say
 // where in the document something is.
 
 import (
@@ -25,6 +27,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"testing"
 )
 
 // ymap is an ordered mapping.
@@ -59,6 +62,9 @@ type yamlParser struct {
 func parseYAMLSubset(src string) (any, error) {
 	if strings.Contains(src, "\t") {
 		return nil, fmt.Errorf("a tab: the subset indents with spaces")
+	}
+	if strings.HasPrefix(src, "\uFEFF") {
+		return nil, fmt.Errorf("a byte-order mark: the document starts with its first key")
 	}
 	p := &yamlParser{lines: strings.Split(strings.TrimSuffix(src, "\n"), "\n")}
 	i, ok := p.next()
@@ -390,9 +396,27 @@ func scalar(s string, at int) (any, error) {
 		return nil, nil
 	case plainInt.MatchString(s) || plainFloat.MatchString(s):
 		return strconv.ParseFloat(s, 64)
+	case ambiguousPlain.MatchString(s):
+		// A real reader types it (YAML 1.2's core schema: True, NULL, 1e3, 0x10, +1, .inf; or YAML
+		// 1.1's: yes, on, 01, a date) where this subset would read a string: the document quotes it.
+		return nil, fmt.Errorf("line %d: a plain scalar a YAML reader would not read as a string -- quote it: %q", at+1, s)
 	}
 	return s, nil
 }
+
+// ambiguousPlain is every plain scalar the subset would read as a string but a YAML reader as
+// something else: the other spellings of a boolean and of null (YAML 1.2 core and 1.1), every number
+// form but plainInt's and plainFloat's (a sign, a leading zero, an exponent, a trailing or leading
+// dot, an underscore, 0x/0o/0b, .inf, .nan, sexagesimal) and a date.
+var ambiguousPlain = regexp.MustCompile(`(?i)^(` +
+	`true|false|null|yes|no|on|off|y|n` +
+	`|[-+]?[0-9][0-9_]*(\.[0-9_]*)?(e[-+]?[0-9]+)?` +
+	`|[-+]?\.[0-9][0-9_]*(e[-+]?[0-9]+)?` +
+	`|[-+]?\.(inf|nan)` +
+	`|0[xob][0-9a-f_]+` +
+	`|[-+]?[0-9]+(:[0-5]?[0-9])+(\.[0-9_]*)?` +
+	`|[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}([Tt ].*)?` +
+	`)$`)
 
 // jsonValue decodes JSON bytes into the subset's types (for comparing an answer with an example).
 func jsonValue(b []byte) (any, error) {
@@ -431,4 +455,40 @@ func canonical(v any) string {
 		return fmt.Sprintf("<%v>", err)
 	}
 	return string(b)
+}
+
+// TestYAMLSubset_RefusesWhatAReaderWouldReadOtherwise (M11 API-12 fix): the subset never reads a
+// value differently from a YAML reader. A plain scalar a reader types otherwise -- YAML 1.2's
+// True, NULL, 1e3, 0x10, +1, .inf, .nan; YAML 1.1's yes, on, 01, a date, a sexagesimal -- a leading
+// byte-order mark, and the forms the header lists as not read (an anchor, an alias, a tag, a folded
+// scalar, a trailing comment) are each an error; the typed forms and the quoted ones are read.
+//
+// MUTANT (measured, the API-12 fix report): the ambiguousPlain case removed -- red (True, NULL, 1e3,
+// 0x10, +1 and .inf read as strings).
+func TestYAMLSubset_RefusesWhatAReaderWouldReadOtherwise(t *testing.T) {
+	for _, doc := range []string{
+		"a: True", "a: TRUE", "a: False", "a: NULL", "a: Null", "a: 1e3", "a: 1E3", "a: 0x10", "a: 0o17", "a: +1",
+		"a: .inf", "a: -.Inf", "a: .nan", "a: .5", "a: 1.", "a: 01", "a: 1_000", "a: yes", "a: No", "a: on", "a: OFF",
+		"a: 2026-10-16", "a: 1:20", "a: [True, b]", "\uFEFFa: b",
+		"a: &x b", "a: *x", "a: !t b", "a: >\n  b", "a: b # c",
+	} {
+		if v, err := parseYAMLSubset(doc); err == nil {
+			t.Errorf("%q read as %#v, want an error", doc, v)
+		}
+	}
+	for doc, want := range map[string]any{
+		"a: true": true, "a: false": false, "a: null": nil, "a: ~": nil, "a: 1000": 1000.0, "a: -2": -2.0, "a: 1.5": 1.5,
+		`a: "True"`: "True", "a: 'NULL'": "NULL", `a: "1e3"`: "1e3", "a: text": "text", "a: v1.2.3": "v1.2.3",
+		"a: application/json": "application/json",
+	} {
+		v, err := parseYAMLSubset(doc)
+		if err != nil {
+			t.Errorf("%q: %v", doc, err)
+			continue
+		}
+		got, _ := v.(*ymap).get("a")
+		if got != want {
+			t.Errorf("%q read as %#v, want %#v", doc, got, want)
+		}
+	}
 }

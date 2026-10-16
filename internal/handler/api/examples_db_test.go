@@ -195,11 +195,15 @@ func runExampleStory(t *testing.T) exampleStory {
 		}
 	}
 
-	// The taps: Jane in at Valletta; Joe in at Valletta (a punch between two companies), out at
-	// Production.
-	w.write(punchRow{employer: kf, verdict: "ok", channel: "nfc", kind: "in", ago: 50 * time.Minute})
-	w.write(punchRow{employer: km, site: &kf, verdict: "ok", channel: "nfc", kind: "in", ago: 45 * time.Minute})
-	w.write(punchRow{employer: km, verdict: "ok", channel: "nfc", kind: "out", ago: time.Minute})
+	// The taps: Joe in at Valletta (a punch between two companies), Jane in at Valletta, Joe out at
+	// Production. Every row is recorded now, so each declared instant is what a phone would send:
+	// within the 120 seconds a late tap is still judged live (guide §6.1) -- Jane's and Joe's out a
+	// few seconds, Joe's in 65 -- and Joe's two taps more than the 60-second repeat window apart
+	// (closer, the second would be an ignored repeat, not a punch). The rows are written in their
+	// punchTime order, so the feed's order and punchTime's agree in the examples.
+	w.write(punchRow{employer: km, site: &kf, verdict: "ok", channel: "nfc", kind: "in", ago: 65 * time.Second})
+	w.write(punchRow{employer: kf, verdict: "ok", channel: "nfc", kind: "in", ago: 3 * time.Second})
+	w.write(punchRow{employer: km, verdict: "ok", channel: "nfc", kind: "out", ago: 2 * time.Second})
 
 	// The feed (section 6): KF's location scope.
 	feed := w.get(kf.raw, "scope=location&limit=100")

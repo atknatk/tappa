@@ -559,9 +559,12 @@ func TestEmployees_OutsiderKeyCannotTouchAnotherTenant(t *testing.T) {
 }
 
 // TestEmployees_SuspensionClassesAreSection10 (ADR 0028 §10 -- the class assignment; the cell-by-cell
-// table is API-4b's): while the business is suspended a PUT that opens a NEW employee is 201 and
-// resend-activation 202 (open), a GET 200; a PUT that changes an existing one, a PUT active:false
-// and a DELETE are 403 tenant_suspended and write nothing.
+// table is API-4b's): while the business is suspended a PUT that opens a NEW employee -- a re-hire
+// under a deactivated employee's ref included -- is 201 and resend-activation 202 (open), a GET 200;
+// every PUT that lands on an existing employee (a change, one that matches them as they are, a K-18
+// binding by address, active:false -- also on an employee already deactivated) and every DELETE
+// (also of an employee already deactivated) are 403 tenant_suspended and write nothing (guide §10,
+// §5.5: "200, nothing spent" is not what a suspended business is answered).
 func TestEmployees_SuspensionClassesAreSection10(t *testing.T) {
 	r := newDBRig(t)
 	biz, owner := r.business(true)
@@ -569,6 +572,22 @@ func TestEmployees_SuspensionClassesAreSection10(t *testing.T) {
 	ref, email := newRef("SUS"), uniqueEmail("sus")
 	if w := r.putEmp(raw, ref, empBody("Maria", "Borg", &email, true)); w.Code != 201 {
 		t.Fatal(w.Body.String())
+	}
+	gone := newRef("SUSGONE")
+	if w := r.putEmp(raw, gone, empBody("Gone", "Away", nil, true)); w.Code != 201 {
+		t.Fatal(w.Body.String())
+	}
+	if w := r.do(http.MethodDelete, "/v1/employees/"+gone, raw, ""); w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	var venue uuid.UUID
+	if err := r.owner.QueryRow(context.Background(), `INSERT INTO locations (tenant_id, name) VALUES ($1, 'Panel venue') RETURNING id`, biz).Scan(&venue); err != nil {
+		t.Fatal(err)
+	}
+	panelAddr := uniqueEmail("panel")
+	if _, err := r.owner.Exec(context.Background(), `INSERT INTO employees (id, tenant_id, location_id, full_name, status, email) VALUES ($1, $2, $3, 'Joe Camilleri', 'invited', $4)`,
+		uuid.New(), biz, venue, panelAddr); err != nil {
+		t.Fatal(err)
 	}
 	trail := r.ownerCount(`SELECT count(*) FROM audit_log WHERE tenant_id = $1`, biz)
 	r.suspended.suspend(biz)
@@ -579,6 +598,9 @@ func TestEmployees_SuspensionClassesAreSection10(t *testing.T) {
 		{http.MethodPut, "/v1/employees/" + ref, empBody("Maria", "Borg", &email, true)},
 		{http.MethodPut, "/v1/employees/" + ref, empBody("Maria", "Borg", &email, false)},
 		{http.MethodDelete, "/v1/employees/" + ref, ""},
+		{http.MethodPut, "/v1/employees/" + newRef("SUSBIND"), empBody("Joe", "Camilleri", &panelAddr, true)},
+		{http.MethodPut, "/v1/employees/" + gone, empBody("Gone", "Away", nil, false)},
+		{http.MethodDelete, "/v1/employees/" + gone, ""},
 	} {
 		if w := r.do(x.method, x.path, raw, x.body); w.Code != 403 || problemOf(t, w).Code != CodeTenantSuspended {
 			t.Fatalf("suspended %s %s: %d %s, want 403", x.method, x.body, w.Code, w.Body.String())
@@ -589,6 +611,9 @@ func TestEmployees_SuspensionClassesAreSection10(t *testing.T) {
 	}
 	if w := r.putEmp(raw, newRef("SUSNEW"), empBody("New", "Hire", nil, true)); w.Code != 201 {
 		t.Fatalf("a NEW employee while suspended: %d %s, want 201", w.Code, w.Body.String())
+	}
+	if w := r.putEmp(raw, gone, empBody("Gone", "Away", nil, true)); w.Code != 201 {
+		t.Fatalf("a re-hire while suspended: %d %s, want 201", w.Code, w.Body.String())
 	}
 	if w := r.do(http.MethodPost, "/v1/employees/"+ref+"/resend-activation", raw, ""); w.Code != 202 {
 		t.Fatalf("resend while suspended: %d %s, want 202", w.Code, w.Body.String())
@@ -768,5 +793,48 @@ func TestEmployees_NothingOfTheAddressOrTheKeyReachesALogOrATrail(t *testing.T) 
 				t.Errorf("%s carries %q's kind of value (an address, the key or the scheme)", where, cn[:min(len(cn), 6)])
 			}
 		}
+	}
+}
+
+// TestEmployeesPut_APutReplacesALeftOutOptionalFieldIsNull (M11 API-12 fix; guide §5.1): a PUT is a
+// whole replacement, not a patch -- an employee whose employeeCode is "77", PUT without the field, is
+// 200 with employeeCode null (and so is the row the feed and a partner's directory read); sent again
+// with the field it is back. A location's PUT replaces too, but its optional fields hold nothing of
+// their own (timezone is the business's, externalRef the path's): left out, the location is answered
+// as it was -- 200, unchanged.
+func TestEmployeesPut_APutReplacesALeftOutOptionalFieldIsNull(t *testing.T) {
+	r := newDBRig(t)
+	biz, owner := r.business(true)
+	raw, _ := r.key(biz, owner)
+	ref := newRef("REPL")
+	with := jsonBody(map[string]any{"firstName": "Rita", "lastName": "Vella", "email": nil, "active": true, "employeeCode": "77"})
+	w := r.putEmp(raw, ref, with)
+	if w.Code != 201 || empOf(t, w).EmployeeCode == nil || *empOf(t, w).EmployeeCode != "77" {
+		t.Fatalf("the employee with code 77: %d %s", w.Code, w.Body.String())
+	}
+	w = r.putEmp(raw, ref, empBody("Rita", "Vella", nil, true))
+	if w.Code != 200 || empOf(t, w).EmployeeCode != nil {
+		t.Fatalf("a PUT without employeeCode: %d %s, want 200 and employeeCode null", w.Code, w.Body.String())
+	}
+	var code *string
+	if err := r.owner.QueryRow(context.Background(), `SELECT employee_code FROM employees WHERE tenant_id = $1 AND external_ref = $2`, biz, ref).Scan(&code); err != nil || code != nil {
+		t.Fatalf("the row's employee_code: %v %v, want NULL", code, err)
+	}
+	if w = r.putEmp(raw, ref, with); w.Code != 200 || empOf(t, w).EmployeeCode == nil {
+		t.Fatalf("the code sent again: %d %s", w.Code, w.Body.String())
+	}
+
+	loc := newRef("REPLOC")
+	if w = r.putLoc(raw, loc, `{"name":"Sliema","active":true,"timezone":"Europe/Malta","externalRef":"`+loc+`"}`); w.Code != http.StatusCreated {
+		t.Fatalf("the location: %d %s", w.Code, w.Body.String())
+	}
+	before := w.Body.String()
+	id := r.venuesByRef(biz, loc)[0].id
+	trail := len(r.venueTrail(biz, id))
+	if w = r.putLoc(raw, loc, `{"name":"Sliema","active":true}`); w.Code != http.StatusOK || w.Body.String() != before {
+		t.Fatalf("the location without its optional fields: %d %s, want 200 and %s", w.Code, w.Body.String(), before)
+	}
+	if n := len(r.venueTrail(biz, id)); n != trail {
+		t.Fatalf("the location without its optional fields wrote %d trail rows", n-trail)
 	}
 }

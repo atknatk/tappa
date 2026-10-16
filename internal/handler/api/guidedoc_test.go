@@ -5,8 +5,9 @@ package api
 //
 //	TestGuide_TheTwoLanguagesAreOneDocument       the heading tree, the anchors, the numbered items,
 //	                                              the code blocks (byte for byte), the link targets,
-//	                                              the markers, the tables' code-and-number cells and
-//	                                              each section's inline code are the same in both
+//	                                              the markers, the tables' code-and-number cells,
+//	                                              each section's inline code and each section's
+//	                                              numbers in prose are the same in both
 //	TestGuide_CarriesAll31ContractDifferences     plan §2's 31 items are §11's, numbered, each with
 //	                                              the item's own code tokens and key phrases, each
 //	                                              linked to the section that explains it; item 31's
@@ -31,6 +32,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"go/ast"
+	"maps"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -55,6 +58,9 @@ type mdDoc struct {
 	tables   []mdTable
 	// code is each section's inline code spans, in order (the section is the last heading's anchor).
 	code map[string][]string
+	// numbers is each section's numbers in prose -- outside code blocks, inline code, link targets
+	// and headings -- in order.
+	numbers map[string][]string
 }
 
 type mdHeading struct {
@@ -87,11 +93,13 @@ var (
 	itemLine    = regexp.MustCompile(`^([0-9]+)\. (.*)$`)
 	inlineCode  = regexp.MustCompile("`([^`]+)`")
 	tableSep    = regexp.MustCompile(`^\|[-| :]+\|$`)
+	proseNumber = regexp.MustCompile(`[0-9]+(?:[.,][0-9]+)?`)
 )
 
 func readGuide(t *testing.T, name string, src []byte) mdDoc {
 	t.Helper()
-	d := mdDoc{name: name, lines: strings.Split(string(src), "\n"), anchors: map[string]bool{}, code: map[string][]string{}}
+	d := mdDoc{name: name, lines: strings.Split(string(src), "\n"), anchors: map[string]bool{}, code: map[string][]string{},
+		numbers: map[string][]string{}}
 	pending, marker, section := "", "", ""
 	var fence *mdBlock
 	var body []string
@@ -150,6 +158,8 @@ func readGuide(t *testing.T, name string, src []byte) mdDoc {
 		for _, c := range inlineCode.FindAllStringSubmatch(line, -1) {
 			d.code[section] = append(d.code[section], c[1])
 		}
+		prose := linkTarget.ReplaceAllString(inlineCode.ReplaceAllString(line, ""), "]")
+		d.numbers[section] = append(d.numbers[section], proseNumber.FindAllString(prose, -1)...)
 		if m := itemLine.FindStringSubmatch(line); m != nil {
 			n, _ := strconv.Atoi(m[1])
 			d.items = append(d.items, mdItem{n: n, text: m[2], section: section})
@@ -205,7 +215,9 @@ var codeCell = regexp.MustCompile("^(`[^`]+`|[0-9]+)$")
 //
 // MUTANTS (measured, API-12 report): a heading dropped from the Turkish; an item renumbered; one byte
 // of a code block changed; a link target changed; a limit's value changed in one table; an inline
-// code token renamed in one section -- each red.
+// code token renamed in one section -- each red. API-12 fix (the prose numbers): in the Turkish
+// alone, 120 saniye -> 180, 10 dakika -> 5, 6 saat -> 12, günde 300 -> 500, 72 saat -> 48 -- each red
+// (each was green before the pin).
 func TestGuide_TheTwoLanguagesAreOneDocument(t *testing.T) {
 	en, tr := theGuides(t)
 	shape := func(d mdDoc) []string {
@@ -290,6 +302,35 @@ func TestGuide_TheTwoLanguagesAreOneDocument(t *testing.T) {
 			t.Errorf("section %q has inline code in Turkish only", section)
 		}
 	}
+	// The numbers of the prose, per section, as a multiset: a limit, a wait or a count translated
+	// into another value ("120 seconds" as "180 saniye") is red. What this cannot see is a sentence
+	// whose meaning the translation turned round with the same numbers ("is not in the total" as
+	// "is in the total") -- that stays a reviewer's (ADR 0028, the API-12 fix note).
+	numbered := 0
+	for _, section := range slices.Sorted(maps.Keys(mergeKeys(en.numbers, tr.numbers))) {
+		a, b := slices.Clone(en.numbers[section]), slices.Clone(tr.numbers[section])
+		slices.Sort(a)
+		slices.Sort(b)
+		if !slices.Equal(a, b) {
+			t.Errorf("section %q: the numbers of the prose differ:\n en %v\n tr %v", section, a, b)
+		}
+		numbered += len(a)
+	}
+	if numbered < 200 {
+		t.Fatalf("anti-vacuity: %d numbers in the English prose", numbered)
+	}
+}
+
+// mergeKeys is the union of two maps' keys.
+func mergeKeys(a, b map[string][]string) map[string]bool {
+	out := map[string]bool{}
+	for k := range a {
+		out[k] = true
+	}
+	for k := range b {
+		out[k] = true
+	}
+	return out
 }
 
 // planSection2Items reads plan §2's numbered items.
@@ -860,24 +901,55 @@ func TestGuide_TheSignatureVectorIsTheSenders(t *testing.T) {
 var (
 	emailShape   = regexp.MustCompile(`[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+\.)+[A-Za-z]{2,}`)
 	ipv4Shape    = regexp.MustCompile(`\b([0-9]{1,3}\.){3}[0-9]{1,3}\b`)
-	ipv6Shape    = regexp.MustCompile(`(?i)\b[0-9a-f]{1,4}(:[0-9a-f]{0,4}){4,}\b|(?i)\b[0-9a-f]{1,4}::[0-9a-f:]*\b`)
+	ipv6Token    = regexp.MustCompile(`[0-9A-Fa-f.]*:[0-9A-Fa-f:.%]*`)
 	keyShapeText = regexp.MustCompile(`tt_(live|test|whsec)_([A-Za-z0-9_-]{32,})`)
 	urlShape     = regexp.MustCompile(`https?://([A-Za-z0-9.-]+)`)
 )
 
+// ipv6Addresses is every IPv6 literal in s: each run of hex digits, dots and colons with a colon in
+// it that net/netip reads as an IPv6 address -- the short forms (::1, fe80::1), the IPv4-mapped ones
+// in hex (::ffff:a01:203) or dotted, a zone. A clock time (06:48:50) or a ratio does not parse.
+func ipv6Addresses(s string) []string {
+	var out []string
+	for _, tok := range ipv6Token.FindAllString(s, -1) {
+		tok = strings.TrimRight(tok, ".:")
+		if strings.Count(tok, ":") < 2 {
+			continue
+		}
+		if a, err := netip.ParseAddr(tok); err == nil && a.Is6() {
+			out = append(out, tok)
+		}
+	}
+	return out
+}
+
 // TestGuide_NoSecretAddressOrPersonalData (M11 API-12; the repository is PUBLIC, CLAUDE.md §7, the
-// brief): in either guide every e-mail address is at example.com; no IPv4 or IPv6 address; no key of
-// any of the three prefixes with a body of more than four distinct characters (redline R7d's rule:
-// the vector's 43 'A's are padding, not a key); every URL is on example.com; no path of the source
-// tree.
+// brief): in either guide AND in openapi.yaml (served without a key like them) every e-mail address
+// is at example.com; no IPv4 or IPv6 address (ipv6Addresses: every form netip reads); no key of any
+// of the three prefixes with a body of more than four distinct characters (redline R7d's rule: the
+// vector's 43 'A's are padding, not a key); every URL is on example.com -- the document's servers
+// URL, the API's public address, is the one exception; no path of the source tree.
 //
 // MUTANTS (measured, API-12 report): a real-looking key, an address at another domain, an IPv4
-// literal, a taptime URL and an internal/ path put into a guide -- each red.
+// literal, a taptime URL and an internal/ path put into a guide -- each red. API-12 fix: ::1,
+// ::ffff:a01:203 and fe80::1%eth0 in a guide, and an IPv4 literal in openapi.yaml -- each red (the
+// first two, and anything in openapi.yaml, were green before).
 func TestGuide_NoSecretAddressOrPersonalData(t *testing.T) {
+	servers, _ := yat(openAPIDoc(t), "servers")
+	list, _ := servers.([]any)
+	if len(list) != 1 {
+		t.Fatalf("the document's servers: %v, want one", servers)
+	}
+	server, _ := yat(list[0], "url")
+	serverURL, _ := server.(string)
+	serverHost := strings.TrimPrefix(serverURL, "https://")
+	if serverHost == serverURL || serverHost == "" {
+		t.Fatalf("the document's server URL %q is not https://<host>", serverURL)
+	}
 	for _, src := range []struct {
 		name string
 		b    []byte
-	}{{"integration-guide.md", apidocs.English()}, {"integration-guide.tr.md", apidocs.Turkish()}} {
+	}{{"integration-guide.md", apidocs.English()}, {"integration-guide.tr.md", apidocs.Turkish()}, {"openapi.yaml", OpenAPI()}} {
 		s := string(src.b)
 		emails := emailShape.FindAllString(s, -1)
 		if len(emails) == 0 {
@@ -891,7 +963,7 @@ func TestGuide_NoSecretAddressOrPersonalData(t *testing.T) {
 		for _, ip := range ipv4Shape.FindAllString(s, -1) {
 			t.Errorf("%s: an IPv4 address %q", src.name, ip)
 		}
-		for _, ip := range ipv6Shape.FindAllString(s, -1) {
+		for _, ip := range ipv6Addresses(s) {
 			t.Errorf("%s: an IPv6 address %q", src.name, ip)
 		}
 		for _, m := range keyShapeText.FindAllStringSubmatch(s, -1) {
@@ -904,7 +976,7 @@ func TestGuide_NoSecretAddressOrPersonalData(t *testing.T) {
 			}
 		}
 		for _, m := range urlShape.FindAllStringSubmatch(s, -1) {
-			if m[1] != "example.com" && !strings.HasSuffix(m[1], ".example.com") {
+			if m[1] != "example.com" && !strings.HasSuffix(m[1], ".example.com") && (src.name != "openapi.yaml" || m[1] != serverHost) {
 				t.Errorf("%s: a URL on %q", src.name, m[1])
 			}
 		}
@@ -912,6 +984,17 @@ func TestGuide_NoSecretAddressOrPersonalData(t *testing.T) {
 			if strings.Contains(s, banned) {
 				t.Errorf("%s: names the source tree (%q)", src.name, banned)
 			}
+		}
+	}
+	// The detector itself: the forms a regular expression of groups missed.
+	for _, ip := range []string{"::1", "::ffff:a01:203", "::ffff:10.1.2.3", "fe80::1%eth0", "2001:db8::7", "[2001:db8::7]:443"} {
+		if len(ipv6Addresses("at "+ip+".")) != 1 {
+			t.Errorf("ipv6Addresses misses %q", ip)
+		}
+	}
+	for _, not := range []string{"06:48:50", "2026-10-16T08:23:20.461171Z", "sha256:abc", "U+200E", "1:20:30"} {
+		if got := ipv6Addresses(not); len(got) != 0 {
+			t.Errorf("ipv6Addresses reads %q as %v", not, got)
 		}
 	}
 }

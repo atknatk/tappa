@@ -2,6 +2,7 @@ package egress
 
 import (
 	"context"
+	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"fmt"
@@ -393,6 +394,17 @@ func TestEgress_FailuresAreClassesAndCarryNoText(t *testing.T) {
 	goneC := build(&gate{port: gonePort, testAllow: []netip.Prefix{loopback}}, d.resolver(), nil, 5*time.Second)
 	statusC := clientFor(t, status, d, 5*time.Second, nil)
 	nx := clientFor(t, status, staticDNS(nil), 5*time.Second, nil)
+	// A receiver that speaks no TLS newer than 1.1, with a certificate the client trusts: the
+	// handshake itself fails and nothing is delivered (the guide's "TLS 1.2 or newer", §9.1; the
+	// MinVersion of build's tls.Config). MEASURED (API-12 fix): the server's protocol_version alert
+	// arrives as crypto/tls's unexported remote alert, not a tls.AlertError, so classify answers
+	// refused rather than tls -- pinned as it is, reported, not changed here.
+	old := &recorder{srv: httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))}
+	old.srv.TLS = &tls.Config{MinVersion: tls.VersionTLS10, MaxVersion: tls.VersionTLS11}
+	old.srv.Config.ErrorLog = log.New(io.Discard, "", 0)
+	old.srv.StartTLS()
+	t.Cleanup(old.srv.Close)
+	oldC := clientFor(t, old, d, 5*time.Second, nil)
 
 	ep := to(t, "https://secret-host.example.com/token-path-123")
 	cases := []struct {
@@ -402,6 +414,7 @@ func TestEgress_FailuresAreClassesAndCarryNoText(t *testing.T) {
 		want Result
 	}{
 		{"untrusted certificate", untrusted, ep, Result{Class: ClassTLS}},
+		{"TLS older than 1.2", oldC, ep, Result{Class: ClassRefused}},
 		{"plain http on the port", plainC, ep, Result{Class: ClassTLS}},
 		{"nothing listening", goneC, ep, Result{Class: ClassRefused}},
 		{"no such host", nx, ep, Result{Class: ClassRefused}},
