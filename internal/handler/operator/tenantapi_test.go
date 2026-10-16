@@ -35,6 +35,7 @@ const apiHeaderTenant = "61300000-0000-4000-8000-0000000000c1"
 const (
 	headingAPIOpened     = "Opened."
 	headingAPINotOpened  = "Not opened — nothing changed."
+	headingAPICodeKept   = "Code not changed — the API stays open under its current code."
 	headingAPIClosed     = "Closed."
 	headingAPINotClosed  = "It is still open."
 	headingAPICode       = "That code cannot be used"
@@ -42,7 +43,7 @@ const (
 	ruleAPICodeInHolding = "No other business in this business's holding has the code, and none that left it less than 60 seconds ago."
 )
 
-var everyAPIHeading = []string{headingAPIOpened, headingAPINotOpened, headingAPIClosed, headingAPINotClosed, headingAPICode}
+var everyAPIHeading = []string{headingAPIOpened, headingAPINotOpened, headingAPICodeKept, headingAPIClosed, headingAPINotClosed, headingAPICode}
 
 // apiHeadingsOn returns the API notice headings body carries.
 func apiHeadingsOn(body string) []string {
@@ -343,14 +344,20 @@ func TestOperatorAPI_TheCodeRuleIsTheDatabases(t *testing.T) {
 //  3. change the code to KM while open: "Opened."; the first opening instant is kept;
 //  4. close: "Closed."; the state Closed, the code KM kept, no Close button; no notice;
 //  5. open again under KM: "Opened.";
-//  6. a peer in its holding carries KX and it asks for KX: the write is ACCEPTED (303, recorded) and
-//     the overview says "Not opened — nothing changed." with the rules; the code is still KM;
-//  7. a stale or forged result (done=api-opened&api_code=QQ while the code is KM) says "Not opened";
-//     done=api-closed while open says "It is still open."; an unknown word or a code outside the rule
-//     says nothing -- and the URL's code is never printed.
+//  6. a peer in its holding carries KX and it asks for KX while OPEN under KM: the write is ACCEPTED
+//     (303, recorded) and the overview says "Code not changed — the API stays open under its current
+//     code." with the rules -- not "Not opened", which would say the API is closed; the code is still
+//     KM;
+//  7. a stale or forged result (done=api-opened&api_code=QQ while open under KM) says "Code not
+//     changed"; done=api-closed while open says "It is still open."; an unknown word or a code outside
+//     the rule says nothing -- and the URL's code is never printed;
+//  8. closed again, it asks for KX: "Not opened — nothing changed." with the rules (the read shows it
+//     closed); a forged done=api-opened&api_code=QQ while closed says the same.
 //
 // MUTANT (measured): apiResultNotice answering apiNoticeOpened for every open -> step 6 and 7 say
-// "Opened.", red.
+// "Opened.", red; answering apiNoticeNotOpened for every refused ask (API-13a fix) -> step 6 and 7 say
+// "Not opened", red; answering apiNoticeCodeKept for every refused ask -> step 8 says "Code not
+// changed", red.
 func TestOperatorAPI_TheResultIsReadNotPosted(t *testing.T) {
 	g := newRig(t)
 	work := &workRecorder{}
@@ -427,14 +434,14 @@ func TestOperatorAPI_TheResultIsReadNotPosted(t *testing.T) {
 	g.store.mu.Unlock()
 	writes := len(g.apiWrites())
 	body = follow("asking for a peer's code", openAPI(tenant.String(), "KX", sess), overview+"?done=api-opened&api_code=KX")
-	says("asking for a peer's code", body, headingAPINotOpened)
+	says("asking for a peer's code", body, headingAPICodeKept)
 	if !strings.Contains(body, "<li>"+ruleAPICodeShape+"</li>") || !strings.Contains(body, "<li>"+html.EscapeString(ruleAPICodeInHolding)+"</li>") ||
 		len(g.apiWrites()) != writes+1 || *g.overviewOf(tenant).APICode != "KM" {
 		t.Error("a peer's code: the overview does not list the rules, the ask was not recorded, or the code changed")
 	}
 	// 7.
 	for q, want := range map[string][]string{
-		"?done=api-opened&api_code=QQ": {headingAPINotOpened}, "?done=api-closed": {headingAPINotClosed},
+		"?done=api-opened&api_code=QQ": {headingAPICodeKept}, "?done=api-closed": {headingAPINotClosed},
 		"?done=api-gone&api_code=KM": nil, "?done=api-opened&api_code=qq": nil, "?done=api-opened": nil,
 		"?done=api-opened&api_code=+KM": nil,
 	} {
@@ -444,6 +451,14 @@ func TestOperatorAPI_TheResultIsReadNotPosted(t *testing.T) {
 			t.Errorf("%s: the URL's code is printed", q)
 		}
 	}
+	// 8.
+	follow("closing again", closeAPI(tenant.String(), sess), overview+"?done=api-closed")
+	body = follow("asking for a peer's code while closed", openAPI(tenant.String(), "KX", sess), overview+"?done=api-opened&api_code=KX")
+	says("asking for a peer's code while closed", body, headingAPINotOpened)
+	if !strings.Contains(body, "<li>"+ruleAPICodeShape+"</li>") || g.overviewOf(tenant).APIEnabledAt != nil {
+		t.Error("a peer's code while closed: the overview does not list the rules, or the API opened")
+	}
+	says("a forged result while closed", g.get(overview+"?done=api-opened&api_code=QQ", sess).Body.String(), headingAPINotOpened)
 }
 
 // ------------------------------------------------------------ the gates --

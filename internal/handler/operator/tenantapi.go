@@ -151,6 +151,7 @@ const (
 	apiNoticeNone apiNotice = iota
 	apiNoticeOpened
 	apiNoticeNotOpened
+	apiNoticeCodeKept
 	apiNoticeClosed
 	apiNoticeNotClosed
 	apiNoticeCode
@@ -165,12 +166,16 @@ type apiSentence struct {
 
 // apiSentences are the notices' words (skill tappa-brand: say what happened and what to do). Each
 // outcome is a fact the read showed: "Opened." only when the read shows the API open under the code
-// that was asked for. Pinned word for word: TestOperatorAPI_TheResultIsReadNotPosted.
+// that was asked for; an ask the read does not show says what the business IS -- closed ("Not
+// opened"), or open under another code (the API stayed open: "Not opened" would say it is closed).
+// Pinned word for word: TestOperatorAPI_TheResultIsReadNotPosted.
 var apiSentences = map[apiNotice]apiSentence{
 	apiNoticeOpened: {operatorpages.HoldingNoticeOK, "Opened.",
 		"The integration API is open for this business under the code below. Its keys work from the next request.", false},
 	apiNoticeNotOpened: {operatorpages.HoldingNoticeWarn, "Not opened — nothing changed.",
 		"The database opens the API under a code only when every rule below holds. The API section shows the business as it is now.", true},
+	apiNoticeCodeKept: {operatorpages.HoldingNoticeWarn, "Code not changed — the API stays open under its current code.",
+		"The database changes an open API's code only when every rule below holds. Its keys keep working; the API section shows the code it has now.", true},
 	apiNoticeClosed: {operatorpages.HoldingNoticeOK, "Closed.",
 		"The integration API is closed for this business: its keys are refused from the next request and no webhook is sent. The code is kept.", false},
 	apiNoticeNotClosed: {operatorpages.HoldingNoticeWarn, "It is still open.",
@@ -196,6 +201,9 @@ func apiResultNotice(res apiResult, o db.TenantOverview) apiNotice {
 	case apiOpened:
 		if open && o.APICode != nil && *o.APICode == res.code {
 			return apiNoticeOpened
+		}
+		if open {
+			return apiNoticeCodeKept
 		}
 		return apiNoticeNotOpened
 	case apiClosed:
