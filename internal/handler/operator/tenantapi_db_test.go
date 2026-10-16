@@ -94,7 +94,7 @@ func TestE2E_TenantAPIOpenCloseOpenLeavesEveryTrail(t *testing.T) {
 		t.Fatalf("the first view = %d with %d 'read' row(s); want 200, one, and Closed; log: %s", w.Code, reads(a.id), l.logs.String())
 	}
 	// 2.
-	body := follow("opening", overviewA+"/api", url.Values{"api_code": {code}}, overviewA+"?done=api-opened&api_code="+code)
+	body := follow("opening", overviewA+"/integration", url.Values{"api_code": {code}}, overviewA+"?done=api-opened&api_code="+code)
 	says("opening", body, headingAPIOpened)
 	open, stored, first := state(a.id)
 	if !open || stored != code || tenantRows(a.id, "tenant.api_enabled") != 1 || opRows("tenant_api_enabled", a.id) != 1 {
@@ -106,7 +106,7 @@ func TestE2E_TenantAPIOpenCloseOpenLeavesEveryTrail(t *testing.T) {
 		t.Errorf("%d 'tenant.api_enabled' row(s) naming the code and the operator, want 1", n)
 	}
 	// 3.
-	body = follow("closing", overviewA+"/api/close", url.Values{}, overviewA+"?done=api-closed")
+	body = follow("closing", overviewA+"/integration/close", url.Values{}, overviewA+"?done=api-closed")
 	says("closing", body, headingAPIClosed)
 	if open, stored, _ := state(a.id); open || stored != code || tenantRows(a.id, "tenant.api_disabled") != 1 ||
 		opRows("tenant_api_disabled", a.id) != 1 {
@@ -114,7 +114,7 @@ func TestE2E_TenantAPIOpenCloseOpenLeavesEveryTrail(t *testing.T) {
 			tenantRows(a.id, "tenant.api_disabled"), opRows("tenant_api_disabled", a.id))
 	}
 	// 4.
-	body = follow("opening again", overviewA+"/api", url.Values{"api_code": {code}}, overviewA+"?done=api-opened&api_code="+code)
+	body = follow("opening again", overviewA+"/integration", url.Values{"api_code": {code}}, overviewA+"?done=api-opened&api_code="+code)
 	says("opening again", body, headingAPIOpened)
 	if open, _, again := state(a.id); !open || again == first || tenantRows(a.id, "tenant.api_enabled") != 2 {
 		t.Errorf("after opening again: open %v at %s (first %s), %d enable row(s); want open at a NEW instant and 2", open, again, first,
@@ -141,7 +141,7 @@ func TestE2E_TenantAPIOpenCloseOpenLeavesEveryTrail(t *testing.T) {
 		t.Fatalf("PREMISE: %d live member(s), want both", live)
 	}
 	overviewB := "/operator/tenants/" + b.id.String()
-	body = follow("B asking for A's code", overviewB+"/api", url.Values{"api_code": {code}}, overviewB+"?done=api-opened&api_code="+code)
+	body = follow("B asking for A's code", overviewB+"/integration", url.Values{"api_code": {code}}, overviewB+"?done=api-opened&api_code="+code)
 	says("B asking for A's code", body, headingAPINotOpened)
 	if open, stored, _ := state(b.id); open || stored != "" || tenantRows(b.id, "tenant.api_enabled") != 0 || opRows("tenant_api_enabled", b.id) != 1 {
 		t.Errorf("B: open %v, code %q, %d tenant row(s), %d operator row(s); want closed, no code, none, and the ask's one", open, stored,

@@ -246,8 +246,8 @@ type TenantAPIView struct {
 	Open     bool
 	OpenedAt string
 	Code     string
-	// OpenPath is the open form's action (/operator/tenants/<id>/api), ClosePath the Close button's
-	// (/operator/tenants/<id>/api/close).
+	// OpenPath is the open form's action (/operator/tenants/<id>/integration), ClosePath the Close button's
+	// (/operator/tenants/<id>/integration/close).
 	OpenPath, ClosePath string
 	// The sentence (holdings' notice tones): none when NoticeTone is zero; NoticeRules, when set,
 	// are the enable's rules.

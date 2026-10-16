@@ -1,7 +1,7 @@
 package operator_test
 
 // tenantapi_test.go -- M11 API-13a (K-22): the tenant overview's integration API section and its two
-// writes, POST /operator/tenants/{id}/api and POST /operator/tenants/{id}/api/close, on the shipped
+// writes, POST /operator/tenants/{id}/integration and POST /operator/tenants/{id}/integration/close, on the shipped
 // router with the fake store (rig_test.go). The header table of their response classes (C200-C217);
 // the code checked at the boundary by the database's own rule; the sentence read from the overview,
 // not from the write; open -> close -> open; a peer's code; K-19's notice; no session and a
@@ -87,12 +87,12 @@ func (g *rig) overviewOf(id uuid.UUID) db.TenantOverview {
 
 // openAPI and closeAPI are the two writes' requests, same-origin.
 func openAPI(tenant, code string, c ...*http.Cookie) req {
-	return req{method: http.MethodPost, path: "/operator/tenants/" + tenant + "/api", form: url.Values{"api_code": {code}},
+	return req{method: http.MethodPost, path: "/operator/tenants/" + tenant + "/integration", form: url.Values{"api_code": {code}},
 		origin: opOrigin, cookies: c}
 }
 
 func closeAPI(tenant string, c ...*http.Cookie) req {
-	return req{method: http.MethodPost, path: "/operator/tenants/" + tenant + "/api/close", form: url.Values{},
+	return req{method: http.MethodPost, path: "/operator/tenants/" + tenant + "/integration/close", form: url.Values{},
 		origin: opOrigin, cookies: c}
 }
 
@@ -221,7 +221,7 @@ func TestOperatorHeaders_TheTenantAPIClassesCarryThePolicy(t *testing.T) {
 			return failing("EnableTenantAPI", db.ErrOperatorRefused, func() req { return openAPI(apiHeaderTenant, "KF", c) })()
 		}},
 		{"C210 GET on the open path", 405, counted("C210", once(func() req {
-			return view("/operator/tenants/" + apiHeaderTenant + "/api")
+			return view("/operator/tenants/" + apiHeaderTenant + "/integration")
 		}))},
 		{"C211 close", 303, func() *httptest.ResponseRecorder {
 			c := signIn()
@@ -245,7 +245,7 @@ func TestOperatorHeaders_TheTenantAPIClassesCarryThePolicy(t *testing.T) {
 			return failing("DisableTenantAPI", db.ErrOperatorRefused, func() req { return closeAPI(apiHeaderTenant, c) })()
 		}},
 		{"C217 GET on the close path", 405, counted("C217", once(func() req {
-			return view("/operator/tenants/" + apiHeaderTenant + "/api/close")
+			return view("/operator/tenants/" + apiHeaderTenant + "/integration/close")
 		}))},
 	}
 	if len(classes) != 18 {
@@ -313,7 +313,7 @@ func TestOperatorAPI_TheCodeRuleIsTheDatabases(t *testing.T) {
 	refused := []string{"", "  ", "kf", "K", "1KF", "KF-1", "K F", "ÇF", strings.Repeat("K", 17), "KF\x00", "K\u200bF"}
 	for _, code := range refused {
 		writes, reads := len(g.apiWrites()), g.store.count("TenantDetail")
-		w := g.post("/operator/tenants/"+tenant.String()+"/api", url.Values{"api_code": {code}}, sess)
+		w := g.post("/operator/tenants/"+tenant.String()+"/integration", url.Values{"api_code": {code}}, sess)
 		if w.Code != http.StatusUnprocessableEntity || !slices.Equal(apiHeadingsOn(w.Body.String()), []string{headingAPICode}) {
 			t.Errorf("code %q: %d, headings %v; want 422 and [%s]", code, w.Code, apiHeadingsOn(w.Body.String()), headingAPICode)
 		}
@@ -323,7 +323,7 @@ func TestOperatorAPI_TheCodeRuleIsTheDatabases(t *testing.T) {
 	}
 	rule := regexp.MustCompile(db.APICodePattern)
 	for _, code := range []string{"KF", "KM", " KF2 ", "K1", "A" + strings.Repeat("Z9", 7) + "Z"} {
-		w := g.post("/operator/tenants/"+tenant.String()+"/api", url.Values{"api_code": {code}}, sess)
+		w := g.post("/operator/tenants/"+tenant.String()+"/integration", url.Values{"api_code": {code}}, sess)
 		got := g.apiWrites()
 		if w.Code != http.StatusSeeOther || len(got) == 0 || got[len(got)-1].code != strings.TrimSpace(code) || !rule.MatchString(got[len(got)-1].code) {
 			t.Errorf("code %q: %d, last write %+v; want 303 and the trimmed code written", code, w.Code, got)
@@ -378,7 +378,7 @@ func TestOperatorAPI_TheResultIsReadNotPosted(t *testing.T) {
 			t.Errorf("after %s the overview says %v, want %v", what, hs, want)
 		}
 	}
-	closeForm := `action="` + overview + `/api/close"`
+	closeForm := `action="` + overview + `/integration/close"`
 
 	// 1.
 	body := g.get(overview, sess).Body.String()
@@ -509,30 +509,30 @@ func TestOperatorAPI_ARefusedOrFailedOpenNoticesNothing(t *testing.T) {
 	g := newRig(t)
 	sess := g.signIn(g.active())
 	tenant := g.seedOverview(db.TenantOverview{Name: "FAKE Notice Business Ltd", Plan: "founding"})
-	if w := g.post("/operator/tenants/"+tenant.String()+"/api", url.Values{"api_code": {"KF"}}, sess); w.Code != http.StatusSeeOther {
+	if w := g.post("/operator/tenants/"+tenant.String()+"/integration", url.Values{"api_code": {"KF"}}, sess); w.Code != http.StatusSeeOther {
 		t.Fatalf("CONTROL: an open with no noticer = %d, want 303", w.Code)
 	}
 	work := &workRecorder{}
 	g.surface.NoticeWorkTo(work)
-	if w := g.post("/operator/tenants/"+tenant.String()+"/api", url.Values{"api_code": {"kf"}}, sess); w.Code != http.StatusUnprocessableEntity {
+	if w := g.post("/operator/tenants/"+tenant.String()+"/integration", url.Values{"api_code": {"kf"}}, sess); w.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("a refused code = %d", w.Code)
 	}
 	func() {
 		defer g.failStore("EnableTenantAPI", errFakeDB)()
-		if w := g.post("/operator/tenants/"+tenant.String()+"/api", url.Values{"api_code": {"KF"}}, sess); w.Code != http.StatusServiceUnavailable {
+		if w := g.post("/operator/tenants/"+tenant.String()+"/integration", url.Values{"api_code": {"KF"}}, sess); w.Code != http.StatusServiceUnavailable {
 			t.Fatalf("a failed write = %d", w.Code)
 		}
 	}()
 	func() {
 		defer g.failStore("EnableTenantAPI", db.ErrOperatorRefused)()
-		if w := g.post("/operator/tenants/"+tenant.String()+"/api", url.Values{"api_code": {"KF"}}, sess); w.Code != http.StatusSeeOther {
+		if w := g.post("/operator/tenants/"+tenant.String()+"/integration", url.Values{"api_code": {"KF"}}, sess); w.Code != http.StatusSeeOther {
 			t.Fatalf("a refused session = %d", w.Code)
 		}
 	}()
 	if got := work.got(); len(got) != 0 {
 		t.Fatalf("K-19 was told %v, want nothing", got)
 	}
-	if w := g.post("/operator/tenants/"+tenant.String()+"/api", url.Values{"api_code": {"KF"}}, sess); w.Code != http.StatusSeeOther ||
+	if w := g.post("/operator/tenants/"+tenant.String()+"/integration", url.Values{"api_code": {"KF"}}, sess); w.Code != http.StatusSeeOther ||
 		!slices.Equal(work.got(), []uuid.UUID{tenant}) {
 		t.Fatalf("CONTROL: an accepted open = %d and told %v, want 303 and the business", w.Code, work.got())
 	}

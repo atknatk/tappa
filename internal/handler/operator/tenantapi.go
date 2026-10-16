@@ -26,9 +26,10 @@ import (
 //	GET  /operator/tenants/{id}            the overview (tenants.go) -- its read, op_read_tenant_detail,
 //	                                       returns api_enabled_at and api_code since 00057, and the
 //	                                       sentence of the last write (below)
-//	POST /operator/tenants/{id}/api        open the API under the posted code, or change the code of
+//	POST /operator/tenants/{id}/integration  open the API under the posted code, or change the code of
 //	                                       an open one (op_enable_tenant_api)
-//	POST /operator/tenants/{id}/api/close  close it (op_disable_tenant_api); the code is kept
+//	POST /operator/tenants/{id}/integration/close
+//	                                       close it (op_disable_tenant_api); the code is kept
 //
 // 🔴 A WRITE'S ANSWER SAYS NOTHING ABOUT WHAT IT FOUND (ADR 0021 §2 v 7, B14) -- holdings.go's rule.
 // The enable writes only when the business exists and, in a holding, no live member (or one inside
@@ -135,9 +136,11 @@ func apiResultPath(tenant uuid.UUID, done apiDone, code string) string {
 	return p
 }
 
-// tenantAPIPath is the open form's action, /operator/tenants/<id>/api; tenantAPIClosePath the close
-// button's, /operator/tenants/<id>/api/close.
-func tenantAPIPath(tenant uuid.UUID) string      { return pathTenants + "/" + tenant.String() + "/api" }
+// tenantAPIPath is the open form's action, /operator/tenants/<id>/integration; tenantAPIClosePath the close
+// button's, /operator/tenants/<id>/integration/close.
+func tenantAPIPath(tenant uuid.UUID) string {
+	return pathTenants + "/" + tenant.String() + "/integration"
+}
 func tenantAPIClosePath(tenant uuid.UUID) string { return tenantAPIPath(tenant) + "/close" }
 
 // apiNotice is the sentence on the overview: a write's outcome as the read shows it, or a refused
@@ -204,7 +207,7 @@ func apiResultNotice(res apiResult, o db.TenantOverview) apiNotice {
 	return apiNoticeNone
 }
 
-// enableTenantAPI is POST /operator/tenants/{id}/api: ask the database to open the business's API
+// enableTenantAPI is POST /operator/tenants/{id}/integration: ask the database to open the business's API
 // under the posted code (api_code), or to change the code of an open one.
 //
 //	the session (storeSession)                 -> the sign-in
@@ -249,7 +252,7 @@ func (s *Surface) enableTenantAPI(w http.ResponseWriter, r *http.Request) {
 	s.redirect(w, apiResultPath(tenant, apiOpened, code))
 }
 
-// disableTenantAPI is POST /operator/tenants/{id}/api/close: ask the database to close the business's
+// disableTenantAPI is POST /operator/tenants/{id}/integration/close: ask the database to close the business's
 // API. The id is the path's (the overview's Close button posts to it); the body is not read.
 //
 //	the session (storeSession)                 -> the sign-in

@@ -3165,8 +3165,8 @@ ve DNS'e dokunulmadı; sırlar ve prod ölçümleri ana oturumundur (aşağıda 
      `APIEnabledAt`, `APICode`; `*OperatorDB` ikisini **`TenantStore`**'un iki yeni yöntemi olarak devreder
      (yeni bir rol değil: kablolama `operator.New` imzası değişmedi).
    - **Ekran:** işletme özetinde *Integration API* bölümü (durum, açılma anı, kod) ve iki form:
-     `POST /operator/tenants/{id}/api` (`api_code`; açıkken kodu değiştirir) ve
-     `POST /operator/tenants/{id}/api/close`. İkisi konsol grubunda (host kapısı, güvenlik başlıkları,
+     `POST /operator/tenants/{id}/integration` (`api_code`; açıkken kodu değiştirir) ve
+     `POST /operator/tenants/{id}/integration/close`. İkisi konsol grubunda (host kapısı, güvenlik başlıkları,
      flood, same-origin — çapraz site POST mağazaya ulaşmadan 403 —, `requireOperator`, `sessionGate`).
    - **Kararlar (otonom, öneriyle):** (i) kod sınırda veritabanının **kendi** kuralıyla
      (`^[A-Z][A-Z0-9]{1,15}$`) denetlenir — uçları kırpılır, **büyük/küçük harf çevrilmez** (kod her
@@ -3174,7 +3174,10 @@ ve DNS'e dokunulmadı; sırlar ve prod ölçümleri ana oturumundur (aşağıda 
      303 hedefi *sorulanı* taşır (`done`, açmada `api_code`) ve özetin kendi denetimli okuması *olanı*
      söyler (*"Opened."* yalnız okuma o kodla açık gösterirse) — holding ekranının kalıbı. Kod genel bir
      etikettir (00039), URL'de durabilir; sayfa URL'nin kodunu değil okumanınkini basar. (iii) Sorgu
-     anahtarı `api_code` — `code` adı TOTP kodunun kimlik bilgisi adlarındadır (FV3 pini).
+     anahtarı `api_code` — `code` adı TOTP kodunun kimlik bilgisi adlarındadır (FV3 pini). (iv) Yol
+     `/integration`, `/api` değil: landing'in *"tap formunun dışında API yok"* olgusu (`internal/handler` →
+     `TestLandingFacts_EveryDeclaredFactIsDerivedAndClaimed`) üretim kodundaki her `/api` literalini sayar; operatörün
+     ekran yolu müşteriye açık bir API değildir, adı da öyle söylemez.
    - **K-19 (API-10 düzeltme turunun devri):** operatör yüzeyi ve webhook işçisi **aynı süreçtedir**
      (`cmd/tappa` `run` ikisini de kurar) — ölçüldü, kod okunarak: `openOperatorSurface` ve
      `webhook.NewWorker` aynı `run`'da; `operatorSurface.NoticeWorkTo(work)` bağlandı. Kabul edilen bir

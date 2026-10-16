@@ -59,8 +59,8 @@ var operatorRoutes = []struct{ method, path string }{
 	{http.MethodGet, "/operator/tenants"},
 	{http.MethodPost, "/operator/tenants"},
 	{http.MethodGet, "/operator/tenants/{id}"},
-	{http.MethodPost, "/operator/tenants/{id}/api"},
-	{http.MethodPost, "/operator/tenants/{id}/api/close"},
+	{http.MethodPost, "/operator/tenants/{id}/integration"},
+	{http.MethodPost, "/operator/tenants/{id}/integration/close"},
 	{http.MethodGet, "/operator/tenants/{id}/plaques"},
 	{http.MethodGet, "/operator/tenants/{id}/billing"},
 	{http.MethodPost, "/operator/tenants/{id}/billing"},
@@ -84,8 +84,8 @@ var (
 	tenantBillingPath  = regexp.MustCompile(`^/operator/tenants/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/billing$`)
 	tenantVATPath      = regexp.MustCompile(`^/operator/tenants/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/vat$`)
 	// tenantAPIPath and tenantAPIClosePath (M11 API-13a): the overview's two integration API forms.
-	tenantAPIPath      = regexp.MustCompile(`^/operator/tenants/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/api$`)
-	tenantAPIClosePath = regexp.MustCompile(`^/operator/tenants/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/api/close$`)
+	tenantAPIPath      = regexp.MustCompile(`^/operator/tenants/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/integration$`)
+	tenantAPIClosePath = regexp.MustCompile(`^/operator/tenants/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/integration/close$`)
 	// holdingMembersPath and holdingRemovePath are concrete paths of the two holding routes with
 	// ids (M11 API-1a): a holding's add form and a live membership's Remove button.
 	holdingMembersPath = regexp.MustCompile(`^/operator/holdings/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/members$`)
@@ -568,7 +568,7 @@ func screens(t *testing.T) map[string]string {
 		BusinessType: "restaurant", Locations: "9", ActiveEmployees: "41", ActivePlaques: "9", ActiveAdmins: "2",
 		PlaquesPath: row.Path + "/plaques", BillingPath: row.Path + "/billing", VATPath: row.Path + "/vat",
 		API: operatorpages.TenantAPIView{Open: true, OpenedAt: "2026-10-16 09:30 UTC", Code: "KF",
-			OpenPath: row.Path + "/api", ClosePath: row.Path + "/api/close"}}
+			OpenPath: row.Path + "/integration", ClosePath: row.Path + "/integration/close"}}
 	// The unnamed one is closed (M11 API-13a): the open form alone, no Close button.
 	unnamedOverview := overview
 	unnamedOverview.Name = unnamed
@@ -874,10 +874,10 @@ func TestOperatorScreens_EveryActionAndLinkIsAMountedRoute(t *testing.T) {
 		strings.Contains(all["tenant VAT, odd number"], `action="/operator/tenants/10000000-0000-4000-8000-000000000001/vat"`) {
 		t.Fatal("CONTROL: the overview does not link the VAT screen, the VAT screen does not link the overview, its form does not post to it, or the number VIES does not take still has the form")
 	}
-	if strings.Count(all["tenant overview"], `<form method="post" action="/operator/tenants/10000000-0000-4000-8000-000000000001/api" class=`) != 1 ||
-		strings.Count(all["tenant overview"], `<form method="post" action="/operator/tenants/10000000-0000-4000-8000-000000000001/api/close" class=`) != 1 ||
-		strings.Count(all["tenant overview, unnamed"], `action="/operator/tenants/10000000-0000-4000-8000-000000000001/api"`) != 1 ||
-		strings.Contains(all["tenant overview, unnamed"], `/api/close"`) {
+	if strings.Count(all["tenant overview"], `<form method="post" action="/operator/tenants/10000000-0000-4000-8000-000000000001/integration" class=`) != 1 ||
+		strings.Count(all["tenant overview"], `<form method="post" action="/operator/tenants/10000000-0000-4000-8000-000000000001/integration/close" class=`) != 1 ||
+		strings.Count(all["tenant overview, unnamed"], `action="/operator/tenants/10000000-0000-4000-8000-000000000001/integration"`) != 1 ||
+		strings.Contains(all["tenant overview, unnamed"], `/integration/close"`) {
 		t.Fatal("CONTROL: the overview's integration API forms are not where they should be (open: both; closed: the open form alone)")
 	}
 	if !strings.Contains(all["home"], `<a href="/operator/holdings" class="op-link">Holdings</a>`) ||

@@ -176,16 +176,16 @@ var classRoutes = map[string]classRoute{
 	"C198": {"POST", "/operator/holdings/{id}/members/{tenant}/remove", 303},
 	"C199": {"GET", "/operator/holdings/{id}/members/{tenant}/remove", 405},
 	// M11 API-13a's integration API on the tenant overview (tenantapi_test.go).
-	"C200": {"GET", "/operator/tenants/{id}", 200}, "C201": {"POST", "/operator/tenants/{id}/api", 303},
-	"C202": {"POST", "/operator/tenants/{id}/api", 303}, "C203": {"POST", "/operator/tenants/{id}/api", 403},
-	"C204": {"POST", "/operator/tenants/{id}/api", 404}, "C205": {"POST", "/operator/tenants/{id}/api", 422},
-	"C206": {"POST", "/operator/tenants/{id}/api", 413}, "C207": {"POST", "/operator/tenants/{id}/api", 429},
-	"C208": {"POST", "/operator/tenants/{id}/api", 503}, "C209": {"POST", "/operator/tenants/{id}/api", 303},
-	"C210": {"GET", "/operator/tenants/{id}/api", 405},
-	"C211": {"POST", "/operator/tenants/{id}/api/close", 303}, "C212": {"POST", "/operator/tenants/{id}/api/close", 303},
-	"C213": {"POST", "/operator/tenants/{id}/api/close", 403}, "C214": {"POST", "/operator/tenants/{id}/api/close", 404},
-	"C215": {"POST", "/operator/tenants/{id}/api/close", 503}, "C216": {"POST", "/operator/tenants/{id}/api/close", 303},
-	"C217": {"GET", "/operator/tenants/{id}/api/close", 405},
+	"C200": {"GET", "/operator/tenants/{id}", 200}, "C201": {"POST", "/operator/tenants/{id}/integration", 303},
+	"C202": {"POST", "/operator/tenants/{id}/integration", 303}, "C203": {"POST", "/operator/tenants/{id}/integration", 403},
+	"C204": {"POST", "/operator/tenants/{id}/integration", 404}, "C205": {"POST", "/operator/tenants/{id}/integration", 422},
+	"C206": {"POST", "/operator/tenants/{id}/integration", 413}, "C207": {"POST", "/operator/tenants/{id}/integration", 429},
+	"C208": {"POST", "/operator/tenants/{id}/integration", 503}, "C209": {"POST", "/operator/tenants/{id}/integration", 303},
+	"C210": {"GET", "/operator/tenants/{id}/integration", 405},
+	"C211": {"POST", "/operator/tenants/{id}/integration/close", 303}, "C212": {"POST", "/operator/tenants/{id}/integration/close", 303},
+	"C213": {"POST", "/operator/tenants/{id}/integration/close", 403}, "C214": {"POST", "/operator/tenants/{id}/integration/close", 404},
+	"C215": {"POST", "/operator/tenants/{id}/integration/close", 503}, "C216": {"POST", "/operator/tenants/{id}/integration/close", 303},
+	"C217": {"GET", "/operator/tenants/{id}/integration/close", 405},
 }
 
 // classCount is the number of classes of the header tables, C1 to C<classCount>.
@@ -213,10 +213,10 @@ func routeOf(l driveLog) string {
 			p = operator.Prefix + "/tenants/{id}/billing"
 		case seg != "" && tail == "vat":
 			p = operator.Prefix + "/tenants/{id}/vat"
-		case seg != "" && tail == "api":
-			p = operator.Prefix + "/tenants/{id}/api"
-		case seg != "" && tail == "api/close":
-			p = operator.Prefix + "/tenants/{id}/api/close"
+		case seg != "" && tail == "integration":
+			p = operator.Prefix + "/tenants/{id}/integration"
+		case seg != "" && tail == "integration/close":
+			p = operator.Prefix + "/tenants/{id}/integration/close"
 		}
 	}
 	if rest, ok := strings.CutPrefix(p, operator.Prefix+"/holdings/"); ok {
