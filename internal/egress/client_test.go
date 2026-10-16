@@ -41,6 +41,8 @@ type recorder struct {
 	mu   sync.Mutex
 	last http.Header
 	body []byte
+	// sni is the server name the last request's handshake carried (req.TLS.ServerName).
+	sni string
 }
 
 func newRecorder(t *testing.T, h http.HandlerFunc) *recorder {
@@ -51,6 +53,9 @@ func newRecorder(t *testing.T, h http.HandlerFunc) *recorder {
 		b, _ := io.ReadAll(req.Body)
 		r.mu.Lock()
 		r.last, r.body = req.Header.Clone(), b
+		if req.TLS != nil {
+			r.sni = req.TLS.ServerName
+		}
 		r.mu.Unlock()
 		if h != nil {
 			h(w, req)
@@ -114,18 +119,45 @@ func staticDNS(m map[string][]string) *fakeDNS {
 }
 
 // TestEgress_PostDeliversToAnAllowedAddress is the CONTROL every other test leans on: an allowed
-// address is reached, the body and the caller's headers arrive, the TLS name is the URL's host, and
-// the answer is a Result with no class.
+// address is reached, the body and the caller's headers arrive, the TLS name the receiver saw is the
+// URL's host, and the answer is a Result with no class.
+//
+// THE NAME VERIFIED IS THE URL'S HOST, and nothing else (API-12 low round). httptest's certificate
+// names example.com, *.example.com and 127.0.0.1, so a handshake that verified any of those instead
+// of the URL's host passed every other test. Two halves pin it: the receiver sees the URL's host as
+// the handshake's server name, and an allowed name the certificate does NOT cover (hook.example.net,
+// resolved to the same server) is tls with nothing delivered.
+//
+// MUTANTS (measured): cfg.ServerName = "example.com" -> the receiver sees "example.com" and
+// hook.example.net is delivered -> red; cfg.ServerName = the dialled IP -> no server name reaches the
+// receiver and hook.example.net is delivered (the certificate names 127.0.0.1) -> red.
 func TestEgress_PostDeliversToAnAllowedAddress(t *testing.T) {
 	r := newRecorder(t, nil)
-	c := clientFor(t, r, staticDNS(map[string][]string{"hook.example.com": {"127.0.0.1"}}), 5*time.Second, nil)
+	c := clientFor(t, r, staticDNS(map[string][]string{
+		"hook.example.com": {"127.0.0.1"},
+		"hook.example.net": {"127.0.0.1"},
+	}), 5*time.Second, nil)
 	res := c.Post(context.Background(), to(t, "https://hook.example.com/in"), []byte(`{"event":"ping"}`),
 		http.Header{"Content-Type": {"application/json"}, "X-Test": {"yes"}})
 	if !res.Delivered() || res.Status != http.StatusNoContent {
 		t.Fatalf("CONTROL: %+v", res)
 	}
+	r.mu.Lock()
+	sni := r.sni
+	r.mu.Unlock()
 	if r.hits.Load() != 1 || string(r.body) != `{"event":"ping"}` || r.last.Get("X-Test") != "yes" {
 		t.Fatalf("CONTROL: hits %d body %q", r.hits.Load(), r.body)
+	}
+	if sni != "hook.example.com" {
+		t.Fatalf("the receiver saw the TLS server name %q, want the URL's host hook.example.com", sni)
+	}
+	// The same server, under a name its certificate does not carry: the handshake refuses it before a
+	// byte of the request is sent.
+	if res := c.Post(context.Background(), to(t, "https://hook.example.net/in"), []byte(`{"event":"ping"}`), nil); res != (Result{Class: ClassTLS}) {
+		t.Fatalf("a name the certificate does not cover: %+v, want tls", res)
+	}
+	if n := r.hits.Load(); n != 1 {
+		t.Fatalf("a name the certificate does not cover reached the receiver: %d requests, want the control's 1", n)
 	}
 }
 
