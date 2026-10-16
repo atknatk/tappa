@@ -11,8 +11,10 @@ package api
 // location KF-VLT ("Valletta") and KM its department DEP-1 ("Production" -- a KM department is a
 // location, plan §1's mapping note); KF puts two employees -- E-1042 with an address (its activation
 // e-mail is queued) and E-1043 without one, then deactivates E-1043; KM puts M-2001. Each company has
-// a webhook endpoint. Jane (KF) taps in at Valletta; Joe (KM) taps in at Valletta and out at
-// Production -- plan §2 item 30's shift. KF reads its location scope (Jane's in, Joe's in), KM its
+// a webhook endpoint. Jane (KF) taps in at Valletta; Joe (KM) taps in at Valletta and, more than a
+// minute later, out at Production -- plan §2 item 30's shift. The taps go through the tap path
+// (checkin.Service.Record), so every punch of the examples is one the decision engine judged ok; the
+// story waits about a minute for Joe's out (the repeat window). KF reads its location scope (Jane's in, Joe's in), KM its
 // employer scope as a history range (Joe's in at KF's Valletta, his out at KM's Production), KF its
 // directory (its two and KM's one). KF's sender posts Jane's punch; KF sends a test message.
 //
@@ -28,6 +30,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"regexp"
 	"strings"
@@ -37,6 +40,9 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/atknatk/tappa/internal/config"
+	"github.com/atknatk/tappa/internal/domain/checkin"
+	"github.com/atknatk/tappa/internal/domain/tap"
 	"github.com/atknatk/tappa/internal/egress"
 	"github.com/atknatk/tappa/internal/webhook/delivery"
 	"github.com/atknatk/tappa/internal/webhook/endpoints"
@@ -195,15 +201,64 @@ func runExampleStory(t *testing.T) exampleStory {
 		}
 	}
 
-	// The taps: Joe in at Valletta (a punch between two companies), Jane in at Valletta, Joe out at
-	// Production. Every row is recorded now, so each declared instant is what a phone would send:
-	// within the 120 seconds a late tap is still judged live (guide §6.1) -- Jane's and Joe's out a
-	// few seconds, Joe's in 65 -- and Joe's two taps more than the 60-second repeat window apart
-	// (closer, the second would be an ignored repeat, not a punch). The rows are written in their
-	// punchTime order, so the feed's order and punchTime's agree in the examples.
-	w.write(punchRow{employer: km, site: &kf, verdict: "ok", channel: "nfc", kind: "in", ago: 65 * time.Second})
-	w.write(punchRow{employer: kf, verdict: "ok", channel: "nfc", kind: "in", ago: 3 * time.Second})
-	w.write(punchRow{employer: km, verdict: "ok", channel: "nfc", kind: "out", ago: 2 * time.Second})
+	// The taps go through THE TAP PATH ITSELF -- checkin.Service.Record with the shipped 60-second
+	// repeat window: the policy engine's decision, the atomic counter advance, the write and the feed's
+	// triggers. So the engine, not the story, judges every punch of the examples, and the test stops
+	// if one is not ok (ADR 0028, the API-12 second fix note). Before the taps:
+	//   - the two locations' network ranges are set, as their owners set them in the panel (no API
+	//     takes them; without them a tap waits for approval -- guide §11 item 10);
+	//   - Jane, then Joe, activate: the invitation's wizard and the activation touch (ADR 0026) write
+	//     what ConsumeInvite's SET writes. No API writes it, and the touch is no punch. One statement
+	//     each, so the directory's (updatedAt, id) order -- Sam, Jane, Joe -- is the example's.
+	w.exec(`UPDATE locations SET static_ips = '{203.0.113.0/24}' WHERE id = $1`, kf.venue)
+	w.exec(`UPDATE locations SET static_ips = '{192.0.2.0/24}' WHERE id = $1`, km.venue)
+	for _, id := range []uuid.UUID{kf.emp, km.emp} {
+		w.exec(`UPDATE employees SET status = 'active', activated_at = COALESCE(activated_at, now()) WHERE id = $1`, id)
+	}
+	taps, err := checkin.New(r.d, r.trail, &config.Config{GPSRadiusMeters: 150, Debounce: 60 * time.Second, Freshness: 180 * time.Second},
+		slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctrs := map[string]uint32{}
+	tapAt := func(who string, employer, site punchBiz, from string) uuid.UUID {
+		ctrs[site.tag]++
+		res, err := taps.Record(ctx, checkin.Request{SessionTenantID: employer.id, EmployeeID: employer.emp, TagUID: site.tag,
+			Ctr: 1000000 + ctrs[site.tag], Channel: tap.ChannelNFC, CMACVerified: true, TagTenantID: site.id,
+			SourceIP: netip.MustParseAddr(from)})
+		if err != nil {
+			t.Fatalf("%s: %v", who, err)
+		}
+		if res.Outcome != checkin.OutcomeRecorded || res.Decision.Verdict != tap.VerdictOK {
+			t.Fatalf("%s: the tap path answered %s/%s (%s), not a recorded ok: the story's examples would not be a punch",
+				who, res.Outcome, res.Decision.Verdict, res.Decision.MatchedSid)
+		}
+		return res.TransactionID
+	}
+	// Joe in at Valletta (a punch between two companies) and Jane in at Valletta, live: nothing on
+	// the tap page sends a time, so each punchTime is the server's instant.
+	joeIn := tapAt("Joe in at Valletta", km, kf, "203.0.113.7")
+	tapAt("Jane in at Valletta", kf, kf, "203.0.113.8")
+	// Joe out at Production -- plan §2 item 30's shift. A repeat of the same person within 60
+	// seconds is no punch, and the distance is the smaller of two measures: the declared instants
+	// and the database's own age of the earlier row (clock_timestamp() - created_at; CLAUDE.md §5,
+	// ADR 0006). The story's rows are written NOW, so the out waits until both measures of Joe's
+	// in are past the window -- on the database's clock, not by a sleep of a fixed length.
+	// Written sooner, the engine judges the out an ignored repeat and the line above stops the test.
+	for start := time.Now(); ; time.Sleep(250 * time.Millisecond) {
+		var age float64
+		if err := r.owner.QueryRow(ctx, `SELECT EXTRACT(EPOCH FROM clock_timestamp() - created_at)::float8 FROM transactions WHERE id = $1`,
+			joeIn).Scan(&age); err != nil {
+			t.Fatal(err)
+		}
+		if age > 61 && time.Since(start) > 61*time.Second {
+			break
+		}
+		if time.Since(start) > 3*time.Minute {
+			t.Fatalf("Joe's in is %.1f s old after %v", age, time.Since(start))
+		}
+	}
+	tapAt("Joe out at Production", km, km, "192.0.2.7")
 
 	// The feed (section 6): KF's location scope.
 	feed := w.get(kf.raw, "scope=location&limit=100")

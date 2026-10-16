@@ -1164,7 +1164,8 @@ func TestGuard_PanicAndDeadlineAreSection8(t *testing.T) {
 // parameter, parsed or not, is 400 with details.allowed empty, and an empty query is not a parameter.
 //
 // MUTANT (measured, the API-12 fix report): listEmployees back on r.URL.Query() -- red (200 and the
-// default page for each of the four).
+// default page for each of the four). API-12 second fix: a name given twice (cursor, limit) is the
+// same answer; readQuery without its len(v) != 1 -- red on /v1/employees (green before).
 func TestQuery_EveryReadRefusesWhatItDoesNotParse(t *testing.T) {
 	broken := []string{"%zz", "limit=1;x=1", "li%mit=1", "limit=1&curs%zzor=emp_" + uuid.NewString()}
 	lists := []struct{ path, prefix string }{
@@ -1185,7 +1186,9 @@ func TestQuery_EveryReadRefusesWhatItDoesNotParse(t *testing.T) {
 		if ok := get(l.path + l.prefix + "limit=1"); ok.Code != http.StatusOK {
 			t.Fatalf("%s: a well-formed limit is %d (anti-vacuity)", l.path, ok.Code)
 		}
-		for _, q := range broken {
+		// A parameter given twice is the same answer (API-12 second fix: on /v1/employees only
+		// readQuery's count refused it -- dropping it was green).
+		for _, q := range append(slices.Clone(broken), "cursor=A&cursor=B", "limit=1&limit=2") {
 			w := get(l.path + l.prefix + q)
 			if w.Code != http.StatusBadRequest {
 				t.Errorf("%s%s%s: %d, want 400 (a query string that does not parse is never ignored)", l.path, l.prefix, q, w.Code)

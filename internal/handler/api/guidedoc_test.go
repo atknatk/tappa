@@ -29,10 +29,14 @@ package api
 //	TestGuide_NoSecretAddressOrPersonalData       no key, address, e-mail or source path in either guide
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"go/ast"
+	"log/slog"
 	"maps"
+	"net/http"
+	"net/http/httptest"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -41,8 +45,10 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	apidocs "github.com/atknatk/tappa/docs/api"
+	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/internal/webhook/delivery"
 )
 
@@ -302,24 +308,40 @@ func TestGuide_TheTwoLanguagesAreOneDocument(t *testing.T) {
 			t.Errorf("section %q has inline code in Turkish only", section)
 		}
 	}
-	// The numbers of the prose, per section, as a multiset: a limit, a wait or a count translated
-	// into another value ("120 seconds" as "180 saniye") is red. What this cannot see is a sentence
-	// whose meaning the translation turned round with the same numbers ("is not in the total" as
-	// "is in the total") -- that stays a reviewer's (ADR 0028, the API-12 fix note).
+	// The numbers of the prose, per section, in their ORDER: a limit, a wait or a count translated
+	// into another value ("120 seconds" as "180 saniye") is red, and so are two values that changed
+	// places ("1 minute, 5 minutes" as "5 dakika, 1 dakika"). Turkish puts a modifier before what it
+	// modifies, so in the sections of numberOrderFree the translation reorders naturally ("a 02:00
+	// exit of an 18:00 shift" is "18:00 vardiyasının 02:00 çıkışı"): there the numbers are compared
+	// as a multiset only, and a swap is not seen. Nor is a sentence whose meaning the translation
+	// turned round with the same numbers ("is not in the total" as "is in the total") -- both stay a
+	// reviewer's (ADR 0028, the API-12 fix notes).
 	numbered := 0
 	for _, section := range slices.Sorted(maps.Keys(mergeKeys(en.numbers, tr.numbers))) {
 		a, b := slices.Clone(en.numbers[section]), slices.Clone(tr.numbers[section])
-		slices.Sort(a)
-		slices.Sort(b)
+		if numberOrderFree[section] {
+			slices.Sort(a)
+			slices.Sort(b)
+		}
 		if !slices.Equal(a, b) {
 			t.Errorf("section %q: the numbers of the prose differ:\n en %v\n tr %v", section, a, b)
 		}
 		numbered += len(a)
 	}
+	for section := range numberOrderFree {
+		if a, b := en.numbers[section], tr.numbers[section]; slices.Equal(a, b) {
+			t.Errorf("section %q is in numberOrderFree but its numbers are in the same order: take it out", section)
+		}
+	}
 	if numbered < 200 {
 		t.Fatalf("anti-vacuity: %d numbers in the English prose", numbered)
 	}
 }
+
+// numberOrderFree names the sections whose prose numbers the Turkish translation reorders by its
+// word order (measured, API-12 second fix): §6.3 ("18:00 vardiyasının 02:00 çıkışı") and §7 ("bölüm
+// 3.7'deki gibi RFC 3339"). A section is taken out once its numbers agree in order.
+var numberOrderFree = map[string]bool{"feed-punch": true, "history": true}
 
 // mergeKeys is the union of two maps' keys.
 func mergeKeys(a, b map[string][]string) map[string]bool {
@@ -898,13 +920,185 @@ func TestGuide_TheSignatureVectorIsTheSenders(t *testing.T) {
 	}
 }
 
+// TestGuide_TheExamplePunchesAreOutsideTheRepeatWindow (M11 API-12, second fix; CLAUDE.md §5, ADR
+// 0006): the documents tell one story, so two punches of one employee anywhere in them -- the
+// examples of openapi.yaml, the guide's example blocks, the signature vector's body -- are a pair the
+// product would have recorded: a repeat of the same person within 60 seconds is no punch, and the
+// distance is the SMALLER of the declared instants' (punchTime) and the server's (recordedAt; an ok
+// tap's is the row's own instant). The story's handlers make the examples
+// (TestOpenAPI_TheExamplesAreTheHandlersAnswers, through the tap path), but that test compares an
+// instant by kind only, so this one reads the printed values.
+//
+// MUTANT (measured, API-12 second fix report): the first fix's examples -- Joe's in and out 63 s
+// apart in punchTime, 26 ms in recordedAt -- red; the out's recordedAt moved 59 s after the in's, red.
+func TestGuide_TheExamplePunchesAreOutsideTheRepeatWindow(t *testing.T) {
+	type punch struct {
+		id, where         string
+		punchT, recordedT time.Time
+	}
+	byEmployee := map[string][]punch{}
+	instant := func(where string, m *ymap, k string) time.Time {
+		v, _ := m.get(k)
+		s, _ := v.(string)
+		at, err := time.Parse(time.RFC3339Nano, s)
+		if err != nil {
+			t.Fatalf("%s: the punch's %s %q: %v", where, k, s, err)
+		}
+		return at
+	}
+	collect := func(where string, v any) {
+		walkValues(v, where, func(path string, v any) {
+			m, ok := v.(*ymap)
+			if !ok {
+				return
+			}
+			// A punch's punchTime is an instant; a schema's property of that name is a map.
+			if v, _ := m.get("punchTime"); !isString(v) {
+				return
+			}
+			id, _ := yat(m, "id")
+			emp, _ := yat(m, "employee", "id")
+			p := punch{id: fmt.Sprint(id), where: path, punchT: instant(path, m, "punchTime"), recordedT: instant(path, m, "recordedAt")}
+			byEmployee[fmt.Sprint(emp)] = append(byEmployee[fmt.Sprint(emp)], p)
+		})
+	}
+	doc := openAPIDoc(t)
+	for _, section := range []string{"paths", "webhooks", "components"} {
+		sec, _ := doc.get(section)
+		collect("openapi.yaml/"+section, sec)
+	}
+	for _, d := range func() []mdDoc { en, tr := theGuides(t); return []mdDoc{en, tr} }() {
+		for _, b := range d.blocks {
+			if !strings.HasPrefix(b.marker, "example: ") {
+				continue
+			}
+			if v, err := jsonValue([]byte(b.body)); err == nil {
+				collect(d.name+"/"+b.marker, v)
+			}
+		}
+		for _, v := range guideVectors(t, d) {
+			if strings.HasPrefix(v.body, "{\"event\":\"punch\"") {
+				val, err := jsonValue([]byte(v.body))
+				if err != nil {
+					t.Fatal(err)
+				}
+				collect(d.name+"/vector", val)
+			}
+		}
+	}
+	pairs := 0
+	for emp, ps := range byEmployee {
+		for i := range ps {
+			for j := range ps[:i] {
+				a, b := ps[i], ps[j]
+				if a.id == b.id {
+					continue
+				}
+				pairs++
+				declared, recorded := a.punchT.Sub(b.punchT).Abs(), a.recordedT.Sub(b.recordedT).Abs()
+				if gap := min(declared, recorded); gap < 60*time.Second {
+					t.Errorf("employee %s: %s at %s and %s at %s are %v apart (punchTime %v, recordedAt %v): the second would be an ignored repeat, not a punch",
+						emp, a.id, a.where, b.id, b.where, gap, declared, recorded)
+				}
+			}
+		}
+	}
+	if pairs == 0 {
+		t.Fatal("anti-vacuity: no two punches of one employee in the documents")
+	}
+}
+
+// TestGuide_TheRequestIDRuleIsTheLogs (M11 API-12, second fix; guide §2.2): the X-Request-Id an
+// integration sends is the id Taptime's log records carry exactly when the guide says -- 1 to
+// httpx.MaxRequestIDLen characters of A-Z, a-z, 0-9, '-', '_', '.', none of the three key prefixes --
+// and is replaced otherwise. The guide's numbers are the constant's.
+//
+// MUTANTS (measured, API-12 second fix report): the Turkish guide's "64" edited, red;
+// MaxRequestIDLen moved to 65, red; '.' dropped from the allowed set in httpx, red.
+func TestGuide_TheRequestIDRuleIsTheLogs(t *testing.T) {
+	en, tr := theGuides(t)
+	for _, c := range []struct {
+		d    mdDoc
+		says string
+	}{{en, fmt.Sprintf("1 to %d characters", httpx.MaxRequestIDLen)}, {tr, fmt.Sprintf("1 ile %d karakter", httpx.MaxRequestIDLen)}} {
+		if !strings.Contains(collapse.ReplaceAllString(c.d.section("auth-keys"), " "), c.says) {
+			t.Errorf("%s section 2.2 does not say %q", c.d.name, c.says)
+		}
+	}
+	logged := func(id string) string {
+		var buf bytes.Buffer
+		log := slog.New(httpx.WithRequestID(slog.NewJSONHandler(&buf, nil)))
+		h := httpx.RequestID(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { log.InfoContext(r.Context(), "x") }))
+		req := httptest.NewRequest(http.MethodGet, "/v1/punches", nil)
+		req.Header.Set(httpx.RequestIDHeader, id)
+		h.ServeHTTP(httptest.NewRecorder(), req)
+		var rec map[string]any
+		if err := json.Unmarshal(buf.Bytes(), &rec); err != nil {
+			t.Fatal(err)
+		}
+		return fmt.Sprint(rec[httpx.LogRequestIDKey])
+	}
+	set := "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_."
+	// The set is 65 characters: its first 64 and its last 64 are the longest ids kept, all of it is
+	// one too long.
+	kept := []string{"a", set[:httpx.MaxRequestIDLen], set[len(set)-httpx.MaxRequestIDLen:], "erp-2026.10.16_000042", strings.Repeat("A", 43)}
+	replaced := []string{set, strings.Repeat("a", httpx.MaxRequestIDLen+1), "TT_LIVE_abc", "x-tt_test_y", "tt_whsec_1"}
+	for c := 0x21; c < 0x7f; c++ {
+		if !strings.ContainsRune(set, rune(c)) {
+			replaced = append(replaced, "erp"+string(rune(c))+"1")
+		}
+	}
+	replaced = append(replaced, "erp 1", "erp\u00e91")
+	for _, id := range kept {
+		if got := logged(id); got != id {
+			t.Errorf("the request id %q is logged as %q, the guide says as it is", id, got)
+		}
+	}
+	for _, id := range replaced {
+		if got := logged(id); got == id {
+			t.Errorf("the request id %q is logged as it is, the guide says replaced", id)
+		}
+	}
+	if len(replaced) < 30 {
+		t.Fatalf("anti-vacuity: %d values that are replaced", len(replaced))
+	}
+}
+
+func isString(v any) bool { _, ok := v.(string); return ok }
+
 var (
 	emailShape   = regexp.MustCompile(`[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+\.)+[A-Za-z]{2,}`)
 	ipv4Shape    = regexp.MustCompile(`\b([0-9]{1,3}\.){3}[0-9]{1,3}\b`)
-	ipv6Token    = regexp.MustCompile(`[0-9A-Fa-f.]*:[0-9A-Fa-f:.%]*`)
+	ipv6Token    = regexp.MustCompile(`[0-9A-Fa-f.]*:[0-9A-Fa-f:.]*(?:%[0-9A-Za-z_.-]+)?`)
 	keyShapeText = regexp.MustCompile(`tt_(live|test|whsec)_([A-Za-z0-9_-]{32,})`)
 	urlShape     = regexp.MustCompile(`https?://([A-Za-z0-9.-]+)`)
+	// internalHost is a cluster's or a private network's host name, with a scheme or without: a
+	// Kubernetes service name, *.internal, *.local and the like.
+	internalHost = regexp.MustCompile(`(?i)\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:svc\.cluster\.local|cluster\.local|internal|local|localdomain|lan|corp|intranet|home\.arpa)\b|\blocalhost\b`)
+	// base64Run is a run of standard base64 long enough for 32 bytes -- the KEK's and an HMAC key's
+	// shape in the environment (TAPPA_TAG_KEK). A hexadecimal run (a signature) is not one.
+	base64Run = regexp.MustCompile(`[A-Za-z0-9+/]{43,}={0,2}`)
+	hexRun    = regexp.MustCompile(`^[0-9A-Fa-f]+$`)
 )
+
+// base64Secrets is every base64Run in s that could be a secret: not hexadecimal, and with more than
+// four distinct characters (redline R7d's rule: padding like the vector's 'A's is not a key).
+func base64Secrets(s string) []string {
+	var out []string
+	for _, run := range base64Run.FindAllString(s, -1) {
+		if hexRun.MatchString(strings.TrimRight(run, "=")) {
+			continue
+		}
+		distinct := map[rune]bool{}
+		for _, r := range run {
+			distinct[r] = true
+		}
+		if len(distinct) > 4 {
+			out = append(out, run)
+		}
+	}
+	return out
+}
 
 // ipv6Addresses is every IPv6 literal in s: each run of hex digits, dots and colons with a colon in
 // it that net/netip reads as an IPv6 address -- the short forms (::1, fe80::1), the IPv4-mapped ones
@@ -933,7 +1127,10 @@ func ipv6Addresses(s string) []string {
 // MUTANTS (measured, API-12 report): a real-looking key, an address at another domain, an IPv4
 // literal, a taptime URL and an internal/ path put into a guide -- each red. API-12 fix: ::1,
 // ::ffff:a01:203 and fe80::1%eth0 in a guide, and an IPv4 literal in openapi.yaml -- each red (the
-// first two, and anything in openapi.yaml, were green before).
+// first two, and anything in openapi.yaml, were green before). API-12 second fix: fe80::1%lo0 (a
+// zone name of letters), a host name of a cluster or a private network without a scheme
+// (*.svc.cluster.local, *.internal), a base64 value of 32 bytes (the KEK's shape) and a scripts/,
+// deploy/ or /Users/ path in a guide -- each red (each green before).
 func TestGuide_NoSecretAddressOrPersonalData(t *testing.T) {
 	servers, _ := yat(openAPIDoc(t), "servers")
 	list, _ := servers.([]any)
@@ -980,10 +1177,16 @@ func TestGuide_NoSecretAddressOrPersonalData(t *testing.T) {
 				t.Errorf("%s: a URL on %q", src.name, m[1])
 			}
 		}
-		for _, banned := range []string{"internal/", ".go:", "cmd/tappa", "db/migrations"} {
+		for _, banned := range []string{"internal/", ".go:", "cmd/tappa", "db/migrations", "scripts/", "deploy/", "/Users/", "/home/"} {
 			if strings.Contains(s, banned) {
-				t.Errorf("%s: names the source tree (%q)", src.name, banned)
+				t.Errorf("%s: names the source tree or a machine's path (%q)", src.name, banned)
 			}
+		}
+		for _, h := range internalHost.FindAllString(s, -1) {
+			t.Errorf("%s: an internal host name %q", src.name, h)
+		}
+		for _, b := range base64Secrets(s) {
+			t.Errorf("%s: a base64 value long enough for a key %.8q…", src.name, b)
 		}
 	}
 	// The detector itself: the forms a regular expression of groups missed.
@@ -995,6 +1198,32 @@ func TestGuide_NoSecretAddressOrPersonalData(t *testing.T) {
 	for _, not := range []string{"06:48:50", "2026-10-16T08:23:20.461171Z", "sha256:abc", "U+200E", "1:20:30"} {
 		if got := ipv6Addresses(not); len(got) != 0 {
 			t.Errorf("ipv6Addresses reads %q as %v", not, got)
+		}
+	}
+	for _, ip := range []string{"fe80::1%lo0", "fe80::1%en0.", "fe80::1%eth0"} {
+		if len(ipv6Addresses("at "+ip)) != 1 {
+			t.Errorf("ipv6Addresses misses %q", ip)
+		}
+	}
+	for _, h := range []string{"postgres.tappa.svc.cluster.local", "db.cluster.local", "vault.internal", "nas.local", "localhost", "Build.Corp"} {
+		if len(internalHost.FindAllString("at "+h+":5432.", -1)) != 1 {
+			t.Errorf("internalHost misses %q", h)
+		}
+	}
+	for _, not := range []string{"a local calendar month", "internal state", "hooks.example.com", "the cluster's inside"} {
+		if got := internalHost.FindAllString(not, -1); len(got) != 0 {
+			t.Errorf("internalHost reads %q as %v", not, got)
+		}
+	}
+	// A made-up 32 bytes ("self-check: not a secret, 32 b!!"), in base64 with and without padding.
+	for _, b := range []string{"c2VsZi1jaGVjazogbm90IGEgc2VjcmV0LCAzMiBiISE=", "c2VsZi1jaGVjazogbm90IGEgc2VjcmV0LCAzMiBiISE"} {
+		if len(base64Secrets("KEK="+b+".")) != 1 {
+			t.Errorf("base64Secrets misses %q", b)
+		}
+	}
+	for _, not := range []string{"sha256=" + strings.Repeat("be925cb6", 8), strings.Repeat("A", 43), "emp_8973fbc8-5e76-48e2-a80b-67d5b10baa91"} {
+		if got := base64Secrets(not); len(got) != 0 {
+			t.Errorf("base64Secrets reads %q as %v", not, got)
 		}
 	}
 }

@@ -1028,3 +1028,27 @@ func TestLocationsPut_TheNameRuleJudgesOnlyWhatChanges(t *testing.T) {
 		t.Fatalf("a refused rename changed the name to %q", rows[0].name)
 	}
 }
+
+// TestWrites_AQueryParameterIsIgnoredNotADryRun (M11 API-12, second fix; guide §3.7, OpenAPI info): a
+// write reads no query string -- a PUT sent with ?dryRun=1 is a real write, and so is a DELETE. This
+// pins the contract as it is today; refusing the parameter instead is a change of behaviour (backlog
+// T131, a decision before main).
+func TestWrites_AQueryParameterIsIgnoredNotADryRun(t *testing.T) {
+	r := newDBRig(t)
+	biz, owner := r.business(true)
+	raw, _ := r.key(biz, owner)
+	loc := newRef("DRY")
+	if w := r.do(http.MethodPut, "/v1/locations/"+loc+"?dryRun=1", raw, `{"name":"Dry Run","active":true}`); w.Code != http.StatusCreated {
+		t.Fatalf("PUT ?dryRun=1: %d %s, want 201", w.Code, w.Body.String())
+	}
+	if n := r.ownerCount(`SELECT count(*) FROM locations WHERE tenant_id = $1 AND external_ref = $2`, biz, loc); n != 1 {
+		t.Fatalf("PUT ?dryRun=1 left %d locations, want the one it wrote", n)
+	}
+	emp := newRef("DRY")
+	if w := r.putEmp(raw, emp, empBody("Dry", "Run", nil, true)); w.Code != http.StatusCreated {
+		t.Fatal(w.Body.String())
+	}
+	if w := r.do(http.MethodDelete, "/v1/employees/"+emp+"?dryRun=1", raw, ""); w.Code != http.StatusOK || empOf(t, w).Active {
+		t.Fatalf("DELETE ?dryRun=1: %d %s, want 200 and deactivated", w.Code, w.Body.String())
+	}
+}

@@ -123,9 +123,12 @@ Authorization: Bearer <key>
   sonraki istekte geçerlidir: hiçbir şey önbelleğe alınmaz.
 - Anahtarı log'lardan, URL'lerden ve `Authorization` dışındaki başlıklardan uzak tutun.
 - **`X-Request-Id`'ye asla bir anahtar ya da başka bir sır koymayın.** Taptime gönderdiğiniz
-  `X-Request-Id`'yi isteğin kimliği olarak log'larına yazabilir. Yalnız `tt_live_`, `tt_test_` ya da
-  `tt_whsec_` içeren (harf büyüklüğüne bakılmadan) bir değer Taptime'ın kendi kimliğiyle
-  değiştirilir; başka her şey — öneki olmadan bir anahtarın karakterleri dahil — olduğu gibi yazılır.
+  `X-Request-Id`'yi isteğin kimliği olarak log'larına yazabilir: her karakteri `A`–`Z`,
+  `a`–`z`, `0`–`9`, `-`, `_` ve `.` kümesinden olan, 1 ile 64 karakter arası ve `tt_live_`,
+  `tt_test_` ve `tt_whsec_`'in hiçbirini içermeyen (harf büyüklüğüne bakılmadan) bir değer. Böyle
+  bir değer olduğu gibi yazılır — öneki olmadan bir anahtarın karakterleri dahil. Başka her değer —
+  daha uzun, başka bir karakterli ya da üç önekten birini taşıyan — Taptime'ın kendi kimliğiyle
+  değiştirilir: kimliğinizi Taptime desteğiyle eşleştirmek istiyorsanız kümeye ve uzunluğa uyun.
 
 Bir işletmenin birden çok anahtarı olabilir (sistem başına bir anahtar iyi bir kuraldır). Her
 anahtarın kendi istek bütçesi, kendi pasifleştirme bütçesi ve kendi Idempotency-Key'leri vardır —
@@ -304,6 +307,8 @@ adlar `details.allowed` içinde. Yanlış yazılmış bir parametre asla yok say
 `GET /v1/employees/{ref}` ve üç belge hiç parametre almaz: her biri 400 alır, `details.allowed` boş.
 Bir yazmanın (`PUT`, `DELETE`, `POST`) sorgu parametresi yoktur: Taptime sorgu dizgesini okumaz —
 göndermeyin — yalnız bir Idempotency-Key'in adlandırdığı isteğin parçası sayar ([3.3](#idempotency)).
+**Bir yazma sorgu parametresi almaz ve gönderileni yok sayar: `dryRun` ya da benzeri bir şey
+yoktur — `?dryRun=1` ile gönderilen bir `PUT` gerçek bir yazmadır.**
 
 Sorgu dizgesindeki anlar (`from`, `to`, `updatedSince`) RFC 3339'dur —
 `YYYY-MM-DDThh:mm:ss`, isteğe bağlı olarak noktadan sonra bir kesir (`.fraction`), ardından `Z` ya da bir saat
@@ -388,12 +393,12 @@ curl -sS -X PUT "$TAPTIME_API/v1/locations/KF-VLT" \
 <!-- example: putLocation 201 -->
 ```json
 {
-  "id": "loc_fc3dda7c-cd47-461e-b327-43ef68d0e4fc",
+  "id": "loc_30258476-2ce5-4a5d-a7dd-36651c3019dd",
   "externalRef": "KF-VLT",
   "name": "Valletta",
   "timezone": "Europe/Malta",
   "active": true,
-  "createdAt": "2026-10-16T08:23:20.461171Z"
+  "createdAt": "2026-10-16T09:13:12.861739Z"
 }
 ```
 
@@ -425,10 +430,11 @@ KM, `DEP-1` ("Production") departmanını aynı biçimde yazar: KM'nin bir depar
   e-postası **kuyruğa girer** ([5.2](#employees-activation)).
 - Bilinen bir referans güncellenir: **200**. Çalışanı olduğu gibi tarif eden bir istek hiçbir şeyi
   değiştirmez: 200.
-- **Bir `PUT` yerine koyar, yamalamaz**: gönderilmeyen isteğe bağlı bir alan `null` olur.
+- **Bir `PUT` yerine koyar, yamalamaz**: gönderilmeyen bir `employeeCode` `null` olur.
   `employeeCode`'u `77` olan bir çalışan `employeeCode` olmadan yazılırsa `employeeCode: null` ile
   cevaplanır — sonraki punch'ları ve bir ortak şirketin rehberi de `null` taşır. Tuttuğunuz her
-  alanı her seferinde gönderin.
+  alanı her seferinde gönderin. (Öteki isteğe bağlı alan `externalRef`'in kendine ait bir değeri
+  yoktur: gönderilmezse yoldaki referanstır.)
 - **Adres**: tek, düz bir ASCII adres (görünen ad yok, boşluk yok, en çok 254 karakter).
   İşletmenin bir yöneticisinin adresi **422** alır (`reason` `administrator_address`). İşletmenin
   başka bir **aktif** çalışanındaki adres **409 `email_unavailable`** alır: hiçbir şey
@@ -456,7 +462,7 @@ curl -sS -X PUT "$TAPTIME_API/v1/employees/E-1042" \
 <!-- example: putEmployee 201 -->
 ```json
 {
-  "id": "emp_caa5e7b6-ab2b-4dc1-920b-1cbf9b9b6abb",
+  "id": "emp_8973fbc8-5e76-48e2-a80b-67d5b10baa91",
   "externalRef": "E-1042",
   "employeeCode": "1042",
   "firstName": "Jane",
@@ -466,9 +472,9 @@ curl -sS -X PUT "$TAPTIME_API/v1/employees/E-1042" \
   "activated": false,
   "activatedAt": null,
   "hasEmail": true,
-  "activationEmail": {"status": "queued", "at": "2026-10-16T08:23:20.504798Z"},
-  "createdAt": "2026-10-16T08:23:20.490688Z",
-  "updatedAt": "2026-10-16T08:23:20.501899Z"
+  "activationEmail": {"status": "queued", "at": "2026-10-16T09:13:12.905861Z"},
+  "createdAt": "2026-10-16T09:13:12.891784Z",
+  "updatedAt": "2026-10-16T09:13:12.902916Z"
 }
 ```
 
@@ -534,14 +540,18 @@ dokunuşları reddedilir, geçmişi kalır.
   kod `rate_limited` değildir; sisteminiz bir bütçeyi bir istek sınırından ayırt edebilir.
 - Zaten pasifleştirilmiş bir çalışan olduğu gibi cevaplanır: 200, bütçe harcanmaz — işletme
   askıdayken hariç.
-- İşletmenin hiç tutmadığı bir referans **404 `not_found`** alır.
-- İşletme askıdayken her `DELETE` ve `active: false` ile her `PUT` 403 `tenant_suspended` alır —
-  zaten pasifleştirilmiş bir çalışan için de ([bölüm 10](#suspension)).
+- İşletmenin hiç tutmadığı bir referans **404 `not_found`** alır — işletme askıdayken bir
+  `DELETE` hariç (aşağıda).
+- İşletme askıdayken her `DELETE` 403 `tenant_suspended` alır — zaten pasifleştirilmiş bir çalışan
+  ve işletmenin hiç tutmadığı bir referans için de —; var olan bir çalışana denk gelen,
+  `active: false` ile her `PUT` de öyle, zaten pasifleştirilmiş bir çalışan dahil. İşletmenin hiç tutmadığı
+  bir referansa `active: false` ile `PUT` hiçbir çalışana denk gelmez: 404 kalır
+  ([bölüm 10](#suspension)).
 
 <!-- example: deleteEmployee 200 -->
 ```json
 {
-  "id": "emp_c6a23032-df9e-4914-bd30-4ceaaca03fe1",
+  "id": "emp_32a024b8-e86f-4110-a4da-c05ee0acd9b7",
   "externalRef": "E-1043",
   "employeeCode": null,
   "firstName": "Sam",
@@ -552,8 +562,8 @@ dokunuşları reddedilir, geçmişi kalır.
   "activatedAt": null,
   "hasEmail": false,
   "activationEmail": {"status": "none", "at": null},
-  "createdAt": "2026-10-16T08:23:20.517094Z",
-  "updatedAt": "2026-10-16T08:23:20.554811Z"
+  "createdAt": "2026-10-16T09:13:12.918861Z",
+  "updatedAt": "2026-10-16T09:13:12.95631Z"
 }
 ```
 
@@ -591,14 +601,19 @@ Başka hiçbir şey punch değildir ve başka hiçbir şey akışta yoktur:
 - bir yöneticinin Taptime panelinde girdiği **manuel kayıt** — manuel kayıtlar sizin sisteminizindir;
 - **reddedilmiş** bir dokunuş (ör. pasifleştirilmiş bir çalışanınki ya da işletmenin kendisinin ya
   da bir ortak şirketin **kayıp ya da emekli bir plaketine** dokunuş) ve bir **pratik** dokunuşu;
-- aynı kişinin **60 saniye** içindeki **tekrar** dokunuşu: yok sayılır — plaket başına değil kişi
-  başına, iki şirketin plaketleri arasında da.
+- aynı kişinin **60 saniye** içindeki **tekrar** dokunuşu — telefonların beyan ettiği anlarda
+  **ya da** Taptime'ın kendi saatinde, hangisi yakınsa: yok sayılır — plaket başına değil kişi
+  başına, iki şirketin plaketleri arasında da. Çevrimdışı bir telefonun kuyruğundan arka arkaya
+  gönderdiği iki dokunuş Taptime'ın saatinde birbirine yakındır; beyan ettikleri anlar daha uzak
+  olsa da ikincisi yok sayılır.
 
 **Zaman.** `punchTime` **çalışanın telefonunun beyan ettiği** andır; `recordedAt` punch'ın akışa
 girdiği andır (onaylanan bir flag için onayın anı). Çevrimdışı kalmış bir telefon kuyruğundaki
 dokunuşu, yapıldığı anla, sonra gönderir: **120 saniyeye** kadar gecikmeli olanı (varsayılan;
 işletme bunu değiştirebilir) canlı bir dokunuş gibi karara bağlanır; daha geç olanı bir yöneticinin
-onayını gerektirir; **72 saatten** daha eski ya da gelecekteki bir an reddedilir.
+onayını gerektirir; **72 saatten** daha eski ya da gelecekteki bir an reddedilir. Hemen gönderilen
+bir dokunuş hiçbir an beyan etmez: `punchTime`'ı Taptime'ın dokunuş için kendi anıdır,
+`recordedAt`'inden milisaniyeler uzaktadır — hikâyedeki gibi; hikâyenin dokunuşları canlıdır.
 
 <a id="feed-scopes"></a>
 ### 6.2 Kapsamlar
@@ -697,28 +712,28 @@ de.
 {
   "data": [
     {
-      "id": "pch_c9ddd4ac-baf5-4d85-a09a-3cf9fdce7940",
+      "id": "pch_00d216d4-3012-4d76-9c35-8f24028b432a",
       "version": 1,
       "status": "valid",
-      "punchTime": "2026-10-16T08:22:15.601Z",
-      "recordedAt": "2026-10-16T08:23:20.599213Z",
+      "punchTime": "2026-10-16T09:13:13.008183Z",
+      "recordedAt": "2026-10-16T09:13:13.051707Z",
       "channel": "nfc",
       "direction": "in",
-      "employee": {"id": "emp_3ed82a0f-c95b-4b49-836d-1eccbceb7180", "externalRef": "M-2001", "employeeCode": "2001", "company": "KM"},
-      "location": {"id": "loc_fc3dda7c-cd47-461e-b327-43ef68d0e4fc", "externalRef": "KF-VLT", "name": "Valletta", "company": "KF"},
-      "tagId": "tag_229B1AB4766C99"
+      "employee": {"id": "emp_42f028c7-242a-4903-89df-8fde6176926b", "externalRef": "M-2001", "employeeCode": "2001", "company": "KM"},
+      "location": {"id": "loc_30258476-2ce5-4a5d-a7dd-36651c3019dd", "externalRef": "KF-VLT", "name": "Valletta", "company": "KF"},
+      "tagId": "tag_0DD4F2FE3B9A6A"
     },
     {
-      "id": "pch_b79d3f18-f22e-456a-a386-466710dcb586",
+      "id": "pch_04ce3ad0-fb32-477d-9d5d-7c0e9b079b41",
       "version": 1,
       "status": "valid",
-      "punchTime": "2026-10-16T08:23:17.62Z",
-      "recordedAt": "2026-10-16T08:23:20.619065Z",
+      "punchTime": "2026-10-16T09:13:13.083662Z",
+      "recordedAt": "2026-10-16T09:13:13.116875Z",
       "channel": "nfc",
       "direction": "in",
-      "employee": {"id": "emp_caa5e7b6-ab2b-4dc1-920b-1cbf9b9b6abb", "externalRef": "E-1042", "employeeCode": "1042", "company": "KF"},
-      "location": {"id": "loc_fc3dda7c-cd47-461e-b327-43ef68d0e4fc", "externalRef": "KF-VLT", "name": "Valletta", "company": "KF"},
-      "tagId": "tag_229B1AB4766C99"
+      "employee": {"id": "emp_8973fbc8-5e76-48e2-a80b-67d5b10baa91", "externalRef": "E-1042", "employeeCode": "1042", "company": "KF"},
+      "location": {"id": "loc_30258476-2ce5-4a5d-a7dd-36651c3019dd", "externalRef": "KF-VLT", "name": "Valletta", "company": "KF"},
+      "tagId": "tag_0DD4F2FE3B9A6A"
     }
   ],
   "nextCursor": "cur_2",
@@ -737,7 +752,9 @@ de.
 > hiç görünmeyebilir ya da başka bir lokasyonun `out`'u olabilir. Bir grup çalışanının çalışma
 > süresi için işveren şirketin verisi — onun `employer` kapsamı — esastır.
 
-Hikâyede Joe (KM) vardiyasına KF'nin Valletta'sında başlar ve KM'nin Production plaketinde bitirir.
+Hikâyede Joe (KM) vardiyasına KF'nin Valletta'sında başlar ve bir dakikadan biraz sonra KM'nin
+Production plaketinde bitirir (hikâye gerçek zamanda koşar ve 60 saniye içindeki bir tekrar punch
+olmazdı — [6.1](#feed-what)).
 KF'nin `location` kapsamı yalnız onun `in`'ini alır (yukarıda). `out` bir KM lokasyonu punch'ıdır:
 KM'nin `employer` ve `location` kapsamlarındadır. KM `employer` kapsamını bir geçmiş aralığı olarak
 okur ve ikisini de görür:
@@ -747,31 +764,31 @@ okur ve ikisini de görür:
 {
   "data": [
     {
-      "id": "pch_c9ddd4ac-baf5-4d85-a09a-3cf9fdce7940",
+      "id": "pch_00d216d4-3012-4d76-9c35-8f24028b432a",
       "version": 1,
       "status": "valid",
-      "punchTime": "2026-10-16T08:22:15.601Z",
-      "recordedAt": "2026-10-16T08:23:20.599213Z",
+      "punchTime": "2026-10-16T09:13:13.008183Z",
+      "recordedAt": "2026-10-16T09:13:13.051707Z",
       "channel": "nfc",
       "direction": "in",
-      "employee": {"id": "emp_3ed82a0f-c95b-4b49-836d-1eccbceb7180", "externalRef": "M-2001", "employeeCode": "2001", "company": "KM"},
-      "location": {"id": "loc_fc3dda7c-cd47-461e-b327-43ef68d0e4fc", "externalRef": "KF-VLT", "name": "Valletta", "company": "KF"},
-      "tagId": "tag_229B1AB4766C99"
+      "employee": {"id": "emp_42f028c7-242a-4903-89df-8fde6176926b", "externalRef": "M-2001", "employeeCode": "2001", "company": "KM"},
+      "location": {"id": "loc_30258476-2ce5-4a5d-a7dd-36651c3019dd", "externalRef": "KF-VLT", "name": "Valletta", "company": "KF"},
+      "tagId": "tag_0DD4F2FE3B9A6A"
     },
     {
-      "id": "pch_2be2fdc3-cebd-4bd7-9b17-2d4b5e0c46b8",
+      "id": "pch_f01406af-dfcc-4fc0-bc4e-c3d982645fe8",
       "version": 1,
       "status": "valid",
-      "punchTime": "2026-10-16T08:23:18.626Z",
-      "recordedAt": "2026-10-16T08:23:20.625138Z",
+      "punchTime": "2026-10-16T09:14:14.253191Z",
+      "recordedAt": "2026-10-16T09:14:14.261497Z",
       "channel": "nfc",
       "direction": "out",
-      "employee": {"id": "emp_3ed82a0f-c95b-4b49-836d-1eccbceb7180", "externalRef": "M-2001", "employeeCode": "2001", "company": "KM"},
-      "location": {"id": "loc_9f8556c8-34b6-4ade-b094-33f3b0fc84f1", "externalRef": "DEP-1", "name": "Production", "company": "KM"},
-      "tagId": "tag_A787E8840F05BC"
+      "employee": {"id": "emp_42f028c7-242a-4903-89df-8fde6176926b", "externalRef": "M-2001", "employeeCode": "2001", "company": "KM"},
+      "location": {"id": "loc_4b6d2cc5-44e7-42c0-9830-abd1b8e370bb", "externalRef": "DEP-1", "name": "Production", "company": "KM"},
+      "tagId": "tag_DF83F315A119DF"
     }
   ],
-  "nextCursor": "hst_2_1792138998626000_2_8cc334c07fc173a5",
+  "nextCursor": "hst_2_1792142054253191_2_4b83bfee122c0b1d",
   "hasMore": false
 }
 ```
@@ -821,13 +838,13 @@ panelinde oluşturulmuş ve bir entegrasyonun adlandırmadığı bir çalışan�
 ```json
 {
   "data": [
-    {"id": "emp_caa5e7b6-ab2b-4dc1-920b-1cbf9b9b6abb", "company": "KF", "externalRef": "E-1042", "employeeCode": "1042", "firstName": "Jane", "lastName": "Example", "fullName": "Jane Example", "active": true, "updatedAt": "2026-10-16T08:23:20.501899Z"},
-    {"id": "emp_3ed82a0f-c95b-4b49-836d-1eccbceb7180", "company": "KM", "externalRef": "M-2001", "employeeCode": "2001", "firstName": "Joe", "lastName": "Sample", "fullName": "Joe Sample", "active": true, "updatedAt": "2026-10-16T08:23:20.536218Z"},
-    {"id": "emp_c6a23032-df9e-4914-bd30-4ceaaca03fe1", "company": "KF", "externalRef": "E-1043", "employeeCode": null, "firstName": "Sam", "lastName": "Placeholder", "fullName": "Sam Placeholder", "active": false, "updatedAt": "2026-10-16T08:23:20.554811Z"}
+    {"id": "emp_32a024b8-e86f-4110-a4da-c05ee0acd9b7", "company": "KF", "externalRef": "E-1043", "employeeCode": null, "firstName": "Sam", "lastName": "Placeholder", "fullName": "Sam Placeholder", "active": false, "updatedAt": "2026-10-16T09:13:12.95631Z"},
+    {"id": "emp_8973fbc8-5e76-48e2-a80b-67d5b10baa91", "company": "KF", "externalRef": "E-1042", "employeeCode": "1042", "firstName": "Jane", "lastName": "Example", "fullName": "Jane Example", "active": true, "updatedAt": "2026-10-16T09:13:13.00516Z"},
+    {"id": "emp_42f028c7-242a-4903-89df-8fde6176926b", "company": "KM", "externalRef": "M-2001", "employeeCode": "2001", "firstName": "Joe", "lastName": "Sample", "fullName": "Joe Sample", "active": true, "updatedAt": "2026-10-16T09:13:13.006277Z"}
   ],
   "nextCursor": null,
   "hasMore": false,
-  "asOf": "2026-10-16T08:23:20.653691Z"
+  "asOf": "2026-10-16T09:14:14.298977Z"
 }
 ```
 
@@ -891,6 +908,8 @@ adresine çözülen bir ad reddedilir (`blocked_address`) — bir kez genel bir 
 Taptime **TLS 1.2 ya da daha yenisiyle** bağlanır ve sertifikayı denetler: sertifika uç noktanın adı
 için geçerli olmalı ve herkesçe güvenilen bir sertifika otoritesine zincirlenmelidir — daha eski bir
 TLS'le, kendinden imzalı ya da özel bir otoritenin sertifikasıyla her deneme başarısız olur.
+Taptime **istemci sertifikası sunmaz**: bir tane isteyen alıcıda (karşılıklı TLS) da her deneme
+başarısız olur — panel ve teslim günlüğü bunu başarısız bir güvenli bağlantı olarak adlandırır.
 Yönlendirmeler **izlenmez**; cevap **10 saniye** içinde gelmelidir; cevabın gövdesi okunmaz.
 
 <a id="webhook-key"></a>
@@ -936,8 +955,8 @@ body: {"event":"ping"}
 signature: sha256=1deefe0009103810c89395f2d078e1ba71edb003b3692a3ebca6d0866bf99935
 body: (empty)
 signature: sha256=88d05ff68b9d0e7585161401b08cb679fbf1701b3e28f683a3e96e4c33653576
-body: {"event":"punch","deliveryId":"dlv_812ed053-f6d5-4c9e-9c94-1c878fa8de26","id":"pch_b79d3f18-f22e-456a-a386-466710dcb586","version":1,"status":"valid","punchTime":"2026-10-16T08:23:17.62Z","recordedAt":"2026-10-16T08:23:20.619065Z","channel":"nfc","direction":"in","employee":{"id":"emp_caa5e7b6-ab2b-4dc1-920b-1cbf9b9b6abb","externalRef":"E-1042","employeeCode":"1042","company":"KF"},"location":{"id":"loc_fc3dda7c-cd47-461e-b327-43ef68d0e4fc","externalRef":"KF-VLT","name":"Valletta","company":"KF"},"tagId":"tag_229B1AB4766C99"}
-signature: sha256=d06e40956d9a89a927462105f3f466a29796701d25fc38cbdf7581284d0d71dc
+body: {"event":"punch","deliveryId":"dlv_44721ce2-0f54-41ce-a757-7ee03cfec107","id":"pch_04ce3ad0-fb32-477d-9d5d-7c0e9b079b41","version":1,"status":"valid","punchTime":"2026-10-16T09:13:13.083662Z","recordedAt":"2026-10-16T09:13:13.116875Z","channel":"nfc","direction":"in","employee":{"id":"emp_8973fbc8-5e76-48e2-a80b-67d5b10baa91","externalRef":"E-1042","employeeCode":"1042","company":"KF"},"location":{"id":"loc_30258476-2ce5-4a5d-a7dd-36651c3019dd","externalRef":"KF-VLT","name":"Valletta","company":"KF"},"tagId":"tag_0DD4F2FE3B9A6A"}
+signature: sha256=be925cb6fade218b39df6aa4ea0f1b78e52457c25068710ab32ad7ab6e8cb69c
 ```
 
 İlk bilinen cevap `openssl` ile — yukarıdaki ilk imzayı basar:
@@ -1040,7 +1059,7 @@ dokunmayan bir **yazma kilididir**:
 |---|---|
 | her `GET` — akış, geçmiş sorgusu, rehber, çalışanlar | `PUT /v1/locations/{ref}` |
 | **yeni** bir çalışan oluşturan `PUT /v1/employees/{ref}`, yeniden işe alım dahil | var olan bir çalışana denk gelen her `PUT /v1/employees/{ref}` — bir değişiklik, adresle bağlama, `active: false` (zaten pasifleştirilmiş bir çalışana da) ve hiçbir şeyi değiştirmeyen bir istek |
-| `POST /v1/employees/{ref}/resend-activation` | her `DELETE /v1/employees/{ref}`, zaten pasifleştirilmiş bir çalışana da |
+| `POST /v1/employees/{ref}/resend-activation` | her `DELETE /v1/employees/{ref}`, zaten pasifleştirilmiş bir çalışana ya da hiç tutulmamış bir referansa da |
 | webhook teslimleri ve aktivasyon e-postalarının kuyruğu | panelde: anahtar oluşturmak; uç noktayı oluşturmak, adresini değiştirmek, anahtarını döndürmek ya da açmak; test mesajları; "Send again now" |
 | dokunuşlar kaydedilir ve punch'lar akışa girer (bir grubunkiler de) | |
 | panelde: bir anahtarı iptal etmek, uç noktayı kapatmak | |
@@ -1055,7 +1074,7 @@ Taptime'ın, bir entegrasyonun varsayabileceğinden farkları. Her madde açıkl
 3. v1'de `version` her zaman `1`'dir ve `voided` hiç üretilmez. ([6.3](#feed-punch))
 4. Ek alanlar: `channel` (`nfc` | `qr`) ve `direction` (`in` | `out` — Taptime'ın işverende hesapladığı yön); `tagId` her iki kanalda doludur. ([6.3](#feed-punch))
 5. `punchTime` telefonun beyan ettiği andır; çevrimdışı kuyruk varsayılan olarak 120 saniyeye kadar `ok`'tur (işletme bunu değiştirebilir), tavan 72 saattir; `recordedAt` sunucunun kaydettiği andır. ([6.1](#feed-what))
-6. 60 saniye içindeki tekrar dokunuş punch değildir — kişi bazlı, **iki şirketin plaketleri arasında da**. ([6.1](#feed-what))
+6. 60 saniye içindeki tekrar dokunuş punch değildir — kişi bazlı, **iki şirketin plaketleri arasında da** — ve 60 saniye beyan edilen anlarda ya da Taptime'ın kendi saatinde, hangisi yakınsa, sayılır: çevrimdışı bir kuyruktan arka arkaya gönderilen iki dokunuşun ikincisi, beyan edilen anları daha uzak olsa da, kaybolur. ([6.1](#feed-what))
 7. Lokasyonun `timezone`'u işletmeninkine eşit olmalıdır, değilse cevap 422'dir. ([4](#locations))
 8. Lokasyonda `active:false` yalnız bir etikettir. ([4](#locations))
 9. Yeniden işe alım yeni bir `employee.id` üretir; `externalRef` aynı kalır. ([5.1](#employees-put))

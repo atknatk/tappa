@@ -606,6 +606,21 @@ func TestEmployees_SuspensionClassesAreSection10(t *testing.T) {
 			t.Fatalf("suspended %s %s: %d %s, want 403", x.method, x.body, w.Code, w.Body.String())
 		}
 	}
+	// A reference the business never held (API-12 second fix, guide §5.5): a PUT with active:false
+	// lands on no employee, so it is the 404 it is unsuspended; a DELETE is refused before the lookup.
+	never := newRef("SUSNEVER")
+	for _, x := range []struct {
+		method, body string
+		status       int
+		code         Code
+	}{
+		{http.MethodPut, empBody("Never", "Held", nil, false), 404, CodeNotFound},
+		{http.MethodDelete, "", 403, CodeTenantSuspended},
+	} {
+		if w := r.do(x.method, "/v1/employees/"+never, raw, x.body); w.Code != x.status || problemOf(t, w).Code != x.code {
+			t.Fatalf("suspended %s of a reference never held: %d %s, want %d %s", x.method, w.Code, w.Body.String(), x.status, x.code)
+		}
+	}
 	if r.ownerCount(`SELECT count(*) FROM audit_log WHERE tenant_id = $1`, biz) != trail {
 		t.Fatal("a refused write left a trail row")
 	}

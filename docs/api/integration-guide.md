@@ -123,9 +123,12 @@ Authorization: Bearer <key>
   take effect on the very next request: nothing is cached.
 - Keep the key out of logs, URLs and headers other than `Authorization`.
 - **Never put a key or another secret into `X-Request-Id`.** Taptime may write the `X-Request-Id`
-  you send into its logs as the request's id. Only a value that contains `tt_live_`, `tt_test_` or
-  `tt_whsec_` (in any case) is replaced by an id of Taptime's own; anything else — a key's
-  characters without its prefix included — is written as it is.
+  you send into its logs as the request's id: a value of 1 to 64 characters, each one of `A`–`Z`,
+  `a`–`z`, `0`–`9`, `-`, `_` and `.`, that contains none of `tt_live_`, `tt_test_` and `tt_whsec_`
+  (in any case). Such a value is written as it is — a key's characters without its prefix
+  included. Any other value — longer, with another character, or with one of the three prefixes — is
+  replaced by an id of Taptime's own: keep to the set and the length if you want to match your id
+  with Taptime's support.
 
 A business may have several keys (one per system is a good rule). Each key has its own request
 budget and its own deactivation budget, and its own Idempotency-Keys — see
@@ -300,7 +303,9 @@ between parameters) are **400 `invalid_request`**, with the accepted names in `d
 A misspelt parameter is never ignored. `GET /v1/employees/{ref}` and the three documents take no
 parameter at all: any is 400, with `details.allowed` empty. A write (`PUT`, `DELETE`, `POST`) has
 no query parameters: Taptime does not read its query string — send none — except as part of the
-request an Idempotency-Key names ([3.3](#idempotency)).
+request an Idempotency-Key names ([3.3](#idempotency)). **A write takes no query parameter and
+ignores any it is sent: there is no `dryRun` or the like — a `PUT` sent with `?dryRun=1` is a real
+write.**
 
 Instants in a query string (`from`, `to`, `updatedSince`) are RFC 3339 —
 `YYYY-MM-DDThh:mm:ss`, an optional `.fraction` after a dot, then `Z` or an offset `±hh:mm` — with
@@ -382,12 +387,12 @@ curl -sS -X PUT "$TAPTIME_API/v1/locations/KF-VLT" \
 <!-- example: putLocation 201 -->
 ```json
 {
-  "id": "loc_fc3dda7c-cd47-461e-b327-43ef68d0e4fc",
+  "id": "loc_30258476-2ce5-4a5d-a7dd-36651c3019dd",
   "externalRef": "KF-VLT",
   "name": "Valletta",
   "timezone": "Europe/Malta",
   "active": true,
-  "createdAt": "2026-10-16T08:23:20.461171Z"
+  "createdAt": "2026-10-16T09:13:12.861739Z"
 }
 ```
 
@@ -418,10 +423,11 @@ KM puts its department `DEP-1` ("Production") the same way: a KM department is a
   activation e-mail is **queued** ([5.2](#employees-activation)).
 - A known reference is updated: **200**. A request that matches the employee as they are changes
   nothing: 200.
-- **A `PUT` replaces, it does not patch**: a left-out optional field becomes `null`. An employee
+- **A `PUT` replaces, it does not patch**: a left-out `employeeCode` becomes `null`. An employee
   whose `employeeCode` is `77`, put without `employeeCode`, is answered with `employeeCode: null` —
   and their next punches and a partner company's directory carry `null` too. Send every field you
-  hold, every time.
+  hold, every time. (`externalRef`, the other optional field, holds nothing of its own: left out,
+  it is the reference in the path.)
 - **The address**: one plain ASCII address (no display name, no spaces, at most 254 characters).
   An address of an administrator of the business is **422** (`reason` `administrator_address`). An
   address another **active** employee of the business holds is **409 `email_unavailable`**: nothing
@@ -448,7 +454,7 @@ curl -sS -X PUT "$TAPTIME_API/v1/employees/E-1042" \
 <!-- example: putEmployee 201 -->
 ```json
 {
-  "id": "emp_caa5e7b6-ab2b-4dc1-920b-1cbf9b9b6abb",
+  "id": "emp_8973fbc8-5e76-48e2-a80b-67d5b10baa91",
   "externalRef": "E-1042",
   "employeeCode": "1042",
   "firstName": "Jane",
@@ -458,9 +464,9 @@ curl -sS -X PUT "$TAPTIME_API/v1/employees/E-1042" \
   "activated": false,
   "activatedAt": null,
   "hasEmail": true,
-  "activationEmail": {"status": "queued", "at": "2026-10-16T08:23:20.504798Z"},
-  "createdAt": "2026-10-16T08:23:20.490688Z",
-  "updatedAt": "2026-10-16T08:23:20.501899Z"
+  "activationEmail": {"status": "queued", "at": "2026-10-16T09:13:12.905861Z"},
+  "createdAt": "2026-10-16T09:13:12.891784Z",
+  "updatedAt": "2026-10-16T09:13:12.902916Z"
 }
 ```
 
@@ -526,14 +532,18 @@ are refused from then on, and their history stays.
   panel. This code is not `rate_limited`, so your system can tell a budget from a request limit.
 - An employee already deactivated is answered as they are: 200, nothing spent — except while the
   business is suspended.
-- A reference the business never held is **404 `not_found`**.
-- While the business is suspended, every `DELETE` and every `PUT` with `active: false` is 403
-  `tenant_suspended` — also for an employee already deactivated ([section 10](#suspension)).
+- A reference the business never held is **404 `not_found`** — but for a `DELETE` while the
+  business is suspended (below).
+- While the business is suspended, every `DELETE` is 403 `tenant_suspended` — also for an employee
+  already deactivated and for a reference the business never held — and so is every `PUT` with
+  `active: false` that lands on an existing employee, one already deactivated included. A `PUT` with
+  `active: false` on a reference the business never held lands on no employee: it stays 404
+  ([section 10](#suspension)).
 
 <!-- example: deleteEmployee 200 -->
 ```json
 {
-  "id": "emp_c6a23032-df9e-4914-bd30-4ceaaca03fe1",
+  "id": "emp_32a024b8-e86f-4110-a4da-c05ee0acd9b7",
   "externalRef": "E-1043",
   "employeeCode": null,
   "firstName": "Sam",
@@ -544,8 +554,8 @@ are refused from then on, and their history stays.
   "activatedAt": null,
   "hasEmail": false,
   "activationEmail": {"status": "none", "at": null},
-  "createdAt": "2026-10-16T08:23:20.517094Z",
-  "updatedAt": "2026-10-16T08:23:20.554811Z"
+  "createdAt": "2026-10-16T09:13:12.918861Z",
+  "updatedAt": "2026-10-16T09:13:12.95631Z"
 }
 ```
 
@@ -581,14 +591,19 @@ Nothing else is a punch, and nothing else is in the feed:
 - a **manual record** a manager enters in the Taptime panel — manual records are your system's;
 - a **refused** tap (for example a deactivated employee's, or a touch of a **lost or retired
   plaque**, the business's own or a partner company's) and a **practice** tap;
-- a **repeat** of the same person within **60 seconds**: it is ignored — per person, not per
-  plaque, and across the two companies' plaques too.
+- a **repeat** of the same person within **60 seconds** — in the instants the phones declared
+  **or** on Taptime's own clock, whichever is closer: it is ignored — per person, not per plaque,
+  and across the two companies' plaques too. Two touches an offline phone sends back to back from
+  its queue are close on Taptime's clock, so the second is ignored even when the instants they
+  declare are further apart.
 
 **Time.** `punchTime` is the instant **the employee's phone declared**; `recordedAt` is the instant
 the punch entered the feed (for an approved flag, the approval's). A phone that was offline sends
 its queued tap later with the instant it was made: up to **120 seconds** late (by default; the
 business can change this) it is judged like a live tap; later than that it needs a manager's
-approval; more than **72 hours** in the past, or in the future, it is refused.
+approval; more than **72 hours** in the past, or in the future, it is refused. A tap sent at once
+declares no instant: its `punchTime` is Taptime's own instant of the tap, milliseconds from its
+`recordedAt` — as in the story, whose taps are live.
 
 <a id="feed-scopes"></a>
 ### 6.2 Scopes
@@ -687,28 +702,28 @@ did Jane (KF).
 {
   "data": [
     {
-      "id": "pch_c9ddd4ac-baf5-4d85-a09a-3cf9fdce7940",
+      "id": "pch_00d216d4-3012-4d76-9c35-8f24028b432a",
       "version": 1,
       "status": "valid",
-      "punchTime": "2026-10-16T08:22:15.601Z",
-      "recordedAt": "2026-10-16T08:23:20.599213Z",
+      "punchTime": "2026-10-16T09:13:13.008183Z",
+      "recordedAt": "2026-10-16T09:13:13.051707Z",
       "channel": "nfc",
       "direction": "in",
-      "employee": {"id": "emp_3ed82a0f-c95b-4b49-836d-1eccbceb7180", "externalRef": "M-2001", "employeeCode": "2001", "company": "KM"},
-      "location": {"id": "loc_fc3dda7c-cd47-461e-b327-43ef68d0e4fc", "externalRef": "KF-VLT", "name": "Valletta", "company": "KF"},
-      "tagId": "tag_229B1AB4766C99"
+      "employee": {"id": "emp_42f028c7-242a-4903-89df-8fde6176926b", "externalRef": "M-2001", "employeeCode": "2001", "company": "KM"},
+      "location": {"id": "loc_30258476-2ce5-4a5d-a7dd-36651c3019dd", "externalRef": "KF-VLT", "name": "Valletta", "company": "KF"},
+      "tagId": "tag_0DD4F2FE3B9A6A"
     },
     {
-      "id": "pch_b79d3f18-f22e-456a-a386-466710dcb586",
+      "id": "pch_04ce3ad0-fb32-477d-9d5d-7c0e9b079b41",
       "version": 1,
       "status": "valid",
-      "punchTime": "2026-10-16T08:23:17.62Z",
-      "recordedAt": "2026-10-16T08:23:20.619065Z",
+      "punchTime": "2026-10-16T09:13:13.083662Z",
+      "recordedAt": "2026-10-16T09:13:13.116875Z",
       "channel": "nfc",
       "direction": "in",
-      "employee": {"id": "emp_caa5e7b6-ab2b-4dc1-920b-1cbf9b9b6abb", "externalRef": "E-1042", "employeeCode": "1042", "company": "KF"},
-      "location": {"id": "loc_fc3dda7c-cd47-461e-b327-43ef68d0e4fc", "externalRef": "KF-VLT", "name": "Valletta", "company": "KF"},
-      "tagId": "tag_229B1AB4766C99"
+      "employee": {"id": "emp_8973fbc8-5e76-48e2-a80b-67d5b10baa91", "externalRef": "E-1042", "employeeCode": "1042", "company": "KF"},
+      "location": {"id": "loc_30258476-2ce5-4a5d-a7dd-36651c3019dd", "externalRef": "KF-VLT", "name": "Valletta", "company": "KF"},
+      "tagId": "tag_0DD4F2FE3B9A6A"
     }
   ],
   "nextCursor": "cur_2",
@@ -727,7 +742,9 @@ did Jane (KF).
 > appear at your location, or may be an `out` at another location. For a group employee's working
 > time, the employer company's data — its `employer` scope — is the record.
 
-In the story, Joe (KM) starts a shift at KF's Valletta and ends it at KM's Production plaque. KF's
+In the story, Joe (KM) starts a shift at KF's Valletta and ends it at KM's Production plaque, a
+little over a minute later (the story runs in real time, and a repeat within 60 seconds would be no
+punch — [6.1](#feed-what)). KF's
 `location` scope receives only his `in` (above). The `out` is a punch at a KM location: it is in
 KM's `employer` and `location` scopes. KM reads its `employer` scope as a history range and sees
 both:
@@ -737,31 +754,31 @@ both:
 {
   "data": [
     {
-      "id": "pch_c9ddd4ac-baf5-4d85-a09a-3cf9fdce7940",
+      "id": "pch_00d216d4-3012-4d76-9c35-8f24028b432a",
       "version": 1,
       "status": "valid",
-      "punchTime": "2026-10-16T08:22:15.601Z",
-      "recordedAt": "2026-10-16T08:23:20.599213Z",
+      "punchTime": "2026-10-16T09:13:13.008183Z",
+      "recordedAt": "2026-10-16T09:13:13.051707Z",
       "channel": "nfc",
       "direction": "in",
-      "employee": {"id": "emp_3ed82a0f-c95b-4b49-836d-1eccbceb7180", "externalRef": "M-2001", "employeeCode": "2001", "company": "KM"},
-      "location": {"id": "loc_fc3dda7c-cd47-461e-b327-43ef68d0e4fc", "externalRef": "KF-VLT", "name": "Valletta", "company": "KF"},
-      "tagId": "tag_229B1AB4766C99"
+      "employee": {"id": "emp_42f028c7-242a-4903-89df-8fde6176926b", "externalRef": "M-2001", "employeeCode": "2001", "company": "KM"},
+      "location": {"id": "loc_30258476-2ce5-4a5d-a7dd-36651c3019dd", "externalRef": "KF-VLT", "name": "Valletta", "company": "KF"},
+      "tagId": "tag_0DD4F2FE3B9A6A"
     },
     {
-      "id": "pch_2be2fdc3-cebd-4bd7-9b17-2d4b5e0c46b8",
+      "id": "pch_f01406af-dfcc-4fc0-bc4e-c3d982645fe8",
       "version": 1,
       "status": "valid",
-      "punchTime": "2026-10-16T08:23:18.626Z",
-      "recordedAt": "2026-10-16T08:23:20.625138Z",
+      "punchTime": "2026-10-16T09:14:14.253191Z",
+      "recordedAt": "2026-10-16T09:14:14.261497Z",
       "channel": "nfc",
       "direction": "out",
-      "employee": {"id": "emp_3ed82a0f-c95b-4b49-836d-1eccbceb7180", "externalRef": "M-2001", "employeeCode": "2001", "company": "KM"},
-      "location": {"id": "loc_9f8556c8-34b6-4ade-b094-33f3b0fc84f1", "externalRef": "DEP-1", "name": "Production", "company": "KM"},
-      "tagId": "tag_A787E8840F05BC"
+      "employee": {"id": "emp_42f028c7-242a-4903-89df-8fde6176926b", "externalRef": "M-2001", "employeeCode": "2001", "company": "KM"},
+      "location": {"id": "loc_4b6d2cc5-44e7-42c0-9830-abd1b8e370bb", "externalRef": "DEP-1", "name": "Production", "company": "KM"},
+      "tagId": "tag_DF83F315A119DF"
     }
   ],
-  "nextCursor": "hst_2_1792138998626000_2_8cc334c07fc173a5",
+  "nextCursor": "hst_2_1792142054253191_2_4b83bfee122c0b1d",
   "hasMore": false
 }
 ```
@@ -809,13 +826,13 @@ created in the Taptime panel and not named by an integration has `firstName` and
 ```json
 {
   "data": [
-    {"id": "emp_caa5e7b6-ab2b-4dc1-920b-1cbf9b9b6abb", "company": "KF", "externalRef": "E-1042", "employeeCode": "1042", "firstName": "Jane", "lastName": "Example", "fullName": "Jane Example", "active": true, "updatedAt": "2026-10-16T08:23:20.501899Z"},
-    {"id": "emp_3ed82a0f-c95b-4b49-836d-1eccbceb7180", "company": "KM", "externalRef": "M-2001", "employeeCode": "2001", "firstName": "Joe", "lastName": "Sample", "fullName": "Joe Sample", "active": true, "updatedAt": "2026-10-16T08:23:20.536218Z"},
-    {"id": "emp_c6a23032-df9e-4914-bd30-4ceaaca03fe1", "company": "KF", "externalRef": "E-1043", "employeeCode": null, "firstName": "Sam", "lastName": "Placeholder", "fullName": "Sam Placeholder", "active": false, "updatedAt": "2026-10-16T08:23:20.554811Z"}
+    {"id": "emp_32a024b8-e86f-4110-a4da-c05ee0acd9b7", "company": "KF", "externalRef": "E-1043", "employeeCode": null, "firstName": "Sam", "lastName": "Placeholder", "fullName": "Sam Placeholder", "active": false, "updatedAt": "2026-10-16T09:13:12.95631Z"},
+    {"id": "emp_8973fbc8-5e76-48e2-a80b-67d5b10baa91", "company": "KF", "externalRef": "E-1042", "employeeCode": "1042", "firstName": "Jane", "lastName": "Example", "fullName": "Jane Example", "active": true, "updatedAt": "2026-10-16T09:13:13.00516Z"},
+    {"id": "emp_42f028c7-242a-4903-89df-8fde6176926b", "company": "KM", "externalRef": "M-2001", "employeeCode": "2001", "firstName": "Joe", "lastName": "Sample", "fullName": "Joe Sample", "active": true, "updatedAt": "2026-10-16T09:13:13.006277Z"}
   ],
   "nextCursor": null,
   "hasMore": false,
-  "asOf": "2026-10-16T08:23:20.653691Z"
+  "asOf": "2026-10-16T09:14:14.298977Z"
 }
 ```
 
@@ -878,7 +895,9 @@ Taptime connects**: a name that resolves to a private, loopback, link-local or r
 to Taptime's own, is refused (`blocked_address`) — even if it once resolved to a public one.
 Taptime connects with **TLS 1.2 or newer** and checks the certificate: it must be valid for the
 endpoint's name and chain to a publicly trusted certificate authority — with an older TLS, a
-self-signed certificate or a private authority's, every try fails. Redirects are **not followed**;
+self-signed certificate or a private authority's, every try fails. Taptime **presents no client
+certificate**: a receiver that asks for one (mutual TLS) fails every try too — the panel and the
+delivery log name it a failed secure connection. Redirects are **not followed**;
 an answer must come within **10 seconds**; the answer's body is not read.
 
 <a id="webhook-key"></a>
@@ -924,8 +943,8 @@ body: {"event":"ping"}
 signature: sha256=1deefe0009103810c89395f2d078e1ba71edb003b3692a3ebca6d0866bf99935
 body: (empty)
 signature: sha256=88d05ff68b9d0e7585161401b08cb679fbf1701b3e28f683a3e96e4c33653576
-body: {"event":"punch","deliveryId":"dlv_812ed053-f6d5-4c9e-9c94-1c878fa8de26","id":"pch_b79d3f18-f22e-456a-a386-466710dcb586","version":1,"status":"valid","punchTime":"2026-10-16T08:23:17.62Z","recordedAt":"2026-10-16T08:23:20.619065Z","channel":"nfc","direction":"in","employee":{"id":"emp_caa5e7b6-ab2b-4dc1-920b-1cbf9b9b6abb","externalRef":"E-1042","employeeCode":"1042","company":"KF"},"location":{"id":"loc_fc3dda7c-cd47-461e-b327-43ef68d0e4fc","externalRef":"KF-VLT","name":"Valletta","company":"KF"},"tagId":"tag_229B1AB4766C99"}
-signature: sha256=d06e40956d9a89a927462105f3f466a29796701d25fc38cbdf7581284d0d71dc
+body: {"event":"punch","deliveryId":"dlv_44721ce2-0f54-41ce-a757-7ee03cfec107","id":"pch_04ce3ad0-fb32-477d-9d5d-7c0e9b079b41","version":1,"status":"valid","punchTime":"2026-10-16T09:13:13.083662Z","recordedAt":"2026-10-16T09:13:13.116875Z","channel":"nfc","direction":"in","employee":{"id":"emp_8973fbc8-5e76-48e2-a80b-67d5b10baa91","externalRef":"E-1042","employeeCode":"1042","company":"KF"},"location":{"id":"loc_30258476-2ce5-4a5d-a7dd-36651c3019dd","externalRef":"KF-VLT","name":"Valletta","company":"KF"},"tagId":"tag_0DD4F2FE3B9A6A"}
+signature: sha256=be925cb6fade218b39df6aa4ea0f1b78e52457c25068710ab32ad7ab6e8cb69c
 ```
 
 The first known answer with `openssl` — it prints the first signature above:
@@ -1027,7 +1046,7 @@ leaves reading — and the records — alone:
 |---|---|
 | every `GET` — the feed, the history query, the directory, the employees | `PUT /v1/locations/{ref}` |
 | `PUT /v1/employees/{ref}` that creates a **new** employee, a re-hire included | every `PUT /v1/employees/{ref}` that lands on an existing employee — a change, a binding by address, `active: false` (also of an employee already deactivated), and one that changes nothing |
-| `POST /v1/employees/{ref}/resend-activation` | every `DELETE /v1/employees/{ref}`, also of an employee already deactivated |
+| `POST /v1/employees/{ref}/resend-activation` | every `DELETE /v1/employees/{ref}`, also of an employee already deactivated or of a reference never held |
 | webhook deliveries, and the queue of activation e-mails | in the panel: creating a key; creating, re-addressing, rotating or switching on the endpoint; test messages; "Send again now" |
 | taps are recorded and punches enter the feed (a group's too) | |
 | in the panel: revoking a key, switching the endpoint off | |
@@ -1043,7 +1062,7 @@ explained.
 3. In v1 `version` is always `1`, and `voided` is never produced. ([6.3](#feed-punch))
 4. Extra fields: `channel` (`nfc` | `qr`) and `direction` (`in` | `out` — the direction Taptime computed at the employer); `tagId` is filled in on both channels. ([6.3](#feed-punch))
 5. `punchTime` is the instant the phone declared; an offline queue is `ok` up to 120 seconds by default (the business can change this), and the ceiling is 72 hours; `recordedAt` is the instant the server recorded it. ([6.1](#feed-what))
-6. A repeat touch within 60 seconds is not a punch — per person, **across the two companies' plaques too**. ([6.1](#feed-what))
+6. A repeat touch within 60 seconds is not a punch — per person, **across the two companies' plaques too** — and the 60 seconds are counted in the declared instants or on Taptime's own clock, whichever is closer: two touches sent back to back from an offline queue lose the second, even when their declared instants are further apart. ([6.1](#feed-what))
 7. A location's `timezone` must be the business's, or the answer is 422. ([4](#locations))
 8. On a location, `active:false` is only a label. ([4](#locations))
 9. A re-hire produces a new `employee.id`; the `externalRef` stays the same. ([5.1](#employees-put))

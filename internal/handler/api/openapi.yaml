@@ -33,6 +33,10 @@ info:
     not part of it. Concurrent requests with one key are answered one after the other. Keys are kept
     per integration key: two keys of one business do not share them.
 
+    Query parameters: a GET takes exactly its documented parameters (any other, a repeated one, or
+    a query string that does not parse, is 400). A write takes none and ignores any it is sent:
+    there is no `dryRun` or the like -- a PUT sent with `?dryRun=1` is a real write.
+
     Identifiers: `emp_`, `loc_`, `pch_` and `dlv_` followed by a UUID; `tag_` followed by the plaque's
     UID. Instants are RFC 3339 in UTC with at most microsecond precision.
   x-limits:
@@ -182,8 +186,8 @@ paths:
               examples:
                 valletta:
                   summary: The answer to the request above.
-                  value: {"id": "loc_fc3dda7c-cd47-461e-b327-43ef68d0e4fc", "externalRef": "KF-VLT", "name": "Valletta",
-                    "timezone": "Europe/Malta", "active": true, "createdAt": "2026-10-16T08:23:20.461171Z"}
+                  value: {"id": "loc_30258476-2ce5-4a5d-a7dd-36651c3019dd", "externalRef": "KF-VLT", "name": "Valletta",
+                    "timezone": "Europe/Malta", "active": true, "createdAt": "2026-10-16T09:13:12.861739Z"}
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -230,17 +234,17 @@ paths:
                 kf:
                   summary: KF's employees, two a page (E-1043 was deactivated).
                   value: {"data": [
-                      {"id": "emp_caa5e7b6-ab2b-4dc1-920b-1cbf9b9b6abb", "externalRef": "E-1042", "employeeCode": "1042",
+                      {"id": "emp_8973fbc8-5e76-48e2-a80b-67d5b10baa91", "externalRef": "E-1042", "employeeCode": "1042",
                         "firstName": "Jane", "lastName": "Example", "fullName": "Jane Example", "active": true,
                         "activated": false, "activatedAt": null, "hasEmail": true,
-                        "activationEmail": {"status": "queued", "at": "2026-10-16T08:23:20.504798Z"},
-                        "createdAt": "2026-10-16T08:23:20.490688Z", "updatedAt": "2026-10-16T08:23:20.501899Z"},
-                      {"id": "emp_c6a23032-df9e-4914-bd30-4ceaaca03fe1", "externalRef": "E-1043", "employeeCode": null,
+                        "activationEmail": {"status": "queued", "at": "2026-10-16T09:13:12.905861Z"},
+                        "createdAt": "2026-10-16T09:13:12.891784Z", "updatedAt": "2026-10-16T09:13:12.902916Z"},
+                      {"id": "emp_32a024b8-e86f-4110-a4da-c05ee0acd9b7", "externalRef": "E-1043", "employeeCode": null,
                         "firstName": "Sam", "lastName": "Placeholder", "fullName": "Sam Placeholder", "active": false,
                         "activated": false, "activatedAt": null, "hasEmail": false,
                         "activationEmail": {"status": "none", "at": null},
-                        "createdAt": "2026-10-16T08:23:20.517094Z", "updatedAt": "2026-10-16T08:23:20.554811Z"}],
-                    "nextCursor": "emp_c6a23032-df9e-4914-bd30-4ceaaca03fe1"}
+                        "createdAt": "2026-10-16T09:13:12.918861Z", "updatedAt": "2026-10-16T09:13:12.95631Z"}],
+                    "nextCursor": "emp_32a024b8-e86f-4110-a4da-c05ee0acd9b7"}
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -273,11 +277,11 @@ paths:
               examples:
                 jane:
                   summary: E-1042, invited and not activated yet.
-                  value: {"id": "emp_caa5e7b6-ab2b-4dc1-920b-1cbf9b9b6abb", "externalRef": "E-1042", "employeeCode": "1042",
+                  value: {"id": "emp_8973fbc8-5e76-48e2-a80b-67d5b10baa91", "externalRef": "E-1042", "employeeCode": "1042",
                     "firstName": "Jane", "lastName": "Example", "fullName": "Jane Example", "active": true,
                     "activated": false, "activatedAt": null, "hasEmail": true,
-                    "activationEmail": {"status": "queued", "at": "2026-10-16T08:23:20.504798Z"},
-                    "createdAt": "2026-10-16T08:23:20.490688Z", "updatedAt": "2026-10-16T08:23:20.501899Z"}
+                    "activationEmail": {"status": "queued", "at": "2026-10-16T09:13:12.905861Z"},
+                    "createdAt": "2026-10-16T09:13:12.891784Z", "updatedAt": "2026-10-16T09:13:12.902916Z"}
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -310,14 +314,15 @@ paths:
         sent to the old one stops working, in the same change; an employee who has not activated yet
         is sent a new one, an activated employee is not. `active: false` deactivates the employee
         (their taps are refused from then on); `active: false` on a reference the business never held
-        is 404. `active: true` on a reference whose employee is deactivated creates a NEW employee (new
+        is 404, while the business is suspended too (it lands on no employee). `active: true` on a reference whose employee is deactivated creates a NEW employee (new
         `id`, same `externalRef`). A request that matches the employee as they are changes nothing
         (200).
 
-        A PUT replaces, it does not patch: an optional field left out becomes null -- an employee
+        A PUT replaces, it does not patch: a left-out `employeeCode` becomes null -- an employee
         whose `employeeCode` was "77", put without the field, is answered with `employeeCode` null,
         and so are their next punches and a partner's directory. Send every field you hold, every
-        time.
+        time. (`externalRef`, the other optional field, holds nothing of its own: left out, it is the
+        path's reference.)
 
         `email` must be one plain ASCII address and not the address of an administrator of the
         business (422 `administrator_address`); an address another active employee of the business
@@ -370,11 +375,11 @@ paths:
               examples:
                 jane:
                   summary: The answer to the request above -- the activation e-mail is queued.
-                  value: {"id": "emp_caa5e7b6-ab2b-4dc1-920b-1cbf9b9b6abb", "externalRef": "E-1042", "employeeCode": "1042",
+                  value: {"id": "emp_8973fbc8-5e76-48e2-a80b-67d5b10baa91", "externalRef": "E-1042", "employeeCode": "1042",
                     "firstName": "Jane", "lastName": "Example", "fullName": "Jane Example", "active": true,
                     "activated": false, "activatedAt": null, "hasEmail": true,
-                    "activationEmail": {"status": "queued", "at": "2026-10-16T08:23:20.504798Z"},
-                    "createdAt": "2026-10-16T08:23:20.490688Z", "updatedAt": "2026-10-16T08:23:20.501899Z"}
+                    "activationEmail": {"status": "queued", "at": "2026-10-16T09:13:12.905861Z"},
+                    "createdAt": "2026-10-16T09:13:12.891784Z", "updatedAt": "2026-10-16T09:13:12.902916Z"}
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -399,7 +404,8 @@ paths:
         their history stays. An employee already deactivated is answered as they are (200, nothing
         spent); a reference the business never held is 404. Limited per key like `active: false` (429
         `deactivation_budget_exceeded`). While the business is suspended every DELETE is 403
-        `tenant_suspended` -- one of an employee already deactivated too.
+        `tenant_suspended` -- one of an employee already deactivated, and one of a reference the
+        business never held, too.
       x-error-codes: [invalid_request, body_too_large, unauthorized, api_disabled, tenant_suspended, not_found, idempotency_key_reused, validation_failed, rate_limited, deactivation_budget_exceeded, unavailable]
       parameters:
         - $ref: "#/components/parameters/EmployeeRef"
@@ -417,11 +423,11 @@ paths:
               examples:
                 sam:
                   summary: E-1043 (no e-mail address) deactivated.
-                  value: {"id": "emp_c6a23032-df9e-4914-bd30-4ceaaca03fe1", "externalRef": "E-1043", "employeeCode": null,
+                  value: {"id": "emp_32a024b8-e86f-4110-a4da-c05ee0acd9b7", "externalRef": "E-1043", "employeeCode": null,
                     "firstName": "Sam", "lastName": "Placeholder", "fullName": "Sam Placeholder", "active": false,
                     "activated": false, "activatedAt": null, "hasEmail": false,
                     "activationEmail": {"status": "none", "at": null},
-                    "createdAt": "2026-10-16T08:23:20.517094Z", "updatedAt": "2026-10-16T08:23:20.554811Z"}
+                    "createdAt": "2026-10-16T09:13:12.918861Z", "updatedAt": "2026-10-16T09:13:12.95631Z"}
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -464,11 +470,11 @@ paths:
               examples:
                 jane:
                   summary: An e-mail is already queued for E-1042, so nothing changes -- still 202.
-                  value: {"id": "emp_caa5e7b6-ab2b-4dc1-920b-1cbf9b9b6abb", "externalRef": "E-1042", "employeeCode": "1042",
+                  value: {"id": "emp_8973fbc8-5e76-48e2-a80b-67d5b10baa91", "externalRef": "E-1042", "employeeCode": "1042",
                     "firstName": "Jane", "lastName": "Example", "fullName": "Jane Example", "active": true,
                     "activated": false, "activatedAt": null, "hasEmail": true,
-                    "activationEmail": {"status": "queued", "at": "2026-10-16T08:23:20.504798Z"},
-                    "createdAt": "2026-10-16T08:23:20.490688Z", "updatedAt": "2026-10-16T08:23:20.501899Z"}
+                    "activationEmail": {"status": "queued", "at": "2026-10-16T09:13:12.905861Z"},
+                    "createdAt": "2026-10-16T09:13:12.891784Z", "updatedAt": "2026-10-16T09:13:12.902916Z"}
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -492,8 +498,9 @@ paths:
       description: |
         The business's punch feed: every punch that counts -- an `ok` tap (`nfc` or `qr`), or a
         flagged tap once a manager of the employer approves it (it enters the feed at the approval,
-        once). A manual record, a practice tap, a refused tap, an ignored repeat and a rejected flag
-        never enter it. Punches are read in the order the business's feed received them; a punch's
+        once). A manual record, a practice tap, a refused tap, an ignored repeat (the same person
+        within 60 seconds, in the declared instants or on Taptime's own clock, whichever is closer)
+        and a rejected flag never enter it. Punches are read in the order the business's feed received them; a punch's
         `id` and `version` identify it (it is never changed in v1: `version` 1, `status` `valid`).
 
         `scope` is required. `employer`: the punches of this business's own employees, at its own
@@ -577,43 +584,43 @@ paths:
                 feed:
                   summary: "KF's feed, scope=location: Joe (KM) and Jane (KF) tapped in at KF's Valletta."
                   value: {"data": [
-                      {"id": "pch_c9ddd4ac-baf5-4d85-a09a-3cf9fdce7940", "version": 1, "status": "valid",
-                        "punchTime": "2026-10-16T08:22:15.601Z", "recordedAt": "2026-10-16T08:23:20.599213Z",
+                      {"id": "pch_00d216d4-3012-4d76-9c35-8f24028b432a", "version": 1, "status": "valid",
+                        "punchTime": "2026-10-16T09:13:13.008183Z", "recordedAt": "2026-10-16T09:13:13.051707Z",
                         "channel": "nfc", "direction": "in",
-                        "employee": {"id": "emp_3ed82a0f-c95b-4b49-836d-1eccbceb7180", "externalRef": "M-2001",
+                        "employee": {"id": "emp_42f028c7-242a-4903-89df-8fde6176926b", "externalRef": "M-2001",
                           "employeeCode": "2001", "company": "KM"},
-                        "location": {"id": "loc_fc3dda7c-cd47-461e-b327-43ef68d0e4fc", "externalRef": "KF-VLT",
+                        "location": {"id": "loc_30258476-2ce5-4a5d-a7dd-36651c3019dd", "externalRef": "KF-VLT",
                           "name": "Valletta", "company": "KF"},
-                        "tagId": "tag_229B1AB4766C99"},
-                      {"id": "pch_b79d3f18-f22e-456a-a386-466710dcb586", "version": 1, "status": "valid",
-                        "punchTime": "2026-10-16T08:23:17.62Z", "recordedAt": "2026-10-16T08:23:20.619065Z",
+                        "tagId": "tag_0DD4F2FE3B9A6A"},
+                      {"id": "pch_04ce3ad0-fb32-477d-9d5d-7c0e9b079b41", "version": 1, "status": "valid",
+                        "punchTime": "2026-10-16T09:13:13.083662Z", "recordedAt": "2026-10-16T09:13:13.116875Z",
                         "channel": "nfc", "direction": "in",
-                        "employee": {"id": "emp_caa5e7b6-ab2b-4dc1-920b-1cbf9b9b6abb", "externalRef": "E-1042",
+                        "employee": {"id": "emp_8973fbc8-5e76-48e2-a80b-67d5b10baa91", "externalRef": "E-1042",
                           "employeeCode": "1042", "company": "KF"},
-                        "location": {"id": "loc_fc3dda7c-cd47-461e-b327-43ef68d0e4fc", "externalRef": "KF-VLT",
+                        "location": {"id": "loc_30258476-2ce5-4a5d-a7dd-36651c3019dd", "externalRef": "KF-VLT",
                           "name": "Valletta", "company": "KF"},
-                        "tagId": "tag_229B1AB4766C99"}],
+                        "tagId": "tag_0DD4F2FE3B9A6A"}],
                     "nextCursor": "cur_2", "hasMore": false}
                 history:
                   summary: "KM's history, scope=employer: Joe in at KF's Valletta, out at KM's Production."
                   value: {"data": [
-                      {"id": "pch_c9ddd4ac-baf5-4d85-a09a-3cf9fdce7940", "version": 1, "status": "valid",
-                        "punchTime": "2026-10-16T08:22:15.601Z", "recordedAt": "2026-10-16T08:23:20.599213Z",
+                      {"id": "pch_00d216d4-3012-4d76-9c35-8f24028b432a", "version": 1, "status": "valid",
+                        "punchTime": "2026-10-16T09:13:13.008183Z", "recordedAt": "2026-10-16T09:13:13.051707Z",
                         "channel": "nfc", "direction": "in",
-                        "employee": {"id": "emp_3ed82a0f-c95b-4b49-836d-1eccbceb7180", "externalRef": "M-2001",
+                        "employee": {"id": "emp_42f028c7-242a-4903-89df-8fde6176926b", "externalRef": "M-2001",
                           "employeeCode": "2001", "company": "KM"},
-                        "location": {"id": "loc_fc3dda7c-cd47-461e-b327-43ef68d0e4fc", "externalRef": "KF-VLT",
+                        "location": {"id": "loc_30258476-2ce5-4a5d-a7dd-36651c3019dd", "externalRef": "KF-VLT",
                           "name": "Valletta", "company": "KF"},
-                        "tagId": "tag_229B1AB4766C99"},
-                      {"id": "pch_2be2fdc3-cebd-4bd7-9b17-2d4b5e0c46b8", "version": 1, "status": "valid",
-                        "punchTime": "2026-10-16T08:23:18.626Z", "recordedAt": "2026-10-16T08:23:20.625138Z",
+                        "tagId": "tag_0DD4F2FE3B9A6A"},
+                      {"id": "pch_f01406af-dfcc-4fc0-bc4e-c3d982645fe8", "version": 1, "status": "valid",
+                        "punchTime": "2026-10-16T09:14:14.253191Z", "recordedAt": "2026-10-16T09:14:14.261497Z",
                         "channel": "nfc", "direction": "out",
-                        "employee": {"id": "emp_3ed82a0f-c95b-4b49-836d-1eccbceb7180", "externalRef": "M-2001",
+                        "employee": {"id": "emp_42f028c7-242a-4903-89df-8fde6176926b", "externalRef": "M-2001",
                           "employeeCode": "2001", "company": "KM"},
-                        "location": {"id": "loc_9f8556c8-34b6-4ade-b094-33f3b0fc84f1", "externalRef": "DEP-1",
+                        "location": {"id": "loc_4b6d2cc5-44e7-42c0-9830-abd1b8e370bb", "externalRef": "DEP-1",
                           "name": "Production", "company": "KM"},
-                        "tagId": "tag_A787E8840F05BC"}],
-                    "nextCursor": "hst_2_1792138998626000_2_8cc334c07fc173a5", "hasMore": false}
+                        "tagId": "tag_DF83F315A119DF"}],
+                    "nextCursor": "hst_2_1792142054253191_2_4b83bfee122c0b1d", "hasMore": false}
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -693,16 +700,16 @@ paths:
                 kf:
                   summary: KF's whole directory -- its two employees and KM's one.
                   value: {"data": [
-                      {"id": "emp_caa5e7b6-ab2b-4dc1-920b-1cbf9b9b6abb", "company": "KF", "externalRef": "E-1042",
-                        "employeeCode": "1042", "firstName": "Jane", "lastName": "Example", "fullName": "Jane Example",
-                        "active": true, "updatedAt": "2026-10-16T08:23:20.501899Z"},
-                      {"id": "emp_3ed82a0f-c95b-4b49-836d-1eccbceb7180", "company": "KM", "externalRef": "M-2001",
-                        "employeeCode": "2001", "firstName": "Joe", "lastName": "Sample", "fullName": "Joe Sample",
-                        "active": true, "updatedAt": "2026-10-16T08:23:20.536218Z"},
-                      {"id": "emp_c6a23032-df9e-4914-bd30-4ceaaca03fe1", "company": "KF", "externalRef": "E-1043",
+                      {"id": "emp_32a024b8-e86f-4110-a4da-c05ee0acd9b7", "company": "KF", "externalRef": "E-1043",
                         "employeeCode": null, "firstName": "Sam", "lastName": "Placeholder", "fullName": "Sam Placeholder",
-                        "active": false, "updatedAt": "2026-10-16T08:23:20.554811Z"}],
-                    "nextCursor": null, "hasMore": false, "asOf": "2026-10-16T08:23:20.653691Z"}
+                        "active": false, "updatedAt": "2026-10-16T09:13:12.95631Z"},
+                      {"id": "emp_8973fbc8-5e76-48e2-a80b-67d5b10baa91", "company": "KF", "externalRef": "E-1042",
+                        "employeeCode": "1042", "firstName": "Jane", "lastName": "Example", "fullName": "Jane Example",
+                        "active": true, "updatedAt": "2026-10-16T09:13:13.00516Z"},
+                      {"id": "emp_42f028c7-242a-4903-89df-8fde6176926b", "company": "KM", "externalRef": "M-2001",
+                        "employeeCode": "2001", "firstName": "Joe", "lastName": "Sample", "fullName": "Joe Sample",
+                        "active": true, "updatedAt": "2026-10-16T09:13:13.006277Z"}],
+                    "nextCursor": null, "hasMore": false, "asOf": "2026-10-16T09:14:14.298977Z"}
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -731,7 +738,8 @@ webhooks:
 
         Connection: TLS 1.2 or newer, and a certificate valid for the endpoint's name that chains to
         a publicly trusted certificate authority -- an older TLS, a self-signed certificate or a
-        private authority's fails every try.
+        private authority's fails every try. Taptime presents no client certificate: a receiver that
+        asks for one (mutual TLS) fails every try too.
 
         Answer: any 2xx within 10 seconds is "delivered". Anything else -- another status (a redirect
         included: it is not followed), no answer within 10 seconds, a TLS or connection failure -- is a
@@ -753,15 +761,15 @@ webhooks:
             examples:
               jane:
                 summary: Jane's punch in, posted to KF's endpoint.
-                value: {"event": "punch", "deliveryId": "dlv_812ed053-f6d5-4c9e-9c94-1c878fa8de26",
-                  "id": "pch_b79d3f18-f22e-456a-a386-466710dcb586", "version": 1, "status": "valid",
-                  "punchTime": "2026-10-16T08:23:17.62Z", "recordedAt": "2026-10-16T08:23:20.619065Z",
+                value: {"event": "punch", "deliveryId": "dlv_44721ce2-0f54-41ce-a757-7ee03cfec107",
+                  "id": "pch_04ce3ad0-fb32-477d-9d5d-7c0e9b079b41", "version": 1, "status": "valid",
+                  "punchTime": "2026-10-16T09:13:13.083662Z", "recordedAt": "2026-10-16T09:13:13.116875Z",
                   "channel": "nfc", "direction": "in",
-                  "employee": {"id": "emp_caa5e7b6-ab2b-4dc1-920b-1cbf9b9b6abb", "externalRef": "E-1042",
+                  "employee": {"id": "emp_8973fbc8-5e76-48e2-a80b-67d5b10baa91", "externalRef": "E-1042",
                     "employeeCode": "1042", "company": "KF"},
-                  "location": {"id": "loc_fc3dda7c-cd47-461e-b327-43ef68d0e4fc", "externalRef": "KF-VLT",
+                  "location": {"id": "loc_30258476-2ce5-4a5d-a7dd-36651c3019dd", "externalRef": "KF-VLT",
                     "name": "Valletta", "company": "KF"},
-                  "tagId": "tag_229B1AB4766C99"}
+                  "tagId": "tag_0DD4F2FE3B9A6A"}
       responses:
         "2XX":
           description: Delivered. The answer's body is not read.
@@ -787,7 +795,7 @@ webhooks:
             examples:
               ping:
                 summary: A test message to KF's endpoint.
-                value: {"event": "ping", "id": "ca4a4f73-97af-40b5-a4e3-1031ea356cc9", "sentAt": "2026-10-16T08:23:20Z"}
+                value: {"event": "ping", "id": "25712ae0-7571-4f57-bb1a-d49b5c237b87", "sentAt": "2026-10-16T09:14:14Z"}
       responses:
         "2XX":
           description: Received. The panel shows the owner the answer's class and status.
