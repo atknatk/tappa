@@ -1918,14 +1918,33 @@ func holdingSetAsideSiteRows(t *testing.T, ctx context.Context, sp pgx.Tx) {
 // TestHoldingSetAside_SeesRowsCommittedAfterTheSnapshot pins holdingSetAsideSiteRows' TRUNCATE (M11
 // API-10, DÜŞÜK round): a site row committed BEFORE the Down test's snapshot, and its approval
 // committed by another session AFTER it (the window a parallel package's tap or approval test commits
-// in) -- and the Downs below 00046 are walked over it. The live fixture's shared operator-tables lock is
-// given back first: opTx takes it exclusive (operatorschema_test.go).
+// in) -- and the Downs below 00046 are walked over it.
+//
+// ONE LOCK. opTx comes first: it takes the operator-tables lock EXCLUSIVE and BEGINs, and its
+// REPEATABLE READ snapshot is taken by the transaction's first query, not by BEGIN (its SET LOCAL takes
+// none -- the PREMISE checks below hold it to that). The committed world and the site row are written
+// in between, on owner connections of their own that ask for no lock (holdingLiveOn, not
+// holdingLiveFixture, whose opLiveFixture would ask for it SHARED on a second connection while this
+// test holds it EXCLUSIVE -- the second request TestTablesLock_IsTakenOncePerTestTree refuses; CI run
+// 38862110238). The tx is rolled back before the world's cleanup runs.
 //
 // MUTANT (measured, a throwaway database): the set-aside back to DELETE (the code before this round) ->
 // `DELETE FROM transactions WHERE site_tenant_id IS NOT NULL` fails 23503 on transaction_reviews_txn_fk
 // -> red.
 func TestHoldingSetAside_SeesRowsCommittedAfterTheSnapshot(t *testing.T) {
-	f := holdingLiveFixture(t)
+	ctx, tx := opTx(t)
+	dsn := opOwnerDSN(t)
+	owner, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connect as the owner: %v", err)
+	}
+	t.Cleanup(func() { _ = owner.Close(context.Background()) })
+	f := holdingLiveOn(t, ctx, &opLive{dsn: dsn, owner: owner})
+	t.Cleanup(func() {
+		if err := tx.Rollback(context.Background()); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+			t.Logf("rollback: %v", err)
+		}
+	})
 	w := holdingWorldLive(t, f)
 	reviewer := holdingNewAdmin(t, f.ctx, f.owner, w.km)
 	asKM := func(fn func(tx pgx.Tx) error) {
@@ -1951,10 +1970,6 @@ func TestHoldingSetAside_SeesRowsCommittedAfterTheSnapshot(t *testing.T) {
 		                        VALUES ($1, $2, now(), 'flag', 'qr', 'in', false, $3, $4, $5) RETURNING id`,
 			w.km, w.kmEmployee, w.kf, w.kfVenue, w.kfTag).Scan(&id)
 	})
-	if _, err := f.owner.Exec(f.ctx, `SELECT pg_advisory_unlock_shared(hashtext($1))`, operatorTablesTestLock); err != nil {
-		t.Fatal(err)
-	}
-	ctx, tx := opTx(t)
 	if n := opInt(t, ctx, tx, `SELECT count(*) FROM transactions WHERE id = $1`, id); n != 1 {
 		t.Fatalf("PREMISE: the site row is not in the snapshot (%d)", n)
 	}

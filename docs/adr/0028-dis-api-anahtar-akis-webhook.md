@@ -2682,7 +2682,9 @@ yok (T130). (f) Eşit an grubunun günlükte bütün okunması (madde 9).
   edilir). Çare: savepoint içinde tek `TRUNCATE transactions, transaction_reviews[, site_punches]`; üç tablonun `*_no_truncate`
   tetikleyicisi savepoint içinde kapatılıp açılır, her yolda savepoint'le geri alınır. Bu **yalnız savepoint'te geri alınan test
   temizliğidir, üretim yolu değil** (CLAUDE.md §4.3). `TRUNCATE`'in `WHERE`'i yok: saha satırı olmayanlar da gider — çağıranların hiçbiri
-  set-aside'dan önce commit ettiği bir satırı okumuyor. Mutant (eski `DELETE`) → 23503 → kırmızı.
+  set-aside'dan önce commit ettiği bir satırı okumuyor. Mutant (eski `DELETE`) → 23503 → kırmızı. Test önce `opTx`'i (kilit EXCLUSIVE, görüntü henüz yok) alır, dünyayı
+  kilit istemeyen ayrı sahip bağlantılarında (`holdingLiveOn`) commit eder — kilide ikinci kez ulaşmak
+  `TestTablesLock_IsTakenOncePerTestTree`'yi kırıyordu (CI 38862110238).
 - **Belge:** tur sınırı yukarıda düzeltildi; `cmd/tappa`'daki kablolama yorumu artık yeniden gönder **ve** açma / yeniden adresleme /
   döndürmenin kümeye soktuğunu söyler.
 

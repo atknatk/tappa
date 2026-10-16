@@ -1037,6 +1037,14 @@ type holdingLive struct {
 func holdingLiveFixture(t *testing.T) *holdingLive {
 	t.Helper()
 	ctx, op := opLiveFixture(t)
+	return holdingLiveOn(t, ctx, op)
+}
+
+// holdingLiveOn is holdingLiveFixture over an opLive the caller made: the committed holding rows and
+// their cleanup, and nothing of the operator-tables lock -- for a test that already holds it, through
+// opTx, and may not ask for it a second time (cmd/opadmin's TestTablesLock_IsTakenOncePerTestTree).
+func holdingLiveOn(t *testing.T, ctx context.Context, op *opLive) *holdingLive {
+	t.Helper()
 	f := &holdingLive{opLive: op, ctx: ctx}
 	t.Cleanup(func() {
 		ctx := context.Background()
