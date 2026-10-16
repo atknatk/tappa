@@ -641,8 +641,10 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
   yeniden başlayınca (her deploy) bekleyen yeniden denemeler işletmenin bir sonraki dokunuşuna, onayına ya da API çağrısına kadar
   bekler. **Panel:** sahip teslim günlüğünü görür (punch kimliği, durum, deneme, son cevabın sınıfı ve durum kodu — adres ve alıcının
   cevap metni yok) ve `pending`/`dead` bir teslimi *"Send again now"* ile yeniden gönderebilir (ping ile aynı kovadan, saatte 10; bir
-  `dead` teslim tek deneme alır). Uç nokta kapalıyken ya da API kapalıyken kuyruktaki teslimler **gitmez ve bekler**; açılınca gider.
-  Olay adının (`punch`) spec §5 ile karşılaştırılması bu görevdedir (ADR 0028 "API-10 uygulama notu" madde 6).
+  `dead` teslim tek deneme alır). Uç nokta kapalıyken ya da API kapalıyken kuyruktaki teslimler **gitmez ve bekler**: sahip uç noktayı
+  panelden açınca (ya da adresini düzeltince, anahtarını döndürünce) **hemen** gider; API (K-22) yeniden açılınca **en geç 15 dk
+  içinde** — sunucu arada yeniden başladıysa işletmenin bir sonraki dokunuşunda, onayında ya da API çağrısında. **Olay adı `punch`**
+  (kullanıcı kararı, 2026-10-16 — ADR 0028 "API-10 uygulama notu" madde 6); rehber bu adı yazar.
 - **API-13:** **(API-8'den, 2026-10-15 — deploy öncesi, kullanıcı kararı)** Prod'daki **tenant sayısı ölçülür**: bir holding
   üyesinin rehber sayfası ve `holding_site_locations` çağrısı her tenant'ı `holding_peer`'den geçirir (T124'ün üye yarısı —
   21 000 tenant'ta ~1 sn, yük altında 5 sn sınırını aşıp 503). Sayı ~1 000'i geçmeden T124 ele alınır (backlog T124'ün eşiği).
@@ -681,7 +683,12 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
   Deploy sonrası ölçüm: K-22'si açık, uç noktası olan bir işletmede bir dokunuş → panelin *"Deliveries"* listesinde `Delivered`
   (ya da kapalı sınıf); süreç log'unda `webhook: delivered` / `webhook: a delivery failed` satırları yalnız kimlik + sınıf + durum
   taşır (adres yok). `webhook_deliveries` saklama kuralı yok, satırlar birikir (backlog T130) — deploy öncesi satır sayısı bilgi
-  için ölçülür.
+  için ölçülür. **Kullanıcıda bekleyen (2026-10-16 kararı):** `delivered`/`dead` saklama süresi DPA kararına bırakıldı, şimdilik
+  silme yok; `site_punches`'ın saklama süresiyle **birlikte** DPA notunda karara bağlanır (§7 madde 5, T130).
+  **(API-10 düzeltme turundan, 2026-10-16)** K-22'nin operatör yüzeyi (bu görev) API'yi açtığında işletmeyi K-19 kümesine sokmalıdır
+  (`Notice` — işçi aynı süreçteyse); sokmazsa kapalı API'de bekleyen teslimler en geç `delivery.GateRecheck` (15 dk) içinde, süreç
+  yeniden başladıysa bir sonraki dokunuş/API çağrısında gider (ADR 0028 "API-10 uygulama notu" madde 2). Kapı kapalıyken bekleyen
+  işletme başına işçide **tek** zamanlayıcı vardır (ORTA-1); bir turun döngüyü tuttuğu süre < 20 sn'dir (ORTA-2).
 
 ---
 
@@ -696,7 +703,8 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
 - **Tek replika, K-19 kümesi** — yeniden başlamada boşalır.
 - **Davet tavanları** ilk toplu senkronu saatlere yayar.
 - **Pilot verisi** → K-18 runbook'u.
-- **GDPR** — K-1d/f/h görünürlüğü, `employer_manual` satırları ve `site_punches`'ın saklama süresi DPA notunda (kullanıcı).
+- **GDPR** — K-1d/f/h görünürlüğü, `employer_manual` satırları, `site_punches`'ın ve `webhook_deliveries`'in (`delivered`/`dead` —
+  T130) saklama süresi DPA notunda (kullanıcı).
 - **Egress açık** — SSRF kapısı tek savunma.
 - **Canlı ön koşul:** OP-15.
 
@@ -706,7 +714,9 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
 2. Sandbox için `taptime.mt` dışında bir alan adı + DNS; `api.taptime.mt` DNS (Cloudflare, DNS-only).
 3. KF-RMS / KM-ERP canlı + test webhook adresleri — API-13'te.
 4. Canlı öncesi: KF ve KM panellerinde lokasyon/çalışan bağlama (K-18).
-5. DPA / aydınlatma metni: holding içi paylaşım (K-1d/f/h — sonuç, yön, aktiflik dahil) ve `site_punches` saklama süresi.
+5. DPA / aydınlatma metni: holding içi paylaşım (K-1d/f/h — sonuç, yön, aktiflik dahil), `site_punches` saklama süresi ve onunla
+   birlikte `webhook_deliveries`'in `delivered`/`dead` satırlarının saklama süresi (T130 — 2026-10-16: DPA kararına bırakıldı,
+   şimdilik silme yok).
 6. Canlı ön koşul: OP-15.
 
 ## 8. Kapsam dışı (v1)
