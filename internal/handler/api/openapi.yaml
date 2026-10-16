@@ -1081,7 +1081,10 @@ components:
         punchTime:
           type: string
           format: date-time
-          description: The instant the employee's phone declared (UTC).
+          description: |
+            The instant of the tap (UTC): the instant the employee's phone declared, when it declared one,
+            and otherwise Taptime's own instant of the tap. Taptime's tap page declares none today, so today
+            every punchTime is Taptime's instant (the guide's section 6.1).
         recordedAt:
           type: string
           format: date-time
@@ -1127,7 +1130,10 @@ components:
         punchTime:
           type: string
           format: date-time
-          description: The instant the employee's phone declared (UTC).
+          description: |
+            The instant of the tap (UTC): the instant the employee's phone declared, when it declared one,
+            and otherwise Taptime's own instant of the tap. Taptime's tap page declares none today, so today
+            every punchTime is Taptime's instant (the guide's section 6.1).
         recordedAt:
           type: string
           format: date-time

@@ -597,8 +597,10 @@ Nothing else is a punch, and nothing else is in the feed:
   its queue are close on Taptime's clock, so the second is ignored even when the instants they
   declare are further apart.
 
-**Time.** `punchTime` is the instant **the employee's phone declared**; `recordedAt` is the instant
-the punch entered the feed (for an approved flag, the approval's). A phone that was offline sends
+**Time.** `punchTime` is the instant **of the tap**: the instant the employee's phone declared,
+when it declared one, and otherwise Taptime's own instant of the tap. Taptime's tap page declares
+none today, so today every `punchTime` is Taptime's instant. `recordedAt` is the instant the punch
+entered the feed (for an approved flag, the approval's). A phone that was offline sends
 its queued tap later with the instant it was made: up to **120 seconds** late (by default; the
 business can change this) it is judged like a live tap; later than that it needs a manager's
 approval; more than **72 hours** in the past, or in the future, it is refused. A tap sent at once
@@ -641,7 +643,7 @@ across them are refused from the end on.
 | `id` | `pch_…` — the punch, the same in both scopes and both companies' feeds. |
 | `version` | Always `1` in v1. |
 | `status` | Always `valid` in v1: no punch is cancelled (`voided` is never produced). |
-| `punchTime` | The instant the phone declared (UTC). |
+| `punchTime` | The instant of the tap (UTC): the one the phone declared, or Taptime's own when it declared none — today always Taptime's ([6.1](#feed-what)). |
 | `recordedAt` | The instant the punch entered the feed (UTC); for an approved flag, the approval's. |
 | `channel` | `nfc` or `qr`. |
 | `direction` | `in` or `out`, as Taptime computed it at the **employer**. |
@@ -1061,7 +1063,7 @@ explained.
 2. A tap judged `flag` enters the feed only **when a manager of the employer company approves it**, at the approval; a rejected one never comes. ([6.1](#feed-what))
 3. In v1 `version` is always `1`, and `voided` is never produced. ([6.3](#feed-punch))
 4. Extra fields: `channel` (`nfc` | `qr`) and `direction` (`in` | `out` — the direction Taptime computed at the employer); `tagId` is filled in on both channels. ([6.3](#feed-punch))
-5. `punchTime` is the instant the phone declared; an offline queue is `ok` up to 120 seconds by default (the business can change this), and the ceiling is 72 hours; `recordedAt` is the instant the server recorded it. ([6.1](#feed-what))
+5. `punchTime` is the instant of the tap — the one the phone declared, or Taptime's own when it declared none (Taptime's tap page declares none today); an offline queue is `ok` up to 120 seconds by default (the business can change this), and the ceiling is 72 hours; `recordedAt` is the instant the server recorded it. ([6.1](#feed-what))
 6. A repeat touch within 60 seconds is not a punch — per person, **across the two companies' plaques too** — and the 60 seconds are counted in the declared instants or on Taptime's own clock, whichever is closer: two touches sent back to back from an offline queue lose the second, even when their declared instants are further apart. ([6.1](#feed-what))
 7. A location's `timezone` must be the business's, or the answer is 422. ([4](#locations))
 8. On a location, `active:false` is only a label. ([4](#locations))

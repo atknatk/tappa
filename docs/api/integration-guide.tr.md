@@ -607,7 +607,9 @@ Başka hiçbir şey punch değildir ve başka hiçbir şey akışta yoktur:
   gönderdiği iki dokunuş Taptime'ın saatinde birbirine yakındır; beyan ettikleri anlar daha uzak
   olsa da ikincisi yok sayılır.
 
-**Zaman.** `punchTime` **çalışanın telefonunun beyan ettiği** andır; `recordedAt` punch'ın akışa
+**Zaman.** `punchTime` **dokunuşun** anıdır: çalışanın telefonu bir an beyan ettiyse o an,
+etmediyse Taptime'ın dokunuş için kendi anı. Taptime'ın dokunuş sayfası bugün hiçbir an beyan
+etmez; yani bugün her `punchTime` Taptime'ın anıdır. `recordedAt` punch'ın akışa
 girdiği andır (onaylanan bir flag için onayın anı). Çevrimdışı kalmış bir telefon kuyruğundaki
 dokunuşu, yapıldığı anla, sonra gönderir: **120 saniyeye** kadar gecikmeli olanı (varsayılan;
 işletme bunu değiştirebilir) canlı bir dokunuş gibi karara bağlanır; daha geç olanı bir yöneticinin
@@ -651,7 +653,7 @@ anından itibaren reddedilir.
 | `id` | `pch_…` — punch; iki kapsamda ve iki şirketin akışında aynı. |
 | `version` | v1'de her zaman `1`. |
 | `status` | v1'de her zaman `valid`: hiçbir punch iptal edilmez (`voided` hiç üretilmez). |
-| `punchTime` | Telefonun beyan ettiği an (UTC). |
+| `punchTime` | Dokunuşun anı (UTC): telefonun beyan ettiği an, beyan etmediyse Taptime'ın kendi anı — bugün her zaman Taptime'ınki ([6.1](#feed-what)). |
 | `recordedAt` | Punch'ın akışa girdiği an (UTC); onaylanan bir flag için onayın anı. |
 | `channel` | `nfc` ya da `qr`. |
 | `direction` | `in` ya da `out`, Taptime'ın **işverende** hesapladığı gibi. |
@@ -1073,7 +1075,7 @@ Taptime'ın, bir entegrasyonun varsayabileceğinden farkları. Her madde açıkl
 2. `flag` olarak karara bağlanmış bir dokunuş akışa yalnız **işveren şirketin bir yöneticisi onaylarsa**, onay anında girer; reddedilen hiç gelmez. ([6.1](#feed-what))
 3. v1'de `version` her zaman `1`'dir ve `voided` hiç üretilmez. ([6.3](#feed-punch))
 4. Ek alanlar: `channel` (`nfc` | `qr`) ve `direction` (`in` | `out` — Taptime'ın işverende hesapladığı yön); `tagId` her iki kanalda doludur. ([6.3](#feed-punch))
-5. `punchTime` telefonun beyan ettiği andır; çevrimdışı kuyruk varsayılan olarak 120 saniyeye kadar `ok`'tur (işletme bunu değiştirebilir), tavan 72 saattir; `recordedAt` sunucunun kaydettiği andır. ([6.1](#feed-what))
+5. `punchTime` dokunuşun anıdır — telefonun beyan ettiği an, beyan etmediyse Taptime'ın kendi anı (Taptime'ın dokunuş sayfası bugün hiçbir an beyan etmez); çevrimdışı kuyruk varsayılan olarak 120 saniyeye kadar `ok`'tur (işletme bunu değiştirebilir), tavan 72 saattir; `recordedAt` sunucunun kaydettiği andır. ([6.1](#feed-what))
 6. 60 saniye içindeki tekrar dokunuş punch değildir — kişi bazlı, **iki şirketin plaketleri arasında da** — ve 60 saniye beyan edilen anlarda ya da Taptime'ın kendi saatinde, hangisi yakınsa, sayılır: çevrimdışı bir kuyruktan arka arkaya gönderilen iki dokunuşun ikincisi, beyan edilen anları daha uzak olsa da, kaybolur. ([6.1](#feed-what))
 7. Lokasyonun `timezone`'u işletmeninkine eşit olmalıdır, değilse cevap 422'dir. ([4](#locations))
 8. Lokasyonda `active:false` yalnız bir etikettir. ([4](#locations))

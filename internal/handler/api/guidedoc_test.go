@@ -1075,18 +1075,33 @@ var (
 	// internalHost is a cluster's or a private network's host name, with a scheme or without: a
 	// Kubernetes service name, *.internal, *.local and the like.
 	internalHost = regexp.MustCompile(`(?i)\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:svc\.cluster\.local|cluster\.local|internal|local|localdomain|lan|corp|intranet|home\.arpa)\b|\blocalhost\b`)
-	// base64Run is a run of standard base64 long enough for 32 bytes -- the KEK's and an HMAC key's
-	// shape in the environment (TAPPA_TAG_KEK). A hexadecimal run (a signature) is not one.
-	base64Run = regexp.MustCompile(`[A-Za-z0-9+/]{43,}={0,2}`)
+	// base64Run is a run of base64 long enough for 32 bytes, in either alphabet: the standard one
+	// (+ /) -- the KEK's and an HMAC key's shape in the environment (TAPPA_TAG_KEK) -- and the URL-safe
+	// one (- _), a key's body without its tt_ prefix. A hexadecimal run is hexSecrets'.
+	base64Run = regexp.MustCompile(`[A-Za-z0-9+/_-]{43,}={0,2}`)
 	hexRun    = regexp.MustCompile(`^[0-9A-Fa-f]+$`)
+	// hexKeyRun is a run of hexadecimal long enough for 16 bytes: an NTAG 424 DNA plaque's AES key
+	// written out (CLAUDE.md §4.7) is 32 digits, and anything longer holds one.
+	hexKeyRun = regexp.MustCompile(`[0-9A-Fa-f]{32,}`)
+	digit     = regexp.MustCompile(`[0-9]`)
+	upper     = regexp.MustCompile(`[A-Z]`)
+	lower     = regexp.MustCompile(`[a-z]`)
 )
 
-// base64Secrets is every base64Run in s that could be a secret: not hexadecimal, and with more than
-// four distinct characters (redline R7d's rule: padding like the vector's 'A's is not a key).
+// base64Secrets is every base64Run in s that could be a secret: not hexadecimal (hexSecrets reads
+// those), not a prefixed key (keyShapeText reads those, with the same rule on the body), and with more
+// than four distinct characters (redline R7d's rule: padding like the vector's 'A's is not a key). A
+// run with the URL-safe alphabet's - or _ also needs an upper-case letter, a lower-case one and a
+// digit: what has the separators and lacks one of the three is a name (a snake_case or hyphenated
+// word), never a key. NAMED LIMIT: a random 32-byte base64url value has no digit with odds of about
+// 1 in 1 500, and that one would pass.
 func base64Secrets(s string) []string {
 	var out []string
 	for _, run := range base64Run.FindAllString(s, -1) {
-		if hexRun.MatchString(strings.TrimRight(run, "=")) {
+		if hexRun.MatchString(strings.TrimRight(run, "=")) || keyShapeText.MatchString(run) {
+			continue
+		}
+		if strings.ContainsAny(run, "-_") && !(digit.MatchString(run) && upper.MatchString(run) && lower.MatchString(run)) {
 			continue
 		}
 		distinct := map[rune]bool{}
@@ -1094,6 +1109,23 @@ func base64Secrets(s string) []string {
 			distinct[r] = true
 		}
 		if len(distinct) > 4 {
+			out = append(out, run)
+		}
+	}
+	return out
+}
+
+// hexSecrets is every hexKeyRun in s that could be a key: more than four distinct digits (the
+// vector's 'A's are not one) and not one of known -- the signature vector's own values (guideVectors),
+// named one by one, so that no other run of 32 hexadecimal digits passes for one.
+func hexSecrets(s string, known map[string]bool) []string {
+	var out []string
+	for _, run := range hexKeyRun.FindAllString(s, -1) {
+		distinct := map[rune]bool{}
+		for _, r := range run {
+			distinct[r] = true
+		}
+		if len(distinct) > 4 && !known[run] {
 			out = append(out, run)
 		}
 	}
@@ -1130,7 +1162,11 @@ func ipv6Addresses(s string) []string {
 // first two, and anything in openapi.yaml, were green before). API-12 second fix: fe80::1%lo0 (a
 // zone name of letters), a host name of a cluster or a private network without a scheme
 // (*.svc.cluster.local, *.internal), a base64 value of 32 bytes (the KEK's shape) and a scripts/,
-// deploy/ or /Users/ path in a guide -- each red (each green before).
+// deploy/ or /Users/ path in a guide -- each red (each green before). API-12 third fix: an unprefixed
+// 32-byte value in base64url (a key's body) in the English guide and a 16-byte value in hexadecimal
+// (a plaque's AES key) in the Turkish one -- each red (each green before: base64Run had the standard
+// alphabet alone, and every hexadecimal run passed as a signature); the hexadecimal exception is now
+// the vector's three values by name.
 func TestGuide_NoSecretAddressOrPersonalData(t *testing.T) {
 	servers, _ := yat(openAPIDoc(t), "servers")
 	list, _ := servers.([]any)
@@ -1142,6 +1178,15 @@ func TestGuide_NoSecretAddressOrPersonalData(t *testing.T) {
 	serverHost := strings.TrimPrefix(serverURL, "https://")
 	if serverHost == serverURL || serverHost == "" {
 		t.Fatalf("the document's server URL %q is not https://<host>", serverURL)
+	}
+	// The one exception to the hexadecimal rule: the signature vector's values, each by name.
+	en, _ := theGuides(t)
+	vector := map[string]bool{}
+	for _, v := range guideVectors(t, en) {
+		vector[strings.TrimPrefix(v.signature, "sha256=")] = true
+	}
+	if len(vector) != 3 {
+		t.Fatalf("anti-vacuity: %d signature values named", len(vector))
 	}
 	for _, src := range []struct {
 		name string
@@ -1188,6 +1233,9 @@ func TestGuide_NoSecretAddressOrPersonalData(t *testing.T) {
 		for _, b := range base64Secrets(s) {
 			t.Errorf("%s: a base64 value long enough for a key %.8q…", src.name, b)
 		}
+		for _, h := range hexSecrets(s, vector) {
+			t.Errorf("%s: a hexadecimal value long enough for a key %.8q…", src.name, h)
+		}
 	}
 	// The detector itself: the forms a regular expression of groups missed.
 	for _, ip := range []string{"::1", "::ffff:a01:203", "::ffff:10.1.2.3", "fe80::1%eth0", "2001:db8::7", "[2001:db8::7]:443"} {
@@ -1221,9 +1269,34 @@ func TestGuide_NoSecretAddressOrPersonalData(t *testing.T) {
 			t.Errorf("base64Secrets misses %q", b)
 		}
 	}
-	for _, not := range []string{"sha256=" + strings.Repeat("be925cb6", 8), strings.Repeat("A", 43), "emp_8973fbc8-5e76-48e2-a80b-67d5b10baa91"} {
+	// The same kind of value in the URL-safe alphabet, without a prefix (made-up bytes:
+	// "self-check ~~ not a key, 32 b?>?").
+	for _, b := range []string{"c2VsZi1jaGVjayB-fiBub3QgYSBrZXksIDMyIGI_Pj8", "body=c2VsZi1jaGVjayB-fiBub3QgYSBrZXksIDMyIGI_Pj8;"} {
+		if len(base64Secrets(b)) != 1 {
+			t.Errorf("base64Secrets misses %q", b)
+		}
+	}
+	for _, not := range []string{"sha256=" + strings.Repeat("be925cb6", 8), strings.Repeat("A", 43), "emp_8973fbc8-5e76-48e2-a80b-67d5b10baa91",
+		"tt_whsec_" + strings.Repeat("A", 43), "webhook_deliveries_error_class_and_its_check_constraint", "the-guide-section-on-webhooks-and-their-deliveries"} {
 		if got := base64Secrets(not); len(got) != 0 {
 			t.Errorf("base64Secrets reads %q as %v", not, got)
+		}
+	}
+	// A made-up 16 bytes ("self-check: 16 b") in hexadecimal, alone and inside a longer run; a
+	// signature value that is not the vector's is one too.
+	for _, h := range []string{"key 73656c662d636865636b3a2031362062.", "KEY=73656C662D636865636B3A2031362062", "sha256=" + strings.Repeat("73656c662d636865", 4)} {
+		if len(hexSecrets(h, vector)) != 1 {
+			t.Errorf("hexSecrets misses %q", h)
+		}
+	}
+	for v := range vector {
+		if got := hexSecrets("sha256="+v, vector); len(got) != 0 {
+			t.Errorf("hexSecrets reads the vector's %.8q… as a key", v)
+		}
+	}
+	for _, not := range []string{strings.Repeat("A", 43), "emp_8973fbc8-5e76-48e2-a80b-67d5b10baa91", "tag_0DD4F2FE3B9A6A", "73656c662d636865636b3a203136206"} {
+		if got := hexSecrets(not, vector); len(got) != 0 {
+			t.Errorf("hexSecrets reads %q as %v", not, got)
 		}
 	}
 }
