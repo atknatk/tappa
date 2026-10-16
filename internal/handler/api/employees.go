@@ -85,6 +85,9 @@ const (
 
 var employeeFields = []string{fieldFirstName, fieldLastName, fieldEmail, fieldActive, fieldEmployeeCode, fieldExternalRef}
 
+// employeesParameters are GET /v1/employees's query parameters.
+var employeesParameters = []string{paramLimit, fieldCursor}
+
 // The employee refusals.
 const (
 	// reasonAdministratorAddress: the address is an administrator's of this business (ADR 0022 §7).
@@ -125,8 +128,8 @@ var (
 	problemCursor = &Problem{Code: CodeInvalidRequest,
 		Message: "cursor must be the nextCursor of a previous page.", Details: map[string]any{"parameter": fieldCursor}}
 	problemQueryParameter = &Problem{Code: CodeInvalidRequest,
-		Message: "This endpoint takes the query parameters limit and cursor only, each at most once.",
-		Details: map[string]any{"allowed": []string{"limit", fieldCursor}}}
+		Message: "This endpoint takes the query parameters limit and cursor only, each at most once, in a well-formed query string.",
+		Details: map[string]any{"allowed": employeesParameters}}
 )
 
 // nameProblem is the refusal of a name field.
@@ -470,6 +473,10 @@ func (s *Surface) resendActivation(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Surface) getEmployee(w http.ResponseWriter, r *http.Request) {
+	if _, prob := readQuery(r, nil, problemNoQuery); prob != nil {
+		writeProblem(w, prob)
+		return
+	}
 	ref, ok := employeeRef(r, "")
 	if !ok {
 		writeProblem(w, problemEmployeeRef)
@@ -489,12 +496,10 @@ func (s *Surface) getEmployee(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Surface) listEmployees(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	for k, v := range q {
-		if (k != "limit" && k != fieldCursor) || len(v) != 1 {
-			writeProblem(w, problemQueryParameter)
-			return
-		}
+	q, prob := readQuery(r, employeesParameters, problemQueryParameter)
+	if prob != nil {
+		writeProblem(w, prob)
+		return
 	}
 	limit, prob := parseLimit(q)
 	if prob != nil {

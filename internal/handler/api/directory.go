@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -143,20 +142,10 @@ func parseDirectoryCursor(v string) (directoryCursor, bool) {
 // directoryQuery reads the query string under the rule above.
 func directoryQuery(r *http.Request, tenantID uuid.UUID) (directoryRequest, *Problem) {
 	var req directoryRequest
-	q, err := url.ParseQuery(r.URL.RawQuery)
-	if err != nil {
-		return req, problemDirectoryParameter
+	q, prob := readQuery(r, directoryParameters, problemDirectoryParameter)
+	if prob != nil {
+		return req, prob
 	}
-	for k, v := range q {
-		known := false
-		for _, p := range directoryParameters {
-			known = known || k == p
-		}
-		if !known || len(v) != 1 {
-			return req, problemDirectoryParameter
-		}
-	}
-	var prob *Problem
 	if req.limit, prob = parseLimit(q); prob != nil {
 		return req, prob
 	}

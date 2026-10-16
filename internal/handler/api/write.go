@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -156,6 +157,30 @@ func requestHash(r *http.Request, body []byte) string {
 	h.Write(body)
 	return hex.EncodeToString(h.Sum(nil))
 }
+
+// THE QUERY STRING of a read (API-7's rule, which applies API-5's body rule to the query): every
+// GET under /v1 -- the three lists, the single employee and the three documents -- reads its query
+// through readQuery. A query string that does not parse (`%zz`, a `;` separator, a broken escape in
+// a name), a name the endpoint does not take and a name given twice are each `refusal`: never a
+// parameter silently dropped. r.URL.Query() is not used, because it drops what does not parse and
+// answers the rest -- `?limit=1;x=1` would read as no limit at all, and `?curs%zzor=` as no cursor,
+// restarting a reader at the beginning (API-12 fix, security finding 1).
+func readQuery(r *http.Request, allowed []string, refusal *Problem) (url.Values, *Problem) {
+	q, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		return nil, refusal
+	}
+	for k, v := range q {
+		if !slices.Contains(allowed, k) || len(v) != 1 {
+			return nil, refusal
+		}
+	}
+	return q, nil
+}
+
+// problemNoQuery refuses any query parameter on a GET that takes none (one employee, the documents).
+var problemNoQuery = &Problem{Code: CodeInvalidRequest,
+	Message: "This endpoint takes no query parameters.", Details: map[string]any{"allowed": []string{}}}
 
 // THE PAGE SIZE (ADR 0028 §8: "limit ≤ 1000, varsayılan 500; 1001 → 400"). API-7 and API-8 read it.
 const (

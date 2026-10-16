@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -122,18 +121,9 @@ type punchRequest struct {
 // for); either given to the other is 400 -- never silently a position of the other kind.
 func punchQuery(r *http.Request, tenantID uuid.UUID) (punchRequest, *Problem) {
 	var req punchRequest
-	q, err := url.ParseQuery(r.URL.RawQuery)
-	if err != nil {
-		return req, problemPunchParameter
-	}
-	for k, v := range q {
-		known := false
-		for _, p := range punchParameters {
-			known = known || k == p
-		}
-		if !known || len(v) != 1 {
-			return req, problemPunchParameter
-		}
+	q, prob := readQuery(r, punchParameters, problemPunchParameter)
+	if prob != nil {
+		return req, prob
 	}
 	scope, present := q[paramScope]
 	switch {
@@ -146,7 +136,6 @@ func punchQuery(r *http.Request, tenantID uuid.UUID) (punchRequest, *Problem) {
 	default:
 		return req, problemScope
 	}
-	var prob *Problem
 	if req.limit, prob = parseLimit(q); prob != nil {
 		return req, prob
 	}

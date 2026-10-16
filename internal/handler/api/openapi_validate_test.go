@@ -789,6 +789,7 @@ func surfaceProbes() []probe {
 			probe{name: "a compressed body", method: "GET", path: doc, hdr: gz, want: 400, code: CodeInvalidRequest},
 			probe{name: "a body over the bound", method: "GET", path: doc, body: big, want: 400, code: CodeBodyTooLarge},
 			probe{name: "the address bucket", method: "GET", path: doc, cfg: limitOne, twice: true, want: 429, code: CodeRateLimited},
+			probe{name: "a query parameter", method: "GET", path: doc + "?lang=tr", want: 400, code: CodeInvalidRequest},
 		)
 	}
 	for _, doc := range []string{"/v1/guide.md", "/v1/guide.tr.md"} {
@@ -823,8 +824,10 @@ func surfaceProbes() []probe {
 		// GET /v1/employees
 		probe{name: "a page", method: "GET", path: "/v1/employees", auth: k, want: 200},
 		probe{name: "an unknown parameter", method: "GET", path: "/v1/employees?page=2", auth: k, want: 400, code: CodeInvalidRequest},
+		probe{name: "a query string that does not parse", method: "GET", path: "/v1/employees?limit=1;x=1", auth: k, want: 400, code: CodeInvalidRequest},
 		// GET /v1/employees/{ref}
 		probe{name: "one employee", method: "GET", path: "/v1/employees/E-1042", auth: k, want: 200},
+		probe{name: "a query parameter", method: "GET", path: "/v1/employees/E-1042?x=1", auth: k, want: 400, code: CodeInvalidRequest},
 		probe{name: "a reference never held", method: "GET", path: "/v1/employees/E-1042", auth: k, cfg: emp(probeEmployees{err: tenant.ErrUnknownEmployee}), want: 404, code: CodeNotFound},
 		probe{name: "a reference outside the pattern", method: "GET", path: "/v1/employees/E%2F1042", auth: k, want: 422, code: CodeValidationFailed},
 		// PUT /v1/employees/{ref}
@@ -856,8 +859,10 @@ func surfaceProbes() []probe {
 		probe{name: "the feed", method: "GET", path: "/v1/punches?scope=location", auth: k, want: 200},
 		probe{name: "a history page", method: "GET", path: "/v1/punches?scope=employer&from=2026-10-01T00:00:00Z&to=2026-10-02T00:00:00Z", auth: k, want: 200},
 		probe{name: "no scope", method: "GET", path: "/v1/punches", auth: k, want: 400, code: CodeInvalidRequest},
+		probe{name: "a query string that does not parse", method: "GET", path: "/v1/punches?scope=employer&%zz", auth: k, want: 400, code: CodeInvalidRequest},
 		probe{name: "the directory", method: "GET", path: "/v1/directory", auth: k, want: 200},
 		probe{name: "an unknown parameter", method: "GET", path: "/v1/directory?since=x", auth: k, want: 400, code: CodeInvalidRequest},
+		probe{name: "a query string that does not parse", method: "GET", path: "/v1/directory?li%mit=1", auth: k, want: 400, code: CodeInvalidRequest},
 	)
 	return out
 }

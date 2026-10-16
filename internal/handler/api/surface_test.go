@@ -1154,3 +1154,72 @@ func TestGuard_PanicAndDeadlineAreSection8(t *testing.T) {
 	r.do(http.MethodGet, "/v1/_abort", "Bearer "+k, "", nil)
 	t.Fatal("ErrAbortHandler did not abort")
 }
+
+// TestQuery_EveryReadRefusesWhatItDoesNotParse (M11 API-12 fix, security finding 1; guide §3.7:
+// "a query string that does not parse ... is 400 ... never ignored"): every GET reads its query
+// through readQuery. On each of the three lists, a query string that does not parse -- a bare broken
+// escape, a ';' separator, a broken escape inside a name, a broken escape in the cursor's name -- is
+// answered exactly what an unknown parameter is (400 invalid_request, the list's details.allowed),
+// never a default page; on the GETs that take no parameter (one employee, the three documents) any
+// parameter, parsed or not, is 400 with details.allowed empty, and an empty query is not a parameter.
+//
+// MUTANT (measured, the API-12 fix report): listEmployees back on r.URL.Query() -- red (200 and the
+// default page for each of the four).
+func TestQuery_EveryReadRefusesWhatItDoesNotParse(t *testing.T) {
+	broken := []string{"%zz", "limit=1;x=1", "li%mit=1", "limit=1&curs%zzor=emp_" + uuid.NewString()}
+	lists := []struct{ path, prefix string }{
+		{"/v1/employees", "?"}, {"/v1/punches", "?scope=employer&"}, {"/v1/directory", "?"},
+	}
+	get := func(path string) *httptest.ResponseRecorder {
+		return probe{method: "GET", path: path, auth: "key"}.run(t)
+	}
+	for _, l := range lists {
+		want := get(l.path + l.prefix + "zzunknownzz=1")
+		if want.Code != http.StatusBadRequest || problemOf(t, want).Code != CodeInvalidRequest {
+			t.Fatalf("%s: an unknown parameter is %d %s", l.path, want.Code, want.Body)
+		}
+		wantDetails := problemOf(t, want).Details
+		if len(wantDetails) != 1 || wantDetails["allowed"] == nil {
+			t.Fatalf("%s: the unknown parameter's details are %v, want allowed alone", l.path, wantDetails)
+		}
+		if ok := get(l.path + l.prefix + "limit=1"); ok.Code != http.StatusOK {
+			t.Fatalf("%s: a well-formed limit is %d (anti-vacuity)", l.path, ok.Code)
+		}
+		for _, q := range broken {
+			w := get(l.path + l.prefix + q)
+			if w.Code != http.StatusBadRequest {
+				t.Errorf("%s%s%s: %d, want 400 (a query string that does not parse is never ignored)", l.path, l.prefix, q, w.Code)
+				continue
+			}
+			if w.Body.String() != want.Body.String() {
+				t.Errorf("%s%s%s: %s, want the unknown parameter's answer %s", l.path, l.prefix, q, w.Body, want.Body)
+			}
+		}
+	}
+	none := []string{"/v1/employees/E-1042", "/v1/openapi.yaml", "/v1/guide.md", "/v1/guide.tr.md"}
+	for _, path := range none {
+		auth := "key"
+		if !strings.HasPrefix(path, "/v1/employees") {
+			auth = ""
+		}
+		for _, q := range []string{"", "?"} {
+			if w := (probe{method: "GET", path: path + q, auth: auth}).run(t); w.Code != http.StatusOK {
+				t.Errorf("%s%s: %d, want 200 (no parameter)", path, q, w.Code)
+			}
+		}
+		for _, q := range append([]string{"x=1", "lang=tr", "v=1"}, broken...) {
+			w := probe{method: "GET", path: path + "?" + q, auth: auth}.run(t)
+			if w.Code != http.StatusBadRequest {
+				t.Errorf("%s?%s: %d, want 400 (this GET takes no parameter)", path, q, w.Code)
+				continue
+			}
+			p := problemOf(t, w)
+			if allowed, ok := p.Details["allowed"].([]any); p.Code != CodeInvalidRequest || !ok || len(allowed) != 0 || len(p.Details) != 1 {
+				t.Errorf("%s?%s: %s, want invalid_request with details.allowed []", path, q, w.Body)
+			}
+			if strings.Contains(w.Body.String(), "lang") || strings.Contains(w.Body.String(), "%zz") {
+				t.Errorf("%s?%s: the answer echoes the request: %s", path, q, w.Body)
+			}
+		}
+	}
+}

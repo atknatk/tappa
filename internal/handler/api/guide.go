@@ -21,8 +21,9 @@ import (
 //
 // THE NAMES: a path per language, not ?lang= and not Accept-Language. A path names its format like
 // openapi.yaml does and its language like the files do (integration-guide.tr.md); a /v1 read refuses
-// a parameter it does not name, so ?lang= would be the one exception to that rule; and a cache keys a
-// path without being told to vary on a header.
+// a parameter it does not name (readQuery -- the three documents too: they take none, so ?lang= and
+// ?x=1 are 400, not the English guide), so ?lang= would be the one exception to that rule; and a
+// cache keys a path without being told to vary on a header.
 //
 // CACHING: Cache-Control no-cache with a strong ETag (a digest of the embedded bytes). The guide
 // changes with a deploy, so a copy is revalidated on every use; an unchanged guide answers 304 with
@@ -57,6 +58,10 @@ var (
 // serveGuide answers one guide: 200 with the bytes, or 304 when If-None-Match names its ETag.
 func (s *Surface) serveGuide(g guideDocument) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if _, prob := readQuery(r, nil, problemNoQuery); prob != nil {
+			writeProblem(w, prob)
+			return
+		}
 		h := w.Header()
 		h.Set("Cache-Control", "no-cache")
 		h.Set("ETag", g.etag)
