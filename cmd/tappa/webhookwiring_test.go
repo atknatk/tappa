@@ -24,9 +24,15 @@ import (
 // to the endpoint service's and the reviewer's NoticeWorkTo (a resend and an approval enter K-19's set);
 // internal/webhook/delivery joins the packages that import internal/egress.
 //
+// API-13a (K-22's operator screen): the operator surface run() builds (openOperatorSurface) is the one
+// it hands httpx.NewRouter, and W reaches its NoticeWorkTo too -- an accepted API open puts the
+// business into K-19's set at once (ADR 0028, "API-13a uygulama notu" 2); without the call the open
+// still answers "Opened." and the waiting deliveries sit until delivery.GateRecheck.
+//
 // MUTANTS (measured): the allowance set to true -> red; the Blocked option dropped -> red; the panel
 // option appended with another value -> red. API-10: delivery.New given another sender, the job not
-// added to W, either NoticeWorkTo removed -> each red.
+// added to W, either NoticeWorkTo removed -> each red. API-13a: operatorSurface.NoticeWorkTo(work)
+// removed -> red.
 func TestWebhookWiring_TheEndpointServiceReachesThePanel(t *testing.T) {
 	f, err := parser.ParseFile(token.NewFileSet(), filepath.Join(repoRoot, "cmd", "tappa", "main.go"), nil, 0)
 	if err != nil {
@@ -50,7 +56,7 @@ func TestWebhookWiring_TheEndpointServiceReachesThePanel(t *testing.T) {
 		return ok && id.Name == pkg
 	}
 	var egressCalls, endpointCalls, panelCalls, deliveryCalls int
-	egressVar, endpointsVar, deliveryVar, workVar, reviewerVar := "", "", "", "", ""
+	egressVar, endpointsVar, deliveryVar, workVar, reviewerVar, operatorVar := "", "", "", "", "", ""
 	panelOK := false
 	ast.Inspect(run, func(n ast.Node) bool {
 		if c, ok := n.(*ast.CallExpr); ok && isSel(c.Fun, "handler", "IntegrationWebhook") {
@@ -99,6 +105,10 @@ func TestWebhookWiring_TheEndpointServiceReachesThePanel(t *testing.T) {
 			if lhs != nil {
 				reviewerVar = lhs.Name
 			}
+		case exprName(c.Fun) == "openOperatorSurface":
+			if lhs != nil {
+				operatorVar = lhs.Name
+			}
 		case isSel(c.Fun, "delivery", "New"):
 			deliveryCalls++
 			if lhs != nil {
@@ -136,9 +146,16 @@ func TestWebhookWiring_TheEndpointServiceReachesThePanel(t *testing.T) {
 	}
 
 	// API-10: the job joins the worker, and a resend and an approval notice it.
-	var added, endpointsNotice, reviewerNotice bool
+	var added, endpointsNotice, reviewerNotice, operatorNotice, operatorRouted bool
 	ast.Inspect(run, func(n ast.Node) bool {
 		c, ok := n.(*ast.CallExpr)
+		if ok && isSel(c.Fun, "httpx", "NewRouter") {
+			for _, a := range c.Args {
+				if id, isID := a.(*ast.Ident); isID && id.Name == operatorVar && operatorVar != "" {
+					operatorRouted = true
+				}
+			}
+		}
 		if !ok || len(c.Args) != 1 {
 			return true
 		}
@@ -158,12 +175,18 @@ func TestWebhookWiring_TheEndpointServiceReachesThePanel(t *testing.T) {
 			endpointsNotice = true
 		case sel.Sel.Name == "NoticeWorkTo" && recv.Name == reviewerVar && arg.Name == workVar:
 			reviewerNotice = true
+		case sel.Sel.Name == "NoticeWorkTo" && recv.Name == operatorVar && arg.Name == workVar:
+			operatorNotice = true
 		}
 		return true
 	})
 	if deliveryCalls != 1 || workVar == "" || deliveryVar == "" || !added || !endpointsNotice || !reviewerNotice {
 		t.Fatalf("run(): delivery.New %d (as %q), added to the worker %q: %v; NoticeWorkTo -- endpoints %v, reviewer %v",
 			deliveryCalls, deliveryVar, workVar, added, endpointsNotice, reviewerNotice)
+	}
+	if operatorVar == "" || !operatorRouted || !operatorNotice {
+		t.Fatalf("run(): the operator surface (openOperatorSurface as %q) handed to httpx.NewRouter: %v; W handed to its NoticeWorkTo: %v",
+			operatorVar, operatorRouted, operatorNotice)
 	}
 
 	allowed := map[string]bool{"cmd/tappa": true, "internal/webhook/endpoints": true, "internal/handler": true, "internal/webhook/delivery": true}

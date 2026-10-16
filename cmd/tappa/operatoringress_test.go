@@ -1023,6 +1023,89 @@ func TestPackaging_TheDeployAppliesEveryIngressFile(t *testing.T) {
 	}
 }
 
+// TestPackaging_TheDeployGatesTheCustomerAndAPIHosts (M11 API-13a fix): the deploy's two
+// Cloudflare preflights -- the apex taptime.mt and the API host -- run before the workflow's first
+// `kubectl apply`, and the API host's post-rollout gate (`verify-deployment.sh api-host`) runs
+// after 42 is applied; each exactly once, in a step that neither carries an `if:` nor
+// `continue-on-error`. The API host is read from 42-api-ingress.yaml's rule, which
+// TestPackaging_TheAPIIngressRoutesV1OnTheConfiguredHost ties to the ConfigMap's TAPPA_API_HOST.
+// These are the lines a merge with main's T119 deploy.yml rewrites around (deploy/README.md,
+// "M11 — deploy günü", the merge item); without this pin, deleting either went green.
+//
+// MUTANT (measured): the API host's preflight step deleted -> red; the api-host gate deleted -> red;
+// the gate moved before "Roll out the server" -> red; `continue-on-error: true` on the gate -> red;
+// the apex preflight deleted -> red.
+func TestPackaging_TheDeployGatesTheCustomerAndAPIHosts(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join(repoRoot, ".github", "workflows", "deploy.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	objs := ingressesIn(t, apiIngressFile)
+	if len(objs) != 1 || len(objs[0].rules) != 1 || objs[0].rules[0].host == "" {
+		t.Fatalf("%s: want one Ingress with one host rule", apiIngressFile)
+	}
+	apiHost := objs[0].rules[0].host
+
+	type gate struct {
+		want  string
+		lines []int
+		steps []string
+	}
+	gates := []*gate{
+		{want: "scripts/verify-deployment.sh cloudflare taptime.mt"},
+		{want: "scripts/verify-deployment.sh cloudflare " + apiHost},
+		{want: "scripts/verify-deployment.sh api-host " + apiHost},
+	}
+	code := codeLinesOf(string(b))
+	step, firstApply, line42 := "", -1, -1
+	unguarded := map[string]bool{}
+	for i, l := range code {
+		tl := strings.TrimSpace(l)
+		if s, ok := strings.CutPrefix(tl, "- name: "); ok {
+			step = s
+			unguarded[step] = true
+		}
+		if strings.HasPrefix(tl, "if:") || strings.HasPrefix(tl, "continue-on-error:") {
+			unguarded[step] = false
+		}
+		if strings.Contains(l, "kubectl apply") && firstApply < 0 {
+			firstApply = i
+		}
+		for _, m := range deployApplyLine.FindAllStringSubmatch(l, -1) {
+			if m[1] == apiIngressFile {
+				line42 = i
+			}
+		}
+		for _, g := range gates {
+			cmd := strings.TrimSpace(strings.TrimPrefix(tl, "run:"))
+			if cmd == g.want {
+				g.lines = append(g.lines, i)
+				g.steps = append(g.steps, step)
+			}
+		}
+	}
+	if firstApply < 0 || line42 < 0 {
+		t.Fatalf("CONTROL FAILED: first kubectl apply at %d, 42's apply at %d", firstApply, line42)
+	}
+	for n, g := range gates {
+		if len(g.lines) != 1 {
+			t.Errorf("deploy.yml runs %q %d time(s), want once", g.want, len(g.lines))
+			continue
+		}
+		if !unguarded[g.steps[0]] {
+			t.Errorf("deploy.yml's step %q (%q) carries an `if:` or `continue-on-error`: a gate that can be skipped is not one",
+				g.steps[0], g.want)
+		}
+		switch at := g.lines[0]; {
+		case n < 2 && at > firstApply:
+			t.Errorf("%q runs at code line %d, after the first kubectl apply (%d): a preflight runs before anything is applied",
+				g.want, at, firstApply)
+		case n == 2 && at < line42:
+			t.Errorf("%q runs at code line %d, before 42 is applied (%d): the gate measures the routed host", g.want, at, line42)
+		}
+	}
+}
+
 // clusterScopedKinds and namespacedKinds classify every kind the manifests carry; a kind
 // in neither list stops the count rather than being guessed.
 var (
