@@ -418,6 +418,18 @@ func TestAPIKeyQueries_CarryAnExplicitTenantPredicate(t *testing.T) {
 	fileBelt(t, "apikeys.sql", 7)
 }
 
+// TestReviewsQueries_CarryAnExplicitTenantPredicate is the same belt over reviews.sql (M11 API-10 review,
+// D-3). internal/domain/review's TestReviewQueries_CarryAnExplicitTenantPredicate derives its list from
+// the queries THAT package calls -- and API-10's GetReviewedPunchSite (the approval's K-19 read) is called
+// there, but a query of this file called from anywhere else, or not yet called, was in no belt. This one is
+// FILE-DERIVED: every statement of reviews.sql is checked because it exists.
+//
+// MUTANTS (measured): the tenant_id predicate dropped from GetReviewedPunchSite, and the review
+// subquery's of CountPendingFlagged replaced by `WHERE true` -> red, each.
+func TestReviewsQueries_CarryAnExplicitTenantPredicate(t *testing.T) {
+	fileBelt(t, "reviews.sql", 5)
+}
+
 // TestTransactionsQueries_CarryAnExplicitTenantPredicate is the tags belt pointed at
 // transactions.sql (M6-08). See txnQueryFile for why it exists and what widening
 // further would cost.
