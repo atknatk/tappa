@@ -1869,36 +1869,109 @@ func strongTableLocksOutside(t *testing.T, ctx context.Context, q opQuerier, all
 	return out
 }
 
-// holdingSetAsideSiteRows deletes, inside the savepoint sp, every transactions row that names a
-// site, the reviews of those rows and -- while it exists -- every site_punches row (the three
-// tables are append-only: their row triggers are disabled for the delete and enabled again) --
-// the rows the tap tests commit, which 00046's Down refuses to drop the projection under and
-// 00043's to drop the columns under. The savepoint's rollback puts them back.
+// holdingSetAsideSiteRows empties, inside the savepoint sp, the three tables whose site rows the
+// Downs refuse over -- transactions (its rows that name a site: 00043's Down refuses to drop the
+// columns under one), transaction_reviews (their reviews) and, while it exists, site_punches (00046's
+// Down refuses to drop the projection under a row) -- the rows the tap tests commit. The three are
+// append-only: their TRUNCATE triggers are switched off for the statement and on again, inside the
+// savepoint. The savepoint's rollback puts every row back (and the triggers' state with them, on every
+// path: a t.Fatalf here rolls back too). This is a test's temporary set-aside inside a savepoint that is
+// never committed -- not a production path (CLAUDE.md §4.3). The callers run feedBelow48 first
+// (punch_events, whose keys name transactions, is dropped by then) and hold holdingDownTables, which
+// lists all three.
+//
+// 🔴 TRUNCATE, NOT DELETE -- 82be583's class (M11 API-10, DÜŞÜK round). opTx is REPEATABLE READ: its
+// snapshot is taken by the test's first query, BEFORE holdingLockedSavepoint's ACCESS EXCLUSIVE locks,
+// and a DELETE sees that snapshot only. A review of an older site row that another package (a tap or
+// approval test, run in parallel by `go test ./...`) committed in that window survived
+// `DELETE FROM transaction_reviews`, and `DELETE FROM transactions` then met it in the foreign-key
+// check (which reads the latest rows) -- 23503, as feedSetAsideRows did in CI run 38819939609; a site
+// row committed in the window was invisible to the Downs' own refusals too. Not seen here yet (0 in
+// 100), but the same shape. TRUNCATE empties each table whatever the snapshot, under the lock the
+// savepoint already holds. It takes EVERY transactions row, not only those naming a site: TRUNCATE has
+// no WHERE, and none of the callers reads a row it committed before the set-aside (each builds its
+// world after it, or none). One statement, because reviews and site_punches reference transactions.
 func holdingSetAsideSiteRows(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	t.Helper()
+	tables, triggers := "transactions, transaction_reviews", []string{"transactions transactions_no_truncate", "transaction_reviews transaction_reviews_no_truncate"}
 	if opInt(t, ctx, sp, `SELECT count(*) FROM pg_class WHERE oid = to_regclass('public.site_punches')`) == 1 {
-		for _, s := range []string{
-			`ALTER TABLE site_punches DISABLE TRIGGER site_punches_no_mutation`,
-			`DELETE FROM site_punches`,
-			`ALTER TABLE site_punches ENABLE TRIGGER site_punches_no_mutation`,
-		} {
-			if _, err := sp.Exec(ctx, s); err != nil {
-				t.Fatalf("%s: %v", s, err)
-			}
-		}
+		tables += ", site_punches"
+		triggers = append(triggers, "site_punches site_punches_no_truncate")
 	}
-	for _, s := range []string{
-		`ALTER TABLE transaction_reviews DISABLE TRIGGER transaction_reviews_no_mutation`,
-		`ALTER TABLE transactions DISABLE TRIGGER transactions_no_mutation`,
-		`DELETE FROM transaction_reviews r USING transactions x WHERE x.id = r.transaction_id AND x.site_tenant_id IS NOT NULL`,
-		`DELETE FROM transactions WHERE site_tenant_id IS NOT NULL`,
-		`ALTER TABLE transactions ENABLE TRIGGER transactions_no_mutation`,
-		`ALTER TABLE transaction_reviews ENABLE TRIGGER transaction_reviews_no_mutation`,
-	} {
+	var stmts []string
+	for _, tr := range triggers {
+		table, trigger, _ := strings.Cut(tr, " ")
+		stmts = append(stmts, `ALTER TABLE `+table+` DISABLE TRIGGER `+trigger)
+	}
+	stmts = append(stmts, `TRUNCATE `+tables)
+	for _, tr := range triggers {
+		table, trigger, _ := strings.Cut(tr, " ")
+		stmts = append(stmts, `ALTER TABLE `+table+` ENABLE TRIGGER `+trigger)
+	}
+	for _, s := range stmts {
 		if _, err := sp.Exec(ctx, s); err != nil {
 			t.Fatalf("%s: %v", s, err)
 		}
 	}
+}
+
+// TestHoldingSetAside_SeesRowsCommittedAfterTheSnapshot pins holdingSetAsideSiteRows' TRUNCATE (M11
+// API-10, DÜŞÜK round): a site row committed BEFORE the Down test's snapshot, and its approval
+// committed by another session AFTER it (the window a parallel package's tap or approval test commits
+// in) -- and the Downs below 00046 are walked over it. The live fixture's shared operator-tables lock is
+// given back first: opTx takes it exclusive (operatorschema_test.go).
+//
+// MUTANT (measured, a throwaway database): the set-aside back to DELETE (the code before this round) ->
+// `DELETE FROM transactions WHERE site_tenant_id IS NOT NULL` fails 23503 on transaction_reviews_txn_fk
+// -> red.
+func TestHoldingSetAside_SeesRowsCommittedAfterTheSnapshot(t *testing.T) {
+	f := holdingLiveFixture(t)
+	w := holdingWorldLive(t, f)
+	reviewer := holdingNewAdmin(t, f.ctx, f.owner, w.km)
+	asKM := func(fn func(tx pgx.Tx) error) {
+		t.Helper()
+		tx := holdingBegin(t, f.ctx, f.conn(t), "")
+		if _, err := tx.Exec(f.ctx, `SELECT set_config('app.tenant_id', $1, true)`, w.km.String()); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.Exec(f.ctx, `SET LOCAL SESSION AUTHORIZATION tappa_app`); err != nil {
+			t.Fatal(err)
+		}
+		if err := fn(tx); err != nil {
+			t.Fatal(err)
+		}
+		if err := tx.Commit(f.ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var id uuid.UUID
+	asKM(func(tx pgx.Tx) error {
+		return tx.QueryRow(f.ctx, `INSERT INTO transactions (tenant_id, employee_id, occurred_at, verdict, channel, type, sun_valid,
+		                            site_tenant_id, site_location_id, site_tag_uid)
+		                        VALUES ($1, $2, now(), 'flag', 'qr', 'in', false, $3, $4, $5) RETURNING id`,
+			w.km, w.kmEmployee, w.kf, w.kfVenue, w.kfTag).Scan(&id)
+	})
+	if _, err := f.owner.Exec(f.ctx, `SELECT pg_advisory_unlock_shared(hashtext($1))`, operatorTablesTestLock); err != nil {
+		t.Fatal(err)
+	}
+	ctx, tx := opTx(t)
+	if n := opInt(t, ctx, tx, `SELECT count(*) FROM transactions WHERE id = $1`, id); n != 1 {
+		t.Fatalf("PREMISE: the site row is not in the snapshot (%d)", n)
+	}
+	asKM(func(tx pgx.Tx) error {
+		_, err := tx.Exec(f.ctx, `INSERT INTO transaction_reviews (tenant_id, transaction_id, reviewer_id, outcome) VALUES ($1, $2, $3, 'approved')`,
+			w.km, id, reviewer)
+		return err
+	})
+	if n := opInt(t, ctx, tx, `SELECT count(*) FROM transaction_reviews WHERE transaction_id = $1`, id); n != 0 {
+		t.Fatalf("PREMISE: the approval committed after the snapshot is visible to it (%d)", n)
+	}
+	holdingLockedSavepoint(t, tx, func(sp pgx.Tx) {
+		holdingBelow46(t, ctx, sp)
+		if n := opInt(t, ctx, sp, `SELECT count(*) FROM transactions WHERE site_tenant_id IS NOT NULL`); n != 0 {
+			t.Errorf("below 00046 with %d site row(s) left", n)
+		}
+	})
 }
 
 // holdingBelow43 takes the savepoint's database below 00043 -- 00047's Down, 00046's, 00045's,
