@@ -675,7 +675,12 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
   Infisical `/tappa/TAPPA_WEBHOOK_KEK`'e (ya da doğrudan `tappa-secrets`'a) manifest kümeye ulaşmadan **önce** yazılır — yazılmazsa
   ExternalSecret'in **bütün** senkronu durur (yalnız bu anahtar değil; sonraki her sır döndürmesi de kümeye ulaşmaz). Ayrı üretilir
   ve öteki yedi anahtardan farkı **değer basmadan** ölçülür.
-  **(2) Düğümün IPv6 adresi.** `TAPPA_WEBHOOK_BLOCKED_ADDRESSES` (`05-config.yaml`) `dev` dışında zorunlu ve bugün **yalnız IPv4**
+  ✅ *(1) yapıldı (2026-10-16, ana oturum): değer Infisical `shared-infra/prod:/tappa` ve canlı `tappa-secrets`'ta, öteki
+  anahtarlardan farkı değer basılmadan ölçüldü.*
+  **(2) Düğümün IPv6 adresi.** ✅ *Yapıldı (2026-10-16, API-13a): düğümde `ip -6 addr show scope global` →
+  `2a01:4f8:200:3164::2` (`eno1`, hostNetwork ingress-nginx aynı düğümde); `05-config.yaml` artık
+  `144.76.158.60,2a01:4f8:200:3164::/64` (bütün /64 — Hetzner onu yalnız bu sunucuya verir);
+  `TestEgress_TheShippedListRefusesTheNodesIPv6Network`.* `TAPPA_WEBHOOK_BLOCKED_ADDRESSES` (`05-config.yaml`) `dev` dışında zorunlu ve bugün **yalnız IPv4**
   (`144.76.158.60`). Deploy'dan önce düğümde `ip -6 addr show scope global` koşulur; küresel bir IPv6 adresi varsa ve ingress
   `[::]:443`'ü dinliyorsa (`ss -ltn`) o adres listeye eklenir. Eklenmezse o IPv6'ya çözülen bir webhook adresi Taptime'ın kendi
   ingress'ine ulaşır: TLS adı uyuşmadığı için HTTP isteği gitmez, ama TCP bağlantısı ve TLS el sıkışması erişimi kalır. Kümede başka

@@ -89,13 +89,21 @@ data:
   # special-purpose registries) -- so the cluster's 10.x addresses are covered by the
   # rule and do not belong here; this list is what the rule cannot know.
   #
-  # The value is the origin address measured for the apex record (40-ingress.yaml:
-  # `dig +short taptime.mt` -> 144.76.158.60, ingress-nginx runs with hostNetwork on this
-  # one node). config.Load REFUSES TO START outside TAPPA_ENV=dev with this empty.
-  # ⚠️ API-13 VERIFIES IT BEFORE THE DEPLOY: the node's IPv6 address, if it has one
-  # (`ip -6 addr show scope global` on the node), and every further node or load
-  # balancer address is added here in the same edit that adds the node.
-  TAPPA_WEBHOOK_BLOCKED_ADDRESSES: "144.76.158.60"
+  # THE TWO ENTRIES, EACH MEASURED (ingress-nginx runs with hostNetwork on this one node,
+  # so the node's addresses ARE the ingress's):
+  #   144.76.158.60          the origin address measured for the apex record
+  #                          (40-ingress.yaml: `dig +short taptime.mt` -> 144.76.158.60).
+  #   2a01:4f8:200:3164::/64 the node's global IPv6, measured on 2026-10-16 (M11 API-13a):
+  #                          `ip -6 addr show scope global` on the node -> 2a01:4f8:200:3164::2
+  #                          on eno1. The WHOLE /64 and not the one address, because Hetzner
+  #                          routes that /64 to this server alone: any address of it reaches
+  #                          this node, and the node may answer on another one (privacy
+  #                          addresses, a second IP added later) without anybody editing
+  #                          this line. internal/config reads CIDR entries
+  #                          (TestEgress_TheShippedListRefusesTheNodesIPv6Network).
+  # config.Load REFUSES TO START outside TAPPA_ENV=dev with this empty. A further node or
+  # load balancer is added here in the same edit that adds it to the cluster.
+  TAPPA_WEBHOOK_BLOCKED_ADDRESSES: "144.76.158.60,2a01:4f8:200:3164::/64"
 
   # 🟡 TAPPA_RETENTION_YEARS — TEMPORARY, AND IT IS A LEGAL STATEMENT RATHER THAN A
   # SETTING (backlog B3 / open question Q13).

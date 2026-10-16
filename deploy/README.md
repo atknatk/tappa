@@ -1153,13 +1153,17 @@ reddeder (ADR 0028 §6, §7):
 | Değer | Nerede | Ne |
 |---|---|---|
 | `TAPPA_WEBHOOK_KEK` | `tappa-secrets` (sır) | uç noktaların imza anahtarlarını `sun.Seal` ile mühürler; 32 bayt base64, **her öteki anahtardan farklı** (`openssl rand -base64 32`, ayrı üretilir). `20-app.yaml` onu **isteğe bağlı olmayan** `secretKeyRef` ile alır: Secret'ta yoksa kubelet pod'u başlatmaz. |
-| `TAPPA_WEBHOOK_BLOCKED_ADDRESSES` | `05-config.yaml` (sır değil) | bir webhook'un **asla** bağlanamayacağı düğümün kendi genel adresleri ve ingress'in adresi; virgülle IP ya da CIDR. Özel, loopback, link-local ve ayrılmış adresleri `internal/egress` IANA kaydından zaten reddeder — bu liste kuralın bilemediğidir. Bugünkü değer `144.76.158.60` (apex kaydının ölçülen origin'i, `40-ingress.yaml`). |
+| `TAPPA_WEBHOOK_BLOCKED_ADDRESSES` | `05-config.yaml` (sır değil) | bir webhook'un **asla** bağlanamayacağı düğümün kendi genel adresleri ve ingress'in adresi; virgülle IP ya da CIDR. Özel, loopback, link-local ve ayrılmış adresleri `internal/egress` IANA kaydından zaten reddeder — bu liste kuralın bilemediğidir. Bugünkü değer tablonun altında. |
+
+Listenin bugünkü iki girdisi: `144.76.158.60` — apex kaydının ölçülen origin'i (`40-ingress.yaml`) — ve `2a01:4f8:200:3164::/64` — düğümün IPv6 ağı (2026-10-16'da düğümde `ip -6 addr show scope global` → `2a01:4f8:200:3164::2`, `eno1`; Hetzner bu /64'ü yalnız bu sunucuya yönlendirdiği için tek adres değil **bütün /64**). `TestEgress_TheShippedListRefusesTheNodesIPv6Network` ConfigMap'in değerini `config.Load`'dan geçirir ve kapının ikisini de reddettiğini ölçer.
 
 **Deploy'dan önce (API-13):** (1) `TAPPA_WEBHOOK_KEK` değeri `tappa-secrets`'a (ya da Infisical
 `/tappa/`'ya — `externalsecret.example.yaml` onu artık zorunlu çeker, eksik uzak değer bütün senkronu
 durdurur) **önce** yazılır; değer ekrana basılmaz, ayrımı öteki anahtarlarla **değer basmadan** ölçülür
-(API-3'ün çift ölçümü). (2) Düğümün IPv6 adresi varsa (`ip -6 addr show scope global`) ve kümeye
-düğüm ya da yük dengeleyici eklendiyse adresi listeye **aynı değişiklikte** eklenir. (3) Ölçüm:
+(API-3'ün çift ölçümü) — ✅ **yapıldı (2026-10-16)**: Infisical `shared-infra/prod:/tappa` ve canlı
+`tappa-secrets`, değer basılmadan. (2) Düğümün IPv6 adresi — ✅ **yapıldı (2026-10-16, M11 API-13a)**:
+ölçülen `2a01:4f8:200:3164::2`'nin /64'ü listede. Kümeye düğüm ya da yük dengeleyici eklenirse adresi listeye
+**aynı değişiklikte** eklenir. (3) Ölçüm (deploy sonrası, "M11 — deploy günü" (e)):
 panelden kendi `https://taptime.mt/` adresine bir uç nokta kurulup ping atılır → sonuç
 `blocked_address` olmalıdır.
 
