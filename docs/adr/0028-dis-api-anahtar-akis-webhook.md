@@ -472,10 +472,11 @@ dönmek: kendi API'sine imzalı istek, oran sınırını atlatma), özel ve ayr�
 | Gömülü IPv4 taşıyan IPv6 biçimleri — 6to4 (`2002::/16`), Teredo (`2001::/32`), NAT64 (`64:ff9b::/96`), IPv4-uyumlu | IPv6 **yalnız `2000::/3`** içinden kabul; `2001::/23`'ün tamamı ve `2002::/16` düşülür; NAT64 ve IPv4-uyumlu biçimler `2000::/3` dışında kalır. Go'nun `IsGlobalUnicast`'ı bunlara `true` der — **güvenilmez** |
 | HTTP yönlendirmesiyle iç adrese sekme | Yönlendirme **izlenmez** |
 | Ortam değişkeniyle proxy (`HTTPS_PROXY`) | `Transport.Proxy: nil` — proxy olsa da doğrudan bağlanılır (API-10 testi) |
-| Uzun / büyük yanıtla kaynak tüketme | toplam **10 sn**; `MaxResponseHeaderBytes` sınırlı; gövde **okunmaz** (en çok 1 KiB atılır) |
+| Uzun / büyük yanıtla kaynak tüketme | toplam **10 sn** — TCP çevirmesi ve TLS el sıkışması **dahil** (ikisi de `Post`'un bağlamıyla biter: bütçe dolunca ve `Post` iptal edilince soket kapanır — API-12 üçüncü düzeltme turu); `MaxResponseHeaderBytes` sınırlı; gövde **okunmaz** (en çok 1 KiB atılır) |
 | Yanıtı okuyarak iç veriyi sızdırma | gövde okunmaz, yanıt metni saklanmaz/loglanmaz; owner'a yalnız kapalı küme hata sınıfı ve durum kodu |
 | Hata metniyle URL/sorgu sızdırma | URL'de sorgu ve userinfo yok; `*url.Error` metni log/audit'e asla |
-| TLS'i düşürme | yalnız `https`; doğrulama Go varsayılanı (atlama yok) |
+| TLS'i düşürme | yalnız `https`, TLS ≥ 1.2; doğrulama Go varsayılanı (atlama yok) |
+| Protokol yüzeyi | **yalnız HTTP/1.1**: ALPN sunulmaz (el sıkışmanın `tls.Config`'i taşıyıcıya verilmez), `Transport.Protocols` yalnız HTTP/1.1 — HTTP/2 sunan alıcıyla da bağlantı HTTP/1.1 kalır |
 | Teslim seli / yansıtıcı olarak kullanma | tenant başına tek uç nokta; ping + yeniden gönderim saatte 10; teslimler yalnız gerçek punch'lardan; geri çekilme; K-22 kapısı her yolda |
 
 **İzin listesi — normatif (dial anında, `Unmap()`'ten sonra):**
@@ -497,7 +498,8 @@ dönmek: kendi API'sine imzalı istek, oran sınırını atlatma), özel ve ayr�
 **Kapatılmayanlar — sayılı:** (a) **genel internete kör istek** tasarım gereğidir (webhook budur):
 owner Tappa'yı herhangi bir genel HTTPS uç noktasına, gerçek punch hızında ve saatte 10 ping/yeniden
 gönderimle, imzalı JSON POST'larıyla yönlendirebilir; (b) owner, kendi uç noktasının durum sınıfını
-görerek genel bir adresin 443'te erişilebilirliğini öğrenebilir — yalnız genel internet için; (c)
+görerek genel bir adresin 443'te erişilebilirliğini öğrenebilir — yalnız genel internet için; aynı
+sınıftan (`tls`) alıcının TLS 1.2'den eski olduğunu ya da istemci sertifikası istediğini de öğrenebilir; (c)
 egress NetworkPolicy yok (plan §8) — bu kapının bir kusuru doğrudan bir SSRF'tir; bu yüzden
 kural listesi testle değil **kayıttan** türetilir ve API-10'un ret listesi her kaydı dolaşır.
 
@@ -3014,7 +3016,9 @@ aramadan önce). §5.5 (iki dil): her `DELETE` 403 — tutulmamış referans dah
   kırmızı (önce yeşildi; altı sonda da `limit`/`cursor`'un kendi 400'üne düşer).
 - *D-TLS — TLS sınıflaması.* Alıcının her TLS uyarısı (`crypto/tls`'te tipsiz "remote error") `refused` sayılıyor, panel sahibe "ad
   çözülmedi / 443'te kimse cevap vermedi" diyordu. Çare (`egress.go`): el sıkışma artık taşıyıcının değil istemcinin
-  `DialTLSContext`'inde — aynı TCP çevirmesi, aynı kapı, aynı `tls.Config` (URL'nin adı doğrulanır) — ve el sıkışmanın hatası
+  `DialTLSContext`'inde — aynı TCP çevirmesi, aynı kapı, aynı `tls.Config` (URL'nin adı doğrulanır); **ama yalnız el sıkışmanın
+  yeri değişmedi:** bu yolda taşıyıcı `TLSHandshakeTimeout` uygulamaz ve çevirmeyi isteğin iptalinden ve süresinden kopuk bir
+  bağlamla yapar, yani el sıkışmanın süre sınırı kayboldu (gerileme — üçüncü düzeltme turunda kapandı, aşağıda) — ve el sıkışmanın hatası
   `errHandshake` ile işaretlenir; zaman aşımı `timeout`, el sıkışma altında bağlantının düşmesi (EOF, RST, kırık boru) `refused`
   kalır. Ayrıca el sıkışmadan sonra gelen bir uyarı (TLS 1.3'te istemci sertifikası isteyen alıcı, cevap okunurken) `*net.OpError`
   `Op == "remote error"` ile `tls`. Kapalı küme (API-9) değişmedi, yalnız eşleme. `TestEgress_FailuresAreClassesAndCarryNoText`:
@@ -3038,3 +3042,54 @@ aramadan önce). §5.5 (iki dil): her `DELETE` 403 — tutulmamış referans dah
   eşitlenirse test listeden çıkarılmalarını ister. **Adlandırılan sınır:** bu iki bölümde iki sayının, sırayı EN'inkine
   eşitlemeyen bir yer değişimi görülmez; anlamı ters çeviren çeviri hâlâ gözden geçirenindir.
 
+## API-12 üçüncü düzeltme turu (2026-10-16)
+
+3. tur iki mercek RED; ikisi de aynı ORTA'yı bağımsız buldu: ikinci turun egress değişikliği bir kaynak sızıntısı getirdi.
+
+**ORTA — TLS el sıkışmasının süre sınırı yoktu (ikinci turun gerilemesi).** `DialTLSContext` tanımlıyken `net/http`
+`TLSHandshakeTimeout`'u uygulamaz (o yalnız kendi TLS yolunundur), çevirmeye verdiği bağlam isteğinkinden bilerek koparılmıştır
+(go1.26.9 `transport.go` `getConn`: `context.WithCancel(context.WithoutCancel(ctx))` — iptal de süre de düşer, değerler kalır;
+yalnız `CloseIdleConnections` iptal eder), `net.Dialer.Timeout` yalnız TCP'yi kapsar. ClientHello'yu okuyup hiç cevap vermeyen bir
+alıcıda `Post` bütçesinde `timeout` dönüyor, soket ve bir goroutine kalıyordu. Sahip URL'yi seçer; her teslim denemesi, ping ve
+yeniden gönderim kalıcı bir fd + goroutine; tek süreç bütün tenant'lar.
+- *Çare (`egress.go`).* `Post` kendi bağlamını (bütçesi `c.timeout`, el sıkışma dahil toplam ≤ `TotalTimeout` — §7) bir bağlam
+  değeriyle çevirmeye taşır (`postKey`; taşıyıcı değerleri korur); `exchangeContext` TCP çevirmesini **ve** el sıkışmayı o bağlamla
+  yapar: bütçe dolunca da `Post`'un çağıranı iptal edince de (işçinin `Drain`'i) biterler, `crypto/tls` el sıkışma ortasında biten
+  bağlamda soketi kapatır. Değeri taşımayan bir çevirme (paketin hiçbir çağıranı böyle değil) `fallback` (`c.timeout`) sonra biter —
+  sınırsız değil. **Tek mekanizma:** yanına ikinci bir `conn.SetDeadline` konmadı; konsaydı aşağıdaki mutantlar eşdeğer olurdu.
+  `TLSHandshakeTimeout` ve `TLSClientConfig` alanları kaldırıldı (bu yolda okunmuyorlardı: uyulmayan ayar yanıltır); el sıkışmanın
+  `tls.Config`'i `Client`'ın kendisinde.
+- *Ölçüm (alıcı tarafı; düzeltmeden önce → sonra).* Tek `Post`, 2 sn bütçe: alıcı 25 sn sonra hâlâ açık bağlantı görüyordu → 2,002
+  sn'de EOF. 1 sn bütçe: 8 sn sonra hâlâ açık → 1,001 sn'de EOF. 20 ardışık `Post` (1 sn) + 60 sn: 20 açık bağlantı, +20 goroutine
+  → 0, taban. 200 eşzamanlı `Post` (1 sn) + 3 sn: 200 açık bağlantı, goroutine 3 → 403, yığın +6,5 MiB → 0 açık, 3 → 3 (yığın farkı
+  GC gürültüsü, +1,7 MiB). Güvenlik denetçisinin iki probu ve üçüncü gözün probu düzeltilmiş kodda yeşil.
+- *Test.* `TestEgress_AHeldHandshakeIsClosedWithinTheBudget` (`TestEgress_TheExchangeIsBounded`'ın yanında): alıcı tarafında
+  ölçer — tek `Post` (400 ms) → bağlantı bütçe + 300 ms içinde kapanır; 5 sn bütçeli `Post`'un bağlamı 150 ms'de iptal → kapanış
+  150 + 300 ms içinde; 20 ardışık + 100 eşzamanlı `Post` → alıcıda açık bağlantı 0, goroutine sayısı tabana döner. Mutantlar (dördü
+  kırmızı): çevirmenin kendi (kopuk) bağlamı; el sıkışma `context.Background()` ile; `Post`'un bağlamı taşınmıyor (geri dönüş süreyi
+  sınırlar, iptali değil — iptal vakası); taşınmıyor ve sınırsız geri dönüş.
+
+**DÜŞÜK.**
+- *`punchTime` tanımı.* Rehber §6.1, §6.3 tablosu, §11 madde 5 (iki dil) ve OpenAPI `punchTime` (iki şema): *"dokunuşun anı —
+  telefonun beyan ettiği an, beyan etmediyse Taptime'ın kendi anı; Taptime'ın dokunuş sayfası bugün hiçbir an beyan etmez, yani bugün
+  her `punchTime` Taptime'ın anıdır"* (`checkin.go` `parseOccurredAt`: alan yoksa sunucunun saati).
+- *Temiz FIN.* `TestEgress_FailuresAreClassesAndCarryNoText`'e ClientHello'nun tamamını okuyup temiz kapatan alıcı → `refused`
+  (okunmamış bayt kalmadığı için kapanış RST değil FIN; istemcinin el sıkışması `io.EOF`). Mutant: `handshakeFailure`'dan `io.EOF`
+  / `io.ErrUnexpectedEOF` kaldırıldı → kırmızı (önce yeşildi: var olan "ClientHello altında düşen" vakası okunmamış bayt bırakıp RST
+  gönderiyor).
+- *Yalnız HTTP/1.1.* Davranış değişmedi; artık açık ve pinli: `Transport.Protocols` yalnız HTTP/1.1, `TLSClientConfig` yok
+  (taşıyıcı HTTP/2 açılınca verilen config'in `NextProtos`'una `h2` ekler; el sıkışmayla paylaşılan bir işaretçi onu sunardı), el
+  sıkışmanın `NextProtos`'u boş. `TestEgress_OnlyHTTP11`: `h2` ve `http/1.1` sunan bir alıcıda (KONTROL: HTTP/2 isteyen istemci
+  `h2` alır) bağlantı HTTP/1.1, ALPN boş — alıcı tarafında görülür; ve statik pin. Mutantlar (dördü kırmızı): `NextProtos` `["h2"]`;
+  `["h2","http/1.1"]`; `ForceAttemptHTTP2: true`; `Protocols` yok + `ForceAttemptHTTP2` + paylaşılan `TLSClientConfig`. §7 tablosu:
+  *"yalnız HTTP/1.1"*. **Eşdeğer, adlandırılmış:** `MinVersion` kaldırma mutantı yeşil — Go istemcisinin varsayılanı zaten TLS 1.2;
+  satır kuralın okunduğu yer olarak kalır (kodda yorumlu).
+- *Gizlilik taraması.* `TestGuide_NoSecretAddressOrPersonalData`: base64 taraması iki alfabede (`+ /` ve `- _`; tire ya da alt çizgi
+  taşıyan bir dizide büyük harf, küçük harf ve rakam birlikte istenir — üçünden biri eksik olan bir addır; **adlandırılan sınır:**
+  rakamsız rastgele 32 baytlık base64url ~1/1 500 olasılıkla geçer); önekli anahtar `keyShapeText`'in. Onaltılık: 32 ya da daha uzun
+  her onaltılık dizi (16 baytlık AES plaket anahtarı ve onu içeren her şey) bir bulgudur — istisna yalnız imza vektörünün üç değeri,
+  `guideVectors`'tan **adlarıyla**. Mutantlar (altısı kırmızı): EN'e öneksiz base64url 32 bayt; TR'ye 16 baytlık onaltılık;
+  EN'e vektör dışı bir `sha256=` değeri; tarama yalnız standart alfabe; onaltılık denetim kapalı; her onaltılık değer vektör sayılır.
+  Üç belge yeşil.
+- *§7 "Kapatılmayanlar (b)".* Sahip, kendi uç noktasının `tls` sınıfından alıcının TLS 1.2'den eski olduğunu ya da istemci sertifikası
+  istediğini de öğrenebilir — genel internet için, (b)'nin erişilebilirlik bilgisiyle aynı sınıfta.
