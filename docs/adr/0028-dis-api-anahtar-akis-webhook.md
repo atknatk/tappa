@@ -3034,8 +3034,10 @@ aramadan önce). §5.5 (iki dil): her `DELETE` 403 — tutulmamış referans dah
   her biri) kırmızı; bugünkü üç belge yeşil.
 - *Yazmalar sorgu dizgesini yok sayar.* Davranış değişmedi (Idempotency kimliği kuralı, API-4). Rehber §3.7 (iki dil) ve OpenAPI
   `info` açık uyarı: *"yazmalar sorgu parametresi almaz ve yok sayar — `dryRun` gibi bir şey yoktur"*;
-  `TestWrites_AQueryParameterIsIgnoredNotADryRun` bugünkü davranışı pinler (`PUT …?dryRun=1` yazar, `DELETE …?dryRun=1` pasifleştirir).
+  bir test bugünkü davranışı pinliyordu (`PUT …?dryRun=1` yazar, `DELETE …?dryRun=1` pasifleştirir).
   Backlog **T131**: yazmalarda bilinmeyen sorgu parametresi 400 — davranış değişikliği, `main`'e çıkmadan önce karar.
+  ⏩ *API-13a'da (2026-10-16) uygulandı: yazmalar her sorgu dizgesini 400 ile reddeder; pin tersine döndü ve adı
+  `TestWrites_AQueryParameterIsRefusedNotIgnored` oldu ("API-13a uygulama notu", aşağıda).*
 - *Eşlik testinin sınırı.* Bölüm başına düz metin sayıları artık **sırasıyla** karşılaştırılır (TR "1 dakika, 5 dakika" → "5 dakika,
   1 dakika" mutantı kırmızı — §9.6). Türkçenin söz dizimi sırayı doğal olarak değiştirdiği iki bölüm (`numberOrderFree`: §6.3
   *"18:00 vardiyasının 02:00 çıkışı"*, §7 *"bölüm 3.7'deki gibi RFC 3339"*) yalnız çoklu küme olarak karşılaştırılır; sıraları

@@ -231,9 +231,9 @@ anahtarla tekrarlarsanız:
 - **farklı bir istek** **422 `idempotency_key_reused`** alır;
 - aynı anahtarla aynı anda gelen iki istek sırayla cevaplanır.
 
-"Aynı istek" **bayt bayt** aynıdır: yöntem, yol tam gönderildiği gibi (yüzde kodlaması dahil),
-sorgu dizgesi tam gönderildiği gibi ve gövdenin baytları. Başka sırada sorgu parametreleri ya da
-JSON'da başka boşluklar **farklı** bir istektir — 422. Başlıklar bunun **parçası değildir**: aynı
+"Aynı istek" **bayt bayt** aynıdır: yöntem, yol tam gönderildiği gibi (yüzde kodlaması dahil)
+ve gövdenin baytları — bir yazma sorgu dizgesi almaz ([3.7](#query)). JSON'da başka boşluklar
+**farklı** bir istektir — 422. Başlıklar bunun **parçası değildir**: aynı
 anahtarla farklı bir `Content-Type` ya da `User-Agent` bir replay'dir. Bir referansın iki yazımı
 (`%41BC` ve `ABC`) tek bir lokasyondur ama iki istektir.
 
@@ -305,10 +305,11 @@ gibi: başka her parametre (`Scope`, `curser`), tekrarlanan bir parametre ve ayr
 sorgu dizgesi (`%zz`, parametreler arasında bir `;`) **400 `invalid_request`** alır, kabul edilen
 adlar `details.allowed` içinde. Yanlış yazılmış bir parametre asla yok sayılmaz.
 `GET /v1/employees/{ref}` ve üç belge hiç parametre almaz: her biri 400 alır, `details.allowed` boş.
-Bir yazmanın (`PUT`, `DELETE`, `POST`) sorgu parametresi yoktur: Taptime sorgu dizgesini okumaz —
-göndermeyin — yalnız bir Idempotency-Key'in adlandırdığı isteğin parçası sayar ([3.3](#idempotency)).
-**Bir yazma sorgu parametresi almaz ve gönderileni yok sayar: `dryRun` ya da benzeri bir şey
-yoktur — `?dryRun=1` ile gönderilen bir `PUT` gerçek bir yazmadır.**
+Bir yazma (`PUT`, `DELETE`, `POST`)
+**hiç sorgu dizgesi almaz**: `?`'den sonraki her şey — bir parametre, ayrıştırılamayan bir parametre,
+boş bir `&` — **400 `invalid_request`** alır, `details.allowed` boş, ve hiçbir şey yazılmaz. `dryRun`
+ya da benzeri bir şey yoktur: `?dryRun=1` ile gönderilen bir `PUT` reddedilir, yapılmaz. Reddedilen
+bir yazma Idempotency-Key'i harcamaz ([3.3](#idempotency)): aynı anahtarı sorgusuz yeniden gönderin.
 
 Sorgu dizgesindeki anlar (`from`, `to`, `updatedSince`) RFC 3339'dur —
 `YYYY-MM-DDThh:mm:ss`, isteğe bağlı olarak noktadan sonra bir kesir (`.fraction`), ardından `Z` ya da bir saat

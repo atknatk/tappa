@@ -163,7 +163,8 @@ func New(c Config) (*Surface, error) {
 // Mount registers /v1. Every request passes, in order: the host gate (404 off the API host), the
 // response headers, the body bound, the guard (a panic or a missed deadline is 503); then either
 // the address bucket alone (the public documents: openapi.yaml and the two guides) or the whole chain
-// (everything else). Unknown paths and methods answer the JSON 404.
+// and then the write's query rule (everything else: writesTakeNoQuery refuses a query string on every
+// route that is not a GET). Unknown paths and methods answer the JSON 404.
 func (s *Surface) Mount(r chi.Router) {
 	r.Route(Prefix, func(r chi.Router) {
 		r.Use(s.hostGate, s.headers, s.bodyBound, s.guard)
@@ -176,7 +177,7 @@ func (s *Surface) Mount(r chi.Router) {
 			r.Get(guideTRPath, s.serveGuide(guideTurkish))
 		})
 		r.Group(func(r chi.Router) {
-			r.Use(s.authenticate)
+			r.Use(s.authenticate, s.writesTakeNoQuery)
 			r.Put(locationPath, s.putLocation)
 			r.Get(employeesPath, s.listEmployees)
 			r.Get(employeePath, s.getEmployee)

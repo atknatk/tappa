@@ -28,14 +28,15 @@ info:
     the same key and the same request within 24 hours returns the first request's result without
     doing the work again (with `Idempotent-Replayed: true`); the same key with a different request
     is 422 `idempotency_key_reused`. "The same request" is byte for byte: the method, the path as
-    sent (its percent-encoding included), the query string as sent and the body's bytes -- another
-    order of query parameters or other whitespace in the JSON is a different request; headers are
-    not part of it. Concurrent requests with one key are answered one after the other. Keys are kept
+    sent (its percent-encoding included) and the body's bytes -- a write takes no query string, and
+    other whitespace in the JSON is a different request; headers are not part of it. Concurrent requests with one key are answered one after the other. Keys are kept
     per integration key: two keys of one business do not share them.
 
     Query parameters: a GET takes exactly its documented parameters (any other, a repeated one, or
-    a query string that does not parse, is 400). A write takes none and ignores any it is sent:
-    there is no `dryRun` or the like -- a PUT sent with `?dryRun=1` is a real write.
+    a query string that does not parse, is 400). A write takes no query string at all: any (a
+    parameter, one that does not parse, an empty `&`) is 400 `invalid_request` with
+    `details.allowed` empty and nothing is written -- there is no `dryRun`; a refused write spends no
+    Idempotency-Key.
 
     Identifiers: `emp_`, `loc_`, `pch_` and `dlv_` followed by a UUID; `tag_` followed by the plaque's
     UID. Instants are RFC 3339 in UTC with at most microsecond precision.

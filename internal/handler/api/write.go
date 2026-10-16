@@ -144,7 +144,8 @@ func idempotencyKey(r *http.Request) (string, *Problem) {
 // requestHash identifies a request for the Idempotency-Key ledger: the SHA-256 of a domain label,
 // the method, the escaped path, the query and the body, separated by bytes none of the first four
 // can hold. The same key with ANY of them different is 422. It is not secret (the tenant sent all of
-// it) and it is kept 24 hours.
+// it) and it is kept 24 hours. The query is "" for every write that reaches here (writesTakeNoQuery);
+// it stays a field of the hash so the format, and the ledger rows written before that rule, hold.
 func requestHash(r *http.Request, body []byte) string {
 	h := sha256.New()
 	h.Write([]byte("tappa/v1-request|"))
@@ -178,7 +179,39 @@ func readQuery(r *http.Request, allowed []string, refusal *Problem) (url.Values,
 	return q, nil
 }
 
-// problemNoQuery refuses any query parameter on a GET that takes none (one employee, the documents).
+// THE QUERY STRING of a write (M11 API-13a, backlog T131): a write -- every /v1 route that is not a
+// GET (PUT, DELETE, POST) -- takes NO query string, and one it is sent is 400 problemNoQuery
+// (details.allowed empty), the answer a GET that takes no parameter gives. Before T131 a write did not
+// read its query string at all: `PUT …?dryRun=1` was a real write, and an integrator who believed in a
+// dry run changed data. "Never silently ignored" is now the one rule for reads and writes alike.
+//
+// The test is the raw query, not its parse: anything after the `?` -- a name, a broken escape (`%zz`),
+// an empty piece (`&`) -- is refused, so no spelling of a parameter reaches a write. A bare `?` (an
+// empty query, url.URL.ForceQuery) carries nothing to ignore and passes; it is the same request as one
+// without it for the Idempotency-Key ledger too (requestHash hashes RawQuery, "" either way).
+//
+// IDEMPOTENCY (requestHash): the query is still a field of the request's hash, and every write that
+// reaches the runner now hashes it as "" -- so a write's identity is its method, its path and its
+// body. The hash's format is unchanged on purpose: a ledger row a query-less write recorded before
+// this rule compares equal to its retry after it (TestWrite_IdempotencyKeyThroughHTTP). A row recorded
+// before the rule for a write that DID carry a query cannot be replayed any more: its retry with the
+// query is 400 here, before the ledger; without it, it is another request (422) -- for at most the
+// ledger's 24 hours after the deploy.
+//
+// It is a middleware of the authenticated group (Mount), after the chain: a request without a valid
+// key is 401 whatever its query, and a GET passes through untouched (readQuery is its rule).
+func (s *Surface) writesTakeNoQuery(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.URL.RawQuery != "" {
+			writeProblem(w, problemNoQuery)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// problemNoQuery refuses any query parameter on a GET that takes none (one employee, the documents)
+// and on every write (writesTakeNoQuery).
 var problemNoQuery = &Problem{Code: CodeInvalidRequest,
 	Message: "This endpoint takes no query parameters.", Details: map[string]any{"allowed": []string{}}}
 

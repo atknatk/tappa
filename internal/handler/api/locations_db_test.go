@@ -1029,26 +1029,44 @@ func TestLocationsPut_TheNameRuleJudgesOnlyWhatChanges(t *testing.T) {
 	}
 }
 
-// TestWrites_AQueryParameterIsIgnoredNotADryRun (M11 API-12, second fix; guide §3.7, OpenAPI info): a
-// write reads no query string -- a PUT sent with ?dryRun=1 is a real write, and so is a DELETE. This
-// pins the contract as it is today; refusing the parameter instead is a change of behaviour (backlog
-// T131, a decision before main).
-func TestWrites_AQueryParameterIsIgnoredNotADryRun(t *testing.T) {
+// TestWrites_AQueryParameterIsRefusedNotIgnored (M11 API-13a, backlog T131 -- API-12's pin of the
+// opposite rule, renamed and turned round; guide §3.7, OpenAPI info): a write takes no query
+// string. A PUT sent with ?dryRun=1 is 400 invalid_request (details.allowed empty) and writes NOTHING --
+// no location, and its Idempotency-Key is not spent: the same key on the query-less request is a first
+// request (201), not a mismatch. A DELETE ?dryRun=1 leaves the employee active, a PUT of an employee and
+// the resend with a query are refused the same way, and so is a query string that does not parse. A
+// bare `?` is no query (201). TestWrites_EveryWriteRefusesAQueryString walks every write of the router.
+func TestWrites_AQueryParameterIsRefusedNotIgnored(t *testing.T) {
 	r := newDBRig(t)
 	biz, owner := r.business(true)
 	raw, _ := r.key(biz, owner)
-	loc := newRef("DRY")
-	if w := r.do(http.MethodPut, "/v1/locations/"+loc+"?dryRun=1", raw, `{"name":"Dry Run","active":true}`); w.Code != http.StatusCreated {
-		t.Fatalf("PUT ?dryRun=1: %d %s, want 201", w.Code, w.Body.String())
+	refused := func(what string, w *httptest.ResponseRecorder) {
+		t.Helper()
+		p := problemOf(t, w)
+		if allowed, ok := p.Details["allowed"].([]any); w.Code != http.StatusBadRequest || p.Code != CodeInvalidRequest || !ok || len(allowed) != 0 {
+			t.Fatalf("%s: %d %s, want 400 invalid_request with details.allowed []", what, w.Code, w.Body.String())
+		}
 	}
-	if n := r.ownerCount(`SELECT count(*) FROM locations WHERE tenant_id = $1 AND external_ref = $2`, biz, loc); n != 1 {
-		t.Fatalf("PUT ?dryRun=1 left %d locations, want the one it wrote", n)
+	loc := newRef("DRY")
+	refused("PUT location ?dryRun=1", r.do(http.MethodPut, "/v1/locations/"+loc+"?dryRun=1", raw, `{"name":"Dry Run","active":true}`, "Idempotency-Key", "dry-1"))
+	refused("PUT location ?%zz", r.do(http.MethodPut, "/v1/locations/"+loc+"?%zz", raw, `{"name":"Dry Run","active":true}`))
+	if n := r.ownerCount(`SELECT count(*) FROM locations WHERE tenant_id = $1 AND external_ref = $2`, biz, loc); n != 0 {
+		t.Fatalf("a refused PUT ?dryRun=1 left %d locations, want none", n)
+	}
+	if w := r.do(http.MethodPut, "/v1/locations/"+loc, raw, `{"name":"Dry Run","active":true}`, "Idempotency-Key", "dry-1"); w.Code != http.StatusCreated || w.Header().Get("Idempotent-Replayed") != "" {
+		t.Fatalf("the query-less PUT with the refused request's key: %d %s, want a first 201 (the refusal spent no key)", w.Code, w.Body.String())
+	}
+	if w := r.do(http.MethodPut, "/v1/locations/"+newRef("DRY")+"?", raw, `{"name":"Bare Mark","active":true}`); w.Code != http.StatusCreated {
+		t.Fatalf("CONTROL a bare ?: %d %s, want 201", w.Code, w.Body.String())
 	}
 	emp := newRef("DRY")
+	refused("PUT employee ?dryRun=1", r.do(http.MethodPut, "/v1/employees/"+emp+"?dryRun=1", raw, empBody("Dry", "Run", nil, true)))
 	if w := r.putEmp(raw, emp, empBody("Dry", "Run", nil, true)); w.Code != http.StatusCreated {
 		t.Fatal(w.Body.String())
 	}
-	if w := r.do(http.MethodDelete, "/v1/employees/"+emp+"?dryRun=1", raw, ""); w.Code != http.StatusOK || empOf(t, w).Active {
-		t.Fatalf("DELETE ?dryRun=1: %d %s, want 200 and deactivated", w.Code, w.Body.String())
+	refused("DELETE employee ?dryRun=1", r.do(http.MethodDelete, "/v1/employees/"+emp+"?dryRun=1", raw, ""))
+	refused("POST resend ?dryRun=1", r.do(http.MethodPost, "/v1/employees/"+emp+"/resend-activation?dryRun=1", raw, ""))
+	if w := r.do(http.MethodGet, "/v1/employees/"+emp, raw, ""); w.Code != http.StatusOK || !empOf(t, w).Active {
+		t.Fatalf("after a refused DELETE ?dryRun=1: %d %s, want the employee still active", w.Code, w.Body.String())
 	}
 }

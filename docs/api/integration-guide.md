@@ -230,8 +230,8 @@ visible ASCII characters (a second header, a space or a non-ASCII character is 4
 - two requests with one key at the same time are answered one after the other.
 
 "The same request" is **byte for byte**: the method, the path exactly as sent (its
-percent-encoding included), the query string exactly as sent, and the body's bytes. Query
-parameters in another order, or other whitespace in the JSON, make a **different** request — 422.
+percent-encoding included) and the body's bytes — a write takes no query string
+([3.7](#query)). Other whitespace in the JSON makes a **different** request — 422.
 Headers are **not** part of it: a different `Content-Type` or `User-Agent` with the same key is a
 replay. Two spellings of one reference (`%41BC` and `ABC`) are one location, but two requests.
 
@@ -301,11 +301,11 @@ Every `GET` takes exactly its documented parameters, each at most once, spelled 
 parameter (`Scope`, `curser`), a repeated one and a query string that does not parse (`%zz`, a `;`
 between parameters) are **400 `invalid_request`**, with the accepted names in `details.allowed`.
 A misspelt parameter is never ignored. `GET /v1/employees/{ref}` and the three documents take no
-parameter at all: any is 400, with `details.allowed` empty. A write (`PUT`, `DELETE`, `POST`) has
-no query parameters: Taptime does not read its query string — send none — except as part of the
-request an Idempotency-Key names ([3.3](#idempotency)). **A write takes no query parameter and
-ignores any it is sent: there is no `dryRun` or the like — a `PUT` sent with `?dryRun=1` is a real
-write.**
+parameter at all: any is 400, with `details.allowed` empty. A write (`PUT`, `DELETE`, `POST`) takes
+**no query string at all**: anything after the `?` — a parameter, one that does not parse, an empty
+`&` — is **400 `invalid_request`** with `details.allowed` empty, and nothing is written. There is no
+`dryRun` or the like: a `PUT` sent with `?dryRun=1` is refused, not carried out. A refused write
+spends no Idempotency-Key ([3.3](#idempotency)): send the same key again without the query.
 
 Instants in a query string (`from`, `to`, `updatedSince`) are RFC 3339 —
 `YYYY-MM-DDThh:mm:ss`, an optional `.fraction` after a dot, then `Z` or an offset `±hh:mm` — with

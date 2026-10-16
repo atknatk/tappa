@@ -175,7 +175,8 @@ func newRig(t *testing.T, answer func(hash string) (db.ResolvedAPIKey, error), o
 			}
 			class := WriteClass(0)
 			_, _ = fmt.Sscan(chi.URLParam(r, "class"), &class)
-			skip := r.URL.Query().Get("skip") == "1"
+			// A header, not a query parameter: a write takes no query string (writesTakeNoQuery).
+			skip := r.Header.Get("X-Test-Skip-Checkpoint") == "1"
 			out, _, ok := s.write(w, r, body, func(ctx context.Context, tx pgx.Tx, g *Gate) (apikey.Outcome, error) {
 				if !skip {
 					if err := g.Admit(ctx, class); err != nil {
@@ -843,10 +844,11 @@ func TestWrite_ACommitWithoutTheCheckpointIsRefused(t *testing.T) {
 			fw := &fakeWrites{}
 			r := newRig(t, known(tenant, key), func(cfg *Config) { cfg.Writes = fw; cfg.Suspension = suspendedSwitch{on: c.suspended} })
 			path := fmt.Sprintf("/v1/_write/%d", c.class)
+			var hdr []string
 			if c.skip {
-				path += "?skip=1"
+				hdr = []string{"X-Test-Skip-Checkpoint", "1"}
 			}
-			w := r.do(http.MethodPut, path, "Bearer "+liveKey(t), "", strings.NewReader("{}"))
+			w := r.do(http.MethodPut, path, "Bearer "+liveKey(t), "", strings.NewReader("{}"), hdr...)
 			if w.Code != c.status {
 				t.Fatalf("%d %s, want %d", w.Code, w.Body.String(), c.status)
 			}
@@ -862,9 +864,17 @@ func TestWrite_ACommitWithoutTheCheckpointIsRefused(t *testing.T) {
 
 // TestWrite_IdempotencyKeyThroughHTTP: the header's grammar (one header of 1-255 visible ASCII; a
 // second header, a blank, 256 characters and non-ASCII are 400 naming the header); the runner gets
-// the key and a request hash that differs by method, path, query and body and is stable otherwise;
-// the runner's mismatch is 422 idempotency_key_reused; a replay is answered with
-// Idempotent-Replayed: true.
+// the key and a request hash that differs by method, path and body and is stable otherwise; the
+// runner's mismatch is 422 idempotency_key_reused; a replay is answered with Idempotent-Replayed: true.
+//
+// THE QUERY (M11 API-13a, T131): a write with a query string never reaches the runner (400, below), so
+// the query's field of the hash is "" for every write that does. A bare `?` is no query: it hashes as
+// the request without it. And the hash of a query-less write is still the one API-4's format gave it
+// -- recomputed here field by field from the label, the method, the path, an EMPTY query and the
+// body -- so a ledger row written before T131 replays after it.
+//
+// MUTANT (measured): requestHash without its query field and that field's separator -> the pinned
+// digest differs, red; writesTakeNoQuery dropped from the group -> the write with a query is 201, red.
 func TestWrite_IdempotencyKeyThroughHTTP(t *testing.T) {
 	tenant, key := uuid.New(), uuid.New()
 	fw := &fakeWrites{}
@@ -897,13 +907,29 @@ func TestWrite_IdempotencyKeyThroughHTTP(t *testing.T) {
 		t.Fatal("the same request hashed twice differently")
 	}
 	for name, h := range map[string]string{
-		"another body":  hashOf(http.MethodPut, "/v1/_write/1", `{"a":2}`),
-		"another path":  hashOf(http.MethodPut, "/v1/_write/3", `{"a":1}`),
-		"another query": hashOf(http.MethodPut, "/v1/_write/1?x=1", `{"a":1}`),
+		"another body": hashOf(http.MethodPut, "/v1/_write/1", `{"a":2}`),
+		"another path": hashOf(http.MethodPut, "/v1/_write/3", `{"a":1}`),
 	} {
 		if h == base {
 			t.Errorf("%s hashes like the original", name)
 		}
+	}
+	if bare := hashOf(http.MethodPut, "/v1/_write/1?", `{"a":1}`); bare != base {
+		t.Error("a bare ? hashes differently from the request without it: it carries no query")
+	}
+	pinned := sha256.New()
+	for _, part := range [][]byte{[]byte("tappa/v1-request|"), []byte(http.MethodPut), {0}, []byte("/v1/_write/1"), {0}, {0}, []byte(`{"a":1}`)} {
+		pinned.Write(part)
+	}
+	if want := hex.EncodeToString(pinned.Sum(nil)); base != want {
+		t.Errorf("the hash of a query-less write is %s, want API-4's format %s: a ledger row written before T131 would not replay", base, want)
+	}
+	fw.req = apikey.WriteRequest{}
+	if w := r.do(http.MethodPut, "/v1/_write/1?x=1", "Bearer "+k, "", strings.NewReader(`{"a":1}`), "Idempotency-Key", "order-1"); w.Code != 400 || problemOf(t, w).Code != CodeInvalidRequest {
+		t.Fatalf("a write with a query: %d %s, want 400", w.Code, w.Body.String())
+	}
+	if fw.req.IdempotencyKey != "" {
+		t.Fatal("a write with a query reached the runner")
 	}
 	fw.err = apikey.ErrIdempotencyMismatch
 	if w := r.do(http.MethodPut, "/v1/_write/1", "Bearer "+k, "", strings.NewReader("{}"), "Idempotency-Key", "order-1"); w.Code != 422 || problemOf(t, w).Code != CodeIdempotencyKeyReused {
@@ -1222,6 +1248,63 @@ func TestQuery_EveryReadRefusesWhatItDoesNotParse(t *testing.T) {
 			}
 			if strings.Contains(w.Body.String(), "lang") || strings.Contains(w.Body.String(), "%zz") {
 				t.Errorf("%s?%s: the answer echoes the request: %s", path, q, w.Body)
+			}
+		}
+	}
+}
+
+// TestWrites_EveryWriteRefusesAQueryString (M11 API-13a, backlog T131): every route of the SHIPPED
+// surface that is not a GET (chi.Walk -- a write added later is in the walk without a line here) is
+// 400 invalid_request with details.allowed empty when it is sent any query string: a parameter
+// (`dryRun=1`), one that does not parse (`%zz`), an empty piece (`&`) -- and the runner is never
+// called. Without the query (and with a bare `?`) the same request is NOT that answer: it goes on to
+// the handler (this rig writes nothing, so it ends in another refusal) -- the control that the 400 is
+// the query's. A request with no key is 401 whatever its query (the chain runs first).
+//
+// MUTANT (measured): writesTakeNoQuery dropped from the group -> every write with a query reaches
+// its handler, red; its test written as len(r.URL.Query()) > 0 -> `?&` passes, red.
+func TestWrites_EveryWriteRefusesAQueryString(t *testing.T) {
+	tenant, key := uuid.New(), uuid.New()
+	fw := &fakeWrites{}
+	r := newRig(t, known(tenant, key), func(c *Config) { c.Writes = fw })
+	r.s.testRoutes = nil // the shipped surface's routes only
+	mux := chi.NewRouter()
+	r.s.Mount(mux)
+	type route struct{ method, path string }
+	var writes []route
+	if err := chi.Walk(mux, func(method, pattern string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
+		if method != http.MethodGet {
+			writes = append(writes, route{method, strings.ReplaceAll(pattern, "{ref}", "E-1042")})
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(writes) != 4 {
+		t.Fatalf("PREMISE: the shipped surface has %d writes %v, want the four (PUT location, PUT and DELETE "+
+			"employee, POST resend) -- a new write is covered by the walk; update the count", len(writes), writes)
+	}
+	k := "Bearer " + liveKey(t)
+	for _, wr := range writes {
+		for _, q := range []string{"?dryRun=1", "?%zz", "?&", "?x"} {
+			fw.req = apikey.WriteRequest{}
+			w := r.do(wr.method, wr.path+q, k, "", strings.NewReader("{}"))
+			p := problemOf(t, w)
+			allowed, ok := p.Details["allowed"].([]any)
+			if w.Code != http.StatusBadRequest || p.Code != CodeInvalidRequest || !ok || len(allowed) != 0 || len(p.Details) != 1 {
+				t.Errorf("%s %s%s: %d %s, want 400 invalid_request with details.allowed []", wr.method, wr.path, q, w.Code, w.Body)
+			}
+			if fw.req.Principal.TenantID != uuid.Nil {
+				t.Errorf("%s %s%s reached the runner", wr.method, wr.path, q)
+			}
+			if w := r.do(wr.method, wr.path+q, "", "", strings.NewReader("{}")); w.Code != http.StatusUnauthorized {
+				t.Errorf("%s %s%s without a key: %d, want 401 (the chain runs first)", wr.method, wr.path, q, w.Code)
+			}
+		}
+		for _, q := range []string{"", "?"} {
+			w := r.do(wr.method, wr.path+q, k, "", strings.NewReader("{}"))
+			if w.Code == http.StatusBadRequest && strings.Contains(w.Body.String(), `"allowed":[]`) {
+				t.Errorf("CONTROL %s %s%s: %d %s -- refused as a query although it carries none", wr.method, wr.path, q, w.Code, w.Body)
 			}
 		}
 	}
