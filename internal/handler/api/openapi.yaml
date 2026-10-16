@@ -533,7 +533,7 @@ paths:
         (`cur_…`) sent with `from`/`to` or a history cursor sent without them. A history read is a
         SNAPSHOT: its first page fixes the feed position it stands at, and its pages answer the
         punches the feed held then. A punch that enters the feed later with an earlier `punchTime`
-        -- a flag approved days after the tap, a phone's offline queue -- is not in that read, even
+        -- a flag approved days after the tap, a tap a client declared late -- is not in that read, even
         inside its range; asking the same range again later can answer more. To receive every punch
         for certain, read the feed (`cursor` without `from`/`to`). Unlike a feed cursor, a history
         cursor cannot be carried to the other scope: it is bound to the one it was issued for.

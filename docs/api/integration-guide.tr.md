@@ -603,17 +603,19 @@ Başka hiçbir şey punch değildir ve başka hiçbir şey akışta yoktur:
   da bir ortak şirketin **kayıp ya da emekli bir plaketine** dokunuş) ve bir **pratik** dokunuşu;
 - aynı kişinin **60 saniye** içindeki **tekrar** dokunuşu — telefonların beyan ettiği anlarda
   **ya da** Taptime'ın kendi saatinde, hangisi yakınsa: yok sayılır — plaket başına değil kişi
-  başına, iki şirketin plaketleri arasında da. Çevrimdışı bir telefonun kuyruğundan arka arkaya
-  gönderdiği iki dokunuş Taptime'ın saatinde birbirine yakındır; beyan ettikleri anlar daha uzak
-  olsa da ikincisi yok sayılır.
+  başına, iki şirketin plaketleri arasında da. Bir istemci dokunuşları çevrimdışı bir kuyrukta
+  tutup ikisini arka arkaya gönderirse ikisi Taptime'ın saatinde birbirine yakındır; beyan ettikleri
+  anlar daha uzak olsa da ikincisi yok sayılır.
 
 **Zaman.** `punchTime` **dokunuşun** anıdır: çalışanın telefonu bir an beyan ettiyse o an,
 etmediyse Taptime'ın dokunuş için kendi anı. Taptime'ın dokunuş sayfası bugün hiçbir an beyan
 etmez; yani bugün her `punchTime` Taptime'ın anıdır. `recordedAt` punch'ın akışa
-girdiği andır (onaylanan bir flag için onayın anı). Çevrimdışı kalmış bir telefon kuyruğundaki
-dokunuşu, yapıldığı anla, sonra gönderir: **120 saniyeye** kadar gecikmeli olanı (varsayılan;
-işletme bunu değiştirebilir) canlı bir dokunuş gibi karara bağlanır; daha geç olanı bir yöneticinin
-onayını gerektirir; **72 saatten** daha eski ya da gelecekteki bir an reddedilir. Hemen gönderilen
+girdiği andır (onaylanan bir flag için onayın anı). Bir an beyan eden istemci — örneğin
+çevrimdışı yapılan bir dokunuşu bir kuyrukta tutup sonra, yapıldığı anla gönderen bir istemci
+(bugün hiçbir Taptime istemcisi bunu yapmaz: dokunuş sayfası kuyruk tutmaz) — o anla karara
+bağlanır: **120 saniyeye** kadar gecikmeli olan dokunuş (varsayılan; işletme bunu değiştirebilir)
+canlı bir dokunuş gibi karara bağlanır; daha geç olanı bir yöneticinin onayını gerektirir; **72
+saatten** daha eski ya da gelecekteki bir an reddedilir. Hemen gönderilen
 bir dokunuş hiçbir an beyan etmez: `punchTime`'ı Taptime'ın dokunuş için kendi anıdır,
 `recordedAt`'inden milisaniyeler uzaktadır — hikâyedeki gibi; hikâyenin dokunuşları canlıdır.
 
@@ -816,8 +818,8 @@ punch'larını cevaplar.
   ile bir akış imleci (`cur_…`) ya da onlarsız bir geçmiş imleci 400 alır.
 - **Bir geçmiş okuması bir anlık görüntüdür.** İlk sayfası durduğu akış konumunu sabitler;
   sayfaları akışın o an tuttuğu punch'ları cevaplar. Akışa **sonradan, daha eski bir `punchTime`
-  ile** giren bir punch — dokunuştan günler sonra onaylanan bir flag, bir telefonun çevrimdışı
-  kuyruğu — o okumada **yoktur**, aralığının içinde olsa da; aynı aralığı sonra yeniden sormak **daha
+  ile** giren bir punch — dokunuştan günler sonra onaylanan bir flag, bir istemcinin geç beyan
+  ettiği bir dokunuş — o okumada **yoktur**, aralığının içinde olsa da; aynı aralığı sonra yeniden sormak **daha
   fazla** satır cevaplayabilir. Her punch'ı kesin almak için **akışı** okuyun ([bölüm 6](#feed));
   geçmiş sorgusunu geriye bakmak için kullanın.
 
@@ -1075,8 +1077,8 @@ Taptime'ın, bir entegrasyonun varsayabileceğinden farkları. Her madde açıkl
 2. `flag` olarak karara bağlanmış bir dokunuş akışa yalnız **işveren şirketin bir yöneticisi onaylarsa**, onay anında girer; reddedilen hiç gelmez. ([6.1](#feed-what))
 3. v1'de `version` her zaman `1`'dir ve `voided` hiç üretilmez. ([6.3](#feed-punch))
 4. Ek alanlar: `channel` (`nfc` | `qr`) ve `direction` (`in` | `out` — Taptime'ın işverende hesapladığı yön); `tagId` her iki kanalda doludur. ([6.3](#feed-punch))
-5. `punchTime` dokunuşun anıdır — telefonun beyan ettiği an, beyan etmediyse Taptime'ın kendi anı (Taptime'ın dokunuş sayfası bugün hiçbir an beyan etmez); çevrimdışı kuyruk varsayılan olarak 120 saniyeye kadar `ok`'tur (işletme bunu değiştirebilir), tavan 72 saattir; `recordedAt` sunucunun kaydettiği andır. ([6.1](#feed-what))
-6. 60 saniye içindeki tekrar dokunuş punch değildir — kişi bazlı, **iki şirketin plaketleri arasında da** — ve 60 saniye beyan edilen anlarda ya da Taptime'ın kendi saatinde, hangisi yakınsa, sayılır: çevrimdışı bir kuyruktan arka arkaya gönderilen iki dokunuşun ikincisi, beyan edilen anları daha uzak olsa da, kaybolur. ([6.1](#feed-what))
+5. `punchTime` dokunuşun anıdır — telefonun beyan ettiği an, beyan etmediyse Taptime'ın kendi anı (Taptime'ın dokunuş sayfası bugün hiçbir an beyan etmez); beyan edilen bir an varsayılan olarak 120 saniyeye kadar gecikmeyle `ok`'tur (işletme bunu değiştirebilir), tavan 72 saattir; `recordedAt` sunucunun kaydettiği andır. ([6.1](#feed-what))
+6. 60 saniye içindeki tekrar dokunuş punch değildir — kişi bazlı, **iki şirketin plaketleri arasında da** — ve 60 saniye beyan edilen anlarda ya da Taptime'ın kendi saatinde, hangisi yakınsa, sayılır: bir istemci çevrimdışı bir kuyruktan iki dokunuşu arka arkaya gönderirse ikincisi, beyan edilen anları daha uzak olsa da, kaybolur. ([6.1](#feed-what))
 7. Lokasyonun `timezone`'u işletmeninkine eşit olmalıdır, değilse cevap 422'dir. ([4](#locations))
 8. Lokasyonda `active:false` yalnız bir etikettir. ([4](#locations))
 9. Yeniden işe alım yeni bir `employee.id` üretir; `externalRef` aynı kalır. ([5.1](#employees-put))

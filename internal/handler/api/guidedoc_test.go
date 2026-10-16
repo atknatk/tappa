@@ -1089,7 +1089,9 @@ var (
 )
 
 // base64Secrets is every base64Run in s that could be a secret: not hexadecimal (hexSecrets reads
-// those), not a prefixed key (keyShapeText reads those, with the same rule on the body), and with more
+// those), not a prefixed key (keyShapeText reads those, with the same rule on the body -- and only a
+// run that IS one, end to end: a key placeholder with a secret glued to it, through a / or a + the
+// key's alphabet does not have, is one run that holds more than the key), and with more
 // than four distinct characters (redline R7d's rule: padding like the vector's 'A's is not a key). A
 // run with the URL-safe alphabet's - or _ also needs an upper-case letter, a lower-case one and a
 // digit: what has the separators and lacks one of the three is a name (a snake_case or hyphenated
@@ -1098,7 +1100,7 @@ var (
 func base64Secrets(s string) []string {
 	var out []string
 	for _, run := range base64Run.FindAllString(s, -1) {
-		if hexRun.MatchString(strings.TrimRight(run, "=")) || keyShapeText.MatchString(run) {
+		if hexRun.MatchString(strings.TrimRight(run, "=")) || keyShapeText.FindString(run) == run {
 			continue
 		}
 		if strings.ContainsAny(run, "-_") && !(digit.MatchString(run) && upper.MatchString(run) && lower.MatchString(run)) {
@@ -1271,7 +1273,11 @@ func TestGuide_NoSecretAddressOrPersonalData(t *testing.T) {
 	}
 	// The same kind of value in the URL-safe alphabet, without a prefix (made-up bytes:
 	// "self-check ~~ not a key, 32 b?>?").
-	for _, b := range []string{"c2VsZi1jaGVjayB-fiBub3QgYSBrZXksIDMyIGI_Pj8", "body=c2VsZi1jaGVjayB-fiBub3QgYSBrZXksIDMyIGI_Pj8;"} {
+	// And a secret glued to a key placeholder (API-12 low round): until then the whole run was skipped
+	// because a prefixed key was somewhere in it. MUTANT (measured): keyShapeText.MatchString(run) in
+	// place of the whole-run match -> this case is read as nothing -> red.
+	for _, b := range []string{"c2VsZi1jaGVjayB-fiBub3QgYSBrZXksIDMyIGI_Pj8", "body=c2VsZi1jaGVjayB-fiBub3QgYSBrZXksIDMyIGI_Pj8;",
+		"tt_whsec_" + strings.Repeat("A", 43) + "/c2VsZi1jaGVjazogbm90IGEgc2VjcmV0LCAzMiBiISE="} {
 		if len(base64Secrets(b)) != 1 {
 			t.Errorf("base64Secrets misses %q", b)
 		}
