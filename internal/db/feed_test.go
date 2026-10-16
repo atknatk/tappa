@@ -218,20 +218,29 @@ func (w feedWorld) kfAtKM(channel, verdict string) feedRow {
 }
 
 // feedSetAsideRows removes, inside the savepoint, every row of the three feed tables a Down refuses
-// over (punch_events' append-only trigger switched off and on, inside the savepoint) -- so 00048's
-// Down can be walked on a database other tests committed events to. The caller holds
+// over (punch_events' append-only TRUNCATE trigger switched off and on, inside the savepoint) -- so
+// 00048's Down can be walked on a database other tests committed events to. The caller holds
 // holdingDownTables (holdingLockedSavepoint).
+//
+// 🔴 TRUNCATE, NOT DELETE -- AND THIS IS A FIX (M11 API-10, CI run 38819939609). opTx is REPEATABLE
+// READ: its snapshot is taken by the test's first query, BEFORE holdingLockedSavepoint's ACCESS
+// EXCLUSIVE locks. A DELETE sees that snapshot only, so rows another package committed in between
+// survived it -- and since API-10 another package (internal/egress's worker tests, run in parallel by
+// `go test ./...`) commits webhook deliveries: `DELETE FROM webhook_deliveries` left them,
+// `DELETE FROM webhook_endpoints` then met them in the foreign-key check (which reads the latest
+// rows) and failed 23503. Reproduced on a throwaway database: this test ×40 beside the egress worker
+// tests -> red on the first run that met one; with TRUNCATE green ×40 twice. TRUNCATE empties the
+// table whatever the snapshot (under the lock this savepoint already holds); the three go in ONE
+// statement because deliveries reference both others. Rolled back with the savepoint like the rest.
 func feedSetAsideRows(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	t.Helper()
 	if opInt(t, ctx, sp, `SELECT count(*) FROM pg_class WHERE oid = to_regclass('public.punch_events')`) == 0 {
 		return
 	}
 	for _, s := range []string{
-		`DELETE FROM webhook_deliveries`,
-		`DELETE FROM webhook_endpoints`,
-		`ALTER TABLE punch_events DISABLE TRIGGER punch_events_no_mutation`,
-		`DELETE FROM punch_events`,
-		`ALTER TABLE punch_events ENABLE TRIGGER punch_events_no_mutation`,
+		`ALTER TABLE punch_events DISABLE TRIGGER punch_events_no_truncate`,
+		`TRUNCATE webhook_deliveries, webhook_endpoints, punch_events`,
+		`ALTER TABLE punch_events ENABLE TRIGGER punch_events_no_truncate`,
 	} {
 		if _, err := sp.Exec(ctx, s); err != nil {
 			t.Fatalf("%s: %v", s, err)
