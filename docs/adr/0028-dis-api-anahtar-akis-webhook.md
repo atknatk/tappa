@@ -926,7 +926,16 @@ tag'i doğrular — sandbox imajı `sandbox` tag'siz, prod imajı tag'li ise red
 
 **API-13** — runbook: spec §7'nin dokuz maddesi; `tappa-security-auditor` tam tur ONAY; operatörden
 K-22 (`KF`/`KM`) ve KF+KM holding'i; K-18 bağlama; prod anahtar çiftleri ve `pg_auth_members`;
-holding dışı izolasyon prod'da örneklenir.
+holding dışı izolasyon prod'da örneklenir. *(API-13a, 2026-10-16 — deploy'u beklemeyen yarı yazıldı:
+K-22'nin operatör ekranı `TestE2E_TenantAPIOpenCloseOpenLeavesEveryTrail`,
+`TestOperatorAPI_TheResultIsReadNotPosted`, `TestOperatorAPI_TheCodeRuleIsTheDatabases`,
+`TestOperatorAPI_NoSessionAndCrossSiteNeverReachTheStore`, `TestOperatorAPI_ARefusedOrFailedOpenNoticesNothing`,
+`TestOperatorHeaders_TheTenantAPIClassesCarryThePolicy`, `TestOperator00057_TheOverviewReadsTheAPIState`,
+`TestOperator00057_DownGivesBack00029AndUpTakesItAgain`, `TestOperator00057_PreconditionRefusesAChangedFunction`;
+API host'u `TestPackaging_TheAPIIngressRoutesV1OnTheConfiguredHost`,
+`TestVerifyDeployment_TheAPIHostModeJudgesEveryAnswer`; engel listesi
+`TestEgress_TheShippedListRefusesTheNodesIPv6Network`. Prod'da yapılacaklar `deploy/README.md`
+"M11 — deploy günü (API-13)" (e) listesinde — "API-13a uygulama notu".)*
 
 ## Sonuçlar
 
@@ -3125,3 +3134,99 @@ yeniden gönderim kalıcı bir fd + goroutine; tek süreç bütün tenant'lar.
   az yazma → kırmızı. Ölçüm: commit'te %5 olasılıkla 0,3 sn bekleten ertelenmiş tetikleyiciyle eski iddia 5/5 kırmızı, yenisi 5/5
   yeşil; `-race -count=20` + DB CPU'su doygun 20/20 yeşil; `overlap=0` (100–104 kaçan) ve D-4 (`full_name`'e kör tetikleyici: 14 bayat,
   55–58 hareket etmeyen yazma) mutantları kırmızı.
+
+## API-13a uygulama notu (2026-10-16)
+
+API-13 (canlıya alma) kullanıcının deploy kararına ve **OP-15**'e bağlı; API-13a onu beklemeyen kod ve
+manifest işlerini yaptı (🟢 kullanıcı, 2026-10-16: *"yapabildiklerini yap"*). Kümeye, prod'a, Infisical'a
+ve DNS'e dokunulmadı; sırlar ve prod ölçümleri ana oturumundur (aşağıda girdi olarak).
+
+1. **Engel listesi (§7) — IPv6.** Düğümün genel IPv6'sı ölçüldü (ana oturum: `2a01:4f8:200:3164::2`,
+   `eno1`; ingress-nginx hostNetwork ile aynı düğümde). `05-config.yaml`
+   `TAPPA_WEBHOOK_BLOCKED_ADDRESSES` = `144.76.158.60,2a01:4f8:200:3164::/64` — tek adres değil **/64**:
+   Hetzner o ağı yalnız bu sunucuya yönlendirir, düğüm başka bir adresinden (gizlilik adresi, sonradan
+   eklenen IP) cevap verebilir. `internal/config` CIDR'ı zaten okuyordu (API-9); yeni test ConfigMap'in
+   değerini üretim pod'unun yükleyişiyle `config.Load`'dan geçirip kapıya ölçülen adresi, /64'ün başka bir
+   adresini ve IPv4 origin'i sorar, komşu /64 kontrol: `TestEgress_TheShippedListRefusesTheNodesIPv6Network`
+   (mutant: yalnız `::2` → /64'ün başka adresi geçer, kırmızı; girdi silinir → üçü de kırmızı).
+
+2. **K-22'nin operatör yüzeyi.** API-1 iki `op_*`'i getirmişti, çağıran yoktu ve hiçbir operatör okuması
+   API durumunu döndürmüyordu.
+   - **Migration `00057`:** `op_read_tenant_detail` 00029'un gövdesiyle **ve satırın sonunda**
+     `api_enabled_at`, `api_code` ile yeniden yaratıldı (CREATE OR REPLACE dönüş tipini değiştiremez:
+     DROP + CREATE, sahibi/REVOKE/GRANT yeniden yazılı). Sütunlar okumanın zaten `t.id = p_tenant_id` ile
+     adlandırdığı satırdan gelir; yetki verilmedi (`SELECT (api_enabled_at)` 00039'un, `SELECT (api_code)`
+     00042'nin). Ön koşul fonksiyonun 00029'unki olduğunu sonucu ve `md5(prosrc)` ile sınar — OP-15'in
+     bekleyen dalı aynı fonksiyonu askı sütunlarıyla yeniden yazar; o dal bu dalın üstüne kurulurken
+     ön koşulunu `00057`'nin sonucuna göre günceller (plan API-4b ile birlikte). Down 00029'u birebir
+     geri verir; `opAtVersion` onu yürür (yalnız katalog — tablo kilidi yok). Okuma türü yine
+     `tenant_detail`: her görüntü `operator_audit_log`'a bir `read` satırı (CLAUDE.md §4.5).
+   - **`internal/db`:** `EnableTenantAPI`, `DisableTenantAPI` (+ `APICodePattern`), `TenantOverview`'a
+     `APIEnabledAt`, `APICode`; `*OperatorDB` ikisini **`TenantStore`**'un iki yeni yöntemi olarak devreder
+     (yeni bir rol değil: kablolama `operator.New` imzası değişmedi).
+   - **Ekran:** işletme özetinde *Integration API* bölümü (durum, açılma anı, kod) ve iki form:
+     `POST /operator/tenants/{id}/api` (`api_code`; açıkken kodu değiştirir) ve
+     `POST /operator/tenants/{id}/api/close`. İkisi konsol grubunda (host kapısı, güvenlik başlıkları,
+     flood, same-origin — çapraz site POST mağazaya ulaşmadan 403 —, `requireOperator`, `sessionGate`).
+   - **Kararlar (otonom, öneriyle):** (i) kod sınırda veritabanının **kendi** kuralıyla
+     (`^[A-Z][A-Z0-9]{1,15}$`) denetlenir — uçları kırpılır, **büyük/küçük harf çevrilmez** (kod her
+     punch'ın `company`'sidir: yazıldığı gibi). (ii) yazmalar ne bulduklarını söylemez (ADR 0021 §2 v 7),
+     303 hedefi *sorulanı* taşır (`done`, açmada `api_code`) ve özetin kendi denetimli okuması *olanı*
+     söyler (*"Opened."* yalnız okuma o kodla açık gösterirse) — holding ekranının kalıbı. Kod genel bir
+     etikettir (00039), URL'de durabilir; sayfa URL'nin kodunu değil okumanınkini basar. (iii) Sorgu
+     anahtarı `api_code` — `code` adı TOTP kodunun kimlik bilgisi adlarındadır (FV3 pini).
+   - **K-19 (API-10 düzeltme turunun devri):** operatör yüzeyi ve webhook işçisi **aynı süreçtedir**
+     (`cmd/tappa` `run` ikisini de kurar) — ölçüldü, kod okunarak: `openOperatorSurface` ve
+     `webhook.NewWorker` aynı `run`'da; `operatorSurface.NoticeWorkTo(work)` bağlandı. Kabul edilen bir
+     açma işletmeyi K-19 kümesine sokar: kapalıyken bekleyen teslimler `delivery.GateRecheck`'i (15 dk)
+     beklemeden gider. Reddedilen kod, düşen yazma ve oturumu reddedilen yazma bildirmez; kapatma
+     bildirmez (gidecek bir şey yok).
+   - **Testler:** `TestOperatorAPI_TheCodeRuleIsTheDatabases`, `TestOperatorAPI_TheResultIsReadNotPosted`
+     (aç → kod değiştir → kapat → yeniden aç → eşin kodu → sahte sonuç), `TestOperatorAPI_NoSessionAndCrossSiteNeverReachTheStore`,
+     `TestOperatorAPI_ARefusedOrFailedOpenNoticesNothing`, `TestOperatorHeaders_TheTenantAPIClassesCarryThePolicy`
+     (C200–C217), `TestE2E_TenantAPIOpenCloseOpenLeavesEveryTrail` (PostgreSQL: iki iz — `operator_audit_log`
+     ve işletmenin `audit_log`'u —, holding kuralı veritabanında), `TestOperator00057_TheOverviewReadsTheAPIState`,
+     `TestOperator00057_DownGivesBack00029AndUpTakesItAgain`, `TestOperator00057_PreconditionRefusesAChangedFunction`.
+     Mutantlar (ölçüldü): sonuç cümlesi okumaya bakmaz → kırmızı; kod kuralı kalkar → kırmızı; bildirim
+     kalkar → kırmızı; iki rota same-origin kapısının dışına → kırmızı; `00057`'nin sütunları başka
+     tenant satırından → kırmızı.
+
+3. **API host'u (§13, K-9).** `05-config.yaml` `TAPPA_API_HOST: "api.taptime.mt"` ve **ayrı bir dosya**
+   `deploy/k8s/42-api-ingress.yaml` aynı değişiklikte. **Sapma (gerekçeli):** brief `40-ingress.yaml`'ı
+   adlandırıyordu; 40 rollout beklemesinden **önce** uygulanır ve ilk deploy'da adı eski pod'lara —
+   `TAPPA_API_HOST`'u bilmeyen, her host'ta müşteri ürününü sunan ikiliye — yönlendirirdi (T119'un
+   operatör host'u için `main`'de ölçtüğü sınıf). 42 rollout beklemesinden **sonra** uygulanır
+   (`TestPackaging_TheDeployAppliesEveryIngressFile`). Kural yalnız `/v1` (Prefix — öğe öğe; `/v1x`
+   değil) → `tappa:http`; iki rehber ve `openapi.yaml` dahil bütün yüzey anahtarsız erişilebilir; kökü
+   controller'ın 404'ü. Kendi sertifikası `api-taptime-tls`; gövde sınırı `80k` = `api.MaxBody` (64 KiB)
+   + 16 KiB (API'nin kendi JSON 413'ü). **DNS-only kuralı API host'una da uygulandı:** API'de §5 yer
+   kanıtı yok, ama adres başına kova (§8) gerçek istemci adresini ister; deploy'a `api.taptime.mt` için
+   Cloudflare ön kontrolü eklendi. **Deploy sonrası kapı** `scripts/verify-deployment.sh api-host`:
+   `/v1/guide.md` 200 `text/markdown` (yalnız `TAPPA_API_HOST` o host'u adlandıran bir pod cevaplar) ve
+   kök 404; 404 rehber ~90 sn yeniden sorulur; ad çözülmezse uyarı. Dalları sahte `curl` ile
+   `TestVerifyDeployment_TheAPIHostModeJudgesEveryAnswer`; manifest `TestPackaging_TheAPIIngressRoutesV1OnTheConfiguredHost`
+   (Ingress host'u = `config.Load`'un kabul ettiği ConfigMap değeri). **Ölçülmedi** (küme erişimi yok):
+   çift noktalı `Host` (`api.taptime.mt..`) controller'ın varsayılan sunucusuna düşer — deploy günü (e) 3.
+   AAAA kaydı açılmaz (IPv6 yolunda gerçek istemci adresi ölçülmedi).
+
+4. **T131 — yazmalar sorgu dizgesini reddeder.** Kimlikli grubun ara katmanı `writesTakeNoQuery`: GET
+   olmayan her `/v1` rotasında `?`'den sonra **herhangi bir şey** (parametre, ayrıştırılamayan dizge,
+   boş `&`) → 400 `invalid_request`, `details.allowed` boş; yazma yapılmaz, Idempotency-Key harcanmaz.
+   Çıplak `?` sorgu değildir. Anahtarsız istek önce 401 alır (zincir önce koşar).
+   **Idempotency'nin sonucu (ölçüldü):** istek kimliği (`requestHash`) sorgu alanını korur; runner'a
+   ulaşan her yazmada o alan artık `""` — yazmanın kimliği yöntem + yol + gövde. Biçim değişmedi:
+   sorgusuz bir yazmanın özeti API-4'ün biçimiyle alan alan yeniden hesaplanıp pinlendi, yani deploy'dan
+   önce yazılmış bir defter satırı deploy'dan sonra replay olur. Bedeli adlandırıldı: deploy'dan önce
+   sorguyla gönderilmiş bir yazmanın 24 saatlik kaydı replay edilemez (sorguyla yeniden deneme 400,
+   sorgusuz 422). Testler: `TestWrites_EveryWriteRefusesAQueryString` (sevkedilen router'ın yürüyüşü —
+   sonradan eklenen bir yazma da kapsanır), `TestWrites_AQueryParameterIsRefusedNotIgnored` (gerçek DB:
+   lokasyon yazılmaz, anahtar harcanmaz, DELETE pasifleştirmez), `TestWrite_IdempotencyKeyThroughHTTP`.
+   Mutantlar: ara katman gruptan çıkar → kırmızı; test `len(r.URL.Query()) > 0` → `?&` geçer, kırmızı;
+   özetten sorgu alanı çıkar → pin kırmızı. Rehber §3.3/§3.7 (iki dil) ve OpenAPI `info`. Backlog T131
+   kapandı.
+
+5. **Runbook:** `deploy/README.md` *"M11 — deploy günü (API-13)"* — (a) OP-15, (b) roller, sırlar (yalnız
+   ad + boyut ölçümü), prod sayımları, güvenlik turu, (c) DNS (kullanıcı), (d) birleştirme → CI → deploy
+   (migration 36…57), (e) deploy sonrası on iki ölçüm, (f) geri dönüş: Down'lar prodda koşulmaz, `main`'i
+   geri almak migration'ı geri almaz; deploy'suz kapatmalar (operatör ekranında *Close the API*).
+

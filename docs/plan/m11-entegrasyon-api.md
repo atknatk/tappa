@@ -705,6 +705,14 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
   rehber yolu (`/v1/guide.md`, `/v1/guide.tr.md`) `openapi.yaml` gibi **anahtarsız** erişilebilir olmalıdır. Deploy sonrası ölçüm:
   anahtarsız `GET /v1/guide.md` → 200 `text/markdown; charset=utf-8`; cevabın `ETag`'iyle `If-None-Match` → 304; ana host'ta 404.
   Entegratörlere (KF-RMS, KM-ERP) verilecek belge bu iki yol ve `GET /v1/openapi.yaml`'dır; müşteri spec'i değil.
+  ✅ **API-13a'da yapılanlar (2026-10-16 — kod ve manifest; ayrıntı ve test adları ADR 0028 "API-13a uygulama notu"nda,
+  deploy günü sırası `deploy/README.md` "M11 — deploy günü (API-13)"):** (1) engel listesine düğümün IPv6 /64'ü; (2) K-22'nin
+  operatör yüzeyi — `00057` (`op_read_tenant_detail` + `api_enabled_at`, `api_code`), `EnableTenantAPI`/`DisableTenantAPI`,
+  işletme özetinde *Integration API* (aç / kod değiştir / kapat), kabul edilen açma K-19 kümesine bildirir (aynı süreç); (3)
+  `TAPPA_API_HOST` + **`42-api-ingress.yaml`** (yalnız `/v1`, rollout beklemesinden sonra — `40` değil, gerekçesi notta),
+  Cloudflare ön kontrolü ve `api-host` deploy sonrası kapısı; (4) T131 — yazmalar her sorgu dizgesini 400 ile reddeder; (5)
+  runbook. **Deploy günü kalanı:** OP-15 canlıda, rol blokları canlıda, `tappa-security-auditor` tam turu, `api.taptime.mt`
+  A kaydı DNS-only (kullanıcı), birleştirme (kullanıcı kararı), deploy sonrası on iki ölçüm.
 
 ---
 

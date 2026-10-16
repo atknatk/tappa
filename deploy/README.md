@@ -1170,6 +1170,113 @@ panelden kendi `https://taptime.mt/` adresine bir uç nokta kurulup ping atılı
 
 ---
 
+## M11 — deploy günü (API-13): sıra, ölçümler, geri dönüş
+
+**Ne:** `m11-api` dalının `main`'e birleşmesi = entegrasyon API'sinin, holding'in ve webhook'un canlıya
+çıkışı (plan `docs/plan/m11-entegrasyon-api.md` §5 API-13). API-13a (2026-10-16) deploy'u beklemeyen her
+kod ve manifest işini yaptı; aşağıdaki sıra **deploy günü kalanı** tek yerde toplar. Bir adım
+geçmeden sonrakine geçilmez. `main`'e birleştirme bir **deploy kararıdır** (CLAUDE.md §10) — kullanıcının.
+
+### Deploy'dan önce
+
+**(a) OP-15 canlıda.** Askı sütunları (`tenants.suspended_at`) olmadan API'nin §10 askı kontrol noktası
+`NoSuspensionColumn` ile çalışır (API-4b); plan API-13'ün bağımlılığı **OP-15**'tir. OP-15 başka
+oturumun işidir; birleşmeden önce canlıda olmalıdır. ⚠️ OP-15'in bekleyen migration'ı
+`op_read_tenant_detail`'i yeniden yazar; API-13a'nın `00057`'si de onu yazdı (iki API sütunu) —
+OP-15 bu dalın üstüne yeniden kurulurken ön koşulu `00057`'nin sonucuna göre güncellenir.
+
+**(b) Küme rolleri ve sırlar.**
+- Rol blokları **canlı veritabanında** bir kez koşulmuş olmalı: *"Holding role (M11 API-1a)"* ve
+  *"Feed role (M11 API-2)"* bölümleri (`00041` ve `00048` rolleri yaratmaz, yoksa migration Job'ı
+  durur ve rollout yapılmaz).
+- `TAPPA_API_KEY_HMAC_KEY` ve `TAPPA_WEBHOOK_KEK` — ✅ **yapıldı (2026-10-16, ana oturum)**: Infisical
+  `shared-infra/prod:/tappa` ve canlı `tappa-secrets`, ikisi de 32 bayt, sekiz 32 baytlık anahtar çift
+  çift farklı (değer basılmadan ölçüldü). Yeniden ölçüm **yalnız ad ve boyut** basar:
+
+  ```bash
+  kubectl -n tappa describe secret tappa-secrets | grep -E '^(TAPPA_API_KEY_HMAC_KEY|TAPPA_WEBHOOK_KEK):'
+  # beklenen: her biri "44 bytes" (32 baytın base64 metni) — değer basılmaz
+  ```
+- `TAPPA_WEBHOOK_BLOCKED_ADDRESSES` — ✅ **yapıldı (API-13a)**: IPv4 origin + düğümün IPv6 /64'ü
+  (*"Webhook (M11 API-9)"* bölümü).
+- Prod salt-okur sayımlar (ana oturum, 2026-10-16): goose **35**; tenant sayısı **tek haneli** (T124
+  eşiğinin çok altında); `audit_log` **birkaç yüz** satır (`00054`'ün kısmi indeksi anında kurulur);
+  isim kuralına takılan ad (lokasyon/departman/çalışan) **0**. Kesin sayılar depoya yazılmaz.
+- `TAPPA_INVITE_DELIVERY` ConfigMap'te `email` (`TestPackaging_TheConfigMapShipsTodaysDelivery`):
+  API'nin davetleri yalnız `email` kipinde gönderilir.
+- **`tappa-security-auditor` tam turu** `m11-api`'nin `main`'e göre farkı üstünde (plan API-13).
+
+**(c) DNS — kullanıcı (Cloudflare kimlik bilgisi depoda ve oturumda yok).** `taptime.mt` bölgesine
+**`api` A kaydı → `144.76.158.60`, proxy KAPALI (gri bulut, DNS-only)**, birleşmeden **önce** (HTTP-01
+sertifikası adın çözülmesini ister; deploy'un Cloudflare ön kontrolü ve `api-host` kapısı ad çözülmezse
+uyarıp geçer, çözülürse ölçer). **AAAA kaydı açılmaz**: apex'in de yok, ve IPv6 yolunda ingress'in
+dinlediği ve `TAPPA_TRUSTED_PROXIES`'in gerçek istemci adresini verdiği ölçülmedi — açılması ayrı bir
+ölçüm ister. Kayıttan sonra: `dig +short api.taptime.mt` → `144.76.158.60` (bir Cloudflare kenar adresi —
+`104.21.*` / `172.67.*` — proxy açık demektir).
+
+### Deploy
+
+**(d) Birleştirme → CI → deploy.** `.github/workflows/deploy.yml` sırayla: Cloudflare ön kontrolleri
+(`taptime.mt`, `api.taptime.mt`) → ConfigMap (`TAPPA_API_HOST` dahil) → migration Job (**36…57**; `00054`
+kısmi indeks — ölçülen boyutta anında; `00056` `employees` indeksi kendi `lock_timeout`'uyla; `00057`
+yalnız bir fonksiyon) → `20-app.yaml` → `40`, `41` → **rollout beklemesi** → `42-api-ingress.yaml` →
+`api-host` kapısı (`/v1/guide.md` 200 `text/markdown`, kök 404) → `db-role` kapısı. Migration Job
+`Failed` olursa rollout yapılmaz (*"4. Migration Job'ı Failed"*).
+
+### Deploy'dan sonra — ölçümler (plan API-13'ün listesi, tek yerde)
+
+**(e)** Her biri bir komut ya da bir ekran; sonuç state.md'ye yazılır.
+
+1. **Proxy kapalı, sertifika geçerli** (`-k` YOK):
+   `curl -sS -o /dev/null -D - https://api.taptime.mt/v1/guide.md | grep -iE '^(HTTP/|cf-ray|server|content-type|etag)'`
+   → `HTTP/2 200`, `text/markdown; charset=utf-8`, bir `ETag`, **`cf-ray` yok**.
+2. **Rehber önbelleği ve host ayrımı:** aynı isteğe `-H 'If-None-Match: <ETag>'` → **304**;
+   `https://api.taptime.mt/v1/guide.tr.md` ve `/v1/openapi.yaml` → 200 (anahtarsız);
+   `https://taptime.mt/v1/guide.md` → **404**; `https://api.taptime.mt/` ve `/admin/login` → **404**.
+3. **Çift noktalı host yönlendirilmez** (ölçülmedi, burada ölçülür):
+   `curl -sk -o /dev/null -w '%{http_code}\n' -H 'Host: api.taptime.mt..' https://api.taptime.mt/v1/guide.md`
+   → **404** (rehber değil, panel sayfası değil).
+4. **Webhook engel listesi:** panelden `https://taptime.mt/` ve `https://api.taptime.mt/` adresli bir uç
+   nokta kurulup ping atılır → ikisi de **`blocked_address`**.
+5. **K-22 — operatör ekranından** (`ops.taptime.mt` → *Tenants* → işletmenin özeti → *Integration API*):
+   KF'nin özetinde kod **`KF`** ile *"Open the API"* → *"Opened."*, durum *Open* + açılma anı; KM'de
+   **`KM`**. *Audit log*'da `tenant_api_enabled` satırları; işletmelerin kendi iz kayıtlarında
+   `tenant.api_enabled`. Kapatma aynı bölümdeki *"Close the API"* (kod saklanır).
+6. **KF+KM holding'i:** *Holdings* → bir holding oluştur → KF'yi ve KM'yi ekle (ikisi de `Europe/Malta`)
+   → ikisi de *"Added."* ve canlı üye. Kod kuralı: bir üyenin kodu holding'deki başka üyede olamaz.
+7. **K-18 bağlama (kullanıcı, panelde):** KF ve KM panellerinde her lokasyonun **External ref**'i
+   KF-RMS / KM-ERP'deki kimliğe yazılır; çalışanlar ilk bağlamada **aynı işletmede e-posta
+   eşleşmesiyle** bağlanır (K-18; plan §7 madde 4).
+8. **Davet yolu:** `kubectl -n tappa get cm tappa-config -o jsonpath='{.data.TAPPA_INVITE_DELIVERY}'` →
+   `email`; sürecin açılış satırı davet kuyruğunun açık olduğunu söyler.
+9. **Gerçek istemci adresi (oran sınırı):** dış bir ağdan bir API isteği → erişim kaydındaki istemci
+   adresi çağıranın genel adresidir, `10.42.0.1` değil (`TAPPA_TRUSTED_PROXIES`, `05-config.yaml`).
+10. **Holding dışı izolasyon örneği:** holding dışı bir işletmenin (C) anahtarıyla `GET /v1/punches?scope=employer`
+    ve `GET /v1/directory` → KF/KM'den **hiçbir** satır yok; KF'nin anahtarıyla `GET /v1/directory` →
+    KF + KM, C yok.
+11. **Webhook teslimi:** K-22'si açık, uç noktası olan bir işletmede bir dokunuş → panelin *Deliveries*
+    listesinde `Delivered` (ya da kapalı bir sınıf); log satırı yalnız kimlik + sınıf + durum taşır.
+12. **Rol üyelikleri:** `SELECT r.rolname, m.rolname FROM pg_auth_members a JOIN pg_roles r ON r.oid = a.roleid
+    JOIN pg_roles m ON m.oid = a.member WHERE r.rolname IN ('tappa_opdefiner','tappa_holdingdefiner','tappa_feedwriter','tappa_operator')
+    OR m.rolname IN ('tappa_opdefiner','tappa_holdingdefiner','tappa_feedwriter','tappa_operator');` → **0 satır**.
+
+### Geri dönüş
+
+**(f)** 🔴 **Migration Down'ları prodda KOŞULMAZ** — düzeltme **ileri** bir migration'dır (CLAUDE.md §6:
+uygulanmış migration değiştirilmez). 🔴 **`main`'i geri almak migration'ı geri ALMAZ**: geri alınan bir
+commit'in deploy'u eski imajı **goose 57 şemasına** karşı başlatır; M11 öncesi bir ikilinin bu şemayla
+çalıştığı **ölçülmedi** — geri dönüş yolu bu yüzden imajı geri almak değil, ileri bir düzeltmedir.
+Deploy'suz hızlı kapatmalar:
+- bir işletmenin API'si (anahtarlar + webhook): operatör ekranında *"Close the API"* — bir sonraki
+  istekten itibaren 403;
+- bir webhook uç noktası: işletmenin panelinde uç noktayı kapatmak;
+- API host'unun tamamı: `TAPPA_API_HOST`'u `05-config.yaml`'dan **ve** `42-api-ingress.yaml`'ı **aynı
+  commit'te** kaldırmak + Ingress nesnesini küme yöneticisinin silmesi (deploy kimliğinde `delete` yok —
+  `01-rbac.yaml`): `kubectl -n tappa delete ingress tappa-api`. Önce Ingress silinir, sonra deploy —
+  ters sıra adı müşteri ürününe yönlendirir (`42`'nin başlığı).
+
+---
+
 ## Operator surface (M10 OP-7) — `tappa_operator`'ın girişi ve dört anahtar
 
 **Ne:** platform operatörünün yüzeyi (ADR 0020/0021) **dört değişkenle, tek küme olarak**
