@@ -2941,8 +2941,10 @@ Test `TestEmployeesPut_APutReplacesALeftOutOptionalFieldIsNull`.
   çevirinin anlamı gözden geçirenindir.
 - *b — örnek zamanları.* Hikâyede Jane'in `ok`/`nfc` punch'ı 50 dakika geç kaydediliyordu (§6.1'in 120 saniye kuralıyla çelişki).
   Satırlar artık şimdi kaydedilir ve beyan edilen anlar bir telefonun göndereceği gibidir: Jane 3 sn, Joe'nun çıkışı 2 sn, girişi 65
-  sn (120 sn'nin içinde; Joe'nun iki dokunuşu 60 sn'lik tekrar penceresinden uzak — yakın olsa ikincisi punch değil, yok sayılan
-  tekrar olurdu); satırlar `punchTime` sırasıyla yazılır (akış örneği Joe, sonra Jane). Bütün örnekler taze kapta yeniden basıldı
+  sn (120 sn'nin içinde). ⚠️ **Buradaki "Joe'nun iki dokunuşu 60 sn'lik tekrar penceresinden uzak" cümlesi yanlıştı** (2. tur,
+  üçüncü göz ORTA-1): beyan edilen anlar 63 sn ayrıydı, ama iki satır da şimdi yazıldığından DB'nin kayıt yaşı (`recordedAt` farkı)
+  26 ms'ydi; tekrar mesafesi **iki ölçünün küçüğüdür** (CLAUDE.md §5, ADR 0006) — gerçek ürün Joe'nun çıkışını yok sayardı.
+  Düzeltme aşağıda, "API-12 ikinci düzeltme turu". Satırlar `punchTime` sırasıyla yazılır (akış örneği Joe, sonra Jane). Bütün örnekler taze kapta yeniden basıldı
   (OpenAPI + iki rehber; kimlikler ve anlar yeni koşunun), imza vektörünün üçüncü gövdesi yeni teslim gövdesidir; imzası Go dışında
   Python `hmac` ve `openssl dgst -hmac` ile hesaplandı, ikisi aynı.
 - *c/D1* — yukarıda, seçim (i).
@@ -2958,8 +2960,81 @@ Test `TestEmployeesPut_APutReplacesALeftOutOptionalFieldIsNull`.
   yenisini konuşmayan bir alıcı eklendi: teslim olmaz. Mutant: `MinVersion` `VersionTLS10` → kırmızı (200 teslim). **Ölçülen yan
   bulgu (değiştirilmedi, raporlandı):** sürüm uyuşmazlığında sunucunun `protocol_version` uyarısı `crypto/tls`'in dışa kapalı uzak
   uyarısı olarak gelir, `tls.AlertError` değildir; `classify` onu `tls` değil `refused` sınıflar — panel bu durumda "refused" gösterir.
+  (2. turda düzeltildi: aşağıda, D-TLS.)
 - *D4 — `openssl … -hmac "$TAPTIME_SIGNING_KEY"`* gerçek anahtarı argv'ye koyuyordu (`ps`). Örnek artık yalnız vektör anahtarıyla
   (ilk bilinen cevabı basar — makinedeki openssl ile ölçüldü); gerçek anahtar için alıcının kendi dilinin HMAC-SHA256'sı, anahtar sır
   deposundan, sabit zamanlı karşılaştırma.
 
 **Rehber baskısı** 1 kaldı: rehber henüz `main`'e (canlıya) çıkmadı; ilk yayımlanan hâli bu turunkidir.
+
+## API-12 ikinci düzeltme turu (2026-10-16)
+
+İki mercek yine RED verdi — her biri bir ORTA, ikisi de belgede — ve altı DÜŞÜK. Push'lanmış commit'ler yeniden yazılmadı.
+**Migration yok; ürün davranışı değişmedi** (tek istisna: egress'in hata **sınıflaması**, aşağıda D-TLS — kapalı küme aynı).
+Ölçümler taze bir PostgreSQL 17 kabında (`scripts/db-init`, goose 56).
+
+**ORTA-1 (üçüncü göz) — örnek punch çifti ürünün üretemeyeceği bir çiftti.** 1. turun hikâyesi satırları tap yolunun dışından
+(`tappa_app` ile doğrudan `INSERT`) "şimdi" yazıyordu; Joe'nun girişi ile çıkışı beyan edilen anlarda 63 sn, `recordedAt`'te (DB'nin
+kayıt anı) 26 ms ayrıydı. Tekrar mesafesi iki ölçünün küçüğüdür (`decide.go` `debounceGap`; `SecondsSinceLastRecordedTap`
+`clock_timestamp() − created_at`) → ürün çıkışı `ignored` sayardı. **Çare — örnekler artık gerçek tap yolundan:** hikâyenin üç
+dokunuşu `checkin.Service.Record`'dan geçer (sevk edilen 60 sn'lik pencere; policy motorunun kararı, atomik sayaç, yazma,
+tetikleyiciler); test her dokunuşun `recorded`/`ok` olduğunu şart koşar — çifti hikâye değil karar motoru onaylar. Bunun için iki
+panel işi sahip bağlantısıyla, açıkça yorumlanarak yapılır: iki lokasyonun ağ aralıkları (API almaz; yoksa dokunuş onay bekler —
+rehber §11 madde 10) ve Jane ile Joe'nun aktivasyonu (`ConsumeInvite`'ın `SET`'i; aktivasyon dokunuşu punch değildir, ADR 0026).
+Dokunuşlar canlıdır (`OccurredAt` yok → `punchTime` sunucunun anı). Joe'nun çıkışı, girişinin **DB saatindeki** yaşı ve Go saatindeki
+mesafesi 61 sn'yi geçene kadar bekler (sabit bir uyku değil, DB'ye sorarak) — **bedel: test ~62 sn sürer** (paket CI'da paralel
+koşar; kritik yol `internal/db`/`operator` ~10 dk). Ölçülen mutant: bekleme kaldırıldı → *"Joe out at Production: the tap path
+answered recorded/ignored (sys:person-debounce)"* — 1. turun çiftini ürünün kendisi reddeder. Statik pin
+`TestGuide_TheExamplePunchesAreOutsideTheRepeatWindow`: belgelerdeki (OpenAPI örnekleri, iki rehberin örnek blokları, imza
+vektörü) aynı çalışanın her iki farklı punch'ı için `min(|ΔpunchTime|, |ΔrecordedAt|) ≥ 60 sn` — çünkü dinamik test bir anı yalnız
+türüyle karşılaştırır. Mutantlar: 1. turun belgeleri → kırmızı; çıkışın `recordedAt`'i girişinkinden 59 sn sonraya → kırmızı.
+Bütün örnekler yeniden basıldı (rehber dizini artık Sam, Jane, Joe sırasında: aktivasyon `updatedAt`'i ilerletir); imza vektörünün
+üçüncü gövdesi yeni Jane teslimi, imzası Python `hmac` ve `openssl dgst -hmac` ile aynı çıktı. Rehber §6.1 (iki dil): 60 saniye
+*"beyan edilen anlarda **ya da** Taptime'ın kendi saatinde, hangisi yakınsa"*; çevrimdışı kuyruktan arka arkaya gelen iki dokunuşun
+ikincisi kaybolur; canlı bir dokunuşun `punchTime`'ı Taptime'ın anıdır. §11 madde 6 ve OpenAPI `listPunches` aynı cümleyi taşır;
+§6.5 hikâyenin bir dakikayı neden beklediğini söyler.
+
+**ORTA-2 (güvenlik) — §5.5 askı cümlesi fazla genişti.** "Her `DELETE` ve `active:false` ile her `PUT` 403" — ölçülen (askıda): hiç
+tutulmamış ref'e `PUT {"active":false}` → **404 `not_found`** (hiçbir çalışana denk gelmez); aynı ref'e `DELETE` → 403 (kontrol noktası
+aramadan önce). §5.5 (iki dil): her `DELETE` 403 — tutulmamış referans dahil —; `active:false` ile `PUT` yalnız var olan bir
+çalışana denk gelince 403, tutulmamış referansta 404 kalır; "tutulmamış referans 404" maddesi askıdaki `DELETE` istisnasını söyler.
+§10 tablosu ve OpenAPI `deleteEmployee`/`putEmployee` da. `TestEmployees_SuspensionClassesAreSection10`'a iki satır: tutulmamış ref +
+`active:false` → 404, + `DELETE` → 403.
+
+**DÜŞÜK.**
+- *`X-Request-Id`.* Rehber §2.2 (iki dil) `acceptableRequestID`'nin tam kuralını yazar: 1–64 karakter (`MaxRequestIDLen`), her biri
+  `A`–`Z`, `a`–`z`, `0`–`9`, `-`, `_`, `.`; üç önekten hiçbiri. Başka her değer Taptime'ın kimliğiyle değiştirilir ("destekte eşleştirmek
+  için kümeye uyun"). `TestGuide_TheRequestIDRuleIsTheLogs`: rehberin "64"ü sabittir; gerçek `httpx.RequestID` + `WithRequestID`
+  log kaydında 64 karakterlik iki uç değer korunur, 65 ve kümenin dışındaki her basılabilir ASCII karakteri ve önekliler değiştirilir.
+  Mutantlar: `MaxRequestIDLen` 65, kümeden `.` çıkarıldı, TR rehberde "64" → "63" — üçü kırmızı.
+- *`PUT` yerine koyar.* "Gönderilmeyen isteğe bağlı alan `null` olur" genellemesi `externalRef` için yanlıştı (gönderilmezse yoldaki
+  ref'tir). Rehber §5.1 ve OpenAPI `putEmployee` artık `employeeCode`'u söyler, `externalRef`'i ayrıca adlandırır.
+- *`/v1/employees` tekrarlanan ad.* `TestQuery_EveryReadRefusesWhatItDoesNotParse` üç listede `?cursor=A&cursor=B` ve
+  `?limit=1&limit=2`'yi bilinmeyen parametrenin cevabıyla bayt bayt aynı ister. Mutant: `readQuery`'de `len(v) != 1` kaldırıldı →
+  kırmızı (önce yeşildi; altı sonda da `limit`/`cursor`'un kendi 400'üne düşer).
+- *D-TLS — TLS sınıflaması.* Alıcının her TLS uyarısı (`crypto/tls`'te tipsiz "remote error") `refused` sayılıyor, panel sahibe "ad
+  çözülmedi / 443'te kimse cevap vermedi" diyordu. Çare (`egress.go`): el sıkışma artık taşıyıcının değil istemcinin
+  `DialTLSContext`'inde — aynı TCP çevirmesi, aynı kapı, aynı `tls.Config` (URL'nin adı doğrulanır) — ve el sıkışmanın hatası
+  `errHandshake` ile işaretlenir; zaman aşımı `timeout`, el sıkışma altında bağlantının düşmesi (EOF, RST, kırık boru) `refused`
+  kalır. Ayrıca el sıkışmadan sonra gelen bir uyarı (TLS 1.3'te istemci sertifikası isteyen alıcı, cevap okunurken) `*net.OpError`
+  `Op == "remote error"` ile `tls`. Kapalı küme (API-9) değişmedi, yalnız eşleme. `TestEgress_FailuresAreClassesAndCarryNoText`:
+  "TLS 1.1 → refused" pini `tls` oldu; eklenenler: istemci sertifikası isteyen alıcı TLS 1.2 ve 1.3, ortak şifre takımı yok, TLS 1.1'e
+  inen bir ServerHello (uyarı değil, istemcinin tipsiz hatası) → `tls`; ClientHello altında bağlantıyı düşüren alıcı → `refused`;
+  dinlemeyen port ve çözülmeyen ad → `refused` (kontrol). Mutantlar (dördü de kırmızı): "remote error" kuralı yok → TLS 1.3 mTLS;
+  el sıkışma işareti yok → TLS 1.1 ServerHello; düşme de `tls` → düşen bağlantı; geri kalan her şey `tls` → dinlemeyen port.
+  Panelin ping cümlesi TLS 1.2'yi ve istemci sertifikasını adlandırır. Rehber §9.1 ve OpenAPI: *"Taptime istemci sertifikası
+  sunmaz"* (karşılıklı TLS isteyen alıcıda her deneme başarısız).
+- *Gizlilik taraması.* Artık: harfli bölge adı (`fe80::1%lo0`), şemasız küme/özel ağ ad(lar)ı (`*.svc.cluster.local`,
+  `*.cluster.local`, `*.internal`, `*.local`, `localhost` …), 32 baytlık standart base64 değer (KEK biçimi; onaltılık dizi —
+  imza — ve dört ya da daha az farklı karakter sayılmaz), `scripts/`, `deploy/`, `/Users/`, `/home/` yolları. Yedi mutant (rehbere
+  her biri) kırmızı; bugünkü üç belge yeşil.
+- *Yazmalar sorgu dizgesini yok sayar.* Davranış değişmedi (Idempotency kimliği kuralı, API-4). Rehber §3.7 (iki dil) ve OpenAPI
+  `info` açık uyarı: *"yazmalar sorgu parametresi almaz ve yok sayar — `dryRun` gibi bir şey yoktur"*;
+  `TestWrites_AQueryParameterIsIgnoredNotADryRun` bugünkü davranışı pinler (`PUT …?dryRun=1` yazar, `DELETE …?dryRun=1` pasifleştirir).
+  Backlog **T131**: yazmalarda bilinmeyen sorgu parametresi 400 — davranış değişikliği, `main`'e çıkmadan önce karar.
+- *Eşlik testinin sınırı.* Bölüm başına düz metin sayıları artık **sırasıyla** karşılaştırılır (TR "1 dakika, 5 dakika" → "5 dakika,
+  1 dakika" mutantı kırmızı — §9.6). Türkçenin söz dizimi sırayı doğal olarak değiştirdiği iki bölüm (`numberOrderFree`: §6.3
+  *"18:00 vardiyasının 02:00 çıkışı"*, §7 *"bölüm 3.7'deki gibi RFC 3339"*) yalnız çoklu küme olarak karşılaştırılır; sıraları
+  eşitlenirse test listeden çıkarılmalarını ister. **Adlandırılan sınır:** bu iki bölümde iki sayının, sırayı EN'inkine
+  eşitlemeyen bir yer değişimi görülmez; anlamı ters çeviren çeviri hâlâ gözden geçirenindir.
+
