@@ -1191,8 +1191,10 @@ Up 00029'un değil OP-15'in gövdesini taşır ve askı sütunlarını korur (sa
 ve sonuç tipi metni OP-15'in gövdesine göre değişir; Go'daki sütun listesi ve `Scan` sırası
 (`internal/db/operator.go`: `readTenantDetailSQL`, `readTenantDetail`) 13 sütuna güncellenir. Emsal: 00039 için aynı yön (state.md, *"OP-15 rebase"*).
 Yanlış sıra **yüksek sesle** düşer, sessizce geri almaz — iki yönde de (55000,
-`object_not_in_prerequisite_state`): OP-15'in migration'ı `00057`'den sonra koşarsa kendi ön koşulu
-`op_read_tenant_detail`'in 00029'un sonuç tipi olmasını ister ve reddeder (*"Migrate in order"*);
+`object_not_in_prerequisite_state`): OP-15'in migration'ı (`00036`) `00057` uygulanmış bir şemaya
+gelirse önce **goose'un kendisi** sıra dışı (missing/out-of-order) migration diye durur — depo
+allow-missing kullanmaz (`Makefile`, `30-migrate-job.yaml` düz `up`); SQL ön koşuluna sıra gelseydi o da
+`op_read_tenant_detail`'in 00029'un sonuç tipi olmasını ister ve reddederdi (*"Migrate in order"*);
 `00057` OP-15'in migration'ından sonra **yeniden yazılmadan** koşarsa onun ön koşulu 00029'un gövdesini
 ister ve reddeder (*"rebase this file onto it"*). Doğru sıra: OP-15 (`00036`) → yeniden yazılmış
 `00057`.

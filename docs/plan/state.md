@@ -1692,6 +1692,16 @@ yazılır.
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 
+### 2026-10-16 (29. oturum, elli birinci yarı) — ✅ **API-13a DONE** (deploy öncesi hazırlık; güvenlik 1. turda, üçüncü göz 2. turda ONAY) · 📌 **deploy kullanıcıda + OP-15**
+
+**🟢 Kullanıcı (2026-10-16): "yapabildiklerini yap, onay veriyorum, Infisical'a eklersin".**
+- **Ana oturum (kümede, değer basılmadan):** `TAPPA_API_KEY_HMAC_KEY` ve `TAPPA_WEBHOOK_KEK` üretildi → Infisical `shared-infra/prod:/tappa` + canlı `tappa-secrets` (32 bayt; iki depoda aynı; canlı sekiz 32 baytlık anahtar çift çift farklı — yalnız ad/boyut ölçüldü). Canlı Secret düz Secret (ExternalSecret yok); çalışan pod'lar etkilenmedi. Düğümün küresel IPv6'sı ölçüldü (hostNetwork ingress pod'undan, yalnız okuma). Prod salt-okur sayım: goose 35, tenant tek haneli (T124 eşiği uzak), `audit_log` birkaç yüz satır, isim kuralına takılan ad 0. Cloudflare kimlik bilgisi yok → `api` DNS kaydı kullanıcıda.
+- **API-13a** (`b3eb584` … `cd9bbbb`): engel listesine düğümün IPv6 /64'ü · migration **00057** (`op_read_tenant_detail` + `api_enabled_at`/`api_code`, ön koşullu, yeni yetki yok) + K-22 operatör ekranı (işletme özeti → *Integration API*: aç / kod değiştir / kapat; `/integration` yolları; açma K-19 `Notice`) · `TAPPA_API_HOST` + `42-api-ingress.yaml` (yalnız `/v1`, rollout'tan sonra, DNS-only ön kontrolü, `verify-deployment.sh api-host`) · **T131 kapandı** (yazmalar sorgu dizgesiyle 400) · runbook `deploy/README.md` *"M11 — deploy günü (API-13)"* (a)–(f) + `main` ile birleştirme çakışması maddesi (11 dosya, T119 düzeni).
+- **Denetim izi:** 1. tur güvenlik ONAY / üçüncü göz RED (runbook/ADR OP-15↔00057 yönü ters — doğrusu: 00057 OP-15'in üstüne yeniden kurulur; migration aralığı 37…57) → düzeltme (+ deploy kapısı ve K-19 bağlantı pinleri, operatör başlığı) → 2. tur yeni üçüncü göz ONAY; son DÜŞÜK (ters sırada önce goose'un sıra dışı hatası) kapanış commit'inde.
+- **CLAUDE.md:** §3 `42-api-ingress.yaml` satırı; §10 yeni host'un Ingress'i rollout'tan sonra.
+
+**🔴 DEVAM PLANI — kullanıcıya bağlı:** (1) **OP-15** canlıya (başka oturumun `hold/op15*` dalları; dosyası 00036'ya kayar) → bu dalda **00057 OP-15'in üstüne yeniden kurulur**; (2) Cloudflare'de `api` A kaydı → origin, DNS-only, AAAA yok; (3) `m11-api` ↔ `main` farkında `tappa-security-auditor` tam turu; (4) **birleştirme kararı** (çakışma maddesi runbook'ta); (5) deploy sonrası 12 ölçüm (runbook (e)). Ayrıca: API-11 (sandbox alan adı), DPA (T130), T125.
+
 ### 2026-10-16 (29. oturum, elliinci yarı) — ✅ **API-12 DONE** (iki mercek 4. turda ONAY) · 📌 **M11'de ajanla yapılacak iş kalmadı — kalanlar kullanıcıya bağlı**
 
 **API-12** (`0b0060f` … `f1a7ec5`): OpenAPI tamamlandı (işlem başına kapalı `x-error-codes`, kapalı `ErrorDetails`, `info.x-limits`, 3.1 `webhooks:` — `punch`/`ping`, örnekler gerçek handler'lardan ve gerçek dokunuş yolundan basılır) + iki dilli entegrasyon rehberi `docs/api/integration-guide{,.tr}.md`, `/v1/guide.md` + `/v1/guide.tr.md` kimliksiz (no-cache + ETag). §2'nin 31 maddesi iki dilde numarasıyla; plan §5'in 67 API-12 notu rehber bölümlerine eşlendi; EN↔TR yapısal + bölüm başına sayı eşliği testli; imza vektörünün tek kaynağı rehber; gizlilik taraması (sır/IP/e-posta/iç yol) üç belgede.

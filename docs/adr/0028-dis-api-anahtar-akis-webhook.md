@@ -3163,8 +3163,9 @@ ve DNS'e dokunulmadı; sırlar ve prod ölçümleri ana oturumundur (aşağıda 
      migration'ı `00057`'den önce koşar. Bu dal birleşirken `00057`'nin Up'ı OP-15'in gövdesini askı
      sütunlarıyla taşır (13 sütun), Down OP-15'in hâline döner, ön koşulun `md5`'i ve sonuç tipi OP-15'e
      göre değişir, Go'nun `readTenantDetailSQL`/`Scan` sırası güncellenir — 00039'un aynı yöndeki emsali
-     (state.md *"OP-15 rebase"*). Yanlış sıra iki yönde de yüksek sesle düşer (55000): `00057`'den sonra
-     koşan OP-15 migration'ı kendi ön koşulunda 00029'un sonuç tipini ister (*"Migrate in order"*);
+     (state.md *"OP-15 rebase"*). Yanlış sıra iki yönde de yüksek sesle düşer: `00057` uygulanmış şemaya
+     gelen OP-15 migration'ı (`00036`) önce goose'un sıra dışı migration hatasıyla durur (allow-missing
+     yok; SQL ön koşulu da 00029'un sonuç tipini isterdi — *"Migrate in order"*, 55000);
      OP-15'ten sonra yeniden yazılmadan koşan `00057` 00029'un gövdesini ister (*"rebase this file onto
      it"*). Bugünkü `00057` OP-15'siz şema için doğrudur; kod değişmedi. Down 00029'u birebir
      geri verir; `opAtVersion` onu yürür (yalnız katalog — tablo kilidi yok). Okuma türü yine

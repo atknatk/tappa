@@ -118,6 +118,8 @@ db/migrations/        goose SQL. Uygulanmış migration DEĞİŞTİRİLMEZ, yeni
 db/queries/           sqlc kaynak SQL
 web/templates/        .templ dosyaları
 web/static/           css/img/js — Go binary'sine embed edilir
+deploy/k8s/42-api-ingress.yaml  `api.taptime.mt` → yalnız `/v1` (M11 API-13a); `TAPPA_API_HOST` (05-config) ile
+                      **aynı değişiklikte** gelir, rollout beklemesinden **sonra** uygulanır, DNS-only.
 docs/adr/             mimari kararlar (NNNN-baslik.md)
 docs/api/             dış entegratörün rehberi (M11 API-12): `integration-guide.md` (EN, asıl) + `.tr.md` (TR);
                       `apidocs` paketiyle gömülü, `/v1/guide.md` ve `/v1/guide.tr.md` kimliksiz. İki dil
@@ -423,6 +425,8 @@ dokunuş gerektirir. Bu ekrana özellik eklemek istiyorsan önce sor.
   commit'ten önceki son doğrulamada. Her yapıcı ve denetçi brief'ine bu yazılır.
   CI her push'ta zaten tam koşar.
 - Commit: `type(scope): özet` — `feat(tap): reject retired tags`. İngilizce, emir kipi.
+- **Yeni bir host'u uygulamaya yönlendiren Ingress, deploy'da rollout beklemesinden SONRA uygulanır** —
+  önce uygulanırsa ad, ilk deploy'da o host'u tanımayan eski pod'lara gider (T119, M11 API-13a ölçtü).
 - **İş feature dalında yapılır** (kullanıcı kararı, 2026-09-09 — bu, *"doğrudan
   `main`'de çalışılır"* diyen 2026-07-24 kararının **yerini alır**). Gerekçe
   ölçüldü: **`main` üretime deploy eder.** `.github/workflows/deploy.yml`
