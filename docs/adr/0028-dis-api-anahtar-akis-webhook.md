@@ -917,7 +917,10 @@ tag'i doğrular — sandbox imajı `sandbox` tag'siz, prod imajı tag'li ise red
 `TestOpenAPI_TheExamplesAreTheHandlersAnswers`, `TestGuide_TheTwoLanguagesAreOneDocument`, `TestGuide_EveryAPI12NoteHasItsSection`,
 `TestGuide_EveryEndpointCodeAndLimitIsTheDocuments`, `TestGuide_TheSignatureVectorIsTheSenders`, `TestGuide_NoSecretAddressOrPersonalData`,
 `TestGuide_IsServedUnderV1`; genişleyenler: `TestWebhookSignature_KnownAnswer` (vektör artık rehberden okunur),
-`TestOpenAPI_PathsAreTheRoutersAndTheErrorIsSection8` (iki rehber yolu).
+`TestOpenAPI_PathsAreTheRoutersAndTheErrorIsSection8` (iki rehber yolu). Düzeltme turu: `TestQuery_EveryReadRefusesWhatItDoesNotParse`,
+`TestYAMLSubset_RefusesWhatAReaderWouldReadOtherwise`, `TestEmployeesPut_APutReplacesALeftOutOptionalFieldIsNull`; genişleyenler:
+`TestEmployees_SuspensionClassesAreSection10`, `TestEgress_FailuresAreClassesAndCarryNoText`, `TestGuide_TheTwoLanguagesAreOneDocument`,
+`TestGuide_NoSecretAddressOrPersonalData`, `TestOpenAPI_EveryRouteAndErrorDocumented` (yedi sonda).
 
 **API-13** — runbook: spec §7'nin dokuz maddesi; `tappa-security-auditor` tam tur ONAY; operatörden
 K-22 (`KF`/`KM`) ve KF+KM holding'i; K-18 bağlama; prod anahtar çiftleri ve `pg_auth_members`;
@@ -2711,7 +2714,8 @@ testler `internal/handler/api/{yamlsubset,openapi_validate,examples_db,guidedoc,
 **Kararlar (otonom, gerekçeli):**
 1. **Yollar `GET /v1/guide.md` ve `GET /v1/guide.tr.md`** — `?lang=` ve `Accept-Language` değil: yol biçimini adlandırır
    (`openapi.yaml` gibi), dili dosya adının yaptığı gibi; `/v1`'in her okuması adlandırmadığı parametreyi reddeder, `?lang=` o
-   kuralın tek istisnası olurdu; bir önbellek bir başlığa göre değişmeyi bilmeden yolu anahtarlar. Sunum `openapi.yaml`'ınkiyle
+   kuralın tek istisnası olurdu (bu turda belgeler ve tek çalışan okuması bu kuralın **dışındaydı** — sorgu dizgesini hiç
+   okumuyorlardı; düzeltme turunda kurala alındı, aşağıda D1); bir önbellek bir başlığa göre değişmeyi bilmeden yolu anahtarlar. Sunum `openapi.yaml`'ınkiyle
    aynı: host kapısı (ana host'ta router'ın kendi 404'ü), zincir yok, **aynı adres kovası** (üç belge bir kovayı harcar),
    `/v1`'in başlıkları ve gövde sınırı. `Content-Type: text/markdown; charset=utf-8` (RFC 7763), `Content-Language: en|tr`.
 2. **Önbellek: `Cache-Control: no-cache` + güçlü `ETag`** (gömülü baytların SHA-256'sının ilk 16 baytı), eşleşen
@@ -2765,7 +2769,8 @@ testler `internal/handler/api/{yamlsubset,openapi_validate,examples_db,guidedoc,
     nedenleri ve her birinin kodu; §3.5 = `x-limits`; §3.4 oranları; §9.6 = `delivery.Backoff` + `MaxAttempts`; JSON blokları ve
     `curl` gövdeleri belge örnekleri.
 
-**Çelişkiler — kod ölçüldü, belge düzeltildi (kod hatası bulunmadı):**
+**Çelişkiler — kod ölçüldü, belge düzeltildi** (bu turda kod hatası bulunmadı; denetim API-6'dan kalma bir kod hatası buldu —
+`GET /v1/employees` ayrıştırılamayan sorgu dizgesini yutuyordu — düzeltme turunda kapatıldı, aşağıda)**:**
 - `GET /v1/openapi.yaml` `404` listeliyordu: API host'unda üretilemez (host dışı 404 router'ındır, sözleşmenin değil) — çıkarıldı;
   `400` eksikti: gövde sınırı ve `Content-Encoding` reddi **her** `/v1` rotasında, belgede de geçerlidir (sondayla ölçüldü) —
   eklendi. Aynı sınır GET'lerde de 400 `body_too_large` verir; belge ve rehber artık bunu söyler.
@@ -2884,3 +2889,77 @@ DNS-only — önbellek yok) varsa `no-cache` yeniden doğrulamayı zorunlu kıla
 **Öneri (CLAUDE.md, kullanıcıya):** §3 dizin haritasına `docs/api/` satırı — *"entegrasyon rehberi (EN asıl + TR çeviri) ve onu
 binary'ye gömen `apidocs` paketi; `/v1/guide.md` ve `/v1/guide.tr.md` olarak sunulur; değişiklik iki dilde birlikte yapılır
 (eşlik testi)"*. `openapi.yaml`'a da rehberlerinki gibi `ETag` + `no-cache` vermek (bugün `no-store`) ayrı bir ürün kararıdır.
+
+## API-12 düzeltme turu (2026-10-16)
+
+İki mercek (üçüncü göz + güvenlik) RED verdi: bir ORTA kod bulgusu (API-6'dan kalma), dört ORTA belge bulgusu ve yedi DÜŞÜK.
+Push'lanmış commit'ler yeniden yazılmadı. **Migration yok.** Ölçümler taze bir PostgreSQL 17 kabında (`scripts/db-init`, goose 56).
+
+**Kod — `GET /v1/employees` bozuk sorgu dizgesini yutuyordu (güvenlik ORTA-1).** `listEmployees` `r.URL.Query()` okuyordu: o
+ayrıştırılamayan çiftleri sessizce atar, kalanı cevaplar. Ölçüldü (düzeltmeden önce): `?%zz`, `?limit=1;x=1`, `?li%mit=1`,
+`?limit=1&curs%zzor=emp_…` → 200 ve varsayılan sayfa (`limit`/`cursor` yok sayıldı — bir okuyucu baştan başlar). `/v1/punches` ve
+`/v1/directory` aynı dört örneğe zaten 400 veriyordu. **Çare:** tek okuyucu `readQuery` (`write.go`): `url.ParseQuery` hatası,
+adlandırılmamış bir ad ya da iki kez verilen bir ad → ucun kendi 400'ü. Üç liste aynı yoldan geçer (aynı kod, aynı `details.allowed`).
+`/v1`'in bütün GET'leri tarandı: `r.URL.Query()` başka yerde yoktu, ama **tek çalışan okuması ve üç belge sorgu dizgesini hiç
+okumuyordu** (`/v1/guide.md?lang=tr` → 200 İngilizce, `/v1/openapi.yaml?x=1` → 200 — DÜŞÜK c/D1). **Seçim (i):** onlar da
+`readQuery`'den geçer, hiç parametre almazlar — her parametre 400 `invalid_request`, `details.allowed` boş (`problemNoQuery`); boş
+sorgu (`?`) parametre değildir. Gerekçe: tek kural ("never ignored") ve karar 1'in gerekçesi artık doğru; `openapi.yaml` için küçük
+bir davranış değişikliği, durum/kod kümesi değişmedi (400 `invalid_request` zaten listedeydi). **Yazmalar** (`PUT`, `DELETE`, `POST`)
+sorgu dizgesini okumaz ve **değişmedi**: API-4'ün notu ("sorgu parametresi sırası … aynı anahtarla 422") sorgu dizgesini isteğin
+kimliğinin parçası sayar; rehber §3.7 bunu adlandırır. Test `TestQuery_EveryReadRefusesWhatItDoesNotParse` (dört örnek × üç liste →
+bilinmeyen parametrenin cevabıyla bayt bayt aynı; tek çalışan ve üç belge × yedi sorgu → 400, `allowed` boş, yansıtma yok; boş sorgu
+200); `x-error-codes` sondalarına yedi sonda (üç liste × ayrıştırılamayan dizge, tek çalışan ve üç belge × parametre). Mutant:
+`listEmployees` yeniden `r.URL.Query()` → kırmızı (dördü de 200).
+
+**Belge — askıda reddedilen yazmalar (ORTA 1).** Rehber §10, §5.5 ve OpenAPI "yalnız var olan çalışanı *değiştiren* `PUT` 403"
+diyordu. Kod bilerek daha geniştir (`tenant.EmployeeChanges`: *"changed, bound (K-18), deactivated, or matched as it is"*;
+`DELETE` kontrol noktasını domain'den **önce** sorar): değişiklik olmayan `PUT`, adresle bağlayan `PUT`, zaten pasif çalışana
+`active:false` ve zaten pasif çalışana `DELETE` → 403 `tenant_suspended`; yeniden işe alım 201. Rehber ve OpenAPI artık "var olan bir
+çalışana denk gelen her `PUT` ve her `DELETE`" der; §5.5'in "200, bütçe harcanmaz"ı askı istisnasıyla; §10'un kapalı sütununa panelde
+uç noktayı **açmak** eklendi (`endpoints.go` tablosu: `Enable` askıda 403), §9.8'in "sahip yeniden açınca hemen gider"i askıda bunun
+yapılamadığını söyler. `TestEmployees_SuspensionClassesAreSection10` genişledi: bağlama, pasif çalışana `active:false` ve `DELETE`
+→ 403; yeniden işe alım → 201.
+
+**Belge — istek kimliği (ORTA 2).** "Anahtara benzeyen bir istek kimliği log'a taşınmaz" fazla genişti: `acceptableRequestID`
+yalnız `tt_live_`/`tt_test_`/`tt_whsec_` **önekini** tanır (güvenlik D1, yukarıda). Rehber §2.2 artık kodun yaptığını söyler,
+`X-Request-Id`'yi adlandırır ve "istek kimliğine anahtar ya da sır koymayın" der.
+
+**Belge — ikinci `limit` (ORTA 3).** Ölçülen cevap `details.parameter` değil, tekrarlanan parametrenin `details.allowed`'ıdır
+(`readQuery` `parseLimit`'ten önce koşar). §3.2 artık §3.7'ye bağlanır.
+
+**Belge — `PUT` yerine koyar (ORTA 4).** Gönderilmeyen isteğe bağlı alan `null` olur: kodu "77" olan çalışan `employeeCode`'suz bir
+`PUT` ile 200 ve `employeeCode: null` (satır da `NULL`; punch'lara ve eşin rehberine o gider). Lokasyon `PUT`'u da yerine koyar ama
+iki isteğe bağlı alanı kendine ait bir şey tutmaz (`timezone` işletmeninki, `externalRef` yolunki): gönderilmeyince lokasyon aynen
+cevaplanır, iz yazılmaz. Rehber §4, §5.1 (tablo + madde) ve OpenAPI (`putEmployee`, `putLocation`, `EmployeePut.employeeCode`).
+Test `TestEmployeesPut_APutReplacesALeftOutOptionalFieldIsNull`.
+
+**DÜŞÜK.**
+- *a/D2 — eşlik testi düz metindeki sayıları korumuyordu.* `TestGuide_TheTwoLanguagesAreOneDocument` artık bölüm başına düz metnin
+  sayılarını (kod bloğu, satır içi kod, bağlantı hedefi ve başlık dışında) çoklu küme olarak karşılaştırır (EN ve TR bugün birebir
+  aynı). Mutantlar — yalnız Türkçede 120 saniye → 180, 10 dakika → 5, 6 saat → 12, günde 300 → 500, 72 saat → 48 — beşi de kırmızı
+  (önce beşi de yeşildi). **Adlandırılan sınır:** aynı sayılarla anlamı ters çeviren bir çeviri ("girmez" → "girer") test edilemez;
+  çevirinin anlamı gözden geçirenindir.
+- *b — örnek zamanları.* Hikâyede Jane'in `ok`/`nfc` punch'ı 50 dakika geç kaydediliyordu (§6.1'in 120 saniye kuralıyla çelişki).
+  Satırlar artık şimdi kaydedilir ve beyan edilen anlar bir telefonun göndereceği gibidir: Jane 3 sn, Joe'nun çıkışı 2 sn, girişi 65
+  sn (120 sn'nin içinde; Joe'nun iki dokunuşu 60 sn'lik tekrar penceresinden uzak — yakın olsa ikincisi punch değil, yok sayılan
+  tekrar olurdu); satırlar `punchTime` sırasıyla yazılır (akış örneği Joe, sonra Jane). Bütün örnekler taze kapta yeniden basıldı
+  (OpenAPI + iki rehber; kimlikler ve anlar yeni koşunun), imza vektörünün üçüncü gövdesi yeni teslim gövdesidir; imzası Go dışında
+  Python `hmac` ve `openssl dgst -hmac` ile hesaplandı, ikisi aynı.
+- *c/D1* — yukarıda, seçim (i).
+- *d/D3 — gizlilik taraması.* `::1`, `::ffff:a01:203` gibi kısa/eşlemeli IPv6 yakalanmıyordu ve `openapi.yaml` taranmıyordu. Tarama
+  artık her onaltılık/iki nokta dizisini `net/netip` ile okur (kısa biçim, eşlemeli, bölge) ve `openapi.yaml`'ı da tarar (tek istisna
+  belgenin `servers` URL'si — API'nin herkese açık adresi). Mutantlar: rehbere `::1`, `::ffff:a01:203`, `fe80::1%eth0`;
+  `openapi.yaml`'a bir IPv4 ve `::1` — beşi de kırmızı.
+- *e — YAML alt küme okuyucusu.* `True`, `NULL`, `1e3`, `0x10`, `+1`, `.inf` (ve YAML 1.1'in `yes`, `on`, `01`, tarih, altmışlık
+  biçimi) ile baştaki BOM artık **hata**dır (belgede tırnaklı yazılır); belge değişmeden yeşil. Test
+  `TestYAMLSubset_RefusesWhatAReaderWouldReadOtherwise`; mutant: belirsiz skaler dalı kaldırıldı → kırmızı.
+- *f — webhook alıcı şartları.* TLS ≥ 1.2 ve herkesçe güvenilen bir CA'ya zincirlenen sertifika (`egress` istemcisinin `tls.Config`'i,
+  sistem kökleri) rehber §9.1'de ve OpenAPI `webhooks.punch` açıklamasında. `TestEgress_FailuresAreClassesAndCarryNoText`'e TLS 1.1'den
+  yenisini konuşmayan bir alıcı eklendi: teslim olmaz. Mutant: `MinVersion` `VersionTLS10` → kırmızı (200 teslim). **Ölçülen yan
+  bulgu (değiştirilmedi, raporlandı):** sürüm uyuşmazlığında sunucunun `protocol_version` uyarısı `crypto/tls`'in dışa kapalı uzak
+  uyarısı olarak gelir, `tls.AlertError` değildir; `classify` onu `tls` değil `refused` sınıflar — panel bu durumda "refused" gösterir.
+- *D4 — `openssl … -hmac "$TAPTIME_SIGNING_KEY"`* gerçek anahtarı argv'ye koyuyordu (`ps`). Örnek artık yalnız vektör anahtarıyla
+  (ilk bilinen cevabı basar — makinedeki openssl ile ölçüldü); gerçek anahtar için alıcının kendi dilinin HMAC-SHA256'sı, anahtar sır
+  deposundan, sabit zamanlı karşılaştırma.
+
+**Rehber baskısı** 1 kaldı: rehber henüz `main`'e (canlıya) çıkmadı; ilk yayımlanan hâli bu turunkidir.
