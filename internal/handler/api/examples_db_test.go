@@ -323,6 +323,19 @@ func valueKind(s string) string {
 	return "other"
 }
 
+// byRef orders a page's data by externalRef: GET /v1/employees pages in id order, and the story's
+// ids are random, so the example (E-1042, then E-1043) is compared with the answer in that order.
+func byRef(page any) {
+	data, _ := yat(page, "data")
+	list, _ := data.([]any)
+	ref := func(v any) string { r, _ := yat(v, "externalRef"); return fmt.Sprint(r) }
+	for i := 1; i < len(list); i++ {
+		for j := i; j > 0 && ref(list[j]) < ref(list[j-1]); j-- {
+			list[j], list[j-1] = list[j-1], list[j]
+		}
+	}
+}
+
 func sortedKeys(m *ymap) []string {
 	k := append([]string(nil), m.keys...)
 	sortStrings(k)
@@ -384,6 +397,9 @@ func TestOpenAPI_TheExamplesAreTheHandlersAnswers(t *testing.T) {
 			answer, err := jsonValue(side.body)
 			if err != nil {
 				t.Fatalf("%s: %v (%q)", name, err, side.body)
+			}
+			if name == "listEmployees 200" {
+				byRef(answer)
 			}
 			if err := sameExample(name, example, answer, false); err != nil {
 				t.Errorf("%v\nthe handler's: %s", err, side.body)
