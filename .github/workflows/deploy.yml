@@ -104,6 +104,16 @@ jobs:
       # either way; pinning to the server's own minor removes the question.
       KUBECTL_VERSION: v1.35.4
       KUBECTL_SHA256: b529430df69a688fd61b64ad2299edb5fd71cb58be2a4779dba624c7d3510efd
+      # 🔴 THE CLUSTER API IS NOT ON THE INTERNET (backlog T134). The user closed
+      # 144.76.158.60:6443 to the outside on purpose (2026-10-17); the API is reached
+      # only through the tailnet, where the cluster's Tailscale subnet router announces
+      # 10.43.0.0/16 and the kubernetes Service answers at 10.43.0.1:443 (measured by the
+      # orchestrator: reachable from the tailnet, verified with the cluster CA, the bearer
+      # token recognised as system:serviceaccount:tappa:github-deployer). An address,
+      # not a credential: "Write kubeconfig" refuses a KUBE_CONFIG that names any other
+      # server, and the tailnet gate dials exactly this one.
+      KUBE_API_HOST: 10.43.0.1
+      KUBE_API_PORT: "443"
 
     steps:
       # 🔴 FIRST STEP ON PURPOSE, AND THE MESSAGE IS THE WHOLE POINT.
@@ -208,7 +218,8 @@ jobs:
           persist-credentials: false
 
       # Only first-party actions are used in this repository (ci.yml states the rule
-      # and the reason: Q25(b)). Everything below is the plain CLI that ubuntu-latest
+      # and the reason: Q25(b)) — with ONE exception, tailscale/github-action (backlog
+      # T134), pinned by full commit SHA and argued at "Join the tailnet" below. Everything below is the plain CLI that ubuntu-latest
       # already ships, so no docker/login-action, no docker/build-push-action and no
       # third-party kubectl installer appears here.
       # 🔴 B8: scripts/verify-image.sh RUNS `go version -m`, AND UNTIL THIS STEP THAT
@@ -399,7 +410,12 @@ jobs:
         # kubeconfig — and it was the only one still spelled the old way, while the two
         # Docker Hub steps above already do it correctly and say why. Measured after
         # the change: `grep -n 'secrets\.' .github/workflows/deploy.yml` -> five hits,
-        # ALL FIVE inside `env:` blocks, ZERO inside a `run:` body.
+        # ALL FIVE inside `env:` blocks, ZERO inside a `run:` body. (T134 added a sixth,
+        # TS_AUTHKEY, in the `with:` of "Join the tailnet": an action's input reaches the
+        # action as INPUT_* in its environment and is never written into a script, so it
+        # is the same shape as `env:`. TestPackaging_TheDeployReachesTheClusterOnlyThroughTheTailnet
+        # pins the rule: every `${{ secrets.* }}` sits directly under an `env:` or, in a
+        # `uses:` step, a `with:`.)
         # It did not leak today — measured by parsing every `run:` body and stripping
         # comments: 17 run bodies, ZERO non-comment occurrences of `set -x` — so this
         # is a shape fix, not an incident. But one shape for one rule.
@@ -437,8 +453,14 @@ jobs:
           # 🔴 THE SECRET IS NAMED KUBE_CONFIG AND IT IS BASE64. A raw YAML value
           # survives GitHub's secret store fine, but `printf` of a multi-line secret
           # is where trailing-newline and CRLF problems live; base64 has neither.
-          # Create it with:
-          #   base64 -w0 ~/.kube/config | gh secret set KUBE_CONFIG --repo atknatk/tappa
+          # Create it with deploy/README.md, operator step 5 (NOT `base64 -w0`, which
+          # is GNU-only and writes an EMPTY secret on a mac — measured there).
+          # 🔴 ITS SERVER IS THE TAILNET ADDRESS, https://10.43.0.1:443, NOT THE PUBLIC
+          # IP (backlog T134): the public :6443 is closed, and a kubeconfig still naming
+          # it fails four steps later with `dial tcp …:6443: i/o timeout` (run
+          # 39008822326). The CA is the cluster's own kube-root-ca.crt, which signs the
+          # kubernetes Service's certificate for 10.43.0.1. The last lines below refuse
+          # any other server here, where the message can say so.
           # ⚠️ Scope it. A full cluster-admin kubeconfig in a CI secret is a
           # cluster-admin credential for anyone who can push to main. The identity this
           # deploy actually needs is now a FILE — deploy/k8s/01-rbac.yaml — applied once
@@ -451,6 +473,16 @@ jobs:
           printf '%s' "$KUBE_CONFIG_B64" | base64 -d > "$HOME/.kube/config"
           chmod 600 "$HOME/.kube/config"
           kubectl config current-context
+          # The server address is not a secret and is printed; the token and CA are
+          # never read here (`config view` redacts them, and only one field is asked for).
+          server=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')
+          case ${server%/} in
+            "https://$KUBE_API_HOST:$KUBE_API_PORT" | "https://$KUBE_API_HOST") echo "kubeconfig server: $server (tailnet)" ;;
+            *)
+              echo "::error::KUBE_CONFIG names the server '$server', want https://$KUBE_API_HOST:$KUBE_API_PORT. The cluster API is reachable only through the tailnet (backlog T134); regenerate the kubeconfig with that server and the cluster CA (deploy/README.md, operator step 5). Nothing in the cluster has been touched."
+              exit 1
+              ;;
+          esac
 
       # 🔴 B6: THIS RUNS BEFORE ANYTHING IS APPLIED, AND THE MOVE IS THE POINT.
       # It used to run AFTER the rollout, with no rollback — so a proxied hostname
@@ -485,6 +517,118 @@ jobs:
       # (check_cloudflare, curl exit 6).
       - name: Preflight — the API hostname must NOT be proxied by Cloudflare
         run: scripts/verify-deployment.sh cloudflare api.taptime.mt
+
+      # 🔴 THE CLUSTER API IS REACHED ONLY THROUGH THE TAILNET (backlog T134), AND THIS
+      # IS WHERE THE RUNNER JOINS IT — AS LATE AS POSSIBLE, ON PURPOSE. Everything above
+      # needs no cluster: the images are built, pushed and proven anonymous, kubectl is
+      # installed, the kubeconfig is written and checked offline, and the three Cloudflare
+      # gates have asked the PUBLIC internet about the hostnames. The very next step is
+      # the first one that talks to the API. Joining here means (1) no repository code
+      # that ran during the build ever had a route into the tailnet, (2) the Cloudflare
+      # gates measured exactly what they measured before this step existed, and (3) a
+      # failed join still leaves the cluster untouched.
+      #
+      # 🔴 A THIRD-PARTY ACTION, THE ONLY ONE IN THIS REPOSITORY, AND THEREFORE PINNED BY
+      # FULL COMMIT SHA, NOT BY TAG. ci.yml's rule is first-party actions pinned by major
+      # tag; the checkout comment above explains why that is acceptable for GitHub's own
+      # actions and why a third-party download is a different threat (kubectl gets a
+      # sha256 for the same reason). There is no first-party way onto a tailnet, so the
+      # exception is taken and closed the way this file closes the kubectl one: an
+      # immutable reference. d1b6cd2… is the commit of tag v4.2.0 (measured 2026-10-17:
+      # git/ref/tags/v4.2.0 -> that sha, type commit). A bump is a new SHA in one edit;
+      # TestPackaging_TheDeployReachesTheClusterOnlyThroughTheTailnet refuses a tag.
+      #
+      # WHAT THE INPUTS DO — READ FROM THE ACTION'S SOURCE AT THAT COMMIT (src/main.ts),
+      # NOT FROM ITS README:
+      #   authkey   handed to `tailscale up --authkey=…`. With an auth key (no OAuth
+      #             client, no workload identity) the action passes NO --advertise-tags:
+      #             the device's tags are WHATEVER THE KEY CARRIES. The action's `tags`
+      #             input is read only for OAuth / workload identity, so `tags: tag:ci`
+      #             here would be a line that does nothing and looks like a guarantee —
+      #             it is deliberately absent. The gate below measures the tag instead.
+      #             ⚠️ The key reaches `sudo tailscale up`'s ARGV, i.e. this runner's
+      #             process table, for the seconds `up` runs. On a GitHub-hosted runner
+      #             that is a one-job VM; the action also masks it in the log
+      #             (core.setSecret). Accepted limit "[deploy tailnet'e üçüncü-parti bir
+      #             action ve süreli bir auth key'le girer]" in deploy/README.md.
+      #   args      appended to `tailscale up`. --accept-dns=false: the runner needs one
+      #             IP address and no tailnet name, and the gates AFTER the rollout curl
+      #             the public hostnames — leaving the runner's resolver alone keeps them
+      #             asking the same DNS the Cloudflare gates above asked.
+      #             (--accept-routes, which the 10.43.0.0/16 subnet route needs, is
+      #             always passed by the action itself.)
+      #   use-cache "false": a cache hit installs the cached binaries WITHOUT the sha256
+      #             check the fresh download gets; one download per deploy is cheaper
+      #             than a second, unchecked path to the binary that carries the key.
+      #             ⚠️ That check is weaker than KUBECTL_SHA256's: with no `sha256sum`
+      #             input the action fetches the expected digest from the same server as
+      #             the tarball (pkgs.tailscale.com), so it catches corruption, not a
+      #             swapped file. Pinning `version` + `sha256sum` here is the stronger
+      #             form, left for a measured follow-up (backlog T135).
+      # The tailscaled state is in memory (the action's default), and the action's post
+      # step runs `tailscale logout` at the end of the job, failure included.
+      - name: Join the tailnet (the cluster API is reachable only through it)
+        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4.2.0
+        with:
+          authkey: ${{ secrets.TS_AUTHKEY }}
+          args: --accept-dns=false
+          use-cache: "false"
+
+      # 🔴 MEASURED, NOT ASSUMED: WHAT THE RUNNER JOINED AS, AND WHETHER IT GETS THROUGH.
+      # The properties of TS_AUTHKEY (tagged? ephemeral? reusable?) are set when the key
+      # is generated and cannot be read from this repository, so they are read off the
+      # device the key produced:
+      #   (a) tag:ci in Self.Tags — RED otherwise. An untagged key joins the device as
+      #       the USER who generated it: the ACL's tag:ci rule does not describe it, and
+      #       whatever that user may reach, this runner may reach. A join that "works"
+      #       that way is the failure this gate exists for.
+      #   (b) Self.Ephemeral — a WARNING, never red. tailscale v1.94.2's status JSON has
+      #       no such field (ipnstate.PeerStatus, read 2026-10-17), so today this prints
+      #       "absent" and the warning says where to look; a future client that reports
+      #       it is read without a change here.
+      #   (c) a TCP connect to $KUBE_API_HOST:$KUBE_API_PORT — RED otherwise, with a
+      #       message naming the subnet route and the ACL. A few short attempts, because
+      #       a subnet route can land a moment after `up` returns.
+      # The status JSON carries the tailnet's user login names (e-mail addresses,
+      # CLAUDE.md §7), so it is never printed: three fields are extracted and only
+      # those are echoed. No key, token or address of a peer is printed.
+      - name: Gate — the runner joined the tailnet as tag:ci and reaches the cluster API
+        run: |
+          set -euo pipefail
+          st=$(tailscale status --json)
+          state=$(printf '%s' "$st" | jq -r '.BackendState // "absent"')
+          tags=$(printf '%s' "$st" | jq -r '(.Self.Tags // []) | join(",")')
+          eph=$(printf '%s' "$st" | jq -r '(.Self // {}) | if has("Ephemeral") then (.Ephemeral | tostring) else "absent" end')
+          echo "tailnet: backend ${state}, tags ${tags:-none}, ephemeral ${eph}"
+          if [ "$state" != "Running" ]; then
+            echo "::error::the runner is not connected to the tailnet (backend state '$state'). Nothing in the cluster has been touched."
+            exit 1
+          fi
+          case ",$tags," in
+            *,tag:ci,*) ;;
+            *)
+              echo "::error::the runner joined the tailnet WITHOUT tag:ci (tags: ${tags:-none}), i.e. as the user who generated TS_AUTHKEY, which the tailnet ACL's tag:ci rule does not describe. Regenerate the auth key with the tag tag:ci (Tailscale admin -> Settings -> Keys -> Generate auth key: reusable, ephemeral, pre-approved, Tags: tag:ci) and replace the TS_AUTHKEY repository secret (deploy/README.md, operator step 5). Nothing in the cluster has been touched."
+              exit 1
+              ;;
+          esac
+          case $eph in
+            true) ;;
+            false) echo "::warning::this runner's tailnet device is NOT ephemeral: TS_AUTHKEY was generated without 'Ephemeral', so each deploy may leave a device behind in the admin console. Regenerate it as ephemeral (deploy/README.md, operator step 5)." ;;
+            *) echo "::warning::tailscale status does not report whether this device is ephemeral; check that TS_AUTHKEY was generated as ephemeral (Tailscale admin -> Settings -> Keys) and that no github-* devices pile up under Machines (deploy/README.md, operator step 5)." ;;
+          esac
+          reached=0
+          for attempt in 1 2 3 4 5 6; do
+            if timeout 5 bash -c 'exec 3<>"/dev/tcp/$0/$1"' "$KUBE_API_HOST" "$KUBE_API_PORT" 2>/dev/null; then
+              reached=1
+              break
+            fi
+            sleep 5
+          done
+          if [ "$reached" -ne 1 ]; then
+            echo "::error::the cluster API $KUBE_API_HOST:$KUBE_API_PORT is not reachable over the tailnet (6 TCP attempts, 5 s each). Check that the cluster's subnet router still advertises 10.43.0.0/16 and the route is approved, and that the tailnet ACL lets tag:ci reach $KUBE_API_HOST:$KUBE_API_PORT (deploy/README.md, operator step 5). Nothing in the cluster has been touched."
+            exit 1
+          fi
+          echo "cluster API reachable over the tailnet: $KUBE_API_HOST:$KUBE_API_PORT (attempt $attempt)"
 
       # 🔴 THE APPLICATION SECRET STAYS THE OPERATOR'S — THIS GATE DOES NOT MOVE.
       # tappa-secrets holds TAPPA_TAG_KEK, the session HMAC key and both DSNs. CI
