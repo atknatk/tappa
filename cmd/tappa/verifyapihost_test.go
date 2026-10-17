@@ -15,7 +15,7 @@ import (
 // "<status> <content type>" lines (one per call, the last repeated) and exit code, the root's status
 // and exit code; it logs every URL it was asked.
 
-const stubCurl = `#!/bin/sh
+const stubCurlAPIHost = `#!/bin/sh
 dir=$(dirname "$0")
 for a in "$@"; do url=$a; done
 echo "$url" >> "$dir/asked"
@@ -66,7 +66,7 @@ func TestVerifyDeployment_TheAPIHostModeJudgesEveryAnswer(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			write("curl", stubCurl, 0o755)
+			write("curl", stubCurlAPIHost, 0o755)
 			write("sleep", "#!/bin/sh\nexit 0\n", 0o755)
 			write("guide.answers", strings.Join(c.guide, "\n")+"\n", 0o644)
 			write("guide.rc", c.guideRC, 0o644)

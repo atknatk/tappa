@@ -516,8 +516,10 @@ func TestRunbook_PasteableBlocksCarryNoShellHazardInComments(t *testing.T) {
 			name: "M8-03 observability", start: "## Gözlemlenebilirlik", end: "## Kabul edilmiş sınırlar",
 			want: -1, minLines: 250,
 			anchors: []string{
-				// The honesty claim: the rules compute, nothing delivers them (Q28a).
-				"TESLİMAT KANALI YOK, VE BU DÜRÜSTÇE YAZILIYOR",
+				// The honesty claim: the rules are delivered, from inside the cluster,
+				// and what silences them is counted (Q28a, T118). Until T118 this
+				// anchor was the opposite claim — that nothing delivered them.
+				"TESLİMAT VAR, AMA KÜMENİN İÇİNDEN BAŞLIYOR",
 				// The precondition without which every rule below matches zero rows.
 				"BU KURALLARIN HEPSİ `TAPPA_LOG_FORMAT=json` VARSAYAR",
 				// The §4.6 trade that keeps a readiness outage visible after the

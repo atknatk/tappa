@@ -469,6 +469,15 @@ jobs:
         # host that actually takes taps, not the legacy redirect target.
         run: scripts/verify-deployment.sh cloudflare taptime.mt
 
+      # The operator host, ops.taptime.mt (backlog T119), through the same gate. It takes
+      # no tap; what a proxy would break there is the operator's sign-in: K4 was decided
+      # as NO source-address list (2026-10-14), so internal/operatorauth's per-address
+      # budgets are what hold it, and behind a proxy every caller shares a few edge keys
+      # (scripts/verify-deployment.sh, check_cloudflare). Its own step, so the customer
+      # host's gate above stays exactly what it was.
+      - name: Preflight — the operator hostname must NOT be proxied by Cloudflare
+        run: scripts/verify-deployment.sh cloudflare ops.taptime.mt
+
       # The integration API's host, api.taptime.mt (M11 API-13a), through the same gate. It takes no
       # tap; what a proxy would break there is the API's per-address bucket (ADR 0028 §8): behind
       # Cloudflare every caller would share a handful of edge addresses. Its own step, so the customer
@@ -513,6 +522,31 @@ jobs:
             echo "::error::secret/tappa-secrets is missing (or unreadable by the deploy identity). It is created out of band and never by CI — see deploy/examples/externalsecret.example.yaml (recommended) or deploy/examples/secret.example.yaml."
             exit 1
           fi
+
+      # 🔴 ops.taptime.mt IS ROUTED ONLY TO A SERVER THAT GATES IT (backlog T119), AND THE
+      # DECISION IS TAKEN HERE, BEFORE ANYTHING ELSE IS APPLIED. 41-operator-ingress.yaml
+      # sends the operator host to the same Service as taptime.mt, and the application
+      # refuses the customer routes on that host only while TAPPA_OPERATOR_HOST names it;
+      # without the four OP-7 keys the host would be a second, ungated origin of the
+      # customer product (41's header). The gate reads NO VALUE of tappa-secrets (it holds
+      # TAPPA_TAG_KEK, and these logs are public): `kubectl describe secret` prints key names
+      # and byte counts only, with the `get` on that one name this identity already holds
+      # (01-rbac.yaml), and only TAPPA_OPERATOR_HOST's size is parsed. It prints `on` or `off`:
+      #   on   the key has more than 0 bytes: 41 is applied in "Roll out the server", after
+      #        the rollout wait
+      #   off  absent or 0 bytes: 41 is not applied (a fresh cluster before OP-7 step 3, or a
+      #        closed surface)
+      # It goes red instead when the key is absent but 41's objects still exist (this
+      # identity cannot delete them): before a new pod could start without the gate. A key
+      # that names ANOTHER host is not seen here -- no value is read -- and is the post-rollout
+      # probe's ("Gate — the operator host must not serve the customer product"): a 2xx.
+      # scripts/verify-deployment.sh, check_operator_surface.
+      - name: Preflight — the operator host is routed only to a server that gates it
+        id: opsurface
+        run: |
+          set -euo pipefail
+          surface=$(scripts/verify-deployment.sh operator-surface tappa)
+          echo "surface=$surface" >> "$GITHUB_OUTPUT"
 
       - name: Apply configuration and database
         run: |
@@ -624,29 +658,49 @@ jobs:
       - name: Roll out the server
         env:
           SHORT: ${{ steps.sha.outputs.short }}
+          OPERATOR_SURFACE: ${{ steps.opsurface.outputs.surface }}
         run: |
           set -euo pipefail
           sed "s|:deploy-placeholder|:sha-$SHORT|g" deploy/k8s/20-app.yaml | kubectl apply -f -
           kubectl apply -f deploy/k8s/40-ingress.yaml
-          # The operator host's two Ingresses (backlog T112: applied by hand on
-          # 2026-10-09, in the tree since). The same identity and verbs as the line
-          # above (01-rbac.yaml: ingresses get, list, create, patch).
-          # ⚠️ THIS LINE ASSUMES THE OPERATOR SURFACE IS CONFIGURED. Without the four
-          # OP-7 keys the application does not mount its operator-host gate, so this
-          # host would serve the CUSTOMER product — a second, ungated customer origin
-          # (41-operator-ingress.yaml's header). Closing the surface removes this line in
-          # the same change; the identity cannot delete an Ingress, so the objects
-          # themselves are the operator's to delete (deploy/README.md, "Geri alma").
-          kubectl apply -f deploy/k8s/41-operator-ingress.yaml
           # maxUnavailable is 0, so the old pod keeps serving until the new one has
           # passed /readyz — i.e. until it has proved it can reach the database.
           kubectl -n tappa rollout status deployment/tappa --timeout=300s
-          # The integration API's host (M11 API-13a). AFTER the wait, on purpose: every pod this host
+          # The operator host's two Ingresses (backlog T112: applied by hand on
+          # 2026-10-09, in the tree since; T119: only behind the preflight's word). The
+          # same identity and verbs as 40 (01-rbac.yaml: ingresses get, list, create,
+          # patch). AFTER the wait, on purpose: rollout status returns once every pod is
+          # of the new template, so each pod this host can then reach started with
+          # TAPPA_OPERATOR_HOST set and booted (config.Load refuses a partial set). Applied
+          # before the wait, a rollout that failed would leave the host routed to the old
+          # pods, which on a first configuration are the ungated ones. Any word but the two
+          # is red: an empty one is a renamed step id, not a closed surface.
+          case "$OPERATOR_SURFACE" in
+            on)  kubectl apply -f deploy/k8s/41-operator-ingress.yaml ;;
+            off) echo "::notice::the operator surface is off, so deploy/k8s/41-operator-ingress.yaml was NOT applied and ops.taptime.mt does not reach the application. After OP-7 step 3, re-run this workflow (deploy/README.md)." ;;
+            *)   echo "::error::the operator-surface preflight gave neither on nor off; 41-operator-ingress.yaml was not applied." >&2; exit 1 ;;
+          esac
+          # The integration API's host (M11 API-13a). OUTSIDE the case above: the API host does not
+          # depend on the operator surface. AFTER the wait, on purpose: every pod this host
           # can then reach started with TAPPA_API_HOST set (05-config.yaml, applied above) and a binary
           # that reads it; applied before, a first rollout would route api.taptime.mt to the old pods,
           # which serve the customer product on any host (42-api-ingress.yaml's header). The same
           # identity and verbs as 40 (01-rbac.yaml: ingresses get, list, create, patch).
           kubectl apply -f deploy/k8s/42-api-ingress.yaml
+
+      # 🔴 THE END STATE, MEASURED FROM OUTSIDE (T119). The preflight decided from the
+      # Secret's key sizes; this asks ops.taptime.mt itself whether it serves the customer
+      # product, judged against the preflight's word: with `on` only the gate's 303 to
+      # /operator passes and a 404 -- the controller has not configured a just-created
+      # Ingress yet; ingress-nginx does that asynchronously -- is retried for about 90 s and
+      # then red; with `off` a 404 passes; a 2xx is red at once either way. It sees what the
+      # sizes cannot say -- a TAPPA_OPERATOR_HOST naming another host, a re-run of the same
+      # commit that rolls no pod (the running pods keep the environment they started with) --
+      # and it REPORTS: it cannot undo an apply.
+      - name: Gate — the operator host must not serve the customer product
+        env:
+          OPERATOR_SURFACE: ${{ steps.opsurface.outputs.surface }}
+        run: scripts/verify-deployment.sh operator-host "$OPERATOR_SURFACE" ops.taptime.mt
 
       # 🔴 THE API HOST, MEASURED FROM OUTSIDE (M11 API-13a): /v1/guide.md is 200 text/markdown and the
       # root is 404 -- the API is served there and nothing else is. scripts/verify-deployment.sh,

@@ -31,7 +31,13 @@ var runbookPath = filepath.Join(repoRoot, "deploy", "README.md")
 // alertSignalMarker is the heading the rules sit under. Finding it is asserted
 // separately from finding the names, so "the section was deleted" and "a name
 // drifted" are different failures.
-const alertSignalMarker = "M8-03 — UYARI KURALLARI"
+//
+// ⚠️ IT IS THE WHOLE HEADING LINE, NOT THE TITLE. It used to be the bare title, and
+// T116's operator step 10 quotes that title in prose ~4 300 lines EARLIER — measured
+// (T118): strings.Index found the quote first, so alertRulesSection ran from step 10
+// to §4.7 and every "scope is the alert section" claim below was quietly most of
+// the file.
+const alertSignalMarker = "### 🔴 M8-03 — UYARI KURALLARI"
 
 // TestObservability_AlertSignalNames is what stops an alert from dying silently.
 //
@@ -59,6 +65,12 @@ func TestObservability_AlertSignalNames(t *testing.T) {
 		t.Fatalf("deploy/README.md no longer contains %q — the alert rules section is gone, "+
 			"so the names below are pinned against nothing", alertSignalMarker)
 	}
+	// The section starts at the FIRST occurrence; a second one makes "the section"
+	// whichever came first, which is how it silently grew to most of the file.
+	if n := strings.Count(doc, alertSignalMarker); n != 1 {
+		t.Errorf("deploy/README.md contains the section marker %q %d times, want once — "+
+			"alertRulesSection would start at the first", alertSignalMarker, n)
+	}
 
 	// name -> the literal every rule must filter on. Written out as literals ON
 	// PURPOSE: comparing the constant to itself would pass whatever it was renamed
@@ -83,25 +95,19 @@ func TestObservability_AlertSignalNames(t *testing.T) {
 		// its unavailable value (cmd/tappa/operator.go).
 		"main.operatorSurfaceKey":         "operator_surface",
 		"main.operatorSurfaceUnavailable": "unavailable",
+
+		// Rule 8 (T122) filters on the fallback event; the rest is what its row tells
+		// the responder to read, and the closed set of reasons that row explains.
+		"checkin.EventPolicyFallback":       "policy.guardrails_alone",
+		"checkin.LogReason":                 "reason",
+		"checkin.LogSQLState":               "sqlstate",
+		"checkin.LogConstraint":             "constraint",
+		"checkin.FallbackLoadFailed":        "load_failed",
+		"checkin.FallbackMaterialiseFailed": "materialise_failed",
+		"checkin.FallbackReloadFailed":      "reload_failed",
+		"checkin.FallbackIncomplete":        "incomplete_after_materialise",
 	}
-	got := map[string]string{
-		"checkin.EventTapDecision":        checkin.EventTapDecision,
-		"checkin.EventTapSecurityAlert":   checkin.EventTapSecurityAlert,
-		"checkin.LogVerdict":              checkin.LogVerdict,
-		"checkin.LogChannel":              checkin.LogChannel,
-		"checkin.LogMatchedSid":           checkin.LogMatchedSid,
-		"checkin.LogCtrGap":               checkin.LogCtrGap,
-		"checkin.LogTenantID":             checkin.LogTenantID,
-		"checkin.LogEmployeeID":           checkin.LogEmployeeID,
-		"httpx.EventHTTPRequest":          httpx.EventHTTPRequest,
-		"httpx.LogRequestIDKey":           httpx.LogRequestIDKey,
-		"httpx.LogStatusKey":              httpx.LogStatusKey,
-		"httpx.LogRouteKey":               httpx.LogRouteKey,
-		"handler.EventReadinessLost":      handler.EventReadinessLost,
-		"handler.EventReadinessRegained":  handler.EventReadinessRegained,
-		"main.operatorSurfaceKey":         operatorSurfaceKey,
-		"main.operatorSurfaceUnavailable": operatorSurfaceUnavailable,
-	}
+	got := alertSignalConstants()
 
 	names := make([]string, 0, len(want))
 	for n := range want {
@@ -137,7 +143,8 @@ func TestObservability_AlertSignalNames(t *testing.T) {
 	// reads "look at employee_id" rather than pasting it — so requiring them here
 	// would be requiring a filter that should not exist. Measured on this document:
 	// channel, tenant_id, employee_id, request_id and readiness.regained are prose;
-	// the four below are filters.
+	// the events below are filters (T122 added the fifth, policy.guardrails_alone,
+	// whose reason/sqlstate/constraint are prose for the same reason).
 	block := pasteableFilterBlock(t)
 	// Rule 7's filter is an ATTRIBUTE, not an event: the whole filter line is held to the
 	// constants, because a renamed key or value makes the pasted rule match no record.
@@ -150,6 +157,7 @@ func TestObservability_AlertSignalNames(t *testing.T) {
 		checkin.EventTapSecurityAlert,
 		httpx.EventHTTPRequest,
 		handler.EventReadinessLost,
+		checkin.EventPolicyFallback,
 	} {
 		if !mentionsWholeName(block, event) {
 			t.Errorf("the paste-able filter block in deploy/README.md does not contain %q as a "+
@@ -157,6 +165,41 @@ func TestObservability_AlertSignalNames(t *testing.T) {
 				"copies no longer matches that event — which renders as a permanently quiet "+
 				"alert:\n%s", event, block)
 		}
+	}
+}
+
+// alertSignalConstants is the code half of the pin above: every name an alert rule
+// filters on, read from the constant that writes it. It is shared with
+// signozrules_test.go so the installed SigNoz rules are held to the SAME set rather
+// than to a second list that could drift from this one.
+func alertSignalConstants() map[string]string {
+	return map[string]string{
+		"checkin.EventTapDecision":        checkin.EventTapDecision,
+		"checkin.EventTapSecurityAlert":   checkin.EventTapSecurityAlert,
+		"checkin.LogVerdict":              checkin.LogVerdict,
+		"checkin.LogChannel":              checkin.LogChannel,
+		"checkin.LogMatchedSid":           checkin.LogMatchedSid,
+		"checkin.LogCtrGap":               checkin.LogCtrGap,
+		"checkin.LogTenantID":             checkin.LogTenantID,
+		"checkin.LogEmployeeID":           checkin.LogEmployeeID,
+		"httpx.EventHTTPRequest":          httpx.EventHTTPRequest,
+		"httpx.LogRequestIDKey":           httpx.LogRequestIDKey,
+		"httpx.LogStatusKey":              httpx.LogStatusKey,
+		"httpx.LogRouteKey":               httpx.LogRouteKey,
+		"handler.EventReadinessLost":      handler.EventReadinessLost,
+		"handler.EventReadinessRegained":  handler.EventReadinessRegained,
+		"main.operatorSurfaceKey":         operatorSurfaceKey,
+		"main.operatorSurfaceUnavailable": operatorSurfaceUnavailable,
+
+		// Rule 8 (T122).
+		"checkin.EventPolicyFallback":       checkin.EventPolicyFallback,
+		"checkin.LogReason":                 checkin.LogReason,
+		"checkin.LogSQLState":               checkin.LogSQLState,
+		"checkin.LogConstraint":             checkin.LogConstraint,
+		"checkin.FallbackLoadFailed":        checkin.FallbackLoadFailed,
+		"checkin.FallbackMaterialiseFailed": checkin.FallbackMaterialiseFailed,
+		"checkin.FallbackReloadFailed":      checkin.FallbackReloadFailed,
+		"checkin.FallbackIncomplete":        checkin.FallbackIncomplete,
 	}
 }
 

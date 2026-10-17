@@ -32,10 +32,11 @@ Hedef: `https://taptime.mt` · küme: k3s v1.35.4, tek node
 | `k8s/20-app.yaml` | Deployment + Service | `deploy.yml` |
 | `k8s/30-migrate-job.yaml` | goose Job (`tappa_owner`) | `deploy.yml` |
 | `k8s/40-ingress.yaml` | Ingress (`nginx`, `letsencrypt-prod`) | `deploy.yml` |
-| `k8s/41-operator-ingress.yaml` | operatör host'u `ops.taptime.mt`'nin iki Ingress'i (`/` 24k, `/operator/legal` Exact 320k; K4 IP kısıtı **yok**, karar bekliyor) — T112 | `deploy.yml` (silmek **operatör**: deploy kimliğinde `delete` yok; yüzey kapanırken — *"Geri alma — yüzeyi kapat"*) |
+| `k8s/41-operator-ingress.yaml` | operatör host'u `ops.taptime.mt`'nin iki Ingress'i (`/` 24k, `/operator/legal` Exact 320k; K4: IP kısıtı **yok** — karar 2026-10-14) — T112 | `deploy.yml`, **yalnız yüzey yapılandırılmışken** (`tappa-secrets`'ta `TAPPA_OPERATOR_HOST` 0 bayttan büyükken; değeri okunmaz) ve rollout beklendikten **sonra** — T119 (silmek **operatör**: deploy kimliğinde `delete` yok; yüzey kapanırken — *"Geri alma — yüzeyi kapat"*) |
 | `k8s/42-api-ingress.yaml` | entegrasyon API'sinin host'u `api.taptime.mt`'nin Ingress'i (yalnız `/v1`, 80k, kendi sertifikası `api-taptime-tls`) — M11 API-13a; `05-config.yaml`'ın `TAPPA_API_HOST`'u ile **aynı değişiklikte** | `deploy.yml` (rollout beklemesinden **sonra**) |
 | `k8s/50-backup.yaml` | 🔴 **gecelik yedek CronJob'ı** (02:30 Malta) | **operatör** (bir kez; deploy'un `batch/cronjobs` yetkisi **yok** ve bilerek yok) |
 | `k8s/55-heartbeat.yaml` | 🔴 **uptime heartbeat CronJob'ı** (her 5 dk; healthchecks.io'ya *"yaşıyor"* ya da `/fail` — T116) | **operatör** (bir kez; aynı gerekçe — adım 10) |
+| `observability/signoz-alert-rules.json` | 🔴 **SigNoz'un uyarı kuralları** (M8-03 tablosunun her satırı için bir kural, ClickHouse-SQL; T118, 8. kural T122) — kanal yalnız **adıyla** (`tappa-healthchecks`), adres yok; küme manifesti **değildir** | **operatör** (SigNoz API'siyle, bir kez — adım 10 (f)) |
 | `k8s/postgres-init/02-app-password.sh` | `tappa_app`'e **girişi açan** üretim script'i | ConfigMap içinde |
 | `../scripts/pg-backup.sh` | dump **ve içeriğinin doğrulanması** (satır sayısı, tablo kümesi, RLS/GRANT) | ConfigMap içinde (`deploy.yml` `--from-file`) |
 | `../scripts/pg-backup-ship.sh` | dump'ı **node dışına** taşır + saklama süresini uygular + sonucu healthchecks.io'ya bildirir (T116; bildirim yedeğin sonucunu **değiştirmez**) | ConfigMap içinde (`deploy.yml` `--from-file`) |
@@ -107,8 +108,8 @@ temizlendi (bozuk StatefulSet + `ImagePullBackOff` + Failed Job + bağlı 20Gi P
 **Elle deploy etmek gerekiyorsa** `.github/workflows/deploy.yml`'in adımlarını sırayla
 izle: namespace → **`01-rbac.yaml`** (bir kez, cluster-admin ile) → `tappa-secrets`
 (elle) → ConfigMap'ler (`--from-file` dahil) → Postgres → NetworkPolicy → migration
-Job (**bekle**) → Deployment → Ingress'ler (`40`, sonra `41` — `41` yalnız operatör yüzeyi
-yapılandırılmışsa; *"Uygulandı: K2"*). Tek tek `apply` etmek güvenlidir; **dizini toptan**
+Job (**bekle**) → Deployment → Ingress'ler (`40`; rollout'u bekle; sonra `41` — `41` yalnız
+operatör yüzeyi yapılandırılmışsa; *"Uygulandı: K2"*, T119). Tek tek `apply` etmek güvenlidir; **dizini toptan**
 `apply` etmek değildir.
 
 ---
@@ -671,17 +672,20 @@ indirilmiş döküm ve yerel config **0**, checkout'ta yeni dosya **0**. Ayrınt
 > bakımından da doğru yer burası: yedek sinyalini gönderen `scripts/pg-backup-ship.sh`
 > `configmap/tappa-backup-scripts`'e ancak **bu değişikliği içeren bir deploy**'la girer.
 
-**Ne ve neden.** *"M8-03 — UYARI KURALLARI"*nın yedi kuralı kümenin **kendi log'undan**
+**Ne ve neden.** *"M8-03 — UYARI KURALLARI"*nın kuralları kümenin **kendi log'undan**
 hesaplanır; ölü bir node log yazmaz, yani hiçbiri *"küme gitti"* diyemez. healthchecks.io
 bunun tersini yapar: belli aralıklarla *"yaşıyorum"* denmesini bekler ve **söylenmesi
-kesilince** e-posta atar (kullanıcı kararı 2026-10-09: AB'de barındırılan dış servis,
-ücretsiz plan). Kontrolün sinyal adresine bir `GET` *"yaşıyor"*, adresin sonuna `/fail`
-*"hemen uyar"* demektir. İki kontrol kurulu:
+kesilince** bildirim atar — Telegram **ve** e-posta (kullanıcı kararı 2026-10-09: AB'de
+barındırılan dış servis, ücretsiz plan; ⚠️ e-posta 2026-10-11'e kadar **hiçbir** kontrole
+bağlı değildi — tuzak 1, (f)). Kontrolün sinyal adresine bir `GET` *"yaşıyor"*, adresin
+sonuna `/fail` *"hemen uyar"* demektir. Üç kontrol kurulu — üçüncüsü M8-03 log kurallarının
+teslimatıdır (T118) ve sinyali adresten değil **gövdedeki kelimeden** okur:
 
 | Kontrol | Takvim / tolerans | Sinyali gönderen | *"Yaşıyor"* | `/fail` — hemen uyarı | Sinyal yok — tolerans sonunda uyarı |
 |---|---|---|---|---|---|
 | `tappa-uptime` | her 5 dk / 5 dk | `k8s/55-heartbeat.yaml` (CronJob `tappa-heartbeat`) | halka açık `$TAPPA_BASE_URL/healthz` → 200 | `/healthz` 200 değil: TLS, DNS, bağlantı, zaman aşımı, 5xx — ve hazırlığı düşen pod Service'ten çıktığı için veritabanı arızası da (`replicas: 1`) | node/küme yok, CronJob askıda, Secret yok, imaj çekilemiyor, sinyal teslim edilemedi |
 | `tappa-backup` | cron `30 2 * * *` Europe/Malta / 1 saat | `k8s/50-backup.yaml`'ın `ship` konteyneri (`scripts/pg-backup-ship.sh`'ın EXIT tuzağı) | dump R2'ye gönderildi **ve** hedefte doğrulandı | `ship` kırmızı bitti (hedef, şifreleme kanıtı, yükleme, doğrulama, budama) | `dump-and-verify` düştü (`ship` o zaman **hiç başlamaz** — bilerek), CronJob koşmadı, sinyal teslim edilemedi |
+| `tappa-signals` | 365 gün / 1 saat — yani fiilen **ölü adam anahtarı DEĞİL** | SigNoz'un webhook kanalı `tappa-healthchecks` (M8-03 kurallarının hepsi; `POST`) | gövdede `resolved` — bir kural kapandı | gövdede `firing` — bir kural ateşlendi | 365 gün hiç bildirim yok. SigNoz'un **kendi** ölümünü bu kontrol **görmez** (sınır 25) |
 
 🔴 **Sinyal adresi bir SIRdır:** bilen biri *"yaşıyor"* gönderip uyarıyı susturabilir.
 `secret/tappa-alert-pings`'te durur (`UPTIME_PING_URL`, `BACKUP_PING_URL` — tam
@@ -784,31 +788,149 @@ Beklenen son iki satır: `pg-backup-ship: done: N backup(s) retained at the dest
 `pg-backup-ship: alert signal sent (success, HTTP 2xx)`; panelde `tappa-backup` **up**. Bu
 tam bir yedek koşusudur — hedefe bir kopya daha gider (budama yaşa göre; kova kilidi
 14 gün). Son olarak e-posta kanalının kendisini healthchecks.io panelindeki entegrasyonun
-test bildirimiyle sına — bu repodan ölçülemez.
+test bildirimiyle sına — bu repodan ölçülemez. ⚠️ **Test bildiriminin gelmesi kontrolün o
+kanala BAĞLI olduğunu kanıtlamaz** (tuzak 1, (f)): her kontrolün sayfasında Telegram **ve**
+e-postanın ikisinin de açık olduğunu ayrıca gör.
 
 **(d) Uyarı geldiğinde — belirti → ilk bakılacak yer.** Son işler:
 `kubectl --context hetzner-k8s-1 -n tappa get job -l app.kubernetes.io/component=heartbeat --sort-by=.metadata.creationTimestamp`
 (yedek için `component=backup`).
 
-| E-posta | Anlamı | İlk bakılacak yer |
+| Bildirim (Telegram / e-posta) | Anlamı | İlk bakılacak yer |
 |---|---|---|
 | `tappa-uptime` **down**, hemen | heartbeat koştu ve `/fail` gönderdi: `/healthz` 200 değildi | son işin log'undaki `DOWN (…)` parantezi: `HTTP 503` → hazırlık/veritabanı (*"Olay müdahalesi"*, M8-03 6. sinyal) · `tls` → sertifika (`get certificate`) · `dns` → adım 1 · `connect`/`timeout` → ingress, node ya da hairpin |
 | `tappa-uptime` **down**, tolerans dolunca | hiç sinyal gelmedi | önce dışarıdan `https://taptime.mt/healthz`; sonra `get nodes`, `get cronjob tappa-heartbeat` (askıda mı) ve son işin kendisi: `describe job <iş>` — `DeadlineExceeded` = pod 60 sn'yi aştı; ⚠️ Job denetleyicisi o anda **pod'u siler**, yani `get pod -l app.kubernetes.io/component=heartbeat` çoğu zaman **boş** döner. Sebep pod olaylarındadır (~1 saat kalır): `get events --field-selector involvedObject.kind=Pod --sort-by=.lastTimestamp` — `CreateContainerConfigError` = Secret ya da ConfigMap yok · `ErrImagePull`/`ImagePullBackOff` = imaj ya da Docker Hub bütçesi (sınır 12). Pod kaldıysa log'unda `signal NOT delivered` = healthchecks.io'ya ulaşılamıyor |
 | `tappa-backup` **down**, hemen | `ship` kırmızı bitti ve `/fail` gönderdi | `logs job/<iş> -c ship` → `FAILED:` satırı; *"Yedek ve geri yükleme"* |
 | `tappa-backup` **down**, 03:30'dan sonra (Malta) | sinyal yok | `get job -l app.kubernetes.io/component=backup`; `logs job/<iş> -c dump-and-verify`; `ship` log'unda `alert signal skipped` ya da `NOT delivered` |
+| `tappa-signals` **down** | SigNoz'da M8-03 kurallarından **en az biri** ateşlendi | SigNoz arayüzü → *Alerts* — ateşteki kuralın adı `tappa <n>: …`'dir ve `<n>` *"M8-03 — UYARI KURALLARI"* tablosunun satırıdır; o satırın *"İlk bakılacak yer"* sütunu |
+| `tappa-signals` **up** | bir kural kapandı | ⚠️ **ötekilerin de kapandığı anlamına gelmez** — tek kontrol bütün kuralları taşır (sınır 25); SigNoz → *Alerts*'te ateşte kural kalmadığını gör |
 
-**(e) Sınırlar — sayılı, ayrıntısı sınır 33'te:** tek sağlayıcı ve tek e-posta alıcısı;
-ücretsiz planın kotası/SLA'sı ölçülmedi; yoklama küme **içinden** başlar (node dışındaki
-bir ağ arızası görünmez; hairpin'in **çalıştığı** 2026-10-09'da ölçüldü); yedek sinyalinin
-adresi kısa bir an argv'de.
+**(e) Sınırlar — sayılı, ayrıntısı sınır 33'te (`tappa-signals`'ınki sınır 25'te):** tek
+sağlayıcı ve tek hesap (iki kanal: Telegram + e-posta); ücretsiz planın kotası/SLA'sı
+ölçülmedi; yoklama küme **içinden** başlar (node dışındaki bir ağ arızası görünmez;
+hairpin'in **çalıştığı** 2026-10-09'da ölçüldü); yedek sinyalinin adresi kısa bir an argv'de.
+
+**(f) `tappa-signals` — M8-03'ün log kurallarının teslimatı (T118, 2026-10-11; 8. kural T122).**
+Orkestratör kümede kurdu; bu alt adım bir **sonraki** kurulum içindir. Zincir:
+
+> SigNoz kuralı (kaynağı `deploy/observability/signoz-alert-rules.json`) → SigNoz webhook
+> kanalı `tappa-healthchecks` → healthchecks.io kontrolü `tappa-signals` → Telegram + e-posta.
+
+SigNoz'un kendi e-posta özelliği **kapalı**; tek teslim yolu bu zincirdir. Uçtan uca kanıt
+(orkestratör, 2026-10-11): SigNoz'un kanal test uyarısı, bildirim kanalı bağlanmamış bir
+sonda kontrolünde `fail`/`down` üretti (sonda sonra silindi). Kuralların ne olduğu, neyi
+basitleştirdikleri ve neyin onları susturduğu *"M8-03 — UYARI KURALLARI"* bölümünün başındaki
+kutudadır.
+
+`tappa-signals`'ın ayarları — dördü de **zorunlu**, biri eksikse zincir sessizce kırılır:
+
+| Ayar | Değer | Eksikse |
+|---|---|---|
+| `filter_http_body` | `true` | gövde okunmaz; her istek *"yaşıyor"* sayılır, uyarı **hiç** gelmez (tuzak 2) |
+| `failure_kw` / `success_kw` | `firing` / `resolved` | SigNoz'un gövdesindeki durum kelimeleri; kural açıklamaları bu iki kelimeyi **taşıyamaz** (`TestSignozRules_CarryNoAddressAndNoDeliveryKeyword`) |
+| `channels` | `*` | kontrol hiçbir kanala bağlanmaz: `down` olur ve **kimseye söylemez** (tuzak 1) |
+| `timeout` / `grace` | 365 gün (API'nin üst sınırı, 31 536 000 sn) / 1 saat | bu kontrol bir ölü adam anahtarı **değildir**; kısa bir tolerans, sessiz geçen her gün için yanlış uyarı demek olurdu |
+
+Kontrol **yeni** (`new`) durumdayken uyarmaz — ilk `firing`'e kadar sessizdir. Yani *"hiç
+bildirim gelmedi"* zincirin çalıştığını **kanıtlamaz**; tek kanıt yukarıdaki uçtan uca
+denemedir ve yeniden kurulumda, orkestratörün yaptığı gibi **gerçek kontrolü çaldırmadan**
+tekrarlanır: healthchecks.io'da aynı ayarlarla ama **kanalsız** geçici bir sonda kontrolü
+kur; aşağıdaki (2)'yi koşarken adres sorusuna önce **sondanın** ping adresini ver; SigNoz
+arayüzünde kanalın düzenleme formundaki *Test* ile sondada `down` gör; sonra aynı formda
+adresi `tappa-signals`'ınkiyle değiştir ve sondayı sil.
+
+🔴 **Sinyal adresi bir SIRdır** — bilen biri `resolved` göndererek açık bir uyarıyı kapatır.
+Infisical `/tappa-alerts/TAPPA_HC_SIGNALS_PING_URL`'de ve SigNoz'un kanal ayarında durur;
+repoda **yoktur** (`deploy/observability/` altında `hc-ping` ve `://` geçemez — aynı test).
+Sızarsa: healthchecks.io'da adresi yenile, Infisical'ı ve SigNoz kanalını güncelle.
+
+⚠️ **İKİ TUZAK — ikisi de ölçüldü (orkestratör, 2026-10-11):**
+
+1. **API ile kurulan bir kontrol varsayılan olarak HİÇBİR bildirim kanalına bağlanmaz.**
+   `"channels": "*"` açıkça verilmelidir (API belgesine göre `*` o an **var olan** bütün
+   entegrasyonları bağlar — sonradan eklenen bir kanal her kontrole ayrıca bağlanır).
+   Ölçüldü: `tappa-uptime` ve `tappa-backup` yalnız Telegram'a bağlıydı, e-posta
+   entegrasyonu **hiçbir** kontrole bağlı değildi — yani bu adımın 2026-10-09 metnindeki
+   *"e-postayla"* iki gün boyunca doğru değildi. Orkestratör üçünü de `*` yaptı.
+2. **HTTP gövdesinin anahtar kelime filtresi `filter_http_body`'dir; `filter_body` E-POSTA
+   gövdesidir** (healthchecks.io'ya e-postayla gelen sinyaller için). Ölçüldü: `filter_body`
+   ile kurulan kontrol `firing` taşıyan isteği **`success`** saydı — her uyarı
+   *"yaşıyor"* olarak okunuyordu.
+
+**Yeniden kurulum.** ⚠️ Bu iki blok bu repodan **koşulmadı** (yapıcı SigNoz'a ve
+healthchecks.io'ya istek atmadı); uç noktalar ve gövde biçimleri orkestratörün 2026-10-11
+kurulumundakilerdir. Değerler `read -rs` ile okunur ve curl'e **yapılandırma dosyası**
+(`-K`, `umask 077`) ya da **stdin** üzerinden verilir — hiçbiri bir sürecin argv'sine ya da
+ekrana düşmez. `printf` ve `read` kabuğun kendi komutlarıdır.
+
+(1) healthchecks.io kontrolü — panelden de kurulabilir; API'yle kurulursa gövde budur.
+`unique` var olan bir kontrolü **güncellemez**, yalnız ikincisini yaratmayı engeller: kontrol
+zaten varsa ayarlarını panelde yukarıdaki tabloyla karşılaştır. Yanıttan yalnız sırsız
+alanlar basılır (`ping_url` basılmaz).
+
+```bash
+umask 077
+HC_CFG=$(mktemp)
+printf 'healthchecks.io API key (read-write): '; read -rs HC_KEY; echo
+printf 'header = "X-Api-Key: %s"\nheader = "Content-Type: application/json"\n' "$HC_KEY" > "$HC_CFG"
+unset HC_KEY
+printf '%s' '{"name":"tappa-signals","timeout":31536000,"grace":3600,"filter_http_body":true,"failure_kw":"firing","success_kw":"resolved","channels":"*","unique":["name"]}' \
+  | curl -fsS -K "$HC_CFG" --data-binary @- https://healthchecks.io/api/v3/checks/ \
+  | jq '{name, status, timeout, grace, failure_kw, success_kw, channels}'
+rm -f "$HC_CFG"
+```
+
+Beklenen: `name` `tappa-signals`, `status` `new`, `channels` **boş değil**. Sonra kontrolün
+ping adresini panelden Infisical `/tappa-alerts/TAPPA_HC_SIGNALS_PING_URL`'e yaz.
+
+(2) SigNoz — oturum, kanal, kurallar. Sıra önemlidir: kurallar kanalı **adıyla** anar,
+yani kanal önce kurulur. Kurallar ikinci kez gönderilirse aynı adla **ikinci** bir kopya
+doğar — taze olmayan bir SigNoz'da önce *Alerts*'te var olanlara bak.
+
+```bash
+umask 077
+SIGNOZ=https://signoz.everva.com.tr
+SZ_CFG=$(mktemp)
+printf 'SigNoz admin e-mail: '; read -rs SZ_EMAIL; echo
+printf 'SigNoz admin password: '; read -rs SZ_PASS; echo
+SZ_ORG=$(printf 'url = "%s/api/v2/sessions/context?email=%s"\n' "$SIGNOZ" "$(printf '%s' "$SZ_EMAIL" | jq -sRr @uri)" | curl -fsS -K - | jq -r '.data.orgs[0].id')
+[ -n "$SZ_ORG" ] && [ "$SZ_ORG" != null ] && echo 'org ok'
+printf 'url = "%s/api/v2/sessions/email_password"\nheader = "Content-Type: application/json"\n' "$SIGNOZ" > "$SZ_CFG"
+SZ_TOKEN=$(printf '%s\n%s\n%s\n' "$SZ_EMAIL" "$SZ_PASS" "$SZ_ORG" | jq -Rn '[inputs] | {email: .[0], password: .[1], orgId: .[2]}' | curl -fsS -K "$SZ_CFG" --data-binary @- | jq -r '.data.accessToken')
+unset SZ_EMAIL SZ_PASS
+[ ${#SZ_TOKEN} -gt 20 ] && [ "$SZ_TOKEN" != null ] && echo 'token ok'
+printf 'header = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\n' "$SZ_TOKEN" > "$SZ_CFG"
+unset SZ_TOKEN
+printf 'tappa-signals ping URL: '; read -rs HC_SIGNALS_URL; echo
+printf '%s' "$HC_SIGNALS_URL" | jq -Rs '{name: "tappa-healthchecks", webhook_configs: [{send_resolved: true, url: .}]}' \
+  | curl -sS -K "$SZ_CFG" --data-binary @- -o /dev/null -w 'channel: HTTP %{http_code}\n' "$SIGNOZ/api/v1/channels"
+unset HC_SIGNALS_URL
+jq -c '.[]' deploy/observability/signoz-alert-rules.json | while IFS= read -r RULE; do
+  printf '%s' "$RULE" | curl -sS -K "$SZ_CFG" --data-binary @- -o /dev/null -w '%{http_code} ' "$SIGNOZ/api/v1/rules"
+  printf '%s' "$RULE" | jq -r .alert
+done
+rm -f "$SZ_CFG"
+```
+
+Beklenen: `org ok`, `token ok`, `channel: HTTP 2xx` ve dosyadaki her kural için bir satır `2xx tappa <n>: …`. İlk
+ikisinden biri gelmezse **dur** — sonraki çağrılar boş bir kimlikle gider. 🔴
+**`send_resolved: true` zorunludur:** yoksa kapanış bildirimi hiç gönderilmez ve
+`tappa-signals` ilk ateşten sonra **sonsuza dek** `down` kalır — sonraki her uyarı o
+gürültünün içinde kaybolur. ⚠️ Canlı kanalda bu ayarın açık olduğu bu repodan
+**doğrulanmadı**; SigNoz arayüzünün kanal ayarlarında `tappa-healthchecks`'i açıp gör.
+Son olarak SigNoz → *Alerts*: dosyadaki bütün kurallar, durumları `inactive` (hatasız değerlendiriliyor)
+— `firing` görünürse o gerçek bir uyarıdır. Kural JSON'unun `version` alanı `v5`'tir; bu
+SigNoz `v4`'ü **reddediyor** (ölçüldü).
 
 **Testler** (yalnız bu adımın; tam takım değil):
 `go test ./cmd/tappa/ -run 'TestHeartbeat_|TestBackup_|TestBackupShip_|TestCronJobs_'` —
-on üç test, adlarının öneki bunlardır. ⚠️ Yanlış önekle süzülen bir `-run` hiçbir testi
-koşmaz ve `ok` basar — yeşil ama boş.
-🔴 **`Q28 (a)`'nın KALANI açık:** M8-03'ün yedi log sinyali hâlâ hiçbir yere gönderilmiyor
-(sınır 25) — bu adım yalnız log **dışı** iki sinyali kapatır. `Q28 (b)` (log saklama) açık
-(sınır 24).
+on üç test, adlarının öneki bunlardır. (f)'nin kuralları:
+`go test ./cmd/tappa/ -run 'TestSignozRules_'` — beş test. ⚠️ Yanlış önekle süzülen bir
+`-run` hiçbir testi koşmaz ve `ok` basar — yeşil ama boş.
+🔴 **`Q28 (a)`:** M8-03'ün log sinyalleri 2026-10-11'den beri (f) üzerinden teslim
+ediliyor (o gün yedisi; 8.si T122'de, 2026-10-13'te kümeye kuruldu);
+kalanı — SigNoz'un tek başına ölümü, basitleştirmeler, tek kontrolün bütün kuralları
+taşıması — sınır 25'te sayılı. `Q28 (b)` (log saklama) açık (sınır 24).
 
 ---
 
@@ -1509,6 +1631,21 @@ kubectl --context hetzner-k8s-1 -n tappa rollout restart deployment/tappa
 kubectl --context hetzner-k8s-1 -n tappa rollout status deployment/tappa --timeout=180s
 ```
 
+**Sonra deploy'u yeniden koştur (T119).** Operatör host'unun iki Ingress'ini (`41-operator-ingress.yaml`)
+`deploy.yml` yalnız `tappa-secrets`'ta `TAPPA_OPERATOR_HOST` 0 bayttan büyükken ve rollout
+beklendikten sonra uygular; bu adıma kadarki her deploy *"the operator surface is off"* notunu basıp
+41'i atlamıştır (taze kümede doğru olan budur). Yani yüzey ilk kez açılıyorsa `ops.taptime.mt` ancak
+bir sonraki deploy'da yönlendirilir:
+
+```bash
+gh workflow run deploy.yml --ref main
+# beklenen: "Preflight — the operator host is routed only to a server that gates it" adımı
+# `operator-surface: on` basar, "Roll out the server" 41'i uygular, "Gate — the operator host
+# must not serve the customer product" `303 to /operator ... (try N)` basar -- 41 yeni
+# yaratıldığı için ilk denemeler 404 görebilir (denetleyici yeni Ingress'i eşzamansız
+# yapılandırır); yoklama 404'ü ~90 sn boyunca yeniden dener, sonra kırmızı biter
+```
+
 **Doğrulama — başlangıç satırı.** Her süreç tam olarak biri olan bir olgu yazar (yokluğu
 okumamak için; KEK döndürme kapısının gerekçesi):
 
@@ -1548,8 +1685,10 @@ curl -sS -o /dev/null -w '%{http_code}\n' https://taptime.mt/operator
 (OP-8: operatör host'unun kendisi — `https://ops.taptime.mt/operator/login` — `40-ingress.yaml`
 ile **erişilemez**: o dosya bu host için kural taşımaz. Host'un iki Ingress'i
 `41-operator-ingress.yaml`'dadır — 2026-10-09'dan beri canlıda (elle), T112'den beri ağaçta ve
-`deploy.yml`'de; bkz. *"Uygulandı: K2"* bölümü. K4 (IP kısıtı) hâlâ açık. ⚠️ Yüzey kapalıyken
-o Ingress'ler `ops.taptime.mt`'de müşteri ürününü açar: aşağıdaki *"Geri alma"*.)
+`deploy.yml`'de; bkz. *"Uygulandı: K2"* bölümü. K4: IP kısıtı **yok** (karar 2026-10-14). ⚠️ Yüzey
+kapalıyken o Ingress'ler `ops.taptime.mt`'de müşteri ürününü açar; T119'dan beri deploy 41'i yalnız
+yüzey yapılandırılmışken uygular ve nesneler yüzeyden uzun yaşıyorsa hiçbir şey uygulamadan kırmızı
+biter: aşağıdaki *"Geri alma"*.)
 
 (`pg_stat_activity`'de bir `tappa_operator` bağlantısı aramak bir kanıt DEĞİLDİR: havuz
 boştaki bağlantıyı en çok ~30 dk tutar — pgxpool `MaxConnIdleTime` — ve `MinConns` 0'dır,
@@ -1584,24 +1723,21 @@ yüzeyi `unavailable` bırakır.
 
 ### Geri alma — yüzeyi kapat
 
-🔴 **Önce operatör host'unun iki Ingress'i (T112'den beri).** Dört anahtar gidince uygulama
-operatör-host kapısını (`operatorHostOnly`) **bağlamaz**; `deploy/k8s/41-operator-ingress.yaml`
-ise `ops.taptime.mt`'yi hâlâ aynı Service'e yönlendirir — o host müşteri ürününün ikinci,
-kapısız bir origin'i olur (gerekçe: *"Uygulandı: K2"* bölümü). Sıra: (1) bir commit
-`deploy.yml`'deki `kubectl apply -f deploy/k8s/41-operator-ingress.yaml` satırını kaldırır —
-yoksa sıradaki deploy nesneleri geri yaratır (ve `TestPackaging_TheDeployAppliesEveryIngressFile`
-dosya ağaçta kaldıkça satırı ister: dosyayı da kaldır ya da pini aynı commit'te güncelle);
-(2) nesneleri **cluster-admin** ile sil — deploy kimliğinin `ingresses` üzerinde `delete`
-yetkisi yok (`01-rbac.yaml`):
+🔴 **Operatör host'unun iki Ingress'i yüzeyle birlikte gider (T112; sıra T119'dan beri).** Dört
+anahtar gidince uygulama operatör-host kapısını (`operatorHostOnly`) **bağlamaz**;
+`deploy/k8s/41-operator-ingress.yaml`'ın nesneleri ise `ops.taptime.mt`'yi hâlâ aynı Service'e
+yönlendirir — o host müşteri ürününün ikinci, kapısız bir origin'i olur (gerekçe: *"Uygulandı: K2"*
+bölümü). **T119'dan beri commit gerekmez:** `deploy.yml` 41'i yalnız `tappa-secrets`'ta
+`TAPPA_OPERATOR_HOST` 0 bayttan büyükken uygular, ve anahtar yokken nesneler duruyorsa
+**hiçbir şey uygulamadan** kırmızı biter (`scripts/verify-deployment.sh operator-surface`; adım
+*"Preflight — the operator host is routed only to a server that gates it"*). Nesneleri yine
+**cluster-admin** siler — deploy kimliğinin `ingresses` üzerinde `delete` yetkisi yok
+(`01-rbac.yaml`). Sıra bu yüzden **yama → sil → yeniden başlat**:
 
-```bash
-kubectl --context hetzner-k8s-1 -n tappa delete ingress tappa-operator tappa-operator-legal
-# beklenen: iki satır deleted; host artık uygulamaya ulaşmaz (varsayılan arka uç, ölçülmedi)
-```
-
-Acil durumda (2) (1)'den önce gelebilir — ama **sıradaki deploy'dan önce** ikisi de yapılmış
-olmalı. `ops-taptime-tls` sırrı kalır; cert-manager'ın bu Ingress'ten türettiği `Certificate`'ın
-silinmeyle gidip gitmediği ölçülmedi. Sonra (3) aşağıdaki anahtar yaması:
+(1) dört anahtarı tek yamada kaldır — **`rollout restart` HENÜZ YOK.** Çalışan pod'lar ortamlarını
+açılışta okudu, kapıyı taşımaya devam ederler; bu arada koşan bir deploy anahtarın gittiğini ve
+nesnelerin durduğunu görür ve rollout'tan **önce** kırmızı biter, yani kapılı pod'lar kapısız
+olanlarla değişmez:
 
 ```bash
 kubectl --context hetzner-k8s-1 -n tappa patch secret tappa-secrets --type json -p '[
@@ -1609,10 +1745,31 @@ kubectl --context hetzner-k8s-1 -n tappa patch secret tappa-secrets --type json 
   {"op":"remove","path":"/data/TAPPA_OPERATOR_TOTP_KEK"},
   {"op":"remove","path":"/data/TAPPA_OPERATOR_TOKEN_HMAC_KEY"},
   {"op":"remove","path":"/data/TAPPA_OPERATOR_HOST"}]'
+```
+
+(2) iki nesneyi sil:
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa delete ingress tappa-operator tappa-operator-legal
+# beklenen: iki satır deleted. Host artık uygulamaya ulaşmaz; kümenin varsayılan sunucusu
+# cevaplar -- ölçüldü 2026-10-14, hiçbir Ingress'in yönlendirmediği bir ad için (curl --resolve
+# ile origin'e, salt-okur): `/` -> 404 text/html, `/healthz` -> 200 boş gövde (denetleyicinin
+# kendi /healthz'i; bu yüzden T119'un yoklaması /healthz'e değil `/`'ye bakar)
+```
+
+`ops-taptime-tls` sırrı kalır; cert-manager'ın bu Ingress'ten türettiği `Certificate`'ın silinmeyle
+gidip gitmediği ölçülmedi. (3) pod'ları yeniden başlat ve rolün girişini kapat:
+
+```bash
 kubectl --context hetzner-k8s-1 -n tappa rollout restart deployment/tappa
 kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
     sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "ALTER ROLE tappa_operator NOLOGIN PASSWORD NULL"'
 ```
+
+Acil durumda (2) (1)'den önce gelebilir; ama o aralıkta koşan bir deploy anahtarı hâlâ görür ve
+nesneleri **yeniden yaratır** (41'i uygular) — o zaman (2)'yi (1)'den sonra yinele. (1)–(3)'ten
+sonraki deploy 41'i atlar (*"the operator surface is off"* notu) ve rollout'tan sonraki yoklama
+`ops.taptime.mt` için `404 -- not routed to the application, as the surface is off` basar.
 
 Dördü yine **tek** yamada (yarım küme yok); sonra başlangıç satırı `"operator_surface":"off"`.
 
@@ -1620,8 +1777,9 @@ Dördü yine **tek** yamada (yarım küme yok); sonra başlangıç satırı `"op
 sonraki eşitleme (`refreshInterval: 1h`, ya da `ExternalSecret`'e dokunan ilk değişiklik)
 silinen anahtarları Secret'a geri yazar ve yüzey bir sonraki yeniden başlamada geri açılır.
 Sıra: önce canlı `ExternalSecret`'in `data:` listesinden dört `TAPPA_OPERATOR_*` girdisini
-**birlikte** kaldır ve uygula, eşitlemeyi zorla, Secret'ta kalmadığını doğrula; **ondan
-sonra** `rollout restart` ve `NOLOGIN` satırları:
+**birlikte** kaldır ve uygula, eşitlemeyi zorla, Secret'ta kalmadığını doğrula (bu, yukarıdaki
+(1)'in yerini alır); **ondan sonra** (2) iki Ingress'i sil ve (3) `rollout restart` ve `NOLOGIN`
+satırları:
 
 ```bash
 # (canlı ExternalSecret manifestinden dört girdi kaldırılıp uygulandıktan sonra)
@@ -1960,7 +2118,7 @@ bağlanır ve sorgular yalnız `usename = 'tappa_operator'` satırlarını seçe
   bir damga verebilir — ölçülmedi. Geliştirme makinesi ↔ DB farkı: **~1 ms** (test log'u);
   üretimdeki fark ölçülmedi.
 
-### Uygulandı: K2 — `ops.taptime.mt`'nin iki Ingress'i (2026-10-09 elle; T112 ile repoda) · K4 hâlâ açık
+### Uygulandı: K2 — `ops.taptime.mt`'nin iki Ingress'i (2026-10-09 elle; T112 ile repoda) · K4: IP kısıtı yok (karar 2026-10-14)
 
 **Durum.** 2026-10-09'da operatör yüzeyi açılırken bu bölümün o günkü **taslağı** (iki Ingress,
 IP kısıtı yok) `kubectl apply` ile **elle** uygulandı; `deploy.yml` onu uygulamadığı için küme
@@ -1969,7 +2127,9 @@ Artık iki nesne **`deploy/k8s/41-operator-ingress.yaml`**'dadır ve `deploy.yml
 the server"* adımı onu `40-ingress.yaml`'dan hemen sonra uygular — aynı kimlik, aynı fiiller
 (`01-rbac.yaml`: `ingresses` → `get, list, create, patch`; **yeni yetki yok**). Pin:
 `TestPackaging_TheDeployAppliesEveryIngressFile` (ağaçtaki her Ingress dosyası deploy'da
-uygulanır; T112'nin sınıfı Ingress'ler için kapalı).
+uygulanır; T112'nin sınıfı Ingress'ler için kapalı). ⚠️ **T119 (2026-10-14):** "hemen sonra"
+artık geçerli değil — 41 rollout **beklendikten sonra** ve yalnız yüzey yapılandırılmışken
+uygulanır; aşağıdaki *"T119 — üç kapı"*.
 
 Dosya, orkestratörün 2026-10-10'da aldığı canlı dökümle (status, managedFields ve
 last-applied atılmış) **alan alan aynıdır**: iki belge PyYAML ile bütün olarak karşılaştırıldı,
@@ -2019,6 +2179,10 @@ host'unun sırrı değil, yani takılan bir ops sınaması müşteri sertifikas�
 Cloudflare kenar adresi değil). ⚠️ `deploy.yml`'in Cloudflare kapısı
 (`scripts/verify-deployment.sh cloudflare`) yalnız `taptime.mt`'yi yoklar; `ops.taptime.mt`
 için bir kapı **yoktur** (bugün tap işlemediği için; K4 gelirse gerekir — aşağıda).
+→ **T119 (2026-10-14): kapı eklendi** (*"Preflight — the operator hostname must NOT be proxied
+by Cloudflare"*), K4'süz de — gerekçe aşağıdaki *"T119 — üç kapı"*. Yeniden ölçüldü
+(2026-10-14, dışarıdan, salt-okur): `dig +short ops.taptime.mt` → `144.76.158.60`; `curl -sSI -k
+https://ops.taptime.mt/healthz` → `HTTP/2 404`, `cf-ray` yok.
 
 🔴 **Bu iki Ingress yalnız yüzey YAPILANDIRILMIŞKEN zararsızdır.** Uygulamanın müşteri
 yarısındaki host kapısı (`internal/httpx/operatorhost.go`, `operatorHostOnly`) operatör
@@ -2037,20 +2201,123 @@ bunu da pinler): sıra yukarıdaki *"Geri alma — yüzeyi kapat"*ta. ⚠️ **T
 aralık kendiliğinden doğar: yüzey ancak ilk deploy'dan SONRA yapılandırılabilir (OP-7'nin
 sırası: 00026 önce iner), ve o deploy 41'i de uygular — DNS o kümeye bakıyorsa, OP-7'nin 3.
 adımına kadar `ops.taptime.mt` müşteri ürününü sunar. O adımı ilk deploy'un hemen ardından koş.
+→ **T119 (2026-10-14): bu aralık artık doğmaz** — taze kümedeki deploy 41'i uygulamaz (yüzey
+kapalı); OP-7'nin 5. adımından sonra deploy yeniden koşturulur (o bölümde).
 
-**K4 — hâlâ AÇIK (kullanıcı kararı).** Bugün **hiçbir** kaynak adres kısıtı yok; dosya bunu
-yer tutucu yorumlarla söyler, kısıt varmış gibi yapmaz. Karar verilirse: (1) liste **iki
-kaynağa da** yazılır — ek açıklama kaynak başınadır, yalnız birine yazılırsa öbür yol (ör.
-`/operator/legal`) her adrese açık kalır; (2) ek açıklamanın adı kümenin ingress-nginx sürümüne
-göre doğrulanır (eski sürümler `whitelist-source-range`, yeniler `allowlist-source-range`
-okur — ölçülmedi); (3) liste ancak kayıt **DNS-only** kaldıkça anlamlıdır: proxy (turuncu
-bulut) açıksa ingress istemciyi değil kenarın adresini görür ve liste kenarı sınar;
-`use-forwarded-headers` + `proxy-real-ip-cidr` (40-ingress.yaml'ın (b) seçeneği) PAYLAŞILAN
-ConfigMap'tedir (~20 uygulama) ve CIDR yanlışsa origin'e doğrudan gelen biri sahte
-`X-Forwarded-For` ile listeyi geçer — bu yüzden K4 ile birlikte `deploy.yml`'e
-`cloudflare ops.taptime.mt` kapısı da gelmeli; (4) liste eklenince
-`TestPackaging_TheOperatorIngressesAreTheLiveObjects` bilerek kırmızıya döner ve listeyle
-birlikte güncellenir (canlıyı değiştiren bir alan).
+**T119 — üç kapı (2026-10-14).** Seçenekler ölçüldü (kart: T119); uygulanan (A) + (C) + Cloudflare
+kapısı, (B) uygulanmadı:
+
+- **(A) Koşullu uygulama — ön kapı.** `deploy.yml`'in *"Preflight — the operator host is routed
+  only to a server that gates it"* adımı, hiçbir şey uygulanmadan önce,
+  `scripts/verify-deployment.sh operator-surface tappa` koşar. **`tappa-secrets`'ın hiçbir değeri
+  okunmaz** (2. tur): `kubectl describe secret tappa-secrets` anahtar adlarını ve **bayt
+  sayılarını** basar, değerleri tasarım gereği basmaz, ve yalnız `TAPPA_OPERATOR_HOST`'un bayt
+  sayısı ayrıştırılır; describe'ın çıktısı doğrudan `awk`'a gider, bir kabuk değişkenine girmez
+  ve basılmaz. Yetki: deploy kimliğinin **zaten sahip olduğu** `get` (`01-rbac.yaml`, tek
+  `resourceName`; yeni fiil yok). Ölçüldü (k8s.io/kubectl v0.35.4'ün `SecretDescriber`'ı, kazıma
+  modülde sahte bir clientset'e karşı, kümeye bağlanmadan): tek API çağrısı `get secrets` (olay
+  listesi yok); çıktı `KEY:  N bytes` satırları; `last-applied` ek açıklaması atlanır; marker
+  değerler çıktıda yok. (Tek istisnası, servis hesabı türündeki bir Secret'ın kendi anahtarı —
+  bu Opaque Secret'ın değil. Secret bulunamazsa komut Secret'ları LİSTELEMEYE düşer;
+  bu kimlikte `list` yok → hata, `UNCHECKED`.) Anahtar **>0 bayt** → `on` → *"Roll out the
+  server"* 41'i rollout **beklendikten sonra** uygular (her pod anahtarla açılmış ve
+  `config.Load`'dan geçmiş olur); yok ya da **0 bayt** ve 41'in iki nesnesi yok → `off`, 41
+  atlanır (`::notice::`); yok/0 bayt ama nesneler duruyor → **kırmızı, rollout'tan önce** (deploy
+  kimliği nesneleri silemez; komut mesajda). Okumalardan biri düşerse ya da describe'ın çıktısı
+  ayrıştırılan biçimde değilse `UNCHECKED`, çıkış 2. **Pinler (4. tur: kötü yazımların listesi
+  değil, BEYAZ LİSTE — kara liste iki tur üst üste aşıldı):**
+  `TestVerifyDeployment_NothingReadsTheSecretsValues` — betik ve `deploy.yml` mantıksal
+  satırlarla okunur (yorum atılır, `\` devamları birleştirilir); kubectl taşıyan ve saf bir
+  `echo`/`printf` mesajı olmayan her satır bir çağrıdır (`sh -c '…'`, `eval`, `| sh`, tırnak
+  içi `$(…)`, heredoc gövdesi dahil); secret'ı herhangi bir harf ya da tırnakla anan her çağrı,
+  o dosyanın beyaz listesindeki satırlardan biri olmak **zorundadır** — betikte yalnız bu
+  describe, `deploy.yml`'de yalnız Secret ön kapısının varlık kontrolü; değişkende/alias'ta
+  tutulan ya da `"$@"` ile argüman aktaran kubectl reddedilir. Biçim tablosu:
+  `TestVerifyDeployment_TheSecretCallScanClassifiesEveryShape`. Çalışma anı:
+  `TestVerifyDeployment_EveryBranchTouchesTheSecretOnlyByDescribe` betiğin her modunu ve her
+  hata dalını (404 döngüsünün sonu dahil) sahte bir kubectl'e karşı koşar; kaydedilen
+  çağrılardan secret anan tek çağrı `describe secret tappa-secrets`'tır ve betiğin bastığı her
+  `::error::`/`::warning::`/`::notice::` en az bir koşuda basılmış olmalıdır (sürülmeyen dal
+  kırmızı). Statik olanın göremediği tek biçim kendi satırında `$x get secret …` (değişken başka
+  yerde kurulmuş) — onu çalışma anı testi görür, dal koşulduysa.
+  ⚠️ **Tarihli not — neden değer okunmuyor (1. tur, 2026-10-14):** ön kapı önce değeri
+  `-o go-template` ile okuyup kubectl'in içinde 41'in host'uyla karşılaştırıyordu. Ölçüldü
+  (k8s.io/cli-runtime v0.35.4'ün `GoTemplatePrinter`'ı, kazıma modülde): şablon bir **çalıştırma**
+  hatası verirse kubectl nesnenin **tamamını — Secret'ın her değerini, `TAPPA_TAG_KEK` dahil,
+  base64 — stdout'a** yazar (*"raw data was: …"*). Betik onu basmıyordu; ama depo ve Actions
+  log'ları herkese açık ve tek satırlık bir düzenleme (`set -x`, bir `echo`) bütün sırları
+  yayımlardı. Savunmayı sıkılaştırmak yerine sınıf kaldırıldı (orkestratör bulgusu F1).
+- **(C) Rollout sonrası yoklama.** *"Gate — the operator host must not serve the customer
+  product"*: `verify-deployment.sh operator-host "$OPERATOR_SURFACE" ops.taptime.mt` host'un
+  `/`'sine `HEAD` atar ve cevabı **ön kapının kelimesine göre** yargılar (`OPERATOR_SURFACE` aynı
+  adımın çıktısından). **`/healthz` değil, ölçüldüğü için:** bu kümenin ingress-nginx'i hiçbir
+  Ingress'in yönlendirmediği bir ada `/healthz` için **200** (boş gövde) döner — kapısız
+  uygulamanın verdiği durumun aynısı. `/` üçünü ayırır (ölçüldü 2026-10-14, dışarıdan,
+  salt-okur): kapısız uygulama `200` (açılış sayfası; `taptime.mt`), kapılı uygulama
+  `303 → /operator` (`ops.taptime.mt`), yönlendirilmeyen ad `404`. Sözlük (3. tur):
+
+  | Kelime | geçer (pass, çıkış 0) | VIOLATION (çıkış 1) | UNCHECKED |
+  |---|---|---|---|
+  | `on` | **yalnız** `303 → /operator` | `2xx`, hemen | `404` 18 denemede de (5 sn arayla, ~90 sn) → çıkış 1; başka her cevap → çıkış 1; ad çözülmüyor → uyarı, çıkış 0 |
+  | `off` | `404`; çözülmeyen ad | `2xx` | başka her cevap (`303` dahil) → çıkış 1 |
+  | yok (`all`'da ön kapı kelime vermediyse) | — | `2xx` | çözülmeyen ad → uyarı, çıkış 0; başka her cevap → çıkış 1 |
+
+  **Neden `on` iken 404 geçmez (3. tur, orkestratör bulgusu T119-C):** ingress-nginx yeni bir
+  Ingress'i **eşzamansız** yayına alır; 41'in ilk yaratıldığı koşuda tek bir deneme büyük
+  olasılıkla varsayılan sunucunun 404'ünü görürdü — yoklamanın yakalamak için var olduğu iki
+  durum (başka bir host'u adlandıran anahtar, yeniden başlatılmamış pod'larla yeniden koşu) tam o
+  koşuda doğar. **Neden 18 × 5 sn (gerekçe, kümede ölçülmedi):** ingress-nginx yapılandırma
+  eşitlemelerini hız sınırıyla yapar (`--sync-rate-limit`, belgelenmiş varsayılan saniyede 0,3 →
+  ~3,3 sn'de bir) ve her birinden sonra yeniden yükler; 5 sn bir eşitleme döneminden uzun, yani her
+  deneme yeni bir yapılandırma görebilir; 90 sn ~27 dönemdir — paylaşılan, yoğun bir denetleyiciye
+  yeter, işin 30 dk zaman aşımına göre kısadır. Sayılar ortamdan (`OPERATOR_HOST_PROBE_TRIES`,
+  `OPERATOR_HOST_PROBE_INTERVAL`) değiştirilebilir — testler beklemeden koşsun diye; deploy ikisini
+  de vermez. Yalnız **raporlar** (apply'dan sonra koşar), ama anahtarın bayt sayısının
+  söyleyemediğini görür: başka bir host'u adlandıran bir `TAPPA_OPERATOR_HOST` ve aynı commit'in
+  yeniden koşusu (pod yenilenmez, pod'lar açıldıkları ortamla kalır).
+- **Cloudflare kapısı `ops.taptime.mt` için de.** K4 kalktığı için XFF atlatması konu değil; ama
+  operatör girişi artık yalnız `internal/operatorauth`'un **adres başına** bütçeleriyle tutulur
+  (flood 300, iş 20, enrollment 3 / 10 dk — `limits.go`'dan okundu, proxy arkasında ölçülmedi).
+  Proxy açıkken ingress `X-Forwarded-For`'u kenarın adresiyle değiştirir ve uygulama
+  (`TAPPA_TRUSTED_PROXIES` = `10.42.0.1/32`) her istemciyi bir kenar adresi olarak görür: aynı
+  kenardan geçen bir yabancı bu bütçeleri harcayıp operatörü pencere boyunca kilitler (`429`, ya
+  da doğru parolanın reddi). Kapı `taptime.mt`'ninkinin aynısı, kendi adımında.
+- **(B) Uygulama içi — uygulanmadı.** `TAPPA_OPERATOR_HOST` boşken uygulama operatör host'unu
+  bilmez (o anahtarın kendisi); host listesi (`TAPPA_BASE_URL`'in host'u dışını reddet) kubelet
+  sondalarını (Host = pod IP'si), geliştirmeyi (`localhost`) ve testlerde 66 dosyadaki 128
+  `NewRouter` çağrısını etkiler — bir güvenlik sınırı değişikliği ve ADR ister. (A)+(C) deploy
+  yolunu kapatıyor; (B) derinlemesine savunma olarak açık iş.
+
+**Kalan, sayılı:** (i) deploy nesneleri **silemez** — yüzey kapanırken silmek operatörün (artık
+deploy bunu sessizce geçmez, kırmızı biter); (ii) ön kapı ile rollout arasında Secret'a yazılan bir
+değişiklik görülmez; (iii) aynı commit'in yeniden koşusunda pod'lar eski ortamlarıyla kalır —
+(C) bunu **raporlar**, önlemez (yüzey `on` iken 41'in yeni yaratıldığı koşuda da: 404'ü geçirmez,
+`303`'ü ya da `2xx`'i bekler); (iv) ad çözülmüyorsa (C) yüzey `on` iken UNCHECKED geçer (uyarı,
+çıkış 0), `off` iken pass — o durumda ada bir tarayıcı da ulaşamaz; (v) (B) yok: kümede elle uygulanan bir Ingress (deploy dışı) yine kapısız bir
+origin açabilir — (C) onu da görür, sonradan; (vi) **değer okunmadığı için** (A), başka bir host'u
+adlandıran bir `TAPPA_OPERATOR_HOST`'u `on` sayar (bir uzunluk karşılaştırması eşitlik değildir,
+yarım bir kontrol bilerek eklenmedi): uygulama o host'u kapılar ve `ops.taptime.mt`'de müşteri
+ürününü sunar — bunu rollout'tan sonra (C) `2xx` → VIOLATION olarak yakalar; (vii) (C)'nin
+18 × 5 sn'lik beklemesi ölçülmedi: daha yavaş bir denetleyicide `on` koşusu UNCHECKED ile kırmızı
+biter (yeniden koşturulur; fail-closed).
+
+**K4 — KARAR VERİLDİ (2026-10-14): IP kısıtı YOK.** Kullanıcının sözü: *"ip limiti olmasın"*.
+İki nesnede de kaynak adres listesi yoktur ve olmayacaktır; dosyanın yer tutucu yorumları artık
+kararı söyler. Sonucu, sayılı: çaresi *"K4"* diye yazılmış sınırlar — **L2** (dağıtık enrollment:
+dört hız anahtarı süreç geneli bütçeyi tüketir; `internal/operatorauth/limits.go`) ve **L20**
+(girişin bcrypt'i için süreç geneli tavan yok; ADR 0020 §4 OP-8 notu) — artık **çaresi olmayan**
+sayılı sınırlardır. Pin: bir `*source-range` ek açıklaması iki testi kırmızıya çevirir
+(`TestPackaging_TheOperatorIngressesAreTheLiveObjects`,
+`TestPackaging_TheOperatorIngressesShareOneHostAndOneCertificate`). Karar bir gün geri alınırsa
+eski taslağın dört kuralı geçerlidir: (1) liste **iki kaynağa da** yazılır — ek açıklama kaynak
+başınadır, yalnız birine yazılırsa öbür yol (ör. `/operator/legal`) her adrese açık kalır; (2) ek
+açıklamanın adı kümenin ingress-nginx sürümüne göre doğrulanır (eski sürümler
+`whitelist-source-range`, yeniler `allowlist-source-range` okur — ölçülmedi); (3) liste ancak
+kayıt **DNS-only** kaldıkça anlamlıdır: proxy açıksa ingress istemciyi değil kenarın adresini
+görür; `use-forwarded-headers` + `proxy-real-ip-cidr` (40-ingress.yaml'ın (b) seçeneği)
+PAYLAŞILAN ConfigMap'tedir (~20 uygulama) ve CIDR yanlışsa origin'e doğrudan gelen biri sahte
+`X-Forwarded-For` ile listeyi geçer (`cloudflare ops.taptime.mt` kapısı T119'dan beri var);
+(4) liste canlıyı değiştiren bir alandır, iki pin onunla birlikte güncellenir.
 
 **`nginx -T` — orkestratörün ölçeceği (salt-okur, ajan koşmaz).** İki kaynağın tek `server`
 bloğunda birleştiğini ve her `location`'ın kendi sınırını taşıdığını gösterir:
@@ -5486,19 +5753,72 @@ ki bu bugün ~günlerdir. İki sınırın **küçüğü** geçerlidir.
 
 ### 🔴 M8-03 — UYARI KURALLARI
 
-> **TESLİMAT KANALI YOK, VE BU DÜRÜSTÇE YAZILIYOR.** Bu kurallar bugün bir yere
-> **gönderilmiyor**: uyarının **nereye gideceği** `Q28 (a)`'da açık, ve SigNoz'un
-> uyarı kurulumu bu repodaki bir dosyaya değil, o kümedeki başka bir ürünün
-> konfigürasyonuna bağlı.
-> **Sevk edilen şey şudur: altı sinyalin altısı da log'dan HESAPLANABİLİR, alan adları
-> testle pinlenmiştir, ve eşikler yazılıdır.** Kuralı bir hedefe bağlamak
-> operatörün işi ve aşağıdaki sorgular olduğu gibi yapıştırılabilir.
+> **TESLİMAT VAR, AMA KÜMENİN İÇİNDEN BAŞLIYOR — VE ONU NEYİN SUSTURDUĞU AŞAĞIDA SAYILI.**
+> (T118, 2026-10-11; `Q28 (a)`, kullanıcı kararı: uyarılar SigNoz'dan.) Aşağıdaki tablonun
+> yedi kuralı kümedeki SigNoz'da (v0.131, `signoz.everva.com.tr`, ArgoCD `infra-signoz`)
+> **ClickHouse-SQL eşik kuralı** olarak kurulu. Kaynakları bu repoda:
+> **`deploy/observability/signoz-alert-rules.json`** (sırsız, id'siz; yeniden kurulum
+> operatör adımı 10 (f)). Zincir: kural → SigNoz webhook kanalı `tappa-healthchecks` →
+> healthchecks.io kontrolü **`tappa-signals`** (gövdede `firing` = `down`, `resolved` =
+> `up`) → Telegram + e-posta.
+> **Ölçülen (orkestratör, 2026-10-11):** yedi sorgu ClickHouse'ta son 24 saate karşı koştu
+> ve yedisi geçerli; filtrelerin dayandığı alanların gerçekten dolu geldiği ayrıca görüldü
+> (`level` {`INFO`, `ERROR`} · `operator_surface` {`off`, `configured`} · `verdict` {`flag`,
+> `reject`} · `ctr_gap` her `tap.decision`'da); yedi kural `inactive` (hatasız
+> değerlendiriliyor); uçtan uca: SigNoz'un test uyarısı bir sonda kontrolünde `down` üretti.
+> **Pinli:** dosyadaki her kuralın gövde alanları ve `msg` değerleri koddaki sabitlerle
+> (`TestSignozRules_FilterOnThePinnedNames`, `TestObservability_AlertSignalNames`'in
+> eşlemesinden), her kural bu tablonun aynı numaralı satırıyla — filtresi ve eşiği
+> satırın yazdığıyla aynı (`TestSignozRules_OneRuleForEachRunbookRow`), her sorgu
+> `tappa` namespace'i ve konteyneriyle sınırlı (`TestSignozRules_EveryQueryIsScopedToTappa`);
+> her kuralın penceresi, frekansı, `op`/`target`/`matchType`'ı ve `app`/`severity`
+> etiketleri kural başına yazılı değerlerine, pencere ayrıca satırın *"N dk'lık
+> pencere"*sine bağlı (`TestSignozRules_ConditionsAndLabelsArePinned`, T122 — o zamana
+> kadar bu alanları hiçbir test okumuyordu); dosyada adres ve healthchecks.io anahtar
+> kelimesi yok (`TestSignozRules_CarryNoAddressAndNoDeliveryKeyword`).
 >
-> **Sahibi:** kümeyi işleten operatör. **Neye bağlı:** `Q28 (a)` — uyarı hedefi
-> (**teslimat**) · `Q28 (b)` — log saklama süresi (**saklama**; bir uyarıyı
-> araştırmak için log'un hâlâ orada olması gerekir) · operatör eylemi
-> `log-retention-signoz` (SigNoz'un logları gerçekten tuttuğu süre, `Q28 (b)`'nin
-> ölçülmemiş yarısı).
+> **T122 (2026-10-13) — 8. kural dosyada, tabloda ve kümede.** Orkestratör `548f194`'ün
+> deploy'undan sonra kurdu: SigNoz'da sekiz `tappa` kuralı, 8.si `inactive`, kanal
+> `tappa-healthchecks` → `tappa-signals`. Sorgusu ClickHouse'a karşı bir kez koşuldu
+> (`/api/v5/query_range`, son 6 saat): HTTP 200, 0 seri — kontrol olarak koşulan 3. kuralla
+> aynı; yani sorgu **hatasız**, olay henüz **yok**. Uçtan uca ateşleme (olay → bildirim)
+> 8. kural için **ölçülmedi**. ⚠️ Kümede 1–7 zaten varken dosyanın tamamını adım 10 (f) (2)'deki döngüyle
+> yeniden göndermek 1–7'nin **ikinci kopyalarını** doğurur — yalnız 8. kural gönderilir
+> (dizinin sekizinci elemanı). Şiddeti `warning`: hiçbir dokunuş sessizce onaylanmaz —
+> kayıt çoğunlukla `flag` olarak yazılır ve müdür görür (§4.6); veritabanı bütünüyle
+> erişilemiyorsa kayıt da düşer ama dokunuş kişiye görünür biçimde reddedilir ve o
+> arızayı `critical` olan 6. kural taşır. Bedeli müdür kuyruğudur. Bu dosyada
+> `critical`, sunucunun bozuk olduğuna (5, 6) ya da bir güvenlik olayına (3)
+> ayrılmıştır.
+>
+> ❌ **Sayılı sınırlar — kurulu kural tablodan DARDIR ve zincirin kör noktaları var:**
+> - **Basitleştirmeler.** 1. kural *"≥ 5 reject **ve** oran > %10"*u tek ifadede tutar
+>   (5'in altında oran 0 sayılır). 2. kural *"toplam > 20 **veya** tek `matched_sid` > 10"*u
+>   tek bir 0/1 değerine indirir — hangi kolun ateşlediği bildirimde görünmez. 4. kural
+>   `ctr_gap > 10`; *"> 50 acil"* ayrımı yalnız açıklamada — ayrı kural yok. 5. kuralın
+>   *"toplam isteğin %1'i"* kolu **kurulmadı**, yalnız *"5 dk'da > 5 olay"*. 7. kural yalnız
+>   `unavailable`'ı okur; `off` bilinçli kapatılmış yüzeydir, uyarı değil.
+> - **Pencereler kayan değil, saate hizalı kovalardır** (`toStartOfInterval`; SQL'den
+>   okundu, ölçülmedi). Değerlendirme penceresi genellikle iki kovaya bölünür, yani eşiğin
+>   hemen üstünde bir patlama sınırdan ikiye ayrılıp **ateşlemeyebilir** — 1., 2. ve 5.
+>   kuralda. Eşiği `0` olan 3., 4., 6., 7. ve 8. kuralı etkilemez (tek satır yeter).
+> - **SigNoz'un kendi e-postası kapalı** — tek teslim yolu healthchecks.io (sınır 33 (a):
+>   tek sağlayıcı).
+> - **SigNoz kümede.** Küme ya da node ölürse hepsi **birlikte susar** — o durumu
+>   `tappa-uptime` (heartbeat, adım 10) yakalar. Ama SigNoz'un **tek başına** ölmesi
+>   (pod'u, ClickHouse'u, log toplayan ajan) **hiçbir yerde uyarı üretmez**:
+>   `tappa-signals`'ın toleransı 365 gündür, yani bir ölü adam anahtarı değildir (sınır 25).
+> - **Tek kontrol, bütün kurallar.** Herhangi bir kuralın `resolved`'ı kontrolü `up`'a çeker —
+>   başka bir kural hâlâ ateşteyken bile; ve kontrol zaten `down` iken ikinci bir kuralın
+>   ateşlenmesi **yeni bildirim üretmez** (healthchecks.io durum **değişiminde** bildirir).
+>   Bu tasarımın sonucudur, **ölçülmedi**. Hangi kuralların ateşte olduğunu SigNoz →
+>   *Alerts* söyler.
+> - **Log saklama `Q28 (b)` hâlâ açık** (sınır 24, operatör eylemi `log-retention-signoz`)
+>   — bir uyarıyı araştırmak için log'un hâlâ orada olması gerekir.
+>
+> **Sahibi:** kümeyi işleten operatör (SigNoz ve healthchecks.io hesabı). **Neye bağlı:**
+> `Q28 (b)` — log saklama süresi (**saklama**) · operatör eylemi `log-retention-signoz`
+> (SigNoz'un logları gerçekten tuttuğu süre, `Q28 (b)`'nin ölçülmemiş yarısı).
 >
 > ⚠️ **BURADA BİR TUR BOYUNCA `Q12` YAZIYORDU VE ÜÇ YERDE YANLIŞTI.** `Q12`
 > ***barındırma*** sorusudur (VPS sağlayıcı, managed Postgres, AB bölgesi, yedek
@@ -5517,15 +5837,16 @@ ki bu bugün ~günlerdir. İki sınırın **küçüğü** geçerlidir.
 > durumda aşağıdaki alan filtreleri **hiçbir satırla eşleşmez**, ki bu ekranda
 > *"hiç reject yok, hiç 5xx yok"* diye görünür — sessiz ölüm.
 
-> ⚠️ **T116 (2026-10-09) — bu tablonun DIŞINDA iki sinyal artık teslim ediliyor:** halka
+> ⚠️ **T116 (2026-10-09) — bu tablonun DIŞINDA iki sinyal de teslim ediliyor:** halka
 > açık `/healthz`'in 200 dönmemesi (kümenin ölümü dahil — o zaman hiç sinyal gelmez) ve
-> gecelik yedeğin sonucu, healthchecks.io'nun ölü adam anahtarı üzerinden e-postayla
-> (operatör adımı 10, sınır 33). **Bu tablonun yedi kuralı için yukarıdaki *"teslimat
-> kanalı yok"* cümlesi aynen geçerlidir** — `Q28 (a)`'nın kalanı.
+> gecelik yedeğin sonucu, healthchecks.io'nun ölü adam anahtarı üzerinden (operatör adımı
+> 10, sınır 33). ~~Bu tablonun yedi kuralı için *"teslimat kanalı yok"* cümlesi aynen
+> geçerlidir.~~ → **T118 (2026-10-11): yedi kural da aynı sağlayıcıya, `tappa-signals`
+> üzerinden gidiyor** (yukarıdaki kutu).
 
-**Yedi sinyal**, dört olaydan ve bir açılış satırından hesaplanır (aşağıdaki tablo yedi
+**Sekiz sinyal**, beş olaydan ve bir açılış satırından hesaplanır (aşağıdaki tablo sekiz
 satırdır; bir tur boyunca burada *"beş"* yazıyordu ve 6. kural eklendikten sonra belge
-kendisiyle çelişiyordu; 7. kural M10 OP-8'de eklendi — sınır 32):
+kendisiyle çelişiyordu; 7. kural M10 OP-8'de eklendi — sınır 32; 8. kural T122'de):
 
 | # | Sinyal | Olay (`msg`) | Filtre | Eşik / pencere | Ne anlama gelir | İlk bakılacak yer |
 |---|---|---|---|---|---|---|
@@ -5536,12 +5857,15 @@ kendisiyle çelişiyordu; 7. kural M10 OP-8'de eklendi — sınır 32):
 | 5 | **5xx oranı** | `http.request` | `level = "ERROR"` (yani `status >= 500`) | 5 dk'lık pencerede **> 5** olay **veya** toplam isteğin **%1**'i | Sunucu bozuk. Panik `middleware.Recoverer` tarafından 500'e çevrilir ve **bu olayda görünür**. 🔴 **Sağlık sondaları bu olayın DIŞINDADIR** — aşağıdaki bloğa bak; `/readyz`'in 503'ü tasarımdır ve bu kuralı ateşlemez, ama `/readyz`'den gelen bir **500** ateşler. | `route` + `request_id`; aynı `request_id` ile o isteğin diğer satırları |
 | 6 | **hazırlık kaybı** | `readiness.lost` | olayın kendisi | **≥ 1** olay = uyarı. Pencere yok. Kapanışı `readiness.regained`'dir. | Veritabanı cevap vermiyor, `/readyz` 503 dönüyor ve pod rotasyondan düşüyor (M8-01). 🔴 **M8-03 4. TUR: kayıt artık sürücünün METNİNİ taşımıyor.** Bir tur boyunca taşıyordu ve bu, `health.go`'nun aynı metni kimliksiz bir HTTP çağıranından esirgeme gerekçesiyle çelişiyordu (rol · veritabanı · host · port · TLS duruşu — ölçüldü; **parola yok**). Yerine iki alan geçti: `err_class` **kapalı kümedir** (`server` · `timeout` · `canceled` · `dns` · `dial` · `other`) ve `err_cause` adres taşımayan en özgül sebeptir — `server` için **SQLSTATE** (yanlış parola `28P01`, olmayan veritabanı `3D000`), `dial` için çağrının kendi kelimesi (`connect: connection refused`), `dns` için `no such host`. **Kaybedilen:** sürücünün cümlesi; `other` sınıfı sebep taşımaz. | `err_class`, sonra `err_cause`; ardından bölüm 1'deki `connection refused` ve bölüm 5'teki DNS akışı |
 | 7 | **operatör yüzeyi ulaşılamaz** (M10 OP-8) | açılış satırı — `msg` bir cümledir, filtre ALANDADIR | `operator_surface = "unavailable"` | **≥ 1** olay = uyarı. Pencere yok. Kapanışı bir sonraki açılışın `"operator_surface":"configured"` satırıdır. | Operatör yapılandırması tam ama süreç açılırken operatör veritabanına **ulaşılamadı** (ağ, ad çözümü, zaman aşımı, `28P01` yanlış parola, `3D000` veritabanı yok, sunucu dolu/açılıyor/kapanıyor — `internal/db` `unreachableSQLSTATEs`); `/operator` ve altı 503 (`TestSurface_OffAnswers503UnderThePrefixAndNowhereElse`; bu 503 tasarımdır ve 5. kuralı ateşlemez — sınır 32), müşteri ürünü servis verir. **Süreç yeniden denemez:** nedeni düzelt, sonra rollout. Satır süreç açılışında **bir kez** yazılır; log döndürülmüşse sinyal gitmiştir (6. kuralın aynı daralması). | `err` alanı (bir kod: sunucunun mesajını taşımadığını `internal/db`'nin `TestOperatorConnectErr_OnlyTheTableIsUnreachable`'ı tablosunun SQLSTATE'lerinde ölçer; `TestOpenOperatorSurface_PrintsNoValue`'nun sürdüğü değerlerden DSN ve parola ham biçimiyle, iki anahtar base64, hex ve ondalık liste biçimleriyle satırda bulunmadı), sonra *"Operator surface (M10 OP-7)"* bölümünün 5. adımı |
+| 8 | **dokunuş yalnız guardrail'lerle karar verdi** (T122) | `policy.guardrails_alone` | olayın kendisi | 15 dk'lık pencerede **≥ 1** olay = uyarı | `forTenant` işletmenin politika kümesini kuramadı (okuyamadı, yazamadı ya da yazdıktan sonra tamamlayamadı/ayrıştıramadı) ve dokunuşa **yalnız guardrail'lerle** karar verdi. Hiçbir baseline ifadesi eşleşemediği için `ok` olacak dokunuş **çoğunlukla `flag` olarak yazılır** ve müdür kuyruğuna düşer (§4.6). ⚠️ Veritabanına **bütünüyle** ulaşılamıyorsa kaydı yazacak `WithTenant` da düşer: kayıt yazılmaz, kişiye yeniden dokunması söylenir — o durumda 6. kural da ateşler. T121'den (`f2c7771`) sonra bilinen zararsız kaynağı yok — eşzamanlı ilk dokunuşların 23505'i kapandı —, yani tek satır gerçek bir sorundur. ⚠️ Panelin `StoredSet` okuması bu olayı **basmaz**: oradaki geri düşüş bir yetki reddidir ve hiç dokunulmamış bir işletmede beklenen durumdur. ⚠️ İsteğin **kendi** bağlamı bittiyse (istemci gitti ya da `httpx.RequestTimeout` doldu) olay da **basılmaz**: o dokunuş zaten kaydedilmez (kaydı yazacak `WithTenant` aynı ölü bağlamla düşer); yerine sayfalamayan bir WARN cümlesi yazılır (`reason` taşır). İstek canlıyken sürücünün kendi zaman aşımı ise sayfalar. | `tenant_id` (hangi işletme) ve `reason` (hangi yol): `load_failed` / `reload_failed` = politika katmanı okunamadı (önce 6. kural ve `sqlstate`; `42501` bir GRANT kaymasıdır) · `materialise_failed` = eksik baseline yazılamadı (`sqlstate` + `constraint` hangi ifadenin düştüğünü söyler; örnekler: `23505` = bir benzersiz indekste çakışma — T121'in kapattığı sınıf geri gelmiş olabilir —, `23503` = aynı adla ama türetilmemiş bir id'yle duran bir `policies` satırı, `db/queries/policies.sql`'in *foreign-id container* notu) · `incomplete_after_materialise` = yazıldı, geri okundu, hâlâ eksik; SQL hatası yok, çoğu zaman saklı bir baseline belgesini bu sürüm okuyamıyor (ör. bir kod geri alımından sonra) — panelin kural sayfası onu gösterir. `sqlstate` ve `constraint` yalnız bir PostgreSQL hatası varsa yazılır; `Detail` **bilerek yazılmaz** (satır değeri taşır) |
 
 **Yapıştırılabilir SigNoz/ClickHouse tarzı filtreler** (alan adları koddaki
 sabitlerdir ve `TestObservability_AlertSignalNames` ikisinin aynı kaldığını
 denetler; **filtrelerde geçen her `sys:`/`base:` adının `internal/policy`'de
 gerçekten var olduğunu** `TestObservability_EverySidInTheAlertRulesExists`
-denetler — aşağıdaki nota bak):
+denetler — aşağıdaki nota bak). Bunlar **elle arama** içindir; **kurulu** kuralların tam
+SQL'i `deploy/observability/signoz-alert-rules.json`'dadır ve aynı sabitlere bağlıdır
+(yukarıdaki kutu):
 
 ```
 # 1 — reject oranı
@@ -5564,6 +5888,9 @@ body.msg = "readiness.lost"
 
 # 7 — operator yuzeyi ulasilamaz (acilista bir kez; tek satir bile uyaridir)
 body.operator_surface = "unavailable"
+
+# 8 — dokunus yalniz guardrail'lerle karar verdi (tek satir bile uyaridir) — yolu reason soyler
+body.msg = "policy.guardrails_alone"                     # group by body.reason, body.sqlstate
 ```
 
 > 🔴 **BU TABLODA BİR ZAMANLAR OLMAYAN BİR SID YAZIYORDU, VE ONU KURALI YAZAN TUR
@@ -6324,7 +6651,25 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     ⚠️ `Q12` (barındırma) bu maddeye **dolaylı** bağlıdır: nerede barındığımız node
     kopyasının rotasyon ayarını ve toplayıcının varlığını belirler. Ama *"ne kadar
     saklanacak"* sorusu `Q28 (b)`'dir, `Q12` değil.
-25. **[uyarıların TESLİMAT KANALI yok]** — M8-03'ün üçüncü kriteri **hesaplanabilirlik**
+25. **[uyarıların teslimatı: ~~kanal yok~~ → kümenin İÇİNDEN, tek kontrol üzerinden]** —
+    🔴 **T118 (2026-10-11) — TESLİMAT KURULDU, kör noktaları sayılı.** Yedi kural kümedeki
+    SigNoz'da ClickHouse-SQL eşik kuralı olarak koşuyor (kaynak
+    `deploy/observability/signoz-alert-rules.json`, `TestSignozRules_` testleri) ve
+    `tappa-healthchecks` webhook'u → healthchecks.io `tappa-signals` → Telegram + e-posta
+    üzerinden gidiyor (operatör adımı 10 (f); *"M8-03 — UYARI KURALLARI"* kutusu).
+    ❌ **Kapanmayan, sayılı:** (a) **SigNoz'un tek başına ölmesi sessizdir** — SigNoz
+    pod'u, ClickHouse ya da log toplayan ajan durursa kurallar değerlendirilmez ve hiçbir
+    şey bunu söylemez; `tappa-signals`'ın toleransı 365 gün (ölü adam anahtarı değil).
+    Kümenin/node'un ölümü ise `tappa-uptime`'a düşer (sınır 33). (b) **Kurulu kural
+    tablodan dardır** — beş basitleştirme kutuda adıyla (1, 2, 4, 5, 7), ve pencereler kayan
+    değil saate hizalı kovalar olduğundan 1., 2. ve 5. kural sınırda bölünen bir patlamayı
+    kaçırabilir. (c) **Tek kontrol,
+    bütün kurallar:** bir kuralın `resolved`'ı kontrolü `up`'a çeker, başka bir kural hâlâ
+    ateşteyken bile; kontrol `down` iken yeni bir kural yeni bildirim üretmez (tasarımın
+    sonucu, ölçülmedi). (d) Canlı kanalda `send_resolved` **açık** (orkestratör ölçtü, 2026-10-11;
+    kanal yapılandırması API'den okundu, adres basılmadan). (e) Tek sağlayıcı — sınır 33 (a) aynen.
+    **Aşağısı 2026-10-11 öncesinin kaydıdır, tarih olarak duruyor:**
+    M8-03'ün üçüncü kriteri **hesaplanabilirlik**
     olarak sevk edildi: **altı** sinyalin altısı da log'dan bir filtre ile çıkıyor, alan
     adları `TestObservability_AlertSignalNames` ile, filtrelerdeki politika adları
     `TestObservability_EverySidInTheAlertRulesExists` ile pinlendi, eşikler yazılı.
@@ -6546,9 +6891,16 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     ister). Kalan: Docker Hub anonim çekme bütçesinden (sınır 12) bir imaj daha harcar;
     `IfNotPresent` ile node başına bir kez. Yükseltme = yeni etiket **ve** yeni digest, tek
     düzenlemede.
-    (e) **`Q28 (a)`'nın KALANI:** M8-03'ün yedi log sinyali hâlâ hiçbir yere gönderilmiyor
-    (sınır 25); bu madde yalnız log **dışı** iki sinyali kapatır. `Q28 (b)` (log saklama)
-    açık (sınır 24).
+    (e) ~~**`Q28 (a)`'nın KALANI:** M8-03'ün yedi log sinyali hâlâ hiçbir yere
+    gönderilmiyor (sınır 25).~~ → **T118 (2026-10-11):** yedi log sinyali de aynı
+    sağlayıcıya, `tappa-signals` üzerinden gidiyor; kör noktaları sınır 25'te. Bu madde
+    yalnız log **dışı** iki sinyali anlatır. `Q28 (b)` (log saklama) açık (sınır 24).
+    ⚠️ **T118 DÜZELTMESİ — bu madde ve adım 10 *"e-postayla"* diyordu, ve iki gün boyunca
+    DOĞRU DEĞİLDİ.** Ölçüldü (orkestratör, 2026-10-11): API ile kurulan bir kontrol hiçbir
+    bildirim kanalına bağlanmaz; `tappa-uptime` ve `tappa-backup` yalnız Telegram'a bağlıydı,
+    e-posta entegrasyonu **hiçbirine** bağlı değildi. Bugün üçü de `"channels": "*"`:
+    Telegram + e-posta. (a)'daki *"tek kanal"* bu yüzden artık *"iki kanal, tek sağlayıcı,
+    tek hesap"*tır (adım 10 (f), tuzak 1).
     (f) **macOS'un bash 3.2'si** (geliştirici makinesinin `/bin/sh`'ı), EXIT tuzağı kurulu
     bir betik `${X:?}` ile bittiğinde tuzakta `$?`'yi 0 görür ve **0 ile çıkar** —
     ölçüldü (dash 2, busybox 2, bash 5 1). `pg-backup-ship.sh`'ın çıkış kodu bundan T116'dan

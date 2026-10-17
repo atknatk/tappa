@@ -2,10 +2,20 @@
 # Tappa -- post-rollout gates on a LIVE deployment (M8-02).
 #
 # Usage:
-#   scripts/verify-deployment.sh cloudflare [host]        default: taptime.mt
-#   scripts/verify-deployment.sh db-role    [namespace]   default: tappa
-#   scripts/verify-deployment.sh all        [host] [ns]
-#   scripts/verify-deployment.sh api-host   [host]        default: api.taptime.mt (M11 API-13a)
+#   scripts/verify-deployment.sh cloudflare       [host]        default: taptime.mt
+#   scripts/verify-deployment.sh operator-surface [ns]          default: tappa
+#   scripts/verify-deployment.sh operator-host    <on|off> [host]  default host: ops.taptime.mt
+#   scripts/verify-deployment.sh db-role          [namespace]   default: tappa
+#   scripts/verify-deployment.sh api-host         [host]        default: api.taptime.mt (M11 API-13a)
+#   scripts/verify-deployment.sh all              [host] [ns] [operator host]
+#
+# The two operator modes are backlog T119's (deploy/README.md, "Uygulandı: K2"):
+# operator-surface is a PREFLIGHT that decides whether 41-operator-ingress.yaml may be
+# applied, operator-host the post-rollout probe of what that host serves -- judged against
+# the preflight's word, which is why it takes it first. The cloudflare
+# mode is run once per host by the deploy; `all` runs every gate, the cloudflare one on
+# both hosts. api-host is the integration API's post-rollout probe (M11 API-13a); the
+# deploy runs it on its own, and `all` does not include it.
 #
 # 🔴 THE `pull-credential` MODE WAS REMOVED (M8-02 FAZ D). Its whole subject was
 # `secret/ghcr` -- it printed that Secret's managedFields timestamps beside the server
@@ -40,7 +50,7 @@
 # embedded in YAML cannot have done to it. Same reasoning as scripts/verify-image.sh.
 set -euo pipefail
 
-mode=${1:?usage: verify-deployment.sh <cloudflare|db-role|all|api-host> [host] [namespace]}
+mode=${1:?usage: verify-deployment.sh <cloudflare|operator-surface|operator-host|api-host|db-role|all> [host] [namespace]}
 
 # CF_OUTCOME records WHICH of the three things happened, because the return code
 # cannot: this gate returns 0 both when the host is clean AND when the name does not
@@ -65,6 +75,15 @@ check_cloudflare() {
   #   - a venue configured with a Cloudflare range would stamp "network proof of
   #     place" onto every tap on earth, into an immutable row (the mirror of T40).
   # None of that raises an alert anywhere, which is what makes it worth an exit code.
+  #
+  # ⚠️ THE OPERATOR HOST (ops.taptime.mt) IS GATED TOO, FOR ITS OWN REASON (T119). It
+  # takes no tap, but with K4 decided as NO source-address list (2026-10-14) the
+  # operator's sign-in is held by internal/operatorauth's PER-ADDRESS budgets (flood 300,
+  # work 20, enrollment 3 per 10 min; read from limits.go, not measured through a proxy)
+  # -- and behind a proxy every caller is one of a handful of edge addresses, so a
+  # stranger who spends them through the same edge has the operator refused for the
+  # rest of the window. A DNS-only record keeps each key the caller's own. The deploy
+  # runs this mode once per host.
   # 🔴 A FAILED curl IS NOT ONE OUTCOME, AND TREATING IT AS ONE MADE THIS GATE
   # FAIL-OPEN (audit B5). The earlier version warned and returned 0 on ANY curl
   # error, while its message named a single cause ("the DNS record does not exist
@@ -104,7 +123,7 @@ check_cloudflare() {
   fi
   if grep -qi '^cf-ray:' <<<"$headers"; then
     CF_OUTCOME=violation
-    echo "::error::https://${host} is served THROUGH CLOUDFLARE (cf-ray present). Every client will resolve to a Cloudflare edge address: proof-of-place is dead, the panel login budget collapses to one key for all customers, and tap records will claim network evidence they do not have. Set the DNS record to 'DNS only' (grey cloud) — deploy/k8s/40-ingress.yaml carries the measurements." >&2
+    echo "::error::https://${host} is served THROUGH CLOUDFLARE (cf-ray present). Every client will resolve to a Cloudflare edge address: proof-of-place is dead, the panel login budget collapses to one key for all customers, and tap records will claim network evidence they do not have; on the operator host every per-address sign-in budget is shared with strangers. Set the DNS record to 'DNS only' (grey cloud) — deploy/k8s/40-ingress.yaml carries the measurements." >&2
     grep -iE '^(server|cf-ray):' <<<"$headers" >&2 || true
     return 1
   fi
@@ -115,6 +134,215 @@ check_cloudflare() {
   # that says WHICH response was inspected was silently missing from every run.
   # Measured against the live host: only strict-transport-security printed.
   grep -iE '^(HTTP/|server:|strict-transport-security:)' <<<"$headers" || true
+}
+
+# operator-surface prints ONE WORD on stdout -- `on` or `off` -- and nothing else goes to
+# stdout: .github/workflows/deploy.yml reads it as `surface=$(...)`. Every message goes
+# to stderr (GitHub reads its annotations from there too).
+check_operator_surface() {
+  local ns=${1:-tappa} size objects
+  # 🔴 WHY (backlog T119, measured by T112's builder). 41-operator-ingress.yaml sends the
+  # operator host to the SAME Service as taptime.mt, and the application refuses the
+  # customer routes on that host only when TAPPA_OPERATOR_HOST is set:
+  # internal/httpx/router.go mounts operatorHostOnly only then (the CONTROL rows of
+  # TestOperatorHostOnly_EveryEscapeAttemptLandsOnOneSide). Without it the host is a
+  # second, ungated origin of the customer product -- 40-ingress.yaml's "EXACTLY ONE HOST
+  # SERVES THE APP", broken. The deploy therefore applies 41 only on `on`:
+  #
+  #   on         tappa-secrets carries TAPPA_OPERATOR_HOST with more than 0 bytes. The
+  #              deploy applies 41 AFTER the rollout wait, so every pod the host can reach
+  #              started with it (and booted: config.Load refuses a partial set of the four
+  #              keys, and a value that is not a host name).
+  #   off        the key is absent or 0 bytes, and 41's two objects do not exist: 41 is not
+  #              applied (a fresh cluster before OP-7 step 3; a closed surface).
+  #   VIOLATION  the key is absent or 0 bytes but the objects exist -- the deploy identity
+  #              cannot delete them (01-rbac.yaml: no `delete` on ingresses). Exit 1, and
+  #              the deploy runs this BEFORE anything is applied, so a pod that still
+  #              carries the gate (its environment is read at start) is not replaced by one
+  #              that does not.
+  #   UNCHECKED  a read failed, or describe's output is not the shape parsed below. Exit 2.
+  #
+  # 🔴 NO VALUE OF THE SECRET IS READ -- A CLASS REMOVED, NOT A DEFENCE (T119, 2nd round).
+  # The Secret holds TAPPA_TAG_KEK (CLAUDE.md §4.7), this repository is public and so are
+  # its Actions logs. `kubectl describe secret` prints key names and byte counts BY DESIGN:
+  # k8s.io/kubectl v0.35.4, pkg/describe describeSecret writes "KEY:\tN bytes" for every
+  # key (the one exception, the `token` key of a service-account-token Secret, is not this
+  # Opaque Secret's) and skips the last-applied annotation; run in a scratch module against
+  # a fake clientset with marker values, the output carried no marker and the describer
+  # made ONE call, `get secrets` -- no event list. The command's own lookup is a GET too,
+  # and a NotFound would fall back to LISTING secrets, which this identity cannot (fail
+  # closed, UNCHECKED). So the verb is the `get` on tappa-secrets 01-rbac.yaml already
+  # grants. Even so, describe's stdout is never put in a shell variable or printed: it goes
+  # straight into awk, which prints a number or "unreadable".
+  #
+  # ⚠️ DATED NOTE, KEPT AS THE REASON (2026-10-14, round 1): this gate first read the value
+  # through `-o go-template` and compared it with the operator host inside kubectl. Measured
+  # against k8s.io/cli-runtime v0.35.4's GoTemplatePrinter: on a template EXECUTION error
+  # that printer writes the WHOLE OBJECT -- every value of the Secret, base64 -- to stdout.
+  # The script never printed it, but one edit (`set -x`, an `echo`) would have published
+  # every secret; reading no value removes that. Held by a WHITELIST, not a list of bad
+  # spellings (round 4): every kubectl line of this file and of deploy.yml that names a
+  # secret, in any case or quoting, must be one of the listed lines
+  # (TestVerifyDeployment_NothingReadsTheSecretsValues), and every branch of every mode, run
+  # against a stub kubectl, makes no secret call but this describe
+  # (TestVerifyDeployment_EveryBranchTouchesTheSecretOnlyByDescribe).
+  #
+  # ⚠️ COUNTED LIMIT: A KEY THAT NAMES ANOTHER HOST LOOKS LIKE `on` HERE. Without its value
+  # this gate cannot tell whether TAPPA_OPERATOR_HOST is ops.taptime.mt, and a length is not
+  # an equality (no half check is made). The application would then gate that other host
+  # and serve the customer product on ops.taptime.mt -- which operator-host, after the
+  # rollout, answers as a 2xx: VIOLATION.
+  if ! size=$(kubectl -n "$ns" describe secret tappa-secrets | awk '
+      data != 2 && $0 == "Data" { data = 1; next }
+      data == 1 { data = ($0 == "====") ? 2 : 0; next }
+      data == 2 && $1 == "TAPPA_OPERATOR_HOST:" {
+        if (NF == 3 && $2 ~ /^[0-9]+$/ && $3 == "bytes") n = $2; else bad = 1
+      }
+      END {
+        if (data != 2 || bad) print "unreadable"
+        else if (n == "") print 0
+        else print n + 0
+      }'); then
+    echo "::error::operator-surface: secret/tappa-secrets could not be described, so NOTHING was decided." >&2
+    return 2
+  fi
+  case $size in
+    '' | *[!0-9]*)
+      echo "::error::operator-surface: kubectl describe secret did not print the Data section in the shape this gate parses (a 'KEY: N bytes' line per key), so NOTHING was decided. Its output is not shown." >&2
+      return 2
+      ;;
+  esac
+  if ! objects=$(kubectl -n "$ns" get ingress tappa-operator tappa-operator-legal --ignore-not-found -o name); then
+    echo "::error::operator-surface: the operator host's two Ingresses could not be read, so whether they outlive the surface is unknown. NOTHING was decided." >&2
+    return 2
+  fi
+  if (( size > 0 )); then
+    echo "operator-surface: on -- TAPPA_OPERATOR_HOST is set in secret/tappa-secrets; the deploy applies 41-operator-ingress.yaml after the rollout wait" >&2
+    echo on
+    return 0
+  fi
+  if [[ -n $objects ]]; then
+    echo "::error::operator-surface: TAPPA_OPERATOR_HOST is absent or empty in secret/tappa-secrets, so the application does not refuse the customer routes on the operator host -- and its two Ingresses still route it there: a second, ungated origin of the customer product. Delete them with a cluster-admin kubeconfig (this identity cannot): kubectl -n ${ns} delete ingress tappa-operator tappa-operator-legal -- deploy/README.md, operator surface runbook, 'Geri alma'. Nothing has been applied." >&2
+    return 1
+  fi
+  echo "::notice::operator-surface: off -- TAPPA_OPERATOR_HOST is absent or empty in secret/tappa-secrets and the operator host has no Ingress, so 41-operator-ingress.yaml is not applied. After OP-7 step 3, re-run the deploy (deploy/README.md)." >&2
+  echo off
+}
+
+# OH_OUTCOME is operator-host's word, for CF_OUTCOME's reason: exit 0 is both a pass and
+# an unresolvable name, exit 1 both a violation and an unreachable host.
+OH_OUTCOME=unchecked
+check_operator_host() {
+  local surface=${1:-} host=${2:-ops.taptime.mt} headers status location rc try=0 tries interval
+  # 🔴 THE END STATE, FROM OUTSIDE (T119). operator-surface decides from the Secret's key
+  # sizes; this asks the host itself, after the rollout, whether it serves the customer
+  # product. It sees what the sizes cannot say: a TAPPA_OPERATOR_HOST that names ANOTHER
+  # host (operator-surface reads no value, so it says `on`), pods started with another
+  # environment (a re-run of the same commit rolls nothing out, so the running pods keep
+  # the environment they started with), or something else routing the name. It REPORTS --
+  # it runs after the apply and cannot undo it; the preflight is the gate that runs first.
+  #
+  # 🔴 THE PROBE IS `/`, NOT /healthz, AND THAT IS MEASURED (2026-10-14, from outside,
+  # read-only curl): this cluster's ingress-nginx answers /healthz for a name NO Ingress
+  # routes with 200 (text/html, empty body -- the controller's default server), the same
+  # status the ungated application gives. `/` separates the three states:
+  #   ungated application  200  the landing page (HEAD / is 200:
+  #                             TestMarketing_AnswersHeadWithNoBodyAndTheSameHeaders)
+  #   gated application    303  Location /operator (the "the bare root, HEAD" row of
+  #                             TestOperatorHostOnly_EveryEscapeAttemptLandsOnOneSide)
+  #   not routed           404  the controller's default server
+  # Measured: taptime.mt -> 200 · ops.taptime.mt -> 303 /operator · an unrouted name
+  # (curl --resolve to the origin) -> 404.
+  #
+  # 🔴 WHAT PASSES DEPENDS ON THE SURFACE WORD ($1, the preflight's `on`/`off`), AND THAT IS
+  # THE 3RD ROUND'S FIX. A 404 is "not routed", and right after the deploy creates 41 for
+  # the first time the controller has not configured it yet -- ingress-nginx picks up a new
+  # Ingress ASYNCHRONOUSLY -- so a single try that passed a 404 would pass exactly the run
+  # this probe exists for: the one in which 41 first routes the name (a key naming another
+  # host, a re-run whose pods kept an old environment). So:
+  #   on       only the gate's 303 to /operator passes. A 404 is retried -- TRIES tries,
+  #            INTERVAL seconds apart (18 x 5 s, about 90 s) -- and is UNCHECKED and red
+  #            when they run out. A 2xx is a VIOLATION at once, on any try.
+  #   off      a 404 passes, and so does a name that does not resolve (nothing serves it by
+  #            name); a 2xx is a VIOLATION.
+  #   (none)   `all` after an operator-surface that gave no word: only a 2xx is judged (a
+  #            VIOLATION); everything else is UNCHECKED.
+  # Any other answer is UNCHECKED and red: an answer this gate does not know is not a pass.
+  # WHY 18 x 5 s (reasoned, not measured in the cluster): ingress-nginx rate-limits its
+  # configuration syncs (--sync-rate-limit, documented default 0.3 per second: one sync per
+  # ~3.3 s) and reloads after each; 5 s is longer than one sync period, so every try can
+  # see a new configuration, and 90 s is some 27 periods -- long enough for a busy shared
+  # controller, short against the job's 30-minute timeout. The two numbers can be set
+  # through the environment (OPERATOR_HOST_PROBE_TRIES, OPERATOR_HOST_PROBE_INTERVAL) so the
+  # tests run without waiting; the deploy sets neither.
+  #
+  # The cloudflare gate's dictionary otherwise: curl exit 6 (the name does not resolve) is
+  # exit 0 with a warning -- UNCHECKED, except with the surface off -- and every other curl
+  # failure UNCHECKED with exit 1; -k for the same reason (a certificate not yet issued is not
+  # this gate's question).
+  tries=${OPERATOR_HOST_PROBE_TRIES:-18}
+  interval=${OPERATOR_HOST_PROBE_INTERVAL:-5}
+  if ! [[ $tries =~ ^[1-9][0-9]*$ && $interval =~ ^[0-9]+$ ]]; then
+    OH_OUTCOME=unchecked
+    echo "::error::operator-host: OPERATOR_HOST_PROBE_TRIES must be a positive whole number and OPERATOR_HOST_PROBE_INTERVAL a whole number of seconds. Nothing was checked." >&2
+    return 1
+  fi
+  case $surface in on | off) ;; *) surface= ;; esac
+  while :; do
+    try=$((try + 1))
+    rc=0
+    headers=$(curl -sSI -k --connect-timeout 10 --max-time 20 "https://${host}/" 2>&1) || rc=$?
+    if (( rc == 6 )); then
+      if [[ $surface == off ]]; then
+        OH_OUTCOME=pass
+        echo "operator-host: ${host} does not resolve and the surface is off -- nothing serves it by name"
+        return 0
+      fi
+      OH_OUTCOME=unchecked
+      echo "::warning::${host} does not resolve, so what it serves could not be checked. Expected before its record exists; nothing can reach it by name either."
+      return 0
+    fi
+    if (( rc != 0 )); then
+      OH_OUTCOME=unchecked
+      echo "::error::${host} resolves but https could not be reached (curl exit ${rc}). Without an answer this gate cannot tell a gated server from an ungated one, so it fails rather than passing blind. Output: ${headers}" >&2
+      return 1
+    fi
+    # The LAST status line and Location (no -L, so one response; a proxy preamble would come
+    # first). awk rather than grep: a header that is absent must not trip `set -e`.
+    status=$(awk '$1 ~ /^HTTP\// {s = $2} END {print s}' <<<"$headers" | tr -d '\r')
+    location=$(awk 'tolower($1) == "location:" {v = $2} END {print v}' <<<"$headers" | tr -d '\r')
+    case $status in
+      2[0-9][0-9])
+        OH_OUTCOME=violation
+        echo "::error::https://${host}/ answered ${status}: the application serves the CUSTOMER product on the operator host, because its operator-host gate (operatorHostOnly) is not mounted for this name -- a second, ungated origin (40-ingress.yaml, EXACTLY ONE HOST SERVES THE APP). Delete the operator host's two Ingresses with a cluster-admin kubeconfig, or set TAPPA_OPERATOR_HOST to this host and restart the pods (deploy/README.md, the K2 section of the operator accounts runbook)." >&2
+        return 1
+        ;;
+    esac
+    if [[ $surface == on && $status == 303 && $location == /operator ]]; then
+      OH_OUTCOME=pass
+      echo "operator-host: ${host} answers / with 303 to /operator -- the application's operator-host gate (try ${try})"
+      return 0
+    fi
+    if [[ $surface == off && $status == 404 ]]; then
+      OH_OUTCOME=pass
+      echo "operator-host: ${host} answers / with 404 -- not routed to the application, as the surface is off"
+      return 0
+    fi
+    if [[ $surface == on && $status == 404 ]] && (( try < tries )); then
+      sleep "$interval"
+      continue
+    fi
+    break
+  done
+  OH_OUTCOME=unchecked
+  if [[ $surface == on && $status == 404 ]]; then
+    echo "::error::https://${host}/ answered 404 on all ${tries} tries, ${interval} s apart: the surface is on and 41-operator-ingress.yaml was applied, but the name does not reach the application -- the controller has not configured it in time, or the Ingress is missing. UNCHECKED: the one run in which this probe matters most was not observed." >&2
+  elif [[ -z $surface ]]; then
+    echo "::error::https://${host}/ answered '${status:-no status line}'${location:+ with Location ${location}}, and there is no surface word (on or off) to judge it against: only a 2xx is a verdict without one. UNCHECKED." >&2
+  else
+    echo "::error::https://${host}/ answered '${status:-no status line}'${location:+ with Location ${location}} with the surface ${surface}: that is neither what passes (on: the gate's 303 to /operator; off: a 404) nor the customer product's 2xx. This gate does not pass an answer it does not know." >&2
+  fi
+  return 1
 }
 
 check_db_role() {
@@ -264,39 +492,57 @@ check_api_host() {
 }
 
 case $mode in
-  cloudflare)      check_cloudflare       "${2:-}" ;;
-  api-host)        check_api_host         "${2:-}" ;;
-  db-role)         check_db_role          "${2:-}" ;;
-  # 🔴 BOTH GATES RUN, ALWAYS, AND THE RESULTS ARE COLLECTED. The previous spelling
+  cloudflare)       check_cloudflare       "${2:-}" ;;
+  operator-surface) check_operator_surface "${2:-}" ;;
+  operator-host)    check_operator_host    "${2:-}" "${3:-}" ;;
+  api-host)         check_api_host         "${2:-}" ;;
+  db-role)          check_db_role          "${2:-}" ;;
+  # 🔴 EVERY GATE RUNS, ALWAYS, AND THE RESULTS ARE COLLECTED. The previous spelling
   # was `check_cloudflare ...; check_db_role ...` under `set -e`, which meant a
   # failing FIRST gate skipped the second entirely -- measured: with a proxied host
   # stubbed in, db-role never executed. The run was red, so nothing was reported as
   # passing that had not passed; but a mode named "all" that silently runs one of two
   # checks promises a completeness it does not deliver, which is this card's signature
-  # defect. `|| rc=$?` keeps `set -e` from aborting between them.
+  # defect. `|| ...` keeps `set -e` from aborting between them.
+  #
+  # Since T119 "every gate" is five: the cloudflare gate on BOTH hosts (the customer
+  # host, $2, and the operator host, $4 -- the deploy runs it once per host), the two
+  # operator gates on the operator host, and db-role. TestVerifyDeployment_AllRunsEveryGate.
   #
   # Exit code: 1 if any gate found a VIOLATION, else 2 if any gate could not CHECK,
   # else 0. A violation outranks an unreadable gate because it is the definite result.
   all)
-    cf=0; db=0
-    check_cloudflare "${2:-}" || cf=$?
-    check_db_role    "${3:-}" || db=$?
+    cfhost=${2:-taptime.mt}; ophost=${4:-ops.taptime.mt}
+    os=0; db=0
+    check_cloudflare "$cfhost" || true
+    cfw=$CF_OUTCOME
+    check_cloudflare "$ophost" || true
+    ocfw=$CF_OUTCOME
+    # Its word is the probe's expectation, as in the deploy; with no word (a violation or
+    # an unreadable Secret) the probe judges a 2xx only.
+    osword=$(check_operator_surface "${3:-}") || os=$?
+    check_operator_host "${osword:-}" "$ophost" || true
+    check_db_role "${3:-}" || db=$?
     # 🔴 cloudflare's WORD comes from CF_OUTCOME, not from its exit code, and that is
     # the fix for a measured defect: with the name unresolvable this gate prints
     # "Nothing about Cloudflare could be checked" and returns 0, and `all` then
     # labelled it `pass` and exited 0 -- announcing a check it had just been told did
     # not happen. The mirror case: a curl timeout (rc=28) returned 1 and was labelled
-    # `VIOLATION`, which it is not; it is another UNCHECKED. db-role already reports
-    # three states through its exit code (0 pass / 1 offender found / 2 could not run).
-    # A named helper, because an inline `case` inside "$( )" inside a double-quoted
+    # `VIOLATION`, which it is not; it is another UNCHECKED. operator-host has the same
+    # two shapes and its own OH_OUTCOME. db-role and operator-surface report three
+    # states through their exit codes (0 pass / 1 violation / 2 could not run).
+    # Named helpers, because an inline `case` inside "$( )" inside a double-quoted
     # string does not survive the surrounding `case` -- measured: the summary line
     # printed its own source text.
     _verdict() { case ${1:-} in 0) echo pass ;; 1) echo VIOLATION ;; *) echo UNCHECKED ;; esac; }
-    cfw=$CF_OUTCOME; [[ $cfw == violation ]] && cfw=VIOLATION; [[ $cfw == unchecked ]] && cfw=UNCHECKED
-    echo "all: cloudflare=$cfw db-role=$(_verdict "$db")"
-    # Exit code matches the words above: a violation outranks an unreadable gate.
-    if [[ $cfw == VIOLATION || $db -eq 1 ]]; then exit 1; fi
-    if [[ $cfw == UNCHECKED || $db -ne 0 ]]; then exit 2; fi
+    _outcome() { case ${1:-} in pass) echo pass ;; violation) echo VIOLATION ;; *) echo UNCHECKED ;; esac; }
+    words="cloudflare[$cfhost]=$(_outcome "$cfw") cloudflare[$ophost]=$(_outcome "$ocfw")"
+    words="$words operator-surface=$(_verdict "$os") operator-host=$(_outcome "$OH_OUTCOME") db-role=$(_verdict "$db")"
+    echo "all: $words"
+    # The exit code is read from the words above, so the two cannot disagree: a
+    # violation outranks an unreadable gate.
+    if [[ $words == *=VIOLATION* ]]; then exit 1; fi
+    if [[ $words == *=UNCHECKED* ]]; then exit 2; fi
     ;;
-  *) echo "unknown mode: $mode (expected cloudflare, db-role, all or api-host)" >&2; exit 2 ;;
+  *) echo "unknown mode: $mode (expected cloudflare, operator-surface, operator-host, api-host, db-role or all)" >&2; exit 2 ;;
 esac

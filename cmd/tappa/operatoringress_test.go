@@ -529,14 +529,16 @@ func TestPackaging_TheOperatorIngressesShareOneHostAndOneCertificate(t *testing.
 		t.Errorf("%d of the two objects carry cert-manager.io/cluster-issuer, want exactly 1: one secret, one "+
 			"Certificate", issuers)
 	}
-	// K4, whenever it lands: an address list is per object, so one carried by a single
-	// object leaves the other path open to every address. Any *source-range annotation
-	// (whitelist- or allowlist-, by controller version) must be the same on both.
+	// K4 is decided (2026-10-14, the user: "ip limiti olmasın"): no source-address list on
+	// either object. A *source-range annotation (whitelist- or allowlist-, by controller
+	// version) is a reversal of that decision, made in review with this line — and were it
+	// made, the list would have to be the same on both, since an annotation is per object
+	// and a list on one leaves the other path open to every address.
 	for _, o := range []ingressObject{console, legal} {
 		for k := range o.annotations {
-			if strings.Contains(k, "source-range") && console.annotations[k] != legal.annotations[k] {
-				t.Errorf("%s = %q on tappa-operator but %q on tappa-operator-legal: the path without it is open to "+
-					"every address", k, console.annotations[k], legal.annotations[k])
+			if strings.Contains(k, "source-range") {
+				t.Errorf("%s carries %s = %q: K4 was decided as NO source-address list (2026-10-14)", o.name, k,
+					o.annotations[k])
 			}
 		}
 	}
@@ -942,10 +944,12 @@ func codeLinesOf(src string) []string {
 // TestPackaging_TheDeployAppliesEveryIngressFile closes T112's class for Ingresses: a
 // top-level manifest carrying a `kind: Ingress` that deploy.yml does not apply is the
 // cluster-only object this backlog item was. 41 is applied in "Roll out the server",
-// after 40 and before the rollout wait, and the deploy identity's ingresses rule in
-// 01-rbac.yaml carries the verbs `kubectl apply` needs on an existing or a new object
-// (get, create, patch) — and no delete, which is why closing the surface is the
-// operator's (41's header).
+// AFTER the rollout wait since T119 (so the operator host reaches only pods that started
+// with the gate; the condition around it is TestPackaging_TheOperatorIngressFollowsTheOperatorSurface),
+// 40 before the wait, 42 after the wait and outside 41's case (M11: the API host does not
+// depend on the operator surface), and the deploy identity's ingresses rule in 01-rbac.yaml carries
+// the verbs `kubectl apply` needs on an existing or a new object (get, create, patch) —
+// and no delete, which is why closing the surface is the operator's (41's header).
 func TestPackaging_TheDeployAppliesEveryIngressFile(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join(repoRoot, ".github", "workflows", "deploy.yml"))
 	if err != nil {
@@ -954,6 +958,7 @@ func TestPackaging_TheDeployAppliesEveryIngressFile(t *testing.T) {
 	code := codeLinesOf(string(b))
 	applied := map[string]int{}
 	step, line40, line41, line42, rollout := "", -1, -1, -1, -1
+	caseOpen, caseClose := -1, -1
 	for i, l := range code {
 		if s, ok := strings.CutPrefix(strings.TrimSpace(l), "- name: "); ok {
 			step = s
@@ -973,6 +978,12 @@ func TestPackaging_TheDeployAppliesEveryIngressFile(t *testing.T) {
 		}
 		if step == "Roll out the server" && strings.Contains(l, "rollout status deployment/tappa") {
 			rollout = i
+		}
+		if step == "Roll out the server" && strings.HasPrefix(strings.TrimSpace(l), `case "$OPERATOR_SURFACE" in`) {
+			caseOpen = i
+		}
+		if step == "Roll out the server" && strings.TrimSpace(l) == "esac" {
+			caseClose = i
 		}
 	}
 	manifests, err := filepath.Glob(filepath.Join(repoRoot, "deploy", "k8s", "*.yaml"))
@@ -994,14 +1005,21 @@ func TestPackaging_TheDeployAppliesEveryIngressFile(t *testing.T) {
 	if ingressFiles != 3 {
 		t.Errorf("CONTROL FAILED: %d Ingress files found, want 3 (40, 41 and 42)", ingressFiles)
 	}
-	if line40 < 0 || line41 < 0 || rollout < 0 || line40 > line41 || line41 > rollout {
-		t.Errorf("in \"Roll out the server\": 40 at %d, 41 at %d, rollout wait at %d; want 40 < 41 < the wait",
+	if line40 < 0 || line41 < 0 || rollout < 0 || line40 > rollout || rollout > line41 {
+		t.Errorf("in \"Roll out the server\": 40 at %d, 41 at %d, rollout wait at %d; want 40 < the wait < 41",
 			line40, line41, rollout)
 	}
 	// M11 API-13a: 42 AFTER the wait -- every pod the API host can then reach runs with TAPPA_API_HOST
 	// (42-api-ingress.yaml's header).
 	if line42 < 0 || line42 < rollout {
 		t.Errorf("in \"Roll out the server\": 42 at %d, the rollout wait at %d; want 42 after the wait", line42, rollout)
+	}
+	// M11 API-13b (the merge with T119): 41 inside the operator surface's case, 42 OUTSIDE it -- the API
+	// host does not depend on the operator surface, so an `off` surface must not leave api.taptime.mt
+	// unrouted.
+	if caseOpen < 0 || caseClose < caseOpen || line41 < caseOpen || line41 > caseClose || (line42 > caseOpen && line42 < caseClose) {
+		t.Errorf("in \"Roll out the server\": the operator surface's case spans %d..%d, 41 at %d, 42 at %d; want 41 "+
+			"inside it and 42 outside", caseOpen, caseClose, line41, line42)
 	}
 
 	rbac := stripYAMLComments(readK8s(t, "01-rbac.yaml"))

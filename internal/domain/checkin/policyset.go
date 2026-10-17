@@ -108,6 +108,17 @@ type policySets struct {
 // index for THIS statement is none: baseline ids are derived from (tenant, name) and
 // the layer is fixed, so the two indexes have the same collision set (00015's header).
 //
+// ⚠️ AND SINCE T121 THE policies AND policy_versions INSERTS NAME NO CONFLICT TARGET
+// AT ALL (db/queries/policies.sql), so "three different anchors" is history too.
+// Naming one target is what broke concurrent first taps: a derived id puts two
+// racers on EVERY unique index of the row -- policies_pkey and policies_id_tenant_key
+// for a policy, policy_versions_pkey and _id_tenant_key beside the no_key for a
+// version -- and a racer that met the winner on an index the statement had not named
+// got 23505, rolled materialise back and decided on the guardrails alone. With no
+// target every unique index arbitrates. The derivation is still load-bearing: it is
+// what makes two racers' rows THE SAME row, and without it the loser's version would
+// cite a policy id that was never written.
+//
 // It is uuid.NameSpaceURL over a URL-shaped string rather than an invented
 // namespace constant, so the derivation is legible in the one place it matters:
 // a person holding a policy id can recompute it from the tenant and the name.
@@ -140,37 +151,37 @@ func baselineVersionID(tenantID uuid.UUID, name string, versionNo int) uuid.UUID
 // problem. The cost of the fallback is visible rather than silent: the tap lands
 // on the fail-to-review default, so it is written, flagged, and put in front of a
 // manager — which is what "we could not work out the rules" should look like.
+// The log line is EventPolicyFallback, and an operator is paged on it (fallback).
+// "It is written" holds when the database still answers the recording
+// transaction; when it answers nothing, that write fails as well and the tap is
+// refused visibly rather than recorded.
 func (p policySets) forTenant(ctx context.Context, tenantID uuid.UUID) policy.Set {
 	set := p.guardrailsOnly()
 
 	rows, err := p.load(ctx, tenantID)
 	if err != nil {
-		p.log.ErrorContext(ctx, "checkin: loading the tenant policy set failed; deciding on guardrails alone",
-			"tenant_id", tenantID, "err", err)
+		p.fallback(ctx, tenantID, FallbackLoadFailed, err)
 		return set
 	}
 
 	baseline, missing := assembleBaseline(rows)
 	if len(missing) > 0 {
 		if err := p.materialise(ctx, tenantID, missing); err != nil {
-			p.log.ErrorContext(ctx, "checkin: materialising the managed baseline failed; deciding on guardrails alone",
-				"tenant_id", tenantID, "missing", len(missing), "err", err)
+			p.fallback(ctx, tenantID, FallbackMaterialiseFailed, err, "missing", len(missing))
 			return set
 		}
 		p.log.InfoContext(ctx, "checkin: materialised the managed baseline for a tenant that had none",
 			"tenant_id", tenantID, "documents", len(missing), "baseline_version", policy.BaselineVersion,
 			"note", "provisioning at sign-up is M7-03; this is the first-need fallback")
 		if rows, err = p.load(ctx, tenantID); err != nil {
-			p.log.ErrorContext(ctx, "checkin: re-loading the tenant policy set failed; deciding on guardrails alone",
-				"tenant_id", tenantID, "err", err)
+			p.fallback(ctx, tenantID, FallbackReloadFailed, err)
 			return set
 		}
 		if baseline, missing = assembleBaseline(rows); len(missing) > 0 {
 			// Written, re-read, still not all there. Something is wrong that this
 			// path cannot fix, and a PARTIAL baseline is a different policy rather
 			// than a weaker one (see the file header), so it is not used.
-			p.log.ErrorContext(ctx, "checkin: the managed baseline is incomplete after materialising; deciding on guardrails alone",
-				"tenant_id", tenantID, "missing", len(missing))
+			p.fallback(ctx, tenantID, FallbackIncomplete, nil, "missing", len(missing))
 			return set
 		}
 	}
@@ -193,6 +204,53 @@ func (p policySets) forTenant(ctx context.Context, tenantID uuid.UUID) policy.Se
 	set.Tenant = tenantPolicies(rows, p.log)
 	return set
 }
+
+// fallback writes the line every forTenant failure is answered with: one
+// EventPolicyFallback record at ERROR, naming the tenant, the path (LogReason) and,
+// when a PostgreSQL error is behind it, its SQLSTATE and constraint (pgErrorAttrs).
+//
+// ONE EMITTER FOR FOUR PATHS, because deploy/README.md's M8-03 rule 8 keys on the
+// record's shape: the rule matches msg alone, and a responder reads the same four
+// attributes whichever path fired. Four hand-written calls are four chances for one
+// of them to drift off the event; TestPolicyFallback_EachForTenantPathNamesItsReason
+// drives all four.
+//
+// stored() does not call it — see EventPolicyFallback for why its fallback pages
+// nobody.
+//
+// 🔴 A REQUEST THAT HAS ALREADY ENDED DOES NOT PAGE (T122 round 2). forTenant runs on
+// the tap request's own context (checkin.go), so a client that walks away or a
+// request that outlives httpx.RequestTimeout makes load/materialise fail with
+// context canceled / deadline exceeded — and the WithTenant that would RECORD the
+// tap runs on the same dead context right after and fails too. Paging on that would
+// page on a tap that was never written, under a description ("an ok recorded as a
+// flag") that is false, and it would be the harmless source T121 had just removed.
+// So when ctx itself is done the line is policyFallbackAbandoned at WARN instead.
+//
+// THE TEST IS ctx.Err(), NOT errors.Is(err, …). A deadline inside pgx or the pool
+// while the request is still alive is a real database problem and still pages;
+// only the REQUEST being over is the benign case. TestPolicyFallback_AnEndedRequestDoesNotPage
+// holds both halves.
+//
+// ⚠️ COUNTED LIMIT: a real failure whose request is cancelled between the error and
+// this check is reported as abandoned. Its tap is not recorded either, and the cause
+// recurs on the tenant's next tap, which pages.
+func (p policySets) fallback(ctx context.Context, tenantID uuid.UUID, reason string, err error, attrs ...any) {
+	args := append([]any{LogTenantID, tenantID, LogReason, reason}, attrs...)
+	if err != nil {
+		args = append(append(args, "err", err), pgErrorAttrs(err)...)
+	}
+	if done := ctx.Err(); done != nil {
+		p.log.WarnContext(ctx, policyFallbackAbandoned, append(args, "request_err", done)...)
+		return
+	}
+	p.log.ErrorContext(ctx, EventPolicyFallback, args...)
+}
+
+// policyFallbackAbandoned is the line fallback writes instead of EventPolicyFallback
+// when the request's own context ended first. A sentence on purpose: no rule may
+// match it, so it is deliberately not an event name.
+const policyFallbackAbandoned = "checkin: the request ended while its policy set was being assembled; no tap is recorded on this path"
 
 // guardrailsOnly is the floor every Set is built on: the code-embedded guardrails
 // and nothing else. It is also the ANSWER to every failure below (see forTenant's
@@ -255,8 +313,13 @@ func (p policySets) stored(ctx context.Context, tenantID uuid.UUID) policy.Set {
 	set := p.guardrailsOnly()
 	rows, err := p.load(ctx, tenantID)
 	if err != nil {
+		// A sentence, deliberately not EventPolicyFallback: this answer is a refusal
+		// on the panel (fail-closed), not a tap recorded as a flag, and rule 8 counts
+		// only the second — the same load failing under a tap pages through forTenant.
+		// The SQLSTATE pair is here for the reason it is on the tap's line (it tells a
+		// refused grant from a missing table) and it carries no row value.
 		p.log.ErrorContext(ctx, "checkin: loading the stored policy set failed; answering on guardrails alone",
-			"tenant_id", tenantID, "err", err)
+			append([]any{"tenant_id", tenantID, "err", err}, pgErrorAttrs(err)...)...)
 		return set
 	}
 	baseline, missing := assembleBaseline(rows)
@@ -406,6 +469,14 @@ func tenantPolicies(rows []store.ListPolicySetRow, log *slog.Logger) []policy.Po
 // existing row — including one the tenant has switched OFF — is never modified.
 // policy_versions is append-only by privilege AND by trigger (00007), so "write
 // it again" HAS to be a no-op rather than an update; it is.
+//
+// ⚠️ "TWO TAPS ARRIVING TOGETHER WRITE ONE SET OF ROWS" WAS TRUE BEFORE T121 AND
+// NOT ENOUGH. The rows were always one set; the LOSING tap was the casualty -- its
+// insert met the winner on a unique index the statement had not named, this
+// transaction rolled back on 23505, and forTenant decided that tap on the
+// guardrails alone (an `ok` recorded as a `flag`). The two statements that carry
+// derived ids now name no conflict target, so the loser waits for the winner and
+// does nothing (TestPolicySetDB_ConcurrentFirstTapsMaterialiseOnce).
 func (p policySets) materialise(ctx context.Context, tenantID uuid.UUID, docs []policy.BaselineDoc) error {
 	err := p.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		q := store.New(tx)
