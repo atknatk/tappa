@@ -442,19 +442,13 @@ spec:
                   name: tappa-secrets
                   key: TAPPA_OPERATOR_HOST
                   optional: true
-            # THE INTEGRATION API'S HOST (M11 API-4, ADR 0028 §13): `optional: true`, and
-            # tappa-secrets does NOT hold it -- so this process boots with the API OFF (/v1
-            # answers 404 on every host; the start-up line says integration_api=off). Turning
-            # it on is API-13's deploy step (the ingress rule for api.taptime.mt, K-22 opened
-            # by the operator for KF/KM, the runbook); it is not a secret and may move to
-            # 05-config.yaml then. It must differ from the base URL's host and from
-            # TAPPA_OPERATOR_HOST, or internal/config refuses to start.
-            - name: TAPPA_API_HOST
-              valueFrom:
-                secretKeyRef:
-                  name: tappa-secrets
-                  key: TAPPA_API_HOST
-                  optional: true
+            # THE INTEGRATION API'S HOST (M11 API-4, ADR 0028 §13) is NOT an entry here: it is
+            # 05-config.yaml's TAPPA_API_HOST (API-13a), in lockstep with 42-api-ingress.yaml.
+            # An entry here -- even an optional secretKeyRef -- would win over envFrom, and the
+            # emergency close of the whole API host (deploy/README.md, M11 deploy day (f):
+            # the key out of the ConfigMap and 42 out, in one commit) would leave the host on
+            # in every pod whose Secret held the key.
+            # TestPackaging_NoConfigMapKeyIsAlsoAnEnvEntry holds the two lists apart.
             # 🔴 THE SMTP RELAY'S CREDENTIALS (ADR 0022 §5, M10 EM-3): TWO KEYS, BOTH
             # `optional: true`, BOTH FROM tappa-secrets — and neither fact is decoration.
             #

@@ -1313,3 +1313,37 @@ func TestPackaging_EverySecretEnvEntryUsesSecretKeyRef(t *testing.T) {
 		t.Errorf("only %d secretKeyRef entries for %d required variables", strings.Count(envBlock, "secretKeyRef:"), len(mustBeSecret))
 	}
 }
+
+// TestPackaging_NoConfigMapKeyIsAlsoAnEnvEntry (M11 API-13 security review): a key the ConfigMap
+// holds is not also an env entry of the serving container. Kubernetes lets an env entry win over
+// envFrom, so a duplicate makes the ConfigMap's value -- and its REMOVAL -- not the pod's: the
+// integration API host's emergency close (deploy/README.md, M11 deploy day (f): TAPPA_API_HOST
+// out of 05-config.yaml, 42-api-ingress.yaml out) would leave the host on in every pod whose
+// tappa-secrets held an optional TAPPA_API_HOST, the entry 20-app.yaml carried until API-13b.
+//
+// MUTANT (measured): that secretKeyRef entry restored in 20-app.yaml -> red.
+func TestPackaging_NoConfigMapKeyIsAlsoAnEnvEntry(t *testing.T) {
+	cfgSrc, err := os.ReadFile(filepath.Join(repoRoot, "deploy", "k8s", "05-config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	appSrc, err := os.ReadFile(filepath.Join(repoRoot, "deploy", "k8s", "20-app.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cm := configMapKeys(t, string(cfgSrc))
+	env := containerEnvEntries(t, string(appSrc), servingContainer)
+	// CONTROL: both parses found what the files hold -- an empty side would pass vacuously.
+	if !cm["TAPPA_API_HOST"] || !cm["TAPPA_ENV"] {
+		t.Fatalf("CONTROL FAILED: the ConfigMap parse misses TAPPA_API_HOST or TAPPA_ENV (%d keys)", len(cm))
+	}
+	if _, ok := env["TAPPA_TAG_KEK"]; !ok {
+		t.Fatalf("CONTROL FAILED: the env parse misses TAPPA_TAG_KEK (%d entries)", len(env))
+	}
+	for name := range env {
+		if cm[name] {
+			t.Errorf("%s is a ConfigMap key AND an env entry of the %q container: the entry wins over envFrom, "+
+				"so the ConfigMap's value (and taking it out) is not what the pod runs with", name, servingContainer)
+		}
+	}
+}
