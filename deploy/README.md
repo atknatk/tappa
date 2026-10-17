@@ -1381,18 +1381,32 @@ dinlediği ve `TAPPA_TRUSTED_PROXIES`'in gerçek istemci adresini verdiği ölç
 
 ### Deploy
 
-**(d) Birleştirme → CI → deploy.** Bu dalın `.github/workflows/deploy.yml`'i sırayla (T119 öncesi düzen —
-birleştirmede aşağıdaki *"Birleştirme çakışması"* maddesine göre yeniden yazılır): Cloudflare ön kontrolleri
-(`taptime.mt`, `api.taptime.mt`) → ConfigMap (`TAPPA_API_HOST` dahil) → migration Job (**37…57** — bu
-dalda `00036` yok ve prod'da da olmayacak — OP-15 (a) gereği sonra `00058` olarak gelir; `00037`/`00038`
-`employees`/`locations`/`tenants`'ta `ACCESS EXCLUSIVE`, kendi `lock_timeout`'larıyla — 02:30 yedeğinden uzak bir
-saatte; `00054` kısmi indeks — ölçülen boyutta anında; `00056` `employees` indeksi kendi `lock_timeout`'uyla;
-`00057` yalnız bir fonksiyon, 00029'un gövdesi + iki API sütunu) → `20-app.yaml` → `40`, `41` → **rollout beklemesi** →
-`42-api-ingress.yaml` →
-`api-host` kapısı (`/v1/guide.md` 200 `text/markdown`, kök 404) → `db-role` kapısı. Migration Job
-`Failed` olursa rollout yapılmaz (*"4. Migration Job'ı Failed"*).
+**(d) Birleştirme → CI → deploy.** `.github/workflows/deploy.yml`'in birleşik sırası (`main`'in T119 düzeni +
+M11; API-13b, 2026-10-17): imaj adımları → Cloudflare ön kontrolleri **`taptime.mt` → `ops.taptime.mt` →
+`api.taptime.mt`** (üçü de ilk `kubectl apply`'dan önce) → Secret ön kontrolü (`tappa-secrets` var mı) →
+`opsurface` ön kontrolü (`verify-deployment.sh operator-surface` → `on`/`off`) → ConfigMap (`TAPPA_API_HOST`
+dahil), init/yedek ConfigMap'leri, Postgres → migration Job (**37…57** — `00036` yok ve prod'da da olmayacak —
+OP-15 (a) gereği sonra `00058` olarak gelir; `00037`/`00038` `employees`/`locations`/`tenants`'ta
+`ACCESS EXCLUSIVE`, kendi `lock_timeout`'larıyla — 02:30 yedeğinden uzak bir saatte; `00054` kısmi indeks —
+ölçülen boyutta anında; `00056` `employees` indeksi kendi `lock_timeout`'uyla; `00057` yalnız bir fonksiyon,
+00029'un gövdesi + iki API sütunu) → *"Roll out the server"*: `20-app.yaml` → `40` → **rollout beklemesi** →
+`41` (yalnız `opsurface` `on` ise; `case` içinde) → `42-api-ingress.yaml` (`case`'in **dışında** — API host'u
+operatör yüzeyine bağlı değil) → *"Gate — the operator host must not serve the customer product"*
+(`operator-host` kipi) → *"Gate — the API host serves the API and nothing else"* (`api-host` kipi:
+`/v1/guide.md` 200 `text/markdown`, kök 404) → `db-role` kapısı. Migration Job `Failed` olursa rollout
+yapılmaz (*"4. Migration Job'ı Failed"*). Pinler: `TestPackaging_TheDeployAppliesEveryIngressFile` (40 <
+bekleme < 41, 42 beklemeden sonra ve 41'in `case`'inin dışında, üç Ingress dosyası) ve
+`TestPackaging_TheDeployGatesTheCustomerAndAPIHosts`.
 
-**Birleştirme çakışması — `main`'in T119 değişiklikleri (birleştirmeden önce okunur).** Bu dal `main`'den
+**Birleştirme çakışması — `main`'in T119 değişiklikleri** — ✅ **birleştirildi (API-13b, 2026-10-17, merge
+commit `Merge origin/main into m11-api`; `origin/main` = `1ce79a3`; `main`'den migration gelmedi).** Gerçek
+çakışma altı dosyadaydı (`deploy.yml`, `verify-deployment.sh`, `40-ingress.yaml`, bu dosya, `docs/backlog.md`,
+`docs/plan/state.md`); `operatoringress_test.go`, `querier.go` ve öteki belgeler kendiliğinden birleşti
+(`make gen` `querier.go`'yu değiştirmedi). Birleştirmenin kendi düzeltmeleri: `main`'in `operatorsurface_test.go`'su
+da bir `stubCurl` tanımladığı için API host kipinin sahte `curl`'ü yeniden adlandırıldı; `main`'in her-dal
+testi (`TestVerifyDeployment_EveryBranchTouchesTheSecretOnlyByDescribe`) artık `api-host` kipinin beş
+uyarısını da sürüyor; `all` kipi `main`'inki kaldı (`api-host`'u içermez — deploy onu ayrı koşar).
+Aşağıdaki metin birleştirmeden önce yazılmış kurallardır. Bu dal `main`'den
 `bcbff6d`'de ayrıldı; o noktadan bu yana `main` 25 dosya değiştirdi ve **11'i** bu dalın da değiştirdiği
 dosyalardır (2026-10-16, `git diff origin/main...m11-api --stat` ve `git log origin/main` ile okundu;
 birleştirme **denenmedi**, `origin/main` = `1ce79a3`): `.github/workflows/deploy.yml`,
