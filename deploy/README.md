@@ -1063,6 +1063,14 @@ aşıyorsa `00056` bu hâliyle koşulmaz — indeks `CONCURRENTLY` ile, işlemsi
 runbook'u satır sayısını deploy'dan önce ölçer). Önündeki `00055` (`holding_directory`, `holding_site_locations`'ın gövdesi —
 `CREATE OR REPLACE`) tablo kilidi almaz.
 
+**`employees` / `locations` / `tenants` üzerinde `ALTER` — `00037`, `00038` (M11 API-1; API-13 güvenlik turu):** ikisi de
+bu tablolarda `ACCESS EXCLUSIVE` alır (sütun/kısıt ekleme; Down'larında silme). Up'larının **ve** Down'larının ilk ifadesi
+`SET LOCAL lock_timeout = '1s'`: uzun bir okuyucunun (02:30 yedeğinin dökümü, açık bir panel işlemi) arkasında 55P03 ile
+düşerler — migrate Job'ı `Failed`, rollout yapılmaz, sakin bir anda yeniden koşulur — yoksa sonraki her okuma ve dokunuş
+kilidin arkasında kuyruğa girerdi. Kilidi aldıktan sonra `ADD COLUMN`'lar tabloyu yeniden yazmaz (sabit varsayılan); `00037`'nin
+iki benzersiz indeksi `employees`'in satır sayısıyla orantılıdır.
+Pin: `TestM11Migrations00037And00038_OpenWithASecondsLockTimeout`. **Deploy saati:** 02:30 yedeğinin penceresinden uzak.
+
 ## Feed role (M11 API-2) — tek seferlik kurulum
 
 **Ne:** migration `00048` (punch akışının tabloları — ADR 0028 §4, §5) bir **küme** rolüne dayanır:

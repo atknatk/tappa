@@ -1174,3 +1174,41 @@ func TestRLS_InviteRequests_AnotherTenantsQueueIsInvisible(t *testing.T) {
 	assertPermissionDenied(t, "A queueing with a chosen place in the line",
 		m11Exec(t, d, a, `INSERT INTO invite_requests (tenant_id, employee_id, requested_at) VALUES ($1, $2, now() - interval '1 day')`, a, uuid.New()))
 }
+
+// ------------------------------------------------------------ lock_timeout --
+
+// TestM11Migrations00037And00038_OpenWithASecondsLockTimeout (the API-13 security review, 00054's
+// rule in deploy/README.md): 00037 takes ACCESS EXCLUSIVE on employees and locations, 00038 on
+// tenants -- in the Up and in the Down. Each section's FIRST statement is SET LOCAL lock_timeout
+// = '1s', so behind a long reader (the 02:30 backup's dump) the file gives up with 55P03 instead of
+// queueing every later read of the table behind its lock. A pin on the text, not a lock race: the
+// behaviour of that first statement inside goose's transaction is measured by
+// TestAuditLog00054_GivesUpAfterASecondBehindAnOpenWrite and
+// TestEmployees00056_GivesUpAfterASecondBehindAnOpenWrite, and a race here would queue an ACCESS
+// EXCLUSIVE on tenants -- which every other package's tests read -- for a second.
+//
+// MUTANTS: the SET LOCAL removed from any section, moved below its first ALTER or DO, or a longer
+// timeout -> red.
+func TestM11Migrations00037And00038_OpenWithASecondsLockTimeout(t *testing.T) {
+	const want = "SET LOCAL lock_timeout = '1s';"
+	for _, file := range []string{
+		"00037_add_external_refs_and_the_invite_queue.sql",
+		"00038_add_api_access_to_tenants.sql",
+	} {
+		up, down := opMigrationSections(t, file)
+		for name, section := range map[string]string{"Up": up, "Down": down} {
+			var first string
+			for _, line := range strings.Split(section, "\n")[1:] {
+				line = strings.TrimSpace(line)
+				if line == "" || strings.HasPrefix(line, "--") {
+					continue
+				}
+				first = line
+				break
+			}
+			if first != want {
+				t.Errorf("%s's %s opens with %q, want %q", file, name, first, want)
+			}
+		}
+	}
+}

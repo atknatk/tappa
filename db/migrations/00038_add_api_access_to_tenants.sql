@@ -27,8 +27,16 @@
 -- column. Either failing rolls the whole file back. (The operator's login role holds nothing on
 -- any tenant table; internal/db's catalogue tests pin that, and this file names no operator
 -- object -- internal/db's opAtVersion skips it on that premise.)
+--
+-- 🔴 lock_timeout 1 s, THE FIRST STATEMENT of the Up and of the Down (00054's rule,
+-- deploy/README.md; the API-13 security review): ADD COLUMN, ADD CONSTRAINT and DROP COLUMN take
+-- ACCESS EXCLUSIVE on tenants, which every request reads. Behind a long reader -- the 02:30
+-- backup's dump -- the file gives up with 55P03 (the migrate Job fails, nothing rolls out)
+-- instead of queueing every later tenant read behind its lock. Transaction-local: no schema
+-- object changes.
 
 -- +goose Up
+SET LOCAL lock_timeout = '1s';
 
 -- +goose StatementBegin
 DO $$
@@ -65,6 +73,7 @@ $$;
 -- +goose StatementEnd
 
 -- +goose Down
+SET LOCAL lock_timeout = '1s';
 
 -- The columns go with what they held: the operator's decisions are in operator_audit_log and in
 -- the tenants' own audit_log rows (00039), which stay.

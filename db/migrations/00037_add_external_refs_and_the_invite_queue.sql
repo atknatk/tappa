@@ -40,8 +40,16 @@
 -- NOTHING IS BACKFILLED. Existing rows get NULL in the new text columns, true in
 -- locations.active and this migration's instant in employees.updated_at (a constant default:
 -- no table rewrite); every one of them still has its home venue, so K-14's CHECK validates.
+--
+-- 🔴 lock_timeout 1 s, THE FIRST STATEMENT of the Up and of the Down (00054's rule,
+-- deploy/README.md; the API-13 security review): the ALTERs take ACCESS EXCLUSIVE on employees
+-- and locations. Behind a long reader -- the 02:30 backup's dump, an open panel transaction --
+-- the file gives up with 55P03 (the migrate Job fails, nothing rolls out, it is run again at a
+-- quiet moment) instead of queueing every later read and tap of those tables behind its lock.
+-- The setting is transaction-local: it changes no schema object (the catalogue is the same).
 
 -- +goose Up
+SET LOCAL lock_timeout = '1s';
 
 -- ---------------------------------------------------------------------------
 -- 1. employees: the integrator's identity and the directory's columns.
@@ -211,6 +219,7 @@ GRANT DELETE ON invite_requests TO tappa_app;
 -- under the narrowed index (a deactivated one and a live one) cannot both survive the old,
 -- wider one. Either state is named and nothing is changed; the queue's rows are transient
 -- requests (their employees and invitations are untouched) and go with the table.
+SET LOCAL lock_timeout = '1s';
 -- +goose StatementBegin
 DO $$
 BEGIN
