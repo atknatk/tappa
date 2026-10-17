@@ -501,7 +501,7 @@ Aşılınca 429 + owner uyarısı + audit. ADR 0010 sapma notu.
 | API-10 | Webhook gönderici + teslim günlüğü | L | yapıcı (`tappa-brand`) | API-9 |
 | API-11 | Sandbox ikilisi + simülasyon + kurulum | M | yapıcı + kullanıcı (alan adı/DNS) | API-5…API-10 |
 | API-12 | OpenAPI + entegrasyon rehberi (§2'nin 31 maddesi + imza vektörü) | S | yapıcı | API-5…API-11 |
-| API-13 | Canlıya alma: sırlar, `api.` DNS + Ingress, **`tappa-security-auditor` tam tur**, operatörden K-22 (kod `KF`/`KM`) — **K-22'nin operatör yüzeyi de burada**: `op_enable_tenant_api`/`op_disable_tenant_api`'nin Go erişimcisi + `/operator` ekranı (API aç/kapat, `api_code`; API-1 yalnız iki `op_*`'i getirdi) — ve **KF+KM holding'i**, K-18 runbook'u, prod anahtar çifti ve `pg_auth_members` ölçümü, spec §7 listesi | M | yapıcı + denetçi + kullanıcı | hepsi + **OP-15** |
+| API-13 | Canlıya alma: sırlar, `api.` DNS + Ingress, **`tappa-security-auditor` tam tur**, operatörden K-22 (kod `KF`/`KM`) — **K-22'nin operatör yüzeyi de burada**: `op_enable_tenant_api`/`op_disable_tenant_api`'nin Go erişimcisi + `/operator` ekranı (API aç/kapat, `api_code`; API-1 yalnız iki `op_*`'i getirdi) — ve **KF+KM holding'i**, K-18 runbook'u, prod anahtar çifti ve `pg_auth_members` ölçümü, spec §7 listesi | M | yapıcı + denetçi + kullanıcı | hepsi (~~**OP-15**~~ — 2026-10-17 kullanıcı: *"M11 şimdi çıksın"*, OP-15 sonra `00058`; API-13b) |
 
 Her görev: yapıcı (opus) → ayrı üçüncü göz → bulgu varsa düzelt + yeniden denetle; CLAUDE.md §4'e
 değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
@@ -712,8 +712,16 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
   işletme özetinde *Integration API* (aç / kod değiştir / kapat), kabul edilen açma K-19 kümesine bildirir (aynı süreç); (3)
   `TAPPA_API_HOST` + **`42-api-ingress.yaml`** (yalnız `/v1`, rollout beklemesinden sonra — `40` değil, gerekçesi notta),
   Cloudflare ön kontrolü ve `api-host` deploy sonrası kapısı; (4) T131 — yazmalar her sorgu dizgesini 400 ile reddeder; (5)
-  runbook. **Deploy günü kalanı:** OP-15 canlıda, rol blokları canlıda, `tappa-security-auditor` tam turu, `api.taptime.mt`
-  A kaydı DNS-only (kullanıcı), birleştirme (kullanıcı kararı), deploy sonrası on iki ölçüm.
+  runbook. **Deploy günü kalanı:** ~~OP-15 canlıda~~, rol blokları canlıda, ~~`tappa-security-auditor` tam turu~~ (✅ ONAY),
+  ~~`api.taptime.mt` A kaydı DNS-only~~ (✅ 2026-10-17), birleştirme (kullanıcı kararı ✅), deploy sonrası on iki ölçüm.
+  **API-13b (2026-10-17) — OP-15'siz çıkış:** 🟢 kullanıcı *"M11 şimdi çıksın"*. `/v1` yazmaları OP-15'siz açıktır
+  (`NoSuspensionColumn` her işletmeyi askıda değil sayar; prod'da askı yok → tutarlı); kötüye kullanımda operatörün
+  *"Close the API"*'si. **OP-15 sonra:** migration'ı `00036` → **`00058`**, `00057`'nin (ve `00042`'nin) hâlinin üstüne
+  (`op_read_tenant_detail` 13 sütun; Down oraya döner; Go `Scan`), ve **API-4b aynı birleştirmede zorunlu**
+  (`TestAPIWiring_TheSuspensionReaderFollowsTheColumn` CI'ı kırmızıya çevirir). Doğru sıra: M11 (`00037`…`00057`) →
+  OP-15 (`00058`). Aynı turda iki DÜŞÜK: `00037`/`00038`'e `lock_timeout` 1 sn, `20-app.yaml`'dan `TAPPA_API_HOST` Secret
+  girdisi; ve `origin/main` (T119, T121, Q28) birleştirildi. Ayrıntı ADR 0028 *"API-13b notu"*, deploy/README.md
+  *"M11 — deploy günü"* (a).
 
 ---
 
@@ -731,7 +739,7 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
 - **GDPR** — K-1d/f/h görünürlüğü, `employer_manual` satırları, `site_punches`'ın ve `webhook_deliveries`'in (`delivered`/`dead` —
   T130) saklama süresi DPA notunda (kullanıcı).
 - **Egress açık** — SSRF kapısı tek savunma.
-- **Canlı ön koşul:** OP-15.
+- **Canlı ön koşul:** ~~OP-15~~ — 2026-10-17 kullanıcı kararıyla kalktı (API-13b); askı OP-15 + API-4b ile sonra gelir.
 
 ## 7. Kullanıcının dış adımları
 
@@ -742,7 +750,7 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
 5. DPA / aydınlatma metni: holding içi paylaşım (K-1d/f/h — sonuç, yön, aktiflik dahil), `site_punches` saklama süresi ve onunla
    birlikte `webhook_deliveries`'in `delivered`/`dead` satırlarının saklama süresi (T130 — 2026-10-16: DPA kararına bırakıldı,
    şimdilik silme yok).
-6. Canlı ön koşul: OP-15.
+6. ~~Canlı ön koşul: OP-15.~~ Kalktı (2026-10-17, *"M11 şimdi çıksın"* — API-13b); OP-15 sonra `00058` olarak.
 
 ## 8. Kapsam dışı (v1)
 

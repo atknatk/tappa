@@ -953,7 +953,7 @@ API host'u `TestPackaging_TheAPIIngressRoutesV1OnTheConfiguredHost`,
 
 ## API-1 uygulama notu (2026-10-11)
 
-Şema üç migration'dır; numaralar `00037`'den başlar (`00036` OP-15'e ayrıldı):
+Şema üç migration'dır; numaralar `00037`'den başlar (`00036` OP-15'e ayrıldı — API-13b'de OP-15 `00058`'e taşındı, `00036` boş kalır):
 
 - **`00037`** — `employees`: `external_ref`, `employee_code`, `first_name`, `last_name`, `updated_at`;
   `location_id` NULL olabilir, `employees_home_or_external_ref` CHECK'i ile (K-14); e-posta indeksi
@@ -984,6 +984,7 @@ API host'u `TestPackaging_TheAPIIngressRoutesV1OnTheConfiguredHost`,
   karşılaştırmaz. `op_begin_read` ve `op_read_audit` 00034 gövdeleri + iki tür adıyla değiştirildi. Ön
   koşul tür CHECK'ini ve `tenant_write_shape`'i **tam metinle**, değiştirdiği iki gövdeyi `md5(prosrc)` ile
   karşılaştırır: OP-15'in `00036`'sı önce birleşirse bu dosya sessizce onu geri almaz, "rebase" der.
+  (API-13b, 2026-10-17: OP-15 M11'den **sonra**, `00058` olarak gelir — `00036` boş kalır; aşağıda *"API-13b notu"*.)
 
 **`arwd` kuralının mekaniği (§1 madde 4).** Taze bir hacimde, ilk migration'dan önce üretimin
 `pg_default_acl`'i kurulur: CI'da, yeni geliştiricide ve `make db-reset`'te aynı init dosyası
@@ -3157,17 +3158,13 @@ ve DNS'e dokunulmadı; sırlar ve prod ölçümleri ana oturumundur (aşağıda 
      DROP + CREATE, sahibi/REVOKE/GRANT yeniden yazılı). Sütunlar okumanın zaten `t.id = p_tenant_id` ile
      adlandırdığı satırdan gelir; yetki verilmedi (`SELECT (api_enabled_at)` 00039'un, `SELECT (api_code)`
      00042'nin). Ön koşul fonksiyonun 00029'unki olduğunu sonucu ve `md5(prosrc)` ile sınar — OP-15'in
-     bekleyen dalı aynı fonksiyonu askı sütunlarıyla yeniden yazar. **Yön: `00057` OP-15'in üstüne
-     yeniden kurulur** (tersi değil): `00036` OP-15'e ayrıldı (API-1 notu) ve OP-15 birleşmeden önce
-     canlıda olacağı için (deploy/README.md *"M11 — deploy günü"* (a)) goose sırasında OP-15'in
-     migration'ı `00057`'den önce koşar. Bu dal birleşirken `00057`'nin Up'ı OP-15'in gövdesini askı
-     sütunlarıyla taşır (13 sütun), Down OP-15'in hâline döner, ön koşulun `md5`'i ve sonuç tipi OP-15'e
-     göre değişir, Go'nun `readTenantDetailSQL`/`Scan` sırası güncellenir — 00039'un aynı yöndeki emsali
-     (state.md *"OP-15 rebase"*). Yanlış sıra iki yönde de yüksek sesle düşer: `00057` uygulanmış şemaya
-     gelen OP-15 migration'ı (`00036`) önce goose'un sıra dışı migration hatasıyla durur (allow-missing
-     yok; SQL ön koşulu da 00029'un sonuç tipini isterdi — *"Migrate in order"*, 55000);
-     OP-15'ten sonra yeniden yazılmadan koşan `00057` 00029'un gövdesini ister (*"rebase this file onto
-     it"*). Bugünkü `00057` OP-15'siz şema için doğrudur; kod değişmedi. Down 00029'u birebir
+     bekleyen dalı aynı fonksiyonu askı sütunlarıyla yeniden yazar. ~~Yön: `00057` OP-15'in üstüne yeniden
+     kurulur~~ — **API-13b'de tersine döndü** (🟢 kullanıcı, 2026-10-17: *"M11 şimdi çıksın"*): M11 OP-15'i
+     beklemeden çıkar, OP-15'in migration'ı `00036`'dan **`00058`**'e taşınır ve **`00057`'nin üstüne**
+     yazılır (13 sütun: `00057`'nin 11'i + `suspended_at`, `suspension_reason`; ön koşul `00057`'nin sonuç
+     tipini ve `md5`'ini sınar; Down `00057`'nin hâline döner; Go `Scan`'i 13'e) — ayrıntı aşağıda
+     *"API-13b notu"* ve deploy/README.md *"M11 — deploy günü"* (a). `00057` bu karar için yeniden yazılmadı;
+     ön koşulunun hata metni yeni sırayı söyler. Down 00029'u birebir
      geri verir; `opAtVersion` onu yürür (yalnız katalog — tablo kilidi yok). Okuma türü yine
      `tenant_detail`: her görüntü `operator_audit_log`'a bir `read` satırı (CLAUDE.md §4.5).
    - **`internal/db`:** `EnableTenantAPI`, `DisableTenantAPI` (+ `APICodePattern`), `TenantOverview`'a
@@ -3240,9 +3237,10 @@ ve DNS'e dokunulmadı; sırlar ve prod ölçümleri ana oturumundur (aşağıda 
    özetten sorgu alanı çıkar → pin kırmızı. Rehber §3.3/§3.7 (iki dil) ve OpenAPI `info`. Backlog T131
    kapandı.
 
-5. **Runbook:** `deploy/README.md` *"M11 — deploy günü (API-13)"* — (a) OP-15, (b) roller, sırlar (yalnız
-   ad + boyut ölçümü), prod sayımları, güvenlik turu, (c) DNS (kullanıcı), (d) birleştirme → CI → deploy
-   (migration 37…57 — `00036` OP-15'indir, önce canlıda koşar) ve `main`'in T119'uyla birleştirme
+5. **Runbook:** `deploy/README.md` *"M11 — deploy günü (API-13)"* — (a) OP-15 (API-13b'de: OP-15'siz çıkış),
+   (b) roller, sırlar (yalnız ad + boyut ölçümü), prod sayımları, güvenlik turu, (c) DNS (kullanıcı), (d)
+   birleştirme → CI → deploy (migration 37…57 — ~~`00036` OP-15'indir, önce canlıda koşar~~ API-13b: OP-15
+   sonra, `00058`) ve `main`'in T119'uyla birleştirme
    çakışması (11 örtüşen dosya, çözüm kuralları), (e) deploy sonrası on iki ölçüm, (f) geri dönüş:
    Down'lar prodda koşulmaz, `main`'i geri almak migration'ı geri almaz; deploy'suz kapatmalar
    (operatör ekranında *Close the API*).
@@ -3270,3 +3268,33 @@ belgede); ikisi de aynı turda:
 - *T131 bedeli* (madde 4): pratikte boş — prod'da `api_idempotency` bu deploy'la doğar.
 - *Plan* §5 API-13 (2): "bugün yalnız IPv4" geçmişe çevrildi.
 
+## API-13b notu (2026-10-17) — OP-15'siz çıkış, son DÜŞÜK'ler, `main` ile birleştirme
+
+🟢 Kullanıcı kararları: birleştirme + deploy onaylı (*"4. de onay"*) ve **"M11 şimdi çıksın"** — M11, OP-15'i
+(askı) beklemeden canlıya çıkar. Birleştirme öncesi `tappa-security-auditor` tam turu **ONAY** (üç DÜŞÜK).
+
+1. **OP-15'siz çıkış (askı).** `/v1` yazmaları açıktır: askı kontrol noktası `api.NoSuspensionColumn`'dır ve
+   her işletmeyi askıda değil sayar; prod'da askı kavramı (sütun, ekran) yoktur, yani cevap prod'un
+   gerçeğiyle tutarlıdır. Kötüye kullanımda araç operatörün *"Close the API"*'sidir (K-22; bir sonraki
+   istekten itibaren 403). **OP-15 sonra gelirken:** migration'ı **`00058`** olur (goose sıra dışı dosyayı
+   reddeder — allow-missing yok; `00036` boş kalır); ön koşulu ve gövdeleri **M11'in son hâline** göre
+   yazılır — `op_read_tenant_detail` `00057`'nin 11 sütunu + `suspended_at`, `suspension_reason` = 13,
+   `op_begin_read` / `op_read_audit` / tür CHECK'i / `tenant_write_shape` `00042`'nin hâli; Down o hâllere
+   döner; `internal/db/operator.go`'nun `Scan`'i 13 sütuna; ve **API-4b aynı birleştirmede zorunludur**:
+   `TestAPIWiring_TheSuspensionReaderFollowsTheColumn` migration'larda `suspended_at`'i görünce CI'ı
+   kırmızıya çevirir, deploy CI yeşil olmadan koşmaz (kapalı düşer). `00057`'nin ön koşul hata metni artık
+   *"rebase this file onto it"* demez, yeni sırayı söyler. Runbook: deploy/README.md *"M11 — deploy günü"* (a).
+2. **DÜŞÜK — `00037`/`00038`'in `lock_timeout`'u.** İkisi `employees`/`locations`/`tenants`'ta `ACCESS EXCLUSIVE`
+   alır ve `lock_timeout`'ları yoktu (02:30 yedeğinin arkasında kuyruğa girip okumaları durdurabilirdi).
+   Prod goose 35 → ikisi uygulanmadı; yayınlanmamış dosyalar **yerinde** düzeltildi (API-2 notunun kuralı):
+   Up'ın ve Down'ın ilk ifadesi `SET LOCAL lock_timeout = '1s'` (`00054`/`00056` kalıbı). İşlem yerel bir
+   ayardır, şema nesnesi değişmez — taze bir veritabanında şema dökümü değişiklikten önceki ve sonraki
+   dosyalarla aynı. Pin: `TestM11Migrations00037And00038_OpenWithASecondsLockTimeout` (dört bölümün ilk
+   ifadesi; davranış `00054`/`00056`'nın kilit testlerinde ölçülü — burada bir yarış `tenants`'ı bütün test
+   paketleri için bir saniye kuyrukta tutardı).
+3. **DÜŞÜK — `20-app.yaml`'daki `TAPPA_API_HOST` Secret girdisi silindi.** Değer API-13a'dan beri
+   `05-config.yaml`'da; `optional: true` bir `secretKeyRef` `envFrom`'u ezerdi, Secret'ta anahtar olsaydı
+   (f)'nin acil kapatması (anahtar ConfigMap'ten + 42 dışarı) host'u açık bırakırdı. Pin:
+   `TestPackaging_NoConfigMapKeyIsAlsoAnEnvEntry` (mutant: girdi geri → kırmızı).
+4. **`origin/main` birleştirildi** (merge commit; rebase yok). Çözüm kuralları deploy/README.md *"Birleştirme
+   çakışması"*nda; birleşik `deploy.yml` sırası aynı bölümün (d)'sinde.

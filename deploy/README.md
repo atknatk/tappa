@@ -1187,30 +1187,48 @@ geçmeden sonrakine geçilmez. `main`'e birleştirme bir **deploy kararıdır** 
 
 ### Deploy'dan önce
 
-**(a) OP-15 canlıda.** Askı sütunları (`tenants.suspended_at`) olmadan API'nin §10 askı kontrol noktası
-`NoSuspensionColumn` ile çalışır (API-4b); plan API-13'ün bağımlılığı **OP-15**'tir. OP-15 başka
-oturumun işidir; birleşmeden önce canlıda olmalıdır. ⚠️ OP-15'in bekleyen migration'ı
-`op_read_tenant_detail`'i yeniden yazar (iki askı sütunu); API-13a'nın `00057`'si de onu yazdı (iki API
-sütunu). **Yön: `00057` OP-15'in üstüne yeniden kurulur, tersi değil.** `00036` OP-15'e ayrıldı (ADR 0028
-*"API-1 uygulama notu"*) ve OP-15 birleşmeden **önce** canlıda olacağı için goose sırasında OP-15'in
-migration'ı `00057`'den **önce** koşar. Bu dal OP-15'in ardından birleşirken `00057` yeniden yazılır:
-Up 00029'un değil OP-15'in gövdesini taşır ve askı sütunlarını korur (satır 13 sütun: OP-15'in 11'i +
-`api_enabled_at`, `api_code`); Down 00029'a değil **OP-15'in hâline** döner; ön koşulun `md5(prosrc)`'i
-ve sonuç tipi metni OP-15'in gövdesine göre değişir; Go'daki sütun listesi ve `Scan` sırası
-(`internal/db/operator.go`: `readTenantDetailSQL`, `readTenantDetail`) 13 sütuna güncellenir. Emsal: 00039 için aynı yön (state.md, *"OP-15 rebase"*).
-Yanlış sıra **yüksek sesle** düşer, sessizce geri almaz — iki yönde de (55000,
-`object_not_in_prerequisite_state`): OP-15'in migration'ı (`00036`) `00057` uygulanmış bir şemaya
-gelirse önce **goose'un kendisi** sıra dışı (missing/out-of-order) migration diye durur — depo
-allow-missing kullanmaz (`Makefile`, `30-migrate-job.yaml` düz `up`); SQL ön koşuluna sıra gelseydi o da
-`op_read_tenant_detail`'in 00029'un sonuç tipi olmasını ister ve reddederdi (*"Migrate in order"*);
-`00057` OP-15'in migration'ından sonra **yeniden yazılmadan** koşarsa onun ön koşulu 00029'un gövdesini
-ister ve reddeder (*"rebase this file onto it"*). Doğru sıra: OP-15 (`00036`) → yeniden yazılmış
-`00057`.
+**(a) OP-15'siz çıkış — 🟢 kullanıcı kararı (2026-10-17: *"M11 şimdi çıksın"*).** M11, OP-15'i (askı)
+beklemeden canlıya çıkar; API-13a'nın *"OP-15 önce canlıda, `00057` onun üstüne yeniden kurulur"* yönü
+**tersine döndü**: önce M11 (`00037`…`00057`), OP-15 **sonra**, `00058` olarak `00057`'nin üstüne.
+
+- **OP-15'siz `/v1` yazmaları açıktır.** Askı kontrol noktası (ADR 0028 §10) `api.NoSuspensionColumn` ile
+  kurulur ve her işletmeyi *askıda değil* sayar. Prod'da askı kavramı **yoktur** (`tenants.suspended_at`
+  yok, operatör ekranında askı yok) — yani bu cevap prod'un gerçeğiyle tutarlıdır; hiçbir askı yok
+  sayılmıyor. Panel ve dokunuş yolu da bugün askıyı bilmez.
+- **Kötüye kullanımda** (bir işletmenin anahtarı sızdı, entegratör hatalı yazıyor): operatör ekranında
+  işletmenin özeti → *Integration API* → **"Close the API"** — anahtarlar ve webhook bir sonraki istekten
+  itibaren 403 (K-22; (f)'nin ilk maddesi). Askının yerine geçen araç budur.
+- **OP-15 sonra gelirken** (başka oturumun işi; bekleyen dallar `hold/op15*`):
+  1. Migration dosyası `00036`'dan (dallarda `00035`) **`00058`**'e taşınır. `00036` boş kalır: goose
+     uygulanmış en yüksek sürümün (`57`) altındaki yeni bir dosyayı sıra dışı (missing) diye **reddeder** —
+     depo allow-missing kullanmaz (`Makefile`, `30-migrate-job.yaml` düz `up`).
+  2. Ön koşulu ve değiştirdiği her nesne **M11'in son hâline göre** yazılır, 00034'ünkine göre değil:
+     `op_read_tenant_detail` `00057`'nin gövdesi + iki askı sütunu (`suspended_at`, `suspension_reason`)
+     satırın **sonunda** → **13 sütun** (`00057`'nin 11'i: 00029'un 9'u + `api_enabled_at`, `api_code`;
+     ardından askının 2'si); ön koşulun sonuç tipi metni ve `md5(prosrc)`'i `00057`'ninkiler. Aynı kural
+     OP-15'in değiştirdiği öteki nesnelere de uygulanır — `op_begin_read`, `op_read_audit`,
+     `operator_audit_log_kind_check` ve `operator_audit_log_tenant_write_shape` en son `00042`'de
+     değişti (`00039` ve `00042`'nin tür adları korunur), `op_read_tenants`'a M11 dokunmadı. Down
+     `00057`'nin (ve `00042`'nin) hâline döner, 00029'a / 00034'e değil. `tenants`'a `ALTER` aldığı için
+     ilk ifadesi `SET LOCAL lock_timeout = '1s'` (aşağıdaki kural, `00037`/`00038` emsali).
+  3. Go: `internal/db/operator.go` `readTenantDetailSQL` ve `readTenantDetail`'in `Scan`'i 13 sütuna.
+  4. **API-4b zorunlu olur, aynı birleştirmede:** `cmd/tappa/apiwiring_test.go`
+     `TestAPIWiring_TheSuspensionReaderFollowsTheColumn` migration'larda `suspended_at`'i görünce CI'ı
+     kırmızıya çevirir → `NoSuspensionColumn` yerine sütunun okuması + §4.7'nin hücre hücre testleri
+     (plan §5 API-4b). Deploy CI yeşil olmadan koşmaz (`workflow_run`) — yani OP-15 API-4b'siz canlıya
+     **çıkamaz**; kapı kapalı düşer.
+
+  Yanlış sıra yüksek sesle düşer: `00036` numarasıyla gelen bir OP-15'i goose durdurur (yukarıda 1.);
+  `00058`'in ön koşulu `00057`'nin sonuç tipini ve `md5(prosrc)`'ini sınar (00039'un ve `00057`'nin
+  kalıbı), böylece M11'in iki API sütununu sessizce geri alacak bir gövde 55000 ile reddedilir.
+  `00057`'nin kendi ön koşulu (00029'un gövdesini ister) prod'da bir kez, OP-15'ten **önce** koşar; onu
+  tetikleyen tek durum `00057`'den önce `op_read_tenant_detail`'i değiştiren bir migration'dır, ki bu
+  kararla artık olmayacak. **Doğru sıra: M11 (`00037`…`00057`) → OP-15 (`00058`).**
 
 **(b) Küme rolleri ve sırlar.**
 - Rol blokları **canlı veritabanında** bir kez koşulmuş olmalı: *"Holding role (M11 API-1a)"* ve
   *"Feed role (M11 API-2)"* bölümleri (`00041` ve `00048` rolleri yaratmaz, yoksa migration Job'ı
-  durur ve rollout yapılmaz).
+  durur ve rollout yapılmaz). ⏳ Ana oturum deploy'dan **önce** koşar (2026-10-17 itibarıyla bekliyor).
 - `TAPPA_API_KEY_HMAC_KEY` ve `TAPPA_WEBHOOK_KEK` — ✅ **yapıldı (2026-10-16, ana oturum)**: Infisical
   `shared-infra/prod:/tappa` ve canlı `tappa-secrets`, ikisi de 32 bayt, sekiz 32 baytlık anahtar çift
   çift farklı (değer basılmadan ölçüldü). Yeniden ölçüm **yalnız ad ve boyut** basar:
@@ -1226,9 +1244,12 @@ ister ve reddeder (*"rebase this file onto it"*). Doğru sıra: OP-15 (`00036`) 
   isim kuralına takılan ad (lokasyon/departman/çalışan) **0**. Kesin sayılar depoya yazılmaz.
 - `TAPPA_INVITE_DELIVERY` ConfigMap'te `email` (`TestPackaging_TheConfigMapShipsTodaysDelivery`):
   API'nin davetleri yalnız `email` kipinde gönderilir.
-- **`tappa-security-auditor` tam turu** `m11-api`'nin `main`'e göre farkı üstünde (plan API-13).
+- **`tappa-security-auditor` tam turu** `m11-api`'nin `main`'e göre farkı üstünde (plan API-13) — ✅ **ONAY**
+  (2026-10-17); üç DÜŞÜK'ü API-13b kapattı (`00037`/`00038`'in `lock_timeout`'u, `20-app.yaml`'daki
+  `TAPPA_API_HOST` Secret girdisi, bu bölümün (a)'sı).
 
-**(c) DNS — kullanıcı (Cloudflare kimlik bilgisi depoda ve oturumda yok).** `taptime.mt` bölgesine
+**(c) DNS** — ✅ **yapıldı (2026-10-17, ana oturum):** `api` A → origin, DNS-only, AAAA yok. Kural (yeniden
+kurulursa): `taptime.mt` bölgesine
 **`api` A kaydı → `144.76.158.60`, proxy KAPALI (gri bulut, DNS-only)**, birleşmeden **önce** (HTTP-01
 sertifikası adın çözülmesini ister; deploy'un Cloudflare ön kontrolü ve `api-host` kapısı ad çözülmezse
 uyarıp geçer, çözülürse ölçer). **AAAA kaydı açılmaz**: apex'in de yok, ve IPv6 yolunda ingress'in
@@ -1241,9 +1262,10 @@ dinlediği ve `TAPPA_TRUSTED_PROXIES`'in gerçek istemci adresini verdiği ölç
 **(d) Birleştirme → CI → deploy.** Bu dalın `.github/workflows/deploy.yml`'i sırayla (T119 öncesi düzen —
 birleştirmede aşağıdaki *"Birleştirme çakışması"* maddesine göre yeniden yazılır): Cloudflare ön kontrolleri
 (`taptime.mt`, `api.taptime.mt`) → ConfigMap (`TAPPA_API_HOST` dahil) → migration Job (**37…57** — bu
-dalda `00036` yok, OP-15'inki (a) gereği önce canlıda koşmuş olur; `00054` kısmi indeks — ölçülen
-boyutta anında; `00056` `employees` indeksi kendi `lock_timeout`'uyla; `00057` yalnız bir fonksiyon,
-OP-15'in üstüne yeniden yazılmış hâliyle) → `20-app.yaml` → `40`, `41` → **rollout beklemesi** →
+dalda `00036` yok ve prod'da da olmayacak — OP-15 (a) gereği sonra `00058` olarak gelir; `00037`/`00038`
+`employees`/`locations`/`tenants`'ta `ACCESS EXCLUSIVE`, kendi `lock_timeout`'larıyla — 02:30 yedeğinden uzak bir
+saatte; `00054` kısmi indeks — ölçülen boyutta anında; `00056` `employees` indeksi kendi `lock_timeout`'uyla;
+`00057` yalnız bir fonksiyon, 00029'un gövdesi + iki API sütunu) → `20-app.yaml` → `40`, `41` → **rollout beklemesi** →
 `42-api-ingress.yaml` →
 `api-host` kapısı (`/v1/guide.md` 200 `text/markdown`, kök 404) → `db-role` kapısı. Migration Job
 `Failed` olursa rollout yapılmaz (*"4. Migration Job'ı Failed"*).

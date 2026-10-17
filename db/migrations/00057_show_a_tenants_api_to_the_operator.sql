@@ -13,8 +13,8 @@
 -- WHAT IT DOES, IN ORDER:
 --   0. re-checks the two cluster roles' shape (00026's precondition, as 00027-00042 repeated it),
 --      that op_read_tenant_detail is 00029's -- its result type by text and its body by md5(prosrc),
---      so a migration that changed it in between (OP-15's suspension columns, on a held branch)
---      stops this file loudly instead of being silently undone by it -- and that tappa_opdefiner
+--      so a migration that changed it in between stops this file loudly instead of being silently
+--      undone by it -- and that tappa_opdefiner
 --      already holds SELECT on the two columns (00039 api_enabled_at, 00042 api_code): this file
 --      grants NOTHING;
 --   1. op_read_tenant_detail is DROPPED and CREATED again (CREATE OR REPLACE cannot change a result
@@ -26,6 +26,13 @@
 -- THE READ IS STILL ONE TICKET KIND ('tenant_detail'), one 'read' row per view in
 -- operator_audit_log (00029's phase one): the API state is part of the overview the operator
 -- already reads, not a new door. No table, no grant, no kind.
+--
+-- ORDER AGAINST OP-15 (the user's decision of 2026-10-17 -- M11 ships now; deploy/README.md, M11
+-- deploy day (a)): M11 ships BEFORE OP-15. OP-15's suspension migration -- which rewrites this same
+-- function with the two suspension columns, on a held branch -- moves to 00058 and is written ONTO
+-- this file: its body is this one plus the two suspension columns at the end (13 columns),
+-- its precondition names this file's result type and md5(prosrc), its Down comes back here. This file
+-- is not rewritten for it.
 --
 -- CLOCKS: the function reads clock_timestamp() for the ticket as 00029's does; it writes no instant.
 -- SECRETS: none -- an API code is a public label (00039's header).
@@ -98,7 +105,7 @@ BEGIN
        OR (SELECT pg_catalog.md5(p.prosrc) FROM pg_catalog.pg_proc p
             WHERE p.oid = pg_catalog.to_regprocedure('public.op_read_tenant_detail(text, text, uuid)'))
            IS DISTINCT FROM '86d4081dbdae53b128a701784b8f3deb' THEN
-        RAISE EXCEPTION 'migration 00057 (M11 API-13a) replaces op_read_tenant_detail as migration 00029 left it, and the live function is not that (its owner, its result columns or its body) -- a migration between 00029 and this one changed it, and this file would silently undo that; rebase this file onto it. Migrate in order. Nothing was changed.'
+        RAISE EXCEPTION 'migration 00057 (M11 API-13a) replaces op_read_tenant_detail as migration 00029 left it, and the live function is not that (its owner, its result columns or its body) -- a migration between 00029 and this one changed it, and this file would silently undo that. A migration that changes op_read_tenant_detail (OP-15) comes AFTER this file, written onto it (deploy/README.md, M11 deploy day (a)). Migrate in order. Nothing was changed.'
             USING ERRCODE = 'object_not_in_prerequisite_state';
     END IF;
 
