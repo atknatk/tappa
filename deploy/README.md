@@ -139,14 +139,17 @@ operatör yüzeyi yapılandırılmışsa; *"Uygulandı: K2"*, T119). Tek tek `ap
 
 Doğrulama (kayıt açıldıktan sonra):
 
+- `dig +short taptime.mt`: 144.76.158.60 olmalı
+
 ```bash
-dig +short taptime.mt                              # 144.76.158.60 olmalı
+dig +short taptime.mt
 curl -sS -o /dev/null -D - https://taptime.mt/ | grep -i 'cf-ray\|^HTTP/'
-# cf-ray varsa kayıt hâlâ proxy'li demektir; YOKSA yalnız `HTTP/2 200` satırı çıkar.
-# (Desende `^HTTP/` var, `^server` yok: origin `server` başlığı GÖNDERMİYOR ve durum
-#  satırında `HTTP` ile `/` arasında iki nokta yok — eski desen sağlıklı durumda
-#  hiçbir şey basmayıp exit 1 veriyordu, yani "komut bozuk" gibi görünüyordu.)
 ```
+
+cf-ray varsa kayıt hâlâ proxy'li demektir; YOKSA yalnız `HTTP/2 200` satırı çıkar. (Desende `^HTTP/`
+var, `^server` yok: origin `server` başlığı GÖNDERMİYOR ve durum satırında `HTTP` ile `/` arasında
+iki nokta yok — eski desen sağlıklı durumda hiçbir şey basmayıp exit 1 veriyordu, yani "komut bozuk"
+gibi görünüyordu.)
 
 **2. Sırlar.** İkisinden birini seç — `examples/externalsecret.example.yaml`
 **önerilir** (gerekçesi dosyanın başında: `TAPPA_TAG_KEK` bir dosyadan, kabuk
@@ -160,10 +163,14 @@ denetlenen bir yerde de bulunmalı (Infisical projesi, parola yöneticisi ya da 
 mühürlü zarf). *"Küme'de duruyor"* emanet değildir: tek node'da, yedeksiz tek bir
 etcd'dir.
 
+üretim (yalnız bu iki komut, çıktıyı bir yere yapıştırmadan):
+
+- `openssl rand -base64 32`: TAPPA_SESSION_HMAC_KEY / TAPPA_TAG_KEK / TAPPA_INVITE_HMAC_KEY
+- `openssl rand -hex 32`: POSTGRES_PASSWORD / TAPPA_APP_PASSWORD  (URI'ye giriyorlar)
+
 ```bash
-# üretim (yalnız bu iki komut, çıktıyı bir yere yapıştırmadan):
-openssl rand -base64 32   # TAPPA_SESSION_HMAC_KEY / TAPPA_TAG_KEK / TAPPA_INVITE_HMAC_KEY
-openssl rand -hex 32      # POSTGRES_PASSWORD / TAPPA_APP_PASSWORD  (URI'ye giriyorlar)
+openssl rand -base64 32
+openssl rand -hex 32
 ```
 
 `TAPPA_INVITE_HMAC_KEY`, `TAPPA_SESSION_HMAC_KEY`'den **farklı** üretilmeli —
@@ -171,8 +178,10 @@ openssl rand -hex 32      # POSTGRES_PASSWORD / TAPPA_APP_PASSWORD  (URI'ye giri
 
 **3. Deploy'un kendi kimliği — `k8s/01-rbac.yaml` (bir kez, cluster-admin ile).**
 
+- `kubectl apply -f deploy/k8s/00-namespace.yaml`: namespace önce; RBAC onun içine giriyor
+
 ```bash
-kubectl apply -f deploy/k8s/00-namespace.yaml    # namespace önce; RBAC onun içine giriyor
+kubectl apply -f deploy/k8s/00-namespace.yaml
 kubectl apply -f deploy/k8s/01-rbac.yaml
 ```
 
@@ -220,9 +229,12 @@ kusuru tanım gereği yok ediyor** — kaydedilecek bir kimlik yoktur.
    yetkili bir token üret.
 2. GitHub deposuna iki secret yaz:
 
+- `gh secret set DOCKERHUB_USERNAME --repo atknatk/tappa`: Docker Hub kullanıcı adın
+- `gh secret set DOCKERHUB_TOKEN    --repo atknatk/tappa`: yukarıdaki token
+
 ```bash
-gh secret set DOCKERHUB_USERNAME --repo atknatk/tappa     # Docker Hub kullanıcı adın
-gh secret set DOCKERHUB_TOKEN    --repo atknatk/tappa     # yukarıdaki token
+gh secret set DOCKERHUB_USERNAME --repo atknatk/tappa
+gh secret set DOCKERHUB_TOKEN    --repo atknatk/tappa
 ```
 
 3. `atknatk/tappa` ve `atknatk/tappa-migrate` depoları **Public** olmalı. İki yol
@@ -323,9 +335,10 @@ yapmayan bir satır güvence gibi görünürdü); etiketi kapı ölçer. Öneril
 | Tags | **`tag:ci`** | etiketsiz anahtar cihazı **anahtarı üreten kullanıcı** olarak katar — ACL'in `tag:ci` kuralı onu tarif etmez; kapı **kırmızı** |
 | Süre | **≤ 90 gün** (Tailscale'in üst sınırı) | 🔴 **süre dolunca deploy *"Join the tailnet"*'te düşer** — takvime yaz (backlog T135) |
 
+Tailscale yönetim konsolu: Settings, Keys, Generate auth key. Özellikler yukarıdaki tabloda. Komut
+değeri gizli bir istemden okur. Anahtarı komut satırına YAZMA, ekrana basma.
+
 ```bash
-# Tailscale yönetim konsolu: Settings, Keys, Generate auth key. Özellikler yukarıdaki tabloda.
-# Komut değeri gizli bir istemden okur. Anahtarı komut satırına YAZMA, ekrana basma.
 gh secret set TS_AUTHKEY --repo atknatk/tappa
 ```
 
@@ -348,21 +361,23 @@ Bu adres `kubernetes` Service'inin adresidir ve API sunucusunun sertifikası onu
 (ölçüldü — yukarıda); CA, herhangi bir namespace'teki `kube-root-ca.crt` ConfigMap'inin
 `ca.crt`'sidir. Üç blok, **sırayla**; ikinci ile üçüncünün arasında token'ı bir **editörle**
 dosyaya yazarsın. (Blokları tek parça yapıştırmak, token'sız bir kubeconfig'i secret'a
-yazardı — bu yüzden bölündüler.) Bloklar zsh'a yapıştırılmaya uygundur: yorum satırlarında
-tırnak, ters tırnak, yönlendirme ya da `;` yok ve komut satırlarında satır içi yorum yok
-(`TestReadme_TheTailnetStepBlocksPasteIntoZsh`, `zsh -f -i -n` ile ölçer). Son blok bir
+yazardı — bu yüzden bölündüler.) Bloklar zsh'a yapıştırılmaya uygundur: bloklarda **hiç yorum
+yok** (açıklamalar blokların üstündeki metinde — T136, bütün dosyanın kuralı) ve her satır
+`zsh -f -i -n` ile ayrışıyor (`TestReadme_TheTailnetStepBlocksPasteIntoZsh`). Son blok bir
 zincirdir: kümeden okuma ya da `kubeconfig-server` denetimi düşerse `gh` **hiç çağrılmaz** —
 aynı test bloğu bash ve zsh altında sahte komutlarla **koşturarak** ölçer.
 
+Token adım 3 ile kurulan github-deployer ServiceAccount için üretilir, cluster-admin kimliğiyle
+DEĞİL. İstenen süre apiserver üst sınırıyla KIRPILABİLİR ve kubectl bunu bir uyarıyla söyler.
+Kırpıldıysa süre dolmadan yenile ve takvime yaz. Yoksa deploy bir gün 401 almaya başlar.
+
 ```bash
-# Token adım 3 ile kurulan github-deployer ServiceAccount için üretilir, cluster-admin kimliğiyle DEĞİL.
-# İstenen süre apiserver üst sınırıyla KIRPILABİLİR ve kubectl bunu bir uyarıyla söyler.
-# Kırpıldıysa süre dolmadan yenile ve takvime yaz. Yoksa deploy bir gün 401 almaya başlar.
 kubectl -n tappa create token github-deployer --duration=8760h
 ```
 
+Sunucu tailnet adresidir, genel IP DEĞİL. CA kümenin kendi kök sertifikasıdır ve sır değildir.
+
 ```bash
-# Sunucu tailnet adresidir, genel IP DEĞİL. CA kümenin kendi kök sertifikasıdır ve sır değildir.
 kubectl -n tappa get cm kube-root-ca.crt -o jsonpath='{.data.ca\.crt}' > /tmp/tappa-ca.crt
 K=~/.kube/tappa-deployer.config
 kubectl --kubeconfig="$K" config set-cluster tappa --server=https://10.43.0.1:443 \
@@ -375,12 +390,13 @@ kubectl --kubeconfig="$K" config use-context tappa
 `- name: github-deployer` ve `user: {token: …}`. `kubectl config set-credentials --token=…`
 **kullanma** — token argv'ye ve kabuk geçmişine girer. Sonra:
 
+Token dosyaya yazıldıktan SONRA. Tailnet içindeki bir makineden ve depo kökünden koş. Önce kümeden
+okur, sonra deploy ile aynı çevrimdışı denetimi yapar. Sunucu, proxy ve TLS. İkisi de geçerse secret
+yazılır. Biri düşerse zincir orada durur ve gh HİÇ çağrılmaz. base64 -w0 KULLANMA. BSD ve macOS
+base64 onu reddeder, çıktı BOŞ kalır ve secret BOŞ yazılır. Aşağıdaki biçim GNU ve BSD üzerinde aynı
+çıktıyı verir. Satır sonlarını tr siler.
+
 ```bash
-# Token dosyaya yazıldıktan SONRA. Tailnet içindeki bir makineden ve depo kökünden koş.
-# Önce kümeden okur, sonra deploy ile aynı çevrimdışı denetimi yapar. Sunucu, proxy ve TLS.
-# İkisi de geçerse secret yazılır. Biri düşerse zincir orada durur ve gh HİÇ çağrılmaz.
-# base64 -w0 KULLANMA. BSD ve macOS base64 onu reddeder, çıktı BOŞ kalır ve secret BOŞ yazılır.
-# Aşağıdaki biçim GNU ve BSD üzerinde aynı çıktıyı verir. Satır sonlarını tr siler.
 K=~/.kube/tappa-deployer.config
 kubectl --kubeconfig="$K" -n tappa get deploy tappa && \
   KUBECONFIG="$K" scripts/verify-deployment.sh kubeconfig-server 10.43.0.1 443 && \
@@ -467,21 +483,29 @@ Elle: Actions → `deploy` → Run workflow.
 
 **7. İlk deploy sonrası — üç doğrulama (hiçbiri isteğe bağlı değil).**
 
+(a) TAPPA_TRUSTED_PROXIES doğru mu: mobil veriyle bir tap at, satırı oku source_ip TELEFONUN genel
+adresi olmalı; 10.42.0.1 ise liste dar. (PGPASSWORD konteynerin kendi ortamından okunur -- parola
+ekrana basılmaz.)
+
 ```bash
-# (a) TAPPA_TRUSTED_PROXIES doğru mu: mobil veriyle bir tap at, satırı oku
-#     source_ip TELEFONUN genel adresi olmalı; 10.42.0.1 ise liste dar.
-# (PGPASSWORD konteynerin kendi ortamından okunur -- parola ekrana basılmaz.)
 kubectl -n tappa exec statefulset/tappa-postgres -- sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" \
   psql -U tappa_owner -d tappa -Atc \
   "SELECT ip_match, source_ip FROM transactions ORDER BY created_at DESC LIMIT 1;"'
+```
 
-# (b) rol ayrımı gerçekten uygulanmış mı
+(b) rol ayrımı gerçekten uygulanmış mı
+
+```bash
 kubectl -n tappa exec statefulset/tappa-postgres -- sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" \
   psql -U tappa_owner -d tappa -Atc \
   "SELECT rolname, rolcanlogin, rolsuper, rolbypassrls FROM pg_roles WHERE rolname LIKE '"'"'tappa%'"'"' ORDER BY 1;"'
-# tappa_app|t|f|f  ·  tappa_owner|t|t|t  ·  tappa_resolver|f|f|t
+```
 
-# (c) TLS + HSTS
+tappa_app|t|f|f · tappa_owner|t|t|t · tappa_resolver|f|f|t
+
+(c) TLS + HSTS
+
+```bash
 curl -sS -o /dev/null -D - https://taptime.mt/healthz | \
   grep -i 'strict-transport\|^HTTP'
 ```
@@ -509,12 +533,18 @@ provalı geri yükleme prosedürü var; kümede `kubectl -n tappa get cronjob` *
 **(a) Hedefi seç — ve seçenekler ölçüldü, tahmin edilmedi.** Bu kümede off-node bir
 depolama **yok**:
 
+- `kubectl get nodes`: k8s-1.fsn1.private — tek node
+- `kubectl get sc`: local-path (default), rancher.io/local-path, Delete
+- `kubectl get csidrivers`: No resources found
+- `kubectl get pv -o custom-columns=SC:.spec.storageClassName --no-headers | sort -u`: local-path
+- `kubectl get cronjob -A`: hiçbir namespace'te yedek işi yok — emsal de yok
+
 ```bash
-kubectl get nodes                      # k8s-1.fsn1.private — tek node
-kubectl get sc                         # local-path (default), rancher.io/local-path, Delete
-kubectl get csidrivers                 # No resources found
-kubectl get pv -o custom-columns=SC:.spec.storageClassName --no-headers | sort -u   # local-path
-kubectl get cronjob -A                 # hiçbir namespace'te yedek işi yok — emsal de yok
+kubectl get nodes
+kubectl get sc
+kubectl get csidrivers
+kubectl get pv -o custom-columns=SC:.spec.storageClassName --no-headers | sort -u
+kubectl get cronjob -A
 ```
 
 `local-path`, o tek node'un diskinde bir dizindir. Oraya yazılan bir dump, kopyası
@@ -534,14 +564,18 @@ gönderemezse iş **kırmızı olur** ve geride *"yedek sanılacak"* bir kopya b
 **(b) Sırrı yaz — iki anahtar, ve şifreleme anahtarı `TAPPA_TAG_KEK` ile AYNI YERDE
 DURMAZ.**
 
+rclone ayarini KENDI makinende, REPO DISINDA ve yalniz senin okuyabildigin bir dosyada uret (depo
+PUBLIC; bu dosya R2 anahtarini ve yedek parolasini tasir):
+
 ```bash
-# rclone ayarini KENDI makinende, REPO DISINDA ve yalniz senin okuyabildigin bir
-# dosyada uret (depo PUBLIC; bu dosya R2 anahtarini ve yedek parolasini tasir):
 mkdir -p -m 700 "$HOME/.config/tappa"
 (umask 077 && rclone --config "$HOME/.config/tappa/backup.rclone.conf" config)
-# 🔴 Kisisel ayar dosyani ($HOME/.config/rclone/rclone.conf) KOPYALAMA: icindeki her
-#    remote ve kimlik once Secret icine, oradan her gece pod icine gider. Dosyada
-#    yalniz asagidaki iki bolum olmali.
+```
+
+🔴 Kisisel ayar dosyani ($HOME/.config/rclone/rclone.conf) KOPYALAMA: icindeki her remote ve kimlik
+once Secret icine, oradan her gece pod icine gider. Dosyada yalniz asagidaki iki bolum olmali.
+
+```bash
 kubectl -n tappa create secret generic tappa-backup-target \
   --from-file=rclone.conf="$HOME/.config/tappa/backup.rclone.conf" \
   --from-literal=BACKUP_REMOTE='tappa-backup:prod'
@@ -640,14 +674,20 @@ edilmemiş bir yedek anahtarı, yedeği olmayan bir sistemden daha kötüdür"* 
 doğrulanmayan bir talimat tam olarak o hâli üretir. Küme **dışındaki** kopyayla,
 kümedeki kopyanın aynı olduğunu **değerini göstermeden** karşılaştır:
 
+(1) kümedeki kopyanın parmak izi — değer ekrana BASILMAZ, yalnız sha256 öneki
+
 ```bash
-# (1) kümedeki kopyanın parmak izi — değer ekrana BASILMAZ, yalnız sha256 öneki
 kubectl -n tappa get secret tappa-backup-target -o jsonpath='{.data.rclone\.conf}' \
   | base64 -d | sha256sum | cut -c1-16
-# (2) emanetteki kopyanın parmak izi (kasadan/parola yöneticisinden indirdiğin dosya)
-sha256sum /path/to/escrowed-rclone.conf | cut -c1-16
-# 🔴 İKİSİ EŞİT DEĞİLSE EMANET YOK DEMEKTİR. Eşitse bu adım tamamdır.
 ```
+
+(2) emanetteki kopyanın parmak izi (kasadan/parola yöneticisinden indirdiğin dosya)
+
+```bash
+sha256sum /path/to/escrowed-rclone.conf | cut -c1-16
+```
+
+🔴 İKİSİ EŞİT DEĞİLSE EMANET YOK DEMEKTİR. Eşitse bu adım tamamdır.
 
 ⚠️ Bu iki komut `tappa-backup-target`'ı okur, **`tappa-secrets`'ı değil** — bu dosya
 `tappa-secrets` üzerinde `jsonpath` denemeyi §4.7 gereği yasaklıyor. Ve çıktı bir
@@ -656,12 +696,14 @@ sha256sum /path/to/escrowed-rclone.conf | cut -c1-16
 **(c) CronJob'ı uygula ve ilk koşuyu ELLE tetikle** (gece 02:30'u bekleme — çalışmayan
 bir yedeği ertesi sabah öğrenmek, hiç yedek olmamasından farksızdır):
 
+- `kubectl -n tappa logs job/tappa-backup-first --tail=20`: ship konteyneri
+
 ```bash
 kubectl apply -f deploy/k8s/50-backup.yaml
 kubectl -n tappa create job tappa-backup-first --from=cronjob/tappa-backup
 kubectl -n tappa wait --for=condition=complete job/tappa-backup-first --timeout=3600s
 kubectl -n tappa logs job/tappa-backup-first -c dump-and-verify
-kubectl -n tappa logs job/tappa-backup-first --tail=20            # ship konteyneri
+kubectl -n tappa logs job/tappa-backup-first --tail=20
 kubectl -n tappa delete job tappa-backup-first
 ```
 
@@ -1161,22 +1203,31 @@ make migrate
 
 Birleştirilecek commit'in checkout'unda, repo kökünde:
 
+0) Kesimin kendisini doğrula. psql -1 BOŞ girdiyle exit 0 verir (ölçüldü, geliştirme DB'si) -- yani
+işaretlerden biri yanlış yazılırsa 1. adım hiçbir şey yapmadan "başarılı" görünür. Blok iki CREATE
+ROLE ve kapanış işaretini taşımalı:
+
 ```bash
-# 0) Kesimin kendisini doğrula. psql -1 BOŞ girdiyle exit 0 verir (ölçüldü, geliştirme
-#    DB'si) -- yani işaretlerden biri yanlış yazılırsa 1. adım hiçbir şey yapmadan
-#    "başarılı" görünür. Blok iki CREATE ROLE ve kapanış işaretini taşımalı:
 sed -n '/^-- >>> OPERATOR ROLES (M10 OP-5) >>>/,/^-- <<< OPERATOR ROLES (M10 OP-5) <<</p' \
     scripts/db-init/01-roles.sql | grep -cE '^ *CREATE ROLE|^-- <<< OPERATOR ROLES'
-# beklenen: 3 (başka bir sayı -> DUR, 1. adımı koşma)
+```
 
-# 1) Bloğu canlı veritabanına uygula: tek transaction (-1), ilk hatada dur.
+beklenen: 3 (başka bir sayı -> DUR, 1. adımı koşma)
+
+1) Bloğu canlı veritabanına uygula: tek transaction (-1), ilk hatada dur.
+
+```bash
 sed -n '/^-- >>> OPERATOR ROLES (M10 OP-5) >>>/,/^-- <<< OPERATOR ROLES (M10 OP-5) <<</p' \
     scripts/db-init/01-roles.sql \
   | kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
       sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -1 -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
-# beklenen: DO · ALTER ROLE · ALTER ROLE · GRANT · GRANT · GRANT
+```
 
-# 2) Doğrula
+beklenen: DO · ALTER ROLE · ALTER ROLE · GRANT · GRANT · GRANT
+
+2) Doğrula
+
+```bash
 kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
     sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -At -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
 SELECT r.rolname, r.rolcanlogin, r.rolsuper, r.rolbypassrls,
@@ -1188,21 +1239,26 @@ SELECT r.rolname, r.rolcanlogin, r.rolsuper, r.rolbypassrls,
  WHERE r.rolname IN ('tappa_operator', 'tappa_opdefiner')
  ORDER BY 1;
 SQL
-# beklenen (geliştirme DB'sinde ölçülen şekil):
-#   tappa_opdefiner|f|f|t|0|0|t|0
-#   tappa_operator|f|f|f|0|0|t|0
-# ("Operator surface (M10 OP-7)" bölümünün 2. adımından SONRA tappa_operator'ın ikinci
-#  sütunu t olur — giriş o adımda açılır; öteki sütunlar aynı kalmalı.)
-# Son sütun 0 olmalı: tappa_operator kendi rol varsayılanını yazabilir (ör.
-# log_parameter_max_length_on_error -- `user` bağlamlı bir ayar; -1 reddedilen her op_*
-# çağrısının bağlı parametrelerini log'a ve çağırana döker). 0 değilse DUR: satırı gör
-# (`SELECT setconfig FROM pg_db_role_setting WHERE setrole = 'tappa_operator'::regrole`)
-# ve `ALTER ROLE ... RESET ...` ile kaldır; bkz. ADR 0021 "Karar verilmedi".
-# ⚠️ İstisna: ADR 0021 "Karar verilmedi" → "Commit'ten bağımsız ikinci iz" seçeneği
-# (log_statement + log_parameter_max_length) BİR ROL AYARIDIR. Benimsenirse bu adım ve
-# ters katalog pini aynı değişiklikte güncellenir, izin verilen satır burada adıyla
-# yazılır; o gün gelene kadar beklenen değer 0'dır.
 ```
+
+beklenen (geliştirme DB'sinde ölçülen şekil):
+
+```text
+tappa_opdefiner|f|f|t|0|0|t|0
+tappa_operator|f|f|f|0|0|t|0
+```
+
+("Operator surface (M10 OP-7)" bölümünün 2. adımından SONRA tappa_operator'ın ikinci sütunu t olur —
+giriş o adımda açılır; öteki sütunlar aynı kalmalı.) Son sütun 0 olmalı: tappa_operator kendi rol
+varsayılanını yazabilir (ör. log_parameter_max_length_on_error -- `user` bağlamlı bir ayar; -1
+reddedilen her op_* çağrısının bağlı parametrelerini log'a ve çağırana döker). 0 değilse DUR: satırı
+gör (`SELECT setconfig FROM pg_db_role_setting WHERE setrole = 'tappa_operator'::regrole`) ve
+`ALTER ROLE ... RESET ...` ile kaldır; bkz. ADR 0021 "Karar verilmedi".
+
+⚠️ İstisna: ADR 0021 "Karar verilmedi" → "Commit'ten bağımsız ikinci iz" seçeneği (log_statement +
+log_parameter_max_length) BİR ROL AYARIDIR. Benimsenirse bu adım ve ters katalog pini aynı
+değişiklikte güncellenir, izin verilen satır burada adıyla yazılır; o gün gelene kadar beklenen
+değer 0'dır.
 
 Sonra `main`'e birleştir; deploy 00026'yı uygular.
 
@@ -1266,20 +1322,29 @@ make migrate
 
 ### Canlı küme (kullanıcı / orkestratör — ajan `kubectl` koşmaz)
 
+0) Kesimi doğrula (boş girdiyle psql -1 exit 0 verir): bir CREATE ROLE ve kapanış işareti.
+
 ```bash
-# 0) Kesimi doğrula (boş girdiyle psql -1 exit 0 verir): bir CREATE ROLE ve kapanış işareti.
 sed -n '/^-- >>> HOLDING ROLE (M11 API-1a) >>>/,/^-- <<< HOLDING ROLE (M11 API-1a) <<</p' \
     scripts/db-init/01-roles.sql | grep -cE '^ *CREATE ROLE|^-- <<< HOLDING ROLE'
-# beklenen: 2 (başka bir sayı -> DUR)
+```
 
-# 1) Uygula: tek transaction (-1), ilk hatada dur.
+beklenen: 2 (başka bir sayı -> DUR)
+
+1) Uygula: tek transaction (-1), ilk hatada dur.
+
+```bash
 sed -n '/^-- >>> HOLDING ROLE (M11 API-1a) >>>/,/^-- <<< HOLDING ROLE (M11 API-1a) <<</p' \
     scripts/db-init/01-roles.sql \
   | kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
       sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -1 -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
-# beklenen: DO · ALTER ROLE · GRANT
+```
 
-# 2) Doğrula
+beklenen: DO · ALTER ROLE · GRANT
+
+2) Doğrula
+
+```bash
 kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
     sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -At -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
 SELECT r.rolname, r.rolcanlogin, r.rolsuper, r.rolbypassrls,
@@ -1290,8 +1355,9 @@ SELECT r.rolname, r.rolcanlogin, r.rolsuper, r.rolbypassrls,
   FROM pg_roles r
  WHERE r.rolname = 'tappa_holdingdefiner';
 SQL
-# beklenen: tappa_holdingdefiner|f|f|t|0|0|t|0
 ```
+
+beklenen: tappa_holdingdefiner|f|f|t|0|0|t|0
 
 Sonra `main`'e birleştir; deploy `00040`–`00042`'yi uygular.
 
@@ -1388,20 +1454,29 @@ make migrate
 
 ### Canlı küme (kullanıcı / orkestratör — ajan `kubectl` koşmaz)
 
+0) Kesimi doğrula (boş girdiyle psql -1 exit 0 verir): bir CREATE ROLE ve kapanış işareti.
+
 ```bash
-# 0) Kesimi doğrula (boş girdiyle psql -1 exit 0 verir): bir CREATE ROLE ve kapanış işareti.
 sed -n '/^-- >>> FEED ROLE (M11 API-2) >>>/,/^-- <<< FEED ROLE (M11 API-2) <<</p' \
     scripts/db-init/01-roles.sql | grep -cE '^ *CREATE ROLE|^-- <<< FEED ROLE'
-# beklenen: 2 (başka bir sayı -> DUR)
+```
 
-# 1) Uygula: tek transaction (-1), ilk hatada dur.
+beklenen: 2 (başka bir sayı -> DUR)
+
+1) Uygula: tek transaction (-1), ilk hatada dur.
+
+```bash
 sed -n '/^-- >>> FEED ROLE (M11 API-2) >>>/,/^-- <<< FEED ROLE (M11 API-2) <<</p' \
     scripts/db-init/01-roles.sql \
   | kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
       sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -1 -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
-# beklenen: DO · ALTER ROLE · GRANT
+```
 
-# 2) Doğrula
+beklenen: DO · ALTER ROLE · GRANT
+
+2) Doğrula
+
+```bash
 kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
     sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -At -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
 SELECT r.rolname, r.rolcanlogin, r.rolsuper, r.rolbypassrls,
@@ -1412,8 +1487,9 @@ SELECT r.rolname, r.rolcanlogin, r.rolsuper, r.rolbypassrls,
   FROM pg_roles r
  WHERE r.rolname = 'tappa_feedwriter';
 SQL
-# beklenen: tappa_feedwriter|f|f|f|0|0|t|0
 ```
+
+beklenen: tappa_feedwriter|f|f|f|0|0|t|0
 
 Sonra `main`'e birleştir; deploy `00048`–`00050`'yi uygular. `00049` `transactions` ve
 `transaction_reviews`'u `SHARE ROW EXCLUSIVE` kilitler (kendi `lock_timeout`'u 1 sn — aşağıdaki kural) ve
@@ -1522,8 +1598,10 @@ beklemeden canlıya çıkar; API-13a'nın *"OP-15 önce canlıda, `00057` onun �
 
   ```bash
   kubectl -n tappa describe secret tappa-secrets | grep -E '^(TAPPA_API_KEY_HMAC_KEY|TAPPA_WEBHOOK_KEK):'
-  # beklenen: her biri "44 bytes" (32 baytın base64 metni) — değer basılmaz
   ```
+
+  beklenen: her biri "44 bytes" (32 baytın base64 metni) — değer basılmaz
+
 - `TAPPA_WEBHOOK_BLOCKED_ADDRESSES` — ✅ **yapıldı (API-13a)**: IPv4 origin + düğümün IPv6 /64'ü
   (*"Webhook (M11 API-9)"* bölümü).
 - Prod salt-okur sayımlar (ana oturum, 2026-10-16): goose **35**; tenant sayısı **tek haneli** (T124
@@ -1699,19 +1777,24 @@ anahtar adını ve bayt boyunu basar (bu dosyanın §4.7 kuralı: üzerinde `jso
 
 ```bash
 kubectl --context hetzner-k8s-1 -n tappa get externalsecret
-# "No resources found" → düz Secret yolu (aşağıda 3a).
-# tappa-secrets listeleniyorsa → external-secrets yönetiyor (3b): Secret'a doğrudan
-#   yazılan anahtarları bir sonraki eşitleme SİLER.
 ```
+
+"No resources found" → düz Secret yolu (aşağıda 3a). tappa-secrets listeleniyorsa → external-secrets
+yönetiyor (3b): Secret'a doğrudan yazılan anahtarları bir sonraki eşitleme SİLER.
 
 ### 1) Değerleri üret — yerel kabukta, ekrana basmadan
 
+- `OP_PW="$(openssl rand -hex 32)"`: tappa_operator'ın parolası (hex: URI'de ayırıcı yok)
+- `OP_TOTP_SEAL="$(openssl rand -base64 32)"`: TAPPA_OPERATOR_TOTP_KEK
+- `OP_SESSION_SIGN="$(openssl rand -base64 32)"`: TAPPA_OPERATOR_TOKEN_HMAC_KEY
+- `OP_HOST="ops.taptime.mt"`: TAPPA_OPERATOR_HOST — sır değil
+
 ```bash
 umask 077
-OP_PW="$(openssl rand -hex 32)"        # tappa_operator'ın parolası (hex: URI'de ayırıcı yok)
-OP_TOTP_SEAL="$(openssl rand -base64 32)"    # TAPPA_OPERATOR_TOTP_KEK
-OP_SESSION_SIGN="$(openssl rand -base64 32)"   # TAPPA_OPERATOR_TOKEN_HMAC_KEY
-OP_HOST="ops.taptime.mt"               # TAPPA_OPERATOR_HOST — sır değil
+OP_PW="$(openssl rand -hex 32)"
+OP_TOTP_SEAL="$(openssl rand -base64 32)"
+OP_SESSION_SIGN="$(openssl rand -base64 32)"
+OP_HOST="ops.taptime.mt"
 OP_DSN="postgres://tappa_operator:${OP_PW}@tappa-postgres:5432/tappa?sslmode=disable"
 ```
 
@@ -1726,8 +1809,9 @@ adı olmalı (şema, port, yol yok) ve `TAPPA_BASE_URL`'in host'u **olmamalı**.
   printf '%s\n%s\n' "$OP_PW" "$OP_PW"; } \
   | kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
       sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -1 -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
-# beklenen: ALTER ROLE · iki parola istemi (değer yankılanmaz) · çıkış 0
 ```
+
+beklenen: ALTER ROLE · iki parola istemi (değer yankılanmaz) · çıkış 0
 
 **Neden `\password`:** psql parolayı **istemcide** SCRAM doğrulayıcısına çevirir ve sunucuya
 yalnız onu gönderir (psql belgesi: *"the new password does not appear in cleartext in the
@@ -1748,8 +1832,9 @@ SELECT rolcanlogin, starts_with(rolpassword, 'SCRAM'),
        (SELECT count(*) FROM pg_db_role_setting s WHERE s.setrole = r.oid)
   FROM pg_authid r WHERE r.rolname = 'tappa_operator';
 SQL
-# beklenen: t|t|0
 ```
+
+beklenen: t|t|0
 
 ### 3a) Dört anahtarı `tappa-secrets`'a ekle — düz Secret yolu, TEK yazma
 
@@ -1757,12 +1842,17 @@ SQL
 printf '{"stringData":{"TAPPA_OPERATOR_DATABASE_URL":"%s","TAPPA_OPERATOR_TOTP_KEK":"%s","TAPPA_OPERATOR_TOKEN_HMAC_KEY":"%s","TAPPA_OPERATOR_HOST":"%s"}}' \
     "$OP_DSN" "$OP_TOTP_SEAL" "$OP_SESSION_SIGN" "$OP_HOST" \
   | kubectl --context hetzner-k8s-1 -n tappa patch secret tappa-secrets --type merge --patch-file /dev/stdin
-# beklenen: secret/tappa-secrets patched   (kubectl'in --patch-file bayrağı gerekir)
-
-# Yalnız ADLAR ve BOYUTLAR — değer basılmaz:
-kubectl --context hetzner-k8s-1 -n tappa describe secret tappa-secrets | grep TAPPA_OPERATOR_
-# beklenen dört satır; iki anahtar 44 bayt (32 baytın base64'ü), host 14 bayt (ops.taptime.mt)
 ```
+
+beklenen: secret/tappa-secrets patched (kubectl'in --patch-file bayrağı gerekir)
+
+Yalnız ADLAR ve BOYUTLAR — değer basılmaz:
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa describe secret tappa-secrets | grep TAPPA_OPERATOR_
+```
+
+beklenen dört satır; iki anahtar 44 bayt (32 baytın base64'ü), host 14 bayt (ops.taptime.mt)
 
 🔴 **Dördü TEK yamada.** Secret'ın değişmesi çalışan pod'u yeniden başlatmaz, ama arada bir
 yeniden başlama (node, tahliye) olursa pod **yarım küme** görür ve açılmayı reddeder. Bu
@@ -1773,15 +1863,21 @@ yüzden ayrı ayrı `patch` yok.
 Dört değeri Infisical'da `/tappa/` altına aynı adlarla gir. Değer ekrana basılmaz; panoyla
 verilir ve **her yapıştırmadan hemen sonra pano boşaltılır**:
 
+- `printf '%s' "$OP_DSN" | pbcopy`: Infisical'a yapıştır: TAPPA_OPERATOR_DATABASE_URL
+- `pbcopy </dev/null`: panoyu hemen boşalt
+- `printf '%s' "$OP_TOTP_SEAL" | pbcopy`: TAPPA_OPERATOR_TOTP_KEK
+- `printf '%s' "$OP_SESSION_SIGN" | pbcopy`: TAPPA_OPERATOR_TOKEN_HMAC_KEY
+
 ```bash
-printf '%s' "$OP_DSN" | pbcopy            # Infisical'a yapıştır: TAPPA_OPERATOR_DATABASE_URL
-pbcopy </dev/null                          # panoyu hemen boşalt
-printf '%s' "$OP_TOTP_SEAL" | pbcopy      # TAPPA_OPERATOR_TOTP_KEK
+printf '%s' "$OP_DSN" | pbcopy
 pbcopy </dev/null
-printf '%s' "$OP_SESSION_SIGN" | pbcopy   # TAPPA_OPERATOR_TOKEN_HMAC_KEY
+printf '%s' "$OP_TOTP_SEAL" | pbcopy
 pbcopy </dev/null
-# TAPPA_OPERATOR_HOST sır değil: elle yaz (ops.taptime.mt)
+printf '%s' "$OP_SESSION_SIGN" | pbcopy
+pbcopy </dev/null
 ```
+
+TAPPA_OPERATOR_HOST sır değil: elle yaz (ops.taptime.mt)
 
 **Neden boşaltma:** macOS panosu oturumdaki her uygulamanın okuyabildiği ortak bir alandır;
 Evrensel Pano açıksa aynı Apple hesabının öteki cihazlarına da gider. `pbcopy </dev/null`
@@ -1824,23 +1920,33 @@ bir sonraki deploy'da yönlendirilir:
 
 ```bash
 gh workflow run deploy.yml --ref main
-# beklenen: "Preflight — the operator host is routed only to a server that gates it" adımı
-# `operator-surface: on` basar, "Roll out the server" 41'i uygular, "Gate — the operator host
-# must not serve the customer product" `303 to /operator ... (try N)` basar -- 41 yeni
-# yaratıldığı için ilk denemeler 404 görebilir (denetleyici yeni Ingress'i eşzamansız
-# yapılandırır); yoklama 404'ü ~90 sn boyunca yeniden dener, sonra kırmızı biter
 ```
+
+beklenen: "Preflight — the operator host is routed only to a server that gates it" adımı
+`operator-surface: on` basar, "Roll out the server" 41'i uygular, "Gate — the operator host must not
+serve the customer product" `303 to /operator ... (try N)` basar -- 41 yeni yaratıldığı için ilk
+denemeler 404 görebilir (denetleyici yeni Ingress'i eşzamansız yapılandırır); yoklama 404'ü ~90 sn
+boyunca yeniden dener, sonra kırmızı biter
 
 **Doğrulama — başlangıç satırı.** Her süreç tam olarak biri olan bir olgu yazar (yokluğu
 okumamak için; KEK döndürme kapısının gerekçesi):
 
+"önce" (birleştirmeden sonra, bu bölümden önce) — 1 olmalı:
+
 ```bash
-# "önce" (birleştirmeden sonra, bu bölümden önce) — 1 olmalı:
 kubectl --context hetzner-k8s-1 -n tappa logs deployment/tappa | grep -c '"operator_surface":"off"'
-# "sonra" (bu bölümün 5. adımından sonra) — 1 olmalı:
+```
+
+"sonra" (bu bölümün 5. adımından sonra) — 1 olmalı:
+
+```bash
 kubectl --context hetzner-k8s-1 -n tappa logs deployment/tappa | grep -c '"operator_surface":"configured"'
-# 1 ise DUR — yapılandırma tam ama veritabanına ULAŞILAMADI (ağ, ad çözümü, zaman aşımı,
-# kimlik doğrulama, veritabanı yok, sunucu dolu ya da kapanıyor/açılıyor):
+```
+
+1 ise DUR — yapılandırma tam ama veritabanına ULAŞILAMADI (ağ, ad çözümü, zaman aşımı, kimlik
+doğrulama, veritabanı yok, sunucu dolu ya da kapanıyor/açılıyor):
+
+```bash
 kubectl --context hetzner-k8s-1 -n tappa logs deployment/tappa | grep -c '"operator_surface":"unavailable"'
 ```
 
@@ -1862,10 +1968,11 @@ parolası uyuşmuyor: yeni bir `OP_PW` ile ikisini birlikte yinele), sonra yenid
 
 ```bash
 curl -sS -o /dev/null -w '%{http_code}\n' https://taptime.mt/operator
-# beklenen: önce 503, sonra 404 -- OP-8'den beri yapılandırılmış yüzey operatör
-# host'unda (TAPPA_OPERATOR_HOST) cevap verir; müşteri host'unda /operator, router'ın
-# kendi 404'üdür (iki yönlü host kapısı, ADR 0020 §4 OP-8 notu).
 ```
+
+beklenen: önce 503, sonra 404 -- OP-8'den beri yapılandırılmış yüzey operatör host'unda
+(TAPPA_OPERATOR_HOST) cevap verir; müşteri host'unda /operator, router'ın kendi 404'üdür (iki yönlü
+host kapısı, ADR 0020 §4 OP-8 notu).
 
 (OP-8: operatör host'unun kendisi — `https://ops.taptime.mt/operator/login` — `40-ingress.yaml`
 ile **erişilemez**: o dosya bu host için kural taşımaz. Host'un iki Ingress'i
@@ -1936,11 +2043,12 @@ kubectl --context hetzner-k8s-1 -n tappa patch secret tappa-secrets --type json 
 
 ```bash
 kubectl --context hetzner-k8s-1 -n tappa delete ingress tappa-operator tappa-operator-legal
-# beklenen: iki satır deleted. Host artık uygulamaya ulaşmaz; kümenin varsayılan sunucusu
-# cevaplar -- ölçüldü 2026-10-14, hiçbir Ingress'in yönlendirmediği bir ad için (curl --resolve
-# ile origin'e, salt-okur): `/` -> 404 text/html, `/healthz` -> 200 boş gövde (denetleyicinin
-# kendi /healthz'i; bu yüzden T119'un yoklaması /healthz'e değil `/`'ye bakar)
 ```
+
+beklenen: iki satır deleted. Host artık uygulamaya ulaşmaz; kümenin varsayılan sunucusu cevaplar --
+ölçüldü 2026-10-14, hiçbir Ingress'in yönlendirmediği bir ad için (curl --resolve ile origin'e,
+salt-okur): `/` -> 404 text/html, `/healthz` -> 200 boş gövde (denetleyicinin kendi /healthz'i; bu
+yüzden T119'un yoklaması /healthz'e değil `/`'ye bakar)
 
 `ops-taptime-tls` sırrı kalır; cert-manager'ın bu Ingress'ten türettiği `Certificate`'ın silinmeyle
 gidip gitmediği ölçülmedi. (3) pod'ları yeniden başlat ve rolün girişini kapat:
@@ -1966,14 +2074,20 @@ Sıra: önce canlı `ExternalSecret`'in `data:` listesinden dört `TAPPA_OPERATO
 (1)'in yerini alır); **ondan sonra** (2) iki Ingress'i sil ve (3) `rollout restart` ve `NOLOGIN`
 satırları:
 
+(canlı ExternalSecret manifestinden dört girdi kaldırılıp uygulandıktan sonra)
+
 ```bash
-# (canlı ExternalSecret manifestinden dört girdi kaldırılıp uygulandıktan sonra)
 kubectl --context hetzner-k8s-1 -n tappa annotate externalsecret tappa-secrets force-sync="$(date +%s)" --overwrite
 kubectl --context hetzner-k8s-1 -n tappa get externalsecret tappa-secrets
-# beklenen: SecretSynced
-kubectl --context hetzner-k8s-1 -n tappa describe secret tappa-secrets | grep -c TAPPA_OPERATOR_
-# beklenen: 0 — yalnız ad sayar, değer basmaz
 ```
+
+beklenen: SecretSynced
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa describe secret tappa-secrets | grep -c TAPPA_OPERATOR_
+```
+
+beklenen: 0 — yalnız ad sayar, değer basmaz
 
 `creationPolicy: Owner` ile (örnek dosyadaki) eşitleme Secret'ın verisini `ExternalSecret`'in
 listesinden yeniden kurar, yani kaldırılan girdi Secret'tan da düşer; `0` görmüyorsan (ör.
@@ -2107,24 +2221,40 @@ Birleştirilmiş commit'in checkout'unda, repo kökünde. Komut satırı adres, 
 ```bash
 umask 077
 OPDIR="$(mktemp -d)"
+```
 
-# 1) SQL'i üret: stdout dosyaya, stderr TERMİNALDE (rapor + link, bir kez)
+1) SQL'i üret: stdout dosyaya, stderr TERMİNALDE (rapor + link, bir kez)
+
+```bash
 go run ./cmd/opadmin create --email ops@example.com --name "Ada Operator" --host ops.taptime.mt \
     > "$OPDIR/op.sql"
-# beklenen: çıkış 0; stderr'de hesap id'si, adres, ad ve link.
+```
 
-# 2) Oku: başlıkta hesap id'si; BEGIN … COMMIT; tek DO bloğu.
+beklenen: çıkış 0; stderr'de hesap id'si, adres, ad ve link.
+
+2) Oku: başlıkta hesap id'si; BEGIN … COMMIT; tek DO bloğu.
+
+```bash
 less "$OPDIR/op.sql"
+```
 
-# 3) Uygula — tappa_owner, ilk hatada dur
+3) Uygula — tappa_owner, ilk hatada dur
+
+```bash
 kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
     sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
     < "$OPDIR/op.sql"
-# beklenen: BEGIN · SET · SET · CREATE TABLE · COPY 1 · NOTICE: opadmin create: pending operator account … · DO · COMMIT; çıkış 0
-# çıkış 3 → reddedildi ve transaction geri alındı; mesaj nedeni adıyla söyler
-#   (ör. "refused by constraint platform_admins_email_key" = bu adres zaten kayıtlı).
+```
 
-# 4) Dosyayı sil — uygulanmış bir betik saklanmaz
+beklenen: BEGIN · SET · SET · CREATE TABLE · COPY 1 · NOTICE: opadmin create: pending operator
+account … · DO · COMMIT; çıkış 0
+
+çıkış 3 → reddedildi ve transaction geri alındı; mesaj nedeni adıyla söyler (ör. "refused by
+constraint platform_admins_email_key" = bu adres zaten kayıtlı).
+
+4) Dosyayı sil — uygulanmış bir betik saklanmaz
+
+```bash
 rm -rf "$OPDIR"; unset OPDIR
 ```
 
@@ -2155,16 +2285,19 @@ SELECT a.id, l.kind, l.at, round(extract(epoch FROM clock_timestamp() - l.at))::
                       ORDER BY at DESC, id DESC LIMIT 1) AS l ON true
  ORDER BY a.created_at;
 SQL
-# create'ten sonra: <id>|pending|f|~1800 · kişi linki kullandıktan sonra: <id>|active|t|<sayı>
-# (kullanımdan sonra enroll_expires_at silinmez: son sütun pozitif kalabilir ve anlamı yoktur —
-#  link "used" sütunu t olduğu için ölüdür)
-# ikinci sorgu (OP-14 D, 00033) — hesabın son opadmin audit satırı: az önce uyguladığın eylemin
-# türü ve birkaç saniyelik yaş: <id>|operator_created|<zaman>|<saniye> (reset-mfa →
-# operator_mfa_reset, disable → operator_disabled). Tür boşsa, başka bir eylemin türüyse ya da
-# yaş eylemden eskiyse betik İZ BIRAKMADI: 00033'ten önceki bir opadmin'le üretilmiştir (ADR 0021
-# OP-14 D notu LD11); eksik iz sonradan yazılamaz (günlük append-only).
-# (ölçen: TestRunbook_TheVerifyQueryShowsEachActionsRow — bu bloğu README'den okuyup koşar)
 ```
+
+create'ten sonra: \<id>|pending|f|~1800 · kişi linki kullandıktan sonra: \<id>|active|t|\<sayı>
+(kullanımdan sonra enroll_expires_at silinmez: son sütun pozitif kalabilir ve anlamı yoktur — link
+"used" sütunu t olduğu için ölüdür)
+
+ikinci sorgu (OP-14 D, 00033) — hesabın son opadmin audit satırı: az önce uyguladığın eylemin türü
+ve birkaç saniyelik yaş: \<id>|operator_created|\<zaman>|\<saniye> (reset-mfa → operator_mfa_reset,
+disable → operator_disabled). Tür boşsa, başka bir eylemin türüyse ya da yaş eylemden eskiyse betik
+İZ BIRAKMADI: 00033'ten önceki bir opadmin'le üretilmiştir (ADR 0021 OP-14 D notu LD11); eksik iz
+sonradan yazılamaz (günlük append-only).
+
+(ölçen: TestRunbook_TheVerifyQueryShowsEachActionsRow — bu bloğu README'den okuyup koşar)
 
 **00033'ten sonra yalnız bu commit'in ya da sonrasının opadmin'i kullanılır; eski bir betik iz
 bırakmaz.** Bu commit'ten önceki bir opadmin'in betiği 00033'teki veritabanında reddedilmez:
@@ -2178,8 +2311,13 @@ ikinci sorgu bakılır.
 ```bash
 umask 077; OPDIR="$(mktemp -d)"
 go run ./cmd/opadmin reset-mfa --id <HESAP_ID> --email <ADRES> --host ops.taptime.mt > "$OPDIR/op.sql"
-# 3. adımdaki kubectl … psql -X -v ON_ERROR_STOP=1 … < "$OPDIR/op.sql"
-# beklenen NOTICE: "account … was active, is now pending; N live session(s) revoked; …"
+```
+
+3. adımdaki kubectl … psql -X -v ON_ERROR_STOP=1 … < "$OPDIR/op.sql"
+
+beklenen NOTICE: "account … was active, is now pending; N live session(s) revoked; …"
+
+```bash
 rm -rf "$OPDIR"; unset OPDIR
 ```
 
@@ -2203,8 +2341,13 @@ surface (M10 OP-7)" → 4. adım).
 ```bash
 umask 077; OPDIR="$(mktemp -d)"
 go run ./cmd/opadmin disable --id <HESAP_ID> --email <ADRES> > "$OPDIR/op.sql"
-# 3. adımdaki kubectl … psql -X -v ON_ERROR_STOP=1 … < "$OPDIR/op.sql"
-# beklenen NOTICE: "account … was active, is now disabled; N live session(s) revoked"
+```
+
+3. adımdaki kubectl … psql -X -v ON_ERROR_STOP=1 … < "$OPDIR/op.sql"
+
+beklenen NOTICE: "account … was active, is now disabled; N live session(s) revoked"
+
+```bash
 rm -rf "$OPDIR"; unset OPDIR
 ```
 
@@ -2229,8 +2372,12 @@ ALTER ROLE tappa_operator NOLOGIN;
 SELECT pid, state, xact_start FROM pg_stat_activity WHERE usename = 'tappa_operator';
 SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename = 'tappa_operator';
 SQL
-# sonra disable betiğini yeniden uygula (yukarıdaki 3. adım), ardından:
-#   ALTER ROLE tappa_operator LOGIN;   (parola değişmez; operatör yüzeyinin havuzu yeniden bağlanır)
+```
+
+sonra disable betiğini yeniden uygula (yukarıdaki 3. adım), ardından:
+
+```text
+ALTER ROLE tappa_operator LOGIN;   (parola değişmez; operatör yüzeyinin havuzu yeniden bağlanır)
 ```
 
 `NOLOGIN` yeni bağlantıyı keser, `pg_terminate_backend` `tappa_operator`'ın açık
@@ -2509,10 +2656,18 @@ bloğunda birleştiğini ve her `location`'ın kendi sınırını taşıdığın
 
 ```bash
 kubectl --context hetzner-k8s-1 -n ingress-nginx get deploy,ds -o name
-# controller adı yukarıdan; aşağıda deploy/ingress-nginx-controller varsayıldı
+```
+
+controller adı yukarıdan; aşağıda deploy/ingress-nginx-controller varsayıldı
+
+```bash
 kubectl --context hetzner-k8s-1 -n ingress-nginx exec deploy/ingress-nginx-controller -- nginx -T 2>/dev/null \
   | grep -c '## start server ops.taptime.mt'
-# beklenen: 1  (iki kaynak, TEK server bloğu)
+```
+
+beklenen: 1 (iki kaynak, TEK server bloğu)
+
+```bash
 kubectl --context hetzner-k8s-1 -n ingress-nginx exec deploy/ingress-nginx-controller -- nginx -T 2>/dev/null \
   | awk '/## start server ops.taptime.mt/,/## end server ops.taptime.mt/' \
   | grep -E 'location |set \$ingress_name|client_max_body_size|force_ssl_redirect'
@@ -2609,19 +2764,26 @@ bir dosyaya, bir komut satırına ya da bu belgeye yazılmaz** — örnek bir de
 
 ```bash
 kubectl --context hetzner-k8s-1 -n tappa get externalsecret
-# "No resources found" → düz Secret yolu (1a). tappa-secrets listeleniyorsa → 1b:
-#   Secret'a doğrudan yazılan anahtarları bir sonraki eşitleme SİLER.
 ```
+
+"No resources found" → düz Secret yolu (1a). tappa-secrets listeleniyorsa → 1b: Secret'a doğrudan
+yazılan anahtarları bir sonraki eşitleme SİLER.
 
 ### 1a) İki kimliği `tappa-secrets`'a ekle — düz Secret yolu, TEK yazma
 
+- `printf 'SES SMTP kullanici adi: '; read -rs SMTP_USER; echo`: yapıştır, Enter — ekranda görünmez
+
 ```bash
 umask 077
-printf 'SES SMTP kullanici adi: '; read -rs SMTP_USER; echo   # yapıştır, Enter — ekranda görünmez
+printf 'SES SMTP kullanici adi: '; read -rs SMTP_USER; echo
 printf 'SES SMTP parolasi: ';      read -rs SMTP_PASS; echo
 printf '{"stringData":{"TAPPA_SMTP_USERNAME":"%s","TAPPA_SMTP_PASSWORD":"%s"}}' "$SMTP_USER" "$SMTP_PASS" \
   | kubectl --context hetzner-k8s-1 -n tappa patch secret tappa-secrets --type merge --patch-file /dev/stdin
-# beklenen: secret/tappa-secrets patched   (kubectl'in --patch-file bayrağı gerekir)
+```
+
+beklenen: secret/tappa-secrets patched (kubectl'in --patch-file bayrağı gerekir)
+
+```bash
 unset SMTP_USER SMTP_PASS
 ```
 
@@ -2643,11 +2805,12 @@ biri eksikse **bütün** eşitleme durur — ikisini Infisical'a girmeden girdil
 
 ```bash
 kubectl --context hetzner-k8s-1 -n tappa describe secret tappa-secrets | grep TAPPA_SMTP_
-# beklenen iki satır. SES'te kullanıcı adı bir erişim anahtarı kimliğidir (20 bayt), SMTP
-# parolası 44 bayt — AWS belgesine dayanır, burada ölçülmedi. Fazlası değere bir karakter
-# (çoğunlukla 1b yolunda yapıştırılmış bir satır sonu) girdiğini gösterir: değeri yeniden
-# gir (açılış bir satır sonunu kontrol karakteri diye reddeder, bir boşluğu reddetmez).
 ```
+
+beklenen iki satır. SES'te kullanıcı adı bir erişim anahtarı kimliğidir (20 bayt), SMTP parolası 44
+bayt — AWS belgesine dayanır, burada ölçülmedi. Fazlası değere bir karakter (çoğunlukla 1b yolunda
+yapıştırılmış bir satır sonu) girdiğini gösterir: değeri yeniden gir (açılış bir satır sonunu
+kontrol karakteri diye reddeder, bir boşluğu reddetmez).
 
 Secret'ın değişmesi çalışan pod'u yeniden başlatmaz. Akışlar kapalıyken süreç bu iki
 anahtarı zaten okumaz — **rollout gerekmez**. **Akışlar açıkken (2026-10-09'dan beri)**
@@ -2716,12 +2879,15 @@ kendi ayrıştırıcısı da her iletide text gövdesini görüyor.
 etkileşimli bir kabukta (bash ya da zsh). Sır olmayan dört ayar ConfigMap'teki değerlerdir;
 ham kaynakların dizini de **burada**, ilk kullanımından önce tanımlanır:
 
+- `unset TAPPA_MAIL_REPLY_TO`: ConfigMap'te boş → Reply-To beklenmez
+- `EM5B_DIR=$(mktemp -d)`: 0700; ham kaynaklar (alıcı adresini taşırlar) depo dışında
+
 ```bash
 export TAPPA_SMTP_HOST=email-smtp.eu-central-1.amazonaws.com TAPPA_SMTP_PORT=587
 export TAPPA_MAIL_FROM='Taptime <no-reply@taptime.mt>'
-unset TAPPA_MAIL_REPLY_TO                 # ConfigMap'te boş → Reply-To beklenmez
+unset TAPPA_MAIL_REPLY_TO
 printf 'Alici adres: '; read -rs TAPPA_REALSMTP_TO; echo; export TAPPA_REALSMTP_TO
-EM5B_DIR=$(mktemp -d)                     # 0700; ham kaynaklar (alıcı adresini taşırlar) depo dışında
+EM5B_DIR=$(mktemp -d)
 ```
 
 İki kimlik **iki yoldan biriyle** girer; ikisi de testleri `em5b_env` üzerinden koşar. Bu
@@ -2755,15 +2921,20 @@ em5b_env() { infisical run --env=<ortam> --path=/tappa -- env \
 
 ```bash
 em5b_env go test -tags realsmtp -count=1 -v -run '^TestEM5B_SendToTheRealRelay$' ./internal/handler
-# beklenen beş satır (sıra sabit):
-#   reset              sent     message_id=<SES id>
-#   notice             sent     message_id=<SES id>
-#   invite-verified    sent     message_id=<SES id>
-#   invite-unverified  sent     message_id=<SES id>
-#   auth-probe         refused  class=auth smtp_code=535
-# ve --- PASS. message_id=(empty) → 250 ya id taşımadı ya da id internal/mail'in biçim/yankı
-# kuralına takıldı (ADR 0022 §2, sayılı sınır 21) — test FAIL verir; satırı kartına yaz.
 ```
+
+beklenen beş satır (sıra sabit):
+
+```text
+reset              sent     message_id=<SES id>
+notice             sent     message_id=<SES id>
+invite-verified    sent     message_id=<SES id>
+invite-unverified  sent     message_id=<SES id>
+auth-probe         refused  class=auth smtp_code=535
+```
+
+ve --- PASS. message_id=(empty) → 250 ya id taşımadı ya da id internal/mail'in biçim/yankı kuralına
+takıldı (ADR 0022 §2, sayılı sınır 21) — test FAIL verir; satırı kartına yaz.
 
 Dört `message_id`'yi türleriyle not et (id'ler log'a yazılabilen değerlerdir, ADR 0022
 §10) — EM-5B 3. adım her birini ister. `-run` **şarttır**: onsuz `-tags realsmtp` paketin
@@ -2779,19 +2950,23 @@ için basılan `message_id`'dir (verilmezse o satır `N/A`, hüküm `INCOMPLETE`
 ```bash
 export TAPPA_REALSMTP_EML="$EM5B_DIR/reset.eml" TAPPA_REALSMTP_KIND=reset TAPPA_REALSMTP_SES_ID='<reset id>'
 em5b_env go test -tags realsmtp -count=1 -v -run '^TestEM5B_CheckAReceivedSource$' ./internal/handler
-# aynısı notice, invite-verified, invite-unverified için (üç değişkeni o türe çevirerek).
-# beklenen (Gmail kaynağı): tablonun altında "verdict: PASS", --- PASS. "message-id" satırı
-# INFO: "(ours: kept)" ya da "(SES's: ours replaced)" — EM-5B'nin cevabı budur, karta yazılır.
-# "verdict: INCOMPLETE" (N/A) ya da bir "note (mime)" → yukarıdaki "Alıcı seçimi" ve aşağıdaki
-# EM-5B 5. adım; test o durumda bilerek kırmızıdır.
 ```
+
+aynısı notice, invite-verified, invite-unverified için (üç değişkeni o türe çevirerek).
+
+beklenen (Gmail kaynağı): tablonun altında "verdict: PASS", --- PASS. "message-id" satırı INFO:
+"(ours: kept)" ya da "(SES's: ours replaced)" — EM-5B'nin cevabı budur, karta yazılır. "verdict:
+INCOMPLETE" (N/A) ya da bir "note (mime)" → yukarıdaki "Alıcı seçimi" ve aşağıdaki EM-5B 5. adım;
+test o durumda bilerek kırmızıdır.
 
 **EM-5B 4) Kimlikleri kaldır** — tabloları karta yapıştır (adres ve kimlik tabloda yoktur),
 sonra SMTP kimliklerini ve alıcıyı kabuktan çıkar. 5. adım **bundan SONRA** gelir:
 
+- `env | cut -d= -f1 | grep -c '^TAPPA_SMTP_\(USERNAME\|PASSWORD\)$'`: beklenen: 0
+
 ```bash
 unset TAPPA_SMTP_USERNAME TAPPA_SMTP_PASSWORD TAPPA_REALSMTP_TO
-env | cut -d= -f1 | grep -c '^TAPPA_SMTP_\(USERNAME\|PASSWORD\)$'   # beklenen: 0
+env | cut -d= -f1 | grep -c '^TAPPA_SMTP_\(USERNAME\|PASSWORD\)$'
 ```
 
 **EM-5B 5) Bağımsız doğrulama — yalnız gerekirse** (alıcı karar yazmadıysa, ya da tabloya
@@ -2803,7 +2978,11 @@ aynı dizine ayarla:
 
 ```bash
 EM5B_VENV=$(mktemp -d) && python3 -m venv "$EM5B_VENV" && "$EM5B_VENV/bin/pip" install -q dkimpy pyspf dnspython
-# DKIM — kaynaktaki HER imza (d=taptime.mt ve d=amazonses.com); anahtar DNS'ten okunur
+```
+
+DKIM — kaynaktaki HER imza (d=taptime.mt ve d=amazonses.com); anahtar DNS'ten okunur
+
+```bash
 "$EM5B_VENV/bin/python" - "$EM5B_DIR/reset.eml" <<'PY'
 import sys, dkim
 raw = open(sys.argv[1], 'rb').read()
@@ -2812,16 +2991,29 @@ for i in range(n):
     d = dkim.DKIM(raw)
     print(i, d.verify(idx=i), d.domain)
 PY
-# beklenen: her imza True, alanlar taptime.mt ve amazonses.com. mail.tm kaynağında önce
-# ilk sınırdan sonraki CRLF'i yerine koy (yalnız teşhis; denetleyici bunu yapmaz):
-#   raw.replace(b'\r\n\r\n\r\n--' + <sınır> + b'Content-', b'\r\n\r\n--' + <sınır> + b'\r\nContent-', 1)
-# SPF — <SES IP>: SES'ten gelen Received satırındaki [köşeli parantez]; <Return-Path>:
-# ...@mail.taptime.mt; <HELO>: aynı satırın "from" host'u
+```
+
+beklenen: her imza True, alanlar taptime.mt ve amazonses.com. mail.tm kaynağında önce ilk sınırdan
+sonraki CRLF'i yerine koy (yalnız teşhis; denetleyici bunu yapmaz):
+
+```text
+raw.replace(b'\r\n\r\n\r\n--' + <sınır> + b'Content-', b'\r\n\r\n--' + <sınır> + b'\r\nContent-', 1)
+```
+
+SPF — \<SES IP>: SES'ten gelen Received satırındaki [köşeli parantez]; \<Return-Path>:
+...@mail.taptime.mt; \<HELO>: aynı satırın "from" host'u
+
+```bash
 "$EM5B_VENV/bin/python" -c 'import spf,sys; print(spf.check2(i=sys.argv[1], s=sys.argv[2], h=sys.argv[3]))' \
   '<SES IP>' '<Return-Path>' '<HELO>'
-# beklenen: ('pass', ...). Kayıtlar: dig +short TXT mail.taptime.mt → "v=spf1 include:amazonses.com ~all"
-# DMARC: dig +short TXT _dmarc.taptime.mt; hizalama elle — From alanı taptime.mt, geçen DKIM
-# imzasının d= alanı taptime.mt (relaxed) → hizalı.
+```
+
+beklenen: ('pass', ...). Kayıtlar: dig +short TXT mail.taptime.mt → "v=spf1 include:amazonses.com ~all"
+
+DMARC: dig +short TXT _dmarc.taptime.mt; hizalama elle — From alanı taptime.mt, geçen DKIM imzasının
+d= alanı taptime.mt (relaxed) → hizalı.
+
+```bash
 rm -rf "$EM5B_VENV"; unset EM5B_VENV
 ```
 
@@ -2908,11 +3100,16 @@ Deploy sonrası teyit (imaj `scratch`'tır — pod içinde `printenv` yok, teyit
 ```bash
 kubectl --context hetzner-k8s-1 -n tappa get configmap tappa-config \
   -o jsonpath='{.data.TAPPA_RESET_DELIVERY} {.data.TAPPA_INVITE_DELIVERY}{"\n"}'
-# beklenen: email email
+```
+
+beklenen: email email
+
+```bash
 kubectl --context hetzner-k8s-1 -n tappa get pods -l app.kubernetes.io/name=tappa,app.kubernetes.io/component=server \
   -o jsonpath='{range .items[*]}{.metadata.name} {.metadata.creationTimestamp} {.spec.containers[0].image}{"\n"}{end}'
-# beklenen: TEK pod; imaj etiketi deploy edilen commit, oluşturma zamanı deploy koşusundan sonra
 ```
+
+beklenen: TEK pod; imaj etiketi deploy edilen commit, oluşturma zamanı deploy koşusundan sonra
 
 Pod'un **gerçekten** `email` okuduğunun ürün içi kanıtı kontrol listesinin 1. maddesidir
 (kurtarma formu).
@@ -2940,14 +3137,19 @@ yalnız ✓/✗ olarak karta/`state.md`'ye geçer.
   kubectl --context hetzner-k8s-1 -n tappa exec statefulset/tappa-postgres -- sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" \
     psql -U tappa_owner -d tappa -Atc \
     "SELECT at, action, detail->>'"'"'outcome'"'"', detail->>'"'"'already_used'"'"' FROM audit_log WHERE action LIKE '"'"'admin.recovery.%'"'"' OR action LIKE '"'"'admin.password_notice.%'"'"' ORDER BY at DESC LIMIT 6;"'
-  # beklenen, yeniden eskiye (2. ve 3. maddeden sonra):
-  #   ...|admin.recovery.refused|refused|true
-  #   ...|admin.password_notice.sent|sent|
-  #   ...|admin.recovery.completed|ok|
-  #   ...|admin.recovery.requested|ok|
-  # requested yerine undelivered satiri varsa e-posta roleye ulasmadi: detail reason verir,
-  # sinif ve SMTP kodu pod logundaki "panel recovery: delivery failed" satirindadir.
   ```
+
+  beklenen, yeniden eskiye (2. ve 3. maddeden sonra):
+
+  ```text
+  ...|admin.recovery.refused|refused|true
+  ...|admin.password_notice.sent|sent|
+  ...|admin.recovery.completed|ok|
+  ...|admin.recovery.requested|ok|
+  ```
+
+  requested yerine undelivered satiri varsa e-posta roleye ulasmadi: detail reason verir, sinif ve
+  SMTP kodu pod logundaki "panel recovery: delivery failed" satirindadir.
 
   (b) linkin `t=` değerinden bir karakter değiştirip aç → aynı ret sayfası; satır
   **yazılmaz** (tenant yok, ADR 0015), yerine süreç log'unda
@@ -3018,8 +3220,10 @@ yüzden ConfigMap'i uyguladıktan sonra:
 ```bash
 kubectl --context hetzner-k8s-1 -n tappa rollout restart deployment/tappa
 kubectl --context hetzner-k8s-1 -n tappa rollout status deployment/tappa --timeout=300s
-# sonra: https://taptime.mt/admin/reset formu yeniden This Taptime cannot send email yet uyarisini gostermeli
 ```
+
+sonra: https://taptime.mt/admin/reset formu yeniden This Taptime cannot send email yet uyarisini
+gostermeli
 
 (Değişiklik deploy'la — `main`'e birleştirme — gelirse yeni commit'in imaj etiketi
 şablonu zaten değiştirir; restart'ı yalnız elle `apply`'da unutma.) **Eski bir imaja
@@ -3141,19 +3345,25 @@ boş kalır.
 > duruyor, çünkü sırayla okunmalı — ama `undo` bir kurtarma değil, koşullu bir
 > harekettir.)
 
+⚠️ ETİKETİN KAYNAĞINI YUKARIDAKİ ÖLÇÜMDEN AL: küme GHCR'daysa ghcr.io/atknatk/tappa, Docker Hub
+geçişi indiyse docker.io/atknatk/tappa.
+
+🔴 YER TUTUCU SESSİZCE KABUL EDİLİR — ölçüldü (çevrimdışı, --local):
+`kubectl set image ... tappa='<registry>/atknatk/tappa:sha-<12hex>'` çıktısı BİREBİR
+`<registry>/atknatk/tappa:sha-<12hex>`; istemci tarafında imaj referansının doğrulaması YOKTUR. Yani
+yanlış yazılmış bir etiket buradan geçer ve arızayı ancak kubelet bildirir (`ImagePullBackOff`).
+
 ```bash
-# ⚠️ ETİKETİN KAYNAĞINI YUKARIDAKİ ÖLÇÜMDEN AL: küme GHCR'daysa ghcr.io/atknatk/tappa,
-#    Docker Hub geçişi indiyse docker.io/atknatk/tappa.
-# 🔴 YER TUTUCU SESSİZCE KABUL EDİLİR — ölçüldü (çevrimdışı, --local):
-#    `kubectl set image ... tappa='<registry>/atknatk/tappa:sha-<12hex>'` çıktısı
-#    BİREBİR `<registry>/atknatk/tappa:sha-<12hex>`; istemci tarafında imaj
-#    referansının doğrulaması YOKTUR. Yani yanlış yazılmış bir etiket buradan geçer
-#    ve arızayı ancak kubelet bildirir (`ImagePullBackOff`).
 kubectl -n tappa set image deployment/tappa tappa=<registry>/atknatk/tappa:sha-<12hex>
 kubectl -n tappa rollout status deployment/tappa
+```
 
-# 🔴 ÜÇÜNCÜ KOMUTU KOŞMADAN ÖNCE ALTTAKİ UYARIYI OKU.
-kubectl -n tappa rollout undo deployment/tappa      # bir önceki imaja
+🔴 ÜÇÜNCÜ KOMUTU KOŞMADAN ÖNCE ALTTAKİ UYARIYI OKU.
+
+- `kubectl -n tappa rollout undo deployment/tappa`: bir önceki imaja
+
+```bash
+kubectl -n tappa rollout undo deployment/tappa
 ```
 
 > 🔴 **`rollout undo` HÂLÂ RİSKLİ — ÇÜNKÜ KÜME HÂLÂ GHCR'DA.** Burada bir tur boyunca
@@ -3397,15 +3607,18 @@ okunur — bu yüzden silme **takastan (7) sonra değil, yeniden giriş (8) bitt
 `rm -rf "$RESTORE"` döküm, manifest ve CSV'yi birlikte götürür. Config emanetten
 operatör adımı 9(b)'nin yoluna konur.
 
+- `STAMP=<damga>`: indirdiğin dizinin adı, ör. 20260816T023000Z
+- `have=$(sha256sum "$G" | awk '{print $1}')`: macOS'ta yoksa: shasum -a 256 "$G"
+
 ```bash
-STAMP=<damga>                       # indirdiğin dizinin adı, ör. 20260816T023000Z
+STAMP=<damga>
 RESTORE=$(mktemp -d)
 rclone --config "$HOME/.config/tappa/backup.rclone.conf" copy "tappa-backup:prod/$STAMP" "$RESTORE/"
 
 M=$RESTORE/tappa-$STAMP.manifest
 G=$RESTORE/tappa-$STAMP.sql.gz
 want=$(awk '/^sha256 /{print $2}' "$M")
-have=$(sha256sum "$G" | awk '{print $1}')     # macOS'ta yoksa: shasum -a 256 "$G"
+have=$(sha256sum "$G" | awk '{print $1}')
 if [ "$want" = "$have" ]; then echo "sha256 OK $want"; else echo "🔴 MISMATCH manifest=$want file=$have"; fi
 awk '/^started_at|^goose_version|^rows_total_dump|^tables/' "$M"
 ```
@@ -3605,8 +3818,10 @@ satırları, ve `transactions` üzerinde UPDATE/DELETE'in **`42501` ile** (yani
 
 **7. Takas — ve bozuk veritabanı SİLİNMEZ.**
 
+- `kubectl -n tappa scale deployment/tappa --replicas=0`: bağlantıları kes
+
 ```bash
-kubectl -n tappa scale deployment/tappa --replicas=0     # bağlantıları kes
+kubectl -n tappa scale deployment/tappa --replicas=0
 kubectl -n tappa exec -i statefulset/tappa-postgres -- \
   sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -v ON_ERROR_STOP=1 -U tappa_owner -d postgres' <<SQL
 SELECT pg_terminate_backend(pid) FROM pg_stat_activity
@@ -3614,7 +3829,13 @@ SELECT pg_terminate_backend(pid) FROM pg_stat_activity
 ALTER DATABASE tappa RENAME TO tappa_damaged_$(date -u +%Y%m%d);
 ALTER DATABASE tappa_restore RENAME TO tappa;
 SQL
-# 🔴 VE VARSAYILANI YENIDEN DARALT — dump onu az önce genişletti (aşağıdaki not).
+```
+
+🔴 VE VARSAYILANI YENIDEN DARALT — dump onu az önce genişletti (aşağıdaki not).
+
+- `curl -sS -o /dev/null -w '%{http_code}\n' https://taptime.mt/readyz`: 200 bekleniyor
+
+```bash
 kubectl -n tappa exec -i statefulset/tappa-postgres -- \
   sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -v ON_ERROR_STOP=1 -U tappa_owner -d tappa' <<'SQL'
 ALTER DEFAULT PRIVILEGES FOR ROLE tappa_owner IN SCHEMA public
@@ -3623,7 +3844,7 @@ SQL
 
 kubectl -n tappa scale deployment/tappa --replicas=1
 kubectl -n tappa rollout status deployment/tappa
-curl -sS -o /dev/null -w '%{http_code}\n' https://taptime.mt/readyz     # 200 bekleniyor
+curl -sS -o /dev/null -w '%{http_code}\n' https://taptime.mt/readyz
 ```
 
 > 🔴 **O SON `ALTER DEFAULT PRIVILEGES` NEDEN VAR — VE NEDEN `REVOKE UPDATE, DELETE`,
@@ -3673,10 +3894,16 @@ ve 15 `SECURITY DEFINER` `op_*` fonksiyonu **süper kullanıcının** malı kal�
 `pg-restore-verify.sh` bunu artık adıyla reddediyor (*"functions differ from the
 source"*, *"roles differ from the source"*).
 
+- `kubectl apply -f deploy/k8s/01-rbac.yaml`: cluster-admin ile, bir kez
+
 ```bash
 kubectl apply -f deploy/k8s/00-namespace.yaml
-kubectl apply -f deploy/k8s/01-rbac.yaml          # cluster-admin ile, bir kez
-# tappa-secrets'ı emanetten geri yükle (operatör adımı 2)
+kubectl apply -f deploy/k8s/01-rbac.yaml
+```
+
+tappa-secrets'ı emanetten geri yükle (operatör adımı 2)
+
+```bash
 kubectl -n tappa create configmap tappa-db-init \
   --from-file=01-roles.sql=scripts/db-init/01-roles.sql \
   --from-file=02-app-password.sh=deploy/k8s/postgres-init/02-app-password.sh \
@@ -3720,8 +3947,11 @@ RESTORE=$(mktemp -d)
 rclone --config "$HOME/.config/tappa/backup.rclone.conf" copy tappa-backup:prod/<damga> "$RESTORE/"
 gzip -dc "$RESTORE/tappa-<damga>.sql.gz" | kubectl -n tappa exec -i statefulset/tappa-postgres -- \
   sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -q -v ON_ERROR_STOP=1 -U tappa_owner -d tappa'
+```
 
-# 🔴 B2'NIN AYNASI — dump varsayılanı yeniden genişletti, geri daralt.
+🔴 B2'NIN AYNASI — dump varsayılanı yeniden genişletti, geri daralt.
+
+```bash
 kubectl -n tappa exec -i statefulset/tappa-postgres -- \
   sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -v ON_ERROR_STOP=1 -U tappa_owner -d tappa' <<'SQL'
 ALTER DEFAULT PRIVILEGES FOR ROLE tappa_owner IN SCHEMA public
@@ -4943,31 +5173,45 @@ no-op, kendi beklentisini doğrulayan. İki mekanizma yerine bir tane olması bu
 sınıfı ortadan kaldırıyor — silinecek şey tek bir dosya ve onu `trap` siliyor.
 
 **1. İKİ dosyayı da hazırla: bugünkü KEK ve yeni KEK.** Adım 2 ikisini de ister.
+
+- `umask 077`: yeni dosyalar 0600 doğsun
+
 ```bash
-umask 077                                   # yeni dosyalar 0600 doğsun
-# 🔴 install -m 600 /dev/null ÖNCE: umask VAR OLAN bir dosyanın iznini
-#    değiştirmez ve > bir symlinki İZLER. /tmp bu makinelerde drwxrwxrwt, ad
-#    öngörülebilir ve dosya rotasyondan önce yok — yani ad önceden yaratılabilir.
-#    Ölçüldü: çıplak > ile hedef mode 666 ve symlink KALIYOR; install ile
-#    symlink düz 0600 dosyayla DEĞİŞİYOR. Aynı teknik iki satır aşağıda eski KEK
-#    için zaten kullanılıyordu; yalnız birine uygulanmıştı.
+umask 077
+```
+
+🔴 install -m 600 /dev/null ÖNCE: umask VAR OLAN bir dosyanın iznini değiştirmez ve > bir symlinki
+İZLER. /tmp bu makinelerde drwxrwxrwt, ad öngörülebilir ve dosya rotasyondan önce yok — yani ad
+önceden yaratılabilir. Ölçüldü: çıplak > ile hedef mode 666 ve symlink KALIYOR; install ile symlink
+düz 0600 dosyayla DEĞİŞİYOR. Aynı teknik iki satır aşağıda eski KEK için zaten kullanılıyordu;
+yalnız birine uygulanmıştı.
+
+- `openssl rand -base64 32 > /tmp/kek_new.b64`: YENİ KEK — ekrana bakma
+
+```bash
 install -m 600 /dev/null /tmp/kek_new.b64
-openssl rand -base64 32 > /tmp/kek_new.b64  # YENİ KEK — ekrana bakma
-# ESKİ KEK: bugün kümede duran değer. Emanetten/sır deposundan al ve dosyaya yaz;
-# terminale yazdırma. (Küme kopyasının parmak izini operatör adımı 2deki sha256
-# önekiyle karşılaştırabilirsin — değerin kendisini basmadan.)
-# 🔴 cat > KULLANMA: etkileşimli tty girdiyi EKRANA YANKILAR. Ama read -rs -p
-#    DE KULLANMA — ölçüldü, zsh'te -p "coprocess'ten oku" demek: read anında
-#    1 dönüyor, && zinciri kırılıyor, printf hiç koşmuyor (dosya 0 BAYT kalıyor)
-#    ve girdi TÜKETİLMEDİĞİ için yapıştırılan KEK bir komut olarak çalışıp
-#    command not found: <KEK> ile EKRANA BASILIYOR. Aşağıdaki biçim POSIXtir ve
-#    bash ile zshte AYNI davranır (ikisinde de ölçüldü).
+openssl rand -base64 32 > /tmp/kek_new.b64
+```
+
+ESKİ KEK: bugün kümede duran değer. Emanetten/sır deposundan al ve dosyaya yaz; terminale yazdırma.
+(Küme kopyasının parmak izini operatör adımı 2deki sha256 önekiyle karşılaştırabilirsin — değerin
+kendisini basmadan.)
+
+🔴 cat > KULLANMA: etkileşimli tty girdiyi EKRANA YANKILAR. Ama read -rs -p DE KULLANMA — ölçüldü,
+zsh'te -p "coprocess'ten oku" demek: read anında 1 dönüyor, && zinciri kırılıyor, printf hiç
+koşmuyor (dosya 0 BAYT kalıyor) ve girdi TÜKETİLMEDİĞİ için yapıştırılan KEK bir komut olarak
+çalışıp command not found: \<KEK> ile EKRANA BASILIYOR. Aşağıdaki biçim POSIXtir ve bash ile zshte
+AYNI davranır (ikisinde de ölçüldü).
+
+- `wc -c < /tmp/kek_old.b64`: 44 (base64) olmalı; 0 ise DUR, yankı riski var
+
+```bash
 install -m 600 /dev/null /tmp/kek_old.b64
 printf 'ESKI KEK (yapistir, Enter): '
 stty -echo; IFS= read -r K; stty echo; printf '\n'
 printf '%s' "$K" > /tmp/kek_old.b64
 unset K
-wc -c < /tmp/kek_old.b64      # 44 (base64) olmalı; 0 ise DUR, yankı riski var
+wc -c < /tmp/kek_old.b64
 ```
 🔴 Yeni KEK de **yeniden üretilemez**. Emanet adımı (operatör adımı 2) eskisi için
 neyse yenisi için de odur. **Eski KEK'i adım 3 doğrulanana kadar SİLME.**
@@ -4988,10 +5232,12 @@ psql -X "$OWNER_DSN" -At -c "SELECT has_column_privilege(current_user,'tags','ae
 cevabı verir ve `tags`'i **hiç göremez** (`FORCE ROW LEVEL SECURITY`, politika
 PUBLIC'e yazılı). Asıl kontrol şu — ve aracın ürettiği SQL bunu **kendi içinde
 zorunlu kılar**, yani unutulamaz:
+
 ```bash
 psql -X "$OWNER_DSN" -At -c "SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname=current_user;"
-# t olmalı. f ise DUR: o oturum parkın tamamını ne görebilir ne yazabilir.
 ```
+
+t olmalı. f ise DUR: o oturum parkın tamamını ne görebilir ne yazabilir.
 
 **4. Plaket yüklemeyi DURDUR.** Araç okuma ile yazma arasında parkın büyüklüğünün
 değişmediğini doğruluyor; koşu sırasında panelden tek bir plaket eklenirse
@@ -5061,10 +5307,13 @@ literalini** konteyner log'una yazdı. Üretimin `10-postgres.yaml`'ı `args: []
 ile temiz — ama bu bir **yapılandırma**dır, bir garanti değil, ve §1'in hedefi
 olan **managed Postgres**'te sorgu-içgörü boru hatları yaygın olarak açıktır ve
 **üçüncü taraf bir log deposuna akar**.
+
 ```bash
 psql -X "$OWNER_DSN" -At -c "SELECT name||' = '||setting FROM pg_settings WHERE name IN ('log_statement','log_min_duration_statement','log_min_error_statement');"
-# log_statement = none  ve  log_min_duration_statement = -1  olmalı.
 ```
+
+log_statement = none ve log_min_duration_statement = -1 olmalı.
+
 Değilse rotasyondan önce kapat (`ALTER SYSTEM SET log_statement='none'; SELECT
 pg_reload_conf();`), sonra eski hâline getir. **`pg_stat_statements` ayrı bir
 sorudur:** o ifadeleri **normalize eder**, ama bu araç literaller yazar —
@@ -5110,9 +5359,12 @@ her tap 500 döner.
 
 **(c) KAPI: sürecin KENDİ söylediği POZİTİF olguyu oku.**
 
+- `kubectl -n tappa logs deployment/tappa | grep -c 'kek_rotation_window=open'`: >= 1 OLMALI
+- `kubectl -n tappa logs deployment/tappa | grep -c 'kek_rotation_window=closed'`: 0 OLMALI
+
 ```bash
-kubectl -n tappa logs deployment/tappa | grep -c 'kek_rotation_window=open'     # >= 1 OLMALI
-kubectl -n tappa logs deployment/tappa | grep -c 'kek_rotation_window=closed'   # 0 OLMALI
+kubectl -n tappa logs deployment/tappa | grep -c 'kek_rotation_window=open'
+kubectl -n tappa logs deployment/tappa | grep -c 'kek_rotation_window=closed'
 ```
 
 🔴 **BU KAPININ BİÇİMİ BİLİNÇLİ, ÇÜNKÜ ÖNCEKİ BİÇİM YANLIŞTI.** Önceki sürüm
@@ -5161,28 +5413,38 @@ yapıştırmaz, ve `ON_ERROR_STOP`/`mktemp`/`trap` operatörün parmaklarında d
 sürecin içindedir. Emsal bu repoda: `scripts/pg-backup.sh`,
 `pg-backup-ship.sh`, `pg-restore-verify.sh`.
 
+Parola DSN'de değil, PGPASSFILE'da. Böylece temizlik bir DESEN EŞLEŞTİRMESİ değil, tek bir dosyanın
+silinmesi olur (eski sürüm ~/.pgpasste literal "HOST" arıyordu ve gerçek bir dosyada HİÇBİR ZAMAN
+eşleşmiyordu — yani temizlik koşulsuz bir no-optu ve yine de "kalan owner satiri: 0" basıyordu).
+
+- `export OWNER_DSN="postgres://tappa_owner@<host>:5432/tappa?sslmode=disable"`: parola YOK
+- `export TAPPA_TAG_KEK_FILE=/tmp/kek_old.b64`: bugünkü (sızmış) KEK
+- `export TAPPA_TAG_KEK_NEW_FILE=/tmp/kek_new.b64`: yeni KEK
+- `./scripts/rotate-kek.sh`: DRY RUN: hiçbir şey uygulamaz, planı ve sayıları gösterir
+
 ```bash
-# Parola DSN'de değil, PGPASSFILE'da. Böylece temizlik bir DESEN EŞLEŞTİRMESİ
-# değil, tek bir dosyanın silinmesi olur (eski sürüm ~/.pgpasste literal "HOST"
-# arıyordu ve gerçek bir dosyada HİÇBİR ZAMAN eşleşmiyordu — yani temizlik
-# koşulsuz bir no-optu ve yine de "kalan owner satiri: 0" basıyordu).
 umask 077
 export PGPASSFILE="$(mktemp)"
 trap 'rm -f "$PGPASSFILE"' EXIT INT TERM HUP
 printf '%s:5432:tappa:tappa_owner:%s\n' "<host>" "<parola>" > "$PGPASSFILE"
-export OWNER_DSN="postgres://tappa_owner@<host>:5432/tappa?sslmode=disable"   # parola YOK
+export OWNER_DSN="postgres://tappa_owner@<host>:5432/tappa?sslmode=disable"
 
-export TAPPA_TAG_KEK_FILE=/tmp/kek_old.b64      # bugünkü (sızmış) KEK
-export TAPPA_TAG_KEK_NEW_FILE=/tmp/kek_new.b64  # yeni KEK
+export TAPPA_TAG_KEK_FILE=/tmp/kek_old.b64
+export TAPPA_TAG_KEK_NEW_FILE=/tmp/kek_new.b64
 
-./scripts/rotate-kek.sh              # DRY RUN: hiçbir şey uygulamaz, planı ve sayıları gösterir
+./scripts/rotate-kek.sh
 echo "rc=$?"
+```
 
-# 🔴 YAZMAK ICIN --apply ZORUNLU. Ciplak cagri bir DRY RUN yapar. Bu satir bir tur
-#    boyunca "uygular" yorumuyla ciplak duruyordu ve OLCULDU: rc=0, hicbir sey
-#    uygulanmadi, 77.215 satirin tamami ESKI KEK altinda kaldi -- ve tablo o
-#    sifiri "uygulandi" diye okuyordu. Operator Adim 3e gecerse her tap 500 doner.
-./scripts/rotate-kek.sh --apply      # UYGULAR (geri alinamaz)
+🔴 YAZMAK ICIN --apply ZORUNLU. Ciplak cagri bir DRY RUN yapar. Bu satir bir tur boyunca "uygular"
+yorumuyla ciplak duruyordu ve OLCULDU: rc=0, hicbir sey uygulanmadi, 77.215 satirin tamami ESKI KEK
+altinda kaldi -- ve tablo o sifiri "uygulandi" diye okuyordu. Operator Adim 3e gecerse her tap 500
+doner.
+
+- `./scripts/rotate-kek.sh --apply`: UYGULAR (geri alinamaz)
+
+```bash
+./scripts/rotate-kek.sh --apply
 echo "rc=$?"
 ```
 
@@ -5200,8 +5462,10 @@ tarafından tutuluyor.
 histogramıyla raporlar ve **varsayılan olarak reddeder**. Devam için sayıyı birebir
 beyan et:
 
+- `export TAPPA_ROTATE_ALLOW_UNOPENABLE="<raporun verdiği tam sayi>"`: TIRNAK ŞART
+
 ```bash
-export TAPPA_ROTATE_ALLOW_UNOPENABLE="<raporun verdiği tam sayi>"   # TIRNAK ŞART
+export TAPPA_ROTATE_ALLOW_UNOPENABLE="<raporun verdiği tam sayi>"
 ./scripts/rotate-kek.sh --apply; echo "rc=$?"
 ```
 
@@ -5230,22 +5494,29 @@ yazılmıştı; tek gerçekten bağımsız kapı olan fiziksel tap, yedek KEK **
 düşürüldükten** sonra koşuyordu — yani arıza ancak geri dönüşü olmayan noktadan
 sonra görünüyordu.
 
+(a) Parkta eski KEK altında satır kaldı mı — hiçbir şey UYGULAMADAN. İKİ KEK de hâlâ ortamda olmalı
+(araç ikisini de ister; biri boşsa exit 1). Açılamayan satırı olan bir parkta
+TAPPA_ROTATE_ALLOW_UNOPENABLE de gerekir.
+
 ```bash
-# (a) Parkta eski KEK altında satır kaldı mı — hiçbir şey UYGULAMADAN.
-#     İKİ KEK de hâlâ ortamda olmalı (araç ikisini de ister; biri boşsa exit 1).
-#     Açılamayan satırı olan bir parkta TAPPA_ROTATE_ALLOW_UNOPENABLE de gerekir.
 ./scripts/rotate-kek.sh --dry-run; echo "rc=$?   # 0 beklenir, hiçbir şey uygulanmaz"
-# Beklenen: re-sealed under the new KEK ..... 0 ve already under the new KEK
-#           = toplam satır sayısı. (Eskiden burada "re-sealed 0" yazıyordu; araç
-#            o dizeyi HİÇ basmıyor, yani literal bir grep her zaman boş dönerdi.)
+```
 
-# (b) Sarmal uzunlukları — 44 dışındaki her sayı bir zarf DEĞİLDİR.
+Beklenen: re-sealed under the new KEK ..... 0 ve already under the new KEK = toplam satır sayısı.
+(Eskiden burada "re-sealed 0" yazıyordu; araç o dizeyi HİÇ basmıyor, yani literal bir grep her zaman
+boş dönerdi.)
+
+(b) Sarmal uzunlukları — 44 dışındaki her sayı bir zarf DEĞİLDİR.
+
+```bash
 psql -X "$OWNER_DSN" -c "SELECT octet_length(aes_key_ref) AS len, count(*) FROM tags GROUP BY len ORDER BY count DESC;"
+```
 
-# (c) GERÇEK BİR TAP — tek uçtan uca kanıt, ve HÂLÂ İKİ KEK YÜKLÜYKEN koşulur.
-#     Bir plakete dokun; kayıt düşmeli. Bu aşamada 500 alıyorsan adım 3e GEÇME.
-#     Önce rolloutun oturduğundan emin ol, yoksa eski poda düşen bir tapi
-#     yeni podun kusuru sanarsın:
+(c) GERÇEK BİR TAP — tek uçtan uca kanıt, ve HÂLÂ İKİ KEK YÜKLÜYKEN koşulur. Bir plakete dokun;
+kayıt düşmeli. Bu aşamada 500 alıyorsan adım 3e GEÇME. Önce rolloutun oturduğundan emin ol, yoksa
+eski poda düşen bir tapi yeni podun kusuru sanarsın:
+
+```bash
 kubectl -n tappa rollout status deployment/tappa --timeout=180s
 ```
 
@@ -5254,16 +5525,21 @@ kubectl -n tappa rollout status deployment/tappa --timeout=180s
 Yalnız **adım 2 exit 0** verdiyse **ve** doğrulama (a)(b)(c) temizse.
 `tappa-secrets`'tan **`TAPPA_TAG_KEK_PREVIOUS`'u kaldır**, sonra:
 
+- `kubectl -n tappa rollout restart deployment/tappa`: sır düzenlemek podu YENİDEN BAŞLATMAZ
+
 ```bash
-kubectl -n tappa rollout restart deployment/tappa      # sır düzenlemek podu YENİDEN BAŞLATMAZ
+kubectl -n tappa rollout restart deployment/tappa
 kubectl -n tappa rollout status  deployment/tappa --timeout=180s
 ```
 
 **KAPI — yine POZİTİF olgu, aynı tablo:**
 
+- `kubectl -n tappa logs deployment/tappa | grep -c 'kek_rotation_window=closed'`: >= 1 OLMALI
+- `kubectl -n tappa logs deployment/tappa | grep -c 'kek_rotation_window=open'`: 0 OLMALI
+
 ```bash
-kubectl -n tappa logs deployment/tappa | grep -c 'kek_rotation_window=closed'   # >= 1 OLMALI
-kubectl -n tappa logs deployment/tappa | grep -c 'kek_rotation_window=open'     # 0 OLMALI
+kubectl -n tappa logs deployment/tappa | grep -c 'kek_rotation_window=closed'
+kubectl -n tappa logs deployment/tappa | grep -c 'kek_rotation_window=open'
 ```
 
 | `closed` | `open` | Ne yap |
@@ -5278,22 +5554,26 @@ operatör *"kapandı"* deyip sızmış KEK'in **emanetteki tek kopyasını** yok
 süreç o KEK'i kabul etmeye devam edebilirdi — geri alma için gereken kopya da
 gitmiş olurdu. §4.7'nin vaadi tam tersine dönüyordu.
 
+YALNIZ yukarıdaki tablo "KAPANDI" dediyse: operatörün kabuğu ve diski temizlenir.
+
 ```bash
-# YALNIZ yukarıdaki tablo "KAPANDI" dediyse: operatörün kabuğu ve diski temizlenir.
 unset TAPPA_TAG_KEK TAPPA_TAG_KEK_PREVIOUS
-# 🔴 "ÜZERİNE YAZARAK SİL" DİYE BİR ADIM YOK — bu satır eskiden öyle diyordu ve
-#    YANLIŞTI. Bu platformda rm -P belgeli bir NO-OPtur ve **0 döner**
-#    (man rm: "This flag has no effect."), yani || shred dalına HİÇ geçilmez;
-#    shred de bu makinede yok. Ölçüldü. Dosyalar UNLINK ediliyor, üzerine
-#    yazılmıyor. scripts/rotate-kek.sh kendi geçici dosyaları için bunu
-#    sondalayıp söylüyor; burada da doğrusu yazılıyor.
-#    Gerçekten üzerine yazmak istiyorsan: şifreli bir birim ya da RAM disk kullan.
+```
+
+🔴 "ÜZERİNE YAZARAK SİL" DİYE BİR ADIM YOK — bu satır eskiden öyle diyordu ve YANLIŞTI. Bu platformda
+rm -P belgeli bir NO-OPtur ve **0 döner** (man rm: "This flag has no effect."), yani || shred dalına
+HİÇ geçilmez; shred de bu makinede yok. Ölçüldü. Dosyalar UNLINK ediliyor, üzerine yazılmıyor.
+scripts/rotate-kek.sh kendi geçici dosyaları için bunu sondalayıp söylüyor; burada da doğrusu
+yazılıyor. Gerçekten üzerine yazmak istiyorsan: şifreli bir birim ya da RAM disk kullan.
+
+```bash
 rm -f /tmp/kek_old.b64 /tmp/kek_new.b64
 command -v shred >/dev/null && echo "not: shred var, istersen kullanabilirsin" || \
   echo "not: bu makinede shred YOK ve rm -P bir no-op; dosyalar unlink edildi, uzerine yazilmadi"
-# $PGPASSFILE adım 2deki trap tarafından zaten silindi; kalıcı bir parola dosyası
-# bu prosedürde HİÇ yaratılmıyor (tek mekanizma kuralı).
 ```
+
+$PGPASSFILE adım 2deki trap tarafından zaten silindi; kalıcı bir parola dosyası bu prosedürde HİÇ
+yaratılmıyor (tek mekanizma kuralı).
 
 ⚠️ **ESKİ KEK'İN EMANET KOPYASINI BURADA SİLME.** Adım 4 bitene kadar dur: geri
 alma onu gerektirir, ve rotasyon öncesi yedekler hâlâ onun altındadır.
@@ -5311,8 +5591,10 @@ Mekanizma kipiyle:
 > o zaman geçerlidir. **Çalışmıyorsa** (bugünkü ölçüm) imha edilecek dump yoktur ve
 > bu adım bugün **boştur** — ama ilk yedek alındığı gün geçerli hâle gelir.
 
+- `kubectl -n tappa get cronjob`: boşsa bu adım bugün için geçersiz
+
 ```bash
-kubectl -n tappa get cronjob      # boşsa bu adım bugün için geçersiz
+kubectl -n tappa get cronjob
 ```
 
 **Yedek çalışıyorken rotasyondan önce alınmış her dump**,
@@ -5394,7 +5676,7 @@ hafızasına bağlı değil):
 | Ne | Neden artık imkânsız |
 |---|---|
 | Rotasyonun **gövdesinde** yorumdaki backtick'in çalışması | Gövde artık yapıştırılmıyor: `scripts/rotate-kek.sh`'i **bash bir dosya olarak** yorumluyor (`bash -n` süitte) |
-| Kalan **yapıştırılan** bloklarda aynı tehlike | 🔴 **SAYILDI, İMKÂNSIZ DEĞİL:** bu bölümde hâlâ **13 yapıştırılan `bash` bloğu** var (sır girişi, `kubectl` adımları, doğrulama). Tehlike **karakter düzeyinde** kaldırıldı — yorumlarda **0 backtick, 0 tek apostrof** — ve `TestRunbook_PasteableBlocksCarryNoShellHazardInComments` bunu tutuyor. ⚠️ Ama bu bir **özellik**, yapısal bir imkânsızlık değil: yeni bir blok yeni bir backtick getirebilir, ve o testi geçersiz bir yorum hâlâ yapıştırılabilir. Kontrol: gerçek `zsh -f -i`'de README şeklindeki backtick'li bir yorum **çalıştı** (işaret dosyası yazıldı); temizlenmiş blokların **hepsi** `bash -n` **ve** `zsh -n` altında 0 veriyor. ⚠️ **Testin kapsamı M8-05'te genişledi, M8-03'te bir kez daha genişledi, ve hâlâ dosyanın tamamı DEĞİL:** artık **üç** dilim taranıyor — bu bölüm · *"Plaket encode"* (bugün orada 0 blok var, yani tarama bir sürüklenme freni) · *"Gözlemlenebilirlik — M8-03"* (5 blok; iki tehlikeli yorum satırı orada sevk edildi ve iki dilimlik ağ onları görmemişti). Dosyanın kalan **32** yapıştırılabilir bloğu taranmıyor; sayısı ve içindeki tehlike satırları **"Kabul edilmiş sınırlar"** listesinde yazılı |
+| Kalan **yapıştırılan** bloklarda aynı tehlike | ✅ **YORUM YOK — T136 (OPS-1, 2026-10-18).** Bu bölümde **19 yapıştırılan `bash` bloğu** var (sır girişi, `kubectl` adımları, doğrulama; T136 yorumları bloklardan çıkarırken 13 bloğu yorumların durduğu yerlerden böldü). Hiçbirinde ne `#` satırı ne de komut sonunda bir yorum var: açıklama bloğun etrafındaki metinde, satıra özgü not (*"DRY RUN"*, *"UYGULAR"*) bloğun hemen önündeki listede — `TestRunbook_ItsOwnCommandsAreRUNNotSCANNED` iddiayı oradan okuyup komutu **koşturur**. Kural bütün dosyada tek: `TestRunbook_EveryPasteableBlockCarriesNoComment` her `bash` bloğunu (girintili olanlar dahil) yorumsuz tutar ve gerçek `zsh -f -i -n` ile ayrıştırır. Geçmiş: tehlike önce **karakter düzeyinde** kaldırılmıştı (yorumlarda 0 backtick, 0 tek apostrof) ve gerçek `zsh -f -i`'de README şeklindeki backtick'li bir yorum **çalışmıştı** (işaret dosyası yazıldı); o ağ dört dilimi okuyordu, şimdiki dosyanın tamamını. `TestRunbook_PasteableBlocksCarryNoShellHazardInComments` dilimlerin çapalarını ve bu bölümün blok sayısını tutmaya devam eder |
 | `ON_ERROR_STOP` unutulması → 40 ref sunucu log'una + `psql rc=0` | Bayrak script'in içinde; `TestRotateScript_AlwaysPassesOnErrorStop` her `psql` çağrısında arıyor |
 | Rotasyonun kilit kuyruğunda **süresiz** beklemesi | `SET LOCAL lock_timeout = '5s'` üretilen SQL'in ilk ifadesi; 5 sn'de alamazsa `55P03` ile iptal, tek transaction geri alınır, **0 satır yazılır**, script **exit 1** der. ⚠️ Bu bir **rotasyon** tavanıdır; **TAP tarafında hiçbir tavan yoktur** (`statement_timeout` sunucuda 0 ve hiçbir katmanda set edilmiyor) — ölçüldü, backlog T47 |
 | Aracın çıkış kodunun `psql`'inkiyle maskelenmesi | Boru yok; `TOOL_RC` yakalanıp `exit` ediliyor, `TestRotateScript_NeverPipesTheToolIntoPsql` tutuyor |
@@ -5603,9 +5885,13 @@ olarak bu yanlışı yaptı.** En olası alt sebep, çağıran pod'un **çok yen
 adresi kuralın izin kümesine 0,2–1,0 sn içinde yazılıyor ve o ana kadar reddediliyor.
 
 **Teşhis:**
+
+- `kubectl -n tappa get netpol`: kural duruyor mu
+- `kubectl -n tappa get pod <pod> -o jsonpath='{.metadata.labels}'`: etiket doğru mu
+
 ```bash
-kubectl -n tappa get netpol                      # kural duruyor mu
-kubectl -n tappa get pod <pod> -o jsonpath='{.metadata.labels}'   # etiket doğru mu
+kubectl -n tappa get netpol
+kubectl -n tappa get pod <pod> -o jsonpath='{.metadata.labels}'
 ```
 **Çare.** Kuralı **silme** — sildiğin an kümedeki HER namespace'in her pod'u veritabanına
 ulaşır (`pg_hba` son satırı `host all all all scram-sha-256`). Çağıran iş yükü
@@ -5680,9 +5966,12 @@ sonra** pod'un dakikalarca beklemesini engeller.
 | `tappa-migrate-<hash>` (**Job**) | 🔴 **`.status.failed`'ı ARTIRIR.** `backoffLimit: 2` olduğu için **üç silme Job'ı kalıcı `Failed`** yapar; sonra yalnız yeni bir deploy koşusu (Job'ı silip yeniden yaratır) kurtarır |
 | `tappa-postgres-0` (**StatefulSet**) | 🔴 **VERİTABANINI YENİDEN BAŞLATIR.** Açık bağlantılar kopar, uygulama `/readyz` 503 verir. Bunu yalnız Postgres'in kendi imajı çekilemiyorsa yap |
 
+- `kubectl -n tappa get pod -o wide`: ÖNCE hangi tip olduğuna bak (ada göre)
+- `kubectl -n tappa delete pod <stuck-pod>`: SADECE ImagePullBackOff/ErrImagePull olanı
+
 ```bash
-kubectl -n tappa get pod -o wide            # ÖNCE hangi tip olduğuna bak (ada göre)
-kubectl -n tappa delete pod <stuck-pod>     # SADECE ImagePullBackOff/ErrImagePull olanı
+kubectl -n tappa get pod -o wide
+kubectl -n tappa delete pod <stuck-pod>
 ```
 ⚠️ `deploy.yml`'de bunu otomatik yapan bir adım **vardı ve kaldırıldı** — dayandığı
 öncül (bayat çekme kimliği) **ağaçta** artık yok, ve premisi yanlış olan yıkıcı bir
@@ -5713,13 +6002,19 @@ sütuna yazan bir sürüm 04:00 vardiyasına açılırdı ve §4.6 (*"kayıt asl
 kaybolmaz"*) altyapı katmanında karşılıksız kalırdı. **Yani bu bir kesinti
 değildir** — ürün ayakta, yalnız yeni sürüm sevk edilmedi. `/healthz` + `/readyz`
 ile doğrula, sonra Job'ın logunu oku:
+
+- `kubectl -n tappa logs job/tappa-migrate -c wait-for-postgres`: ulaşabildi mi
+- `kubectl -n tappa logs job/tappa-migrate -c goose`: DDL ne dedi
+
 ```bash
-kubectl -n tappa logs job/tappa-migrate -c wait-for-postgres   # ulaşabildi mi
-kubectl -n tappa logs job/tappa-migrate -c goose               # DDL ne dedi
-# ⚠️ Birincisi `container wait-for-postgres is not valid for pod … out of: goose`
-# derse o Job initContainer'sız bir manifestten doğmuştur (FAZ C kümeye inmemiş);
-# yalnız `-c goose` çalışır. Bölüm 1'deki ölçüm komutu hangisi olduğunu söyler.
+kubectl -n tappa logs job/tappa-migrate -c wait-for-postgres
+kubectl -n tappa logs job/tappa-migrate -c goose
 ```
+
+⚠️ Birincisi `container wait-for-postgres is not valid for pod … out of: goose` derse o Job
+initContainer'sız bir manifestten doğmuştur (FAZ C kümeye inmemiş); yalnız `-c goose` çalışır. Bölüm
+1'deki ölçüm komutu hangisi olduğunu söyler.
+
 `wait-for-postgres` başarılı ama `goose` düştüyse sorun **migration'ın kendisidir**,
 ağ değil.
 
@@ -5740,14 +6035,25 @@ RESOLVE"*, ya da elle: `getent hosts tappa-postgres` **boş**. `pg_isready` yine
   görüyorsan **bu budur** — geçici olan bu kadar sürmez.
 
 **Teşhis:**
+
+- `kubectl -n tappa get svc tappa-postgres`: Service var mı
+- `kubectl -n tappa get endpointslice`: AYRI çağrı: uç noktalar
+
 ```bash
-kubectl -n tappa get svc tappa-postgres                 # Service var mı
-kubectl -n tappa get endpointslice                      # AYRI çağrı: uç noktalar
-# ⚠️ İkisini tek `get`'e koyma: `get svc tappa-postgres endpointslice` her iki adı da
-# `svc` kaynağında arar ve `services "endpointslice" not found` + exit 1 verir —
-# yani aradığın arızanın kendisi gibi görünen sahte bir hata.
-kubectl -n tappa get pod tappa-postgres-0               # Ready mi (headless kaydın şartı)
-kubectl -n kube-system get pod -l k8s-app=kube-dns      # CoreDNS ayakta mı
+kubectl -n tappa get svc tappa-postgres
+kubectl -n tappa get endpointslice
+```
+
+⚠️ İkisini tek `get`'e koyma: `get svc tappa-postgres endpointslice` her iki adı da `svc` kaynağında
+arar ve `services "endpointslice" not found` + exit 1 verir — yani aradığın arızanın kendisi gibi
+görünen sahte bir hata.
+
+- `kubectl -n tappa get pod tappa-postgres-0`: Ready mi (headless kaydın şartı)
+- `kubectl -n kube-system get pod -l k8s-app=kube-dns`: CoreDNS ayakta mı
+
+```bash
+kubectl -n tappa get pod tappa-postgres-0
+kubectl -n kube-system get pod -l k8s-app=kube-dns
 ```
 **Çare.** `12-networkpolicy.yaml`'a **dokunma** — bu bölümdeki hiçbir arıza onunla
 ilgili değildir ve kuralı silmek yalnız veritabanını kümeye açar.
@@ -5815,16 +6121,26 @@ yazabilir. **Kapatmak bu kartın işi değil — sayılıyor, susulmuyor** (M8-0
 kapsamı; `log_statement`/`log_min_duration_statement`'ın manifestle sabitlenmesi
 ve pilot öncesi doğrulanması).
 
-```bash
-# node ve bölge
-kubectl get nodes -o wide
-# -> k8s-1.fsn1.private  Ready  control-plane  v1.35.4+k3s1  10.0.0.10  Ubuntu 24.04.4
-# ⚠️ topology.kubernetes.io/region ETİKETİ YOK (ölçüldü: boş). Bölge kanıtı
-#    node ADI (fsn1 = Hetzner Falkenstein, Almanya) ve M8-02 kartında kaydedilen
-#    144.76.158.60 adresidir — bir etiket değil.
-kubectl get nodes -o jsonpath='{.items[0].metadata.labels}'
+node ve bölge
 
-# toplayıcı gerçekten bizi okuyor mu
+```bash
+kubectl get nodes -o wide
+```
+
+```text
+-> k8s-1.fsn1.private  Ready  control-plane  v1.35.4+k3s1  10.0.0.10  Ubuntu 24.04.4
+```
+
+⚠️ topology.kubernetes.io/region ETİKETİ YOK (ölçüldü: boş). Bölge kanıtı node ADI (fsn1 = Hetzner
+Falkenstein, Almanya) ve M8-02 kartında kaydedilen 144.76.158.60 adresidir — bir etiket değil.
+
+```bash
+kubectl get nodes -o jsonpath='{.items[0].metadata.labels}'
+```
+
+toplayıcı gerçekten bizi okuyor mu
+
+```bash
 kubectl -n signoz get cm k8s-infra-otel-agent -o jsonpath='{.data.otel-agent-config\.yaml}' \
   | grep -A 20 'filelog'
 kubectl -n signoz get ds k8s-infra-otel-agent \
@@ -5840,10 +6156,13 @@ kubectl -n signoz get ds k8s-infra-otel-agent \
 ```bash
 kubectl get --raw "/api/v1/nodes/k8s-1.fsn1.private/proxy/configz" | tr ',' '\n' \
   | grep -i containerLog
-# -> "containerLogMaxSize":"10Mi"
-#    "containerLogMaxFiles":5
-#    "containerLogMaxWorkers":1
-#    "containerLogMonitorInterval":"10s"
+```
+
+```text
+-> "containerLogMaxSize":"10Mi"
+   "containerLogMaxFiles":5
+   "containerLogMaxWorkers":1
+   "containerLogMonitorInterval":"10s"
 ```
 
 **Node kopyası: konteyner başına 10 MiB × 5 dosya = 50 MiB, sonra en eskisi silinir.**
@@ -5854,11 +6173,11 @@ Bugünkü hacimle bu ne demek:
 ```bash
 kubectl -n tappa logs $(kubectl -n tappa get pod -l app.kubernetes.io/component=server \
   -o jsonpath='{.items[0].metadata.name}') | wc -lc
-# ⚠️ BURAYA BEKLENEN BİR ÇIKTI YAZILMIYOR, BİLEREK. Bu sayı pod her yeniden
-#    başladığında sıfırlanır ve pod yaşıyla birlikte büyür; bir tur onu
-#    "3 satır, 489 bayt" diye dondurdu, sonraki ölçüm 4 satır / 557 bayt verdi.
-#    Yapıştırıp kendi çıktını oku; karşılaştırılacak bir referans YOK.
 ```
+
+⚠️ BURAYA BEKLENEN BİR ÇIKTI YAZILMIYOR, BİLEREK. Bu sayı pod her yeniden başladığında sıfırlanır ve
+pod yaşıyla birlikte büyür; bir tur onu "3 satır, 489 bayt" diye dondurdu, sonraki ölçüm 4 satır /
+557 bayt verdi. Yapıştırıp kendi çıktını oku; karşılaştırılacak bir referans YOK.
 
 🔴 **VE BU ÖLÇÜM SEVK EDİLEN İKİLİYE AİT DEĞİL — bir tur boyunca öyleymiş gibi
 okundu.** Kümede duran pod `sha-97537336af03` imajını koşuyor, yani **M8-03
@@ -5883,15 +6202,17 @@ artık o sayacı ilerletmiyor; ilerleten şey **gerçek kullanıcı trafiğidir*
 onun hızı pilot başlayana kadar bilinmiyor. **Bir sayıyı buraya dondurmak yerine
 ölçüm komutu yazılıyor** — pilot açıldıktan sonra koş:
 
+Erişim kaydı hizi: iki olcum arasindaki fark / gecen sure. (Once bir kez, 10 dakika sonra bir kez;
+ikisinin farki gunluk hizi verir.)
+
 ```bash
-# Erişim kaydı hizi: iki olcum arasindaki fark / gecen sure.
-# (Once bir kez, 10 dakika sonra bir kez; ikisinin farki gunluk hizi verir.)
 POD=$(kubectl -n tappa get pod -l app.kubernetes.io/component=server \
   -o jsonpath='{.items[0].metadata.name}')
 kubectl -n tappa logs "$POD" | wc -lc
 kubectl -n tappa logs "$POD" | grep -c http.request
-# 50 MiB / (kayit boyutu) = kac yanit sigar; hiz x gun = ne zaman dolar.
 ```
+
+50 MiB / (kayit boyutu) = kac yanit sigar; hiz x gun = ne zaman dolar.
 
 Ve GDPR açısından önemli olan yarı bu **değil**, şu: log satırları IP ve çalışan
 id'si taşır (§4.2, §4.7), Q13'ün silme akışı `employees` üzerinde bir UPDATE'tir
@@ -5902,16 +6223,21 @@ kötüdür, ne kadar bilinmezse o kadar kötüdür.
 silindiğinde kubelet `/var/log/pods/<uid>` dizinini kaldırır, yani her rollout
 öncekinin log'unu atar. Ölçüldü:
 
+- `kubectl -n tappa get rs`: 7 ReplicaSet = 7 rollout
+
 ```bash
-kubectl -n tappa get rs        # 7 ReplicaSet = 7 rollout
+kubectl -n tappa get rs
 kubectl -n tappa get pods -o name
-# -> pod/tappa-6fd5489dcb-q5b4l      <- UYGULAMA: bundan YALNIZ BİRİ var
-#    pod/tappa-migrate-rq76l          (tamamlanmış Job)
-#    pod/tappa-postgres-0             (StatefulSet)
-# ⚠️ ÇIKTI ÜÇ SATIR. Bir tur burada "(YALNIZ BİRİ)" yazıp tek satır gösteriyordu;
-#    "yalnız biri" olan şey UYGULAMA POD SATIRIDIR, komutun çıktısı değil. Diğer
-#    ikisi aşağıdaki §4.7 kapsam notunun konusu.
 ```
+
+```text
+-> pod/tappa-6fd5489dcb-q5b4l      <- UYGULAMA: bundan YALNIZ BİRİ var
+   pod/tappa-migrate-rq76l          (tamamlanmış Job)
+   pod/tappa-postgres-0             (StatefulSet)
+```
+
+⚠️ ÇIKTI ÜÇ SATIR. Bir tur burada "(YALNIZ BİRİ)" yazıp tek satır gösteriyordu; "yalnız biri" olan
+şey UYGULAMA POD SATIRIDIR, komutun çıktısı değil. Diğer ikisi aşağıdaki §4.7 kapsam notunun konusu.
 
 **Son yedi deploy'un altısının log'u node'da yok.** Yani node kopyası için gerçek
 saklama süresi *"50 MiB dolana kadar"* değil, **"bir sonraki deploy'a kadar"**dır —
@@ -6805,46 +7131,32 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     ⚠️ **Sonuç neyi DEĞİŞTİRİR:** bu belgedeki bir atıf, onu **açıp okuyan** bir insanın
     ya da ajanın kontrolü kadar güvenilirdir. Bir gözden geçirme turunda atıfları
     örneklemek, testlerin yeşil olmasına güvenmekten daha bilgilendiricidir.
-    ⚠️ **İkinci sıfır kapı, aynı sınıftan ve aynı şekilde sayılıyor:**
-    `cmd/rotatekek/script_test.go` yapıştırılabilir blokların yorumlarını tarıyor ama
-    **tüm dosyayı değil, dört dilimi** okuyor ("KEK döndürme", "Plaket encode",
-    M8-03'te eklenen "Gözlemlenebilirlik" ve T134'te eklenen operatör adımı 5).
-    **Yeniden ölçüldü — T134 2. tur, 2026-10-18, güncel tarayıcıyla.** Tarayıcı artık yorum
-    satırlarına **ve** komut sonundaki satır içi yorumlara bakıyor; önceki yalnız `#` ile
-    başlayan satırlara bakıyordu ve adım 5'teki `gh secret set … # değer stdin'den …` satırı
-    tam o kör noktadaydı. Dosyada **115** yapıştırılabilir `bash` bloğu var; **13**'ü
-    döndürme diliminde, **0**'ı encode diliminde, **5**'i gözlemlenebilirlik diliminde,
-    **5**'i adım 5'te (T135 bir blok ekledi); kalan **92**'si taranmıyor ve o 92 blokta **154** yorum satırı ile
-    satır içi yorum taşıyan **40** komut satırı var; bunların **53**'ü **59 tehlike isabeti**
-    taşıyor (48 yorum satırı / 54 isabet, 5 satır içi yorum / 5 isabet). Taramayı dosyanın
-    tamamına açmak o 53 satırı **kırmızıya** çevirirdi — başka kartlara ait bir düzeltme işi;
-    bu yüzden **kapatılmadı, sayıldı**. Kapatan tur, o 53 satırı düzelten turdur. Taranan
-    dört dilimde isabet **0** (döndürme dilimindeki tek satır içi isabet, `POD'U`, bu turda
-    düzeltildi).
-    ⚠️ **Tarayıcının görmediği ikinci bir sınıf, aynı turda ÖLÇÜLDÜ ve sayıldı:** zsh'ta
-    (`interactive_comments` kapalı) bir `#` satırı **`#` adlı bir komuttur**, yani yorumun
-    içindeki `>`/`<` **dosya yaratır**, `;`/`|` **sonrasını koşturur** (gerçek `zsh -f -i`'de:
-    `# admin -> Settings -> Keys` çalışma dizininde `Settings` ve `Keys` dosyalarını yarattı;
-    `# a; touch X` ve `# b | tee X` koştu). Satır içi yorumun kelimeleri de komutun
-    **argümanı** olur. Genel tarayıcının yasak listesi bunları içermiyor; yalnız adım 5 bunlara
-    karşı tutuluyor (`TestReadme_TheTailnetStepBlocksPasteIntoZsh`: satır içi yorum yok,
-    yorumda yönlendirme/ayraç/tırnak yok, her satır `zsh -f -i -n` ile ayrıştırılıyor). Bu
-    sınıfı (`>`, `<`, `;`, `|`, `&`) taşıyan yorum ya da satır içi yorum satırı: döndürme
-    diliminde **16**, gözlemlenebilirlik diliminde **8**, taranmayan bloklarda **53** (backlog T136);
-    döndürme diliminde ayrıca satır içi yorum taşıyan **15** komut satırı var.
-    ⚠️ **BU SAYILAR CANLI — donduruldukları için ölçüm komutları yanlarında duruyor.**
-    2. turda **ikisi de yanlıştı**: toplam **45** yazıyordu, ölçüm **50** verdi
-    (M8-03 beş blok ekledi); ve *"kalan 32"* yazıyordu, oysa o an yalnız iki dilim
-    taranıyordu, yani taranmayan **37**'ydi. Bugün 32 **doğru**, çünkü üçüncü dilim
-    o beş bloğu kapsıyor — ama **aynı sayı, farklı sebeple**. Yanlış toplam tam
-    olarak üçüncü dilimin **hiç taranmadığını** gizliyordu; bu yüzden artık ölçümü
-    yeniden üretecek komut da burada:
+    ✅ **İkinci sıfır kapı KAPATILDI — T136 (OPS-1, 2026-10-18).** `cmd/rotatekek`'in tarayıcısı
+    yapıştırılabilir blokların yorumlarını eskiden **dört dilimde** okuyordu ("KEK döndürme",
+    "Plaket encode", "Gözlemlenebilirlik", operatör adımı 5); kalan blokların yorumlarında
+    zsh'ta (`interactive_comments` kapalı) yan etki doğuran satırlar sayılmıştı — bir `#` satırı
+    orada **`#` adlı bir komuttur**: içindeki `>`/`<` **dosya yaratır**, `;`/`|` **sonrasını
+    koşturur** (gerçek `zsh -f -i`'de `# admin -> Settings -> Keys` çalışma dizininde `Settings`
+    ve `Keys` dosyalarını yarattı), bir apostrof `quote>` açıp sonraki satırı yutar, satır içi
+    yorumun kelimeleri komutun **argümanı** olur. **Ölçüm, değişiklikten önce:** dosyada
+    **119** `bash` bloğu (dördü bir liste maddesinin içinde girintili — eski tarayıcının hiç
+    görmediği), **71**'inde **244** yorum satırı ve **56** satır içi yorum; **31** blok
+    `zsh -f -i -n` ile **ayrışmıyordu**. **Çare — tek kural, iki kabukta aynı:** `bash`
+    bloklarında **yorum yok**. Yorumlar blokların etrafındaki metne taşındı (açıklama paragraf,
+    satıra özgü not bloğun önündeki listede, beklenen çıktı bir `text` bloğunda); yorumların
+    durduğu yerlerden bloklar bölündü. **Komutlara dokunulmadı**, iki bağımsız yolla
+    kanıtlandı: yorumlar atılınca eski ve yeni dosyanın komut satırları bayt bayt aynı
+    (**544** = **544**), ve bash'in kendi ayrıştırıcısı (`declare -f`, yer tutucular
+    nötrlenerek) **117** bölgenin **117**'sinde aynı programı veriyor. (Bu maddenin kendi ölçüm
+    bloğu ayrıca **bilerek** değişti: `grep -c '^```bash'` yalnız sütun 0'daki çitleri sayıyordu,
+    yerini testin logu aldı.) **Sonra:** **159** `bash` bloğu, **0** yorum, **159**'unun
+    **159**'u `zsh -f -i -n` ile ayrışıyor (yer tutucular `<…>` nötrlenerek). Tutan test `TestRunbook_EveryPasteableBlockCarriesNoComment`
+    (bütün dosya, girintili bloklar dahil; `bash` dışındaki çitler — çıplak, `text`, `sql`,
+    `ini` — kabuğa yapıştırılmaz ve tutulmaz). Sayıyı yeniden üretmek için testin kendi
+    logu:
 
     ````bash
-    # toplam yapıştırılabilir blok
-    grep -c '^```bash' deploy/README.md
-    # dilim başına dağılım (satır sayısı, blok, tehlike) — testin kendi logu
-    go test ./cmd/rotatekek/ -run PasteableBlocks -v
+    go test ./cmd/rotatekek/ -run 'PasteableBlock' -v
     ````
 
 24. **[log saklama süresi: node'da BOYUT, toplayıcıda BİLİNMİYOR]** — M8-03, ölçüldü.

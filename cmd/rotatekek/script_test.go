@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -449,23 +450,15 @@ func TestRunbook_PasteableBlocksCarryNoShellHazardInComments(t *testing.T) {
 	// net was not verifying the existence of what it protects. minLines + anchors
 	// below close that; see the mutation evidence in the M8-05 round notes.
 	//
-	// 🔴 WHY FOUR SLICES AND NOT THE WHOLE FILE — MEASURED, NOT PREFERRED. Re-measure
-	// any of these numbers with:
+	// ✅ THE WHOLE FILE IS NOW HELD — BY TestRunbook_EveryPasteableBlockCarriesNoComment (T136,
+	// OPS-1, 2026-10-18), with a stricter rule than this scan's: no comment at all in any ```bash
+	// block, and every block parsed by a real `zsh -f -i -n`. Before that round this test read four
+	// slices because the other 92 blocks held 53 hazardous comment lines owned by other cards; the
+	// comments were moved out of every block (the commands byte for byte the same), so the reason
+	// for the slices is gone. They stay for what only they do: the anchors and floors below, and
+	// the rotation section's pinned block count. Re-measure with:
 	//
-	//	grep -c '^[`][`][`]bash' deploy/README.md          # total pasteable blocks
-	//	go test ./cmd/rotatekek/ -run PasteableBlocks -v   # per-slice, from this test
-	//
-	// Re-measured in T134's 2nd round (2026-10-18), with the inline-comment tails now
-	// scanned too: deploy/README.md carries 115 pasteable bash blocks in total; 13 are in
-	// the rotation slice, 0 in the encode slice, 5 in the M8-03 observability slice, 5 in
-	// operator step 5, and the remaining 92 live in the other operator steps and the
-	// deploy/rollback, backup and incident-response sections. Those 92 hold 154 comment
-	// lines and 40 command lines with an inline comment, of which 53 carry 59 hazard hits.
-	// Scanning the whole file would therefore go RED on 53 pre-existing lines owned by
-	// other cards — a runbook-wide rewrite smuggled into a correction round (CLAUDE.md
-	// §10: no unrelated refactor in one commit).
-	// THAT REMAINDER IS COUNTED, NOT CLOSED, and it is written down where a reader
-	// will meet it: deploy/README.md → "Kabul edilmiş sınırlar".
+	//	go test ./cmd/rotatekek/ -run 'PasteableBlock' -v   # the per-slice and whole-file counts
 	//
 	// 🔴 THE THIRD SLICE IS HERE BECAUSE THE CLASS RECURRED WHILE THE NET WATCHED THE
 	// WRONG TWO SECTIONS. M8-03 added five pasteable blocks to "## Gözlemlenebilirlik"
@@ -708,6 +701,11 @@ func inlineComment(line string) (string, bool) {
 	return "", false
 }
 
+// runbookNote is one line of the list that carries a block's per-line notes: the line, as a code
+// span, and what it says about it.
+// (A line holding a backtick would be fenced with two; no rotate-kek line holds one.)
+var runbookNote = regexp.MustCompile("^- `([^`]+)`: (.*)$")
+
 // runbookInvocations extracts every executable `./scripts/rotate-kek.sh …` line
 // from the rotation section of deploy/README.md, with its arguments.
 func runbookInvocations(t *testing.T) []invocation {
@@ -724,6 +722,10 @@ func runbookInvocations(t *testing.T) []invocation {
 	}
 	var out []invocation
 	inBlock := false
+	// 🔴 T136: a block carries no comment any more; what a line claims is the note in the list
+	// right before its block — "- `<the line>`: <claim>" — and it is read from there, so the
+	// per-line contract below did not go blind when the comments left the blocks.
+	notes := map[string]string{}
 	for _, ln := range strings.Split(text[start:end], "\n") {
 		if strings.HasPrefix(ln, "```bash") {
 			inBlock = true
@@ -731,6 +733,11 @@ func runbookInvocations(t *testing.T) []invocation {
 		}
 		if strings.HasPrefix(ln, "```") {
 			inBlock = false
+			notes = map[string]string{}
+			continue
+		}
+		if m := runbookNote.FindStringSubmatch(ln); !inBlock && m != nil {
+			notes[m[1]] = m[2]
 			continue
 		}
 		trimmed := strings.TrimSpace(ln)
@@ -746,8 +753,8 @@ func runbookInvocations(t *testing.T) []invocation {
 		// green while the section-wide total was satisfied by the OTHER apply line.
 		// The claim is now part of the case.
 		cmd := trimmed
-		comment := ""
-		if i := strings.Index(cmd, "#"); i >= 0 {
+		comment, noted := notes[trimmed]
+		if i := strings.Index(cmd, "#"); i >= 0 && !noted {
 			comment = strings.TrimSpace(cmd[i+1:])
 			cmd = cmd[:i]
 		}
@@ -790,7 +797,7 @@ func TestRunbook_ItsOwnCommandsAreRUNNotSCANNED(t *testing.T) {
 			len(invocations))
 	}
 
-	applyCount := 0
+	applyCount, claimedApply, claimedDry := 0, 0, 0
 	for _, inv := range invocations {
 		args := inv.args
 		name := strings.Join(args, " ")
@@ -812,6 +819,12 @@ func TestRunbook_ItsOwnCommandsAreRUNNotSCANNED(t *testing.T) {
 			strings.Contains(strings.ToLower(inv.comment), "apply")
 		claimsDry := strings.Contains(strings.ToUpper(inv.comment), "DRY RUN") ||
 			strings.Contains(strings.ToLower(inv.comment), "uygulamaz")
+		if claimsApply {
+			claimedApply++
+		}
+		if claimsDry {
+			claimedDry++
+		}
 		if claimsApply && !reached {
 			t.Errorf("the runbook line `./scripts/rotate-kek.sh %s` is commented %q — it CLAIMS to apply "+
 				"— but it did not reach the apply step. This is exactly the round-12 regression: the "+
@@ -840,6 +853,13 @@ func TestRunbook_ItsOwnCommandsAreRUNNotSCANNED(t *testing.T) {
 		t.Errorf("NONE of the %d documented rotate-kek invocations reaches the apply step. The runbook "+
 			"cannot rotate anything — the card's criterion is \"written AND executable\", and the "+
 			"written half no longer drives the executable half.", len(invocations))
+	}
+	// CONTROL (T136): the claims were read. When the comments left the blocks, an extractor that
+	// still looked for them would have read none, and every per-line assertion above would have
+	// passed vacuously.
+	if claimedApply == 0 || claimedDry == 0 {
+		t.Errorf("CONTROL FAILED: %d invocation(s) claim to apply and %d claim a dry run; want at least one of each "+
+			"(the runbook's notes are no longer read)", claimedApply, claimedDry)
 	}
 	t.Logf("%d runbook invocations executed; %d reach the apply step", len(invocations), applyCount)
 }
@@ -1159,7 +1179,7 @@ func TestRotateScript_RefusesToRunUnderXtrace(t *testing.T) {
 // rotation section. Three artefacts publish it and this test compares all of them
 // against the section itself, so the number cannot drift silently the way "14" did
 // when a dead block was deleted.
-const pasteableBlockCount = 13
+const pasteableBlockCount = 19
 
 // invocation is one documented rotate-kek call: its arguments AND the comment that
 // tells the operator what it does. Both are asserted, because the round-12 defect
@@ -1670,7 +1690,9 @@ const zshCommentForbidden = "`$'\";|&<>(){}\\!*?[]"
 // refuses this step's old `gh secret set` line (the probe can see what it exists for).
 // PART II — pinned: (a) and (b) everywhere CI runs; (c) where zsh is installed (it is skipped,
 // with a reason, where it is not — the static rules are the part that always runs).
-// PART III — the rest of deploy/README.md is not held to this (Kabul edilmiş sınırlar, 23).
+// PART III — the rest of deploy/README.md is held to "no comment, parses under zsh" by
+// TestRunbook_EveryPasteableBlockCarriesNoComment (T136); this test is stricter for step 5 only
+// in that it also parses each logical line and RUNS the KUBE_CONFIG block.
 // PART IV — the KUBE_CONFIG block is run under bash and zsh with stubs: gh is not called
 // unless the cluster read and the kubeconfig-server check both pass.
 func TestReadme_TheTailnetStepBlocksPasteIntoZsh(t *testing.T) {

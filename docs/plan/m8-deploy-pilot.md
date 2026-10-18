@@ -2373,6 +2373,9 @@ tablosu çıkmış durumda (satış slaytı da olur).
 > **SAYIYA İNDİRİLDİ** — tablo artık 14 yapıştırmayı adıyla söylüyor ve bunun bir
 > **özellik** olduğunu, yapısal bir imkânsızlık **olmadığını** yazıyor. Kontrol:
 > README şeklindeki backtick'li bir yorum gerçek zsh'te **çalıştı** (işaret dosyası).
+> *(OPS-1 / backlog T136, 2026-10-18: yorumlar bloklardan tamamen çıkarıldı ve bölüm artık
+> **19 yapıştırılabilir** `bash` bloğu taşıyor — 13'ünü yorumların durduğu yerlerden bölerek;
+> komutlar bayt bayt aynı. Kural bütün dosyada: `TestRunbook_EveryPasteableBlockCarriesNoComment`.)*
 >
 > **`$PGPASSFILE` ARTIK SİLİNİYOR VE TEK MEKANİZMA.** `~/.pgpass` yolu **elendi**:
 > temizliği literal `HOST` arayan bir `sed`'di, gerçek bir dosyada **hiç
