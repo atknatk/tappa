@@ -15,7 +15,9 @@ package main
 //
 // THE RULE, ONE FOR BOTH SHELLS: a ```bash block of deploy/README.md carries NO comment — no `#`
 // line and no `# …` after a command. An explanation lives in the text, an expected output in a
-// ```text block. Every other fence (bare, text, sql, ini) is not for the shell and is not held.
+// ```text block. The fences that are not for the shell (bare, text, sql, ini, yaml) are not
+// held; any other language — sh, zsh, console, or a word nobody listed — is red, so a pasteable
+// block cannot slip past the rule under another name.
 
 import (
 	"fmt"
@@ -27,9 +29,9 @@ import (
 	"testing"
 )
 
-// readmeBlock is one fenced block of a markdown file: its 1-based opening line, its prefix (the
-// indent and any blockquote markers before the fence), its info string and its body with that
-// prefix removed.
+// readmeBlock is one fenced block of a markdown file: its 1-based opening line, its body prefix
+// (the indent, any blockquote markers, and the width of any list marker, before the fence), its
+// info string and its body with that prefix removed.
 type readmeBlock struct {
 	line   int
 	indent string
@@ -38,27 +40,78 @@ type readmeBlock struct {
 	body   []string
 }
 
-// markdownFence's first group is the whole prefix: spaces, and any number of `>` blockquote
-// markers each followed by an optional space (`> ```bash`, `> > ```bash`, `  > ```bash`). A
-// fence inside a quote is pasted like any other — OPS-1's first round matched only spaces and
-// missed 9 such blocks, 8 of them still carrying comments.
-var markdownFence = regexp.MustCompile("^((?: *> ?)* *)(`{3,})([^`]*)$")
+// lang is the first word of the info string (`bash title="x"` -> `bash`), the word a renderer
+// and a reader take for the block's language; "" for a bare fence.
+func (b readmeBlock) lang() string {
+	if f := strings.Fields(b.info); len(f) > 0 {
+		return f[0]
+	}
+	return ""
+}
 
-// markdownBlocks returns every fenced block of text — at any indent (a block inside a list item
-// is pasted like any other), inside a blockquote (its `> ` markers are not part of the command)
-// and with any fence length (a ````bash block may show ``` in its body).
+// listMarker matches a list item marker and the spaces after it: `-`, `*`, `+`, `N.` or `N)`.
+var listMarker = regexp.MustCompile(`^(?:[-*+]|[0-9]{1,9}[.)]) +`)
+
+// markdownFence reads one line as a fence. The prefix is any nesting of spaces, `>` blockquote
+// markers (each with an optional space) and list item markers (`> - ```bash`, `1. ```bash`,
+// `  > > ```bash`); the fence is 3+ backticks or 3+ tildes. cont is the prefix the block's other
+// lines carry — a list marker's width becomes spaces. A backtick fence's info string holds no
+// backtick (CommonMark: "```bash``` is inline code"). OPS-1's first round matched only spaces
+// (9 quoted blocks unscanned, 8 with comments); its re-audit added `~~~` and the list marker,
+// which the backtick-and-spaces pattern read as prose.
+func markdownFence(line string) (cont string, ch byte, n int, info string, ok bool) {
+	var pre []byte
+	i := 0
+prefix:
+	for i < len(line) {
+		switch {
+		case line[i] == ' ':
+			pre = append(pre, ' ')
+			i++
+		case line[i] == '>':
+			pre = append(pre, '>')
+			i++
+			if i < len(line) && line[i] == ' ' {
+				pre = append(pre, ' ')
+				i++
+			}
+		default:
+			m := listMarker.FindString(line[i:])
+			if m == "" {
+				break prefix
+			}
+			pre = append(pre, strings.Repeat(" ", len(m))...)
+			i += len(m)
+		}
+	}
+	if i >= len(line) || (line[i] != '`' && line[i] != '~') {
+		return "", 0, 0, "", false
+	}
+	ch = line[i]
+	for n = 0; i+n < len(line) && line[i+n] == ch; n++ {
+	}
+	info = line[i+n:]
+	if n < 3 || (ch == '`' && strings.ContainsRune(info, '`')) {
+		return "", 0, 0, "", false
+	}
+	return string(pre), ch, n, strings.TrimSpace(info), true
+}
+
+// markdownBlocks returns every fenced block of text — at any indent and inside a list item (a
+// block there is pasted like any other), inside a blockquote (its `> ` markers are not part of
+// the command), with either fence character and any fence length (a ````bash block may show ```
+// in its body). A block closes on a bare fence of the same character, at least as long.
 func markdownBlocks(text string) []readmeBlock {
 	lines := strings.Split(text, "\n")
 	var out []readmeBlock
 	for i := 0; i < len(lines); i++ {
-		m := markdownFence.FindStringSubmatch(lines[i])
-		if m == nil {
+		ind, ch, n, info, ok := markdownFence(lines[i])
+		if !ok {
 			continue
 		}
-		ind, fence, info := m[1], m[2], strings.TrimSpace(m[3])
 		j := i + 1
 		for ; j < len(lines); j++ {
-			if c := markdownFence.FindStringSubmatch(lines[j]); c != nil && len(c[2]) >= len(fence) && strings.TrimSpace(c[3]) == "" {
+			if _, cch, cn, cinfo, cok := markdownFence(lines[j]); cok && cch == ch && cn >= n && cinfo == "" {
 				break
 			}
 		}
@@ -75,6 +128,50 @@ func markdownBlocks(text string) []readmeBlock {
 	}
 	return out
 }
+
+// TestMarkdownBlocks is the reader's own table: each row is a document holding ONE block, and
+// the language, body prefix and first body line the reader must find in it.
+func TestMarkdownBlocks(t *testing.T) {
+	for _, tc := range []struct {
+		name, doc, lang, indent, body string
+	}{
+		{"a backtick fence", "```bash\necho a\n```", "bash", "", "echo a"},
+		{"a tilde fence", "~~~bash\necho a\n~~~", "bash", "", "echo a"},
+		{"a tilde fence is not closed by backticks", "~~~bash\n```\necho a\n~~~", "bash", "", "```"},
+		{"a longer fence is not closed by a shorter one", "````bash\n```\n````", "bash", "", "```"},
+		{"an info string's first word", "```bash title=\"x\"\necho a\n```", "bash", "", "echo a"},
+		{"a bare fence", "```\nout\n```", "", "", "out"},
+		{"an indented fence", "   ```bash\n   echo a\n   ```", "bash", "   ", "echo a"},
+		{"a list item's fence", "1. ```bash\n   echo a\n   ```", "bash", "   ", "echo a"},
+		{"a `N)` list item's fence", "2) ```bash\n   echo a\n   ```", "bash", "   ", "echo a"},
+		{"a bullet's fence", "- ```bash\n  echo a\n  ```", "bash", "  ", "echo a"},
+		{"a quoted fence", "> ```bash\n> echo a\n> ```", "bash", "> ", "echo a"},
+		{"a list item in a quote", "> - ```bash\n>   echo a\n>   ```", "bash", ">   ", "echo a"},
+		{"a quote in a list item", "- > ```bash\n  > echo a\n  > ```", "bash", "  > ", "echo a"},
+		{"inline code is not a fence", "```bash``` is inline\n- ```x```\n```sh\necho a\n```", "sh", "", "echo a"},
+	} {
+		got := markdownBlocks(tc.doc)
+		if len(got) != 1 {
+			t.Errorf("%s: %d blocks, want 1: %+v", tc.name, len(got), got)
+			continue
+		}
+		b := got[0]
+		if b.lang() != tc.lang || b.indent != tc.indent || len(b.body) == 0 || b.body[0] != tc.body {
+			t.Errorf("%s: lang %q indent %q body %q, want %q %q %q", tc.name, b.lang(), b.indent, b.body, tc.lang, tc.indent, tc.body)
+		}
+	}
+}
+
+// readmeBlockLangs is every fence language deploy/README.md may use, and whether the block is
+// pasted into a shell. MEASURED (OPS-1 re-audit, 2026-10-18): 184 blocks — 167 bash, 8 text,
+// 2 sql, 1 ini, 6 bare. yaml is in no block today; it is listed because it is a manifest, not
+// a shell. Every other word is RED: a block this table does not know is a block nobody decided
+// about, and sh/shell/zsh/console are pasteable shells under another name — the rule above
+// would not see them.
+var readmeBlockLangs = map[string]bool{"bash": true, "text": false, "sql": false, "ini": false, "yaml": false, "": false}
+
+// readmeShellLangs are the words a pasteable shell block is written with instead of `bash`.
+var readmeShellLangs = map[string]bool{"sh": true, "shell": true, "zsh": true, "console": true, "shell-session": true}
 
 type shellLineKind int
 
@@ -224,6 +321,7 @@ var readmePlaceholder = regexp.MustCompile(`<[^<>\s]+>`)
 // where zsh is installed, the block — placeholders <…> neutralised — is parsed by `zsh -f -i -n`
 // (interactive, so interactive_comments is OFF, and -n, so nothing runs) in an empty directory
 // with PATH=/nonexistent: exit 0, no "parse error", no "unmatched", and no file created.
+// A fence whose language is not in readmeBlockLangs is red, sh/shell/zsh/console included.
 // CONTROLS: at least 165 blocks, at least 4 of them indented, at least 1 inside a blockquote, a
 // heredoc and a quoted continuation line were seen (the lexer was exercised); the zsh probe refuses a block whose comment carries
 // an apostrophe and accepts the same block without it (it can see what it exists for).
@@ -235,6 +333,11 @@ var readmePlaceholder = regexp.MustCompile(`<[^<>\s]+>`)
 // in an indented block, a ```bash block whose comment holds an apostrophe -> red. Fix round:
 // `> # it's a note -> Settings` put into a quoted block -> red twice (the comment rule and the
 // zsh parse); markdownFence reverted to spaces only -> red (CONTROL: 0 inside a blockquote).
+// Re-audit round (each appended to the file's end, each with a `# x` line unless said): a ~~~bash
+// block, a ```bash title="x" block, a `1. ```bash` and a `> - ```bash` block -> red (comment
+// line); ```sh / ```zsh / ```console, and ```sh with no comment -> red (shell under another
+// name); ```python -> red (unknown language). In the reader: tilde fences, list markers, the
+// same-character close or the info's first word removed -> TestMarkdownBlocks red.
 func TestRunbook_EveryPasteableBlockCarriesNoComment(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join(repoRoot(t), "deploy", "README.md"))
 	if err != nil {
@@ -242,8 +345,23 @@ func TestRunbook_EveryPasteableBlockCarriesNoComment(t *testing.T) {
 	}
 	var blocks []readmeBlock
 	indented, inQuote, heredoc, quoted, lines := 0, 0, 0, 0, 0
-	for _, blk := range markdownBlocks(string(b)) {
-		if blk.info != "bash" {
+	all := markdownBlocks(string(b))
+	langs := map[string]int{}
+	for _, blk := range all {
+		lang := blk.lang()
+		langs[lang]++
+		shell, known := readmeBlockLangs[lang]
+		switch {
+		case readmeShellLangs[lang]:
+			t.Errorf("deploy/README.md:%d: a ```%s block is pasted into a shell but is not held to the no-comment "+
+				"rule; write it as ```bash (and keep comments in the text around it)", blk.line, lang)
+			continue
+		case !known:
+			t.Errorf("deploy/README.md:%d: unknown fence language %q. If the block is pasted into a shell, write "+
+				"```bash; if it is output, write ```text; if it is neither, add the word to readmeBlockLangs "+
+				"with the reason", blk.line, lang)
+			continue
+		case !shell:
 			continue
 		}
 		blocks = append(blocks, blk)
@@ -275,8 +393,8 @@ func TestRunbook_EveryPasteableBlockCarriesNoComment(t *testing.T) {
 			"quoted-continuation lines; want at least 165 blocks, 4 indented, 1 inside a blockquote, and both "+
 			"kinds of line seen", len(blocks), indented, inQuote, heredoc, quoted)
 	}
-	t.Logf("%d pasteable bash blocks (%d indented, %d inside a blockquote), %d lines, no comment",
-		len(blocks), indented, inQuote, lines)
+	t.Logf("%d fenced blocks %v; %d pasteable bash blocks (%d indented, %d inside a blockquote), %d lines, no comment",
+		len(all), langs, len(blocks), indented, inQuote, lines)
 
 	zsh, err := exec.LookPath("zsh")
 	if err != nil {
