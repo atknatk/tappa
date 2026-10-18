@@ -112,8 +112,9 @@ An `Idempotency-Key` works as on every write ([3.3](#idempotency)).
 - The same person again within 60 seconds is `ignored`, as in production ([6.1](#feed-what)).
 - A location gets its virtual plaque on its own business's first simulated tap there. A location of
   the other company of your group ([1.2](#overview-companies)) can be touched by your employee — the
-  group touch — once that company has simulated a tap there itself: the sandbox never writes into
-  another business.
+  group touch — once that company has simulated a tap there itself: the sandbox never provisions a
+  plaque in another business. The group touch itself is recorded as a real one is: it advances that
+  company's plaque counter and appears in its location feed.
 
 <a id="overview-scope"></a>
 ### 1.5 What the API does not do (version 1)

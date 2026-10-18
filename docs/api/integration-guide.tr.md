@@ -114,7 +114,8 @@ onun için taşıdığı `punchId`'yi ve dokunuşun şu an bir punch olup olmad�
 - Bir lokasyon sanal plaketini kendi işletmesinin oradaki ilk simüle dokunuşunda alır. Grubunuzun
   öbür şirketinin bir lokasyonuna ([1.2](#overview-companies)) çalışanınız — grup dokunuşu — o şirket
   orada kendisi bir dokunuş simüle ettikten sonra dokunabilir: sandbox hiçbir zaman başka bir
-  işletmeye yazmaz.
+  işletmede plaket üretmez. Grup dokunuşunun kendisi gerçeği gibi kaydedilir: o şirketin plaket
+  sayacını ilerletir ve onun lokasyon akışında görünür.
 
 <a id="overview-scope"></a>
 ### 1.5 API'nin yapmadıkları (sürüm 1)

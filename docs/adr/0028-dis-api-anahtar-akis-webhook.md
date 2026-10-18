@@ -917,14 +917,20 @@ hesaplar) · **deploy kapısı:** `verify-image.sh` imajın derleme bilgisindeki
 `TestSandbox_ATapRunsTheRealPathFromThePlaqueOn`, `TestSandbox_TheBodyAndTheNamesAreTheContracts`,
 `TestSandboxOpenAPI_IsTheSimulationsRoutesAndTheSharedErrorSet`, `TestIsVirtualTagUID_IsTheRangeAndNothingElse`,
 `TestNew_RefusesAConfigurationThatIsNotTheSandboxs`, `TestKeys_EachBuildRefusesTheOthersPrefixBeforeTheDatabase`,
-`TestAPIKeyPrefix_IsTheBuilds`, `TestSandboxWiring_TheSimulationTakesTheTapsOwnObjects`,
+`TestAPIKeyPrefix_IsTheBuilds`, `TestSandboxWiring_TheSimulationTakesTheServersPoolConfigAndWorker`,
 `TestSandboxExtensions_AreTheBuilds`, `TestSandboxManifests_AreTheSandboxsOwn`,
 `TestSandboxManifests_TheConfigMapStartsOnlyTheSandboxBuild`, `TestLoad_TheBuildDecidesTheSandboxValue`,
 `TestEnvForBuild_TheSandboxValueBelongsToTheSandboxBuild`, `TestSandboxSettings_TheSandboxSendsNoEmail`,
 `TestIsHardened_IsProductionOrTheSandbox`; genişleyenler: `TestAPIKeyWiring_TheKeysServiceReachesThePanel` ve
 `TestAPIWiring_TheChainTakesThePanelsPrefixAndTheOneWorker` (önek artık derlemenin `apiKeyPrefix`'i),
 `TestGuide_EveryEndpointCodeAndLimitIsTheDocuments` (sandbox belgesinin iki işlemi ve istek örneği),
-`TestStoreSurface_IsTheOneRecorded` ve `TestResolverAccess_NoSqlcQueryNamesADefiner` (`GetTapOutcome`).
+`TestStoreSurface_IsTheOneRecorded` ve `TestResolverAccess_NoSqlcQueryNamesADefiner` (`GetTapOutcome`). Düzeltme turu 1
+(not md. 16): `TestSandbox_SimulationsHoldOneConnectionEach`, `TestSandbox_OwnAndGroupTapsOfOnePlaqueTakeTurns`,
+`TestSandbox_TheSimulationIsJudgedByTheRealCMAC`, `TestSandbox_AVirtualUIDHeldByAnotherBusinessIs404`,
+`TestPlaqueAt_HoldsTheResolvedRowToTheVenue`, `TestNew_TheTapPathIsTheTapPagesCodeOnTheRunner`,
+`TestWithTenantIn_SwitchesInASavepointAndGivesTheContextBack`, `TestDockerfile_APlainBuildIsTheProductionServer`;
+genişleyen: `TestSandbox_RealNXPUIDRefusedOnEveryResolveAndInsert` (prod havuzu gerçek UID'yi yükler ve çözer;
+işlem üzerindeki çözümleyici `GetTagByUIDOn` da kapıdan geçer).
 
 **API-12** *(yazıldı — "API-12 uygulama notu"; adlar önerilenle aynı, önek eklendi)* — `TestOpenAPI_EveryRouteAndErrorDocumented` ·
 `TestGuide_CarriesAll31ContractDifferences`. Ekler: `TestOpenAPI_TheDocumentIsOpenAPI31`, `TestOpenAPI_TheWebhooksAreTheSenders`,
@@ -3344,8 +3350,9 @@ itilmesi kapsam dışıdır — tarifi deploy/README.md *"Sandbox (API-11) — k
 5. **Sanal plaket izin listesi.** Aralık `0053` + 5 bayt (`db.VirtualTagUIDPrefix`, `db.IsVirtualTagUID` —
    bir izin listesi: `04…` NXP'nin, öteki üreticiler de reddedilir). Kapı **havuzun yapılandırmasındadır**
    (`db.New`, `cfg.Env == EnvSandbox` → `virtualTagsOnly`): kablolanacak, unutulacak bir şey yok.
-   *Çözümleme:* `GetTagByUID`'in ilk ifadesi `AdmitTagUID` — her dokunuşun ilk aldığı bağlamsız çözümleyici
-   (dokunuş sayfasının SUN ön kontrolü, `checkin.Record`'un yeniden çözümlemesi, simülasyon); ret
+   *Çözümleme:* `GetTagByUID`'in ve işlem üzerindeki ikizi `GetTagByUIDOn`'un (simülasyonun — md. 16) ilk
+   ifadesi `AdmitTagUID` — her dokunuşun ilk aldığı bağlamsız çözümleyici (dokunuş sayfasının SUN ön
+   kontrolü, `checkin.Record`'un yeniden çözümlemesi, simülasyon); ret
    `db.ErrRealPlaqueRefused`, `errors.Is(…, pgx.ErrNoRows)` doğrudur → her çağıran onu bilinmeyen plaket
    sayar (§5: kiracı yok, kayıt yok). *Ekleme:* tags satırının iki yazarı — `internal/encode`'un
    `DBRows.InsertUnassigned`'ı ve sandbox minter'ı — INSERT'ten önce `AdmitTagUID` sorar; kod yarısı
@@ -3363,7 +3370,10 @@ itilmesi kapsam dışıdır — tarifi deploy/README.md *"Sandbox (API-11) — k
    aktivasyon için gerçek bir NFC dokunuşu yoktur, çalışanın aktive olup olmadığı sorulmaz) ve "nerede"
    (çağıranın adresi, dokunuş sayfasının `httpx.ClientIP` kuralı; GPS yok). Hizmette olmayan bir plaketin
    anahtarı açılmaz (sıfır MAC; §5 satır 1 önce reddeder). Sayaç Go'da yargılanmaz (R4) — tazeliği atomik
-   UPDATE söyler.
+   UPDATE söyler. Simülasyonun gerçek CMAC'tan geçtiği ölçülür: MAC'ı bir hane bozuk URL `sys:sun-invalid`
+   ile `reject` kaydedilir ve sayaç kıpırdamaz; bozulmamış URL'yi bağımsız bir `sun.Verifier` de geçerli
+   bulur (`TestSandbox_TheSimulationIsJudgedByTheRealCMAC`; mutantlar `CMACVerified: true` ve ön kontrolün
+   atlanması kırmızı).
 7. **Sanal UID türetilir:** `0053` + lokasyon kimliğinin ilk 5 baytı. Böylece holding dokunuşunda eşin
    plaketi eşin tag'leri okunmadan bulunur — UID hesaplanır ve her dokunuşun sorduğu çözümleyiciye sorulur;
    sonuç eşin lokasyonuna ait değilse 404. UID gizli değildir (ADR 0003 md. 1). Çakışma PK'da reddedilir ve
@@ -3375,7 +3385,10 @@ itilmesi kapsam dışıdır — tarifi deploy/README.md *"Sandbox (API-11) — k
    listesindeki `holding_site_locations`'tan (iki eş aynı ref'i taşıyorsa 422). **Sanal plaket yalnız
    anahtarın KENDİ lokasyonunda üretilir** (encode akışının üç ifadesi, tek işlem, panelin üç iz satırı K-23
    ile anahtara atfedilir) — eşin lokasyonundaki plaketi eşin kendi simüle dokunuşu üretir; sandbox hiçbir
-   zaman başka bir işletmeye yazmaz. Brief'in "operatör ya da kurulum betiği" seçeneği yerine bu seçildi:
+   zaman başka bir işletmede **plaket üretmez** (düzeltme turu 1: önceki "başka bir işletmeye yazmaz" cümlesi
+   yanlıştı — grup dokunuşu, gerçek grup dokunuşunun holding yolundan eşin plaket sayacını
+   `holding_advance_tag_counter` ile ilerletir, kaydın site izdüşümünü ve eşin lokasyon akışını yazar; ADR
+   0027 §5). Brief'in "operatör ya da kurulum betiği" seçeneği yerine bu seçildi:
    üretimde plaketi işletmenin kendi kimliği yükler (encode röle, panel oturumu); burada işletmenin kendi
    anahtarı. Yeni yüzey (CLI, op_* fonksiyonu → prod şemasında migration) gerekmez. **K-39:** eşin
    lokasyonundaki bir dokunuşun cevabında `trust` ve `rule` boştur (`null`) — karar eşin kanıtıyla verildi ve
@@ -3386,9 +3399,12 @@ itilmesi kapsam dışıdır — tarifi deploy/README.md *"Sandbox (API-11) — k
    `ReadBody`, `ParseObject`, `StringField`, `InvalidField`, `NotFound`, `NoQuery`, `Unavailable`). Prod
    yüzeyi uzantısızdır.
 10. **Idempotency.** Defter kaydın kimliğini tutar; tekrar `GetTapOutcome`'la kaydı yeniden okur (yeni sqlc
-    sorgusu, kanıt sütunu yok). Dokunuş defter satırından **önce** commit olur (`Record` kendi işlemlerinde
-    koşar: sayaç plaketin işletmesinde, kilit çalışanınkinde) — aradaki bir çöküşte tekrar ikinci bir dokunuştur
-    ve 60 sn içinde `ignored` kaydedilir: kayıp ya da çift punch yok.
+    sorgusu, kanıt sütunu yok). *(Düzeltme turu 1'den beri — md. 16:)* talep, plaket, sayacın ilerlemesi, kayıt
+    ve defterin sonucu **birlikte** commit olur: bir anahtar tam bir dokunuşa karşılık gelir — commit'ten önce
+    ölen istek ne dokunuşu ne talebi bırakır (tekrarı yine ilk dokunuştur), sonra ölen ikisini de bırakmıştır
+    (tekrarı oynatılır); aynı anahtarlı eşzamanlı istek talep satırında bekler ve commit edilen cevabı oynatır.
+    Kayıp ya da çift dokunuş yok (§4.6). *(İlk turdaki biçim — dokunuş defterden önce kendi işlemlerinde commit
+    olur, aradaki çöküşte tekrar `ignored` kaydedilir — havuz bulgusuyla birlikte kalktı.)*
 11. **OpenAPI: ayrı belge.** `internal/sandbox/openapi.json` (JSON — stdlib okur), sandbox ikilisinde
     `GET /v1/sandbox/openapi.json` (anahtarsız). Prod `openapi.yaml`'ına girmez: o belge prod yönlendiricisiyle
     iki yönlü eşleşir (`TestOpenAPI_PathsAreTheRoutersAndTheErrorIsSection8`). Hata kodları ortak kümedir
@@ -3409,7 +3425,10 @@ itilmesi kapsam dışıdır — tarifi deploy/README.md *"Sandbox (API-11) — k
     sandbox'ı kendi ingress'inden keserdi.
 14. **Prod'la paylaşılanlar (sayılı):** küme ve düğüm, ingress-nginx ve cert-manager, `TAPPA_TRUSTED_PROXIES`
     ve `TAPPA_WEBHOOK_BLOCKED_ADDRESSES`'in değerleri (aynı düğüm), migration imajı (aynı migration'lar),
-    Docker Hub hesabı. **Paylaşılmayanlar:** namespace, veritabanı, her anahtar ve parola, alan adı, operatör
+    Docker Hub hesabı, ve **disk**: sandbox Postgres'i (`local-path`, `5Gi`) prod'unkiyle aynı düğümün aynı
+    dosya sistemine yazar ve `local-path` PVC boyutunu uygulamaz — sandbox'ın büyümesi prod'un diskini
+    doldurabilir. Sayılı sınır, kapatılmadı; izleme önerisi ve kalıcı çare seçenekleri deploy/README.md
+    *"Sandbox (API-11)"* §7'de (düzeltme turu 1). **Paylaşılmayanlar:** namespace, veritabanı, her anahtar ve parola, alan adı, operatör
     hesabı, imaj adı (`tappa-sandbox`).
 15. **Ürün kodunda derleme kısıtı (R: `TestProductCode_CarriesNoBuildConstraint`).** Liste boştu; şimdi tam dört
    dosya, her biri tam kendi satırıyla (`cmd/tappa/{sandbox,nosandbox}.go`, `internal/config/build_{sandbox,default}.go`).
@@ -3417,3 +3436,44 @@ itilmesi kapsam dışıdır — tarifi deploy/README.md *"Sandbox (API-11) — k
    ürün dosyası ancak hiçbir derleme onu derlemiyorsa kırmızıdır — sandbox'a özgü bir dosya da taranır (mutant:
    `sandbox.go`'ya bir `pgx.QueryExecMode` kullanımı → kırmızı). `newDB`'nin gözden geçirilmiş gövdesi
    (`TestConstructors_BodiesAreTheReviewedOnes`) `virtualTagsOnly` alanıyla güncellendi.
+16. **Düzeltme turu 1 (2026-10-18) — havuz tükenmesi (güvenlik merceği ORTA-1) ve üçüncü gözün bulguları.**
+    *Bulgu:* simülasyonun işi yazma koşucusunun işleminde (bir havuz bağlantısı) koşarken plaketi kendi
+    `WithTenant`'ında üretiyor, dokunuşu dokunuş sayfasının `checkin.Service`'iyle — her adımı kendi işlemini
+    açan — kaydediyordu: her istek bir bağlantı tutup ikincisini bekliyordu. Ölçüm (ilk turun kodu `ed59e65`,
+    istek başına 10 sn son tarih, iki lokasyon, her istek ayrı çalışan; araya bir `GET /v1/employees`):
+
+    | havuz | eşzamanlı | ilk tur | düzeltme |
+    |---|---|---|---|
+    | 2 | 1 | 1×201, 0,13 sn | 1×201, 0,10 sn |
+    | 2 | 2 | **2×503, 10 sn** | 2×201, 0,16 sn |
+    | 2 | 4 | **4×503, 10 sn; okuma 503** | 4×201, 0,19 sn; okuma 200 |
+    | 4 | 3 | 3×201, 0,17 sn | 3×201, 0,21 sn |
+    | 4 | 4 | **4×503, 10 sn** | 4×201, 0,23 sn |
+    | 4 | 8 | **8×503, 10 sn** | 8×201, 0,27 sn |
+    | 16 | 15 | 15×201, 0,38 sn | 15×201, 0,58 sn |
+    | 16 | 16 | **16×503, 10 sn** | 16×201, 0,59 sn |
+    | 16 | 32 | **32×503, 10 sn** | 32×201, 0,78 sn |
+
+    (İlk turda 503'ler son tarihte; son tarihsiz istek `middleware.Timeout`'un 30 sn'sinde düşer — denetimin
+    ölçümü.) *Çare — yapı:* dokunuşun tamamı koşucunun **tek işleminde** koşar. `sandbox.New` dokunuş
+    sayfasının kurucularını (`sun.NewVerifier`, `checkin.New`, `audit.New`) aynı yapılandırma ve KEK'lerle bir
+    kez daha, `onRunner` üzerinde kurar: `GetTagByUID` → `db.DB.GetTagByUIDOn` (işlem üzerinde, aynı kapı),
+    `WithTenant` → `db.WithTenantIn` (işlemin bir SAVEPOINT'i, istenen işletmenin bağlamı, ardından koşucunun
+    bağlamı geri). Bağlamında koşucu işlemi olmayan çağrı hatadır, havuza düşmez. Plaket üretimi de aynı
+    işlemde, bir savepoint içinde (PK reddi işlemi düşürmez). Dokunuş sayfası kendi nesneleriyle havuzda kalır;
+    karar motoru, atomik ilerleme, debounce, INSERT ve tetikleyiciler aynı fonksiyonlardır. K-19 bildirimi
+    commit'ten sonra simülasyonca yapılır (anahtarın işletmesi; grup dokunuşunda lokasyonunki de). Semafor
+    eklenmedi: yapı ikinci bağlantıyı istemez. *Sonuç:* md. 10'un yeni hâli; tutulan kilitler (plaket satırı,
+    kişi kilidi, akış sayaçları) koşucunun işleminin sonuna — kayıttan sonraki tek UPDATE'e — kadar sürer
+    (`TestSandbox_SimulationsHoldOneConnectionEach`: havuz 2 ve 4, havuzun iki katı eşzamanlı → hepsi 201,
+    5 sn bütçe içinde, araya giren okuma 200; mutant: `onRunner`'ın havuza düşmesi → hepsi 503).
+    *Üçüncü göz 6 — aynı plakete eşzamanlı kendi + grup dokunuşu:* simülasyon sayacı okumadan önce plaketi
+    tutar — `LockSandboxPlaque` (`tags.sql`: plaket UID'si üzerinde ad alanlı, işlem ömürlü advisory kilit,
+    çağıranın kiracı satırı üzerinden). Sıra: lokasyon (kendi, `FOR NO KEY UPDATE`) → plaket kilidi → plaket
+    satırı → kişi kilidi; hiçbir simülasyon bu sırayı tersine almaz, döngü yok
+    (`TestSandbox_OwnAndGroupTapsOfOnePlaqueTakeTurns`: 8 kendi + 8 grup dokunuşu → 0 `reject`, sayaçlar
+    ardışık; mutant: kilit çağrısız → 16'nın 8'i `reject`). *Üçüncü göz 3:* `plaqueAt`'ın kiracı yarısı şemanın
+    kabul ettiği bir satırla erişilemez (`tags_location_fk` (location_id, tenant_id)) — kemerdir, birim testle
+    tutulur (`TestPlaqueAt_HoldsTheResolvedRowToTheVenue`); UID'yi başka işletme tutarken simülasyon 404
+    `no_plaque`'tır ve hiçbir şey yazmaz (`TestSandbox_AVirtualUIDHeldByAnotherBusinessIs404`). *Üçüncü göz 4:*
+    Dockerfile'ın son aşaması `app`'tır (`TestDockerfile_APlainBuildIsTheProductionServer`). *Disk:* md. 14.
