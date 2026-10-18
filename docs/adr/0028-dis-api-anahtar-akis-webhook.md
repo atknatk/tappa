@@ -142,7 +142,7 @@ yazılır):**
 |---|---|---|
 | `api_keys` | SELECT; INSERT (sütun listesiyle — API-3); **UPDATE yalnız (`revoked_at`, `last_used_at`)**; DELETE yok | İptal **tek yönlü** — `revoked_at` NULL'a dönemez (00011'in `tappa_forbid_revocation_reset` emsali tetikleyici) ve **her** `revoked_at` yazması `COALESCE(revoked_at, …)` ve/veya `WHERE revoked_at IS NULL` taşır (00011 BOUNDARY 2: korumasız bir toplu iptal tetikleyiciye çarpıp bütün işlemi geri alır, anahtarlar canlı kalırdı) |
 | `webhook_endpoints` | SELECT; INSERT; UPDATE (`url`, `signing_key_sealed`, `active`, `rotated_at`) — **`tenant_id` içermez**; DELETE yok | işçi imzalamak için mühürlü anahtarı okur |
-| `webhook_deliveries` | SELECT; **UPDATE yalnız kira/sonuç sütunları** (`lease_until`, `attempt`, `next_attempt_at`, `state`, `last_status`, `last_error_class`, `delivered_at`); **INSERT yok**, DELETE yok | teslim satırını yalnız tetikleyiciler yazar |
+| `webhook_deliveries` | SELECT (T130'dan beri `settled_at` dahil); **UPDATE yalnız kira/sonuç sütunları** (`lease_until`, `attempt`, `next_attempt_at`, `state`, `last_status`, `last_error_class`, `delivered_at`) — `settled_at` **değil**; **INSERT yok**; **DELETE (T130, `00058`) — kısıtlayıcı politika `webhook_deliveries_delete_settled` onu bağlamın tenant'ının, `delivered`/`dead` ve 90 günden eski (`settled_at`, veritabanının saati) satırına sınırlar** | teslim satırını yalnız tetikleyiciler yazar; `settled_at`'i yalnız `00058`'in tetikleyicisi yazar ("T130 uygulama notu") |
 | `punch_events` | SELECT | INSERT/UPDATE/DELETE yok; append-only |
 | `feed_counters` | **yalnız SELECT** | satırı tetikleyiciler açar ve artırır (§5) |
 | `site_punches` | SELECT sütun listesiyle, **`sun_valid` hariç** | ADR 0027 §9 |
@@ -954,6 +954,23 @@ API host'u `TestPackaging_TheAPIIngressRoutesV1OnTheConfiguredHost`,
 `TestVerifyDeployment_TheAPIHostModeJudgesEveryAnswer`; engel listesi
 `TestEgress_TheShippedListRefusesTheNodesIPv6Network`. Prod'da yapılacaklar `deploy/README.md`
 "M11 — deploy günü (API-13)" (e) listesinde — "API-13a uygulama notu".)*
+
+**T130** *(yazıldı — "T130 uygulama notu")* — `internal/db`: `TestWebhookRetention_TheQueryAloneKeepsWhatIsOwed` ·
+`TestWebhookRetention_ThePolicyAloneKeepsWhatIsOwed` · `TestRLS_WebhookDeliveries_ADeleteReachesNoOtherTenant` ·
+`TestWebhookRetention_TheClockIsTheDatabases` · `TestWebhookRetention_TheBatchIsBounded` ·
+`TestWebhookRetention_TheFeedAndTheRecordsAreUntouched` · `TestWebhookRetention_TheSweepReadsTheSettledIndex` ·
+`TestWebhookRetention00058And00059_DownGiveBackAndUpTakesItAgain` ·
+`TestWebhookRetention00058And00059_GiveUpAfterASecondBehindAnOpenWrite`; `internal/egress`:
+`TestWebhookRetention_TheSweepRunsOnTheBusinessesTurn` · `TestWebhookRetention_AFullBatchSweepsAgainOnTheNextTurn` ·
+`TestWebhookRetention_ASweepFailureDoesNotStopTheDeliveries` · `TestWebhookRetention_TheLogAndTheResendSeeTheWindow` ·
+`TestWebhookRetention_ASweepBesideTwoPodsLosesNothing` · `TestWebhookRetention_ASweepSkipsARowAResendHolds`;
+`internal/webhook/delivery`: `TestWebhookRetention_TheQueryAndThePolicyAgree`; `internal/handler/api`:
+`TestGuide_TheDeliveryLogKeepsWhatTheSweepKeeps`; genişleyenler: `TestM11Catalog_EveryNewTableMatchesTheMatrixUnderArwd`
+(`settled_at`, DELETE, `webhook_delivery_settle()`), `TestFeedTriggers_RefuseVerbsUnderArwdAndTempTableBinding` (taze teslimin
+DELETE'i 0 satır), `TestFeedCatalog_TwoRolesTriggerOrderExecuteOwnerOnlyRelid` (sütun pini), `TestOpenAPI_TheWebhooksAreTheSenders`
+(`x-delivery-retention-days`), `TestWebhookPanel_TheDeliveryLogAndResend` (panel cümlesi), `TestStoreSurface_IsTheOneRecorded` ve
+`TestResolverAccess_NoSqlcQueryNamesADefiner` (212 sorgu); `feedBelow48`/`feedUpAgain` `00058`'in
+Down'ını ve `00058`+`00059`'un Up'larını yürür.
 
 ## Sonuçlar
 
@@ -2614,6 +2631,8 @@ olay, sonuç, sonraki vade, günlük, yeniden gönderim kilidi, yeniden gönderi
 11. **Saklama — DPA kararına bırakıldı (kullanıcı kararı, 2026-10-16); şimdilik silme yok.** `delivered` ve `dead` satırları
     birikir (bir punch'ın hedefi başına bir satır; `tappa_app`'te DELETE yok). Ne kadar tutulacağı DPA'nın saklama sorusudur ve
     `site_punches`'ın saklama süresiyle **birlikte** DPA notunda karara bağlanır (plan §7 madde 5): backlog **T130**. Bekleyen bir teslimin de ömrü yok (madde 2: kapı kapalı kaldıkça bekler).
+    → **Kapandı (T130, kullanıcı kararı 2026-10-18):** `delivered`/`dead` satırları yerleştikten **90 gün** sonra silinir,
+    bekleyen asla; `site_punches` ayrı kalır. Ayrıntı *"T130 uygulama notu"*.
 
 **Ölçümler ve mutantlar** (atılabilir kapta, her biri tek başına uygulandı, ilgili test tek başına koşuldu, geri alındı): kira
 lease koşulsuz → `TwoPodsSendOnce` kırmızı (bir teslim 8 kez geldi); `SKIP LOCKED`'sız → `TwoPodsSendOnce` **yeşil** — güvenlik
@@ -3490,3 +3509,89 @@ itilmesi kapsam dışıdır — tarifi deploy/README.md *"Sandbox (API-11) — k
     başarısız savepoint geri alımını artık yutmaz, `errors.Join` ile döndürür (`pgx.ErrTxClosed` hariç)
     (`TestWithTenantIn_AFailedRollbackIsReturned`). deploy/README.md *"Sandbox (API-11)"* §6: yanlış önek
     ile bozuk biçim aynı daldan geçer — aynı 401, veritabanına gidilmez.
+
+## T130 uygulama notu (2026-10-18) — teslim satırlarının saklaması
+
+**Karar (kullanıcı, 2026-10-18):** `webhook_deliveries`'in `delivered` ve `dead` satırları **90 gün** sonra silinir; **bekleyen**
+(kuyrukta, yeniden denenecek ya da kapalı bir kapıda bekleyen) bir teslim **asla** silinmez. `site_punches`'ın saklaması bu görevin
+dışında, DPA notunda ayrı kalır. Migration `00058` (sütun, tetikleyici, politika, yetki) ve `00059` (indeks); `00058` OP-15'e
+ayrılmıştı ama yazılmamıştı — ana oturumun kararıyla T130 aldı, OP-15 bir sonraki boş numaraya kayar.
+
+1. **Hangi saat — `settled_at` (yeni sütun).** *"90 gün sonra"* teslimin **bittiği** andan sayılır, oluşturulduğu andan değil:
+   kapalı bir kapıda haftalarca bekleyip sonra ölen bir teslim, öldükten sonra 90 gün sahibin günlüğünde kalmalıdır. Tabloda o an
+   yoktu: `delivered_at` yalnız ulaşmadır; ölümün anı hiçbir sütunda değildir (`next_attempt_at` denemenin **vadesidir** ve kapalı
+   bir kapı denemeyi vadesinden keyfi uzağa iter). `settled_at`'in **tek yazarı veritabanıdır**: `webhook_delivery_settle()`
+   (BEFORE INSERT OR UPDATE OF state, settled_at; SECURITY INVOKER, `EXECUTE` yalnız sahipte, gövde `TG_RELID`/`TG_WHEN`/`TG_LEVEL`/
+   `TG_OP`'u assert eder) satır `pending`'den çıkınca `clock_timestamp()`, geri dönünce (yeniden gönder) NULL yazar, durumu
+   değiştirmeyen her yazmada eskisini korur — sütunu adlandıran sahibin yazması bile onu oynatamaz. `tappa_app`'in `settled_at`
+   üzerinde INSERT/UPDATE'i yoktur (00053'ün dersi: bir güvenlik kuralının okuduğu sütunu uygulama yazamaz — geriye tarihlenmiş bir
+   değer taze bir satırı anında silinebilir yapardı).
+2. **Var olan satırlar.** `00058` sütunu `DEFAULT now()` ile ekler (uçucu olmayan varsayılan katalogda bir kez saklanır, **satır
+   yeniden yazılmaz**), bekleyen satırları NULL'a döndürür, varsayılanı düşürür. Migration'dan önce yerleşmiş bir satır migration
+   anından 90 gün tutulur: kuraldan **asla az**, en çok bugünkü yaşı kadar fazla. `delivered_at`'i yazmak tam sonuç verirdi ama her
+   `delivered` satırı, her dokunuşun beklediği `ACCESS EXCLUSIVE` altında yeniden yazardı.
+3. **Üç bekçi, her biri tek başına yeter ve tek başına ölçüldü.** (a) **Sorgu** `DeleteSettledWebhookDeliveries`
+   (`webhooks.sql`): açık `tenant_id`, `state IN ('delivered','dead')`, `settled_at < statement_timestamp() - make_interval(days =>
+   @retention_days)`, `ORDER BY settled_at LIMIT @max_rows FOR UPDATE SKIP LOCKED`. (b) **Kısıtlayıcı politika**
+   `webhook_deliveries_delete_settled` (`AS RESTRICTIVE FOR DELETE`): `tenant_id = NULLIF(...)::uuid AND state IN ('delivered','dead')
+   AND settled_at < statement_timestamp() - interval '90 days'` — `00048`'in izin veren `tenant_isolation` politikasıyla **VE**'lenir,
+   erişim yalnız daralabilir; yüklemsiz bir `DELETE FROM webhook_deliveries` (bir kod hatasının biçimi) yalnız kuralın izin verdiğini
+   siler. (c) **Tetikleyici** (madde 1). Bekleyen bir satırı silmenin tek yolu üçünü birden aşmaktır; testler her bekçiyi ötekiler
+   yerindeyken tek başına sınar (sorgu sahiple — politikalar onu tutmaz —, politika yüklemsiz bir DELETE'le, tetikleyici sahte —
+   tarihli ama `pending` — bir satırla, `session_replication_role = replica` altında yazılmış).
+4. **Tek sayı, tek saat.** Süre Go'da `delivery.RetentionDays = 90`; sorgu onu parametre olarak alır, politika kendi `90`'ını
+   kataloğa yazar ve `TestWebhookRetention_TheQueryAndThePolicyAgree` ikisini eşitler (politikanın USING'i katalogdan okunur). Sınırın
+   saati iki yerde de veritabanınındır (`statement_timestamp()` — kararlı, indeks koşulu olur; Go↔DB saat farkı yok). Panel, rehber
+   (EN+TR) ve OpenAPI (`x-delivery-retention-days`) aynı sabitten ya da ona pinli metinden gelir.
+5. **Süpürme K-19'undur — tarama yok.** `delivery.Job.RunFor` işletmenin turunun **başında**, o işletme için, kendi kısa işleminde
+   bir kez süpürür (talepten önce: her yol — `nothingDue`, kapalı kapı, `runMax`, bütçe — süpürmeyi görür). Tembel iki kez: yalnız
+   işletmenin kendi turunda ve süreç başına işletme başına en çok `SweepEvery`'de (1 sa) bir — dolu bir parti (`sweepMax` = 100)
+   saati kurmaz, birikim tur başına bir partiyle erir; başarısız bir süpürme de kurmaz. Hiç bildirilmeyen bir işletme yerleşmiş
+   satırlarını bildirilene kadar tutar (Idempotency'nin 24 sa emsaliyle aynı sınır; ADR §6: dokunuş, onay, kimliği doğrulanmış her
+   API isteği, panel eylemleri işletmeyi kümeye sokar). Süpürme `sweepTimeout` (2 sn) ile sınırlı ve turun bütçesine (`RunBudget`,
+   `began`'dan) sayılır. Hatası teslimi **engellemez**: log satırı yalnız `tenant_id` ve kapalı sınıf (`sqlstate_<kod>`, `timeout`,
+   `other`) taşır, hata metni değil (CLAUDE.md §7); süpürme silerse `tenant_id` + sayı. Gerekçe (eşik): her turda süpürmek her dokunuşa
+   bir işlem ekler ve kapalı kapıdaki işletmenin yeniden denetim turunu iki işleme çıkarırdı (`AHeldBusinessHasOneRecheck`'in sınırı).
+6. **Parti — ölçülmüş bir tuzak.** İlk biçim Idempotency emsalinin aynısıydı: `id IN (SELECT … LIMIT 100 FOR UPDATE SKIP LOCKED)`.
+   **Ölçüldü:** 105 uygun satırda 100 sınırıyla **105** sildi — planlayıcı yarı-birleştirme için alt sorguyu yeniden tarar, her
+   yeniden tarama bu ifadenin zaten sildiği satırları (kendi kilidi "kilitli" okunur) atlar ve `LIMIT` sonrakileri alır. Çare
+   `WITH doomed AS MATERIALIZED (…) DELETE … USING doomed`: aday listesi bir kez hesaplanır (`TheBatchIsBounded`; mutant: eski biçim →
+   kırmızı). ⚠️ `apiidempotency.sql`'in `DeleteExpiredIdempotency`'si aynı biçimdedir: sildiği her satır yine süresi geçmiştir (doğruluk
+   değil, **sınır** kaybı — bir ifade 100'den fazla satır kilitleyebilir); bu görevin kapsamı dışında, raporda bulgu olarak.
+7. **Okumalar pencereyi uygular.** `ListWebhookDeliveries` ve `LockWebhookDeliveryForResend` 90 günü geçmiş yerleşmiş bir satırı
+   göstermez/kilitlemez — süpürme henüz ulaşmamış olsa bile: sahibin gördüğü, süpürmenin en son ne zaman koştuğuna bağlı değildir.
+   *"Send again now"* böyle bir satırda *bilinmeyen teslim*dir (`ErrNoDelivery`, kova harcanmaz). Panel cümlesi: *"A delivery stays in
+   this list for 90 days after it arrived or was marked failed, and is then deleted — a failed one can be sent again until then. A
+   delivery that is still waiting is never deleted."* Rehber §9.6 (EN+TR) aynı kuralı söyler; punch'ın kendisi akışta kalır.
+8. **Eşzamanlılık.** Kira altındaki satır `pending`'dir → aday değildir. İki pod aynı işletmeyi aynı anda koşar ve ikisi de süpürür:
+   `SKIP LOCKED` adayları böler, her bekleyen teslim tam bir kez gider, uygun satırlar biter, genç yerleşmişler kalır
+   (`ASweepBesideTwoPodsLosesNothing`). Pencerenin tam kıyısında bir yeniden göndermenin kilidi: süpürme onu **beklemez ve silmez**,
+   yeniden gönderme satırı `pending`'e döndürür, sonraki süpürme de dokunmaz; ters sırada, süpürmenin commit edilmemiş silmesinin
+   arkasında yeniden göndermenin kilidi bekler ve commit'ten sonra **satır bulmaz** — hayalet dirilmez
+   (`ASweepSkipsARowAResendHolds`). `transactions` ve `punch_events` (append-only) dokunulmaz (`TheFeedAndTheRecordsAreUntouched`);
+   `audit_log`'daki `webhook_delivery.resend` satırlarının `target`'ı silinmiş bir teslimi adlandırabilir (FK değil, iz).
+9. **İndeks — `00059`, ayrı dosya (CLAUDE.md §6).** `webhook_deliveries_tenant_settled_idx (tenant_id, settled_at) WHERE state IN
+   ('delivered','dead')`: süpürmenin genel planında işletme **ve** yaş sınırı indeks koşuludur (`TheSweepReadsTheSettledIndex`).
+   Ölçüm (3 M satır, bir işletmede 27 000 uygun): 100'lük parti 3,3 ms; silinecek bir şey bulamayan süpürme 0,16 ms, 3 tampon.
+   İşlem içinde (`CONCURRENTLY` değil) kurulur: 1 M satırda 0,66–0,69 sn, 3 M'de 2,2–2,3 sn — eşik ve deploy kuralı
+   `deploy/README.md`'de (~1,5 M üstünde `CONCURRENTLY` ile ayrı migration). `00058`'in kilit altındaki işi: 1 M satırda 32–63 ms,
+   3 M'de 67–410 ms. İkisinin de Up/Down'ı `SET LOCAL lock_timeout = '1s'` ile açılır (dokunuşun tetikleyicisi 2 sn bekler).
+10. **Redline R5b muafiyeti.** `00058`'in Down'ı kendi kısıtlayıcı politikasını siler; R5b her `drop policy`'i FAIL sayar. Kısıtlayıcı
+    bir politikayı silmek erişimi genişletir — fiil varsa: Down politikadan **önce** `tappa_app`'in DELETE'ini geri alır. Muafiyet tam
+    ifade + dosya adı + aynı Down'da önce gelen REVOKE şartıyla dar ve her taramada WARN olarak basılır (mutant: REVOKE sonra ya da
+    yok → FAIL).
+11. **Mutantlar (ölçüldü, her biri tek başına, kendi kabında, geri alındı):** sorgunun durum koşulu kaldırıldı → `TheQueryAlone…` ve
+    plan pini kırmızı; sorgunun sınırı 9 gün → `TheQueryAlone…` kırmızı; sorgunun iç tenant yüklemi totoloji → kemer
+    (`TestWebhookQueries_CarryAnExplicitTenantPredicate`) ve plan pini kırmızı (dış `tenant_id` yüklemi silmeyi işletmeye yine
+    bağlar); eski `IN (…)` biçimi → `TheBatchIsBounded` kırmızı; politikanın durum koşulu kaldırıldı, aralığı 9 gün, ya da yalnız
+    tenant'a gevşetildi → `ThePolicyAlone…`, `TestRLS_…` ve (`9 gün`/gevşek) `TheQueryAndThePolicyAgree` kırmızı; tetikleyicinin
+    "eskisini koru" kolu kaldırıldı, durum değişimi tarihlemiyor, ya da tetikleyici yok → `TheClockIsTheDatabases` kırmızı; `RunFor`'dan
+    süpürme çağrısı kaldırıldı → egress'in dört süpürme testi kırmızı; kısma denetimi kaldırıldı → `TheSweepRunsOnTheBusinessesTurn` ve
+    `AFullBatch…` kırmızı; dolu parti de saati kurar → `AFullBatch…` kırmızı; başarısız süpürme saati kurar ya da hata metnini loglar →
+    `ASweepFailure…` kırmızı; `RetentionDays = 9` → `TheQueryAndThePolicyAgree`, rehber, OpenAPI ve `TheLogAndTheResendSeeTheWindow`
+    kırmızı (panelin cümlesi sabitten üretilir — o mutantı panel testi bilerek görmez); günlüğün ya da yeniden göndermenin pencere
+    koşulu kaldırıldı → `TheLogAndTheResendSeeTheWindow` kırmızı; redline muafiyetinde REVOKE politikadan sonra ya da hiç → R5b FAIL.
+12. **Kapsam dışı / adlandırılmış bedeller.** `site_punches`'ın saklaması (DPA notu); hiç bildirilmeyen işletmenin satırları (madde
+    5); `DeleteExpiredIdempotency`'nin parti sınırı (madde 6, ayrı iş); `00059`'un ~1,5 M satır üstünde `CONCURRENTLY` gereği (deploy
+    kuralı).
+

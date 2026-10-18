@@ -698,7 +698,7 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
   Deploy sonrası ölçüm: K-22'si açık, uç noktası olan bir işletmede bir dokunuş → panelin *"Deliveries"* listesinde `Delivered`
   (ya da kapalı sınıf); süreç log'unda `webhook: delivered` / `webhook: a delivery failed` satırları yalnız kimlik + sınıf + durum
   taşır (adres yok). `webhook_deliveries` saklama kuralı yok, satırlar birikir (backlog T130) — deploy öncesi satır sayısı bilgi
-  için ölçülür. **Kullanıcıda bekleyen (2026-10-16 kararı):** `delivered`/`dead` saklama süresi DPA kararına bırakıldı, şimdilik
+  için ölçülür. *(T130, 2026-10-18: kapandı — 90 gün, `00058`/`00059`; `00059`'un ~1,5 M satır eşiği `deploy/README.md`'de.)* **Kullanıcıda bekleyen (2026-10-16 kararı):** `delivered`/`dead` saklama süresi DPA kararına bırakıldı, şimdilik
   silme yok; `site_punches`'ın saklama süresiyle **birlikte** DPA notunda karara bağlanır (§7 madde 5, T130).
   **(API-10 düzeltme turundan, 2026-10-16)** K-22'nin operatör yüzeyi (bu görev) API'yi açtığında işletmeyi K-19 kümesine sokmalıdır
   (`Notice` — işçi aynı süreçteyse); sokmazsa kapalı API'de bekleyen teslimler en geç `delivery.GateRecheck` (15 dk) içinde, süreç
@@ -740,7 +740,7 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
 - **Davet tavanları** ilk toplu senkronu saatlere yayar.
 - **Pilot verisi** → K-18 runbook'u.
 - **GDPR** — K-1d/f/h görünürlüğü, `employer_manual` satırları, `site_punches`'ın ve `webhook_deliveries`'in (`delivered`/`dead` —
-  T130) saklama süresi DPA notunda (kullanıcı).
+  T130) saklama süresi DPA notunda (kullanıcı). *(T130 2026-10-18: teslim satırları 90 gün — kapandı; `site_punches` açık.)*
 - **Egress açık** — SSRF kapısı tek savunma.
 - **Canlı ön koşul:** ~~OP-15~~ — 2026-10-17 kullanıcı kararıyla kalktı (API-13b); askı OP-15 + API-4b ile sonra gelir.
 
@@ -753,6 +753,9 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
 5. DPA / aydınlatma metni: holding içi paylaşım (K-1d/f/h — sonuç, yön, aktiflik dahil), `site_punches` saklama süresi ve onunla
    birlikte `webhook_deliveries`'in `delivered`/`dead` satırlarının saklama süresi (T130 — 2026-10-16: DPA kararına bırakıldı,
    şimdilik silme yok).
+   **T130 kapandı (kullanıcı kararı 2026-10-18):** `webhook_deliveries`'in `delivered`/`dead` satırları yerleştikten **90 gün** sonra
+   silinir, bekleyen asla (`00058`, `00059`; ADR 0028 *"T130 uygulama notu"*) — DPA notuna: *"webhook teslim günlüğü 90 gün"*.
+   `site_punches`'ın saklama süresi açık kalır (bu maddenin geri kalanı).
 6. ~~Canlı ön koşul: OP-15.~~ Kalktı (2026-10-17, *"M11 şimdi çıksın"* — API-13b); OP-15 sonra `00058` olarak.
 
 ## 8. Kapsam dışı (v1)

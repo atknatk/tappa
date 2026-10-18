@@ -1426,6 +1426,23 @@ kilidin arkasında kuyruğa girerdi. Kilidi aldıktan sonra `ADD COLUMN`'lar tab
 iki benzersiz indeksi `employees`'in satır sayısıyla orantılıdır.
 Pin: `TestM11Migrations00037And00038_OpenWithASecondsLockTimeout`. **Deploy saati:** 02:30 yedeğinin penceresinden uzak.
 
+**`webhook_deliveries` — `00058` ve `00059` (T130, teslim satırlarının 90 günlük saklaması):** tablo her dokunuşta yazılır —
+`00049`'un tetikleyicileri teslim satırını dokunuşun işleminde, kendi **2 sn**'lik `lock_timeout`'u altında ekler. `00058`
+(`settled_at` sütunu, onun tetikleyicisi, kısıtlayıcı DELETE politikası, `tappa_app`'e DELETE) tabloda `ACCESS EXCLUSIVE` alır;
+sütun **sabit olmayan bir varsayılanla** (`DEFAULT now()`) eklenir — katalogda bir kez saklanır, **hiçbir satır yeniden yazılmaz** —
+ve kilit altındaki tek veri işi bekleyen satırların (canlı kuyruk) `UPDATE`'idir. `00059` (`webhook_deliveries_tenant_settled_idx`)
+goose'un işleminde (`CONCURRENTLY` değil) kurulur ve kurulum süresince tabloyu `SHARE` kilitler — teslim satırı yazan dokunuş bekler.
+İkisinin de Up'ının **ve** Down'ının ilk ifadesi `SET LOCAL lock_timeout = '1s'`: açık bir teslim yazmasının arkasında 55P03 ile
+düşerler — migrate Job'ı `Failed`, rollout yapılmaz, sakin bir anda yeniden koşulur
+(`TestWebhookRetention00058And00059_GiveUpAfterASecondBehindAnOpenWrite`). Ölçüm (T130, atılabilir kap, PostgreSQL 17, disk; satırların
+binde biri bekleyen): `00058` 100 B satırda 15 ms, 1 M'de 32–63 ms, 3 M'de 67–410 ms; `00059` 100 B'de 56–63 ms, 1 M'de 0,66–0,69 sn,
+3 M'de 2,2–2,3 sn. **Eşik:** prod'da `webhook_deliveries` ~1,5 M satırı aşıyorsa `00059` bu hâliyle koşulmaz — indeks `CONCURRENTLY`
+ile, işlemsiz (`-- +goose NO TRANSACTION`) ayrı bir migration olarak önce kurulur; deploy'dan önce satır sayısı ölçülür
+(`SELECT count(*) FROM webhook_deliveries`). Bugün tablo pilotun, günlerce eski. **Deploy sonrası:** süpürme işletmenin kendi
+turunda koşar (K-19; tarama yok) — bir dokunuştan sonra süreç log'unda doksan günü geçmiş satır varsa
+`webhook: settled deliveries past the retention deleted` (yalnız `tenant_id` ve sayı), başarısızlıkta
+`webhook: the delivery log's retention sweep failed` (yalnız `tenant_id` ve SQLSTATE sınıfı); ikisi de teslimi durdurmaz.
+
 ## Feed role (M11 API-2) — tek seferlik kurulum
 
 **Ne:** migration `00048` (punch akışının tabloları — ADR 0028 §4, §5) bir **küme** rolüne dayanır:
