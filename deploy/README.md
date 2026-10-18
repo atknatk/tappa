@@ -1556,12 +1556,15 @@ OP-15 (a) gereği sonra `00058` olarak gelir; `00037`/`00038` `employees`/`locat
 ölçülen boyutta anında; `00056` `employees` indeksi kendi `lock_timeout`'uyla; `00057` yalnız bir fonksiyon,
 00029'un gövdesi + iki API sütunu) → *"Roll out the server"*: `20-app.yaml` → `40` → **rollout beklemesi** →
 `41` (yalnız `opsurface` `on` ise; `case` içinde) → `42-api-ingress.yaml` (`case`'in **dışında** — API host'u
-operatör yüzeyine bağlı değil) → *"Gate — the operator host must not serve the customer product"*
-(`operator-host` kipi) → *"Gate — the API host serves the API and nothing else"* (`api-host` kipi:
-`/v1/guide.md` 200 `text/markdown`, kök 404) → `db-role` kapısı. Migration Job `Failed` olursa rollout
+operatör yüzeyine bağlı değil) → **`db-role` kapısı** (OPS-1, 2026-10-18: rollout'un hemen ardından, host
+kapılarından **önce** — eskiden en sondaydı ve düşen bir host kapısı onu hiç koşturmuyordu; sunucunun
+migration rolüyle bağlı olmadığı, verinin RLS'i hakkındaki tek ölçüdür) → *"Gate — the operator host must
+not serve the customer product"* (`operator-host` kipi) → *"Gate — the API host serves the API and nothing
+else"* (`api-host` kipi: `/v1/guide.md` 200 `text/markdown`, kök 404). Migration Job `Failed` olursa rollout
 yapılmaz (*"4. Migration Job'ı Failed"*). Pinler: `TestPackaging_TheDeployAppliesEveryIngressFile` (40 <
 bekleme < 41, 42 beklemeden sonra ve 41'in `case`'inin dışında, üç Ingress dosyası) ve
-`TestPackaging_TheDeployGatesTheCustomerAndAPIHosts`.
+`TestPackaging_TheDeployGatesTheCustomerAndAPIHosts` (OPS-1'den beri `db-role`'un rollout'tan hemen sonraki
+adım olduğunu da tutar).
 
 **Birleştirme çakışması — `main`'in T119 değişiklikleri** — ✅ **birleştirildi (API-13b, 2026-10-17, merge
 commit `Merge origin/main into m11-api`; `origin/main` = `1ce79a3`; `main`'den migration gelmedi).** Gerçek
@@ -1571,6 +1574,9 @@ commit `Merge origin/main into m11-api`; `origin/main` = `1ce79a3`; `main`'den m
 da bir `stubCurl` tanımladığı için API host kipinin sahte `curl`'ü yeniden adlandırıldı; `main`'in her-dal
 testi (`TestVerifyDeployment_EveryBranchTouchesTheSecretOnlyByDescribe`) artık `api-host` kipinin beş
 uyarısını da sürüyor; `all` kipi `main`'inki kaldı (`api-host`'u içermez — deploy onu ayrı koşar).
+*(OPS-1, 2026-10-18: `all` artık `kubeconfig-server`'ı ve `api-host`'u da koşar; `tailnet`'i bilerek
+koşmaz — yalnız `tag:ci`'li runner'da geçebilir, elle koşan operatörün cihazında her seferinde kırmızı
+olurdu. Gerekçe `scripts/verify-deployment.sh` başlığında.)*
 Aşağıdaki metin birleştirmeden önce yazılmış kurallardır. Bu dal `main`'den
 `bcbff6d`'de ayrıldı; o noktadan bu yana `main` 25 dosya değiştirdi ve **11'i** bu dalın da değiştirdiği
 dosyalardır (2026-10-16, `git diff origin/main...m11-api --stat` ve `git log origin/main` ile okundu;

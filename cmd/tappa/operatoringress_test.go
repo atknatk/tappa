@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1050,9 +1051,14 @@ func TestPackaging_TheDeployAppliesEveryIngressFile(t *testing.T) {
 // These are the lines a merge with main's T119 deploy.yml rewrites around (deploy/README.md,
 // "M11 — deploy günü", the merge item); without this pin, deleting either went green.
 //
+// OPS-1: the db-role gate (the server must not be connected as the migration role) is the step
+// RIGHT AFTER "Roll out the server", ahead of both host gates -- it used to run last, so a red host
+// gate ended the job before the one measurement about the data ran. Exactly once, unguarded.
+//
 // MUTANT (measured): the API host's preflight step deleted -> red; the api-host gate deleted -> red;
 // the gate moved before "Roll out the server" -> red; `continue-on-error: true` on the gate -> red;
-// the apex preflight deleted -> red.
+// the apex preflight deleted -> red; OPS-1: db-role moved back to the end, or between the two host
+// gates -> red; db-role deleted -> red; `if: always()` on it -> red.
 func TestPackaging_TheDeployGatesTheCustomerAndAPIHosts(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join(repoRoot, ".github", "workflows", "deploy.yml"))
 	if err != nil {
@@ -1120,6 +1126,29 @@ func TestPackaging_TheDeployGatesTheCustomerAndAPIHosts(t *testing.T) {
 				g.want, at, firstApply)
 		case n == 2 && at < line42:
 			t.Errorf("%q runs at code line %d, before 42 is applied (%d): the gate measures the routed host", g.want, at, line42)
+		}
+	}
+
+	// OPS-1: db-role first after the rollout.
+	steps := deploySteps(t)
+	rollout := slices.IndexFunc(steps, func(s workflowStep) bool { return s.name == "Roll out the server" })
+	dbRole := stepsWithLine(steps, "run: scripts/verify-deployment.sh db-role tappa")
+	hostGates := append(stepsWithLine(steps, `run: scripts/verify-deployment.sh operator-host "$OPERATOR_SURFACE" ops.taptime.mt`),
+		stepsWithLine(steps, "run: scripts/verify-deployment.sh api-host "+apiHost)...)
+	if rollout < 0 || len(hostGates) != 2 {
+		t.Fatalf("CONTROL FAILED: \"Roll out the server\" at step %d, %d host gate step(s) (want 2)", rollout, len(hostGates))
+	}
+	if len(dbRole) != 1 || dbRole[0] != rollout+1 {
+		t.Errorf("the db-role gate is at step(s) %v, want exactly one, the step right after \"Roll out the server\" (%d): "+
+			"a red host gate must not keep the role the new pods hold from being measured", dbRole, rollout+1)
+	} else {
+		if !unguarded[steps[dbRole[0]].name] {
+			t.Errorf("the db-role gate %q carries an `if:` or `continue-on-error`", steps[dbRole[0]].name)
+		}
+		for _, h := range hostGates {
+			if h < dbRole[0] {
+				t.Errorf("the host gate %q (step %d) runs before db-role (step %d)", steps[h].name, h, dbRole[0])
+			}
 		}
 	}
 }

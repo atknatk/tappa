@@ -828,6 +828,19 @@ jobs:
           # identity and verbs as 40 (01-rbac.yaml: ingresses get, list, create, patch).
           kubectl apply -f deploy/k8s/42-api-ingress.yaml
 
+      # 🔴 FIRST AFTER THE ROLLOUT, AHEAD OF THE TWO HOST GATES (OPS-1). This is the
+      # measurement the rollout cannot do without: a server connected as the migration role
+      # voids RLS for every tenant. It used to run LAST, so a host gate that went red -- the
+      # operator host's 90 s of 404s, an API host whose Ingress was slow -- ended the job
+      # before db-role ever ran and the run never said which role the new pods hold. The host
+      # gates REPORT on routing; this one is about the data. TestPackaging_TheDeployGatesTheCustomerAndAPIHosts
+      # pins the order.
+      - name: Gate — the running server must not be connected as the migration role
+        # internal/config only refuses DATABASE_URL == DATABASE_MIGRATE_URL. An owner
+        # DSN typed into DATABASE_URL alone passes every check the product has, and
+        # voids RLS entirely. pg_stat_activity is where that becomes visible.
+        run: scripts/verify-deployment.sh db-role tappa
+
       # 🔴 THE END STATE, MEASURED FROM OUTSIDE (T119). The preflight decided from the
       # Secret's key sizes; this asks ops.taptime.mt itself whether it serves the customer
       # product, judged against the preflight's word: with `on` only the gate's 303 to
@@ -849,12 +862,6 @@ jobs:
       # it cannot undo an apply.
       - name: Gate — the API host serves the API and nothing else
         run: scripts/verify-deployment.sh api-host api.taptime.mt
-
-      - name: Gate — the running server must not be connected as the migration role
-        # internal/config only refuses DATABASE_URL == DATABASE_MIGRATE_URL. An owner
-        # DSN typed into DATABASE_URL alone passes every check the product has, and
-        # voids RLS entirely. pg_stat_activity is where that becomes visible.
-        run: scripts/verify-deployment.sh db-role tappa
 
       - name: Report what is running
         if: always()

@@ -7,7 +7,7 @@
 #   scripts/verify-deployment.sh operator-host    <on|off> [host]  default host: ops.taptime.mt
 #   scripts/verify-deployment.sh db-role          [namespace]   default: tappa
 #   scripts/verify-deployment.sh api-host         [host]        default: api.taptime.mt (M11 API-13a)
-#   scripts/verify-deployment.sh all              [host] [ns] [operator host]
+#   scripts/verify-deployment.sh all              [host] [ns] [operator host] [api host]
 #   scripts/verify-deployment.sh kubeconfig-server [host] [port] default: 10.43.0.1 443 (T134)
 #   scripts/verify-deployment.sh tailnet          [host] [port]  default: 10.43.0.1 443 (T134)
 #
@@ -15,8 +15,15 @@
 # tailnet (the API's public :6443 is closed): kubeconfig-server reads the written
 # kubeconfig OFFLINE and refuses any server but the tailnet address, a proxy or a skipped
 # certificate check; tailnet measures what the runner joined the tailnet as and whether a
-# TCP connection to the API gets through. Neither is part of `all`, which asks a running
-# deployment from outside.
+# TCP connection to the API gets through. `all` runs kubeconfig-server (OPS-1: it is offline,
+# and it says whether the kubeconfig `all` itself is about to use for the operator-surface and
+# db-role reads names the tailnet address, directly and with a verified certificate -- on an
+# operator's machine whose current context is another cluster it is the line that says so).
+# `all` does NOT run tailnet, on purpose: that gate passes only for a device tagged tag:ci,
+# i.e. the deploy runner, and an operator's own device joins as the operator's user -- so
+# from anywhere `all` is run by hand it would be a VIOLATION every time, and a gate that is
+# always red teaches its reader to skip it. Whether the API is reachable from there is said
+# by the operator-surface and db-role reads (UNCHECKED when kubectl cannot connect).
 #
 # The two operator modes are backlog T119's (deploy/README.md, "Uygulandı: K2"):
 # operator-surface is a PREFLIGHT that decides whether 41-operator-ingress.yaml may be
@@ -24,7 +31,8 @@
 # the preflight's word, which is why it takes it first. The cloudflare
 # mode is run once per host by the deploy; `all` runs every gate, the cloudflare one on
 # both hosts. api-host is the integration API's post-rollout probe (M11 API-13a); the
-# deploy runs it on its own, and `all` does not include it.
+# deploy runs it on its own step, and since OPS-1 `all` runs it too (an operator checking
+# the deployment by hand used to see no line about the API host at all).
 #
 # 🔴 THE `pull-credential` MODE WAS REMOVED (M8-02 FAZ D). Its whole subject was
 # `secret/ghcr` -- it printed that Secret's managedFields timestamps beside the server
@@ -461,8 +469,12 @@ check_db_role() {
 # without -k). A name that does not resolve (curl exit 6) is a WARNING and exit 0 -- the DNS record
 # is the user's step and may come after the merge -- and any other curl failure is exit 2: an
 # answer that never came is not a pass. It REPORTS: it cannot undo an apply.
+# API_OUTCOME is api-host's word, for CF_OUTCOME's reason: its exit 0 is both a pass and a
+# name that does not resolve yet (a warning), and `all` must not call the second a pass.
+API_OUTCOME=unchecked
 check_api_host() {
   local host=${1:-api.taptime.mt} rc out code ctype
+  API_OUTCOME=unchecked
   for _ in $(seq 1 18); do
     rc=0
     out=$(curl -sS -k -o /dev/null --connect-timeout 10 --max-time 20 -w '%{http_code} %{content_type}' \
@@ -485,6 +497,7 @@ check_api_host() {
   done
   if [[ $code != 200 || $ctype != text/markdown* ]]; then
     echo "::error::https://${host}/v1/guide.md answered ${code} (${ctype}), want 200 text/markdown: the integration API is not served on its host (is TAPPA_API_HOST in the ConfigMap, and 42-api-ingress.yaml applied?)." >&2
+    API_OUTCOME=violation
     return 1
   fi
   rc=0
@@ -495,8 +508,10 @@ check_api_host() {
   fi
   if [[ $code != 404 ]]; then
     echo "::error::https://${host}/ answered ${code}, want 404: something other than the API answers on the API host -- the customer product must never be served there." >&2
+    API_OUTCOME=violation
     return 1
   fi
+  API_OUTCOME=pass
   echo "api-host: ${host} serves /v1 (guide 200 text/markdown) and 404 at its root"
 }
 
@@ -666,15 +681,19 @@ case $mode in
   # checks promises a completeness it does not deliver, which is this card's signature
   # defect. `|| ...` keeps `set -e` from aborting between them.
   #
-  # Since T119 "every gate" is five: the cloudflare gate on BOTH hosts (the customer
+  # Since T119 "every gate" was five: the cloudflare gate on BOTH hosts (the customer
   # host, $2, and the operator host, $4 -- the deploy runs it once per host), the two
-  # operator gates on the operator host, and db-role. TestVerifyDeployment_AllRunsEveryGate.
+  # operator gates on the operator host, and db-role. Since OPS-1 it is seven: also
+  # kubeconfig-server (first, offline -- the kubeconfig the later reads use) and api-host
+  # on the API host, $5. tailnet is left out; the header says why.
+  # TestVerifyDeployment_AllRunsEveryGate.
   #
   # Exit code: 1 if any gate found a VIOLATION, else 2 if any gate could not CHECK,
   # else 0. A violation outranks an unreadable gate because it is the definite result.
   all)
-    cfhost=${2:-taptime.mt}; ophost=${4:-ops.taptime.mt}
-    os=0; db=0
+    cfhost=${2:-taptime.mt}; ophost=${4:-ops.taptime.mt}; apihost=${5:-api.taptime.mt}
+    os=0; db=0; kc=0
+    check_kubeconfig_server || kc=$?
     check_cloudflare "$cfhost" || true
     cfw=$CF_OUTCOME
     check_cloudflare "$ophost" || true
@@ -684,21 +703,24 @@ case $mode in
     osword=$(check_operator_surface "${3:-}") || os=$?
     check_operator_host "${osword:-}" "$ophost" || true
     check_db_role "${3:-}" || db=$?
+    check_api_host "$apihost" || true
     # 🔴 cloudflare's WORD comes from CF_OUTCOME, not from its exit code, and that is
     # the fix for a measured defect: with the name unresolvable this gate prints
     # "Nothing about Cloudflare could be checked" and returns 0, and `all` then
     # labelled it `pass` and exited 0 -- announcing a check it had just been told did
     # not happen. The mirror case: a curl timeout (rc=28) returned 1 and was labelled
     # `VIOLATION`, which it is not; it is another UNCHECKED. operator-host has the same
-    # two shapes and its own OH_OUTCOME. db-role and operator-surface report three
+    # two shapes and its own OH_OUTCOME; api-host's unresolvable name is the first shape
+    # again, hence API_OUTCOME. db-role, operator-surface and kubeconfig-server report three
     # states through their exit codes (0 pass / 1 violation / 2 could not run).
     # Named helpers, because an inline `case` inside "$( )" inside a double-quoted
     # string does not survive the surrounding `case` -- measured: the summary line
     # printed its own source text.
     _verdict() { case ${1:-} in 0) echo pass ;; 1) echo VIOLATION ;; *) echo UNCHECKED ;; esac; }
     _outcome() { case ${1:-} in pass) echo pass ;; violation) echo VIOLATION ;; *) echo UNCHECKED ;; esac; }
-    words="cloudflare[$cfhost]=$(_outcome "$cfw") cloudflare[$ophost]=$(_outcome "$ocfw")"
+    words="kubeconfig-server=$(_verdict "$kc") cloudflare[$cfhost]=$(_outcome "$cfw") cloudflare[$ophost]=$(_outcome "$ocfw")"
     words="$words operator-surface=$(_verdict "$os") operator-host=$(_outcome "$OH_OUTCOME") db-role=$(_verdict "$db")"
+    words="$words api-host[$apihost]=$(_outcome "$API_OUTCOME")"
     echo "all: $words"
     # The exit code is read from the words above, so the two cannot disagree: a
     # violation outranks an unreadable gate.

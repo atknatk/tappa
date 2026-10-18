@@ -931,6 +931,8 @@ func TestVerifyDeployment_EveryBranchTouchesTheSecretOnlyByDescribe(t *testing.T
 			rig.set("ingress.out", both)
 			rig.curlAnswers(opRoot, product)
 			rig.set("exec.rc", "3")
+			kubeconfig("https://144.76.158.60:6443", "", "")
+			rig.curlAnswers(apiGuide, timeout)
 		}, []string{"all"}},
 		{"an unknown mode", func() {}, []string{"no-such-mode"}},
 	} {
@@ -1070,15 +1072,21 @@ func TestVerifyDeployment_OperatorHostReadsTheRootOfTheHost(t *testing.T) {
 	}
 }
 
-// TestVerifyDeployment_AllRunsEveryGate: `all` with no arguments runs the cloudflare gate on
-// TAPPA_BASE_URL's host and on 41's host, operator-surface, operator-host on 41's host judged
-// against operator-surface's word, and db-role — every one, whatever an earlier one said —
-// and its exit code follows the words (1 on a VIOLATION, else 2 on an UNCHECKED, else 0).
+// TestVerifyDeployment_AllRunsEveryGate: `all` with no arguments runs kubeconfig-server (OPS-1),
+// the cloudflare gate on TAPPA_BASE_URL's host and on 41's host, operator-surface, operator-host
+// on 41's host judged against operator-surface's word, db-role and api-host on TAPPA_API_HOST
+// (OPS-1) — every one, whatever an earlier one said — and its exit code follows the words (1 on
+// a VIOLATION, else 2 on an UNCHECKED, else 0). It never asks tailscale (the header of the
+// script says why tailnet is left out).
 // PART I: a healthy deployment with the surface on, one with it off and not routed, then one
 // fault at a time (the operator host proxied, its root the customer product, the surface off
-// with the objects left, the operator name unresolvable, the Secret unreadable). PART II:
-// the summary line and exit code of each, pinned; every gate ran. PART III: a form not on
-// this list is code review's subject — no completeness claim.
+// with the objects left, the operator name unresolvable, the Secret unreadable; OPS-1: the
+// kubeconfig naming the public server, carrying a proxy, unreadable; the API host's root
+// serving something, its name unresolvable — a warning and exit 0 alone, UNCHECKED here — its
+// guide unreachable). PART II: the summary line and exit code of each, pinned; every gate ran.
+// MUTANT (OPS-1, measured): `check_api_host` or `check_kubeconfig_server` removed from `all` ->
+// red; api-host judged by its exit code instead of API_OUTCOME (the unresolvable name a pass)
+// -> red. PART III: a form not on this list is code review's subject — no completeness claim.
 func TestVerifyDeployment_AllRunsEveryGate(t *testing.T) {
 	console, _ := operatorIngresses(t)
 	opHost := console.rules[0].host
@@ -1088,9 +1096,25 @@ func TestVerifyDeployment_AllRunsEveryGate(t *testing.T) {
 		t.Fatalf("05-config.yaml's TAPPA_BASE_URL: %v", err)
 	}
 	custHealth, opHealth, opRoot := "https://"+base.Host+"/healthz", "https://"+opHost+"/healthz", "https://"+opHost+"/"
+	apiHost := configMapValues(t, readK8s(t, "05-config.yaml"))["TAPPA_API_HOST"]
+	if apiHost == "" {
+		t.Fatal("05-config.yaml has no TAPPA_API_HOST")
+	}
+	apiGuide, apiRoot := "https://"+apiHost+"/v1/guide.md", "https://"+apiHost+"/"
 	rig := newScriptRig(t)
 	rig.env = append(rig.env, "OPERATOR_HOST_PROBE_TRIES=2")
+	// The stub kubectl answers `config view` one field per call: server, proxy-url,
+	// insecure-skip-tls-verify (check_kubeconfig_server's order).
+	kubeconfig := func(server, proxy, insecure string) {
+		for i, v := range []string{server, proxy, insecure} {
+			rig.set(fmt.Sprintf("config.%d.out", i+1), v)
+			rig.set(fmt.Sprintf("config.%d.rc", i+1), "0")
+		}
+	}
 	healthy := func() {
+		kubeconfig("https://10.43.0.1:443", "", "")
+		rig.curlAnswer(apiGuide, "200 text/markdown; charset=utf-8", "0")
+		rig.curlAnswer(apiRoot, "404", "0")
 		rig.curlAnswer(custHealth, "HTTP/2 200 \r\nstrict-transport-security: max-age=31536000\r\n\r\n", "0")
 		rig.curlAnswer(opHealth, "HTTP/2 404 \r\n\r\n", "0")
 		rig.curlAnswer(opRoot, "HTTP/2 303 \r\nlocation: /operator\r\n\r\n", "0")
@@ -1098,9 +1122,9 @@ func TestVerifyDeployment_AllRunsEveryGate(t *testing.T) {
 		rig.set("ingress.out", "ingress.networking.k8s.io/tappa-operator\n")
 		rig.clear("secret.rc", "ingress.rc", "exec.out", "exec.rc")
 	}
-	line := func(cf, ocf, osw, oh, db string) string {
-		return "all: cloudflare[" + base.Host + "]=" + cf + " cloudflare[" + opHost + "]=" + ocf + " operator-surface=" + osw +
-			" operator-host=" + oh + " db-role=" + db
+	line := func(kc, cf, ocf, osw, oh, db, api string) string {
+		return "all: kubeconfig-server=" + kc + " cloudflare[" + base.Host + "]=" + cf + " cloudflare[" + opHost + "]=" + ocf +
+			" operator-surface=" + osw + " operator-host=" + oh + " db-role=" + db + " api-host[" + apiHost + "]=" + api
 	}
 	for _, tc := range []struct {
 		name     string
@@ -1108,31 +1132,49 @@ func TestVerifyDeployment_AllRunsEveryGate(t *testing.T) {
 		wantLine string
 		wantCode int
 	}{
-		{"healthy, the surface on", func() {}, line("pass", "pass", "pass", "pass", "pass"), 0},
+		{"healthy, the surface on", func() {}, line("pass", "pass", "pass", "pass", "pass", "pass", "pass"), 0},
 		{"healthy, the surface off and not routed", func() {
 			rig.set("secret.out", describeOutput(map[string]int{"DATABASE_URL": 61}, ""))
 			rig.clear("ingress.out")
 			rig.curlAnswer(opRoot, "HTTP/2 404 \r\n\r\n", "0")
-		}, line("pass", "pass", "pass", "pass", "pass"), 0},
+		}, line("pass", "pass", "pass", "pass", "pass", "pass", "pass"), 0},
 		{"the operator host proxied", func() {
 			rig.curlAnswer(opHealth, "HTTP/2 404 \r\nserver: cloudflare\r\ncf-ray: 0000000000000000-MXP\r\n\r\n", "0")
-		}, line("pass", "VIOLATION", "pass", "pass", "pass"), 1},
+		}, line("pass", "pass", "VIOLATION", "pass", "pass", "pass", "pass"), 1},
 		{"the operator host serves the customer product", func() {
 			rig.curlAnswer(opRoot, "HTTP/2 200 \r\n\r\n", "0")
-		}, line("pass", "pass", "pass", "VIOLATION", "pass"), 1},
+		}, line("pass", "pass", "pass", "pass", "VIOLATION", "pass", "pass"), 1},
 		{"the surface on, the name never routed", func() {
 			rig.curlAnswer(opRoot, "HTTP/2 404 \r\n\r\n", "0")
-		}, line("pass", "pass", "pass", "UNCHECKED", "pass"), 2},
+		}, line("pass", "pass", "pass", "pass", "UNCHECKED", "pass", "pass"), 2},
 		{"the surface off, the objects left", func() {
 			rig.set("secret.out", describeOutput(map[string]int{"DATABASE_URL": 61}, ""))
-		}, line("pass", "pass", "VIOLATION", "UNCHECKED", "pass"), 1},
+		}, line("pass", "pass", "pass", "VIOLATION", "UNCHECKED", "pass", "pass"), 1},
 		{"the operator name unresolvable", func() {
 			rig.curlAnswer(opHealth, "curl: (6) Could not resolve host", "6")
 			rig.curlAnswer(opRoot, "curl: (6) Could not resolve host", "6")
-		}, line("pass", "UNCHECKED", "pass", "UNCHECKED", "pass"), 2},
+		}, line("pass", "pass", "UNCHECKED", "pass", "UNCHECKED", "pass", "pass"), 2},
 		{"the Secret unreadable", func() {
 			rig.set("secret.rc", "1")
-		}, line("pass", "pass", "UNCHECKED", "UNCHECKED", "pass"), 2},
+		}, line("pass", "pass", "pass", "UNCHECKED", "UNCHECKED", "pass", "pass"), 2},
+		{"the kubeconfig names the public server", func() {
+			kubeconfig("https://144.76.158.60:6443", "", "")
+		}, line("VIOLATION", "pass", "pass", "pass", "pass", "pass", "pass"), 1},
+		{"the kubeconfig carries a proxy", func() {
+			kubeconfig("https://10.43.0.1:443", "socks5://127.0.0.1:1080", "")
+		}, line("VIOLATION", "pass", "pass", "pass", "pass", "pass", "pass"), 1},
+		{"the kubeconfig unreadable", func() {
+			rig.set("config.1.rc", "1")
+		}, line("UNCHECKED", "pass", "pass", "pass", "pass", "pass", "pass"), 2},
+		{"the API host's root serves something", func() {
+			rig.curlAnswer(apiRoot, "200", "0")
+		}, line("pass", "pass", "pass", "pass", "pass", "pass", "VIOLATION"), 1},
+		{"the API name unresolvable", func() {
+			rig.curlAnswer(apiGuide, "curl: (6) Could not resolve host", "6")
+		}, line("pass", "pass", "pass", "pass", "pass", "pass", "UNCHECKED"), 2},
+		{"the API guide unreachable", func() {
+			rig.curlAnswer(apiGuide, "curl: (28) Operation timed out", "28")
+		}, line("pass", "pass", "pass", "pass", "pass", "pass", "UNCHECKED"), 2},
 	} {
 		healthy()
 		tc.fault()
@@ -1147,21 +1189,29 @@ func TestVerifyDeployment_AllRunsEveryGate(t *testing.T) {
 			t.Errorf("%s: %q, exit %d; want %q, exit %d\n%s", tc.name, got, code, tc.wantLine, tc.wantCode, stderr)
 		}
 		calls := slices.Compact(slices.Sorted(slices.Values(rig.curlCalls())))
-		want := []string{custHealth, opRoot, opHealth}
+		want := []string{custHealth, opRoot, opHealth, apiGuide}
+		// The API host's root is asked only once its guide has answered (check_api_host).
+		if !strings.HasSuffix(tc.wantLine, "]=UNCHECKED") {
+			want = append(want, apiRoot)
+		}
 		slices.Sort(want)
 		if !slices.Equal(calls, want) {
 			t.Errorf("%s: curl was asked for %v, want %v (every gate runs)", tc.name, calls, want)
 		}
 		var kinds []string
 		for _, c := range rig.kubectlCalls() {
-			for _, k := range []string{"secret", "ingress", "exec"} {
+			for _, k := range []string{"secret", "ingress", "exec", "view"} {
 				if slices.Contains(c, k) {
 					kinds = append(kinds, k)
 				}
 			}
 		}
-		if !slices.Contains(kinds, "secret") || !slices.Contains(kinds, "exec") {
-			t.Errorf("%s: kubectl calls %v; want the operator-surface read and the db-role exec", tc.name, kinds)
+		if !slices.Contains(kinds, "secret") || !slices.Contains(kinds, "exec") || !slices.Contains(kinds, "view") {
+			t.Errorf("%s: kubectl calls %v; want the operator-surface read, the db-role exec and the kubeconfig-server "+
+				"config view", tc.name, kinds)
+		}
+		if _, err := os.Stat(filepath.Join(rig.dir, "tailscale.calls")); err == nil {
+			t.Errorf("%s: `all` called tailscale; the tailnet gate is not part of it", tc.name)
 		}
 	}
 }
