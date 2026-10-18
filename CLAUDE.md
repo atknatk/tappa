@@ -38,6 +38,8 @@ make gen           # templ + sqlc üretimi   ← .templ veya .sql değişince ZO
 make test          # go test -race ./...
 make check         # fmt + lint + test (CI'nin çalıştırdığı)
 make audit         # govulncheck + kırmızı çizgi taraması
+make build-sandbox # sandbox sunucusu (-tags sandbox; Dockerfile hedefi app-sandbox)
+make check-sandbox # -tags sandbox ile vet + staticcheck + etiketin değiştirdiği paketlerin testi
 ```
 
 `.templ` veya `db/queries/*.sql` düzenledikten sonra `make gen` çalıştırmadan
@@ -105,9 +107,14 @@ internal/webhook/endpoints/  sahibin tek uç noktası (M11 API-9): adres kuralı
 internal/egress/      SSRF-güvenli giden HTTP istemcisi (M11 API-9): dial anında izin listesi (IANA
                       kaydı birebir + düğüm/ingress listesi), Proxy nil, yönlendirme yok, 10 sn, gövde
                       okunmaz; sonuç yalnız kapalı sınıf + durum. Egress açıkken tek savunma (ADR 0028 §7).
+internal/sandbox/     sandbox simülasyonu (M11 API-11): `POST /v1/sandbox/taps` gerçek dokunuş yolundan
+                      (SUN + atomik ctr + `tap.Decide`), `/v1` yazma koşucusunun TEK bağlantısında;
+                      sanal plaket yalnız `0053…` UID'li. YALNIZ `cmd/tappa/sandbox.go` (`//go:build
+                      sandbox`) import eder; ikizi `nosandbox.go` — prod derlemesinde yoktur (ADR 0028 §11).
+internal/db/virtualtags.go  sanal plaket izin listesi: sandbox'ta her çözümleme ve her eklemede gerçek
+                      NXP UID'si (`0x04…`) reddedilir; prod/dev'de kapalı (ADR 0028 §11).
+deploy/sandbox/       sandbox manifestleri — UYGULANMADI (alan adı yok); adımlar deploy/README.md.
   — aşağıdakiler HENÜZ YOK, M11'de doğacak (ADR 0027/0028) —
-internal/sandbox/     sandbox simülasyonu; YALNIZ `sandbox` build tag'li cmd dosyası import
-                      eder — prod derlemesinde yoktur (ADR 0028 §11).
 internal/db/holding.go  kapalı listedeki holding_* çağrıları, elle ve tipli (resolve.go
                       emsali); ayrı bir holding paketi yok (ADR 0027 §2).
 internal/domain/ledger/site.go  işverenin okuyucularında eş mekân satırını adlandırır ve
@@ -369,6 +376,8 @@ başlayan bir test durumu olmalı.
   aralığa** sınanır, dışı 400: pgx int64 ↔ `timestamptz` dönüşümünde uçlar sessizce sarar (200 + yanlış
   cevap), Postgres aralığını aşan değer 22008 → 503 olur (API-8, O-1).
 - Yorumlar *neden*i anlatır. Kodun ne yaptığını tekrar eden yorum yazma.
+- Ortam kapısı `cfg.IsHardened()` (prod ∨ sandbox) sorar; `IsProd` yoktur. Ürün kodunda derleme
+  kısıtı yalnız sandbox ayrımının dört dosyasında — yenisi karar ister (`TestProductCode_CarriesNoBuildConstraint`).
 - Türkçe karakter kodda yok: identifier, log, hata mesajı, commit → İngilizce.
   Kullanıcıya görünen metinler ve bu repodaki dokümanlar Türkçe/İngilizce olabilir.
 
