@@ -99,6 +99,7 @@ internal/webhook/     K-19'un süreç içi "işi olan tenant'lar" kümesi ve iş
 internal/webhook/delivery/  K-19'un teslim işi (M11 API-10): kira (`FOR UPDATE SKIP LOCKED`, 60 sn),
                       HTTP işlem DIŞINDA, sonuç kira eşleşmesine koşullu; geri çekilme 1/5/30 dk ·
                       2/6 sa → `dead`; kapalı kapıda teslim bekler, ölmez; tur süre bütçeli (`RunBudget`).
+                      `delivered`/`dead` satırları 90 gün sonra işletmenin turunda silinir (T130; bekleyen asla).
 internal/punchwire/   punch olayının tel biçimi — `/v1/punches` öğesi ve webhook gövdesi aynı DTO.
 internal/webhook/endpoints/  sahibin tek uç noktası (M11 API-9): adres kuralı, `TAPPA_WEBHOOK_KEK` ile
                       mühürlü anahtar (bir kez gösterilir), ping, ping + "yeniden gönder" kovası
@@ -346,6 +347,10 @@ başlayan bir test durumu olmalı.
 - Zaman: DB'de her şey `timestamptz`, **UTC**. Yerel saate çevirme sadece render
   katmanında. Gece vardiyası bug'larının kaynağı budur.
 - Para/saat hesabı `float` ile yapılmaz.
+- Bir güvenlik ya da saklama kararının okuduğu zaman sütununu uygulama **yazmaz**; tek yazarı
+  tetikleyici ya da varsayılandır (`audit_log.at`, `webhook_deliveries.settled_at` — T130).
+- Toplu silmede parti sınırı `WITH … AS MATERIALIZED (… LIMIT n FOR UPDATE SKIP LOCKED) DELETE … USING`
+  ile kurulur: `id IN (SELECT … LIMIT n …)` alt sorgu yeniden tarandığında n'yi aşar (T130'da ölçüldü: 105/100).
 - Migration geri alınabilir olmalı (`-- +goose Down` dolu).
 - Yeni sorgu = `db/queries/*.sql` + `make sqlc`. Handler içine ham SQL yazılmaz.
 - **Sıcak bir tabloya** (ör. `employees`) indeks, Down yürüyüşüne giren bir migration'a değil **ayrı bir

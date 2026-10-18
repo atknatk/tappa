@@ -1692,6 +1692,16 @@ yazılır.
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 
+### 2026-10-18 (29. oturum, elli altıncı yarı) — ✅ **T130 DONE** (teslim satırları 90 gün; iki mercek 2. turda ONAY) · 🚀 API-11 kod kısmı canlıda (`main` = `a92df8c`)
+
+- **API-11 deploy'u:** `367f190` CI kırmızıydı — `TestPlaquesDB_NoShippedTagQuerySelectsTheKey` `tags.sql`'i 10 sorguyla tutuyordu, fix 1'in `LockSandboxPlaque`'ı 11. (sorgu `tags` satırı okumaz) → ayrı worktree'de `a92df8c` (yapıcı ana worktree'deydi), dal CI yeşil → `main` `7c3018f..a92df8c` → deploy 39153594546 yeşil, imaj `sha-a92df8c4d3fb`; prod `/v1/sandbox/openapi.json` 404, rehber 200. `m11-api`'ye merge `89f9cf1`. Ders: sorgu ekleyen tur o `.sql`'i okuyan bütün pinleri koşar.
+- **T130** (`d8835f9`, `9b11ee0`, `ba70558`, `47de2d5`): migration **00058** (`settled_at` — yalnız tetikleyici yazar, pending'den çıkınca; yeniden gönderim temizler; `DEFAULT now()` → var olan satırlar migration anından 90 gün; `tappa_app`'e sütunsuz DELETE + RESTRICTIVE DELETE politikası: kendi tenant ∧ `delivered`/`dead` ∧ 90 gün) + **00059** (temizlik indeksi; ~1,5 M satır üstünde `CONCURRENTLY` — README eşiği). `DeleteSettledWebhookDeliveries` `WITH … MATERIALIZED` partisi 100, K-19 turunda claim'den önce, süreç × işletme başına saatte en çok bir; hata teslimi durdurmaz. Panel/rehber (EN+TR)/OpenAPI `x-delivery-retention-days` 90 günü sabitten söyler; günlük ve "Send again now" 90 günden eskiyi göstermez. `DeleteExpiredIdempotency` de `MATERIALIZED` biçimine geçti (zorlanmış planda 105/100 aşımı; yanlış satır silmiyordu).
+- **Denetim izi:** 1. tur iki mercek RED — aynı ORTA: `AFullBatch…` testi her yaşlandırmada owner bağlantısı açıp tutuyordu → `max_connections=100`'de 53300, paralel koşuda başka paketleri de düşürüyordu (11 kararın hepsi ONAY; politika kod dışından sınandı: bekleyen/kiralı/başka tenant silinmez). Düzeltme `ba70558` (test başına tek sahip havuzu, tepe 97 → 3; R5b muafiyeti yalnız Down; kararsız Down/Up testine TRUNCATE; politika pini tam eşitlik; iki planlı parti testi; OpenAPI "N days" pini; DPA cümlesi). 2. tur iki yeni mercek ONAY → DÜŞÜK turu `47de2d5` (lexer `/* */` → boşluk; muafiyet 00058'in şeklini sha256'lı gövde beyaz listesiyle tutar, PUBLIC/dinamik SQL FAIL; `apiidempotency.sql` kemer testi; **T137** genel redline sınırı backlog'da).
+- **Migration numaraları:** T130 00058 + 00059 aldı → **OP-15 artık `00060`** (başka oturum; `m10-a1` önce `main`'e rebase).
+- **CLAUDE.md:** §3 teslim işine 90 gün; §6 karar/saklama zaman sütununu uygulama yazmaz; toplu silmede `MATERIALIZED` partisi.
+
+**🔴 DEVAM PLANI:** push → CI → prod sakin → `main` (migration 00058+00059) → prod'da goose 59 + `settled_at` ölç · **OPS-2** (Tailscale OAuth + Harbor + `production` Environment; kullanıcıdan iki Harbor robot secret'ı) · T124 · T125 (not-only) · kullanıcı ölçümleri · T137 · OP-15 → 00060 + API-4b (başka oturum) · sandbox alan adı (ertelendi).
+
 ### 2026-10-18 (29. oturum, elli beşinci yarı) — ✅ **API-11 kod kısmı DONE** (sandbox ikilisi + simülasyon; alan adı ertelendi; iki mercek 2. turda ONAY) · 🚀 OPS-1 canlıda (`main` = `7c3018f`)
 
 - **OPS-1 deploy'u** (koşu 39129284064): 28/28 yeşil; yeni sıra rollout → db-role → host yönlendirme → host kapıları; kapı `tailscale 1.94.2, … tags tag:ci, ephemeral absent`; prod imajı `sha-7c3018f38d65`.
