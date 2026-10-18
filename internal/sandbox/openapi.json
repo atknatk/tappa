@@ -1,0 +1,148 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Taptime integration API -- sandbox additions",
+    "version": "1",
+    "description": "What the Taptime SANDBOX adds to the integration API, and nothing else. Every other path, header, limit and rule is the integration API's own: GET /v1/openapi.yaml on the same host (the shipped document), and the integration guide's section 1.4. The sandbox runs its own build of Taptime on its own domain with its own database: no production business, key or punch is in it, and a production key is refused there (401) as a sandbox key is refused in production.\n\nKeys: a sandbox key starts with `tt_test_` and is issued by the business's owner in the sandbox's Taptime panel. The API of a sandbox business is enabled by the sandbox's Taptime operator, exactly as in production: until then a valid key is 403 `api_disabled`.\n\nThe simulation: a sandbox has no wall and no phone, so `POST /v1/sandbox/taps` stands in for the plaque's touch and the employee's phone. From the plaque on, the tap is Taptime's own: the plaque's signed URL is checked, its counter is advanced atomically, the decision rules decide, the record is written, and a punch it makes is in the feed and is sent to the webhook like any other.",
+    "x-shipped-document": "/v1/openapi.yaml"
+  },
+  "servers": [
+    {
+      "url": "https://{sandboxHost}",
+      "variables": {
+        "sandboxHost": {
+          "default": "sandbox-api.invalid",
+          "description": "The sandbox's API host. Its domain is not chosen yet."
+        }
+      }
+    }
+  ],
+  "security": [{"bearer": []}],
+  "paths": {
+    "/v1/sandbox/openapi.json": {
+      "get": {
+        "operationId": "getSandboxOpenAPI",
+        "summary": "This document.",
+        "description": "Served without a key, metered by the client address, like /v1/openapi.yaml. It takes no query parameter.",
+        "security": [],
+        "x-error-codes": ["invalid_request", "body_too_large", "rate_limited"],
+        "responses": {
+          "200": {"description": "The OpenAPI 3.1 document of the sandbox's additions.", "content": {"application/json": {"schema": {"type": "object"}}}},
+          "400": {"$ref": "#/components/responses/Problem"},
+          "429": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/v1/sandbox/taps": {
+      "post": {
+        "operationId": "simulateTap",
+        "summary": "Simulate an employee's touch of a location's plaque.",
+        "description": "The employee (`employeeRef`, of the key's business) touches the plaque of the location (`locationRef`): the key's business's own location, or -- the group touch -- a location of another company of its group. `channel` is `nfc` (the plaque's signed read) or `qr` (the printed code, which carries no proof of the moment and is approved only on an address match).\n\nThe plaque is the location's virtual plaque. A location of the key's own business gets one on its first simulated tap; a partner company's location has one once that company has simulated a tap there itself -- the sandbox never writes into another business.\n\nWhere: the request's own address is the tap's address. A location created through the API has no address ranges or coordinate until its owner sets them in the panel, so its taps are recorded as `flag` and wait for approval; set the venue's address range to your caller's address to see `ok`. There is no GPS. Who: the employee is taken as tapping from their own phone -- whether they activated is not asked.\n\nEvery simulated tap is recorded, with the verdict the rules give it: `ok`, `flag`, `reject` (a lost or retired plaque, a deactivated employee, a replayed counter) or `ignored` (the same person again within 60 seconds). An `ok` tap is a punch at once (`inFeed`); a flagged one becomes a punch, under the same `punchId`, when the employer approves it.\n\nIdempotency-Key: a retry with the same key and the same body returns the first tap's answer. While the business is suspended this endpoint is 403 `tenant_suspended`.",
+        "x-error-codes": ["invalid_request", "body_too_large", "unauthorized", "api_disabled", "tenant_suspended", "not_found", "idempotency_key_reused", "validation_failed", "rate_limited", "unavailable"],
+        "parameters": [
+          {"name": "Idempotency-Key", "in": "header", "required": false, "schema": {"type": "string", "minLength": 1, "maxLength": 255, "pattern": "^[\\x21-\\x7E]+$"}}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/SimulatedTap"},
+              "examples": {
+                "groupTouch": {
+                  "summary": "A KM employee touches KF's plaque at Valletta.",
+                  "value": {"employeeRef": "E-1042", "locationRef": "KF-VLT", "channel": "nfc"}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The tap was recorded.",
+            "headers": {"Idempotent-Replayed": {"description": "`true` on a replay.", "schema": {"type": "string", "enum": ["true"]}}},
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SimulatedTapResult"}}}
+          },
+          "400": {"$ref": "#/components/responses/Problem"},
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "404": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"},
+          "429": {"$ref": "#/components/responses/Problem"},
+          "503": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearer": {"type": "http", "scheme": "bearer", "description": "A sandbox integration key, `tt_test_` followed by 43 base64url characters."}
+    },
+    "responses": {
+      "Problem": {
+        "description": "A refusal, in the shipped document's `Error` shape.",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+      }
+    },
+    "schemas": {
+      "SimulatedTap": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["employeeRef", "locationRef", "channel"],
+        "properties": {
+          "employeeRef": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,63}$", "description": "The employee's external reference, in the key's business."},
+          "locationRef": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,63}$", "description": "The location's external reference: the key's business's, else one company's of its group."},
+          "channel": {"type": "string", "enum": ["nfc", "qr"]}
+        }
+      },
+      "SimulatedTapResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["punchId", "inFeed", "verdict", "direction", "trust", "rule", "channel", "occurredAt", "employee", "location", "tagId"],
+        "properties": {
+          "punchId": {"type": "string", "description": "`pch_` and a UUID: the id the feed and the webhook carry for this tap when it is a punch."},
+          "inFeed": {"type": "boolean", "description": "Whether the tap is a punch now (an `ok` tap)."},
+          "verdict": {"type": "string", "enum": ["ok", "flag", "reject", "ignored"]},
+          "direction": {"type": ["string", "null"], "enum": ["in", "out", null]},
+          "trust": {"type": ["integer", "null"], "description": "20 + 50 (address matched) + 30 (GPS matched). Null for a touch at a partner company's location: it was judged on that company's evidence, which is not shown."},
+          "rule": {"type": ["string", "null"], "description": "The decision rule that decided, e.g. `base:no-evidence-review`. Null for a touch at a partner company's location."},
+          "channel": {"type": "string", "enum": ["nfc", "qr"]},
+          "occurredAt": {"type": "string", "format": "date-time"},
+          "employee": {"$ref": "#/components/schemas/Ref"},
+          "location": {"$ref": "#/components/schemas/Ref"},
+          "tagId": {"type": "string", "description": "`tag_` and the virtual plaque's UID."}
+        }
+      },
+      "Ref": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "externalRef"],
+        "properties": {
+          "id": {"type": "string"},
+          "externalRef": {"type": "string"}
+        }
+      },
+      "Error": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "message", "details"],
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": ["invalid_request", "body_too_large", "unauthorized", "api_disabled", "tenant_suspended", "not_found", "email_unavailable", "already_activated", "idempotency_key_reused", "validation_failed", "timezone_mismatch", "rate_limited", "deactivation_budget_exceeded", "unavailable"]
+          },
+          "message": {"type": "string"},
+          "details": {"$ref": "#/components/schemas/ErrorDetails"}
+        }
+      },
+      "ErrorDetails": {
+        "type": "object",
+        "description": "The shipped document's ErrorDetails, with the simulation's own values below; every key is optional.",
+        "properties": {
+          "field": {"type": "string", "enum": ["employeeRef", "locationRef", "channel"]},
+          "reason": {"type": "string", "enum": ["required", "type", "invalid", "unknown_field", "duplicate_field", "malformed_json", "invalid_utf8", "unknown_employee", "unknown_location", "no_plaque"]},
+          "allowed": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    }
+  }
+}

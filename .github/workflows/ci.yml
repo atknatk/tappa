@@ -35,7 +35,14 @@ jobs:
     # then ~0:42 of audit -- 8:15 + 20:00 = ~28:15 at worst, under 35 with ~6:45 to
     # spare. Under the old 20 the job itself would have been cancelled once the slowest
     # package passed ~11:45, before go's own limit could speak.
-    timeout-minutes: 35
+    # 35 -> 45 with M11 API-11's `make check-sandbox` step after `make check`: vet and
+    # staticcheck of the tree with the tag, then the three tagged packages' -race tests, whose
+    # slowest is cmd/tappa (measured locally 2026-10-18: 168 s for the three alone, against
+    # 711 s for the whole untagged suite; on the runner's 4 CPUs assume ~2x). The step's own
+    # `go test -timeout=20m` is per package, so its worst case is cmd/tappa at 20:00 -- but the
+    # two worst cases cannot both happen in one run without a hang, and a hang is what the dump
+    # is for: 28:15 + ~8:00 for the sandbox step's ordinary run = ~36:15, under 45.
+    timeout-minutes: 45
     env:
       # `make build` statik ikili icin CGO_ENABLED=0 ister ama CI `make build`
       # KOSMAZ. CI'nin kostugu `make check` -> `go test -race` kosar ve -race,
@@ -234,6 +241,16 @@ jobs:
         # Son adim, `make gen`/`make fmt` ciktisinin (uretilen dosyalar) commit
         # edildigini de dogrular — commit edilmemisse CI kirmizi (istenen).
         run: make check
+
+      - name: The sandbox build (make check-sandbox)
+        # M11 API-11 (ADR 0028 §11): the sandbox server is the same source built with `-tags
+        # sandbox`, and a file only that build compiles (cmd/tappa/sandbox.go, internal/sandbox,
+        # internal/config/build_sandbox.go) is invisible to `make check`. This step vets and
+        # staticchecks the WHOLE tree with the tag and runs the tests of the packages the tag
+        # changes (Makefile, SANDBOX_TEST_PKGS -- the list and its reason are there; cmd/tappa's
+        # TestCI_RunsVetAndTestWithTheSandboxTag recomputes it from the tree and reads this step).
+        # After `make check`, on the same database: the suites share no state the order breaks.
+        run: make check-sandbox
 
       - name: make audit (govulncheck + redline-check)
         # govulncheck@v1.6.0 (pinli) + scripts/redline-check.sh (kirmizi cizgi

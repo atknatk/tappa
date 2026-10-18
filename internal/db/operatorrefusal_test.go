@@ -1117,7 +1117,7 @@ func argumentsStayBound(t *testing.T, ctx context.Context, name string, p *pgxpo
 // pinLogParameters, and NewOperatorDB passes nil); what lies outside them is code review's.
 //
 // THE CUSTOMER POOL IS MEASURED IN BOTH ENVIRONMENTS (2g, the 4th closing auditor: a
-// branch on cfg.IsProd() in newDB re-parsed the DSN with simple_protocol and every test
+// branch on cfg.IsHardened() in newDB re-parsed the DSN with simple_protocol and every test
 // -- all run in dev -- stayed green). In production env the role gate refuses a
 // privileged role, and the development DATABASE_URL signs in as tappa_app, which it
 // accepts (role_test.go measures the same role opening in production).
@@ -1134,7 +1134,7 @@ func TestPools_KeepArgumentsOutOfTheStatementText(t *testing.T) {
 		if err != nil {
 			t.Fatalf("customer pool, env %s: %v", env, err)
 		}
-		if (env == config.EnvProd) != (&config.Config{Env: env}).IsProd() {
+		if (env == config.EnvProd) != (&config.Config{Env: env}).IsHardened() {
 			t.Fatalf("PREMISE: env %s does not read as production=%v", env, env == config.EnvProd)
 		}
 		argumentsStayBound(t, ctx, "customer ("+env+")", d.pool)

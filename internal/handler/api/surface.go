@@ -24,6 +24,7 @@ import (
 	"log/slog"
 	"net/http"
 	"runtime/debug"
+	"slices"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -91,6 +92,9 @@ type Config struct {
 	// The buckets; zero means the shipped value. A test shrinks them.
 	AddressLimit, KeyLimit   int
 	AddressPeriod, KeyPeriod time.Duration
+	// Extensions add routes to /v1 (extension.go): the sandbox build's simulation and nothing else.
+	// The production build passes none.
+	Extensions []Extension
 }
 
 // Surface is the /v1 surface.
@@ -107,6 +111,7 @@ type Surface struct {
 	budget     int
 	byAddress  *httpx.Limiter
 	byKey      *httpx.Limiter
+	extensions []Extension
 	log        *slog.Logger
 	// testRoutes are routes a test mounts into the authenticated group (export_test.go). nil in
 	// production: the shipped surface has no route a test invented.
@@ -135,6 +140,8 @@ func New(c Config) (*Surface, error) {
 		return nil, errors.New("api: nil punch feed")
 	case c.Directory == nil:
 		return nil, errors.New("api: nil directory")
+	case slices.Contains(c.Extensions, nil):
+		return nil, errors.New("api: nil extension")
 	}
 	log := c.Log
 	if log == nil {
@@ -155,8 +162,9 @@ func New(c Config) (*Surface, error) {
 	return &Surface{
 		host: c.Host, keys: c.Keys, writes: c.Writes, suspension: c.Suspension, work: c.Work, locations: c.Locations,
 		employees: c.Employees, punches: c.Punches, directory: c.Directory, budget: pick(c.DeactivationBudget, tenant.DefaultDeactivationBudget), log: log,
-		byAddress: httpx.NewLimiter(pick(c.AddressLimit, addressLimit), pickd(c.AddressPeriod, addressPeriod)),
-		byKey:     httpx.NewLimiter(pick(c.KeyLimit, keyLimit), pickd(c.KeyPeriod, keyPeriod)),
+		byAddress:  httpx.NewLimiter(pick(c.AddressLimit, addressLimit), pickd(c.AddressPeriod, addressPeriod)),
+		byKey:      httpx.NewLimiter(pick(c.KeyLimit, keyLimit), pickd(c.KeyPeriod, keyPeriod)),
+		extensions: slices.Clone(c.Extensions),
 	}, nil
 }
 
@@ -175,6 +183,9 @@ func (s *Surface) Mount(r chi.Router) {
 			r.Get(openAPIPath, s.openAPI)
 			r.Get(guidePath, s.serveGuide(guideEnglish))
 			r.Get(guideTRPath, s.serveGuide(guideTurkish))
+			for _, e := range s.extensions {
+				e.MountPublic(r)
+			}
 		})
 		r.Group(func(r chi.Router) {
 			r.Use(s.authenticate, s.writesTakeNoQuery)
@@ -186,6 +197,9 @@ func (s *Surface) Mount(r chi.Router) {
 			r.Post(employeeResend, s.resendActivation)
 			r.Get(punchesPath, s.listPunches)
 			r.Get(directoryPath, s.listDirectory)
+			for _, e := range s.extensions {
+				e.MountAuthenticated(r, s.write)
+			}
 			if s.testRoutes != nil {
 				s.testRoutes(r)
 			}

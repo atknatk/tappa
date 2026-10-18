@@ -105,6 +105,27 @@ USER 65532:65532
 ENTRYPOINT ["/goose"]
 CMD ["up"]
 
+# ---------------------------------------------------------------- app-sandbox --
+# THE SANDBOX'S SERVER (M11 API-11, ADR 0028 §11, K-3): the same source, built by `make
+# build-sandbox` (-tags sandbox), so it contains internal/sandbox -- the tap simulation -- and its
+# internal/config starts only with TAPPA_ENV=sandbox. Its own stage and its own target, so the
+# production image cannot contain it: `docker build --target app` never runs this stage, and
+# scripts/verify-image.sh refuses a production image whose binary carries the tag (and a sandbox
+# image whose binary does not). Ordered BEFORE `app` for the reason `migrate` is: a plain `docker
+# build` with no --target must produce the production server.
+#
+# deploy.yml does not build or push it: the sandbox's deploy path comes with its domain (deploy/README.md,
+# "Sandbox (API-11)").
+FROM build AS sandbox-build
+RUN make build-sandbox
+
+FROM scratch AS app-sandbox
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=sandbox-build /src/bin/tappa-sandbox /tappa
+USER 65532:65532
+EXPOSE 8080
+ENTRYPOINT ["/tappa"]
+
 # ------------------------------------------------------------------------ app --
 FROM scratch AS app
 

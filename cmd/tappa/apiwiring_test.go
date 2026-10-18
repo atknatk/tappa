@@ -17,7 +17,7 @@ import (
 // spells it (no handler test can see it -- each builds its own surface):
 //
 //	the prefix   the command calls apikey.NewAuthenticator exactly ONCE, in openAPISurface, with
-//	             apikey.LivePrefix and cfg.APIKeyHMACKey -- the two arguments
+//	             apiKeyPrefix (the build's: TestAPIKeyPrefix_IsTheBuilds) and cfg.APIKeyHMACKey -- the two arguments
 //	             TestAPIKeyWiring_TheKeysServiceReachesThePanel pins on the panel's apikey.NewKeys, so a
 //	             key the panel issues is a key the chain accepts (plan §5, API-3's hand-over; API-11
 //	             changes both together)
@@ -89,8 +89,8 @@ func TestAPIWiring_TheChainTakesThePanelsPrefixAndTheOneWorker(t *testing.T) {
 	if len(auths) != 1 || len(calls(open, "apikey", "NewAuthenticator")) != 1 {
 		t.Fatalf("apikey.NewAuthenticator is called %d times in api.go, want once, in openAPISurface", len(auths))
 	}
-	if a := auths[0].Args; len(a) < 2 || !isSel(a[0], "apikey", "LivePrefix") || !isSel(a[1], "cfg", "APIKeyHMACKey") {
-		t.Fatal("the chain is not built with apikey.LivePrefix and cfg.APIKeyHMACKey -- the panel's two arguments")
+	if a := auths[0].Args; len(a) < 2 || !isIdent(a[0], "apiKeyPrefix") || !isSel(a[1], "cfg", "APIKeyHMACKey") {
+		t.Fatal("the chain is not built with apiKeyPrefix and cfg.APIKeyHMACKey -- the panel's two arguments")
 	}
 	news := calls(apiFile, "api", "New")
 	if len(news) != 1 {

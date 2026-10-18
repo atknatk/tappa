@@ -6,6 +6,7 @@ SHELL := /bin/bash
 
 MODULE      := github.com/atknatk/tappa
 BIN         := bin/tappa
+BIN_SANDBOX := bin/tappa-sandbox
 TOOLS       := .tools
 TAILWIND    := $(TOOLS)/tailwindcss
 
@@ -93,6 +94,14 @@ dev: gen css
 ## build: tek binary (static gomulu)
 build: gen css
 	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o $(BIN) ./cmd/tappa
+
+## build-sandbox: sandbox ikilisi (-tags sandbox; ADR 0028 §11) — yalniz TAPPA_ENV=sandbox ile baslar
+# `build` ile ayni tarif, tek farki -tags sandbox ve ayri cikti: internal/sandbox (POST
+# /v1/sandbox/taps) yalniz bu ikilide vardir (cmd/tappa TestPackaging_ProdBuildHasNoSandboxPackage /
+# TestPackaging_SandboxBuildHasIt). Dockerfile'in app-sandbox hedefi bunu kosar; prod imaji (`app`)
+# hic kosmaz. Ayri $(BIN_SANDBOX): yerelde prod ikilisinin ustune yazmasin.
+build-sandbox: gen css
+	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -tags sandbox -o $(BIN_SANDBOX) ./cmd/tappa
 
 # ---------------------------------------------------------------- database --
 ## migrate: bekleyen migration'lari uygula
@@ -265,6 +274,20 @@ require-db-env:
 # this value. test-short and cover are not CI paths and keep go's default.
 test: require-db-env
 	go test -race -count=1 -timeout=20m ./...
+
+## check-sandbox: sandbox derlemesi (-tags sandbox; ADR 0028 §11) — vet + staticcheck tum agac, test etikete bagli paketler
+# NEDEN TUM SUIT DEGIL: etiket yalniz SANDBOX_TEST_PKGS'teki paketlerin derlemesini degistirir —
+# //go:build sandbox ya da !sandbox tasiyan her dosya bu paketlerdedir (internal/config'in derleme
+# gercegi, cmd/tappa'nin iki yarisi) ve internal/sandbox yalniz sandbox ikilisinde vardir. Geri kalan
+# her paket iki derlemede BAYT BAYT ayni koddur; onlari ikinci kez kosmak bilgi degil sure ekler
+# (olcum: ADR 0028 "API-11 uygulama notu"). vet ve staticcheck ise TUM agaci etiketle derler: etiketli
+# bir dosyanin kirdigi her import burada gorunur. cmd/tappa TestCI_RunsVetAndTestWithTheSandboxTag
+# listeyi agactan yeniden hesaplar: etiketli dosyasi olup burada olmayan bir paket kirmizidir.
+SANDBOX_TEST_PKGS := ./internal/config/... ./internal/sandbox/... ./cmd/tappa/...
+check-sandbox: require-db-env
+	go vet -tags sandbox ./...
+	go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 -tags sandbox ./...
+	go test -race -count=1 -timeout=20m -tags sandbox $(SANDBOX_TEST_PKGS)
 
 ## test-short: gelistirici ic dongusu — SIMULE EDILEN GUN + BCRYPT ORNEKLEMI atlanir
 # NEDEN IKI HEDEF VAR. Olculdu (-race -count=1, tek makine). Sayilar ARALIKTIR;
@@ -482,6 +505,6 @@ hooks:
 	git config core.hooksPath scripts/git-hooks
 	@echo "hooks: core.hooksPath=$$(git config --get core.hooksPath)"
 
-.PHONY: help tools gen templ sqlc css up down dev build migrate migrate-down \
+.PHONY: help tools gen templ sqlc css up down dev build build-sandbox check-sandbox migrate migrate-down \
         migrate-status migrate-new seed db-reset simulate-day test test-short \
         cover lint fmt check audit hooks require-db-env android android-test

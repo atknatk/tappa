@@ -354,6 +354,8 @@ func TestDBRows_AMisSizedEnvelopeIsRefusedBeforeTheDatabaseIsTouched(t *testing.
 // countingDB counts WithTenant calls and runs nothing.
 type countingDB struct{ calls int }
 
+func (c *countingDB) AdmitTagUID(string) error { return nil }
+
 func (c *countingDB) WithTenant(_ context.Context, _ uuid.UUID, _ db.TxFunc) error {
 	c.calls++
 	return nil // the callback is deliberately NOT run: there is no tx to give it

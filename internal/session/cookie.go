@@ -127,13 +127,13 @@ type Cookies struct {
 // constructor is Secure (see the type comment, and it is tested). The gap is
 // narrower and worth naming precisely — a CONSTRUCTED but wrong Config is
 // believed. In production the remaining defence is operational: set
-// TAPPA_ENV=prod. config.IsProd carries the same note from its side, so neither
+// TAPPA_ENV=prod. config.IsHardened carries the same note from its side, so neither
 // file leans on the other to close the hole.
 func NewCookies(cfg *config.Config) Cookies {
 	if cfg == nil {
 		return Cookies{}
 	}
-	if cfg.IsProd() {
+	if cfg.IsHardened() {
 		return Cookies{}
 	}
 	// The single relaxation in the codebase: non-prod AND not https.

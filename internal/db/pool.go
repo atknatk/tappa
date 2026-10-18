@@ -27,6 +27,9 @@ type DB struct {
 	// stored rather than re-queried so the boot warning costs no second round trip
 	// and cannot read a different answer than the gate did.
 	role RoleFacts
+	// virtualTagsOnly is TAPPA_ENV=sandbox: the pool resolves and admits only virtual plaques
+	// (virtualtags.go; ADR 0028 §11). Set by newDB from the configuration, never after.
+	virtualTagsOnly bool
 }
 
 // New builds the pool from cfg.DatabaseURL, verifies connectivity with a ping,
@@ -41,7 +44,7 @@ type DB struct {
 // POINT (M8-04, moved here 2026-08-19). It used to live in cmd/tappa's run(),
 // two statements after the db.New call, guarded by a test that parsed main.go's
 // AST looking for the identifiers `Role` and `rlsRoleRefusal`. Measured: reducing
-// the call to `_ = rlsRoleRefusal(role, cfg.IsProd())` left the gate completely
+// the call to `_ = rlsRoleRefusal(role, cfg.IsHardened())` left the gate completely
 // dead and BOTH tests green — the AST scan saw the identifiers and never asked
 // whether the returned error reached a return statement. ADR 0002's own principle
 // is that containment must rest on STRUCTURE rather than discipline; a gate a
@@ -65,7 +68,7 @@ type DB struct {
 // same change as this comment, so the sentence was wrong on the day it shipped.
 //
 // 🔴 THE CONCLUSION SURVIVES THE CORRECTION, AND THAT WAS MEASURED SEPARATELY: every
-// other call site leaves Env empty, so IsProd() is false and the deliberately-
+// other call site leaves Env empty, so IsHardened() is false and the deliberately-
 // privileged pools the red-line suite needs — internal/db/rls_test.go's ownerDB,
 // internal/domain/signup's ownerData, internal/domain/tenant's owner — still open
 // with the gate live. Adding a db.AllowPrivilegedRole() option today would ship an
@@ -113,7 +116,7 @@ func newDB(ctx context.Context, cfg *config.Config, before func(context.Context,
 		pool.Close()
 		return nil, fmt.Errorf("db: ping: %w", err)
 	}
-	d := &DB{pool: pool}
+	d := &DB{pool: pool, virtualTagsOnly: cfg.Env == config.EnvSandbox}
 	if err := d.requireFeedTimeouts(ctx); err != nil {
 		pool.Close()
 		return nil, err
@@ -123,7 +126,7 @@ func newDB(ctx context.Context, cfg *config.Config, before func(context.Context,
 		pool.Close()
 		return nil, err
 	}
-	if err := roleRefusal(facts, cfg.IsProd()); err != nil {
+	if err := roleRefusal(facts, cfg.IsHardened()); err != nil {
 		pool.Close()
 		return nil, err
 	}

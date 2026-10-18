@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Tappa -- the pre-push gate on a built server image (M8-02).
 #
-# Usage: scripts/verify-image.sh <image-ref> <expected-full-sha>
+# Usage: scripts/verify-image.sh <image-ref> <expected-full-sha>              the production server
+#        scripts/verify-image.sh --sandbox <image-ref> <expected-full-sha>    the sandbox server
+#        scripts/verify-image.sh --migrate <image-ref>                        the migration image
+#        scripts/verify-image.sh --binary-tags prod|sandbox <binary>          criterion 6 alone, on a
+#                                                                             local binary (the test)
 #
 # 🔴 WHY THIS IS A FILE AND NOT EIGHT LINES INSIDE deploy.yml, which is where it
 # started. The first version lived in the workflow and was WRONG in a way nothing
@@ -34,9 +38,13 @@
 #                                                   be able to migrate)
 #   5. the image runs as a non-root uid            (deploy/k8s/20-app.yaml pins the
 #                                                   same uid; this is the other half)
+#   6. the build's tags are the image's            (M11 API-11, ADR 0028 §11: the
+#                                                   production server carries NO `sandbox`
+#                                                   tag -- the simulation is not in it -- and
+#                                                   the sandbox server, --sandbox, carries it)
 set -euo pipefail
 
-image=${1:?usage: verify-image.sh <image-ref> <expected-full-sha> | verify-image.sh --migrate <image-ref>}
+image=${1:?usage: verify-image.sh [--sandbox] <image-ref> <expected-full-sha> | verify-image.sh --migrate <image-ref> | verify-image.sh --binary-tags prod|sandbox <binary>}
 
 fail=0
 say()  { printf '  %-52s %s\n' "$1" "$2"; }
@@ -54,6 +62,50 @@ non_root() {
     *)                    say "image User" "$user" ;;
   esac
 }
+
+# 6. THE BUILD'S TAGS (M11 API-11). `go version -m` prints the build settings the binary was compiled
+# with, `-tags=` among them when any tag was given (comma separated). The judgment reads the WORD
+# `sandbox` in that list, not the line: a production binary with any tag list that names sandbox is
+# refused, and a sandbox binary without it is refused. $1 is the stamps, $2 prod|sandbox.
+judge_tags() {
+  local tags has=0 t
+  tags=$(sed -n 's/^[[:space:]]*build[[:space:]]*-tags=//p' <<<"$1")
+  local IFS=,
+  for t in $tags; do
+    [[ $t == sandbox ]] && has=1
+  done
+  case $2 in
+    prod)
+      if (( has )); then
+        bad "the production server was built with the sandbox tag (-tags=$tags): it would contain the tap simulation (ADR 0028 §11)"
+      else
+        say "build tags" "${tags:-<none>} (no sandbox)"
+      fi ;;
+    sandbox)
+      if (( has )); then
+        say "build tags" "$tags (the sandbox build)"
+      else
+        bad "the sandbox server was built WITHOUT the sandbox tag (-tags=${tags:-<none>}): it would refuse TAPPA_ENV=sandbox and has no simulation"
+      fi ;;
+    *) bad "judge_tags: unknown build kind $2" ;;
+  esac
+}
+
+if [[ $image == --binary-tags ]]; then
+  kind=${2:?usage: verify-image.sh --binary-tags prod|sandbox <binary>}
+  bin=${3:?usage: verify-image.sh --binary-tags prod|sandbox <binary>}
+  judge_tags "$(go version -m "$bin")" "$kind"
+  if (( fail )); then echo "verify-image: FAILED" >&2; exit 1; fi
+  echo "verify-image: $bin carries the $kind build's tags"
+  exit 0
+fi
+
+kind=prod
+if [[ $image == --sandbox ]]; then
+  kind=sandbox
+  shift
+  image=${1:?usage: verify-image.sh --sandbox <image-ref> <expected-full-sha>}
+fi
 
 # 🔴 --migrate GATES THE OTHER ARTIFACT, WHICH WAS SHIPPING UNCHECKED (audit B7).
 # Only the server image was ever verified, and the server is the one that CANNOT
@@ -103,7 +155,7 @@ if [[ $image == --migrate ]]; then
   exit 0
 fi
 
-want=${2:?usage: verify-image.sh <image-ref> <expected-full-sha>}
+want=${2:?usage: verify-image.sh [--sandbox] <image-ref> <expected-full-sha>}
 
 cid=$(docker create "$image")
 docker cp "$cid":/tappa "$work/tappa" >/dev/null
@@ -149,10 +201,12 @@ else
   say "goose" "absent"
 fi
 
+judge_tags "$stamps" "$kind"
+
 non_root "$image"
 
 if (( fail )); then
   echo "verify-image: FAILED" >&2
   exit 1
 fi
-echo "verify-image: $image is traceable to $want, carries tzdata, has no migration tool and runs non-root"
+echo "verify-image: $image ($kind) is traceable to $want, carries tzdata, has no migration tool, carries the $kind build's tags and runs non-root"

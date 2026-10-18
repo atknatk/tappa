@@ -25,12 +25,14 @@ const (
 // no TAPPA_API_HOST, nothing: /v1 then answers 404 on every host (the router has no such route) and
 // the start-up line says so.
 //
-// 🔴 THE CHAIN IS BUILT WITH THE PANEL'S PREFIX. apikey.NewAuthenticator takes apikey.LivePrefix and
+// 🔴 THE CHAIN IS BUILT WITH THE PANEL'S PREFIX. apikey.NewAuthenticator takes apiKeyPrefix and
 // cfg.APIKeyHMACKey -- the two values run() hands apikey.NewKeys -- so a key the owner's panel issues
-// is a key this chain accepts, and a key of the other build's prefix (tt_test_, the sandbox's) is
-// refused by the shape check before the database (plan §5, API-3's hand-over). API-11 changes BOTH
-// to the build's prefix together; TestAPIWiring_TheChainTakesThePanelsPrefixAndTheOneWorker pins the
-// pair.
+// is a key this chain accepts, and a key of the other build's prefix is refused by the shape check
+// before the database (plan §5, API-3's hand-over). apiKeyPrefix is the BUILD's (M11 API-11):
+// apikey.LivePrefix (tt_live_) in nosandbox.go, apikey.SandboxPrefix (tt_test_) in sandbox.go;
+// TestAPIWiring_TheChainTakesThePanelsPrefixAndTheOneWorker pins the pair.
+//
+// extensions are the sandbox build's /v1 additions (sandboxExtensions) -- none in production.
 //
 // The suspension checkpoint is api.NoSuspensionColumn until OP-15 adds tenants.suspended_at
 // (internal/handler/api/suspension.go; API-4b).
@@ -50,13 +52,13 @@ const (
 //
 // GET /v1/directory (API-8) reads through a tenant.EmployeeDirectory built here the same way -- a read,
 // no trail (TestAPIWiring_TheDirectoryRunsThroughTheShippedSurface).
-func openAPISurface(cfg *config.Config, data *db.DB, work api.WorkNoticer, venues api.Locations, staff api.Employees, log *slog.Logger) (httpx.Mounter, error) {
+func openAPISurface(cfg *config.Config, data *db.DB, work api.WorkNoticer, venues api.Locations, staff api.Employees, extensions []api.Extension, log *slog.Logger) (httpx.Mounter, error) {
 	if cfg.APIHost == "" {
 		log.Info("the integration API is off: TAPPA_API_HOST is not set, so /v1 answers 404 on every host",
 			integrationAPIState, integrationAPIOff)
 		return nil, nil
 	}
-	chain, err := apikey.NewAuthenticator(apikey.LivePrefix, cfg.APIKeyHMACKey, data, data)
+	chain, err := apikey.NewAuthenticator(apiKeyPrefix, cfg.APIKeyHMACKey, data, data)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +76,7 @@ func openAPISurface(cfg *config.Config, data *db.DB, work api.WorkNoticer, venue
 	}
 	surface, err := api.New(api.Config{
 		Host: cfg.APIHost, Keys: chain, Writes: writes, Suspension: api.NoSuspensionColumn{}, Work: work, Locations: venues,
-		Employees: staff, Punches: punches, Directory: directory, Log: log,
+		Employees: staff, Punches: punches, Directory: directory, Extensions: extensions, Log: log,
 	})
 	if err != nil {
 		return nil, err

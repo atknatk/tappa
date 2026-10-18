@@ -263,6 +263,11 @@ func TestNewRouter_NilConfigTrustsNothing(t *testing.T) {
 // one variable and reach the check it cares about.
 func setEnvForLoad(t *testing.T, env, trustedProxies string) {
 	t.Helper()
+	// The build decides which TAPPA_ENV values load (M11 API-11, config.envForBuild): a test of this
+	// file's dev and prod rules runs in the build that starts with them.
+	if config.SandboxBuild() != (env == config.EnvSandbox) {
+		t.Skipf("TAPPA_ENV=%s does not load in this build (sandbox %v); the other build runs this test", env, config.SandboxBuild())
+	}
 	key := base64.StdEncoding.EncodeToString(make([]byte, 32))
 	t.Setenv("DATABASE_URL", "postgres://app@localhost/tappa")
 	t.Setenv("DATABASE_MIGRATE_URL", "")

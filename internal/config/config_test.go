@@ -55,9 +55,9 @@ func setRequired(t *testing.T) {
 	for _, name := range mailVariables() {
 		t.Setenv(name, "")
 	}
-	t.Setenv("TAPPA_DEV_TOOLS", "") // off unless a test opts in
-	t.Setenv("TAPPA_ENV", "")       // -> default dev
-	t.Setenv("TAPPA_API_HOST", "")  // the integration API off (M11 API-4) unless a test opts in
+	t.Setenv("TAPPA_DEV_TOOLS", "")   // off unless a test opts in
+	t.Setenv("TAPPA_ENV", fixtureEnv) // unset -> default dev (the sandbox build: sandbox)
+	t.Setenv("TAPPA_API_HOST", "")    // the integration API off (M11 API-4) unless a test opts in
 }
 
 // otherKey is a valid 32-byte key that is NOT all zeroes, so it differs from the
@@ -296,6 +296,7 @@ func TestLoad_FreshnessRange(t *testing.T) {
 // to decide whether the session cookie carries Secure. A typo must be a startup
 // failure, not a silent downgrade to the base-URL heuristic.
 func TestLoad_EnvIsAClosedSet(t *testing.T) {
+	untaggedOnly(t)
 	t.Run("accepts every documented value", func(t *testing.T) {
 		for _, v := range []string{config.EnvDev, config.EnvStaging, config.EnvProd} {
 			setRequired(t)
@@ -307,7 +308,7 @@ func TestLoad_EnvIsAClosedSet(t *testing.T) {
 			if c.Env != v {
 				t.Fatalf("Env = %q, want %q", c.Env, v)
 			}
-			if got, want := c.IsProd(), v == config.EnvProd; got != want {
+			if got, want := c.IsHardened(), v == config.EnvProd; got != want {
 				t.Fatalf("TAPPA_ENV=%q IsProd() = %v, want %v", v, got, want)
 			}
 		}
@@ -353,6 +354,7 @@ func TestLoad_EnvIsAClosedSet(t *testing.T) {
 // TestResolveClientIP_DefaultRouteReturnsTheClientsOwnClaim; this test is about
 // the deployment never reaching that state in production.
 func TestLoad_TrustedProxiesDefaultRoute(t *testing.T) {
+	untaggedOnly(t)
 	// Every spelling that means "everybody", INCLUDING the ones that only mean it
 	// after the resolver is done with them. The last four are the audit's
 	// blocking finding: this test used to try /0 forms only, so a v4-mapped
@@ -470,6 +472,7 @@ func loadErr(t *testing.T) error {
 // answered it, so the message now names the closed set and the ADR — and it no longer
 // repeats the value (a value pasted into the wrong variable could be a credential).
 func TestLoad_ResetDeliveryIsAClosedSetAndFailsClosed(t *testing.T) {
+	untaggedOnly(t) // a flow set to email; the sandbox sends none (TestSandboxSettings_TheSandboxSendsNoEmail)
 	setRequired(t)
 
 	// Unset is the inert value.
@@ -604,6 +607,7 @@ func TestLoad_UnsetPreviousKEKIsNilNotEmptySlice(t *testing.T) {
 // simulator is off unless TAPPA_DEV_TOOLS=1, and setting it on any environment
 // but dev is a startup failure, not a silent on.
 func TestLoad_DevToolsIsAnExplicitDevOnlyOptIn(t *testing.T) {
+	untaggedOnly(t)
 	for _, tc := range []struct {
 		env, flag string
 		ok, want  bool
@@ -635,5 +639,46 @@ func TestLoad_DevToolsIsAnExplicitDevOnlyOptIn(t *testing.T) {
 		if c.DevTools != tc.want {
 			t.Errorf("env=%q flag=%q: DevTools=%v, want %v", tc.env, tc.flag, c.DevTools, tc.want)
 		}
+	}
+}
+
+// TestLoad_TheBuildDecidesTheSandboxValue (M11 API-11, ADR 0028 §11) through Load, in whichever build
+// runs it: the untagged build refuses TAPPA_ENV=sandbox before anything is dialled and loads every
+// other value of the set; the sandbox build loads TAPPA_ENV=sandbox -- hardened, both e-mail flows
+// off -- and refuses every other value, an unset one included. The binary-level twin, which runs
+// the two real artifacts, is cmd/tappa's TestConfig_UntaggedBinaryRefusesSandbox.
+func TestLoad_TheBuildDecidesTheSandboxValue(t *testing.T) {
+	load := func(env string) (*config.Config, error) {
+		setRequired(t)
+		t.Setenv("TAPPA_ENV", env)
+		return config.Load()
+	}
+	if !config.SandboxBuild() {
+		if _, err := load(config.EnvSandbox); err == nil || !strings.Contains(err.Error(), "built without the sandbox tag") {
+			t.Fatalf("an untagged build loaded TAPPA_ENV=sandbox: %v", err)
+		}
+		for _, env := range []string{"", config.EnvDev, config.EnvStaging, config.EnvProd} {
+			if _, err := load(env); err != nil {
+				t.Errorf("CONTROL: the untagged build refuses TAPPA_ENV=%q: %v", env, err)
+			}
+		}
+		return
+	}
+	c, err := load(config.EnvSandbox)
+	if err != nil {
+		t.Fatalf("the sandbox build refuses TAPPA_ENV=sandbox: %v", err)
+	}
+	if !c.IsHardened() || c.ResetDelivery != config.ResetDeliveryNone || c.InviteDelivery != config.InviteDeliveryPanel {
+		t.Errorf("the sandbox loaded as hardened=%v reset=%s invite=%s", c.IsHardened(), c.ResetDelivery, c.InviteDelivery)
+	}
+	for _, env := range []string{"", config.EnvDev, config.EnvStaging, config.EnvProd} {
+		if _, err := load(env); err == nil || !strings.Contains(err.Error(), "is the sandbox build") {
+			t.Errorf("the sandbox build loaded TAPPA_ENV=%q: %v", env, err)
+		}
+	}
+	setRequired(t)
+	t.Setenv("TAPPA_INVITE_DELIVERY", config.InviteDeliveryEmail)
+	if _, err := config.Load(); err == nil || !strings.Contains(err.Error(), "TAPPA_INVITE_DELIVERY must be panel") {
+		t.Errorf("the sandbox loaded with the invitation e-mailed: %v", err)
 	}
 }

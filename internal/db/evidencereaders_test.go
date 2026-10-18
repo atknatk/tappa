@@ -64,6 +64,8 @@ var evidenceReaders = map[string]evidenceReaderClass{
 	"InsertManualTransaction":       {"not-rendered", "", 0, "the writer (manual)"},
 	"InsertManualSiteTransaction":   {"not-rendered", "", 0, "the writer (manual at a peer's venue)"},
 	"InsertTransactionReview":       {"not-rendered", "", 0, "the review writer reads the decided row's verdict to refuse a non-flag"},
+	"GetTapOutcome": {"go-blank", "site_location_id", 0,
+		"the sandbox simulation's answer (M11 API-11): internal/sandbox's tapBodyOf blanks trust and the rule of a row at a partner venue; the verdict is the residue"},
 }
 
 // evidenceColumnRE names the columns a K-39 leak would be computed from.

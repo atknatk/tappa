@@ -40,6 +40,7 @@ func setEveryKeyDistinct(t *testing.T) {
 // MUTANT (measured): keysSeparation's inner loop restricted to pairs with an operator key (the
 // pre-API-3 rule) -> 13 of the 28 pairs load.
 func TestConfig_EqualEnvKeysRefuseToStart(t *testing.T) {
+	untaggedOnly(t)
 	t.Run("control: eight distinct keys load", func(t *testing.T) {
 		setEveryKeyDistinct(t)
 		c, err := config.Load()

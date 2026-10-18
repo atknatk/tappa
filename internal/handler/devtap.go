@@ -36,7 +36,7 @@ import (
 //  3. The handler refuses (404) on every request unless DevToolsEnabled(cfg).
 //
 // DevToolsEnabled is NOT "TAPPA_ENV is dev" alone, because an UNSET TAPPA_ENV
-// falls back to dev (internal/config, IsProd's note). It requires the explicit
+// falls back to dev (internal/config, IsHardened's note). It requires the explicit
 // TAPPA_DEV_TOOLS=1 opt-in (refused at startup outside dev) AND a loopback base
 // URL. And the minting itself needs a Verifier made with
 // sun.WithDevelopmentMinting, which checks the same config again.

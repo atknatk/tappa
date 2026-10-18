@@ -108,6 +108,9 @@ const (
 // (CLAUDE.md §7) — the same shape internal/audit declares for itself.
 type database interface {
 	WithTenant(ctx context.Context, tenantID uuid.UUID, fn db.TxFunc) error
+	// AdmitTagUID is the sandbox's insert door (internal/db/virtualtags.go; ADR 0028 §11): nil on
+	// every pool but a sandbox's, where only a virtual plaque's UID passes.
+	AdmitTagUID(uid string) error
 }
 
 // trail is the narrow slice of *audit.Recorder this file needs.
@@ -189,7 +192,7 @@ type unmarkedDetail struct {
 // runs in the server process, and internal/db/pool.go refuses a DSN whose role is a
 // superuser, holds BYPASSRLS, or owns an RLS table. ⚠️ §3.1's own qualifier belongs
 // here too — that refusal is PRODUCTION-only (roleRefusal returns nil unless
-// cfg.IsProd()), so a developer machine warns instead of refusing, and a round driven
+// cfg.IsHardened()), so a developer machine warns instead of refusing, and a round driven
 // over an owner DSN in development does not demonstrate the shipped behaviour.
 //
 // 🔴 WHAT THIS TYPE DOES NOT DO, named because the gap is the round's largest:
@@ -270,6 +273,12 @@ func (r *DBRows) InsertUnassigned(ctx context.Context, tenantID, adminID uuid.UU
 	// §4.7 reasoning as above: the message names a LENGTH, never a byte.
 	if appWrappedKey != nil && len(appWrappedKey) != sun.WrappedKeyLen {
 		return fmt.Errorf("encode: the wrapped app master key is %d bytes, the envelope is fixed at %d (ADR 0003 md. 4)", len(appWrappedKey), sun.WrappedKeyLen)
+	}
+	// THE SANDBOX'S INSERT DOOR (M11 API-11, ADR 0028 §11): a sandbox loads no real chip -- its
+	// plaques are virtual and internal/sandbox mints them -- so a real chip's UID is refused here,
+	// before a transaction opens. Every other deployment passes.
+	if err := r.data.AdmitTagUID(uidHex); err != nil {
+		return fmt.Errorf("encode: load plaque %s: %w", uidHex, err)
 	}
 
 	err := r.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {

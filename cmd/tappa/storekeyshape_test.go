@@ -305,21 +305,24 @@ var storeSurface = map[string]string{
 	// page of its employees: identities, refs, codes, names, the active flag. No e-mail, no bytes.
 	// The head's CreatedAt (the API-8 review, O-1/D-5): the business's creation instant, the lowest
 	// asOf a cursor may carry -- a timestamp, harmless.
-	"GetDirectoryHead":                 "(context.Context, uuid.UUID) (GetDirectoryHeadRow{AsOf time.Time; ApiCode *string; CreatedAt time.Time}, error)",
-	"ListDirectoryEmployees":           "(context.Context, ListDirectoryEmployeesParams{TenantID uuid.UUID; AfterAt time.Time; AfterID uuid.UUID; PageSize int32}) ([]ListDirectoryEmployeesRow{ID uuid.UUID; ExternalRef *string; EmployeeCode *string; FirstName *string; LastName *string; FullName string; Active bool; UpdatedAt time.Time}, error)",
-	"GetPunchFeedHead":                 "(context.Context, GetPunchFeedHeadParams{TenantID uuid.UUID; AfterSeq int64}) (GetPunchFeedHeadRow{LastSeq int64; NextSeq int64}, error)",
-	"GetPunchHistoryWindow":            "(context.Context, GetPunchHistoryWindowParams{AfterTime time.Time; AfterSeq int64; TenantID uuid.UUID; FromTime time.Time; ToTime time.Time; ScanSize int32; WindowSize int32}) (GetPunchHistoryWindowRow{Scanned int64; EndTime time.Time; EndSeq int64}, error)",
-	"GetRosterCursorAnchor":            "(context.Context, GetRosterCursorAnchorParams{TenantID uuid.UUID; ID uuid.UUID}) (string, error)",
-	"GetTagForTenant":                  "(context.Context, GetTagForTenantParams{TenantID uuid.UUID; Uid string}) (GetTagForTenantRow{Uid string; TenantID uuid.UUID; LocationID *uuid.UUID; LastCtr int32; Status string; RetiredAt *time.Time; ReplacedBy *string; CreatedAt time.Time; EncodedAt *time.Time}, error)",
-	"GetTenantAccount":                 "(context.Context, uuid.UUID) (GetTenantAccountRow{ID uuid.UUID; Name string; VatNumber string; BusinessType string; Timezone string; VatVerified *bool; VatCheckedAt *time.Time; CreatedAt time.Time}, error)",
-	"GetTenantActivationBrand":         "(context.Context, uuid.UUID) (GetTenantActivationBrandRow{Name string; VatVerified bool; Accent *string; LogoSha256 *string; LogoMime *string; LogoWidth *int32; LogoHeight *int32}, error)",
-	"GetTenantActivationLogo":          "(context.Context, GetTenantActivationLogoParams{TenantID uuid.UUID; LogoSha256 string}) (GetTenantActivationLogoRow{Logo []byte; LogoMime *string}, error)",
-	"GetTenantBrand":                   "(context.Context, uuid.UUID) (GetTenantBrandRow{Accent *string; LogoSha256 *string; LogoMime *string; LogoWidth *int32; LogoHeight *int32; UpdatedAt time.Time; UpdatedBy uuid.UUID}, error)",
-	"GetTenantBrandForUpdate":          "(context.Context, uuid.UUID) (GetTenantBrandForUpdateRow{Accent *string; LogoSha256 *string; LogoMime *string; LogoWidth *int32; LogoHeight *int32; UpdatedAt time.Time; UpdatedBy uuid.UUID}, error)",
-	"GetTenantClock":                   "(context.Context, uuid.UUID) (GetTenantClockRow{ID uuid.UUID; Name string; Timezone string}, error)",
-	"GetTenantLogo":                    "(context.Context, GetTenantLogoParams{TenantID uuid.UUID; LogoSha256 string}) (GetTenantLogoRow{Logo []byte; LogoMime *string}, error)",
-	"GetTenantPanelBrand":              "(context.Context, uuid.UUID) (GetTenantPanelBrandRow{Name string; Accent *string; LogoSha256 *string; LogoMime *string; LogoWidth *int32; LogoHeight *int32}, error)",
-	"GetTransactionReview":             "(context.Context, GetTransactionReviewParams{TenantID uuid.UUID; TransactionID uuid.UUID}) (GetTransactionReviewRow{ReviewerID uuid.UUID; Outcome string}, error)",
+	"GetDirectoryHead":         "(context.Context, uuid.UUID) (GetDirectoryHeadRow{AsOf time.Time; ApiCode *string; CreatedAt time.Time}, error)",
+	"ListDirectoryEmployees":   "(context.Context, ListDirectoryEmployeesParams{TenantID uuid.UUID; AfterAt time.Time; AfterID uuid.UUID; PageSize int32}) ([]ListDirectoryEmployeesRow{ID uuid.UUID; ExternalRef *string; EmployeeCode *string; FirstName *string; LastName *string; FullName string; Active bool; UpdatedAt time.Time}, error)",
+	"GetPunchFeedHead":         "(context.Context, GetPunchFeedHeadParams{TenantID uuid.UUID; AfterSeq int64}) (GetPunchFeedHeadRow{LastSeq int64; NextSeq int64}, error)",
+	"GetPunchHistoryWindow":    "(context.Context, GetPunchHistoryWindowParams{AfterTime time.Time; AfterSeq int64; TenantID uuid.UUID; FromTime time.Time; ToTime time.Time; ScanSize int32; WindowSize int32}) (GetPunchHistoryWindowRow{Scanned int64; EndTime time.Time; EndSeq int64}, error)",
+	"GetRosterCursorAnchor":    "(context.Context, GetRosterCursorAnchorParams{TenantID uuid.UUID; ID uuid.UUID}) (string, error)",
+	"GetTagForTenant":          "(context.Context, GetTagForTenantParams{TenantID uuid.UUID; Uid string}) (GetTagForTenantRow{Uid string; TenantID uuid.UUID; LocationID *uuid.UUID; LastCtr int32; Status string; RetiredAt *time.Time; ReplacedBy *string; CreatedAt time.Time; EncodedAt *time.Time}, error)",
+	"GetTenantAccount":         "(context.Context, uuid.UUID) (GetTenantAccountRow{ID uuid.UUID; Name string; VatNumber string; BusinessType string; Timezone string; VatVerified *bool; VatCheckedAt *time.Time; CreatedAt time.Time}, error)",
+	"GetTenantActivationBrand": "(context.Context, uuid.UUID) (GetTenantActivationBrandRow{Name string; VatVerified bool; Accent *string; LogoSha256 *string; LogoMime *string; LogoWidth *int32; LogoHeight *int32}, error)",
+	"GetTenantActivationLogo":  "(context.Context, GetTenantActivationLogoParams{TenantID uuid.UUID; LogoSha256 string}) (GetTenantActivationLogoRow{Logo []byte; LogoMime *string}, error)",
+	"GetTenantBrand":           "(context.Context, uuid.UUID) (GetTenantBrandRow{Accent *string; LogoSha256 *string; LogoMime *string; LogoWidth *int32; LogoHeight *int32; UpdatedAt time.Time; UpdatedBy uuid.UUID}, error)",
+	"GetTenantBrandForUpdate":  "(context.Context, uuid.UUID) (GetTenantBrandForUpdateRow{Accent *string; LogoSha256 *string; LogoMime *string; LogoWidth *int32; LogoHeight *int32; UpdatedAt time.Time; UpdatedBy uuid.UUID}, error)",
+	"GetTenantClock":           "(context.Context, uuid.UUID) (GetTenantClockRow{ID uuid.UUID; Name string; Timezone string}, error)",
+	"GetTenantLogo":            "(context.Context, GetTenantLogoParams{TenantID uuid.UUID; LogoSha256 string}) (GetTenantLogoRow{Logo []byte; LogoMime *string}, error)",
+	"GetTenantPanelBrand":      "(context.Context, uuid.UUID) (GetTenantPanelBrandRow{Name string; Accent *string; LogoSha256 *string; LogoMime *string; LogoWidth *int32; LogoHeight *int32}, error)",
+	"GetTransactionReview":     "(context.Context, GetTransactionReviewParams{TenantID uuid.UUID; TransactionID uuid.UUID}) (GetTransactionReviewRow{ReviewerID uuid.UUID; Outcome string}, error)",
+	// M11 API-11: the sandbox simulation's read of the tap it recorded -- the decision's columns, no
+	// source address, no coordinate, no policy context.
+	"GetTapOutcome":                    "(context.Context, GetTapOutcomeParams{TenantID uuid.UUID; ID uuid.UUID}) (GetTapOutcomeRow{ID uuid.UUID; EmployeeID *uuid.UUID; Verdict string; Type *string; Trust *int16; Channel string; OccurredAt time.Time; MatchedSid *string; Practice bool; LocationID *uuid.UUID; SiteLocationID *uuid.UUID; TagUid *string; SiteTagUid *string}, error)",
 	"InsertManualTransaction":          "(context.Context, InsertManualTransactionParams{TenantID uuid.UUID; Type string; OccurredAt time.Time; Trust int16; Note *string; EnteredBy uuid.UUID; LocationID *uuid.UUID; EmployeeID uuid.UUID}) (InsertManualTransactionRow{ID uuid.UUID; OccurredAt time.Time; CreatedAt time.Time; Type *string; Verdict string; Channel string; Trust *int16; Practice bool; Queued bool}, error)",
 	"InsertTransaction":                "(context.Context, InsertTransactionParams{TenantID uuid.UUID; EmployeeID *uuid.UUID; LocationID *uuid.UUID; DepartmentID *uuid.UUID; TagUid *string; Ctr *int32; Type *string; OccurredAt time.Time; SourceIp *netip.Addr; IpMatch *bool; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; GpsMatch *bool; SunValid *bool; Trust *int16; Verdict string; Note *string; Channel string; EnteredBy *uuid.UUID; Practice bool; Queued bool; PolicyVersionID *uuid.UUID; MatchedSid *string; PolicyLayer *string; PolicyContext []byte; SiteTenantID *uuid.UUID; SiteLocationID *uuid.UUID; SiteTagUid *string}) (Transaction{ID uuid.UUID; TenantID uuid.UUID; EmployeeID *uuid.UUID; LocationID *uuid.UUID; DepartmentID *uuid.UUID; TagUid *string; Ctr *int32; Type *string; OccurredAt time.Time; SourceIp *netip.Addr; IpMatch *bool; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; GpsMatch *bool; SunValid *bool; Trust *int16; Verdict string; Note *string; Channel string; EnteredBy *uuid.UUID; Practice bool; Queued bool; CreatedAt time.Time; PolicyVersionID *uuid.UUID; MatchedSid *string; PolicyLayer *string; PolicyContext []byte; SiteTenantID *uuid.UUID; SiteLocationID *uuid.UUID; SiteTagUid *string}, error)",
 	"InsertTransactionReview":          "(context.Context, InsertTransactionReviewParams{TenantID uuid.UUID; ReviewerID uuid.UUID; Outcome string; Note *string; TransactionID uuid.UUID}) (InsertTransactionReviewRow{ID uuid.UUID; ReviewedAt time.Time}, error)",
@@ -1026,14 +1029,16 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// 201 -> 209 on 2026-10-15 (M11 API-10): webhooks.sql's seven delivery queries (the lease, the event,
 	// the result, the next due, the log, the resend's lock and the resend) and reviews.sql's
 	// GetReviewedPunchSite; none calls a definer.
-	if named != 209 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND NINE were "+
-			"there when this was pinned (2026-10-15: 111 on 2026-08-24, + T73's three "+
+	// 209 -> 210 on 2026-10-18 (M11 API-11): transactions.sql's GetTapOutcome, the sandbox simulation's
+	// read of the tap it recorded (no evidence column); it calls no definer.
+	if named != 210 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND TEN were "+
+			"there when this was pinned (2026-10-18: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
 			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+
 			"+ EM-7B's three invitation e-mail queries, + EM-7C's two recovery queries, "+
 			"+ the activation tap's two consent queries, + WL-13's two activation brand queries, "+
-			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries). "+
+			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {

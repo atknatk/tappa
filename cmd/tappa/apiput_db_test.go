@@ -80,7 +80,7 @@ func TestAPIWiring_ThePutOfALocationRunsThroughTheShippedSurface(t *testing.T) {
 		t.Fatal(err)
 	}
 	work := &noticed{}
-	surface, err := openAPISurface(cfg, data, work, venues, staff, quiet)
+	surface, err := openAPISurface(cfg, data, work, venues, staff, nil, quiet)
 	if err != nil || surface == nil {
 		t.Fatalf("openAPISurface: %v %v", surface, err)
 	}
@@ -100,7 +100,7 @@ func TestAPIWiring_ThePutOfALocationRunsThroughTheShippedSurface(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	keys, err := apikey.NewKeys(apikey.LivePrefix, mac, data, trail)
+	keys, err := apikey.NewKeys(apiKeyPrefix, mac, data, trail)
 	if err != nil {
 		t.Fatal(err)
 	}

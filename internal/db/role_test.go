@@ -168,7 +168,7 @@ func TestRoleFactsPrivilegedIsAnyReachPastRLS(t *testing.T) {
 // 🔴 IT REPLACES AN AST SCAN THAT PROVED NOTHING. The first attempt put the gate in
 // cmd/tappa's run() and guarded it with a test that parsed main.go looking for the
 // identifiers `Role` and `rlsRoleRefusal`. Measured: reducing the call to
-// `_ = rlsRoleRefusal(role, cfg.IsProd())` left the gate entirely dead and BOTH the
+// `_ = rlsRoleRefusal(role, cfg.IsHardened())` left the gate entirely dead and BOTH the
 // table test and the wiring test green. An allowlist of identifiers cannot see
 // whether a returned error reaches a return statement.
 //

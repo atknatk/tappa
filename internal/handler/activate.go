@@ -181,7 +181,7 @@ func NewActivation(inv inviteManager, sess sessionManager, verifier activationVe
 		cookies:          session.NewCookies(cfg),
 		codes:            newCodeCookies(cfg),
 		retentionYears:   cfg.RetentionYears,
-		showConfigNotice: !cfg.IsProd(),
+		showConfigNotice: !cfg.IsHardened(),
 		baseURL:          originOf(cfg.BaseURL),
 		floodLimiter:     newLimiter(floodLimit, floodPeriod),
 		unknownLimiter:   newLimiter(unknownLimit, unknownPeriod),

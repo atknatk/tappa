@@ -56,6 +56,9 @@ func shippedConfigMap(t *testing.T) map[string]string {
 // MUTANTS (measured): the entry written as 2a01:4f8:200:3164::2 alone -> the second /64 address is
 // allowed, red; the entry removed -> both IPv6 rows allowed, red.
 func TestEgress_TheShippedListRefusesTheNodesIPv6Network(t *testing.T) {
+	if config.SandboxBuild() {
+		t.Skip("the production ConfigMap (TAPPA_ENV=prod) loads in the production build only (M11 API-11); the untagged run covers it")
+	}
 	cm := shippedConfigMap(t)
 	if cm["TAPPA_ENV"] != config.EnvProd {
 		t.Fatalf("PREMISE: the ConfigMap parse reads TAPPA_ENV as %q, want prod", cm["TAPPA_ENV"])

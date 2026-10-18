@@ -2668,6 +2668,18 @@ type Querier interface {
 	// tenant's plaque row by guessing nothing at all -- just by typing a uid they
 	// read off a wall in another building. RLS refuses it too; this is the belt.
 	GetTagForTenant(ctx context.Context, arg GetTagForTenantParams) (GetTagForTenantRow, error)
+	// One recorded tap's outcome, by its id: what the sandbox's simulation answers with (M11 API-11,
+	// internal/sandbox; ADR 0028 §11) -- on the first call and on an Idempotency-Key replay, whose
+	// ledger row keeps only the record's id (ADR 0028 §8: no response body is stored).
+	//
+	// IT NAMES NO EVIDENCE: no source address, no coordinate, no policy context -- the columns a caller
+	// needs to tell what the decision was and nothing a log or a response must not carry (CLAUDE.md §7).
+	// tag_uid / site_tag_uid and location_id / site_location_id are both selected because a tap on a
+	// PEER's plaque records the plaque and the venue in the site columns (ADR 0027 §6).
+	//
+	// TENANT SCOPE (section 4.5): explicit predicate beside RLS -- a record of another business matches
+	// nothing.
+	GetTapOutcome(ctx context.Context, arg GetTapOutcomeParams) (GetTapOutcomeRow, error)
 	// K-22's gate as the panel reads it: NULL is closed. The owner may revoke a key whatever this says
 	// (ADR 0028 §10, K-26); a new key needs it open.
 	GetTenantAPIEnabledAt(ctx context.Context, tenantID uuid.UUID) (*time.Time, error)

@@ -120,7 +120,7 @@ func TestAPIWiring_AnEmployeeRunsThroughTheShippedSurfaceAndTheQueue(t *testing.
 	if err := work.Add(queue); err != nil {
 		t.Fatal(err)
 	}
-	surface, err := openAPISurface(cfg, data, work, venues, staff, quiet)
+	surface, err := openAPISurface(cfg, data, work, venues, staff, nil, quiet)
 	if err != nil || surface == nil {
 		t.Fatalf("openAPISurface: %v %v", surface, err)
 	}
@@ -148,7 +148,7 @@ func TestAPIWiring_AnEmployeeRunsThroughTheShippedSurfaceAndTheQueue(t *testing.
 			t.Fatal(err)
 		}
 	}
-	keys, err := apikey.NewKeys(apikey.LivePrefix, mac, data, trail)
+	keys, err := apikey.NewKeys(apiKeyPrefix, mac, data, trail)
 	if err != nil {
 		t.Fatal(err)
 	}

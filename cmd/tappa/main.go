@@ -780,7 +780,7 @@ func run() error {
 	// THE INTEGRATION API'S KEYS (M11 API-3, ADR 0028 §3): the owner's panel issues, lists and
 	// revokes them. Every build but the sandbox's issues tt_live_ keys (§11, K-10; API-11 gives
 	// the sandbox build its own prefix). The /v1 chain that resolves them is API-4's.
-	apiKeys, err := apikey.NewKeys(apikey.LivePrefix, cfg.APIKeyHMACKey, data, trail)
+	apiKeys, err := apikey.NewKeys(apiKeyPrefix, cfg.APIKeyHMACKey, data, trail)
 	if err != nil {
 		return err
 	}
@@ -903,7 +903,12 @@ func run() error {
 	// THE INTEGRATION API (M11 API-4): /v1 on TAPPA_API_HOST, or nothing (a nil Mounter, which
 	// NewRouter skips). It is handed the pool, K-19's worker, the panel's venue domain (API-5) and
 	// the panel's employee domain (API-6); api.go says the rest.
-	integrationAPI, err := openAPISurface(cfg, data, work, venues, staff, slog.Default())
+	// The sandbox build's simulation (sandbox.go); none in the production build (nosandbox.go).
+	extensions, err := sandboxExtensions(cfg, data, verifier, checkins, trail, slog.Default())
+	if err != nil {
+		return err
+	}
+	integrationAPI, err := openAPISurface(cfg, data, work, venues, staff, extensions, slog.Default())
 	if err != nil {
 		return err
 	}

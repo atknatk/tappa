@@ -437,7 +437,7 @@ type signupCookies struct {
 }
 
 func newSignupCookies(cfg *config.Config) signupCookies {
-	if cfg == nil || cfg.IsProd() {
+	if cfg == nil || cfg.IsHardened() {
 		return signupCookies{}
 	}
 	// Case-insensitive: URL schemes are (RFC 3986 3.1), and M5-01 shipped a bug

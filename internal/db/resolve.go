@@ -312,7 +312,13 @@ FROM resolve_api_key_by_hash($1)`
 // GetTagByUID resolves a wall-plaque uid to its tag WITHOUT a tenant context.
 // Returns pgx.ErrNoRows when the uid is unknown (the caller rejects the tap).
 // uid is the 14-hex-char NTAG 424 DNA UID.
+//
+// On a sandbox pool a uid outside the virtual range is refused before the query
+// (ErrRealPlaqueRefused, which is pgx.ErrNoRows to errors.Is -- virtualtags.go).
 func (d *DB) GetTagByUID(ctx context.Context, uid string) (ResolvedTag, error) {
+	if err := d.AdmitTagUID(uid); err != nil {
+		return ResolvedTag{}, fmt.Errorf("db: resolve tag by uid: %w", err)
+	}
 	var t ResolvedTag
 	err := d.pool.QueryRow(ctx, getTagByUIDSQL, uid).Scan(
 		&t.UID, &t.TenantID, &t.LocationID, &t.AESKeyRef, &t.LastCtr, &t.Status,

@@ -16,6 +16,7 @@ import (
 //
 // MUTANT (measured): webhookSettings returning nil -> prod loads without the list, red.
 func TestConfig_WebhookSettingsAreRequiredOutsideDev(t *testing.T) {
+	untaggedOnly(t)
 	for _, env := range []string{config.EnvProd, config.EnvStaging} {
 		t.Run(env+" control", func(t *testing.T) {
 			setRequired(t)

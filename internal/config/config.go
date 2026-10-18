@@ -269,8 +269,9 @@ type Config struct {
 }
 
 func Load() (*Config, error) {
+	rawEnv := os.Getenv("TAPPA_ENV")
 	c := &Config{
-		Env:      env("TAPPA_ENV", "dev"),
+		Env:      envDefault(rawEnv, sandboxBuild),
 		Addr:     env("TAPPA_ADDR", ":8080"),
 		BaseURL:  env("TAPPA_BASE_URL", "http://localhost:8080"),
 		LogLevel: env("TAPPA_LOG_LEVEL", "info"),
@@ -292,14 +293,24 @@ func Load() (*Config, error) {
 	}
 
 	// Env is a CLOSED SET because it is a security attribute, not a label.
-	// IsProd is exact string equality, and internal/session reads it to decide
+	// IsHardened is exact string equality, and internal/session reads it to decide
 	// whether the session cookie gets Secure. TAPPA_ENV=production (or Prod, or a
-	// typo) would make IsProd false, and a deployment that believes it is in
+	// typo) would make IsHardened false, and a deployment that believes it is in
 	// production would fall through to the base-URL heuristic. That is precisely
 	// the "silent default" this package's doc comment forbids, so it is a startup
 	// failure instead. The set is closed rather than open-with-a-warning: a new
-	// environment name should be a deliberate edit here, next to IsProd.
-	push(validEnv(c.Env))
+	// environment name should be a deliberate edit here, next to IsHardened.
+	//
+	// 🔴 AND THE BUILD DECIDES ONE MEMBER OF IT (M11 API-11, ADR 0028 §11, K-3): the sandbox value is
+	// the sandbox build's and nothing else's. An untagged binary refuses TAPPA_ENV=sandbox, and the
+	// sandbox binary (go build -tags sandbox) refuses every other value -- an empty one included, so
+	// "unset falls back to dev" cannot happen there. A sandbox image deployed as production, or a
+	// production image told it is the sandbox, stops here, before anything is dialled.
+	if err := envForBuild(rawEnv, sandboxBuild); err != nil {
+		push(err)
+	} else {
+		push(validEnv(c.Env))
+	}
 	push(validLogFormat(c.LogFormat))
 	devTools, devErr := devToolsFlag(c.Env)
 	c.DevTools = devTools
@@ -373,7 +384,7 @@ func Load() (*Config, error) {
 	if c.TrustedProxies, err = prefixes(env("TAPPA_TRUSTED_PROXIES", "")); err != nil {
 		push(err)
 	} else {
-		push(trustedProxySanity(c.TrustedProxies, c.IsProd()))
+		push(trustedProxySanity(c.TrustedProxies, c.IsHardened()))
 	}
 	if c.ResetDelivery, err = deliveryMode(envResetDelivery, ResetDeliveryNone, ResetDeliveryEmail); err != nil {
 		push(err)
@@ -411,6 +422,9 @@ func Load() (*Config, error) {
 	} else {
 		c.Freshness = time.Duration(secs * float64(time.Second))
 	}
+	for _, err := range sandboxSettings(c) {
+		push(err)
+	}
 
 	if len(errs) > 0 {
 		return nil, fmt.Errorf("config: %w", errors.Join(errs...))
@@ -418,16 +432,71 @@ func Load() (*Config, error) {
 	return c, nil
 }
 
-// EnvDev, EnvStaging and EnvProd are the only values TAPPA_ENV may take. Load
-// rejects anything else; see the check in Load for why this is closed.
+// EnvDev, EnvStaging, EnvProd and EnvSandbox are the only values TAPPA_ENV may take. Load
+// rejects anything else; see the check in Load for why this is closed. EnvSandbox is further
+// tied to the build (envForBuild).
 const (
 	EnvDev     = "dev"
 	EnvStaging = "staging"
 	EnvProd    = "prod"
+	// EnvSandbox is the integration sandbox (M11 API-11, ADR 0028 §11): its own domain, its own
+	// database, its own keys -- and its own BUILD. Only the binary built with `-tags sandbox`
+	// accepts it, and that binary accepts nothing else (envForBuild).
+	EnvSandbox = "sandbox"
 )
 
 // envValues is the closed set, in the order the error message lists them.
-var envValues = []string{EnvDev, EnvStaging, EnvProd}
+var envValues = []string{EnvDev, EnvStaging, EnvProd, EnvSandbox}
+
+// SandboxBuild reports whether this binary is the sandbox build (`go build -tags sandbox`,
+// build_sandbox.go) -- the one build that may start with TAPPA_ENV=sandbox, and may start with
+// nothing else.
+func SandboxBuild() bool { return sandboxBuild }
+
+// envDefault is TAPPA_ENV's value: the variable when set; unset, "dev" in an untagged build and
+// nothing in the sandbox build, where an absent value is a refusal (envForBuild), not a default.
+func envDefault(raw string, sandbox bool) string {
+	if raw != "" || sandbox {
+		return raw
+	}
+	return EnvDev
+}
+
+// envForBuild ties EnvSandbox to the build (ADR 0028 §11: "Sandbox ikilisi yalnız TAPPA_ENV =
+// sandbox ile başlar (boş değerin dev'e düşmesi kapanır); tag'siz ikili sandbox değerini
+// reddeder"). raw is the variable as set, "" when unset.
+func envForBuild(raw string, sandbox bool) error {
+	switch {
+	case sandbox && raw != EnvSandbox:
+		return fmt.Errorf("TAPPA_ENV: this binary is the sandbox build (-tags sandbox) and starts only with "+
+			"TAPPA_ENV=%s, got %q; a sandbox image is never a production, staging or development server "+
+			"(ADR 0028 §11)", EnvSandbox, raw)
+	case !sandbox && raw == EnvSandbox:
+		return fmt.Errorf("TAPPA_ENV=%s: this binary was built without the sandbox tag, and only the sandbox "+
+			"build (make build-sandbox) may run the sandbox (ADR 0028 §11)", EnvSandbox)
+	}
+	return nil
+}
+
+// sandboxSettings is what a TAPPA_ENV=sandbox deployment must also say (ADR 0028 §11: "gerçek
+// e-posta yok; davet panel modunda"): the reset flow sends nothing (ResetDeliveryNone) and the
+// invitation is shown on the panel (InviteDeliveryPanel), so the transport's settings are never read
+// (loadMail) and no e-mail can leave a sandbox. Every other environment is untouched.
+func sandboxSettings(c *Config) []error {
+	if c.Env != EnvSandbox {
+		return nil
+	}
+	var errs []error
+	if c.ResetDelivery != ResetDeliveryNone {
+		errs = append(errs, fmt.Errorf("%s must be %s with TAPPA_ENV=%s: the sandbox sends no real e-mail (ADR 0028 §11)",
+			envResetDelivery, ResetDeliveryNone, EnvSandbox))
+	}
+	if c.InviteDelivery != InviteDeliveryPanel {
+		errs = append(errs, fmt.Errorf("%s must be %s with TAPPA_ENV=%s: the sandbox sends no real e-mail, so an "+
+			"invitation is shown on the panel (ADR 0028 §11)", envInviteDelivery, InviteDeliveryPanel, EnvSandbox))
+	}
+	return errs
+}
 
 // The closed set for TAPPA_LOG_FORMAT (M8-03).
 const (
@@ -456,23 +525,31 @@ func validEnv(v string) error {
 	return fmt.Errorf("TAPPA_ENV: must be one of %s, got %q", strings.Join(envValues, ", "), v)
 }
 
-// IsProd reports whether this process runs in production. Callers use it to pick
-// security defaults (internal/session hardens the session cookie on it), so the
-// comparison is exact and Load guarantees Env is one of envValues.
+// IsHardened reports whether this process runs with the production security defaults: in
+// production, or in the sandbox (M11 API-11, ADR 0028 §11, K-28). The sandbox is a shared,
+// internet-facing, multi-party deployment, so every gate that used to ask "is this production?"
+// asks this instead -- nine call sites, counted and pinned by cmd/tappa's
+// TestConfig_IsHardenedCoversTheNineGates. The three gates tied to EnvDev (devToolsFlag,
+// handler.DevToolsEnabled, sun.WithDevelopmentMinting) are closed in the sandbox by being dev-only.
+//
+// THERE IS NO IsProd ANY MORE, ON PURPOSE: a gate that asked "production?" would leave the sandbox
+// soft, and with the method gone such a gate does not compile. The comparison is exact and Load
+// guarantees Env is one of envValues.
 //
 // LIMITS, stated because they matter. Two ways this reports false without anyone
 // having chosen it: (1) a Config built as a struct literal — tests, or future
 // wiring that skips Load — bypasses the enum guarantee entirely, and a zero
 // Config reports false; (2) an UNSET or empty TAPPA_ENV falls back to the "dev"
-// default, which is deliberate (a developer must not have to set it) but means
-// "not production" is also the answer when nobody said anything at all.
+// default in an untagged build, which is deliberate (a developer must not have to set it) but
+// means "not hardened" is also the answer when nobody said anything at all. (The sandbox build
+// has no default: it refuses to start without TAPPA_ENV=sandbox.)
 //
 // WHAT IS AND IS NOT COMPENSATED — do not repeat the earlier version's mistake of
 // closing this gap by pointing at internal/session. Cookies' zero value is
 // Secure, which covers the case where NO Cookies was constructed at all; it does
 // NOT cover this one, because NewCookies reads a CONSTRUCTED Config and simply
 // believes it. A Config whose Env is missing, misspelled or bypassed takes the
-// non-prod branch, and with a plain-http BaseURL that yields a session cookie
+// non-hardened branch, and with a plain-http BaseURL that yields a session cookie
 // without Secure — measured, not assumed. So:
 //
 //   - Load enforces the enum, and therefore rejects a WRONG value;
@@ -480,8 +557,8 @@ func validEnv(v string) error {
 //   - the remaining defence is operational: a production deployment must set
 //     TAPPA_ENV=prod (and should serve https, which makes BaseURL agree).
 //
-// IsProd is a convenience, never a security boundary by itself.
-func (c *Config) IsProd() bool { return c.Env == EnvProd }
+// IsHardened is a convenience, never a security boundary by itself.
+func (c *Config) IsHardened() bool { return c.Env == EnvProd || c.Env == EnvSandbox }
 
 // retentionYearsMin / retentionYearsMax bound TAPPA_RETENTION_YEARS.
 //
@@ -1156,7 +1233,7 @@ func loadMail(c *Config) []error {
 	}
 	host, hostOK := present(envSMTPHost)
 	if hostOK {
-		push(smtpHost(envSMTPHost, host, c.IsProd()))
+		push(smtpHost(envSMTPHost, host, c.IsHardened()))
 	}
 	port, err := smtpPort(envSMTPPort, os.Getenv(envSMTPPort))
 	push(err)

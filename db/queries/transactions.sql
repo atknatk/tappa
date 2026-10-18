@@ -884,3 +884,21 @@ WHERE tenant_id = @tenant_id
 SELECT EXISTS (
     SELECT 1 FROM transactions x WHERE x.tenant_id = @tenant_id
 ) AS any_record;
+
+-- name: GetTapOutcome :one
+-- One recorded tap's outcome, by its id: what the sandbox's simulation answers with (M11 API-11,
+-- internal/sandbox; ADR 0028 §11) -- on the first call and on an Idempotency-Key replay, whose
+-- ledger row keeps only the record's id (ADR 0028 §8: no response body is stored).
+--
+-- IT NAMES NO EVIDENCE: no source address, no coordinate, no policy context -- the columns a caller
+-- needs to tell what the decision was and nothing a log or a response must not carry (CLAUDE.md §7).
+-- tag_uid / site_tag_uid and location_id / site_location_id are both selected because a tap on a
+-- PEER's plaque records the plaque and the venue in the site columns (ADR 0027 §6).
+--
+-- TENANT SCOPE (section 4.5): explicit predicate beside RLS -- a record of another business matches
+-- nothing.
+SELECT id, employee_id, verdict, type, trust, channel, occurred_at, matched_sid, practice,
+       location_id, site_location_id, tag_uid, site_tag_uid
+FROM transactions
+WHERE tenant_id = @tenant_id
+  AND id = @id;

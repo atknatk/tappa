@@ -94,7 +94,7 @@ type modulePackage struct {
 // widened to the whole module. The same guards: the go command must be the toolchain that
 // built this test, the -race build asks for the -race export data (raceBuild), and every
 // failure stops the test (fail-closed).
-func moduleExports(t *testing.T, fset *token.FileSet) ([]modulePackage, types.Importer) {
+func moduleExports(t *testing.T, fset *token.FileSet, tags ...string) ([]modulePackage, types.Importer) {
 	t.Helper()
 	if v, err := exec.Command("go", "env", "GOVERSION").Output(); err != nil {
 		t.Fatalf("go env GOVERSION: %v", err)
@@ -105,6 +105,9 @@ func moduleExports(t *testing.T, fset *token.FileSet) ([]modulePackage, types.Im
 	args := []string{"list", "-export", "-deps", "-json=ImportPath,Dir,Export,GoFiles,IgnoredGoFiles,CgoFiles,IgnoredOtherFiles"}
 	if raceBuild {
 		args = append(args, "-race")
+	}
+	if len(tags) > 0 {
+		args = append(args, "-tags", strings.Join(tags, ","))
 	}
 	out, err := exec.Command("go", append(args, modulePath+"/...", pgxtestPath)...).Output()
 	if err != nil {
@@ -525,17 +528,60 @@ func TestProductCode_ExecModeWireAndConnectWire(t *testing.T) {
 			}
 		}
 	}
+	// BOTH BUILDS (M11 API-11, ADR 0028 §11): the sandbox build compiles cmd/tappa/sandbox.go and
+	// internal/config/build_sandbox.go, which this build leaves out, and leaves out their two twins.
+	// So the wires run over each build's own file set, the exact counts hold in each, and a product
+	// file is red only when NO build compiles it (sandboxTaggedFiles names the four; everything else
+	// must be in both).
 	want := modulePackagePaths(t)
+	compiled, ignored := map[string]bool{}, map[string]bool{}
+	for _, tags := range [][]string{nil, {"sandbox"}} {
+		if tags != nil {
+			pkgs, imp = moduleExports(t, fset, tags...)
+		}
+		build := "the untagged build"
+		if tags != nil {
+			build = "the " + strings.Join(tags, ",") + " build"
+		}
+		checkWires(t, fset, imp, pkgs, root, want, build, compiled, ignored)
+	}
+	for f := range ignored {
+		if !compiled[f] {
+			t.Errorf("%s is a product file no build leaves in the wires (a build constraint, a GOOS/GOARCH suffix "+
+				"or cgo): some build would compile it unchecked", f)
+		}
+	}
+	for f := range sandboxTaggedFiles {
+		if !ignored[filepath.FromSlash(f)] || !compiled[filepath.FromSlash(f)] {
+			t.Errorf("CONTROL FAILED: %s is not compiled by one build and left out by the other", f)
+		}
+	}
+}
+
+// checkWires runs the three wires over one build's packages, records which product files that
+// build compiles and which it leaves out (repository-relative), and holds the packages and the
+// exact allowed counts to that build.
+func checkWires(t *testing.T, fset *token.FileSet, imp types.Importer, pkgs []modulePackage, root string, want []string, build string, compiled, ignored map[string]bool) {
+	t.Helper()
 	var packages, files, allowedModes, allowedConnects, allowedHooks int
 	var checked []string
 	for _, p := range pkgs {
+		rel := func(name string) string {
+			r, err := filepath.Rel(root, filepath.Join(p.Dir, name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			return r
+		}
 		for _, list := range [][]string{p.IgnoredGoFiles, p.CgoFiles, p.IgnoredOtherFiles} {
 			for _, name := range list {
 				if !strings.HasSuffix(name, "_test.go") {
-					t.Errorf("%s: %s is a product file this build leaves out of the wires (a build constraint, a "+
-						"GOOS/GOARCH suffix or cgo): another build would compile it unchecked", p.ImportPath, name)
+					ignored[rel(name)] = true
 				}
 			}
+		}
+		for _, name := range p.GoFiles {
+			compiled[rel(name)] = true
 		}
 		var parsed []*ast.File
 		for _, name := range p.GoFiles {
@@ -578,9 +624,9 @@ func TestProductCode_ExecModeWireAndConnectWire(t *testing.T) {
 			}
 		}
 	}
-	t.Logf("type-checked %d product packages, %d non-test Go files; %d mode uses in %s's allowed declarations, "+
+	t.Logf("%s: type-checked %d product packages, %d non-test Go files; %d mode uses in %s's allowed declarations, "+
 		"%d connection openers in the two constructors, %d hook writes in pinLogParameters",
-		packages, files, allowedModes, execModeAllowedFile, allowedConnects, allowedHooks)
+		build, packages, files, allowedModes, execModeAllowedFile, allowedConnects, allowedHooks)
 	sort.Strings(checked)
 	if !slices.Equal(checked, want) {
 		t.Fatalf("the packages type-checked are not the module's packages:\nchecked: %v\ngo list: %v", checked, want)
@@ -716,12 +762,25 @@ func buildConstraintOf(name string, src []byte, goos, goarch map[string]bool) (s
 	return "", nil
 }
 
+// sandboxTaggedFiles are the product files allowed a build constraint -- the sandbox build split
+// (M11 API-11, ADR 0028 §11: "simülasyon kodunu yalnız sandbox tag'li bir cmd/tappa dosyası import
+// eder") and internal/config's build fact -- each with its one constraint, as its first line. The two
+// builds' wires both run (TestProductCode_ExecModeWireAndConnectWire), so each of the four is
+// type-checked by the build that compiles it.
+var sandboxTaggedFiles = map[string]string{
+	"cmd/tappa/sandbox.go":             "//go:build sandbox",
+	"cmd/tappa/nosandbox.go":           "//go:build !sandbox",
+	"internal/config/build_sandbox.go": "//go:build sandbox",
+	"internal/config/build_default.go": "//go:build !sandbox",
+}
+
 // TestProductCode_CarriesNoBuildConstraint: no product Go file of the module carries any
 // of the constraint kinds buildConstraintOf lists -- so, for those kinds, the files the
 // wires see in the build they run in are the files of production's build too
 // (CGO_ENABLED=0, no -race) and of the tests' and CI's (-race, cgo on). Measured when it was written: no such product file
-// exists, so the allowed list is EMPTY; a file that needs one is a decision to write here
-// with its reason.
+// existed, so the allowed list was EMPTY; a file that needs one is a decision to write here
+// with its reason -- since M11 API-11 the four of sandboxTaggedFiles, each with exactly its
+// constraint, and the exec-mode wires run over both of their builds.
 //
 // The walk reads every non-test .go file under the module root except in .git and in
 // nested modules (a directory holding a go.mod FILE) -- INCLUDING the directories go
@@ -815,8 +874,24 @@ func TestProductCode_CarriesNoBuildConstraint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	allowed := 0
 	for _, f := range found {
+		if want, ok := sandboxTaggedFiles[filepath.ToSlash(f.rel)]; ok && f.why == "a build constraint line" {
+			src, err := os.ReadFile(filepath.Join(root, f.rel))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if first, _, _ := strings.Cut(string(src), "\n"); first == want {
+				allowed++
+				continue
+			}
+			t.Errorf("%s's build constraint is not %q", f.rel, want)
+			continue
+		}
 		t.Errorf("%s carries %s: some build would compile it outside the wires' file set", f.rel, f.why)
+	}
+	if allowed != len(sandboxTaggedFiles) {
+		t.Errorf("CONTROL FAILED: %d of the %d sandbox-split files were seen with their constraint", allowed, len(sandboxTaggedFiles))
 	}
 	t.Logf("%d product Go files read", files)
 	if files < 150 {
@@ -962,11 +1037,16 @@ func TestConstructors_TheHookReachesOnlyThePin(t *testing.T) {
 
 // reviewedBodies are the bodies of the functions every pool's checks run through, as
 // last reviewed (2g, the 4th closing auditor: a branch added to newDB or openOperatorDB
-// -- on cfg.IsProd(), on the user name -- re-parsed the DSN with simple_protocol after the
+// -- on cfg.IsHardened(), on the user name -- re-parsed the DSN with simple_protocol after the
 // pin, took the per-connection check with it, and every test stayed green). They are
 // compared token for token: a change to the TOKENS of these declarations turns the test
 // red until the text here is updated on purpose. What is outside these declarations is
 // not pinned by this test (logparams.go, PART III of the claim).
+//
+// M11 API-11 (2026-10-18): newDB's DB literal gained virtualTagsOnly, set from cfg.Env (the sandbox's
+// plaque gate, virtualtags.go) -- no branch, no second parse, the pin and its check untouched;
+// TestPools_KeepArgumentsOutOfTheStatementText and TestPin_AModeChangedAfterTheCheckIsRefusedOnItsConnection
+// re-run green on the changed body.
 var reviewedBodies = map[string]string{
 	"newDB": `{
 	poolCfg, err := pgxpool.ParseConfig(cfg.DatabaseURL)
@@ -987,7 +1067,7 @@ var reviewedBodies = map[string]string{
 		pool.Close()
 		return nil, fmt.Errorf("db: ping: %w", err)
 	}
-	d := &DB{pool: pool}
+	d := &DB{pool: pool, virtualTagsOnly: cfg.Env == config.EnvSandbox}
 	if err := d.requireFeedTimeouts(ctx); err != nil {
 		pool.Close()
 		return nil, err
@@ -997,7 +1077,7 @@ var reviewedBodies = map[string]string{
 		pool.Close()
 		return nil, err
 	}
-	if err := roleRefusal(facts, cfg.IsProd()); err != nil {
+	if err := roleRefusal(facts, cfg.IsHardened()); err != nil {
 		pool.Close()
 		return nil, err
 	}

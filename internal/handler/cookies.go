@@ -265,9 +265,9 @@ type codeCookies struct {
 //
 // The same residual gap applies and is not papered over: a Config that skipped
 // config.Load (a struct literal, a misspelled Env) takes the non-prod branch and
-// is believed. config.IsProd carries the note from its side.
+// is believed. config.IsHardened carries the note from its side.
 func newCodeCookies(cfg *config.Config) codeCookies {
-	if cfg == nil || cfg.IsProd() {
+	if cfg == nil || cfg.IsHardened() {
 		return codeCookies{}
 	}
 	return codeCookies{insecure: !strings.HasPrefix(strings.ToLower(cfg.BaseURL), "https://")}

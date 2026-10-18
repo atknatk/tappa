@@ -117,6 +117,7 @@ func noCredential(t *testing.T, err error, creds ...string) {
 // email}, empty is panel, anything else is a startup failure that names the set and the
 // ADR and does not repeat the value.
 func TestLoad_InviteDeliveryIsAClosedSetAndFailsClosed(t *testing.T) {
+	untaggedOnly(t) // a flow set to email; the sandbox sends none (TestSandboxSettings_TheSandboxSendsNoEmail)
 	setRequired(t)
 	c, err := config.Load()
 	if err != nil {
@@ -172,6 +173,7 @@ func TestLoad_InviteDeliveryIsAClosedSetAndFailsClosed(t *testing.T) {
 //
 // CONTROL: in every flow, the complete configuration loads and fills Mail.
 func TestLoad_MailSettingsFailClosedWhenAFlowIsEmail(t *testing.T) {
+	untaggedOnly(t) // a flow set to email; the sandbox sends none (TestSandboxSettings_TheSandboxSendsNoEmail)
 	user, pass := credentialVariables(t)
 	required := []string{"TAPPA_SMTP_HOST", user, pass, "TAPPA_MAIL_FROM"}
 	flows := []struct {
@@ -264,6 +266,7 @@ func TestLoad_MailSettingsFailClosedWhenAFlowIsEmail(t *testing.T) {
 // boots unchanged, and even values that would be refused with a flow on do not stop the
 // boot. Mail stays the zero value: a field nothing should use holds nothing to use.
 func TestLoad_MailSettingsAreNotReadWhileBothFlowsAreOff(t *testing.T) {
+	untaggedOnly(t)
 	user, pass := credentialVariables(t)
 	for _, tc := range []struct {
 		name string
@@ -303,6 +306,7 @@ func TestLoad_MailSettingsAreNotReadWhileBothFlowsAreOff(t *testing.T) {
 // prod alike (ADR 0022 §5 — the refusal is about the protocol); unset is 587; anything
 // that is not a port number 1-65535 is refused, without repeating the value.
 func TestLoad_SMTPPortRefusesImplicitTLSEverywhere(t *testing.T) {
+	untaggedOnly(t)
 	for _, env := range []string{config.EnvDev, config.EnvStaging, config.EnvProd} {
 		for _, tc := range []struct {
 			port string
@@ -359,6 +363,7 @@ func TestLoad_SMTPPortRefusesImplicitTLSEverywhere(t *testing.T) {
 // refused (ADR 0022 §5); outside production they are allowed (§12). In every
 // environment the value has ONE spelling: a lower-case DNS name or an IP literal.
 func TestLoad_SMTPHostRefusesLoopbackAndAddressesInProduction(t *testing.T) {
+	untaggedOnly(t)
 	for _, tc := range []struct {
 		host          string
 		devOK, prodOK bool
@@ -433,6 +438,7 @@ func TestLoad_SMTPHostRefusesLoopbackAndAddressesInProduction(t *testing.T) {
 // THESE 21 ROWS, and only then: the third eye's X06 (the rule skipped for a From longer
 // than any row here) stayed green. The table is a sample, not the rule's domain.
 func TestLoad_SenderAddressesFollowTheTransportsOwnRule(t *testing.T) {
+	untaggedOnly(t) // a flow set to email; the sandbox sends none (TestSandboxSettings_TheSandboxSendsNoEmail)
 	type row struct {
 		name, value string
 		ok          bool
@@ -508,6 +514,7 @@ func TestLoad_SenderAddressesFollowTheTransportsOwnRule(t *testing.T) {
 // end (the third eye's X07, the closing auditor's N12) or an inner run (N12b) is a
 // window noCredential finds.
 func TestLoad_MailErrorsNameTheVariableNeverTheValue(t *testing.T) {
+	untaggedOnly(t)
 	user, pass := credentialVariables(t)
 	setRequired(t)
 	t.Setenv("TAPPA_ENV", "prod")
@@ -547,6 +554,7 @@ func TestLoad_MailErrorsNameTheVariableNeverTheValue(t *testing.T) {
 // defaults. And mail.New accepts the result, which is what cmd/tappa calls for the
 // reset flow (EM-5) and EM-7 will call for invitations.
 func TestLoad_MailConfigCarriesTheEnvironmentsValues(t *testing.T) {
+	untaggedOnly(t) // a flow set to email; the sandbox sends none (TestSandboxSettings_TheSandboxSendsNoEmail)
 	setRequired(t)
 	setMail(t)
 	t.Setenv("TAPPA_INVITE_DELIVERY", "email")
@@ -596,6 +604,7 @@ func TestLoad_MailConfigCarriesTheEnvironmentsValues(t *testing.T) {
 // credentials is not an empty print. This is the struct's EXPORTED path; the rest of
 // Config is not redacted (backlog T80).
 func TestLoad_MailCredentialsAreRedactedInTheConfig(t *testing.T) {
+	untaggedOnly(t) // a flow set to email; the sandbox sends none (TestSandboxSettings_TheSandboxSendsNoEmail)
 	setRequired(t)
 	setMail(t)
 	t.Setenv("TAPPA_RESET_DELIVERY", "email")

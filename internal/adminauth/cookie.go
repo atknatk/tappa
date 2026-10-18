@@ -101,12 +101,12 @@ type Cookies struct {
 //
 // The same residual gap applies and is not papered over: a Config that skipped
 // config.Load (a struct literal, a misspelled Env) takes the non-prod branch and
-// is believed. config.IsProd carries the note from its side.
+// is believed. config.IsHardened carries the note from its side.
 func NewCookies(cfg *config.Config) Cookies {
 	if cfg == nil {
 		return Cookies{}
 	}
-	if cfg.IsProd() {
+	if cfg.IsHardened() {
 		return Cookies{}
 	}
 	// The scheme test is CASE-INSENSITIVE: URL schemes are (RFC 3986 3.1) and

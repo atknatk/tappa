@@ -1264,6 +1264,7 @@ func TestPackaging_TheReadmeCountsTheManifestObjects(t *testing.T) {
 // MUTANT (measured): the rule's host spelled ap.taptime.mt -> red (not the ConfigMap's); the path
 // written / -> red; proxy-body-size 64k -> red (not above the bound).
 func TestPackaging_TheAPIIngressRoutesV1OnTheConfiguredHost(t *testing.T) {
+	productionBuildOnly(t)
 	objs := ingressesIn(t, apiIngressFile)
 	if len(objs) != 1 {
 		t.Fatalf("%s holds %d Ingress(es), want 1", apiIngressFile, len(objs))

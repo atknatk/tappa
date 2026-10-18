@@ -1012,6 +1012,7 @@ func shippedPodEnv(t *testing.T, dsn string) (cm, env map[string]string) {
 // TestArtifact_BootsInProductionWithTheShippedConfigMap runs run() itself on the same
 // environment, against a real database when one is configured.
 func TestPackaging_TheConfigMapsMailSettingsLoadInProduction(t *testing.T) {
+	productionBuildOnly(t)
 	cm, env := shippedPodEnv(t, "postgres://tappa_app@127.0.0.1:1/tappa?sslmode=disable")
 	for _, must := range []string{"TAPPA_SMTP_HOST", "TAPPA_SMTP_PORT", "TAPPA_MAIL_FROM", "TAPPA_MAIL_REPLY_TO"} {
 		if _, ok := cm[must]; !ok {
@@ -1035,8 +1036,8 @@ func TestPackaging_TheConfigMapsMailSettingsLoadInProduction(t *testing.T) {
 	if c.ResetDelivery != config.ResetDeliveryEmail || c.InviteDelivery != config.InviteDeliveryEmail {
 		t.Fatalf("PREMISE: the shipped ConfigMap loads as %q/%q, not email/email", c.ResetDelivery, c.InviteDelivery)
 	}
-	if !c.IsProd() || c.Mail.Host != cm["TAPPA_SMTP_HOST"] || c.Mail.From != cm["TAPPA_MAIL_FROM"] {
-		t.Errorf("PREMISE: prod=%v, host %q, from %q — not the ConfigMap's", c.IsProd(), c.Mail.Host, c.Mail.From)
+	if !c.IsHardened() || c.Mail.Host != cm["TAPPA_SMTP_HOST"] || c.Mail.From != cm["TAPPA_MAIL_FROM"] {
+		t.Errorf("PREMISE: prod=%v, host %q, from %q — not the ConfigMap's", c.IsHardened(), c.Mail.Host, c.Mail.From)
 	}
 	if c.Mail.Port != 587 {
 		t.Errorf("the relay port is %d; ADR 0022 §1 chose 587 (STARTTLS)", c.Mail.Port)

@@ -239,6 +239,67 @@ func (q *Queries) GetLastTransactionForEmployee(ctx context.Context, arg GetLast
 	return i, err
 }
 
+const getTapOutcome = `-- name: GetTapOutcome :one
+SELECT id, employee_id, verdict, type, trust, channel, occurred_at, matched_sid, practice,
+       location_id, site_location_id, tag_uid, site_tag_uid
+FROM transactions
+WHERE tenant_id = $1
+  AND id = $2
+`
+
+type GetTapOutcomeParams struct {
+	TenantID uuid.UUID
+	ID       uuid.UUID
+}
+
+type GetTapOutcomeRow struct {
+	ID             uuid.UUID
+	EmployeeID     *uuid.UUID
+	Verdict        string
+	Type           *string
+	Trust          *int16
+	Channel        string
+	OccurredAt     time.Time
+	MatchedSid     *string
+	Practice       bool
+	LocationID     *uuid.UUID
+	SiteLocationID *uuid.UUID
+	TagUid         *string
+	SiteTagUid     *string
+}
+
+// One recorded tap's outcome, by its id: what the sandbox's simulation answers with (M11 API-11,
+// internal/sandbox; ADR 0028 §11) -- on the first call and on an Idempotency-Key replay, whose
+// ledger row keeps only the record's id (ADR 0028 §8: no response body is stored).
+//
+// IT NAMES NO EVIDENCE: no source address, no coordinate, no policy context -- the columns a caller
+// needs to tell what the decision was and nothing a log or a response must not carry (CLAUDE.md §7).
+// tag_uid / site_tag_uid and location_id / site_location_id are both selected because a tap on a
+// PEER's plaque records the plaque and the venue in the site columns (ADR 0027 §6).
+//
+// TENANT SCOPE (section 4.5): explicit predicate beside RLS -- a record of another business matches
+// nothing.
+func (q *Queries) GetTapOutcome(ctx context.Context, arg GetTapOutcomeParams) (GetTapOutcomeRow, error) {
+	row := q.db.QueryRow(ctx, getTapOutcome, arg.TenantID, arg.ID)
+	var i GetTapOutcomeRow
+	err := row.Scan(
+		&i.ID,
+		&i.EmployeeID,
+		&i.Verdict,
+		&i.Type,
+		&i.Trust,
+		&i.Channel,
+		&i.OccurredAt,
+		&i.MatchedSid,
+		&i.Practice,
+		&i.LocationID,
+		&i.SiteLocationID,
+		&i.TagUid,
+		&i.SiteTagUid,
+	)
+	return i, err
+}
+
 const insertManualSiteTransaction = `-- name: InsertManualSiteTransaction :one
 INSERT INTO transactions (
     tenant_id, employee_id, location_id, department_id, type, occurred_at,

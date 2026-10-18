@@ -101,6 +101,9 @@ func TestMain(m *testing.M) {
 	if builtPath != "" {
 		_ = os.Remove(builtPath)
 	}
+	if sandboxBuilt != "" {
+		_ = os.Remove(sandboxBuilt)
+	}
 	os.Exit(code)
 }
 
