@@ -1692,6 +1692,16 @@ yazılır.
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 
+### 2026-10-18 (29. oturum, elli üçüncü yarı) — ✅ **T134 DONE** (deploy Tailscale üzerinden; iki mercek 2. turda ONAY) · 🚀 `main` = `937c7a4`, prod `sha-937c7a430845`
+
+- **Kullanıcı (2026-10-17):** tailnet ACL'ine `tag:ci` + `tag:ci → 10.43.0.1:443`; OAuth client bulunamadı → **auth key** (clipboard) → ana oturum Infisical `shared-infra/prod:/tappa/TS_AUTHKEY` + GitHub secret `TS_AUTHKEY` (değer basılmadı, clipboard temizlendi); GitHub `KUBE_CONFIG` yeniden yazıldı (base64, sunucu `https://10.43.0.1:443`, CA `kube-root-ca.crt`, `github-deployer` token 365 gün → 2027-10-17'den önce yenile).
+- **T134** (`fbe8acc`, `208fad6`, `937c7a4`): `deploy.yml`'e `tailscale/github-action@d1b6cd2` (v4.2.0, `use-cache: false`, `log-mode: quiet`, `--accept-dns=false`, 45 sn × 3) — son imaj adımından sonra, ilk küme çağrısından önce; kapılar `verify-deployment.sh tailnet` (etiket `tag:ci`, `Running`, TCP `10.43.0.1:443`) ve `kubeconfig-server` (yalnız `https://10.43.0.1[:443]`, `proxy-url`/`insecure` yasak) — tablo testleriyle. Auth key yolunda action'ın `tags` girdisi etkisiz → etiketi kapı ölçer. README adım 5 zsh'a yapıştırılabilir (test).
+- **Denetim izi:** 1. tur iki mercek RED (güvenlik: test kapının davranışını değil satırlarını pinliyordu; üçüncü göz: README blokları zsh'ta bozuk) → düzeltme → 2. tur ONAY (26/26 ve 22/22 mutant kırmızı) → DÜŞÜK turu (KUBE_CONFIG bloğu `&&`, Environment önerisi dört secret, T136).
+- **İlk Tailscale deploy'u (koşu 39108916632):** 27/27 adım başarılı; kapı `tags tag:ci`, `attempt 1`. ⚠️ runner cihazı iş sonrası **çevrimdışı ama listede** (`ephemeral absent`) → anahtar ephemeral değil gibi; kullanıcı: anahtarı Ephemeral + Reusable + Pre-approved + `tag:ci` ile yeniden üret, eski cihazı sil.
+- **Açık:** T135 (auth key süresi ~90 gün, token 2027-10-17, action'a `version`+`sha256sum`, dört deploy secret'ını `main`'e açık bir GitHub Environment'a taşımak) · T136 (zsh `#` satırları — runbook blokları).
+
+**🔴 DEVAM PLANI:** kullanıcı ölçümleri (runbook (e) 4,5,6,7,10,11 — operatör ekranında KF/KM API'yi aç, KF+KM holding'i, K-18 bağlama, ping `blocked_address`, izolasyon, webhook teslimi) · ephemeral anahtar · OP-15 → `00058` + API-4b (başka oturum; `m10-a1` önce `main`'e rebase) · API-11 · DPA (T130) · T125.
+
 ### 2026-10-17 (29. oturum, elli ikinci yarı) — 🚀 **M11 CANLIDA** (`main` = `ef6eba4`, goose **57**, imaj `sha-ef6eba4cea14`) · 📌 **deploy yolu T134 (Tailscale) · deploy sonrası kullanıcı ölçümleri**
 
 **🟢 Kullanıcı kararları (2026-10-16/17):** "yapabildiklerini yap, onay veriyorum" · "4. de onay" (birleştirme + deploy) · **"M11 şimdi çıksın"** (OP-15'siz; OP-15 sonra `00058` + API-4b) · Cloudflare token'ı Infisical'da (`shared-infra/prod:/cloudflare`, `TAPTIME_CF_*`) · küme API'si (`:6443`) dışarıya **bilerek kapatıldı**, erişim Tailscale.
