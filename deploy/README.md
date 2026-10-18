@@ -347,7 +347,9 @@ Bu adres `kubernetes` Service'inin adresidir ve API sunucusunun sertifikası onu
 dosyaya yazarsın. (Blokları tek parça yapıştırmak, token'sız bir kubeconfig'i secret'a
 yazardı — bu yüzden bölündüler.) Bloklar zsh'a yapıştırılmaya uygundur: yorum satırlarında
 tırnak, ters tırnak, yönlendirme ya da `;` yok ve komut satırlarında satır içi yorum yok
-(`TestReadme_TheTailnetStepBlocksPasteIntoZsh`, `zsh -f -i -n` ile ölçer).
+(`TestReadme_TheTailnetStepBlocksPasteIntoZsh`, `zsh -f -i -n` ile ölçer). Son blok bir
+zincirdir: kümeden okuma ya da `kubeconfig-server` denetimi düşerse `gh` **hiç çağrılmaz** —
+aynı test bloğu bash ve zsh altında sahte komutlarla **koşturarak** ölçer.
 
 ```bash
 # Token adım 3 ile kurulan github-deployer ServiceAccount için üretilir, cluster-admin kimliğiyle DEĞİL.
@@ -371,14 +373,15 @@ kubectl --kubeconfig="$K" config use-context tappa
 **kullanma** — token argv'ye ve kabuk geçmişine girer. Sonra:
 
 ```bash
-# Token dosyaya yazıldıktan SONRA. Tailnet içindeki bir makineden dene, genel IP artık kapalı.
-K=~/.kube/tappa-deployer.config
-kubectl --kubeconfig="$K" -n tappa get deploy tappa
-# Depo kökünden, deploy ile aynı çevrimdışı denetim. Sunucu, proxy ve TLS denetimi.
-KUBECONFIG="$K" scripts/verify-deployment.sh kubeconfig-server 10.43.0.1 443
+# Token dosyaya yazıldıktan SONRA. Tailnet içindeki bir makineden ve depo kökünden koş.
+# Önce kümeden okur, sonra deploy ile aynı çevrimdışı denetimi yapar. Sunucu, proxy ve TLS.
+# İkisi de geçerse secret yazılır. Biri düşerse zincir orada durur ve gh HİÇ çağrılmaz.
 # base64 -w0 KULLANMA. BSD ve macOS base64 onu reddeder, çıktı BOŞ kalır ve secret BOŞ yazılır.
 # Aşağıdaki biçim GNU ve BSD üzerinde aynı çıktıyı verir. Satır sonlarını tr siler.
-base64 < "$K" | tr -d '\n' | gh secret set KUBE_CONFIG --repo atknatk/tappa
+K=~/.kube/tappa-deployer.config
+kubectl --kubeconfig="$K" -n tappa get deploy tappa && \
+  KUBECONFIG="$K" scripts/verify-deployment.sh kubeconfig-server 10.43.0.1 443 && \
+  base64 < "$K" | tr -d '\n' | gh secret set KUBE_CONFIG --repo atknatk/tappa
 ```
 
 **Bugünkü durum (2026-10-17, ana oturum):** `KUBE_CONFIG` bu biçimde yenilendi —
@@ -392,17 +395,24 @@ verir.
 > **hiçbir şeyi sınırlamaz** — cluster-admin bir kimlik Role'ü zaten aşar. Sınır
 > **[kubeconfig'in kimliği doğrulanmadı]**.
 
-**(c) Önerilen sertleştirme — iki secret'ı bir GitHub Environment'a taşı (kullanıcı adımı,
-backlog T135).** `TS_AUTHKEY` ve `KUBE_CONFIG` bugün **depo düzeyinde** secret: depoya
-yazma yetkisi olan biri, bir **dala** bu secret'ları okuyan bir workflow push'layıp
-koşturabilir (dalda `ci.yml` her push'ta koşar; `deploy.yml` yalnız `main`'e bağlı, ama
-secret'lar her workflow'a açık). Öneri: **Settings → Environments → `production`**,
-*Deployment branches* = yalnız `main`; iki secret'ı oraya taşı ve depo düzeyindekileri sil;
-ve `deploy.yml`'in `deploy` işine `environment: production` eklenir. ⚠️ **Sıra önemli ve
-satır tek başına koruma DEĞİL:** depo düzeyindeki secret'lar durdukça her workflow'a açık
-kalırlar (Environment secret'ları onlara eklenir, onları kapatmaz); depo düzeyindekiler
-satırdan **önce** silinirse deploy secret'sız kalır ve ilk adımda düşer. Bu yüzden satır
-bugün `deploy.yml`'e **eklenmedi**: taşıma, silme ve satır aynı turda yapılır.
+**(c) Önerilen sertleştirme — dört deploy secret'ını bir GitHub Environment'a taşı
+(kullanıcı adımı, backlog T135).** Deploy'un dört secret'ı — `TS_AUTHKEY`, `KUBE_CONFIG`,
+`DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` — bugün **depo düzeyinde**: depoya yazma yetkisi
+olan biri, bir **dala** bu secret'ları okuyan bir workflow push'layıp koşturabilir (dalda
+`ci.yml` her push'ta koşar; `deploy.yml` yalnız `main`'e bağlı, ama secret'lar her
+workflow'a açık). Docker Hub ikilisi de bu kümeye girer: o token'la `sha-*` imaj
+etiketlerinin **üstüne yazılabilir**, yani küme kimliği kadar değerlidir. Öneri:
+**Settings → Environments → `production`**, *Deployment branches* = yalnız `main`; dört
+secret'ı oraya taşı ve depo düzeyindekileri sil; ve `deploy.yml`'in `deploy` işine
+`environment: production` eklenir. ⚠️ **Sıra önemli ve satır tek başına koruma DEĞİL:**
+depo düzeyindeki secret'lar durdukça her workflow'a açık kalırlar (Environment secret'ları
+onlara eklenir, onları kapatmaz). Depo düzeyindekiler satırdan **önce** silinirse deploy'un
+nerede düştüğü **hangisinin eksik olduğuna** bağlıdır: Docker Hub ikilisi eksikse ilk adımda
+(*"Preflight — the Docker Hub credentials must exist"*); yalnız `KUBE_CONFIG` eksikse
+*"Write kubeconfig"*'te — imajlar o ana dek **build edilip push'lanmış** olur;
+yalnız `TS_AUTHKEY` eksikse *"Join the tailnet"*'te. Dördü **birlikte** taşınırsa ilk
+adımda düşer. Her durumda düşüş ilk küme çağrısından önce olur — **küme değişmez**. Bu
+yüzden satır bugün `deploy.yml`'e **eklenmedi**: taşıma, silme ve satır aynı turda yapılır.
 
 **(d) İlk deploy'da ölçülecekler (T134'ün kapanış ölçüsü).** `main`'deki ilk deploy
 koşusunun log'unda ve Tailscale yönetim konsolunda:
@@ -6784,7 +6794,7 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     karşı tutuluyor (`TestReadme_TheTailnetStepBlocksPasteIntoZsh`: satır içi yorum yok,
     yorumda yönlendirme/ayraç/tırnak yok, her satır `zsh -f -i -n` ile ayrıştırılıyor). Bu
     sınıfı (`>`, `<`, `;`, `|`, `&`) taşıyan yorum ya da satır içi yorum satırı: döndürme
-    diliminde **16**, gözlemlenebilirlik diliminde **8**, taranmayan bloklarda **53**;
+    diliminde **16**, gözlemlenebilirlik diliminde **8**, taranmayan bloklarda **53** (backlog T136);
     döndürme diliminde ayrıca satır içi yorum taşıyan **15** komut satırı var.
     ⚠️ **BU SAYILAR CANLI — donduruldukları için ölçüm komutları yanlarında duruyor.**
     2. turda **ikisi de yanlıştı**: toplam **45** yazıyordu, ölçüm **50** verdi

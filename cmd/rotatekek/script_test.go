@@ -1671,6 +1671,8 @@ const zshCommentForbidden = "`$'\";|&<>(){}\\!*?[]"
 // PART II — pinned: (a) and (b) everywhere CI runs; (c) where zsh is installed (it is skipped,
 // with a reason, where it is not — the static rules are the part that always runs).
 // PART III — the rest of deploy/README.md is not held to this (Kabul edilmiş sınırlar, 23).
+// PART IV — the KUBE_CONFIG block is run under bash and zsh with stubs: gh is not called
+// unless the cluster read and the kubeconfig-server check both pass.
 func TestReadme_TheTailnetStepBlocksPasteIntoZsh(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join(repoRoot(t), "deploy", "README.md"))
 	if err != nil {
@@ -1742,6 +1744,73 @@ func TestReadme_TheTailnetStepBlocksPasteIntoZsh(t *testing.T) {
 		for _, l := range blk {
 			if ok, out := parses(l); !ok {
 				t.Errorf("operator step 5, block %d: zsh (interactive_comments off) does not parse %q:\n%s", n+1, l, out)
+			}
+		}
+	}
+
+	// PART IV (T134, DÜŞÜK round) — the block that writes KUBE_CONFIG is a chain: when the read
+	// from the cluster or the offline kubeconfig-server check fails, gh is NEVER called (it
+	// used to be three independent lines, so a failed check still wrote the secret). The block
+	// is RUN, as written, under bash and under the user's zsh (`-f -i`, interactive_comments
+	// off) with every external command stubbed: a stub gh records that it was called.
+	var secretBlock string
+	for _, raw := range strings.Split(text[start:end], "```bash\n")[1:] {
+		if body, _, ok := strings.Cut(raw, "\n```"); ok && strings.Contains(body, "| gh secret set KUBE_CONFIG") {
+			secretBlock = body + "\n"
+		}
+	}
+	if secretBlock == "" {
+		t.Fatal("CONTROL FAILED: no bash block of operator step 5 writes KUBE_CONFIG")
+	}
+	shells := [][]string{{"bash"}, {zsh, "-f", "-i"}}
+	if p, err := exec.LookPath("bash"); err == nil {
+		shells[0][0] = p
+	} else {
+		shells = shells[1:]
+	}
+	for _, sh := range shells {
+		for _, tc := range []struct {
+			name             string
+			kubectlRC, chkRC int
+			wantGH           bool
+		}{
+			{"the cluster read fails", 1, 0, false},
+			{"the kubeconfig-server check fails", 0, 1, false},
+			{"both fail", 1, 1, false},
+			{"CONTROL: both pass", 0, 0, true},
+		} {
+			dir, home, bin := t.TempDir(), t.TempDir(), t.TempDir()
+			mark := filepath.Join(t.TempDir(), "gh-called")
+			if err := os.MkdirAll(filepath.Join(home, ".kube"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(home, ".kube", "tappa-deployer.config"), []byte("stub\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(filepath.Join(dir, "scripts"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			stubs := map[string]string{
+				filepath.Join(bin, "kubectl"):                         fmt.Sprintf("exit %d", tc.kubectlRC),
+				filepath.Join(dir, "scripts", "verify-deployment.sh"): fmt.Sprintf("exit %d", tc.chkRC),
+				filepath.Join(bin, "base64"):                          "exec /bin/cat",
+				filepath.Join(bin, "tr"):                              "exec /bin/cat",
+				filepath.Join(bin, "gh"):                              "/bin/cat > /dev/null; echo called >> \"$GH_MARK\"",
+			}
+			for path, body := range stubs {
+				if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cmd := exec.CommandContext(t.Context(), sh[0], sh[1:]...)
+			cmd.Stdin = strings.NewReader(secretBlock)
+			cmd.Env = []string{"PATH=" + bin, "HOME=" + home, "TERM=dumb", "GH_MARK=" + mark}
+			cmd.Dir = dir
+			out, _ := cmd.CombinedOutput()
+			_, statErr := os.Stat(mark)
+			if called := statErr == nil; called != tc.wantGH {
+				t.Errorf("%s, %s: gh called = %v, want %v (the KUBE_CONFIG block must not write the secret "+
+					"unless the read and the check both pass)\n%s", filepath.Base(sh[0]), tc.name, called, tc.wantGH, out)
 			}
 		}
 	}
