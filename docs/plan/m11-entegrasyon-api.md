@@ -534,6 +534,9 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
   kurulur, prod ikilisi `tt_live_` ile — `TestAPIKeyWiring_TheKeysServiceReachesThePanel`'in `LivePrefix` pini derleme etiketine
   göre genişler; bir `tt_test_` anahtarı prod'da biçim kontrolünde (DB'ye gitmeden) 401, bir `tt_live_` anahtarı sandbox'ta
   401; prod derlemesinde simülasyon yok; CI `-tags sandbox`; deploy kapısı; gerçek UID reddi; dokuz `IsHardened` kapısı; operatörsüz anahtar 403; holding simülasyonu.
+  *(API-11'in kod kısmı yazıldı, 2026-10-18 — gerçek test adları, tasarım kararları ve mutantlar ADR 0028 "API-11 uygulama
+  notu"nda; migration yok, yeni sqlc sorgusu `GetTapOutcome`; manifestler `deploy/sandbox/` (uygulanmadı). Kalan, kullanıcıya
+  bağlı: alan adı, DNS, sırlar, imajın itilmesi ve uygulama — deploy/README.md "Sandbox (API-11) — kullanıcı adımları".)*
 - **API-12:** OpenAPI her uç/hata; §2'nin 31 maddesi (madde 31 — `scope=location` ile süre hesaplama uyarısı — zorunlu). **(API-4'ten, 2026-10-15)** Rehber entegratöre ayrıca bildirir: Idempotency-Key'in istek hash'i bayt düzeyindedir —
   sorgu parametresi sırası ya da JSON boşluk farkı aynı anahtarla 422 verir, başlık farkı replay verir (ADR 0028
   "API-4 uygulama notu", ikinci tur). **(API-5'ten, 2026-10-15)** `PUT /v1/locations/{ref}` için: gövde tam olarak belgelenen alanları

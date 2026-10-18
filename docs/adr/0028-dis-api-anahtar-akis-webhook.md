@@ -905,14 +905,26 @@ listesi, iki aşamalı DNS ve `HTTPS_PROXY` işçi yolundan), `TestWebhookWorker
 (yedinci yazma: yeniden gönder). *(`Egress_*` ve imza vektörü API-9'da yazıldı — yukarıda; API-10'un işçisi aynı
 `egress.Client`'ı ve `webhook.SigningKey.Sign`'ı kullanır.)*
 
-**API-11** — `Packaging_ProdBuildHasNoSandboxPackage` · `Packaging_SandboxBuildHasIt` ·
-`Config_UntaggedBinaryRefusesSandbox` · `Sandbox_RealNXPUIDRefusedOnEveryResolveAndInsert` ·
-`Config_IsHardenedCoversTheNineGates` · `Sandbox_KeyWithoutOperatorIs403` ·
-`Sandbox_SimulatesAHoldingTap` · **CI kapısı:** iş akışı `go vet -tags sandbox ./...` ve
-`go test -tags sandbox ./...`'i de koşar (`CI_RunsVetAndTestWithTheSandboxTag` — iş akışı
-dosyasını okuyan bir paketleme testi) · **deploy kapısı:** `verify-image.sh` imajın derleme bilgisindeki
-tag'i doğrular — sandbox imajı `sandbox` tag'siz, prod imajı tag'li ise reddedilir
-(`VerifyImage_RefusesAWrongBuildTag`).
+**API-11** *(yazıldı — "API-11 uygulama notu"; adlar önerilenle aynı, önek eklendi)* —
+`TestPackaging_ProdBuildHasNoSandboxPackage` · `TestPackaging_SandboxBuildHasIt` ·
+`TestConfig_UntaggedBinaryRefusesSandbox` · `TestSandbox_RealNXPUIDRefusedOnEveryResolveAndInsert` ·
+`TestConfig_IsHardenedCoversTheNineGates` · `TestSandbox_KeyWithoutOperatorIs403` ·
+`TestSandbox_SimulatesAHoldingTap` · **CI kapısı:** iş akışı `make check-sandbox` ile `go vet -tags sandbox ./...`,
+staticcheck'i etiketle ve etiketin değiştirdiği paketlerin `go test -race -tags sandbox`'ını koşar
+(`TestCI_RunsVetAndTestWithTheSandboxTag` — iş akışını ve Makefile'ı okur, paket listesini ağaçtan yeniden
+hesaplar) · **deploy kapısı:** `verify-image.sh` imajın derleme bilgisindeki tag'i doğrular — sandbox imajı
+`sandbox` tag'siz, prod imajı tag'li ise reddedilir (`TestVerifyImage_RefusesAWrongBuildTag`). Ekler:
+`TestSandbox_ATapRunsTheRealPathFromThePlaqueOn`, `TestSandbox_TheBodyAndTheNamesAreTheContracts`,
+`TestSandboxOpenAPI_IsTheSimulationsRoutesAndTheSharedErrorSet`, `TestIsVirtualTagUID_IsTheRangeAndNothingElse`,
+`TestNew_RefusesAConfigurationThatIsNotTheSandboxs`, `TestKeys_EachBuildRefusesTheOthersPrefixBeforeTheDatabase`,
+`TestAPIKeyPrefix_IsTheBuilds`, `TestSandboxWiring_TheSimulationTakesTheTapsOwnObjects`,
+`TestSandboxExtensions_AreTheBuilds`, `TestSandboxManifests_AreTheSandboxsOwn`,
+`TestSandboxManifests_TheConfigMapStartsOnlyTheSandboxBuild`, `TestLoad_TheBuildDecidesTheSandboxValue`,
+`TestEnvForBuild_TheSandboxValueBelongsToTheSandboxBuild`, `TestSandboxSettings_TheSandboxSendsNoEmail`,
+`TestIsHardened_IsProductionOrTheSandbox`; genişleyenler: `TestAPIKeyWiring_TheKeysServiceReachesThePanel` ve
+`TestAPIWiring_TheChainTakesThePanelsPrefixAndTheOneWorker` (önek artık derlemenin `apiKeyPrefix`'i),
+`TestGuide_EveryEndpointCodeAndLimitIsTheDocuments` (sandbox belgesinin iki işlemi ve istek örneği),
+`TestStoreSurface_IsTheOneRecorded` ve `TestResolverAccess_NoSqlcQueryNamesADefiner` (`GetTapOutcome`).
 
 **API-12** *(yazıldı — "API-12 uygulama notu"; adlar önerilenle aynı, önek eklendi)* — `TestOpenAPI_EveryRouteAndErrorDocumented` ·
 `TestGuide_CarriesAll31ContractDifferences`. Ekler: `TestOpenAPI_TheDocumentIsOpenAPI31`, `TestOpenAPI_TheWebhooksAreTheSenders`,
@@ -3298,3 +3310,110 @@ belgede); ikisi de aynı turda:
    `TestPackaging_NoConfigMapKeyIsAlsoAnEnvEntry` (mutant: girdi geri → kırmızı).
 4. **`origin/main` birleştirildi** (merge commit; rebase yok). Çözüm kuralları deploy/README.md *"Birleştirme
    çakışması"*nda; birleşik `deploy.yml` sırası aynı bölümün (d)'sinde.
+
+## API-11 uygulama notu (2026-10-18) — sandbox'ın kod kısmı
+
+Kullanıcı (2026-10-18): *"bensiz ilerleyebileceğin işleri yap"*. Sandbox'ın alan adı ve DNS'i kullanıcıdadır ve
+henüz yoktur; bu not alan adı gerektirmeyen her şeyi kaydeder. Deploy, DNS, sırlar ve imajın registry'ye
+itilmesi kapsam dışıdır — tarifi deploy/README.md *"Sandbox (API-11) — kullanıcı adımları"*.
+
+1. **Ayrı derleme.** `internal/sandbox` (simülasyon + sanal plaket) yalnız `cmd/tappa/sandbox.go`
+   (`//go:build sandbox`) tarafından import edilir; ikizi `cmd/tappa/nosandbox.go` (`//go:build !sandbox`).
+   İki dosya aynı iki adı tanımlar: `apiKeyPrefix` (K-10: `apikey.LivePrefix` / `apikey.SandboxPrefix`) ve
+   `sandboxExtensions` (prod'da boş). `go list -deps ./cmd/tappa` negatif, `-tags sandbox` ile pozitif
+   (`TestPackaging_ProdBuildHasNoSandboxPackage`, `TestPackaging_SandboxBuildHasIt`). Makefile `build-sandbox`
+   (`-tags sandbox`, ayrı çıktı `bin/tappa-sandbox`), Dockerfile hedefi `app-sandbox` (`app`'tan önce —
+   `--target`'sız `docker build` yine prod sunucusunu üretir). `deploy.yml` sandbox'ı derlemez/itmez.
+2. **Derleme ↔ `TAPPA_ENV` (K-3).** Derleme gerçeği `internal/config/build_{default,sandbox}.go`'daki
+   `sandboxBuild` sabitidir; `config.Load` `envForBuild` ile uygular: etiketsiz ikili `sandbox`'ı reddeder,
+   sandbox ikilisi `sandbox` dışını — **boş değer dahil** (dev varsayılanı o derlemede yok) — reddeder. Kapı
+   `Load`'dadır, `run()`'da değil: veritabanına dokunan tek giriş noktası `config.Load`'dur ve kapı onu
+   atlayan bir yol bırakmaz (`pool.go`'nun `roleRefusal` dersi). İki gerçek ikiliyle ölçülür
+   (`TestConfig_UntaggedBinaryRefusesSandbox`: Makefile'ın iki tarifiyle derlenir, kapalı DB portuna karşı
+   koşulur; kontrol satırları dial'e ulaşır).
+3. **K-28.** `IsProd()` **kaldırıldı**, yerine `IsHardened()` = prod ∨ sandbox; dokuz çağrı noktası
+   (`config.go` Load + loadMail, `db/pool.go`, `session/cookie.go`, `adminauth/cookie.go`, `handler/cookies.go`,
+   `signupstate.go`, `logincontext.go`, `activate.go`) AST ile sayılır; `internal/config` dışındaki her
+   `config.Env*` karşılaştırması bilinen beşten biridir (üç `EnvDev` kapısı — `devtap.go`, `sun/mint.go`,
+   `main.go`'nun `DevelopmentWithoutBlockedList`'i — sandbox'ta kapalı; iki `EnvSandbox`: `db/pool.go`,
+   `sandbox.New`). Davranış yarısı: sandbox yapılandırması düz http üzerinde de Secure çerez alır, dev tap ve
+   dev minting kapalıdır (`TestConfig_IsHardenedCoversTheNineGates`).
+4. **Gerçek e-posta yok.** `TAPPA_ENV=sandbox` ile `TAPPA_RESET_DELIVERY` `none`, `TAPPA_INVITE_DELIVERY` `panel`
+   olmak zorunda (`sandboxSettings`); taşıyıcının ayarları hiç okunmaz. Webhook KEK'i ve düğüm listesi
+   (dev dışı her ortam gibi) zorunlu.
+5. **Sanal plaket izin listesi.** Aralık `0053` + 5 bayt (`db.VirtualTagUIDPrefix`, `db.IsVirtualTagUID` —
+   bir izin listesi: `04…` NXP'nin, öteki üreticiler de reddedilir). Kapı **havuzun yapılandırmasındadır**
+   (`db.New`, `cfg.Env == EnvSandbox` → `virtualTagsOnly`): kablolanacak, unutulacak bir şey yok.
+   *Çözümleme:* `GetTagByUID`'in ilk ifadesi `AdmitTagUID` — her dokunuşun ilk aldığı bağlamsız çözümleyici
+   (dokunuş sayfasının SUN ön kontrolü, `checkin.Record`'un yeniden çözümlemesi, simülasyon); ret
+   `db.ErrRealPlaqueRefused`, `errors.Is(…, pgx.ErrNoRows)` doğrudur → her çağıran onu bilinmeyen plaket
+   sayar (§5: kiracı yok, kayıt yok). *Ekleme:* tags satırının iki yazarı — `internal/encode`'un
+   `DBRows.InsertUnassigned`'ı ve sandbox minter'ı — INSERT'ten önce `AdmitTagUID` sorar; kod yarısı
+   `store.InsertUnassignedParams`'ı adlandıran her fonksiyonun önce kapıyı sorduğunu ve `db/queries`'te tek
+   `INSERT INTO tags` olduğunu sayar (`TestSandbox_RealNXPUIDRefusedOnEveryResolveAndInsert`). `encoded_at`'a
+   dayanılmaz. Holding fonksiyonları (`holding_tap_site`, `holding_advance_tag_counter`) yalnız `Record`'un
+   ilk adımında çözülen UID'yi görür.
+6. **Simülasyon gerçek SUN imzasıyla — tasarım.** Sanal plaketin gerçek bir AES anahtarı vardır
+   (`crypto/rand`, sandbox'ın `TAPPA_TAG_KEK`'iyle `sun.Wrap`, düz anahtar sıfırlanır, yalnız 44 baytlık zarf
+   saklanır). Simülasyon zarfı açar ve çipin bir sonraki okumasını (`last_ctr+1`) `sun.MintTapPath` ile basar;
+   URL `sun.Parse`'tan ve dokunuş sayfasının kendi ön kontrolü `PreviewWithoutReplayProtection`'dan geçer,
+   ardından `checkin.Service.Record` — atomik `ctr` (§4.4), kişi kilidi ve debounce, politika motoru,
+   `tap.Decide`, `transactions` INSERT'i ve tetikleyiciler (akış, holding izdüşümü, teslim satırları). Elle
+   yazılan hiçbir satır yoktur (§4.3, §4.6). Simülasyonun **iddia ettiği** iki şey: oturum (§5 satır 3 — sandbox'ta
+   aktivasyon için gerçek bir NFC dokunuşu yoktur, çalışanın aktive olup olmadığı sorulmaz) ve "nerede"
+   (çağıranın adresi, dokunuş sayfasının `httpx.ClientIP` kuralı; GPS yok). Hizmette olmayan bir plaketin
+   anahtarı açılmaz (sıfır MAC; §5 satır 1 önce reddeder). Sayaç Go'da yargılanmaz (R4) — tazeliği atomik
+   UPDATE söyler.
+7. **Sanal UID türetilir:** `0053` + lokasyon kimliğinin ilk 5 baytı. Böylece holding dokunuşunda eşin
+   plaketi eşin tag'leri okunmadan bulunur — UID hesaplanır ve her dokunuşun sorduğu çözümleyiciye sorulur;
+   sonuç eşin lokasyonuna ait değilse 404. UID gizli değildir (ADR 0003 md. 1). Çakışma PK'da reddedilir ve
+   404'tür.
+8. **Yetki (ADR 0028 §2, §11).** Uç nokta `/v1`'in kimlikli grubundadır: biçim (`tt_test_`) → IP kovası →
+   çözümleyici (K-22: açılmamış işletme 403) → anahtar kovası → yazma sorgu kuralı; yazma yolu (Idempotency-Key,
+   koşucu, askı kontrol noktası — sıfır sınıf: §4.7 tablosunda olmayan yazma askıda kapalı, hata sözleşmesi)
+   aynıdır. Çalışan anahtarın işletmesinden; lokasyon önce kendi işletmesinden, yoksa ADR 0027 §2'nin kapalı
+   listesindeki `holding_site_locations`'tan (iki eş aynı ref'i taşıyorsa 422). **Sanal plaket yalnız
+   anahtarın KENDİ lokasyonunda üretilir** (encode akışının üç ifadesi, tek işlem, panelin üç iz satırı K-23
+   ile anahtara atfedilir) — eşin lokasyonundaki plaketi eşin kendi simüle dokunuşu üretir; sandbox hiçbir
+   zaman başka bir işletmeye yazmaz. Brief'in "operatör ya da kurulum betiği" seçeneği yerine bu seçildi:
+   üretimde plaketi işletmenin kendi kimliği yükler (encode röle, panel oturumu); burada işletmenin kendi
+   anahtarı. Yeni yüzey (CLI, op_* fonksiyonu → prod şemasında migration) gerekmez. **K-39:** eşin
+   lokasyonundaki bir dokunuşun cevabında `trust` ve `rule` boştur (`null`) — karar eşin kanıtıyla verildi ve
+   işveren onu görmez (gün listesinin `nameSiteRecords` kuralı); `verdict` kalıntıdır (ADR 0027 §13 madde 5).
+   `GetTapOutcome` `TestEvidenceReaders_EveryOneIsClassified`'da `go-blank` diye kayıtlı.
+9. **API'ye uzantı noktası.** `internal/handler/api` simülasyonu bilmez: `api.Extension` (iki grup:
+   `MountPublic`, `MountAuthenticated` + `WriteFunc`) ve sözleşmenin dışa açılan parçaları (`WriteProblem`,
+   `ReadBody`, `ParseObject`, `StringField`, `InvalidField`, `NotFound`, `NoQuery`, `Unavailable`). Prod
+   yüzeyi uzantısızdır.
+10. **Idempotency.** Defter kaydın kimliğini tutar; tekrar `GetTapOutcome`'la kaydı yeniden okur (yeni sqlc
+    sorgusu, kanıt sütunu yok). Dokunuş defter satırından **önce** commit olur (`Record` kendi işlemlerinde
+    koşar: sayaç plaketin işletmesinde, kilit çalışanınkinde) — aradaki bir çöküşte tekrar ikinci bir dokunuştur
+    ve 60 sn içinde `ignored` kaydedilir: kayıp ya da çift punch yok.
+11. **OpenAPI: ayrı belge.** `internal/sandbox/openapi.json` (JSON — stdlib okur), sandbox ikilisinde
+    `GET /v1/sandbox/openapi.json` (anahtarsız). Prod `openapi.yaml`'ına girmez: o belge prod yönlendiricisiyle
+    iki yönlü eşleşir (`TestOpenAPI_PathsAreTheRoutersAndTheErrorIsSection8`). Hata kodları ortak kümedir
+    (`TestSandboxOpenAPI_IsTheSimulationsRoutesAndTheSharedErrorSet`). Rehber §1.4 (EN+TR) doldu, alan adı
+    "henüz seçilmedi"; §12'ye 2. baskı.
+12. **CI.** `make check-sandbox`: `go vet -tags sandbox ./...`, staticcheck `-tags sandbox ./...`, ve
+    `go test -race -tags sandbox` **yalnız etiketin değiştirdiği paketlerde** (`SANDBOX_TEST_PKGS` =
+    `internal/config`, `internal/sandbox`, `cmd/tappa`). Gerekçe: geri kalan her paket iki derlemede bayt bayt
+    aynı koddur; ikinci koşu bilgi değil süre ekler. Liste ağaçtan yeniden hesaplanır — etiketli dosyası olan
+    ama listede olmayan paket kırmızıdır. Etiketli derlemede `dev`/`prod` yükleyen config testleri
+    `untaggedOnly` ile atlanır (o derleme onları başlatmaz; etiketsiz koşu kapsar). Süre (yerel, 16 çekirdek, taze kap, `-race`, 2026-10-18): etiketsiz tam suit **711 sn**; etiketli tam suit (`go test -race -tags sandbox ./...`) **719 sn** — CI'da ikinciyi koşmak işi ~iki katına çıkarır ve 35 dk'lık `timeout-minutes`'ı aşar; hedefli üç paket **168 sn** (en yavaşı `cmd/tappa`), vet ve staticcheck etiketle birkaç saniye (önbellekli) / ~15 sn (soğuk). İş limiti 35 → 45 dk (ci.yml'deki hesap). Etiketli tam suit yerelde de yeşildir (bilinen yerel kırmızılar dışında): prod ConfigMap'ini ya da `dev`/`prod` yükleyen birkaç test sandbox derlemesinde atlanır (`untaggedOnly`, `productionBuildOnly`, `setEnvForLoad`) — CI tam etiketli koşuya geçmek isterse engel yoktur, yalnız süre.
+13. **Manifestler** `deploy/sandbox/` (**uygulanmadı**): namespace `tappa-sandbox` (PSS `restricted` üç kipte),
+    `ResourceQuota` + `LimitRange`, ConfigMap (`TAPPA_ENV=sandbox`, `none`/`panel`, `SANDBOX_DOMAIN` yer tutucu),
+    Postgres + NetworkPolicy (yalnız namespace'in pod'ları), sunucu (sandbox imajı, prod'un sertleştirmesi,
+    operatörün dört anahtarı zorunlu, SMTP yok), migration Job'ı (prod'un migration imajı), iki Ingress
+    (`<D>`, `api.<D>`; `ops.<D>` prod'un izin listesi kalıbıyla sonra), sır şablonu (yalnız yer tutucu). Sunucuya
+    NetworkPolicy yok — prod'unki de yok: ingress-nginx `hostNetwork`'tedir, ölçülmeden yazılan bir politika
+    sandbox'ı kendi ingress'inden keserdi.
+14. **Prod'la paylaşılanlar (sayılı):** küme ve düğüm, ingress-nginx ve cert-manager, `TAPPA_TRUSTED_PROXIES`
+    ve `TAPPA_WEBHOOK_BLOCKED_ADDRESSES`'in değerleri (aynı düğüm), migration imajı (aynı migration'lar),
+    Docker Hub hesabı. **Paylaşılmayanlar:** namespace, veritabanı, her anahtar ve parola, alan adı, operatör
+    hesabı, imaj adı (`tappa-sandbox`).
+15. **Ürün kodunda derleme kısıtı (R: `TestProductCode_CarriesNoBuildConstraint`).** Liste boştu; şimdi tam dört
+   dosya, her biri tam kendi satırıyla (`cmd/tappa/{sandbox,nosandbox}.go`, `internal/config/build_{sandbox,default}.go`).
+   Exec-mode/bağlantı tel taraması (`TestProductCode_ExecModeWireAndConnectWire`) **iki derlemede de** koşar ve bir
+   ürün dosyası ancak hiçbir derleme onu derlemiyorsa kırmızıdır — sandbox'a özgü bir dosya da taranır (mutant:
+   `sandbox.go`'ya bir `pgx.QueryExecMode` kullanımı → kırmızı). `newDB`'nin gözden geçirilmiş gövdesi
+   (`TestConstructors_BodiesAreTheReviewedOnes`) `virtualTagsOnly` alanıyla güncellendi.
