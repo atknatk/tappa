@@ -536,12 +536,23 @@ goose_down() {
 #     icindeki `;` ifade ayirici sayilir ve blogun 2. ifadesinden itibaren her sey
 #     gercek SQL gibi gorunur — "RLS'i sonra acarim" diye yorumlanmis bir tablo
 #     tam puan alirdi;
+#   · blok yorumu BOSLUKLA degistirilir, bosluksuz silinmez (T130 dusuk turu,
+#     2026-10-18): PostgreSQL icin `/* */` bir AYIRICI'dir, yani
+#     `GRANT/**/DELETE ON public.transactions TO tappa_app` gecerli bir GRANT'tir;
+#     bosluksuz silmek onu `grantdelete …` yapiyordu ve `^grant ` bekleyen her
+#     kuraldan (append-only, sema capinda, GRANT ALL, R5b muafiyeti) geciyordu
+#     (olculdu, exit 0). Kirmizi vaka: cmd/tappa TestRedline_ABlockCommentSeparatesTokens;
 #   · string literallerini ve `$$ … $$` govdelerini KORUR, icindeki `;` yerine
 #     \001 koyar — `DEFAULT ';'` gibi bir sutun ifadeyi bolmesin (yanlis pozitif),
 #     plpgsql govdesi de parcalanmasin;
 #   · soldan saga tek gecis: string icindeki `--` yorum, yorum icindeki `'` string
 #     sayilmaz.
-# SINIR: adlandirilmis dolar tirnagi ($body$ …) bilinmez; `$$` kullanin.
+# SINIRLAR (sayili, yanlis-NEGATIF): (1) adlandirilmis dolar tirnagi ($body$ …)
+# bilinmez; `$$` kullanin. (2) `E'…\'…'` bicimli kacisli dize bilinmez: `\'`
+# dizeyi kapatmis sayilir ve geri kalan ayirma kayar (`''` bilinir). (3) dinamik
+# SQL (`DO`/`EXECUTE`) ve PUBLIC'e verilen yetki R5b kurallarinin gorus alani
+# disindadir -- backlog T137; arkadaki kapi DB testleridir
+# (TestRLS_AppCannotMutateTransactions vb.).
 sql_lex() {
   awk '
     BEGIN { inb = 0; ins = 0; ind = 0 }
@@ -557,7 +568,7 @@ sql_lex() {
         } else if (ins) {
           if (c == "\047") { ins = 0; out = out c; i++ }
           else { out = out ((c == ";") ? "\001" : c); i++ }
-        } else if (c2 == "/*")   { inb = 1; i += 2 }
+        } else if (c2 == "/*")   { inb = 1; out = out " "; i += 2 }
         else if (c2 == "--")     { i = n + 1 }
         else if (c2 == "$$")     { ind = 1; out = out c2; i += 2 }
         else if (c == "\047")    { ins = 1; out = out c; i++ }
@@ -778,6 +789,38 @@ policy_tautology() {
 # ⚠️ `operator_audit_log` asagidaki `[^ ]*` onekiyle `audit_log` alt dizgisinden de
 # yakalanirdi (tesadufen); acikca yazilir ki liste turetilmis kumeyle esit olsun.
 APPEND_ONLY='(transactions|audit_log|transaction_reviews|policy_versions|billing_periods|legal_documents|operator_audit_log|site_punches|punch_events)'
+
+# R5b'nin 00058 muafiyetinin dosya sekli (asagida, muafiyetin yorumunda gerekcesiyle). 0 = sekil
+# sevk edilen dosyanin sekli; baska her sey (sha256 araci yoksa dahil) 1 -- muafiyet yok, FAIL.
+R5B_00058_BODIES=4c86b148d9ba9bdb8a5f85fe459b619dd5120fb6fd2016c53cf95fabf5adaf52
+r5b_00058_shape() {
+  local f=$1 up=$2 down=$3 whole outside hash h hasher="" grants tops
+  for h in "sha256sum" "shasum -a 256"; do
+    # shellcheck disable=SC2086 # h bilerek bolunur (arac + argumanlari)
+    if command -v "${h%% *}" >/dev/null 2>&1 &&
+      [[ $(printf abc | $h 2>/dev/null) == ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad* ]]; then
+      hasher=$h
+      break
+    fi
+  done
+  [[ -n $hasher ]] || return 1
+  whole=$(sql_lex <"$f" | tr '[:upper:]' '[:lower:]' | tr '\n' ' ')
+  # shellcheck disable=SC2086 # hasher bilerek bolunur
+  hash=$(awk -F'[$][$]' '{ for (i = 2; i <= NF; i += 2) print $i }' <<<"$whole" | $hasher)
+  [[ ${hash%% *} == "$R5B_00058_BODIES" ]] || return 1
+  ! grep -qE '[$][a-z_][a-z0-9_]*[$]|\\' <<<"$whole" || return 1
+  ! grep -qE '[$][$]|(^|[^a-z0-9_])(do|execute)([^a-z0-9_]|$)' \
+      <<<"$(goose_down "$f" | sql_lex | tr '[:upper:]' '[:lower:]')" || return 1
+  outside=$(awk -F'[$][$]' '{ for (i = 1; i <= NF; i += 2) printf "%s ", $i }' <<<"$whole")
+  [[ $(grep -oF 'execute function public.webhook_delivery_settle()' <<<"$outside" | wc -l) -eq 1 ]] || return 1
+  outside=${outside/execute function public.webhook_delivery_settle()/}
+  ! grep -qE '(^|[^a-z0-9_])execute([^a-z0-9_]|$)' <<<"$outside" || return 1
+  grants=$(tr -c 'a-z0-9_' '\n' <<<"$outside" | grep -cx grant || true)
+  tops=$(grep -c '^grant ' <<<"$up"$'\n'"$down" || true)
+  [[ $grants -eq $tops ]] || return 1
+  ! grep -E '^grant .* to (group )?([a-z0-9_]+ , (group )?)*public( ,| with |$)' <<<"$up"$'\n'"$down" >/dev/null \
+    || return 1
+}
 
 for f in db/migrations/*.sql; do
   [[ -e $f ]] || continue
@@ -1247,6 +1290,28 @@ for f in db/migrations/*.sql; do
   #   - Down'un HICBIR yerinde (politikadan SONRA da) bir `grant` ifadesi yoktur: politikasiz tabloya
   #     geri verilen DELETE ayni genislemedir;
   #   - politika Down'da bir kez silinir.
+  #
+  # 🔴 DUSUK TURU (T130, 2026-10-18) -- dort mutant daha gecti (olculdu, exit 0): (V05) Down'da
+  # politikadan SONRA `DO $$ … EXECUTE 'GRANT DELETE …' $$` -- ifade `do` ile basliyor, `^grant`
+  # onu gormuyordu; (V06) ayni GRANT adlandirilmis dolar tirnagi ($x$) icinde -- ayirici onu
+  # bilmez; (V16) Down'da `GRANT/**/DELETE …` -- ayirici blok yorumunu bosluksuz siliyordu
+  # (`grantdelete`; sql_lex'te duzeltildi); (G4) Up'ta `GRANT DELETE … TO PUBLIC` -- Down'un REVOKE'u
+  # yalniz tappa_app'inkini alir, PUBLIC'inki (her rolun) politikasiz tabloda kalir. Muafiyet artik
+  # BUTUN dosyanin su sekilde olmasini da sart kosar (r5b_00058_shape; biri tutmazsa FAIL):
+  #   - dosyanin `$$ … $$` govdeleri (ayiricidan gecmis, kucuk harf) TAM OLARAK sevk edilen uc
+  #     govdedir (on kosul DO'su, tetikleyici fonksiyonu, son kosul DO'su -- sha256'leri asagida):
+  #     PL/pgSQL bir GRANT'i statik de kosabilir, yani "govdede EXECUTE yok" yetmez; govde bir
+  #     beyaz liste, bir yasak listesi degil. 00058 deploy olunca degismez (§3), pin de degismez;
+  #   - adlandirilmis dolar tirnagi ($x$) ve ters bolu (E'…\'…' -- ayiricinin sayili siniri) yok;
+  #   - Down'da hic `$$`, `do` ya da `execute` yok;
+  #   - govdelerin DISINDA `execute` yalniz tetikleyicinin `execute function
+  #     public.webhook_delivery_settle()`'idir ve her `grant` sozcugu bir ust duzey ifadenin ilk
+  #     sozcugudur (bir dize sabitinde ya da baska bir ifadenin icinde GRANT yok) -- `DO '…'`
+  #     (dolar tirnaksiz, dize govdeli DO) bu iki kurala takilir;
+  #   - hicbir GRANT'in (Up ya da Down) alicisi `public` degildir.
+  # Bu bir SOZCUK kapisidir; ARKADAKI KAPI veritabanidir:
+  # internal/db TestWebhookRetention00058And00059_DownGiveBackAndUpTakesItAgain Down'dan sonra
+  # gecerli yetkiyi has_table_privilege ile -- PUBLIC ve rol uyeligi dahil -- okur.
   # Kirmizi vakalar: cmd/tappa TestRedline_R5bWaiverIsThe00058DownAlone.
   down_stmts=$(sql_statements_down "$f")
   while IFS= read -r s; do
@@ -1261,7 +1326,8 @@ for f in db/migrations/*.sql; do
        && [[ $s == "$r5b_drop" ]] \
        && [[ $(grep -cxF "$s" <<<"$down_stmts") == 1 ]] \
        && [[ $(awk -v d="$s" '$0 == d { exit } { print }' <<<"$down_stmts") == "$r5b_before" ]] \
-       && ! grep -qE '^grant ' <<<"$down_stmts"; then
+       && ! grep -qE '^grant ' <<<"$down_stmts" \
+       && r5b_00058_shape "$f" "$stmts" "$down_stmts"; then
       policy_waivers+="$f: KISITLAYICI politika Down'da siliniyor, DELETE once geri aliniyor → ${s:0:110}"$'\n'
       continue
     fi

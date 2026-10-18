@@ -418,6 +418,17 @@ func TestAPIKeyQueries_CarryAnExplicitTenantPredicate(t *testing.T) {
 	fileBelt(t, "apikeys.sql", 7)
 }
 
+// TestAPIIdempotencyQueries_CarryAnExplicitTenantPredicate is the same belt over apiidempotency.sql
+// (T130 low round): its one caller, internal/apikey's Writes.Run, carries no copy of it, and the file
+// was in no belt -- the lazy delete's outer `d.tenant_id` and its CTE's tenant predicate could each go
+// and RLS alone kept everything green.
+//
+// MUTANTS (measured): DeleteExpiredIdempotency's outer `d.tenant_id = @tenant_id` dropped (D3), and the
+// CTE's `e.tenant_id = @tenant_id` replaced by `e.tenant_id = e.tenant_id` (E3) -> red, each.
+func TestAPIIdempotencyQueries_CarryAnExplicitTenantPredicate(t *testing.T) {
+	fileBelt(t, "apiidempotency.sql", 5)
+}
+
 // TestReviewsQueries_CarryAnExplicitTenantPredicate is the same belt over reviews.sql (M11 API-10 review,
 // D-3). internal/domain/review's TestReviewQueries_CarryAnExplicitTenantPredicate derives its list from
 // the queries THAT package calls -- and API-10's GetReviewedPunchSite (the approval's K-19 read) is called

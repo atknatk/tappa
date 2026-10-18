@@ -3604,7 +3604,7 @@ ayrılmıştı ama yazılmamıştı — ana oturumun kararıyla T130 aldı, OP-1
     Down'da politikadan önceki ifadeler tam olarak `set local lock_timeout` + `revoke delete … from tappa_app` (beyaz liste) ve Down'un
     hiçbir yerinde `grant` yok. Geçen üç mutant (W6 Up'ta silme, W7 aradaki GRANT, W10 PUBLIC'e GRANT) ve komşuları (şema çapında
     GRANT, DROP'tan sonra GRANT, araya DO bloğu, REVOKE'suz, REVOKE sonra, çift DROP, başka dosya adı) artık FAIL —
-    `cmd/tappa` `TestRedline_R5bWaiverIsThe00058DownAlone` (eski betikte bu vakalardan yedisi exit 0'dı). (c) **`DownGiveBack…`
+    `cmd/tappa` `TestRedline_R5bWaiverIsThe00058DownAlone` (eski betikte bu vakalardan altısı exit 0'dı; şema çapında GRANT eski betikte de başka bir kuralla FAIL'di). (c) **`DownGiveBack…`
     kararsızlığı:** REPEATABLE READ anlık görüntüsü kilitlerden önce; paralel bir yazıcının dokunduğu bekleyen satır `00058` Up'ın
     `UPDATE … WHERE state = 'pending'`'inde `40001`. Çare emsalin (`82be583`/`437df0a`) biçimi: kilitli savepoint'te önce
     `TRUNCATE webhook_deliveries`. Bekleyen satırları sıkı döngüde yeniden yazan bir yazıcının yanında: eski 10/10 kırmızı, yeni
@@ -3621,4 +3621,19 @@ ayrılmıştı ama yazılmamıştı — ana oturumun kararıyla T130 aldı, OP-1
     bir sonraki teslim turunda koşar; panel ve *Send again now* 90 günden eskiyi hiçbir zaman göstermez (madde 7); entegrasyon API'sinde
     teslim günlüğü okuması yok. Rehber §9.6 (EN+TR) ve OpenAPI cümlesi buna göre; rehber testi *"then it is deleted"*/*"sonra
     silinir"* sözünü de reddeder. Plan §7 madde 5'teki DPA cümlesi bu anlamda.
-
+14. **DÜŞÜK turu (2026-10-18; 2. turda iki mercek ONAY).** (a) **Ayırıcı blok yorumu boşlukla değiştirir:** `GRANT/**/DELETE ON
+    public.transactions TO tappa_app` (PostgreSQL için geçerli bir GRANT) `grantdelete …` olup `^grant ` bekleyen her kuraldan geçiyordu
+    (her migration'da, exit 0); şimdi append-only FAIL — `TestRedline_ABlockCommentSeparatesTokens`; tam ağaçta yeni isabet yok. (b) **R5b
+    muafiyeti dosyanın şeklini de şart koşar** (`r5b_00058_shape`): dosyanın `$$` gövdeleri tam olarak sevk edilen üçü (sha256 pinli —
+    PL/pgSQL GRANT'i statik de koşabilir, *"EXECUTE yok"* yetmez); adlandırılmış dolar tırnağı ve ters bölü yok; Down'da `$$`/`do`/`execute`
+    yok; gövdelerin dışında `execute` yalnız tetikleyicinin `execute function`'ı ve her `grant` üst düzey bir ifadenin ilk sözcüğü (`DO '…'`
+    dize gövdesi buna takılır); hiçbir GRANT'in alıcısı `public` değil. Brief'in *"dosyanın tamamında DO/EXECUTE/dolar gövdesi yok"* şartı
+    sevk edilen dosyanın kendi ön/son koşul DO'larıyla çelişiyordu; gövde beyaz listesi aynı darlığı sevk edileni bozmadan verir. FAIL'e
+    dönen mutantlar: V05 (Down'da `DO $$ … EXECUTE 'GRANT …' $$`), V06 (adlandırılmış dolar tırnağı), V16 (Down'da `GRANT/**/DELETE`), G4
+    (Up'ta `… TO PUBLIC`) ve komşuları (Up'ta dördüncü gövde, `TO tappa_app, PUBLIC`, `DO '…'` Up'ta ve Down'da, kurulmuş dizeyi
+    `EXECUTE` eden `DO '…'`, son koşul DO'sunun Down'a taşınması, `E'\''`); şartlardan her biri tek başına kaldırılınca en az bir vaka
+    kırmızı. Sözcük kapısının arkasındaki kapı veritabanıdır: `TestWebhookRetention00058And00059_DownGiveBackAndUpTakesItAgain` Down'dan
+    sonra etkin yetkiyi `has_table_privilege` ile (PUBLIC ve üyelik dahil) okur. (c) **Genel sınır backlog'da (T137):** her migration'da
+    dinamik SQL ile ya da PUBLIC'e verilen yetki ve `E'…'` dizesi R5b'nin görüş alanı dışında (ölçümler ve arkadaki DB kapıları orada);
+    `E''` ayırıcının sayılı sınırlarına eklendi. (d) **`apiidempotency.sql` §4.5 kemerinde:** `TestAPIIdempotencyQueries_CarryAnExplicitTenantPredicate`
+    (5 sorgu); dış `d.tenant_id`'yi silen (D3) ve CTE'nin tenant yüklemini totolojiye çeviren (E3) mutantlar kırmızı.
