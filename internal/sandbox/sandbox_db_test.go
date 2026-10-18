@@ -17,6 +17,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -49,6 +50,8 @@ type rig struct {
 	kek   []byte
 	sim   *Simulation
 	h     http.Handler
+	// notices is the simulation's Noticer (K-19): every Notice it was given, in order.
+	notices *noticeLog
 }
 
 func newRig(t *testing.T) *rig { return newRigOn(t, 0) }
@@ -88,7 +91,8 @@ func newRigOn(t *testing.T, poolMax int) *rig {
 	trail := must(audit.New(d))
 	keys := must(apikey.NewKeys(apikey.SandboxPrefix, mac, d, trail))
 	chain := must(apikey.NewAuthenticator(apikey.SandboxPrefix, mac, d, d))
-	sim, err := New(Config{App: cfg, Data: d, Work: noWork{}, Log: quiet})
+	notices := &noticeLog{}
+	sim, err := New(Config{App: cfg, Data: d, Work: notices, Log: quiet})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,12 +105,40 @@ func newRigOn(t *testing.T, poolMax int) *rig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &rig{t: t, ctx: ctx, d: d, owner: owner, keys: keys, kek: kek, sim: sim, h: httpx.NewRouter(&config.Config{APIHost: apiHost}, nil, surface)}
+	return &rig{t: t, ctx: ctx, d: d, owner: owner, keys: keys, kek: kek, sim: sim, notices: notices,
+		h: httpx.NewRouter(&config.Config{APIHost: apiHost}, nil, surface)}
 }
 
 type noWork struct{}
 
 func (noWork) Notice(uuid.UUID) {}
+
+// noticeLog records every Notice; at is called (when set) with each one as it is given, so a test
+// can look at the database at that moment.
+type noticeLog struct {
+	mu      sync.Mutex
+	tenants []uuid.UUID
+	at      func(uuid.UUID)
+}
+
+func (n *noticeLog) Notice(t uuid.UUID) {
+	n.mu.Lock()
+	n.tenants = append(n.tenants, t)
+	at := n.at
+	n.mu.Unlock()
+	if at != nil {
+		at(t)
+	}
+}
+
+// take returns the notices given since the last take and forgets them.
+func (n *noticeLog) take() []uuid.UUID {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	out := n.tenants
+	n.tenants = nil
+	return out
+}
 
 func must[T any](v T, err error) T {
 	if err != nil {
@@ -427,6 +459,63 @@ func TestSandbox_SimulatesAHoldingTap(t *testing.T) {
 	}
 	if !r.feedHas(kmKey, "employer", group.PunchID) || !r.feedHas(kfKey, "location", group.PunchID) || r.feedHas(kfKey, "employer", group.PunchID) {
 		t.Errorf("the group punch: in KM's employer scope and KF's location scope only")
+	}
+}
+
+// TestSandbox_K19NoticesTheBusinessesAfterTheCommit (K-19; API-11 low round): a recorded simulation
+// tells the webhook worker which businesses have work -- an own tap the key's business, a group tap
+// the key's business AND the venue's (the peer's notice goes from here alone: without it the peer's
+// delivery waits for the peer's next event). THE CONTRACT IS "AFTER THE COMMIT", measured as: at the
+// moment of each notice the record is already visible on another connection (the owner's) -- the
+// worker the notice wakes reads committed rows, and a notice before the commit would find none. A
+// refused request (404, rolled back) and an Idempotency-Key replay (nothing new) notify nobody.
+//
+// MUTANTS (measured): the key's business's Notice deleted (the own tap notifies nobody -- red); the
+// venue's business's Notice deleted (the group tap notifies KM only -- red); both Notices moved into
+// the runner's work, before the commit (the owner sees 0 rows at the notice -- red).
+func TestSandbox_K19NoticesTheBusinessesAfterTheCommit(t *testing.T) {
+	r := newRig(t)
+	kf, kfKey := r.business(true, "KF")
+	km, kmKey := r.business(true, "KM")
+	r.holding(kf, km)
+	venue := r.venue(kfKey, "KF-VLT")
+	r.evidence(venue)
+	r.employee(kf, "KF-1", "active")
+	r.employee(kf, "KF-2", "active")
+	r.employee(km, "KM-1", "active")
+	r.notices.take()
+	visible := map[uuid.UUID]int{}
+	r.notices.at = func(tenant uuid.UUID) {
+		visible[tenant] = r.count(`SELECT count(*) FROM transactions WHERE tenant_id = $1 OR site_tenant_id = $1`, tenant)
+	}
+	same := func(got, want []uuid.UUID) bool { return fmt.Sprint(got) == fmt.Sprint(want) }
+
+	decodeTap(t, r.tap(kfKey, "KF-1", "KF-VLT", "nfc"))
+	if got := r.notices.take(); !same(got, []uuid.UUID{kf}) || visible[kf] != 1 {
+		t.Fatalf("an own tap: notices %v (want [KF %s]), KF's committed rows at its notice %d (want 1)", got, kf, visible[kf])
+	}
+
+	decodeTap(t, r.tap(kmKey, "KM-1", "KF-VLT", "nfc"))
+	if got := r.notices.take(); !same(got, []uuid.UUID{km, kf}) || visible[km] != 1 || visible[kf] != 2 {
+		t.Fatalf("a group tap: notices %v (want [KM %s, KF %s]), committed rows at the notices KM %d (want 1), KF %d (want 2)",
+			got, km, kf, visible[km], visible[kf])
+	}
+
+	if w := r.tap(kmKey, "KM-NOBODY", "KF-VLT", "nfc"); w.Code != http.StatusNotFound {
+		t.Fatalf("an unknown employee: %d %s", w.Code, w.Body.String())
+	}
+	if got := r.notices.take(); len(got) != 0 {
+		t.Fatalf("a refused request notified %v", got)
+	}
+
+	idem := "k19-" + uuid.NewString()
+	decodeTap(t, r.tap(kfKey, "KF-2", "KF-VLT", "qr", "Idempotency-Key", idem))
+	if got := r.notices.take(); !same(got, []uuid.UUID{kf}) {
+		t.Fatalf("the first of a keyed pair: notices %v, want [KF]", got)
+	}
+	decodeTap(t, r.tap(kfKey, "KF-2", "KF-VLT", "qr", "Idempotency-Key", idem))
+	if got := r.notices.take(); len(got) != 0 {
+		t.Fatalf("a replay notified %v", got)
 	}
 }
 

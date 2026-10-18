@@ -3477,3 +3477,16 @@ itilmesi kapsam dışıdır — tarifi deploy/README.md *"Sandbox (API-11) — k
     tutulur (`TestPlaqueAt_HoldsTheResolvedRowToTheVenue`); UID'yi başka işletme tutarken simülasyon 404
     `no_plaque`'tır ve hiçbir şey yazmaz (`TestSandbox_AVirtualUIDHeldByAnotherBusinessIs404`). *Üçüncü göz 4:*
     Dockerfile'ın son aşaması `app`'tır (`TestDockerfile_APlainBuildIsTheProductionServer`). *Disk:* md. 14.
+17. **DÜŞÜK turu (2026-10-18; iki mercek ONAY'ından sonra, yeniden denetimsiz).** *K-19 bildirimi:*
+    commit'ten sonra anahtarın işletmesine, grup dokunuşunda lokasyonun işletmesine de (eşin bildirimi yalnız
+    buradan gider); sözleşme *"bildirim anında kayıt başka bir bağlantıda görünür"*; reddedilen istek ve
+    Idempotency tekrarı bildirmez (`TestSandbox_K19NoticesTheBusinessesAfterTheCommit`; mutantlar: iki
+    çağrıdan birini silmek, ikisini commit öncesine taşımak → kırmızı). *`onRunner.WithTenant`* anahtarın
+    işletmesi dışındaki bir işletmeyi **reddeder** (fail-closed; savepoint yok, bağlam değişmez — simülasyon
+    buna hiç ihtiyaç duymaz: grup dokunuşunun sayaç ilerletmesi de `holding_advance_tag_counter` ile anahtarın
+    işletmesinin bağlamında koşar) (`TestOnRunner_RefusesAnotherBusinessesContext`; mutant: ret kaldırılır →
+    kırmızı). `WithTenantIn`'in geri yüklemesi bu yüzden sandbox'ta gözlenemez; mutantı `internal/db`'de
+    kırmızı kalır (`TestWithTenantIn_SwitchesInASavepointAndGivesTheContextBack`). `WithTenantIn` hata yolunda
+    başarısız savepoint geri alımını artık yutmaz, `errors.Join` ile döndürür (`pgx.ErrTxClosed` hariç)
+    (`TestWithTenantIn_AFailedRollbackIsReturned`). deploy/README.md *"Sandbox (API-11)"* §6: yanlış önek
+    ile bozuk biçim aynı daldan geçer — aynı 401, veritabanına gidilmez.

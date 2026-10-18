@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -105,6 +106,12 @@ func (d *DB) WithTenant(ctx context.Context, tenantID uuid.UUID, fn TxFunc) (err
 // the savepoint is rolled back, which undoes fn's writes and the set_config with them; tx stays
 // usable and in outer's context. The row locks and transaction-scoped advisory locks fn takes are
 // the TRANSACTION's: they are held until tx ends, not until the savepoint does.
+//
+// A ROLLBACK THAT FAILS IS RETURNED, joined to the error that asked for it (API-11 low round): a
+// savepoint that was not rolled back may have left fn's writes and tenantID's context on tx, so
+// the caller must not go on as if it had been -- it gets both errors, and errors.Is still finds
+// fn's (TestWithTenantIn_AFailedRollbackIsReturned). pgx.ErrTxClosed is not such a failure: the
+// savepoint already ended (a failed release closes it), there is nothing left to roll back.
 func WithTenantIn(ctx context.Context, tx pgx.Tx, outer, tenantID uuid.UUID, fn TxFunc) (err error) {
 	if tenantID == uuid.Nil || outer == uuid.Nil {
 		return fmt.Errorf("db: WithTenantIn: refusing to scope to the nil tenant")
@@ -115,11 +122,15 @@ func WithTenantIn(ctx context.Context, tx pgx.Tx, outer, tenantID uuid.UUID, fn 
 	}
 	defer func() {
 		if p := recover(); p != nil {
+			// The panic is what propagates; a rollback failure here has no caller to reach, and
+			// the panic ends the outer transaction's use anyway (WithTenant rolls it back).
 			_ = sp.Rollback(context.Background())
 			panic(p)
 		}
 		if err != nil {
-			_ = sp.Rollback(context.Background())
+			if rbErr := sp.Rollback(context.Background()); rbErr != nil && !errors.Is(rbErr, pgx.ErrTxClosed) {
+				err = errors.Join(err, fmt.Errorf("db: roll back savepoint: %w", rbErr))
+			}
 		}
 	}()
 	if _, err = sp.Exec(ctx, "SELECT set_config('app.tenant_id', $1, true)", tenantID.String()); err != nil {

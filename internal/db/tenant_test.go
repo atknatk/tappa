@@ -10,6 +10,7 @@ import (
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // These tests run against a REAL Postgres (CLAUDE.md §8 / Q04): RLS and the
@@ -292,4 +293,69 @@ func TestWithTenantIn_SwitchesInASavepointAndGivesTheContextBack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WithTenant: %v", err)
 	}
+}
+
+// TestWithTenantIn_AFailedRollbackIsReturned (M11 API-11 low round): when fn fails and the
+// savepoint will not roll back, WithTenantIn returns both -- fn's error (errors.Is still finds it)
+// and the rollback's -- instead of fn's alone, which would let the caller go on over a savepoint
+// that may still carry fn's writes and fn's tenant context. A rollback that finds the savepoint
+// already closed (pgx.ErrTxClosed) is not a failure and adds nothing. No database: the savepoint is a
+// double whose Rollback answers what the case says.
+//
+// MUTANT (measured): the deferred rollback's error discarded again (`_ = sp.Rollback(...)`) -- the
+// "will not roll back" row returns fn's error alone: red.
+func TestWithTenantIn_AFailedRollbackIsReturned(t *testing.T) {
+	boom, broken := errors.New("boom"), errors.New("rollback refused")
+	for _, tc := range []struct {
+		name     string
+		rollback error
+		want     []error
+		notWant  error
+	}{
+		{name: "will not roll back", rollback: broken, want: []error{boom, broken}},
+		{name: "already closed", rollback: pgx.ErrTxClosed, want: []error{boom}, notWant: pgx.ErrTxClosed},
+		{name: "rolls back", rollback: nil, want: []error{boom}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sp := &savepointDouble{rollback: tc.rollback}
+			err := WithTenantIn(context.Background(), outerDouble{sp: sp}, uuid.New(), uuid.New(),
+				func(context.Context, pgx.Tx) error { return boom })
+			for _, w := range tc.want {
+				if !errors.Is(err, w) {
+					t.Errorf("err %v does not carry %v", err, w)
+				}
+			}
+			if tc.notWant != nil && errors.Is(err, tc.notWant) {
+				t.Errorf("err %v carries %v", err, tc.notWant)
+			}
+			if sp.rollbacks != 1 {
+				t.Errorf("the savepoint was rolled back %d times, want 1", sp.rollbacks)
+			}
+		})
+	}
+}
+
+// outerDouble is the caller's transaction: Begin hands out the savepoint double. Every other method
+// is the nil embedded interface's -- a call to one panics, so the test proves it is not reached.
+type outerDouble struct {
+	pgx.Tx
+	sp *savepointDouble
+}
+
+func (o outerDouble) Begin(context.Context) (pgx.Tx, error) { return o.sp, nil }
+
+// savepointDouble accepts every Exec and answers Rollback with rollback.
+type savepointDouble struct {
+	pgx.Tx
+	rollback  error
+	rollbacks int
+}
+
+func (s *savepointDouble) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+	return pgconn.CommandTag{}, nil
+}
+
+func (s *savepointDouble) Rollback(context.Context) error {
+	s.rollbacks++
+	return s.rollback
 }

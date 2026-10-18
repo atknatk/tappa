@@ -1883,8 +1883,10 @@ alır) ve holding denenecekse holding'i kurar.
 ### 6. Doğrulama
 
 Üçüncü satırın anahtarı **açıkça sahtedir**: `tt_live_` öneki ve 43 `A` — bir prod anahtarının
-biçimi, hiçbir anahtarın değeri değil. Biçim geçerli olduğu için cevabı biçim hatası değil,
-sandbox'ın "başka derlemenin öneki" reddidir.
+biçimi, hiçbir anahtarın değeri değil. Sandbox ikilisi için bu, bozuk biçimli bir değerden farksızdır:
+biçim kapısı yalnız kendi derlemesinin önekini (`tt_test_`) tanır, yanlış önek ve bozuk biçim **aynı
+daldan** geçer (`apikey` biçim kontrolü → `ErrMalformed`) — cevap aynı `401`'dir ve veritabanına
+gidilmez. Bu satır yanlış önekin bu daldan geçtiğini gösterir, ayrı bir ret türünü değil.
 
 ```bash
 curl -sS -o /dev/null -w '%{http_code}\n' "https://api.$D/v1/sandbox/openapi.json"
@@ -1892,8 +1894,8 @@ curl -sS -o /dev/null -w '%{http_code}\n' https://api.taptime.mt/v1/sandbox/open
 curl -sS -o /dev/null -w '%{http_code}\n' -X POST -H 'Authorization: Bearer tt_live_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' "https://api.$D/v1/sandbox/taps"
 ```
 
-Beklenen: `200` (sandbox'ın belgesi), `404` (prod ikilisinde bu yol yoktur), `401` (başka derlemenin
-öneki — veritabanına gitmeden). Sunucunun açılış satırı `"sandbox":"on"` ve `"env":"sandbox"` yazar.
+Beklenen: `200` (sandbox'ın belgesi), `404` (prod ikilisinde bu yol yoktur), `401` (yanlış önek,
+bozuk biçimle aynı cevap — veritabanına gitmeden). Sunucunun açılış satırı `"sandbox":"on"` ve `"env":"sandbox"` yazar.
 
 ### 7. Sayılı sınırlar
 
