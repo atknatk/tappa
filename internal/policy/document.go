@@ -59,8 +59,9 @@ type Statement struct {
 // without re-checking.
 type Condition map[Operator]map[ContextKey]any
 
-// Effect is a statement outcome (ADR 0004 §2). Five, because a tap's result is
-// five, not two: ok · flag · reject · ignored · redirect-to-activation.
+// Effect is a statement outcome (ADR 0004 §2). Five DECIDE, because a tap's
+// result is five, not two: ok · flag · reject · ignored · redirect-to-activation.
+// A sixth, note, decides nothing (ADR 0029): it only annotates the record.
 type Effect string
 
 const (
@@ -76,14 +77,25 @@ const (
 	// leaves no trace; the trace is the whole point (§4.6).
 	EffectIgnore   Effect = "ignore"   // debounce — recorded, counts toward nothing; GUARDRAIL-ONLY (ADR 0004 §6)
 	EffectRedirect Effect = "redirect" // activation page — the one effect that writes NO record; GUARDRAIL-ONLY (ADR 0004 §6)
+
+	// EffectNote DECIDES NOTHING (ADR 0029, backlog T125). A matching note statement
+	// never enters the winner selection in evaluate.go -- not as a candidate, not as a
+	// tiebreak -- so it can neither let a tap through nor hold one back; its Reason is
+	// added to the Decision's Notes and from there to the record's note. It exists
+	// because "a tap at another branch is normal" (Q17) was written as an ALLOW, and an
+	// allow is a verdict: with base:gps-only-allow switched off (Q16's "require IP"),
+	// that allow was the only statement left matching a GPS-only tap at another branch
+	// and let it through, while the same tap at home went to review. A fact that should
+	// be WRITTEN DOWN must not be able to DECIDE.
+	EffectNote Effect = "note"
 )
 
 var validEffects = map[Effect]bool{
 	EffectAllow: true, EffectReview: true, EffectDeny: true,
-	EffectIgnore: true, EffectRedirect: true,
+	EffectIgnore: true, EffectRedirect: true, EffectNote: true,
 }
 
-// Valid reports whether e is one of the five known effects.
+// Valid reports whether e is one of the six known effects.
 func (e Effect) Valid() bool { return validEffects[e] }
 
 // documentEffect reports whether e may appear in a PARSED (baseline/tenant)
@@ -91,8 +103,11 @@ func (e Effect) Valid() bool { return validEffects[e] }
 // could write ignore would silence a whole night shift into unpaid, unqueued,
 // invisible taps — §4.6's mirror image, a silent CANCELLATION. They live only in
 // the immutable, code-embedded guardrail layer, which is never parsed.
+//
+// note IS a document effect: it cannot change an outcome, so it needs none of the
+// guardrail-only protection (validate.go still bounds where it may appear).
 func (e Effect) documentEffect() bool {
-	return e == EffectAllow || e == EffectReview || e == EffectDeny
+	return e == EffectAllow || e == EffectReview || e == EffectDeny || e == EffectNote
 }
 
 // Operator is a condition operator (ADR 0004 §8). The set is CLOSED.

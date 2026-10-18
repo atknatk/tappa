@@ -1774,6 +1774,7 @@ func policyScreenStates(t *testing.T) map[string]tenant.PolicyScreen {
 			// Outdated: stored and shipped disagree, which is the designed state.
 			Name: "zz-branch-stale-rule", State: tenant.StateActive, VersionNo: 1,
 			StoredStamp: "zz-branch-old", ShippedStamp: "zz-branch-shipped",
+			Changes: []string{"zz-branch-change"},
 		},
 	}
 	for i := range sentinels.Authorities {
@@ -2174,7 +2175,7 @@ func TestPoliciesSection_TellsTheStatesApartOnThePage(t *testing.T) {
 func TestEffectSentence_TranslatesEveryEffectTheEngineHas(t *testing.T) {
 	for _, e := range []policy.Effect{
 		policy.EffectAllow, policy.EffectReview, policy.EffectDeny,
-		policy.EffectIgnore, policy.EffectRedirect,
+		policy.EffectIgnore, policy.EffectRedirect, policy.EffectNote,
 	} {
 		got := effectSentence(string(e))
 		if got == string(e) {
@@ -2202,7 +2203,7 @@ func TestEffectSentence_TranslatesEveryEffectTheEngineHas(t *testing.T) {
 // wherever the action is not that one.
 func TestEffectSentence_DoesNotAssumeTheActionIsATap(t *testing.T) {
 	for _, e := range []policy.Effect{
-		policy.EffectAllow, policy.EffectReview, policy.EffectDeny, policy.EffectIgnore,
+		policy.EffectAllow, policy.EffectReview, policy.EffectDeny, policy.EffectIgnore, policy.EffectNote,
 	} {
 		if s := effectSentence(string(e)); strings.Contains(strings.ToLower(s), "tap") {
 			t.Errorf("%s renders %q, which names the action. It is applied to guardrails and "+
@@ -2624,5 +2625,37 @@ func TestPolicyBranchDerivation_ReportsTheSizeOfItsOwnBlindSpot(t *testing.T) {
 				"the fixture-coverage guarantee has a hole in the one file it exists for. "+
 				"Either write the branch as an if, or teach the derivation to read a switch.", f)
 		}
+	}
+}
+
+// TestPolicyRuleView_AnnouncesABaselineChangeOnlyWhereItChangesTheRule is the
+// 2026-10-18 bump on the page (ADR 0029, T125): the stamp is one date for the whole
+// baseline, so after a bump every managed rule's stored stamp is older than the
+// shipped one -- and only the rule the release changed may say so, with what
+// changed. MUTANT (measured): the len(r.Changes) gate removed -> the unchanged rule
+// gets the sentence too.
+func TestPolicyRuleView_AnnouncesABaselineChangeOnlyWhereItChangesTheRule(t *testing.T) {
+	changes := policy.BaselineChangesSince("Taptime baseline — cross-location note", "2026-07-26")
+	if len(changes) != 1 {
+		t.Fatalf("the shipped baseline announces %d changes to the cross-location note, want 1", len(changes))
+	}
+	changed := tenant.Rule{
+		Name: "Taptime baseline — cross-location note", Managed: true, State: tenant.StateActive,
+		StoredStamp: "2026-07-26", ShippedStamp: policy.BaselineVersion, Changes: []string{changes[0].Summary},
+	}
+	untouched := changed
+	untouched.Name, untouched.Changes = "Taptime baseline — IP proof of place", nil
+
+	got := policyRuleView(changed, time.UTC, false, policyEditor{})
+	for _, want := range []string{"2026-07-26", policy.BaselineVersion, changes[0].Summary, "Nothing changes on its own"} {
+		if !strings.Contains(got.Outdated, want) {
+			t.Errorf("the changed rule's announcement %q does not say %q", got.Outdated, want)
+		}
+	}
+	if strings.Contains(got.Outdated, "accept it") {
+		t.Errorf("the announcement promises an accept step that does not exist: %q", got.Outdated)
+	}
+	if got := policyRuleView(untouched, time.UTC, false, policyEditor{}); got.Outdated != "" {
+		t.Errorf("a rule the release did not change announces %q", got.Outdated)
 	}
 }

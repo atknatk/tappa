@@ -11,6 +11,7 @@ import (
 
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/domain/tap"
+	"github.com/atknatk/tappa/internal/policy"
 	"github.com/atknatk/tappa/internal/store"
 )
 
@@ -123,17 +124,41 @@ func isEvidenceSid(sid string) bool {
 
 // partnerNote is the note a record at a partner venue shows: a MANUAL record's (the manager's own
 // sentence, no evidence at all) and any non-evidence rule's as stored; an evidence rule's replaced
-// by PartnerVenueNote -- keeping the direction's annotation when the engine appended it (tap's
-// appendNote: "<rule sentence>; <direction note>", the direction note one known constant).
+// by PartnerVenueNote -- keeping the annotations the engine appended after it (tap's appendNote:
+// "<rule sentence>; <policy note>…; <direction note>"), each one a known, evidence-free sentence.
+//
+// THE POLICY NOTES ARE KEPT SINCE ADR 0029 (T125). base:cross-location-note became a note rather
+// than a deciding allow, so on a new-baseline record its sentence follows the evidence rule's
+// instead of being the rule's own -- and the replacement would have dropped it with the evidence.
+// "Different branch" is what the employer needs to know (ADR 0027 §13 item 5(e)); it says nothing
+// about the peer's network or coordinate.
 func partnerNote(r Record) string {
 	if r.Manual || r.Note == "" || !isEvidenceSid(r.matchedSid) {
 		return r.Note
 	}
-	if strings.HasSuffix(r.Note, "; "+tap.StaleOpenInNote) {
-		return PartnerVenueNote + "; " + tap.StaleOpenInNote
+	out := PartnerVenueNote
+	for _, a := range partnerKeptAnnotations {
+		if strings.Contains(r.Note, "; "+a) {
+			out += "; " + a
+		}
 	}
-	return PartnerVenueNote
+	return out
 }
+
+// partnerKeptAnnotations are the sentences the engine appends after a rule's own, in the order it
+// appends them: the shipped note statements' reasons (policy.EffectNote; a tenant copy carries the
+// same words), then the direction's annotation.
+var partnerKeptAnnotations = func() []string {
+	var out []string
+	for _, d := range policy.Baseline() {
+		for _, st := range d.Document.Statements {
+			if st.Effect == policy.EffectNote {
+				out = append(out, st.Reason)
+			}
+		}
+	}
+	return append(out, tap.StaleOpenInNote)
+}()
 
 // PartnerVenueNote stands in for an EVIDENCE rule's sentence on a record taken at a partner venue
 // (K-39; the API-1c review's G-ORTA-1, narrowed by the second review's ORTA-B -- evidenceSids):

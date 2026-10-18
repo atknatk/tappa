@@ -838,3 +838,80 @@ func TestPolicySetDB_StoredSetProvisionsNobody(t *testing.T) {
 	}
 	t.Logf("StoredSet: %v -> %v (%s); forTenant on the same tenant: %v", before, after, state, wrote)
 }
+
+// TestPolicySetDB_RequireIPAndTheCrossLocationNote is T125 / ADR 0029 against the
+// stored rulebook, two tenants side by side, both with "GPS-only allowance"
+// switched off (Q16's require-IP lever) and a GPS-only tap at ANOTHER location:
+//
+//   - a tenant provisioned NOW (the 2026-10-18 note): review by default -- the
+//     same outcome as at home -- and the note rides on it;
+//   - a tenant whose cross-location rule was stored BEFORE the bump (the
+//     2026-07-26 allow, seeded as such): still allowed by it. Nothing is
+//     auto-updated (policy.BaselineVersion), and this is the state the policies
+//     screen's announcement is about. Switching that stored rule off -- the move
+//     the announcement names -- gives the new outcome.
+func TestPolicySetDB_RequireIPAndTheCrossLocationNote(t *testing.T) {
+	data := openPolicyDB(t)
+	sets := policySets{data: data, params: policy.DefaultParams(), log: quietLogger()}
+	ctx := context.Background()
+	var gpsOnlyName, crossName string
+	var crossDoc policy.Document
+	for _, d := range policy.Baseline() {
+		switch d.Document.Statements[0].Sid {
+		case policy.SidGPSOnlyAllow:
+			gpsOnlyName = d.Name
+		case policy.SidCrossLocationNote:
+			crossName, crossDoc = d.Name, d.Document
+		}
+	}
+	setEnabled := func(tenantID uuid.UUID, name string, on bool) {
+		t.Helper()
+		if err := data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+			_, e := tx.Exec(ctx, `UPDATE policies SET enabled = $3 WHERE tenant_id = $1 AND name = $2`, tenantID, name, on)
+			return e
+		}); err != nil {
+			t.Fatalf("switch %q: %v", name, err)
+		}
+	}
+	tap := func(tenantID uuid.UUID) policy.Decision {
+		return policy.Evaluate(sets.forTenant(ctx, tenantID), policy.Context{
+			Action:    policy.ActionTapRecord,
+			Resources: []string{"location/" + uuid.New().String()},
+			Keys: map[policy.ContextKey]any{
+				policy.CtxTapChannel: "nfc", policy.CtxTapSunValid: true,
+				policy.CtxTapIPMatch: false, policy.CtxTapGPSMatch: true, policy.CtxTapGPSConflict: false,
+				policy.CtxTapOccurredAtSkewSeconds: float64(0), policy.CtxTapCtrGap: 0,
+				policy.CtxTagStatus: "active", policy.CtxEmployeeStatus: "active",
+				policy.CtxEmployeeCrossLocation: true,
+			},
+			SessionTenantID: &tenantID,
+			TagTenantID:     &tenantID,
+		})
+	}
+
+	fresh := newPolicyTenant(t, data)
+	sets.forTenant(ctx, fresh) // materialise the shipped (2026-10-18) baseline
+	setEnabled(fresh, gpsOnlyName, false)
+	if d := tap(fresh); d.Effect != policy.EffectReview || d.MatchedSid != "default" ||
+		len(d.Notes) != 1 || d.Notes[0].Sid != policy.SidCrossLocationNote {
+		t.Fatalf("new baseline, require IP, GPS-only at another location: %q via %q, notes %+v; want the default review with the note",
+			d.Effect, d.MatchedSid, d.Notes)
+	}
+
+	old := newPolicyTenant(t, data)
+	oldDoc := crossDoc
+	oldDoc.Version = "2026-07-26"
+	oldDoc.Statements = append([]policy.Statement(nil), crossDoc.Statements...)
+	oldDoc.Statements[0].Effect = policy.EffectAllow
+	seedPolicyDocument(t, data, old, crossName, oldDoc)
+	sets.forTenant(ctx, old) // materialises the rest; the stored rule is left alone
+	setEnabled(old, gpsOnlyName, false)
+	if d := tap(old); d.Effect != policy.EffectAllow || d.MatchedSid != policy.SidCrossLocationNote {
+		t.Fatalf("stored 2026-07-26 rule: %q via %q; want it left deciding as stored (allow) -- nothing is auto-updated",
+			d.Effect, d.MatchedSid)
+	}
+	setEnabled(old, crossName, false)
+	if d := tap(old); d.Effect != policy.EffectReview || d.MatchedSid != "default" {
+		t.Fatalf("stored rule switched off: %q via %q; want the new outcome (default review)", d.Effect, d.MatchedSid)
+	}
+}

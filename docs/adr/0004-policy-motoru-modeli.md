@@ -450,3 +450,13 @@ etkisi ([ADR 0027](0027-holding-ve-capraz-tenant-dokunusu.md) §7):
 - **Holding dokunuşunda politika kümesi işverenindir** (K-1a): sahanın (plaketin tenant'ının)
   politikaları ve `location/<id>` kaynaklı istisnaları uygulanmaz; §7'nin *"spesifik kaynak genel
   kaynağı ezer"* kuralı yalnız işverenin kendi belgeleri arasında işler.
+
+## ADR 0029 notu (2026-10-18) — altıncı effect: `note`
+
+§2'nin *"beş effect"* tablosu **karar veren** etkileri sayar ve öyle kalır. Altıncısı,
+`note`, **karar vermez**: belgede (baseline ve tenant) geçerlidir, yalnız `tap:record`'da ve
+boş olmayan `reason` ile; değerlendiricide kazanan seçimine (§4 özgüllük → kısıtlayıcılık →
+belge sırası) hiç girmez, yalnız `Decision.Notes`'a cümle ekler. §6 değişmez (`ignore` /
+`redirect` guardrail'e kapalı), §8'in kapalı listesi bir öğe büyüdü — gerekçesi ve davranış
+envanteri [ADR 0029](0029-not-etkisi-capraz-sube-karar-vermez.md)'da. İlk ve tek kullanıcısı
+`base:cross-location-note` (T125).

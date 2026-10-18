@@ -262,6 +262,11 @@ type Rule struct {
 	// for a tenant-authored rule, which Tappa does not ship a version of.
 	StoredStamp  string
 	ShippedStamp string
+	// Changes are the announcements (policy.BaselineChanges) for this managed
+	// document shipped after StoredStamp, oldest first -- what a newer baseline
+	// would change for THIS rule. Empty when the stored copy is current, when the
+	// newer baseline did not touch this document, and for a tenant-authored rule.
+	Changes []string
 	// Statements are the rules in force, read from the STORED document -- never
 	// from the shipped one, even for a managed rule where both are to hand. The
 	// record pins a policy_version_id, so showing the binary's document beside the
@@ -880,6 +885,11 @@ func (r *Rulebook) baselineRule(
 	}
 	rule := r.storedRule(row, true, history, scope)
 	rule.ShippedStamp = policy.BaselineVersion
+	if rule.StoredStamp != "" {
+		for _, c := range policy.BaselineChangesSince(doc.Name, rule.StoredStamp) {
+			rule.Changes = append(rule.Changes, c.Summary)
+		}
+	}
 	return rule
 }
 

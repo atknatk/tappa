@@ -249,6 +249,24 @@ func validateStatement(i int, st Statement, layer Layer, lim Limits) error {
 		return &ValidationError{Index: i, Sid: st.Sid, Field: fieldEffect,
 			Msg: fmt.Sprintf("effect %q may only be produced by guardrails, not policy documents", st.Effect)}
 	}
+	// A note annotates a RECORD, and only tap:record writes one: on an authorization
+	// action it would be a statement that looks like it says something about who may
+	// do what and does nothing at all (the engine's default there is deny, ADR 0004
+	// §3). And a note with no words adds nothing to the record, so it is refused
+	// rather than accepted as a silent no-op (ADR 0004 §8's "ignoring is the most
+	// dangerous failure").
+	if st.Effect == EffectNote {
+		for _, a := range st.Action {
+			if a != ActionTapRecord {
+				return &ValidationError{Index: i, Sid: st.Sid, Field: fieldAction,
+					Msg: fmt.Sprintf("effect %q only annotates %q, not %q", EffectNote, ActionTapRecord, a)}
+			}
+		}
+		if strings.TrimSpace(st.Reason) == "" {
+			return &ValidationError{Index: i, Sid: st.Sid, Field: "reason",
+				Msg: fmt.Sprintf("effect %q needs a reason: the reason is the note", EffectNote)}
+		}
+	}
 
 	// --- action --------------------------------------------------------------
 	if len(st.Action) == 0 {

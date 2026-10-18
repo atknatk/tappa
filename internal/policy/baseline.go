@@ -87,7 +87,82 @@ import "github.com/google/uuid"
 // version stands, and — because policy_versions is append-only and every
 // transaction pins the policy_version_id that decided it (M3-07) — past records
 // keep explaining themselves under the exact version that judged them.
-const BaselineVersion = "2026-07-26"
+//
+// 🟢 2026-10-18 IS THE FIRST BUMP, AND IT IS ONE BECAUSE A VERDICT CHANGED (backlog
+// T125, ADR 0029). base:cross-location-note went from allow to note. Unlike T23's
+// reworded reason, that is an EFFECT, so it is exactly what the stamp exists to
+// announce. What the bump does, and what it does not:
+//
+//   - NEW tenants are provisioned the new documents (checkin's first-need
+//     materialisation and M7-03 write whatever Baseline() returns).
+//   - EXISTING tenants keep their stored version 1 -- effect allow -- and every past
+//     record keeps the version that judged it (§4.3: policy_versions is append-only
+//     and every transaction pins its policy_version_id). Nothing is rewritten.
+//   - The policies screen tells them, per rule, what changed: BaselineChanges is
+//     the announcement's text, read by tenant.Rulebook. A rule whose stamp is older
+//     but whose document did not change says nothing, so the bump puts ONE sentence
+//     on ONE rule rather than a banner on all nine.
+//   - The accept step (surface -> accept -> append version 2) still does not exist.
+//     The sentence therefore names the move that does: switching the stored rule
+//     off gives the new outcome today, because the note never decided anything
+//     under the default baseline (TestBaseline_NoteOnlyChangesNoOutcomeUnderTheDefaultBaseline).
+//
+// TestBaseline_ContentIsPinnedToItsStamp is the gate the paragraph above says was
+// missing: the shipped documents' bytes (stamp excluded) are pinned per stamp, so a
+// change to an effect, condition or reason that does not bump this constant -- or a
+// bump that does not record a BaselineChange -- is red.
+const BaselineVersion = "2026-10-18"
+
+// BaselineChange is one shipped change to one managed document: the announcement a
+// tenant whose stored copy predates Version reads on the policies screen.
+type BaselineChange struct {
+	// Version is the BaselineVersion that shipped the change.
+	Version string
+	// Document is the BaselineDoc.Name it changed (policies.name), which is how a
+	// tenant's stored row is paired with it.
+	Document string
+	// Summary is customer-facing English: what the rule now does, what that changes,
+	// and what the customer can do about their stored copy. It never names a sid or
+	// an effect keyword; the screen prints the rule's statements beside it.
+	Summary string
+}
+
+// BaselineChanges is every change since the first stamp (2026-07-26, which is the
+// baseline as first shipped and has no entry), oldest first. It is append-only in
+// the same sense as policy_versions: an entry describes what a past release did, so
+// rewriting one would rewrite what a tenant was told.
+func BaselineChanges() []BaselineChange {
+	return []BaselineChange{
+		{
+			Version:  "2026-10-18",
+			Document: crossLocationDocName,
+			Summary: "A tap at another of your locations is now only noted on the record and no " +
+				"longer let through by this rule on its own: it gets the outcome the same evidence " +
+				"gets at the employee's home location. This matters if you have switched off " +
+				"\"GPS-only allowance\" to require a network match: with your current copy, a " +
+				"GPS-only tap at another location is still accepted. Switching this rule off gives " +
+				"you the new outcome today; the location is still recorded and still shown in your " +
+				"reports.",
+		},
+	}
+}
+
+// BaselineChangesSince returns the changes to the named document shipped AFTER the
+// stamp a tenant has stored, up to this binary's BaselineVersion, oldest first.
+// Stamps are ISO dates, so their string order is their time order.
+func BaselineChangesSince(document, stored string) []BaselineChange {
+	var out []BaselineChange
+	for _, c := range BaselineChanges() {
+		if c.Document == document && c.Version > stored && c.Version <= BaselineVersion {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// crossLocationDocName is base:cross-location-note's document name, shared by the
+// document and its change entry so the two cannot drift apart.
+const crossLocationDocName = "Taptime baseline — cross-location note"
 
 // Baseline statement sids (base: namespace, reserved from tenant documents in
 // validate.go). Exported so the panel (M6-09) can render "managed by Tappa"
@@ -198,13 +273,25 @@ func Baseline() []BaselineDoc {
 			"QR tap without an IP match: GPS alone is not sufficient proof of place"),
 
 		// --- Q17: tapping a location other than the employee's home location is
-		// NORMAL (chain staff move between branches). Affirmed as allow + a note so
-		// a cross-location tap is not penalised for that alone; the shift is
-		// resolved from the TAPPED location (M4) and the crossLocation flag is
-		// recorded (M3-07) for the report. A more-restrictive baseline (e.g.
-		// no-evidence-review) still wins when its condition holds, so this allow
-		// never opens a hole.
-		tapDoc("Taptime baseline — cross-location note", SidCrossLocationNote, EffectAllow,
+		// NORMAL (chain staff move between branches), so it is WRITTEN DOWN and never
+		// judged: a note (EffectNote), which decides nothing. The verdict at another
+		// branch is the verdict the same evidence gets at home -- rows 6-7 and the
+		// tenant's own rules decide -- plus this sentence on the record; the shift is
+		// resolved from the TAPPED location (M4) and the crossLocation fact is frozen
+		// into policy_context (M3-07), which is what the report counts.
+		//
+		// 🔴 IT WAS AN ALLOW UNTIL 2026-10-18 AND THE OLD COMMENT'S PROMISE WAS FALSE
+		// (backlog T125, ADR 0029). It said "a more-restrictive baseline still wins
+		// when its condition holds, so this allow never opens a hole". True only
+		// while every evidence statement is on. Q16's "require IP" lever is switching
+		// base:gps-only-allow OFF, and then a GPS-only tap at home matched nothing and
+		// went to review by default, while the same tap at another branch matched this
+		// allow and was let through. The hole was exactly the shape the lever exists
+		// to close. Under the full default baseline it never decided anything (the
+		// evidence allows precede it in document order, no-evidence-review out-
+		// restricts it) -- TestBaseline_NoteOnlyChangesNoOutcomeUnderTheDefaultBaseline
+		// measures that across every input shape.
+		tapDoc(crossLocationDocName, SidCrossLocationNote, EffectNote,
 			Condition{OpBool: {CtxEmployeeCrossLocation: true}},
 			"tapped at a location other than the employee's home location (recorded as cross-location)"),
 

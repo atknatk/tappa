@@ -485,6 +485,54 @@ func TestAssemble_ShowsAStoredBaselineOlderThanTheShippedOne(t *testing.T) {
 	}
 }
 
+// TestAssemble_AnnouncesTheCrossLocationChangeOnThatRuleAlone is the 2026-10-18
+// bump (ADR 0029, T125) on the screen's data: a tenant whose whole baseline is the
+// 2026-07-26 one -- every document as shipped then, cross-location note an ALLOW --
+// gets the announcement on the cross-location rule and on no other, and the rule
+// still shows the STORED statement (allow), never the shipped one.
+// MUTANT (measured): BaselineVersion left at 2026-07-26 -> no announcement.
+func TestAssemble_AnnouncesTheCrossLocationChangeOnThatRuleAlone(t *testing.T) {
+	t.Parallel()
+	var specs []rowSpec
+	for _, d := range policy.Baseline() {
+		doc := d.Document
+		doc.Version = "2026-07-26"
+		doc.Statements = append([]policy.Statement(nil), doc.Statements...)
+		if doc.Statements[0].Sid == policy.SidCrossLocationNote {
+			doc.Statements[0].Effect = policy.EffectAllow
+		}
+		raw, err := json.Marshal(doc)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		specs = append(specs, rowSpec{name: d.Name, enabled: true, raw: raw})
+	}
+	got := testRulebook(t).assemble(setRows(t, specs...), nil, nil)
+	announced := 0
+	for _, r := range got.Baseline {
+		if r.State != StateActive || r.StoredStamp != "2026-07-26" {
+			t.Fatalf("%q: state %q stamp %q, want an active 2026-07-26 rule", r.Name, r.State, r.StoredStamp)
+		}
+		cross := len(r.Statements) == 1 && r.Statements[0].Sid == policy.SidCrossLocationNote
+		if cross {
+			if r.Statements[0].Effect != string(policy.EffectAllow) {
+				t.Errorf("the cross-location rule shows effect %q; the screen must show the STORED allow", r.Statements[0].Effect)
+			}
+			if len(r.Changes) != 1 || !strings.Contains(r.Changes[0], "only noted") {
+				t.Errorf("the cross-location rule announces %q, want the 2026-10-18 change", r.Changes)
+			}
+			announced++
+			continue
+		}
+		if len(r.Changes) != 0 {
+			t.Errorf("%q did not change and announces %q", r.Name, r.Changes)
+		}
+	}
+	if announced != 1 {
+		t.Fatalf("%d cross-location rules announced, want 1", announced)
+	}
+}
+
 // TestAssemble_HistoryIsNewestFirstAndNamesItsAuthors -- the three author cases,
 // which exist because policy_versions.created_by is an FK-LESS uuid.
 func TestAssemble_HistoryIsNewestFirstAndNamesItsAuthors(t *testing.T) {

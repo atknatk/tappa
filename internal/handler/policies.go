@@ -490,10 +490,19 @@ func policyRuleView(r tenant.Rule, zone *time.Location, guardrailsOnly bool, ed 
 	// taps were flagged, and every record pins the version that judged it. Saying
 	// nothing at all would be worse — the customer would have no way to know a newer
 	// default exists.
-	if r.ShippedStamp != "" && r.StoredStamp != "" && r.ShippedStamp != r.StoredStamp {
+	//
+	// ⚠️ AND IT IS SAID ONLY WHERE SOMETHING CHANGED (ADR 0029). The stamp is one
+	// date for the whole baseline, so a bump makes every managed rule's stamp older
+	// than the shipped one, while the release changed one document. The sentence is
+	// therefore keyed on the rule's own announcements (tenant.Rule.Changes, from
+	// policy.BaselineChanges) and says WHAT changed, not only that a date moved. It
+	// does not say "until you accept it": there is no accept step yet, and the
+	// announcement names the move that exists.
+	if r.ShippedStamp != "" && r.StoredStamp != "" && r.ShippedStamp != r.StoredStamp && len(r.Changes) > 0 {
 		row.Outdated = "You are running the " + r.StoredStamp + " version of this rule; " +
-			r.ShippedStamp + " has since shipped. Nothing changes until you accept it, on " +
-			"purpose — a rule that changed under you would change what past taps meant."
+			r.ShippedStamp + " has since shipped and changes it. " + strings.Join(r.Changes, " ") +
+			" Nothing changes on its own, on purpose — a rule that changed under you would change " +
+			"what past taps meant."
 	}
 	for _, st := range r.Statements {
 		s := pages.PolicyStatementView{
@@ -595,6 +604,8 @@ func stateWords(s tenant.RuleState) (label, tone string) {
 // guessing: each statement prints its own "Applies to" line beside this.
 func effectSentence(effect string) string {
 	switch effect {
+	case "note":
+		return "Adds a note to the record. It never decides the outcome."
 	case "allow":
 		return "Lets it through."
 	case "review":

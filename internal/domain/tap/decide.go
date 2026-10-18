@@ -123,8 +123,8 @@ func Decide(in Input) Decision {
 		}
 		// Cross-location FACT (Q17, M4-05), computed BEFORE Evaluate so the baseline
 		// sees it: a tap at a location OTHER than the employee's home location is
-		// normal chain movement, affirmed by base:cross-location-note (allow) and
-		// RECORDED for the report, never penalised. It needs BOTH the home location
+		// normal chain movement, NOTED by base:cross-location-note (a note, which
+		// decides nothing -- ADR 0029) and RECORDED for the report, never penalised. It needs BOTH the home location
 		// (Employee.Location) and the tapped location (Tag.Location); with either
 		// absent there is no "other" location to be away from, so it is not cross-
 		// location (false). The verdict is unaffected — the tap is judged on the
@@ -212,6 +212,12 @@ func Decide(in Input) Decision {
 		Layer:           pd.Layer,
 		PolicyVersionID: pd.PolicyVersionID,
 		PolicyContext:   keys,
+	}
+	// The engine's NOTES (ADR 0029) follow the deciding rule's sentence, in the
+	// engine's order: "<rule>; <note>…". They are annotations of the record, never
+	// its reason -- MatchedSid and the verdict stay the deciding rule's.
+	for _, n := range pd.Notes {
+		dec.Note = appendNote(dec.Note, n.Reason)
 	}
 	switch pd.Effect {
 	case policy.EffectAllow:

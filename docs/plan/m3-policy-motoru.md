@@ -413,7 +413,7 @@ değiştirilebilir** politikalar olarak paketlemek.
 | `base:no-evidence-review` | İkisi de yok → `review` | §5 satır 7 |
 | `base:qr-requires-ip` | `tap:channel=qr` **ve** `tap:ipMatch=false` → `review` | **Q15 ✅** — QR'da GPS yetmez |
 | `base:gps-only-allow` | `ipMatch=false` **ve** `gpsMatch=true` → `allow`, not `verified via GPS` | **Q16 ✅** — tenant tek anahtarla `review`'a çeker |
-| `base:cross-location-note` | Tap lokasyonu ≠ profil lokasyonu → `allow` + not | **Q17 ✅** — vardiya tap edilen lokasyondan |
+| `base:cross-location-note` | Tap lokasyonu ≠ profil lokasyonu → ~~`allow` + not~~ **`note`** (karar vermez, yalnız not — [ADR 0029](../adr/0029-not-etkisi-capraz-sube-karar-vermez.md), T125, 2026-10-18) | **Q17 ✅** — vardiya tap edilen lokasyondan |
 | `base:queued-window` | `tap:occurredAtSkewSeconds` eşiği aşıldı → `review` | Y7 (üst sınır guardrail'de) |
 | `base:ctr-gap-review` | `tap:ctrGap > 0` → `review` | **Q21 ✅** — A1'in tek gerçek sinyali |
 | `base:gps-conflict-review` | `tap:gpsConflict = true` → `review` | Y-E — mekânda proxy |

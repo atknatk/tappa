@@ -502,10 +502,11 @@ type Decision struct {
 	// movement (Q17, M4-05). It is a REPORT fact, recorded so the report can show
 	// cross-location taps separately; it NEVER penalises the tap. The SAME fact is
 	// also placed in the policy Context (employee:crossLocation) so base:cross-
-	// location-note affirms it and it freezes into policy_context (M3-07). It is a
-	// Decision field TOO because that baseline allow never wins the sid over
-	// base:ip-or-gps-ok, so the deciding Note would not otherwise reveal it — the
-	// report reads this field directly, independent of which allow won the tiebreak.
+	// location-note writes its sentence into Note and the fact freezes into
+	// policy_context (M3-07). It is a Decision field TOO because the note is a
+	// policy a tenant can switch off (and a tenant still on the 2026-07-26 baseline
+	// has it as an allow that never wins the sid over base:ip-or-gps-ok) -- the
+	// report reads the fact directly, independent of any rule (ADR 0029).
 	CrossLocation bool
 	// MinutesLate is how many minutes late a CHECK-IN is against the employee's
 	// resolved shift (Input.Shift), or nil when it is not computed: no shift, a

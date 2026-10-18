@@ -463,6 +463,12 @@ WiFi'a bağlanmayan çalışanların bulunduğu tenant'ta onay kuyruğunu her g�
 şişirir. Kararı müşteriye vermek policy motorunun varlık sebebi.
 **Sonuç:** `base:gps-only-allow` (anahtarlanabilir) ([M3-06](m3-policy-motoru.md)) ·
 GPS-only oranı [M6-11](m6-dashboard.md) anomali raporunda zorunlu metrik.
+**Not (2026-10-18, T125 — [ADR 0029](../adr/0029-not-etkisi-capraz-sube-karar-vermez.md)):**
+*"tek anahtarla `flag`'e çekebilir"* başka şubede **tutmuyordu**: anahtar kapatılınca başka
+şubedeki GPS-only dokunuş `base:cross-location-note`'un `allow`'una yakalanıp `ok` oluyordu.
+O ifade artık `note` etkili (karar vermez); `2026-10-18` baseline'ında anahtar her şubede
+aynı sonucu verir. Bu baseline'ı **önceden** almış tenant'larda saklı `allow` kabul edilene
+— bugün: o kural kapatılana — kadar durur; kurallar ekranı bunu o kuralda duyurur.
 
 ### Q17 — Çapraz lokasyonda tap edilen lokasyonun vardiyası (2026-07-24)
 
@@ -474,6 +480,12 @@ lokasyonuna göre hesaplamak St Julians (10:00) personeline Paceville'de (11:00)
 her gün haksız "geç kaldı" damgası vururdu.
 **Sonuç:** `base:cross-location-note` ([M3-06](m3-policy-motoru.md)) ·
 [M4-05](m4-tap-motoru.md) vardiya çözümü · CLAUDE.md §5 güncellendi.
+**Not (2026-10-18, T125 — [ADR 0029](../adr/0029-not-etkisi-capraz-sube-karar-vermez.md)):**
+*"nota işlenir"* artık harfiyen: ifade **`note`** etkili — karar vermez, kaydın notuna
+cümlesini ekler (`"<kural>; <başka şube>; <yön>"`). Başka şubedeki dokunuşun sonucu aynı
+kanıtın ev şubesindeki sonucudur. *"Raporda ayrı görünür"* nota değil `policy_context`'teki
+`employee:crossLocation` olgusuna bağlıdır, değişmedi. (Eski `allow`, varsayılan baseline'da
+hiç kazanmıyordu; yalnız bir kanıt kuralı kapatılınca kazanıp sonucu gevşetiyordu.)
 
 ### Q18 — Unutulan çıkışta otomatik kapatma yok (2026-07-24)
 

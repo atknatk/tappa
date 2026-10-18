@@ -72,8 +72,9 @@ func benignTap(overlay map[ContextKey]any, resources ...string) Context {
 
 // --- (1) each baseline statement, guardrails present but not matching ---------
 
-// TestBaseline_EachStatementEffect proves every one of the eight tap-evidence
-// statements produces its documented effect when the full guardrail list runs
+// TestBaseline_EachStatementEffect proves every one of the seven DECIDING tap
+// statements produces its documented effect (the eighth, base:cross-location-note,
+// decides nothing -- TestBaseline_CrossLocationIsANoteNotAVerdict) when the full guardrail list runs
 // first and none of them match. Each case isolates ONE baseline document so the
 // deciding MatchedSid is unambiguous.
 func TestBaseline_EachStatementEffect(t *testing.T) {
@@ -91,8 +92,6 @@ func TestBaseline_EachStatementEffect(t *testing.T) {
 			map[ContextKey]any{CtxTapIPMatch: false, CtxTapGPSMatch: false}, EffectReview},
 		{"qr without ip -> review", SidQRRequiresIP,
 			map[ContextKey]any{CtxTapChannel: channelQR, CtxTapIPMatch: false}, EffectReview},
-		{"cross-location -> allow", SidCrossLocationNote,
-			map[ContextKey]any{CtxEmployeeCrossLocation: true}, EffectAllow},
 		{"stale occurred_at -> review", SidQueuedWindow,
 			map[ContextKey]any{CtxTapOccurredAtSkewSeconds: float64(BaselineQueuedSkewSeconds + 80)}, EffectReview},
 		{"ctr gap -> review", SidCtrGapReview,
@@ -349,9 +348,16 @@ func TestBaseline_DocumentsValidateAndRoundTrip(t *testing.T) {
 // is stricter than validate.go (which also permits deny in a document); the
 // baseline deliberately never denies a tap (that is guardrail territory, §5 rows
 // 1-5).
+//
+// note (ADR 0029) is admitted for exactly ONE statement, base:cross-location-note:
+// a second note would be a baseline rule that decides nothing, which is worth a
+// person looking at it rather than this test waving it through.
 func TestBaseline_NoIgnoreOrRedirect(t *testing.T) {
 	for _, bd := range Baseline() {
 		for _, st := range bd.Document.Statements {
+			if st.Effect == EffectNote && st.Sid == SidCrossLocationNote {
+				continue
+			}
 			if st.Effect != EffectAllow && st.Effect != EffectReview {
 				t.Fatalf("%q/%s: effect %q — baseline statements must be allow or review only",
 					bd.Name, st.Sid, st.Effect)

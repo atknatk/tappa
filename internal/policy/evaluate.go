@@ -34,6 +34,10 @@ package policy
 //     the reported MatchedSid is deterministic and NEVER depends on Go's random
 //     map iteration (M3-04 card trap).
 //
+//     A NOTE statement (EffectNote, ADR 0029) that matches is NOT a candidate: it
+//     takes no part in (a), (b) or (c). Its Reason is collected into
+//     Decision.Notes, in the same fixed walk, and that is all it does.
+//
 //  3. If nothing matched, the two built-in DEFAULTS apply (ADR 0004 §3):
 //     tap-RECORDING actions fail to REVIEW (§4.6, records are never lost); every
 //     other action fails CLOSED to DENY. MatchedSid = "default".
@@ -79,6 +83,20 @@ type Decision struct {
 	// never manufacture one (ADR 0004 §5). It is a fixed vocabulary term, never a
 	// secret, GPS coordinate or raw value (§4.7). Empty on every other path.
 	SecurityAlert SecurityAlert
+	// Notes are the matching NOTE statements (EffectNote, ADR 0029), in the fixed
+	// walk order (baseline before tenant, document order), one per distinct reason.
+	// They are ANNOTATIONS, never the decision: they are collected whatever the
+	// winner is -- including the built-in default -- and none of them can change
+	// Effect, MatchedSid, Layer or Reason. Empty when a guardrail decided, because a
+	// guardrail is terminal and no lower layer runs (ADR 0004 §5).
+	Notes []Note
+}
+
+// Note is one matching note statement: the sid that wrote it (so the record can be
+// traced to a rule, ADR 0004 §10) and the sentence it adds.
+type Note struct {
+	Sid    string
+	Reason string
 }
 
 // Context is one evaluation's input. The M3-04 brief describes it as "a
@@ -285,6 +303,15 @@ func Evaluate(set Set, ctx Context) Decision {
 	// 2. Baseline + tenant together, most-specific-then-most-restrictive wins.
 	var best match
 	found := false
+	var notes []Note
+	note := func(sid, reason string) {
+		for _, n := range notes {
+			if n.Reason == reason {
+				return // a tenant copy of a shipped note says the same sentence once
+			}
+		}
+		notes = append(notes, Note{Sid: sid, Reason: reason})
+	}
 	consider := func(m match) {
 		switch {
 		case !found:
@@ -317,6 +344,10 @@ func Evaluate(set Set, ctx Context) Decision {
 				if !evalCondition(st.Sid, p.Layer, st.Condition, ctx, set.reportAnomaly) {
 					continue
 				}
+				if st.Effect == EffectNote {
+					note(st.Sid, st.Reason)
+					continue
+				}
 				consider(match{
 					effect:      st.Effect,
 					sid:         st.Sid,
@@ -339,11 +370,15 @@ func Evaluate(set Set, ctx Context) Decision {
 			PolicyVersionID: &vid,
 			Layer:           best.layer,
 			Reason:          best.reason,
+			Notes:           notes,
 		}
 	}
 
-	// 3. No match anywhere -> the two built-in defaults (ADR 0004 §3).
-	return defaultDecision(ctx.Action)
+	// 3. No match anywhere -> the two built-in defaults (ADR 0004 §3). A note still
+	// rides on it: "nothing decided" is not "nothing worth writing down".
+	d := defaultDecision(ctx.Action)
+	d.Notes = notes
+	return d
 }
 
 // match is one candidate statement that matched the request, with the specificity
@@ -372,7 +407,7 @@ func restrictiveness(e Effect) int {
 		return 2
 	case EffectAllow:
 		return 1
-	default: // EffectRedirect or anything unexpected — cannot appear in a document
+	default: // EffectRedirect (guardrail-only), EffectNote (never a candidate, ADR 0029) or anything unexpected
 		return 0
 	}
 }

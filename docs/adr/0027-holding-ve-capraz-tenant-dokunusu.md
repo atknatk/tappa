@@ -951,7 +951,10 @@ adlandırılmış kalan risk (1. tur, güvenlik merceği; §13 madde 13).
    sayaç boşluğu notu *"IP ya da GPS eşleşti"* demektir. (2) **allow etkili** `base:cross-location-note`,
    tam baseline'da hiç kazanmaz (IP varken `ip-or-gps-ok`, yalnız GPS varken `gps-only-allow` belge
    sırasında öndedir; ikisi de yokken `no-evidence-review` kısıtlayıcılıkla kazanır). Yalnız bir kanıt
-   kuralı kapatılmışsa kazanır — T125'in şekli, ve o zaman *"yalnız GPS eşleşti"* der. Not metni kanıt
+   kuralı kapatılmışsa kazanır — T125'in şekli, ve o zaman *"yalnız GPS eşleşti"* der. *(2026-10-18,
+   ADR 0029: ifade artık `note` etkili ve hiçbir yapılandırmada kazanmaz; cümlesi kanıt kuralının
+   cümlesinin ardına not olarak eklenir. Bu paragraf 2026-07-26 baseline'ını saklayan tenant'lar için
+   geçerli kalır.)* Not metni kanıt
    anlatmaz; artık öncelik sırasındadır. Kapatmak not
    değiştirmesini kanıt dışı kurallara da yaymak olurdu (ikinci denetimin ORTA-B'si tam onu geri
    aldı: kayıp plaket, sayaç boşluğu, farklı şube notu işverenin bilmesi gerekendir) — bu yüzden
@@ -1866,7 +1869,9 @@ dört DÜŞÜK).**
   `Record` hiçbir yerde loglanmaz/kodlanmaz, sid kanıt değildir — koruyucu metod eklenmedi.
 - **Kapsam dışı gözlem:** Q16'nın *"IP iste"* kolu (`base:gps-only-allow`'u kapatmak) başka şubedeki
   GPS-only dokunuşu `base:cross-location-note` üzerinden `ok` bırakıyor — ölçüldü
-  (`TestBaseline_RequiringIPLeavesACrossLocationGPSTapAllowed`), backlog T125; kod değişmedi.
+  (ölçüm testi; T125'te ters iddiayla `TestBaseline_RequiringIPHoldsACrossLocationGPSTapForReview` oldu),
+  backlog T125; kod değişmedi. **Kapandı (2026-10-18, [ADR 0029](0029-not-etkisi-capraz-sube-karar-vermez.md)):**
+  ifade artık `note` etkili, karar vermez.
 
 **Dördüncü turdan sonra (2026-10-14 — iki mercek ONAY; kalan DÜŞÜK'ler, yeniden denetimsiz).**
 - **D-a:** holding'siz işletmenin anomali sayfasında *"partner business"* yok (`TestHoldingPanel_PartnerViewsSayTheOutcomeNeverTheReason`'ın
