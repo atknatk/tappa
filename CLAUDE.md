@@ -425,6 +425,11 @@ dokunuş gerektirir. Bu ekrana özellik eklemek istiyorsan önce sor.
   commit'ten önceki son doğrulamada. Her yapıcı ve denetçi brief'ine bu yazılır.
   CI her push'ta zaten tam koşar.
 - Commit: `type(scope): özet` — `feat(tap): reject retired tags`. İngilizce, emir kipi.
+- **Küme API'si (`:6443`) internete kapalıdır; erişim yalnız tailnet'ten** (kullanıcı kararı, 2026-10-17). Deploy
+  `tailscale/github-action` ile tailnet'e `tag:ci` olarak katılır ve API'ye subnet router üzerinden `https://10.43.0.1:443`
+  ile, dar yetkili `github-deployer` kimliğiyle gider (T134). Tailscale operatörünün `*.ts.net` API proxy'si kimliği
+  taklit eder — deploy kimliği için **kullanılmaz**. `ci.yml`'in birinci-parti action kuralının tek istisnası bu action'dır
+  ve tam commit SHA'sıyla pinlidir.
 - **Yeni bir host'u uygulamaya yönlendiren Ingress, deploy'da rollout beklemesinden SONRA uygulanır** —
   önce uygulanırsa ad, ilk deploy'da o host'u tanımayan eski pod'lara gider (T119, M11 API-13a ölçtü).
 - **İş feature dalında yapılır** (kullanıcı kararı, 2026-09-09 — bu, *"doğrudan
