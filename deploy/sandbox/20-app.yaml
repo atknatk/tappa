@@ -1,0 +1,163 @@
+# The sandbox SERVER (ADR 0028 §11): the sandbox image -- the Dockerfile's `app-sandbox` target,
+# `make build-sandbox`, -tags sandbox -- which contains the tap simulation and starts only with
+# TAPPA_ENV=sandbox. Its image name is NOT production's (docker.io/atknatk/tappa), so the two can
+# never be confused by a tag: scripts/verify-image.sh --sandbox proves the build's tag before a push,
+# and the production image's own gate refuses the tag.
+#
+# The image reference is a placeholder until the sandbox's deploy path exists (it comes with the
+# domain): the apply step sets the tag (deploy/README.md, "Sandbox (API-11)").
+#
+# Everything else is production's shape (deploy/k8s/20-app.yaml): non-root uid 65532, read-only
+# root filesystem, no capability, no service-account token, probes on /healthz and /readyz. The
+# Secret keys are the ones config.Load reads; the operator surface's four are part of the set,
+# because the sandbox's OWN operator opens each business's API (K-22) on the sandbox's own ops host.
+apiVersion: v1
+kind: Service
+metadata:
+  name: tappa
+  namespace: tappa-sandbox
+  labels:
+    app.kubernetes.io/name: tappa-sandbox
+    app.kubernetes.io/component: server
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: tappa-sandbox
+    app.kubernetes.io/component: server
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tappa
+  namespace: tappa-sandbox
+  labels:
+    app.kubernetes.io/name: tappa-sandbox
+    app.kubernetes.io/component: server
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tappa-sandbox
+      app.kubernetes.io/component: server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tappa-sandbox
+        app.kubernetes.io/component: server
+    spec:
+      terminationGracePeriodSeconds: 30
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: tappa
+          image: docker.io/atknatk/tappa-sandbox:deploy-placeholder
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: tappa-config
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: tappa-secrets
+                  key: DATABASE_URL
+            - name: TAPPA_SESSION_HMAC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tappa-secrets
+                  key: TAPPA_SESSION_HMAC_KEY
+            - name: TAPPA_TAG_KEK
+              valueFrom:
+                secretKeyRef:
+                  name: tappa-secrets
+                  key: TAPPA_TAG_KEK
+            - name: TAPPA_INVITE_HMAC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tappa-secrets
+                  key: TAPPA_INVITE_HMAC_KEY
+            - name: TAPPA_TAG_KEK_PREVIOUS
+              valueFrom:
+                secretKeyRef:
+                  name: tappa-secrets
+                  key: TAPPA_TAG_KEK_PREVIOUS
+                  optional: true
+            - name: TAPPA_API_KEY_HMAC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tappa-secrets
+                  key: TAPPA_API_KEY_HMAC_KEY
+            - name: TAPPA_WEBHOOK_KEK
+              valueFrom:
+                secretKeyRef:
+                  name: tappa-secrets
+                  key: TAPPA_WEBHOOK_KEK
+            - name: TAPPA_OPERATOR_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: tappa-secrets
+                  key: TAPPA_OPERATOR_DATABASE_URL
+            - name: TAPPA_OPERATOR_TOTP_KEK
+              valueFrom:
+                secretKeyRef:
+                  name: tappa-secrets
+                  key: TAPPA_OPERATOR_TOTP_KEK
+            - name: TAPPA_OPERATOR_TOKEN_HMAC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tappa-secrets
+                  key: TAPPA_OPERATOR_TOKEN_HMAC_KEY
+            - name: TAPPA_OPERATOR_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: tappa-secrets
+                  key: TAPPA_OPERATOR_HOST
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            failureThreshold: 12
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi

@@ -1744,6 +1744,137 @@ Deploy'suz hızlı kapatmalar:
 
 ---
 
+## Sandbox (API-11) — kullanıcı adımları
+
+**Ne:** entegratörlerin denediği ayrı Taptime (ADR 0028 §11, K-3): **ayrı alan adı** (`taptime.mt`'nin
+alt alanı DEĞİL), **ayrı derleme** (`make build-sandbox`, `-tags sandbox`; Dockerfile hedefi
+`app-sandbox`), **ayrı namespace** `tappa-sandbox` ve kendi Postgres'i, kendi sırları, kendi operatörü.
+Kod kısmı API-11'de yazıldı ve CI'da koşar (`make check-sandbox`); bu bölüm **alan adı gerektiren**
+kalanın tarifidir. Manifestler `deploy/sandbox/` altındadır ve **henüz uygulanmadı**; `deploy.yml`
+sandbox imajını **derlemez, itmez, uygulamaz** (`TestSandboxManifests_AreTheSandboxsOwn` bunu tutar) —
+sandbox'ın deploy yolu alan adıyla birlikte ayrı bir iştir.
+
+**Ne değişmez:** sandbox da gerçek bir ortamdır, CLAUDE.md §4'ün hepsi geçerlidir. Simüle dokunuş
+(`POST /v1/sandbox/taps`) plaketten sonrasını gerçek yoldan koşar (SUN ön kontrolü, atomik `ctr`,
+karar motoru, `transactions` INSERT'i, tetikleyiciler); sanal plaketlerin anahtarları sandbox'ın KEK'iyle
+sarmalanır; gerçek bir NXP UID'si (`04…`) her çözümlemede ve her eklemede reddedilir (yalnız
+`0053…` sanal aralığı). **Prod yedeği sandbox'a asla geri yüklenmez**, prod sırları oraya asla
+kopyalanmaz.
+
+### 1. Alan adı
+
+Kullanıcı bir alan adı alır — `taptime.mt`'nin alt alanı **olmayan**, kendi kaydı olan bir ad (aşağıda
+`<D>`). Üç host kullanılır: `<D>` (panel, `/signup`, dokunuş sayfası), `api.<D>` (yalnız `/v1`) ve
+`ops.<D>` (sandbox'ın kendi operatör yüzeyi). Alt alan olmadığı için `taptime.mt`'nin hiçbir çerezi
+kapsamda değildir; çerez geçişi gerekmez (ADR 0028 §11).
+
+### 2. DNS — DNS-only
+
+Cloudflare'de (ya da alan adının sağlayıcısında) üç **A** kaydı, düğümün adresine
+(`144.76.158.60`), **DNS-only** (turuncu bulut kapalı — cert-manager'ın HTTP-01'i ve
+`TAPPA_TRUSTED_PROXIES`'in ölçümü proxy'siz kurulmuştur, `api.taptime.mt` emsali), **AAAA yok**.
+Kontrol (kaydın yayıldığını, adresin düğüm olduğunu ölçer):
+
+```bash
+for h in <D> api.<D> ops.<D>; do printf '%s ' "$h"; dig +short A "$h"; done
+```
+
+Üç satırın üçü de `144.76.158.60` olmalı.
+
+### 3. Sırlar — sandbox'ın KENDİ anahtarları
+
+Infisical'da **ayrı bir yol** (öneri: `shared-infra/prod:/tappa-sandbox`; `/tappa` ile **asla** ortak
+değil). `deploy/sandbox/secret.example.yaml`'ın her anahtarı **yeniden üretilir**, prod'dan kopyalanmaz:
+yedi 32 baytlık anahtar (`TAPPA_SESSION_HMAC_KEY`, `TAPPA_TAG_KEK`, `TAPPA_INVITE_HMAC_KEY`,
+`TAPPA_API_KEY_HMAC_KEY`, `TAPPA_WEBHOOK_KEK`, `TAPPA_OPERATOR_TOTP_KEK`,
+`TAPPA_OPERATOR_TOKEN_HMAC_KEY`) her biri ayrı bir `openssl rand -base64 32` ile; üç parola
+(`POSTGRES_PASSWORD`, `TAPPA_APP_PASSWORD`, `tappa_operator`'ın) ve onlardan kurulan üç DSN;
+`TAPPA_OPERATOR_HOST` = `ops.<D>`. SMTP anahtarı **yoktur** (sandbox e-posta göndermez;
+`config.Load` `TAPPA_ENV=sandbox` ile `TAPPA_RESET_DELIVERY=none` ve `TAPPA_INVITE_DELIVERY=panel`
+dışını reddeder).
+
+Neden ayrı: sandbox KEK'i prod'unkine eşit olsaydı sandbox'ta bir sanal plaketi açan anahtar bir prod
+plaketini de açardı; anahtar-özeti anahtarı eşit olsaydı bir HMAC iki ortamda aynı cevabı verirdi.
+Sırlar canlı Secret'a yazıldıktan sonra **prod'la hiçbirinin eşit olmadığı** değerler basılmadan
+ölçülür — çıktı yalnız ad ve `differ`/`SAME` yazar:
+
+```bash
+for k in TAPPA_SESSION_HMAC_KEY TAPPA_TAG_KEK TAPPA_INVITE_HMAC_KEY TAPPA_API_KEY_HMAC_KEY TAPPA_WEBHOOK_KEK TAPPA_OPERATOR_TOTP_KEK TAPPA_OPERATOR_TOKEN_HMAC_KEY; do
+  a=$(kubectl --context hetzner-k8s-1 -n tappa get secret tappa-secrets -o "jsonpath={.data.$k}" | shasum -a 256)
+  b=$(kubectl --context hetzner-k8s-1 -n tappa-sandbox get secret tappa-secrets -o "jsonpath={.data.$k}" | shasum -a 256)
+  if [ "$a" = "$b" ]; then echo "$k SAME"; else echo "$k differ"; fi
+done
+```
+
+Tek bir `SAME` satırı varsa o anahtar sandbox'ta yeniden üretilir; sandbox başlamadan önce.
+
+### 4. Uygulama — kim, nasıl
+
+**Kimlik:** ilk kurulumu **küme yöneticisi** (kullanıcı) Tailscale üzerinden kendi kimliğiyle yapar
+(`--context hetzner-k8s-1`; hafıza notu: varsayılan bağlam başka küme). Prod'un `github-deployer`'ı
+**kullanılmaz** — onun yetkisi `tappa` namespace'ine göre kesilmiştir ve sandbox'ı ona açmak prod'un
+deploy kimliğinin yüzeyini büyütürdü. Sandbox'ın kendi otomatik deploy'u gelince ona **ayrı** bir
+kimlik (`tappa-sandbox` namespace'inde bir ServiceAccount + yalnız o namespace'e Role) açılır.
+
+**İmaj:** aynı commit'ten, kendi hedefiyle; itmeden önce kapı derleme etiketini doğrular (prod imajı
+`sandbox` etiketliyse, sandbox imajı etiketsizse reddedilir):
+
+```bash
+docker build --target app-sandbox -t docker.io/atknatk/tappa-sandbox:sha-<12hex> .
+scripts/verify-image.sh --sandbox docker.io/atknatk/tappa-sandbox:sha-<12hex> <full-sha>
+docker push docker.io/atknatk/tappa-sandbox:sha-<12hex>
+```
+
+Migration imajı prod'unkidir (migration'lar tek kümedir): aynı commit'in
+`docker.io/atknatk/tappa-migrate:sha-<12hex>`'i.
+
+**Sıra** (her adım bir öncekinin bitmesini bekler; `<D>` alan adı, `<12hex>` commit):
+
+```bash
+kubectl --context hetzner-k8s-1 apply -f deploy/sandbox/00-namespace.yaml -f deploy/sandbox/02-quota.yaml
+sed 's/SANDBOX_DOMAIN/<D>/g' deploy/sandbox/05-config.yaml | kubectl --context hetzner-k8s-1 apply -f -
+kubectl --context hetzner-k8s-1 -n tappa-sandbox create configmap tappa-db-init --from-file=scripts/db-init/01-roles.sql --from-file=deploy/k8s/postgres-init/02-app-password.sh
+kubectl --context hetzner-k8s-1 apply -f deploy/sandbox/10-postgres.yaml -f deploy/sandbox/12-networkpolicy.yaml
+kubectl --context hetzner-k8s-1 -n tappa-sandbox rollout status statefulset/tappa-postgres --timeout=5m
+```
+
+`tappa-secrets` (3. adım) bu noktadan **önce** namespace'te olmalıdır (Infisical'ın ExternalSecret'ı ya
+da `kubectl create secret generic`, değer kabuk geçmişine düşmeden). Ardından şema, sunucu ve
+host'lar:
+
+```bash
+sed 's/tappa-migrate:deploy-placeholder/tappa-migrate:sha-<12hex>/' deploy/sandbox/30-migrate-job.yaml | kubectl --context hetzner-k8s-1 apply -f -
+kubectl --context hetzner-k8s-1 -n tappa-sandbox wait --for=condition=complete job/tappa-migrate --timeout=10m
+sed 's/tappa-sandbox:deploy-placeholder/tappa-sandbox:sha-<12hex>/' deploy/sandbox/20-app.yaml | kubectl --context hetzner-k8s-1 apply -f -
+kubectl --context hetzner-k8s-1 -n tappa-sandbox rollout status deployment/tappa --timeout=5m
+sed 's/SANDBOX_DOMAIN/<D>/g' deploy/sandbox/40-ingress.yaml | kubectl --context hetzner-k8s-1 apply -f -
+```
+
+`ops.<D>`'nin Ingress'i bu dosyada **yoktur**: prod'un operatör host'u gibi bir adres izin listesiyle
+(`deploy/k8s/41-operator-ingress.yaml`) yazılır; o yazılana kadar sandbox operatörü yüzeye
+`kubectl port-forward` ile ulaşır.
+
+### 5. Sandbox operatörü
+
+Taze PGDATA rolleri `01-roles.sql`'den kendiliğinden alır (yukarıdaki *"Operator roles (M10 OP-5)"*,
+*"Holding role (M11 API-1a)"* ve *"Feed role (M11 API-2)"* bölümlerinin elle adımları **gerekmez**).
+Kalan, prod'daki adımların `-n tappa-sandbox` ile aynısıdır: `tappa_operator`'ın girişi ve parolası
+(*"Operator surface (M10 OP-7)"*), ardından operatör hesabı `cmd/opadmin create … --host ops.<D>`
+(*"Operator accounts (M10 OP-9)"*). Sandbox operatörü her deneme işletmesinin API'sini **kendisi açar**
+(*Open the API*, şirket kodu — K-22: açılmamış işletmenin `tt_test_` anahtarı 403 `api_disabled`
+alır) ve holding denenecekse holding'i kurar.
+
+### 6. Doğrulama
+
+```bash
+curl -sS -o /dev/null -w '%{http_code}\n' https://api.<D>/v1/sandbox/openapi.json
+curl -sS -o /dev/null -w '%{http_code}\n' https://api.taptime.mt/v1/sandbox/openapi.json
+curl -sS -o /dev/null -w '%{http_code}\n' -X POST -H 'Authorization: Bearer tt_live_x' https://api.<D>/v1/sandbox/taps
+```
+
+Beklenen: `200` (sandbox'ın belgesi), `404` (prod ikilisinde bu yol yoktur), `401` (başka derlemenin
+öneki — veritabanına gitmeden). Sunucunun açılış satırı `"sandbox":"on"` ve `"env":"sandbox"` yazar.
+
 ## Operator surface (M10 OP-7) — `tappa_operator`'ın girişi ve dört anahtar
 
 **Ne:** platform operatörünün yüzeyi (ADR 0020/0021) **dört değişkenle, tek küme olarak**

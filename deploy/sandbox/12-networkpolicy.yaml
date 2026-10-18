@@ -1,0 +1,34 @@
+# The sandbox protects its own namespace the way production protects its own (ADR 0028 §11;
+# deploy/k8s/12-networkpolicy.yaml): its Postgres admits only this namespace's server and migration
+# pods. A sandbox pod cannot reach production's Postgres either -- production's policy admits only
+# production's pods (and this one admits none of production's).
+#
+# THE SERVER GETS NO POLICY, AS PRODUCTION'S DOES NOT: ingress-nginx runs with hostNetwork on this
+# node (deploy/k8s/05-config.yaml, TAPPA_TRUSTED_PROXIES), so its traffic arrives from the node's
+# bridge address and not from a pod a namespaceSelector could name; a policy written without
+# measuring that would cut the sandbox off its own ingress.
+#
+# Egress stays open, as production's (ADR 0028 §7, "egress NetworkPolicy" is out of v1): the
+# webhook client's dial-time allow-list (internal/egress) is the defence, with the node's own
+# addresses in TAPPA_WEBHOOK_BLOCKED_ADDRESSES.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tappa-postgres-ingress
+  namespace: tappa-sandbox
+  labels:
+    app.kubernetes.io/name: tappa-sandbox
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: tappa-sandbox
+      app.kubernetes.io/component: postgres
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: tappa-sandbox
+      ports:
+        - protocol: TCP
+          port: 5432

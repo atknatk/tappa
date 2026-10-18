@@ -1,0 +1,16 @@
+# The integration SANDBOX's namespace (M11 API-11; ADR 0028 §11, K-3). NOT APPLIED YET: the sandbox
+# needs its own domain first (deploy/README.md, "Sandbox (API-11) — kullanıcı adımları").
+#
+# A namespace of its own, never `tappa`: the sandbox has its own Postgres, its own Secret and its
+# own NetworkPolicy, and nothing in it can name an object of production. Pod Security `restricted`
+# on all three modes, as production's (deploy/k8s/00-namespace.yaml).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tappa-sandbox
+  labels:
+    app.kubernetes.io/name: tappa-sandbox
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

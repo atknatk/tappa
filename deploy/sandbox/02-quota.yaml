@@ -1,0 +1,46 @@
+# The sandbox's ceiling (ADR 0028 §11: "ResourceQuota/LimitRange"): it shares the node with
+# production, and a sandbox open to integrators must not be able to take production's CPU, memory
+# or disk. The quota bounds the namespace as a whole; the LimitRange gives every container a
+# default and a maximum, so a pod without its own resources still lands inside the quota.
+#
+# The numbers fit what 10-postgres.yaml, 20-app.yaml and 30-migrate-job.yaml ask for (the app
+# rolling one pod over with maxSurge 1 included) with room for one ad-hoc job.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: tappa-sandbox-quota
+  namespace: tappa-sandbox
+  labels:
+    app.kubernetes.io/name: tappa-sandbox
+spec:
+  hard:
+    pods: "8"
+    requests.cpu: "1"
+    requests.memory: 2Gi
+    limits.cpu: "4"
+    limits.memory: 4Gi
+    requests.storage: 10Gi
+    persistentvolumeclaims: "2"
+    services: "4"
+    services.loadbalancers: "0"
+    services.nodeports: "0"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: tappa-sandbox-limits
+  namespace: tappa-sandbox
+  labels:
+    app.kubernetes.io/name: tappa-sandbox
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: 500m
+        memory: 256Mi
+      defaultRequest:
+        cpu: 50m
+        memory: 64Mi
+      max:
+        cpu: "1"
+        memory: 1Gi

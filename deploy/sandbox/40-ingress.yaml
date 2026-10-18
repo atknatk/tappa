@@ -1,0 +1,67 @@
+# The sandbox's three hosts (ADR 0028 §11, K-3): its own domain -- NOT a subdomain of taptime.mt,
+# so no cookie of the product's is ever in scope -- with the panel and /signup on SANDBOX_DOMAIN,
+# the integration API on api.SANDBOX_DOMAIN (/v1 only) and the sandbox's own operator surface on
+# ops.SANDBOX_DOMAIN. SANDBOX_DOMAIN is a placeholder the apply step replaces; the DNS records are
+# DNS-only, as production's (deploy/README.md, "Sandbox (API-11)").
+#
+# The operator host needs production's access rule before it is applied (deploy/k8s/41-operator-
+# ingress.yaml: an allow-list of the operators' addresses); until then it is left out of the apply.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tappa
+  namespace: tappa-sandbox
+  labels:
+    app.kubernetes.io/name: tappa-sandbox
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "80k"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - SANDBOX_DOMAIN
+      secretName: tappa-sandbox-tls
+  rules:
+    - host: SANDBOX_DOMAIN
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: tappa
+                port:
+                  name: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tappa-api
+  namespace: tappa-sandbox
+  labels:
+    app.kubernetes.io/name: tappa-sandbox
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "80k"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - api.SANDBOX_DOMAIN
+      secretName: tappa-sandbox-api-tls
+  rules:
+    - host: api.SANDBOX_DOMAIN
+      http:
+        paths:
+          - path: /v1
+            pathType: Prefix
+            backend:
+              service:
+                name: tappa
+                port:
+                  name: http

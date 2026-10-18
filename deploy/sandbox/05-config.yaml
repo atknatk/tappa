@@ -1,0 +1,37 @@
+# The sandbox server's configuration (ADR 0028 §11). Not a secret: every key/credential is in
+# tappa-secrets of THIS namespace (secret.example.yaml), and every one of them is the sandbox's OWN
+# -- generated for it, never copied from production.
+#
+# SANDBOX_DOMAIN IS A PLACEHOLDER: the sandbox's domain is not chosen yet, and it is NOT a
+# subdomain of taptime.mt (K-3). The apply step replaces it (deploy/README.md, "Sandbox (API-11)").
+#
+#   TAPPA_ENV=sandbox           the only value the sandbox image starts with -- and a value the
+#                               production image refuses (internal/config, envForBuild)
+#   TAPPA_RESET_DELIVERY=none   no real e-mail leaves the sandbox: config.Load refuses anything
+#   TAPPA_INVITE_DELIVERY=panel else with TAPPA_ENV=sandbox; an invitation is shown on the panel
+#   TAPPA_API_HOST              the sandbox's own API host, never api.taptime.mt
+#
+# The trusted proxy and the node's addresses are production's: the same cluster, the same ingress
+# controller, the same node (deploy/k8s/05-config.yaml says why each is what it is).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tappa-config
+  namespace: tappa-sandbox
+  labels:
+    app.kubernetes.io/name: tappa-sandbox
+data:
+  TAPPA_ENV: "sandbox"
+  TAPPA_ADDR: ":8080"
+  TAPPA_BASE_URL: "https://SANDBOX_DOMAIN"
+  TAPPA_API_HOST: "api.SANDBOX_DOMAIN"
+  TAPPA_LOG_LEVEL: "info"
+  TAPPA_LOG_FORMAT: "json"
+  TAPPA_TRUSTED_PROXIES: "10.42.0.1/32"
+  TAPPA_WEBHOOK_BLOCKED_ADDRESSES: "144.76.158.60,2a01:4f8:200:3164::/64"
+  TAPPA_RETENTION_YEARS: "1"
+  TAPPA_RESET_DELIVERY: "none"
+  TAPPA_INVITE_DELIVERY: "panel"
+  TAPPA_GPS_RADIUS_M: "150"
+  TAPPA_DEBOUNCE_SECONDS: "60"
+  TAPPA_FRESHNESS_SECONDS: "180"
