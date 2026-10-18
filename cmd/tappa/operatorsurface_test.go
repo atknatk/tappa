@@ -89,10 +89,13 @@ func stepsWithLine(steps []workflowStep, line string) []int {
 //   - a preflight step, before anything but the namespace is applied, assigns
 //     `surface=$(scripts/verify-deployment.sh operator-surface <41's namespace>)`
 //     under `set -euo pipefail` and writes it to $GITHUB_OUTPUT under its own step id;
-//   - "Roll out the server" reads that output as OPERATOR_SURFACE, waits for the rollout,
-//     and only THEN reaches a `case "$OPERATOR_SURFACE"` whose `on)` arm applies 41, whose
-//     `off)` arm runs no kubectl and whose `*)` arm exits 1 — no other arm;
-//   - in "Roll out the server" OPERATOR_SURFACE appears exactly twice — the env line and the
+//   - hostRouteStep — a step AFTER "Roll out the server", whose wait it follows (OPS-1's fix
+//     round moved the case out of the rollout step; its place after db-role is
+//     TestPackaging_TheDeployGatesTheCustomerAndAPIHosts') — reads that output as
+//     OPERATOR_SURFACE and reaches a `case "$OPERATOR_SURFACE"` whose `on)` arm applies 41,
+//     whose `off)` arm runs no kubectl and whose `*)` arm exits 1 — no other arm; the rollout
+//     step itself does not read the word;
+//   - in hostRouteStep OPERATOR_SURFACE appears exactly twice — the env line and the
 //     case line — so nothing can set or default it in between;
 //   - a step after the rollout runs `operator-host "$OPERATOR_SURFACE" <41's host>` with
 //     OPERATOR_SURFACE taken from the same preflight output;
@@ -121,8 +124,24 @@ func TestPackaging_TheOperatorIngressFollowsTheOperatorSurface(t *testing.T) {
 		}
 	}
 	rollout := slices.IndexFunc(steps, func(s workflowStep) bool { return s.name == "Roll out the server" })
-	if firstApply < 0 || rollout < 0 {
-		t.Fatalf("CONTROL FAILED: first apply at step %d, \"Roll out the server\" at %d", firstApply, rollout)
+	route := slices.IndexFunc(steps, func(s workflowStep) bool { return s.name == hostRouteStep })
+	if firstApply < 0 || rollout < 0 || route < 0 {
+		t.Fatalf("CONTROL FAILED: first apply at step %d, \"Roll out the server\" at %d, %q at %d", firstApply, rollout,
+			hostRouteStep, route)
+	}
+	if !slices.ContainsFunc(steps[rollout].code, func(l string) bool {
+		return strings.Contains(l, "rollout status deployment/tappa")
+	}) {
+		t.Fatal("CONTROL FAILED: \"Roll out the server\" does not wait for the rollout")
+	}
+	if route <= rollout {
+		t.Errorf("%q is step %d, \"Roll out the server\" step %d: 41 must reach only pods that started with the gate, "+
+			"so the case runs after the rollout wait", hostRouteStep, route, rollout)
+	}
+	for _, l := range steps[rollout].code {
+		if strings.Contains(l, "OPERATOR_SURFACE") {
+			t.Errorf("\"Roll out the server\" reads OPERATOR_SURFACE (%q): the word is %q's", strings.TrimSpace(l), hostRouteStep)
+		}
 	}
 
 	// The preflight.
@@ -133,7 +152,7 @@ func TestPackaging_TheOperatorIngressFollowsTheOperatorSurface(t *testing.T) {
 	}
 	p := steps[pre[0]]
 	if p.id == "" {
-		t.Errorf("step %q has no id: \"Roll out the server\" cannot read its word", p.name)
+		t.Errorf("step %q has no id: %q cannot read its word", p.name, hostRouteStep)
 	}
 	if pre[0] >= firstApply {
 		t.Errorf("step %q is step %d, the first apply is step %d: the decision must come before anything is applied, "+
@@ -145,16 +164,14 @@ func TestPackaging_TheOperatorIngressFollowsTheOperatorSurface(t *testing.T) {
 		}
 	}
 
-	// The rollout reads the word, waits, and only then decides.
-	r := steps[rollout]
-	if env := "OPERATOR_SURFACE: ${{ steps." + p.id + ".outputs.surface }}"; len(stepsWithLine(steps[rollout:rollout+1], env)) != 1 {
-		t.Errorf("\"Roll out the server\" does not take %q", env)
+	// After the rollout's wait, the route step reads the word and decides.
+	r := steps[route]
+	if env := "OPERATOR_SURFACE: ${{ steps." + p.id + ".outputs.surface }}"; len(stepsWithLine(steps[route:route+1], env)) != 1 {
+		t.Errorf("%q does not take %q", hostRouteStep, env)
 	}
-	wait, caseAt, esac := -1, -1, -1
+	caseAt, esac := -1, -1
 	for i, l := range r.code {
 		switch tl := strings.TrimSpace(l); {
-		case strings.Contains(tl, "rollout status deployment/tappa") && wait < 0:
-			wait = i
 		case tl == `case "$OPERATOR_SURFACE" in`:
 			caseAt = i
 		case tl == "esac" && caseAt >= 0 && esac < 0:
@@ -169,12 +186,12 @@ func TestPackaging_TheOperatorIngressFollowsTheOperatorSurface(t *testing.T) {
 		}
 	}
 	if len(uses) != 2 || uses[0] != envLine || uses[1] != `case "$OPERATOR_SURFACE" in` {
-		t.Errorf("in \"Roll out the server\" OPERATOR_SURFACE appears in %q; want exactly the env line and the case "+
-			"line, so nothing sets or defaults it in between", uses)
+		t.Errorf("in %q OPERATOR_SURFACE appears in %q; want exactly the env line and the case "+
+			"line, so nothing sets or defaults it in between", hostRouteStep, uses)
 	}
-	if wait < 0 || caseAt < 0 || esac < 0 || caseAt < wait {
-		t.Fatalf("in \"Roll out the server\": rollout wait at %d, case at %d, esac at %d; want a case on "+
-			"$OPERATOR_SURFACE after the wait (41 reaches only pods that started with the gate)", wait, caseAt, esac)
+	if caseAt < 0 || esac < 0 {
+		t.Fatalf("in %q: case at %d, esac at %d; want a case on $OPERATOR_SURFACE (41 reaches only pods that "+
+			"started with the gate)", hostRouteStep, caseAt, esac)
 	}
 	arms := map[string]string{}
 	var order []string
@@ -203,7 +220,7 @@ func TestPackaging_TheOperatorIngressFollowsTheOperatorSurface(t *testing.T) {
 	}
 	for i, s := range steps {
 		for _, l := range s.code {
-			if strings.Contains(l, apply41) && (i != rollout || !strings.HasPrefix(strings.TrimSpace(l), "on)")) {
+			if strings.Contains(l, apply41) && (i != route || !strings.HasPrefix(strings.TrimSpace(l), "on)")) {
 				t.Errorf("step %q applies 41 outside the on) arm: %q", s.name, strings.TrimSpace(l))
 			}
 		}
@@ -211,9 +228,9 @@ func TestPackaging_TheOperatorIngressFollowsTheOperatorSurface(t *testing.T) {
 
 	// The probe after the rollout, judged against the same word.
 	probe := stepsWithLine(steps, `run: scripts/verify-deployment.sh operator-host "$OPERATOR_SURFACE" `+opHost)
-	if len(probe) != 1 || probe[0] <= rollout {
-		t.Errorf("steps running operator-host %s: %v, want exactly one after \"Roll out the server\" (step %d)", opHost,
-			probe, rollout)
+	if len(probe) != 1 || probe[0] <= route {
+		t.Errorf("steps running operator-host %s: %v, want exactly one after %q (step %d)", opHost,
+			probe, hostRouteStep, route)
 	} else if len(stepsWithLine(steps[probe[0]:probe[0]+1], envLine)) != 1 {
 		t.Errorf("step %q does not take %q: the probe would judge without the preflight's word", steps[probe[0]].name,
 			envLine)

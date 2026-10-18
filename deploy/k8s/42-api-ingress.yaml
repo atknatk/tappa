@@ -46,8 +46,8 @@
 # TLS: its own secret (api-taptime-tls), separate from every other host's, so a stuck challenge here
 # cannot hold the apex's or the operator's certificate hostage (40-ingress.yaml's reasoning for www).
 #
-# Applied by deploy.yml's "Roll out the server" step after the rollout wait; the deploy identity's
-# ingresses verbs (get, list, create, patch) are 01-rbac.yaml's.
+# Applied by deploy.yml's "Route the operator and API hosts" step, after the rollout wait and the
+# db-role gate; the deploy identity's ingresses verbs (get, list, create, patch) are 01-rbac.yaml's.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

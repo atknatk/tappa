@@ -533,8 +533,11 @@ jobs:
       # git/ref/tags/v4.2.0 -> that sha, type commit). A bump is a new SHA in one edit;
       # TestPackaging_TheDeployReachesTheClusterOnlyThroughTheTailnet refuses a tag.
       #
-      # WHAT THE INPUTS DO — READ FROM THE ACTION'S SOURCE AT THAT COMMIT (src/main.ts),
-      # NOT FROM ITS README:
+      # WHAT THE INPUTS DO — READ FROM THE CODE THAT RUNS AT THAT COMMIT, NOT FROM ITS README:
+      # dist/index.js (action.yml: runs.main; the post step is dist/logout/index.js). Its
+      # sources, src/main.ts and src/logging.ts, say the same for every behaviour cited below
+      # (compared 2026-10-18, OPS-1 fix round), but it is dist that the runner executes -- an
+      # action bump is re-read THERE.
       #   authkey   handed to `tailscale up --authkey=…`. With an auth key (no OAuth
       #             client, no workload identity) the action passes NO --advertise-tags:
       #             the device's tags are WHATEVER THE KEY CARRIES. The action's `tags`
@@ -565,7 +568,7 @@ jobs:
       #             server as the tarball (pkgs.tailscale.com/stable/…tgz.sha256), which
       #             catches corruption but not a swapped file; with it, that fetch is
       #             skipped and the download is compared against THIS digest, a mismatch
-      #             throws and the step fails before tailscaled starts (src/main.ts,
+      #             throws and the step fails before tailscaled starts (dist/index.js,
       #             installTailscaleLinux). Measured 2026-10-18: the tarball downloaded and
       #             hashed locally (shasum -a 256) equals the published .sha256, its
       #             `tailscale` binary is `go version -m` module tailscale.com v1.94.2,
@@ -583,7 +586,7 @@ jobs:
       #             the default mode echoes that output -- the tailnet's user login names,
       #             i.e. e-mail addresses (CLAUDE.md §7) -- into a PUBLIC log. In quiet
       #             mode every command runs silent and only warnings and errors print
-      #             (src/logging.ts: execCommand is silent when logMode === "quiet").
+      #             (dist/index.js, execCommand: silent when logMode === "quiet").
       #             (The key is masked by the runner either way, as every secrets.*
       #             value is; the action's own core.setSecret is skipped in debug mode.)
       #             The price: the action no longer prints its resolved version or the
@@ -672,8 +675,8 @@ jobs:
       # TAPPA_TAG_KEK, and these logs are public): `kubectl describe secret` prints key names
       # and byte counts only, with the `get` on that one name this identity already holds
       # (01-rbac.yaml), and only TAPPA_OPERATOR_HOST's size is parsed. It prints `on` or `off`:
-      #   on   the key has more than 0 bytes: 41 is applied in "Roll out the server", after
-      #        the rollout wait
+      #   on   the key has more than 0 bytes: 41 is applied in "Route the operator and API
+      #        hosts", after the rollout wait and the db-role gate
       #   off  absent or 0 bytes: 41 is not applied (a fresh cluster before OP-7 step 3, or a
       #        closed surface)
       # It goes red instead when the key is absent but 41's objects still exist (this
@@ -798,7 +801,6 @@ jobs:
       - name: Roll out the server
         env:
           SHORT: ${{ steps.sha.outputs.short }}
-          OPERATOR_SURFACE: ${{ steps.opsurface.outputs.surface }}
         run: |
           set -euo pipefail
           sed "s|:deploy-placeholder|:sha-$SHORT|g" deploy/k8s/20-app.yaml | kubectl apply -f -
@@ -806,40 +808,50 @@ jobs:
           # maxUnavailable is 0, so the old pod keeps serving until the new one has
           # passed /readyz — i.e. until it has proved it can reach the database.
           kubectl -n tappa rollout status deployment/tappa --timeout=300s
+
+      # 🔴 FIRST AFTER THE ROLLOUT, AHEAD OF THE HOST INGRESSES AND THE TWO HOST GATES (OPS-1).
+      # This is the measurement the rollout cannot do without: a server connected as the
+      # migration role voids RLS for every tenant. It used to run LAST, so a host gate that went
+      # red -- the operator host's 90 s of 404s, an API host whose Ingress was slow -- ended the
+      # job before db-role ever ran and the run never said which role the new pods hold. For the
+      # same reason the operator and API hosts' Ingresses are applied in their own step AFTER
+      # this one (OPS-1 fix round): inside "Roll out the server" a failed `kubectl apply` of 41 or
+      # 42, or the operator-surface case's `exit 1`, ended the job before db-role ran. The host
+      # gates REPORT on routing; this one is about the data.
+      # TestPackaging_TheDeployGatesTheCustomerAndAPIHosts pins the order.
+      - name: Gate — the running server must not be connected as the migration role
+        # internal/config only refuses DATABASE_URL == DATABASE_MIGRATE_URL. An owner
+        # DSN typed into DATABASE_URL alone passes every check the product has, and
+        # voids RLS entirely. pg_stat_activity is where that becomes visible.
+        run: scripts/verify-deployment.sh db-role tappa
+
+      - name: Route the operator and API hosts
+        env:
+          OPERATOR_SURFACE: ${{ steps.opsurface.outputs.surface }}
+        run: |
+          set -euo pipefail
           # The operator host's two Ingresses (backlog T112: applied by hand on
           # 2026-10-09, in the tree since; T119: only behind the preflight's word). The
           # same identity and verbs as 40 (01-rbac.yaml: ingresses get, list, create,
-          # patch). AFTER the wait, on purpose: rollout status returns once every pod is
-          # of the new template, so each pod this host can then reach started with
-          # TAPPA_OPERATOR_HOST set and booted (config.Load refuses a partial set). Applied
-          # before the wait, a rollout that failed would leave the host routed to the old
-          # pods, which on a first configuration are the ungated ones. Any word but the two
-          # is red: an empty one is a renamed step id, not a closed surface.
+          # patch). AFTER the rollout wait, on purpose (this step follows "Roll out the
+          # server" and the db-role gate, and runs only when both are green): rollout status
+          # returns once every pod is of the new template, so each pod this host can then
+          # reach started with TAPPA_OPERATOR_HOST set and booted (config.Load refuses a
+          # partial set). Applied before the wait, a rollout that failed would leave the host
+          # routed to the old pods, which on a first configuration are the ungated ones. Any
+          # word but the two is red: an empty one is a renamed step id, not a closed surface.
           case "$OPERATOR_SURFACE" in
             on)  kubectl apply -f deploy/k8s/41-operator-ingress.yaml ;;
             off) echo "::notice::the operator surface is off, so deploy/k8s/41-operator-ingress.yaml was NOT applied and ops.taptime.mt does not reach the application. After OP-7 step 3, re-run this workflow (deploy/README.md)." ;;
             *)   echo "::error::the operator-surface preflight gave neither on nor off; 41-operator-ingress.yaml was not applied." >&2; exit 1 ;;
           esac
           # The integration API's host (M11 API-13a). OUTSIDE the case above: the API host does not
-          # depend on the operator surface. AFTER the wait, on purpose: every pod this host
+          # depend on the operator surface. AFTER the rollout wait, on purpose: every pod this host
           # can then reach started with TAPPA_API_HOST set (05-config.yaml, applied above) and a binary
           # that reads it; applied before, a first rollout would route api.taptime.mt to the old pods,
           # which serve the customer product on any host (42-api-ingress.yaml's header). The same
           # identity and verbs as 40 (01-rbac.yaml: ingresses get, list, create, patch).
           kubectl apply -f deploy/k8s/42-api-ingress.yaml
-
-      # 🔴 FIRST AFTER THE ROLLOUT, AHEAD OF THE TWO HOST GATES (OPS-1). This is the
-      # measurement the rollout cannot do without: a server connected as the migration role
-      # voids RLS for every tenant. It used to run LAST, so a host gate that went red -- the
-      # operator host's 90 s of 404s, an API host whose Ingress was slow -- ended the job
-      # before db-role ever ran and the run never said which role the new pods hold. The host
-      # gates REPORT on routing; this one is about the data. TestPackaging_TheDeployGatesTheCustomerAndAPIHosts
-      # pins the order.
-      - name: Gate — the running server must not be connected as the migration role
-        # internal/config only refuses DATABASE_URL == DATABASE_MIGRATE_URL. An owner
-        # DSN typed into DATABASE_URL alone passes every check the product has, and
-        # voids RLS entirely. pg_stat_activity is where that becomes visible.
-        run: scripts/verify-deployment.sh db-role tappa
 
       # 🔴 THE END STATE, MEASURED FROM OUTSIDE (T119). The preflight decided from the
       # Secret's key sizes; this asks ops.taptime.mt itself whether it serves the customer

@@ -14,8 +14,9 @@ package main
 // the cluster: the two modes run against a stub `tailscale`, a stub `timeout` that hands the
 // real TCP connect on, a listener on 127.0.0.1 and the real `kubectl config view` on a
 // kubeconfig written here, with a PATH that holds nothing else — so a tailscale CLI on the
-// machine running the test is never reached. The action's input semantics were read from its
-// source at the pinned commit (src/main.ts, src/logging.ts).
+// machine running the test is never reached. The action's input semantics were read from the code
+// that runs at the pinned commit -- dist/index.js (action.yml runs.main) -- and its sources
+// (src/main.ts, src/logging.ts) say the same (compared 2026-10-18).
 //
 // 🔴 2ND ROUND: the gate used to be a shell body in deploy.yml and its test pinned the body's
 // LINES. Seven mutants that changed what it does kept that test green (an `exit 1` turned into
@@ -176,7 +177,7 @@ func TestPackaging_TheDeployReachesTheClusterOnlyThroughTheTailnet(t *testing.T)
 				"or a branch (the exception to ci.yml's first-party rule is taken on that condition)", tl)
 		}
 		if strings.HasPrefix(tl, "tags:") {
-			t.Errorf("step %q carries %q: with an auth key the action passes no --advertise-tags (src/main.ts), so the "+
+			t.Errorf("step %q carries %q: with an auth key the action passes no --advertise-tags (dist/index.js), so the "+
 				"line does nothing and reads like a guarantee; the gate measures the tag", j.name, tl)
 		}
 	}

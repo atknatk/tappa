@@ -322,7 +322,8 @@ token `system:serviceaccount:tappa:github-deployer` olarak tanınır). `deploy.y
    JSON'unu **hiçbir dalda basmaz** (`TestVerifyDeployment_TheTailnetModeMeasuresTheJoin`).
 
 **(a) `TS_AUTHKEY` — Tailscale auth key'i.** ⚠️ **Etiketi action değil, ANAHTAR belirler**
-— action'ın kaynağından okundu (`src/main.ts`, pinli commit): auth key ile action
+— pinli commit'te **koşan** koddan okundu (`dist/index.js` — `action.yml`'in `runs.main`'i; kaynağı
+`src/main.ts` aynı davranışı yazıyor, 2026-10-18'de karşılaştırıldı): auth key ile action
 `tailscale up`'a `--advertise-tags` **vermez**; `tags` girdisi yalnız OAuth client /
 workload identity yolunda okunur. Bu yüzden `deploy.yml`'de `tags:` **yok** (hiçbir şey
 yapmayan bir satır güvence gibi görünürdü); etiketi kapı ölçer. Önerilen özellikler:
@@ -473,8 +474,9 @@ echo "measured:  $(shasum -a 256 "/tmp/tailscale_${V}_amd64.tgz" | cut -d' ' -f1
 Sonra **tek commit'te**: `deploy.yml`'deki `version:` ve `sha256sum:` satırları **ve**
 `cmd/tappa/deploytailnet_test.go`'daki `tailscaleVersion` / `tailscaleSHA256` sabitleri
 (test digest'i değeriyle pinler; yalnız birini değiştirmek kırmızıdır). Action'ın kendi
-SHA'sı da yükseltiliyorsa girdilerin adı ve davranışı yeni commit'in `action.yml` ve
-`src/main.ts`'inden **yeniden okunur** (bugünkü okuma: `sha256sum` verilince `.sha256`
+SHA'sı da yükseltiliyorsa girdilerin adı ve davranışı yeni commit'in `action.yml`'inden ve
+**koşan kodundan** — `dist/index.js` (`runs.main`); `src/main.ts` yalnız onun kaynağıdır, ikisinin
+aynı davranışı yazdığı ayrıca karşılaştırılır — **yeniden okunur** (bugünkü okuma: `sha256sum` verilince `.sha256`
 indirilmez, uyuşmazlık adımı atar; önbellek isabetinde denetim yoktur — `use-cache: "false"`
 bu yüzden kalır).
 
@@ -1633,16 +1635,19 @@ OP-15 (a) gereği sonra `00058` olarak gelir; `00037`/`00038` `employees`/`locat
 `ACCESS EXCLUSIVE`, kendi `lock_timeout`'larıyla — 02:30 yedeğinden uzak bir saatte; `00054` kısmi indeks —
 ölçülen boyutta anında; `00056` `employees` indeksi kendi `lock_timeout`'uyla; `00057` yalnız bir fonksiyon,
 00029'un gövdesi + iki API sütunu) → *"Roll out the server"*: `20-app.yaml` → `40` → **rollout beklemesi** →
-`41` (yalnız `opsurface` `on` ise; `case` içinde) → `42-api-ingress.yaml` (`case`'in **dışında** — API host'u
-operatör yüzeyine bağlı değil) → **`db-role` kapısı** (OPS-1, 2026-10-18: rollout'un hemen ardından, host
-kapılarından **önce** — eskiden en sondaydı ve düşen bir host kapısı onu hiç koşturmuyordu; sunucunun
-migration rolüyle bağlı olmadığı, verinin RLS'i hakkındaki tek ölçüdür) → *"Gate — the operator host must
+**`db-role` kapısı** (OPS-1, 2026-10-18: rollout'un hemen ardından, host Ingress'lerinden ve host
+kapılarından **önce** — eskiden en sondaydı ve düşen bir host kapısı onu hiç koşturmuyordu; düzeltme turunda
+41/42'nin `apply`'ı ve `case`'in `exit 1` dalı da rollout adımından çıktı, çünkü onlardan biri düşse yine
+koşmuyordu; sunucunun migration rolüyle bağlı olmadığı, verinin RLS'i hakkındaki tek ölçüdür) →
+*"Route the operator and API hosts"*: `41` (yalnız `opsurface` `on` ise; `case` içinde) →
+`42-api-ingress.yaml` (`case`'in **dışında** — API host'u operatör yüzeyine bağlı değil; ikisi de hâlâ
+rollout beklemesinden **sonra**) → *"Gate — the operator host must
 not serve the customer product"* (`operator-host` kipi) → *"Gate — the API host serves the API and nothing
 else"* (`api-host` kipi: `/v1/guide.md` 200 `text/markdown`, kök 404). Migration Job `Failed` olursa rollout
-yapılmaz (*"4. Migration Job'ı Failed"*). Pinler: `TestPackaging_TheDeployAppliesEveryIngressFile` (40 <
-bekleme < 41, 42 beklemeden sonra ve 41'in `case`'inin dışında, üç Ingress dosyası) ve
-`TestPackaging_TheDeployGatesTheCustomerAndAPIHosts` (OPS-1'den beri `db-role`'un rollout'tan hemen sonraki
-adım olduğunu da tutar).
+yapılmaz (*"4. Migration Job'ı Failed"*). Pinler: `TestPackaging_TheDeployAppliesEveryIngressFile` (40
+rollout adımında beklemeden önce; 41 ve 42 yalnız *"Route the operator and API hosts"*ta, 42 41'in
+`case`'inin dışında; üç Ingress dosyası) ve `TestPackaging_TheDeployGatesTheCustomerAndAPIHosts` (OPS-1'den
+beri sıra: rollout → `db-role` (rollout+1) → host yönlendirme (rollout+2) → iki host kapısı).
 
 **Birleştirme çakışması — `main`'in T119 değişiklikleri** — ✅ **birleştirildi (API-13b, 2026-10-17, merge
 commit `Merge origin/main into m11-api`; `origin/main` = `1ce79a3`; `main`'den migration gelmedi).** Gerçek
@@ -1923,7 +1928,7 @@ gh workflow run deploy.yml --ref main
 ```
 
 beklenen: "Preflight — the operator host is routed only to a server that gates it" adımı
-`operator-surface: on` basar, "Roll out the server" 41'i uygular, "Gate — the operator host must not
+`operator-surface: on` basar, "Route the operator and API hosts" 41'i uygular, "Gate — the operator host must not
 serve the customer product" `303 to /operator ... (try N)` basar -- 41 yeni yaratıldığı için ilk
 denemeler 404 görebilir (denetleyici yeni Ingress'i eşzamansız yapılandırır); yoklama 404'ü ~90 sn
 boyunca yeniden dener, sonra kırmızı biter
@@ -7467,7 +7472,7 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     o andan **sonraki** bir değişikliği yakalar, o an zaten değiştirilmiş bir dosyayı değil
     (ilk-kullanımda-güven). Tailscale'in paket imzası doğrulanmıyor.
     (b) **Anahtar `tailscale up`'ın argv'sinde VE `tailscaled`'in ortamında.** Action anahtarı
-    `--authkey=…` olarak geçirir (`src/main.ts`): `up` koşarken runner'ın süreç tablosunda
+    `--authkey=…` olarak geçirir (`dist/index.js`, koşan kod; kaynağı `src/main.ts` aynı): `up` koşarken runner'ın süreç tablosunda
     görünür, ve zaman aşımına uğrayan bir `up` **öldürülmez** (action yalnız beklemeyi bırakır).
     Ayrıca `tailscaled` `sudo -E` ile, action'ın ortamında `INPUT_AUTHKEY` dururken başlatılır:
     anahtar daemon'un `/proc/<pid>/environ`'unda **işin sonuna kadar** — post adımının

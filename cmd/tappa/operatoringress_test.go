@@ -942,15 +942,26 @@ func codeLinesOf(src string) []string {
 	return out
 }
 
+// hostRouteStep is the deploy.yml step that applies the operator and API hosts' Ingresses (41,
+// 42). OPS-1's fix round moved them out of "Roll out the server" into their own step after the
+// db-role gate: inside the rollout step a failed apply, or the operator-surface case's `exit 1`,
+// ended the job before db-role ran.
+const hostRouteStep = "Route the operator and API hosts"
+
 // TestPackaging_TheDeployAppliesEveryIngressFile closes T112's class for Ingresses: a
 // top-level manifest carrying a `kind: Ingress` that deploy.yml does not apply is the
-// cluster-only object this backlog item was. 41 is applied in "Roll out the server",
-// AFTER the rollout wait since T119 (so the operator host reaches only pods that started
-// with the gate; the condition around it is TestPackaging_TheOperatorIngressFollowsTheOperatorSurface),
-// 40 before the wait, 42 after the wait and outside 41's case (M11: the API host does not
-// depend on the operator surface), and the deploy identity's ingresses rule in 01-rbac.yaml carries
-// the verbs `kubectl apply` needs on an existing or a new object (get, create, patch) —
-// and no delete, which is why closing the surface is the operator's (41's header).
+// cluster-only object this backlog item was. 40 is applied in "Roll out the server" before the
+// rollout wait; 41 and 42 only in hostRouteStep, AFTER the wait (T119: the operator host reaches
+// only pods that started with the gate; the condition around 41 is
+// TestPackaging_TheOperatorIngressFollowsTheOperatorSurface; M11: likewise TAPPA_API_HOST), 42
+// outside 41's case (the API host does not depend on the operator surface); that step's place
+// after the db-role gate is TestPackaging_TheDeployGatesTheCustomerAndAPIHosts'. The deploy
+// identity's ingresses rule in 01-rbac.yaml carries the verbs `kubectl apply` needs on an
+// existing or a new object (get, create, patch) — and no delete, which is why closing the
+// surface is the operator's (41's header).
+//
+// MUTANT (measured, OPS-1 fix round): 42's apply moved back into "Roll out the server" -> red;
+// 41's case moved back into it -> red.
 func TestPackaging_TheDeployAppliesEveryIngressFile(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join(repoRoot, ".github", "workflows", "deploy.yml"))
 	if err != nil {
@@ -966,24 +977,22 @@ func TestPackaging_TheDeployAppliesEveryIngressFile(t *testing.T) {
 		}
 		for _, m := range deployApplyLine.FindAllStringSubmatch(l, -1) {
 			applied[m[1]]++
-			if step == "Roll out the server" {
-				switch m[1] {
-				case customerIngressFile:
-					line40 = i
-				case operatorIngressFile:
-					line41 = i
-				case apiIngressFile:
-					line42 = i
-				}
+			switch {
+			case step == "Roll out the server" && m[1] == customerIngressFile:
+				line40 = i
+			case step == hostRouteStep && m[1] == operatorIngressFile:
+				line41 = i
+			case step == hostRouteStep && m[1] == apiIngressFile:
+				line42 = i
 			}
 		}
 		if step == "Roll out the server" && strings.Contains(l, "rollout status deployment/tappa") {
 			rollout = i
 		}
-		if step == "Roll out the server" && strings.HasPrefix(strings.TrimSpace(l), `case "$OPERATOR_SURFACE" in`) {
+		if step == hostRouteStep && strings.HasPrefix(strings.TrimSpace(l), `case "$OPERATOR_SURFACE" in`) {
 			caseOpen = i
 		}
-		if step == "Roll out the server" && strings.TrimSpace(l) == "esac" {
+		if step == hostRouteStep && strings.TrimSpace(l) == "esac" {
 			caseClose = i
 		}
 	}
@@ -1006,21 +1015,21 @@ func TestPackaging_TheDeployAppliesEveryIngressFile(t *testing.T) {
 	if ingressFiles != 3 {
 		t.Errorf("CONTROL FAILED: %d Ingress files found, want 3 (40, 41 and 42)", ingressFiles)
 	}
-	if line40 < 0 || line41 < 0 || rollout < 0 || line40 > rollout || rollout > line41 {
-		t.Errorf("in \"Roll out the server\": 40 at %d, 41 at %d, rollout wait at %d; want 40 < the wait < 41",
-			line40, line41, rollout)
+	if line40 < 0 || rollout < 0 || line40 > rollout {
+		t.Errorf("in \"Roll out the server\": 40 at %d, rollout wait at %d; want 40 before the wait", line40, rollout)
 	}
-	// M11 API-13a: 42 AFTER the wait -- every pod the API host can then reach runs with TAPPA_API_HOST
-	// (42-api-ingress.yaml's header).
-	if line42 < 0 || line42 < rollout {
-		t.Errorf("in \"Roll out the server\": 42 at %d, the rollout wait at %d; want 42 after the wait", line42, rollout)
+	// T119 / M11 API-13a: 41 and 42 in hostRouteStep, AFTER the wait -- every pod either host can then
+	// reach started with TAPPA_OPERATOR_HOST / TAPPA_API_HOST (41's and 42's headers).
+	if line41 < 0 || line42 < 0 || line41 < rollout || line42 < rollout {
+		t.Errorf("41 at %d and 42 at %d in %q, the rollout wait at %d; want both applied there (and nowhere "+
+			"else), after the wait", line41, line42, hostRouteStep, rollout)
 	}
 	// M11 API-13b (the merge with T119): 41 inside the operator surface's case, 42 OUTSIDE it -- the API
 	// host does not depend on the operator surface, so an `off` surface must not leave api.taptime.mt
 	// unrouted.
 	if caseOpen < 0 || caseClose < caseOpen || line41 < caseOpen || line41 > caseClose || (line42 > caseOpen && line42 < caseClose) {
-		t.Errorf("in \"Roll out the server\": the operator surface's case spans %d..%d, 41 at %d, 42 at %d; want 41 "+
-			"inside it and 42 outside", caseOpen, caseClose, line41, line42)
+		t.Errorf("in %q: the operator surface's case spans %d..%d, 41 at %d, 42 at %d; want 41 "+
+			"inside it and 42 outside", hostRouteStep, caseOpen, caseClose, line41, line42)
 	}
 
 	rbac := stripYAMLComments(readK8s(t, "01-rbac.yaml"))
@@ -1053,12 +1062,17 @@ func TestPackaging_TheDeployAppliesEveryIngressFile(t *testing.T) {
 //
 // OPS-1: the db-role gate (the server must not be connected as the migration role) is the step
 // RIGHT AFTER "Roll out the server", ahead of both host gates -- it used to run last, so a red host
-// gate ended the job before the one measurement about the data ran. Exactly once, unguarded.
+// gate ended the job before the one measurement about the data ran. Exactly once, unguarded. The
+// fix round also moved 41's and 42's applies (and the operator-surface case with its `exit 1`) out
+// of the rollout step into hostRouteStep, the step RIGHT AFTER db-role: in the rollout step a red
+// apply ended the job before db-role ran. Order: rollout -> db-role (rollout+1) -> hostRouteStep
+// (rollout+2) -> the two host gates.
 //
 // MUTANT (measured): the API host's preflight step deleted -> red; the api-host gate deleted -> red;
 // the gate moved before "Roll out the server" -> red; `continue-on-error: true` on the gate -> red;
 // the apex preflight deleted -> red; OPS-1: db-role moved back to the end, or between the two host
-// gates -> red; db-role deleted -> red; `if: always()` on it -> red.
+// gates -> red; db-role deleted -> red; `if: always()` on it -> red; fix round: 42's apply moved
+// back into "Roll out the server" -> red; hostRouteStep moved ahead of db-role -> red.
 func TestPackaging_TheDeployGatesTheCustomerAndAPIHosts(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join(repoRoot, ".github", "workflows", "deploy.yml"))
 	if err != nil {
@@ -1137,6 +1151,21 @@ func TestPackaging_TheDeployGatesTheCustomerAndAPIHosts(t *testing.T) {
 		stepsWithLine(steps, "run: scripts/verify-deployment.sh api-host "+apiHost)...)
 	if rollout < 0 || len(hostGates) != 2 {
 		t.Fatalf("CONTROL FAILED: \"Roll out the server\" at step %d, %d host gate step(s) (want 2)", rollout, len(hostGates))
+	}
+	route := slices.IndexFunc(steps, func(s workflowStep) bool { return s.name == hostRouteStep })
+	if route != rollout+2 {
+		t.Errorf("%q is step %d, want %d: right after the db-role gate, which is right after \"Roll out the server\" "+
+			"(%d) -- a red Ingress apply must not keep the role the new pods hold from being measured",
+			hostRouteStep, route, rollout+2, rollout)
+	} else if !unguarded[hostRouteStep] {
+		t.Errorf("%q carries an `if:` or `continue-on-error`: a skipped route turns both host gates into a report "+
+			"about nothing", hostRouteStep)
+	}
+	for _, h := range hostGates {
+		if h < route {
+			t.Errorf("the host gate %q (step %d) runs before %q (step %d): it measures the routed host",
+				steps[h].name, h, hostRouteStep, route)
+		}
 	}
 	if len(dbRole) != 1 || dbRole[0] != rollout+1 {
 		t.Errorf("the db-role gate is at step(s) %v, want exactly one, the step right after \"Roll out the server\" (%d): "+

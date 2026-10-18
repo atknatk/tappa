@@ -77,9 +77,9 @@
 # DNS-only (40-ingress.yaml, options a/b/c). TestPackaging_TheOperatorIngressesAreTheLiveObjects
 # and TestPackaging_TheOperatorIngressesShareOneHostAndOneCertificate turn red on one.
 #
-# Applied by deploy.yml's "Roll out the server" step, after the rollout wait and only
-# when the preflight above read `on` (T119); the deploy identity's ingresses verbs (get,
-# list, create, patch) are 01-rbac.yaml's.
+# Applied by deploy.yml's "Route the operator and API hosts" step, after the rollout wait
+# and the db-role gate, and only when the preflight above read `on` (T119); the deploy
+# identity's ingresses verbs (get, list, create, patch) are 01-rbac.yaml's.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

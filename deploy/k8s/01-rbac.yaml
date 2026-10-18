@@ -252,8 +252,9 @@ rules:
     resources: ["jobs"]
     verbs: ["get", "create", "delete"]
 
-  # STEP "Roll out the server" (apply 40-ingress.yaml and, since T112,
-  # 41-operator-ingress.yaml — the same verbs, no new grant) + the final report's
+  # STEPS "Roll out the server" (apply 40-ingress.yaml) and "Route the operator and API
+  # hosts" (41-operator-ingress.yaml since T112, 42-api-ingress.yaml since M11; their own
+  # step after the db-role gate since OPS-1 — the same verbs, no new grant) + the final report's
   # `kubectl get pods,svc,ingress`. Measured with `list` removed: exit 1,
   # "ingresses.networking.k8s.io is forbidden". No `delete`: removing the operator
   # host's Ingresses (closing the surface) is the operator's, with cluster-admin.
