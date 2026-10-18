@@ -456,8 +456,8 @@ func TestRunbook_PasteableBlocksCarryNoShellHazardInComments(t *testing.T) {
 	//	go test ./cmd/rotatekek/ -run PasteableBlocks -v   # per-slice, from this test
 	//
 	// Re-measured in T134's 2nd round (2026-10-18), with the inline-comment tails now
-	// scanned too: deploy/README.md carries 114 pasteable bash blocks in total; 13 are in
-	// the rotation slice, 0 in the encode slice, 5 in the M8-03 observability slice, 4 in
+	// scanned too: deploy/README.md carries 115 pasteable bash blocks in total; 13 are in
+	// the rotation slice, 0 in the encode slice, 5 in the M8-03 observability slice, 5 in
 	// operator step 5, and the remaining 92 live in the other operator steps and the
 	// deploy/rollback, backup and incident-response sections. Those 92 hold 154 comment
 	// lines and 40 command lines with an inline comment, of which 53 carry 59 hazard hits.

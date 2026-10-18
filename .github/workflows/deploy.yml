@@ -559,11 +559,25 @@ jobs:
       #   use-cache "false": a cache hit installs the cached binaries WITHOUT the sha256
       #             check the fresh download gets; one download per deploy is cheaper
       #             than a second, unchecked path to the binary that carries the key.
-      #             ⚠️ That check is weaker than KUBECTL_SHA256's: with no `sha256sum`
-      #             input the action fetches the expected digest from the same server as
-      #             the tarball (pkgs.tailscale.com), so it catches corruption, not a
-      #             swapped file. Pinning `version` + `sha256sum` here is the stronger
-      #             form, left for a measured follow-up (backlog T135).
+      #   version / sha256sum  "1.94.2" and the sha256 of tailscale_1.94.2_amd64.tgz, PINNED
+      #             HERE, the way KUBECTL_VERSION / KUBECTL_SHA256 are (backlog T135). With
+      #             no `sha256sum` the action fetched the expected digest from the same
+      #             server as the tarball (pkgs.tailscale.com/stable/…tgz.sha256), which
+      #             catches corruption but not a swapped file; with it, that fetch is
+      #             skipped and the download is compared against THIS digest, a mismatch
+      #             throws and the step fails before tailscaled starts (src/main.ts,
+      #             installTailscaleLinux). Measured 2026-10-18: the tarball downloaded and
+      #             hashed locally (shasum -a 256) equals the published .sha256, its
+      #             `tailscale` binary is `go version -m` module tailscale.com v1.94.2,
+      #             GOARCH=amd64. `version` is pinned too, although 1.94.2 is the action's
+      #             default at this commit: a digest belongs to ONE version, and an action bump
+      #             that moved the default would otherwise fail here for a reason the diff does
+      #             not show. The digest is for amd64 because ubuntu-latest is X64 (the action
+      #             maps RUNNER_ARCH X64 to amd64); an arm64 runner would get another tarball and
+      #             fail the check -- closed, not open. The digest is checked only on a fresh
+      #             download, which is why `use-cache` must stay "false". UPGRADE: both lines
+      #             in one edit, measured as in deploy/README.md operator step 5 (e), with the
+      #             pins in cmd/tappa/deploytailnet_test.go.
       #   log-mode  "quiet". The action runs `tailscale status --json` itself, and with
       #             step debug logging on (a re-run "with debug logging" is one click)
       #             the default mode echoes that output -- the tailnet's user login names,
@@ -586,6 +600,8 @@ jobs:
         uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4.2.0
         with:
           authkey: ${{ secrets.TS_AUTHKEY }}
+          version: "1.94.2"
+          sha256sum: "c6f99a5d774c7783b56902188d69e9756fc3dddfb08ac6be4cb2585f3fecdc32"
           args: --accept-dns=false
           use-cache: "false"
           log-mode: quiet

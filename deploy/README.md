@@ -293,7 +293,10 @@ token `system:serviceaccount:tappa:github-deployer` olarak tanınır). `deploy.y
 2. *"Join the tailnet"* — son imaj adımından **sonra**, ilk küme çağrısından (*"Preflight —
    the application Secret…"*) hemen **önce**: `tailscale/github-action`, **tam commit
    SHA'sıyla** pinli (`d1b6cd2…`, v4.2.0; depodaki tek üçüncü-parti action — gerekçe
-   dosyada), `authkey: ${{ secrets.TS_AUTHKEY }}`, `--accept-dns=false`, önbelleksiz,
+   dosyada), `authkey: ${{ secrets.TS_AUTHKEY }}`, **`version: "1.94.2"` + `sha256sum`**
+   (indirilen arşiv bu dosyada pinli digest'le karşılaştırılır, aynı sunucudan alınanla
+   değil — backlog T135; yükseltme (e)'de), `--accept-dns=false`, önbelleksiz (önbellek
+   isabeti digest denetimini atlar),
    **`log-mode: quiet`** (hata ayıklama kipinde action'ın kendi `tailscale status --json`
    çıktısını — tailnet kullanıcılarının e-posta adreslerini — public log'a basmaması için),
    `timeout: 45s` × `retry: "3"` (action'ın varsayılanı 2 dk × 5 ≈ 10 dk bekleyişti; şimdi
@@ -420,7 +423,8 @@ koşusunun log'unda ve Tailscale yönetim konsolunda:
 - *"Join the tailnet"* yeşil. `log-mode: quiet` action'ın *"Resolved Tailscale version"* ve
   sha256 satırlarını **bastırır**; sürüm kapının özet satırında okunur
   (`tailnet: tailscale 1.94.2, …`), sha256 uyuşmazlığı ise adımı **düşürür** (action atar) —
-  yani yeşil adım, indirilen arşivin aynı sunucudan alınan digest'le eşleştiği demektir.
+  yani yeşil adım, indirilen arşivin `deploy.yml`'de **pinli** digest'le eşleştiği demektir
+  (T135'ten önce: aynı sunucudan alınan digest'le).
 - Kapı satırı `tags tag:ci` ve `cluster API reachable at 10.43.0.1:443 (attempt 1)` basar
   (`attempt 2+` rotanın geç oturduğunu söyler; bir kez kabul, sürekliyse incelenir).
 - Log'da **hiçbir e-posta adresi ve status JSON'u yok** (koşu log'unda `@` araması).
@@ -431,6 +435,32 @@ koşusunun log'unda ve Tailscale yönetim konsolunda:
   başlatır; bunun cihazı ephemeral yapıp yapmadığı **doğrulanamadı**), bu yüzden ölçü
   konsoldur, varsayım değil. Ephemeral olmayan bir cihaz kalırsa elle silinir ve anahtar
   ephemeral olarak yeniden üretilir.
+
+**(e) Tailscale istemcisini yükseltmek — `version` ve `sha256sum` BİRLİKTE (backlog T135).**
+`deploy.yml`'in *"Join the tailnet"* adımı istemciyi sürümüyle ve linux/amd64 arşivinin
+sha256'sıyla pinler (`KUBECTL_VERSION` / `KUBECTL_SHA256` gibi). İkisi tek bir digest'e aittir:
+biri tek başına değişirse adım sha uyuşmazlığıyla **düşer** — kümeye dokunmadan, kapalı yönde.
+Sürüm **kararlı** kanaldan seçilir (minor'ü çift: action tek minor'u `/unstable`'dan indirir).
+Digest'i **kendin ölç**: arşivi indir, kendi makinende hashle ve yayımlanan `.sha256` ile
+karşılaştır — iki satır aynı olmalı, değilse DUR. Bugünkü değer 2026-10-18'de böyle ölçüldü
+(ayrıca arşivdeki `tailscale` ikilisi `go version -m` ile `tailscale.com v1.94.2`,
+`GOARCH=amd64`). Runner `ubuntu-latest` = X64 = `amd64` arşivi.
+
+```bash
+V=1.94.2
+U="https://pkgs.tailscale.com/stable/tailscale_${V}_amd64.tgz"
+curl -fsSLo "/tmp/tailscale_${V}_amd64.tgz" "$U"
+echo "published: $(curl -fsSL "$U.sha256")"
+echo "measured:  $(shasum -a 256 "/tmp/tailscale_${V}_amd64.tgz" | cut -d' ' -f1)"
+```
+
+Sonra **tek commit'te**: `deploy.yml`'deki `version:` ve `sha256sum:` satırları **ve**
+`cmd/tappa/deploytailnet_test.go`'daki `tailscaleVersion` / `tailscaleSHA256` sabitleri
+(test digest'i değeriyle pinler; yalnız birini değiştirmek kırmızıdır). Action'ın kendi
+SHA'sı da yükseltiliyorsa girdilerin adı ve davranışı yeni commit'in `action.yml` ve
+`src/main.ts`'inden **yeniden okunur** (bugünkü okuma: `sha256sum` verilince `.sha256`
+indirilmez, uyuşmazlık adımı atar; önbellek isabetinde denetim yoktur — `use-cache: "false"`
+bu yüzden kalır).
 
 **6. İlk deploy.** `main`'e push → `ci` yeşil → `deploy` kendiliğinden koşar.
 Elle: Actions → `deploy` → Run workflow.
@@ -6776,9 +6806,9 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     **Yeniden ölçüldü — T134 2. tur, 2026-10-18, güncel tarayıcıyla.** Tarayıcı artık yorum
     satırlarına **ve** komut sonundaki satır içi yorumlara bakıyor; önceki yalnız `#` ile
     başlayan satırlara bakıyordu ve adım 5'teki `gh secret set … # değer stdin'den …` satırı
-    tam o kör noktadaydı. Dosyada **114** yapıştırılabilir `bash` bloğu var; **13**'ü
+    tam o kör noktadaydı. Dosyada **115** yapıştırılabilir `bash` bloğu var; **13**'ü
     döndürme diliminde, **0**'ı encode diliminde, **5**'i gözlemlenebilirlik diliminde,
-    **4**'ü adım 5'te; kalan **92**'si taranmıyor ve o 92 blokta **154** yorum satırı ile
+    **5**'i adım 5'te (T135 bir blok ekledi); kalan **92**'si taranmıyor ve o 92 blokta **154** yorum satırı ile
     satır içi yorum taşıyan **40** komut satırı var; bunların **53**'ü **59 tehlike isabeti**
     taşıyor (48 yorum satırı / 54 isabet, 5 satır içi yorum / 5 isabet). Taramayı dosyanın
     tamamına açmak o 53 satırı **kırmızıya** çevirirdi — başka kartlara ait bir düzeltme işi;
@@ -7089,10 +7119,13 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     ❌ **Kapanmayan, sayılı:**
     (a) **Depodaki tek üçüncü-parti action.** `tailscale/github-action` tam commit SHA'sıyla
     pinli (`TestPackaging_TheDeployReachesTheClusterOnlyThroughTheTailnet` etiketi
-    reddeder), ama pinli kod Tailscale'in ikilisini **çalışma anında indirir**; beklenen
-    sha256'yı da aynı sunucudan (`pkgs.tailscale.com`) alır — bozulmayı yakalar, değiştirilmiş
-    bir dosyayı değil (`KUBECTL_SHA256`'nın aksine). `version` + `sha256sum` girdileriyle
-    pinlemek backlog T135'te.
+    reddeder), ama pinli kod Tailscale'in ikilisini **çalışma anında indirir**. ✅ **T135
+    (2026-10-18):** `version: "1.94.2"` + `sha256sum` pinli — action beklenen digest'i artık
+    aynı sunucudan (`pkgs.tailscale.com`) almıyor, `deploy.yml`'dekiyle karşılaştırıyor
+    (`KUBECTL_SHA256` gibi); test digest'i değeriyle tutar. ⚠️ **Kalan, sayılı:** pinli digest
+    de o sunucudan **bir kez** ölçüldü (indirilen arşivin yerel hash'i = yayımlanan `.sha256`);
+    o andan **sonraki** bir değişikliği yakalar, o an zaten değiştirilmiş bir dosyayı değil
+    (ilk-kullanımda-güven). Tailscale'in paket imzası doğrulanmıyor.
     (b) **Anahtar `tailscale up`'ın argv'sinde VE `tailscaled`'in ortamında.** Action anahtarı
     `--authkey=…` olarak geçirir (`src/main.ts`): `up` koşarken runner'ın süreç tablosunda
     görünür, ve zaman aşımına uğrayan bir `up` **öldürülmez** (action yalnız beklemeyi bırakır).

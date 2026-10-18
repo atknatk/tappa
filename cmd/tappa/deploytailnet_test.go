@@ -45,9 +45,23 @@ const (
 	kubeconfigServerLine  = `scripts/verify-deployment.sh kubeconfig-server "$KUBE_API_HOST" "$KUBE_API_PORT"`
 )
 
+// tailscaleVersion and tailscaleSHA256 are the Tailscale client the deploy installs (backlog
+// T135): the version and the sha256 of pkgs.tailscale.com/stable/tailscale_<version>_amd64.tgz,
+// measured 2026-10-18 by downloading the tarball and hashing it (equal to the published
+// .sha256). They are pinned here BY VALUE, so a changed digest is red until this file changes
+// with it: an upgrade is the two workflow lines and these two constants in one commit, measured
+// as deploy/README.md operator step 5 (e) says.
+const (
+	tailscaleVersion = "1.94.2"
+	tailscaleSHA256  = "c6f99a5d774c7783b56902188d69e9756fc3dddfb08ac6be4cb2585f3fecdc32"
+)
+
 // tailnetJoinInputs are the join step's `with:` lines besides the key, each argued at the step:
-// no DNS takeover, no unchecked cached binary, no echoed status, a bounded wait.
+// one client version checked against a digest pinned here rather than fetched beside the
+// download, no DNS takeover, no unchecked cached binary, no echoed status, a bounded wait.
 var tailnetJoinInputs = []string{
+	`version: "` + tailscaleVersion + `"`,
+	`sha256sum: "` + tailscaleSHA256 + `"`,
 	"args: --accept-dns=false",
 	`use-cache: "false"`,
 	"log-mode: quiet",
@@ -84,8 +98,9 @@ var imageStepLine = regexp.MustCompile(`\bdocker (build|push|login|manifest)\b|s
 // configuration; what the two gates DO is run by the TestVerifyDeployment_ tests below:
 //
 //   - exactly one step uses tailscale/github-action, by a full commit SHA (a tag or a branch is
-//     red), with `authkey: ${{ secrets.TS_AUTHKEY }}`, each of tailnetJoinInputs and no `tags:`
-//     (with an auth key the action ignores it: a line that looks like a guarantee);
+//     red), with `authkey: ${{ secrets.TS_AUTHKEY }}`, each of tailnetJoinInputs — among them the
+//     client version and its sha256, by value (T135) — once each, and no `tags:` (with an auth
+//     key the action ignores it: a line that looks like a guarantee);
 //   - it comes AFTER the last image step (no repository code that ran during the build ever had
 //     a route into the tailnet; CONTROL: image steps exist) and BEFORE the first step that
 //     talks to the cluster (CONTROL: that step exists, and every local kubectl line is seen, so
@@ -100,7 +115,9 @@ var imageStepLine = regexp.MustCompile(`\bdocker (build|push|login|manifest)\b|s
 // MUTANT (measured, T134 rounds 1 and 2): the join deleted, moved after "Preflight — the
 // application Secret…", or moved (with the gate) before "Build both images" -> red;
 // `@d1b6cd2…` replaced by `@v4` -> red; `use-cache: "true"`, `--accept-dns=false` dropped or
-// `log-mode: quiet` dropped -> red; the gate deleted or `if: always()` on it -> red;
+// `log-mode: quiet` dropped -> red; T135: the `sha256sum:` line deleted, one hex digit of it
+// changed, a second `sha256sum:` added beside it, or `version:` deleted -> red;
+// the gate deleted or `if: always()` on it -> red;
 // `${{ secrets.TS_AUTHKEY }}` moved into a run body -> red; the kubeconfig check removed -> red.
 func TestPackaging_TheDeployReachesTheClusterOnlyThroughTheTailnet(t *testing.T) {
 	steps := deploySteps(t)
@@ -167,6 +184,24 @@ func TestPackaging_TheDeployReachesTheClusterOnlyThroughTheTailnet(t *testing.T)
 		if len(stepsWithLine(steps[join:join+1], want)) != 1 {
 			t.Errorf("step %q lacks the input line %q (each is argued at the step)", j.name, want)
 		}
+	}
+	// One of each input key: a second `sha256sum:` (or `version:`) beside the pinned one would
+	// leave the exact line in place while YAML decides which value the action reads.
+	inputKeys := map[string]int{}
+	for _, l := range j.code {
+		if k, _, ok := strings.Cut(strings.TrimSpace(l), ":"); ok && !strings.Contains(k, " ") {
+			inputKeys[k]++
+		}
+	}
+	for _, k := range []string{"version", "sha256sum", "use-cache"} {
+		if inputKeys[k] != 1 {
+			t.Errorf("step %q carries the input %q %d time(s), want once", j.name, k, inputKeys[k])
+		}
+	}
+	if !regexp.MustCompile(`^[0-9]+\.[0-9]*[02468]\.[0-9]+$`).MatchString(tailscaleVersion) ||
+		!regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(tailscaleSHA256) {
+		t.Errorf("tailscaleVersion %q / tailscaleSHA256 %q: want an exact STABLE version (even minor -- the action "+
+			"downloads an odd minor from /unstable) and 64 lowercase hex digits", tailscaleVersion, tailscaleSHA256)
 	}
 	if join <= lastImage {
 		t.Errorf("step %q is step %d, the last image step is step %d (%q): the runner joins the tailnet only after "+
