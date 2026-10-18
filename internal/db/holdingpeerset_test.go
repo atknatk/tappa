@@ -141,15 +141,17 @@ func holdingPeerNewWorld(t *testing.T, ctx context.Context, tx pgx.Tx, rng *mran
 
 // holdingPeerSetStats is what a comparison saw, for the anti-vacuity.
 type holdingPeerSetStats struct {
-	pairs, peers, windowOnly, futureLive int64
+	pairs, peers, windowOnly, futureLive, twoWays int64
 }
 
 // holdingPeerSetDivergences compares, as the owner (the only role that may call either form), the set
 // form with the pair form over every scenario of w: for every caller (each pool tenant, the outsider,
 // a NULL caller) and every candidate (each pool tenant -- the caller itself among them --, the
 // outsider, an unknown id), b in holding_peer(a, 'strict') exactly when holding_peer(a, b, 'strict');
-// and no set holds a tenant outside its scenario's pool. Returns the first divergences (none when the
-// two agree) and what the comparison exercised.
+// no set holds a tenant outside its scenario's pool; and no set holds a tenant twice (a set is a set:
+// a peer reached through two memberships -- the caller's live one and its future-ending one in the
+// same holding -- is one peer, and the two callers read the set straight into their rows). Returns the
+// first divergences (none when the two agree) and what the comparison exercised.
 func holdingPeerSetDivergences(t *testing.T, ctx context.Context, q pgx.Tx, w holdingPeerWorld) ([]string, holdingPeerSetStats) {
 	t.Helper()
 	var out []string
@@ -166,7 +168,7 @@ func holdingPeerSetDivergences(t *testing.T, ctx context.Context, q pgx.Tx, w ho
 			               UNION ALL SELECT scn, $4::uuid FROM scns),
 			     sets AS MATERIALIZED (SELECT c.scn, c.a, coalesce((SELECT array_agg(p.id) FROM public.holding_peer(c.a, 'strict') AS p(id)), '{}') AS peers
 			                FROM callers AS c)`
-		var foreign int64
+		var foreign, twice int64
 		if err := o.QueryRow(ctx, world+`,
 			     cmp AS MATERIALIZED (
 			         SELECT s.scn, s.a, d.b, public.holding_peer(s.a, d.b, 'strict') AS pair, d.b = ANY (s.peers) AS in_set
@@ -181,12 +183,23 @@ func holdingPeerSetDivergences(t *testing.T, ctx context.Context, q pgx.Tx, w ho
 			       (SELECT count(*) FROM sets AS s WHERE cardinality(s.peers) = 0 AND public.holding_peer(s.a, NULL, 'is_member')),
 			       (SELECT count(*) FROM sets AS s WHERE cardinality(s.peers) > 0 AND EXISTS (
 			            SELECT 1 FROM public.holding_members AS m
-			             WHERE m.member_tenant_id = ANY (s.peers || s.a) AND m.left_at > clock_timestamp()))`,
-			w.scenario, w.tenant, w.outsider, w.unknown).Scan(&out, &foreign, &st.pairs, &st.peers, &st.windowOnly, &st.futureLive); err != nil {
+			             WHERE m.member_tenant_id = ANY (s.peers || s.a) AND m.left_at > clock_timestamp())),
+			       (SELECT count(*) FROM sets AS s WHERE cardinality(s.peers) <> (SELECT count(DISTINCT p.id) FROM unnest(s.peers) AS p(id))),
+			       (SELECT count(*) FROM sets AS s WHERE EXISTS (
+			            SELECT 1 FROM public.holding_members AS ma
+			              JOIN public.holding_members AS mb ON mb.holding_id = ma.holding_id
+			             WHERE ma.member_tenant_id = s.a AND mb.member_tenant_id <> s.a
+			               AND (ma.left_at IS NULL OR ma.left_at > clock_timestamp())
+			               AND (mb.left_at IS NULL OR mb.left_at > clock_timestamp())
+			             GROUP BY mb.member_tenant_id HAVING count(*) > 1))`,
+			w.scenario, w.tenant, w.outsider, w.unknown).Scan(&out, &foreign, &st.pairs, &st.peers, &st.windowOnly, &st.futureLive, &twice, &st.twoWays); err != nil {
 			return err
 		}
 		if foreign != 0 {
 			out = append(out, fmt.Sprintf("the set form answered %d tenant(s) outside their scenario's pool", foreign))
+		}
+		if twice != 0 {
+			out = append(out, fmt.Sprintf("the set form answered a peer twice for %d caller(s): cardinality(peers) is not cardinality(DISTINCT peers)", twice))
 		}
 		return nil
 	}); err != nil {
@@ -203,11 +216,15 @@ func holdingPeerSetDivergences(t *testing.T, ctx context.Context, q pgx.Tx, w ho
 // caller itself, the outsider, an unknown id): b is in holding_peer(a, 'strict') exactly when
 // holding_peer(a, b, 'strict') is true, and no set reaches outside its scenario. The seed is logged.
 //
+// No set holds a peer twice (cardinality(peers) = cardinality(DISTINCT peers)).
+//
 // Anti-vacuity: the scenarios produced strict pairs AND non-pairs, callers inside the exit window
-// (is_member's tolerance yes, strict no), and pairs that stand on a left_at in the future.
+// (is_member's tolerance yes, strict no), pairs that stand on a left_at in the future, and callers
+// that reach a peer two ways (two strictly live memberships in one holding on either side).
 // CONTROLS, each in a savepoint over the same scenarios, each found diverging: the set form LOOSENED
 // (the peer's own exit ignored), the set form NARROWED (a caller whose left_at is in the future
-// dropped), and the pair form alone given K-33's M3 (the holding equality forgotten) -- a mutant of one
+// dropped), the set form without its DISTINCT (a peer reached two ways answered twice), and the pair
+// form alone given K-33's M3 (the holding equality forgotten) -- a mutant of one
 // form that the other does not share is what this test exists to see.
 func TestHoldingPeer_TheSetFormIsThePairFormsAnswer(t *testing.T) {
 	ctx, tx := opTx(t)
@@ -220,9 +237,9 @@ func TestHoldingPeer_TheSetFormIsThePairFormsAnswer(t *testing.T) {
 	for _, d := range diverged {
 		t.Errorf("seed %d: %s", seed, d)
 	}
-	t.Logf("%d scenarios, %d (caller, candidate) pairs, %d strict peers, %d callers inside the window only, %d callers with a future-left pair",
-		scenarios, st.pairs, st.peers, st.windowOnly, st.futureLive)
-	if st.peers < 500 || st.pairs-st.peers < 500 || st.windowOnly < 50 || st.futureLive < 50 {
+	t.Logf("%d scenarios, %d (caller, candidate) pairs, %d strict peers, %d callers inside the window only, %d callers with a future-left pair, %d callers reaching a peer two ways",
+		scenarios, st.pairs, st.peers, st.windowOnly, st.futureLive, st.twoWays)
+	if st.peers < 500 || st.pairs-st.peers < 500 || st.windowOnly < 50 || st.futureLive < 50 || st.twoWays < 50 {
 		t.Fatalf("anti-vacuity: the scenarios exercised too little: %+v", st)
 	}
 
@@ -233,6 +250,7 @@ func TestHoldingPeer_TheSetFormIsThePairFormsAnswer(t *testing.T) {
 	}{
 		{"the set form loosened: the peer's own exit ignored", "\n           AND (mb.left_at IS NULL OR mb.left_at > v_now);", ";", false},
 		{"the set form narrowed: a caller leaving in the future dropped", "AND (ma.left_at IS NULL OR ma.left_at > v_now)", "AND ma.left_at IS NULL", false},
+		{"the set form without its DISTINCT: a peer reached two ways answered twice", "SELECT DISTINCT mb.member_tenant_id", "SELECT mb.member_tenant_id", false},
 		{"the pair form alone given M3 (the holding equality forgotten)", "", "", true},
 	} {
 		t.Run("control/"+c.name, func(t *testing.T) {
@@ -426,7 +444,9 @@ func holdingWalkDirectory(t *testing.T, ctx context.Context, tx pgx.Tx, tenant u
 // in the context of KF and KM (peers in H; KF given more than a page of staff and of venues, so both functions
 // page), C and D (peers in H2), a business in no holding and no context -- in four membership states:
 // as built; KM left H ten seconds ago (inside is_member's window); KM moved to H2; a membership of KF's
-// that ends in the future. Each state's answers are non-empty somewhere (anti-vacuity), and the two
+// that ends in the future; and KF live in H two ways at once (its live membership and a second one
+// that ends in the future -- KM reached from KF, and KF from KM, through two pairs of memberships:
+// a peer is one peer, its rows once). Each state's answers are non-empty somewhere (anti-vacuity), and the two
 // bodies are told apart by their md5 (the Down really ran).
 func TestHoldingFunctions_00060AnswersWhat00055Answered(t *testing.T) {
 	ctx, tx := opTx(t)
@@ -484,6 +504,9 @@ func TestHoldingFunctions_00060AnswersWhat00055Answered(t *testing.T) {
 		{"KM moved to H2", []stmt{{leave, []any{w.km, "2 minutes"}},
 			{`INSERT INTO holding_members (holding_id, member_tenant_id, joined_at) VALUES ($1, $2, clock_timestamp() - interval '1 minute')`, []any{w.h2, w.km}}}},
 		{"KF's membership ends in the future", []stmt{{leave, []any{w.kf, "-1 hour"}}}},
+		{"KF live in H twice: its live membership and one that ends in the future", []stmt{
+			{`INSERT INTO holding_members (holding_id, member_tenant_id, joined_at, left_at)
+			  VALUES ($1, $2, clock_timestamp() - interval '3 hours', clock_timestamp() + interval '1 hour')`, []any{w.h, w.kf}}}},
 	} {
 		t.Run(state.name, func(t *testing.T) {
 			holdingInSavepoint(t, tx, func(sp pgx.Tx) {

@@ -1953,7 +1953,9 @@ Down yürüyüşleri `00055`'in Down'ını koşar: ayrı tutulunca o yürüyüş
 ## T124 uygulama notu (2026-10-18)
 
 **Karar (kullanıcı, 2026-10-18):** T124 şimdi kapatılır — 2026-10-15'teki *"~1 000 tenant'a kadar bırak"* kararının yerini
-alır. Backlog'un adlandırdığı iki yoldan ana oturumun önerisi uygulandı (otonom karar, gerekçeli): **`holding_peer`'e küme
+alır. **İkinci imza (kullanıcı onayı, 2026-10-19):** kapalı liste (§2'nin imza tablosu, katalog testinin *"ad başına tek
+aşırı yükleme"* maddesi) bilerek **bir imza büyüdü** — `holding_peer(a, mod) → SETOF uuid`; kullanıcı iki merceğin ONAY'ından
+sonra bu ikinci imzayı ayrıca onayladı. Üçüncü bir imza aynı onayı ister. Backlog'un adlandırdığı iki yoldan ana oturumun önerisi uygulandı (otonom karar, gerekçeli): **`holding_peer`'e küme
 döndüren bir kip**; öteki yol (iki gövdeye `holding_members` ön-süzmesi + tarama istisnası) seçilmedi, çünkü ölçüm kipin kötü
 olduğunu göstermedi (aşağıda: ön-süzmenin 5,2–5,8 ms'sinden de hızlı). **Migration `00060`**
 (`db/migrations/00060_ask_a_members_peers_once.sql`).
@@ -1962,9 +1964,9 @@ olduğunu göstermedi (aşağıda: ön-süzmenin 5,2–5,8 ms'sinden de hızlı)
   için küme aynı imzanın bir kipi olamaz (dönüş tipi tektir); dönüşü değiştirmek tap yolunun, kapının ve iki tetikleyicinin
   her çağrısını değiştirirdi. Ayrı bir ad (ör. `holding_peers`) §2'nin *"`holding_members`'a değinen TEK fonksiyon
   `holding_peer`"* kuralına ve taramasına bir istisna isterdi; aynı ad kuralı **yazıldığı gibi** bırakır
-  (`TestHoldingPeer_IsTheOnlyBodyThatTouchesHoldingMembers` değişmedi, yeni iki kontrolüyle hâlâ anlamlı: tanımlayıcı sahipli
-  bir `holding_peers_*` kardeşi ve `holding_members` üzerinden ön-süzen bir `holding_site_locations` — reddedilen yol — ikisi de
-  kırmızı). Bedeli katalog testinin (iii) maddesidir: *"ad başına tek aşırı yükleme"* `holding_peer` için *"tablodaki satır
+  (`TestHoldingPeer_IsTheOnlyBodyThatTouchesHoldingMembers`'ın kuralı ve taraması değişmedi; test dosyasına iki biçim için
+  anti-vacuity döngüsü ve iki kontrol eklendi: tanımlayıcı sahipli bir `holding_peers_*` kardeşi ve `holding_members` üzerinden
+  ön-süzen bir `holding_site_locations` — reddedilen yol — ikisi de kırmızı). Bedeli katalog testinin (iii) maddesidir: *"ad başına tek aşırı yükleme"* `holding_peer` için *"tablodaki satır
   sayısı kadar"* oldu (§2); üçüncü bir imza (`holding_peer(a, b)` kontrolü) hâlâ kırmızı. İmza tablosu bir satır büyüdü;
   `TestM11Catalog_EveryNewTableMatchesTheMatrixUnderArwd`'ün fonksiyon matrisi de.
 - **Tek kaynak:** yüklem `holding_peer` adının altında yaşar; çift biçimin gövdesi **bayt bayt aynı** (md5 `8044a559…`, ön
@@ -2028,5 +2030,13 @@ olduğunu göstermedi (aşağıda: ön-süzmenin 5,2–5,8 ms'sinden de hızlı)
   `AskThePeerSetOnceNeverPerTenant` (üye bağlamında çift biçim 222 kez — paylaşılan kabın tenant sayısı) kırmızı ·
   `holding_directory` kapısız taramaya döner → aynı test her bağlamda kırmızı · `holding_directory`'ye `holding_members` ön
   süzmesi → `IsTheOnlyBodyThatTouchesHoldingMembers` kırmızı.
+- **Tekrar satır ağı (DÜŞÜK turu, 2026-10-19).** Denetim ölçtü: küme biçiminin `SELECT DISTINCT`'i kaldırılınca yalnız md5
+  pinleri kırmızıydı, oysa tekrar ürüne yansıyor (bağımsız üreteç aynı mutantta 1 089'a karşı 622 satır) — bir eşe iki yoldan
+  ulaşılır: aynı holding'de canlı **ve** gelecekte bitecek iki üyelik (şema izin verir; tek kısıt *"en çok bir `left_at IS
+  NULL`"*). Artık iki davranış testi de görür: özellik testi her kümede `cardinality(peers) = cardinality(DISTINCT peers)`
+  ister (anti-vacuity: bir eşe iki yoldan ulaşan ≥ 50 çağıran; bir koşu ~370) ve DISTINCT'siz küme biçimini dördüncü kontrol
+  olarak taşır; eşitlik testinin beşinci hâli *"KF H'de iki yoldan canlı"* (canlı üyeliği + gelecekte biten ikinci üyelik).
+  Mutant (atılabilir kapta committed DDL, sonra geri): özellik testi *"398 çağıran bir eşi iki kez aldı"*, eşitlik testi o hâlde
+  KF rehberi 6/3, KM mekânları 2 402/1 201, KM rehberi 5 004/2 502 satır — ikisi de kırmızı.
 - **Belge önerisi (yapılmadı — ana oturumun işi):** CLAUDE.md §4.5'in *"`holding_peer`'e kip eklemek"* ifadesi *"`holding_peer`'e
   kip ya da imza eklemek"* olarak netleşebilir (küme biçimi kullanıcı onayıyla geldi; üçüncü bir imza aynı onayı ister).
