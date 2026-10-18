@@ -2238,12 +2238,14 @@ beklenen: çıkış 0; stderr'de hesap id'si, adres, ad ve link.
 less "$OPDIR/op.sql"
 ```
 
-3) Uygula — tappa_owner, ilk hatada dur
+3) Uygula — tappa_owner, ilk hatada dur; 4) dosyayı sil — uygulanmış bir betik saklanmaz.
+İkisi tek blokta: silme, uygulamanın sonucu ne olursa olsun aynı yapıştırmada koşar.
 
 ```bash
 kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
     sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
     < "$OPDIR/op.sql"
+rm -rf "$OPDIR"; unset OPDIR
 ```
 
 beklenen: BEGIN · SET · SET · CREATE TABLE · COPY 1 · NOTICE: opadmin create: pending operator
@@ -2251,12 +2253,6 @@ account … · DO · COMMIT; çıkış 0
 
 çıkış 3 → reddedildi ve transaction geri alındı; mesaj nedeni adıyla söyler (ör. "refused by
 constraint platform_admins_email_key" = bu adres zaten kayıtlı).
-
-4) Dosyayı sil — uygulanmış bir betik saklanmaz
-
-```bash
-rm -rf "$OPDIR"; unset OPDIR
-```
 
 **Linki ilet.** Kendi hesabınsa linki doğrudan tarayıcına yapıştır. Başkası içinse geçmiş
 tutmayan bir kanaldan (yüz yüze, telefonda okuyarak, kaybolan mesaj) ver; bilet sistemine,
@@ -2779,13 +2775,11 @@ printf 'SES SMTP kullanici adi: '; read -rs SMTP_USER; echo
 printf 'SES SMTP parolasi: ';      read -rs SMTP_PASS; echo
 printf '{"stringData":{"TAPPA_SMTP_USERNAME":"%s","TAPPA_SMTP_PASSWORD":"%s"}}' "$SMTP_USER" "$SMTP_PASS" \
   | kubectl --context hetzner-k8s-1 -n tappa patch secret tappa-secrets --type merge --patch-file /dev/stdin
-```
-
-beklenen: secret/tappa-secrets patched (kubectl'in --patch-file bayrağı gerekir)
-
-```bash
 unset SMTP_USER SMTP_PASS
 ```
+
+beklenen: secret/tappa-secrets patched (kubectl'in --patch-file bayrağı gerekir). Son satır iki
+değişkeni yamanın sonucu ne olursa olsun aynı yapıştırmada siler — bu yüzden ayrı bir blokta değil.
 
 `read -r` değeri olduğu gibi alır, baştaki/sondaki boşlukları kırpar (yapıştırmanın satır
 sonu dahil). SES'in SMTP parolası base64'tür (`+`, `/` taşıyabilir, `"` ya da `\`
@@ -3330,20 +3324,23 @@ boş kalır.
 > ```bash
 > kubectl -n tappa get deployment tappa \
 >   -o jsonpath='{.spec.template.spec.containers[0].image}{"  ps="}{.spec.template.spec.imagePullSecrets[*].name}{"\n"}'
-> # ghcr.io/... + ps=ghcr   -> küme HÂLÂ GHCR'da: aşağıdaki komutta etiketi ghcr.io/... yaz
-> # docker.io/... + ps yok  -> geçiş inmiş: aşağıdaki komut olduğu gibi doğru
 > ```
+> Çıktıyı şöyle oku:
+> - `ghcr.io/... + ps=ghcr` → küme **HÂLÂ GHCR'da**: aşağıdaki komutta etiketi `ghcr.io/...` yaz;
+> - `docker.io/... + ps yok` → geçiş inmiş: aşağıdaki komut olduğu gibi doğru.
+>
 > **Bugünkü gerçek ölçüm (2026-08-16, salt okuma):** `deployment/tappa` →
 > `ghcr.io/atknatk/tappa:sha-353897c6d5f6`, `imagePullSecrets: ghcr`; üç ReplicaSet'in
 > **üçü de** `ghcr.io/...` + `ps=ghcr`; `secret/ghcr` **var** (18 sa). Yani geçiş
 > **henüz inmedi**. Bu, bölüm 1'in *"Ağaçtaki manifestler taşıyor; KÜMEDEKİ nesneler
 > henüz taşımıyor"* uyarısının aynısıdır — orada yazılıydı, burada yazılı değildi.
 
-> 🔴 **AŞAĞIDAKİ BLOĞU TOPTAN KOPYALAMA — ÜÇÜNCÜ KOMUT AYRI BİR KARAR.** İlk komut
-> yer tutucu taşıdığı için kopyalayanı **durdurur**, `rollout undo` **durdurmaz**;
-> onu koşmadan önce bloğun **altındaki** uyarıyı oku. (Bu üçlü bilerek tek blokta
-> duruyor, çünkü sırayla okunmalı — ama `undo` bir kurtarma değil, koşullu bir
-> harekettir.)
+> 🔴 **ÜÇÜNCÜ KOMUT AYRI BİR KARAR — BU YÜZDEN KENDİ BLOĞUNDA.** İlk blok (`set image` +
+> `rollout status`) yer tutucu taşıdığı için kopyalayanı **durdurur**, `rollout undo`
+> **durdurmaz**; onu koşmadan önce bloğun **altındaki** uyarıyı oku. (Üçlü bir zamanlar
+> bilerek tek blokta duruyordu, sırayla okunsun diye; T136'dan beri `undo` ayrı bir
+> blokta — ilk bloğu kopyalamak onu artık sürüklemez. `undo` bir kurtarma değil,
+> koşullu bir harekettir.)
 
 ⚠️ ETİKETİN KAYNAĞINI YUKARIDAKİ ÖLÇÜMDEN AL: küme GHCR'daysa ghcr.io/atknatk/tappa, Docker Hub
 geçişi indiyse docker.io/atknatk/tappa.
@@ -3401,13 +3398,15 @@ kubectl -n tappa rollout undo deployment/tappa
 > `set image`'dan **ÖNCE** ConfigMap'te `TAPPA_INVITE_DELIVERY: "panel"` (hedef `a2ed96f`
 > öncesiyse ayrıca `TAPPA_RESET_DELIVERY: "none"`) yaz ve uygula, **sonra** imajı geri al:
 >
+> `05-config.yaml` düzeltildikten sonra (davet `panel`, gerekiyorsa reset `none`):
+>
 > ```bash
-> # 05-config.yaml duzeltildikten sonra (davet panel, gerekiyorsa reset none):
 > kubectl --context hetzner-k8s-1 -n tappa apply -f deploy/k8s/05-config.yaml
 > kubectl --context hetzner-k8s-1 -n tappa get configmap tappa-config \
 >   -o jsonpath='{.data.TAPPA_RESET_DELIVERY} {.data.TAPPA_INVITE_DELIVERY}{"\n"}'
-> # ancak bundan SONRA yukaridaki set image ya da rollout undo
 > ```
+>
+> Ancak bundan **SONRA** yukarıdaki `set image` ya da `rollout undo`.
 >
 > Ayrıca: e-postayı açmanın önkoşullarının kodu `d69087b`'de (EM-7C) tamamlanır (sıra:
 > `a2ed96f` EM-5 → `b935f47` EM-7A kesici → `a8d38ff` EM-7B → `d69087b` EM-7C tavan).
@@ -3429,10 +3428,12 @@ kubectl -n tappa rollout undo deployment/tappa
 
 > 🔴 **ÖNCE ŞUNU ÖLÇ: BU BÖLÜM AĞACI TARİF EDİYOR; KÜMEDE CronJob OLUP OLMADIĞI AYRI
 > BİR SORU.** Ağaç ile küme bu dosyada daha önce üç kez ayrıştı ve üçünde de ayrımı
-> yazmayan cümle yanlış çıktı. Teşhise **kümeye sorarak** başla:
+> yazmayan cümle yanlış çıktı. Teşhise **kümeye sorarak** başla — ilk satır CronJob'u
+> sorar (yoksa: operatör adımı 9 yapılmamış), ikincisi son gecelerin Job'larını, üçüncüsü
+> betik ConfigMap'ini ve hedef Secret'ını:
 > ```bash
-> kubectl -n tappa get cronjob tappa-backup                 # yoksa: operatör adımı 9 yapılmamış
-> kubectl -n tappa get job -l app.kubernetes.io/component=backup   # son geceler
+> kubectl -n tappa get cronjob tappa-backup
+> kubectl -n tappa get job -l app.kubernetes.io/component=backup
 > kubectl -n tappa get configmap tappa-backup-scripts secret/tappa-backup-target
 > ```
 > **Ölçüm, 2026-08-16 (salt okuma):** `kubectl -n tappa get cronjob` → **`No resources
@@ -3942,16 +3943,15 @@ SQL
 
 **B3. Yedeği indir, sha256'yı doğrula, geri yükle.**
 
+🔴 BLOĞUN SON KOMUTU B2'NİN AYNASI — dump varsayılanı yeniden genişletti, aynı blok onu geri
+daraltır; geri yüklemeyle **birlikte** yapıştırılsın diye ayrı bir blokta değil.
+
 ```bash
 RESTORE=$(mktemp -d)
 rclone --config "$HOME/.config/tappa/backup.rclone.conf" copy tappa-backup:prod/<damga> "$RESTORE/"
 gzip -dc "$RESTORE/tappa-<damga>.sql.gz" | kubectl -n tappa exec -i statefulset/tappa-postgres -- \
   sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -q -v ON_ERROR_STOP=1 -U tappa_owner -d tappa'
-```
 
-🔴 B2'NIN AYNASI — dump varsayılanı yeniden genişletti, geri daralt.
-
-```bash
 kubectl -n tappa exec -i statefulset/tappa-postgres -- \
   sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -v ON_ERROR_STOP=1 -U tappa_owner -d tappa' <<'SQL'
 ALTER DEFAULT PRIVILEGES FOR ROLE tappa_owner IN SCHEMA public
@@ -5572,8 +5572,14 @@ command -v shred >/dev/null && echo "not: shred var, istersen kullanabilirsin" |
   echo "not: bu makinede shred YOK ve rm -P bir no-op; dosyalar unlink edildi, uzerine yazilmadi"
 ```
 
-$PGPASSFILE adım 2deki trap tarafından zaten silindi; kalıcı bir parola dosyası bu prosedürde HİÇ
-yaratılmıyor (tek mekanizma kuralı).
+`$PGPASSFILE`'ı adım 2'nin `trap`'i **henüz silmedi**: etkileşimli bir kabukta `trap … EXIT`
+ancak kabuk **kapanınca** koşar, yani pencere açık kaldıkça süper kullanıcı parolası diskte
+durur. Şimdi açıkça sil (kalıcı bir parola dosyası bu prosedürde HİÇ yaratılmıyor — tek
+mekanizma kuralı; `trap`, pencere bu adımdan önce kapanırsa diye bir yedektir):
+
+```bash
+rm -f "$PGPASSFILE"; unset PGPASSFILE
+```
 
 ⚠️ **ESKİ KEK'İN EMANET KOPYASINI BURADA SİLME.** Adım 4 bitene kadar dur: geri
 alma onu gerektirir, ve rotasyon öncesi yedekler hâlâ onun altındadır.
@@ -5676,7 +5682,7 @@ hafızasına bağlı değil):
 | Ne | Neden artık imkânsız |
 |---|---|
 | Rotasyonun **gövdesinde** yorumdaki backtick'in çalışması | Gövde artık yapıştırılmıyor: `scripts/rotate-kek.sh`'i **bash bir dosya olarak** yorumluyor (`bash -n` süitte) |
-| Kalan **yapıştırılan** bloklarda aynı tehlike | ✅ **YORUM YOK — T136 (OPS-1, 2026-10-18).** Bu bölümde **19 yapıştırılan `bash` bloğu** var (sır girişi, `kubectl` adımları, doğrulama; T136 yorumları bloklardan çıkarırken 13 bloğu yorumların durduğu yerlerden böldü). Hiçbirinde ne `#` satırı ne de komut sonunda bir yorum var: açıklama bloğun etrafındaki metinde, satıra özgü not (*"DRY RUN"*, *"UYGULAR"*) bloğun hemen önündeki listede — `TestRunbook_ItsOwnCommandsAreRUNNotSCANNED` iddiayı oradan okuyup komutu **koşturur**. Kural bütün dosyada tek: `TestRunbook_EveryPasteableBlockCarriesNoComment` her `bash` bloğunu (girintili olanlar dahil) yorumsuz tutar ve gerçek `zsh -f -i -n` ile ayrıştırır. Geçmiş: tehlike önce **karakter düzeyinde** kaldırılmıştı (yorumlarda 0 backtick, 0 tek apostrof) ve gerçek `zsh -f -i`'de README şeklindeki backtick'li bir yorum **çalışmıştı** (işaret dosyası yazıldı); o ağ dört dilimi okuyordu, şimdiki dosyanın tamamını. `TestRunbook_PasteableBlocksCarryNoShellHazardInComments` dilimlerin çapalarını ve bu bölümün blok sayısını tutmaya devam eder |
+| Kalan **yapıştırılan** bloklarda aynı tehlike | ✅ **YORUM YOK — T136 (OPS-1, 2026-10-18).** Bu bölümde **20 yapıştırılan `bash` bloğu** var (sır girişi, `kubectl` adımları, doğrulama; T136 yorumları bloklardan çıkarırken 13 bloğu yorumların durduğu yerlerden böldü, OPS-1 düzeltme turu adım 3'ün sonuna `$PGPASSFILE`'ı açıkça silen bloğu ekledi). Hiçbirinde ne `#` satırı ne de komut sonunda bir yorum var: açıklama bloğun etrafındaki metinde, satıra özgü not (*"DRY RUN"*, *"UYGULAR"*) bloğun hemen önündeki listede — `TestRunbook_ItsOwnCommandsAreRUNNotSCANNED` iddiayı oradan okuyup komutu **koşturur**. Kural bütün dosyada tek: `TestRunbook_EveryPasteableBlockCarriesNoComment` her `bash` bloğunu (girintili ve `> ` alıntısı içindekiler dahil) yorumsuz tutar ve gerçek `zsh -f -i -n` ile ayrıştırır. Geçmiş: tehlike önce **karakter düzeyinde** kaldırılmıştı (yorumlarda 0 backtick, 0 tek apostrof) ve gerçek `zsh -f -i`'de README şeklindeki backtick'li bir yorum **çalışmıştı** (işaret dosyası yazıldı); o ağ dört dilimi okuyordu, şimdiki dosyanın tamamını. `TestRunbook_PasteableBlocksCarryNoShellHazardInComments` dilimlerin çapalarını ve bu bölümün blok sayısını tutmaya devam eder |
 | `ON_ERROR_STOP` unutulması → 40 ref sunucu log'una + `psql rc=0` | Bayrak script'in içinde; `TestRotateScript_AlwaysPassesOnErrorStop` her `psql` çağrısında arıyor |
 | Rotasyonun kilit kuyruğunda **süresiz** beklemesi | `SET LOCAL lock_timeout = '5s'` üretilen SQL'in ilk ifadesi; 5 sn'de alamazsa `55P03` ile iptal, tek transaction geri alınır, **0 satır yazılır**, script **exit 1** der. ⚠️ Bu bir **rotasyon** tavanıdır; **TAP tarafında hiçbir tavan yoktur** (`statement_timeout` sunucuda 0 ve hiçbir katmanda set edilmiyor) — ölçüldü, backlog T47 |
 | Aracın çıkış kodunun `psql`'inkiyle maskelenmesi | Boru yok; `TOOL_RC` yakalanıp `exit` ediliyor, `TestRotateScript_NeverPipesTheToolIntoPsql` tutuyor |
@@ -5774,17 +5780,18 @@ kopyasında** — `CREATE DATABASE … TEMPLATE tappa`, koşuldu, doğrulandı, 
 > hâlâ GHCR koşuyor** (ölçüldü 2026-08-16: `deployment/tappa` →
 > `ghcr.io/atknatk/tappa:sha-353897c6d5f6` + `imagePullSecrets: ghcr`, üç
 > ReplicaSet'in üçü de aynı, `secret/ghcr` **var**). Teşhise başlamadan **kümeye
-> sor**, ağaca değil:
+> sor**, ağaca değil (ikinci komutun çıktısı boşsa geçiş inmiştir):
 > ```bash
 > kubectl -n tappa get deployment tappa \
 >   -o jsonpath='{.spec.template.spec.containers[0].image}{"  ps="}{.spec.template.spec.imagePullSecrets[*].name}{"\n"}'
-> kubectl -n tappa get secret ghcr --ignore-not-found -o name   # boşsa geçiş inmiştir
+> kubectl -n tappa get secret ghcr --ignore-not-found -o name
 > ```
 >
-> **Önce ölç, sonra dokun.** Kesintinin var olup olmadığının tek dış kanıtı:
+> **Önce ölç, sonra dokun.** Kesintinin var olup olmadığının tek dış kanıtı — ilk satır
+> *süreç ayakta mı*, ikincisi *DB'ye ulaşıyor mu* sorar:
 > ```bash
-> curl -sS -o /dev/null -w '%{http_code}\n' https://taptime.mt/healthz  # süreç ayakta mı
-> curl -sS -o /dev/null -w '%{http_code}\n' https://taptime.mt/readyz   # DB'ye ulaşıyor mu
+> curl -sS -o /dev/null -w '%{http_code}\n' https://taptime.mt/healthz
+> curl -sS -o /dev/null -w '%{http_code}\n' https://taptime.mt/readyz
 > ```
 > `/healthz` hiçbir şeye dokunmaz, `/readyz` havuzdan bağlantı alır. **200/200** =
 > ürün çalışıyor; **200/503** = süreç ayakta ama veritabanı yok; **ikisi de yok** =
@@ -5804,9 +5811,9 @@ kopyasında** — `CREATE DATABASE … TEMPLATE tappa`, koşuldu, doğrulandı, 
 > kubectl -n tappa get secret ghcr -o jsonpath='{range .metadata.managedFields[*]}{.time}{"  by "}{.manager}{"\n"}{end}'
 > kubectl -n tappa get pod -l app.kubernetes.io/component=server \
 >   -o jsonpath='{range .items[*]}{.status.startTime}{"  "}{.metadata.name}{"\n"}{end}'
-> # En yeni secret/ghcr yazımından ÖNCE başlamış bir pod yeniden başlayamaz.
-> # Çare: yeni ve BAŞARILI bir deploy koşusu. (Komut hüküm vermez, kanıt basar.)
 > ```
+> En yeni `secret/ghcr` yazımından **ÖNCE** başlamış bir pod yeniden başlayamaz.
+> Çare: yeni ve **BAŞARILI** bir deploy koşusu. (Komut hüküm vermez, kanıt basar.)
 > Silinme gerekçesi kayıtta: mod, geçiş indikten sonra konusu var olmayan bir Secret
 > olacağı için her sağlıklı kümede *"UNREADABLE"* diyecekti. **Geçiş inene kadar
 > yukarıdaki iki satır onun yerini tutar.** Ders defterde: kart düzeltmesi, FAZ C 6. tur.
@@ -5837,13 +5844,15 @@ ya da `pg_isready ... - no response`. Postgres `1/1 Running` ve loglarında
 > ```bash
 > kubectl -n tappa logs job/tappa-migrate -c wait-for-postgres --tail=20
 > kubectl -n tappa logs deployment/tappa  -c wait-for-postgres --tail=20
-> # "the NAME RESOLVES to: …"        → soket/politika: bu bölümü oku
-> # "the NAME … DOES NOT RESOLVE"    → DNS/Service: bu bölüm SENİN SORUNUN DEĞİL, 5'e geç
-> #
-> # ⚠️ `container wait-for-postgres is not valid for pod … out of: goose` alıyorsan
-> # o pod bu initContainer'dan ÖNCEKİ bir manifestle doğmuştur — yani FAZ C henüz
-> # kümeye inmemiştir. Bu bir arıza değil; aşağıdaki ölçüm komutuyla doğrula.
 > ```
+> Çıktıyı şöyle oku:
+> - `"the NAME RESOLVES to: …"` → soket/politika: bu bölümü oku;
+> - `"the NAME … DOES NOT RESOLVE"` → DNS/Service: bu bölüm **SENİN SORUNUN DEĞİL**, 5'e geç.
+>
+> ⚠️ `container wait-for-postgres is not valid for pod … out of: goose` alıyorsan
+> o pod bu initContainer'dan **ÖNCEKİ** bir manifestle doğmuştur — yani FAZ C henüz
+> kümeye inmemiştir. Bu bir arıza değil; aşağıdaki ölçüm komutuyla doğrula.
+>
 > `-c` **zorunlu**: `kubectl logs` init container'ı asla kendiliğinden seçmez.
 >
 > **Kendin ölçmen gerekirse, `kubectl debug` KULLANMA** — bu namespace `restricted`
@@ -5859,9 +5868,10 @@ ya da `pg_isready ... - no response`. Postgres `1/1 Running` ve loglarında
 > kubectl -n tappa run dnscheck --rm -i --restart=Never \
 >   --image=postgres:17-alpine --image-pull-policy=IfNotPresent \
 >   --overrides='{"spec":{"securityContext":{"runAsNonRoot":true,"runAsUser":65532,"runAsGroup":65532,"seccompProfile":{"type":"RuntimeDefault"}},"containers":[{"name":"dnscheck","image":"postgres:17-alpine","imagePullPolicy":"IfNotPresent","command":["sh","-c","getent hosts tappa-postgres || echo NXDOMAIN"],"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}}]}}'
->
-> # ⚠️ `--rm` pod'u YALNIZ kubectl bağlı kalırsa siler. Bu komut tam da pod'ların
-> # takıldığı bir olayda koşulur, yani Ctrl-C ihtimali yüksek. Her hâlükârda:
+> ```
+> ⚠️ `--rm` pod'u **YALNIZ** kubectl bağlı kalırsa siler. Bu komut tam da pod'ların
+> takıldığı bir olayda koşulur, yani Ctrl-C ihtimali yüksek. Her hâlükârda:
+> ```bash
 > kubectl -n tappa delete pod dnscheck --ignore-not-found
 > ```
 > ⚠️ **BU SONDA `postgres:17-alpine` İSTİYOR, yani sınır
@@ -7139,9 +7149,15 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     koşturur** (gerçek `zsh -f -i`'de `# admin -> Settings -> Keys` çalışma dizininde `Settings`
     ve `Keys` dosyalarını yarattı), bir apostrof `quote>` açıp sonraki satırı yutar, satır içi
     yorumun kelimeleri komutun **argümanı** olur. **Ölçüm, değişiklikten önce:** dosyada
-    **119** `bash` bloğu (dördü bir liste maddesinin içinde girintili — eski tarayıcının hiç
-    görmediği), **71**'inde **244** yorum satırı ve **56** satır içi yorum; **31** blok
-    `zsh -f -i -n` ile **ayrışmıyordu**. **Çare — tek kural, iki kabukta aynı:** `bash`
+    **128** `bash` bloğu (dördü bir liste maddesinin içinde girintili — eski tarayıcının hiç
+    görmediği — ve **dokuzu** bir `> ` alıntısının içinde), **79**'unda **258** yorum satırı ve
+    **61** satır içi yorum; **32** blok `zsh -f -i -n` ile **ayrışmıyordu**. ⚠️ **İlk tur
+    burada 119 / 71 / 244 / 56 / 31 yazıyordu ve YANLIŞTI:** çit kalıbı girintiyi tanıyor,
+    alıntıyı tanımıyordu, yani alıntı içindeki dokuz blok (geri alma, yedek, kesinti teşhisi)
+    hiç taranmadı ve **sekizi** yorumunu korudu — gerçek `zsh -f -i`'de biri apostrofla
+    `quote>` açıyor, biri ikinci `curl`'ü (`/readyz`) hiç koşturmuyordu. Düzeltme turu
+    (üçüncü gözün bulgusu) kalıba `> ` önekini öğretti ve testin kendisine *"alıntı içinde en
+    az bir blok görüldü"* kontrolünü ekledi. **Çare — tek kural, iki kabukta aynı:** `bash`
     bloklarında **yorum yok**. Yorumlar blokların etrafındaki metne taşındı (açıklama paragraf,
     satıra özgü not bloğun önündeki listede, beklenen çıktı bir `text` bloğunda); yorumların
     durduğu yerlerden bloklar bölündü. **Komutlara dokunulmadı**, iki bağımsız yolla
@@ -7149,9 +7165,15 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     (**544** = **544**), ve bash'in kendi ayrıştırıcısı (`declare -f`, yer tutucular
     nötrlenerek) **117** bölgenin **117**'sinde aynı programı veriyor. (Bu maddenin kendi ölçüm
     bloğu ayrıca **bilerek** değişti: `grep -c '^```bash'` yalnız sütun 0'daki çitleri sayıyordu,
-    yerini testin logu aldı.) **Sonra:** **159** `bash` bloğu, **0** yorum, **159**'unun
-    **159**'u `zsh -f -i -n` ile ayrışıyor (yer tutucular `<…>` nötrlenerek). Tutan test `TestRunbook_EveryPasteableBlockCarriesNoComment`
-    (bütün dosya, girintili bloklar dahil; `bash` dışındaki çitler — çıplak, `text`, `sql`,
+    yerini testin logu aldı.) Düzeltme turu alıntı içindeki sekiz bloğun komutlarını da aynı
+    iki yolla kanıtladı — bu kez alıntıyı tanıyan bir okuyucuyla, **bütün dosya** üstünde:
+    yorumsuz komut akışı ve tüm blokları tek fonksiyonda toplayan `declare -f`, değişiklik
+    öncesi dosyayla **tek** iki farkla aynı, ikisi de bilerek: bu maddenin ölçüm bloğu ve
+    KEK döndürme adım 3'ün sonuna eklenen `rm -f "$PGPASSFILE"; unset PGPASSFILE` (etkileşimli
+    kabukta `trap … EXIT` ancak kabuk kapanınca koşar). **Sonra:** **167** `bash` bloğu (4'ü
+    girintili, 10'u alıntı içinde), **0** yorum, **167**'sinin **167**'si `zsh -f -i -n` ile
+    ayrışıyor (yer tutucular `<…>` nötrlenerek). Tutan test `TestRunbook_EveryPasteableBlockCarriesNoComment`
+    (bütün dosya, girintili ve alıntı içindeki bloklar dahil; `bash` dışındaki çitler — çıplak, `text`, `sql`,
     `ini` — kabuğa yapıştırılmaz ve tutulmaz). Sayıyı yeniden üretmek için testin kendi
     logu:
 

@@ -4,11 +4,14 @@ package main
 // interactive_comments is OFF: a `#` line pasted into it is a COMMAND named `#` (a `>` in it
 // creates a file, a `;` or `|` runs what follows, an apostrophe opens quote> and swallows the
 // next line), and the words of a comment at the end of a command become that command's
-// arguments. deploy/README.md's pasteable blocks carried 244 comment lines and 56 inline comments
-// in 71 of 119 blocks (31 blocks did not even parse under `zsh -f -i -n`); only operator step 5
+// arguments. deploy/README.md's pasteable blocks carried 258 comment lines and 61 inline comments
+// in 79 of 128 blocks (32 blocks did not even parse under `zsh -f -i -n`); only operator step 5
 // was held to anything. The comments were moved out of the blocks into the prose around them —
-// the commands themselves were not touched (the round's report carries the proof) — and this
-// file holds the whole file to it.
+// the commands themselves were not touched (the rounds' reports carry the proof) — and this
+// file holds the whole file to it. (OPS-1's first round counted 119 blocks: its fence pattern
+// knew indents but not blockquotes, so the 9 blocks inside a `> ` quote — rollback, backup,
+// outage triage — went unscanned and 8 of them kept their comments. The fix round taught
+// markdownBlocks the `> ` prefix and added the control that at least one such block is seen.)
 //
 // THE RULE, ONE FOR BOTH SHELLS: a ```bash block of deploy/README.md carries NO comment — no `#`
 // line and no `# …` after a command. An explanation lives in the text, an expected output in a
@@ -24,19 +27,26 @@ import (
 	"testing"
 )
 
-// readmeBlock is one fenced block of a markdown file: its 1-based opening line, its indent, its
-// info string and its body with the indent removed.
+// readmeBlock is one fenced block of a markdown file: its 1-based opening line, its prefix (the
+// indent and any blockquote markers before the fence), its info string and its body with that
+// prefix removed.
 type readmeBlock struct {
 	line   int
 	indent string
+	quoted bool
 	info   string
 	body   []string
 }
 
-var markdownFence = regexp.MustCompile("^( *)(`{3,})([^`]*)$")
+// markdownFence's first group is the whole prefix: spaces, and any number of `>` blockquote
+// markers each followed by an optional space (`> ```bash`, `> > ```bash`, `  > ```bash`). A
+// fence inside a quote is pasted like any other — OPS-1's first round matched only spaces and
+// missed 9 such blocks, 8 of them still carrying comments.
+var markdownFence = regexp.MustCompile("^((?: *> ?)* *)(`{3,})([^`]*)$")
 
 // markdownBlocks returns every fenced block of text — at any indent (a block inside a list item
-// is pasted like any other) and with any fence length (a ````bash block may show ``` in its body).
+// is pasted like any other), inside a blockquote (its `> ` markers are not part of the command)
+// and with any fence length (a ````bash block may show ``` in its body).
 func markdownBlocks(text string) []readmeBlock {
 	lines := strings.Split(text, "\n")
 	var out []readmeBlock
@@ -52,8 +62,12 @@ func markdownBlocks(text string) []readmeBlock {
 				break
 			}
 		}
-		b := readmeBlock{line: i + 1, indent: ind, info: info}
+		b := readmeBlock{line: i + 1, indent: ind, quoted: strings.Contains(ind, ">"), info: info}
 		for _, l := range lines[i+1 : min(j, len(lines))] {
+			// An empty line of a quoted block is written `>` (the marker without its space).
+			if b.quoted && !strings.HasPrefix(l, ind) && strings.HasPrefix(l, strings.TrimRight(ind, " ")) {
+				l = ind + strings.TrimPrefix(l, strings.TrimRight(ind, " "))
+			}
 			b.body = append(b.body, strings.TrimPrefix(l, ind))
 		}
 		out = append(out, b)
@@ -205,33 +219,38 @@ func TestClassifyShell(t *testing.T) {
 var readmePlaceholder = regexp.MustCompile(`<[^<>\s]+>`)
 
 // TestRunbook_EveryPasteableBlockCarriesNoComment (T136). PART I — over EVERY ```bash block of
-// deploy/README.md (any indent, any fence length): (a) no line is a comment and no command line
+// deploy/README.md (any indent, inside a blockquote, any fence length): (a) no line is a comment and no command line
 // ends in one (classifyShell: a `#` inside a quote, a heredoc or a word is not a comment); (b)
 // where zsh is installed, the block — placeholders <…> neutralised — is parsed by `zsh -f -i -n`
 // (interactive, so interactive_comments is OFF, and -n, so nothing runs) in an empty directory
 // with PATH=/nonexistent: exit 0, no "parse error", no "unmatched", and no file created.
-// CONTROLS: at least 150 blocks, at least 4 of them indented, a heredoc and a quoted continuation
-// line were seen (the lexer was exercised); the zsh probe refuses a block whose comment carries
+// CONTROLS: at least 165 blocks, at least 4 of them indented, at least 1 inside a blockquote, a
+// heredoc and a quoted continuation line were seen (the lexer was exercised); the zsh probe refuses a block whose comment carries
 // an apostrophe and accepts the same block without it (it can see what it exists for).
 // PART II — pinned: (a) everywhere; (b) where zsh is installed (skipped with a reason otherwise).
 // PART III — what a block DOES is not judged here; operator step 5's blocks are also RUN
 // (TestReadme_TheTailnetStepBlocksPasteIntoZsh). Fences other than bash are not for the shell.
 //
 // MUTANT (measured, OPS-1): a `# x` line put back into any block, an inline `# x` after a command
-// in an indented block, a ```bash block whose comment holds an apostrophe -> red.
+// in an indented block, a ```bash block whose comment holds an apostrophe -> red. Fix round:
+// `> # it's a note -> Settings` put into a quoted block -> red twice (the comment rule and the
+// zsh parse); markdownFence reverted to spaces only -> red (CONTROL: 0 inside a blockquote).
 func TestRunbook_EveryPasteableBlockCarriesNoComment(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join(repoRoot(t), "deploy", "README.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var blocks []readmeBlock
-	indented, heredoc, quoted, lines := 0, 0, 0, 0
+	indented, inQuote, heredoc, quoted, lines := 0, 0, 0, 0, 0
 	for _, blk := range markdownBlocks(string(b)) {
 		if blk.info != "bash" {
 			continue
 		}
 		blocks = append(blocks, blk)
-		if blk.indent != "" {
+		switch {
+		case blk.quoted:
+			inQuote++
+		case blk.indent != "":
 			indented++
 		}
 		for i, sl := range classifyShell(blk.body) {
@@ -251,11 +270,13 @@ func TestRunbook_EveryPasteableBlockCarriesNoComment(t *testing.T) {
 			}
 		}
 	}
-	if len(blocks) < 150 || indented < 4 || heredoc == 0 || quoted == 0 {
-		t.Fatalf("CONTROL FAILED: %d bash blocks (%d indented), %d heredoc and %d quoted-continuation lines; "+
-			"want at least 150 blocks, 4 indented, and both kinds of line seen", len(blocks), indented, heredoc, quoted)
+	if len(blocks) < 165 || indented < 4 || inQuote < 1 || heredoc == 0 || quoted == 0 {
+		t.Fatalf("CONTROL FAILED: %d bash blocks (%d indented, %d inside a blockquote), %d heredoc and %d "+
+			"quoted-continuation lines; want at least 165 blocks, 4 indented, 1 inside a blockquote, and both "+
+			"kinds of line seen", len(blocks), indented, inQuote, heredoc, quoted)
 	}
-	t.Logf("%d pasteable bash blocks (%d indented), %d lines, no comment", len(blocks), indented, lines)
+	t.Logf("%d pasteable bash blocks (%d indented, %d inside a blockquote), %d lines, no comment",
+		len(blocks), indented, inQuote, lines)
 
 	zsh, err := exec.LookPath("zsh")
 	if err != nil {

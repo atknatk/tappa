@@ -1179,7 +1179,7 @@ func TestRotateScript_RefusesToRunUnderXtrace(t *testing.T) {
 // rotation section. Three artefacts publish it and this test compares all of them
 // against the section itself, so the number cannot drift silently the way "14" did
 // when a dead block was deleted.
-const pasteableBlockCount = 19
+const pasteableBlockCount = 20
 
 // invocation is one documented rotate-kek call: its arguments AND the comment that
 // tells the operator what it does. Both are asserted, because the round-12 defect
