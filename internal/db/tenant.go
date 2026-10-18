@@ -91,6 +91,52 @@ func (d *DB) WithTenant(ctx context.Context, tenantID uuid.UUID, fn TxFunc) (err
 	return nil
 }
 
+// WithTenantIn runs fn in a SAVEPOINT of tx, a transaction the caller holds in the context of
+// outer, under tenantID's context, and gives tx outer's context back before the savepoint is
+// released (M11 API-11 fix 1). It is WithTenant for code that must not open a second transaction:
+// the sandbox's simulated tap runs the tap path -- whose steps each ask for a tenant's transaction
+// (the plaque's for the counter, the employee's for the record) -- inside the /v1 write runner's
+// one transaction, so the claim, the tap and the ledger's result commit together and each request
+// holds ONE pool connection.
+//
+// The context is set the way WithTenant sets it, set_config(..., true): local to the TRANSACTION,
+// not to the savepoint -- so a released savepoint would leave tenantID's context on tx for the
+// statements after it, and the restore to outer is what prevents that. On fn's error (or a panic)
+// the savepoint is rolled back, which undoes fn's writes and the set_config with them; tx stays
+// usable and in outer's context. The row locks and transaction-scoped advisory locks fn takes are
+// the TRANSACTION's: they are held until tx ends, not until the savepoint does.
+func WithTenantIn(ctx context.Context, tx pgx.Tx, outer, tenantID uuid.UUID, fn TxFunc) (err error) {
+	if tenantID == uuid.Nil || outer == uuid.Nil {
+		return fmt.Errorf("db: WithTenantIn: refusing to scope to the nil tenant")
+	}
+	sp, err := tx.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("db: savepoint: %w", err)
+	}
+	defer func() {
+		if p := recover(); p != nil {
+			_ = sp.Rollback(context.Background())
+			panic(p)
+		}
+		if err != nil {
+			_ = sp.Rollback(context.Background())
+		}
+	}()
+	if _, err = sp.Exec(ctx, "SELECT set_config('app.tenant_id', $1, true)", tenantID.String()); err != nil {
+		return fmt.Errorf("db: set tenant context: %w", err)
+	}
+	if err = fn(ctx, sp); err != nil {
+		return err
+	}
+	if _, err = sp.Exec(ctx, "SELECT set_config('app.tenant_id', $1, true)", outer.String()); err != nil {
+		return fmt.Errorf("db: restore tenant context: %w", err)
+	}
+	if err = sp.Commit(ctx); err != nil {
+		return fmt.Errorf("db: release savepoint: %w", err)
+	}
+	return nil
+}
+
 // BoundStatements gives every later statement of tx a statement timeout of d -- LOCAL, so it ends
 // with the transaction and never reaches the pooled connection's next user (set_config's third
 // argument, the same rule as app.tenant_id above). The integration API's reads take it as their

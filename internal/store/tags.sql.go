@@ -687,6 +687,46 @@ func (q *Queries) ListTagsForTenant(ctx context.Context, tenantID uuid.UUID) ([]
 	return items, nil
 }
 
+const lockSandboxPlaque = `-- name: LockSandboxPlaque :one
+SELECT t.id,
+       (pg_advisory_xact_lock(hashtextextended('sandbox-plaque:' || $1::text, 0)) IS NULL)::boolean AS unlocked
+FROM tenants t
+WHERE t.id = $2
+`
+
+type LockSandboxPlaqueParams struct {
+	Uid      string
+	TenantID uuid.UUID
+}
+
+type LockSandboxPlaqueRow struct {
+	ID       uuid.UUID
+	Unlocked bool
+}
+
+// The sandbox's simulated tap holds the plaque it touches from the read of its counter to the end
+// of the write's transaction (M11 API-11 fix 1). A simulation mints the chip's NEXT read --
+// last_ctr+1 -- and the atomic advance then judges it (CLAUDE.md §4.4); two simulations of one
+// plaque that read the counter at once both mint the same read, and the second advance refuses
+// it: a recorded reject that no chip would have produced. Measured before this lock: an own tap and
+// a group tap of one plaque at once rejected one in four rounds -- the own path's location lock
+// does not cover a group tap, which never locks the PEER's venue (ADR 0016 §2: no query in the
+// peer's context). The key is the plaque's uid, which the simulation derives without reading the
+// peer's rows (internal/sandbox/plaque.go), namespaced so it never meets LockEmployeeForTap's or
+// another key's string. A hash collision serialises two simulations; it never mixes their data.
+//
+// THE ORDER is location (an own venue's, FOR NO KEY UPDATE) -> this lock -> the plaque's row (the
+// advance) -> the person's lock (Record): no simulation takes this lock after a later one in that
+// list, so it adds no cycle. The lock is taken in the SELECT list over the caller's own tenant row
+// (the belt -- audit.sql's LockAPIDeactivationBudget shape): a context in which that row is not visible
+// returns no row and takes no lock, which the caller treats as a failure.
+func (q *Queries) LockSandboxPlaque(ctx context.Context, arg LockSandboxPlaqueParams) (LockSandboxPlaqueRow, error) {
+	row := q.db.QueryRow(ctx, lockSandboxPlaque, arg.Uid, arg.TenantID)
+	var i LockSandboxPlaqueRow
+	err := row.Scan(&i.ID, &i.Unlocked)
+	return i, err
+}
+
 const markTagEncoded = `-- name: MarkTagEncoded :one
 UPDATE tags
 SET encoded_at = coalesce(encoded_at, now())

@@ -6,13 +6,11 @@ import (
 	"log/slog"
 
 	"github.com/atknatk/tappa/internal/apikey"
-	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
-	"github.com/atknatk/tappa/internal/domain/checkin"
 	"github.com/atknatk/tappa/internal/handler/api"
 	"github.com/atknatk/tappa/internal/sandbox"
-	"github.com/atknatk/tappa/internal/sun"
+	"github.com/atknatk/tappa/internal/webhook"
 )
 
 // THE SANDBOX BUILD'S HALF (M11 API-11, ADR 0028 §11, K-3), compiled only by `go build -tags
@@ -26,14 +24,12 @@ import (
 // database.
 const apiKeyPrefix = apikey.SandboxPrefix
 
-// sandboxExtensions builds the tap simulation (POST /v1/sandbox/taps) over run()'s own pool, SUN
-// pre-check, tap recorder and trail -- the objects the tap page and its button use, so a simulated
-// tap takes their path from the plaque on.
-func sandboxExtensions(cfg *config.Config, data *db.DB, verifier *sun.Verifier, checkins *checkin.Service, trail *audit.Recorder, log *slog.Logger) ([]api.Extension, error) {
-	sim, err := sandbox.New(sandbox.Config{
-		Env: cfg.Env, Data: data, Verifier: verifier, Taps: checkins, Trail: trail,
-		KEK: cfg.TagKEK, PreviousKEK: cfg.TagKEKPrevious, Log: log,
-	})
+// sandboxExtensions builds the tap simulation (POST /v1/sandbox/taps) over run()'s own pool,
+// configuration and K-19 worker. The simulation builds its own SUN pre-check, tap recorder and trail
+// with the tap page's constructors over the /v1 write runner's transaction (internal/sandbox's
+// runner.go: one connection per simulation -- API-11 fix 1); the tap page keeps its own on the pool.
+func sandboxExtensions(cfg *config.Config, data *db.DB, work *webhook.Worker, log *slog.Logger) ([]api.Extension, error) {
+	sim, err := sandbox.New(sandbox.Config{App: cfg, Data: data, Work: work, Log: log})
 	if err != nil {
 		return nil, err
 	}

@@ -226,6 +226,7 @@ var storeSurface = map[string]string{
 	"ListAPIBudgetAlerts":            "(context.Context, ListAPIBudgetAlertsParams{TenantID uuid.UUID; WindowSeconds int32}) ([]ListAPIBudgetAlertsRow{At time.Time; Target *string; KeyName string; Budget int32}, error)",
 	"ListAPIEmployees":               "(context.Context, ListAPIEmployeesParams{TenantID uuid.UUID; After *uuid.UUID; PageSize int32}) ([]ListAPIEmployeesRow{ID uuid.UUID; ExternalRef *string; EmployeeCode *string; FirstName *string; LastName *string; FullName string; Status string; HasEmail bool; ActivatedAt *time.Time; CreatedAt time.Time; UpdatedAt time.Time; QueuedAt *time.Time; HasLiveInvite bool; LiveInviteAt time.Time; LastUndelivered bool; LastAttemptAt time.Time}, error)",
 	"LockAPIDeactivationBudget":      "(context.Context, LockAPIDeactivationBudgetParams{KeyID uuid.UUID; TenantID uuid.UUID}) (LockAPIDeactivationBudgetRow{ID uuid.UUID; Unlocked bool}, error)",
+	"LockSandboxPlaque":              "(context.Context, LockSandboxPlaqueParams{Uid string; TenantID uuid.UUID}) (LockSandboxPlaqueRow{ID uuid.UUID; Unlocked bool}, error)",
 	"LockEmployeeForAPI":             "(context.Context, LockEmployeeForAPIParams{Email *string; TenantID uuid.UUID; ID uuid.UUID}) (LockEmployeeForAPIRow{ID uuid.UUID; ExternalRef *string; EmployeeCode *string; FirstName *string; LastName *string; FullName string; Status string; HasEmail bool; SameEmail bool; ActivatedAt *time.Time}, error)",
 	"LockEmployeeForQueuedInvite":    "(context.Context, LockEmployeeForQueuedInviteParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (string, error)",
 	"RenewInviteRequestLease":        "(context.Context, RenewInviteRequestLeaseParams{TenantID uuid.UUID; EmployeeID uuid.UUID; LeaseUntil *time.Time}) (*time.Time, error)",
@@ -1031,14 +1032,16 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// GetReviewedPunchSite; none calls a definer.
 	// 209 -> 210 on 2026-10-18 (M11 API-11): transactions.sql's GetTapOutcome, the sandbox simulation's
 	// read of the tap it recorded (no evidence column); it calls no definer.
-	if named != 210 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND TEN were "+
+	// 210 -> 211 on 2026-10-18 (M11 API-11 fix 1): tags.sql's LockSandboxPlaque, the simulation's
+	// per-plaque advisory lock over the caller's own tenant row; it calls no definer.
+	if named != 211 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND ELEVEN were "+
 			"there when this was pinned (2026-10-18: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
 			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+
 			"+ EM-7B's three invitation e-mail queries, + EM-7C's two recovery queries, "+
 			"+ the activation tap's two consent queries, + WL-13's two activation brand queries, "+
-			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read). "+
+			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {

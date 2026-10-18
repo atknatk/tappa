@@ -38,10 +38,11 @@ import (
 // returned. There is no application master key (key 0): a virtual plaque has no chip to rekey.
 //
 // PROVISIONING is the encode flow's three statements -- InsertUnassigned, MarkTagEncoded,
-// AssignTagToLocation -- in ONE transaction in the key's business, each with the trail row the
-// panel already reads (plaque.loaded, plaque.encoded, plaque.mounted), attributed to the key (K-23).
-// It runs only at the key's OWN venue (sandbox.go, AUTHORITY), and it commits before the tap is
-// recorded: the tap resolves the plaque on another connection.
+// AssignTagToLocation -- in the key's business, each with the trail row the panel already reads
+// (plaque.loaded, plaque.encoded, plaque.mounted), attributed to the key (K-23). It runs only at the
+// key's OWN venue (sandbox.go, AUTHORITY), on the runner's transaction, in a savepoint of it: the
+// tap that follows resolves the plaque on the same transaction (it sees its own uncommitted row),
+// and the plaque commits with the tap or not at all (runner.go).
 
 // VirtualUID is the venue's virtual plaque UID.
 func VirtualUID(venue uuid.UUID) string {
@@ -76,74 +77,83 @@ type (
 const claimedBy = "sandbox"
 
 // provision gives the key's own venue its virtual plaque, unless it has one. It returns whether it
-// wrote one. A plaque already at the UID -- this venue's, from an earlier call, or a concurrent
-// call's that committed first -- is not an error; one of another business (the collision above) is
-// found out by plaqueAt, which holds the resolved row to the venue.
-func (s *Simulation) provision(ctx context.Context, p apikey.Principal, venue uuid.UUID, venueName string) (bool, error) {
+// wrote one. A plaque already at the UID -- this venue's, from an earlier call -- is not an error;
+// one of another business (the collision above) is found out by plaqueAt, which holds the resolved
+// row to the venue. Two simulations at one own venue do not race here: the location's lock
+// (venueByRef) and the plaque's (LockSandboxPlaque) are both held from before this read to the
+// commit.
+func (s *Simulation) provision(ctx context.Context, tx pgx.Tx, p apikey.Principal, venue uuid.UUID, venueName string) (bool, error) {
 	uid := VirtualUID(venue)
 	if !db.IsVirtualTagUID(uid) {
 		return false, fmt.Errorf("sandbox: derived a UID outside the virtual range")
-	}
-	// The insert door, before anything (internal/db/virtualtags.go).
-	if err := s.data.AdmitTagUID(uid); err != nil {
-		return false, fmt.Errorf("sandbox: admit plaque: %w", err)
 	}
 	uidBytes, err := hex.DecodeString(uid)
 	if err != nil {
 		return false, fmt.Errorf("sandbox: plaque uid: %w", err)
 	}
-	created := false
-	err = s.data.WithTenant(ctx, p.TenantID, func(ctx context.Context, tx pgx.Tx) error {
-		q := store.New(tx)
-		if _, err := q.GetTagForTenant(ctx, store.GetTagForTenantParams{TenantID: p.TenantID, Uid: uid}); err == nil {
-			return nil
-		} else if !errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("read the venue's plaque: %w", err)
-		}
-		wrapped, err := s.wrapFreshKey(uidBytes)
-		if err != nil {
-			return err
-		}
-		if _, err := q.InsertUnassigned(ctx, store.InsertUnassignedParams{
-			Uid: uid, TenantID: p.TenantID, AesKeyRef: wrapped, AppKeyRef: nil,
-		}); err != nil {
-			return fmt.Errorf("insert the virtual plaque: %w", err)
-		}
-		if err := s.record(ctx, tx, p, tenant.ActionPlaqueLoaded, uid,
-			loadedDetail{Attribution: p.Attribution(), ClaimedBy: claimedBy, KeyBytes: len(wrapped)}); err != nil {
-			return err
-		}
-		if _, err := q.MarkTagEncoded(ctx, store.MarkTagEncodedParams{Uid: uid, TenantID: p.TenantID}); err != nil {
-			return fmt.Errorf("mark the virtual plaque encoded: %w", err)
-		}
-		if err := s.record(ctx, tx, p, tenant.ActionPlaqueEncoded, uid,
-			encodedDetail{Attribution: p.Attribution(), ClaimedBy: claimedBy}); err != nil {
-			return err
-		}
-		if _, err := q.AssignTagToLocation(ctx, store.AssignTagToLocationParams{
-			LocationID: venue, TenantID: p.TenantID, Uid: uid,
-		}); err != nil {
-			return fmt.Errorf("mount the virtual plaque: %w", err)
-		}
-		if err := s.record(ctx, tx, p, tenant.ActionPlaqueMounted, uid, mountedDetail{
-			Attribution: p.Attribution(), Name: venueName, LocationID: venue.String(), FromStatus: tenant.PlaqueUnassigned,
-		}); err != nil {
-			return err
-		}
-		created = true
-		return nil
-	})
-	var pgErr *pgconn.PgError
-	switch {
-	case err == nil:
-		return created, nil
-	case errors.As(err, &pgErr) && pgErr.Code == "23505":
-		// A concurrent call -- or a colliding plaque of another business -- holds the UID; plaqueAt
-		// decides which.
+	if _, err := store.New(tx).GetTagForTenant(ctx, store.GetTagForTenantParams{TenantID: p.TenantID, Uid: uid}); err == nil {
 		return false, nil
-	default:
-		return false, fmt.Errorf("sandbox: provision the virtual plaque: %w", err)
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return false, fmt.Errorf("sandbox: read the venue's plaque: %w", err)
 	}
+	// A savepoint: a refused INSERT (the UID held by another business's plaque) must not abort the
+	// runner's transaction -- plaqueAt then answers 404.
+	sp, err := tx.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("sandbox: savepoint: %w", err)
+	}
+	err = s.writePlaque(ctx, sp, p, uid, uidBytes, venue, venueName)
+	if err == nil {
+		if err := sp.Commit(ctx); err != nil {
+			return false, fmt.Errorf("sandbox: release the plaque's savepoint: %w", err)
+		}
+		return true, nil
+	}
+	if rbErr := sp.Rollback(ctx); rbErr != nil {
+		return false, errors.Join(err, fmt.Errorf("sandbox: roll back the plaque's savepoint: %w", rbErr))
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		return false, nil
+	}
+	return false, fmt.Errorf("sandbox: provision the virtual plaque: %w", err)
+}
+
+// writePlaque is provisioning's three statements and their trail, on tx (a savepoint).
+func (s *Simulation) writePlaque(ctx context.Context, tx pgx.Tx, p apikey.Principal, uid string, uidBytes []byte, venue uuid.UUID, venueName string) error {
+	// The insert door, before anything (internal/db/virtualtags.go).
+	if err := s.data.AdmitTagUID(uid); err != nil {
+		return fmt.Errorf("admit plaque: %w", err)
+	}
+	q := store.New(tx)
+	wrapped, err := s.wrapFreshKey(uidBytes)
+	if err != nil {
+		return err
+	}
+	if _, err := q.InsertUnassigned(ctx, store.InsertUnassignedParams{
+		Uid: uid, TenantID: p.TenantID, AesKeyRef: wrapped, AppKeyRef: nil,
+	}); err != nil {
+		return fmt.Errorf("insert the virtual plaque: %w", err)
+	}
+	if err := s.record(ctx, tx, p, tenant.ActionPlaqueLoaded, uid,
+		loadedDetail{Attribution: p.Attribution(), ClaimedBy: claimedBy, KeyBytes: len(wrapped)}); err != nil {
+		return err
+	}
+	if _, err := q.MarkTagEncoded(ctx, store.MarkTagEncodedParams{Uid: uid, TenantID: p.TenantID}); err != nil {
+		return fmt.Errorf("mark the virtual plaque encoded: %w", err)
+	}
+	if err := s.record(ctx, tx, p, tenant.ActionPlaqueEncoded, uid,
+		encodedDetail{Attribution: p.Attribution(), ClaimedBy: claimedBy}); err != nil {
+		return err
+	}
+	if _, err := q.AssignTagToLocation(ctx, store.AssignTagToLocationParams{
+		LocationID: venue, TenantID: p.TenantID, Uid: uid,
+	}); err != nil {
+		return fmt.Errorf("mount the virtual plaque: %w", err)
+	}
+	return s.record(ctx, tx, p, tenant.ActionPlaqueMounted, uid, mountedDetail{
+		Attribution: p.Attribution(), Name: venueName, LocationID: venue.String(), FromStatus: tenant.PlaqueUnassigned,
+	})
 }
 
 func (s *Simulation) record(ctx context.Context, tx pgx.Tx, p apikey.Principal, action, uid string, detail any) error {
@@ -171,8 +181,8 @@ func (s *Simulation) wrapFreshKey(uid []byte) ([]byte, error) {
 // the venue: the resolved row must be site's plaque on that venue's wall, or there is no plaque here
 // (pgx.ErrNoRows -- the caller's 404). Any status is a plaque: a lost or retired one is tapped and
 // refused by §5 row 1, in writing.
-func (s *Simulation) plaqueAt(ctx context.Context, site, venue uuid.UUID) (db.ResolvedTag, error) {
-	tag, err := s.data.GetTagByUID(ctx, VirtualUID(venue))
+func (s *Simulation) plaqueAt(ctx context.Context, tx pgx.Tx, site, venue uuid.UUID) (db.ResolvedTag, error) {
+	tag, err := s.data.GetTagByUIDOn(ctx, tx, VirtualUID(venue))
 	if err != nil {
 		return db.ResolvedTag{}, err
 	}
@@ -213,7 +223,7 @@ func (s *Simulation) tapPath(tag db.ResolvedTag, nfc bool) (string, error) {
 		return "", fmt.Errorf("sandbox: open the plaque key: %w", err)
 	}
 	defer sun.Zero(key)
-	return sun.MintTapPath(key, uid, next)
+	return s.mint(key, uid, next)
 }
 
 // sunMACParam is the SUN URL's MAC parameter (internal/sun's paramCMAC).

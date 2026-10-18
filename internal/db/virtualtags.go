@@ -17,14 +17,16 @@ import (
 // wire, nothing to forget), at the two doors a plaque has --
 //
 //	resolve  GetTagByUID, the context-less resolver EVERY tap path takes first (the tap page's SUN
-//	         pre-check, the tap's re-resolve in checkin.Record, the simulation): a UID outside the
-//	         range is refused BEFORE the query, as ErrRealPlaqueRefused, which reads as pgx.ErrNoRows
-//	         -- an unknown plaque, the answer each caller already has (§5: no tenant, nothing to
-//	         record against). It does not rely on encoded_at: a real plaque without the stamp is a
-//	         legitimate state, so the stamp proves nothing.
-//	insert   AdmitTagUID, which internal/encode's InsertUnassigned and internal/sandbox's minter call
-//	         before their INSERT -- the only two writers of a tags row in this repository
-//	         (cmd/tappa's TestSandbox_RealNXPUIDRefusedOnEveryResolveAndInsert counts them).
+//	         pre-check, the tap's re-resolve in checkin.Record), and GetTagByUIDOn, the same resolver
+//	         on a transaction the caller holds (the simulation's -- internal/sandbox's runner.go): a
+//	         UID outside the range is refused BEFORE the query, as ErrRealPlaqueRefused, which reads
+//	         as pgx.ErrNoRows -- an unknown plaque, the answer each caller already has (§5: no tenant,
+//	         nothing to record against). It does not rely on encoded_at: a real plaque without the
+//	         stamp is a legitimate state, so the stamp proves nothing.
+//	insert   AdmitTagUID, which internal/encode's InsertUnassigned and internal/sandbox's minter
+//	         (writePlaque) call before their INSERT -- the only two writers of a tags row in this
+//	         repository (TestSandbox_RealNXPUIDRefusedOnEveryResolveAndInsert, in
+//	         internal/sandbox/virtualuid_db_test.go, counts them and asks both resolvers).
 //
 // Every other environment is untouched: production plaques ARE NXP chips.
 

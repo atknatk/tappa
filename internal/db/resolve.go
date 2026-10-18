@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 // Tenant resolution (ADR 0002 madde 7) -- the ONLY lookups that run WITHOUT a
@@ -319,11 +320,29 @@ func (d *DB) GetTagByUID(ctx context.Context, uid string) (ResolvedTag, error) {
 	if err := d.AdmitTagUID(uid); err != nil {
 		return ResolvedTag{}, fmt.Errorf("db: resolve tag by uid: %w", err)
 	}
+	return scanResolvedTag(d.pool.QueryRow(ctx, getTagByUIDSQL, uid))
+}
+
+// GetTagByUIDOn is GetTagByUID on a transaction the caller already holds -- the same door first
+// (AdmitTagUID: on a sandbox pool a uid outside the virtual range is refused before the query), the
+// same definer, the same columns. Its one caller is the sandbox's simulated tap (M11 API-11 fix 1),
+// which runs its whole path -- the claim, the plaque, the advance, the record and the ledger's
+// result -- in the /v1 write runner's ONE transaction: a resolve on the pool from inside that
+// transaction would hold one connection while waiting for a second, and N such requests on a pool
+// of N connections wait for each other until the request timeout (measured: internal/sandbox's
+// TestSandbox_SimulationsHoldOneConnectionEach). The definer establishes no tenant context and
+// reads none, so the caller's app.tenant_id changes nothing it returns; an uncommitted plaque of
+// the same transaction is visible to it, as any statement of a transaction sees its own writes.
+func (d *DB) GetTagByUIDOn(ctx context.Context, tx pgx.Tx, uid string) (ResolvedTag, error) {
+	if err := d.AdmitTagUID(uid); err != nil {
+		return ResolvedTag{}, fmt.Errorf("db: resolve tag by uid: %w", err)
+	}
+	return scanResolvedTag(tx.QueryRow(ctx, getTagByUIDSQL, uid))
+}
+
+func scanResolvedTag(row pgx.Row) (ResolvedTag, error) {
 	var t ResolvedTag
-	err := d.pool.QueryRow(ctx, getTagByUIDSQL, uid).Scan(
-		&t.UID, &t.TenantID, &t.LocationID, &t.AESKeyRef, &t.LastCtr, &t.Status,
-	)
-	if err != nil {
+	if err := row.Scan(&t.UID, &t.TenantID, &t.LocationID, &t.AESKeyRef, &t.LastCtr, &t.Status); err != nil {
 		// Wrap for context but keep it unwrappable so callers can errors.Is it
 		// against pgx.ErrNoRows (unknown tag -> reject).
 		return ResolvedTag{}, fmt.Errorf("db: resolve tag by uid: %w", err)

@@ -904,7 +904,7 @@ func run() error {
 	// NewRouter skips). It is handed the pool, K-19's worker, the panel's venue domain (API-5) and
 	// the panel's employee domain (API-6); api.go says the rest.
 	// The sandbox build's simulation (sandbox.go); none in the production build (nosandbox.go).
-	extensions, err := sandboxExtensions(cfg, data, verifier, checkins, trail, slog.Default())
+	extensions, err := sandboxExtensions(cfg, data, work, slog.Default())
 	if err != nil {
 		return err
 	}

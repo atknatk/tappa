@@ -38,17 +38,18 @@ import (
 //
 // ORDER: the body (400/422), then the write -- the runner's transaction in the key's business, the
 // suspension checkpoint FIRST (the zero class: a tap is not in §4.7's table, so it is closed while
-// the business is suspended -- api/suspension.go), the two refs (404), the plaque (provisioned at an
-// own venue; 404 at a peer venue that has none), the pre-check, the record. 201 with the outcome.
+// the business is suspended -- api/suspension.go), the two refs (404), the plaque's lock, the plaque
+// (provisioned at an own venue; 404 at a peer venue that has none), the pre-check, the record. 201
+// with the outcome.
 //
-// IDEMPOTENCY: the Idempotency-Key ledger keeps the record's id; a replay reads the record again
-// (GetTapOutcome) and answers the same body, the refs coming from the request it replays (the
-// request hash binds the body). ⚠️ THE TAP COMMITS BEFORE THE LEDGER ROW DOES: Record runs in its
-// own transactions (it must -- the plaque's counter is advanced in the plaque's business, the
-// person's lock is the employee's), so a process that dies between the two leaves the tap recorded
-// and the key unclaimed; the retry is then a second touch, and within the debounce window it is
-// recorded as `ignored` (§5 row 5) -- a record, never a lost or a doubled punch.
-
+// ONE TRANSACTION, ONE CONNECTION (runner.go). Every statement from the claim to the ledger's result
+// -- the plaque's provisioning, the counter's advance, the record -- runs on the runner's
+// transaction, and they commit together. IDEMPOTENCY follows from it: the Idempotency-Key ledger
+// keeps the record's id in the same commit as the record, so a key answers for exactly one tap --
+// a request that dies before the commit leaves neither the tap nor the claim (its retry is the
+// first touch again), one that dies after it left both (its retry replays). A replay reads the
+// record again (GetTapOutcome) and answers the same body, the refs coming from the request it
+// replays (the request hash binds the body). Neither a doubled nor a lost tap (§4.6).
 // The body's keys, exactly.
 const (
 	fieldEmployeeRef = "employeeRef"
@@ -148,7 +149,8 @@ func (s *Simulation) simulate(w http.ResponseWriter, r *http.Request, write api.
 		return
 	}
 	source := httpx.ClientIP(r)
-	out, _, ok := write(w, r, body, func(ctx context.Context, tx pgx.Tx, gate *api.Gate) (apikey.Outcome, error) {
+	var site uuid.UUID
+	out, replayed, ok := write(w, r, body, func(ctx context.Context, tx pgx.Tx, gate *api.Gate) (apikey.Outcome, error) {
 		var unclassified api.WriteClass // the zero class: closed while the business is suspended
 		if err := gate.Admit(ctx, unclassified); err != nil {
 			return apikey.Outcome{}, err
@@ -161,12 +163,18 @@ func (s *Simulation) simulate(w http.ResponseWriter, r *http.Request, write api.
 		if err != nil {
 			return apikey.Outcome{}, err
 		}
+		site = v.site
+		// The plaque is held from here -- before its counter is read -- to the commit (tags.sql's
+		// LockSandboxPlaque): an own tap and a group tap of one plaque take turns.
+		if err := lockPlaque(ctx, tx, p.TenantID, VirtualUID(v.venue)); err != nil {
+			return apikey.Outcome{}, err
+		}
 		if v.own {
-			if _, err := s.provision(ctx, p, v.venue, v.name); err != nil {
+			if _, err := s.provision(ctx, tx, p, v.venue, v.name); err != nil {
 				return apikey.Outcome{}, err
 			}
 		}
-		id, err := s.tap(ctx, p, emp, v, in.nfc, source)
+		id, err := s.tap(onTheRunner(ctx, tx, p.TenantID), tx, p, emp, v, in.nfc, source)
 		if err != nil {
 			return apikey.Outcome{}, err
 		}
@@ -174,6 +182,13 @@ func (s *Simulation) simulate(w http.ResponseWriter, r *http.Request, write api.
 	})
 	if !ok {
 		return
+	}
+	if !replayed {
+		// K-19, after the commit: the record's feed event and delivery rows exist now.
+		s.work.Notice(p.TenantID)
+		if site != uuid.Nil && site != p.TenantID {
+			s.work.Notice(site)
+		}
 	}
 	if out.Ref == nil {
 		s.log.ErrorContext(r.Context(), "sandbox: a recorded simulation carries no record id")
@@ -243,9 +258,19 @@ func venueByRef(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, ref string) 
 	}
 }
 
-// tap is the touch: the plaque, the URL it emits, the tap page's pre-check, the record.
-func (s *Simulation) tap(ctx context.Context, p apikey.Principal, employee uuid.UUID, v venueRef, nfc bool, source netip.Addr) (uuid.UUID, error) {
-	tag, err := s.plaqueAt(ctx, v.site, v.venue)
+// lockPlaque takes the plaque's transaction-scoped lock (tags.sql's LockSandboxPlaque) in the key's
+// business's context. No row is a failure, never "locked".
+func lockPlaque(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, uid string) error {
+	if _, err := store.New(tx).LockSandboxPlaque(ctx, store.LockSandboxPlaqueParams{Uid: uid, TenantID: tenantID}); err != nil {
+		return fmt.Errorf("sandbox: lock the plaque: %w", err)
+	}
+	return nil
+}
+
+// tap is the touch: the plaque, the URL it emits, the tap page's pre-check, the record -- every
+// statement on the runner's transaction, which ctx carries (runner.go) and tx is.
+func (s *Simulation) tap(ctx context.Context, tx pgx.Tx, p apikey.Principal, employee uuid.UUID, v venueRef, nfc bool, source netip.Addr) (uuid.UUID, error) {
+	tag, err := s.plaqueAt(ctx, tx, v.site, v.venue)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return uuid.Nil, problemNoPlaque

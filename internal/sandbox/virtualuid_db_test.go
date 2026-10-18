@@ -31,19 +31,24 @@ import (
 // encoded_at left NULL as a real unstamped plaque may be -- is put into the database by the owner:
 //
 //	resolve  the development pool resolves it (CONTROL); the sandbox pool refuses it before the query
-//	         -- ErrRealPlaqueRefused, which is pgx.ErrNoRows -- and so do the two paths every tap
-//	         takes over that pool: the tap page's SUN pre-check (unknown plaque) and the tap's
-//	         recording (unknown plaque, nothing written)
+//	         -- ErrRealPlaqueRefused, which is pgx.ErrNoRows -- on the pool and on a transaction
+//	         (GetTagByUIDOn, the simulation's resolver), and so do the two paths every tap takes over
+//	         that pool: the tap page's SUN pre-check (unknown plaque) and the tap's recording
+//	         (unknown plaque, nothing written)
 //	insert   internal/encode's InsertUnassigned over the sandbox pool refuses a real UID before a
 //	         transaction opens and writes no row; a virtual UID loads (CONTROL); the development pool
 //	         admits a real UID (CONTROL)
+//	prod     the production pool loads a real UID through internal/encode and resolves it, on the
+//	         pool and on a transaction: production plaques are NXP chips
 //	the code the only writers of a tags row (calls of InsertUnassigned outside internal/store) are
-//	         internal/encode's and this package's minter, and each asks AdmitTagUID first; the
-//	         resolver's first statement is AdmitTagUID; db/queries has exactly one INSERT INTO tags
+//	         internal/encode's and this package's minter (writePlaque), and each asks AdmitTagUID
+//	         first; both resolvers' first statement is AdmitTagUID; db/queries has exactly one
+//	         INSERT INTO tags
 //
 // MUTANTS (measured): AdmitTagUID removed from GetTagByUID (resolve rows red); removed from
-// encode's InsertUnassigned (insert row red); removed from provision (the code row red);
-// virtualTagsOnly keyed on EnvProd (resolve rows red); IsVirtualTagUID accepting any 14 hex digits
+// GetTagByUIDOn (the transaction row red); removed from encode's InsertUnassigned (insert row red);
+// removed from writePlaque (the code row red); virtualTagsOnly keyed on EnvProd (resolve rows red);
+// virtualTagsOnly keyed on cfg.IsHardened() -- production refusing its own chips (the prod row red); IsVirtualTagUID accepting any 14 hex digits
 // (TestIsVirtualTagUID_IsTheRangeAndNothingElse red).
 func TestSandbox_RealNXPUIDRefusedOnEveryResolveAndInsert(t *testing.T) {
 	appDSN, ownerDSN := os.Getenv("DATABASE_URL"), os.Getenv("DATABASE_MIGRATE_URL")
@@ -61,7 +66,7 @@ func TestSandbox_RealNXPUIDRefusedOnEveryResolveAndInsert(t *testing.T) {
 		t.Cleanup(d.Close)
 		return d
 	}
-	sandboxPool, devPool := pool(config.EnvSandbox), pool(config.EnvDev)
+	sandboxPool, devPool, prodPool := pool(config.EnvSandbox), pool(config.EnvDev), pool(config.EnvProd)
 	owner, err := pgx.Connect(ctx, ownerDSN)
 	if err != nil {
 		t.Fatal(err)
@@ -88,6 +93,22 @@ func TestSandbox_RealNXPUIDRefusedOnEveryResolveAndInsert(t *testing.T) {
 	_, err = sandboxPool.GetTagByUID(ctx, nxp)
 	if !errors.Is(err, db.ErrRealPlaqueRefused) || !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("the sandbox pool resolved a real NXP plaque: %v", err)
+	}
+	// the resolver on a transaction the caller holds (the simulation's, runner.go): the same door
+	onTx := func(d *db.DB, uid string) error {
+		return d.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+			tag, err := d.GetTagByUIDOn(ctx, tx, uid)
+			if err == nil && tag.TenantID != tenantID {
+				return errors.New("resolved another tenant")
+			}
+			return err
+		})
+	}
+	if err := onTx(devPool, nxp); err != nil {
+		t.Fatalf("CONTROL: the development pool does not resolve the real plaque on a transaction: %v", err)
+	}
+	if err := onTx(sandboxPool, nxp); !errors.Is(err, db.ErrRealPlaqueRefused) {
+		t.Fatalf("the sandbox pool resolved a real NXP plaque on a transaction: %v", err)
 	}
 	qr := sun.Params{UID: nxp, Channel: sun.ChannelQR}
 	if _, err := sun.NewVerifier(devPool, kek).PreviewWithoutReplayProtection(ctx, qr); err != nil {
@@ -134,6 +155,28 @@ func TestSandbox_RealNXPUIDRefusedOnEveryResolveAndInsert(t *testing.T) {
 		t.Fatalf("CONTROL: the development pool refuses a real UID: %v", err)
 	}
 
+	// prod (API-11 fix 1, the third eye's finding 1): production plaques ARE NXP chips, so the
+	// production pool's doors are open -- a real UID is loaded through internal/encode and resolved,
+	// on the pool and on a transaction, like any plaque.
+	prodTrail, err := audit.New(prodPool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prodLoader, err := encode.NewDBRows(prodPool, prodTrail)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nxp3 := "04" + strings.ToUpper(hex.EncodeToString(random(t, 6)))
+	if err := prodLoader.InsertUnassigned(ctx, tenantID, uuid.Nil, nxp3, random(t, sun.WrappedKeyLen), nil, "api11"); err != nil {
+		t.Fatalf("the production pool refused to load a real NXP UID: %v", err)
+	}
+	if tag, err := prodPool.GetTagByUID(ctx, nxp3); err != nil || tag.TenantID != tenantID || tag.UID != nxp3 {
+		t.Fatalf("the production pool does not resolve the real plaque it loaded: %+v %v", tag, err)
+	}
+	if err := onTx(prodPool, nxp3); err != nil {
+		t.Fatalf("the production pool does not resolve a real plaque on a transaction: %v", err)
+	}
+
 	// the code
 	theWritersAskTheDoorFirst(t)
 }
@@ -148,7 +191,7 @@ func theWritersAskTheDoorFirst(t *testing.T) {
 		t.Fatal(err)
 	}
 	writers := map[string]bool{}
-	resolverAsks := false
+	resolverAsks := map[string]bool{}
 	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -196,12 +239,12 @@ func theWritersAskTheDoorFirst(t *testing.T) {
 					t.Errorf("%s writes a tags row without asking AdmitTagUID first", name)
 				}
 			}
-			if rel == "internal/db/resolve.go" && fd.Name.Name == "GetTagByUID" && len(fd.Body.List) > 0 {
+			if rel == "internal/db/resolve.go" && (fd.Name.Name == "GetTagByUID" || fd.Name.Name == "GetTagByUIDOn") && len(fd.Body.List) > 0 {
 				if ifs, ok := fd.Body.List[0].(*ast.IfStmt); ok {
 					if as, ok := ifs.Init.(*ast.AssignStmt); ok && len(as.Rhs) == 1 {
 						if c, ok := as.Rhs[0].(*ast.CallExpr); ok {
 							if sel, ok := c.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "AdmitTagUID" {
-								resolverAsks = true
+								resolverAsks[fd.Name.Name] = true
 							}
 						}
 					}
@@ -213,7 +256,7 @@ func theWritersAskTheDoorFirst(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]bool{"internal/encode/rows.go:InsertUnassigned": true, "internal/sandbox/plaque.go:provision": true}
+	want := map[string]bool{"internal/encode/rows.go:InsertUnassigned": true, "internal/sandbox/plaque.go:writePlaque": true}
 	if len(writers) != len(want) {
 		t.Errorf("the writers of a tags row are %v, want %v", writers, want)
 	}
@@ -222,8 +265,10 @@ func theWritersAskTheDoorFirst(t *testing.T) {
 			t.Errorf("CONTROL: %s is not seen as a writer (seen: %v)", w, writers)
 		}
 	}
-	if !resolverAsks {
-		t.Error("db.DB.GetTagByUID does not ask AdmitTagUID as its first statement")
+	for _, f := range []string{"GetTagByUID", "GetTagByUIDOn"} {
+		if !resolverAsks[f] {
+			t.Errorf("db.DB.%s does not ask AdmitTagUID as its first statement", f)
+		}
 	}
 	n := 0
 	queries, err := filepath.Glob(filepath.Join(root, "db", "queries", "*.sql"))

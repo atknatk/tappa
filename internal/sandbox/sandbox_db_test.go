@@ -27,7 +27,6 @@ import (
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
-	"github.com/atknatk/tappa/internal/domain/checkin"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/handler/api"
 	"github.com/atknatk/tappa/internal/httpx"
@@ -48,14 +47,25 @@ type rig struct {
 	owner *pgx.Conn
 	keys  *apikey.Keys
 	kek   []byte
+	sim   *Simulation
 	h     http.Handler
 }
 
-func newRig(t *testing.T) *rig {
+func newRig(t *testing.T) *rig { return newRigOn(t, 0) }
+
+// newRigOn is newRig over a pool of at most poolMax connections (0: pgxpool's default).
+func newRigOn(t *testing.T, poolMax int) *rig {
 	t.Helper()
 	appDSN, ownerDSN := os.Getenv("DATABASE_URL"), os.Getenv("DATABASE_MIGRATE_URL")
 	if appDSN == "" || ownerDSN == "" {
 		t.Skip("DATABASE_URL and DATABASE_MIGRATE_URL are both required (real Postgres; the owner opens K-22's gate)")
+	}
+	if poolMax > 0 {
+		sep := "?"
+		if strings.Contains(appDSN, "?") {
+			sep = "&"
+		}
+		appDSN += fmt.Sprintf("%spool_max_conns=%d", sep, poolMax)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	t.Cleanup(cancel)
@@ -78,8 +88,7 @@ func newRig(t *testing.T) *rig {
 	trail := must(audit.New(d))
 	keys := must(apikey.NewKeys(apikey.SandboxPrefix, mac, d, trail))
 	chain := must(apikey.NewAuthenticator(apikey.SandboxPrefix, mac, d, d))
-	checkins := must(checkin.New(d, trail, cfg, quiet))
-	sim, err := New(Config{Env: cfg.Env, Data: d, Verifier: sun.NewVerifier(d, kek), Taps: checkins, Trail: trail, KEK: kek, Log: quiet})
+	sim, err := New(Config{App: cfg, Data: d, Work: noWork{}, Log: quiet})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +101,7 @@ func newRig(t *testing.T) *rig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &rig{t: t, ctx: ctx, d: d, owner: owner, keys: keys, kek: kek, h: httpx.NewRouter(&config.Config{APIHost: apiHost}, nil, surface)}
+	return &rig{t: t, ctx: ctx, d: d, owner: owner, keys: keys, kek: kek, sim: sim, h: httpx.NewRouter(&config.Config{APIHost: apiHost}, nil, surface)}
 }
 
 type noWork struct{}
@@ -496,5 +505,48 @@ func TestSandbox_TheBodyAndTheNamesAreTheContracts(t *testing.T) {
 	}
 	if w := r.do(http.MethodGet, "/v1/sandbox/openapi.json?x=1", "", ""); w.Code != http.StatusBadRequest {
 		t.Errorf("the sandbox document with a query: %d, want 400", w.Code)
+	}
+}
+
+// TestSandbox_AVirtualUIDHeldByAnotherBusinessIs404 (API-11 fix 1, the third eye's finding 3): the
+// venue's virtual UID is already another business's plaque (the five-byte collision, or a UID taken
+// first). The simulation at the venue is 404 no_plaque: its provisioning INSERT is refused by the
+// primary key inside a savepoint (the runner's transaction goes on), the resolved row is held to
+// the venue and is not its plaque, and nothing is written -- no plaque for the venue's business, no
+// record in either business, the other business's plaque and counter untouched.
+//
+// The tenant half of that hold cannot be reached by a row the schema admits (tags_location_fk);
+// TestPlaqueAt_HoldsTheResolvedRowToTheVenue pins it.
+func TestSandbox_AVirtualUIDHeldByAnotherBusinessIs404(t *testing.T) {
+	r := newRig(t)
+	kf, key := r.business(true, "KF")
+	other, _ := r.business(true, "OTHER")
+	r.employee(kf, "E-1", "active")
+	venue, theirs := uuid.New(), uuid.New()
+	r.exec(`INSERT INTO locations (id, tenant_id, name, external_ref) VALUES ($1, $2, 'KF venue', 'KF-VLT')`, venue, kf)
+	r.exec(`INSERT INTO locations (id, tenant_id, name) VALUES ($1, $2, 'Their venue')`, theirs, other)
+	uid := VirtualUID(venue)
+	r.exec(`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status) VALUES ($1, $2, $3, $4, 7, 'active')`,
+		uid, other, theirs, random(t, sun.WrappedKeyLen))
+
+	w := r.tap(key, "E-1", "KF-VLT", "nfc")
+	if w.Code != http.StatusNotFound || !strings.Contains(w.Body.String(), `"reason":"no_plaque"`) {
+		t.Fatalf("a simulation at a venue whose virtual UID another business holds: %d %s", w.Code, w.Body.String())
+	}
+	if n := r.count(`SELECT count(*) FROM tags WHERE tenant_id = $1`, kf); n != 0 {
+		t.Errorf("the venue's business got %d plaques", n)
+	}
+	if n := r.count(`SELECT count(*) FROM transactions WHERE tenant_id = ANY($1) OR site_tenant_id = ANY($1)`, []uuid.UUID{kf, other}); n != 0 {
+		t.Errorf("the refused simulation recorded %d taps", n)
+	}
+	var (
+		owner uuid.UUID
+		ctr   int32
+	)
+	if err := r.owner.QueryRow(r.ctx, `SELECT tenant_id, last_ctr FROM tags WHERE uid = $1`, uid).Scan(&owner, &ctr); err != nil || owner != other || ctr != 7 {
+		t.Errorf("the other business's plaque: tenant %v counter %d (%v), want %v and 7", owner, ctr, err, other)
+	}
+	if n := r.count(`SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND target = $2`, kf, uid); n != 0 {
+		t.Errorf("the refused provisioning left %d trail rows", n)
 	}
 }

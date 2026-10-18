@@ -28,13 +28,12 @@ import (
 	"time"
 
 	"github.com/atknatk/tappa/internal/adminauth"
-	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
-	"github.com/atknatk/tappa/internal/domain/checkin"
 	"github.com/atknatk/tappa/internal/handler"
 	"github.com/atknatk/tappa/internal/session"
 	"github.com/atknatk/tappa/internal/sun"
+	"github.com/atknatk/tappa/internal/webhook"
 )
 
 const sandboxPackage = "github.com/atknatk/tappa/internal/sandbox"
@@ -529,16 +528,72 @@ func TestVerifyImage_RefusesAWrongBuildTag(t *testing.T) {
 	}
 }
 
-// TestSandboxWiring_TheSimulationTakesTheTapsOwnObjects (ADR 0028 §11: the simulated tap is the
-// real tap from the plaque on): run() hands sandboxExtensions the pool, the SUN verifier and the tap
-// recorder it hands the tap page (handler.NewTap's first and fourth arguments) and the trail, and
-// hands its result to openAPISurface, which gives it to api.New as Extensions; sandbox.go builds the
-// simulation from exactly those parameters and the configuration's own TAPPA_ENV and tag KEKs.
+// TestDockerfile_APlainBuildIsTheProductionServer (API-11 fix 1, the third eye's finding 4): a
+// `docker build` with no --target builds the Dockerfile's LAST stage, so the last stage must be `app`
+// -- the production server, whose binary is `make build`'s bin/tappa -- and `app-sandbox` must come
+// before it. A sandbox stage moved to the end would make every untargeted build a sandbox server
+// (scripts/verify-image.sh would refuse it as a production image, but only where it runs).
 //
-// MUTANTS (measured): api.New's Extensions dropped; sandbox.go's Verifier given a fresh
-// sun.NewVerifier; KEK given cfg.WebhookKEK -- each red (openAPISurface handed nil instead does not
-// compile: the result is then unused).
-func TestSandboxWiring_TheSimulationTakesTheTapsOwnObjects(t *testing.T) {
+// MUTANT (measured): the app-sandbox stage moved after app -- red.
+func TestDockerfile_APlainBuildIsTheProductionServer(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join(repoRoot, "Dockerfile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	type stage struct {
+		name string
+		body []string
+	}
+	var stages []stage
+	for _, line := range strings.Split(string(src), "\n") {
+		f := strings.Fields(line)
+		if len(f) > 0 && strings.EqualFold(f[0], "FROM") {
+			name := ""
+			if len(f) >= 4 && strings.EqualFold(f[len(f)-2], "AS") {
+				name = f[len(f)-1]
+			}
+			stages = append(stages, stage{name: name})
+			continue
+		}
+		if len(stages) > 0 && len(f) > 0 && !strings.HasPrefix(f[0], "#") {
+			stages[len(stages)-1].body = append(stages[len(stages)-1].body, strings.TrimSpace(line))
+		}
+	}
+	index := map[string]int{}
+	for i, st := range stages {
+		index[st.name] = i
+	}
+	sb, okSB := index["app-sandbox"]
+	app, okApp := index["app"]
+	if !okSB || !okApp {
+		t.Fatalf("CONTROL: the Dockerfile's stages are %v; want app-sandbox and app among them", index)
+	}
+	last := stages[len(stages)-1]
+	if last.name != "app" || sb > app {
+		t.Errorf("the last stage is %q (app-sandbox at %d, app at %d); a plain build must be the production server", last.name, sb, app)
+	}
+	if !slices.Contains(last.body, "COPY --from=build /src/bin/tappa /tappa") {
+		t.Errorf("the last stage does not copy make build's bin/tappa: %q", last.body)
+	}
+	for _, l := range last.body {
+		if strings.Contains(l, "tappa-sandbox") {
+			t.Errorf("the last stage carries the sandbox binary: %q", l)
+		}
+	}
+}
+
+// TestSandboxWiring_TheSimulationTakesTheServersPoolConfigAndWorker (ADR 0028 §11; API-11 fix 1): run()
+// hands sandboxExtensions its configuration, the pool (db.New's result) and K-19's worker
+// (webhook.NewWorker's result), and hands its result to openAPISurface, which gives it to api.New as
+// Extensions; sandbox.go builds the simulation from exactly those parameters. The simulation builds
+// its tap path itself, with the tap page's constructors over the runner's transaction
+// (internal/sandbox's TestNew_TheTapPathIsTheTapPagesCodeOnTheRunner) -- it no longer takes the tap
+// page's pool-bound objects, which were the nested connection of the security review's ORTA-1.
+//
+// MUTANTS (measured): api.New's Extensions dropped; sandbox.go's Data given a fresh &db.DB{}; Work
+// given nil -- each red (openAPISurface handed nil instead does not compile: the result is then
+// unused).
+func TestSandboxWiring_TheSimulationTakesTheServersPoolConfigAndWorker(t *testing.T) {
 	parse := func(name string) *ast.File {
 		f, err := parser.ParseFile(token.NewFileSet(), filepath.Join(repoRoot, "cmd", "tappa", name), nil, 0)
 		if err != nil {
@@ -561,7 +616,7 @@ func TestSandboxWiring_TheSimulationTakesTheTapsOwnObjects(t *testing.T) {
 	}
 	run := fn(parse("main.go"), "run")
 	assigned := map[string]string{} // "pkg.Func" -> the identifier run() assigns its result to
-	var ext, tapCall, surface *ast.CallExpr
+	var ext, surface *ast.CallExpr
 	extResult := ""
 	for _, st := range run.Body.List {
 		as, ok := st.(*ast.AssignStmt)
@@ -578,9 +633,6 @@ func TestSandboxWiring_TheSimulationTakesTheTapsOwnObjects(t *testing.T) {
 			if pkg, ok := f.X.(*ast.Ident); ok && lhs != nil {
 				assigned[pkg.Name+"."+f.Sel.Name] = lhs.Name
 			}
-			if isSel(f, "handler", "NewTap") {
-				tapCall = c
-			}
 		case *ast.Ident:
 			switch f.Name {
 			case "sandboxExtensions":
@@ -596,16 +648,16 @@ func TestSandboxWiring_TheSimulationTakesTheTapsOwnObjects(t *testing.T) {
 			}
 		}
 	}
-	if ext == nil || tapCall == nil || surface == nil || extResult == "" {
-		t.Fatalf("run(): sandboxExtensions %v (result %q), handler.NewTap %v, openAPISurface %v -- each a statement of its own body",
-			ext != nil, extResult, tapCall != nil, surface != nil)
+	if ext == nil || surface == nil || extResult == "" {
+		t.Fatalf("run(): sandboxExtensions %v (result %q), openAPISurface %v -- each a statement of its own body",
+			ext != nil, extResult, surface != nil)
 	}
-	want := []string{"cfg", assigned["db.New"], identName(tapCall.Args[0]), identName(tapCall.Args[3]), assigned["audit.New"]}
-	if identName(tapCall.Args[0]) != assigned["sun.NewVerifier"] || identName(tapCall.Args[3]) != assigned["checkin.New"] {
-		t.Fatalf("CONTROL FAILED: handler.NewTap's verifier and recorder are not run()'s sun.NewVerifier and checkin.New results")
+	want := []string{"cfg", assigned["db.New"], assigned["webhook.NewWorker"]}
+	if len(ext.Args) != 4 {
+		t.Fatalf("sandboxExtensions takes %d arguments, want 4 (cfg, the pool, the worker, the logger)", len(ext.Args))
 	}
 	for i, w := range want {
-		if i >= len(ext.Args) || w == "" || identName(ext.Args[i]) != w {
+		if w == "" || identName(ext.Args[i]) != w {
 			t.Errorf("sandboxExtensions argument %d is not %q", i, w)
 		}
 	}
@@ -636,18 +688,17 @@ func TestSandboxWiring_TheSimulationTakesTheTapsOwnObjects(t *testing.T) {
 		if cl, ok := n.(*ast.CompositeLit); ok && isSel(cl.Type, "sandbox", "Config") {
 			for _, e := range cl.Elts {
 				kv := e.(*ast.KeyValueExpr)
-				switch v := kv.Value.(type) {
-				case *ast.Ident:
+				if v, ok := kv.Value.(*ast.Ident); ok {
 					fields[kv.Key.(*ast.Ident).Name] = v.Name
-				case *ast.SelectorExpr:
-					fields[kv.Key.(*ast.Ident).Name] = identName(v.X) + "." + v.Sel.Name
 				}
 			}
 		}
 		return true
 	})
-	for k, v := range map[string]string{"Env": "cfg.Env", "Data": names[1], "Verifier": names[2], "Taps": names[3], "Trail": names[4],
-		"KEK": "cfg.TagKEK", "PreviousKEK": "cfg.TagKEKPrevious", "Log": names[5]} {
+	if len(names) != 4 {
+		t.Fatalf("sandbox.go's sandboxExtensions has %d parameters, want 4", len(names))
+	}
+	for k, v := range map[string]string{"App": names[0], "Data": names[1], "Work": names[2], "Log": names[3]} {
 		if fields[k] != v {
 			t.Errorf("sandbox.go: sandbox.Config's %s is %q, want %q", k, fields[k], v)
 		}
@@ -669,8 +720,12 @@ func identName(e ast.Expr) string {
 // simulation -- the AST pins above stay green, this is red (under -tags sandbox, which CI runs).
 func TestSandboxExtensions_AreTheBuilds(t *testing.T) {
 	kek := make([]byte, 32)
-	cfg := &config.Config{Env: config.EnvSandbox, TagKEK: kek}
-	got, err := sandboxExtensions(cfg, &db.DB{}, sun.NewVerifier(nil, kek), &checkin.Service{}, &audit.Recorder{}, slog.New(slog.DiscardHandler))
+	cfg := &config.Config{Env: config.EnvSandbox, TagKEK: kek, GPSRadiusMeters: 150, Debounce: time.Minute, Freshness: 3 * time.Minute}
+	work, err := webhook.NewWorker(slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := sandboxExtensions(cfg, &db.DB{}, work, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("sandboxExtensions: %v", err)
 	}
@@ -682,7 +737,9 @@ func TestSandboxExtensions_AreTheBuilds(t *testing.T) {
 		t.Fatalf("this build (sandbox %v) answers %d extensions, want %d", config.SandboxBuild(), len(got), want)
 	}
 	if config.SandboxBuild() {
-		if _, err := sandboxExtensions(&config.Config{Env: config.EnvProd, TagKEK: kek}, &db.DB{}, sun.NewVerifier(nil, kek), &checkin.Service{}, &audit.Recorder{}, slog.New(slog.DiscardHandler)); err == nil {
+		prod := *cfg
+		prod.Env = config.EnvProd
+		if _, err := sandboxExtensions(&prod, &db.DB{}, work, slog.New(slog.DiscardHandler)); err == nil {
 			t.Error("the sandbox build built the simulation for TAPPA_ENV=prod")
 		}
 	}

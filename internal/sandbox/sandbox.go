@@ -23,6 +23,11 @@
 //	              tap.Decide, the INSERT into transactions, and every trigger behind it: the punch
 //	              feed, the holding projection, the webhook delivery rows
 //
+// ALL OF IT ON ONE CONNECTION (API-11 fix 1, runner.go): the pre-check and the recorder above are
+// the tap page's code, built once more by New over the /v1 write runner's transaction, so the
+// plaque's provisioning, the counter's advance, the record and the Idempotency-Key's result commit
+// together and a simulation never waits for a second pool connection.
+//
 // So nothing is skipped and nothing is written by hand: a simulated tap may be ok, flag, reject or
 // ignored for the same reasons a real one is (a venue the API opened has no evidence and records
 // `flag` until the panel gives it some -- plan §2 item 10), and every one of them is recorded
@@ -38,12 +43,16 @@
 // business's; the venue is the key's business's or a holding peer's, found through ADR 0027 §2's
 // closed list (holding_site_locations), never by a query in the peer's context; a virtual plaque is
 // provisioned only at the key's OWN venue. A peer's venue must already have one -- provisioned by
-// the peer's own simulated tap there -- because this package never writes into another business.
+// the peer's own simulated tap there -- because this package never PROVISIONS A PLAQUE in another
+// business. A group tap does write into the venue's business, through the holding path the tap
+// page's group tap takes and nothing else (ADR 0027 §5): the plaque's counter
+// (holding_advance_tag_counter), the record's projection to the site and the site's punch feed.
 package sandbox
 
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -61,10 +70,12 @@ import (
 
 // Database is the slice of *db.DB the simulation needs, declared at the consumer (CLAUDE.md §7).
 type Database interface {
+	// WithTenant is the pool's: the answer's read-back, after the runner's transaction committed.
 	WithTenant(ctx context.Context, tenantID uuid.UUID, fn db.TxFunc) error
-	// GetTagByUID is the context-less plaque resolver every tap takes; on a sandbox pool it refuses a
-	// UID outside the virtual range (internal/db/virtualtags.go).
-	GetTagByUID(ctx context.Context, uid string) (db.ResolvedTag, error)
+	// GetTagByUIDOn is the context-less plaque resolver every tap takes, on the runner's
+	// transaction (runner.go); on a sandbox pool it refuses a UID outside the virtual range
+	// (internal/db/virtualtags.go).
+	GetTagByUIDOn(ctx context.Context, tx pgx.Tx, uid string) (db.ResolvedTag, error)
 	// AdmitTagUID is the insert door the minter passes before its INSERT.
 	AdmitTagUID(uid string) error
 }
@@ -84,18 +95,22 @@ type Trail interface {
 	RecordTx(ctx context.Context, tx pgx.Tx, e audit.Event) (uuid.UUID, error)
 }
 
-// Config is what New needs. Every field but PreviousKEK and Log is required.
+// Noticer is K-19's set of tenants with work (*webhook.Worker).
+type Noticer interface {
+	Notice(tenant uuid.UUID)
+}
+
+// Config is what New needs. Every field but Log is required.
 type Config struct {
-	// Env is the deployment's TAPPA_ENV; New refuses anything but config.EnvSandbox.
-	Env      string
-	Data     Database
-	Verifier Previewer
-	Taps     Recorder
-	Trail    Trail
-	// KEK is TAPPA_TAG_KEK -- the SANDBOX's own: it wraps every virtual plaque's key. PreviousKEK is
-	// TAPPA_TAG_KEK_PREVIOUS during a rotation, nil otherwise.
-	KEK, PreviousKEK []byte
-	Log              *slog.Logger
+	// App is the deployment's configuration. New refuses it unless App.Env is config.EnvSandbox;
+	// App.TagKEK -- the SANDBOX's own -- wraps every virtual plaque's key (App.TagKEKPrevious too
+	// during a rotation), and the tap recorder takes its windows from it as the tap page's does.
+	App  *config.Config
+	Data Database
+	// Work is told, after the runner's transaction committed, which businesses a recorded
+	// simulation gave work: the key's, and the venue's for a group tap (K-19).
+	Work Noticer
+	Log  *slog.Logger
 }
 
 // Simulation is the sandbox's /v1 extension (api.Extension).
@@ -104,9 +119,13 @@ type Simulation struct {
 	verifier Previewer
 	taps     Recorder
 	trail    Trail
+	work     Noticer
 	kek      []byte
 	keks     [][]byte
-	log      *slog.Logger
+	// mint is the chip: sun.MintTapPath. A field so that a test can hand the pre-check a URL whose
+	// MAC is not the key's (TestSandbox_TheSimulationIsJudgedByTheRealCMAC).
+	mint func(key, uid []byte, ctr uint32) (string, error)
+	log  *slog.Logger
 }
 
 var _ api.Extension = (*Simulation)(nil)
@@ -116,30 +135,45 @@ var ErrNotSandbox = errors.New("sandbox: the simulation runs only with TAPPA_ENV
 
 // New builds the simulation, refusing a configuration that is not the sandbox's and a missing
 // dependency.
+//
+// THE TAP PATH IS THE TAP PAGE'S CODE, BUILT ONCE MORE OVER THE RUNNER (runner.go): the SUN
+// pre-check is sun.NewVerifier, the recorder checkin.New, the trail audit.New -- the constructors
+// cmd/tappa's run() gives the tap page, with the same configuration and KEKs -- over onRunner, so
+// that every statement of a simulated tap runs on the /v1 write runner's one transaction. The
+// decision, the atomic advance, the debounce, the INSERT and its triggers are the same functions;
+// only the connection they run on is the runner's (TestNew_TheTapPathIsTheTapPagesCodeOnTheRunner).
 func New(c Config) (*Simulation, error) {
 	switch {
-	case c.Env != config.EnvSandbox:
+	case c.App == nil || c.App.Env != config.EnvSandbox:
 		return nil, ErrNotSandbox
 	case c.Data == nil:
 		return nil, errors.New("sandbox: nil database")
-	case c.Verifier == nil:
-		return nil, errors.New("sandbox: nil SUN pre-check")
-	case c.Taps == nil:
-		return nil, errors.New("sandbox: nil tap recorder")
-	case c.Trail == nil:
-		return nil, errors.New("sandbox: nil audit trail")
-	case len(c.KEK) != sun.KEKLen:
+	case c.Work == nil:
+		return nil, errors.New("sandbox: nil work set")
+	case len(c.App.TagKEK) != sun.KEKLen:
 		return nil, errors.New("sandbox: the tag KEK must be 32 bytes")
 	}
 	log := c.Log
 	if log == nil {
 		log = slog.Default()
 	}
-	keks := [][]byte{c.KEK}
-	if len(c.PreviousKEK) > 0 {
-		keks = append(keks, c.PreviousKEK)
+	route := onRunner{data: c.Data}
+	trail, err := audit.New(route)
+	if err != nil {
+		return nil, fmt.Errorf("sandbox: %w", err)
 	}
-	return &Simulation{data: c.Data, verifier: c.Verifier, taps: c.Taps, trail: c.Trail, kek: c.KEK, keks: keks, log: log}, nil
+	taps, err := checkin.New(route, trail, c.App, log)
+	if err != nil {
+		return nil, fmt.Errorf("sandbox: %w", err)
+	}
+	keks := [][]byte{c.App.TagKEK}
+	if len(c.App.TagKEKPrevious) > 0 {
+		keks = append(keks, c.App.TagKEKPrevious)
+	}
+	return &Simulation{
+		data: c.Data, verifier: sun.NewVerifier(route, c.App.TagKEK, c.App.TagKEKPrevious), taps: taps, trail: trail,
+		work: c.Work, kek: c.App.TagKEK, keks: keks, mint: sun.MintTapPath, log: log,
+	}, nil
 }
 
 // The routes, under api.Prefix.

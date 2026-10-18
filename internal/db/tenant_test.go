@@ -227,3 +227,69 @@ func regclass(t *testing.T, conn interface {
 	}
 	return out
 }
+
+// TestWithTenantIn_SwitchesInASavepointAndGivesTheContextBack (M11 API-11 fix 1): inside a
+// WithTenant(outer) transaction, WithTenantIn runs fn in tenantID's context; after it returns -- on
+// success and on fn's error alike -- the transaction is back in outer's context and still usable; a
+// write fn made survives only when fn succeeded (the savepoint is released or rolled back); and a
+// nil tenant on either side is refused before anything runs.
+//
+// MUTANT (measured): the restore to outer removed -- the success row reads tenantID after the
+// return: red.
+func TestWithTenantIn_SwitchesInASavepointAndGivesTheContextBack(t *testing.T) {
+	db := testDB(t)
+	outer, inner := uuid.New(), uuid.New()
+	ctx := context.Background()
+	setting := func(ctx context.Context, tx pgx.Tx) string {
+		t.Helper()
+		var got string
+		if err := tx.QueryRow(ctx, "SELECT current_setting('app.tenant_id', true)").Scan(&got); err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	boom := errors.New("boom")
+	err := db.WithTenant(ctx, outer, func(ctx context.Context, tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, "CREATE TEMP TABLE wti (v int) ON COMMIT DROP"); err != nil {
+			return err
+		}
+		var inside string
+		if err := WithTenantIn(ctx, tx, outer, inner, func(ctx context.Context, sp pgx.Tx) error {
+			inside = setting(ctx, sp)
+			_, err := sp.Exec(ctx, "INSERT INTO wti VALUES (1)")
+			return err
+		}); err != nil {
+			return err
+		}
+		if inside != inner.String() || setting(ctx, tx) != outer.String() {
+			t.Errorf("success: inside %q, after %q; want %s then %s", inside, setting(ctx, tx), inner, outer)
+		}
+		if err := WithTenantIn(ctx, tx, outer, inner, func(ctx context.Context, sp pgx.Tx) error {
+			if _, err := sp.Exec(ctx, "INSERT INTO wti VALUES (2)"); err != nil {
+				return err
+			}
+			return boom
+		}); !errors.Is(err, boom) {
+			t.Errorf("fn's error: %v, want it verbatim", err)
+		}
+		if got := setting(ctx, tx); got != outer.String() {
+			t.Errorf("after fn's error the context is %q, want %s", got, outer)
+		}
+		var sum int
+		if err := tx.QueryRow(ctx, "SELECT coalesce(sum(v), 0) FROM wti").Scan(&sum); err != nil || sum != 1 {
+			t.Errorf("the writes kept: sum %d (%v), want 1 (the released savepoint's row only)", sum, err)
+		}
+		for _, pair := range [][2]uuid.UUID{{uuid.Nil, inner}, {outer, uuid.Nil}} {
+			if err := WithTenantIn(ctx, tx, pair[0], pair[1], func(context.Context, pgx.Tx) error {
+				t.Error("fn ran for a nil tenant")
+				return nil
+			}); err == nil {
+				t.Errorf("WithTenantIn(%v, %v) was not refused", pair[0], pair[1])
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("WithTenant: %v", err)
+	}
+}

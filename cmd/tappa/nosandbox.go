@@ -6,12 +6,10 @@ import (
 	"log/slog"
 
 	"github.com/atknatk/tappa/internal/apikey"
-	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
-	"github.com/atknatk/tappa/internal/domain/checkin"
 	"github.com/atknatk/tappa/internal/handler/api"
-	"github.com/atknatk/tappa/internal/sun"
+	"github.com/atknatk/tappa/internal/webhook"
 )
 
 // THE PRODUCTION BUILD'S HALF of the build split (M11 API-11, ADR 0028 §11; its twin is sandbox.go,
@@ -25,6 +23,6 @@ import (
 const apiKeyPrefix = apikey.LivePrefix
 
 // sandboxExtensions is the sandbox build's /v1 extension; the production build has none.
-func sandboxExtensions(*config.Config, *db.DB, *sun.Verifier, *checkin.Service, *audit.Recorder, *slog.Logger) ([]api.Extension, error) {
+func sandboxExtensions(*config.Config, *db.DB, *webhook.Worker, *slog.Logger) ([]api.Extension, error) {
 	return nil, nil
 }
