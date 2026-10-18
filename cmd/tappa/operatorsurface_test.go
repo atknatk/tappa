@@ -252,11 +252,12 @@ func TestPackaging_TheDeployCarriesNoContinueOnError(t *testing.T) {
 
 // ------------------------------------------------------------- the script, run --
 
-// scriptRig runs scripts/verify-deployment.sh with stub `kubectl`, `curl` and `sleep` first on
-// PATH. The stubs record every call and answer from files in dir: kubectl by the resource it
-// is asked about (secret, ingress, exec), curl by URL — each, when a sequence is set, by the
-// call's number — and sleep returns at once, recording its argument, so the probe's real
-// default pause is exercised without waiting. env is added to the script's environment.
+// scriptRig runs scripts/verify-deployment.sh with stub `kubectl`, `curl`, `sleep`, `tailscale`
+// and `timeout` first on PATH. The stubs record every call and answer from files in dir:
+// kubectl by the resource it is asked about (secret, ingress, exec, config view), curl by URL —
+// each, when a sequence is set, by the call's number — and sleep returns at once, recording its
+// argument, so the probe's real default pause is exercised without waiting. tailscale and
+// timeout are deploytailnet_test.go's (T134). env is added to the script's environment.
 type scriptRig struct {
 	t   *testing.T
 	dir string
@@ -269,6 +270,7 @@ case " $* " in
   *" secret "*) key=secret ;;
   *" ingress "*) key=ingress ;;
   *" exec "*) key=exec; cat >/dev/null ;;
+  *" config view "*) key=config ;;
   *) echo "stub kubectl: unexpected call: $*" >&2; exit 97 ;;
 esac
 n=$(( $(cat "$STUB_DIR/kubectl.$key.count" 2>/dev/null || echo 0) + 1 ))
@@ -309,7 +311,8 @@ func newScriptRig(t *testing.T) *scriptRig {
 		t.Fatalf("bash -n scripts/verify-deployment.sh: %v\n%s", err, out)
 	}
 	r := &scriptRig{t: t, dir: t.TempDir()}
-	for name, body := range map[string]string{"kubectl": stubKubectl, "curl": stubCurl, "sleep": stubSleep} {
+	for name, body := range map[string]string{"kubectl": stubKubectl, "curl": stubCurl, "sleep": stubSleep,
+		"tailscale": stubTailscale, "timeout": stubTimeout} {
 		if err := os.WriteFile(filepath.Join(r.dir, name), []byte(body), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -363,7 +366,7 @@ func (r *scriptRig) curlAnswers(url string, replies ...curlReply) {
 // kubectl that somehow came first on PATH could reach no cluster.
 func (r *scriptRig) run(args ...string) (stdout, stderr string, code int) {
 	r.t.Helper()
-	r.clear("kubectl.calls", "curl.calls", "sleep.calls")
+	r.clear("kubectl.calls", "curl.calls", "sleep.calls", "timeout.calls", "tailscale.calls")
 	counts, err := filepath.Glob(filepath.Join(r.dir, "*.count"))
 	if err != nil {
 		r.t.Fatal(err)
@@ -791,7 +794,9 @@ func TestVerifyDeployment_TheSecretCallScanClassifiesEveryShape(t *testing.T) {
 
 // TestVerifyDeployment_EveryBranchTouchesTheSecretOnlyByDescribe (T119, round 4) is the
 // run-time half: every mode of the script — cloudflare, operator-surface, operator-host,
-// api-host (M11, merged in API-13b), db-role, all, and an unknown one — is run against the stub kubectl through every branch
+// api-host (M11, merged in API-13b), db-role, all, T134's kubeconfig-server and tailnet (with
+// the stub tailscale, and for "no CLI" a PATH without any tailscale), and an unknown one — is
+// run against the stub kubectl through every branch
 // (each pass, VIOLATION, UNCHECKED, notice and warning; the 404 loop's end; db-role's two
 // "did not run" exits), and the stub records every argv. PART I — the runs, then two
 // readings: every recorded call whose arguments mention a secret (any case) is exactly
@@ -830,7 +835,24 @@ func TestVerifyDeployment_EveryBranchTouchesTheSecretOnlyByDescribe(t *testing.T
 	base4 := append([]string(nil), rig.env...)
 	var printed strings.Builder
 	var calls [][]string
+	// T134's two modes: a listener for the tailnet gate's TCP connect, and the kubeconfig the
+	// stub kubectl reports one field per call (server, proxy-url, insecure-skip-tls-verify).
+	tools := toolsDir(t, "bash", "jq", "sed", "cat")
+	openPort, _ := tcpPorts(t)
+	kubeconfig := func(server, proxy, insecure string) {
+		for i, v := range []string{server, proxy, insecure} {
+			rig.set(fmt.Sprintf("config.%d.out", i+1), v)
+			rig.set(fmt.Sprintf("config.%d.rc", i+1), "0")
+		}
+	}
+	tailnetAs := func(status string) { rig.set("tailscale.status.out", status) }
 	healthy := func() {
+		kubeconfig("https://10.43.0.1:443", "", "")
+		tailnetAs(tailnetStatus(`"Running"`, tailnetSelf(`["tag:ci"]`, "true")))
+		rig.clear("tailscale.status.rc", "config.out", "config.rc")
+		if err := os.WriteFile(filepath.Join(rig.dir, "tailscale"), []byte(stubTailscale), 0o755); err != nil {
+			t.Fatal(err)
+		}
 		rig.env = append(append([]string(nil), base4...), "OPERATOR_HOST_PROBE_TRIES=2")
 		rig.curlAnswer(custHealth, "HTTP/2 200 \r\n\r\n", "0")
 		rig.curlAnswer(opHealth, notRouted.headers, "0")
@@ -882,6 +904,25 @@ func TestVerifyDeployment_EveryBranchTouchesTheSecretOnlyByDescribe(t *testing.T
 			rig.set("exec.2.out", "")
 			rig.set("exec.2.rc", "3")
 		}, []string{"db-role", ns}},
+		{"kubeconfig-server: pass", func() {}, []string{"kubeconfig-server", "10.43.0.1", "443"}},
+		{"kubeconfig-server: no current context", func() { rig.set("config.1.rc", "1") }, []string{"kubeconfig-server", "10.43.0.1", "443"}},
+		{"kubeconfig-server: proxy-url unreadable", func() { rig.set("config.2.rc", "1") }, []string{"kubeconfig-server", "10.43.0.1", "443"}},
+		{"kubeconfig-server: the public server", func() { kubeconfig("https://144.76.158.60:6443", "", "") }, []string{"kubeconfig-server", "10.43.0.1", "443"}},
+		{"kubeconfig-server: a proxy", func() { kubeconfig("https://10.43.0.1:443", "socks5://127.0.0.1:1080", "") }, []string{"kubeconfig-server", "10.43.0.1", "443"}},
+		{"kubeconfig-server: TLS unchecked", func() { kubeconfig("https://10.43.0.1:443", "", "true") }, []string{"kubeconfig-server", "10.43.0.1", "443"}},
+		{"tailnet: pass", func() {}, []string{"tailnet", "127.0.0.1", openPort}},
+		{"tailnet: no CLI", func() {
+			rig.clear("tailscale")
+			rig.env = append(rig.env, "PATH="+rig.dir+string(os.PathListSeparator)+tools)
+		}, []string{"tailnet", "127.0.0.1", openPort}},
+		{"tailnet: status fails", func() { rig.set("tailscale.status.rc", "1") }, []string{"tailnet", "127.0.0.1", openPort}},
+		{"tailnet: not JSON", func() { tailnetAs("not json") }, []string{"tailnet", "127.0.0.1", openPort}},
+		{"tailnet: NeedsLogin", func() { tailnetAs(tailnetStatus(`"NeedsLogin"`, tailnetSelf(`["tag:ci"]`, ""))) }, []string{"tailnet", "127.0.0.1", openPort}},
+		{"tailnet: no Self", func() { tailnetAs(tailnetStatus(`"Running"`, "")) }, []string{"tailnet", "127.0.0.1", openPort}},
+		{"tailnet: untagged", func() { tailnetAs(tailnetStatus(`"Running"`, tailnetSelf("", ""))) }, []string{"tailnet", "127.0.0.1", openPort}},
+		{"tailnet: not ephemeral", func() { tailnetAs(tailnetStatus(`"Running"`, tailnetSelf(`["tag:ci"]`, "false"))) }, []string{"tailnet", "127.0.0.1", openPort}},
+		{"tailnet: ephemerality not reported", func() { tailnetAs(tailnetStatus(`"Running"`, tailnetSelf(`["tag:ci"]`, ""))) }, []string{"tailnet", "127.0.0.1", openPort}},
+		{"tailnet: unreachable", func() { rig.env = append(rig.env, "STUB_TIMEOUT_RC=124") }, []string{"tailnet", "127.0.0.1", openPort}},
 		{"all: healthy", func() {}, []string{"all"}},
 		{"all: every gate unhappy", func() {
 			rig.curlAnswers(custHealth, timeout)

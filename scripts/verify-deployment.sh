@@ -8,6 +8,15 @@
 #   scripts/verify-deployment.sh db-role          [namespace]   default: tappa
 #   scripts/verify-deployment.sh api-host         [host]        default: api.taptime.mt (M11 API-13a)
 #   scripts/verify-deployment.sh all              [host] [ns] [operator host]
+#   scripts/verify-deployment.sh kubeconfig-server [host] [port] default: 10.43.0.1 443 (T134)
+#   scripts/verify-deployment.sh tailnet          [host] [port]  default: 10.43.0.1 443 (T134)
+#
+# The two T134 modes are PREFLIGHTS of the deploy's way into the cluster, which is the
+# tailnet (the API's public :6443 is closed): kubeconfig-server reads the written
+# kubeconfig OFFLINE and refuses any server but the tailnet address, a proxy or a skipped
+# certificate check; tailnet measures what the runner joined the tailnet as and whether a
+# TCP connection to the API gets through. Neither is part of `all`, which asks a running
+# deployment from outside.
 #
 # The two operator modes are backlog T119's (deploy/README.md, "Uygulandı: K2"):
 # operator-surface is a PREFLIGHT that decides whether 41-operator-ingress.yaml may be
@@ -50,7 +59,7 @@
 # embedded in YAML cannot have done to it. Same reasoning as scripts/verify-image.sh.
 set -euo pipefail
 
-mode=${1:?usage: verify-deployment.sh <cloudflare|operator-surface|operator-host|api-host|db-role|all> [host] [namespace]}
+mode=${1:?usage: verify-deployment.sh <cloudflare|operator-surface|operator-host|api-host|db-role|all|kubeconfig-server|tailnet> [host] [namespace]}
 
 # CF_OUTCOME records WHICH of the three things happened, because the return code
 # cannot: this gate returns 0 both when the host is clean AND when the name does not
@@ -491,7 +500,159 @@ check_api_host() {
   echo "api-host: ${host} serves /v1 (guide 200 text/markdown) and 404 at its root"
 }
 
+# printable_address echoes its argument when it is shaped like a URL of an address and
+# nothing more (letters, digits, and . : / [ ] -), and a placeholder otherwise: a server
+# field could carry userinfo (a user name and password before an @), and this repository's Actions
+# logs are public.
+printable_address() {
+  local re='^[][A-Za-z0-9.:/-]*$'
+  if [[ $1 =~ $re ]]; then printf '%s' "$1"; else printf '%s' '<not shown: not an address>'; fi
+}
+
+# check_kubeconfig_server -- backlog T134. The cluster API's public :6443 is closed; the
+# deploy reaches it only through the tailnet, at the kubernetes Service's address. So the
+# kubeconfig the deploy just wrote must name exactly that server, reach it directly and
+# verify its certificate:
+#
+#   server                    https://HOST:PORT, or https://HOST when PORT is 443, with or
+#                             without one trailing "/". Anything else is a VIOLATION: the
+#                             public IP (":6443 i/o timeout" four steps later), a look-alike
+#                             (10.43.0.10, 10.43.0.1.nip.io), http://, a path.
+#   proxy-url                 EMPTY. kubectl sends the API connection through it, so with
+#                             one set the bearer token and every apply leave the runner for
+#                             wherever it points -- not the tailnet. VIOLATION.
+#   insecure-skip-tls-verify  EMPTY or false. true accepts any certificate on 10.43.0.1,
+#                             i.e. the token is handed to whoever answers there. VIOLATION.
+#
+# It reads the CURRENT context's cluster (--minify), which is the one every later kubectl
+# call uses: a kubeconfig whose first cluster is the tailnet one but whose current context
+# names another is read as the other. Offline -- `kubectl config view` contacts nothing --
+# and only three fields are asked for; the token and the CA are never read (config view
+# redacts them in any case). A read that fails (no current context) is UNCHECKED, exit 2.
+check_kubeconfig_server() {
+  local host=${1:-10.43.0.1} port=${2:-443} server proxy insecure ok=0
+  if ! server=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}'); then
+    echo "::error::kubeconfig-server: the kubeconfig's current context could not be read (kubectl config view --minify failed), so the server the deploy would talk to is unknown. Nothing in the cluster has been touched." >&2
+    return 2
+  fi
+  if ! proxy=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.proxy-url}') ||
+    ! insecure=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.insecure-skip-tls-verify}'); then
+    echo "::error::kubeconfig-server: the current cluster's proxy-url or insecure-skip-tls-verify could not be read, so how the deploy would reach the API is unknown. Nothing in the cluster has been touched." >&2
+    return 2
+  fi
+  case $server in
+    "https://${host}:${port}" | "https://${host}:${port}/") ok=1 ;;
+    "https://${host}" | "https://${host}/") [[ $port != 443 ]] || ok=1 ;;
+  esac
+  if (( ok != 1 )); then
+    server=$(printable_address "$server")
+    echo "::error::KUBE_CONFIG names the server '${server}', want https://${host}:${port}. The cluster API is reachable only through the tailnet (backlog T134); regenerate the kubeconfig with that server and the cluster CA (deploy/README.md, operator step 5). Nothing in the cluster has been touched." >&2
+    return 1
+  fi
+  if [[ -n $proxy ]]; then
+    echo "::error::KUBE_CONFIG's cluster sets proxy-url: kubectl would send the API connection, bearer token included, through that proxy instead of straight to https://${host}:${port} over the tailnet. Remove it (deploy/README.md, operator step 5). Nothing in the cluster has been touched." >&2
+    return 1
+  fi
+  case $insecure in
+    '' | false) ;;
+    *)
+      echo "::error::KUBE_CONFIG's cluster sets insecure-skip-tls-verify: kubectl would hand the bearer token to whatever answers at ${host}:${port}, certificate unchecked. Remove it and embed the cluster CA, kube-root-ca.crt (deploy/README.md, operator step 5). Nothing in the cluster has been touched." >&2
+      return 1
+      ;;
+  esac
+  echo "kubeconfig-server: https://${host}:${port} (the tailnet), no proxy, certificate verified against the kubeconfig's CA"
+}
+
+# check_tailnet -- backlog T134. "Join the tailnet" (tailscale/github-action) has run; this
+# measures what came of it, because the properties of TS_AUTHKEY (tagged? ephemeral?) are set
+# when the key is generated and cannot be read from this repository -- only off the device the
+# key produced:
+#
+#   UNCHECKED (exit 2)  no tailscale CLI; `tailscale status --json` fails; its output is not a
+#                       JSON object (empty, broken); BackendState is not Running (NeedsLogin,
+#                       absent); no Self.
+#   VIOLATION (exit 1)  Self.Tags is not an array holding the exact string "tag:ci" (absent,
+#                       [], "tag:cix", "tag:CI", " tag:ci", a string instead of an array). An
+#                       untagged key joins the device as the USER who generated it: the
+#                       tailnet ACL's tag:ci rule does not describe it, and whatever that user
+#                       may reach, this runner may reach. A join that "works" that way is the
+#                       failure this gate exists for.
+#                       Or no TCP connection to HOST:PORT in 6 attempts (each bounded by
+#                       `timeout 5`, 5 s apart: a subnet route can land a moment after `up`).
+#   warning             Self.Ephemeral false, or absent -- tailscale v1.94.2's status JSON has
+#                       no such field (ipnstate.PeerStatus, read 2026-10-17), so today it says
+#                       "absent" and the warning says where to look.
+#
+# 🔴 THE STATUS JSON IS NEVER PRINTED, ON ANY BRANCH. It carries the tailnet's user login
+# names -- e-mail addresses (CLAUDE.md §7) -- and this repository's Actions logs are public.
+# One jq call reduces it to five facts, each printed only in a shape that cannot carry
+# anything else (a word, tag:[A-Za-z0-9-] names, true/false); jq's own error text goes to
+# /dev/null. TestVerifyDeployment_TheTailnetModeMeasuresTheJoin runs every branch with a
+# login-name canary in the status and finds it in no output.
+check_tailnet() {
+  local host=${1:-10.43.0.1} port=${2:-443} ver st facts state self tagged tags eph attempt reached=0
+  if ! command -v tailscale >/dev/null 2>&1; then
+    echo "::error::tailnet: there is no tailscale CLI on this runner, so it is not on the tailnet (did the Join the tailnet step run?). Nothing in the cluster has been touched." >&2
+    return 2
+  fi
+  # The client's version, which the action's quiet log mode no longer prints.
+  ver=$(tailscale version 2>/dev/null | sed -n '1p') || ver=
+  [[ $ver =~ ^[0-9][0-9.]*$ ]] || ver=unknown
+  if ! st=$(tailscale status --json 2>/dev/null); then
+    echo "::error::tailnet: tailscale status --json failed, so what the runner joined as is unknown. Its output is not shown. Nothing in the cluster has been touched." >&2
+    return 2
+  fi
+  facts=$(printf '%s' "$st" | jq -r '
+    if type != "object" then error("not an object") else . end
+    | (if (.Self | type) == "object" then .Self else null end) as $self
+    | [ (.BackendState | if type == "string" and test("^[A-Za-z]+$") then . elif . == null then "absent" else "unreadable" end),
+        (if $self == null then "no" else "yes" end),
+        (if $self != null and ($self.Tags | type) == "array" and ($self.Tags | map(select(. == "tag:ci")) | length) > 0 then "yes" else "no" end),
+        (if $self != null and ($self.Tags | type) == "array"
+           then ([$self.Tags[] | select(type == "string" and test("^tag:[A-Za-z0-9-]+$"))] | join(",") | if . == "" then "none" else . end)
+           else "none" end),
+        (if $self != null and ($self | has("Ephemeral")) then ($self.Ephemeral | if . == true or . == false then tostring else "unreadable" end) else "absent" end)
+      ] | join("|")' 2>/dev/null) || facts=
+  if [[ -z $facts ]]; then
+    echo "::error::tailnet: tailscale status --json did not print the JSON object this gate reads, so what the runner joined as is unknown. Its output is not shown. Nothing in the cluster has been touched." >&2
+    return 2
+  fi
+  IFS='|' read -r state self tagged tags eph <<<"$facts"
+  echo "tailnet: tailscale ${ver}, backend ${state}, tags ${tags}, ephemeral ${eph}"
+  if [[ $state != Running ]]; then
+    echo "::error::tailnet: the runner is not connected to the tailnet (backend state '${state}'). Nothing in the cluster has been touched." >&2
+    return 2
+  fi
+  if [[ $self != yes ]]; then
+    echo "::error::tailnet: tailscale status --json carries no Self, so the device this runner joined as could not be read. Nothing in the cluster has been touched." >&2
+    return 2
+  fi
+  if [[ $tagged != yes ]]; then
+    echo "::error::the runner joined the tailnet WITHOUT tag:ci (tags: ${tags}), i.e. as the user who generated TS_AUTHKEY, which the tailnet ACL's tag:ci rule does not describe. Regenerate the auth key with the tag tag:ci (Tailscale admin, Settings, Keys, Generate auth key: reusable, ephemeral, pre-approved, Tags tag:ci) and replace the TS_AUTHKEY secret (deploy/README.md, operator step 5). Nothing in the cluster has been touched." >&2
+    return 1
+  fi
+  case $eph in
+    true) ;;
+    false) echo "::warning::this runner's tailnet device is NOT ephemeral: TS_AUTHKEY was generated without 'Ephemeral', so each deploy may leave a device behind in the admin console. Regenerate it as ephemeral (deploy/README.md, operator step 5)." ;;
+    *) echo "::warning::tailscale status does not report whether this device is ephemeral; check that TS_AUTHKEY was generated as ephemeral (Tailscale admin, Settings, Keys) and that no github-* devices pile up under Machines (deploy/README.md, operator step 5)." ;;
+  esac
+  for attempt in 1 2 3 4 5 6; do
+    if timeout 5 bash -c 'exec 3<>"/dev/tcp/$0/$1"' "$host" "$port" 2>/dev/null; then
+      reached=1
+      break
+    fi
+    (( attempt == 6 )) || sleep 5
+  done
+  if (( reached != 1 )); then
+    echo "::error::the cluster API ${host}:${port} is not reachable over the tailnet (6 TCP attempts, 5 s each). Check that the cluster's subnet router still advertises 10.43.0.0/16 and the route is approved, and that the tailnet ACL lets tag:ci reach ${host}:${port} (deploy/README.md, operator step 5). Nothing in the cluster has been touched." >&2
+    return 1
+  fi
+  echo "tailnet: cluster API reachable at ${host}:${port} (attempt ${attempt})"
+}
+
 case $mode in
+  kubeconfig-server) check_kubeconfig_server "${2:-}" "${3:-}" ;;
+  tailnet)          check_tailnet          "${2:-}" "${3:-}" ;;
   cloudflare)       check_cloudflare       "${2:-}" ;;
   operator-surface) check_operator_surface "${2:-}" ;;
   operator-host)    check_operator_host    "${2:-}" "${3:-}" ;;
@@ -544,5 +705,5 @@ case $mode in
     if [[ $words == *=VIOLATION* ]]; then exit 1; fi
     if [[ $words == *=UNCHECKED* ]]; then exit 2; fi
     ;;
-  *) echo "unknown mode: $mode (expected cloudflare, operator-surface, operator-host, api-host, db-role or all)" >&2; exit 2 ;;
+  *) echo "unknown mode: $mode (expected cloudflare, operator-surface, operator-host, api-host, db-role, all, kubeconfig-server or tailnet)" >&2; exit 2 ;;
 esac

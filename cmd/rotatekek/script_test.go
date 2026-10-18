@@ -449,19 +449,21 @@ func TestRunbook_PasteableBlocksCarryNoShellHazardInComments(t *testing.T) {
 	// net was not verifying the existence of what it protects. minLines + anchors
 	// below close that; see the mutation evidence in the M8-05 round notes.
 	//
-	// 🔴 WHY THREE SLICES AND NOT THE WHOLE FILE — MEASURED, NOT PREFERRED. Re-measure
+	// 🔴 WHY FOUR SLICES AND NOT THE WHOLE FILE — MEASURED, NOT PREFERRED. Re-measure
 	// any of these numbers with:
 	//
 	//	grep -c '^[`][`][`]bash' deploy/README.md          # total pasteable blocks
 	//	go test ./cmd/rotatekek/ -run PasteableBlocks -v   # per-slice, from this test
 	//
-	// On this tree deploy/README.md carries 50 pasteable bash blocks in total; 13 are
-	// in the rotation slice, 0 in the encode slice, 5 in the M8-03 observability
-	// slice, and the remaining 32 live in the deploy/rollback, backup and
-	// incident-response sections. Those 32 hold 43 comment lines, of which 21 carry
-	// 26 hazard hits. Scanning the whole file would therefore go RED on 21
-	// pre-existing lines owned by other cards — a runbook-wide rewrite smuggled into
-	// a correction round (CLAUDE.md §10: no unrelated refactor in one commit).
+	// Re-measured in T134's 2nd round (2026-10-18), with the inline-comment tails now
+	// scanned too: deploy/README.md carries 114 pasteable bash blocks in total; 13 are in
+	// the rotation slice, 0 in the encode slice, 5 in the M8-03 observability slice, 4 in
+	// operator step 5, and the remaining 92 live in the other operator steps and the
+	// deploy/rollback, backup and incident-response sections. Those 92 hold 154 comment
+	// lines and 40 command lines with an inline comment, of which 53 carry 59 hazard hits.
+	// Scanning the whole file would therefore go RED on 53 pre-existing lines owned by
+	// other cards — a runbook-wide rewrite smuggled into a correction round (CLAUDE.md
+	// §10: no unrelated refactor in one commit).
 	// THAT REMAINDER IS COUNTED, NOT CLOSED, and it is written down where a reader
 	// will meet it: deploy/README.md → "Kabul edilmiş sınırlar".
 	//
@@ -525,6 +527,23 @@ func TestRunbook_PasteableBlocksCarryNoShellHazardInComments(t *testing.T) {
 				// The §4.6 trade that keeps a readiness outage visible after the
 				// access record for a designed probe answer was dropped.
 				"SAĞLIK SONDALARI `http.request` KAYDININ DIŞINDADIR",
+			},
+		},
+		{
+			// Operator step 5 (T134): the two secrets that carry the deploy's way into the
+			// cluster. TestReadme_TheTailnetStepBlocksPasteIntoZsh holds this slice to more
+			// than this scan does (no inline comment at all, and every line parsed by a real
+			// zsh with interactive_comments off); here it gets the common net, so a hazard
+			// added to it is red in both.
+			name: "operator step 5", start: tailnetStepStart, end: tailnetStepEnd,
+			want: -1, minLines: 100,
+			anchors: []string{
+				// Why the step exists at all.
+				"Küme API'si internete KAPALI",
+				// The impersonating proxy that must never be the deploy's way in.
+				"Tailscale OPERATÖRÜNÜN API proxy'si (`*.ts.net`) KULLANILMAZ",
+				// T134's closing measure.
+				"İlk deploy'da ölçülecekler",
 			},
 		},
 		{
@@ -621,8 +640,21 @@ func scanPasteableComments(t *testing.T, name, section string, base int) (blocks
 			inBlock = false
 			continue
 		}
-		if !inBlock || !strings.HasPrefix(strings.TrimSpace(ln), "#") {
+		if !inBlock {
 			continue
+		}
+		// 🔴 A COMMENT AT THE END OF A COMMAND IS A COMMENT TOO, AND THIS SCAN DID NOT SEE IT
+		// (T134, 2nd round). Under zsh's default `interactive_comments` OFF an inline `# …` is
+		// no comment either: its words reach the command as arguments, a backtick in them
+		// runs, and an odd apostrophe opens quote> exactly as on a `#` line — measured on
+		// operator step 5's `gh secret set … # değer stdin'den …`, which left gh unrun at a
+		// quote> prompt. So the tail after an unquoted ` #` gets the same two checks.
+		if !strings.HasPrefix(strings.TrimSpace(ln), "#") {
+			tail, ok := inlineComment(ln)
+			if !ok {
+				continue
+			}
+			ln = tail
 		}
 		// 🔴 THE DETECTOR COVERS THE MEASURED CLASS, NOT A GUESS, AND ITS COVERAGE IS
 		// STATED. In a real pty (`zsh -f -i`), pasting a `#` comment executes:
@@ -650,6 +682,30 @@ func scanPasteableComments(t *testing.T, name, section string, base int) (blocks
 		}
 	}
 	return blocks, hazards
+}
+
+// inlineComment returns the text from the first `#` that starts a word outside quotes —
+// what bash reads as a comment at the end of a command — and whether there is one.
+func inlineComment(line string) (string, bool) {
+	quote := byte(0)
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		switch {
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			} else if c == '\\' && quote == '"' {
+				i++
+			}
+		case c == '\\':
+			i++
+		case c == '\'' || c == '"':
+			quote = c
+		case c == '#' && i > 0 && (line[i-1] == ' ' || line[i-1] == '\t'):
+			return line[i:], true
+		}
+	}
+	return "", false
 }
 
 // runbookInvocations extracts every executable `./scripts/rotate-kek.sh …` line
@@ -1582,5 +1638,134 @@ func TestRotateScript_RefusesANonURIDSN(t *testing.T) {
 	code, out := runScriptWithHome(t, t.TempDir(), "0", nil, "--apply")
 	if strings.Contains(out, "must be a URI") {
 		t.Errorf("a URI DSN was refused by the URI guard (exit %d)\n%s", code, out)
+	}
+}
+
+// tailnetStepStart and tailnetStepEnd bound deploy/README.md's operator step 5 (T134).
+const (
+	tailnetStepStart = "**5. GitHub secret'ları — `KUBE_CONFIG` ve `TS_AUTHKEY`"
+	tailnetStepEnd   = "**6. İlk deploy.**"
+)
+
+// zshCommentForbidden are the characters a `#` line of operator step 5 may not carry. Under
+// zsh's default interactive_comments OFF such a line is a COMMAND named `#`, and measured on a
+// real `zsh -f -i` (T134, 2nd round): `->` created the files `Settings` and `Keys` in the
+// current directory, `; touch X` and `| tee X` ran, a backtick or `$(` runs, a quote or an
+// apostrophe opens a prompt that swallows the next line, `(` is a glob qualifier. This list is
+// stricter than commentHazards on purpose — it is one step's text, written to it.
+const zshCommentForbidden = "`$'\";|&<>(){}\\!*?[]"
+
+// TestReadme_TheTailnetStepBlocksPasteIntoZsh (T134, 2nd round). Operator step 5's blocks were
+// written for bash and broke when pasted into the user's zsh, where interactive_comments is
+// off: an inline `# değer stdin'den …` after `gh secret set TS_AUTHKEY` left gh unrun at a
+// quote> prompt (where the next thing pasted would be the key), and the KUBE_CONFIG block's
+// comments carried backticks — which RAN — and apostrophes that swallowed the next command.
+// The repository's scan read only `#` lines, and not this section at all.
+//
+// PART I — for every ```bash block of the step: (a) no code line carries an inline comment;
+// (b) no `#` line carries a zshCommentForbidden character; (c) each logical line (continuations
+// joined) is parsed by `zsh -f -i -n` — interactive, so interactive_comments is OFF, and -n,
+// so nothing runs — and must parse (an unmatched quote is `zsh: unmatched '`, exit 1). CONTROL:
+// the step has at least 4 blocks and a `gh secret set` line for each secret, and the zsh parse
+// refuses this step's old `gh secret set` line (the probe can see what it exists for).
+// PART II — pinned: (a) and (b) everywhere CI runs; (c) where zsh is installed (it is skipped,
+// with a reason, where it is not — the static rules are the part that always runs).
+// PART III — the rest of deploy/README.md is not held to this (Kabul edilmiş sınırlar, 23).
+func TestReadme_TheTailnetStepBlocksPasteIntoZsh(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join(repoRoot(t), "deploy", "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(b)
+	start, end := strings.Index(text, tailnetStepStart), strings.Index(text, tailnetStepEnd)
+	if start < 0 || end <= start {
+		t.Fatalf("could not locate operator step 5 (%q .. %q)", tailnetStepStart, tailnetStepEnd)
+	}
+	base := strings.Count(text[:start], "\n")
+	var blocks [][]string // each block's logical lines
+	var cur []string
+	inBlock, pending := false, ""
+	for i, ln := range strings.Split(text[start:end], "\n") {
+		at := fmt.Sprintf("deploy/README.md:%d", base+i+1)
+		switch {
+		case strings.HasPrefix(ln, "```bash"):
+			inBlock, cur = true, nil
+			continue
+		case strings.HasPrefix(ln, "```") && inBlock:
+			inBlock = false
+			blocks = append(blocks, cur)
+			continue
+		case !inBlock:
+			continue
+		}
+		if strings.HasPrefix(strings.TrimSpace(ln), "#") {
+			if i := strings.IndexAny(ln, zshCommentForbidden); i >= 0 {
+				t.Errorf("%s: a comment line carries %q; pasted into zsh (interactive_comments off) it is a command "+
+					"named `#`, and that character redirects, runs or quotes:\n  %s", at, ln[i:i+1], strings.TrimSpace(ln))
+			}
+		} else if tail, ok := inlineComment(ln); ok {
+			t.Errorf("%s: a command carries an inline comment (%q); in zsh its words become the command's "+
+				"arguments. Put the comment on its own line:\n  %s", at, tail, strings.TrimSpace(ln))
+		}
+		if strings.HasSuffix(ln, "\\") {
+			pending += strings.TrimSuffix(ln, "\\") + " "
+			continue
+		}
+		cur = append(cur, pending+ln)
+		pending = ""
+	}
+	if len(blocks) < 4 {
+		t.Fatalf("CONTROL FAILED: operator step 5 has %d bash blocks, want at least 4; the scan has gone blind", len(blocks))
+	}
+	for _, want := range []string{"gh secret set TS_AUTHKEY --repo atknatk/tappa", "| gh secret set KUBE_CONFIG --repo atknatk/tappa"} {
+		if !strings.Contains(text[start:end], want) {
+			t.Errorf("CONTROL: operator step 5 has no block line with %q", want)
+		}
+	}
+
+	zsh, err := exec.LookPath("zsh")
+	if err != nil {
+		t.Skipf("zsh is not installed (%v): the static rules above ran; the zsh parse did not", err)
+	}
+	parses := func(line string) (bool, string) {
+		cmd := exec.CommandContext(t.Context(), zsh, "-f", "-i", "-n")
+		cmd.Stdin = strings.NewReader(line + "\n")
+		cmd.Env = []string{"PATH=/nonexistent", "HOME=" + t.TempDir(), "TERM=dumb"}
+		cmd.Dir = t.TempDir()
+		out, err := cmd.CombinedOutput()
+		return err == nil && !strings.Contains(string(out), "unmatched"), string(out)
+	}
+	if ok, _ := parses("gh secret set TS_AUTHKEY --repo atknatk/tappa      # değer stdin'den / istemden; ekrana basma"); ok {
+		t.Fatal("CONTROL FAILED: zsh -f -i -n parsed the old inline-comment line; the probe cannot see what it exists for")
+	}
+	for n, blk := range blocks {
+		for _, l := range blk {
+			if ok, out := parses(l); !ok {
+				t.Errorf("operator step 5, block %d: zsh (interactive_comments off) does not parse %q:\n%s", n+1, l, out)
+			}
+		}
+	}
+}
+
+// TestInlineComment is inlineComment's own table: a `#` that starts a word outside quotes is a
+// comment; inside quotes, glued to a word or escaped it is not.
+func TestInlineComment(t *testing.T) {
+	for _, tc := range []struct {
+		line, want string
+		ok         bool
+	}{
+		{"gh secret set X --repo a/b      # value from the prompt", "# value from the prompt", true},
+		{"echo a\t# tab before", "# tab before", true},
+		{"echo 'a # b'", "", false},
+		{`echo "a # b" # c`, "# c", true},
+		{"echo a#b", "", false},
+		{`echo \# not`, "", false},
+		{`echo "it's" # x`, "# x", true},
+		{"# a whole-line comment starts at column 0", "", false},
+	} {
+		got, ok := inlineComment(tc.line)
+		if got != tc.want || ok != tc.ok {
+			t.Errorf("inlineComment(%q) = %q, %v; want %q, %v", tc.line, got, ok, tc.want, tc.ok)
+		}
 	}
 }

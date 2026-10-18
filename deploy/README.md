@@ -281,20 +281,30 @@ istiyor.
 ulaşılır. Kümedeki Tailscale **subnet router**'ı `10.43.0.0/16`'yı duyurur ve
 Kubernetes API'si `kubernetes` Service'inin adresinde, **`https://10.43.0.1:443`**'te
 cevap verir (orkestratör ölçtü: tailnet'ten erişilir, küme CA'sıyla doğrulanır, bearer
-token `system:serviceaccount:tappa:github-deployer` olarak tanınır). Bu yüzden
-`deploy.yml`, küme API'sine giden **ilk** adımdan (*"Preflight — the application
-Secret…"*) hemen önce:
+token `system:serviceaccount:tappa:github-deployer` olarak tanınır). `deploy.yml`'de
+üç adım bu yolu taşır:
 
-1. *"Join the tailnet"* — `tailscale/github-action`, **tam commit SHA'sıyla** pinli
-   (`d1b6cd2…`, v4.2.0; depodaki tek üçüncü-parti action — gerekçe dosyada),
-   `authkey: ${{ secrets.TS_AUTHKEY }}`, `--accept-dns=false`, önbelleksiz;
-2. *"Gate — the runner joined the tailnet as tag:ci and reaches the cluster API"* —
-   runner cihazının **`tag:ci`** ile katıldığını (değilse **kırmızı**), ephemeral olup
-   olmadığını (ölçülemiyorsa **uyarı**) ve `10.43.0.1:443`'e TCP ile ulaştığını
-   (değilse **kırmızı**) ölçer.
-
-*"Write kubeconfig"* ayrıca kubeconfig'in sunucusunun `https://10.43.0.1:443` olduğunu
-denetler — genel IP'yi gösteren eski bir `KUBE_CONFIG` orada, adıyla reddedilir.
+1. *"Write kubeconfig"* — kubeconfig'i yazar ve **çevrimdışı** denetler
+   (`scripts/verify-deployment.sh kubeconfig-server`): **current context**'in sunucusu
+   `https://10.43.0.1:443` (ya da `https://10.43.0.1`, sonda en çok bir `/`) olmalı,
+   `proxy-url` **boş**, `insecure-skip-tls-verify` **boş ya da false**. Genel IP'yi,
+   bir benzeri (`10.43.0.10`, `10.43.0.1.nip.io`), `http://`'yi, bir yolu, bir proxy'yi ya
+   da atlanmış bir sertifika denetimini adıyla reddeder (kırmızı, kümeye dokunmadan).
+2. *"Join the tailnet"* — son imaj adımından **sonra**, ilk küme çağrısından (*"Preflight —
+   the application Secret…"*) hemen **önce**: `tailscale/github-action`, **tam commit
+   SHA'sıyla** pinli (`d1b6cd2…`, v4.2.0; depodaki tek üçüncü-parti action — gerekçe
+   dosyada), `authkey: ${{ secrets.TS_AUTHKEY }}`, `--accept-dns=false`, önbelleksiz,
+   **`log-mode: quiet`** (hata ayıklama kipinde action'ın kendi `tailscale status --json`
+   çıktısını — tailnet kullanıcılarının e-posta adreslerini — public log'a basmaması için),
+   `timeout: 45s` × `retry: "3"` (action'ın varsayılanı 2 dk × 5 ≈ 10 dk bekleyişti; şimdi
+   ≈ 2,5 dk).
+3. *"Gate — the runner joined the tailnet as tag:ci and reaches the cluster API"*
+   (`scripts/verify-deployment.sh tailnet`) — `Self.Tags`'ta **tam** `tag:ci` dizgesi yoksa
+   (yok, `[]`, `tag:cix`, `tag:CI`, `" tag:ci"`, dizi yerine dizge) **kırmızı**;
+   `10.43.0.1:443`'e TCP ile ulaşamazsa (6 deneme × `timeout 5`) **kırmızı**; status
+   okunamıyorsa (CLI yok, boş, bozuk JSON, `NeedsLogin`, `Self` yok) **kırmızı**;
+   ephemeral `false` ya da bildirilmiyorsa **uyarı**. İstemci sürümünü basar; status
+   JSON'unu **hiçbir dalda basmaz** (`TestVerifyDeployment_TheTailnetModeMeasuresTheJoin`).
 
 **(a) `TS_AUTHKEY` — Tailscale auth key'i.** ⚠️ **Etiketi action değil, ANAHTAR belirler**
 — action'ın kaynağından okundu (`src/main.ts`, pinli commit): auth key ile action
@@ -311,14 +321,18 @@ yapmayan bir satır güvence gibi görünürdü); etiketi kapı ölçer. Öneril
 | Süre | **≤ 90 gün** (Tailscale'in üst sınırı) | 🔴 **süre dolunca deploy *"Join the tailnet"*'te düşer** — takvime yaz (backlog T135) |
 
 ```bash
-# Tailscale admin -> Settings -> Keys -> Generate auth key (yukarıdaki özelliklerle), sonra:
-gh secret set TS_AUTHKEY --repo atknatk/tappa      # değer stdin'den / istemden; ekrana basma
+# Tailscale yönetim konsolu: Settings, Keys, Generate auth key. Özellikler yukarıdaki tabloda.
+# Komut değeri gizli bir istemden okur. Anahtarı komut satırına YAZMA, ekrana basma.
+gh secret set TS_AUTHKEY --repo atknatk/tappa
 ```
 
 Tailnet ACL'inde gereken (kullanıcı ekledi, 2026-10-17): `tagOwners`'ta `tag:ci` ve
 `tag:ci` → `10.43.0.1:443` izni. Subnet router'ın `10.43.0.0/16` rotası **onaylı**
-olmalı. ⚠️ Anahtar `tailscale up`'ın **argv**'sine girer (action böyle geçiriyor) —
-sınır **[deploy tailnet'e üçüncü-parti bir action ve süreli bir auth key'le girer]**.
+olmalı. **Tailnet Lock** açıksa yeni düğümler yalnız **önceden imzalanmış** bir anahtarla
+katılabilir — anahtar o durumda imzalanarak üretilir. ⚠️ Anahtar
+`tailscale up`'ın **argv**'sine ve `tailscaled`'in **ortamına** girer (action böyle
+geçiriyor) — sınır **[deploy tailnet'e üçüncü-parti bir action ve süreli bir auth key'le
+girer]** (b).
 
 🔴 **Tailscale OPERATÖRÜNÜN API proxy'si (`*.ts.net`) KULLANILMAZ.** Auth kipinde çalışır:
 bearer token'ı **yok sayıp** isteği Tailscale kimliğiyle taklit eder. Yani deploy,
@@ -329,34 +343,42 @@ neyse onunla konuşurdu — adım 3'teki daraltma anlamsızlaşırdı. Sunucu do
 **(b) `KUBE_CONFIG` — sunucusu `https://10.43.0.1:443`, CA'sı kümenin `kube-root-ca.crt`'si.**
 Bu adres `kubernetes` Service'inin adresidir ve API sunucusunun sertifikası onu kapsar
 (ölçüldü — yukarıda); CA, herhangi bir namespace'teki `kube-root-ca.crt` ConfigMap'inin
-`ca.crt`'sidir.
+`ca.crt`'sidir. Üç blok, **sırayla**; ikinci ile üçüncünün arasında token'ı bir **editörle**
+dosyaya yazarsın. (Blokları tek parça yapıştırmak, token'sız bir kubeconfig'i secret'a
+yazardı — bu yüzden bölündüler.) Bloklar zsh'a yapıştırılmaya uygundur: yorum satırlarında
+tırnak, ters tırnak, yönlendirme ya da `;` yok ve komut satırlarında satır içi yorum yok
+(`TestReadme_TheTailnetStepBlocksPasteIntoZsh`, `zsh -f -i -n` ile ölçer).
 
 ```bash
-# 🔴 ADIM 3'TEKİ ServiceAccount'un TOKEN'IYLA üret, cluster-admin kubeconfig'inle DEĞİL.
-# ⚠️ İstenen süre apiserver'ın üst sınırıyla KIRPILIR ve kubectl bunu bir uyarıyla
-#    söyler ("requested expiration of ..., but the token will expire at ...").
-#    Kırpılmışsa süre dolmadan yenilemek gerekir — takvime yaz, yoksa deploy sessizce
-#    401 almaya başlar.
+# Token adım 3 ile kurulan github-deployer ServiceAccount için üretilir, cluster-admin kimliğiyle DEĞİL.
+# İstenen süre apiserver üst sınırıyla KIRPILABİLİR ve kubectl bunu bir uyarıyla söyler.
+# Kırpıldıysa süre dolmadan yenile ve takvime yaz. Yoksa deploy bir gün 401 almaya başlar.
 kubectl -n tappa create token github-deployer --duration=8760h
-# ...bu token'ı bir kubeconfig'e yaz. SUNUCU tailnet adresi (genel IP DEĞİL -- T134),
-#    CA kümenin kendi kök sertifikası (sır değil). Token argv'ye girmesin diye dosyadan:
+```
+
+```bash
+# Sunucu tailnet adresidir, genel IP DEĞİL. CA kümenin kendi kök sertifikasıdır ve sır değildir.
 kubectl -n tappa get cm kube-root-ca.crt -o jsonpath='{.data.ca\.crt}' > /tmp/tappa-ca.crt
 K=~/.kube/tappa-deployer.config
 kubectl --kubeconfig="$K" config set-cluster tappa --server=https://10.43.0.1:443 \
   --certificate-authority=/tmp/tappa-ca.crt --embed-certs=true
-#    (token'ı `users:` altına `- name: github-deployer` / `user: {token: ...}` olarak bir
-#     editörle yaz; `set-credentials --token=` argv'dir, kullanma)
 kubectl --kubeconfig="$K" config set-context tappa --cluster=tappa --user=github-deployer --namespace=tappa
 kubectl --kubeconfig="$K" config use-context tappa
-#    tailnet'teki bir makineden dene (genel IP'den artık ulaşılmaz):
+```
+
+Şimdi token'ı **editörle** `~/.kube/tappa-deployer.config`'e yaz: `users:` altına
+`- name: github-deployer` ve `user: {token: …}`. `kubectl config set-credentials --token=…`
+**kullanma** — token argv'ye ve kabuk geçmişine girer. Sonra:
+
+```bash
+# Token dosyaya yazıldıktan SONRA. Tailnet içindeki bir makineden dene, genel IP artık kapalı.
+K=~/.kube/tappa-deployer.config
 kubectl --kubeconfig="$K" -n tappa get deploy tappa
-# sonra:
-# ⚠️ `base64 -w0 <dosya>` DEĞİL — bu makinede (BSD/macOS base64) ölçüldü:
-#    `base64 -w0 dosya` -> "base64: invalid argument", rc=64 ve STDOUT BOŞ, yani
-#    boru `gh secret set`'e hiçbir şey vermez ve KUBE_CONFIG BOŞ yazılır. GNU
-#    coreutils'te aynı komut çalışıyor. Aşağıdaki biçim ikisinde de çalışıyor
-#    (ölçüldü, aynı çıktı): -w yok, satır sonlarını `tr` siliyor, girdi stdin'den.
-base64 < ~/.kube/tappa-deployer.config | tr -d '\n' | gh secret set KUBE_CONFIG --repo atknatk/tappa
+# Depo kökünden, deploy ile aynı çevrimdışı denetim. Sunucu, proxy ve TLS denetimi.
+KUBECONFIG="$K" scripts/verify-deployment.sh kubeconfig-server 10.43.0.1 443
+# base64 -w0 KULLANMA. BSD ve macOS base64 onu reddeder, çıktı BOŞ kalır ve secret BOŞ yazılır.
+# Aşağıdaki biçim GNU ve BSD üzerinde aynı çıktıyı verir. Satır sonlarını tr siler.
+base64 < "$K" | tr -d '\n' | gh secret set KUBE_CONFIG --repo atknatk/tappa
 ```
 
 **Bugünkü durum (2026-10-17, ana oturum):** `KUBE_CONFIG` bu biçimde yenilendi —
@@ -369,6 +391,36 @@ verir.
 > yazılıyor. Eğer içindeki kubeconfig cluster-admin ise `01-rbac.yaml`'daki daraltma
 > **hiçbir şeyi sınırlamaz** — cluster-admin bir kimlik Role'ü zaten aşar. Sınır
 > **[kubeconfig'in kimliği doğrulanmadı]**.
+
+**(c) Önerilen sertleştirme — iki secret'ı bir GitHub Environment'a taşı (kullanıcı adımı,
+backlog T135).** `TS_AUTHKEY` ve `KUBE_CONFIG` bugün **depo düzeyinde** secret: depoya
+yazma yetkisi olan biri, bir **dala** bu secret'ları okuyan bir workflow push'layıp
+koşturabilir (dalda `ci.yml` her push'ta koşar; `deploy.yml` yalnız `main`'e bağlı, ama
+secret'lar her workflow'a açık). Öneri: **Settings → Environments → `production`**,
+*Deployment branches* = yalnız `main`; iki secret'ı oraya taşı ve depo düzeyindekileri sil;
+ve `deploy.yml`'in `deploy` işine `environment: production` eklenir. ⚠️ **Sıra önemli ve
+satır tek başına koruma DEĞİL:** depo düzeyindeki secret'lar durdukça her workflow'a açık
+kalırlar (Environment secret'ları onlara eklenir, onları kapatmaz); depo düzeyindekiler
+satırdan **önce** silinirse deploy secret'sız kalır ve ilk adımda düşer. Bu yüzden satır
+bugün `deploy.yml`'e **eklenmedi**: taşıma, silme ve satır aynı turda yapılır.
+
+**(d) İlk deploy'da ölçülecekler (T134'ün kapanış ölçüsü).** `main`'deki ilk deploy
+koşusunun log'unda ve Tailscale yönetim konsolunda:
+
+- *"Join the tailnet"* yeşil. `log-mode: quiet` action'ın *"Resolved Tailscale version"* ve
+  sha256 satırlarını **bastırır**; sürüm kapının özet satırında okunur
+  (`tailnet: tailscale 1.94.2, …`), sha256 uyuşmazlığı ise adımı **düşürür** (action atar) —
+  yani yeşil adım, indirilen arşivin aynı sunucudan alınan digest'le eşleştiği demektir.
+- Kapı satırı `tags tag:ci` ve `cluster API reachable at 10.43.0.1:443 (attempt 1)` basar
+  (`attempt 2+` rotanın geç oturduğunu söyler; bir kez kabul, sürekliyse incelenir).
+- Log'da **hiçbir e-posta adresi ve status JSON'u yok** (koşu log'unda `@` araması).
+- İşin sonundaki *"Post Join the tailnet"* adımında `Failed to logout` **uyarısı yok**
+  (quiet kipte başarı satırı basılmaz; başarısızlık uyarı olarak basılır).
+- Konsolun **Machines** listesinde koşudan sonra `github-*` cihazı **kalmıyor** — anahtar
+  ephemeral değilse bile cihaz ephemeral olabilir (action `tailscaled`'i `--state=mem:` ile
+  başlatır; bunun cihazı ephemeral yapıp yapmadığı **doğrulanamadı**), bu yüzden ölçü
+  konsoldur, varsayım değil. Ephemeral olmayan bir cihaz kalırsa elle silinir ve anahtar
+  ephemeral olarak yeniden üretilir.
 
 **6. İlk deploy.** `main`'e push → `ci` yeşil → `deploy` kendiliğinden koşar.
 Elle: Actions → `deploy` → Run workflow.
@@ -5157,7 +5209,7 @@ Yalnız **adım 2 exit 0** verdiyse **ve** doğrulama (a)(b)(c) temizse.
 `tappa-secrets`'tan **`TAPPA_TAG_KEK_PREVIOUS`'u kaldır**, sonra:
 
 ```bash
-kubectl -n tappa rollout restart deployment/tappa      # sır düzenlemek POD'U YENİDEN BAŞLATMAZ
+kubectl -n tappa rollout restart deployment/tappa      # sır düzenlemek podu YENİDEN BAŞLATMAZ
 kubectl -n tappa rollout status  deployment/tappa --timeout=180s
 ```
 
@@ -6709,14 +6761,31 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     örneklemek, testlerin yeşil olmasına güvenmekten daha bilgilendiricidir.
     ⚠️ **İkinci sıfır kapı, aynı sınıftan ve aynı şekilde sayılıyor:**
     `cmd/rotatekek/script_test.go` yapıştırılabilir blokların yorumlarını tarıyor ama
-    **tüm dosyayı değil, üç dilimi** okuyor ("KEK döndürme", "Plaket encode" ve
-    M8-03'te eklenen "Gözlemlenebilirlik").
-    Ölçüldü: dosyada **50** yapıştırılabilir `bash` bloğu var; **13**'ü döndürme
-    diliminde, **0**'ı encode diliminde, **5**'i gözlemlenebilirlik diliminde, kalan
-    **32**'si taranmıyor ve o 32 blokta **43 yorum satırı** var; bunların **21**'i
-    **26 tehlike isabeti** taşıyor. Taramayı dosyanın tamamına açmak o
-    21 satırı **kırmızıya** çevirirdi — başka kartlara ait bir düzeltme işi; bu yüzden
-    **kapatılmadı, sayıldı**. Kapatan tur, o 21 satırı düzelten turdur.
+    **tüm dosyayı değil, dört dilimi** okuyor ("KEK döndürme", "Plaket encode",
+    M8-03'te eklenen "Gözlemlenebilirlik" ve T134'te eklenen operatör adımı 5).
+    **Yeniden ölçüldü — T134 2. tur, 2026-10-18, güncel tarayıcıyla.** Tarayıcı artık yorum
+    satırlarına **ve** komut sonundaki satır içi yorumlara bakıyor; önceki yalnız `#` ile
+    başlayan satırlara bakıyordu ve adım 5'teki `gh secret set … # değer stdin'den …` satırı
+    tam o kör noktadaydı. Dosyada **114** yapıştırılabilir `bash` bloğu var; **13**'ü
+    döndürme diliminde, **0**'ı encode diliminde, **5**'i gözlemlenebilirlik diliminde,
+    **4**'ü adım 5'te; kalan **92**'si taranmıyor ve o 92 blokta **154** yorum satırı ile
+    satır içi yorum taşıyan **40** komut satırı var; bunların **53**'ü **59 tehlike isabeti**
+    taşıyor (48 yorum satırı / 54 isabet, 5 satır içi yorum / 5 isabet). Taramayı dosyanın
+    tamamına açmak o 53 satırı **kırmızıya** çevirirdi — başka kartlara ait bir düzeltme işi;
+    bu yüzden **kapatılmadı, sayıldı**. Kapatan tur, o 53 satırı düzelten turdur. Taranan
+    dört dilimde isabet **0** (döndürme dilimindeki tek satır içi isabet, `POD'U`, bu turda
+    düzeltildi).
+    ⚠️ **Tarayıcının görmediği ikinci bir sınıf, aynı turda ÖLÇÜLDÜ ve sayıldı:** zsh'ta
+    (`interactive_comments` kapalı) bir `#` satırı **`#` adlı bir komuttur**, yani yorumun
+    içindeki `>`/`<` **dosya yaratır**, `;`/`|` **sonrasını koşturur** (gerçek `zsh -f -i`'de:
+    `# admin -> Settings -> Keys` çalışma dizininde `Settings` ve `Keys` dosyalarını yarattı;
+    `# a; touch X` ve `# b | tee X` koştu). Satır içi yorumun kelimeleri de komutun
+    **argümanı** olur. Genel tarayıcının yasak listesi bunları içermiyor; yalnız adım 5 bunlara
+    karşı tutuluyor (`TestReadme_TheTailnetStepBlocksPasteIntoZsh`: satır içi yorum yok,
+    yorumda yönlendirme/ayraç/tırnak yok, her satır `zsh -f -i -n` ile ayrıştırılıyor). Bu
+    sınıfı (`>`, `<`, `;`, `|`, `&`) taşıyan yorum ya da satır içi yorum satırı: döndürme
+    diliminde **16**, gözlemlenebilirlik diliminde **8**, taranmayan bloklarda **53**;
+    döndürme diliminde ayrıca satır içi yorum taşıyan **15** komut satırı var.
     ⚠️ **BU SAYILAR CANLI — donduruldukları için ölçüm komutları yanlarında duruyor.**
     2. turda **ikisi de yanlıştı**: toplam **45** yazıyordu, ölçüm **50** verdi
     (M8-03 beş blok ekledi); ve *"kalan 32"* yazıyordu, oysa o an yalnız iki dilim
@@ -7004,7 +7073,9 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     2026-10-17; operatör adımı 5 (a). Küme API'si internete kapalı; deploy `10.43.0.1:443`'e
     tailnet üzerinden ulaşır. ✅ **Kapanan:** genel `:6443` artık deploy'un yolu değil;
     runner'ın neyle katıldığı **ölçülüyor** (`tag:ci` yoksa kırmızı) ve API'ye ulaşamazsa
-    kümeye hiçbir şey uygulanmadan duruyor; kubeconfig'in sunucusu `10.43.0.1`'e bağlı.
+    kümeye hiçbir şey uygulanmadan duruyor; kubeconfig'in sunucusu `10.43.0.1`'e bağlı, bir
+    `proxy-url` ya da `insecure-skip-tls-verify: true` taşıyamaz. İki kapı da
+    `scripts/verify-deployment.sh`'in kipleridir ve testleri onları **koşar**.
     ❌ **Kapanmayan, sayılı:**
     (a) **Depodaki tek üçüncü-parti action.** `tailscale/github-action` tam commit SHA'sıyla
     pinli (`TestPackaging_TheDeployReachesTheClusterOnlyThroughTheTailnet` etiketi
@@ -7012,16 +7083,24 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     sha256'yı da aynı sunucudan (`pkgs.tailscale.com`) alır — bozulmayı yakalar, değiştirilmiş
     bir dosyayı değil (`KUBECTL_SHA256`'nın aksine). `version` + `sha256sum` girdileriyle
     pinlemek backlog T135'te.
-    (b) **Anahtar `tailscale up`'ın argv'sinde.** Action anahtarı `--authkey=…` olarak geçirir
-    (`src/main.ts`); `up` koşarken runner'ın süreç tablosunda görünür. GitHub-hosted runner
-    tek işlik bir VM'dir ve action değeri log'da maskeler (`core.setSecret`); okuyucu aynı
-    işin kendi adımlarıdır. Self-hosted runner'a geçilirse bu madde yeniden açılır.
+    (b) **Anahtar `tailscale up`'ın argv'sinde VE `tailscaled`'in ortamında.** Action anahtarı
+    `--authkey=…` olarak geçirir (`src/main.ts`): `up` koşarken runner'ın süreç tablosunda
+    görünür, ve zaman aşımına uğrayan bir `up` **öldürülmez** (action yalnız beklemeyi bırakır).
+    Ayrıca `tailscaled` `sudo -E` ile, action'ın ortamında `INPUT_AUTHKEY` dururken başlatılır:
+    anahtar daemon'un `/proc/<pid>/environ`'unda **işin sonuna kadar** — post adımının
+    `pkill`'ine dek — kalır. Okuyabilen: root, yani bu işin kendi sonraki adımları (runner'da
+    şifresiz `sudo` var). Okuyucu kümesi argv'ninkiyle **aynı** — GitHub-hosted runner tek
+    işlik bir VM — bu yüzden **kabul edildi**; değer log'da maskelenir (runner her `secrets.*`
+    değerini maskeler) ve `log-mode: quiet` action'ın komutlarını sessiz koşturur.
+    Self-hosted runner'a geçilirse bu madde yeniden açılır.
     (c) **Ephemeral olup olmadığı runner'dan ölçülemiyor.** tailscale v1.94.2'nin
     `status --json` çıktısında böyle bir alan yok (`ipnstate.PeerStatus`); kapı bunu
     **uyarı** olarak söyler. Ephemeral değilse her deploy Machines'te bir `github-*` cihazı
     bırakabilir — action'ın post adımı `tailscale logout` koşar (düğüm anahtarını geçersiz
     kılar), ama ephemeral olmayan bir cihazın kaydının konsolda kalıp kalmadığı **ölçülmedi**.
-    İlk deploy'dan sonra admin konsolunda bakılır.
+    Action `tailscaled`'i `--state=mem:` ile başlatır; bu, cihazı anahtardan **bağımsız**
+    ephemeral yapıyor olabilir — **doğrulanamadı**. Ölçü bu yüzden konsoldur: **ilk deploy
+    sonrası admin konsolunda ölçülür** (operatör adımı 5 (d); backlog T134'ün kapanış ölçüsü).
     (d) **Anahtar süreli (≤ 90 gün) ve token 365 gün.** İkisi de dolunca deploy **kümeye
     dokunmadan** düşer (*"Join the tailnet"* ya da ilk küme çağrısında `401`) — yani zarar
     değil, kesinti. Yenileme tarihleri backlog T135'te; değerler hiçbir yere yazılmaz.
@@ -7029,3 +7108,8 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     (kullanıcı 2026-10-17'de `tag:ci` → `10.43.0.1:443` yazdı); daha geniş bir kural
     eklenirse runner o kadarına ulaşır ve kapı bunu **görmez** — yalnız `10.43.0.1:443`'ün
     açık olduğunu ölçer.
+    (f) **`TS_AUTHKEY` ve `KUBE_CONFIG` depo düzeyinde secret.** Depoya yazabilen biri, bir
+    dala bu iki secret'ı okuyan bir workflow push'layıp koşturabilir. Çare bir kullanıcı
+    adımıdır — yalnız `main`'e açık bir `production` Environment'ı, iki secret'ın oraya
+    taşınması ve `environment: production` satırı, aynı turda (operatör adımı 5 (c),
+    backlog T135).
