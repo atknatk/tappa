@@ -325,9 +325,72 @@ func TestWebhookRetention_TheClockIsTheDatabases(t *testing.T) {
 }
 
 // TestWebhookRetention_TheBatchIsBounded: with 105 settled rows past 90 days, one sweep deletes 100 --
-// the OLDEST 100 (it walks settled_at) -- the next the last 5, the third none.
+// the OLDEST 100 (it walks settled_at) -- the next the last 5, the third none. Under the planner's own
+// choice AND under a forced rescanning loop (retentionRescanPlan), and the shipped statement keeps
+// its MATERIALIZED batch.
+//
+// 🔴 PLAN-INDEPENDENT (T130 fix round 1). The batch's trap -- `id IN (SELECT ... LIMIT n FOR UPDATE
+// SKIP LOCKED)` deleting more than n -- springs only when the planner RESCANS the subquery (the inner
+// side of a nested loop semi join, not materialized): each rescan skips the rows the statement
+// already deleted and its LIMIT takes the next ones. On this test's 105 rows the planner happens to
+// pick that loop, but the first round's audit measured a Hash Semi Join on a million rows -- the
+// subquery run once, 100 deleted, the old shape green. So the count is asserted under both plans, and
+// the MATERIALIZED keyword is pinned in the bytes the product sends: the count proves the bound, the
+// keyword the reason for it.
+//
+// MUTANTS (measured, fix round 1): the shipped statement rewritten to the IN shape -> 105 under both
+// plans, red (4 runs of 4); the same mutant with the nested loop priced out instead (enable_nestloop
+// = off: a hash semi join, the large table's plan) deletes 100 -- green, which is why the forced run
+// exists; MATERIALIZED removed from webhooks.sql -> the keyword pin, red.
 func TestWebhookRetention_TheBatchIsBounded(t *testing.T) {
+	if stmt := shippedWebhookSQL(t, "deleteSettledWebhookDeliveries"); !strings.Contains(stmt, "WITH doomed AS MATERIALIZED (") {
+		t.Errorf("the sweep's statement lost its MATERIALIZED batch:\n%s", stmt)
+	}
+	// One opTx for the test (the tables lock is taken once per test: cmd/opadmin
+	// TestTablesLock_IsTakenOncePerTestTree); each plan runs in a savepoint of its own, rolled back --
+	// its SET LOCALs and its rows with it.
 	ctx, tx := opTx(t)
+	for _, plan := range []struct {
+		name string
+		gucs []string
+	}{
+		{"the planner's choice", nil},
+		{"a forced nested loop", retentionRescanPlan},
+	} {
+		retentionBatchBounded(t, ctx, tx, plan.name, plan.gucs)
+	}
+}
+
+// retentionRescanPlan prices out every plan but the one the IN-subquery batch overshoots under: a
+// nested loop semi join whose inner side is the subquery, RESCANNED for each outer row -- no hash or
+// merge join, no hash aggregate or sort to unique-ify the subquery once on the outer side, no
+// Materialize to replay one run of it -- and whose outer side is an index walk, not a heap scan, so
+// its order is the key's and not wherever free space put the rows (a heap order varied between runs
+// and with it the overshoot: measured on DeleteExpiredIdempotency, red in some runs only without
+// these two and enable_material).
+// TestApiIdempotency_TheLazyDeleteIsBounded uses it too.
+var retentionRescanPlan = []string{
+	`SET LOCAL enable_hashjoin = off`, `SET LOCAL enable_mergejoin = off`, `SET LOCAL enable_hashagg = off`,
+	`SET LOCAL enable_sort = off`, `SET LOCAL enable_material = off`, `SET LOCAL enable_seqscan = off`,
+	`SET LOCAL enable_bitmapscan = off`,
+}
+
+func retentionBatchBounded(t *testing.T, ctx context.Context, outer pgx.Tx, plan string, gucs []string) {
+	t.Helper()
+	tx, err := outer.Begin(ctx)
+	if err != nil {
+		t.Fatalf("%s: savepoint: %v", plan, err)
+	}
+	defer func() {
+		if err := tx.Rollback(ctx); err != nil {
+			t.Fatalf("%s: rollback to savepoint: %v", plan, err)
+		}
+	}()
+	for _, g := range gucs {
+		if _, err := tx.Exec(ctx, g); err != nil {
+			t.Fatalf("%s: %s: %v", plan, g, err)
+		}
+	}
 	w := retentionWorld(t, ctx, tx)
 	ids := retentionTaps(t, ctx, tx, w, w.kf, 105)
 	for i, id := range ids {
@@ -349,18 +412,19 @@ func TestWebhookRetention_TheBatchIsBounded(t *testing.T) {
 		return n
 	}
 	if n := sweep(); n != 100 {
-		t.Fatalf("the first sweep deleted %d rows, want the batch of 100", n)
+		t.Errorf("%s: the first sweep deleted %d rows, want the batch of 100", plan, n)
+		return // the next plan is still measured
 	}
 	for i, id := range ids {
 		if left := retentionLeft(t, ctx, tx, id); left != (i >= 100) {
-			t.Errorf("row %d (the %d-th oldest): left=%v -- the batch is not the oldest first", i, i+1, left)
+			t.Errorf("%s: row %d (the %d-th oldest): left=%v -- the batch is not the oldest first", plan, i, i+1, left)
 		}
 	}
 	if n := sweep(); n != 5 {
-		t.Errorf("the second sweep deleted %d rows, want the last 5", n)
+		t.Errorf("%s: the second sweep deleted %d rows, want the last 5", plan, n)
 	}
 	if n := sweep(); n != 0 {
-		t.Errorf("the third sweep deleted %d rows, want none", n)
+		t.Errorf("%s: the third sweep deleted %d rows, want none", plan, n)
 	}
 }
 
@@ -411,14 +475,20 @@ func TestWebhookRetention_TheFeedAndTheRecordsAreUntouched(t *testing.T) {
 // the bytes the product sends.
 func shippedWebhookSQL(t *testing.T, name string) string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("..", "store", "webhooks.sql.go"))
+	return shippedStoreSQL(t, "webhooks.sql.go", name)
+}
+
+// shippedStoreSQL is the text sqlc generated for one statement in internal/store/<file>.
+func shippedStoreSQL(t *testing.T, file, name string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("..", "store", file))
 	if err != nil {
 		t.Fatal(err)
 	}
 	src, head := string(b), "const "+name+" = `"
 	i := strings.Index(src, head)
 	if i < 0 {
-		t.Fatalf("no %s in internal/store/webhooks.sql.go", name)
+		t.Fatalf("no %s in internal/store/%s", name, file)
 	}
 	rest := src[i+len(head):]
 	return rest[:strings.Index(rest, "`")]
@@ -503,6 +573,19 @@ func TestWebhookRetention00058And00059_DownGiveBackAndUpTakesItAgain(t *testing.
 		t.Fatalf("PREMISE at HEAD: %s", head)
 	}
 	holdingLockedSavepoint(t, tx, func(sp pgx.Tx) {
+		// 🔴 TRUNCATE FIRST (T130 fix round 1; 82be583's and 437df0a's shape). opTx is REPEATABLE READ
+		// and its snapshot is this test's first query, taken BEFORE the savepoint's locks: a pending
+		// delivery that another package (internal/egress's worker tests, run in parallel) settled in
+		// between is a row 00058 Up's `UPDATE ... WHERE state = 'pending'` meets as concurrently
+		// updated -- 40001 (measured beside a running worker: 1 run in 6 red; the first round's audit
+		// 3 in 5). TRUNCATE empties the table whatever the snapshot, under the ACCESS EXCLUSIVE the
+		// savepoint already holds (no key references webhook_deliveries, it has no TRUNCATE trigger),
+		// so the Up meets only this test's own rows; rolled back with the savepoint. READ COMMITTED
+		// would also do, but opTx is every operator test's, and this test reads its catalogue
+		// surface before and after under one snapshot.
+		if _, err := sp.Exec(ctx, `TRUNCATE webhook_deliveries`); err != nil {
+			t.Fatalf("set the deliveries aside: %v", err)
+		}
 		w := retentionWorld(t, ctx, sp)
 		ids := retentionTaps(t, ctx, sp, w, w.kf, 2)
 		retentionForge(t, ctx, sp, ids[0], "delivered", "3 days")

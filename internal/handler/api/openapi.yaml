@@ -749,8 +749,9 @@ webhooks:
         again from the panel. Every try of one delivery carries the same `deliveryId` and the same
         bytes. A punch can arrive more than once and in any order: deduplicate by `id` + `version`.
         The feed is the record: punches recorded while the endpoint was off are never delivered.
-        The panel keeps a delivery for 90 days after it arrived or failed, then deletes it (a failed one
-        can be sent again until then); a delivery still waiting is never deleted.
+        The panel shows a delivery for 90 days after it arrived or failed and never after; it is
+        deleted at a later run of the business's deliveries (a failed one can be sent again until the
+        90 days end); a delivery still waiting is never deleted.
       x-retry-schedule-seconds: [60, 300, 1800, 7200, 21600]
       x-delivery-retention-days: 90
       parameters:

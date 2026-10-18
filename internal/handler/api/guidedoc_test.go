@@ -1018,7 +1018,8 @@ func TestGuide_TheExamplePunchesAreOutsideTheRepeatWindow(t *testing.T) {
 
 // TestGuide_TheDeliveryLogKeepsWhatTheSweepKeeps (T130): §9.6 says, in both languages, that the
 // owner's list keeps a delivery for delivery.RetentionDays after it settled and never deletes a
-// waiting one -- the sweep's and the log's number.
+// waiting one -- the sweep's and the log's number; and (fix round 1) that the list never shows it
+// after the window while the deletion itself is a later run's.
 //
 // MUTANT (measured, T130): RetentionDays = 30 -> red in both guides.
 func TestGuide_TheDeliveryLogKeepsWhatTheSweepKeeps(t *testing.T) {
@@ -1027,12 +1028,19 @@ func TestGuide_TheDeliveryLogKeepsWhatTheSweepKeeps(t *testing.T) {
 		d          mdDoc
 		says, kept string
 	}{
-		{en, fmt.Sprintf("keeps a delivery for **%d days** after it arrived or was marked failed", delivery.RetentionDays), "still waiting is never deleted"},
-		{tr, fmt.Sprintf("**%d gün** tutar", delivery.RetentionDays), "Hâlâ bekleyen bir teslim asla silinmez"},
+		{en, fmt.Sprintf("keeps a delivery for **%d days** after it arrived or was marked failed and never shows it after that", delivery.RetentionDays), "still waiting is never deleted"},
+		{tr, fmt.Sprintf("**%d gün** tutar ve ondan sonra hiç göstermez", delivery.RetentionDays), "Hâlâ bekleyen bir teslim asla silinmez"},
 	} {
 		section := collapse.ReplaceAllString(c.d.section("webhook-retries"), " ")
 		if !strings.Contains(section, c.says) || !strings.Contains(section, c.kept) {
 			t.Errorf("%s section 9.6 does not say %q and %q", c.d.name, c.says, c.kept)
+		}
+		// T130 fix round 1: the deletion is the sweep's -- a later run of the business's deliveries --
+		// not the 90th day; the guide must not promise the row is gone at the window's end.
+		for _, wrong := range []string{"then it is deleted", "sonra silinir"} {
+			if strings.Contains(section, wrong) {
+				t.Errorf("%s section 9.6 says %q: the deletion is a later run's, the window is the list's", c.d.name, wrong)
+			}
 		}
 	}
 }

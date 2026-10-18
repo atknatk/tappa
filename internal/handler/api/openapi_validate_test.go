@@ -1317,6 +1317,19 @@ func TestOpenAPI_TheWebhooksAreTheSenders(t *testing.T) {
 	if v, _ := yat(doc, "webhooks", "punch", "post", "x-delivery-retention-days"); v != float64(delivery.RetentionDays) {
 		t.Errorf("the documented delivery retention %v days, the sweep's %d (T130)", v, delivery.RetentionDays)
 	}
+	// The description's own number is the sweep's too (T130 fix round 1: it was hand-written beside the
+	// extension, and RetentionDays = 9 left it saying 90). Every number of days the sentence names is
+	// RetentionDays -- the window and its end.
+	desc, _ := yat(doc, "webhooks", "punch", "post", "description")
+	text := strings.Join(strings.Fields(fmt.Sprint(desc)), " ")
+	if want := fmt.Sprintf("The panel shows a delivery for %d days after it arrived or failed and never after", delivery.RetentionDays); !strings.Contains(text, want) {
+		t.Errorf("the punch webhook's description does not say %q", want)
+	}
+	for _, m := range regexp.MustCompile(`(\d+) days`).FindAllStringSubmatch(text, -1) {
+		if m[1] != strconv.Itoa(delivery.RetentionDays) {
+			t.Errorf("the punch webhook's description names %s days, the sweep keeps %d", m[1], delivery.RetentionDays)
+		}
+	}
 	if v, _ := yat(doc, "components", "schemas", "PunchDelivery", "properties", "event", "enum", "0"); v != delivery.EventPunch {
 		t.Errorf("the documented event %v, the sender's %q", v, delivery.EventPunch)
 	}

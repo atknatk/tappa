@@ -8,10 +8,13 @@ package db
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/atknatk/tappa/internal/store"
 )
 
 const op00052File = "00052_create_api_idempotency.sql"
@@ -225,4 +228,104 @@ func TestApiIdempotency00052_DownGivesBackAndUpTakesItAgain(t *testing.T) {
 			t.Fatal("the table is not back with FORCE ROW LEVEL SECURITY")
 		}
 	})
+}
+
+// TestApiIdempotency_TheLazyDeleteIsBounded: with 105 of a key's ledger rows older than 24 hours and
+// one younger, one lazy delete removes 100 -- the OLDEST 100 -- the next the last 5, the third none,
+// and the young row stays. Under the planner's choice AND a forced rescanning loop
+// (retentionRescanPlan, webhookretention_test.go), and the shipped statement keeps its MATERIALIZED
+// batch. The idempotency keys are zero-padded so the primary key's order is the age order: the
+// forced plan's outer walk then meets the oldest rows first, the order the overshoot needs.
+//
+// 🔴 A FIX (T130 fix round 1; the T130 builder's side finding, both auditors measured it): the
+// statement was `(tenant_id, key_id, idem_key) IN (SELECT ... LIMIT 100 FOR UPDATE SKIP LOCKED)`, the
+// shape T130 measured deleting 105 of 105 for a limit of 100 -- every rescan of the subquery skips
+// the rows this statement already deleted and its LIMIT takes the next ones. Only expired rows of the
+// requesting tenant were ever reached (the subquery's own WHERE), so the harm was the bound -- one
+// request's locks and WAL -- not a wrong row. Same cure as the sweep's
+// (TestWebhookRetention_TheBatchIsBounded): the batch is a MATERIALIZED CTE, computed once.
+//
+// MUTANT (measured, fix round 1): the IN shape back in internal/store -> the forced run removes 105,
+// red (6 runs of 6), and the keyword pin red; under the planner's choice alone it was red in some
+// runs only (the heap order) -- the reason for the forced run.
+func TestApiIdempotency_TheLazyDeleteIsBounded(t *testing.T) {
+	if stmt := shippedStoreSQL(t, "apiidempotency.sql.go", "deleteExpiredIdempotency"); !strings.Contains(stmt, "WITH doomed AS MATERIALIZED (") {
+		t.Errorf("the lazy delete lost its MATERIALIZED batch:\n%s", stmt)
+	}
+	// One opTx for the test (the tables lock is taken once per test: cmd/opadmin
+	// TestTablesLock_IsTakenOncePerTestTree); each plan runs in a savepoint of its own, rolled back --
+	// its SET LOCALs and its rows with it.
+	ctx, tx := opTx(t)
+	for _, plan := range []struct {
+		name string
+		gucs []string
+	}{
+		{"the planner's choice", nil},
+		{"a forced nested loop", retentionRescanPlan},
+	} {
+		idemLazyDeleteBounded(t, ctx, tx, plan.name, plan.gucs)
+	}
+}
+
+func idemLazyDeleteBounded(t *testing.T, ctx context.Context, outer pgx.Tx, plan string, gucs []string) {
+	t.Helper()
+	tx, err := outer.Begin(ctx)
+	if err != nil {
+		t.Fatalf("%s: savepoint: %v", plan, err)
+	}
+	defer func() {
+		if err := tx.Rollback(ctx); err != nil {
+			t.Fatalf("%s: rollback to savepoint: %v", plan, err)
+		}
+	}()
+	for _, g := range gucs {
+		if _, err := tx.Exec(ctx, g); err != nil {
+			t.Fatalf("%s: %s: %v", plan, g, err)
+		}
+	}
+	w := newAPIKeyWorld(t, ctx, tx)
+	key := w.addKey(t, ctx, tx, "lazy", randHash(t))
+	// e-1 the oldest (25 hours and 105 minutes back), then one minute younger each; y the young one.
+	if _, err := tx.Exec(ctx, `INSERT INTO api_idempotency (tenant_id, key_id, idem_key, request_hash, status, created_at)
+	                           SELECT $1::uuid, $2::uuid, 'e-' || lpad(i::text, 3, '0'), $3, 201, now() - interval '25 hours' - (106 - i) * interval '1 minute'
+	                             FROM generate_series(1, 105) AS i
+	                           UNION ALL SELECT $1, $2, 'y', $3, 201, now() - interval '23 hours'`, w.tenant, key, randHash(t)); err != nil {
+		t.Fatal(err)
+	}
+	sweep := func() int64 {
+		t.Helper()
+		var n int64
+		if err := idemAs(t, ctx, tx, w.tenant, func(sp pgx.Tx) error {
+			var err error
+			n, err = store.New(sp).DeleteExpiredIdempotency(ctx, w.tenant)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	left := func(where string) int64 {
+		t.Helper()
+		var n int64
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM api_idempotency WHERE tenant_id = $1 AND `+where, w.tenant).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if n := sweep(); n != 100 {
+		t.Errorf("%s: the first lazy delete removed %d rows, want the batch of 100", plan, n)
+		return // the next plan is still measured
+	}
+	if old, young := left(`idem_key ~ '^e-(0[0-9][0-9]|100)$'`), left(`idem_key ~ '^e-10[1-5]$'`); old != 0 || young != 5 {
+		t.Errorf("%s: after the first: %d of the 100 oldest and %d of the 5 youngest expired rows left, want 0 and 5", plan, old, young)
+	}
+	if n := sweep(); n != 5 {
+		t.Errorf("%s: the second lazy delete removed %d rows, want the last 5", plan, n)
+	}
+	if n := sweep(); n != 0 {
+		t.Errorf("%s: the third lazy delete removed %d rows, want none", plan, n)
+	}
+	if n := left(`idem_key = 'y'`); n != 1 {
+		t.Errorf("%s: the 23-hour row: %d left, want 1", plan, n)
+	}
 }

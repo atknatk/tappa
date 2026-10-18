@@ -1600,6 +1600,12 @@ type Querier interface {
 	// It runs in a short transaction of its own (internal/apikey, Writes.Run): inside a write's
 	// transaction its locks lived as long as the write and two writes deadlocked on each other's swept
 	// rows (measured, API-4 review D1).
+	// 🔴 THE BATCH IS A MATERIALIZED CTE (T130 fix round 1), NOT `(...) IN (SELECT ... LIMIT 100 FOR
+	// UPDATE SKIP LOCKED)`: that shape deleted 105 of 105 under a nested loop semi join -- every rescan
+	// of the subquery skips the rows this statement already locked and its LIMIT takes the next ones (the
+	// trap webhooks.sql's sweep measured first). Every row it reached was still an expired row of this
+	// tenant; the loss was the bound. Materialized, the candidate list is computed once
+	// (internal/db TestApiIdempotency_TheLazyDeleteIsBounded, under a forced nested loop too).
 	DeleteExpiredIdempotency(ctx context.Context, tenantID uuid.UUID) (int64, error)
 	// apiidempotency.sql -- the integration API's Idempotency-Key ledger (M11 API-4, ADR 0028 §8;
 	// migration 00052). internal/apikey's Writes.Run is the one caller.

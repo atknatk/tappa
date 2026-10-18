@@ -1046,9 +1046,10 @@ address or your answer's text) — and can send a waiting or failed delivery aga
 now** (a failed one gets one more try). The failure classes are `timeout`, `tls`, `refused`,
 `http_4xx`, `http_5xx` and `blocked_address`.
 
-The list keeps a delivery for **90 days** after it arrived or was marked failed; then it is
-deleted, and a failed one can no longer be sent again. A delivery that is still waiting is never
-deleted. The punch itself stays in the feed.
+The list keeps a delivery for **90 days** after it arrived or was marked failed and never shows it
+after that; it is deleted at a later run of your business's deliveries, and a failed one can no
+longer be sent again. A delivery that is still waiting is never deleted. The punch itself stays in
+the feed.
 
 <a id="webhook-duplicates"></a>
 ### 9.7 Duplicates and order

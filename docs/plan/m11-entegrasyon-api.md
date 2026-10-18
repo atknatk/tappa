@@ -754,7 +754,12 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
    birlikte `webhook_deliveries`'in `delivered`/`dead` satırlarının saklama süresi (T130 — 2026-10-16: DPA kararına bırakıldı,
    şimdilik silme yok).
    **T130 kapandı (kullanıcı kararı 2026-10-18):** `webhook_deliveries`'in `delivered`/`dead` satırları yerleştikten **90 gün** sonra
-   silinir, bekleyen asla (`00058`, `00059`; ADR 0028 *"T130 uygulama notu"*) — DPA notuna: *"webhook teslim günlüğü 90 gün"*.
+   silinir, bekleyen asla (`00058`, `00059`; ADR 0028 *"T130 uygulama notu"*). DPA notuna (düzeltme turu 1'de kesinleşti):
+   *"Webhook teslim günlüğü: ulaşmış ya da başarısız sayılmış bir teslim, o andan **90 gün** sonra panelde ve 'Send again now'da
+   görünmez olur ve silinmeye uygun hâle gelir; silme işletmenin bir sonraki teslim turunda koşar (süreç başına saatte en çok bir
+   kez) — işletmenin teslim işi yeniden koşmadıkça (yeni bir etkinlik ya da bekleyen bir teslimin yeniden denemesi) satır
+   veritabanında kalır, ama panel 90 günden eskiyi hiçbir zaman göstermez.
+   Bekleyen bir teslim asla silinmez. Entegrasyon API'sinde teslim günlüğünü okuyan bir uç yoktur."*
    `site_punches`'ın saklama süresi açık kalır (bu maddenin geri kalanı).
 6. ~~Canlı ön koşul: OP-15.~~ Kalktı (2026-10-17, *"M11 şimdi çıksın"* — API-13b); OP-15 sonra `00058` olarak.
 

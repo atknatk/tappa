@@ -2631,8 +2631,9 @@ olay, sonuç, sonraki vade, günlük, yeniden gönderim kilidi, yeniden gönderi
 11. **Saklama — DPA kararına bırakıldı (kullanıcı kararı, 2026-10-16); şimdilik silme yok.** `delivered` ve `dead` satırları
     birikir (bir punch'ın hedefi başına bir satır; `tappa_app`'te DELETE yok). Ne kadar tutulacağı DPA'nın saklama sorusudur ve
     `site_punches`'ın saklama süresiyle **birlikte** DPA notunda karara bağlanır (plan §7 madde 5): backlog **T130**. Bekleyen bir teslimin de ömrü yok (madde 2: kapı kapalı kaldıkça bekler).
-    → **Kapandı (T130, kullanıcı kararı 2026-10-18):** `delivered`/`dead` satırları yerleştikten **90 gün** sonra silinir,
-    bekleyen asla; `site_punches` ayrı kalır. Ayrıntı *"T130 uygulama notu"*.
+    → **Kapandı (T130, kullanıcı kararı 2026-10-18):** `delivered`/`dead` satırları yerleştikten **90 gün** sonra panelde görünmez
+    ve silinmeye uygun olur (silme işletmenin bir sonraki teslim turunda), bekleyen asla; `site_punches` ayrı kalır. Ayrıntı
+    *"T130 uygulama notu"* (madde 13h).
 
 **Ölçümler ve mutantlar** (atılabilir kapta, her biri tek başına uygulandı, ilgili test tek başına koşuldu, geri alındı): kira
 lease koşulsuz → `TwoPodsSendOnce` kırmızı (bir teslim 8 kez geldi); `SKIP LOCKED`'sız → `TwoPodsSendOnce` **yeşil** — güvenlik
@@ -3579,7 +3580,7 @@ ayrılmıştı ama yazılmamıştı — ana oturumun kararıyla T130 aldı, OP-1
 10. **Redline R5b muafiyeti.** `00058`'in Down'ı kendi kısıtlayıcı politikasını siler; R5b her `drop policy`'i FAIL sayar. Kısıtlayıcı
     bir politikayı silmek erişimi genişletir — fiil varsa: Down politikadan **önce** `tappa_app`'in DELETE'ini geri alır. Muafiyet tam
     ifade + dosya adı + aynı Down'da önce gelen REVOKE şartıyla dar ve her taramada WARN olarak basılır (mutant: REVOKE sonra ya da
-    yok → FAIL).
+    yok → FAIL). *(Düzeltme turu 1'de daraltıldı: yalnız Down, beyaz listeli önek, Down'da `grant` yok — madde 13b.)*
 11. **Mutantlar (ölçüldü, her biri tek başına, kendi kabında, geri alındı):** sorgunun durum koşulu kaldırıldı → `TheQueryAlone…` ve
     plan pini kırmızı; sorgunun sınırı 9 gün → `TheQueryAlone…` kırmızı; sorgunun iç tenant yüklemi totoloji → kemer
     (`TestWebhookQueries_CarryAnExplicitTenantPredicate`) ve plan pini kırmızı (dış `tenant_id` yüklemi silmeyi işletmeye yine
@@ -3592,6 +3593,32 @@ ayrılmıştı ama yazılmamıştı — ana oturumun kararıyla T130 aldı, OP-1
     kırmızı (panelin cümlesi sabitten üretilir — o mutantı panel testi bilerek görmez); günlüğün ya da yeniden göndermenin pencere
     koşulu kaldırıldı → `TheLogAndTheResendSeeTheWindow` kırmızı; redline muafiyetinde REVOKE politikadan sonra ya da hiç → R5b FAIL.
 12. **Kapsam dışı / adlandırılmış bedeller.** `site_punches`'ın saklaması (DPA notu); hiç bildirilmeyen işletmenin satırları (madde
-    5); `DeleteExpiredIdempotency`'nin parti sınırı (madde 6, ayrı iş); `00059`'un ~1,5 M satır üstünde `CONCURRENTLY` gereği (deploy
-    kuralı).
+    5); ~~`DeleteExpiredIdempotency`'nin parti sınırı (madde 6, ayrı iş)~~ — düzeltme turu 1'de kapandı (madde 13); `00059`'un
+    ~1,5 M satır üstünde `CONCURRENTLY` gereği (deploy kuralı).
+13. **Düzeltme turu 1 (2026-10-18; iki mercek RED, aynı tek ORTA).** (a) **ORTA — bağlantı birikimi:** egress test dünyasının
+    `owner()`'ı her çağrıda yeni bir sahip bağlantısı açıp test sonuna kadar tutuyordu (`exec` de onun üstünde); `AFullBatch…` ~100
+    yaşlandırmayla `max_connections=100`'ü doldurdu (`53300`, yalnız başına her koşuda) ve paralel koşan `internal/domain/tenant`
+    testlerini de düşürdü — madde 11'in *"dolu parti saati kurar"* mutantı bu yüzden ölçülemedi. Çare: dünya başına **tek** sahip
+    havuzu (`pgxpool`, en çok 4 bağlantı, ilk kullanımda açılır, testle kapanır). Ölçüldü: tepe istemci bağlantısı (örnekleyici
+    dahil) önce 97 → sonra 3; mutant artık kırmızı. (b) **R5b muafiyeti** yalnız Down'a bakar; Up'taki her `drop policy` FAIL;
+    Down'da politikadan önceki ifadeler tam olarak `set local lock_timeout` + `revoke delete … from tappa_app` (beyaz liste) ve Down'un
+    hiçbir yerinde `grant` yok. Geçen üç mutant (W6 Up'ta silme, W7 aradaki GRANT, W10 PUBLIC'e GRANT) ve komşuları (şema çapında
+    GRANT, DROP'tan sonra GRANT, araya DO bloğu, REVOKE'suz, REVOKE sonra, çift DROP, başka dosya adı) artık FAIL —
+    `cmd/tappa` `TestRedline_R5bWaiverIsThe00058DownAlone` (eski betikte bu vakalardan yedisi exit 0'dı). (c) **`DownGiveBack…`
+    kararsızlığı:** REPEATABLE READ anlık görüntüsü kilitlerden önce; paralel bir yazıcının dokunduğu bekleyen satır `00058` Up'ın
+    `UPDATE … WHERE state = 'pending'`'inde `40001`. Çare emsalin (`82be583`/`437df0a`) biçimi: kilitli savepoint'te önce
+    `TRUNCATE webhook_deliveries`. Bekleyen satırları sıkı döngüde yeniden yazan bir yazıcının yanında: eski 10/10 kırmızı, yeni
+    10/10 yeşil. (d) **Politika pini** USING'i `pg_policies.qual`'dan **tam eşitlikle** okur (boşluk normalize), `WITH CHECK` yok,
+    roller `{public}`; `… OR settled_at IS NULL` mutantı (F1) kırmızı. (e) **Parti testi plandan bağımsız:** `TheBatchIsBounded`
+    planlayıcının seçimi **ve** zorlanmış yeniden-tarayan döngü altında (hash/merge join, hash aggregate, sort, materialize,
+    seq/bitmap scan kapalı — iç taraf alt sorgu, dış taraf indeks yürüyüşü) koşar ve `MATERIALIZED` anahtar sözcüğü sevk edilen metinde
+    pinlidir. Ölçüldü: eski `IN` biçimi `enable_nestloop = off` (büyük tablonun hash semi join'i) altında 100 siliyor — yeşil, ilk
+    turun testinin göremediği; zorlanmış planda 105 — kırmızı. (f) **`DeleteExpiredIdempotency`** aynı `WITH doomed AS MATERIALIZED`
+    biçimine geçti; `TestApiIdempotency_TheLazyDeleteIsBounded` (iki plan, sıfır dolgulu anahtarlar: birincil anahtar sırası = yaş
+    sırası). Eski biçim zorlanmış planda 6/6 kırmızı (105), planlayıcının seçiminde yalnız bazı koşularda (yığın sırasına bağlı).
+    (g) **OpenAPI açıklamasının günü** sabitle pinli: cümle `RetentionDays`'ten kurulur ve açıklamadaki her *"N days"* o sayıdır
+    (mutantlar: `RetentionDays = 9`, metinde `30 days` → kırmızı). (h) **DPA cümlesi kesinleşti:** silme 90. günde değil, işletmenin
+    bir sonraki teslim turunda koşar; panel ve *Send again now* 90 günden eskiyi hiçbir zaman göstermez (madde 7); entegrasyon API'sinde
+    teslim günlüğü okuması yok. Rehber §9.6 (EN+TR) ve OpenAPI cümlesi buna göre; rehber testi *"then it is deleted"*/*"sonra
+    silinir"* sözünü de reddeder. Plan §7 madde 5'teki DPA cümlesi bu anlamda.
 

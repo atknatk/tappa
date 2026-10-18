@@ -40,6 +40,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
@@ -163,6 +164,13 @@ type world struct {
 
 	mu    sync.Mutex
 	names map[string]func(n int) []netip.Addr
+
+	// own is the world's one owner pool, opened on first use and closed with the test. A connection
+	// per owner() call, closed only at the test's end, held one server slot per call: T130's
+	// full-batch test ages 101 rows and reached max_connections (53300 too many clients), failing the
+	// packages that ran beside it.
+	ownOnce sync.Once
+	own     *pgxpool.Pool
 }
 
 func randHex(t *testing.T, n int) string {
@@ -195,14 +203,31 @@ func appDB(t *testing.T, appName string) *db.DB {
 	return d
 }
 
-func (w *world) owner() *pgx.Conn {
+// ownerConns bounds the world's owner pool: no helper holds more than one owner connection at a time,
+// and a test's goroutines that reach the owner are few -- a wait here is a test's, never a server slot.
+const ownerConns = 4
+
+func (w *world) owner() *pgxpool.Pool {
 	w.t.Helper()
-	c, err := pgx.Connect(w.ctx, os.Getenv("DATABASE_MIGRATE_URL"))
+	var err error
+	w.ownOnce.Do(func() {
+		var cfg *pgxpool.Config
+		if cfg, err = pgxpool.ParseConfig(os.Getenv("DATABASE_MIGRATE_URL")); err != nil {
+			return
+		}
+		cfg.MaxConns, cfg.MinConns = ownerConns, 0
+		if w.own, err = pgxpool.NewWithConfig(w.ctx, cfg); err != nil {
+			return
+		}
+		w.t.Cleanup(w.own.Close)
+	})
 	if err != nil {
-		w.t.Fatalf("owner connect: %v", err)
+		w.t.Fatalf("owner pool: %v", err)
 	}
-	w.t.Cleanup(func() { _ = c.Close(context.Background()) })
-	return c
+	if w.own == nil {
+		w.t.Fatal("owner pool: not opened")
+	}
+	return w.own
 }
 
 func (w *world) exec(sql string, args ...any) {

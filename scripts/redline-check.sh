@@ -1233,21 +1233,40 @@ for f in db/migrations/*.sql; do
   # 🔴 TEK MUAFIYET (T130, 2026-10-18): 00058'in Down'i kendi KISITLAYICI (RESTRICTIVE) DELETE
   # politikasini siler. Kisitlayici bir politikayi silmek erisimi DARALTMAZ, GENISLETIR -- ama yalniz
   # fiil hala varsa: ayni Down, politikadan ONCE `tappa_app`'in DELETE'ini geri alir, yani Down'dan
-  # sonra o fiil yoktur ve tablo 00048'in hâline doner. Muafiyet TAM ifade + TAM dosya adi oneki +
-  # ayni Down'da DAHA ONCE gelen REVOKE sartiyla dar; her taramada WARN olarak basilir. Baska bir
-  # dosyada, baska bir adla ya da REVOKE'suz yazilan her `drop policy` yine FAIL'dir.
+  # sonra o fiil yoktur ve tablo 00048'in hâline doner. Her taramada WARN olarak basilir.
+  #
+  # 🔴 DUZELTME TURU 1 (T130, 2026-10-18) -- ilk hali muafiyeti Up+Down BIRLESIMINDEN okuyordu ve uc
+  # mutant gecti (olculdu, exit 0): (W6) ayni `drop policy`'yi 00058'in UP'ina yazmak -- birlesimde
+  # Down'daki REVOKE onu da "onceliyordu"; (W7) Down'da REVOKE'tan sonra DELETE'i yeniden GRANT edip
+  # politikayi silmek; (W10) ayni yerde DELETE'i PUBLIC'e vermek. Simdi:
+  #   - Up'taki her `drop policy` FAIL'dir -- muafiyet yalniz Down'a bakar;
+  #   - Down'da politikadan ONCE gelen ifadeler TAM OLARAK su ikisidir, bu sirayla:
+  #     `set local lock_timeout = '1s'` ve `revoke delete on public.webhook_deliveries from tappa_app`
+  #     (bir GRANT -- tablo, `all tables in schema`, PUBLIC, rol uyeligi -- ya da bir DO blogu araya
+  #     giremez: liste bir beyaz liste, bir yasak listesi degil);
+  #   - Down'un HICBIR yerinde (politikadan SONRA da) bir `grant` ifadesi yoktur: politikasiz tabloya
+  #     geri verilen DELETE ayni genislemedir;
+  #   - politika Down'da bir kez silinir.
+  # Kirmizi vakalar: cmd/tappa TestRedline_R5bWaiverIsThe00058DownAlone.
   down_stmts=$(sql_statements_down "$f")
   while IFS= read -r s; do
     [[ -n $s ]] || continue
+    rls_mutations+="$f: politika SILINIYOR → ${s:0:110}"$'\n'
+  done < <(grep -E '^drop policy' <<<"$stmts" || true)
+  r5b_drop='drop policy webhook_deliveries_delete_settled on public.webhook_deliveries'
+  r5b_before="set local lock_timeout = '1s'"$'\n''revoke delete on public.webhook_deliveries from tappa_app'
+  while IFS= read -r s; do
+    [[ -n $s ]] || continue
     if [[ $(basename "$f") == 00058_keep_the_deliveries_ninety_days.sql ]] \
-       && [[ $s == 'drop policy webhook_deliveries_delete_settled on public.webhook_deliveries' ]] \
-       && grep -qxF "$s" <<<"$down_stmts" \
-       && awk -v d="$s" '$0 == "revoke delete on public.webhook_deliveries from tappa_app" { r = 1 } $0 == d { exit !r }' <<<"$down_stmts"; then
+       && [[ $s == "$r5b_drop" ]] \
+       && [[ $(grep -cxF "$s" <<<"$down_stmts") == 1 ]] \
+       && [[ $(awk -v d="$s" '$0 == d { exit } { print }' <<<"$down_stmts") == "$r5b_before" ]] \
+       && ! grep -qE '^grant ' <<<"$down_stmts"; then
       policy_waivers+="$f: KISITLAYICI politika Down'da siliniyor, DELETE once geri aliniyor → ${s:0:110}"$'\n'
       continue
     fi
     rls_mutations+="$f: politika SILINIYOR → ${s:0:110}"$'\n'
-  done < <(grep -E '^drop policy' <<<"$stmts"$'\n'"$down_stmts" || true)
+  done < <(grep -E '^drop policy' <<<"$down_stmts" || true)
 
   # IZIN VEREN POLITIKA: tenant yuklemini bir TOTOLOJIYLE degistirmek tabloyu tum
   # tenant'lara acar. Olculdu: 0 -> 392 197 satir (2026-08-19).

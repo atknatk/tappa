@@ -41,22 +41,31 @@ func (q *Queries) ClaimIdempotency(ctx context.Context, arg ClaimIdempotencyPara
 }
 
 const deleteExpiredIdempotency = `-- name: DeleteExpiredIdempotency :execrows
+WITH doomed AS MATERIALIZED (
+    SELECT e.key_id, e.idem_key
+    FROM api_idempotency AS e
+    WHERE e.tenant_id = $1
+      AND e.created_at < now() - interval '24 hours'
+    ORDER BY e.created_at
+    LIMIT 100
+    FOR UPDATE SKIP LOCKED)
 DELETE FROM api_idempotency AS d
+USING doomed
 WHERE d.tenant_id = $1
-  AND (d.tenant_id, d.key_id, d.idem_key) IN (
-      SELECT e.tenant_id, e.key_id, e.idem_key
-      FROM api_idempotency AS e
-      WHERE e.tenant_id = $1
-        AND e.created_at < now() - interval '24 hours'
-      ORDER BY e.created_at
-      LIMIT 100
-      FOR UPDATE SKIP LOCKED)
+  AND d.key_id = doomed.key_id
+  AND d.idem_key = doomed.idem_key
 `
 
 // The lazy delete: at most 100 of this tenant's rows older than 24 hours, oldest first, SKIP LOCKED.
 // It runs in a short transaction of its own (internal/apikey, Writes.Run): inside a write's
 // transaction its locks lived as long as the write and two writes deadlocked on each other's swept
 // rows (measured, API-4 review D1).
+// 🔴 THE BATCH IS A MATERIALIZED CTE (T130 fix round 1), NOT `(...) IN (SELECT ... LIMIT 100 FOR
+// UPDATE SKIP LOCKED)`: that shape deleted 105 of 105 under a nested loop semi join -- every rescan
+// of the subquery skips the rows this statement already locked and its LIMIT takes the next ones (the
+// trap webhooks.sql's sweep measured first). Every row it reached was still an expired row of this
+// tenant; the loss was the bound. Materialized, the candidate list is computed once
+// (internal/db TestApiIdempotency_TheLazyDeleteIsBounded, under a forced nested loop too).
 func (q *Queries) DeleteExpiredIdempotency(ctx context.Context, tenantID uuid.UUID) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteExpiredIdempotency, tenantID)
 	if err != nil {
