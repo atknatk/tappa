@@ -660,12 +660,56 @@ func TestHoldingManual_PeerManagerCannotNameAnOutsiderLocation(t *testing.T) {
 //	M2  only the key's tenant (b) is a member of some holding
 //	M3  both are members of SOME holding -- the holding_id equality forgotten
 //
-// Each answers its question for every deciding mode and NULL for 'lock'.
+// Each answers its question for every deciding mode and NULL for 'lock'. Since 00060 (T124) the one
+// predicate has two signatures, and a wrong filter is written in BOTH (holdingPeerSetMutants: the
+// same question with b free) -- the pair form alone would no longer reach the two multi-row
+// functions, which ask the set form; a mutant in one form and not the other is a divergence, which
+// TestHoldingPeer_TheSetFormIsThePairFormsAnswer is red on.
 var holdingPeerMutants = map[string]string{
 	"M1": `EXISTS (SELECT 1 FROM public.holding_members m WHERE m.member_tenant_id = a AND m.left_at IS NULL)`,
 	"M2": `EXISTS (SELECT 1 FROM public.holding_members m WHERE m.member_tenant_id = b AND m.left_at IS NULL)`,
 	"M3": `EXISTS (SELECT 1 FROM public.holding_members m WHERE m.member_tenant_id = a AND m.left_at IS NULL)
 	       AND EXISTS (SELECT 1 FROM public.holding_members m WHERE m.member_tenant_id = b AND m.left_at IS NULL)`,
+}
+
+// holdingPeerSetMutants are holdingPeerMutants as the set form's query (a given, b free; a itself
+// never in the set -- the real form's rule, which the mutants keep).
+var holdingPeerSetMutants = map[string]string{
+	"M1": `SELECT t.id FROM public.tenants t WHERE t.id <> a
+	         AND EXISTS (SELECT 1 FROM public.holding_members m WHERE m.member_tenant_id = a AND m.left_at IS NULL)`,
+	"M2": `SELECT DISTINCT m.member_tenant_id FROM public.holding_members m WHERE m.member_tenant_id <> a AND m.left_at IS NULL`,
+	"M3": `SELECT DISTINCT m.member_tenant_id FROM public.holding_members m WHERE m.member_tenant_id <> a AND m.left_at IS NULL
+	         AND EXISTS (SELECT 1 FROM public.holding_members x WHERE x.member_tenant_id = a AND x.left_at IS NULL)`,
+}
+
+// holdingInstallPeerMutant puts the mutant name in BOTH forms of holding_peer, in sp, by CREATE OR
+// REPLACE (the owner and the grants kept).
+func holdingInstallPeerMutant(t *testing.T, ctx context.Context, sp pgx.Tx, name string) {
+	t.Helper()
+	// is_member keeps its real answer (API-8, 00055): it is K-36's question, and a mutant of the PEER
+	// filter that also broke the membership question would test a broken lock, not K-33's filter.
+	pair := fmt.Sprintf(`CREATE OR REPLACE FUNCTION public.holding_peer(a uuid, b uuid, mod text)
+		RETURNS boolean LANGUAGE plpgsql VOLATILE SECURITY INVOKER SET search_path = pg_catalog, pg_temp AS $$
+		BEGIN
+		    IF mod = 'lock' THEN RETURN NULL; END IF;
+		    IF mod = 'is_member' THEN
+		        RETURN EXISTS (SELECT 1 FROM public.holding_members m
+		                        WHERE m.member_tenant_id = a AND (m.left_at IS NULL OR m.left_at + interval '60 seconds' > clock_timestamp()));
+		    END IF;
+		    IF a IS NULL OR b IS NULL OR a = b THEN RETURN false; END IF;
+		    RETURN %s;
+		END $$`, holdingPeerMutants[name])
+	set := fmt.Sprintf(`CREATE OR REPLACE FUNCTION public.holding_peer(a uuid, mod text)
+		RETURNS SETOF uuid LANGUAGE plpgsql VOLATILE SECURITY INVOKER SET search_path = pg_catalog, pg_temp ROWS 10 AS $$
+		BEGIN
+		    IF a IS NULL THEN RETURN; END IF;
+		    RETURN QUERY %s;
+		END $$`, holdingPeerSetMutants[name])
+	for _, s := range []string{pair, set} {
+		if _, err := sp.Exec(ctx, s); err != nil {
+			t.Fatalf("install %s: %v", name, err)
+		}
+	}
 }
 
 // TestHoldingFilter_MutantsM1M2M3AreRedInFunctionsAndTriggers is plan §5 API-1b (b)'s mutant
@@ -675,7 +719,8 @@ var holdingPeerMutants = map[string]string{
 // a leak. C is a member of H2: without it M3 would answer false for C and stay green (7th round).
 // Since API-1c the probes reach holding_site_locations (00047) and the second trigger, holding_feed
 // (00046), through its approval arm -- the one that asks holding_peer (holdingFeedProbes); since API-8
-// holding_directory (00055).
+// holding_directory (00055); since T124 (00060) each mutant is written in both forms of holding_peer
+// (holdingInstallPeerMutant) -- the two multi-row functions ask the set form.
 func TestHoldingFilter_MutantsM1M2M3AreRedInFunctionsAndTriggers(t *testing.T) {
 	ctx, tx := opTx(t)
 	w := holdingWorldTx(t, ctx, tx, "")
@@ -687,23 +732,7 @@ func TestHoldingFilter_MutantsM1M2M3AreRedInFunctionsAndTriggers(t *testing.T) {
 	for _, name := range []string{"M1", "M2", "M3"} {
 		t.Run(name, func(t *testing.T) {
 			holdingInSavepoint(t, tx, func(sp pgx.Tx) {
-				// is_member keeps its real answer (API-8, 00055): the two multi-row functions ask it first,
-				// as a gate, and a mutant of the PEER filter that also broke the membership question
-				// would be hidden behind it -- the mutants are K-33's wrong filters, not a broken gate.
-				body := fmt.Sprintf(`CREATE OR REPLACE FUNCTION public.holding_peer(a uuid, b uuid, mod text)
-					RETURNS boolean LANGUAGE plpgsql VOLATILE SECURITY INVOKER SET search_path = pg_catalog, pg_temp AS $$
-					BEGIN
-					    IF mod = 'lock' THEN RETURN NULL; END IF;
-					    IF mod = 'is_member' THEN
-					        RETURN EXISTS (SELECT 1 FROM public.holding_members m
-					                        WHERE m.member_tenant_id = a AND (m.left_at IS NULL OR m.left_at + interval '60 seconds' > clock_timestamp()));
-					    END IF;
-					    IF a IS NULL OR b IS NULL OR a = b THEN RETURN false; END IF;
-					    RETURN %s;
-					END $$`, holdingPeerMutants[name])
-				if _, err := sp.Exec(ctx, body); err != nil {
-					t.Fatalf("install %s: %v", name, err)
-				}
+				holdingInstallPeerMutant(t, ctx, sp, name)
 				functions, gate := holdingOutsiderProbes(t, ctx, sp, w)
 				feed := holdingFeedProbes(t, ctx, sp, w)
 				if len(functions) == 0 {
@@ -1303,11 +1332,10 @@ func TestHoldingDefiner_EveryGrantIsUsed(t *testing.T) {
 				return rows.Err()
 			}))
 		}
-		// API-8: holding_directory in the context of a business in no holding -- its membership gate
-		// answers no before the peer set is walked (a member's call walks every tenant: on a database
-		// tests have filled, ~2 s a call, seventy calls), and a revoked column is still refused: the
-		// executor checks every column the statement names when it starts, whatever runs (measured --
-		// each of the four employees columns, 42501).
+		// API-8: holding_directory in the context of a business in no holding -- the peer set is empty
+		// (00055's gate; since T124, 00060, one call of holding_peer's set form), and a revoked column is
+		// still refused: the executor checks every column the statement names when it starts, whatever
+		// runs (measured -- each of the four employees columns, 42501).
 		errs = append(errs, holdingAppIn(t, ctx, sp, alone, func(q pgx.Tx) error {
 			rows, err := q.Query(ctx, `SELECT * FROM public.holding_directory(NULL, NULL)`)
 			if err != nil {

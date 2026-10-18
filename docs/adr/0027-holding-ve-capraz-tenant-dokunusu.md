@@ -312,7 +312,7 @@ hata):
 | `strict_stmt` | aynı soru, `statement_timestamp()` ile | ifade saati | BEFORE kapısının katı kolları (QR, manuel, ilerletilmemiş NFC); AFTER tetikleyicisinin onay kolu |
 | `tolerant_stmt` | aynı holding, iki üyelik `left_at IS NULL OR left_at + 60 sn > statement_timestamp()` **ve iki üyelik zamanda örtüşür:** `ma.joined_at < coalesce(mb.left_at, 'infinity') AND mb.joined_at < coalesce(ma.left_at, 'infinity')` | ifade saati | **yalnız** BEFORE kapısının K-29 (i)/(ii) kolları (§6) |
 | `lock` | `tolerant_stmt`'in şartını (aynı holding + pencere + **örtüşme**) sağlayan aday üyelik satır çiftlerini kanonik sırada (küçük tenant id önce) **`FOR SHARE`** kilitler; karar vermez | — | **yalnız** BEFORE kapısı, karardan önce (§6) |
-| `is_member` | `a`'nın (`b` NULL) `left_at IS NULL OR left_at + 60 sn > clock_timestamp()` olan bir üyeliği var mı | `clock_timestamp()` | K-36 saat dilimi kilidi (§1) · *(API-8, 2026-10-15, `00055`)* `holding_directory` ve `holding_site_locations`'ın **üyelik kapısı**: hayırsa eş kümesi hiç hesaplanmaz; evetse karar yine `strict`'tir (kapı bir şey karara bağlamaz — toleranslı kip katının üst kümesidir, eş gizleyemez) |
+| `is_member` | `a`'nın (`b` NULL) `left_at IS NULL OR left_at + 60 sn > clock_timestamp()` olan bir üyeliği var mı | `clock_timestamp()` | K-36 saat dilimi kilidi (§1) · *(API-8, 2026-10-15, `00055`)* `holding_directory` ve `holding_site_locations`'ın **üyelik kapısı**: hayırsa eş kümesi hiç hesaplanmaz; evetse karar yine `strict`'tir (kapı bir şey karara bağlamaz — toleranslı kip katının üst kümesidir, eş gizleyemez) · *(T124, 2026-10-18, `00060`: kapı kalktı — iki fonksiyon eş kümesini aşağıdaki küme biçiminden alır; `is_member`'in çağıranı yine yalnız K-36'dır)* |
 
 **Örtüşme şartı neden (2. tur, güvenlik merceği ölçtü):** yalnız *"aynı `holding_id` + pencere"*
 soran toleranslı kip, holding'den **çıkmış** A'nın pencerede kalan eski satırını, A çıktıktan
@@ -320,6 +320,16 @@ soran toleranslı kip, holding'den **çıkmış** A'nın pencerede kalan eski sa
 kiplerde iki üyelik de *şu an* canlı olduğu için örtüşme kendiliğinden sağlanır.
 `a = b` → `false` (bir tenant kendisinin eşi değildir; kendi verisi RLS'li yoldan gelir — rehber dahil,
 ADR 0028 §2). 60 sn'nin tek tanımı `holding_peer`'dedir (`op_add_holding_member`'ın kopyası §1).
+**Küme biçimi — `holding_peer(a, mod)` → `SETOF uuid` (T124, kullanıcı kararı 2026-10-18, migration `00060`).** Aynı
+yüklemin ikinci imzası: *"`a`'nın eşleri kim"* sorusunun cevabı, *"`a` ile `b` eş mi"* sorusunun cevabının yaşadığı yerde
+yaşar — bu yüzden *"`holding_members`'a gövdesinde değinen TEK fonksiyon `holding_peer`'dir"* kuralı **yazıldığı gibi** kalır
+(tarama adla okur) ve hiçbir çağrılabilir `holding_*` üyelik tablosunu kendisi okumaz. Kipleri **tek elemanlı kapalı** bir
+kümedir: `strict` — `holding_peer(a, b, 'strict')`'in doğru olduğu her `b` (aynı holding, iki üyelik de duvar saatine göre
+canlı, `a`'nın kendisi asla; `a` NULL → boş küme); başka her sözcük 22023. Duvar saati çağrı başına **bir kez** okunur. Biçimi
+çift biçiminkidir: SECURITY INVOKER, VOLATILE, `search_path` pinli, sahibi `tappa_holdingdefiner`, `EXECUTE` **yalnız
+sahipte**; satır kilidi ve yazma yok (kilit kipi çift biçimindedir), dinamik SQL yok; `ROWS 10`. Kümenin çift biçimin cevabıyla
+**birebir** aynı olduğu bir özellik testiyle tutulur (`TestHoldingPeer_TheSetFormIsThePairFormsAnswer`); gövdesi `md5(prosrc)`
+ile pinlidir (`TestHoldingPeer_TheSetFormIsStrictAlone`). Çift biçimin beş kipi ve gövdesi **değişmedi**.
 **Maliyet — eş kümesi bir kez (2. tur, güvenlik merceği ölçtü: 5,54 sn → 42 ms).** VOLATILE bir
 fonksiyon satır başına yeniden çağrılır; bu yüzden çok satırlı fonksiyonlar (`holding_directory`,
 `holding_site_locations`) eş kümesini **bir kez** hesaplar — `tenants` üzerinde `holding_peer(GUC
@@ -327,6 +337,9 @@ tenant'ı, t.id, 'strict')` ile, materyalize bir CTE'de — ve veri satırların
 `holding_peer`'i veri satırı başına **çağırmaz**. *(API-8, 2026-10-15 — T124'ün yarısı)* Bu tarama, önünde tek bir
 `holding_peer(GUC tenant'ı, NULL, 'is_member')` kapısıyla koşar (bir InitPlan): holding'siz işletme `tenants`'ı hiç
 taramaz (21 bin tenant'ta ~0,7 sn → ~1 ms); bir üye taramanın bedelini hâlâ öder (~1 sn — §13 madde 21).
+*(T124, 2026-10-18, `00060`)* Tarama kalktı: iki fonksiyon eş kümesini **tek bir** `holding_peer(GUC tenant'ı, 'strict')`
+(küme biçimi) çağrısından, yine materyalize bir CTE'de bir kez alır; çift biçimi hiç sormazlar
+(`TestHoldingFunctions_AskThePeerSetOnceNeverPerTenant`). 21 bin tenant'ta üyenin rehber sayfası ~1 sn → ~3 ms.
 `holding_peer` **VOLATILE**'dir (`lock` kipi satır kilidi alır; PostgreSQL kilitli `SELECT`'i volatil
 olmayan fonksiyonda reddeder — *"Bağlam"*), `holding_members` üzerindeki **tek satır kilidi
 `FOR SHARE`'dir** — gövdesinde `FOR UPDATE`, `FOR NO KEY UPDATE`, `FOR KEY SHARE`, `UPDATE`,
@@ -374,6 +387,7 @@ dönüş sütunu, tenant sınırının ne kadar açıldığının kendisidir. Ku
 | `holding_site_locations(p_cursor)` | Eş tenant'ların lokasyonları: lokasyonun tenant'ı (manuel kaydın `site_tenant_id`'si için anahtar), id, ad, `external_ref`, vardiya, `overnight` — sayfalı, en çok 1000. **`static_ips` ve GPS asla** (K-39) | KM panelinde manuel kayıt lokasyon seçimi; işverenin raporları (§9) | `tappa_app` |
 | `holding_directory(p_updated_since, p_cursor)` | **Eş** tenant'ların çalışanları — **çağıranın kendi tenant'ı hariç** (kendi çalışanları her zaman RLS'li sorgudan gelir, ADR 0028 §2): kimlik, `api_code`, `external_ref`, kod, ad, soyad, tam ad (`full_name` — kullanıcı kararı 2026-10-15, K-41), **aktif/pasif** (K-1h) — **e-posta yok**; sayfalı, en çok 1000 | `GET /v1/directory` (ADR 0028) | `tappa_app` |
 | `holding_peer(a, b, mod)` | İki tenant'ın **aynı** holding'de eş olup olmadığı (tek yüklem) ve yukarıdaki beş kip | yalnız bu listedeki definer'lar ve tetikleyiciler | **yalnız sahip** (INVOKER, VOLATILE) |
+| `holding_peer(a, mod)` *(T124, `00060`)* | Aynı yüklemin küme biçimi: `a`'nın `strict` eşleri (tek kip) | `holding_site_locations`, `holding_directory` | **yalnız sahip** (INVOKER, VOLATILE) |
 | Tetikleyici `holding_site_gate()`: **`site_*` üyelik kapısı** | `BEFORE INSERT ON transactions`, `WHEN (NEW.site_tenant_id IS NOT NULL)`; K-29'un kanal × zaman şartı (§6) | `transactions` | yalnız sahip |
 | Tetikleyici `holding_feed()`: **holding akış/izdüşüm tetikleyicisi** | `AFTER INSERT ON transactions` ve `ON transaction_reviews`, tetikleyici adı **ad sırasında ilk** (K-31); `site_punches` (§9) ve iki hedefin olay/teslim satırları (§8; ADR 0028 §4) | `transactions`, `transaction_reviews` | yalnız sahip |
 | Tetikleyici `holding_timezone_lock()`: **saat dilimi kilidi** | `BEFORE UPDATE ON tenants` (K-36, §1) | `tenants` | yalnız sahip |
@@ -391,6 +405,7 @@ olarak** bu tablodur.
 | `holding_site_locations` | `p_cursor uuid` | `TABLE(site_tenant_id uuid, location_id uuid, location_name text, location_external_ref text, shift_start time without time zone, shift_end time without time zone, overnight boolean)` |
 | `holding_directory` | `p_updated_since timestamp with time zone, p_cursor uuid` | `TABLE(employee_id uuid, employer_tenant_id uuid, api_code text, external_ref text, employee_code text, first_name text, last_name text, full_name text, active boolean, updated_at timestamp with time zone)` — `full_name` **kullanıcı kararı 2026-10-15** (K-41; panelin açtığı adsız kişinin tek adı; dönüşün onaylı genişlemesi, yayınlanmamış `00055` yerinde düzeltildi) |
 | `holding_peer` | `a uuid, b uuid, mod text` | `boolean` |
+| `holding_peer` *(T124, `00060`)* | `a uuid, mod text` | `SETOF uuid` |
 | `holding_site_gate` | — | `trigger` |
 | `holding_feed` | — | `trigger` |
 | `holding_timezone_lock` | — | `trigger` |
@@ -404,7 +419,8 @@ Her madde **bütün şemaları** `nspname.proname` ile dolaşır (yalnız `publi
 (i) sahibi `tappa_holdingdefiner` olan fonksiyonların **nitelikli ad kümesi** imza tablosuna eşittir
 (hepsi `public.` altında) — eksik ya da fazla bir ad kırmızı; (ii) her birinin argüman ve dönüş metni
 tablodakiyle **birebir**; (iii) nitelikli ad başına **tek aşırı yükleme** (ikinci bir imza ikinci bir
-kapıdır); (iv) **hangi şemada olursa olsun** adı `holding\_%` olan **her** fonksiyonun sahibi
+kapıdır) — *(T124, 2026-10-18)* tek istisna `holding_peer`: iki imzası (çift ve küme biçimi) tablonun iki satırıdır, ad başına
+aşırı yükleme sayısı tablodaki satır sayısına eşit olmalıdır (üçüncü bir imza kırmızı); (iv) **hangi şemada olursa olsun** adı `holding\_%` olan **her** fonksiyonun sahibi
 `tappa_holdingdefiner` (ters yön — sahipliği unutulmuş bir `holding_*` superuser sahipli bir definer
 olurdu); (v) `prosecdef` `holding_peer` dışında `true`, `holding_peer` için `false` ve `provolatile =
 'v'`; `proconfig` = `search_path=pg_catalog, pg_temp` (tetikleyicilerde ayrıca `lock_timeout`); (vi)
@@ -1042,6 +1058,9 @@ adlandırılmış kalan risk (1. tur, güvenlik merceği; §13 madde 13).
     0,68–0,79 sn → 1,0–1,4 ms. **Üyenin yarısı açık, adlandırılmış bedel:** bir üye çağrı başına 0,96–1,03 sn
     öder (KM'nin rehberinin her sayfası). `holding_members` üzerinden ön-süzme ölçüldü (5,2–5,8 ms) ama §2'nin
     *"`holding_members`'a değinen tek gövde `holding_peer`"* kuralına bir istisna ister — kullanıcı kararı (T124).
+    ✅ *(T124, 2026-10-18, `00060` — kullanıcı kararı: şimdi kapatılır)* **Üyenin yarısı da kapandı:** iki fonksiyon eş
+    kümesini `holding_peer`'in küme biçiminden alır (§2) — kural istisnasız kalır; 21 bin tenant'ta üye 0,96–1,10 sn → 0,9–3,7
+    ms, yük altında 503 yok. Ayrıntı: *"T124 uygulama notu"*.
 22. **`sun_valid`'in değeri türetilebilir (API-1c denetimi, güvenlik G-D1):** sütun `tappa_app`'ten
     saklıdır, ama bir `refused` satırın `ctr_gap > 0`'ı (yalnız ilerletilmiş dokunuşta dolu, K-1i) ve
     `ctr`'ının plaketin `last_ctr`'ına eşitliği *"imza geçerliydi"*yi söyler. K-1i'nin KF tarafındaki
@@ -1922,7 +1941,87 @@ Down yürüyüşleri `00055`'in Down'ını koşar: ayrı tutulunca o yürüyüş
   tenant'ta bir üyenin rehber isteği ~0,3–1 sn veritabanı süresi tutar — tek bir üye anahtarı sürekli ~3–10 veritabanı
   bağlantısını meşgul edebilir.
 - **Yazılan testler:** `TestHoldingDirectory_ReturnsPeersNeverTheCaller` · `TestHoldingDirectory_IsAKeysetOnUpdatedAtAndID` ·
-  `TestHoldingDirectory_TheCallerIsKeptOutTwice` · `TestHoldingFunctions_AMemberOfNoHoldingAsksOnce` (kapı; mutant —
+  `TestHoldingDirectory_TheCallerIsKeptOutTwice` · `TestHoldingFunctions_AskThePeerSetOnceNeverPerTenant` (o gün kapının testi, T124'te yeniden adlandırıldı; mutant —
   kapı iki gövdeden birinden kaldırılınca kırmızı) · `TestHolding00055_DownGivesBackAndUpTakesItAgain` ·
   `TestEmployees00056_TheDirectoryIndexGoesBack` · `TestEmployees00056_GivesUpAfterASecondBehindAnOpenWrite`.
 
+## T124 uygulama notu (2026-10-18)
+
+**Karar (kullanıcı, 2026-10-18):** T124 şimdi kapatılır — 2026-10-15'teki *"~1 000 tenant'a kadar bırak"* kararının yerini
+alır. Backlog'un adlandırdığı iki yoldan ana oturumun önerisi uygulandı (otonom karar, gerekçeli): **`holding_peer`'e küme
+döndüren bir kip**; öteki yol (iki gövdeye `holding_members` ön-süzmesi + tarama istisnası) seçilmedi, çünkü ölçüm kipin kötü
+olduğunu göstermedi (aşağıda: ön-süzmenin 5,2–5,8 ms'sinden de hızlı). **Migration `00060`**
+(`db/migrations/00060_ask_a_members_peers_once.sql`).
+
+- **Kip, ikinci imza olarak:** `holding_peer(a uuid, mod text) RETURNS SETOF uuid` — aynı ad. `holding_peer` `boolean` döndüğü
+  için küme aynı imzanın bir kipi olamaz (dönüş tipi tektir); dönüşü değiştirmek tap yolunun, kapının ve iki tetikleyicinin
+  her çağrısını değiştirirdi. Ayrı bir ad (ör. `holding_peers`) §2'nin *"`holding_members`'a değinen TEK fonksiyon
+  `holding_peer`"* kuralına ve taramasına bir istisna isterdi; aynı ad kuralı **yazıldığı gibi** bırakır
+  (`TestHoldingPeer_IsTheOnlyBodyThatTouchesHoldingMembers` değişmedi, yeni iki kontrolüyle hâlâ anlamlı: tanımlayıcı sahipli
+  bir `holding_peers_*` kardeşi ve `holding_members` üzerinden ön-süzen bir `holding_site_locations` — reddedilen yol — ikisi de
+  kırmızı). Bedeli katalog testinin (iii) maddesidir: *"ad başına tek aşırı yükleme"* `holding_peer` için *"tablodaki satır
+  sayısı kadar"* oldu (§2); üçüncü bir imza (`holding_peer(a, b)` kontrolü) hâlâ kırmızı. İmza tablosu bir satır büyüdü;
+  `TestM11Catalog_EveryNewTableMatchesTheMatrixUnderArwd`'ün fonksiyon matrisi de.
+- **Tek kaynak:** yüklem `holding_peer` adının altında yaşar; çift biçimin gövdesi **bayt bayt aynı** (md5 `8044a559…`, ön
+  koşul da ister), küme biçimininki ayrıca pinli (`15d124d2…`). İki metin birbirinin kopyası olduğu için eşitlikleri bir
+  **özellik testiyle** tutulur — `TestHoldingPeer_TheSetFormIsThePairFormsAnswer`: 400 rastgele senaryo yan yana (her biri 7
+  tenant, 3 holding; tenant başına 0–3 üyelik: canlı, çoktan bitmiş, 60 sn penceresinde bitmiş, gelecekte bitecek — şema buna
+  izin verir ve iki holding'de aynı anda canlı bir tenant üretir —, yeniden katılma, holding değiştirme); her çağıran (havuz,
+  holding'siz bir dışarıdaki, NULL) × her aday (havuz — çağıranın kendisi dahil —, dışarıdaki, bilinmeyen id) için
+  `b ∈ küme ⇔ çift(a, b)`, ve hiçbir küme kendi senaryosunun dışına taşmaz. Tohum loglanır. Bir koşu ~32 400 çift, ~2 500 eş,
+  ~600 *"pencerede, katı değil"* çağıran, ~1 150 gelecekte-biten eşlik. Kontroller (aynı veride, savepoint'te): küme biçimi
+  gevşetilmiş (eşin çıkışı yok sayılır), daraltılmış (gelecekte çıkan çağıran düşer) ve **yalnız** çift biçime M3 (holding
+  eşitliği unutulmuş) — üçü de ayrışma bulur. *(İlk hâli senaryo başına bir savepoint açıp geri alıyordu: yüzlerce iptal
+  edilmiş alt işlem ve ölü üyelik satırı her sonraki görünürlük denetimini yavaşlattı — aynı test taze veritabanında 10 sn,
+  biriken koşularla 42 sn, sonra 180 sn bağlam sınırı. Senaryolar artık ayrık havuzlarla tek işlemde kurulur.)*
+- **İki çağıran:** `holding_site_locations` ve `holding_directory` eş kümesini tek bir küme-biçimi çağrısından (materyalize
+  CTE, *"eş kümesi bir kez"*) alır; `00055`'in `is_member` kapısı kalktı (küme biçimi holding'siz işletmeye tek indeks
+  yoklamasıyla cevap verir). `holding_directory` kemerini (`s.id <> c.id`) ve `api_code` için eşin `tenants` satırını tutar;
+  `holding_site_locations` `tenants`'a hiç değmez (`holding_members`'ın `tenants` anahtarı her üyeyi bir tenant yapar).
+  Dönüş, sıra ve sayfalama `00055`'inkidir: `TestHoldingFunctions_00060AnswersWhat00055Answered` aynı veriyi iki gövdeden
+  (HEAD ve `00060`'ın Down'ı, savepoint'te) okur — KF (2 500 kişi, 1 200 mekân: iki fonksiyon da sayfalar), KM, C, D,
+  holding'siz bir işletme ve bağlamsız; dört üyelik hâlinde (kurulduğu gibi, KM 10 sn önce çıktı, KM H2'ye geçti, KF'nin
+  üyeliği gelecekte bitiyor) — her sayfa, her satır, aynı sırada. Matris değişmedi (yeni sütun yok; `holding_members`'ın dört
+  sütunu `00041`'den beri tanımlayıcıda).
+- **Pin:** `TestHoldingFunctions_AskThePeerSetOnceNeverPerTenant` (`00055`'in kapı testinin yeni adı ve yeni iddiası):
+  üye, holding'siz ve bağlamsız her bağlamda iki fonksiyon küme biçimini **tam bir kez**, çift biçimi **hiç** sorar; KM çıktıktan
+  10 sn sonra (`is_member` hâlâ evet) ikisi de satır vermez. `holdingPeerCalls` artık iki biçimin toplamını sayar
+  (`TestHoldingFunctions_PeerSetComputedOnce` aynı kalır). K-33'ün M1/M2/M3 mutantları **iki biçime birden** yazılır
+  (`holdingInstallPeerMutant`) — yalnız çifte yazılan mutant iki çok satırlı fonksiyona artık ulaşmaz, ve o ayrışmayı özellik
+  testi yakalar. `TestHoldingDirectory_TheCallerIsKeptOutTwice`'ın yüklem mutantı küme biçimindedir. Down zincirleri:
+  `feedBelow48` önce `00060`'ın Down'ını, `feedUpAgain` sonda Up'ını koşar; `opAtVersionSkips`'e 60;
+  `TestHolding00055_DownGivesBackAndUpTakesItAgain` `00060`'ın Down'ından geçer; `TestHolding00041And00042_…`'nin
+  `holdingObjects` sayımı `00041`'in nesnesini (çift biçim) sayar. `TestHolding00060_DownGivesBackAndUpTakesItAgain`: Down iki
+  gövdeyi `00055`'in md5'leriyle geri verir ve küme biçimini düşürür; ön koşul ikinci koşuyu, `00041`'inkinden başka bir çift
+  biçimi, `00055`'inkinden başka iki gövdeyi ve başka biçimli ikinci bir `holding_peer`'i reddeder; Up HEAD'i birebir verir.
+- **Ölçüm** (atılabilir PostgreSQL 17, API-8'in düzeni: 21 000 tenant, 1 001 holding — KM/KF bir holding, 2 000 tenant ikişerli;
+  çalışanlar üye tenant başına 2 000, öteki tenant başına 100 — 5,9 M satır; eş kümesinin bedeli `tenants` × `holding_peer`'dir,
+  eş olmayanın çalışanı değil —; tenant başına 3 mekân; `VACUUM ANALYZE`; JIT kapalı; ılık, 7 çağrı):
+
+  | Çağrı | `00055` (önce) | `00060` (sonra) |
+  |---|---|---|
+  | KM (üye) `holding_directory(NULL, NULL)` — 1 000 satır | 0,98–1,10 sn | 2,7–3,7 ms (ilk soğuk çağrı 13,8 ms) |
+  | KM `holding_site_locations(NULL)` | 0,96–1,00 sn | 0,90–1,06 ms |
+  | C (holding'siz) `holding_directory` | 0,98–1,58 ms | 1,0–1,36 ms |
+  | C `holding_site_locations` | 1,0–1,75 ms | 0,94–1,10 ms |
+  | 50 üyeli bir holding'in üyesi (49 eş) | — | rehber 6,7–7,3 ms · mekânlar 1,6–1,8 ms |
+
+  `EXPLAIN (ANALYZE, BUFFERS)` (auto_explain, iç içe ifadeler): önce eş kümesi `Seq Scan on tenants` (21 000 satır) üzerinde
+  `holding_peer` süzgeci — 20 999 satır atılır, eş kümesi 107 610 tampon; rehber sayfası toplam 108 630, mekân listesi 108 302
+  tampon (`Hash Join` + `locations` üzerinde `Seq Scan`, 63 000 satır). Sonra eş kümesi `Function Scan on holding_peer`
+  (1 satır) + `tenants_pkey`; küme biçiminin kendi ifadesi `holding_members_pkey` + `holding_members_holding_idx`, 6 tampon;
+  rehber sayfası 1 153 tampon (1 014'ü eşin 1 000 satırı), mekân listesi 23 tampon (`Nested Loop` + `locations_tenant_idx` —
+  `ROWS 10` planlayıcıya eş kümesini küçük söyler). **Yük altında** (gerçek zincir, ürünün havuzu, aynı kap, KM'nin anahtarı,
+  `limit=1000`, kovalar kaldırılmış): 16 işçi × 25 istek — önce **29/400 503**, medyan 4,6 sn, p99 5,04 sn (5 sn
+  `APIReadTimeout`); sonra **0 503**, medyan 45 ms, p99 162 ms. 32 × 25 — önce **76/800 503**, medyan 9,2 sn; sonra **0 503**,
+  medyan 98 ms, p99 190 ms. DoS eşiği (anahtar başına dakikada 600 istek × ~1 sn) düştü: bir üyenin isteği artık bir holding'siz
+  işletmeninki kadar veritabanı süresi tutar.
+- **Mutantlar (ölçüldü, atılabilir kapta committed DDL, sonra Down/Up):** küme biçimi gevşetilmiş (eşin çıkışı yok sayılır) →
+  özellik testi, md5 pini, `TestHoldingDirectory_ReturnsPeersNeverTheCaller` (*"KF, KM çıktıktan 10 sn sonra: 5 satır"*) ve
+  eski↔yeni eşitliği kırmızı · küme biçimi `a`'yı da döndürür → özellik testi, md5, `TheSetFormIsStrictAlone`, eşitlik ve
+  `TheCallerIsKeptOutTwice`'ın *"kemer kaldırıldı"* kolu kırmızı · `holding_site_locations` `00055`'in tarama gövdesine döner →
+  `AskThePeerSetOnceNeverPerTenant` (üye bağlamında çift biçim 222 kez — paylaşılan kabın tenant sayısı) kırmızı ·
+  `holding_directory` kapısız taramaya döner → aynı test her bağlamda kırmızı · `holding_directory`'ye `holding_members` ön
+  süzmesi → `IsTheOnlyBodyThatTouchesHoldingMembers` kırmızı.
+- **Belge önerisi (yapılmadı — ana oturumun işi):** CLAUDE.md §4.5'in *"`holding_peer`'e kip eklemek"* ifadesi *"`holding_peer`'e
+  kip ya da imza eklemek"* olarak netleşebilir (küme biçimi kullanıcı onayıyla geldi; üçüncü bir imza aynı onayı ister).

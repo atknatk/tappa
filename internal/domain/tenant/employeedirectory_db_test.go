@@ -110,10 +110,9 @@ func TestEmployeeDirectory_RLSHoldsWithoutTheFilter(t *testing.T) {
 // owner's KF and KM staff, every field, and never one of C's. Repeats are counted, not refused.
 //
 // MUTANT (measured, ADR 0028's API-8 note, on a database of 1 800 tenants -- CI's size): the overlap 0
-// -- 3/3 red, 56-62 people missed and 20-26 stale a run. ⚠️ A member's page costs the peer set (T124's
-// member half: holding_peer over every tenant), so on a database of tens of thousands of tenants the
-// reader walks only a few times while the writers write, and the test proves less there (it stays
-// correct: the final walk still has to find every change). (The second way to lose one -- asOf read at a later page instead of the walk's first --
+// -- 3/3 red, 56-62 people missed and 20-26 stale a run. (Until T124 -- 00060 -- a member's page cost
+// holding_peer over every tenant, so on a database of tens of thousands of tenants the reader walked
+// only a few times while the writers wrote; the peer set is one call of holding_peer's set form now.) (The second way to lose one -- asOf read at a later page instead of the walk's first --
 // needs a walk longer than the overlap that ends while a write is open across it:
 // TestEmployeeDirectory_TheWalksAsOfIsItsFirstPages builds exactly that.)
 //

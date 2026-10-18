@@ -657,6 +657,9 @@ değen görevlerde (API-0, GATE-1, API-1a, API-1b, API-1c, API-2, API-3) ayrıca
 - **API-13:** **(API-8'den, 2026-10-15 — deploy öncesi, kullanıcı kararı)** Prod'daki **tenant sayısı ölçülür**: bir holding
   üyesinin rehber sayfası ve `holding_site_locations` çağrısı her tenant'ı `holding_peer`'den geçirir (T124'ün üye yarısı —
   21 000 tenant'ta ~1 sn, yük altında 5 sn sınırını aşıp 503). Sayı ~1 000'i geçmeden T124 ele alınır (backlog T124'ün eşiği).
+  ✅ *(T124 kapandı, 2026-10-18, `00060` — kullanıcı kararı: şimdi; ADR 0027 "T124 uygulama notu")* Bu eşik düştü: üyenin
+  rehber sayfası ve mekân listesi eş kümesini `holding_peer`'in küme biçiminden alır, tenant sayısına bağlı değildir (21 000
+  tenant'ta ~3 ms ve ~1 ms). Sayım deploy öncesi yalnız bilgi olarak kalır.
   **(API-6 ikinci turundan, 2026-10-15 — deploy öncesi)** Aşağıdaki isim sayımına `employees`'in `full_name`,
   `first_name` ve `last_name` sütunları da girer (panelin ekleme yolu artık aynı kurala bağlı; kayıtlı adlar yeniden
   yargılanmaz, sayı yalnız bilgidir — değer basılmaz). `00053` deploy'da koşar: `tappa_app`'in `audit_log` INSERT'i sütun

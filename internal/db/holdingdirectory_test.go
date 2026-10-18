@@ -27,6 +27,8 @@ import (
 const (
 	op00055File = "00055_list_a_peers_staff.sql"
 	op00056File = "00056_index_the_directory.sql"
+	// T124: holding_peer's set form, and the two multi-row functions reading the peer set through it.
+	op00060File = "00060_ask_a_members_peers_once.sql"
 )
 
 // holdingDirRow is one row of holding_directory, every column.
@@ -350,32 +352,31 @@ func TestHoldingDirectory_IsAKeysetOnUpdatedAtAndID(t *testing.T) {
 }
 
 // TestHoldingDirectory_TheCallerIsKeptOutTwice: the caller's own people are kept out by holding_peer
-// (a = b is false -- the one predicate) AND by the peer set's own `s.id <> c.id`. Each layer is shown
-// to hold the line alone, in savepoints, by CREATE OR REPLACE:
-//   - holding_peer answering TRUE for a = b (a mutant of the predicate): the belt keeps KM's people out;
+// (a is never in its own peer set -- the one predicate; since 00060 the set form the body asks) AND by
+// the peer set's own `s.id <> c.id`. Each layer is shown to hold the line alone, in savepoints, by
+// CREATE OR REPLACE:
+//   - holding_peer's set form answering a among its own peers (a mutant of the predicate): the belt
+//     keeps KM's people out;
 //   - the belt removed from holding_directory (the shipped body less that line): holding_peer keeps
 //     them out;
 //   - both: KM's context answers KM's own people -- what this test is red on.
 func TestHoldingDirectory_TheCallerIsKeptOutTwice(t *testing.T) {
 	ctx, tx := opTx(t)
 	w := holdingWorldTx(t, ctx, tx, "")
-	up, _ := opMigrationSections(t, op00055File)
-	body := regexp.MustCompile(`(?s)CREATE FUNCTION public\.holding_directory.*?\n\$\$;`).FindString(up)
-	const belt = "           AND s.id <> c.id\n"
+	up, _ := opMigrationSections(t, op00060File)
+	body := regexp.MustCompile(`(?s)CREATE OR REPLACE FUNCTION public\.holding_directory.*?\n\$\$;`).FindString(up)
+	const belt = "         WHERE s.id <> c.id\n"
 	if body == "" || strings.Count(body, belt) != 1 {
-		t.Fatalf("PREMISE: 00055's body or its belt line not found")
+		t.Fatalf("PREMISE: 00060's body or its belt line not found")
 	}
-	noBelt := strings.Replace(strings.Replace(body, "CREATE FUNCTION", "CREATE OR REPLACE FUNCTION", 1), belt, "", 1)
-	selfPeer := `CREATE OR REPLACE FUNCTION public.holding_peer(a uuid, b uuid, mod text)
-		RETURNS boolean LANGUAGE plpgsql VOLATILE SECURITY INVOKER SET search_path = pg_catalog, pg_temp AS $$
+	noBelt := strings.Replace(body, belt, "", 1)
+	selfPeer := `CREATE OR REPLACE FUNCTION public.holding_peer(a uuid, mod text)
+		RETURNS SETOF uuid LANGUAGE plpgsql VOLATILE SECURITY INVOKER SET search_path = pg_catalog, pg_temp AS $$
 		BEGIN
-		    IF mod = 'lock' THEN RETURN NULL; END IF;
-		    IF mod = 'is_member' THEN
-		        RETURN EXISTS (SELECT 1 FROM public.holding_members m WHERE m.member_tenant_id = a AND m.left_at IS NULL);
-		    END IF;
-		    IF a IS NULL OR b IS NULL THEN RETURN false; END IF;
-		    RETURN a = b OR EXISTS (SELECT 1 FROM public.holding_members ma JOIN public.holding_members mb ON mb.holding_id = ma.holding_id
-		                             WHERE ma.member_tenant_id = a AND mb.member_tenant_id = b AND ma.left_at IS NULL AND mb.left_at IS NULL);
+		    IF a IS NULL THEN RETURN; END IF;
+		    RETURN QUERY SELECT DISTINCT mb.member_tenant_id
+		                   FROM public.holding_members ma JOIN public.holding_members mb ON mb.holding_id = ma.holding_id
+		                  WHERE ma.member_tenant_id = a AND ma.left_at IS NULL AND mb.left_at IS NULL;
 		END $$`
 	own := func(q pgx.Tx) int {
 		n := 0
@@ -441,8 +442,11 @@ func TestHolding00055_DownGivesBackAndUpTakesItAgain(t *testing.T) {
 		t.Fatalf("PREMISE at HEAD: %s", head)
 	}
 	pre := holdingPrecondition(t, op00055File)
+	up60, down60 := opMigrationSections(t, op00060File)
 	holdingLockedSavepoint(t, tx, func(sp pgx.Tx) {
 		opWant(t, holdingNestedRun(t, ctx, sp, pre), sqlstatePrerequisiteState, "00055's precondition at HEAD")
+		// T124: 00060's Down first -- it gives back the bodies 00055 left (TestHolding00060_DownGivesBackAndUpTakesItAgain).
+		opRunSection(t, ctx, sp, down60, "00060 Down")
 		opRunSection(t, ctx, sp, down, "00055 Down")
 		at47 := strings.Split(head, " | ")[1]
 		at47 = "63bf5ecfca8a794ac9d8125d19dce0c1" + at47[strings.Index(at47, " "):]
@@ -471,6 +475,7 @@ func TestHolding00055_DownGivesBackAndUpTakesItAgain(t *testing.T) {
 			}
 		}
 		opRunSection(t, ctx, sp, up, "00055 Up again")
+		opRunSection(t, ctx, sp, up60, "00060 Up again")
 		if got := holdingDirSurface(t, ctx, sp); got != head {
 			t.Errorf("after the Up again:\n %s\nwant HEAD's\n %s", got, head)
 		}
@@ -575,22 +580,24 @@ func TestEmployees00056_GivesUpAfterASecondBehindAnOpenWrite(t *testing.T) {
 	}
 }
 
-// TestHoldingFunctions_AMemberOfNoHoldingAsksOnce is the membership gate of 00055 (T124, ADR 0027 §13
-// item 21): in the context of a business in NO holding, holding_directory and holding_site_locations
-// ask holding_peer exactly once -- the is_member gate -- however many tenants the database holds (the
-// tenants scan is not run); in a member's context they still compute the peer set (more than one call,
-// and the peer's rows). And the gate decides nothing: ten seconds after KM left -- is_member still yes
-// (its 60-second tolerance), strict no -- both answer KM no row.
+// TestHoldingFunctions_AskThePeerSetOnceNeverPerTenant is T124's pin (00060, ADR 0027 §2 and its T124
+// note): holding_directory and holding_site_locations ask holding_peer's SET form exactly once and its
+// pair form NEVER, in every context -- a member's (KM), a business in no holding, no context at all --
+// however many tenants the database holds. Before 00060 a member's call asked the pair form once per
+// tenant (the tenants walk: ~1 s at 21 000 tenants), and 00055's gate spared only the business in no
+// holding. And the set form decides strictly: ten seconds after KM left (is_member's 60-second
+// tolerance would still say yes) both answer KM no row.
 //
-// MUTANT (measured, API-8 report): the gate removed from either body -- that function asks holding_peer
-// once per tenant in the outsider's context, red.
-func TestHoldingFunctions_AMemberOfNoHoldingAsksOnce(t *testing.T) {
+// MUTANT (measured, ADR 0027's T124 note): either body given back its tenants walk (00055's peers CTE,
+// the gate included) -- that function asks the pair form once per tenant in the member's context, red;
+// and with the gate gone too, in every context.
+func TestHoldingFunctions_AskThePeerSetOnceNeverPerTenant(t *testing.T) {
 	ctx, tx := opTx(t)
 	if _, err := tx.Exec(ctx, `SET LOCAL track_functions = 'all'`); err != nil {
 		t.Fatal(err)
 	}
 	w := holdingWorldTx(t, ctx, tx, "")
-	alone := opNewTenant(t, ctx, tx, "api8 alone "+opToken(t), 0)
+	alone := opNewTenant(t, ctx, tx, "t124 alone "+opToken(t), 0)
 	holdingNewEmployee(t, ctx, tx, w.kf, "active")
 	if _, err := tx.Exec(ctx, `INSERT INTO locations (tenant_id, name) VALUES ($1, 'api8 alone venue')`, alone); err != nil {
 		t.Fatal(err)
@@ -602,11 +609,14 @@ func TestHoldingFunctions_AMemberOfNoHoldingAsksOnce(t *testing.T) {
 		"holding_directory":      `SELECT * FROM public.holding_directory(NULL, NULL)`,
 		"holding_site_locations": `SELECT * FROM public.holding_site_locations(NULL)`,
 	} {
-		if n := holdingPeerCalls(t, ctx, tx, alone, stmt); n != 1 {
-			t.Errorf("%s in the context of a business in no holding asked holding_peer %d times, want once (the gate)", name, n)
-		}
-		if n := holdingPeerCalls(t, ctx, tx, w.km, stmt); n < 2 {
-			t.Errorf("%s in a member's context asked holding_peer %d times -- the peer set was not computed", name, n)
+		for _, c := range []struct {
+			who    string
+			tenant uuid.UUID
+		}{{"a member (KM)", w.km}, {"a business in no holding", alone}, {"no context", uuid.Nil}} {
+			if pair, set := holdingPeerCallsByForm(t, ctx, tx, c.tenant, stmt); pair != 0 || set != 1 {
+				t.Errorf("%s in the context of %s asked holding_peer's pair form %d times and its set form %d times; want 0 and exactly 1",
+					name, c.who, pair, set)
+			}
 		}
 	}
 	if got := holdingDirectoryIn(t, ctx, tx, w.km, nil, nil); len(got) == 0 {

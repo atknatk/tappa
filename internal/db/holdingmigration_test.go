@@ -421,7 +421,9 @@ func holdingSurfaceOf(t *testing.T, q opQuerier) holdingSurface {
 	}
 	s.opFns = opInt(t, ctx, q, `SELECT count(*) FROM pg_proc WHERE proname IN ('op_create_holding', 'op_add_holding_member', 'op_remove_holding_member', 'op_read_holdings')`)
 	s.holdingObjects = opInt(t, ctx, q, `SELECT (SELECT count(*) FROM pg_class WHERE relnamespace = 'public'::regnamespace AND relname IN ('holdings', 'holding_members'))
-	                                          + (SELECT count(*) FROM pg_proc WHERE proname IN ('holding_peer', 'holding_timezone_lock'))
+	                                          -- 00041's holding_peer: the pair form (00060's set form is not 00041's object)
+	                                          + (SELECT count(*) FROM pg_proc WHERE proname = 'holding_timezone_lock'
+	                                                                             OR oid = to_regprocedure('public.holding_peer(uuid, uuid, text)'))
 	                                          + (SELECT count(*) FROM pg_trigger WHERE tgname = 'tenants_holding_timezone_lock')`)
 	s.opdefTenants = opColumns(t, ctx, q, "tappa_opdefiner", "tenants", "SELECT")
 	if s.holdingObjects > 0 {

@@ -143,6 +143,7 @@ var opAtVersionSkips = map[int]string{
 	55: "holding_directory, its four employees grants and the membership gate (M11 API-8) -- no operator object",
 	56: "the directory's index on employees (M11 API-8) -- no operator object; its Down's DROP INDEX takes ACCESS " +
 		"EXCLUSIVE on employees",
+	60: "holding_peer's set form and the two multi-row holding_* bodies that read it (T124) -- no operator object",
 }
 
 // opAtVersion takes the test's transaction to migration `version`: from the newest file

@@ -61,6 +61,9 @@ type holdingSignature struct {
 // functions tappa_holdingdefiner owns is EXACTLY this list (TestHoldingCatalog_TheFunctionsAndTheirExactSignatures).
 var holdingSignatures = []holdingSignature{
 	{"holding_peer", "a uuid, b uuid, mod text", "boolean", holdingPredicate},
+	// 00060 (T124, the user's decision of 2026-10-18): holding_peer's set form -- the one predicate's
+	// second signature, b free; the only name with two rows here ((iii) counts them).
+	{"holding_peer", "a uuid, mod text", "SETOF uuid", holdingPredicate},
 	{"holding_timezone_lock", "", "trigger", holdingTrigger},
 	// 00043 (M11 API-1b): the tap path's three callables and the site gate -- the ADR's rows, verbatim.
 	{"holding_tap_site", "p_uid character",
@@ -93,7 +96,9 @@ var holdingTriggerConfig = []string{"search_path=pg_catalog, pg_temp", "lock_tim
 //
 //	(i)   the qualified names tappa_holdingdefiner owns are exactly sigs', all in public;
 //	(ii)  each one's argument and result text is the table's, verbatim;
-//	(iii) one overload per qualified name;
+//	(iii) one overload per qualified name -- but for holding_peer, whose two signatures (the pair form
+//	      and, since 00060, the set form -- T124) are two rows of the table: a name has exactly as
+//	      many overloads as the table has rows for it;
 //	(iv)  every function named holding\_% in any schema is owned by tappa_holdingdefiner;
 //	(v)   prosecdef true but for holding_peer (false), provolatile 'v' for holding_peer, proconfig
 //	      exactly the search path (and, for a trigger, the lock_timeout too);
@@ -134,9 +139,12 @@ func holdingCatalogFindings(ctx context.Context, q opQuerier, sigs []holdingSign
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	// Keyed by the qualified name AND the arguments: holding_peer has two rows (00060).
 	want := map[string]holdingSignature{}
+	rowsOf := map[string]int{}
 	for _, s := range sigs {
-		want["public."+s.name] = s
+		want["public."+s.name+"("+s.args+")"] = s
+		rowsOf["public."+s.name]++
 	}
 	var out []string
 	seen := map[string]bool{}
@@ -147,16 +155,20 @@ func holdingCatalogFindings(ctx context.Context, q opQuerier, sigs []holdingSign
 			bad("(iv) named holding_* but owned by %s -- a holding_* the definer does not own is a definer of another role, possibly the superuser", f.owner)
 			continue
 		}
-		s, ok := want[q]
-		if !ok {
+		if rowsOf[q] == 0 {
 			bad("(i) owned by tappa_holdingdefiner and not in ADR 0027 §2's signature table (a closed-list member needs the user's approval and the ADR)")
 			continue
 		}
-		seen[q] = true
-		if f.overloads != 1 {
-			bad("(iii) %d overloads; a second signature is a second door", f.overloads)
+		if f.overloads != rowsOf[q] {
+			bad("(iii) %d overloads, the table has %d; a second signature is a second door", f.overloads, rowsOf[q])
 		}
-		if f.args != s.args || f.result != s.result {
+		s, ok := want[q+"("+f.args+")"]
+		if !ok {
+			bad("(ii) is (%s) -> %s, and the table has no row of %s with these arguments", f.args, f.result, q)
+			continue
+		}
+		seen[q+"("+f.args+")"] = true
+		if f.result != s.result {
 			bad("(ii) is (%s) -> %s, the table says (%s) -> %s", f.args, f.result, s.args, s.result)
 		}
 		switch s.kind {
@@ -696,12 +708,16 @@ func TestHoldingPeer_IsTheOnlyBodyThatTouchesHoldingMembers(t *testing.T) {
 	if walked < 1000 {
 		t.Fatalf("anti-vacuity: the scan read %d definitions; pg_catalog alone has thousands", walked)
 	}
-	var def string
-	if err := tx.QueryRow(ctx, `SELECT pg_get_functiondef('public.holding_peer(uuid, uuid, text)'::regprocedure)`).Scan(&def); err != nil {
-		t.Fatal(err)
-	}
-	if !holdingMembersRE.MatchString(holdingStripComments(def)) {
-		t.Fatal("anti-vacuity: holding_peer's definition does not name holding_members as the scan reads it")
+	// Both forms of the one predicate name the table (the set form since 00060 -- T124): the scan is
+	// read on what it exempts.
+	for _, form := range []string{"public.holding_peer(uuid, uuid, text)", "public.holding_peer(uuid, text)"} {
+		var def string
+		if err := tx.QueryRow(ctx, `SELECT pg_get_functiondef($1::regprocedure)`, form).Scan(&def); err != nil {
+			t.Fatal(err)
+		}
+		if !holdingMembersRE.MatchString(holdingStripComments(def)) {
+			t.Fatalf("anti-vacuity: %s's definition does not name holding_members as the scan reads it", form)
+		}
 	}
 	for _, c := range []struct {
 		name string
@@ -727,6 +743,24 @@ func TestHoldingPeer_IsTheOnlyBodyThatTouchesHoldingMembers(t *testing.T) {
 		{"an op_* the definer owns", []string{`CREATE FUNCTION public.op_zz_probe_hm() RETURNS bigint LANGUAGE sql
 			AS 'SELECT count(*) FROM public.holding_members'`,
 			`ALTER FUNCTION public.op_zz_probe_hm() OWNER TO tappa_opdefiner`}, false},
+		// T124: the exemption is the NAME holding_peer, not a prefix -- a sibling set function the
+		// definer owns is flagged (00060 put the set form under holding_peer for this reason).
+		{"a holding_peer sibling the definer owns", []string{`CREATE FUNCTION public.holding_peers_zz_probe_hm(a uuid) RETURNS SETOF uuid LANGUAGE sql
+			AS 'SELECT member_tenant_id FROM public.holding_members'`,
+			`ALTER FUNCTION public.holding_peers_zz_probe_hm(uuid) OWNER TO tappa_holdingdefiner`}, true},
+		// T124's rejected road: a multi-row function that pre-filters its peer candidates on the
+		// membership table itself (measured at 5.2-5.8 ms in API-8) -- the rule says no, and so does the scan.
+		{"holding_site_locations pre-filtering on the membership table", []string{`CREATE OR REPLACE FUNCTION public.holding_site_locations(p_cursor uuid)
+			RETURNS TABLE(site_tenant_id uuid, location_id uuid, location_name text, location_external_ref text,
+			              shift_start time, shift_end time, overnight boolean)
+			LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+			    SELECT l.tenant_id, l.id, l.name, l.external_ref, l.shift_start, l.shift_end, l.overnight
+			      FROM public.locations AS l
+			     WHERE l.tenant_id IN (SELECT mb.member_tenant_id FROM public.holding_members AS ma
+			                             JOIN public.holding_members AS mb ON mb.holding_id = ma.holding_id
+			                            WHERE ma.member_tenant_id = NULLIF(pg_catalog.current_setting('app.tenant_id', true), '')::uuid)
+			       AND public.holding_peer(NULLIF(pg_catalog.current_setting('app.tenant_id', true), '')::uuid, l.tenant_id, 'strict')
+			     ORDER BY l.id LIMIT 1000 $$`}, true},
 	} {
 		t.Run("control/"+c.name, func(t *testing.T) {
 			sp, err := tx.Begin(ctx)
@@ -747,7 +781,9 @@ func TestHoldingPeer_IsTheOnlyBodyThatTouchesHoldingMembers(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			hit := slices.ContainsFunc(got, func(f string) bool { return strings.Contains(f, "zz_probe_hm") })
+			hit := slices.ContainsFunc(got, func(f string) bool {
+				return strings.Contains(f, "zz_probe_hm") || strings.Contains(f, "holding_site_locations(")
+			})
 			if hit != c.want {
 				t.Fatalf("flagged=%v, want %v; findings: %v", hit, c.want, got)
 			}
@@ -1804,18 +1840,26 @@ var holdingSingleRowCalls = map[string]string{
 }
 
 // holdingPeerCalls counts holding_peer's calls made by stmt (run as tappa_app in tenant's
-// context), with function tracking on for the test's transaction (track_functions is the
-// superuser's to set -- the owner session is one).
+// context; uuid.Nil is no context) -- both forms, the pair form's and (since 00060) the set form's -- with function
+// tracking on for the test's transaction (track_functions is the superuser's to set -- the owner
+// session is one).
 func holdingPeerCalls(t *testing.T, ctx context.Context, tx pgx.Tx, tenant uuid.UUID, stmt string) int64 {
 	t.Helper()
-	var calls int64
-	count := `SELECT coalesce((SELECT calls FROM pg_stat_xact_user_functions
-	                            WHERE funcid = 'public.holding_peer(uuid, uuid, text)'::regprocedure), 0)`
-	if err := opAs(t, ctx, tx, "tappa_app", func(sp pgx.Tx) error {
-		if _, err := sp.Exec(ctx, `SELECT set_config('app.tenant_id', $1, true)`, tenant.String()); err != nil {
-			return err
-		}
-		before := opInt(t, ctx, sp, count)
+	pair, set := holdingPeerCallsByForm(t, ctx, tx, tenant, stmt)
+	return pair + set
+}
+
+// holdingPeerCallsByForm is holdingPeerCalls, the two forms apart: the pair form
+// holding_peer(a, b, mod) and the set form holding_peer(a, mod) (T124).
+func holdingPeerCallsByForm(t *testing.T, ctx context.Context, tx pgx.Tx, tenant uuid.UUID, stmt string) (pair, set int64) {
+	t.Helper()
+	count := func(q pgx.Tx, fn string) int64 {
+		return opInt(t, ctx, q, `SELECT coalesce((SELECT calls FROM pg_stat_xact_user_functions WHERE funcid = $1::regprocedure), 0)`, fn)
+	}
+	const pairForm, setForm = "public.holding_peer(uuid, uuid, text)", "public.holding_peer(uuid, text)"
+	// uuid.Nil is no context (holdingAppIn's rule).
+	if err := holdingAppIn(t, ctx, tx, tenant, func(sp pgx.Tx) error {
+		pair0, set0 := count(sp, pairForm), count(sp, setForm)
 		rows, err := sp.Query(ctx, stmt)
 		if err != nil {
 			return err
@@ -1826,12 +1870,12 @@ func holdingPeerCalls(t *testing.T, ctx context.Context, tx pgx.Tx, tenant uuid.
 		if err := rows.Err(); err != nil {
 			return err
 		}
-		calls = opInt(t, ctx, sp, count) - before
+		pair, set = count(sp, pairForm)-pair0, count(sp, setForm)-set0
 		return nil
 	}); err != nil {
 		t.Fatalf("count holding_peer's calls: %v", err)
 	}
-	return calls
+	return pair, set
 }
 
 // holdingPeerSetFindings drives each call twice, around 50 more data rows for the peer: a

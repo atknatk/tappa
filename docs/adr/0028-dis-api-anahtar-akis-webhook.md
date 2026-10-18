@@ -2394,7 +2394,7 @@ arasında tekil, sıra tektir); uç `internal/handler/api/directory.go`; kablola
   `nextCursor` verilince, `+` ipucu kapatılınca → `TestDirectory_Paged`; pencere sabiti 0 → `TestDirectory_OverlapWindow`;
   birleştirmede eşitlik id yerine kaynakla ya da fonksiyonun tam sayfası "daha var" sayılmayınca → `TestMergeDirectory_TheTwoSourcesInOneOrder`;
   fonksiyonda konum LATERAL'ın dışında → keyset testi; `active` = `status = 'active'` → `TestHoldingDirectory_ReturnsPeersNeverTheCaller`;
-  kapı kaldırılınca → `TestHoldingFunctions_AMemberOfNoHoldingAsksOnce`. *Adlandırılmış (yeşil kalan, kusur değil):* kendi
+  kapı kaldırılınca → kapı testi (T124'ten beri `TestHoldingFunctions_AskThePeerSetOnceNeverPerTenant`). *Adlandırılmış (yeşil kalan, kusur değil):* kendi
   sorgusunda tenant yüklemi `OR true` → kemer (`TestStaffQueries_CarryAnExplicitTenantPredicate`) kırmızı, HTTP testleri RLS
   sayesinde yeşil (kuşak + kemer — API-5/7 emsali).
 - **Ölçek** (atılabilir kap, Docker Desktop macOS 4 CPU; **21 000 tenant × 2 000 çalışan = 42 M satır** — laboratuvarda toplu
@@ -2415,6 +2415,10 @@ arasında tekil, sıra tektir); uç `internal/handler/api/directory.go`; kablola
   ürün sınırını değiştirmeden sağlamlaştırıldı: `TestAPIRead_EveryReadCarriesTheBound` rehberi holding'siz bir işletme için
   okur (sınır aynı denetlenir); stres testi kendi okuyucusunun sınırını yükseltir (`bound` — ölçtüğü şey garanti, sınır değil);
   HTTP testleri sevkedilen sınırla kalır, üye isteği sayısı azaltıldı (ikinci tam koşuda yeşil).
+- ✅ **Üye yarısı kapandı (T124, 2026-10-18, migration `00060` — ADR 0027 *"T124 uygulama notu"*).** `holding_directory` eş
+  kümesini `holding_peer`'in küme biçiminden tek çağrıyla alır; tenant taraması yok. Aynı düzende (21 000 tenant) üye KM'nin
+  sayfası 0,98–1,10 sn → 2,7–3,7 ms; gerçek zincirle 16 × 25 eşzamanlı istekte önce 29/400 503 (medyan 4,6 sn), sonra 0 503
+  (medyan 45 ms). Yukarıdaki iki ölçüm (*"Ölçek"*in üye satırı ve bu madde) `00055`'in gövdesinindir.
 
 
 ## API-9 uygulama notu (2026-10-15)
