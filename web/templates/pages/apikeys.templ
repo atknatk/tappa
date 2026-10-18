@@ -386,6 +386,12 @@ templ webhookDeliveries(w WebhookView) {
 			1 minute, 5 minutes, 30 minutes, 2 hours and 6 hours; after the sixth try it is marked failed.
 			Your system can always read every punch from the punch feed as well.
 		</p>
+		if w.LogKeepsDays > 0 {
+			<p class="mt-1 max-w-2xl text-sm text-ink/85">
+				A delivery stays in this list for { itoa(w.LogKeepsDays) } days after it arrived or was marked failed, and is
+				then deleted — a failed one can be sent again until then. A delivery that is still waiting is never deleted.
+			</p>
+		}
 		if len(w.Deliveries) == 0 {
 			<p class="mt-3 text-sm text-ink/85">No delivery yet.</p>
 		} else {

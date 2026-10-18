@@ -439,6 +439,7 @@ type WebhookDelivery struct {
 	LastErrorClass *string
 	CreatedAt      time.Time
 	DeliveredAt    *time.Time
+	SettledAt      *time.Time
 }
 
 type WebhookEndpoint struct {

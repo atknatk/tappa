@@ -9,6 +9,11 @@ package endpoints
 // queued, its state, its tries, and the last try's closed class and status -- never the address, never
 // the remote's text (ADR 0028 §6: neither is stored).
 //
+// THE RETENTION (T130): the log and the resend see a delivered or dead delivery for
+// delivery.RetentionDays after it settled -- the window the sweep deletes behind (internal/webhook/
+// delivery), applied in the reads too, so the owner never sees a row the next sweep would take. A
+// pending delivery is always seen.
+//
 // RESEND is owner-only, needs the API open (K-22) and the endpoint on (ADR 0028 §6: "yeniden
 // gönder"de K-22 ve active yeniden denetlenir), and spends ONE slot of the bucket it shares with the
 // ping (ten an hour per business): the slot row (ActionResend, target = the delivery) is written under
@@ -27,6 +32,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/atknatk/tappa/internal/store"
+	"github.com/atknatk/tappa/internal/webhook/delivery"
 )
 
 // The resend's refusals (fixed sentinels; none carries a value).
@@ -105,6 +111,7 @@ func (s *Service) Deliveries(ctx context.Context, tenantID, actorID uuid.UUID, p
 		}
 		rows, err := q.ListWebhookDeliveries(ctx, store.ListWebhookDeliveriesParams{
 			TenantID: tenantID, BeforeAt: before, BeforeID: beforeID, PageSize: DeliveryPageSize + 1,
+			RetentionDays: delivery.RetentionDays,
 		})
 		if err != nil {
 			return fmt.Errorf("read the deliveries: %w", err)
@@ -166,7 +173,9 @@ func (s *Service) Resend(ctx context.Context, tenantID, actorID, deliveryID uuid
 		if lock.ID != tenantID {
 			return errors.New("webhook endpoint: the bucket's lock named another business")
 		}
-		d, err := q.LockWebhookDeliveryForResend(ctx, store.LockWebhookDeliveryForResendParams{TenantID: tenantID, ID: deliveryID})
+		d, err := q.LockWebhookDeliveryForResend(ctx, store.LockWebhookDeliveryForResendParams{
+			TenantID: tenantID, ID: deliveryID, RetentionDays: delivery.RetentionDays,
+		})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrNoDelivery
 		}

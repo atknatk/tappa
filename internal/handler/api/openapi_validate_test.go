@@ -1314,6 +1314,9 @@ func TestOpenAPI_TheWebhooksAreTheSenders(t *testing.T) {
 	if !slices.Equal(got, want) || len(want)+1 != delivery.MaxAttempts {
 		t.Errorf("the documented schedule %v, the sender's %v (tries %d)", got, want, delivery.MaxAttempts)
 	}
+	if v, _ := yat(doc, "webhooks", "punch", "post", "x-delivery-retention-days"); v != float64(delivery.RetentionDays) {
+		t.Errorf("the documented delivery retention %v days, the sweep's %d (T130)", v, delivery.RetentionDays)
+	}
 	if v, _ := yat(doc, "components", "schemas", "PunchDelivery", "properties", "event", "enum", "0"); v != delivery.EventPunch {
 		t.Errorf("the documented event %v, the sender's %q", v, delivery.EventPunch)
 	}

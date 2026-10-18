@@ -1016,6 +1016,27 @@ func TestGuide_TheExamplePunchesAreOutsideTheRepeatWindow(t *testing.T) {
 	}
 }
 
+// TestGuide_TheDeliveryLogKeepsWhatTheSweepKeeps (T130): §9.6 says, in both languages, that the
+// owner's list keeps a delivery for delivery.RetentionDays after it settled and never deletes a
+// waiting one -- the sweep's and the log's number.
+//
+// MUTANT (measured, T130): RetentionDays = 30 -> red in both guides.
+func TestGuide_TheDeliveryLogKeepsWhatTheSweepKeeps(t *testing.T) {
+	en, tr := theGuides(t)
+	for _, c := range []struct {
+		d          mdDoc
+		says, kept string
+	}{
+		{en, fmt.Sprintf("keeps a delivery for **%d days** after it arrived or was marked failed", delivery.RetentionDays), "still waiting is never deleted"},
+		{tr, fmt.Sprintf("**%d gün** tutar", delivery.RetentionDays), "Hâlâ bekleyen bir teslim asla silinmez"},
+	} {
+		section := collapse.ReplaceAllString(c.d.section("webhook-retries"), " ")
+		if !strings.Contains(section, c.says) || !strings.Contains(section, c.kept) {
+			t.Errorf("%s section 9.6 does not say %q and %q", c.d.name, c.says, c.kept)
+		}
+	}
+}
+
 // TestGuide_TheRequestIDRuleIsTheLogs (M11 API-12, second fix; guide §2.2): the X-Request-Id an
 // integration sends is the id Taptime's log records carry exactly when the guide says -- 1 to
 // httpx.MaxRequestIDLen characters of A-Z, a-z, 0-9, '-', '_', '.', none of the three key prefixes --

@@ -446,9 +446,12 @@ var storeSurface = map[string]string{
 	"GetPunchEventForDelivery":     "(context.Context, GetPunchEventForDeliveryParams{TenantID uuid.UUID; Seq int64}) (GetPunchEventForDeliveryRow{Seq int64; PunchID uuid.UUID; Version int32; Status string; PunchTime time.Time; RecordedAt time.Time; Channel string; Direction string; EmployeeID uuid.UUID; EmployeeRef *string; EmployeeCode *string; EmployeeCompany *string; LocationID *uuid.UUID; LocationRef *string; LocationName *string; LocationCompany *string; TagUid *string}, error)",
 	"RecordWebhookDeliveryResult":  "(context.Context, RecordWebhookDeliveryResultParams{State string; DelaySeconds int32; LastStatus *int32; LastErrorClass *string; TenantID uuid.UUID; ID uuid.UUID; LeaseUntil *time.Time}) (RecordWebhookDeliveryResultRow{Attempt int32; State string; NextAttemptAt time.Time}, error)",
 	"NextWebhookDeliveryDue":       "(context.Context, uuid.UUID) (NextWebhookDeliveryDueRow{Pending int32; DueInSeconds int64}, error)",
-	"ListWebhookDeliveries":        "(context.Context, ListWebhookDeliveriesParams{TenantID uuid.UUID; BeforeAt time.Time; BeforeID uuid.UUID; PageSize int32}) ([]ListWebhookDeliveriesRow{ID uuid.UUID; PunchEventSeq int64; Attempt int32; NextAttemptAt time.Time; LeaseUntil *time.Time; State string; LastStatus *int32; LastErrorClass *string; CreatedAt time.Time; DeliveredAt *time.Time; PunchID uuid.UUID; InFlight bool}, error)",
-	"LockWebhookDeliveryForResend": "(context.Context, LockWebhookDeliveryForResendParams{TenantID uuid.UUID; ID uuid.UUID}) (LockWebhookDeliveryForResendRow{ID uuid.UUID; EndpointID uuid.UUID; State string; InFlight bool}, error)",
+	"ListWebhookDeliveries":        "(context.Context, ListWebhookDeliveriesParams{TenantID uuid.UUID; BeforeAt time.Time; BeforeID uuid.UUID; RetentionDays int32; PageSize int32}) ([]ListWebhookDeliveriesRow{ID uuid.UUID; PunchEventSeq int64; Attempt int32; NextAttemptAt time.Time; LeaseUntil *time.Time; State string; LastStatus *int32; LastErrorClass *string; CreatedAt time.Time; DeliveredAt *time.Time; PunchID uuid.UUID; InFlight bool}, error)",
+	"LockWebhookDeliveryForResend": "(context.Context, LockWebhookDeliveryForResendParams{TenantID uuid.UUID; ID uuid.UUID; RetentionDays int32}) (LockWebhookDeliveryForResendRow{ID uuid.UUID; EndpointID uuid.UUID; State string; InFlight bool}, error)",
 	"ResendWebhookDelivery":        "(context.Context, ResendWebhookDeliveryParams{TenantID uuid.UUID; ID uuid.UUID}) (int64, error)",
+	// T130 (00058): the retention. The log's and the resend's reads take the window's days (an int,
+	// nothing is handed back that was not before); the sweep deletes and answers a count.
+	"DeleteSettledWebhookDeliveries": "(context.Context, DeleteSettledWebhookDeliveriesParams{TenantID uuid.UUID; RetentionDays int32; MaxRows int32}) (int64, error)",
 	// M11 API-10: an approval's site business (K-19's second tenant) -- an id, nothing of the record.
 	"GetReviewedPunchSite": "(context.Context, GetReviewedPunchSiteParams{TenantID uuid.UUID; ID uuid.UUID}) (*uuid.UUID, error)",
 }
@@ -1034,14 +1037,16 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// read of the tap it recorded (no evidence column); it calls no definer.
 	// 210 -> 211 on 2026-10-18 (M11 API-11 fix 1): tags.sql's LockSandboxPlaque, the simulation's
 	// per-plaque advisory lock over the caller's own tenant row; it calls no definer.
-	if named != 211 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND ELEVEN were "+
+	// 211 -> 212 on 2026-10-18 (T130): webhooks.sql's DeleteSettledWebhookDeliveries, the retention
+	// sweep over the caller's own tenant; it calls no definer.
+	if named != 212 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND TWELVE were "+
 			"there when this was pinned (2026-10-18: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
 			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+
 			"+ EM-7B's three invitation e-mail queries, + EM-7C's two recovery queries, "+
 			"+ the activation tap's two consent queries, + WL-13's two activation brand queries, "+
-			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock). "+
+			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock, + T130's retention sweep). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {

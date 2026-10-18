@@ -13,6 +13,7 @@ import (
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/egress"
 	"github.com/atknatk/tappa/internal/httpx"
+	"github.com/atknatk/tappa/internal/webhook/delivery"
 	"github.com/atknatk/tappa/internal/webhook/endpoints"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
@@ -197,6 +198,7 @@ func (a *AdminAuth) readWebhookView(r *http.Request, id httpx.AdminIdentity, zon
 		CreateHref: webhookHref, AddressHref: webhookAddressHref, RotateHref: webhookRotateHref,
 		DisableHref: webhookDisableHref, EnableHref: webhookEnableHref, PingHref: webhookPingHref,
 		AddressMaxLength: egress.MaxEndpointLength, Limit: endpoints.BucketLimit, ResendHref: webhookResendHref,
+		LogKeepsDays: delivery.RetentionDays,
 	}
 	if a.webhook == nil {
 		return v, nil

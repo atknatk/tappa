@@ -517,6 +517,7 @@ missing_rls=""
 waiver_report=""
 unverified=""
 rls_mutations=""
+policy_waivers=""
 
 # `-- +goose Down` ve sonrasini atar: yalnizca Up denetlenir.
 goose_up() {
@@ -1229,10 +1230,24 @@ for f in db/migrations/*.sql; do
   done < <(grep -E '^alter table .*(disable|no force) row level security' \
              <<<"$stmts"$'\n'"$(sql_statements_down "$f")" || true)
 
+  # 🔴 TEK MUAFIYET (T130, 2026-10-18): 00058'in Down'i kendi KISITLAYICI (RESTRICTIVE) DELETE
+  # politikasini siler. Kisitlayici bir politikayi silmek erisimi DARALTMAZ, GENISLETIR -- ama yalniz
+  # fiil hala varsa: ayni Down, politikadan ONCE `tappa_app`'in DELETE'ini geri alir, yani Down'dan
+  # sonra o fiil yoktur ve tablo 00048'in hâline doner. Muafiyet TAM ifade + TAM dosya adi oneki +
+  # ayni Down'da DAHA ONCE gelen REVOKE sartiyla dar; her taramada WARN olarak basilir. Baska bir
+  # dosyada, baska bir adla ya da REVOKE'suz yazilan her `drop policy` yine FAIL'dir.
+  down_stmts=$(sql_statements_down "$f")
   while IFS= read -r s; do
     [[ -n $s ]] || continue
+    if [[ $(basename "$f") == 00058_keep_the_deliveries_ninety_days.sql ]] \
+       && [[ $s == 'drop policy webhook_deliveries_delete_settled on public.webhook_deliveries' ]] \
+       && grep -qxF "$s" <<<"$down_stmts" \
+       && awk -v d="$s" '$0 == "revoke delete on public.webhook_deliveries from tappa_app" { r = 1 } $0 == d { exit !r }' <<<"$down_stmts"; then
+      policy_waivers+="$f: KISITLAYICI politika Down'da siliniyor, DELETE once geri aliniyor → ${s:0:110}"$'\n'
+      continue
+    fi
     rls_mutations+="$f: politika SILINIYOR → ${s:0:110}"$'\n'
-  done < <(grep -E '^drop policy' <<<"$stmts"$'\n'"$(sql_statements_down "$f")" || true)
+  done < <(grep -E '^drop policy' <<<"$stmts"$'\n'"$down_stmts" || true)
 
   # IZIN VEREN POLITIKA: tenant yuklemini bir TOTOLOJIYLE degistirmek tabloyu tum
   # tenant'lara acar. Olculdu: 0 -> 392 197 satir (2026-08-19).
@@ -1416,6 +1431,8 @@ report FAIL R5 "Migration'da tablo besligi eksik (tenant_id + indeks + ENABLE/FO
 report FAIL R5b "Migration §4.5/§4.3/§4.6'yi SOKUYOR (RLS kapatma · politika silme veya totolojik yuklem · BYPASSRLS-SUPERUSER rol/grup · rol uyeligi · varsayilan yetki · view acma veya definer'a cevirme · KURAL (RULE) · tablo sahipligi · tetikleyici · append-only UPDATE/DELETE · sema capinda UPDATE/DELETE · GRANT ALL)" "${rls_mutations%$'\n'}"
 
 report WARN R5 "Tenant kapsamindan MUAF birakilmis tablo(lar) — muafiyet sessiz kalmamali" "${waiver_report%$'\n'}"
+
+report WARN R5b "Down'da silinen KISITLAYICI politika (fiil ayni Down'da once geri aliniyor) — muafiyet sessiz kalmamali" "${policy_waivers%$'\n'}"
 
 report WARN R5 "Tablo yaratimi R5'in gorus alani disinda — elle denetle" "${unverified%$'\n'}"
 

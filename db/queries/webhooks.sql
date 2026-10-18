@@ -93,9 +93,18 @@ WHERE tenant_id = @tenant_id
 -- worker (internal/webhook/delivery) leases it, sends it OUTSIDE any transaction and records the
 -- result; the owner reads the log and asks for a resend (internal/webhook/endpoints). tappa_app
 -- holds SELECT and UPDATE (lease_until, attempt, next_attempt_at, state, last_status,
--- last_error_class, delivered_at) -- no INSERT, no DELETE (00048). K-19: every statement is handed
--- ONE business and carries its tenant_id as a top-level conjunct; nothing here reads across
--- businesses.
+-- last_error_class, delivered_at) -- no INSERT (00048) -- and, since T130 (00058), DELETE, which the
+-- restrictive policy webhook_deliveries_delete_settled confines to a settled row of the context's
+-- tenant older than 90 days. settled_at is the database's (00058's trigger): no statement here writes
+-- it. K-19: every statement is handed ONE business and carries its tenant_id as a top-level
+-- conjunct; nothing here reads across businesses.
+--
+-- THE RETENTION (T130, the user's decision 2026-10-18): a delivered or dead delivery is kept
+-- @retention_days (delivery.RetentionDays, 90) after it settled, then deleted; a pending one is never
+-- deleted. The log and the resend do not see a row past it even before the sweep reaches it, so what
+-- the owner sees does not depend on when the sweep last ran. The bound is the DATABASE's clock
+-- (statement_timestamp(), the policy's too) and the number one parameter from one Go constant;
+-- the policy's own 90 is pinned equal to it (TestWebhookRetention_TheQueryAndThePolicyAgree).
 -- ---------------------------------------------------------------------------------------------
 
 -- name: ClaimWebhookDelivery :one
@@ -176,7 +185,8 @@ WHERE q.tenant_id = @tenant_id
 -- The position is the last row shown, (created_at, id): every row strictly before it in that order.
 -- created_at <= @before_at is the index condition (webhook_deliveries_tenant_created_idx); the id
 -- breaks a tie at one instant. The punch's id comes from the business's OWN feed row (the event the
--- delivery carries); nothing of the endpoint's address is read.
+-- delivery carries); nothing of the endpoint's address is read. A settled row past the retention is
+-- not shown (THE RETENTION above).
 SELECT d.id, d.punch_event_seq, d.attempt, d.next_attempt_at, d.lease_until, d.state, d.last_status,
        d.last_error_class, d.created_at, d.delivered_at, e.punch_id,
        (d.lease_until IS NOT NULL AND d.lease_until > clock_timestamp())::boolean AS in_flight
@@ -186,17 +196,21 @@ WHERE d.tenant_id = @tenant_id
   AND e.tenant_id = @tenant_id
   AND d.created_at <= @before_at
   AND (d.created_at < @before_at OR d.id < @before_id)
+  AND (d.state = 'pending' OR d.settled_at >= statement_timestamp() - make_interval(days => @retention_days::int))
 ORDER BY d.created_at DESC, d.id DESC
 LIMIT @page_size;
 
 -- name: LockWebhookDeliveryForResend :one
 -- The owner's "resend" (ADR 0028 §6): the delivery, locked for the act's transaction, and whether a
--- worker holds a live lease on it right now (a resend then would race the send in flight).
+-- worker holds a live lease on it right now (a resend then would race the send in flight). A settled
+-- row past the retention is no row (the log no longer shows it: THE RETENTION above) -- and a row the
+-- sweep is deleting at this moment is waited for and then gone (its lock), never revived.
 SELECT id, endpoint_id, state,
        (lease_until IS NOT NULL AND lease_until > clock_timestamp())::boolean AS in_flight
 FROM webhook_deliveries
 WHERE tenant_id = @tenant_id
   AND id = @id
+  AND (state = 'pending' OR settled_at >= statement_timestamp() - make_interval(days => @retention_days::int))
 FOR UPDATE;
 
 -- name: ResendWebhookDelivery :execrows
@@ -211,3 +225,32 @@ WHERE tenant_id = @tenant_id
   AND id = @id
   AND state IN ('pending', 'dead')
   AND (lease_until IS NULL OR lease_until <= clock_timestamp());
+
+-- name: DeleteSettledWebhookDeliveries :execrows
+-- THE SWEEP (T130): at most @max_rows of this business's settled deliveries older than the retention,
+-- oldest first, SKIP LOCKED -- the Idempotency ledger's lazy delete (apiidempotency.sql) as the
+-- precedent, run by the delivery job in a short transaction of its own on the business's turn (K-19:
+-- one business, no scan). A pending row is never a candidate (state), and a row a resend holds is
+-- skipped, not waited for (it is pending once the resend commits). The batch bounds one statement's
+-- locks and WAL.
+-- 🔴 THE BATCH IS A MATERIALIZED CTE, NOT `id IN (SELECT ... LIMIT n FOR UPDATE SKIP LOCKED)`:
+-- measured (T130), that shape deleted 105 rows of 105 with a limit of 100 -- the planner rescans the
+-- subquery for the semi-join, every rescan skips the rows this statement has already deleted (its
+-- own lock on them reads as "locked") and its LIMIT takes the next ones. Materialized, the candidate
+-- list is computed once (TestWebhookRetention_TheBatchIsBounded).
+-- webhook_deliveries_tenant_settled_idx (00059) is the walk: its predicate is this state clause and
+-- the bound is a stable expression of a bare parameter, so it is the index condition (CLAUDE.md §6).
+-- The policy webhook_deliveries_delete_settled re-checks every row the DELETE reaches.
+WITH doomed AS MATERIALIZED (
+    SELECT s.id
+    FROM webhook_deliveries AS s
+    WHERE s.tenant_id = @tenant_id
+      AND s.state IN ('delivered', 'dead')
+      AND s.settled_at < statement_timestamp() - make_interval(days => @retention_days::int)
+    ORDER BY s.settled_at
+    LIMIT @max_rows::int
+    FOR UPDATE SKIP LOCKED)
+DELETE FROM webhook_deliveries AS d
+USING doomed
+WHERE d.tenant_id = @tenant_id
+  AND d.id = doomed.id;

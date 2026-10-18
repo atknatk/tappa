@@ -1059,6 +1059,10 @@ da cevabınızın metnini değil) — ve bekleyen ya da başarısız bir teslimi
 yeniden gönderebilir (başarısız olan bir deneme daha alır). Hata sınıfları `timeout`, `tls`,
 `refused`, `http_4xx`, `http_5xx` ve `blocked_address`'tir.
 
+Liste bir teslimi ulaştıktan ya da başarısız sayıldıktan sonra **90 gün** tutar; sonra silinir ve
+başarısız olan artık yeniden gönderilemez. Hâlâ bekleyen bir teslim asla silinmez. Punch'ın kendisi
+akışta kalır.
+
 <a id="webhook-duplicates"></a>
 ### 9.7 Tekrarlar ve sıra
 

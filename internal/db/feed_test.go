@@ -21,6 +21,10 @@ const (
 	op00048File = "00048_create_the_punch_feed_tables.sql"
 	op00049File = "00049_write_the_punch_feed.sql"
 	op00050File = "00050_backfill_the_punch_feed.sql"
+	// T130: the retention's column, trigger, policy and DELETE (walked with the feed), and its index
+	// (not walked -- 00048's Down drops the table, the index with it; the Up again builds it).
+	op00058File = "00058_keep_the_deliveries_ninety_days.sql"
+	op00059File = "00059_index_the_settled_deliveries.sql"
 )
 
 // feedHoldingFeed00046MD5 is md5(prosrc) of 00046's holding_feed -- the body 00049's precondition
@@ -248,7 +252,7 @@ func feedSetAsideRows(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	}
 }
 
-// feedBelow48 takes the savepoint's database below 00048 -- 00055's Down (API-8), 00049's, then 00048's -- with the
+// feedBelow48 takes the savepoint's database below 00048 -- 00058's Down (T130), 00055's (API-8), 00049's, then 00048's -- with the
 // feed rows set aside first. The caller's savepoint is a holdingLockedSavepoint; the lock is taken
 // again here, as holdingBelow46 does.
 func feedBelow48(t *testing.T, ctx context.Context, sp pgx.Tx) {
@@ -258,6 +262,10 @@ func feedBelow48(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	// API-8: 00055's Down first -- holding_directory is a definer's function and its four employees
 	// grants are the definer's, so a walk below 00047 must not find them (feedUpAgain gives them back).
 	// It takes no table lock; the directory's index is 00056's and is not walked.
+	// T130: 00058's Down first -- its trigger function outlives the table 00048's Down drops, and
+	// feedUpAgain gives the whole of it back.
+	_, down58 := opMigrationSections(t, op00058File)
+	opRunSection(t, ctx, sp, down58, "00058 Down")
 	_, down55 := opMigrationSections(t, op00055File)
 	opRunSection(t, ctx, sp, down55, "00055 Down")
 	_, down49 := opMigrationSections(t, op00049File)
@@ -266,7 +274,7 @@ func feedBelow48(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	opRunSection(t, ctx, sp, down48, "00048 Down")
 }
 
-// feedUpAgain runs 00048's, 00049's and 00055's Ups -- after feedBelow48 and whatever the test walked
+// feedUpAgain runs 00048's, 00049's, 00055's, 00058's and 00059's Ups -- after feedBelow48 and whatever the test walked
 // below it, to compare with HEAD.
 func feedUpAgain(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	t.Helper()
@@ -276,6 +284,10 @@ func feedUpAgain(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	opRunSection(t, ctx, sp, up49, "00049 Up again")
 	up55, _ := opMigrationSections(t, op00055File)
 	opRunSection(t, ctx, sp, up55, "00055 Up again")
+	up58, _ := opMigrationSections(t, op00058File)
+	up59, _ := opMigrationSections(t, op00059File)
+	opRunSection(t, ctx, sp, up58, "00058 Up again")
+	opRunSection(t, ctx, sp, up59, "00059 Up again")
 }
 
 func feedStr(p *string) string {
@@ -965,8 +977,9 @@ func TestFeedTrigger_SavepointKeepsCounterAndEventTogether(t *testing.T) {
 // TestFeedTriggers_RefuseVerbsUnderArwdAndTempTableBinding is plan §5 API-2 (f) for BOTH definers,
 // on this database (production's `arwd` default -- TestM11Catalog_TheWitnessReadsTheDefaultAndItsOrder):
 //   - tappa_app cannot write the feed by hand: INSERT into punch_events, feed_counters,
-//     webhook_deliveries; UPDATE of punch_events and feed_counters; DELETE of any of the four --
-//     each 42501 (the triggers are the one writer -- ADR 0028 §4 "tappa_app olay yazamaz");
+//     webhook_deliveries; UPDATE of punch_events and feed_counters; DELETE of punch_events,
+//     feed_counters or webhook_endpoints -- each 42501 (the triggers are the one writer -- ADR 0028 §4
+//     "tappa_app olay yazamaz"); a DELETE of a fresh delivery removes nothing (T130's policy);
 //   - tappa_app cannot bind any of the three trigger functions (punch_feed, feed_open_counter,
 //     holding_feed) to a temporary table of its own (no EXECUTE: 42501 -- the 4th round's path to
 //     an event for a refused record);
@@ -990,7 +1003,6 @@ func TestFeedTriggers_RefuseVerbsUnderArwdAndTempTableBinding(t *testing.T) {
 		{"UPDATE a counter", `UPDATE feed_counters SET last_seq = 0 WHERE tenant_id = $1`, []any{w.kf}},
 		{"DELETE an event", `DELETE FROM punch_events WHERE tenant_id = $1`, []any{w.kf}},
 		{"DELETE a counter", `DELETE FROM feed_counters WHERE tenant_id = $1`, []any{w.kf}},
-		{"DELETE a delivery", `DELETE FROM webhook_deliveries WHERE tenant_id = $1`, []any{w.kf}},
 		{"DELETE an endpoint", `DELETE FROM webhook_endpoints WHERE tenant_id = $1`, []any{w.kf}},
 	} {
 		err := holdingAppIn(t, ctx, tx, w.kf, func(sp pgx.Tx) error {
@@ -998,6 +1010,22 @@ func TestFeedTriggers_RefuseVerbsUnderArwdAndTempTableBinding(t *testing.T) {
 			return err
 		})
 		opWant(t, err, sqlstateInsufficientPrivi, "tappa_app: "+c.what)
+	}
+	// T130 (00058): tappa_app holds DELETE on webhook_deliveries -- the retention sweep's -- and the
+	// restrictive policy confines it to a settled row older than 90 days, so the tenant's fresh
+	// (pending) delivery is not removed: 0 rows, no error. The policy's own cases are
+	// webhookretention_test.go's.
+	if err := holdingAppIn(t, ctx, tx, w.kf, func(sp pgx.Tx) error {
+		tag, err := sp.Exec(ctx, `DELETE FROM webhook_deliveries WHERE tenant_id = $1`, w.kf)
+		if err == nil && tag.RowsAffected() != 0 {
+			return fmt.Errorf("deleted %d fresh deliveries", tag.RowsAffected())
+		}
+		return err
+	}); err != nil {
+		t.Errorf("tappa_app: DELETE a fresh delivery: %v", err)
+	}
+	if n := opInt(t, ctx, tx, `SELECT count(*) FROM webhook_deliveries WHERE tenant_id = $1`, w.kf); n == 0 {
+		t.Error("PREMISE: KF has no delivery, so the DELETE above proved nothing")
 	}
 	for _, fn := range []string{"public.punch_feed()", "public.feed_open_counter()", "public.holding_feed()"} {
 		opWant(t, opAs(t, ctx, tx, "tappa_app", func(sp pgx.Tx) error {
@@ -1048,8 +1076,10 @@ var feedWrittenColumns = map[string]string{
 		"employee_name,site_location_id,site_tag_uid,ctr,sun_valid,bucket_hour,occurred_at,channel,type,outcome,ctr_gap,created_at",
 	"punch_events": "tenant_id,seq,punch_id,punch_tenant_id,roles,version,status,punch_time,recorded_at,channel,direction,employee_id," +
 		"employee_ref,employee_code,employee_company,location_id,location_ref,location_name,location_company,tag_uid,created_at",
+	// settled_at (T130, 00058): when the delivery arrived or died -- the retention's clock, the
+	// database's (its trigger), not a fact about the punch.
 	"webhook_deliveries": "tenant_id,id,endpoint_id,punch_event_seq,attempt,next_attempt_at,lease_until,state,last_status," +
-		"last_error_class,created_at,delivered_at",
+		"last_error_class,created_at,delivered_at,settled_at",
 	"feed_counters": "tenant_id,last_seq",
 }
 

@@ -196,10 +196,14 @@ var m11Tables = map[string]map[string]m11TableACL{
 			Delete: true,
 		},
 	},
+	// T130 (00058): settled_at is READ (the sweep's WHERE, the log's window) and never written --
+	// its trigger is its writer; DELETE is the sweep's, confined by the restrictive policy
+	// webhook_deliveries_delete_settled to a settled row of the context's tenant older than 90 days.
 	"webhook_deliveries": {
 		"tappa_app": {
-			Select: "tenant_id,id,endpoint_id,punch_event_seq,attempt,next_attempt_at,lease_until,state,last_status,last_error_class,created_at,delivered_at",
+			Select: "tenant_id,id,endpoint_id,punch_event_seq,attempt,next_attempt_at,lease_until,state,last_status,last_error_class,created_at,delivered_at,settled_at",
 			Update: "attempt,next_attempt_at,lease_until,state,last_status,last_error_class,delivered_at",
+			Delete: true,
 		},
 		"tappa_feedwriter":     {Insert: "tenant_id,endpoint_id,punch_event_seq"},
 		"tappa_holdingdefiner": {Insert: "tenant_id,endpoint_id,punch_event_seq"},
@@ -308,6 +312,10 @@ var m11Functions = map[string]m11FunctionACL{
 	"holding_site_locations(uuid)": {owner: "tappa_holdingdefiner", definer: true, execute: "tappa_app,tappa_holdingdefiner"},
 	// 00055 (M11 API-8): a peer's employees -- EXECUTE to tappa_app alone.
 	"holding_directory(timestamp with time zone,uuid)": {owner: "tappa_holdingdefiner", definer: true, execute: "tappa_app,tappa_holdingdefiner"},
+	// 00058 (T130): settled_at's one writer, a trigger function -- EXECUTE in its owner alone,
+	// SECURITY INVOKER (it only sets NEW), its body asserting its table (webhookretention_test.go's
+	// TestWebhookRetention_TheClockIsTheDatabases binds it elsewhere).
+	"webhook_delivery_settle()": {owner: "tappa_owner", execute: "tappa_owner"},
 	// 00048/00049 (M11 API-2, ADR 0028 §4): the own-tenant feed's two trigger functions -- EXECUTE in
 	// their owner alone, bodies asserting TG_RELID (FeedTriggers_RefuseVerbsUnderArwdAndTempTableBinding).
 	"feed_open_counter()": {owner: "tappa_feedwriter", definer: true, execute: "tappa_feedwriter"},

@@ -77,6 +77,17 @@
 // again (the receiver deduplicates by id + version -- plan §2 item 16) once the business is noticed
 // again (K-19; plan §2 item 20).
 //
+// THE RETENTION (T130 -- the user's decision, 2026-10-18; ADR 0028 "T130 uygulama notu"): a delivered
+// or dead delivery is deleted RetentionDays after it settled (00058's settled_at, the database's clock);
+// a pending one never is. The deletion is the SWEEP, and it is K-19's: it runs inside RunFor, for the
+// business the worker was handed, in a short transaction of its own BEFORE the claims -- never a walk
+// over businesses. It is lazy twice over: a business is swept on its own turn only, and at most once
+// per SweepEvery per process (a sweep that found a full batch leaves the clock unset, so a backlog is
+// worked off one batch per turn); a business that is never noticed again keeps its settled rows until
+// it is. One sweep is one statement of at most sweepMax rows (SKIP LOCKED), bounded by sweepTimeout
+// and counted in the run's budget. Its failure is logged (the tenant and a closed class -- the
+// SQLSTATE, never the error's text) and the deliveries go on: the sweep never blocks a send.
+//
 // 🔴 NOTHING OF THE ADDRESS OR THE KEY IS LOGGED OR RETURNED (CLAUDE.md §7; ADR 0028 §3, §6): egress
 // hands back a closed class and a status, never Go's error text; this package's log lines carry the
 // tenant, the endpoint's and the delivery's ids, the attempt, the class and the status. The key is
@@ -91,10 +102,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/domain/tenant"
@@ -124,6 +137,24 @@ const (
 	RunBudget = egress.TotalTimeout
 	// GateRecheck is when a business whose deliveries wait at a closed gate is looked at again.
 	GateRecheck = 15 * time.Minute
+)
+
+// RetentionDays is how long a delivered or dead delivery is kept after it settled (T130): the sweep's
+// bound, the log's and the resend's window, the panel's and the guide's sentence. 00058's restrictive
+// policy holds the database to the same 90 (TestWebhookRetention_TheQueryAndThePolicyAgree).
+const RetentionDays = 90
+
+// SweepEvery is how often one business is swept, at most, per process (see the header).
+const SweepEvery = time.Hour
+
+const (
+	// sweepMax bounds one sweep's rows: one statement's locks and WAL. Every delivery settles on a
+	// turn of its business, so one batch per turn outpaces what settles.
+	sweepMax = 100
+	// sweepTimeout bounds one sweep (an index walk and at most sweepMax deletes: milliseconds).
+	sweepTimeout = 2 * time.Second
+	// sweptPrune is the size of the swept map past which stale entries are dropped.
+	sweptPrune = 4096
 )
 
 const (
@@ -175,6 +206,9 @@ type Job struct {
 	log  *slog.Logger
 	// budget and recheck are RunBudget and GateRecheck unless Pace changed them.
 	budget, recheck time.Duration
+	// swept is when each business was last swept without a full batch (the sweep's own throttle).
+	mu    sync.Mutex
+	swept map[uuid.UUID]time.Time
 }
 
 // New builds the job. The KEK is TAPPA_WEBHOOK_KEK (the endpoint's sealed key opens under it); the
@@ -189,7 +223,8 @@ func New(kek []byte, data Database, send Sender, log *slog.Logger) (*Job, error)
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Job{kek: append([]byte(nil), kek...), data: data, send: send, log: log, budget: RunBudget, recheck: GateRecheck}, nil
+	return &Job{kek: append([]byte(nil), kek...), data: data, send: send, log: log, budget: RunBudget, recheck: GateRecheck,
+		swept: map[uuid.UUID]time.Time{}}, nil
 }
 
 // Pace sets the run budget and the closed gate's recheck. cmd/tappa never calls it (the defaults are
@@ -224,6 +259,7 @@ func (j *Job) RunFor(ctx context.Context, tenantID uuid.UUID) error {
 		return errors.New("webhook delivery: no tenant")
 	}
 	began := time.Now()
+	j.sweep(ctx, tenantID, began)
 	for range runMax {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -468,4 +504,63 @@ func (j *Job) whenNext(ctx context.Context, tenantID uuid.UUID) error {
 		return nil
 	}
 	return &Later{After: max(time.Duration(next.DueInSeconds)*time.Second, time.Second)}
+}
+
+// sweep deletes, for this one business, at most sweepMax of its settled deliveries older than
+// RetentionDays (see the header). It returns nothing: a failure is logged and the run goes on.
+func (j *Job) sweep(ctx context.Context, tenantID uuid.UUID, now time.Time) {
+	j.mu.Lock()
+	last, seen := j.swept[tenantID]
+	j.mu.Unlock()
+	if seen && now.Sub(last) < SweepEvery {
+		return
+	}
+	sctx, cancel := context.WithTimeout(ctx, sweepTimeout)
+	defer cancel()
+	var n int64
+	err := j.data.WithTenant(sctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		var e error
+		n, e = store.New(tx).DeleteSettledWebhookDeliveries(ctx, store.DeleteSettledWebhookDeliveriesParams{
+			TenantID: tenantID, RetentionDays: RetentionDays, MaxRows: sweepMax,
+		})
+		return e
+	})
+	if err != nil {
+		if ctx.Err() == nil {
+			j.log.WarnContext(ctx, "webhook: the delivery log's retention sweep failed; the deliveries go on",
+				"tenant_id", tenantID.String(), "class", sweepClass(err))
+		}
+		return
+	}
+	if n > 0 {
+		j.log.InfoContext(ctx, "webhook: settled deliveries past the retention deleted", "tenant_id", tenantID.String(), "deleted", n)
+	}
+	if n >= sweepMax {
+		// A full batch: there may be more, and the next turn sweeps again.
+		return
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if len(j.swept) >= sweptPrune {
+		for id, at := range j.swept {
+			if now.Sub(at) >= SweepEvery {
+				delete(j.swept, id)
+			}
+		}
+	}
+	j.swept[tenantID] = now
+}
+
+// sweepClass is a sweep failure's closed class: the SQLSTATE, "timeout" or "other" -- never the
+// error's text.
+func sweepClass(err error) string {
+	var pg *pgconn.PgError
+	switch {
+	case errors.As(err, &pg):
+		return "sqlstate_" + pg.Code
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timeout"
+	default:
+		return "other"
+	}
 }

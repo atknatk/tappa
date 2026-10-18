@@ -100,6 +100,9 @@ type WebhookView struct {
 	Deliveries           []WebhookDeliveryRow
 	DeliveriesOlderHref  string
 	DeliveriesNewestHref string
+	// LogKeepsDays is how long the log keeps a delivery after it arrived or failed (T130,
+	// delivery.RetentionDays); 0 says nothing.
+	LogKeepsDays int
 }
 
 // WebhookDeliveryRow is one delivery in the log. It names the punch and the outcome -- never the

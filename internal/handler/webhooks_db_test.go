@@ -7,6 +7,7 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -26,6 +27,7 @@ import (
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/egress"
+	webhookdelivery "github.com/atknatk/tappa/internal/webhook/delivery"
 	"github.com/atknatk/tappa/internal/webhook/endpoints"
 )
 
@@ -496,6 +498,10 @@ func TestWebhookPanel_TheDeliveryLogAndResend(t *testing.T) {
 		t.Fatal("the section does not list the delivery with its punch, its state and the resend form")
 	}
 	log := page[strings.Index(page, `id="webhook-deliveries"`):]
+	if !strings.Contains(log, fmt.Sprintf("stays in this list for %d days after it arrived or was marked failed", webhookdelivery.RetentionDays)) ||
+		!strings.Contains(log, "still waiting is never deleted") {
+		t.Fatal("the delivery log does not say how long it keeps a delivery (T130)")
+	}
 	if strings.Contains(log, webhookCanaryHost) || strings.Contains(log, "hook-token-path") {
 		t.Fatal("the delivery log names the address")
 	}
