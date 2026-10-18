@@ -494,45 +494,93 @@ func shippedStoreSQL(t *testing.T, file, name string) string {
 	return rest[:strings.Index(rest, "`")]
 }
 
-// TestWebhookRetention_TheSweepReadsTheSettledIndex: the sweep's statement, as a GENERIC prepared
-// statement (the plan pgx's cache settles on) run as tappa_app in KF's context, walks
+// TestWebhookRetention_TheSweepReadsTheSettledIndex: the sweep's statement CAN walk
 // webhook_deliveries_tenant_settled_idx (00059) with the business AND the age bound as its index
-// condition -- so a sweep that finds nothing, every sweep in steady state, reads one index page however
-// many rows the business keeps. Sequential and bitmap scans are priced out (the claim is about the
-// text, not the planner's pick for a small table).
+// condition -- the claim is about the statement's text and the index's shape (its predicate is the
+// state clause, the bound a stable expression of a bare parameter), so a sweep that finds nothing,
+// every sweep in steady state, reads one index page however many rows the business keeps.
 //
-// MUTANT (measured, T130): the state clause removed from the query -> the partial index no longer
-// applies, red.
+// 🔴 MEASURED ON THE STATEMENT'S OWN DATA, NOT ON THE SHARED TABLE'S STATISTICS (T130, the follow-up
+// round). The first form planned the shipped statement on the real table (generic plan, sequential
+// and bitmap scans priced out) and was deterministically red on a database whose partial index had
+// grown many pages and kept few live tuples -- runs that settle rows and roll them back, then VACUUM
+// ANALYZE (measured: 457 pages, 20 tuples; the index's page-per-tuple ratio priced the walk above
+// webhook_deliveries_tenant_created_idx + a sort). That pick is the planner's, from statistics no test
+// owns; it is not what the index is for. So the plan is read on a TEMPORARY copy of the table made
+// from the live catalogue (LIKE ... INCLUDING INDEXES: every index the real table has today, the
+// competitors among them, and no index it does not have), filled in this transaction with a business
+// shape -- 40 businesses, 150 deliveries each, a tenth pending, the rest settled inside the retention
+// -- and ANALYZEd: the copy's statistics are this test's own, and nothing of the real table's is
+// touched (an ANALYZE of webhook_deliveries would write its page and tuple counts in place, past the
+// rollback). No enable_* setting: the walk is the planner's own pick on that data, the generic plan
+// (the one pgx's cache settles on) included. The statement is the shipped text with the table's name
+// alone replaced, as the owner (a temporary table is the session's; the policies are not part of the
+// claim -- they re-check the rows the DELETE reaches).
+//
+// The production plan is not pinned: on a partial index swollen as above the planner may walk the
+// business's created_at index instead, which is still one business's rows (K-19), never a scan.
+//
+// MUTANTS (measured): the state clause removed from the query -> the partial index no longer applies,
+// red; 00059's index dropped -> the copy has no settled index, red.
 func TestWebhookRetention_TheSweepReadsTheSettledIndex(t *testing.T) {
 	ctx, tx := opTx(t)
-	w := retentionWorld(t, ctx, tx)
-	retentionTaps(t, ctx, tx, w, w.kf, 3)
 	stmt := shippedWebhookSQL(t, "deleteSettledWebhookDeliveries")
-	var plan []string
-	if err := holdingAppIn(t, ctx, tx, w.kf, func(sp pgx.Tx) error {
+	const copyName = "t130_sweep_copy"
+	if n := strings.Count(stmt, "webhook_deliveries AS "); n != 2 {
+		t.Fatalf("PREMISE: the sweep names webhook_deliveries %d times, want its two (the batch and the DELETE)", n)
+	}
+	stmt = strings.ReplaceAll(stmt, "webhook_deliveries AS ", copyName+" AS ")
+	var tenant uuid.UUID
+	var settledCopy string
+	if err := func() error {
 		for _, s := range []string{
-			`SET LOCAL plan_cache_mode = force_generic_plan`, `SET LOCAL enable_seqscan = off`, `SET LOCAL enable_bitmapscan = off`,
+			`CREATE TEMPORARY TABLE ` + copyName + ` (LIKE public.webhook_deliveries INCLUDING DEFAULTS INCLUDING INDEXES) ON COMMIT DROP`,
+			`INSERT INTO ` + copyName + ` (tenant_id, endpoint_id, punch_event_seq, state, created_at, settled_at)
+			 SELECT b.tenant, b.endpoint, g,
+			        CASE WHEN g % 10 = 0 THEN 'pending' WHEN g % 10 = 1 THEN 'dead' ELSE 'delivered' END,
+			        statement_timestamp() - make_interval(hours => g),
+			        CASE WHEN g % 10 = 0 THEN NULL ELSE statement_timestamp() - make_interval(hours => g % (24 * 89)) END
+			   FROM (SELECT gen_random_uuid() AS tenant, gen_random_uuid() AS endpoint FROM generate_series(1, 40)) AS b,
+			        generate_series(1, 150) AS g`,
+			`ANALYZE ` + copyName,
+			`SET LOCAL plan_cache_mode = force_generic_plan`,
 			`PREPARE t130_sweep(uuid, integer, integer) AS ` + stmt,
 		} {
-			if _, err := sp.Exec(ctx, s); err != nil {
+			if _, err := tx.Exec(ctx, s); err != nil {
 				return fmt.Errorf("%s: %w", s, err)
 			}
 		}
-		rows, err := sp.Query(ctx, fmt.Sprintf(`EXPLAIN (COSTS OFF) EXECUTE t130_sweep('%s', %d, 100)`, w.kf, retentionDays))
-		if err != nil {
+		if err := tx.QueryRow(ctx, `SELECT tenant_id FROM `+copyName+` LIMIT 1`).Scan(&tenant); err != nil {
 			return err
 		}
-		if plan, err = pgx.CollectRows(rows, pgx.RowTo[string]); err != nil {
-			return err
-		}
-		_, err = sp.Exec(ctx, `DEALLOCATE t130_sweep`)
-		return err
-	}); err != nil {
+		// The copy of 00059's index: the one whose columns and predicate are the real index's.
+		return tx.QueryRow(ctx, `
+			SELECT coalesce((SELECT string_agg(c.indexrelid::regclass::text, ',')
+			                   FROM pg_index AS c, pg_index AS r
+			                  WHERE c.indrelid = $1::regclass
+			                    AND r.indexrelid = to_regclass('public.webhook_deliveries_tenant_settled_idx')
+			                    AND c.indkey::text = r.indkey::text
+			                    AND pg_get_expr(c.indpred, c.indrelid) = pg_get_expr(r.indpred, r.indrelid)), '')`, copyName).Scan(&settledCopy)
+	}(); err != nil {
+		t.Fatal(err)
+	}
+	if settledCopy == "" || strings.Contains(settledCopy, ",") {
+		t.Fatalf("the copy of webhook_deliveries has %q for webhook_deliveries_tenant_settled_idx, want exactly one index", settledCopy)
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`EXPLAIN (COSTS OFF) EXECUTE t130_sweep('%s', %d, 100)`, tenant, retentionDays))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `DEALLOCATE t130_sweep`); err != nil {
 		t.Fatal(err)
 	}
 	text := strings.Join(plan, "\n")
 	for _, want := range []string{
-		"webhook_deliveries_tenant_settled_idx on webhook_deliveries s",
+		"Index Scan using " + settledCopy + " on " + copyName + " s",
 		"Index Cond: ((tenant_id = $1) AND (settled_at < (statement_timestamp() - make_interval(0, 0, 0, $2, 0, 0, '0'::double precision))))",
 	} {
 		if !strings.Contains(text, want) {

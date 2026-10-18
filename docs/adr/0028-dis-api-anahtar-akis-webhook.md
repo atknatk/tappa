@@ -3577,6 +3577,13 @@ ayrılmıştı ama yazılmamıştı — ana oturumun kararıyla T130 aldı, OP-1
    `audit_log`'daki `webhook_delivery.resend` satırlarının `target`'ı silinmiş bir teslimi adlandırabilir (FK değil, iz).
 9. **İndeks — `00059`, ayrı dosya (CLAUDE.md §6).** `webhook_deliveries_tenant_settled_idx (tenant_id, settled_at) WHERE state IN
    ('delivered','dead')`: süpürmenin genel planında işletme **ve** yaş sınırı indeks koşuludur (`TheSweepReadsTheSettledIndex`).
+   *(Kararsızlık düzeltmesi, 2026-10-19: test ilk hâlinde planı gerçek tablonun istatistiğinde okuyordu ve birikmiş bir kapta —
+   çok sayfalı, az canlı satırlı kısmi indeks: 457 sayfa, 20 satır — planlayıcı `tenant_created_idx` + sıralamayı seçtiği için
+   deterministik kırmızıydı. Artık plan, canlı katalogdan `LIKE … INCLUDING INDEXES` ile kurulan geçici bir kopyada, testin kendi
+   verisi ve kendi `ANALYZE`'ıyla, `enable_*` olmadan okunur: iddia *"süpürme bu indeksi okuyabilir"*dir, paylaşılan tablonun
+   istatistiğine bağlı planlayıcı seçimi değil. Üretim planı pinlenmez — şişmiş kısmi indekste planlayıcı işletmenin `created_at`
+   indeksini yürüyebilir, bu yine tek işletmenin satırlarıdır (K-19), tarama değil. Birikmiş kapta 10/10 yeşil; durum koşulunu
+   düşüren sorgu ve `00059`'un Down'ı → kırmızı.)*
    Ölçüm (3 M satır, bir işletmede 27 000 uygun): 100'lük parti 3,3 ms; silinecek bir şey bulamayan süpürme 0,16 ms, 3 tampon.
    İşlem içinde (`CONCURRENTLY` değil) kurulur: 1 M satırda 0,66–0,69 sn, 3 M'de 2,2–2,3 sn — eşik ve deploy kuralı
    `deploy/README.md`'de (~1,5 M üstünde `CONCURRENTLY` ile ayrı migration). `00058`'in kilit altındaki işi: 1 M satırda 32–63 ms,
