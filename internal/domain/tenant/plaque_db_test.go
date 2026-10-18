@@ -1852,9 +1852,12 @@ func TestPlaquesDB_NoShippedTagQuerySelectsTheKey(t *testing.T) {
 	// 🔴 EXACT, NOT A FLOOR (audit, 2026-08-24). This read `read < 8` while its own
 	// message said ten were declared -- so TWO named queries could vanish from the file
 	// without the vacuity half noticing, which is the one thing it is for.
-	if read != 10 {
-		t.Fatalf("%d named quer(ies) were read out of db/queries/tags.sql; TEN were declared "+
-			"when this was pinned (2026-08-24). A query was added or removed: update this "+
+	// ELEVEN since 2026-10-18 (M11 API-11 fix 1): LockSandboxPlaque reads no tags row at
+	// all -- it takes an advisory lock over the caller's own tenants row -- so it sits in
+	// neither wall's blind spot.
+	if read != 11 {
+		t.Fatalf("%d named quer(ies) were read out of db/queries/tags.sql; ELEVEN were declared "+
+			"when this was last pinned (2026-10-18). A query was added or removed: update this "+
 			"number in the same edit, and check that the new one belongs to neither wall's "+
 			"blind spot", read)
 	}
