@@ -76,9 +76,45 @@ host'u `/v1` dışında hiçbir şeye cevap vermez (404). API çerez koymaz, çe
 <a id="overview-sandbox"></a>
 ### 1.4 Sandbox
 
-**Henüz bir sandbox yok.** Ayrı bir sandbox — kendi alan adı, kendi derlemesi, simüle edilmiş
-dokunuşlar ve `tt_test_` ile başlayan anahtarlarla — planlanmıştır; var olduğunda bu bölüm onu
-anlatacak. O zamana kadar, Taptime'ın bu amaçla açtığı bir işletmeye karşı test edin.
+Sandbox, bir entegrasyonu denemek için ayrı bir Taptime'dır: kendi alan adı, sunucunun kendi
+derlemesi, kendi veritabanı ve kendi operatörü vardır. İçinde üretimin hiçbir işletmesi, anahtarı ya
+da punch'ı yoktur ve içindeki hiçbir şey üretime ulaşmaz. **Alan adı henüz seçilmedi**: seçildiğinde
+bu bölüm sandbox'ın host'larını yazacak. O zamana kadar, Taptime'ın bu amaçla açtığı bir işletmeye
+karşı test edin.
+
+- **Anahtarlar `tt_test_` ile başlar** ve sandbox'ın Taptime panelinde üretilir. Bir `tt_test_`
+  anahtarı üretimde (401), bir `tt_live_` anahtarı sandbox'ta (401) reddedilir; hiçbir şeye
+  bakılmadan önce.
+- **API'yi orada da Taptime açar**, işletme işletme ([2.1](#auth-enable)): sandbox'ın operatörü
+  açana kadar geçerli bir anahtar 403 `api_disabled` alır.
+- **Sandbox'tan e-posta çıkmaz**: aktivasyon bağlantısı sandbox'ın panelinde gösterilir, gönderilmez.
+- **Bu rehberdeki her şey orada da geçerlidir**, bir ekle: POST /v1/sandbox/taps bir çalışanın bir
+  lokasyonun plaketine dokunuşunu simüle eder, çünkü sandbox'ta ne duvar ne telefon vardır. Kendi
+  OpenAPI belgesi sandbox'ın API host'unda GET /v1/sandbox/openapi.json'dur.
+
+Gövde çalışanı ve lokasyonu sizin referanslarınızla, kanalı da (`nfc` ya da `qr`) adlandırır:
+
+```sh
+curl -sS -X POST "$TAPTIME_API/v1/sandbox/taps" \
+  -H "Authorization: Bearer $TAPTIME_KEY" \
+  -H "Content-Type: application/json" \
+  --data-binary '{"employeeRef":"E-1042","locationRef":"KF-VLT","channel":"nfc"}'
+```
+
+Plaketten sonrası Taptime'ın kendi dokunuşudur: plaketin imzalı okuması doğrulanır, sayacı
+ilerletilir, kurallar karar verir, kayıt yazılır ve oluşan punch akışta yer alır ve webhook'unuza
+gönderilir. Cevap (`201`) `verdict`'i (`ok`, `flag`, `reject` ya da `ignored`), akışın ve webhook'un
+onun için taşıdığı `punchId`'yi ve dokunuşun şu an bir punch olup olmadığını (`inFeed`) taşır.
+`Idempotency-Key` her yazmada olduğu gibi çalışır ([3.3](#idempotency)).
+
+- API'den açılan bir lokasyonun, sahibi panelde girene kadar adres aralığı ya da koordinatı yoktur;
+  bu yüzden oradaki dokunuşlar `flag` olur ve onay bekler ([4](#locations)). İsteğin kendi adresi
+  dokunuşun adresidir ve GPS yoktur: `ok` görmek için lokasyona çağıranınızın adres aralığını verin.
+- Aynı kişinin 60 saniye içindeki tekrarı, üretimde olduğu gibi `ignored` olur ([6.1](#feed-what)).
+- Bir lokasyon sanal plaketini kendi işletmesinin oradaki ilk simüle dokunuşunda alır. Grubunuzun
+  öbür şirketinin bir lokasyonuna ([1.2](#overview-companies)) çalışanınız — grup dokunuşu — o şirket
+  orada kendisi bir dokunuş simüle ettikten sonra dokunabilir: sandbox hiçbir zaman başka bir
+  işletmeye yazmaz.
 
 <a id="overview-scope"></a>
 ### 1.5 API'nin yapmadıkları (sürüm 1)
@@ -1112,3 +1148,4 @@ Taptime'ın, bir entegrasyonun varsayabileceğinden farkları. Her madde açıkl
 | Baskı | Tarih | Değişiklikler |
 |---|---|---|
 | 1 | 2026-10-16 | API sürüm 1 için ilk baskı. |
+| 2 | 2026-10-18 | §1.4 sandbox'ı anlatır: `tt_test_` anahtarlar, kendi operatörü, e-posta yok ve dokunuş simülasyonu (alan adı henüz seçilmedi). |

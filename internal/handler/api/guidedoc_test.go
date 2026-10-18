@@ -645,6 +645,11 @@ func TestGuide_EveryEndpointCodeAndLimitIsTheDocuments(t *testing.T) {
 			documented = append(documented, strings.ToUpper(o.method)+" "+o.path)
 		}
 	}
+	// The sandbox build's own document (internal/sandbox/openapi.json, M11 API-11): the guide's §1.4
+	// names its two operations, and its curl example is that document's request example. It is JSON
+	// and is read from the source tree -- this package does not import the sandbox's.
+	sandboxOps, sandboxRequests := sandboxDocument(t)
+	documented = append(documented, sandboxOps...)
 	slices.Sort(documented)
 	en, tr := theGuides(t)
 	for _, d := range []mdDoc{en, tr} {
@@ -778,6 +783,9 @@ func TestGuide_EveryEndpointCodeAndLimitIsTheDocuments(t *testing.T) {
 							ex, _ := yat(doc, where.request...)
 							matched = matched || canonical(ex) == canonical(val)
 						}
+					}
+					for _, ex := range sandboxRequests {
+						matched = matched || canonical(ex) == canonical(val)
 					}
 					if !matched {
 						t.Errorf("%s:%d: the request body %s is no request example of the document", d.name, b.line, m[1])
@@ -1305,4 +1313,46 @@ func TestGuide_NoSecretAddressOrPersonalData(t *testing.T) {
 			t.Errorf("hexSecrets reads %q as %v", not, got)
 		}
 	}
+}
+
+// sandboxDocument reads the sandbox build's OpenAPI document (internal/sandbox/openapi.json): its
+// operations as "METHOD /path" and its request examples in jsonValue's form.
+func sandboxDocument(t *testing.T) (ops []string, requests []any) {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("..", "..", "sandbox", "openapi.json"))
+	if err != nil {
+		t.Fatalf("the sandbox's document: %v", err)
+	}
+	var doc struct {
+		Paths map[string]map[string]struct {
+			RequestBody struct {
+				Content map[string]struct {
+					Examples map[string]struct {
+						Value json.RawMessage `json:"value"`
+					} `json:"examples"`
+				} `json:"content"`
+			} `json:"requestBody"`
+		} `json:"paths"`
+	}
+	if err := json.Unmarshal(b, &doc); err != nil {
+		t.Fatalf("the sandbox's document is not JSON: %v", err)
+	}
+	for path, methods := range doc.Paths {
+		for method, op := range methods {
+			ops = append(ops, strings.ToUpper(method)+" "+path)
+			for _, c := range op.RequestBody.Content {
+				for _, ex := range c.Examples {
+					v, err := jsonValue(ex.Value)
+					if err != nil {
+						t.Fatalf("a sandbox request example: %v", err)
+					}
+					requests = append(requests, v)
+				}
+			}
+		}
+	}
+	if len(ops) != 2 || len(requests) == 0 {
+		t.Fatalf("CONTROL FAILED: the sandbox's document reads as %v with %d request examples", ops, len(requests))
+	}
+	return ops, requests
 }

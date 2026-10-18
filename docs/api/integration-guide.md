@@ -75,9 +75,45 @@ host answers nothing but `/v1` (404). The API sets no cookie and reads none.
 <a id="overview-sandbox"></a>
 ### 1.4 Sandbox
 
-**There is no sandbox yet.** A separate sandbox — its own domain, its own build, with simulated
-taps and keys that start with `tt_test_` — is planned; this section will describe it when it
-exists. Until then, test against a business Taptime enables for the purpose.
+The sandbox is a separate Taptime for testing an integration: its own domain, its own build of the
+server, its own database and its own operator. No production business, key or punch is in it, and
+nothing in it reaches production. **Its domain is not chosen yet**: this section will name the
+sandbox's hosts when it is. Until then, test against a business Taptime enables for the purpose.
+
+- **Keys start with `tt_test_`** and are issued in the sandbox's Taptime panel. A `tt_test_` key is
+  refused in production (401) and a `tt_live_` key is refused in the sandbox (401), before anything
+  is looked up.
+- **Taptime enables the API there too**, business by business ([2.1](#auth-enable)): until the
+  sandbox's operator does, a valid key is 403 `api_disabled`.
+- **No e-mail leaves the sandbox**: an activation link is shown in the sandbox's panel, never sent.
+- **Everything in this guide holds there**, with one addition: POST /v1/sandbox/taps simulates an
+  employee's touch of a location's plaque, because the sandbox has no wall and no phone. Its own
+  OpenAPI document is GET /v1/sandbox/openapi.json on the sandbox's API host.
+
+The body names the employee and the location by your references, and the channel (`nfc` or `qr`):
+
+```sh
+curl -sS -X POST "$TAPTIME_API/v1/sandbox/taps" \
+  -H "Authorization: Bearer $TAPTIME_KEY" \
+  -H "Content-Type: application/json" \
+  --data-binary '{"employeeRef":"E-1042","locationRef":"KF-VLT","channel":"nfc"}'
+```
+
+From the plaque on, the tap is Taptime's own: the plaque's signed read is checked, its counter is
+advanced, the rules decide, the record is written, and a punch it makes is in the feed and is sent
+to your webhook. The answer (`201`) carries the `verdict` (`ok`, `flag`, `reject` or `ignored`),
+the `punchId` the feed and the webhook carry for it, and whether the tap is a punch now (`inFeed`).
+An `Idempotency-Key` works as on every write ([3.3](#idempotency)).
+
+- A location created through the API has no address range or coordinate until its owner sets them
+  in the panel, so its taps are `flag` and wait for approval ([4](#locations)). The request's own
+  address is the tap's address and there is no GPS: give the location your caller's address range
+  to see `ok`.
+- The same person again within 60 seconds is `ignored`, as in production ([6.1](#feed-what)).
+- A location gets its virtual plaque on its own business's first simulated tap there. A location of
+  the other company of your group ([1.2](#overview-companies)) can be touched by your employee — the
+  group touch — once that company has simulated a tap there itself: the sandbox never writes into
+  another business.
 
 <a id="overview-scope"></a>
 ### 1.5 What the API does not do (version 1)
@@ -1099,3 +1135,4 @@ explained.
 | Edition | Date | Changes |
 |---|---|---|
 | 1 | 2026-10-16 | The first edition, for API version 1. |
+| 2 | 2026-10-18 | §1.4 describes the sandbox: `tt_test_` keys, its own operator, no e-mail, and the tap simulation (its domain is not chosen yet). |
