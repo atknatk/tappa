@@ -1692,6 +1692,14 @@ yazılır.
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 
+### 2026-10-18 (29. oturum, elli dördüncü yarı) — ✅ **OPS-1 DONE** (T135 kod kısmı + gate sırası + T136; yeniden denetim ONAY) · 📌 **DEVAM: `main`'e push → API-11**
+
+- **OPS-1** (`c1822a2` … `d5589aa`): CLAUDE.md §10 *küme API'sine yalnız tailnet üzerinden* · *"Join the tailnet"* `version: "1.94.2"` + linux/amd64 `sha256sum` (T135 (3)) · `deploy.yml` sırası: Roll out (20, 40, `rollout status`) → **db-role kapısı** → *"Route the operator and API hosts"* (41 `case`, 42) → operatör host kapısı → API host kapısı (bir host kapısı düşse de rol ölçülmüş olur; host'lar rollout beklemesinden sonra) · **T136 kapandı**: `deploy/README.md`'nin 167 `bash` bloğunda 0 yorum, 167'si `zsh -f -i -n` ile temiz; komutlar bayt bayt aynı (tek bilinçli ek: KEK döndürme adım 3'te `$PGPASSFILE` silme).
+- **Denetim izi:** 1. tur RED (üçüncü göz O-1: çit kalıbı `> ` alıntısını tanımıyordu, alıntı içindeki 9 bloğun 8'i yorumlu kaldı; host Ingress'leri db-role kapısından önceydi) → düzeltme (`0a4007d`, `056b277`) → kısa yeniden denetim **ONAY** (bağımsız Python okuyucu + zsh `interactivecomments` kâhini: 184 çit / 167 bash / 0 fark; 7/7 deploy sıra mutantı kırmızı) → DÜŞÜK turu `d5589aa`: README okuyucusu `~~~`, liste işareti, iç içe alıntı ve bilgi dizisinin ilk sözcüğünü tanır; tanınmayan blok dili (`sh`/`zsh`/`console` dahil) kırmızı — izinli `bash`/`text`/`sql`/`ini`/`yaml`/etiketsiz; 9 README + 4 okuyucu mutantı kırmızı.
+- **Bilinen yerel kırmızı** (CI'da yeşil): `TestRotateScript_AccountsForEveryGoToolchainVariable`.
+
+**🔴 DEVAM PLANI:** dal push → CI → prod sakin mi → `main` fast-forward (deploy Tailscale'den) → **API-11** sandbox kod kısmı (`m11-briefs/brief-api11-builder.md`). Kullanıcıda: ephemeral auth key (+ eski cihazı sil), operatör/panel ölçümleri (runbook (e) 4,5,6,7,10,11), sandbox alan adı, isteğe bağlı GitHub Environment (T135 (4)) · OP-15 → `00058` + API-4b (başka oturum) · DPA (T130) · T125.
+
 ### 2026-10-18 (29. oturum, elli üçüncü yarı) — ✅ **T134 DONE** (deploy Tailscale üzerinden; iki mercek 2. turda ONAY) · 🚀 `main` = `937c7a4`, prod `sha-937c7a430845`
 
 - **Kullanıcı (2026-10-17):** tailnet ACL'ine `tag:ci` + `tag:ci → 10.43.0.1:443`; OAuth client bulunamadı → **auth key** (clipboard) → ana oturum Infisical `shared-infra/prod:/tappa/TS_AUTHKEY` + GitHub secret `TS_AUTHKEY` (değer basılmadı, clipboard temizlendi); GitHub `KUBE_CONFIG` yeniden yazıldı (base64, sunucu `https://10.43.0.1:443`, CA `kube-root-ca.crt`, `github-deployer` token 365 gün → 2027-10-17'den önce yenile).
