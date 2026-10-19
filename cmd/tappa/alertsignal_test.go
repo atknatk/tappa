@@ -612,15 +612,39 @@ func (f *fakeEndpoint) seen() []string {
 	return append([]string(nil), f.paths...)
 }
 
-// closedURL is an https URL on a port nothing listens on.
+// closedURL is an https URL on a port nothing listens on -- and nothing CAN listen on until the test
+// ends: the port is held by a bound socket that never listens, so a connect is refused (RST) and the
+// kernel hands the port to no other bind. T126: it used to close a listener and return its address,
+// and on CI run 38595457527 a parallel subtest's httptest server was given that freed port -- "app
+// unreachable" got HTTP 200 from it and that subtest's signal endpoint saw a /healthz probe.
 func closedURL(t *testing.T) string {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	addr := ln.Addr().String()
-	ln.Close()
+	t.Cleanup(func() { syscall.Close(fd) })
+	if err := syscall.Bind(fd, &syscall.SockaddrInet4{Addr: [4]byte{127, 0, 0, 1}}); err != nil {
+		t.Fatal(err)
+	}
+	sa, err := syscall.Getsockname(fd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in4, ok := sa.(*syscall.SockaddrInet4)
+	if !ok || in4.Port == 0 {
+		t.Fatalf("the reserved socket has no port: %#v", sa)
+	}
+	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(in4.Port))
+	// CONTROL: the port refuses a connection, and a listener cannot take it while the test runs.
+	if c, err := net.DialTimeout("tcp", addr, 2*time.Second); err == nil {
+		c.Close()
+		t.Fatalf("CONTROL FAILED: %s accepted a connection", addr)
+	}
+	if ln, err := net.Listen("tcp", addr); err == nil {
+		ln.Close()
+		t.Fatalf("CONTROL FAILED: a listener could bind the reserved %s", addr)
+	}
 	return "https://" + addr
 }
 
