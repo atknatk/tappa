@@ -617,23 +617,28 @@ eski `KUBE_CONFIG` — 2027-10-17 — ilk OPS-2 deploy'undan önce **silindi**, 
 **ve** politikanın kabul ettiği dalda koşan bir iş ulaşır (`workflow_run` ve `main`'den
 `workflow_dispatch` — ikisi de `main` ref'iyle koşar). Docker Hub ikilisi bu listeden **çıktı**.
 
-✅ **Silme yapıldı (2026-10-19, ilk OPS-2 deploy'undan önce):** depo düzeyinden **altı** secret silindi —
-aşağıdaki dördü ve 2026-10-18'de depo düzeyine de konmuş `TS_OAUTH_CLIENT_ID`/`TS_OAUTH_SECRET`
-kopyaları; depo düzeyinde secret kalmadı (*"OPS-2 kapanış ölçüsü"* → *"Ölçüldü"*). Kalan, kullanıcıda:
-Docker Hub token'ının ve eski auth key'in iptali. Aşağıdaki metin yeniden kurulum için kalır.
+✅ **Geçmiş — silme yapıldı (2026-10-19, ilk OPS-2 deploy'undan önce, ana oturum):** depo
+düzeyinden **altı** secret silindi — `TS_AUTHKEY`, `KUBE_CONFIG`, `DOCKERHUB_USERNAME`,
+`DOCKERHUB_TOKEN` ve 2026-10-18'de depo düzeyine de konmuş `TS_OAUTH_CLIENT_ID`/`TS_OAUTH_SECRET`
+kopyaları; depo düzeyinde secret kalmadı (*"OPS-2 kapanış ölçüsü"* → *"Ölçüldü"*). Kalan,
+kullanıcıda: Docker Hub token'ının ve eski auth key'in iptali.
 
-⚠️ **Satır tek başına koruma DEĞİL — sıra.** Depo düzeyindeki eski `TS_AUTHKEY`, `KUBE_CONFIG`,
-`DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` durdukça her workflow'a açıktı (ortam
-secret'ları onlara **eklenir**, onları kapatmaz; aynı adlıda ortamınki kazanır). **İlk OPS-2
-deploy'undan önce** dördü silinir (ana oturum). Bu deploy'u bozmaz: iş akışı yalnız ortamın beş
-secret'ını okur (`TS_AUTHKEY` ve `DOCKERHUB_*`'ı hiç anmaz, aynı adlı `KUBE_CONFIG`'te ortamınki
-kazanır); silmek yalnız pencereyi erken kapatır ve (c′)'deki kalan sınır 1'i kapatan adımdır:
+⚠️ **Yeniden kurulum talimatı — satır tek başına koruma DEĞİL, sıra.** Depo düzeyinde bir deploy
+secret'ı durdukça her workflow'a açıktır (ortam secret'ları onlara **eklenir**, onları kapatmaz;
+aynı adlıda ortamınki kazanır). Depo yeniden kurulursa ya da depo düzeyinde bu adlardan biri yeniden
+belirirse, `production` ortamı kurulduktan **sonra ve ilk deploy'dan önce** silinir. Deploy'u
+bozmaz: iş akışı yalnız ortamın beş secret'ını okur (`TS_AUTHKEY` ve `DOCKERHUB_*`'ı hiç anmaz, aynı
+adlı `KUBE_CONFIG` ve `TS_OAUTH_*`'ta ortamınki kazanır); silmek (c′)'deki kalan sınır 1'i kapatan
+adımdır. Depo düzeyinde `TS_OAUTH_CLIENT_ID`/`TS_OAUTH_SECRET` kopyası varsa onlar da silinir (son
+iki `delete` satırı; olmayan bir adı silmek yalnız hata basar):
 
 ```bash
 gh secret delete TS_AUTHKEY --repo atknatk/tappa
 gh secret delete KUBE_CONFIG --repo atknatk/tappa
 gh secret delete DOCKERHUB_USERNAME --repo atknatk/tappa
 gh secret delete DOCKERHUB_TOKEN --repo atknatk/tappa
+gh secret delete TS_OAUTH_CLIENT_ID --repo atknatk/tappa
+gh secret delete TS_OAUTH_SECRET --repo atknatk/tappa
 gh secret list --repo atknatk/tappa
 ```
 
@@ -3825,9 +3830,10 @@ düzeyinden **altı** secret silindi — dördü ve 2026-10-18'de depo düzeyine
    `present` diye sayar (değer yok, uzunluk yok).
 2. *"Build both images"* yeşil: taban imaj Harbor'ın proxy projesinden, digest'iyle çekildi — derleme
    log'unda `registry.everva.com.tr/dockerhub/library/golang:1.26.9-bookworm@sha256:d9c68c2c…453c`.
-   ⚠️ **Harbor'da o digest'i ARAMA:** proxy, derlemenin **çektiği platform manifest'ini** saklar,
-   pinlenen index'i değil. **Projects → `dockerhub` →** `library/golang`'da görünen artifact
-   (etiketsiz) index'in **linux/amd64 çocuk manifest'idir** (ilk koşuda `sha256:bcef992b77b1…9eff`).
+   ⚠️ **Harbor'da o digest'i ARAMA:** **Projects → `dockerhub` →** `library/golang`'da görünen
+   (tek, etiketsiz) artifact, sabitlenmiş index'in **linux/amd64 çocuk manifest'idir** (ilk koşuda
+   `sha256:bcef992b77b1…9eff`); index'in Harbor'da hiç saklanmadığı **ölçülmedi**, yalnız listede
+   görünmediği.
    Doğrulama: o digest, sabitlenmiş index'in linux/amd64 girdisi mi — `docker buildx imagetools
    inspect golang:1.26.9-bookworm@sha256:<index digest>` listesinde `Platform: linux/amd64`'ün
    `Name:` satırı, ya da Docker Hub'ın kimliksiz token'ıyla (aşağıdaki *"OPS-2 geri dönüş"*
@@ -3882,7 +3888,8 @@ kubernetes.io/dockerconfigjson with a credential for registry.everva.com.tr`. (5
 `registry.everva.com.tr/tappa/tappa:sha-34648e3d5c94`, `ps=harbor-pull`, imageID
 `registry.everva.com.tr/tappa/tappa@sha256:69953bdf…`; migrate Job'ı `…/tappa-migrate:sha-34648e3d5c94`;
 hiçbir pod'da waiting reason yok. (7) Bu koşu tailnet'te cihaz **bırakmadı** (yerel `tailscale
-status`) — OAuth yolunun ephemeral anahtarı tuttu. OAuth öncesi auth key'li koşulardan yedi eski
+status`) — ephemeral beklentisiyle tutarlı; ephemeral bayrağı runner'dan ölçülemedi (kapı:
+`ephemeral absent`). OAuth öncesi auth key'li koşulardan yedi eski
 `github-runnervm8k3b6*` cihazı offline duruyor; kullanıcı konsoldan siler. (8) Log'da e-posta yok;
 iki `tskey` eşleşmesi ön kontrol betiğinin önek denetimi **metni**, değer değil. (9) Ön koşul
 yapıldı: deploy'dan önce depo düzeyindeki **altı** secret silindi (`TS_AUTHKEY`, `KUBE_CONFIG`,
@@ -7488,8 +7495,9 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     robotunun girişiyle ve **index digest'iyle** çeker; `Dockerfile`'ın varsayılanı aynı digest,
     Docker Hub'ın adıyla (operatör adımı 4). Önbellekteki bir digest'i Harbor Docker Hub'a gitmeden
     vermeli (proxy cache'in belgelenen davranışı; **ölçülmedi**). İlk OPS-2 deploy'u (2026-10-19)
-    yalnız şunu ölçtü: proxy, pinlenen index'i değil derlemenin çektiği **linux/amd64 çocuk
-    manifest'ini** saklar (`library/golang`'da etiketsiz artifact; kapanış ölçüsü madde 2).
+    yalnız şunu ölçtü: `library/golang`'da görünen (tek, etiketsiz) artifact, sabitlenmiş index'in
+    **linux/amd64 çocuk manifest'idir** (kapanış ölçüsü madde 2); index'in hiç saklanmadığı
+    **ölçülmedi**.
     **Kalan, sayılı:** (1) derleme artık k8s-2'ye de bağlı ((a));
     (2) ✅ **kapandı (OPS-2 takibi, 2026-10-19):** Dockerfile'ın eski ilk satırı (`syntax` ayrıştırıcı
     yönergesi, `docker/dockerfile:1`) BuildKit'in ön ucunu (frontend imajı) Docker Hub'dan kimliksiz ve
