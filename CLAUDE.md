@@ -448,10 +448,18 @@ dokunuş gerektirir. Bu ekrana özellik eklemek istiyorsan önce sor.
   CI her push'ta zaten tam koşar.
 - Commit: `type(scope): özet` — `feat(tap): reject retired tags`. İngilizce, emir kipi.
 - **Küme API'si (`:6443`) internete kapalıdır; erişim yalnız tailnet'ten** (kullanıcı kararı, 2026-10-17). Deploy
-  `tailscale/github-action` ile tailnet'e `tag:ci` olarak katılır ve API'ye subnet router üzerinden `https://10.43.0.1:443`
+  `tailscale/github-action` ile tailnet'e `tag:ci` olarak, Tailscale OAuth client'ıyla (her koşuda tek kullanımlık
+  ephemeral anahtar — OPS-2) katılır ve API'ye subnet router üzerinden `https://10.43.0.1:443`
   ile, dar yetkili `github-deployer` kimliğiyle gider (T134). Tailscale operatörünün `*.ts.net` API proxy'si kimliği
   taklit eder — deploy kimliği için **kullanılmaz**. `ci.yml`'in birinci-parti action kuralının tek istisnası bu action'dır
   ve tam commit SHA'sıyla pinlidir.
+- **Deploy yalnız bu deponun `main`'ine yapılan push'un yeşil `ci` koşusundan ya da `main` seçilerek elle
+  koşturmadan başlar** (T140, 2026-10-19): `deploy.yml` işinin `if:`'i ve checkout'tan önceki ilk kapı adımı aynı
+  kuralı ölçer (`workflow_run.event == push`, kaynak depo bu depo, `head_branch == main`; kapı harfe duyarlı).
+  Deploy secret'ları **yalnız** GitHub `production` ortamındadır (yalnız `main` dal kuralı) ve **adım düzeyinde**
+  okunur — depo düzeyinde deploy secret'ı tutulmaz, iş düzeyi `env:`'de `secrets.*` olmaz. İmajlar private Harbor'dadır
+  (`registry.everva.com.tr/tappa`); küme `harbor-pull` ile çeker, derlemenin taban imajı Harbor'ın Docker Hub
+  proxy'sinden digest'le gelir (OPS-2). Kimliksiz çekme reddedilmelidir — deploy bunu ölçer.
 - **Yeni bir host'u uygulamaya yönlendiren Ingress, deploy'da rollout beklemesinden SONRA uygulanır** —
   önce uygulanırsa ad, ilk deploy'da o host'u tanımayan eski pod'lara gider (T119, M11 API-13a ölçtü).
 - **İş feature dalında yapılır** (kullanıcı kararı, 2026-09-09 — bu, *"doğrudan
