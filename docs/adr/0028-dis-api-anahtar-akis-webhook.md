@@ -135,6 +135,16 @@ ile aynı kapsam; 1. tur düzeltmesi, üçüncü göz):
    her fonksiyonun `EXECUTE` ACL'ini aşağıdaki matrisle karşılaştırır — listeye girmemiş yeni bir
    tablo testi kırmızıya çevirir.
 
+**T138 notu (2026-10-19, `00061`):** madde 3 artık M11 öncesi fonksiyonlar için de geçerli. Kuraldan
+önce doğan dokuz tetikleyici fonksiyonu (`tappa_forbid_*` ×7, `tappa_check_transaction_review`,
+`tappa_audit_at_is_the_wall_clock`) `CREATE FUNCTION`'ın varsayılanıyla PUBLIC `EXECUTE` taşıyordu;
+`00061` onu aldı — migration'ların yarattığı hiçbir fonksiyon PUBLIC `EXECUTE` taşımıyor (eklenti fonksiyonları kataloğun dışında), dokuzunun `EXECUTE`'u
+yalnız sahipte (`internal/db/privcatalog_test.go`: `execute=-`). Tetikleyiciler ateşlenmeye devam eder:
+PostgreSQL tetikleyici fonksiyonunun `EXECUTE`'unu tetikleyici **kurulurken** denetler, **ateşlenirken**
+denetlemez (17.10'da ölçüldü; `internal/db/triggerexecute_test.go` dokuzunu da `EXECUTE`'u olmayan bir
+rolle ateşler). `00061`'in Down'u PUBLIC'e geri **vermez** (gerekçesi dosyanın başlığında; redline
+R5b'nin PUBLIC kuralına muafiyet açılmadı).
+
 **`tappa_app` matrisi — en az şunlar (normatif; satırların tamamı ilgili görevde bu ilkeyle
 yazılır):**
 

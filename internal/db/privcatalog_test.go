@@ -163,15 +163,16 @@ SELECT line FROM (
 
 // privCatalogAllowed is the allowlist: generated from the catalogue at migration 00060 (T137 fix1,
 // 2026-10-19; `TAPPA_PRIVCATALOG_DUMP=1 go test -run TestPrivCatalog_ ./internal/db -v` prints the
-// live one) and READ line by line before it was written here. Things the reading noted, all
+// live one; 00061 changed nine function lines, read again at 00061) and READ line by line before
+// it was written here. Things the reading noted, all
 // kept on purpose:
 //   - nine pre-M11 trigger functions (tappa_forbid_*, tappa_check_transaction_review,
-//     tappa_audit_at_is_the_wall_clock) carry PostgreSQL's default EXECUTE to PUBLIC. They are
-//     SECURITY INVOKER trigger functions: a direct call is refused ("trigger functions can only be
-//     called as triggers") and binding one to a table of one's own runs it with one's own rights.
-//     From 00037 on every new function is EXECUTE-to-its-owner (ADR 0028 §1's matrix); these
-//     predate the rule and the migrations that made them are deployed (CLAUDE.md §3). A REVOKE
-//     migration for hygiene is backlog T138;
+//     tappa_audit_at_is_the_wall_clock) carried PostgreSQL's default EXECUTE to PUBLIC until 00061
+//     (T138, 2026-10-19) took it away: they read `execute=-` now, like every function from 00037 on
+//     (ADR 0028 §1's matrix). The triggers keep firing -- EXECUTE is checked when a trigger is
+//     created, not when it fires -- and triggerexecute_test.go measures that for each of the nine;
+//     00061's Down does not give PUBLIC the grant back (its header says why), so these nine lines
+//     hold below 00061 too;
 //   - the low round's twelve new lines (same chain, 00060) are the server's and db-init's, none a
 //     migration's: CONNECT and TEMPORARY on the database for every role come from PostgreSQL's
 //     default PUBLIC grant on a new database (TEMPORARY lets a session make temporary tables of
@@ -328,20 +329,20 @@ function resolve_invite_by_code_hash(text) owner=tappa_resolver definer=true exe
 function resolve_password_reset_by_token_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_session_by_token_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_tag_by_uid(character) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
-function tappa_audit_at_is_the_wall_clock() owner=tappa_owner definer=false execute=public,tappa_app,tappa_feedwriter,tappa_holdingdefiner,tappa_opdefiner,tappa_operator,tappa_resolver
+function tappa_audit_at_is_the_wall_clock() owner=tappa_owner definer=false execute=-
 function tappa_billing_amount_due(boolean,numeric,integer) owner=tappa_owner definer=false execute=tappa_app,tappa_opdefiner
-function tappa_check_transaction_review() owner=tappa_owner definer=false execute=public,tappa_app,tappa_feedwriter,tappa_holdingdefiner,tappa_opdefiner,tappa_operator,tappa_resolver
+function tappa_check_transaction_review() owner=tappa_owner definer=false execute=-
 function tappa_employee_is_billable(text,timestamp with time zone,timestamp with time zone,timestamp with time zone,timestamp with time zone) owner=tappa_owner definer=false execute=tappa_app,tappa_opdefiner
 function tappa_employee_lifecycle_status(timestamp with time zone,timestamp with time zone) owner=tappa_owner definer=false execute=tappa_app,tappa_opdefiner
 function tappa_employees_touch_updated_at() owner=tappa_owner definer=false execute=-
 function tappa_first_chargeable_month(text,timestamp with time zone,text) owner=tappa_owner definer=false execute=tappa_app,tappa_opdefiner
-function tappa_forbid_app_key_ref_rewrite() owner=tappa_owner definer=false execute=public,tappa_app,tappa_feedwriter,tappa_holdingdefiner,tappa_opdefiner,tappa_operator,tappa_resolver
-function tappa_forbid_counter_rewind() owner=tappa_owner definer=false execute=public,tappa_app,tappa_feedwriter,tappa_holdingdefiner,tappa_opdefiner,tappa_operator,tappa_resolver
-function tappa_forbid_encoded_at_at_insert() owner=tappa_owner definer=false execute=public,tappa_app,tappa_feedwriter,tappa_holdingdefiner,tappa_opdefiner,tappa_operator,tappa_resolver
-function tappa_forbid_encoded_at_rewrite() owner=tappa_owner definer=false execute=public,tappa_app,tappa_feedwriter,tappa_holdingdefiner,tappa_opdefiner,tappa_operator,tappa_resolver
-function tappa_forbid_mutation() owner=tappa_owner definer=false execute=public,tappa_app,tappa_feedwriter,tappa_holdingdefiner,tappa_opdefiner,tappa_operator,tappa_resolver
-function tappa_forbid_revocation_reset() owner=tappa_owner definer=false execute=public,tappa_app,tappa_feedwriter,tappa_holdingdefiner,tappa_opdefiner,tappa_operator,tappa_resolver
-function tappa_forbid_unencoded_activation() owner=tappa_owner definer=false execute=public,tappa_app,tappa_feedwriter,tappa_holdingdefiner,tappa_opdefiner,tappa_operator,tappa_resolver
+function tappa_forbid_app_key_ref_rewrite() owner=tappa_owner definer=false execute=-
+function tappa_forbid_counter_rewind() owner=tappa_owner definer=false execute=-
+function tappa_forbid_encoded_at_at_insert() owner=tappa_owner definer=false execute=-
+function tappa_forbid_encoded_at_rewrite() owner=tappa_owner definer=false execute=-
+function tappa_forbid_mutation() owner=tappa_owner definer=false execute=-
+function tappa_forbid_revocation_reset() owner=tappa_owner definer=false execute=-
+function tappa_forbid_unencoded_activation() owner=tappa_owner definer=false execute=-
 function tappa_local_month_start(date,text) owner=tappa_owner definer=false execute=tappa_app,tappa_opdefiner
 function webhook_delivery_settle() owner=tappa_owner definer=false execute=-
 namespace public owner=pg_database_owner

@@ -511,15 +511,18 @@ func TestOperator00033_TheRowsTimeIsTheWallClockWhoeverWritesIt(t *testing.T) {
 
 // TestOperator00033_TheClockFunctionRunsOnlyAsItsTrigger measures the two facts the decision to
 // leave PUBLIC's EXECUTE on tappa_audit_at_is_the_wall_clock -- as on the schema's eight trigger
-// functions before it -- rests on (ADR 0021's OP-14 D note, md. 4):
-//   - a direct call is refused by PostgreSQL itself, whoever calls it -- the owner, tappa_app and
-//     tappa_operator (EXECUTE through PUBLIC), the definer -- with SQLSTATE 0A000 "trigger
-//     functions can only be called as triggers";
-//   - EXECUTE is NOT checked when the trigger fires: with PUBLIC's EXECUTE revoked (in a
-//     savepoint) the definer may not call the function (has_function_privilege false; a direct
-//     call 42501), yet op_record_auth_event's INSERT -- which runs as the definer -- fires it: a
-//     body replaced in the same savepoint by one that stamps a marker date leaves that date on
-//     the row. CONTROL: after the savepoint, the same write is dated by the clock.
+// functions before it -- rested on (ADR 0021's OP-14 D note, md. 4), and which 00061 (T138) then
+// relied on to take that EXECUTE away from all nine:
+//   - a direct call is refused by PostgreSQL itself: the owner's with SQLSTATE 0A000 "trigger
+//     functions can only be called as triggers"; tappa_app's, tappa_operator's and the definer's --
+//     which held EXECUTE through PUBLIC until 00061 and met the same 0A000 -- now for the
+//     privilege, 42501, before the function is reached;
+//   - EXECUTE is NOT checked when the trigger fires: the definer may not call the function
+//     (has_function_privilege false; a direct call 42501), yet op_record_auth_event's INSERT --
+//     which runs as the definer -- fires it: a body replaced in a savepoint by one that stamps a
+//     marker date leaves that date on the row. CONTROL: after the savepoint, the same write is
+//     dated by the clock. (The savepoint's REVOKE is 00061's own since T138; it stays, so this
+//     test keeps measuring the fact whatever the chain holds.)
 func TestOperator00033_TheClockFunctionRunsOnlyAsItsTrigger(t *testing.T) {
 	ctx, tx := opTx(t)
 	const call = `SELECT public.tappa_audit_at_is_the_wall_clock()`
@@ -528,9 +531,7 @@ func TestOperator00033_TheClockFunctionRunsOnlyAsItsTrigger(t *testing.T) {
 		t.Errorf("the owner's direct call: %s %q, want 0A000 %q", code, msg, refusal)
 	}
 	for _, role := range []string{"tappa_app", "tappa_operator", "tappa_opdefiner"} {
-		if code, msg := opCode(opExecAs(t, ctx, tx, role, call)); code != "0A000" || msg != refusal {
-			t.Errorf("%s's direct call: %s %q, want 0A000 %q", role, code, msg, refusal)
-		}
+		opWant(t, opExecAs(t, ctx, tx, role, call), sqlstateInsufficientPrivi, role+"'s direct call (no EXECUTE since 00061)")
 	}
 
 	a := opNewActive(t, ctx, tx)

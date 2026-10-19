@@ -4135,7 +4135,8 @@ Uygulama: `db/migrations/00033_audit_opadmin_actions.sql` · `cmd/opadmin/main.g
    STATEMENT`tir (salt-okur katalog ölçümü, 2026-10-07) — hiçbir olayda ikisi birlikte ateşlenmez,
    sıraları anlamsızdır; `at`'in UPDATE'i append-only tetikleyicisinindir (23001). **Tanımlayıcının
    satırı anlamca değişmez:** `at`'in DEFAULT'u `clock_timestamp()` idi, şimdi aynı INSERT'te bir an
-   sonra okunan aynı saattir. PUBLIC'in fonksiyondaki EXECUTE'u **bırakıldı** — şemadaki sekiz
+   sonra okunan aynı saattir. PUBLIC'in fonksiyondaki EXECUTE'u **bırakıldı** (*T138, 2026-10-19:
+   `00061` onu ve öteki sekizinkini aldı — ADR 0028 §1'in T138 notu*) — şemadaki sekiz
    tetikleyici fonksiyonunun sekizi gibi (salt-okur ölçüm, 2026-10-07: `proacl` boş, `tappa_app`
    ve tanımlayıcı EXECUTE edebilir); tetikleyici fonksiyonu tetikleyici dışında çağrılamaz ve bir
    tabloya bağlamak (`CREATE TRIGGER`) o tabloda **TRIGGER yetkisi** ister — yetki, sahiplik değil
