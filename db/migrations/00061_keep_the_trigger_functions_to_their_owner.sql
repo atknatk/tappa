@@ -31,7 +31,11 @@
 --
 -- WHO MAY STILL BIND THEM. The owner -- the migration role, which made them and runs every later
 -- migration's CREATE TRIGGER (00020, 00021, 00033, 00048 … reuse tappa_forbid_mutation): an owner's
--- EXECUTE is implicit and is not touched by a REVOKE … FROM PUBLIC. The Down below asserts it.
+-- EXECUTE is implicit and is not touched by a REVOKE … FROM PUBLIC. Nothing in this file asserts it:
+-- the migration role (tappa_owner) is the bootstrap superuser in dev and prod, and a superuser passes
+-- every privilege check, so a has_function_privilege(current_user, …) test would always read true
+-- and prove nothing. It would gain a meaning only under a non-superuser migration role; it is left
+-- out rather than kept as a check that cannot fail.
 --
 -- THE DOWN DOES NOT GIVE PUBLIC ITS EXECUTE BACK (option (b) of T138's brief; the reasoning):
 --   * what the Down would restore is a privilege no code uses and every reviewer has marked as one
@@ -44,11 +48,15 @@
 --     the triggers fire without it -- above), so the database a Down leaves is a correct 00060
 --     database: every earlier Down and Up that binds one of the nine runs as the owner;
 --   * CLAUDE.md §6 ("Migration geri alınabilir olmalı", Down filled): the Down is not empty
---     -- it asserts the state it leaves (the nine exist, the migration role may still EXECUTE and so
---     bind them), and `goose down` + `goose up` is a clean cycle because the Up is idempotent: its
+--     -- it asserts the state it leaves (the nine exist; the owner's implicit EXECUTE is above), and
+--     `goose down` + `goose up` is a clean cycle because the Up is idempotent: its
 --     precondition asks only that the nine exist as INVOKER trigger functions, not that PUBLIC still
 --     holds EXECUTE (a REVOKE of a privilege not held is a no-op), and its postcondition reads the
 --     whole ACL either way. TestTriggerExecute00061_DownKeepsTheRevokeAndUpIsIdempotent walks it.
+--   * the consequence, accepted with (b): a Down chain that goes BELOW 00061 does not bring PUBLIC's
+--     old EXECUTE back either, so on such a database T137's catalogue test, run at that older
+--     migration version, reads red on the nine lines (`execute=-` where that version expected
+--     `execute=public,…`). That is the database being safer than its version, not a broken one.
 --
 -- lock_timeout 1 s, THE FIRST STATEMENT (deploy/README.md's rule). A REVOKE rewrites the functions'
 -- pg_proc rows and takes no table lock; the setting bounds the wait anyway, should a concurrent
@@ -126,8 +134,8 @@ $$;
 
 -- +goose Down
 -- PUBLIC's EXECUTE is NOT given back (the header says why). The Down asserts the state it leaves: the
--- nine exist, and the migration role -- which binds them in every earlier Down and Up -- may still
--- EXECUTE them.
+-- nine exist, so the earlier Downs and Ups that bind them -- as their owner, whose EXECUTE is
+-- implicit (header: WHO MAY STILL BIND THEM) -- can run.
 -- +goose StatementBegin
 DO $$
 DECLARE
@@ -140,9 +148,8 @@ BEGIN
         'public.tappa_forbid_unencoded_activation()', 'public.tappa_check_transaction_review()',
         'public.tappa_audit_at_is_the_wall_clock()']
     LOOP
-        IF pg_catalog.to_regprocedure(sig) IS NULL
-           OR NOT pg_catalog.has_function_privilege(current_user, pg_catalog.to_regprocedure(sig), 'EXECUTE') THEN
-            RAISE EXCEPTION 'migration 00061 Down (T138): % is missing, or the migration role may not EXECUTE it -- the earlier migrations that bind it could not run. Nothing was changed.', sig
+        IF pg_catalog.to_regprocedure(sig) IS NULL THEN
+            RAISE EXCEPTION 'migration 00061 Down (T138): % is missing -- the earlier migrations that bind it could not run. Nothing was changed.', sig
                 USING ERRCODE = 'object_not_in_prerequisite_state';
         END IF;
     END LOOP;
