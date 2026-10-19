@@ -107,6 +107,10 @@ templ apiKeysIntro(v APIKeysView) {
 			collect your punches. Anybody holding a key can do that for this business, so give each
 			system its own key and revoke one the moment it is no longer needed.
 		</p>
+		<p class="mt-2 max-w-2xl text-sm text-ink/85">
+			<a class="inline-flex min-h-11 items-center underline" href={ templ.URL(APIGuidePath) }>Read the integration guide</a>
+			— what the API does and how your system calls it.
+		</p>
 		if !v.Available {
 			<p class="mt-2 max-w-2xl text-sm text-ink/85">
 				Integration keys are not available on this deployment.
@@ -253,6 +257,10 @@ templ webhookSection(w WebhookView) {
 		<p class="mt-2 max-w-2xl text-sm text-ink/85">
 			Taptime can send each punch to your HR or payroll system the moment it is recorded. Give the
 			address your system receives webhooks at: one address for this business.
+		</p>
+		<p class="mt-2 max-w-2xl text-sm text-ink/85">
+			<a class="inline-flex min-h-11 items-center underline" href={ templ.URL(APIGuideWebhooksHref) }>How to receive webhooks</a>
+			— the requests, the signature check and the retries, in the integration guide.
 		</p>
 		if !w.Configured {
 			<p class="mt-2 max-w-2xl text-sm text-ink/85">The webhook is not configured on this deployment.</p>

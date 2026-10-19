@@ -163,7 +163,7 @@ func TestLegalPublicPath_WritesNothing(t *testing.T) {
 	texts := newFakeTexts()
 	texts.put("privacy", "A published text.")
 	r := marketingRouterWithTexts(t, texts)
-	for _, u := range marketingURLs() {
+	for _, u := range publicSurfaceURLs() {
 		if got := mustFetchMarketing(t, r, u); got == "" {
 			t.Fatalf("GET %s rendered nothing", u)
 		}

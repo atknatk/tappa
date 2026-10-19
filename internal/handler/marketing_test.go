@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/atknatk/tappa/internal/adminauth"
+	"github.com/atknatk/tappa/internal/apiguide"
 	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/internal/domain/tap"
 	"github.com/atknatk/tappa/internal/httpx"
@@ -80,7 +81,7 @@ func marketingRouterWithTexts(t *testing.T, texts legalReader) http.Handler {
 	if err != nil {
 		t.Fatalf("NewSignup: %v", err)
 	}
-	return httpx.NewRouter(nil, nil, NewMarketing(texts, log), wizard)
+	return httpx.NewRouter(nil, nil, NewMarketing(texts, log, ""), wizard)
 }
 
 // marketingURLs is every URL this feature serves, derived from the same table the
@@ -91,6 +92,17 @@ func marketingURLs() []string {
 		out = append(out, p.Path)
 	}
 	return out
+}
+
+// publicSurfaceURLs is marketingURLs plus the integration guide's two pages (M11
+// DOCS-1). The guide is served by this surface, so the STRUCTURAL properties -- the
+// same bytes for every visitor, cacheable, the policy, HEAD, no third party, every link
+// resolving, nothing written -- are measured on it too. The COPY rules (no unmeasured
+// claim, no capability word, the demo dialog) stay on marketingURLs: the guide is a
+// technical contract, and "there is no order guarantee" is a denial a marketing-claim
+// scanner reads as a promise.
+func publicSurfaceURLs() []string {
+	return append(marketingURLs(), pages.APIGuidePath, pages.APIGuideTRPath)
 }
 
 // fetchMarketing performs one GET against the real router.
@@ -161,6 +173,17 @@ func TestMarketing_HandlerHoldsNoStatefulDependency(t *testing.T) {
 		// on this type intact. A *db.DB here would have retired that argument and put an
 		// unmetered, unauthenticated path onto the pool check-in shares.
 		"handler.legalReader": true,
+		// 🔴 apiguide.Guide, ADDED BY M11 DOCS-1, AND THIS IS ITS ARGUMENT: the integration
+		// guide's pages have to serve the converted Markdown, and converting it per request
+		// would put goldmark on the unmetered path. So the conversion runs once, in
+		// NewMarketing, and the type keeps the RESULT -- a value, not a dependency. That is
+		// checked rather than named: plainData below walks the type and refuses any pointer,
+		// interface, func, map or channel inside it, so a Guide that grew a capability would
+		// go red here even though its name stayed on this list.
+		"apiguide.Guide": true,
+	}
+	if g := reflect.TypeOf(apiguide.Guide{}); !plainData(g) {
+		t.Errorf("apiguide.Guide holds something other than strings, numbers and slices of them: %v", g)
 	}
 	if typ.NumField() == 0 {
 		t.Fatal("handler.Marketing has no fields at all; this test would pass over anything")
@@ -179,6 +202,27 @@ func TestMarketing_HandlerHoldsNoStatefulDependency(t *testing.T) {
 	}
 }
 
+// plainData reports whether t is made of strings, numbers, booleans, and structs, slices
+// and arrays of those only: data, with nothing in it that can reach anything.
+func plainData(t reflect.Type) bool {
+	switch t.Kind() {
+	case reflect.String, reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Float32, reflect.Float64:
+		return true
+	case reflect.Slice, reflect.Array:
+		return plainData(t.Elem())
+	case reflect.Struct:
+		for i := 0; i < t.NumField(); i++ {
+			if !plainData(t.Field(i).Type) {
+				return false
+			}
+		}
+		return true
+	default:
+		return false
+	}
+}
+
 // TestMarketing_TheSameBytesForEveryVisitor is the PREMISE of the cacheable
 // response, measured rather than asserted in a comment.
 //
@@ -190,7 +234,7 @@ func TestMarketing_HandlerHoldsNoStatefulDependency(t *testing.T) {
 func TestMarketing_TheSameBytesForEveryVisitor(t *testing.T) {
 	t.Parallel()
 	r := marketingRouter(t)
-	for _, url := range marketingURLs() {
+	for _, url := range publicSurfaceURLs() {
 		plain := fetchMarketing(t, r, url, nil)
 		loaded := fetchMarketing(t, r, url, func(req *http.Request) {
 			req.AddCookie(&http.Cookie{Name: adminauthCookieNameForTest, Value: "not-a-real-token"})
@@ -225,7 +269,7 @@ const adminauthCookieNameForTest = "tappa_admin_session"
 func TestMarketing_IsCacheableAndCarriesNoPanelHeaders(t *testing.T) {
 	t.Parallel()
 	r := marketingRouter(t)
-	for _, url := range marketingURLs() {
+	for _, url := range publicSurfaceURLs() {
 		rec := fetchMarketing(t, r, url, nil)
 		if got := rec.Header().Get("Cache-Control"); got != marketingCacheControl {
 			t.Errorf("GET %s Cache-Control = %q, want %q", url, got, marketingCacheControl)
@@ -300,7 +344,7 @@ func TestMarketing_PolicyNamesWhatThePageLoadsAndNothingElse(t *testing.T) {
 	// nothing the policy would refuse.
 	r := marketingRouter(t)
 	plain := []string{}
-	for _, url := range marketingURLs() {
+	for _, url := range publicSurfaceURLs() {
 		if url != "/" {
 			plain = append(plain, url)
 		}
@@ -391,7 +435,7 @@ func TestMarketing_AnswersHeadWithNoBodyAndTheSameHeaders(t *testing.T) {
 	srv := httptest.NewServer(marketingRouter(t))
 	defer srv.Close()
 
-	for _, path := range marketingURLs() {
+	for _, path := range publicSurfaceURLs() {
 		get, err := srv.Client().Get(srv.URL + path)
 		if err != nil {
 			t.Fatalf("GET %s: %v", path, err)
@@ -467,7 +511,7 @@ func TestMarketing_AVisitorLeavingIsNotAnError(t *testing.T) {
 		{"a genuine failure this server caused", errors.New("template blew up"), slog.LevelError},
 	} {
 		var buf bytes.Buffer
-		m := NewMarketing(nil, slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+		m := NewMarketing(nil, slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})), "")
 		rec := httptest.NewRecorder()
 		m.render(failingWriter{ResponseWriter: rec, err: tc.err},
 			httptest.NewRequest(http.MethodGet, "/", nil), pages.Landing(pages.LandingView{}))
@@ -509,7 +553,7 @@ var externalReference = regexp.MustCompile(
 func TestMarketing_ReachesNoThirdParty(t *testing.T) {
 	t.Parallel()
 	r := marketingRouter(t)
-	for _, url := range marketingURLs() {
+	for _, url := range publicSurfaceURLs() {
 		body := mustFetchMarketing(t, r, url)
 		if hit := externalReference.FindString(body); hit != "" {
 			t.Errorf("GET %s reaches outside this origin: %q.\n"+
@@ -656,7 +700,7 @@ func TestMarketing_EveryInternalLinkResolves(t *testing.T) {
 	t.Parallel()
 	r := marketingRouter(t)
 	seen := 0
-	for _, url := range marketingURLs() {
+	for _, url := range publicSurfaceURLs() {
 		body := mustFetchMarketing(t, r, url)
 		for _, m := range hrefRE.FindAllStringSubmatch(body, -1) {
 			href := m[1]

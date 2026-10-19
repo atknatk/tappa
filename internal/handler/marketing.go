@@ -14,7 +14,9 @@ import (
 	"github.com/a-h/templ"
 	"github.com/go-chi/chi/v5"
 
+	apidocs "github.com/atknatk/tappa/docs/api"
 	"github.com/atknatk/tappa/internal/adminauth"
+	"github.com/atknatk/tappa/internal/apiguide"
 	"github.com/atknatk/tappa/internal/domain/legal"
 	"github.com/atknatk/tappa/internal/session"
 	"github.com/atknatk/tappa/web"
@@ -167,6 +169,19 @@ type Marketing struct {
 	// be read, in which case the page renders no example (see
 	// pages.LandingView.ExampleMonthly). Computed once, here, by exampleTeamMonthly.
 	exampleMonthly string
+	// guideEN and guideTR are the integration guide's two pages (M11 DOCS-1, ADR 0030):
+	// docs/api's embedded Markdown, converted ONCE, in the constructor, by
+	// internal/apiguide. A request serves the converted bytes and converts nothing, so
+	// the pages are as unmetered as /legal/* for the same reason: a fixed body, no pool,
+	// no cookie. The type holds strings and slices of strings only --
+	// TestMarketing_HandlerHoldsNoStatefulDependency reads that, field by field, rather
+	// than trusting the name.
+	guideEN apiguide.Guide
+	guideTR apiguide.Guide
+	// openAPIHref is where the guide pages offer the OpenAPI document for download:
+	// https://<TAPPA_API_HOST>/v1/openapi.yaml, or "" on a deployment with no API host,
+	// where no link is drawn (openAPIHrefFor says why).
+	openAPIHref string
 }
 
 // legalReader is the slice of internal/domain/legal.Store the PUBLIC surface needs.
@@ -188,10 +203,15 @@ type legalReader interface {
 // skeleton, saying nothing is in force. A constructor that refused nil would make
 // this surface unbuildable for the twenty tests that do not care about legal texts,
 // to protect against a failure mode whose worst outcome is under-claiming.
-func NewMarketing(texts legalReader, log *slog.Logger) *Marketing {
+//
+// apiHost is TAPPA_API_HOST (config.APIHost), "" when this deployment has none; the
+// integration guide's pages link the OpenAPI document on it (openAPIHrefFor).
+func NewMarketing(texts legalReader, log *slog.Logger, apiHost string) *Marketing {
 	if log == nil {
 		log = slog.Default()
 	}
+	openAPI := openAPIHrefFor(apiHost)
+	guideEN, guideTR := renderGuides(openAPI, log)
 	static := web.Static()
 	video := staticAssetURL(static, demoVideoAsset)
 	poster := ""
@@ -215,7 +235,52 @@ func NewMarketing(texts legalReader, log *slog.Logger) *Marketing {
 		demoPosterSrc:  poster,
 		landingPolicy:  landingCSPFor(video, poster),
 		exampleMonthly: example,
+		guideEN:        guideEN,
+		guideTR:        guideTR,
+		openAPIHref:    openAPI,
 	}
+}
+
+// openAPIHrefFor is where the guide pages link the OpenAPI document.
+//
+// WITH AN API HOST it is that host's own /v1/openapi.yaml, the address the guide itself
+// names: the document is served there, without a key, beside /v1/guide.md. It is a LINK
+// a reader follows, not a resource the page loads -- nothing on the page fetches it.
+//
+// WITHOUT ONE (dev, or a deployment that has not chosen an API host) there is no link,
+// rather than a copy of the document on this host. A deployment without TAPPA_API_HOST
+// builds no /v1 at all (fail closed, ADR 0028 §13): it has no API, and offering the
+// contract of an API it does not serve would be a promise the deployment does not keep.
+// And a second public address for openapi.yaml on the product host would be a second
+// copy to keep in step with the one the API host serves.
+func openAPIHrefFor(apiHost string) string {
+	if apiHost == "" {
+		return ""
+	}
+	return "https://" + apiHost + "/v1/openapi.yaml"
+}
+
+// renderGuides converts the two embedded guides, once. A guide that does not convert
+// is a programming error in docs/api (internal/apiguide's tests convert both); should
+// one reach production, its page answers 500 and this logs it once, here, instead of
+// per request.
+func renderGuides(openAPIHref string, log *slog.Logger) (en, tr apiguide.Guide) {
+	links := map[string]string{
+		// A file-relative link between the two Markdown files, or to the OpenAPI document
+		// beside them, is drawn as the address that file has on this site. "" (no API
+		// host) draws the openapi.yaml link as its text.
+		"integration-guide.md":    pages.APIGuidePath,
+		"integration-guide.tr.md": pages.APIGuideTRPath,
+		"openapi.yaml":            openAPIHref,
+	}
+	var err error
+	if en, err = apiguide.Render(apidocs.English(), apiguide.Options{Links: links}); err != nil {
+		log.Error("the integration guide (English) could not be converted; /docs/api answers 500", "err", err)
+	}
+	if tr, err = apiguide.Render(apidocs.Turkish(), apiguide.Options{Links: links}); err != nil {
+		log.Error("the integration guide (Turkish) could not be converted; /docs/api/tr answers 500", "err", err)
+	}
+	return en, tr
 }
 
 // The two files the hero's demo dialog looks for, as paths INSIDE web/static.
@@ -311,6 +376,38 @@ func (m *Marketing) Mount(r chi.Router) {
 		r.Get(page.Path, serve)
 		r.Head(page.Path, serve)
 	}
+	// The integration guide (M11 DOCS-1): same surface, same headers, same HEAD rule.
+	for _, g := range []struct {
+		path    string
+		turkish bool
+	}{{pages.APIGuidePath, false}, {pages.APIGuideTRPath, true}} {
+		turkish := g.turkish
+		serve := func(w http.ResponseWriter, r *http.Request) {
+			m.apiGuide(w, r, turkish)
+		}
+		r.Get(g.path, serve)
+		r.Head(g.path, serve)
+	}
+}
+
+// apiGuide serves /docs/api or /docs/api/tr: the guide converted at construction, in
+// the legal pages' chrome, cacheable and indexable like them.
+func (m *Marketing) apiGuide(w http.ResponseWriter, r *http.Request, turkish bool) {
+	g := m.guideEN
+	if turkish {
+		g = m.guideTR
+	}
+	if g.Title == "" {
+		// The conversion failed at start-up and was logged there (renderGuides).
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+	m.render(w, r, pages.APIGuide(pages.APIGuideView{
+		Guide:       g,
+		Turkish:     turkish,
+		OpenAPIHref: m.openAPIHref,
+		SignInHref:  adminLoginPath,
+	}))
 }
 
 // Landing serves GET /.
