@@ -81,7 +81,10 @@ func trimmedCode(s workflowStep) []string {
 //   - REGISTRY, APP_IMAGE and MIGRATE_IMAGE are the Harbor project's, once each; no code line of
 //     deploy.yml, the Dockerfile or any manifest names docker.io/atknatk, and deploy.yml's code
 //     names no DOCKERHUB_ secret, no TS_AUTHKEY and no Docker Hub login;
-//   - the first step is the secrets preflight; the registry login (the CI robot, the secret piped)
+//   - the secrets preflight is the step right after the trigger gate (backlog T140, which
+//     TestPackaging_TheDeployRunsOnlyForAPushToThisRepositorysMain pins as the first step), so a
+//     missing secret is named before the checkout and before anything is built; the registry
+//     login (the CI robot, the secret piped)
 //     comes before "Build both images"; the access gate is the step right after "Push", and the
 //     logout the step right after the gate, both before "Install kubectl" and every cluster call;
 //   - the pull-Secret preflight is the step right after the application Secret's, before the
@@ -144,8 +147,12 @@ func TestPackaging_TheDeployPushesToThePrivateRegistry(t *testing.T) {
 	}
 
 	steps := deploySteps(t)
-	if steps[0].name != deploySecretsStep {
-		t.Errorf("the first step is %q, want %q: a missing secret is named before anything is built", steps[0].name, deploySecretsStep)
+	if len(steps) < 2 || steps[0].name != triggerGateStep || steps[1].name != deploySecretsStep {
+		t.Errorf("the first two steps are not %q then %q: the trigger is re-checked first (T140) and a missing secret is "+
+			"named next, before anything is checked out or built", triggerGateStep, deploySecretsStep)
+	}
+	if checkout := stepIndex(t, steps, "Checkout that exact commit"); checkout < 2 {
+		t.Errorf("%q is step %d, before the secrets preflight", "Checkout that exact commit", checkout)
 	}
 	login, build := stepIndex(t, steps, registryLoginStep), stepIndex(t, steps, "Build both images")
 	if login >= build {

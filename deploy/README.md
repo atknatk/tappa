@@ -534,7 +534,7 @@ kubectl --kubeconfig="$K" -n tappa get deploy tappa && \
 yazıldı — sunucu `https://10.43.0.1:443`, CA `kube-root-ca.crt`, `github-deployer` token'ı
 **2027-10-19**'a kadar. 🔴 **Yenileme: 2027-10-19'dan önce** (backlog T135; değer bu belgeye
 yazılmaz, yalnız tarih). Süresi dolan token ilk küme çağrısında `401` verir. (Depo düzeyindeki
-eski `KUBE_CONFIG` — 2027-10-17 — ilk yeşil OPS-2 deploy'una kadar duruyor; aşağıdaki (c).)
+eski `KUBE_CONFIG` — 2027-10-17 — ilk OPS-2 deploy'undan önce silinir; aşağıdaki (c).)
 
 > ⚠️ **Bugün bu secret'ın hangi kimliği taşıdığı BU DOSYADAN doğrulanamaz** ve öyle
 > yazılıyor. Eğer içindeki kubeconfig cluster-admin ise `01-rbac.yaml`'daki daraltma
@@ -555,8 +555,10 @@ eski `KUBE_CONFIG` — 2027-10-17 — ilk yeşil OPS-2 deploy'una kadar duruyor;
 
 ⚠️ **Satır tek başına koruma DEĞİL — sıra.** Depo düzeyindeki eski `TS_AUTHKEY`, `KUBE_CONFIG`,
 `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` **hâlâ duruyor** ve durdukça her workflow'a açıklar (ortam
-secret'ları onlara **eklenir**, onları kapatmaz; aynı adlıda ortamınki kazanır). **İlk yeşil OPS-2
-deploy'undan sonra** dördü silinir (ana oturum):
+secret'ları onlara **eklenir**, onları kapatmaz; aynı adlıda ortamınki kazanır). **İlk OPS-2
+deploy'undan önce** dördü silinir (ana oturum). Bu deploy'u bozmaz: iş akışı yalnız ortamın beş
+secret'ını okur (`TS_AUTHKEY` ve `DOCKERHUB_*`'ı hiç anmaz, aynı adlı `KUBE_CONFIG`'te ortamınki
+kazanır); silmek yalnız pencereyi erken kapatır ve (c′)'deki kalan sınır 1'i kapatan adımdır:
 
 ```bash
 gh secret delete TS_AUTHKEY --repo atknatk/tappa
@@ -569,6 +571,63 @@ gh secret list --repo atknatk/tappa
 Son satır depo düzeyinde **hiç** deploy secret'ı göstermemeli. Silmeden önce Docker Hub token'ını
 Docker Hub'da da **iptal et** (secret'ı silmek token'ı öldürmez); auth key'i Tailscale konsolunda
 (Settings → Keys) iptal et.
+
+**(c′) Deploy'u ne tetikler — ve neyin tetikleyemediği (backlog T140, 2026-10-19).**
+`deploy.yml` yalnız iki yoldan koşar: (1) `ci`'nin **yeşil** bitmiş, **bu deponun `main`
+dalına yapılmış bir push**'la başlamış koşusu; (2) Actions → `deploy` → **Run workflow**,
+*Use workflow from* = **`main`** (yazma yetkisi gerekir; sınırı aşağıda). İşin `if:`'i dört
+koşulun dördünü de ister (`conclusion == success`, `event == push`, `head_repository == bu
+depo`, `head_branch == main`) ve ilk adım (*"Gate — this run was triggered by a push to this
+repository's main"*) aynı koşulları bash'te, checkout'tan önce yeniden ölçer — **ve `if:`'ten
+sıkıdır:** GitHub ifadelerinde `==` dizeleri büyük/küçük harfe **duyarsız** karşılaştırır
+(`Main` adlı bir dal `if:`'i geçer), bash'in `=`'i duyarlıdır (kapı onu reddeder). Tutmazsa
+koşu **kırmızı** biter (atlanmış değil), hiçbir şey build edilmez, kümeye dokunulmaz.
+**Kapanan delik:** `branches: [main]` süzgeci tetikleyen koşunun **`head_branch`** adına
+bakar; bir fork'un kendi `main` dalından açılan PR'ın `pull_request` koşusu da `main` adını
+taşır, yeşil biterse eskiden deploy onun `head_sha`'sını (fork'un kodunu) depo secret'larıyla
+build ederdi. Pin: `cmd/tappa` `TestPackaging_TheDeployRunsOnlyForAPushToThisRepositorysMain`
+(tetikleyiciler, `jobs:` tam olarak `deploy`, `if:`, kapının yeri, hiçbir `run:` gövdesinde
+`${{ }}` yok), `TestDeployTrigger_TheGateAcceptsOnlyAPushToMainOrAManualRunFromMain` (kapının
+gövdesi koşulur) ve `TestDeployTrigger_TheCommitToDeployIsExactlyFortyLowercaseHex`
+(*"Resolve the commit to deploy"* yalnız tam 40 küçük harf hex kabul eder). **Depo ayarı
+(geçici, kod düzeltmesinden önce yapıldı):** Settings → Actions → *Fork pull request
+workflows* = **bütün dış katkıcılar için onay** — fork PR'larının workflow'u onaysız koşmaz.
+Kod düzeltmesi indikten sonra da **açık bırakılması önerilir** (kuşak + kemer; fork PR'ı
+zaten secret'sız koşar, ama onay CI dakikasını ve `pull_request` yüzeyini de korur).
+
+**Kalan sınırlar — ikisi de yalnız depoya yazma yetkisi olana açık.**
+
+1. **Elle koşturma, düzeltmeyi taşımayan bir daldan.** `workflow_dispatch`'te GitHub
+   *Use workflow from*'da seçilen **dalın kendi** `deploy.yml` kopyasını koşturur, `main`'inkini
+   değil (`workflow_run`'dan farkı budur). Elle koşturma kapısı (`ref == refs/heads/main`)
+   bu yüzden yalnız **bu düzeltmeyi içeren** dallarda geçerlidir; bugün (2026-10-19) uzak
+   dalların **hiçbiri** onu taşımıyor. Kopyası eski ya da değiştirilmiş bir dal seçilirse
+   kapı orada yoktur ve o dalın HEAD'i (`github.sha`) depo düzeyindeki secret'larla deploy
+   edilir — (c)'deki risk sınıfı: yazabilen biri bir dala secret okuyan bir workflow zaten
+   push'layabilir. **Kalıcı kapanış (c)'deki Environment'tır** (`production`, *Deployment
+   branches* = yalnız `main`): Environment'ın dal kuralı elle koşturmada `github.ref`'e, yani
+   seçilen dala bakar. Durum (c)'dedir: ortam kurulu (yalnız `main`, beş secret ortamda) ve
+   iş akışı ona **bağlandı** (OPS-2, `environment: production`); kalan tek adım depo düzeyindeki
+   eski dört secret'ın silinmesidir (ana oturum, ilk OPS-2 deploy'undan önce). Kapatan **satır
+   değil, secret'ların yalnız Environment'ta durmasıdır**: o zaman `environment:` satırı olmayan
+   eski bir kopya secret'sız koşar (secret'ı arayan ilk adımda düşer), satırı taşıyan bir kopya
+   dal kuralına takılır. **Bu madde o silmeyle kapanır.**
+2. **`main` adlı bir etiket** [ölçülmedi]. `ci` `on: push` etiketlerde de koşar ve bir
+   etiket koşusunun `head_branch`'i etiketin adıdır; `main` adında bir **etiket** push'lanırsa
+   dört koşulun dördü de tutabilir. **Dal koruması yokken** bu yeni bir yetki vermez (yazma
+   yetkisi zaten `main`'e push demektir); dal koruması açıldığında korumayı atlatan bir yol
+   olurdu. (c)'deki Environment bunu **kapatmaz** — `workflow_run` koşusunun ref'i her zaman
+   `main`'dir. **Kapanış (depo ayarı, ana oturum, 2026-10-19):** `main` adlı etiketi yasaklayan
+   bir **ruleset** — aktif, istisnasız, etiket oluşturma/güncelleme/silme. Bu bir ayardır, kod
+   değil. **Önerilen ikinci savunma (kodlanmadı):** kapıda, `main` fetch edildikten sonra
+   `git merge-base --is-ancestor <head_sha> origin/main` — **ata denetimi, eşitlik değil**:
+   eşitlik (`head_sha == main`'in ucu) deploy başladığında `main` bir sonraki push'la
+   ilerlemişse meşru bir deploy'u reddeder; ata denetimi yalnız `main`'in geçmişinde olmayan
+   commit'i reddeder (backlog T140). Kodlanırsa iki not: checkout derinliği 1'dir
+   (`fetch-depth` varsayılanı), yani `main`'in **geçmişi** ayrıca fetch edilmelidir — yoksa
+   `--is-ancestor` her meşru commit'i reddeder; ve ata denetimi `main`'in geçmişindeki **eski**
+   bir commit'i (bir geri alma deploy'u) da kabul eder — bu kabul edilebilir, çünkü o commit
+   zaten `main`'e girmiştir.
 
 **(d) İlk deploy'da ölçülecekler (T134'ün kapanış ölçüsü — tarihsel; T134 2026-10-18'de kapandı,
 OPS-2'nin ölçüsü *"OPS-2 kapanış ölçüsü"*nde).** `main`'deki ilk deploy koşusunun log'unda ve
@@ -620,7 +679,9 @@ indirilmez, uyuşmazlık adımı atar; önbellek isabetinde denetim yoktur — `
 bu yüzden kalır).
 
 **6. İlk deploy.** `main`'e push → `ci` yeşil → `deploy` kendiliğinden koşar.
-Elle: Actions → `deploy` → Run workflow.
+Elle: Actions → `deploy` → Run workflow, *Use workflow from* = **`main`** (başka bir dal
+seçilirse işin `if:`'i koşuyu atlar ya da — düzeltmeyi taşımayan bir dalda — o dalın HEAD'i
+deploy edilir; bkz. (c′) kalan sınır 1).
 
 **7. İlk deploy sonrası — üç doğrulama (hiçbiri isteğe bağlı değil).**
 
@@ -7980,6 +8041,6 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     açık olduğunu ölçer.
     (f) **~~`TS_AUTHKEY` ve `KUBE_CONFIG` depo düzeyinde secret.~~** ✅ OPS-2: deploy'un beş
     secret'ı yalnız `main`'e açık `production` ortamında ve `deploy.yml` `environment: production`
-    taşır (operatör adımı 5 (c)). ⚠️ **Kalan:** depo düzeyindeki eski dört secret ilk yeşil OPS-2
-    deploy'una kadar duruyor ve durdukça her workflow'a açık — silinince bu madde kapanır. Ortamın
+    taşır (operatör adımı 5 (c)). ⚠️ **Kalan:** depo düzeyindeki eski dört secret silinene dek
+    (ana oturum, ilk OPS-2 deploy'undan önce) her workflow'a açık — silinince bu madde kapanır. Ortamın
     dal politikası depo ayarlarında yaşar, bu depodan **görünmez** ve test edilemez.

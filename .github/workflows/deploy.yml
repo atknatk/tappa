@@ -15,9 +15,12 @@
 #   (b) `on: workflow_run`. GitHub always runs the DEFAULT BRANCH's copy of a
 #       workflow_run workflow, regardless of which commit triggered it. A pull
 #       request therefore cannot modify this file and have its modification run —
-#       the credentials below are unreachable from any branch but main. And ci.yml
+#       through this file, the credentials below are unreachable from a pull request.
+#       (Not from any branch: repository-level secrets are open to a workflow that
+#       anyone with write access pushes to a branch — deploy/README.md (c).) And ci.yml
 #       is not touched at all, so the gate everything else depends on carries none
-#       of this risk. CHOSEN.
+#       of this risk. CHOSEN. (workflow_dispatch below does NOT work this way — it
+#       runs the selected branch's copy; see the job's `if:`.)
 #
 # ⚠️ THE COST OF (b), STATED: workflow_run's default checkout is the default
 # branch's HEAD, NOT the commit that was tested. That is the classic footgun and
@@ -50,8 +53,41 @@ permissions:
 
 jobs:
   deploy:
-    # workflow_run fires on failure too; only a green ci may deploy.
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    # 🔴 FOUR CONDITIONS, NOT ONE, AND THE MISSING THREE WERE A HOLE (backlog T140).
+    # `branches: [main]` above filters on the triggering run's HEAD_BRANCH, a name the
+    # author of that run chooses. A pull request opened from a FORK's own `main` runs ci
+    # (`on: pull_request`, with the PR's own ci.yml, which is still `name: ci`) under
+    # head_branch "main"; had it gone green, this workflow would have checked out its
+    # head_sha — the fork's code — and built it with this repository's secrets. So:
+    #   conclusion == success   workflow_run fires on failure and cancellation too;
+    #   event == push           a pull_request run is never a deploy, whoever opened it;
+    #   head_repository == us   a push can only come from this repository, but the two
+    #                           conditions are cheap and each covers the other's edge;
+    #   head_branch == main     the branch filter, restated where it cannot be widened by
+    #                           an edit to `on:` alone.
+    # workflow_dispatch needs write access to start, and deploys github.sha — the HEAD of
+    # whatever branch the dispatcher picked in "Use workflow from". Unconstrained, a
+    # feature branch with a red ci could be shipped by one click; `ref == refs/heads/main`
+    # keeps the manual path what its comment above says it is: a re-deploy of main.
+    # ⚠️ ONLY WHERE THIS FILE SAYS SO. Unlike workflow_run, a manual run executes the
+    # SELECTED branch's own copy of deploy.yml, not main's: this `ref` check binds only on
+    # branches that carry it, and a branch with an older or edited copy deploys its HEAD
+    # with the repository-level secrets. That path needs write access, like every other
+    # way to read those secrets (deploy/README.md (c)). This file now names the
+    # `production` Environment (OPS-2, `environment:` below; deployment branches: main
+    # only — on a manual run its branch rule reads github.ref), and the path closes for
+    # good once the old repository-level secrets are deleted (README (c)): a copy without
+    # `environment:` then runs without secrets, one with it is refused by the rule.
+    # "Gate — this run was triggered by a push…" re-checks all of it in the first step,
+    # and is stricter: `==` in an expression ignores case (a branch named `Main` passes
+    # this `if:`), bash's `=` does not.
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.event.workflow_run.head_branch == 'main')
     # 🔴 EVERY SECRET THIS JOB READS COMES FROM THE `production` ENVIRONMENT (OPS-2, backlog
     # T135 (4)). The environment is open to the `main` branch only (its deployment branch
     # policy, set in the repository settings -- not in this file, and not checkable from it).
@@ -60,8 +96,9 @@ jobs:
     # the policy admits. workflow_run and workflow_dispatch on main both run with ref main.
     # ⚠️ The line alone closes nothing while a secret of the same name still exists at the
     # repository level -- an environment secret is ADDED to the repository's set, it does
-    # not hide it. Deleting the old repository-level secrets is the operator's step after
-    # the first green run (deploy/README.md, operator step 5 (c)).
+    # not hide it. Deleting the old repository-level secrets is the operator's step, done
+    # before the first OPS-2 deploy (deploy/README.md, operator step 5 (c)); it is also what
+    # closes the manual-run limit stated above.
     environment: production
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -126,7 +163,41 @@ jobs:
       KUBE_API_PORT: "443"
 
     steps:
-      # 🔴 FIRST STEP ON PURPOSE, AND THE MESSAGE IS THE WHOLE POINT.
+      # 🔴 THE JOB'S `if:` AGAIN, IN BASH, BEFORE ANY OTHER STEP (backlog T140). Belt and
+      # braces: an `if:` is one edit away from not being there, and this step fails the
+      # run red instead of skipping it, so a loosened `if:` is visible in the run list.
+      # Every value arrives through env: — a `${{ }}` inside `run:` is pasted into the
+      # script before bash parses it, and head_branch is text the run's author wrote.
+      # Values are compared, never printed: the message names the condition that failed.
+      - name: Gate — this run was triggered by a push to this repository's main
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_EVENT: ${{ github.event.workflow_run.event }}
+          RUN_HEAD_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+          RUN_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -euo pipefail
+          refuse() { echo "::error::not deploying: $1. Nothing has been built and nothing in the cluster has been touched."; exit 1; }
+          case ${EVENT_NAME:-} in
+            workflow_dispatch)
+              [ "${REF:-}" = "refs/heads/main" ] || refuse "a manual run deploys only main (Use workflow from: main)"
+              ;;
+            workflow_run)
+              [ "${RUN_CONCLUSION:-}" = "success" ] || refuse "the ci run did not succeed"
+              [ "${RUN_EVENT:-}" = "push" ] || refuse "the ci run was not triggered by a push"
+              [ -n "${REPOSITORY:-}" ] && [ "${RUN_HEAD_REPOSITORY:-}" = "$REPOSITORY" ] || refuse "the ci run's commit is not from this repository"
+              [ "${RUN_HEAD_BRANCH:-}" = "main" ] || refuse "the ci run was not on main"
+              ;;
+            *)
+              refuse "unexpected trigger"
+              ;;
+          esac
+          echo "trigger accepted: ${EVENT_NAME}"
+
+      # 🔴 FIRST STEP AFTER THE TRIGGER GATE, AND THE MESSAGE IS THE WHOLE POINT.
       # An UNDEFINED GitHub secret renders as an EMPTY STRING, it is not an error, so
       # without this step the run continues to `docker login` and fails there with
       # "username is empty" -- naming no GitHub secret, no environment, no place to make
@@ -184,15 +255,24 @@ jobs:
           esac
           echo "production environment: HARBOR_CI_ROBOT_NAME HARBOR_CI_ROBOT_SECRET TS_OAUTH_CLIENT_ID TS_OAUTH_SECRET KUBE_CONFIG present"
 
+      # Through env: like the gate above — no `${{ }}` is rendered into a run body.
       - name: Resolve the commit to deploy
         id: sha
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_SHA: ${{ github.sha }}
+          RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            sha="${{ github.sha }}"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            sha="$DISPATCH_SHA"
           else
-            sha="${{ github.event.workflow_run.head_sha }}"
+            sha="$RUN_HEAD_SHA"
           fi
+          case $sha in
+            *[!0-9a-f]*|"") echo "::error::the commit to deploy is not a hex sha"; exit 1 ;;
+          esac
+          [ "${#sha}" -eq 40 ] || { echo "::error::the commit to deploy is not a 40-hex sha"; exit 1; }
           echo "full=$sha"           >> "$GITHUB_OUTPUT"
           echo "short=${sha:0:12}"   >> "$GITHUB_OUTPUT"
           echo "deploying $sha"
