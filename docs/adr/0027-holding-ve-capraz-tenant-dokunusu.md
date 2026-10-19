@@ -388,6 +388,8 @@ dönüş sütunu, tenant sınırının ne kadar açıldığının kendisidir. Ku
 | `holding_directory(p_updated_since, p_cursor)` | **Eş** tenant'ların çalışanları — **çağıranın kendi tenant'ı hariç** (kendi çalışanları her zaman RLS'li sorgudan gelir, ADR 0028 §2): kimlik, `api_code`, `external_ref`, kod, ad, soyad, tam ad (`full_name` — kullanıcı kararı 2026-10-15, K-41), **aktif/pasif** (K-1h) — **e-posta yok**; sayfalı, en çok 1000 | `GET /v1/directory` (ADR 0028) | `tappa_app` |
 | `holding_peer(a, b, mod)` | İki tenant'ın **aynı** holding'de eş olup olmadığı (tek yüklem) ve yukarıdaki beş kip | yalnız bu listedeki definer'lar ve tetikleyiciler | **yalnız sahip** (INVOKER, VOLATILE) |
 | `holding_peer(a, mod)` *(T124, `00060`)* | Aynı yüklemin küme biçimi: `a`'nın `strict` eşleri (tek kip) | `holding_site_locations`, `holding_directory` | **yalnız sahip** (INVOKER, VOLATILE) |
+| `holding_group()` *(GRP-1, `00062`)* | Çağıranın **kendi** holding'i ve onun **canlı** üyeleri: holding'in adı, üyenin adı, şirket kodu (`api_code`), katılma tarihi, kendisi mi — **VAT, adres, e-posta, çalışan sayısı, plan/fatura, API anahtarı, ayrılmış üye asla** (K-1d); argümansız, en çok 1000 | panelin "Group" sekmesi (salt-okur) | `tappa_app` |
+| `holding_peer(a)` *(GRP-1, `00062`)* | Aynı yüklemin kadro biçimi: `a`'nın canlı holding'i/holding'leri ve onların canlı üyeleri (`a` dahil), her biri katılma tarihiyle; `strict`, kipsiz | `holding_group` | **yalnız sahip** (INVOKER, VOLATILE) |
 | Tetikleyici `holding_site_gate()`: **`site_*` üyelik kapısı** | `BEFORE INSERT ON transactions`, `WHEN (NEW.site_tenant_id IS NOT NULL)`; K-29'un kanal × zaman şartı (§6) | `transactions` | yalnız sahip |
 | Tetikleyici `holding_feed()`: **holding akış/izdüşüm tetikleyicisi** | `AFTER INSERT ON transactions` ve `ON transaction_reviews`, tetikleyici adı **ad sırasında ilk** (K-31); `site_punches` (§9) ve iki hedefin olay/teslim satırları (§8; ADR 0028 §4) | `transactions`, `transaction_reviews` | yalnız sahip |
 | Tetikleyici `holding_timezone_lock()`: **saat dilimi kilidi** | `BEFORE UPDATE ON tenants` (K-36, §1) | `tenants` | yalnız sahip |
@@ -406,6 +408,8 @@ olarak** bu tablodur.
 | `holding_directory` | `p_updated_since timestamp with time zone, p_cursor uuid` | `TABLE(employee_id uuid, employer_tenant_id uuid, api_code text, external_ref text, employee_code text, first_name text, last_name text, full_name text, active boolean, updated_at timestamp with time zone)` — `full_name` **kullanıcı kararı 2026-10-15** (K-41; panelin açtığı adsız kişinin tek adı; dönüşün onaylı genişlemesi, yayınlanmamış `00055` yerinde düzeltildi) |
 | `holding_peer` | `a uuid, b uuid, mod text` | `boolean` |
 | `holding_peer` *(T124, `00060`)* | `a uuid, mod text` | `SETOF uuid` |
+| `holding_peer` *(GRP-1, `00062`)* | `a uuid` | `TABLE(holding_id uuid, member_tenant_id uuid, joined_at timestamp with time zone)` |
+| `holding_group` *(GRP-1, `00062`)* | — | `TABLE(holding_id uuid, holding_name text, member_name text, member_api_code text, joined_at timestamp with time zone, is_self boolean)` |
 | `holding_site_gate` | — | `trigger` |
 | `holding_feed` | — | `trigger` |
 | `holding_timezone_lock` | — | `trigger` |
@@ -475,7 +479,7 @@ ile doğar.
 | Tablo | SELECT (yalnız bu sütunlar) | INSERT | UPDATE | DELETE | Neden |
 |---|---|---|---|---|---|
 | `holding_members` | `holding_id`, `member_tenant_id`, `joined_at`, `left_at` | — | **yalnız `lock_anchor`** | — | `holding_peer`; `FOR SHARE` (aşağıda *kilit çapası*) |
-| `holdings` | — | — | — | — | hiçbir gövde okumaz (`holding_id` eşitliği `holding_members`'ta) |
+| `holdings` | `id`, `name` *(GRP-1, `00062`)* | — | — | — | yalnız `holding_group` (grubun adı); `created_at` asla. GRP-1'den önce hiçbir gövde okumuyordu (`holding_id` eşitliği `holding_members`'ta) |
 | `tags` | `uid`, `tenant_id`, `location_id`, `status`, `last_ctr` | — | `last_ctr` | — | `holding_tap_site`, `holding_advance_tag_counter` (`FOR UPDATE` bu `UPDATE` yetkisiyle karşılanır), BEFORE kapısının `last_ctr ≥ NEW.ctr` şartı |
 | `locations` | `id`, `tenant_id`, `name`, `external_ref` *(M11)*, `static_ips`, `gps_lat`, `gps_lng`, `shift_start`, `shift_end`, `overnight` | — | — | — | `holding_tap_site`, `holding_site_locations`, anlık görüntü |
 | `tenants` | `id`, `name`, `timezone`, `vat_verified`, `api_code` *(M11)*, `api_enabled_at` *(M11)* | — | — | — | saha meta, VIES kapısı, anlık görüntünün şirket kodu, teslim kapısı (ADR 0028 §6); saat dilimi kilidi `NEW`/`OLD`'u okur |
@@ -2048,3 +2052,65 @@ olduğunu göstermedi (aşağıda: ön-süzmenin 5,2–5,8 ms'sinden de hızlı)
   KF rehberi 6/3, KM mekânları 2 402/1 201, KM rehberi 5 004/2 502 satır — ikisi de kırmızı.
 - **Belge önerisi (yapılmadı — ana oturumun işi):** CLAUDE.md §4.5'in *"`holding_peer`'e kip eklemek"* ifadesi *"`holding_peer`'e
   kip ya da imza eklemek"* olarak netleşebilir (küme biçimi kullanıcı onayıyla geldi; üçüncü bir imza aynı onayı ister).
+
+## GRP-1 uygulama notu (2026-10-19)
+
+**Karar (kullanıcı, 2026-10-19):** panelde holding üyeliği ayrı bir **"Group"** sekmesiyle görünür — grup, üye işletmeler ve son
+çapraz dokunuşlar tek ekranda; holding'in yönetimi (kurma, üye ekleme/çıkarma) operatörde kalır, sekme **salt-okurdur**. Yapıcının
+uygulaması, ana oturumun tasarım önerisiyle (otonom kararlar aşağıda işaretli). **Migration `00062`**
+(`db/migrations/00062_show_a_member_its_group.sql`).
+
+- **🔴 Kapalı liste büyüdü — kullanıcı onayı gerekir (§2).** Mevcut fonksiyonların hiçbiri grubun adını (`holdings.name` — tanımlayıcı
+  hiç okumuyordu) ve üyeliklerin tarihini (`holding_members` — gövdesinde yalnız `holding_peer` adlandırabilir) veremiyordu. Bu yüzden
+  üç şey eklendi: **(1)** çağrılabilir `holding_group()`; **(2)** `holding_peer`'in **üçüncü imzası** (kadro biçimi); **(3)** matrise
+  `holdings (id, name)` SELECT. §2'nin kuralı (*"listeye fonksiyon eklemek … `holding_peer`'e kip eklemek … KULLANICI ONAYI + bu ADR'nin
+  değişikliği ister"*; T124 notu: *"üçüncü bir imza aynı onayı ister"*) gereği bu üç ekleme **kullanıcının açık onayını bekler**; görünür
+  davranış (grup ve üyeleri) kullanıcının 2026-10-19 kararıdır, onu taşıyan katalog genişlemesi ana oturumun önerisidir. Onay gelmeden
+  dal `main`'e birleştirilmez.
+- **Neden üçüncü imza, gövdede `holding_members` değil (otonom).** `holding_group`'un üyelik tablosunu kendisi okuması §2'nin *"TEK
+  fonksiyon `holding_peer`"* kuralına bir istisna ve taramaya (`TestHoldingPeer_IsTheOnlyBodyThatTouchesHoldingMembers`) bir delik
+  isterdi. Kadro biçimi T124'ün yoludur: aynı ad, kural ve tarama **yazıldığı gibi** kalır; üyelik zamanlaması (katı, duvar saati bir
+  kez) tek yerde yaşar. `holding_peer(a uuid) RETURNS TABLE(holding_id uuid, member_tenant_id uuid, joined_at timestamptz)`: `a`'nın canlı
+  üyeliği olan holding(ler)in canlı üyeleri, **`a` dahil**; aynı holding'de iki canlı satırı olan üye tek satır (GROUP BY, ilk
+  `joined_at`); kip yok (tek kural, `strict`); INVOKER, VOLATILE, `EXECUTE` yalnız sahipte, `ROWS 10`, kilit ve yazma yok; gövdesi md5
+  ile pinli (`TestHoldingPeer_TheRosterFormIsStrictAndTheOwnersAlone`). Küme biçimiyle eşitliği bir **özellik testiyle** tutulur
+  (`TestHoldingPeer_TheRosterFormIsTheSetFormsAnswer`, 200 rastgele senaryo — T124'ün dünyası): her çağıran için kadronun `a` dışındaki
+  üyeleri **tam olarak** küme biçiminin eşleridir, `a` kadroda ancak canlı bir üyeliği varken bulunur, her satırın holding'i `a`'nın
+  canlı holding'idir, hiçbir (holding, üye) iki kez dönmez. Kontroller (gevşetilmiş, `a`'sız, holding eşitliği unutulmuş, GROUP BY'sız)
+  dördü de ayrışır.
+- **`holding_group()` — §2'nin sözleşmesi madde madde:** `search_path` sabit, bütün adlar nitelikli, dinamik SQL yok; sabit dönüş
+  (`holding_id, holding_name, member_name, member_api_code, joined_at, is_self`) ve `LIMIT 1000`; çağıran `app.tenant_id`'den
+  (`NULLIF` kalıbı) — **argüman almaz**; süzgeç kadro biçiminindir (bağlamsız, holding'siz, üyeliği bitmiş çağıran → 0 satır, aynı
+  cevap; geçersiz bir uuid yazımı kardeş fonksiyonlardaki gibi `22P02`, mesajında hiçbir holding/tenant verisi yok); eş kümesi **bir
+  kez** (kadro tek çağrı, materyalize CTE — `TestHoldingFunctions_PeerSetComputedOnce`'a eklendi, büyüyen veri 50 yeni üye); `EXCEPTION`
+  yok. `EXECUTE` tam olarak {sahip, `tappa_app`}. `holding_id` opak bir anahtardır (panel onunla gruplar, basmaz).
+- **Görünürlük kapsamı (otonom, K-1d'nin *"ad, kod"*u).** Üye başına yalnız ad, şirket kodu ve katılma tarihi. **Ayrılmış üye listede
+  yoktur** — göstermek K-1d'nin kapsamadığı yeni bir bilgi olurdu (*"X şu tarihte ayrıldı"*); istenirse kullanıcı kararıyla ve bu notun
+  değişikliğiyle gelir. Ayrılan üyenin **kendisi** de sekmeyi görmez (katı: `left_at` geçtiği an).
+- **Manager erişimi (otonom).** Sekme owner **ve** manager'a çizilir: salt-okur, ve eş personelinin kayıtları manager'a Reports'ta zaten
+  açık (API-1c). Yönetim eylemi yok, form yok.
+- **Görünürlük ve rota (otonom).** Sekme `PanelSection.GroupOnly` ile yalnız canlı üyeye çizilir (`OwnerOnly`'nin biçimi: çizilen
+  değişir, yönlendirme değişmez). Rota her işletmeye bağlıdır (*"linki 404 veren sekme"* yapısal olarak imkânsız kalır); üye olmayana
+  panelin boş durumu döner — eski yer imiyle ayrıldıktan sonra gelen işletme de bir cümle okur; cümle yalnız kendi işletmesi hakkındadır.
+  Krom üyeliği istek başına bir kez sorar (`ledger.Reader.InGroup`, tek `holding_group` çağrısı); okuma başarısızsa krom
+  holding'siz işletmeninkidir ve hata loglanır (markanın kuralı), sekmenin kendi okuması başarısızsa problem sayfası (§4.6).
+  Holding'siz işletmenin panel sayfaları bayt bayt aynı (`TestPanelBrand_AnUnbrandedChromeIsTheChromeBeforeWL8`,
+  `TestHoldinglessViews_AreByteIdenticalToTheGolden`, ve gerçek veritabanında Reports'un baytları başka bir holding kurulmadan önce ve
+  sonra aynı — `TestGroupDB_TheTabAndThePageFollowTheLiveMembership`).
+- **Son çapraz dokunuşlar** Reports'un okuyucusudur, kopyası değil: `ListSitePunchesForPeriod`'a bir `newest_first` bayrağı eklendi
+  (Reports `false` geçer, sırası değişmedi; Group sekmesi son 30 günü en yenisi önce okur, 100'den fazlasını *"Not every record is
+  listed"* ile söyler) ve aynı katlama (`transaction_id` başına son satır), aynı docket. Kendi personelinin eş mekânlardaki kayıtları
+  kendi `transactions` satırlarıdır (RLS'li, açık tenant süzgeçli `CountRecordsAtPartnerVenues`, alıştırma dokunuşları hariç) — yalnız
+  sayı; Transactions'ta bu kayıtlar için bir süzgeç yok, bu yüzden bağlantı da yok.
+- **Mutantlar (ölçüldü):** kadro biçiminde çağıranın canlılık şartı kaldırılınca ayrılan üye eski holding'ini okur; üyenin canlılık şartı
+  kaldırılınca ayrılan üye listelenir; `holding_group` kadro yerine bütün canlı üyelikleri okuyunca holding'siz işletme başka holding'leri
+  okur (üçü `TestHoldingGroup_AMemberReadsItsOwnHoldingAndNothingElse`'te kırmızı); dönüşe VAT sütunu katalog testinde (ii) kırmızı
+  (`TestHoldingGroup_AVATColumnIsRedInTheCatalogue`); K-33'ün M1/M2/M3'ü artık kadro biçimine de yazılır ve `holding_group` probu üçünde
+  de sızıntı bulur (`TestHoldingFilter_MutantsM1M2M3AreRedInFunctionsAndTriggers`); panelde sekme koşulu hep-doğru yapılınca dört test
+  kırmızı (`TestGroup_ANonMemberSeesNoTabAndTheEmptyState` dahil). Matrisin yeni iki sütunu tek tek geri alınınca `holding_group` `42501`
+  (`TestHoldingDefiner_EveryGrantIsUsed`).
+- **Down zincirleri:** `feedBelow48` önce `00062`'nin Down'ını, `feedUpAgain` sonda Up'ını koşar (`00060`'ın Up'ı üçüncü bir
+  `holding_peer`'i reddeder); `TestHolding00055_…` ve `TestHolding00060_…` aynı sırayla; `opAtVersionSkips`'e 62.
+  `TestHolding00062_DownGivesBackAndUpTakesItAgain`: Down iki fonksiyonu düşürür ve `holdings` SELECT'ini geri alır, ön koşul ikinci
+  koşuyu, başka biçimli üçüncü bir `holding_peer`'i, var olan bir `holding_group`'u ve `holdings`'i zaten okuyan bir tanımlayıcıyı
+  reddeder, Up HEAD'i birebir verir.
