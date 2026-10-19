@@ -15,6 +15,7 @@ package main
 import (
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -341,6 +342,69 @@ func secretPlacementFaults(src string) []string {
 	return faults
 }
 
+// secretName names the secret a read expression reads: `secrets.X` or `secrets['X']`.
+var secretName = regexp.MustCompile(`\bsecrets\s*(?:\.\s*([A-Za-z_][A-Za-z0-9_]*)|\[\s*['"]([^'"]+)['"]\s*\])`)
+
+// secretReadsByStep maps each step's name to the sorted, distinct names of the secrets its lines
+// read. A read outside every step is filed under ""; a read whose secret has no name (`secrets:
+// inherit`, `toJSON(secrets)`) is filed as "<unnamed>".
+func secretReadsByStep(src string) map[string][]string {
+	code := codeLinesOf(src)
+	reads := map[string][]string{}
+	for i, l := range code {
+		if !secretRef.MatchString(l) {
+			continue
+		}
+		step := ""
+		if s := stepOf(code, i); s >= 0 {
+			step = strings.TrimPrefix(strings.TrimSpace(code[s]), "- name: ")
+		}
+		names := secretName.FindAllStringSubmatch(l, -1)
+		if len(names) == 0 {
+			reads[step] = append(reads[step], "<unnamed>")
+		}
+		for _, n := range names {
+			reads[step] = append(reads[step], n[1]+n[2])
+		}
+	}
+	for k := range reads {
+		slices.Sort(reads[k])
+		reads[k] = slices.Compact(reads[k])
+	}
+	return reads
+}
+
+// deployStepSecrets is the allow-list of TestPackaging_TheProductionSecretsAreReadOnlyByTheStepsThatNeedThem:
+// the steps of deploy.yml that read a secret, and exactly which ones each reads (OPS-2 fix round 2).
+// The preflight names all five without using one (it compares a prefix and counts names); the
+// login step is the registry; "Write kubeconfig" is the cluster; the tailnet action is the OAuth
+// client. A new read is a decision: add it here, with the reason, in the same commit.
+var deployStepSecrets = map[string][]string{
+	deploySecretsStep:  {"HARBOR_CI_ROBOT_NAME", "HARBOR_CI_ROBOT_SECRET", "KUBE_CONFIG", "TS_OAUTH_CLIENT_ID", "TS_OAUTH_SECRET"},
+	registryLoginStep:  {"HARBOR_CI_ROBOT_NAME", "HARBOR_CI_ROBOT_SECRET"},
+	"Write kubeconfig": {"KUBE_CONFIG"},
+	"Join the tailnet (the cluster API is reachable only through it)": {"TS_OAUTH_CLIENT_ID", "TS_OAUTH_SECRET"},
+}
+
+// stepSecretFaults compares secretReadsByStep(src) with deployStepSecrets and returns every
+// difference, one line each.
+func stepSecretFaults(src string) []string {
+	got := secretReadsByStep(src)
+	var faults []string
+	for step, names := range got {
+		if want, ok := deployStepSecrets[step]; !ok || !slices.Equal(names, want) {
+			faults = append(faults, fmt.Sprintf("step %q reads %v, the allow-list says %v", step, names, want))
+		}
+	}
+	for step, want := range deployStepSecrets {
+		if _, ok := got[step]; !ok {
+			faults = append(faults, fmt.Sprintf("step %q reads nothing, the allow-list says %v (renamed? the list follows it)", step, want))
+		}
+	}
+	slices.Sort(faults)
+	return faults
+}
+
 // TestPackaging_TheDockerfileNamesNoFrontendImage (OPS-2 follow-up). A `syntax` parser directive
 // makes BuildKit pull a frontend IMAGE before it reads an instruction -- docker/dockerfile:1 was
 // a moving tag, pulled anonymously from Docker Hub, the one Docker Hub pull left in the deploy
@@ -396,19 +460,29 @@ func TestPackaging_TheDockerfileNamesNoFrontendImage(t *testing.T) {
 	}
 }
 
-// TestPackaging_TheProductionSecretsAreReadOnlyByTheStepsThatNeedThem (OPS-2 fix round 1): every
-// secret deploy.yml reads -- the `production` environment's -- sits in the `env:` of the step that
-// uses it or in the `with:` of the one action step, never at the JOB's level. A job-level `env:`
+// TestPackaging_TheProductionSecretsAreReadOnlyByTheStepsThatNeedThem (OPS-2 fix rounds 1 and 2):
+// every secret deploy.yml reads -- the `production` environment's -- sits in the `env:` of the step
+// that uses it or in the `with:` of the one action step, never at the JOB's level; and WHICH step
+// reads WHICH secret is exactly deployStepSecrets (round 2: the placement rule alone accepted a
+// secret in the `env:` of any step, e.g. KUBE_CONFIG handed to the build). A job-level `env:`
 // is inherited by EVERY step, including `actions/checkout`, `setup-go`, the build (the
 // repository's own Makefile and code run there) and the third-party tailnet action; a step-level
 // one reaches that step's process only.
 //
-// PART I -- deploy.yml as it is: no fault, and at least ten secret reads seen (CONTROL). PART II
+// PART I -- deploy.yml as it is: no fault, at least ten secret reads seen (CONTROL), and the
+// step-to-secret map equal to deployStepSecrets. PART II
 // -- the same file mutated in this test, each of which must be a fault: the registry secret moved
 // from the login step into the job's `env:`; the same, spelled `${{secrets.X}}` with no spaces;
 // a secret in the workflow's own `env:`; a secret written into a `run:` body, inline or under a
 // line of that body that reads `env:`; a secret under the `with:` of a step that uses no action;
-// `secrets: inherit`.
+// `secrets: inherit`. PART III -- the same file mutated so that the PLACEMENT is right and the
+// STEP is wrong, each of which must differ from the allow-list: KUBE_CONFIG in the access gate's
+// own `env:`; TS_OAUTH_SECRET added to the registry login's `env:`; the tailnet action's
+// oauth-secret removed.
+//
+// MUTANT (measured, OPS-2 fix round 2): KUBE_CONFIG put by hand into the `env:` of "Build both
+// images" -> PART I red on the allow-list (the placement check stays green on it); the allow-list
+// comparison reduced to the placement check -> PART III red.
 //
 // MUTANT (measured, OPS-2 fix round 1): HARBOR_CI_ROBOT_SECRET moved by hand into the job-level
 // `env:` of deploy.yml -> PART I red (TestPackaging_TheDeployReachesTheClusterOnlyThroughTheTailnet,
@@ -431,6 +505,29 @@ func TestPackaging_TheProductionSecretsAreReadOnlyByTheStepsThatNeedThem(t *test
 	}
 	if reads < 10 {
 		t.Fatalf("CONTROL FAILED: %d secret read(s) seen in deploy.yml, want at least 10", reads)
+	}
+	if f := stepSecretFaults(src); len(f) != 0 {
+		t.Errorf("deploy.yml's steps read other secrets than deployStepSecrets allows (%d):\n  %s", len(f), strings.Join(f, "\n  "))
+	}
+	gate := "      - name: " + accessGateStep + "\n        env:\n"
+	loginEnv := "          HARBOR_CI_ROBOT_SECRET: ${{ secrets.HARBOR_CI_ROBOT_SECRET }}\n        run: printf"
+	oauth := "          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}\n"
+	for _, m := range []struct{ name, src string }{
+		{"KUBE_CONFIG in the access gate's env:", strings.Replace(src, gate, gate+"          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}\n", 1)},
+		{"TS_OAUTH_SECRET in the login step's env:", strings.Replace(src, loginEnv,
+			"          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}\n"+loginEnv, 1)},
+		{"the tailnet action's oauth-secret removed", strings.Replace(src, oauth, "", 1)},
+	} {
+		if m.src == src {
+			t.Errorf("CONTROL FAILED: allow-list mutant %q changed nothing", m.name)
+			continue
+		}
+		if len(secretPlacementFaults(m.src)) != 0 {
+			t.Errorf("CONTROL FAILED: allow-list mutant %q is a placement fault too; it should test the allow-list alone", m.name)
+		}
+		if len(stepSecretFaults(m.src)) == 0 {
+			t.Errorf("allow-list mutant %q: no difference found -- the pin cannot see which step reads which secret", m.name)
+		}
 	}
 
 	const loginSecret = "          HARBOR_CI_ROBOT_SECRET: ${{ secrets.HARBOR_CI_ROBOT_SECRET }}\n"
@@ -1009,8 +1106,13 @@ func TestVerifyImage_TheAccessGateMeasuresBothDirections(t *testing.T) {
 
 // stubMigrateKubectl answers the kubectl calls of deploy.yml's "Migrate" step. Each poll of the
 // loop reads `.status.succeeded` first, which advances STUB_DIR/poll; the poll's answers are
-// succeeded.N, failed.N and pull.N (the pod's container=reason list). From poll 6 on, the Job
-// reports failed=3, so a loop that does not end by itself ends there instead of hanging the test.
+// succeeded.N, failed.N, init.N and main.N. From poll 6 on, the Job reports failed=3, so a loop
+// that does not end by itself ends there instead of hanging the test.
+//
+// The pod's container=reason list is answered the way kubectl evaluates the query (OPS-2 fix
+// round 2): init.N only if the jsonpath carries the initContainerStatuses range, main.N only if
+// it carries the containerStatuses range, in that order. A stub that printed one canned list for
+// any query kept the "init container" row green with initContainerStatuses deleted from the step.
 const stubMigrateKubectl = `#!/bin/sh
 printf '%s\n' "$*" >> "$STUB_DIR/kubectl.calls"
 n=$(cat "$STUB_DIR/poll" 2>/dev/null || echo 0)
@@ -1022,7 +1124,10 @@ case "$*" in
   *"get job tappa-migrate"*"failed"*)
     if [ "$n" -ge 6 ]; then printf 3; elif [ -f "$STUB_DIR/failed.$n" ]; then cat "$STUB_DIR/failed.$n"; fi ;;
   *"get pod -l job-name=tappa-migrate"*"waiting.reason"*)
-    if [ -f "$STUB_DIR/pull.$n" ]; then cat "$STUB_DIR/pull.$n"; fi ;;
+    case "$*" in *'{range .status.initContainerStatuses[*]}{.name}{"="}{.state.waiting.reason}{" "}{end}'*)
+      if [ -f "$STUB_DIR/init.$n" ]; then cat "$STUB_DIR/init.$n"; fi ;; esac
+    case "$*" in *'{range .status.containerStatuses[*]}{.name}{"="}{.state.waiting.reason}{" "}{end}'*)
+      if [ -f "$STUB_DIR/main.$n" ]; then cat "$STUB_DIR/main.$n"; fi ;; esac ;;
   *"get pod -l job-name=tappa-migrate"*"waiting.message"*)
     echo "goose: Back-off pulling image \"registry.everva.com.tr/tappa/tappa-migrate:sha-0123456789ab\"" ;;
 esac
@@ -1034,16 +1139,21 @@ exit 0
 // (OPS-2 fix round 1: a pod in ImagePullBackOff never counts as failed, so the wait used to run
 // its full 600 s and then report a timeout).
 //
-// PART I -- the rows: RED (exit 1) at the FIRST poll when the goose container or the
-// wait-for-postgres init container is in ImagePullBackOff, naming it and printing the kubelet's
-// message; GREEN (exit 0) when the pod shows ErrImagePull on the first poll and the Job succeeds on
-// the second (a pull that fails once and is retried is the kubelet's business, not a verdict);
-// GREEN at the first poll when the Job has succeeded; RED with "the migration Job failed" when it
-// reports three failures. PART II -- pinned on every row: the exit code, the message, the number of
-// polls; the applied manifest names the migration image with this deploy's tag.
+// PART I -- the rows: RED (exit 1) at the first poll that SHOWS ImagePullBackOff, for the goose
+// container and for the wait-for-postgres init container, naming it and printing the kubelet's
+// message -- at poll 1 when it is there at once, at poll 2 when poll 1 showed ErrImagePull; GREEN
+// (exit 0) when the pod shows ErrImagePull on the first poll and the Job succeeds on the second (a
+// pull that fails once and is retried is the kubelet's business, not a verdict); GREEN at the first
+// poll when the Job has succeeded; RED with "the migration Job failed" when it reports three
+// failures. PART II -- pinned on every row: the exit code, the message, the number of polls; the
+// applied manifest names the migration image with this deploy's tag. PART III -- the step with the
+// initContainerStatuses range deleted from its reason query must NOT end the init-container row at
+// poll 1 (CONTROL that the stub reads the query).
 //
 // MUTANT (measured, OPS-2 fix round 1): the ImagePullBackOff case deleted (the loop runs to the
 // stub's failed=3); its pattern widened to ErrImagePull; the `exit 1` in it dropped -> each red.
+// MUTANT (measured, OPS-2 fix round 2): initContainerStatuses' range deleted from deploy.yml's
+// reason query -> the init-container row red (round 1's stub kept it green).
 func TestPackaging_TheMigrationWaitEndsOnAnImageThatCannotBePulled(t *testing.T) {
 	steps := deploySteps(t)
 	body := runBlockOf(t, steps[stepIndex(t, steps, "Migrate (its own step, its own role, before any new binary serves)")])
@@ -1065,36 +1175,18 @@ func TestPackaging_TheMigrationWaitEndsOnAnImageThatCannotBePulled(t *testing.T)
 		notMark   string
 		wantPolls int
 	}{
-		{name: "goose in ImagePullBackOff", answers: map[string]string{"pull.1": "wait-for-postgres= goose=ImagePullBackOff "},
-			wantCode: 1, wantMarks: []string{"cannot pull an image (container=reason:", "goose=ImagePullBackOff", "goose: Back-off pulling image"}, wantPolls: 1},
-		{name: "the init container in ImagePullBackOff", answers: map[string]string{"pull.1": "wait-for-postgres=ImagePullBackOff "},
+		{name: "goose in ImagePullBackOff", answers: map[string]string{"init.1": "wait-for-postgres= ", "main.1": "goose=ImagePullBackOff "},
+			wantCode: 1, wantMarks: []string{"cannot pull an image (container=reason:", "wait-for-postgres= goose=ImagePullBackOff", "goose: Back-off pulling image"}, wantPolls: 1},
+		{name: "the init container in ImagePullBackOff", answers: map[string]string{"init.1": "wait-for-postgres=ImagePullBackOff "},
 			wantCode: 1, wantMarks: []string{"wait-for-postgres=ImagePullBackOff"}, wantPolls: 1},
-		{name: "ErrImagePull once, then success", answers: map[string]string{"pull.1": "wait-for-postgres= goose=ErrImagePull ", "succeeded.2": "1"},
+		{name: "ErrImagePull, then ImagePullBackOff at the second poll", answers: map[string]string{"main.1": "goose=ErrImagePull ", "main.2": "goose=ImagePullBackOff "},
+			wantCode: 1, wantMarks: []string{"goose=ImagePullBackOff"}, wantPolls: 2},
+		{name: "ErrImagePull once, then success", answers: map[string]string{"init.1": "wait-for-postgres= ", "main.1": "goose=ErrImagePull ", "succeeded.2": "1"},
 			wantMarks: []string{"migration complete"}, notMark: "cannot pull", wantPolls: 2},
 		{name: "succeeded at once", answers: map[string]string{"succeeded.1": "1"}, wantMarks: []string{"migration complete"}, wantPolls: 1},
 		{name: "three failures", answers: map[string]string{"failed.1": "3"}, wantCode: 1, wantMarks: []string{"the migration Job failed"}, notMark: "cannot pull", wantPolls: 1},
 	} {
-		old, _ := filepath.Glob(filepath.Join(dir, "*.*"))
-		old = append(old, filepath.Join(dir, "poll"))
-		for _, f := range old {
-			_ = os.Remove(f)
-		}
-		for k, v := range tc.answers {
-			if err := os.WriteFile(filepath.Join(dir, k), []byte(v), 0o644); err != nil {
-				t.Fatal(err)
-			}
-		}
-		cmd := exec.CommandContext(t.Context(), bash, "-c", body)
-		cmd.Dir = repoRoot
-		cmd.Env = []string{"PATH=" + dir + string(os.PathListSeparator) + "/usr/bin:/bin", "STUB_DIR=" + dir, "SHORT=0123456789ab", "LC_ALL=C"}
-		outB, err := cmd.CombinedOutput()
-		out, code := string(outB), 0
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
-			code = ee.ExitCode()
-		} else if err != nil {
-			t.Fatal(err)
-		}
+		out, code, polls := runMigrate(t, bash, dir, body, tc.answers)
 		if code != tc.wantCode {
 			t.Errorf("%s: exit %d, want %d:\n%s", tc.name, code, tc.wantCode, out)
 		}
@@ -1106,13 +1198,52 @@ func TestPackaging_TheMigrationWaitEndsOnAnImageThatCannotBePulled(t *testing.T)
 		if tc.notMark != "" && strings.Contains(out, tc.notMark) {
 			t.Errorf("%s: %q in:\n%s", tc.name, tc.notMark, out)
 		}
-		if p, _ := os.ReadFile(filepath.Join(dir, "poll")); strings.TrimSpace(string(p)) != strconv.Itoa(tc.wantPolls) {
-			t.Errorf("%s: %s poll(s), want %d", tc.name, strings.TrimSpace(string(p)), tc.wantPolls)
+		if polls != strconv.Itoa(tc.wantPolls) {
+			t.Errorf("%s: %s poll(s), want %d", tc.name, polls, tc.wantPolls)
 		}
 		if a, _ := os.ReadFile(filepath.Join(dir, "applied.yaml")); !strings.Contains(string(a), "image: "+harborProject+"/tappa-migrate:sha-0123456789ab") {
 			t.Errorf("%s: the applied Job does not name the migration image with this deploy's tag", tc.name)
 		}
 	}
+
+	const initRange = `{range .status.initContainerStatuses[*]}{.name}{"="}{.state.waiting.reason}{" "}{end}`
+	if strings.Count(body, initRange) != 1 {
+		t.Fatalf("CONTROL FAILED: the step's reason query holds the initContainerStatuses range %d time(s), want 1", strings.Count(body, initRange))
+	}
+	if out, code, polls := runMigrate(t, bash, dir, strings.Replace(body, initRange, "", 1),
+		map[string]string{"init.1": "wait-for-postgres=ImagePullBackOff "}); code == 1 && polls == "1" && strings.Contains(out, "wait-for-postgres=ImagePullBackOff") {
+		t.Errorf("CONTROL FAILED: with initContainerStatuses deleted from the query the init-container row still ends at poll 1 -- "+
+			"the stub does not read the query:\n%s", out)
+	}
+}
+
+// runMigrate runs body (the "Migrate" step) under bash with stubMigrateKubectl's answers, and
+// returns its output, its exit code and the number of polls it made.
+func runMigrate(t *testing.T, bash, dir, body string, answers map[string]string) (string, int, string) {
+	t.Helper()
+	old, _ := filepath.Glob(filepath.Join(dir, "*.*"))
+	old = append(old, filepath.Join(dir, "poll"))
+	for _, f := range old {
+		_ = os.Remove(f)
+	}
+	for k, v := range answers {
+		if err := os.WriteFile(filepath.Join(dir, k), []byte(v), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cmd := exec.CommandContext(t.Context(), bash, "-c", body)
+	cmd.Dir = repoRoot
+	cmd.Env = []string{"PATH=" + dir + string(os.PathListSeparator) + "/usr/bin:/bin", "STUB_DIR=" + dir, "SHORT=0123456789ab", "LC_ALL=C"}
+	outB, err := cmd.CombinedOutput()
+	out, code := string(outB), 0
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		code = ee.ExitCode()
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	p, _ := os.ReadFile(filepath.Join(dir, "poll"))
+	return out, code, strings.TrimSpace(string(p))
 }
 
 // pullRobot is the Harbor robot harbor-pull is made from (operator step 4 (a)).

@@ -449,7 +449,7 @@ jobs:
       # What the preflight "the registry pull Secret ..." adds before that is the Secret's
       # existence, its type and the registry it names. The remaining gap -- a k8s-pull robot
       # disabled, deleted or refreshed in Harbor (both robots are Expiration: Never) -- is a
-      # migration step that sees the Job's pod in ImagePullBackOff at its first poll and fails
+      # migration step that fails at the first poll that shows the Job's pod in ImagePullBackOff
       # (OPS-2 fix round 1; it used to wait 600 s), named in deploy/README.md's incident section.
       - name: Gate — both images must be pullable WITH the CI credential and NOT without one
         env:
