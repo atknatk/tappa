@@ -40,7 +40,20 @@
 # vulnerable stdlib to a pilot with real employees' data is not one of the options.
 # 2026-10-09: 1.26.6 -> 1.26.9 for GO-2026-6617 (net/http; govulncheck reports it as
 # called from the request path; fixed in 1.26.9). CI and deploy.yml pin the same version.
-ARG GO_IMAGE=golang:1.26.9-bookworm
+#
+# 🔴 PINNED BY INDEX DIGEST, AND THE DEFAULT IS DOCKER HUB ON PURPOSE (OPS-2 fix round 1).
+# deploy.yml overrides GO_IMAGE with the SAME digest through Harbor's private proxy-cache project
+# (registry.everva.com.tr/dockerhub/library/golang:...@sha256:<this digest>): the deploy job logs
+# in to Harbor, and a pull through the proxy does not spend Docker Hub's anonymous budget. The
+# DEFAULT stays Docker Hub's own name because whoever builds without that override -- a
+# developer, the sandbox runbook in deploy/README.md -- holds no Harbor credential, and the
+# proxy project is private. ci.yml never builds this file (its toolchain is setup-go, pinned to
+# the same version), so it needs neither. The digest is the one thing both spellings share: it
+# is content-addressed, so the two sources can only serve the same index or fail, and a tag
+# re-pushed on Docker Hub changes neither build. Measured 2026-10-19: the index digest of
+# golang:1.26.9-bookworm on Docker Hub. A bump moves three lines together (here, deploy.yml's
+# GO_BUILD_IMAGE, cmd/tappa/deployregistry_test.go's goImageDigest).
+ARG GO_IMAGE=golang:1.26.9-bookworm@sha256:d9c68c2c51161e12fd77e4c6320687c9cd86e1af1e3ad6e6cd63ff970641453c
 
 # ---------------------------------------------------------------------- build --
 FROM ${GO_IMAGE} AS build

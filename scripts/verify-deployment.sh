@@ -666,6 +666,13 @@ check_tailnet() {
     echo "::error::the runner joined the tailnet WITHOUT tag:ci (tags: ${tags}), so the tailnet ACL's tag:ci rule does not describe it. The join asks for tag:ci through the OAuth client (TS_OAUTH_SECRET, tags: tag:ci): check that the client may assign tag:ci and that tagOwners still lists it (deploy/README.md, operator step 5 (a)). Nothing in the cluster has been touched." >&2
     return 1
   fi
+  # ⚠️ THE `false` ARM IS DEAD CODE TODAY, AND IS KEPT ON PURPOSE (OPS-2 fix round 1). The pinned
+  # client, tailscale 1.94.2, never reports Self.Ephemeral (see the header above: every run takes
+  # the warning arm, "ephemeral absent"), so no deploy can reach this arm until a client bump makes
+  # the field appear. It is the shape the requirement takes the day it becomes measurable;
+  # TestVerifyDeployment_TheTailnetModeMeasuresTheJoin runs it with a stub that reports the field.
+  # Do not read its presence as "the deploy checks ephemerality" -- the admin console after the
+  # run does (deploy/README.md, "OPS-2 kapanış ölçüsü" 7).
   case $eph in
     true) ;;
     false)

@@ -251,8 +251,12 @@ jobs:
       # The robot's secret is piped, never passed as an argument: an argument reaches `ps`
       # and the process table of a shared runner. The CLI rather than docker/login-action,
       # for the rule stated above (first-party actions only, Tailscale the one exception).
-      # The name carries a `$` (robot$tappa+ci); inside double quotes the expansion is
-      # done once and the `$` it yields is not expanded again.
+      # The name carries a `$` (robot$tappa-ci, a Harbor SYSTEM robot: push and pull on the
+      # project `tappa`, pull on the proxy-cache project `dockerhub`); inside double quotes the
+      # expansion is done once and the `$` it yields is not expanded again.
+      # 🔴 BEFORE "Build both images", AND THAT IS NOW LOAD-BEARING (OPS-2 fix round 1): the
+      # build's base image comes through `dockerhub`, Harbor's proxy cache of Docker Hub, which
+      # is a PRIVATE project -- the build pulls it with this login (see "Build both images").
       # ⚠️ `docker login` stores the credential in ~/.docker/config.json (base64, not
       # encrypted, as on every GitHub-hosted runner). "Log out of the registry" removes it
       # right after the access gate -- before kubectl is installed and before the runner
@@ -280,8 +284,21 @@ jobs:
           # imagePullPolicy: IfNotPresent is how a node silently serves last week's
           # binary). Rollback uses the immutable `sha-<12hex>` tag, which is the only
           # thing 20-app.yaml and 30-migrate-job.yaml have ever named.
-          docker build --target app     -t "$APP_IMAGE:sha-$SHORT" .
-          docker build --target migrate -t "$MIGRATE_IMAGE:sha-$SHORT" .
+          #
+          # 🔴 THE BASE IMAGE COMES THROUGH HARBOR, PINNED BY DIGEST (OPS-2 fix round 1). Since
+          # OPS-2 this job logs in to Harbor only, so `golang:` from Docker Hub was pulled
+          # ANONYMOUSLY from the runner's shared address -- the budget ci.yml measured
+          # `toomanyrequests` against (2026-10-09). GO_IMAGE now names the same image through
+          # `dockerhub`, Harbor's private proxy-cache project of Docker Hub (the login above
+          # can read it), and by its INDEX DIGEST, which is content-addressed: the proxy can
+          # serve exactly these bytes or fail, never a re-pushed tag. The digest equals the
+          # Dockerfile's default, which names the same index on Docker Hub itself, so a local
+          # build and this one start from one toolchain image; GO_BUILD_IMAGE is set once in
+          # this step and passed to both builds. A digest bump is three edits in one change:
+          # here, the Dockerfile's ARG, and cmd/tappa/deployregistry_test.go's pin.
+          GO_BUILD_IMAGE=registry.everva.com.tr/dockerhub/library/golang:1.26.9-bookworm@sha256:d9c68c2c51161e12fd77e4c6320687c9cd86e1af1e3ad6e6cd63ff970641453c
+          docker build --build-arg GO_IMAGE="$GO_BUILD_IMAGE" --target app     -t "$APP_IMAGE:sha-$SHORT" .
+          docker build --build-arg GO_IMAGE="$GO_BUILD_IMAGE" --target migrate -t "$MIGRATE_IMAGE:sha-$SHORT" .
 
       - name: Prove the artifact identifies itself before it is pushed
         env:
@@ -333,11 +350,13 @@ jobs:
       #     (`"schemaVersion"` in the output, not merely exit 0: an empty answer and a
       #     healthy one are not the same thing -- the fail-open cell the old gate's own
       #     matrix found);
-      #   WITHOUT one (DOCKER_CONFIG pointed at an EMPTY directory, which the CLI reads
-      #     instead of ~/.docker -- the mechanism the old gate measured, with a bogus-auth
-      #     control) -> the registry must REFUSE: an authorization answer (unauthorized,
-      #     denied, authentication required). A manifest is red (the project is public);
-      #     any other failure -- DNS, a timeout, an empty answer -- is red too, because it
+      #   WITHOUT one -> the registry must REFUSE, read off the wire with curl by the
+      #     Registry v2 token flow (OPS-2 fix round 1: docker 29 reports Harbor's anonymous
+      #     401 as "no such manifest", so the docker-based first version was red on every
+      #     run): /v2/ answers 401 with a Bearer challenge, the token service hands out an
+      #     anonymous token, and the manifest asked for with it must be 401 UNAUTHORIZED.
+      #     200 is red (the project is public); any other answer -- 5xx, DNS, a timeout, an
+      #     empty answer, a token service that gives no token -- is red too, because it
       #     cannot show that the registry refuses.
       #
       # 🔴 WHOSE CREDENTIAL, DECIDED AND ARGUED. The cluster pulls with the k8s-pull robot
@@ -348,8 +367,9 @@ jobs:
       # (a Job that cannot pull never succeeds, and "Roll out the server" never runs).
       # What the preflight "the registry pull Secret ..." adds before that is the Secret's
       # existence, its type and the registry it names. The remaining gap -- a k8s-pull robot
-      # disabled or expired in Harbor -- is a migration step that waits 600 s and fails,
-      # named in deploy/README.md's incident section.
+      # disabled, deleted or refreshed in Harbor (both robots are Expiration: Never) -- is a
+      # migration step that sees the Job's pod in ImagePullBackOff at its first poll and fails
+      # (OPS-2 fix round 1; it used to wait 600 s), named in deploy/README.md's incident section.
       - name: Gate — both images must be pullable WITH the CI credential and NOT without one
         env:
           SHORT: ${{ steps.sha.outputs.short }}
@@ -664,7 +684,7 @@ jobs:
       # 🔴 THE PULL SECRET BOTH POD SPECS NAME (OPS-2): 20-app.yaml and 30-migrate-job.yaml
       # carry `imagePullSecrets: [{name: harbor-pull}]`, and a pod naming a Secret that does
       # not exist is not refused by the API server -- it is created and then sits in
-      # ImagePullBackOff, which here would first cost the migration step its 600 s wait. So
+      # ImagePullBackOff, which would end the migration step red, after the Job was created. So
       # the Secret is checked before anything but the namespace is applied, with the deploy
       # identity's `get` on that one name (01-rbac.yaml, since OPS-2): it must exist, be of
       # type kubernetes.io/dockerconfigjson, and hold a credential for $REGISTRY. RED and
@@ -799,6 +819,23 @@ jobs:
               migrate_logs   # both containers; see the function above for why -c is mandatory
               exit 1
             fi
+            # 🔴 AN IMAGE THAT CANNOT BE PULLED ENDS THE WAIT NOW, NOT AFTER 600 s (OPS-2 fix
+            # round 1). Since OPS-2 the images are private: a harbor-pull whose robot is disabled
+            # or expired, k8s-2 down, a tag Harbor's retention removed -- each leaves the Job's pod
+            # in ImagePullBackOff, which never counts as a failed pod, so the loop used to wait
+            # the full ten minutes and then report a timeout. The kubelet sets ImagePullBackOff
+            # only after a pull has FAILED, and a re-run of the deploy is the retry; nothing is
+            # rolled out either way. The waiting message is the kubelet's (the image reference
+            # and the registry's answer); it carries no credential. `pods: list` is in
+            # 01-rbac.yaml already ("Report what is running" uses it).
+            pull=$(kubectl -n tappa get pod -l job-name=tappa-migrate -o jsonpath='{range .items[*]}{range .status.initContainerStatuses[*]}{.name}{"="}{.state.waiting.reason}{" "}{end}{range .status.containerStatuses[*]}{.name}{"="}{.state.waiting.reason}{" "}{end}{end}' 2>/dev/null || true)
+            case " $pull " in
+              *"=ImagePullBackOff "*)
+                echo "::error::the migration Job's pod cannot pull an image (container=reason: $pull); the deployment is NOT rolled out. For the goose container (Harbor): secret/harbor-pull, the k8s-pull robot (deploy/README.md, operator step 4) and Harbor on k8s-2; for wait-for-postgres (postgres:17-alpine, Docker Hub, anonymous): Docker Hub's pull budget. The kubelet's messages follow."
+                kubectl -n tappa get pod -l job-name=tappa-migrate -o jsonpath='{range .items[*]}{range .status.initContainerStatuses[*]}{.name}{": "}{.state.waiting.message}{"\n"}{end}{range .status.containerStatuses[*]}{.name}{": "}{.state.waiting.message}{"\n"}{end}{end}' 2>&1 || true
+                exit 1
+                ;;
+            esac
             if [ "$(date +%s)" -ge "$deadline" ]; then
               echo "::error::the migration Job did not finish within 600 s"
               migrate_logs   # both containers; see the function above for why -c is mandatory
