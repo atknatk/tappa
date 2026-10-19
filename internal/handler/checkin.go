@@ -388,6 +388,10 @@ func (t *Tap) renderCheckinFailure(w http.ResponseWriter, r *http.Request, id ht
 // missing zone falls back to UTC and says so, rather than silently showing a time
 // that is an hour out.
 //
+// THE NOTE IS THE EMPLOYEE'S, NOT THE RECORD'S (ADR 0029 follow-up, user decision
+// 2026-10-19): tap.Decision.EmployeeNote leaves out the sentences note effects add --
+// the cross-location one above all -- which stay on the record and in the report.
+//
 // BusinessType is copied for ONE purpose and is never printed: result.templ
 // switches on it to pick which fixed brand sentence a good tap ends with (M5-06).
 // It is a CATEGORY out of migration 00001's CHECK list, shared by every tenant of
@@ -396,7 +400,7 @@ func (t *Tap) renderCheckinFailure(w http.ResponseWriter, r *http.Request, id ht
 func resultView(res checkin.Result) pages.ResultView {
 	v := pages.ResultView{
 		Verdict:      string(res.Decision.Verdict),
-		Note:         res.Decision.Note,
+		Note:         res.Decision.EmployeeNote,
 		Venue:        res.LocationName,
 		At:           localClock(res.OccurredAt, res.Timezone),
 		Trust:        res.Decision.Trust,

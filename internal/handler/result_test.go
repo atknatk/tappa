@@ -1095,8 +1095,13 @@ func mustBodyWithLogo(t *testing.T, res checkin.Result) string {
 	return string(a.body)
 }
 
-// withNote attaches the deciding rule's sentence, the way tap.Decide does.
-func withNote(d tap.Decision, note string) tap.Decision { d.Note = note; return d }
+// withNote attaches the deciding rule's sentence, the way tap.Decide does: to the
+// record's note and to the employee's (a decision with no note effect has the two
+// equal -- tap.Decision.EmployeeNote).
+func withNote(d tap.Decision, note string) tap.Decision {
+	d.Note, d.EmployeeNote = note, note
+	return d
+}
 
 // mustBody renders one result through the production router.
 func mustBody(t *testing.T, res checkin.Result) string {

@@ -205,6 +205,22 @@ func policyProblemSentence(word string) string {
 		return "That change would have taken away your own authority to change the rules, and " +
 			"there is no way back from that through this product — so it was put back. A rule " +
 			"cannot be deleted and a version cannot be edited, which is exactly why."
+	case "cross-location-first":
+		// ADR 0029's guard. It names the move that exists: the product has no accept
+		// step for the new version, so switching the old rule off is the way out.
+		return "Your copy of the cross-location rule still lets a tap at another of your " +
+			"locations through on its own. With this rule switched off, a tap it no longer " +
+			"accepts at the employee's home location would still be accepted at another " +
+			"location. Switch off “Taptime baseline — cross-location note” first — and any " +
+			"rule of your own copied from it before 18 October 2026 — then switch this rule " +
+			"off. The location is still recorded and shown in your reports. The attempt has " +
+			"been written to your audit trail."
+	case "evidence-off":
+		return "This copy of the cross-location rule lets a tap at another of your locations " +
+			"through on its own, and one of the rules that check proof of place — “IP proof of place”, " +
+			"“GPS-only allowance” or “no evidence needs review” — is switched off. Switching it back on " +
+			"would accept at another location a tap that rule no longer accepts at home. " +
+			"Switch that rule back on first. The attempt has been written to your audit trail."
 	case "no-such-version":
 		return "There is no such version of that rule."
 	case "unreadable":

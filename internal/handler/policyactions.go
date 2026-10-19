@@ -150,6 +150,7 @@ var policyProblemWords = []string{
 	"unreadable", "unknown", "not-permitted", "confirm-required", "confirm-stale",
 	"bad-scope", "already-bound", "not-bound", "raced", "not-yours", "lockout",
 	"unavailable", "no-such-version", "lockout-stands", "name-taken",
+	"cross-location-first", "evidence-off",
 }
 
 // policyChange is a posted change after the boundary has validated every field (§7),
@@ -351,6 +352,12 @@ func (a *AdminAuth) policyRefusal(r *http.Request, id httpx.AdminIdentity, c pol
 		return "name-taken"
 	case errors.Is(err, tenant.ErrNotYours):
 		return "not-yours"
+	case errors.Is(err, tenant.ErrCrossLocationFirst):
+		// ADR 0029's guard (the domain wrote the trail row in the same transaction it
+		// refused in, so there is nothing to record here).
+		return "cross-location-first"
+	case errors.Is(err, tenant.ErrEvidenceRuleOff):
+		return "evidence-off"
 	case errors.Is(err, tenant.ErrLockoutStands):
 		// THE RARE HALF, AND IT GETS ITS OWN WORD BECAUSE ITS SENTENCE IS THE OPPOSITE
 		// ONE. The change stands and the owner is locked out; telling them it was put

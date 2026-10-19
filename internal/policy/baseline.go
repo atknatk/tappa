@@ -138,11 +138,13 @@ func BaselineChanges() []BaselineChange {
 			Document: crossLocationDocName,
 			Summary: "A tap at another of your locations is now only noted on the record and no " +
 				"longer let through by this rule on its own: it gets the outcome the same evidence " +
-				"gets at the employee's home location. This matters if you have switched off " +
-				"\"GPS-only allowance\" to require a network match: with your current copy, a " +
-				"GPS-only tap at another location is still accepted. Switching this rule off gives " +
-				"you the new outcome today; the location is still recorded and still shown in your " +
-				"reports.",
+				"gets at the employee's home location. With your current copy, a rule you switch off " +
+				"to be stricter stays loose at your other locations: with \"GPS-only allowance\" off, " +
+				"a GPS-only tap is still accepted there; with \"IP proof of place\" off, a tap with a " +
+				"network match; with \"no evidence needs review\" off, a tap with no proof of place " +
+				"at all. So while your copy is on, those three cannot be switched off. Switching this " +
+				"rule off gives you the new outcome today; the location is still recorded and still " +
+				"shown in your reports.",
 		},
 	}
 }
@@ -158,6 +160,40 @@ func BaselineChangesSince(document, stored string) []BaselineChange {
 		}
 	}
 	return out
+}
+
+// CrossLocationEvidenceSids are the evidence rules whose switching-off the
+// cross-location note's OLD allow (a baseline stored before 2026-10-18, or a tenant
+// copy made from it) turns into a hole at another location: ADR 0029's behaviour
+// inventory, the three rows that change. It is the ONE list the panel's guard reads
+// (tenant.RuleWriter), and TestBaseline_NoteOnlyChangesNoOutcomeUnderTheDefaultBaseline
+// holds it equal to what the inventory measures -- a rule left out here is a rule the
+// panel would let a tenant switch off under the old allow.
+func CrossLocationEvidenceSids() []string {
+	return []string{SidIPOrGPSOK, SidGPSOnlyAllow, SidNoEvidenceReview}
+}
+
+// IsOldCrossLocationAllow reports whether st is base:cross-location-note as it
+// shipped before 2026-10-18 -- an ALLOW on tap:record whose condition is the
+// cross-location fact -- whether it sits in a stored version-1 baseline or in a
+// tenant copy the panel's authoring form made from it (its sid is then the
+// customer's own; the shape is what identifies it). Since 2026-10-18 the shipped
+// statement is a note, and so is every copy made from it.
+func IsOldCrossLocationAllow(st Statement) bool {
+	if st.Effect != EffectAllow {
+		return false
+	}
+	tap := false
+	for _, a := range st.Action {
+		if a == ActionTapRecord {
+			tap = true
+		}
+	}
+	if !tap || len(st.Condition) != 1 || len(st.Condition[OpBool]) != 1 {
+		return false
+	}
+	v, ok := st.Condition[OpBool][CtxEmployeeCrossLocation].(bool)
+	return ok && v
 }
 
 // crossLocationDocName is base:cross-location-note's document name, shared by the

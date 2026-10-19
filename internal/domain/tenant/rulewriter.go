@@ -126,6 +126,16 @@ var (
 	// because the tenant did not write it and a "correction" to it would be
 	// indistinguishable from an upgrade Tappa shipped (policy.BaselineVersion).
 	ErrNotYours = errors.New("tenant: a rule Tappa maintains cannot be rewritten here")
+	// ErrCrossLocationFirst refuses switching OFF an evidence rule
+	// (policy.CrossLocationEvidenceSids) while the cross-location rule's OLD allow is
+	// in force -- a baseline stored before 2026-10-18, or a tenant copy made from it.
+	// Under that allow the switch would open the very hole ADR 0029 closed: the tap
+	// the evidence rule stops allowing at home would still be let through at another
+	// location. See crossLocationGuard.
+	ErrCrossLocationFirst = errors.New("tenant: switch the old cross-location rule off before this evidence rule")
+	// ErrEvidenceRuleOff is the same guard from the other side: switching the OLD
+	// cross-location allow back ON while an evidence rule is off.
+	ErrEvidenceRuleOff = errors.New("tenant: the old cross-location rule cannot be switched on while an evidence rule is off")
 )
 
 // Actor is WHO is asking, and it is one value rather than two parameters so that a
@@ -170,6 +180,10 @@ const (
 	// boundary and no reader outside the operator, and the person who most needs to
 	// know a manager has been trying to rewrite the rules is the OWNER.
 	ActionPolicyEditRefused = "policy.edit_refused"
+	// ActionPolicySwitchRefused records a switch crossLocationGuard refused (ADR 0029,
+	// the 2026-10-19 follow-up): the owner asked, the engine allowed them, and the
+	// rulebook's own state made the change unsafe. Nothing else was written.
+	ActionPolicySwitchRefused = "policy.switch_refused"
 )
 
 // policyScopeRowLimit bounds the scope-target read (venues + departments).
@@ -501,6 +515,7 @@ func (w *RuleWriter) SetEnabled(ctx context.Context, c EnableCommand) (SwitchRes
 		return SwitchResult{}, ErrUnknownPolicy
 	}
 	var out SwitchResult
+	var refused error
 	err := w.data.WithTenant(ctx, c.TenantID, func(ctx context.Context, tx pgx.Tx) error {
 		q := store.New(tx)
 		before, err := q.GetPolicyForUpdate(ctx, store.GetPolicyForUpdateParams{
@@ -518,6 +533,26 @@ func (w *RuleWriter) SetEnabled(ctx context.Context, c EnableCommand) (SwitchRes
 			// wrong one.
 			out = SwitchResult{PolicyID: before.ID, Name: before.Name, Layer: before.Layer,
 				Was: before.Enabled, Now: before.Enabled}
+			return nil
+		}
+		// 🔴 THE SERVER'S HALF OF ADR 0029's PANEL GUARD, INSIDE THE SAME TRANSACTION AS
+		// THE WRITE. A refusal writes its trail row and COMMITS it (the closure returns
+		// nil): the attempt is the thing worth recording, and the rule is untouched.
+		why, err := crossLocationGuard(ctx, q, c.TenantID, before, c.Enabled)
+		if err != nil {
+			return err
+		}
+		if why != nil {
+			if _, err := w.trail.RecordTx(ctx, tx, audit.Event{
+				TenantID: c.TenantID,
+				ActorID:  &c.Actor.ID,
+				Action:   ActionPolicySwitchRefused,
+				Target:   before.ID.String(),
+				Detail:   why.detail(before, c.Enabled),
+			}); err != nil {
+				return err
+			}
+			refused = why.err
 			return nil
 		}
 		row, err := q.SetPolicyEnabled(ctx, store.SetPolicyEnabledParams{
@@ -550,6 +585,11 @@ func (w *RuleWriter) SetEnabled(ctx context.Context, c EnableCommand) (SwitchRes
 	})
 	if err != nil {
 		return SwitchResult{}, wrapRules("switch policy", err)
+	}
+	if refused != nil {
+		w.log.Warn("policy switch refused: the old cross-location allow and an evidence rule",
+			"policy_id", c.PolicyID, "enabled", c.Enabled, "actor_id", c.Actor.ID, "err", refused)
+		return SwitchResult{}, refused
 	}
 	// 🔴 THE LOCKOUT CHECK RUNS AFTER THE TRANSACTION COMMITTED AND UNDOES ITSELF IF
 	// IT FAILS -- see lockoutCheck for why it cannot run before. Only a change that

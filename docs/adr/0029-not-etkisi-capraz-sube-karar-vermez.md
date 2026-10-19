@@ -110,6 +110,59 @@ yalnız **sıkılaştırır** ve yalnız başka şubede.
 - Panel her `note` ifadesini *"Adds a note to the record. It never decides the outcome."*
   diye çevirir.
 - `checkin`'in *"tenant baseline'ı sevk edilenden eski"* INFO satırı artık mevcut her
-  tenant'ın her dokunuşunda yazılır — tasarlanmış durum (M7-03 kabul akışı gelene kadar).
+  tenant'ı kapsar — tasarlanmış durum (M7-03 kabul akışı gelene kadar). *(2026-10-19:
+  süreç başına tenant başına bir kez — aşağıdaki not, madde 4.)*
+- **Geri dönüş (bu sürümden önceki bir ikiliye).** Eski ikilinin doğrulayıcısı `note`
+  etkisini tanımaz (*"unknown effect"*). Bu sürümle materyalize olmuş bir tenant'ın — yeni
+  tenant'lar ve 2026-10-18'den sonra ilk dokunuşunu yapanlar — saklı `cross-location note`
+  belgesi eski ikilide **ayrıştırılamaz**: `assembleBaseline` onu eksik sayar, yeniden
+  materyalize hiçbir şey yazmaz (`ON CONFLICT DO NOTHING`, türetilmiş id'li satır zaten var), ve `forTenant`
+  **yalnız guardrail'lerle** karar verir — o tenant'ın her dokunuşu varsayılan `review`'a
+  düşer, **kayıt yazılır** (§4.6, fail-safe) ve `policy.guardrails_alone`
+  (`reason=incomplete_after_materialise`) operatörü çağırır (kural 8). *(Ölçüldü,
+  2026-10-19: `433e172`'nin `forTenant`'ı, bu sürümün türetilmiş id'leriyle materyalize
+  edilmiş dokuz belgeli bir tenant'ta — baseline 0, tenant 0, tek ERROR satırı o
+  gerekçeyle; eski doğrulayıcı `unknown effect "note"` der.)* Aynı tenant'ın panelinde sahip `policy:edit`'ten de
+  reddedilir (saklı küme hepsi-ya-hiç). Tenant katmanındaki bir `note` kopyası yalnız
+  düşer (karar değişmez). 2026-07-26 baseline'ı saklı tenant'lar etkilenmez. **Yapılacak:**
+  geri dönüş bir ileri düzeltmedir — bu sürüme (ya da üstüne) dönmek, onay kuyruğundaki
+  kayıtları müdürün onaylaması; saklı belge değiştirilmez (`policy_versions` append-only,
+  §4.3 gerekçesi). Etkilenen tenant'lar salt-okur sayılır: `policy_versions.document`'ında
+  `"effect": "note"` olan ve `policies.layer = 'baseline'` olan satırlar. Ayrıntı:
+  `deploy/README.md` *"M11 — deploy günü"* → *"Geri dönüş"*.
+
+## Devam notu (2026-10-19) — kullanıcı kararları
+
+1. **Panel koruması.** Eski `allow` (saklı 2026-07-26 baseline'ı ya da ondan
+   2026-10-18'den önce alınmış bir tenant kopyası — mekâna bağlı ya da değil) etkinken bir
+   **kanıt kuralı** (`policy.CrossLocationEvidenceSids`: IP proof, GPS-only allowance,
+   no-evidence review — envanterin üç satırı; liste tek kaynaktır ve envanter testi onu
+   ölçtüğüne eşit tutar) **kapatılamaz**: `tenant.RuleWriter.SetEnabled`
+   `ErrCrossLocationFirst` döner, kural değişmez, aynı işlemde `policy.switch_refused`
+   denetim satırı yazılır (`reason: old_cross_location_allow_in_force`, engelleyen
+   kuralların adı/id'si), kurallar ekranı *"That change was not made"* başlığıyla önce
+   *"Taptime baseline — cross-location note"*'u (ve ondan alınmış kopyaları) kapatmayı
+   söyler. Aynı durum ters yönden de kapalı: bir kanıt kuralı kapalıyken eski `allow`'u
+   yeniden açmak `ErrEvidenceRuleOff` (`reason: evidence_rule_off`). Kanıt kuralını açmak
+   ve eski `allow`'u kapatmak hiç reddedilmez. Kapı sunucudadır (doğrudan POST da
+   reddedilir); kilitler: hedef satır + karşı taraftaki her satır id sırasıyla, sonra
+   yeniden okuma — iki zıt basış ikisi de geçemez (kilitlenme olursa biri `unavailable`,
+   hiçbir şey yazılmaz). **Bugün zaten kapalı olanlar** (kanıt kuralı kapalı + eski
+   `allow` açık — korumadan önce kurulmuş; prod'daki sayıyı ana oturum ölçer): saklı satır
+   değişmez, delik eski `allow` kapatılana kadar durur; kapı o kapatmayı engellemez, kural
+   ekranındaki duyuru ne değiştiğini söyler. Bir tenant'ın kendi **kanıt kuralı kopyası**
+   kapsam dışıdır (kapatmak o mekânı baseline kuralına döndürür, kapı onu açık tutar).
+2. **Çalışanın sonuç ekranı değişmez.** `tap.Decision.EmployeeNote` = kuralın cümlesi +
+   yön notu, `note` etkilerinin cümleleri **hariç**; sonuç ekranı onu basar, kayıt notu
+   (`Decision.Note`) aynen kalır. Ev şubesinde iki not aynı dizgidir (36 render'lık golden
+   bayt-aynı).
+3. **Duyuru** (`BaselineChanges`) üç kapalı durumu da söyler: GPS-only allowance kapalı
+   (1/128), IP proof of place kapalı (4/128), no evidence needs review kapalı (1/128 — eski
+   sessiz onay), ve eski kopya açıkken bu üçünün kapatılamayacağını. Metin sha256 ile
+   pinli. *(2026-10-18 girdisi sevk edilmeden — `main`'e ulaşmadan — genişletildi; hiçbir
+   tenant'a eski metin gösterilmedi.)*
+4. **INFO satırı** süreç başına tenant başına bir kez (`oncePerTenant`, en çok 10 000
+   tenant hatırlanır, en eskisi unutulur — unutmak yalnız satırı tekrarlar).
+5. **Geri dönüş notu** yukarıda (*Sonuçlar*) ve `deploy/README.md`'de.
 - ADR 0004 §2'nin *"beş effect"* tablosu altıya çıkar; `ignore`/`redirect` guardrail'e
   kapalı kalır (§6 değişmez).

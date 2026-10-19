@@ -96,10 +96,14 @@ yarıçap içinde olup olmadığını söylemek.
 > 2. **`CrossLocation bool`** (Q17) — tap edilen lokasyon çalışanın profil
 >    lokasyonundan farklı mı (`Employee.Location != Tag.Location`). Aynı olgu
 >    `policy.Context`'e (`employee:crossLocation`) de **Evaluate'ten önce** konur ki
->    `base:cross-location-note` (allow) eşleşsin ve olgu `policy_context`'e donsun
->    (M3-07). **Decision alanı da** olmasının sebebi: o baseline allow'u
->    `base:ip-or-gps-ok`'a karşı sid berabere kaybeder, yani karar `Note`'u tek
->    başına çapraz-lokasyonu göstermez — rapor bu alanı doğrudan okur. Tap **tap
+>    `base:cross-location-note` eşleşsin ve olgu `policy_context`'e donsun (M3-07).
+>    *(2026-10-18, ADR 0029: kural artık bir **not** (`note` etkisi) — karar vermez,
+>    kayıt notuna cümlesini ekler; 2026-07-26 baseline'ı saklı tenant'larda hâlâ
+>    `allow`. 2026-10-19: cümle çalışanın sonuç ekranına gitmez —
+>    `Decision.EmployeeNote`.)* **Decision alanı da** olmasının sebebi: not tenant'ın
+>    kapatabildiği bir kuraldır (eski `allow` da `base:ip-or-gps-ok`'a karşı sid
+>    berabere kaybederdi), yani karar `Note`'u tek başına çapraz-lokasyonu
+>    göstermez — rapor bu alanı doğrudan okur. Tap **tap
 >    edilen** lokasyonun vardiyasıyla (`Input.Shift`) değerlendirildiği için
 >    çapraz-lokasyon çalışanı "geç" damgası yemez.
 >

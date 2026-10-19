@@ -419,7 +419,7 @@ func New(data Database, trail AuditRecorder, cfg *config.Config, log *slog.Logge
 		trail:      trail,
 		advancer:   storeAdvancer,
 		holding:    dbHolding,
-		policies:   policySets{data: data, params: params, log: log},
+		policies:   policySets{data: data, params: params, log: log, staleOnce: newOncePerTenant(staleNoticeTenants)},
 		gpsRadiusM: cfg.GPSRadiusMeters,
 		debounce:   params.DebounceWindow,
 		log:        log,

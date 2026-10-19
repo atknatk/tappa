@@ -238,8 +238,21 @@ func TestBaseline_NoteOnlyChangesNoOutcomeUnderTheDefaultBaseline(t *testing.T) 
 	if diffsBySubset[SidGPSOnlyAllow] == 0 {
 		t.Fatal("switching gps-only-allow off changed nothing: the T125 row is not being exercised")
 	}
+	// The panel's guard list IS this inventory (ADR 0029 follow-up): every rule that
+	// changes an outcome when switched off ALONE is on CrossLocationEvidenceSids, and
+	// every rule on it does change one -- a rule dropped from the list, or a fourth
+	// rule that starts to matter, is red here.
+	var alone []string
+	for _, sid := range others {
+		if diffsBySubset[sid] > 0 {
+			alone = append(alone, sid)
+		}
+	}
+	if got, want := strings.Join(alone, ","), strings.Join(CrossLocationEvidenceSids(), ","); got != want {
+		t.Fatalf("the rules that change an outcome switched off alone are %s; CrossLocationEvidenceSids says %s", got, want)
+	}
 	for k, n := range diffsBySubset {
-		for _, rule := range []string{SidIPOrGPSOK, SidGPSOnlyAllow, SidNoEvidenceReview} {
+		for _, rule := range CrossLocationEvidenceSids() {
 			if strings.Contains(k, rule) {
 				goto ok
 			}
@@ -248,7 +261,7 @@ func TestBaseline_NoteOnlyChangesNoOutcomeUnderTheDefaultBaseline(t *testing.T) 
 	ok:
 	}
 	if testing.Verbose() {
-		for _, single := range []string{SidIPOrGPSOK, SidGPSOnlyAllow, SidNoEvidenceReview} {
+		for _, single := range CrossLocationEvidenceSids() {
 			t.Logf("only %s off: %d of %d shapes change (all cross-location, all allow -> review)",
 				single, diffsBySubset[single], len(shapes))
 		}

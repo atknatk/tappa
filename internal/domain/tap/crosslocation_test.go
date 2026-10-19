@@ -209,3 +209,29 @@ func TestDecide_CrossLocationNoteSitsBetweenTheRuleAndTheDirection(t *testing.T)
 		t.Fatalf("Note = %q via %q, want %q via %s", got.Note, got.MatchedSid, want, policy.SidIPOrGPSOK)
 	}
 }
+
+// TestDecide_TheEmployeesNoteHasNoNoteEffect: the same tap -- at another location,
+// closing a stale open check-in -- gives the employee's screen the rule's sentence and
+// the direction's annotation and NOT the cross-location note (user decision
+// 2026-10-19), while the record's note keeps all three. At home the two notes are the
+// same string, so the screen there is what it was before notes existed.
+func TestDecide_TheEmployeesNoteHasNoNoteEffect(t *testing.T) {
+	t.Parallel()
+	rule := "network proof of place: the source IP matches the location"
+	away := onSiteInput()
+	elsewhere := uuid.New()
+	away.Employee.Location = &elsewhere
+	away.LastOpenIn = &Transaction{ID: uuid.New(), OccurredAt: away.Now.Add(-72 * time.Hour), Direction: TypeIn}
+	got := Decide(away)
+	if want := rule + "; " + staleOpenInNote; got.EmployeeNote != want {
+		t.Errorf("EmployeeNote = %q, want %q", got.EmployeeNote, want)
+	}
+	if want := rule + "; " + crossLocationReason(t) + "; " + staleOpenInNote; got.Note != want {
+		t.Errorf("Note = %q, want %q", got.Note, want)
+	}
+	home := onSiteInput()
+	home.LastOpenIn = away.LastOpenIn
+	if h := Decide(home); h.EmployeeNote != h.Note || h.Note != rule+"; "+staleOpenInNote {
+		t.Errorf("at home: Note %q, EmployeeNote %q; want both %q", h.Note, h.EmployeeNote, rule+"; "+staleOpenInNote)
+	}
+}

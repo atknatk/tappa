@@ -199,8 +199,11 @@ func Decide(in Input) Decision {
 		// to review) and a GPS-only ok carries 50. Never derived from dec.Verdict.
 		Trust: trustScore(ipMatch, gpsMatch),
 		// The docket's human-facing "why" comes straight from the deciding rule.
-		Note:     pd.Reason,
-		Security: pd.SecurityAlert != "", // §5 row 4 / lost-tag: a manager push
+		Note: pd.Reason,
+		// The employee's screen gets the rule's sentence and, below, the direction's
+		// annotation -- never the notes (types.go EmployeeNote).
+		EmployeeNote: pd.Reason,
+		Security:     pd.SecurityAlert != "", // §5 row 4 / lost-tag: a manager push
 		// M4-05 report fact, independent of which policy won the tiebreak (see the
 		// CrossLocation doc): recorded so the report shows cross-location taps apart.
 		CrossLocation: crossLocation,
@@ -250,6 +253,7 @@ func Decide(in Input) Decision {
 		dir, note := resolveDirection(in)
 		dec.Type = &dir
 		dec.Note = appendNote(dec.Note, note)
+		dec.EmployeeNote = appendNote(dec.EmployeeNote, note)
 		// NO PRACTICE TAP ANY MORE (ADR 0026). The first tap after activation used
 		// to be a TRAINING record that never counted toward hours (M4-06); the
 		// activation itself now happens on a physical NFC tap, which IS the

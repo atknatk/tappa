@@ -497,6 +497,13 @@ type Decision struct {
 	// GPS" when IP is absent, or a cross-location / stale-open-in note, §5/M4-04/05).
 	// It never contains a secret or a raw GPS coordinate (§4.7).
 	Note string
+	// EmployeeNote is Note as the employee's result screen shows it: the deciding
+	// rule's sentence and the direction's annotation, WITHOUT the sentences the
+	// engine's note effects add (ADR 0029). User decision 2026-10-19: the
+	// cross-location sentence is for the record and the report, not for the person
+	// at the plaque -- their screen stays what it was before the note existed. The
+	// record keeps Note whole.
+	EmployeeNote string
 	// CrossLocation is true when the tap happened at a location OTHER than the
 	// employee's home location (Employee.Location != Tag.Location) — normal chain
 	// movement (Q17, M4-05). It is a REPORT fact, recorded so the report can show

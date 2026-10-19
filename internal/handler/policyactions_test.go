@@ -22,6 +22,7 @@ import (
 
 	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/domain/tenant"
+	"github.com/atknatk/tappa/internal/policy"
 )
 
 // policyWriteBrowser is a signed-in owner whose scribe is under the test's control.
@@ -656,4 +657,49 @@ func hiddenValue(t *testing.T, page, name string) string {
 		return ""
 	}
 	return rest[:j]
+}
+
+// TestPolicyApply_TheCrossLocationGuardSaysWhatToSwitchFirst is ADR 0029's panel guard
+// at the HTTP boundary (the refusal itself, its trail row and its two sources are
+// measured against real Postgres in internal/domain/tenant's crosslocationguard_db_test.go):
+// each of the domain's two refusals reaches the policies screen as its own problem word,
+// the page prints the heading every refusal gets and a sentence that names the move --
+// for the evidence rule, the cross-location rule by the name the screen shows it under
+// (read from the shipped baseline, not retyped) -- and the apply step does not record a
+// second trail row of its own (the domain wrote it in the refusing transaction).
+func TestPolicyApply_TheCrossLocationGuardSaysWhatToSwitchFirst(t *testing.T) {
+	var crossName string
+	for _, d := range policy.Baseline() {
+		if d.Document.Statements[0].Sid == policy.SidCrossLocationNote {
+			crossName = d.Name
+		}
+	}
+	cases := []struct {
+		err        error
+		word, says string
+	}{
+		{tenant.ErrCrossLocationFirst, "cross-location-first", "Switch off “" + crossName + "” first"},
+		{tenant.ErrEvidenceRuleOff, "evidence-off", "Switch that rule back on first"},
+	}
+	for _, c := range cases {
+		scribe := newFakeScribe()
+		scribe.err = c.err
+		b := policyWriteBrowser(t, scribe)
+		form := url.Values{"op": {opDisable}, "policy": {uuid.NewString()}}
+		rec := b.do(http.MethodPost, policyChangeHref, form)
+		form.Set(confirmField, hiddenValue(t, htmlOf(t, rec), confirmField))
+		rec = b.do(http.MethodPost, policyApplyHref, form)
+		if to := rec.Header().Get("Location"); !strings.Contains(to, "problem="+c.word) {
+			t.Errorf("%v redirected to %q, want problem=%s", c.err, to, c.word)
+		}
+		if len(scribe.refusals) != 0 {
+			t.Errorf("%v: the handler recorded its own refusal %v; the domain already did", c.err, scribe.refusals)
+		}
+		page := policyStatePage(t, policyPageState{screen: policyScreenFixture(), problem: c.word})
+		for _, want := range []string{"That change was not made", c.says, "written to your audit trail"} {
+			if !strings.Contains(page, htmlText(want)) {
+				t.Errorf("problem=%s does not print %q", c.word, want)
+			}
+		}
+	}
 }

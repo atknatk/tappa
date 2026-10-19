@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"sync"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -82,6 +83,48 @@ type policySets struct {
 	// this type is built (see New).
 	params policy.Params
 	log    *slog.Logger
+	// staleOnce bounds the "baseline older than the shipped one" INFO line to once per
+	// tenant per process (ADR 0029 follow-up). nil logs on every tap -- the line's
+	// shape before the bound, kept for the tests that build this type by hand.
+	staleOnce *oncePerTenant
+}
+
+// staleNoticeTenants is how many tenants staleOnce remembers. Past it the OLDEST is
+// forgotten and told again on its next tap: the memory is bounded (a uuid and a map
+// slot each -- well under a megabyte), the line is still bounded, and forgetting only
+// ever repeats a line, never loses one.
+const staleNoticeTenants = 10000
+
+// oncePerTenant answers "is this the first time" per tenant, safely from many
+// goroutines, remembering at most max tenants (oldest forgotten first).
+type oncePerTenant struct {
+	mu    sync.Mutex
+	max   int
+	seen  map[uuid.UUID]struct{}
+	order []uuid.UUID
+}
+
+func newOncePerTenant(max int) *oncePerTenant {
+	return &oncePerTenant{max: max, seen: make(map[uuid.UUID]struct{}, min(max, 256))}
+}
+
+// first reports whether id is new, and remembers it. A nil receiver answers true.
+func (o *oncePerTenant) first(id uuid.UUID) bool {
+	if o == nil {
+		return true
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if _, ok := o.seen[id]; ok {
+		return false
+	}
+	if len(o.order) >= o.max {
+		delete(o.seen, o.order[0])
+		o.order = o.order[1:]
+	}
+	o.seen[id] = struct{}{}
+	o.order = append(o.order, id)
+	return true
 }
 
 // baselinePolicyURN and baselineVersionURN are the uuid v5 namespaces the managed
@@ -194,8 +237,14 @@ func (p policySets) forTenant(ctx context.Context, tenantID uuid.UUID) policy.Se
 			// flagged), so it is not an error — but it is worth seeing, because the
 			// flow that resolves it (surface, accept, append version 2) is M7-03 and
 			// does not exist yet.
-			p.log.InfoContext(ctx, "checkin: tenant baseline is older than the shipped one; M7-03 owns the upgrade",
-				"tenant_id", tenantID, "stored", b.Document.Version, "shipped", policy.BaselineVersion)
+			//
+			// ONCE PER TENANT PER PROCESS (ADR 0029 follow-up). Since the 2026-10-18 bump
+			// every existing tenant is in this state, so a line per tap was a line per
+			// tap for the whole customer base; the fact does not change between two taps.
+			if p.staleOnce.first(tenantID) {
+				p.log.InfoContext(ctx, "checkin: tenant baseline is older than the shipped one; M7-03 owns the upgrade",
+					"tenant_id", tenantID, "stored", b.Document.Version, "shipped", policy.BaselineVersion)
+			}
 			break
 		}
 	}

@@ -1759,6 +1759,18 @@ Deploy'suz hızlı kapatmalar:
   `01-rbac.yaml`): `kubectl -n tappa delete ingress tappa-api`. Önce Ingress silinir, sonra deploy —
   ters sıra adı müşteri ürününe yönlendirir (`42`'nin başlığı).
 
+**(g) Baseline `2026-10-18` (T125, ADR 0029) — eski ikiliye dönmek yeni tenant'ları `review`'a düşürür.**
+Bu sürüm `base:cross-location-note`'u `note` etkisiyle materyalize eder; bu sürümden önceki bir ikilinin
+doğrulayıcısı `note`'u tanımaz. Geri dönülürse, arada materyalize olmuş her tenant'ın (yeni kayıtlar ve
+ilk dokunuşunu bu sürümde yapanlar) saklı baseline'ı eski ikilide eksik sayılır ve dokunuşları **yalnız
+guardrail'lerle** değerlendirilir: her dokunuş varsayılan `review`'a düşer, **kayıt yazılır** (fail-safe,
+§4.6), `policy.guardrails_alone` (`reason=incomplete_after_materialise`) kural 8 ile çağırır (ölçüldü: `433e172`'nin
+`forTenant`'ı bu sürümün materyalize ettiği bir tenant'ta); o tenant'ların sahipleri
+panelde kural değiştiremez. 2026-07-26 baseline'ı saklı tenant'lar etkilenmez. Yapılacak: **ileri dön**
+(bu sürüm ya da üstü); saklı belgeye dokunulmaz (`policy_versions` append-only); arada `review`'a düşen
+kayıtları müdürler onay kuyruğundan onaylar. Etkilenen tenant sayısı (salt-okur):
+`SELECT count(DISTINCT v.tenant_id) FROM policy_versions v JOIN policies p ON p.tenant_id = v.tenant_id AND p.id = v.policy_id WHERE p.layer = 'baseline' AND v.document @> '{"statements":[{"effect":"note"}]}'`.
+
 ---
 
 ## Sandbox (API-11) — kullanıcı adımları
