@@ -234,7 +234,7 @@ var storeSurface = map[string]string{
 	"UpdateEmployeeNamesFromAPI":     "(context.Context, UpdateEmployeeNamesFromAPIParams{FirstName *string; LastName *string; FullName string; EmployeeCode *string; TenantID uuid.UUID; ID uuid.UUID}) (uuid.UUID, error)",
 	// M11 API-1c: the site's reads of its projection (db/queries/sitepunches.sql) and the manager's
 	// record at a peer's venue -- ids, names, counts and instants; no key, no evidence.
-	"ListSitePunchesForPeriod":           "(context.Context, ListSitePunchesForPeriodParams{TenantID uuid.UUID; FromAt time.Time; UntilAt time.Time; RowLimit int32}) ([]ListSitePunchesForPeriodRow{TransactionID uuid.UUID; EmployerApiCode *string; EmployeeID *uuid.UUID; EmployeeRef *string; EmployeeCode *string; EmployeeName *string; SiteLocationID *uuid.UUID; LocationName *string; SiteTagUid *string; OccurredAt time.Time; Channel string; Type *string; Outcome string; CreatedAt time.Time}, error)",
+	"ListSitePunchesForPeriod":           "(context.Context, ListSitePunchesForPeriodParams{TenantID uuid.UUID; FromAt time.Time; UntilAt time.Time; NewestFirst bool; RowLimit int32}) ([]ListSitePunchesForPeriodRow{TransactionID uuid.UUID; EmployerApiCode *string; EmployeeID *uuid.UUID; EmployeeRef *string; EmployeeCode *string; EmployeeName *string; SiteLocationID *uuid.UUID; LocationName *string; SiteTagUid *string; OccurredAt time.Time; Channel string; Type *string; Outcome string; CreatedAt time.Time}, error)",
 	"ListSiteTagLastSeen":                "(context.Context, uuid.UUID) ([]ListSiteTagLastSeenRow{TagUid string; LastSeen time.Time}, error)",
 	"InsertManualSiteTransaction":        "(context.Context, InsertManualSiteTransactionParams{TenantID uuid.UUID; Type string; OccurredAt time.Time; Trust int16; Note *string; EnteredBy uuid.UUID; SiteTenantID uuid.UUID; SiteLocationID uuid.UUID; EmployeeID uuid.UUID}) (InsertManualSiteTransactionRow{ID uuid.UUID; OccurredAt time.Time; CreatedAt time.Time; Type *string; Verdict string; Channel string; Trust *int16; Practice bool; Queued bool}, error)",
 	"ListSitePlaqueGaps":                 "(context.Context, ListSitePlaqueGapsParams{TenantID uuid.UUID; FromAt time.Time; ToAt time.Time; RowLimit int32}) ([]ListSitePlaqueGapsRow{TagUid string; LocationName *string; Records int64; CounterGaps int64; LargestGap int32}, error)",
@@ -256,6 +256,7 @@ var storeSurface = map[string]string{
 	"CountMaskedOpenCheckIns":            "(context.Context, CountMaskedOpenCheckInsParams{TenantID uuid.UUID; FromAt time.Time; ToAt time.Time}) (CountMaskedOpenCheckInsRow{StillOpen int64; ClosedLater int64}, error)",
 	"CountPendingFlagged":                "(context.Context, CountPendingFlaggedParams{TenantID uuid.UUID; Cap int32}) (int32, error)",
 	"CountPracticeTaps":                  "(context.Context, CountPracticeTapsParams{TenantID uuid.UUID; FromAt time.Time; ToAt time.Time}) (int64, error)",
+	"CountRecordsAtPartnerVenues":        "(context.Context, CountRecordsAtPartnerVenuesParams{TenantID uuid.UUID; FromAt time.Time; UntilAt time.Time}) (int64, error)",
 	"CountRecentInvites":                 "(context.Context, CountRecentInvitesParams{EmployeeID uuid.UUID; TenantID uuid.UUID}) (CountRecentInvitesRow{TenantLastHour int32; TenantLastDay int32; EmployeeLastHour int32}, error)",
 	"CountTenantPlaques":                 "(context.Context, uuid.UUID) (CountTenantPlaquesRow{InService int64; InStock int64; ReadyToMount int64; Loaded int64}, error)",
 	"CreateAdminSession":                 "(context.Context, CreateAdminSessionParams{TokenHash string; AdminUserID uuid.UUID; TenantID uuid.UUID}) (CreateAdminSessionRow{ID uuid.UUID; TenantID uuid.UUID; AdminUserID uuid.UUID; CreatedAt time.Time; LastUsedAt *time.Time; RevokedAt *time.Time}, error)",
@@ -1039,14 +1040,17 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// per-plaque advisory lock over the caller's own tenant row; it calls no definer.
 	// 211 -> 212 on 2026-10-18 (T130): webhooks.sql's DeleteSettledWebhookDeliveries, the retention
 	// sweep over the caller's own tenant; it calls no definer.
-	if named != 212 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND TWELVE were "+
-			"there when this was pinned (2026-10-18: 111 on 2026-08-24, + T73's three "+
+	// 212 -> 213 on 2026-10-19 (GRP-1): transactions.sql's CountRecordsAtPartnerVenues, a count of the
+	// caller's own rows that name a peer's venue; it calls no definer (holding_group is read by
+	// internal/db/holding.go by hand).
+	if named != 213 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND THIRTEEN were "+
+			"there when this was pinned (2026-10-19: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
 			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+
 			"+ EM-7B's three invitation e-mail queries, + EM-7C's two recovery queries, "+
 			"+ the activation tap's two consent queries, + WL-13's two activation brand queries, "+
-			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock, + T130's retention sweep). "+
+			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock, + T130's retention sweep, + GRP-1's partner-venue count). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {

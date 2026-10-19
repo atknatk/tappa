@@ -874,6 +874,14 @@ type Querier interface {
 	// invite.code_emailed row (or, in the panel mode, invite.code_shown_to_manager) names it. A minted
 	// invitation whose send failed is not sent, so it does not silence a resend.
 	CountRecentSentInvites(ctx context.Context, arg CountRecentSentInvitesParams) (int32, error)
+	// How many of THIS business's own records name a holding peer's venue (site_tenant_id set -- its
+	// staff tapping a partner's plaque, or its manager's record for one) in [from_at, until_at) by the
+	// declared time -- the Group section's one figure (GRP-1). They are this business's own rows, read
+	// under its own RLS; nothing of the peer is read. Training taps are not counted (they are not
+	// records of work -- CountPracticeTaps' rule).
+	//
+	// TENANT SCOPE (section 4.5): explicit predicate beside RLS, tenant from the session.
+	CountRecordsAtPartnerVenues(ctx context.Context, arg CountRecordsAtPartnerVenuesParams) (int64, error)
 	// HOW MANY PLAQUES THIS BUSINESS HAS, AND HOW MANY OF THEM A TAP CAN ACTUALLY USE.
 	//
 	// IT EXISTS FOR ONE SENTENCE ON ONE SCREEN (M7-03 phase B): the panel's landing
@@ -4253,8 +4261,9 @@ type Querier interface {
 	// time -- the window the reports section reads its own staff by -- one row per employer record,
 	// its LAST outcome ("transaction_id başına son satır": an approval or a rejection supersedes the
 	// pending_review it decides; a decision outranks a pending row written in the same transaction).
-	// Ordered by time, the earliest first; the limit is a bound on the request, one row more than
-	// the screen lists so it can say "showing N of M".
+	// Ordered by time, the earliest first -- or, with newest_first (the Group section's "recent" list,
+	// GRP-1), the latest first, so a capped read keeps the newest rows; the limit is a bound on the
+	// request, one row more than the screen lists so it can say "showing N of M".
 	ListSitePunchesForPeriod(ctx context.Context, arg ListSitePunchesForPeriodParams) ([]ListSitePunchesForPeriodRow, error)
 	// "Last seen" of this business's plaques from the holding staff's taps -- by the SERVER's clock
 	// (created_at), never the declared occurred_at (ADR 0027 §9). The caller keeps the later of this

@@ -284,7 +284,7 @@ func TestBillingTab_IsHiddenFromAManagerAndTheRoutingTableIsUntouched(t *testing
 	for _, s := range pages.PanelSections {
 		// (M7-06's operator-only legal-texts row and its condition here went with M10
 		// OP-10: publishing moved to the platform operator's own surface.)
-		if s.OwnerOnly {
+		if s.OwnerOnly || s.GroupOnly { // GroupOnly: the fake business is in no group (GRP-1, group_test.go)
 			continue
 		}
 		if !strings.Contains(mgrHTML, `href="`+s.Href+`"`) {

@@ -198,6 +198,9 @@ const (
 	// TabAPIKeys is the integration API's keys (M11 API-3, ADR 0028 §3): the owner issues a key
 	// for the business's HR/ERP system, sees it once, lists and revokes them.
 	TabAPIKeys PanelTab = "api-keys"
+	// TabGroup is the holding this business is a live member of (GRP-1, ADR 0027's GRP-1 note): the
+	// group, its members and the partner staff's recent records, read only. Drawn only for a member.
+	TabGroup PanelTab = "group"
 	// (M7-06's legal-texts section -- Tappa's own documents, drawn for an env
 	// allow-list of customer admins -- was removed in M10 OP-10 phase B: publishing
 	// moved to the platform operator's own surface, /operator/legal, ADR 0020 §7. The
@@ -241,6 +244,12 @@ type PanelSection struct {
 	// refusal page still exists for anybody who arrives by a shared link or a stale
 	// bookmark, and §4.6 makes it say why rather than 404.
 	OwnerOnly bool
+	// GroupOnly hides this section's TAB from a business that is not a live member of a holding
+	// (GRP-1) -- the OwnerOnly shape: it changes what is drawn, not what is routed. The route stays
+	// (every row of this table is mounted), and for a business in no group it answers with the
+	// panel's empty state ("not in a group"), which is also what a stale bookmark reaches after a
+	// business has left. The chrome reads the membership once per panel request (PanelChrome.InGroup).
+	GroupOnly bool
 }
 
 // PanelSections is the panel's sections, in the order CLAUDE.md §9 and
@@ -333,6 +342,16 @@ var PanelSections = []PanelSection{
 		Blurb: "This business as Taptime has it on file: its name, its VAT number and what the register said about it, its timezone, and the send-off your staff read after a good tap.",
 	},
 	{
+		// 🔴 DRAWN ONLY FOR A LIVE HOLDING MEMBER (GRP-1, the user's decision of 2026-10-19), and for
+		// both roles: it is a read, and a manager already sees the partner staff's records in Reports.
+		// It sits after Account because it is the same kind of row -- a fact about the business, read
+		// when something changes, not during a shift. For a business in no group the tab is not drawn
+		// and the chrome is byte for byte what it was before GRP-1.
+		Tab: TabGroup, Label: "Group", Href: "/admin/group", Task: "GRP-1",
+		Blurb:     "The group of businesses yours belongs to: its members, and partner staff at your venues.",
+		GroupOnly: true,
+	},
+	{
 		// 🔴 OWNER-ONLY, READ INCLUDED -- Billing's shape (M11 API-3, ADR 0028 §3). A key is a
 		// credential that writes this business's staff and venues and reads its punches; who
 		// holds which key, and the power to issue one, is the owner's. The tab is not drawn for
@@ -377,6 +396,11 @@ type PanelChrome struct {
 	// branded" and the chrome is then what it was before WL-8 — the wordmark, no
 	// stylesheet after app.css, no <img>, no business name (panelbrandview.go).
 	Brand PanelBrand
+
+	// InGroup draws the Group tab (GRP-1): true only when the database answered that the business is a
+	// live member of a holding. The zero value -- no holding, or a read that failed -- draws the
+	// chrome exactly as it was before GRP-1.
+	InGroup bool
 }
 
 // PendingBadge is what the navigation knows about the approval queue.

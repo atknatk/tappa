@@ -1,0 +1,152 @@
+package pages
+
+import "github.com/atknatk/tappa/web/templates/components"
+
+// The GROUP section (GRP-1, the user's decision of 2026-10-19; ADR 0027's GRP-1 note) -- the holding
+// this business is a live member of, on one screen: the group and its members, the partner staff's
+// recent records on this business's plaques, and how many of its own records name a partner's venue.
+//
+// 🔴 IT RENDERS PanelShell AND HOLDS NO FORM. The holding is created and changed from the operator's
+// side; this page only reads, and says who to ask.
+//
+// 🔴 §4.6 -- THE EMPTY STATE IS GATED ON HAVING ASKED. "This business is not in a group" is printed
+// only when the database answered; a failed read is a problem page in the handler.
+//
+// skill tappa-brand: the kitchen docket is the record motif, every number and date is IBM Plex Mono,
+// and the partner records are the reports section's own dockets (reportPartnerDocket), not a copy.
+templ AdminGroup(v GroupView) {
+	@PanelShell(v.PanelChrome) {
+		if v.Queried && !v.Member {
+			@components.EmptyState("This business is not in a group") {
+				<p>
+					Taptime can link businesses that work together — the same owner, staff who
+					tap at each other&#39;s venues — into a group. Taptime sets a group up; ask
+					Taptime if your business should join one.
+				</p>
+			}
+		}
+		if v.Queried && v.Member {
+			for _, g := range v.Groups {
+				@groupHolding(g)
+			}
+			@groupPartners(v)
+			@groupAtPartnerVenues(v)
+			@groupShared()
+		}
+	}
+}
+
+// groupHolding is one holding: its name and this business's start, then every live member.
+templ groupHolding(g GroupHoldingView) {
+	<section class="docket">
+		<p class="docket-label">Your group</p>
+		<p class="font-display text-2xl font-bold tracking-tight text-ink">{ g.Name }</p>
+		<p class="mt-1 text-sm text-ink/85">
+			A member since <span class="font-mono">{ g.Since }</span>.
+		</p>
+	</section>
+	<h2 class="font-display text-lg font-bold tracking-tight text-ink">Members</h2>
+	<div class="flex flex-col gap-4">
+		for _, m := range g.Members {
+			<section class="docket">
+				<div class="report-head">
+					<p class="report-who">{ m.Name }</p>
+					if m.Code != "" {
+						<p class="report-day">{ m.Code }</p>
+					}
+				</div>
+				<p class="docket-label mt-1">
+					if m.Self {
+						This business ·
+					}
+					Joined <span class="font-mono">{ m.Joined }</span>
+				</p>
+			</section>
+		}
+	</div>
+}
+
+// groupPartners is the partner staff's records on this business's plaques and at its venues, the
+// latest first -- the reports section's dockets, the reports section's words.
+templ groupPartners(v GroupView) {
+	<h2 class="font-display text-lg font-bold tracking-tight text-ink">Partner staff at your venues</h2>
+	<p class="font-mono text-sm text-ink/85">{ v.WindowLabel }</p>
+	<p class="text-sm text-ink/85">
+		Staff of another business in your group who tapped your plaques, the latest first. The
+		records and the hours are their employer&#39;s; this page shows the result, never the reason.
+	</p>
+	<div class="filter-actions">
+		<a class="btn btn--quiet" href={ templ.URL(v.ReportsHref) }>Week by week in Reports</a>
+	</div>
+	if v.PartnersMore {
+		@components.Notice(components.ToneWarn, "Not every record is listed") {
+			<p>These days hold more partner-staff records than one page lists; the latest are shown.</p>
+		}
+	}
+	if len(v.Partners) == 0 && len(v.PartnerManual) == 0 {
+		<p class="text-sm text-ink/85">Nobody from a partner business tapped your plaques in these days.</p>
+	}
+	if len(v.Partners) > 0 {
+		<div class="flex flex-col gap-4">
+			for _, p := range v.Partners {
+				@reportPartnerDocket(p)
+			}
+		</div>
+	}
+	if len(v.PartnerManual) > 0 {
+		<h3 class="font-display text-base font-bold tracking-tight text-ink">Entered by their employer</h3>
+		<p class="text-sm text-ink/85">
+			Their manager typed these for one of your venues. They carry no tap.
+		</p>
+		<div class="flex flex-col gap-4">
+			for _, p := range v.PartnerManual {
+				@reportPartnerDocket(p)
+			}
+		</div>
+	}
+}
+
+// groupAtPartnerVenues is the other direction: this business's own staff at a partner's venue. They
+// are this business's own records, so they are a figure here and a list in Transactions.
+templ groupAtPartnerVenues(v GroupView) {
+	<section class="docket">
+		<p class="docket-label">Your staff at partner venues</p>
+		<p class="font-mono text-3xl font-bold tracking-tight text-ink">{ v.AtPartnerVenues }</p>
+		<p class="mt-1 text-sm text-ink/85">
+			of your records in these days name a partner business&#39;s venue. They are your own
+			records: they are in Transactions, decided by your rules, and their hours are in your Reports.
+		</p>
+	</section>
+}
+
+// groupShared says what the group shares and what it never does (K-1d, K-1f, K-1h, K-39), that the
+// group keeps one clock (K-36), and who runs the group.
+templ groupShared() {
+	@components.Card("What the group shares") {
+		<ul class="mt-2 flex flex-col gap-2 text-sm text-ink/85">
+			<li>
+				Every business in the group sees the others&#39; names and company codes, as listed above.
+			</li>
+			<li>
+				When your staff tap a partner&#39;s plaque, that business sees who (name, staff code and
+				reference), when, at which of its venues, in or out, and the result — counted, waiting,
+				approved or rejected. It never sees the reason.
+			</li>
+			<li>
+				A partner&#39;s connected HR or payroll system can list your staff&#39;s names and codes and
+				whether they are active.
+			</li>
+			<li>
+				Never shared: e-mail addresses, GPS positions, network addresses, notes, the rules behind a
+				decision, and your VAT number, address, staff numbers and billing. A tap at a partner&#39;s
+				venue is decided by your rules, and the partner&#39;s location evidence is not shown to you.
+			</li>
+			<li>
+				The businesses in a group keep one clock: your timezone cannot be changed while you are a member.
+			</li>
+			<li>
+				Taptime runs the group. To join a business, leave or change it, ask Taptime.
+			</li>
+		</ul>
+	}
+}

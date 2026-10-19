@@ -543,6 +543,15 @@ func (a *AdminAuth) chrome(r *http.Request, tab pages.PanelTab) pages.PanelChrom
 		Tab:      tab,
 		Brand:    a.panelBrand(r.Context(), id.TenantID()),
 	}
+	// GRP-1: the Group tab is drawn only for a live holding member. A failed read draws the chrome as
+	// for a business in no group (the brand's rule above: the chrome falls back to what it was before
+	// the feature, the error is logged) -- the section itself stays reachable by its address, and its
+	// own read fails loudly (group.go).
+	in, err := a.ledger.InGroup(r.Context(), id.TenantID())
+	if err != nil {
+		a.log.Error("panel: could not read whether the business is in a group", "err", err)
+	}
+	c.InGroup = err == nil && in
 	p, err := a.queue.Pending(r.Context(), id.TenantID())
 	if err != nil {
 		a.log.Error("panel: could not count the review queue", "err", err)

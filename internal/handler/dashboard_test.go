@@ -59,15 +59,7 @@ import (
 // which is what every section test needs before it can see a section at all.
 func panelBrowser(t *testing.T) *browser {
 	t.Helper()
-	admins := &fakeAdmins{verify: func() (adminauth.Resolved, error) {
-		return adminauth.Resolved{
-			SessionID: panelTestSession, TenantID: panelTestTenant, AdminUserID: panelTestAdmin,
-			Role: "owner", FullName: "KF Owner",
-		}, nil
-	}}
-	b := newBrowser(t, newAdminRouter(t, admins, &fakeTrail{}))
-	b.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-	return b
+	return panelBrowserWith(t, newFakeLedger())
 }
 
 // sectionBodies renders every panel section once, keyed by href. Several tests
@@ -75,7 +67,11 @@ func panelBrowser(t *testing.T) *browser {
 func sectionBodies(t *testing.T) map[string]string {
 	t.Helper()
 	assertSectionTableIsUsable(t)
-	b := panelBrowser(t)
+	// GRP-1: as a GROUP MEMBER, so the bar draws every section's tab -- the Group tab is drawn for
+	// a member alone (TestGroup_ANonMemberSeesNoTabAndTheEmptyState is the other side).
+	records := newFakeLedger()
+	fakeMember(records)
+	b := panelBrowserWith(t, records)
 	out := make(map[string]string, len(pages.PanelSections))
 	for _, s := range pages.PanelSections {
 		rec := b.do(http.MethodGet, s.Href, nil)
@@ -209,7 +205,8 @@ func TestPanelSections_RenderTheirOwnContentAndNoOthers(t *testing.T) {
 	// drifted to "TODO" or "" would otherwise satisfy the containment checks below
 	// trivially (every body contains "").
 	// M11's tasks are named API-N (docs/plan/m11-entegrasyon-api.md §5).
-	taskRE := regexp.MustCompile(`^(M[0-9]-[0-9]{2}|API-[0-9]+)$`)
+	// GRP-1 is the panel's Group section's (docs/backlog.md).
+	taskRE := regexp.MustCompile(`^(M[0-9]-[0-9]{2}|API-[0-9]+|GRP-[0-9]+)$`)
 	tasks := map[string]string{}
 	for _, s := range pages.PanelSections {
 		if !taskRE.MatchString(s.Task) {

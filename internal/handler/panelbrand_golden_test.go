@@ -55,9 +55,11 @@ func unbrandedChromeRenders() []unbrandedRender {
 	// The scriptless panel shell on every section's tab, as an owner (who sees every
 	// tab, OwnerOnly included) with records waiting.
 	for _, s := range pages.PanelSections {
-		if s.Tab == pages.TabAPIKeys {
-			// Born after WL-8 (M11 API-3): there is no "before" for its own page -- the other
-			// renders below carry its tab, which unbrandedAfterWL8Tabs takes out.
+		if s.Tab == pages.TabAPIKeys || s.Tab == pages.TabGroup {
+			// Born after WL-8 (M11 API-3; GRP-1): there is no "before" for their own pages -- the
+			// other renders below carry the API keys tab, which unbrandedAfterWL8Tabs takes out, and
+			// NOT the Group tab: these chromes are a business in no group's (InGroup false), whose
+			// chrome GRP-1 left byte for byte as it was.
 			continue
 		}
 		out = append(out, unbrandedRender{

@@ -845,6 +845,22 @@ WHERE tenant_id = @tenant_id
   AND occurred_at >= @from_at
   AND occurred_at < @to_at;
 
+-- name: CountRecordsAtPartnerVenues :one
+-- How many of THIS business's own records name a holding peer's venue (site_tenant_id set -- its
+-- staff tapping a partner's plaque, or its manager's record for one) in [from_at, until_at) by the
+-- declared time -- the Group section's one figure (GRP-1). They are this business's own rows, read
+-- under its own RLS; nothing of the peer is read. Training taps are not counted (they are not
+-- records of work -- CountPracticeTaps' rule).
+--
+-- TENANT SCOPE (section 4.5): explicit predicate beside RLS, tenant from the session.
+SELECT count(*) AS records
+FROM transactions
+WHERE tenant_id = @tenant_id
+  AND site_tenant_id IS NOT NULL
+  AND NOT practice
+  AND occurred_at >= @from_at
+  AND occurred_at < @until_at;
+
 -- name: TenantHasAnyTransaction :one
 -- Does this business have a record -- ANY record, on ANY day (M7-03 phase B)?
 --

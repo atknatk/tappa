@@ -19,8 +19,9 @@
 -- time -- the window the reports section reads its own staff by -- one row per employer record,
 -- its LAST outcome ("transaction_id başına son satır": an approval or a rejection supersedes the
 -- pending_review it decides; a decision outranks a pending row written in the same transaction).
--- Ordered by time, the earliest first; the limit is a bound on the request, one row more than
--- the screen lists so it can say "showing N of M".
+-- Ordered by time, the earliest first -- or, with newest_first (the Group section's "recent" list,
+-- GRP-1), the latest first, so a capped read keeps the newest rows; the limit is a bound on the
+-- request, one row more than the screen lists so it can say "showing N of M".
 SELECT f.transaction_id, f.employer_api_code, f.employee_id, f.employee_ref, f.employee_code, f.employee_name,
        f.site_location_id, f.location_name, f.site_tag_uid, f.occurred_at, f.channel, f.type,
        f.outcome, f.created_at
@@ -37,7 +38,8 @@ FROM (
     ORDER BY s.transaction_id, s.created_at DESC,
              CASE s.outcome WHEN 'approved' THEN 0 WHEN 'rejected' THEN 0 ELSE 1 END
 ) AS f
-ORDER BY f.occurred_at, f.transaction_id
+ORDER BY CASE WHEN sqlc.arg('newest_first')::boolean THEN f.occurred_at END DESC,
+         f.occurred_at, f.transaction_id
 LIMIT sqlc.arg('row_limit')::int;
 
 -- name: ListSiteLostPlaqueAlerts :many
