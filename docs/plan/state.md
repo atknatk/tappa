@@ -1692,6 +1692,16 @@ yazılır.
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 
+### 2026-10-19 (29. oturum, elli dokuzuncu yarı) — ✅ **T138 DONE** (eski 9 trigger fonksiyonundan PUBLIC EXECUTE) · ✅ **T139 DONE** (CI süresi + `main` kırmızısı + T126) · 🟢 hızlandırma kararları
+
+- **`main` = `f2cee61` (T137) CI'da kırmızıydı** (koşu 39211982663): `TestHoldingPeer_TheSetFormIsThePairFormsAnswer` 180 sn iç bütçeye takıldı → deploy atlandı, **prod `4cfa39c`'de etkilenmedi**. Kök neden (T139 yapıcısı, denetçi düşmanca ANALYZE döngüsüyle doğruladı): autovacuum `holding_members`'ı testin commit edilmemiş satırlarını görmeden ANALYZE ediyor → planlayıcı tabloyu boş sayıyor, maliyet senaryo sayısının karesiyle büyüyor. Çare `8d99220` + `0ca67c7`: test kendi işleminde ANALYZE eder; kontrol savepoint'i `holding_members`'ta yalnız `ShareUpdateExclusiveLock`'a izin verir. 180 sn → ~8-12 sn.
+- **🟢 Kullanıcı (2026-10-19, "niye çok yavaş"):** paralel worktree + küçük işte (test/CI/belge) tek mercek + `main`'e toplu geçiş. (DÜŞÜK turu ayrı kalır.)
+- **T138** (paralel worktree `m11-t138` → merge `48faec8`; `704f867`, `a5fefc8`): migration **00061** — dokuz M11 öncesi trigger fonksiyonundan `REVOKE EXECUTE … FROM PUBLIC`; Down (b) yetkiyi geri vermez (güvenlik gerilemesi olurdu), yalnız varlığı doğrular. PG17: EXECUTE trigger **kurulurken** denetlenir, **ateşlenirken** değil — iki mercek bağımsız ölçtü (490/490 vaka: 6 rol × 8 SECURITY DEFINER yolu, trigger'ın kendi reddi, 42501 yok). Katalog testi dokuz satır `execute=-`. İki mercek 1. turda ONAY → DÜŞÜK turu.
+- **T139** (`3e7aa0e`, `d8b234d`): T137'nin ~95 ayrı redline koşusu toplu tablolara (kırmızı vaka kendi dosyasını adlandırır); awk karşılaştırması paralel; Makefile `SANDBOX_SKIP` — derleme etiketinden bağımsız testler sandbox koşusunda atlanır (`TestSandboxSkip_SkipsOnlyTestsTheTagCannotChange` kaynak koddan kanıtlar). `cmd/tappa` sandbox 215-254 sn → 49-73 sn. **T126 kapandı:** heartbeat testinin "ulaşılamaz" portu paralel testin sunucusuna gidiyordu → port test boyunca bağlı soketle tutulur (20/20). Tek mercek ONAY → DÜŞÜK turu. CI'da gawk mawk'tan 4× yavaş (tam ağaç 69 sn / 17 sn).
+- **Migration numaraları:** 00061 T138 → **OP-15 artık `00062`**.
+
+**🔴 DEVAM PLANI:** push → dal CI (süreyi oku; hedef ~30 dk) → prod sakin → `main` toplu (00061) → prod goose 61 + dokuz fonksiyon ACL · **OPS-2** (kullanıcıdan iki Harbor robot secret'ı) · kullanıcı ölçümleri (runbook (e) 4,5,6,7,10,11) · OP-15 → 00062 + API-4b (başka oturum) · sandbox alan adı (ertelendi).
+
 ### 2026-10-19 (29. oturum, elli sekizinci yarı) — ✅ **T137 DONE** (redline'ın genel sınırları + katalog yetki testi) · 🚀 T124 + T125 canlıda (`main` = `4cfa39c`, goose 60)
 
 - **T124/T125 deploy'u** (koşu 39188398771): prod salt-okur — goose 60, `holding_peer` iki imza (ikisi de INVOKER), küme biçimi `tappa_app` EXECUTE f, RLS+FORCE hepsinde, ayrıcalıklı rol üyeliği 0, son 30 dk ERROR 0.
