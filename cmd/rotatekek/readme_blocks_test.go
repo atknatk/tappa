@@ -427,3 +427,109 @@ func TestRunbook_EveryPasteableBlockCarriesNoComment(t *testing.T) {
 		}
 	}
 }
+
+// readCall finds a `read` in command position — at the start of a line or after `;`, `&`, `|`,
+// `(`, `{`, a backquote, `$(`, a `-c '` / `-c "` (a shell started on a string), or the keywords
+// do, then, else, while, until, if and `!`, with any `VAR=value` assignments in front (`IFS=`).
+// Group 1 is its option words (` -rs`). The word `read` in a message ("did not read $I") is not
+// in command position, so it is not a call; whatever prints the prompt (printf '…', printf "…",
+// echo, nothing) does not matter.
+var readCall = regexp.MustCompile("(?:^|[;&|({`]|\\$\\(|-c\\s+['\"]|(?:^|\\s)(?:do|then|else|while|until|if|!)\\s)" +
+	`\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*read((?:\s+-[A-Za-z]+)*)(?:\s|;|$)`)
+
+// readmeReadsThatShow is every `read` of a pasteable block that may run without `-s`, each named
+// by its WHOLE line (not a line number: an edit of the line drops it from the list and the read is
+// held again) and the reason its input may show. An entry no unhidden read matches is stale and
+// red — the list cannot outlive what it excuses.
+var readmeReadsThatShow = map[string]string{
+	// SigNoz alert rules: stdin is a pipe from a file in this repository, not a terminal, and the
+	// rules are not secret (they are the file itself).
+	`jq -c '.[]' deploy/observability/signoz-alert-rules.json | while IFS= read -r RULE; do`: "reads the repository's own alert rules from a pipe",
+	// The Harbor user is a name (robot$tappa-ci or an admin's login), not a credential; its
+	// secret is read on the next line with -s.
+	`printf 'Harbor user (robot$tappa-ci or a project admin): '; read -r U`: "reads a user name; its secret is the next read, with -s",
+	// The old KEK: echo is turned off by stty around the read, because `read -s -p` means
+	// "read from the coprocess" in zsh (measured in the KEK rotation section).
+	`stty -echo; IFS= read -r K; stty echo; printf '\n'`: "stty -echo hides the input (POSIX, the same in bash and zsh)",
+}
+
+// TestRunbook_EveryReadInAPasteableBlockHidesWhatIsTyped (OPS-2 low round; the auditor's LOW 2).
+// Over EVERY ```bash block of deploy/README.md (markdownBlocks: any indent, list item or
+// blockquote), every `read` in command position (readCall — whatever prints the prompt, single
+// or double quoted, echo or nothing) carries `-s`, or its whole line is in readmeReadsThatShow
+// with its reason. The earlier pin saw only a `printf '…'; read` whose prompt named a secret:
+// a `printf "secret: "; read S` or an `echo token:; read T` went past it. Stdin in the RUN tests
+// is a pipe, where an echoing read shows nothing — only a static pin sees a dropped `-s`.
+// CONTROLS: readCall's own table (a message holding the word `read` is not a call; a read after
+// a double-quoted prompt, after echo, in a while loop and inside `sh -c '…'` are); at least 17
+// reads seen, at least 14 of them with -s (measured: 17, 14); every allow-list entry used exactly once.
+//
+// MUTANT (measured, OPS-2 low round): `printf "k8s secret: "; read S` added to a bash block ->
+// red; `echo 'token:'; read T` -> red; an entry deleted from readmeReadsThatShow -> red (its read
+// is unexcused); an entry for a line the README does not have -> red (stale).
+func TestRunbook_EveryReadInAPasteableBlockHidesWhatIsTyped(t *testing.T) {
+	for _, tc := range []struct {
+		line  string
+		calls []string // the option words of each call found
+	}{
+		{`printf 'secret: '; read -rs S; echo`, []string{" -rs"}},
+		{`printf "secret: "; read S`, []string{""}},
+		{`echo 'token:'; read T`, []string{""}},
+		{`echo "did not read $I, or $V failed"`, nil},
+		{`jq -c . f | while IFS= read -r RULE; do`, []string{" -r"}},
+		{`sh -c 'read -rs X; printf %s "$X"'`, []string{" -rs"}},
+		{`stty -echo; IFS= read -r K; stty echo`, []string{" -r"}},
+		{`X=$(read -r Y)`, []string{" -r"}},
+		{`echo spread; reader x; read`, []string{""}},
+	} {
+		var got []string
+		for _, m := range readCall.FindAllStringSubmatch(tc.line, -1) {
+			got = append(got, m[1])
+		}
+		if fmt.Sprint(got) != fmt.Sprint(tc.calls) {
+			t.Errorf("CONTROL FAILED: readCall on %q found %q, want %q", tc.line, got, tc.calls)
+		}
+	}
+
+	b, err := os.ReadFile(filepath.Join(repoRoot(t), "deploy", "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	used := map[string]int{}
+	reads, hidden := 0, 0
+	for _, blk := range markdownBlocks(string(b)) {
+		if lang := blk.lang(); !readmeBlockLangs[lang] && !readmeShellLangs[lang] {
+			continue
+		}
+		for i, sl := range classifyShell(blk.body) {
+			if sl.kind == shComment || sl.kind == shBlank {
+				continue
+			}
+			line := strings.TrimSpace(blk.body[i])
+			for _, m := range readCall.FindAllStringSubmatch(line, -1) {
+				reads++
+				if strings.Contains(m[1], "s") {
+					hidden++
+					continue
+				}
+				if _, ok := readmeReadsThatShow[line]; ok {
+					used[line]++
+					continue
+				}
+				t.Errorf("deploy/README.md:%d: a read without -s (what is typed or pasted shows on the screen). Write "+
+					"read -rs; if the value is not secret, add the whole line to readmeReadsThatShow with the reason:\n  %s",
+					blk.line+1+i, line)
+			}
+		}
+	}
+	for line, why := range readmeReadsThatShow {
+		if used[line] != 1 {
+			t.Errorf("readmeReadsThatShow: the entry %q (%s) excuses %d unhidden read(s) in deploy/README.md, want "+
+				"exactly 1 — a stale entry is removed, not kept", line, why, used[line])
+		}
+	}
+	if reads < 17 || hidden < 14 {
+		t.Errorf("CONTROL FAILED: %d read(s) seen in the pasteable blocks, %d with -s; want at least 17 and 14", reads, hidden)
+	}
+	t.Logf("%d read(s) in the pasteable blocks: %d with -s, %d excused by readmeReadsThatShow", reads, hidden, len(used))
+}

@@ -403,7 +403,8 @@ metadata'da **ikinci kez** durur ve Secret'ın metadata'sını okuyan her araç 
 değil): yoksa `create`, varsa `replace` — `replace` nesneyi **bütünüyle** yeniden yazar, yani eski
 bir `apply`'ın bıraktığı açıklama da gider (canlı `harbor-pull`'daki açıklamayı ana oturum
 2026-10-19'da sildi). İsim okunamazsa (bağlam yok, `Forbidden`) blok `create` dener: var olan bir
-Secret'ı `create` ezmez, `AlreadyExists` ile düşer. Dosya en sonda silinir. `N` hedef
+Secret'ı `create` ezmez, `AlreadyExists` ile düşer — bu Kubernetes API sunucusunun davranışıdır,
+bloğun stub'lı koşusu onu sınamaz (stub kubectl ne cevap verirse o olur). Dosya en sonda silinir. `N` hedef
 namespace'tir; sandbox için `N=tappa-sandbox` (pod bir `imagePullSecret`'ı yalnız **kendi**
 namespace'inden okur — doğrulama yine prod'un imajıyla yapılır, robot aynı).
 

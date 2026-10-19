@@ -1897,11 +1897,11 @@ var kubectlCall = regexp.MustCompile(`(?:^|\||&&|\|\||\$\()\s*kubectl\b([^|&]*)`
 // TestReadme_TheHarborRefreshBlockRunsOverSSHAndKeepsTheSecretOffTheTerminal); CONTROL: at least 10
 // kubectl calls seen, 01-rbac.yaml's
 // apply among them. Across the WHOLE file: no ```bash line runs `docker login`, none uses
-// `--password-stdin` unless something is piped into it (pasted at a prompt, the value shows), and
-// no `read` after a printf prompt that names a secret, a password, a token, a key or a URL (the
-// healthchecks ping URLs are secrets) lacks `-s`
-// (OPS-2 fix round 2: the run below feeds stdin from a pipe, where an echoing `read` shows
-// nothing, so only a static pin sees a dropped `-s`). The harbor-pull block itself: it reads with
+// `--password-stdin` unless something is piped into it (pasted at a prompt, the value shows). That
+// every `read` of the file carries `-s` (OPS-2 fix round 2: the run below feeds stdin from a pipe,
+// where an echoing `read` shows nothing, so only a static pin sees a dropped `-s`) is held by
+// TestRunbook_EveryReadInAPasteableBlockHidesWhatIsTyped, whatever prints the prompt (OPS-2 low
+// round: this test's own pin saw only a `printf '…'; read`). The harbor-pull block itself: it reads with
 // `read -rs`, every `read` in it carries `-s`, and no line of it runs `kubectl apply` (round 2:
 // client-side apply copies the whole object, secret data included, into the
 // last-applied-configuration annotation -- the README's own rule for tappa-alert-pings).
@@ -1960,19 +1960,8 @@ func TestReadme_TheHarborBlocksNameTheirClusterAndKeepTheSecretOffTheTerminal(t 
 	if calls < 10 || !rbac {
 		t.Errorf("CONTROL FAILED: %d kubectl call(s) seen in steps 3-5 and the OPS-2 section, 01-rbac.yaml's apply seen: %v", calls, rbac)
 	}
-	readPrompt := regexp.MustCompile(`printf\s+'([^']*)'\s*;\s*(?:IFS=\S*\s+)?read((?:\s+-[A-Za-z]+)*)`)
-	secretPrompt := regexp.MustCompile(`(?i)secret|password|token|key|url`)
-	prompts := 0
 	for _, blk := range readmeBashBlocks(text) {
 		for _, l := range blk {
-			for _, m := range readPrompt.FindAllStringSubmatch(l, -1) {
-				if secretPrompt.MatchString(m[1]) {
-					prompts++
-					if !strings.Contains(m[2], "s") {
-						t.Errorf("a pasteable block reads a secret without -s (the value shows as it is pasted):\n  %s", strings.TrimSpace(l))
-					}
-				}
-			}
 			if regexp.MustCompile(`\bdocker\s+login\b`).MatchString(l) {
 				t.Errorf("a pasteable block runs docker login (on a mac it writes the credential to the keychain, not to "+
 					"DOCKER_CONFIG):\n  %s", strings.TrimSpace(l))
@@ -1982,10 +1971,6 @@ func TestReadme_TheHarborBlocksNameTheirClusterAndKeepTheSecretOffTheTerminal(t 
 					"shows); read it with read -rs:\n  %s", strings.TrimSpace(l))
 			}
 		}
-	}
-
-	if prompts < 8 {
-		t.Errorf("CONTROL FAILED: %d secret prompt(s) followed by read seen in deploy/README.md, want at least 8", prompts)
 	}
 
 	var block string
