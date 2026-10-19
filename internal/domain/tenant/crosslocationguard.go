@@ -35,15 +35,31 @@ package tenant
 // a tenant's own copy of an EVIDENCE rule: switching such a copy off returns that
 // venue to the baseline rule, which this guard keeps on while the old allow stands.
 //
-// 🔴 IT RUNS UNDER THE ROWS' LOCKS AND RE-READS AFTER TAKING THEM. The target is
-// already held (GetPolicyForUpdate); every row on the OTHER side of the guard -- all
-// old-allow policies when an evidence rule is switched off, all evidence rules when
-// an old allow is switched on, enabled or not -- is locked in id order, and the
-// rulebook is read again: READ COMMITTED gives that second read a fresh snapshot, so
-// two owners pressing opposite switches at once cannot each see the other's old
-// state and both succeed. Two such presses can deadlock instead; PostgreSQL aborts
-// one, its transaction writes nothing and the screen says "unavailable" -- the safe
-// direction, counted rather than engineered away.
+// 🔴 IT RUNS UNDER THE ROWS' LOCKS, TAKEN IN ONE ORDER BEFORE THE TARGET'S. A switch
+// of a guarded rule -- an evidence rule or a policy carrying the old allow -- first
+// locks EVERY guarded row of the business, the target among them, in id order
+// (crossLocationLocks), and only then takes the target (GetPolicyForUpdate, a no-op
+// re-lock) and reads the rulebook (crossLocationGuard). READ COMMITTED gives that read
+// a fresh snapshot, so two owners pressing opposite switches at once cannot each see
+// the other's old state and both succeed: the second waits for the first to commit and
+// is then refused by the guard, with its trail row.
+//
+// The FIRST version locked the target first and the other side after it, in id order.
+// That was safe -- two opposite presses could not both land -- but each held one side
+// and waited for the other, and PostgreSQL broke the cycle after deadlock_timeout: 15
+// of 15 queued pairs and 58 of 60 racing pairs ended in 40P01, one second each, on a
+// screen that said "unavailable" (measured, the 2026-10-19 low round). One lock order
+// for both sides turns the cycle into a queue; the same measurement is 0 of 15 and 0 of
+// 60 (TestCrossLocationGuardDB_QueuedOppositePressesNeverBothLand,
+// TestCrossLocationGuardDB_RacingOppositePressesNeverBothLand).
+//
+// ⚠️ THE SET TO LOCK IS READ BEFORE IT IS LOCKED, AND THAT IS BOUNDED BY WHAT CAN MOVE.
+// A row's side comes from its current document. The only change of document a panel
+// can make is Author appending a version made from the SHIPPED cross-location rule --
+// a note -- so a row can leave the old-allow side between the read and the lock, never
+// join it (an over-locked row costs a wait, not a hole); baseline evidence documents
+// are never rewritten here (ErrNotYours). The guard's own read is after the locks and
+// decides on the rows as they are then.
 
 import (
 	"context"
@@ -127,8 +143,45 @@ func kindOf(r store.ListPolicySetRow) guardKind {
 	return k
 }
 
+// guarded reports whether a stored policy is on either side of the guard.
+func (k guardKind) guarded() bool { return k.evidence || k.oldAllow }
+
+// crossLocationLocks takes, in id order, the lock of every guarded policy of the
+// business when the target is one of them; otherwise it takes none. It runs inside the
+// switch's transaction BEFORE the target is locked, so every switch of a guarded rule
+// asks for the same rows in the same order and two of them queue instead of
+// deadlocking.
+func crossLocationLocks(ctx context.Context, q *store.Queries, tenantID, targetID uuid.UUID) error {
+	rows, err := q.ListPolicySet(ctx, tenantID)
+	if err != nil {
+		return fmt.Errorf("read the rulebook for the cross-location guard: %w", err)
+	}
+	var lock []uuid.UUID
+	targetGuarded := false
+	for _, r := range rows {
+		if !kindOf(r).guarded() {
+			continue
+		}
+		lock = append(lock, r.PolicyID)
+		if r.PolicyID == targetID {
+			targetGuarded = true
+		}
+	}
+	if !targetGuarded {
+		return nil
+	}
+	sort.Slice(lock, func(i, j int) bool { return lock[i].String() < lock[j].String() })
+	for _, id := range lock {
+		if _, err := q.GetPolicyForUpdate(ctx, store.GetPolicyForUpdateParams{TenantID: tenantID, ID: id}); err != nil {
+			return fmt.Errorf("lock a rule the cross-location guard reads: %w", err)
+		}
+	}
+	return nil
+}
+
 // crossLocationGuard answers whether switching target to enabled is refused, or nil.
-// It runs inside SetEnabled's transaction, after target is locked and known to change.
+// It runs inside the switch's transaction, after crossLocationLocks and after target is
+// locked and known to change, so the rulebook it reads is the one the write will join.
 func crossLocationGuard(ctx context.Context, q *store.Queries, tenantID uuid.UUID,
 	target store.GetPolicyForUpdateRow, enabled bool) (*guardRefusal, error) {
 	rows, err := q.ListPolicySet(ctx, tenantID)
@@ -151,24 +204,6 @@ func crossLocationGuard(ctx context.Context, q *store.Queries, tenantID uuid.UUI
 		other = func(k guardKind) bool { return k.evidence }
 	default:
 		return nil, nil
-	}
-	var lock []uuid.UUID
-	for _, r := range rows {
-		if r.PolicyID != target.ID && other(kindOf(r)) {
-			lock = append(lock, r.PolicyID)
-		}
-	}
-	if len(lock) == 0 {
-		return nil, nil
-	}
-	sort.Slice(lock, func(i, j int) bool { return lock[i].String() < lock[j].String() })
-	for _, id := range lock {
-		if _, err := q.GetPolicyForUpdate(ctx, store.GetPolicyForUpdateParams{TenantID: tenantID, ID: id}); err != nil {
-			return nil, fmt.Errorf("lock a rule the cross-location guard reads: %w", err)
-		}
-	}
-	if rows, err = q.ListPolicySet(ctx, tenantID); err != nil {
-		return nil, fmt.Errorf("re-read the rulebook for the cross-location guard: %w", err)
 	}
 	g := &guardRefusal{}
 	for _, r := range rows {

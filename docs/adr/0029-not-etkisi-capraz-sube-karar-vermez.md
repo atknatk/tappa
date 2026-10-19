@@ -145,17 +145,24 @@ yalnız **sıkılaştırır** ve yalnız başka şubede.
    söyler. Aynı durum ters yönden de kapalı: bir kanıt kuralı kapalıyken eski `allow`'u
    yeniden açmak `ErrEvidenceRuleOff` (`reason: evidence_rule_off`). Kanıt kuralını açmak
    ve eski `allow`'u kapatmak hiç reddedilmez. Kapı sunucudadır (doğrudan POST da
-   reddedilir); kilitler: hedef satır + karşı taraftaki her satır id sırasıyla, sonra
-   yeniden okuma — iki zıt basış ikisi de geçemez (kilitlenme olursa biri `unavailable`,
-   hiçbir şey yazılmaz). **Bugün zaten kapalı olanlar** (kanıt kuralı kapalı + eski
+   reddedilir); kilitler: korunan her satır (hedef dahil) tek bir id sırasıyla, sonra
+   okuma — iki zıt basış ikisi de geçemez *(düşük tur, aşağıda: ilk sürüm hedefi önce
+   kilitliyordu ve zıt basışlar kilitlenmeye düşüyordu)*. **Bugün zaten kapalı olanlar** (kanıt kuralı kapalı + eski
    `allow` açık — korumadan önce kurulmuş; prod'daki sayıyı ana oturum ölçer): saklı satır
    değişmez, delik eski `allow` kapatılana kadar durur; kapı o kapatmayı engellemez, kural
    ekranındaki duyuru ne değiştiğini söyler. Bir tenant'ın kendi **kanıt kuralı kopyası**
    kapsam dışıdır (kapatmak o mekânı baseline kuralına döndürür, kapı onu açık tutar).
+   Mekâna bağlı eski `allow` kopyası bütün kanıt kuralları **açıkken** de o mekânda
+   kanıtsız dokunuşu `ok` (trust 20) yapar — T125 karar 4'te kabul edildi; kapatma yolu
+   tenant'ın kopyayı kapatmasıdır.
 2. **Çalışanın sonuç ekranı değişmez.** `tap.Decision.EmployeeNote` = kuralın cümlesi +
    yön notu, `note` etkilerinin cümleleri **hariç**; sonuç ekranı onu basar, kayıt notu
    (`Decision.Note`) aynen kalır. Ev şubesinde iki not aynı dizgidir (36 render'lık golden
-   bayt-aynı).
+   bayt-aynı). *"Başka şube cümlesi görünmez"* yalnız `note` etkisi için birebirdir: kararı
+   eski `allow`'un kendisi verdiğinde (korumadan önce kanıt kuralını kapatmış eski
+   baseline'lı tenant, ya da 2026-10-18 öncesi mekâna bağlı `allow` kopyası) cümle kazanan
+   kuralın gerekçesi olarak ekranda kalır — ekran eskisiyle bayt bayt aynıdır (§9'a uygun),
+   prod'da ikisi de 0.
 3. **Duyuru** (`BaselineChanges`) üç kapalı durumu da söyler: GPS-only allowance kapalı
    (1/128), IP proof of place kapalı (4/128), no evidence needs review kapalı (1/128 — eski
    sessiz onay), ve eski kopya açıkken bu üçünün kapatılamayacağını. Metin sha256 ile
@@ -164,5 +171,22 @@ yalnız **sıkılaştırır** ve yalnız başka şubede.
 4. **INFO satırı** süreç başına tenant başına bir kez (`oncePerTenant`, en çok 10 000
    tenant hatırlanır, en eskisi unutulur — unutmak yalnız satırı tekrarlar).
 5. **Geri dönüş notu** yukarıda (*Sonuçlar*) ve `deploy/README.md`'de.
+6. **Düşük tur (2026-10-19).** (a) *Kilit sırası.* İlk sürüm hedef satırı önce, karşı
+   tarafı sonra kilitliyordu: yön güvenliydi ama iki zıt basış birbirini bekleyip
+   `deadlock_timeout` sonunda 40P01'e düşüyordu (zorlanmış sırada 15/15, serbest yarışta
+   58/60 çift; her biri ~1 sn, ekran `unavailable`, ERROR satırı). Şimdi korunan bir kuralın
+   her basışı **önce** işletmenin korunan bütün satırlarını (kanıt kuralları + eski `allow`
+   taşıyanlar, hedef dahil) tek id sırasıyla kilitler (`crossLocationLocks`), sonra hedefi
+   ve kural kitabını okur: kilitlenme kuyruğa döner, ikinci basış temiz reddedilir ve
+   ret satırını yazar — aynı ölçüm 0/15 ve 0/60
+   (`TestCrossLocationGuardDB_QueuedOppositePressesNeverBothLand`,
+   `…RacingOppositePressesNeverBothLand`; kilit döngüsünü kaldıran mutant ikisinde de
+   "ikisi de geçti"). SigNoz'da bu ERROR satırına bağlı kural yoktu (kural 5
+   `http.request` + `status ≥ 500` okur; panel 303 yönlendirir). (b) *Geri alma.* Kilitlenme
+   kontrolünün geri alması (`restore`) da kapıdan geçer: eski `allow`'u geri açmak bir kanıt
+   kuralı arada kapanmışsa reddedilir, ret satırı yazılır, değişiklik durur ve yanıt
+   `ErrLockoutStands`'tır (eski `allow` kapalı kalır — dokunuşların güvenli tarafı)
+   (`TestCrossLocationGuardDB_ARestoreDoesNotBringTheOldAllowBackOverAnEvidenceRuleOff`;
+   kapıyı atlayan mutant kırmızı).
 - ADR 0004 §2'nin *"beş effect"* tablosu altıya çıkar; `ignore`/`redirect` guardrail'e
   kapalı kalır (§6 değişmez).

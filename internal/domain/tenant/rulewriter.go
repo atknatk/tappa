@@ -518,6 +518,11 @@ func (w *RuleWriter) SetEnabled(ctx context.Context, c EnableCommand) (SwitchRes
 	var refused error
 	err := w.data.WithTenant(ctx, c.TenantID, func(ctx context.Context, tx pgx.Tx) error {
 		q := store.New(tx)
+		// ADR 0029's guarded rows first, in one order, then the target (crossLocationGuard's
+		// header says why the order is the point).
+		if err := crossLocationLocks(ctx, q, c.TenantID, c.PolicyID); err != nil {
+			return err
+		}
 		before, err := q.GetPolicyForUpdate(ctx, store.GetPolicyForUpdateParams{
 			TenantID: c.TenantID, ID: c.PolicyID,
 		})
@@ -620,13 +625,46 @@ func (w *RuleWriter) restore(ctx context.Context, c EnableCommand, out SwitchRes
 // lockout check. It exists for exactly one caller (restore), and it is unexported
 // so that the gate cannot be skipped from outside this file: the actor has ALREADY
 // been authorised by the call that got here.
+//
+// 🔴 IT IS NOT WITHOUT ADR 0029's GUARD, because "put back the way it was" is not
+// "safe" once the rulebook moved in between. A restore only ever switches a rule back
+// ON (lockoutCheck runs after an OFF), and switching the old cross-location allow back
+// on is exactly the move the guard refuses while an evidence rule is off: an owner
+// switches the old allow off, a second owner then switches GPS-only allowance off
+// (allowed -- nothing stands in the way any more), the first switch's lockout check
+// fails (a transient read of the rulebook is enough) and the restore would bring the
+// allow back over the evidence rule that is now off -- the hole, written by the
+// product rather than by a press. Refused, the restore writes its refusal row, changes
+// nothing and returns the guard's sentinel; lockoutCheck turns that into
+// ErrLockoutStands, which is the truth: the change stands. What stands is the old
+// allow OFF -- the side of the guard taps are safe on.
 func (w *RuleWriter) setEnabledUngated(ctx context.Context, tenantID uuid.UUID, actor Actor, policyID uuid.UUID, enabled bool) (SwitchResult, error) {
 	var out SwitchResult
+	var refused error
 	err := w.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		q := store.New(tx)
+		if err := crossLocationLocks(ctx, q, tenantID, policyID); err != nil {
+			return err
+		}
 		before, err := q.GetPolicyForUpdate(ctx, store.GetPolicyForUpdateParams{TenantID: tenantID, ID: policyID})
 		if err != nil {
 			return fmt.Errorf("read policy: %w", err)
+		}
+		if before.Enabled != enabled {
+			why, err := crossLocationGuard(ctx, q, tenantID, before, enabled)
+			if err != nil {
+				return err
+			}
+			if why != nil {
+				if _, err := w.trail.RecordTx(ctx, tx, audit.Event{
+					TenantID: tenantID, ActorID: &actor.ID, Action: ActionPolicySwitchRefused,
+					Target: before.ID.String(), Detail: why.detail(before, enabled),
+				}); err != nil {
+					return err
+				}
+				refused = why.err
+				return nil
+			}
 		}
 		row, err := q.SetPolicyEnabled(ctx, store.SetPolicyEnabledParams{
 			TenantID: tenantID, ID: policyID, Enabled: enabled,
@@ -647,6 +685,9 @@ func (w *RuleWriter) setEnabledUngated(ctx context.Context, tenantID uuid.UUID, 
 		out = SwitchResult{PolicyID: row.ID, Name: row.Name, Layer: row.Layer, Was: before.Enabled, Now: row.Enabled}
 		return nil
 	})
+	if err == nil && refused != nil {
+		return SwitchResult{}, refused
+	}
 	return out, err
 }
 
