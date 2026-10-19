@@ -341,6 +341,61 @@ func secretPlacementFaults(src string) []string {
 	return faults
 }
 
+// TestPackaging_TheDockerfileNamesNoFrontendImage (OPS-2 follow-up). A `syntax` parser directive
+// makes BuildKit pull a frontend IMAGE before it reads an instruction -- docker/dockerfile:1 was
+// a moving tag, pulled anonymously from Docker Hub, the one Docker Hub pull left in the deploy
+// build once the base image came through Harbor's proxy. Measured 2026-10-19 (docker 29.8.2,
+// BuildKit v0.33.1): with the directive aimed at an unreachable registry the build fails at
+// "failed to resolve source metadata" before parsing; without it BuildKit's built-in frontend
+// parses this Dockerfile (`--call=targets`: five stages; `--call=check`: no warnings).
+//
+//   - the Dockerfile's parser directives (BuildKit's rule: `# key=value` lines at the very top,
+//     case-insensitive, spaces allowed, ended by the first other line) name no `syntax`, and no
+//     line anywhere in it looks like one (a directive moved below the header is inert today and
+//     live the day the header is removed);
+//   - no workflow, Makefile or deploy/README.md line passes BUILDKIT_SYNTAX (the build-arg that
+//     names a frontend from outside the file).
+//
+// MUTANT (measured): the old first line put back; `#SYNTAX = docker/dockerfile:1` as the first
+// line; the directive put below the header comment; `--build-arg BUILDKIT_SYNTAX=...` added to
+// deploy.yml's app build -> each red.
+func TestPackaging_TheDockerfileNamesNoFrontendImage(t *testing.T) {
+	df, err := os.ReadFile(filepath.Join(repoRoot, "Dockerfile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	directive := regexp.MustCompile(`^#\s*([A-Za-z][A-Za-z0-9]*)\s*=\s*(.*)$`)
+	lines := strings.Split(string(df), "\n")
+	for _, l := range lines {
+		m := directive.FindStringSubmatch(strings.TrimSpace(l))
+		if m == nil {
+			break
+		}
+		if strings.EqualFold(m[1], "syntax") {
+			t.Errorf("the Dockerfile opens with a syntax directive (%q): BuildKit would pull that frontend image "+
+				"before it reads an instruction", strings.TrimSpace(l))
+		}
+	}
+	if !strings.HasPrefix(lines[0], "# Tappa") {
+		t.Errorf("CONTROL: the Dockerfile's first line is %q, want its header comment", lines[0])
+	}
+	anywhere := regexp.MustCompile(`(?i)^#\s*syntax\s*=`)
+	for i, l := range lines {
+		if anywhere.MatchString(strings.TrimSpace(l)) {
+			t.Errorf("Dockerfile:%d looks like a syntax directive (%q)", i+1, strings.TrimSpace(l))
+		}
+	}
+	for _, f := range []string{".github/workflows/deploy.yml", ".github/workflows/ci.yml", "Makefile", "deploy/README.md"} {
+		b, err := os.ReadFile(filepath.Join(repoRoot, f))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(b), "BUILDKIT_SYNTAX") {
+			t.Errorf("%s names BUILDKIT_SYNTAX: a frontend image would be pulled for the build", f)
+		}
+	}
+}
+
 // TestPackaging_TheProductionSecretsAreReadOnlyByTheStepsThatNeedThem (OPS-2 fix round 1): every
 // secret deploy.yml reads -- the `production` environment's -- sits in the `env:` of the step that
 // uses it or in the `with:` of the one action step, never at the JOB's level. A job-level `env:`

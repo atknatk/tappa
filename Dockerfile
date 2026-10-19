@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1
-
 # Tappa — production image (M8-02).
 #
 # Two deployable artifacts come out of this one file, and they are SEPARATE on
@@ -16,6 +14,20 @@
 # kubelet verifies recorded credentials (KEP-2535); deploy/k8s/20-app.yaml says why a
 # credential nobody rewrites does not bring that back. deploy.yml proves after every push
 # that both images are pullable with the CI credential and refused without one.
+
+# 🔴 NO PARSER DIRECTIVE NAMES A FRONTEND, ON PURPOSE (OPS-2 follow-up). The file used to open
+# with the `syntax` directive set to docker/dockerfile:1, which makes BuildKit fetch a frontend
+# IMAGE from Docker Hub -- by a moving tag, anonymously -- before it reads a single instruction:
+# the one Docker Hub pull left in the deploy build after the base image moved to Harbor's proxy.
+# Measured 2026-10-19 (docker 29.8.2, BuildKit v0.33.1): with the directive pointed at an
+# unreachable registry the build fails at "failed to resolve source metadata" before parsing;
+# without it the frontend built into BuildKit parses this file (`--call=targets` lists all five
+# stages, `--call=check` reports no warnings) and fetches no frontend. Nothing here needs more:
+# multi-stage FROM, ARG before FROM, COPY --from -- Dockerfile syntax older than BuildKit itself.
+# Taking the directive out was chosen over pinning it to the proxy by digest (a local build holds
+# no Harbor credential) and over a BUILDKIT_SYNTAX build-arg in deploy.yml (a second spelling of
+# the same pull, to keep in step with this file). A feature that needs a newer frontend brings
+# the question back; cmd/tappa/deployregistry_test.go pins the absence.
 
 # 🔴 WHY TWO IMAGES AND NOT ONE WITH BOTH BINARIES. M8-01's structural guarantee is
 # that the application CANNOT run a migration: goose is not a module dependency

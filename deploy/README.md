@@ -7392,9 +7392,17 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     Docker Hub'ın adıyla (operatör adımı 4). Önbellekteki bir digest'i Harbor Docker Hub'a gitmeden
     vermeli (proxy cache'in belgelenen davranışı; **ölçülmedi** — ilk OPS-2 deploy'u bunu kapanış
     ölçüsünün 2. maddesinde görür). **Kalan, sayılı:** (1) derleme artık k8s-2'ye de bağlı ((a));
-    (2) Dockerfile'ın ilk satırı `# syntax=docker/dockerfile:1` BuildKit'in ön ucunu (frontend imajı)
-    **hâlâ Docker Hub'dan, kimliksiz ve etiketle** çeker — bu turda değiştirilmedi (yerel derlemeleri de
-    etkileyen ayrı bir karar; bütçe riski taban imajınkiyle aynı biçimde, daha küçük ölçekte durur);
+    (2) ✅ **kapandı (OPS-2 takibi, 2026-10-19):** Dockerfile'ın eski ilk satırı (`syntax` ayrıştırıcı
+    yönergesi, `docker/dockerfile:1`) BuildKit'in ön ucunu (frontend imajı) Docker Hub'dan kimliksiz ve
+    hareketli etiketle çekiyordu; satır **kaldırıldı** ve derleme BuildKit'in **yerleşik** ön ucuyla
+    koşar — hiçbir ön uç imajı çekilmez, ne Docker Hub'dan ne Harbor'dan. Ölçüldü (docker 29.8.2,
+    BuildKit v0.33.1): yönerge erişilemez bir registry'ye çevrilince derleme talimatları okumadan
+    *"failed to resolve source metadata"* ile düşer; yönergesiz dosyayı yerleşik ön uç ayrıştırır
+    (`--call=targets` beş aşamayı listeler, `--call=check` uyarı vermez). Dosya yerleşik ön ucun
+    fazlasını istemez (çok aşamalı `FROM`, `FROM`'dan önce `ARG`, `COPY --from`). Proxy'ye digest'le
+    pinlemek yerel derlemede Harbor kimliği isterdi, ön ucu dışarıdan seçen bir build-arg ise aynı
+    çekmenin ikinci bir yazımı olurdu — ikisi de reddedildi. Pin: `cmd/tappa`
+    `TestPackaging_TheDockerfileNamesNoFrontendImage`;
     (3) `postgres:17-alpine`, `rclone`, `curlimages/curl` kümede Docker Hub'dan anonim (madde 14).
 13. **[her yeni iş yükü kendi beklemesini taşır]** — 🔴 **Bu namespace'te Postgres'e
     bağlanan HER YENİ İŞ YÜKÜ kendi bekleme adımını taşımak zorunda.**
