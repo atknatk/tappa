@@ -1370,9 +1370,11 @@ for f in db/migrations/*.sql; do
   #     disinda kalan bir yazim (bilinmeyen bir dize kipi, dize ayirimini degistiren baska bir
   #     ayar, migration disinda bir rolde/veritabaninda onceden kurulmus `ALTER ROLE … SET`) yine
   #     kacabilir. KALICI AG bu yuzden metinde degil veritabanindadir: internal/db
-  #     TestPrivCatalog_TheWholeCatalogueIsTheAllowlist zincir kostuktan sonra public'in TUM yetki
-  #     katalogunu (her tablo/sutun/dizi/fonksiyon/sema, PUBLIC dahil her rol, ENABLE/FORCE, sahip)
-  #     tek bir izin listesiyle birebir karsilastirir -- ayiricidan bagimsiz (T137 fix1);
+  #     TestPrivCatalog_TheWholeCatalogueIsTheAllowlist zincir kostuktan sonra her KULLANICI
+  #     semasinin TUM yetki katalogunu (her tablo/sutun/dizi/fonksiyon/sema, veritabani, eklenti;
+  #     pg_* ve superuser disindaki her rol + PUBLIC; MAINTAIN dahil her fiil ve grant option'i;
+  #     ENABLE/FORCE, sahip, definer) tek bir izin listesiyle birebir karsilastirir -- ayiricidan
+  #     bagimsiz (T137 fix1, DUSUK turu);
   #   · dinamik SQL'in ICERIGI — `EXECUTE format('ALTER TABLE %I NO FORCE …', t)`; ifade
   #     calisma aninda kurulur, dosyada hicbir yerde yazmaz. T137'den beri (2026-10-19)
   #     `EXECUTE`'un KENDISI bir migration govdesinde FAIL'dir (R5B_BODY_DDL disinda), ama

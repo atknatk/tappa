@@ -10,8 +10,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// privcatalog_test.go -- T137's direction (d): the WHOLE privilege catalogue of the public schema,
-// held to one written allowlist.
+// privcatalog_test.go -- T137's direction (d): the WHOLE privilege catalogue of the database's
+// user schemas, held to one written allowlist.
 //
 // Why a catalogue test when redline already reads every migration: redline is a lexical gate, and
 // T137's rounds measured it being read wrong three times over (an E-string continued after a line
@@ -27,89 +27,158 @@ import (
 // because both are compared with the same database; an M11 table therefore appears in both, and
 // that is deliberate -- the matrix says why, this list says that nothing else exists.
 //
+// What it reads (T137 low round widened all four from public / the tappa_* roles / no grant options):
+//   - every USER schema: everything but pg_catalog, information_schema and the pg_toast*/pg_temp*
+//     schemas (a session's temporary objects are not the chain's, and another package's test may
+//     hold some while this one reads). A name outside public is written schema-qualified;
+//   - every role but the predefined pg_* ones and the superusers, plus PUBLIC (privCatalogRolesSQL).
+//     A pg_* role cannot log in; what it confers (pg_write_all_data, a membership) shows in the
+//     EFFECTIVE privilege of the role that holds it, which is read. A superuser is not read for
+//     privileges -- has_*_privilege is true for it on everything, so its lines would say nothing --
+//     but each one is a line of its own (`superuser`), so a new one is red;
+//   - every privilege the server version has, PG17's MAINTAIN included, and each one's grant
+//     option: a verb written `VERB*` is held WITH GRANT OPTION (the ACL's own notation). The
+//     object's OWNER is not starred: it holds every grant option on what it owns, implicitly and
+//     inalienably, and its ownership is already a line.
+//
 // What a line says (every role's privilege is EFFECTIVE: has_*_privilege, so role membership and
 // PUBLIC count):
 //
 //	rel <name> <relkind> owner=<role> rls=<enable|no-enable>,<force|no-force>   every relation
-//	table <name> <role> <verbs>             table-level SELECT…TRIGGER, when the role holds any
-//	column <name> <role> <verb> <columns>   a column grant the role holds WITHOUT the table-level verb
+//	table <name> <role> <verbs>             table-level SELECT…MAINTAIN, when the role holds any
+//	column <name> <role> <verb>[*] <columns>  a column grant (or its grant option) the role holds
+//	                                        WITHOUT the same at table level
 //	sequence <name> owner=<role>            every sequence
 //	seqpriv <name> <role> <privs>           USAGE/SELECT/UPDATE on it
 //	function <signature> owner=<role> definer=<bool> execute=<roles|->   every non-extension function
-//	schema public <role> <privs>            USAGE/CREATE on the schema
+//	namespace <schema> owner=<role>         every user schema
+//	schema <schema> <role> <privs>          USAGE/CREATE on it
+//	database <role> <privs>                 CONNECT/CREATE/TEMPORARY on the current database
+//	extension <name> schema=<schema>        every installed extension
+//	superuser <role>                        every superuser but the pg_* ones
 //
-// So a new table, column grant, function, sequence, a FORCE taken away, an owner changed or a
-// privilege given to any listed role (PUBLIC included) is a line the allowlist does not hold:
-// red, until someone writes it here on purpose.
+// So a new table, column grant, function, sequence, schema, extension, role or superuser, a FORCE
+// or an ENABLE taken away, an owner changed, a definer flag set, a grant option or a privilege
+// given to any role (PUBLIC included, directly or through a membership) is a line the allowlist
+// does not hold: red, until someone writes it here on purpose.
 
-// privCatalogRoles are the roles every line is read for: PUBLIC and every role 01-roles.sql
-// creates but the owner (who holds everything on what it owns). A tappa_* role outside this list
-// is itself a failure (TestPrivCatalog_EveryRoleIsRead), so a new role cannot sit unread.
+// privCatalogRolesSQL is the set of roles every line is read for -- ONE definition, used by the
+// snapshot and by TestPrivCatalog_EveryRoleIsRead, so the two cannot drift.
+const privCatalogRolesSQL = `SELECT 'public'::text AS r UNION ALL
+                  SELECT rolname::text FROM pg_roles WHERE rolname !~ '^pg_' AND NOT rolsuper`
+
+// privCatalogRoles is what privCatalogRolesSQL returns today: PUBLIC and every role 01-roles.sql
+// and the migrations create but the owner (a superuser -- see above). The snapshot reads whatever
+// roles exist, so an unexpected role is already red there (each role inherits PUBLIC's USAGE and
+// CONNECT, so it has lines); TestPrivCatalog_EveryRoleIsRead names it outright.
 var privCatalogRoles = []string{"public", "tappa_app", "tappa_feedwriter", "tappa_holdingdefiner", "tappa_opdefiner", "tappa_operator", "tappa_resolver"}
 
 // privCatalogQuery builds the snapshot, one line per fact, in byte order.
 const privCatalogQuery = `
-WITH roles(r) AS (SELECT unnest($1::text[])),
-rels AS (SELECT c.oid, c.relname, c.relkind, c.relowner, c.relrowsecurity, c.relforcerowsecurity
-           FROM pg_class c
-          WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+WITH roles(r) AS (` + privCatalogRolesSQL + `),
+nsps AS (SELECT n.oid, n.nspname, n.nspowner FROM pg_namespace n
+          WHERE n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname !~ '^pg_(toast|temp)'),
+rels AS (SELECT c.oid, CASE WHEN n.nspname = 'public' THEN '' ELSE n.nspname || '.' END || c.relname AS relname,
+                c.relkind, c.relowner, c.relrowsecurity, c.relforcerowsecurity
+           FROM pg_class c JOIN nsps n ON n.oid = c.relnamespace
+          WHERE c.relkind IN ('r', 'p', 'v', 'm', 'f', 'S')
             AND NOT EXISTS (SELECT 1 FROM pg_depend d
                              WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid AND d.deptype = 'e')),
-verbs(v, o) AS (VALUES ('SELECT', 1), ('INSERT', 2), ('UPDATE', 3), ('DELETE', 4), ('TRUNCATE', 5), ('REFERENCES', 6), ('TRIGGER', 7)),
+verbs(v, o) AS (VALUES ('SELECT', 1), ('INSERT', 2), ('UPDATE', 3), ('DELETE', 4), ('TRUNCATE', 5), ('REFERENCES', 6),
+                       ('TRIGGER', 7), ('MAINTAIN', 8)),
 colverbs(v, o) AS (VALUES ('SELECT', 1), ('INSERT', 2), ('UPDATE', 3), ('REFERENCES', 6)),
-seqs AS (SELECT c.oid, c.relname, c.relowner FROM pg_class c
-          WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'S'),
-fns AS (SELECT p.oid, p.proowner, p.prosecdef FROM pg_proc p
-         WHERE p.pronamespace = 'public'::regnamespace
-           AND NOT EXISTS (SELECT 1 FROM pg_depend d
+fns AS (SELECT p.oid, p.proowner, p.prosecdef FROM pg_proc p JOIN nsps n ON n.oid = p.pronamespace
+         WHERE NOT EXISTS (SELECT 1 FROM pg_depend d
                             WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e'))
 SELECT line FROM (
   SELECT 'rel ' || relname || ' ' || relkind::text || ' owner=' || pg_get_userbyid(relowner)
          || ' rls=' || CASE WHEN relrowsecurity THEN 'enable' ELSE 'no-enable' END
          || ',' || CASE WHEN relforcerowsecurity THEN 'force' ELSE 'no-force' END AS line
-    FROM rels
+    FROM rels WHERE relkind <> 'S'
   UNION ALL
-  SELECT 'table ' || rels.relname || ' ' || roles.r || ' ' || string_agg(verbs.v, ',' ORDER BY verbs.o)
+  SELECT 'table ' || rels.relname || ' ' || roles.r || ' '
+         || string_agg(verbs.v || CASE WHEN roles.r <> pg_get_userbyid(rels.relowner)
+                                        AND has_table_privilege(roles.r, rels.oid, verbs.v || ' WITH GRANT OPTION')
+                                       THEN '*' ELSE '' END, ',' ORDER BY verbs.o)
     FROM rels CROSS JOIN roles CROSS JOIN verbs
-   WHERE has_table_privilege(roles.r, rels.oid, verbs.v)
+   WHERE rels.relkind <> 'S' AND has_table_privilege(roles.r, rels.oid, verbs.v)
    GROUP BY rels.relname, roles.r
   UNION ALL
   SELECT 'column ' || rels.relname || ' ' || roles.r || ' ' || colverbs.v || ' ' || string_agg(a.attname, ',' ORDER BY a.attnum)
     FROM rels CROSS JOIN roles CROSS JOIN colverbs
     JOIN pg_attribute a ON a.attrelid = rels.oid AND a.attnum > 0 AND NOT a.attisdropped
-   WHERE NOT has_table_privilege(roles.r, rels.oid, colverbs.v)
+   WHERE rels.relkind <> 'S' AND NOT has_table_privilege(roles.r, rels.oid, colverbs.v)
      AND has_column_privilege(roles.r, rels.oid, a.attnum, colverbs.v)
    GROUP BY rels.relname, roles.r, colverbs.v
   UNION ALL
-  SELECT 'sequence ' || relname || ' owner=' || pg_get_userbyid(relowner) FROM seqs
+  SELECT 'column ' || rels.relname || ' ' || roles.r || ' ' || colverbs.v || '* ' || string_agg(a.attname, ',' ORDER BY a.attnum)
+    FROM rels CROSS JOIN roles CROSS JOIN colverbs
+    JOIN pg_attribute a ON a.attrelid = rels.oid AND a.attnum > 0 AND NOT a.attisdropped
+   WHERE rels.relkind <> 'S' AND roles.r <> pg_get_userbyid(rels.relowner)
+     AND NOT has_table_privilege(roles.r, rels.oid, colverbs.v || ' WITH GRANT OPTION')
+     AND has_column_privilege(roles.r, rels.oid, a.attnum, colverbs.v || ' WITH GRANT OPTION')
+   GROUP BY rels.relname, roles.r, colverbs.v
   UNION ALL
-  SELECT 'seqpriv ' || seqs.relname || ' ' || roles.r || ' ' || string_agg(v.v, ',' ORDER BY v.o)
-    FROM seqs CROSS JOIN roles CROSS JOIN (VALUES ('USAGE', 1), ('SELECT', 2), ('UPDATE', 3)) AS v(v, o)
-   WHERE has_sequence_privilege(roles.r, seqs.oid, v.v)
-   GROUP BY seqs.relname, roles.r
+  SELECT 'sequence ' || relname || ' owner=' || pg_get_userbyid(relowner) FROM rels WHERE relkind = 'S'
+  UNION ALL
+  SELECT 'seqpriv ' || rels.relname || ' ' || roles.r || ' '
+         || string_agg(v.v || CASE WHEN roles.r <> pg_get_userbyid(rels.relowner)
+                                    AND has_sequence_privilege(roles.r, rels.oid, v.v || ' WITH GRANT OPTION')
+                                   THEN '*' ELSE '' END, ',' ORDER BY v.o)
+    FROM rels CROSS JOIN roles CROSS JOIN (VALUES ('USAGE', 1), ('SELECT', 2), ('UPDATE', 3)) AS v(v, o)
+   WHERE rels.relkind = 'S' AND has_sequence_privilege(roles.r, rels.oid, v.v)
+   GROUP BY rels.relname, roles.r
   UNION ALL
   SELECT 'function ' || fns.oid::regprocedure::text || ' owner=' || pg_get_userbyid(fns.proowner)
          || ' definer=' || fns.prosecdef::text || ' execute='
-         || coalesce((SELECT string_agg(roles.r, ',' ORDER BY roles.r) FROM roles
-                       WHERE has_function_privilege(roles.r, fns.oid, 'EXECUTE')), '-')
+         || coalesce((SELECT string_agg(roles.r || CASE WHEN roles.r <> pg_get_userbyid(fns.proowner)
+                                                          AND has_function_privilege(roles.r, fns.oid, 'EXECUTE WITH GRANT OPTION')
+                                                         THEN '*' ELSE '' END, ',' ORDER BY roles.r)
+                        FROM roles WHERE has_function_privilege(roles.r, fns.oid, 'EXECUTE')), '-')
     FROM fns
   UNION ALL
-  SELECT 'schema public ' || roles.r || ' ' || string_agg(v.v, ',' ORDER BY v.v)
-    FROM roles CROSS JOIN (VALUES ('CREATE'), ('USAGE')) AS v(v)
-   WHERE has_schema_privilege(roles.r, 'public', v.v)
+  SELECT 'namespace ' || nspname || ' owner=' || pg_get_userbyid(nspowner) FROM nsps
+  UNION ALL
+  SELECT 'schema ' || nsps.nspname || ' ' || roles.r || ' '
+         || string_agg(v.v || CASE WHEN roles.r <> pg_get_userbyid(nsps.nspowner)
+                                    AND has_schema_privilege(roles.r, nsps.oid, v.v || ' WITH GRANT OPTION')
+                                   THEN '*' ELSE '' END, ',' ORDER BY v.v)
+    FROM nsps CROSS JOIN roles CROSS JOIN (VALUES ('CREATE'), ('USAGE')) AS v(v)
+   WHERE has_schema_privilege(roles.r, nsps.oid, v.v)
+   GROUP BY nsps.nspname, roles.r
+  UNION ALL
+  SELECT 'database ' || roles.r || ' '
+         || string_agg(v.v || CASE WHEN roles.r <> pg_get_userbyid(d.datdba)
+                                    AND has_database_privilege(roles.r, d.oid, v.v || ' WITH GRANT OPTION')
+                                   THEN '*' ELSE '' END, ',' ORDER BY v.o)
+    FROM pg_database d CROSS JOIN roles CROSS JOIN (VALUES ('CONNECT', 1), ('CREATE', 2), ('TEMPORARY', 3)) AS v(v, o)
+   WHERE d.datname = current_database() AND has_database_privilege(roles.r, d.oid, v.v)
    GROUP BY roles.r
+  UNION ALL
+  SELECT 'extension ' || e.extname || ' schema=' || n.nspname
+    FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace
+  UNION ALL
+  SELECT 'superuser ' || rolname FROM pg_roles WHERE rolsuper AND rolname !~ '^pg_'
 ) s ORDER BY line COLLATE "C"`
 
 // privCatalogAllowed is the allowlist: generated from the catalogue at migration 00060 (T137 fix1,
 // 2026-10-19; `TAPPA_PRIVCATALOG_DUMP=1 go test -run TestPrivCatalog_ ./internal/db -v` prints the
-// live one) and READ line by line before it was written here. Two things the reading noted, both
+// live one) and READ line by line before it was written here. Things the reading noted, all
 // kept on purpose:
 //   - nine pre-M11 trigger functions (tappa_forbid_*, tappa_check_transaction_review,
 //     tappa_audit_at_is_the_wall_clock) carry PostgreSQL's default EXECUTE to PUBLIC. They are
 //     SECURITY INVOKER trigger functions: a direct call is refused ("trigger functions can only be
 //     called as triggers") and binding one to a table of one's own runs it with one's own rights.
 //     From 00037 on every new function is EXECUTE-to-its-owner (ADR 0028 §1's matrix); these
-//     predate the rule and the migrations that made them are deployed (CLAUDE.md §3);
+//     predate the rule and the migrations that made them are deployed (CLAUDE.md §3). A REVOKE
+//     migration for hygiene is backlog T138;
+//   - the low round's twelve new lines (same chain, 00060) are the server's and db-init's, none a
+//     migration's: CONNECT and TEMPORARY on the database for every role come from PostgreSQL's
+//     default PUBLIC grant on a new database (TEMPORARY lets a session make temporary tables of
+//     its own, in its own pg_temp, which no other session sees); public is owned by
+//     pg_database_owner (PG15+'s default); pgcrypto and citext are 01-roles.sql's, plpgsql the
+//     server's; the one superuser is the bootstrap POSTGRES_USER. No MAINTAIN, no grant option
+//     and no user schema but public exists at 00060;
 //   - tappa_operator reads platform_admins' password_hash and totp_secret_sealed: that is the
 //     login lookup itself (00026; ADR 0020 -- the password and the TOTP are verified in the
 //     process, never in SQL).
@@ -208,6 +277,16 @@ column webhook_endpoints tappa_app SELECT tenant_id,id,url,signing_key_sealed,ac
 column webhook_endpoints tappa_app UPDATE url,signing_key_sealed,active,rotated_at
 column webhook_endpoints tappa_feedwriter SELECT tenant_id,id,active
 column webhook_endpoints tappa_holdingdefiner SELECT tenant_id,id,active
+database public CONNECT,TEMPORARY
+database tappa_app CONNECT,TEMPORARY
+database tappa_feedwriter CONNECT,TEMPORARY
+database tappa_holdingdefiner CONNECT,TEMPORARY
+database tappa_opdefiner CONNECT,TEMPORARY
+database tappa_operator CONNECT,TEMPORARY
+database tappa_resolver CONNECT,TEMPORARY
+extension citext schema=public
+extension pgcrypto schema=public
+extension plpgsql schema=pg_catalog
 function api_keys_revocation_is_one_way() owner=tappa_owner definer=false execute=-
 function feed_open_counter() owner=tappa_feedwriter definer=true execute=tappa_feedwriter
 function holding_advance_tag_counter(character,integer) owner=tappa_holdingdefiner definer=true execute=tappa_app,tappa_holdingdefiner
@@ -265,6 +344,7 @@ function tappa_forbid_revocation_reset() owner=tappa_owner definer=false execute
 function tappa_forbid_unencoded_activation() owner=tappa_owner definer=false execute=public,tappa_app,tappa_feedwriter,tappa_holdingdefiner,tappa_opdefiner,tappa_operator,tappa_resolver
 function tappa_local_month_start(date,text) owner=tappa_owner definer=false execute=tappa_app,tappa_opdefiner
 function webhook_delivery_settle() owner=tappa_owner definer=false execute=-
+namespace public owner=pg_database_owner
 rel admin_sessions r owner=tappa_owner rls=enable,force
 rel admin_users r owner=tappa_owner rls=enable,force
 rel api_idempotency r owner=tappa_owner rls=enable,force
@@ -307,6 +387,7 @@ schema public tappa_opdefiner USAGE
 schema public tappa_operator USAGE
 schema public tappa_resolver USAGE
 sequence goose_db_version_id_seq owner=tappa_owner
+superuser tappa_owner
 table admin_sessions tappa_app SELECT,INSERT
 table admin_users tappa_app SELECT
 table api_idempotency tappa_app DELETE
@@ -357,7 +438,7 @@ func privCatalogDiff(got []string) (unexpected, missing []string) {
 
 func privCatalogSnapshot(t *testing.T, ctx context.Context, q opQuerier) []string {
 	t.Helper()
-	rows, err := q.Query(ctx, privCatalogQuery, privCatalogRoles)
+	rows, err := q.Query(ctx, privCatalogQuery)
 	if err != nil {
 		t.Fatalf("read the privilege catalogue: %v", err)
 	}
@@ -408,11 +489,13 @@ func TestPrivCatalog_TheWholeCatalogueIsTheAllowlist(t *testing.T) {
 	}
 }
 
-// TestPrivCatalog_EveryRoleIsRead: a tappa_* role the snapshot does not read would hold privileges
-// no line ever shows.
+// TestPrivCatalog_EveryRoleIsRead: the roles the snapshot reads (privCatalogRolesSQL -- every role
+// but the pg_* ones and the superusers, plus PUBLIC) are exactly privCatalogRoles. A role outside
+// the list is already red in the catalogue test (it inherits PUBLIC's lines); this one names it,
+// and a listed role that went away is red here too.
 func TestPrivCatalog_EveryRoleIsRead(t *testing.T) {
 	ctx, tx := opTx(t)
-	rows, err := tx.Query(ctx, `SELECT rolname FROM pg_roles WHERE rolname LIKE 'tappa\_%' AND rolname <> 'tappa_owner' ORDER BY 1`)
+	rows, err := tx.Query(ctx, `SELECT r FROM (`+privCatalogRolesSQL+`) s ORDER BY r COLLATE "C"`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -420,20 +503,26 @@ func TestPrivCatalog_EveryRoleIsRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(roles) < len(privCatalogRoles)-1 {
-		t.Fatalf("anti-vacuity: %d tappa_* roles, want at least %d", len(roles), len(privCatalogRoles)-1)
+	if len(roles) < len(privCatalogRoles) {
+		t.Errorf("anti-vacuity: the snapshot reads %d roles %q, want at least %d", len(roles), roles, len(privCatalogRoles))
 	}
 	for _, r := range roles {
 		if !slices.Contains(privCatalogRoles, r) {
-			t.Errorf("role %s exists and privCatalogRoles does not read it: add it, regenerate the allowlist, read it", r)
+			t.Errorf("role %s exists and privCatalogRoles does not name it: add it, regenerate the allowlist, read it", r)
+		}
+	}
+	for _, r := range privCatalogRoles {
+		if !slices.Contains(roles, r) {
+			t.Errorf("privCatalogRoles names %s and the snapshot does not read it (gone, or a superuser now)", r)
 		}
 	}
 }
 
 // TestPrivCatalog_TheDiffSeesEachKind drives the comparison with one change of each kind, each in
-// a savepoint that is rolled back (its locks with it): T137's three ORTA grants (DELETE on
-// employees to tappa_app), a FORCE taken away, EXECUTE to PUBLIC, a column grant and a new table.
-// Each must surface as an unexpected line -- so the test above is not green by construction.
+// a savepoint that is rolled back (its locks with it). Each must surface as an unexpected line --
+// so the test above is not green by construction. The tables that take an ACCESS EXCLUSIVE lock
+// here (owner, RLS switches) are operator tables: opTx holds the operator-tables test lock, so no
+// other package's test is using them meanwhile.
 func TestPrivCatalog_TheDiffSeesEachKind(t *testing.T) {
 	ctx, tx := opTx(t)
 	privCatalogPremise(t, ctx, tx)
@@ -441,7 +530,13 @@ func TestPrivCatalog_TheDiffSeesEachKind(t *testing.T) {
 		t.Skipf("the live catalogue already differs from the allowlist (%d/%d lines); "+
 			"TestPrivCatalog_TheWholeCatalogueIsTheAllowlist names them", len(u), len(m))
 	}
+	var dbName string
+	if err := tx.QueryRow(ctx, `SELECT current_database()`).Scan(&dbName); err != nil {
+		t.Fatal(err)
+	}
+	database := pgx.Identifier{dbName}.Sanitize()
 	for _, c := range []struct{ what, stmt, want string }{
+		// fix1: T137's three ORTA grants, a FORCE taken away, PUBLIC, a column grant, a new table.
 		{"DELETE on employees to tappa_app (the three ORTA cases)",
 			`GRANT DELETE ON public.employees TO tappa_app`, "table employees tappa_app SELECT,INSERT,UPDATE,DELETE"},
 		{"FORCE taken away", `ALTER TABLE public.platform_sessions NO FORCE ROW LEVEL SECURITY`,
@@ -452,6 +547,56 @@ func TestPrivCatalog_TheDiffSeesEachKind(t *testing.T) {
 			"column api_keys tappa_operator SELECT token_hash"},
 		{"a new table", `CREATE TABLE public.zz_privcatalog_probe (id int)`,
 			"rel zz_privcatalog_probe r owner=tappa_owner rls=no-enable,no-force"},
+
+		// low round (1): a schema other than public.
+		{"a SECURITY DEFINER function in another schema, EXECUTE to tappa_app",
+			`CREATE SCHEMA zz_privcatalog_probe;
+			 CREATE FUNCTION zz_privcatalog_probe.f() RETURNS int LANGUAGE sql SECURITY DEFINER AS 'SELECT 1';
+			 REVOKE EXECUTE ON FUNCTION zz_privcatalog_probe.f() FROM PUBLIC;
+			 GRANT EXECUTE ON FUNCTION zz_privcatalog_probe.f() TO tappa_app`,
+			"function zz_privcatalog_probe.f() owner=tappa_owner definer=true execute=tappa_app"},
+		// (2): a role whose name is not tappa_*.
+		{"a role outside tappa_* with SELECT on a table",
+			`CREATE ROLE zz_privcatalog_probe NOLOGIN; GRANT SELECT ON public.employees TO zz_privcatalog_probe`,
+			"table employees zz_privcatalog_probe SELECT"},
+		// (3): PG17's MAINTAIN (VACUUM, ANALYZE, CLUSTER, REFRESH, REINDEX, LOCK TABLE).
+		{"MAINTAIN on transactions", `GRANT MAINTAIN ON public.transactions TO tappa_app`,
+			"table transactions tappa_app SELECT,INSERT,MAINTAIN"},
+		// (4): a grant option, one per kind of object.
+		{"a table grant option", `GRANT SELECT ON public.transactions TO tappa_app WITH GRANT OPTION`,
+			"table transactions tappa_app SELECT*,INSERT"},
+		{"a column grant option", `GRANT SELECT (token_hash) ON public.api_keys TO tappa_resolver WITH GRANT OPTION`,
+			"column api_keys tappa_resolver SELECT* token_hash"},
+		{"a function grant option",
+			`GRANT EXECUTE ON FUNCTION public.resolve_tag_by_uid(character) TO tappa_app WITH GRANT OPTION`,
+			"function resolve_tag_by_uid(character) owner=tappa_resolver definer=true execute=tappa_app*,tappa_resolver"},
+		{"a sequence grant option", `GRANT SELECT ON SEQUENCE public.goose_db_version_id_seq TO tappa_app WITH GRANT OPTION`,
+			"seqpriv goose_db_version_id_seq tappa_app SELECT*"},
+		{"a schema grant option", `GRANT USAGE ON SCHEMA public TO tappa_app WITH GRANT OPTION`,
+			"schema public tappa_app USAGE*"},
+		{"a database grant option", `GRANT CONNECT ON DATABASE ` + database + ` TO tappa_app WITH GRANT OPTION`,
+			"database tappa_app CONNECT*,TEMPORARY"},
+		// (5): the database.
+		{"CREATE on the database", `GRANT CREATE ON DATABASE ` + database + ` TO tappa_app`,
+			"database tappa_app CONNECT,CREATE,TEMPORARY"},
+		// (6): an extension (pg_trgm ships with the image and needs no network).
+		{"a new extension", `CREATE EXTENSION pg_trgm`, "extension pg_trgm schema=public"},
+
+		// (7): kinds the catalogue test always caught, pinned here.
+		{"an owner changed", `ALTER TABLE public.operator_read_tickets OWNER TO tappa_app`,
+			"rel operator_read_tickets r owner=tappa_app rls=enable,force"},
+		{"a definer flag set", `ALTER FUNCTION public.tappa_local_month_start(date, text) SECURITY DEFINER`,
+			"function tappa_local_month_start(date,text) owner=tappa_owner definer=true execute=tappa_app,tappa_opdefiner"},
+		{"RLS disabled", `ALTER TABLE public.platform_admins DISABLE ROW LEVEL SECURITY`,
+			"rel platform_admins r owner=tappa_owner rls=no-enable,force"},
+		{"a role membership", `GRANT tappa_operator TO tappa_app`,
+			"function op_close_session(text) owner=tappa_opdefiner definer=true execute=tappa_app,tappa_opdefiner,tappa_operator"},
+		{"CREATE on a schema", `GRANT CREATE ON SCHEMA public TO tappa_app`,
+			"schema public tappa_app CREATE,USAGE"},
+		{"USAGE on a sequence", `GRANT USAGE ON SEQUENCE public.goose_db_version_id_seq TO tappa_app`,
+			"seqpriv goose_db_version_id_seq tappa_app USAGE"},
+		{"a new view", `CREATE VIEW public.zz_privcatalog_view AS SELECT 1 AS x`,
+			"rel zz_privcatalog_view v owner=tappa_owner rls=no-enable,no-force"},
 	} {
 		sp, err := tx.Begin(ctx)
 		if err != nil {

@@ -19,7 +19,7 @@ import (
 // strings, nested comments, named dollar quotes, bytes above 0x7f) -- go through both lexers under
 // every awk this machine has, and every output must be byte-for-byte the first one's. CI installs
 // gawk, mawk and original-awk (.github/workflows/ci.yml) so all three families are compared there;
-// with fewer than two the test skips -- it is not a pass.
+// with fewer than two the test skips -- it is not a pass -- and in CI (CI set) fewer than three is red.
 func TestRedline_TheLexersReadTheSameUnderEveryAwk(t *testing.T) {
 	type impl struct {
 		name, path string
@@ -43,6 +43,13 @@ func TestRedline_TheLexersReadTheSameUnderEveryAwk(t *testing.T) {
 		seen[key] = true
 		c.path = real
 		impls = append(impls, c)
+	}
+	// In CI the step "Install ripgrep and three awks" puts gawk, mawk and original-awk on the
+	// runner, so fewer than three there means the step changed or failed -- and a skip would let
+	// the comparison silently stop being made. Red in CI, skipped (not passed) elsewhere.
+	if os.Getenv("CI") != "" && len(impls) < 3 {
+		t.Fatalf("CI is set and only %d awk implementation(s) were found (%v): the CI step installs gawk, mawk and "+
+			"original-awk, so all three families must be compared here", len(impls), impls)
 	}
 	if len(impls) < 2 {
 		t.Skipf("only %d awk implementation(s) on this machine (%v); nothing to compare -- CI installs three", len(impls), impls)
