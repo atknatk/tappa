@@ -216,9 +216,10 @@ jobs:
       # what ubuntu-latest ships, is BYTE oriented and lets a value of only U+00A0 or
       # U+3000 survive the trim; a `case` glob is bash's own matcher and `*[0-9A-Za-z]*`
       # rejected both and accepted real values under five locales, tr_TR.UTF-8 included.
-      # No valid input is excluded: a Harbor robot name is robot$<project>+<name>, its
-      # secret and the OAuth client id are alphanumeric, the OAuth secret is
-      # tskey-client-..., and KUBE_CONFIG is base64.
+      # No valid input is excluded: the CI robot is a Harbor SYSTEM robot, robot$tappa-ci
+      # (robot$<name>; a project robot would be robot$<project>+<name>), its secret and the
+      # OAuth client id are alphanumeric, the OAuth secret is tskey-client-..., and
+      # KUBE_CONFIG is base64.
       #
       # TS_OAUTH_SECRET ALSO HAS ITS SHAPE CHECKED, because the shape decides what the
       # tailnet join does: the action hands the value to `tailscale up --authkey=<value>

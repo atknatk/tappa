@@ -582,7 +582,7 @@ func TestPackaging_TheDeploySecretsPreflightNamesWhatIsMissing(t *testing.T) {
 	}
 	const canary = "SECRETCANARY"
 	good := map[string]string{
-		"HARBOR_CI_ROBOT_NAME": "robot$tappa+ci" + canary, "HARBOR_CI_ROBOT_SECRET": "s3cr" + canary,
+		"HARBOR_CI_ROBOT_NAME": "robot$tappa-ci" + canary, "HARBOR_CI_ROBOT_SECRET": "s3cr" + canary,
 		"TS_OAUTH_CLIENT_ID": "k" + canary, "TS_OAUTH_SECRET": "tskey-client-" + canary, "KUBE_CONFIG": "YXBp" + canary,
 	}
 	run := func(env map[string]string) (string, int) {
