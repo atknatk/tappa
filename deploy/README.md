@@ -434,6 +434,34 @@ yalnız `TS_AUTHKEY` eksikse *"Join the tailnet"*'te. Dördü **birlikte** taş�
 adımda düşer. Her durumda düşüş ilk küme çağrısından önce olur — **küme değişmez**. Bu
 yüzden satır bugün `deploy.yml`'e **eklenmedi**: taşıma, silme ve satır aynı turda yapılır.
 
+**(c′) Deploy'u ne tetikler — ve neyin tetikleyemediği (backlog T140, 2026-10-19).**
+`deploy.yml` yalnız iki yoldan koşar: (1) `ci`'nin **yeşil** bitmiş, **bu deponun `main`
+dalına yapılmış bir push**'la başlamış koşusu; (2) Actions → `deploy` → **Run workflow**,
+*Use workflow from* = **`main`** (yazma yetkisi gerekir). İşin `if:`'i dört koşulun dördünü
+de ister (`conclusion == success`, `event == push`, `head_repository == bu depo`,
+`head_branch == main`) ve ilk adım (*"Gate — this run was triggered by a push to this
+repository's main"*) aynısını bash'te, checkout'tan önce yeniden ölçer; tutmazsa koşu
+**kırmızı** biter (atlanmış değil), hiçbir şey build edilmez, kümeye dokunulmaz. Elle
+koşuda başka bir dal seçilirse aynı kapı reddeder — `workflow_dispatch` o dalın HEAD'ini
+(`github.sha`) deploy ederdi. **Kapanan delik:** `branches: [main]` süzgeci tetikleyen
+koşunun **`head_branch`** adına bakar; bir fork'un kendi `main` dalından açılan PR'ın
+`pull_request` koşusu da `main` adını taşır, yeşil biterse eskiden deploy onun `head_sha`'sını
+(fork'un kodunu) depo secret'larıyla build ederdi. Pin: `cmd/tappa`
+`TestPackaging_TheDeployRunsOnlyForAPushToThisRepositorysMain` (tetikleyiciler, `if:`, kapının
+yeri, hiçbir `run:` gövdesinde `${{ }}` yok) ve
+`TestDeployTrigger_TheGateAcceptsOnlyAPushToMainOrAManualRunFromMain` (kapının gövdesi
+koşulur). **Depo ayarı (geçici, kod düzeltmesinden önce yapıldı):** Settings → Actions →
+*Fork pull request workflows* = **bütün dış katkıcılar için onay** — fork PR'larının
+workflow'u onaysız koşmaz. Kod düzeltmesi indikten sonra da **açık bırakılması önerilir**
+(kuşak + kemer; fork PR'ı zaten secret'sız koşar, ama onay CI dakikasını ve
+`pull_request` yüzeyini de korur). **Kalan sınır [yazma yetkisi; ölçülmedi]:** `ci`
+`on: push` etiketlerde de koşar ve bir etiket koşusunun `head_branch`'i etiketin adıdır;
+depoya yazabilen biri `main` adında bir **etiket** push'larsa dört koşulun dördü de tutabilir.
+Bu yeni bir yetki vermez (dal koruması yoksa yazma yetkisi zaten `main`'e push demektir) ve
+(c)'deki Environment bunu **kapatmaz** — `workflow_run` koşusunun ref'i her zaman `main`'dir.
+Kapanışı ya bir etiket kuralı (Settings → Rules: `main` adlı etiket yasak) ya da kapıda
+`head_sha`'nın `main`'in ucu olduğunun ölçülmesidir (backlog T140).
+
 **(d) İlk deploy'da ölçülecekler (T134'ün kapanış ölçüsü).** `main`'deki ilk deploy
 koşusunun log'unda ve Tailscale yönetim konsolunda:
 
