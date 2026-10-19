@@ -572,6 +572,15 @@ goose_down() {
 # Sevk edilen 59 migration'da ciktinin BAYT BAYT ayni kaldigi olculdu: her yeni kural
 # yalniz bugunku agacta gecmeyen bir yazimda fark eder.
 # Kirmizi vakalar: cmd/tappa TestRedline_T137_TheLexerReadsWhatPostgresReads.
+#   · fix1 (2026-10-19) -- DIZE DEVAMI. Bir dize kapandiktan sonra YALNIZ bosluk (\t \f \v
+#     dahil) ve `--` yorumu gelir, aralarinda en az bir satir sonu (\n ya da \r) olur ve yeni
+#     bir `'` acilirsa PostgreSQL AYNI dizeyi AYNI kipte surdurur (olculdu, 17: `SELECT E'a'` +
+#     satir sonu + `'\''` -> `a'`; blok yorumu araya girerse devam YOKTUR, sozdizimi hatasi).
+#     Ayirici devam eden parcayi duz dize sayiyordu: `\'` onu kapatmiyor sanildi ve arkasindaki
+#     GRANT dizenin icinde kaldi (exit 0, has_table_privilege t). Artik `pend`/`pnl` devami
+#     modeller; sevk edilen agacta 23 duz-dize devami var (hepsi COMMENT ON metni) ve ciktilari
+#     degismedi. E/U& dizesinin devami ayrica R5b FAIL'dir (asagida, sql_scan'in `econt`'u).
+#     Kirmizi vakalar: TestRedline_T137_AStringContinuesAfterALineBreak.
 #
 # SINIRLAR (sayili, yanlis-NEGATIF): (1) `standard_conforming_strings = off` ile duz
 # `'…'` dizesi de `\'` kacisini tasir; ayirici bunu modellemez, onun yerine R5b o adi
@@ -582,11 +591,19 @@ goose_down() {
 sql_lex() {
   LC_ALL=C awk '
     function idch(ch) { return ch != "" && ch ~ /[A-Za-z0-9_$\200-\377]/ }
-    BEGIN { m = ""; depth = 0; tag = "" }
+    BEGIN { m = ""; depth = 0; tag = ""; pend = ""; pnl = 0 }
     {
       line = $0; out = ""; i = 1; n = length(line); prev = " "; pp = " "
       while (i <= n) {
         c = substr(line, i, 1); c2 = substr(line, i, 2)
+        # Dize DEVAMI (fix1): kapanan bir dizeden sonra yalniz bosluk ve `--` yorumu, aralarinda en az
+        # bir satir sonu, sonra `\047` -> AYNI dize, AYNI kipte surer (E kipinin `\\` kacisi dahil).
+        if (pend != "" && m == "") {
+          if (c == " " || c == "\t" || c == "\f" || c == "\v") { out = out c; pp = prev; prev = c; i++; continue }
+          if (c == "\r") { pnl = 1; out = out c; pp = prev; prev = c; i++; continue }
+          if (c == "\047" && pnl) { m = pend; pend = ""; out = out c; i++; continue }
+          if (c2 != "--") pend = ""
+        }
         if (m == "b") {
           if (c2 == "*/") { depth--; i += 2; if (depth == 0) m = "" }
           else if (c2 == "/*") { depth++; i += 2 }
@@ -605,7 +622,7 @@ sql_lex() {
             nx = substr(line, i + 1, 1)
             out = out c ((nx == ";") ? "\001" : nx); i += 2
           } else if (c == q && substr(line, i + 1, 1) == q) { out = out c c; i += 2 }
-          else if (c == q) { m = ""; out = out c; i++; prev = c; pp = " " }
+          else if (c == q) { if (m != "q") { pend = m; pnl = 0 }; m = ""; out = out c; i++; prev = c; pp = " " }
           else { out = out ((c == ";") ? "\001" : c); i++ }
           continue
         }
@@ -621,6 +638,7 @@ sql_lex() {
         if (c == "\"") { m = "q"; out = out c; i++; continue }
         out = out c; pp = prev; prev = c; i++
       }
+      if (pend != "") pnl = 1
       print out
     }'
 }
@@ -880,6 +898,16 @@ r5b_00058_shape() {
 #                              ifadesindeki duz dize, `''` cozulmus) ve `escaped` (ayni yerde bir
 #                              `E'…'`/`U&'…'` dizesi -- kacislari bir harf yazabilir, yani metni
 #                              govde olarak OKUNAMAZ; kodu yerine ham metin basilir).
+#   pin<TAB><tur><TAB><metin>  her `body` kaydinin pin metni: kodu ARTI dize iceriklerini tasir
+#                              (R5B_BODY_DDL'nin sha256'si bunlarin ozetidir -- fix1);
+#   setcfg<TAB><ad|!>          her `set_config` cagrisi: ilk arguman tek bir duz dize ise o ad
+#                              (kucuk harf), degilse `!` (ust duzeyde ve her govdede -- fix1);
+#   econt<TAB><n>              E/U& dizesinin satir sonundan sonraki DEVAMI sayisi (fix1);
+#   uident<TAB><n>             `U&"…"` tanimlayicisi sayisi (fix1);
+#   qsettings<TAB>1            tirnakli `"pg_settings"` tanimlayicisi (kodda `"i"` olur, fix1).
+# Dize devami (bkz. sql_lex) burada da modellenir: devam eden parcalar TEK bir dize olarak
+# birlestirilir, yani `DO 'BEGIN EXEC'` + satir sonu + `'UTE …'` govdesi `BEGIN EXECUTE …` okunur
+# (PostgreSQL'in kostugu metin; olculdu). `COMMENT ON … IS $$…$$` govde sayilmaz (yorum metnidir).
 # <kod> = yorumlar atilmis; her dize, dolar dizesi ve tirnakli tanimlayici bir yer tutucuyla
 # ('s', $s$, "i") degistirilmis; kucuk harf; tek bosluk. Yani bir govdenin `-- execute` yorumu ya
 # da `has_function_privilege(…, 'EXECUTE')` dizesi kod DEGILDIR, `EXECUTE 'GRANT …'` ise koddur
@@ -892,7 +920,7 @@ sql_scan() {
     function push(k, v) { nseg++; segk[nseg] = k; segv[nseg] = v }
     # lex(s) -> segk/segv: c (kod), s (duz dize, `\047\047` cozulmus), x (E/U& dizesi, ham),
     # d (dolar dizesi), q (tirnakli tanimlayici). Yorum kodda bir bosluk olur.
-    function lex(s,   i, n, c, c2, m, d, t, prev, pp, cur, q) {
+    function lex(s,   i, n, c, c2, m, d, t, prev, pp, cur, q, j, nl, ch) {
       nseg = 0; cur = ""; i = 1; n = length(s); m = ""; prev = " "; pp = " "
       while (i <= n) {
         c = substr(s, i, 1); c2 = substr(s, i, 2)
@@ -912,7 +940,22 @@ sql_scan() {
           q = (m == "q") ? "\"" : "\047"
           if (m == "e" && c == "\\") { cur = cur c substr(s, i + 1, 1); i += 2 }
           else if (c == q && substr(s, i + 1, 1) == q) { cur = cur c; i += 2 }
-          else if (c == q) { push((m == "e" || m == "u") ? "x" : m, cur); cur = ""; m = ""; i++; prev = c; pp = " " }
+          else if (c == q) {
+            # Dize DEVAMI (sql_lex ile ayni): bosluk/`--` yorumu + en az bir satir sonu + `\047` ->
+            # ayni dize, ayni kip; parcalar BIRLESTIRILIR (PostgreSQL bu metni kosar).
+            if (m != "q") {
+              j = i + 1; nl = 0
+              while (j <= n) {
+                ch = substr(s, j, 1)
+                if (ch == " " || ch == "\t" || ch == "\f" || ch == "\v") j++
+                else if (ch == "\n" || ch == "\r") { nl = 1; j++ }
+                else if (substr(s, j, 2) == "--") { while (j <= n && substr(s, j, 1) != "\n" && substr(s, j, 1) != "\r") j++ }
+                else break
+              }
+              if (nl && substr(s, j, 1) == "\047") { if (m != "s") necont++; i = j + 1; continue }
+            }
+            push((m == "e" || m == "u") ? "x" : m, cur); cur = ""; m = ""; i++; prev = c; pp = " "
+          }
           else { cur = cur c; i++ }
           continue
         }
@@ -928,7 +971,10 @@ sql_scan() {
           else m = "s"
           i++; continue
         }
-        if (c == "\"") { push("c", cur); cur = ""; m = "q"; i++; continue }
+        if (c == "\"") {
+          if (prev == "&" && (pp == "u" || pp == "U")) nuid++
+          push("c", cur); cur = ""; m = "q"; i++; continue
+        }
         cur = cur c; pp = prev; prev = c; i++
       }
       # Kapanmamis bir kapsam (dosya sonunda acik dize/govde) KOD sayilir: PostgreSQL onu
@@ -936,19 +982,45 @@ sql_scan() {
       push("c", cur)
     }
     function norm(s) { s = tolower(s); gsub(/[ \t\n\r\f\v]+/, " ", s); sub(/^ /, "", s); sub(/ $/, "", s); return s }
-    function code_of(s,   k, o) {
-      lex(s); o = ""
+    # cfgscan -- son lex() sonucundaki her `set_config` cagrisi icin bir `setcfg` kaydi: ilk arguman TEK bir duz
+    # dize sabitiyse onun kucuk harfli metni, degilse `!` (birlestirme, degisken, E-dizesi, dolar
+    # dizesi, tirnakli `"set_config"` -- hepsi). PostgreSQL ayar adini buyuk/kucuk harf duyarsiz okur.
+    function cfgscan(   k, v, r, b, a, w) {
+      w = "[ \t\n\r\f\v]*"
       for (k = 1; k <= nseg; k++) {
-        if (segk[k] == "c") o = o segv[k]
-        else if (segk[k] == "d") o = o " $s$ "
+        if (segk[k] == "q" && segv[k] == "set_config") { print "setcfg\t!"; continue }
+        if (segk[k] == "q" && segv[k] == "pg_settings") { print "qsettings\t1"; continue }
+        if (segk[k] != "c") continue
+        v = tolower(segv[k])
+        while (match(v, /set_config/)) {
+          b = (RSTART > 1) ? substr(v, RSTART - 1, 1) : " "
+          a = substr(v, RSTART + 10); v = a
+          if (idch(b) || idch(substr(a, 1, 1))) continue
+          if (a ~ ("^" w "[(]" w "$") && segk[k + 1] == "s" && segk[k + 2] == "c" && segv[k + 2] ~ ("^" w ",")) {
+            r = tolower(segv[k + 1]); gsub(/[\t\n\r]/, " ", r); print "setcfg\t" r
+          } else print "setcfg\t!"
+        }
+      }
+    }
+    # code_of -- govdenin KODU (dizeler yer tutucuda). Yan urun PIN: ayni govdenin kodu ARTI her
+    # dizenin, dolar dizesinin ve tirnakli tanimlayicinin ICERIGI (tur + uzunluk + metin; yorumlar
+    # haric) -- R5B_BODY_DDL pini bunun ozetidir, yani pinli bir govdede bir dize sabiti degisince
+    # de pin bozulur (fix1).
+    function code_of(s,   k, o, v) {
+      lex(s); cfgscan(); o = ""; PIN = ""
+      for (k = 1; k <= nseg; k++) {
+        if (segk[k] == "c") { o = o segv[k]; PIN = PIN " " norm(segv[k]) " "; continue }
+        if (segk[k] == "d") o = o " $s$ "
         else if (segk[k] == "q") o = o " \"i\" "
         else o = o " \047s\047 "
+        v = segv[k]; gsub(/\n/, "\001", v); gsub(/\t/, "\002", v); gsub(/\r/, "\003", v)
+        PIN = PIN segk[k] length(segv[k]) ":" v
       }
       return norm(o)
     }
     { all = all $0 "\n" }
     END {
-      lex(all)
+      lex(all); cfgscan()
       for (k = 1; k <= nseg; k++) { K[k] = segk[k]; V[k] = segv[k] }
       N = nseg; stmt = ""
       for (k = 1; k <= N; k++) {
@@ -961,18 +1033,23 @@ sql_scan() {
           }
           stmt = stmt rest
         } else if (K[k] == "d") {
-          print "body\tdollar\t" code_of(V[k]); stmt = stmt " $s$ "
+          # `COMMENT ON … IS $$…$$` bir govde degil, bir yorumun METNIDIR: hicbir sey onu kosmaz (fix1;
+          # icindeki "drop"/"alter" sozcukleri yanlis pozitifti).
+          if (norm(stmt) !~ /^comment on /) { print "body\tdollar\t" code_of(V[k]); print "pin\tdollar\t" PIN }
+          stmt = stmt " $s$ "
         } else if (K[k] == "q") {
           stmt = stmt " \"i\" "
         } else {
           if (norm(stmt) ~ /^(do|create (or replace )?(function|procedure))([^a-z0-9_$]|$)/) {
-            if (K[k] == "s") print "body\tquoted\t" code_of(V[k])
+            if (K[k] == "s") { print "body\tquoted\t" code_of(V[k]); print "pin\tquoted\t" PIN }
             else print "body\tescaped\t" norm(V[k])
           }
           stmt = stmt " \047s\047 "
         }
       }
       if (norm(stmt) != "") print "top\t" norm(stmt)
+      if (necont) print "econt\t" necont
+      if (nuid) print "uident\t" nuid
     }' "$1"
 }
 
@@ -989,7 +1066,9 @@ for h in "sha256sum" "shasum -a 256"; do
 done
 
 # R5B_BODY_DDL -- GOVDESINDE DDL KODU OLAN sevk edilmis migration'lar (T137, 2026-10-19), her biri
-# sql_scan'in `body` kayitlarinin sha256'siyla. Dokuzu da ayni sekildir: operator yuzeyinin
+# sql_scan'in `pin` kayitlarinin sha256'siyla (fix1: govdenin kodu ARTI dize iceriklerinin -- yalniz
+# yorumlar disarida; ilk hali dizeleri `'s'`ye indiriyordu ve pinli bir govdede bir dize sabiti
+# degisince yalniz WARN kaliyordu). Dokuzu da ayni sekildir: operator yuzeyinin
 # `operator_audit_log` / `operator_read_tickets` CHECK kisitlarini (`*_kind_check`, `*_actor_shape`)
 # kosullu yeniden kuran bir DO blogu (`IF EXISTS (…) THEN ALTER TABLE public.… ADD CONSTRAINT …
 # NOT VALID; ELSE ALTER TABLE public.… ADD CONSTRAINT …; END IF`) -- statik, tablo adi yazili,
@@ -999,16 +1078,22 @@ done
 # da `has_function_privilege(…, 'EXECUTE')` dizesinde). Bir migration deploy olunca degismez
 # (CLAUDE.md §3), pin de degismez; YENI bir satir yalniz govdesi okunup gerekcesi yazilarak eklenir.
 R5B_BODY_DDL='
-00027_move_legal_publishing_to_the_operator.sql 6b72158af68dac609a68a8cae3e7e878c76014f42535599c371f15f93c9b829c
-00029_read_tenants_from_the_operator.sql f808a70a89719e3cf2165c4c6a9df1fd84cd1b4626cd1b96ec242f8a7dab4304
-00030_read_plaques_from_the_operator.sql 43723497138575b48737a480bbb06602285fd4a4343678e35d87d532aa2443d8
-00031_read_the_operator_audit_log.sql 5c8bd079165403f3bdc2e4165b0605993f282783f02c53d361193410cca9476c
-00032_read_billing_from_the_operator.sql 8bf637df26493412490d4ba8354741550e6f0d0c9d5a1618ab3fb57b26e9ff1f
-00033_audit_opadmin_actions.sql 61cf9206a24a508c9758629e92501a22900023efd83f684a967f1ec8993c8d91
-00034_recheck_a_tenants_vat_from_the_operator.sql 8f7ec66513c2ba0a54d014904b7100726e04beed9e54d68ba8baf3ca6f4018b8
-00039_open_the_api_from_the_operator.sql 3ca9f163bb479aba10b66a9f2794285e761ab5cd67da737158ade434c0669400
-00042_put_holdings_on_the_operator_surface.sql 6f7a3ac530f0eea8bea3fb7aa482d9168d87d35f96391d6dfc75d90baa316e1b
+00027_move_legal_publishing_to_the_operator.sql ff642e7342eea75e9bd9e5a1f565ed86236a67bce4df45224a1f076ba82d6515
+00029_read_tenants_from_the_operator.sql 40dfbcc6552251d0262e558bafe6b232c9002f5aafa380ffd11dc05310258d1b
+00030_read_plaques_from_the_operator.sql c1799984dc7fee4729ebc671df19142bf538d1b0faf7023e1568cb1e34876387
+00031_read_the_operator_audit_log.sql 57210c7a9626b265ba1d34f5d51dd1fa549d2b42114a4b8995d7bcc68b5449ca
+00032_read_billing_from_the_operator.sql b66cd1fe990738486ec79f79059cdc87a4cbe4fb18d4b22b7591b5dfe7f85dff
+00033_audit_opadmin_actions.sql bdb16693f87408653d97f73f40cfa368d1cb93a17c53085f30a2d5d2e44c6b03
+00034_recheck_a_tenants_vat_from_the_operator.sql acff23b7eb25471c2cef5c005e0341687b02e21a165a7770259fcb3352e28fcb
+00039_open_the_api_from_the_operator.sql 2e0f577c880f6814c057d7477e275b1b90ae4596c9492a99799569d49b3f71b7
+00042_put_holdings_on_the_operator_surface.sql ebcf1ce2ebe977910e25255dfb91915d7d336b84c808fda722c79031133130a5
 '
+
+# R5B_SET_CONFIG -- bir migration'in `set_config` ile kurabilecegi ayarlar (fix1, 2026-10-19). Sevk
+# edilen agacin yedi adi (olculdu: 00048 `app.tenant_id`, 00049 `tappa.feed_counters`, 00050
+# planlayici ve zaman asimi ayarlari); hicbiri dize ayirimini, rolu ya da RLS'i degistirmez. Yeni bir
+# ad yalniz okunup gerekcesi yazilarak eklenir.
+R5B_SET_CONFIG="app.tenant_id enable_bitmapscan enable_seqscan enable_sort jit lock_timeout tappa.feed_counters"
 
 for f in db/migrations/*.sql; do
   [[ -e $f ]] || continue
@@ -1267,6 +1352,11 @@ for f in db/migrations/*.sql; do
   #   govde · `standard_conforming_strings`/`backslash_quote` · goose ENVSUB; ve ayiricinin
   #   `E'…'`, adlandirilmis dolar tirnagi, `"…"` tanimlayicisi, ic ice blok yorumu ve
   #   tanimlayici icindeki `$` sinirlari (bkz. sql_lex).
+  #   T137 fix1 (2026-10-19): dize DEVAMI iki ayiricida (satir sonundan sonra `'` ile suren dize ayni
+  #   kipte surer; DO govdesi birlestirilmis metniyle okunur) ve E/U& dizesinin devami FAIL ·
+  #   `set_config`in ayar adi tek bir duz sabit ve R5B_SET_CONFIG'de olmali · `pg_settings`, `SET
+  #   NAMES`, `client_encoding`, `U&"…"` tanimlayicisi FAIL · R5B_BODY_DDL pini dize iceriklerini de
+  #   kapsar · `COMMENT ON … IS $$…$$` govde degildir (yanlis pozitif kapandi).
   #
   # ⚠️ VE BU LISTE 3. TURDA FAZLA SEY IDDIA EDIYORDU. `(true)` "kapatildi" diye
   # yaziliydi; olculdu ki `USING(true)` — o dortlunun ILKI, yalnizca boslugu
@@ -1274,6 +1364,15 @@ for f in db/migrations/*.sql; do
   # tasiyan sey bir cumle degil, o adim.
   #
   # KAPATILAMAYANLAR, ADIYLA (bu kural ne kadar genisletilirse genisletilsin):
+  #   · AYIRICININ KENDISI. sql_lex/sql_scan PostgreSQL'in sozcuk kurallarinin bir MODELIDIR; T137
+  #     uc turda modelin uc kez yanlis okundugunu olctu (E'' kacisi, dize devami, birlestirilmis
+  #     ayar adi) ve her seferinde PostgreSQL'in kostugu bir GRANT redline'a gorunmedi. Modelin
+  #     disinda kalan bir yazim (bilinmeyen bir dize kipi, dize ayirimini degistiren baska bir
+  #     ayar, migration disinda bir rolde/veritabaninda onceden kurulmus `ALTER ROLE … SET`) yine
+  #     kacabilir. KALICI AG bu yuzden metinde degil veritabanindadir: internal/db
+  #     TestPrivCatalog_TheWholeCatalogueIsTheAllowlist zincir kostuktan sonra public'in TUM yetki
+  #     katalogunu (her tablo/sutun/dizi/fonksiyon/sema, PUBLIC dahil her rol, ENABLE/FORCE, sahip)
+  #     tek bir izin listesiyle birebir karsilastirir -- ayiricidan bagimsiz (T137 fix1);
   #   · dinamik SQL'in ICERIGI — `EXECUTE format('ALTER TABLE %I NO FORCE …', t)`; ifade
   #     calisma aninda kurulur, dosyada hicbir yerde yazmaz. T137'den beri (2026-10-19)
   #     `EXECUTE`'un KENDISI bir migration govdesinde FAIL'dir (R5B_BODY_DDL disinda), ama
@@ -1770,7 +1869,7 @@ for f in db/migrations/*.sql; do
   if [[ -n $hits ]]; then
     pin=$(awk -v n="$(basename "$f")" '$1 == n && $2 ~ /^[0-9a-f]+$/ && length($2) == 64 { print $2 }' <<<"$R5B_BODY_DDL")
     # shellcheck disable=SC2086 # SHA256_TOOL bilerek bolunur
-    got=$([[ -n $SHA256_TOOL ]] && printf %s "$bodies" | $SHA256_TOOL | cut -c1-64)
+    got=$([[ -n $SHA256_TOOL ]] && grep -E $'^pin\t' <<<"$scan" | $SHA256_TOOL | cut -c1-64)
     if [[ -z $pin ]]; then
       rls_mutations+="$f: GOVDEDE dinamik SQL / DDL kodu ($hits) yeni bir migration'da — inceleme + R5B_BODY_DDL'ye (dosya + sha256) ekleme gerekir"$'\n'
     elif [[ -z $got || $got != "$pin" ]]; then
@@ -1789,8 +1888,42 @@ for f in db/migrations/*.sql; do
     [[ -n $s ]] || continue
     rls_mutations+="$f: KACISLI dize GOVDE (E'…'/U&'…' bir DO/fonksiyon govdesi) — kod olarak okunamaz → ${s:0:110}"$'\n'
   done < <(grep -E $'^body\tescaped\t' <<<"$bodies" | cut -f3- || true)
-  if grep -qE 'standard_conforming_strings|backslash_quote' <<<"$(sql_lex <"$f" | tr '[:upper:]' '[:lower:]')"; then
-    rls_mutations+="$f: standard_conforming_strings/backslash_quote — dize ayirimini degistirir, sql_lex onu modellemez"$'\n'
+  if grep -qE 'standard_conforming_strings|backslash_quote|client_encoding' <<<"$(sql_lex <"$f" | tr '[:upper:]' '[:lower:]')"; then
+    rls_mutations+="$f: standard_conforming_strings/backslash_quote/client_encoding — dize ayirimini degistirir, sql_lex onu modellemez"$'\n'
+  fi
+  # (5) AYAR ADI ADIYLA YAZILMALI (fix1). Yukaridaki kural adi metinde arar; `set_config('standard_' ||
+  # 'conforming_strings', 'off', true)` adi hicbir yerde yazmadan ayni seyi yapar (olculdu: ardindan
+  # gelen `'x\''` duz dizesi PostgreSQL'de kapanir, ayiricida kapanmaz ve arkasindaki GRANT dizenin
+  # icinde kalir -- exit 0, has_table_privilege t). Uc kapi, ucu de sql_scan'in kodundan (ust duzey ve
+  # her govde): (a) `set_config`in ilk argumani TEK bir duz dize sabiti olmali VE R5B_SET_CONFIG'de
+  # olmali -- sevk edilen agacta kurulan yedi ad (olculdu: 59 migration'da 9 cagri, yedi ad); (b)
+  # `pg_settings` (UPDATE'i set_config'tir ve adi bir WHERE dizesinden okur) ve `SET NAMES`
+  # (client_encoding'in esanlamlisi) kodda gecemez; (c) `U&"…"` tanimlayicisi gecemez -- kacislari
+  # bir ayar adini (`SET U&"standard\005fconforming_strings"`) metinde gorunmeden yazar. SET / SET
+  # LOCAL / ALTER … SET / RESET / fonksiyonun SET cumlesi ayar adini bir TANIMLAYICI olarak alir:
+  # birlestirilemez, yani yukaridaki ad kurali onlari zaten okur. Bedel olculdu: 0 isabet.
+  while IFS=$'\t' read -r _ name; do
+    [[ -n $name ]] || continue
+    if [[ $name == "!" ]]; then
+      rls_mutations+="$f: set_config — ayar adi TEK bir duz dize sabiti degil (birlestirme, degisken, E/dolar dizesi): hangi ayari kurdugu okunamaz"$'\n'
+    elif [[ " $R5B_SET_CONFIG " != *" $name "* ]]; then
+      rls_mutations+="$f: set_config — '$name' R5B_SET_CONFIG listesinde degil (inceleme + listeye ekleme gerekir)"$'\n'
+    fi
+  done < <(grep -E $'^setcfg\t' <<<"$scan" || true)
+  if grep -qE $'^qsettings\t' <<<"$scan" ||
+    grep -E $'^(top|body\t[a-z]+)\t' <<<"$scan" | grep -qE '(^|[^a-z0-9_$])(pg_settings|set (local |session )?names)([^a-z0-9_$]|$)'; then
+    rls_mutations+="$f: pg_settings / SET NAMES kodda — bir ayari adini yazmadan degistirir"$'\n'
+  fi
+  if grep -qE $'^uident\t' <<<"$scan"; then
+    rls_mutations+="$f: U&\"…\" tanimlayicisi — kacislari bir adi (ayar, rol, tablo) metinde gorunmeden yazar"$'\n'
+  fi
+  # (6) KACISLI DIZENIN DEVAMI (fix1). PostgreSQL bir dizeden sonra YALNIZ bosluk/`--` yorumu ve en az
+  # bir satir sonu gelip yeni bir `'` aciliyorsa AYNI dizeyi surdurur, AYNI kipte: `E'a'` + yeni satir
+  # + `'\''` tek bir E dizesidir ve `\'` onu kapatmaz. Iki ayirici bunu artik modelliyor (sql_lex,
+  # sql_scan; duz dizenin devami sevk edilen agacta 23 kez, hepsi COMMENT ON metni); ama E/U& dizesinin
+  # devami 0 kez ve tek isi okuyani yaniltmak -- FAIL.
+  if grep -qE $'^econt\t' <<<"$scan"; then
+    rls_mutations+="$f: KACISLI dizenin DEVAMI (E'…'/U&'…' bir satir sonundan sonra yeni bir '…' ile surer, kacislar devam eden parcada da gecerli)"$'\n'
   fi
   # goose'un ENVSUB'u `${VAR}`i calisma aninda ortamdan yerlestirir: metin dosyada YAZMAZ (`\i`
   # sinifi). Annotasyon bir yorum satiridir, yani ham dosyadan okunur. Bedel: 0 isabet.

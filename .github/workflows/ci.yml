@@ -112,14 +112,21 @@ jobs:
           # kart adim 1).
           cache: true
 
-      - name: Install ripgrep
+      - name: Install ripgrep and three awks
         # redline-check.sh `rg` yoksa taramayi SESSIZCE atlar ve yanlis guven
         # verir (scripts/redline-check.sh:21-25 — have_rg yoksa exit 0). Kur ve
         # kurulu oldugunu KANITLA (`rg --version` adimin kendisidir).
+        # T137 fix1: redline'in iki SQL ayiricisi awk programidir ve awk makineye
+        # gore degisir (macOS BSD, Ubuntu tabani mawk). Ilk satir runner'in KENDI
+        # awk'ini kurulumdan ONCE yazar (olcum); gawk + mawk + original-awk
+        # cmd/tappa TestRedline_TheLexersReadTheSameUnderEveryAwk'in uc aileyi bayt
+        # bayt karsilastirmasi icindir (gawk kurulunca `awk` gawk olur).
         run: |
+          echo "runner awk before install: $(readlink -f "$(command -v awk)")"; awk -W version 2>/dev/null | head -1 || true
           sudo apt-get update
-          sudo apt-get install -y ripgrep
+          sudo apt-get install -y ripgrep gawk mawk original-awk
           rg --version
+          for a in awk gawk mawk original-awk; do printf '%s -> %s\n' "$a" "$(readlink -f "$(command -v "$a")")"; done
 
       - name: Fetch Tailwind CLI (make tools)
         # Node'suz standalone ikili; surum Makefile'da pinli (TAILWIND_VERSION).

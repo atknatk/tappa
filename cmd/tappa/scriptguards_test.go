@@ -934,12 +934,25 @@ func TestRedline_TheCounterSetMarkIsTheTriggersAlone(t *testing.T) {
 		}
 		return string(out), code
 	}
+	// T137 fix1: R5b reads a set_config's name as PostgreSQL does -- case-insensitively and nothing
+	// more -- against R5B_SET_CONFIG. The three spellings PostgreSQL accepts are on the list (exit 0);
+	// the three it refuses ("invalid configuration parameter name", measured on 17) are not, so in a
+	// migration they are an R5b FAIL. Neither is ever R5c: inside db/migrations the mark is the
+	// triggers' own.
 	migration := ""
-	for _, sp := range spellings {
+	for _, sp := range spellings[:3] {
 		migration += mark(sp)
 	}
 	if out, code := run(map[string]string{"db/migrations/00099_x.sql": migration}); strings.Contains(out, "R5c") || code != 0 {
-		t.Errorf("every spelling in a migration is the triggers' own -- exit %d, R5c fired:\n%s", code, out)
+		t.Errorf("every spelling PostgreSQL accepts, in a migration, is the triggers' own -- exit %d, R5c fired:\n%s", code, out)
+	}
+	migration = ""
+	for _, sp := range spellings[3:] {
+		migration += mark(sp)
+	}
+	if out, _ := run(map[string]string{"db/migrations/00099_x.sql": migration}); strings.Contains(out, "R5c") ||
+		strings.Count(failSection(out, "R5b"), "R5B_SET_CONFIG listesinde degil") != 3 {
+		t.Errorf("the spellings PostgreSQL refuses, in a migration: want three R5b set_config FAILs and no R5c:\n%s", out)
 	}
 	files := map[string]string{}
 	for i, sp := range spellings {

@@ -170,8 +170,9 @@ func TestRedline_T137_StringAndEnvironmentSwitches(t *testing.T) {
 
 // TestRedline_T137_TheBodyWhitelistIsPinned: the nine shipped migrations whose bodies hold static
 // DDL are an R5b WARN, each by name; the whole shipped tree exits 0 with no R5b FAIL (so the 40-odd
-// `REVOKE … FROM PUBLIC` and every shipped body stay green). A pinned file whose body code changes,
-// and a copy of one under a new name, are FAILs; a comment inside a pinned body is not code.
+// `REVOKE … FROM PUBLIC` and every shipped body stay green). A pinned file whose body code -- or,
+// since fix1, a string constant inside the body -- changes, and a copy of one under a new name, are
+// FAILs; a comment inside a pinned body is not code.
 func TestRedline_T137_TheBodyWhitelistIsPinned(t *testing.T) {
 	dir := filepath.Join(repoRoot, "db", "migrations")
 	entries, err := os.ReadDir(dir)
@@ -227,6 +228,8 @@ func TestRedline_T137_TheBodyWhitelistIsPinned(t *testing.T) {
 			strings.Replace(shipped, tail, "'logout'));\n    END IF;\n    -- it's a note: EXECUTE nothing\nEND\n$$;\n", 1), ""},
 		{"an RLS switch-off added to the pinned body", name,
 			strings.Replace(shipped, tail, "'logout'));\n    END IF;\n    ALTER TABLE public.transactions DISABLE ROW LEVEL SECURITY;\nEND\n$$;\n", 1), "pinle AYNI DEGIL"},
+		{"a string literal changed inside the pinned body (fix1: the pin holds string contents)", name,
+			strings.Replace(shipped, tail, "'logoff'));\n    END IF;\nEND\n$$;\n", 1), "pinle AYNI DEGIL"},
 		{"an EXECUTE added to the pinned body", name,
 			strings.Replace(shipped, tail, "'logout'));\n    END IF;\n    EXECUTE 'GRANT DELETE ON public.transactions TO tappa_app';\nEND\n$$;\n", 1), "pinle AYNI DEGIL"},
 		{"a second body (a quoted DO) in the pinned file", name,
@@ -248,4 +251,95 @@ func TestRedline_T137_TheBodyWhitelistIsPinned(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRedline_T137_AStringContinuesAfterALineBreak (fix1, ORTA 1 and 2): PostgreSQL continues a
+// string constant when only whitespace -- `--` comments included -- with at least one line break
+// stands between its closing quote and a new `'`, and the continued part keeps the FIRST part's
+// mode: `E'a'` + line break + `'\”` is one E-string, which `\'` does not close (measured on 17:
+// `SELECT E'a'` / `'\”` returns `a'`). Both lexers now continue it; an E/U&-string continuation is
+// an R5b FAIL on top (the shipped tree continues plain strings 23 times, every one a COMMENT ON
+// text, and an escaped one never), and a quoted DO body is read as the joined text PostgreSQL runs.
+func TestRedline_T137_AStringContinuesAfterALineBreak(t *testing.T) {
+	const cont = "KACISLI dizenin DEVAMI"
+	const appendOnly = "append-only tabloya UPDATE/DELETE yetkisi"
+	const body = "GOVDEDE dinamik SQL / DDL kodu"
+	const employees = "GRANT DELETE ON public.employees TO tappa_app;"
+	const grant = "GRANT DELETE ON public.transactions TO tappa_app;"
+	t137Run(t, []t137Case{
+		// The third eye's case, byte for byte: the GRANT on employees is no rule's subject when it is
+		// visible, so the continuation itself is the FAIL.
+		{"the audit's E'' continued (00126)", "SELECT E'a'\n'\\'';\n" + employees + "\nSELECT 'x';", cont},
+		{"a line comment before the line break", "SELECT E'a' -- note\n'\\'';\n" + employees + "\nSELECT 'x';", cont},
+		{"a comment line and a blank line between", "SELECT E'a'\n  -- note\n\n  '\\'';\n" + employees + "\nSELECT 'x';", cont},
+		{"a carriage return is a line break", "SELECT E'a'\r'\\'';\n" + employees + "\nSELECT 'x';", cont},
+		{"a U&'' continued", "SELECT U&'a'\n'b';", cont},
+		// What the lexer now reads: the GRANT after the continued E'' is code.
+		{"the GRANT after a continued E'' is seen", "SELECT E'a'\n'\\'';\n" + grant + "\nSELECT 'x';", appendOnly},
+		// The audit's quoted body (00131) and its neighbours: the body is the joined text.
+		{"the audit's DO body continued (00131)", "DO 'BEGIN EXEC'\n'UTE ''GRANT DELETE ON public.employees TO tappa_app''; END';", body},
+		{"a DO body continued across a comment", "DO 'BEGIN GR' -- split\n'ANT DELETE ON public.transactions TO tappa_app; END';", body},
+		{"a SQL function body continued", "CREATE FUNCTION public.zz_probe() RETURNS void LANGUAGE sql AS 'DR'\n'OP POLICY zz ON public.transactions';", body},
+		// Green: a continued plain string is data (the shipped COMMENT ON shape) and a continued body
+		// with no DDL is a body with no DDL.
+		{"a continued COMMENT ON text", "COMMENT ON COLUMN public.employees.email IS 'grant, drop '\n  'and alter: none of it runs';", ""},
+		{"a harmless continued DO body", "DO 'BEGIN PERFORM 1; '\n'END';", ""},
+		{"two strings on one line are not a continuation", "SELECT E'a\\'b', 'c';", ""},
+	})
+
+	out, code := redlineRun(t, map[string]string{t137File: t137Migration("SELECT E'a'\n'\\'';\n" + grant + "\nSELECT 'x';")})
+	if fail := failSection(out, "R5b"); code == 0 || !strings.Contains(fail, t137File+": "+cont) {
+		t.Fatalf("the continued E'' before a GRANT on transactions: want the continuation FAIL too, got exit %d:\n%s", code, out)
+	}
+}
+
+// TestRedline_T137_ASettingIsNamedByALiteral (fix1, ORTA 3): `set_config('standard_' ||
+// 'conforming_strings', 'off', true)` turns the setting off without its name appearing anywhere
+// (measured: the next `'x\”` then closes in PostgreSQL and not in the lexer, and the GRANT behind it
+// ran -- exit 0). A set_config's first argument must be one plain literal on R5B_SET_CONFIG's list;
+// pg_settings, SET NAMES and a U&"…" identifier (which spells a name with escapes) are FAILs too.
+func TestRedline_T137_ASettingIsNamedByALiteral(t *testing.T) {
+	const notLiteral = "set_config — ayar adi TEK bir duz dize sabiti degil"
+	const switches = "standard_conforming_strings/backslash_quote/client_encoding"
+	const other = "pg_settings / SET NAMES kodda"
+	const uident = "U&\"…\" tanimlayicisi"
+	notListed := func(name string) string { return "set_config — '" + name + "' R5B_SET_CONFIG listesinde degil" }
+	do := func(code string) string { return "DO $$\nBEGIN\n" + code + "\nEND\n$$;" }
+	t137Run(t, []t137Case{
+		{"the audit's concatenated name (00133)", "SELECT pg_catalog.set_config('standard_' || 'conforming_strings', 'off', true);\nSELECT 'x\\'';\n" +
+			"GRANT DELETE ON public.employees TO tappa_app;\nSELECT 'y';", notLiteral},
+		{"a name in a variable, in a body", do("PERFORM pg_catalog.set_config(v_name, 'off', true);"), notLiteral},
+		{"a name as an E-string", "SELECT set_config(E'standard_conforming_strings', 'off', true);", notLiteral},
+		{"a name as a dollar string", "SELECT set_config($n$lock_timeout$n$, '1s', true);", notLiteral},
+		{"a name cast to text", "SELECT set_config('lock_timeout'::text, '1s', true);", notLiteral},
+		{"a quoted \"set_config\"", "SELECT \"set_config\"('lock_timeout', '1s', true);", notLiteral},
+		{"a name continued across lines", "SELECT set_config('standard_'\n'conforming_strings', 'off', true);", notListed("standard_conforming_strings")},
+		{"a literal name off the list", "SELECT set_config('search_path', 'zz, public', false);", notListed("search_path")},
+		{"the name in mixed case", "SELECT set_config('Standard_Conforming_Strings', 'off', true);", switches},
+		{"client_encoding", "SET client_encoding = 'SJIS';", switches},
+		{"SET NAMES", "SET LOCAL NAMES 'SJIS';", other},
+		{"pg_settings", "UPDATE pg_catalog.pg_settings SET setting = 'off' WHERE name = 'standard_' || 'conforming_strings';", other},
+		{"pg_settings in a body", do("UPDATE pg_settings SET setting = 'off' WHERE name = v_name;"), other},
+		{"a quoted \"pg_settings\"", "UPDATE pg_catalog.\"pg_settings\" SET setting = 'off' WHERE name = 'standard_' || 'conforming_strings';", other},
+		{"a U&\"…\" setting name", "SET LOCAL U&\"standard\\005fconforming_strings\" = off;", uident},
+		// Green: the shipped shapes.
+		{"a listed literal at the top", "SELECT pg_catalog.set_config('lock_timeout', '1s', true);", ""},
+		{"listed literals in a body", do("PERFORM pg_catalog.set_config('app.tenant_id', NEW.id::text, true);\n" +
+			"PERFORM set_config ( 'jit' , 'off' , true);"), ""},
+		{"the word in a comment and a string", do("-- set_config(v, 'off') is not called here\nRAISE NOTICE 'set_config(%)', 1;"), ""},
+		{"a column named like it", "SELECT my_set_config FROM public.zz;", ""},
+	})
+}
+
+// TestRedline_T137_ACommentIsNotABody (fix1, DÜŞÜK 7): `COMMENT ON … IS $$…$$` is a comment's
+// text -- nothing runs it -- so its words are not a body's DDL; a real DO beside it still is.
+func TestRedline_T137_ACommentIsNotABody(t *testing.T) {
+	const body = "GOVDEDE dinamik SQL / DDL kodu"
+	const comment = "COMMENT ON FUNCTION public.zz_f() IS $$Do not drop or alter this; create a new one instead.$$;"
+	t137Run(t, []t137Case{
+		{"the audit's COMMENT ON (00105)", comment, ""},
+		{"a named dollar quote", "COMMENT ON TABLE public.employees IS $c$grant nothing; execute nothing$c$;", ""},
+		{"a DO after the comment", comment + "\nDO $$ BEGIN ALTER TABLE public.transactions DISABLE ROW LEVEL SECURITY; END $$;", body},
+		{"a SELECT of a dollar string is still a body", "SELECT $c$ drop $c$;", body},
+	})
 }
