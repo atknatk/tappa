@@ -220,6 +220,7 @@ column holding_members tappa_holdingdefiner UPDATE lock_anchor
 column holding_members tappa_opdefiner INSERT holding_id,member_tenant_id
 column holding_members tappa_opdefiner SELECT holding_id,member_tenant_id,joined_at,left_at
 column holding_members tappa_opdefiner UPDATE left_at
+column holdings tappa_holdingdefiner SELECT id,name
 column holdings tappa_opdefiner INSERT name
 column holdings tappa_opdefiner SELECT id,name,created_at
 column invite_requests tappa_app INSERT tenant_id,employee_id
@@ -293,7 +294,9 @@ function feed_open_counter() owner=tappa_feedwriter definer=true execute=tappa_f
 function holding_advance_tag_counter(character,integer) owner=tappa_holdingdefiner definer=true execute=tappa_app,tappa_holdingdefiner
 function holding_directory(timestamp with time zone,uuid) owner=tappa_holdingdefiner definer=true execute=tappa_app,tappa_holdingdefiner
 function holding_feed() owner=tappa_holdingdefiner definer=true execute=tappa_holdingdefiner
+function holding_group() owner=tappa_holdingdefiner definer=true execute=tappa_app,tappa_holdingdefiner
 function holding_logo(character,text) owner=tappa_holdingdefiner definer=true execute=tappa_app,tappa_holdingdefiner
+function holding_peer(uuid) owner=tappa_holdingdefiner definer=false execute=tappa_holdingdefiner
 function holding_peer(uuid,text) owner=tappa_holdingdefiner definer=false execute=tappa_holdingdefiner
 function holding_peer(uuid,uuid,text) owner=tappa_holdingdefiner definer=false execute=tappa_holdingdefiner
 function holding_site_gate() owner=tappa_holdingdefiner definer=true execute=tappa_holdingdefiner

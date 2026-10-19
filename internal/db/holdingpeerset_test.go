@@ -644,12 +644,16 @@ func TestHolding00060_DownGivesBackAndUpTakesItAgain(t *testing.T) {
 	ctx, tx := opTx(t)
 	up, down := opMigrationSections(t, op00060File)
 	pre := holdingPrecondition(t, op00060File)
-	head := holdingPeerSetSurface(t, ctx, tx)
 	const at55 = "8401897e362b1ae818f67c5fe2272c0c 3778704c97ca47c3bf355af8ff0610ac " + holdingPeerBodyMD5 + " | - | 1"
-	if !strings.Contains(head, holdingPeerSetBodyMD5+" SETOF uuid tappa_holdingdefiner false v tappa_holdingdefiner=X/tappa_holdingdefiner search_path=pg_catalog, pg_temp 10 | 2") {
-		t.Fatalf("PREMISE at HEAD: %s", head)
-	}
+	_, down62 := opMigrationSections(t, op00062File)
 	holdingInSavepoint(t, tx, func(sp pgx.Tx) {
+		// GRP-1: at 00061 -- 00062's roster form is a third holding_peer, which 00060's precondition
+		// refuses by design; this test is about 00060's own surface.
+		opRunSection(t, ctx, sp, down62, "00062 Down")
+		head := holdingPeerSetSurface(t, ctx, sp)
+		if !strings.Contains(head, holdingPeerSetBodyMD5+" SETOF uuid tappa_holdingdefiner false v tappa_holdingdefiner=X/tappa_holdingdefiner search_path=pg_catalog, pg_temp 10 | 2") {
+			t.Fatalf("PREMISE at 00061: %s", head)
+		}
 		opWant(t, holdingNestedRun(t, ctx, sp, pre), sqlstatePrerequisiteState, "00060's precondition at HEAD")
 		opRunSection(t, ctx, sp, down, "00060 Down")
 		if got := holdingPeerSetSurface(t, ctx, sp); got != at55 {
