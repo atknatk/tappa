@@ -6,6 +6,10 @@
 #        scripts/verify-image.sh --migrate <image-ref>                        the migration image
 #        scripts/verify-image.sh --binary-tags prod|sandbox <binary>          criterion 6 alone, on a
 #                                                                             local binary (the test)
+#        scripts/verify-image.sh --access <image-ref>...                      after the push: pullable
+#                                                                             WITH this client's
+#                                                                             credential, refused
+#                                                                             WITHOUT one (OPS-2)
 #
 # 🔴 WHY THIS IS A FILE AND NOT EIGHT LINES INSIDE deploy.yml, which is where it
 # started. The first version lived in the workflow and was WRONG in a way nothing
@@ -44,7 +48,7 @@
 #                                                   the sandbox server, --sandbox, carries it)
 set -euo pipefail
 
-image=${1:?usage: verify-image.sh [--sandbox] <image-ref> <expected-full-sha> | verify-image.sh --migrate <image-ref> | verify-image.sh --binary-tags prod|sandbox <binary>}
+image=${1:?usage: verify-image.sh [--sandbox] <image-ref> <expected-full-sha> | verify-image.sh --migrate <image-ref> | verify-image.sh --binary-tags prod|sandbox <binary> | verify-image.sh --access <image-ref>...}
 
 fail=0
 say()  { printf '  %-52s %s\n' "$1" "$2"; }
@@ -97,6 +101,59 @@ if [[ $image == --binary-tags ]]; then
   judge_tags "$(go version -m "$bin")" "$kind"
   if (( fail )); then echo "verify-image: FAILED" >&2; exit 1; fi
   echo "verify-image: $bin carries the $kind build's tags"
+  exit 0
+fi
+
+# 🔴 --access: THE REGISTRY IS PRIVATE, MEASURED IN BOTH DIRECTIONS (OPS-2). It replaced the
+# deploy's inline "both images must be pullable with NO credential" gate, whose subject was a
+# PUBLIC Docker Hub repository; the images now live in a private Harbor project, so the
+# question has two halves and each is red on its own. For every ref:
+#
+#   WITH the credential this docker client holds (the deploy's `docker login`, the ci robot)
+#     the manifest must come back -- `"schemaVersion"` in the output, not merely exit 0: a
+#     stub that exits 0 and prints nothing was once waved through by the old gate's first
+#     draft (a healthy answer and an empty one are not the same thing). Its output is NOT
+#     printed: it ran with a credential, and an error path is where a client would say more
+#     than it should; the exit code is.
+#   WITHOUT one -- DOCKER_CONFIG pointed at an EMPTY directory, which the CLI reads INSTEAD of
+#     ~/.docker (auths, credsStore and credHelpers alike; the old gate measured it with a
+#     bogus-auth control, and `docker logout` was refused there because it goes through a
+#     credential helper on a developer machine) -- the registry must REFUSE with an
+#     authorization answer: "unauthorized", "denied" or "authentication required". A manifest
+#     is red (the project or the repository is public); any OTHER failure -- no such host, a
+#     timeout, an empty answer, exit 0 with no manifest -- is red too, because it cannot show
+#     that the registry refuses, only that something did not answer. Its output is printed
+#     (three lines): that invocation has no credential store to echo.
+#
+# Exit 0 only if every ref passes both halves; 1 otherwise. The anonymous directory lives in
+# the script's own work dir and is removed on exit.
+if [[ $image == --access ]]; then
+  shift
+  (( $# > 0 )) || { echo "usage: verify-image.sh --access <image-ref>..." >&2; exit 2; }
+  anon="$work/anonymous-docker-config"
+  mkdir "$anon"
+  for ref in "$@"; do
+    rc=0
+    out=$(docker manifest inspect "$ref" 2>&1) || rc=$?
+    if (( rc == 0 )) && [[ $out == *'"schemaVersion"'* ]]; then
+      say "pull WITH the registry credential" "ok: $ref"
+    else
+      bad "$ref is NOT pullable with the credential this job logged in with (docker manifest inspect exit $rc; its output is not shown, it ran with the credential). Check the ci robot's permissions on the project and that the push above went to this name."
+      continue
+    fi
+    rc=0
+    out=$(DOCKER_CONFIG="$anon" docker manifest inspect "$ref" 2>&1) || rc=$?
+    if [[ $out == *'"schemaVersion"'* ]]; then
+      bad "$ref IS pullable WITHOUT a credential (exit $rc): the registry project is public. It must be private (deploy/README.md, operator step 4); nothing has been applied to the cluster."
+    elif [[ $out == *[Uu]nauthorized* || $out == *[Dd]enied* || $out == *"uthentication required"* ]]; then
+      say "pull WITHOUT a credential" "refused: $ref (exit $rc)"
+    else
+      bad "$ref: the anonymous pull failed (exit $rc) but NOT with an authorization refusal, so this run cannot show that the registry refuses anonymous pulls (unreachable? an empty answer?). Last lines:"
+      printf '%s\n' "$out" | tail -3 >&2
+    fi
+  done
+  if (( fail )); then echo "verify-image: FAILED" >&2; exit 1; fi
+  echo "verify-image: $# image(s) pullable with the registry credential and refused without one"
   exit 0
 fi
 

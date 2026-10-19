@@ -161,9 +161,10 @@ jobs:
         # (2026-10-09: two runs in a row failed `make up` with toomanyrequests).
         # mirror.gcr.io serves the same official image without that limit and needs
         # no credential; tagging it as postgres:17-alpine lets compose find it
-        # locally and skip the pull. The Docker Hub token in the repo's secrets is
-        # deliberately NOT used here: it can push the production image, and this
-        # job runs the test code.
+        # locally and skip the pull. No registry credential is used here, on
+        # purpose: the one that can push the production image (the Harbor ci robot,
+        # OPS-2) lives in the `production` environment, which only deploy.yml's job
+        # on main can read -- and this job runs the test code.
         run: |
           docker pull mirror.gcr.io/library/postgres:17-alpine
           docker tag mirror.gcr.io/library/postgres:17-alpine postgres:17-alpine

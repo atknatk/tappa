@@ -10,6 +10,8 @@
 #   scripts/verify-deployment.sh all              [host] [ns] [operator host] [api host]
 #   scripts/verify-deployment.sh kubeconfig-server [host] [port] default: 10.43.0.1 443 (T134)
 #   scripts/verify-deployment.sh tailnet          [host] [port]  default: 10.43.0.1 443 (T134)
+#   scripts/verify-deployment.sh pull-secret      [ns] [name] [registry]
+#                                                 default: tappa harbor-pull registry.everva.com.tr (OPS-2)
 #
 # The two T134 modes are PREFLIGHTS of the deploy's way into the cluster, which is the
 # tailnet (the API's public :6443 is closed): kubeconfig-server reads the written
@@ -34,6 +36,11 @@
 # deploy runs it on its own step, and since OPS-1 `all` runs it too (an operator checking
 # the deployment by hand used to see no line about the API host at all).
 #
+# pull-secret is OPS-2's PREFLIGHT of the registry credential both pod specs name
+# (secret/harbor-pull, the operator's): it exists, is a dockerconfigjson and holds a
+# credential for the registry -- nothing of it printed. The deploy runs it before anything
+# but the namespace is applied, and `all` runs it too.
+#
 # 🔴 THE `pull-credential` MODE WAS REMOVED (M8-02 FAZ D). Its whole subject was
 # `secret/ghcr` -- it printed that Secret's managedFields timestamps beside the server
 # pods' start times so an operator could tell whether a running pod would survive a
@@ -55,6 +62,11 @@
 #   start times) and states the rule: a pod that started BEFORE the newest write cannot
 #   restart. The cure is a fresh, successful deploy.
 #
+#   SINCE OPS-2 the pods pull WITH a credential again (private Harbor, harbor-pull), but
+#   the writer that made the condition live is gone: CI writes no Secret, and harbor-pull
+#   changes only when the operator rotates the robot. deploy/README.md, operator step 4,
+#   says how to rotate so that no running pod needs the old value.
+#
 # 🔴 WHICH OF THE TWO A GIVEN CLUSTER IS IN IS NOT ANSWERED HERE. The single record,
 # with the command that measures it, is deploy/README.md, "Elle deploy / rollback".
 #
@@ -67,7 +79,7 @@
 # embedded in YAML cannot have done to it. Same reasoning as scripts/verify-image.sh.
 set -euo pipefail
 
-mode=${1:?usage: verify-deployment.sh <cloudflare|operator-surface|operator-host|api-host|db-role|all|kubeconfig-server|tailnet> [host] [namespace]}
+mode=${1:?usage: verify-deployment.sh <cloudflare|operator-surface|operator-host|api-host|db-role|all|kubeconfig-server|tailnet|pull-secret> [host] [namespace]}
 
 # CF_OUTCOME records WHICH of the three things happened, because the return code
 # cannot: this gate returns 0 both when the host is clean AND when the name does not
@@ -578,25 +590,33 @@ check_kubeconfig_server() {
   echo "kubeconfig-server: https://${host}:${port} (the tailnet), no proxy, certificate verified against the kubeconfig's CA"
 }
 
-# check_tailnet -- backlog T134. "Join the tailnet" (tailscale/github-action) has run; this
-# measures what came of it, because the properties of TS_AUTHKEY (tagged? ephemeral?) are set
-# when the key is generated and cannot be read from this repository -- only off the device the
-# key produced:
+# check_tailnet -- backlog T134, OPS-2. "Join the tailnet" (tailscale/github-action, OAuth
+# client) has run; it ASKED for tag:ci and an ephemeral device, and this measures what came of
+# it, off the device itself:
 #
 #   UNCHECKED (exit 2)  no tailscale CLI; `tailscale status --json` fails; its output is not a
 #                       JSON object (empty, broken); BackendState is not Running (NeedsLogin,
 #                       absent); no Self.
 #   VIOLATION (exit 1)  Self.Tags is not an array holding the exact string "tag:ci" (absent,
-#                       [], "tag:cix", "tag:CI", " tag:ci", a string instead of an array). An
-#                       untagged key joins the device as the USER who generated it: the
+#                       [], "tag:cix", "tag:CI", " tag:ci", a string instead of an array). A
+#                       device without it joined as a USER (an untagged auth key, say): the
 #                       tailnet ACL's tag:ci rule does not describe it, and whatever that user
 #                       may reach, this runner may reach. A join that "works" that way is the
 #                       failure this gate exists for.
+#                       Or Self.Ephemeral is false (OPS-2). The OAuth path asks for an
+#                       ephemeral device on every run, so a device that says it is not one
+#                       did not join that way, and every such deploy leaves a device behind
+#                       in the tailnet -- with tag:ci's reach. Checked before the TCP probe.
 #                       Or no TCP connection to HOST:PORT in 6 attempts (each bounded by
 #                       `timeout 5`, 5 s apart: a subnet route can land a moment after `up`).
-#   warning             Self.Ephemeral false, or absent -- tailscale v1.94.2's status JSON has
-#                       no such field (ipnstate.PeerStatus, read 2026-10-17), so today it says
-#                       "absent" and the warning says where to look.
+#   warning             Self.Ephemeral absent (or not a boolean). tailscale v1.94.2's status
+#                       JSON has no such field (ipnstate.PeerStatus, read 2026-10-17; the
+#                       first green T134 run printed "ephemeral absent"), so today this is
+#                       the branch every run takes: ephemerality is REQUIRED where it can be
+#                       measured and only warned about where it cannot, and the measurement
+#                       that remains is the admin console after the run (deploy/README.md,
+#                       "OPS-2 kapanış ölçüsü"). Making the absent case red would make every
+#                       deploy red.
 #
 # 🔴 THE STATUS JSON IS NEVER PRINTED, ON ANY BRANCH. It carries the tailnet's user login
 # names -- e-mail addresses (CLAUDE.md §7) -- and this repository's Actions logs are public.
@@ -643,13 +663,16 @@ check_tailnet() {
     return 2
   fi
   if [[ $tagged != yes ]]; then
-    echo "::error::the runner joined the tailnet WITHOUT tag:ci (tags: ${tags}), i.e. as the user who generated TS_AUTHKEY, which the tailnet ACL's tag:ci rule does not describe. Regenerate the auth key with the tag tag:ci (Tailscale admin, Settings, Keys, Generate auth key: reusable, ephemeral, pre-approved, Tags tag:ci) and replace the TS_AUTHKEY secret (deploy/README.md, operator step 5). Nothing in the cluster has been touched." >&2
+    echo "::error::the runner joined the tailnet WITHOUT tag:ci (tags: ${tags}), so the tailnet ACL's tag:ci rule does not describe it. The join asks for tag:ci through the OAuth client (TS_OAUTH_SECRET, tags: tag:ci): check that the client may assign tag:ci and that tagOwners still lists it (deploy/README.md, operator step 5 (a)). Nothing in the cluster has been touched." >&2
     return 1
   fi
   case $eph in
     true) ;;
-    false) echo "::warning::this runner's tailnet device is NOT ephemeral: TS_AUTHKEY was generated without 'Ephemeral', so each deploy may leave a device behind in the admin console. Regenerate it as ephemeral (deploy/README.md, operator step 5)." ;;
-    *) echo "::warning::tailscale status does not report whether this device is ephemeral; check that TS_AUTHKEY was generated as ephemeral (Tailscale admin, Settings, Keys) and that no github-* devices pile up under Machines (deploy/README.md, operator step 5)." ;;
+    false)
+      echo "::error::this runner's tailnet device is NOT ephemeral, so this deploy would leave a tag:ci device behind in the tailnet. The OAuth join always asks for an ephemeral device; a non-ephemeral one means the join did not go through the OAuth client (an auth key in TS_OAUTH_SECRET?). deploy/README.md, operator step 5 (a). Nothing in the cluster has been touched." >&2
+      return 1
+      ;;
+    *) echo "::warning::tailscale status does not report whether this device is ephemeral (tailscale 1.94.2 never does), so it is not checked here; the join asked for an ephemeral device. After the run, check that no github-* device is left under Machines in the Tailscale admin console (deploy/README.md, section 'OPS-2', its closing measure)." ;;
   esac
   for attempt in 1 2 3 4 5 6; do
     if timeout 5 bash -c 'exec 3<>"/dev/tcp/$0/$1"' "$host" "$port" 2>/dev/null; then
@@ -665,9 +688,89 @@ check_tailnet() {
   echo "tailnet: cluster API reachable at ${host}:${port} (attempt ${attempt})"
 }
 
+# check_pull_secret -- OPS-2. Both pod specs (20-app.yaml, 30-migrate-job.yaml) pull from a
+# PRIVATE Harbor project with `imagePullSecrets: [{name: harbor-pull}]`. That Secret is the
+# OPERATOR's (made once, out of band, from the Harbor k8s-pull robot -- deploy/README.md,
+# operator step 4 (c)); CI never writes it. A pod that names a missing Secret is not refused
+# by the API server: it is created and waits in ImagePullBackOff -- so this runs before
+# anything is applied, where the message can say why.
+#
+#   UNCHECKED (exit 2)  the read is Forbidden (01-rbac.yaml grants `get` on this one name
+#                       since OPS-2; an operator who has not re-applied it sees this), or
+#                       fails any other way (kubectl cannot reach the API).
+#   VIOLATION (exit 1)  NotFound; a type other than kubernetes.io/dockerconfigjson (the only
+#                       one the kubelet reads for a pull); a .dockerconfigjson that does not
+#                       decode to auths; no auths entry whose host is REGISTRY; an entry for
+#                       it with neither an `auth` nor a username and a password.
+#
+# 🔴 NOTHING OF THE CREDENTIAL IS PRINTED, ON ANY BRANCH, AND NEITHER IS kubectl's ERROR TEXT.
+# One `kubectl get` returns the object (RBAC `get` returns the data whatever is printed --
+# the identity holds it either way); jsonpath keeps the type and the encoded config, the
+# config is decoded in a pipe into jq, and jq prints only a verdict word and a count. The
+# entry's host is compared after dropping a scheme and a path (the kubelet matches
+# "https://registry/" and "registry" alike). cmd/tappa/deployregistry_test.go runs every
+# branch with a canary in the credential and in kubectl's error text.
+check_pull_secret() {
+  local ns=${1:-tappa} name=${2:-harbor-pull} registry=${3:-registry.everva.com.tr} out rc=0 errf errtxt typ data verdict
+  errf=$(mktemp)
+  out=$(kubectl -n "$ns" get secret "$name" -o jsonpath='{.type}{"|"}{.data.\.dockerconfigjson}' 2>"$errf") || rc=$?
+  errtxt=$(cat "$errf" 2>/dev/null || true)
+  rm -f "$errf"
+  if (( rc != 0 )); then
+    case $errtxt in
+      *NotFound* | *"not found"*)
+        echo "::error::secret/${name} does not exist in namespace ${ns}. Both pod specs pull with it from the private registry ${registry}, so every new pod would wait in ImagePullBackOff. It is created out of band from the Harbor k8s-pull robot, never by CI (deploy/README.md, operator step 4 (c)). Nothing has been applied." >&2
+        return 1
+        ;;
+      *Forbidden* | *forbidden*)
+        echo "::error::the deploy identity may not read secret/${name} in namespace ${ns}. deploy/k8s/01-rbac.yaml grants get on it since OPS-2: re-apply that file with a cluster-admin kubeconfig (deploy/README.md, operator step 3). kubectl's message is not shown. Nothing has been applied." >&2
+        return 2
+        ;;
+      *)
+        echo "::error::secret/${name} in namespace ${ns} could not be read (kubectl exit ${rc}); whether it exists is unknown. kubectl's message is not shown. Nothing has been applied." >&2
+        return 2
+        ;;
+    esac
+  fi
+  typ=${out%%|*}
+  data=${out#*|}
+  [[ $typ =~ ^[A-Za-z0-9./-]+$ ]] || typ='<not shown>'
+  if [[ $typ != kubernetes.io/dockerconfigjson ]]; then
+    echo "::error::secret/${name} in namespace ${ns} is of type '${typ}', not kubernetes.io/dockerconfigjson: the kubelet reads a pull credential only from that type. Re-create it as deploy/README.md, operator step 4 (c) says. Nothing has been applied." >&2
+    return 1
+  fi
+  verdict=$(printf '%s' "$data" | base64 -d 2>/dev/null | jq -r --arg reg "$registry" '
+    if (.auths | type) != "object" then "noauths"
+    else
+      [ .auths | to_entries[]
+        | select((.key | sub("^[A-Za-z][A-Za-z0-9+.-]*://"; "") | sub("/.*$"; "")) == $reg) | .value ] as $hits
+      | if ($hits | length) == 0 then "nohost \(.auths | length)"
+        elif ($hits | map(select(type == "object" and (((.auth // "") | type == "string" and length > 0)
+               or (((.username // "") | type == "string" and length > 0) and ((.password // "") | type == "string" and length > 0)))))
+             | length) == 0 then "nocred"
+        else "ok" end
+    end' 2>/dev/null) || verdict=
+  case $verdict in
+    ok) echo "pull-secret: secret/${name} in ${ns} is kubernetes.io/dockerconfigjson with a credential for ${registry}" ;;
+    nohost\ [0-9]*)
+      echo "::error::secret/${name} in namespace ${ns} holds no credential for ${registry} (it names ${verdict#nohost } other registr(y/ies)), so the kubelet would pull from the private registry with none. Re-create it for ${registry} (deploy/README.md, operator step 4 (c)). Nothing has been applied." >&2
+      return 1
+      ;;
+    nocred)
+      echo "::error::secret/${name} in namespace ${ns} names ${registry} but carries neither an auth nor a username and a password for it. Re-create it (deploy/README.md, operator step 4 (c)). Nothing has been applied." >&2
+      return 1
+      ;;
+    *)
+      echo "::error::secret/${name} in namespace ${ns} does not hold a readable .dockerconfigjson with auths. Re-create it (deploy/README.md, operator step 4 (c)). Its content is not shown. Nothing has been applied." >&2
+      return 1
+      ;;
+  esac
+}
+
 case $mode in
   kubeconfig-server) check_kubeconfig_server "${2:-}" "${3:-}" ;;
   tailnet)          check_tailnet          "${2:-}" "${3:-}" ;;
+  pull-secret)      check_pull_secret      "${2:-}" "${3:-}" "${4:-}" ;;
   cloudflare)       check_cloudflare       "${2:-}" ;;
   operator-surface) check_operator_surface "${2:-}" ;;
   operator-host)    check_operator_host    "${2:-}" "${3:-}" ;;
@@ -685,14 +788,15 @@ case $mode in
   # host, $2, and the operator host, $4 -- the deploy runs it once per host), the two
   # operator gates on the operator host, and db-role. Since OPS-1 it is seven: also
   # kubeconfig-server (first, offline -- the kubeconfig the later reads use) and api-host
-  # on the API host, $5. tailnet is left out; the header says why.
+  # on the API host, $5. Since OPS-2 it is eight: also pull-secret, in namespace $3 (the
+  # Secret every new server pod pulls with). tailnet is left out; the header says why.
   # TestVerifyDeployment_AllRunsEveryGate.
   #
   # Exit code: 1 if any gate found a VIOLATION, else 2 if any gate could not CHECK,
   # else 0. A violation outranks an unreadable gate because it is the definite result.
   all)
     cfhost=${2:-taptime.mt}; ophost=${4:-ops.taptime.mt}; apihost=${5:-api.taptime.mt}
-    os=0; db=0; kc=0
+    os=0; db=0; kc=0; ps=0
     check_kubeconfig_server || kc=$?
     check_cloudflare "$cfhost" || true
     cfw=$CF_OUTCOME
@@ -704,6 +808,7 @@ case $mode in
     check_operator_host "${osword:-}" "$ophost" || true
     check_db_role "${3:-}" || db=$?
     check_api_host "$apihost" || true
+    check_pull_secret "${3:-}" || ps=$?
     # 🔴 cloudflare's WORD comes from CF_OUTCOME, not from its exit code, and that is
     # the fix for a measured defect: with the name unresolvable this gate prints
     # "Nothing about Cloudflare could be checked" and returns 0, and `all` then
@@ -711,7 +816,7 @@ case $mode in
     # not happen. The mirror case: a curl timeout (rc=28) returned 1 and was labelled
     # `VIOLATION`, which it is not; it is another UNCHECKED. operator-host has the same
     # two shapes and its own OH_OUTCOME; api-host's unresolvable name is the first shape
-    # again, hence API_OUTCOME. db-role, operator-surface and kubeconfig-server report three
+    # again, hence API_OUTCOME. db-role, operator-surface, kubeconfig-server and pull-secret report three
     # states through their exit codes (0 pass / 1 violation / 2 could not run).
     # Named helpers, because an inline `case` inside "$( )" inside a double-quoted
     # string does not survive the surrounding `case` -- measured: the summary line
@@ -720,12 +825,12 @@ case $mode in
     _outcome() { case ${1:-} in pass) echo pass ;; violation) echo VIOLATION ;; *) echo UNCHECKED ;; esac; }
     words="kubeconfig-server=$(_verdict "$kc") cloudflare[$cfhost]=$(_outcome "$cfw") cloudflare[$ophost]=$(_outcome "$ocfw")"
     words="$words operator-surface=$(_verdict "$os") operator-host=$(_outcome "$OH_OUTCOME") db-role=$(_verdict "$db")"
-    words="$words api-host[$apihost]=$(_outcome "$API_OUTCOME")"
+    words="$words api-host[$apihost]=$(_outcome "$API_OUTCOME") pull-secret=$(_verdict "$ps")"
     echo "all: $words"
     # The exit code is read from the words above, so the two cannot disagree: a
     # violation outranks an unreadable gate.
     if [[ $words == *=VIOLATION* ]]; then exit 1; fi
     if [[ $words == *=UNCHECKED* ]]; then exit 2; fi
     ;;
-  *) echo "unknown mode: $mode (expected cloudflare, operator-surface, operator-host, api-host, db-role, all, kubeconfig-server or tailnet)" >&2; exit 2 ;;
+  *) echo "unknown mode: $mode (expected cloudflare, operator-surface, operator-host, api-host, db-role, all, kubeconfig-server, tailnet or pull-secret)" >&2; exit 2 ;;
 esac

@@ -22,6 +22,12 @@ spec:
     spec:
       restartPolicy: Never
       automountServiceAccountToken: false
+      # Production's registry and production's pull Secret NAME (OPS-2): the images are in the
+      # private Harbor project, and a pod reads an imagePullSecret only from its OWN namespace,
+      # so harbor-pull must exist in tappa-sandbox too -- the operator's, made the way
+      # deploy/README.md, operator step 4 (c), makes production's ("Sandbox (API-11)", 4).
+      imagePullSecrets:
+        - name: harbor-pull
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
@@ -30,7 +36,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: goose
-          image: docker.io/atknatk/tappa-migrate:deploy-placeholder
+          image: registry.everva.com.tr/tappa/tappa-migrate:deploy-placeholder
           imagePullPolicy: IfNotPresent
           env:
             - name: GOOSE_DBSTRING

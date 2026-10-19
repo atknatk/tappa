@@ -1,6 +1,6 @@
 # The sandbox SERVER (ADR 0028 §11): the sandbox image -- the Dockerfile's `app-sandbox` target,
 # `make build-sandbox`, -tags sandbox -- which contains the tap simulation and starts only with
-# TAPPA_ENV=sandbox. Its image name is NOT production's (docker.io/atknatk/tappa), so the two can
+# TAPPA_ENV=sandbox. Its image name is NOT production's (registry.everva.com.tr/tappa/tappa), so the two can
 # never be confused by a tag: scripts/verify-image.sh --sandbox proves the build's tag before a push,
 # and the production image's own gate refuses the tag.
 #
@@ -56,6 +56,12 @@ spec:
     spec:
       terminationGracePeriodSeconds: 30
       automountServiceAccountToken: false
+      # Production's registry and production's pull Secret NAME (OPS-2): the images are in the
+      # private Harbor project, and a pod reads an imagePullSecret only from its OWN namespace,
+      # so harbor-pull must exist in tappa-sandbox too -- the operator's, made the way
+      # deploy/README.md, operator step 4 (c), makes production's ("Sandbox (API-11)", 4).
+      imagePullSecrets:
+        - name: harbor-pull
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
@@ -64,7 +70,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: tappa
-          image: docker.io/atknatk/tappa-sandbox:deploy-placeholder
+          image: registry.everva.com.tr/tappa/tappa-sandbox:deploy-placeholder
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

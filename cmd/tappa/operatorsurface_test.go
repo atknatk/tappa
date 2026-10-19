@@ -271,7 +271,9 @@ func TestPackaging_TheDeployCarriesNoContinueOnError(t *testing.T) {
 
 // scriptRig runs scripts/verify-deployment.sh with stub `kubectl`, `curl`, `sleep`, `tailscale`
 // and `timeout` first on PATH. The stubs record every call and answer from files in dir:
-// kubectl by the resource it is asked about (secret, ingress, exec, config view), curl by URL —
+// kubectl by the resource it is asked about (secret harbor-pull — OPS-2's pull-secret mode, key
+// "pullsecret" — any other secret, ingress, exec, config view; KEY.err, when present, goes to
+// stderr), curl by URL —
 // each, when a sequence is set, by the call's number — and sleep returns at once, recording its
 // argument, so the probe's real default pause is exercised without waiting. tailscale and
 // timeout are deploytailnet_test.go's (T134). env is added to the script's environment.
@@ -284,6 +286,7 @@ type scriptRig struct {
 const stubKubectl = `#!/bin/sh
 { for a in "$@"; do printf '%s\n' "$a"; done; printf '%s\n' '--'; } >> "$STUB_DIR/kubectl.calls"
 case " $* " in
+  *" secret harbor-pull "*) key=pullsecret ;;
   *" secret "*) key=secret ;;
   *" ingress "*) key=ingress ;;
   *" exec "*) key=exec; cat >/dev/null ;;
@@ -296,6 +299,7 @@ if [ -f "$STUB_DIR/$key.$n.rc" ]; then
   if [ -f "$STUB_DIR/$key.$n.out" ]; then cat "$STUB_DIR/$key.$n.out"; fi
   exit "$(cat "$STUB_DIR/$key.$n.rc")"
 fi
+if [ -f "$STUB_DIR/$key.err" ]; then cat "$STUB_DIR/$key.err" >&2; fi
 if [ -f "$STUB_DIR/$key.out" ]; then cat "$STUB_DIR/$key.out"; fi
 if [ -f "$STUB_DIR/$key.rc" ]; then exit "$(cat "$STUB_DIR/$key.rc")"; fi
 exit 0
@@ -615,6 +619,12 @@ var secretCallWhitelist = map[string]map[string]string{
 			"tappa-secrets: describe prints key names and byte counts, never a value (k8s.io/kubectl v0.35.4 " +
 			"SecretDescriber, measured; the live output measured by the orchestrator), and its stdout goes straight " +
 			"into awk, which prints a number",
+		`out=$(kubectl -n "$ns" get secret "$name" -o jsonpath='{.type}{"|"}{.data.\.dockerconfigjson}' 2>"$errf") || rc=$?`: "" +
+			"OPS-2's pull-secret read of secret/harbor-pull (the Harbor k8s-pull robot, pull only -- NOT tappa-secrets): " +
+			"jsonpath prints the type and the encoded config into a variable that only base64 -d | jq reads, and jq " +
+			"prints a verdict word and a count; stderr goes to a file that is classified, never printed. " +
+			"TestVerifyDeployment_ThePullSecretModeHoldsTheOperatorsSecret runs every branch with a canary in the " +
+			"credential and in kubectl's error text",
 	},
 	".github/workflows/deploy.yml": {
 		`if ! kubectl -n tappa get secret tappa-secrets >/dev/null 2>&1; then`: "the Secret preflight's existence " +
@@ -878,7 +888,13 @@ func TestVerifyDeployment_EveryBranchTouchesTheSecretOnlyByDescribe(t *testing.T
 		rig.curlAnswer(apiRoot, "404", "0")
 		rig.set("secret.out", on)
 		rig.set("ingress.out", "")
-		rig.clear("secret.rc", "ingress.rc", "exec.out", "exec.rc", "exec.1.out", "exec.1.rc", "exec.2.out", "exec.2.rc")
+		rig.set("pullsecret.out", pullSecretAnswer(authsFor(harborRegistry, `{"auth":"eDp5"}`)))
+		rig.clear("secret.rc", "ingress.rc", "exec.out", "exec.rc", "exec.1.out", "exec.1.rc", "exec.2.out", "exec.2.rc",
+			"pullsecret.rc", "pullsecret.err")
+	}
+	pullFails := func(errText string) {
+		rig.set("pullsecret.rc", "1")
+		rig.set("pullsecret.err", errText)
 	}
 	for _, r := range []struct {
 		name  string
@@ -940,6 +956,20 @@ func TestVerifyDeployment_EveryBranchTouchesTheSecretOnlyByDescribe(t *testing.T
 		{"tailnet: not ephemeral", func() { tailnetAs(tailnetStatus(`"Running"`, tailnetSelf(`["tag:ci"]`, "false"))) }, []string{"tailnet", "127.0.0.1", openPort}},
 		{"tailnet: ephemerality not reported", func() { tailnetAs(tailnetStatus(`"Running"`, tailnetSelf(`["tag:ci"]`, ""))) }, []string{"tailnet", "127.0.0.1", openPort}},
 		{"tailnet: unreachable", func() { rig.env = append(rig.env, "STUB_TIMEOUT_RC=124") }, []string{"tailnet", "127.0.0.1", openPort}},
+		{"pull-secret: pass", func() {}, []string{"pull-secret", ns}},
+		{"pull-secret: missing", func() { pullFails(`Error from server (NotFound): secrets "harbor-pull" not found`) }, []string{"pull-secret", ns}},
+		{"pull-secret: forbidden", func() { pullFails(`Error from server (Forbidden): secrets "harbor-pull" is forbidden`) }, []string{"pull-secret", ns}},
+		{"pull-secret: unreachable", func() { pullFails("The connection to the server was refused") }, []string{"pull-secret", ns}},
+		{"pull-secret: Opaque", func() {
+			rig.set("pullsecret.out", strings.Replace(pullSecretAnswer("{}"), "kubernetes.io/dockerconfigjson", "Opaque", 1))
+		}, []string{"pull-secret", ns}},
+		{"pull-secret: another registry", func() {
+			rig.set("pullsecret.out", pullSecretAnswer(authsFor("docker.io", `{"auth":"eDp5"}`)))
+		}, []string{"pull-secret", ns}},
+		{"pull-secret: no credential", func() {
+			rig.set("pullsecret.out", pullSecretAnswer(authsFor(harborRegistry, `{}`)))
+		}, []string{"pull-secret", ns}},
+		{"pull-secret: unreadable", func() { rig.set("pullsecret.out", "kubernetes.io/dockerconfigjson|%%%") }, []string{"pull-secret", ns}},
 		{"all: healthy", func() {}, []string{"all"}},
 		{"all: every gate unhappy", func() {
 			rig.curlAnswers(custHealth, timeout)
@@ -961,14 +991,17 @@ func TestVerifyDeployment_EveryBranchTouchesTheSecretOnlyByDescribe(t *testing.T
 	}
 
 	want := "-n " + ns + " describe secret tappa-secrets"
+	// OPS-2: the one other call that may name a secret is pull-secret's read of harbor-pull --
+	// not tappa-secrets, and its output is never printed (secretCallWhitelist says why).
+	wantPull := "-n " + ns + ` get secret harbor-pull -o jsonpath={.type}{"|"}{.data.\.dockerconfigjson}`
 	describes := 0
 	for _, c := range calls {
 		j := strings.Join(c, " ")
-		if !secretMention.MatchString(j) {
+		if !secretMention.MatchString(j) || j == wantPull {
 			continue
 		}
 		if j != want {
-			t.Errorf("a run called kubectl %q; the only call that may name a secret is %q", j, want)
+			t.Errorf("a run called kubectl %q; the only calls that may name a secret are %q and %q", j, want, wantPull)
 			continue
 		}
 		describes++
@@ -1092,15 +1125,16 @@ func TestVerifyDeployment_OperatorHostReadsTheRootOfTheHost(t *testing.T) {
 // TestVerifyDeployment_AllRunsEveryGate: `all` with no arguments runs kubeconfig-server (OPS-1),
 // the cloudflare gate on TAPPA_BASE_URL's host and on 41's host, operator-surface, operator-host
 // on 41's host judged against operator-surface's word, db-role and api-host on TAPPA_API_HOST
-// (OPS-1) — every one, whatever an earlier one said — and its exit code follows the words (1 on
-// a VIOLATION, else 2 on an UNCHECKED, else 0). It never asks tailscale (the header of the
-// script says why tailnet is left out).
+// (OPS-1), and pull-secret on secret/harbor-pull (OPS-2) — every one, whatever an earlier one
+// said — and its exit code follows the words (1 on a VIOLATION, else 2 on an UNCHECKED, else 0).
+// It never asks tailscale (the header of the script says why tailnet is left out).
 // PART I: a healthy deployment with the surface on, one with it off and not routed, then one
 // fault at a time (the operator host proxied, its root the customer product, the surface off
 // with the objects left, the operator name unresolvable, the Secret unreadable; OPS-1: the
 // kubeconfig naming the public server, carrying a proxy, unreadable; the API host's root
 // serving something, its name unresolvable — a warning and exit 0 alone, UNCHECKED here — its
-// guide unreachable). PART II: the summary line and exit code of each, pinned; every gate ran.
+// guide unreachable; OPS-2: the pull Secret missing, and Forbidden to this identity). PART II:
+// the summary line and exit code of each, pinned; every gate ran.
 // MUTANT (OPS-1, measured): `check_api_host` or `check_kubeconfig_server` removed from `all` ->
 // red; api-host judged by its exit code instead of API_OUTCOME (the unresolvable name a pass)
 // -> red. PART III: a form not on this list is code review's subject — no completeness claim.
@@ -1137,12 +1171,17 @@ func TestVerifyDeployment_AllRunsEveryGate(t *testing.T) {
 		rig.curlAnswer(opRoot, "HTTP/2 303 \r\nlocation: /operator\r\n\r\n", "0")
 		rig.set("secret.out", describeOutput(map[string]int{hostVar: 14}, ""))
 		rig.set("ingress.out", "ingress.networking.k8s.io/tappa-operator\n")
-		rig.clear("secret.rc", "ingress.rc", "exec.out", "exec.rc")
+		rig.set("pullsecret.out", pullSecretAnswer(authsFor(harborRegistry, `{"auth":"Y2FuYXJ5"}`)))
+		rig.clear("secret.rc", "ingress.rc", "exec.out", "exec.rc", "pullsecret.rc", "pullsecret.err")
 	}
+	// pull-secret (OPS-2) is the last word; every row but its own two leaves it passing, and
+	// those two replace it with withPull.
 	line := func(kc, cf, ocf, osw, oh, db, api string) string {
 		return "all: kubeconfig-server=" + kc + " cloudflare[" + base.Host + "]=" + cf + " cloudflare[" + opHost + "]=" + ocf +
-			" operator-surface=" + osw + " operator-host=" + oh + " db-role=" + db + " api-host[" + apiHost + "]=" + api
+			" operator-surface=" + osw + " operator-host=" + oh + " db-role=" + db + " api-host[" + apiHost + "]=" + api +
+			" pull-secret=pass"
 	}
+	withPull := func(l, word string) string { return strings.TrimSuffix(l, "pass") + word }
 	for _, tc := range []struct {
 		name     string
 		fault    func()
@@ -1192,6 +1231,14 @@ func TestVerifyDeployment_AllRunsEveryGate(t *testing.T) {
 		{"the API guide unreachable", func() {
 			rig.curlAnswer(apiGuide, "curl: (28) Operation timed out", "28")
 		}, line("pass", "pass", "pass", "pass", "pass", "pass", "UNCHECKED"), 2},
+		{"the pull Secret missing", func() {
+			rig.set("pullsecret.rc", "1")
+			rig.set("pullsecret.err", `Error from server (NotFound): secrets "harbor-pull" not found`)
+		}, withPull(line("pass", "pass", "pass", "pass", "pass", "pass", "pass"), "VIOLATION"), 1},
+		{"the pull Secret not readable by this identity", func() {
+			rig.set("pullsecret.rc", "1")
+			rig.set("pullsecret.err", `Error from server (Forbidden): secrets "harbor-pull" is forbidden`)
+		}, withPull(line("pass", "pass", "pass", "pass", "pass", "pass", "pass"), "UNCHECKED"), 2},
 	} {
 		healthy()
 		tc.fault()
@@ -1208,7 +1255,7 @@ func TestVerifyDeployment_AllRunsEveryGate(t *testing.T) {
 		calls := slices.Compact(slices.Sorted(slices.Values(rig.curlCalls())))
 		want := []string{custHealth, opRoot, opHealth, apiGuide}
 		// The API host's root is asked only once its guide has answered (check_api_host).
-		if !strings.HasSuffix(tc.wantLine, "]=UNCHECKED") {
+		if !strings.Contains(tc.wantLine, "api-host["+apiHost+"]=UNCHECKED") {
 			want = append(want, apiRoot)
 		}
 		slices.Sort(want)

@@ -5,18 +5,18 @@
 # Two deployable artifacts come out of this one file, and they are SEPARATE on
 # purpose:
 #
-#   --target app       docker.io/atknatk/tappa           the server
-#   --target migrate   docker.io/atknatk/tappa-migrate   goose + db/migrations
+#   --target app       registry.everva.com.tr/tappa/tappa           the server
+#   --target migrate   registry.everva.com.tr/tappa/tappa-migrate   goose + db/migrations
 #
-# ⚠️ THIS REPOSITORY BUILDS AND PUSHES TO DOCKER HUB (M8-02 FAZ D); the tags above are
-# what .github/workflows/deploy.yml publishes. It is not a preference: this cluster's
-# kubelet runs KEP-2535 credential verification, under which a PRIVATELY pulled image
-# is unusable by a pod without a recorded credential even when the layers are on the
-# node — so WHILE a repository is private that defect is live, and ONCE it is public
-# there is no credential to record. Which state a given cluster and its registry are
-# in is recorded in one place: deploy/README.md, "Elle deploy / rollback"; the accepted
-# limit "[Docker Hub anonim çekme bütçesi]" carries the measurements and the cost.
-#
+# ⚠️ THIS REPOSITORY BUILDS AND PUSHES TO ITS OWN HARBOR REGISTRY, A PRIVATE PROJECT (OPS-2);
+# the names above are what .github/workflows/deploy.yml publishes and the pod specs pull
+# with the operator's `harbor-pull` Secret. Before OPS-2 the two images were public on
+# Docker Hub (docker.io/atknatk/tappa and …/tappa-migrate) because the pull credential of
+# the time was rewritten by every deploy from a token that died with it and this cluster's
+# kubelet verifies recorded credentials (KEP-2535); deploy/k8s/20-app.yaml says why a
+# credential nobody rewrites does not bring that back. deploy.yml proves after every push
+# that both images are pullable with the CI credential and refused without one.
+
 # 🔴 WHY TWO IMAGES AND NOT ONE WITH BOTH BINARIES. M8-01's structural guarantee is
 # that the application CANNOT run a migration: goose is not a module dependency
 # (`go list -deps ./cmd/tappa | grep -c goose` → 0), so no amount of wiring inside

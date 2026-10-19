@@ -40,11 +40,11 @@ concurrency:
   cancel-in-progress: false
 
 # 🔴 `packages: write` IS GONE, AND ITS ABSENCE IS PART OF THIS ROUND'S WORK.
-# This workflow pushes to Docker Hub (see the env block below), so it does not write
-# to GitHub's package registry and does not need a token that can. That is a property
-# of THIS FILE and stays true whatever a given cluster is currently running.
-# GITHUB_TOKEN's remaining scope is `contents: read`, which is what `actions/checkout`
-# uses and nothing else.
+# This workflow pushes to the project's own Harbor registry (see the env block below),
+# so it does not write to GitHub's package registry and does not need a token that can.
+# That is a property of THIS FILE and stays true whatever a given cluster is currently
+# running. GITHUB_TOKEN's remaining scope is `contents: read`, which is what
+# `actions/checkout` uses and nothing else.
 permissions:
   contents: read
 
@@ -52,54 +52,64 @@ jobs:
   deploy:
     # workflow_run fires on failure too; only a green ci may deploy.
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    # 🔴 EVERY SECRET THIS JOB READS COMES FROM THE `production` ENVIRONMENT (OPS-2, backlog
+    # T135 (4)). The environment is open to the `main` branch only (its deployment branch
+    # policy, set in the repository settings -- not in this file, and not checkable from it).
+    # Repository-level secrets are readable by any workflow on any branch a writer pushes;
+    # environment secrets reach only a job that names the environment AND runs on a branch
+    # the policy admits. workflow_run and workflow_dispatch on main both run with ref main.
+    # ⚠️ The line alone closes nothing while a secret of the same name still exists at the
+    # repository level -- an environment secret is ADDED to the repository's set, it does
+    # not hide it. Deleting the old repository-level secrets is the operator's step after
+    # the first green run (deploy/README.md, operator step 5 (c)).
+    environment: production
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      # 🔴 DOCKER HUB, PUBLIC — AND THIS IS A FIX FOR A ROOT CAUSE, NOT A PREFERENCE.
+      # 🔴 A PRIVATE HARBOR PROJECT (OPS-2), AND WHY THE DEFECT THAT MOVED THE IMAGES TO A
+      # PUBLIC REPOSITORY DOES NOT COME BACK WITH IT.
       #
-      # Backlog T43 said pods land in a permanent ImagePullBackOff. Its measured root
-      # cause is this node's kubelet running
+      # The history, in one paragraph. Backlog T43: pods landed in a permanent
+      # ImagePullBackOff. Its measured root cause was this node's kubelet running
       #   imagePullCredentialsVerificationPolicy: NeverVerifyPreloadedImages
-      # (KEP-2535, default since 1.35): an image the kubelet pulled WITH a credential
-      # is usable only by a pod presenting a credential already recorded against that
-      # image. Three probes on this node against the tag the live pod was running: no
-      # secret -> 401 · a secret it had never used -> 401 · imagePullPolicy Never ->
-      # "not present". The control that separates cache from credential: a PUBLIC image
-      # with imagePullPolicy Never started straight from the node's cache, exit 0.
+      # (KEP-2535, default since 1.35): an image the kubelet pulled WITH a credential is
+      # usable only by a pod presenting a credential already recorded against it, and
+      # anything else costs a verification pull against the registry. The credential then
+      # was `secret/ghcr`, which THIS WORKFLOW rewrote on every run from its own
+      # GITHUB_TOKEN -- revoked when the job ended -- so every recorded credential died
+      # within the hour and every later restart met a 401. The cure at the time (M8-02 FAZ
+      # D) was a public Docker Hub repository: no credential, nothing to record.
       #
-      # A PUBLIC REPOSITORY THEREFORE DELETES THE DEFECT BY DEFINITION — there is no
-      # credential to record, to go stale, or to be overwritten by the next deploy.
+      # WHAT IS DIFFERENT NOW, AND IT IS THE WRITER, NOT THE REGISTRY. The pull credential
+      # is `secret/harbor-pull` in ns/tappa: a Harbor robot account (pull only, project
+      # `tappa`) that the OPERATOR created once, out of band, exactly like tappa-secrets.
+      # This workflow writes NO Secret at all -- 01-rbac.yaml gives it `get` on two names
+      # and no write verb on secrets -- so the credential a running pod was pulled with is
+      # the one the next pod presents, until the operator rotates it.
       #
-      # WHAT THIS FILE REMOVES — all four are properties of the file and stay true
-      # whatever the cluster is running: the "Write the GHCR pull credential" step (one
-      # fewer path that creates a Secret, CLAUDE.md §4.7) · `imagePullSecrets` in both
-      # pod specs · the Secret that step wrote · the "Recover pods stuck on a stale
-      # pull credential" step, whose premise was that very credential.
+      # ⚠️ WHAT REMAINS, STATED AS CONDITIONS (none of it measured on this cluster yet; the
+      # first OPS-2 deploy's closing measure is in deploy/README.md):
+      #   WHILE the robot's secret is unchanged, a restart presents the recorded credential
+      #   and the node's copy is used -- no registry round trip.
+      #   ONCE the operator rotates the robot or re-creates harbor-pull, a pod restarting
+      #   onto an image pulled with the old value costs a verification pull: it works while
+      #   Harbor answers and the new value is valid, and is an ImagePullBackOff while it
+      #   does not. deploy/README.md, operator step 4, says how to rotate without that.
+      #   A NEW image always needs Harbor, which runs on k8s-2: while k8s-2 is down a deploy
+      #   cannot start a new pod (accepted limit in deploy/README.md).
       #
-      # ⚠️ WHAT IT DOES NOT REMOVE IS THE STALE-CREDENTIAL WINDOW IN A CLUSTER THAT HAS
-      # NOT YET RUN THIS WORKFLOW, and this sentence is conditional on purpose: WHILE
-      # the running pods were pulled with a credential, `kubectl rollout undo` still
-      # meets a revoked token; ONCE they were pulled anonymously, it cannot. Which one
-      # holds is a fact about the cluster, recorded — with the command that measures
-      # it — in exactly one place: deploy/README.md, "Elle deploy / rollback". An
-      # earlier revision of this comment asserted the second half as though it were
-      # already true everywhere; that is the defect this repository keeps paying for.
+      # WHAT PRIVATE BUYS, COUNTED: the tag list (`sha-<12hex>`, i.e. which commit
+      # production runs) is no longer readable by anyone, the images are no longer
+      # downloadable by anyone, and the anonymous Docker Hub rate limit no longer applies to
+      # the product images (postgres:17-alpine and the backup images still come from Docker
+      # Hub, anonymously). The gate after the push proves the privacy in both directions.
       #
-      # ELIMINATED, WITH REASONS. GHCR-public: unreachable, not undesirable — package
-      # visibility has NO API (measured three times: `gh api -X PATCH
-      # /user/packages/container/tappa -f visibility=public` -> 404, no such endpoint;
-      # `gh api /user/packages/container/tappa` -> 403), it is a web-UI-only action and
-      # the user attempted it twice without success. AWS ECR private: reintroduces the
-      # same credential problem with a rotating IAM token, which is worse. ECR Public:
-      # accepts pushes only from us-east-1 and requires an AWS account.
-      #
-      # ⚠️ THE COST, COUNTED: anonymous Docker Hub pulls are rate limited, measured from
-      # this network for postgres:17-alpine as `x-ratelimit-limit: 100;w=3600`. The
-      # product images now spend from that same per-IP budget. It is wide for one node
-      # that pulls twice per deploy, and it is written into deploy/README.md's
-      # accepted-limits list rather than left to be discovered.
-      APP_IMAGE: docker.io/atknatk/tappa
-      MIGRATE_IMAGE: docker.io/atknatk/tappa-migrate
+      # The registry, the project and the two robots are the operator's (deploy/README.md,
+      # operator step 4); the CI robot's name and secret reach this job only from the
+      # `production` environment. Two image names, as before: the server and the migrator.
+      REGISTRY: registry.everva.com.tr
+      APP_IMAGE: registry.everva.com.tr/tappa/tappa
+      MIGRATE_IMAGE: registry.everva.com.tr/tappa/tappa-migrate
       # The cluster is k3s v1.35.4 (measured). kubectl's supported skew is one minor
       # either way; pinning to the server's own minor removes the question.
       KUBECTL_VERSION: v1.35.4
@@ -118,59 +128,61 @@ jobs:
     steps:
       # 🔴 FIRST STEP ON PURPOSE, AND THE MESSAGE IS THE WHOLE POINT.
       # An UNDEFINED GitHub secret renders as an EMPTY STRING, it is not an error, so
-      # without this step the run continues to `docker login` and fails there. Measured
-      # what that failure actually looks like, with the real client:
-      #   printf '' | docker login docker.io -u ""        --password-stdin -> rc 1, "username is empty"
-      #   printf '' | docker login docker.io -u "someuser" --password-stdin -> rc 1, "password is empty"
-      #   printf 'x' | docker login docker.io -u "someuser" --password-stdin -> rc 1,
-      #       'unauthorized: incorrect username or password'
-      # None of those three names a GitHub secret, says which one is missing, or says
-      # where to make it. That is the gap this step closes; it does not "protect"
-      # anything, it explains.
+      # without this step the run continues to `docker login` and fails there with
+      # "username is empty" -- naming no GitHub secret, no environment, no place to make
+      # it. Worse for the later ones: an empty KUBE_CONFIG is caught only after both
+      # images are built and pushed, and an empty TS_OAUTH_SECRET only at the tailnet
+      # join. This step names every missing one before anything is built. It does not
+      # "protect" anything, it explains.
       #
-      # ⚠️ DEGENERATE INPUTS WERE ENUMERATED AND RUN, because this file's review record
-      # is five REDs caused by shell that was only ever tried on the input somebody
-      # imagined: both unset · both empty · only the username · only the token · a
-      # single space · a tab and a newline · a trailing newline · both set. `${VAR:-}`
-      # keeps `set -u` from firing on an unset variable.
+      # 🔴 ALL FIVE ARE ENVIRONMENT SECRETS (`production`, see `environment:` above):
+      # a secret created at the repository level instead is still read while it exists,
+      # which is exactly the state OPS-2 removes; deploy/README.md, operator steps 4 and 5,
+      # gives the `gh secret set --env production` lines.
       #
-      # 🔴 THE TEST IS POSITIVE ("does it contain a usable character") AND NOT NEGATIVE
-      # ("is it only whitespace"), AND THAT CHANGE IS A MEASURED FIX RATHER THAN A
-      # STYLE PREFERENCE. The first version trimmed with `tr -d '[:space:]'` and then
-      # tested for emptiness. `tr` is BYTE oriented in GNU coreutils, which is what
-      # ubuntu-latest ships: a value consisting only of U+00A0 (c2 a0) or U+3000
-      # (e3 80 80) survives the trim there and the step PASSES. It does not survive on
-      # the BSD `tr` of the machine this was written on, so the author's own local
-      # measurement said the opposite of what the runner does — the same
-      # local-tool-substituted-for-runner-tool error this task was already caught by
-      # once, in the same file. The consequence was mild (docker login fails one step
-      # later, fail-closed) but it defeated the ONE thing this step exists for: naming
-      # the missing secret.
+      # THE TEST IS POSITIVE ("does it contain a usable character"), NOT NEGATIVE ("is it
+      # only whitespace"), for a measured reason (M8-02): GNU `tr -d '[:space:]'`, which is
+      # what ubuntu-latest ships, is BYTE oriented and lets a value of only U+00A0 or
+      # U+3000 survive the trim; a `case` glob is bash's own matcher and `*[0-9A-Za-z]*`
+      # rejected both and accepted real values under five locales, tr_TR.UTF-8 included.
+      # No valid input is excluded: a Harbor robot name is robot$<project>+<name>, its
+      # secret and the OAuth client id are alphanumeric, the OAuth secret is
+      # tskey-client-..., and KUBE_CONFIG is base64.
       #
-      # A `case` glob has no such split: it is bash's own matcher, no external tool, and
-      # `*[0-9A-Za-z]*` was measured to REJECT U+00A0 and U+3000 and ACCEPT "alice"
-      # under LC_ALL of C, C.UTF-8, en_US.UTF-8, tr_TR.UTF-8 and POSIX — five for five,
-      # including the Turkish locale whose dotless-i collation is the usual trap
-      # ("ıstanbul9" is accepted; a digits-only "12345" is accepted). No valid input is
-      # excluded: a Docker Hub username is [a-z0-9] and a PAT is dckr_pat_<base64url>,
-      # so both always contain an ASCII alphanumeric.
-      - name: Preflight — the Docker Hub credentials must exist
+      # TS_OAUTH_SECRET ALSO HAS ITS SHAPE CHECKED, because the shape decides what the
+      # tailnet join does: the action hands the value to `tailscale up --authkey=<value>
+      # ?preauthorized=true&ephemeral=true`, and the client mints an ephemeral key from it
+      # ONLY when it begins with tskey-client- (tailscale 1.94.2, feature/oauthkey,
+      # resolveAuthKey; the prefix is in the pinned binary). An auth key pasted into that
+      # secret would fail the join with a message about the key, not about this mistake.
+      # Only the PREFIX is compared and nothing of the value is printed -- not even a
+      # length; the step prints names.
+      # cmd/tappa/deployregistry_test.go RUNS this body with every secret missing in turn.
+      - name: Preflight — the production environment's secrets must exist
         env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          HARBOR_CI_ROBOT_NAME: ${{ secrets.HARBOR_CI_ROBOT_NAME }}
+          HARBOR_CI_ROBOT_SECRET: ${{ secrets.HARBOR_CI_ROBOT_SECRET }}
+          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
         run: |
           set -euo pipefail
           missing=""
-          # Report the SHAPE, never the value: a length, never a character.
-          u=${DOCKERHUB_USERNAME:-}
-          t=${DOCKERHUB_TOKEN:-}
-          case $u in *[0-9A-Za-z]*) ;; *) missing="$missing DOCKERHUB_USERNAME" ;; esac
-          case $t in *[0-9A-Za-z]*) ;; *) missing="$missing DOCKERHUB_TOKEN" ;; esac
+          for name in HARBOR_CI_ROBOT_NAME HARBOR_CI_ROBOT_SECRET TS_OAUTH_CLIENT_ID TS_OAUTH_SECRET KUBE_CONFIG; do
+            case ${!name:-} in *[0-9A-Za-z]*) ;; *) missing="$missing $name" ;; esac
+          done
           if [ -n "$missing" ]; then
-            echo "::error::missing GitHub repository secret(s):$missing. This deploy pushes to Docker Hub. Create a token at Docker Hub -> Account Settings -> Personal access tokens with Read & Write, then: gh secret set DOCKERHUB_USERNAME --repo atknatk/tappa ; gh secret set DOCKERHUB_TOKEN --repo atknatk/tappa. Nothing has been built and nothing in the cluster has been touched."
+            echo "::error::missing GitHub secret(s) in the production environment:$missing. Set each with: gh secret set <NAME> --env production --repo atknatk/tappa (deploy/README.md, operator steps 4 and 5). Nothing has been built and nothing in the cluster has been touched."
             exit 1
           fi
-          echo "docker hub credentials present (username ${#u} chars, token ${#t} chars)"
+          case $TS_OAUTH_SECRET in
+            tskey-client-*) ;;
+            *)
+              echo "::error::TS_OAUTH_SECRET is not a Tailscale OAuth client secret (it does not begin with tskey-client-); the tailnet join mints an ephemeral tag:ci key only from one. Create an OAuth client with the auth_keys scope and the tag tag:ci (deploy/README.md, operator step 5 (a)). Its value is not shown. Nothing has been built and nothing in the cluster has been touched."
+              exit 1
+              ;;
+          esac
+          echo "production environment: HARBOR_CI_ROBOT_NAME HARBOR_CI_ROBOT_SECRET TS_OAUTH_CLIENT_ID TS_OAUTH_SECRET KUBE_CONFIG present"
 
       - name: Resolve the commit to deploy
         id: sha
@@ -236,13 +248,20 @@ jobs:
           go-version: "1.26.9"
           cache: false
 
-      # The token is piped, never passed as an argument: an argument reaches `ps` and
-      # the process table of a shared runner.
-      - name: Log in to Docker Hub
+      # The robot's secret is piped, never passed as an argument: an argument reaches `ps`
+      # and the process table of a shared runner. The CLI rather than docker/login-action,
+      # for the rule stated above (first-party actions only, Tailscale the one exception).
+      # The name carries a `$` (robot$tappa+ci); inside double quotes the expansion is
+      # done once and the `$` it yields is not expanded again.
+      # ⚠️ `docker login` stores the credential in ~/.docker/config.json (base64, not
+      # encrypted, as on every GitHub-hosted runner). "Log out of the registry" removes it
+      # right after the access gate -- before kubectl is installed and before the runner
+      # joins the tailnet -- so no registry credential is on disk for any cluster step.
+      - name: Log in to the registry (Harbor, the CI robot)
         env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-        run: printf '%s' "$DOCKERHUB_TOKEN" | docker login docker.io -u "$DOCKERHUB_USERNAME" --password-stdin
+          HARBOR_CI_ROBOT_NAME: ${{ secrets.HARBOR_CI_ROBOT_NAME }}
+          HARBOR_CI_ROBOT_SECRET: ${{ secrets.HARBOR_CI_ROBOT_SECRET }}
+        run: printf '%s' "$HARBOR_CI_ROBOT_SECRET" | docker login "$REGISTRY" -u "$HARBOR_CI_ROBOT_NAME" --password-stdin
 
       - name: Build both images
         env:
@@ -295,102 +314,53 @@ jobs:
           SHORT: ${{ steps.sha.outputs.short }}
         run: |
           set -euo pipefail
-          # ⚠️ A FIRST PUSH TO A REPOSITORY THAT DOES NOT EXIST YET CREATES IT AS
-          # PRIVATE, and Docker Hub exposes no way to set visibility at push time. The
-          # NEXT step is the mechanism that refuses to continue in that state; this
-          # comment used to point at an instruction in the README instead, which is
-          # this card's signature defect (announcing a guarantee with no mechanism).
+          # A first push to a repository that does not exist yet creates it inside the
+          # project, with the PROJECT's visibility -- private. Whether it is is not this
+          # comment's claim: the NEXT step measures it, in both directions.
+          # ⚠️ The project keeps the last 30 pushes per repository (Harbor tag retention,
+          # daily): a `sha-<12hex>` older than thirty deploys is gone from the registry,
+          # which bounds how far back a rollback can pull (deploy/README.md, accepted limits).
           docker push "$APP_IMAGE:sha-$SHORT"
           docker push "$MIGRATE_IMAGE:sha-$SHORT"
 
-      # 🔴 THE WHOLE POINT OF MOVING REGISTRIES IS THAT THE IMAGES ARE PULLABLE WITH NO
-      # CREDENTIAL, AND UNTIL THIS STEP THAT WAS AN INSTRUCTION IN A README RATHER THAN
-      # A MECHANISM. A snapshot, dated because it goes stale on the first successful
-      # push: on 2026-08-16 hub.docker.com/v2/repositories/atknatk/tappa/ -> 404 and
-      # .../tappa-migrate/ -> 404, i.e. neither repository existed yet. The step below
-      # does not depend on that reading. The durable statement is the mechanism: WHILE
-      # a repository is absent or private, a push creates or leaves it private and the
-      # KEP-2535 defect this change exists to remove comes straight back; ONCE it is
-      # public the gate below passes. The gate is what refuses, not this comment.
+      # 🔴 THE REGISTRY IS PRIVATE, AND THIS STEP MEASURES THAT IN BOTH DIRECTIONS (OPS-2).
+      # It replaced "Gate -- both images must be pullable with NO credential", whose subject
+      # was the public Docker Hub repository; the shape is the same (after the push, before
+      # kubectl is even installed, so a failure changes NOTHING in the cluster) and the gate
+      # lives in scripts/verify-image.sh --access, where cmd/tappa/deployregistry_test.go runs
+      # it against a stub docker. For each image:
+      #   WITH the credential this job logged in with -> the manifest must come back
+      #     (`"schemaVersion"` in the output, not merely exit 0: an empty answer and a
+      #     healthy one are not the same thing -- the fail-open cell the old gate's own
+      #     matrix found);
+      #   WITHOUT one (DOCKER_CONFIG pointed at an EMPTY directory, which the CLI reads
+      #     instead of ~/.docker -- the mechanism the old gate measured, with a bogus-auth
+      #     control) -> the registry must REFUSE: an authorization answer (unauthorized,
+      #     denied, authentication required). A manifest is red (the project is public);
+      #     any other failure -- DNS, a timeout, an empty answer -- is red too, because it
+      #     cannot show that the registry refuses.
       #
-      # WHY IT RUNS HERE. After the push (there is nothing to inspect before it) and
-      # before kubectl is even installed, so a failure changes NOTHING in the cluster.
-      #
-      # 🔴 HOW IT IS MADE ANONYMOUS, AND WHY NOT `docker logout`. `docker logout` edits
-      # config.json on a runner but goes through a credential HELPER on a developer
-      # machine (measured on the machine this was written on: `credsStore: desktop`),
-      # so a gate built on it would be verified against a different mechanism than the
-      # one it runs on — the same local-vs-runner substitution this task was already
-      # caught by once. Pointing DOCKER_CONFIG at an EMPTY directory has no such
-      # split: the docker CLI reads auths, credsStore and credHelpers only from
-      # $DOCKER_CONFIG/config.json, and an empty directory has none of the three.
-      #
-      # THE CONTROL THAT PROVES IT IS ANONYMOUS, rather than merely believed to be:
-      #   empty DOCKER_CONFIG   + docker.io/library/postgres:17-alpine  -> rc 0
-      #   DOCKER_CONFIG holding a BOGUS docker.io auth + the same image -> rc 1,
-      #       'unauthorized: incorrect username or password'
-      # The second row is the discriminating one: if DOCKER_CONFIG were ignored, a
-      # deliberately wrong credential could not have changed the outcome. It also
-      # proves the machine's real credential store was bypassed. And the directory is
-      # still EMPTY afterwards (`ls -a` -> only . and ..), so no token is cached.
-      #
-      # ⚠️ WHICH DIRECTION IT FAILS, ENUMERATED RATHER THAN ASSUMED. It exits 0 ONLY
-      # when the registry hands over the manifest with no credential. Every other
-      # outcome is red, and each was measured with the real client:
-      #   repository private or absent -> rc 1, 'denied: requested access to the
-      #                                   resource is denied / unauthorized'
-      #   tag missing                  -> rc 1, 'no such manifest: ...'
-      #   registry unreachable / DNS   -> rc 1, 'error pinging v2 registry ... no such host'
-      #   rate limited (429)           -> rc 1, toomanyrequests (same branch as above)
-      #   docker binary absent         -> rc 127, caught by the same `|| rc=$?`
-      #                                   (measured with a PATH holding coreutils but
-      #                                   no docker: rc 1, two named errors)
-      #
-      # 🔴 AND THE EXIT CODE ALONE IS NOT THE TEST, BECAUSE THE FIRST DRAFT OF THIS
-      # STEP HAD A FAIL-OPEN CELL AND ITS OWN MATRIX FOUND IT. A stub that exits 0 and
-      # prints NOTHING was waved through as "anonymous pull OK" — the repository's
-      # named trap in its purest form: a healthy answer and an empty answer are not the
-      # same thing, and only one of them was being looked at. The evidence this gate
-      # exists to obtain IS the manifest, so the manifest is what is checked: the
-      # output must carry `"schemaVersion"`. Measured on three public references
-      # (postgres:17-alpine, alpine:3, hello-world:latest): rc 0, 5000-6339 bytes of
-      # JSON, `"schemaVersion"` present in all three. If a future client ever stopped
-      # emitting it, this gate would fail CLOSED, which is the correct direction.
-      #
-      # Its stderr is PRINTED rather than discarded, and that is safe here for a reason
-      # specific to this command rather than to the cluster: it runs against an EMPTY
-      # DOCKER_CONFIG created two lines above, so that invocation has no credential
-      # store to read from and nothing to echo out of one.
-      - name: Gate — both images must be pullable with NO credential
+      # 🔴 WHOSE CREDENTIAL, DECIDED AND ARGUED. The cluster pulls with the k8s-pull robot
+      # (secret/harbor-pull); this job holds the ci robot. The gate uses the ci robot and
+      # does NOT carry k8s-pull into the workflow: a second credential in this job's blast
+      # radius would buy one measurement -- that k8s-pull itself still works -- which the
+      # cluster makes anyway, on the migration Job's pull, before any server pod changes
+      # (a Job that cannot pull never succeeds, and "Roll out the server" never runs).
+      # What the preflight "the registry pull Secret ..." adds before that is the Secret's
+      # existence, its type and the registry it names. The remaining gap -- a k8s-pull robot
+      # disabled or expired in Harbor -- is a migration step that waits 600 s and fails,
+      # named in deploy/README.md's incident section.
+      - name: Gate — both images must be pullable WITH the CI credential and NOT without one
         env:
           SHORT: ${{ steps.sha.outputs.short }}
-        run: |
-          set -euo pipefail
-          anon=$(mktemp -d)
-          trap 'rm -rf "$anon"' EXIT
-          bad=0
-          for ref in "$APP_IMAGE:sha-$SHORT" "$MIGRATE_IMAGE:sha-$SHORT"; do
-            rc=0
-            out=$(DOCKER_CONFIG="$anon" docker manifest inspect "$ref" 2>&1) || rc=$?
-            # A manifest, not merely a zero. See the block above for the fail-open cell
-            # this closes and the three references the marker was measured on.
-            case $out in *'"schemaVersion"'*) ;; *) rc=${rc:-0}; [ "$rc" -eq 0 ] && rc=90 ;; esac
-            if [ "$rc" -eq 0 ]; then
-              echo "anonymous pull OK: $ref"
-            else
-              bad=1
-              # 🔴 THE README'S LIMIT KEY IS NOT QUOTED HERE, AND THAT IS DELIBERATE.
-              # The key is spelled in Turkish with diacritics; CLAUDE.md §7 keeps error
-              # messages ASCII English, so writing it here would either violate that or
-              # produce a MIS-SPELLED key an operator could grep for and never find.
-              # The section is named instead. (An earlier draft of this line did quote
-              # an ASCII-folded copy of the key, which is precisely that broken
-              # reference; it was caught by byte-comparing it against the README.)
-              echo "::error::$ref is NOT pullable without a credential (docker manifest inspect exit $rc). If this says 'denied'/'unauthorized', the Docker Hub repository is PRIVATE — a first push creates it that way. Set it to Public (Docker Hub -> Repository -> Settings -> Visibility) and re-run; deploy/README.md, operator step 4, item 3. Leaving it private brings back the kubelet credential-verification defect this registry move exists to remove. Nothing has been applied to the cluster."
-              printf '%s\n' "$out" | tail -3
-            fi
-          done
-          [ "$bad" -eq 0 ]
+        run: scripts/verify-image.sh --access "$APP_IMAGE:sha-$SHORT" "$MIGRATE_IMAGE:sha-$SHORT"
+
+      # The ci robot's credential leaves the runner's disk here: nothing after this step
+      # pushes or pulls through this docker client, and everything after it either talks to
+      # the cluster or joins the tailnet. Not `if: always()`: a failed step above ends the
+      # job, and a GitHub-hosted runner is a one-job VM that is discarded with it.
+      - name: Log out of the registry
+        run: docker logout "$REGISTRY"
 
       - name: Install kubectl (pinned, checksum-verified)
         run: |
@@ -409,14 +379,13 @@ jobs:
         # This is the most valuable credential in the workflow — accepted limit
         # "[kubeconfig'in kimliği doğrulanmadı]" says it may still be a cluster-admin
         # kubeconfig — and it was the only one still spelled the old way, while the two
-        # Docker Hub steps above already do it correctly and say why. Measured after
-        # the change: `grep -n 'secrets\.' .github/workflows/deploy.yml` -> five hits,
-        # ALL FIVE inside `env:` blocks, ZERO inside a `run:` body. (T134 added a sixth,
-        # TS_AUTHKEY, in the `with:` of "Join the tailnet": an action's input reaches the
-        # action as INPUT_* in its environment and is never written into a script, so it
-        # is the same shape as `env:`. TestPackaging_TheDeployReachesTheClusterOnlyThroughTheTailnet
-        # pins the rule: every `${{ secrets.* }}` sits directly under an `env:` or, in a
-        # `uses:` step, a `with:`.)
+        # registry steps above already did it correctly. (Since OPS-2 the secrets sit in
+        # the preflight's and the registry login's `env:`, here, and in the `with:` of
+        # "Join the tailnet": an action's input reaches the action as INPUT_* in its
+        # environment and is never written into a script, so it is the same shape as
+        # `env:`. TestPackaging_TheDeployReachesTheClusterOnlyThroughTheTailnet pins the
+        # rule: every `${{ secrets.* }}` sits directly under an `env:` or, in a `uses:`
+        # step, a `with:`.)
         # It did not leak today — measured by parsing every `run:` body and stripping
         # comments: 17 run bodies, ZERO non-comment occurrences of `set -x` — so this
         # is a shape fix, not an incident. But one shape for one rule.
@@ -515,7 +484,7 @@ jobs:
 
       # 🔴 THE CLUSTER API IS REACHED ONLY THROUGH THE TAILNET (backlog T134), AND THIS
       # IS WHERE THE RUNNER JOINS IT — AS LATE AS POSSIBLE, ON PURPOSE. Everything above
-      # needs no cluster: the images are built, pushed and proven anonymous, kubectl is
+      # needs no cluster: the images are built, pushed and proven private, kubectl is
       # installed, the kubeconfig is written and checked offline, and the three Cloudflare
       # gates have asked the PUBLIC internet about the hostnames. The very next step is
       # the first one that talks to the API. Joining here means (1) no repository code
@@ -538,21 +507,41 @@ jobs:
       # sources, src/main.ts and src/logging.ts, say the same for every behaviour cited below
       # (compared 2026-10-18, OPS-1 fix round), but it is dist that the runner executes -- an
       # action bump is re-read THERE.
-      #   authkey   handed to `tailscale up --authkey=…`. With an auth key (no OAuth
-      #             client, no workload identity) the action passes NO --advertise-tags:
-      #             the device's tags are WHATEVER THE KEY CARRIES. The action's `tags`
-      #             input is read only for OAuth / workload identity, so `tags: tag:ci`
-      #             here would be a line that does nothing and looks like a guarantee —
-      #             it is deliberately absent. The gate below measures the tag instead.
-      #             ⚠️ The key reaches `sudo tailscale up`'s ARGV (for as long as `up`
-      #             runs -- an `up` that times out is not killed) AND the environment of
-      #             tailscaled, which is started with `sudo -E` while INPUT_AUTHKEY is in
-      #             the action's environment, so /proc/<pid>/environ holds it until the
-      #             post step kills the daemon at the end of the job. Readable by root:
-      #             this job's own later steps (passwordless sudo). On a GitHub-hosted
-      #             runner that is a one-job VM, and the value is masked in the log.
-      #             Accepted limit "[deploy tailnet'e üçüncü-parti bir
-      #             action ve süreli bir auth key'le girer]" in deploy/README.md.
+      #   oauth-secret / tags  THE OAUTH PATH (OPS-2; it replaced `authkey:` and the
+      #             TS_AUTHKEY secret). With an OAuth secret and no `audience`, the action
+      #             runs `tailscale up --advertise-tags=<tags> ... --authkey=<oauth secret>
+      #             ?preauthorized=true&ephemeral=true` (dist/index.js and src/main.ts, the
+      #             "2. OAuth client" branch; `tags` is REQUIRED there -- the action throws
+      #             "the tags parameter is required when using an OAuth client"). The
+      #             client, not the action, then turns the OAuth secret into an auth key:
+      #             tailscale 1.94.2's feature/oauthkey resolveAuthKey, compiled into the
+      #             pinned binary (its strings "tskey-client-", "oauth authkeys require
+      #             --advertise-tags" and the KeyDeviceCreateCapabilities type were read off
+      #             the tarball whose sha256 is pinned below), mints a single-use key with
+      #             the requested attributes and the advertised tags. So, unlike the auth
+      #             key it replaces, the device is EPHEMERAL and PRE-AUTHORIZED because this
+      #             file asks for it, not because of how someone once generated a key, and
+      #             its tag is tag:ci because `tags:` says so AND the OAuth client is allowed
+      #             to assign it (the client's own tag list; a tag it may not assign makes
+      #             the key request fail). Nothing here expires on a calendar: the OAuth
+      #             client has no 90-day limit (backlog T135's reminder lapses).
+      #             ⚠️ It is a STRONGER credential than the key it replaces: until it is
+      #             revoked it can mint tag:ci keys (scope auth_keys, nothing else). Like the
+      #             key, it reaches `sudo tailscale up`'s ARGV (for as long as `up` runs --
+      #             an `up` that times out is not killed) AND the environment of tailscaled,
+      #             started with `sudo -E` while the action's INPUT_* variables are set, so
+      #             /proc/<pid>/environ holds it until the post step kills the daemon.
+      #             Readable by root: this job's own later steps (passwordless sudo). On a
+      #             GitHub-hosted runner that is a one-job VM, and the value is masked in
+      #             the log. Accepted limit "[deploy tailnet'e üçüncü-parti bir action ve
+      #             bir OAuth client'la girer]" in deploy/README.md.
+      #             The gate below measures the tag, and the ephemerality where the client
+      #             reports it.
+      #   oauth-client-id  at THIS commit read only for workload identity (`audience`),
+      #             not for the OAuth-secret path above -- the secret names its client
+      #             itself. It is set anyway because it is the action's documented OAuth
+      #             pair and costs nothing; it is NOT what makes the join work, and an
+      #             action bump that starts reading it is re-read here like every input.
       #   args      appended to `tailscale up`. --accept-dns=false: the runner needs one
       #             IP address and no tailnet name, and the gates AFTER the rollout curl
       #             the public hostnames — leaving the runner's resolver alone keeps them
@@ -598,11 +587,15 @@ jobs:
       #             between) end it in about 2.5 minutes.
       # The tailscaled state is in memory (the action's default, --state=mem:), and the
       # action's post step runs `tailscale logout` at the end of the job, failure
-      # included; then it kills tailscaled.
+      # included; then it kills tailscaled. (--state=mem: alone did NOT make the device
+      # ephemeral: the first green T134 run left its github-* device offline in the
+      # tailnet. backlog T134.)
       - name: Join the tailnet (the cluster API is reachable only through it)
         uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4.2.0
         with:
-          authkey: ${{ secrets.TS_AUTHKEY }}
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
           version: "1.94.2"
           sha256sum: "c6f99a5d774c7783b56902188d69e9756fc3dddfb08ac6be4cb2585f3fecdc32"
           args: --accept-dns=false
@@ -612,14 +605,17 @@ jobs:
           retry: "3"
 
       # 🔴 MEASURED, NOT ASSUMED: WHAT THE RUNNER JOINED AS, AND WHETHER IT GETS THROUGH.
-      # The properties of TS_AUTHKEY (tagged? ephemeral?) are set when the key is
-      # generated and cannot be read from this repository, so they are read off the
-      # device the key produced: RED without the exact tag tag:ci in Self.Tags (an
-      # untagged key joins as the USER who generated it, whom the ACL's tag:ci rule does
-      # not describe), RED without a TCP connection to $KUBE_API_HOST:$KUBE_API_PORT,
-      # RED when the status cannot be read; a WARNING when ephemerality is false or not
-      # reported. The status JSON carries the tailnet's user login names (e-mail
-      # addresses) and is never printed.
+      # The join above ASKS for tag:ci and an ephemeral device; this reads off the device
+      # what it GOT: RED without the exact tag tag:ci in Self.Tags (a device without it is
+      # not what the ACL's tag:ci rule describes), RED when the device reports itself NOT
+      # ephemeral (OPS-2: the OAuth path always asks for ephemeral, so `false` means the
+      # join did not go that way), RED without a TCP connection to
+      # $KUBE_API_HOST:$KUBE_API_PORT, RED when the status cannot be read; a WARNING when
+      # ephemerality is not reported at all -- which is tailscale 1.94.2's case: its
+      # status JSON has no such field (ipnstate.PeerStatus), so "required" can only be
+      # enforced where it can be measured, and the measurement that remains is the admin
+      # console after the run (deploy/README.md, "OPS-2 kapanış ölçüsü"). The status JSON
+      # carries the tailnet's user login names (e-mail addresses) and is never printed.
       # 🔴 THE GATE IS A MODE OF scripts/verify-deployment.sh, NOT A SHELL BODY HERE
       # (T134, 2nd round): written inline, the only test it could have was a text pin on
       # its lines, and seven mutants that changed what it DOES (an `exit 1` turned into a
@@ -636,14 +632,13 @@ jobs:
       # push to main. It is created out of band, once, and this step only proves it
       # is there before anything tries to mount it.
       #
-      # ⚠️ THERE IS NO LONGER A SECOND, CI-OWNED SECRET TO CHECK. A registry pull
-      # credential used to be written a few lines below this one, and the line the two
-      # fell on either side of was WHOSE IDENTITY THE CREDENTIAL IS. This workflow no
-      # longer writes a pull credential at all, so tappa-secrets is the only Secret it
-      # has an opinion about — and its opinion is that it must already exist and must
-      # never be written from here. (Whether a pull credential still exists in a given
-      # cluster is a different question, and not one this file answers; the single
-      # record is deploy/README.md, "Elle deploy / rollback".)
+      # ⚠️ THE REGISTRY PULL CREDENTIAL IS THE OPERATOR'S TOO, AND IS CHECKED BY THE NEXT
+      # STEP. A pull credential used to be written a few lines below this one, from this
+      # job's own GITHUB_TOKEN (secret/ghcr, backlog T43); the line it fell on was WHOSE
+      # IDENTITY THE CREDENTIAL IS. Since OPS-2 it is secret/harbor-pull, the Harbor
+      # k8s-pull robot's, made once by the operator -- this workflow still writes no
+      # Secret, and its opinion about both is the same: they must already exist and must
+      # never be written from here.
       #
       # ⚠️ THIS STEP IS ALSO THE FIRST CALL THE DEPLOY IDENTITY MAKES AGAINST THE
       # CLUSTER, so it is where a missing or narrowed RBAC surfaces. That is why the
@@ -665,6 +660,21 @@ jobs:
             echo "::error::secret/tappa-secrets is missing (or unreadable by the deploy identity). It is created out of band and never by CI — see deploy/examples/externalsecret.example.yaml (recommended) or deploy/examples/secret.example.yaml."
             exit 1
           fi
+
+      # 🔴 THE PULL SECRET BOTH POD SPECS NAME (OPS-2): 20-app.yaml and 30-migrate-job.yaml
+      # carry `imagePullSecrets: [{name: harbor-pull}]`, and a pod naming a Secret that does
+      # not exist is not refused by the API server -- it is created and then sits in
+      # ImagePullBackOff, which here would first cost the migration step its 600 s wait. So
+      # the Secret is checked before anything but the namespace is applied, with the deploy
+      # identity's `get` on that one name (01-rbac.yaml, since OPS-2): it must exist, be of
+      # type kubernetes.io/dockerconfigjson, and hold a credential for $REGISTRY. RED and
+      # named when it is missing (create it: deploy/README.md, operator step 4 (c)); RED
+      # (unchecked) when the read is Forbidden -- the operator has not re-applied
+      # 01-rbac.yaml. NOTHING OF THE CREDENTIAL IS PRINTED: the mode reads the type and the
+      # registry host names and prints neither the data nor kubectl's error text.
+      # scripts/verify-deployment.sh, check_pull_secret; cmd/tappa/deployregistry_test.go.
+      - name: Preflight — the registry pull Secret is the operator's and must already exist
+        run: scripts/verify-deployment.sh pull-secret tappa harbor-pull "$REGISTRY"
 
       # 🔴 ops.taptime.mt IS ROUTED ONLY TO A SERVER THAT GATES IT (backlog T119), AND THE
       # DECISION IS TAKEN HERE, BEFORE ANYTHING ELSE IS APPLIED. 41-operator-ingress.yaml

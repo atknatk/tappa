@@ -7,6 +7,9 @@ package main
 // tailscale/github-action, measures what it joined as and whether the API answers
 // (verify-deployment.sh tailnet), and only then makes its first call against the cluster.
 //
+// OPS-2: the join goes through a Tailscale OAuth client (oauth-secret + `tags: tag:ci`) instead
+// of an auth key, and the gate holds a device that reports itself NOT ephemeral to red.
+//
 // THREAT MODEL, as in operatorsurface_test.go: these pins are against ACCIDENTAL drift —
 // the join deleted or moved, the pin loosened to a tag, an input dropped, a gate made
 // skippable or turned into a warning, the status echoed, a secret spelled into a `run:`
@@ -57,10 +60,14 @@ const (
 	tailscaleSHA256  = "c6f99a5d774c7783b56902188d69e9756fc3dddfb08ac6be4cb2585f3fecdc32"
 )
 
-// tailnetJoinInputs are the join step's `with:` lines besides the key, each argued at the step:
-// one client version checked against a digest pinned here rather than fetched beside the
-// download, no DNS takeover, no unchecked cached binary, no echoed status, a bounded wait.
+// tailnetJoinInputs are the join step's `with:` lines, each argued at the step: the OAuth client
+// and the tag it asks for (OPS-2), one client version checked against a digest pinned here
+// rather than fetched beside the download, no DNS takeover, no unchecked cached binary, no
+// echoed status, a bounded wait.
 var tailnetJoinInputs = []string{
+	"oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}",
+	"oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}",
+	"tags: tag:ci",
 	`version: "` + tailscaleVersion + `"`,
 	`sha256sum: "` + tailscaleSHA256 + `"`,
 	"args: --accept-dns=false",
@@ -89,7 +96,7 @@ var localKubectlLines = []string{
 
 var (
 	kubectlWord        = regexp.MustCompile(`\bkubectl\b`)
-	clusterScriptModes = regexp.MustCompile(`scripts/verify-deployment\.sh (operator-surface|db-role|all)\b`)
+	clusterScriptModes = regexp.MustCompile(`scripts/verify-deployment\.sh (operator-surface|db-role|pull-secret|all)\b`)
 )
 
 // imageStepLine is a code line of a step that builds, proves, pushes or inspects an image.
@@ -99,9 +106,9 @@ var imageStepLine = regexp.MustCompile(`\bdocker (build|push|login|manifest)\b|s
 // configuration; what the two gates DO is run by the TestVerifyDeployment_ tests below:
 //
 //   - exactly one step uses tailscale/github-action, by a full commit SHA (a tag or a branch is
-//     red), with `authkey: ${{ secrets.TS_AUTHKEY }}`, each of tailnetJoinInputs — among them the
-//     client version and its sha256, by value (T135) — once each, and no `tags:` (with an auth
-//     key the action ignores it: a line that looks like a guarantee);
+//     red), with each of tailnetJoinInputs — the OAuth client's two secrets and `tags: tag:ci`
+//     (OPS-2), the client version and its sha256 by value (T135) — once each, and no `authkey:`
+//     (the auth-key path it replaced: its device is whatever the key was generated as);
 //   - it comes AFTER the last image step (no repository code that ran during the build ever had
 //     a route into the tailnet; CONTROL: image steps exist) and BEFORE the first step that
 //     talks to the cluster (CONTROL: that step exists, and every local kubectl line is seen, so
@@ -120,6 +127,8 @@ var imageStepLine = regexp.MustCompile(`\bdocker (build|push|login|manifest)\b|s
 // changed, a second `sha256sum:` added beside it, or `version:` deleted -> red;
 // the gate deleted or `if: always()` on it -> red;
 // `${{ secrets.TS_AUTHKEY }}` moved into a run body -> red; the kubeconfig check removed -> red.
+// OPS-2: `tags: tag:ci` deleted, `oauth-secret:` replaced by `authkey: ${{ secrets.TS_OAUTH_SECRET }}`,
+// a second `tags:` added -> red.
 func TestPackaging_TheDeployReachesTheClusterOnlyThroughTheTailnet(t *testing.T) {
 	steps := deploySteps(t)
 
@@ -176,12 +185,12 @@ func TestPackaging_TheDeployReachesTheClusterOnlyThroughTheTailnet(t *testing.T)
 			t.Errorf("%q: a third-party action that holds the tailnet key is pinned by full commit SHA, not by a tag "+
 				"or a branch (the exception to ci.yml's first-party rule is taken on that condition)", tl)
 		}
-		if strings.HasPrefix(tl, "tags:") {
-			t.Errorf("step %q carries %q: with an auth key the action passes no --advertise-tags (dist/index.js), so the "+
-				"line does nothing and reads like a guarantee; the gate measures the tag", j.name, tl)
+		if strings.HasPrefix(tl, "authkey:") {
+			t.Errorf("step %q carries %q: the join goes through the OAuth client (OPS-2), which asks for an ephemeral, "+
+				"pre-authorized tag:ci device on every run; an auth key's device is whatever the key was generated as", j.name, tl)
 		}
 	}
-	for _, want := range append([]string{"authkey: ${{ secrets.TS_AUTHKEY }}"}, tailnetJoinInputs...) {
+	for _, want := range tailnetJoinInputs {
 		if len(stepsWithLine(steps[join:join+1], want)) != 1 {
 			t.Errorf("step %q lacks the input line %q (each is argued at the step)", j.name, want)
 		}
@@ -194,7 +203,7 @@ func TestPackaging_TheDeployReachesTheClusterOnlyThroughTheTailnet(t *testing.T)
 			inputKeys[k]++
 		}
 	}
-	for _, k := range []string{"version", "sha256sum", "use-cache"} {
+	for _, k := range []string{"version", "sha256sum", "use-cache", "oauth-client-id", "oauth-secret", "tags"} {
 		if inputKeys[k] != 1 {
 			t.Errorf("step %q carries the input %q %d time(s), want once", j.name, k, inputKeys[k])
 		}
@@ -283,9 +292,9 @@ func TestPackaging_TheDeployReachesTheClusterOnlyThroughTheTailnet(t *testing.T)
 				"never expanded where a script is rendered", strings.TrimSpace(l), parent)
 		}
 	}
-	if secrets < 6 {
-		t.Errorf("CONTROL FAILED: %d `${{ secrets.` line(s) seen, want at least 6 (Docker Hub ×4, KUBE_CONFIG, TS_AUTHKEY)",
-			secrets)
+	if secrets < 10 {
+		t.Errorf("CONTROL FAILED: %d `${{ secrets.` line(s) seen, want at least 10 (the preflight's five, the registry "+
+			"login's two, KUBE_CONFIG, the OAuth client's two)", secrets)
 	}
 }
 
@@ -456,7 +465,8 @@ func tailnetSelf(tags, ephemeral string) string {
 // string "tag:ci" — and for a closed port; RED (exit 2, UNCHECKED) for no tailscale CLI, a
 // failing status, empty output, broken JSON, a JSON array, NeedsLogin, no BackendState, no
 // Self, a Self that is not an object; GREEN (exit 0) for ["tag:ci"] and ["tag:other","tag:ci"]
-// with an open port, Ephemeral true (no warning), false and absent (a warning each).
+// with an open port, Ephemeral true (no warning), absent or not a boolean (a warning each); OPS-2:
+// RED (exit 1) for Ephemeral false, before any TCP attempt.
 // PART II — pinned, on every row: the exit code and the message; that no output carries
 // loginCanary (the status is never printed); how many TCP attempts were made (0 before the
 // tag is proven, 1 on an open port, 6 on a closed one), each through `timeout 5`, with 5 s
@@ -506,7 +516,9 @@ func TestVerifyDeployment_TheTailnetModeMeasuresTheJoin(t *testing.T) {
 		{name: "tag:other and tag:ci, ephemeral", status: tailnetStatus(`"Running"`, tailnetSelf(`["tag:other","tag:ci"]`, "true")),
 			wantCode: 0, wantMark: "tags tag:other,tag:ci, ephemeral true", wantTCP: 1, wantNoMark: "::warning::"},
 		{name: "tag:ci, not ephemeral", status: tailnetStatus(`"Running"`, tailnetSelf(`["tag:ci"]`, "false")),
-			wantCode: 0, wantMark: "::warning::this runner's tailnet device is NOT ephemeral", wantTCP: 1},
+			wantCode: 1, wantMark: "::error::this runner's tailnet device is NOT ephemeral"},
+		{name: "tag:ci, ephemerality not a boolean", status: tailnetStatus(`"Running"`, tailnetSelf(`["tag:ci"]`, `"yes"`)),
+			wantCode: 0, wantMark: "does not report whether this device is ephemeral", wantTCP: 1},
 		{name: "tag:ci, ephemerality not reported", status: tagged, wantCode: 0, wantMark: "does not report whether this device is ephemeral", wantTCP: 1},
 	} {
 		rig.set("tailscale.status.out", tc.status)

@@ -123,9 +123,19 @@ rules:
   # fails closed. No new verb. Measured 2026-10-14 by the orchestrator WITH THIS IDENTITY
   # (`--as` this ServiceAccount, kubectl v1.36.1) on the live Secret: the describe answered,
   # line 8 `Data`, line 9 `====`, `TAPPA_OPERATOR_HOST:            14 bytes` -- no value.
+  # Since OPS-2 also STEP "Preflight — the registry pull Secret is the operator's and must
+  # already exist" (scripts/verify-deployment.sh pull-secret): `kubectl -n tappa get secret
+  # harbor-pull`, the Harbor k8s-pull robot's dockerconfigjson that both pod specs name. A
+  # second NAME, not a new verb: still `get` only, so the deploy identity can neither create,
+  # overwrite nor delete it. ⚠️ What `get` hands over is the object, data included, so this
+  # identity can READ the k8s-pull robot's credential -- pull only, one project; the workflow
+  # already holds the ci robot, which can push AND pull the same project, so nothing it could
+  # not already do is added. (Before this name, a missing Secret was found only as a
+  # migration Job stuck in ImagePullBackOff, 600 s later.) Without re-applying this file the
+  # preflight reads Forbidden and stops the deploy before anything is applied.
   - apiGroups: [""]
     resources: ["secrets"]
-    resourceNames: ["tappa-secrets"]
+    resourceNames: ["tappa-secrets", "harbor-pull"]
     verbs: ["get"]
 
   # STEP "Apply configuration and database":

@@ -84,7 +84,7 @@ func sandboxDoc1(t *testing.T, docs []sandboxDoc, kind, name string) sandboxDoc 
 // neither workflow applies, builds or pushes any of it (the deploy path comes with the domain).
 //
 // MUTANTS (measured): one object's namespace set to tappa; the warn label dropped; the LimitRange
-// deleted; the server's image set to docker.io/atknatk/tappa; TAPPA_OPERATOR_HOST made optional; an
+// deleted; the server's image set to production's (registry.everva.com.tr/tappa/tappa); TAPPA_OPERATOR_HOST made optional; an
 // Ingress host that is not the placeholder's; `docker build --target app-sandbox` added to
 // deploy.yml -- each red.
 func TestSandboxManifests_AreTheSandboxsOwn(t *testing.T) {
@@ -143,7 +143,7 @@ func TestSandboxManifests_AreTheSandboxsOwn(t *testing.T) {
 	}
 
 	app := sandboxDoc1(t, docs, "Deployment", "tappa")
-	if !strings.Contains(app.body, "image: docker.io/atknatk/tappa-sandbox:") || strings.Contains(app.body, "image: docker.io/atknatk/tappa:") {
+	if !strings.Contains(app.body, "image: "+harborProject+"/tappa-sandbox:") || strings.Contains(app.body, "image: "+harborProject+"/tappa:") {
 		t.Errorf("the sandbox server's image is not the sandbox image")
 	}
 	env := containerEnvEntries(t, app.body, "tappa")
