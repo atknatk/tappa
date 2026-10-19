@@ -1893,8 +1893,9 @@ var kubectlCall = regexp.MustCompile(`(?:^|\||&&|\|\||\$\()\s*kubectl\b([^|&]*)`
 // PART I -- static, over operator steps 3, 4 and 5 and the "OPS-2" section: every kubectl call in a
 // ```bash block names `--context hetzner-k8s-1` (the user's default context is another cluster),
 // except one that names its own `--kubeconfig=` file (k8s-2, where Harbor runs, has no kubectl
-// context at all: its API block goes over ssh -- TestReadme_TheHarborRefreshBlock...); CONTROL: at
-// least 10 kubectl calls seen, 01-rbac.yaml's
+// context at all: its API block goes over ssh --
+// TestReadme_TheHarborRefreshBlockRunsOverSSHAndKeepsTheSecretOffTheTerminal); CONTROL: at least 10
+// kubectl calls seen, 01-rbac.yaml's
 // apply among them. Across the WHOLE file: no ```bash line runs `docker login`, and none uses
 // `--password-stdin` unless something is piped into it (pasted at a prompt, the value shows).
 // PART II -- the harbor-pull block of step 4 (c) is RUN, as written, under bash and under zsh, with
@@ -2163,7 +2164,7 @@ func TestReadme_TheHarborRefreshBlockRunsOverSSHAndKeepsTheSecretOffTheTerminal(
 printf '%s\n%s\n' "$BODY" "$CODE"`
 	const ghStub = `printf 'gh %s\n' "$*" >> "$STUB/calls"
 /bin/cat > "$STUB/gh-stdin"
-/bin/ls "$TMPDIR"/d.*/ > "$STUB/gh-saw"`
+/bin/ls "$TMPDIR"/d.* > "$STUB/gh-saw"`
 	const pbcopyStub = `printf 'pbcopy\n' >> "$STUB/calls"
 /bin/cat > "$STUB/clipboard"`
 	okBody := `{"secret":"` + newSecret + `"}`
