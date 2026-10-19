@@ -1692,6 +1692,16 @@ yazılır.
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 
+### 2026-10-19 (29. oturum, elli sekizinci yarı) — ✅ **T137 DONE** (redline'ın genel sınırları + katalog yetki testi) · 🚀 T124 + T125 canlıda (`main` = `4cfa39c`, goose 60)
+
+- **T124/T125 deploy'u** (koşu 39188398771): prod salt-okur — goose 60, `holding_peer` iki imza (ikisi de INVOKER), küme biçimi `tappa_app` EXECUTE f, RLS+FORCE hepsinde, ayrıcalıklı rol üyeliği 0, son 30 dk ERROR 0.
+- **T137** (`ce97a63`, `8a7847a`, `5f3ceda`): `scripts/redline-check.sh` — lexer PostgreSQL gibi: `E'…'`/`U&'…'` kaçışları, satır sonundan sonra dize devamı (aynı kip; E/U& devamı FAIL), adlandırılmış dolar tırnağı, tırnaklı tanımlayıcı, iç içe blok yorum; `GRANT … TO PUBLIC` her yetkide FAIL; ifadenin ilk sözcüğü olmayan GRANT FAIL (`CREATE SCHEMA … GRANT` gerçekten yetki veriyordu); `sql_scan` gövde kodunda DDL → `R5B_BODY_DDL` sha256 beyaz listesi (9 dosya, dize içeriği dahil); `set_config` ilk argümanı düz sabit + izin listesi (7 ad), `pg_settings`/`SET NAMES`/`client_encoding`/`U&"…"` FAIL; `COMMENT ON` gövde sayılmaz. **Kalıcı ağ — `internal/db/privcatalog_test.go`:** migration'lardan sonra bütün kullanıcı şemalarında her ilişki/sütun/fonksiyon/dizi/şema/veritabanı/eklenti × her rol (PUBLIC dahil, `pg_*` hariç) etkin yetkisi + GRANT OPTION + MAINTAIN + ENABLE/FORCE + sahip + SECURITY DEFINER → 223 satırlık izin listesiyle birebir; doğrulama testi 23 mutant türü. CI'a gawk/mawk/original-awk + üç awk karşılaştırma testi (`CI`'da <3 awk → Fatal).
+- **Denetim izi:** 1. tur üçüncü göz RED (3 ORTA: E-dize devamı, tırnaklı gövde devamı, bölünmüş `set_config` adı — PG'de gerçekten yetki veriyordu); güvenlik merceği **iki kez sınıflandırıcıyla yarıda kaldı** (atlatma vakası üretirken) ve katalog testini önerdi. Düzeltme `8a7847a` → 2. tur iki yeni mercek ONAY (güvenlik merceği bu kez saldırı vakası üretmeden: verilen vakaları doğrula + katalog mutantları + izin listesinin güvenlik okuması) → DÜŞÜK turu `5f3ceda`. **Ders:** güvenlik denetçisine "atlatma vakası üret" deme; verilen vakaları doğrulat, sonucu (katalog) ölçen teste yaslan.
+- **Backlog:** T138 — M11 öncesi 9 trigger fonksiyonunda varsayılan PUBLIC EXECUTE (hijyen; iki mercek kabul etti).
+- **CLAUDE.md:** §6 `privCatalogAllowed` maddesi.
+
+**🔴 DEVAM PLANI:** push → CI (ilk gawk karşılaştırması) → prod sakin → `main` (migration yok) · **OPS-2** (Tailscale OAuth + Harbor + `production` Environment; kullanıcıdan iki Harbor robot secret'ı) · T138 · kullanıcı ölçümleri (runbook (e) 4,5,6,7,10,11) · OP-15 → 00061 + API-4b (başka oturum) · sandbox alan adı (ertelendi).
+
 ### 2026-10-19 (29. oturum, elli yedinci yarı) — ✅ **T124 DONE** (holding üyesinin rehberi 1 sn → ~3 ms) · ✅ **T125 DONE** (başka şube kuralı not-only + panel koruması) · 🚀 T130 canlıda (`main` = `433e172`, goose 59)
 
 - **T130 deploy'u** (koşu 39166697701): prod salt-okur ölçüldü — goose 59, `settled_at` var, politikalar RESTRICTIVE DELETE + PERMISSIVE ALL, `tappa_app` DELETE t / `settled_at` UPDATE f / PUBLIC DELETE f / `transactions` DELETE f, RLS+FORCE hepsinde, indeks var, OpenAPI `x-delivery-retention-days`.

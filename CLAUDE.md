@@ -357,6 +357,9 @@ başlayan bir test durumu olmalı.
 - Toplu silmede parti sınırı `WITH … AS MATERIALIZED (… LIMIT n FOR UPDATE SKIP LOCKED) DELETE … USING`
   ile kurulur: `id IN (SELECT … LIMIT n …)` alt sorgu yeniden tarandığında n'yi aşar (T130'da ölçüldü: 105/100).
 - Migration geri alınabilir olmalı (`-- +goose Down` dolu).
+- Yeni bir tablo, fonksiyon, dizi, şema, eklenti, rol ya da yetki `internal/db/privcatalog_test.go`'daki
+  `privCatalogAllowed` listesine **bilinçli** eklenir (liste katalogdan dökülür — `TAPPA_PRIVCATALOG_DUMP=1` —
+  ve satır satır okunur). Redline metni okur; bu test migration'lardan sonraki **etkin** yetkiyi okur (T137).
 - Yeni sorgu = `db/queries/*.sql` + `make sqlc`. Handler içine ham SQL yazılmaz.
 - **Sıcak bir tabloya** (ör. `employees`) indeks, Down yürüyüşüne giren bir migration'a değil **ayrı bir
   migration dosyasına** konur — o Down tabloya ACCESS EXCLUSIVE alır ve paralel testleri kilitler
