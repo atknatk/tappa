@@ -1892,8 +1892,9 @@ var kubectlCall = regexp.MustCompile(`(?:^|\||&&|\|\||\$\()\s*kubectl\b([^|&]*)`
 //
 // PART I -- static, over operator steps 3, 4 and 5 and the "OPS-2" section: every kubectl call in a
 // ```bash block names `--context hetzner-k8s-1` (the user's default context is another cluster),
-// except one that names its own `--kubeconfig=` file and the Harbor API block's `--context
-// "${K2:?}"` (k8s-2, refused when unset); CONTROL: at least 10 kubectl calls seen, 01-rbac.yaml's
+// except one that names its own `--kubeconfig=` file (k8s-2, where Harbor runs, has no kubectl
+// context at all: its API block goes over ssh -- TestReadme_TheHarborRefreshBlock...); CONTROL: at
+// least 10 kubectl calls seen, 01-rbac.yaml's
 // apply among them. Across the WHOLE file: no ```bash line runs `docker login`, and none uses
 // `--password-stdin` unless something is piped into it (pasted at a prompt, the value shows).
 // PART II -- the harbor-pull block of step 4 (c) is RUN, as written, under bash and under zsh, with
@@ -1934,8 +1935,7 @@ func TestReadme_TheHarborBlocksNameTheirClusterAndKeepTheSecretOffTheTerminal(t 
 					if strings.Contains(args, "deploy/k8s/01-rbac.yaml") {
 						rbac = true
 					}
-					if !strings.Contains(args, "--context hetzner-k8s-1 ") && !strings.Contains(args, "--kubeconfig=") &&
-						!strings.HasPrefix(strings.TrimSpace(args), `--context "${K2:?}"`) {
+					if !strings.Contains(args, "--context hetzner-k8s-1 ") && !strings.Contains(args, "--kubeconfig=") {
 						t.Errorf("a kubectl call names no cluster (want --context hetzner-k8s-1; the default context is another "+
 							"cluster):\n  %s", strings.TrimSpace(l))
 					}
@@ -2077,6 +2077,196 @@ exit "$DOCKER_RC"`
 			}
 			if f, err := os.ReadFile(filepath.Join(stub, "fromfile")); tc.wantApply && (err != nil || !strings.HasPrefix(string(f), tmp)) {
 				t.Errorf("%s: the Secret was not made from a file under TMPDIR (%q, %v)", at, f, err)
+			}
+		}
+	}
+}
+
+// TestReadme_TheHarborRefreshBlockRunsOverSSHAndKeepsTheSecretOffTheTerminal (OPS-2 follow-up).
+// Harbor runs on k8s-2 under docker compose: there is no kubectl context for it, its core API
+// listens inside the `harbor-core` container on 127.0.0.1:8080, and the admin password lives on
+// the server in /opt/harbor/harbor.yml. Operator step 4's robot-secret refresh is therefore an
+// ssh to "$K2" that runs `docker exec -i harbor-core curl` there. This test RUNS the three blocks
+// of that recipe (refresh; gh + clipboard; cleanup), as written, under bash and under zsh, with a
+// stub ssh that executes the received script locally (its one rewrite: the harbor.yml path points
+// at a test file), a stub docker standing in for the container's curl, and stub gh and pbcopy:
+//   - GREEN: ssh is `-T "$K2" sh -s <id>`; docker is `exec -i harbor-core curl -q ... -K - -X PATCH
+//     ... --data {} ... http://127.0.0.1:8080/api/v2.0/robots/<id>`; the curl config on its stdin
+//     is exactly `user = "admin:<password>"` with `"` and `\` escaped (quotes around the YAML value
+//     removed); gh gets the new secret on stdin, while only the secret file is in the directory
+//     (the raw answer is already gone); "refresh: HTTP 200";
+//   - HTTP 401, a 500 whose body names a secret, a 200 that carries no secret, a harbor.yml
+//     without the key -> gh is not called and
+//     the block says "no new secret";
+//   - K2 unset, ROBOT_ID unset, ROBOT_ID carrying anything but digits -> ssh is never called;
+//   - on every row: neither the admin password nor the new secret is in any output or any
+//     process's argv; the clipboard is empty at the end; TMPDIR is empty at the end.
+//
+// MUTANT (measured): the digit check on ROBOT_ID dropped -> the injection row red (ssh called); a
+// `cat "$H/resp"` added -> the secret in the output, red; `rm -f "$H/resp"` dropped -> gh sees
+// the raw answer next to the secret, red; the password put on curl's command line (`-u`) -> red;
+// the `[ "$C" = 200 ]` check dropped -> the "not 200, though the body names a secret" row red;
+// the clipboard clear dropped -> red; the `"`/`\` escaping dropped -> the curl config row red.
+func TestReadme_TheHarborRefreshBlockRunsOverSSHAndKeepsTheSecretOffTheTerminal(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join(repoRoot(t), "deploy", "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocks := readmeBashBlocks(sectionOf(t, string(b), harborStepStart, harborStepEnd))
+	start := -1
+	for i, blk := range blocks {
+		if strings.Contains(strings.Join(blk, "\n"), "/api/v2.0/robots/") {
+			if start >= 0 {
+				t.Fatal("CONTROL FAILED: step 4 has two blocks that call /api/v2.0/robots/")
+			}
+			start = i
+		}
+	}
+	if start < 0 || start+2 >= len(blocks) {
+		t.Fatalf("CONTROL FAILED: step 4 has no robot refresh block followed by two more (found at %d of %d)", start, len(blocks))
+	}
+	script := ""
+	for i, want := range []string{"/api/v2.0/robots/", "gh secret set HARBOR_CI_ROBOT_SECRET --env production", "pbcopy < /dev/null"} {
+		j := strings.Join(blocks[start+i], "\n")
+		if !strings.Contains(j, want) {
+			t.Fatalf("CONTROL FAILED: block %d of the refresh recipe does not contain %q:\n%s", i+1, want, j)
+		}
+		script += j + "\n"
+	}
+	for _, l := range strings.Split(script, "\n") {
+		if regexp.MustCompile(`\bkubectl\b`).MatchString(l) {
+			t.Errorf("the Harbor refresh recipe calls kubectl (k8s-2 has no kubectl context):\n  %s", l)
+		}
+	}
+
+	var shells [][]string
+	if bash, err := exec.LookPath("bash"); err == nil {
+		shells = append(shells, []string{bash, "-c"})
+	}
+	if zsh, err := exec.LookPath("zsh"); err == nil {
+		shells = append(shells, []string{zsh, "-f", "-i", "-c"})
+	}
+	if len(shells) == 0 {
+		t.Skip("neither bash nor zsh is installed: the static rules above ran; the blocks did not")
+	}
+	const (
+		newSecret = "NEWROBOTSECRETCANARY"
+		adminPass = `Adm"in\PASSCANARY`
+	)
+	const sshStub = `printf 'ssh %s\n' "$*" >> "$STUB/calls"
+[ "$#" = 5 ] && [ "$1" = -T ] && [ "$2" = "$WANT_HOST" ] && [ "$3" = sh ] && [ "$4" = -s ] || exit 97
+/bin/cat > "$STUB/remote.sh"
+/usr/bin/sed "s|/opt/harbor/harbor.yml|$STUB/harbor.yml|g" "$STUB/remote.sh" | PATH="$STUB/remote:/usr/bin:/bin" /bin/sh -s "$5"`
+	const dockerStub = `printf 'docker %s\n' "$*" >> "$STUB/calls"
+[ "$1 $2 $3 $4" = "exec -i harbor-core curl" ] || exit 97
+/bin/cat > "$STUB/curlrc"
+printf '%s\n%s\n' "$BODY" "$CODE"`
+	const ghStub = `printf 'gh %s\n' "$*" >> "$STUB/calls"
+/bin/cat > "$STUB/gh-stdin"
+/bin/ls "$TMPDIR"/d.*/ > "$STUB/gh-saw"`
+	const pbcopyStub = `printf 'pbcopy\n' >> "$STUB/calls"
+/bin/cat > "$STUB/clipboard"`
+	okBody := `{"secret":"` + newSecret + `"}`
+	for _, sh := range shells {
+		for _, tc := range []struct {
+			name, k2, id, yml, body, code string
+			wantSSH, wantGH               bool
+			wantMark                      string
+		}{
+			{"GREEN: refreshed, the secret goes to gh on stdin", "k8s-2", "42", "harbor_admin_password: " + adminPass + "\n", okBody, "200", true, true, "refresh: HTTP 200"},
+			{"GREEN: a quoted YAML value", "k8s-2", "42", `harbor_admin_password: "` + adminPass + `"` + "\n", okBody, "200", true, true, "refresh: HTTP 200"},
+			{"401: the old secret holds", "k8s-2", "42", "harbor_admin_password: " + adminPass + "\n", `{"errors":[{"code":"UNAUTHORIZED","message":"unauthorized"}]}`, "401", true, false, "no new secret"},
+			{"not 200, though the body names a secret", "k8s-2", "42", "harbor_admin_password: " + adminPass + "\n", okBody, "500", true, false, "no new secret"},
+			{"200 without a secret", "k8s-2", "42", "harbor_admin_password: " + adminPass + "\n", `{}`, "200", true, false, "no new secret"},
+			{"harbor.yml has no admin password", "k8s-2", "42", "hostname: x\n", okBody, "200", true, false, "refresh: HTTP none"},
+			{"K2 unset", "", "42", "harbor_admin_password: " + adminPass + "\n", okBody, "200", false, false, "refresh: HTTP none"},
+			{"ROBOT_ID unset", "k8s-2", "", "harbor_admin_password: " + adminPass + "\n", okBody, "200", false, false, "refresh: HTTP none"},
+			{"ROBOT_ID carries a command", "k8s-2", "42;touch INJECTED", "harbor_admin_password: " + adminPass + "\n", okBody, "200", false, false, "refresh: HTTP none"},
+		} {
+			stub, bin, work, tmp := t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir()
+			if err := os.MkdirAll(filepath.Join(stub, "remote"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			for path, body := range map[string]string{
+				filepath.Join(bin, "ssh"):               sshStub,
+				filepath.Join(stub, "remote", "docker"): dockerStub,
+				filepath.Join(bin, "gh"):                ghStub,
+				filepath.Join(bin, "pbcopy"):            pbcopyStub,
+				filepath.Join(bin, "mktemp"):            `[ "$*" = "-d" ] || exit 97` + "\n" + `exec /usr/bin/mktemp -d "$TMPDIR/d.XXXXXX"`,
+			} {
+				if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := os.WriteFile(filepath.Join(stub, "harbor.yml"), []byte(tc.yml), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			env := []string{"PATH=" + bin + ":/usr/bin:/bin", "HOME=" + t.TempDir(), "TERM=dumb", "TMPDIR=" + tmp,
+				"STUB=" + stub, "WANT_HOST=k8s-2", "BODY=" + tc.body, "CODE=" + tc.code}
+			if tc.k2 != "" {
+				env = append(env, "K2="+tc.k2)
+			}
+			if tc.id != "" {
+				env = append(env, "ROBOT_ID="+tc.id)
+			}
+			cmd := exec.CommandContext(t.Context(), sh[0], append(sh[1:], script)...)
+			cmd.Env = env
+			cmd.Dir = work
+			cmd.Stdin = strings.NewReader("")
+			outB, _ := cmd.CombinedOutput()
+			out := string(outB)
+			at := filepath.Base(sh[0]) + ", " + tc.name
+			callsB, _ := os.ReadFile(filepath.Join(stub, "calls"))
+			calls := string(callsB)
+			for _, v := range []string{newSecret, "PASSCANARY"} {
+				if strings.Contains(out, v) || strings.Contains(calls, v) {
+					t.Errorf("%s: %s reached the output or a process's argv:\n%s\n%s", at, v, out, calls)
+				}
+			}
+			if !strings.Contains(out, tc.wantMark) {
+				t.Errorf("%s: %q not in:\n%s", at, tc.wantMark, out)
+			}
+			if got := strings.Contains(calls, "ssh "); got != tc.wantSSH {
+				t.Errorf("%s: ssh called = %v, want %v:\n%s", at, got, tc.wantSSH, calls)
+			}
+			if tc.wantSSH && !strings.Contains(calls, "ssh -T k8s-2 sh -s 42\n") {
+				t.Errorf("%s: ssh not called as `-T $K2 sh -s $ROBOT_ID`:\n%s", at, calls)
+			}
+			if _, err := os.Stat(filepath.Join(work, "INJECTED")); err == nil {
+				t.Errorf("%s: ROBOT_ID ran a command", at)
+			}
+			if got := strings.Contains(calls, "gh "); got != tc.wantGH {
+				t.Errorf("%s: gh called = %v, want %v:\n%s", at, got, tc.wantGH, out)
+			}
+			if strings.Contains(tc.yml, "harbor_admin_password") && tc.wantSSH {
+				for _, l := range strings.Split(calls, "\n") {
+					if strings.HasPrefix(l, "docker ") && l != `docker exec -i harbor-core curl -q -sS --max-time 30 -K - -X PATCH -H Content-Type: application/json --data {} -w \n%{http_code}\n http://127.0.0.1:8080/api/v2.0/robots/42` {
+						t.Errorf("%s: docker called as %q", at, l)
+					}
+				}
+				if !strings.Contains(calls, "-K - -X PATCH") || !strings.Contains(calls, "http://127.0.0.1:8080/api/v2.0/robots/42") {
+					t.Errorf("%s: the container's curl was not asked to PATCH robot 42 with its config on stdin:\n%s", at, calls)
+				}
+				rc, _ := os.ReadFile(filepath.Join(stub, "curlrc"))
+				if want := `user = "admin:Adm\"in\\PASSCANARY"` + "\n"; string(rc) != want {
+					t.Errorf("%s: the curl config on stdin is %q, want %q", at, rc, want)
+				}
+			}
+			if tc.wantGH {
+				in, _ := os.ReadFile(filepath.Join(stub, "gh-stdin"))
+				saw, _ := os.ReadFile(filepath.Join(stub, "gh-saw"))
+				if string(in) != newSecret || strings.TrimSpace(string(saw)) != "secret" {
+					t.Errorf("%s: gh read %q on stdin and saw %q in the directory; want exactly the new secret, next to nothing but it", at, in, saw)
+				}
+				if !strings.Contains(calls, "gh secret set HARBOR_CI_ROBOT_SECRET --env production --repo atknatk/tappa\n") {
+					t.Errorf("%s: gh not called as the production environment's HARBOR_CI_ROBOT_SECRET:\n%s", at, calls)
+				}
+			}
+			if clip, _ := os.ReadFile(filepath.Join(stub, "clipboard")); len(clip) != 0 {
+				t.Errorf("%s: the clipboard is not empty at the end (%d bytes)", at, len(clip))
+			}
+			if left, err := os.ReadDir(tmp); err != nil || len(left) != 0 {
+				t.Errorf("%s: the blocks left %d entr(ies) in TMPDIR (err %v)", at, len(left), err)
 			}
 		}
 	}

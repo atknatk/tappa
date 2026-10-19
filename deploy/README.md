@@ -283,37 +283,61 @@ Account**, adı `tappa-ci`, Expiration **Never**, iki proje satırı (`tappa` ve
 izinlerle; **`k8s-pull`** için **Projects → `tappa` → Robot Accounts → New Robot Account**, adı
 `k8s-pull`, Expiration **Never**. Arayüz yoksa aynı iş Harbor API'siyle (`POST /api/v2.0/robots`;
 `ci` için `level: system` ve iki `{"kind":"project","namespace":…,"access":[…]}`, `k8s-pull` için
-`level: project`), yönetici kimliğiyle, k8s-2'de `harbor-core` kabının içinden — aşağıdaki
-yenileme bloğunun kalıbıyla (parola istemden, gövde stdin'den). Yeni robotun secret'ı **bir kez**
+`level: project`), yönetici kimliğiyle, SSH ile k8s-2'ye bağlanıp `docker exec -i harbor-core curl …`
+ile kabın içinden — aşağıdaki yenileme bloğunun kalıbıyla (yönetici parolası sunucuda okunur, curl'e
+stdin'den gider). Yeni robotun secret'ı **bir kez**
 gösterilir: doğrudan Infisical'a, sonra (b) ya da (c).
 
 **Robot secret'ını yenilemek — değer basmadan.** Arayüz: robotun satırında **⋮ → Refresh secret**;
 Harbor yeni değeri bir kez gösterir — ekrandan Infisical'a kopyala, sonra (b) (`ci`) ya da (c)
 (`k8s-pull`). 🔴 **Refresh eski değeri HEMEN geçersiz kılar:** `ci` için zararsız (sıradaki deploy
 yeni değeri okur — önce (b), sonra Refresh), `k8s-pull` için **kullanma**, (d)'nin yeni-robot yolunu
-izle. API (arayüze erişilemezse; bu repodan **koşulmadı**): yeni secret'ı yerelde üretip bir dosyaya
-yazar, Harbor'a `harbor-core` kabının içinden `PATCH /api/v2.0/robots/<id>` ile verir; yönetici
-parolası istemden okunur, curl'e **stdin**'den yapılandırma dosyası olarak gider, cevap (yeni secret'ı
-taşır) `/dev/null`'a yazılır, yalnız HTTP kodu basılır. Önce üç değişkeni tanımla: `K2` (k8s-2'nin
-kubectl bağlamı), `HARBOR_NS` (Harbor'ın namespace'i), `ROBOT_ID` (robotun Harbor kimliği — arayüzde
-robotun satırı). Harbor'ın secret kuralı (8–128 karakter, büyük harf, küçük harf, rakam) `Aa1`
-önekiyle sağlanır.
+izle. API (arayüze erişilemezse; bu repodan **koşulmadı** — blok testte taklit bir sunucuya karşı
+koşulur): Harbor k8s-2'de **docker compose** ile koşar, çekirdek API'si `harbor-core` kabının içinde
+`http://127.0.0.1:8080/api/v2.0`'dadır ve k8s-2'de **kubectl bağlamı yoktur** — istek SSH ile k8s-2'ye,
+oradan `docker exec -i harbor-core curl …` ile kabın içine gider. Yönetici kimliği **sunucuda** okunur
+(`/opt/harbor/harbor.yml`, `harbor_admin_password`) ve sunucudan çıkmaz: değer hiçbir argv'ye girmez
+(`printf` kabuğun kendi komutudur), curl'e **stdin**'den yapılandırma dosyası olarak gider (`-K -`;
+`"` ve `\` kaçırılır), ekrana basılmaz. Gövde `{}`'dir — Harbor yeni secret'ı **kendisi** üretir ve
+cevapta bir kez döndürür (`PATCH /api/v2.0/robots/<id>`, `{"secret":"…"}`); cevap SSH'tan doğrudan
+yerel, yalnız sana açık bir dosyaya yazılır, ekrana yalnız HTTP kodu gelir, secret `$H/secret`'a
+ayıklanır ve cevap dosyası silinir. Önce iki değişkeni tanımla: `K2` (k8s-2'nin SSH hedefi — örn.
+`~/.ssh/config`'teki takma adı; harbor.yml'i okuyabilen ve docker koşturabilen bir kullanıcıyla,
+pratikte root; adres ve anahtar bu belgeye **yazılmaz**) ve `ROBOT_ID` (robotun Harbor kimliği, yalnız
+rakam — `GET /api/v2.0/robots` listesindeki `id`). Biri eksikse ya da `ROBOT_ID` rakamdan başka bir
+şey taşıyorsa SSH **hiç açılmaz**. ⚠️ `harbor.yml`'deki parola **kurulum** parolasıdır: yönetici
+parolası sonradan arayüzden değiştirildiyse istek `401` alır (eski secret yerinde kalır) — o zaman
+arayüz yolu.
 
 ```bash
 umask 077
 H=$(mktemp -d)
-printf 'Harbor admin password: '; read -rs HP; echo
-printf 'Aa1%s' "$(openssl rand -hex 24)" > "$H/secret"
-printf 'user = "admin:%s"\nheader = "Content-Type: application/json"\ndata = "{\\"secret\\":\\"%s\\"}"\n' "$HP" "$(cat "$H/secret")" > "$H/curlrc"
-unset HP
-kubectl --context "${K2:?}" -n "${HARBOR_NS:?}" exec -i deploy/harbor-core -- curl -q -sS -K - -X PATCH -o /dev/null -w 'refresh: HTTP %{http_code}\n' "http://localhost:8080/api/v2.0/robots/${ROBOT_ID:?}" < "$H/curlrc"
-rm -f "$H/curlrc"
+[ -n "${K2:-}" ] && [ -n "${ROBOT_ID:-}" ] && [ -z "$(printf '%s' "$ROBOT_ID" | tr -d 0-9)" ] && ssh -T "$K2" sh -s "$ROBOT_ID" > "$H/resp" <<'EOF'
+set -eu
+p=$(sed -n 's/^harbor_admin_password[:][[:space:]]*//p' /opt/harbor/harbor.yml | head -n 1 | sed -e 's/[[:space:]]*$//' -e "s/^\"\(.*\)\"\$/\1/" -e "s/^'\(.*\)'\$/\1/")
+[ -n "$p" ] || { echo 'no harbor_admin_password in /opt/harbor/harbor.yml' >&2; exit 1; }
+printf 'user = "admin:%s"\n' "$(printf '%s' "$p" | sed 's/[\\"]/\\&/g')" | docker exec -i harbor-core curl -q -sS --max-time 30 -K - -X PATCH -H 'Content-Type: application/json' --data '{}' -w '\n%{http_code}\n' "http://127.0.0.1:8080/api/v2.0/robots/$1"
+EOF
+C=$(tail -n 1 "$H/resp" 2>/dev/null); echo "refresh: HTTP ${C:-none}"
+[ "$C" = 200 ] && sed -n '1s/.*"secret":"\([^"]*\)".*/\1/p' "$H/resp" | tr -d '\n' > "$H/secret" && [ -s "$H/secret" ] && echo "the new secret is in $H/secret" || { rm -f "$H/secret"; echo "no new secret: HTTP 200 means refreshed but unreadable (refresh again), any other code means the old secret still holds"; }
+rm -f "$H/resp"
 ```
 
-`refresh: HTTP 200` beklenir; başka bir kod eski değerin **yerinde** kaldığını söyler. Yeni değer
-`$H/secret`'tadır: `ci` için `gh secret set HARBOR_CI_ROBOT_SECRET --env production --repo
-atknatk/tappa < "$H/secret"`; Infisical'a panodan (`pbcopy < "$H/secret"`, yapıştır, `pbcopy <
-/dev/null`). En sonda `rm -rf "$H"`.
+`refresh: HTTP 200` ve `the new secret is in …` beklenir; `HTTP none` SSH'ın hiç açılmadığını ya da
+sunucu tarafının düştüğünü (`K2`/`ROBOT_ID` eksik, harbor.yml okunamadı, kap yok), başka bir kod eski
+değerin **yerinde** kaldığını söyler. Yeni değer `$H/secret`'tadır ve oradan **stdin**'le gider —
+`gh`'ye dosyadan, Infisical'a panodan (`shared-infra/prod:/tappa/HARBOR_CI_ROBOT_SECRET`):
+
+```bash
+[ -s "$H/secret" ] && gh secret set HARBOR_CI_ROBOT_SECRET --env production --repo atknatk/tappa < "$H/secret" && pbcopy < "$H/secret" && echo "set in production; on the clipboard for Infisical"
+```
+
+Infisical'a yapıştırdıktan sonra panoyu ve dizini temizle:
+
+```bash
+pbcopy < /dev/null
+rm -rf "$H"
+```
 
 **(b) CI robotu → `production` ortamı.** Komut değeri gizli bir istemden okur; değeri komut satırına
 yazma, ekrana basma. Robot adındaki `$` istemde sorun değildir (`robot$tappa-ci`).
