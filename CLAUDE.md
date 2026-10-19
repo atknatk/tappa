@@ -185,7 +185,8 @@ ediyorsa **dur ve sor**, sessizce uygulama.
    holding dokunuşlarını 40P01'e sürükler — o kayıt yazılmaz; ürün kodunda bu ayarı yazan yol
    yoktur ve redline R5c adı `db/migrations/` dışında reddeder. **Listeye
    fonksiyon eklemek, bir fonksiyonun dönüş sütunlarını ya da definer'ın sütun matrisini
-   genişletmek, `holding_peer`'e kip eklemek ya da bir kipin süzgecini veya zaman kuralını
+   genişletmek, `holding_peer`'e kip **ya da imza** eklemek (T124'ün küme biçimi `holding_peer(a, mod)`
+   kullanıcı onaylı, 2026-10-19) ya da bir kipin süzgecini veya zaman kuralını
    gevşetmek kullanıcı onayı + ADR 0027 değişikliği ister** (ADR 0027 §2; testler: ADR 0027
    §2'deki imza katalog testi ve sütun matrisi testi).
 6. **Kayıt asla kaybolmaz.** Kanıt yetersizse REJECT edip atma: kaydı yaz,
@@ -208,8 +209,8 @@ metindir. Kod bundan sapıyorsa kod yanlıştır.
 
 Kararlar kod içi `if` zinciri değil, **policy motorundan** gelir:
 **satır 1–5 guardrail** (`sys:*`, kodda gömülü, hiçbir müşteri kapatamaz) ·
-**satır 6–7 baseline** (`base:*`, tenant değiştirebilir). Hiçbir politika
-eşleşmezse sonuç `flag`'dir — sessiz onay imkânsız (§4.6). `tap.Decide` bağlamı
+**satır 6–7 baseline** (`base:*`, tenant değiştirebilir). Hiçbir **karar veren** politika
+eşleşmezse sonuç `flag`'dir — sessiz onay imkânsız (§4.6); `note` etkisi karar değildir (ADR 0029). `tap.Decide` bağlamı
 kurar ve dönen effect'i uygular; yön, trust ve geç kalma **hesaptır**, politika
 değildir.
 
@@ -283,6 +284,10 @@ onu tek-tenant'taki anlamıyla uygular (kullanıcı kararı K-1i, 2026-10-14).
 - **Geç kalma** çalışanın KENDİ vardiyasına göre: departman vardiyası varsa o,
   yoksa **tap edilen** lokasyonun vardiyası (profildeki lokasyon değil — zincirde
   şube değişimi normaldir). Farklı şubede tap nota işlenir, raporda ayrı görünür.
+  `base:cross-location-note` bir **not**tur (`note` etkisi, ADR 0029): karar vermez, başka şubedeki
+  dokunuş aynı kanıtın ev şubesindeki sonucunu alır; cümle kayıt notuna gider, çalışanın sonuç
+  ekranına **gitmez** (kullanıcı kararı 2026-10-19). 2026-07-26 baseline'ını saklayan tenant'larda
+  eski `allow` durur; o etkinken panel bir kanıt kuralının kapatılmasını reddeder (T125).
 - **Unutulan çıkış:** sistem çıkış kaydı **üretmez**. Açık kayıt anomali olarak
   listelenir, müdür manuel girer. Açık kayıtlar saat toplamına **girmez** ve
   raporda toplamın eksik olduğu açıkça söylenir.
