@@ -1980,7 +1980,15 @@ olduğunu göstermedi (aşağıda: ön-süzmenin 5,2–5,8 ms'sinden de hızlı)
   gevşetilmiş (eşin çıkışı yok sayılır), daraltılmış (gelecekte çıkan çağıran düşer) ve **yalnız** çift biçime M3 (holding
   eşitliği unutulmuş) — üçü de ayrışma bulur. *(İlk hâli senaryo başına bir savepoint açıp geri alıyordu: yüzlerce iptal
   edilmiş alt işlem ve ölü üyelik satırı her sonraki görünürlük denetimini yavaşlattı — aynı test taze veritabanında 10 sn,
-  biriken koşularla 42 sn, sonra 180 sn bağlam sınırı. Senaryolar artık ayrık havuzlarla tek işlemde kurulur.)*
+  biriken koşularla 42 sn, sonra 180 sn bağlam sınırı. Senaryolar artık ayrık havuzlarla tek işlemde kurulur.)* *(T139, 2026-10-19: `main` CI'ında (39211982663) bir kontrolün karşılaştırması
+  162 sn'de 3 dk'lık bağlam bitince kesildi, sonrakiler kapanan bağlantıya düştü. Sebep yük değil istatistikti: autovacuum
+  `go test ./...` boyunca `holding_members`'ı dakikada bir ANALYZE ediyor; başka oturumdan bu testin yazdığı satırlar
+  *sürüyor*, canlı değil — tablo "boş" görünüyor (reltuples 0, ~50 sayfa) ve planlayıcı her çağıran için indeksi baştan sona
+  filtreyle yürüyor (auto_explain ile yakalandı) — senaryo sayısında karesel. Başka oturumdan 2 sn'de bir ANALYZE ile CI
+  imzası birebir üretildi (iki koşuda iki kez) (kontrol 171 sn, kalanlar kapanan bağlantı). Düzeltme: dünya kurulunca testin
+  kendi işleminde `ANALYZE public.holding_members` — kendi satırlarını sayar ve kilidi işlem sonuna dek autovacuum'un
+  ANALYZE'ını dışarıda tutar; aynı düşmanca döngü altında test 10–12 sn. Yazılan sayfa/satır sayıları geri almadan sonra da
+  kalır (yerinde yazılır), bir sonraki autovacuum'a kadar.)*
 - **İki çağıran:** `holding_site_locations` ve `holding_directory` eş kümesini tek bir küme-biçimi çağrısından (materyalize
   CTE, *"eş kümesi bir kez"*) alır; `00055`'in `is_member` kapısı kalktı (küme biçimi holding'siz işletmeye tek indeks
   yoklamasıyla cevap verir). `holding_directory` kemerini (`s.id <> c.id`) ve `api_code` için eşin `tenants` satırını tutar;

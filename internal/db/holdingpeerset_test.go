@@ -136,6 +136,22 @@ func holdingPeerNewWorld(t *testing.T, ctx context.Context, tx pgx.Tx, rng *mran
 			t.Fatalf("build the scenarios: %v", err)
 		}
 	}
+	// ANALYZE inside this transaction counts the rows it just wrote (they are its own), and its lock
+	// (SHARE UPDATE EXCLUSIVE, to the end of the transaction) keeps autovacuum's ANALYZE off the table
+	// until the comparisons are done. T139: autovacuum re-analyzes holding_members about once a minute
+	// during `go test ./...` (measured in the server log), from another session, to which these rows
+	// are in progress and not live -- so the statistics said "empty" (reltuples 0 over ~50 pages,
+	// measured) while the comparison walked ~4 000 rows. auto_explain caught the plan it then picks:
+	// per caller, an index walked end to end with the caller as a FILTER (holding_members_pkey for
+	// `member_tenant_id <> a`, holding_members_holding_idx -- (holding_id, member_tenant_id) -- for
+	// `member_tenant_id = a`), nested -- quadratic in the scenarios: 24 s for 60 of them, past the
+	// 180 s context for the property's 400 (measured with an ANALYZE every 2 s from another session).
+	// The page and tuple counts ANALYZE writes stay past the rollback (they are written in place):
+	// until the next autovacuum ANALYZE they describe a bigger table than the committed one, which
+	// only tilts other sessions' plans toward the indexes.
+	if _, err := tx.Exec(ctx, `ANALYZE public.holding_members`); err != nil {
+		t.Fatalf("analyze holding_members: %v", err)
+	}
 	return w
 }
 
@@ -226,19 +242,32 @@ func holdingPeerSetDivergences(t *testing.T, ctx context.Context, q pgx.Tx, w ho
 // dropped), the set form without its DISTINCT (a peer reached two ways answered twice), and the pair
 // form alone given K-33's M3 (the holding equality forgotten) -- a mutant of one
 // form that the other does not share is what this test exists to see.
+//
+// T139 (2026-10-19): on CI run 39211982663 (`main`, f2cee61) the property and the first control took
+// ~18 s, the second control's comparison was still running at 162 s when opTx's three-minute context
+// ended, and the rest died on the closed connection. Reproduced in CI-shaped runs (a fresh database,
+// `go test -race -count=1 ./...`, four CPUs): twice in four, once on a control and once on the
+// property's own comparison; the stuck statement was active with no wait event (CPU, not a lock).
+// The cause was the statistics, not the load: see holdingPeerNewWorld's ANALYZE. With an ANALYZE of
+// all three tables every two seconds from another session (autovacuum's part, made constant), the
+// property's comparison never finished before (180 s) and takes ~2.5 s with it. The phases log their
+// durations, so a slow run says where.
 func TestHoldingPeer_TheSetFormIsThePairFormsAnswer(t *testing.T) {
 	ctx, tx := opTx(t)
 	seed := uint64(time.Now().UnixNano())
 	t.Logf("seed %d", seed)
 	rng := mrand.New(mrand.NewPCG(seed, seed^0x9e3779b97f4a7c15))
 	const scenarios = 400
+	start := time.Now()
 	w := holdingPeerNewWorld(t, ctx, tx, rng, scenarios, 7, 3)
+	built := time.Now()
 	diverged, st := holdingPeerSetDivergences(t, ctx, tx, w)
 	for _, d := range diverged {
 		t.Errorf("seed %d: %s", seed, d)
 	}
-	t.Logf("%d scenarios, %d (caller, candidate) pairs, %d strict peers, %d callers inside the window only, %d callers with a future-left pair, %d callers reaching a peer two ways",
-		scenarios, st.pairs, st.peers, st.windowOnly, st.futureLive, st.twoWays)
+	t.Logf("%d scenarios, %d (caller, candidate) pairs, %d strict peers, %d callers inside the window only, %d callers with a future-left pair, %d callers reaching a peer two ways (built in %v, compared in %v)",
+		scenarios, st.pairs, st.peers, st.windowOnly, st.futureLive, st.twoWays,
+		built.Sub(start).Round(time.Millisecond), time.Since(built).Round(time.Millisecond))
 	if st.peers < 500 || st.pairs-st.peers < 500 || st.windowOnly < 50 || st.futureLive < 50 || st.twoWays < 50 {
 		t.Fatalf("anti-vacuity: the scenarios exercised too little: %+v", st)
 	}
@@ -254,7 +283,7 @@ func TestHoldingPeer_TheSetFormIsThePairFormsAnswer(t *testing.T) {
 		{"the pair form alone given M3 (the holding equality forgotten)", "", "", true},
 	} {
 		t.Run("control/"+c.name, func(t *testing.T) {
-			holdingInSavepoint(t, tx, func(sp pgx.Tx) {
+			holdingPeerControlSavepoint(t, ctx, tx, func(sp pgx.Tx) {
 				if c.pair {
 					holdingInstallPairMutantOnly(t, ctx, sp, holdingPeerMutants["M3"])
 				} else {
@@ -265,11 +294,42 @@ func TestHoldingPeer_TheSetFormIsThePairFormsAnswer(t *testing.T) {
 						t.Fatal(err)
 					}
 				}
-				if d, _ := holdingPeerSetDivergences(t, ctx, sp, w); len(d) == 0 {
+				start := time.Now()
+				d, _ := holdingPeerSetDivergences(t, ctx, sp, w)
+				if len(d) == 0 {
 					t.Errorf("CONTROL: %d scenarios found no divergence (seed %d)", scenarios, seed)
 				}
+				t.Logf("%d divergence line(s), compared in %v", len(d), time.Since(start).Round(time.Millisecond))
 			})
 		})
+	}
+}
+
+// holdingPeerControlSavepoint is holdingInSavepoint for the controls, whose transaction already holds
+// the SHARE UPDATE EXCLUSIVE lock holdingPeerNewWorld's ANALYZE took on holding_members: the same
+// rolled-back savepoint and the same check that the body took no strong lock on a table, that one
+// table excepted.
+func holdingPeerControlSavepoint(t *testing.T, ctx context.Context, tx pgx.Tx, body func(sp pgx.Tx)) {
+	t.Helper()
+	sp, err := tx.Begin(ctx)
+	if err != nil {
+		t.Fatalf("savepoint: %v", err)
+	}
+	defer func() {
+		if err := sp.Rollback(ctx); err != nil {
+			t.Fatalf("rollback to savepoint: %v", err)
+		}
+	}()
+	body(sp)
+	if t.Failed() {
+		return
+	}
+	if sp.Conn().PgConn().TxStatus() == 'E' {
+		t.Errorf("the savepoint ended aborted, so its locks cannot be read")
+		return
+	}
+	if strong := strongTableLocksOutside(t, ctx, sp, []string{"holding_members"}); len(strong) > 0 {
+		t.Errorf("the control took a strong lock on %v", strong)
 	}
 }
 
