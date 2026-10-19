@@ -41,7 +41,7 @@ Hedef: `https://taptime.mt` · küme: k3s v1.35.4, tek node
 | `../scripts/pg-backup.sh` | dump **ve içeriğinin doğrulanması** (satır sayısı, tablo kümesi, RLS/GRANT) | ConfigMap içinde (`deploy.yml` `--from-file`) |
 | `../scripts/pg-backup-ship.sh` | dump'ı **node dışına** taşır + saklama süresini uygular + sonucu healthchecks.io'ya bildirir (T116; bildirim yedeğin sonucunu **değiştirmez**) | ConfigMap içinde (`deploy.yml` `--from-file`) |
 | `../scripts/pg-restore-verify.sh` | 🔴 geri yüklenmiş bir veritabanının **kaynakla aynı** olduğunu ölçer | operatör, geri yüklemenin son adımı |
-| `../scripts/verify-image.sh` | push öncesi imaj kapısı (izlenebilirlik/tzdata/goose/uid) | `deploy.yml` |
+| `../scripts/verify-image.sh` | push öncesi imaj kapısı (izlenebilirlik/tzdata/goose/uid); push sonrası `--access`: CI kimliğiyle çekilir, kimliksiz reddedilir (OPS-2) | `deploy.yml` |
 
 Rol ayrımının tanımı **tek yerdedir**: `scripts/db-init/01-roles.sql`. `deploy.yml`
 ConfigMap'i o dosyadan `--from-file` ile üretir; üretim için ikinci bir kopya
@@ -107,7 +107,7 @@ temizlendi (bozuk StatefulSet + `ImagePullBackOff` + Failed Job + bağlı 20Gi P
 
 **Elle deploy etmek gerekiyorsa** `.github/workflows/deploy.yml`'in adımlarını sırayla
 izle: namespace → **`01-rbac.yaml`** (bir kez, cluster-admin ile) → `tappa-secrets`
-(elle) → ConfigMap'ler (`--from-file` dahil) → Postgres → NetworkPolicy → migration
+(elle) → `harbor-pull` (elle — operatör adımı 4 (c); OPS-2) → ConfigMap'ler (`--from-file` dahil) → Postgres → NetworkPolicy → migration
 Job (**bekle**) → Deployment → Ingress'ler (`40`; rollout'u bekle; sonra `41` — `41` yalnız
 operatör yüzeyi yapılandırılmışsa; *"Uygulandı: K2"*, T119). Tek tek `apply` etmek güvenlidir; **dizini toptan**
 `apply` etmek değildir.
@@ -205,7 +205,12 @@ yetkinin **hangi ölçümle** gereksiz bulunduğunu yazıyor (backlog T44).
 🔴 **Elle rol, dosyaya göre GENİŞTİ ve bu §4.7'ye değiyordu:** `ns/tappa`'da
 `secrets`'a **tam CRUD** veriyordu, yani `tappa-secrets` — içinde `TAPPA_TAG_KEK` —
 bir iş akışının patlama yarıçapındaydı ve bunu yazan bir dosya yoktu. Yeni dosyada
-`secrets` yetkisi **tek isim üzerinde tek fiil** (`get` / `tappa-secrets`).
+`secrets` yetkisi **adlı nesneler üzerinde tek fiil**: `get` / `tappa-secrets`, ve OPS-2'den beri
+`harbor-pull` (Harbor `k8s-pull` robotunun çekme kimliği — *"Preflight — the registry pull
+Secret…"* varlığını ölçer; `get` nesneyi verisiyle döndürdüğü için bu kimlik o robotun değerini
+**okuyabilir** — yalnız çekme, tek proje; iş akışı zaten itip çekebilen `ci` robotunu taşıyor).
+🔴 **OPS-2'den sonra bu dosya bir kez daha `apply` edilmeli**, yoksa o preflight `Forbidden` ile
+durur.
 **Ne KAPANMADI, sayılıyor:** deploy kimliği bir `Job` yaratabilir (migration'ın
 kendisi budur) ve bir Job'ın pod şablonu **kendi namespace'indeki her Secret'a**
 referans verebilir — bu referans RBAC istemez. Kum havuzunda uçtan uca ölçüldü:
@@ -214,79 +219,109 @@ loguna bastı. Yani daraltma **okumayı** değil, **yıkıcı yarıyı** kaldır
 (artık `tappa-secrets`'ı yaratamaz, ezemez, silemez). Ayrıntı: sınır
 **[deploy kimliği namespace'in sırlarını okuyabilir]**.
 
-**4. Docker Hub — iki depo PUBLIC, iki GitHub secret'ı.**
+**4. Harbor — private proje `tappa`, iki robot, `harbor-pull` Secret'ı (OPS-2).**
 
-🔴 **Bu adım kullanıcının işi ve deploy onsuz koşmaz.** İmajlar GHCR'dan Docker
-Hub'a taşındı; gerekçesi ölçüm: bu node'un kubelet'i
-`imagePullCredentialsVerificationPolicy: NeverVerifyPreloadedImages` ile koşuyor
-(KEP-2535), yani **kimlikle** çekilmiş bir imaj, kayıtlı kimliği olmayan bir pod'a
-**düğümde dururken bile** verilmiyor (kimlik yok → `401` · kullanılmamış kimlik →
-`401` · `imagePullPolicy: Never` → `ErrImageNeverPull`). Ayırt eden kontrol:
-**public** bir imaj + `Never` → **önbellekten açıldı, exit 0**. **Public depo bu
-kusuru tanım gereği yok ediyor** — kaydedilecek bir kimlik yoktur.
+🔴 **Bu adım operatörün ve deploy onsuz koşmaz.** İmajlar Docker Hub'dan (public,
+`docker.io/atknatk/tappa` ve `…/tappa-migrate`) projenin kendi Harbor'ına taşındı:
+**`registry.everva.com.tr`** (Harbor v2.15.2, k8s-2'de koşar), **private** proje **`tappa`**.
+Depolar: `tappa/tappa` (sunucu), `tappa/tappa-migrate` (migration), sandbox gelince
+`tappa/tappa-sandbox`. Etiket saklama (tag retention): **her depoda son 30 push**, günlük 03:00
+— geri dönüşün ne kadar geriye çekebileceğini bu sınırlar (sınır **[Harbor k8s-2'ye bağlı]**).
 
-1. Docker Hub → **Account Settings → Personal access tokens** → **Read & Write**
-   yetkili bir token üret.
-2. GitHub deposuna iki secret yaz:
+**Neden private bir depo bu sefer T43'ü geri getirmiyor.** T43'ün ölçülmüş kökü bu node'un
+kubelet'inin `imagePullCredentialsVerificationPolicy: NeverVerifyPreloadedImages` ile koşmasıydı
+(KEP-2535): **kimlikle** çekilmiş bir imaj, yalnız o kimliği sunan bir pod'a önbellekten verilir;
+başkası bir **doğrulama çekmesi** öder. O günün kimliği `secret/ghcr`'dı ve onu **her deploy kendi
+`GITHUB_TOKEN`'ıyla yeniden yazıyordu** — token iş bitince ölüyordu, yani kaydedilen her kimlik bir
+saat içinde ölüydü. O gün çare public depoydu (kaydedilecek kimlik yok). Bugün değişen **yazan**:
+`harbor-pull`'u CI **yazmaz** (deploy kimliğinin sırlar üzerinde yalnız `get`'i var, iki isimde —
+adım 3), Secret yalnız operatör robotu döndürdüğünde değişir. Kalan koşullar (bu kümede henüz
+**ölçülmedi** — ölçü *"OPS-2 kapanış ölçüsü"*nde):
 
-- `gh secret set DOCKERHUB_USERNAME --repo atknatk/tappa`: Docker Hub kullanıcı adın
-- `gh secret set DOCKERHUB_TOKEN    --repo atknatk/tappa`: yukarıdaki token
+- Robotun secret'ı **değişmedikçe** yeniden başlayan bir pod ya da `rollout undo` düğümdeki kopyadan
+  açılır, Harbor'a gitmez.
+- Robot **döndürülünce** (ya da Secret yeniden yaratılınca), eski değerle çekilmiş bir imaja dönen pod
+  bir doğrulama çekmesi öder: Harbor ayaktaysa ve yeni değer geçerliyse sorunsuz, değilse
+  `ImagePullBackOff`. Aşağıdaki (d) bu pencereyi açmadan döndürür.
+- **Yeni** bir imaj her zaman Harbor ister — k8s-2 kapalıyken deploy yeni pod başlatamaz.
+
+**(a) İki robot.** Değerler Infisical'da: `shared-infra/prod:/tappa/HARBOR_CI_ROBOT_NAME`,
+`…/HARBOR_CI_ROBOT_SECRET`, `…/HARBOR_PULL_ROBOT_NAME`, `…/HARBOR_PULL_ROBOT_SECRET`. Değer bu
+belgeye **yazılmaz**.
+
+| Robot | İzinler (proje `tappa`) | Kim kullanır |
+|---|---|---|
+| `robot$tappa+ci` | repository push + pull, artifact read + list, tag create + list | `deploy.yml` — `production` ortamının `HARBOR_CI_ROBOT_NAME` / `HARBOR_CI_ROBOT_SECRET`'ı |
+| `robot$tappa+k8s-pull` | repository pull, artifact read | küme — `harbor-pull` (ns `tappa`; sandbox gelince ns `tappa-sandbox` da) |
+
+Ölçüldü (ana oturum, 2026-10-19, registry token kapsamlarıyla): `ci` → push+pull, `k8s-pull` →
+yalnız pull, anonim → `401`.
+
+**Yeniden üretmek.** Harbor arayüzü: **Projects → `tappa` → Robot Accounts → New Robot Account**,
+adı `ci` ya da `k8s-pull`, izinler yukarıdaki tablodaki, süre (Expiration) oluştururken seçilir —
+**robotun satırında okunur; dolunca o robotun her çekmesi/itmesi `401` olur**, takvime yaz. Arayüz
+yoksa aynı iş Harbor API'siyle yapılır (`POST /api/v2.0/robots`, `level: project`, izinler
+`{"kind":"project","namespace":"tappa","access":[…]}`), yönetici kimliğiyle — k8s-2'de `harbor-core`
+pod'unun içinden; yönetici parolası komut satırına yazılmaz. Yeni robotun secret'ı **bir kez**
+gösterilir: doğrudan Infisical'a.
+
+**(b) CI robotu → `production` ortamı.** Komut değeri gizli bir istemden okur; değeri komut satırına
+yazma, ekrana basma. Robot adındaki `$` istemde sorun değildir.
 
 ```bash
-gh secret set DOCKERHUB_USERNAME --repo atknatk/tappa
-gh secret set DOCKERHUB_TOKEN    --repo atknatk/tappa
+gh secret set HARBOR_CI_ROBOT_NAME --env production --repo atknatk/tappa
+gh secret set HARBOR_CI_ROBOT_SECRET --env production --repo atknatk/tappa
 ```
 
-3. `atknatk/tappa` ve `atknatk/tappa-migrate` depoları **Public** olmalı. İki yol
-   var ve **birincisi tercih edilir**: (a) ilk deploy'dan **önce** Docker Hub'da
-   *Create repository* ile ikisini **Public** olarak aç — böylece hiç private
-   olmazlar; (b) ilk push'tan **sonra** Repository → Settings → Visibility → Public.
-   ⚠️ **Bugün iki depo da YOK** (ölçüldü 2026-08-16: `hub.docker.com/v2/repositories/
-   atknatk/tappa/` → **404**, `…/tappa-migrate/` → **404**), yani ilk push ikisini de
-   **private** yaratacaktır.
+**(c) `harbor-pull` — kümenin çekme kimliği, operatörün Secret'ı.** **Bugün var** (ana oturum,
+2026-10-19, ns `tappa`, `kubernetes.io/dockerconfigjson`, `k8s-pull` robotu). CI onu **oluşturmaz**
+(`tappa-secrets` kalıbı); `deploy.yml` her koşuda, kümeye bir şey uygulamadan önce **varlığını,
+tipini ve `registry.everva.com.tr` için bir kimlik taşıdığını** ölçer (*"Preflight — the registry
+pull Secret is the operator's and must already exist"* = `scripts/verify-deployment.sh
+pull-secret`; değer basılmaz). Yoksa kırmızı ve adıyla; okunamıyorsa (`Forbidden`) kırmızı ve
+**adım 3'ü yeniden uygula** der — `01-rbac.yaml` OPS-2'den beri `harbor-pull`'a `get` veriyor.
 
-   🔴 **AMA BU BİR TALİMAT DEĞİL, BİR KAPI — ve fark önemli.** `deploy.yml`,
-   push'tan hemen sonra ve kümeye **hiçbir şey uygulamadan önce**, iki imajı da
-   **kimliksiz** çekmeyi deniyor (*"Gate — both images must be pullable with NO
-   credential"*). Depo private kaldıysa adım orada kırmızı olur, mesajı bu maddeyi
-   adıyla gösterir ve **küme hiç değişmez**. Böylece *"public yap"* sağlanmayan bir
-   garanti olmaktan çıkıp **mekanizması olan** bir koşula dönüşüyor — bu kartın imza
-   kusurunun tam tersi.
-   Kapı anonimliği `DOCKER_CONFIG`'i **boş bir dizine** çevirerek elde ediyor
-   (`docker logout` değil: logout geliştirici makinesinde bir *credential helper*
-   üzerinden gider — bu dosya yazılırken ölçüldü, `credsStore: desktop` — yani
-   runner'dakinden farklı bir mekanizmayı sınardı). Ayırt edici kontrol: boş
-   `DOCKER_CONFIG` + public imaj → **rc 0**; içinde **uydurma** bir docker.io kimliği
-   olan `DOCKER_CONFIG` + aynı imaj → **rc 1, `unauthorized`**. İkincisi olmasa
-   birincinin gerçekten anonim olduğu **kanıtlanamazdı**.
+Yeniden yaratmak (tailnet'teki bir makineden): parola `docker login`'in **stdin**'inden girer, argv'ye
+ve kabuk geçmişine girmez; **boş** bir `DOCKER_CONFIG` dizini kimlik deposu taşımaz, yani
+`config.json`'a düz `auths` yazılır (Docker Desktop'ın `credsStore`'u devreye girmez). `docker login`
+robotu Harbor'a karşı **doğrular** — yanlış değer burada düşer. İstemde `k8s-pull` robotunun secret'ını
+yapıştır (Infisical `…/HARBOR_PULL_ROBOT_SECRET`), sonra Enter ve Ctrl-D.
 
-⚠️ **İki secret yokken ne oluyordu, ölçüldü:** tanımsız bir GitHub secret'ı **boş
-dizeye** dönüşür, hata vermez. `docker login` o boş değerle **rc=1** ve
-`username is empty` / `password is empty` diyor — hangi GitHub secret'ının eksik
-olduğunu, nereden alınacağını **söylemiyor**. Bu yüzden `deploy.yml`'in **birinci**
-adımı artık ikisini de sayıyor ve eksikse **hiçbir şey inşa etmeden** duruyor.
+```bash
+D=$(mktemp -d)
+U='robot$tappa+k8s-pull'
+DOCKER_CONFIG="$D" docker login registry.everva.com.tr -u "$U" --password-stdin
+kubectl -n tappa create secret generic harbor-pull --type=kubernetes.io/dockerconfigjson --from-file=.dockerconfigjson="$D/config.json" --dry-run=client -o yaml | kubectl apply -f -
+rm -rf "$D"
+scripts/verify-deployment.sh pull-secret tappa harbor-pull registry.everva.com.tr
+```
 
-⚠️ **Public depo, İKİ imajın da herkesçe indirilebilir olması demektir.** İkisi de
-`scratch` üzerine kurulu ve içerikleri `Dockerfile`'ın son iki aşamasından birebir
-okunuyor: **uygulama** = CA paketi + `/tappa`; **migration** = CA paketi + `/goose` +
-`/migrations` (20 `.sql`, hepsi zaten public depoda). Sır taşımıyorlar ve `deploy.yml`
-push'tan **önce** içeriği kapılıyor (`scripts/verify-image.sh`).
-⚠️ Burada bir tur boyunca *"imaj `scratch` + iki dosya"* yazdı — o cümle **iki
-artefaktın yalnız birini** anlatıyordu. Karar yine de bilinçli verilmeli: açığa çıkan
-şey kod değil ama **etiket listesi** herkese açık ve etiketler `sha-<12hex>`, yani
-üretimde hangi commit'in koştuğu dışarıdan okunabilir hâle geliyor — sınır
-**[sevk edilen commit'in kimliği herkese açık]**. Anonim çekme oran limiti de sınır
-listesinde sayılıyor.
+Sandbox için aynı blok, `-n tappa-sandbox` ile (pod bir `imagePullSecret`'ı yalnız **kendi**
+namespace'inden okur).
 
-**Elenen iki seçenek ve gerekçeleri:** **GHCR public** — istenmediği için değil,
-**ulaşılamadığı** için: paket görünürlüğünün **API'si yok** (üç kez ölçüldü:
-`gh api -X PATCH /user/packages/container/tappa -f visibility=public` → **404, böyle
-bir uç nokta yok**), yalnız arayüzden yapılıyor ve kullanıcı iki kez denedi.
-**AWS ECR** — private ECR aynı kimlik sorununu dönen bir IAM token'ıyla geri
-getirirdi; ECR Public yalnız `us-east-1`'den push kabul ediyor ve bir AWS hesabı
-istiyor.
+**(d) Döndürme — pencere açmadan.** Harbor'da **Refresh secret** eski değeri **hemen** geçersiz
+kılar; `ci` için bu zararsızdır (sıradaki deploy yeni değeri okur — önce (b), sonra Harbor), ama
+`k8s-pull` için Secret güncellenene kadar her doğrulama çekmesi `401` olur. Bu yüzden `k8s-pull` şöyle
+döndürülür: (1) Harbor'da **yeni** bir robot (`k8s-pull2`, aynı izinler) — eski robot **çalışmaya
+devam eder**; (2) (c)'nin bloğu yeni robotun adı ve değeriyle (`kubectl apply` Secret'ı **yerinde**
+günceller); (3) bir deploy koşusu ya da `kubectl -n tappa rollout restart deployment/tappa` +
+`rollout status` — pod'lar yeni kimlikle doğrulanır; (4) eski robotu sil, Infisical'ı güncelle.
 
-**5. GitHub secret'ları — `KUBE_CONFIG` ve `TS_AUTHKEY` (küme API'si yalnız tailnet'ten).**
+**(e) İki yönlü kapı — talimat değil, mekanizma.** `deploy.yml` push'tan hemen sonra, kümeye
+**hiçbir şey uygulamadan önce** iki imajı da iki kez ister (*"Gate — both images must be pullable
+WITH the CI credential and NOT without one"* = `scripts/verify-image.sh --access`): **CI kimliğiyle**
+manifest gelmeli (`"schemaVersion"`, yalnız exit 0 değil); **kimliksiz** (`DOCKER_CONFIG` boş bir
+dizin) registry **yetki cevabıyla reddetmeli** (`unauthorized` / `denied` / `authentication
+required`). Kimliksiz bir manifest (proje public) **kırmızı**; başka her hata (DNS, zaman aşımı, boş
+cevap) da **kırmızı** — registry'nin reddettiğini gösteremez. Sonra *"Log out of the registry"*
+kimliği diskten siler; kubectl ve tailnet ondan sonra gelir.
+**Neden `k8s-pull` ile değil:** kümenin kimliğini CI'ya taşımak, iş akışının patlama yarıçapına ikinci
+bir kimlik koyardı ve tek bir ölçüm alırdı (`k8s-pull` hâlâ çalışıyor mu) — onu küme zaten ölçer:
+migration Job'ı sunucudan **önce** çeker; çekemezse Job hiç başarmaz, 600 sn sonra adım düşer ve
+**sunucu rollout'u hiç yapılmaz** (*"Olay müdahalesi"*, 2). Bu açığın kalan parçası — Harbor'da
+devre dışı bırakılmış ya da süresi dolmuş bir `k8s-pull` — o 600 sn'dir; kabul edildi.
+
+**5. GitHub `production` ortamı — `KUBE_CONFIG` ve Tailscale OAuth client'ı (küme API'si yalnız tailnet'ten).**
 
 🔴 **Küme API'si internete KAPALI (backlog T134, 2026-10-17).** Kullanıcı
 `144.76.158.60:6443`'ü dışarıya **bilerek** kapattı; API'ye yalnız Tailscale üzerinden
@@ -305,7 +340,8 @@ token `system:serviceaccount:tappa:github-deployer` olarak tanınır). `deploy.y
 2. *"Join the tailnet"* — son imaj adımından **sonra**, ilk küme çağrısından (*"Preflight —
    the application Secret…"*) hemen **önce**: `tailscale/github-action`, **tam commit
    SHA'sıyla** pinli (`d1b6cd2…`, v4.2.0; depodaki tek üçüncü-parti action — gerekçe
-   dosyada), `authkey: ${{ secrets.TS_AUTHKEY }}`, **`version: "1.94.2"` + `sha256sum`**
+   dosyada), **OAuth client** (`oauth-client-id` / `oauth-secret` ← `TS_OAUTH_CLIENT_ID` /
+   `TS_OAUTH_SECRET`, `tags: tag:ci` — OPS-2), **`version: "1.94.2"` + `sha256sum`**
    (indirilen arşiv bu dosyada pinli digest'le karşılaştırılır, aynı sunucudan alınanla
    değil — backlog T135; yükseltme (e)'de), `--accept-dns=false`, önbelleksiz (önbellek
    isabeti digest denetimini atlar),
@@ -318,37 +354,52 @@ token `system:serviceaccount:tappa:github-deployer` olarak tanınır). `deploy.y
    (yok, `[]`, `tag:cix`, `tag:CI`, `" tag:ci"`, dizi yerine dizge) **kırmızı**;
    `10.43.0.1:443`'e TCP ile ulaşamazsa (6 deneme × `timeout 5`) **kırmızı**; status
    okunamıyorsa (CLI yok, boş, bozuk JSON, `NeedsLogin`, `Self` yok) **kırmızı**;
-   ephemeral `false` ya da bildirilmiyorsa **uyarı**. İstemci sürümünü basar; status
+   cihaz kendini ephemeral **değil** (`false`) diye bildirirse **kırmızı** (OPS-2: OAuth yolu her
+   koşuda ephemeral ister — `false`, katılımın o yoldan gitmediği demektir); **hiç** bildirmiyorsa
+   **uyarı** — ve 1.94.2'nin status JSON'unda bu alan **yok** (`ipnstate.PeerStatus`; T134'ün ilk
+   yeşil koşusu `ephemeral absent` bastı), yani bugün her koşu bu dala düşer: ephemeral **ölçülebildiği
+   yerde zorunlu**, ölçülemediği yerde uyarıdır ve kalan ölçü koşu sonrası yönetim konsoludur
+   (*"OPS-2 kapanış ölçüsü"*). Uyarıyı kırmızı yapmak her deploy'u kırmızı yapardı. İstemci sürümünü basar; status
    JSON'unu **hiçbir dalda basmaz** (`TestVerifyDeployment_TheTailnetModeMeasuresTheJoin`).
 
-**(a) `TS_AUTHKEY` — Tailscale auth key'i.** ⚠️ **Etiketi action değil, ANAHTAR belirler**
-— pinli commit'te **koşan** koddan okundu (`dist/index.js` — `action.yml`'in `runs.main`'i; kaynağı
-`src/main.ts` aynı davranışı yazıyor, 2026-10-18'de karşılaştırıldı): auth key ile action
-`tailscale up`'a `--advertise-tags` **vermez**; `tags` girdisi yalnız OAuth client /
-workload identity yolunda okunur. Bu yüzden `deploy.yml`'de `tags:` **yok** (hiçbir şey
-yapmayan bir satır güvence gibi görünürdü); etiketi kapı ölçer. Önerilen özellikler:
+**(a) Tailscale OAuth client'ı — `TS_OAUTH_CLIENT_ID` + `TS_OAUTH_SECRET` (OPS-2; `TS_AUTHKEY`'in
+yerini aldı).** Kullanıcı oluşturdu: kapsam **`auth_keys`**, etiket **`tag:ci`** (ölçüldü, 2026-10-19).
+**Etiketi ve ephemeral'ı artık bu dosya ister, bir anahtarın nasıl üretildiği değil** — pinli
+commit'te **koşan** koddan okundu (`dist/index.js`, `src/main.ts` aynı; *"2. OAuth client"* dalı):
+OAuth secret'ı verilince action `tailscale up --advertise-tags=tag:ci … --authkey=<oauth secret>
+?preauthorized=true&ephemeral=true` koşar (`tags` o yolda **zorunlu** — yoksa action atar); OAuth
+secret'ını tek kullanımlık, ephemeral, ön onaylı bir anahtara **istemci** çevirir (tailscale 1.94.2,
+`feature/oauthkey`'in `resolveAuthKey`'i — pinli tarball'daki ikilide `tskey-client-` ve *"oauth
+authkeys require --advertise-tags"* dizgeleri okundu). `oauth-client-id` bu commit'te yalnız workload
+identity yolunda okunur — OAuth-secret yolunda secret kendi client'ını taşır; satır action'ın belgelenen
+çifti olduğu için duruyor, katılımı o sağlamıyor. Takvimde süre **yok** (auth key'in 90 günü kalktı).
+⚠️ Auth key'den **güçlü** bir kimliktir: iptal edilene dek `tag:ci` anahtarı basabilir (`auth_keys`,
+başka hiçbir şey); argv ve `tailscaled` ortamı yolu aynı — sınır **[deploy tailnet'e üçüncü-parti bir
+action ve bir OAuth client'la girer]**.
 
 | Özellik | Değer | Neden |
 |---|---|---|
-| Reusable | **evet** | her deploy yeni bir cihaz kaydeder |
-| Ephemeral | **evet** | cihaz koşu bitince kendiliğinden silinir; değilse Machines'te `github-*` birikebilir (kapı uyarır) |
-| Pre-approved | **evet** | cihaz onayı açıksa onaysız cihaz trafik geçiremez |
-| Tags | **`tag:ci`** | etiketsiz anahtar cihazı **anahtarı üreten kullanıcı** olarak katar — ACL'in `tag:ci` kuralı onu tarif etmez; kapı **kırmızı** |
-| Süre | **≤ 90 gün** (Tailscale'in üst sınırı) | 🔴 **süre dolunca deploy *"Join the tailnet"*'te düşer** — takvime yaz (backlog T135) |
+| Kapsam | **`auth_keys`** (yazma) | anahtar basmak için; başka kapsam verme |
+| Etiket | **`tag:ci`** | client yalnız kendi etiketlerini atayabilir; `tags: tag:ci` başka bir etiket olsaydı anahtar isteği düşerdi |
+| Ephemeral / ön onay | dosyada (`?ephemeral=true&preauthorized=true`) | her koşu yeni, ephemeral bir cihaz; kapı `false`'u kırmızı yapar |
 
-Tailscale yönetim konsolu: Settings, Keys, Generate auth key. Özellikler yukarıdaki tabloda. Komut
-değeri gizli bir istemden okur. Anahtarı komut satırına YAZMA, ekrana basma.
+Tailscale yönetim konsolu: Settings → OAuth clients → Generate OAuth client. Secret **bir kez**
+gösterilir: Infisical'a, sonra ortama. Komutlar değeri gizli bir istemden okur; değeri komut satırına
+yazma, ekrana basma. `deploy.yml`'in ilk adımı `TS_OAUTH_SECRET`'ın `tskey-client-` ile başladığını
+da denetler (bir auth key yapıştırılırsa adıyla düşer; değer basılmaz).
 
 ```bash
-gh secret set TS_AUTHKEY --repo atknatk/tappa
+gh secret set TS_OAUTH_CLIENT_ID --env production --repo atknatk/tappa
+gh secret set TS_OAUTH_SECRET --env production --repo atknatk/tappa
 ```
 
 Tailnet ACL'inde gereken (kullanıcı ekledi, 2026-10-17): `tagOwners`'ta `tag:ci` ve
 `tag:ci` → `10.43.0.1:443` izni. Subnet router'ın `10.43.0.0/16` rotası **onaylı**
-olmalı. **Tailnet Lock** açıksa yeni düğümler yalnız **önceden imzalanmış** bir anahtarla
-katılabilir — anahtar o durumda imzalanarak üretilir. ⚠️ Anahtar
-`tailscale up`'ın **argv**'sine ve `tailscaled`'in **ortamına** girer (action böyle
-geçiriyor) — sınır **[deploy tailnet'e üçüncü-parti bir action ve süreli bir auth key'le
+olmalı. **Tailnet Lock** açıksa yeni düğümler yalnız imzalı bir anahtarla katılabilir — OAuth'un
+her koşuda bastığı anahtarın o durumda katılıp katılamadığı **ölçülmedi**; Tailnet Lock açılırsa bu
+yol yeniden ölçülür.
+⚠️ OAuth secret'ı `tailscale up`'ın **argv**'sine ve `tailscaled`'in **ortamına** girer (action
+böyle geçiriyor) — sınır **[deploy tailnet'e üçüncü-parti bir action ve bir OAuth client'la
 girer]** (b).
 
 🔴 **Tailscale OPERATÖRÜNÜN API proxy'si (`*.ts.net`) KULLANILMAZ.** Auth kipinde çalışır:
@@ -401,41 +452,52 @@ base64 onu reddeder, çıktı BOŞ kalır ve secret BOŞ yazılır. Aşağıdaki
 K=~/.kube/tappa-deployer.config
 kubectl --kubeconfig="$K" -n tappa get deploy tappa && \
   KUBECONFIG="$K" scripts/verify-deployment.sh kubeconfig-server 10.43.0.1 443 && \
-  base64 < "$K" | tr -d '\n' | gh secret set KUBE_CONFIG --repo atknatk/tappa
+  base64 < "$K" | tr -d '\n' | gh secret set KUBE_CONFIG --env production --repo atknatk/tappa
 ```
 
-**Bugünkü durum (2026-10-17, ana oturum):** `KUBE_CONFIG` bu biçimde yenilendi —
-sunucu `https://10.43.0.1:443`, CA `kube-root-ca.crt`, `github-deployer` token'ı
-**365 gün** (`--duration=8760h`). 🔴 **Yenileme: 2027-10-17'den önce** (backlog T135;
-değer bu belgeye yazılmaz, yalnız tarih). Süresi dolan token ilk küme çağrısında `401`
-verir.
+**Bugünkü durum (2026-10-19, ana oturum):** `KUBE_CONFIG` `production` ortamına bu biçimde
+yazıldı — sunucu `https://10.43.0.1:443`, CA `kube-root-ca.crt`, `github-deployer` token'ı
+**2027-10-19**'a kadar. 🔴 **Yenileme: 2027-10-19'dan önce** (backlog T135; değer bu belgeye
+yazılmaz, yalnız tarih). Süresi dolan token ilk küme çağrısında `401` verir. (Depo düzeyindeki
+eski `KUBE_CONFIG` — 2027-10-17 — ilk yeşil OPS-2 deploy'una kadar duruyor; aşağıdaki (c).)
 
 > ⚠️ **Bugün bu secret'ın hangi kimliği taşıdığı BU DOSYADAN doğrulanamaz** ve öyle
 > yazılıyor. Eğer içindeki kubeconfig cluster-admin ise `01-rbac.yaml`'daki daraltma
 > **hiçbir şeyi sınırlamaz** — cluster-admin bir kimlik Role'ü zaten aşar. Sınır
 > **[kubeconfig'in kimliği doğrulanmadı]**.
 
-**(c) Önerilen sertleştirme — dört deploy secret'ını bir GitHub Environment'a taşı
-(kullanıcı adımı, backlog T135).** Deploy'un dört secret'ı — `TS_AUTHKEY`, `KUBE_CONFIG`,
-`DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` — bugün **depo düzeyinde**: depoya yazma yetkisi
-olan biri, bir **dala** bu secret'ları okuyan bir workflow push'layıp koşturabilir (dalda
-`ci.yml` her push'ta koşar; `deploy.yml` yalnız `main`'e bağlı, ama secret'lar her
-workflow'a açık). Docker Hub ikilisi de bu kümeye girer: o token'la `sha-*` imaj
-etiketlerinin **üstüne yazılabilir**, yani küme kimliği kadar değerlidir. Öneri:
-**Settings → Environments → `production`**, *Deployment branches* = yalnız `main`; dört
-secret'ı oraya taşı ve depo düzeyindekileri sil; ve `deploy.yml`'in `deploy` işine
-`environment: production` eklenir. ⚠️ **Sıra önemli ve satır tek başına koruma DEĞİL:**
-depo düzeyindeki secret'lar durdukça her workflow'a açık kalırlar (Environment secret'ları
-onlara eklenir, onları kapatmaz). Depo düzeyindekiler satırdan **önce** silinirse deploy'un
-nerede düştüğü **hangisinin eksik olduğuna** bağlıdır: Docker Hub ikilisi eksikse ilk adımda
-(*"Preflight — the Docker Hub credentials must exist"*); yalnız `KUBE_CONFIG` eksikse
-*"Write kubeconfig"*'te — imajlar o ana dek **build edilip push'lanmış** olur;
-yalnız `TS_AUTHKEY` eksikse *"Join the tailnet"*'te. Dördü **birlikte** taşınırsa ilk
-adımda düşer. Her durumda düşüş ilk küme çağrısından önce olur — **küme değişmez**. Bu
-yüzden satır bugün `deploy.yml`'e **eklenmedi**: taşıma, silme ve satır aynı turda yapılır.
+**(c) GitHub `production` ortamı — YAPILDI (OPS-2, backlog T135 (4)).** Ana oturum kurdu
+(2026-10-19): **Settings → Environments → `production`**, *Deployment branches* = yalnız `main`
+(custom branch policy). Ortam secret'ları: `HARBOR_CI_ROBOT_NAME`, `HARBOR_CI_ROBOT_SECRET`,
+`TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`, `KUBE_CONFIG`. `deploy.yml`'in `deploy` işi
+`environment: production` taşır ve **okuduğu her secret oradandır**; ilk adımı
+(*"Preflight — the production environment's secrets must exist"*) beşini de sayar, eksik olanı
+**adıyla** söyler ve hiçbir şey inşa etmeden durur (değer basmaz; `TS_OAUTH_SECRET`'ın yalnız
+`tskey-client-` önekini denetler). Neden: depo düzeyindeki bir secret'ı depoya yazabilen biri bir
+**dala** push'ladığı herhangi bir workflow'la okuyabilir; ortam secret'ına yalnız ortamı adlandıran
+**ve** politikanın kabul ettiği dalda koşan bir iş ulaşır (`workflow_run` ve `main`'den
+`workflow_dispatch` — ikisi de `main` ref'iyle koşar). Docker Hub ikilisi bu listeden **çıktı**.
 
-**(d) İlk deploy'da ölçülecekler (T134'ün kapanış ölçüsü).** `main`'deki ilk deploy
-koşusunun log'unda ve Tailscale yönetim konsolunda:
+⚠️ **Satır tek başına koruma DEĞİL — sıra.** Depo düzeyindeki eski `TS_AUTHKEY`, `KUBE_CONFIG`,
+`DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` **hâlâ duruyor** ve durdukça her workflow'a açıklar (ortam
+secret'ları onlara **eklenir**, onları kapatmaz; aynı adlıda ortamınki kazanır). **İlk yeşil OPS-2
+deploy'undan sonra** dördü silinir (ana oturum):
+
+```bash
+gh secret delete TS_AUTHKEY --repo atknatk/tappa
+gh secret delete KUBE_CONFIG --repo atknatk/tappa
+gh secret delete DOCKERHUB_USERNAME --repo atknatk/tappa
+gh secret delete DOCKERHUB_TOKEN --repo atknatk/tappa
+gh secret list --repo atknatk/tappa
+```
+
+Son satır depo düzeyinde **hiç** deploy secret'ı göstermemeli. Silmeden önce Docker Hub token'ını
+Docker Hub'da da **iptal et** (secret'ı silmek token'ı öldürmez); auth key'i Tailscale konsolunda
+(Settings → Keys) iptal et.
+
+**(d) İlk deploy'da ölçülecekler (T134'ün kapanış ölçüsü — tarihsel; T134 2026-10-18'de kapandı,
+OPS-2'nin ölçüsü *"OPS-2 kapanış ölçüsü"*nde).** `main`'deki ilk deploy koşusunun log'unda ve
+Tailscale yönetim konsolunda:
 
 - *"Join the tailnet"* yeşil. `log-mode: quiet` action'ın *"Resolved Tailscale version"* ve
   sha256 satırlarını **bastırır**; sürüm kapının özet satırında okunur
@@ -451,7 +513,9 @@ koşusunun log'unda ve Tailscale yönetim konsolunda:
   ephemeral değilse bile cihaz ephemeral olabilir (action `tailscaled`'i `--state=mem:` ile
   başlatır; bunun cihazı ephemeral yapıp yapmadığı **doğrulanamadı**), bu yüzden ölçü
   konsoldur, varsayım değil. Ephemeral olmayan bir cihaz kalırsa elle silinir ve anahtar
-  ephemeral olarak yeniden üretilir.
+  ephemeral olarak yeniden üretilir. **Ölçüldü (T134, ilk yeşil koşu): cihaz KALDI**
+  (`github-runnervm8k3b6`, çevrimdışı) — yani `--state=mem:` cihazı ephemeral **yapmadı**; OPS-2'nin
+  OAuth yolu ephemeral'ı anahtarın kendisinde ister.
 
 **(e) Tailscale istemcisini yükseltmek — `version` ve `sha256sum` BİRLİKTE (backlog T135).**
 `deploy.yml`'in *"Join the tailnet"* adımı istemciyi sürümüyle ve linux/amd64 arşivinin
@@ -1858,14 +1922,21 @@ kimlik (`tappa-sandbox` namespace'inde bir ServiceAccount + yalnız o namespace'
 **İmaj:** aynı commit'ten, kendi hedefiyle; itmeden önce kapı derleme etiketini doğrular (prod imajı
 `sandbox` etiketliyse, sandbox imajı etiketsizse reddedilir):
 
+İmajlar prod'un private Harbor projesinde (OPS-2; operatör adımı 4). İten makine `ci` robotuyla
+(ya da bir proje yöneticisiyle) `docker login registry.everva.com.tr` yapmış olmalı.
+
 ```bash
-docker build --target app-sandbox -t "docker.io/atknatk/tappa-sandbox:$TAG" .
-scripts/verify-image.sh --sandbox "docker.io/atknatk/tappa-sandbox:$TAG" "$SHA"
-docker push "docker.io/atknatk/tappa-sandbox:$TAG"
+docker build --target app-sandbox -t "registry.everva.com.tr/tappa/tappa-sandbox:$TAG" .
+scripts/verify-image.sh --sandbox "registry.everva.com.tr/tappa/tappa-sandbox:$TAG" "$SHA"
+docker push "registry.everva.com.tr/tappa/tappa-sandbox:$TAG"
 ```
 
 Migration imajı prod'unkidir (migration'lar tek kümedir): aynı commit'in
-`docker.io/atknatk/tappa-migrate:$TAG`'i.
+`registry.everva.com.tr/tappa/tappa-migrate:$TAG`'i.
+
+🔴 **`harbor-pull` bu namespace'te de olmalı** — pod bir `imagePullSecret`'ı yalnız **kendi**
+namespace'inden okur, ve sandbox'ın iki pod spec'i de onu adlandırır. Operatör adımı 4 (c)'nin
+bloğu, `-n tappa-sandbox` ile; Postgres'ten önce yapılabilir.
 
 **Sıra** (her adım bir öncekinin bitmesini bekler). Önce namespace, kota, yapılandırma ve Postgres'in
 ilk açılış betikleri:
@@ -3512,6 +3583,122 @@ boş kalır.
 
 ---
 
+## OPS-2 — Harbor, Tailscale OAuth ve `production` ortamı
+
+OPS-2 (2026-10-19) deploy'un üç dış kimliğini değiştirdi: imajlar public Docker Hub'dan private
+Harbor'a (`registry.everva.com.tr/tappa`, operatör adımı 4), tailnet'e katılım auth key'den OAuth
+client'a (adım 5 (a)), ve deploy'un bütün secret'ları depo düzeyinden yalnız `main`'e açık
+`production` ortamına (adım 5 (c)). Altyapıyı ana oturum kurdu (Harbor projesi ve iki robot, kümede
+`secret/harbor-pull`, ortam ve beş secret'ı); bu bölüm ilk deploy'un **kapanış ölçüsünü** ve
+**OPS-2 öncesine geri dönüşü** taşır.
+
+🔴 **İlk OPS-2 deploy'undan ÖNCE:** `deploy/k8s/01-rbac.yaml` cluster-admin kimliğiyle **yeniden
+uygulanmalı** (adım 3) — deploy kimliği `harbor-pull`'u ancak o zaman okuyabilir; yoksa *"Preflight —
+the registry pull Secret…"* `Forbidden` ile, kümeye bir şey uygulanmadan, kırmızı durur.
+
+```bash
+kubectl apply -f deploy/k8s/01-rbac.yaml
+kubectl -n tappa auth can-i get secret/harbor-pull --as=system:serviceaccount:tappa:github-deployer
+```
+
+İkinci satır `yes` demeli. (`auth can-i` alt kaynakları görmez — sınır 17 — ama burada sorulan bir alt
+kaynak değil, adlı bir nesne.)
+
+### OPS-2 kapanış ölçüsü
+
+`main`'deki ilk OPS-2 deploy koşusunun log'unda, Harbor'da, kümede ve Tailscale konsolunda — hepsi
+**ölçülür**, hiçbiri varsayılmaz:
+
+1. *"Preflight — the production environment's secrets must exist"* yeşil ve son satırı beş adı
+   `present` diye sayar (değer yok, uzunluk yok).
+2. *"Gate — both images must be pullable WITH the CI credential and NOT without one"* her imaj için
+   iki satır basar: `pull WITH the registry credential … ok: registry.everva.com.tr/tappa/…` ve
+   `pull WITHOUT a credential … refused: … (exit 1)`. Kimliksiz cevabın kelimesi
+   (`unauthorized`/`denied`/`authentication required`) Harbor'da **ilk kez** burada görülür; kapı
+   başka bir kelimeyle kırmızı olursa kelime ölçülür ve `scripts/verify-image.sh --access`'in deseni
+   ona göre — testiyle birlikte — genişletilir, kapı gevşetilmez.
+3. *"Join the tailnet"* yeşil; kapı satırı `tailnet: tailscale 1.94.2, backend Running, tags tag:ci,
+   ephemeral absent` (1.94.2 ephemeral'ı bildirmez → beklenen uyarı) ve `cluster API reachable at
+   10.43.0.1:443 (attempt 1)`.
+4. *"Preflight — the registry pull Secret…"*: `pull-secret: secret/harbor-pull in tappa is
+   kubernetes.io/dockerconfigjson with a credential for registry.everva.com.tr`.
+5. Koşu yeşil biter. İmajlar Harbor'da: **Projects → `tappa` →** `tappa/tappa` ve
+   `tappa/tappa-migrate` depolarında koşunun `sha-<12hex>` etiketi.
+6. Pod'lar Harbor'dan, `harbor-pull`'la çekti — imaj adresi, Secret adı ve çekilen imajın kimliği
+   (`imageID`, `registry.everva.com.tr/tappa/tappa@sha256:…` olmalı); ikinci komut hiçbir
+   `ImagePullBackOff`/`ErrImagePull` basmamalı:
+
+   ```bash
+   kubectl -n tappa get pod -l app.kubernetes.io/component=server -o jsonpath='{range .items[*]}{.metadata.name}{"  "}{.spec.containers[0].image}{"  ps="}{.spec.imagePullSecrets[*].name}{"  "}{.status.containerStatuses[0].imageID}{"\n"}{end}'
+   kubectl -n tappa get pod -o jsonpath='{range .items[*]}{.metadata.name}{"  "}{.status.initContainerStatuses[*].state.waiting.reason}{.status.containerStatuses[*].state.waiting.reason}{"\n"}{end}'
+   ```
+
+7. Koşudan sonra Tailscale konsolunun **Machines** listesinde `github-*` cihazı **kalmaz** (OAuth
+   yolunun anahtarı ephemeral; T134'ün auth key'li koşusu bir cihaz bırakmıştı). Kalırsa: elle sil ve
+   `TS_OAUTH_SECRET`'ın gerçekten bir OAuth client secret'ı olduğunu doğrula.
+8. Log'da e-posta adresi, status JSON'u ya da secret değeri **yok** (koşu log'unda `@` ve `tskey`
+   araması; runner her `secrets.*` değerini maskeler, arama maskelenmemiş bir kopyayı arar).
+9. Bunlar yeşilse: depo düzeyindeki dört eski secret'ı sil (adım 5 (c)), Docker Hub token'ını ve eski
+   auth key'i kendi konsollarında iptal et; backlog T135'i güncelle.
+
+**Ölçülmeyen, sayılı:** KEP-2535'in Harbor'la davranışı (değişmemiş `harbor-pull` ile yeniden başlayan
+pod Harbor'a gitmeden açılır mı; k8s-2 kapalıyken ne olur) bu kümede **ölçülmedi** — sınır
+**[Harbor k8s-2'ye bağlı]**. Güvenli yarısı istenirse ölçülebilir: k8s-2 ayaktayken
+`kubectl -n tappa rollout restart deployment/tappa` + `rollout status` yeşil olmalı; k8s-2'yi kapatarak
+ölçmek bir kesinti denemesidir ve ayrı bir karardır.
+
+### OPS-2 geri dönüş — OPS-2 öncesi Docker Hub imajlarına
+
+Prod'un OPS-2 öncesi son imajı `docker.io/atknatk/tappa:sha-f577d743fc5b` (ana oturumun bildirdiği,
+2026-10-19). Harbor'a **taşınmadan** ona dönülebilir mi — ölçülen ve ölçülemeyen ayrı:
+
+- **`kubectl rollout undo` — evet, taşımadan.** Geri dönülen ReplicaSet'in pod şablonu Deployment'a
+  **olduğu gibi** kopyalanır (Kubernetes'in `rollout undo` tanımı); OPS-2 öncesi ReplicaSet'in şablonu
+  `docker.io/atknatk/tappa:sha-…` ve **`imagePullSecrets`'sız** — yani kimliksiz, eskiden nasıl koştuysa
+  öyle: düğümde duruyorsa önbellekten, durmuyorsa Docker Hub'dan anonim. Ağaçtan ölçüldü: OPS-2 öncesi
+  `20-app.yaml` (`f577d74`) `imagePullSecrets` taşımıyor ve `deploy.yml`'i yalnız etiketi değiştiriyordu
+  (`sed "s|:deploy-placeholder|:sha-$SHORT|g"`). Hangi revizyonun hangisi olduğunu *"Elle deploy /
+  rollback"*'in ReplicaSet komutu basar; `--to-revision=<N>` ile seç.
+- **`kubectl set image … tappa=docker.io/atknatk/tappa:sha-f577d743fc5b` — evet, taşımadan.** OPS-2
+  şablonundaki `imagePullSecrets: harbor-pull` `docker.io` için kimlik taşımaz; kubelet kimliği
+  registry adresine göre seçer, eşleşen yoksa anonim çeker (bu kümede **ölçülmedi** — Kubernetes'in
+  belgelenen davranışı).
+- **Deploy hattıyla f577d74'ü yeniden sevk etmek — Harbor'a yeni bir imaj olarak.** `deploy.yml`
+  `main`'in HEAD'ini inşa eder; eski bir commit'i sevk etmenin yolu `main`'de geri almaktır (`git
+  revert`), o da **yeni** bir commit ve Harbor'da **yeni** bir `sha-*` etiketidir — Docker Hub'daki
+  imajı kullanmaz, taşıma gerektirmez. ⚠️ OPS-2 öncesi `deploy.yml`'i geri getirmek ise **çalışmaz**
+  (depo düzeyindeki `DOCKERHUB_*` ve `TS_AUTHKEY` silindikten sonra ilk adımda düşer — kapalı yönde).
+- **`registry.everva.com.tr/tappa/tappa:sha-f577d743fc5b` — yok.** Harbor'daki ilk etiket OPS-2'nin ilk
+  koşusununkidir; bu adrese `set image` `manifest unknown` → `ImagePullBackOff` verir. Harbor'a taşımak
+  **gerekirse** (ör. Docker Hub depoları silinecekse), etiketi koruyarak — imaj içeriği aynı kalır,
+  `verify-image.sh` kapısını Docker Hub'da zaten geçmişti:
+
+  ```bash
+  docker pull docker.io/atknatk/tappa:sha-f577d743fc5b
+  docker tag docker.io/atknatk/tappa:sha-f577d743fc5b registry.everva.com.tr/tappa/tappa:sha-f577d743fc5b
+  docker push registry.everva.com.tr/tappa/tappa:sha-f577d743fc5b
+  ```
+
+  (migration imajı için aynı üçlü `tappa-migrate` ile; itmek `ci` robotunun ya da bir proje
+  yöneticisinin `docker login`'ini ister.)
+
+🔴 **Önkoşul — Docker Hub'daki etiketin bugün de çekilebildiğini ÖLÇ** (bu bölüm yazılırken dış ağ
+yoktu; ölçülmedi). Boş bir `DOCKER_CONFIG` kimliksizdir, her satır bir manifest basmalı:
+
+```bash
+D=$(mktemp -d)
+DOCKER_CONFIG="$D" docker manifest inspect docker.io/atknatk/tappa:sha-f577d743fc5b
+DOCKER_CONFIG="$D" docker manifest inspect docker.io/atknatk/tappa-migrate:sha-f577d743fc5b
+rm -rf "$D"
+```
+
+⚠️ **Docker Hub depolarını silmek ya da private yapmak bu bölümün ilk iki yolunu kapatır** — ve
+sınır 18'in kalan yarısını (eski etiketlerin herkese açık olması) kapatır. İkisi aynı kararın iki
+yüzü: OPS-2 yeterince koştuktan sonra verilir, önce gerekirse son OPS-2 öncesi imaj yukarıdaki gibi
+Harbor'a taşınır.
+
+---
+
 ## Elle deploy / rollback
 
 > 🔴 **Bu bölümdeki her `kubectl` TAILNET'TEN koşar (T134, 2026-10-17).** Küme API'si
@@ -3520,29 +3707,27 @@ boş kalır.
 > --accept-routes`). Operatör proxy'si (`*.ts.net`) kullanılmaz — operatör adımı 5.
 > M11 deploy'u (2026-10-17) tam bu yoldan elle yapıldı.
 
-> 🔴 **ÖNCE ŞUNU ÖLÇ: BU BÖLÜM DOCKER HUB'I TARİF EDİYOR, KÜME BUGÜN HÂLÂ GHCR
-> KOŞUYOR.** Aşağıdaki `set image` komutu, **kümenin bugünkü hâlinde koşulursa
-> ÜRÜNÜ DÜŞÜRÜR**: `docker.io/atknatk/tappa` deposu **yok** (ölçüldü 2026-08-16:
-> `hub.docker.com/v2/repositories/atknatk/tappa/` → **404**), yani `1/1 Running` bir
-> pod'un yerine **çekilemeyen** bir imaj konur → `ImagePullBackOff` → 04:00 vardiyası
-> tap sayfasını **hiç** yükleyemez.
->
-> **Ön koşul — bu üçü doğru olana kadar aşağıdaki `docker.io/...` komutunu KOŞMA:**
-> operatör adımı 4 tamamlanmış (iki GitHub secret'ı + iki depo **Public**) **ve**
-> ondan sonra en az bir `deploy` koşusu yeşil olmuş olmalı. Ölç, iddia etme:
+> 🔴 **ÖNCE ŞUNU ÖLÇ: BU BÖLÜM HARBOR'I TARİF EDİYOR (OPS-2); KÜMENİN HANGİ REGISTRY'DEN
+> KOŞTUĞU KÜMEYE SORULUR, AĞACA DEĞİL.** Ağaçtaki pod spec'leri
+> `registry.everva.com.tr/tappa/...` + `imagePullSecrets: harbor-pull` diyor. OPS-2'nin ilk deploy'u
+> inene kadar küme **Docker Hub** koşar (ana oturumun bildirdiği son durum, 2026-10-19:
+> `docker.io/atknatk/tappa:sha-f577d743fc5b`, `imagePullSecrets` yok). Ölç, iddia etme — Deployment
+> ve geri dönülebilecek her ReplicaSet (`rollout undo` bir öncekine döner):
 > ```bash
 > kubectl -n tappa get deployment tappa \
 >   -o jsonpath='{.spec.template.spec.containers[0].image}{"  ps="}{.spec.template.spec.imagePullSecrets[*].name}{"\n"}'
+> kubectl -n tappa get rs -l app.kubernetes.io/component=server \
+>   -o jsonpath='{range .items[*]}{.metadata.annotations.deployment\.kubernetes\.io/revision}{"  "}{.spec.template.spec.containers[0].image}{"  ps="}{.spec.template.spec.imagePullSecrets[*].name}{"\n"}{end}'
 > ```
 > Çıktıyı şöyle oku:
-> - `ghcr.io/... + ps=ghcr` → küme **HÂLÂ GHCR'da**: aşağıdaki komutta etiketi `ghcr.io/...` yaz;
-> - `docker.io/... + ps yok` → geçiş inmiş: aşağıdaki komut olduğu gibi doğru.
+> - `registry.everva.com.tr/tappa/... + ps=harbor-pull` → OPS-2 inmiş: aşağıdaki komut olduğu gibi;
+> - `docker.io/atknatk/... + ps yok` → OPS-2 öncesi (ya da ona dönülmüş): etiketi `docker.io/atknatk/tappa`
+>   ile yaz — public, kimliksiz çekilir (*"OPS-2 geri dönüş"*).
 >
-> **Bugünkü gerçek ölçüm (2026-08-16, salt okuma):** `deployment/tappa` →
-> `ghcr.io/atknatk/tappa:sha-353897c6d5f6`, `imagePullSecrets: ghcr`; üç ReplicaSet'in
-> **üçü de** `ghcr.io/...` + `ps=ghcr`; `secret/ghcr` **var** (18 sa). Yani geçiş
-> **henüz inmedi**. Bu, bölüm 1'in *"Ağaçtaki manifestler taşıyor; KÜMEDEKİ nesneler
-> henüz taşımıyor"* uyarısının aynısıdır — orada yazılıydı, burada yazılı değildi.
+> ⚠️ **Etiketin registry'de VAR olduğunu da ölç** — `set image` onu denetlemez (aşağıda). Harbor
+> depo başına **son 30 push**'u tutar; Docker Hub'da OPS-2 öncesi etiketler depolar silinene dek
+> durur. Tailnet'teki, `harbor-pull` ile aynı robotun kimliğine sahip bir makineden ya da Harbor
+> arayüzünden (Projects → `tappa` → depo → Artifacts) bakılır.
 
 > 🔴 **ÜÇÜNCÜ KOMUT AYRI BİR KARAR — BU YÜZDEN KENDİ BLOĞUNDA.** İlk blok (`set image` +
 > `rollout status`) yer tutucu taşıdığı için kopyalayanı **durdurur**, `rollout undo`
@@ -3551,8 +3736,8 @@ boş kalır.
 > blokta — ilk bloğu kopyalamak onu artık sürüklemez. `undo` bir kurtarma değil,
 > koşullu bir harekettir.)
 
-⚠️ ETİKETİN KAYNAĞINI YUKARIDAKİ ÖLÇÜMDEN AL: küme GHCR'daysa ghcr.io/atknatk/tappa, Docker Hub
-geçişi indiyse docker.io/atknatk/tappa.
+⚠️ ETİKETİN KAYNAĞINI YUKARIDAKİ ÖLÇÜMDEN AL: OPS-2 inmişse registry.everva.com.tr/tappa/tappa,
+OPS-2 öncesi bir imaja dönüyorsan docker.io/atknatk/tappa.
 
 🔴 YER TUTUCU SESSİZCE KABUL EDİLİR — ölçüldü (çevrimdışı, --local):
 `kubectl set image ... tappa='<registry>/atknatk/tappa:sha-<12hex>'` çıktısı BİREBİR
@@ -3560,7 +3745,7 @@ geçişi indiyse docker.io/atknatk/tappa.
 yanlış yazılmış bir etiket buradan geçer ve arızayı ancak kubelet bildirir (`ImagePullBackOff`).
 
 ```bash
-kubectl -n tappa set image deployment/tappa tappa=<registry>/atknatk/tappa:sha-<12hex>
+kubectl -n tappa set image deployment/tappa tappa=<image>:sha-<12hex>
 kubectl -n tappa rollout status deployment/tappa
 ```
 
@@ -3572,23 +3757,18 @@ kubectl -n tappa rollout status deployment/tappa
 kubectl -n tappa rollout undo deployment/tappa
 ```
 
-> 🔴 **`rollout undo` HÂLÂ RİSKLİ — ÇÜNKÜ KÜME HÂLÂ GHCR'DA.** Burada bir tur boyunca
-> *"o uyarı artık geçersiz"* yazdı; **ağaç için** doğruydu, **küme için değil**, ve bu
-> tam olarak bu kartın imza kusurudur — sağlanmayan bir garantiyi ilan etmek.
-> Bugünkü ölçüm: üç ReplicaSet'in **üçü de** `ghcr.io/...` + `imagePullSecrets: ghcr`,
-> yani `rollout undo` bugün **tam olarak** kaldırdığım uyarının tarif ettiği duruma
-> düşer: kubelet kimlik doğruluyor (KEP-2535), eski imaja dönmek yeniden çekme
-> tetikliyor, `secret/ghcr`'ın token'ı ise sonraki deploy'da ezilmiş → **401 →
-> `ImagePullBackOff`**, tam da olay anında.
-> ✅ **Uyarı yalnız şu koşulda düşer:** Docker Hub geçişi kümeye inip **hem
-> Deployment hem de dönmek istediğin ReplicaSet** `docker.io/...` gösterdiğinde —
-> public depoda kaydedilecek kimlik yoktur (ölçülmüş kontrol: public imaj +
-> `imagePullPolicy: Never` → **düğüm önbelleğinden açıldı, exit 0**). O gün gelene
-> kadar bu satır **geçerlidir**.
+> 🔴 **`rollout undo` NEREYE DÖNDÜĞÜNÜ ŞABLONUYLA BİRLİKTE GETİRİR.** Geri dönülen ReplicaSet'in pod
+> şablonu Deployment'a **olduğu gibi** kopyalanır — imaj **ve** `imagePullSecrets` dahil. İki dünya:
+> - **Harbor ReplicaSet'ine** (`ps=harbor-pull`) dönmek: `harbor-pull` değişmediyse imaj düğümdeki
+>   kopyadan açılır, Harbor'a gidilmez (KEP-2535: kayıtlı kimlik aynı). Robot döndürüldüyse ya da
+>   imaj düğümde yoksa Harbor (k8s-2) ayakta olmalı; 30 push'tan eskiyse Harbor'da da yoktur —
+>   sınır **[Harbor k8s-2'ye bağlı]**.
+> - **OPS-2 öncesi ReplicaSet'e** (`docker.io/...`, `ps` yok) dönmek: kimliksiz, Docker Hub'dan ya da
+>   düğümün önbelleğinden — **Docker Hub depoları public ve etiket duruyorsa** (*"OPS-2 geri dönüş"*).
+> (OPS-2 öncesi bu kutu `secret/ghcr`'ın bayat token'ı yüzünden `401` uyarısı taşıyordu; o Secret'ı
+> yazan adım M8-02 FAZ D'de ağaçtan, OPS-2'de de tüm akıştan çıktı.)
 >
-> ⚠️ **Her hâlükârda rollout'u izle** — geri alma başka sebeplerle de takılabilir
-> (düğüm imajı düşürmüştür ve Docker Hub'ın anonim bütçesi tükenmiştir: sınır
-> **[Docker Hub anonim çekme bütçesi]**):
+> ⚠️ **Her hâlükârda rollout'u izle** — geri alma başka sebeplerle de takılabilir:
 > ```bash
 > kubectl -n tappa rollout undo deployment/tappa
 > kubectl -n tappa rollout status deployment/tappa --timeout=120s || \
@@ -5979,21 +6159,20 @@ kopyasında** — `CREATE DATABASE … TEMPLATE tappa`, koşuldu, doğrulandı, 
 > zorlayarak değil.
 >
 > 🔴 **BU CÜMLE BİR TUR BOYUNCA *"her satır fiilen ölçüldü"* DİYORDU VE ALTINA
-> ÖLÇÜLMEMİŞ SATIRLAR EKLENDİ** (bölüm 2'nin Docker Hub satırları: depolar bu kümede
-> hiç var olmadı, oran limiti yalnız **başlık** olarak ölçüldü). Değişmemiş bir
-> garanti cümlesinin altına yeni satır eklemek, garantiyi sessizce yalanlar —
-> bu dosyanın imza kusurunun bir başka yüzü.
+> ÖLÇÜLMEMİŞ SATIRLAR EKLENDİ** (bölüm 2'nin Docker Hub satırları: depolar o gün bu kümede
+> hiç var olmamıştı, oran limiti yalnız **başlık** olarak ölçüldü; OPS-2'nin Harbor satırları da
+> henüz görülmedi ve satırlarında öyle yazıyor). Değişmemiş bir garanti cümlesinin altına yeni
+> satır eklemek, garantiyi sessizce yalanlar — bu dosyanın imza kusurunun bir başka yüzü.
 >
 > 🔴 **VE BÜTÜN BÖLÜM İÇİN GEÇERLİ TEK ÖN KOŞUL: AĞAÇ İLE KÜME AYNI ŞEY DEĞİL.**
-> Ağaç Docker Hub'ı ve `imagePullSecrets`'sız pod'ları tarif ediyor; **küme bugün
-> hâlâ GHCR koşuyor** (ölçüldü 2026-08-16: `deployment/tappa` →
-> `ghcr.io/atknatk/tappa:sha-353897c6d5f6` + `imagePullSecrets: ghcr`, üç
-> ReplicaSet'in üçü de aynı, `secret/ghcr` **var**). Teşhise başlamadan **kümeye
-> sor**, ağaca değil (ikinci komutun çıktısı boşsa geçiş inmiştir):
+> Ağaç Harbor'ı (`registry.everva.com.tr/tappa/...` + `imagePullSecrets: harbor-pull`, OPS-2)
+> tarif ediyor; OPS-2'nin ilk deploy'u inene kadar ya da OPS-2 öncesi bir ReplicaSet'e dönülmüşse
+> küme Docker Hub'dan kimliksiz koşar. Teşhise başlamadan **kümeye sor**, ağaca değil (ikinci
+> komut Secret'ın adını basmalı; boşsa `harbor-pull` bu namespace'te yok):
 > ```bash
 > kubectl -n tappa get deployment tappa \
 >   -o jsonpath='{.spec.template.spec.containers[0].image}{"  ps="}{.spec.template.spec.imagePullSecrets[*].name}{"\n"}'
-> kubectl -n tappa get secret ghcr --ignore-not-found -o name
+> kubectl -n tappa get secret harbor-pull --ignore-not-found -o name
 > ```
 >
 > **Önce ölç, sonra dokun.** Kesintinin var olup olmadığının tek dış kanıtı — ilk satır
@@ -6006,26 +6185,20 @@ kopyasında** — `CREATE DATABASE … TEMPLATE tappa`, koşuldu, doğrulandı, 
 > ürün çalışıyor; **200/503** = süreç ayakta ama veritabanı yok; **ikisi de yok** =
 > pod ya da ingress.
 >
-> 🔴 **ÜÇÜNCÜ BİR SORU VAR — *"ayağa KALKABİLİR miyim"* — VE BU KÜMEDE HÂLÂ
-> GEÇERLİ.** Kaynağı `secret/ghcr`: çalışan pod'un imajı **kayıtlı** bir kimlikle
-> çekilmiştir ve sonraki bir deploy o Secret'ı ezdiğinde pod **yeniden başlayamaz**
-> hâle gelir, üstelik hiçbir belirti vermeden.
-> ⚠️ **Burada bir tur boyunca *"o soru ARTIK YOK, bu durum oluşamıyor"* yazdı. Ağaç
-> için doğruydu, KÜME için değil** — ölçüldü 2026-08-16: `secret/ghcr` **var** (18 sa),
-> Deployment ve üç ReplicaSet'in üçü de `imagePullSecrets: ghcr`. Soru ancak Docker
-> Hub geçişi kümeye indiğinde düşer (public depoda kaydedilecek kimlik yoktur).
-> ⚠️ **Ve onu ölçen komut (`scripts/verify-deployment.sh pull-credential`)
-> KALDIRILDI** — bugün elde olan tek kanıt elle okumaktır:
+> 🔴 **ÜÇÜNCÜ BİR SORU VAR — *"ayağa KALKABİLİR miyim"*.** Çalışan pod'un imajı düğümde; yeniden
+> başlaması Harbor'a ancak `harbor-pull`'un içeriği pod çekildikten **sonra** değiştiyse gider
+> (KEP-2535 doğrulama çekmesi) ya da düğüm imajı düşürdüyse. O durumda k8s-2'nin ayakta ve
+> `k8s-pull` robotunun geçerli olması gerekir — sınır **[Harbor k8s-2'ye bağlı]**. Kanıt (komut
+> hüküm vermez, kanıt basar): Secret'ın son yazımı ile sunucu pod'larının başlama zamanları.
 > ```bash
-> kubectl -n tappa get secret ghcr -o jsonpath='{range .metadata.managedFields[*]}{.time}{"  by "}{.manager}{"\n"}{end}'
+> kubectl -n tappa get secret harbor-pull -o jsonpath='{range .metadata.managedFields[*]}{.time}{"  by "}{.manager}{"\n"}{end}'
 > kubectl -n tappa get pod -l app.kubernetes.io/component=server \
 >   -o jsonpath='{range .items[*]}{.status.startTime}{"  "}{.metadata.name}{"\n"}{end}'
 > ```
-> En yeni `secret/ghcr` yazımından **ÖNCE** başlamış bir pod yeniden başlayamaz.
-> Çare: yeni ve **BAŞARILI** bir deploy koşusu. (Komut hüküm vermez, kanıt basar.)
-> Silinme gerekçesi kayıtta: mod, geçiş indikten sonra konusu var olmayan bir Secret
-> olacağı için her sağlıklı kümede *"UNREADABLE"* diyecekti. **Geçiş inene kadar
-> yukarıdaki iki satır onun yerini tutar.** Ders defterde: kart düzeltmesi, FAZ C 6. tur.
+> Secret'ın en yeni yazımından **ÖNCE** başlamış bir pod yeniden başlarken Harbor'a sorar.
+> (OPS-2'ye kadar bu kutu `secret/ghcr`'ı anlatıyordu: onu **her deploy** yeniden yazıyordu ve
+> token'ı ölüydü, yani böyle bir pod hiç başlayamıyordu — T43. `harbor-pull`'u CI yazmaz; içeriği
+> yalnız operatör robotu döndürünce değişir, ve operatör adımı 4 (d) bunu eski robot yaşarken yapar.)
 
 ### 1. `connection refused` — bu bir **RST**'tir, "port kapalı" demek DEĞİLDİR
 
@@ -6083,8 +6256,8 @@ ya da `pg_isready ... - no response`. Postgres `1/1 Running` ve loglarında
 > ```bash
 > kubectl -n tappa delete pod dnscheck --ignore-not-found
 > ```
-> ⚠️ **BU SONDA `postgres:17-alpine` İSTİYOR, yani sınır
-> **[Docker Hub anonim çekme bütçesi]**'nden bir çekme daha harcayabilir** — ve tam olarak `429` gördüğün bir
+> ⚠️ **BU SONDA `postgres:17-alpine` İSTİYOR, yani Docker Hub'ın anonim bütçesinden (sınır 12'nin
+> eski adı *[Docker Hub anonim çekme bütçesi]*; bölüm 2'nin `429` satırı) bir çekme daha harcayabilir** — ve tam olarak `429` gördüğün bir
 > olayda **ters teper**. `imagePullPolicy: IfNotPresent` ve bu imaj Postgres ayaktayken
 > düğümde **zaten** duruyor, yani normalde çekme olmaz; ama düğüm imajı düşürmüşse bu
 > sonda da açılmaz. Bölüm 2'nin `429` satırını gördüysen önce onu çöz.
@@ -6125,18 +6298,15 @@ kubectl -n tappa get job/tappa-migrate deployment/tappa \
 `init=` boş çıkıyorsa bu dosyalar kümeye **henüz inmemiştir** (FAZ C bir deploy
 koşusu bekliyor) ve yukarıdaki yarış hâlâ canlıdır.
 
-### 2. `ImagePullBackOff` — dört sebep, ve hangisinin geçerli olduğu KÜMEYE bağlı
+### 2. `ImagePullBackOff` — sebep mesajdadır, ve hangi registry'den çekildiği KÜMEYE bağlı
 
-> 🔴 **ÖNCE HANGİ DÜNYADASIN: bu bölümün ilk üç satırı DOCKER HUB dünyasına,
-> dördüncüsü bugünkü GHCR kümesine ait.** Ağaç geçişi tarif ediyor, küme henüz
-> inmedi (yukarıdaki önsözdeki iki komutla ölç). ⚠️ Burada bir tur boyunca başlık
-> *"artık kimlik sorunu DEĞİL, iki başka sebep"* diyordu ve **iki şeyi birden**
-> yanlış söylüyordu: tablo o an **üç** satır taşıyordu (bölümün kendi metni de
-> *"üç satırda da"* diyordu; bugün **dört** satır ve metin de dört diyor), ve kimlik
-> sorunu **bu kümede hâlâ canlı** — `secret/ghcr` **var**
-> (ölçüldü 2026-08-16, 18 sa), Deployment ve üç ReplicaSet'in üçü de
-> `imagePullSecrets: ghcr`. Yani *"`secret/ghcr` arayan biri var olmayan bir nesneyi
-> arar"* cümlesi de **yanlıştı** ve kaldırıldı.
+> 🔴 **ÖNCE HANGİ DÜNYADASIN (OPS-2, 2026-10-19).** Ağaç Harbor'ı tarif ediyor
+> (`registry.everva.com.tr/tappa/...` + `imagePullSecrets: harbor-pull`); OPS-2 öncesi bir
+> ReplicaSet'e dönülmüş bir küme Docker Hub'dan kimliksiz çeker. Hangisi olduğunu *"Elle deploy /
+> rollback"*'in iki komutu söyler; pod'un kendi imajı `kubectl -n tappa get pod <pod> -o
+> jsonpath='{.spec.containers[0].image}'` ile okunur.
+> (Bu bölüm OPS-2'ye kadar `secret/ghcr`'ın bayat token'ını — T43, `401` — ve public Docker Hub'ı
+> tarif ediyordu; ilki M8-02 FAZ D'de, ikincisi OPS-2'de kalktı.)
 
 **Belirti.** `Failed to pull image ...`, `ErrImagePull`, `ImagePullBackOff`.
 
@@ -6144,35 +6314,27 @@ koşusu bekliyor) ve yukarıdaki yarış hâlâ canlıdır.
 
 | mesaj | sebep | çare — **satır bazında; genel bir çare YOK** |
 |---|---|---|
-| `pull access denied` / `repository does not exist` | Docker Hub deposu **private** | **Docker Hub → Repository → Settings → Public** (operatör adımı 4, madde 3). **Sonra** yeni bir deploy koşusu. 🔴 **Sırayı ters çevirme:** depo private iken yeni koşu `deploy.yml`'in *"Gate — both images must be pullable with NO credential"* adımında (push'tan sonra, `kubectl` daha kurulmadan) **tanımı gereği** durur ve *"Nothing has been applied to the cluster"* der — yani pod açılmamaya **devam eder** |
-| `toomanyrequests` / `429` ⚠️ *bu kümede hiç görülmedi; yalnız başlık ölçüldü* | anonim çekme bütçesi doldu — sınır **[Docker Hub anonim çekme bütçesi]** (ölçüldü: `x-ratelimit-limit: 100;w=3600`, IP başına) | **Pencerenin dolmasını bekle** — Deployment pod'u kendiliğinden toparlar. Yeni deploy koşusu bunu **düzeltmez**: kapı runner'ın adresinden geçse bile çeken taraf **düğüm**dür. 🔴 **Ama migration `Job`'ı beklemeyle KURTULMAZ:** `activeDeadlineSeconds: 600` + `backoffLimit: 2`, yani saatlik pencereden **çok önce** kalıcı `Failed` olur → Job için **yine de yeni bir koşu** gerekir (pencere dolduktan sonra). Çalışan bir pod etkilenmez (imaj düğümde) |
-| `manifest unknown` / `not found` | etiket yok — `:deploy-placeholder` kalmış (dizini toptan `apply` etmişsin) ya da push başarısız olmuş | **Yeni bir deploy koşusu** — doğru etiketi o yazar. `deploy.yml`'in `Push` adımını da oku; manifestleri elle `apply` etme |
-| `401 Unauthorized` **(BUGÜNKÜ KÜME)** | `secret/ghcr`'ın token'ı ölü — kubelet kimlik doğruluyor (KEP-2535) ve pod'un imajını çeken token sonraki deploy'da ezilmiş. **Bu satır bu kümede 2026-08-15'te fiilen ölçüldü: 4 dk 39 sn** | **Yeni ve BAŞARILI bir deploy koşusu** (sırrı tazeler). Koşamıyorsan takılmış pod'u yeniden yarat — aşağıdaki uyarıyı okuyarak. ⚠️ Bu satır Docker Hub geçişi kümeye indiğinde **düşer**; o güne kadar geçerlidir |
+| `Unable to retrieve some image pull secrets (harbor-pull)` ve ardından `unauthorized` | `secret/harbor-pull` bu namespace'te **yok** (sandbox'ta ayrıca yaratılır) | Operatör adımı 4 (c)'nin bloğu. Deploy bunu kümeye bir şey uygulamadan yakalar (*"Preflight — the registry pull Secret…"*); buraya elle bir `apply` ya da başka bir namespace getirir |
+| `unauthorized` / `401` (Secret **var**) ⚠️ *Harbor dünyasında henüz görülmedi* | `k8s-pull` robotunun kimliği geçersiz — döndürüldü, süresi doldu, devre dışı ya da Secret yanlış robotla yaratıldı. Deploy'un kapısı bunu **ölçmez** (Secret'ın varlığını, tipini ve registry'sini ölçer, kimliğin geçerliliğini değil) | Operatör adımı 4 (c) ile Secret'ı geçerli robotla yeniden yarat, sonra takılmış pod'u yeniden yarat (aşağıdaki tablo). Deploy sırasında görüldüyse migration adımı 600 sn sonra düşmüştür ve **sunucu rollout'u yapılmamıştır** — Secret düzeltildikten sonra yeni bir koşu |
+| `dial tcp …` / `i/o timeout` / `connection refused` / `no such host` (`registry.everva.com.tr`) | Harbor ya da k8s-2 kapalı — sınır **[Harbor k8s-2'ye bağlı]** | k8s-2'yi / Harbor'ı ayağa kaldır. Çalışan pod etkilenmez (imaj düğümde); yeni imaj o güne dek **çekilemez** — deploy'u ertele |
+| `manifest unknown` / `not found` | etiket yok — `:deploy-placeholder` kalmış (dizini toptan `apply` etmişsin), push başarısız olmuş, ya da etiket **son 30 push'tan eski** ve saklama onu silmiş | **Yeni bir deploy koşusu** — doğru etiketi o yazar. Eski bir etikete dönüyorsan Harbor'da (Projects → `tappa` → depo → Artifacts) var olduğunu ölç; manifestleri elle `apply` etme |
+| `pull access denied` / `repository does not exist` (`docker.io/atknatk/...`) | OPS-2 öncesi bir ReplicaSet'e dönülmüş ve Docker Hub deposu **private** yapılmış ya da silinmiş | Docker Hub'da depoyu public yap **ya da** o commit'i Harbor üzerinden yeniden sevk et (*"OPS-2 geri dönüş"*) |
+| `toomanyrequests` / `429` ⚠️ *bu kümede hiç görülmedi; yalnız başlık ölçüldü* | Docker Hub'ın anonim bütçesi doldu (`x-ratelimit-limit: 100;w=3600`, IP başına) — OPS-2'den sonra **yalnız** `postgres:17-alpine`, `rclone`, `curlimages/curl` ve OPS-2 öncesi imajlar oradan çekilir | **Pencerenin dolmasını bekle** — Deployment pod'u kendiliğinden toparlar. 🔴 **Ama migration `Job`'ı beklemeyle KURTULMAZ:** `activeDeadlineSeconds: 600` + `backoffLimit: 2`, saatlik pencereden **çok önce** kalıcı `Failed` olur → pencere dolduktan sonra yeni bir koşu |
 
-> 🔴 **BURADA BİR TUR BOYUNCA *"Çare (her üçünde de) yeni bir deploy koşusudur"*
-> YAZDI VE İLK İKİ SATIRDA **GARANTİLİ BAŞARISIZDI** — güvenlik denetimi bunu §4.6'nın
-> altyapı yüzü olarak bloklayan saydı, haklı olarak: bu bölümün müdahale ettiği hâl
-> uygulama pod'unun **hiç açılmadığı** hâldir, 04:00 vardiyası tap sayfasını
-> yükleyemez, ve **kaydedilemeyen dokunuş kaybolan kayıttır**. Bir runbook'un
-> operatörü tek ve **kesin işe yaramayacak** bir eyleme yönlendirmesi, hiçbir şey
-> yazmamaktan kötüdür. Doğru cevap **satır bazındadır** ve zaten tablonun kendi
-> sütununda duruyordu; genel cümle kaldırıldı.
+> 🔴 **BU TABLO BİR TUR BOYUNCA *"Çare (her üçünde de) yeni bir deploy koşusudur"* DİYORDU VE
+> İLK İKİ SATIRDA GARANTİLİ BAŞARISIZDI** — güvenlik denetimi bunu §4.6'nın altyapı yüzü olarak
+> bloklayan saydı: bu bölümün müdahale ettiği hâl uygulama pod'unun **hiç açılmadığı** hâldir ve
+> **kaydedilemeyen dokunuş kaybolan kayıttır**. Doğru cevap **satır bazındadır**.
 
-> 🔴 **VE BİRİNCİ SATIRIN YANINDA *"bunu kümede görüyorsan iş akışının kapısı
-> atlanmıştır, yani buraya ancak elle `apply` edilmiş bir manifestle gelinir"*
-> YAZIYORDU — BU DA YANLIŞTI, ve bu dosya kendini sınır
-> **[Docker Hub anonim çekme bütçesi]** maddesinde zaten yalanlıyordu.** Elle hiçbir `apply` olmadan üretilebilir,
-> dört adımda ve **hepsi o maddede sayılı**: (1) deploy N yeşil — depolar public,
-> kapı geçti, pod çalışıyor; (2) depo **sonradan** private'a çevrilir — kapı yalnız
-> **deploy anını** ölçer ve bunu yapan kimseyi engelleyemez; (3) düğüm imajı düşürür
-> — kubelet imaj GC'si (bu node'da `imageMinimumGCAge: 2m0s`), `crictl rmi`, ya da
-> düğüm yeniden kurulumu; (4) pod yeniden başlar → `pull access denied`.
-> **Doğru cümle:** kapı bir **deploy anı** ölçümüdür, süregelen bir garanti değil;
-> bu satırı elle apply olmadan da görebilirsin ve o zaman aranacak şey *"kim elle
-> apply etti"* değil, **deponun bugünkü görünürlüğüdür**. Yanlış cümle operatörü
-> hiç olmamış bir olayı ararken pod'u kapalı bırakırdı.
+> 🔴 **KAPILAR BİR DEPLOY ANI ÖLÇÜMÜDÜR, SÜREGELEN BİR GARANTİ DEĞİL.** `verify-image.sh --access`
+> imajın private ve CI kimliğiyle çekilebilir olduğunu, `pull-secret` `harbor-pull`'un var olduğunu
+> **o koşuda** ölçer. Sonradan robot devre dışı bırakılır, proje public yapılır ya da Secret silinir ve
+> düğüm imajı düşürürse (kubelet imaj GC'si — bu node'da `imageMinimumGCAge: 2m0s` —, `crictl rmi`,
+> düğüm yeniden kurulumu), yeniden başlayan pod bu tablonun bir satırına **elle hiçbir `apply`
+> olmadan** düşer. Aranacak şey *"kim elle apply etti"* değil, registry'nin ve Secret'ın **bugünkü**
+> hâlidir.
 
-**Dört satırda da ortak olan tek şey:** takılmış pod'u yeniden yaratmak kubelet'in
+**Her satırda ortak olan tek şey:** takılmış pod'u yeniden yaratmak kubelet'in
 büyüyen geri çekilme aralığını sıfırlar — yani **satırın kendi çaresi uygulandıktan
 sonra** pod'un dakikalarca beklemesini engeller.
 
@@ -6193,10 +6355,9 @@ kubectl -n tappa get pod -o wide
 kubectl -n tappa delete pod <stuck-pod>
 ```
 ⚠️ `deploy.yml`'de bunu otomatik yapan bir adım **vardı ve kaldırıldı** — dayandığı
-öncül (bayat çekme kimliği) **ağaçta** artık yok, ve premisi yanlış olan yıkıcı bir
-adımı tutmak bu kartın imza kusurudur. ⚠️ **Kümede o öncül hâlâ geçerli** (yukarıdaki
-dördüncü satır), yani geçiş inene kadar bu işi **elle** ve yukarıdaki tabloya bakarak
-yapmak gerekiyor.
+öncül (CI'nın her koşuda yeniden yazdığı, bayat çekme kimliği) artık yok, ve premisi yanlış
+olan yıkıcı bir adımı tutmak bu kartın imza kusurudur. Bu işi **elle** ve yukarıdaki tabloya
+bakarak yap.
 
 ### 3. `pg_isready ... - no attempt` — ağ değil, **kullanıcı adı**
 
@@ -6888,7 +7049,8 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
    YERİNDE DURUYOR, VE ANAHTARIN DEĞİŞME SEBEBİ ANAHTARIN ARTIK YALAN OLMASI.**
    Eski madde *"Yedek YOK, replika YOK"* diyordu ve **bugün ağaç için yanlış, küme
    için hâlâ doğru** — bu dosyada üç kez bedeli ödenmiş ayrım (bkz. sınır
-   **[Docker Hub anonim çekme bütçesi]**), o yüzden ikisi ayrı yazılıyor.
+   **[Harbor k8s-2'ye bağlı]**, eski adı *[Docker Hub anonim çekme bütçesi]*), o yüzden ikisi ayrı
+   yazılıyor.
    ✅ **AĞAÇTA olan (M8-02 FAZ E):** `k8s/50-backup.yaml` gecelik bir CronJob,
    `../scripts/pg-backup.sh` dump'ı alıp **içini doğruluyor** (tablo kümesi, tablo
    tablo satır sayısı, politika/`FORCE`/GRANT sayıları, tamamlanma damgası),
@@ -7010,46 +7172,48 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     role"*, `pg_stat_activity` üzerinden), yani **deploy anına** özgü; deploy sonrası
     değiştirilen bir değeri yakalamaz. Süreç içi kontrol bilinçli olarak
     **yapılmadı** — gerekçesi kartta, ölçümüyle.
-12. **[Docker Hub anonim çekme bütçesi]** — 🔴 **BU MADDE ESKİ
-    *[GHCR çekme kimliği ömürlü]* MADDESİNİN YERİNDE DURUYOR, VE O SINIR SAYILARAK
-    DEĞİL KÖKÜNDEN KAPATILDI.** Eski madde şunu diyordu: `deploy.yml` `ghcr` sırrını
-    her koşuda kendi `GITHUB_TOKEN`'ıyla yazıyor, o token iş bitince iptal ediliyor,
-    ve bu node'un kubelet'i `imagePullCredentialsVerificationPolicy:
-    NeverVerifyPreloadedImages` (KEP-2535) ile koştuğu için **kimlikle çekilmiş** bir
-    imaj, kayıtlı kimliği olmayan bir pod'a **düğümde dururken bile** verilmiyor —
-    yani her yeniden başlatma ve özellikle `kubectl rollout undo` bir `401` riskiydi.
-    ✅ **Kapatan ölçüm zaten o maddenin içindeydi:** ayırt edici kontrol **public**
-    bir imaj + `imagePullPolicy: Never` → **düğüm önbelleğinden açıldı, exit 0**.
-    Public depoda kaydedilecek bir kimlik yoktur, yani kusur **tanım gereği**
-    oluşamaz. İmajlar Docker Hub'a taşındı; `secret/ghcr`, onu yazan adım, iki pod
-    spec'indeki `imagePullSecrets` ve takılmış-pod kurtarma adımı **AĞAÇTAN
-    kaldırıldı** (backlog T43).
-    🔴 **AĞAÇTAN — KÜMEDEN DEĞİL, VE BU AYRIM BU MADDENİN EN ÖNEMLİ SATIRIDIR.**
-    Burada bir tur boyunca yalnız *"kaldırıldı"* yazdı; ölçüm (2026-08-16, salt
-    okuma) bunu yalanlıyor: `secret/ghcr` **var** (18 sa), `deployment/tappa` →
-    `ghcr.io/atknatk/tappa:sha-353897c6d5f6` + `imagePullSecrets: ghcr`, ve **üç
-    ReplicaSet'in üçü de** `ghcr.io/...` + `ps=ghcr`. Geçiş kümeye ancak operatör
-    adımı 4 tamamlandıktan **sonraki başarılı bir `deploy` koşusuyla** iner; o güne
-    kadar **eski sınır (bayat çekme kimliği, `rollout undo` → 401) yürürlüktedir** ve
-    *"Olay müdahalesi"* bölüm 2'nin dördüncü satırı onu taşır. Aynı ayrımın kalıbı
-    bölüm 1'de zaten vardı (*"Ağaçtaki manifestler taşıyor; KÜMEDEKİ nesneler henüz
-    taşımıyor"*) — burada yoktu.
-    🔴 **YERİNE GEÇEN SAYILMIŞ SINIR — anonim çekme oran limiti.** Bu ağdan ölçüldü:
-    `x-ratelimit-limit: 100;w=3600`, yani IP başına saatte 100 çekme. Tek node için
-    geniş (bir deploy iki çekme harcar) ama artık **ürün imajları da** aynı bütçeden
-    harcıyor, `postgres:17-alpine`'ın yanında. Düğüm imajı kaybederse — kubelet imaj
-    GC'si, `crictl rmi`, düğüm yeniden kurulumu — bu bütçe pod'un açılmasıyla arasına
-    girebilir. Belirtisi `toomanyrequests`/`429`'dur; *"Olay müdahalesi"* bölüm 2 onu
-    ayrı bir satır olarak taşıyor. **Kapatılmadı, bilinçli:** kimlikli çekme limiti
-    yükseltir ama `imagePullSecrets`'ı — yani bu maddenin kapattığı kusuru — geri
-    getirir; pull-through önbelleği ise tek-node kurulum için ayrı bir bileşendir.
-    ✅ **Depoların public OLMASI artık ilan değil, kapı.** `deploy.yml` push'tan
-    hemen sonra — kümeye hiçbir şey uygulamadan — iki imajı da **kimliksiz** çekmeyi
-    deniyor ve başaramazsa deploy orada durur (operatör adımı 4.3). On dejenere yol
-    koşuldu, **yalnız biri geçiyor**: ikisi de gerçekten anonim çekilebiliyorsa.
-    ⚠️ **Public KALMASI yine de operatörün elinde** — kapı her koşuda yeniden ölçer,
-    ama bir depoyu sonradan private'a çeviren kimseyi engelleyemez; sonraki deploy'da
-    kırmızı görünür.
+12. **[Harbor k8s-2'ye bağlı]** — OPS-2 (2026-10-19). 🔴 **BU MADDE İKİ ESKİ MADDENİN
+    YERİNDE DURUYOR:** önce *[GHCR çekme kimliği ömürlü]* (T43: `secret/ghcr`'ı her deploy kendi
+    `GITHUB_TOKEN`'ıyla yazıyordu, token iş bitince ölüyordu; kubelet KEP-2535
+    `NeverVerifyPreloadedImages` ile koştuğu için her yeniden başlatma ve `rollout undo` bir `401`
+    riskiydi), sonra *[Docker Hub anonim çekme bütçesi]* (çare public Docker Hub'dı; bedeli IP başına
+    saatte 100 anonim çekme, `x-ratelimit-limit: 100;w=3600`). İmajlar artık **private** bir Harbor
+    projesinde (`registry.everva.com.tr/tappa`), pod'lar operatörün `harbor-pull`'uyla çeker
+    (operatör adımı 4).
+    ✅ **Kapanan:** ürün imajları Docker Hub'ın anonim bütçesinden **harcamıyor**
+    (`postgres:17-alpine`, `rclone`, `curlimages/curl` hâlâ oradan — madde 14); `:sha-*` etiket
+    listesi herkese açık değil (madde 18); T43'ün kökü — kimliği **her deploy'da yeniden yazan**
+    adım — yok ve dönmüyor: CI hiçbir Secret yazmaz (`01-rbac.yaml`: sırlarda yalnız `get`).
+    İmajın private olduğu ve CI kimliğiyle çekilebildiği **her koşuda iki yönlü ölçülüyor**
+    (`verify-image.sh --access`; operatör adımı 4 (e)); `harbor-pull`'un varlığı kümeye bir şey
+    uygulanmadan ölçülüyor (`verify-deployment.sh pull-secret`).
+    ❌ **Kapanmayan, sayılı:**
+    (a) **k8s-2 bir bağımlılık.** Harbor k8s-2'de koşar. k8s-2 kapalıyken **yeni** bir imaj
+    çekilemez: deploy'un migration Job'ı `ImagePullBackOff`'ta kalır, adım 600 sn sonra düşer,
+    sunucu rollout'u **yapılmaz** (çalışan pod'a dokunulmaz). Çalışan pod'un yeniden başlaması
+    düğümün **önbelleğindeki** kopyayla açılır — `IfNotPresent` ve değişmemiş `harbor-pull` ile
+    Harbor'a gidilmez (KEP-2535: kayıtlı kimlik aynı). **Ölçülmedi:** bu kümede k8s-2 kapalıyken bir
+    pod yeniden başlatılmadı; *"OPS-2 kapanış ölçüsü"* (5) onu ölçmeyi önerir. Düğüm imajı
+    kaybederse (kubelet imaj GC'si, `crictl rmi`, düğüm yeniden kurulumu) k8s-2 kapalıyken pod
+    **açılamaz**.
+    (b) **Robot döndürme bir doğrulama çekmesi doğurur.** `harbor-pull`'un içeriği değişince, eski
+    değerle çekilmiş bir imaja dönen pod Harbor'a sorar (KEP-2535). Operatör adımı 4 (d) eski robotu
+    yeni Secret dağıtılana dek yaşatarak döndürür; robotun **süresi** (Harbor'da Expiration) dolarsa
+    bu pencere kendiliğinden açılır — takvime yaz.
+    (c) **Saklama: depo başına son 30 push.** Daha eski bir `sha-*`'e Harbor'dan dönülemez;
+    `rollout undo` düğümde hâlâ duran bir imaja döner (Harbor'a gitmez), başka bir düğümde ya da
+    imaj GC'den sonra döndüremez.
+    (d) **OPS-2 öncesine geri dönüş Docker Hub'a bağlı.** OPS-2'den önceki ReplicaSet'ler
+    `docker.io/atknatk/...` + `imagePullSecrets`'sız; `rollout undo` onlara anonim döner — ta ki
+    Docker Hub depoları silinene ya da private yapılana dek (*"OPS-2 geri dönüş"*).
+    (e) **Derlemenin taban imajı artık kimliksiz çekiliyor.** OPS-2'ye kadar deploy Docker Hub'a
+    `docker login` yapıyordu ve `golang:1.26.9-bookworm` o kimlikle çekiliyordu; şimdi giriş yalnız
+    Harbor'a, yani taban imaj GitHub runner'ının paylaşılan adresinden **anonim** çekilir — `ci.yml`
+    aynı adreslerden `toomanyrequests` ölçmüştü (2026-10-09). Olursa *"Build both images"* düşer,
+    kümeye dokunulmaz; koşu yeniden denenir. **Kapatılmadı, bilinçli:** `ci.yml`'in çaresi
+    (`mirror.gcr.io`'dan çekip yerelde etiketlemek) **sevk edilen** ikilinin tabanını başka bir
+    kaynaktan almak demek — bu bir tedarik zinciri kararı, ayrıca verilir; ikinci seçenek taban
+    imajı Harbor'a (proxy cache ya da elle) koymaktır.
 13. **[her yeni iş yükü kendi beklemesini taşır]** — 🔴 **Bu namespace'te Postgres'e
     bağlanan HER YENİ İŞ YÜKÜ kendi bekleme adımını taşımak zorunda.**
     `12-networkpolicy.yaml` uygulanıyor, ama k3s yeni bir pod'un adresini kuralın izin
@@ -7149,7 +7313,14 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     `kubectl auth can-i --list -n tappa --as=system:serviceaccount:tappa:github-deployer`
     ile oku — ikincisi alt kaynakları **adıyla** listeler (`pods/log` görünür,
     `pods/exec` görünmüyorsa gerçekten yoktur).
-18. **[sevk edilen commit'in kimliği herkese açık]** — 🔴 **§4.7 merceğiyle sayılan
+18. **[sevk edilen commit'in kimliği herkese açık]** — ✅ **OPS-2 (2026-10-19) YENİ İMAJLAR
+    İÇİN KAPANDI:** imajlar private Harbor'da, etiket listesi kimliksiz okunamıyor — deploy her
+    koşuda anonim isteğin **reddedildiğini** ölçüyor (`verify-image.sh --access`). ⚠️ **Kalan:**
+    OPS-2'den önce Docker Hub'a itilmiş `sha-*` etiketleri (`docker.io/atknatk/tappa`,
+    `…/tappa-migrate`) depolar silinene ya da private yapılana dek **hâlâ herkese açık** — ama yeni
+    bir sevkiyatın sinyali artık oraya düşmüyor. Silmek *"OPS-2 geri dönüş"*ün Docker Hub yolunu
+    kapatır; bu yüzden ayrı bir karar. Aşağıdaki metin OPS-2 öncesinin kaydıdır.
+    🔴 **§4.7 merceğiyle sayılan
     YENİ bir yüzey: ürün ikilileri artık herkesin indirebileceği bir yerde.** Karar
     operatör adımı 4'te ve `k8s/20-app.yaml`'da yazılıydı, **ama bu listede yoktu** —
     ve bu listenin varlık sebebi tam olarak budur.
@@ -7174,9 +7345,9 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     `grep -rn buildinfo internal/handler web/templates` → **0**. Yani bu, M8-01'in
     *"derleme kimliği herkese açık bir uç noktaya çıkmıyor"* kararının **yeni bir
     kanaldan** delinmesidir.
-    **Neden kabul edildi:** alternatifi private depo, o da KEP-2535 kimlik doğrulama
-    kusurunu — yani **pod'un hiç açılamaması** riskini — geri getiriyor (sınır
-    **[Docker Hub anonim çekme bütçesi]**). Açığa çıkan şey bir sır değil, bir
+    **Neden kabul edildi (OPS-2'ye kadar):** alternatifi private depo, o da KEP-2535 kimlik
+    doğrulama kusurunu — yani **pod'un hiç açılamaması** riskini — geri getiriyordu; OPS-2 bunu
+    kimliği **kimsenin yeniden yazmadığı** bir Secret'la çözdü (sınır **[Harbor k8s-2'ye bağlı]**). Açığa çıkan şey bir sır değil, bir
     **zamanlama sinyali**: saldırgan hangi commit'in canlıda olduğunu okur, kaynağı
     zaten okuyabildiği için. Takas bilinçli. **Kapatmak isteyen** için tek gerçek yol
     etiketi commit'ten ayırmaktır (ör. içeriğe göre türetilen opak bir etiket) — ama
@@ -7639,7 +7810,7 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     (d) **`curlimages/curl:8.22.0` artık DIGEST'le sabit** (`@sha256:58adaa4e…6777`, çok
     mimarili index — yerel depoda ortam türü `manifest.list.v2` okundu, `tag@digest` ile
     çekilip koşturuldu; `TestHeartbeat_ImageIsPinnedToAnExactVersion` 64 hanenin tamamını
-    ister). Kalan: Docker Hub anonim çekme bütçesinden (sınır 12) bir imaj daha harcar;
+    ister). Kalan: Docker Hub anonim çekme bütçesinden (bölüm 2'nin `429` satırı) bir imaj daha harcar;
     `IfNotPresent` ile node başına bir kez. Yükseltme = yeni etiket **ve** yeni digest, tek
     düzenlemede.
     (e) ~~**`Q28 (a)`'nın KALANI:** M8-03'ün yedi log sinyali hâlâ hiçbir yere
@@ -7658,8 +7829,9 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     önce de etkileniyordu ve üretimi (busybox) etkilemez; sinyal bu yüzden yalnız çıkış
     koduna değil betiğin son satırına ulaşılmasına da bağlı (`ship_complete`,
     `TestBackupShip_TheSignalNeverChangesTheOutcome`).
-34. **[deploy tailnet'e üçüncü-parti bir action ve süreli bir auth key'le girer]** — T134,
-    2026-10-17; operatör adımı 5 (a). Küme API'si internete kapalı; deploy `10.43.0.1:443`'e
+34. **[deploy tailnet'e üçüncü-parti bir action ve bir OAuth client'la girer]** — T134,
+    2026-10-17; OPS-2 (2026-10-19: auth key → OAuth client, `production` ortamı); operatör adımı
+    5 (a). *(Eski adı: [deploy tailnet'e üçüncü-parti bir action ve süreli bir auth key'le girer].)* Küme API'si internete kapalı; deploy `10.43.0.1:443`'e
     tailnet üzerinden ulaşır. ✅ **Kapanan:** genel `:6443` artık deploy'un yolu değil;
     runner'ın neyle katıldığı **ölçülüyor** (`tag:ci` yoksa kırmızı) ve API'ye ulaşamazsa
     kümeye hiçbir şey uygulanmadan duruyor; kubeconfig'in sunucusu `10.43.0.1`'e bağlı, bir
@@ -7675,17 +7847,25 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     de o sunucudan **bir kez** ölçüldü (indirilen arşivin yerel hash'i = yayımlanan `.sha256`);
     o andan **sonraki** bir değişikliği yakalar, o an zaten değiştirilmiş bir dosyayı değil
     (ilk-kullanımda-güven). Tailscale'in paket imzası doğrulanmıyor.
-    (b) **Anahtar `tailscale up`'ın argv'sinde VE `tailscaled`'in ortamında.** Action anahtarı
-    `--authkey=…` olarak geçirir (`dist/index.js`, koşan kod; kaynağı `src/main.ts` aynı): `up` koşarken runner'ın süreç tablosunda
+    (b) **OAuth secret'ı `tailscale up`'ın argv'sinde VE `tailscaled`'in ortamında.** Action
+    OAuth secret'ını `--authkey=<secret>?preauthorized=true&ephemeral=true` olarak geçirir (OPS-2; auth
+    key'de de aynı yoldu — `dist/index.js`, koşan kod; kaynağı `src/main.ts` aynı): `up` koşarken runner'ın süreç tablosunda
     görünür, ve zaman aşımına uğrayan bir `up` **öldürülmez** (action yalnız beklemeyi bırakır).
-    Ayrıca `tailscaled` `sudo -E` ile, action'ın ortamında `INPUT_AUTHKEY` dururken başlatılır:
-    anahtar daemon'un `/proc/<pid>/environ`'unda **işin sonuna kadar** — post adımının
+    Ayrıca `tailscaled` `sudo -E` ile, action'ın ortamında `INPUT_*` girdileri dururken başlatılır:
+    değer daemon'un `/proc/<pid>/environ`'unda **işin sonuna kadar** — post adımının
     `pkill`'ine dek — kalır. Okuyabilen: root, yani bu işin kendi sonraki adımları (runner'da
     şifresiz `sudo` var). Okuyucu kümesi argv'ninkiyle **aynı** — GitHub-hosted runner tek
     işlik bir VM — bu yüzden **kabul edildi**; değer log'da maskelenir (runner her `secrets.*`
     değerini maskeler) ve `log-mode: quiet` action'ın komutlarını sessiz koşturur.
-    Self-hosted runner'a geçilirse bu madde yeniden açılır.
-    (c) **Ephemeral olup olmadığı runner'dan ölçülemiyor.** tailscale v1.94.2'nin
+    Self-hosted runner'a geçilirse bu madde yeniden açılır. ⚠️ **OPS-2 ile ağırlaştı:** sızan bir
+    auth key bir cihaz katabilirdi ve ≤ 90 günde ölürdü; sızan bir OAuth secret'ı **iptal edilene
+    dek** `tag:ci` anahtarı basabilir (kapsam yalnız `auth_keys`). Okuyucu kümesi değişmedi; şüphede
+    client'ı Tailscale konsolunda iptal et ve yenisini (a)'daki gibi üret.
+    (c) **Ephemeral olup olmadığı runner'dan ölçülemiyor** — ✅ **OPS-2:** artık **istenmiş** bir
+    özellik (OAuth yolu `ephemeral=true` ile anahtar basar) ve cihaz `false` bildirirse kapı
+    **kırmızı**; 1.94.2 bildirmediği için bugün uyarıda kalır. T134'ün ilk yeşil koşusu auth key'le
+    cihazı **bıraktı** (`--state=mem:` ephemeral yapmadı); OAuth'la kalmadığı *"OPS-2 kapanış
+    ölçüsü"*nde ölçülür. Eski metin: tailscale v1.94.2'nin
     `status --json` çıktısında böyle bir alan yok (`ipnstate.PeerStatus`); kapı bunu
     **uyarı** olarak söyler. Ephemeral değilse her deploy Machines'te bir `github-*` cihazı
     bırakabilir — action'ın post adımı `tailscale logout` koşar (düğüm anahtarını geçersiz
@@ -7693,15 +7873,16 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     Action `tailscaled`'i `--state=mem:` ile başlatır; bu, cihazı anahtardan **bağımsız**
     ephemeral yapıyor olabilir — **doğrulanamadı**. Ölçü bu yüzden konsoldur: **ilk deploy
     sonrası admin konsolunda ölçülür** (operatör adımı 5 (d); backlog T134'ün kapanış ölçüsü).
-    (d) **Anahtar süreli (≤ 90 gün) ve token 365 gün.** İkisi de dolunca deploy **kümeye
-    dokunmadan** düşer (*"Join the tailnet"* ya da ilk küme çağrısında `401`) — yani zarar
-    değil, kesinti. Yenileme tarihleri backlog T135'te; değerler hiçbir yere yazılmaz.
+    (d) **~~Anahtar süreli (≤ 90 gün) ve~~ token süreli.** ✅ OPS-2: OAuth client'ın takvim süresi
+    yok, auth key'in 90 günü kalktı. `github-deployer` token'ı **2027-10-19**'a kadar; dolunca deploy
+    ilk küme çağrısında `401` ile **kümeye dokunmadan** düşer — zarar değil, kesinti. Yenileme tarihi
+    backlog T135'te; değerler hiçbir yere yazılmaz.
     (e) **`tag:ci`'nin ACL'deki genişliği bu depodan görünmez.** ACL tailnet'te yaşar
     (kullanıcı 2026-10-17'de `tag:ci` → `10.43.0.1:443` yazdı); daha geniş bir kural
     eklenirse runner o kadarına ulaşır ve kapı bunu **görmez** — yalnız `10.43.0.1:443`'ün
     açık olduğunu ölçer.
-    (f) **`TS_AUTHKEY` ve `KUBE_CONFIG` depo düzeyinde secret.** Depoya yazabilen biri, bir
-    dala bu iki secret'ı okuyan bir workflow push'layıp koşturabilir. Çare bir kullanıcı
-    adımıdır — yalnız `main`'e açık bir `production` Environment'ı, iki secret'ın oraya
-    taşınması ve `environment: production` satırı, aynı turda (operatör adımı 5 (c),
-    backlog T135).
+    (f) **~~`TS_AUTHKEY` ve `KUBE_CONFIG` depo düzeyinde secret.~~** ✅ OPS-2: deploy'un beş
+    secret'ı yalnız `main`'e açık `production` ortamında ve `deploy.yml` `environment: production`
+    taşır (operatör adımı 5 (c)). ⚠️ **Kalan:** depo düzeyindeki eski dört secret ilk yeşil OPS-2
+    deploy'una kadar duruyor ve durdukça her workflow'a açık — silinince bu madde kapanır. Ortamın
+    dal politikası depo ayarlarında yaşar, bu depodan **görünmez** ve test edilemez.

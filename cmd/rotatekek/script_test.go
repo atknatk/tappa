@@ -1661,9 +1661,10 @@ func TestRotateScript_RefusesANonURIDSN(t *testing.T) {
 	}
 }
 
-// tailnetStepStart and tailnetStepEnd bound deploy/README.md's operator step 5 (T134).
+// tailnetStepStart and tailnetStepEnd bound deploy/README.md's operator step 5 (T134; OPS-2 renamed
+// it: the secrets live in the `production` environment and the tailnet key is an OAuth client).
 const (
-	tailnetStepStart = "**5. GitHub secret'ları — `KUBE_CONFIG` ve `TS_AUTHKEY`"
+	tailnetStepStart = "**5. GitHub `production` ortamı — `KUBE_CONFIG` ve Tailscale OAuth client'ı"
 	tailnetStepEnd   = "**6. İlk deploy.**"
 )
 
@@ -1741,7 +1742,8 @@ func TestReadme_TheTailnetStepBlocksPasteIntoZsh(t *testing.T) {
 	if len(blocks) < 4 {
 		t.Fatalf("CONTROL FAILED: operator step 5 has %d bash blocks, want at least 4; the scan has gone blind", len(blocks))
 	}
-	for _, want := range []string{"gh secret set TS_AUTHKEY --repo atknatk/tappa", "| gh secret set KUBE_CONFIG --repo atknatk/tappa"} {
+	for _, want := range []string{"gh secret set TS_OAUTH_SECRET --env production --repo atknatk/tappa",
+		"| gh secret set KUBE_CONFIG --env production --repo atknatk/tappa"} {
 		if !strings.Contains(text[start:end], want) {
 			t.Errorf("CONTROL: operator step 5 has no block line with %q", want)
 		}
@@ -1759,7 +1761,7 @@ func TestReadme_TheTailnetStepBlocksPasteIntoZsh(t *testing.T) {
 		out, err := cmd.CombinedOutput()
 		return err == nil && !strings.Contains(string(out), "unmatched"), string(out)
 	}
-	if ok, _ := parses("gh secret set TS_AUTHKEY --repo atknatk/tappa      # değer stdin'den / istemden; ekrana basma"); ok {
+	if ok, _ := parses("gh secret set TS_OAUTH_SECRET --env production --repo atknatk/tappa      # değer stdin'den / istemden; ekrana basma"); ok {
 		t.Fatal("CONTROL FAILED: zsh -f -i -n parsed the old inline-comment line; the probe cannot see what it exists for")
 	}
 	for n, blk := range blocks {
