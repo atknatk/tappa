@@ -7,6 +7,7 @@ package handler
 //	                                                    page's language; HEAD, caching, the policy, no
 //	                                                    third party and every link resolving are the
 //	                                                    marketing tests' (publicSurfaceURLs)
+//	TestAPIGuidePages_RoutesAreTheLinkedPaths           the routes are the constants the links use
 //	TestAPIGuidePages_LinkTheOtherLanguage              each page links the other
 //	TestAPIGuidePages_OfferOpenAPIOnlyWithAnAPIHost     the download link is the API host's, or absent
 //	TestAPIGuidePages_AreLinkedFromTheFootersAndThePanel  the two footers, the panel's API keys screen
@@ -84,6 +85,15 @@ func TestAPIGuidePages_AreTheGuideInTheMarketingChrome(t *testing.T) {
 		if !strings.Contains(body, b.String()) {
 			t.Errorf("GET %s does not carry the converted guide", c.path)
 		}
+	}
+}
+
+// TestAPIGuidePages_RoutesAreTheLinkedPaths: the routes Mount registers are the paths the pages,
+// the footers and the panel link to.
+func TestAPIGuidePages_RoutesAreTheLinkedPaths(t *testing.T) {
+	t.Parallel()
+	if apiGuidePath != pages.APIGuidePath || apiGuideTRPath != pages.APIGuideTRPath {
+		t.Fatalf("routes %q %q, links %q %q", apiGuidePath, apiGuideTRPath, pages.APIGuidePath, pages.APIGuideTRPath)
 	}
 }
 

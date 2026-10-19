@@ -269,8 +269,8 @@ func renderGuides(openAPIHref string, log *slog.Logger) (en, tr apiguide.Guide) 
 		// A file-relative link between the two Markdown files, or to the OpenAPI document
 		// beside them, is drawn as the address that file has on this site. "" (no API
 		// host) draws the openapi.yaml link as its text.
-		"integration-guide.md":    pages.APIGuidePath,
-		"integration-guide.tr.md": pages.APIGuideTRPath,
+		"integration-guide.md":    apiGuidePath,
+		"integration-guide.tr.md": apiGuideTRPath,
 		"openapi.yaml":            openAPIHref,
 	}
 	var err error
@@ -377,18 +377,25 @@ func (m *Marketing) Mount(r chi.Router) {
 		r.Head(page.Path, serve)
 	}
 	// The integration guide (M11 DOCS-1): same surface, same headers, same HEAD rule.
-	for _, g := range []struct {
-		path    string
-		turkish bool
-	}{{pages.APIGuidePath, false}, {pages.APIGuideTRPath, true}} {
-		turkish := g.turkish
-		serve := func(w http.ResponseWriter, r *http.Request) {
-			m.apiGuide(w, r, turkish)
-		}
-		r.Get(g.path, serve)
-		r.Head(g.path, serve)
-	}
+	// Registered by name, not from a table, so the employee-route derivation
+	// (admincookiepath_test.go) resolves both paths and holds the panel cookie off them.
+	r.Get(apiGuidePath, m.apiGuideEN)
+	r.Head(apiGuidePath, m.apiGuideEN)
+	r.Get(apiGuideTRPath, m.apiGuideTR)
+	r.Head(apiGuideTRPath, m.apiGuideTR)
 }
+
+// The guide's two routes. They are pages.APIGuidePath and pages.APIGuideTRPath -- the
+// constants the footer, the panel and the language switch link with --, spelled out here
+// so the route scan can read them; TestAPIGuidePages_RoutesAreTheLinkedPaths holds the
+// two pairs equal.
+const (
+	apiGuidePath   = "/docs/api"
+	apiGuideTRPath = apiGuidePath + "/tr"
+)
+
+func (m *Marketing) apiGuideEN(w http.ResponseWriter, r *http.Request) { m.apiGuide(w, r, false) }
+func (m *Marketing) apiGuideTR(w http.ResponseWriter, r *http.Request) { m.apiGuide(w, r, true) }
 
 // apiGuide serves /docs/api or /docs/api/tr: the guide converted at construction, in
 // the legal pages' chrome, cacheable and indexable like them.
