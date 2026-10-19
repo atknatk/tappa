@@ -118,6 +118,63 @@ func writeStepScript(t *testing.T, dir, name string, minLines int) string {
 	return script
 }
 
+// yamlKey is a YAML line's trimmed text with a trailing ` # comment` cut off: `deploy:  # why`
+// is the key `deploy:`. A full-line comment never reaches it — codeLinesOf drops those.
+func yamlKey(l string) string {
+	tl := strings.TrimSpace(l)
+	if k, _, ok := strings.Cut(tl, " #"); ok {
+		tl = strings.TrimSpace(k)
+	}
+	return tl
+}
+
+// jobKeysOf returns the keys directly under the top-level `jobs:` of code (lines already passed
+// through codeLinesOf, so comment lines are gone), and false when there is no `jobs:`. A comment
+// is not a job; only a real key at two columns is.
+func jobKeysOf(code []string) ([]string, bool) {
+	at := slices.IndexFunc(code, func(l string) bool { return indentOf(l) == 0 && yamlKey(l) == "jobs:" })
+	if at < 0 {
+		return nil, false
+	}
+	var jobs []string
+	for _, l := range childrenOf(code, at) {
+		if indentOf(l) == 2 {
+			jobs = append(jobs, yamlKey(l))
+		}
+	}
+	return jobs, true
+}
+
+// TestPackaging_TheJobsPinCountsOnlyRealJobs is the jobs pin's case test: a comment under
+// `jobs:` — a full line at two columns, or trailing a key — is not a second job (a false red
+// would teach the next editor to loosen the pin), and a second real job still is.
+func TestPackaging_TheJobsPinCountsOnlyRealJobs(t *testing.T) {
+	tests := []struct {
+		name string
+		yaml string
+		want []string
+	}{
+		{"commented jobs block is one job",
+			"on:\n  workflow_dispatch:\njobs:  # the only job\n  # a comment at two columns, not a job\n" +
+				"  deploy:  # trailing comment\n    # nested comment\n    runs-on: ubuntu-latest\n",
+			[]string{"deploy:"}},
+		{"a second real job is counted",
+			"jobs:\n  deploy:\n    runs-on: ubuntu-latest\n  # comment between jobs\n  sneak:\n    runs-on: ubuntu-latest\n",
+			[]string{"deploy:", "sneak:"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := jobKeysOf(codeLinesOf(tc.yaml))
+			if !ok {
+				t.Fatal("CONTROL FAILED: no `jobs:` found")
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("jobs = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestPackaging_TheDeployRunsOnlyForAPushToThisRepositorysMain pins T140's configuration:
 //
 //   - `on:` holds exactly workflow_run (workflows ["ci"], types [completed], branches [main],
@@ -177,15 +234,9 @@ func TestPackaging_TheDeployRunsOnlyForAPushToThisRepositorysMain(t *testing.T) 
 
 	// jobs: — exactly the one job the `if:` below guards. A second job would sit in this file
 	// with its permissions and the repository's secrets and no trigger condition of its own.
-	jobsAt := slices.IndexFunc(code, func(l string) bool { return l == "jobs:" })
-	if jobsAt < 0 {
+	jobs, ok := jobKeysOf(code)
+	if !ok {
 		t.Fatal("CONTROL FAILED: deploy.yml has no top-level `jobs:`")
-	}
-	var jobs []string
-	for _, l := range childrenOf(code, jobsAt) {
-		if indentOf(l) == 2 {
-			jobs = append(jobs, strings.TrimSpace(l))
-		}
 	}
 	if !slices.Equal(jobs, []string{"deploy:"}) {
 		t.Errorf("deploy.yml's jobs are %q, want exactly [deploy:]: every job here needs the trigger gate the deploy "+

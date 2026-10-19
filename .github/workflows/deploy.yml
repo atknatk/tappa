@@ -15,7 +15,9 @@
 #   (b) `on: workflow_run`. GitHub always runs the DEFAULT BRANCH's copy of a
 #       workflow_run workflow, regardless of which commit triggered it. A pull
 #       request therefore cannot modify this file and have its modification run —
-#       the credentials below are unreachable from any branch but main. And ci.yml
+#       through this file, the credentials below are unreachable from a pull request.
+#       (Not from any branch: repository-level secrets are open to a workflow that
+#       anyone with write access pushes to a branch — deploy/README.md (c).) And ci.yml
 #       is not touched at all, so the gate everything else depends on carries none
 #       of this risk. CHOSEN. (workflow_dispatch below does NOT work this way — it
 #       runs the selected branch's copy; see the job's `if:`.)
@@ -73,7 +75,7 @@ jobs:
     # with the repository-level secrets. That path needs write access, like every other
     # way to read those secrets (deploy/README.md (c)). It closes for good with the
     # `production` Environment (deployment branches: main only — on a manual run its
-    # branch rule reads github.ref) once the four secrets live only there (OPS-2): a copy
+    # branch rule reads github.ref) once the four secrets live only there (README (c)): a copy
     # without `environment:` then runs without secrets, one with it is refused by the rule.
     # "Gate — this run was triggered by a push…" re-checks all of it in the first step,
     # and is stricter: `==` in an expression ignores case (a branch named `Main` passes

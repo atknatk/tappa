@@ -415,16 +415,20 @@ verir.
 > **hiçbir şeyi sınırlamaz** — cluster-admin bir kimlik Role'ü zaten aşar. Sınır
 > **[kubeconfig'in kimliği doğrulanmadı]**.
 
-**(c) Önerilen sertleştirme — dört deploy secret'ını bir GitHub Environment'a taşı
-(kullanıcı adımı, backlog T135).** Deploy'un dört secret'ı — `TS_AUTHKEY`, `KUBE_CONFIG`,
+**(c) Sertleştirme — dört deploy secret'ını bir GitHub Environment'a taşı (backlog T135).**
+**Güncel durum (2026-10-19, ayrıntısı (c′)'de):** `production` Environment'ı **kuruldu**
+(ana oturum), *Deployment branches* = yalnız `main`, dört secret ortamda. **Sırada:**
+`deploy.yml`'in `deploy` işine `environment: production` satırı ve depo düzeyindeki dört
+secret'ın silinmesi — aşağıdaki sıra kuralıyla, aynı turda. O tur bitene dek aşağıdaki
+risk açıktır. Deploy'un dört secret'ı — `TS_AUTHKEY`, `KUBE_CONFIG`,
 `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` — bugün **depo düzeyinde**: depoya yazma yetkisi
 olan biri, bir **dala** bu secret'ları okuyan bir workflow push'layıp koşturabilir (dalda
 `ci.yml` her push'ta koşar; `deploy.yml` yalnız `main`'e bağlı, ama secret'lar her
 workflow'a açık). Docker Hub ikilisi de bu kümeye girer: o token'la `sha-*` imaj
-etiketlerinin **üstüne yazılabilir**, yani küme kimliği kadar değerlidir. Öneri:
+etiketlerinin **üstüne yazılabilir**, yani küme kimliği kadar değerlidir. Adımlar:
 **Settings → Environments → `production`**, *Deployment branches* = yalnız `main`; dört
-secret'ı oraya taşı ve depo düzeyindekileri sil; ve `deploy.yml`'in `deploy` işine
-`environment: production` eklenir. ⚠️ **Sıra önemli ve satır tek başına koruma DEĞİL:**
+secret'ı oraya taşı (✅ ortam ve taşıma yapıldı) ve depo düzeyindekileri sil; ve `deploy.yml`'in
+`deploy` işine `environment: production` eklenir (bu ikisi sırada). ⚠️ **Sıra önemli ve satır tek başına koruma DEĞİL:**
 depo düzeyindeki secret'lar durdukça her workflow'a açık kalırlar (Environment secret'ları
 onlara eklenir, onları kapatmaz). Depo düzeyindekiler satırdan **önce** silinirse deploy'un
 nerede düştüğü **hangisinin eksik olduğuna** bağlıdır: Docker Hub ikilisi eksikse ilk adımda
@@ -468,9 +472,9 @@ zaten secret'sız koşar, ama onay CI dakikasını ve `pull_request` yüzeyini d
    edilir — (c)'deki risk sınıfı: yazabilen biri bir dala secret okuyan bir workflow zaten
    push'layabilir. **Kalıcı kapanış (c)'deki Environment'tır** (`production`, *Deployment
    branches* = yalnız `main`): Environment'ın dal kuralı elle koşturmada `github.ref`'e, yani
-   seçilen dala bakar. Ana oturum ortamı kurdu; iş akışının ona bağlanması
-   (`environment: production`, dört secret'ın taşınıp depo düzeyindekilerin silinmesi) OPS-2
-   ile gelir. Kapatan **satır değil, secret'ların yalnız Environment'ta durmasıdır**: o zaman
+   seçilen dala bakar. Durum (c)'nin başındadır: ortam kurulu (yalnız `main`, dört secret
+   ortamda); iş akışının ona bağlanması (`environment: production`) ve depo düzeyindeki
+   secret'ların silinmesi sıradaki deploy değişikliğiyle gelir. Kapatan **satır değil, secret'ların yalnız Environment'ta durmasıdır**: o zaman
    `environment:` satırı olmayan eski bir kopya secret'sız koşar (secret'ı arayan ilk adımda düşer),
    satırı taşıyan bir kopya dal kuralına takılır.
 2. **`main` adlı bir etiket** [ölçülmedi]. `ci` `on: push` etiketlerde de koşar ve bir
@@ -484,7 +488,11 @@ zaten secret'sız koşar, ama onay CI dakikasını ve `pull_request` yüzeyini d
    `git merge-base --is-ancestor <head_sha> origin/main` — **ata denetimi, eşitlik değil**:
    eşitlik (`head_sha == main`'in ucu) deploy başladığında `main` bir sonraki push'la
    ilerlemişse meşru bir deploy'u reddeder; ata denetimi yalnız `main`'in geçmişinde olmayan
-   commit'i reddeder (backlog T140).
+   commit'i reddeder (backlog T140). Kodlanırsa iki not: checkout derinliği 1'dir
+   (`fetch-depth` varsayılanı), yani `main`'in **geçmişi** ayrıca fetch edilmelidir — yoksa
+   `--is-ancestor` her meşru commit'i reddeder; ve ata denetimi `main`'in geçmişindeki **eski**
+   bir commit'i (bir geri alma deploy'u) da kabul eder — bu kabul edilebilir, çünkü o commit
+   zaten `main`'e girmiştir.
 
 **(d) İlk deploy'da ölçülecekler (T134'ün kapanış ölçüsü).** `main`'deki ilk deploy
 koşusunun log'unda ve Tailscale yönetim konsolunda:
@@ -533,7 +541,9 @@ indirilmez, uyuşmazlık adımı atar; önbellek isabetinde denetim yoktur — `
 bu yüzden kalır).
 
 **6. İlk deploy.** `main`'e push → `ci` yeşil → `deploy` kendiliğinden koşar.
-Elle: Actions → `deploy` → Run workflow.
+Elle: Actions → `deploy` → Run workflow, *Use workflow from* = **`main`** (başka bir dal
+seçilirse işin `if:`'i koşuyu atlar ya da — düzeltmeyi taşımayan bir dalda — o dalın HEAD'i
+deploy edilir; bkz. (c′) kalan sınır 1).
 
 **7. İlk deploy sonrası — üç doğrulama (hiçbiri isteğe bağlı değil).**
 
