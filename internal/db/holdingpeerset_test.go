@@ -307,8 +307,9 @@ func TestHoldingPeer_TheSetFormIsThePairFormsAnswer(t *testing.T) {
 
 // holdingPeerControlSavepoint is holdingInSavepoint for the controls, whose transaction already holds
 // the SHARE UPDATE EXCLUSIVE lock holdingPeerNewWorld's ANALYZE took on holding_members: the same
-// rolled-back savepoint and the same check that the body took no strong lock on a table, that one
-// table excepted.
+// rolled-back savepoint and the same check that the body took no strong lock on a table -- with that
+// one lock alone excepted. The exception names the table AND the mode: excepting the table alone
+// let a control body's ACCESS EXCLUSIVE on holding_members pass unseen (measured).
 func holdingPeerControlSavepoint(t *testing.T, ctx context.Context, tx pgx.Tx, body func(sp pgx.Tx)) {
 	t.Helper()
 	sp, err := tx.Begin(ctx)
@@ -330,6 +331,22 @@ func holdingPeerControlSavepoint(t *testing.T, ctx context.Context, tx pgx.Tx, b
 	}
 	if strong := strongTableLocksOutside(t, ctx, sp, []string{"holding_members"}); len(strong) > 0 {
 		t.Errorf("the control took a strong lock on %v", strong)
+	}
+	rows, err := sp.Query(ctx, `
+		SELECT DISTINCT l.mode FROM pg_catalog.pg_locks l
+		 WHERE l.locktype = 'relation' AND l.granted AND l.pid = pg_backend_pid()
+		   AND l.relation = 'public.holding_members'::regclass
+		   AND l.mode IN ('ShareLock', 'ShareRowExclusiveLock', 'ExclusiveLock', 'AccessExclusiveLock')
+		 ORDER BY 1`)
+	if err != nil {
+		t.Fatalf("read this backend's locks on holding_members: %v", err)
+	}
+	modes, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		t.Fatalf("read this backend's locks on holding_members: %v", err)
+	}
+	if len(modes) > 0 {
+		t.Errorf("the control took %v on holding_members (only the ANALYZE's ShareUpdateExclusiveLock is expected)", modes)
 	}
 }
 
