@@ -1840,6 +1840,248 @@ func TestReadme_TheTailnetStepBlocksPasteIntoZsh(t *testing.T) {
 	}
 }
 
+// k8sPullRobot is the Harbor robot the harbor-pull block writes into its config.json.
+const k8sPullRobot = "robot$tappa+k8s-pull"
+
+// harborStepStart and harborStepEnd bound deploy/README.md's operator step 4 (OPS-2).
+const (
+	harborStepStart = "**4. Harbor — private projeler `tappa` ve `dockerhub`"
+	harborStepEnd   = "**5. GitHub `production` ortamı"
+)
+
+// readmeBashBlocks returns the ```bash blocks (fences may be indented) of text[start:end], each as
+// its raw lines.
+func readmeBashBlocks(text string) [][]string {
+	var blocks [][]string
+	var cur []string
+	in := false
+	for _, ln := range strings.Split(text, "\n") {
+		st := strings.TrimSpace(ln)
+		switch {
+		case strings.HasPrefix(st, "```bash"):
+			in, cur = true, nil
+		case strings.HasPrefix(st, "```") && in:
+			in = false
+			blocks = append(blocks, cur)
+		case in:
+			cur = append(cur, ln)
+		}
+	}
+	return blocks
+}
+
+// sectionOf returns text between the first occurrence of start and the next occurrence of end.
+func sectionOf(t *testing.T, text, start, end string) string {
+	t.Helper()
+	i := strings.Index(text, start)
+	if i < 0 {
+		t.Fatalf("deploy/README.md has no %q", start)
+	}
+	j := strings.Index(text[i:], end)
+	if j < 0 {
+		t.Fatalf("deploy/README.md has no %q after %q", end, start)
+	}
+	return text[i : i+j]
+}
+
+// kubectlCall is a kubectl invocation at the start of a line, after a pipe, after && or ||, or in
+// a command substitution.
+var kubectlCall = regexp.MustCompile(`(?:^|\||&&|\|\||\$\()\s*kubectl\b([^|&]*)`)
+
+// TestReadme_TheHarborBlocksNameTheirClusterAndKeepTheSecretOffTheTerminal (OPS-2 fix round 1).
+//
+// PART I -- static, over operator steps 3, 4 and 5 and the "OPS-2" section: every kubectl call in a
+// ```bash block names `--context hetzner-k8s-1` (the user's default context is another cluster),
+// except one that names its own `--kubeconfig=` file and the Harbor API block's `--context
+// "${K2:?}"` (k8s-2, refused when unset); CONTROL: at least 10 kubectl calls seen, 01-rbac.yaml's
+// apply among them. Across the WHOLE file: no ```bash line runs `docker login`, and none uses
+// `--password-stdin` unless something is piped into it (pasted at a prompt, the value shows).
+// PART II -- the harbor-pull block of step 4 (c) is RUN, as written, under bash and under zsh, with
+// stub kubectl, docker and scripts/verify-deployment.sh and the secret on stdin (its `read -rs`):
+//   - GREEN: the running image is in Harbor and the manifest reads with the written config ->
+//     exactly one apply, of a dockerconfigjson whose only auth decodes to
+//     robot$tappa+k8s-pull:<the secret>; docker read the manifest with DOCKER_CONFIG holding that
+//     same file; "harbor-pull applied in tappa";
+//   - the manifest does not read (a wrong secret) -> no apply, "NOT applied";
+//   - the running image is docker.io/... (OPS-2 not landed) -> docker is not asked, no apply;
+//   - the cluster read fails (no image) -> no apply;
+//   - on every row: the secret is in no process's argv and in no output; every kubectl call names
+//     --context hetzner-k8s-1; docker is never called to log in; the temporary directory is gone
+//     at the end; the last command is `scripts/verify-deployment.sh pull-secret tappa harbor-pull
+//     registry.everva.com.tr`.
+//
+// MUTANT (measured, OPS-2 fix round 1): `--context hetzner-k8s-1` dropped from the apply half of
+// the pipe; the docker manifest check removed from the chain (apply runs with a wrong secret);
+// the `[[ $I == registry.everva.com.tr/tappa/* ]]` guard removed; `rm -rf "$D"` deleted; the
+// block put back on `docker login --password-stdin` -> each red.
+func TestReadme_TheHarborBlocksNameTheirClusterAndKeepTheSecretOffTheTerminal(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join(repoRoot(t), "deploy", "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(b)
+
+	calls, rbac := 0, false
+	for _, sec := range []string{
+		sectionOf(t, text, "**3. Deploy'un kendi kimliği", "**6. İlk deploy.**"),
+		sectionOf(t, text, "## OPS-2 — Harbor, Tailscale OAuth", "## Elle deploy / rollback"),
+	} {
+		for _, blk := range readmeBashBlocks(sec) {
+			for _, l := range blk {
+				for _, m := range kubectlCall.FindAllStringSubmatch(l, -1) {
+					calls++
+					args := m[1]
+					if strings.Contains(args, "deploy/k8s/01-rbac.yaml") {
+						rbac = true
+					}
+					if !strings.Contains(args, "--context hetzner-k8s-1 ") && !strings.Contains(args, "--kubeconfig=") &&
+						!strings.HasPrefix(strings.TrimSpace(args), `--context "${K2:?}"`) {
+						t.Errorf("a kubectl call names no cluster (want --context hetzner-k8s-1; the default context is another "+
+							"cluster):\n  %s", strings.TrimSpace(l))
+					}
+				}
+			}
+		}
+	}
+	if calls < 10 || !rbac {
+		t.Errorf("CONTROL FAILED: %d kubectl call(s) seen in steps 3-5 and the OPS-2 section, 01-rbac.yaml's apply seen: %v", calls, rbac)
+	}
+	for _, blk := range readmeBashBlocks(text) {
+		for _, l := range blk {
+			if regexp.MustCompile(`\bdocker\s+login\b`).MatchString(l) {
+				t.Errorf("a pasteable block runs docker login (on a mac it writes the credential to the keychain, not to "+
+					"DOCKER_CONFIG):\n  %s", strings.TrimSpace(l))
+			}
+			if before, _, ok := strings.Cut(l, "--password-stdin"); ok && !strings.Contains(before, "|") {
+				t.Errorf("a pasteable block reads a secret with --password-stdin from the terminal (the pasted value "+
+					"shows); read it with read -rs:\n  %s", strings.TrimSpace(l))
+			}
+		}
+	}
+
+	var block string
+	for _, blk := range readmeBashBlocks(sectionOf(t, text, harborStepStart, harborStepEnd)) {
+		if j := strings.Join(blk, "\n"); strings.Contains(j, "create secret generic harbor-pull") {
+			if block != "" {
+				t.Fatal("CONTROL FAILED: step 4 has two blocks that create harbor-pull")
+			}
+			block = j + "\n"
+		}
+	}
+	if block == "" {
+		t.Fatal("CONTROL FAILED: step 4 has no block that creates harbor-pull")
+	}
+	zsh, zerr := exec.LookPath("zsh")
+	bash, berr := exec.LookPath("bash")
+	var shells [][]string
+	if berr == nil {
+		shells = append(shells, []string{bash, "-c"})
+	}
+	if zerr == nil {
+		shells = append(shells, []string{zsh, "-f", "-i", "-c"})
+	}
+	if len(shells) == 0 {
+		t.Skip("neither bash nor zsh is installed: the static rules above ran; the block did not")
+	}
+	const secret = "PULLSECRETCANARY"
+	const kubectlStub = `printf 'kubectl %s\n' "$*" >> "$STUB/calls"
+case "$*" in
+  *"get deployment tappa"*) printf '%s' "$IMAGE"; exit "$GET_RC" ;;
+  *"create secret generic harbor-pull"*)
+    for a in "$@"; do case $a in --from-file=.dockerconfigjson=*) f=${a#--from-file=.dockerconfigjson=} ;; esac; done
+    printf '%s' "$f" > "$STUB/fromfile"
+    printf 'kind: Secret\ndata: %s\n' "$(/usr/bin/base64 < "$f" | /usr/bin/tr -d '\n')" ;;
+  *"apply -f -"*) /bin/cat >> "$STUB/applied" ;;
+esac
+exit 0`
+	const dockerStub = `printf 'docker %s\n' "$*" >> "$STUB/calls"
+[ "$1 $2" = "manifest inspect" ] || exit 97
+/bin/cp "$DOCKER_CONFIG/config.json" "$STUB/docker-config.json"
+exit "$DOCKER_RC"`
+	for _, sh := range shells {
+		for _, tc := range []struct {
+			name, image string
+			getRC       int
+			dockerRC    int
+			wantApply   bool
+			wantDocker  bool
+			wantMark    string
+		}{
+			{"GREEN: Harbor image, the manifest reads", "registry.everva.com.tr/tappa/tappa:sha-0123456789ab", 0, 0, true, true, "harbor-pull applied in tappa"},
+			{"a wrong secret: the manifest does not read", "registry.everva.com.tr/tappa/tappa:sha-0123456789ab", 0, 1, false, true, "harbor-pull NOT applied"},
+			{"the cluster still runs Docker Hub", "docker.io/atknatk/tappa:sha-f577d743fc5b", 0, 0, false, false, "harbor-pull NOT applied"},
+			{"the cluster read fails", "", 1, 0, false, false, "harbor-pull NOT applied"},
+		} {
+			stub, bin, work, tmp := t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir()
+			if err := os.MkdirAll(filepath.Join(work, "scripts"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			for path, body := range map[string]string{
+				filepath.Join(bin, "kubectl"):                          kubectlStub,
+				filepath.Join(bin, "docker"):                           dockerStub,
+				filepath.Join(bin, "mktemp"):                           `[ "$*" = "-d" ] || exit 97` + "\n" + `exec /usr/bin/mktemp -d "$TMPDIR/d.XXXXXX"`,
+				filepath.Join(work, "scripts", "verify-deployment.sh"): `printf 'verify-deployment.sh %s\n' "$*" >> "$STUB/calls"`,
+			} {
+				if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cmd := exec.CommandContext(t.Context(), sh[0], append(sh[1:], block)...)
+			cmd.Stdin = strings.NewReader(secret + "\n")
+			cmd.Env = []string{"PATH=" + bin + ":/usr/bin:/bin", "HOME=" + t.TempDir(), "TERM=dumb", "TMPDIR=" + tmp,
+				"STUB=" + stub, "IMAGE=" + tc.image, "GET_RC=" + fmt.Sprint(tc.getRC), "DOCKER_RC=" + fmt.Sprint(tc.dockerRC)}
+			cmd.Dir = work
+			outB, _ := cmd.CombinedOutput()
+			out := string(outB)
+			at := filepath.Base(sh[0]) + ", " + tc.name
+			callsB, _ := os.ReadFile(filepath.Join(stub, "calls"))
+			callLog := string(callsB)
+			if strings.Contains(out, secret) || strings.Contains(callLog, secret) {
+				t.Errorf("%s: the secret reached the output or a process's argv:\n%s\n%s", at, out, callLog)
+			}
+			if !strings.Contains(out, tc.wantMark) {
+				t.Errorf("%s: %q not in:\n%s", at, tc.wantMark, out)
+			}
+			for _, l := range strings.Split(strings.TrimSpace(callLog), "\n") {
+				if strings.HasPrefix(l, "kubectl ") && !strings.HasPrefix(l, "kubectl --context hetzner-k8s-1 ") {
+					t.Errorf("%s: kubectl called without --context hetzner-k8s-1: %q", at, l)
+				}
+				if strings.HasPrefix(l, "docker ") && !strings.HasPrefix(l, "docker manifest inspect ") {
+					t.Errorf("%s: docker called as %q", at, l)
+				}
+			}
+			if !strings.Contains(callLog, "verify-deployment.sh pull-secret tappa harbor-pull registry.everva.com.tr\n") {
+				t.Errorf("%s: the block does not end in the pull-secret check:\n%s", at, callLog)
+			}
+			if got := strings.Contains(callLog, "docker manifest inspect "+tc.image); got != tc.wantDocker {
+				t.Errorf("%s: docker asked for the running image's manifest = %v, want %v:\n%s", at, got, tc.wantDocker, callLog)
+			}
+			applied, _ := os.ReadFile(filepath.Join(stub, "applied"))
+			if (len(applied) > 0) != tc.wantApply {
+				t.Errorf("%s: applied = %v, want %v:\n%s", at, len(applied) > 0, tc.wantApply, out)
+			}
+			if tc.wantApply {
+				var cfg []byte
+				err := errors.New("no data line")
+				if m := regexp.MustCompile(`data: (\S+)`).FindSubmatch(applied); m != nil {
+					cfg, err = base64.StdEncoding.DecodeString(string(m[1]))
+				}
+				seen, _ := os.ReadFile(filepath.Join(stub, "docker-config.json"))
+				want := base64.StdEncoding.EncodeToString([]byte(k8sPullRobot + ":" + secret))
+				if err != nil || strings.TrimSpace(string(cfg)) != `{"auths":{"registry.everva.com.tr":{"auth":"`+want+`"}}}` || !bytes.Equal(cfg, seen) {
+					t.Errorf("%s: the applied .dockerconfigjson is %q (docker read %q, err %v), want the k8s-pull robot's one auth:\n%s\n%s", at, cfg, seen, err, applied, out)
+				}
+			}
+			if left, err := os.ReadDir(tmp); err != nil || len(left) != 0 {
+				t.Errorf("%s: the block left %d entr(ies) in TMPDIR (err %v): the written config.json must be removed", at, len(left), err)
+			}
+			if f, err := os.ReadFile(filepath.Join(stub, "fromfile")); tc.wantApply && (err != nil || !strings.HasPrefix(string(f), tmp)) {
+				t.Errorf("%s: the Secret was not made from a file under TMPDIR (%q, %v)", at, f, err)
+			}
+		}
+	}
+}
+
 // TestInlineComment is inlineComment's own table: a `#` that starts a word outside quotes is a
 // comment; inside quotes, glued to a word or escaped it is not.
 func TestInlineComment(t *testing.T) {

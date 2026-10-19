@@ -181,8 +181,8 @@ openssl rand -hex 32
 - `kubectl apply -f deploy/k8s/00-namespace.yaml`: namespace önce; RBAC onun içine giriyor
 
 ```bash
-kubectl apply -f deploy/k8s/00-namespace.yaml
-kubectl apply -f deploy/k8s/01-rbac.yaml
+kubectl --context hetzner-k8s-1 apply -f deploy/k8s/00-namespace.yaml
+kubectl --context hetzner-k8s-1 apply -f deploy/k8s/01-rbac.yaml
 ```
 
 🔴 **Bunu `deploy.yml` YAPAMAZ ve yapmamalı.** Bir Role'ü değiştirmek
@@ -208,7 +208,7 @@ bir iş akışının patlama yarıçapındaydı ve bunu yazan bir dosya yoktu. Y
 `secrets` yetkisi **adlı nesneler üzerinde tek fiil**: `get` / `tappa-secrets`, ve OPS-2'den beri
 `harbor-pull` (Harbor `k8s-pull` robotunun çekme kimliği — *"Preflight — the registry pull
 Secret…"* varlığını ölçer; `get` nesneyi verisiyle döndürdüğü için bu kimlik o robotun değerini
-**okuyabilir** — yalnız çekme, tek proje; iş akışı zaten itip çekebilen `ci` robotunu taşıyor).
+**okuyabilir** — yalnız çekme, tek proje; iş akışı zaten itip çekebilen `robot$tappa-ci`'yi taşıyor).
 🔴 **OPS-2'den sonra bu dosya bir kez daha `apply` edilmeli**, yoksa o preflight `Forbidden` ile
 durur.
 **Ne KAPANMADI, sayılıyor:** deploy kimliği bir `Job` yaratabilir (migration'ın
@@ -219,7 +219,7 @@ loguna bastı. Yani daraltma **okumayı** değil, **yıkıcı yarıyı** kaldır
 (artık `tappa-secrets`'ı yaratamaz, ezemez, silemez). Ayrıntı: sınır
 **[deploy kimliği namespace'in sırlarını okuyabilir]**.
 
-**4. Harbor — private proje `tappa`, iki robot, `harbor-pull` Secret'ı (OPS-2).**
+**4. Harbor — private projeler `tappa` ve `dockerhub`, iki robot, `harbor-pull` Secret'ı (OPS-2).**
 
 🔴 **Bu adım operatörün ve deploy onsuz koşmaz.** İmajlar Docker Hub'dan (public,
 `docker.io/atknatk/tappa` ve `…/tappa-migrate`) projenin kendi Harbor'ına taşındı:
@@ -227,6 +227,20 @@ loguna bastı. Yani daraltma **okumayı** değil, **yıkıcı yarıyı** kaldır
 Depolar: `tappa/tappa` (sunucu), `tappa/tappa-migrate` (migration), sandbox gelince
 `tappa/tappa-sandbox`. Etiket saklama (tag retention): **her depoda son 30 push**, günlük 03:00
 — geri dönüşün ne kadar geriye çekebileceğini bu sınırlar (sınır **[Harbor k8s-2'ye bağlı]**).
+
+**İkinci proje: `dockerhub` — Docker Hub'ın proxy cache'i (private).** Harbor'daki registry
+uç noktası Docker Hub'a bakar (endpoint `dockerhub`), proje onun önbelleğidir:
+`registry.everva.com.tr/dockerhub/library/<imaj>` Docker Hub'ın `library/<imaj>`'ını Harbor
+üzerinden verir. Derlemenin taban imajı buradan, **digest'iyle** gelir (*"Build both images"*:
+`GO_BUILD_IMAGE=registry.everva.com.tr/dockerhub/library/golang:1.26.9-bookworm@sha256:d9c68c2c…453c`,
+`--build-arg GO_IMAGE` olarak iki derlemeye). Digest içerik adresidir: proxy ya **tam bu** index'i
+verir ya da düşer, Docker Hub'da yeniden itilmiş bir etiket iki derlemeyi de değiştirmez.
+`Dockerfile`'ın varsayılanı **aynı digest**, Docker Hub'ın kendi adıyla
+(`golang:1.26.9-bookworm@sha256:…`): yerel ve sandbox derlemesi Harbor kimliği taşımaz, proxy projesi
+private. `ci.yml` Dockerfile'ı hiç derlemez (araç zinciri `setup-go`, aynı sürüm), ona bir şey gerekmez.
+Bu proje OPS-2'nin ilk turunda açık kalan riski kapatır: deploy Docker Hub'a artık giriş yapmadığı için
+taban imaj runner'ın paylaşılan adresinden **anonim** çekiliyordu (`ci.yml`'in 2026-10-09'da
+`toomanyrequests` ölçtüğü bütçe).
 
 **Neden private bir depo bu sefer T43'ü geri getirmiyor.** T43'ün ölçülmüş kökü bu node'un
 kubelet'inin `imagePullCredentialsVerificationPolicy: NeverVerifyPreloadedImages` ile koşmasıydı
@@ -243,30 +257,66 @@ adım 3), Secret yalnız operatör robotu döndürdüğünde değişir. Kalan ko
 - Robot **döndürülünce** (ya da Secret yeniden yaratılınca), eski değerle çekilmiş bir imaja dönen pod
   bir doğrulama çekmesi öder: Harbor ayaktaysa ve yeni değer geçerliyse sorunsuz, değilse
   `ImagePullBackOff`. Aşağıdaki (d) bu pencereyi açmadan döndürür.
-- **Yeni** bir imaj her zaman Harbor ister — k8s-2 kapalıyken deploy yeni pod başlatamaz.
+- **Yeni** bir imaj her zaman Harbor ister — k8s-2 kapalıyken deploy yeni pod başlatamaz (ve taban
+  imajı proxy'den çektiği için **derleyemez** de).
 
-**(a) İki robot.** Değerler Infisical'da: `shared-infra/prod:/tappa/HARBOR_CI_ROBOT_NAME`,
-`…/HARBOR_CI_ROBOT_SECRET`, `…/HARBOR_PULL_ROBOT_NAME`, `…/HARBOR_PULL_ROBOT_SECRET`. Değer bu
-belgeye **yazılmaz**.
+**(a) İki robot — ikisi de süresiz (Expiration: Never).** Değerler Infisical'da:
+`shared-infra/prod:/tappa/HARBOR_CI_ROBOT_NAME`, `…/HARBOR_CI_ROBOT_SECRET`,
+`…/HARBOR_PULL_ROBOT_NAME`, `…/HARBOR_PULL_ROBOT_SECRET`. Değer bu belgeye **yazılmaz**.
 
-| Robot | İzinler (proje `tappa`) | Kim kullanır |
-|---|---|---|
-| `robot$tappa+ci` | repository push + pull, artifact read + list, tag create + list | `deploy.yml` — `production` ortamının `HARBOR_CI_ROBOT_NAME` / `HARBOR_CI_ROBOT_SECRET`'ı |
-| `robot$tappa+k8s-pull` | repository pull, artifact read | küme — `harbor-pull` (ns `tappa`; sandbox gelince ns `tappa-sandbox` da) |
+| Robot | Tür | İzinler | Kim kullanır |
+|---|---|---|---|
+| `robot$tappa-ci` | **sistem** robotu (Administration → Robot Accounts), iki proje | `tappa`: repository push + pull, artifact read + list, tag create + list · `dockerhub`: repository pull, artifact read | `deploy.yml` — `production` ortamının `HARBOR_CI_ROBOT_NAME` / `HARBOR_CI_ROBOT_SECRET`'ı: push, iki yönlü kapı ve taban imajın çekilmesi |
+| `robot$tappa+k8s-pull` | **proje** robotu (`tappa`) | `tappa`: repository pull, artifact read | küme — `harbor-pull` (ns `tappa`; sandbox gelince ns `tappa-sandbox` da) |
 
-Ölçüldü (ana oturum, 2026-10-19, registry token kapsamlarıyla): `ci` → push+pull, `k8s-pull` →
-yalnız pull, anonim → `401`.
+Ölçüldü (ana oturum, 2026-10-19, registry token kapsamlarıyla): `robot$tappa-ci` → `tappa` push+pull,
+`dockerhub` pull; `k8s-pull` → yalnız `tappa` pull; anonim → `401`; proxy'den
+`dockerhub/library/golang:1.26.9-bookworm` manifest'i `200`. OPS-2'nin ilk turundaki proje robotu
+`robot$tappa+ci` **silindi** — tek proje görüyordu, proxy projesine erişemezdi.
+**Süresiz olmanın bedeli:** takvim bir robotu kendiliğinden kapatmaz; döndürme bir **karardır**
+(sızıntı şüphesi, ekipten ayrılan biri) ve aşağıdaki (d)'nin yoludur. Bir robot Harbor'da
+**devre dışı** bırakılır ya da silinirse: `ci` için deploy *"Log in to the registry"* adımında, `k8s-pull`
+için yeni pod'lar `401`'de düşer (*"Olay müdahalesi"*, 2).
 
-**Yeniden üretmek.** Harbor arayüzü: **Projects → `tappa` → Robot Accounts → New Robot Account**,
-adı `ci` ya da `k8s-pull`, izinler yukarıdaki tablodaki, süre (Expiration) oluştururken seçilir —
-**robotun satırında okunur; dolunca o robotun her çekmesi/itmesi `401` olur**, takvime yaz. Arayüz
-yoksa aynı iş Harbor API'siyle yapılır (`POST /api/v2.0/robots`, `level: project`, izinler
-`{"kind":"project","namespace":"tappa","access":[…]}`), yönetici kimliğiyle — k8s-2'de `harbor-core`
-pod'unun içinden; yönetici parolası komut satırına yazılmaz. Yeni robotun secret'ı **bir kez**
-gösterilir: doğrudan Infisical'a.
+**Yeniden üretmek.** Harbor arayüzü: **`ci`** için **Administration → Robot Accounts → New Robot
+Account**, adı `tappa-ci`, Expiration **Never**, iki proje satırı (`tappa` ve `dockerhub`) yukarıdaki
+izinlerle; **`k8s-pull`** için **Projects → `tappa` → Robot Accounts → New Robot Account**, adı
+`k8s-pull`, Expiration **Never**. Arayüz yoksa aynı iş Harbor API'siyle (`POST /api/v2.0/robots`;
+`ci` için `level: system` ve iki `{"kind":"project","namespace":…,"access":[…]}`, `k8s-pull` için
+`level: project`), yönetici kimliğiyle, k8s-2'de `harbor-core` kabının içinden — aşağıdaki
+yenileme bloğunun kalıbıyla (parola istemden, gövde stdin'den). Yeni robotun secret'ı **bir kez**
+gösterilir: doğrudan Infisical'a, sonra (b) ya da (c).
+
+**Robot secret'ını yenilemek — değer basmadan.** Arayüz: robotun satırında **⋮ → Refresh secret**;
+Harbor yeni değeri bir kez gösterir — ekrandan Infisical'a kopyala, sonra (b) (`ci`) ya da (c)
+(`k8s-pull`). 🔴 **Refresh eski değeri HEMEN geçersiz kılar:** `ci` için zararsız (sıradaki deploy
+yeni değeri okur — önce (b), sonra Refresh), `k8s-pull` için **kullanma**, (d)'nin yeni-robot yolunu
+izle. API (arayüze erişilemezse; bu repodan **koşulmadı**): yeni secret'ı yerelde üretip bir dosyaya
+yazar, Harbor'a `harbor-core` kabının içinden `PATCH /api/v2.0/robots/<id>` ile verir; yönetici
+parolası istemden okunur, curl'e **stdin**'den yapılandırma dosyası olarak gider, cevap (yeni secret'ı
+taşır) `/dev/null`'a yazılır, yalnız HTTP kodu basılır. Önce üç değişkeni tanımla: `K2` (k8s-2'nin
+kubectl bağlamı), `HARBOR_NS` (Harbor'ın namespace'i), `ROBOT_ID` (robotun Harbor kimliği — arayüzde
+robotun satırı). Harbor'ın secret kuralı (8–128 karakter, büyük harf, küçük harf, rakam) `Aa1`
+önekiyle sağlanır.
+
+```bash
+umask 077
+H=$(mktemp -d)
+printf 'Harbor admin password: '; read -rs HP; echo
+printf 'Aa1%s' "$(openssl rand -hex 24)" > "$H/secret"
+printf 'user = "admin:%s"\nheader = "Content-Type: application/json"\ndata = "{\\"secret\\":\\"%s\\"}"\n' "$HP" "$(cat "$H/secret")" > "$H/curlrc"
+unset HP
+kubectl --context "${K2:?}" -n "${HARBOR_NS:?}" exec -i deploy/harbor-core -- curl -q -sS -K - -X PATCH -o /dev/null -w 'refresh: HTTP %{http_code}\n' "http://localhost:8080/api/v2.0/robots/${ROBOT_ID:?}" < "$H/curlrc"
+rm -f "$H/curlrc"
+```
+
+`refresh: HTTP 200` beklenir; başka bir kod eski değerin **yerinde** kaldığını söyler. Yeni değer
+`$H/secret`'tadır: `ci` için `gh secret set HARBOR_CI_ROBOT_SECRET --env production --repo
+atknatk/tappa < "$H/secret"`; Infisical'a panodan (`pbcopy < "$H/secret"`, yapıştır, `pbcopy <
+/dev/null`). En sonda `rm -rf "$H"`.
 
 **(b) CI robotu → `production` ortamı.** Komut değeri gizli bir istemden okur; değeri komut satırına
-yazma, ekrana basma. Robot adındaki `$` istemde sorun değildir.
+yazma, ekrana basma. Robot adındaki `$` istemde sorun değildir (`robot$tappa-ci`).
 
 ```bash
 gh secret set HARBOR_CI_ROBOT_NAME --env production --repo atknatk/tappa
@@ -281,45 +331,70 @@ pull Secret is the operator's and must already exist"* = `scripts/verify-deploym
 pull-secret`; değer basılmaz). Yoksa kırmızı ve adıyla; okunamıyorsa (`Forbidden`) kırmızı ve
 **adım 3'ü yeniden uygula** der — `01-rbac.yaml` OPS-2'den beri `harbor-pull`'a `get` veriyor.
 
-Yeniden yaratmak (tailnet'teki bir makineden): parola `docker login`'in **stdin**'inden girer, argv'ye
-ve kabuk geçmişine girmez; **boş** bir `DOCKER_CONFIG` dizini kimlik deposu taşımaz, yani
-`config.json`'a düz `auths` yazılır (Docker Desktop'ın `credsStore`'u devreye girmez). `docker login`
-robotu Harbor'a karşı **doğrular** — yanlış değer burada düşer. İstemde `k8s-pull` robotunun secret'ını
-yapıştır (Infisical `…/HARBOR_PULL_ROBOT_SECRET`), sonra Enter ve Ctrl-D.
+Yeniden yaratmak (tailnet'teki bir makineden). 🔴 **`docker login` KULLANILMAZ — iki ölçülmüş sebeple
+(OPS-2 düzeltme turu 1).** (1) macOS'ta docker CLI, **boş** bir `DOCKER_CONFIG` dizininde bile
+kimliği Docker Desktop'ın **keychain** yardımcısına yazar (dizinde kimlik yoksa varsayılan depoyu
+kendisi seçer): kimlik keychain'e gider, `config.json`'a **gitmez**, ve oradan üretilen Secret
+kimliksiz bir kopyayla **çalışan** `harbor-pull`'u ezebilir. (2) `--password-stdin`'e yapıştırılan
+değer etkileşimli terminalde **görünür**. Bu yüzden blok `config.json`'u **kendisi** yazar: secret
+`read -rs` ile (yankısız) okunur, `printf` ve `read` kabuğun kendi komutlarıdır, değer hiçbir
+sürecin argv'sine girmez ve yalnız dosyaya yazılır. Sonra **o dosyayla** prod'un koştuğu imajın
+manifest'i okunur — `config.json`'da kimlik **varken** docker CLI yardımcıya bakmaz, dosyadakini
+kullanır (ölçüldü, 2026-10-19, docker 29.8.2, yerel bir registry'ye karşı: istek dosyanın kimliğini
+taşıdı) — ve `kubectl apply` **ancak o okuma geçerse** koşar; imaj Harbor'da değilse (OPS-2 öncesi
+`docker.io/...`) doğrulama yapılmaz ve hiçbir şey uygulanmaz. Dosya en sonda silinir. `N` hedef
+namespace'tir; sandbox için `N=tappa-sandbox` (pod bir `imagePullSecret`'ı yalnız **kendi**
+namespace'inden okur — doğrulama yine prod'un imajıyla yapılır, robot aynı).
 
 ```bash
+umask 077
+N=tappa
 D=$(mktemp -d)
 U='robot$tappa+k8s-pull'
-DOCKER_CONFIG="$D" docker login registry.everva.com.tr -u "$U" --password-stdin
-kubectl -n tappa create secret generic harbor-pull --type=kubernetes.io/dockerconfigjson --from-file=.dockerconfigjson="$D/config.json" --dry-run=client -o yaml | kubectl apply -f -
+printf 'k8s-pull robot secret: '; read -rs S; echo
+printf '{"auths":{"registry.everva.com.tr":{"auth":"%s"}}}\n' "$(printf '%s:%s' "$U" "$S" | base64 | tr -d '\n')" > "$D/config.json"
+unset S
+I=$(kubectl --context hetzner-k8s-1 -n tappa get deployment tappa -o jsonpath='{.spec.template.spec.containers[0].image}')
+[[ $I == registry.everva.com.tr/tappa/* ]] && DOCKER_CONFIG="$D" docker manifest inspect "$I" > /dev/null && kubectl --context hetzner-k8s-1 -n "$N" create secret generic harbor-pull --type=kubernetes.io/dockerconfigjson --from-file=.dockerconfigjson="$D/config.json" --dry-run=client -o yaml | kubectl --context hetzner-k8s-1 apply -f - && echo "harbor-pull applied in $N" || echo "harbor-pull NOT applied: the credential did not read $I"
 rm -rf "$D"
-scripts/verify-deployment.sh pull-secret tappa harbor-pull registry.everva.com.tr
+scripts/verify-deployment.sh pull-secret "$N" harbor-pull registry.everva.com.tr
 ```
 
-Sandbox için aynı blok, `-n tappa-sandbox` ile (pod bir `imagePullSecret`'ı yalnız **kendi**
-namespace'inden okur).
+Son satır `harbor-pull applied in tappa` ya da `NOT applied` der; ikincisinde Secret **değişmemiştir**
+(yanlış değer, devre dışı robot, Harbor'a ulaşılamıyor ya da imaj Harbor'da değil). Son komut —
+`scripts/verify-deployment.sh` **kubectl'in geçerli bağlamını** okur, `--context` almaz — bağlam
+`hetzner-k8s-1` değilse başka bir kümeyi okur; önce `kubectl config current-context`.
 
 **(d) Döndürme — pencere açmadan.** Harbor'da **Refresh secret** eski değeri **hemen** geçersiz
 kılar; `ci` için bu zararsızdır (sıradaki deploy yeni değeri okur — önce (b), sonra Harbor), ama
 `k8s-pull` için Secret güncellenene kadar her doğrulama çekmesi `401` olur. Bu yüzden `k8s-pull` şöyle
-döndürülür: (1) Harbor'da **yeni** bir robot (`k8s-pull2`, aynı izinler) — eski robot **çalışmaya
-devam eder**; (2) (c)'nin bloğu yeni robotun adı ve değeriyle (`kubectl apply` Secret'ı **yerinde**
-günceller); (3) bir deploy koşusu ya da `kubectl -n tappa rollout restart deployment/tappa` +
-`rollout status` — pod'lar yeni kimlikle doğrulanır; (4) eski robotu sil, Infisical'ı güncelle.
+döndürülür: (1) Harbor'da **yeni** bir robot (`k8s-pull2`, aynı izinler, Expiration Never) — eski robot
+**çalışmaya devam eder**; (2) (c)'nin bloğu yeni robotun adı (`U`) ve değeriyle (`kubectl apply`
+Secret'ı **yerinde** günceller; doğrulama geçmezse uygulamaz); (3) bir deploy koşusu ya da
+`kubectl --context hetzner-k8s-1 -n tappa rollout restart deployment/tappa` + `rollout status` —
+pod'lar yeni kimlikle doğrulanır; (4) eski robotu sil, Infisical'ı güncelle.
 
 **(e) İki yönlü kapı — talimat değil, mekanizma.** `deploy.yml` push'tan hemen sonra, kümeye
 **hiçbir şey uygulamadan önce** iki imajı da iki kez ister (*"Gate — both images must be pullable
 WITH the CI credential and NOT without one"* = `scripts/verify-image.sh --access`): **CI kimliğiyle**
-manifest gelmeli (`"schemaVersion"`, yalnız exit 0 değil); **kimliksiz** (`DOCKER_CONFIG` boş bir
-dizin) registry **yetki cevabıyla reddetmeli** (`unauthorized` / `denied` / `authentication
-required`). Kimliksiz bir manifest (proje public) **kırmızı**; başka her hata (DNS, zaman aşımı, boş
-cevap) da **kırmızı** — registry'nin reddettiğini gösteremez. Sonra *"Log out of the registry"*
-kimliği diskten siler; kubectl ve tailnet ondan sonra gelir.
+(`docker manifest inspect`) manifest gelmeli (`"schemaVersion"`, yalnız exit 0 değil); **kimliksiz**
+registry **reddetmeli** — ve bu yarı docker'la değil, **curl'le, Registry v2 token akışıyla**
+ölçülür (OPS-2 düzeltme turu 1): docker 29 Harbor'ın kimliksiz `401`'ini *"no such manifest"* diye
+bildirir (ölçüldü, 2026-10-19, docker 29.8.2, Harbor gibi cevap veren yerel bir registry'ye karşı),
+yani docker'ın sözlerini okuyan ilk sürüm **her koşuda** kırmızıydı. Akış: `/v2/` → `401` ve bir
+`Bearer realm=…,service=…` çağrısı; o realm'den kimliksiz bir token (`scope=repository:<depo>:pull`
+— public bir depo bu token'la okunurdu); manifest o token'la → **`401` ve hata kodu
+`UNAUTHORIZED`** = beklenen ret. `200` (proje public) **kırmızı**; başka her sonuç — 5xx, DNS, zaman
+aşımı, boş cevap, token vermeyen bir token servisi, `UNAUTHORIZED` taşımayan bir `401` — da
+**kırmızı**: registry'nin reddettiğini gösteremez. curl `-q` ile (hiçbir `~/.curlrc` kimlik ekleyemez)
+ve `--proto =https` ile koşar. Sonra *"Log out of the registry"* kimliği diskten siler; kubectl ve
+tailnet ondan sonra gelir.
 **Neden `k8s-pull` ile değil:** kümenin kimliğini CI'ya taşımak, iş akışının patlama yarıçapına ikinci
 bir kimlik koyardı ve tek bir ölçüm alırdı (`k8s-pull` hâlâ çalışıyor mu) — onu küme zaten ölçer:
-migration Job'ı sunucudan **önce** çeker; çekemezse Job hiç başarmaz, 600 sn sonra adım düşer ve
+migration Job'ı sunucudan **önce** çeker; çekemezse pod `ImagePullBackOff`'a düşer, *"Migrate"* adımı
+onu **ilk** ankette görüp kırmızı biter (OPS-2 düzeltme turu 1; önceden 600 sn bekliyordu) ve
 **sunucu rollout'u hiç yapılmaz** (*"Olay müdahalesi"*, 2). Bu açığın kalan parçası — Harbor'da
-devre dışı bırakılmış ya da süresi dolmuş bir `k8s-pull` — o 600 sn'dir; kabul edildi.
+devre dışı bırakılmış bir `k8s-pull` — bir deploy'un kırmızı bitmesidir; kabul edildi.
 
 **5. GitHub `production` ortamı — `KUBE_CONFIG` ve Tailscale OAuth client'ı (küme API'si yalnız tailnet'ten).**
 
@@ -424,13 +499,13 @@ DEĞİL. İstenen süre apiserver üst sınırıyla KIRPILABİLİR ve kubectl bu
 Kırpıldıysa süre dolmadan yenile ve takvime yaz. Yoksa deploy bir gün 401 almaya başlar.
 
 ```bash
-kubectl -n tappa create token github-deployer --duration=8760h
+kubectl --context hetzner-k8s-1 -n tappa create token github-deployer --duration=8760h
 ```
 
 Sunucu tailnet adresidir, genel IP DEĞİL. CA kümenin kendi kök sertifikasıdır ve sır değildir.
 
 ```bash
-kubectl -n tappa get cm kube-root-ca.crt -o jsonpath='{.data.ca\.crt}' > /tmp/tappa-ca.crt
+kubectl --context hetzner-k8s-1 -n tappa get cm kube-root-ca.crt -o jsonpath='{.data.ca\.crt}' > /tmp/tappa-ca.crt
 K=~/.kube/tappa-deployer.config
 kubectl --kubeconfig="$K" config set-cluster tappa --server=https://10.43.0.1:443 \
   --certificate-authority=/tmp/tappa-ca.crt --embed-certs=true
@@ -1922,7 +1997,7 @@ kimlik (`tappa-sandbox` namespace'inde bir ServiceAccount + yalnız o namespace'
 **İmaj:** aynı commit'ten, kendi hedefiyle; itmeden önce kapı derleme etiketini doğrular (prod imajı
 `sandbox` etiketliyse, sandbox imajı etiketsizse reddedilir):
 
-İmajlar prod'un private Harbor projesinde (OPS-2; operatör adımı 4). İten makine `ci` robotuyla
+İmajlar prod'un private Harbor projesinde (OPS-2; operatör adımı 4). İten makine `robot$tappa-ci`'yle
 (ya da bir proje yöneticisiyle) `docker login registry.everva.com.tr` yapmış olmalı.
 
 ```bash
@@ -3597,8 +3672,8 @@ uygulanmalı** (adım 3) — deploy kimliği `harbor-pull`'u ancak o zaman okuya
 the registry pull Secret…"* `Forbidden` ile, kümeye bir şey uygulanmadan, kırmızı durur.
 
 ```bash
-kubectl apply -f deploy/k8s/01-rbac.yaml
-kubectl -n tappa auth can-i get secret/harbor-pull --as=system:serviceaccount:tappa:github-deployer
+kubectl --context hetzner-k8s-1 apply -f deploy/k8s/01-rbac.yaml
+kubectl --context hetzner-k8s-1 -n tappa auth can-i get secret/harbor-pull --as=system:serviceaccount:tappa:github-deployer
 ```
 
 İkinci satır `yes` demeli. (`auth can-i` alt kaynakları görmez — sınır 17 — ama burada sorulan bir alt
@@ -3611,12 +3686,15 @@ kaynak değil, adlı bir nesne.)
 
 1. *"Preflight — the production environment's secrets must exist"* yeşil ve son satırı beş adı
    `present` diye sayar (değer yok, uzunluk yok).
-2. *"Gate — both images must be pullable WITH the CI credential and NOT without one"* her imaj için
+2. *"Build both images"* yeşil: taban imaj Harbor'ın proxy projesinden, digest'iyle çekildi (Harbor:
+   **Projects → `dockerhub` →** `library/golang`'da `sha256:d9c68c2c…453c` digest'li artifact).
+   *"Gate — both images must be pullable WITH the CI credential and NOT without one"* her imaj için
    iki satır basar: `pull WITH the registry credential … ok: registry.everva.com.tr/tappa/…` ve
-   `pull WITHOUT a credential … refused: … (exit 1)`. Kimliksiz cevabın kelimesi
-   (`unauthorized`/`denied`/`authentication required`) Harbor'da **ilk kez** burada görülür; kapı
-   başka bir kelimeyle kırmızı olursa kelime ölçülür ve `scripts/verify-image.sh --access`'in deseni
-   ona göre — testiyle birlikte — genişletilir, kapı gevşetilmez.
+   `pull WITHOUT a credential … refused: … (HTTP 401 UNAUTHORIZED)`. Kimliksiz yarı OPS-2 düzeltme
+   turu 1'den beri docker'ın sözlerini değil registry'nin **HTTP kodunu ve hata kodunu** okur (curl,
+   token akışı; operatör adımı 4 (e)); Harbor'ın cevabı denetçinin ölçtüğü biçimdir (`/v2/` → `401`,
+   manifest → `401 UNAUTHORIZED`). Kapı başka bir cevapla kırmızı olursa cevap ölçülür ve
+   `scripts/verify-image.sh --access` — testiyle birlikte — ona göre düzeltilir, kapı gevşetilmez.
 3. *"Join the tailnet"* yeşil; kapı satırı `tailnet: tailscale 1.94.2, backend Running, tags tag:ci,
    ephemeral absent` (1.94.2 ephemeral'ı bildirmez → beklenen uyarı) ve `cluster API reachable at
    10.43.0.1:443 (attempt 1)`.
@@ -3629,8 +3707,8 @@ kaynak değil, adlı bir nesne.)
    `ImagePullBackOff`/`ErrImagePull` basmamalı:
 
    ```bash
-   kubectl -n tappa get pod -l app.kubernetes.io/component=server -o jsonpath='{range .items[*]}{.metadata.name}{"  "}{.spec.containers[0].image}{"  ps="}{.spec.imagePullSecrets[*].name}{"  "}{.status.containerStatuses[0].imageID}{"\n"}{end}'
-   kubectl -n tappa get pod -o jsonpath='{range .items[*]}{.metadata.name}{"  "}{.status.initContainerStatuses[*].state.waiting.reason}{.status.containerStatuses[*].state.waiting.reason}{"\n"}{end}'
+   kubectl --context hetzner-k8s-1 -n tappa get pod -l app.kubernetes.io/component=server -o jsonpath='{range .items[*]}{.metadata.name}{"  "}{.spec.containers[0].image}{"  ps="}{.spec.imagePullSecrets[*].name}{"  "}{.status.containerStatuses[0].imageID}{"\n"}{end}'
+   kubectl --context hetzner-k8s-1 -n tappa get pod -o jsonpath='{range .items[*]}{.metadata.name}{"  "}{.status.initContainerStatuses[*].state.waiting.reason}{.status.containerStatuses[*].state.waiting.reason}{"\n"}{end}'
    ```
 
 7. Koşudan sonra Tailscale konsolunun **Machines** listesinde `github-*` cihazı **kalmaz** (OAuth
@@ -3679,18 +3757,29 @@ Prod'un OPS-2 öncesi son imajı `docker.io/atknatk/tappa:sha-f577d743fc5b` (ana
   docker push registry.everva.com.tr/tappa/tappa:sha-f577d743fc5b
   ```
 
-  (migration imajı için aynı üçlü `tappa-migrate` ile; itmek `ci` robotunun ya da bir proje
-  yöneticisinin `docker login`'ini ister.)
+  (migration imajı için aynı üçlü `tappa-migrate` ile; itmek `robot$tappa-ci`'nin ya da bir proje
+  yöneticisinin `registry.everva.com.tr` girişini ister — `tappa` projesine push yetkisi olan
+  yalnız odur; `k8s-pull` itemez.)
 
-🔴 **Önkoşul — Docker Hub'daki etiketin bugün de çekilebildiğini ÖLÇ** (bu bölüm yazılırken dış ağ
-yoktu; ölçülmedi). Boş bir `DOCKER_CONFIG` kimliksizdir, her satır bir manifest basmalı:
+🔴 **Önkoşul — Docker Hub'daki etiketin bugün de KİMLİKSİZ çekilebildiğini ÖLÇ** (bu bölüm yazılırken
+dış ağ yoktu; ölçülmedi). `rollout undo` ve `set image` bu imajı **kimliksiz** çeker, yani ölçü de
+kimliksiz olmalı. 🔴 **Boş bir `DOCKER_CONFIG` ile `docker manifest inspect` bunu ÖLÇMEZ** (OPS-2
+düzeltme turu 1): dizinde kimlik yoksa docker CLI varsayılan kimlik yardımcısını (macOS'ta keychain)
+kendisi seçer, yani bu makine Docker Hub'a giriş yapmışsa **private** bir depo da okunur. Ölçü
+curl'le, Docker Hub'ın kimliksiz token'ıyla yapılır (`-q`: hiçbir `~/.curlrc` kimlik eklemez); iki
+satır da `HTTP 200` basmalı (`401` = private ya da yok, `404` = etiket yok):
 
 ```bash
-D=$(mktemp -d)
-DOCKER_CONFIG="$D" docker manifest inspect docker.io/atknatk/tappa:sha-f577d743fc5b
-DOCKER_CONFIG="$D" docker manifest inspect docker.io/atknatk/tappa-migrate:sha-f577d743fc5b
-rm -rf "$D"
+for R in atknatk/tappa atknatk/tappa-migrate; do T=$(curl -q -fsS "https://auth.docker.io/token?service=registry.docker.io&scope=repository:${R}:pull" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p'); curl -q -sS -o /dev/null -w "${R}: HTTP %{http_code}\n" -H "Authorization: Bearer $T" -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.manifest.v1+json' "https://registry-1.docker.io/v2/${R}/manifests/sha-f577d743fc5b"; done
 ```
+
+**Taban imajın proxy'si çalışmazsa** (Harbor'ın `dockerhub` uç noktası Docker Hub'a ulaşamıyor, proxy
+projesi silinmiş): *"Build both images"* düşer, kümeye dokunulmaz. Geri dönüş **aynı digest'i**
+Docker Hub'dan kimliksiz çekmektir — `deploy.yml`'deki `GO_BUILD_IMAGE` satırını `Dockerfile`'ın
+varsayılanına (`golang:1.26.9-bookworm@sha256:d9c68c2c…453c`) çevirip `main`'e bir commit; içerik
+digest'le aynı kalır, bedeli OPS-2'nin ilk turundaki anonim bütçe riskidir (sınır 12 (e)). İki
+satırı birlikte değiştiren pin `cmd/tappa/deployregistry_test.go`'dadır
+(`TestPackaging_TheBuildPullsItsBaseImageThroughHarborByDigest`) — geri dönüş onu da günceller.
 
 ⚠️ **Docker Hub depolarını silmek ya da private yapmak bu bölümün ilk iki yolunu kapatır** — ve
 sınır 18'in kalan yarısını (eski etiketlerin herkese açık olması) kapatır. İkisi aynı kararın iki
@@ -6315,7 +6404,7 @@ koşusu bekliyor) ve yukarıdaki yarış hâlâ canlıdır.
 | mesaj | sebep | çare — **satır bazında; genel bir çare YOK** |
 |---|---|---|
 | `Unable to retrieve some image pull secrets (harbor-pull)` ve ardından `unauthorized` | `secret/harbor-pull` bu namespace'te **yok** (sandbox'ta ayrıca yaratılır) | Operatör adımı 4 (c)'nin bloğu. Deploy bunu kümeye bir şey uygulamadan yakalar (*"Preflight — the registry pull Secret…"*); buraya elle bir `apply` ya da başka bir namespace getirir |
-| `unauthorized` / `401` (Secret **var**) ⚠️ *Harbor dünyasında henüz görülmedi* | `k8s-pull` robotunun kimliği geçersiz — döndürüldü, süresi doldu, devre dışı ya da Secret yanlış robotla yaratıldı. Deploy'un kapısı bunu **ölçmez** (Secret'ın varlığını, tipini ve registry'sini ölçer, kimliğin geçerliliğini değil) | Operatör adımı 4 (c) ile Secret'ı geçerli robotla yeniden yarat, sonra takılmış pod'u yeniden yarat (aşağıdaki tablo). Deploy sırasında görüldüyse migration adımı 600 sn sonra düşmüştür ve **sunucu rollout'u yapılmamıştır** — Secret düzeltildikten sonra yeni bir koşu |
+| `unauthorized` / `401` (Secret **var**) ⚠️ *Harbor dünyasında henüz görülmedi* | `k8s-pull` robotunun kimliği geçersiz — secret'ı yenilendi (Refresh), robot devre dışı bırakıldı ya da silindi, ya da Secret yanlış robotla yaratıldı (robotlar süresizdir, takvimle dolmazlar). Deploy'un ön kontrolü bunu **ölçmez** (Secret'ın varlığını, tipini ve registry'sini ölçer, kimliğin geçerliliğini değil) | Operatör adımı 4 (c) ile Secret'ı geçerli robotla yeniden yarat — blok kimliği bir manifest okuyarak doğrulamadan uygulamaz —, sonra takılmış pod'u yeniden yarat (aşağıdaki tablo). Deploy sırasında görüldüyse *"Migrate"* adımı `ImagePullBackOff`'u ilk ankette görüp düşmüştür (OPS-2 düzeltme turu 1) ve **sunucu rollout'u yapılmamıştır** — Secret düzeltildikten sonra yeni bir koşu |
 | `dial tcp …` / `i/o timeout` / `connection refused` / `no such host` (`registry.everva.com.tr`) | Harbor ya da k8s-2 kapalı — sınır **[Harbor k8s-2'ye bağlı]** | k8s-2'yi / Harbor'ı ayağa kaldır. Çalışan pod etkilenmez (imaj düğümde); yeni imaj o güne dek **çekilemez** — deploy'u ertele |
 | `manifest unknown` / `not found` | etiket yok — `:deploy-placeholder` kalmış (dizini toptan `apply` etmişsin), push başarısız olmuş, ya da etiket **son 30 push'tan eski** ve saklama onu silmiş | **Yeni bir deploy koşusu** — doğru etiketi o yazar. Eski bir etikete dönüyorsan Harbor'da (Projects → `tappa` → depo → Artifacts) var olduğunu ölç; manifestleri elle `apply` etme |
 | `pull access denied` / `repository does not exist` (`docker.io/atknatk/...`) | OPS-2 öncesi bir ReplicaSet'e dönülmüş ve Docker Hub deposu **private** yapılmış ya da silinmiş | Docker Hub'da depoyu public yap **ya da** o commit'i Harbor üzerinden yeniden sevk et (*"OPS-2 geri dönüş"*) |
@@ -7188,9 +7277,11 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     (`verify-image.sh --access`; operatör adımı 4 (e)); `harbor-pull`'un varlığı kümeye bir şey
     uygulanmadan ölçülüyor (`verify-deployment.sh pull-secret`).
     ❌ **Kapanmayan, sayılı:**
-    (a) **k8s-2 bir bağımlılık.** Harbor k8s-2'de koşar. k8s-2 kapalıyken **yeni** bir imaj
-    çekilemez: deploy'un migration Job'ı `ImagePullBackOff`'ta kalır, adım 600 sn sonra düşer,
-    sunucu rollout'u **yapılmaz** (çalışan pod'a dokunulmaz). Çalışan pod'un yeniden başlaması
+    (a) **k8s-2 bir bağımlılık.** Harbor k8s-2'de koşar. k8s-2 kapalıyken deploy **derleyemez**
+    (taban imaj Harbor'ın proxy projesinden gelir — (e)) ve **yeni** bir imaj çekilemez: deploy'un
+    migration Job'ı `ImagePullBackOff`'a düşer, *"Migrate"* adımı onu ilk ankette görüp kırmızı biter
+    (OPS-2 düzeltme turu 1; önceden 600 sn bekliyordu), sunucu rollout'u **yapılmaz** (çalışan pod'a
+    dokunulmaz). Çalışan pod'un yeniden başlaması
     düğümün **önbelleğindeki** kopyayla açılır — `IfNotPresent` ve değişmemiş `harbor-pull` ile
     Harbor'a gidilmez (KEP-2535: kayıtlı kimlik aynı). **Ölçülmedi:** bu kümede k8s-2 kapalıyken bir
     pod yeniden başlatılmadı; *"OPS-2 kapanış ölçüsü"* (5) onu ölçmeyi önerir. Düğüm imajı
@@ -7198,22 +7289,28 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     **açılamaz**.
     (b) **Robot döndürme bir doğrulama çekmesi doğurur.** `harbor-pull`'un içeriği değişince, eski
     değerle çekilmiş bir imaja dönen pod Harbor'a sorar (KEP-2535). Operatör adımı 4 (d) eski robotu
-    yeni Secret dağıtılana dek yaşatarak döndürür; robotun **süresi** (Harbor'da Expiration) dolarsa
-    bu pencere kendiliğinden açılır — takvime yaz.
+    yeni Secret dağıtılana dek yaşatarak döndürür. İki robot da **süresizdir** (Expiration: Never,
+    OPS-2 düzeltme turu 1), yani pencere bir takvimle kendiliğinden açılmaz — yalnız bir Refresh, bir
+    devre dışı bırakma ya da silme açar; bedeli, sızan bir değerin de kendiliğinden ölmemesidir.
     (c) **Saklama: depo başına son 30 push.** Daha eski bir `sha-*`'e Harbor'dan dönülemez;
     `rollout undo` düğümde hâlâ duran bir imaja döner (Harbor'a gitmez), başka bir düğümde ya da
     imaj GC'den sonra döndüremez.
     (d) **OPS-2 öncesine geri dönüş Docker Hub'a bağlı.** OPS-2'den önceki ReplicaSet'ler
     `docker.io/atknatk/...` + `imagePullSecrets`'sız; `rollout undo` onlara anonim döner — ta ki
     Docker Hub depoları silinene ya da private yapılana dek (*"OPS-2 geri dönüş"*).
-    (e) **Derlemenin taban imajı artık kimliksiz çekiliyor.** OPS-2'ye kadar deploy Docker Hub'a
-    `docker login` yapıyordu ve `golang:1.26.9-bookworm` o kimlikle çekiliyordu; şimdi giriş yalnız
-    Harbor'a, yani taban imaj GitHub runner'ının paylaşılan adresinden **anonim** çekilir — `ci.yml`
-    aynı adreslerden `toomanyrequests` ölçmüştü (2026-10-09). Olursa *"Build both images"* düşer,
-    kümeye dokunulmaz; koşu yeniden denenir. **Kapatılmadı, bilinçli:** `ci.yml`'in çaresi
-    (`mirror.gcr.io`'dan çekip yerelde etiketlemek) **sevk edilen** ikilinin tabanını başka bir
-    kaynaktan almak demek — bu bir tedarik zinciri kararı, ayrıca verilir; ikinci seçenek taban
-    imajı Harbor'a (proxy cache ya da elle) koymaktır.
+    (e) **Derlemenin taban imajı — ✅ KAPANDI (OPS-2 düzeltme turu 1, kullanıcı kararı: Harbor proxy
+    cache).** OPS-2'nin ilk turunda giriş yalnız Harbor'a olduğu için `golang:1.26.9-bookworm` runner'ın
+    paylaşılan adresinden **anonim** çekiliyordu (`ci.yml` aynı adreslerden `toomanyrequests`
+    ölçmüştü, 2026-10-09). Şimdi *"Build both images"* onu Harbor'ın private proxy projesinden
+    (`registry.everva.com.tr/dockerhub/library/golang:1.26.9-bookworm@sha256:d9c68c2c…453c`), CI
+    robotunun girişiyle ve **index digest'iyle** çeker; `Dockerfile`'ın varsayılanı aynı digest,
+    Docker Hub'ın adıyla (operatör adımı 4). Önbellekteki bir digest'i Harbor Docker Hub'a gitmeden
+    vermeli (proxy cache'in belgelenen davranışı; **ölçülmedi** — ilk OPS-2 deploy'u bunu kapanış
+    ölçüsünün 2. maddesinde görür). **Kalan, sayılı:** (1) derleme artık k8s-2'ye de bağlı ((a));
+    (2) Dockerfile'ın ilk satırı `# syntax=docker/dockerfile:1` BuildKit'in ön ucunu (frontend imajı)
+    **hâlâ Docker Hub'dan, kimliksiz ve etiketle** çeker — bu turda değiştirilmedi (yerel derlemeleri de
+    etkileyen ayrı bir karar; bütçe riski taban imajınkiyle aynı biçimde, daha küçük ölçekte durur);
+    (3) `postgres:17-alpine`, `rclone`, `curlimages/curl` kümede Docker Hub'dan anonim (madde 14).
 13. **[her yeni iş yükü kendi beklemesini taşır]** — 🔴 **Bu namespace'te Postgres'e
     bağlanan HER YENİ İŞ YÜKÜ kendi bekleme adımını taşımak zorunda.**
     `12-networkpolicy.yaml` uygulanıyor, ama k3s yeni bir pod'un adresini kuralın izin
