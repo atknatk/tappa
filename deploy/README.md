@@ -437,30 +437,54 @@ yüzden satır bugün `deploy.yml`'e **eklenmedi**: taşıma, silme ve satır ay
 **(c′) Deploy'u ne tetikler — ve neyin tetikleyemediği (backlog T140, 2026-10-19).**
 `deploy.yml` yalnız iki yoldan koşar: (1) `ci`'nin **yeşil** bitmiş, **bu deponun `main`
 dalına yapılmış bir push**'la başlamış koşusu; (2) Actions → `deploy` → **Run workflow**,
-*Use workflow from* = **`main`** (yazma yetkisi gerekir). İşin `if:`'i dört koşulun dördünü
-de ister (`conclusion == success`, `event == push`, `head_repository == bu depo`,
-`head_branch == main`) ve ilk adım (*"Gate — this run was triggered by a push to this
-repository's main"*) aynısını bash'te, checkout'tan önce yeniden ölçer; tutmazsa koşu
-**kırmızı** biter (atlanmış değil), hiçbir şey build edilmez, kümeye dokunulmaz. Elle
-koşuda başka bir dal seçilirse aynı kapı reddeder — `workflow_dispatch` o dalın HEAD'ini
-(`github.sha`) deploy ederdi. **Kapanan delik:** `branches: [main]` süzgeci tetikleyen
-koşunun **`head_branch`** adına bakar; bir fork'un kendi `main` dalından açılan PR'ın
-`pull_request` koşusu da `main` adını taşır, yeşil biterse eskiden deploy onun `head_sha`'sını
-(fork'un kodunu) depo secret'larıyla build ederdi. Pin: `cmd/tappa`
-`TestPackaging_TheDeployRunsOnlyForAPushToThisRepositorysMain` (tetikleyiciler, `if:`, kapının
-yeri, hiçbir `run:` gövdesinde `${{ }}` yok) ve
-`TestDeployTrigger_TheGateAcceptsOnlyAPushToMainOrAManualRunFromMain` (kapının gövdesi
-koşulur). **Depo ayarı (geçici, kod düzeltmesinden önce yapıldı):** Settings → Actions →
-*Fork pull request workflows* = **bütün dış katkıcılar için onay** — fork PR'larının
-workflow'u onaysız koşmaz. Kod düzeltmesi indikten sonra da **açık bırakılması önerilir**
-(kuşak + kemer; fork PR'ı zaten secret'sız koşar, ama onay CI dakikasını ve
-`pull_request` yüzeyini de korur). **Kalan sınır [yazma yetkisi; ölçülmedi]:** `ci`
-`on: push` etiketlerde de koşar ve bir etiket koşusunun `head_branch`'i etiketin adıdır;
-depoya yazabilen biri `main` adında bir **etiket** push'larsa dört koşulun dördü de tutabilir.
-Bu yeni bir yetki vermez (dal koruması yoksa yazma yetkisi zaten `main`'e push demektir) ve
-(c)'deki Environment bunu **kapatmaz** — `workflow_run` koşusunun ref'i her zaman `main`'dir.
-Kapanışı ya bir etiket kuralı (Settings → Rules: `main` adlı etiket yasak) ya da kapıda
-`head_sha`'nın `main`'in ucu olduğunun ölçülmesidir (backlog T140).
+*Use workflow from* = **`main`** (yazma yetkisi gerekir; sınırı aşağıda). İşin `if:`'i dört
+koşulun dördünü de ister (`conclusion == success`, `event == push`, `head_repository == bu
+depo`, `head_branch == main`) ve ilk adım (*"Gate — this run was triggered by a push to this
+repository's main"*) aynı koşulları bash'te, checkout'tan önce yeniden ölçer — **ve `if:`'ten
+sıkıdır:** GitHub ifadelerinde `==` dizeleri büyük/küçük harfe **duyarsız** karşılaştırır
+(`Main` adlı bir dal `if:`'i geçer), bash'in `=`'i duyarlıdır (kapı onu reddeder). Tutmazsa
+koşu **kırmızı** biter (atlanmış değil), hiçbir şey build edilmez, kümeye dokunulmaz.
+**Kapanan delik:** `branches: [main]` süzgeci tetikleyen koşunun **`head_branch`** adına
+bakar; bir fork'un kendi `main` dalından açılan PR'ın `pull_request` koşusu da `main` adını
+taşır, yeşil biterse eskiden deploy onun `head_sha`'sını (fork'un kodunu) depo secret'larıyla
+build ederdi. Pin: `cmd/tappa` `TestPackaging_TheDeployRunsOnlyForAPushToThisRepositorysMain`
+(tetikleyiciler, `jobs:` tam olarak `deploy`, `if:`, kapının yeri, hiçbir `run:` gövdesinde
+`${{ }}` yok), `TestDeployTrigger_TheGateAcceptsOnlyAPushToMainOrAManualRunFromMain` (kapının
+gövdesi koşulur) ve `TestDeployTrigger_TheCommitToDeployIsExactlyFortyLowercaseHex`
+(*"Resolve the commit to deploy"* yalnız tam 40 küçük harf hex kabul eder). **Depo ayarı
+(geçici, kod düzeltmesinden önce yapıldı):** Settings → Actions → *Fork pull request
+workflows* = **bütün dış katkıcılar için onay** — fork PR'larının workflow'u onaysız koşmaz.
+Kod düzeltmesi indikten sonra da **açık bırakılması önerilir** (kuşak + kemer; fork PR'ı
+zaten secret'sız koşar, ama onay CI dakikasını ve `pull_request` yüzeyini de korur).
+
+**Kalan sınırlar — ikisi de yalnız depoya yazma yetkisi olana açık.**
+
+1. **Elle koşturma, düzeltmeyi taşımayan bir daldan.** `workflow_dispatch`'te GitHub
+   *Use workflow from*'da seçilen **dalın kendi** `deploy.yml` kopyasını koşturur, `main`'inkini
+   değil (`workflow_run`'dan farkı budur). Elle koşturma kapısı (`ref == refs/heads/main`)
+   bu yüzden yalnız **bu düzeltmeyi içeren** dallarda geçerlidir; bugün (2026-10-19) uzak
+   dalların **hiçbiri** onu taşımıyor. Kopyası eski ya da değiştirilmiş bir dal seçilirse
+   kapı orada yoktur ve o dalın HEAD'i (`github.sha`) depo düzeyindeki secret'larla deploy
+   edilir — (c)'deki risk sınıfı: yazabilen biri bir dala secret okuyan bir workflow zaten
+   push'layabilir. **Kalıcı kapanış (c)'deki Environment'tır** (`production`, *Deployment
+   branches* = yalnız `main`): Environment'ın dal kuralı elle koşturmada `github.ref`'e, yani
+   seçilen dala bakar. Ana oturum ortamı kurdu; iş akışının ona bağlanması
+   (`environment: production`, dört secret'ın taşınıp depo düzeyindekilerin silinmesi) OPS-2
+   ile gelir. Kapatan **satır değil, secret'ların yalnız Environment'ta durmasıdır**: o zaman
+   `environment:` satırı olmayan eski bir kopya secret'sız koşar (secret'ı arayan ilk adımda düşer),
+   satırı taşıyan bir kopya dal kuralına takılır.
+2. **`main` adlı bir etiket** [ölçülmedi]. `ci` `on: push` etiketlerde de koşar ve bir
+   etiket koşusunun `head_branch`'i etiketin adıdır; `main` adında bir **etiket** push'lanırsa
+   dört koşulun dördü de tutabilir. **Dal koruması yokken** bu yeni bir yetki vermez (yazma
+   yetkisi zaten `main`'e push demektir); dal koruması açıldığında korumayı atlatan bir yol
+   olurdu. (c)'deki Environment bunu **kapatmaz** — `workflow_run` koşusunun ref'i her zaman
+   `main`'dir. **Kapanış (depo ayarı, ana oturum, 2026-10-19):** `main` adlı etiketi yasaklayan
+   bir **ruleset** — aktif, istisnasız, etiket oluşturma/güncelleme/silme. Bu bir ayardır, kod
+   değil. **Önerilen ikinci savunma (kodlanmadı):** kapıda, `main` fetch edildikten sonra
+   `git merge-base --is-ancestor <head_sha> origin/main` — **ata denetimi, eşitlik değil**:
+   eşitlik (`head_sha == main`'in ucu) deploy başladığında `main` bir sonraki push'la
+   ilerlemişse meşru bir deploy'u reddeder; ata denetimi yalnız `main`'in geçmişinde olmayan
+   commit'i reddeder (backlog T140).
 
 **(d) İlk deploy'da ölçülecekler (T134'ün kapanış ölçüsü).** `main`'deki ilk deploy
 koşusunun log'unda ve Tailscale yönetim konsolunda:

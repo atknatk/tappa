@@ -17,7 +17,8 @@
 #       request therefore cannot modify this file and have its modification run —
 #       the credentials below are unreachable from any branch but main. And ci.yml
 #       is not touched at all, so the gate everything else depends on carries none
-#       of this risk. CHOSEN.
+#       of this risk. CHOSEN. (workflow_dispatch below does NOT work this way — it
+#       runs the selected branch's copy; see the job's `if:`.)
 #
 # ⚠️ THE COST OF (b), STATED: workflow_run's default checkout is the default
 # branch's HEAD, NOT the commit that was tested. That is the classic footgun and
@@ -66,7 +67,17 @@ jobs:
     # whatever branch the dispatcher picked in "Use workflow from". Unconstrained, a
     # feature branch with a red ci could be shipped by one click; `ref == refs/heads/main`
     # keeps the manual path what its comment above says it is: a re-deploy of main.
-    # "Gate — this run was triggered by a push…" re-checks all of it in the first step.
+    # ⚠️ ONLY WHERE THIS FILE SAYS SO. Unlike workflow_run, a manual run executes the
+    # SELECTED branch's own copy of deploy.yml, not main's: this `ref` check binds only on
+    # branches that carry it, and a branch with an older or edited copy deploys its HEAD
+    # with the repository-level secrets. That path needs write access, like every other
+    # way to read those secrets (deploy/README.md (c)). It closes for good with the
+    # `production` Environment (deployment branches: main only — on a manual run its
+    # branch rule reads github.ref) once the four secrets live only there (OPS-2): a copy
+    # without `environment:` then runs without secrets, one with it is refused by the rule.
+    # "Gate — this run was triggered by a push…" re-checks all of it in the first step,
+    # and is stricter: `==` in an expression ignores case (a branch named `Main` passes
+    # this `if:`), bash's `=` does not.
     if: >-
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
       (github.event_name == 'workflow_run' &&

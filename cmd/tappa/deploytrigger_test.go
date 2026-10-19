@@ -95,11 +95,35 @@ func runBodies(steps []workflowStep) map[string][]string {
 	return out
 }
 
+// writeStepScript writes the `run:` body of deploy.yml's step `name`, de-indented, to a file in
+// dir and returns its path. A body shorter than minLines fails the test as a blind extraction.
+func writeStepScript(t *testing.T, dir, name string, minLines int) string {
+	t.Helper()
+	body := runBodies(deploySteps(t))[name]
+	if len(body) < minLines {
+		t.Fatalf("CONTROL FAILED: step %q's run body has %d lines, want at least %d", name, len(body), minLines)
+	}
+	in := indentOf(body[0])
+	var src strings.Builder
+	for _, l := range body {
+		if len(l) >= in {
+			l = l[in:]
+		}
+		src.WriteString(l + "\n")
+	}
+	script := filepath.Join(dir, "step.sh")
+	if err := os.WriteFile(script, []byte(src.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return script
+}
+
 // TestPackaging_TheDeployRunsOnlyForAPushToThisRepositorysMain pins T140's configuration:
 //
 //   - `on:` holds exactly workflow_run (workflows ["ci"], types [completed], branches [main],
 //     nothing else) and a bare workflow_dispatch — no pull_request, pull_request_target, push,
 //     schedule or any other trigger, and no dispatch inputs;
+//   - `jobs:` holds exactly one job, deploy;
 //   - the job's `if:` is deployJobIf;
 //   - the first step is triggerGateStep, before actions/checkout and every other step, with
 //     exactly triggerGateEnv and no `if:` or `continue-on-error`;
@@ -111,7 +135,8 @@ func runBodies(steps []workflowStep) map[string][]string {
 // `!= 'cancelled'` -> red; the gate moved after "Checkout that exact commit" -> red;
 // `${{ github.event.workflow_run.head_sha }}` put back into "Resolve the commit to deploy"'s
 // body -> red; `continue-on-error: true` on the gate -> red; the gate's RUN_EVENT mapped to
-// github.event_name -> red. The gate body's own mutants are the next test's.
+// github.event_name -> red; a second job added under `jobs:` -> red. The gate body's own
+// mutants are the next test's.
 func TestPackaging_TheDeployRunsOnlyForAPushToThisRepositorysMain(t *testing.T) {
 	code := deployWorkflowCode(t)
 
@@ -148,6 +173,23 @@ func TestPackaging_TheDeployRunsOnlyForAPushToThisRepositorysMain(t *testing.T) 
 				t.Errorf("workflow_dispatch carries %q, want nothing: an input could choose what is deployed", got)
 			}
 		}
+	}
+
+	// jobs: — exactly the one job the `if:` below guards. A second job would sit in this file
+	// with its permissions and the repository's secrets and no trigger condition of its own.
+	jobsAt := slices.IndexFunc(code, func(l string) bool { return l == "jobs:" })
+	if jobsAt < 0 {
+		t.Fatal("CONTROL FAILED: deploy.yml has no top-level `jobs:`")
+	}
+	var jobs []string
+	for _, l := range childrenOf(code, jobsAt) {
+		if indentOf(l) == 2 {
+			jobs = append(jobs, strings.TrimSpace(l))
+		}
+	}
+	if !slices.Equal(jobs, []string{"deploy:"}) {
+		t.Errorf("deploy.yml's jobs are %q, want exactly [deploy:]: every job here needs the trigger gate the deploy "+
+			"job carries", jobs)
 	}
 
 	// The job's if:
@@ -237,29 +279,15 @@ func TestPackaging_TheDeployRunsOnlyForAPushToThisRepositorysMain(t *testing.T) 
 // no input value, and runs none of it (an input carrying `$(…)` creates no file).
 //
 // MUTANT (measured, T140): the RUN_EVENT check, the REF check or the repository check deleted
-// from the body, or the `*)` arm made to pass -> red.
+// from the body, or the `*)` arm made to pass -> red. (T140 fix round) the head_branch check
+// made case-insensitive (`tr A-Z a-z` before `= "main"`) -> red: GitHub's `==` in the job's
+// `if:` already ignores case, and this gate is where a branch named `Main` stops.
 func TestDeployTrigger_TheGateAcceptsOnlyAPushToMainOrAManualRunFromMain(t *testing.T) {
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("no bash")
 	}
-	steps := deploySteps(t)
-	body := runBodies(steps)[triggerGateStep]
-	if len(body) < 5 {
-		t.Fatalf("CONTROL FAILED: the gate's run body has %d lines", len(body))
-	}
 	dir := t.TempDir()
-	script := filepath.Join(dir, "gate.sh")
-	in := indentOf(body[0])
-	var src strings.Builder
-	for _, l := range body {
-		if len(l) >= in {
-			l = l[in:]
-		}
-		src.WriteString(l + "\n")
-	}
-	if err := os.WriteFile(script, []byte(src.String()), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	script := writeStepScript(t, dir, triggerGateStep, 5)
 
 	const repo = "atknatk/tappa"
 	pushRun := map[string]string{
@@ -305,6 +333,10 @@ func TestDeployTrigger_TheGateAcceptsOnlyAPushToMainOrAManualRunFromMain(t *test
 		{"a push run from another branch", with(pushRun, "RUN_HEAD_BRANCH", "feature"), false},
 		{"a push run with no branch", with(pushRun, "RUN_HEAD_BRANCH", "<unset>"), false},
 		{"a branch that only starts with main", with(pushRun, "RUN_HEAD_BRANCH", "main-x"), false},
+		// GitHub's `==` compares strings ignoring case, so these pass the job's `if:`; bash's
+		// `=` does not, and the gate is the stricter of the two.
+		{"a push run from a branch named Main", with(pushRun, "RUN_HEAD_BRANCH", "Main"), false},
+		{"a manual run from a branch named Main", with(dispatch, "REF", "refs/heads/Main"), false},
 		{"a branch carrying a command", with(pushRun, "RUN_HEAD_BRANCH", "main$(touch "+marker+")"), false},
 		{"a repository carrying a command", with(pushRun, "RUN_HEAD_REPOSITORY", repo+"`touch "+marker+"`"), false},
 		{"a push event", with(pushRun, "EVENT_NAME", "push"), false},
@@ -338,6 +370,92 @@ func TestDeployTrigger_TheGateAcceptsOnlyAPushToMainOrAManualRunFromMain(t *test
 			}
 			if _, err := os.Stat(marker); err == nil {
 				t.Fatal("an input value was executed")
+			}
+		})
+	}
+}
+
+// resolveStep is the deploy.yml step whose `full` output every later step checks out, tags and
+// deploys.
+const resolveStep = "Resolve the commit to deploy"
+
+// TestDeployTrigger_TheCommitToDeployIsExactlyFortyLowercaseHex runs resolveStep's bash body,
+// extracted from deploy.yml, with the env names it reads. Accepted: a 40-character lowercase hex
+// sha, from either trigger, written to GITHUB_OUTPUT as full= and short= (its first 12). Refused,
+// exit 1 with GITHUB_OUTPUT left empty: 39 and 41 characters, uppercase hex (git never prints
+// one, and an image tag built from it would not be the tag the cluster pulls), a non-hex
+// character, an empty value, and a value carrying a newline (it would write a second line into
+// GITHUB_OUTPUT).
+//
+// MUTANT (measured, T140 fix round): the `[ "${#sha}" -eq 40 ]` line deleted -> red (39, 41);
+// the `*[!0-9a-f]*|"")` arm deleted -> red (uppercase, non-hex, newline).
+func TestDeployTrigger_TheCommitToDeployIsExactlyFortyLowercaseHex(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("no bash")
+	}
+	dir := t.TempDir()
+	script := writeStepScript(t, dir, resolveStep, 8)
+
+	const sha = "0123456789abcdef0123456789abcdef01234567"
+	if len(sha) != 40 {
+		t.Fatalf("CONTROL FAILED: the fixture sha has %d characters", len(sha))
+	}
+	run := func(v string) map[string]string {
+		return map[string]string{"EVENT_NAME": "workflow_run", "RUN_HEAD_SHA": v, "DISPATCH_SHA": sha}
+	}
+	dispatch := func(v string) map[string]string {
+		return map[string]string{"EVENT_NAME": "workflow_dispatch", "DISPATCH_SHA": v, "RUN_HEAD_SHA": sha}
+	}
+	tests := []struct {
+		name string
+		env  map[string]string
+		ok   bool
+	}{
+		{"a 40-hex head_sha from a ci run", run(sha), true},
+		{"a 40-hex sha from a manual run", dispatch(sha), true},
+		{"39 characters", run(sha[:39]), false},
+		{"41 characters", run(sha + "0"), false},
+		{"uppercase hex", run(strings.ToUpper(sha)), false},
+		{"a non-hex character", run(sha[:39] + "g"), false},
+		{"empty", run(""), false},
+		{"a manual run whose sha is empty, though the ci one is not", dispatch(""), false},
+		// 40 characters, so only the hex arm refuses it.
+		{"a newline carrying a second output line", run(sha[:14] + "\nfull=" + sha[:20]), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			outFile := filepath.Join(t.TempDir(), "github_output")
+			if err := os.WriteFile(outFile, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.Command("bash", script)
+			cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "GITHUB_OUTPUT=" + outFile}
+			for k, v := range tt.env {
+				cmd.Env = append(cmd.Env, k+"="+v)
+			}
+			out, err := cmd.CombinedOutput()
+			got, rerr := os.ReadFile(outFile)
+			if rerr != nil {
+				t.Fatal(rerr)
+			}
+			if tt.ok {
+				if err != nil {
+					t.Fatalf("refused (%v), want accepted: %s", err, out)
+				}
+				if want := "full=" + sha + "\nshort=" + sha[:12] + "\n"; string(got) != want {
+					t.Errorf("GITHUB_OUTPUT is %q, want %q", got, want)
+				}
+				return
+			}
+			ee, isExit := err.(*exec.ExitError)
+			if !isExit || ee.ExitCode() != 1 {
+				t.Fatalf("got %v, want exit 1: %s", err, out)
+			}
+			if !strings.Contains(string(out), "::error::the commit to deploy is not a") {
+				t.Errorf("the refusal does not say why: %s", out)
+			}
+			if len(got) != 0 {
+				t.Errorf("a refused sha still wrote GITHUB_OUTPUT: %q", got)
 			}
 		})
 	}
