@@ -85,14 +85,19 @@ func TestRedline_R5bWaiverIsThe00058DownAlone(t *testing.T) {
 		if c.body == shipped && c.file == name {
 			t.Fatalf("%s: the variant did not change the file", c.what)
 		}
-		out, code := redlineRun(t, map[string]string{"db/migrations/" + c.file: c.body})
-		if fail := failSection(out, "R5b"); code == 0 || !strings.Contains(fail, c.file+": politika SILINIYOR") {
-			t.Errorf("%s: exit %d, R5b FAIL %q -- want a non-zero exit and the drop named:\n%s", c.what, code, fail, out)
-		}
-		// W6 leaves the Down as shipped: its drop is still the waived one; the Up's is the FAIL.
-		if strings.Contains(out, waived) != strings.HasPrefix(c.what, "W6") {
-			t.Errorf("%s: the waiver fired %v", c.what, strings.Contains(out, waived))
-		}
+		// Each variant is its own tree (every one is a variant of 00058 under the same name), so they
+		// run side by side (T139: 22 runs one after another were the package's second-longest test).
+		t.Run(c.what, func(t *testing.T) {
+			t.Parallel()
+			out, code := redlineRun(t, map[string]string{"db/migrations/" + c.file: c.body})
+			if fail := failSection(out, "R5b"); code == 0 || !strings.Contains(fail, c.file+": politika SILINIYOR") {
+				t.Errorf("%s: exit %d, R5b FAIL %q -- want a non-zero exit and the drop named:\n%s", c.what, code, fail, out)
+			}
+			// W6 leaves the Down as shipped: its drop is still the waived one; the Up's is the FAIL.
+			if strings.Contains(out, waived) != strings.HasPrefix(c.what, "W6") {
+				t.Errorf("%s: the waiver fired %v", c.what, strings.Contains(out, waived))
+			}
+		})
 	}
 }
 

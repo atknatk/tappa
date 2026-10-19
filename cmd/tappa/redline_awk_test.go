@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -96,23 +97,45 @@ script=$1; shift
 eval "$(awk '/^sql_lex\(\) \{/{f=1} f{print} f&&/^\}/{f=0}' "$script")"
 eval "$(awk '/^sql_scan\(\) \{/{f=1} f{print} f&&/^\}/{f=0}' "$script")"
 for f in "$@"; do printf '== %s\n' "${f##*/}"; sql_lex <"$f"; echo '-- scan'; sql_scan "$f"; done`
-	var first []byte
-	for _, im := range impls {
-		shim := t.TempDir()
+	// Every awk reads the inputs at the same time (T139): the slowest (the one-true-awk family, ~8 s
+	// here against ~1-2 s for mawk and gawk) sets the wall time instead of the sum.
+	type result struct {
+		out    []byte
+		err    error
+		stderr string
+	}
+	results := make([]result, len(impls))
+	shims := make([]string, len(impls))
+	for i, im := range impls {
+		shims[i] = t.TempDir()
 		args := ""
 		for _, a := range im.args {
 			args += " " + a
 		}
-		if err := os.WriteFile(filepath.Join(shim, "awk"), []byte("#!/bin/sh\nexec "+im.path+args+" \"$@\"\n"), 0o755); err != nil {
+		if err := os.WriteFile(filepath.Join(shims[i], "awk"), []byte("#!/bin/sh\nexec "+im.path+args+" \"$@\"\n"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		cmd := exec.Command("bash", append([]string{"-c", driver, "driver", filepath.Join(repoRoot, "scripts", "redline-check.sh")}, files...)...)
-		cmd.Env = append(os.Environ(), "PATH="+shim+string(os.PathListSeparator)+os.Getenv("PATH"))
-		var stderr bytes.Buffer
-		cmd.Stderr = &stderr
-		out, err := cmd.Output()
+	}
+	var wg sync.WaitGroup
+	for i := range impls {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			cmd := exec.Command("bash", append([]string{"-c", driver, "driver", filepath.Join(repoRoot, "scripts", "redline-check.sh")}, files...)...)
+			cmd.Env = append(os.Environ(), "PATH="+shims[i]+string(os.PathListSeparator)+os.Getenv("PATH"))
+			var stderr bytes.Buffer
+			cmd.Stderr = &stderr
+			out, err := cmd.Output()
+			results[i] = result{out: out, err: err, stderr: stderr.String()}
+		}()
+	}
+	wg.Wait()
+
+	var first []byte
+	for i, im := range impls {
+		out, err := results[i].out, results[i].err
 		if err != nil {
-			t.Fatalf("%s: %v\n%s", im.name, err, stderr.String())
+			t.Fatalf("%s: %v\n%s", im.name, err, results[i].stderr)
 		}
 		if !bytes.Contains(out, []byte("\nbody\tquoted\t")) || !bytes.Contains(out, []byte("\nsetcfg\t!")) {
 			t.Fatalf("anti-vacuity: %s's output holds no quoted body or no set_config record", im.name)
@@ -124,10 +147,10 @@ for f in "$@"; do printf '== %s\n' "${f##*/}"; sql_lex <"$f"; echo '-- scan'; sq
 		}
 		if !bytes.Equal(out, first) {
 			a, b := strings.Split(string(first), "\n"), strings.Split(string(out), "\n")
-			for i := 0; i < len(a) && i < len(b); i++ {
-				if a[i] != b[i] {
+			for j := 0; j < len(a) && j < len(b); j++ {
+				if a[j] != b[j] {
 					t.Fatalf("%s (%s) reads differently from %s at output line %d:\n  %s: %q\n  %s: %q",
-						im.name, im.path, impls[0].name, i+1, impls[0].name, a[i], im.name, b[i])
+						im.name, im.path, impls[0].name, j+1, impls[0].name, a[j], im.name, b[j])
 				}
 			}
 			t.Fatalf("%s (%s): %d output lines, %s: %d", im.name, im.path, len(b), impls[0].name, len(a))

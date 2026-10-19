@@ -284,10 +284,17 @@ test: require-db-env
 # bir dosyanin kirdigi her import burada gorunur. cmd/tappa TestCI_RunsVetAndTestWithTheSandboxTag
 # listeyi agactan yeniden hesaplar: etiketli dosyasi olup burada olmayan bir paket kirmizidir.
 SANDBOX_TEST_PKGS := ./internal/config/... ./internal/sandbox/... ./cmd/tappa/...
+# SANDBOX_SKIP (T139): cmd/tappa'nin script testleri (redline, secret-scan, pre-push, heartbeat,
+# backup) dosya okur ve bash kosar; etiket yalniz Go derlemesini degistirir, okuduklari bayt ayni.
+# Ikinci kosu bilgi degil sure: CI 39204779143'te bu adim 11:37 (T137'den once 3:05). `make check`
+# onlari etiketsiz koser. cmd/tappa TestSandboxSkip_SkipsOnlyTestsTheTagCannotChange her eslesen
+# testin etiketin degistirdigi hicbir seye (main'in kodu, etiketli test dosyasi, modulun paketleri)
+# ulasmadigini kaynaktan kanitlar; eslesen tek bir istisna kirmizidir.
+SANDBOX_SKIP := ^Test(Redline|SecretScan|PrePush|Heartbeat|BackupShip)_|^TestEveryNamedTestExists
 check-sandbox: require-db-env
 	go vet -tags sandbox ./...
 	go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 -tags sandbox ./...
-	go test -race -count=1 -timeout=20m -tags sandbox $(SANDBOX_TEST_PKGS)
+	go test -race -count=1 -timeout=20m -tags sandbox -skip '$(SANDBOX_SKIP)' $(SANDBOX_TEST_PKGS)
 
 ## test-short: gelistirici ic dongusu — SIMULE EDILEN GUN + BCRYPT ORNEKLEMI atlanir
 # NEDEN IKI HEDEF VAR. Olculdu (-race -count=1, tek makine). Sayilar ARALIKTIR;

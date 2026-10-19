@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -25,24 +26,47 @@ func t137Migration(up string) string {
 
 type t137Case struct{ what, up, want string }
 
-// t137Run runs each case in a tree holding only that migration: a case with a want must exit
-// non-zero with an R5b FAIL naming the file and carrying want; a case without one must exit 0 with
-// no R5b FAIL at all.
+// t137Run runs a table's cases in two trees, not one tree per case (T139): every red case side by
+// side, each its own migration file, and every green case side by side the same way. A red case must
+// get an R5b FAIL naming ITS file and carrying want (so the tree's exit is non-zero); the green tree
+// must exit 0 with no R5b FAIL at all -- each green case is then a file the whole scan passed, which
+// is what a tree of its own proved. The R5b rules this file pins read one migration at a time (the
+// only name-keyed ones are R5B_BODY_DDL's pins and the 00058 waiver, and no case here is named like
+// them), so a neighbour can add a FAIL but cannot take one away. Why: one redline-check run costs
+// about a second of CPU whatever the tree (gawk, the CI's awk: measured 0.87 s on a one-file tree),
+// and these tables were ~95 runs -- with the other T137 tests, cmd/tappa went from 270 s to 1115 s
+// in CI's `make check` (runs 39184166839 and 39204779143).
 func t137Run(t *testing.T, cases []t137Case) {
 	t.Helper()
-	for _, c := range cases {
+	t.Parallel()
+	name := func(i int) string { return fmt.Sprintf("db/migrations/00099_zz_probe_%02d.sql", i) }
+	red, green := map[string]string{}, map[string]string{}
+	for i, c := range cases {
+		if c.want == "" {
+			green[name(i)] = t137Migration(c.up)
+		} else {
+			red[name(i)] = t137Migration(c.up)
+		}
+	}
+	var redOut, greenOut string
+	var redCode, greenCode int
+	if len(red) > 0 {
+		redOut, redCode = redlineRun(t, red)
+	}
+	if len(green) > 0 {
+		greenOut, greenCode = redlineRun(t, green)
+	}
+	redFail, greenFail := failSection(redOut, "R5b"), failSection(greenOut, "R5b")
+	for i, c := range cases {
 		t.Run(c.what, func(t *testing.T) {
-			t.Parallel()
-			out, code := redlineRun(t, map[string]string{t137File: t137Migration(c.up)})
-			fail := failSection(out, "R5b")
 			if c.want == "" {
-				if code != 0 || fail != "" {
-					t.Fatalf("want exit 0 and no R5b FAIL, got exit %d:\n%s", code, out)
+				if greenCode != 0 || greenFail != "" {
+					t.Fatalf("the green cases' tree: want exit 0 and no R5b FAIL, got exit %d (this case is %s):\n%s", greenCode, name(i), greenOut)
 				}
 				return
 			}
-			if code == 0 || !strings.Contains(fail, t137File+": "+c.want) {
-				t.Fatalf("want a non-zero exit and an R5b FAIL %q, got exit %d, FAIL %q:\n%s", c.want, code, fail, out)
+			if redCode == 0 || !strings.Contains(redFail, name(i)+": "+c.want) {
+				t.Fatalf("want a non-zero exit and an R5b FAIL %q on %s, got exit %d, FAIL:\n%s", c.want, name(i), redCode, redFail)
 			}
 		})
 	}
