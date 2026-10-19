@@ -518,6 +518,7 @@ waiver_report=""
 unverified=""
 rls_mutations=""
 policy_waivers=""
+body_waivers=""
 
 # `-- +goose Down` ve sonrasini atar: yalnizca Up denetlenir.
 goose_up() {
@@ -542,37 +543,83 @@ goose_down() {
 #     bosluksuz silmek onu `grantdelete …` yapiyordu ve `^grant ` bekleyen her
 #     kuraldan (append-only, sema capinda, GRANT ALL, R5b muafiyeti) geciyordu
 #     (olculdu, exit 0). Kirmizi vaka: cmd/tappa TestRedline_ABlockCommentSeparatesTokens;
-#   · string literallerini ve `$$ … $$` govdelerini KORUR, icindeki `;` yerine
+#   · string literallerini ve dolar tirnakli govdeleri KORUR, icindeki `;` yerine
 #     \001 koyar — `DEFAULT ';'` gibi bir sutun ifadeyi bolmesin (yanlis pozitif),
 #     plpgsql govdesi de parcalanmasin;
 #   · soldan saga tek gecis: string icindeki `--` yorum, yorum icindeki `'` string
 #     sayilmaz.
-# SINIRLAR (sayili, yanlis-NEGATIF): (1) adlandirilmis dolar tirnagi ($body$ …)
-# bilinmez; `$$` kullanin. (2) `E'…\'…'` bicimli kacisli dize bilinmez: `\'`
-# dizeyi kapatmis sayilir ve geri kalan ayirma kayar (`''` bilinir). (3) dinamik
-# SQL (`DO`/`EXECUTE`) ve PUBLIC'e verilen yetki R5b kurallarinin gorus alani
-# disindadir -- backlog T137; arkadaki kapi DB testleridir
-# (TestRLS_AppCannotMutateTransactions vb.).
+#
+# 🔴 T137 (2026-10-19) -- AYIRICI POSTGRESQL'IN SOZCUK KURALLARINA GETIRILDI. Her sapma ayni
+# yonde bir kacisti: ayirici bir seyi dize/yorum sanip PostgreSQL onu KOD diye kosarsa, o
+# kod her `^grant`/`^alter` kuralinin gozunden duser. Olculdu (17-alpine, 2026-10-19):
+#   · `E'…'` kacisli dize: `\'` dizeyi KAPATMAZ (`SELECT E'\''` tek tirnak dondurur). Eski
+#     ayirici kapatiyordu; sonraki `'` yeni bir dize aciyor ve bir sonraki satirdaki
+#     `GRANT DELETE ON public.transactions TO tappa_app` dizenin icinde kaliyordu (exit 0).
+#     `E` oneki yalniz bir tanimlayicinin parcasi DEGILSE sayilir (`name'x'` E dizesi degil);
+#     `''` her iki dize biciminde de tirnaktir.
+#   · adlandirilmis dolar tirnagi (`$x$ … $x$`) artik bilinir. Bilinmemesi bir govdeden
+#     fazlasini gizliyordu: `SELECT $x$/*$x$; GRANT …; SELECT $x$*/$x$;` -- PostgreSQL'e iki
+#     dize ve aralarinda bir GRANT, eski ayiriciya tek bir blok yorumu.
+#   · `"…"` tanimlayicisi da bir kapsamdir: `SELECT 1 AS "/*"; GRANT …; SELECT 1 AS "*/";`
+#     ayni sekilde gizleniyordu. Icindeki `""` tirnaktir.
+#   · blok yorumu IC ICE gecer (`/* a /* b */ c */` tek yorumdur; olculdu, `SELECT 1` doner).
+#     Ilk `*/`te bitirmek kalan `c */ it's …` metnini koda katiyordu ve oradaki `'` bir
+#     dize acip arkasindaki GRANT'i yutuyordu.
+#   · `$` bir tanimlayicinin icindeyse dolar tirnagi ACMAZ: `a$$` bir tanimlayicidir
+#     (olculdu, `SELECT 1 AS a$$` -> sutun `a$$`). Ust bitli baytlar tanimlayici harfidir;
+#     bu yuzden ayirici `LC_ALL=C` ile bayt bayt kosar (gawk'in UTF-8 kipinde araliklar
+#     karakter sayilir).
+# Sevk edilen 59 migration'da ciktinin BAYT BAYT ayni kaldigi olculdu: her yeni kural
+# yalniz bugunku agacta gecmeyen bir yazimda fark eder.
+# Kirmizi vakalar: cmd/tappa TestRedline_T137_TheLexerReadsWhatPostgresReads.
+#
+# SINIRLAR (sayili, yanlis-NEGATIF): (1) `standard_conforming_strings = off` ile duz
+# `'…'` dizesi de `\'` kacisini tasir; ayirici bunu modellemez, onun yerine R5b o adi
+# gecen her migration'i FAIL eder (asagida). (2) `U&'…'` dizesinin icindeki `\0041` bir
+# harftir -- dize olarak dogru ayrilir, ama govde olarak okunamaz; R5b E/U& dizeli bir
+# DO/fonksiyon govdesini FAIL eder. (3) Govdenin ICI burada KORUNUR, denetlenmez --
+# onu sql_scan okur (asagida, R5b'nin govde kurali).
 sql_lex() {
-  awk '
-    BEGIN { inb = 0; ins = 0; ind = 0 }
+  LC_ALL=C awk '
+    function idch(ch) { return ch != "" && ch ~ /[A-Za-z0-9_$\200-\377]/ }
+    BEGIN { m = ""; depth = 0; tag = "" }
     {
-      line = $0; out = ""; i = 1; n = length(line)
+      line = $0; out = ""; i = 1; n = length(line); prev = " "; pp = " "
       while (i <= n) {
         c = substr(line, i, 1); c2 = substr(line, i, 2)
-        if (inb) {
-          if (c2 == "*/") { inb = 0; i += 2 } else { i++ }
-        } else if (ind) {
-          if (c2 == "$$") { ind = 0; out = out c2; i += 2 }
+        if (m == "b") {
+          if (c2 == "*/") { depth--; i += 2; if (depth == 0) m = "" }
+          else if (c2 == "/*") { depth++; i += 2 }
+          else i++
+          prev = " "; pp = " "
+          continue
+        }
+        if (m == "d") {
+          if (substr(line, i, length(tag)) == tag) { m = ""; out = out tag; i += length(tag); prev = " "; pp = " " }
           else { out = out ((c == ";") ? "\001" : c); i++ }
-        } else if (ins) {
-          if (c == "\047") { ins = 0; out = out c; i++ }
+          continue
+        }
+        if (m == "s" || m == "e" || m == "q") {
+          q = (m == "q") ? "\"" : "\047"
+          if (m == "e" && c == "\\") {
+            nx = substr(line, i + 1, 1)
+            out = out c ((nx == ";") ? "\001" : nx); i += 2
+          } else if (c == q && substr(line, i + 1, 1) == q) { out = out c c; i += 2 }
+          else if (c == q) { m = ""; out = out c; i++; prev = c; pp = " " }
           else { out = out ((c == ";") ? "\001" : c); i++ }
-        } else if (c2 == "/*")   { inb = 1; out = out " "; i += 2 }
-        else if (c2 == "--")     { i = n + 1 }
-        else if (c2 == "$$")     { ind = 1; out = out c2; i += 2 }
-        else if (c == "\047")    { ins = 1; out = out c; i++ }
-        else                     { out = out c; i++ }
+          continue
+        }
+        if (c2 == "/*") { m = "b"; depth = 1; out = out " "; i += 2; prev = " "; pp = " "; continue }
+        if (c2 == "--") { i = n + 1; continue }
+        if (c == "$" && !idch(prev) && match(substr(line, i), /^[$]([A-Za-z_\200-\377][A-Za-z0-9_\200-\377]*)?[$]/)) {
+          tag = substr(line, i, RLENGTH); m = "d"; out = out tag; i += RLENGTH; continue
+        }
+        if (c == "\047") {
+          m = ((prev == "e" || prev == "E") && !idch(pp)) ? "e" : "s"
+          out = out c; i++; continue
+        }
+        if (c == "\"") { m = "q"; out = out c; i++; continue }
+        out = out c; pp = prev; prev = c; i++
       }
       print out
     }'
@@ -821,6 +868,147 @@ r5b_00058_shape() {
   ! grep -E '^grant .* to (group )?([a-z0-9_]+ , (group )?)*public( ,| with |$)' <<<"$up"$'\n'"$down" >/dev/null \
     || return 1
 }
+
+
+# --- sql_scan: R5b'nin govde kurali icin (T137) ------------------------------
+#
+# sql_scan <dosya> -- bir migration'in TAMAMINI (Up + Down) okur ve iki tur kayit basar:
+#   top<TAB><kod>              her ust duzey ifade icin bir satir;
+#   body<TAB><tur><TAB><kod>   her GOVDE icin bir satir: `dollar` (ust duzeydeki her dolar
+#                              tirnakli dize -- DO, fonksiyon, COMMENT IS $$…$$ ayrimsiz),
+#                              `quoted` (`DO '…'` ya da `CREATE FUNCTION|PROCEDURE … AS '…'`
+#                              ifadesindeki duz dize, `''` cozulmus) ve `escaped` (ayni yerde bir
+#                              `E'…'`/`U&'…'` dizesi -- kacislari bir harf yazabilir, yani metni
+#                              govde olarak OKUNAMAZ; kodu yerine ham metin basilir).
+# <kod> = yorumlar atilmis; her dize, dolar dizesi ve tirnakli tanimlayici bir yer tutucuyla
+# ('s', $s$, "i") degistirilmis; kucuk harf; tek bosluk. Yani bir govdenin `-- execute` yorumu ya
+# da `has_function_privilege(…, 'EXECUTE')` dizesi kod DEGILDIR, `EXECUTE 'GRANT …'` ise koddur
+# (`execute 's'`). Sozcuk kurallari sql_lex'inkilerle AYNIDIR (E/U& dizesi, adlandirilmis dolar
+# tirnagi, tanimlayici, ic ice blok yorumu) ve ayni sebeple: govdenin ici de PostgreSQL'in
+# (PL/pgSQL'in cekirdek ayiricisi) okudugu gibi okunmali, yoksa yorum sanilan bir satir kosar.
+sql_scan() {
+  LC_ALL=C awk '
+    function idch(ch) { return ch != "" && ch ~ /[A-Za-z0-9_$\200-\377]/ }
+    function push(k, v) { nseg++; segk[nseg] = k; segv[nseg] = v }
+    # lex(s) -> segk/segv: c (kod), s (duz dize, `\047\047` cozulmus), x (E/U& dizesi, ham),
+    # d (dolar dizesi), q (tirnakli tanimlayici). Yorum kodda bir bosluk olur.
+    function lex(s,   i, n, c, c2, m, d, t, prev, pp, cur, q) {
+      nseg = 0; cur = ""; i = 1; n = length(s); m = ""; prev = " "; pp = " "
+      while (i <= n) {
+        c = substr(s, i, 1); c2 = substr(s, i, 2)
+        if (m == "b") {
+          if (c2 == "*/") { d--; i += 2; if (d == 0) m = "" }
+          else if (c2 == "/*") { d++; i += 2 }
+          else i++
+          continue
+        }
+        if (m == "l") { if (c == "\n") m = ""; i++; continue }
+        if (m == "d") {
+          if (substr(s, i, length(t)) == t) { push("d", cur); cur = ""; m = ""; i += length(t); prev = " "; pp = " " }
+          else { cur = cur c; i++ }
+          continue
+        }
+        if (m == "s" || m == "e" || m == "u" || m == "q") {
+          q = (m == "q") ? "\"" : "\047"
+          if (m == "e" && c == "\\") { cur = cur c substr(s, i + 1, 1); i += 2 }
+          else if (c == q && substr(s, i + 1, 1) == q) { cur = cur c; i += 2 }
+          else if (c == q) { push((m == "e" || m == "u") ? "x" : m, cur); cur = ""; m = ""; i++; prev = c; pp = " " }
+          else { cur = cur c; i++ }
+          continue
+        }
+        if (c2 == "/*") { cur = cur " "; m = "b"; d = 1; i += 2; prev = " "; pp = " "; continue }
+        if (c2 == "--") { cur = cur " "; m = "l"; i += 2; continue }
+        if (c == "$" && !idch(prev) && match(substr(s, i), /^[$]([A-Za-z_\200-\377][A-Za-z0-9_\200-\377]*)?[$]/)) {
+          push("c", cur); cur = ""; t = substr(s, i, RLENGTH); m = "d"; i += RLENGTH; continue
+        }
+        if (c == "\047") {
+          push("c", cur); cur = ""
+          if ((prev == "e" || prev == "E") && !idch(pp)) m = "e"
+          else if (prev == "&" && (pp == "u" || pp == "U")) m = "u"
+          else m = "s"
+          i++; continue
+        }
+        if (c == "\"") { push("c", cur); cur = ""; m = "q"; i++; continue }
+        cur = cur c; pp = prev; prev = c; i++
+      }
+      # Kapanmamis bir kapsam (dosya sonunda acik dize/govde) KOD sayilir: PostgreSQL onu
+      # reddeder, yani gizledigi bir sey kosmaz -- ama ayirici da onu sessizce yutmasin.
+      push("c", cur)
+    }
+    function norm(s) { s = tolower(s); gsub(/[ \t\n\r\f\v]+/, " ", s); sub(/^ /, "", s); sub(/ $/, "", s); return s }
+    function code_of(s,   k, o) {
+      lex(s); o = ""
+      for (k = 1; k <= nseg; k++) {
+        if (segk[k] == "c") o = o segv[k]
+        else if (segk[k] == "d") o = o " $s$ "
+        else if (segk[k] == "q") o = o " \"i\" "
+        else o = o " \047s\047 "
+      }
+      return norm(o)
+    }
+    { all = all $0 "\n" }
+    END {
+      lex(all)
+      for (k = 1; k <= nseg; k++) { K[k] = segk[k]; V[k] = segv[k] }
+      N = nseg; stmt = ""
+      for (k = 1; k <= N; k++) {
+        if (K[k] == "c") {
+          rest = V[k]
+          while ((j = index(rest, ";")) > 0) {
+            stmt = stmt substr(rest, 1, j - 1)
+            if (norm(stmt) != "") print "top\t" norm(stmt)
+            stmt = ""; rest = substr(rest, j + 1)
+          }
+          stmt = stmt rest
+        } else if (K[k] == "d") {
+          print "body\tdollar\t" code_of(V[k]); stmt = stmt " $s$ "
+        } else if (K[k] == "q") {
+          stmt = stmt " \"i\" "
+        } else {
+          if (norm(stmt) ~ /^(do|create (or replace )?(function|procedure))([^a-z0-9_$]|$)/) {
+            if (K[k] == "s") print "body\tquoted\t" code_of(V[k])
+            else print "body\tescaped\t" norm(V[k])
+          }
+          stmt = stmt " \047s\047 "
+        }
+      }
+      if (norm(stmt) != "") print "top\t" norm(stmt)
+    }' "$1"
+}
+
+# sha256_tool -- bilinen bir vektorle sinanmis ilk sha256 araci (r5b_00058_shape'inkiyle ayni
+# secim); yoksa bos. Beyaz liste onsuz dogrulanamaz, yani yoklugu FAIL'dir, muafiyet degil.
+SHA256_TOOL=""
+for h in "sha256sum" "shasum -a 256"; do
+  # shellcheck disable=SC2086 # h bilerek bolunur (arac + argumanlari)
+  if command -v "${h%% *}" >/dev/null 2>&1 &&
+    [[ $(printf abc | $h 2>/dev/null) == ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad* ]]; then
+    SHA256_TOOL=$h
+    break
+  fi
+done
+
+# R5B_BODY_DDL -- GOVDESINDE DDL KODU OLAN sevk edilmis migration'lar (T137, 2026-10-19), her biri
+# sql_scan'in `body` kayitlarinin sha256'siyla. Dokuzu da ayni sekildir: operator yuzeyinin
+# `operator_audit_log` / `operator_read_tickets` CHECK kisitlarini (`*_kind_check`, `*_actor_shape`)
+# kosullu yeniden kuran bir DO blogu (`IF EXISTS (…) THEN ALTER TABLE public.… ADD CONSTRAINT …
+# NOT VALID; ELSE ALTER TABLE public.… ADD CONSTRAINT …; END IF`) -- statik, tablo adi yazili,
+# yetki/RLS/politika/sahiplik degistirmiyor (okundu: 52 `alter`in 52'si `alter table public.<o iki
+# tablo> add constraint`). Bugunku agacta hicbir govdede
+# `EXECUTE` KODU yok (olculdu: 59 dosyanin 21'inde `execute` sozcugu geciyor, hepsi bir yorumda ya
+# da `has_function_privilege(…, 'EXECUTE')` dizesinde). Bir migration deploy olunca degismez
+# (CLAUDE.md §3), pin de degismez; YENI bir satir yalniz govdesi okunup gerekcesi yazilarak eklenir.
+R5B_BODY_DDL='
+00027_move_legal_publishing_to_the_operator.sql 6b72158af68dac609a68a8cae3e7e878c76014f42535599c371f15f93c9b829c
+00029_read_tenants_from_the_operator.sql f808a70a89719e3cf2165c4c6a9df1fd84cd1b4626cd1b96ec242f8a7dab4304
+00030_read_plaques_from_the_operator.sql 43723497138575b48737a480bbb06602285fd4a4343678e35d87d532aa2443d8
+00031_read_the_operator_audit_log.sql 5c8bd079165403f3bdc2e4165b0605993f282783f02c53d361193410cca9476c
+00032_read_billing_from_the_operator.sql 8bf637df26493412490d4ba8354741550e6f0d0c9d5a1618ab3fb57b26e9ff1f
+00033_audit_opadmin_actions.sql 61cf9206a24a508c9758629e92501a22900023efd83f684a967f1ec8993c8d91
+00034_recheck_a_tenants_vat_from_the_operator.sql 8f7ec66513c2ba0a54d014904b7100726e04beed9e54d68ba8baf3ca6f4018b8
+00039_open_the_api_from_the_operator.sql 3ca9f163bb479aba10b66a9f2794285e761ab5cd67da737158ade434c0669400
+00042_put_holdings_on_the_operator_surface.sql 6f7a3ac530f0eea8bea3fb7aa482d9168d87d35f96391d6dfc75d90baa316e1b
+'
 
 for f in db/migrations/*.sql; do
   [[ -e $f ]] || continue
@@ -1074,6 +1262,11 @@ for f in db/migrations/*.sql; do
   #   ON ALL TABLES IN SCHEMA · tetikleyici sokme/kapatma · tablo sahipligi ·
   #   GRANT ALL — VE her birinin BOSLUKSUZ/TIRNAKLI yazimi, cunku eslestirme artik
   #   NORMALIZE metin uzerinde yapiliyor (bkz. lex_statements).
+  #   T137 (2026-10-19): PUBLIC'e her GRANT · bir ifadenin ICINDEKI GRANT (`CREATE SCHEMA
+  #   … GRANT`) · govde KODUNDA `EXECUTE`/DDL (R5B_BODY_DDL pini disinda) · E/U& dizeli
+  #   govde · `standard_conforming_strings`/`backslash_quote` · goose ENVSUB; ve ayiricinin
+  #   `E'…'`, adlandirilmis dolar tirnagi, `"…"` tanimlayicisi, ic ice blok yorumu ve
+  #   tanimlayici icindeki `$` sinirlari (bkz. sql_lex).
   #
   # ⚠️ VE BU LISTE 3. TURDA FAZLA SEY IDDIA EDIYORDU. `(true)` "kapatildi" diye
   # yaziliydi; olculdu ki `USING(true)` — o dortlunun ILKI, yalnizca boslugu
@@ -1081,10 +1274,16 @@ for f in db/migrations/*.sql; do
   # tasiyan sey bir cumle degil, o adim.
   #
   # KAPATILAMAYANLAR, ADIYLA (bu kural ne kadar genisletilirse genisletilsin):
-  #   · dinamik SQL — `EXECUTE format('ALTER TABLE %I NO FORCE …', t)`; ifade
-  #     calisma aninda kurulur, dosyada hicbir yerde yazmaz;
-  #   · bir fonksiyon govdesinde saklanan DDL — `CREATE FUNCTION … $$ … $$` sonra
-  #     `SELECT f()`; lexer `$$` govdesini KORUR ama icini denetlemez;
+  #   · dinamik SQL'in ICERIGI — `EXECUTE format('ALTER TABLE %I NO FORCE …', t)`; ifade
+  #     calisma aninda kurulur, dosyada hicbir yerde yazmaz. T137'den beri (2026-10-19)
+  #     `EXECUTE`'un KENDISI bir migration govdesinde FAIL'dir (R5B_BODY_DDL disinda), ama
+  #     kurulan metin okunmaz: kayitli bir dosyanin pinlenmis govdesi ne kurarsa kurar, ve
+  #     migration DISINDA tanimli bir fonksiyon (eklenti, elle yaratilmis) cagrilabilir;
+  #   · govdedeki DML ve yuklem — T137'nin govde kurali DDL/DCL fiillerini ve `EXECUTE`'u
+  #     arar (`grant revoke alter drop create truncate reassign`, ic ice `do`); bir
+  #     govdenin `UPDATE transactions`'i, `SET ROLE`'u ya da `COPY … PROGRAM`'i onun
+  #     sozcukleri degildir. Bu da bir SOZCUK taramasidir: sozcuk listesinin disinda kalan
+  #     bir fiil sessiz gecer;
   #   · `\i` / `\ir` include ve `psql` degiskeni (`:tablo`) — icerik baska dosyada;
   #   · SECURITY DEFINER fonksiyon + GRANT EXECUTE. Bu SEKIL bilerek kapatilmadi:
   #     urunun KENDI cozucusu tam olarak budur (ADR 0002 md. 7) ve temiz agacta 10
@@ -1108,7 +1307,6 @@ for f in db/migrations/*.sql; do
   #   · BILESIK olmayan totolojiler — `NOT false`, `tenant_id IS NOT DISTINCT FROM
   #     tenant_id`, `coalesce(true, …)`. Ayristirici `true`, ust seviye `=` ve ust
   #     seviye ` or ` biliyor; SQL'in yuklem cebrini bilmiyor;
-  #   · adlandirilmis dolar tirnagi (`$body$ … $body$`) — sql_lex yalnizca `$$` bilir;
   #   · SOZDIZIMSEL ESANLAMLILAR normalizasyonun KAPSAMINDA DEGIL. Normalizasyon
   #     noktalama duzeyindedir; `ALTER USER` = `ALTER ROLE`, `GROUP` = `ROLE` gibi
   #     esanlamlilar hala tek tek yazilmistir ve bir sonraki esanlamli yine sessiz
@@ -1302,7 +1500,8 @@ for f in db/migrations/*.sql; do
   #     govdedir (on kosul DO'su, tetikleyici fonksiyonu, son kosul DO'su -- sha256'leri asagida):
   #     PL/pgSQL bir GRANT'i statik de kosabilir, yani "govdede EXECUTE yok" yetmez; govde bir
   #     beyaz liste, bir yasak listesi degil. 00058 deploy olunca degismez (§3), pin de degismez;
-  #   - adlandirilmis dolar tirnagi ($x$) ve ters bolu (E'…\'…' -- ayiricinin sayili siniri) yok;
+  #   - adlandirilmis dolar tirnagi ($x$) ve ters bolu (E'…\'…') yok -- ayirici ikisini T137'den beri
+  #     dogru ayirir, ama bu sekil onlari yine istemez;
   #   - Down'da hic `$$`, `do` ya da `execute` yok;
   #   - govdelerin DISINDA `execute` yalniz tetikleyicinin `execute function
   #     public.webhook_delivery_settle()`'idir ve her `grant` sozcugu bir ust duzey ifadenin ilk
@@ -1510,14 +1709,105 @@ for f in db/migrations/*.sql; do
     rls_mutations+="$f: uygulama roluna GRANT ALL → ${s:0:110}"$'\n'
   done < <(grep -E '^grant all( privileges)? .* to ' \
              <<<"$stmts"$'\n'"$(sql_statements_down "$f")" || true)
+
+  # --- R5b / T137: PUBLIC, ifadenin icindeki GRANT, govdedeki DDL, okunamayan dize ----------
+  # Yukaridaki her kural UST DUZEY bir ifadenin metnini `^grant`/`^alter` ile okur. T137 o
+  # gorus alaninin disinda kalan dort sinifi olctu (gecici bir 00099, Up'ta tek ifade, exit 0):
+  # bir DO govdesinin EXECUTE'u, PUBLIC'e verilen yetki, ayiricinin yanlis okudugu `E'…'` (sql_lex'te
+  # duzeltildi) ve -- bu turda olculdu -- `CREATE SCHEMA zz GRANT DELETE ON public.employees TO
+  # tappa_app` (PostgreSQL bir sema ogesi olarak BASKA bir semanin tablosuna GRANT kabul eder;
+  # has_table_privilege -> t). Kirmizi ve yesil vakalar: cmd/tappa redline_t137_test.go.
+  #
+  # (1) PUBLIC'e her GRANT. PUBLIC her roldur: tappa_app, tappa_operator, ileride yaratilacak her
+  # rol. Append-only kurali bunu tablo bazinda zaten FAIL ediyordu (`GRANT DELETE ON
+  # public.transactions TO PUBLIC` -> exit 1); genel kural yetkiden ve nesneden BAGIMSIZDIR,
+  # cunku okuma ve EXECUTE de sinirdan gecer (olculdu, 2026-10-19): `GRANT SELECT ON employees TO
+  # PUBLIC` -> tappa_operator SELECT=t (operator `app.tenant_id`'yi kendisi kurabilir ve op_*
+  # disindan, iz birakmadan okur -- ADR 0021); `GRANT EXECUTE ON FUNCTION public.op_…() TO PUBLIC`
+  # -> tappa_app EXECUTE=t (her op_* fonksiyonunun `REVOKE ALL … FROM PUBLIC`'i tam bunun icin
+  # var). Bedel olculdu: 59 migration'da `TO PUBLIC` 0 isabet; `REVOKE … FROM PUBLIC` (40+ satir)
+  # eslesmez, cunku ifade `revoke` ile baslar. `"public"` tirnakli yazimi da PUBLIC'tir (olculdu)
+  # ve normalizasyon tirnagi zaten bosluga cevirir; `GROUP public` ayni sey.
+  while IFS= read -r s; do
+    [[ -n $s ]] || continue
+    roles=${s##* to }; roles=${roles%% with *}; roles=${roles%% granted by *}
+    [[ " ${roles//[!a-z0-9_]/ } " == *" public "* ]] || continue
+    rls_mutations+="$f: PUBLIC'e yetki (her rol -- tappa_app, tappa_operator ve sonraki her rol) → ${s:0:110}"$'\n'
+  done < <(grep -E '^grant .* to ' <<<"$stmts"$'\n'"$down_stmts" || true)
+
+  scan=$(sql_scan "$f")
+
+  # (2) BIR IFADENIN ICINDEKI GRANT. `^grant` kurallari yalniz ifadenin ILK sozcugune bakar; bir
+  # sema ogesi olarak yazilan GRANT (`CREATE SCHEMA … GRANT …`) hicbirine gorunmuyordu. Girdi
+  # sql_scan'in `top` kodudur (dize ve govde yer tutucuda, yani bir yorum ya da dize sabiti
+  # eslesmez). `WITH GRANT OPTION` / `REVOKE GRANT OPTION FOR` bir yetkinin parcasidir;
+  # `ALTER DEFAULT PRIVILEGES … GRANT` zaten kendi kuraliyla FAIL'dir. Bedel: 0 isabet.
+  while IFS= read -r s; do
+    [[ -n $s ]] || continue
+    t=${s// with grant option/}
+    [[ $t =~ ^(grant|revoke|alter\ default\ privileges)\  ]] && continue
+    [[ $t =~ (^|[^a-z0-9_$])grant([^a-z0-9_$]|$) ]] || continue
+    rls_mutations+="$f: GRANT bir ifadenin ICINDE (ornegin CREATE SCHEMA … GRANT) — ^grant kurallari onu gormez → ${s:0:110}"$'\n'
+  done < <(grep -E $'^top\t' <<<"$scan" | cut -f2- || true)
+
+  # (3) GOVDEDEKI KOD: dinamik SQL ve statik DDL. Bir DO ya da fonksiyon govdesinde `EXECUTE`
+  # metni calisma aninda kurar (G1: `DO $$ BEGIN EXECUTE 'GRANT DELETE ON public.transactions TO
+  # tappa_app'; END $$` -> exit 0 idi), ve `GRANT`/`ALTER`/`DROP`/`CREATE`/`TRUNCATE`/`REVOKE`/
+  # `REASSIGN` govdede STATIK de kosar; ic ice `DO '…'`/`DO $x$…$x$` (olculdu: DO icinde DO'nun
+  # EXECUTE'u yetkiyi verir) govdenin govdesidir. Ifadenin metni bir grep icin ya yoktur ya da bir
+  # dizenin icindedir, yani karar sozcukte: sql_scan govdenin KODUNU verir (yorum ve dize atilmis)
+  # ve bu sozcuklerden biri geciyorsa dosya ya R5B_BODY_DDL'de dosya adi + sha256 ile kayitlidir
+  # ya da FAIL'dir. Pin govdelerin tamaminin ozetidir: kayitli bir dosyaya eklenen her govde ya da
+  # degisen her kod satiri onu bozar. Bedel olculdu: 59 migration'da 9 dosya, hepsi statik `ALTER
+  # TABLE … ADD CONSTRAINT` (liste ve gerekce R5B_BODY_DDL'de); `EXECUTE` kodu 0.
+  # Bu bir SOZCUK kapisidir; ARKADAKI KAPI veritabanidir (TestRLS_AppCannotMutateTransactions,
+  # TestRLS_AppCannotMutatePolicyVersions, TestAppendOnly_AppHasNoTruncatePrivilege ve yetki
+  # matrisi testleri gercek yetkiyi `tappa_app` olarak olcer).
+  bodies=$(grep -E $'^body\t' <<<"$scan" || true)
+  hits=$(cut -f3- <<<"$bodies" \
+           | grep -oE "(^|[^a-z0-9_\$])(execute|grant|revoke|alter|drop|create|truncate|reassign)([^a-z0-9_\$]|\$)|(^|[^a-z0-9_\$])do ('s'|[\$]s[\$]|language )" \
+           | sed -E 's/^[^a-z]*//; s/[^a-z].*$//' | sort | uniq -c | awk '{ printf "%s%s×%s", (NR > 1 ? ", " : ""), $2, $1 }' || true)
+  if [[ -n $hits ]]; then
+    pin=$(awk -v n="$(basename "$f")" '$1 == n && $2 ~ /^[0-9a-f]+$/ && length($2) == 64 { print $2 }' <<<"$R5B_BODY_DDL")
+    # shellcheck disable=SC2086 # SHA256_TOOL bilerek bolunur
+    got=$([[ -n $SHA256_TOOL ]] && printf %s "$bodies" | $SHA256_TOOL | cut -c1-64)
+    if [[ -z $pin ]]; then
+      rls_mutations+="$f: GOVDEDE dinamik SQL / DDL kodu ($hits) yeni bir migration'da — inceleme + R5B_BODY_DDL'ye (dosya + sha256) ekleme gerekir"$'\n'
+    elif [[ -z $got || $got != "$pin" ]]; then
+      rls_mutations+="$f: GOVDEDE DDL kodu ($hits) ve govdeler R5B_BODY_DDL'deki pinle AYNI DEGIL (sha256 ${got:-araci yok}) — sevk edilmis bir migration degismez"$'\n'
+    else
+      body_waivers+="$f: govdede statik DDL ($hits) — R5B_BODY_DDL'de, govdeler sha256 ile pinli"$'\n'
+    fi
+  fi
+
+  # (4) OKUNAMAYAN GOVDE VE OKUNAMAYAN DIZE. Bir DO/fonksiyon govdesi `E'…'` ya da `U&'…'` ise
+  # kacislari bir harf yazar (`E'\x45XECUTE'`, `U&'\0045XECUTE'`): metni kod olarak okunamaz, yani
+  # beyaz listeye de giremez. Ve `standard_conforming_strings`/`backslash_quote` gecen bir migration
+  # duz `'…'` dizesinin ayirimini degistirir (kapali iken `\'` dizeyi kapatmaz) -- sql_lex bunu
+  # modellemez. Ikisinin de bedeli olculdu: 0 isabet.
+  while IFS= read -r s; do
+    [[ -n $s ]] || continue
+    rls_mutations+="$f: KACISLI dize GOVDE (E'…'/U&'…' bir DO/fonksiyon govdesi) — kod olarak okunamaz → ${s:0:110}"$'\n'
+  done < <(grep -E $'^body\tescaped\t' <<<"$bodies" | cut -f3- || true)
+  if grep -qE 'standard_conforming_strings|backslash_quote' <<<"$(sql_lex <"$f" | tr '[:upper:]' '[:lower:]')"; then
+    rls_mutations+="$f: standard_conforming_strings/backslash_quote — dize ayirimini degistirir, sql_lex onu modellemez"$'\n'
+  fi
+  # goose'un ENVSUB'u `${VAR}`i calisma aninda ortamdan yerlestirir: metin dosyada YAZMAZ (`\i`
+  # sinifi). Annotasyon bir yorum satiridir, yani ham dosyadan okunur. Bedel: 0 isabet.
+  while IFS= read -r s; do
+    [[ -n $s ]] || continue
+    rls_mutations+="$f: goose ENVSUB — ifade metni calisma aninda ortamdan gelir → ${s:0:110}"$'\n'
+  done < <(grep -niE '^[[:space:]]*--[[:space:]]*[+]goose[[:space:]]+envsub' "$f" || true)
 done
 report FAIL R5 "Migration'da tablo besligi eksik (tenant_id + indeks + ENABLE/FORCE RLS + politika + GRANT)" "${missing_rls%$'\n'}"
 
-report FAIL R5b "Migration §4.5/§4.3/§4.6'yi SOKUYOR (RLS kapatma · politika silme veya totolojik yuklem · BYPASSRLS-SUPERUSER rol/grup · rol uyeligi · varsayilan yetki · view acma veya definer'a cevirme · KURAL (RULE) · tablo sahipligi · tetikleyici · append-only UPDATE/DELETE · sema capinda UPDATE/DELETE · GRANT ALL)" "${rls_mutations%$'\n'}"
+report FAIL R5b "Migration §4.5/§4.3/§4.6'yi SOKUYOR (RLS kapatma · politika silme veya totolojik yuklem · BYPASSRLS-SUPERUSER rol/grup · rol uyeligi · varsayilan yetki · view acma veya definer'a cevirme · KURAL (RULE) · tablo sahipligi · tetikleyici · append-only UPDATE/DELETE · sema capinda UPDATE/DELETE · GRANT ALL · PUBLIC'e yetki · ifadenin icinde GRANT · govdede dinamik SQL/DDL · okunamayan dize)" "${rls_mutations%$'\n'}"
 
 report WARN R5 "Tenant kapsamindan MUAF birakilmis tablo(lar) — muafiyet sessiz kalmamali" "${waiver_report%$'\n'}"
 
 report WARN R5b "Down'da silinen KISITLAYICI politika (fiil ayni Down'da once geri aliniyor) — muafiyet sessiz kalmamali" "${policy_waivers%$'\n'}"
+
+report WARN R5b "Govdesinde statik DDL olan, R5B_BODY_DDL'de sha256 ile pinli migration(lar) — muafiyet sessiz kalmamali" "${body_waivers%$'\n'}"
 
 report WARN R5 "Tablo yaratimi R5'in gorus alani disinda — elle denetle" "${unverified%$'\n'}"
 

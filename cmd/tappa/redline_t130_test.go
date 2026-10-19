@@ -75,7 +75,7 @@ func TestRedline_R5bWaiverIsThe00058DownAlone(t *testing.T) {
 			strings.Replace(shipped, upGrant, upGrant+"DO 'BEGIN EXECUTE pg_catalog.concat(''GR'', ''ANT DELETE ON public.webhook_deliveries TO tappa_resolver''); END';\n", 1)},
 		{"the Up's postcondition DO moved after the Down's drop", name,
 			strings.Replace(strings.Replace(shipped, post, "", 1), drop, drop+post, 1)},
-		{"an E'' string in the Up (the lexer's counted limit)", name,
+		{"an E'' string in the Up (a backslash in the file: the 00058 shape forbids it)", name,
 			strings.Replace(shipped, upGrant, upGrant+"SELECT E'\\'';\n", 1)},
 		{"no revoke", name, strings.Replace(shipped, revoke, "", 1)},
 		{"the revoke after the drop", name, strings.Replace(strings.Replace(shipped, revoke, "", 1), drop, drop+revoke, 1)},
