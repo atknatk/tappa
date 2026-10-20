@@ -306,7 +306,8 @@ big figures `font-mono font-normal leading-[0.9] tracking-[-0.04em]` at `text-5x
 
 Each entry says what it **extends** (an existing class or templ component) or that it is **new**,
 where it lives, and its breakpoint rule. Breakpoints: base = phone (< 768), `md:` = tablet
-(768–1199), `desk:` = desktop (≥ 1200, `screens.desk`). Scroll bleeds use the shell's padding:
+(768–1199), `desk:` = desktop (≥ 1200, `screens.desk`). One recipe has a fourth threshold: The
+Spike's evidence tiles go four in a row only from `min-[1340px]:` (§5.1). Scroll bleeds use the shell's padding:
 `-mx-4 px-4 md:-mx-8 md:px-8 desk:mx-0 desk:px-0` (`.panel-main px-4 md:px-8 desk:px-11`).
 Repeated chains become `@layer components` classes in `input.css` (the report-row measurement,
 `input.css:704-713`: on a `no-store` page the class attributes were most of a row's weight).
@@ -318,12 +319,12 @@ Repeated chains become `@layer components` classes in `input.css` (the report-ro
 | **Stamp** | existing `.stamp` + `stamp--approved/flagged/rejected/ignored/training` via `verdictStamp` (export it as `VerdictStamp`) | never copy classes; rotation comes from the class, not the board's −8° | **Sharp** (D2). Word ink, colour in the frame. Board `stamp--ok/flag/reject` are board names. |
 | **Rail + clip** | new | scroller `overflow-x-auto pb-[18px]` + bleed; inner `relative min-w-max pt-2.5`; bar `absolute inset-x-0 top-2.5 h-[7px] md:h-2 rounded bg-ink` (`aria-hidden`); list `ol.flex gap-3 md:gap-3.5 desk:gap-4 px-3.5`; clip `h-[18px] w-10 md:w-11 desk:w-[46px] rounded-b-md bg-ink/70` (`aria-hidden`) | **Tilt via `nth-child`** in `input.css`: `.rail-item:nth-child(7n+1) article { rotate: -1.2deg }` … seven rules (shipped keyed on the
 `article`, not `.docket` — §3 constraint 2) (−1.2, 0.8, −0.4, 1.1, −0.9, 0.5, −1.4), `transform-origin: top center`. Same rail + clip on Choose. |
-| **Tally** | existing `.tally` + tones (`input.css:625-703`) | add `.pill-tally { rounded-full font-bold tracking-[0.08em] px-2 }` | tones: `--mounted` green · `--unencoded` saffron · `--stock` line · `--rejected` tomato · `--manual` · `--queued` · `--approved` |
+| **Tally** | existing `.tally` + tones (`input.css:625-703`) | add `.pill-tally { rounded-full font-bold tracking-[0.08em] px-2 }`; **as built, The Roll's under-name labels use `.roll-qual` instead** (10 px corner, so a label the narrow name column wraps stays a box, not an oval — §5.1) | tones: `--mounted` green · `--unencoded` saffron · `--stock` line · `--rejected` tomato · `--manual` · `--queued` · `--approved` |
 | **Tally ticks** (floor per venue) | new | row `grid grid-cols-[84px_1fr_34px] md:grid-cols-[86px_1fr_34px] desk:grid-cols-[92px_1fr_28px] items-center gap-2`; ticks `font-mono text-sm tracking-[2px] text-tappa-green overflow-hidden` (`aria-hidden`); number `font-mono text-xs text-ink/70 text-right` carries the meaning | tick string built in Go (content, not classes); cap ticks at 20; **no denominator** (D1) |
 | **Tape bars** | new | row `grid grid-cols-[74px_1fr] md:grid-cols-[88px_1fr] desk:grid-cols-[96px_1fr] items-end gap-2`; bars `grid grid-cols-[repeat(24,minmax(0,1fr))] items-end gap-0.5 h-7 md:h-[34px] border-b border-line`; done `bg-tappa-green`, now `bg-ink`; axis `font-mono text-[10px] text-ink/70` | **Height buckets:** ten literal classes `.tape-bar--1 … --10` in `input.css` chosen by a templ `switch` on a bucket int from Go. Calendar day axis 00 → 24, elapsed hours only, no future bars (D1). Accessible table (`sr-only`) or per-row `aria-label`. Scroller inner `min-w-[560px] md:min-w-[640px] desk:min-w-[680px]`. |
 | **Stat card** | new `.stat-card` | `rounded-[18px] border border-line bg-paper p-4 md:px-5 md:py-[18px] desk:px-6 desk:py-[22px] flex flex-col gap-2.5 desk:gap-[18px]`; big number per §4 | Spike card: `+ border-saffron bg-saffron-lite` as an `<a>`; open card: `+ border-dashed border-ink/50`. Grid `grid grid-cols-2 gap-3 desk:grid-cols-4`, floor card `col-span-2`. Tri-state value. |
 | **Chip / segmented** | new `.chip-link` (+ `--on`), `.chip-count`, `.chip-group` (shipped M12-08; `.chip` would compile from prose, §3.2) | chip `inline-flex min-h-11 flex-none items-center gap-1.5 rounded-full border px-3.5 font-display text-[13px] font-medium`; off `border-ink/50 text-ink hover:border-ink`; on `border-ink bg-ink text-paper` + `aria-current="true"`; count `font-mono text-xs opacity-80` | **`rounded-full`** (D2). Links, not buttons; labels from the validator's own slice (`panelVerdicts`, `panelStatuses`). Phone: horizontal scroller with bleed, `[scrollbar-width:none]`. Week/day **segmented** stepper: `inline-flex items-center rounded-xl border border-line bg-paper` with two `a.size-11` arrows (`aria-label`) and a mono label. |
-| **Evidence tile** | new `.ev-tile`, `--ok/--bad/--none` | `flex flex-col gap-1.5 rounded-xl border border-line px-3.5 py-3` + `bg-tappa-green/5` / `bg-tomato/5` / `bg-paper`; value `font-display text-base font-bold`; sub `text-xs text-ink/70`; mark `size-[22px] rounded-md font-mono text-[13px]` `bg-tappa-green text-paper` / `bg-tomato text-paper` / `bg-line text-ink`, `aria-hidden` | grid `grid-cols-2 gap-2 desk:grid-cols-[repeat(auto-fit,minmax(150px,1fr))]`. Partner rows: one merged tile "Network · Location: not shown at a partner venue". No carrier, SSID, metres or "declined". |
+| **Evidence tile** | new `.ev-tile`, `--ok/--bad/--none` | `flex flex-col gap-1.5 rounded-xl border border-line px-3.5 py-3` + `bg-tappa-green/5` / `bg-tomato/5` / `bg-paper`; value `font-display text-base font-bold`; sub `text-xs text-ink/70`; mark `size-[22px] rounded-md font-mono text-[13px]` `bg-tappa-green text-paper` / `bg-tomato text-paper` / `bg-line text-ink`, `aria-hidden` | grid `grid-cols-2 gap-2 desk:grid-cols-[repeat(auto-fit,minmax(150px,1fr))]` — **as built `grid-cols-2 gap-2 md:gap-2.5 min-[1340px]:grid-cols-4`**, the merged partner tile `col-span-2` (no 3 + 1; §5.1). Partner rows: one merged tile "Network · Location: not shown at a partner venue". No carrier, SSID, metres or "declined". |
 | **Queue item** | new `.queue-item`, `--current` | `a.flex w-full min-h-11 flex-col gap-1 rounded-xl border border-line px-3.5 py-3 hover:border-ink focus-visible:ring-2 focus-visible:ring-ink`; current `border-2 border-ink bg-paper` + `aria-current="true"` | tablet `w-[220px] min-h-14` in a scroller; desk full width in a column; phone hidden (pager instead). Focus links keep `after_at` / `after_id`. |
 | **Roster row** | new `.roster-row` (register) | `a.flex w-full flex-wrap items-center gap-3.5 border-t border-dashed border-line px-5 py-2.5 min-h-[60px] text-ink hover:bg-tappa-green/5 first:border-t-0`; selected `aria-[current=true]:bg-tappa-green/10 aria-[current=true]:shadow-[inset_3px_0_0_theme(colors.ink)]` | phone 64 px, meta "role · last tap", phone column `hidden md:block`, chevron `md:hidden`. Update the row-finding regex in the same commit. |
 | **Status pill** | new `.pill` + tones (or a `pill` variant of `lifecycleTally` so the word has one source) | `inline-flex rounded-full border px-2.5 py-0.5 text-xs font-medium whitespace-nowrap text-ink`; active `border-tappa-green bg-tappa-green/10`; invited `border-dashed border-saffron bg-saffron/10`; deactivated `border-line text-ink/70` | **Database words** (INVITED / ACTIVE / DEACTIVATED). Word ink, colour in the frame. |
@@ -360,7 +361,8 @@ M12-47. Where the two differ, the code is right (D1) and the reason is here.
 | Form field | `.field-stack`, `.field-input`, `.field-input--mono`, `.field-help` | `input.css` |
 | Ladder | `.ladder`, `.rung`, `.rung-no`, `.plate`, `.lock-glyph` (`.lock-mini` small) | `input.css` |
 | Switch | `.rule-switch`, `--on`, `--off`, `.rule-switch-knob` | `input.css` |
-| Tally as a pill | `.pill-tally` beside a `.tally--*` tone | `input.css` |
+| Tally as a pill | `.pill-tally` beside a `.tally--*` tone — everywhere except The Roll's under-name labels (next row) | `input.css` |
+| The Roll's under-name labels | `.roll-qual` beside a `.tally--*` tone: 10 px corners rather than a full round, so a label the name column wraps onto two lines stays a box; `.tally*` names are reserved for tones (`TestTallyRules_NoToneRuleColoursTheWord`), so the shape has its own name | `input.css`, `pages/reports.templ` |
 | Status pill | `.pill`, `.pill--active`, `.pill--invited`, `.pill--deactivated` (database words) | `input.css`, `components/roster.templ` |
 | Mono pill (key, webhook, delivery) | `.mono-pill` + a tone written beside it in the template | `input.css`, `pages/apikeys.templ` |
 | Stat card | `.stat-card`, `--spike`, `--open` | `input.css` |
@@ -396,6 +398,15 @@ M12-47. Where the two differ, the code is right (D1) and the reason is here.
   ([spike-odd O.3](screens/spike-odd.md#o3-breakpoints)).
 - **The Pass's phone h1 reads "The Pass · <day>"** (M12-27): the Title is one string printed once;
   spec L2 asked for the day alone on the phone ([pass-ledger L2](screens/pass-ledger.md)).
+- **The Spike's evidence tiles are two by two, or four in a row from a 1340 px window** (M12-49
+  tour, DÜŞÜK-7), not the catalogue's auto-fit grid: `grid-cols-2 gap-2 md:gap-2.5
+  min-[1340px]:grid-cols-4`, and a partner record's merged "Network · Location" tile spans two
+  columns (`EvidenceTile.Wide` → `col-span-2`). The auto-fit grid made three 150 px tracks in the
+  record's column at 1200 px and left LOCATION alone on a second row; with fixed counts no width
+  draws 3 + 1 (or 2 + 1). The threshold is the window at which each of four tiles gets 150 px:
+  248 (sidebar) + 88 (shell padding) + 308 (queue 280 + gap 28) + 60 (the docket's desk
+  padding, 2 × 30) + 4 × 150 (tiles) + 3 × 10 (tile gaps) = 1334, rounded up to 1340.
+  **Recompute it if the sidebar, the shell padding, the queue or the docket's padding changes.**
 - **The panel's problem pages render outside the shell** (M12-10, recorded in the M12-49 tour):
   `pages.PanelProblem` draws its card in `layout.Page` — Taptime's wordmark, no sidebar, rail or
   tab bar, no tenant brand — while the States board (`States` · `T-States` · `M-States`) draws it

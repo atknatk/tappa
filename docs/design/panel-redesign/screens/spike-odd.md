@@ -79,6 +79,11 @@ Boards: `Spike` · `T-Spike` · `M-Spike` and `Odd` · `T-Odd` · `M-Odd`. Citat
 - Docket padding `px-[18px] pt-[22px] pb-6 md:p-6 desk:px-[30px] desk:pt-7 desk:pb-[30px]`; name
   `text-[28px] md:text-[30px] desk:text-[34px]`.
 - Tiles `grid grid-cols-2 gap-2 md:gap-2.5 desk:grid-cols-[repeat(auto-fit,minmax(150px,1fr))]`.
+  **As built (M12-49 tour, DÜŞÜK-7):** `grid grid-cols-2 gap-2 md:gap-2.5 min-[1340px]:grid-cols-4`;
+  a partner record's merged tile is `col-span-2`. Reason: the auto-fit grid drew 3 + 1 at a 1200 px
+  window (LOCATION alone on row two); fixed counts never do. 1340 = 248 sidebar + 88 padding +
+  308 queue and gap + 60 docket padding + 4 × 150 tiles + 3 × 10 gaps (1334, rounded up) —
+  recompute if any of those widths changes ([README §5.1](../README.md)).
 - Buttons: phone in the sticky bar (Approve `flex-[2] h-14 rounded-[14px]`, Reject `flex-1`);
   tablet `md:grid md:grid-cols-2 md:gap-3`; desk `desk:flex desk:flex-wrap`, each `basis-[200px] grow`.
 - Footer: short form on phone, long from `md` (two spans).
