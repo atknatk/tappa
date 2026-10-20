@@ -1380,14 +1380,48 @@
      Modifiers combine; each cell carries sr-only words in the template, and the
      manual cell its literal M as well as the dotted underline. */
   .roll-cell {
-    @apply inline-block min-w-[58px] rounded-lg py-[7px] text-center font-mono text-[13px]
-           text-ink;
+    @apply inline-block min-w-[58px] whitespace-nowrap rounded-lg px-1 py-[7px] text-center
+           font-mono text-[13px] text-ink
+           max-md:flex max-md:min-h-[30px] max-md:w-full max-md:min-w-0 max-md:flex-col
+           max-md:items-center max-md:justify-center max-md:px-0 max-md:py-0.5
+           max-md:text-[10px];
   }
   .roll-cell--worked { @apply bg-tappa-green/15; }
   .roll-cell--other { @apply ring-1 ring-inset ring-ink; }
   .roll-cell--manual { @apply underline decoration-dotted; }
   .roll-cell--open { @apply border border-dashed border-saffron bg-saffron/10 py-[6px]; }
   .roll-cell--none { @apply text-ink/70; }
+  /* The manager-typed mark: a literal letter beside the hours, under them on a phone. */
+  .roll-mark { @apply ml-1 text-[10px] font-bold max-md:ml-0 max-md:text-[9px]; }
+
+  /* --- The Roll's grid: ONE table, reflowed on a phone (screen file 3.3) ---
+     From md it is a table that scrolls inside its card. Below md the same rows become
+     cards: the name and the total share the first line, the seven days the second, and
+     the header row is kept for a screen reader only. No second copy of any row exists,
+     so no figure is printed twice. These repeat for every person (up to a hundred rows
+     of nine cells), which is why they are classes rather than chains. */
+  .roll-table { @apply w-full border-collapse md:min-w-[690px] desk:min-w-[720px] max-md:block; }
+  .roll-body { @apply max-md:flex max-md:flex-col max-md:gap-2.5; }
+  .roll-row {
+    @apply border-t border-dashed border-line
+           max-md:grid max-md:grid-cols-7 max-md:gap-x-1 max-md:gap-y-2.5 max-md:rounded-2xl
+           max-md:border max-md:border-solid max-md:bg-paper max-md:p-3.5;
+  }
+  .roll-who {
+    @apply py-2.5 pl-5 pr-2 text-left align-top font-normal
+           max-md:col-span-5 max-md:row-start-1 max-md:p-0;
+  }
+  .roll-name { @apply block font-display text-[15px] font-bold text-ink; }
+  .roll-sub { @apply mt-0.5 block font-mono text-[11px] text-ink/70; }
+  .roll-day { @apply px-0.5 py-1.5 text-center align-top max-md:min-w-0 max-md:p-0; }
+  .roll-letter { @apply mb-0.5 block text-center font-mono text-[10px] text-ink/70 md:hidden; }
+  .roll-sum {
+    @apply whitespace-nowrap py-2.5 pl-2 pr-5 text-right align-top font-mono text-base font-bold
+           text-ink max-md:col-span-2 max-md:col-start-6 max-md:row-start-1 max-md:p-0
+           max-md:text-lg;
+  }
+  /* The person's shift count under their total: a count, so mono, and quieter. */
+  .roll-shifts { @apply mt-0.5 block text-[11px] font-normal text-ink/70; }
 
   /* --- the tape's bar heights: ten buckets the bucket helper chooses ---
      A share of the row's own height, so one set serves the phone's 28 px row and

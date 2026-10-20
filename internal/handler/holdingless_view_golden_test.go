@@ -19,6 +19,10 @@ package handler
 // same screen with three partner records added renders these bytes plus exactly three
 // insertions (the partner sentence, the partner venue's row with its label and no bar, the
 // anonymous rule bucket last), and the absent lost-plaque block still adds 0 bytes.
+// M12-36 (The Roll ported to the redesign) replaced the reports golden: the chrome before the
+// content well (5 318 B) and after </main> (4 382 B) is byte for byte the previous golden's, and
+// every changed byte lies inside the well, which is the Roll's own markup. The holding claim is
+// now also asserted directly: TestHoldinglessPanels_AHoldingAddsOnlyThePartnerSection.
 
 import (
 	"bytes"
