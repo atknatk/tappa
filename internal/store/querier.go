@@ -3517,7 +3517,9 @@ type Querier interface {
 	// chooses a HASH join here whatever shape the pick takes, and the hash's inner side is every row
 	// the ON lets through: with the key and the tenant alone that was the tenant's whole history
 	// (measured, EXPLAIN ANALYZE 2026-10-20: Bitmap Heap Scan of all the tenant's rows into the
-	// Hash). With the bound it is the lookback window's rows of the listed plaques.
+	// Hash). With the bound it is the tenant's rows inside the lookback window -- of every plaque, not
+	// just the listed ones: the key and tag_uid are the Hash Cond, matched while probing, and only the
+	// tenant and the bound filter what goes into the hash (the plan in the header above).
 	ListAnomalyPlaqueJumps(ctx context.Context, arg ListAnomalyPlaqueJumpsParams) ([]ListAnomalyPlaqueJumpsRow, error)
 	// Counter gaps per plaque -- the OTHER half of the ctr-gap signal (A1 / Q21).
 	//
