@@ -153,7 +153,7 @@ New (describe, then name when written): `?at=` default / unknown / unreadable; a
 (`{0.0.0.0/1, 128.0.0.0/1}`) → "IP –" and the "No proof of place" notice; the radius label equals the
 injected radius (200 → "200 m"); the drawn path **equals** the `internal/qrcode` SVG-path helper's
 output for `<base>/t?tag=<uid>` (the decode round-trip itself is M12-12's test in
-`internal/qrcode/qrcode_test.go`, next to the package's reader in `read_test.go`). No holdingless golden
+`internal/qrcode/svgpath_test.go`, `package qrcode_test` like the package's reader in `read_test.go` — the in-package `qrcode_test.go` cannot call it). No holdingless golden
 covers this page.
 
 ---
@@ -345,7 +345,7 @@ holding peer as other); `ListWorkedShiftEvents` stays `residue` in the evidence 
 | "approved on its own" / "either one is enough" | §5 QR row; baseline is tenant-changeable | C3 / F5 wording |
 | hard-coded "150 m" | `TAPPA_GPS_RADIUS_M` (25..1000) | inject the radius; one source |
 | Wi-Fi shown as evidence | migration 00010 | outside the evidence list, "not checked" |
-| real QR | skill: ink on paper, no `?src=qr` | D4; separate view type, string path from the `internal/qrcode` helper; decode round-trip in `internal/qrcode/qrcode_test.go` |
+| real QR | skill: ink on paper, no `?src=qr` | D4; separate view type, string path from the `internal/qrcode` helper; decode round-trip in `internal/qrcode/svgpath_test.go` |
 | §4.7 | `TestPlaqueViewModels_CannotCarryAKey` | QR data never a slice on a plaque view type |
 | hours | §6 no float | integer `Duration` math |
 | §4.6 on the Roll | Q18 | every excluded quantity visible at every width |

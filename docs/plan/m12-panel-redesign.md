@@ -373,11 +373,11 @@ SVGPath(border int) string`, yalnız stdlib) — tek uygulama; components'a kopy
 `operatorpages`'i import etmez, operatör de bu yardımcıya geçebilir). URL `<base>/t?tag=<uid>`
 `sun.MintTapPath`'in yanındaki tek bir yardımcıdan; `?src=qr` yok.
 
-**Dosyalar.** `internal/qrcode/qrcode.go` (yardımcı), `internal/qrcode/qrcode_test.go` (gidiş-dönüş testi),
+**Dosyalar.** `internal/qrcode/qrcode.go` (yardımcı), `internal/qrcode/svgpath_test.go` (gidiş-dönüş testi; `package qrcode_test`, `read_test.go`'daki okuyucuyu çağırabilsin diye),
 `internal/sun/mint.go` (QR URL yardımcısı) + testi, `web/templates/components/plaque.templ` (ya da yeni
 `plaquedrawing.templ`), `components/plaqueview.go`, `internal/handler/plaques.go`, `plaques_test.go`.
 
-**Kabul kriterleri.** Gidiş-dönüş testi **`internal/qrcode/qrcode_test.go`'da** (okuyucu
+**Kabul kriterleri.** Gidiş-dönüş testi **`internal/qrcode/svgpath_test.go`'da (`package qrcode_test`)** (okuyucu
 `read_test.go`'da, `qrcode_test` paketinde ve dışa açık değil): yardımcının yolundan geri kurulan modüller
 okuyucuyla çözülünce `<base>/t?tag=<uid>`. Bileşen tarafında yalnız **çizilen `d` yolunun yardımcının
 çıktısına eşit** olduğu doğrulanır (bileşen yolu kendisi hesaplamaz); ink on paper; görünüm tipinde dilim yok, `TestPlaqueViewModels_CannotCarryAKey`
