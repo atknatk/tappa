@@ -87,7 +87,7 @@ upload `brandupload.go`). **Templ** `pages/account.templ` (`AdminAccount` :33, `
 Card grid `grid grid-cols-1 items-start gap-5 desk:grid-cols-2` (two ~420 px columns at 864). Identity inner
 `grid grid-cols-1 gap-4 md:grid-cols-2`, name and kind `md:col-span-2`. Brand card: Logo | Accent side by side
 on `md`. Card `rounded-[18px] border border-line bg-paper px-6 py-[22px] flex flex-col gap-4 min-w-0` (phone
-`rounded-2xl px-4 py-[18px]`). Field, buttons: README §5 (`.field`, not `.filter-input`).
+`rounded-2xl px-4 py-[18px]`). Field, buttons: README §5 (`.field-stack`, not `.filter-input`).
 
 ### 1.3 Copy
 

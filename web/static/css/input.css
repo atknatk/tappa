@@ -1185,14 +1185,15 @@
 
      🔴 FOUR NAMES DIFFER FROM README §5 BECAUSE THE SCAN IS LEXICAL, NOT A USE
      COUNT. Measured on the first build of this block: .chip, .field, .lock and
-     .switch compiled into app.css with no element carrying them (+2 869 bytes),
+     .switch compiled into app.css with no element carrying them (+2 479 bytes),
      because the word stands as a whole token somewhere in the templates -- prose
      comments for the first three (36, 81 and 12 files), the Go keyword in 62 --
      and Tailwind keeps any layer rule whose class it finds as a token. So they
      are .chip-link, .field-stack, .lock-glyph and .rule-switch; their modifiers
      and parts follow. The rail's tilt rules key on the item and the element
      (article) rather than on .docket for the same reason: a selector naming a
-     class already in use compiles with it. A new class here needs a name no
+     class already in use compiles with it (the .docket-bound tilt rules added
+     +390 bytes more; +2 869 bytes together). A new class here needs a name no
      sentence would contain.
 
      THE PRESS TARGETS (.chip-link, .queue-item, .roster-row, .venue-card,

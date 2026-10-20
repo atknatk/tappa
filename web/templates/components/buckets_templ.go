@@ -15,17 +15,17 @@ import "sort"
 //
 // WHY BUCKETS. The panel's policy is style-src 'self' with no 'unsafe-inline', so a
 // size that comes from data cannot be a style attribute: the browser refuses it. It
-// has to be one of a fixed set of class names, and Tailwind compiles a class only when
+// has to be one of a closed set of class names, and Tailwind compiles a class only when
 // it finds the name, whole and literal, in a scanned source. A name assembled from
-// pieces ("w-[" plus a number) compiles to nothing, and the bar silently takes its
-// natural size. So every name these helpers return is written out in full below, in
+// pieces ("w-[" plus a number) compiles to nothing, and the segment silently takes
+// its natural size. So every name these helpers return is written out in full below, in
 // this one .templ file, where the scan reads it. TestBuckets_EveryNameIsCompiled
 // holds the compiled half.
 //
 // NOTHING HERE IS A FLOAT (CLAUDE.md §6): percents are integers, the nearest step is
-// integer arithmetic, and a share of a stacked bar is a largest-remainder split in
-// whole units of five. Every bar a screen draws prints its count beside it, so the
-// step loses no fact.
+// integer arithmetic, and a share of a stacked strip is a largest-remainder split in
+// whole units of five. Every segment a screen draws prints its count beside it, so
+// the step loses no fact.
 //
 // THE COMMENTS IN THIS FILE NAME NO CLASS. Tailwind reads comments as source too,
 // and a class named in prose compiles into the stylesheet whether or not anything
@@ -67,7 +67,7 @@ func pctStep(p int) int {
 // WidthPct is the width bucket for a percent: one of 21 names, from no width through
 // every step of five to the whole track. Out of range is held to the range (a
 // negative percent is no width, more than 100 is the whole track), so a bad figure
-// can never widen a bar past its track. A bar that must not vanish at 1 or 2 per cent
+// can never widen a segment past its track. A segment that must not vanish at 1 or 2 per cent
 // is the caller's decision, made on the count it prints.
 func WidthPct(p int) string {
 	switch pctStep(p) {
@@ -116,15 +116,15 @@ func WidthPct(p int) string {
 	}
 }
 
-// SplitPct shares 100 among the segments of a stacked bar in steps of five, by the
+// SplitPct shares 100 among the segments of a stacked strip in steps of five, by the
 // largest-remainder method, so the parts add up to exactly 100 and each one is a
 // percent WidthPct draws without moving it. Twenty units of five are handed out:
 // each segment first gets the whole units its count earns, then the units left over
 // go one each to the largest remainders; equal remainders go to the earlier segment,
-// so the same counts always give the same bar.
+// so the same counts always give the same strip.
 //
 // A zero or negative count gets nothing. When no count is positive there is nothing
-// to share and every part is 0 -- the bar is empty, it is not split evenly, because an
+// to share and every part is 0 -- the strip is empty, it is not split evenly, because an
 // even split would draw a distribution nobody measured (§4.6).
 func SplitPct(counts []int) []int {
 	const units = 20 // 100 per cent in steps of five
@@ -162,8 +162,8 @@ func SplitPct(counts []int) []int {
 }
 
 // TapeBar is the height bucket of one hour on the tape, 1 to 10. A bucket of 0 or less
-// has no name -- the hour draws no bar, so an empty hour never looks like one person
-// -- and more than 10 is the tallest bar.
+// has no name -- the hour draws no segment, so an empty hour never looks like one
+// person -- and more than 10 is the tallest segment.
 func TapeBar(bucket int) string {
 	switch {
 	case bucket <= 0:

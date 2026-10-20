@@ -68,7 +68,7 @@ templ AdminTransactions(v TransactionsView) {
 				@dockets(v)
 			</div>
 		} else if v.Queried {
-			@components.EmptyState(emptyHeading(v)) {
+			@components.PanelEmpty(SectionLabel(TabTransactions), emptyHeading(v), components.PanelEmptyCTA{}) {
 				if v.Filters.Narrowed {
 					<p>Nothing on this day matches those filters. Widen them, or clear them to see the whole day.</p>
 				} else {

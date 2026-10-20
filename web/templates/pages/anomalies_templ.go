@@ -780,7 +780,7 @@ func anomalyPeople(v AnomaliesView) templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = components.EmptyState("Nobody carries one of these counts this week").Render(templ.WithChildren(ctx, templ_7745c5c3_Var35), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = components.PanelEmpty(SectionLabel(TabAnomalies)+" · per person", "Nobody carries one of these counts this week", components.PanelEmptyCTA{}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var35), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1427,7 +1427,7 @@ func anomalyOpen(v AnomaliesView) templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = components.EmptyState("Every check-in this week has a checkout after it").Render(templ.WithChildren(ctx, templ_7745c5c3_Var67), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = components.PanelEmpty(SectionLabel(TabAnomalies)+" · check-ins with no checkout", "Every check-in this week has a checkout after it", components.PanelEmptyCTA{}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var67), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

@@ -32,6 +32,11 @@ package handler
 // shell itself is meant to change, never because of the brand. What df544c1 proved
 // structurally is asserted structurally for them (unbrandedPanelCarriesNoBrand). The
 // layout entries, which the shell did not touch, are still held to df544c1.
+//
+// M12-09 replaced ONE panel digest, "AdminDashboard, owner, reports", whose section body is an
+// empty state that moved to components.PanelEmpty; the bytes differ only inside that empty
+// state's opening tags, and TestPanelHead_EmptySlotsAreTheShellAsItWas undoes exactly that
+// change and still finds the pre-M12-01 render.
 
 import (
 	"bytes"
@@ -177,7 +182,7 @@ var unbrandedPanelShell = map[string]unbrandedDigest{
 	"PanelShell, owner, an undeclared tab":           {11366, "c1c3be44486d86147aa4f0a0c82bb4a28b198b4807d70b3a0a951ae3e17ffc67"},
 	"PanelShell, a name to escape":                   {11713, "565ca51ba1456bf10107752e272cee24d4a5a9418ff67e5c35f277d469408778"},
 	"PanelShellWithScript, owner, transactions":      {11633, "74ea319110482256a23cab1278ed24febfefd6610153c8980bdf5a058bf01eb1"},
-	"AdminDashboard, owner, reports":                 {11928, "1b29f49789116df2583d9a4f08d9a4a68a35f1ed84e6a99db58a7c4f54a9c4ce"},
+	"AdminDashboard, owner, reports":                 {12006, "3ab084771685b2fb4dc817e7abaa69dc357e1824fdc3c810e46ff064d1dcc703"},
 }
 
 // isPanelRender says which corpus entries render the panel shell (and so are held to

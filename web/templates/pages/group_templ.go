@@ -74,7 +74,7 @@ func AdminGroup(v GroupView) templ.Component {
 					}
 					return nil
 				})
-				templ_7745c5c3_Err = components.EmptyStateLabeled("No group", "This business is not in a group").Render(templ.WithChildren(ctx, templ_7745c5c3_Var3), templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = components.PanelEmpty(SectionLabel(TabGroup), "This business is not in a group", components.PanelEmptyCTA{}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var3), templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
