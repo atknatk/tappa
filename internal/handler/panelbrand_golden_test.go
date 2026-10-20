@@ -154,24 +154,30 @@ var unbrandedBeforeWL8 = map[string]unbrandedDigest{
 
 // unbrandedPanelShell is what the panel entries render with no brand in the shell of
 // design "The Pass" (2026-10-20), printed by this test from the commit that introduced it.
+//
+// RE-RENDERED FOR M12-01 (the h1's new size), and for nothing else: each panel render here
+// is its 022ba3c render with the h1's class swapped, 63 bytes longer, and the undeclared
+// tab (no h1) unchanged. That claim is not left to this comment --
+// TestPanelHead_EmptySlotsAreTheShellAsItWas (panelhead_test.go) keeps the 022ba3c digests
+// and puts the old class back into every render before comparing.
 var unbrandedPanelShell = map[string]unbrandedDigest{
-	"PanelShell, owner, tab transactions":            {11514, "95e04c427d9b6975187f7c7b41d77598660c88e634d92e9994a9114455bf09a2"},
-	"PanelShell, owner, tab review":                  {11515, "8775947a8414f201c451138ffcdd6347fac8a1f399f89976453d4f1e733f5761"},
-	"PanelShell, owner, tab employees":               {11512, "2aec88429a68c49bea4ce27b1e302e182562e4945055d7c005301da5053ab7e8"},
-	"PanelShell, owner, tab locations":               {11606, "12bf8a04dd143c57361e3a0f75d05728408bbaf86177cfb7a4859bf93d5cdc60"},
-	"PanelShell, owner, tab reports":                 {11514, "b404e3cc36203a067231a8e0938e6a1758e1171acabf86343fb69ecea1f8f80e"},
-	"PanelShell, owner, tab anomalies":               {11586, "fbc8d92393bdf674d35a252c836c16d589a549baef09cfda6603099028238aee"},
-	"PanelShell, owner, tab policies":                {11576, "7345bde2063f7c223115176ace9ed374d6888a977ab2c2da9396038e96a52cdc"},
-	"PanelShell, owner, tab billing":                 {11580, "0a7fd6e0ff1702fbed6d2bc6562361ff4687d81c20f540a577fd3cc926bac57d"},
-	"PanelShell, owner, tab account":                 {11580, "0d6a503590d81c5f5cf5d852f82b8f85d082becaab68605aed660cb52bc6146c"},
-	"PanelShell, owner, tab developers":              {11586, "eb6fce93d70755a2e13aec5ba7537972a0f9743727594c77757e5532484a0ead"},
-	"PanelShell, manager, review, capped badge":      {9910, "0a4cae3a28f2f3e3db42e83b2ebebb67e2cb819ef975c103c15953730990ac3c"},
-	"PanelShell, owner, transactions, unknown badge": {11552, "f4b7e3f68fb484fea0b509d1d6f875a719a4e9a912181de85a5375517828c67c"},
-	"PanelShell, owner, transactions, empty queue":   {11366, "9bf9cfcb7259914e34c185938997b3b7ee1102db6e2407c7aeaf3c2f050929dd"},
+	"PanelShell, owner, tab transactions":            {11577, "2475ba759ba9f173c8225c221f0f1a08428ac7dfa53bc4f9b1acf0c1456c835a"},
+	"PanelShell, owner, tab review":                  {11578, "53cb35e94a9c3cb857ecb2607e107a6bdb457df6eec8e87c0119e162c48de554"},
+	"PanelShell, owner, tab employees":               {11575, "73d43d30cea577609c9b6b8172b6135242d1f4e2042b3b5d61331189fd777580"},
+	"PanelShell, owner, tab locations":               {11669, "1a6c4bc7114f8cf3154227bb0b0cf1cbeca8170044ab6b746398cb7e3c8e977d"},
+	"PanelShell, owner, tab reports":                 {11577, "91ba07ac0d6c6d2c41819a28552bd7c003892b5bcc15f1e54dd60b59dd88a04d"},
+	"PanelShell, owner, tab anomalies":               {11649, "a8f5998243a327bc2d703d4afb8b2be66ca1a72c793021c461f98e323f66cf55"},
+	"PanelShell, owner, tab policies":                {11639, "34cf35533789b395ce2ac325c16deb67986b313e825e235f777688b88253e975"},
+	"PanelShell, owner, tab billing":                 {11643, "d581c336e2943a436e758bb5a53d506259df8ad3d67612b95587626eae93b343"},
+	"PanelShell, owner, tab account":                 {11643, "b5b6c8041d8ebde78b7e19c31606349708c2523f34b18a40986049af4dd1fdcc"},
+	"PanelShell, owner, tab developers":              {11649, "6aedb5ba0a1af99bf946956192a649a6c5c66b3ea059535f26b2323f77733751"},
+	"PanelShell, manager, review, capped badge":      {9973, "f1b49c2665869e081e051d902d8a646a760d9a4385aed079180ef9c9f6e290c6"},
+	"PanelShell, owner, transactions, unknown badge": {11615, "dd6f78eb537fe19c612c1e86119d11f0d499ae059fd14aef6931d076845eb2ab"},
+	"PanelShell, owner, transactions, empty queue":   {11429, "c0ec49b3cb98e86b1baefdda9a8f551a93ff1c4e15816d8bb73d0e67920c8b44"},
 	"PanelShell, owner, an undeclared tab":           {11366, "c1c3be44486d86147aa4f0a0c82bb4a28b198b4807d70b3a0a951ae3e17ffc67"},
-	"PanelShell, a name to escape":                   {11650, "f5419139eee1216e4ce99cb7ddf2e266717beb24ce2c2b7c66304cc534a7e470"},
-	"PanelShellWithScript, owner, transactions":      {11570, "f6506638f6ca298ff0f6e072ea0073131356982b15b6168b48bbd3a99d179a1b"},
-	"AdminDashboard, owner, reports":                 {11865, "07e010c0e0e3ae81d9dc48d37416c2f4aa86e2deb0fa98f679434c4aa823119a"},
+	"PanelShell, a name to escape":                   {11713, "565ca51ba1456bf10107752e272cee24d4a5a9418ff67e5c35f277d469408778"},
+	"PanelShellWithScript, owner, transactions":      {11633, "74ea319110482256a23cab1278ed24febfefd6610153c8980bdf5a058bf01eb1"},
+	"AdminDashboard, owner, reports":                 {11928, "1b29f49789116df2583d9a4f08d9a4a68a35f1ed84e6a99db58a7c4f54a9c4ce"},
 }
 
 // isPanelRender says which corpus entries render the panel shell (and so are held to
