@@ -1000,6 +1000,11 @@ func brandEditorDrawsNoSecondHeader(t *testing.T, href, region string) {
 // is the chips), the notice keeps its bytes (4 spaces of leading indentation instead of 8), and
 // the empty state -- heading, sentence, classes -- is unchanged. zero 11354 -> 12025 bytes,
 // plaques 12325 -> 12961. The banner's absence still adds nothing (the three variants below).
+//
+// RE-RENDERED FOR M12-49 (the plaque notice's link gets a 44 px hit area): only the "plaques"
+// golden, and only inside the notice link's class attribute -- "underline" became
+// "hit-link underline". Checked before replacing: the first 5827 and the last 7142 bytes are the
+// old golden's; the 9 bytes between are "hit-link ". 12969 -> 12978 bytes; "zero" unchanged.
 func TestKeyBudgetBanner_AbsentAddsNothing(t *testing.T) {
 	render := func(v pages.TransactionsView) string {
 		t.Helper()
