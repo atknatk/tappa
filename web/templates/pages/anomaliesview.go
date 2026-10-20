@@ -54,6 +54,9 @@ type AnomaliesView struct {
 	// WeekLabel is the period in words; WeekValue is the ISO date the picker echoes.
 	WeekLabel string
 	WeekValue string
+	// WeekShort is the stepper's own label ("7 – 13 Sep"): the same week, short enough to sit
+	// between its two arrows (M12-29). The full label and the zone stay on the form's row.
+	WeekShort string
 
 	// The three navigation targets, the same shape the reports section uses.
 	PrevHref     string
@@ -62,11 +65,19 @@ type AnomaliesView struct {
 
 	Totals AnomalyTotalsView
 
-	People  []AnomalyPersonView
-	Venues  []AnomalyVenueView
-	Plaques []AnomalyPlaqueView
-	Pairs   []AnomalyPairView
-	Open    []AnomalyOpenView
+	People []AnomalyPersonView
+	// DistanceOnlyPeople is the per-person list narrowed to the people with a record verified
+	// by GPS alone, most first (M12-29). It is a SUBSET OF People, so it is shortened whenever
+	// People is (MorePeople) and the card says so: People is capped and ordered by counter gaps
+	// first, so a person past the cap is missing here too.
+	DistanceOnlyPeople []AnomalyDistanceOnlyView
+	Venues             []AnomalyVenueView
+	// MixUnsplit is set when some venue's judged records are not all placed by the four-way
+	// split, so the legend names the remainder the bars draw for it.
+	MixUnsplit bool
+	Plaques    []AnomalyPlaqueView
+	Pairs      []AnomalyPairView
+	Open       []AnomalyOpenView
 
 	// Masked is the retrospective ADR 0008 tally: check-ins a practice row could have
 	// hidden, split by whether the list above can still show them.
@@ -172,18 +183,52 @@ type AnomalyPersonView struct {
 
 // AnomalyVenueView is one location's row. EVERY venue with taps is here, including the
 // clean ones — the comparison between branches is the point.
-// ⚠️ THE TWO FIGURES ON A VENUE ROW COME OUT OF DIFFERENT POPULATIONS — DistanceOnly
-// out of the records the engine judged on evidence, OutsideVenue out of the records
-// carrying a rule snapshot — and each string prints the base it used, so the row is
-// readable without knowing that.
+//
+// THE BAR IS OUT OF THE VENUE'S JUDGED RECORDS (M12-29): Segments split them four ways
+// (both / network only / distance only / neither) and draw any remainder the split does not
+// place as "not split". Judged prints that base beside the bar and Split prints every
+// segment's count, so the five-per-cent width steps lose no fact. OutsideVenue comes out of
+// a different population -- the records carrying a rule snapshot -- and its string prints
+// the base it used.
 type AnomalyVenueView struct {
-	Name         string
-	Records      string
-	DistanceOnly string
+	Name string
+	// Records is the venue's whole week ("67 records"), printed as context beside the bar's
+	// base -- the bar is not out of it.
+	Records string
+	// Judged is the bar's base in words ("65 judged").
+	Judged string
+	// Segments are the bar's parts in the legend's order; a part with no width is left out.
+	Segments []AnomalyMixSegment
+	// Split is every part's count in words ("52 both · 9 network only · 3 distance only · 1
+	// neither"), or the sentence for a venue with nothing judged.
+	Split string
+	// MixLabel is the bar's text alternative: the venue, its base and the four counts.
+	MixLabel     string
 	OutsideVenue string
 	// Partner marks a partner business's venue where this business's staff tapped (M11
-	// API-1c): its row carries no evidence figure (K-39) and says so.
+	// API-1c): its row carries no evidence figure and no bar (K-39) and says so.
 	Partner bool
+}
+
+// AnomalyMixSegment is one part of a venue's evidence bar.
+type AnomalyMixSegment struct {
+	// Part is which of the split's parts this is: "both", "network", "distance", "neither"
+	// or "unsplit". The template turns it into a tone; the word is in the legend and in Split.
+	Part string
+	// Pct is the part's whole-per-cent width, a step of five; the parts of one bar add up
+	// to 100 (largest remainder, components.SplitPct).
+	Pct int
+	// Last is the part drawn at the bar's right end, which takes no separating rule.
+	Last bool
+}
+
+// AnomalyDistanceOnlyView is one person on the "verified by GPS alone" card.
+type AnomalyDistanceOnlyView struct {
+	Name string
+	// N is the person's count, printed beside the bar.
+	N int
+	// Pct is the bar's width: N as a share of the card's largest N, in whole per cent.
+	Pct int
 }
 
 // AnomalyLostPlaqueView is one of this business's lost plaques a partner business's staff
@@ -206,6 +251,17 @@ type AnomalyPlaqueView struct {
 	Records      string
 	CounterGaps  string
 	LargestGap   string
+	// Jump is the state of the counters around the largest gap (M12-24, ledger.CounterJumpState):
+	// "" not asked -- the row claims nothing --, "failed", "read" or "elsewhere".
+	Jump string
+	// CounterFrom and CounterTo are the chip's counters either side of the gap ("#604",
+	// "#641"), unpadded as the docket prints them; set only when Jump is "read".
+	CounterFrom string
+	CounterTo   string
+	// JumpWhen is the line under the counters: "between … and …" in the declared times, or,
+	// when the read before the gap is not on this business's record, the time of the read that
+	// showed it and that sentence.
+	JumpWhen string
 }
 
 // AnomalyPairView is two people whose taps land together, repeatedly.
@@ -219,6 +275,18 @@ type AnomalyPairView struct {
 	// rows and the day count cannot tell them apart.
 	Together string
 	Closest  string
+	// Dots are the week's days, each marked when the two were together that day (M12-23);
+	// empty when the days were not read, and then Days alone is printed. DaysOf is the count
+	// against the week ("3 of 7 days") and DotsLabel the dots' text alternative.
+	Dots      []AnomalyDayDot
+	DaysOf    string
+	DotsLabel string
+}
+
+// AnomalyDayDot is one day of a pair's week.
+type AnomalyDayDot struct {
+	Day string
+	On  bool
 }
 
 // AnomalyOpenView is a check-in nothing closed.
@@ -226,6 +294,9 @@ type AnomalyOpenView struct {
 	Who   string
 	Venue string
 	At    string
+	// Age is how long the entry has been open, in whole days ("open 3d"), counted from the
+	// moment the page was drawn.
+	Age string
 	// ManagerTyped marks an entry somebody typed rather than tapped.
 	ManagerTyped bool
 	// WasMaskable means a practice row of this person's sits after this check-in. It
@@ -251,4 +322,10 @@ type AnomalyPolicyView struct {
 	// Layer is guardrail / baseline / tenant, or "" when there is no rule.
 	Layer   string
 	Records string
+	// Pct is the row's bar: its count as a share of the busiest named rule's, in whole per
+	// cent, never under one step when there is a record.
+	Pct int
+	// Partner marks the one anonymous bucket of the records at a partner business's venue
+	// (K-39). It is always last and its bar takes the quiet tone.
+	Partner bool
 }

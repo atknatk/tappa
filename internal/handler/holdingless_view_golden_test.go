@@ -14,6 +14,11 @@ package handler
 // page's own markup is byte for byte the 85b4b8d golden's. The holding claim is unchanged.
 // The anomalies golden was replaced once more in the same day's fix round: its one change is the
 // sentence naming the reports section by its new label ("The Reports section" -> "The Roll").
+// M12-29 (Odd shapes ported to the redesign) replaced the anomalies-view golden: the bytes differ
+// only inside the content well, and the holding claim was re-measured on the new page -- the
+// same screen with three partner records added renders these bytes plus exactly three
+// insertions (the partner sentence, the partner venue's row with its label and no bar, the
+// anonymous rule bucket last), and the absent lost-plaque block still adds 0 bytes.
 
 import (
 	"bytes"
@@ -67,7 +72,8 @@ func holdinglessViewRenders(t *testing.T) map[string][]byte {
 	out["reports-view"] = bytes.Clone(b.Bytes())
 	b.Reset()
 	var av pages.AnomaliesView
-	fillAnomaliesView(&av, a)
+	// The page is drawn "now" = the Monday after the week, so the open entry's age is fixed.
+	fillAnomaliesView(&av, a, time.Date(2026, 9, 14, 12, 0, 0, 0, zone))
 	if err := pages.AdminAnomalies(av).Render(context.Background(), &b); err != nil {
 		t.Fatal(err)
 	}
