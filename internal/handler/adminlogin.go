@@ -1754,8 +1754,49 @@ func (a *AdminAuth) renderWithPolicy(w http.ResponseWriter, r *http.Request, sta
 	}
 }
 
+// renderProblem answers a panel problem on the panel's own card (M12-10,
+// pages.PanelProblem); pages.Problem stays the tap and activation screens' page.
+//
+// THE CARD IS BUILT FROM WHAT THIS CALL ALREADY HAS, and from nothing else: the code
+// chip is status, the owner pill is the constant's OwnerOnly, the words are the
+// constant's. The one way on depends on whether the request carried a live panel
+// session -- the resolver's answer, not a claim the request makes. A request without
+// one (the sign-in family, a refusal in front of the resolver, a session that did not
+// resolve) is sent to the sign-in page and never to The Pass, which would only bounce
+// it there.
+//
+// It is still render: no shell, no logo, adminCSP's literal policy.
 func (a *AdminAuth) renderProblem(w http.ResponseWriter, r *http.Request, status int, v pages.ProblemView) {
-	a.render(w, r, status, pages.Problem(v))
+	a.render(w, r, status, pages.PanelProblem(panelProblemOf(status, v, httpx.AdminOf(r).Live())))
+}
+
+// panelHomeLabel is the name of the section transactionsHref opens ("The Pass"), read
+// from the section table for the reason transactionsHref is.
+var panelHomeLabel = func() string {
+	for _, s := range pages.PanelSections {
+		if s.Href == transactionsHref {
+			return s.Label
+		}
+	}
+	panic("handler: no panel section at " + transactionsHref)
+}()
+
+// panelProblemOf is renderProblem's view, a pure function so its three decisions are
+// tested without a router.
+func panelProblemOf(status int, v pages.ProblemView, signedIn bool) pages.PanelProblemView {
+	out := pages.PanelProblemView{
+		Status:    status,
+		OwnerOnly: v.OwnerOnly,
+		Title:     v.Title,
+		Message:   v.Message,
+		Hint:      v.Hint,
+		CTAHref:   adminLoginPath,
+		CTALabel:  "Go to sign in",
+	}
+	if signedIn {
+		out.CTAHref, out.CTALabel = transactionsHref, "Back to "+panelHomeLabel
+	}
+	return out
 }
 
 // redirect answers 303 See Other: the browser follows with GET, which turns a POST
