@@ -49,13 +49,18 @@ make check-sandbox # -tags sandbox ile vet + staticcheck + etiketin değiştirdi
 ## 3. Dizin haritası — nereye ne yazılır
 
 ```
-cmd/tappa/            main; wiring ve graceful shutdown. İş mantığı YOK.
+cmd/tappa/            main; wiring ve graceful shutdown. İş mantığı YOK. Servis
+                      edilen yönlendiricinin tek kompozisyonu `appRouter`.
 internal/config/      env okuma + doğrulama. Eksik zorunlu env = başlangıçta panic.
 internal/httpx/       router, middleware (request id, tenant, auth, real-ip, rate limit)
 internal/handler/     HTTP handler + DTO. Kural: parse → domain çağır → render.
-                      Handler içinde iş kuralı veya SQL YOK.
+                      Handler içinde iş kuralı veya SQL YOK. Askı kapısı (ADR 0025):
+                      `suspension.go`, `ProtectWriting`'in son halkası; askıda açık
+                      yazmalar `mountWriting`'in adlı kardeş grubunda; webhook sınıfları
+                      `endpoints.OpenWhileSuspended`'dan. /v1'in kapısı `api/suspension.go`.
 internal/handler/operator/  platform operatörü yüzeyi (/operator, ayrı host); müşteri
                       paneli bu paketi import etmez. DB'si db.OperatorDB (ADR 0020/0021).
+                      Askı ekranı (OP-15C, ADR 0025 §5) genel bakışta.
 internal/policy/      ⭐ policy motoru. Guardrail (kapatılamaz) + baseline +
                       tenant politikaları; effect döndürür, kayıt yazmaz.
                       Saf fonksiyon. Detay: docs/plan/m3-policy-motoru.md
@@ -360,6 +365,10 @@ başlayan bir test durumu olmalı.
 - Toplu silmede parti sınırı `WITH … AS MATERIALIZED (… LIMIT n FOR UPDATE SKIP LOCKED) DELETE … USING`
   ile kurulur: `id IN (SELECT … LIMIT n …)` alt sorgu yeniden tarandığında n'yi aşar (T130'da ölçüldü: 105/100).
 - Migration geri alınabilir olmalı (`-- +goose Down` dolu).
+- Kalıcı bir goose Down/Up döngüsü `tenants` gibi bir tabloda düşürülmüş sütun (`attnum`)
+  tüketir (1600 sınırı); mutasyonlar sütun düşürmeden ya da geri alınan işlemde koşulur.
+  Bir Down'ı doğrudan koşan test önce `lockForDowns` alır — Down'ın `lock_timeout`'u
+  paralel paketlerin yazarlarına takılıp sahte kırmızı verir (OP-15A, 2026-10-20).
 - Yeni bir tablo, fonksiyon, dizi, şema, eklenti, rol ya da yetki `internal/db/privcatalog_test.go`'daki
   `privCatalogAllowed` listesine **bilinçli** eklenir (liste katalogdan dökülür — `TAPPA_PRIVCATALOG_DUMP=1` —
   ve satır satır okunur). Redline metni okur; bu test migration'lardan sonraki **etkin** yetkiyi okur (T137).
@@ -409,6 +418,9 @@ başlayan bir test durumu olmalı.
 - DB testleri gerçek Postgres'e karşı (testcontainers veya `make up`), sahte değil —
   RLS'i sahte veritabanı test edemez.
 - **RLS testi zorunlu:** A tenant'ının bağlantısı B tenant'ının satırını görmemeli.
+- Test yardımcısı adlarında biyometri sözcükleri (`fingerprint` …) redline R1'i kırar —
+  `trace` gibi bir ad kullan. Çapraz yüzey E2E'leri (operatör → panel / `/v1`) operatör
+  paketinin `newLegalE2E`'sinde koşar (geliştirmede `tappa_operator` NOLOGIN).
 
 ## 9. Arayüz & marka
 
