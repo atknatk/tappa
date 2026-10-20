@@ -836,6 +836,17 @@ func TestPanelScreens_FormControlsCarryATouchTargetClass(t *testing.T) {
 	// The sign-in form is the same brand surface and is held to the same rule.
 	anon := newBrowser(t, newAdminRouter(t, &fakeAdmins{}, &fakeTrail{}))
 	bodies["GET /admin/login"] = htmlOf(t, anon.do(http.MethodGet, "/admin/login", nil))
+	// 🔴 AND THE SCREENS THAT ARE NOT SECTIONS (M12-49). Until then this read only the
+	// section bodies and the sign-in page -- measured: dropping field-input from the venue
+	// editor's name (components/venue.templ) and from manual entry's time
+	// (pages/manualentry.templ) left the whole package green, because the venue editor is
+	// ?venue= and manual entry a sub-route. The touch net's own corpus of those screens is
+	// read here too, so the two nets cannot drift apart; the source scan
+	// (TestPanelTemplates_EveryPressTargetAndFormControlCarriesATouchTargetClass) covers
+	// what no fixture draws.
+	for where, body := range panelNonSectionScreens(t) {
+		bodies[where] = body
+	}
 
 	// input/select/textarea. type="hidden" is excluded: it renders nothing and is
 	// not a target -- that is the only exemption, and it is by TYPE rather than by
@@ -845,8 +856,8 @@ func TestPanelScreens_FormControlsCarryATouchTargetClass(t *testing.T) {
 
 	total := 0
 	for where, body := range bodies {
-		for _, m := range controlRE.FindAllStringSubmatch(body, -1) {
-			attrs := m[2]
+		for _, loc := range controlRE.FindAllStringSubmatchIndex(body, -1) {
+			attrs := body[loc[4]:loc[5]]
 			if hiddenRE.MatchString(attrs) {
 				continue
 			}
@@ -855,10 +866,10 @@ func TestPanelScreens_FormControlsCarryATouchTargetClass(t *testing.T) {
 			if c := attrValueRE("class").FindStringSubmatch(attrs); len(c) == 2 {
 				classes = c[1]
 			}
-			if !hasControlTouchTargetClass(classes) {
+			if !hasControlTouchTargetClass(classes) && !pressedThroughLabel(body, loc[0]) {
 				t.Errorf("%s: <%s class=%q> is a form control carrying none of %v.\n"+
 					"A control smaller than 44px is missed by a thumb, and a manager "+
-					"checks this at the pass on a phone.", where, m[1], classes, panelTouchTargets)
+					"checks this at the pass on a phone.", where, body[loc[2]:loc[3]], classes, panelTouchTargets)
 			}
 		}
 	}

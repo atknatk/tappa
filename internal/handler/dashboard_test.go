@@ -527,7 +527,8 @@ func TestPanelSections_RenderTheirOwnContentAndNoOthers(t *testing.T) {
 // pressable purely by stylesheet -- a large ::after over a card -- is invisible to
 // it, and there is no test in this product that measures a rendered pixel.
 // panelNonSectionScreens renders the panel pages that pages.PanelSections cannot
-// reach: one behind a POST, one behind a sub-route with parameters.
+// reach: those behind a POST, a sub-route or a query, and the signed-out recovery and
+// business-picker pages.
 //
 // THEY ARE RENDERED THROUGH THE REAL ROUTER with a real session, not by calling the
 // templates, so what is measured is what a manager's browser receives.
@@ -590,6 +591,11 @@ func panelNonSectionScreens(t *testing.T) map[string]string {
 		t.Fatalf("the full Spike answered %d, want 200", rec.Code)
 	}
 	out["GET "+reviewHref+" (a full page)"] = htmlOf(t, rec)
+
+	// The screens and states M12-49 found outside this corpus (panelcorpus_test.go).
+	for where, body := range panelScreensOutsideTheSections(t) {
+		out[where] = body
+	}
 
 	// ANTI-VACUITY: every page must actually carry press targets, or adding it to the
 	// corpus changes nothing.
@@ -1276,6 +1282,10 @@ var panelTouchTargets = map[string]int{
 	"btn--approve": 64, // .btn--approve -> min-h-16 (56 px in the phone's pinned bar)
 	"btn--reject":  64, // .btn--reject  -> min-h-16 (56 px in the phone's pinned bar)
 	"spike-step":   44, // .spike-step   -> min-h-11, a 44 px square
+	// Manual entry's direction cards (M12-33): a <label> around a visually hidden radio, so the
+	// card is what a thumb presses. The form-control nets accept a control inside a label that
+	// carries one of these classes (pressedThroughLabel).
+	"manual-dircard": 60, // .manual-dircard -> min-h-[60px] (md:min-h-16)
 }
 
 // panelPendingTouchTargets are the press-target classes the panel redesign defines
@@ -1342,6 +1352,27 @@ var rawHeightUtilities = map[string]bool{"min-h-11": true, "min-h-12": true}
 // displayUtilities are the display classes under which a min-height takes effect.
 var displayUtilities = map[string]bool{
 	"flex": true, "inline-flex": true, "block": true, "inline-block": true, "grid": true, "inline-grid": true,
+}
+
+// labelOpenRE is a <label>'s opening tag.
+var labelOpenRE = regexp.MustCompile(`(?is)<label\b([^>]*)>`)
+
+// pressedThroughLabel reports whether the form control whose tag starts at body[at] sits
+// inside a <label> that is itself a touch target. Such a control (a visually hidden radio
+// under a card, a 20 px checkbox in a 44 px row) is pressed through the label, which
+// toggles it: the label is what must reserve the height.
+func pressedThroughLabel(body string, at int) bool {
+	before := body[:at]
+	locs := labelOpenRE.FindAllStringSubmatchIndex(before, -1)
+	if len(locs) == 0 {
+		return false
+	}
+	last := locs[len(locs)-1]
+	if strings.Contains(strings.ToLower(before[last[1]:]), "</label>") {
+		return false
+	}
+	c := attrValueRE("class").FindStringSubmatch(before[last[2]:last[3]])
+	return len(c) == 2 && hasTouchTargetClass(c[1])
 }
 
 type pressTarget struct {
