@@ -13234,6 +13234,14 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 >   geri alınan işleminde koşar). `-run` kümesi commit eden testleri (`TestTenants00024_*`, `TestAccountDB_*`,
 >   `TestE2E_*`) içermez. Sonuç: kontrol (değişmemiş dosya) yeşil, **35/35 KIRMIZI**, panik 0; 36 döngünün 36'sında şema parmak izi başlangıçtakine (`c9c471c7…`) eşit; toplam ~17 dk (1037 sn) — tablonun son sütunu.
 > - **Doğrulama:** Up → Down → Up şema parmak izi (00062'ye bayt bayt, sonra 00063'e); `-race`: `internal/db` 597 / 0 / 0, `internal/domain/tenant` 252 / 0 / 0, `internal/handler/operator` 168 / 0 / 0; `cmd/...`'de tek yeni kırmızı `TestAPIWiring_TheSuspensionReaderFollowsTheColumn` (tasarım gereği — API-4b) ve bilinen ortam kırmızısı `TestRotateScript_AccountsForEveryGoToolchainVariable`; gofmt/build/vet/staticcheck temiz, `make gen` iki kez fark yok, redline 0. Gerçek hiçbir tenant askıya alınmadı. Ayrıntı ADR 0021 OP-15 notu md. 11.
+> - **DÜŞÜK turu (2026-10-20, iki mercek ONAY verdi; ikisinin de iki DÜŞÜK bulgusu):** *DÜŞÜK-2 (düzeltildi,
+>   `5a77873`)* — kayma denetimi M11'in üç tanımlayıcısını da (`tappa_holdingdefiner`, `tappa_feedwriter`,
+>   `tappa_resolver`) kapsar; ön koşul testine dört vaka, üyelik vakaları savepoint'te yaratılan bir taşıyıcı
+>   rolle; yeni kol kaldırılınca ve M31'de KIRMIZI (ADR 0021 OP-15 notu md. 6'nın notu); `R5B_BODY_DDL` pini
+>   `ff003d61…`. *DÜŞÜK-1 (bilinen sınır, kod yok)* — 00034'ün Down testindeki T9 yoklamasının `tenants`
+>   yarısı 00063'ün Down kilidi tarafından maskelenir (`opAtVersion(34)` `tenants`'ı ACCESS EXCLUSIVE tutar);
+>   kalan, tutulan kip karşılaştırmasıdır. Ayrıca: `opOldestTenant`'ın ön koşul iletisi, temiz bir kapta
+>   commit edilmiş tenant olmadığında bunun kodun değil ortamın eksiği olduğunu söyler.
 > - **B/C'ye devirler değişmedi;** M11'in `/v1` askı kontrol noktası (API-4b) ve
 >   `TestAPIWiring_TheSuspensionReaderFollowsTheColumn`'ın tasarım gereği kırmızısı ADR 0021 OP-15 notu md. 14'te.
 >

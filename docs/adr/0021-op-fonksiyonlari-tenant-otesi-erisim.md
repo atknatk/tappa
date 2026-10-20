@@ -5304,6 +5304,20 @@ yöntemleri C fazıdır. Uygulamanın karar verdiği yerler, adıyla:
    yeni iki sütun öyle bir yetkinin altına kendiliğinden girerdi. *(Bilerek kapsam dışı: M11'in üç
    tanımlayıcısı NOLOGIN'dir, `tappa_app` hiçbirinin üyesi değildir — ölçüldü, küme boş — ve gövdeleri askı
    sütunlarına yazmaz; bir tablo düzeyi yetkileri yalnız kendi gövdeleri üzerinden kullanılabilirdi. LS10.)*
+   **→ Değişti (2026-10-20, iki merceğin DÜŞÜK-2'si, `5a77873`):** bu kapsam dışı bırakma kaldırıldı.
+   Üç tanımlayıcı, `tappa_app`'in çağırdığı tanımlayıcı fonksiyonların sahibidir; birinin `tenants`'ta tablo
+   düzeyi bir yazma yetkisi yeni iki sütunu kendiliğinden kapsar ve bugün ya da yarın `tenants`'ı adlandıran
+   her gövde ona ulaşır. Kayma denetiminin rol kümesi artık beş rol: `tappa_app`, `tappa_operator`,
+   `tappa_holdingdefiner`, `tappa_feedwriter`, `tappa_resolver` (her biri `pg_has_role(…, 'MEMBER')` ile
+   ulaşabildiği rollerle); `tappa_opdefiner` kendi kesin listelerine bağlı kalır. Askı sütunlarında sütun
+   yetkisi Up'tan önce var olamaz (sütunlar yok); Up'tan sonra HEAD pini `opTenantWriteReach` aynı beş rolü
+   iki sütunda okur. Ön koşul testi her tanımlayıcı için bir vaka (üçü doğrudan, `tappa_resolver` ayrıca
+   kalıtımlı bir üyelikle) ve üyelik vakalarında savepoint'te yaratılan bir taşıyıcı rol (`zz_op15_vehicle`)
+   kazandı — beş adlı rolden biri taşıyıcı olsaydı kendi yetkisiyle reddedilir, üyelik kolu ölçülmezdi.
+   Ölçüldü (atılabilir kap, geri alınan işlem): kontrol yeşil; **yeni kol kaldırılınca** (rol kümesi yine iki
+   rol) ön koşul testi KIRMIZI — dört yeni vaka; **`pg_has_role` kolu kaldırılınca** (M31) KIRMIZI —
+   `SET ROLE` vakası. Gövde değiştiği için `R5B_BODY_DDL`'nin pini `ea571900…` → `ff003d61…`. Goose
+   Up → Down → Up parmak izi yine `c9c471c7…` → `e81def05…` (00062) → `c9c471c7…`; `relnatts` 17 → 19.
 7. **Down (K15-6):** ilk ifadesi `SET LOCAL lock_timeout = '1s'` (00054'ün kuralı, `deploy/README.md`;
    00038'in Down'ı da böyle açılır), ikincisi `LOCK TABLE public.tenants IN SHARE ROW EXCLUSIVE MODE`,
    üçüncüsü **ret** — askıdaki bir tenant varken 55000, sabit ileti, tenant adlandırılmaz, hiçbir şey
@@ -5522,6 +5536,11 @@ yöntemleri C fazıdır. Uygulamanın karar verdiği yerler, adıyla:
       düzeni — HEAD'e bakan pinler HEAD'in birikimli değerleri (md. 9); `opAtVersion` çağrı noktaları hold
       dalında 15 (14'ü 00035'in Down'ını koşuyordu), bugün 19 (18'i 00063'ün Down'ını koşar; taban 00062'de 14)
       (LS7).
+    - *(2026-10-20, DÜŞÜK turu — iki merceğin DÜŞÜK-1'i, bilinen sınır:)* `TestOperator00034_DownGivesBack00033AndUpTakesItAgain`'in
+      T9 yoklamasının `tenants` yarısı (`internal/db/operatorvat_test.go`, ikinci oturum sondası) artık
+      00063'ün Down kilidi tarafından maskelenir: `opAtVersion(34)` `tenants`'ı ACCESS EXCLUSIVE tutar, yani
+      00034'ün Down'ının `tenants`'ta ne aldığını ikinci oturum ölçemez; kalan yarı tutulan kip
+      karşılaştırmasıdır (md. 9 (c)). Kod değişmedi; testin yorumu bunu söyler.
 14. **M11'in askı kontrol noktası — bugünkü hâli (yalnız ölçüldü, A bağlamaz; LS1):**
     - `internal/handler/api/suspension.go:10-40` — ADR 0028 §10 / plan §4.7'nin tablosu ve **tek** kontrol
       noktası `Gate.Admit` (`:95-105`): `Suspension` arayüzü (`:69-71`, tüketici tarafında) yazmanın kendi
@@ -5610,7 +5629,8 @@ yöntemleri C fazıdır. Uygulamanın karar verdiği yerler, adıyla:
   kapsam dışıdır — `tappa_app` hiçbirinin üyesi değildir (ölçüldü) ve gövdeleri askı sütunlarına yazmaz;
   birinin `tenants`'ta tablo düzeyi bir yetki kazanması `privcatalog_test.go`'nun ve
   `TestM11Catalog_EveryNewTableMatchesTheMatrixUnderArwd`'ın matrisinde kırmızıdır, bu dosyanın ön
-  koşulunda değil.
+  koşulunda değil. *(2026-10-20, DÜŞÜK-2, `5a77873`: artık ön koşulda da — rol kümesi beş rol, md. 6'nın
+  notu. LS10'un kalanı geçerli: kayma yalnız tablo düzeyi yazmaya bakar.)*
 - **LS11** — **her kalıcı 00063 Down'ı `tenants`'ta iki `attnum`'u geri dönmemek üzere tüketir**
   (`DROP COLUMN` sütunu düşürülmüş işaretler, numarası boşalmaz). Hold dalının Aşama 2'si geliştirme
   veritabanında düşürülmüş sütun sayısını 38 → 148'e çıkarmıştı (55 kalıcı Down); o yüzden bu taşımada
