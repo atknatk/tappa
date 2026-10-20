@@ -176,6 +176,7 @@ func (a *AdminAuth) readAPIKeysView(r *http.Request, id httpx.AdminIdentity) (pa
 		RevokeAllHref: apiKeyRevokeAllHref,
 		NameMaxLength: apikey.NameLimit,
 	}
+	v.Kicker = "Owner only · keys and the webhook for your payroll or HR system"
 	if a.apiKeys == nil && a.webhook == nil {
 		return v, nil
 	}
@@ -206,14 +207,14 @@ func (a *AdminAuth) readAPIKeysView(r *http.Request, id httpx.AdminIdentity) (pa
 	for _, k := range list.Keys {
 		row := pages.APIKeyRow{
 			ID: k.ID.String(), Name: k.Name, PrefixHint: k.PrefixHint,
-			CreatedOn: k.CreatedAt.In(zone).Format("2 January 2006, 15:04"),
+			CreatedOn: k.CreatedAt.In(zone).Format("2 Jan 2006, 15:04"),
 			LastUsed:  "Never",
 		}
 		if k.LastUsedAt != nil {
-			row.LastUsed = k.LastUsedAt.In(zone).Format("2 January 2006, 15:04")
+			row.LastUsed = k.LastUsedAt.In(zone).Format("2 Jan 2006, 15:04")
 		}
 		if k.RevokedAt != nil {
-			row.RevokedOn = k.RevokedAt.In(zone).Format("2 January 2006, 15:04")
+			row.RevokedOn = k.RevokedAt.In(zone).Format("2 Jan 2006, 15:04")
 		}
 		v.Keys = append(v.Keys, row)
 	}

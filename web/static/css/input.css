@@ -1290,6 +1290,14 @@
   .pill--deactivated { @apply border-line text-ink/70; }
   /* A tally drawn as a pill: the same tones (the .tally--* modifiers above). */
   .pill-tally { @apply rounded-full px-2 font-bold tracking-[0.08em]; }
+  /* A mono pill (Developers: a key's Live / Revoked, the webhook's On / Off, a
+     delivery's five states). The frame and the ground are the tone, written beside
+     it in the template; the word stays ink, or ink at 70 % on a plain frame
+     (6.05:1 on paper). */
+  .mono-pill {
+    @apply inline-flex items-center whitespace-nowrap rounded-full border px-2 py-0.5
+           font-mono text-[11px] font-bold tracking-[0.08em] text-ink;
+  }
 
   /* --- buttons: modifiers of .btn, which keeps the height and the focus ring ---
      The accent never reaches them. The destructive pair is an ink word in a

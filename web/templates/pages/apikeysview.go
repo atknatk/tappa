@@ -127,6 +127,20 @@ func (v WebhookView) CanResend() bool { return v.APIEnabled && v.Active && !v.Bu
 // BucketFull reports whether the hour's test messages are spent.
 func (v WebhookView) BucketFull() bool { return v.Limit > 0 && v.Spent >= v.Limit }
 
+// SlotsLeft is how many of the hour's test-message-or-resend slots are still free: Limit less
+// Spent, never below zero (a full bucket reads "0 of 10 left", not a negative count).
+func (v WebhookView) SlotsLeft() int { return max(v.Limit-v.Spent, 0) }
+
+// ChangeValue is what the change-address field holds: the address the owner typed when the rule
+// refused it, else the saved address (the owner's own, on the owner's own page -- "" when the
+// saved one no longer passes the rule, which the page says in a sentence instead).
+func (v WebhookView) ChangeValue() string {
+	if v.AddressValue != "" {
+		return v.AddressValue
+	}
+	return v.Address
+}
+
 // APIKeyBudgetAlert is one key that reached its deactivation budget: its name ("an unnamed key"
 // when the list no longer has it) and when, in the business's time zone.
 type APIKeyBudgetAlert struct {

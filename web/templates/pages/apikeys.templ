@@ -6,85 +6,137 @@ import (
 	"github.com/atknatk/tappa/web/templates/components"
 )
 
-// The API KEYS section (M11 API-3, ADR 0028 §3) -- the owner's integration keys.
+// The DEVELOPERS section (M11 API-3, ADR 0028 §3; redesigned in M12-42) -- the owner's
+// integration keys, the webhook, and the webhook's delivery log.
 //
 // 🔴 THE RAW KEY IS DRAWN ON ONE RESPONSE ONLY: the answer to "create". Every other render has
-// v.NewKey empty and the list shows each key's hint -- its prefix and four characters -- which is
-// not the key and cannot be turned into it.
+// v.NewKey empty and the list shows each key's hint -- its prefix and four characters, its FIRST
+// characters -- which is not the key and cannot be turned into it. The webhook's signing key is
+// drawn on the answers to "create the webhook" and "rotate its key" only, and never in any other
+// form: it is stored sealed, so there is no masked tail to show either.
 //
-// 🔴 IT LOADS NO SCRIPT. Copying the key is the browser's own selection; every act is a form post
-// on the panel's write chain (the Origin check before the resolver, owner-only in the handler and
-// again in the domain).
+// 🔴 IT LOADS NO SCRIPT. Copying a secret is the browser's own selection (there is no copy
+// button); every act is a form post on the panel's write chain (the Origin check before the
+// resolver, owner-only in the handler and again in the domain).
 //
-// skill tappa-brand: every stored value is IBM Plex Mono, status is a WORD (Live, Revoked) and
-// never a colour alone, notices carry their meaning in the heading.
+// 🔴 NO ADDRESS ON THIS PAGE IS A LINK. The guide is a path on this host; the webhook's address
+// is the owner's own and is printed as text or as a field's value, never as an href.
+//
+// ONE MARKUP AT EVERY WIDTH. The keys and the deliveries are each read once and written twice
+// from the same rows: a table that shows from the desk up and a list that shows below it, so
+// exactly one of the two is ever rendered visible.
+//
+// skill tappa-brand: every stored value is IBM Plex Mono, status is a WORD (Live, Revoked, On,
+// Off, Delivered, Sending, Retrying, Queued, Failed) and never a colour alone, notices carry their
+// meaning in their label and heading.
 templ AdminAPIKeys(v APIKeysView) {
-	@PanelShell(v.PanelChrome) {
-		if v.Problem != "" {
-			@components.Notice(components.ToneAlert, "That did not happen") {
-				<p>{ v.Problem }</p>
-			}
+	@PanelActions(apiKeysGuideNote()) {
+		@PanelShell(v.PanelChrome) {
+			<div class="flex flex-col gap-5 md:gap-6">
+				if v.Problem != "" {
+					@components.PanelNotice(components.ToneAlert, "That did not happen") {
+						<p>{ v.Problem }</p>
+					}
+				}
+				if v.Done != "" {
+					@components.PanelNotice(components.ToneOK, "") {
+						<p>{ v.Done }</p>
+					}
+				}
+				if len(v.BudgetAlerts) > 0 {
+					@apiKeyBudgetAlerts(v)
+				}
+				if v.ListFailed && v.Webhook.NewKey != "" {
+					// The webhook's card is not drawn when the section could not be read after
+					// the key was issued, so the key is handed over here -- still once.
+					@webhookKeyShownOnce(v.Webhook, v.PostHref)
+				}
+				@apiKeysCard(v)
+				if !v.ListFailed {
+					@webhookSection(v.Webhook, v.PostHref)
+					if v.Webhook.Configured && v.Webhook.Exists {
+						@webhookDeliveries(v.Webhook)
+					}
+				}
+			</div>
 		}
-		if v.Done != "" {
-			@components.Notice(components.ToneOK, "Done") {
-				<p>{ v.Done }</p>
+	}
+}
+
+// apiKeysGuideNote is the heading's note at the right of the title: where the contract is
+// written. The guide is served on this host at a path (marketing.go), so it is a relative link.
+templ apiKeysGuideNote() {
+	<p class="max-w-[360px] text-sm leading-normal text-ink/80">
+		For the endpoints and the signature, read the
+		<a class="inline-flex min-h-11 items-center font-bold text-ink underline underline-offset-4 hover:text-tappa-green" href={ templ.URL(APIGuidePath) }>integration guide</a>.
+	</p>
+}
+
+// apiKeysCard is the keys: what a key is, the create form, the key shown once, the list.
+templ apiKeysCard(v APIKeysView) {
+	<section class="panel-card" aria-labelledby="api-keys-title">
+		<div class="flex flex-col gap-4 desk:flex-row desk:items-end desk:justify-between desk:gap-6">
+			<div class="flex min-w-0 flex-col gap-1.5 desk:flex-1">
+				<h2 id="api-keys-title" class="font-display text-[19px] font-bold leading-tight tracking-[-0.02em] text-ink md:text-xl desk:text-[22px]">Integration keys</h2>
+				<p class="max-w-2xl text-sm leading-normal text-ink/70">
+					A key lets your HR or payroll system keep your staff and venues in step with Taptime and
+					collect your punches. Anybody holding a key can do that for this business, so give each
+					system its own key and revoke one the moment it is no longer needed. The full key is
+					shown once, when you create it; after that only its first characters stay on screen.
+				</p>
+				<p class="max-w-2xl text-sm leading-normal text-ink/70">
+					<a class="inline-flex min-h-11 items-center font-bold text-ink underline underline-offset-4 hover:text-tappa-green" href={ templ.URL(APIGuidePath) }>Read the integration guide</a>
+					— what the API does and how your system calls it.
+				</p>
+			</div>
+			if v.Available && !v.ListFailed && v.APIEnabled {
+				@apiKeyCreateForm(v)
+			}
+		</div>
+		if !v.Available {
+			<p class="max-w-2xl text-sm text-ink/70">
+				Integration keys are not available on this deployment.
+			</p>
+		} else if !v.APIEnabled && !v.ListFailed {
+			@components.PanelNotice(components.ToneWarn, "API access is off for this business") {
+				<p>
+					Taptime switches the integration API on for a business on request. Until then no
+					key can be created, and any key listed below is refused. You can still revoke them.
+				</p>
 			}
 		}
 		if v.NewKey != "" {
 			@apiKeyShownOnce(v)
 		}
-		if len(v.BudgetAlerts) > 0 {
-			@apiKeyBudgetAlerts(v)
-		}
-		if v.Webhook.NewKey != "" {
-			@webhookKeyShownOnce(v.Webhook)
-		}
-		@apiKeysIntro(v)
 		if v.Available && !v.ListFailed {
-			if v.APIEnabled {
-				@apiKeyCreateForm(v)
-			}
 			@apiKeysList(v)
 		}
-		if !v.ListFailed {
-			@webhookSection(v.Webhook)
-		}
-	}
+	</section>
 }
 
 // apiKeyShownOnce is the one place the raw key is ever printed.
 templ apiKeyShownOnce(v APIKeysView) {
-	@components.Notice(components.ToneOK, "Copy this key now — it is shown once") {
+	@components.OneTimeSecret("Store this key now — it is shown once", "api-key-new", "Your new key", v.NewKey, v.PostHref) {
 		<p>
 			This is the key named <span class="font-mono">{ v.NewKeyName }</span>. Give it to your
 			HR or payroll system now. Taptime keeps only a one-way check value of it, so it cannot be shown
 			again: if it is lost, revoke it below and create another.
 		</p>
-		<label class="docket-label mt-3 block" for="api-key-new">Your new key</label>
-		<input
-			class="filter-input mt-1 w-full font-mono"
-			id="api-key-new"
-			type="text"
-			readonly
-			autocomplete="off"
-			spellcheck="false"
-			value={ v.NewKey }
-		/>
 	}
 }
 
 // apiKeyBudgetAlerts is the owner's alert of ADR 0028 §12 (K-25): a key that deactivated as many
 // employees in an hour as the integration may was refused further deactivations. The owner reads
-// which key and when, and what to do if the integration did not mean it. Status is the heading's
-// word; the warning tone only reinforces it.
+// which key and when, and what to do if the integration did not mean it. Status is the label and
+// the heading; the warning tone only reinforces them.
 templ apiKeyBudgetAlerts(v APIKeysView) {
-	@components.Notice(components.ToneWarn, "A key reached its limit for deactivating employees") {
+	@components.PanelNotice(components.ToneWarn, "A key reached its limit for deactivating employees") {
 		<p>
 			An integration key may deactivate only so many employees in an hour. These keys reached
 			that limit in the last day, and the deactivations past it were refused. If your HR or payroll
 			system did not mean to remove that many people, revoke the key below and check the system.
 		</p>
-		<ul class="mt-2 text-sm">
+		<ul class="mt-2 flex flex-col gap-1">
 			for _, a := range v.BudgetAlerts {
 				<li>
 					<span class="font-mono">{ a.KeyName }</span> — <span class="font-mono">{ a.At }</span>
@@ -97,42 +149,14 @@ templ apiKeyBudgetAlerts(v APIKeysView) {
 	}
 }
 
-// apiKeysIntro says what a key is and, when the operator has not opened the API, why nothing can
-// be created.
-templ apiKeysIntro(v APIKeysView) {
-	<section class="bg-paper border border-line px-4 py-4">
-		<h2 class="font-display text-lg font-bold tracking-tight">Integration keys</h2>
-		<p class="mt-2 max-w-2xl text-sm text-ink/85">
-			A key lets your HR or payroll system keep your staff and venues in step with Taptime and
-			collect your punches. Anybody holding a key can do that for this business, so give each
-			system its own key and revoke one the moment it is no longer needed.
-		</p>
-		<p class="mt-2 max-w-2xl text-sm text-ink/85">
-			<a class="inline-flex min-h-11 items-center underline" href={ templ.URL(APIGuidePath) }>Read the integration guide</a>
-			— what the API does and how your system calls it.
-		</p>
-		if !v.Available {
-			<p class="mt-2 max-w-2xl text-sm text-ink/85">
-				Integration keys are not available on this deployment.
-			</p>
-		} else if !v.APIEnabled && !v.ListFailed {
-			@components.Notice(components.ToneWarn, "API access is off for this business") {
-				<p>
-					Taptime switches the integration API on for a business on request. Until then no
-					key can be created, and any key listed below is refused. You can still revoke them.
-				</p>
-			}
-		}
-	</section>
-}
-
+// apiKeyCreateForm names a new key. Stacked on a phone; the field and the button share a row
+// from the tablet up.
 templ apiKeyCreateForm(v APIKeysView) {
-	<form method="post" action={ templ.URL(v.PostHref) } class="bg-paper border border-line px-4 py-4">
-		<h2 class="font-display text-lg font-bold tracking-tight">Create a key</h2>
-		<div class="mt-4 flex flex-col gap-1">
-			<label class="docket-label" for="api-key-name">Name</label>
+	<form method="post" action={ templ.URL(v.PostHref) } class="flex flex-col gap-2 md:flex-row md:flex-wrap md:items-end desk:w-[340px] desk:flex-none">
+		<div class="field-stack md:flex-1">
+			<label class="lbl" for="api-key-name">Name</label>
 			<input
-				class="filter-input"
+				class="field-input"
 				id="api-key-name"
 				type="text"
 				name="name"
@@ -140,134 +164,170 @@ templ apiKeyCreateForm(v APIKeysView) {
 				maxlength={ itoa(v.NameMaxLength) }
 				value={ v.NameValue }
 				autocomplete="off"
-				aria-describedby="api-key-name-help"
+				aria-invalid={ strconv.FormatBool(v.NameError != "") }
+				if v.NameError != "" {
+					aria-describedby="api-key-name-help api-key-name-error"
+				} else {
+					aria-describedby="api-key-name-help"
+				}
 			/>
-			<p class="text-xs text-ink/70" id="api-key-name-help">
-				Which system will use it, for example "Payroll". Two live keys cannot share a name.
-			</p>
-			if v.NameError != "" {
-				<p class="text-sm text-ink">{ v.NameError }</p>
-			}
 		</div>
-		<div class="mt-4">
-			<button class="btn btn--primary" type="submit">Create key</button>
-		</div>
+		<button class="btn btn--primary w-full rounded-xl md:w-auto" type="submit">Create key</button>
+		<p class="field-help md:basis-full" id="api-key-name-help">
+			Which system will use it, for example "Payroll". Two live keys cannot share a name.
+		</p>
+		if v.NameError != "" {
+			<p class="text-sm font-bold text-ink md:basis-full" id="api-key-name-error">{ v.NameError }</p>
+		}
 	</form>
 }
 
+// apiKeysList is the keys: a table from the desk up, a list of key rows below it -- the same rows.
+// The hint is the key's FIRST characters followed by an ellipsis (internal/apikey keeps nothing of
+// its tail). A revocation is one press; revoking them all asks for a tick first.
 templ apiKeysList(v APIKeysView) {
-	<section class="bg-paper border border-line px-4 py-4">
-		<h2 class="font-display text-lg font-bold tracking-tight">Keys</h2>
-		if len(v.Keys) == 0 {
-			<p class="mt-2 text-sm text-ink/85">No key has been created for this business.</p>
-		} else {
-			<ul class="mt-3 flex flex-col gap-3">
+	if len(v.Keys) == 0 {
+		<p class="text-sm text-ink/70">No key has been created for this business.</p>
+	} else {
+		<table class="hidden w-full border-collapse desk:table">
+			<caption class="sr-only">This business&#39;s integration keys</caption>
+			<thead>
+				<tr>
+					<th scope="col" class="lbl px-2 py-2.5 text-left font-normal">Name</th>
+					<th scope="col" class="lbl px-2 py-2.5 text-left font-normal">Starts with</th>
+					<th scope="col" class="lbl px-2 py-2.5 text-left font-normal">Status</th>
+					<th scope="col" class="lbl px-2 py-2.5 text-left font-normal">Created</th>
+					<th scope="col" class="lbl px-2 py-2.5 text-left font-normal">Last used</th>
+					<th scope="col" class="px-2 py-2.5"><span class="sr-only">Actions</span></th>
+				</tr>
+			</thead>
+			<tbody>
 				for _, k := range v.Keys {
-					<li class="docket">
-						<div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-							<p class="font-display font-bold tracking-tight text-ink">{ k.Name }</p>
-							if k.Live() {
-								<p class="font-mono text-xs uppercase tracking-widest text-ink">Live</p>
-							} else {
-								<p class="font-mono text-xs uppercase tracking-widest text-ink/70">Revoked</p>
-							}
-						</div>
-						<dl class="mt-2 grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-2">
-							<div>
-								<dt class="docket-label">Starts with</dt>
-								<dd class="font-mono text-sm text-ink">{ k.PrefixHint }…</dd>
-							</div>
-							<div>
-								<dt class="docket-label">Created</dt>
-								<dd class="font-mono text-sm text-ink">{ k.CreatedOn }</dd>
-							</div>
-							<div>
-								<dt class="docket-label">Last used</dt>
-								<dd class="font-mono text-sm text-ink">{ k.LastUsed }</dd>
-							</div>
+					<tr class="border-t border-dashed border-line align-top">
+						<th scope="row" class="break-words px-2 py-3 text-left font-display text-[15px] font-bold text-ink">{ k.Name }</th>
+						<td class="px-2 py-3 font-mono text-[13px] text-ink">{ k.PrefixHint }…</td>
+						<td class="px-2 py-3">
+							@apiKeyStatusPill(k)
 							if !k.Live() {
-								<div>
-									<dt class="docket-label">Revoked</dt>
-									<dd class="font-mono text-sm text-ink">{ k.RevokedOn }</dd>
-								</div>
+								<span class="mt-1 block font-mono text-xs text-ink/70">{ k.RevokedOn }</span>
 							}
-						</dl>
-						if k.Live() {
-							<form method="post" action={ templ.URL(v.RevokeHref) } class="mt-3">
-								<input type="hidden" name="key_id" value={ k.ID }/>
-								<button class="btn btn--quiet" type="submit">Revoke</button>
-							</form>
-						}
-					</li>
+						</td>
+						<td class="px-2 py-3 font-mono text-[13px] text-ink">{ k.CreatedOn }</td>
+						<td class="px-2 py-3 font-mono text-[13px] text-ink">{ k.LastUsed }</td>
+						<td class="whitespace-nowrap px-2 py-2 text-right">
+							if k.Live() {
+								@apiKeyRevokeForm(v, k)
+							}
+						</td>
+					</tr>
 				}
-			</ul>
-			if v.AnyLive() {
-				<form method="post" action={ templ.URL(v.RevokeAllHref) } class="mt-4 border-t border-line pt-4">
-					<p class="max-w-2xl text-sm text-ink/85">
-						If a key may have leaked and you do not know which, revoke them all. Every
-						integration stops at once until you give it a new key.
-					</p>
-					<label class="mt-2 flex min-h-11 items-center gap-2 text-sm text-ink">
+			</tbody>
+		</table>
+		<ul class="flex flex-col desk:hidden">
+			for _, k := range v.Keys {
+				<li class="flex items-center justify-between gap-3 border-t border-dashed border-line py-3">
+					<div class="flex min-w-0 flex-col gap-1">
+						<p class="flex flex-wrap items-center gap-2">
+							<span class="break-words font-display text-[15px] font-bold text-ink">{ k.Name }</span>
+							@apiKeyStatusPill(k)
+						</p>
+						<p class="break-all font-mono text-xs text-ink/70">Starts with { k.PrefixHint }… · created { k.CreatedOn }</p>
+						if k.Live() {
+							<p class="font-mono text-xs text-ink/70">Last used { k.LastUsed }</p>
+						} else {
+							<p class="font-mono text-xs text-ink/70">Revoked { k.RevokedOn }</p>
+						}
+					</div>
+					if k.Live() {
+						@apiKeyRevokeForm(v, k)
+					}
+				</li>
+			}
+		</ul>
+		if v.AnyLive() {
+			<form method="post" action={ templ.URL(v.RevokeAllHref) } class="flex flex-col gap-2.5 border-t border-line pt-3.5">
+				<p class="max-w-2xl text-sm leading-normal text-ink/70">
+					If a key may have leaked and you do not know which, revoke them all. Every
+					integration stops at once until you give it a new key.
+				</p>
+				<div class="flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center md:justify-end md:gap-3">
+					<label class="flex min-h-11 items-center gap-2 text-sm text-ink">
 						<input type="checkbox" name="confirm" value="yes" required class="min-h-11 w-11 accent-tappa-green"/>
 						Yes, stop every integration now
 					</label>
-					<button class="btn btn--quiet mt-2" type="submit">Revoke every key</button>
-				</form>
-			}
+					<button class="btn btn--danger w-full md:w-auto" type="submit">Revoke every key</button>
+				</div>
+			</form>
 		}
-	</section>
+	}
+}
+
+// apiKeyStatusPill is a key's state as a word: Live in the green frame, Revoked in the plain one.
+templ apiKeyStatusPill(k APIKeyRow) {
+	if k.Live() {
+		<span class="mono-pill border-tappa-green bg-tappa-green/10">Live</span>
+	} else {
+		<span class="mono-pill border-line text-ink/70">Revoked</span>
+	}
+}
+
+// apiKeyRevokeForm revokes one key at once (a single key is one press; the screen file keeps it).
+// The button's name carries the key's name for a screen reader, which hears a row of "Revoke"s.
+templ apiKeyRevokeForm(v APIKeysView, k APIKeyRow) {
+	<form method="post" action={ templ.URL(v.RevokeHref) } class="flex-none">
+		<input type="hidden" name="key_id" value={ k.ID }/>
+		<button class="btn btn--danger" type="submit">Revoke<span class="sr-only">{ " " + k.Name }</span></button>
+	</form>
 }
 
 // ---------------------------------------------------------------- the webhook (M11 API-9) --
 //
 // 🔴 THE SIGNING KEY IS DRAWN ON TWO RESPONSES ONLY: the answers to "create the webhook" and
-// "rotate its key". Every other render has NewKey empty; the endpoint's docket shows the address
-// (the owner's own, on the owner's own page), its switch and its key's age -- never the key.
+// "rotate its key". Every other render has NewKey empty; the card shows the address (the owner's
+// own, on the owner's own page), its switch and its key's age -- never the key, and no masked
+// piece of it (it is stored sealed).
 //
 // 🔴 NO SCRIPT, like the rest of the section: every act is a form post on the panel's write chain.
 // The test ping redirects back with its result, so a reload shows the result and sends nothing.
-//
-// skill tappa-brand: stored values in IBM Plex Mono, the switch is a WORD (On, Off), the result of a
-// ping is a sentence in a Notice whose heading carries its meaning.
 
 // webhookKeyShownOnce is the one place the signing key is ever printed.
-templ webhookKeyShownOnce(w WebhookView) {
-	@components.Notice(components.ToneOK, "Copy the webhook's signing key now — it is shown once") {
+templ webhookKeyShownOnce(w WebhookView, sectionHref string) {
+	@components.OneTimeSecret("Store the webhook's signing key now — it is shown once", "webhook-key-new", "Signing key", w.NewKey, sectionHref+"#webhook") {
 		<p>
 			Your system uses this key to check that a webhook really comes from Taptime: every message
 			carries an X-Taptime-Signature header, sha256= and the HMAC-SHA256 of the message body under
 			this key. Taptime keeps it sealed and cannot show it again: if it is lost, rotate it below.
 		</p>
-		<label class="docket-label mt-3 block" for="webhook-key-new">Signing key</label>
-		<input
-			class="filter-input mt-1 w-full font-mono"
-			id="webhook-key-new"
-			type="text"
-			readonly
-			autocomplete="off"
-			spellcheck="false"
-			value={ w.NewKey }
-		/>
 	}
 }
 
-templ webhookSection(w WebhookView) {
-	<section class="bg-paper border border-line px-4 py-4" id="webhook">
-		<h2 class="font-display text-lg font-bold tracking-tight">Webhook</h2>
-		<p class="mt-2 max-w-2xl text-sm text-ink/85">
-			Taptime can send each punch to your HR or payroll system the moment it is recorded. Give the
-			address your system receives webhooks at: one address for this business.
+templ webhookSection(w WebhookView, sectionHref string) {
+	<section class="panel-card" id="webhook" aria-labelledby="webhook-title">
+		<div class="flex items-center justify-between gap-3">
+			<h2 id="webhook-title" class="font-display text-[19px] font-bold leading-tight tracking-[-0.02em] text-ink md:text-xl desk:text-[22px]">Webhook</h2>
+			if w.Configured && w.Exists {
+				if w.Active {
+					<span class="mono-pill border-tappa-green bg-tappa-green/10 px-2.5 text-xs uppercase">On</span>
+				} else {
+					<span class="mono-pill border-line px-2.5 text-xs uppercase text-ink/70">Off</span>
+				}
+			}
+		</div>
+		<p class="max-w-2xl text-sm leading-normal text-ink/70">
+			We send every punch to one address of yours, signed with a key only you and Taptime hold.
 		</p>
-		<p class="mt-2 max-w-2xl text-sm text-ink/85">
-			<a class="inline-flex min-h-11 items-center underline" href={ templ.URL(APIGuideWebhooksHref) }>How to receive webhooks</a>
+		<p class="max-w-2xl text-sm leading-normal text-ink/70">
+			<a class="inline-flex min-h-11 items-center font-bold text-ink underline underline-offset-4 hover:text-tappa-green" href={ templ.URL(APIGuideWebhooksHref) }>How to receive webhooks</a>
 			— the requests, the signature check and the retries, in the integration guide.
 		</p>
-		if !w.Configured {
-			<p class="mt-2 max-w-2xl text-sm text-ink/85">The webhook is not configured on this deployment.</p>
+		if w.NewKey != "" {
+			@webhookKeyShownOnce(w, sectionHref)
 		}
-		if w.Configured {
+		if !w.Configured {
+			<p class="max-w-2xl text-sm text-ink/70">The webhook is not configured on this deployment.</p>
+		} else {
 			if !w.APIEnabled {
-				@components.Notice(components.ToneWarn, "API access is off for this business") {
+				@components.PanelNotice(components.ToneWarn, "API access is off for this business") {
 					<p>
 						Taptime switches the integration API on for a business on request. Until then the
 						webhook cannot be created, changed or tested, and nothing is sent to it. You can
@@ -275,218 +335,334 @@ templ webhookSection(w WebhookView) {
 					</p>
 				}
 			}
-			if w.PingShown {
-				if w.PingDelivered {
-					@components.Notice(components.ToneOK, "The test message arrived") {
-						<p>{ w.PingSentence }</p>
-					}
-				} else {
-					@components.Notice(components.ToneAlert, "The test message did not arrive") {
-						<p>{ w.PingSentence }</p>
-					}
-				}
-			}
 			if w.Exists {
-				@webhookDocket(w)
-				@webhookDeliveries(w)
+				@webhookBody(w)
 			} else if w.APIEnabled {
-				@webhookAddressForm(w, w.CreateHref, "Create webhook", "webhook-address-new")
+				@webhookAddressForm(w, w.CreateHref, "Create webhook", "webhook-address-new", w.AddressValue, true)
 			} else {
-				<p class="mt-2 text-sm text-ink/85">This business has no webhook.</p>
+				<p class="text-sm text-ink/70">This business has no webhook.</p>
 			}
 		}
 	</section>
 }
 
-templ webhookDocket(w WebhookView) {
-	<div class="docket mt-3">
-		<div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-			<p class="font-display font-bold tracking-tight text-ink">This business's webhook</p>
-			if w.Active {
-				<p class="font-mono text-xs uppercase tracking-widest text-ink">On</p>
-			} else {
-				<p class="font-mono text-xs uppercase tracking-widest text-ink/70">Off</p>
-			}
-		</div>
-		<dl class="mt-2 grid grid-cols-1 gap-x-4 gap-y-1">
-			<div>
-				<dt class="docket-label">Address</dt>
-				if w.AddressRefused {
-					<dd class="text-sm text-ink">The saved address no longer passes the address rules. Give a new one below.</dd>
-				} else {
-					<dd class="font-mono text-sm text-ink break-all">{ w.Address }</dd>
-				}
-			</div>
-			<div>
-				<dt class="docket-label">Created</dt>
-				<dd class="font-mono text-sm text-ink">{ w.CreatedOn }</dd>
-			</div>
-			<div>
-				<dt class="docket-label">Signing key</dt>
-				if w.RotatedOn != "" {
-					<dd class="font-mono text-sm text-ink">Rotated { w.RotatedOn }</dd>
-				} else {
-					<dd class="font-mono text-sm text-ink">Since it was created</dd>
-				}
-			</div>
+// webhookBody is the endpoint: its address and its facts on one side, the last test's result and
+// the acts on the other (side by side from the desk up, one column below it).
+templ webhookBody(w WebhookView) {
+	<div class="flex flex-col gap-5 desk:grid desk:grid-cols-2 desk:items-start desk:gap-x-10">
+		<div class="flex min-w-0 flex-col gap-4">
 			if w.APIEnabled {
-				<div>
-					<dt class="docket-label">Test messages this hour</dt>
-					<dd class="font-mono text-sm text-ink">{ itoa(w.Spent) } of { itoa(w.Limit) }</dd>
-				</div>
+				if w.AddressRefused {
+					<p class="text-sm font-bold text-ink">The saved address no longer passes the address rules. Give a new one below.</p>
+				}
+				@webhookAddressForm(w, w.AddressHref, "Change address", "webhook-address-change", w.ChangeValue(), false)
 			}
-		</dl>
-		if w.APIEnabled {
-			if w.Active {
-				if w.BucketFull() {
-					<p class="mt-3 text-sm text-ink">
-						The hour's { itoa(w.Limit) } test messages are used. The next one is free at
-						<span class="font-mono">{ w.NextSlot }</span>.
-					</p>
+			<dl class="grid grid-cols-1 gap-3 md:grid-cols-2 md:gap-x-4 desk:grid-cols-[auto_minmax(0,1fr)] desk:items-baseline desk:gap-y-2.5">
+				if !w.APIEnabled {
+					<div class="flex min-w-0 flex-col gap-1 md:col-span-2 desk:contents">
+						<dt class="lbl">Address</dt>
+						if w.AddressRefused {
+							<dd class="text-sm text-ink">The saved address no longer passes the address rules. Give a new one below.</dd>
+						} else {
+							<dd class="break-all font-mono text-[13px] text-ink">{ w.Address }</dd>
+						}
+					</div>
+				}
+				<div class="flex min-w-0 flex-col gap-1 desk:contents">
+					<dt class="lbl">Sends</dt>
+					<dd class="text-sm text-ink">Every punch, as it is recorded</dd>
+				</div>
+				<div class="flex min-w-0 flex-col gap-1 desk:contents">
+					<dt class="lbl">Signing key</dt>
+					<dd class="text-sm text-ink">
+						Kept sealed — shown once, when it is made ·
+						if w.RotatedOn != "" {
+							<span class="font-mono text-[13px]">rotated { w.RotatedOn }</span>
+						} else {
+							<span class="font-mono text-[13px]">since it was created</span>
+						}
+					</dd>
+				</div>
+				<div class="flex min-w-0 flex-col gap-1 desk:contents">
+					<dt class="lbl">Created</dt>
+					<dd class="font-mono text-[13px] text-ink">{ w.CreatedOn }</dd>
+				</div>
+				if w.APIEnabled {
+					<div class="flex min-w-0 flex-col gap-1 desk:contents">
+						<dt class="lbl">Test messages</dt>
+						<dd class="font-mono text-[13px] text-ink">{ itoa(w.SlotsLeft()) } of { itoa(w.Limit) } left this hour</dd>
+					</div>
+				}
+			</dl>
+		</div>
+		<div class="flex min-w-0 flex-col gap-4">
+			if w.PingShown {
+				if w.PingDelivered {
+					@components.PanelNotice(components.ToneOK, "The test message arrived") {
+						<p>{ w.PingSentence }</p>
+					}
 				} else {
-					<form method="post" action={ templ.URL(w.PingHref) } class="mt-3">
-						<p class="max-w-2xl text-sm text-ink/85">
-							Send a signed test message (event "ping") to the address and see what your system answers.
-						</p>
-						<button class="btn btn--primary mt-2" type="submit">Send a test message</button>
+					@components.PanelNotice(components.ToneAlert, "The test message did not arrive") {
+						<p>{ w.PingSentence }</p>
+					}
+				}
+			}
+			if w.APIEnabled && w.Active && w.BucketFull() {
+				<p class="text-sm text-ink">
+					The hour&#39;s { itoa(w.Limit) } test messages are used. The next one is free at
+					<span class="font-mono">{ w.NextSlot }</span>.
+				</p>
+			}
+			<div class="flex flex-col gap-2 md:flex-row md:flex-wrap">
+				if w.APIEnabled && w.Active && !w.BucketFull() {
+					<form method="post" action={ templ.URL(w.PingHref) }>
+						<button class="btn btn--primary w-full rounded-xl md:w-auto" type="submit">Send a test message</button>
 					</form>
 				}
-			}
-			<div class="mt-4 border-t border-line pt-4">
-				@webhookAddressForm(w, w.AddressHref, "Change address", "webhook-address-change")
+				if w.Active {
+					<form method="post" action={ templ.URL(w.DisableHref) }>
+						<button class="btn btn--line w-full md:w-auto" type="submit">Switch the webhook off</button>
+					</form>
+				} else if w.APIEnabled {
+					<form method="post" action={ templ.URL(w.EnableHref) }>
+						<button class="btn btn--line w-full md:w-auto" type="submit">Switch the webhook on</button>
+					</form>
+				}
 			</div>
-			<form method="post" action={ templ.URL(w.RotateHref) } class="mt-4 border-t border-line pt-4">
-				<p class="max-w-2xl text-sm text-ink/85">
-					If the signing key may have leaked, give the webhook a new one. Your system must switch to
-					the new key: messages signed with the old one stop at once.
-				</p>
-				<label class="mt-2 flex min-h-11 items-center gap-2 text-sm text-ink">
-					<input type="checkbox" name="confirm" value="yes" required class="min-h-11 w-11 accent-tappa-green"/>
-					Yes, replace the signing key now
-				</label>
-				<button class="btn btn--quiet mt-2" type="submit">Rotate the signing key</button>
-			</form>
-		}
-		if w.Active {
-			<form method="post" action={ templ.URL(w.DisableHref) } class="mt-4 border-t border-line pt-4">
-				<p class="max-w-2xl text-sm text-ink/85">
+			if w.Active {
+				<p class="text-[13px] leading-normal text-ink/70">
+					if w.APIEnabled && !w.BucketFull() {
+						A test message is a signed message (event "ping") to the address; what your system answers shows here.
+					}
 					Switching the webhook off stops every message to it at once. It can be switched on again.
 				</p>
-				<button class="btn btn--quiet mt-2" type="submit">Switch the webhook off</button>
-			</form>
-		} else if w.APIEnabled {
-			<form method="post" action={ templ.URL(w.EnableHref) } class="mt-4 border-t border-line pt-4">
-				<button class="btn btn--quiet" type="submit">Switch the webhook on</button>
-			</form>
-		}
+			}
+			if w.APIEnabled {
+				<form method="post" action={ templ.URL(w.RotateHref) } class="flex flex-col gap-2.5 border-t border-dashed border-line pt-3">
+					<p class="text-[13px] leading-normal text-ink/70">
+						If the signing key may have leaked, give the webhook a new one. Your system must switch to
+						the new key: messages signed with the old one stop at once.
+					</p>
+					<div class="flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center md:gap-3">
+						<label class="flex min-h-11 items-center gap-2 text-sm text-ink">
+							<input type="checkbox" name="confirm" value="yes" required class="min-h-11 w-11 accent-tappa-green"/>
+							Yes, replace the signing key now
+						</label>
+						<button class="btn btn--line w-full md:w-auto" type="submit">Rotate the signing key</button>
+					</div>
+				</form>
+			}
+		</div>
 	</div>
 }
 
-// webhookDeliveries is the delivery log (M11 API-10, ADR 0028 §6): each delivery a docket entry --
-// when it was queued, the punch it carries, its state as a word, its tries, the last answer as a
-// closed class and a status code -- and, for a queued, retrying or failed one, a form that sends it
-// again (one of the hour's ten test-message-or-resend slots). No address, no receiver's text.
+// webhookDeliveries is the delivery log (M11 API-10, ADR 0028 §6): each delivery -- when it was
+// queued, the punch it carries, its state as a word with what that state means for it, its tries,
+// the last answer as a closed class and a status code -- and, for a queued, retrying or failed one,
+// a form that sends it again (one of the hour's test-message-or-resend slots). No address, no
+// receiver's text. A table from the desk up, a list below it: the same rows.
 templ webhookDeliveries(w WebhookView) {
-	<div class="docket mt-3" id="webhook-deliveries">
-		<p class="font-display font-bold tracking-tight text-ink">Deliveries</p>
-		<p class="mt-1 max-w-2xl text-sm text-ink/85">
+	<section class="panel-card" id="webhook-deliveries" aria-labelledby="webhook-deliveries-title">
+		<div class="flex flex-wrap items-baseline justify-between gap-2">
+			<h2 id="webhook-deliveries-title" class="font-display text-[19px] font-bold leading-tight tracking-[-0.02em] text-ink md:text-xl desk:text-[22px]">Deliveries</h2>
+			<span class="font-mono text-[11px] text-ink/70 md:text-xs">retries after 1 · 5 · 30 min · 2 · 6 h, then failed</span>
+		</div>
+		<p class="max-w-2xl text-sm leading-normal text-ink/70">
 			Every punch is sent to the webhook as it is recorded. A delivery that fails is tried again after
 			1 minute, 5 minutes, 30 minutes, 2 hours and 6 hours; after the sixth try it is marked failed.
 			Your system can always read every punch from the punch feed as well.
 		</p>
-		if w.LogKeepsDays > 0 {
-			<p class="mt-1 max-w-2xl text-sm text-ink/85">
-				A delivery stays in this list for { itoa(w.LogKeepsDays) } days after it arrived or was marked failed, and is
-				then deleted — a failed one can be sent again until then. A delivery that is still waiting is never deleted.
-			</p>
-		}
 		if len(w.Deliveries) == 0 {
-			<p class="mt-3 text-sm text-ink/85">No delivery yet.</p>
+			<p class="text-sm text-ink/70">No delivery yet.</p>
 		} else {
-			<ol class="mt-3">
+			<table class="hidden w-full border-collapse desk:table">
+				<caption class="sr-only">This webhook&#39;s deliveries, newest first</caption>
+				<thead>
+					<tr>
+						<th scope="col" class="lbl px-1.5 py-2 text-left font-normal">Delivery</th>
+						<th scope="col" class="lbl px-1.5 py-2 text-left font-normal">Queued</th>
+						<th scope="col" class="lbl px-1.5 py-2 text-left font-normal">State</th>
+						<th scope="col" class="lbl px-1.5 py-2 text-right font-normal">Tries</th>
+						<th scope="col" class="lbl px-1.5 py-2 text-left font-normal">Last answer</th>
+						<th scope="col" class="px-1.5 py-2"><span class="sr-only">Actions</span></th>
+					</tr>
+				</thead>
+				<tbody>
+					for _, d := range w.Deliveries {
+						<tr class="border-t border-dashed border-line align-top">
+							<th scope="row" class="break-all px-1.5 py-2.5 text-left font-mono text-xs font-normal text-ink">
+								{ d.ID }
+								<span class="block text-ink/70">punch { d.PunchID }</span>
+							</th>
+							<td class="px-1.5 py-2.5 font-mono text-[13px] text-ink">{ d.Queued }</td>
+							<td class="px-1.5 py-2.5">
+								@webhookDeliveryPill(d.State)
+								<span class="mt-1 block font-mono text-xs text-ink/70">
+									@webhookDeliveryNote(d)
+								</span>
+							</td>
+							<td class="px-1.5 py-2.5 text-right font-mono text-[13px] text-ink">{ itoa(d.Attempts) }</td>
+							<td class="px-1.5 py-2.5 font-mono text-[13px] text-ink">
+								if d.LastAnswer != "" {
+									{ d.LastAnswer }
+								} else {
+									<span aria-hidden="true">—</span><span class="sr-only">none yet</span>
+								}
+							</td>
+							<td class="px-1.5 py-1.5 text-right">
+								if d.Resendable && w.CanResend() {
+									@webhookResendForm(w, d)
+								}
+							</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+			<ul class="flex flex-col desk:hidden">
 				for _, d := range w.Deliveries {
-					<li class="border-t border-line py-3">
-						<div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-							<p class="font-mono text-sm text-ink">{ d.Queued }</p>
-							<p class="font-mono text-xs uppercase tracking-widest text-ink">{ d.State }</p>
+					<li class="flex flex-col gap-2 border-t border-dashed border-line py-2.5 md:flex-row md:items-center md:justify-between md:gap-3">
+						<div class="flex min-w-0 flex-col gap-1">
+							<p class="flex flex-wrap items-center gap-2">
+								@webhookDeliveryPill(d.State)
+								<span class="font-mono text-xs text-ink/70">
+									@webhookDeliveryNote(d)
+								</span>
+							</p>
+							<p class="break-all font-mono text-xs text-ink">{ d.ID }</p>
+							<p class="break-all font-mono text-xs text-ink/70">punch { d.PunchID }</p>
+							<p class="font-mono text-xs text-ink/70">
+								queued { d.Queued } · tries { itoa(d.Attempts) }
+								if d.LastAnswer != "" {
+									· { d.LastAnswer }
+								}
+							</p>
 						</div>
-						<dl class="mt-1 grid grid-cols-1 gap-x-4 gap-y-1">
-							<div>
-								<dt class="docket-label">Punch</dt>
-								<dd class="font-mono text-sm text-ink break-all">{ d.PunchID }</dd>
-							</div>
-							<div>
-								<dt class="docket-label">Tries</dt>
-								<dd class="font-mono text-sm text-ink">{ itoa(d.Attempts) }</dd>
-							</div>
-							if d.LastAnswer != "" {
-								<div>
-									<dt class="docket-label">Last answer</dt>
-									<dd class="font-mono text-sm text-ink">{ d.LastAnswer }</dd>
-								</div>
-							}
-							if d.NextTry != "" {
-								<div>
-									<dt class="docket-label">Next try</dt>
-									<dd class="font-mono text-sm text-ink">{ d.NextTry }</dd>
-								</div>
-							}
-							if d.Delivered != "" {
-								<div>
-									<dt class="docket-label">Arrived</dt>
-									<dd class="font-mono text-sm text-ink">{ d.Delivered }</dd>
-								</div>
-							}
-						</dl>
 						if d.Resendable && w.CanResend() {
-							<form method="post" action={ templ.URL(w.ResendHref) } class="mt-2">
-								<input type="hidden" name="delivery" value={ d.ID }/>
-								<button class="btn btn--quiet" type="submit">Send again now</button>
-							</form>
+							@webhookResendForm(w, d)
 						}
 					</li>
 				}
-			</ol>
+			</ul>
 		}
 		if w.DeliveriesOlderHref != "" || w.DeliveriesNewestHref != "" {
-			<p class="mt-3 flex flex-wrap gap-x-4 border-t border-line pt-3 text-sm">
+			<p class="flex flex-wrap justify-between gap-x-4 gap-y-1 border-t border-line pt-2 text-sm">
 				if w.DeliveriesNewestHref != "" {
-					<a class="inline-flex min-h-11 items-center underline" href={ templ.URL(w.DeliveriesNewestHref) }>Newest deliveries</a>
+					<a class="inline-flex min-h-11 items-center font-bold text-ink underline underline-offset-4 hover:text-tappa-green" href={ templ.URL(w.DeliveriesNewestHref) }>Newest deliveries</a>
 				}
 				if w.DeliveriesOlderHref != "" {
-					<a class="inline-flex min-h-11 items-center underline" href={ templ.URL(w.DeliveriesOlderHref) }>Older deliveries</a>
+					<a class="inline-flex min-h-11 items-center font-bold text-ink underline underline-offset-4 hover:text-tappa-green" href={ templ.URL(w.DeliveriesOlderHref) }>Older deliveries <span aria-hidden="true">→</span></a>
 				}
 			</p>
 		}
-	</div>
+		<div class="flex flex-col gap-1.5 text-xs leading-normal text-ink/70">
+			<p>
+				Taptime keeps the status code and a short error class of each try — never what your system
+				wrote back.
+				if w.Limit > 0 {
+					A resend uses one of the hour&#39;s { itoa(w.Limit) } test-message slots.
+				}
+			</p>
+			if w.LogKeepsDays > 0 {
+				<p>
+					A delivery stays in this list for { itoa(w.LogKeepsDays) } days after it arrived or was marked failed, and is
+					then deleted — a failed one can be sent again until then. A delivery that is still waiting is never deleted.
+				</p>
+			}
+		</div>
+	</section>
 }
 
-templ webhookAddressForm(w WebhookView, action, label, fieldID string) {
-	<form method="post" action={ templ.URL(action) } class="mt-3">
-		<div class="flex flex-col gap-1">
-			<label class="docket-label" for={ fieldID }>Address</label>
+// webhookDeliveryPill is a delivery's state as its word (webhookDeliveryWord's five), in a frame
+// whose tone is chosen here, literally, from that word: Delivered green, Sending a dashed ink
+// frame, Retrying a dashed saffron one, Queued a plain ink one, Failed tomato. The word is ink on
+// every ground. A word nobody named gets the plain line frame: it is said, never dressed as a
+// known state.
+templ webhookDeliveryPill(state string) {
+	switch state {
+		case "Delivered":
+			<span class="mono-pill border-tappa-green bg-tappa-green/10">{ state }</span>
+		case "Sending":
+			<span class="mono-pill border-dashed border-ink/50">{ state }</span>
+		case "Retrying":
+			<span class="mono-pill border-dashed border-saffron bg-saffron/10">{ state }</span>
+		case "Queued":
+			<span class="mono-pill border-ink/50">{ state }</span>
+		case "Failed":
+			<span class="mono-pill border-tomato bg-tomato/10">{ state }</span>
+		default:
+			<span class="mono-pill border-line">{ state }</span>
+	}
+}
+
+// webhookDeliveryNote says what the state means for this delivery, from the row's own facts: when
+// it arrived, when it is tried next, how many tries a failed one had.
+templ webhookDeliveryNote(d WebhookDeliveryRow) {
+	switch d.State {
+		case "Delivered":
+			if d.Delivered != "" {
+				arrived { d.Delivered }
+			}
+		case "Sending":
+			being sent now
+		case "Retrying":
+			if d.NextTry != "" {
+				next try { d.NextTry }
+			}
+		case "Queued":
+			waiting for its first try
+		case "Failed":
+			if d.Attempts == 1 {
+				gave up after 1 try
+			} else {
+				gave up after { itoa(d.Attempts) } tries
+			}
+	}
+}
+
+// webhookResendForm sends one delivery again now.
+templ webhookResendForm(w WebhookView, d WebhookDeliveryRow) {
+	<form method="post" action={ templ.URL(w.ResendHref) } class="flex-none">
+		<input type="hidden" name="delivery" value={ d.ID }/>
+		<button class="btn btn--line whitespace-nowrap" type="submit">Send again now</button>
+	</form>
+}
+
+// webhookAddressForm is the address field with its rule and its button: creating the webhook
+// (the primary act on a card with nothing else) or changing its address (pre-filled with the
+// saved one).
+templ webhookAddressForm(w WebhookView, action, label, fieldID, value string, primary bool) {
+	<form method="post" action={ templ.URL(action) } class="flex flex-col gap-2.5">
+		<div class="field-stack">
+			<label class="lbl" for={ fieldID }>Address</label>
 			<input
-				class="filter-input font-mono"
+				class="field-input field-input--mono text-[13px]"
 				id={ fieldID }
 				type="url"
 				name="address"
 				required
 				maxlength={ itoa(w.AddressMaxLength) }
-				value={ w.AddressValue }
+				value={ value }
 				placeholder="https://hooks.example.com/taptime"
 				autocomplete="off"
 				spellcheck="false"
-				aria-describedby={ fieldID + "-help" }
+				aria-invalid={ strconv.FormatBool(w.AddressError != "") }
+				if w.AddressError != "" {
+					aria-describedby={ fieldID + "-help " + fieldID + "-error" }
+				} else {
+					aria-describedby={ fieldID + "-help" }
+				}
 			/>
-			<p class="text-xs text-ink/70" id={ fieldID + "-help" }>
+			<p class="field-help" id={ fieldID + "-help" }>
 				https:// and a host name, on the standard port, with no user name, query string or fragment.
 			</p>
 			if w.AddressError != "" {
-				<p class="text-sm text-ink">{ w.AddressError }</p>
+				<p class="text-sm font-bold text-ink" id={ fieldID + "-error" }>{ w.AddressError }</p>
 			}
 		</div>
-		<div class="mt-3">
-			<button class="btn btn--primary" type="submit">{ label }</button>
-		</div>
+		if primary {
+			<button class="btn btn--primary w-full rounded-xl md:w-auto md:self-start" type="submit">{ label }</button>
+		} else {
+			<button class="btn btn--line w-full md:w-auto md:self-start" type="submit">{ label }</button>
+		}
 	</form>
 }
