@@ -86,6 +86,13 @@ type AdminLoginView struct {
 	FreeMonths int
 }
 
+// AdminLoginPath is where the panel's sign-in page is mounted, for a screen that has
+// no view field to carry the path — the sign-up wizard's header (M12-06). It is the
+// twin of internal/handler's adminLoginPath, which stays a literal so the cookie-net
+// route scan can read it; TestSignupSurface_EverySignInLinkGoesToTheSignInPage fails
+// if the two ever differ.
+const AdminLoginPath = "/admin/login"
+
 // AdminLoginProof is the three-line creed on the sign-in screen's brand panel.
 //
 // 🔴 EVERY LINE NAMES A CAPABILITY THIS PRODUCT ACTUALLY MOUNTS, and the rule is

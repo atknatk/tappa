@@ -1314,6 +1314,37 @@ func TestSignupSurface_MakesNoDeliveryClaim(t *testing.T) {
 	assertDeliveryScannerWorks(t)
 }
 
+// TestSignupSurface_EverySignInLinkGoesToTheSignInPage is M12-06.
+//
+// 🔴 THE HEADER'S "Sign in" WENT NOWHERE. The wizard rendered marketingChrome("") —
+// an empty href, which a browser resolves to the page it is already on — so the one
+// link the vocabulary table anchors to "the panel's sign-in page" did not lead
+// there. The derivation above proves a sign-in page EXISTS; this proves every link
+// on this surface that says so actually points at it, header included.
+func TestSignupSurface_EverySignInLinkGoesToTheSignInPage(t *testing.T) {
+	t.Parallel()
+	anchor := regexp.MustCompile(`(?s)<a\b[^>]*\bhref="([^"]*)"[^>]*>(.*?)</a>`)
+	tag := regexp.MustCompile(`<[^>]*>`)
+	for name, body := range signupSurfaceScreens(t) {
+		links := 0
+		for _, m := range anchor.FindAllStringSubmatch(body, -1) {
+			text := strings.Join(strings.Fields(tag.ReplaceAllString(m[2], " ")), " ")
+			if !strings.Contains(strings.ToLower(text), "sign in") {
+				continue
+			}
+			links++
+			if m[1] != adminLoginPath {
+				t.Errorf("the %s screen has a sign-in link (%q) to %q, want %q",
+					name, text, m[1], adminLoginPath)
+			}
+		}
+		// Every screen carries the header, so every screen has at least one.
+		if links == 0 {
+			t.Errorf("the %s screen has no sign-in link at all; the header's is missing", name)
+		}
+	}
+}
+
 // TestSignupSurface_UsesNoUnanchoredCapabilityWord renders every screen this feature
 // serves and refuses a capability word that is not in the table above.
 func TestSignupSurface_UsesNoUnanchoredCapabilityWord(t *testing.T) {

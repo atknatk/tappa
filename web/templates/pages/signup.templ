@@ -43,7 +43,7 @@ import (
 // second one drifts the moment a step is added.
 templ signupShell(title string, step int, heading, blurb string) {
 	@layout.Marketing(title, layout.RobotsPrivate) {
-		@marketingChrome("") {
+		@marketingChrome(AdminLoginPath) {
 			<section class="px-4 py-8 sm:py-12">
 				<div class="mx-auto w-full max-w-2xl">
 					<p class="docket-label">Step { strconv.Itoa(step) } of { strconv.Itoa(signupSteps) }</p>
@@ -386,7 +386,7 @@ templ SignupAccount(v SignupAccountView) {
 // customer ever sees. Every card in the panel will look like this one.
 templ SignupDone(v SignupDoneView) {
 	@layout.Marketing("You're set up — Taptime", layout.RobotsPrivate) {
-		@marketingChrome("") {
+		@marketingChrome(AdminLoginPath) {
 			<section class="px-4 py-8 sm:py-12">
 				<div class="mx-auto w-full max-w-2xl">
 					<p class="docket-label">Registration</p>
@@ -485,7 +485,7 @@ templ SignupDone(v SignupDoneView) {
 // signupview.go for why it is separate from pages.Problem.
 templ SignupProblem(v SignupProblemView) {
 	@layout.Marketing("Taptime", layout.RobotsPrivate) {
-		@marketingChrome("") {
+		@marketingChrome(AdminLoginPath) {
 			<section class="px-4 py-8 sm:py-12">
 				<div class="mx-auto w-full max-w-2xl">
 					@components.Notice(components.ToneAlert, v.Title) {
