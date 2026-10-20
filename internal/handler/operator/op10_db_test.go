@@ -228,6 +228,9 @@ type legalE2E struct {
 	f        fixture
 	name     string
 	tokenKey []byte // the Authenticator's session-token HMAC key, to plant a session row
+	// surface is the operator surface g.h mounts -- for a test that composes it with the customer
+	// product's features on one router (OP-15 C, op15cross_db_test.go).
+	surface *operator.Surface
 }
 
 // newLegalE2E takes newE2E's lock and clock, then opens the committed rig: an owner
@@ -312,7 +315,7 @@ func newLegalE2E(t *testing.T) *legalE2E {
 	if err != nil {
 		t.Fatal(err)
 	}
-	g.auth = auth
+	g.auth, l.surface = auth, s
 	g.h = httpx.NewRouter(&config.Config{OperatorHost: opHost, BaseURL: opBase}, log, s, handler.NewMarketing(l.texts, log, ""))
 	return l
 }
