@@ -315,6 +315,44 @@ func TestHoldingGroup_AVATColumnIsRedInTheCatalogue(t *testing.T) {
 	})
 }
 
+// holdingGroupBodyMD5 is md5(prosrc) of holding_group as migration 00062 creates it -- holding_peer's
+// three forms' pin (the GRP-1 security review's D2): its columns are ADR 0027 §2's closed list
+// (K-1d) and its rule is the caller's own live roster, so a changed body is red here until an ADR
+// 0027 change the user approved moves this pin with it.
+const holdingGroupBodyMD5 = "4a3b6a74c6a64343a0234f3aba2571d6"
+
+// TestHoldingGroup_TheBodyIsPinned: holding_group's body is md5(prosrc)-pinned. CONTROL: a change no
+// behaviour test sees (its row bound LIMIT 1000 -> 1001), made CREATE OR REPLACE in a savepoint, moves
+// the digest -- the pin reads the installed function, not the file.
+func TestHoldingGroup_TheBodyIsPinned(t *testing.T) {
+	ctx, tx := opTx(t)
+	digest := func(q pgx.Tx) string {
+		t.Helper()
+		var d string
+		if err := q.QueryRow(ctx, `SELECT md5(prosrc) FROM pg_proc WHERE oid = 'public.holding_group()'::regprocedure`).Scan(&d); err != nil {
+			t.Fatalf("read holding_group: %v", err)
+		}
+		return d
+	}
+	if got := digest(tx); got != holdingGroupBodyMD5 {
+		t.Errorf("holding_group's body changed (md5 %s, want %s): its columns and its rule are ADR 0027 §2's closed list; "+
+			"a change needs an ADR 0027 change and the user's approval (CLAUDE.md §4.5) before this pin moves", got, holdingGroupBodyMD5)
+	}
+	src := holdingGroupSource(t, "holding_group")
+	mutated := strings.Replace(src, "LIMIT 1000", "LIMIT 1001", 1)
+	if mutated == src {
+		t.Fatal("PREMISE: 00062's holding_group has no LIMIT 1000")
+	}
+	holdingInSavepoint(t, tx, func(sp pgx.Tx) {
+		if _, err := sp.Exec(ctx, mutated); err != nil {
+			t.Fatalf("replace holding_group: %v", err)
+		}
+		if digest(sp) == holdingGroupBodyMD5 {
+			t.Error("a changed holding_group body keeps the pinned digest")
+		}
+	})
+}
+
 // TestHoldingPeer_TheRosterFormIsStrictAndTheOwnersAlone: the roster form's catalogue row -- owned by
 // tappa_holdingdefiner, SECURITY INVOKER, VOLATILE, the search path alone, EXECUTE in its owner alone
 // (tappa_app, tappa_operator, tappa_opdefiner and tappa_resolver are 42501), ROWS 10 -- its body pinned
