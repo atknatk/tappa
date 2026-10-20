@@ -811,7 +811,9 @@ func reportQueryBodies(t *testing.T, raw string) string {
 // 🔴 THE LOCATION IS THE TAPPED ONE AND THERE IS NO OTHER TO CONFUSE IT WITH. The query
 // joins on transactions.location_id -- where the plaque is -- so a person covering a
 // shift at another branch is measured against THAT venue's opening time. The employee's
-// home venue is not selected at all, which is why this function cannot reach it.
+// home venue is not selected by that query at all, which is why this function cannot reach
+// it; since M12-21 the Roll reads it through a SEPARATE statement (ListRollEmployees) whose
+// row this function is never handed -- pinned by TestResolveShift_CannotReachTheHomeVenue.
 func TestResolveShift_PrefersTheDepartmentThenTheTAPPEDLocation(t *testing.T) {
 	t.Parallel()
 	pgTime := func(d time.Duration) pgtype.Time {

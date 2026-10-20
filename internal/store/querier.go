@@ -4223,6 +4223,43 @@ type Querier interface {
 	// The scope's events of the range after the cursor and up to the window's end, seq <= S0, in
 	// (punch_time, seq) order -- one more than the caller hands out. The same columns as ListPunchEvents.
 	ListPunchHistory(ctx context.Context, arg ListPunchHistoryParams) ([]ListPunchHistoryRow, error)
+	// The ROLL's second read (M12-21): the job title and the HOME venue of the people whose records
+	// the week's ListWorkedShiftEvents returned, so the report can say "Line Cook · Valletta" under a
+	// name and mark a day worked at another venue.
+	//
+	// 🔴 IT IS A SEPARATE STATEMENT, NOT THREE MORE COLUMNS ON ListWorkedShiftEvents, AND THE REASON
+	// IS §5 / Q17 RATHER THAN COST. Lateness is judged against the TAPPED venue's shift, never the
+	// person's home one, and internal/domain/ledger's resolveShift is structurally unable to reach the
+	// home venue because the row it is handed (ListWorkedShiftEventsRow) has no field for it. Putting
+	// e.location_id on that row would turn the guarantee into a convention. The cost side agrees: the
+	// worked-shift read returns up to ReportEventCap + 1 rows, and a person's title and home are a
+	// per-PERSON fact that row would repeat on every one of them.
+	//
+	// K-14: employees.location_id is NULL for a person with no home venue (migration 00037). The
+	// reader treats NULL as "no home" -- no other-venue mark is claimed for that person, and their
+	// counted shifts are reported as NOT JUDGED (ledger Totals.OtherVenueUnknown), never as "at home".
+	//
+	// NO STATUS PREDICATE: a deactivated person's hours of this week are still on the Roll, and so is
+	// their title. Every id is the tenant's own (ListWorkedShiftEvents' employee_id); a foreign id
+	// matches nothing here -- the explicit predicate below and RLS both refuse it (§4.5).
+	//
+	// TENANT SCOPE (§4.5, belt + braces): explicit e.tenant_id predicate, and the venue join re-states
+	// the tenant in its ON clause so a home venue's NAME can never come from a neighbouring business.
+	// Holding (K-39): a home venue is always the employer's own (the composite FK (location_id,
+	// tenant_id) -> locations, migration 00003); no peer's venue is reachable from this statement.
+	//
+	// MEASURED 2026-10-20 (EXPLAIN ANALYZE as tappa_app in the tenant's context, a PREPAREd statement
+	// so the array is a real parameter; seed tenant 10000000-0000-4000-8000-000000000001 after `make
+	// seed` + the simulated day, its 11 employees with records passed as the array; after ANALYZE,
+	// warm, 4 runs):
+	//
+	//	Sort <- Hash Left Join (Seq Scan employees: tenant_id AND id = ANY($2);
+	//	                        Hash <- Seq Scan locations hl)   11 rows, 0.34 / 0.38 / 0.48 / 0.50 ms
+	//
+	// A SEQ SCAN BECAUSE THE TABLE HOLDS 47 ROWS in that database, which is the planner's honest
+	// answer at that size and says nothing about a large payroll; the id = ANY probe has the primary
+	// key to use when a scan stops being cheaper. One observation with its conditions, not a property.
+	ListRollEmployees(ctx context.Context, arg ListRollEmployeesParams) ([]ListRollEmployeesRow, error)
 	// All sessions of one employee, newest first: the read side of the optional
 	// device limit (M5-01 card: "config ile kapali gelebilir" -- NOT enforced here)
 	// and of the M5-02 "is this a new phone or an attack?" decision. Revoked rows are
