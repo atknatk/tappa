@@ -77,6 +77,8 @@ internal/brand/       tenant markasının çekirdeği (ADR 0023/0024): accent WC
 internal/netx/        adres aralığı aritmetiği (bir liste yer kanıtı olamayacak
                       kadar geniş mi). Saf: `net/netip` + `math/big`, başka hiçbir
                       şey — bu yüzden hem tenant hem tap ondan çağırabilir.
+internal/apiguide/    entegrasyon rehberinin (docs/api/*.md) goldmark ile HTML'e çevrimi (ADR 0030; `/docs/api`,
+                      `/docs/api/tr`): ham HTML kapalı, link süzgeci renderer'ın yazdığı hedefe göre, süreç başına bir kez.
 internal/qrcode/      QR kodlayıcı (ISO/IEC 18004, byte modu, sürüm 1-40), yalnız stdlib — operatör kayıt QR'ı (ADR 0020 §3).
 internal/apikey/      dış API anahtarı (M11 API-3): üretim, biçim kontrolü, HMAC; çözümleyicinin
                       taşıdığı olguyu (iptal, API erişimi) değerlendirir; owner paneli eylemleri.
@@ -186,7 +188,8 @@ ediyorsa **dur ve sor**, sessizce uygulama.
    yoktur ve redline R5c adı `db/migrations/` dışında reddeder. **Listeye
    fonksiyon eklemek, bir fonksiyonun dönüş sütunlarını ya da definer'ın sütun matrisini
    genişletmek, `holding_peer`'e kip **ya da imza** eklemek (T124'ün küme biçimi `holding_peer(a, mod)`
-   kullanıcı onaylı, 2026-10-19) ya da bir kipin süzgecini veya zaman kuralını
+   kullanıcı onaylı, 2026-10-19; GRP-1'in `holding_group()` okuyucusu, `holding_peer(a)` kadro biçimi ve
+   definer'a `holdings (id, name)` kullanıcı onaylı, 2026-10-20) ya da bir kipin süzgecini veya zaman kuralını
    gevşetmek kullanıcı onayı + ADR 0027 değişikliği ister** (ADR 0027 §2; testler: ADR 0027
    §2'deki imza katalog testi ve sütun matrisi testi).
 6. **Kayıt asla kaybolmaz.** Kanıt yetersizse REJECT edip atma: kaydı yaz,
@@ -423,6 +426,8 @@ dokunuş gerektirir. Bu ekrana özellik eklemek istiyorsan önce sor.
 **Tenant markası (M10 white-label — ADR 0023/0024, skill `tappa-brand` → "Tenant slotları").** İşletme sayılı slotları boyar: bir logo (tap ve sonuç ekranında 24 px yuva + altında "taptime · punchless", panelde 32 px; aktivasyon ailesinde — sihirbazın dört adımı, "Activation complete", "already set up" — tap ekranının başlığı, ama **yalnız VIES-doğrulanmış** işletmede) ve tek bir accent. Accent'in ürün yüzeyinde boyadığı CSS slotları iki tanedir: tap düğmesinin zemini (tap ekranı ve aktivasyon sihirbazının 1–3. adımlarının birincil düğmesi) ve panelin 4 px şeridi (editörün renk seçicisi kendi rengini gösterir — ADR 0023 §2); accent WCAG kapısından geçer; accent varken sihirbazın öteki yeşil işaretleri (ilerleme çubuğu, 01/02/03, işaretli onay kutusu) ink olur. Kaşe damgaları, durum→renk eşlemesi, docket, sonuç ekranının renkleri, aktivasyonun problem ve onay ekranları ve bekleme ekranının plaket çizimi değişmez; sonuç ekranında accent yoktur. Bu, "paletin dışına çıkma" ve tap ekranı kuralına kullanıcının §9 kararlarıyla (D-C; K-2a, K-2b; aktivasyon ailesi 2026-10-09 — ADR 0023 WL-13 notu) verilmiş sayılı istisnadır — tap/sonuç/aktivasyon ekranlarındaki başka her değişiklik yine önce sorulur. Marka taklidi kabul edilmiş bir risktir (ADR 0005, risk 9).
 
 **Holding plaketinde marka plaketin tenant'ınındır (M11 — ADR 0027 §10, kullanıcı kararı K-1c).** Bir holding dokunuşunda (KM çalışanı KF plaketinde) tap ekranı **KF'nin** logosunu ve accent'ini, sonuç ekranı **KF'nin** logosunu taşır — oturumun tenant'ınınkini değil; logo yalnız VIES-doğrulanmış saha tenant'ında ve `holding_logo` ile. Slotlar, sayılı istisna ve sonuç ekranında accent olmaması aynen geçerlidir; değişen yalnız markanın **sahibidir**. Aktivasyon ailesi değişmez (aktivasyon yalnız kendi tenant'ının plaketinde — ADR 0026). **Saha ve işveren panelinde holding (API-1c — ADR 0027 §9):** sahanın raporu eş personelin dokunuşlarını **süresiz** listeler (süre işverende). İşverenin panelinde eş mekân satırı (K-39) için gösterilmeyenler: fişte ve onay kuyruğunda güven puanı, IP/GPS işaretleri ve **kanıt anlatan kuralın notu** (sid'e göre kapalı küme: `base:`/`own:` × `ip-or-gps-ok`, `gps-only-allow`, `no-evidence-review`, `qr-requires-ip`, `gps-conflict-review`, ve `sys:cross-tenant-qr-site-ip`) — yerine *"Decided by your rules at a partner venue — evidence is not shown."*; manuel kaydın notu ve kanıt dışı notlar (kayıp plaket, sayaç boşluğu, farklı şube, yön) korunur — kural önceliği üzerinden kalan artık ADR 0027 §13 madde 5 (e). Anomali ekranında eş satırları hiçbir kanıt sayısına girmez; kural dağılımında tek, adsız ve **hep sonda** duran bir kovadır (eş satırları kural sorgusuna girmez). Okuyucuların envanteri `TestEvidenceReaders_EveryOneIsClassified`'tadır; holding'siz işletmenin rapor ve anomali sayfası bayt bayt aynıdır (şablon: `TestHoldinglessPanels_AreByteIdenticalToTheGolden`, handler: `TestHoldinglessViews_AreByteIdenticalToTheGolden`). Verdict kaşesi, `NoteIsTenants` etiketi ve kural önceliği adlandırılmış artıktır (ADR 0027 §13 madde 5).
+
+**Panelin "Group" sekmesi (M11 GRP-1 — ADR 0027 GRP-1 notu, kullanıcı kararı 2026-10-19).** Yalnız **canlı** bir holding üyesine çizilir (owner ve manager), **salt-okur**: grup adı, canlı üyelerin adı/şirket kodu/katılma tarihi, son 30 günde bu işletmenin plaketlerindeki grup dokunuşları (Reports'un okuyucusu — neden, GPS, IP, not, e-posta asla) ve kendi personelinin eş mekân kayıt **sayısı**. Ayrılmış üye görünmez; üye olmayana rota "No group" boş durumunu verir. Holding'in yönetimi operatördedir; holding'siz işletmenin panel sayfaları bayt bayt aynıdır.
 
 ## 10. Çalışma şekli
 
