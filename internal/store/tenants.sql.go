@@ -248,8 +248,10 @@ WHERE id = $1
 // (measured: 3 overlapping writers, 23-204 grants in 0.5-4.5 s of waiting; a lock_timeout does not
 // bound it, each wait starts its own). The suspended party could hold off its own suspension. The
 // price of the plain read, named: a write that read "not suspended" before the suspension committed
-// may commit after it -- one write per request already past this read, the panel gate's own
-// semantics (ADR 0025 limit 6: "the effect is on the next request").
+// may commit after it -- one write per request already past this read, and in total every request in
+// flight at the suspension's commit (bounded by RequestTimeout and idle_in_transaction_session_timeout,
+// 30 s each, the pool and the key bucket); the panel gate's own semantics (ADR 0025 limit 6: "the
+// effect is on the next request").
 //
 // §4.5: `id = @tenant_id` is the explicit predicate (tenants is scoped by its own id -- see this
 // file's header) and the transaction's app.tenant_id is RLS's. A business that does not exist, or

@@ -55,9 +55,19 @@ import (
 //	               other tenant writes (VAT re-check, the API gate) would wait behind /v1 writes too.
 //	plain read     the operator never waits for /v1 (TestSuspension_TheReadHoldsNoLockOnTheTenant);
 //	               the price, named and pinned: ONE write per request already past its read may
-//	               commit after the suspension (TestSuspension_AWriteInFlightIsTheOnlyOneThrough) --
-//	               the same semantics as the panel gate, which reads at the request's start (ADR 0025
-//	               limit 6: "the effect is on the next request").
+//	               commit after the suspension -- in total, EVERY request in flight at the
+//	               suspension's commit, bounded by the request's own limits (RequestTimeout 30 s,
+//	               idle_in_transaction_session_timeout 30 s, the pool and the key bucket)
+//	               (TestSuspension_AWriteInFlightAtTheSuspensionIsLetThrough) -- the same semantics as
+//	               the panel gate, which reads at the request's start (ADR 0025 limit 6: "the effect is
+//	               on the next request").
+//
+// WHAT A REFUSED WRITE LEAVES (API-4b DÜŞÜK round, 2026-10-20): no business row -- the 403 rolls the
+// write's transaction back, its Idempotency-Key claim included. Two MAINTENANCE writes are the named
+// exceptions, both made before the checkpoint by every authenticated request and both API-4's design:
+// the runner's lazy delete of this business's EXPIRED (over 24 h) ledger rows, committed in a
+// transaction of its own (apikey.Writes.Run), and the chain's api_keys.last_used_at (at most once a
+// minute). TestSuspension_TheSection47Table measures the first and keeps the second out of its trace.
 
 // WriteClass is a /v1 write's §4.7 class. The zero value names nothing and is CLOSED while the
 // business is suspended -- a write nobody classified is refused, never let through.

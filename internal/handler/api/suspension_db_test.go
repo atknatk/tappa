@@ -130,19 +130,30 @@ func (r *dbRig) suspend(biz uuid.UUID) {
 func (r *dbRig) trySuspend(biz uuid.UUID, lockTimeout string) error {
 	r.t.Helper()
 	hash := r.operatorSession()
+	r.liftAtEnd(biz)
+	return r.asOperator(lockTimeout, func(ctx context.Context, tx pgx.Tx) error {
+		return db.SuspendTenant(ctx, tx, hash, biz, db.SuspensionSecurityHold)
+	})
+}
+
+// liftAtEnd registers, once per business, the t.Cleanup that has the operator lift biz's suspension.
+// A test that also holds a write open calls it BEFORE heldWrite: cleanups run last-registered first,
+// so the held write is released before the lift -- which, under a locking read (the FOR SHARE
+// mutant), would otherwise wait on it until the write's transaction was killed (30 s).
+func (r *dbRig) liftAtEnd(biz uuid.UUID) {
+	r.t.Helper()
+	hash := r.operatorSession()
 	if r.op.suspended == nil {
 		r.op.suspended = map[uuid.UUID]bool{}
 	}
-	if !r.op.suspended[biz] {
-		r.op.suspended[biz] = true
-		r.t.Cleanup(func() {
-			if err := r.asOperator("", func(ctx context.Context, tx pgx.Tx) error { return db.ReinstateTenant(ctx, tx, hash, biz) }); err != nil {
-				r.t.Errorf("lift the fixture's suspension (00063's Down refuses while one stands): %v", err)
-			}
-		})
+	if r.op.suspended[biz] {
+		return
 	}
-	return r.asOperator(lockTimeout, func(ctx context.Context, tx pgx.Tx) error {
-		return db.SuspendTenant(ctx, tx, hash, biz, db.SuspensionSecurityHold)
+	r.op.suspended[biz] = true
+	r.t.Cleanup(func() {
+		if err := r.asOperator("", func(ctx context.Context, tx pgx.Tx) error { return db.ReinstateTenant(ctx, tx, hash, biz) }); err != nil {
+			r.t.Errorf("lift the fixture's suspension (00063's Down refuses while one stands): %v", err)
+		}
 	})
 }
 
@@ -165,9 +176,13 @@ func (r *dbRig) isSuspended(biz uuid.UUID) bool {
 	return s
 }
 
-// trace is everything a /v1 write of biz could leave, read as the owner: the venues and the
-// employees row for row (any column), and the counts of the trail, the Idempotency-Key ledger, the
-// feed, the invitation queue and the invitations. Two equal traces: nothing was written.
+// trace is every BUSINESS row a /v1 write of biz could leave, read as the owner: the venues and the
+// employees row for row (any column), and the counts of the trail, the LIVE Idempotency-Key ledger
+// (rows of the last 24 hours), the feed, the invitation queue and the invitations. Two equal traces:
+// no business row was written. The two maintenance writes every authenticated request may make are
+// outside it on purpose and measured on their own (TestSuspension_TheSection47Table): the runner's
+// lazy delete of EXPIRED ledger rows, committed before the checkpoint (apikey.Writes.Run), and the
+// chain's api_keys.last_used_at (at most once a minute).
 func (r *dbRig) trace(biz uuid.UUID) string {
 	r.t.Helper()
 	var f string
@@ -176,7 +191,7 @@ func (r *dbRig) trace(biz uuid.UUID) string {
 		  (SELECT md5(coalesce(string_agg(l::text, ',' ORDER BY l.id), '')) FROM locations l WHERE l.tenant_id = $1),
 		  (SELECT md5(coalesce(string_agg(e::text, ',' ORDER BY e.id), '')) FROM employees e WHERE e.tenant_id = $1),
 		  (SELECT count(*) FROM audit_log WHERE tenant_id = $1),
-		  (SELECT count(*) FROM api_idempotency WHERE tenant_id = $1),
+		  (SELECT count(*) FROM api_idempotency WHERE tenant_id = $1 AND created_at >= now() - interval '24 hours'),
 		  (SELECT count(*) FROM punch_events WHERE tenant_id = $1),
 		  (SELECT count(*) FROM invite_requests WHERE tenant_id = $1),
 		  (SELECT count(*) FROM employee_invites WHERE tenant_id = $1))`, biz).Scan(&f)
@@ -184,6 +199,24 @@ func (r *dbRig) trace(biz uuid.UUID) string {
 		r.t.Fatal(err)
 	}
 	return f
+}
+
+// expiredLedger plants one Idempotency-Key row of biz's key dated 25 hours ago (the lazy delete's
+// prey), as the owner, and returns how many expired rows biz now has.
+func (r *dbRig) expiredLedger(biz, key uuid.UUID) int {
+	r.t.Helper()
+	ctx := context.Background()
+	if _, err := r.owner.Exec(ctx, `INSERT INTO api_idempotency (tenant_id, key_id, idem_key, request_hash, status, created_at)
+	                                VALUES ($1, $2, $3, $4, 201, now() - interval '25 hours')`,
+		biz, key, "expired-"+uuid.NewString(), strings.Repeat("ab", 32)); err != nil {
+		r.t.Fatal(err)
+	}
+	return r.expiredRows(biz)
+}
+
+func (r *dbRig) expiredRows(biz uuid.UUID) int {
+	r.t.Helper()
+	return r.ownerCount(`SELECT count(*) FROM api_idempotency WHERE tenant_id = $1 AND created_at < now() - interval '24 hours'`, biz)
 }
 
 // wantSuspendedProblem: the answer is §8's JSON error, 403 tenant_suspended, with its constant message
@@ -277,10 +310,15 @@ func s47Cells() []s47Cell {
 //	          the same answer suspended or not
 //	closed    PUT /v1/locations (new and existing), PUT changing an employee, PUT active:false,
 //	          DELETE /v1/employees, and a write nobody classified (the zero WriteClass): suspended ->
-//	          403 tenant_suspended (§8's JSON body) and NOTHING written -- the venues and employees row
-//	          for row, the trail, the ledger, the feed, the invitation queue and the invitations are
-//	          unchanged; the twin -> its 2xx, and its trace DID change (the control: the
-//	          trace sees a write)
+//	          403 tenant_suspended (§8's JSON body) and NO BUSINESS ROW written -- the venues and
+//	          employees row for row, the trail, the live ledger, the feed, the invitation queue and
+//	          the invitations are unchanged; the twin -> its 2xx, and its trace DID change (the
+//	          control: the trace sees a write)
+//	maintenance  the two writes a refused request still makes, measured rather than hidden: an
+//	          EXPIRED ledger row planted before each closed cell is gone after the 403 (the runner's
+//	          lazy delete commits on its own before the checkpoint -- apikey.Writes.Run, API-4's
+//	          design, maintenance and not business data); the chain's last_used_at is the other
+//	          (TouchAPIKey, at most once a minute) and is not in the trace
 //	lifted    after op_reinstate_tenant every closed cell is its 2xx for KF too
 //
 // Every non-GET route the router registers is a cell (the walk again): a write added later is in
@@ -334,6 +372,10 @@ func TestSuspension_TheSection47Table(t *testing.T) {
 	}
 	for _, c := range cells {
 		t.Run(c.name, func(t *testing.T) {
+			var expired int
+			if !c.open {
+				expired = r.expiredLedger(sus.b.id, sus.b.keyID)
+			}
 			before := r.trace(sus.b.id)
 			got := r.do(c.method, c.path(sus), sus.b.raw, c.body(sus))
 			if c.open {
@@ -343,7 +385,11 @@ func TestSuspension_TheSection47Table(t *testing.T) {
 			} else {
 				wantSuspendedProblem(t, got, "suspended")
 				if after := r.trace(sus.b.id); after != before {
-					t.Fatalf("a refused write wrote: %s -> %s", before, after)
+					t.Fatalf("a refused write wrote a business row: %s -> %s", before, after)
+				}
+				if expired == 0 || r.expiredRows(sus.b.id) != 0 {
+					t.Fatalf("the lazy delete: %d expired ledger row(s) before the refused write, %d after; want >0 swept to 0 (the expected maintenance write)",
+						expired, r.expiredRows(sus.b.id))
 				}
 			}
 			twinBefore := r.trace(twin.b.id)
@@ -428,6 +474,75 @@ func TestSuspension_OneBusinessesSuspensionIsNotAnothers(t *testing.T) {
 	}
 }
 
+// TestSuspension_ARacingNewRefIsAskedAgainAsAChange pins PutEmployeeTx's race branch
+// (internal/domain/tenant/staffapi.go, errRefTaken): a PUT of a ref nobody holds passes the checkpoint
+// as a NEW employee (open while suspended) and then meets, on the ref's unique index, a row another
+// transaction inserted and commits -- TestEmployeesPutDomain_ConcurrentNewRefOpensOneRow's shape. The
+// PUT is now a CHANGE of that row, and the checkpoint is asked again for it: in the suspended business
+// 403 tenant_suspended and the row stays as its holder wrote it (no trail row for it); in the
+// unsuspended twin the same race is 200 and the row carries the PUT's names (the control).
+//
+// MUTANT (measured, API-4b DÜŞÜK round): the race branch asking admit(ctx, EmployeeOpens) -> red here
+// (the suspended business's PUT is 200 and rewrites the row); it was green everywhere before.
+func TestSuspension_ARacingNewRefIsAskedAgainAsAChange(t *testing.T) {
+	r := newDBRig(t)
+	sus, sOwner := r.business(true)
+	twin, tOwner := r.business(true)
+	sRaw, _ := r.key(sus, sOwner)
+	tRaw, _ := r.key(twin, tOwner)
+	r.suspend(sus)
+	ctx := context.Background()
+	race := func(biz uuid.UUID, raw string) (*httptest.ResponseRecorder, string, string) {
+		t.Helper()
+		ref := newRef("RACE")
+		inserted, decide, holder := make(chan struct{}), make(chan bool, 1), make(chan error, 1)
+		go func() {
+			holder <- r.d.WithTenant(ctx, biz, func(ctx context.Context, tx pgx.Tx) error {
+				if _, e := tx.Exec(ctx, `INSERT INTO employees (tenant_id, external_ref, full_name) VALUES ($1, $2, 'Held Row')`, biz, ref); e != nil {
+					close(inserted)
+					return e
+				}
+				close(inserted)
+				if !<-decide {
+					return errors.New("roll the holder back")
+				}
+				return nil
+			})
+		}()
+		<-inserted
+		put := make(chan *httptest.ResponseRecorder, 1)
+		go func() { put <- r.putEmp(raw, ref, empBody("Maria", "Borg", nil, true)) }()
+		deadline := time.Now().Add(10 * time.Second)
+		for r.ownerCount(`SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%name: CreateEmployeeFromAPI%'`) < 1 {
+			if time.Now().After(deadline) {
+				decide <- false
+				<-holder
+				t.Fatal("the PUT never waited on the held row's index entry")
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		decide <- true
+		if err := <-holder; err != nil {
+			t.Fatal(err)
+		}
+		w := <-put
+		var full, first string
+		if err := r.owner.QueryRow(ctx, `SELECT full_name, coalesce(first_name, '') FROM employees WHERE tenant_id = $1 AND external_ref = $2`, biz, ref).Scan(&full, &first); err != nil {
+			t.Fatal(err)
+		}
+		return w, full, first
+	}
+	w, full, first := race(sus, sRaw)
+	wantSuspendedProblem(t, w, "the suspended business's racing PUT")
+	if full != "Held Row" || first != "" {
+		t.Fatalf("the suspended business's racing PUT changed the held row: %q %q", full, first)
+	}
+	w, full, first = race(twin, tRaw)
+	if w.Code != http.StatusOK || full != "Maria Borg" || first != "Maria" {
+		t.Fatalf("CONTROL, the twin's racing PUT: %d %s, row %q %q; want 200 and the PUT's names", w.Code, w.Body.String(), full, first)
+	}
+}
+
 // elsewhere is the shipped reader asked about ANOTHER business than the key's: inside the key's RLS
 // context that row is invisible, so the read fails -- the shape of every read failure the checkpoint
 // must answer closed.
@@ -494,19 +609,20 @@ func TestSuspension_AReadThatFailsIsClosed(t *testing.T) {
 	}
 }
 
-// heldWrite starts a /_probe PUT of raw and holds it right after its checkpoint passed -- its
-// transaction open, before its effect. admitted closes when it is held; release lets it go on; done
-// carries its answer. The hold is released when the test ends whatever happens.
-func heldWrite(t *testing.T, r *dbRig, raw, ref string) (admitted <-chan struct{}, release func(), done <-chan *httptest.ResponseRecorder) {
+// heldWrites starts n /_probe PUTs of raw (refs ref-0 .. ref-<n-1>) and holds each right after its
+// checkpoint passed -- its transaction open, before its effect -- until release; it returns once all
+// n are held. A probe that passes its checkpoint after release goes straight on. done carries the
+// n answers. The hold is released when the test ends whatever happens.
+func heldWrites(t *testing.T, r *dbRig, raw, ref string, n int) (release func(), done <-chan *httptest.ResponseRecorder) {
 	t.Helper()
-	adm, rel, out := make(chan struct{}), make(chan struct{}), make(chan *httptest.ResponseRecorder, 1)
-	held := false
+	adm, rel, out := make(chan struct{}, n), make(chan struct{}), make(chan *httptest.ResponseRecorder, n)
 	hook := func() {
-		if held {
+		select {
+		case <-rel:
 			return
+		default:
 		}
-		held = true
-		close(adm)
+		adm <- struct{}{}
 		<-rel
 	}
 	r.afterAdmit.Store(&hook)
@@ -521,13 +637,17 @@ func heldWrite(t *testing.T, r *dbRig, raw, ref string) (admitted <-chan struct{
 		release()
 		r.afterAdmit.Store(nil)
 	})
-	go func() { out <- r.do(http.MethodPut, "/v1/_probe/"+ref, raw, `{}`) }()
-	select {
-	case <-adm:
-	case <-time.After(30 * time.Second):
-		t.Fatal("the write never reached its checkpoint")
+	for i := range n {
+		go func() { out <- r.do(http.MethodPut, fmt.Sprintf("/v1/_probe/%s-%d", ref, i), raw, `{}`) }()
 	}
-	return adm, release, out
+	for range n {
+		select {
+		case <-adm:
+		case <-time.After(30 * time.Second):
+			t.Fatal("a write never reached its checkpoint")
+		}
+	}
+	return release, out
 }
 
 // TestSuspension_TheReadHoldsNoLockOnTheTenant is API-4b's lock decision, pinned (ADR 0028 §10, "API-4b
@@ -542,7 +662,8 @@ func TestSuspension_TheReadHoldsNoLockOnTheTenant(t *testing.T) {
 	r := newDBRig(t)
 	biz, owner := r.business(true)
 	raw, _ := r.key(biz, owner)
-	_, release, done := heldWrite(t, r, raw, "held-"+uuid.NewString())
+	r.liftAtEnd(biz) // before the hold: the held write is released first at the end (LIFO)
+	release, done := heldWrites(t, r, raw, "held-"+uuid.NewString(), 1)
 	start := time.Now()
 	err := r.trySuspend(biz, "300ms")
 	took := time.Since(start)
@@ -557,23 +678,38 @@ func TestSuspension_TheReadHoldsNoLockOnTheTenant(t *testing.T) {
 	<-done
 }
 
-// TestSuspension_AWriteInFlightIsTheOnlyOneThrough is the price of the plain read, named and pinned
-// (suspension.go): a write that passed its checkpoint BEFORE the operator's suspension committed
-// commits AFTER it (201, its effect written) -- one write per request already past its read -- and
-// the next write, which reads after the commit, is 403 tenant_suspended.
-func TestSuspension_AWriteInFlightIsTheOnlyOneThrough(t *testing.T) {
+// TestSuspension_AWriteInFlightAtTheSuspensionIsLetThrough is the price of the plain read, named and
+// pinned (suspension.go): EVERY write that passed its checkpoint BEFORE the operator's suspension
+// committed commits AFTER it (201, its effect written) -- one write per request already past its
+// read, and in total every request in flight at the suspension's commit (here three at once; the
+// bound is the request's: RequestTimeout 30 s, idle_in_transaction_session_timeout 30 s, the pool and
+// the key bucket) -- and the next write, which reads after the commit, is 403 tenant_suspended.
+func TestSuspension_AWriteInFlightAtTheSuspensionIsLetThrough(t *testing.T) {
 	r := newDBRig(t)
 	biz, owner := r.business(true)
 	raw, _ := r.key(biz, owner)
 	ref := "inflight-" + uuid.NewString()
-	_, release, done := heldWrite(t, r, raw, ref)
-	r.suspend(biz)
+	const inFlight = 3
+	r.liftAtEnd(biz) // before the hold: the held writes are released first at the end (LIFO)
+	release, done := heldWrites(t, r, raw, ref, inFlight)
+	// Bounded: under a locking read the suspension would wait on the held writes (the FOR SHARE
+	// mutant measured 30 s, until their transactions were killed); here it fails in 2 s instead.
+	if err := r.trySuspend(biz, "2s"); err != nil {
+		t.Fatalf("op_suspend_tenant beside %d writes in flight: %v", inFlight, err)
+	}
 	if !r.isSuspended(biz) {
 		t.Fatal("PREMISE: the suspension is not committed")
 	}
 	release()
-	if w := <-done; w.Code != http.StatusCreated || r.auditCount(biz, ref) != 1 {
-		t.Fatalf("the write in flight: %d %s, %d effect(s); want 201 and its one effect -- the plain read's named price", w.Code, w.Body.String(), r.auditCount(biz, ref))
+	for range inFlight {
+		if w := <-done; w.Code != http.StatusCreated {
+			t.Fatalf("a write in flight: %d %s; want 201 -- the plain read's named price", w.Code, w.Body.String())
+		}
+	}
+	for i := range inFlight {
+		if n := r.auditCount(biz, fmt.Sprintf("%s-%d", ref, i)); n != 1 {
+			t.Fatalf("write in flight %d: %d effect(s), want its one", i, n)
+		}
 	}
 	next := "after-" + uuid.NewString()
 	wantSuspendedProblem(t, r.do(http.MethodPut, "/v1/_probe/"+next, raw, `{}`), "the next write")
