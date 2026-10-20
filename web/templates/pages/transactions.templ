@@ -160,9 +160,13 @@ templ rail(v TransactionsView) {
 // as of the page's load (§4.2: derived from recorded taps, nothing tracked, nothing live), and
 // the same read per venue. The ticks are drawing (at most 20); the number beside them is the
 // figure.
+//
+// ON THE DESK THE CARD IS AS TALL AS ITS ROW, which the Spike card sets, and its lines
+// stack from the top: the figure and the venue rows still share a bottom edge on their
+// line, but the label is not pushed down by the height the card did not need.
 templ floorCard(f FloorView) {
 	if f.State != WidgetNotRead {
-		<div class="stat-card col-span-2 md:flex-row md:items-end md:gap-6 desk:flex-wrap desk:gap-7">
+		<div class="stat-card col-span-2 md:flex-row md:items-end md:gap-6 desk:flex-wrap desk:content-start desk:gap-7">
 			<div class="flex flex-none flex-col gap-1">
 				<p class="lbl">On the floor now</p>
 				<p class="font-mono text-[72px] font-normal leading-[0.9] tracking-[-0.04em] text-ink md:text-[80px] desk:text-[88px]">{ f.People }</p>
