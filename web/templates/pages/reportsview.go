@@ -37,8 +37,16 @@ type ReportsView struct {
 	ZoneLabel string
 
 	// WeekLabel is the period in words; WeekValue is the ISO date the picker echoes.
+	// WeekShort is the stepper's label ("12 – 18 Oct"): the same period, without the
+	// weekday names and the year the receipt prints.
 	WeekLabel string
 	WeekValue string
+	WeekShort string
+	// WeekNumber is the ISO week of the period, in the eyebrow and on the receipt.
+	WeekNumber int
+
+	// TenantName heads the receipt: whose week the figures are.
+	TenantName string
 
 	// The three navigation targets. ThisWeekHref is offered even when the current
 	// week is showing, because it is also the "get me back" control after paging
@@ -60,10 +68,24 @@ type ReportsView struct {
 	// cannot honour" property the view opens with survives phase B.
 	ExportHref string
 
+	// AnomaliesHref is where open check-ins are looked at one by one (Odd shapes); the
+	// receipt's open box links there. Read from the section table by the handler.
+	AnomaliesHref string
+
 	// DayHeadings are the period's local days, in order — the columns each row's
 	// Daily entries line up with. They come from the same Period the arithmetic used,
 	// so a row can never have more or fewer columns than the heading claims.
 	DayHeadings []string
+	// DayLetters are the same days as the phone prints them above each cell ("Mon"),
+	// where the header row is kept for a screen reader only.
+	DayLetters []string
+
+	// HomesQueried and HomesFailed are the tri-state of the roster read behind the
+	// other-venue marks, the title and the home venue (ledger.HomesRead). Neither set:
+	// not asked, and the receipt claims nothing about other venues. Failed: the marks
+	// are not shown and the page says so -- never a count of 0.
+	HomesQueried bool
+	HomesFailed  bool
 
 	Totals ReportTotalsView
 	People []ReportRowView
@@ -134,6 +156,15 @@ type ReportTotalsView struct {
 	// TooLong counts pairs further apart than that threshold, which are not treated
 	// as very long shifts but as an unclosed entry plus a stray checkout.
 	TooLong int
+	// OtherVenue counts the counted shifts that began away from the person's home venue;
+	// OtherVenueUnknown the counted shifts that could not be compared with one (no home
+	// venue, no venue on the record). The receipt prints the second beside the first.
+	OtherVenue        int
+	OtherVenueUnknown int
+	// ManualArrivals counts the check-ins a manager typed; Approved the counted shifts
+	// that are in the total because a manager approved a flagged end.
+	ManualArrivals int
+	Approved       int
 }
 
 // ReportRowView is one person's week.
@@ -142,8 +173,13 @@ type ReportRowView struct {
 	// has — a blank cell reads as "nobody worked", which is a different claim.
 	Name   string
 	Worked string
-	// Daily lines up with ReportsView.DayHeadings.
+	// Role and HomeVenue are the line under the name ("Line Cook · KF Valletta"); either
+	// is "" when the roster has none, and the line then omits it.
+	Role      string
+	HomeVenue string
+	// Daily lines up with ReportsView.DayHeadings, and Marks runs beside it.
 	Daily  []string
+	Marks  []ReportMarkView
 	Shifts int
 	// The four qualifiers, each "" when it does not apply. They are words rather
 	// than numbers alone because a bare count beside a name says nothing about what
@@ -154,6 +190,15 @@ type ReportRowView struct {
 	Unmeasured string
 	Manual     string
 	Open       string
+}
+
+// ReportMarkView is what one day cell says besides its hours (ledger.DayMarks): a counted
+// shift that began at another venue, a check-in a manager typed, a check-in with no
+// checkout. Each is false unless measured.
+type ReportMarkView struct {
+	Other  bool
+	Manual bool
+	Open   bool
 }
 
 // ReportVenueView is one location's week.

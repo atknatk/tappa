@@ -758,3 +758,111 @@ func TestReportDomain_HasNoFieldACoordinateCouldTravelIn(t *testing.T) {
 		}
 	}
 }
+
+// TestReportsSection_SaysEveryDayMarkInWords is M12-36's cell rule: the Roll's marks (another
+// venue, a check-in a manager typed, a check-in with no checkout) are colour and a letter for
+// the eye, and WORDS in every cell for a screen reader -- status is never colour alone. It
+// also pins the look a day with hours AND an open check-in takes (the open one, screen file
+// R11), the line under the name, and the legend's wording for M: a typed CHECK-IN, since a
+// typed checkout does not set the mark (ledger.DayMarks.Manual).
+func TestReportsSection_SaysEveryDayMarkInWords(t *testing.T) {
+	records := newFakeLedger()
+	records.hours = reportWith(func(r *ledger.Report) {
+		daily := make([]time.Duration, ledger.ReportDays)
+		daily[0] = 8*time.Hour + 2*time.Minute
+		daily[2] = 6 * time.Hour
+		marks := make([]ledger.DayMarks, ledger.ReportDays)
+		marks[0] = ledger.DayMarks{Other: true, Manual: true}
+		marks[1] = ledger.DayMarks{Open: true}
+		marks[2] = ledger.DayMarks{Open: true}
+		r.Homes = ledger.HomesRead{Queried: true}
+		r.Totals = ledger.Totals{Worked: 14*time.Hour + 2*time.Minute, Shifts: 2, Open: 2,
+			OtherVenue: 1, OtherVenueUnknown: 3, ManualArrivals: 1, Approved: 4}
+		r.People = []ledger.PersonHours{{
+			Name: "Maria Borg", Role: "Line Cook", HomeVenue: "KF Valletta",
+			Worked: 14*time.Hour + 2*time.Minute, Shifts: 2, Daily: daily, Marks: marks,
+		}}
+	})
+	body := reportBrowser(t, records).do(http.MethodGet, reportsHref, nil).Body.String()
+
+	cells := rollCellRE.FindAllStringSubmatch(body, -1)
+	if len(cells) != ledger.ReportDays {
+		t.Fatalf("%d day cells on the page, want %d; the scan below would read nothing", len(cells), ledger.ReportDays)
+	}
+	for i, want := range []struct{ class, words string }{
+		{"roll-cell roll-cell--worked roll-cell--other roll-cell--manual",
+			"worked, at a venue other than their home venue, a check-in typed by a manager"},
+		{"roll-cell roll-cell--open", "check-in with no checkout, not counted"},
+		{"roll-cell roll-cell--open", "worked, and an open check-in, not counted"},
+		{"roll-cell roll-cell--none", "no hours counted"},
+	} {
+		if cells[i][1] != want.class {
+			t.Errorf("day %d: class %q, want %q", i, cells[i][1], want.class)
+		}
+		if !strings.Contains(cells[i][2], `<span class="sr-only">`+want.words+`</span>`) {
+			t.Errorf("day %d does not say %q in words: %s", i, want.words, cells[i][2])
+		}
+	}
+	// EVERY cell carries words, the plain ones included.
+	for i, c := range cells {
+		if !strings.Contains(c[2], `<span class="sr-only">`) {
+			t.Errorf("day %d carries no words for a screen reader: %s", i, c[2])
+		}
+	}
+	for _, want := range []string{
+		"8h 02m", "Line Cook · KF Valletta", "check-in typed by a manager",
+		"<dt>At another venue</dt>", "<dt>No home venue to compare</dt>",
+		"<dt>Arrivals typed by a manager</dt>", "<dt>Approved on The Spike</dt>",
+		"Hours per person · week 32",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the page never says %q", want)
+		}
+	}
+	if strings.Contains(body, "Manual entry") {
+		t.Error("the legend calls M a manual entry; it is a check-in a manager typed")
+	}
+}
+
+// rollCellRE reads each day cell's class list and contents.
+var rollCellRE = regexp.MustCompile(`<span class="(roll-cell[^"]*)">(.*?<span class="sr-only">[^<]*</span>)`)
+
+// TestReportsSection_TheOtherVenueFigureIsTriState is §4.6 on the M12-21 read: a roster read
+// that did not answer prints "could not be read" and says why no day is marked, never 0; one
+// that was not asked prints no other-venue line at all; a measured one prints the count.
+func TestReportsSection_TheOtherVenueFigureIsTriState(t *testing.T) {
+	render := func(h ledger.HomesRead) string {
+		records := newFakeLedger()
+		records.hours = reportWith(func(r *ledger.Report) {
+			r.Homes = h
+			r.Totals = ledger.Totals{Worked: 8 * time.Hour, Shifts: 1, OtherVenueUnknown: 1}
+			r.People = []ledger.PersonHours{{Name: "Maria Borg", Worked: 8 * time.Hour, Shifts: 1,
+				Daily: make([]time.Duration, ledger.ReportDays), Marks: make([]ledger.DayMarks, ledger.ReportDays)}}
+		})
+		return reportBrowser(t, records).do(http.MethodGet, reportsHref, nil).Body.String()
+	}
+	const line = "<dt>At another venue</dt>"
+
+	failed := render(ledger.HomesRead{Failed: true})
+	if !strings.Contains(failed, line+`<dd class="whitespace-nowrap text-right">could not be read</dd>`) {
+		t.Error("a failed roster read does not say the other-venue figure could not be read")
+	}
+	if !strings.Contains(failed, "no day is marked as another venue") {
+		t.Error("a failed roster read does not say why no day carries the mark")
+	}
+
+	measured := render(ledger.HomesRead{Queried: true})
+	if !strings.Contains(measured, line+`<dd class="whitespace-nowrap text-right">0</dd>`) {
+		t.Error("CONTROL: a measured week does not print its other-venue count")
+	}
+	if !strings.Contains(measured, "<dt>No home venue to compare</dt>") {
+		t.Error("the shifts that could not be compared are not printed beside the count")
+	}
+	if strings.Contains(measured, "could not be read") {
+		t.Error("a measured week says the figure could not be read")
+	}
+
+	if asked := render(ledger.HomesRead{}); strings.Contains(asked, line) {
+		t.Error("a roster read that was never asked prints an other-venue figure")
+	}
+}
