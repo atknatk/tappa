@@ -337,7 +337,7 @@ func TestLedger_TheStepperStopsAtTodayAndKeepsTheFilters(t *testing.T) {
 // every leaf a string, a count, a flag or a state -- the docket the hour groups carry included
 // (walkViewFields).
 func TestPassViews_CarryNothingACoordinateCouldTravelIn(t *testing.T) {
-	fields, seen := walkViewFields(t,
+	fields, read := walkViewFields(t,
 		reflect.TypeOf(pages.VerdictChip{}), reflect.TypeOf(pages.HourGroup{}), reflect.TypeOf(pages.FloorView{}),
 		reflect.TypeOf(pages.SpikeView{}), reflect.TypeOf(pages.LeftOpenView{}), reflect.TypeOf(pages.TapeView{}),
 		reflect.TypeOf(pages.PassPlaquesView{}),
@@ -345,9 +345,7 @@ func TestPassViews_CarryNothingACoordinateCouldTravelIn(t *testing.T) {
 	if fields < 25 {
 		t.Fatalf("the walk saw %d fields; it is reading the wrong types", fields)
 	}
-	if !seen[reflect.TypeOf(components.DocketView{})] {
-		t.Error("the walk never reached the docket the hour groups carry")
-	}
+	requireReadWhole(t, read, reflect.TypeOf(components.DocketView{}))
 }
 
 // TestLedger_TheFilterDisclosureOpensOnlyForItsOwnFields: on a phone the form sits in a
