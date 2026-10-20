@@ -307,7 +307,7 @@ func AdminReview(v ReviewView) templ.Component {
 					}
 					return nil
 				})
-				templ_7745c5c3_Err = components.EmptyState("Nothing is waiting for review").Render(templ.WithChildren(ctx, templ_7745c5c3_Var13), templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = components.PanelEmpty(SectionLabel(TabReview), "Nothing is waiting for review", components.PanelEmptyCTA{}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var13), templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

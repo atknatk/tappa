@@ -982,6 +982,10 @@ func brandEditorDrawsNoSecondHeader(t *testing.T, href, region string) {
 // own markup is byte for byte c4f6f74's, and the "plaques" page's differs only in the section
 // label the notice links with ("Locations & Wall Tags" became "Venues & plaques", the same
 // decision). The banner's absence still adds nothing.
+//
+// RE-RENDERED FOR M12-09 (panel-only empty state): only the "plaques" golden, and only inside the
+// empty state's opening tags (its label is now the section's name, "The Pass", and its classes are
+// PanelEmpty's); the heading and sentence are the same bytes, the "zero" golden is unchanged.
 func TestKeyBudgetBanner_AbsentAddsNothing(t *testing.T) {
 	render := func(v pages.TransactionsView) string {
 		t.Helper()

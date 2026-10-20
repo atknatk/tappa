@@ -66,8 +66,9 @@ func groupTabDrawn(body string) bool {
 
 // TestGroup_ANonMemberSeesNoTabAndTheEmptyState: a business in no group (the fake's default, and a
 // membership that has ended reads the same) -- as an owner and as a manager -- gets no Group tab on
-// ANY section, and the route answers 200 with the panel's empty state -- labelled "No group", not
-// "Nothing here yet" (the GRP-1 review's DUSUK-2: "yet" promises a group) -- and nothing of a group.
+// ANY section, and the route answers 200 with the panel's empty state -- labelled with the
+// section's own name (M12-09's PanelEmpty; until then "No group"), never "Nothing here yet" (the
+// GRP-1 review's DUSUK-2: "yet" promises a group) -- and nothing of a group.
 // MUTANT (measured): panelTabs' GroupOnly condition made always-true -> red here.
 func TestGroup_ANonMemberSeesNoTabAndTheEmptyState(t *testing.T) {
 	for _, role := range []string{"owner", "manager"} {
@@ -91,8 +92,9 @@ func TestGroup_ANonMemberSeesNoTabAndTheEmptyState(t *testing.T) {
 				t.Errorf("%s GET %s: no empty state", role, s.Href)
 			}
 			// Nothing is about to arrive here: the label says what the state is, never "yet".
-			if !strings.Contains(body, `<p class="docket-label">No group</p>`) || strings.Contains(body, "Nothing here yet") {
-				t.Errorf("%s GET %s: the empty state is not labelled \"No group\" alone", role, s.Href)
+			label := `<p class="lbl">` + htmlText(s.Label) + `</p><h2 `
+			if !strings.Contains(body, label) || strings.Contains(body, "Nothing here yet") || strings.Contains(body, " yet</p>") {
+				t.Errorf("%s GET %s: the empty state is not labelled %q alone", role, s.Href, s.Label)
 			}
 			for _, never := range []string{"Your group", "Members", "Partner staff at your venues", "What the group shares"} {
 				if strings.Contains(body, never) {

@@ -582,7 +582,7 @@ templ panelBrandHeader(b PanelBrand) {
 templ AdminDashboard(v AdminDashboardView) {
 	@PanelShell(v.PanelChrome) {
 		if s, ok := v.Section(); ok {
-			@components.EmptyState(s.Label + " is not built yet") {
+			@components.PanelEmpty(s.Label, s.Label+" is not built yet", components.PanelEmptyCTA{}) {
 				<p>{ s.Blurb }</p>
 				<p class="mt-2">
 					It arrives with <span class="font-mono uppercase">{ s.Task }</span>.

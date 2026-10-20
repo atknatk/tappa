@@ -244,7 +244,7 @@ templ AdminEmployees(v EmployeesView) {
 				}
 			</div>
 		} else if v.Queried {
-			@components.EmptyState(emptyRosterHeading(v)) {
+			@components.PanelEmpty(SectionLabel(TabEmployees), emptyRosterHeading(v), components.PanelEmptyCTA{}) {
 				if v.Paged {
 					// 🔴 THE POSITION, NOT THE BUSINESS. This branch exists because
 					// without it a cursor past the last name printed "No people have

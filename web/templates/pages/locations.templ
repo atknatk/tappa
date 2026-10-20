@@ -186,7 +186,7 @@ templ AdminLocations(v LocationsView) {
 					@components.VenueRow(ven)
 				}
 			} else if v.Queried {
-				@components.EmptyState("No venues yet") {
+				@components.PanelEmpty(SectionLabel(TabLocations)+" · venues", "No venues yet", components.PanelEmptyCTA{}) {
 					// 🔴 A CLAIM ABOUT THE RECORDS, NOT ABOUT THE BUSINESS. "You have no
 					// venues" would be a claim about the world; what the product measured is
 					// that this business has no location rows, which is the ordinary state of
@@ -212,7 +212,7 @@ templ AdminLocations(v LocationsView) {
 					@components.DepartmentRow(d)
 				}
 			} else if v.Queried {
-				@components.EmptyState("No departments") {
+				@components.PanelEmpty(SectionLabel(TabLocations)+" · departments", "No departments", components.PanelEmptyCTA{}) {
 					if len(v.Venues) > 0 {
 						// 🔴 IT SAYS THIS IS NORMAL, because it is. Migration 00003 makes a
 						// department optional precisely because a bar does not model them, and
@@ -260,7 +260,7 @@ templ AdminLocations(v LocationsView) {
 					@components.PlaqueRow(p)
 				}
 			} else if v.PlaquesQueried {
-				@components.EmptyState("No plaques are mounted") {
+				@components.PanelEmpty(SectionLabel(TabLocations)+" · plaques on the wall", "No plaques are mounted", components.PanelEmptyCTA{}) {
 					if v.MountableStock > 0 {
 						<p>You have plaques in stock below. Open one to mount it at a venue.</p>
 					} else if len(v.Stock) > 0 {
@@ -292,7 +292,7 @@ templ AdminLocations(v LocationsView) {
 					@components.PlaqueRow(p)
 				}
 			} else if v.PlaquesQueried {
-				@components.EmptyState("Nothing in stock") {
+				@components.PanelEmpty(SectionLabel(TabLocations)+" · in stock", "Nothing in stock", components.PanelEmptyCTA{}) {
 					<p>
 						Every plaque loaded for this business is on a wall or out of service. Ask us
 						for spares — you need one in the box before you can replace a plaque that

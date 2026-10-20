@@ -80,7 +80,7 @@ confirmation per change. The board's per-rule Approve / Spike / Reject picker is
 | Degraded notice | `v.GuardrailsOnly`, `v.Unreadable` (`policies.templ:139-171`) | EXISTS — **keep** | above everything (`policiesview.go:276-287`) |
 | Ceiling / problem notices | `VersionsCapped`, `AttachmentsCapped`, `ScopeCapped`, `Problem` (`policies.templ:53-103`) | EXISTS — **keep** | incl. T125's `cross-location-first`, `evidence-off` (`policies.go:152-245`) |
 | Ladder rail | — | DERIVE (CSS) | class-only `.ladder` (X4) |
-| Guardrails heading + lock | `PolicyGuarantees` h2 "Taptime guarantees" (`policies.templ:316`) | EXISTS | literal "Taptime guarantees" pinned (`policies_test.go:636`); lock = CSS glyph `.lock` (no `<svg>`) |
+| Guardrails heading + lock | `PolicyGuarantees` h2 "Taptime guarantees" (`policies.templ:316`) | EXISTS | literal "Taptime guarantees" pinned (`policies_test.go:636`); lock = CSS glyph `.lock-glyph` (no `<svg>`) |
 | Rung number badge | `g.Order` (`policies.go:276-279`) | EXISTS | 1–11 from the engine; zero-pad is render-only |
 | Riveted plate | — | DERIVE (CSS) | `.plate` with pseudo-element rivets |
 | Plate condition text | `g.Reason`, `g.Rule` (`rulebook.go:803-826`), `g.Outcome` | DERIVE | short "when" phrases: a sid → phrase map **in the domain beside `guardrailRules`** (11 entries, both-directions coverage test like `TestGuardrailRules_CoverTheShippedSlice`); field name e.g. `When` (passes the control-word net) |
@@ -136,7 +136,7 @@ Rule card `flex flex-wrap items-center justify-between gap-3.5 px-[22px] py-[18p
 bg-paper border border-line` (or keep the versioned-record `.docket`, `policies.templ:402-406`). Effect
 pill `inline-flex items-center min-h-10 px-3.5 rounded-[10px] bg-paper border text-sm font-bold` + tone
 (allow green, review saffron, deny tomato, note line) — not a button. Default plate `rounded-[14px]
-bg-saffron-lite border border-dashed border-saffron` + `.lock`. Every new class appears literally in the
+bg-saffron-lite border border-dashed border-saffron` + `.lock-glyph`. Every new class appears literally in the
 stylesheet / templ (`policyToneClass` rationale, `policies.templ:807-824`).
 
 ### 1.6 Not ported (Rules)

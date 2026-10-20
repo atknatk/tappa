@@ -168,9 +168,10 @@ refuses slices) — pass a pre-rendered path string. Card M12-12.
    `.templ` uses them literally — **and the test is lexical, not a use count**: a layer class whose
    name is a word that stands alone in any template (prose, a Go keyword) compiles with no element
    carrying it. Measured in M12-08: `.chip`, `.field`, `.lock` and `.switch` compiled at once
-   (+2 869 B) — so those four are `.chip-link`, `.field-stack`, `.lock-glyph`, `.rule-switch`, and a
-   selector that also names a class in use (`.rail-item … .docket`) compiles with it. Name a new
-   class something no sentence would contain.
+   (+2 479 B for the four names alone) — so those four are `.chip-link`, `.field-stack`,
+   `.lock-glyph`, `.rule-switch`, and a selector that also names a class in use
+   (`.rail-item … .docket`) compiles with it (the `.docket`-bound tilt rules added +390 B more;
+   +2 869 B together). Name a new class something no sentence would contain.
 3. **No new JavaScript.** Only `/admin` (The Pass / ledger) carries a script (htmx), pinned by
    `TestPanelScreens_ScriptsAndPolicyAgreeAndReachNoThirdParty`; only the sign-in page carries
    `adminpassword.js`. Selection is a link (`?focus=`, `?manage=`, `?at=`); multi-step is a POST

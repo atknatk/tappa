@@ -801,7 +801,7 @@ func reportPeople(v ReportsView) templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = components.EmptyState("No hours were recorded this week").Render(templ.WithChildren(ctx, templ_7745c5c3_Var38), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = components.PanelEmpty(SectionLabel(TabReports), "No hours were recorded this week", components.PanelEmptyCTA{}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var38), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
