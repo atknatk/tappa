@@ -26,6 +26,12 @@ package pages
 // content well (5 318 B) and after </main> (4 382 B) is byte for byte the previous golden's, and
 // every changed byte lies inside the well, which is the Roll's own markup. The holding claim is
 // now also asserted directly: TestHoldinglessPanels_AHoldingAddsOnlyThePartnerSection.
+// M12-48 replaced the anomalies golden: the fixture's venue gained its evidence split and the
+// GPS-alone card its one person, and the two truncated names gained a title. Every changed byte
+// lies inside the content well (common prefix past the well's opening tag, common suffix before
+// </main>): the venue name's title, the bar's three segments, its text alternative, "10 judged",
+// the split line, and the GPS-alone list in place of its empty sentence. The reports golden is
+// unchanged (byte for byte).
 
 import (
 	"bytes"
