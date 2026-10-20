@@ -6,10 +6,12 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/atknatk/tappa/internal/adminauth"
+	"github.com/atknatk/tappa/internal/domain/ledger"
 )
 
 // panelScreensOutsideTheSections renders the panel screens and states the touch-target and
@@ -20,6 +22,40 @@ func panelScreensOutsideTheSections(t *testing.T) map[string]string {
 	t.Helper()
 	out := map[string]string{}
 	var rec *httptest.ResponseRecorder
+
+	// 🔴 THE PASS IN THE STATES A FIXTURE HAS TO ASK FOR (M12-49). fakeLedger's plaques and
+	// The Pass's widgets default to "not measured", which draws none of them -- measured: the
+	// plaque notice's link shipped as a bare `<a class="underline">` on a new customer's first
+	// screen with every net green. So each plaque notice is rendered, and the widgets measured.
+	for _, ps := range plaqueStates {
+		if ps.want == "" {
+			continue // the screen says nothing about plaques: nothing to press
+		}
+		f := newFakeLedger()
+		f.plaques = ps.plaques
+		rec = panelBrowserWith(t, f).do(http.MethodGet, transactionsHref, nil)
+		body := htmlOf(t, rec)
+		if rec.Code != http.StatusOK || (!strings.Contains(body, ps.want) && !strings.Contains(body, htmlText(ps.want))) {
+			t.Fatalf("The Pass with plaques %q answered %d without its notice %q; this corpus "+
+				"entry would hold nothing", ps.name, rec.Code, ps.want)
+		}
+		out["GET "+transactionsHref+" (plaques: "+ps.name+")"] = body
+	}
+	measured := ledgerWithRecords(1, true)
+	measured.floor = ledger.Floor{State: ledger.Measured, People: 7,
+		Venues: []ledger.FloorVenue{{Name: "KF Hamrun", People: 7}}}
+	measured.leftOpen = ledger.LeftOpen{State: ledger.Measured, N: 3, Day: ledger.Date{Year: 2026, Month: 8, Day: 4}}
+	measured.tape = ledger.Tape{State: ledger.Measured, Hours: []time.Time{time.Now().Truncate(time.Hour)},
+		Venues: []ledger.TapeVenue{{Name: "KF Msida", People: []int{3}}}}
+	measured.tally = ledger.VerdictTally{State: ledger.Measured, Records: 1, Approved: 1}
+	rec = panelBrowserWith(t, measured).do(http.MethodGet, transactionsHref, nil)
+	body := htmlOf(t, rec)
+	for _, h := range []string{"On the floor now", "Left open since yesterday", "The tape"} {
+		if !strings.Contains(body, h) {
+			t.Fatalf("The Pass with its widgets measured does not draw %q", h)
+		}
+	}
+	out["GET "+transactionsHref+" (widgets measured)"] = body
 
 	// 🔴 THE SCREENS M12-49 FOUND OUTSIDE THIS CORPUS, each measured: a press target or a
 	// form control on them could lose its touch-target class with the whole package green.

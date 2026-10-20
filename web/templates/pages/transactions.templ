@@ -535,7 +535,7 @@ templ plaqueNotice(v TransactionsView) {
 templ plaqueNoticeLink(v TransactionsView) {
 	if v.PlaquesHref() != "" {
 		<p class="mt-2">
-			<a href={ templ.URL(v.PlaquesHref()) } class="underline">{ v.PlaquesLabel() }</a>
+			<a href={ templ.URL(v.PlaquesHref()) } class="inline-flex min-h-11 items-center underline">{ v.PlaquesLabel() }</a>
 			{ " " }shows every plaque this business has.
 		</p>
 	}
