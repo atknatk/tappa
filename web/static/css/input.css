@@ -1363,6 +1363,18 @@
     @apply bg-tappa-green/10;
     box-shadow: inset 3px 0 0 theme('colors.ink');
   }
+  /* The row's initials square and, on a phone, the chevron at its end. They are
+     classes rather than utility chains because a page carries fifty rows on a
+     no-store response (the report-row measurement): the chevron is two borders of a
+     turned square, so no row carries an svg for it. Both are drawing only -- the
+     template keeps them from a screen reader. */
+  .roster-initials {
+    @apply inline-flex size-10 flex-none items-center justify-center rounded-[10px] border
+           border-ink/50 bg-paper font-mono text-[13px] font-bold;
+  }
+  .roster-chevron {
+    @apply mr-1 size-2.5 flex-none rotate-45 border-r-2 border-t-2 border-ink/70 md:hidden;
+  }
 
   /* --- The Roll's day cell ---
      Modifiers combine; each cell carries sr-only words in the template, and the

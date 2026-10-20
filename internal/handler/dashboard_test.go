@@ -1210,6 +1210,12 @@ var panelTouchTargets = map[string]int{
 	// A section's breadcrumb link (M12-01, pages.panelHead): every crumb before the current
 	// page is a real <a>, so both halves of the pair reach it.
 	"panel-crumb": 44, // .panel-crumb -> min-h-11 = 2.75rem
+	// People (M12-30), the first screen to draw them: the status chips are links, each
+	// person's row is one link (64 px on a phone, 60 px from md), and the filter's fields
+	// are the redesign's form control.
+	"chip-link":   44, // .chip-link   -> min-h-11 (a filter chip, a link)
+	"roster-row":  60, // .roster-row  -> min-h-16, md:min-h-[60px]
+	"field-input": 44, // .field-input -> min-h-11 (a form control)
 }
 
 // panelPendingTouchTargets are the press-target classes the panel redesign defines
@@ -1226,12 +1232,9 @@ var panelTouchTargets = map[string]int{
 // template uses a class still listed here, and the markup scan above turns red while
 // a press target carries one that is not in panelTouchTargets.
 var panelPendingTouchTargets = map[string]int{
-	"chip-link":        44, // .chip-link        -> min-h-11 (a filter chip, a link)
 	"queue-item":       44, // .queue-item       -> min-h-11 (The Spike's queue)
-	"roster-row":       60, // .roster-row       -> min-h-16, md:min-h-[60px] (People)
 	"venue-card":       44, // .venue-card       -> min-h-11 (Venues)
 	"rule-switch":      44, // .rule-switch      -> min-h-11 (Rules: a submit button)
-	"field-input":      44, // .field-input      -> min-h-11 (a form control)
 	"stat-card--spike": 44, // .stat-card--spike -> min-h-11 (The Pass: a link to The Spike)
 	"btn--approve":     64, // .btn--approve     -> min-h-16 (The Spike)
 	"btn--reject":      64, // .btn--reject      -> min-h-16 (The Spike)

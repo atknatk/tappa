@@ -739,9 +739,11 @@ func TestEmployeeAdd_ARejectedFormKeepsTheRosterPosition(t *testing.T) {
 	}
 	body := htmlOf(t, rec)
 
-	// THE FILTER BAR CAME BACK SET. Without the body-reading branch the select renders
-	// with nothing selected and the roster underneath is everybody, page one.
-	if !strings.Contains(body, `value="`+ledger.StatusActive+`" selected`) {
+	// THE FILTER BAR CAME BACK SET. Without the body-reading branch no status chip is
+	// marked current (the panel redesign's echo of the status, M12-30) and the roster
+	// underneath is everybody, page one.
+	if currentStatusChip(body) != "Active" ||
+		!strings.Contains(body, `<input type="hidden" name="status" value="`+ledger.StatusActive+`">`) {
 		t.Error("🔴 the status filter was lost when the form was refused -- the list under the " +
 			"corrected form is not the list the manager was looking at")
 	}

@@ -47,227 +47,280 @@ import "github.com/atknatk/tappa/web/templates/components"
 // v.Queried is set only after the database answered, and a failed read renders a
 // problem page in the handler rather than an empty list here.
 templ AdminEmployees(v EmployeesView) {
-	@PanelShell(v.PanelChrome) {
-		if v.Done != "" {
-			@components.Notice(components.ToneOK, doneRosterHeading(v.Done)) {
-				switch v.Done {
-					case "deactivated":
-						// 🔴 THE SENTENCE IS ABOUT WHAT WAS WRITTEN, AND ABOUT WHAT WAS
-						// NOT. Deactivation does not sign a phone out — the refusal comes
-						// from the next tap being judged against the person's status — and
-						// a manager who believes the phone is dead would stop watching for
-						// it. Saying it here is cheaper than the support call.
-						<p>
-							Their taps will be refused from now on, and every refusal is still
-							recorded. Any phone they signed in on stays signed in; it simply
-							cannot record time any more.
-						</p>
-					case "added":
-						// 🔴 THE NEXT STEP IS NAMED HERE BECAUSE THIS IS WHERE THE CHAIN
-						// WOULD OTHERWISE BREAK. Adding somebody creates an 'invited' row —
-						// they cannot tap until an activation link is spent — so a manager
-						// who stops at "added" has a person who can do nothing. The card
-						// for that person is directly below with the button on it, which is
-						// what makes add → invite one screen rather than two.
-						if v.Actions != nil {
-							<p>{ movedLine(v.Actions) }</p>
-							<p class="mt-1">
-								They cannot record time yet. Send them their activation link with the
-								button below — until they open it, there is nothing to tap with.
+	@PanelActions(peopleActions(v)) {
+		@PanelShell(v.PanelChrome) {
+			if v.Done != "" {
+				@components.PanelNotice(components.ToneOK, doneRosterHeading(v.Done)) {
+					switch v.Done {
+						case "deactivated":
+							// 🔴 THE SENTENCE IS ABOUT WHAT WAS WRITTEN, AND ABOUT WHAT WAS
+							// NOT. Deactivation does not sign a phone out — the refusal comes
+							// from the next tap being judged against the person's status — and
+							// a manager who believes the phone is dead would stop watching for
+							// it. Saying it here is cheaper than the support call.
+							<p>
+								Their taps will be refused from now on, and every refusal is still
+								recorded. Any phone they signed in on stays signed in; it simply
+								cannot record time any more.
 							</p>
-						}
-					case "email":
-						// M10 EM-6 — THE "moved" CLASS: the sentence is the address the SAME
-						// request read back, so a replayed or hand-made URL restates what is
-						// on file rather than claiming a change happened.
-						if v.Actions != nil {
-							<p>{ emailLine(v.Actions) }</p>
-						}
-					case "external-ref":
-						// M11 API-1 — the same class: the ref the SAME request read back.
-						if v.Actions != nil {
-							<p>{ externalRefLine(v.Actions) }</p>
-						}
-					default:
-						if v.Actions != nil {
-							<p>{ movedLine(v.Actions) }</p>
-						}
+						case "added":
+							// 🔴 THE NEXT STEP IS NAMED HERE BECAUSE THIS IS WHERE THE CHAIN
+							// WOULD OTHERWISE BREAK. Adding somebody creates an 'invited' row —
+							// they cannot tap until an activation link is spent — so a manager
+							// who stops at "added" has a person who can do nothing. The card
+							// for that person is directly below with the button on it, which is
+							// what makes add → invite one screen rather than two.
+							if v.Actions != nil {
+								<p>{ movedLine(v.Actions) }</p>
+								<p class="mt-1">
+									They cannot record time yet. Send them their activation link with the
+									button below — until they open it, there is nothing to tap with.
+								</p>
+							}
+						case "email":
+							// M10 EM-6 — THE "moved" CLASS: the sentence is the address the SAME
+							// request read back, so a replayed or hand-made URL restates what is
+							// on file rather than claiming a change happened.
+							if v.Actions != nil {
+								<p>{ emailLine(v.Actions) }</p>
+							}
+						case "external-ref":
+							// M11 API-1 — the same class: the ref the SAME request read back.
+							if v.Actions != nil {
+								<p>{ externalRefLine(v.Actions) }</p>
+							}
+						default:
+							if v.Actions != nil {
+								<p>{ movedLine(v.Actions) }</p>
+							}
+					}
 				}
 			}
-		}
-		if v.Problem != "" {
-			@components.Notice(components.ToneWarn, problemRosterHeading(v.Problem)) {
-				switch v.Problem {
-					case "unreadable":
-						<p>We could not read that submission, so nothing was changed.</p>
-					case "confirm-required":
-						// 🔴 THE TWO SENTENCES THIS GATE OWES THE MANAGER (§4.6). This one
-						// covers "never confirmed" and "confirmed too long ago" together,
-						// because from the server they are the same absence — the browser
-						// stops sending an expired cookie — and telling somebody which of
-						// the two it was would be a claim nothing measured.
-						<p>Nothing was changed. Deactivating somebody needs the warning screen first, and this one either was not used or was left open too long.</p>
-						<p class="mt-1">Open the person again and read the warning; the button appears under it.</p>
-					case "confirm-stale":
-						<p>Nothing was changed. This browser is in the middle of confirming a different person, so the button you pressed no longer matches.</p>
-						<p class="mt-1">Open the person you meant again and confirm from there — one confirmation at a time.</p>
-					case "actions-unavailable":
-						// 🔴 A DIFFERENT SENTENCE FROM "unreadable", BECAUSE A DIFFERENT
-						// THING FAILED. That one is about a REQUEST nobody could parse and
-						// says "nothing was looked up"; this one is OUR read failing after
-						// the roster answered. Sharing the word made the screen tell a
-						// manager their submission was malformed when in fact our database
-						// was.
-						<p>We could not load this person's details, so no actions are shown. The list below is current.</p>
-					case "unknown":
-						<p>That person is not on this business's roster. Nothing was changed.</p>
-					case "already-deactivated":
-						<p>They were already deactivated, so nothing was written and nothing was recorded twice.</p>
-					case "unknown-placement":
-						// 🔴 TWO CAUSES, ONE SENTENCE, AND BOTH ARE NAMED. The statement
-						// refuses a venue or department that is not this business's AND a
-						// department that belongs to a DIFFERENT venue — the second was
-						// silently accepted until a security audit measured it, and the
-						// dropdown still offers every department in the business (grouped by
-						// venue, so the pairing is readable). Telling the manager only
-						// "not this business's" would send them looking for a permissions
-						// problem they do not have.
-						<p>
-							Nothing was changed. Either that venue or department is not this
-							business's, or the department belongs to a different venue — a person's
-							department has to be one of the venue they work at.
-						</p>
-					case "no-change":
-						// ⚠️ THE SENTENCE IS TRUE ABOUT THE STATE AND SILENT ABOUT THE
-						// CAUSE, deliberately. Two managers saving the same placement at
-						// once was measured: 8 concurrent saves produced 4 writes and 4 of
-						// these, so the loser of that race reads this after asking for a
-						// real change. The product cannot tell the two apart — nothing
-						// records what the placement was when the form was rendered — so
-						// the second line points at the card rather than guessing.
-						<p>That is already where they work, so there was nothing to save.</p>
-						<p class="mt-1">If you had just changed it, check the placement above — a save you made a moment ago, or somebody else's, may already have applied it.</p>
-						// THE ADDRESS CHANGE'S FOUR REFUSALS (M10 EM-6). Each one says that
-						// nothing was changed, because in each one nothing was — no address
-						// written, no link stopped, no trail row except the refused attempt's.
-					case "bad-email":
-						<p>
-							Nothing was changed. Use a plain address such as name@example.com: no
-							spaces, no accented or non-Latin letters, no name in front of it, and at
-							most 254 characters. To remove the address, leave the box empty.
-						</p>
-					case "email-taken":
-						<p>
-							Nothing was changed. Somebody in this business already has that address —
-							and capitals make no difference, so changing them will not help.
-						</p>
-					case "same-email":
-						<p>That is already their address, so nothing was changed and no activation link was affected.</p>
-						// THE EXTERNAL-REF CHANGE'S FIVE REFUSALS (M11 API-1). Nothing was
-						// changed in any of them.
-					case "bad-external-ref":
-						<p>
-							Nothing was changed. An external ref uses letters, digits and . _ ~ -
-							only, starts with a letter or a digit, and has at most 64 characters.
-						</p>
-					case "external-ref-taken":
-						<p>
-							Nothing was changed. Somebody else in this business already has that
-							external ref. A person who has been deactivated does not count.
-						</p>
-					case "same-external-ref":
-						<p>That is already their external ref, so nothing was changed.</p>
-					case "external-ref-required":
-						<p>
-							Nothing was changed. This person has no home venue, so the external ref
-							is what identifies them. Give them a venue first, then unlink it.
-						</p>
-					case "external-ref-not-permitted":
-						<p>
-							Nothing was changed. Only the business owner can change an employee's
-							external ref.
-						</p>
-					case "not-permitted":
-						// NO "the attempt was recorded" HERE, deliberately: this word arrives in a
-						// query string anybody can type, and a sentence about a record would be
-						// a claim the URL cannot back (the M6-04 banner lesson). The rule is true
-						// whatever produced the URL.
-						<p>
-							Nothing was changed. Only the business owner can change an employee's
-							address.
-						</p>
-					default:
-						// "not-invitable". It is the DEFAULT rather than a case because it was
-						// the section's original single problem word; the M6-13 words above are
-						// explicit so that adding one can never silently inherit this sentence,
-						// which is exactly what happened the first time they were added.
-						<p>
-							An activation link can only be used by somebody who has not been
-							deactivated, so none was created.
-						</p>
+			if v.Problem != "" {
+				@components.PanelNotice(components.ToneWarn, problemRosterHeading(v.Problem)) {
+					switch v.Problem {
+						case "unreadable":
+							<p>We could not read that submission, so nothing was changed.</p>
+						case "confirm-required":
+							// 🔴 THE TWO SENTENCES THIS GATE OWES THE MANAGER (§4.6). This one
+							// covers "never confirmed" and "confirmed too long ago" together,
+							// because from the server they are the same absence — the browser
+							// stops sending an expired cookie — and telling somebody which of
+							// the two it was would be a claim nothing measured.
+							<p>Nothing was changed. Deactivating somebody needs the warning screen first, and this one either was not used or was left open too long.</p>
+							<p class="mt-1">Open the person again and read the warning; the button appears under it.</p>
+						case "confirm-stale":
+							<p>Nothing was changed. This browser is in the middle of confirming a different person, so the button you pressed no longer matches.</p>
+							<p class="mt-1">Open the person you meant again and confirm from there — one confirmation at a time.</p>
+						case "actions-unavailable":
+							// 🔴 A DIFFERENT SENTENCE FROM "unreadable", BECAUSE A DIFFERENT
+							// THING FAILED. That one is about a REQUEST nobody could parse and
+							// says "nothing was looked up"; this one is OUR read failing after
+							// the roster answered. Sharing the word made the screen tell a
+							// manager their submission was malformed when in fact our database
+							// was.
+							<p>We could not load this person's details, so no actions are shown. The list below is current.</p>
+						case "unknown":
+							<p>That person is not on this business's roster. Nothing was changed.</p>
+						case "already-deactivated":
+							<p>They were already deactivated, so nothing was written and nothing was recorded twice.</p>
+						case "unknown-placement":
+							// 🔴 TWO CAUSES, ONE SENTENCE, AND BOTH ARE NAMED. The statement
+							// refuses a venue or department that is not this business's AND a
+							// department that belongs to a DIFFERENT venue — the second was
+							// silently accepted until a security audit measured it, and the
+							// dropdown still offers every department in the business (grouped by
+							// venue, so the pairing is readable). Telling the manager only
+							// "not this business's" would send them looking for a permissions
+							// problem they do not have.
+							<p>
+								Nothing was changed. Either that venue or department is not this
+								business's, or the department belongs to a different venue — a person's
+								department has to be one of the venue they work at.
+							</p>
+						case "no-change":
+							// ⚠️ THE SENTENCE IS TRUE ABOUT THE STATE AND SILENT ABOUT THE
+							// CAUSE, deliberately. Two managers saving the same placement at
+							// once was measured: 8 concurrent saves produced 4 writes and 4 of
+							// these, so the loser of that race reads this after asking for a
+							// real change. The product cannot tell the two apart — nothing
+							// records what the placement was when the form was rendered — so
+							// the second line points at the card rather than guessing.
+							<p>That is already where they work, so there was nothing to save.</p>
+							<p class="mt-1">If you had just changed it, check the placement above — a save you made a moment ago, or somebody else's, may already have applied it.</p>
+							// THE ADDRESS CHANGE'S FOUR REFUSALS (M10 EM-6). Each one says that
+							// nothing was changed, because in each one nothing was — no address
+							// written, no link stopped, no trail row except the refused attempt's.
+						case "bad-email":
+							<p>
+								Nothing was changed. Use a plain address such as name@example.com: no
+								spaces, no accented or non-Latin letters, no name in front of it, and at
+								most 254 characters. To remove the address, leave the box empty.
+							</p>
+						case "email-taken":
+							<p>
+								Nothing was changed. Somebody in this business already has that address —
+								and capitals make no difference, so changing them will not help.
+							</p>
+						case "same-email":
+							<p>That is already their address, so nothing was changed and no activation link was affected.</p>
+							// THE EXTERNAL-REF CHANGE'S FIVE REFUSALS (M11 API-1). Nothing was
+							// changed in any of them.
+						case "bad-external-ref":
+							<p>
+								Nothing was changed. An external ref uses letters, digits and . _ ~ -
+								only, starts with a letter or a digit, and has at most 64 characters.
+							</p>
+						case "external-ref-taken":
+							<p>
+								Nothing was changed. Somebody else in this business already has that
+								external ref. A person who has been deactivated does not count.
+							</p>
+						case "same-external-ref":
+							<p>That is already their external ref, so nothing was changed.</p>
+						case "external-ref-required":
+							<p>
+								Nothing was changed. This person has no home venue, so the external ref
+								is what identifies them. Give them a venue first, then unlink it.
+							</p>
+						case "external-ref-not-permitted":
+							<p>
+								Nothing was changed. Only the business owner can change an employee's
+								external ref.
+							</p>
+						case "not-permitted":
+							// NO "the attempt was recorded" HERE, deliberately: this word arrives in a
+							// query string anybody can type, and a sentence about a record would be
+							// a claim the URL cannot back (the M6-04 banner lesson). The rule is true
+							// whatever produced the URL.
+							<p>
+								Nothing was changed. Only the business owner can change an employee's
+								address.
+							</p>
+						default:
+							// "not-invitable". It is the DEFAULT rather than a case because it was
+							// the section's original single problem word; the M6-13 words above are
+							// explicit so that adding one can never silently inherit this sentence,
+							// which is exactly what happened the first time they were added.
+							<p>
+								An activation link can only be used by somebody who has not been
+								deactivated, so none was created.
+							</p>
+					}
 				}
 			}
-		}
-		// MONO, BECAUSE THIS IS DATA rather than a heading — the same rule and the
-		// same line the transactions section carries. It names the zone the dates
-		// inside the dockets are printed in.
-		<p class="font-mono text-sm text-ink/85">
-			Dates shown in <span class="text-ink">{ v.ZoneLabel }</span>
-		</p>
-		// 🔴 THE WAY IN IS ABOVE THE LIST, NOT BURIED UNDER IT (M6-13). The question
-		// that reached live production was "how do I add an employee", asked by
-		// somebody looking straight at this page, so the answer is the first control
-		// after the section's own heading rather than something to scroll for. It is
-		// a LINK when closed, so the ordinary visit costs one anchor.
-		@components.RosterAdd(v.Add)
-		if v.Actions != nil {
-			@components.RosterActions(*v.Actions)
-		}
-		@components.RosterFilterBar(v.Filters)
-		if len(v.People) > 0 {
-			<div class="flex flex-col gap-4">
-				for _, p := range v.People {
-					@components.RosterRow(p)
+			// THE WAY IN SITS IN THE HEADING (M6-13, redrawn by M12-30): "Add somebody" is the
+			// first control after the title, a link while closed. What is left here is the
+			// form once opened, and the sentence a business with no venue gets instead.
+			if !v.Add.Possible || v.Add.Open {
+				@components.RosterAdd(v.Add)
+			}
+			// THE PANES. With a card open: beside the list from a desk, above it on a
+			// tablet, and alone on a phone (the card carries the way back). One markup at
+			// every width; the sequence and the tracks are the only things that change.
+			<div class={ peoplePanesClass(v.Actions != nil) }>
+				<div class={ peopleFilterClass(v.Actions != nil) }>
+					@components.RosterFilterBar(v.Filters)
+				</div>
+				if len(v.People) > 0 {
+					<section aria-label="Roster" class={ peopleListClass(v.Actions != nil) }>
+						<ul class="flex flex-col pt-2">
+							for _, p := range v.People {
+								@components.RosterRow(p)
+							}
+						</ul>
+						<div class="flex flex-wrap items-center justify-between gap-2 border-t border-dashed border-line px-5 py-2 font-mono text-xs text-ink/70">
+							// MONO, BECAUSE THIS IS DATA: the zone the last taps are printed in.
+							<p>Dates shown in <span class="text-ink">{ v.ZoneLabel }</span></p>
+							if v.MoreHref != "" {
+								// AN ORDINARY LINK. With no script on this page there is nothing
+								// to intercept it, so it navigates — which is also why it says
+								// "Next" rather than "Show more": nothing is appended, the list
+								// is replaced, and a control naming the wrong behaviour is a
+								// control that lies about what pressing it does.
+								//
+								// THERE IS NO "PREVIOUS", and that is a stated limit rather than
+								// an oversight: a keyset cursor walks one way, and the honest
+								// backward control is the browser's own Back — every page here
+								// is a plain GET with its position in the URL.
+								<a class="btn btn--line" href={ templ.URL(v.MoreHref) }>Next page</a>
+							}
+						</div>
+					</section>
+				} else if v.Queried {
+					<div class={ peopleEmptyClass(v.Actions != nil) }>
+						@components.PanelEmpty(SectionLabel(TabEmployees), emptyRosterHeading(v), components.PanelEmptyCTA{}) {
+							if v.Paged {
+								// 🔴 THE POSITION, NOT THE BUSINESS. This branch exists because
+								// without it a cursor past the last name printed "No people have
+								// been added to this business yet" over a business with staff —
+								// measured, from nothing more exotic than a stale bookmark. A
+								// page that has run off the end knows only where it is.
+								<p>You have reached the end of the list.</p>
+								<p class="mt-2">
+									<a class="btn btn--quiet" href={ templ.URL(v.StartHref) }>Back to the start</a>
+								</p>
+							} else if v.Filters.Narrowed {
+								<p>Nobody on this list matches those filters. Widen them, or clear them to see everybody.</p>
+							} else {
+								// 🔴 THIS SENTENCE IS ABOUT THE RECORDS, NOT ABOUT THE BUSINESS.
+								// "Nobody works here" would be a claim about the world; what the
+								// product actually measured is that this business has no employee
+								// rows yet — which is the ordinary state of a tenant on its first
+								// day, before anybody has been invited.
+								<p>No people have been added to this business yet.</p>
+							}
+						}
+					</div>
 				}
-				if v.MoreHref != "" {
-					// AN ORDINARY LINK. With no script on this page there is nothing
-					// to intercept it, so it navigates — which is also why it says
-					// "Next" rather than "Show more": nothing is appended, the list
-					// is replaced, and a control naming the wrong behaviour is a
-					// control that lies about what pressing it does.
-					//
-					// THERE IS NO "PREVIOUS", and that is a stated limit rather than
-					// an oversight: a keyset cursor walks one way, and the honest
-					// backward control is the browser's own Back — every page here
-					// is a plain GET with its position in the URL.
-					<a class="btn btn--quiet self-start" href={ templ.URL(v.MoreHref) }>Next page</a>
+				if v.Actions != nil {
+					<div class="min-w-0 order-first desk:order-none desk:col-start-2 desk:row-start-2">
+						@components.RosterActions(*v.Actions)
+					</div>
 				}
 			</div>
-		} else if v.Queried {
-			@components.PanelEmpty(SectionLabel(TabEmployees), emptyRosterHeading(v), components.PanelEmptyCTA{}) {
-				if v.Paged {
-					// 🔴 THE POSITION, NOT THE BUSINESS. This branch exists because
-					// without it a cursor past the last name printed "No people have
-					// been added to this business yet" over a business with staff —
-					// measured, from nothing more exotic than a stale bookmark. A
-					// page that has run off the end knows only where it is.
-					<p>You have reached the end of the list.</p>
-					<p class="mt-2">
-						<a class="btn btn--quiet" href={ templ.URL(v.StartHref) }>Back to the start</a>
-					</p>
-				} else if v.Filters.Narrowed {
-					<p>Nobody on this list matches those filters. Widen them, or clear them to see everybody.</p>
-				} else {
-					// 🔴 THIS SENTENCE IS ABOUT THE RECORDS, NOT ABOUT THE BUSINESS.
-					// "Nobody works here" would be a claim about the world; what the
-					// product actually measured is that this business has no employee
-					// rows yet — which is the ordinary state of a tenant on its first
-					// day, before anybody has been invited.
-					<p>No people have been added to this business yet.</p>
-				}
-			}
 		}
 	}
+}
+
+// peopleActions is the heading's control: "Add somebody", while the form is closed and
+// the business has a venue to add somebody to. Otherwise the body says what it can.
+func peopleActions(v EmployeesView) templ.Component {
+	if !v.Add.Possible || v.Add.Open {
+		return nil
+	}
+	return components.RosterAdd(v.Add)
+}
+
+// The panes' four boxes. Their classes are chosen here, written out whole, so the scan
+// finds every one: with a card the panes are two columns from a desk, and on a phone
+// the filter and the list give the screen to the card.
+func peoplePanesClass(card bool) string {
+	if card {
+		return "grid grid-cols-1 gap-5 desk:grid-cols-[minmax(0,1fr)_340px] desk:items-start desk:gap-6"
+	}
+	return "flex flex-col gap-5"
+}
+
+func peopleFilterClass(card bool) string {
+	if card {
+		return "hidden min-w-0 md:block desk:col-span-2"
+	}
+	return "min-w-0"
+}
+
+func peopleListClass(card bool) string {
+	if card {
+		return "hidden min-w-0 flex-col overflow-hidden rounded-[18px] border border-line bg-paper md:flex"
+	}
+	return "flex min-w-0 flex-col overflow-hidden rounded-[18px] border border-line bg-paper"
+}
+
+func peopleEmptyClass(card bool) string {
+	if card {
+		return "hidden min-w-0 md:block"
+	}
+	return "min-w-0"
 }
 
 // emptyRosterHeading names WHICH claim the empty state is making. The three are

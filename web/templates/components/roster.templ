@@ -1,373 +1,478 @@
 package components
 
-// RosterRow renders one person as the kitchen docket (M6-05 phase A).
+import "strconv"
+
+// RosterRow renders one person as one row of the People list (panel redesign "The
+// Pass", M12-30): the initials square, the name, the job title and venue, the
+// lifecycle pill, the last tap and the signed-in count -- the whole row one link to
+// the person's card.
 //
-// 🔴 IT IS A DOCKET AND NOT A TABLE ROW, which is the last line of skill
-// tappa-brand's "Yapma" list. A roster is the screen where a plain grid of rows is
-// most tempting — it is a list of people with four attributes each — and that is
-// exactly why the motif is written out here: it is what the product is recognised
-// by, and the first screen to drop it is the one that argues it does not need it.
+// 🔴 A ROW, NOT A DOCKET, AND THAT IS THE USER'S DESIGN (2026-10-20, D2). This
+// component used to draw every person as a kitchen docket and argued, with the brand
+// skill's "Yapma" list, that a roster must not become rows. The approved design
+// answers it: a list of people is not a list of RECORDS. The docket stays where a
+// record is drawn -- the transactions, and the card's strip of recent records below.
 //
-// ⚠️ THE WORD ON THAT LIST IS SPELT IN CAPITALS ABOVE FOR A MECHANICAL REASON. The
-// Tailwind CLI scans this file as raw text and its candidate extractor is
-// case-sensitive, so the lower-case spelling of that display utility compiles a
-// live CSS rule out of a sentence. Measured in this task: one lower-case occurrence
-// in this comment added a dead rule to app.css, which is the exact trap skill
-// tappa-brand documents and the fifth time it has fired in this repository.
+// 🔴 THE LIFECYCLE MARK IS A PILL, NOT A STAMP. The rubber stamp is reserved for a
+// verdict, the engine's judgement of a tap. Being invited, employed or deactivated is
+// a fact about somebody's employment, so it is the database's word in a soft
+// frame, ink on a tint, and never a stamp on a human being.
 //
-//	┌─◠─◠─◠─◠─◠─◠─◠─◠─◠─┐
-//	│ MARIA BORG         │      ┌──────────┐
-//	│ KF ST JULIANS      │      │ ACTIVE   │
-//	│ Kitchen            │      └──────────┘
-//	│ SINCE    DEVICES   │
-//	│ 3 Aug    1 · 14:03 │
-//	└─◡─◡─◡─◡─◡─◡─◡─◡─◡─┘
-//
-// 🔴 THE LIFECYCLE MARK IS A TALLY, NOT A STAMP, AND THE DIFFERENCE IS THE BRAND'S
-// OWN. skill tappa-brand reserves the rubber stamp for a VERDICT — the engine's
-// judgement of a tap, set at an angle, double framed. Being invited, employed or
-// deactivated is not a judgement of anything; it is a fact about where somebody is
-// in their employment, which is what input.css's .tally exists for ("a small fact
-// ABOUT a record"). Giving a person a rubber stamp would also put the product in
-// the position of stamping REJECTED-shaped marks on human beings.
-//
-// ⚠️ THE UTILITY CLASSES ARE DESCRIBED RATHER THAN NAMED in the prose above, on
-// purpose: Tailwind scans this file as raw text, so a utility name written in a
-// COMMENT compiles a rule nothing renders.
+// THE ROW IS ONE LINK and its accessible name is the person's name and what the row
+// says about them; the square is drawing and is kept from a screen reader. Following
+// it opens the card on the same screen (?manage=), which changes nothing.
 templ RosterRow(p RosterRowView) {
-	<article class="docket">
-		<div class="flex items-start justify-between gap-3">
-			<div class="min-w-0">
-				<p class="docket-label">Who</p>
-				<p class="truncate font-display text-base font-bold tracking-tight text-ink">{ p.Name }</p>
-				<p class="mt-2 docket-label">Where</p>
-				<p class="truncate font-display text-sm font-bold tracking-tight text-ink">
-					if p.Venue != "" {
-						{ p.Venue }
-					} else if p.NoHome {
-						// K-14: the integration manages this person and placed them by
-						// no venue. A state, said in words.
-						No home venue
-					} else {
-						// A person with a home venue whose name did not come back is a
-						// repair problem. Saying so beats an empty line, which a reader
-						// would take for "none".
-						Venue could not be read
+	<li>
+		<a
+			class="roster-row"
+			href={ templ.URL(p.ManageHref) }
+			if p.Selected {
+				aria-current="true"
+			}
+		>
+			<span aria-hidden="true" class="roster-initials">{ p.Initials }</span>
+			<span class="flex min-w-0 flex-1 flex-col gap-0.5">
+				<strong class="truncate font-display text-[15px] font-bold tracking-tight">{ p.Name }</strong>
+				<span class="truncate font-mono text-xs text-ink/70">
+					<span class="md:hidden">{ rosterMetaNarrow(p) }</span>
+					<span class="hidden md:inline">{ rosterMetaWide(p) }</span>
+				</span>
+			</span>
+			@lifecyclePill(p.Status)
+			if p.LastTap != "" {
+				<span class="hidden w-[104px] flex-none text-right font-mono text-xs leading-snug md:block">
+					<span class="sr-only">Last tap </span>
+					{ p.LastTap }
+					if p.LastTapNote != "" {
+						<span class="block text-ink/70">{ p.LastTapNote }</span>
 					}
-				</p>
-				if p.Department != "" {
-					<p class="truncate text-xs text-ink/70">{ p.Department }</p>
-				}
-			</div>
-			<div class="shrink-0 text-right">
-				@lifecycleTally(p.Status)
-			</div>
-		</div>
-		<dl class="mt-3 grid grid-cols-2 gap-x-4 gap-y-1">
-			<div>
-				<dt class="docket-label">Since</dt>
-				<dd class="text-ink">
-					if p.Since != "" {
-						{ p.Since }
-					} else {
-						not recorded
-					}
-				</dd>
-			</div>
-			<div>
-				<dt class="docket-label">Devices</dt>
-				<dd class="text-ink">{ p.Devices }</dd>
-			</div>
-		</dl>
-		if p.ManageHref != "" {
-			// A LINK, NOT A CONTROL THAT ACTS. It opens this person's card on the
-			// same screen; everything that changes anything is a POST from there.
-			// The word is deliberately not one of the four verbs: a row does not
-			// invite, deactivate or move anybody, it opens the place where a manager
-			// can.
-			<p class="mt-3">
-				<a class="btn btn--quiet" href={ templ.URL(p.ManageHref) }>Manage</a>
-			</p>
-		}
-	</article>
+				</span>
+			}
+			<span class="hidden w-[72px] flex-none text-right font-mono text-xs leading-snug text-ink/70 md:block">{ p.Devices }</span>
+			<span aria-hidden="true" class="roster-chevron"></span>
+		</a>
+	</li>
 }
 
-// RosterActions is the action card for one person (M6-05 phase B): the four things
-// a manager can do, on one screen, with no script.
+// rosterVenueWords is where somebody works, in words: the venue, "No home venue" for a
+// person the integration manages with none (K-14), or a sentence when a home venue's
+// name did not come back -- a blank would read as "none".
+func rosterVenueWords(venue string, noHome bool) string {
+	switch {
+	case venue != "":
+		return venue
+	case noHome:
+		return "No home venue"
+	default:
+		return "Venue could not be read"
+	}
+}
+
+// joinDots joins the parts that are set with the list's dot, so an empty job title
+// leaves no separator behind.
+func joinDots(parts ...string) string {
+	out := ""
+	for _, p := range parts {
+		if p == "" {
+			continue
+		}
+		if out != "" {
+			out += " · "
+		}
+		out += p
+	}
+	return out
+}
+
+// rosterMetaWide is the row's second line from the tablet up: job title, venue,
+// department. The last tap has its own column there.
+func rosterMetaWide(p RosterRowView) string {
+	return joinDots(p.Role, rosterVenueWords(p.Venue, p.NoHome), p.Department)
+}
+
+// rosterMetaNarrow is the same line on a phone, where the row has no room for the
+// columns: job title and the last tap, the board's choice.
+func rosterMetaNarrow(p RosterRowView) string {
+	last := p.LastTap
+	if p.LastTapNote != "" {
+		last += " " + p.LastTapNote
+	}
+	if p.Role == "" && last == "" {
+		return rosterVenueWords(p.Venue, p.NoHome)
+	}
+	return joinDots(p.Role, last)
+}
+
+// RosterActions is the card for one person (M6-05 phase B, redrawn by M12-30): what
+// the product knows about them and everything a manager can do, on one screen, with
+// no script. On a desk it stands beside the list, on a tablet above it, and on a phone
+// it is the screen, with a way back.
 //
-// 🔴 EACH ACTION IS ITS OWN FORM, exactly as the review queue's decisions are, and
-// for the same reason: a press is one complete instruction with nothing to select
-// first, so a keyboard user is one tab away from submitting and a stray Enter cannot
-// pick a default action.
+// 🔴 EACH ACTION IS ITS OWN FORM, exactly as the review queue's decisions are: a
+// press is one complete instruction with nothing to select first, so a stray Enter
+// cannot pick a default action.
 //
 // 🔴 EVERY FORM CARRIES THE ROSTER POSITION BACK, as hidden fields the server
-// re-validates with the SAME parser the address bar goes through. Without it, acting
-// on the fortieth person returns the manager to page one of an unfiltered list —
-// which is not a lie, but it is a screen that loses your place every time you use it.
+// re-validates with the SAME parser the address bar goes through.
 //
-// 🔴 THE DESTRUCTIVE ACTION HAS TWO STEPS AND THE FIRST ONE IS A SENTENCE. Nothing
-// in this product can bring a deactivated person back (docs/adr/0010), so the screen
-// says that BEFORE the button appears rather than after it has been pressed. The
-// step is a plain link because this section loads no script.
+// 🔴 THE DESTRUCTIVE ACTION HAS TWO STEPS AND THE FIRST ONE IS A SENTENCE. Nothing in
+// this product can bring a deactivated person back (docs/adr/0010), so the screen says
+// that BEFORE the button appears. The step is a plain link because this section loads
+// no script, and the server enforces it: the form carries a one-shot value bound to
+// this person (user decision, 2026-08-08;
+// TestEmployeeDeactivate_TheConfirmationStepIsENFORCED).
 //
-// ✅ AND IT IS ENFORCED (user decision, 2026-08-08). This screen mints a one-shot
-// value bound to this person; the form below carries it and the server refuses a
-// deactivation without it, so the write cannot be reached with the sentence unread.
-// It was NOT enforced for one round and this comment claimed it was — a security
-// audit posted straight at the route and deactivated somebody. Both the gate and the
-// sentence are asserted now:
-// TestEmployeeDeactivate_TheConfirmationStepIsENFORCED.
+// 🔴 §4.7 -- NOTHING ON THIS CARD IS A CREDENTIAL. The activation link is never
+// stored, so the card says when one was created and until when it works, never what
+// it is; the signed-in line is a count and two dates, never a device's label.
 templ RosterActions(v RosterActionsView) {
-	<section class="docket" aria-label={ "Actions for " + v.Name }>
-		<div class="flex items-start justify-between gap-3">
-			<div class="min-w-0">
-				<p class="docket-label">Managing</p>
-				<p class="truncate font-display text-base font-bold tracking-tight text-ink">{ v.Name }</p>
-				<p class="mt-1 truncate text-xs text-ink/70">
-					if v.Venue != "" {
-						{ v.Venue }
-					} else if v.NoHome {
-						No home venue
-					} else {
-						Venue could not be read
-					}
-					if v.Department != "" {
-						{ " · " + v.Department }
-					}
-				</p>
-			</div>
-			<div class="shrink-0 text-right">
-				@lifecycleTally(v.Status)
+	<section class="flex flex-col gap-5 rounded-[18px] border border-line bg-paper p-5 md:p-6" aria-label={ "Actions for " + v.Name }>
+		// THE PHONE'S WAY BACK. On a phone the card is the whole screen (the list is
+		// not drawn beside it), so it carries the link to the list it came from.
+		<a class="btn btn--line self-start md:hidden" href={ templ.URL(v.CloseHref) }>Back to People</a>
+		<div class="flex items-center gap-3.5">
+			<span aria-hidden="true" class="inline-flex size-14 flex-none items-center justify-center rounded-[14px] border border-ink bg-paper font-mono text-lg font-bold">{ v.Initials }</span>
+			<div class="flex min-w-0 flex-col gap-1">
+				<p class="lbl">Managing</p>
+				<h2 class="break-words font-display text-[26px] font-bold leading-tight tracking-tight text-ink">{ v.Name }</h2>
+				<p class="font-mono text-xs text-ink/70">{ joinDots(v.Role, rosterVenueWords(v.Venue, v.NoHome), v.Department) }</p>
 			</div>
 		</div>
-		<div class="mt-4 flex flex-col gap-4 border-t border-line pt-4">
-			<div class="flex flex-wrap items-center gap-3">
-				if v.CanInvite && v.InviteByEmail {
-					// THE E-MAIL MODE (M10 EM-7B). The button is offered only where the
-					// server would act on it: with an address on file. Without one the card
-					// says so, and an OWNER is offered the one fallback ADR 0022 §7 keeps —
-					// the link on screen, recorded as shown to them.
-					if v.Email != "" {
-						<form method="post" action={ templ.URL(v.InviteAction) }>
-							@hiddenFields(v.Hidden)
-							<button type="submit" class="btn btn--primary">{ v.InviteLabel }</button>
-						</form>
-						<p class="text-xs text-ink/70">
-							The link goes by email to the address on file below. It is never shown on screen.
-						</p>
-					} else {
-						<p class="text-xs text-ink/85">
-							No address on file, so no link can be emailed. The owner can add one below.
-						</p>
-						if v.CanShowLink {
-							<form method="post" action={ templ.URL(v.InviteAction) }>
-								@hiddenFields(v.Hidden)
-								<input type="hidden" name={ v.ShowLinkField } value={ v.ShowLinkValue }/>
-								<button type="submit" class="btn btn--quiet">Show the link on screen</button>
-							</form>
-							<p class="text-xs text-ink/70">
-								Owner only, for somebody with no email. It is shown once, on the next screen, and
-								the trail records that you saw it.
-							</p>
-						}
-					}
-				} else if v.CanInvite {
-					<form method="post" action={ templ.URL(v.InviteAction) }>
-						@hiddenFields(v.Hidden)
-						<button type="submit" class="btn btn--primary">{ v.InviteLabel }</button>
-					</form>
+		<div class="flex flex-wrap items-center gap-2.5">
+			@lifecyclePill(v.Status)
+			if v.SinceLine != "" {
+				<span class="font-mono text-xs text-ink/70">{ v.SinceLine }</span>
+			}
+		</div>
+		if v.SummaryFailed {
+			// §4.6: the summary was asked and did not answer, so the card says it does
+			// not know rather than reading as "never signed in".
+			<p class="text-sm text-ink/70">Their dates and signed-in browsers could not be read just now.</p>
+		}
+		if v.Status == "invited" {
+			// THE ACTIVATION BOX. Activation finishes on the first tap at one of the
+			// employer's OWN plaques (ADR 0026, K-35), after the link is opened -- the
+			// sentence says "your plaques" and nothing wider.
+			<div class="flex flex-col gap-3 rounded-xl border border-dashed border-saffron bg-saffron/10 p-3.5">
+				<p class="lbl text-ink">Activation</p>
+				<p class="text-sm leading-normal text-ink">
+					Not activated yet. It finishes on their first tap at one of your plaques, after
+					they open their activation link.
+				</p>
+				if v.LinkLine != "" {
+					<p class="font-mono text-xs text-ink">{ v.LinkLine }</p>
+				}
+				@inviteControls(v)
+			</div>
+		}
+		@recentStrip(v)
+		if v.SignedInLine != "" {
+			<div class="flex flex-col gap-1.5 border-t border-dashed border-line pt-4">
+				<p class="lbl">Signed in</p>
+				<p class="text-sm text-ink">{ v.SignedInLine }</p>
+				if v.Status == "deactivated" && v.LiveDevices > 0 {
+					// 🔴 DEACTIVATING DOES NOT SIGN A BROWSER OUT (user decision,
+					// 2026-08-07), so the count above is real and this says what it means.
 					<p class="text-xs text-ink/70">
-						The link is shown once, on the next screen. Taptime keeps no copy of it.
-					</p>
-				} else {
-					// 🔴 IT SAYS WHY RATHER THAN SHOWING NOTHING. A missing button
-					// reads as a bug; this is a rule the database enforces
-					// (db/queries/invites.sql refuses to spend an invitation for a
-					// deactivated person), so the screen states it.
-					//
-					// ⚠️ BOTH THE ABSENCE AND THE SENTENCE ARE ASSERTED, and they were
-					// not until an audit hard-wired the two conditions to true and
-					// found the package still green:
-					// TestEmployeesSection_OffersNoActionTheServerWouldRefuse.
-					<p class="text-xs text-ink/85">
-						No invitation can be sent to somebody who has been deactivated.
+						Any phone they signed in on stays signed in; it simply cannot record time any more.
 					</p>
 				}
 			</div>
-			// 🔴 THE ADDRESS ON FILE (M10 EM-6). It sits beside the invitation because
-			// that is what it is for: once links are e-mailed, the address is where a
-			// link goes, so changing it retires every link not yet used (the domain
-			// does that in the same transaction as the write) and the help line says so
-			// BEFORE the save rather than after it.
-			//
-			// THE FORM IS AN OWNER'S, and the screen withholds it from anybody else
-			// with a sentence rather than a missing control — the server refuses a
-			// manager (and records the attempt), so offering the form would offer a
-			// refusal. The address itself is shown to every admin.
-			//
-			// MONO AND BREAKING ANYWHERE, because an address is data to be read
-			// character by character and a 254-byte one must not push the card wider
-			// than a phone.
-			<div class="flex flex-col gap-3 border-t border-line pt-4">
+		}
+		if v.Status != "invited" {
+			<div class="flex flex-col gap-2.5 border-t border-dashed border-line pt-4">
+				<p class="lbl">Invitation</p>
+				if v.LinkLine != "" {
+					<p class="font-mono text-xs text-ink">{ v.LinkLine }</p>
+				}
+				@inviteControls(v)
+			</div>
+		}
+		// 🔴 THE ADDRESS ON FILE (M10 EM-6). It sits beside the invitation because
+		// that is what it is for: once links are e-mailed, the address is where a
+		// link goes, so changing it retires every link not yet used (the domain
+		// does that in the same transaction as the write) and the help line says so
+		// BEFORE the save rather than after it.
+		//
+		// THE FORM IS AN OWNER'S, and the screen withholds it from anybody else
+		// with a sentence rather than a missing control — the server refuses a
+		// manager (and records the attempt), so offering the form would offer a
+		// refusal. The address itself is shown to every admin, in full.
+		//
+		// MONO AND BREAKING ANYWHERE, because an address is data to be read
+		// character by character and a 254-byte one must not push the card wider
+		// than a phone.
+		<div class="flex flex-col gap-3 border-t border-dashed border-line pt-4">
+			<div>
+				<p class="lbl">Email on file</p>
+				if v.Email != "" {
+					<p class="break-all font-mono text-sm text-ink">{ v.Email }</p>
+				} else {
+					<p class="text-sm text-ink">No address on file.</p>
+				}
+			</div>
+			if v.CanChangeEmail {
+				<form method="post" action={ templ.URL(v.EmailAction) } class="flex flex-wrap items-end gap-3">
+					@hiddenFields(v.Hidden)
+					<div class="filter-field">
+						<label class="docket-label" for="change-email">New address</label>
+						<input
+							class="filter-input font-mono"
+							id="change-email"
+							type="email"
+							name="email"
+							value={ v.Email }
+							maxlength="254"
+							autocomplete="off"
+							spellcheck="false"
+							aria-describedby="change-email-help"
+						/>
+						<p id="change-email-help" class="mt-1 text-xs text-ink/85">
+							Leave it empty to remove the address. Saving a different address stops
+							every activation link for { v.Name } that has not been used yet.
+						</p>
+					</div>
+					<div class="filter-actions">
+						<button type="submit" class="btn btn--primary">Save address</button>
+					</div>
+				</form>
+			} else {
+				<p class="text-xs text-ink/85">Only the business owner can change an address.</p>
+			}
+		</div>
+		// THE INTEGRATION IDENTITY (M11 API-1, K-18). The customer's HR/ERP system
+		// addresses this person by it once the API is on, so binding the people who
+		// already exist BEFORE the first sync keeps that sync from adding them a
+		// second time. OWNER-ONLY for the email's reason: whoever holds the ref
+		// receives the integrator's writes -- a rename, an address, a deactivation.
+		// Rendered only where the handler supplies the action, which the section
+		// always does.
+		if v.ExternalRefAction != "" {
+			<div class="flex flex-col gap-3 border-t border-dashed border-line pt-4">
 				<div>
-					<p class="docket-label">Email on file</p>
-					if v.Email != "" {
-						<p class="break-all font-mono text-sm text-ink">{ v.Email }</p>
+					<p class="lbl">External ref</p>
+					if v.ExternalRef != "" {
+						<p class="break-all font-mono text-sm text-ink">{ v.ExternalRef }</p>
 					} else {
-						<p class="text-sm text-ink">No address on file.</p>
+						<p class="text-sm text-ink">Not linked to an HR or ERP record.</p>
 					}
 				</div>
-				if v.CanChangeEmail {
-					<form method="post" action={ templ.URL(v.EmailAction) } class="flex flex-wrap items-end gap-3">
+				if v.CanChangeExternalRef {
+					<form method="post" action={ templ.URL(v.ExternalRefAction) } class="flex flex-wrap items-end gap-3">
 						@hiddenFields(v.Hidden)
 						<div class="filter-field">
-							<label class="docket-label" for="change-email">New address</label>
+							<label class="docket-label" for="change-external-ref">External ref</label>
 							<input
 								class="filter-input font-mono"
-								id="change-email"
-								type="email"
-								name="email"
-								value={ v.Email }
-								maxlength="254"
+								id="change-external-ref"
+								type="text"
+								name="external_ref"
+								value={ v.ExternalRef }
+								maxlength="64"
 								autocomplete="off"
 								spellcheck="false"
-								aria-describedby="change-email-help"
+								aria-describedby="change-external-ref-help"
 							/>
-							<p id="change-email-help" class="mt-1 text-xs text-ink/85">
-								Leave it empty to remove the address. Saving a different address stops
-								every activation link for { v.Name } that has not been used yet.
+							<p id="change-external-ref-help" class="mt-1 text-xs text-ink/85">
+								The identifier your HR or ERP system uses for { v.Name }: letters, digits
+								and . _ ~ - only, up to 64 characters. Leave it empty to unlink.
 							</p>
 						</div>
 						<div class="filter-actions">
-							<button type="submit" class="btn btn--primary">Save address</button>
+							<button type="submit" class="btn btn--primary">Save external ref</button>
 						</div>
 					</form>
 				} else {
-					<p class="text-xs text-ink/85">Only the business owner can change an address.</p>
+					<p class="text-xs text-ink/85">Only the business owner can change an external ref.</p>
 				}
 			</div>
-			// THE INTEGRATION IDENTITY (M11 API-1, K-18). The customer's HR/ERP system
-			// addresses this person by it once the API is on, so binding the people who
-			// already exist BEFORE the first sync keeps that sync from adding them a
-			// second time. OWNER-ONLY for the email's reason: whoever holds the ref
-			// receives the integrator's writes -- a rename, an address, a deactivation.
-			// MONO: an identifier, read character by character. Rendered only where the
-			// handler supplies the action, which the section always does -- so a view
-			// built without it (TestRosterActions_ThePanelModeCardIsTheCardBeforeEM7B's)
-			// is the card it was.
-			if v.ExternalRefAction != "" {
-				<div class="flex flex-col gap-3 border-t border-line pt-4">
-					<div>
-						<p class="docket-label">External ref</p>
-						if v.ExternalRef != "" {
-							<p class="break-all font-mono text-sm text-ink">{ v.ExternalRef }</p>
-						} else {
-							<p class="text-sm text-ink">Not linked to an HR or ERP record.</p>
-						}
-					</div>
-					if v.CanChangeExternalRef {
-						<form method="post" action={ templ.URL(v.ExternalRefAction) } class="flex flex-wrap items-end gap-3">
-							@hiddenFields(v.Hidden)
-							<div class="filter-field">
-								<label class="docket-label" for="change-external-ref">External ref</label>
-								<input
-									class="filter-input font-mono"
-									id="change-external-ref"
-									type="text"
-									name="external_ref"
-									value={ v.ExternalRef }
-									maxlength="64"
-									autocomplete="off"
-									spellcheck="false"
-									aria-describedby="change-external-ref-help"
-								/>
-								<p id="change-external-ref-help" class="mt-1 text-xs text-ink/85">
-									The identifier your HR or ERP system uses for { v.Name }: letters, digits
-									and . _ ~ - only, up to 64 characters. Leave it empty to unlink.
-								</p>
-							</div>
-							<div class="filter-actions">
-								<button type="submit" class="btn btn--primary">Save external ref</button>
-							</div>
-						</form>
-					} else {
-						<p class="text-xs text-ink/85">Only the business owner can change an external ref.</p>
-					}
-				</div>
-			}
-			<div class="flex flex-wrap items-center gap-3 border-t border-line pt-4">
-				// 🔴 A LINK TO A GET, NOT A CONTROL THAT WRITES (M6-08). Entering a record
-				// is a two-step flow with its own confirmation, so what belongs on this
-				// card is the way IN to it; putting the form here would mean a permanent
-				// attendance record one press away from a list of people. Following this
-				// link changes nothing, which is also why it is safe for a crawler.
-				//
-				// IT IS OFFERED FOR EVERYBODY, INCLUDING SOMEBODY DEACTIVATED, and that
-				// is the one action on this card that is. Their last shift is often typed
-				// after they leave, and the server does not refuse it — so a screen that
-				// hid the control would be hiding something the product supports. The
-				// entry screen says who it is recording for.
-				<a class="btn btn--quiet" href={ templ.URL(v.RecordHref) }>Enter a record by hand</a>
-				<p class="text-xs text-ink/70">
-					For somebody with no phone, or a shift nobody tapped out of.
-				</p>
+		}
+		<form
+			method="post"
+			action={ templ.URL(v.MoveAction) }
+			class="flex flex-wrap items-end gap-3 border-t border-dashed border-line pt-4"
+		>
+			@hiddenFields(v.Hidden)
+			// THE FIELDS ARE NAMED to_location AND to_department, not location and
+			// department: those two names belong to the FILTERS this form is also
+			// carrying back, and one name for two meanings would make saving a move
+			// silently narrow the list the manager returns to.
+			//
+			// 🔴 THE VENUE HAS NO EMPTY OPTION AND THE DEPARTMENT DOES. A move places
+			// somebody (MoveEmployee writes a venue, never NULL; a NULL home venue exists
+			// only for a row the integration manages, K-14), so "no venue" is not a
+			// destination, and offering it would offer a submission the server can only
+			// refuse. department_id IS nullable — a bar does not model departments — so
+			// "No department" is a real choice rather than the absence of one.
+			@placementSelect("move-location", "to_location", "Venue", "", v.LocationID, v.Locations)
+			@placementSelect("move-department", "to_department", "Department", "No department", v.DepartmentID, v.Departments)
+			<div class="filter-actions">
+				<button type="submit" class="btn btn--primary">Save placement</button>
+				<a class="btn btn--quiet" href={ templ.URL(v.CloseHref) }>Close</a>
 			</div>
-			<div class="flex flex-wrap items-center gap-3 border-t border-line pt-4">
-				if v.CanDeactivate {
-					if v.Confirming {
-						<p class="text-sm text-ink">
-							Deactivating { v.Name } stops their taps from being accepted. Taptime has no
-							way to undo it: bringing them back means adding them again as a new person,
-							and their old records stay where they are.
-						</p>
+		</form>
+		<div class="flex flex-col gap-2 border-t border-dashed border-line pt-4">
+			// 🔴 A LINK TO A GET, NOT A CONTROL THAT WRITES (M6-08). Entering a record
+			// is a two-step flow with its own confirmation, so what belongs on this
+			// card is the way IN to it. IT IS OFFERED FOR EVERYBODY, INCLUDING SOMEBODY
+			// DEACTIVATED: their last shift is often typed after they leave, and the
+			// server does not refuse it.
+			<a class="btn btn--line self-start" href={ templ.URL(v.RecordHref) }>Enter a record by hand</a>
+			<p class="text-xs text-ink/70">
+				For somebody with no phone, or a shift nobody tapped out of.
+			</p>
+		</div>
+		<div class="flex flex-col gap-2.5 border-t border-dashed border-line pt-4">
+			if v.CanDeactivate {
+				if v.Confirming {
+					<p class="text-sm text-ink">
+						Deactivating { v.Name } stops their taps from being accepted. Taptime has no
+						way to undo it: bringing them back means adding them again as a new person,
+						and their old records stay where they are.
+					</p>
+					<div class="flex flex-wrap items-center gap-3">
 						<form method="post" action={ templ.URL(v.DeactivateAction) }>
 							@hiddenFields(v.Hidden)
 							// THE ONE-SHOT CONFIRMATION. Its twin is an HttpOnly cookie bound
 							// to this person, so this field alone proves nothing and its
-							// absence refuses the write — which is what turns this screen
-							// into a gate (user decision, 2026-08-08).
+							// absence refuses the write (user decision, 2026-08-08).
 							<input type="hidden" name={ v.ConfirmField } value={ v.ConfirmToken }/>
-							<button type="submit" class="btn btn--quiet">Yes, deactivate</button>
+							<button type="submit" class="btn btn--danger">Yes, deactivate</button>
 						</form>
 						<a class="btn btn--quiet" href={ templ.URL(v.CloseHref) }>Cancel</a>
-					} else {
-						<a class="btn btn--quiet" href={ templ.URL(v.ConfirmHref) }>Deactivate</a>
-						<p class="text-xs text-ink/70">Asks first. It cannot be undone afterwards.</p>
-					}
+					</div>
 				} else {
-					<p class="text-xs text-ink/85">
-						Their taps are already being refused. Deactivating again would change nothing.
-					</p>
+					<a class="btn btn--danger self-start" href={ templ.URL(v.ConfirmHref) }>Deactivate</a>
+					<p class="text-xs text-ink/70">Asks first. It cannot be undone afterwards.</p>
 				}
-			</div>
-			<form
-				method="post"
-				action={ templ.URL(v.MoveAction) }
-				class="flex flex-wrap items-end gap-3 border-t border-line pt-4"
-			>
-				@hiddenFields(v.Hidden)
-				// THE FIELDS ARE NAMED to_location AND to_department, not location and
-				// department: those two names belong to the FILTERS this form is also
-				// carrying back, and one name for two meanings would make saving a move
-				// silently narrow the list the manager returns to.
-				//
-				// 🔴 THE VENUE HAS NO EMPTY OPTION AND THE DEPARTMENT DOES, WHICH IS THE
-				// PANEL SPEAKING. A move places somebody (MoveEmployee writes a venue,
-				// never NULL; a NULL home venue exists only for a row the integration
-				// manages, K-14, and moving that person gives them one), so "no venue" is
-				// not a destination, and offering it would offer a submission the server
-				// can only refuse.
-				// department_id IS nullable — a bar does not model departments — so "No
-				// department" is a real choice rather than the absence of one.
-				@placementSelect("move-location", "to_location", "Venue", "", v.LocationID, v.Locations)
-				@placementSelect("move-department", "to_department", "Department", "No department", v.DepartmentID, v.Departments)
-				<div class="filter-actions">
-					<button type="submit" class="btn btn--primary">Save placement</button>
-					<a class="btn btn--quiet" href={ templ.URL(v.CloseHref) }>Close</a>
-				</div>
-			</form>
+			} else {
+				// §5 row 4: a deactivated person's tap is refused AND recorded, so the
+				// sentence says both -- never "they can no longer tap".
+				<p class="text-sm text-ink">
+					if v.DeactivatedOn != "" {
+						{ "Deactivated on " + v.DeactivatedOn + "." }
+					}
+					Their taps are refused, and every refusal is still recorded.
+				</p>
+				<p class="text-xs text-ink/85">
+					Their taps are already being refused. Deactivating again would change nothing.
+				</p>
+			}
 		</div>
 	</section>
+}
+
+// inviteControls is the card's invitation: one button, or the sentence that says why
+// there is none. NEVER BOTH BUTTONS: in the e-mail mode the e-mail button is offered
+// only with an address on file, and the on-screen fallback only to an owner looking at
+// somebody with none (ADR 0022 §7) -- the predicates the POST checks again.
+templ inviteControls(v RosterActionsView) {
+	if v.CanInvite && v.InviteByEmail {
+		if v.Email != "" {
+			<form method="post" action={ templ.URL(v.InviteAction) }>
+				@hiddenFields(v.Hidden)
+				<button type="submit" class={ inviteButtonClass(v.Status) }>{ v.InviteLabel }</button>
+			</form>
+			<p class="text-xs text-ink/70">
+				The link goes by email to the address on file below. It is never shown on screen.
+			</p>
+		} else {
+			<p class="text-xs text-ink/85">
+				No address on file, so no link can be emailed. The owner can add one below.
+			</p>
+			if v.CanShowLink {
+				<form method="post" action={ templ.URL(v.InviteAction) }>
+					@hiddenFields(v.Hidden)
+					<input type="hidden" name={ v.ShowLinkField } value={ v.ShowLinkValue }/>
+					<button type="submit" class="btn btn--line">Show the link on screen</button>
+				</form>
+				<p class="text-xs text-ink/70">
+					Owner only, for somebody with no email. It is shown once, on the next screen, and
+					the trail records that you saw it.
+				</p>
+			}
+		}
+	} else if v.CanInvite {
+		<form method="post" action={ templ.URL(v.InviteAction) }>
+			@hiddenFields(v.Hidden)
+			<button type="submit" class={ inviteButtonClass(v.Status) }>{ v.InviteLabel }</button>
+		</form>
+		<p class="text-xs text-ink/70">
+			The link is shown once, on the next screen. Taptime keeps no copy of it.
+		</p>
+	} else {
+		// 🔴 IT SAYS WHY RATHER THAN SHOWING NOTHING. db/queries/invites.sql refuses to
+		// spend an invitation for a deactivated person, so the screen states the rule
+		// (TestEmployeesSection_OffersNoActionTheServerWouldRefuse holds both halves).
+		<p class="text-xs text-ink/85">
+			No invitation can be sent to somebody who has been deactivated.
+		</p>
+	}
+}
+
+// inviteButtonClass: the first link is the card's main act and is filled; a
+// re-invitation for somebody already active is the quieter, framed button.
+func inviteButtonClass(status string) string {
+	if status == "invited" {
+		return "btn btn--primary rounded-xl"
+	}
+	return "btn btn--line"
+}
+
+// recentStrip is the card's last records, newest first, as mini dockets (M12-19). A
+// record is drawn as a docket wherever it appears; the mini one keeps the perforated
+// edges and the sharp corners (D2). The verdict is a word in a frame of its tone, the
+// size of a tally -- not a stamp, not a dot of colour.
+//
+// §4.6: "No record yet" is printed only when the read answered; a failed read says so,
+// and a read nobody asked for draws nothing.
+templ recentStrip(v RosterActionsView) {
+	switch v.RecentState {
+		case "measured":
+			<div class="flex flex-col gap-2.5">
+				if len(v.Recent) == 0 {
+					<p class="lbl">Recent records</p>
+					<p class="text-sm text-ink/70">No record yet.</p>
+				} else {
+					<p class="lbl">{ lastRecordsLabel(len(v.Recent)) }</p>
+					<ol class="grid grid-cols-[repeat(auto-fill,minmax(84px,1fr))] gap-x-2 gap-y-3 pb-1.5 md:grid-cols-7 desk:grid-cols-[repeat(auto-fill,minmax(84px,1fr))]">
+						for _, t := range v.Recent {
+							<li class="docket flex flex-col gap-1 px-2 pb-2.5 pt-2 text-[13px]">
+								<span class="text-[10px] text-ink/70">{ t.Day }</span>
+								<span><span class="font-bold">{ t.Direction }</span> { t.Time }</span>
+								<span class={ miniVerdictClass(t.Verdict) }>{ t.Word }</span>
+							</li>
+						}
+					</ol>
+				}
+			</div>
+		case "failed":
+			<p class="text-sm text-ink/70">Their recent records could not be read just now.</p>
+	}
+}
+
+// lastRecordsLabel names the strip by what it holds: up to the read's seven, newest first.
+func lastRecordsLabel(n int) string {
+	if n == 1 {
+		return "Last record"
+	}
+	return "Last " + strconv.Itoa(n) + " records, newest first"
+}
+
+// miniVerdictClass frames the verdict word in its tone: the word is ink, the colour is
+// the frame (the stamp's rule, 2026-08-01). The four lines are written whole so the
+// scan finds every name.
+func miniVerdictClass(verdict string) string {
+	switch verdict {
+	case "ok":
+		return "self-start border border-tappa-green px-1 text-[10px] font-bold uppercase tracking-[0.12em] text-ink"
+	case "flag":
+		return "self-start border border-saffron px-1 text-[10px] font-bold uppercase tracking-[0.12em] text-ink"
+	case "reject":
+		return "self-start border border-tomato px-1 text-[10px] font-bold uppercase tracking-[0.12em] text-ink"
+	default:
+		return "self-start border border-line px-1 text-[10px] font-bold uppercase tracking-[0.12em] text-ink"
+	}
 }
 
 // hiddenFields writes the roster position back into a form.
@@ -381,73 +486,111 @@ templ hiddenFields(fields []FormField) {
 	}
 }
 
-// lifecycleTally renders the chip for one lifecycle state.
+// lifecyclePill renders the pill for one lifecycle state.
 //
 // THE WORD IS ALWAYS THERE, which is the accessibility half of the brand rule:
-// status is never told by colour alone, so a chip that lost its tint still says
-// DEACTIVATED. An unrecognised status renders NOTHING rather than a bare frame — a
-// frame with no word says only "something is true of this person" — and the three
-// words below are migration 00003's CHECK vocabulary, a closed set, so that branch
-// is unreachable from the database.
+// status is never told by colour alone, so a pill that lost its tint still says
+// DEACTIVATED. An unrecognised status renders NOTHING rather than a bare frame, and
+// the three words below are migration 00003's CHECK vocabulary, a closed set, so that
+// branch is unreachable from the database.
 //
-// THE THREE WORDS ARE THE DATABASE'S OWN, not friendlier synonyms. "No longer here"
-// reads better and claims more than the column knows: deactivating somebody is an
-// administrative act that a manager may reverse, not a statement that they left the
-// company. One vocabulary across the chip, the filter and the schema also means a
-// manager who filters on "Deactivated" gets exactly the rows marked DEACTIVATED.
-templ lifecycleTally(status string) {
+// THE THREE WORDS ARE THE DATABASE'S OWN, not friendlier synonyms ("Stopped", "No
+// longer here"): deactivating somebody is an administrative act, not a statement that
+// they left. One vocabulary across the pill, the chips and the schema also means a
+// manager who picks "Deactivated" gets exactly the rows marked DEACTIVATED.
+templ lifecyclePill(status string) {
 	switch status {
 		case "invited":
-			<span class="tally tally--invited">INVITED</span>
+			<span class="pill pill--invited flex-none">INVITED</span>
 		case "active":
-			<span class="tally tally--active">ACTIVE</span>
+			<span class="pill pill--active flex-none">ACTIVE</span>
 		case "deactivated":
-			<span class="tally tally--deactivated">DEACTIVATED</span>
+			<span class="pill pill--deactivated flex-none">DEACTIVATED</span>
 	}
 }
 
-// RosterFilterBar is the employees section's filter form.
+// RosterFilterBar is the employees section's filter form: the status chips, then the
+// name box, the home venue and (where the business models them) the department.
 //
-// 🔴 IT IS A PLAIN GET FORM AND CARRIES NO SCRIPT, for the reasons FilterBar gives
-// and one more that belongs to this section: the employees section loads no script
-// at all, so there is nothing here that could have been an interception. Every
-// narrowed view is an address — bookmarkable, shareable, openable in a second tab,
-// working with JavaScript switched off — and the request cost of filtering stays at
-// exactly one, which is the unit adminratelimit.go's budget is counted in.
+// 🔴 IT IS A PLAIN GET FORM AND CARRIES NO SCRIPT. Every narrowed view is an address
+// -- bookmarkable, shareable, working with JavaScript switched off -- and the request
+// cost of filtering stays at exactly one.
 //
-// THE CURSOR IS DELIBERATELY NOT A FIELD OF THIS FORM. Submitting means "show me
-// this list with these filters", which must start at the first name; carrying the
-// paging position through a filter change would drop the reader into the middle of
-// a list they have not seen the top of.
+// THE CHIPS ARE LINKS, not a control of the form: each is the list with that status
+// and every other filter kept. The status picked stays in the form as a hidden value,
+// so applying a name keeps it. Their words are the validator's own slice
+// (panelStatuses), so a chip cannot offer a value the validator would drop.
 //
-// ACCESSIBILITY: every control has a <label for>, the closed vocabularies are
-// <select> so nothing can be typed that the validator would reject, and each
-// control reserves 44px of height.
+// THE CURSOR IS DELIBERATELY NOT A FIELD OF THIS FORM. Submitting means "show me this
+// list with these filters", which must start at the first name.
+//
+// THE NAME BOX MATCHES NAMES ONLY (full_name ILIKE), and its placeholder says so.
 templ RosterFilterBar(v RosterFilterView) {
-	<form class="filter-bar" method="get" action={ templ.URL(v.Action) } role="search" aria-label="Filter employees">
-		<div class="filter-field">
-			<label class="docket-label" for="filter-name">Name</label>
-			<input
-				class="filter-input"
-				id="filter-name"
-				type="text"
-				name="name"
-				value={ v.Name }
-				placeholder="Part of a name"
-				autocomplete="off"
-				spellcheck="false"
-			/>
-		</div>
-		@filterSelect("filter-status", "status", "Status", "Everyone", v.Status, v.Statuses)
-		@filterSelect("filter-location", "location", "Location", "All locations", v.LocationID, v.Locations)
-		@filterSelect("filter-department", "department", "Department", "All departments", v.DepartmentID, v.Departments)
-		<div class="filter-actions">
-			<button type="submit" class="btn btn--primary">Apply</button>
-			if v.Narrowed {
-				<a class="btn btn--quiet" href={ templ.URL(v.Action) }>Clear</a>
+	<form class="flex flex-col gap-3" method="get" action={ templ.URL(v.Action) } role="search" aria-label="Filter employees">
+		if v.Status != "" {
+			<input type="hidden" name="status" value={ v.Status }/>
+		}
+		<div class="chip-group" role="group" aria-label="Status">
+			for _, c := range v.Chips {
+				<a
+					class={ "chip-link", templ.KV("chip-link--on", c.Current) }
+					href={ templ.URL(c.Href) }
+					if c.Current {
+						aria-current="true"
+					}
+				>
+					{ c.Label }
+					if c.Counted {
+						<span class="chip-count">{ strconv.Itoa(c.Count) }</span>
+					}
+				</a>
 			}
 		</div>
+		<div class="flex flex-wrap items-end gap-3">
+			<div class="field-stack min-w-0 flex-[1_1_200px]">
+				<label class="lbl" for="filter-name">Name</label>
+				<input
+					class="field-input"
+					id="filter-name"
+					type="text"
+					name="name"
+					value={ v.Name }
+					placeholder="Part of a name"
+					autocomplete="off"
+					spellcheck="false"
+				/>
+			</div>
+			@rosterSelect("filter-location", "location", "Home venue", "All venues", v.LocationID, v.Locations)
+			if len(v.Departments) > 0 {
+				@rosterSelect("filter-department", "department", "Department", "All departments", v.DepartmentID, v.Departments)
+			}
+			<div class="flex flex-wrap items-center gap-3">
+				<button type="submit" class="btn btn--line">Apply</button>
+				if v.Narrowed {
+					<a class="btn btn--quiet rounded-xl" href={ templ.URL(v.Action) }>Clear</a>
+				}
+			</div>
+		</div>
 	</form>
+}
+
+// rosterSelect is one of the filter's dropdowns: an empty option that means "do not
+// narrow", then the business's own options, grouped departments named with their venue.
+templ rosterSelect(id, name, label, anyLabel, selected string, options []OptionView) {
+	<div class="field-stack min-w-0 flex-[1_1_180px]">
+		<label class="lbl" for={ id }>{ label }</label>
+		<select class="field-input" id={ id } name={ name }>
+			<option value="" selected?={ selected == "" }>{ anyLabel }</option>
+			for _, o := range options {
+				<option value={ o.Value } selected?={ o.Value == selected }>
+					{ o.Label }
+					if o.Group != "" {
+						{ " — " + o.Group }
+					}
+				</option>
+			}
+		</select>
+	</div>
 }
 
 // placementSelect is the move form's dropdown. It is NOT filterSelect, and the

@@ -95,7 +95,7 @@ func RosterAdd(v RosterAddView) templ.Component {
 					}
 					return nil
 				})
-				templ_7745c5c3_Err = Notice(ToneWarn, "Nobody was added").Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = PanelNotice(ToneWarn, "Nobody was added").Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -119,7 +119,7 @@ func RosterAdd(v RosterAddView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<div class=\"flex flex-wrap items-center gap-3\"><a class=\"btn btn--primary\" href=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "  <div class=\"flex w-full flex-col gap-1.5 md:w-auto md:max-w-[360px] md:items-end\"><a class=\"btn btn--primary min-h-[52px] w-full gap-2 rounded-xl md:min-h-12 md:w-auto\" href=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -128,7 +128,7 @@ func RosterAdd(v RosterAddView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "\">Add somebody</a><p class=\"text-xs text-ink/70\">They are added as invited — you send them their activation link afterwards.</p></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.2\" stroke-linecap=\"round\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M12 5v14M5 12h14\"></path></svg> Add somebody</a><p class=\"text-xs text-ink/70 md:text-right\">They are added as invited — you send them their activation link afterwards.</p></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -196,7 +196,7 @@ func StaffForm(v StaffFormView) templ.Component {
 		var templ_7745c5c3_Var8 string
 		templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(v.FullName)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 98, Col: 23}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 103, Col: 23}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 		if templ_7745c5c3_Err != nil {
@@ -209,7 +209,7 @@ func StaffForm(v StaffFormView) templ.Component {
 		var templ_7745c5c3_Var9 string
 		templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(ariaInvalid(v.ErrorField, "full_name"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 101, Col: 58}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 106, Col: 58}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 		if templ_7745c5c3_Err != nil {
@@ -248,7 +248,7 @@ func StaffForm(v StaffFormView) templ.Component {
 		var templ_7745c5c3_Var11 string
 		templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(ariaInvalid(v.ErrorField, "location_id"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 127, Col: 134}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 132, Col: 134}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 		if templ_7745c5c3_Err != nil {
@@ -276,7 +276,7 @@ func StaffForm(v StaffFormView) templ.Component {
 			var templ_7745c5c3_Var12 string
 			templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(o.Value)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 130, Col: 29}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 135, Col: 29}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 			if templ_7745c5c3_Err != nil {
@@ -299,7 +299,7 @@ func StaffForm(v StaffFormView) templ.Component {
 			var templ_7745c5c3_Var13 string
 			templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(o.Label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 130, Col: 79}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 135, Col: 79}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 			if templ_7745c5c3_Err != nil {
@@ -343,7 +343,7 @@ func StaffForm(v StaffFormView) templ.Component {
 		var templ_7745c5c3_Var15 string
 		templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(ariaInvalid(v.ErrorField, "department_id"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 141, Col: 131}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 146, Col: 131}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 		if templ_7745c5c3_Err != nil {
@@ -371,7 +371,7 @@ func StaffForm(v StaffFormView) templ.Component {
 			var templ_7745c5c3_Var16 string
 			templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(o.Value)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 144, Col: 29}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 149, Col: 29}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 			if templ_7745c5c3_Err != nil {
@@ -394,7 +394,7 @@ func StaffForm(v StaffFormView) templ.Component {
 			var templ_7745c5c3_Var17 string
 			templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(o.Label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 144, Col: 81}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 149, Col: 81}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 			if templ_7745c5c3_Err != nil {
@@ -438,7 +438,7 @@ func StaffForm(v StaffFormView) templ.Component {
 		var templ_7745c5c3_Var19 string
 		templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(v.Role)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 159, Col: 19}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 164, Col: 19}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 		if templ_7745c5c3_Err != nil {
@@ -451,7 +451,7 @@ func StaffForm(v StaffFormView) templ.Component {
 		var templ_7745c5c3_Var20 string
 		templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(ariaInvalid(v.ErrorField, "role"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 162, Col: 53}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 167, Col: 53}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 		if templ_7745c5c3_Err != nil {
@@ -490,7 +490,7 @@ func StaffForm(v StaffFormView) templ.Component {
 		var templ_7745c5c3_Var22 string
 		templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(v.Email)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 176, Col: 20}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 181, Col: 20}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 		if templ_7745c5c3_Err != nil {
@@ -503,7 +503,7 @@ func StaffForm(v StaffFormView) templ.Component {
 		var templ_7745c5c3_Var23 string
 		templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(ariaInvalid(v.ErrorField, "email"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 179, Col: 54}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 184, Col: 54}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
 		if templ_7745c5c3_Err != nil {
@@ -547,7 +547,7 @@ func StaffForm(v StaffFormView) templ.Component {
 			var templ_7745c5c3_Var25 string
 			templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(v.BillingNote)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 197, Col: 50}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/staffform.templ`, Line: 202, Col: 50}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 			if templ_7745c5c3_Err != nil {

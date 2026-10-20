@@ -206,8 +206,14 @@ func (a *AdminAuth) employeesView(w http.ResponseWriter, r *http.Request, reject
 		start += "?" + q.Encode()
 	}
 
+	// THE CLOCK THE LAST TAPS ARE READ AGAINST ("today", "yesterday"): one instant per
+	// request, so two rows cannot disagree about which day it is.
+	now := time.Now()
+	chrome := a.chrome(r, pages.TabEmployees)
+	chrome.Kicker = peopleKicker(screen.Tally)
+
 	v := pages.EmployeesView{
-		PanelChrome: a.chrome(r, pages.TabEmployees),
+		PanelChrome: chrome,
 		Queried:     screen.Queried,
 		ZoneLabel:   zone.String(),
 		// Paged gates the empty state's third branch — see EmployeesView.Paged for
@@ -229,11 +235,17 @@ func (a *AdminAuth) employeesView(w http.ResponseWriter, r *http.Request, reject
 			Departments:  optionViews(screen.Options.Departments),
 			Statuses:     panelStatuses,
 			Narrowed:     f.Narrowed(),
+			Chips:        rosterChips(f, screen.Tally),
 		},
 	}
+	// THE OPEN CARD'S ROW SAYS IT IS THE OPEN ONE. A manage id that does not parse
+	// marks nothing, and one of another business matches no row on this page.
+	managed, _ := uuid.Parse(r.URL.Query().Get("manage"))
 	v.People = make([]components.RosterRowView, 0, len(screen.People))
 	for _, p := range screen.People {
-		v.People = append(v.People, rosterRowView(p, zone, manageHref(f, p.ID)))
+		row := rosterRowView(p, zone, now, screen.LastTaps, manageHref(f, p.ID))
+		row.Selected = managed != uuid.Nil && p.ID == managed
+		v.People = append(v.People, row)
 	}
 	if screen.NextID != nil {
 		q := rosterQuery(f)
@@ -247,7 +259,7 @@ func (a *AdminAuth) employeesView(w http.ResponseWriter, r *http.Request, reject
 	// filter bar renders each option list once, and a per-row copy multiplies exactly
 	// the control M6-03 measured at 96% of a page and removed. A page-level card costs
 	// one option list and one extra charged request when a manager opens it.
-	v.Actions, v.Problem = a.rosterActions(w, r, f, screen, v.Problem)
+	v.Actions, v.Problem = a.rosterActions(w, r, f, screen, v.Problem, now)
 	v.Done = a.confirmedRosterAction(r, v.Actions)
 	v.Add = a.rosterAdd(r, f, screen, rejected)
 
@@ -427,7 +439,7 @@ var addBillingNote = billingNoteNotYetBillable
 // knows why the screen did not do what they asked. The problem word is only set when
 // the request did not already carry one, so the outcome of an ACTION is never
 // overwritten by the state of the card it returned to.
-func (a *AdminAuth) rosterActions(w http.ResponseWriter, r *http.Request, f ledger.RosterFilter, screen ledger.RosterScreen, problem string) (*components.RosterActionsView, string) {
+func (a *AdminAuth) rosterActions(w http.ResponseWriter, r *http.Request, f ledger.RosterFilter, screen ledger.RosterScreen, problem string, now time.Time) (*components.RosterActionsView, string) {
 	raw := r.URL.Query().Get("manage")
 	if raw == "" {
 		return nil, problem
@@ -464,6 +476,18 @@ func (a *AdminAuth) rosterActions(w http.ResponseWriter, r *http.Request, f ledg
 		a.log.Error("panel: could not read the employee's address for the action card", "err", err)
 		return nil, firstWord(problem, "actions-unavailable")
 	}
+
+	// THE SUMMARY AND THE STRIP (M12-20, M12-19) ARE READ AFTER THE TWO READS ABOVE,
+	// and the order is the tenant gate. Staff.Person answered "this person is on this
+	// business's roster"; RecentTaps does not ask that question -- an id it does not
+	// know is a Measured, empty strip -- so it is only ever asked about a person Person
+	// already found here. Neither read can cost the card: a failure is a state the card
+	// prints ("could not be read"), never a missing card or an empty strip.
+	summary, err := a.staff.Summary(r.Context(), httpx.AdminOf(r).TenantID(), employeeID)
+	if errors.Is(err, tenant.ErrUnknownEmployee) {
+		return nil, firstWord(problem, "unknown")
+	}
+	recent := a.ledger.RecentTaps(r.Context(), httpx.AdminOf(r).TenantID(), person.ID)
 
 	hidden := []components.FormField{{Name: "id", Value: person.ID.String()}}
 	for key, values := range rosterQuery(f) {
@@ -537,7 +561,10 @@ func (a *AdminAuth) rosterActions(w http.ResponseWriter, r *http.Request, f ledg
 		ExternalRef:          person.ExternalRef,
 		CanChangeExternalRef: mayChangeExternalRef(httpx.AdminOf(r)),
 		ExternalRefAction:    employeeExternalRefHref,
+		Initials:             components.Initials(person.Name),
 	}
+	fillPersonSummary(v, summary, screen.Zone, now)
+	fillRecentTaps(v, recent, screen.Zone)
 	// M10 EM-7B. The e-mail mode's card: the button mails the link when there is an
 	// address, and an OWNER looking at somebody with none is offered the on-screen
 	// fallback — the same predicate and the same "no address" the POST checks again
@@ -663,17 +690,24 @@ func firstWord(existing, fallback string) string {
 	return fallback
 }
 
-// rosterRowView maps one person onto one card.
-func rosterRowView(p ledger.Person, zone *time.Location, manage string) components.RosterRowView {
+// rosterRowView maps one person onto one row of the list.
+//
+// lastTaps is the page's last-tap reading: only a Measured page may print "—" for a
+// person with no tap, and a failed one says so on every row (§4.6).
+func rosterRowView(p ledger.Person, zone *time.Location, now time.Time, lastTaps ledger.Reading, manage string) components.RosterRowView {
+	last, note := lastTapWords(p.LastTap, lastTaps, zone, now)
 	return components.RosterRowView{
-		Name:       p.Name,
-		Venue:      p.LocationName,
-		NoHome:     !p.HasHome,
-		Department: p.DepartmentName,
-		Status:     p.Status,
-		Since:      rosterDate(p.Since, zone),
-		Devices:    deviceLine(p.LiveDevices, p.LastUsed, zone),
-		ManageHref: manage,
+		Name:        p.Name,
+		Initials:    components.Initials(p.Name),
+		Role:        p.Role,
+		Venue:       p.LocationName,
+		NoHome:      !p.HasHome,
+		Department:  p.DepartmentName,
+		Status:      p.Status,
+		LastTap:     last,
+		LastTapNote: note,
+		Devices:     deviceCount(p.LiveDevices),
+		ManageHref:  manage,
 	}
 }
 
@@ -686,6 +720,226 @@ func rosterDate(t *time.Time, zone *time.Location) string {
 		return ""
 	}
 	return t.In(zone).Format("2 Jan 2006")
+}
+
+// peopleKicker is the line over the title: what the page is, and how many people the
+// business has on its books -- all three statuses, whatever the filters say (M12-17's
+// Everyone count). A count that was not measured is left out, never printed as 0.
+func peopleKicker(t ledger.StatusTally) string {
+	if t.State != ledger.Measured {
+		return "Who taps"
+	}
+	return "Who taps · " + strconv.Itoa(t.Everyone.Total()) + " on the books"
+}
+
+// rosterChips builds the status chips: "Everyone", then one per word of panelStatuses,
+// each the list with that status and the other filters kept, no cursor. A chip's count
+// honours the venue, department and name filters (the tally's Matching half) and is
+// printed only when the tally was measured.
+func rosterChips(f ledger.RosterFilter, t ledger.StatusTally) []components.RosterChipView {
+	counted := t.State == ledger.Measured
+	chip := func(label, status string, n int) components.RosterChipView {
+		g := f
+		g.Status = status
+		g.AfterID = nil
+		href := employeesHref
+		if q := rosterQuery(g); len(q) > 0 {
+			href += "?" + q.Encode()
+		}
+		return components.RosterChipView{
+			Label: label, Href: href, Current: f.Status == status, Count: n, Counted: counted,
+		}
+	}
+	out := make([]components.RosterChipView, 0, len(panelStatuses)+1)
+	out = append(out, chip("Everyone", "", t.Matching.Total()))
+	for _, s := range panelStatuses {
+		out = append(out, chip(s.Label, s.Value, t.Matching.Of(s.Value)))
+	}
+	return out
+}
+
+// lastTapWords is what a row says about a person's newest record: the time and the
+// day in the tenant's zone, and the one word that changes what it means ("refused",
+// "by hand").
+//
+// 🔴 THREE STATES, NOT TWO (§4.6): a measured page with no tap for this person is
+// "—"; a page whose last-tap read failed says it could not be read; a page that never
+// asked prints nothing at all.
+func lastTapWords(t *ledger.LastTap, state ledger.Reading, zone *time.Location, now time.Time) (string, string) {
+	switch {
+	case state == ledger.ReadFailed:
+		return "could not be read", ""
+	case state != ledger.Measured:
+		return "", ""
+	case t == nil:
+		return "—", ""
+	}
+	at := t.At.In(zone)
+	note := ""
+	switch {
+	case t.Verdict == "reject":
+		note = "refused"
+	case t.Channel == "manual":
+		note = "by hand"
+	}
+	return at.Format("15:04") + " " + dayWords(at, now.In(zone)), note
+}
+
+// dayWords names a day relative to today, in the same zone: "today", "yesterday", the
+// weekday within the last week, else the date. A day after today (a clock that ran
+// ahead) is a date, never "today".
+func dayWords(at, now time.Time) string {
+	y1, m1, d1 := at.Date()
+	y2, m2, d2 := now.Date()
+	day := time.Date(y1, m1, d1, 0, 0, 0, 0, time.UTC)
+	today := time.Date(y2, m2, d2, 0, 0, 0, 0, time.UTC)
+	switch days := int(today.Sub(day) / (24 * time.Hour)); {
+	case days == 0:
+		return "today"
+	case days == 1:
+		return "yesterday"
+	case days > 1 && days < 7:
+		return at.Format("Mon")
+	default:
+		return at.Format("2 Jan")
+	}
+}
+
+// deviceCount is the row's short form of deviceLine: the count of live browser
+// sessions and nothing else -- the card has the dates.
+func deviceCount(n int) string {
+	switch {
+	case n <= 0:
+		return "None signed in"
+	case n == 1:
+		return "1 signed in"
+	default:
+		return strconv.Itoa(n) + " signed in"
+	}
+}
+
+// signedInLine is the card's sentence about live browser sessions: deviceLine with the
+// day the oldest of them was signed in put after the count.
+func signedInLine(n int, first, lastUsed *time.Time, zone *time.Location) string {
+	line := deviceLine(n, lastUsed, zone)
+	if n <= 0 || first == nil {
+		return line
+	}
+	head, rest, _ := strings.Cut(line, " · ")
+	return head + " · since " + first.In(zone).Format("2 Jan 2006") + " · " + rest
+}
+
+// fillPersonSummary writes the summary's lines onto the card (M12-20).
+//
+// 🔴 NO DATE IS INVENTED. The lifecycle line uses the stamp that matches the status,
+// and an INVITED person's card prints none: no statement of this product writes
+// invited_at, so for somebody added in the panel the only true date is the pending
+// link's own, which LinkLine carries. A summary that was not read leaves every line
+// empty; one that failed says so (SummaryFailed).
+func fillPersonSummary(v *components.RosterActionsView, s tenant.PersonSummary, zone *time.Location, now time.Time) {
+	if zone == nil {
+		zone = time.UTC
+	}
+	switch s.State {
+	case tenant.Measured:
+	case tenant.ReadFailed:
+		v.SummaryFailed = true
+		return
+	default:
+		return
+	}
+	v.Role = s.Role
+	v.LiveDevices = s.LiveDevices
+	v.SignedInLine = signedInLine(s.LiveDevices, s.FirstSignedIn, s.LastUsed, zone)
+	switch s.Status {
+	case ledger.StatusActive:
+		if s.Activated != nil {
+			v.SinceLine = "Active since " + rosterDate(s.Activated, zone)
+		}
+	case ledger.StatusDeactivated:
+		if s.Deactivated != nil {
+			v.SinceLine = "Deactivated on " + rosterDate(s.Deactivated, zone)
+			v.DeactivatedOn = rosterDate(s.Deactivated, zone)
+		}
+	}
+	v.LinkLine = linkLine(s.Status, s.Link, zone, now)
+}
+
+// linkLine says whether an activation link is outstanding. It says "created", never
+// "sent": what the product knows is that a link exists, not that it reached anybody.
+// For somebody already active it speaks only when a link IS outstanding -- "no working
+// link" beside an active person would read as a fault.
+func linkLine(status string, l tenant.ActivationLink, zone *time.Location, now time.Time) string {
+	switch l.State {
+	case tenant.Measured:
+	case tenant.ReadFailed:
+		return "Whether a link is outstanding could not be read just now."
+	default:
+		return ""
+	}
+	if l.Pending == 0 || l.Created == nil || l.Expires == nil {
+		if status == ledger.StatusInvited {
+			return "No working link yet."
+		}
+		return ""
+	}
+	created := l.Created.In(zone)
+	when := "today"
+	if d := dayWords(created, now.In(zone)); d != "today" {
+		when = "on " + created.Format("2 Jan")
+	}
+	return "A link was created " + when + " and works until " + l.Expires.In(zone).Format("2 Jan 15:04") + "."
+}
+
+// fillRecentTaps writes the strip (M12-19): day, direction, time and the engine's word.
+func fillRecentTaps(v *components.RosterActionsView, rt ledger.RecentTaps, zone *time.Location) {
+	if zone == nil {
+		zone = time.UTC
+	}
+	switch rt.State {
+	case ledger.Measured:
+		v.RecentState = "measured"
+	case ledger.ReadFailed:
+		v.RecentState = "failed"
+		return
+	default:
+		return
+	}
+	v.Recent = make([]components.MiniTapView, 0, len(rt.Taps))
+	for _, t := range rt.Taps {
+		at := t.At.In(zone)
+		dir := "—"
+		switch t.Direction {
+		case "in":
+			dir = "IN"
+		case "out":
+			dir = "OUT"
+		}
+		v.Recent = append(v.Recent, components.MiniTapView{
+			Day:       at.Format("Mon 2"),
+			Direction: dir,
+			Time:      at.Format("15:04"),
+			Verdict:   t.Verdict,
+			Word:      verdictWord(t.Verdict),
+		})
+	}
+}
+
+// verdictWord is the engine's verdict as the stamp spells it. An unknown word is said
+// as unknown rather than dressed as one of the four.
+func verdictWord(v string) string {
+	switch v {
+	case "ok":
+		return "APPROVED"
+	case "flag":
+		return "FLAGGED"
+	case "reject":
+		return "REJECTED"
+	case "ignored":
+		return "IGNORED"
+	default:
+		return "UNKNOWN"
+	}
 }
 
 // deviceLine is the one sentence a row says about signed-in phones.
