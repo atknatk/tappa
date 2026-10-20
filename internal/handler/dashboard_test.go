@@ -1388,9 +1388,14 @@ var displayUtilities = map[string]bool{
 var labelOpenRE = regexp.MustCompile(`(?is)<label\b([^>]*)>`)
 
 // pressedThroughLabel reports whether the form control whose tag starts at body[at] sits
-// inside a <label> that is itself a touch target. Such a control (a visually hidden radio
-// under a card, a 20 px checkbox in a 44 px row) is pressed through the label, which
-// toggles it: the label is what must reserve the height.
+// inside a <label> that is itself a touch target AND is that label's own control. Such a
+// control (a visually hidden radio under a card, a 20 px checkbox in a 44 px row) is pressed
+// through the label, which toggles it: the label is what must reserve the height.
+//
+// 🔴 A LABEL TOGGLES ONE CONTROL, NOT EVERY CONTROL INSIDE IT (M12-49 audit): its for= names
+// it, or -- with no for= -- it is the first labelable control in it. Measured: a second,
+// unlabelled `<input class="w-8">` added inside the venue form's overnight label (whose for=
+// names the checkbox) passed both nets, though pressing the label never reaches it.
 func pressedThroughLabel(body string, at int) bool {
 	before := body[:at]
 	locs := labelOpenRE.FindAllStringSubmatchIndex(before, -1)
@@ -1401,9 +1406,29 @@ func pressedThroughLabel(body string, at int) bool {
 	if strings.Contains(strings.ToLower(before[last[1]:]), "</label>") {
 		return false
 	}
-	c := attrValueRE("class").FindStringSubmatch(before[last[2]:last[3]])
-	return len(c) == 2 && hasTouchTargetClass(c[1])
+	labelAttrs := before[last[2]:last[3]]
+	c := attrValueRE("class").FindStringSubmatch(labelAttrs)
+	if len(c) != 2 || !hasTouchTargetClass(c[1]) {
+		return false
+	}
+	if f := labelForRE.FindStringSubmatch(labelAttrs); len(f) == 2 {
+		ctl := labelableOpenRE.FindStringSubmatch(body[at:])
+		if ctl == nil {
+			return false
+		}
+		id := labelIDRE.FindStringSubmatch(ctl[2])
+		return len(id) == 2 && id[1] == f[1]
+	}
+	return !labelableOpenRE.MatchString(before[last[1]:])
 }
+
+// labelableOpenRE is the opening tag of a control a <label> can label; labelForRE and
+// labelIDRE read the for= and id= that pair them (not data-for, aria-describedby ...).
+var (
+	labelableOpenRE = regexp.MustCompile(`(?is)<(input|select|textarea)\b([^>]*)>`)
+	labelForRE      = regexp.MustCompile(`(?i)(?:^|\s)for\s*=\s*"([^"]*)"`)
+	labelIDRE       = regexp.MustCompile(`(?i)(?:^|\s)id\s*=\s*"([^"]*)"`)
+)
 
 type pressTarget struct {
 	tag     string

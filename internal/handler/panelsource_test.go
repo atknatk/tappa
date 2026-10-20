@@ -170,8 +170,12 @@ type templTag struct {
 	line  int
 	attrs string
 	// label is the source of the <label> the tag sits inside ("" when none), read so a
-	// control pressed through its label is judged by the label.
+	// control pressed through its label is judged by the label -- but only when the tag is
+	// that label's own control (labelsIt).
 	label string
+	// labelsIt: the label's for= names this tag's id, or the label has no for= and this is
+	// the first input, select or textarea inside it. A label toggles one control.
+	labelsIt bool
 }
 
 // templTagOpen finds the elements a person can press or type into.
@@ -194,6 +198,10 @@ func templTagsIn(src string) []templTag {
 			attrs: src[m[1]:end],
 			label: enclosingLabel(src[:m[0]]),
 		})
+		tag := &out[len(out)-1]
+		if tag.label != "" {
+			tag.labelsIt = labelOwnsControl(src[:m[0]], tag.label, tag.attrs)
+		}
 	}
 	return out
 }
@@ -210,6 +218,38 @@ func enclosingLabel(before string) string {
 		return ""
 	}
 	return before[i+len("<label") : end]
+}
+
+// labelOwnsControl reports whether the label whose attributes are labelAttrs is the label of
+// the control whose attributes are attrs (the control begins at the end of before): its for=
+// and the control's id= are the same source text, or it has no for= and no other control
+// opens between the label and this one.
+func labelOwnsControl(before, labelAttrs, attrs string) bool {
+	if f, ok := templAttrSource(labelAttrs, "for"); ok {
+		id, ok := templAttrSource(attrs, "id")
+		return ok && id == f
+	}
+	i := strings.LastIndex(before, "<label")
+	return !regexp.MustCompile(`<(?:input|select|textarea)\b`).MatchString(before[i:])
+}
+
+// templAttrSource is an attribute's value as written in the source: the quoted text, or the
+// whole `{ ... }` expression.
+func templAttrSource(attrs, name string) (string, bool) {
+	loc := regexp.MustCompile(`(?:^|\s)` + regexp.QuoteMeta(name) + `=`).FindStringIndex(attrs)
+	if loc == nil {
+		return "", false
+	}
+	rest := attrs[loc[1]:]
+	switch {
+	case strings.HasPrefix(rest, `"`):
+		if end := strings.IndexByte(rest[1:], '"'); end >= 0 {
+			return rest[:end+2], true
+		}
+	case strings.HasPrefix(rest, "{"):
+		return "{" + strings.TrimSpace(balancedBraces(rest)) + "}", true
+	}
+	return "", false
 }
 
 func templTagEnd(src string, from int) int {
@@ -464,7 +504,7 @@ func TestPanelTemplates_EveryPressTargetAndFormControlCarriesATouchTargetClass(t
 				}
 			}
 			control := tag.name == "input" || tag.name == "select" || tag.name == "textarea"
-			if control && tag.label != "" && everyAlternative(tag.label, funcs, hasTouchTargetClass) {
+			if control && tag.labelsIt && everyAlternative(tag.label, funcs, hasTouchTargetClass) {
 				throughLabel++
 				continue
 			}
@@ -531,7 +571,7 @@ func TestTemplTouchScanner_RejectsTheThingsItExistsToReject(t *testing.T) {
 		if len(tags) != 1 {
 			t.Fatalf("%q: read %d tags, want 1", src, len(tags))
 		}
-		if tags[0].label != "" && everyAlternative(tags[0].label, funcs, hasTouchTargetClass) {
+		if tags[0].labelsIt && everyAlternative(tags[0].label, funcs, hasTouchTargetClass) {
 			return true
 		}
 		return everyAlternative(tags[0].attrs, funcs, hasTouchTargetClass)
@@ -558,6 +598,25 @@ func TestTemplTouchScanner_RejectsTheThingsItExistsToReject(t *testing.T) {
 	} {
 		if !pass(src) {
 			t.Errorf("the scanner refused %q", src)
+		}
+	}
+	// A label toggles ONE control: the one its for= names, or with no for= the first inside it.
+	for _, c := range []struct {
+		src  string
+		want []bool
+	}{
+		{`<label for={ p + "-on" } class="inline-flex min-h-11"><input id={ p + "-on" } type="checkbox"/><input class="w-8" type="text"/></label>`, []bool{true, false}},
+		{`<label class="manual-dircard"><input class="sr-only" type="radio"/><input class="w-8" type="text"/></label>`, []bool{true, false}},
+		{`<label for="a" class="manual-dircard"><input id="b" class="sr-only" type="radio"/></label>`, []bool{false}},
+	} {
+		tags := templTagsIn(c.src)
+		if len(tags) != len(c.want) {
+			t.Fatalf("%q: read %d tags, want %d", c.src, len(tags), len(c.want))
+		}
+		for i, tag := range tags {
+			if tag.labelsIt != c.want[i] {
+				t.Errorf("%q: control %d is its label's own = %v, want %v", c.src, i, tag.labelsIt, c.want[i])
+			}
 		}
 	}
 	if n := len(templTagsIn("// <a class=\"underline\">\n/* <button> */")); n != 0 {
