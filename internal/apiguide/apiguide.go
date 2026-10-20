@@ -4,7 +4,7 @@
 // bytes into the body of /docs/api and /docs/api/tr.
 //
 // The conversion is goldmark's CommonMark core plus its own GFM table extension and nothing else
-// (ADR 0030 lists the boundary). Three rules hold it to what a public page on this site may carry:
+// (ADR 0030 lists the boundary). Four rules hold it to what a public page on this site may carry:
 //
 //   - RAW HTML IS NEVER WRITTEN. goldmark's renderer is built without html.WithUnsafe, so a raw HTML
 //     block or tag in the source becomes the renderer's "raw HTML omitted" comment. The one HTML
@@ -12,9 +12,14 @@
 //     passed through either: it is read here and becomes that heading's id attribute.
 //   - A LINK IS DRAWN ONLY TO http(s), TO THIS SITE OR TO THIS PAGE. A link whose target has any
 //     other scheme (javascript:, data:, mailto:, ftp:...) is drawn as its text, without <a>; so is
-//     a file-relative link the caller did not map to a site address (a path into the repository
-//     resolves nowhere on the site). Images are drawn as their text: the page's policy names no
-//     img-src.
+//     an http(s) target without a host, a scheme-relative //host or /\host, and a file-relative
+//     link the caller did not map to a site address (a path into the repository resolves nowhere
+//     on the site). The target judged is the one the renderer writes -- backslash escapes removed
+//     and entities resolved -- not the source spelling. Images are drawn as their text: the
+//     page's policy names no img-src.
+//   - AN HTML COMMENT BLOCK IS DROPPED (the guide's <!-- example: ... --> test markers): its text
+//     never reaches the page. The only comment the page can carry is the renderer's own
+//     "raw HTML omitted", where refused raw HTML stood -- and the guide has none.
 //   - The conversion runs once per process, at construction, not per request.
 package apiguide
 
@@ -33,6 +38,7 @@ import (
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/text"
+	"github.com/yuin/goldmark/util"
 )
 
 // ContentsID is the anchor of the guide's own table of contents (the section after the title). The
@@ -152,15 +158,28 @@ func transform(doc ast.Node, src []byte, opt Options, g *Guide) error {
 		c.Parent().RemoveChild(c.Parent(), c)
 	}
 	for _, l := range links {
-		dest, ok := siteTarget(string(l.Destination), opt.Links)
+		// The decision is made on the target the renderer WRITES, not on the source spelling:
+		// goldmark's renderLink writes util.URLEscape(Destination, true), which removes backslash
+		// escapes and resolves entities, so `/\/evil.example` and `/&#47;evil.example` are both
+		// written as //evil.example. Judging the source spelling let them through (DOCS-1 audit).
+		written := string(util.URLEscape(l.Destination, true))
+		dest, ok := siteTarget(written, opt.Links)
 		if !ok {
 			unwrap(l)
 			continue
 		}
-		l.Destination = []byte(dest)
+		if dest != written {
+			// A mapped file: the site address replaces the target. It is this package's own
+			// constant (plus the source's fragment), and it carries nothing the renderer resolves.
+			l.Destination = []byte(dest)
+		}
+		// Otherwise the source spelling stays: resolving it again would be a second decoding
+		// (`&amp;#47;` -> `&#47;` -> `/`), and the renderer's one decoding is what was judged.
 	}
 	for _, a := range autos {
-		if _, ok := siteTarget(string(a.URL(src)), nil); ok && a.AutoLinkType == ast.AutoLinkURL {
+		// renderAutoLink writes util.URLEscape(URL, false): no resolution, judged as written.
+		written := string(util.URLEscape(a.URL(src), false))
+		if _, ok := siteTarget(written, nil); ok && a.AutoLinkType == ast.AutoLinkURL {
 			continue
 		}
 		a.Parent().ReplaceChild(a.Parent(), a, ast.NewString(a.Label(src)))
@@ -224,10 +243,12 @@ func rawText(r *ast.RawHTML, src []byte) string {
 	return b.String()
 }
 
-// siteTarget decides a link target: ("#x", true) for this page, an http(s) URL or a site path as
-// it is, a mapped file-relative path as its site address (fragment kept), and false for anything
-// else -- another scheme, a scheme-relative //host, an unmapped file-relative path, a target that
-// does not parse.
+// siteTarget decides a link target, given as the renderer writes it (escapes removed, entities
+// resolved): ("#x", true) for this page, an http(s) URL with a host or a site path as it is, a
+// mapped file-relative path as its site address (fragment kept), and false for anything else --
+// another scheme, an http(s) target without a host (a browser reads `http:x` on an https page as
+// http://x/), a scheme-relative //host or /\host (a browser reads a backslash as a slash), an
+// unmapped file-relative path, a target that does not parse.
 func siteTarget(dest string, links map[string]string) (string, bool) {
 	if dest == "" {
 		return "", false
@@ -246,7 +267,7 @@ func siteTarget(dest string, links map[string]string) (string, bool) {
 			return dest, true
 		}
 		return "", false
-	case strings.HasPrefix(dest, "//"):
+	case strings.HasPrefix(dest, "//"), strings.HasPrefix(dest, `/\`):
 		return "", false
 	case strings.HasPrefix(dest, "/"):
 		return dest, true

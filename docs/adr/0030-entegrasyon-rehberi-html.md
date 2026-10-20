@@ -31,11 +31,18 @@ Seçenekler: (a) md'yi elle HTML'e çevirmek — ikinci kaynak; (b) derlemede bi
    - **Ham HTML kapalı:** renderer `html.WithUnsafe` olmadan kurulur; md'deki ham HTML
      blok/etiketi goldmark'ın "raw HTML omitted" yorumuna döner. Rehberin bilerek kullandığı
      tek HTML biçimi — başlıktan önceki `<a id="x"></a>` satırı — geçirilmez: AST'de okunur
-     ve o başlığın `id`'si olur. HTML yorum blokları (rehberin test işaretleri) düşer.
+     ve o başlığın `id`'si olur. HTML yorum blokları (rehberin test işaretleri) düşer: iki
+     dilin sayfasında da hiç `<!--` yok (`TestRender_DropsHTMLComments`).
    - **Bağlantı:** yalnız `http(s)` (host'lu), site kökü `/…` ve `#…` çizilir; başka şema
-     (`javascript:`, `data:`, `mailto:`, `ftp:`, `tel:`…), `//host` ve eşlenmemiş göreli
-     dosya yolu **metin** olarak çizilir. goldmark'ın kendi tehlikeli-URL süzgeci
-     `mailto:`/`ftp:`/`tel:`'i geçirdiği için kural bizimdir. Görseller metne döner (sayfanın
+     (`javascript:`, `data:`, `mailto:`, `ftp:`, `tel:`…), host'suz `http:x` (tarayıcı https
+     sayfada onu `http://x/` okur), `//host` ya da `/\host` ve eşlenmemiş göreli dosya yolu
+     **metin** olarak çizilir. Karar, kaynaktaki yazıma değil renderer'ın **yazacağı** hedefe
+     göre verilir — `util.URLEscape(dest, true)`: ters bölü kaçışı kalkmış, entity'ler
+     çözülmüş (`/\/x`, `/&#47;x`, `/&sol;x` ve referans tanımı `[r]: /\/x` hepsi `//x`
+     yazılır; DOCS-1 güvenlik denetimi). Kaynak yazımı yerinde kalır: çözülmüş hâli geri
+     yazmak renderer'a ikinci bir çözme yaptırırdı (`&amp;#47;` → `&#47;` → `/`).
+     goldmark'ın kendi tehlikeli-URL süzgeci `mailto:`/`ftp:`/`tel:`'i geçirdiği için kural
+     bizimdir. Görseller metne döner (sayfanın
      CSP'sinde `img-src` yok). Tablo hizası hiç yazılmaz (`style=` yok).
    - Çevrilmiş gövde sayfada kaçışsız yazılan **tek** bloktur; onu yalnız
      `apiguide.Render` üretebilir (`Guide.body` dışa kapalı).

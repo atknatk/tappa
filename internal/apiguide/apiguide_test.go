@@ -8,6 +8,8 @@ package apiguide
 //	                                            and permalink; the title leaves the body
 //	TestRender_FileLinksAreMappedOrDrawnAsText  a mapped file-relative link becomes the site address
 //	                                            (fragment kept); an unmapped one is text
+//	TestRender_DropsHTMLComments                a comment block's text never reaches the page; neither
+//	                                            guide's page carries a comment
 //	TestRender_EveryInternalLinkResolves        in both guides, every href="#x" names an id on the
 //	                                            page, and every anchor line of the Markdown is an id
 //	TestRender_TheTwoLanguagesAreOneDocument    the two pages have the same ids, heading levels,
@@ -39,7 +41,9 @@ func mustRender(t *testing.T, src string, opt Options) Guide {
 // guide could carry. Mutants (measured, DOCS-1 report): html.WithUnsafe on the renderer -> the
 // <script>, the <img onerror> and the <iframe> are written; siteTarget accepting every target ->
 // the ftp:, mailto: and tel: links are drawn (goldmark's own filter refuses javascript:, vbscript:,
-// file: and data: but not those, which is why this rule is ours).
+// file: and data: but not those, which is why this rule is ours); siteTarget judging the source
+// spelling instead of util.URLEscape(dest, true) -> the four escaped/entity //evil.example links
+// are drawn (DOCS-1 low round).
 func TestRender_NoRawHTMLAndOnlySafeLinks(t *testing.T) {
 	src := "# Title\n\n" +
 		"<script>alert(1)</script>\n\n" +
@@ -50,13 +54,19 @@ func TestRender_NoRawHTMLAndOnlySafeLinks(t *testing.T) {
 		"[proto](//evil.example/x) [spaced](<java\tscript:alert(1)>)\n\n" +
 		"<mailto:someone@example.test> <ftp://files.example/y> <https://ok.example/auto>\n\n" +
 		"![pixel](https://tracker.example/p.gif)\n\n" +
-		"[web](https://ok.example/a) [plain](http://ok.example/b) [here](#title-x) [site](/docs/api/tr)\n"
+		"[web](https://ok.example/a) [plain](http://ok.example/b) [here](#title-x) [site](/docs/api/tr)\n\n" +
+		// Spelled as a site path, written as a scheme-relative //host: goldmark removes the backslash
+		// escape and resolves the entities before it writes the href (DOCS-1 security audit, D).
+		"[bs](/\\/evil.example) [num](/&#47;evil.example/x) [named](/&sol;evil.example) [ref][r] " +
+		// A browser reads http:x on an https page as http://x/.
+		"[hostless](http:x) <http:x>\n\n" +
+		"[r]: /\\/evil.example\n"
 	body := renderString(t, mustRender(t, src, Options{}))
 
 	for _, refused := range []string{
 		"<script", "<iframe", "<img", "onerror", "onclick", "<b ", "evil.example", "tracker.example",
 		`href="javascript`, `href="JaVaScRiPt`, `href="data`, `href="vbscript`, `href="ftp`, `href="mailto`,
-		`href="tel`, `href="//`, `href="java`,
+		`href="tel`, `href="//`, `href="java`, `href="/\\`, `href="http:x`, `evil.example`,
 	} {
 		if strings.Contains(body, refused) {
 			t.Errorf("the output carries %q:\n%s", refused, body)
@@ -68,6 +78,7 @@ func TestRender_NoRawHTMLAndOnlySafeLinks(t *testing.T) {
 		`<a href="https://ok.example/auto">https://ok.example/auto</a>`,
 		// A refused link keeps its text, without the anchor element.
 		"js", "ftp", "mail", "tel", "proto", "pixel", "someone@example.test", "ftp://files.example/y",
+		"bs", "num", "named", "ref", "hostless", "http:x",
 	} {
 		if !strings.Contains(body, drawn) {
 			t.Errorf("the output lacks %q:\n%s", drawn, body)
@@ -79,6 +90,15 @@ func TestRender_NoRawHTMLAndOnlySafeLinks(t *testing.T) {
 	}
 	if n := strings.Count(body, "<a "); n != 5 {
 		t.Errorf("%d links drawn, want the five safe ones:\n%s", n, body)
+	}
+	// A browser reads a backslash in a URL as a slash, so /\host is //host. goldmark writes a raw
+	// backslash in a link target as %5C today (a path on this site), so no Markdown reaches this
+	// rule; it is held here, on the function, so that a renderer that stops encoding it does not
+	// open the hole. Mutant (measured): the /\ prefix rule removed -> red.
+	for _, written := range []string{`/\evil.example`, `/\/evil.example`, `//evil.example`, "http:x", "https:/x"} {
+		if dest, ok := siteTarget(written, nil); ok {
+			t.Errorf("siteTarget(%q) = %q, drawn", written, dest)
+		}
 	}
 }
 
@@ -139,6 +159,29 @@ func TestRender_FileLinksAreMappedOrDrawnAsText(t *testing.T) {
 	body = renderString(t, mustRender(t, src, Options{Links: links}))
 	if strings.Contains(body, "openapi.yaml\"") || !strings.Contains(body, "spec") {
 		t.Errorf("a link mapped to \"\" was drawn:\n%s", body)
+	}
+}
+
+// TestRender_DropsHTMLComments holds ADR 0030 §3's sentence "HTML comment blocks (the guide's test
+// markers) are dropped": a comment's text never reaches the page, and no comment does in either
+// guide (eight markers each). Mutant (measured): the comment removal in transform skipped -> the
+// renderer writes "<!-- raw HTML omitted -->" in their place and this goes red.
+func TestRender_DropsHTMLComments(t *testing.T) {
+	body := renderString(t, mustRender(t, "# T\n\n<!-- example: a private note -->\n\nText.\n\n<!--\nmulti\nline\n-->\n", Options{}))
+	if strings.Contains(body, "<!--") || strings.Contains(body, "private note") || strings.Contains(body, "multi") {
+		t.Errorf("a comment reached the page:\n%s", body)
+	}
+	if !strings.Contains(body, "<p>Text.</p>") {
+		t.Errorf("the text around the comments was lost:\n%s", body)
+	}
+	for lang, g := range theGuides(t) {
+		src, body := g[0], g[1]
+		if n := strings.Count(src, "\n<!-- "); n < 5 {
+			t.Fatalf("%s: %d comment markers in the Markdown -- not the guide", lang, n)
+		}
+		if n := strings.Count(body, "<!--"); n != 0 {
+			t.Errorf("%s: %d comments on the page, want 0", lang, n)
+		}
 	}
 }
 
