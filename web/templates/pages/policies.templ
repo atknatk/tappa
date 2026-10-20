@@ -100,7 +100,7 @@ templ AdminPolicies(v PoliciesView) {
 				// silent-failure shape §4.6 forbids one layer over, and it is worse here than on
 				// a read: the whole point of the confirmation step is that somebody read a
 				// sentence before pressing, so a press that did nothing has to be visible.
-				@components.PanelNotice(components.ToneAlert, v.ProblemHeading) {
+				@components.PanelNotice(v.ProblemTone, v.ProblemHeading) {
 					<p>{ v.Problem }</p>
 				}
 			}

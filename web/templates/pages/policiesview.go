@@ -1,5 +1,7 @@
 package pages
 
+import "github.com/atknatk/tappa/web/templates/components"
+
 // The POLICIES section's view model (M6-09 -- the read side AND the controls).
 //
 // ⚠️ THIS HEADER DESCRIBED A MODEL THAT NO LONGER EXISTED. It said the type carries
@@ -377,6 +379,10 @@ type PoliciesView struct {
 	// sentinel ("the customer's line was wrong, which is the worse half of the pair to
 	// get right") — the split was made in the body and forgotten in the title.
 	ProblemHeading string
+	// ProblemTone is the notice's tone, chosen with the heading and for the same reason:
+	// the panel notice opens an alert with "Not done", which is false over
+	// `lockout-stands` (the change was made), so that one word is a warning.
+	ProblemTone components.Tone
 	// Problem is the sentence for a refused change, already chosen by the handler
 	// from a closed vocabulary. It is a SENTENCE rather than a code because the page
 	// prints it; the code never reaches the template, so there is nothing here to

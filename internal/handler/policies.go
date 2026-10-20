@@ -13,6 +13,7 @@ import (
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/internal/policy"
+	"github.com/atknatk/tappa/web/templates/components"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
@@ -123,7 +124,7 @@ func (a *AdminAuth) policiesSection(w http.ResponseWriter, r *http.Request) {
 	// second representation of the engine's decision on the one page whose job is to
 	// show what the engine decides.
 	v.MayEdit = a.scribe.May(r.Context(), id.TenantID(), actorOf(id))
-	v.ProblemHeading, v.Problem = policyProblem(r.URL.Query().Get("problem"))
+	v.ProblemHeading, v.Problem, v.ProblemTone = policyProblem(r.URL.Query().Get("problem"))
 	fillPoliciesView(&v, screen)
 	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminPolicies(v))
 }
@@ -140,21 +141,26 @@ const policiesKicker = "Guarantees first · then your rules, weighed together"
 // a caller can type reaches the page. An unknown word produces no notice at all
 // rather than a generic one: a banner that fires for any junk in the query string is
 // a banner somebody can make a customer see.
-func policyProblem(raw string) (heading, sentence string) {
+func policyProblem(raw string) (heading, sentence string, tone components.Tone) {
 	word := oneOfWords(strings.TrimSpace(raw), policyProblemWords...)
 	sentence = policyProblemSentence(word)
 	if sentence == "" {
-		return "", ""
+		return "", "", ""
 	}
 	// 🔴 ONE WORD IS NOT A REFUSAL, AND ITS HEADING MUST NOT SAY IT IS.
 	// `lockout-stands` means the change WAS made, took the author's authority away, and
 	// could not be put back. "That change was not made" over that body is the page's
 	// largest sentence contradicting its own paragraph — and the reason
 	// tenant.ErrLockoutStands is a separate sentinel in the first place.
+	//
+	// 🔴 AND NEITHER MAY ITS LABEL (M12 notice port). The panel notice opens every alert
+	// with "Not done", so the alert tone over this heading printed "Not done · That change
+	// was made" -- the same contradiction one line up. It is a warning: something WAS done
+	// and the owner has to act on it, which is what "Heads up" says.
 	if word == "lockout-stands" {
-		return "That change was made, and it locked you out", sentence
+		return "That change was made, and it locked you out", sentence, components.ToneWarn
 	}
-	return "That change was not made", sentence
+	return "That change was not made", sentence, components.ToneAlert
 }
 
 func policyProblemSentence(word string) string {

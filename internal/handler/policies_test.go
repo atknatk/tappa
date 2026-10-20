@@ -2128,8 +2128,13 @@ func TestPolicyProblemWords_EachOneRendersAHeadingAndASentence(t *testing.T) {
 		t.Fatalf("policyProblemWords holds %d word(s); the section uses more",
 			len(policyProblemWords))
 	}
+	// THE LABEL IS COUNTED AGAINST THE SAME PAGE WITH NO PROBLEM, because the page carries
+	// warn notices of its own ("What this page describes") whatever was posted.
+	notDone, headsUp := `>`+components.PanelNoticeLabel(components.ToneAlert)+`</p>`,
+		`>`+components.PanelNoticeLabel(components.ToneWarn)+`</p>`
+	calm := policyStatePage(t, policyPageState{screen: policyScreenFixture()})
 	for _, word := range policyProblemWords {
-		heading, sentence := policyProblem(word)
+		heading, sentence, _ := policyProblem(word)
 		if sentence == "" {
 			t.Errorf("the problem word %q has no sentence, so a refusal that redirects with "+
 				"it renders NO notice at all — the page says nothing happened while something "+
@@ -2147,11 +2152,25 @@ func TestPolicyProblemWords_EachOneRendersAHeadingAndASentence(t *testing.T) {
 		if !strings.Contains(page, htmlText(heading)) {
 			t.Errorf("the page does not print the heading for %q", word)
 		}
+		// 🔴 AND THE NOTICE'S LABEL AGREES WITH ITS HEADING. The panel notice opens an
+		// alert with "Not done"; over `lockout-stands` -- "That change was made, and it
+		// locked you out" -- that label is the contradiction the heading was split to
+		// remove. So that word is the one warning, and every other word is a refusal.
+		wantNotDone, wantHeadsUp := 1, 0
+		if word == "lockout-stands" {
+			wantNotDone, wantHeadsUp = 0, 1
+		}
+		if got := strings.Count(page, notDone) - strings.Count(calm, notDone); got != wantNotDone {
+			t.Errorf("the notice for %q adds %d “Not done” label(s), want %d", word, got, wantNotDone)
+		}
+		if got := strings.Count(page, headsUp) - strings.Count(calm, headsUp); got != wantHeadsUp {
+			t.Errorf("the notice for %q adds %d “Heads up” label(s), want %d", word, got, wantHeadsUp)
+		}
 	}
 	// AND A WORD OUTSIDE THE LIST RENDERS NOTHING — the closed-vocabulary half, or a
 	// caller could put text on somebody's page.
-	if h, s := policyProblem("anything-else"); h != "" || s != "" {
-		t.Errorf("a word outside the closed list produced %q / %q", h, s)
+	if h, s, tone := policyProblem("anything-else"); h != "" || s != "" || tone != "" {
+		t.Errorf("a word outside the closed list produced %q / %q / %q", h, s, tone)
 	}
 }
 
