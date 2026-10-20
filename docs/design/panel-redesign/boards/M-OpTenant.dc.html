@@ -39,7 +39,10 @@ a{color:#1F5C41}a:hover{color:#152219}
 .mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
 .lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
 .card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:14px;min-width:0}
-.docket{background:#FFFDF4;border:1px solid #C9D2C8;border-top:2px dashed #C9D2C8;border-radius:0;padding:16px 20px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-radius:0;padding:16px 20px;box-shadow:0 1px 2px rgba(21,34,25,.06);display:flex;flex-direction:column;gap:8px;min-width:0}
+.docket::before,.docket::after{content:'';position:absolute;left:-1px;right:-1px;height:6px;background-image:radial-gradient(circle at 5px 0,#EDF0EA 3px,transparent 3.5px);background-size:10px 6px;background-repeat:repeat-x}
+.docket::before{top:-1px}
+.docket::after{bottom:-1px;transform:rotate(180deg)}
 .h1{margin:0;font:700 28px/1.1 'Space Grotesk',sans-serif;letter-spacing:-0.03em}
 .txt{margin:0;font-size:14px;line-height:1.5}
 .hint{margin:0;font-size:12px;line-height:1.45;color:rgba(21,34,25,.7)}
@@ -164,7 +167,7 @@ dl{margin:0}dd{margin:0}
   </nav>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"api": {"editor": "enum", "options": ["open", "closed-with-code", "never-opened"], "default": "open"}, "notice": {"editor": "enum", "options": ["none", "opened", "not-opened", "code-not-changed", "closed", "still-open", "code-refused"], "default": "none"}, "tenant": {"editor": "enum", "options": ["named", "unnamed"], "default": "named"}, "$preview": {"width": 390, "height": 1510}}'>
+<script type="text/x-dc" data-dc-script data-props='{"api": {"editor": "enum", "options": ["open", "closed-with-code", "never-opened"], "default": "open"}, "notice": {"editor": "enum", "options": ["none", "opened", "not-opened", "code-not-changed", "closed", "still-open", "code-refused"], "default": "none"}, "tenant": {"editor": "enum", "options": ["named", "unnamed"], "default": "named"}, "$preview": {"width": 390, "height": 1509}}'>
 class Component extends DCLogic {
   renderVals() {
     const pick = this.props.api ?? 'open';

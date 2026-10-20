@@ -10,7 +10,7 @@
 <helmet>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
-<style>:root{--gx:24px;--maxw:none;--tn:34px;--bpt:22px;--mpt:24px;--mpb:48px;--gap:20px;--cp:24px 26px;--h1:28px;--dp:26px;--c1:176px;--btnself:flex-start;--m1:190px;--edcols:minmax(0,1fr)}
+<style>:root{--gx:24px;--maxw:none;--tn:34px;--bpt:22px;--mpt:24px;--mpb:48px;--gap:20px;--cp:22px 24px;--h1:28px;--dp:24px;--c1:176px;--btnself:flex-start;--m1:190px;--edcols:minmax(0,1fr)}
 body{margin:0;background:#EDF0EA}
 a{color:#1F5C41}a:hover{color:#152219}
 /* operator shell (OP-1) — identical on every board of this width */
@@ -38,7 +38,7 @@ a{color:#1F5C41}a:hover{color:#152219}
 .mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
 .lbl{margin:0;font:400 11px/1.4 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.14em;text-transform:uppercase;color:rgba(21,34,25,.7)}
 .col{max-width:var(--maxw);display:flex;flex-direction:column;gap:var(--gap)}
-.card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:14px;padding:var(--cp);box-shadow:0 1px 2px rgba(21,34,25,.06);display:flex;flex-direction:column;gap:12px;min-width:0}
+.card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:14px;padding:var(--cp);display:flex;flex-direction:column;gap:12px;min-width:0}
 .card > .lbl + .h1{margin-top:-4px}
 .h1{margin:0;font:700 var(--h1)/1.1 'Space Grotesk',sans-serif;letter-spacing:-.03em;color:#152219}
 .h2{margin:0;font:700 19px/1.25 'Space Grotesk',sans-serif;letter-spacing:-.02em;color:#152219}
@@ -62,7 +62,7 @@ a{color:#1F5C41}a:hover{color:#152219}
 .note .note-h{margin:0;font:700 16px/1.3 'Space Grotesk',sans-serif;color:#152219}
 .note p{margin:0;font:400 14px/1.5 'Space Grotesk',sans-serif;color:rgba(21,34,25,.85)}
 .note ul{margin:4px 0 0;padding:0 0 0 18px;display:flex;flex-direction:column;gap:4px;font:400 14px/1.45 'Space Grotesk',sans-serif;color:rgba(21,34,25,.85)}
-.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-radius:0;padding:22px var(--dp) 18px;box-shadow:0 1px 2px rgba(21,34,25,.06);font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:13px;color:#152219;min-width:0}
+.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-radius:0;padding:18px var(--dp);box-shadow:0 1px 2px rgba(21,34,25,.06);font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:13px;color:#152219;min-width:0}
 .docket::before,.docket::after{content:'';position:absolute;left:-1px;right:-1px;height:6px;background-image:radial-gradient(circle at 5px 0,#EDF0EA 3px,transparent 3.5px);background-size:10px 6px;background-repeat:repeat-x}
 .docket::before{top:-1px}
 .docket::after{bottom:-1px;transform:rotate(180deg)}
@@ -182,7 +182,7 @@ select.field{appearance:none;-webkit-appearance:none;padding-right:40px;backgrou
 </main>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"auditView": {"editor": "enum", "options": ["every-kind-page-1", "filtered-signed-in-page-2", "empty-kind", "past-the-end", "last-page-1000"], "default": "every-kind-page-1"}, "$preview": {"width": 834, "height": 1963}}'>
+<script type="text/x-dc" data-dc-script data-props='{"auditView": {"editor": "enum", "options": ["every-kind-page-1", "filtered-signed-in-page-2", "empty-kind", "past-the-end", "last-page-1000"], "default": "every-kind-page-1"}, "$preview": {"width": 834, "height": 1955}}'>
 class Component extends DCLogic {
   renderVals() {
     const view = this.props.auditView ?? 'every-kind-page-1';

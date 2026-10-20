@@ -155,6 +155,12 @@ type AccountView struct {
 	FieldError string
 	// BillingHref is the money screen, drawn only when the reader may open it.
 	BillingHref string
+	// DevelopersHref is the Developers section (integration keys and the webhook), the
+	// one link of the owner-only card at the foot of the page (M12-41; D1: Account shows
+	// Developers only as an owner-only link card). It is "" for a reader the section
+	// refuses, and then the card is not drawn at all. The card carries the link and
+	// nothing else: no key, prefix, count or webhook data travels on this view.
+	DevelopersHref string
 
 	// --- the password form (T73) --------------------------------------------------
 
@@ -272,3 +278,6 @@ func (v AccountView) DescribedBy(field string) string {
 
 // ShowBilling reports whether the link to the money screen is drawn.
 func (v AccountView) ShowBilling() bool { return v.BillingHref != "" }
+
+// ShowDevelopers reports whether the owner-only Developers card is drawn.
+func (v AccountView) ShowDevelopers() bool { return v.DevelopersHref != "" }

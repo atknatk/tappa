@@ -37,7 +37,7 @@ a{color:#1F5C41}a:hover{color:#152219}
 /* end operator shell */
 .mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
 .lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
-.card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:16px;display:flex;flex-direction:column;gap:20px;box-sizing:border-box}
+.card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:14px;display:flex;flex-direction:column;gap:20px;box-sizing:border-box}
 .fld{display:flex;flex-direction:column;gap:6px}
 .field{min-height:44px;width:100%;box-sizing:border-box;border:1px solid #C9D2C8;border-radius:8px;background:#FFFDF4;padding:0 12px;font:14px 'IBM Plex Mono',ui-monospace,monospace;color:#152219}
 .field:focus{outline:2px solid #1F5C41;outline-offset:1px;border-color:#1F5C41}
@@ -49,8 +49,10 @@ a{color:#1F5C41}a:hover{color:#152219}
 .note p{margin:0;color:rgba(21,34,25,.85);text-wrap:pretty}
 .note--warn{border-left-color:#D98E2B;background:#F7EBD6}
 .note--alert{border-left-color:#BE3D2A;background:#FFFDF4;box-shadow:inset 0 0 0 1px rgba(190,61,42,.35)}
-.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-bottom:0;border-radius:0}
-.docket::after{content:"";position:absolute;left:-1px;right:-1px;bottom:-7px;height:7px;background:radial-gradient(circle at 7px 7px,transparent 4px,#FFFDF4 4.5px) 0 0/14px 7px repeat-x}
+.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-radius:0;padding:18px 24px;box-shadow:0 1px 2px rgba(21,34,25,.06);min-width:0}
+.docket::before,.docket::after{content:'';position:absolute;left:-1px;right:-1px;height:6px;background-image:radial-gradient(circle at 5px 0,#EDF0EA 3px,transparent 3.5px);background-size:10px 6px;background-repeat:repeat-x}
+.docket::before{top:-1px}
+.docket::after{bottom:-1px;transform:rotate(180deg)}
 .anno{display:inline-flex;align-self:flex-start;align-items:center;gap:8px;padding:4px 10px;border:1px dashed rgba(21,34,25,.5);font:700 11px 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7);background:#EDF0EA}
 </style>
 </helmet>

@@ -175,6 +175,30 @@ type Guardrail struct {
 	Reason string
 	// Rule is why it cannot be switched off, naming the red line it enforces.
 	Rule string
+	// When is the condition in a manager's words -- the plate's headline on the Rules
+	// screen ("The person has been deactivated"). It comes from guardrailWhen, held to
+	// the shipped slice in both directions like Rule, so a guardrail can neither ship
+	// without one nor keep one after it is gone.
+	When string
+	// Alert names the security alert this guardrail raises when it fires, in words
+	// ("security alert", "alert if lost"), or is empty when it raises none. It is a
+	// STRING and not a flag on purpose: a bool here is one `if` away from a checkbox,
+	// which TestGuardrail_CarriesNoSwitch refuses. Whether there is one is the
+	// ENGINE's answer (policy.Guardrail.Alert != nil), not a list kept here --
+	// TestGuardrailAlerts_AreTheOnesTheEngineRaises ties the words to it.
+	Alert string
+	// Qualifier says where a REDIRECT leaves the person ("activation page", "other
+	// business"), or is empty for every other effect. A redirect writes no record, and
+	// "No record" alone would not tell a manager which of the two no-record guarantees
+	// fired. TestGuardrailQualifiers_AreTheEnginesRedirects holds it to the engine's
+	// Effect in both directions.
+	Qualifier string
+	// Guards says what the guarantee protects, in words: "taps", or "the panel" for
+	// one that fires on a panel act and never on a tap (sys:policy-edit-owner-only,
+	// sys:no-self-review). It is DERIVED by asking the guarantee's own Match
+	// (panelGuardrail), never read off its position, and it is a string for Alert's
+	// reason.
+	Guards string
 	// Bounded is the tunable window this guardrail compares against, or nil for the
 	// ones that have none. "Cannot be switched off but MAY be tuned within a
 	// range" is ADR 0004 §11's pattern, and a screen that showed only the
@@ -380,6 +404,12 @@ type PolicyScreen struct {
 	// measured telling a customer three false things.
 	ScopeTargets []ScopeTarget
 	ScopeCapped  bool
+
+	// Radius is the GPS ring in words ("150 m"): the number "GPS matched" is judged
+	// against on every tap. It is the same value the GPS setting below carries, held
+	// on its own so the Rules screen can say it where it explains the evidence
+	// without picking a setting out of a list by its label.
+	Radius string
 
 	// Settings are the bounded windows that are NOT policies and NOT per business:
 	// the GPS ring, and the three guardrail windows shown on their own rules above.
@@ -669,6 +699,7 @@ func (r *Rulebook) assemble(
 		Guardrails:      r.guardrails(),
 		ShippedBaseline: policy.BaselineVersion,
 		Settings:        r.settings(),
+		Radius:          metres(r.gpsRadiusM),
 	}
 	// 🔴 TWO CEILINGS, TWO FLAGS, AND COLLAPSING THEM COST A KNOWN ANSWER. One flag
 	// meant that hitting the ATTACHMENT ceiling made every rule report "cannot be
@@ -785,8 +816,14 @@ func (r *Rulebook) guardrails() []Guardrail {
 			Effect:  string(g.Effect),
 			Reason:  g.Reason,
 			Rule:    guardrailRules[g.Sid],
+			When:    guardrailWhen[g.Sid],
+			Alert:   guardrailAlertWords(g),
 			Bounded: r.boundedFor(g.Sid),
+			Guards:  guardsWords(g),
 		})
+		if g.Effect == policy.EffectRedirect {
+			out[len(out)-1].Qualifier = guardrailQualifiers[g.Sid]
+		}
 	}
 	return out
 }
@@ -822,6 +859,89 @@ var guardrailRules = map[string]string{
 		"widen a rule could widen their own pay.",
 	"sys:no-self-review": "ADR 0004 Y-C — nobody approves their own record. This is the one " +
 		"separation a small business cannot organise around.",
+}
+
+// guardrailWhen says, for each shipped guardrail, WHEN it fires -- a short phrase a
+// manager reads as the plate's headline on the Rules screen, beside the effect.
+//
+// It is the same shape as guardrailRules for the same reason (a map cannot express an
+// order, so it cannot contradict the engine's), and
+// TestGuardrailWhen_CoverTheShippedSlice holds it to the shipped set in both
+// directions. Each phrase describes what the guardrail's Match reads, and nothing
+// wider: sys:sun-invalid and sys:tap-freshness are NFC-only, sys:occurred-at-bound
+// refuses a time in the future as well as one too far back.
+var guardrailWhen = map[string]string{
+	"sys:tenant-mismatch":         "The plaque belongs to another business, outside your group",
+	"sys:tag-not-active":          "The plaque is lost, retired or not mounted yet",
+	"sys:sun-invalid":             "The NFC signature is wrong, or the plaque's counter did not move",
+	"sys:no-session":              "The phone has no active Taptime session",
+	"sys:employee-deactivated":    "The person has been deactivated",
+	"sys:tap-freshness":           "The NFC tap page was opened too long ago",
+	"sys:occurred-at-bound":       "The time the phone declares is too far back, or in the future",
+	"sys:person-debounce":         "The same person taps again inside the repeat window",
+	"sys:cross-tenant-qr-site-ip": "A QR scan at another business of your group, off that venue's own network",
+	"sys:policy-edit-owner-only":  "Someone other than the owner changes a rule",
+	"sys:no-self-review":          "Someone reviews their own record",
+}
+
+// guardrailAlerts names the security alert a guardrail raises, in words. Only the
+// guardrails whose Alert the engine sets are here: sys:tag-not-active raises one
+// for a LOST plaque only (a retired or unmounted one is routine), and
+// sys:employee-deactivated raises one every time (§5 row 4).
+var guardrailAlerts = map[string]string{
+	"sys:tag-not-active":       "alert if lost",
+	"sys:employee-deactivated": "security alert",
+}
+
+// guardrailQualifiers says where each shipped REDIRECT leaves the person. A redirect
+// writes no record (§5 row 3; §4.5 for another business's plaque), so the label is
+// "No record" -- and these words tell the two apart.
+var guardrailQualifiers = map[string]string{
+	"sys:tenant-mismatch": "other business",
+	"sys:no-session":      "activation page",
+}
+
+// The two answers guardsWords gives -- exported so the panel keys its group heading off
+// the same words rather than re-typing them.
+const (
+	GuardsTaps  = "taps"
+	GuardsPanel = "the panel"
+)
+
+// guardsWords says whether g guards taps or the panel, by asking g's own Match.
+//
+// A guarantee guards THE PANEL when it fires on ONE synthetic probe: an action other
+// than tap:record, with ReviewerID == SubjectEmployeeID and no tag, session, channel or
+// tap key at all. Every tap guarantee shipped today reads one of those tap facts and
+// stays silent on it; the two panel guarantees fire on it. That is all the probe
+// tests: a future guarantee keyed on some OTHER panel fact would read as "taps" here,
+// so TestGuardrailGuards_ReCheckedWhenTheShippedSetChanges pins today's sid set and
+// goes red when it changes, sending the next author back to this probe. The order of
+// the guarantees is never consulted.
+func guardsWords(g policy.Guardrail) string {
+	if g.Match == nil {
+		return GuardsTaps
+	}
+	same := uuid.New()
+	for _, a := range policy.Actions() {
+		if a == policy.ActionTapRecord {
+			continue
+		}
+		if g.Match(policy.Context{Action: a, ReviewerID: &same, SubjectEmployeeID: &same}) {
+			return GuardsPanel
+		}
+	}
+	return GuardsTaps
+}
+
+// guardrailAlertWords returns the words for g's alert, or "" when the engine gives g
+// none. It reads the ENGINE's field rather than this map's keys, so a map entry for a
+// guardrail that raises nothing prints nothing -- and the test refuses that entry.
+func guardrailAlertWords(g policy.Guardrail) string {
+	if g.Alert == nil {
+		return ""
+	}
+	return guardrailAlerts[g.Sid]
 }
 
 // boundedFor returns the tunable window a guardrail compares against, or nil.
