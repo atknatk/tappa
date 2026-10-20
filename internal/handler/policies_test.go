@@ -2528,6 +2528,51 @@ func TestPoliciesSection_SaysNothingIsDecidingWhenTheEngineHasDroppedTheLayer(t 
 	}
 }
 
+// TestPoliciesSection_SaysInUseOnlyWhileTheEngineUsesTheVersion.
+//
+// 🔴 A SWITCHED-OFF RULE'S NEWEST VERSION IS STORED, NOT IN USE. The Rules page marked
+// every current history line "in use" in tappa-green unless the whole layer was dropped,
+// so a rule the owner had just switched off went on claiming the engine used it -- the
+// claim the change review had already stopped making
+// (TestPolicyChange_SaysInUseOnlyWhileTheEngineUsesTheVersion). Both pages now read one
+// truth (ruleDeciding). Every other rule's history is taken away, so the one strip
+// counted is the one rule's. MUTANT (measured): ruleDeciding returning !guardrailsOnly
+// (the old Rules page) -> "switched off" red here and on the review page; returning
+// r.State == StateActive -> "layer dropped" red.
+func TestPoliciesSection_SaysInUseOnlyWhileTheEngineUsesTheVersion(t *testing.T) {
+	inUse, stored := `>in use</span>`, `>newest stored</span>`
+	for name, tc := range map[string]struct {
+		edit     func(s *tenant.PolicyScreen)
+		deciding bool
+	}{
+		"deciding": {edit: func(*tenant.PolicyScreen) {}, deciding: true},
+		"switched off": {edit: func(s *tenant.PolicyScreen) {
+			own := &s.Tenant[len(s.Tenant)-1]
+			own.State, own.Statements = tenant.StateOff, nil
+		}},
+		"layer dropped": {edit: func(s *tenant.PolicyScreen) { s.GuardrailsOnly = true }},
+	} {
+		t.Run(name, func(t *testing.T) {
+			screen, _, _ := policyOwnRuleScreen()
+			for i := range screen.Baseline {
+				screen.Baseline[i].History, screen.Baseline[i].HistoryTotal = nil, 0
+			}
+			for i := range screen.Tenant[:len(screen.Tenant)-1] {
+				screen.Tenant[i].History, screen.Tenant[i].HistoryTotal = nil, 0
+			}
+			tc.edit(&screen)
+			page := policyPage(t, &fakeRules{screen: screen})
+			want := map[bool]int{true: 1, false: 0}
+			if got := strings.Count(page, inUse); got != want[tc.deciding] {
+				t.Errorf("the history strip says “in use” %d time(s), want %d", got, want[tc.deciding])
+			}
+			if got := strings.Count(page, stored); got != want[!tc.deciding] {
+				t.Errorf("the history strip says “newest stored” %d time(s), want %d", got, want[!tc.deciding])
+			}
+		})
+	}
+}
+
 // TestPoliciesSection_DoesNotTellABusinessWithNoBaselineThatTheBaselineIsCarryingIt.
 //
 // Measured on the seeded Kebab Manufacturing tenant, which has no policy rows at

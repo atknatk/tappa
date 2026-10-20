@@ -599,11 +599,13 @@ func policyRuleView(r tenant.Rule, zone *time.Location, guardrailsOnly bool, ed 
 			// document cannot be read the engine is using NO version of anything, so a
 			// green "in use" chip beside every history line is the same false confidence
 			// the "In force" label was -- one element further down, and it survived the
-			// first fix because the test looked for one string.
-			if guardrailsOnly {
-				version.Marker, version.MarkerTone = "newest stored", pages.PolicyToneOff
-			} else {
+			// first fix because the test looked for one string. A switched-off rule is
+			// the same claim from the other side: its newest version is stored and
+			// decides nothing (ruleDeciding, the review page's truth too).
+			if ruleDeciding(r, guardrailsOnly) {
 				version.Marker, version.MarkerTone = "in use", pages.PolicyToneRunning
+			} else {
+				version.Marker, version.MarkerTone = "newest stored", pages.PolicyToneOff
 			}
 		}
 		row.History = append(row.History, version)
@@ -614,6 +616,14 @@ func policyRuleView(r tenant.Rule, zone *time.Location, guardrailsOnly bool, ed 
 	}
 	policyControls(&row, r, ed)
 	return row
+}
+
+// ruleDeciding is the engine's sense of "in use", the one both the Rules page and the
+// change review read: the rule is stored and switched on, and the engine has not dropped
+// the whole layer over a document it cannot read. A switched-off rule's newest version is
+// stored, not in use.
+func ruleDeciding(r tenant.Rule, guardrailsOnly bool) bool {
+	return r.State == tenant.StateActive && !guardrailsOnly
 }
 
 // stateWords turns a rule state into the sentence AND the chip tone.
