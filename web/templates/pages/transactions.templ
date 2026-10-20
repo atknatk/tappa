@@ -346,7 +346,7 @@ templ plaquesCard(p PassPlaquesView) {
 			}
 			if p.Href != "" {
 				<p class="text-[13px] text-ink/70">
-					<a href={ templ.URL(p.Href) } class="inline-flex min-h-11 items-center font-bold text-tappa-green underline underline-offset-4 hover:text-ink">{ p.Label }</a>
+					<a href={ templ.URL(p.Href) } class="hit-link font-bold text-tappa-green underline underline-offset-4 hover:text-ink">{ p.Label }</a>
 					{ " " }shows every plaque this business has.
 				</p>
 			}
@@ -535,7 +535,7 @@ templ plaqueNotice(v TransactionsView) {
 templ plaqueNoticeLink(v TransactionsView) {
 	if v.PlaquesHref() != "" {
 		<p class="mt-2">
-			<a href={ templ.URL(v.PlaquesHref()) } class="inline-flex min-h-11 items-center underline">{ v.PlaquesLabel() }</a>
+			<a href={ templ.URL(v.PlaquesHref()) } class="hit-link underline">{ v.PlaquesLabel() }</a>
 			{ " " }shows every plaque this business has.
 		</p>
 	}

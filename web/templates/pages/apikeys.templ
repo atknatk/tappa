@@ -68,7 +68,7 @@ templ AdminAPIKeys(v APIKeysView) {
 templ apiKeysGuideNote() {
 	<p class="max-w-[360px] text-sm leading-normal text-ink/80">
 		For the endpoints and the signature, read the
-		<a class="inline-flex min-h-11 items-center font-bold text-ink underline underline-offset-4 hover:text-tappa-green" href={ templ.URL(APIGuidePath) }>integration guide</a>.
+		<a class="hit-link font-bold text-ink underline underline-offset-4 hover:text-tappa-green" href={ templ.URL(APIGuidePath) }>integration guide</a>.
 	</p>
 }
 
@@ -85,7 +85,7 @@ templ apiKeysCard(v APIKeysView) {
 					shown once, when you create it; after that only its first characters stay on screen.
 				</p>
 				<p class="max-w-2xl text-sm leading-normal text-ink/70">
-					<a class="inline-flex min-h-11 items-center font-bold text-ink underline underline-offset-4 hover:text-tappa-green" href={ templ.URL(APIGuidePath) }>Read the integration guide</a>
+					<a class="hit-link font-bold text-ink underline underline-offset-4 hover:text-tappa-green" href={ templ.URL(APIGuidePath) }>Read the integration guide</a>
 					— what the API does and how your system calls it.
 				</p>
 			</div>
@@ -317,7 +317,7 @@ templ webhookSection(w WebhookView, sectionHref string) {
 			We send every punch to one address of yours, signed with a key only you and Taptime hold.
 		</p>
 		<p class="max-w-2xl text-sm leading-normal text-ink/70">
-			<a class="inline-flex min-h-11 items-center font-bold text-ink underline underline-offset-4 hover:text-tappa-green" href={ templ.URL(APIGuideWebhooksHref) }>How to receive webhooks</a>
+			<a class="hit-link font-bold text-ink underline underline-offset-4 hover:text-tappa-green" href={ templ.URL(APIGuideWebhooksHref) }>How to receive webhooks</a>
 			— the requests, the signature check and the retries, in the integration guide.
 		</p>
 		if w.NewKey != "" {

@@ -1286,6 +1286,11 @@ var panelTouchTargets = map[string]int{
 	// card is what a thumb presses. The form-control nets accept a control inside a label that
 	// carries one of these classes (pressedThroughLabel).
 	"manual-dircard": 60, // .manual-dircard -> min-h-[60px] (md:min-h-16)
+	// A link in running text (M12-49): it stays inline, so the sentence keeps its line box,
+	// and its ::after draws the 44 px box a thumb hits. It is a semantic class, so it counts
+	// with no display class beside it -- the one inline press target the rule accepts, because
+	// the height is not the link's own (TestPanelTemplates_ALinkInRunningTextKeepsTheLineBox).
+	"hit-link": 44, // .hit-link::after -> min-h-11, centred on the line
 }
 
 // panelPendingTouchTargets are the press-target classes the panel redesign defines

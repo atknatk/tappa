@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -559,4 +560,133 @@ func TestTemplTouchScanner_RejectsTheThingsItExistsToReject(t *testing.T) {
 	if n := len(templTagsIn("// <a class=\"underline\">\n/* <button> */")); n != 0 {
 		t.Errorf("the scanner read %d tags out of comments", n)
 	}
+}
+
+// paragraphOpen is a <p> opening tag (not <path>, <pre> or <param>).
+var paragraphOpen = regexp.MustCompile(`<p[\s>]`)
+
+// insideParagraph reports whether a tag that begins at the end of before sits in a <p> that is
+// still open there.
+func insideParagraph(before string) bool {
+	locs := paragraphOpen.FindAllStringIndex(before, -1)
+	if len(locs) == 0 {
+		return false
+	}
+	return !strings.Contains(before[locs[len(locs)-1][0]:], "</p>")
+}
+
+// runningTextLink reads the paragraph a link sits in: whether the paragraph carries words of
+// its own beside its links and is not a flex or grid row. A link alone in its <p> (a "Forgot
+// password?" line, a button) or in a row of items may be a box; a link with a sentence around
+// it is part of that sentence.
+func runningTextLink(src string, at int) bool {
+	locs := paragraphOpen.FindAllStringIndex(src[:at], -1)
+	if len(locs) == 0 {
+		return false
+	}
+	open := locs[len(locs)-1][0]
+	end := strings.Index(src[open:], "</p>")
+	if end < 0 || open+end < at {
+		return false
+	}
+	body := src[open:][:end]
+	// A paragraph laid out as a flex or grid row is a row of items, not a sentence: its
+	// links are boxes beside words, and the line box is the row's.
+	if tagEnd := templTagEnd(body, 2); tagEnd > 0 {
+		alts, _ := classAlternatives(body[2:tagEnd], nil)
+		for _, a := range alts {
+			for _, c := range strings.Fields(a) {
+				if c == "flex" || c == "inline-flex" || c == "grid" || c == "inline-grid" {
+					return false
+				}
+			}
+		}
+	}
+	body = templAnchor.ReplaceAllString(body, " ")
+	body = regexp.MustCompile(`(?s)<[^>]*>`).ReplaceAllString(body, " ")
+	var words []string
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || templControlLine.MatchString(line) {
+			continue
+		}
+		words = append(words, line)
+	}
+	return regexp.MustCompile(`[A-Za-z]{2,}`).MatchString(strings.Join(words, " "))
+}
+
+// templAnchor is a whole <a ...>...</a>, its words included.
+var templAnchor = regexp.MustCompile(`(?s)<a\b.*?</a>`)
+
+// templControlLine is a line of templ control flow rather than text: if / else / for / switch /
+// case / a closing brace, and the `{ " " }` spacer.
+var templControlLine = regexp.MustCompile(`^(?:\}?\s*(?:if|else|for|switch|case|default)\b.*|\}|\{\s*" "\s*\})$`)
+
+// TestPanelTemplates_ALinkInRunningTextKeepsTheLineBox: a link inside a sentence uses .hit-link,
+// and carries no display or min-height utility.
+//
+// 🔴 MEASURED IN THE M12-49 SCREENSHOT TOUR. `inline-flex min-h-11` on a link in a paragraph
+// gives the link 44 px by making it a 44 px inline block, and the paragraph's line grows around
+// it: "For the endpoints and the signature, read the" / a gap / "integration guide." on the
+// Developers screen at every width, and the same on The Pass's plaques card. .hit-link keeps the
+// link inline and draws the 44 px in its ::after, so the touch rule holds without the gap.
+func TestPanelTemplates_ALinkInRunningTextKeepsTheLineBox(t *testing.T) {
+	inLineBox := regexp.MustCompile(`^(?:[a-z-]+:)*(?:flex|inline-flex|block|inline-block|grid|inline-grid|min-h-.+|h-.+|size-.+)$`)
+	found := map[string]bool{}
+	links := 0
+	for rel, src := range panelTemplateSources(t) {
+		clean := withoutTemplComments(src)
+		for _, m := range templTagOpen.FindAllStringSubmatchIndex(clean, -1) {
+			if clean[m[2]:m[3]] != "a" || !runningTextLink(clean, m[0]) {
+				continue
+			}
+			links++
+			end := templTagEnd(clean, m[1])
+			attrs := clean[m[1]:end]
+			where := rel + ":" + strconv.Itoa(strings.Count(clean[:m[0]], "\n")+1)
+			for key := range knownRunningTextLinks {
+				if strings.HasPrefix(key, rel+"|") && strings.Contains(attrs, strings.TrimPrefix(key, rel+"|")) {
+					found[key] = true
+				}
+			}
+			alts, unresolved := classAlternatives(attrs, nil)
+			if len(alts) == 0 {
+				t.Errorf("%s: a link in running text has no class the source can read (%q)", where, unresolved)
+				continue
+			}
+			for _, classes := range alts {
+				fields := strings.Fields(classes)
+				if !slices.Contains(fields, "hit-link") {
+					t.Errorf("%s: a link in running text without .hit-link (%q); it needs a 44 px hit "+
+						"area that does not grow the line", where, classes)
+				}
+				for _, c := range fields {
+					if inLineBox.MatchString(c) {
+						t.Errorf("%s: a link in running text carries %q, which makes it a box in the "+
+							"line and breaks the sentence into gappy lines; .hit-link alone gives the 44 px",
+							where, c)
+					}
+				}
+			}
+		}
+	}
+	var missing []string
+	for key := range knownRunningTextLinks {
+		if !found[key] {
+			missing = append(missing, key)
+		}
+	}
+	sort.Strings(missing)
+	if len(missing) > 0 || links < 5 {
+		t.Errorf("CONTROL: %d links in running text read, want at least the 5 the tour found; "+
+			"not read as such: %v", links, missing)
+	}
+}
+
+// knownRunningTextLinks are the links the screenshot tour found inside sentences.
+var knownRunningTextLinks = map[string]bool{
+	"pages/apikeys.templ|templ.URL(APIGuidePath)":         true, // two: the heading's note and the keys card
+	"pages/apikeys.templ|templ.URL(APIGuideWebhooksHref)": true,
+	"pages/transactions.templ|templ.URL(p.Href)":          true,
+	"pages/transactions.templ|templ.URL(v.PlaquesHref())": true,
 }

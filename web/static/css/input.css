@@ -563,6 +563,18 @@
     @apply inline-flex min-h-11 items-center underline underline-offset-4 hover:text-ink
            focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2;
   }
+  /* A link inside running text (M12-49). inline-flex min-h-11 gave such a link its 44 px,
+     but it also made the link a 44 px tall inline block, so the paragraph's line box grew
+     around it and the sentence broke into gappy lines ("...read the" / gap / "integration
+     guide."). This keeps the link inline -- the line box is the text's own -- and reserves
+     the 44 px in a transparent box drawn by ::after, centred on the line: the anchor's
+     pseudo-element is part of the anchor, so a press on it follows the link. The ::after's
+     min-height is what TestPanelScreens_TouchTargetClassesReserve44px reads. */
+  .hit-link { @apply relative; }
+  .hit-link::after {
+    content: "";
+    @apply absolute inset-x-0 top-1/2 min-h-11 -translate-y-1/2;
+  }
   /* The eyebrow recipe of the redesign (README §4 "Type sizes"): mono 11 px, upper case,
      0.12em tracking, ink at 70 % (5.70:1 on porcelain, 6.05:1 on paper). M12-01's kicker is
      its first user; M12-08's field labels reuse it. */
