@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -237,6 +238,7 @@ func (a *AdminAuth) manualEntryReview(w http.ResponseWriter, r *http.Request) {
 	v.WhenLocal = at.In(zone).Format("Monday 2 January 2006, 15:04")
 	v.WhenUTC = at.UTC().Format(time.RFC3339)
 	v.Backdated = a.entries.Backdated(at)
+	v.Preview = manualPreview(subject, v, at, zone)
 	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminManualEntry(v))
 }
 
@@ -686,9 +688,24 @@ func (a *AdminAuth) manualSubject(w http.ResponseWriter, r *http.Request, employ
 }
 
 // manualView is the parts of the screen that are the same on both steps.
+//
+// THE PAGE'S HEADING IS THE SHELL'S (M12-01, M12-33): the trail is the way the manager
+// came -- People, then the person's card -- and the eyebrow says what the screen does
+// to the record table. The tab stays The Pass (a manual record is a row of that list),
+// so the trail and the tab name different places on purpose: the trail is where the
+// manager came from, the tab is where the record will be.
 func (a *AdminAuth) manualView(r *http.Request, s manual.Subject, employeeID uuid.UUID) pages.ManualEntryView {
+	backHref := employeesHref + "?manage=" + employeeID.String()
+	chrome := a.chrome(r, pages.TabTransactions)
+	chrome.Kicker = "Enter a record by hand · adds, never edits"
+	chrome.Title = "Manual entry"
+	chrome.Crumbs = []pages.Crumb{
+		{Label: "People", Href: employeesHref},
+		{Label: s.Name, Href: backHref},
+		{Label: "Manual entry"},
+	}
 	return pages.ManualEntryView{
-		PanelChrome:   a.chrome(r, pages.TabTransactions),
+		PanelChrome:   chrome,
 		Action:        manualEntryHref,
 		ConfirmField:  confirmField,
 		EmployeeID:    employeeID.String(),
@@ -701,9 +718,46 @@ func (a *AdminAuth) manualView(r *http.Request, s manual.Subject, employeeID uui
 		Deactivated:   s.Deactivated(),
 		Zone:          manualZone(s.Zone).String(),
 		Directions:    manualDirections,
-		BackHref:      employeesHref + "?manage=" + employeeID.String(),
+		BackHref:      backHref,
+		PeopleHref:    employeesHref,
 		MaxNote:       maxManualNote,
 	}
+}
+
+// manualPreview is the docket the day's ledger will draw for this record once it is
+// written, built from the values the review step resolved.
+//
+// IT FOLLOWS docketView FIELD FOR FIELD FOR A MANUAL ROW, so the picture is the ledger's
+// and not a guess: the statement writes verdict 'ok', channel 'manual', no plaque, no
+// counter, NULL evidence (sign prints that as "n/a", never "no") and the domain's base
+// score (tap.TrustBase, the value internal/domain/manual writes); the time is the ledger's
+// clock format in the business's zone. A record at a partner business's venue is drawn
+// as the ledger draws one (K-39): that venue's name, marked, and no score or sign.
+//
+// The department is the person's, which is what both write statements read.
+func manualPreview(s manual.Subject, v pages.ManualEntryView, at time.Time, zone *time.Location) components.DocketView {
+	d := components.DocketView{
+		Venue:      s.LocationName,
+		Department: s.DepartmentName,
+		Who:        s.Name,
+		Direction:  v.Direction,
+		At:         at.In(zone).Format("15:04:05"),
+		Trust:      strconv.Itoa(tap.TrustBase),
+		IPSign:     sign(nil),
+		GPSSign:    sign(nil),
+		Channel:    string(tap.ChannelManual),
+		Verdict:    "ok",
+		Manual:     true,
+		Note:       v.Note,
+	}
+	switch {
+	case v.ChosenPartnerVenue != "":
+		d.Venue, d.PartnerVenue = v.ChosenPartnerVenue, true
+		d.Trust, d.IPSign, d.GPSSign = "", "", ""
+	case v.ChosenVenue != "":
+		d.Venue = v.ChosenVenue
+	}
+	return d
 }
 
 // renderManualForm re-renders the form after a refusal, keeping what the manager

@@ -196,12 +196,46 @@ func TestEmployeesSection_EchoesTheFiltersThatTookEffect(t *testing.T) {
 	if f.DepartmentID == nil || *f.DepartmentID != dep {
 		t.Errorf("the department filter did not reach the reader: %v", f.DepartmentID)
 	}
-	for _, want := range []string{`value="Borg"`, `value="deactivated" selected`, loc.String(), dep.String()} {
+	for _, want := range []string{`value="Borg"`, loc.String(), dep.String()} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the filter bar does not echo %q, so a manager cannot see which "+
 				"filters actually took effect", want)
 		}
 	}
+	// THE STATUS IS ECHOED BY ITS CHIP since the panel redesign (M12-30): the status
+	// select became links, so the visible echo is the chip marked current, and the form
+	// carries the value on so applying a name keeps it.
+	if got := currentStatusChip(body); got != "Deactivated" {
+		t.Errorf("the chip marked current is %q, want %q -- a manager cannot see which "+
+			"status took effect", got, "Deactivated")
+	}
+	if !strings.Contains(body, `<input type="hidden" name="status" value="deactivated">`) {
+		t.Error("the filter form does not carry the status on, so applying a name would drop it")
+	}
+}
+
+// statusChipRE reads the filter's status chips: the class, whether it is marked
+// current, and its label.
+var statusChipRE = regexp.MustCompile(`<a class="(chip-link[^"]*)" href="[^"]*"( aria-current="true")?>\s*([^<]*?)\s*<`)
+
+// currentStatusChip is the label of the ONE chip marked current, "" when none or more
+// than one is -- a bar that marks two statuses current echoes nothing a reader can use.
+// The class and the attribute must agree: the frame follows aria-current.
+func currentStatusChip(body string) string {
+	label, n := "", 0
+	for _, m := range statusChipRE.FindAllStringSubmatch(body, -1) {
+		on := m[2] != ""
+		if on != strings.Contains(m[1], "chip-link--on") {
+			return ""
+		}
+		if on {
+			label, n = m[3], n+1
+		}
+	}
+	if n != 1 {
+		return ""
+	}
+	return label
 }
 
 // TestEmployeesSection_DropsWhatItCannotUnderstand. Anything unrecognised WIDENS
