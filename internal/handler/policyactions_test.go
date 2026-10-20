@@ -993,6 +993,21 @@ func TestPolicyChange_SaysInUseOnlyWhileTheEngineUsesTheVersion(t *testing.T) {
 			if got := strings.Contains(page, stored); got == tc.deciding {
 				t.Errorf("the history strip says “newest stored”: %v, want %v", got, !tc.deciding)
 			}
+			// 🔴 THE STRIP IS NOT THE ONLY PLACE THE PAGE SAYS IT. Since the strip comes from
+			// the Rules page's own view (ruleDeciding), the two lines below are what this
+			// page's `deciding` still decides by itself: the detail row's label and the
+			// heading over the version read in full. Without them, `deciding := found`
+			// stayed green.
+			for text, want := range map[string]bool{
+				">Version in use<":                        tc.deciding,
+				"The version in use, read in full":        tc.deciding,
+				">Newest stored version<":                 !tc.deciding,
+				"The newest stored version, read in full": !tc.deciding,
+			} {
+				if got := strings.Contains(page, text); got != want {
+					t.Errorf("the page says %q: %v, want %v", text, got, want)
+				}
+			}
 		})
 	}
 }
