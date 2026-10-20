@@ -325,7 +325,7 @@ redirects to `billingMonthHref(m)`). View `billingCloseView` (`:435-480`); templ
 | Stamp | — | DERIVE | `stamp--flagged` "DRAFT" (the page never shows the after-state) |
 | dl groups | `v.Detail[0..8]` (`:448-454`) | EXISTS | split in the view model: `Identity`, `Figures`, `AmountLive`, `Notes` (no index-based rendering); keep the full labels (they are the definitions) |
 | Founding / floor lines | conditional Detail entries (`:458-469`) | EXISTS — **keep** | |
-| Irreversible warning | `components.Notice(ToneAlert)` + `v.Warning` + two paragraphs (`billing.templ:209-230`) | KEPT AS CODE | keep "so a month frozen by mistake stays as it is until a correction is designed for it" (`billingactions.go:448-450`) and the full third paragraph; restyle via `PanelNotice` |
+| Irreversible warning | `components.Notice(ToneAlert)` + `v.Warning` + two paragraphs (`billing.templ:209-230`) | KEPT AS CODE | keep "so a month frozen by mistake stays as it is until a correction is designed for it" (`billingactions.go:448-450`) and the full third paragraph; restyle as the tomato-framed `role="note"` card §4.3 and the board draw (not `PanelNotice` — its alert label "Not done" would be false here; nothing has failed) |
 | "Freeze this month" | form → `/admin/billing/close/apply`, hidden `month` + token (`:231-236`) | EXISTS | `min-h-14 rounded-[14px] bg-ink text-paper`; no other input |
 | Cancel | `v.BackHref` | EXISTS | Freeze first, Cancel second (DOM = focus order) |
 | Done state in page | — | **REMOVED (D1)** | the redirect to the frozen month **is** the done state (FROZEN stamp, `ClosedLine`) — `TestBillingClose_TheHappyPathTakesTwoStepsAndFreezesOnce` pins the Location |
