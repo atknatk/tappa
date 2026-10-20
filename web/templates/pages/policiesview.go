@@ -53,10 +53,15 @@ type PolicyGuardrailView struct {
 	Order string
 	Sid   string
 	// Effect is the engine's keyword (deny, redirect, ignore) and Outcome is the
-	// same fact in words. Both, because the keyword is what a REJECTED docket
-	// carries and the sentence is what a manager reads.
+	// same fact as the panel's short label ("Reject · security alert") -- the words
+	// the plate prints beside its condition. The keyword is what a REJECTED docket
+	// carries; the label is what a manager reads. The alert half comes from the
+	// engine's own Alert (tenant.Guardrail.Alert), never from a list kept here.
 	Effect  string
 	Outcome string
+	// When is the condition in a manager's words, the plate's headline
+	// (tenant.Guardrail.When).
+	When string
 	// Reason is the sentence the employee sees when this fires.
 	Reason string
 	// Rule is why it cannot be switched off, naming the red line it enforces.
@@ -72,8 +77,13 @@ type PolicyGuardrailView struct {
 // PolicyStatementView is one statement of a document, rendered as fields rather
 // than as JSON. The raw-JSON editor is M9-07 and deliberately out of v1 (Q22).
 type PolicyStatementView struct {
-	Sid        string
-	Effect     string
+	Sid    string
+	Effect string
+	// Label is the effect as the read-only pill prints it ("Approve", "Send to The
+	// Spike"). It is a label and never a control: the redesign's per-rule effect
+	// picker is not built (D1) -- a statement's effect is changed by switching the
+	// rule off and writing your own copy, which keeps the shipped effect.
+	Label      string
 	Outcome    string
 	Actions    []string
 	Resources  []string
@@ -114,6 +124,10 @@ type PolicyVersionView struct {
 // PolicyRuleView is one policy: what it is, whether it is running, what it says.
 type PolicyRuleView struct {
 	Name string
+	// Title is the name as the rule's card prints it: a shipped rule's name without
+	// its "Taptime baseline — " prefix, which the heading above the list already says.
+	// The full Name stays the stored name -- forms post names, never this.
+	Title string
 	// State is the machine word and StateLabel the sentence; StateTone picks the
 	// chip's colour from the brand's fixed mapping. The label always carries the
 	// meaning, so the colour only reinforces it.
@@ -296,6 +310,22 @@ type PoliciesView struct {
 
 	// ShippedBaseline is the baseline version this binary carries.
 	ShippedBaseline string
+
+	// Summary is the line under the heading ("11 guarantees · 9 baseline rules · none
+	// of your own"), counted from the lists below it; empty until the database answered.
+	Summary string
+
+	// Radius is the GPS ring in words ("150 m"), printed where the page explains the
+	// four kinds of evidence. It is configuration (TAPPA_GPS_RADIUS_M), read from the
+	// domain screen -- never a number typed into the template.
+	Radius string
+
+	// DefaultOutcome is what the engine does with a tap NOTHING decided, as the last
+	// plate's label ("Send to The Spike"), or empty when the engine's vocabulary has no
+	// tap action. It is the engine's own default for tap:record (the same answer the
+	// "works the other way" row prints), not base:no-evidence-review -- that one is an
+	// ordinary rule a business can switch off.
+	DefaultOutcome string
 
 	Guardrails []PolicyGuardrailView
 	Baseline   []PolicyRuleView

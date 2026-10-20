@@ -1432,6 +1432,31 @@
     @apply absolute left-1/2 top-[13px] h-[9px] w-3.5 -translate-x-1/2 rounded-sm bg-ink;
   }
 
+  /* --- the Rules page's frame (M12-37) ---
+     The two wrappers are TEST BOUNDARIES whose markup is pinned byte for byte
+     (`<div class="policy-section">` and `<div class="policy-guarantees">`), so
+     their layout lives here rather than in a class attribute. The section is a
+     column; the guarantees are the first row of the left column from desk, with
+     the intro beside them (the template places the intro). */
+  .policy-section { @apply flex flex-col gap-6; }
+  .policy-guarantees { @apply min-w-0 desk:col-start-1 desk:row-start-1; }
+  /* The guarantees' rail runs on through the 24 px between the two ladders and
+     the rules' rail starts flush, so the page draws one rail: the gap is the
+     grid's row gap (gap-6 below desk, gap-y-6 from desk). */
+  .ladder-runon::before { @apply -bottom-6 rounded-b-none; }
+  .ladder-runin::before { @apply top-0 rounded-t-none; }
+  /* A statement's effect, read-only: a label in a frame, never a control (the
+     redesign's per-rule effect picker is not built -- D1). Word ink, colour in
+     the frame, as on the stamp. */
+  .effect-pill {
+    @apply inline-flex min-h-10 items-center whitespace-nowrap rounded-[10px] border
+           border-ink/50 bg-paper px-3.5 font-display text-sm font-bold text-ink;
+  }
+  .effect-pill--allow { @apply border-tappa-green; }
+  .effect-pill--review { @apply border-saffron; }
+  .effect-pill--deny { @apply border-tomato; }
+  .effect-pill--quiet { @apply border-line; }
+
   /* --- the rule switch: a submit button whose words name the outcome ---
      No switch role and no pressed state: the state is the state chip beside it,
      and the button says what pressing it will do. */

@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/httpx"
+	"github.com/atknatk/tappa/internal/policy"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
@@ -107,6 +109,7 @@ func (a *AdminAuth) policiesSection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	v := pages.PoliciesView{PanelChrome: a.chrome(r, pages.TabPolicies)}
+	v.Kicker = policiesKicker
 	// 🔴 THE ENGINE IS ASKED ONCE PER RENDER, AND IT IS THE SAME QUESTION THE WRITE
 	// PATH ASKS. panelScribe.May evaluates `policy:edit` for this admin against the
 	// tenant's STORED rulebook (the non-materialising read), so the controls a page
@@ -124,6 +127,11 @@ func (a *AdminAuth) policiesSection(w http.ResponseWriter, r *http.Request) {
 	fillPoliciesView(&v, screen)
 	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminPolicies(v))
 }
+
+// policiesKicker is the eyebrow over the section's title (M12-37). It names the order the
+// engine really keeps -- the guarantees first, then the rest weighed together -- and not
+// "first match wins", which is true of the guarantees alone (internal/policy/evaluate.go).
+const policiesKicker = "Guarantees first · then your rules, weighed together"
 
 // policyProblemSentence turns a query word into the sentence the page prints, or ""
 // when there is nothing to say.
@@ -272,13 +280,25 @@ func fillPoliciesView(v *pages.PoliciesView, s tenant.PolicyScreen) {
 		v.BaselineInForce = false
 	}
 
+	v.Radius = s.Radius
+	if s.Queried {
+		v.Summary = plural(len(s.Guardrails), "guarantee", "guarantees") + " · " +
+			plural(len(s.Baseline), "baseline rule", "baseline rules") + " · "
+		if len(s.Tenant) == 0 {
+			v.Summary += "none of your own"
+		} else {
+			v.Summary += strconv.Itoa(len(s.Tenant)) + " of your own"
+		}
+	}
+
 	v.Guardrails = make([]pages.PolicyGuardrailView, 0, len(s.Guardrails))
 	for _, g := range s.Guardrails {
 		row := pages.PolicyGuardrailView{
 			Order:   strconv.Itoa(g.Order),
 			Sid:     g.Sid,
 			Effect:  g.Effect,
-			Outcome: effectSentence(g.Effect),
+			Outcome: guardrailLabel(g.Effect, g.Alert),
+			When:    g.When,
 			Reason:  g.Reason,
 			Rule:    g.Rule,
 		}
@@ -357,6 +377,12 @@ func fillPoliciesView(v *pages.PoliciesView, s tenant.PolicyScreen) {
 			continue
 		}
 		v.Recording = append(v.Recording, row)
+		// THE LAST PLATE IS THE ENGINE'S DEFAULT FOR A TAP, read from the same answer
+		// this row prints -- not base:no-evidence-review, which is an ordinary rule a
+		// business can switch off.
+		if auth.Action == string(policy.ActionTapRecord) {
+			v.DefaultOutcome = effectLabel(auth.Default)
+		}
 	}
 }
 
@@ -489,6 +515,7 @@ func policyRuleView(r tenant.Rule, zone *time.Location, guardrailsOnly bool, ed 
 	}
 	row := pages.PolicyRuleView{
 		Name:        r.Name,
+		Title:       r.Name,
 		State:       string(r.State),
 		StateLabel:  label,
 		StateTone:   tone,
@@ -496,6 +523,11 @@ func policyRuleView(r tenant.Rule, zone *time.Location, guardrailsOnly bool, ed 
 		Stamp:       r.StoredStamp,
 		Problem:     r.Problem,
 		Attachments: r.Attachments,
+	}
+	// ONLY A SHIPPED RULE LOSES THE PREFIX: a business may name its own rule anything,
+	// and a card that trimmed a customer's chosen name would print a name they never gave.
+	if r.Managed {
+		row.Title = strings.TrimPrefix(r.Name, baselineNamePrefix)
 	}
 	if r.VersionNo > 0 {
 		row.Version = "version " + strconv.Itoa(r.VersionNo)
@@ -524,6 +556,7 @@ func policyRuleView(r tenant.Rule, zone *time.Location, guardrailsOnly bool, ed 
 		s := pages.PolicyStatementView{
 			Sid:       st.Sid,
 			Effect:    st.Effect,
+			Label:     statementLabel(st.Effect, st.Actions),
 			Outcome:   effectSentence(st.Effect),
 			Actions:   st.Actions,
 			Resources: st.Resources,
@@ -636,6 +669,54 @@ func effectSentence(effect string) string {
 		return effect
 	}
 }
+
+// effectLabel is an effect as a short label: the read-only pill on a rule and the
+// effect on a guarantee's plate (M12-37). effectSentence is the same fact as a sentence.
+//
+// An unknown keyword falls through as itself, for effectSentence's reason: a word
+// nobody translated is better than a blank.
+func effectLabel(effect string) string {
+	switch effect {
+	case "allow":
+		return "Approve"
+	case "review":
+		return "Send to The Spike"
+	case "deny":
+		return "Reject"
+	case "ignore":
+		return "Ignore — recorded, counts nothing"
+	case "redirect":
+		return "No record"
+	case "note":
+		return "Note — decides nothing"
+	default:
+		return effect
+	}
+}
+
+// statementLabel is effectLabel for one statement of a rule. An allow whose actions
+// are not tap:record GRANTS a panel authority (base:authz-owner, base:authz-manager)
+// -- "Approve" there would read as approving a record, which is
+// TestEffectSentence_DoesNotAssumeTheActionIsATap's defect arriving as a label.
+func statementLabel(effect string, actions []string) string {
+	if effect == string(policy.EffectAllow) && !slices.Contains(actions, string(policy.ActionTapRecord)) {
+		return "Grant"
+	}
+	return effectLabel(effect)
+}
+
+// guardrailLabel is a guarantee's effect label with the security alert the engine
+// raises when it fires ("Reject · security alert"); alert is tenant.Guardrail.Alert.
+func guardrailLabel(effect, alert string) string {
+	if alert == "" {
+		return effectLabel(effect)
+	}
+	return effectLabel(effect) + " · " + alert
+}
+
+// baselineNamePrefix is how every shipped document's name begins. A rule's card prints
+// the name without it, under a heading that already says "Taptime baseline".
+const baselineNamePrefix = "Taptime baseline — "
 
 // defaultSentence says what happens when no policy matches.
 func defaultSentence(effect string) string {

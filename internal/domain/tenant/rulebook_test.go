@@ -210,6 +210,69 @@ func TestGuardrailRules_CoverTheShippedSlice(t *testing.T) {
 	}
 }
 
+// TestGuardrailWhen_CoverTheShippedSlice is TestGuardrailRules_CoverTheShippedSlice's
+// twin for the plate's headline: every shipped guardrail has a "when" phrase (a plate
+// with no condition is a lock nobody can place), and no phrase outlives its guardrail
+// (a condition for a rule the engine no longer runs is a rule a reader would believe
+// is running). The rendered row carries it too, so the field is wired, not just the map.
+func TestGuardrailWhen_CoverTheShippedSlice(t *testing.T) {
+	t.Parallel()
+	shipped := map[string]bool{}
+	for _, g := range policy.Guardrails(testParams()) {
+		shipped[g.Sid] = true
+		if strings.TrimSpace(guardrailWhen[g.Sid]) == "" {
+			t.Errorf("%s ships but has no \"when\" phrase: its plate would have no headline", g.Sid)
+		}
+	}
+	if len(shipped) < 5 {
+		t.Fatalf("read %d shipped guardrail(s); there are more", len(shipped))
+	}
+	for sid := range guardrailWhen {
+		if !shipped[sid] {
+			t.Errorf("guardrailWhen describes %q, which the engine no longer ships", sid)
+		}
+	}
+	for _, g := range testRulebook(t).guardrails() {
+		if g.When != guardrailWhen[g.Sid] {
+			t.Errorf("%s renders the phrase %q, want %q", g.Sid, g.When, guardrailWhen[g.Sid])
+		}
+	}
+}
+
+// TestGuardrailAlerts_AreTheOnesTheEngineRaises ties the alert words to the ENGINE's
+// answer in both directions: a guardrail the engine gives an Alert must have words
+// (or the plate hides the security alert §5 row 4 promises), and a guardrail with words
+// must have an Alert (or the plate promises an alert nobody is sent). The assembled
+// row carries exactly the engine's answer.
+func TestGuardrailAlerts_AreTheOnesTheEngineRaises(t *testing.T) {
+	t.Parallel()
+	raises := map[string]bool{}
+	for _, g := range policy.Guardrails(testParams()) {
+		raises[g.Sid] = g.Alert != nil
+		if g.Alert != nil && strings.TrimSpace(guardrailAlerts[g.Sid]) == "" {
+			t.Errorf("%s raises a security alert and the screen has no words for it", g.Sid)
+		}
+	}
+	for sid := range guardrailAlerts {
+		if !raises[sid] {
+			t.Errorf("guardrailAlerts names an alert for %q, which raises none", sid)
+		}
+	}
+	alerting := 0
+	for _, g := range testRulebook(t).guardrails() {
+		if raises[g.Sid] != (g.Alert != "") {
+			t.Errorf("%s renders the alert %q; the engine raises one: %v", g.Sid, g.Alert, raises[g.Sid])
+		}
+		if g.Alert != "" {
+			alerting++
+		}
+	}
+	// ANTI-VACUITY: §5 rows 1 and 4 each raise one today.
+	if alerting < 2 {
+		t.Fatalf("only %d guardrail(s) render an alert; the engine raises at least two", alerting)
+	}
+}
+
 // TestBoundedParams_CoverEveryWindowTheEngineHolds ties the tunable rows on the
 // screen to policy.Params by COUNTING ITS FIELDS.
 //
