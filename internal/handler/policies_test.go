@@ -35,6 +35,7 @@ import (
 	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/policy"
+	"github.com/atknatk/tappa/web/templates/components"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
@@ -628,7 +629,10 @@ func TestPoliciesSection_RendersOnlyInertMarkup(t *testing.T) {
 			// the write side renders. This is what an auditor's second escape needed: an
 			// element with NO action and NO href (a contenteditable div carrying onclick and
 			// role="switch"), which the destination check below has nothing to look at.
-			if bad := markupOutsideTheAllowList(section, policySectionAllowedTags,
+			//
+			// THE PANEL'S NOTICE FRAMES ARE TAKEN OUT FIRST, and only they: their exact
+			// rendered bytes (withoutPanelNoticeFrames), never the role attribute in general.
+			if bad := markupOutsideTheAllowList(withoutPanelNoticeFrames(t, section), policySectionAllowedTags,
 				policySectionAllowedAttrs); len(bad) > 0 {
 				t.Errorf("the policies section renders %v. Phase B added forms, so the list is "+
 					"wider than phase A's -- but nothing on it can make an element BEHAVE: an "+
@@ -1029,6 +1033,36 @@ func TestPolicyInertMarkupCheck_FlagsTheControlsThatBeatTheDenyList(t *testing.T
 				"moved one on 2026-08-12", name)
 		}
 	}
+	// THE NOTICE EXEMPTION ADMITS THE NOTICE AND NOTHING ELSE. A notice alone is clean; a
+	// stray role beside it, the notice's own tag carrying another role, and an attribute
+	// added inside its frame are each still findings.
+	var alertFrame string
+	for frame := range policyNoticeFrames(t) {
+		if strings.Contains(frame, `role="alert"`) {
+			alertFrame = frame
+		}
+	}
+	if alertFrame == "" {
+		t.Fatal("no PanelNotice frame carries role=\"alert\", so the cases below test nothing")
+	}
+	notice := alertFrame + `<div class="flex"><p class="lbl">Not done</p></div></div>`
+	if bad := markupOutsideTheAllowList(withoutPanelNoticeFrames(t, notice),
+		policySectionAllowedTags, policySectionAllowedAttrs); len(bad) > 0 {
+		t.Errorf("the section scan flags the panel's own notice frame: %v", bad)
+	}
+	for name, markup := range map[string]string{
+		"a stray role beside a notice":    notice + `<p role="status" class="x">ok</p>`,
+		"a notice tag carrying a switch":  strings.Replace(notice, `role="alert"`, `role="switch"`, 1),
+		"an attribute added in the frame": strings.Replace(notice, `aria-hidden="true"`, `aria-hidden="true" onclick="off()"`, 1),
+		"a role with no notice around it": `<div role="alert" class="x">Turn this guarantee off</div>`,
+	} {
+		if bad := markupOutsideTheAllowList(withoutPanelNoticeFrames(t, markup),
+			policySectionAllowedTags, policySectionAllowedAttrs); len(bad) == 0 {
+			t.Errorf("%s: the section scan reported nothing once the notice frames were taken "+
+				"out, so the exemption admits more than the notice", name)
+		}
+	}
+
 	// AND NEITHER LIST MAY FLAG THE MARKUP ITS OWN REGION REALLY RENDERS, or the
 	// allow-list is a change detector the next author widens until it sees nothing.
 	if bad := markupOutsideTheAllowList(
@@ -1560,6 +1594,56 @@ func markupOutsideTheAllowList(html string, tags, allowedAttrs map[string]bool) 
 		}
 	}
 	return bad
+}
+
+// policyNoticeFrames maps the opening frame of each components.PanelNotice tone -- its
+// outer tag, which carries role, and the mark beside the label, an aria-hidden svg -- to
+// the same outer tag with the role taken off and the mark left out.
+//
+// 🔴 THE ONE ROLE THIS SECTION MAY CARRY IS THE PANEL NOTICE'S OWN, AND IT IS ADMITTED BY
+// BYTES, NOT BY NAME (M12-49's tour). The Rules page was the last panel section on the
+// old components.Notice -- no "Not done"/"Heads up" label, square corners -- because this
+// net forbids `role`, and PanelNotice announces itself with role="alert" or
+// role="status" (README §5). Adding `role` to policySectionAllowedAttrs would readmit
+// the auditor's role="switch" div anywhere on the page. So the frames are rendered from
+// the component itself, per tone, and only an exact copy of one is replaced before the
+// scan: a role on any other element, a different role value on a notice's own tag, or a
+// notice frame with anything added to it is still a finding. What the notice holds --
+// heading and body -- is scanned like everything else.
+func policyNoticeFrames(t *testing.T) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	for _, tone := range []components.Tone{components.ToneOK, components.ToneWarn, components.ToneAlert} {
+		var buf bytes.Buffer
+		if err := components.PanelNotice(tone, "").Render(context.Background(), &buf); err != nil {
+			t.Fatalf("rendering PanelNotice(%s) alone: %v", tone, err)
+		}
+		html := buf.String()
+		open, mark := strings.Index(html, ">"), strings.Index(html, "</span>")
+		if !strings.HasPrefix(html, `<div role="`) || open < 0 || mark < open {
+			t.Fatalf("PanelNotice(%s) no longer opens with a role-bearing tag followed by its "+
+				"mark, so this exemption would match nothing: %.200q", tone, html)
+		}
+		frame := html[:mark+len("</span>")]
+		inert := regexp.MustCompile(`^<div role="[a-z]+" `).ReplaceAllString(html[:open+1], "<div ")
+		if strings.Count(frame, "role=") != 1 || !strings.Contains(frame, "<svg") ||
+			strings.Contains(inert, "role") || strings.Contains(inert, "<svg") {
+			t.Fatalf("PanelNotice(%s)'s frame is not the shape this exemption was written for "+
+				"(one role, one mark): frame %q, inert %q", tone, frame, inert)
+		}
+		out[frame] = inert
+	}
+	return out
+}
+
+// withoutPanelNoticeFrames is html with every exact PanelNotice frame made inert
+// (policyNoticeFrames).
+func withoutPanelNoticeFrames(t *testing.T, html string) string {
+	t.Helper()
+	for frame, inert := range policyNoticeFrames(t) {
+		html = strings.ReplaceAll(html, frame, inert)
+	}
+	return html
 }
 
 // policySectionSlice cuts a rendered panel page into this section and everything
