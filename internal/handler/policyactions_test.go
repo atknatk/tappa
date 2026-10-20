@@ -177,12 +177,18 @@ func TestPolicyApply_CarriesTheChangeTheWarningDescribed(t *testing.T) {
 // is the owner, who cannot read a process log.
 func TestPolicyChange_ARefusedActorReachesNoWriteAndIsRecorded(t *testing.T) {
 	scribe := &fakeScribe{may: false}
-	b := policyWriteBrowser(t, scribe)
+	rules := newFakeRules()
+	b := policyBrowserWith(t, rules, scribe)
 	target := uuid.New()
 
 	rec := b.do(http.MethodPost, policyChangeHref, url.Values{
 		"op": {opDisable}, "policy": {target.String()},
 	})
+	// THE GATE COMES BEFORE ANY READ (M12-38): the review reads the rulebook to name the
+	// rule, and a refused actor must cost none of it.
+	if rules.calls != 0 {
+		t.Errorf("a refused actor cost %d rulebook read(s); the engine gate must come first", rules.calls)
+	}
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("a refused review step answered %d, want 303", rec.Code)
 	}
@@ -767,7 +773,7 @@ func TestPolicyChange_NamesTheRuleAndThePlacesNotTheirIDs(t *testing.T) {
 		"Zz nights everywhere",   // the new name
 		`<del class="diff-del">`, // the old name goes
 		`<ins class="diff-ins">`, // the new name arrives
-		"Review this change",     // the trail's last step
+		"Review a change",        // the trail's last step
 		"History of this rule",   // the strip beside the change
 		"The version in use, read in full",
 	} {
@@ -800,33 +806,52 @@ func stripHrefs(s string) string { return regexp.MustCompile(`href="[^"]*"`).Rep
 
 // TestPolicyChange_DrawsOnlyWhatTheOperationChanges.
 //
-// 🔴 D1: NO OPERATION CHOOSES AN EFFECT, so no effect is ever drawn as moving. A switch
-// moves the state, a binding moves the bound list, an authored rule moves a name and its
-// places; the effect pills are what each version says.
+// 🔴 D1: THE OWNER NEVER PICKS AN EFFECT, so a row is drawn as changing only when the
+// operation really changes it. A switch moves the state, a binding the bound list, an
+// authored rule a name and its places -- and a new version's ANSWER is marked only when
+// the shipped rule it copies answers differently from the version it replaces (both
+// cases below, plus the sentence that says so).
 func TestPolicyChange_DrawsOnlyWhatTheOperationChanges(t *testing.T) {
 	screen, own, venue := policyOwnRuleScreen()
 	rules := newFakeRules()
 	rules.screen = screen
 	other := screen.ScopeTargets[0]
+	same := tenant.AuthorableRules()[0] // the shipped rule the fixture's own rule copies
+	var different policy.BaselineDoc
+	for _, d := range tenant.AuthorableRules() {
+		if d.Document.Statements[0].Effect != same.Document.Statements[0].Effect {
+			different = d
+			break
+		}
+	}
+	if different.Name == "" {
+		t.Fatal("no authorable rule answers differently from the first; the differing case measures nothing")
+	}
+	supersede := func(basedOn string) url.Values {
+		return url.Values{"op": {opAuthor}, "policy": {own.PolicyID.String()}, "name": {own.Name},
+			"based_on": {basedOn}, "venue": {venue.String()}}
+	}
 	cases := map[string]struct {
-		form         url.Values
-		moves, stays []string
+		form          url.Values
+		moves, stays  []string
+		effectsMove   bool
+		says, saysNot string
 	}{
-		"disable": {url.Values{"op": {opDisable}, "policy": {own.PolicyID.String()}},
-			[]string{"In force", "Switched off by you"}, nil},
-		"bind": {url.Values{"op": {opBind}, "policy": {own.PolicyID.String()}, "resource": {other.Resource()}},
-			[]string{other.Name}, []string{"Zz Hamrun"}},
-		"unbind": {url.Values{"op": {opUnbind}, "policy": {own.PolicyID.String()}, "resource": {"location/" + venue.String()}},
-			[]string{"Zz Hamrun"}, nil},
-		"author new": {url.Values{"op": {opAuthor}, "name": {"Zz brand new"}, "based_on": {tenant.AuthorableRules()[0].Name}},
-			[]string{"Zz brand new"}, nil},
+		"disable": {form: url.Values{"op": {opDisable}, "policy": {own.PolicyID.String()}},
+			moves: []string{"In force", "Switched off by you"}},
+		"bind": {form: url.Values{"op": {opBind}, "policy": {own.PolicyID.String()}, "resource": {other.Resource()}},
+			moves: []string{other.Name}, stays: []string{"Zz Hamrun"}},
+		"unbind": {form: url.Values{"op": {opUnbind}, "policy": {own.PolicyID.String()}, "resource": {"location/" + venue.String()}},
+			moves: []string{"Zz Hamrun"}},
+		"author new": {form: url.Values{"op": {opAuthor}, "name": {"Zz brand new"}, "based_on": {same.Name}},
+			moves: []string{"Zz brand new"}},
+		"a new version copying the same rule": {form: supersede(same.Name),
+			stays: []string{own.Name, "Zz Hamrun"}, saysNot: "answer differs from"},
+		"a new version copying a rule that answers differently": {form: supersede(different.Name),
+			stays: []string{own.Name, "Zz Hamrun"}, effectsMove: true, says: "This version’s answer differs from version 2’s."},
 	}
-	effects := map[string]bool{}
-	for _, e := range []string{"allow", "review", "deny", "ignore", "redirect", "note"} {
-		effects[effectLabel(e)] = true
-	}
-	effects["Grant"] = true
 	marked := regexp.MustCompile(`<(del|ins) class="diff-(?:del|ins)"><span class="sr-only">(?:removed|added): </span>([^<]*)</(?:del|ins)>`)
+	markedEffect := regexp.MustCompile(`<(del|ins) class="no-underline"><span class="sr-only">(?:removed|added): </span><span class="effect-pill[^"]*">(?:<span class="line-through[^"]*">)?([^<]*)</span>`)
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			rec := policyBrowserWith(t, rules, newFakeScribe()).do(http.MethodPost, policyChangeHref, tc.form)
@@ -837,9 +862,16 @@ func TestPolicyChange_DrawsOnlyWhatTheOperationChanges(t *testing.T) {
 			found := map[string]bool{}
 			for _, m := range marked.FindAllStringSubmatch(page, -1) {
 				found[m[2]] = true
-				if effects[strings.ReplaceAll(m[2], "&#39;", "'")] {
-					t.Errorf("an EFFECT is drawn as changing (%s %q); no operation chooses one", m[1], m[2])
-				}
+			}
+			kinds := map[string]bool{}
+			for _, m := range markedEffect.FindAllStringSubmatch(page, -1) {
+				kinds[m[1]] = true
+			}
+			if tc.effectsMove && !(kinds["del"] && kinds["ins"]) {
+				t.Errorf("the answer really differs and is not drawn as changing (marked: %v)", kinds)
+			}
+			if !tc.effectsMove && len(kinds) > 0 {
+				t.Errorf("an answer is drawn as changing (%v) although the version it writes answers the same", kinds)
 			}
 			for _, w := range tc.moves {
 				if !found[htmlText(w)] {
@@ -851,11 +883,89 @@ func TestPolicyChange_DrawsOnlyWhatTheOperationChanges(t *testing.T) {
 					t.Errorf("%q is drawn as changing, but this operation leaves it as it is", w)
 				}
 			}
+			if tc.says != "" && !strings.Contains(page, htmlText(tc.says)) {
+				t.Errorf("the page does not say %q", tc.says)
+			}
+			if tc.saysNot != "" && strings.Contains(page, htmlText(tc.saysNot)) {
+				t.Errorf("the page says %q about a version that answers the same", tc.saysNot)
+			}
 			// NO PREDICTED OUTCOME: the page never claims to know how taps come out.
 			if !strings.Contains(page, htmlText("cannot tell you how many of last week")) {
 				t.Error("the page lost the sentence that says the consequences were not checked")
 			}
 		})
+	}
+}
+
+// TestPolicyChange_SaysInUseOnlyWhileTheEngineUsesTheVersion.
+//
+// 🔴 "in use" IS A CLAIM ABOUT THE ENGINE. A switched-off rule's newest version is
+// stored, not in use; and when the engine has dropped the whole layer nothing is. The
+// history strip's marker must say "newest stored" in both, and "in use" for a rule that
+// is deciding (the control, so the absence above is not a page that never says it).
+func TestPolicyChange_SaysInUseOnlyWhileTheEngineUsesTheVersion(t *testing.T) {
+	inUse, stored := `>in use</span>`, `>newest stored</span>`
+	for name, tc := range map[string]struct {
+		edit     func(s *tenant.PolicyScreen)
+		deciding bool
+	}{
+		"deciding":      {edit: func(*tenant.PolicyScreen) {}, deciding: true},
+		"switched off":  {edit: func(s *tenant.PolicyScreen) { s.Tenant[len(s.Tenant)-1].State = tenant.StateOff }},
+		"layer dropped": {edit: func(s *tenant.PolicyScreen) { s.GuardrailsOnly = true }},
+	} {
+		t.Run(name, func(t *testing.T) {
+			screen, own, _ := policyOwnRuleScreen()
+			tc.edit(&screen)
+			rules := newFakeRules()
+			rules.screen = screen
+			page := htmlOf(t, policyBrowserWith(t, rules, newFakeScribe()).do(http.MethodPost, policyChangeHref,
+				url.Values{"op": {opBind}, "policy": {own.PolicyID.String()}, "resource": {"*"}}))
+			if got := strings.Contains(page, inUse); got != tc.deciding {
+				t.Errorf("the history strip says “in use”: %v, want %v", got, tc.deciding)
+			}
+			if got := strings.Contains(page, stored); got == tc.deciding {
+				t.Errorf("the history strip says “newest stored”: %v, want %v", got, !tc.deciding)
+			}
+		})
+	}
+}
+
+// TestPolicyApply_AForgedConfirmationCostsNoRulebookRead.
+//
+// The apply's subject needs a rulebook read, so everything about the confirmation that
+// does not -- signature, session, action, the cookie twin -- is checked first. A forged
+// or foreign token must be refused with no read at all.
+func TestPolicyApply_AForgedConfirmationCostsNoRulebookRead(t *testing.T) {
+	for name, token := range map[string]string{
+		"garbage":      "not-a-token",
+		"forged shape": "YWJj.ZGVm",
+	} {
+		t.Run(name, func(t *testing.T) {
+			rules := newFakeRules()
+			scribe := newFakeScribe()
+			b := policyBrowserWith(t, rules, scribe)
+			b.cookies[adminConfirmCookieName] = token
+			rec := b.do(http.MethodPost, policyApplyHref, url.Values{
+				"op": {opDisable}, "policy": {uuid.NewString()}, confirmField: {token},
+			})
+			if rules.calls != 0 || len(scribe.calls) != 0 {
+				t.Errorf("a forged confirmation cost %d rulebook read(s) and %v write(s)", rules.calls, scribe.calls)
+			}
+			if to := rec.Header().Get("Location"); !strings.Contains(to, "problem=confirm-required") {
+				t.Errorf("redirected to %q, want problem=confirm-required", to)
+			}
+		})
+	}
+	// ANTI-VACUITY: a GENUINE token does reach the read (and then the write).
+	rules := newFakeRules()
+	scribe := newFakeScribe()
+	b := policyBrowserWith(t, rules, scribe)
+	form := url.Values{"op": {opDisable}, "policy": {uuid.NewString()}}
+	form.Set(confirmField, hiddenValue(t, htmlOf(t, b.do(http.MethodPost, policyChangeHref, form)), confirmField))
+	before := rules.calls
+	b.do(http.MethodPost, policyApplyHref, form)
+	if rules.calls != before+1 || len(scribe.calls) != 1 {
+		t.Fatalf("a genuine confirmation read the rulebook %d time(s) and wrote %v", rules.calls-before, scribe.calls)
 	}
 }
 

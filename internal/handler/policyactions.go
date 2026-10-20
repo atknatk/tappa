@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -288,22 +289,28 @@ func (a *AdminAuth) policyChangeApply(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// AN UNCONFIRMED POST COSTS NO READ. The subject below needs the rulebook, so the one
-	// refusal that needs nothing -- no confirmation in the form at all -- is answered
+	// AN UNCONFIRMED OR FORGED POST COSTS NO READ. The subject below needs the rulebook,
+	// so everything about the confirmation that does not -- present, signed by this
+	// server, unexpired, this session's, this action's, this browser's -- is checked
 	// first, with the word confirmationRefusalFor would give it.
-	if strings.TrimSpace(r.PostFormValue(confirmField)) == "" {
+	if why := a.policyConfirmationPrecheck(r); why != "" {
 		a.log.Warn("panel policy change refused: the confirmation step was not completed",
-			"op", c.op, "reason", "confirm-required")
-		a.redirect(w, policiesReturn("confirm-required"))
+			"op", c.op, "reason", why)
+		a.redirect(w, policiesReturn(why))
 		return
 	}
 	// 🔴 THE PAGE IS REBUILT FROM A FRESH READ AND ITS DIGEST MUST MATCH THE ONE MINTED.
 	// The confirmation binds what the review page SHOWED -- the rule's name, its version
 	// and what the change makes of it, its state, its places -- not only the posted
-	// fields. If any of it has changed since (another owner wrote a version, switched the
-	// rule, renamed a venue), the page the owner confirmed is no longer true and the
-	// token does not verify: "version 3" on the screen cannot become version 4 in the
-	// store.
+	// fields. A change made between the REVIEW and this read (another owner wrote a
+	// version, switched the rule, renamed a venue) leaves the page the owner confirmed
+	// untrue, and the token does not verify.
+	//
+	// ⚠️ WHAT IT DOES NOT CLOSE: the window between this read and the write below. A
+	// version appended in those milliseconds is still appended after it; the domain's
+	// unique (policy, version_no) only stops two writers taking the SAME number. Closing
+	// it needs the write itself to check the version it supersedes (an expected version
+	// on tenant.AuthorCommand) -- a separate domain task, not this page.
 	screen, err := a.rules.Screen(r.Context(), id.TenantID())
 	if err != nil {
 		a.log.Error("panel: could not read the policy layer to apply a change", "err", err)
@@ -589,12 +596,12 @@ func (a *AdminAuth) policyVersionPage(w http.ResponseWriter, r *http.Request) {
 // form that makes the change.
 //
 // THE PAGE'S HEADING IS THE SHELL'S ONE h1 (M12-01): the title is the act, the trail
-// leads back to Rules. The kicker slot stays empty -- the board draws what kind of rule
+// leads back to Rules ("Rules / Review a change", the board's words). The kicker slot stays empty -- the board draws what kind of rule
 // this is as the eyebrow over the rule's own name, inside the change card.
 func (a *AdminAuth) policyChangeView(r *http.Request, c policyChange, shown pages.PolicyChangeShown, token string) pages.PolicyChangeView {
 	chrome := a.chrome(r, pages.TabPolicies)
 	chrome.Title = shown.Heading
-	chrome.Crumbs = []pages.Crumb{{Label: "Rules", Href: policiesHref}, {Label: "Review this change"}}
+	chrome.Crumbs = []pages.Crumb{{Label: "Rules", Href: policiesHref}, {Label: "Review a change"}}
 	return pages.PolicyChangeView{
 		PanelChrome:  chrome,
 		Shown:        shown,
@@ -631,15 +638,50 @@ func policyChangeSubject(c policyChange, shown pages.PolicyChangeShown) string {
 	return c.subject() + "/" + hex.EncodeToString(h.Sum(nil))
 }
 
+// policyNoSubject is a subject no policy change can have (every real one begins with an
+// operation word). policyConfirmationPrecheck asks the parser about it on purpose: a
+// genuine token answers "minted for another subject", which is how the precheck learns
+// that everything EXCEPT the subject holds without reading the rulebook.
+const policyNoSubject = "-"
+
+// policyConfirmationPrecheck refuses, BEFORE the rulebook read the subject needs, every
+// confirmation that cannot be this page's: absent, malformed, forged, expired, another
+// session's, another action's, or not this browser's (the cookie twin). It returns the
+// word confirmationRefusalFor would return, or "" when only the subject is left to check.
+//
+// ⚠️ ONLY errConfirmOtherPerson PASSES. parse checks the signature, the expiry, the
+// session and the action before the subject, and answers errConfirmOtherPerson only when
+// all of them held and the subject differed -- which against policyNoSubject is every
+// genuine token. Any other answer, including nil (a token somebody minted for "-"), is a
+// refusal.
+func (a *AdminAuth) policyConfirmationPrecheck(r *http.Request) string {
+	sent := strings.TrimSpace(r.PostFormValue(confirmField))
+	if sent == "" {
+		return "confirm-required"
+	}
+	err := a.confirm.parse(sent, confirmActionPolicyEdit, policyNoSubject, httpx.AdminOf(r).Admin.SessionID)
+	if !errors.Is(err, errConfirmOtherPerson) {
+		return "confirm-required"
+	}
+	ck, cerr := r.Cookie(adminConfirmCookieName)
+	if cerr != nil || ck.Value == "" || subtle.ConstantTimeCompare([]byte(ck.Value), []byte(sent)) != 1 {
+		return "confirm-required"
+	}
+	return ""
+}
+
 // policyChangeShown builds everything the confirmation page says about one change from
 // the change itself and ONE rulebook read (no second call: the newest stored version's
 // body is the rule's own statements, already on the screen read).
 //
 // 🔴 ONLY WHAT THE OPERATION REALLY DOES IS DRAWN AS A CHANGE (D1). A switch moves a
 // rule's state, a binding moves the bound list, a written rule moves a name and places.
-// No operation here chooses an effect -- an authored rule copies the shipped rule's
-// effect word for word (tenant.copyOfShipped) -- so no effect is ever struck through or
-// added: the effect pills are printed as what each version says, never as the act. And
+// The owner never picks an effect -- an authored version copies a shipped rule's effect
+// and conditions word for word (tenant.copyOfShipped) -- but a NEW VERSION may copy a
+// DIFFERENT shipped rule from the one its predecessor copied, and then its answer or its
+// conditions really do change. So the answer row and the conditions row are marked as
+// changing exactly when the copied document differs from the version it replaces, and
+// a sentence says so; otherwise the pills are printed as what each version says. And
 // nothing predicts how a tap would come out (no simulator, M9-06).
 //
 // 🔴 EVERY STRING IS SERVER-CHOSEN: closed-vocabulary sentences, the rulebook's own
@@ -773,14 +815,13 @@ func policyChangeShown(c policyChange, s tenant.PolicyScreen) pages.PolicyChange
 		if len(rule.Statements) > 0 {
 			beforeRes = rule.Statements[0].Resources
 		}
+		// THE COPY IS FLATTENED BY THE SAME FUNCTION THAT FLATTENED THE STORED VERSION, so
+		// "differs" below compares like with like.
+		copied := tenant.StatementsOf(doc.Document)
 		var answer []pages.PolicyChangeDiffPart
-		for _, st := range doc.Document.Statements {
-			var actions []string
-			for _, a := range st.Action {
-				actions = append(actions, string(a))
-			}
+		for _, st := range copied {
 			answer = append(answer, pages.PolicyChangeDiffPart{
-				Text: statementLabel(string(st.Effect), actions), Effect: string(st.Effect),
+				Text: statementLabel(st.Effect, st.Actions), Effect: st.Effect,
 			})
 		}
 		if !docFound {
@@ -844,16 +885,33 @@ func policyChangeShown(c policyChange, s tenant.PolicyScreen) pages.PolicyChange
 			if deciding {
 				use = "in use"
 			}
-			sh.Before = pages.PolicyChangeSide{Label: "Before · " + version + ", " + use, Lines: appendAnswer(
-				[]pages.PolicyChangeDiffLine{
-					{Label: "Called", Parts: []pages.PolicyChangeDiffPart{{Text: rule.Name, Mark: was}}},
-					{Label: "Where", Parts: whereBefore},
-				}, row.Statements)}
-			sh.After = pages.PolicyChangeSide{Label: afterLabel(next), Lines: []pages.PolicyChangeDiffLine{
+			beforeLines := []pages.PolicyChangeDiffLine{
+				{Label: "Called", Parts: []pages.PolicyChangeDiffPart{{Text: rule.Name, Mark: was}}},
+				{Label: "Where", Parts: whereBefore},
+			}
+			afterLines := []pages.PolicyChangeDiffLine{
 				{Label: "Called", Parts: []pages.PolicyChangeDiffPart{{Text: c.name, Mark: now}}},
 				{Label: "Where", Parts: whereAfter},
-				{Label: "Answer", Parts: answer},
-			}}
+			}
+			// THE ANSWER AND THE CONDITIONS, MARKED ONLY WHERE THE COPY REALLY DIFFERS from
+			// the version it replaces (a new version may copy a different shipped rule).
+			beforeAnswer := answerParts(row.Statements)
+			if docFound && !slices.Equal(effectsOf(row.Statements), effectsOfRule(copied)) {
+				beforeAnswer = marked(beforeAnswer, "del")
+				answer = marked(answer, "ins")
+				sh.Notes = append(sh.Notes, "This version’s answer differs from "+version+"’s.")
+			}
+			if len(beforeAnswer) > 0 {
+				beforeLines = append(beforeLines, pages.PolicyChangeDiffLine{Label: "Answer", Parts: beforeAnswer})
+			}
+			afterLines = append(afterLines, pages.PolicyChangeDiffLine{Label: "Answer", Parts: answer})
+			if beforeCond, afterCond := conditionsOfView(row.Statements), conditionsOfRule(copied); docFound && !slices.Equal(beforeCond, afterCond) {
+				beforeLines = append(beforeLines, pages.PolicyChangeDiffLine{Label: "Only when", Parts: textParts(beforeCond, "del")})
+				afterLines = append(afterLines, pages.PolicyChangeDiffLine{Label: "Only when", Parts: textParts(afterCond, "ins")})
+				sh.Notes = append(sh.Notes, "This version’s conditions differ from "+version+"’s.")
+			}
+			sh.Before = pages.PolicyChangeSide{Label: "Before · " + version + ", " + use, Lines: beforeLines}
+			sh.After = pages.PolicyChangeSide{Label: afterLabel(next), Lines: afterLines}
 		}
 		if docFound {
 			sh.Notes = append(sh.Notes, "The answer, the condition and the engine’s reason are "+
@@ -1018,16 +1076,80 @@ func policyChangeWhat(c policyChange) string {
 }
 
 // appendAnswer adds a rule's effects as one "Answer" row of read-only pills -- what the
-// version says, never something the change moves.
+// version says, unmarked: the operations that use it (a switch) do not move an effect.
 func appendAnswer(lines []pages.PolicyChangeDiffLine, statements []pages.PolicyStatementView) []pages.PolicyChangeDiffLine {
-	var parts []pages.PolicyChangeDiffPart
-	for _, st := range statements {
-		parts = append(parts, pages.PolicyChangeDiffPart{Text: st.Label, Effect: st.Effect})
-	}
+	parts := answerParts(statements)
 	if len(parts) == 0 {
 		return lines
 	}
 	return append(lines, pages.PolicyChangeDiffLine{Label: "Answer", Parts: parts})
+}
+
+// answerParts is a version's effects as read-only pills.
+func answerParts(statements []pages.PolicyStatementView) []pages.PolicyChangeDiffPart {
+	var parts []pages.PolicyChangeDiffPart
+	for _, st := range statements {
+		parts = append(parts, pages.PolicyChangeDiffPart{Text: st.Label, Effect: st.Effect})
+	}
+	return parts
+}
+
+// marked returns parts with every one marked ("del" or "ins").
+func marked(parts []pages.PolicyChangeDiffPart, mark string) []pages.PolicyChangeDiffPart {
+	out := make([]pages.PolicyChangeDiffPart, 0, len(parts))
+	for _, p := range parts {
+		p.Mark = mark
+		out = append(out, p)
+	}
+	return out
+}
+
+// textParts is a list of words as parts with one mark; an empty list is "none".
+func textParts(items []string, mark string) []pages.PolicyChangeDiffPart {
+	if len(items) == 0 {
+		return []pages.PolicyChangeDiffPart{{Text: "none", Mark: mark}}
+	}
+	out := make([]pages.PolicyChangeDiffPart, 0, len(items))
+	for _, it := range items {
+		out = append(out, pages.PolicyChangeDiffPart{Text: it, Mark: mark})
+	}
+	return out
+}
+
+func effectsOf(statements []pages.PolicyStatementView) []string {
+	out := make([]string, 0, len(statements))
+	for _, st := range statements {
+		out = append(out, st.Effect)
+	}
+	return out
+}
+
+func effectsOfRule(statements []tenant.RuleStatement) []string {
+	out := make([]string, 0, len(statements))
+	for _, st := range statements {
+		out = append(out, st.Effect)
+	}
+	return out
+}
+
+// conditionsOfView and conditionsOfRule are a version's conditions in the words the
+// page prints them, statement by statement, so the two sides compare as printed.
+func conditionsOfView(statements []pages.PolicyStatementView) []string {
+	var out []string
+	for _, st := range statements {
+		out = append(out, st.Conditions...)
+	}
+	return out
+}
+
+func conditionsOfRule(statements []tenant.RuleStatement) []string {
+	var out []string
+	for _, st := range statements {
+		for _, c := range st.Conditions {
+			out = append(out, c.Key+" "+conditionVerb(c.Operator)+" "+c.Value)
+		}
+	}
+	return out
 }
 
 // policyRuleByID finds a stored rule on the screen. The zero id is never found: it is

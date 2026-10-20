@@ -231,21 +231,37 @@ templ policyChangeCard(s PolicyChangeSide, after bool) {
 				<dt class="pt-0.5 text-ink/70">{ l.Label }</dt>
 				<dd class="flex min-w-0 flex-wrap items-center gap-1.5 text-ink [overflow-wrap:anywhere]">
 					for _, p := range l.Parts {
-						switch  {
-							case p.Effect != "":
-								<span class={ effectPillClass(p.Effect), "min-h-7 text-[13px]" }>{ p.Text }</span>
-							case p.Mark == "del":
-								<del class="diff-del"><span class="sr-only">removed: </span>{ p.Text }</del>
-							case p.Mark == "ins":
-								<ins class="diff-ins"><span class="sr-only">added: </span>{ p.Text }</ins>
-							default:
-								<span>{ p.Text }</span>
+						if p.Effect != "" {
+							@policyChangeEffect(p)
+						} else if p.Mark == "del" {
+							<del class="diff-del"><span class="sr-only">removed: </span>{ p.Text }</del>
+						} else if p.Mark == "ins" {
+							<ins class="diff-ins"><span class="sr-only">added: </span>{ p.Text }</ins>
+						} else {
+							<span>{ p.Text }</span>
 						}
 					}
 				</dd>
 			}
 		</dl>
 	</div>
+}
+
+// policyChangeEffect is one effect pill on a card. It is marked only when the version the
+// change writes really answers differently from the one it replaces (a new version that
+// copies a different shipped rule); then the old pill is struck through in tomato and the
+// new one sits on a light green, each with its word for a screen reader. The strike is on
+// a span INSIDE the pill: drawn on the pill itself (a flex box) it is computed and never
+// painted (measured in Chrome). An unmarked pill
+// is what the version says, nothing more.
+templ policyChangeEffect(p PolicyChangeDiffPart) {
+	if p.Mark == "del" {
+		<del class="no-underline"><span class="sr-only">removed: </span><span class={ effectPillClass(p.Effect), "min-h-7 text-[13px]" }><span class="line-through decoration-tomato decoration-2">{ p.Text }</span></span></del>
+	} else if p.Mark == "ins" {
+		<ins class="no-underline"><span class="sr-only">added: </span><span class={ effectPillClass(p.Effect), "min-h-7 bg-tappa-green/10 text-[13px]" }>{ p.Text }</span></ins>
+	} else {
+		<span class={ effectPillClass(p.Effect), "min-h-7 text-[13px]" }>{ p.Text }</span>
+	}
 }
 
 func policyChangeCardClass(after bool) string {
