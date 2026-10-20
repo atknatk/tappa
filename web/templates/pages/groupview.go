@@ -25,10 +25,10 @@ type GroupView struct {
 	PartnerManual []ReportPartnerView
 	// PartnersMore says the window held more records than one page lists.
 	PartnersMore bool
-	// ReportsHref is the Reports section, which lists the same records week by week.
+	// ReportsHref is The Roll (the reports section), which lists the same records week by week.
 	ReportsHref string
 	// AtPartnerVenues is how many of this business's own records in the window name a partner's
-	// venue -- a figure (mono), not a list: they are this business's own records, in Transactions.
+	// venue -- a figure (mono), not a list: they are this business's own records, in The Pass.
 	AtPartnerVenues string
 }
 
