@@ -864,7 +864,11 @@ func TestPolicyChange_DrawsOnlyWhatTheOperationChanges(t *testing.T) {
 		moves, stays   []string
 		effectsMove    bool
 		conditionsMove bool
-		says, saysNot  []string
+		// struck and added are condition texts that must sit inside <del> and <ins>
+		// themselves -- matched by text, because the Where row is marked too in the case
+		// that uses them, so "the page has a del" would prove nothing.
+		struck, added []string
+		says, saysNot []string
 	}{
 		"disable": {form: url.Values{"op": {opDisable}, "policy": {own.PolicyID.String()}},
 			moves: []string{"In force", "Switched off by you"}},
@@ -882,6 +886,7 @@ func TestPolicyChange_DrawsOnlyWhatTheOperationChanges(t *testing.T) {
 		"a new version copying a rule that answers the same under other conditions": {rules: condRules,
 			form:  supersede(condOwn.PolicyID, condOwn.Name, condB.Name),
 			stays: []string{condOwn.Name}, conditionsMove: true,
+			struck: conditionTexts(condA), added: conditionTexts(condB),
 			says:    []string{"This version’s conditions differ from version 2’s."},
 			saysNot: []string{"answer differs from"}},
 	}
@@ -901,6 +906,17 @@ func TestPolicyChange_DrawsOnlyWhatTheOperationChanges(t *testing.T) {
 			found := map[string]bool{}
 			for _, m := range marked.FindAllStringSubmatch(page, -1) {
 				found[m[2]] = true
+			}
+			byKind := map[string]map[string]bool{"del": {}, "ins": {}}
+			for _, m := range marked.FindAllStringSubmatch(page, -1) {
+				byKind[m[1]][m[2]] = true
+			}
+			for kind, texts := range map[string][]string{"del": tc.struck, "ins": tc.added} {
+				for _, w := range texts {
+					if !byKind[kind][htmlText(w)] {
+						t.Errorf("the condition %q is not inside <%s> (marked %s: %v)", w, kind, kind, byKind[kind])
+					}
+				}
 			}
 			kinds := map[string]bool{}
 			for _, m := range markedEffect.FindAllStringSubmatch(page, -1) {
@@ -978,6 +994,17 @@ func TestPolicyChange_SaysInUseOnlyWhileTheEngineUsesTheVersion(t *testing.T) {
 	}
 }
 
+// conditionTexts are a shipped rule's conditions in the words the page prints them.
+func conditionTexts(doc policy.BaselineDoc) []string {
+	var out []string
+	for _, st := range tenant.StatementsOf(doc.Document) {
+		for _, c := range st.Conditions {
+			out = append(out, c.Key+" "+conditionVerb(c.Operator)+" "+c.Value)
+		}
+	}
+	return out
+}
+
 // TestPolicyChange_ClaimsNothingAboutAVersionItCannotRead.
 //
 // 🔴 A STORED VERSION THIS RELEASE CANNOT PARSE HAS NO STATEMENTS ON THE SCREEN READ.
@@ -985,13 +1012,6 @@ func TestPolicyChange_SaysInUseOnlyWhileTheEngineUsesTheVersion(t *testing.T) {
 // differ" and "Only when: none" about a document nobody had read -- and the confirmation
 // bound the false sentence. The page says it cannot tell instead.
 func TestPolicyChange_ClaimsNothingAboutAVersionItCannotRead(t *testing.T) {
-	screen, own, venue := policyOwnRuleScreen()
-	last := len(screen.Tenant) - 1
-	screen.Tenant[last].State = tenant.StateUnreadable
-	screen.Tenant[last].Problem = "zz-parser-complaint"
-	screen.Tenant[last].Statements = nil
-	rules := newFakeRules()
-	rules.screen = screen
 	var different policy.BaselineDoc
 	for _, d := range tenant.AuthorableRules() {
 		if d.Document.Statements[0].Effect != tenant.AuthorableRules()[0].Document.Statements[0].Effect {
@@ -999,16 +1019,44 @@ func TestPolicyChange_ClaimsNothingAboutAVersionItCannotRead(t *testing.T) {
 			break
 		}
 	}
-	page := htmlOf(t, policyBrowserWith(t, rules, newFakeScribe()).do(http.MethodPost, policyChangeHref,
-		url.Values{"op": {opAuthor}, "policy": {own.PolicyID.String()}, "name": {own.Name},
-			"based_on": {different.Name}, "venue": {venue.String()}}))
-	if !strings.Contains(page, htmlText("Version 2 could not be read, so this page cannot say what it answered.")) {
-		t.Error("the page does not say it cannot tell what the unreadable version answered")
+	// TWO SHAPES OF "NO STATEMENTS ON THE SCREEN READ", each with its own sentence: a
+	// document this release cannot parse, and a switched-off rule, whose document the
+	// rulebook does not read at all (storedRule returns before parsing).
+	cases := map[string]struct {
+		edit func(r *tenant.Rule)
+		says string
+	}{
+		"unreadable": {
+			edit: func(r *tenant.Rule) {
+				r.State, r.Problem, r.Statements = tenant.StateUnreadable, "zz-parser-complaint", nil
+			},
+			says: "Version 2 could not be read, so this page cannot say what it answered.",
+		},
+		"switched off": {
+			edit: func(r *tenant.Rule) { r.State, r.Problem, r.Statements = tenant.StateOff, "", nil },
+			says: "This page does not show what version 2 says, so it cannot say whether this " +
+				"version answers differently.",
+		},
 	}
-	for _, forbidden := range []string{"answer differs from", "conditions differ from", `<dt class="pt-0.5 text-ink/70">Only when</dt>`, `class="no-underline"`} {
-		if strings.Contains(page, htmlText(forbidden)) || strings.Contains(page, forbidden) {
-			t.Errorf("the page claims %q about a version it cannot read", forbidden)
-		}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			screen, own, venue := policyOwnRuleScreen()
+			tc.edit(&screen.Tenant[len(screen.Tenant)-1])
+			rules := newFakeRules()
+			rules.screen = screen
+			page := htmlOf(t, policyBrowserWith(t, rules, newFakeScribe()).do(http.MethodPost, policyChangeHref,
+				url.Values{"op": {opAuthor}, "policy": {own.PolicyID.String()}, "name": {own.Name},
+					"based_on": {different.Name}, "venue": {venue.String()}}))
+			if !strings.Contains(page, htmlText(tc.says)) {
+				t.Errorf("the page does not say %q", tc.says)
+			}
+			for _, forbidden := range []string{"answer differs from", "conditions differ from",
+				`<dt class="pt-0.5 text-ink/70">Only when</dt>`, `class="no-underline"`} {
+				if strings.Contains(page, htmlText(forbidden)) || strings.Contains(page, forbidden) {
+					t.Errorf("the page claims %q about a version it has not read", forbidden)
+				}
+			}
+		})
 	}
 }
 
