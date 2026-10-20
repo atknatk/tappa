@@ -36,7 +36,7 @@ Boards: `Account`, `Developers`, `States`, `SignIn`, `Choose`, `Reset`, `Signup`
 | S8 | rounded grouped list, 56 px rows, chevrons, dashed separators (the earlier full-page More, `0e31694`) | `.sheet-list` rows `min-h-12 border-b` | KEPT AS CODE | the board (`fd18724` / `c2dd88d`) draws the shipped rows; M12-47's polish = lift shadow (ink/10) + scrim (ink/40) + sign-out radius 10 px. Tapping the scrim closes the sheet (CSS only, no JS) |
 | S9 | row badges ("1 to replace", "Owner") | — | **REMOVED (D1)** | |
 | S10 | "Manual entry" link | — | **REMOVED (D1)** | a manual entry starts from a person; `/admin/records/new` without `?id=` redirects with a problem |
-| S11 | "Signed in as … · Owner" + Sign out | `.sheet-foot` (`admin.templ:440-447`) | EXISTS | button `min-h-12 rounded-xl border border-ink font-bold` |
+| S11 | "Signed in as … · Owner" + Sign out | `.sheet-foot` (`admin.templ:440-447`) | EXISTS | button `btn btn--quiet` (frame `border-line`); in the phone sheet M12-47 gives it a 10 px radius as the board draws |
 | S12 | wordmark | same; "t." on the rail | EXISTS | |
 
 ---

@@ -856,8 +856,8 @@ testleri; bayraklar veriden; önbellek değişmez (her ziyaretçiye aynı bayt).
 
 ## M12-47 — M-More sayfası cilası
 
-- **Bağımlılık:** M12-08 · **Araç:** yapıcı (`tappa-brand`) · **Commit:** `style(panel): group the More sheet as drawn`
-- **Dosyalar:** `web/static/css/input.css` (`.sheet-*`), `web/templates/components/panel.templ` (`BarNav`, yalnız sınıf/ok), `internal/handler/dashboard_test.go`
+- **Bağımlılık:** M12-08 · **Araç:** yapıcı (`tappa-brand`) · **Commit:** `style(panel): lift the More sheet over a dimmed page as drawn` (ilk deneme `style(panel): group the More sheet as drawn` panoya aykırıydı, geri alındı)
+- **Dosyalar:** yalnız `web/static/css/input.css` (`.bar-sheet`, `.bar-more`, `.sheet-foot`)
 
 Yalnız CSS, markup değişmez. **Satırlar kod olarak kalır** — pano (`fd18724` / `c2dd88d`) teslim edilen
 düz satırları çizer (min 48 px, düz `border-b`); "gruplu yuvarlatılmış liste, oklar, kesikli ayraçlar" ilk
