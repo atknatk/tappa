@@ -1600,7 +1600,7 @@ func TestAccount_DrawsNothingTheScreenFileLeftOut(t *testing.T) {
 			"white text", // the gate picks paper OR ink
 			": 1", ":1 ", // no contrast ratio readout
 			"Shown only when your VAT number is verified", // the uncorrected sentence
-			"Account managers", "Invite manager", // no managers card (M7-07 blocked)
+			"Account managers", "Invite manager",          // no managers card (M7-07 blocked)
 			"Holding", "holding group", // no group card (ADR 0027 §2)
 			"Close this account", "Close account", // no account closing
 			"CET/CEST", // no zone abbreviation
