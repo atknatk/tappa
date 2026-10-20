@@ -1035,6 +1035,9 @@ func panelTabs(c PanelChrome) []components.Tab {
 		if s.OwnerOnly && c.Role != adminRoleOwner {
 			continue
 		}
+		if s.GroupOnly && !c.InGroup {
+			continue
+		}
 		t := components.Tab{Label: s.Label, Href: s.Href}
 		if s.Tab == TabReview {
 			t.Badge = c.Pending.Label()

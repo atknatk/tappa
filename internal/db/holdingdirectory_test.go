@@ -29,6 +29,8 @@ const (
 	op00056File = "00056_index_the_directory.sql"
 	// T124: holding_peer's set form, and the two multi-row functions reading the peer set through it.
 	op00060File = "00060_ask_a_members_peers_once.sql"
+	// op00062File is GRP-1's migration (holding_peer's roster form, holding_group).
+	op00062File = "00062_show_a_member_its_group.sql"
 )
 
 // holdingDirRow is one row of holding_directory, every column.
@@ -443,8 +445,11 @@ func TestHolding00055_DownGivesBackAndUpTakesItAgain(t *testing.T) {
 	}
 	pre := holdingPrecondition(t, op00055File)
 	up60, down60 := opMigrationSections(t, op00060File)
+	up62, down62 := opMigrationSections(t, op00062File)
 	holdingLockedSavepoint(t, tx, func(sp pgx.Tx) {
 		opWant(t, holdingNestedRun(t, ctx, sp, pre), sqlstatePrerequisiteState, "00055's precondition at HEAD")
+		// GRP-1: 00062's Down first -- 00060's Up refuses a third holding_peer.
+		opRunSection(t, ctx, sp, down62, "00062 Down")
 		// T124: 00060's Down first -- it gives back the bodies 00055 left (TestHolding00060_DownGivesBackAndUpTakesItAgain).
 		opRunSection(t, ctx, sp, down60, "00060 Down")
 		opRunSection(t, ctx, sp, down, "00055 Down")
@@ -476,6 +481,7 @@ func TestHolding00055_DownGivesBackAndUpTakesItAgain(t *testing.T) {
 		}
 		opRunSection(t, ctx, sp, up, "00055 Up again")
 		opRunSection(t, ctx, sp, up60, "00060 Up again")
+		opRunSection(t, ctx, sp, up62, "00062 Up again")
 		if got := holdingDirSurface(t, ctx, sp); got != head {
 			t.Errorf("after the Up again:\n %s\nwant HEAD's\n %s", got, head)
 		}

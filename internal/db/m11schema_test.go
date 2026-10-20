@@ -120,6 +120,8 @@ var m11Tables = map[string]map[string]m11TableACL{
 	// lock_anchor alone -- and nothing on holdings.
 	"holdings": {
 		"tappa_opdefiner": {Select: "id,name,created_at", Insert: "name"},
+		// 00062 (GRP-1): holding_group reads the holding's name (and its key, to join on).
+		"tappa_holdingdefiner": {Select: "id,name"},
 	},
 	"holding_members": {
 		"tappa_opdefiner": {
@@ -315,6 +317,10 @@ var m11Functions = map[string]m11FunctionACL{
 	// 00060 (T124, ADR 0027 §2): holding_peer's set form -- the pair form's shape, SECURITY INVOKER and
 	// EXECUTE in its owner alone.
 	"holding_peer(uuid,text)": {owner: "tappa_holdingdefiner", execute: "tappa_holdingdefiner"},
+	// 00062 (GRP-1, ADR 0027 §2): holding_peer's roster form -- the same shape -- and holding_group,
+	// a callable: EXECUTE to tappa_app alone.
+	"holding_peer(uuid)": {owner: "tappa_holdingdefiner", execute: "tappa_holdingdefiner"},
+	"holding_group()":    {owner: "tappa_holdingdefiner", definer: true, execute: "tappa_app,tappa_holdingdefiner"},
 	// 00058 (T130): settled_at's one writer, a trigger function -- EXECUTE in its owner alone,
 	// SECURITY INVOKER (it only sets NEW), its body asserting its table (webhookretention_test.go's
 	// TestWebhookRetention_TheClockIsTheDatabases binds it elsewhere).

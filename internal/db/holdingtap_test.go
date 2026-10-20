@@ -508,6 +508,45 @@ func holdingOutsiderProbes(t *testing.T, ctx context.Context, tx pgx.Tx, w holdi
 			break // one leak answers the probe (the real filter leaks none and walks every context)
 		}
 	}
+	// holding_group (00062, GRP-1): each context reads exactly its own holding's live members -- KM's H
+	// is {KF, KM}, C's and D's H2 is {C, D}, no context nothing. Compared as a set of (holding,
+	// member): a wrong filter answers MORE rows (every live membership of the database, or of every
+	// holding, relabelled or not), and the first 1000 of a filled database need not hold the outsider
+	// whose name a narrower check would look for.
+	nameOf := func(id uuid.UUID) string {
+		var n string
+		if err := tx.QueryRow(ctx, `SELECT name FROM tenants WHERE id = $1`, id).Scan(&n); err != nil {
+			t.Fatalf("a world tenant's name: %v", err)
+		}
+		return n
+	}
+	for _, p := range []struct {
+		who  string
+		ctx  uuid.UUID
+		want []string
+	}{
+		{"KM", w.km, []string{w.h.String() + " " + nameOf(w.kf), w.h.String() + " " + nameOf(w.km)}},
+		{"C (H2)", w.c, []string{w.h2.String() + " " + nameOf(w.c), w.h2.String() + " " + nameOf(w.d)}},
+		{"D (H2, C's peer)", w.d, []string{w.h2.String() + " " + nameOf(w.c), w.h2.String() + " " + nameOf(w.d)}},
+		{"no context", uuid.Nil, nil},
+	} {
+		var got []string
+		if err := holdingAppIn(t, ctx, tx, p.ctx, func(sp pgx.Tx) error {
+			rows, err := sp.Query(ctx, `SELECT holding_id::text || ' ' || member_name FROM public.holding_group()`)
+			if err != nil {
+				return err
+			}
+			got, err = pgx.CollectRows(rows, pgx.RowTo[string])
+			return err
+		}); err != nil {
+			t.Fatalf("holding_group: %v", err)
+		}
+		slices.Sort(got)
+		want := slices.Clone(p.want)
+		slices.Sort(want)
+		functions = append(functions, leak(!slices.Equal(got, want),
+			fmt.Sprintf("%s read %d member row(s) through holding_group, want its own holding's %d", p.who, len(got), len(want))))
+	}
 	// The gate: KM names C's venue on a manual record and C's plaque on a QR; C names KF's.
 	gate = append(gate,
 		leak(holdingInsertRow(t, ctx, tx, holdingRow{employer: w.km, employee: w.kmEmployee, channel: "manual", verdict: "flag", kind: "in",
@@ -705,11 +744,33 @@ func holdingInstallPeerMutant(t *testing.T, ctx context.Context, sp pgx.Tx, name
 		    IF a IS NULL THEN RETURN; END IF;
 		    RETURN QUERY %s;
 		END $$`, holdingPeerSetMutants[name])
-	for _, s := range []string{pair, set} {
+	// GRP-1 (00062): the roster form carries the same filter, with the holding and the date kept.
+	roster := fmt.Sprintf(`CREATE OR REPLACE FUNCTION public.holding_peer(a uuid)
+		RETURNS TABLE(holding_id uuid, member_tenant_id uuid, joined_at timestamptz) LANGUAGE plpgsql VOLATILE SECURITY INVOKER
+		SET search_path = pg_catalog, pg_temp ROWS 10 AS $$
+		BEGIN
+		    IF a IS NULL THEN RETURN; END IF;
+		    RETURN QUERY %s;
+		END $$`, holdingPeerRosterMutants[name])
+	for _, s := range []string{pair, set, roster} {
 		if _, err := sp.Exec(ctx, s); err != nil {
 			t.Fatalf("install %s: %v", name, err)
 		}
 	}
+}
+
+// holdingPeerRosterMutants are holdingPeerMutants as the roster form's query (a's holding(s) and their
+// members, a included): M1 every live membership in the database once a is a member; M2 every live
+// membership whatever a is; M3 every live membership of ANY holding once a is a member -- the holding
+// equality forgotten.
+var holdingPeerRosterMutants = map[string]string{
+	"M1": `SELECT m.holding_id, m.member_tenant_id, m.joined_at FROM public.holding_members m
+	        WHERE m.left_at IS NULL
+	          AND EXISTS (SELECT 1 FROM public.holding_members x WHERE x.member_tenant_id = a AND x.left_at IS NULL)`,
+	"M2": `SELECT m.holding_id, m.member_tenant_id, m.joined_at FROM public.holding_members m WHERE m.left_at IS NULL`,
+	"M3": `SELECT x.holding_id, m.member_tenant_id, m.joined_at FROM public.holding_members m
+	         JOIN public.holding_members x ON x.member_tenant_id = a AND x.left_at IS NULL
+	        WHERE m.left_at IS NULL`,
 }
 
 // TestHoldingFilter_MutantsM1M2M3AreRedInFunctionsAndTriggers is plan §5 API-1b (b)'s mutant
@@ -743,6 +804,9 @@ func TestHoldingFilter_MutantsM1M2M3AreRedInFunctionsAndTriggers(t *testing.T) {
 				}
 				if !slices.ContainsFunc(functions, func(f string) bool { return strings.Contains(f, "holding_directory") }) {
 					t.Errorf("%s in holding_peer: holding_directory's probes stayed green -- K-33's test does not catch it", name)
+				}
+				if !slices.ContainsFunc(functions, func(f string) bool { return strings.Contains(f, "holding_group") }) {
+					t.Errorf("%s in holding_peer: holding_group's probes stayed green -- K-33's test does not catch it", name)
 				}
 				if len(gate) == 0 {
 					t.Errorf("%s in holding_peer: the gate's probes stayed green -- K-33's test does not catch it", name)
@@ -1302,7 +1366,8 @@ func TestHoldingAdvance_ConcurrentSameCounterExactlyOneWins(t *testing.T) {
 // API-2 both tenants' API is open with an active endpoint, so the ok tap and the approval write
 // the two targets' events AND deliveries (00049's grants: the counters, punch_events,
 // webhook_deliveries, the endpoint's id/tenant/switch, api_enabled_at, verdict and practice). Since
-// API-8 the drive reads the directory (00055's four employees columns).
+// API-8 the drive reads the directory (00055's four employees columns); since GRP-1 the group (00062's
+// holdings (id, name)).
 func TestHoldingDefiner_EveryGrantIsUsed(t *testing.T) {
 	ctx, tx := opTx(t)
 	w := holdingWorldTx(t, ctx, tx, "")
@@ -1320,6 +1385,8 @@ func TestHoldingDefiner_EveryGrantIsUsed(t *testing.T) {
 			{`SELECT * FROM public.holding_logo($1, $2)`, []any{w.kfTag, w.kfDigest}},
 			{`SELECT * FROM public.holding_advance_tag_counter($1, 101)`, []any{w.kfTag}},
 			{`SELECT * FROM public.holding_site_locations(NULL)`, nil},
+			// GRP-1 (00062): the holding's name -- holdings (id, name).
+			{`SELECT * FROM public.holding_group()`, nil},
 		} {
 			errs = append(errs, holdingAppIn(t, ctx, sp, w.km, func(q pgx.Tx) error {
 				rows, err := q.Query(ctx, c.sql, c.args...)

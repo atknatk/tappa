@@ -83,8 +83,17 @@ templ tabBadge(t Tab) {
 // The heading is the only thing a caller must supply; the children carry the
 // sentence. Both are text, so the state is never carried by the border alone.
 templ EmptyState(heading string) {
+	@EmptyStateLabeled("Nothing here yet", heading) {
+		{ children... }
+	}
+}
+
+// EmptyStateLabeled is EmptyState with its small label named by the caller, for an absence that
+// "yet" would misdescribe -- the Group section's "not in a group" (GRP-1): nothing is about to
+// arrive there, so "Nothing here yet" would promise something. Same markup, same classes.
+templ EmptyStateLabeled(label, heading string) {
 	<section class="empty-state">
-		<p class="docket-label">Nothing here yet</p>
+		<p class="docket-label">{ label }</p>
 		<h2 class="font-display text-lg font-bold tracking-tight text-ink">{ heading }</h2>
 		<div class="text-sm text-ink/70">
 			{ children... }

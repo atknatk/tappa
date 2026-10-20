@@ -538,6 +538,9 @@ func TestPanelE2E_SignInAndOut(t *testing.T) {
 	// SECTION TABLE rather than against a sentence, so this stays true as the
 	// sections are filled in one by one.
 	for _, sec := range pages.PanelSections {
+		if sec.GroupOnly {
+			continue // GRP-1: drawn for a holding member alone; this business is in no group (group_db_test.go)
+		}
 		// htmlText, not the raw label: "Locations & Wall Tags" reaches the page as
 		// "Locations &amp; Wall Tags", and the first version of this loop compared the
 		// unescaped string and failed on exactly that section.
