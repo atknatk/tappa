@@ -273,6 +273,59 @@ func TestGuardrailAlerts_AreTheOnesTheEngineRaises(t *testing.T) {
 	}
 }
 
+// TestGuardrailQualifiers_AreTheEnginesRedirects: a guarantee has a qualifier exactly
+// when the engine's effect for it is redirect -- a redirect without one prints a bare
+// "No record" that cannot tell the two apart, and a qualifier on anything else names a
+// destination that guarantee never sends anyone to.
+func TestGuardrailQualifiers_AreTheEnginesRedirects(t *testing.T) {
+	t.Parallel()
+	redirects := map[string]bool{}
+	for _, g := range policy.Guardrails(testParams()) {
+		redirects[g.Sid] = g.Effect == policy.EffectRedirect
+	}
+	for sid := range guardrailQualifiers {
+		if !redirects[sid] {
+			t.Errorf("guardrailQualifiers names a destination for %q, which is not a redirect", sid)
+		}
+	}
+	seen := 0
+	for _, g := range testRulebook(t).guardrails() {
+		if redirects[g.Sid] != (strings.TrimSpace(g.Qualifier) != "") {
+			t.Errorf("%s renders the qualifier %q; the engine redirects: %v", g.Sid, g.Qualifier, redirects[g.Sid])
+		}
+		if g.Qualifier != "" {
+			seen++
+		}
+	}
+	if seen < 2 {
+		t.Fatalf("only %d guarantee(s) carry a qualifier; the engine ships two redirects", seen)
+	}
+}
+
+// TestGuardrailGuards_SplitsThePanelGuaranteesByTheirOwnMatch pins the derivation AND
+// today's answer: exactly the two guarantees that fire on a panel act are "the panel",
+// every other is "taps" -- asked of each guarantee's Match, not of its position.
+func TestGuardrailGuards_SplitsThePanelGuaranteesByTheirOwnMatch(t *testing.T) {
+	t.Parallel()
+	want := map[string]bool{"sys:policy-edit-owner-only": true, "sys:no-self-review": true}
+	for _, g := range testRulebook(t).guardrails() {
+		switch {
+		case want[g.Sid] && g.Guards != guardsPanel:
+			t.Errorf("%s guards %q; it fires on a panel act and never on a tap", g.Sid, g.Guards)
+		case !want[g.Sid] && g.Guards != guardsTaps:
+			t.Errorf("%s guards %q; it reads a tap fact", g.Sid, g.Guards)
+		}
+	}
+	// NEGATIVE CONTROL: a guarantee that fires on everything is a panel one by this
+	// derivation's rule, and one that fires on nothing is a tap one.
+	if got := guardsWords(policy.Guardrail{Match: func(policy.Context) bool { return true }}); got != guardsPanel {
+		t.Errorf("an always-firing guarantee is %q", got)
+	}
+	if got := guardsWords(policy.Guardrail{Match: func(policy.Context) bool { return false }}); got != guardsTaps {
+		t.Errorf("a never-firing guarantee is %q", got)
+	}
+}
+
 // TestBoundedParams_CoverEveryWindowTheEngineHolds ties the tunable rows on the
 // screen to policy.Params by COUNTING ITS FIELDS.
 //

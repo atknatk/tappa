@@ -62,6 +62,11 @@ type PolicyGuardrailView struct {
 	// When is the condition in a manager's words, the plate's headline
 	// (tenant.Guardrail.When).
 	When string
+	// Group is a sub-heading printed ABOVE this rung when the guarantee starts a new
+	// group ("Guarantees on the panel itself · they guard the rules, not taps"), else
+	// empty. The handler sets it where tenant.Guardrail.Guards changes, so the split is
+	// the engine's and never a position.
+	Group string
 	// Reason is the sentence the employee sees when this fires.
 	Reason string
 	// Rule is why it cannot be switched off, naming the red line it enforces.
@@ -124,6 +129,9 @@ type PolicyVersionView struct {
 // PolicyRuleView is one policy: what it is, whether it is running, what it says.
 type PolicyRuleView struct {
 	Name string
+	// Lead is the first statement's reason, printed under the title as the card's
+	// sub-line ("Engine's reason: …"); the statement blocks below do not repeat it.
+	Lead string
 	// Title is the name as the rule's card prints it: a shipped rule's name without
 	// its "Taptime baseline — " prefix, which the heading above the list already says.
 	// The full Name stays the stored name -- forms post names, never this.
@@ -326,6 +334,11 @@ type PoliciesView struct {
 	// "works the other way" row prints), not base:no-evidence-review -- that one is an
 	// ordinary rule a business can switch off.
 	DefaultOutcome string
+	// DefaultNote is the last plate's sentence, chosen by the handler from the SAME
+	// engine answer as DefaultOutcome: "sent to The Spike … nothing approves silently"
+	// only while that answer is review, so the sentence cannot outlive the default it
+	// describes.
+	DefaultNote string
 
 	Guardrails []PolicyGuardrailView
 	Baseline   []PolicyRuleView

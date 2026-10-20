@@ -297,10 +297,16 @@ func fillPoliciesView(v *pages.PoliciesView, s tenant.PolicyScreen) {
 			Order:   strconv.Itoa(g.Order),
 			Sid:     g.Sid,
 			Effect:  g.Effect,
-			Outcome: guardrailLabel(g.Effect, g.Alert),
+			Outcome: guardrailLabel(g.Effect, g.Qualifier, g.Alert),
 			When:    g.When,
 			Reason:  g.Reason,
 			Rule:    g.Rule,
+		}
+		// A GROUP STARTS WHERE WHAT A GUARANTEE GUARDS CHANGES -- the engine's answer
+		// (tenant.Guardrail.Guards), so the sub-heading follows the guarantees rather
+		// than a position. The first group (taps) needs none: the block's heading is it.
+		if len(v.Guardrails) > 0 && g.Guards != s.Guardrails[len(v.Guardrails)-1].Guards {
+			row.Group = guardrailGroupHeading(g.Guards)
 		}
 		if g.Bounded != nil {
 			row.Tunable = g.Bounded.Label
@@ -382,6 +388,7 @@ func fillPoliciesView(v *pages.PoliciesView, s tenant.PolicyScreen) {
 		// business can switch off.
 		if auth.Action == string(policy.ActionTapRecord) {
 			v.DefaultOutcome = effectLabel(auth.Default)
+			v.DefaultNote = defaultTapNote(auth.Default)
 		}
 	}
 }
@@ -552,6 +559,9 @@ func policyRuleView(r tenant.Rule, zone *time.Location, guardrailsOnly bool, ed 
 			" Nothing changes on its own, on purpose — a rule that changed under you would change " +
 			"what past taps meant."
 	}
+	if len(r.Statements) > 0 {
+		row.Lead = r.Statements[0].Reason
+	}
 	for _, st := range r.Statements {
 		s := pages.PolicyStatementView{
 			Sid:       st.Sid,
@@ -705,13 +715,40 @@ func statementLabel(effect string, actions []string) string {
 	return effectLabel(effect)
 }
 
-// guardrailLabel is a guarantee's effect label with the security alert the engine
-// raises when it fires ("Reject · security alert"); alert is tenant.Guardrail.Alert.
-func guardrailLabel(effect, alert string) string {
-	if alert == "" {
-		return effectLabel(effect)
+// guardrailLabel is a guarantee's effect label with where a redirect leaves the person
+// and the security alert the engine raises when it fires ("No record · activation
+// page", "Reject · security alert"); qualifier and alert are tenant.Guardrail's.
+func guardrailLabel(effect, qualifier, alert string) string {
+	label := effectLabel(effect)
+	for _, part := range []string{qualifier, alert} {
+		if part != "" {
+			label += " · " + part
+		}
 	}
-	return effectLabel(effect) + " · " + alert
+	return label
+}
+
+// guardrailGroupHeading is the sub-heading over a group of guarantees, by what they
+// guard (tenant.Guardrail.Guards).
+func guardrailGroupHeading(guards string) string {
+	if guards == "the panel" {
+		return "Guarantees on the panel itself · they guard the rules, not taps"
+	}
+	return "Guarantees on " + guards
+}
+
+// defaultTapNote is the last plate's sentence for the engine's default for a tap. The
+// §4.6 promise ("sent to The Spike … nothing approves silently") is printed only while
+// that default IS review; any other answer gets a sentence that claims nothing it does
+// not know.
+func defaultTapNote(effect string) string {
+	if effect == string(policy.EffectReview) {
+		return "If no guarantee settles a tap and no rule above matches it, the tap is sent " +
+			"to The Spike rather than quietly approved. It is still recorded — nothing " +
+			"approves silently."
+	}
+	return "If no guarantee settles a tap and no rule above matches it, the engine's own " +
+		"answer applies."
 }
 
 // baselineNamePrefix is how every shipped document's name begins. A rule's card prints

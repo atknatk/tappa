@@ -393,7 +393,7 @@ templ PolicyGuarantees(v PoliciesView) {
 		<div class="ladder ladder-runon flex flex-col gap-3.5">
 			<div class="relative flex flex-col gap-1.5">
 				<span class="lock-glyph absolute -left-[46px] -top-1 md:-left-[55px]"></span>
-				<h2 class="font-display text-lg font-bold tracking-tight text-ink">Taptime guarantees</h2>
+				<h2 class="font-display text-lg font-bold tracking-tight text-ink">Taptime guarantees <span class="font-mono text-xs font-normal tracking-normal text-ink/70">· checked in this order · the first that applies decides on its own</span></h2>
 				<p class="text-sm text-ink/85">
 					These are checked in the order shown, and the first one that applies decides on
 					its own. They are part of the product rather than a setting: there is no control to
@@ -403,11 +403,14 @@ templ PolicyGuarantees(v PoliciesView) {
 				</p>
 			</div>
 			for _, g := range v.Guardrails {
+				if g.Group != "" {
+					<p class="lbl mt-2">{ g.Group }</p>
+				}
 				<section class="rung">
 					<span class="rung-no">{ rungNumber(g.Order) }</span>
 					<div class="plate grid grid-cols-1 gap-x-4 gap-y-1 md:grid-cols-[minmax(0,1fr)_auto]">
 						<p class="font-display text-[15px] font-bold leading-snug text-ink">{ g.When }</p>
-						<p class="font-display text-sm font-bold text-ink md:text-right">{ g.Outcome }</p>
+						<p class="md:text-right"><span class="effect-pill effect-pill--locked"><span class="lock-mini"></span>{ g.Outcome }</span></p>
 						<div class="flex flex-wrap items-center gap-x-2 gap-y-1 md:col-span-2">
 							<span class="font-mono text-xs text-ink">{ g.Sid }</span>
 							<span class="tally tally--locked tally--pill">Cannot be switched off</span>
@@ -438,7 +441,7 @@ templ PolicyGuarantees(v PoliciesView) {
 templ policyBaseline(v PoliciesView) {
 	<div class="relative flex flex-col gap-1.5">
 		<span class="absolute -left-[37px] top-1.5 size-4 rounded-full border-[3px] border-ink bg-porcelain md:-left-[46px]"></span>
-		<h2 class="font-display text-lg font-bold tracking-tight text-ink">Taptime baseline</h2>
+		<h2 class="font-display text-lg font-bold tracking-tight text-ink">Taptime baseline <span class="font-mono text-xs font-normal tracking-normal text-ink/70">· the defaults we ship · yours to switch off or copy</span></h2>
 		<p class="text-sm text-ink/85">
 			The defaults we ship. Unlike the guarantees above, these are yours: one can be
 			switched off or replaced with your own version once it has been set up for your
@@ -453,6 +456,9 @@ templ policyBaseline(v PoliciesView) {
 		disagree the <strong class="text-ink">more specific one decides</strong>, and only when
 		two rules are equally specific does the stricter answer win. A note never decides.
 	</p>
+	if v.MayEdit {
+		<p class="lbl">Each control opens a review page for that one change · nothing is written until you confirm there</p>
+	}
 	<div class="flex flex-col gap-4">
 		for _, r := range v.Baseline {
 			@policyRule(r)
@@ -464,7 +470,7 @@ templ policyBaseline(v PoliciesView) {
 templ policyTenant(v PoliciesView) {
 	<div class="relative mt-2 flex flex-col gap-1.5">
 		<span class="absolute -left-[37px] top-1.5 size-4 rounded-full border-[3px] border-ink bg-porcelain md:-left-[46px]"></span>
-		<h2 class="font-display text-lg font-bold tracking-tight text-ink">Your own policies</h2>
+		<h2 class="font-display text-lg font-bold tracking-tight text-ink">Your own policies <span class="font-mono text-xs font-normal tracking-normal text-ink/70">· written by you · Taptime never changes them</span></h2>
 	</div>
 	if len(v.Tenant) == 0 {
 		<div class="empty-state rounded-[14px]">
@@ -518,11 +524,7 @@ templ policyDefault(v PoliciesView) {
 			<div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 rounded-[14px] border border-dashed border-saffron bg-saffron-lite px-4 py-3.5 md:px-[22px]">
 				<div class="flex min-w-0 flex-1 basis-60 flex-col gap-1">
 					<p class="font-display text-[15px] font-bold text-ink">When nothing decides</p>
-					<p class="text-sm text-ink">
-						If no guarantee settles a tap and no rule above matches it, the tap is sent to
-						The Spike rather than quietly approved. It is still recorded — nothing approves
-						silently.
-					</p>
+					<p class="text-sm text-ink">{ v.DefaultNote }</p>
 					<p class="font-mono text-xs text-ink">
 						default · the engine’s own answer · not a rule anyone can switch off
 					</p>
@@ -550,8 +552,20 @@ templ policyRule(r PolicyRuleView) {
 	<section class="rung">
 		<div class="flex min-w-0 flex-col gap-3 rounded-[14px] border border-line bg-paper px-4 py-4 md:px-[22px] md:py-[18px]">
 			<div class="flex flex-wrap items-start justify-between gap-x-3.5 gap-y-2">
-				<p class="min-w-0 font-display text-base font-bold tracking-tight text-ink">{ r.Title }</p>
-				<span class={ policyToneClass(r.StateTone) }>{ r.StateLabel }</span>
+				<div class="flex min-w-0 flex-1 basis-56 flex-col gap-1">
+					<p class="font-display text-base font-bold tracking-tight text-ink">{ r.Title }</p>
+					if r.Lead != "" {
+						<p class="text-sm text-ink/85">Engine’s reason: “{ r.Lead }”</p>
+					}
+				</div>
+				// The state, then one read-only pill per statement: the authorization document's
+				// two grants stay two pills. A pill is a label, never a control (D1).
+				<div class="flex flex-wrap items-center gap-2 md:flex-col md:items-end">
+					<span class={ policyToneClass(r.StateTone) }>{ r.StateLabel }</span>
+					for _, s := range r.Statements {
+						<span class={ effectPillClass(s.Effect) }>{ s.Label }</span>
+					}
+				</div>
 			</div>
 			<p class="font-mono text-xs uppercase tracking-widest text-ink/70">
 				if r.Managed {
@@ -569,7 +583,7 @@ templ policyRule(r PolicyRuleView) {
 			if r.Outdated != "" {
 				// T125 / ADR 0029: the legacy-baseline caveat stays on the rule it is about.
 				<div class="flex flex-col gap-1 rounded-xl border border-dashed border-saffron bg-saffron-lite px-3.5 py-3">
-					<p class="font-mono text-xs font-bold uppercase tracking-widest text-ink">A newer baseline changes this rule</p>
+					<p class="font-mono text-xs font-bold uppercase tracking-widest text-ink">Outdated · a newer baseline changes this rule</p>
 					<p class="text-sm text-ink">{ r.Outdated }</p>
 				</div>
 			}
@@ -585,14 +599,12 @@ templ policyRule(r PolicyRuleView) {
 				}
 			}
 			@policySwitch(r)
-			for _, s := range r.Statements {
+			for i, s := range r.Statements {
 				<div class="flex flex-col gap-1.5 border-t border-dashed border-line pt-3">
-					<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-						<span class={ effectPillClass(s.Effect) }>{ s.Label }</span>
-						<span class="font-mono text-xs text-ink">{ s.Sid }</span>
-					</div>
+					<p class="font-mono text-xs text-ink">{ s.Sid } · { s.Label }</p>
 					<p class="text-sm text-ink">{ s.Outcome }</p>
-					if s.Reason != "" {
+					// The first statement's reason is the card's sub-line; a later one's is its own.
+					if i > 0 && s.Reason != "" {
 						<p class="text-sm text-ink/85">Engine’s reason: “{ s.Reason }”</p>
 					}
 					<dl class="grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-2">

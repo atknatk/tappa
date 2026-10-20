@@ -187,6 +187,18 @@ type Guardrail struct {
 	// ENGINE's answer (policy.Guardrail.Alert != nil), not a list kept here --
 	// TestGuardrailAlerts_AreTheOnesTheEngineRaises ties the words to it.
 	Alert string
+	// Qualifier says where a REDIRECT leaves the person ("activation page", "other
+	// business"), or is empty for every other effect. A redirect writes no record, and
+	// "No record" alone would not tell a manager which of the two no-record guarantees
+	// fired. TestGuardrailQualifiers_AreTheEnginesRedirects holds it to the engine's
+	// Effect in both directions.
+	Qualifier string
+	// Guards says what the guarantee protects, in words: "taps", or "the panel" for
+	// one that fires on a panel act and never on a tap (sys:policy-edit-owner-only,
+	// sys:no-self-review). It is DERIVED by asking the guarantee's own Match
+	// (panelGuardrail), never read off its position, and it is a string for Alert's
+	// reason.
+	Guards string
 	// Bounded is the tunable window this guardrail compares against, or nil for the
 	// ones that have none. "Cannot be switched off but MAY be tuned within a
 	// range" is ADR 0004 §11's pattern, and a screen that showed only the
@@ -807,7 +819,11 @@ func (r *Rulebook) guardrails() []Guardrail {
 			When:    guardrailWhen[g.Sid],
 			Alert:   guardrailAlertWords(g),
 			Bounded: r.boundedFor(g.Sid),
+			Guards:  guardsWords(g),
 		})
+		if g.Effect == policy.EffectRedirect {
+			out[len(out)-1].Qualifier = guardrailQualifiers[g.Sid]
+		}
 	}
 	return out
 }
@@ -875,6 +891,44 @@ var guardrailWhen = map[string]string{
 var guardrailAlerts = map[string]string{
 	"sys:tag-not-active":       "alert if lost",
 	"sys:employee-deactivated": "security alert",
+}
+
+// guardrailQualifiers says where each shipped REDIRECT leaves the person. A redirect
+// writes no record (§5 row 3; §4.5 for another business's plaque), so the label is
+// "No record" -- and these words tell the two apart.
+var guardrailQualifiers = map[string]string{
+	"sys:tenant-mismatch": "other business",
+	"sys:no-session":      "activation page",
+}
+
+// The two answers guardsWords gives.
+const (
+	guardsTaps  = "taps"
+	guardsPanel = "the panel"
+)
+
+// guardsWords says whether g guards taps or the panel, by asking g's own Match.
+//
+// A guarantee guards THE PANEL when it fires on a panel act that carries nothing a tap
+// carries: an action other than tap:record, with the review pair filled in (a reviewer
+// who is the subject) and no tag, session, channel or tap key at all. Every tap
+// guarantee reads one of those tap facts and stays silent on such a context; the two
+// panel guarantees fire on it. The answer is the engine's, so a guarantee added or
+// moved tomorrow lands in the right group without anybody editing a list.
+func guardsWords(g policy.Guardrail) string {
+	if g.Match == nil {
+		return guardsTaps
+	}
+	same := uuid.New()
+	for _, a := range policy.Actions() {
+		if a == policy.ActionTapRecord {
+			continue
+		}
+		if g.Match(policy.Context{Action: a, ReviewerID: &same, SubjectEmployeeID: &same}) {
+			return guardsPanel
+		}
+	}
+	return guardsTaps
 }
 
 // guardrailAlertWords returns the words for g's alert, or "" when the engine gives g

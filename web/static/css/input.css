@@ -1456,6 +1456,19 @@
   .effect-pill--review { @apply border-saffron; }
   .effect-pill--deny { @apply border-tomato; }
   .effect-pill--quiet { @apply border-line; }
+  /* A guarantee's effect: an ink frame and a small padlock -- locked, not a state. */
+  .effect-pill--locked { @apply gap-2 border-ink; }
+  /* The small padlock: a shackle (::before) over a body (::after), 10 x 13 px. */
+  .lock-mini { @apply relative inline-block h-[13px] w-2.5 flex-none; }
+  .lock-mini::before {
+    content: '';
+    @apply absolute left-1/2 top-0 h-1.5 w-1.5 -translate-x-1/2 rounded-t-full border-[1.5px]
+           border-b-0 border-ink;
+  }
+  .lock-mini::after {
+    content: '';
+    @apply absolute bottom-0 left-0 h-[7px] w-2.5 rounded-[2px] bg-ink;
+  }
 
   /* --- the rule switch: a submit button whose words name the outcome ---
      No switch role and no pressed state: the state is the state chip beside it,
