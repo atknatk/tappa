@@ -1329,3 +1329,10 @@ farkıyla taşındı; taban kaymasının değiştirdiği sayılar ve yerler ADR 
 - **Gerçek hiçbir tenant askıya alınmadı;** E2E yalnız kendi fikstür tenant'ını askıya aldı ve kaldırdı,
   koşudan sonra veritabanında askıdaki tenant sayısı 0 (salt-okur sonda); veritabanı 63'te. Çapraz E2E de
   yalnız kendi fikstür işletmesini askıya aldı ve kaldırdı.
+- *(Not, 2026-10-20, iki merceğin DÜŞÜK turu.)* Yukarıdaki *"(sahte yok)"* fazla geniştir; doğrusu: üç
+  özelliğin bağımlılıkları ürünün kendileridir, **iki istisna adıyla** ölçülen yolun dışındadır — `/v1`'in
+  K-19 iş kümesi (`crossNoWork`; bir webhook bildirimi, test webhook okumaz) ve panelin plaket kodlayıcısı
+  (`nil`; kodlama rölesi sürülmez). Panelin lokasyon kaydı ve `/v1`'in lokasyon `PUT`'u ikisine de ulaşmaz.
+  Aynı turda test, panelin reddinin bıraktığı satırı da pinler: askı adımında işletmenin `audit_log`'unda
+  **tam bir** `tenant.write_refused` (aktör sahip, hedef `/admin/locations/venue`, `detail` tam olarak
+  `{"reason": "non_payment"}`), kaldırmadan sonra yeni ret satırı yok.
