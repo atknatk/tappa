@@ -846,6 +846,9 @@ func TestPolicyChange_DrawsOnlyWhatTheOperationChanges(t *testing.T) {
 	if condA.Name == "" {
 		t.Fatal("no two authorable rules answer the same under different conditions; the conditions case measures nothing")
 	}
+	if len(conditionTexts(condA)) == 0 || len(conditionTexts(condB)) == 0 {
+		t.Fatalf("%q or %q carries no condition, so the struck / added check would measure nothing", condA.Name, condB.Name)
+	}
 	supersede := func(policyID uuid.UUID, name, basedOn string) url.Values {
 		return url.Values{"op": {opAuthor}, "policy": {policyID.String()}, "name": {name},
 			"based_on": {basedOn}, "venue": {venue.String()}}
@@ -1018,6 +1021,9 @@ func TestPolicyChange_ClaimsNothingAboutAVersionItCannotRead(t *testing.T) {
 			different = d
 			break
 		}
+	}
+	if different.Name == "" {
+		t.Fatal("no authorable rule answers differently from the first; this test measures nothing")
 	}
 	// TWO SHAPES OF "NO STATEMENTS ON THE SCREEN READ", each with its own sentence: a
 	// document this release cannot parse, and a switched-off rule, whose document the
