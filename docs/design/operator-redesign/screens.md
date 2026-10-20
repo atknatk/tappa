@@ -4,7 +4,8 @@ Companion to [README.md](README.md). Per screen: what the code draws, the bindin
 form with its hidden fields, the states, what is never shown, and the tests that hold it. Under
 D1 a board may show **only** what is listed here.
 
-Citations: HEAD `022ba3c` (operator files unchanged since `1e5cc83`). File prefixes:
+Citations: HEAD `022ba3c` (operator files unchanged since `1e5cc83`, and still unchanged at
+`a8a06f6`, where the board-polish sync of 2026-10-20 re-checked every line it added). File prefixes:
 templates are `web/templates/operatorpages/`, handlers `internal/handler/operator/`, tests
 `internal/handler/operator/` unless named. Times print as `utcStamp` "2006-01-02 15:04 UTC"
 (`legal.go:344`) unless noted; the audit log uses `utcSecond` "2006-01-02 15:04:05 UTC"
@@ -13,7 +14,9 @@ templates are `web/templates/operatorpages/`, handlers `internal/handler/operato
 Shared vocabulary: `op-card` = paper card; `docket` = perforated paper list (sharp, D2);
 `docket-label` = 10 px mono small caps label; `op-link` = tappa-green underlined bold link,
 44 px; `btn btn--primary` = green button; `btn btn--quiet` = paper button with line border,
-tomato on hover. Notices are today `components.Notice(tone, heading)`
+tomato on hover; `op-pager` (new, README §6) = outlined paper button for the Billing, Audit and
+Holdings pagers; `op-step` / `op-heading` (new, README §6) = in-card display headings where the
+code writes `docket-label` today (Enroll's steps, "Create a holding"). Notices are today `components.Notice(tone, heading)`
 (`web/templates/components/notice.templ:40-49`) and become the operator-only `opNotice`
 (M13-03) with the **same tone and the same words**.
 
@@ -32,12 +35,19 @@ tomato on hover. Notices are today `components.Notice(tone, heading)`
 
 DOM order (signed in): `header.op-bar` → `div.op-frame` → `nav.op-nav` → `div.op-col` → [`section.op-tenant` containing `nav.op-subnav`] → `main.op-main`. The banner stays outside and before `<main>` (README §2). The phone sign-out is the same single text button (no icon, no `<svg>`).
 
+Phone bar (polished boards): **sticky** at the viewport bottom, and on a short page it rests on
+the viewport's bottom edge — `div.op-frame` is a flex column at least the viewport tall (minus
+the band), the nav takes `order-last mt-auto` (README §6 "Frame", "Main nav"). Padding (polished
+boards): docket 18 px 24 px on tablet/desktop, 16 px 20 px on the phone; a card 20 px on the
+phone (README §6 "Card", "Docket list").
+
 Signed-in shell (band with sign out + nav): Home, every data screen, signed-in problems.
 Signed-out shell (band only): SignIn, Code, Enroll (enrollment *ends* in a session —
 `chrome.templ:78-79`), signed-out problems.
 
 Which item is current: Console (Home) · Tenants (Tenants, TenantOverview, TenantPlaques,
-TenantBilling, TenantVAT) · Holdings · Audit log · Legal texts · none (signed-in Problem).
+TenantBilling, TenantVAT) · Holdings · Audit log · Legal texts · none (signed-in Problem: no
+`aria-current` in `op-nav`, no marker at any width — as the polished `OpProblem` boards draw it).
 Sub-nav current: Overview / Plaques / Billing / VAT number.
 
 **Tests:** `TestOperatorScreens_EveryOneWearsTheOperatorChrome` (extended, README §4.1),
@@ -107,15 +117,15 @@ Signed-out shell via `scriptedScreen` (the only page with a script). Title `Set 
 |---|---|
 | h1 | Set up your operator account |
 | sub | This link works once, for 30 minutes from when it was made. |
-| step 1 label (first load only) | Step 1 · Add this key to your authenticator app |
-| QR (first load only) | `<svg class="op-qr" role="img" aria-label="Scan with your authenticator app" viewBox=… width/height=whole px shape-rendering="crispEdges"><title>Scan with your authenticator app</title><rect fill="#FFFDF4"/><path fill="#152219" d=…/></svg>` (`enroll.templ:40-44`, `qr.go`; ~207–264 px, `qr.go:29`). Omitted if encoding fails — the text key still shows. |
+| step 1 heading (first load only) | Step 1 · Add this key to your authenticator app — today `<p class="docket-label">` (`enroll.templ:38`); the polished boards draw it as a **display heading, 17 px (16 px phone), bold** → `.op-step`, same words (README §6). No test pins the `docket-label` class here. |
+| QR (first load only) | `<svg class="op-qr" role="img" aria-label="Scan with your authenticator app" viewBox=… width/height=whole px shape-rendering="crispEdges"><title>Scan with your authenticator app</title><rect fill="#FFFDF4"/><path fill="#152219" d=…/></svg>` (`enroll.templ:40-44`, `qr.go`; ~207–264 px, `qr.go:29`). Omitted if encoding fails — the text key still shows. The boards draw a real sample of this shape (repo encoder, version 8, 57 modules × 4 px = 228 px — the size a host of up to 18 bytes gets, `qr.go:26-28`); its content is sample data. |
 | key | Scan the code with your app, or type this key: → `<p class="op-key">` grouped base32 |
 | URI | If your app takes a setup link instead, use this one: → `<p class="op-uri">` the `otpauth://` URI |
 | warn (re-render, no key) | **Use the key you already added** — Type a code from the authenticator entry this page gave you. If you did not add it, open your link again for a new key. |
 | alert Mismatch | **The two passwords differ** — Type the same new password in both fields. |
 | alert WeakPassword | **Choose another password** — Use at least 14 characters and at most 72 bytes. A letter with an accent, or from another alphabet, takes two bytes or more. |
 | alert CodeRejected | **That code was not accepted** — Check that your phone's clock is right, then type the next code. |
-| step 2 label | Step 2 · Choose a password and confirm the code |
+| step 2 heading | Step 2 · Choose a password and confirm the code — `<p class="docket-label">` today (`enroll.templ:83`) → `.op-step` like step 1 |
 | fields | Link code (help: The part of your link after the # sign.) · New password · New password again · Code from the app |
 | button | Finish setup |
 
@@ -150,6 +160,11 @@ Signed-in shell, current = Console. Title `Console`.
 | list | **Tenants** — find a business, and see what it has live · **Legal texts** — Taptime's privacy policy, terms, company details and cookie notice · **Holdings** — group businesses that work in one timezone, and see who is in each · **Audit log** — every sign-in, read and publication on this surface |
 | footer | A session ends after 30 minutes without use, and after 8 hours in any case. Sign out when you are done. |
 
+Layout (polished boards = the code's shape): **one `op-card`** (`home.templ:22-47`) — mono label,
+`<h1>` 28 px at every width, the four link + gloss pairs as a **two-column grid** on
+tablet/desktop and **stacked 44 px links** on the phone, the session sentence as the card's
+footer **inside the card** (README §6.1 "Home hub"). Not a docket.
+
 Links: `/operator/tenants`, `/operator/legal`, `/operator/holdings`, `/operator/audit`, each
 `class="op-link"`. **No icon tiles:** an earlier board drew a 48 px icon tile beside each link;
 the tiles were removed from `OpHome` / `T-OpHome` / `M-OpHome` and are not ported (D1 — Home has
@@ -169,7 +184,8 @@ these stay exact and unique in meaning).
 ## 4. OpProblem — `Problem` (`home.templ:53-65`), constants `render.go:137-452`
 
 Alert notice with `<h1>` = Title, `<p>` = Message; optional `op-link` Back / BackLabel; shell
-signed in or not per constant. All constants are binding (`problemPages()` `render.go:456-471`;
+signed in or not per constant. Signed in: band + nav with **no current item** and no tenant
+banner or sub-nav; signed out: band only, no nav. All constants are binding (`problemPages()` `render.go:456-471`;
 `TestProblemPages_LinkOnlyToMountedRoutes`, `TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo`).
 
 | Constant | Status | Title | Message | Back |
@@ -220,7 +236,8 @@ an unconfirmed write never claims "nothing happened" (`render.go:381-388, 425-42
 fault never shows a figure (`render.go:335-336`).
 
 **Board states:** signed-out with back link (cross-origin) · signed-out without link (setup link
-does not work) · signed-in with back (change not confirmed) · 429 without link.
+does not work) · signed-in with back (change not confirmed; nav drawn, nothing current) · 429
+without link.
 **Not boards:** plain-text 404, 503, 500 (README §7).
 
 ---
@@ -246,7 +263,12 @@ Signed-in shell, current = Tenants. Title `Tenants`.
 (type search, maxlength 254, autocomplete off, spellcheck false, value = the term as searched).
 Pager: each button a POST form to `/operator/tenants` with hidden `q` + `page`, button
 `<button type="submit" class="op-link">`. Next only after a full page (50 rows,
-`tenants.go:91`) and page < 1000.
+`tenants.go:91`) and page < 1000. (Not in the polished-pager list: it keeps `op-link` unless its
+board is redrawn — README §6 "Pager".)
+
+**Layout (polished boards):** the row is a grid on tablet/desktop (name · Since · plan, the id
+on its own line under them); on the phone the name link stands alone on the first line, 44 px
+tall (`op-link`'s `min-h-11`) — README §6.1 "Tenants row".
 
 **States:** every tenant page 1 · searched with matches · no match · no tenants yet · later page
 empty · pager Previous + Next.
@@ -335,11 +357,16 @@ Chips (`plaques.go:136-149`):
 | Lost | `tally--withdrawn` | Reported lost; taps on it are rejected. |
 | Unrecognised | `tally--unrecognised` | Its stored status and location are not a state this screen knows; the status is shown as stored. |
 
+**Layout (polished boards):** two columns on tablet/desktop — the UID in its own column, chip,
+sentence and facts beside it (one wrapper `<div>` after the UID span; the row still starts with
+the UID span, `op13_test.go:285`); stacked on the phone — README §6.1 "Plaque row".
+
 **Forms:** none — the page's only `<form` is the band's sign-out and its only `<button` the
 sign-out's text button; no `hx-` attribute (`plaques.templ:7-9`, `op13_test.go:327-332`). The nav
 and sub-nav are links, and the phone sign-out stays text (no icon).
 **States:** mixed rows covering all seven chips · truncated "first 200 of N" · no plaques ·
-unnamed tenant.
+unnamed tenant (drawn on the polished `OpPlaques` boards too; fixture "tenant plaques, unnamed",
+`op8_test.go:723`).
 **Not shown:** AES key, key ref, CMAC, tap URL, a QR of the plaque (D4's plaque drawing is a
 panel feature).
 **Tests:** `TestPlaqueScreen_NoKeyReachesThePage`, `TestPlaqueScreen_EveryShapeHasItsSentenceAndAnUnknownStatusStaysVisible`,
@@ -361,6 +388,7 @@ Banner + sub-nav (current = Billing). Title `Billing — <name> — Taptime oper
 | links | Back to the overview · Back to the tenants (exact markup `op12_test.go:1445-1446`) |
 | docket heading | Newest first · page `N` of 5 (pinned, `op12_test.go:~1433`) |
 | row `op-row` | month ("October 2026", mono bold) · chip · sentence · with figures: Plan `<x>` · People counted `<n>` · Price per person `<€x.xx>` · Amount `<€x.xx>` · [Closed `<local time zone>`] · [First charged month `<Month YYYY>`] · Counted over `<from>` to `<to zone>`; [free-window sentence]; [floor sentence] |
+| figures (polished boards) | the four figures are drawn as a **receipt strip**, small labels above values — PLAN · PEOPLE COUNTED · PRICE PER PERSON · AMOUNT (the code's words; the caps are CSS), Amount right-aligned, 20 px bold; 2 × 2 on the phone — instead of today's inline `<span class="text-sm">Plan <span class="font-mono">…</span></span>` spans (`billing.templ:68-71`). Markup and test changes: README §6 "Billing receipt strip", M13-10. Closed / First charged month / Counted over stay inline spans. |
 | free window | Inside the founding offer's free window: the amount is zero because of the offer, not because nobody was counted. |
 | floor | The count is a FLOOR: `<n>` employee records of this business disagree with their own dates and are never counted, so the real count may be higher. That number is an upper bound on the effect, not the amount missing. |
 | last page | This is the oldest page this screen shows: `<60>` months, the tenant's own history depth. |
@@ -376,8 +404,17 @@ States (`billing.go:235-249`):
 | Before sign-up | `tally--before-signup` | This month is before the business signed up; there is nothing to count for it. | **none** |
 | Unreadable | `tally--unreadable` | This month's row could not be read as a billing month, so no figure is shown for it — not even a zero. | **none** (label may be "A month with no date") |
 
+Chip tones as the polished boards draw them: live (`tally--running`) = **dashed saffron
+outline on paper** (a re-tone of its own rule, README §6 "Chip / tally"); ended, not closed = saffron;
+frozen = green; before sign-up = line; unreadable = ink (the last four as today).
+
 **Forms:** pager — POST forms to `/operator/tenants/{id}/billing` with hidden `page` (1..5);
-exactly 2 on page 3 (`op8_test.go:868`).
+exactly 2 on page 3 (`op8_test.go:868`). Drawn as outlined buttons: `<button type="submit"
+class="op-pager">` after M13-10 (today `class="op-link"`, pinned at `op12_test.go:1372, 1441`).
+
+**States:** every tone on one page · page 3 (both pager buttons) · the last page (oldest-page
+note) · unnamed tenant (fixtures "tenant billing", "tenant billing, page 3", "tenant billing, the
+last", "tenant billing, unnamed", `op8_test.go:729-732`).
 **Binding:** no word claims owed / late / paid (`billing.go:230-233`); a frozen and a live month
 never render alike; unreadable / before-sign-up rows show no figure (§4.6).
 **Not shown:** any person, invoice PDF, payment status, CSV, close / freeze control.
@@ -422,6 +459,14 @@ Warn notices (a POST that changed nothing, `vat.go:394-401`):
 | 503 | VIES did not answer | The EU VAT register (VIES) did not answer. Nothing was changed; the result below still stands. Try again in a few minutes. |
 | 422 | This number cannot be sent to VIES | It is not in the format VIES accepts for its country, so it was not sent. Nothing was changed. The number can only be corrected by the platform owner, in the database: neither the business nor this screen can change it. |
 | 429 | Too many VAT re-checks | This session has asked VIES ten times in ten minutes. Wait ten minutes, then try again. Nothing was changed. |
+
+**Layout (polished boards):** the two "On file" facts side by side on tablet/desktop (the `dl`,
+`vat.templ:41`), stacked on the phone; the pinned `<dd class="mt-1 break-all font-mono text-lg
+font-bold">` stays (`op16_test.go:1409`).
+
+**States:** each of the four verdicts · never asked · a warn notice · odd number (no form) ·
+unnamed tenant (drawn on the polished `OpVat` boards too; the fixture "tenant VAT, not found"
+carries the unnamed banner, `op8_test.go:663, 736`).
 
 **Form:** `POST /operator/tenants/{id}/vat` with **no field** — only the button; the server sends
 the number it read (`vat.templ:10-14`). Exactly one when askable, none otherwise.
@@ -470,9 +515,22 @@ per page)] · [No search term / Searched by name / Searched by address / Searche
 **the class, never the term**] · [Filter: `<word>`] · [Document `<mono slug>`] · [`<n>` bytes] ·
 [Detail not shown, italic] · [Session `<first 8 hex>`].
 
+Faces (polished boards = the code): the operator and account **names** are Space Grotesk — the
+code writes them in `<bdi>` with no mono (`audit.templ:92, 98`); mono only where the code prints
+it: the time, page numbers, session, ids, document slug, bytes. The "Of a scope this screen does
+not show" fact (`audit.templ:117-118`, a scope newer than this screen's words) is a row of its
+own on the boards and in `TestAuditScreen_EveryRowSaysWhatTheLogHolds` (`op14_test.go:335`). The
+inline tenant link keeps its line height on tablet/desktop and gets a **44 px invisible overlay**
+(README §6 "Inline link hit area"); its markup stays as pinned (`op14_test.go:317, 328, 387`).
+
 **Forms:** filter `POST /operator/audit` (`kind`); pager POST forms with hidden `kind` + `page`,
-buttons `<button type="submit" class="op-link">`; 3 forms when filtered (`op8_test.go:896`). 50
-rows per page, 1000 pages max.
+buttons `<button type="submit" class="op-link">` today, drawn as outlined buttons →
+`class="op-pager"` in M13-12 (the pin `op14_test.go:739-740` changes with it); 3 forms when
+filtered (`op8_test.go:896`). 50 rows per page, 1000 pages max.
+
+**States:** every row shape (fixture "audit log") · filtered · past the end ("This page is
+empty: the log ended on the page before.") · the last page · empty ("The log holds no entry of
+this kind.") — `op8_test.go:724-728`.
 **Not shown:** export, per-tenant audit view, derived verdicts ("compromised"), search terms,
 credentials.
 **Tests:** `TestAuditScreen_WearsTheDocketAnatomy`, `TestAuditScreen_EveryRowSaysWhatTheLogHolds`,
@@ -492,13 +550,13 @@ Signed-in shell, current = Holdings; no banner. Title `Holdings`.
 | label · h1 | Holdings · Holdings |
 | intro | A holding groups businesses that work in one timezone; while a business is in one, and for 60 seconds after it leaves, its owner cannot change its timezone. Only this screen changes who is in a holding. |
 | link | Back to the console |
-| create card | **Create a holding**; label **Name**; help: One line of at most 120 characters. The new holding has no business in it yet.; button **Create** |
+| create card | **Create a holding** (today `<h2 id="holding-create" class="docket-label">`, `holdings.templ:40`; drawn as a **19 px display heading** → `.op-heading`, id kept — no test pins the class); label **Name**; help: One line of at most 120 characters. The new holding has no business in it yet.; button **Create** |
 | docket heading | Newest first · page `N` |
 | empty | This page is empty: the list ended on the page before. · There are no holdings yet. |
 | holding entry | name (display lg; italic **Unnamed holding**) · Created `<UTC>` · id (xs) · [Its first memberships are on the page before.] · members or "No business has been in this holding." · [More of its memberships are on the next page.] · add form |
 | add form | label **Add a business**; help: The business's id, from its overview. It must work in the timezone of every member.; button **Add** |
-| member row `op-row` | name link → overview (italic Unnamed tenant) · chip `<span class="tally tally--active">Live</span>` / `<span class="tally tally--deactivated">Ended</span>` · Timezone `<mono>` · No API code / API code `<mono>` · Joined `<UTC>` · [Left `<UTC>`] · tenant id (xs) · live only: **Remove** (`btn--quiet`) |
-| pager | **links** `?page=N` Previous page / Next page |
+| member row `op-row` | name link → overview (italic Unnamed tenant) · chip `<span class="tally tally--active">Live</span>` / `<span class="tally tally--deactivated">Ended</span>` · Timezone `<mono>` · No API code / API code `<mono>` · Joined `<UTC>` · [Left `<UTC>`] · tenant id (xs) · live only: **Remove** (`btn--quiet`). The polished boards draw the tenant id **under the name**: visual order only (CSS `order`, README §6.1 "Holdings"); the DOM keeps the code's order (`holdings.templ:131-160`) — no test pins it. |
+| pager | **links** `?page=N` Previous page / Next page (`holdings.templ:165-176`), drawn as outlined buttons → `<a … class="op-pager">` in M13-13 (no test pins the link's class; the `href` pins stay, `op8_test.go:890-891`, `holdings_test.go:741, 757`) |
 
 Notices (`holdingNotice` `:70-88`, words `holdings.go:443-460`; from the 303's `?done=` checked
 against the page's own read):
@@ -525,6 +583,11 @@ remove `POST /operator/holdings/{id}/members/{tenant}/remove` (empty body) — o
 membership. No confirmation step. A refused name is **not echoed back**. 200 memberships per
 page (`db.HoldingsPerPage`, `internal/db/operator.go:1488`); the page number is not personal
 data (`holdings.templ:163-164`).
+**States:** holdings with live and ended members (fixture "holdings") · empty ("There are no
+holdings yet.") · **page 3, past the end** — "This page is empty: the list ended on the page
+before." (`holdings.templ:51-52`; fixture "holdings, past the end", `HoldingsView{Page: 3}`,
+`op8_test.go:741`; its Previous link still points to page 2, `op8_test.go:891`) · added ·
+not added (+ rules) · unnamed holding and member split across pages ("holdings, unnamed").
 **Not shown:** rename / delete holding, a tenant picker or search (the id is pasted), a
 per-holding page.
 **Tests:** `TestHoldings_CreateAddRemoveThroughTheScreen`, `TestHoldings_TheResultIsReadNotPosted`,
@@ -553,6 +616,16 @@ Signed-in shell, current = Legal texts; no banner. Title `Legal texts`.
 | version row | `<li class="op-version">` published UTC · path · `<n>` bytes · publisher (operator name / operator / **tenant admin (legacy)**) · chip `tally--active` **Live** on each document's current version |
 | empty | Nothing has been published yet. |
 | cap | The newest 100 are listed. Older versions are not shown here. |
+
+**Layout (polished boards; README §6.1 "Legal editor", "Legal versions"):** one **full-width
+editor card per document** — header row with the path mono on the left and a decorative status
+dot + "Live since …" / "Not published. …" on the right; the "public page is behind" notice
+between that header and the form (the code's order, `legal.templ:54-65`); a **framed textarea**
+with a "TEXT" label bar (the `Text` label, caps by CSS), mono 14 px / line-height 1.7,
+`rows="12"`; help on the left and **Publish a new version** on the right (full-width button on
+the phone). Version list: a **five-column grid** on tablet/desktop (time bold mono · path ·
+bytes right-aligned · publisher · Live chip), **stacked cards** on the phone; `<li
+class="op-version">` stays literal.
 
 **Form:** one per document, `POST /operator/legal` with hidden `slug` + `body`.
 **Success:** 303 back, no success notice.
