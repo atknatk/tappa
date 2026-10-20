@@ -564,6 +564,21 @@ bir restoran hesabına bağlı olmamalı* (m10-platform.md §1).
   yolları (`…/vat/`, `…/vat/check`) ve platform geneli bir `/operator/vat` kayıtlı değildir ve
   yönlendiricinin kendi 404'ünü verir (`TestSurface_TheScreensOfLaterTasksAreNotMounted`). Gerekçe ve
   ölçüm: ADR 0021 → "OP-16 B eki".)*
+  *(OP-15 C notu, 2026-10-08'de yazıldı, 2026-10-20'de OP-15A + B + M11 API-4b'nin üstüne taşındı: bir
+  tenant'ın askısı da BİR tenant'ındır ve genel bakışından yönetilir
+  ([ADR 0025](0025-tenant-askiya-alma.md) §5): `POST /operator/tenants/{id}/suspend` (gövdede kapalı
+  kümeden bir `reason` ve `confirm=yes`) ve `POST /operator/tenants/{id}/reinstate` (gövdede
+  `confirm=yes`); konsolun grubunda, aynı zincir; genel bakış durumuna göre bu ikisinden **birinin**
+  formunu çizer, liste askıdaki tenant'ın satırına bir çip koyar. Tenant **yoldaki** id'dir — gövdede ya
+  da sorguda gönderilen bir id okunmaz. Kabul edilen yazma — tenant askısız, askıda ya da hiç yok —
+  aynı `303`'tür, genel bakışa (POST → 303 → GET; yüzeyin sabit olmayan `Location`'larına —
+  `recheckVAT`'ınki, M11 API-1a'nın üç holding yazmasınınki, M11 API-13a'nın iki API yazmasınınki — iki
+  tane daha, ikisi de yoldaki id'den); ret'ler (`400`, `413`, `404`, `403`) store'a
+  gitmez; yazma hatası `503`'tür ve *"teyit edilemedi"* der, *"kaydedilmedi"* demez. Bütçe: yazma
+  yalnız bir istek birimidir, okuma birimi harcamaz; `303`'ün genel bakışı bir okumadır. Yazma
+  istemciden ayrık ve kendi süre sınırıyla (10 sn) koşar; bu süre HTTP boşaltma süresinin (20 sn)
+  içindedir. Alt yollar (`…/suspend/`, `…/suspension`) ve platform geneli bir `/operator/suspensions`
+  kayıtlı değildir. Gerekçe ve ölçüm: ADR 0021 → "OP-15 C fazı eki".)*
 - **Host kapısı:** `TAPPA_OPERATOR_HOST` (D-B: `ops.taptime.mt`). Başka bir host'tan
   gelen `/operator/*` isteği **404** alır — ana host'ta (`taptime.mt/operator`) operatör
   yüzeyi yokmuş gibi görünür.

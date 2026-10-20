@@ -1253,3 +1253,79 @@ GATE-1; ADR 0026 aktivasyon dokunuşu) **ölçülerek** taşındı.
     kapandı: kontrol noktası `tenant.WriteSuspension` ile `tenants.suspended_at`'i yazmanın kendi işleminde okur,
     `NoSuspensionColumn` kaldırıldı, `TestAPIWiring_TheSuspensionReaderFollowsTheColumn` yeşil (ayrıntı ADR 0028 §10
     *"API-4b eki"*). `appRouter`'ın yürüyüşü `/v1`'i aynı okuyucuyla kurar.
+
+## C fazı eki (operatörün ekranı — migration yok; 2026-10-08'de yazıldı, 2026-10-20'de OP-15A + B + API-4b'nin üstüne taşındı ve bitirildi)
+
+*Bu ek yalnız ekler; yukarıdaki metin, M11 notu, A ve B fazı ekleri değişmedi.* Taban: dal `op-15` (OP-15A
+00063 olarak, B ve API-4b birleşik, goose 63). 2026-10-08'deki hâl (`hold/op15c`; üçüncü gözü yarıda) yalnız
+farkıyla taşındı; taban kaymasının değiştirdiği sayılar ve yerler ADR 0021 *"OP-15 C fazı eki"*nin
+*"Taşıma"* paragrafında. Uygulamanın tam hâli, kararları, sayılı sınırları
+(LC1–LC8) ve üç parçalı güvenlik iddiası [ADR 0021](0021-op-fonksiyonlari-tenant-otesi-erisim.md)
+*"OP-15 C fazı eki"*ndedir; [ADR 0020](0020-platform-operatoru-ayri-kimlik.md) §4'ün rota listesi bir
+*"OP-15 C notu"* aldı. Burada yalnız §5'e göre ne yapıldığı ve nerede bir karar verildiği.
+
+- **Sevk edilen (§5'in maddeleri sırasıyla):** iki rota konsolun grubunda, aynı zincirle; yoldaki id
+  doğrulanır (bozuksa store'suz `404`), gerekçe kapalı kümede değilse `400` store'suz, gövde
+  `maxFormBytes` ile sınırlı (`413`); tek POST + onay kutusu (K15-10; kutu tam olarak `yes`); `security_hold`
+  seçilince kapalı metinli uyarı (sınır 11 ve 13'ün özü, adlı etkili eylemlerle); PRG — kabul edilen her
+  yazma `303` genel bakışa, `ErrOperatorRefused` `303` girişe, öteki hata `503` *"not confirmed"* (asla
+  *"kaydedilmedi"*); genel bakışta durum satırı (askıda UTC başlangıç + gerekçe etiketi, değilse *Active*)
+  ve duruma göre **tek** form; bilinmeyen kod ham değeriyle ve *Unrecognised* ile; liste çipi (K15-3,
+  ret tonu); bütçe — yazma bir istek birimi, PRG okuması bir okuma birimi.
+- **§5'in metnine göre uygulama kararları, adıyla:**
+  - Yoldaki id `uuid.Parse`'tan **dar** okunur: öteki ekranların `tenantID`'si (36 karakter, tireli) —
+    bir tenant'ın tek yolu olsun diye; `{…}`, `urn:uuid:` ve tiresiz biçim `404`.
+  - `answered(r)` id denetiminden **sonra**, form okumasından **önce**dir (VAT emsali): form ret'leri ve
+    hata sayfası yarı kapalı istemciye de aynı baytlarla gider; yazmanın bağlamı ayrıca
+    `WithoutCancel` + 10 sn (`SuspensionWriteWorstCase`, kapanış bütçesine sığar).
+  - Uyarının görünürlüğü betiksiz bir **genel kardeş kuralıdır** (radyolar ve uyarı aynı ebeveynde,
+    uyarı sonda); stil dosyası yoksa uyarı her zaman görünür.
+  - Genel bakışın askı kartı (*"Panel writes"*) genel bakışın tenant'ı değiştiren iki kartının sonuncusudur —
+    M11 API-13a'nın *"Integration API"* kartının altında, ikisi de durum + o durumun istediği tek form. Kart
+    formun açıklamasında askının istisna listesini (§3'ün sekiz rotası,
+    sözcüklerle), dokunmadıklarını (§4) ve faturalamayı (§6) söyler; tenant'ın şeritte göreceği cümlenin
+    kuralını (§3, *"Nötr cümle PAYLAŞILIR"*) operatöre bildirir.
+  - Gerekçe kümesinin **beşinci kopyası** (operatörün etiket haritası) A'nın testine katıldı
+    (`TestOperator00063_TheReasonSetIsOneSetInEveryCopy`): `internal/db` bu paketi içe aktaramadığı için
+    (döngü) anahtarlar `suspension.go`'nun kaynağından okunup tipli sabitlerle çözülür; ayrıca paket içi
+    `TestSuspensionWords_NameEveryReasonAndNothingElse` ve E2E'nin CHECK karşılaştırması.
+- **Sapma, adıyla (LC2):** §5 *"duruma göre tek form"* dediği için askıdaki bir tenant'ın gerekçesini
+  ekrandan değiştirmek yeniden etkinleştirme + askıya almadır ve `suspended_at`'i yeni çağrının saatine
+  taşır; K15-4'ün *"ilk zaman korunur"*u yalnız formsuz bir doğrudan POST'ta görülür. Karar
+  verilmedi: askıdaki tenant'a ikinci bir *"gerekçeyi değiştir"* formu (v2 adayı).
+- **Sevk sırası (LC1, A'nın LS1'inin C hâli):** ekranın cümleleri (*"The business's panel refuses its
+  writes"*, formun açıklaması, uyarı) B'nin kapısını anlatır; sıra **A → B → C** tutulmalıdır.
+- **PART I C'nin test adları** (*"Güvenlik iddiası"*nın *"C fazında yazılacak"* listesi):
+  operatör E2E'si — `TestE2E_OperatorSuspendsAndReinstatesAFixtureTenant` (giriş → genel bakış → askıya
+  al → `303` → genel bakış askıyı gösterir; görüntüleyicide `tenant_suspended` satırı tenant adıyla;
+  tenant'ın günlüğünde `tenant.suspended`, `actor_kind` operator; yeniden etkinleştirme simetrik; var
+  olmayan id → `303` → genel bakış `404`); `security_hold` uyarısı —
+  `TestSuspendForm_TheHoldWarningIsShownOnlyByTheHoldChoice` (kaydın açık yolları, manuel kaydın geri
+  alınamazlığı ve parola sıfırlama dahil, cümle cümle). Ayrıca: `TestOperatorHeaders_TheSuspensionClassesCarryThePolicy`,
+  `TestSuspension_TheAnswerIsTheSameWhateverTheTenantHeld`, `TestSuspension_TheTenantIsThePathsNotTheForms`,
+  `TestSuspension_NothingIsWrittenWithoutTheBoxOrAKnownReason`, `TestSuspension_EveryRefusalWritesNothing`,
+  `TestSuspension_AClientThatLeavesStillGetsItsWriteMade`, `TestSuspension_AHalfClosedClientGetsTheSameAnswer`,
+  `TestSuspension_TheWriteBoundIsItsNumber`, `TestShutdownBudget_TheSuspensionWriteNestsInsideTheHTTPGrace`,
+  `TestSuspensionBudget_AWriteIsOneRequestAndNoRead`, `TestSuspension_NoPostedValueReachesALogLine`,
+  `TestTenantOverview_SaysTheSuspensionAndOffersOneForm`, `TestTenantList_ASuspendedTenantCarriesTheChip`,
+  `TestSuspensionWords_NameEveryReasonAndNothingElse`, `TestSuspensionScreen_TheChipsAndTextClearAA`,
+  `TestSuspensionScreen_EachChipHasTheRuleTheContrastTestComputes`; adlı pin
+  `TestSuspension_TheListedSitesAloneWrite` (SU1–SU5); başlık sınıfları bugün C218–C242.
+- **PART II'nin C pinleri** (*"aynı commit'te düzenlediği"*): `TestOperatorScreens_EveryActionAndLinkIsAMountedRoute`
+  ve `TestSurface_TheScreensOfLaterTasksAreNotMounted` düzenlendi (iki form yolu monte; alt yolları ve
+  platform geneli bir askı listesi değil); ek olarak `TestFormValues_TheListedSitesAloneRevealOrReadTheForm`
+  (FV5), `TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions` (RH4),
+  `TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator`, `TestOperatorDB_IsTheStoreAndNothingMore`,
+  `TestOperatorDB_EveryMethodDelegatesVerbatim`.
+- **Kapanış (K15-13) — taşımada yapıldı:** çapraz yüzey E2E'si
+  `TestE2E_TheOperatorsSuspensionClosesThePanelAndTheAPIAndItsLiftingOpensThem`
+  (`internal/handler/operator/op15cross_db_test.go`): tek yönlendiricide (`httpx.NewRouter`, `appRouter`'ın
+  kurduğu üç host) operatör genel bakıştan askıya alır → aynı panel oturumunun sonraki yazması `403`
+  (§3, B'nin kapısı) ve `/v1` yazması `403` `tenant_suspended` (ADR 0028 §10, API-4b) — ikisinde de lokasyon
+  yazılmaz → operatör yeniden etkinleştirir → ikisi de geçer. Yeri: geliştirme veritabanında
+  `tappa_operator` NOLOGIN olduğu için operatörün gerçek girişini ve `op_*` yazmalarını yüzeyden süren tek
+  commit'li rig bu paketin `newLegalE2E`'sidir; panel ve `/v1` dışa açık kurucularıyla gerçek havuz üstünde
+  kurulur (sahte yok). LC7 kapandı.
+- **Gerçek hiçbir tenant askıya alınmadı;** E2E yalnız kendi fikstür tenant'ını askıya aldı ve kaldırdı,
+  koşudan sonra veritabanında askıdaki tenant sayısı 0 (salt-okur sonda); veritabanı 63'te. Çapraz E2E de
+  yalnız kendi fikstür işletmesini askıya aldı ve kaldırdı.

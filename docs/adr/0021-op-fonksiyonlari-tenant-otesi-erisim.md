@@ -71,6 +71,11 @@
   tür kazandı (20 → 22), tenant-yazma CHECK'i onları adlandırır (3 → 5); `op_read_tenants` ve
   `op_read_tenant_detail` askıyı satırın sonunda döndürür (`DROP` + `CREATE`) — bkz. "OP-15 uygulama notu".
   Panelin kapısı B, operatörün ekranı C fazıdır.
+  **OP-15 C fazı (2026-10-08'de yazıldı; 2026-10-20'de OP-15A + B + API-4b'nin üstüne taşındı):** askı
+  operatör yüzeyinde — genel bakışta durum satırı ve duruma göre tek form (`POST
+  /operator/tenants/{id}/suspend`, `POST /operator/tenants/{id}/reinstate`), listede çip, `security_hold`
+  seçilince kapalı metinli uyarı; `*OperatorDB`'nin iki yeni temsilci yöntemi (`SuspendTenant`,
+  `ReinstateTenant`); migration yok — bkz. "OP-15 C fazı eki".
 - **Tarih:** 2026-09-26 · aynı gün **2. tur** (güvenlik denetiminin RED'i: izsiz okuma),
   **3. tur** (güvenlik denetiminin RED'i: bilet süresinin saati; üçüncü gözün bulguları) ve
   **3. tur eki** (orkestratör kararı: enrollment ve kimlik bilgisi yazımı definer'da) ve
@@ -5764,6 +5769,214 @@ yöntemleri C fazıdır. Uygulamanın karar verdiği yerler, adıyla:
   (R5b'nin gövde pini).
 - **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
 
+## OP-15 C fazı eki (operatörün askı ekranı — migration yok; 2026-10-08'de yazıldı, 2026-10-20'de OP-15A + B + M11 API-4b'nin üstüne taşındı)
+
+Normatif kaynak: [ADR 0025](0025-tenant-askiya-alma.md) §5 (ve §2'nin `void` dönüşü). Uygulama:
+`internal/handler/operator/suspension.go` (yeni: `SuspensionStore`, `suspendTenant`, `reinstateTenant`,
+`suspensionWritten`, `suspensionReasonWords`, `suspensionView`, `suspensionWriteTimeout` ve
+`SuspensionWriteWorstCase`, `overviewPath`/`suspendPath`/`reinstatePath`), `surface.go` (`New`'a
+`SuspensionStore` yuvası — M11 API-1a'nın `HoldingStore`'undan hemen sonra, VIES istemcisinden önce;
+`sessionLimit`'in yeniden sayımı, değişmedi), `routes.go` (iki rota), `render.go` (altı sayfa + `problemPages`),
+`tenants.go` (genel bakışın askı bloğu, listenin çipi), `web/templates/operatorpages/tenants.templ` +
+`tenants_templ.go` (üretildi) ve `view.go` (`TenantSuspensionView`, `SuspensionReasonOption`,
+`TenantRow.Suspended`), `web/static/css/input.css` (iki çip adı var olan iki tona; formun ızgarası ve
+uyarının kardeş kuralı), `internal/db/operatorpool.go` (iki temsilci yöntem), `cmd/tappa/operator.go`
+(`operatorStore`'a `SuspensionStore`; havuz `configuredSurface`'te dokuz kez: `operatorAuthenticator`'ın
+argümanı ve `operator.New`'in sekiz store yuvası). Migration, DDL, yeni
+bağımlılık yok; `go.mod`, `go.sum`, `sqlc.yaml` diff'i boş; `make gen` idempotent.
+
+**Taşıma (2026-10-20).** C 2026-10-08'de OP-15A'nın o günkü yamasının (00035) üstüne yazıldı, üçüncü gözü
+yarıda kaldı (`hold/op15c`); bugün yalnız C'nin farkı dal `op-15`'e (OP-15A 00063 olarak, B, M11 API-4b
+birleşik) taşındı. Taban kaymasının değiştirdikleri, ölçülerek: `New`'in yuvası `HoldingStore`'dan sonra;
+başlık sınıfları C166–C190 → **C218–C242** (`classCount` 217 → 242); sızıntı kolları A99–A108 → **A112–A121**,
+grup G19 → **G21**, `TouchOperatorSession` 238 → 247; `screens()` 46 → 49 render (imzalı 37 → 40);
+yürünen rotalar 15/24 öncülü → 19/28 (M11 API-13a'nın iki rotası öncülde sayılmamıştı); `*OperatorDB`
+temsilcileri 22 → 24; havuzun `configuredSurface` kullanımı sekiz → dokuz, VIES argümanı 9 → 10, metinler
+10 → 11; genel bakışta kart API kartının altında (md. 9); A'nın testi `TestOperator00063_…`. Rig'in
+`failStore`/`overviewOf` adları M11'in testleriyle çakıştı: C'nin `overviewOf`'u M11'inkiyle aynıydı ve
+düşürüldü, `failStore` C'de `setStoreFailure` oldu. LC7 (çapraz yüzey E2E'si) kapandı.
+
+Uygulamanın karar verdiği yerler, adıyla:
+
+1. **Rotalar ve zincir:** `POST /operator/tenants/{id}/suspend` ve `POST /operator/tenants/{id}/reinstate`,
+   konsolun grubunda — host kapısı, güvenlik başlıkları, flood kapısı, `sameOriginGate(true)`,
+   `requireOperator`, `sessionGate`. Formları genel bakış çizer, **duruma göre biri**: askısız tenant'ta
+   askıya alma, askıdakinde yeniden etkinleştirme (ADR 0025 §5). Konsol ve liste form çizmez.
+2. **Tenant yoldadır (§3.2'nin Go tarafı):** id `tenantID` ile (36 karakter, tireli, `uuid.Parse`)
+   doğrulanır — öteki biçimler ve bozuk id `404`, store'suz; gövdede (`id`, `tenant`, `tenant_id`) ya da
+   sorguda gönderilen bir id **okunmaz** (ölçüldü: yazma yolun tenant'ına, `303` yolun genel bakışına,
+   öteki tenant dokunulmamış).
+3. **Form: kapalı küme ve kutu (K15-1, K15-10).** Gerekçe `db.SuspensionReason(r.PostForm.Get("reason"))`
+   ve `Known()` — kırpma, harf katlama yok; dışındaki her değer (boş, `other`, büyük harf, boşluklu,
+   tireli, serbest metin, NUL'lu) `400` *"Choose one of the reasons"*, store'suz. Kutu tam olarak `yes`
+   olmalıdır (formun onay kutusu bunu gönderir); yoksa ya da başka bir değerse (`on`, `YES`, `yes `,
+   `true`, `1`) `400` *"The box was not ticked"*, store'suz. Gövde `maxFormBytes` (16 KiB) ile sınırlı:
+   aşan `413`, ayrıştırılamayan `400`. Gövde **yalnız** `r.PostForm`'dan okunur (FV4/FV5 pinleri).
+4. **Cevap tenant'ın ne tuttuğundan bağımsızdır (ADR 0021 §2 v 7, B14):** askısız, askıdaki ve var olmayan
+   id için kabul edilen yazma aynı `303`'tür — boş gövde, aynı başlık adları, `Location` yolun genel
+   bakışı; *"zaten askıda"* yok. Sonuç **okumada** görünür: genel bakış (bir okuma, bir 'read' satırı)
+   durumu, başlangıcı (UTC, dakikaya) ve gerekçe etiketini söyler; var olmayan id'nin genel bakışı
+   no-such-tenant `404`'üdür. RH4 genişledi: `suspendTenant` ve `reinstateTenant` her biri
+   `overviewPath(tenant)`'a — `tenant` `tenantID`'nin sonucu — tam bir kez yönlendirebilir.
+5. **Hatalar:** `db.ErrOperatorRefused` → giriş `303`'ü (oturum kapı ile yazma arasında bitti); öteki her
+   hata (22023 — formun denetimleri onu ulaşılamaz kılar —, süre aşımı, kopan bağlantı) → `503` ve
+   *"The suspension was not confirmed"* / *"Lifting the suspension was not confirmed"*: *"The database
+   did not confirm it, which does not mean it was not made"* — tek autocommit ifadesinde hata commit'ten
+   sonra da gelebilir (ADR 0025 §5); sayfa operatörü genel bakışa yollar. Log satırı tenant id'si ve
+   `internal/db`'nin hatasıdır (çağrı + SQLSTATE); oturum hash'i argüman değildir.
+6. **İstemci ne yaparsa yapsın yazma sonuna kadar koşar — ve sınırlıdır (OP-14 E'nin `answered`'ı; VAT
+   emsali):** id denetiminden sonra `r = answered(r)`; form ret'leri ve hata sayfası istemciden bağımsız
+   render edilir (yarı kapalı istemci aynı durum ve aynı baytları alır — ölçüldü), yazmanın bağlamı
+   `context.WithTimeout(context.WithoutCancel(r.Context()), suspensionWriteTimeout)`'tur, yazıldığı yerde
+   açıkça. `suspensionWriteTimeout` = `legalWriteTimeout` = **10 sn** (sayı olarak pinli);
+   `SuspensionWriteWorstCase` = 10 sn + 1 sn kapı payı ≤ `httpShutdownGrace` 20 sn (`cmd/tappa`). Bağladığı
+   şey satır kilidi beklemesidir (ADR 0025 sınır 5: gövde önce satırı kilitler; bu rol için zaman aşımı
+   yok). Id'nin `404`'ü istemciyi izler (her konsol rotası gibi).
+7. **Bütçe (ADR 0025 §5):** yazma yalnız oturum kapısının istek birimidir (`sessionLimit`, 100); **okuma
+   birimi harcamaz** — ölçüldü: 60 okuması bitmiş oturumun askısı `303` ve yazılır, genel bakışı okuma
+   bütçesinin `429`'udur; oturumun 101. isteği (bir yazma) kapının `429`'u, yazma çağrısı yok.
+   `sessionLimit` bir askı penceresiyle yeniden sayıldı (~21 istek → 4,8; destek + bir askı ~51 → 1,96),
+   değişmedi; `readLimit`'e yeni pencere gerekmez.
+8. **Log (CLAUDE.md §7):** başarı satırları tenant id'si, operatör id'si ve (askıda) kapalı kümeden
+   gerekçe kodu; hata satırları tenant id'si ve hata. **Gönderilen hiçbir değer** (reddedilen gerekçe,
+   kutu değeri, formda olmayan alan, büyük gövdenin işareti, gövdedeki id) ve oturum hash'i/çerezi log'a
+   girmez; ret'ler satır yazmaz — rig'in süreç ve erişim log'unda iki biçimde ölçüldü, askı/yeniden
+   etkinleştirme diyen her JSON kaydı dört satırdan biri ve tam alanlarıyla.
+9. **Genel bakış (ADR 0025 §5):** yeni bir kart — *"Panel writes"*, genel bakışın tenant'ı değiştiren iki
+   kartının sonuncusu (M11 API-13a'nın *"Integration API"* kartının altında; ikisi de durum + o durumun
+   istediği form): askısız tenant'ta `Active` çipi
+   (etkin ton) ve askıya alma formu; askıdakinde `Suspended` çipi (ret tonu), *"Suspended since"* (UTC,
+   dakikaya, mono), gerekçenin etiketi ve yeniden etkinleştirme formu. Etiketler operatörün:
+   *Non-payment · Breach of the terms · Security hold · At the business's request*; haritada olmayan kod
+   ham değeriyle (yalnız `printableToken` biçimindeyse) ve *Unrecognised* çipiyle — audit görüntüleyicisinin
+   kuralı (`unknownWord`). Formun açıklaması askının neyi kapatıp neyi açık bıraktığını (giriş/çıkış, kendi
+   parolası, kaydın dört yolu; tap, okumalar, CSV; askıdaki ayın faturalanması) ve tenant'ın şeritte
+   göreceği cümlenin kuralını (iki gerekçe adıyla, `security_hold` ve `customer_request` tek nötr cümle)
+   söyler. Etiket haritası gerekçe kümesinin **beşinci kopyasıdır**: anahtarları
+   `TestSuspensionWords_NameEveryReasonAndNothingElse` (Go listesiyle) ve
+   `TestOperator00063_TheReasonSetIsOneSetInEveryCopy` (CHECK ile — `internal/db` bu paketi içe aktaramaz,
+   döngü; anahtarlar `suspension.go`'nun **kaynağından** okunur ve paketin tipli sabitleriyle çözülür)
+   bağlar; E2E de CHECK'i katalogdan okuyup karşılaştırır.
+10. **`security_hold` uyarısı (orkestratörün 4. tur kararı, C fazı):** kapalı metin, şablonda ve başka
+    hiçbir yerde; tenant verisi taşımaz. Formdaki dört radyo düğmesi ile uyarı **aynı ebeveynin**
+    çocuklarıdır ve uyarı en sondadır; stil dosyası uyarıyı gizler ve yalnız `security_hold` radyosu
+    işaretliyken genel kardeş kuralıyla (`.op-reason-hold:checked ~ .op-hold-warning`) gösterir — betik
+    yok (operatör sayfalarının politikası izin vermez), `:has()` yok; stil dosyası yüklenmezse uyarı
+    **her zaman** görünür (uyarı için doğru yön). Radyo `aria-describedby` ile uyarıya bağlı. Metin: askı
+    bir yazma dondurmasıdır, çevreleme değildir; oturumu tutan okumaya ve CSV'ye devam eder, kadroya kişi
+    ekler ve yeniden davet basar (davet yeni bir telefonu çalışan olarak etkinleştirip çalışanın öteki
+    telefonlarını düşürür), manuel kayıt girer (onaysız, saate anında girer; gerçek bir çalışanın saatini
+    düşüren kayıt yeni bir kayıtla geri alınamaz — düzeltme yalnız kısaltır); işletmenin kendi savunma
+    yazmaları da durur (çalışanı devre dışı bırakmak, plaketi değiştirmek/sökmek); şerit adı söylemez ama
+    dondurma bir işarettir. Hesabı durduranlar: panel hesabını devre dışı bırakmak (bugün platform sahibi,
+    veritabanında); hak sahibi yöneticinin **parola sıfırlaması** (mevcut parolayı istemez, o hesabın bütün
+    oturumlarını bitirir — parola değişmiş olabilecekse araç budur); hak sahibi yöneticinin kendi parolasını
+    değiştirmesi (öteki oturumlarını bitirir, mevcut parolayı ister) — ADR 0025 sınır 11 ve 13'ün özü.
+11. **Liste çipi (K15-3):** `op_read_tenants`'ın `suspended_at`'i olan satırda plan ile id arasında
+    `Suspended` çipi. Çipler markanın sabit eşlemesinde, kelime ink: askı ret tonu (paneli `403` alır),
+    askısızlık etkin ton; ikisi de var olan tonlara gruplandı — yeni zemin yok (paper üstünde ink: yeşil-açık
+    13,70:1, tomato/10 13,99:1, ink/10 13,27:1).
+
+**Sayılı sınırlar (OP-15 C):**
+- **LC1** — **Ekranın cümleleri B fazını anlatır:** genel bakışın *"The business's panel refuses its
+  writes"* cümlesi, formun açıklaması ve uyarı panel kapısını (OP-15 B) varsayar. A'nın LS1'i bu fazda da
+  geçerlidir: B sevk edilmeden C sevk edilirse askı panelin hiçbir yazmasını durdurmaz ve cümleler yanlıştır.
+  Sevk sırası **A → B → C** tutulmalıdır.
+- **LC2** — **Gerekçeyi değiştirmek ekrandan başlangıcı sıfırlar:** genel bakış duruma göre **tek** form
+  çizer (ADR 0025 §5); askıdaki tenant'ın gerekçesini değiştirmek için operatör önce yeniden etkinleştirir
+  sonra askıya alır, bu da `suspended_at`'i yeni çağrının saatine taşır. Askıdaki tenant'a doğrudan
+  gönderilen bir `…/suspend` (formsuz) K15-4 gereği ilk zamanı korur ve gerekçeyi değiştirir.
+- **LC3** — **Çift alan:** gövdede iki `reason` ya da iki `confirm` varsa **ilki** okunur
+  (`url.Values.Get`); ilki kapalı kümedeyse kabul edilir.
+- **LC4** — **Uyarının görünürlüğü ölçülmedi:** paket testinde tarayıcı yok; işaretleme (sıra, ebeveyn,
+  sınıf) ve üç kural pinli, derlenmiş `app.css` varsa iki kural orada da okunur.
+- **LC5** — **Yazma hatasının `503`'ü erişim kaydında ERROR'dır** (`AnswerAsDesigned` kullanılmadı —
+  VAT'ın LB1'i).
+- **LC6** — **Kapının ifadesi bu bütçenin dışındadır** (VAT'ın LB10'u): yönlendiricinin süresiyle koşar;
+  1 sn'lik pay sınırı değil, payıdır.
+- **LC7** — ~~**Çapraz yüzey E2E'si (K15-13) bu fazda yok**~~ — **taşımada kapandı (2026-10-20):**
+  `TestE2E_TheOperatorsSuspensionClosesThePanelAndTheAPIAndItsLiftingOpensThem` (aşağıda PART I).
+- **LC8** — **Operatörün satırı gerekçeyi söylemez** (A'nın K15-5'i, `detail` `{}`): görüntüleyici
+  *"Tenant suspension recorded"* der; gerekçe tenant'ın kendi satırında ve genel bakıştadır.
+
+**Güvenlik iddiası — üç parça.**
+
+- **Tehdit modeli:** Bu pinler kazara sapmaya karşıdır; bir pini bilerek atlatmak kod incelemesinin
+  konusudur. Kapsam: askı ekranının tenant'ı, gerekçeyi ve kutuyu okuyuşunu, cevabın biçimini,
+  yazmanın bağlamını ve süre sınırını, bütçeleri, log'a ve başlıklara giden yolu, `security_hold`
+  uyarısını ve çiplerin tonunu düşüren, gevşeten ya da yerinden oynatan bir düzenleme.
+- **PART I — ölçüm ve test adı** (veritabanısızlar rig'de; veritabanlı E2E'ler dev PostgreSQL 17.10, goose
+  63'te; `-race` ile yeşil). Mutasyon turu (2026-10-20, taşınmış ağaçta yerinde, veritabanı ortamı yok —
+  veritabanı testleri atlar, commit eden hiçbir test bir koşuda değil; her mutasyondan sonra dosyalar geri
+  yazıldı ve sha256 karşılaştırıldı): **33 mutasyonun 33'ü kırmızı (2026-10-08 setinin 30'u bugünkü koda göre + taşımanın üçü: askı ve yeniden etkinleştirmenin store çağrısı atlanır, genel bakış kartı çizilmez; tablo `m10-platform.md` OP-15C kartında)**; yalnız yapısal pinin yakaladıkları: `answered` altında
+  `WithoutCancel`'ın düşmesi (SU2), `answered`'ın id denetiminden önceye alınması (SU5) ve gerekçenin
+  `FormValue` ile okunması (FV4, SU4) — üçü de davranışça eşdeğer:
+  - `TestOperatorHeaders_TheSuspensionClassesCarryThePolicy` · C218–C242 (yirmi beş sınıf; 2026-10-08'de
+    C166–C190 idi, M11'in holding C166–C199 ve API C200–C217 sınıflarından sonra kaydı), düşmanca
+    başlık, sorgu (`reason`, `confirm`, `id`) ve gövde (`id`, `tenant`) · durum, rota, başlık adları ve
+    değerleri (altı kabul edilen yazmanın `Location`'ı yolun genel bakışı, bilinmeyen id dahil), düşmanca
+    değer hiçbir başlıkta ve gövdede yok, sınıf başına mağaza/yazma sayıları; yazılar yolun tenant'ına.
+  - `TestSuspension_TheAnswerIsTheSameWhateverTheTenantHeld` · askısız, askıda, yok × iki yazma · aynı
+    `303` biçimi; K15-4 genel bakışta (ilk zaman korunur, gerekçe değişir); bilinmeyen id `404`.
+  - `TestSuspension_TheTenantIsThePathsNotTheForms` · gövde ve sorguda başka id · yazma ve `Location` yolun.
+  - `TestSuspension_NothingIsWrittenWithoutTheBoxOrAKnownReason` · yedi kutu değeri × iki yazma, on gerekçe
+    değeri · `400`, yazma çağrısı yok, sayfada gönderilen değer ve tenant id'si yok; kontrol: dört gerekçe.
+  - `TestSuspension_EveryRefusalWritesNothing` · bozuk id, çapraz köken, çerezsiz, büyük gövde, ayrışmayan
+    gövde, yazma hatası, reddedilen oturum × iki yazma · durum, sayfa, mağaza sayısı; hata sayfası
+    *"Nothing was changed"* demez; log satırı tenant ve SQLSTATE.
+  - `TestSuspension_AClientThatLeavesStillGetsItsWriteMade` · istemci yazmadan hemen önce gider · `303`,
+    yazı yapıldı, süre 9–10 sn; kontrol: iptal edilmiş bağlamda sahte mağaza reddeder.
+  - `TestSuspension_AHalfClosedClientGetsTheSameAnswer` · yedi kol · kalan istemciyle aynı durum ve bayt;
+    kontrol: iptal edilmiş bağlamda sayfa render edilemez.
+  - `TestSuspension_TheWriteBoundIsItsNumber`, `TestShutdownBudget_TheSuspensionWriteNestsInsideTheHTTPGrace`
+    (`cmd/tappa`) · 10 sn, `legalWriteTimeout`'a eşit; 10 + 1 ≤ 20 sn; pozitif kontrol ≥ 1 sn.
+  - `TestSuspensionBudget_AWriteIsOneRequestAndNoRead` · bir oturum · md. 7.
+  - `TestSuspension_NoPostedValueReachesALogLine` · dokuz kol, iki biçim, Debug · md. 8; kontrol: doğrudan
+    log'lanan değer bulunur.
+  - `TestTenantOverview_SaysTheSuspensionAndOffersOneForm` · askısız, askıda (UTC+2'de saklı), bilinmeyen
+    kod, belirteç olmayan kod, boş kod · çip, tek form, alanlar (yalnız `reason` ve `confirm`; serbest
+    metin yok), sıra, etiketler, UTC başlangıç.
+  - `TestSuspendForm_TheHoldWarningIsShownOnlyByTheHoldChoice` · md. 10 · başlık ve dokuz cümle kelime
+    kelime, sıra ve ebeveyn, tek `op-reason-hold`, üç CSS kuralı (ve derlenmişse ikisi), askıdaki
+    tenant'ta uyarı yok.
+  - `TestTenantList_ASuspendedTenantCarriesTheChip`, `TestSuspensionWords_NameEveryReasonAndNothingElse`,
+    `TestSuspensionScreen_TheChipsAndTextClearAA`, `TestSuspensionScreen_EachChipHasTheRuleTheContrastTestComputes`,
+    `TestOperator00063_TheReasonSetIsOneSetInEveryCopy` (beşinci kopya) · md. 9, 11.
+  - `TestE2E_OperatorSuspendsAndReinstatesAFixtureTenant` (gerçek PostgreSQL, **kendi fikstür tenant'ı**,
+    gerçek tenant askıya alınmaz) · etiketler = CHECK; askı → `303`, sütunlar duvar saatinde, tam bir
+    operatör satırı (`detail` `{}`), tam bir tenant satırı (`{actor_kind, reason}`, `at` = başlangıç);
+    genel bakış, liste çipi, görüntüleyicide tenant adıyla satır; yeniden etkinleştirme simetrik; var
+    olmayan id → aynı `303` → `404`, tenant satırı yok, görüntüleyicide *"A tenant id no tenant has"*.
+  - `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` · A112–A121, G21 (gönderilen değerler;
+    2026-10-08'de A99–A108 ve G19 idi — M11'in G19 QR'ı, G20 holding adı ve A99–A111'inden sonra kaydı),
+    harvest'te iki yöntem (`TouchOperatorSession` 238 → 247).
+  - `TestE2E_TheOperatorsSuspensionClosesThePanelAndTheAPIAndItsLiftingOpensThem` (gerçek PostgreSQL, kendi
+    fikstür işletmesi; **K15-13'ün çapraz yüzey ölçümü**, LC7'yi kapatır) · tek yönlendiricide üç özellik
+    (`httpx.NewRouter`: operatör yüzeyi kendi host'unda, panel ana host'ta, `/v1` API host'unda), her biri
+    gerçek havuz üstünde · kontrol: askısız işletmede panelin yazması (yeni lokasyon) `303` ve `/v1`'in
+    `PUT /v1/locations/{ref}`'i `201`; operatör genel bakıştan askıya alır (`303`, *Suspended*) → **aynı**
+    panel oturumunun sonraki yazması `403` ve lokasyon yazılmaz (B'nin kapısı), `/v1` yazması `403`
+    `tenant_suspended` ve lokasyon yazılmaz (API-4b'nin kontrol noktası, operatörün ekranının yazdığı
+    sütunu okur); operatör yeniden etkinleştirir (`303`, *Active*) → ikisi de geçer.
+- **PART II — adlı pinler:** `TestSuspension_TheListedSitesAloneWrite` (SU1 iki yazma birer kez, kendi
+  handler'ında; SU2 yazmanın bağlamı `WithTimeout(WithoutCancel(…), suspensionWriteTimeout)`; SU3 tenant
+  `tenantID`'nin sonucu; SU4 gerekçe `db.SuspensionReason(r.PostForm.Get("reason"))`; SU5 `answered` her
+  handler'da bir kez, id denetiminden sonra ve form okumasından önce);
+  `TestFormValues_TheListedSitesAloneRevealOrReadTheForm` (FV5: `suspendTenant` `confirm`/`reason`,
+  `reinstateTenant` `confirm` — birer kez); `TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions`
+  (RH4: iki yeni `overviewPath(tenant)` yönlendirmesi); `TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo`;
+  `TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator` (havuz dokuz yere — Authenticator ve sekiz store
+  yuvası —, VIES adaptörü onuncu argüman, metinler on birinci); `TestOperatorDB_IsTheStoreAndNothingMore`
+  (dokuz arayüz ve `Close`), `TestOperatorDB_EveryMethodDelegatesVerbatim` (24 temsilci yöntem),
+  `TestOperatorDB_HasNoTenantDoorAndNoRawSQLDoor`; `TestOperatorHeaders_TheWalkedRoutesEachHaveAClass`
+  (on dokuz rota, yirmi sekiz çift); `TestOperatorScreens_EveryActionAndLinkIsAMountedRoute` (49 render);
+  `cmd/tappa`'nın `TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses` (iki POST sınıf 3'te: operatör
+  yüzeyinin, sahiplik + `/operator` önekiyle — değişiklik gerekmedi, ölçüldü);
+  `TestSurface_TheScreensOfLaterTasksAreNotMounted`; `TestSurface_NewRefusesWhatAConfiguredSurfaceNeeds`;
+  `TestTallyRules_NoToneRuleColoursTheWord`; `TestBrand_EveryNativeCheckboxAndRadioCarriesTheAccent`
+  (müşteri paketi, şablonların hepsini tarar).
+- **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
+
 ## Sonuçlar
 
 - **OP-5:** tablolar (bilet tablosu dahil) + `01-roles.sql` + runbook bu ADR'nin §1 ve
@@ -5807,6 +6020,8 @@ yöntemleri C fazıdır. Uygulamanın karar verdiği yerler, adıyla:
   çağıranın hiçbir değerini saklanan bir değerle karşılaştırmaz — ADR 0025 §2'nin ölçütü, sonraki
   tenant-yazan `op_*`'lar için. *(A fazı 00063 ile — 2026-10-08'de 00035 olarak yazıldı, M11'den sonra
   taşındı; "OP-15 uygulama notu".)*
+  *(C fazı operatörün ekranını, iki POST'u ve wiring'i ekledi — kabul edilen her yazma, tenant'ın ne
+  tuttuğundan bağımsız olarak aynı `303`'tür; "OP-15 C fazı eki".)*
 - **OP-10** (`op_publish_legal` — `void` bir tek aşamalı yazma; sürüm listesi — ilk
   `op_read_*`) ve **OP-11…OP-18** her yeni `op_*` için §2'nin tamamını ve §6'nın
   katalog/davranış testlerini yeniden kazanır; OP-11'in *"her çağrı tam 1 operatör audit
