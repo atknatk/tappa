@@ -1232,6 +1232,10 @@ var panelTouchTargets = map[string]int{
 	// password?" and the sign-up offer among them) rather than through a semantic class. It is a real compiled rule (min-height:2.75rem), so
 	// the stylesheet half below holds it to the same floor.
 	"min-h-11": 44,
+	// Its 48 px sibling, on the ledger's filter disclosure (<summary class="flex min-h-12 …">,
+	// components/filterbar.templ): the first <summary> outside the phone bar, read since
+	// pressTargetRE learned <summary> (M12-49).
+	"min-h-12": 48,
 	// The sign-in field's password reveal button (2026-09-14). It is a real <button>,
 	// so BOTH halves of the pair reach it: the markup half accepts it because the
 	// class is in this map, and the stylesheet half then demands the height exists.
@@ -1302,8 +1306,10 @@ type pressTarget struct {
 }
 
 // pressTargetRE matches the opening tag of anything a person can press. It reads
-// the whole `<a`/`<button` family rather than a list of the ones in use today.
-var pressTargetRE = regexp.MustCompile(`(?is)<(a|button)\b([^>]*)>`)
+// the whole `<a`/`<button`/`<summary` family rather than a list of the ones in use today.
+// <summary> joined in M12-49: the phone bar's More and the ledger's filter disclosure are
+// pressed like a link, and More losing .bar-link was caught only by the byte goldens.
+var pressTargetRE = regexp.MustCompile(`(?is)<(a|button|summary)\b([^>]*)>`)
 
 func pressTargetsOf(body string) []pressTarget {
 	var out []pressTarget
