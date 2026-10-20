@@ -1552,8 +1552,36 @@ func (h *AdminReset) render(w http.ResponseWriter, r *http.Request, status int, 
 	}
 }
 
+// problem draws the recovery's failure screens on the panel's problem card (M12-10),
+// not on pages.Problem: that page is the tap and activation screens', and its retry
+// is their tap button. The words stay the constant's own.
 func (h *AdminReset) problem(w http.ResponseWriter, r *http.Request, status int, v pages.ProblemView) {
-	h.render(w, r, status, pages.Problem(v))
+	h.render(w, r, status, pages.PanelProblem(resetProblemOf(status, v)))
+}
+
+// resetProblemOf is the recovery's problem card, a pure function so its one decision
+// is tested without a router.
+//
+// EVERY RECOVERY SCREEN IS MET BEFORE SIGN-IN, so the way on is never The Pass. A
+// problem whose constant offers a retry (a spent or unusable step) starts the
+// recovery again from its form; every other one goes to the sign-in page. Both are
+// the fixed paths of this package: RetryURL only says THAT a retry exists, its value
+// never becomes the link. Nothing here reads the request, so the card cannot tell
+// one address, account or link from another.
+func resetProblemOf(status int, v pages.ProblemView) pages.PanelProblemView {
+	out := pages.PanelProblemView{
+		Status:    status,
+		OwnerOnly: v.OwnerOnly,
+		Title:     v.Title,
+		Message:   v.Message,
+		Hint:      v.Hint,
+		CTAHref:   adminLoginPath,
+		CTALabel:  "Go to sign in",
+	}
+	if v.RetryURL != "" {
+		out.CTAHref, out.CTALabel = adminResetPath, "Start again"
+	}
+	return out
 }
 
 // redirect answers 303 See Other: the browser follows with GET, which turns a POST
