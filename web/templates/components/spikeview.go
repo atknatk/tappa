@@ -33,6 +33,9 @@ type EvidenceTile struct {
 	Value string
 	Sub   string
 	Tone  string
+	// Wide marks the one tile that stands for two -- a partner venue's merged network and
+	// location -- so it takes two columns of the grid and the row it sits on is full.
+	Wide bool
 }
 
 // The three tones. A sign word maps onto them one to one: yes -> ok, no -> bad, n/a -> none.
@@ -51,6 +54,7 @@ func SpikeFocus(d DocketView) SpikeFocusView {
 			Value: "not shown",
 			Sub:   "not shown at a partner venue",
 			Tone:  toneNone,
+			Wide:  true,
 		})
 	} else {
 		tiles = append(tiles,

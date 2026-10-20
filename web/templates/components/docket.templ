@@ -326,7 +326,12 @@ templ SpikeDocket(f SpikeFocusView) {
 		if f.Docket.Manual {
 			<p><span class="tally tally--manual">Entered by a manager</span></p>
 		}
-		<div class="grid grid-cols-2 gap-2 md:gap-2.5 desk:grid-cols-[repeat(auto-fit,minmax(150px,1fr))]">
+		// TWO BY TWO, OR FOUR IN A ROW -- NEVER THREE AND ONE. The four tiles go on one row
+		// only where the record's column gives each of them 150 px, which is from a
+		// 1340 px window (the queue beside it takes 308 px); below that they stay two by
+		// two, as on the tablet. A partner-venue record has three tiles, and its merged
+		// one takes two columns, so it fills its row at either count.
+		<div class="grid grid-cols-2 gap-2 md:gap-2.5 min-[1340px]:grid-cols-4">
 			for _, t := range f.Tiles {
 				@evidenceTile(t)
 			}
@@ -350,7 +355,7 @@ templ SpikeDocket(f SpikeFocusView) {
 // evidenceTile is one tile of SpikeDocket. The frame's tone is chosen here, from literal class
 // names, so the stylesheet keeps every one of them.
 templ evidenceTile(t EvidenceTile) {
-	<div class={ "ev-tile min-w-0", templ.KV("ev-tile--ok", t.Tone == toneOK), templ.KV("ev-tile--bad", t.Tone == toneBad), templ.KV("ev-tile--none", t.Tone != toneOK && t.Tone != toneBad) }>
+	<div class={ "ev-tile min-w-0", templ.KV("ev-tile--ok", t.Tone == toneOK), templ.KV("ev-tile--bad", t.Tone == toneBad), templ.KV("ev-tile--none", t.Tone != toneOK && t.Tone != toneBad), templ.KV("col-span-2", t.Wide) }>
 		<p class="lbl">{ t.Label }</p>
 		<p class="ev-tile-value flex min-w-0 items-center gap-2 break-words">
 			<span class="ev-tile-mark" aria-hidden="true">{ evidenceMark(t.Tone) }</span>
