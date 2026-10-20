@@ -492,10 +492,18 @@ func TestAdminReset_WithoutAChannelNothingIsIssuedAndTheScreenSaysSo(t *testing.
 	// never sent. This test read every byte of that document and asked only for the
 	// presence of one string and the absence of another; neither mentioned the title.
 	// A body scan is only as good as what it refuses.
-	for _, promise := range []string{"on its way", "Check your email", "expires in an hour"} {
-		if strings.Contains(body, promise) {
-			t.Errorf("the answer contains %q — a deployment that cannot send a link must not "+
-				"say that anywhere in the document, headings and <title> included", promise)
+	//
+	// ⚠️ AND THE FORM IS SCANNED TOO (M12-44). The redesign drew a step list on the
+	// recovery screens whose second step is "Check your email · The link works once,
+	// for an hour"; on a channel-less deployment the list is not drawn, and only this
+	// scan of the FORM holds that — the answer alone left it unguarded (third-eye
+	// audit, measured by forcing the list on).
+	for where, page := range map[string]string{"the answer": body, "the request form": form} {
+		for _, promise := range []string{"on its way", "Check your email", "expires in an hour", "for an hour"} {
+			if strings.Contains(page, promise) {
+				t.Errorf("%s contains %q — a deployment that cannot send a link must not "+
+					"say that anywhere in the document, headings and <title> included", where, promise)
+			}
 		}
 	}
 	// ⚠️ AND NO SCREEN OF THIS FLOW PROMISES A WAY ROUND IT THAT DOES NOT EXIST

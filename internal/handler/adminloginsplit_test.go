@@ -358,8 +358,12 @@ func TestAdminLogin_BrandPanelClaimsOnlyWhatTheProductDoes(t *testing.T) {
 	// "practice" is the fourth: the creed once said the first tap was a practice run,
 	// and ADR 0026 removed that behaviour (the activation tap writes no record, and no
 	// new record is practice=true). M12-04 dropped the line; this keeps it dropped.
+	//
+	// "every tap lands" is the fifth: the redesign's drawing said it, and two taps
+	// write no record (a browser without a session, §5 row 3; the activation tap, ADR
+	// 0026). The screen says "every tap we record" (M12-43).
 	lower := strings.ToLower(body)
-	for _, phrase := range []string{"minutes away", "plaques are on us", "while you compare", "practice"} {
+	for _, phrase := range []string{"minutes away", "plaques are on us", "while you compare", "practice", "every tap lands"} {
 		if strings.Contains(lower, phrase) {
 			t.Errorf("the sign-in screen says %q. It is not a product fact: see "+
 				"pages.AdminLoginProof for which shapes were refused and why.", phrase)
