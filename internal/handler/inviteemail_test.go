@@ -382,16 +382,18 @@ func TestInviteEmail_TheCardOffersOnlyWhatTheServerWouldDo(t *testing.T) {
 }
 
 // TestRosterActions_ThePanelModeCardIsTheCardBeforeEM7B is K7B-10's pin: the action
-// card in the panel mode renders the SAME BYTES it rendered before EM-7B. The four
-// sha256 values were measured by rendering these four views with the templates of HEAD
-// 08b1bd1 (a scratch copy of that tree) and are matched by this tree; any change to the
-// panel branch of the card turns one red.
+// card in the panel mode renders the SAME BYTES as the panel-mode card it was measured
+// on, so an e-mail-mode change cannot leak into it. The four sha256 values were first
+// measured with the templates of HEAD 08b1bd1 (before EM-7B); the panel redesign
+// redrew the card on purpose (M12-30), so they are re-pinned to that render, in a
+// commit of their own that says what was checked. Any change to the panel branch of
+// the card turns one red.
 func TestRosterActions_ThePanelModeCardIsTheCardBeforeEM7B(t *testing.T) {
 	want := []string{
-		"446df1382c0f7923de4306928e4040cb82de9800a5d5a68df6600c851d42037a",
-		"0a00fc3a337a32fadd2baf4ee6b940ccad0f58028987bc44030be7f41926ad41",
-		"701e2f7d7336986f63472af2a91974d68ad313da3e0e4143c83607b4e2ee1fd6",
-		"6d6d118abf2084d91a0404879406ece63b5e9791e435dbd6de6fba2d8c88fc05",
+		"e62689bd1e22af77ddb6e2f6ab385c4ec2b9bdde35a6376be6de7455300e013b",
+		"c8f0a09076aa3751973020783df53d8f951b93ae57e30d81a7d1c56f25eab0eb",
+		"da6985a65a9d3790d57890492607f4ffd131310ab357325d841646b5e98b46b6",
+		"111f520ec3f066dc7031f56278f221abba4bf15e744e8e2f965d4be6fc54e7b8",
 	}
 	base := func() components.RosterActionsView {
 		return components.RosterActionsView{
