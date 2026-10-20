@@ -83,7 +83,9 @@ type CountAnomalySignalsRow struct {
 // WHAT THIS FILE IS FOR. The panel's other sections answer "what happened".
 // These answer "is anything here odd" -- detection, never prevention, and never a
 // judgement: every query below returns counts, names, booleans, one timestamp and two
-// row ids, so the screen shows data and the manager draws the conclusion.
+// row ids -- and, since M12-23/24, a date array (the days a pair tapped together) and plaque
+// counter integers (the counter values around a plaque's largest gap, with their instants) --
+// so the screen shows data and the manager draws the conclusion.
 //
 // ⚠️ THAT LIST USED TO READ "COUNTS AND NAMES" AND IT UNDERCOUNTED WHAT CROSSES THE
 // BOUNDARY. The generated row types also carry `manager_typed` and `was_maskable`
@@ -106,7 +108,8 @@ type CountAnomalySignalsRow struct {
 // carries `tap:gpsDistanceM`: a DISTANCE rather than a coordinate (migration 0008,
 // and internal/domain/tap's gpsFacts is where the distance is computed), but a
 // snapshot that gains a key later would travel with it. Counting inside the query
-// means what Go receives is an integer, a name, a boolean, a timestamp or a row id --
+// means what Go receives is an integer, a name, a boolean, a timestamp or a row id -- plus
+// ListTapsTakenTogether's date array and ListAnomalyPlaqueJumps' plaque counter integers --
 // never the snapshot, and never a coordinate or an address.
 //
 // ⚠️ AND THE ONE PLACE THAT COULD GO WRONG IS NAMED: `ip_match` and `gps_match` are
