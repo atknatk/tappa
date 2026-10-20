@@ -52,11 +52,23 @@ func developersFixture() APIKeysView {
 // alike; each carries what the state means for that delivery; and the page prints no latency.
 func TestDevelopers_EveryDeliveryStateIsAWordInItsOwnFrame(t *testing.T) {
 	page := renderAPIKeys(t, developersFixture())
+	// Each word's own frame, pinned: a word whose case is deleted falls to the plain line frame
+	// of a word nobody named, and must not stay green.
+	want := map[string]string{
+		"Delivered": "mono-pill border-tappa-green bg-tappa-green/10",
+		"Sending":   "mono-pill border-dashed border-ink/50",
+		"Retrying":  "mono-pill border-dashed border-saffron bg-saffron/10",
+		"Queued":    "mono-pill border-ink/50",
+		"Failed":    "mono-pill border-tomato bg-tomato/10",
+	}
 	frames := map[string]string{}
 	for _, word := range []string{"Delivered", "Sending", "Retrying", "Queued", "Failed"} {
 		m := regexp.MustCompile(`<span class="(mono-pill[^"]*)">`+word+`</span>`).FindAllStringSubmatch(page, -1)
 		if len(m) != 2 {
 			t.Fatalf("%s: %d pills, want 2 (the desk table and the list below it)", word, len(m))
+		}
+		if m[0][1] != want[word] || m[1][1] != want[word] {
+			t.Errorf("%s is drawn in %q / %q, want %q", word, m[0][1], m[1][1], want[word])
 		}
 		for other, frame := range frames {
 			if frame == m[0][1] {
@@ -94,6 +106,11 @@ func TestDevelopers_OneTableAndOneListFromTheSameRows(t *testing.T) {
 	}
 	if n := strings.Count(page, `name="key_id" value="k1"`); n != 2 {
 		t.Errorf("the live key has %d revoke forms, want 2 (one per rendering)", n)
+	}
+	// The revoke button's accessible name is "Revoke <name>": the space before the name must be
+	// in the bytes (templ drops a literal leading space inside an element).
+	if n := strings.Count(page, `Revoke<span class="sr-only"> Payroll</span>`); n != 2 {
+		t.Errorf("the revoke button reads as \"Revoke Payroll\" %d times, want 2", n)
 	}
 	if strings.Contains(page, `value="k2"`) {
 		t.Error("the revoked key is offered a revocation")

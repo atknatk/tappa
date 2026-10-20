@@ -276,7 +276,7 @@ templ apiKeyStatusPill(k APIKeyRow) {
 templ apiKeyRevokeForm(v APIKeysView, k APIKeyRow) {
 	<form method="post" action={ templ.URL(v.RevokeHref) } class="flex-none">
 		<input type="hidden" name="key_id" value={ k.ID }/>
-		<button class="btn btn--danger" type="submit">Revoke<span class="sr-only"> { k.Name }</span></button>
+		<button class="btn btn--danger" type="submit">Revoke<span class="sr-only">{ " " + k.Name }</span></button>
 	</form>
 }
 
