@@ -110,7 +110,7 @@ var reportsHref = mustSectionHref(pages.TabReports)
 //
 // The open list adds ~470 B an entry (100 entries: +47 259 B), so an ordinary full page is
 // about 220 KB. A heavy but typical full page -- every listed day marked, every qualifier on
-// every person, ~68-rune names, 25-rune titles, 22-rune venues, both lists at their caps -- is
+// every person, 66-rune names, 25-rune titles, 23-rune venues, both lists at their caps -- is
 // 408 762 B (TestReportsSection_AFullPageStaysUnderItsCeiling holds that fixture under
 // reportsPageByteCeiling, a structural net and not a bound).
 //

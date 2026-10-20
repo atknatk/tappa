@@ -877,7 +877,7 @@ func TestReportsSection_TheOtherVenueFigureIsTriState(t *testing.T) {
 //
 // WHAT IT IS MEASURED AGAINST is the fixture below: a heavy but typical full page -- both lists
 // at their caps, every listed day worked and carrying every mark, every qualifier on every
-// person, ~68-rune names, a 25-rune title, a 22-rune home venue -- which renders 408 762 B.
+// person, 66-rune names, a 25-rune title, a 23-rune home venue -- which renders 408 762 B.
 // 450 000 B is that plus 10 %, and under the 559 968 B page this section served before its
 // two listing caps. It goes red when the markup of a row or a list entry grows (a repeated
 // chain, a list escaping its cap with the count tests changed), which is what it is for.
