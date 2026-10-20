@@ -159,10 +159,15 @@ func (s *Staff) activationLink(ctx context.Context, tx pgx.Tx, tenantID, employe
 			EmployeeID: employeeID,
 		})
 		if err != nil {
+			err = fmt.Errorf("list pending links: %w", err)
 			// A background context, for db.WithTenant's reason: ctx may be cancelled, and a
-			// skipped ROLLBACK TO SAVEPOINT leaves the outer transaction aborted.
-			_ = sp.Rollback(context.Background()) // ROLLBACK TO SAVEPOINT
-			return ActivationLink{}, fmt.Errorf("list pending links: %w", err)
+			// skipped ROLLBACK TO SAVEPOINT leaves the outer transaction aborted. A rollback that
+			// fails is returned joined to the read's error (db.WithTenantIn's pattern), never
+			// discarded; pgx.ErrTxClosed means the savepoint already ended.
+			if rbErr := sp.Rollback(context.Background()); rbErr != nil && !errors.Is(rbErr, pgx.ErrTxClosed) { // ROLLBACK TO SAVEPOINT
+				err = errors.Join(err, fmt.Errorf("roll back savepoint: %w", rbErr))
+			}
+			return ActivationLink{}, err
 		}
 		if err := sp.Commit(ctx); err != nil { // RELEASE SAVEPOINT
 			return ActivationLink{}, fmt.Errorf("release savepoint: %w", err)

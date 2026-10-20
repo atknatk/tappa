@@ -244,7 +244,9 @@ func TestAdvisories_TheSavepointIsWhatMakesTheDegradationReal(t *testing.T) {
 		if _, e := sp.Exec(ctx, "SELECT 1/0"); e == nil {
 			t.Fatal("SELECT 1/0 succeeded inside the savepoint")
 		}
-		_ = sp.Rollback(context.Background()) // ROLLBACK TO SAVEPOINT
+		if e := sp.Rollback(context.Background()); e != nil { // ROLLBACK TO SAVEPOINT
+			t.Fatalf("ROLLBACK TO SAVEPOINT failed: %v", e)
+		}
 		if _, e := tx.Exec(ctx, "SELECT 1"); e != nil {
 			t.Errorf("still poisoned after ROLLBACK TO SAVEPOINT: %v -- the whole "+
 				"degradation rests on this clearing the aborted state", e)

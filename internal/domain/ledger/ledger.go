@@ -668,7 +668,12 @@ func inSavepointTx(ctx context.Context, tx pgx.Tx, fn func(pgx.Tx) error) error 
 		return fmt.Errorf("savepoint: %w", err)
 	}
 	if err := fn(sp); err != nil {
-		_ = sp.Rollback(context.Background()) // ROLLBACK TO SAVEPOINT
+		// A failed rollback is returned joined to fn's error (db.WithTenantIn's pattern), never
+		// discarded: the savepoint may then still be aborting the outer transaction. errors.Is
+		// still finds fn's error. pgx.ErrTxClosed means the savepoint already ended.
+		if rbErr := sp.Rollback(context.Background()); rbErr != nil && !errors.Is(rbErr, pgx.ErrTxClosed) { // ROLLBACK TO SAVEPOINT
+			err = errors.Join(err, fmt.Errorf("roll back savepoint: %w", rbErr))
+		}
 		return err
 	}
 	if err := sp.Commit(ctx); err != nil { // RELEASE SAVEPOINT
