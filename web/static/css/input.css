@@ -1389,9 +1389,11 @@
            border-[1.5px] border-ink font-mono text-xs font-bold text-ink;
   }
   /* A person's row in People: 64 px on a phone, 60 px from md. The selected row
-     is marked by its aria-current, not by a second class. */
+     is marked by its aria-current, not by a second class. The gap between lines is
+     the smaller one: where the list is narrow (a desk with the card open) the row's
+     figures wrap onto a second line as one block, under the name. */
   .roster-row {
-    @apply flex min-h-16 w-full flex-wrap items-center gap-3.5 border-t border-dashed
+    @apply flex min-h-16 w-full flex-wrap items-center gap-x-3.5 gap-y-1.5 border-t border-dashed
            border-line px-5 py-2.5 text-ink first:border-t-0 hover:bg-tappa-green/5
            focus:outline-none focus-visible:ring-2 focus-visible:ring-inset
            focus-visible:ring-ink md:min-h-[60px];
