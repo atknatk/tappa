@@ -194,7 +194,7 @@ templ PlaqueRow(p PlaqueRowView) {
 // lives under "onwall". A comment that counts a set the code owns goes stale in the
 // edit that grows the set; this one went stale and wrong in the same round.
 templ PlaqueCard(v PlaqueFormView) {
-	<section class="docket" aria-label={ v.Heading }>
+	<section id="plaque" class="docket" aria-label={ v.Heading }>
 		<p class="docket-label">Plaque</p>
 		<h2 class="font-mono text-lg font-bold text-ink">{ v.Heading }</h2>
 		if v.ErrorMessage != "" {
@@ -202,16 +202,9 @@ templ PlaqueCard(v PlaqueFormView) {
 				<p>{ v.ErrorMessage }</p>
 			}
 		}
+		// No drawing on the card: the Venues detail it sits in draws its venue's plaque
+		// (M12-34), and a page carries at most one QR code.
 		@PlaqueRow(v.Plaque)
-		if v.Drawing != nil {
-			// The plaque on its wall, with the QR code it really carries (M12-12). The
-			// Venues detail of the redesign (M12-34) draws it beside the venue; until
-			// then the open card of a mounted plaque is the one place on this page that
-			// is about one plaque on one wall.
-			<div class="mt-4 flex justify-center">
-				@PlaqueDrawing(*v.Drawing)
-			</div>
-		}
 		if len(v.Trail) > 0 {
 			// 🔴 THE AUDIT HALF OF THE HISTORY, AND IT ANSWERS THE ONE QUESTION THE ROW
 			// CANNOT. The docket above already says WHAT happened and WHEN — loaded, took

@@ -1380,6 +1380,12 @@
            focus-visible:ring-ink;
   }
   .venue-card--on { @apply border-2 border-ink px-[15px] py-[13px]; }
+  /* A form section's number (M12-35, the venue and department forms): drawing, not a
+     word -- the template hides it from a screen reader; the section's heading names it. */
+  .secno {
+    @apply inline-flex size-[30px] flex-none items-center justify-center rounded-full
+           border-[1.5px] border-ink font-mono text-xs font-bold text-ink;
+  }
   /* A person's row in People: 64 px on a phone, 60 px from md. The selected row
      is marked by its aria-current, not by a second class. */
   .roster-row {

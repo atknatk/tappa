@@ -60,8 +60,19 @@ type LocationsView struct {
 	// query returned.
 	Queried bool
 
-	Venues      []components.VenueRowView
-	Departments []components.DepartmentRowView
+	// Venues is the list column: one card per venue, each a link that opens it in the
+	// detail beside the list (?at=<id>). Departments are no longer a list of their
+	// own -- each venue's sit in its detail (M12-34).
+	Venues []components.VenueRowView
+
+	// Detail is the one venue the page opens: the plaque's venue when a plaque card is
+	// open, else the venue ?at names, else the first venue (the list is ordered by
+	// name). nil when the business has no venues.
+	//
+	// 🔴 ?at IS A READ-ONLY SELECTION AND IT IS ANSWERED WHEN IT NAMES NOTHING (§4.6):
+	// an id that is not a uuid is "unreadable", one that is not this business's is
+	// "unknown-venue" -- the words a ?venue= that resolves to nothing already gets.
+	Detail *components.VenueDetailView
 
 	// VenuesCapped / DepartmentsCapped say the ceiling was reached and the list
 	// below is therefore INCOMPLETE.
@@ -99,6 +110,9 @@ type LocationsView struct {
 	// it is given.
 	VenueForm      *components.VenueFormView
 	DepartmentForm *components.DepartmentFormView
+	// VenueSide is the venue form's right column, read from the saved venue (M12-35);
+	// set whenever VenueForm is.
+	VenueSide *components.VenueFormSide
 
 	// --- the WALL PLAQUES (M6-06 phase B) ---------------------------------------
 
@@ -124,9 +138,20 @@ type LocationsView struct {
 	//
 	// The SQL order is still doing work — it is what makes the grouping below
 	// deterministic for two plaques that are otherwise equal.
-	Mounted      []components.PlaqueRowView
+	//
+	// ⚠️ M12-34 MOVED THE WALL LIST INTO THE VENUES. A plaque at a venue on this page is
+	// listed in that venue's detail (VenueDetailView.Plaques), in service or not; what is
+	// left here is what belongs to no venue the page shows: the box (Stock), plaques on a
+	// wall at a venue past the list's cap (Elsewhere -- the venue cap notice says the list
+	// is short), and plaques out of service with no such venue (OutOfService). OnWalls
+	// counts every plaque in service, wherever it is listed.
 	Stock        []components.PlaqueRowView
+	Elsewhere    []components.PlaqueRowView
 	OutOfService []components.PlaqueRowView
+	OnWalls      int
+	// PlaquesLoaded is how many plaques the read returned at all, so an empty box can
+	// say whether the business has none yet or has every one on a wall.
+	PlaquesLoaded int
 
 	// MountableStock is how many of Stock the server would actually let a manager
 	// mount: in the box, stamped as encoded, and writable (M10 F0-6).
@@ -165,6 +190,10 @@ type LocationsView struct {
 	// PlaqueForm is the one plaque card, or nil. Same rule as the two above: at most
 	// ONE card is ever open, and nil is a state rather than an absence.
 	PlaqueForm *components.PlaqueFormView
+	// PlaqueCardAt is where that card sits: PlaqueCardInVenue (inside the detail of the
+	// plaque's venue, which the detail then shows), PlaqueCardInStock (at the top of the
+	// box), or PlaqueCardElsewhere (above the lists of plaques at no venue on the page).
+	PlaqueCardAt string
 
 	// PlaqueReceipt is a plaque act the TRAIL confirmed, or nil. It is what lets
 	// this section acknowledge a mount or a replacement at all — see
@@ -250,4 +279,19 @@ type LocationsView struct {
 	// (internal/handler/locationactions.go says why); it never redirects, so it
 	// never becomes a word here.
 	Problem string
+}
+
+// Where an open plaque card is drawn (LocationsView.PlaqueCardAt).
+const (
+	PlaqueCardInVenue   = "venue"
+	PlaqueCardInStock   = "stock"
+	PlaqueCardElsewhere = "elsewhere"
+)
+
+// venueSide is the venue form's side column, zero when the handler set none.
+func (v LocationsView) venueSide() components.VenueFormSide {
+	if v.VenueSide == nil {
+		return components.VenueFormSide{}
+	}
+	return *v.VenueSide
 }

@@ -626,6 +626,8 @@ func TestLocationsSection_EveryControlLeadsSomewhereThatExists(t *testing.T) {
 		locationsHref + "?venue=" + f.firstVenueID().String(),
 		locationsHref + "?department=new",
 		locationsHref + "?department=" + f.firstDepartmentID().String(),
+		// M12-34: the second venue opened by its card's own link.
+		locationsHref + "?at=" + f.screen.Venues[1].ID.String(),
 	}
 	// 🔴 SIGN-OUT IS DRIVEN BY NOBODY, AND SKIPPING IT IS NOT A HOLE. It comes from
 	// the shared chrome rather than from this section, it is already driven by its own
@@ -774,9 +776,25 @@ func TestLocationsSection_LoadsNoScript(t *testing.T) {
 // there is still RECORDED -- nothing is lost -- but it is judged `flag` and waits for
 // somebody to approve it by hand. That state is reached by doing NOTHING, so the card
 // has to volunteer it.
+//
+// ⚠️ M12-34: THE SENTENCE LIVES IN THE DETAIL OF THE VENUE THE LIST OPENED, said once.
+// The page opens one venue at a time (?at=<id>, the first by name when none is asked
+// for), and the list card of a bare venue says the same state in its own words ("No
+// network and no GPS — every tap goes to The Spike") without the heading. So the bare
+// venue is opened here, and the default page -- which opens the configured one -- is
+// held to carry the card's line and not the heading.
 func TestLocationsSection_SaysWhenAVenueHasNoProofOfPlace(t *testing.T) {
-	b := venueBrowser(t, twoVenues())
-	body := htmlOf(t, b.do(http.MethodGet, locationsHref, nil))
+	f := twoVenues()
+	b := venueBrowser(t, f)
+	def := htmlOf(t, b.do(http.MethodGet, locationsHref, nil))
+	if !strings.Contains(def, "No network and no GPS — every tap goes to The Spike") {
+		t.Error("the bare venue's list card does not say it has neither network nor GPS")
+	}
+	if n := strings.Count(def, "No proof of place"); n != 0 {
+		t.Errorf("the page opened on the CONFIGURED venue says \"No proof of place\" %d time(s); "+
+			"the heading belongs to the detail of a venue that has none", n)
+	}
+	body := htmlOf(t, b.do(http.MethodGet, locationsHref+"?at="+f.screen.Venues[1].ID.String(), nil))
 
 	if !strings.Contains(body, "No proof of place") {
 		t.Error("a venue with no address range and no coordinate is rendered with no " +
@@ -837,6 +855,18 @@ func TestLocationsSection_ATooWideListIsNoProofOfPlace(t *testing.T) {
 			body := htmlOf(t, b.do(http.MethodGet, locationsHref, nil))
 			if n := strings.Count(body, "No proof of place"); n != tc.warnings {
 				t.Errorf("\"No proof of place\" appears %d time(s), want %d", n, tc.warnings)
+			}
+			// M12-34: THE CARD'S IP BADGE ASKS THE SAME QUESTION. A wide list is
+			// drawn as too wide and is never the "IP ✓" badge.
+			wide := tc.venue.StaticIPs[0] == netip.MustParsePrefix("0.0.0.0/1")
+			if got := strings.Contains(body, `class="ev-badge ev-badge--ok">IP<`); got == wide {
+				t.Errorf("the IP badge says the network counts = %v for a list that is wide = %v", got, wide)
+			}
+			if got := strings.Contains(body, `class="ev-badge ev-badge--wide">IP too wide`); got != wide {
+				t.Errorf("the IP badge says \"too wide\" = %v for a list that is wide = %v", got, wide)
+			}
+			if got := strings.Contains(body, "Too wide to count as proof of place"); got != wide {
+				t.Errorf("the detail marks the saved list too wide = %v, want %v", got, wide)
 			}
 			// THE WARNING MUST NOT CONTRADICT THE CARD. With the ranges printed below it,
 			// "no address range" is false; the sentence names why they do not count.
@@ -992,6 +1022,10 @@ func TestLocationsSection_AnUnresolvedCardIsAnswered(t *testing.T) {
 		// lookup that never ran -- the same class as the two sentences below.
 		{"a venue id that is not a uuid", "?venue=nonsense", "could not read that"},
 		{"a department id that is not a uuid", "?department=nonsense", "could not read that"},
+		// M12-34: ?at= selects a venue for the detail. One that names nothing is answered
+		// with the words a ?venue= that names nothing gets.
+		{"a selected venue of another business", "?at=" + uuid.NewString(), "could not find that venue"},
+		{"a selected venue that is not a uuid", "?at=nonsense", "could not read that"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1245,6 +1279,10 @@ func TestLocationsSection_SaysNothingAboutACardItNeverLookedFor(t *testing.T) {
 		"?venue=new&department=" + uuid.NewString(),
 		"?department=new&venue=new",
 		"?venue=" + f.firstVenueID().String() + "&department=new",
+		// M12-34: a form is a page of its own and never reads ?at, so a bad one beside
+		// it is not complained about.
+		"?venue=new&at=" + uuid.NewString(),
+		"?venue=new&at=nonsense",
 	} {
 		t.Run(q, func(t *testing.T) {
 			rec := b.do(http.MethodGet, locationsHref+q, nil)
@@ -1256,12 +1294,386 @@ func TestLocationsSection_SaysNothingAboutACardItNeverLookedFor(t *testing.T) {
 				t.Error("the section reports a department it never searched for; ?venue= " +
 					"wins and opens the only card, so nothing about a department was asked")
 			}
+			if strings.Contains(body, "could not find that venue") || strings.Contains(body, "could not read that") {
+				t.Error("the section answers a selection it never read; an open form does not consult ?at")
+			}
 			// ANTI-VACUITY: the venue card really did open, or "no complaint" would be
 			// true of a page that did nothing at all.
 			if !strings.Contains(body, `name="static_ips"`) {
 				t.Error("no venue card opened, so this case proves nothing")
 			}
 		})
+	}
+}
+
+// TestLocationsSection_OpensTheVenueTheListLinksTo is the selection of M12-34: a venue
+// card is a link to ?at=<id>, and the server opens THAT venue beside the list -- the
+// first by name when none is asked for, the one past the list's cap when that is the
+// one asked for, and a failed read behind it is a problem page, not a sentence.
+func TestLocationsSection_OpensTheVenueTheListLinksTo(t *testing.T) {
+	f := twoVenues()
+	b := venueBrowser(t, f)
+	opened := func(body string) string {
+		m := regexp.MustCompile(`<h2 id="venue-h"[^>]*>([^<]*)</h2>`).FindStringSubmatch(body)
+		if m == nil {
+			return ""
+		}
+		return m[1]
+	}
+	current := regexp.MustCompile(`class="venue-card venue-card--on" aria-current="true"`)
+
+	def := htmlOf(t, b.do(http.MethodGet, locationsHref, nil))
+	if got := opened(def); got != "KF St Julians" {
+		t.Errorf("with no ?at the page opens %q, want the first venue by name", got)
+	}
+	if n := len(current.FindAllString(def, -1)); n != 1 {
+		t.Errorf("%d venue card(s) are marked current, want exactly 1", n)
+	}
+	// EVERY CARD IS THE LINK THAT OPENS IT, with the phone's jump to the detail.
+	for _, ven := range f.screen.Venues {
+		if !strings.Contains(def, `href="`+locationsHref+"?at="+ven.ID.String()+`#venue"`) {
+			t.Errorf("the list offers no link that opens %s", ven.Name)
+		}
+	}
+
+	second := htmlOf(t, b.do(http.MethodGet, locationsHref+"?at="+f.screen.Venues[1].ID.String(), nil))
+	if got := opened(second); got != "KF Rusty Bar" {
+		t.Errorf("?at=<second venue> opens %q", got)
+	}
+	if strings.Contains(second, "could not") {
+		t.Error("a selection that resolved is answered as if it had not")
+	}
+
+	unknown := htmlOf(t, b.do(http.MethodGet, locationsHref+"?at="+uuid.NewString(), nil))
+	if got := opened(unknown); got != "KF St Julians" {
+		t.Errorf("an ?at that names nothing opens %q; the first venue stays open", got)
+	}
+
+	// A VENUE PAST THE CAP IS STILL THIS BUSINESS'S, and it opens.
+	beyond := uuid.New()
+	f.beyondVenues = map[uuid.UUID]tenant.Venue{beyond: {ID: beyond, Name: "KF Beyond The Cap"}}
+	past := htmlOf(t, b.do(http.MethodGet, locationsHref+"?at="+beyond.String(), nil))
+	if got := opened(past); got != "KF Beyond The Cap" {
+		t.Errorf("?at=<a venue past the cap> opens %q", got)
+	}
+
+	// OUR FAILURE IS A PROBLEM PAGE: "that venue is not yours" would be a claim made on
+	// a database that did not answer.
+	f.byIDErr = errors.New("connection refused")
+	rec := b.do(http.MethodGet, locationsHref+"?at="+uuid.NewString(), nil)
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("a failed read behind ?at answered %d, want 500", rec.Code)
+	}
+}
+
+// TestLocationsSection_PrintsTheConfiguredRadius: the GPS radius on the page is the
+// one the panel was handed (TAPPA_GPS_RADIUS_M, through the engine), never a literal --
+// and a panel handed none prints no figure at all.
+func TestLocationsSection_PrintsTheConfiguredRadius(t *testing.T) {
+	admins := &fakeAdmins{verify: func() (adminauth.Resolved, error) {
+		return adminauth.Resolved{
+			SessionID: panelTestSession, TenantID: panelTestTenant, AdminUserID: panelTestAdmin,
+			Role: "owner", FullName: "KF Owner",
+		}, nil
+	}}
+	b := newBrowser(t, newAdminRouterWithPlaques(t, admins, twoVenues(), &fakePlaques{}, GPSRadiusFrom(200)))
+	b.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	body := htmlOf(t, b.do(http.MethodGet, locationsHref, nil))
+	for _, want := range []string{
+		`200 m <span class="text-ink/70">· set by Taptime</span>`,
+		`aria-label="Schematic: the venue point with a 200 metre circle around it"`,
+		"a plaque tap on this network or within 200 m is approved",
+		"A QR scan needs the network — GPS alone sends it to The Spike.",
+		"Location is read only at the moment of the tap.",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the page does not say %q", want)
+		}
+	}
+	if strings.Contains(body, "150 m") {
+		t.Error("the page prints 150 m beside a configured 200")
+	}
+
+	bare := htmlOf(t, venueBrowser(t, twoVenues()).do(http.MethodGet, locationsHref, nil))
+	if strings.Contains(bare, "set by Taptime") || strings.Contains(bare, "Schematic:") {
+		t.Error("a panel handed no radius prints one anyway")
+	}
+	if !strings.Contains(bare, "within the configured radius is approved") {
+		t.Error("with no figure the footnote does not say what the radius is")
+	}
+}
+
+// TestLocationsSection_TheWiFiNameIsNotEvidence (migration 00010): the name staff are
+// shown at activation sits outside "Where it is" and says it is not checked.
+func TestLocationsSection_TheWiFiNameIsNotEvidence(t *testing.T) {
+	body := htmlOf(t, venueBrowser(t, twoVenues()).do(http.MethodGet, locationsHref, nil))
+	where := strings.Index(body, ">Where it is</h3>")
+	also := strings.Index(body, "Also on this venue")
+	wifi := strings.Index(body, "Wi-Fi shown at activation (not checked)")
+	if where < 0 || also < 0 || wifi < 0 {
+		t.Fatalf("the detail lacks a part: where=%d also=%d wifi=%d", where, also, wifi)
+	}
+	if wifi < also {
+		t.Error("the Wi-Fi name is drawn before the not-evidence block, i.e. among the evidence")
+	}
+	if !strings.Contains(body, "KF-Staff") {
+		t.Error("the venue's Wi-Fi name is not shown")
+	}
+}
+
+// TestOpenVenueAt_AddsOnlyAServerID: after a save the page opens the saved venue, by
+// an id the server holds; nothing else is added and a zero id adds nothing.
+func TestOpenVenueAt_AddsOnlyAServerID(t *testing.T) {
+	id := uuid.MustParse("6f1b8f8e-2d3c-4a5b-9c7d-0e1f2a3b4c5d")
+	if got, want := openVenueAt(venueReturn("venue-saved", ""), id),
+		locationsHref+"?done=venue-saved&at="+id.String()+"#venue"; got != want {
+		t.Errorf("openVenueAt = %q, want %q", got, want)
+	}
+	if got, want := openVenueAt(locationsHref, id), locationsHref+"?at="+id.String()+"#venue"; got != want {
+		t.Errorf("openVenueAt over a bare target = %q, want %q", got, want)
+	}
+	if got := openVenueAt(venueReturn("venue-saved", ""), uuid.Nil); got != locationsHref+"?done=venue-saved" {
+		t.Errorf("a zero id added %q", got)
+	}
+	// AND THE SAVE REALLY USES IT: the 303 opens the venue the domain returned.
+	f := twoVenues()
+	b := venueBrowser(t, f)
+	rec := b.do(http.MethodPost, venueSaveHref, url.Values{"id": {f.firstVenueID().String()}, "name": {"KF St Julians"}})
+	if loc := rec.Header().Get("Location"); rec.Code != http.StatusSeeOther ||
+		!strings.HasSuffix(loc, "&at="+f.firstVenueID().String()+"#venue") {
+		t.Errorf("a saved venue answered %d to %q; want the page opened on it", rec.Code, loc)
+	}
+}
+
+// TestVenueForm_IsAPageAboutOneVenue (M12-35): an open venue form is a page of its own
+// -- its heading is the one <h1>, the trail and Cancel lead back to the venue, the list
+// steps aside -- and its side column shows THIS venue's departments and plaques only,
+// from what is saved.
+func TestVenueForm_IsAPageAboutOneVenue(t *testing.T) {
+	f := twoVenues()
+	other := f.screen.Venues[1].ID
+	f.screen.Departments = append(f.screen.Departments, tenant.Department{
+		ID: uuid.New(), LocationID: other, LocationName: "KF Rusty Bar", Name: "Cellar",
+	})
+	wall := f.firstVenueID()
+	plaques := &fakePlaques{screen: tenant.PlaqueScreen{Zone: time.UTC, Plaques: []tenant.Plaque{
+		{UID: uidOnWall, Status: tenant.PlaqueActive, LocationID: &wall, Canonical: true, EncodedAt: &fixtureStamp},
+		{UID: uidSpare2, Status: tenant.PlaqueActive, LocationID: &other, Canonical: true, EncodedAt: &fixtureStamp},
+	}}}
+	b := plaqueBrowser(t, f, plaques)
+	body := htmlOf(t, b.do(http.MethodGet, locationsHref+"?venue="+wall.String(), nil))
+
+	if n := strings.Count(body, "<h1"); n != 1 {
+		t.Fatalf("the form page has %d <h1>, want 1", n)
+	}
+	if !regexp.MustCompile(`<h1[^>]*>Edit KF St Julians</h1>`).MatchString(body) {
+		t.Error("the page's title is not the form's heading")
+	}
+	at := locationsHref + "?at=" + wall.String() + "#venue"
+	if !strings.Contains(body, `<a href="`+at+`" class="panel-crumb">`) {
+		t.Error("the trail does not lead back to the venue")
+	}
+	if !strings.Contains(body, `<a class="btn btn--line" href="`+at+`">Cancel</a>`) {
+		t.Error("Cancel does not lead back to the venue")
+	}
+	if strings.Contains(body, "venue-card") || strings.Contains(body, `id="venue-h"`) {
+		t.Error("the venue list and detail are drawn under the form")
+	}
+	if strings.Contains(body, "Add venue") {
+		t.Error("the list's \"Add venue\" action is offered on a form")
+	}
+	// THIS VENUE'S, AND ONLY THIS VENUE'S.
+	for _, want := range []string{"Kitchen", uidOnWall, "1 range", "35.917270, 14.489540", "Plaque tap", "network or GPS", "QR scan", "network only"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the form's side column does not say %q", want)
+		}
+	}
+	for _, not := range []string{"Cellar", uidSpare2} {
+		if strings.Contains(body, not) {
+			t.Errorf("the form shows %q, which belongs to another venue", not)
+		}
+	}
+	// NOT PORTED (screens/venues-roll.md §2.4).
+	for _, not := range []string{"How each line was read", "at most a /7", "20 + 50", "backup check",
+		"radius is fixed", "Preview as", " disabled", "150 m"} {
+		if strings.Contains(body, not) {
+			t.Errorf("the form says %q, which the port leaves out", not)
+		}
+	}
+	// THE NEW VENUE'S PAGE has no saved venue to describe, and its trail leads to the list.
+	add := htmlOf(t, b.do(http.MethodGet, locationsHref+"?venue=new", nil))
+	if !regexp.MustCompile(`<h1[^>]*>Add a venue</h1>`).MatchString(add) {
+		t.Error("the new-venue page's title is not \"Add a venue\"")
+	}
+	if strings.Contains(add, "What a tap here can prove") {
+		t.Error("a venue that does not exist yet is described as saved")
+	}
+}
+
+// TestVenueForm_ARefusedListShowsTheParsersSentence (M12-35): a refused address list
+// comes back in the field's own note, as the parser's sentence word for word, in the
+// error box, tied to the control -- no heading of the page's own names a limit.
+func TestVenueForm_ARefusedListShowsTheParsersSentence(t *testing.T) {
+	f := twoVenues()
+	b := venueBrowser(t, f)
+	rec := b.do(http.MethodPost, venueSaveHref, url.Values{
+		"id": {f.firstVenueID().String()}, "name": {"KF St Julians"}, "static_ips": {"0.0.0.0/1"},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("a refused list answered %d, want 200 with the form back", rec.Code)
+	}
+	body := htmlOf(t, rec)
+	_, want := parseRanges("0.0.0.0/1")
+	if want == "" {
+		t.Fatal("the parser accepts 0.0.0.0/1; this test's premise is gone")
+	}
+	box := `<p id="venue-ranges-help" role="alert" class="rounded-xl border border-tomato bg-tomato/5 px-3.5 py-3 text-[13px] leading-snug text-ink">` +
+		htmlEscaper.Replace(want) + `</p>`
+	if !strings.Contains(body, box) {
+		t.Errorf("the ranges note is not the parser's sentence in the error box; want\n%s", box)
+	}
+	if !regexp.MustCompile(`name="static_ips"[^>]*aria-invalid="true"[^>]*aria-describedby="venue-ranges-help"`).MatchString(body) {
+		t.Error("the refused control is not marked invalid and tied to its note")
+	}
+	// The docket still describes what is SAVED, not the refused draft.
+	if !strings.Contains(body, "1 range") {
+		t.Error("after a refusal the docket no longer describes the saved venue")
+	}
+}
+
+// TestLocationsSection_TheFootnoteNamesOnlyANetworkThatCounts (§5): the footnote says
+// "on this network" only where the saved list is evidence. A list too wide to tell the
+// venue apart is not -- the detail says so -- so the footnote must not promise an
+// approval on it; with no list there is no network to name.
+func TestLocationsSection_TheFootnoteNamesOnlyANetworkThatCounts(t *testing.T) {
+	wide := []netip.Prefix{netip.MustParsePrefix("0.0.0.0/1"), netip.MustParsePrefix("128.0.0.0/1")}
+	gps := &tenant.GPS{Lat: 35.917270, Lng: 14.489540}
+	for _, tc := range []struct {
+		name string
+		ips  []netip.Prefix
+		want string
+	}{
+		{"a list that counts", []netip.Prefix{netip.MustParsePrefix("203.0.113.0/24")},
+			"a plaque tap on this network or within the configured radius is approved. A QR scan needs the network"},
+		{"a list too wide to count", wide,
+			"a plaque tap within the configured radius is approved; the saved address list is too wide to count. A QR scan needs the network"},
+		{"no list", nil,
+			"a plaque tap within the configured radius is approved; no venue network is set. A QR scan needs the network"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := venueBrowser(t, &fakeVenues{screen: tenant.VenueScreen{Venues: []tenant.Venue{
+				{ID: uuid.New(), Name: "KF Probe", StaticIPs: tc.ips, GPS: gps},
+			}}})
+			body := htmlOf(t, b.do(http.MethodGet, locationsHref, nil))
+			if !strings.Contains(body, tc.want) {
+				t.Errorf("the footnote does not say %q", tc.want)
+			}
+			if tc.ips == nil || len(tc.ips) == 2 {
+				if strings.Contains(body, "on this network") {
+					t.Error("the footnote promises an approval on a network that is not evidence")
+				}
+			}
+		})
+	}
+}
+
+// TestLocationsSection_ACutPlaqueListNeverSaysNone (§4.6, P4 h): when the plaque read
+// was cut, a venue with no plaque among those listed is not a venue with none -- the
+// card prints a floor and the detail says the page could not list every plaque.
+func TestLocationsSection_ACutPlaqueListNeverSaysNone(t *testing.T) {
+	venues := twoVenues()
+	for _, capped := range []bool{true, false} {
+		plaques := threePlaques(venues.firstVenueID())
+		plaques.screen.Capped = capped
+		b := plaqueBrowser(t, venues, plaques)
+		body := htmlOf(t, b.do(http.MethodGet, locationsHref+"?at="+venues.screen.Venues[1].ID.String(), nil))
+		none := []string{"no plaque on a wall", "No plaque is on a wall here yet.", "No plaque has been mounted at this venue."}
+		for _, s := range none {
+			if got := strings.Contains(body, s); got == capped {
+				t.Errorf("capped=%v: the page says %q = %v", capped, s, got)
+			}
+		}
+		if capped {
+			for _, want := range []string{"0+ on the wall", "1+ on the wall",
+				"This page could not list every plaque, so it cannot say whether one is on a wall here.",
+				"This page could not list every plaque, and none of those it listed is at this venue."} {
+				if !strings.Contains(body, want) {
+					t.Errorf("a cut list does not say %q", want)
+				}
+			}
+		}
+	}
+}
+
+// TestLocationsSection_APlaqueIsListedOnce: a plaque at a venue the page lists sits in
+// that venue's detail and in no list of plaques at no listed venue -- and a venue past
+// the list's cap, opened by ?at, takes its plaques out of those lists too.
+func TestLocationsSection_APlaqueIsListedOnce(t *testing.T) {
+	venues := twoVenues()
+	rowHeader := func(uid string) *regexp.Regexp {
+		return regexp.MustCompile(`<th scope="row"[^>]*><span[^>]*>` + uid + `</span>`)
+	}
+	// The plaques are at the SECOND venue, which the default page does not open: they
+	// belong to its detail and to no list of plaques at no listed venue.
+	second := venues.screen.Venues[1].ID
+	b := plaqueBrowser(t, venues, threePlaques(second))
+	def := htmlOf(t, b.do(http.MethodGet, locationsHref, nil))
+	for _, absent := range []string{"On a wall at a venue not listed here", ">Out of service</h2>"} {
+		if strings.Contains(def, absent) {
+			t.Errorf("the default page draws %q although every plaque is at a listed venue", absent)
+		}
+	}
+	opened := htmlOf(t, b.do(http.MethodGet, locationsHref+"?at="+second.String(), nil))
+	for _, uid := range []string{uidOnWall, uidRetired} {
+		if n := len(rowHeader(uid).FindAllString(def, -1)); n != 0 {
+			t.Errorf("%s heads %d row(s) on a page that opens another venue, want 0", uid, n)
+		}
+		if n := len(rowHeader(uid).FindAllString(opened, -1)); n != 1 {
+			t.Errorf("%s heads %d row(s) on its venue's page, want 1", uid, n)
+		}
+	}
+
+	beyond := uuid.New()
+	venues.beyondVenues = map[uuid.UUID]tenant.Venue{beyond: {ID: beyond, Name: "KF Beyond The Cap"}}
+	plaques := &fakePlaques{screen: tenant.PlaqueScreen{Zone: time.UTC, Plaques: []tenant.Plaque{
+		{UID: uidSpare2, Status: tenant.PlaqueActive, LocationID: &beyond, Canonical: true, EncodedAt: &fixtureStamp},
+	}}}
+	b = plaqueBrowser(t, venues, plaques)
+	past := htmlOf(t, b.do(http.MethodGet, locationsHref+"?at="+beyond.String(), nil))
+	if n := len(rowHeader(uidSpare2).FindAllString(past, -1)); n != 1 {
+		t.Errorf("the beyond-cap venue's plaque heads %d row(s), want 1", n)
+	}
+	if strings.Contains(past, "On a wall at a venue not listed here") {
+		t.Error("the open beyond-cap venue's plaque is also listed as at a venue not listed")
+	}
+	// CONTROL: with that venue not open, the plaque is listed there, once.
+	other := htmlOf(t, b.do(http.MethodGet, locationsHref, nil))
+	if !strings.Contains(other, "On a wall at a venue not listed here") || len(rowHeader(uidSpare2).FindAllString(other, -1)) != 1 {
+		t.Error("control: a plaque at a venue past the cap is not listed once among the unlisted")
+	}
+}
+
+// TestVenueForm_ATooWideListIsNotARange (§5): the form's docket says what the SAVED list
+// proves, by the engine's predicate -- a too-wide list is "not evidence", never a count
+// of ranges.
+func TestVenueForm_ATooWideListIsNotARange(t *testing.T) {
+	id := uuid.New()
+	b := venueBrowser(t, &fakeVenues{screen: tenant.VenueScreen{Venues: []tenant.Venue{{
+		ID: id, Name: "KF Probe", GPS: &tenant.GPS{Lat: 35.9, Lng: 14.5},
+		StaticIPs: []netip.Prefix{netip.MustParsePrefix("0.0.0.0/1"), netip.MustParsePrefix("128.0.0.0/1")},
+	}}}})
+	body := htmlOf(t, b.do(http.MethodGet, locationsHref+"?venue="+id.String(), nil))
+	start := strings.Index(body, `<section aria-labelledby="proves-h"`)
+	if start < 0 {
+		t.Fatal("the form draws no docket")
+	}
+	docket := body[start:]
+	docket = docket[:strings.Index(docket, "</section>")]
+	if !strings.Contains(docket, "Too wide — not evidence") {
+		t.Error("the docket does not say the saved list is not evidence")
+	}
+	if strings.Contains(docket, "range") {
+		t.Error("the docket counts ranges in a list that is not evidence")
 	}
 }
 
@@ -2372,7 +2784,9 @@ func TestLocationsSection_ReflectsNothingFromTheQueryString(t *testing.T) {
 	b := venueBrowser(t, twoVenues())
 	const marker = "zzmarkerzz"
 	for _, q := range []string{"?problem=" + marker, "?done=" + marker,
-		"?problem=<script>alert(1)</script>" + marker} {
+		"?problem=<script>alert(1)</script>" + marker,
+		// M12-34: the selection is looked up, never echoed.
+		"?at=" + marker, "?at=<b>" + marker + "</b>"} {
 		body := htmlOf(t, b.do(http.MethodGet, locationsHref+q, nil))
 		if strings.Contains(body, marker) {
 			t.Errorf("%s put its own text on the page", q)

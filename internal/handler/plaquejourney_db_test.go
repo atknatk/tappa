@@ -972,11 +972,14 @@ func TestPlaqueJourneyDB_RustyBarsDoorCanBeRepaired(t *testing.T) {
 	spare := p.seedPlaque(t, "unassigned", uuid.Nil)
 	p.seedUnrecordedPlaque(t, "unassigned", uuid.Nil) // state (b), for the list below
 
+	// ⚠️ M12-34 drew the list as rows: (c) is the "Needs replacing" pill on the venue's
+	// plaque row (the card, opened below, still carries the full alert banner), and (b)
+	// is the box row's own line under its key state.
 	_, html := p.get(t, locationsHref)
 	for _, want := range []string{
-		"This plaque needs replacing",         // (c) the banner
-		"Encoding not recorded as finished",   // (b) and (c), the Key field
-		"This plaque cannot go on a wall",     // (b) the banner
+		">Needs replacing</span>",             // (c) the row's alert
+		"Encoding not recorded as finished",   // (b), the box row's key line
+		"This plaque cannot go on a wall",     // (b) the box row's alert
 		"Encoded by Taptime — pending a wall", // (a), the spare
 	} {
 		if !strings.Contains(html, want) {
@@ -987,6 +990,9 @@ func TestPlaqueJourneyDB_RustyBarsDoorCanBeRepaired(t *testing.T) {
 	_, html = p.get(t, locationsHref+"?plaque="+broken)
 	if !strings.Contains(html, `action="`+plaqueReplaceHref+`"`) {
 		t.Fatalf("the card for Rusty Bar's plaque offers no replacement — that is the repair.\n%s", html)
+	}
+	if !strings.Contains(html, "This plaque needs replacing") {
+		t.Error("the card for Rusty Bar's plaque lost its alert banner")
 	}
 	if strings.Contains(html, "confirm=unmount") {
 		t.Fatal("the card offers to take it down and \"mount it where it belongs\" — false for this plaque")

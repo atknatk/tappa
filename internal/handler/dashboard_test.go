@@ -1242,12 +1242,16 @@ var panelTouchTargets = map[string]int{
 	// A section's breadcrumb link (M12-01, pages.panelHead): every crumb before the current
 	// page is a real <a>, so both halves of the pair reach it.
 	"panel-crumb": 44, // .panel-crumb -> min-h-11 = 2.75rem
+	// The Venues list's cards (M12-34): each is a link that opens the venue beside the
+	// list, so both halves of the pair reach it.
+	"venue-card": 44, // .venue-card -> min-h-11 = 2.75rem
 	// The Rules screen (M12-37) draws the rule switch, a submit <button>, so both halves
 	// of the pair reach it.
 	"rule-switch": 44, // .rule-switch -> min-h-11 = 2.75rem
 	// The redesign's form field (M12-08), drawn by several screens (sign-in, sign-up,
-	// billing, rules, The Spike's note). It is an <input>, not an <a> or a <button>, so the
-	// form-control scan and the stylesheet half of the pair hold it.
+	// billing, rules, The Spike's note, the venue and department forms). It is an <input>,
+	// not an <a> or a <button>, so the form-control scan and the stylesheet half of the
+	// pair hold it.
 	"field-input": 44, // .field-input -> min-h-11 = 2.75rem
 	// People (M12-30) draws the status chips (links) and each person's row (one link,
 	// 64 px on a phone, 60 px from md); The Pass (M12-26) draws the verdict chips and the
@@ -1277,9 +1281,7 @@ var panelTouchTargets = map[string]int{
 // the commit of the first screen that writes it -- that test turns red while a
 // template uses a class still listed here, and the markup scan above turns red while
 // a press target carries one that is not in panelTouchTargets.
-var panelPendingTouchTargets = map[string]int{
-	"venue-card": 44, // .venue-card -> min-h-11 (Venues)
-}
+var panelPendingTouchTargets = map[string]int{}
 
 func hasTouchTargetClass(classes string) bool {
 	for _, c := range strings.Fields(classes) {
