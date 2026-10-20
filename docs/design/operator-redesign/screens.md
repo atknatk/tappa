@@ -4,8 +4,8 @@ Companion to [README.md](README.md). Per screen: what the code draws, the bindin
 form with its hidden fields, the states, what is never shown, and the tests that hold it. Under
 D1 a board may show **only** what is listed here.
 
-Citations: HEAD `022ba3c` (operator files unchanged since `1e5cc83`, and still unchanged at
-`a8a06f6`, where the board-polish sync of 2026-10-20 re-checked every line it added). File prefixes:
+Citations: HEAD `022ba3c` (operator files unchanged since `1e5cc83`); every line the board-polish sync of 2026-10-20
+added was **re-read at `a8a06f6` (unchanged at `27516b7`)**. File prefixes:
 templates are `web/templates/operatorpages/`, handlers `internal/handler/operator/`, tests
 `internal/handler/operator/` unless named. Times print as `utcStamp` "2006-01-02 15:04 UTC"
 (`legal.go:344`) unless noted; the audit log uses `utcSecond` "2006-01-02 15:04:05 UTC"
@@ -37,9 +37,10 @@ DOM order (signed in): `header.op-bar` → `div.op-frame` → `nav.op-nav` → `
 
 Phone bar (polished boards): **sticky** at the viewport bottom, and on a short page it rests on
 the viewport's bottom edge — `div.op-frame` is a flex column at least the viewport tall (minus
-the band), the nav takes `order-last mt-auto` (README §6 "Frame", "Main nav"). Padding (polished
-boards): docket 18 px 24 px on tablet/desktop, 16 px 20 px on the phone; a card 20 px on the
-phone (README §6 "Card", "Docket list").
+the band), the nav takes `order-last mt-auto` (README §6 "Frame", "Main nav"). One look and one
+padding scale on every operator screen: the perforated `.docket` (no dashed-top shortcut) at
+18 px 24 px on tablet/desktop and 16 px 20 px on the phone; a card 20 px all round on the phone
+— no per-screen padding (README §6 "Card", "Docket list").
 
 Signed-in shell (band with sign out + nav): Home, every data screen, signed-in problems.
 Signed-out shell (band only): SignIn, Code, Enroll (enrollment *ends* in a session —
