@@ -15,6 +15,12 @@ import (
 // attribute ("the reference's six inline style= attributes" in landing.templ) is not a hit.
 var inlineStyle = regexp.MustCompile(`(?i)\bstyle\s*\??=\s*["'{]|<style[\s>/]`)
 
+// cssComponent is a templ `css name(…) { … }` declaration. It carries no style attribute and no
+// <style> in the source, yet a class={ name() } that uses it makes templ render a
+// <style type="text/css"> block into the page (templ.ComponentCSSClass, through
+// templ.RenderCSSItems) -- which style-src 'self' drops like any other inline style.
+var cssComponent = regexp.MustCompile(`^\s*css\s+\w+\s*\(`)
+
 // inlineStyleExempt are the ONLY .templ files allowed inline styles, by path under web/templates,
 // each with its reason. A new file is scanned until it is listed here with one.
 var inlineStyleExempt = map[string]string{
@@ -34,6 +40,12 @@ var inlineStyleExempt = map[string]string{
 // a silent defect: the page renders without the rule, and no test that reads the body for words
 // notices. (Measured before this net: `style="color:#c00"` on the billing month's <h2> left every
 // test green.)
+//
+// THREE SHAPES REACH THE PAGE: a style attribute, a <style> element, and a templ css component --
+// `css name() { … }` used as class={ name() } -- which has neither in its source and still renders
+// a <style> block (measured: such a component in notice.templ left the first version of this net
+// green). The component is read in the .templ source and as templ.ComponentCSSClass in every .go
+// file, generated ones included.
 //
 // It reads the .templ SOURCES rather than rendered pages, on the TestMarketing_ReachesNoThirdParty
 // precedent: a screen no corpus renders is still covered.
@@ -61,6 +73,16 @@ func TestTemplates_CarryNoInlineStyle(t *testing.T) {
 	for _, prose := range []string{"the six inline style= attributes", "styles", "line-style values"} {
 		if inlineStyle.MatchString(prose) {
 			t.Errorf("the scan reads prose %q as an inline style", prose)
+		}
+	}
+	for _, shape := range []string{"css mutRed() {", "\tcss tone(c string) {", "css  wide ( ) {"} {
+		if !cssComponent.MatchString(shape) {
+			t.Errorf("the scan does not see %q -- a templ css component, which renders a <style> block", shape)
+		}
+	}
+	for _, prose := range []string{"// the css class above", "\tclass={ css }", "panelcss red() {", "@css.Card()"} {
+		if cssComponent.MatchString(prose) {
+			t.Errorf("the scan reads %q as a templ css component", prose)
 		}
 	}
 
@@ -112,12 +134,28 @@ func TestTemplates_CarryNoInlineStyle(t *testing.T) {
 						"page renders without the rule. Write the Tailwind utility literally in the "+
 						".templ, or a class in input.css's @layer components.", rel, i+1, hit)
 				}
+				if cssComponent.MatchString(line) {
+					t.Errorf("%s:%d declares a templ css component (%q): a class={ … } that uses it renders "+
+						"a <style> block into the page, which style-src 'self' drops. Use a Tailwind utility "+
+						"or a class in input.css's @layer components.", rel, i+1, strings.TrimSpace(line))
+				}
 			}
-		case strings.HasSuffix(rel, ".go") && !strings.HasSuffix(rel, "_templ.go") && !strings.HasSuffix(rel, "_test.go"):
+		case strings.HasSuffix(rel, ".go") && !strings.HasSuffix(rel, "_test.go"):
+			scanned[rel] = true
+			// templ.ComponentCSSClass is what a css component compiles to, and what hand-written Go
+			// could return to a class={ … } to the same effect: RenderCSSItems writes its <style>
+			// block. Read in the GENERATED files too, so the compiled output is checked as well as
+			// the source the .templ scan reads.
+			if strings.Contains(src, "ComponentCSSClass") {
+				t.Errorf("%s builds a templ.ComponentCSSClass: rendered through class={ … } it writes a "+
+					"<style> block into the page, which style-src 'self' drops", rel)
+			}
+			if strings.HasSuffix(rel, "_templ.go") {
+				return nil
+			}
 			// A view type can hand an element its attributes (templ.Attributes spread with
 			// `{ attrs... }`), which the .templ scan cannot see. The generated _templ.go files are
 			// the .templ files above, compiled.
-			scanned[rel] = true
 			if strings.Contains(src, `"style"`) {
 				t.Errorf("%s names a \"style\" attribute: an attribute map spread into an element is "+
 					"an inline style the .templ scan cannot see, and style-src 'self' drops it", rel)
@@ -133,6 +171,7 @@ func TestTemplates_CarryNoInlineStyle(t *testing.T) {
 		"pages/billing.templ", "pages/transactions.templ", "pages/manualentry.templ", "pages/review.templ",
 		"components/docket.templ", "components/venue.templ", "operatorpages/chrome.templ",
 		"pages/tap.templ", "pages/activate.templ", "pages/landing.templ", "pages/view.go",
+		"pages/billing_templ.go", "components/notice_templ.go",
 	} {
 		if !scanned[want] {
 			t.Errorf("the inline-style scan did not read %s", want)
