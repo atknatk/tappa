@@ -47,7 +47,7 @@ func holdinglessRenders(t *testing.T) map[string][]byte {
 			DistanceOnly: 1, DistanceOnlyLine: "1 of 10 verified by GPS alone", OutsideVenue: 1, OutsideVenueLine: "1 of 11 read outside the venue",
 			OutsideVenueOnNetworkLine: "none on the network", Unanswerable: 1, UnanswerableLine: "1 record carries no policy snapshot"},
 		People:   []AnomalyPersonView{{Name: "Maria Borg", Records: "4 records", DistanceOnly: "1 verified by GPS alone"}},
-		Venues:   []AnomalyVenueView{{Name: "KF St Julians", Records: "12 records", DistanceOnly: "1 of 10", OutsideVenue: "1 of 11"}},
+		Venues:   []AnomalyVenueView{{Name: "KF St Julians", Records: "12 records", OutsideVenue: "1 of 11"}},
 		Policies: []AnomalyPolicyView{{SID: "base:ip-or-gps-ok", Layer: "baseline", Records: "10 records"}},
 		ListCap:  50,
 	}

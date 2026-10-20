@@ -67,7 +67,8 @@ func holdinglessViewRenders(t *testing.T) map[string][]byte {
 	out["reports-view"] = bytes.Clone(b.Bytes())
 	b.Reset()
 	var av pages.AnomaliesView
-	fillAnomaliesView(&av, a)
+	// The page is drawn "now" = the Monday after the week, so the open entry's age is fixed.
+	fillAnomaliesView(&av, a, time.Date(2026, 9, 14, 12, 0, 0, 0, zone))
 	if err := pages.AdminAnomalies(av).Render(context.Background(), &b); err != nil {
 		t.Fatal(err)
 	}
