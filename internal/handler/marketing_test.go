@@ -76,12 +76,42 @@ func marketingRouter(t *testing.T) http.Handler {
 // marketingRouterWithTexts is marketingRouter with a legal-document snapshot.
 func marketingRouterWithTexts(t *testing.T, texts legalReader) http.Handler {
 	t.Helper()
+	return marketingRouterFor(t, texts, "")
+}
+
+// marketingRouterFor is the marketing router with a legal-document snapshot and an API
+// host (TAPPA_API_HOST, "" for none).
+func marketingRouterFor(t *testing.T, texts legalReader, apiHost string) http.Handler {
+	t.Helper()
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	wizard, err := NewSignup(&fakeProvisioner{}, nil, signupTestConfig(), log)
 	if err != nil {
 		t.Fatalf("NewSignup: %v", err)
 	}
-	return httpx.NewRouter(nil, nil, NewMarketing(texts, log, ""), wizard)
+	return httpx.NewRouter(nil, nil, NewMarketing(texts, log, apiHost), wizard)
+}
+
+// testAPIHost is the API host the structural scans run with besides none.
+const testAPIHost = "api.example.test"
+
+// structuralConfigs are the two configurations the public surface's STRUCTURAL scans
+// run under (DOCS-1, low round): without an API host, as dev and every other test, and
+// with one, as production -- where the integration guide's pages carry the one absolute
+// href on the surface, the OpenAPI download on the API host. openAPI is that href, the
+// constructor's own openAPIHrefFor(host) and never a string written here, so the
+// exemption cannot widen to a host the constructor does not draw.
+type structuralConfig struct {
+	name    string
+	r       http.Handler
+	openAPI string
+}
+
+func structuralConfigs(t *testing.T) []structuralConfig {
+	t.Helper()
+	return []structuralConfig{
+		{"no API host", marketingRouter(t), ""},
+		{"API host " + testAPIHost, marketingRouterFor(t, nil, testAPIHost), openAPIHrefFor(testAPIHost)},
+	}
 }
 
 // marketingURLs is every URL this feature serves, derived from the same table the
@@ -550,17 +580,37 @@ var externalReference = regexp.MustCompile(
 // It scans for ANY absolute or protocol-relative reference, not just for a list of
 // known font hosts: a page that contacts a third party is a page that hands that
 // party the visitor's address, and which party it is does not change the answer.
+//
+// ⚠️ THE ONE EXEMPTION, BY CONSTRUCTION (DOCS-1): with an API host configured, as in
+// production, the integration guide's pages link the OpenAPI document on that host --
+// a link a reader follows, to this product's own API host, not a resource the page
+// loads. It is admitted only as the exact anchor href openAPIHrefFor(host) returns
+// (the adminLoginPath pattern below), and its count is pinned: it is drawn on the
+// guide's two pages, nowhere else.
 func TestMarketing_ReachesNoThirdParty(t *testing.T) {
 	t.Parallel()
-	r := marketingRouter(t)
-	for _, url := range publicSurfaceURLs() {
-		body := mustFetchMarketing(t, r, url)
-		if hit := externalReference.FindString(body); hit != "" {
-			t.Errorf("GET %s reaches outside this origin: %q.\n"+
-				"Every asset this product serves is embedded in the binary and served from "+
-				"/static -- the brand faces included, since M5-04. A runtime request to a "+
-				"third party hands that party the visitor's address and the page they were "+
-				"reading.", url, hit)
+	for _, c := range structuralConfigs(t) {
+		exempted := 0
+		for _, url := range publicSurfaceURLs() {
+			body := mustFetchMarketing(t, c.r, url)
+			if c.openAPI != "" {
+				exempt := `href="` + c.openAPI + `"`
+				exempted += strings.Count(body, exempt)
+				body = strings.ReplaceAll(body, exempt, `href=""`)
+			}
+			if hit := externalReference.FindString(body); hit != "" {
+				t.Errorf("%s: GET %s reaches outside this origin: %q.\n"+
+					"Every asset this product serves is embedded in the binary and served from "+
+					"/static -- the brand faces included, since M5-04. A runtime request to a "+
+					"third party hands that party the visitor's address and the page they were "+
+					"reading.", c.name, url, hit)
+			}
+		}
+		// Anti-vacuity for the production half: the exemption is used, on the guide's two
+		// pages (the download link, at least once each), so the API-host router is really
+		// the configuration it names.
+		if c.openAPI != "" && exempted < 2 {
+			t.Errorf("%s: the OpenAPI link was exempted %d time(s), want at least one per guide page", c.name, exempted)
 		}
 	}
 
@@ -696,37 +746,54 @@ func TestExternalReferenceScanner_CatchesWhatItExistsToCatch(t *testing.T) {
 // given adminLoginPath, which is the same constant AdminAuth.Mount registers -- and
 // the registration itself is asserted below so the constant cannot become a path
 // nothing serves.
+//
+// IT RUNS TWICE (DOCS-1): without an API host and with one, as production. With one,
+// the integration guide's pages carry the ONLY absolute href on the public surface --
+// the OpenAPI document on the API host, which this router does not serve (the API host
+// is its own surface, with its own tests). It is admitted only as openAPIHrefFor(host)'s
+// exact output, like adminLoginPath, and only on the guide's two pages: any other
+// absolute href, on any page, is red.
 func TestMarketing_EveryInternalLinkResolves(t *testing.T) {
 	t.Parallel()
-	r := marketingRouter(t)
-	seen := 0
-	for _, url := range publicSurfaceURLs() {
-		body := mustFetchMarketing(t, r, url)
-		for _, m := range hrefRE.FindAllStringSubmatch(body, -1) {
-			href := m[1]
-			switch {
-			case href == "" || strings.HasPrefix(href, "#"):
-				continue
-			case !strings.HasPrefix(href, "/"):
-				t.Errorf("%s links to %q, which is neither an in-page anchor nor a path on "+
-					"this site", url, href)
-				continue
-			case href == adminLoginPath:
-				// Served by AdminAuth; see the assertion below.
+	guidePages := map[string]bool{pages.APIGuidePath: true, pages.APIGuideTRPath: true}
+	for _, c := range structuralConfigs(t) {
+		seen, openAPI := 0, 0
+		for _, url := range publicSurfaceURLs() {
+			body := mustFetchMarketing(t, c.r, url)
+			for _, m := range hrefRE.FindAllStringSubmatch(body, -1) {
+				href := m[1]
+				switch {
+				case href == "" || strings.HasPrefix(href, "#"):
+					continue
+				case c.openAPI != "" && href == c.openAPI && guidePages[url]:
+					// The API host's document; this router does not serve it.
+					openAPI++
+					continue
+				case !strings.HasPrefix(href, "/") || strings.HasPrefix(href, "//"):
+					t.Errorf("%s: %s links to %q, which is neither an in-page anchor nor a path on "+
+						"this site", c.name, url, href)
+					continue
+				case href == adminLoginPath:
+					// Served by AdminAuth; see the assertion below.
+					seen++
+					continue
+				}
 				seen++
-				continue
-			}
-			seen++
-			if code := fetchMarketing(t, r, href, nil).Code; code != http.StatusOK {
-				t.Errorf("%s links to %s, which answers %d. A dead link on the most public "+
-					"URL in the product is a promise the router does not keep.", url, href, code)
+				if code := fetchMarketing(t, c.r, href, nil).Code; code != http.StatusOK {
+					t.Errorf("%s: %s links to %s, which answers %d. A dead link on the most public "+
+						"URL in the product is a promise the router does not keep.", c.name, url, href, code)
+				}
 			}
 		}
-	}
-	// ANTI-VACUITY: a page whose links stopped rendering would pass everything above.
-	if seen < len(pages.LegalPages)+1 {
-		t.Fatalf("followed %d link(s) across the public surface; the footer alone carries %d, "+
-			"so this scan is not reading the pages", seen, len(pages.LegalPages))
+		// ANTI-VACUITY: a page whose links stopped rendering would pass everything above.
+		if seen < len(pages.LegalPages)+1 {
+			t.Fatalf("%s: followed %d link(s) across the public surface; the footer alone carries %d, "+
+				"so this scan is not reading the pages", c.name, seen, len(pages.LegalPages))
+		}
+		// The production half reached the exemption: the download link, on both guide pages.
+		if c.openAPI != "" && openAPI < 2 {
+			t.Errorf("%s: the OpenAPI link appeared %d time(s) on the guide pages, want at least one per page", c.name, openAPI)
+		}
 	}
 
 	// The one href this router does not serve. adminLoginPath is shared at compile
