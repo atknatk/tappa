@@ -555,6 +555,23 @@ func panelNonSectionScreens(t *testing.T) map[string]string {
 	}
 	out["GET "+policyVersionHref] = htmlOf(t, rec)
 
+	// MANUAL ENTRY'S TWO STEPS (M12-33): the form is a sub-route with a parameter and the
+	// confirmation a POST that renders, so neither is a section href. The confirmation
+	// carries the permanent write's button.
+	mb := panelBrowserWithRecorder(t, &fakeRecorder{})
+	rec = mb.do(http.MethodGet, manualFormHref(), nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("the manual entry form answered %d, want 200", rec.Code)
+	}
+	out["GET "+manualEntryHref] = htmlOf(t, rec)
+	rec = mb.do(http.MethodPost, manualEntryHref, url.Values{
+		"id": {entryID.String()}, "direction": {"out"}, "date": {"2026-08-05"}, "time": {"17:00"},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("the manual entry confirmation answered %d, want 200", rec.Code)
+	}
+	out["POST "+manualEntryHref] = htmlOf(t, rec)
+
 	// ANTI-VACUITY: both pages must actually carry press targets, or adding them to the
 	// corpus changes nothing.
 	for where, body := range out {
