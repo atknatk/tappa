@@ -6,6 +6,7 @@ package ledger
 
 import (
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -263,5 +264,31 @@ func TestResolveShift_CannotReachTheHomeVenue(t *testing.T) {
 	// POSITIVE CONTROL: the roster read does carry it.
 	if _, ok := reflect.TypeOf(store.ListRollEmployeesRow{}).FieldByName("HomeLocationID"); !ok {
 		t.Error("ListRollEmployeesRow has no HomeLocationID; the control reads the wrong type")
+	}
+
+	// The field names above are what sqlc chose; the SQL is what reads. The statement selects
+	// exactly one employees column, full_name, and touches employees nowhere else but the join's
+	// own keys -- so neither a renamed column (`e.location_id AS venue`) nor a join through the
+	// home venue (`l.id = e.location_id`) can bring the home into the row. Read comment-free
+	// (findQuery), so a column named in prose cannot satisfy it.
+	_, body, ok := findQuery(t, "ListWorkedShiftEvents")
+	if !ok {
+		t.Fatal("ListWorkedShiftEvents was not found in db/queries; this scan is reading nothing")
+	}
+	flat := strings.Join(strings.Fields(body), " ")
+	sel, from := strings.Index(flat, "SELECT "), strings.Index(flat, " FROM transactions t ")
+	if sel < 0 || from < sel {
+		t.Fatalf("ListWorkedShiftEvents is not SELECT ... FROM transactions t: %q", flat)
+	}
+	column := regexp.MustCompile(`\be\.(\*|[a-z_][a-z0-9_]*)`)
+	selected := column.FindAllStringSubmatch(flat[sel:from], -1)
+	if len(selected) != 1 || selected[0][1] != "full_name" {
+		t.Errorf("ListWorkedShiftEvents selects employees columns %v, want e.full_name alone (§5/Q17)", selected)
+	}
+	for _, m := range column.FindAllStringSubmatch(flat[from:], -1) {
+		if m[1] != "id" && m[1] != "tenant_id" {
+			t.Errorf("ListWorkedShiftEvents reads e.%s outside its select list; only the join's keys "+
+				"(e.id, e.tenant_id) may appear there (§5/Q17)", m[1])
+		}
 	}
 }
