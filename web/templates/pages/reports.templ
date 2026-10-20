@@ -149,14 +149,14 @@ templ reportReceipt(v ReportsView) {
 					} else if v.HomesQueried {
 						@receiptLine("At another venue", itoa(v.Totals.OtherVenue))
 						if v.Totals.OtherVenueUnknown > 0 {
-							@receiptLine("No home venue to compare", itoa(v.Totals.OtherVenueUnknown))
+							@receiptLine("Not compared with a home venue", itoa(v.Totals.OtherVenueUnknown))
 						}
 					}
 					@receiptLine("Arrivals typed by a manager", itoa(v.Totals.ManualArrivals))
 					@receiptLine("Approved on The Spike", itoa(v.Totals.Approved))
 					@receiptLine("Open check-ins, not counted", itoa(v.Totals.Open))
-					@receiptLine("Waiting for a decision", hoursOrNone(v.Totals.Awaiting))
-					@receiptLine("A manager refused", hoursOrNone(v.Totals.Refused))
+					@receiptLine("Waiting for a decision", v.Totals.AwaitingFigure)
+					@receiptLine("A manager refused", v.Totals.RefusedFigure)
 				</dl>
 				<div class="flex items-baseline justify-between gap-2 border-t border-dashed border-line pt-2.5 text-ink">
 					<p class="text-[13px] font-bold">TOTAL<span class="sr-only">, hours worked this week</span></p>
@@ -275,7 +275,7 @@ templ reportPeople(v ReportsView) {
 										@rollCell(dayCell(p.Daily, i), markAt(p.Marks, i))
 									</td>
 								}
-								<td class="roll-sum">{ p.Worked }</td>
+								<td class="roll-sum">{ p.Worked }<span class="roll-shifts">{ shiftCount(p.Shifts) }</span></td>
 							</tr>
 						}
 					</tbody>
@@ -302,22 +302,22 @@ templ reportTallies(p ReportRowView) {
 	if p.Late != "" || p.Unmeasured != "" || p.Awaiting != "" || p.Refused != "" || p.Manual != "" || p.Open != "" {
 		<span class="mt-1.5 flex flex-wrap gap-1">
 			if p.Late != "" {
-				<span class="tally tally--queued tally--pill">{ p.Late }</span>
+				<span class="tally tally--queued pill-tally">{ p.Late }</span>
 			}
 			if p.Unmeasured != "" {
-				<span class="tally tally--manual tally--pill">{ p.Unmeasured }</span>
+				<span class="tally tally--manual pill-tally">{ p.Unmeasured }</span>
 			}
 			if p.Awaiting != "" {
-				<span class="tally tally--queued tally--pill">{ p.Awaiting } waiting</span>
+				<span class="tally tally--queued pill-tally">{ p.Awaiting } waiting</span>
 			}
 			if p.Refused != "" {
-				<span class="tally tally--rejected tally--pill">{ p.Refused } refused</span>
+				<span class="tally tally--rejected pill-tally">{ p.Refused } refused</span>
 			}
 			if p.Manual != "" {
-				<span class="tally tally--manual tally--pill">{ p.Manual }</span>
+				<span class="tally tally--manual pill-tally">{ p.Manual }</span>
 			}
 			if p.Open != "" {
-				<span class="tally tally--queued tally--pill">{ p.Open }</span>
+				<span class="tally tally--queued pill-tally">{ p.Open }</span>
 			}
 		</span>
 	}
@@ -431,12 +431,12 @@ templ reportOpen(v ReportsView) {
 							<div class="flex flex-wrap items-center gap-2">
 								<p class="font-mono text-[13px] text-ink">{ o.At }</p>
 								if o.NeedsAction {
-									<span class="tally tally--rejected tally--pill">Needs action</span>
+									<span class="tally tally--rejected pill-tally">Needs action</span>
 								} else {
-									<span class="tally tally--queued tally--pill">Still open</span>
+									<span class="tally tally--queued pill-tally">Still open</span>
 								}
 								if o.Manual {
-									<span class="tally tally--manual tally--pill">Entered by a manager</span>
+									<span class="tally tally--manual pill-tally">Entered by a manager</span>
 								}
 							</div>
 						</div>
@@ -520,10 +520,10 @@ func rollCellWords(worked bool, m ReportMarkView) string {
 		w = "no hours counted"
 	}
 	if m.Other {
-		w += ", at a venue other than their home venue"
+		w += ", at another venue"
 	}
 	if m.Manual {
-		w += ", a check-in typed by a manager"
+		w += ", check-in typed by a manager"
 	}
 	return w
 }
@@ -539,15 +539,6 @@ func rollSub(p ReportRowView) string {
 	default:
 		return p.HomeVenue
 	}
-}
-
-// hoursOrNone prints a held-out quantity on the receipt. The view carries "" for none, and
-// on a receipt that has been read a measured none is the figure 0h 00m, not a blank.
-func hoursOrNone(s string) string {
-	if s == "" {
-		return "0h 00m"
-	}
-	return s
 }
 
 // The count helpers below exist because "1 shifts" is the kind of thing a reader

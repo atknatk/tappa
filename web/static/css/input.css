@@ -1408,6 +1408,8 @@
            text-ink max-md:col-span-2 max-md:col-start-6 max-md:row-start-1 max-md:p-0
            max-md:text-lg;
   }
+  /* The person's shift count under their total: a count, so mono, and quieter. */
+  .roll-shifts { @apply mt-0.5 block text-[11px] font-normal text-ink/70; }
 
   /* --- the tape's bar heights: ten buckets the bucket helper chooses ---
      A share of the row's own height, so one set serves the phone's 28 px row and

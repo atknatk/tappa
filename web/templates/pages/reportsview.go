@@ -149,6 +149,11 @@ type ReportTotalsView struct {
 	// instructions — one needs a manager, one has had one.
 	Awaiting string
 	Refused  string
+	// AwaitingFigure and RefusedFigure are the same two quantities as the receipt prints
+	// them: always a figure, "0h 00m" for none -- after the read answered, none is measured.
+	// They come from the handler's one formatter, so the page has one hours format.
+	AwaitingFigure string
+	RefusedFigure  string
 	// Open is how many check-ins have no checkout, and NeedsAction how many of those
 	// have been open longer than the engine's forgotten-checkout threshold.
 	Open        int

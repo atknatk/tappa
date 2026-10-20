@@ -93,6 +93,27 @@ var reportsHref = mustSectionHref(pages.TabReports)
 //
 // ⚠️ AND THE TABLE ABOVE WAS NOT THE WHOLE PAGE, which is recorded because believing
 // it was is what let a 560 KB page ship past a probe. See maxOpenRows.
+//
+// ⚠️ THE FIGURES ABOVE ARE THE DOCKET SHAPE BEFORE M12-36 AND ARE KEPT AS HISTORY. The Roll
+// (M12-36) is one table row per person, and a row now carries more: the title and home venue,
+// the shift count, a day name above every cell for the phone's reflow, the cell's look
+// modifiers and sr-only words in every cell (status is never colour alone). Re-measured
+// 2026-10-20 through the real router and this handler, over the fake reader (so the page is
+// the template's output and not a database's), five worked days per person, 25-character
+// names:
+//
+//	people   document     note
+//	     0    16 988 B    chrome, heading, receipt, legend-less empty state
+//	    10    34 166 B
+//	   100   171 508 B    ~1 526 B a row with plain worked days
+//	   100   255 008 B    ~2 361 B a row when every worked day carries all three marks
+//
+// The open list adds ~470 B an entry (100 entries: +47 259 B), so an ordinary full page is
+// about 220 KB and the worst full page measured -- every listed day marked, every qualifier on
+// every person, 63-character names, both lists at their caps -- is 408 762 B
+// (TestReportsSection_AFullPageStaysUnderItsCeiling holds it under reportsPageByteCeiling).
+// Twice the docket shape's row, bought by the sr-only words and the phone's day names; both
+// lists stay bounded, which is what the 560 KB failure was about.
 const maxReportRows = 100
 
 // maxOpenRows is how many unclosed check-ins the screen LISTS. Totals.Open always
@@ -217,8 +238,12 @@ func fillReportsView(v *pages.ReportsView, s ledger.ReportScreen) {
 		Shifts:   s.Totals.Shifts,
 		Awaiting: nonZeroHours(s.Totals.Awaiting),
 		Refused:  nonZeroHours(s.Totals.Refused),
-		Open:     s.Totals.Open,
-		TooLong:  s.Totals.TooLong,
+
+		AwaitingFigure: hoursMinutes(s.Totals.Awaiting),
+		RefusedFigure:  hoursMinutes(s.Totals.Refused),
+
+		Open:    s.Totals.Open,
+		TooLong: s.Totals.TooLong,
 
 		OtherVenue:        s.Totals.OtherVenue,
 		OtherVenueUnknown: s.Totals.OtherVenueUnknown,

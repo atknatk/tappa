@@ -11,6 +11,7 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"reflect"
 	"regexp"
@@ -795,7 +796,7 @@ func TestReportsSection_SaysEveryDayMarkInWords(t *testing.T) {
 	}
 	for i, want := range []struct{ class, words string }{
 		{"roll-cell roll-cell--worked roll-cell--other roll-cell--manual",
-			"worked, at a venue other than their home venue, a check-in typed by a manager"},
+			"worked, at another venue, check-in typed by a manager"},
 		{"roll-cell roll-cell--open", "check-in with no checkout, not counted"},
 		{"roll-cell roll-cell--open", "worked, and an open check-in, not counted"},
 		{"roll-cell roll-cell--none", "no hours counted"},
@@ -815,7 +816,7 @@ func TestReportsSection_SaysEveryDayMarkInWords(t *testing.T) {
 	}
 	for _, want := range []string{
 		"8h 02m", "Line Cook · KF Valletta", "check-in typed by a manager",
-		"<dt>At another venue</dt>", "<dt>No home venue to compare</dt>",
+		"<dt>At another venue</dt>", "<dt>Not compared with a home venue</dt>",
 		"<dt>Arrivals typed by a manager</dt>", "<dt>Approved on The Spike</dt>",
 		"Hours per person · week 32",
 	} {
@@ -859,7 +860,7 @@ func TestReportsSection_TheOtherVenueFigureIsTriState(t *testing.T) {
 	if !strings.Contains(measured, line+`<dd class="whitespace-nowrap text-right">0</dd>`) {
 		t.Error("CONTROL: a measured week does not print its other-venue count")
 	}
-	if !strings.Contains(measured, "<dt>No home venue to compare</dt>") {
+	if !strings.Contains(measured, "<dt>Not compared with a home venue</dt>") {
 		t.Error("the shifts that could not be compared are not printed beside the count")
 	}
 	if strings.Contains(measured, "could not be read") {
@@ -868,5 +869,66 @@ func TestReportsSection_TheOtherVenueFigureIsTriState(t *testing.T) {
 
 	if asked := render(ledger.HomesRead{}); strings.Contains(asked, line) {
 		t.Error("a roster read that was never asked prints an other-venue figure")
+	}
+}
+
+// reportsPageByteCeiling is how big the Roll may get, whatever the business is.
+//
+// IT IS DERIVED FROM TWO MEASUREMENTS (reports.go, maxReportRows and maxOpenRows), not
+// chosen. Below: the 559 968 B page this section served before its two listing caps -- the
+// failure class, an unbounded list on a no-store page re-sent on every view. Above: the worst
+// full page measured after M12-36, 408 762 B (the page this test renders: both lists at their
+// caps, every day worked and carrying every mark, every qualifier on every person, long
+// names). 450 000 B is that worst page plus 10 %, and 20 % under the control: a wall against
+// the failure class, not a tripwire on a few bytes of markup. Exact row counts are the caps'
+// own tests (TestReportsSection_ListsAtMostMaxReportRowsAndSaysSo,
+// TestReportsSection_BoundsTheOpenListAndStillCountsAllOfIt).
+const reportsPageByteCeiling = 450_000
+
+// TestReportsSection_AFullPageStaysUnderItsCeiling is the upward page-size net for the Roll,
+// the twin of the roster's (TestPanelEmployeesDB_APageStaysFarUnderTheControlM603Removed). It
+// renders the WORST full page rather than a typical one: a ceiling asserted against a light
+// page would pass at any cap.
+func TestReportsSection_AFullPageStaysUnderItsCeiling(t *testing.T) {
+	const longName = "Ġużeppi Żammit-Borġ [simulated hire 2026-08-07T10:37:42 abcd]"
+	const people, open = maxReportRows + 40, maxOpenRows + 40
+	records := newFakeLedger()
+	records.hours = reportWith(func(r *ledger.Report) {
+		r.Homes = ledger.HomesRead{Queried: true}
+		r.PracticeTaps, r.StartedEarlier, r.Unattributable = 3, 2, 1
+		r.Totals = ledger.Totals{Worked: 1000 * time.Hour, Shifts: people * 7, Open: open, TooLong: 2,
+			Awaiting: 10 * time.Hour, Refused: 5 * time.Hour, OtherVenue: 9, OtherVenueUnknown: 1, ManualArrivals: 7, Approved: 3}
+		for i := 0; i < people; i++ {
+			daily := make([]time.Duration, ledger.ReportDays)
+			marks := make([]ledger.DayMarks, ledger.ReportDays)
+			for d := range daily {
+				daily[d] = 10*time.Hour + 30*time.Minute
+				marks[d] = ledger.DayMarks{Other: true, Manual: true, Open: true}
+			}
+			r.People = append(r.People, ledger.PersonHours{
+				Name: fmt.Sprintf("%s %04d", longName, i), Role: "Assistant Kitchen Manager", HomeVenue: "KF St Julians Paceville",
+				Worked: 73 * time.Hour, Shifts: 7, Daily: daily, Marks: marks,
+				Awaiting: time.Hour, Refused: time.Hour, LateShifts: 3, LateBy: 47 * time.Minute,
+				Unmeasured: 2, ManualArrivals: 7, Open: 3,
+			})
+		}
+		for i := 0; i < open; i++ {
+			r.Open = append(r.Open, ledger.OpenEntry{EmployeeName: fmt.Sprintf("%s %04d", longName, i),
+				LocationName: "KF St Julians Paceville", At: weekOfUTC().From.Add(time.Duration(i) * time.Minute), Stale: true, Manual: true})
+		}
+		for i := 0; i < 12; i++ {
+			r.Venues = append(r.Venues, ledger.VenueHours{Name: fmt.Sprintf("KF Venue %02d", i), Worked: 80 * time.Hour, Shifts: 10})
+		}
+	})
+	body := reportBrowser(t, records).do(http.MethodGet, reportsHref, nil).Body.String()
+	rows := strings.Count(body, `<tr class="roll-row">`)
+	if rows != maxReportRows || strings.Count(body[strings.Index(body, "Open — no checkout"):], `<section class="docket">`) != maxOpenRows {
+		t.Fatalf("the page lists %d people; it is not a full page, so a ceiling measured on it proves nothing", rows)
+	}
+	t.Logf("a full worst-case Roll page: %d B", len(body))
+	if len(body) > reportsPageByteCeiling {
+		t.Errorf("a full Roll page is %d B, over the %d B ceiling. The page is no-store and re-sent on "+
+			"every view, and before its two listing caps it measured 559 968 B; a page this size "+
+			"means a list is growing past its cap or a row has grown a repeated chain.", len(body), reportsPageByteCeiling)
 	}
 }
