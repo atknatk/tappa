@@ -1241,6 +1241,12 @@ func opSuspHeld(t *testing.T, ctx context.Context, q opQuerier) []string {
 //     and another session's ACCESS SHARE on tenants -- what a plain SELECT takes -- is NOT granted
 //     at once (55P03 NOWAIT), while its ROW EXCLUSIVE on audit_log is; the Up's duration (its CHECK
 //     validation scans tenants) is logged.
+//   - THE LOCKS: every branch first takes the tables the Down names (lockForDowns -- opAtVersion's
+//     ORTA-1 order: tenants and operator_audit_log, ACCESS EXCLUSIVE), inside its savepoint, so the
+//     Down's own 1 s lock_timeout never meets another package's writer of tenants in a full run; the
+//     lock goes with the branch's rollback. (So branch 1's ACCESS EXCLUSIVE on tenants is held from
+//     before the Down -- what any test that runs this Down holds, which is limit 9's subject; the
+//     Down's DDL takes the same mode by itself, PostgreSQL's DROP COLUMN.)
 func TestOperator00063_DownGivesBack00062AndUpTakesItAgain(t *testing.T) {
 	ctx, tx := opTx(t)
 	opAtVersion(t, ctx, tx, 63, opKindsAt42...)
@@ -1429,6 +1435,7 @@ func TestOperator00063_DownGivesBack00062AndUpTakesItAgain(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		lockForDowns(t, ctx, sp, downTables(down))
 		for _, s := range []struct {
 			sql  string
 			args []any
@@ -1590,8 +1597,8 @@ func TestOperator00063_DownGivesBack00062AndUpTakesItAgain(t *testing.T) {
 	done(sp)
 
 	// The chain composes downward: 63 -> 42 with this file's rows present -- 00042's Down is the
-	// next one that rewrites the kind CHECK, and it leaves 00039's set NOT VALID over them. Every
-	// table the two Downs name is locked first (opAtVersion's lockForDowns), inside the branch.
+	// next one that rewrites the kind CHECK, and it leaves 00039's set NOT VALID over them. The
+	// tables 00042's Down names are locked too (branch took 00063's), inside the branch.
 	sp = branch()
 	if err := opSuspend(t, ctx, sp, hash, f.id, "terms_breach"); err != nil {
 		t.Fatalf("a suspension before the chain: %v", err)
@@ -1599,7 +1606,7 @@ func TestOperator00063_DownGivesBack00062AndUpTakesItAgain(t *testing.T) {
 	if err := opReinstate(t, ctx, sp, hash, f.id); err != nil {
 		t.Fatalf("a reinstatement before the chain: %v", err)
 	}
-	lockForDowns(t, ctx, sp, append(downTables(down), downTables(down42)...))
+	lockForDowns(t, ctx, sp, downTables(down42))
 	opRunSection(t, ctx, sp, down, "00063 Down (chain)")
 	opRunSection(t, ctx, sp, down42, "00042 Down after 00063's, this file's rows present")
 	if def, valid := opConstraint(t, ctx, sp, "operator_audit_log", "operator_audit_log_kind_check"); valid ||
@@ -1690,11 +1697,27 @@ func TestOperator00063_TheDownLocksOutTenantWritesBeforeItLooksForASuspension(t 
 	if _, err := ask(suspensionWrite, true); err != nil {
 		t.Fatalf("CONTROL: before the Down's head ran, another session's suspension UPDATE was refused (%v)", err)
 	}
-	sp, err := tx.Begin(ctx)
-	if err != nil {
-		t.Fatal(err)
+	// The head's own lock_timeout (1 s) may meet another package's writer of tenants in a full run:
+	// a 55P03 there is retried, each try in a fresh savepoint, before anything is measured.
+	var sp pgx.Tx
+	for try := 1; ; try++ {
+		s, err := tx.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, headErr := s.Conn().PgConn().Exec(ctx, head).ReadAll()
+		if headErr == nil {
+			sp = s
+			break
+		}
+		if rbErr := s.Rollback(ctx); rbErr != nil {
+			t.Fatal(rbErr)
+		}
+		if code, _ := opCode(headErr); code != sqlstateLockNotAvailable || try == 30 {
+			t.Fatalf("00063 Down's head (its lock_timeout, its lock and its refusal), try %d: %v", try, headErr)
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
-	opRunSection(t, ctx, sp, head, "00063 Down's head (its lock_timeout, its lock and its refusal)")
 	if held := opSuspHeld(t, ctx, sp); !slices.Contains(held, "tenants:ShareRowExclusiveLock") {
 		t.Errorf("after the Down's head this session holds %v; want ShareRowExclusiveLock on tenants", held)
 	}
