@@ -1009,6 +1009,10 @@ func TestOperator00063_TheReasonSetIsOneSetInEveryCopy(t *testing.T) {
 	if !slices.Equal(goList, opSuspensionReasons) {
 		t.Errorf("SuspensionReasons() is %v, want %v", goList, opSuspensionReasons)
 	}
+	// Phase C's copy: the operator screen's labels, read from its source (opOperatorReasonLabels).
+	if labels := opOperatorReasonLabels(t); !slices.Equal(labels, slices.Sorted(slices.Values(opSuspensionReasons))) {
+		t.Errorf("the operator screen labels the reasons %v, want exactly %v", labels, opSuspensionReasons)
+	}
 
 	a := opNewActive(t, ctx, tx)
 	hash, _ := opNewSession(t, ctx, tx, a.id, true)

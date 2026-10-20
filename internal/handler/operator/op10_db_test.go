@@ -63,7 +63,8 @@ import (
 
 // liveStore is operatorauth.Store, operator.LegalStore, (OP-11) operator.TenantStore,
 // (OP-13) operator.PlaqueStore, (OP-14) operator.AuditStore, (OP-12) operator.BillingStore,
-// (OP-16) operator.VATStore and (M11 API-1a) operator.HoldingStore on a connection that IS
+// (OP-16) operator.VATStore, (M11 API-1a) operator.HoldingStore and (OP-15 C)
+// operator.SuspensionStore on a connection that IS
 // tappa_operator: each method is
 // internal/db's production accessor, each statement its own committed transaction (the
 // billing read's second phase opens its own, on this connection, for its SET LOCAL).
@@ -204,6 +205,18 @@ func (s *liveStore) RemoveHoldingMember(ctx context.Context, h string, holding, 
 	return db.RemoveHoldingMember(ctx, s.conn, h, holding, tenant)
 }
 
+func (s *liveStore) SuspendTenant(ctx context.Context, h string, id uuid.UUID, reason db.SuspensionReason) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return db.SuspendTenant(ctx, s.conn, h, id, reason)
+}
+
+func (s *liveStore) ReinstateTenant(ctx context.Context, h string, id uuid.UUID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return db.ReinstateTenant(ctx, s.conn, h, id)
+}
+
 // legalE2E is one test's committed rig.
 type legalE2E struct {
 	*e2e
@@ -295,7 +308,7 @@ func newLegalE2E(t *testing.T) *legalE2E {
 	}
 	live := &liveStore{conn: l.op}
 	l.live, l.vies = live, &liveVIES{}
-	s, err := operator.New(auth, live, live, live, live, live, live, live, l.vies, l.texts, opHost, opBase, log)
+	s, err := operator.New(auth, live, live, live, live, live, live, live, live, l.vies, l.texts, opHost, opBase, log)
 	if err != nil {
 		t.Fatal(err)
 	}

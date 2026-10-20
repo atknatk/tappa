@@ -4,7 +4,8 @@
 // and one tenant's overview (OP-11, tenants.go), one tenant's plaque inventory (OP-13,
 // plaques.go), the operator's own audit log (OP-14, audit.go), one tenant's billing months
 // (OP-12, billing.go), one tenant's VAT number and its re-check with VIES (OP-16, vat.go),
-// the holdings and their memberships (M11 API-1a, holdings.go), on the operator's own host, and
+// the holdings and their memberships (M11 API-1a, holdings.go), one tenant's suspension and its
+// lifting (OP-15 C, suspension.go), on the operator's own host, and
 // the two 503 states OP-7 shipped.
 //
 // 🔴 IT IS NOT internal/handler, AND THE PACKAGE BOUNDARY IS THE POINT. ADR 0021 §3.6:
@@ -26,9 +27,11 @@
 // /operator/tenants/{id}/billing (OP-12's B phase: 00032 added op_read_tenant_billing and
 // replaced op_begin_read and op_read_audit once more) and /operator/tenants/{id}/vat (OP-16's B
 // phase: 00034 added op_read_tenant_vat and op_record_vat_check, the first op_* that changes a
-// tenant); and /operator/holdings with its two membership routes (M11 API-1a: 00042 added
+// tenant); /operator/holdings with its two membership routes (M11 API-1a: 00042 added
 // op_create_holding, op_add_holding_member, op_remove_holding_member and op_read_holdings, and
-// replaced op_begin_read and op_read_audit). ADR 0020 §4's platform-wide
+// replaced op_begin_read and op_read_audit); and POST /operator/tenants/{id}/suspend and
+// …/reinstate (OP-15's C phase: 00063 added op_suspend_tenant and op_reinstate_tenant, and the
+// suspension to the overview's read). ADR 0020 §4's platform-wide
 // /operator/billing is not registered (the orchestrator's K12-1 (a):
 // TestSurface_TheScreensOfLaterTasksAreNotMounted drives it), and the renders of screens()
 // do not link to it (TestOperatorScreens_EveryActionAndLinkIsAMountedRoute).
@@ -93,6 +96,9 @@ type Surface struct {
 	// work is K-19's set (tenantapi.go, NoticeWorkTo): an accepted API open notices its business.
 	// nil -- never handed one -- notices nothing.
 	work WorkNoticer
+	// suspensionStore is the overview's two writes' (suspension.go): suspending the tenant and
+	// lifting the suspension, one statement each.
+	suspensionStore SuspensionStore
 	// host is TAPPA_OPERATOR_HOST, validated by internal/config: the host gate's
 	// comparison (httpx.OnHost).
 	host string
@@ -135,10 +141,11 @@ func Unavailable() *Surface { return &Surface{unavailable: true} }
 // without rather than degrade to Off silently: the Authenticator, the legal screen's
 // store and texts, the tenant screens' store, the plaque screen's store, the audit
 // screen's store, the billing screen's store, the VAT screen's store, the holdings screen's store
-// (M11 API-1a) and the VAT screen's VIES client, the operator host, a base URL it can take the
-// operator origin's scheme and port from, and a logger.
+// (M11 API-1a), the suspension's store (OP-15 C) and the VAT screen's VIES client, the operator
+// host, a base URL it can take the operator origin's scheme and port from, and a logger.
 func New(auth *operatorauth.Authenticator, legalStore LegalStore, tenantStore TenantStore, plaqueStore PlaqueStore,
-	auditStore AuditStore, billingStore BillingStore, vatStore VATStore, holdingStore HoldingStore, vies VATChecker,
+	auditStore AuditStore, billingStore BillingStore, vatStore VATStore, holdingStore HoldingStore,
+	suspensionStore SuspensionStore, vies VATChecker,
 	texts LegalTexts, host, baseURL string, log *slog.Logger) (*Surface, error) {
 	if auth == nil {
 		return nil, errors.New("operator: a configured surface needs its Authenticator")
@@ -164,6 +171,9 @@ func New(auth *operatorauth.Authenticator, legalStore LegalStore, tenantStore Te
 	if holdingStore == nil {
 		return nil, errors.New("operator: a configured surface needs its holding store (the operator database)")
 	}
+	if suspensionStore == nil {
+		return nil, errors.New("operator: a configured surface needs its suspension store (the operator database)")
+	}
 	if vies == nil {
 		return nil, errors.New("operator: a configured surface needs its VIES client")
 	}
@@ -181,23 +191,24 @@ func New(auth *operatorauth.Authenticator, legalStore LegalStore, tenantStore Te
 		return nil, err
 	}
 	return &Surface{
-		auth:         auth,
-		legalStore:   legalStore,
-		texts:        texts,
-		tenantStore:  tenantStore,
-		plaqueStore:  plaqueStore,
-		auditStore:   auditStore,
-		billingStore: billingStore,
-		vatStore:     vatStore,
-		vies:         vies,
-		holdingStore: holdingStore,
-		host:         host,
-		origin:       origin,
-		log:          log,
-		sessions:     httpx.NewLimiter(sessionLimit, sessionPeriod),
-		reads:        httpx.NewLimiter(readLimit, readPeriod),
-		viesAsks:     httpx.NewLimiter(viesLimit, viesPeriod),
-		signOuts:     httpx.NewLimiter(signOutLimit, signOutPeriod),
+		auth:            auth,
+		legalStore:      legalStore,
+		texts:           texts,
+		tenantStore:     tenantStore,
+		plaqueStore:     plaqueStore,
+		auditStore:      auditStore,
+		billingStore:    billingStore,
+		vatStore:        vatStore,
+		vies:            vies,
+		holdingStore:    holdingStore,
+		suspensionStore: suspensionStore,
+		host:            host,
+		origin:          origin,
+		log:             log,
+		sessions:        httpx.NewLimiter(sessionLimit, sessionPeriod),
+		reads:           httpx.NewLimiter(readLimit, readPeriod),
+		viesAsks:        httpx.NewLimiter(viesLimit, viesPeriod),
+		signOuts:        httpx.NewLimiter(signOutLimit, signOutPeriod),
 		// limit 0: the window's first refusal is the first over the limit.
 		originRefusals: httpx.NewLimiter(0, originRefusalPeriod),
 	}, nil
@@ -365,6 +376,18 @@ const (
 	//	support + holdings  ~40 reads + ~5 writes + ~5 console + ~3 refused         ~53 -> 1.89
 	//
 	// Measured on one session: TestHoldingsBudget_AViewIsOneReadAndAWriteIsNone.
+	// OP-15 PHASE C ADDED A TENANT'S SUSPENSION AND ITS LIFTING, AND IT STANDS. Either write is ONE
+	// request and no read (it reads nothing; ADR 0025 §5: "yazma bir istek birimidir"); its 303
+	// lands on the overview, which is a read like any other. A suspension is a rare act -- a
+	// payment chased, a breach, an incident, a request -- so its window, in requests, is
+	//
+	//	a suspension case   ~10 reads (the list, the overview, its plaques and audit log,
+	//	                    the overview after each write) + ~3 writes (suspend, a reason
+	//	                    changed, reinstate) + ~5 console + ~3 refused             ~21 -> 4.8
+	//	support + one case  ~40 reads + ~3 writes + ~5 console + ~3 refused           ~51 -> 1.96
+	//
+	// and the read budget below needs no new window: each write's own read is the overview's.
+	// Measured on one session: TestSuspensionBudget_AWriteIsOneRequestAndNoRead.
 	//
 	// WHAT THE TWO NUMBERS BOUND IN THE DATABASE. A read request is THREE definer
 	// transactions -- sessionGate's op_touch_session, op_begin_read and op_read_* (the leak

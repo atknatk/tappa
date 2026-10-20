@@ -52,7 +52,8 @@ templ Tenants(v TenantsView) {
 }
 
 // tenantList is the page of tenants on a docket: each row links to the tenant's
-// overview by its name and shows when it signed up (UTC), its plan and its id, mono.
+// overview by its name and shows when it signed up (UTC), its plan, its id, mono, and -- for a
+// tenant whose panel refuses writes -- the suspension's chip (OP-15 C), in the rejection tone.
 templ tenantList(v TenantsView) {
 	<section class="docket" aria-labelledby="tenant-list">
 		<h2 id="tenant-list" class="docket-label">Newest first · page <span class="font-mono">{ strconv.Itoa(v.Page) }</span></h2>
@@ -77,6 +78,9 @@ templ tenantList(v TenantsView) {
 						</a>
 						<span>Since { r.CreatedAt }</span>
 						<span>{ r.Plan }</span>
+						if r.Suspended {
+							<span class="tally tally--tenant-suspended">Suspended</span>
+						}
 						<span class="break-all text-xs text-ink/70">{ r.ID }</span>
 					</li>
 				}
@@ -115,7 +119,10 @@ templ tenantPageForm(search string, page int, label string) {
 // the employees, plaques and panel accounts whose status is active -- no person, no
 // address, no plaque uid (ADR 0021, OP-11 note md. 5). Under the counts, links to the
 // tenant's plaques (OP-13), its billing months (OP-12) and its VAT number (OP-16), each a read
-// of its own -- the overview itself shows no VAT number (OP-11's minimisation).
+// of its own -- the overview itself shows no VAT number (OP-11's minimisation). Below them, the
+// overview's two cards that change the tenant, each its state and the form that state calls for:
+// the integration API (M11 API-13a; tenantAPISection) and, last, whether the business's panel
+// takes writes (OP-15 C; tenantSuspension) -- the gravest of the overview's writes at its foot.
 templ TenantOverview(v TenantOverviewView) {
 	@TenantScreen("Tenant overview", v.Name) {
 		<section class="op-card">
@@ -146,6 +153,7 @@ templ TenantOverview(v TenantOverviewView) {
 			</p>
 		</section>
 		@tenantAPISection(v.API)
+		@tenantSuspension(v.Suspension)
 		<p class="flex flex-wrap gap-x-6">
 			<a href="/operator/tenants" class="op-link">Back to the tenants</a>
 			<a href="/operator" class="op-link">Back to the console</a>
@@ -237,4 +245,156 @@ templ apiNotice(a TenantAPIView) {
 				}
 			}
 	}
+}
+
+// tenantSuspension is the overview's suspension card (M10 OP-15 C; ADR 0025 §5): whether the
+// business's panel takes writes -- the chip says it in words, its frame repeats it -- and, by that
+// state, ONE form. The answer to either form is a redirect back to this overview, which reads the
+// database again: the page never says "already suspended" (ADR 0021 §2 v 7).
+templ tenantSuspension(v TenantSuspensionView) {
+	<section class="op-card" aria-labelledby="tenant-suspension">
+		<h2 id="tenant-suspension" class="docket-label">Panel writes</h2>
+		if v.Suspended {
+			<p class="mt-3"><span class="tally tally--tenant-suspended">Suspended</span></p>
+			<p class="mt-2 text-sm">
+				The business's panel refuses its writes. Taps, signing in, reading every section, the CSV exports and the
+				four paths of the time record stay open.
+			</p>
+			<dl class="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
+				@tenantFact("Suspended since", v.Since)
+				<div>
+					<dt class="docket-label">Reason</dt>
+					<dd class="mt-1 text-sm">
+						@suspensionReason(v.Reason)
+					</dd>
+				</div>
+			</dl>
+			@reinstateForm(v)
+		} else {
+			<p class="mt-3"><span class="tally tally--tenant-active">Active</span></p>
+			<p class="mt-2 text-sm">The business's panel accepts its writes.</p>
+			@suspendForm(v)
+		}
+	</section>
+}
+
+// suspensionReason is the stored reason: the operator's label, or an unrecognised value -- its raw
+// text in the data face when the handler kept it, and the unrecognised chip.
+templ suspensionReason(w AuditWord) {
+	if w.Unknown && w.Text != "" {
+		<span class="font-mono">{ w.Text }</span> <span class="tally tally--unrecognised">Unrecognised</span>
+	} else if w.Unknown {
+		<span class="tally tally--unrecognised">Unrecognised</span>
+	} else {
+		{ w.Text }
+	}
+}
+
+// suspendForm suspends the tenant: a reason of the closed set and a ticked box, nothing else -- no
+// free text (ADR 0025 §1), and the tenant is the action's path, not a field.
+//
+// THE SECURITY HOLD'S WARNING IS CLOSED TEXT, written here and nowhere else, and it is in the
+// page whatever is chosen: the stylesheet hides it until the security-hold choice is checked (the
+// warning follows the choices in the same parent, so a sibling rule can see it -- no script; the
+// page's policy allows none). A browser that loads no stylesheet shows it always.
+templ suspendForm(v TenantSuspensionView) {
+	<form method="post" action={ templ.URL(v.SuspendPath) } class="mt-5 flex flex-col gap-3">
+		<h3 class="font-display text-lg font-bold tracking-tight">Suspend this tenant's writes</h3>
+		<p class="text-sm">
+			Every write of the business's panel is refused until the suspension is lifted — except signing in and out,
+			a panel account's own password, and the four paths of the time record: adding a person to the staff, a new
+			invitation and both steps of a manual entry. Taps, reading every section and the CSV exports go on, and the
+			months of a suspension are billed as usual.
+		</p>
+		<p class="text-sm">
+			Every section shows the business a banner with a sentence for the reason: non-payment and a breach of the
+			terms are named; a security hold and the business's own request share one neutral sentence.
+		</p>
+		<fieldset>
+			<legend class="docket-label">Reason</legend>
+			<div class="op-reasons mt-1">
+				for _, o := range v.Reasons {
+					if o.Hold {
+						<input
+							id={ "suspend-reason-" + o.Value }
+							class="op-reason-hold h-5 w-5 accent-tappa-green"
+							type="radio"
+							name="reason"
+							value={ o.Value }
+							required
+							aria-describedby="suspend-hold-warning"
+						/>
+					} else {
+						<input
+							id={ "suspend-reason-" + o.Value }
+							class="h-5 w-5 accent-tappa-green"
+							type="radio"
+							name="reason"
+							value={ o.Value }
+							required
+						/>
+					}
+					<label for={ "suspend-reason-" + o.Value } class="inline-flex min-h-11 items-center text-sm">{ o.Label }</label>
+				}
+				<div id="suspend-hold-warning" class="op-hold-warning">
+					@components.Notice(components.ToneWarn, "A security hold freezes writes. It does not contain an account.") {
+						@holdWarning()
+					}
+				</div>
+			</div>
+		</fieldset>
+		<label class="inline-flex min-h-11 items-center gap-2 text-sm">
+			<input type="checkbox" name="confirm" value="yes" required class="h-5 w-5 shrink-0 accent-tappa-green"/>
+			I have checked that this is the right tenant.
+		</label>
+		<button type="submit" class="btn btn--quiet self-start">Suspend writes</button>
+	</form>
+}
+
+// holdWarning is the security hold's closed text (ADR 0025 §5; the gist of its limits 11 and 13):
+// what a suspension leaves open to whoever holds a session of the business, what it closes to the
+// business itself, and the three acts that do stop an account.
+templ holdWarning() {
+	<p>Whoever holds a session of this business keeps it. While the business is suspended, that session still:</p>
+	<ul class="mt-1 list-disc pl-5">
+		<li>reads every section and exports the CSV files;</li>
+		<li>
+			adds people to the staff and sends new invitations — an invitation signs a new phone in as an employee and
+			signs that employee's other phones out;
+		</li>
+		<li>
+			enters manual records, which are written with no approval and count in the hours at once. A record that
+			cuts a real employee's hours cannot be undone by another record: a correction can only shorten.
+		</li>
+	</ul>
+	<p class="mt-2">
+		The business's own defensive writes stop too: it cannot deactivate an employee or replace or remove a plaque.
+		Every section shows a banner saying its writes are suspended — the sentence names no reason, but the freeze
+		itself tells the session holder something changed.
+	</p>
+	<p class="mt-2 font-bold">What does stop an account:</p>
+	<ul class="mt-1 list-disc pl-5">
+		<li>disabling the panel account — today the platform owner sets it to disabled in the database;</li>
+		<li>
+			a password reset by the business's rightful admin — it does not ask for the current password and ends every
+			session of that account, so it is the tool when the password may have been changed;
+		</li>
+		<li>the rightful admin changing their own password — it ends their other sessions, and asks for the current password.</li>
+	</ul>
+}
+
+// reinstateForm lifts the suspension: a ticked box, nothing else.
+templ reinstateForm(v TenantSuspensionView) {
+	<form method="post" action={ templ.URL(v.ReinstatePath) } class="mt-5 flex flex-col gap-3">
+		<h3 class="font-display text-lg font-bold tracking-tight">Lift the suspension</h3>
+		<p class="text-sm">
+			The business's panel accepts its writes again from its next request. The suspension and its lifting stay on
+			record in the business's own audit log and in the operator audit log.
+		</p>
+		<label class="inline-flex min-h-11 items-center gap-2 text-sm">
+			<input type="checkbox" name="confirm" value="yes" required class="h-5 w-5 shrink-0 accent-tappa-green"/>
+			I have checked that this is the right tenant.
+		</label>
+		<button type="submit" class="btn btn--primary self-start">Lift the suspension</button>
+	</form>
 }

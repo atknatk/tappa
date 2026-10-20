@@ -143,3 +143,19 @@ const (
 
 // HoldingNameForTest is holdings.go's holdingName.
 func HoldingNameForTest(raw string) (string, bool) { return holdingName(raw) }
+
+// SuspensionWriteTimeoutForTest is suspension.go's write bound; SuspensionConfirmedForTest the
+// confirm box's value.
+const (
+	SuspensionWriteTimeoutForTest = suspensionWriteTimeout
+	SuspensionConfirmedForTest    = suspensionConfirmed
+)
+
+// SuspensionWordsForTest is suspension.go's suspensionReasonWords, copied.
+func SuspensionWordsForTest() map[db.SuspensionReason]string {
+	out := map[db.SuspensionReason]string{}
+	for k, w := range suspensionReasonWords {
+		out[k] = w
+	}
+	return out
+}

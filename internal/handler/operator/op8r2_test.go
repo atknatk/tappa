@@ -476,10 +476,11 @@ var hostileHeaders = map[string]string{
 
 // hostileQuery is a query string carrying a value under five credential field names,
 // "blob", (OP-11) the tenant search's two field names, "q" and "page" -- a search term
-// and a page put in the URL, where the screens must not read them -- and (OP-14) the audit
-// log's "kind"; hostileDrive appends it to the sign-in, code, enrollment, legal, tenant,
-// plaque and audit requests (with an id on a POST: the enrollment GET reads its id from the
-// query by design).
+// and a page put in the URL, where the screens must not read them --, (OP-14) the audit
+// log's "kind", (OP-16) a "vat_number" and (OP-15 C) a suspension's "reason" and "confirm";
+// hostileDrive appends it to the sign-in, code, enrollment, legal, tenant, plaque, audit,
+// billing, VAT and suspension requests (with an id on a POST: the enrollment GET reads its id
+// from the query by design).
 var hostileQuery = url.Values{
 	"token": {"qry-hostile-token-" + strings.Repeat("q", 6)}, "email": {"qry-hostile@example.test"},
 	"password": {"qry hostile passphrase"}, "password_again": {"qry hostile passphrase"},
@@ -488,6 +489,9 @@ var hostileQuery = url.Values{
 	// OP-16: a VAT number in the shape VIES takes, which the VAT screen must neither read nor
 	// echo (the number is the server's read's -- vat.go).
 	"vat_number": {"IE7Q42424X"},
+	// OP-15 C: a suspension's two fields, which its writes read from the body alone and echo
+	// nowhere (suspension.go).
+	"reason": {"qry_hostile_reason"}, "confirm": {"qry-hostile-confirm"},
 }
 
 // hostileValues are the hostile request values checkDesignedHeaders looks for in a response.
@@ -528,10 +532,11 @@ func hostileCookieLine(cookies []*http.Cookie) string {
 // hostileDrive is r with the hostile headers (a header the request sets itself --
 // Origin, Sec-Fetch-Site -- is kept), the second Cookie line and, on the sign-in, code,
 // enrollment, (OP-10) legal, (OP-11) tenant, (OP-13) plaque, (OP-14) audit, (OP-12) billing,
-// (OP-16) VAT and (M11 API-1a) holdings paths, the hostile query -- whose "page" a billing request
-// and a holding write and whose "vat_number" a VAT request must not read. The holdings LIST reads
-// its page from the URL by design, so a GET of it is not given the hostile page (the enrollment
-// GET's id, below, is the same exception).
+// (OP-16) VAT, (M11 API-1a) holdings and (OP-15 C) suspension paths, the hostile query -- whose
+// "page" a billing request and a holding write, whose "vat_number" a VAT request and whose
+// "reason", "confirm" and "id" a suspension's write must not read. The holdings LIST reads its page
+// from the URL by design, so a GET of it is not given the hostile page (the enrollment GET's id,
+// below, is the same exception).
 func hostileDrive(r req) req {
 	h := map[string]string{}
 	for k, v := range hostileHeaders {
@@ -551,6 +556,10 @@ func hostileDrive(r req) req {
 			path = "/operator/tenants/{id}/billing"
 		case strings.HasSuffix(path, "/vat"):
 			path = "/operator/tenants/{id}/vat"
+		case strings.HasSuffix(path, "/suspend"):
+			path = "/operator/tenants/{id}/suspend"
+		case strings.HasSuffix(path, "/reinstate"):
+			path = "/operator/tenants/{id}/reinstate"
 		default:
 			path = "/operator/tenants/{id}"
 		}
@@ -565,7 +574,8 @@ func hostileDrive(r req) req {
 	switch path {
 	case "/operator/login", "/operator/login/totp", "/operator/enroll", "/operator/legal", "/operator/tenants", "/operator/tenants/{id}",
 		"/operator/tenants/{id}/plaques", "/operator/tenants/{id}/billing", "/operator/tenants/{id}/vat", "/operator/audit",
-		"/operator/holdings", "/operator/holdings/{id}/members", "/operator/holdings/{id}/members/{tenant}/remove":
+		"/operator/holdings", "/operator/holdings/{id}/members", "/operator/holdings/{id}/members/{tenant}/remove",
+		"/operator/tenants/{id}/suspend", "/operator/tenants/{id}/reinstate":
 		q := url.Values{}
 		for k, v := range hostileQuery {
 			q[k] = v
@@ -609,7 +619,8 @@ func hostileOn(r *http.Request) {
 // "<cookie name>=set" or "<cookie name>=clear". Read off the shipped handlers and
 // measured on them (2026-10-02, the 4th round; C41-C48 the 5th; C49-C66 OP-10, 2026-10-03;
 // C67-C93 OP-11, 2026-10-03; C94-C103 OP-13, 2026-10-06; C104-C121 OP-14, 2026-10-07;
-// C122-C141 OP-12, 2026-10-07; C142-C165 OP-16, 2026-10-07; C166-C199 M11 API-1a, 2026-10-13).
+// C122-C141 OP-12, 2026-10-07; C142-C165 OP-16, 2026-10-07; C166-C199 M11 API-1a, 2026-10-13;
+// C200-C217 M11 API-13a; C218-C242 OP-15 C, 2026-10-08, renumbered 2026-10-20).
 type designed struct {
 	loc, ct, allow string
 	cookies        []string
@@ -750,6 +761,23 @@ var designedHeaders = map[string]designed{
 	"C211": {loc: "/operator/tenants/61300000-0000-4000-8000-0000000000c1?done=api-closed"},
 	"C212": {loc: "/operator/login"}, "C213": {ct: pageType}, "C214": {ct: pageType}, "C215": {ct: pageType},
 	"C216": {loc: "/operator/login"}, "C217": {allow: "POST"},
+	// OP-15 C's suspension (op15_test.go): an accepted write -- whatever the tenant held, an id no
+	// tenant has included -- is a 303 to the overview of the PATH's tenant (POST -> 303 -> GET;
+	// the overview is where its result is read), and nothing posted rides on it; the sign-in
+	// redirects of the gate and of a write whose session the store refuses; the dead cookie
+	// cleared; the refusals and the fault are pages, none carrying a Location; PUT's and GET's
+	// 405 name POST alone.
+	"C218": {loc: "/operator/tenants/51500000-0000-4000-8000-000000000015"},
+	"C219": {loc: "/operator/tenants/51500000-0000-4000-8000-000000000015"},
+	"C220": {loc: "/operator/tenants/51500000-0000-4000-8000-000000000099"},
+	"C221": {loc: "/operator/login"}, "C222": {loc: "/operator/login", cookies: []string{sessionClear}},
+	"C223": {ct: pageType}, "C224": {ct: pageType}, "C225": {ct: pageType}, "C226": {ct: pageType}, "C227": {ct: pageType},
+	"C228": {ct: pageType}, "C229": {ct: pageType}, "C230": {loc: "/operator/login"}, "C231": {allow: "POST"},
+	"C232": {loc: "/operator/tenants/51500000-0000-4000-8000-000000000015"},
+	"C233": {loc: "/operator/tenants/51500000-0000-4000-8000-000000000015"},
+	"C234": {loc: "/operator/tenants/51500000-0000-4000-8000-000000000099"},
+	"C235": {loc: "/operator/login"}, "C236": {ct: pageType}, "C237": {ct: pageType}, "C238": {ct: pageType},
+	"C239": {ct: pageType}, "C240": {ct: pageType}, "C241": {loc: "/operator/login"}, "C242": {allow: "POST"},
 }
 
 // checkDesignedHeaders holds the response headers AT WriteHeader (w.Result().Header, the

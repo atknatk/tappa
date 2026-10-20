@@ -67,6 +67,11 @@ const (
 	// list; kept off every surface but the holdings list's body all the same (holdings.go: no
 	// line has a reason to carry it, and a refused name is not echoed) -- this package's own claim.
 	gHolding = "G20 holding name"
+	// OP-15 C: a value posted to a suspension's write -- a refused reason, a refused confirm
+	// value, a field the form does not have, an oversized body's mark --, which the writes read
+	// only to refuse (suspension.go: no posted value reaches a log line or a page); this package's
+	// own claim; on no never-log list.
+	gSuspension = "G21 suspension form value"
 )
 
 // neverLog is the CLOSED criterion: each never-log item of CLAUDE.md §7, ADR 0020 §5 and
@@ -402,13 +407,26 @@ func (h *hashRecorder) RemoveHoldingMember(ctx context.Context, s string, holdin
 	return h.fakeStore.RemoveHoldingMember(ctx, s, holding, tenant)
 }
 
+// The suspension's two writes (OP-15 C): the session hash. The tenant id is printed on the
+// overview by design and the reason is a member of the closed set (the handler refuses any other
+// before the call).
+func (h *hashRecorder) SuspendTenant(ctx context.Context, s string, id uuid.UUID, reason db.SuspensionReason) error {
+	h.record("SuspendTenant", s)
+	return h.fakeStore.SuspendTenant(ctx, s, id, reason)
+}
+
+func (h *hashRecorder) ReinstateTenant(ctx context.Context, s string, id uuid.UUID) error {
+	h.record("ReinstateTenant", s)
+	return h.fakeStore.ReinstateTenant(ctx, s, id)
+}
+
 // harvestWant pins the harvest: calls per method and the arity of each call's record.
 // The counts are the arms' own, derived where each arm is driven (comments at the arms).
 var harvestWant = map[string]struct{ calls, arity int }{
 	"OperatorByEmail":            {calls: 9, arity: 1},    // A2 A3 A4 A20 A20b A23 A26b A28 A30b
 	"RecordOperatorAuthEvent":    {calls: 12, arity: 1},   // A2 A3 A6 A14 A15 A17 A28; OP-14 C: each right password's 'password_ok' -- A4 A20b A23 A26b A30b
 	"OpenOperatorSession":        {calls: 5, arity: 1},    // A7 A20b A24 A26b A30b
-	"TouchOperatorSession":       {calls: 238, arity: 1},  // A8 A9 A21, A27 x 101, A31-A41, A43, A44-A52, A54-A59, A60-A65, A66a x 60, A66, A67-A74, A76, A77, A78-A86, A88, A89, A90, A91-A97, A100-A109, A111 (A42, A53, A75, A87, A98 and A110 are refused before the gate)
+	"TouchOperatorSession":       {calls: 247, arity: 1},  // A8 A9 A21, A27 x 101, A31-A41, A43, A44-A52, A54-A59, A60-A65, A66a x 60, A66, A67-A74, A76, A77, A78-A86, A88, A89, A90, A91-A97, A100-A109, A111, A112-A119, A121 (A42, A53, A75, A87, A98, A110 and A120 are refused before the gate)
 	"CloseOperatorSession":       {calls: 3002, arity: 1}, // A10 A22, A30a x 3000 (A30 is refused first)
 	"CompleteOperatorEnrollment": {calls: 3, arity: 4},    // A16 A17 A25
 	"LegalVersions":              {calls: 5, arity: 1},    // A31 A33 A39 A41 A43
@@ -424,26 +442,30 @@ var harvestWant = map[string]struct{ calls, arity int }{
 	"CreateHolding":              {calls: 2, arity: 2},    // A101 A108 (A103's name refuses before the store)
 	"AddHoldingMember":           {calls: 2, arity: 1},    // A104 A109 (A105's id refuses before the store)
 	"RemoveHoldingMember":        {calls: 1, arity: 1},    // A106
+	"SuspendTenant":              {calls: 2, arity: 1},    // A112 A117 (A114-A116, A119 and A121 refuse before the store, A120 before the gate)
+	"ReinstateTenant":            {calls: 2, arity: 1},    // A113 A118
 }
 
 // TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor -- THE CONTRACT (M10 OP-8; the
 // shape is internal/operatorauth's
 // TestLeak_NoInputInAnyErrorOrLogLine, m10-platform.md OP-4 block, OP-8 list):
 //
-// No member of the GROUPS G1-G20 (constants above) occurs, in any of the RENDERINGS
+// No member of the GROUPS G1-G21 (constants above) occurs, in any of the RENDERINGS
 // R1-R10 (renderings), on any of the SURFACES S1-S4 (leakSurfaces; S4 is the response
 // headers AT WriteHeader, the recorder's Result().Header -- Location among them), in any
-// of the 111 numbered ARMS A1-A111 below -- EXCEPT the DESIGNED EGRESS D1-D9, each of which
+// of the 121 numbered ARMS A1-A121 below -- EXCEPT the DESIGNED EGRESS D1-D9, each of which
 // is pinned the other way: the value IS on its surface in its arm. The groups are measured
 // against the CLOSED list neverLog (12 items, a pinned literal): every group of every item
 // has a member. G15 (the client address), G16 (a legal text posted to the operator's
 // screen, or an unknown slug posted with one -- OP-10) and G17 (a tenant search term and
-// its 8- and 4-character prefixes -- OP-11), G18 (a tenant's VAT number -- OP-16) and G20 (a
-// holding's name -- M11 API-1a) are bound to no item -- the package's own claims. The fake store's harvest -- session hashes, raw link tokens, digests,
+// its 8- and 4-character prefixes -- OP-11), G18 (a tenant's VAT number -- OP-16), G20 (a
+// holding's name -- M11 API-1a) and G21 (a value posted to a suspension's write -- OP-15 C) are
+// bound to no item -- the package's own claims. The fake store's harvest -- session hashes, raw link tokens, digests,
 // envelopes, addresses, posted legal texts and search terms it was handed (the plaque
 // screen's, the audit log's and the billing screen's session hashes too, OP-13, OP-14 and
 // OP-12, the VAT screen's session hashes and the number its write was handed, OP-16, and the
-// holdings screen's session hashes and the names its creates were handed, M11 API-1a) -- is
+// holdings screen's session hashes and the names its creates were handed, M11 API-1a, and the
+// suspension's session hashes, OP-15 C) -- is
 // searched too (G5, G8, G12, G11, G13, G16, G17, G18, G20) and pinned method by method by COUNT and ARITY
 // (harvestWant), not by content. The read ticket is not searched: no value of it reaches
 // this package (neverLog's comment).
@@ -524,7 +546,12 @@ var harvestWant = map[string]struct{ calls, arity int }{
 //	holdings · A101 a holding created · A102 the list after it, with its result · A103 a name
 //	refused · A104 a business added · A105 a business id refused · A106 a business removed ·
 //	A107 the list's read fails · A108 the create fails (22023) · A109 the add fails · A110 a
-//	cross-origin create · A111 a malformed holding id · and, on A30b's session from its own address, A66 the read
+//	cross-origin create · A111 a malformed holding id · OP-15 C's suspension, on A20b's session:
+//	A112 a suspension (an extra field posted) · A113 its reinstatement · A114 the box not ticked (a
+//	value posted) · A115 a reason outside the set · A116 an oversized form · A117 the suspension
+//	fails (22023) · A118 the reinstatement's session is refused · A119 a malformed id · A120 a
+//	cross-origin suspension · A121 the reason and the box in the query string · and, on A30b's
+//	session from its own address, A66 the read
 //	budget (60 plaque reads, A66a, then the 61st), A77 the audit log and A90 the billing past
 //	the same budget
 //
@@ -550,7 +577,7 @@ func TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor(t *testing.T) {
 	}
 	texts := newFakeTexts(store.fakeStore)
 	vies := &fakeVIES{store: store.fakeStore}
-	surface, err := operator.New(auth, store, store, store, store, store, store, store, vies, texts, opHost, opBase, plog)
+	surface, err := operator.New(auth, store, store, store, store, store, store, store, store, vies, texts, opHost, opBase, plog)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1130,6 +1157,51 @@ func TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor(t *testing.T) {
 		!strings.Contains(results["A104 a business added"].process, "asked to add a business") {
 		t.Fatal("PREMISE: A102 is not the result page, or A104/A107/A108/A109 wrote no line of their own -- the arms are not the branches they name")
 	}
+	// OP-15 C's suspension on A20b's session ([T] a touch; [S] SuspendTenant; [I] ReinstateTenant),
+	// on the leak tenant's overview (A55's). G21's members are the values the arms post that the
+	// writes must refuse or ignore; none is a reason of the closed set.
+	const (
+		susExtra   = "FAKEop15cLEAKextraFIELD"
+		susConfirm = "FAKEop15cLEAKconfirm"
+		susReason  = "FAKEop15cLEAKreason"
+		susBigMark = "FAKEop15cLEAKoversized"
+	)
+	set.add(gSuspension, susExtra, susConfirm, susReason, susBigMark)
+	suspend := "/operator/tenants/" + leakTenant.String() + "/suspend"
+	reinstate := "/operator/tenants/" + leakTenant.String() + "/reinstate"
+	susForm := func(reason, confirm string) url.Values {
+		return url.Values{"reason": {reason}, "confirm": {confirm}, "note": {susExtra}}
+	}
+	post("A112 a suspension", suspend, susForm("non_payment", "yes"), live)                                          // [T S1]
+	post("A113 its reinstatement", reinstate, url.Values{"confirm": {"yes"}, "note": {susExtra}}, live)              // [T I1]
+	post("A114 the box not ticked", suspend, susForm("non_payment", susConfirm), live)                               // [T]
+	post("A115 a reason outside the set", suspend, susForm(susReason, "yes"), live)                                  // [T]
+	post("A116 an oversized suspension form", suspend, susForm(susBigMark+strings.Repeat("x", 20<<10), "yes"), live) // [T]
+	fail("SuspendTenant", errFakeSuspendRefused)
+	post("A117 the suspension fails", suspend, susForm("security_hold", "yes"), live) // [T S2]
+	fail("SuspendTenant", nil)
+	fail("ReinstateTenant", db.ErrOperatorRefused)
+	post("A118 the reinstatement's session is refused", reinstate, url.Values{"confirm": {"yes"}}, live) // [T I2]
+	fail("ReinstateTenant", nil)
+	post("A119 a malformed suspension id", "/operator/tenants/"+strings.ReplaceAll(leakTenant.String(), "-", "")+"/suspend",
+		susForm("non_payment", "yes"), live) // [T]
+	do("A120 a cross-origin suspension", req{method: http.MethodPost, path: suspend, form: susForm("non_payment", "yes"),
+		origin: "https://taptime.mt", header: map[string]string{"Sec-Fetch-Site": "same-site"}, cookies: []*http.Cookie{live}})
+	post("A121 the reason and the box in the query string", suspend+"?reason=non_payment&confirm=yes&note="+susExtra,
+		url.Values{}, live) // [T]
+	for arm, want := range map[string]int{
+		"A112 a suspension": 303, "A113 its reinstatement": 303, "A114 the box not ticked": 400, "A115 a reason outside the set": 400,
+		"A116 an oversized suspension form": 413, "A117 the suspension fails": 503, "A118 the reinstatement's session is refused": 303,
+		"A119 a malformed suspension id": 404, "A120 a cross-origin suspension": 403, "A121 the reason and the box in the query string": 400,
+	} {
+		if got := results[arm].w.Code; got != want {
+			t.Fatalf("PREMISE: %s = %d, want %d -- the arm is not the branch it names", arm, got, want)
+		}
+	}
+	if !strings.Contains(results["A112 a suspension"].process, "operator suspended a tenant") ||
+		!strings.Contains(results["A117 the suspension fails"].process, "SQLSTATE 22023") {
+		t.Fatal("PREMISE: A112/A117 wrote no line of their own -- the arms are not the branches they name")
+	}
 	do("A28 credentials in the query", req{method: http.MethodPost, // [E8 R7]: the empty body's empty address
 		path: "/operator/login?email=" + url.QueryEscape(email) + "&password=" + url.QueryEscape(queryPass), form: url.Values{}, origin: opOrigin})
 	get("A29 a link token in the query", "/operator/enroll?id="+pending.String()+"&token="+queryToken)
@@ -1250,6 +1322,11 @@ func TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor(t *testing.T) {
 		set.add(gSessionHash, v[0])
 		set.add(gHolding, v[1])
 	}
+	for _, m := range []string{"SuspendTenant", "ReinstateTenant"} {
+		for _, v := range store.got[m] {
+			set.add(gSessionHash, v[0])
+		}
+	}
 	// THE HARVEST PIN: count and arity, method by method.
 	for m, want := range harvestWant {
 		calls := store.got[m]
@@ -1278,7 +1355,7 @@ func TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor(t *testing.T) {
 			}
 		}
 	}
-	for _, g := range []string{gAddr, gLegal, gTerm, gVAT, gHolding} {
+	for _, g := range []string{gAddr, gLegal, gTerm, gVAT, gHolding, gSuspension} {
 		if !set.inGroup(g) {
 			t.Errorf("group %q has no member", g)
 		}

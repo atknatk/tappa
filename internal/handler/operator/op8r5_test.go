@@ -5,7 +5,8 @@ package operator_test
 // C49-C66, op10_test.go; OP-11 a fourth, C67-C93, op11_test.go; OP-13 a fifth, C94-C103,
 // op13_test.go; OP-14 a sixth, C104-C121, op14_test.go; OP-12 a seventh, C122-C141,
 // op12_test.go; OP-16 an eighth, C142-C165, op16_test.go; M11 API-1a a ninth, C166-C199,
-// holdings_test.go), the eight classes the 4th
+// holdings_test.go; M11 API-13a a tenth, C200-C217, tenantapi_test.go; OP-15 C an eleventh,
+// C218-C242, op15_test.go), the eight classes the 4th
 // audit found outside the 40 (N7), the walked-routes completeness test (N5) and the wire
 // test of the recorder's snapshot (F1 (b)).
 //
@@ -186,18 +187,35 @@ var classRoutes = map[string]classRoute{
 	"C213": {"POST", "/operator/tenants/{id}/integration/close", 403}, "C214": {"POST", "/operator/tenants/{id}/integration/close", 404},
 	"C215": {"POST", "/operator/tenants/{id}/integration/close", 503}, "C216": {"POST", "/operator/tenants/{id}/integration/close", 303},
 	"C217": {"GET", "/operator/tenants/{id}/integration/close", 405},
+	// OP-15 C's suspension (op15_test.go, TestOperatorHeaders_TheSuspensionClassesCarryThePolicy).
+	"C218": {"POST", "/operator/tenants/{id}/suspend", 303}, "C219": {"POST", "/operator/tenants/{id}/suspend", 303},
+	"C220": {"POST", "/operator/tenants/{id}/suspend", 303}, "C221": {"POST", "/operator/tenants/{id}/suspend", 303},
+	"C222": {"POST", "/operator/tenants/{id}/suspend", 303}, "C223": {"POST", "/operator/tenants/{id}/suspend", 403},
+	"C224": {"POST", "/operator/tenants/{id}/suspend", 404}, "C225": {"POST", "/operator/tenants/{id}/suspend", 400},
+	"C226": {"POST", "/operator/tenants/{id}/suspend", 400}, "C227": {"POST", "/operator/tenants/{id}/suspend", 413},
+	"C228": {"POST", "/operator/tenants/{id}/suspend", 400}, "C229": {"POST", "/operator/tenants/{id}/suspend", 503},
+	"C230": {"POST", "/operator/tenants/{id}/suspend", 303},
+	"C231": {"PUT", "/operator/tenants/{id}/suspend", 405},
+	"C232": {"POST", "/operator/tenants/{id}/reinstate", 303}, "C233": {"POST", "/operator/tenants/{id}/reinstate", 303},
+	"C234": {"POST", "/operator/tenants/{id}/reinstate", 303}, "C235": {"POST", "/operator/tenants/{id}/reinstate", 303},
+	"C236": {"POST", "/operator/tenants/{id}/reinstate", 403}, "C237": {"POST", "/operator/tenants/{id}/reinstate", 404},
+	"C238": {"POST", "/operator/tenants/{id}/reinstate", 400}, "C239": {"POST", "/operator/tenants/{id}/reinstate", 413},
+	"C240": {"POST", "/operator/tenants/{id}/reinstate", 503}, "C241": {"POST", "/operator/tenants/{id}/reinstate", 303},
+	"C242": {"GET", "/operator/tenants/{id}/reinstate", 405},
 }
 
 // classCount is the number of classes of the header tables, C1 to C<classCount>.
-const classCount = 217
+const classCount = 242
 
 // routeOf is a request's method and path as a chi route: the query dropped, the prefix
 // itself written as the pattern chi.Walk reports for the console ("/operator/"), a path
 // one segment under /operator/tenants/ written as its pattern (OP-11's overview: chi
 // routes any one segment there to {id}), and one segment followed by /plaques written as
-// the plaque screen's (OP-13), by /billing as the billing screen's (OP-12), or by /vat as the VAT
-// screen's (OP-16); and a path under /operator/holdings/ written as the membership route's or the
-// removal route's pattern (M11 API-1a).
+// the plaque screen's (OP-13), by /billing as the billing screen's (OP-12), by /vat as the VAT
+// screen's (OP-16), by /integration or /integration/close as the integration API's two writes'
+// (M11 API-13a), or by /suspend or /reinstate as the suspension's two writes' (OP-15 C); and a path
+// under /operator/holdings/ written as the membership route's or the removal route's pattern (M11
+// API-1a).
 func routeOf(l driveLog) string {
 	p, _, _ := strings.Cut(l.path, "?")
 	if p == operator.Prefix {
@@ -217,6 +235,10 @@ func routeOf(l driveLog) string {
 			p = operator.Prefix + "/tenants/{id}/integration"
 		case seg != "" && tail == "integration/close":
 			p = operator.Prefix + "/tenants/{id}/integration/close"
+		case seg != "" && tail == "suspend":
+			p = operator.Prefix + "/tenants/{id}/suspend"
+		case seg != "" && tail == "reinstate":
+			p = operator.Prefix + "/tenants/{id}/reinstate"
 		}
 	}
 	if rest, ok := strings.CutPrefix(p, operator.Prefix+"/holdings/"); ok {
@@ -353,12 +375,14 @@ func TestOperatorHeaders_TheWrongMethodAndOversizedClassesCarryThePolicy(t *test
 // TestOperatorHeaders_TheWalkedRoutesEachHaveAClass is the completeness check the 4th
 // audit asked for (N5), on the surface's MOUNTED routes as chi.Walk reports them.
 //
-// PART I -- the shipped surface: chi.Walk reports twenty-four method x route pairs on fifteen
+// PART I -- the shipped surface: chi.Walk reports twenty-eight method x route pairs on nineteen
 // routes (OP-10 added GET and POST /operator/legal; OP-11 GET and POST /operator/tenants
 // and GET /operator/tenants/{id}; OP-13 GET /operator/tenants/{id}/plaques; OP-14 GET and
 // POST /operator/audit; OP-12 GET and POST /operator/tenants/{id}/billing; OP-16 GET and POST
 // /operator/tenants/{id}/vat; M11 API-1a GET and POST /operator/holdings, POST
-// /operator/holdings/{id}/members and POST /operator/holdings/{id}/members/{tenant}/remove); classRoutes
+// /operator/holdings/{id}/members and POST /operator/holdings/{id}/members/{tenant}/remove; M11
+// API-13a POST /operator/tenants/{id}/integration and POST /operator/tenants/{id}/integration/close;
+// OP-15 C POST /operator/tenants/{id}/suspend and POST /operator/tenants/{id}/reinstate); classRoutes
 // has, for each pair, a class with a status other than 405, and for each route a 405
 // class with a method not mounted on it; classRoutes' keys are C1 to C<classCount>.
 //
@@ -385,7 +409,7 @@ func TestOperatorHeaders_TheWalkedRoutesEachHaveAClass(t *testing.T) {
 	for _, ms := range walked {
 		pairs += len(ms)
 	}
-	if len(walked) < 15 || pairs < 24 {
+	if len(walked) < 19 || pairs < 28 {
 		t.Fatalf("PREMISE: chi.Walk reported %d route(s), %d pair(s)", len(walked), pairs)
 	}
 	covered, wrongMethod := map[string]bool{}, map[string]bool{}

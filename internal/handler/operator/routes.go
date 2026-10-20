@@ -36,7 +36,7 @@ import (
 //	POST /operator/audit; OP-14) and
 //	a tenant's billing months (GET,
 //	POST /operator/tenants/{id}/billing;
-//	OP-12) and a tenant's VAT number
+//	OP-12), a tenant's VAT number
 //	(GET, POST
 //	/operator/tenants/{id}/vat; OP-16)
 //	and the holdings (GET, POST
@@ -45,13 +45,20 @@ import (
 //	POST /operator/holdings/{id}/
 //	members/{tenant}/remove; M11
 //	API-1a)
+//	and a tenant's suspension (POST
+//	/operator/tenants/{id}/suspend,
+//	POST
+//	/operator/tenants/{id}/reinstate;
+//	OP-15)
 //	sign-out (POST /operator/logout)   sameOriginGate(false) -> requireOperator -> logoutGate
 //
 // The reads behind sessionGate -- the legal page, the tenant list and search, the overview,
 // the plaques, the audit log, the billing months, the VAT screen and the holdings (the list, and
 // a refused holdings form that shows it again) -- each charge the read budget once more in their
 // handler (spendRead); an ask of VIES from the VAT screen charges the VIES budget as well
-// (spendVIES). The three holding writes read nothing and charge no read.
+// (spendVIES). The three holding writes read nothing and charge no read; nor do the two
+// suspension writes, which charge only the gate's request unit -- the overview their 303 lands on
+// is a read (suspension.go).
 //
 // Sign-out is its own group, after the panel's measured lesson (adminlogin.go's sign-out
 // group): no flood gate is in front of it, and a sign-out with a session cookie charges
@@ -101,6 +108,8 @@ func (s *Surface) mount(r chi.Router) {
 			r.Post("/tenants/{id}/billing", s.pageTenantBilling)
 			r.Get("/tenants/{id}/vat", s.tenantVAT)
 			r.Post("/tenants/{id}/vat", s.recheckVAT)
+			r.Post("/tenants/{id}/suspend", s.suspendTenant)
+			r.Post("/tenants/{id}/reinstate", s.reinstateTenant)
 			r.Get("/audit", s.auditLog)
 			r.Post("/audit", s.filterAudit)
 			r.Get("/holdings", s.holdingsPage)
@@ -131,7 +140,8 @@ const (
 // no CSP, Location or cookie) on the hosts the shipped ingress names plus six more, under
 // the methods and operator paths that test lists (a tenant's plaques among them since
 // OP-13, the audit log since OP-14, a tenant's billing since OP-12's B phase, a tenant's VAT
-// number since OP-16's, the holdings and their two membership routes since M11 API-1a):
+// number since OP-16's, the holdings and their two membership routes since M11 API-1a, a tenant's
+// suspension since OP-15's C phase):
 // TestHostGate_OperatorRoutesAnswerTheRoutersOwn404OnEveryOtherHost.
 func (s *Surface) hostGate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -160,7 +170,9 @@ func (s *Surface) hostGate(next http.Handler) http.Handler {
 // TestOperatorHeaders_TheAuditClassesCarryThePolicy (OP-14, C104-C121) and
 // TestOperatorHeaders_TheBillingClassesCarryThePolicy (OP-12, C122-C141),
 // TestOperatorHeaders_TheVATClassesCarryThePolicy (OP-16, C142-C165) and
-// TestOperatorHeaders_TheHoldingClassesCarryThePolicy (M11 API-1a, C166 on) drive the response
+// TestOperatorHeaders_TheHoldingClassesCarryThePolicy (M11 API-1a, C166-C199),
+// TestOperatorHeaders_TheTenantAPIClassesCarryThePolicy (M11 API-13a, C200-C217) and
+// TestOperatorHeaders_TheSuspensionClassesCarryThePolicy (OP-15 C, C218 on) drive the response
 // classes of the tests' classRoutes with hostile request headers and hold the response
 // headers AT WriteHeader (the recorder's snapshot) to the designed names and values;
 // TestOperatorHeaders_TheRecorderSnapshotIsWhatTheWireCarries measures that snapshot
@@ -324,7 +336,7 @@ func operatorOf(r *http.Request) (operatorauth.Identity, bool) {
 // storeSession is the session sessionGate resolved and its hash for the store -- the
 // argument of every op_* call a console screen makes (the legal texts, OP-10; the
 // tenants, OP-11; the plaques, OP-13; the audit log, OP-14; the billing months, OP-12; the
-// VAT number, OP-16; the holdings, M11 API-1a).
+// VAT number, OP-16; the holdings, M11 API-1a; the suspension, OP-15 C).
 // Through mount both are in place; a route mounted outside the chain by mistake answers the
 // sign-in.
 func (s *Surface) storeSession(w http.ResponseWriter, r *http.Request) (operatorauth.Identity, string, bool) {

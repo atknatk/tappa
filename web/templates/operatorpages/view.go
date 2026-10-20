@@ -2,8 +2,9 @@
 // sign-in, the TOTP step, enrollment, the console's front page and its problem page,
 // (OP-10) the legal texts screen, (OP-11) the tenant list and a tenant's overview, (OP-13) a
 // tenant's plaques, (OP-14) the operator's own audit log, (OP-12) a tenant's billing months,
-// (OP-16) a tenant's VAT number with its re-check and (M11 API-1a) the holdings with their
-// memberships, in the "TAPTIME OPERATOR" chrome.
+// (OP-16) a tenant's VAT number with its re-check, (M11 API-1a) the holdings with their
+// memberships and (OP-15 C) a tenant's suspension on its overview, in the "TAPTIME OPERATOR"
+// chrome.
 //
 // IT IS NOT web/templates/pages, ON PURPOSE. pages is what the customer product renders
 // and internal/handler imports it. Measured with `go list` (non-test imports, the build
@@ -217,6 +218,9 @@ type TenantRow struct {
 	Name      string
 	CreatedAt string // UTC
 	Plan      string
+	// Suspended draws the row's chip (OP-15 C; ADR 0025 §5, K15-3): the tenant's panel refuses
+	// writes. The reason is the overview's.
+	Suspended bool
 }
 
 // TenantOverviewView is /operator/tenants/{id} (M10 OP-11): one tenant's identity and
@@ -236,6 +240,8 @@ type TenantOverviewView struct {
 	PlaquesPath, BillingPath, VATPath string
 	// API is the integration API section (M11 API-13a, K-22).
 	API TenantAPIView
+	// Suspension is the tenant's suspension and the one form its state calls for (OP-15 C).
+	Suspension TenantSuspensionView
 }
 
 // TenantAPIView is the overview's integration API section (M11 API-13a; K-22): the state the
@@ -254,6 +260,33 @@ type TenantAPIView struct {
 	NoticeTone            HoldingNoticeTone
 	NoticeHeading, Notice string
 	NoticeRules           []string
+}
+
+// TenantSuspensionView is the overview's suspension block (M10 OP-15 C; ADR 0025 §5): the state
+// line -- "Active", or "Suspended" with its start (UTC) and its reason -- and ONE form: suspend
+// (to SuspendPath, with the reasons) when the tenant is not suspended, lift the suspension (to
+// ReinstatePath) when it is. Every value is text the handler formatted; templ escapes each one.
+type TenantSuspensionView struct {
+	Suspended bool
+	// Since is when the suspension began (UTC, to the minute) -- the first suspending call's
+	// time, which a later call with another reason keeps.
+	Since string
+	// Reason is the stored reason as the operator's label, or an unrecognised value (a code this
+	// build does not name: its raw text only when it has a closed set's shape).
+	Reason AuditWord
+	// SuspendPath and ReinstatePath are the two forms' actions,
+	// /operator/tenants/<id>/suspend and /operator/tenants/<id>/reinstate.
+	SuspendPath, ReinstatePath string
+	// Reasons are the suspend form's choices, in the closed set's order.
+	Reasons []SuspensionReasonOption
+}
+
+// SuspensionReasonOption is one reason of the suspend form: the code it posts, the operator's
+// label, and Hold -- the one choice (security_hold) whose selection shows the form's closed
+// warning that a suspension freezes writes and does not contain an account (ADR 0025 §5).
+type SuspensionReasonOption struct {
+	Value, Label string
+	Hold         bool
 }
 
 // TenantPlaquesView is /operator/tenants/{id}/plaques (M10 OP-13): one tenant's plaques,
@@ -337,9 +370,10 @@ type AuditKindOption struct {
 	Selected     bool
 }
 
-// AuditWord is a value of a closed set as the audit log says it: Text is the screen's word,
-// or -- when Unknown -- the raw value, which the handler fills only when it has the shape of
-// a closed set's member (it may be ""). The zero AuditWord is "nothing to say".
+// AuditWord is a value of a closed set as the audit log -- and (OP-15 C) the overview's
+// suspension reason -- says it: Text is the screen's word, or -- when Unknown -- the raw value,
+// which the handler fills only when it has the shape of a closed set's member (it may be ""). The
+// zero AuditWord is "nothing to say".
 type AuditWord struct {
 	Text    string
 	Unknown bool

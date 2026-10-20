@@ -44,10 +44,10 @@ import (
 )
 
 // noStore satisfies operatorauth.Store, operator.LegalStore, operator.TenantStore,
-// operator.PlaqueStore, operator.AuditStore, operator.BillingStore, operator.VATStore and
-// operator.HoldingStore without a database; building an Authenticator calls none of its
-// methods, and nothing here sends a sign-in, a legal, a tenant, a plaque, an audit, a billing, a
-// VAT or a holdings request.
+// operator.PlaqueStore, operator.AuditStore, operator.BillingStore, operator.VATStore,
+// operator.HoldingStore and operator.SuspensionStore without a database; building an
+// Authenticator calls none of its methods, and nothing here sends a sign-in, a legal, a tenant, a
+// plaque, an audit, a billing, a VAT, a holdings or a suspension request.
 type noStore struct{}
 
 func (noStore) OperatorByEmail(context.Context, string) (db.OperatorAccount, error) {
@@ -112,6 +112,12 @@ func (noStore) AddHoldingMember(context.Context, string, uuid.UUID, uuid.UUID) e
 	return db.ErrOperatorRefused
 }
 func (noStore) RemoveHoldingMember(context.Context, string, uuid.UUID, uuid.UUID) error {
+	return db.ErrOperatorRefused
+}
+func (noStore) SuspendTenant(context.Context, string, uuid.UUID, db.SuspensionReason) error {
+	return db.ErrOperatorRefused
+}
+func (noStore) ReinstateTenant(context.Context, string, uuid.UUID) error {
 	return db.ErrOperatorRefused
 }
 
@@ -568,7 +574,8 @@ func TestOpenOperatorSurface_PrintsNoValue(t *testing.T) {
 // phase B its plaque slot (operator.New's PlaqueStore), since OP-14 phase B its audit slot
 // (operator.New's AuditStore), since OP-12 phase B its billing slot (operator.New's
 // BillingStore), since OP-16 phase B its VAT slot (operator.New's VATStore), since M11 API-1a its
-// holding slot (operator.New's HoldingStore), and the rules below say exactly that. It is not renamed because docs/plan/m10-platform.md
+// holding slot (operator.New's HoldingStore), since OP-15 phase C its suspension slot
+// (operator.New's SuspensionStore), and the rules below say exactly that. It is not renamed because docs/plan/m10-platform.md
 // cites it by this name three times (the OP-7 and OP-8 records) and ADR 0020 §7 once:
 // a rename would leave those citations dangling (testnames_test.go's ratchet) in records
 // that are not rewritten after the fact.
@@ -576,22 +583,22 @@ func TestOpenOperatorSurface_PrintsNoValue(t *testing.T) {
 //   - db.NewOperatorDB is called exactly once in the command, inside openOperatorSurface;
 //   - the value it returns is used only as configuredSurface's first argument and as
 //     the receiver of Close, and openOperatorSurface returns no *db.OperatorDB;
-//   - configuredSurface's store is used exactly eight times: as operatorAuthenticator's
-//     first argument and as operator.New's second, third, fourth, fifth, sixth, seventh and
-//     eighth (the LegalStore slot; the TenantStore slot, OP-11; the PlaqueStore slot, OP-13; the
+//   - configuredSurface's store is used exactly nine times: as operatorAuthenticator's
+//     first argument and as operator.New's second, third, fourth, fifth, sixth, seventh, eighth
+//     and ninth (the LegalStore slot; the TenantStore slot, OP-11; the PlaqueStore slot, OP-13; the
 //     AuditStore slot, OP-14; the BillingStore slot, OP-12; the VATStore slot, OP-16; the
-//     HoldingStore slot, M11 API-1a) -- and that operatorAuthenticator's store only as
-//     operatorauth.New's first argument;
+//     HoldingStore slot, M11 API-1a; the SuspensionStore slot, OP-15 C) -- and that
+//     operatorAuthenticator's store only as operatorauth.New's first argument;
 //   - the legal snapshot travels the other way, from run() into the operator side:
 //     openOperatorSurface's texts only as configuredSurface's second argument, and that
-//     function's only as operator.New's tenth;
+//     function's only as operator.New's eleventh;
 //   - so does the VIES checker (OP-16, the orchestrator's K16-6): signup.NewChecker is named
 //     exactly once in the command, and run() uses the value it binds exactly as
 //     openOperatorSurface's fourth argument and handler.NewSignup's second -- ONE client for
 //     the sign-up wizard and the operator's re-check, the process's only outbound HTTP
 //     client; openOperatorSurface's vies only as configuredSurface's third argument, that
 //     function's only as viesForOperator's argument, and viesForOperator's call only as
-//     operator.New's ninth;
+//     operator.New's tenth;
 //   - it is ONE snapshot: legal.NewStore is named exactly once in the command, and run()
 //     uses the value it binds exactly as the boot refresh's receiver, openOperatorSurface's
 //     third argument and handler.NewMarketing's first -- so the store the operator's
@@ -769,8 +776,9 @@ func TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator(t *testing.T) {
 		want  []string
 	}{
 		{configured, "store", []string{"arg0 of operatorAuthenticator", "arg1 of operator.New", "arg2 of operator.New", "arg3 of operator.New",
-			"arg4 of operator.New", "arg5 of operator.New", "arg6 of operator.New", "arg7 of operator.New"}},
-		{configured, "texts", []string{"arg9 of operator.New"}},
+			"arg4 of operator.New", "arg5 of operator.New", "arg6 of operator.New", "arg7 of operator.New",
+			"arg8 of operator.New"}},
+		{configured, "texts", []string{"arg10 of operator.New"}},
 		{configured, "vies", []string{"arg0 of viesForOperator"}},
 		{authFn, "store", []string{"arg0 of operatorauth.New"}},
 		{open, "texts", []string{"arg1 of configuredSurface"}},
@@ -787,7 +795,7 @@ func TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator(t *testing.T) {
 		}
 	}
 
-	// The adapter's call is operator.New's ninth argument (its VATChecker slot), and nowhere
+	// The adapter's call is operator.New's tenth argument (its VATChecker slot), and nowhere
 	// else: a second operator.VATChecker built from the checker would be another way in.
 	adapted := 0
 	ast.Inspect(configured.Body, func(n ast.Node) bool {
@@ -797,8 +805,8 @@ func TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator(t *testing.T) {
 		}
 		for i, a := range c.Args {
 			if ac, ok := a.(*ast.CallExpr); ok && qualName(ac.Fun) == "viesForOperator" {
-				if i != 8 {
-					t.Errorf("viesForOperator's call is operator.New's argument %d, want 8 (the VATChecker slot)", i)
+				if i != 9 {
+					t.Errorf("viesForOperator's call is operator.New's argument %d, want 9 (the VATChecker slot)", i)
 				}
 				adapted++
 			}

@@ -42,8 +42,8 @@ import (
 
 // operatorRoutes are the routes OP-8 mounts, with the method each answers -- and OP-10's
 // legal screen, OP-11's tenant screens, OP-13's plaque screen, OP-14's audit log, OP-12's
-// billing screen, OP-16's VAT screen and M11 API-1a's holdings. A path with {id} (or {tenant}) is
-// a chi pattern; mountedPath reads a concrete path of it.
+// billing screen, OP-16's VAT screen, M11 API-1a's holdings and OP-15 C's two suspension writes. A
+// path with {id} (or {tenant}) is a chi pattern; mountedPath reads a concrete path of it.
 var operatorRoutes = []struct{ method, path string }{
 	{http.MethodGet, "/operator"},
 	{http.MethodGet, "/operator/"},
@@ -66,6 +66,8 @@ var operatorRoutes = []struct{ method, path string }{
 	{http.MethodPost, "/operator/tenants/{id}/billing"},
 	{http.MethodGet, "/operator/tenants/{id}/vat"},
 	{http.MethodPost, "/operator/tenants/{id}/vat"},
+	{http.MethodPost, "/operator/tenants/{id}/suspend"},
+	{http.MethodPost, "/operator/tenants/{id}/reinstate"},
 	{http.MethodGet, "/operator/audit"},
 	{http.MethodPost, "/operator/audit"},
 	{http.MethodGet, "/operator/holdings"},
@@ -74,10 +76,10 @@ var operatorRoutes = []struct{ method, path string }{
 	{http.MethodPost, "/operator/holdings/{id}/members/{tenant}/remove"},
 }
 
-// tenantOverviewPath, tenantPlaquesPath, tenantBillingPath and tenantVATPath are concrete
-// paths of the four {id} routes: a tenant's overview, its plaques, (OP-12) its billing months
-// and (OP-16) its VAT number, the 36-character hyphenated id in lower case (the form tenantsView
-// and the overview write).
+// tenantOverviewPath, tenantPlaquesPath, tenantBillingPath, tenantVATPath and tenantSuspensionPath
+// are concrete paths of the {id} routes: a tenant's overview, its plaques, (OP-12) its billing
+// months, (OP-16) its VAT number and (OP-15 C) its suspension's two writes, the 36-character
+// hyphenated id in lower case (the form tenantsView and the overview write).
 var (
 	tenantOverviewPath = regexp.MustCompile(`^/operator/tenants/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 	tenantPlaquesPath  = regexp.MustCompile(`^/operator/tenants/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/plaques$`)
@@ -91,12 +93,15 @@ var (
 	holdingMembersPath = regexp.MustCompile(`^/operator/holdings/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/members$`)
 	holdingRemovePath  = regexp.MustCompile(`^/operator/holdings/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/members/` +
 		`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/remove$`)
+	// tenantSuspensionPath (OP-15 C): the overview's two suspension forms.
+	tenantSuspensionPath = regexp.MustCompile(
+		`^/operator/tenants/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/(suspend|reinstate)$`)
 )
 
 // mountedPath reports whether a page's link or action (its query aside) is a route of
 // operatorRoutes: the path itself, or a tenant overview's, a tenant's plaques', a tenant's
-// billing or a tenant's VAT path for the four {id} routes, or a holding's members' or a
-// membership's removal path for the two holding routes with ids.
+// billing, a tenant's VAT or a tenant's suspension path for the {id} routes, or a holding's
+// members' or a membership's removal path for the two holding routes with ids.
 func mountedPath(v string) bool {
 	p, _, _ := strings.Cut(v, "?")
 	for _, r := range operatorRoutes {
@@ -106,7 +111,7 @@ func mountedPath(v string) bool {
 	}
 	return tenantOverviewPath.MatchString(p) || tenantPlaquesPath.MatchString(p) || tenantBillingPath.MatchString(p) ||
 		tenantVATPath.MatchString(p) || holdingMembersPath.MatchString(p) || holdingRemovePath.MatchString(p) ||
-		tenantAPIPath.MatchString(p) || tenantAPIClosePath.MatchString(p)
+		tenantAPIPath.MatchString(p) || tenantAPIClosePath.MatchString(p) || tenantSuspensionPath.MatchString(p)
 }
 
 // ingressHosts reads the hosts deploy/k8s/40-ingress.yaml routes to this Service -- the
@@ -158,8 +163,8 @@ func TestSurface_ThePrefixIsTheRoutersPrefix(t *testing.T) {
 // (read from the manifest), on the development host, on no host, on 127.0.0.1 and on
 // three look-alikes, each of the operator paths below (a tenant's plaques among them since
 // OP-13, the audit log since OP-14, a tenant's billing since OP-12's B phase, a tenant's VAT
-// number since OP-16's, the holdings and their two membership routes since M11 API-1a) under each
-// of
+// number since OP-16's, the holdings and their two membership routes since M11 API-1a, a tenant's
+// two suspension writes since OP-15's C phase) under each of
 // the seven methods below answers the SAME bytes as a path no
 // feature registered -- status, body,
 // the three headers net/http's NotFound sets, no CSP, no Location, no cookie -- and
@@ -175,7 +180,8 @@ func TestHostGate_OperatorRoutesAnswerTheRoutersOwn404OnEveryOtherHost(t *testin
 	paths := []string{"/operator", "/operator/", "/operator/login", "/operator/login/totp", "/operator/enroll?id=x",
 		"/operator/logout", "/operator/tenants", "/operator/tenants/x", "/operator/tenants/" + uuidString(t),
 		"/operator/tenants/" + uuidString(t) + "/plaques", "/operator/tenants/" + uuidString(t) + "/billing",
-		"/operator/tenants/" + uuidString(t) + "/vat", "/operator/legal",
+		"/operator/tenants/" + uuidString(t) + "/vat", "/operator/tenants/" + uuidString(t) + "/suspend",
+		"/operator/tenants/" + uuidString(t) + "/reinstate", "/operator/legal",
 		"/operator/audit", "/operator/holdings", "/operator/holdings?page=2",
 		"/operator/holdings/" + uuidString(t) + "/members",
 		"/operator/holdings/" + uuidString(t) + "/members/" + uuidString(t) + "/remove", "/operator/no-such"}
@@ -544,7 +550,7 @@ func TestLogout_IsNotRefusedByTheBudgetAThirdPartyCanSpend(t *testing.T) {
 }
 
 // screens renders the fourteen exported screen constructors of operatorpages
-// (operatorScreens, pinned against the package's API) in the 46 variants below (and the
+// (operatorScreens, pinned against the package's API) in the 49 variants below (and the
 // tenant chrome with a name). The first load of the enrollment screen carries a QR code
 // of its view's URI (ADR 0020 §3, QR note).
 func screens(t *testing.T) map[string]string {
@@ -564,15 +570,30 @@ func screens(t *testing.T) map[string]string {
 	row := operatorpages.TenantRow{ID: "10000000-0000-4000-8000-000000000001",
 		Path: "/operator/tenants/10000000-0000-4000-8000-000000000001", Name: "Kebab Factory Ltd.",
 		CreatedAt: "2026-07-05 09:30 UTC", Plan: "founding"}
+	suspendedRow := row
+	suspendedRow.Suspended = true
+	// The overview's suspension (OP-15 C): the suspend form with its four reasons on the active
+	// overview; the reinstate form on a suspended one, with a reason's label and with an
+	// unrecognised code.
+	reasons := []operatorpages.SuspensionReasonOption{{Value: "non_payment", Label: "Non-payment"},
+		{Value: "terms_breach", Label: "Breach of the terms"}, {Value: "security_hold", Label: "Security hold", Hold: true},
+		{Value: "customer_request", Label: "At the business's request"}}
 	overview := operatorpages.TenantOverviewView{Name: name, ID: row.ID, CreatedAt: row.CreatedAt, Plan: "founding",
 		BusinessType: "restaurant", Locations: "9", ActiveEmployees: "41", ActivePlaques: "9", ActiveAdmins: "2",
 		PlaquesPath: row.Path + "/plaques", BillingPath: row.Path + "/billing", VATPath: row.Path + "/vat",
 		API: operatorpages.TenantAPIView{Open: true, OpenedAt: "2026-10-16 09:30 UTC", Code: "KF",
-			OpenPath: row.Path + "/integration", ClosePath: row.Path + "/integration/close"}}
+			OpenPath: row.Path + "/integration", ClosePath: row.Path + "/integration/close"},
+		Suspension: operatorpages.TenantSuspensionView{SuspendPath: row.Path + "/suspend", ReinstatePath: row.Path + "/reinstate",
+			Reasons: reasons}}
 	// The unnamed one is closed (M11 API-13a): the open form alone, no Close button.
 	unnamedOverview := overview
 	unnamedOverview.Name = unnamed
 	unnamedOverview.API.Open, unnamedOverview.API.OpenedAt = false, ""
+	suspendedOverview, unknownReasonOverview := overview, overview
+	suspendedOverview.Suspension.Suspended, suspendedOverview.Suspension.Since = true, "2026-10-08 09:30 UTC"
+	suspendedOverview.Suspension.Reason = operatorpages.AuditWord{Text: "Security hold"}
+	unknownReasonOverview.Suspension = suspendedOverview.Suspension
+	unknownReasonOverview.Suspension.Reason = operatorpages.AuditWord{Text: "zz_later_reason", Unknown: true}
 	// The plaque screen (OP-13): one row of each tone and the facts each branch prints.
 	plaqueRows := []operatorpages.PlaqueRow{
 		{UID: "04A1B2C3D4E5F6", Label: "On a wall", Sentence: "S", Tone: operatorpages.PlaqueToneInService,
@@ -710,38 +731,41 @@ func screens(t *testing.T) map[string]string {
 				{Slug: "terms", Path: "/legal/terms"}},
 			Versions: []operatorpages.LegalVersionRow{{Path: "/legal/privacy", PublishedAt: "2026-10-03 09:30 UTC", Bytes: "1 bytes",
 				Publisher: "tenant admin (legacy)", Current: true}}}),
-		"tenants":                  operatorpages.Tenants(operatorpages.TenantsView{Page: 1}),
-		"tenants, a page":          operatorpages.Tenants(operatorpages.TenantsView{Page: 1, Rows: []operatorpages.TenantRow{row, {ID: row.ID, Path: row.Path, CreatedAt: row.CreatedAt, Plan: "standard"}}, HasNext: true}),
-		"tenants, searched":        operatorpages.Tenants(operatorpages.TenantsView{Search: "kebab", Page: 1, Rows: []operatorpages.TenantRow{row}}),
-		"tenants, a later page":    operatorpages.Tenants(operatorpages.TenantsView{Search: "kebab", Page: 2, Rows: []operatorpages.TenantRow{row}, HasNext: true}),
-		"tenants, past the end":    operatorpages.Tenants(operatorpages.TenantsView{Page: 3}),
-		"tenant overview":          operatorpages.TenantOverview(overview),
-		"tenant overview, unnamed": operatorpages.TenantOverview(unnamedOverview),
-		"tenant plaques":           operatorpages.TenantPlaques(plaques),
-		"tenant plaques, first":    operatorpages.TenantPlaques(plaquesFirst),
-		"tenant plaques, none":     operatorpages.TenantPlaques(plaquesNone),
-		"tenant plaques, unnamed":  operatorpages.TenantPlaques(plaquesUnnamed),
-		"audit log":                operatorpages.AuditLog(audit),
-		"audit log, filtered":      operatorpages.AuditLog(auditFiltered),
-		"audit log, past the end":  operatorpages.AuditLog(auditEmpty),
-		"audit log, the last page": operatorpages.AuditLog(auditLast),
-		"audit log, empty":         operatorpages.AuditLog(operatorpages.AuditLogView{Filter: "Every kind", Page: 1, Options: everyOption}),
-		"tenant billing":           operatorpages.TenantBilling(billing),
-		"tenant billing, page 3":   operatorpages.TenantBilling(billingMiddle),
-		"tenant billing, the last": operatorpages.TenantBilling(billingLast),
-		"tenant billing, unnamed":  operatorpages.TenantBilling(billingUnnamed),
-		"tenant VAT":               operatorpages.TenantVAT(vat),
-		"tenant VAT, never asked":  operatorpages.TenantVAT(vatNever),
-		"tenant VAT, no answer":    operatorpages.TenantVAT(vatNoAnswer),
-		"tenant VAT, not found":    operatorpages.TenantVAT(vatNotFound),
-		"tenant VAT, odd number":   operatorpages.TenantVAT(vatOdd),
-		"tenant VAT, a notice":     operatorpages.TenantVAT(vatNotice),
-		"holdings":                 operatorpages.Holdings(holdings),
-		"holdings, empty":          operatorpages.Holdings(operatorpages.HoldingsView{Page: 1}),
-		"holdings, past the end":   operatorpages.Holdings(operatorpages.HoldingsView{Page: 3}),
-		"holdings, added":          operatorpages.Holdings(holdingsAdded),
-		"holdings, not added":      operatorpages.Holdings(holdingsNotAdded),
-		"holdings, unnamed":        operatorpages.Holdings(holdingsUnnamed),
+		"tenants":                                 operatorpages.Tenants(operatorpages.TenantsView{Page: 1}),
+		"tenants, a page":                         operatorpages.Tenants(operatorpages.TenantsView{Page: 1, Rows: []operatorpages.TenantRow{row, {ID: row.ID, Path: row.Path, CreatedAt: row.CreatedAt, Plan: "standard"}}, HasNext: true}),
+		"tenants, a suspended row":                operatorpages.Tenants(operatorpages.TenantsView{Page: 1, Rows: []operatorpages.TenantRow{suspendedRow}}),
+		"tenants, searched":                       operatorpages.Tenants(operatorpages.TenantsView{Search: "kebab", Page: 1, Rows: []operatorpages.TenantRow{row}}),
+		"tenants, a later page":                   operatorpages.Tenants(operatorpages.TenantsView{Search: "kebab", Page: 2, Rows: []operatorpages.TenantRow{row}, HasNext: true}),
+		"tenants, past the end":                   operatorpages.Tenants(operatorpages.TenantsView{Page: 3}),
+		"tenant overview":                         operatorpages.TenantOverview(overview),
+		"tenant overview, unnamed":                operatorpages.TenantOverview(unnamedOverview),
+		"tenant overview, suspended":              operatorpages.TenantOverview(suspendedOverview),
+		"tenant overview, an unrecognised reason": operatorpages.TenantOverview(unknownReasonOverview),
+		"tenant plaques":                          operatorpages.TenantPlaques(plaques),
+		"tenant plaques, first":                   operatorpages.TenantPlaques(plaquesFirst),
+		"tenant plaques, none":                    operatorpages.TenantPlaques(plaquesNone),
+		"tenant plaques, unnamed":                 operatorpages.TenantPlaques(plaquesUnnamed),
+		"audit log":                               operatorpages.AuditLog(audit),
+		"audit log, filtered":                     operatorpages.AuditLog(auditFiltered),
+		"audit log, past the end":                 operatorpages.AuditLog(auditEmpty),
+		"audit log, the last page":                operatorpages.AuditLog(auditLast),
+		"audit log, empty":                        operatorpages.AuditLog(operatorpages.AuditLogView{Filter: "Every kind", Page: 1, Options: everyOption}),
+		"tenant billing":                          operatorpages.TenantBilling(billing),
+		"tenant billing, page 3":                  operatorpages.TenantBilling(billingMiddle),
+		"tenant billing, the last":                operatorpages.TenantBilling(billingLast),
+		"tenant billing, unnamed":                 operatorpages.TenantBilling(billingUnnamed),
+		"tenant VAT":                              operatorpages.TenantVAT(vat),
+		"tenant VAT, never asked":                 operatorpages.TenantVAT(vatNever),
+		"tenant VAT, no answer":                   operatorpages.TenantVAT(vatNoAnswer),
+		"tenant VAT, not found":                   operatorpages.TenantVAT(vatNotFound),
+		"tenant VAT, odd number":                  operatorpages.TenantVAT(vatOdd),
+		"tenant VAT, a notice":                    operatorpages.TenantVAT(vatNotice),
+		"holdings":                                operatorpages.Holdings(holdings),
+		"holdings, empty":                         operatorpages.Holdings(operatorpages.HoldingsView{Page: 1}),
+		"holdings, past the end":                  operatorpages.Holdings(operatorpages.HoldingsView{Page: 3}),
+		"holdings, added":                         operatorpages.Holdings(holdingsAdded),
+		"holdings, not added":                     operatorpages.Holdings(holdingsNotAdded),
+		"holdings, unnamed":                       operatorpages.Holdings(holdingsUnnamed),
 	} {
 		var b bytes.Buffer
 		if err := c.Render(context.Background(), &b); err != nil {
@@ -752,15 +776,16 @@ func screens(t *testing.T) map[string]string {
 	return out
 }
 
-// TestOperatorScreens_EveryOneWearsTheOperatorChrome: each of the 46 renders screens()
-// makes (fourteen exported screen constructors; the "Every" of the name is these 46) opens
+// TestOperatorScreens_EveryOneWearsTheOperatorChrome: each of the 49 renders screens()
+// makes (fourteen exported screen constructors; the "Every" of the name is these 49) opens
 // with the operator bar -- the "TAPTIME OPERATOR" lockup on the ink band -- and none of
-// the 46 carries the restaurant panel's chrome (its tab bar, its green wordmark). The
-// sign-out control is on the thirty-seven signed-in renders and absent from the other nine.
+// the 49 carries the restaurant panel's chrome (its tab bar, its green wordmark). The
+// sign-out control is on the forty signed-in renders and absent from the other nine.
 func TestOperatorScreens_EveryOneWearsTheOperatorChrome(t *testing.T) {
 	signedIn := map[string]bool{"home": true, "problem, signed in": true, "tenant screen": true, "legal": true, "legal, published": true,
 		"tenants": true, "tenants, a page": true, "tenants, searched": true, "tenants, a later page": true, "tenants, past the end": true,
 		"tenant overview": true, "tenant overview, unnamed": true, "tenant plaques": true, "tenant plaques, first": true,
+		"tenants, a suspended row": true, "tenant overview, suspended": true, "tenant overview, an unrecognised reason": true,
 		"tenant plaques, none": true, "tenant plaques, unnamed": true, "audit log": true, "audit log, filtered": true,
 		"audit log, past the end": true, "audit log, the last page": true, "audit log, empty": true,
 		"tenant billing": true, "tenant billing, page 3": true, "tenant billing, the last": true, "tenant billing, unnamed": true,
@@ -769,8 +794,8 @@ func TestOperatorScreens_EveryOneWearsTheOperatorChrome(t *testing.T) {
 		"holdings": true, "holdings, empty": true, "holdings, past the end": true, "holdings, added": true,
 		"holdings, not added": true, "holdings, unnamed": true}
 	all := screens(t)
-	if len(all) != 46 || len(signedIn) != 37 {
-		t.Fatalf("PREMISE: %d render(s), %d signed in; the comment says 46 and 37", len(all), len(signedIn))
+	if len(all) != 49 || len(signedIn) != 40 {
+		t.Fatalf("PREMISE: %d render(s), %d signed in; the comment says 49 and 40", len(all), len(signedIn))
 	}
 	for name, html := range all {
 		bar := strings.Index(html, `<header class="op-bar">`)
@@ -838,21 +863,23 @@ func TestTenantScreen_RefusesToRenderWithoutAName(t *testing.T) {
 	}
 }
 
-// TestOperatorScreens_EveryActionAndLinkIsAMountedRoute: on the 46 renders screens()
-// makes (the "Every" of the name is these 46), each form action and link is a relative
+// TestOperatorScreens_EveryActionAndLinkIsAMountedRoute: on the 49 renders screens()
+// makes (the "Every" of the name is these 49), each form action and link is a relative
 // path of a route the surface mounts (operatorRoutes; a tenant overview's, a tenant's
-// plaques', a tenant's billing and a tenant's VAT paths are their {id} routes', a holding's
-// members' and a membership's removal paths their holding routes') -- so none of the 46 links
-// to the platform-wide /operator/billing ADR 0020 §4 once named -- and the count of absolute
-// URLs in their action, href and src attributes is zero. CONTROL: the console links the tenant
-// list, the holdings (M11 API-1a) and the audit log (OP-14), a list row links its overview, the
-// overview links the tenant's plaques (OP-13), its billing (OP-12) and its VAT number (OP-16), the
-// plaques, the billing and the VAT screen link back to the overview, the billing's pager and the
-// VAT screen's form post to their screens (the VAT number VIES does not take draws no form), an
-// audit row links the overview of the tenant it names and the audit log's filter and pager post
-// to it; the holdings' create form posts to the list, each holding's add form to its members, a
-// live membership's Remove button to its removal (an ended one has none), a membership links its
-// business's overview, and the pager links the list's next and previous pages.
+// plaques', a tenant's billing, a tenant's VAT and a tenant's two suspension paths are their {id}
+// routes', a holding's members' and a membership's removal paths their holding routes') -- so none
+// of the 49 links to the platform-wide /operator/billing ADR 0020 §4 once named -- and the count of
+// absolute URLs in their action, href and src attributes is zero. CONTROL: the console links the
+// tenant list, the holdings (M11 API-1a) and the audit log (OP-14), a list row links its overview,
+// the overview links the tenant's plaques (OP-13), its billing (OP-12) and its VAT number (OP-16),
+// the plaques, the billing and the VAT screen link back to the overview, the billing's pager and
+// the VAT screen's form post to their screens (the VAT number VIES does not take draws no form), an
+// audit row links the overview of the tenant it names and the audit log's filter and pager post to
+// it; the holdings' create form posts to the list, each holding's add form to its members, a live
+// membership's Remove button to its removal (an ended one has none), a membership links its
+// business's overview, and the pager links the list's next and previous pages; and (OP-15 C) the
+// active overview's one suspension form posts to the tenant's suspend path and a suspended
+// overview's one to its reinstate path.
 func TestOperatorScreens_EveryActionAndLinkIsAMountedRoute(t *testing.T) {
 	attr := regexp.MustCompile(`\s(action|href|src)="([^"]*)"`)
 	absolute := 0
@@ -890,6 +917,12 @@ func TestOperatorScreens_EveryActionAndLinkIsAMountedRoute(t *testing.T) {
 		!strings.Contains(all["holdings"], `href="/operator/holdings?page=2"`) ||
 		!strings.Contains(all["holdings, past the end"], `href="/operator/holdings?page=2"`) {
 		t.Fatal("CONTROL: the console does not link the holdings, or the holdings' forms, membership links and pager are not where they should be")
+	}
+	if strings.Count(all["tenant overview"], `<form method="post" action="/operator/tenants/10000000-0000-4000-8000-000000000001/suspend"`) != 1 ||
+		strings.Contains(all["tenant overview"], `/reinstate"`) ||
+		strings.Count(all["tenant overview, suspended"], `<form method="post" action="/operator/tenants/10000000-0000-4000-8000-000000000001/reinstate"`) != 1 ||
+		strings.Contains(all["tenant overview, suspended"], `/suspend"`) {
+		t.Fatal("CONTROL: the active overview's one form does not post to its suspend path, or the suspended one's to its reinstate path")
 	}
 	if !strings.Contains(all["home"], `<a href="/operator/audit" class="op-link">Audit log</a>`) ||
 		!strings.Contains(all["audit log"], `href="/operator/tenants/10000000-0000-4000-8000-000000000001"`) ||
@@ -1014,8 +1047,8 @@ func TestHostGate_AnOperatorHostThatIsACustomerHostServesOnlyTheOperator(t *test
 		t.Fatalf("PREMISE: %s is not an ingress host any more; pick one that is", collide)
 	}
 	g := newRig(t)
-	s, err := operator.New(g.auth, g.store, g.store, g.store, g.store, g.store, g.store, g.store, g.vies, g.texts, collide, opBase,
-		slog.New(slog.DiscardHandler))
+	s, err := operator.New(g.auth, g.store, g.store, g.store, g.store, g.store, g.store, g.store, g.store, g.vies, g.texts, collide,
+		opBase, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1086,7 +1119,9 @@ func TestHostGate_TheUnavailableSurfaceKeepsItsAnswerOnEveryHost(t *testing.T) {
 // (K12-4, K12-5) -- each the router's own 404; and the VAT screen's -- it has one page and one
 // form, and no platform-wide VAT list or per-check path -- likewise; and the holdings' (M11
 // API-1a) -- one list with forms, and no page per holding, no GET on a membership and no holding
-// path under a tenant -- likewise.)
+// path under a tenant -- likewise. OP-15's C phase mounts two POSTs under /operator/tenants/{id} --
+// suspend and reinstate -- and no platform-wide list of suspensions, no suspension screen of its
+// own and nothing below either path.)
 func TestSurface_TheScreensOfLaterTasksAreNotMounted(t *testing.T) {
 	g := newRig(t)
 	live := g.signIn(g.active())
@@ -1100,7 +1135,9 @@ func TestSurface_TheScreensOfLaterTasksAreNotMounted(t *testing.T) {
 		"/operator/vat", "/operator/tenants/" + uuidString(t) + "/vat/", "/operator/tenants/" + uuidString(t) + "/vat/check",
 		"/operator/holdings/", "/operator/holdings/" + uuidString(t), "/operator/holdings/" + uuidString(t) + "/members/" + uuidString(t),
 		"/operator/holdings/" + uuidString(t) + "/members/" + uuidString(t) + "/remove/", "/operator/tenants/" + uuidString(t) + "/holding",
-		"/operator/holding"} {
+		"/operator/holding",
+		"/operator/suspensions", "/operator/tenants/" + uuidString(t) + "/suspension", "/operator/tenants/" + uuidString(t) + "/suspend/",
+		"/operator/tenants/" + uuidString(t) + "/reinstate/"} {
 		if w := g.get(p, live); w.Code != http.StatusNotFound || w.Body.String() != want.Body.String() {
 			t.Errorf("GET %s = %d %q, want the router's own 404", p, w.Code, w.Body.String())
 		}

@@ -589,8 +589,8 @@ func TestOperatorDB_HasNoTenantDoorAndNoRawSQLDoor(t *testing.T) {
 		}
 		return false
 	}
-	if rt.NumMethod() < 17 {
-		t.Fatalf("PREMISE: *OperatorDB has %d methods; Close, the seven Store methods, the two LegalStore methods (OP-10), the two TenantStore methods (OP-11), the PlaqueStore method (OP-13), the AuditStore method (OP-14), the BillingStore method (OP-12) and the two VATStore methods (OP-16) should all be there", rt.NumMethod())
+	if rt.NumMethod() < 19 {
+		t.Fatalf("PREMISE: *OperatorDB has %d methods; Close, the seven Store methods, the two LegalStore methods (OP-10), the two TenantStore methods (OP-11), the PlaqueStore method (OP-13), the AuditStore method (OP-14), the BillingStore method (OP-12), the two VATStore methods (OP-16) and the two SuspensionStore methods (OP-15 C) should all be there", rt.NumMethod())
 	}
 	for i := 0; i < rt.NumMethod(); i++ {
 		m := rt.Method(i)
@@ -616,10 +616,11 @@ func TestOperatorDB_HasNoTenantDoorAndNoRawSQLDoor(t *testing.T) {
 // in order>)` where F has the method's own name and is operator.go's function -- so
 // the SQL is written once, and an argument swapped between two same-typed parameters
 // (three strings in CompleteOperatorEnrollment and in PublishLegal) does not compile into
-// a green build. Sixteen methods: the seven operatorauth.Store ones, since OP-10 phase B
+// a green build. Eighteen methods: the seven operatorauth.Store ones, since OP-10 phase B
 // LegalVersions and PublishLegal, since OP-11 phase B TenantList and TenantDetail, since
 // OP-13 phase B TenantPlaques, since OP-14 phase B OperatorAudit, since OP-12 phase B
-// TenantBilling, and since OP-16 phase B TenantVAT and RecordTenantVATCheck.
+// TenantBilling, since OP-16 phase B TenantVAT and RecordTenantVATCheck, and since OP-15 phase C
+// SuspendTenant and ReinstateTenant.
 func TestOperatorDB_EveryMethodDelegatesVerbatim(t *testing.T) {
 	fset := token.NewFileSet()
 	pool, err := parser.ParseFile(fset, "operatorpool.go", nil, 0)
@@ -698,8 +699,8 @@ func TestOperatorDB_EveryMethodDelegatesVerbatim(t *testing.T) {
 		}
 		delegating++
 	}
-	if delegating != 22 {
-		t.Fatalf("%d delegating methods on OperatorDB, want the seven operatorauth.Store methods, the two operator.LegalStore methods (OP-10), the four operator.TenantStore methods (OP-11; M11 API-13a's two API writes), the operator.PlaqueStore method (OP-13), the operator.AuditStore method (OP-14), the operator.BillingStore method (OP-12), the two operator.VATStore methods (OP-16) and the four operator.HoldingStore methods (M11 API-1a)", delegating)
+	if delegating != 24 {
+		t.Fatalf("%d delegating methods on OperatorDB, want the seven operatorauth.Store methods, the two operator.LegalStore methods (OP-10), the four operator.TenantStore methods (OP-11; M11 API-13a's two API writes), the operator.PlaqueStore method (OP-13), the operator.AuditStore method (OP-14), the operator.BillingStore method (OP-12), the two operator.VATStore methods (OP-16), the four operator.HoldingStore methods (M11 API-1a) and the two operator.SuspensionStore methods (OP-15 C)", delegating)
 	}
 }
 

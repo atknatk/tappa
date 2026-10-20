@@ -52,9 +52,10 @@ const (
 // fakeStore answers operatorauth.Store the way 00026's definers answer,
 // operator.LegalStore the way 00027's do (OP-10), operator.TenantStore the way 00029's do
 // (OP-11), operator.PlaqueStore the way 00030's does (OP-13), operator.AuditStore the way
-// 00031's does (OP-14), operator.BillingStore the way 00032's does (OP-12) and
-// operator.VATStore the way 00034's do (OP-16) and operator.HoldingStore the way 00042's do (M11
-// API-1a), for the arms these tests drive, and COUNTS its calls by method -- "the resolver was
+// 00031's does (OP-14), operator.BillingStore the way 00032's does (OP-12),
+// operator.VATStore the way 00034's do (OP-16), operator.HoldingStore the way 00042's do (M11
+// API-1a) and operator.SuspensionStore the way 00063's do (OP-15 C), for the arms these tests
+// drive, and COUNTS its calls by method -- "the resolver was
 // not called" is a count of zero here.
 type fakeStore struct {
 	mu       sync.Mutex
@@ -132,6 +133,11 @@ type fakeStore struct {
 	// take (a holding's live members, by tenant), and the accepted writes in order.
 	apiPeers  map[uuid.UUID][]uuid.UUID
 	apiWrites []fakeAPIWrite
+	// The suspension's (OP-15 C): every write the fake took past its refusals, in order, and a
+	// hook that runs inside either write before it checks its context -- a test's hook for a
+	// client that leaves before the write.
+	suspensionWrites []fakeSuspensionWrite
+	beforeSuspension func()
 }
 
 // fakeHolding is one holding as the fake holds it: its memberships in the order they were made.
@@ -175,6 +181,22 @@ type fakeHoldingWrite struct {
 // fakeHoldingClock is the time of the fake's first holding write; each later one is a minute
 // after (the screen prints minutes).
 var fakeHoldingClock = time.Date(2026, 10, 12, 9, 0, 0, 0, time.UTC)
+
+// fakeSuspensionWrite is one SuspendTenant or ReinstateTenant the fake took past its refusals:
+// which (suspend or reinstate), the session hash, the tenant, the reason (suspend only) and how
+// far its context's deadline was once the hook had run (-1 for none). A write whose context was
+// cancelled is refused before it is recorded, as a statement on one does not run.
+type fakeSuspensionWrite struct {
+	method   string
+	hash     string
+	tenant   uuid.UUID
+	reason   db.SuspensionReason
+	deadline time.Duration
+}
+
+// fakeSuspensionClock is the time the fake's first suspension is stamped at; each later write a
+// minute after (the overview prints minutes).
+var fakeSuspensionClock = time.Date(2026, 10, 8, 9, 15, 0, 0, time.UTC)
 
 // fakeVAT is one tenant's VAT record as the fake holds it. asTenant, when set, is the tenant
 // id the read reports instead of the one asked for (a store that answers for another tenant).
@@ -983,6 +1005,70 @@ func (f *fakeStore) RemoveHoldingMember(ctx context.Context, h string, holding, 
 	return nil
 }
 
+// SuspendTenant answers as op_suspend_tenant does: a reason outside the closed set is
+// ErrSuspensionReasonRefused before anything (internal/db's own refusal, no round trip -- the call
+// COUNTED, so a screen that leaves the refusal to internal/db is seen calling the store); a
+// cancelled context is its error (a statement on a cancelled context does not run); a dead session
+// is ErrOperatorRefused; otherwise the write is recorded and -- only for a tenant the fake holds
+// an overview or a list row for -- the suspension is set: the first suspension's time kept, the
+// reason replaced (K15-4). nil whatever the tenant held, an unknown id included (B14).
+func (f *fakeStore) SuspendTenant(ctx context.Context, h string, id uuid.UUID, reason db.SuspensionReason) error {
+	return f.suspensionWrite(ctx, "SuspendTenant", h, id, reason)
+}
+
+// ReinstateTenant answers as op_reinstate_tenant does: SuspendTenant's refusals, then both columns
+// cleared for a tenant the fake holds; nil whatever it held.
+func (f *fakeStore) ReinstateTenant(ctx context.Context, h string, id uuid.UUID) error {
+	return f.suspensionWrite(ctx, "ReinstateTenant", h, id, "")
+}
+
+func (f *fakeStore) suspensionWrite(ctx context.Context, m, h string, id uuid.UUID, reason db.SuspensionReason) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.enter(m); err != nil {
+		return err
+	}
+	if m == "SuspendTenant" && !reason.Known() {
+		return db.ErrSuspensionReasonRefused
+	}
+	if f.beforeSuspension != nil {
+		f.beforeSuspension()
+	}
+	left := time.Duration(-1)
+	if d, ok := ctx.Deadline(); ok {
+		left = time.Until(d)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if _, ok := f.live[h]; !ok {
+		return db.ErrOperatorRefused
+	}
+	f.suspensionWrites = append(f.suspensionWrites, fakeSuspensionWrite{method: m, hash: h, tenant: id, reason: reason, deadline: left})
+	at := fakeSuspensionClock.Add(time.Duration(len(f.suspensionWrites)-1) * time.Minute)
+	set := func(cur *time.Time) *time.Time {
+		switch {
+		case m == "ReinstateTenant":
+			return nil
+		case cur != nil:
+			return cur
+		default:
+			return &at
+		}
+	}
+	if o, ok := f.overviews[id]; ok {
+		o.SuspendedAt = set(o.SuspendedAt)
+		o.SuspensionReason = reason
+		f.overviews[id] = o
+	}
+	for i := range f.tenants {
+		if f.tenants[i].ID == id {
+			f.tenants[i].SuspendedAt = set(f.tenants[i].SuspendedAt)
+		}
+	}
+	return nil
+}
+
 // fakeTexts is operator.LegalTexts: the snapshot (seeded by a test, or filled by a
 // refresh) and its refresh, which reads the fake store's publications -- the newest per
 // document wins, as ListPublishedLegalDocuments does, with the version's own time. A
@@ -1176,7 +1262,8 @@ func newRigAt(t *testing.T, level slog.Level) *rig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := operator.New(auth, g.store, g.store, g.store, g.store, g.store, g.store, g.store, g.vies, g.texts, opHost, opBase, log)
+	s, err := operator.New(auth, g.store, g.store, g.store, g.store, g.store, g.store, g.store, g.store, g.vies, g.texts, opHost, opBase,
+		log)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1242,6 +1329,7 @@ func wrongCodeAt(key []byte, t time.Time) string {
 type req struct {
 	method, host, path string
 	form               url.Values
+	raw                string            // a form body sent as written, instead of form's encoding (OP-15 C: one that does not parse)
 	origin             string            // "" = no Origin header
 	header             map[string]string // extra headers
 	cookies            []*http.Cookie
@@ -1253,12 +1341,15 @@ type req struct {
 func (g *rig) do(r req) *httptest.ResponseRecorder {
 	g.t.Helper()
 	var body io.Reader
-	if r.form != nil {
+	switch {
+	case r.raw != "":
+		body = strings.NewReader(r.raw)
+	case r.form != nil:
 		body = strings.NewReader(r.form.Encode())
 	}
 	hr := httptest.NewRequest(r.method, "http://"+r.host+r.path, body)
 	hr.Host = r.host
-	if r.form != nil {
+	if r.form != nil || r.raw != "" {
 		hr.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
 	if r.origin != "" {
