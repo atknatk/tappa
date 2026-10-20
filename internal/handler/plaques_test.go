@@ -412,7 +412,7 @@ func TestPlaquesCard_AnUnrecordedEncodeIsNeverOfferedAWall(t *testing.T) {
 		b := plaqueBrowser(t, twoVenues(), plaques)
 		html := htmlOf(t, b.do(http.MethodGet, locationsHref, nil))
 		for _, want := range []string{
-			`<span class="tally tally--pill tally--rejected font-mono">Needs replacing</span>`,
+			`<span class="tally pill-tally tally--rejected font-mono">Needs replacing</span>`,
 			`<span class="text-xs font-bold text-ink">This plaque cannot go on a wall</span>`,
 			"Encoding not recorded as finished",
 		} {

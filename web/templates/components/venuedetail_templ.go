@@ -1250,7 +1250,7 @@ func plaqueTableRow(p PlaqueRowView) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		if p.KeyAlert == "wall" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 108, "  <span class=\"tally tally--pill tally--rejected font-mono\">Needs replacing</span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 108, "  <span class=\"tally pill-tally tally--rejected font-mono\">Needs replacing</span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1458,11 +1458,11 @@ func ariaCurrentOf(current bool) string {
 func plaqueStatusClass(status string) string {
 	switch status {
 	case "In service":
-		return "tally tally--pill tally--mounted font-mono"
+		return "tally pill-tally tally--mounted font-mono"
 	case "Reported lost":
-		return "tally tally--pill tally--rejected font-mono"
+		return "tally pill-tally tally--rejected font-mono"
 	default:
-		return "tally tally--pill tally--stock font-mono"
+		return "tally pill-tally tally--stock font-mono"
 	}
 }
 

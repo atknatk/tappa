@@ -377,7 +377,7 @@ templ plaqueTableRow(p PlaqueRowView) {
 				if p.KeyAlert == "wall" {
 					// Rusty Bar's shape (M10 F0-6): on a wall with no record that its encode
 					// finished. The card says what to do; the row says that it must be done.
-					<span class="tally tally--pill tally--rejected font-mono">Needs replacing</span>
+					<span class="tally pill-tally tally--rejected font-mono">Needs replacing</span>
 				}
 			</span>
 		</td>
@@ -435,11 +435,11 @@ func ariaCurrentOf(current bool) string {
 func plaqueStatusClass(status string) string {
 	switch status {
 	case "In service":
-		return "tally tally--pill tally--mounted font-mono"
+		return "tally pill-tally tally--mounted font-mono"
 	case "Reported lost":
-		return "tally tally--pill tally--rejected font-mono"
+		return "tally pill-tally tally--rejected font-mono"
 	default:
-		return "tally tally--pill tally--stock font-mono"
+		return "tally pill-tally tally--stock font-mono"
 	}
 }
 
