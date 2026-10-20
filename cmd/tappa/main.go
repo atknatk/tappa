@@ -746,7 +746,10 @@ func run() error {
 	// before anything is minted — and the panel then mails each link to the employee's
 	// own address; NewAdminAuth refuses the option without the mode and the mode
 	// without the option. Switching the ConfigMap is a deploy decision (§12).
-	panelOptions := []handler.AdminAuthOption{handler.PlaqueDrawingsFrom(plaqueTapBase)}
+	// The Venues page prints the GPS radius the decision engine uses -- its own value,
+	// not a second read of the configuration (M12-34).
+	panelOptions := []handler.AdminAuthOption{handler.PlaqueDrawingsFrom(plaqueTapBase),
+		handler.GPSRadiusFrom(checkins.GPSRadiusM())}
 	switch cfg.InviteDelivery {
 	case config.InviteDeliveryPanel:
 		// No e-mail transport: the integration API's invitation requests wait in the queue (an

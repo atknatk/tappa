@@ -65,6 +65,29 @@ type VenueRowView struct {
 	// about the future that nothing measured.
 	NoProofOfPlace bool
 
+	// NetworkProof is tenant.Venue.HasNetworkProof (M12-03): the address list is the IP
+	// half of §5's row-6 evidence. NetworkTooWide says a list IS saved but is too wide
+	// to tell this venue apart from anywhere (netx.TooWideForProofOfPlace), so it counts
+	// for nothing. Both false is "no list at all". The card's IP badge reads these two
+	// and never the length of Ranges -- a too-wide list is printed, not believed.
+	NetworkProof   bool
+	NetworkTooWide bool
+
+	// ShiftShort is the working window without the "(next day)" words ("18:00 – 02:00"),
+	// for the list card, where Overnight draws the mark instead; "" when lateness is not
+	// measured here.
+	ShiftShort string
+	Overnight  bool
+
+	// OnWall is how many of this venue's plaques are in service (Plaque.OnAWall), the
+	// figure the card prints as "2 on the wall" and the page's kicker adds up.
+	OnWall int
+
+	// SelectHref opens this venue in the detail column (?at=<id>#venue) -- a link, not
+	// a script. Current marks the one the detail shows.
+	SelectHref string
+	Current    bool
+
 	// Departments are the names inside this venue, so the venue card answers
 	// "what is in here" without the reader scrolling to the second list.
 	Departments []string
@@ -82,6 +105,46 @@ type VenueRowView struct {
 	DepartmentsShown int
 
 	EditHref string
+}
+
+// VenueDetailView is the one venue the Venues & plaques page opens beside its list
+// (M12-34): where it is, the plaque on its wall, the plaques it has had, its departments
+// and the two values that are not evidence.
+//
+// 🔴 EVERY FIELD IS DATA THE HANDLER ALREADY READ, AND THE PLAQUE DRAWING IS THE ONLY
+// ONE ON THE PAGE. Drawing is the venue's first plaque in service (Plaque.OnAWall) whose
+// real code can be made; the open plaque card draws none, so a page carries at most one
+// QR code (TestPlaqueDrawing_TheMountedPlaqueCarriesItsRealQRCode).
+type VenueDetailView struct {
+	Venue VenueRowView
+
+	// Plaques are this venue's plaques that are not in stock: the ones in service
+	// first, then the ones out of service, newest retirement first. OutOfService counts
+	// the second group -- the "kept on purpose" sentence is shown only when it is not 0.
+	Plaques      []PlaqueRowView
+	OutOfService int
+
+	// Drawing is nil when no plaque is on a wall here, or none whose code can be drawn.
+	Drawing *PlaqueDrawingView
+
+	// Departments are this venue's departments, as far as the (capped) list reaches;
+	// Venue.DepartmentCount is the database's count of them.
+	Departments []DepartmentRowView
+	// AddDepartmentHref opens the new-department form.
+	AddDepartmentHref string
+
+	// Radius is the configured GPS radius as the page prints it ("150 m"), from
+	// TAPPA_GPS_RADIUS_M through the decision engine's own value -- never a literal.
+	// "" when the panel was given none, and then no figure is printed at all.
+	Radius string
+	// Zone names the time zone the shift is read in ("Europe/Malta").
+	Zone string
+
+	// InStock and Mountable say what the box holds, so "no plaque is on a wall here"
+	// is followed by a sentence that offers a mount only when one is possible (the
+	// M10 F0-6 rule the old wall list's empty state followed).
+	InStock   int
+	Mountable int
 }
 
 // DepartmentRowView is one department as the docket renders it.

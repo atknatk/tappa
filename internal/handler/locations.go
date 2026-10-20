@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"math"
 	"net/http"
 	"net/netip"
 	"regexp"
@@ -311,8 +312,9 @@ func (a *AdminAuth) locationsSection(w http.ResponseWriter, r *http.Request) {
 	// DID. At most one card is ever open — the rule venueForms already holds for its
 	// pair — so the precedence (venue, then department, then plaque) is written here
 	// as a condition rather than left to emerge from the order of assignments.
+	var opened tenant.Plaque
 	if v.VenueForm == nil && v.DepartmentForm == nil {
-		card, err := a.plaqueCard(w, r, plaques, screen, plaques.Zone)
+		card, p, err := a.plaqueCard(w, r, plaques, screen, plaques.Zone)
 		if err != nil {
 			// §4.6: OUR read failed. "We could not find that plaque" would be a claim
 			// about the business built on a database that did not answer.
@@ -320,13 +322,25 @@ func (a *AdminAuth) locationsSection(w http.ResponseWriter, r *http.Request) {
 			a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
 			return
 		}
-		v.PlaqueForm = card
+		v.PlaqueForm, opened = card, p
 	}
-	// §4.6: a ?venue=, ?department= or ?plaque= that resolved to nothing is ANSWERED,
-	// not silently ignored. It is set here rather than in venueForms so that it
-	// cannot overwrite the outcome of an action the manager just took.
+	// THE DETAIL (M12-34): the open plaque's venue, else the one ?at names, else the
+	// first. A failed by-id read behind ?at is OUR failure, so it is a problem page.
+	atProblem, err := a.selectVenue(r, &v, screen, plaques, opened)
+	if err != nil {
+		a.log.Error("panel: could not resolve the selected venue", "err", err)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		return
+	}
+	// §4.6: a ?venue=, ?department=, ?plaque= or ?at= that resolved to nothing is
+	// ANSWERED, not silently ignored. It is set here rather than in venueForms so that
+	// it cannot overwrite the outcome of an action the manager just took. ?at is
+	// answered last: a card that was asked for and not found is the sentence to say.
 	if v.Problem == "" && v.Done == "" {
 		v.Problem = unresolvedCardProblem(r, v)
+		if v.Problem == "" {
+			v.Problem = atProblem
+		}
 	}
 
 	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminLocations(v))
@@ -418,6 +432,129 @@ func unresolvedCardProblem(r *http.Request, v pages.LocationsView) string {
 		return "unknown-department"
 	}
 	return ""
+}
+
+// selectVenue opens the venue the request asks for in the detail column, and says
+// which word answers an ?at= that names nothing.
+//
+// THE ORDER IS THE PAGE'S ONE-CARD RULE APPLIED TO SELECTION. An open plaque card at a
+// venue on the page sits inside that venue's detail, so its venue is the selection and
+// ?at is not consulted (nothing is said about it: it was never looked for). A venue or
+// department form is a page of its own and does not consult ?at either. Otherwise ?at
+// is read: the page's own list first, then the tenant-scoped by-id read venueForms uses
+// for a row past the cap -- a venue past the cap is still this business's.
+//
+// 🔴 AN ?at THAT NAMES NOTHING KEEPS THE FIRST VENUE OPEN AND IS ANSWERED (§4.6), with
+// the words a ?venue= that names nothing gets: "unreadable" when the id does not parse
+// (nothing was looked up), "unknown-venue" when it is not this business's.
+func (a *AdminAuth) selectVenue(r *http.Request, v *pages.LocationsView, screen tenant.VenueScreen, plaques tenant.PlaqueScreen, opened tenant.Plaque) (string, error) {
+	if v.PlaqueForm != nil {
+		v.PlaqueCardAt = pages.PlaqueCardElsewhere
+		switch {
+		case opened.InStock():
+			v.PlaqueCardAt = pages.PlaqueCardInStock
+		case opened.LocationID != nil:
+			for _, ven := range screen.Venues {
+				if ven.ID == *opened.LocationID {
+					a.openVenue(v, screen, plaques, ven)
+					v.PlaqueCardAt = pages.PlaqueCardInVenue
+					return "", nil
+				}
+			}
+		}
+	}
+	raw := strings.TrimSpace(r.URL.Query().Get("at"))
+	if raw == "" || v.VenueForm != nil || v.DepartmentForm != nil {
+		return "", nil
+	}
+	id, err := uuid.Parse(raw)
+	if err != nil {
+		return "unreadable", nil
+	}
+	ven, found, err := a.venueByID(r, httpx.AdminOf(r).TenantID(), id, screen)
+	switch {
+	case err != nil:
+		return "", err
+	case !found:
+		return "unknown-venue", nil
+	}
+	a.openVenue(v, screen, plaques, ven)
+	return "", nil
+}
+
+// openVenue fills the detail column with one venue and marks its card as the current
+// one. The plaque lists and the box are already on the view (fillPlaques).
+func (a *AdminAuth) openVenue(v *pages.LocationsView, screen tenant.VenueScreen, plaques tenant.PlaqueScreen, ven tenant.Venue) {
+	var names []string
+	for _, d := range screen.Departments {
+		if d.LocationID == ven.ID {
+			names = append(names, d.Name)
+		}
+	}
+	d := &components.VenueDetailView{
+		Venue:             venueRowView(ven, names, venueOnWall(plaques)[ven.ID]),
+		Departments:       departmentRowViews(screen, ven.ID),
+		AddDepartmentHref: v.AddDepartmentHref,
+		Radius:            gpsRadiusText(a.gpsRadiusM),
+		Zone:              zoneName(plaques.Zone),
+		InStock:           len(v.Stock),
+		Mountable:         v.MountableStock,
+	}
+	d.Venue.Current = true
+	a.venuePlaques(d, plaques, screen, ven.ID)
+	for i := range v.Venues {
+		v.Venues[i].Current = v.Venues[i].SelectHref == d.Venue.SelectHref
+	}
+	v.Detail = d
+}
+
+// GPSRadiusFrom gives the panel the GPS radius the decision engine uses
+// (checkin.Service.GPSRadiusM, from TAPPA_GPS_RADIUS_M), so the Venues page prints the
+// configured figure rather than one of its own.
+func GPSRadiusFrom(metres float64) AdminAuthOption {
+	return func(a *AdminAuth) { a.gpsRadiusM = metres }
+}
+
+// gpsRadiusText prints the radius as the page shows it ("150 m"), or "" when the panel
+// was given none. The value is configuration, printed as configured: no rounding.
+func gpsRadiusText(metres float64) string {
+	if metres <= 0 || math.IsNaN(metres) || math.IsInf(metres, 0) {
+		return ""
+	}
+	return strconv.FormatFloat(metres, 'f', -1, 64) + " m"
+}
+
+// zoneName names the business's time zone, "" when the read carried none.
+func zoneName(z *time.Location) string {
+	if z == nil {
+		return ""
+	}
+	return z.String()
+}
+
+// locationsKicker is the line above the page's title: how many venues and how many
+// plaques are in service. A capped list prints a floor ("200+ venues") -- the cap
+// notice below says why -- never a number that reads as the whole of it.
+func locationsKicker(venues int, venuesCapped bool, onWalls int, plaquesCapped bool) string {
+	vs := strconv.Itoa(venues)
+	if venuesCapped {
+		vs += "+"
+	}
+	if venues == 1 && !venuesCapped {
+		vs += " venue"
+	} else {
+		vs += " venues"
+	}
+	ps := strconv.Itoa(onWalls)
+	if plaquesCapped {
+		ps += "+"
+	}
+	if onWalls == 1 && !plaquesCapped {
+		ps += " plaque on a wall"
+	} else {
+		ps += " plaques on walls"
+	}
+	return vs + " · " + ps
 }
 
 func isUUID(s string) bool {
@@ -1007,68 +1144,94 @@ func parseSSID(raw string) (string, string) {
 
 // --- view adapters -------------------------------------------------------------
 
-func venueRowViews(screen tenant.VenueScreen) ([]components.VenueRowView, []components.DepartmentRowView) {
+// venueRowViews builds the list column. onWall is each venue's count of plaques in
+// service (venueOnWall), the figure its card prints.
+func venueRowViews(screen tenant.VenueScreen, onWall map[uuid.UUID]int) []components.VenueRowView {
 	byVenue := map[uuid.UUID][]string{}
 	for _, d := range screen.Departments {
 		byVenue[d.LocationID] = append(byVenue[d.LocationID], d.Name)
 	}
 	venues := make([]components.VenueRowView, 0, len(screen.Venues))
 	for _, v := range screen.Venues {
-		venues = append(venues, components.VenueRowView{
-			Name:   v.Name,
-			Ranges: ipTexts(v.StaticIPs),
-			GPS:    gpsText(v.GPS),
-			Shift:  shiftText(v.Shift),
-			WiFi:   v.WiFiSSID,
-			// M11 API-1: the integration identity, "" when the venue is not linked.
-			ExternalRef: v.ExternalRef,
-			// 🔴 THE SENTENCE, NOT THE COUNT. §5's rule is what a manager needs to read
-			// off this card: with neither IP nor GPS every tap here is recorded and sent
-			// to the approval queue. The card does not predict how many taps that will
-			// be — that would be a claim about the future — it states the rule.
-			NoProofOfPlace: !v.HasProofOfPlace(),
-			Departments:    byVenue[v.ID],
-			// 🔴 THE COUNT COMES FROM THE DATABASE AND THE NAMES COME FROM A CAPPED
-			// SLICE, WHICH IS WHY BOTH ARE PASSED. ListPanelLocations counts the
-			// departments in each venue with its own tenant-scoped subquery, so
-			// DepartmentCount is the truth; `Departments` above is assembled from
-			// screen.Departments, which venuePageLimit may have cut. Until now the count
-			// was measured, mapped onto the domain type, asserted in a test — and never
-			// rendered, while the possibly-short list WAS. Showing the list without the
-			// count is how a venue silently appears to have fewer departments than it
-			// has (§4.6), and dropping the count from the query instead would remove the
-			// only value that can detect it.
-			//
-			// COST OF KEEPING IT, measured (2026-08-08, EXPLAIN ANALYZE on the largest
-			// tenant in the development database): the subquery is an Index Only Scan on
-			// departments_tenant_idx, loops=9, Heap Fetches: 0, 0.505 ms.
-			//
-			// ⚠️ TWO LIMITS ON THAT NUMBER, because a measurement quoted without its
-			// conditions is a claim about conditions nobody checked.
-			//   1. loops=9 IS THE LARGEST TENANT THERE IS HERE, not the worst case. The
-			//      worst case is bounded by venuePageLimit+1 = 201 loops, and that shape
-			//      was NOT measured -- no tenant of that size exists to measure. It is
-			//      inferred from the per-loop cost, which is the honest word for it.
-			//   2. Heap Fetches: 0 DEPENDS ON THE VISIBILITY MAP being current. A freshly
-			//      written departments table -- exactly the state right after a manager
-			//      adds several -- will not answer 0 until autovacuum has been round, so
-			//      the first reads after a burst of writes cost heap fetches this figure
-			//      does not include.
-			DepartmentCount:  v.DepartmentCount,
-			DepartmentsShown: len(byVenue[v.ID]),
-			EditHref:         locationsHref + "?venue=" + v.ID.String(),
-		})
+		venues = append(venues, venueRowView(v, byVenue[v.ID], onWall[v.ID]))
 	}
-	departments := make([]components.DepartmentRowView, 0, len(screen.Departments))
+	return venues
+}
+
+// venueRowView is one venue as the list card and the detail read it. names are the
+// department names the (capped) department list holds for it.
+func venueRowView(v tenant.Venue, names []string, onWall int) components.VenueRowView {
+	row := components.VenueRowView{
+		Name:   v.Name,
+		Ranges: ipTexts(v.StaticIPs),
+		GPS:    gpsText(v.GPS),
+		Shift:  shiftText(v.Shift),
+		WiFi:   v.WiFiSSID,
+		// M11 API-1: the integration identity, "" when the venue is not linked.
+		ExternalRef: v.ExternalRef,
+		// 🔴 THE SENTENCE, NOT THE COUNT. §5's rule is what a manager needs to read
+		// off this card: with neither IP nor GPS every tap here is recorded and sent
+		// to the approval queue. The card does not predict how many taps that will
+		// be — that would be a claim about the future — it states the rule.
+		NoProofOfPlace: !v.HasProofOfPlace(),
+		// 🔴 THE BADGE ASKS THE ENGINE'S QUESTION (M12-03), NEVER len(Ranges). A list
+		// too wide to tell this venue apart is printed on the card and counts for
+		// nothing, exactly as internal/domain/tap reads it.
+		NetworkProof:   v.HasNetworkProof(),
+		NetworkTooWide: len(v.StaticIPs) > 0 && !v.HasNetworkProof(),
+		ShiftShort:     shiftShortText(v.Shift),
+		Overnight:      v.Shift != nil && v.Shift.Overnight,
+		OnWall:         onWall,
+		SelectHref:     locationsHref + "?at=" + v.ID.String() + "#venue",
+		Departments:    names,
+		// 🔴 THE COUNT COMES FROM THE DATABASE AND THE NAMES COME FROM A CAPPED
+		// SLICE, WHICH IS WHY BOTH ARE PASSED. ListPanelLocations counts the
+		// departments in each venue with its own tenant-scoped subquery, so
+		// DepartmentCount is the truth; `Departments` above is assembled from
+		// screen.Departments, which venuePageLimit may have cut. Until now the count
+		// was measured, mapped onto the domain type, asserted in a test — and never
+		// rendered, while the possibly-short list WAS. Showing the list without the
+		// count is how a venue silently appears to have fewer departments than it
+		// has (§4.6), and dropping the count from the query instead would remove the
+		// only value that can detect it.
+		//
+		// COST OF KEEPING IT, measured (2026-08-08, EXPLAIN ANALYZE on the largest
+		// tenant in the development database): the subquery is an Index Only Scan on
+		// departments_tenant_idx, loops=9, Heap Fetches: 0, 0.505 ms.
+		//
+		// ⚠️ TWO LIMITS ON THAT NUMBER, because a measurement quoted without its
+		// conditions is a claim about conditions nobody checked.
+		//   1. loops=9 IS THE LARGEST TENANT THERE IS HERE, not the worst case. The
+		//      worst case is bounded by venuePageLimit+1 = 201 loops, and that shape
+		//      was NOT measured -- no tenant of that size exists to measure. It is
+		//      inferred from the per-loop cost, which is the honest word for it.
+		//   2. Heap Fetches: 0 DEPENDS ON THE VISIBILITY MAP being current. A freshly
+		//      written departments table -- exactly the state right after a manager
+		//      adds several -- will not answer 0 until autovacuum has been round, so
+		//      the first reads after a burst of writes cost heap fetches this figure
+		//      does not include.
+		DepartmentCount:  v.DepartmentCount,
+		DepartmentsShown: len(names),
+		EditHref:         locationsHref + "?venue=" + v.ID.String(),
+	}
+	return row
+}
+
+// departmentRowViews are one venue's departments, as far as the capped list reaches.
+func departmentRowViews(screen tenant.VenueScreen, venueID uuid.UUID) []components.DepartmentRowView {
+	var out []components.DepartmentRowView
 	for _, d := range screen.Departments {
-		departments = append(departments, components.DepartmentRowView{
+		if d.LocationID != venueID {
+			continue
+		}
+		out = append(out, components.DepartmentRowView{
 			Name:     d.Name,
 			Venue:    d.LocationName,
 			Shift:    shiftText(d.Shift),
 			EditHref: locationsHref + "?department=" + d.ID.String(),
 		})
 	}
-	return venues, departments
+	return out
 }
 
 func venueFormOf(v tenant.Venue) components.VenueFormView {
@@ -1166,6 +1329,16 @@ func shiftText(s *tenant.Shift) string {
 		out += " (next day)"
 	}
 	return out
+}
+
+// shiftShortText is the window as the venue card prints it, "18:00 – 02:00", with the
+// overnight mark left to the template; "" for none, which the card reads as "lateness
+// not measured here".
+func shiftShortText(s *tenant.Shift) string {
+	if s == nil {
+		return ""
+	}
+	return clockText(s.Start) + " – " + clockText(s.End)
 }
 
 func clockText(d time.Duration) string {

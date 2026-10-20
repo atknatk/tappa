@@ -1210,6 +1210,9 @@ var panelTouchTargets = map[string]int{
 	// A section's breadcrumb link (M12-01, pages.panelHead): every crumb before the current
 	// page is a real <a>, so both halves of the pair reach it.
 	"panel-crumb": 44, // .panel-crumb -> min-h-11 = 2.75rem
+	// The Venues list's cards (M12-34): each is a link that opens the venue beside the
+	// list, so both halves of the pair reach it.
+	"venue-card": 44, // .venue-card -> min-h-11 = 2.75rem
 }
 
 // panelPendingTouchTargets are the press-target classes the panel redesign defines
@@ -1229,7 +1232,6 @@ var panelPendingTouchTargets = map[string]int{
 	"chip-link":        44, // .chip-link        -> min-h-11 (a filter chip, a link)
 	"queue-item":       44, // .queue-item       -> min-h-11 (The Spike's queue)
 	"roster-row":       60, // .roster-row       -> min-h-16, md:min-h-[60px] (People)
-	"venue-card":       44, // .venue-card       -> min-h-11 (Venues)
 	"rule-switch":      44, // .rule-switch      -> min-h-11 (Rules: a submit button)
 	"field-input":      44, // .field-input      -> min-h-11 (a form control)
 	"stat-card--spike": 44, // .stat-card--spike -> min-h-11 (The Pass: a link to The Spike)

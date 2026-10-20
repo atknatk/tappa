@@ -270,6 +270,13 @@ type AdminAuth struct {
 	// encoded with — draws no QR code at all (plaqueDrawingOf).
 	plaqueTapBase string
 
+	// gpsRadiusM is the radius, in metres, within which a shared position counts as
+	// "here" -- TAPPA_GPS_RADIUS_M as the decision engine holds it, handed over by
+	// cmd/tappa through the GPSRadiusFrom option (M12-34). The Venues page prints it;
+	// 0 means the panel was given none, and the page then prints no figure rather than
+	// a number of its own.
+	gpsRadiusM float64
+
 	// notices sends the "your password was changed" notice after the Account section's
 	// change-my-own-password commits (M10 EM-9, passwordnotice.go). It is REQUIRED, for
 	// the M5-04 reason: a nil notifier would let a change go unannounced and unrecorded

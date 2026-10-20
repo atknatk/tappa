@@ -238,15 +238,16 @@ type PlaqueFormView struct {
 	// actor column.
 	Trail []PlaqueEventView
 
-	// Drawing is the plaque as it hangs on its wall, with its real QR code (M12-12,
-	// D4), or nil: the plaque is not on a wall, or this deployment's tap URL is one no
-	// plaque could carry (sun.PlaqueQRURL refuses it — a development http base). nil
-	// draws nothing; a made-up pattern is never drawn in its place.
-	Drawing *PlaqueDrawingView
+	// ⚠️ THERE IS NO DRAWING HERE ANY MORE (M12-34). The card carried the plaque's
+	// drawing until the Venues detail could; the detail now draws its venue's plaque
+	// (VenueDetailView.Drawing) and the card sits inside that detail, so a drawing here
+	// would put a second QR code on the page.
 }
 
 // PlaqueDrawingView is one plaque drawn the way it hangs on a wall: the tap zone,
-// and under it the QR code it carries (M12-12, D4).
+// and under it the QR code it carries (M12-12, D4). nil where the real code cannot be
+// made -- no plaque on a wall, or a tap URL no plaque could carry (sun.PlaqueQRURL
+// refuses a development http base); a made-up pattern is never drawn in its place.
 //
 // 🔴 THE QR CODE TRAVELS AS A STRING, NEVER AS ITS MATRIX. A [][]bool is a slice
 // the key-shape walk (TestPlaqueViewModels_CannotCarryAKey) would have to permit, and

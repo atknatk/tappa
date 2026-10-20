@@ -1,0 +1,496 @@
+package components
+
+import (
+	"strconv"
+	"strings"
+)
+
+// The Venues & plaques page of the panel redesign (M12-34): a list of venue cards, and
+// the one venue they open beside it.
+//
+// 🔴 SELECTION IS A LINK, NOT A SCRIPT. Each card is an anchor to ?at=<id>#venue and the
+// server renders the detail of the venue it names; the section loads no script
+// (TestLocationsSection_LoadsNoScript). One markup serves every width: the cards stack
+// on a phone, sit two abreast on a tablet and form a column beside the detail on a
+// desk -- no second copy of a venue's words exists for another width.
+//
+// 🔴 §5 IS WHAT THE CARD AND THE DETAIL SAY, AND THEY SAY IT FROM THE ENGINE'S OWN
+// PREDICATE. The IP badge reads VenueRowView.NetworkProof (tenant.Venue.HasNetworkProof,
+// M12-03) and never the length of the saved list: a list too wide to tell the venue
+// apart is printed, marked as too wide, and counts for nothing. "No proof of place" is
+// said once, in the detail; the card says the same state in its own words. The GPS
+// radius is configuration (VenueDetailView.Radius) and the Wi-Fi name sits outside the
+// evidence, said to be unchecked.
+//
+// ⚠️ THE UTILITY CLASSES ARE DESCRIBED RATHER THAN NAMED in these comments, on purpose:
+// the Tailwind CLI scans this file as raw text, so a utility name written in a comment
+// compiles a live CSS rule nothing renders.
+
+// VenueCard is one venue in the list column: a link that opens it in the detail.
+// The current one carries aria-current and the card's selected frame, so the state is
+// said and drawn.
+templ VenueCard(v VenueRowView) {
+	<a href={ templ.URL(v.SelectHref) } class={ venueCardClass(v.Current) } aria-current={ ariaCurrentOf(v.Current) }>
+		<span class="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
+			<span class="min-w-0 break-words font-display text-base font-bold tracking-tight">{ v.Name }</span>
+			<span class="whitespace-nowrap font-mono text-xs">
+				if v.ShiftShort != "" {
+					{ v.ShiftShort }
+					if v.Overnight {
+						<span aria-hidden="true">{ " ↷" }</span>
+						<span class="sr-only">{ ", ends next day" }</span>
+					}
+				} else {
+					Lateness not measured
+				}
+			</span>
+		</span>
+		<span class="flex flex-wrap items-center gap-1.5">
+			@networkBadge(v)
+			if v.GPS != "" {
+				<span class="ev-badge ev-badge--ok">GPS<span aria-hidden="true">{ " ✓" }</span><span class="sr-only">{ " point set" }</span></span>
+			} else {
+				<span class="ev-badge ev-badge--none">GPS<span aria-hidden="true">{ " –" }</span><span class="sr-only">{ " point not set" }</span></span>
+			}
+			<span class="ml-auto whitespace-nowrap font-mono text-xs text-ink/70">{ onWallText(v.OnWall) }</span>
+		</span>
+		if w := venueWarning(v); w != "" {
+			<span class="flex items-start gap-1.5 text-xs text-ink">
+				<span aria-hidden="true" class="mt-1 size-2 flex-none rounded-full bg-saffron"></span>
+				<span>{ w }</span>
+			</span>
+		}
+	</a>
+}
+
+// networkBadge is the card's IP badge in its three states: a list that counts, a list
+// saved but too wide to count, and none. The mark is drawn; the words are said.
+templ networkBadge(v VenueRowView) {
+	switch {
+		case v.NetworkProof:
+			<span class="ev-badge ev-badge--ok">IP<span aria-hidden="true">{ " ✓" }</span><span class="sr-only">{ " network set" }</span></span>
+		case v.NetworkTooWide:
+			<span class="ev-badge ev-badge--wide">IP too wide<span class="sr-only">{ " to count as proof" }</span></span>
+		default:
+			<span class="ev-badge ev-badge--none">IP<span aria-hidden="true">{ " –" }</span><span class="sr-only">{ " network not set" }</span></span>
+	}
+}
+
+// VenueDetail is the venue the list opened. Its children are the open plaque's card,
+// when that plaque belongs to this venue: it is drawn under the venue's plaque table.
+templ VenueDetail(d VenueDetailView) {
+	<section id="venue" aria-labelledby="venue-h" class="flex min-w-0 flex-col gap-4">
+		<div class="flex flex-wrap items-end justify-between gap-3">
+			<div class="flex min-w-0 flex-col gap-1">
+				<p class="lbl">Venue</p>
+				<h2 id="venue-h" class="break-words font-display text-2xl font-bold tracking-tight md:text-[26px] desk:text-3xl">{ d.Venue.Name }</h2>
+			</div>
+			<a class="btn btn--line" href={ templ.URL(d.Venue.EditHref) }>Edit venue</a>
+		</div>
+		if d.Venue.NoProofOfPlace {
+			// 🔴 THE ONE SENTENCE THIS SCREEN EXISTS TO SAY (CLAUDE.md §5, rows 6 and 7),
+			// and it is said ONCE, here. With neither a counting address list nor a
+			// coordinate there is no proof of place: every tap here is still RECORDED --
+			// nothing is lost -- but goes to The Spike for a person to clear. A saved list
+			// too wide to count is named as the reason, so the sentence does not contradict
+			// the ranges printed below it.
+			<div role="note" class="flex flex-col gap-1 rounded-r-xl border-l-4 border-saffron bg-saffron/15 px-3.5 py-2.5">
+				<p class="font-display text-sm font-bold tracking-tight">No proof of place</p>
+				if len(d.Venue.Ranges) > 0 {
+					<p class="text-[13px] leading-snug">
+						The address ranges saved here cover far more of the internet than one venue's
+						network can, so they cannot tell this venue apart from anywhere else, and there
+						is no coordinate. Taps here cannot be checked against either. They are still
+						recorded — they go to The Spike for approval instead.
+					</p>
+				} else {
+					<p class="text-[13px] leading-snug">
+						This venue has no address range and no coordinate, so taps here cannot be
+						checked against either. They are still recorded — they go to The Spike for
+						approval instead.
+					</p>
+				}
+			</div>
+		}
+		<div class="flex flex-col gap-4 md:grid md:grid-cols-[248px_minmax(0,1fr)] md:items-start md:gap-[22px] desk:flex desk:flex-row desk:flex-wrap desk:items-stretch desk:gap-4">
+			<div class="min-w-0 desk:flex-[1_1_260px]">
+				if d.Drawing != nil {
+					@PlaqueDrawing(*d.Drawing)
+				} else {
+					<div class="flex h-full flex-col justify-center gap-2 rounded-[18px] bg-line/50 p-6">
+						if d.Venue.OnWall > 0 {
+							// A plaque is up but its real code cannot be made here (a development
+							// server with no public tap address). Nothing is drawn in its place.
+							<p class="text-sm text-ink">The drawing is not shown: this server has no tap address a plaque could carry.</p>
+						} else {
+							@PlaqueNotOnAWall()
+							<p class="text-[13px] leading-snug text-ink">
+								switch {
+									case d.Mountable > 0:
+										Open a plaque in stock below to mount it.
+									case d.InStock > 0:
+										// M10 F0-6: the box is not empty, but nothing in it can go on a
+										// wall, so the sentence does not promise a mount.
+										None of the plaques in stock below can be mounted — open one to see why.
+									default:
+										Taptime encodes each plaque and loads it into stock; ask us for the ones you need.
+								}
+							</p>
+						}
+					</div>
+				}
+			</div>
+			@whereItIs(d)
+		</div>
+		@venuePlaques(d)
+		{ children... }
+		@venueDepartments(d)
+		<div class="flex flex-col gap-2.5 rounded-[18px] border border-line bg-paper px-4 py-4 md:px-6 md:py-[18px]">
+			<h3 class="font-display text-base font-bold tracking-tight">
+				Also on this venue <span class="text-[13px] font-normal text-ink/70">— not evidence</span>
+			</h3>
+			<dl class="grid grid-cols-1 gap-y-1 md:grid-cols-[auto_minmax(0,1fr)] md:items-baseline md:gap-x-4 md:gap-y-2">
+				// MIGRATION 00010: the Wi-Fi name is shown to staff at activation and checks
+				// nothing, so it is here, outside "Where it is", and says so.
+				<dt class="lbl">Wi-Fi shown at activation (not checked)</dt>
+				<dd class="break-all font-mono text-[13px]">
+					if d.Venue.WiFi != "" {
+						{ d.Venue.WiFi }
+					} else {
+						<span class="text-ink/70">None</span>
+					}
+				</dd>
+				<dt class="lbl mt-2 md:mt-0">External ref</dt>
+				<dd class="break-all font-mono text-[13px]">
+					if d.Venue.ExternalRef != "" {
+						{ d.Venue.ExternalRef }
+					} else {
+						<span class="text-ink/70">Not linked</span>
+					}
+				</dd>
+			</dl>
+		</div>
+	</section>
+}
+
+// whereItIs is the evidence a tap here can carry: the venue network, the GPS point and
+// the configured radius, with the shift the venue's lateness is measured against.
+//
+// 🔴 THE FOOTNOTE NAMES THE CHANNEL AND THE BASELINE. "Approved on its own" would be
+// false twice: a QR scan needs the network (base:qr-requires-ip), and every baseline
+// rule can be changed by the business -- hence "under the standard rules".
+templ whereItIs(d VenueDetailView) {
+	<div class="flex min-w-0 flex-col gap-4 rounded-[18px] border border-line bg-paper px-4 py-4 md:px-6 md:py-[22px] desk:flex-[1_1_320px]">
+		<h3 class="font-display text-lg font-bold tracking-tight">Where it is</h3>
+		<div class="flex flex-wrap items-center gap-5">
+			<dl class="grid min-w-0 flex-[1_1_220px] grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-4 gap-y-2.5">
+				<dt class="lbl">Venue network</dt>
+				<dd class="flex min-w-0 flex-col gap-0.5 font-mono text-[13px]">
+					if len(d.Venue.Ranges) > 0 {
+						for _, r := range d.Venue.Ranges {
+							<span class="break-all">{ r }</span>
+						}
+					} else {
+						<span>Not set</span>
+					}
+					if d.Venue.NetworkTooWide {
+						<span class="mt-1 self-start rounded-lg border border-dashed border-saffron bg-saffron/10 px-2 py-1 font-display text-xs font-bold">Too wide to count as proof of place — not used as evidence</span>
+					}
+				</dd>
+				<dt class="lbl">GPS point</dt>
+				<dd class="break-all font-mono text-[13px]">
+					if d.Venue.GPS != "" {
+						{ d.Venue.GPS }
+					} else {
+						Not set
+					}
+				</dd>
+				if d.Radius != "" {
+					<dt class="lbl">Configured radius</dt>
+					<dd class="font-mono text-[13px]">{ d.Radius } <span class="text-ink/70">· set by Taptime</span></dd>
+				}
+				<dt class="lbl">Shift</dt>
+				<dd class="flex min-w-0 flex-col gap-0.5">
+					<span class="font-mono text-[13px]">
+						if d.Venue.Shift != "" {
+							{ d.Venue.Shift }
+							if d.Zone != "" {
+								{ " · " + d.Zone }
+							}
+						} else {
+							// 🔴 "None" WOULD READ AS A SHIFT OF ZERO LENGTH. A NULL shift
+							// means lateness is NOT MEASURED, which is a different fact.
+							Lateness not measured
+						}
+					</span>
+					<span class="text-xs text-ink/70">Late is measured from here, unless a department has its own.</span>
+				</dd>
+			</dl>
+			if d.Venue.GPS != "" && d.Radius != "" {
+				@RadiusSchematic(d.Radius)
+			}
+		</div>
+		<p class="border-t border-dashed border-line pt-3 text-[13px] leading-snug text-ink/70">
+			Under the standard rules, a plaque tap on this network or within { radiusPhrase(d.Radius) } is approved. A QR scan needs the network — GPS alone sends it to The Spike. Neither — the tap is still recorded and goes to The Spike. Location is read only at the moment of the tap.
+		</p>
+	</div>
+}
+
+// RadiusSchematic draws a point with the configured radius around it. It is a drawing,
+// not a map: no place is plotted and nothing is to scale, which its name says.
+templ RadiusSchematic(radius string) {
+	<div role="img" aria-label={ "Schematic: the venue point with a " + radiusMetres(radius) + " metre circle around it" } class="relative flex size-[150px] flex-none items-center justify-center">
+		<div aria-hidden="true" class="absolute inset-0 rounded-full border-[1.5px] border-dashed border-tappa-green bg-tappa-green/5"></div>
+		<div aria-hidden="true" class="absolute inset-[30px] rounded-full border border-dashed border-ink/50"></div>
+		<div aria-hidden="true" class="absolute inset-[60px] rounded-full border border-dashed border-line"></div>
+		<div aria-hidden="true" class="absolute left-[75px] top-[75px] w-[75px] border-t border-ink"></div>
+		<span aria-hidden="true" class="absolute left-[88px] top-[57px] rounded bg-paper px-[3px] font-mono text-[10px]">{ radius }</span>
+		<div aria-hidden="true" class="size-3 rounded-full bg-ink ring-4 ring-paper"></div>
+	</div>
+}
+
+// venuePlaques is the venue's plaque table: the ones in service, then the ones it had.
+templ venuePlaques(d VenueDetailView) {
+	<div class="relative min-w-0 overflow-x-auto rounded-[18px] border border-line bg-paper pb-1 pt-2">
+		<div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 px-4 pb-1.5 pt-3.5 md:px-6">
+			<h3 class="font-display text-lg font-bold tracking-tight">Plaques at this venue</h3>
+			<span class="font-mono text-xs text-ink/70">{ venuePlaqueCount(d) }</span>
+		</div>
+		if d.OutOfService > 0 {
+			// 🔴 THE OLD ROWS ARE STILL HERE, AND THAT IS THE POINT (§4.3, §4.6). A replaced
+			// plaque is never deleted -- the database refuses it -- because every tap it
+			// ever took resolves through its id.
+			<p class="mx-4 mb-2 mt-1 rounded-r-[10px] border-l-4 border-saffron bg-saffron/10 px-3 py-2 text-[13px] leading-snug md:mx-6">
+				<strong class="font-bold">These are kept on purpose.</strong> A plaque that has been replaced, or reported lost, keeps its record: the taps it took still point at it. Taps on these are rejected.
+			</p>
+		}
+		if len(d.Plaques) > 0 {
+			@PlaqueTable(d.Plaques)
+		} else {
+			<p class="px-4 pb-4 pt-1.5 text-[13px] text-ink/70 md:px-6">No plaque has been mounted at this venue.</p>
+		}
+	</div>
+}
+
+// venueDepartments is the venue's departments, each opening its own form.
+//
+// 🔴 THE COUNT IS THE DATABASE'S AND THE NAMES ARE A CAPPED SLICE'S, so when they
+// disagree the heading SAYS the list is short rather than letting a manager read a
+// venue as smaller than it is (§4.6).
+templ venueDepartments(d VenueDetailView) {
+	<div class="flex flex-col gap-2.5 rounded-[18px] border border-line bg-paper px-4 py-4 md:px-6 md:py-[18px]">
+		<div class="flex flex-wrap items-baseline justify-between gap-x-3">
+			<h3 class="font-display text-base font-bold tracking-tight">
+				Departments ({ departmentCountText(d.Venue.DepartmentCount) })
+				if d.Venue.DepartmentsShown < d.Venue.DepartmentCount {
+					<span class="text-[13px] font-normal text-ink/70">
+						{ " — only " }{ departmentCountText(d.Venue.DepartmentsShown) }{ " named here" }
+					</span>
+				}
+			</h3>
+			<a class="inline-flex min-h-11 items-center text-[13px] font-bold text-ink underline underline-offset-4" href={ templ.URL(d.AddDepartmentHref) }>Add a department</a>
+		</div>
+		for _, dep := range d.Departments {
+			<div class="flex min-h-11 flex-wrap items-center justify-between gap-x-3 border-t border-dashed border-line">
+				<span class="min-w-0 break-words text-sm font-bold">{ dep.Name }</span>
+				<span class="font-mono text-[13px] text-ink/70">
+					if dep.Shift != "" {
+						{ dep.Shift }
+					} else {
+						// 🔴 A DEPARTMENT WITH NO SHIFT IS NOT A DEPARTMENT WITH NO RULE -- its
+						// people are judged against the VENUE's shift instead (§5, Q17).
+						Uses the venue's shift
+					}
+				</span>
+				<a class="inline-flex min-h-11 items-center text-[13px] font-bold text-ink underline underline-offset-4" href={ templ.URL(dep.EditHref) }>Edit { dep.Name }</a>
+			</div>
+		}
+		if len(d.Departments) == 0 && d.Venue.DepartmentCount == 0 {
+			// 🔴 IT SAYS THIS IS NORMAL, because it is: migration 00003 makes a department
+			// optional precisely because a bar does not model them.
+			<p class="text-[13px] leading-snug text-ink/70">
+				This venue has no departments, which is perfectly normal — a bar or a small venue
+				usually does not need them. Add one if some of your staff work different hours
+				from the rest of the venue.
+			</p>
+		}
+	</div>
+}
+
+// PlaqueTable lists plaques as rows on a tablet and a desk and reflows the SAME rows
+// into small cards on a phone -- one DOM, no second copy of a plaque's words.
+//
+// 🔴 THE FULL UID IS THE ROW'S HEADER AND EVERY ROW KEEPS ITS OPEN LINK. The uid is the
+// value a manager compares against the one printed on the wall, and the link carries
+// the row's own spelling (tenant.PlaqueRef), so a row this list prints is a row its
+// card opens. There is no position column: the product has none.
+templ PlaqueTable(rows []PlaqueRowView) {
+	<table class="block w-full border-collapse md:table md:min-w-[620px]">
+		<thead class="sr-only md:not-sr-only md:table-header-group">
+			<tr>
+				<th scope="col" class="lbl px-2 py-2.5 text-left font-normal md:pl-6">Plaque</th>
+				<th scope="col" class="lbl px-2 py-2.5 text-left font-normal">Last seen</th>
+				<th scope="col" class="lbl px-2 py-2.5 text-right font-normal">Chip reads</th>
+				<th scope="col" class="lbl px-2 py-2.5 text-left font-normal">Status</th>
+				<th scope="col" class="px-3 py-2.5"><span class="sr-only">Open</span></th>
+			</tr>
+		</thead>
+		<tbody class="block md:table-row-group">
+			for _, p := range rows {
+				@plaqueTableRow(p)
+			}
+		</tbody>
+	</table>
+}
+
+templ plaqueTableRow(p PlaqueRowView) {
+	<tr class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 border-t border-dashed border-line px-4 py-3 md:table-row md:p-0">
+		<th scope="row" class="col-span-2 min-w-0 text-left font-mono text-[13px] font-bold md:py-3 md:pl-6 md:pr-2 md:align-top">
+			<span class="break-all md:whitespace-nowrap md:break-normal">{ p.UID }</span>
+			// THE HISTORY STAYS ON THE ROW: the replacement chain is what makes an old
+			// row readable, and the database refuses to break it.
+			if p.Replaces != "" {
+				<span class="block break-all text-xs font-normal text-ink/70">Took over from { p.Replaces }</span>
+			}
+			if p.ReplacedBy != "" {
+				<span class="block break-all text-xs font-normal text-ink/70">Replaced by { p.ReplacedBy }</span>
+			}
+			if p.Frozen {
+				<span class="block text-xs font-normal text-ink">This one cannot be changed</span>
+			}
+		</th>
+		<td class="font-mono text-xs text-ink/70 md:whitespace-nowrap md:px-2 md:py-3 md:align-top md:text-[13px] md:text-ink">
+			<span class="md:hidden">last seen </span>
+			if p.LastSeen != "" {
+				{ p.LastSeen }
+			} else {
+				// 🔴 "NEVER" IS A MEASURED ANSWER, NOT A BLANK.
+				Never tapped
+			}
+		</td>
+		<td class="text-right font-mono text-xs text-ink/70 md:px-2 md:py-3 md:align-top md:text-[13px] md:text-ink">
+			<span class="md:hidden">chip reads </span>{ p.Counter }
+		</td>
+		<td class="md:px-2 md:py-2.5 md:align-top">
+			<span class="inline-flex flex-wrap gap-1.5 whitespace-nowrap">
+				<span class={ plaqueStatusClass(p.Status) }>{ p.Status }</span>
+				if p.KeyAlert == "wall" {
+					// Rusty Bar's shape (M10 F0-6): on a wall with no record that its encode
+					// finished. The card says what to do; the row says that it must be done.
+					<span class="tally tally--pill tally--rejected font-mono">Needs replacing</span>
+				}
+			</span>
+		</td>
+		<td class="text-right md:py-1.5 md:pr-3 md:align-top">
+			if p.OpenHref != "" {
+				<a class="inline-flex min-h-11 items-center px-3 text-[13px] font-bold text-ink underline underline-offset-4" href={ templ.URL(p.OpenHref + "#plaque") }>Open<span class="sr-only">{ " plaque " + p.UID }</span></a>
+			}
+		</td>
+	</tr>
+}
+
+// StockRow is one plaque in the box: its uid, what its encoding state is, and the
+// link to the card that mounts it.
+templ StockRow(p PlaqueRowView) {
+	<li class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-dashed border-line py-2 pl-4 pr-2 md:pl-6 md:pr-3">
+		<span class="flex min-w-0 flex-col gap-0.5">
+			<span class="break-all font-mono text-[13px] font-bold">{ p.UID }</span>
+			<span class="text-xs text-ink/70">{ p.KeyState }</span>
+			if p.KeyAlert == "stock" {
+				<span class="text-xs font-bold text-ink">This plaque cannot go on a wall</span>
+			}
+			if p.Frozen {
+				<span class="text-xs font-bold text-ink">This one cannot be changed</span>
+			}
+		</span>
+		<span class="inline-flex items-center gap-2.5">
+			<span class={ plaqueStatusClass(p.Status) }>{ p.Status }</span>
+			if p.OpenHref != "" {
+				<a class="inline-flex min-h-11 items-center px-3 text-[13px] font-bold text-ink underline underline-offset-4" href={ templ.URL(p.OpenHref + "#plaque") }>Open<span class="sr-only">{ " plaque " + p.UID }</span></a>
+			}
+		</span>
+	</li>
+}
+
+// venueCardClass is the card's frame: the selected one is drawn heavier. The names are
+// written here so the stylesheet build can see them.
+func venueCardClass(current bool) string {
+	if current {
+		return "venue-card venue-card--on"
+	}
+	return "venue-card"
+}
+
+// ariaCurrentOf answers the attribute's own vocabulary.
+func ariaCurrentOf(current bool) string {
+	if current {
+		return "true"
+	}
+	return "false"
+}
+
+// plaqueStatusClass tones a plaque's status pill from the word the handler chose
+// (handler.plaqueStatusWord): in service is the active tone, reported lost the
+// rejection tone, everything else neutral. The word is always printed beside it.
+func plaqueStatusClass(status string) string {
+	switch status {
+	case "In service":
+		return "tally tally--pill tally--mounted font-mono"
+	case "Reported lost":
+		return "tally tally--pill tally--rejected font-mono"
+	default:
+		return "tally tally--pill tally--stock font-mono"
+	}
+}
+
+// onWallText is the card's plaque count.
+func onWallText(n int) string {
+	switch n {
+	case 0:
+		return "no plaque on a wall"
+	default:
+		return strconv.Itoa(n) + " on the wall"
+	}
+}
+
+// venuePlaqueCount is the table's count line: in service, and out of service if any.
+func venuePlaqueCount(d VenueDetailView) string {
+	out := onWallText(d.Venue.OnWall)
+	if d.OutOfService > 0 {
+		out += " · " + strconv.Itoa(d.OutOfService) + " out of service"
+	}
+	return out
+}
+
+// venueWarning is the card's one line about evidence, or "". A list that does not count
+// leaves GPS as the plaque's only proof -- and a QR scan needs the network, so it goes
+// to The Spike. Neither leaves every tap for a person to clear. The detail says the
+// same state in full ("No proof of place"); the card does not repeat those words.
+func venueWarning(v VenueRowView) string {
+	if v.NetworkProof {
+		return ""
+	}
+	if v.GPS != "" {
+		if v.NetworkTooWide {
+			return "Network list too wide to count — taps rely on GPS. QR scans here go to The Spike."
+		}
+		return "No network set — taps rely on GPS. QR scans here go to The Spike."
+	}
+	if v.NetworkTooWide {
+		return "Network list too wide and no GPS — every tap goes to The Spike."
+	}
+	return "No network and no GPS — every tap goes to The Spike."
+}
+
+// radiusPhrase is the radius inside the footnote's sentence.
+func radiusPhrase(radius string) string {
+	if radius == "" {
+		return "the configured radius"
+	}
+	return radius
+}
+
+// radiusMetres is the figure of a radius printed as "150 m", for the drawing's name.
+func radiusMetres(radius string) string {
+	return strings.TrimSuffix(radius, " m")
+}
