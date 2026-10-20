@@ -225,6 +225,14 @@ type ProblemView struct {
 	//     the note beside the anchor in activate.templ for what that check does
 	//     and does not do.
 	RetryURL string
+
+	// OwnerOnly marks a panel refusal whose reason is the caller's role: the section
+	// belongs to an owner of the business (M12-10). The panel's problem card draws it
+	// as a pill (PanelProblem); Problem never reads it, so the tap and activation
+	// screens -- whose constants leave it false -- keep every byte. It lives on the
+	// constant rather than at the call site so that the places refusing a manager
+	// cannot disagree about it.
+	OwnerOnly bool
 }
 
 // ResultView is the screen a tap lands on: what was recorded, and nothing else.

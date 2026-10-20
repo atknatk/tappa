@@ -1,0 +1,51 @@
+package pages
+
+import (
+	"strconv"
+
+	"github.com/atknatk/tappa/web/templates/layout"
+)
+
+// PanelProblem is the panel's problem card (M12-10, design board "States"): what
+// happened, then what to do next. Problem stays the tap and activation screens' page,
+// byte for byte; this one is drawn only by the panel's renderProblem.
+//
+// IT KEEPS THE SAME SHELL AS Problem -- layout.Page, Taptime's wordmark, no tenant
+// brand -- because a problem is often the page that answers when the business's own
+// records (its brand among them) could not be read, and because the sign-in family
+// stays Taptime's (ADR 0023 §2). No script, no image: the response's policy is
+// adminCSP's literal.
+//
+// The heading row carries the status code as a chip and, for a refusal about the
+// caller's role, the owner pill; the lock beside the pill is decoration that assistive
+// technology skips; the pill's word says it. The one link is an anchor, so
+// nothing on this card can resubmit a form.
+templ PanelProblem(v PanelProblemView) {
+	@layout.Page("Taptime") {
+		<section class="flex max-w-xl flex-col gap-3 rounded-[18px] border border-line bg-paper p-6">
+			if v.ShowsStatus() || v.OwnerOnly {
+				<div class="flex flex-wrap items-center justify-between gap-2.5">
+					if v.ShowsStatus() {
+						<span class="rounded-md border border-ink px-2 py-0.5 font-mono text-xs font-bold tracking-[0.1em]">{ strconv.Itoa(v.Status) }</span>
+					}
+					if v.OwnerOnly {
+						<span class="inline-flex items-center gap-1.5 rounded-md bg-ink px-2 py-0.5 font-mono text-[11px] tracking-[0.1em] text-paper">
+							<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>
+							OWNER ONLY
+						</span>
+					}
+				</div>
+			}
+			<h1 class="font-display text-2xl font-bold leading-tight tracking-tight">{ v.Title }</h1>
+			<p class="text-sm leading-normal">{ v.Message }</p>
+			if v.Hint != "" {
+				<p class="text-[13px] leading-normal text-ink/70">{ v.Hint }</p>
+			}
+			if v.CTAHref != "" {
+				<div class="mt-1 flex flex-wrap gap-2">
+					<a href={ templ.URL(v.CTAHref) } class="btn rounded-xl bg-ink text-paper hover:bg-tappa-green focus:ring-offset-2 focus:ring-offset-paper">{ v.CTALabel }</a>
+				</div>
+			}
+		</section>
+	}
+}
