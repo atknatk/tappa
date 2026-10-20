@@ -82,6 +82,9 @@ func (a *AdminAuth) mountSections(r chi.Router) {
 		// M11 API-3: owner-only, read included (apikeys.go).
 		case pages.TabAPIKeys:
 			r.Get(s.Href, a.apiKeysSection)
+		// GRP-1: both roles; a business in no group reads the empty state (group.go).
+		case pages.TabGroup:
+			r.Get(s.Href, a.groupSection)
 		default:
 			r.Get(s.Href, a.section(s.Tab))
 		}

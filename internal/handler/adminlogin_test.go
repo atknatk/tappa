@@ -303,6 +303,16 @@ type fakeLedger struct {
 	anomaliesErr     error
 	anomaliesTenant  []uuid.UUID
 	anomaliesFilters []ledger.ReportFilter
+
+	// GRP-1's read side: the chrome's membership question and the Group section. The default is
+	// "asked, and this business is in no group" -- the tab is not drawn and every other section's
+	// chrome is the one before GRP-1. Tests that want a member say so (fakeMember).
+	inGroup       bool
+	inGroupErr    error
+	inGroupTenant []uuid.UUID
+	group         ledger.GroupScreen
+	groupErr      error
+	groupTenant   []uuid.UUID
 }
 
 func newFakeLedger() *fakeLedger {
@@ -332,6 +342,7 @@ func newFakeLedger() *fakeLedger {
 			// a page that looks broken for a reason no assertion would name.
 			Period: ledger.WeekOf(ledger.Date{Year: 2026, Month: time.August, Day: 5}, time.UTC),
 		}},
+		group: ledger.GroupScreen{Queried: true},
 		anomalies: ledger.AnomalyScreen{Anomalies: ledger.Anomalies{
 			Queried: true,
 			Zone:    time.UTC,
@@ -465,6 +476,25 @@ func (f *fakeLedger) decided(txnID uuid.UUID, outcome string) {
 		f.decisions = map[uuid.UUID]string{}
 	}
 	f.decisions[txnID] = outcome
+}
+
+// InGroup is GRP-1's chrome question; it records who was asked.
+func (f *fakeLedger) InGroup(_ context.Context, tenantID uuid.UUID) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.inGroupTenant = append(f.inGroupTenant, tenantID)
+	return f.inGroup, f.inGroupErr
+}
+
+// Group is GRP-1's section read; it records who was asked.
+func (f *fakeLedger) Group(_ context.Context, tenantID uuid.UUID) (ledger.GroupScreen, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.groupTenant = append(f.groupTenant, tenantID)
+	if f.groupErr != nil {
+		return ledger.GroupScreen{}, f.groupErr
+	}
+	return f.group, nil
 }
 
 func (f *fakeLedger) Pending(_ context.Context, tenantID uuid.UUID) (ledger.Pending, error) {

@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/atknatk/tappa/internal/adminauth"
+	"github.com/atknatk/tappa/internal/apiguide"
 	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/internal/domain/tap"
 	"github.com/atknatk/tappa/internal/httpx"
@@ -75,12 +76,42 @@ func marketingRouter(t *testing.T) http.Handler {
 // marketingRouterWithTexts is marketingRouter with a legal-document snapshot.
 func marketingRouterWithTexts(t *testing.T, texts legalReader) http.Handler {
 	t.Helper()
+	return marketingRouterFor(t, texts, "")
+}
+
+// marketingRouterFor is the marketing router with a legal-document snapshot and an API
+// host (TAPPA_API_HOST, "" for none).
+func marketingRouterFor(t *testing.T, texts legalReader, apiHost string) http.Handler {
+	t.Helper()
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	wizard, err := NewSignup(&fakeProvisioner{}, nil, signupTestConfig(), log)
 	if err != nil {
 		t.Fatalf("NewSignup: %v", err)
 	}
-	return httpx.NewRouter(nil, nil, NewMarketing(texts, log), wizard)
+	return httpx.NewRouter(nil, nil, NewMarketing(texts, log, apiHost), wizard)
+}
+
+// testAPIHost is the API host the structural scans run with besides none.
+const testAPIHost = "api.example.test"
+
+// structuralConfigs are the two configurations the public surface's STRUCTURAL scans
+// run under (DOCS-1, low round): without an API host, as dev and every other test, and
+// with one, as production -- where the integration guide's pages carry the one absolute
+// href on the surface, the OpenAPI download on the API host. openAPI is that href, the
+// constructor's own openAPIHrefFor(host) and never a string written here, so the
+// exemption cannot widen to a host the constructor does not draw.
+type structuralConfig struct {
+	name    string
+	r       http.Handler
+	openAPI string
+}
+
+func structuralConfigs(t *testing.T) []structuralConfig {
+	t.Helper()
+	return []structuralConfig{
+		{"no API host", marketingRouter(t), ""},
+		{"API host " + testAPIHost, marketingRouterFor(t, nil, testAPIHost), openAPIHrefFor(testAPIHost)},
+	}
 }
 
 // marketingURLs is every URL this feature serves, derived from the same table the
@@ -91,6 +122,17 @@ func marketingURLs() []string {
 		out = append(out, p.Path)
 	}
 	return out
+}
+
+// publicSurfaceURLs is marketingURLs plus the integration guide's two pages (M11
+// DOCS-1). The guide is served by this surface, so the STRUCTURAL properties -- the
+// same bytes for every visitor, cacheable, the policy, HEAD, no third party, every link
+// resolving, nothing written -- are measured on it too. The COPY rules (no unmeasured
+// claim, no capability word, the demo dialog) stay on marketingURLs: the guide is a
+// technical contract, and "there is no order guarantee" is a denial a marketing-claim
+// scanner reads as a promise.
+func publicSurfaceURLs() []string {
+	return append(marketingURLs(), pages.APIGuidePath, pages.APIGuideTRPath)
 }
 
 // fetchMarketing performs one GET against the real router.
@@ -161,6 +203,17 @@ func TestMarketing_HandlerHoldsNoStatefulDependency(t *testing.T) {
 		// on this type intact. A *db.DB here would have retired that argument and put an
 		// unmetered, unauthenticated path onto the pool check-in shares.
 		"handler.legalReader": true,
+		// 🔴 apiguide.Guide, ADDED BY M11 DOCS-1, AND THIS IS ITS ARGUMENT: the integration
+		// guide's pages have to serve the converted Markdown, and converting it per request
+		// would put goldmark on the unmetered path. So the conversion runs once, in
+		// NewMarketing, and the type keeps the RESULT -- a value, not a dependency. That is
+		// checked rather than named: plainData below walks the type and refuses any pointer,
+		// interface, func, map or channel inside it, so a Guide that grew a capability would
+		// go red here even though its name stayed on this list.
+		"apiguide.Guide": true,
+	}
+	if g := reflect.TypeOf(apiguide.Guide{}); !plainData(g) {
+		t.Errorf("apiguide.Guide holds something other than strings, numbers and slices of them: %v", g)
 	}
 	if typ.NumField() == 0 {
 		t.Fatal("handler.Marketing has no fields at all; this test would pass over anything")
@@ -179,6 +232,27 @@ func TestMarketing_HandlerHoldsNoStatefulDependency(t *testing.T) {
 	}
 }
 
+// plainData reports whether t is made of strings, numbers, booleans, and structs, slices
+// and arrays of those only: data, with nothing in it that can reach anything.
+func plainData(t reflect.Type) bool {
+	switch t.Kind() {
+	case reflect.String, reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Float32, reflect.Float64:
+		return true
+	case reflect.Slice, reflect.Array:
+		return plainData(t.Elem())
+	case reflect.Struct:
+		for i := 0; i < t.NumField(); i++ {
+			if !plainData(t.Field(i).Type) {
+				return false
+			}
+		}
+		return true
+	default:
+		return false
+	}
+}
+
 // TestMarketing_TheSameBytesForEveryVisitor is the PREMISE of the cacheable
 // response, measured rather than asserted in a comment.
 //
@@ -190,7 +264,7 @@ func TestMarketing_HandlerHoldsNoStatefulDependency(t *testing.T) {
 func TestMarketing_TheSameBytesForEveryVisitor(t *testing.T) {
 	t.Parallel()
 	r := marketingRouter(t)
-	for _, url := range marketingURLs() {
+	for _, url := range publicSurfaceURLs() {
 		plain := fetchMarketing(t, r, url, nil)
 		loaded := fetchMarketing(t, r, url, func(req *http.Request) {
 			req.AddCookie(&http.Cookie{Name: adminauthCookieNameForTest, Value: "not-a-real-token"})
@@ -225,7 +299,7 @@ const adminauthCookieNameForTest = "tappa_admin_session"
 func TestMarketing_IsCacheableAndCarriesNoPanelHeaders(t *testing.T) {
 	t.Parallel()
 	r := marketingRouter(t)
-	for _, url := range marketingURLs() {
+	for _, url := range publicSurfaceURLs() {
 		rec := fetchMarketing(t, r, url, nil)
 		if got := rec.Header().Get("Cache-Control"); got != marketingCacheControl {
 			t.Errorf("GET %s Cache-Control = %q, want %q", url, got, marketingCacheControl)
@@ -300,7 +374,7 @@ func TestMarketing_PolicyNamesWhatThePageLoadsAndNothingElse(t *testing.T) {
 	// nothing the policy would refuse.
 	r := marketingRouter(t)
 	plain := []string{}
-	for _, url := range marketingURLs() {
+	for _, url := range publicSurfaceURLs() {
 		if url != "/" {
 			plain = append(plain, url)
 		}
@@ -391,7 +465,7 @@ func TestMarketing_AnswersHeadWithNoBodyAndTheSameHeaders(t *testing.T) {
 	srv := httptest.NewServer(marketingRouter(t))
 	defer srv.Close()
 
-	for _, path := range marketingURLs() {
+	for _, path := range publicSurfaceURLs() {
 		get, err := srv.Client().Get(srv.URL + path)
 		if err != nil {
 			t.Fatalf("GET %s: %v", path, err)
@@ -467,7 +541,7 @@ func TestMarketing_AVisitorLeavingIsNotAnError(t *testing.T) {
 		{"a genuine failure this server caused", errors.New("template blew up"), slog.LevelError},
 	} {
 		var buf bytes.Buffer
-		m := NewMarketing(nil, slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+		m := NewMarketing(nil, slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})), "")
 		rec := httptest.NewRecorder()
 		m.render(failingWriter{ResponseWriter: rec, err: tc.err},
 			httptest.NewRequest(http.MethodGet, "/", nil), pages.Landing(pages.LandingView{}))
@@ -506,17 +580,37 @@ var externalReference = regexp.MustCompile(
 // It scans for ANY absolute or protocol-relative reference, not just for a list of
 // known font hosts: a page that contacts a third party is a page that hands that
 // party the visitor's address, and which party it is does not change the answer.
+//
+// ⚠️ THE ONE EXEMPTION, BY CONSTRUCTION (DOCS-1): with an API host configured, as in
+// production, the integration guide's pages link the OpenAPI document on that host --
+// a link a reader follows, to this product's own API host, not a resource the page
+// loads. It is admitted only as the exact anchor href openAPIHrefFor(host) returns
+// (the adminLoginPath pattern below), and its count is pinned: it is drawn on the
+// guide's two pages, nowhere else.
 func TestMarketing_ReachesNoThirdParty(t *testing.T) {
 	t.Parallel()
-	r := marketingRouter(t)
-	for _, url := range marketingURLs() {
-		body := mustFetchMarketing(t, r, url)
-		if hit := externalReference.FindString(body); hit != "" {
-			t.Errorf("GET %s reaches outside this origin: %q.\n"+
-				"Every asset this product serves is embedded in the binary and served from "+
-				"/static -- the brand faces included, since M5-04. A runtime request to a "+
-				"third party hands that party the visitor's address and the page they were "+
-				"reading.", url, hit)
+	for _, c := range structuralConfigs(t) {
+		exempted := 0
+		for _, url := range publicSurfaceURLs() {
+			body := mustFetchMarketing(t, c.r, url)
+			if c.openAPI != "" {
+				exempt := `href="` + c.openAPI + `"`
+				exempted += strings.Count(body, exempt)
+				body = strings.ReplaceAll(body, exempt, `href=""`)
+			}
+			if hit := externalReference.FindString(body); hit != "" {
+				t.Errorf("%s: GET %s reaches outside this origin: %q.\n"+
+					"Every asset this product serves is embedded in the binary and served from "+
+					"/static -- the brand faces included, since M5-04. A runtime request to a "+
+					"third party hands that party the visitor's address and the page they were "+
+					"reading.", c.name, url, hit)
+			}
+		}
+		// Anti-vacuity for the production half: the exemption is used, on the guide's two
+		// pages (the download link, at least once each), so the API-host router is really
+		// the configuration it names.
+		if c.openAPI != "" && exempted < 2 {
+			t.Errorf("%s: the OpenAPI link was exempted %d time(s), want at least one per guide page", c.name, exempted)
 		}
 	}
 
@@ -632,6 +726,9 @@ func TestExternalReferenceScanner_CatchesWhatItExistsToCatch(t *testing.T) {
 // href is present in the EMBEDDED static tree rather than merely prefixed with
 // /static (M6-12 phase B, which shipped for exactly this trap: app.css is
 // gitignored, so a binary can serve a page whose stylesheet 404s).
+// (DOCS-1: documentHead now also writes the integration guide's two
+// <link rel="alternate" hreflang> lines, and only on its pages; their hrefs are
+// fetched and must answer 200 in TestAPIGuidePages_NameBothTranslationsInTheHead.)
 //
 // ⚠️ THE RESIDUAL, STATED: a <link> added directly to layout.Marketing, bypassing
 // documentHead, would be checked by neither — an EXTERNAL one is caught by
@@ -652,37 +749,54 @@ func TestExternalReferenceScanner_CatchesWhatItExistsToCatch(t *testing.T) {
 // given adminLoginPath, which is the same constant AdminAuth.Mount registers -- and
 // the registration itself is asserted below so the constant cannot become a path
 // nothing serves.
+//
+// IT RUNS TWICE (DOCS-1): without an API host and with one, as production. With one,
+// the integration guide's pages carry the ONLY absolute href on the public surface --
+// the OpenAPI document on the API host, which this router does not serve (the API host
+// is its own surface, with its own tests). It is admitted only as openAPIHrefFor(host)'s
+// exact output, like adminLoginPath, and only on the guide's two pages: any other
+// absolute href, on any page, is red.
 func TestMarketing_EveryInternalLinkResolves(t *testing.T) {
 	t.Parallel()
-	r := marketingRouter(t)
-	seen := 0
-	for _, url := range marketingURLs() {
-		body := mustFetchMarketing(t, r, url)
-		for _, m := range hrefRE.FindAllStringSubmatch(body, -1) {
-			href := m[1]
-			switch {
-			case href == "" || strings.HasPrefix(href, "#"):
-				continue
-			case !strings.HasPrefix(href, "/"):
-				t.Errorf("%s links to %q, which is neither an in-page anchor nor a path on "+
-					"this site", url, href)
-				continue
-			case href == adminLoginPath:
-				// Served by AdminAuth; see the assertion below.
+	guidePages := map[string]bool{pages.APIGuidePath: true, pages.APIGuideTRPath: true}
+	for _, c := range structuralConfigs(t) {
+		seen, openAPI := 0, 0
+		for _, url := range publicSurfaceURLs() {
+			body := mustFetchMarketing(t, c.r, url)
+			for _, m := range hrefRE.FindAllStringSubmatch(body, -1) {
+				href := m[1]
+				switch {
+				case href == "" || strings.HasPrefix(href, "#"):
+					continue
+				case c.openAPI != "" && href == c.openAPI && guidePages[url]:
+					// The API host's document; this router does not serve it.
+					openAPI++
+					continue
+				case !strings.HasPrefix(href, "/") || strings.HasPrefix(href, "//"):
+					t.Errorf("%s: %s links to %q, which is neither an in-page anchor nor a path on "+
+						"this site", c.name, url, href)
+					continue
+				case href == adminLoginPath:
+					// Served by AdminAuth; see the assertion below.
+					seen++
+					continue
+				}
 				seen++
-				continue
-			}
-			seen++
-			if code := fetchMarketing(t, r, href, nil).Code; code != http.StatusOK {
-				t.Errorf("%s links to %s, which answers %d. A dead link on the most public "+
-					"URL in the product is a promise the router does not keep.", url, href, code)
+				if code := fetchMarketing(t, c.r, href, nil).Code; code != http.StatusOK {
+					t.Errorf("%s: %s links to %s, which answers %d. A dead link on the most public "+
+						"URL in the product is a promise the router does not keep.", c.name, url, href, code)
+				}
 			}
 		}
-	}
-	// ANTI-VACUITY: a page whose links stopped rendering would pass everything above.
-	if seen < len(pages.LegalPages)+1 {
-		t.Fatalf("followed %d link(s) across the public surface; the footer alone carries %d, "+
-			"so this scan is not reading the pages", seen, len(pages.LegalPages))
+		// ANTI-VACUITY: a page whose links stopped rendering would pass everything above.
+		if seen < len(pages.LegalPages)+1 {
+			t.Fatalf("%s: followed %d link(s) across the public surface; the footer alone carries %d, "+
+				"so this scan is not reading the pages", c.name, seen, len(pages.LegalPages))
+		}
+		// The production half reached the exemption: the download link, on both guide pages.
+		if c.openAPI != "" && openAPI < 2 {
+			t.Errorf("%s: the OpenAPI link appeared %d time(s) on the guide pages, want at least one per page", c.name, openAPI)
+		}
 	}
 
 	// The one href this router does not serve. adminLoginPath is shared at compile

@@ -65,6 +65,10 @@ type panelLedger interface {
 	// Hours does, because "any day inside the week I want" is one question and a
 	// second identical struct would be a copy that drifts silently.
 	Anomalies(ctx context.Context, tenantID uuid.UUID, f ledger.ReportFilter) (ledger.AnomalyScreen, error)
+	// InGroup and Group are GRP-1's, on the same argument: InGroup is the chrome's one question (is
+	// the Group tab drawn), Group the section's whole read.
+	InGroup(ctx context.Context, tenantID uuid.UUID) (bool, error)
+	Group(ctx context.Context, tenantID uuid.UUID) (ledger.GroupScreen, error)
 }
 
 // docketFragmentPath is the URL the HTMX paging request goes to.

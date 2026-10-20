@@ -52,6 +52,7 @@ const (
 	IconRules      = "rules"
 	IconBilling    = "billing"
 	IconAccount    = "account"
+	IconGroup      = "group"
 	IconDevelopers = "developers"
 	IconMore       = "more"
 )
@@ -256,6 +257,9 @@ templ NavIcon(name, class string) {
 			case IconAccount:
 				<path d="M4 21V8l8-5 8 5v13"></path>
 				<path d="M9 21v-6h6v6"></path>
+			case IconGroup:
+				<rect x="3" y="3" width="11" height="11" rx="1.5"></rect>
+				<rect x="10" y="10" width="11" height="11" rx="1.5"></rect>
 			case IconDevelopers:
 				<path d="M8 8l-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14"></path>
 			case IconMore:
@@ -276,8 +280,17 @@ templ NavIcon(name, class string) {
 // The heading is the only thing a caller must supply; the children carry the
 // sentence. Both are text, so the state is never carried by the border alone.
 templ EmptyState(heading string) {
+	@EmptyStateLabeled("Nothing here yet", heading) {
+		{ children... }
+	}
+}
+
+// EmptyStateLabeled is EmptyState with its small label named by the caller, for an absence that
+// "yet" would misdescribe -- the Group section's "not in a group" (GRP-1): nothing is about to
+// arrive there, so "Nothing here yet" would promise something. Same markup, same classes.
+templ EmptyStateLabeled(label, heading string) {
 	<section class="empty-state">
-		<p class="docket-label">Nothing here yet</p>
+		<p class="docket-label">{ label }</p>
 		<h2 class="font-display text-lg font-bold tracking-tight text-ink">{ heading }</h2>
 		<div class="text-sm text-ink/70">
 			{ children... }

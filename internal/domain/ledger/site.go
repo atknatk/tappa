@@ -211,18 +211,21 @@ type PartnerTaps struct {
 	More bool
 }
 
-// partnerTaps reads the week's partner-staff records from the projection.
-func partnerTaps(ctx context.Context, q *store.Queries, tenantID uuid.UUID, p Period) (PartnerTaps, error) {
+// partnerTaps reads a period's partner-staff records from the projection -- the earliest first (the
+// reports section's week), or with newestFirst the latest first (the Group section's recent list,
+// GRP-1: a capped read keeps the newest rows). One fold, one query, two orders.
+func partnerTaps(ctx context.Context, q *store.Queries, tenantID uuid.UUID, p Period, newestFirst bool) (PartnerTaps, error) {
 	rows, err := q.ListSitePunchesForPeriod(ctx, store.ListSitePunchesForPeriodParams{
-		TenantID: tenantID,
-		FromAt:   p.From,
-		UntilAt:  p.To,
-		RowLimit: readLimit(PartnerTapCap),
+		TenantID:    tenantID,
+		FromAt:      p.From,
+		UntilAt:     p.To,
+		NewestFirst: newestFirst,
+		RowLimit:    readLimit(PartnerTapCap),
 	})
 	if err != nil {
 		return PartnerTaps{}, fmt.Errorf("list the partner staff's taps: %w", err)
 	}
-	out := PartnerTaps{Queried: true} // the rows arrive in time order (the query's ORDER BY)
+	out := PartnerTaps{Queried: true} // the rows arrive in the query's order
 	if len(rows) > PartnerTapCap {
 		rows, out.More = rows[:PartnerTapCap], true
 	}

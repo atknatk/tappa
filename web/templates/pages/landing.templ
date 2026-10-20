@@ -431,7 +431,8 @@ templ landingCTA(v LandingView) {
 
 // landingFooter is the reference's two lines, plus the line the reference did not
 // have: the four legal documents (open-questions Q23 requires them reachable from
-// the footer, and TestMarketing_MountsEveryLegalDocumentAndLinksToIt holds it).
+// the footer, and TestMarketing_MountsEveryLegalDocumentAndLinksToIt holds it) and,
+// since M11 DOCS-1, the integration guide (pages.APIGuidePath).
 // They come from LegalPages, the same table internal/handler mounts the routes
 // from — one list, so a document cannot gain a route without a link or a link
 // without a route.
@@ -441,10 +442,11 @@ templ landingFooter() {
 			<span>© 2026 Taptime · Malta 🇲🇹</span>
 			<span>tap in · tap out · that's it</span>
 		</div>
-		<nav class="wrap footLegal" aria-label="Legal">
+		<nav class="wrap footLegal" aria-label="Legal and developers">
 			for _, p := range LegalPages {
 				<a href={ templ.URL(p.Path) }>{ p.NavLabel }</a>
 			}
+			<a href={ templ.URL(APIGuidePath) }>API docs</a>
 		</nav>
 	</footer>
 }
@@ -603,12 +605,15 @@ templ marketingChrome(signInHref string) {
 				Taptime collects no biometric data of any kind: no fingerprints, no face, no voice.
 				A phone's position is read only at the moment somebody presses the button.
 			</p>
-			<nav class="mt-6 flex flex-wrap gap-x-6 gap-y-2" aria-label="Legal">
+			<nav class="mt-6 flex flex-wrap gap-x-6 gap-y-2" aria-label="Legal and developers">
 				for _, p := range LegalPages {
 					<a href={ templ.URL(p.Path) } class="inline-flex min-h-11 min-w-11 items-center font-mono text-xs uppercase tracking-widest text-ink/70 underline underline-offset-4 motion-safe:transition-colors hover:text-ink">
 						{ p.NavLabel }
 					</a>
 				}
+				<a href={ templ.URL(APIGuidePath) } class="inline-flex min-h-11 min-w-11 items-center font-mono text-xs uppercase tracking-widest text-ink/70 underline underline-offset-4 motion-safe:transition-colors hover:text-ink">
+					API docs
+				</a>
 			</nav>
 		</div>
 	</footer>

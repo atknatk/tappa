@@ -1079,8 +1079,8 @@ the feed.
 
 A webhook is a fast notice, not the record: punches recorded while the endpoint was off are never
 delivered, and a `dead` delivery does not come back by itself. **Read the feed regularly** with its
-cursor ([section 6.4](#feed-paging)) and treat the webhook as "news now"; with deduplication by `id`
-+ `version`, the two never count a punch twice.
+cursor ([section 6.4](#feed-paging)) and treat the webhook as "news now"; with deduplication by
+`id` + `version`, the two never count a punch twice.
 
 <a id="suspension"></a>
 ## 10. Suspension

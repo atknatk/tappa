@@ -17,7 +17,8 @@ import (
 // holding.go -- the Go side of ADR 0027 §2's callable holding functions: the tap path's three
 // (M11 API-1b, migration 00043), holding_tap_site, holding_advance_tag_counter and holding_logo,
 // the employer's readers' one (M11 API-1c, migration 00047), holding_site_locations, and the
-// integration API's directory (M11 API-8, migration 00055), holding_directory.
+// integration API's directory (M11 API-8, migration 00055), holding_directory, and the panel's Group
+// section's (GRP-1, migration 00062), holding_group.
 //
 // HAND-WRITTEN AND TYPED, for resolve.go's reason: sqlc v1.28 cannot type a call to a
 // `RETURNS TABLE(...)` function (ADR 0002 md.7, measured three times). The SQL strings below
@@ -384,6 +385,60 @@ func (h Holding) Directory(ctx context.Context, since *time.Time, cursor *uuid.U
 	})
 	if err != nil {
 		return nil, fmt.Errorf("db: holding_directory: %w", err)
+	}
+	return out, nil
+}
+
+// HoldingGroupMember is holding_group's row: one LIVE member of a holding the caller is a live member
+// of (ADR 0027 §2, its GRP-1 note) -- the caller's own row included (IsSelf). 🔴 A name, a company code
+// and a date, nothing else of a member (K-1d): the function returns no VAT number, address, e-mail,
+// headcount, plan or API switch, and no member that has left.
+type HoldingGroupMember struct {
+	// HoldingID keys the holding; the panel groups by it and prints none of it.
+	HoldingID   uuid.UUID
+	HoldingName string
+	MemberName  string
+	// APICode is the member's company code, nil when it never had one (K-22).
+	APICode  *string
+	JoinedAt time.Time
+	IsSelf   bool
+}
+
+// HoldingGroupMax is the function's LIMIT (ADR 0027 §2: "en çok 1000") -- a holding is a handful of
+// businesses; a read that reaches it says so (ErrHoldingGroupTruncated) rather than list some members.
+const HoldingGroupMax = 1000
+
+// ErrHoldingGroupTruncated: the caller's holding holds more members than one read takes.
+var ErrHoldingGroupTruncated = errors.New("db: holding_group: more members than one read takes")
+
+const holdingGroupSQL = `SELECT holding_id, holding_name, member_name, member_api_code, joined_at, is_self
+  FROM public.holding_group()`
+
+// Group reads the caller's live holding(s) and their live members, the caller's own row first in each
+// holding. A business in no holding, a membership that has ended and no context are one answer: no row
+// (ADR 0027 §6, the reads are strict).
+func (h Holding) Group(ctx context.Context) ([]HoldingGroupMember, error) {
+	rows, err := h.tx.Query(ctx, holdingGroupSQL)
+	if err != nil {
+		return nil, fmt.Errorf("db: holding_group: %w", err)
+	}
+	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (HoldingGroupMember, error) {
+		var m HoldingGroupMember
+		var hname, mname *string
+		err := r.Scan(&m.HoldingID, &hname, &mname, &m.APICode, &m.JoinedAt, &m.IsSelf)
+		if hname != nil {
+			m.HoldingName = *hname
+		}
+		if mname != nil {
+			m.MemberName = *mname
+		}
+		return m, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("db: holding_group: %w", err)
+	}
+	if len(out) >= HoldingGroupMax {
+		return nil, ErrHoldingGroupTruncated
 	}
 	return out, nil
 }

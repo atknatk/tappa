@@ -166,15 +166,17 @@ FROM (
     ORDER BY s.transaction_id, s.created_at DESC,
              CASE s.outcome WHEN 'approved' THEN 0 WHEN 'rejected' THEN 0 ELSE 1 END
 ) AS f
-ORDER BY f.occurred_at, f.transaction_id
-LIMIT $4::int
+ORDER BY CASE WHEN $4::boolean THEN f.occurred_at END DESC,
+         f.occurred_at, f.transaction_id
+LIMIT $5::int
 `
 
 type ListSitePunchesForPeriodParams struct {
-	TenantID uuid.UUID
-	FromAt   time.Time
-	UntilAt  time.Time
-	RowLimit int32
+	TenantID    uuid.UUID
+	FromAt      time.Time
+	UntilAt     time.Time
+	NewestFirst bool
+	RowLimit    int32
 }
 
 type ListSitePunchesForPeriodRow struct {
@@ -213,13 +215,15 @@ type ListSitePunchesForPeriodRow struct {
 // time -- the window the reports section reads its own staff by -- one row per employer record,
 // its LAST outcome ("transaction_id başına son satır": an approval or a rejection supersedes the
 // pending_review it decides; a decision outranks a pending row written in the same transaction).
-// Ordered by time, the earliest first; the limit is a bound on the request, one row more than
-// the screen lists so it can say "showing N of M".
+// Ordered by time, the earliest first -- or, with newest_first (the Group section's "recent" list,
+// GRP-1), the latest first, so a capped read keeps the newest rows; the limit is a bound on the
+// request, one row more than the screen lists so it can say "showing N of M".
 func (q *Queries) ListSitePunchesForPeriod(ctx context.Context, arg ListSitePunchesForPeriodParams) ([]ListSitePunchesForPeriodRow, error) {
 	rows, err := q.db.Query(ctx, listSitePunchesForPeriod,
 		arg.TenantID,
 		arg.FromAt,
 		arg.UntilAt,
+		arg.NewestFirst,
 		arg.RowLimit,
 	)
 	if err != nil {

@@ -428,7 +428,7 @@ func (r *Reader) Hours(ctx context.Context, tenantID uuid.UUID, f ReportFilter) 
 			return err
 		}
 		evs, unattributable := events(rows, clock.Timezone, sites)
-		if out.Partners, err = partnerTaps(ctx, q, tenantID, period); err != nil {
+		if out.Partners, err = partnerTaps(ctx, q, tenantID, period, false); err != nil {
 			return err
 		}
 		body := accumulate(evs, period, zone, time.Now())

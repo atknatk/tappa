@@ -1090,6 +1090,49 @@
   .op-row {
     @apply flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b border-line py-2 text-ink last:border-b-0;
   }
+
+  /* THE INTEGRATION GUIDE'S BODY (M11 DOCS-1, /docs/api). internal/apiguide converts the
+     Markdown with goldmark, whose output carries no class, so every rule here is scoped
+     under the one wrapper the page draws around it and reaches nothing else in the product.
+     Palette only: ink/85 prose on porcelain 9.29:1 (as the legal pages' prose), ink code on
+     paper 16.17:1, the table head's ink/70 on paper 6.05:1, tappa-green for a hovered link
+     (6.85:1 on porcelain) -- computed, WCAG relative luminance, sRGB composite.
+     NO SIDEWAYS PAGE SCROLL: a table and a code block scroll inside their own box (a table
+     is made a block for that), and inline code in prose may break anywhere, so a long path
+     wraps at 390 px instead of widening the page. Code is IBM Plex Mono and not coloured. */
+  .guide-prose { @apply text-base leading-relaxed text-ink/85; }
+  .guide-prose > * + * { @apply mt-4; }
+  .guide-prose h2 { @apply mt-14 border-t border-line pt-6 font-display text-2xl font-bold tracking-tight text-ink; }
+  .guide-prose h3 { @apply mt-10 font-display text-lg font-bold tracking-tight text-ink; }
+  .guide-prose h4 { @apply mt-8 font-display text-base font-bold tracking-tight text-ink; }
+  .guide-prose :is(h2, h3, h4) { scroll-margin-top: 1.5rem; }
+  .guide-prose :is(h2, h3, h4) > a { @apply text-ink no-underline; }
+  .guide-prose :is(h2, h3, h4) > a:hover { @apply underline underline-offset-4; }
+  .guide-prose :is(h2, h3, h4) > a:hover::after { content: " #"; @apply text-ink/70; }
+  .guide-prose :is(p, li, td) a { @apply text-ink underline underline-offset-4; }
+  .guide-prose :is(p, li, td) a:hover { @apply text-tappa-green; }
+  .guide-prose strong { @apply font-bold text-ink; }
+  .guide-prose ul { @apply list-disc pl-6; }
+  .guide-prose ol { @apply list-decimal pl-6; }
+  .guide-prose li + li,
+  .guide-prose li > ul,
+  .guide-prose li > ol { @apply mt-1.5; }
+  .guide-prose blockquote { @apply border-l-4 border-line pl-4; }
+  .guide-prose code { @apply border border-line bg-paper px-1 font-mono text-[0.875em] text-ink; overflow-wrap: anywhere; }
+  .guide-prose pre { @apply max-w-full overflow-x-auto border border-line bg-paper p-4 font-mono text-sm leading-snug text-ink; }
+  .guide-prose pre code { @apply border-0 bg-transparent p-0 text-[1em]; overflow-wrap: normal; white-space: pre; }
+  .guide-prose table { @apply block max-w-full overflow-x-auto border border-line bg-paper text-left text-sm; border-collapse: collapse; }
+  .guide-prose th { @apply border-b border-line px-3 py-2 align-bottom text-[10px] uppercase tracking-widest text-ink/70; }
+  .guide-prose td { @apply border-b border-line px-3 py-2 align-top; }
+  /* A prose cell keeps a readable measure on a phone (measured at 390 px: without it the
+     errors table's meaning column shrank to three words a line); the table scrolls instead. */
+  .guide-prose :is(th, td) { min-width: 10rem; }
+  .guide-prose td code { overflow-wrap: normal; white-space: nowrap; }
+  .guide-prose hr { @apply border-line; }
+  /* The guide's own contents list is the page's table of contents wherever the side
+     navigation is not drawn (a phone, a tablet, a small laptop), so each of its links is a
+     44 px touch target. The heading's id is the guide's own anchor (apiguide.ContentsID). */
+  .guide-prose h2#contents + ul a { @apply inline-flex min-h-11 items-center; }
 }
 
 /* =====================================================================

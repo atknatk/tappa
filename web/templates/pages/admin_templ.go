@@ -1200,6 +1200,9 @@ func panelTabs(c PanelChrome) []navTab {
 		if s.OwnerOnly && c.Role != adminRoleOwner {
 			continue
 		}
+		if s.GroupOnly && !c.InGroup {
+			continue
+		}
 		t := components.Tab{Label: s.Label, Href: s.Href, Short: s.Short, Icon: s.Icon}
 		if !s.Footer {
 			n++

@@ -64,6 +64,9 @@ var holdingSignatures = []holdingSignature{
 	// 00060 (T124, the user's decision of 2026-10-18): holding_peer's set form -- the one predicate's
 	// second signature, b free; the only name with two rows here ((iii) counts them).
 	{"holding_peer", "a uuid, mod text", "SETOF uuid", holdingPredicate},
+	// 00062 (GRP-1, the panel's Group section): holding_peer's roster form -- the one predicate's third
+	// signature, a's live holding(s) and their live members with the date each joined, a included.
+	{"holding_peer", "a uuid", "TABLE(holding_id uuid, member_tenant_id uuid, joined_at timestamp with time zone)", holdingPredicate},
 	{"holding_timezone_lock", "", "trigger", holdingTrigger},
 	// 00043 (M11 API-1b): the tap path's three callables and the site gate -- the ADR's rows, verbatim.
 	{"holding_tap_site", "p_uid character",
@@ -86,6 +89,11 @@ var holdingSignatures = []holdingSignature{
 	{"holding_directory", "p_updated_since timestamp with time zone, p_cursor uuid",
 		"TABLE(employee_id uuid, employer_tenant_id uuid, api_code text, external_ref text, employee_code text, " +
 			"first_name text, last_name text, full_name text, active boolean, updated_at timestamp with time zone)", holdingCallable},
+	// 00062 (GRP-1): the caller's own holding and its live members -- a name, a company code and a date
+	// (K-1d); no VAT number, address, e-mail, headcount, plan, API switch, and no member that has left.
+	{"holding_group", "",
+		"TABLE(holding_id uuid, holding_name text, member_name text, member_api_code text, " +
+			"joined_at timestamp with time zone, is_self boolean)", holdingCallable},
 }
 
 // holdingTriggerConfig is a holding trigger function's exact proconfig: the search path and
@@ -708,9 +716,9 @@ func TestHoldingPeer_IsTheOnlyBodyThatTouchesHoldingMembers(t *testing.T) {
 	if walked < 1000 {
 		t.Fatalf("anti-vacuity: the scan read %d definitions; pg_catalog alone has thousands", walked)
 	}
-	// Both forms of the one predicate name the table (the set form since 00060 -- T124): the scan is
-	// read on what it exempts.
-	for _, form := range []string{"public.holding_peer(uuid, uuid, text)", "public.holding_peer(uuid, text)"} {
+	// Every form of the one predicate names the table (the set form since 00060 -- T124; the roster
+	// form since 00062 -- GRP-1): the scan is read on what it exempts.
+	for _, form := range []string{"public.holding_peer(uuid, uuid, text)", "public.holding_peer(uuid, text)", "public.holding_peer(uuid)"} {
 		var def string
 		if err := tx.QueryRow(ctx, `SELECT pg_get_functiondef($1::regprocedure)`, form).Scan(&def); err != nil {
 			t.Fatal(err)
@@ -1181,6 +1189,8 @@ var holdingDefinerMatrix = map[string]string{
 	// complete. email is K-34's "never SELECT" (TestHoldingDefiner_NeverSelectColumns).
 	"employees:SELECT":       "id,tenant_id,full_name,status,external_ref,employee_code,first_name,last_name,updated_at",
 	"holding_members:UPDATE": "lock_anchor",
+	// 00062 (GRP-1): holding_group -- the holding's name (and its key, to join on); created_at never.
+	"holdings:SELECT": "id,name",
 	// 00043 (API-1b): holding_tap_site, holding_advance_tag_counter, holding_logo, holding_site_gate.
 	"tags:SELECT":            "uid,tenant_id,location_id,last_ctr,status",
 	"tags:UPDATE":            "last_ctr",
@@ -1538,6 +1548,11 @@ var holdingCanaryCalls = map[string]holdingCanaryCall{
 		sql:  `SELECT * FROM public.holding_directory(NULL, NULL)`,
 		args: func(holdingCanaryFixture) []any { return nil },
 	},
+	// 00062 (GRP-1): the caller's holding and its members, the canary's peer among them -- no exemption.
+	"holding_group": {
+		sql:  `SELECT * FROM public.holding_group()`,
+		args: func(holdingCanaryFixture) []any { return nil },
+	},
 }
 
 // holdingWrittenTables are the tables the holding trigger writes (ADR 0027 §3, "yazılan
@@ -1827,6 +1842,16 @@ var holdingMultiRowCalls = map[string]holdingMultiRowCall{
 		grow: `INSERT INTO employees (tenant_id, external_ref, full_name, status, invited_at)
 		       SELECT $1, 'api8-peerset-' || gen_random_uuid(), 'Peerset Staff', 'active', now() FROM generate_series(1, 50) AS g`,
 	},
+	// 00062 (GRP-1): the members of the peer's holding -- 50 more businesses join it.
+	"holding_group": {
+		sql: `SELECT * FROM public.holding_group()`,
+		grow: `WITH h AS (SELECT holding_id FROM holding_members WHERE member_tenant_id = $1 AND left_at IS NULL),
+		            t AS (INSERT INTO tenants (name, vat_number, business_type, structure, plan)
+		                  SELECT 'grp1 peerset ' || x, 'VAT-GRP1-' || x, 'restaurant', 'multi', 'standard'
+		                    FROM (SELECT gen_random_uuid()::text AS x FROM generate_series(1, 50)) AS g RETURNING id)
+		       INSERT INTO holding_members (holding_id, member_tenant_id, joined_at)
+		       SELECT h.holding_id, t.id, clock_timestamp() - interval '1 minute' FROM h, t`,
+	},
 }
 
 // holdingSingleRowCalls are the set-returning callables keyed by ONE primary key -- a plaque's
@@ -1846,7 +1871,35 @@ var holdingSingleRowCalls = map[string]string{
 func holdingPeerCalls(t *testing.T, ctx context.Context, tx pgx.Tx, tenant uuid.UUID, stmt string) int64 {
 	t.Helper()
 	pair, set := holdingPeerCallsByForm(t, ctx, tx, tenant, stmt)
-	return pair + set
+	return pair + set + holdingPeerRosterCalls(t, ctx, tx, tenant, stmt)
+}
+
+// holdingPeerRosterCalls counts the calls stmt makes of holding_peer's roster form (00062, GRP-1).
+func holdingPeerRosterCalls(t *testing.T, ctx context.Context, tx pgx.Tx, tenant uuid.UUID, stmt string) int64 {
+	t.Helper()
+	const rosterForm = "public.holding_peer(uuid)"
+	count := func(q pgx.Tx) int64 {
+		return opInt(t, ctx, q, `SELECT coalesce((SELECT calls FROM pg_stat_xact_user_functions WHERE funcid = $1::regprocedure), 0)`, rosterForm)
+	}
+	var n int64
+	if err := holdingAppIn(t, ctx, tx, tenant, func(sp pgx.Tx) error {
+		n0 := count(sp)
+		rows, err := sp.Query(ctx, stmt)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		n = count(sp) - n0
+		return nil
+	}); err != nil {
+		t.Fatalf("count holding_peer's roster calls: %v", err)
+	}
+	return n
 }
 
 // holdingPeerCallsByForm is holdingPeerCalls, the two forms apart: the pair form

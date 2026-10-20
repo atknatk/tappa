@@ -65,6 +65,13 @@ func unbrandedChromeRenders() []unbrandedRender {
 	// The scriptless panel shell on every section's tab, as an owner (who sees every
 	// tab, OwnerOnly included) with records waiting.
 	for _, s := range pages.PanelSections {
+		if s.Tab == pages.TabGroup {
+			// GRP-1: these chromes are a business in no group's (InGroup false), whose chrome
+			// GRP-1 left byte for byte as it was -- so the Group tab is in none of them, and a
+			// Group-section render here would hold the h1 of a section this business is not
+			// shown. A holding member's chrome is held by the Group tests (group_test.go).
+			continue
+		}
 		name := string(s.Tab)
 		if s.Tab == pages.TabAPIKeys {
 			// Named by its label: the tab's id beside a sha256 in the golden below is the

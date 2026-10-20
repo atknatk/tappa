@@ -59,23 +59,29 @@ import (
 // which is what every section test needs before it can see a section at all.
 func panelBrowser(t *testing.T) *browser {
 	t.Helper()
-	admins := &fakeAdmins{verify: func() (adminauth.Resolved, error) {
-		return adminauth.Resolved{
-			SessionID: panelTestSession, TenantID: panelTestTenant, AdminUserID: panelTestAdmin,
-			Role: "owner", FullName: "KF Owner",
-		}, nil
-	}}
-	b := newBrowser(t, newAdminRouter(t, admins, &fakeTrail{}))
-	b.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-	return b
+	return panelBrowserWith(t, newFakeLedger())
 }
 
 // sectionBodies renders every panel section once, keyed by href. Several tests
 // need every one of them and none should pay for a second render.
 func sectionBodies(t *testing.T) map[string]string {
 	t.Helper()
+	// GRP-1: as a GROUP MEMBER, so the bar draws every section's tab -- the Group tab is drawn for
+	// a member alone (TestGroup_ANonMemberSeesNoTabAndTheEmptyState is the other side).
+	return sectionBodiesAs(t, true)
+}
+
+// sectionBodiesAs is sectionBodies for a business that is a live holding member or is in no
+// group (GRP-1): the navigation tests run over both, because the Group tab is drawn for the first
+// alone and the second's chrome is the one before GRP-1.
+func sectionBodiesAs(t *testing.T, member bool) map[string]string {
+	t.Helper()
 	assertSectionTableIsUsable(t)
-	b := panelBrowser(t)
+	records := newFakeLedger()
+	if member {
+		fakeMember(records)
+	}
+	b := panelBrowserWith(t, records)
 	out := make(map[string]string, len(pages.PanelSections))
 	for _, s := range pages.PanelSections {
 		rec := b.do(http.MethodGet, s.Href, nil)
@@ -150,12 +156,31 @@ func TestPanelSections_EveryOneIsRoutedAndBehindTheGate(t *testing.T) {
 // It also asserts the navigation offers EVERY section, as a set both ways. That
 // is what stops a section from being routed but unreachable by clicking, which is
 // the same defect as a dead link and much harder to notice.
+//
+// GRP-1: both ways over membership. A live holding member is offered every section,
+// Group included; a business in no group is offered every section but Group, and on
+// the Group route itself (a stale bookmark answers with the empty state) no tab is
+// current, because the section it is looking at is not drawn.
 func TestPanelSections_EachRequestMarksExactlyItsOwnTabCurrent(t *testing.T) {
-	bodies := sectionBodies(t)
+	for _, member := range []bool{true, false} {
+		assertSideNavForMembership(t, member)
+	}
+}
+
+func assertSideNavForMembership(t *testing.T, member bool) {
+	t.Helper()
+	bodies := sectionBodiesAs(t, member)
 
 	want := map[string]bool{}
 	for _, s := range pages.PanelSections {
+		if s.GroupOnly && !member {
+			continue
+		}
 		want[s.Href] = true
+	}
+	if member && len(want) != len(pages.PanelSections) || !member && len(want) >= len(pages.PanelSections) {
+		t.Fatalf("anti-vacuity: member=%v expects %d of %d sections; GroupOnly must hide exactly what is not drawn",
+			member, len(want), len(pages.PanelSections))
 	}
 
 	for _, s := range pages.PanelSections {
@@ -168,21 +193,28 @@ func TestPanelSections_EachRequestMarksExactlyItsOwnTabCurrent(t *testing.T) {
 				current = append(current, l.href)
 			}
 		}
-		if len(current) != 1 {
-			t.Errorf("GET %s renders %d current tab(s) %v, want exactly 1",
-				s.Href, len(current), current)
-		} else if current[0] != s.Href {
-			t.Errorf("GET %s marks %s as the current tab", s.Href, current[0])
+		switch {
+		case !want[s.Href]:
+			if len(current) != 0 {
+				t.Errorf("member=%v GET %s marks %v current, but its own tab is not drawn",
+					member, s.Href, current)
+			}
+		case len(current) != 1:
+			t.Errorf("member=%v GET %s renders %d current tab(s) %v, want exactly 1",
+				member, s.Href, len(current), current)
+		case current[0] != s.Href:
+			t.Errorf("member=%v GET %s marks %s as the current tab", member, s.Href, current[0])
 		}
 		for href := range want {
 			if !got[href] {
-				t.Errorf("GET %s does not offer a link to %s -- the section is routed "+
-					"but cannot be reached by clicking", s.Href, href)
+				t.Errorf("member=%v GET %s does not offer a link to %s -- the section is routed "+
+					"but cannot be reached by clicking", member, s.Href, href)
 			}
 		}
 		for href := range got {
 			if !want[href] {
-				t.Errorf("GET %s offers a tab to %s, which is not a section", s.Href, href)
+				t.Errorf("member=%v GET %s offers a tab to %s, which is not a section it is shown",
+					member, s.Href, href)
 			}
 		}
 	}
@@ -198,20 +230,46 @@ func TestPanelSections_EachRequestMarksExactlyItsOwnTabCurrent(t *testing.T) {
 // disclosure (<details>/<summary>), so it opens with no script on a page whose policy
 // has no script-src; and when the current section is in the (closed) sheet, the summary
 // names it in visually hidden text.
+//
+// GRP-1, both ways over membership: a live holding member's sheet lists Group (it has no
+// bar slot); a business in no group is offered every other section and no Group link
+// anywhere in the phone nav, and on the Group route itself (a stale bookmark) nothing in
+// the phone nav is current.
 func TestPanelSections_ThePhoneNavMarksExactlyOneCurrentAndOffersEverySection(t *testing.T) {
-	bodies := sectionBodies(t)
+	for _, member := range []bool{true, false} {
+		assertPhoneNavForMembership(t, member)
+	}
+}
+
+func assertPhoneNavForMembership(t *testing.T, member bool) {
+	t.Helper()
+	bodies := sectionBodiesAs(t, member)
 	navRE := regexp.MustCompile(`(?s)<nav class="bar" aria-label="Panel sections, phone">(.*?)</nav>`)
 	linkRE := regexp.MustCompile(`<a href="([^"]*)" class="(bar-link|sheet-link)[^"]*"([^>]*)>`)
 	wantBar := []string{transactionsHref, reviewHref, "/admin/reports", "/admin/employees"}
+	offered := map[string]bool{}
+	for _, sec := range pages.PanelSections {
+		if sec.GroupOnly && !member {
+			continue
+		}
+		offered[sec.Href] = true
+	}
+	if member != offered[groupHref] || len(offered) < 2 {
+		t.Fatalf("anti-vacuity: member=%v offers %d sections, Group=%v", member, len(offered), offered[groupHref])
+	}
 	for _, s := range pages.PanelSections {
 		body := bodies[s.Href]
 		navs := navRE.FindAllStringSubmatch(body, -1)
 		if len(navs) != 1 {
-			t.Fatalf("GET %s renders %d phone navs, want 1", s.Href, len(navs))
+			t.Fatalf("member=%v GET %s renders %d phone navs, want 1", member, s.Href, len(navs))
 		}
 		nav := navs[0][1]
-		if n := strings.Count(nav, "aria-current"); n != 1 {
-			t.Errorf("GET %s: the phone nav carries %d aria-current, want exactly 1", s.Href, n)
+		wantCurrent := 1
+		if !offered[s.Href] {
+			wantCurrent = 0 // its own link is not drawn, so nothing in the nav is the page
+		}
+		if n := strings.Count(nav, "aria-current"); n != wantCurrent {
+			t.Errorf("member=%v GET %s: the phone nav carries %d aria-current, want exactly %d", member, s.Href, n, wantCurrent)
 		}
 		var bar []string
 		seen := map[string]int{}
@@ -233,12 +291,24 @@ func TestPanelSections_ThePhoneNavMarksExactlyOneCurrentAndOffersEverySection(t 
 			t.Errorf("GET %s: the bottom bar links %v, want %v", s.Href, bar, wantBar)
 		}
 		for _, sec := range pages.PanelSections {
-			if seen[sec.Href] != 1 {
-				t.Errorf("GET %s: the phone nav links %s %d times, want once", s.Href, sec.Href, seen[sec.Href])
+			want := 0
+			if offered[sec.Href] {
+				want = 1
+			}
+			if seen[sec.Href] != want {
+				t.Errorf("member=%v GET %s: the phone nav links %s %d times, want %d", member, s.Href, sec.Href, seen[sec.Href], want)
 			}
 		}
-		if len(seen) != len(pages.PanelSections) {
-			t.Errorf("GET %s: the phone nav links %d distinct targets for %d sections", s.Href, len(seen), len(pages.PanelSections))
+		if len(seen) != len(offered) {
+			t.Errorf("member=%v GET %s: the phone nav links %d distinct targets for %d sections", member, s.Href, len(seen), len(offered))
+		}
+		if member {
+			// Group has no bar slot: it is a sheet link, never a bar link.
+			if !strings.Contains(nav, `<a href="`+groupHref+`" class="sheet-link`) {
+				t.Errorf("member=%v GET %s: the More sheet does not list Group", member, s.Href)
+			}
+		} else if strings.Contains(nav, groupHref) {
+			t.Errorf("member=%v GET %s: the phone nav of a business in no group names %s", member, s.Href, groupHref)
 		}
 		if !strings.Contains(nav, `<details class="bar-more">`) || strings.Count(nav, "<summary") != 1 {
 			t.Errorf("GET %s: More is not one native <details>/<summary> disclosure", s.Href)
@@ -255,6 +325,72 @@ func TestPanelSections_ThePhoneNavMarksExactlyOneCurrentAndOffersEverySection(t 
 		}
 		if !inSheet && strings.Contains(nav, ", current: ") {
 			t.Errorf("GET %s: the summary claims a current section the sheet does not hold", s.Href)
+		}
+	}
+}
+
+// TestPanelSections_TheGroupTabSitsAfterAccountInTheSidebarsSecondGroup pins where
+// GRP-1's tab is drawn in the 2026-10-20 shell, for both roles and both memberships:
+// in the sidebar's second (unnumbered) group, in the section table's order -- Billing,
+// Account, Group, Developers, each as the role may see it -- with its rail label and
+// its rail icon; and for a business in no group that group is exactly what it was
+// before GRP-1. The first group, the numbered operational run, never holds it.
+func TestPanelSections_TheGroupTabSitsAfterAccountInTheSidebarsSecondGroup(t *testing.T) {
+	footRE := regexp.MustCompile(`(?s)<div class="side-group side-group--foot">(.*?)</div>`)
+	mainRE := regexp.MustCompile(`(?s)<div class="side-group">(.*?)</div>`)
+	hrefRE := regexp.MustCompile(`<a href="([^"]*)" class="tab-link`)
+	groupLinkRE := regexp.MustCompile(`(?s)<a href="` + regexp.QuoteMeta(groupHref) + `" class="tab-link[^"]*"[^>]*>(.*?)</a>`)
+	cases := []struct {
+		role   string
+		member bool
+		want   []string
+	}{
+		{"owner", true, []string{billingHref, accountHref, groupHref, apiKeysHref}},
+		{"owner", false, []string{billingHref, accountHref, apiKeysHref}},
+		{"manager", true, []string{accountHref, groupHref}},
+		{"manager", false, []string{accountHref}},
+	}
+	for _, c := range cases {
+		records := newFakeLedger()
+		if c.member {
+			fakeMember(records)
+		}
+		body := htmlOf(t, groupBrowser(t, c.role, records).do(http.MethodGet, reportsHref, nil))
+		foot := footRE.FindStringSubmatch(body)
+		main := mainRE.FindStringSubmatch(body)
+		if foot == nil || main == nil {
+			t.Fatalf("%s member=%v: the sidebar has no two groups", c.role, c.member)
+		}
+		var got []string
+		for _, m := range hrefRE.FindAllStringSubmatch(foot[1], -1) {
+			got = append(got, m[1])
+		}
+		if !slices.Equal(got, c.want) {
+			t.Errorf("%s member=%v: the sidebar's second group links %v, want %v", c.role, c.member, got, c.want)
+		}
+		if strings.Contains(main[1], groupHref) {
+			t.Errorf("%s member=%v: the numbered run holds the Group tab", c.role, c.member)
+		}
+		link := groupLinkRE.FindStringSubmatch(body)
+		if (link != nil) != c.member {
+			t.Errorf("%s member=%v: the sidebar draws the Group link = %v", c.role, c.member, link != nil)
+			continue
+		}
+		if link == nil {
+			continue
+		}
+		for _, want := range []string{
+			`<span class="tab-no" aria-hidden="true">··</span>`,
+			`<span class="tab-label">Group</span>`,
+			`<span class="tab-short">Group</span>`,
+			`<rect x="3" y="3" width="11" height="11" rx="1.5"></rect>`,
+		} {
+			if !strings.Contains(link[1], want) {
+				t.Errorf("%s: the Group tab lacks %q", c.role, want)
+			}
+		}
+		if !strings.Contains(link[1], `aria-hidden="true" focusable="false"`) {
+			t.Errorf("%s: the Group tab's icon is not hidden from assistive technology", c.role)
 		}
 	}
 }
@@ -280,7 +416,8 @@ func TestPanelSections_RenderTheirOwnContentAndNoOthers(t *testing.T) {
 	// drifted to "TODO" or "" would otherwise satisfy the containment checks below
 	// trivially (every body contains "").
 	// M11's tasks are named API-N (docs/plan/m11-entegrasyon-api.md §5).
-	taskRE := regexp.MustCompile(`^(M[0-9]-[0-9]{2}|API-[0-9]+)$`)
+	// GRP-1 is the panel's Group section's (docs/backlog.md).
+	taskRE := regexp.MustCompile(`^(M[0-9]-[0-9]{2}|API-[0-9]+|GRP-[0-9]+)$`)
 	tasks := map[string]string{}
 	for _, s := range pages.PanelSections {
 		if !taskRE.MatchString(s.Task) {

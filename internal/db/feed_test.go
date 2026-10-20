@@ -252,7 +252,7 @@ func feedSetAsideRows(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	}
 }
 
-// feedBelow48 takes the savepoint's database below 00048 -- 00060's Down (T124), 00058's (T130), 00055's (API-8), 00049's, then
+// feedBelow48 takes the savepoint's database below 00048 -- 00062's Down (GRP-1), 00060's Down (T124), 00058's (T130), 00055's (API-8), 00049's, then
 // 00048's -- with the
 // feed rows set aside first. The caller's savepoint is a holdingLockedSavepoint; the lock is taken
 // again here, as holdingBelow46 does.
@@ -268,6 +268,10 @@ func feedBelow48(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	// T124: 00060's Down before 00055's -- 00055's Down drops holding_directory, whose 00060 body is the
 	// one 00055's own does not know; 00060's gives 00055's bodies back and drops holding_peer's set form
 	// (a walk below 00041 must not find a second holding_peer). No table lock.
+	// GRP-1: 00062's Down before 00060's -- 00060's Up refuses a third holding_peer, and a walk below
+	// 00041 must not find the roster form or holding_group (feedUpAgain gives them back). No table lock.
+	_, down62 := opMigrationSections(t, op00062File)
+	opRunSection(t, ctx, sp, down62, "00062 Down")
 	_, down60 := opMigrationSections(t, op00060File)
 	opRunSection(t, ctx, sp, down60, "00060 Down")
 	_, down58 := opMigrationSections(t, op00058File)
@@ -280,7 +284,7 @@ func feedBelow48(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	opRunSection(t, ctx, sp, down48, "00048 Down")
 }
 
-// feedUpAgain runs 00048's, 00049's, 00055's, 00058's, 00059's and 00060's Ups -- after feedBelow48 and whatever the test walked
+// feedUpAgain runs 00048's, 00049's, 00055's, 00058's, 00059's, 00060's and 00062's Ups -- after feedBelow48 and whatever the test walked
 // below it, to compare with HEAD.
 func feedUpAgain(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	t.Helper()
@@ -296,6 +300,8 @@ func feedUpAgain(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	opRunSection(t, ctx, sp, up59, "00059 Up again")
 	up60, _ := opMigrationSections(t, op00060File)
 	opRunSection(t, ctx, sp, up60, "00060 Up again")
+	up62, _ := opMigrationSections(t, op00062File)
+	opRunSection(t, ctx, sp, up62, "00062 Up again")
 }
 
 func feedStr(p *string) string {
