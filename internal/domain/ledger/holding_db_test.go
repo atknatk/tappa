@@ -239,7 +239,9 @@ func hLocal(t *testing.T, day, clock string) time.Time {
 // and each reader is asked as the EMPLOYER: the venue is the site's, by name, its shift is the
 // site's, and the site's evidence is not described (K-39). Readers 7 and 8 name the site's plaque
 // NOWHERE at the employer (the site sees it from its projection -- the site half is asserted
-// too), reader 9 is the site's: its venue's references count the peer's taps.
+// too), reader 9 is the site's: its venue's references count the peer's taps. M12's Pass readers
+// follow as cases 10 onward (the panel redesign's D3 reads): each names the site's venue for the
+// employer, carries no evidence, and the site's own reading does not hold the employer's staff.
 func TestEmployerReaders_NineReadersNameTheSite(t *testing.T) {
 	w := newHWorld(t)
 	day := Date{Year: 2026, Month: time.September, Day: 16}
@@ -308,6 +310,9 @@ func TestEmployerReaders_NineReadersNameTheSite(t *testing.T) {
 			t.Errorf("the flagged open check-in is not listed (%d open)", len(anomalies.Open))
 		})
 		t.Run(dir.name+"/4 ListWorkedShiftEvents + resolveShift", func(t *testing.T) {
+			// M12-21: e1's HOME is the employer's own venue, so the shift at the peer's venue is
+			// "at another venue" on the Roll -- a duration and a mark, no evidence (K-39).
+			w.exec(`UPDATE employees SET location_id = $2 WHERE tenant_id = $1 AND id = $3`, dir.employer, w.venue[dir.employer], e[0])
 			hours, err := w.r.Hours(w.ctx, dir.employer, ReportFilter{Day: day})
 			if err != nil {
 				t.Fatal(err)
@@ -331,6 +336,14 @@ func TestEmployerReaders_NineReadersNameTheSite(t *testing.T) {
 				if p.EmployeeID == e[0] && p.LateShifts == 0 {
 					t.Error("e1 arrived 09:30 against the site's 09:00 shift and is not late -- the site's shift was not resolved")
 				}
+				// Wednesday 16 September is day 2 of the week of Monday 14 September.
+				if p.EmployeeID == e[0] && (len(p.Marks) != ReportDays || !p.Marks[2].Other || p.HomeVenue != w.venueName[dir.employer]) {
+					t.Errorf("e1 worked at the peer's venue away from home (%q) and the Roll does not mark it: %+v", w.venueName[dir.employer], p.Marks)
+				}
+			}
+			if !hours.Homes.Queried || hours.Totals.OtherVenue != 1 || hours.Totals.OtherVenueUnknown != 0 {
+				t.Errorf("Roll totals: homes %+v, other venue %d, not judged %d; want e1's one shift at the peer's venue",
+					hours.Homes, hours.Totals.OtherVenue, hours.Totals.OtherVenueUnknown)
 			}
 		})
 		t.Run(dir.name+"/5 ListAnomalyVenues", func(t *testing.T) {
@@ -348,6 +361,10 @@ func TestEmployerReaders_NineReadersNameTheSite(t *testing.T) {
 		t.Run(dir.name+"/6 ListTapsTakenTogether", func(t *testing.T) {
 			for _, p := range anomalies.Pairs {
 				if p.Venue == venue {
+					// M12-23: the week's dots -- Wed 16 and Thu 17 of the week from Mon 14 September.
+					if want := []bool{false, false, true, true, false, false, false}; !slices.Equal(p.TogetherOn, want) || p.Days != 2 {
+						t.Errorf("the pair's days: %v (%d), want %v (2)", p.TogetherOn, p.Days, want)
+					}
 					return
 				}
 			}
@@ -416,6 +433,107 @@ func TestEmployerReaders_NineReadersNameTheSite(t *testing.T) {
 			}
 			if refs.HoldingCount < 6 {
 				t.Errorf("the site's venue counts %d holding references, want the peer's 6 taps", refs.HoldingCount)
+			}
+		})
+		// THE PASS'S READERS (M12-13 ...), asked at 12:30 on the 17th: e1 and e2 are on the floor at
+		// the site's venue (their 17th check-ins are open), e3's flagged check-in of the 16th is
+		// older than tap.StaleOpenIn and is not.
+		pass := readerAt(t, w.data, hLocal(t, "2026-09-17", "12:30:00"), nil)
+		employerPass, err := pass.Screen(w.ctx, dir.employer, Filter{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		sitePass, err := pass.Screen(w.ctx, dir.site, Filter{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Run(dir.name+"/10 CountOnTheFloorByVenue", func(t *testing.T) {
+			f := employerPass.Floor
+			if f.State != Measured || f.People != 2 || len(f.Venues) != 1 {
+				t.Fatalf("the employer's floor: %+v, want 2 people at one venue", f)
+			}
+			if v := f.Venues[0]; v.Name != venue || !v.Partner || v.LocationID != w.venue[dir.site] || v.People != 2 {
+				t.Errorf("the employer's floor names %+v, want the site's venue %q as a partner venue with 2 people", v, venue)
+			}
+			// The site's own floor does not hold the employer's staff: those records are the
+			// employer's, and RLS keeps them there.
+			if sitePass.Floor.State != Measured {
+				t.Fatalf("the site's floor is %v, want Measured", sitePass.Floor.State)
+			}
+			for _, v := range sitePass.Floor.Venues {
+				if v.LocationID == w.venue[dir.site] {
+					t.Errorf("the site's floor counts %d people at its own venue -- the employer's staff", v.People)
+				}
+			}
+		})
+		t.Run(dir.name+"/11 ListWorkedShiftEvents (the Pass's tape)", func(t *testing.T) {
+			tp := employerPass.Tape
+			if tp.State != Measured || len(tp.Hours) != 13 || len(tp.Venues) != 1 {
+				t.Fatalf("the employer's tape: %v, %d hours, %d venues; want Measured, 13 hours, the site's venue alone", tp.State, len(tp.Hours), len(tp.Venues))
+			}
+			v := tp.Venues[0]
+			if v.Name != venue || !v.Partner || v.LocationID != w.venue[dir.site] {
+				t.Errorf("the employer's tape names %q (partner %v, %s), want the site's venue %q", v.Name, v.Partner, v.LocationID, venue)
+			}
+			for h, n := range v.People {
+				want := 0
+				if h >= 9 {
+					want = 2 // e1 and e2 from their 09:00 check-ins; e3's entry is past tap.StaleOpenIn
+				}
+				if n != want {
+					t.Errorf("the employer's tape at %02d:00 counts %d, want %d (%v)", h, n, want, v.People)
+				}
+			}
+			if sitePass.Tape.State != Measured {
+				t.Fatalf("the site's tape is %v, want Measured", sitePass.Tape.State)
+			}
+			for _, v := range sitePass.Tape.Venues {
+				if v.LocationID == w.venue[dir.site] {
+					t.Errorf("the site's tape has a row for its own venue -- the employer's staff: %v", v.People)
+				}
+			}
+		})
+		t.Run(dir.name+"/12 ListOpenCheckIns (the Pass's left open)", func(t *testing.T) {
+			// Yesterday is the 16th: e1's entry was closed at 17:00, e2's and e3's (flagged) were not.
+			want := LeftOpen{State: Measured, N: 2, Day: day}
+			if employerPass.LeftOpen != want {
+				t.Errorf("the employer's left open: %+v, want %+v", employerPass.LeftOpen, want)
+			}
+			// The site counts its OWN staff's records only. KF's staff have none yet when KF is the
+			// site (the KM-staff direction runs first); KM's have the first direction's two.
+			wantSite := 0
+			if dir.site == w.km {
+				wantSite = 2
+			}
+			if sitePass.LeftOpen.State != Measured || sitePass.LeftOpen.N != wantSite {
+				t.Errorf("the site's left open: %+v, want %d (its own staff's only)", sitePass.LeftOpen, wantSite)
+			}
+		})
+		t.Run(dir.name+"/13 CountPanelTransactionsByVerdict", func(t *testing.T) {
+			// The 16th holds four of the employer's records at the site's venue: three ok, one flag.
+			// They are the employer's own records, so they are counted -- their verdict is the residue
+			// ADR 0027 §13 item 5 names -- and the count equals the list.
+			employer, err := pass.Screen(w.ctx, dir.employer, Filter{Date: day})
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := VerdictTally{State: Measured, Records: 4, Approved: 3, Flagged: 1}
+			if employer.Tally != want {
+				t.Errorf("the employer's tally of the 16th: %+v, want %+v", employer.Tally, want)
+			}
+			if n := listed(t, pass, dir.employer, Filter{Date: day}); n != employer.Tally.Records {
+				t.Errorf("the employer's tally says %d, its list shows %d", employer.Tally.Records, n)
+			}
+			site, err := pass.Screen(w.ctx, dir.site, Filter{Date: day})
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantSite := 0 // as case 12: the site counts its own staff's records only
+			if dir.site == w.km {
+				wantSite = 4
+			}
+			if site.Tally.State != Measured || site.Tally.Records != wantSite {
+				t.Errorf("the site's tally of the 16th: %+v, want %d records (its own staff's only)", site.Tally, wantSite)
 			}
 		})
 	}
@@ -982,7 +1100,10 @@ func TestAnomalies_ThePartnerBucketSaysNothingByItsPlace(t *testing.T) {
 // business's unanswerable). MUTANTS (measured, anomalies.sql, one at a time): the filter out of
 // outside_venue_on_network, out of the person select's distance_only, out of its outside_venue, out
 // of the person ORDER, out of the venue ORDER, partner_answerable without its snapshot condition --
-// each red.
+// each red. M12-22 widens it to the venue's four-way evidence split (another week, every shape of
+// the two booleans at both venues): MUTANTS (measured 2026-10-20, the site filter out of the
+// venue query's both_matched, network_only, neither_matched, one at a time) -- each red, the
+// partner row then showing 2, 4 and 6.
 func TestAnomalies_EveryEvidenceFigureLeavesThePartnerOut(t *testing.T) {
 	w := newHWorld(t)
 	aaa, zzz := w.staff[w.km][0], w.staff[w.km][1]
@@ -1051,6 +1172,84 @@ func TestAnomalies_EveryEvidenceFigureLeavesThePartnerOut(t *testing.T) {
 	}
 	if own < 0 || partner < 0 || own > partner {
 		t.Errorf("venue order: own at %d, partner at %d -- want the own venue first (the partner's rows do not rank it)", own, partner)
+	}
+
+	// M12-22: the venue's four-way evidence split, another week. Every shape of the two booleans
+	// at the own venue, the same shapes (twice each) at the partner's: the own venue splits its
+	// judged records four ways and the one unsplit shape (ip not assessed, reading inside) is the
+	// remainder; the partner venue's row carries no split at all.
+	shape := func(site bool, ip, gps *bool, channel string, k int) {
+		t.Helper()
+		var siteTenant, siteVenue, siteTag, venue, tag any
+		if site {
+			siteTenant, siteVenue, siteTag = w.kf, w.venue[w.kf], w.plaque[w.kf]
+		} else {
+			venue, tag = w.venue[w.km], w.plaque[w.km]
+		}
+		var sun, ctr any = true, 1000
+		if channel == "manual" {
+			sun, ctr, siteTag, tag = nil, nil, nil, nil
+		}
+		w.exec(`INSERT INTO transactions (tenant_id, employee_id, occurred_at, verdict, channel, type, sun_valid, ctr, ip_match, gps_match, trust,
+		                                  location_id, tag_uid, site_tenant_id, site_location_id, site_tag_uid)
+		        VALUES ($1, $2, $3, 'ok', $4, 'in', $5, $6, $7, $8, 50, $9, $10, $11, $12, $13)`,
+			w.km, w.staff[w.km][2], hLocal(t, "2026-05-20", fmt.Sprintf("08:%02d:00", k)), channel, sun, ctr, ip, gps,
+			venue, tag, siteTenant, siteVenue, siteTag)
+	}
+	yes, no := hBool(true), hBool(false)
+	shapes := []struct{ ip, gps *bool }{{yes, yes}, {yes, no}, {yes, nil}, {no, yes}, {no, no}, {no, nil}, {nil, no}}
+	k := 0
+	for _, s := range shapes {
+		k++
+		shape(false, s.ip, s.gps, "nfc", k)
+		for range 2 {
+			k++
+			shape(true, s.ip, s.gps, "nfc", k)
+		}
+	}
+	k++
+	shape(false, nil, nil, "manual", k)
+	a, err = w.r.Anomalies(w.ctx, w.km, ReportFilter{Day: Date{Year: 2026, Month: time.May, Day: 20}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mix := func(id uuid.UUID) (AnomalyVenue, bool) {
+		for _, v := range a.Venues {
+			if v.LocationID == id {
+				return v, true
+			}
+		}
+		return AnomalyVenue{}, false
+	}
+	ownMix, ok := mix(w.venue[w.km])
+	if !ok {
+		t.Fatal("the own venue has no row in the mix week")
+	}
+	if ownMix.Records != 8 || ownMix.Judged != 7 || ownMix.Both != 1 || ownMix.NetworkOnly != 2 || ownMix.DistanceOnly != 1 ||
+		ownMix.Neither != 3 || ownMix.Unsplit() != 0 {
+		t.Errorf("CONTROL, the own venue's split: records %d judged %d both %d network-only %d distance-only %d neither %d unsplit %d; "+
+			"want 8, 7, 1, 2, 1, 3, 0", ownMix.Records, ownMix.Judged, ownMix.Both, ownMix.NetworkOnly, ownMix.DistanceOnly, ownMix.Neither, ownMix.Unsplit())
+	}
+	partnerMix, ok := mix(w.venue[w.kf])
+	if !ok {
+		t.Fatal("the partner venue has no row in the mix week")
+	}
+	if !partnerMix.Partner || partnerMix.Records != 14 || partnerMix.Both != 0 || partnerMix.NetworkOnly != 0 ||
+		partnerMix.DistanceOnly != 0 || partnerMix.Neither != 0 || partnerMix.Unsplit() != 0 {
+		t.Errorf("K-39, the partner venue's split: partner %v records %d both %d network-only %d distance-only %d neither %d unsplit %d; "+
+			"want a partner row of 14 records and no evidence figure", partnerMix.Partner, partnerMix.Records, partnerMix.Both,
+			partnerMix.NetworkOnly, partnerMix.DistanceOnly, partnerMix.Neither, partnerMix.Unsplit())
+	}
+	// The shape no writer produces, written by hand: the own venue's remainder says it.
+	k++
+	shape(false, nil, yes, "nfc", k)
+	a, err = w.r.Anomalies(w.ctx, w.km, ReportFilter{Day: Date{Year: 2026, Month: time.May, Day: 20}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ownMix, _ = mix(w.venue[w.km]); ownMix.Judged != 8 || ownMix.DistanceOnly != 1 || ownMix.Unsplit() != 1 {
+		t.Errorf("ip not assessed, reading inside: judged %d distance-only %d unsplit %d; want 8, 1, 1 (the remainder, not a segment)",
+			ownMix.Judged, ownMix.DistanceOnly, ownMix.Unsplit())
 	}
 }
 

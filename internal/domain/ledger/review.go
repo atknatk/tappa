@@ -3,7 +3,8 @@ package ledger
 // review.go -- the READ side of the FLAGGED approval queue (M6-04).
 //
 // IT IS IN THIS PACKAGE AND THE WRITE SIDE IS NOT, which is a deliberate split
-// rather than an arbitrary one. This file adds two SELECTs and nothing else, so
+// rather than an arbitrary one. This file adds SELECTs and nothing else (M12-25 added
+// the third, CountReviewsSince), so
 // the package's opening claim -- "there is no store call in this package that is
 // not a SELECT" -- stays literally true and greppable. The INSERT that records a
 // decision lives in internal/domain/review, where it can be read on its own.
@@ -148,13 +149,33 @@ type QueuePage struct {
 	// Zone is the tenant's timezone. Every instant below is UTC and is converted at
 	// render (CLAUDE.md §6).
 	Zone *time.Location
+	// Decided is The Spike's "N decided today" (M12-25). See Decided for its three states.
+	Decided Decided
+}
+
+// Decided is how many flagged records a manager of this business decided since the
+// business's LOCAL midnight (M12-25, CountReviewsSince).
+//
+// 🔴 THREE STATES, AND ONLY ONE OF THEM IS A NUMBER. The zero value is NOT QUERIED -- no claim
+// at all. Failed is a read that did not answer: the queue still renders and the figure says
+// "not counted", never 0 (README §2 D3: "Never show 0 for something not measured"). Queried
+// is measured, and only then is N a statement about the business -- including N == 0.
+// There is no cap, so no "N+" state: CountReviewsSince says why a cap would not help.
+type Decided struct {
+	Queried bool
+	Failed  bool
+	N       int
+	// Since is the local midnight counted from, as a UTC instant -- the tenant's day as the
+	// rest of the panel resolves it (Reader.loadZone, including its UTC fallback).
+	Since time.Time
 }
 
 // Queue loads one page of flagged records that are still waiting for a decision.
 //
 // ONE TRANSACTION, TWO QUERIES, the same shape as Day: the tenant's zone has to
 // come from the same snapshot as the rows, or a page could render its times against
-// a zone that changed between the two round trips.
+// a zone that changed between the two round trips. (M12-25 adds a third, the
+// "decided today" count, in a savepoint -- see decidedToday.)
 func (r *Reader) Queue(ctx context.Context, tenantID uuid.UUID, after *Cursor) (QueuePage, error) {
 	var out QueuePage
 	err := r.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
@@ -197,12 +218,47 @@ func (r *Reader) Queue(ctx context.Context, tenantID uuid.UUID, after *Cursor) (
 			last := out.Records[len(out.Records)-1]
 			out.Next = &Cursor{At: last.OccurredAt, ID: last.ID}
 		}
+		out.Decided = r.decidedToday(ctx, tx, tenantID, out.Zone, time.Now())
 		return nil
 	})
 	if err != nil {
 		return QueuePage{}, fmt.Errorf("ledger: queue: %w", err)
 	}
 	return out, nil
+}
+
+// decidedToday counts the decisions recorded since the tenant's local midnight, in a
+// SAVEPOINT on the queue's own transaction: the count rides on the same snapshot and the
+// same clock read as the records, and a failure of it costs the figure ("not counted") and
+// never the queue. `now` is a parameter so the midnight is deterministic under test.
+//
+// THE MIDNIGHT IS BUILT WITH time.Date IN THE ZONE, not by subtracting hours: on a DST day
+// the local day is 23 or 25 hours long, and the day's start is still its 00:00.
+func (r *Reader) decidedToday(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, zone *time.Location, now time.Time) Decided {
+	since := localMidnight(now, zone)
+	var out Decided
+	if err := inSavepoint(ctx, tx, func(q *store.Queries) error {
+		n, err := q.CountReviewsSince(ctx, store.CountReviewsSinceParams{TenantID: tenantID, Since: since})
+		if err != nil {
+			return err
+		}
+		out = Decided{Queried: true, N: int(n), Since: since}
+		return nil
+	}); err != nil {
+		r.log.Error("ledger: could not count today's decisions; the queue will say they were not counted",
+			"err", err, "tenant_id", tenantID)
+		return Decided{Failed: true}
+	}
+	return out
+}
+
+// localMidnight is the start of now's calendar day in zone, as a UTC instant.
+func localMidnight(now time.Time, zone *time.Location) time.Time {
+	if zone == nil {
+		zone = time.UTC
+	}
+	l := now.In(zone)
+	return time.Date(l.Year(), l.Month(), l.Day(), 0, 0, 0, 0, zone).UTC()
 }
 
 // queueRecord maps one queue row onto the same Record the day list uses.

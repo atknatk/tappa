@@ -75,6 +75,10 @@ import (
 // SELECT" a fact grep can check rather than a sentence to trust.
 type panelStaff interface {
 	Person(ctx context.Context, tenantID, employeeID uuid.UUID) (tenant.Person, error)
+	// Summary is M12-20's: role, lifecycle stamps, live sessions and the pending activation
+	// link for the card. Its only error is tenant.ErrUnknownEmployee; a failed read is a
+	// ReadFailed state, so the card stands.
+	Summary(ctx context.Context, tenantID, employeeID uuid.UUID) (tenant.PersonSummary, error)
 	Add(ctx context.Context, c tenant.AddCommand) (tenant.Person, error)
 	Deactivate(ctx context.Context, c tenant.DeactivateCommand) (tenant.Person, error)
 	Move(ctx context.Context, c tenant.MoveCommand) (tenant.Person, error)

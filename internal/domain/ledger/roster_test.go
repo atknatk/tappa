@@ -84,6 +84,8 @@ func TestPerson_TakesTheStampThatMATCHESTheStatus(t *testing.T) {
 var personFields = map[string]string{
 	"ID":             "an opaque row id; phase B needs it to address a person",
 	"Name":           "what the card is for",
+	"Role":           "the job title a manager typed (M12-18); free text no decision reads",
+	"LastTap":        "the newest non-practice record's instant, verdict word and channel (M12-18) -- no venue, no evidence",
 	"Status":         "the lifecycle chip; migration 00003's CHECK vocabulary",
 	"HasHome":        "whether they have a home venue at all (K-14, M11 API-1); a boolean, no id",
 	"LocationName":   "where they work; a name, not an id",
@@ -91,6 +93,12 @@ var personFields = map[string]string{
 	"LiveDevices":    "a COUNT of sessions -- never a session, an id or a label",
 	"LastUsed":       "when the newest live device was last used; no address, no place",
 	"Since":          "the lifecycle stamp that matches Status",
+}
+
+// personFieldsFilledLater are the Person fields person() does not fill because no column of
+// ListPanelEmployeesRow carries them; each says which read does.
+var personFieldsFilledLater = map[string]string{
+	"LastTap": "ListLastTapsForEmployees, over the page's ids (Reader.Roster's lastTaps)",
 }
 
 // TestPerson_CarriesNothingItShouldNotAndMapsEverythingItDoes.
@@ -126,6 +134,9 @@ func TestPerson_CarriesNothingItShouldNotAndMapsEverythingItDoes(t *testing.T) {
 				"things it must never carry are a session token, a device label, an "+
 				"email address and an invitation code. If %q is none of those, add it to "+
 				"personFields WITH the reason.", name, name)
+			continue
+		}
+		if _, later := personFieldsFilledLater[name]; later {
 			continue
 		}
 		if rv.Field(i).IsZero() {

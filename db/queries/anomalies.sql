@@ -3,7 +3,9 @@
 -- WHAT THIS FILE IS FOR. The panel's other sections answer "what happened".
 -- These answer "is anything here odd" -- detection, never prevention, and never a
 -- judgement: every query below returns counts, names, booleans, one timestamp and two
--- row ids, so the screen shows data and the manager draws the conclusion.
+-- row ids -- and, since M12-23/24, a date array (the days a pair tapped together) and plaque
+-- counter integers (the counter values around a plaque's largest gap, with their instants) --
+-- so the screen shows data and the manager draws the conclusion.
 --
 -- ⚠️ THAT LIST USED TO READ "COUNTS AND NAMES" AND IT UNDERCOUNTED WHAT CROSSES THE
 -- BOUNDARY. The generated row types also carry `manager_typed` and `was_maskable`
@@ -26,7 +28,8 @@
 -- carries `tap:gpsDistanceM`: a DISTANCE rather than a coordinate (migration 0008,
 -- and internal/domain/tap's gpsFacts is where the distance is computed), but a
 -- snapshot that gains a key later would travel with it. Counting inside the query
--- means what Go receives is an integer, a name, a boolean, a timestamp or a row id --
+-- means what Go receives is an integer, a name, a boolean, a timestamp or a row id -- plus
+-- ListTapsTakenTogether's date array and ListAnomalyPlaqueJumps' plaque counter integers --
 -- never the snapshot, and never a coordinate or an address.
 --
 -- ⚠️ AND THE ONE PLACE THAT COULD GO WRONG IS NAMED: `ip_match` and `gps_match` are
@@ -225,9 +228,40 @@ LIMIT @row_limit;
 -- the employer's nine readers): its location_id is NULL and site_location_id names the peer's
 -- venue (K-30), so the group is the one that is set. The peer's name is not in this tenant's
 -- locations -- l.name is NULL for that group, and internal/domain/ledger names it from
--- holding_site_locations. K-39: the two EVIDENCE figures (distance_only, outside_venue) count the
--- employer's own venues only -- a peer's network and coordinate are not this panel's to describe,
--- even as a count of matches.
+-- holding_site_locations. K-39: the EVIDENCE figures (distance_only, outside_venue and, since M12-22,
+-- both_matched, network_only, neither_matched) count the employer's own venues only -- a peer's
+-- network and coordinate are not this panel's to describe, even as a count of matches.
+--
+-- 🔴 M12-22 -- THE FOUR-WAY SPLIT OF `judged` (the Odd shapes "evidence mix" bar). Four figures,
+-- each a count over the two evidence BOOLEANS (never an address, never a distance -- §4.7), each
+-- carrying `t.site_tenant_id IS NULL` (K-39: a partner venue's row has no bar at all):
+--
+--      both_matched     ip_match AND gps_match
+--      network_only     ip_match AND NOT coalesce(gps_match, false)   -- gps false OR not taken
+--      distance_only    gps_match AND NOT ip_match                    -- UNCHANGED (M6-11)
+--      neither_matched  (ip_match IS NOT NULL OR gps_match IS NOT NULL)
+--                       AND NOT coalesce(ip_match, false) AND NOT coalesce(gps_match, false)
+--
+-- Read against `judged` (one of the two set) they are disjoint, and they cover it EXCEPT one
+-- shape, named rather than folded somewhere: ip_match NULL with gps_match true. distance_only
+-- (whose definition this card keeps) does not count it -- `NOT NULL` is NULL --, and it is not a
+-- match of the network, nor "neither". No writer produces it: the tap path writes both booleans
+-- together (internal/domain/checkin: IpMatch and GpsMatch from one Decision), the manual path
+-- writes neither. Measured 2026-10-20 on the c4 database (KF's simulated day + the test rows):
+-- the combinations present are (f,f) (f,t) (t,f) (t,t) and (NULL,NULL) only. internal/domain/
+-- ledger's AnomalyVenue.Unsplit() is the remainder, so a row of that shape would show as "not
+-- split" rather than be spread over a segment it is not.
+--
+-- ⚠️ `judged` ITSELF DOES NOT CARRY THE SITE FILTER, and need not: a venue row is the employer's
+-- own (location_id) OR a peer's (site_location_id) -- never both (the
+-- transactions_site_excludes_the_local_venue CHECK) -- so a partner row's judged is a count of
+-- its records the screen never divides (no bar for a partner row), and an own row's judged is
+-- exactly the base the four figures split.
+--
+-- EXPLAIN ANALYZE (2026-10-20, seeded KF 10000000-…-0001, the last 7 days: 22 rows): Limit ->
+-- Sort -> GroupAggregate -> Sort -> Nested Loop Left Join (Bitmap Index Scan on
+-- transactions_tenant_occurred_idx; locations by locations_id_tenant_key) -- the three FILTERs add
+-- no node, they are evaluated in the one aggregate pass.
 SELECT
     coalesce(t.location_id, t.site_location_id)::uuid              AS location_id,
     l.name                                                         AS location_name,
@@ -243,7 +277,19 @@ SELECT
     count(*) FILTER (WHERE t.gps_match AND NOT t.ip_match AND t.site_tenant_id IS NULL) AS distance_only,
     count(*) FILTER (
         WHERE t.policy_context ->> 'tap:gpsConflict' = 'true' AND t.site_tenant_id IS NULL
-    )                                                              AS outside_venue
+    )                                                              AS outside_venue,
+    count(*) FILTER (
+        WHERE t.ip_match AND t.gps_match AND t.site_tenant_id IS NULL
+    )                                                              AS both_matched,
+    count(*) FILTER (
+        WHERE t.ip_match AND NOT coalesce(t.gps_match, false) AND t.site_tenant_id IS NULL
+    )                                                              AS network_only,
+    count(*) FILTER (
+        WHERE (t.ip_match IS NOT NULL OR t.gps_match IS NOT NULL)
+          AND NOT coalesce(t.ip_match, false)
+          AND NOT coalesce(t.gps_match, false)
+          AND t.site_tenant_id IS NULL
+    )                                                              AS neither_matched
 FROM transactions t
 LEFT JOIN locations l
        ON l.id = t.location_id
@@ -307,6 +353,115 @@ HAVING count(*) FILTER (
        ) > 0
 ORDER BY largest_gap DESC, counter_gaps DESC, t.tag_uid
 LIMIT @row_limit;
+
+-- name: ListAnomalyPlaqueJumps :many
+-- The counter values around each listed plaque's LARGEST gap (M12-24, Odd shapes "#from -> #to").
+--
+-- 🔴 WHAT IT READS IS THE CHIP'S COUNTER, AND ONLY FOR THIS BUSINESS'S OWN PLAQUES. `ctr` is a
+-- chip fact (the evidence inventory lists it), so the statement is filed as `excluded`:
+-- `t.tag_uid IS NOT NULL` keeps every row taken at a holding peer's venue out -- such a row's
+-- tag_uid is NULL (K-30), and a peer's plaque is never this business's anomaly (ListAnomalyPlaques'
+-- own reason). The caller passes the uids ListAnomalyPlaques (merged with the projection's gaps)
+-- listed, so the cap is that listing's and this adds no row of its own.
+--
+-- PER (plaque, venue name) -- ListAnomalyPlaques' grouping -- the window's read with the largest
+-- gap (the same CASE guard, so a malformed snapshot is a 0, never an error), ties broken by the
+-- higher counter. Its `ctr` is the "to"; the caller derives "from" = to - gap - 1 (the counter of
+-- the read the atomic advance compared against, tags.sql).
+--
+-- THE PREVIOUS READ -- the latest earlier read of the same plaque whose SUN verified (a replayed
+-- URL's row carries an old counter at a later time and would date the jump wrongly; sun_valid is
+-- set only when the counter advanced). It may precede the window, so it is a per-plaque lookup bounded
+-- below by @lookback_from (the caller's: the window's start less ledger.CounterJumpLookback) --
+-- without the bound a plaque with no earlier read would walk the tenant's whole history. The
+-- caller uses its time ONLY when its counter IS "from"; any other counter means the read just
+-- before the gap is not on this business's record (an activation tap writes no row -- ADR 0026 --,
+-- a holding peer's read is in the peer's books) and the screen says so rather than pairing a
+-- counter with another read's time.
+--
+-- ⚠️ BOTH TIMES ARE THE DECLARED occurred_at (a phone's claim; ADR 0006 measures the server's
+-- clock only for debounce) -- the screen says "between", with that caveat.
+--
+-- EXPLAIN ANALYZE (2026-10-20, c4 database): seeded KF (22 rows in the last 7 days, no gap, its 11
+-- plaques asked) -> Sort -> Hash Left Join [Hash Cond (SubPlan 1) = p.id AND tag_uid] -> Unique ->
+-- Sort -> Nested Loop Left Join (locations) over an Index Scan on transactions_tenant_occurred_idx
+-- (0 rows qualify); the Hash's inner side is an Index Scan on transactions_tenant_occurred_idx from
+-- the lookback bound on (never executed). On TestAnomalies_ThePlaqueJumpNamesItsCounters' tenant (4
+-- gap rows, 3 jumps): the same shape, the SubPlan a Limit over an Index Scan on
+-- transactions_tenant_occurred_idx bounded below by the lookback (1 row per loop), 1.2 ms.
+WITH jump AS (
+    SELECT DISTINCT ON (t.tag_uid, l.name)
+        t.tag_uid                                                  AS tag_uid,
+        l.name                                                     AS location_name,
+        t.ctr                                                      AS revealed_ctr,
+        t.occurred_at                                              AS revealed_at,
+        (CASE
+             WHEN jsonb_typeof(t.policy_context -> 'tap:ctrGap') = 'number'
+             THEN (t.policy_context -> 'tap:ctrGap')::numeric
+             ELSE 0
+         END)::int                                                 AS gap
+    FROM transactions t
+    LEFT JOIN locations l
+           ON l.id = t.location_id
+          AND l.tenant_id = t.tenant_id
+    WHERE t.tenant_id = @tenant_id
+      AND t.occurred_at >= @from_at
+      AND t.occurred_at < @to_at
+      AND t.tag_uid IS NOT NULL
+      AND t.tag_uid = ANY (@tag_uids::text[])
+      AND t.ctr IS NOT NULL
+      AND CASE
+              WHEN jsonb_typeof(t.policy_context -> 'tap:ctrGap') = 'number'
+              THEN (t.policy_context -> 'tap:ctrGap')::numeric
+              ELSE 0
+          END > 0
+    ORDER BY t.tag_uid, l.name, gap DESC, t.ctr DESC
+), placed AS (
+    -- The previous read's id, once per jump (at most one per listed plaque): the latest earlier
+    -- verified read of the same plaque inside the lookback.
+    SELECT
+        j.tag_uid, j.location_name, j.revealed_ctr, j.revealed_at, j.gap,
+        (
+            SELECT q.id
+            FROM transactions q
+            WHERE q.tenant_id = @tenant_id
+              AND q.tag_uid = j.tag_uid
+              AND q.sun_valid
+              AND q.ctr < j.revealed_ctr
+              AND q.occurred_at >= @lookback_from
+              AND q.occurred_at <= j.revealed_at
+            ORDER BY q.occurred_at DESC, q.ctr DESC
+            LIMIT 1
+        )                                                          AS previous_id
+    FROM jump j
+)
+SELECT
+    j.tag_uid::text                                                AS tag_uid,
+    j.location_name                                                AS location_name,
+    j.revealed_ctr                                                 AS revealed_ctr,
+    j.revealed_at                                                  AS revealed_at,
+    j.gap                                                          AS gap,
+    p.ctr                                                          AS previous_ctr,
+    p.occurred_at                                                  AS previous_at
+FROM placed j
+-- THE PREVIOUS READ IS JOINED BACK BY ITS KEY rather than selected out of a LEFT JOIN LATERAL, for
+-- one measured reason: sqlc v1.28 types a LATERAL's columns as NOT NULL (time.Time, which a
+-- missing previous read fails to scan into) and a CASE with a NULL arm as interface{} (the open
+-- type the anomaly type wall refuses); a LEFT JOIN of the table itself is typed nullable. The
+-- tenant is re-stated in the subquery and in the ON.
+-- ⚠️ THE ON REPEATS THE LOOKBACK BOUND, redundantly for the row it finds, because the planner
+-- chooses a HASH join here whatever shape the pick takes, and the hash's inner side is every row
+-- the ON lets through: with the key and the tenant alone that was the tenant's whole history
+-- (measured, EXPLAIN ANALYZE 2026-10-20: Bitmap Heap Scan of all the tenant's rows into the
+-- Hash). With the bound it is the tenant's rows inside the lookback window -- of every plaque, not
+-- just the listed ones: the key and tag_uid are the Hash Cond, matched while probing, and only the
+-- tenant and the bound filter what goes into the hash (the plan in the header above).
+LEFT JOIN transactions p
+       ON p.id = j.previous_id
+      AND p.tenant_id = @tenant_id
+      AND p.tag_uid = j.tag_uid
+      AND p.occurred_at >= @lookback_from
+ORDER BY j.tag_uid, j.location_name;
 
 -- name: ListAnomalyPolicySids :many
 -- Which rule decided how many records in the window (M3-07).
@@ -450,6 +605,18 @@ WITH ordered AS (
 -- this very paragraph states, broken two lines below where it is written. It is on the
 -- screen now ("together N times"), because "twice on two days" and "forty times on two
 -- days" are different rows and the day count alone cannot tell them apart.
+--
+-- M12-23 -- `together_days` IS WHICH LOCAL DAYS, BESIDE `days` (HOW MANY). The same
+-- `local_day` the HAVING counts -- bucketed in the zone the caller resolved -- so its length
+-- is `days` by construction, and the 20 s / same venue / 2+ days definition is untouched (no
+-- predicate changed). internal/domain/ledger maps it against Period.DayLabels into one
+-- boolean per day of the week. It reads no evidence column: a pair is two people's times at
+-- one venue. EXPLAIN ANALYZE (2026-10-20, seeded KF after a simulated day, the last 7 days,
+-- min_days 1 so the probe has groups: 19 rows in, 8 pairs out): Limit -> Sort -> GroupAggregate
+-- -> Sort -> Nested Loop Left Join (locations) over two Hash Right Joins (employees b, a; seq
+-- scans of the tenant's 69 people) over Subquery Scan `o` -> WindowAgg -> Sort -> Index Scan on
+-- transactions_tenant_occurred_idx. The array is built in the GroupAggregate that already sorts
+-- by local_day for count(DISTINCT) -- no node added.
 SELECT
     a.full_name                                                    AS first_employee_name,
     b.full_name                                                    AS second_employee_name,
@@ -457,7 +624,8 @@ SELECT
     p.location_id::uuid                                            AS location_id,
     count(*)                                                       AS together,
     count(DISTINCT p.local_day)                                    AS days,
-    min(p.apart_seconds)::int                                      AS closest_seconds
+    min(p.apart_seconds)::int                                      AS closest_seconds,
+    array_agg(DISTINCT p.local_day ORDER BY p.local_day)::date[]   AS together_days
 FROM pairs p
 LEFT JOIN employees a ON a.id = p.first_id  AND a.tenant_id = @tenant_id
 LEFT JOIN employees b ON b.id = p.second_id AND b.tenant_id = @tenant_id

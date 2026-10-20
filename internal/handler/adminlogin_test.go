@@ -260,6 +260,17 @@ type fakeLedger struct {
 	// pages.TransactionsView.OffersAnotherDay).
 	history ledger.History
 
+	// floor is The Pass's "on the floor now" widget (M12-13). The zero value is NotQueried --
+	// "not measured", plaques' default and for plaques' reason: a fake that claimed a count would
+	// let a screen print a number no test set up. Tests that want one say so.
+	floor ledger.Floor
+	// tape is The Pass's hourly tape (M12-14); NotQueried by default for the same reason.
+	tape ledger.Tape
+	// leftOpen is The Pass's "left open since yesterday" (M12-15); NotQueried by default.
+	leftOpen ledger.LeftOpen
+	// tally is the day's verdict counts (M12-16), read for every day; NotQueried by default.
+	tally ledger.VerdictTally
+
 	// M6-04's read side. queue/pending default to "asked, and there is nothing
 	// waiting", for the same reason page does: an unqueried zero value renders
 	// nothing at all, so a test using it would be reading a blank section.
@@ -286,6 +297,11 @@ type fakeLedger struct {
 	rosterErr     error
 	rosterTenant  []uuid.UUID
 	rosterFilters []ledger.RosterFilter
+
+	// M12-19's card strip. The zero value is NotQueried: the fake claims nothing about a
+	// person's records unless a test says what they are.
+	recent      ledger.RecentTaps
+	recentAsked []uuid.UUID // tenant, employee, tenant, employee, ...
 
 	// M6-07 phase A's read side. Same rule again: it defaults to "asked, and this
 	// week holds nothing", because an unqueried zero value renders nothing at all and
@@ -430,6 +446,14 @@ func (f *fakeLedger) Roster(_ context.Context, tenantID uuid.UUID, filter ledger
 	return s, nil
 }
 
+// RecentTaps is M12-19's read. It records who was asked about whom.
+func (f *fakeLedger) RecentTaps(_ context.Context, tenantID, employeeID uuid.UUID) ledger.RecentTaps {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.recentAsked = append(f.recentAsked, tenantID, employeeID)
+	return f.recent
+}
+
 // lastRosterFilter is the roster twin of lastFilter.
 func (f *fakeLedger) lastRosterFilter(t *testing.T) ledger.RosterFilter {
 	t.Helper()
@@ -540,9 +564,14 @@ func (f *fakeReviewer) recorded() []review.Decision {
 // transaction — a fake accepts whatever it is told, so those live in
 // employeeactions_db_test.go against real Postgres.
 type fakeStaff struct {
-	mu            sync.Mutex
-	person        *tenant.Person
-	personErr     error
+	mu        sync.Mutex
+	person    *tenant.Person
+	personErr error
+	// M12-20's card summary. The zero value is NotQueried: the fake claims nothing about a
+	// person's sessions or links unless a test says what they are.
+	summary       tenant.PersonSummary
+	summaryErr    error
+	summaryAsked  []uuid.UUID
 	deactivateErr error
 	moveErr       error
 	addErr        error
@@ -672,6 +701,17 @@ func (f *fakeStaff) Person(_ context.Context, _, employeeID uuid.UUID) (tenant.P
 		LocationID:   &panelTestLocation,
 		LocationName: "KF St Julians",
 	}, nil
+}
+
+// Summary is M12-20's read. It records whom it was asked about.
+func (f *fakeStaff) Summary(_ context.Context, _, employeeID uuid.UUID) (tenant.PersonSummary, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.summaryAsked = append(f.summaryAsked, employeeID)
+	if f.summaryErr != nil {
+		return tenant.PersonSummary{}, f.summaryErr
+	}
+	return f.summary, nil
 }
 
 func (f *fakeStaff) Deactivate(_ context.Context, c tenant.DeactivateCommand) (tenant.Person, error) {
@@ -1260,7 +1300,21 @@ func (f *fakeLedger) Screen(_ context.Context, tenantID uuid.UUID, filter ledger
 	if f.err != nil {
 		return ledger.Screen{}, f.err
 	}
-	return ledger.Screen{Page: f.snapshot(filter), Options: f.opts, Plaques: f.plaques, History: f.history}, nil
+	// The Pass's widgets ride only on TODAY's view (no date), as the real reader's do: a ledger
+	// day leaves them NotQueried.
+	var floor ledger.Floor
+	var tape ledger.Tape
+	var leftOpen ledger.LeftOpen
+	f.mu.Lock()
+	tally := f.tally
+	f.mu.Unlock()
+	if filter.Date.Zero() {
+		f.mu.Lock()
+		floor, tape, leftOpen = f.floor, f.tape, f.leftOpen
+		f.mu.Unlock()
+	}
+	return ledger.Screen{Page: f.snapshot(filter), Options: f.opts, Plaques: f.plaques, History: f.history,
+		Floor: floor, Tape: tape, LeftOpen: leftOpen, Tally: tally}, nil
 }
 
 func (f *fakeLedger) Day(_ context.Context, tenantID uuid.UUID, filter ledger.Filter) (ledger.Page, error) {

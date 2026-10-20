@@ -705,3 +705,56 @@ func TestReportsSection_SaysHowMuchOfTheBacklogNeedsAction(t *testing.T) {
 		t.Error("with nothing stale the page says nothing at all, which reads as unmeasured")
 	}
 }
+
+// TestReportDomain_HasNoFieldACoordinateCouldTravelIn is the view test's walk one wall
+// earlier, over the domain type the Roll is built from (M12-21 added Role, HomeLocationID,
+// HomeVenue, Marks, EmployeeID and four counters to it). A field the domain has is a field
+// a later view can copy; the matcher is the same one, so the two walls cannot disagree.
+//
+// ONE NAMED EXEMPTION, OLDER THAN THIS TEST: PartnerTap.EmployeeCode is the holding peer's
+// payroll number for its own person (M11 API-1c, ADR 0027) -- an identifier, not a coordinate
+// or a secret; the matcher refuses the word "code" for invite codes. It is listed rather than
+// renamed here, because renaming an M11 field is not this card's change.
+func TestReportDomain_HasNoFieldACoordinateCouldTravelIn(t *testing.T) {
+	exempt := map[string]bool{"PartnerTap.EmployeeCode": true}
+	seen := map[reflect.Type]bool{}
+	var names []string
+	var walk func(reflect.Type, string)
+	walk = func(rt reflect.Type, path string) {
+		for rt.Kind() == reflect.Ptr || rt.Kind() == reflect.Slice || rt.Kind() == reflect.Array || rt.Kind() == reflect.Map {
+			rt = rt.Elem()
+		}
+		if rt.Kind() != reflect.Struct || seen[rt] || rt.PkgPath() != reflect.TypeOf(ledger.Report{}).PkgPath() {
+			return
+		}
+		seen[rt] = true
+		for i := 0; i < rt.NumField(); i++ {
+			f := rt.Field(i)
+			names = append(names, rt.Name()+"."+f.Name)
+			if why := bannedFieldName(f.Name); why != "" && !exempt[rt.Name()+"."+f.Name] {
+				t.Errorf("%s%s.%s is a field a coordinate or a secret could travel in (%s)", path, rt.Name(), f.Name, why)
+			}
+			walk(f.Type, path+rt.Name()+".")
+		}
+	}
+	walk(reflect.TypeOf(ledger.ReportScreen{}), "")
+	// ANTI-VACUITY: the M12-21 fields are among those walked.
+	for _, want := range []string{"PersonHours.HomeVenue", "PersonHours.Marks", "DayMarks.Other", "OpenEntry.EmployeeID", "Totals.OtherVenueUnknown", "HomesRead.Failed"} {
+		found := false
+		for _, n := range names {
+			found = found || n == want
+		}
+		if !found {
+			t.Errorf("the walk never reached %s; it is reading the wrong type", want)
+		}
+	}
+	for name := range exempt {
+		found := false
+		for _, n := range names {
+			found = found || n == name
+		}
+		if !found {
+			t.Errorf("the exemption names %s, which no longer exists -- delete it", name)
+		}
+	}
+}
