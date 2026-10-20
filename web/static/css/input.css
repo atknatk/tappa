@@ -1227,10 +1227,6 @@
   }
   .stat-card--open { @apply border-dashed border-ink/50; }
 
-  /* The mono eyebrow and field label. ink/70 is the tone .docket-label already
-     clears AA with on every light ground (ink/50 is for borders only). */
-  .lbl { @apply font-mono text-[11px] uppercase tracking-[0.12em] text-ink/70; }
-
   /* --- form field (a new pair: .filter-input stays as other pages use it) ---
      The error state follows aria-invalid, so the attribute a screen reader hears
      and the frame a sighted manager sees cannot disagree; the 2 px frame keeps
