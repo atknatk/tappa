@@ -296,7 +296,7 @@ func TestAdminLogin_ChromeLinksReachRoutesThatAreMounted(t *testing.T) {
 // TestAdminLogin_BrandPanelClaimsOnlyWhatTheProductDoes.
 //
 // 🔴 THE BRAND HALF IS MADE OF CLAIMS, which is landingview.go's rule arriving on a
-// second surface. The four lines live in pages.AdminLoginProof with the code that
+// second surface. The lines live in pages.AdminLoginProof with the code that
 // provides each one named beside it; this asserts they are all RENDERED (a list
 // nobody prints proves nothing) and that the three shapes the drawing offered and
 // this screen refused have not crept back in.
@@ -349,8 +349,12 @@ func TestAdminLogin_BrandPanelClaimsOnlyWhatTheProductDoes(t *testing.T) {
 	// refuses on the public surface; "plaques are on us" is a delivery promise for
 	// hardware nobody has encoded yet (M8-05 phase B3); "while you compare" is a
 	// statement about a rollout rather than about anything this repository builds.
+	//
+	// "practice" is the fourth: the creed once said the first tap was a practice run,
+	// and ADR 0026 removed that behaviour (the activation tap writes no record, and no
+	// new record is practice=true). M12-04 dropped the line; this keeps it dropped.
 	lower := strings.ToLower(body)
-	for _, phrase := range []string{"minutes away", "plaques are on us", "while you compare"} {
+	for _, phrase := range []string{"minutes away", "plaques are on us", "while you compare", "practice"} {
 		if strings.Contains(lower, phrase) {
 			t.Errorf("the sign-in screen says %q. It is not a product fact: see "+
 				"pages.AdminLoginProof for which shapes were refused and why.", phrase)

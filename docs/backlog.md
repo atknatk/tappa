@@ -17,7 +17,13 @@
 
 ### T72 — panel, tenant'a veremeyeceği bir ayarı vaat ediyor
 
-**Durum:** açık · **Bloklar:** hiçbir şeyi · **İlgili:** M3-policy, M6-dashboard, 19. oturum
+**Durum:** kapandı (M12-50) · **Bloklar:** hiçbir şeyi · **İlgili:** M3-policy, M6-dashboard, 19. oturum
+
+> **M12-50 ile kapandı (seçenek a).** `guardrailRules`'taki iki cümle artık değeri Taptime'ın
+> koyduğunu söylüyor: *"Taptime sets the window; no business can switch it off."* ve *"Taptime sets
+> the tolerance; no business can accept any time at all."* — ayarlar bölümünün *"set by Taptime,
+> within …"* metniyle çelişmiyor; ürün kodunda ve şablonlarda "yours to set" 0 kez geçiyor.
+> Seçenek (b) (tenant başına saklanan bounded param) açılmadı.
 
 **Ne oldu.** Landing'in yeniden tasarımında *"5. satırdaki pencere sizin ayarınız"* cümlesi
 **mount edilmemiş yetenek** olarak bulundu ve kaldırıldı. Ama iddianın **kökü landing değil

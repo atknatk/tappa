@@ -314,7 +314,28 @@ type Venue struct {
 // recorded as `flag` -- the screen says so rather than leaving a manager to
 // discover it from the approval queue.
 func (v Venue) HasProofOfPlace() bool {
-	return len(v.StaticIPs) > 0 || v.GPS != nil
+	return v.HasNetworkProof() || v.GPS != nil
+}
+
+// HasNetworkProof reports whether the stored address list is the IP half of
+// section 5's row-6 evidence.
+//
+// 🔴 IT IS THE DECISION ENGINE'S READ-SIDE RULE, CALLED, NOT COPIED (M12-03). A
+// list wider than a venue's network can be -- {0.0.0.0/1, 128.0.0.0/1} -- tells
+// this venue apart from nowhere, so internal/domain/tap's ipMatches answers "no
+// proof" for it whatever the source address. This used to count any non-empty
+// list, so such a venue was shown as having proof of place and never got the "No
+// proof of place" warning while every tap there was judged on GPS alone, or went
+// to the approval queue. The write side refuses such a list today (SaveVenue), but
+// a row saved before that guard keeps it, so the screen must apply the reading
+// half too -- with the same function, netx.TooWideForProofOfPlace, because two
+// predicates drift.
+func (v Venue) HasNetworkProof() bool {
+	if len(v.StaticIPs) == 0 {
+		return false
+	}
+	_, tooWide := netx.TooWideForProofOfPlace(v.StaticIPs)
+	return !tooWide
 }
 
 // Department is one department as the panel reads it.
@@ -1008,7 +1029,8 @@ type venueDetail struct {
 	ToWiFiSSID   string `json:"to_wifi_ssid"`
 
 	// LostProofOfPlace is the one DERIVED field, and it earns its place: it is
-	// true when the act left the venue with neither static IPs nor GPS, which is
+	// true when the act left the venue with neither an address list that counts as
+	// evidence (Venue.HasNetworkProof) nor GPS, which is
 	// the state in which every later tap there is recorded as `flag` (section 5
 	// row 7). An investigator should not have to re-derive section 5 from two
 	// other fields to find the acts that did this.

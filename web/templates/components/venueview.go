@@ -33,8 +33,10 @@ import (
 type VenueRowView struct {
 	Name string
 
-	// Ranges are the static IP ranges, already rendered. An empty slice is the
-	// state NoProofOfPlace is about.
+	// Ranges are the static IP ranges, already rendered. An empty slice is one of
+	// the two states NoProofOfPlace is about; the other is a list too wide to count
+	// as evidence (tenant.Venue.HasNetworkProof, M12-03), and the card words the
+	// warning differently for each.
 	Ranges []string
 	// GPS is the coordinate pair, or "" for none.
 	GPS string
@@ -46,8 +48,10 @@ type VenueRowView struct {
 	// venue is not linked to an HR or ERP record.
 	ExternalRef string
 
-	// NoProofOfPlace is true when this venue has NEITHER static IPs NOR a
-	// coordinate.
+	// NoProofOfPlace is true when this venue has NEITHER an address list that
+	// counts as evidence NOR a coordinate (tenant.Venue.HasProofOfPlace -- a list
+	// too wide to tell the venue apart counts for nothing, as in the decision
+	// engine).
 	//
 	// 🔴 IT IS THE ONE DERIVED FLAG ON THIS SCREEN AND IT EARNS ITS PLACE. In that
 	// state every tap at this venue reaches CLAUDE.md §5 row 7: it is still

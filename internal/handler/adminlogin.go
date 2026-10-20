@@ -512,6 +512,13 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 // button on the most public URL in the product. handler.Marketing reads this
 // constant, so the link and the route are the same string at compile time rather
 // than two strings a test has to notice have diverged.
+//
+// ⚠️ IT STAYS A STRING LITERAL, AND pages.AdminLoginPath IS ITS TWIN (M12-06). The
+// sign-up wizard's header has no view field to carry this path, so pages holds the
+// same string; TestSignupSurface_EverySignInLinkGoesToTheSignInPage fails if the two
+// differ. Writing this as `= pages.AdminLoginPath` was tried and broke
+// TestEmployeeRoutes_DerivationIsNotVacuous: that cookie-net scan resolves route
+// names from literal constants only, and must not be loosened for a convenience.
 const adminLoginPath = "/admin/login"
 
 // Mount registers the routes on r.

@@ -44,11 +44,24 @@ templ VenueRow(v VenueRowView) {
 			// a growing approval queue.
 			<div class="mt-3 border-l-4 border-saffron bg-saffron-lite px-3 py-2">
 				<p class="font-display text-sm font-bold tracking-tight text-ink">No proof of place</p>
-				<p class="mt-1 text-xs text-ink/85">
-					This venue has no address range and no coordinate, so taps here cannot be
-					checked against either. They are still recorded — they go to The Spike for
-					approval instead.
-				</p>
+				// M12-03: a venue can reach this state WITH ranges on the card -- a list
+				// saved before the write guard that is too wide to count as evidence. Saying
+				// "no address range" above a printed list would contradict the card, so that
+				// case names the real reason, in the words the venue form's refusal uses.
+				if len(v.Ranges) > 0 {
+					<p class="mt-1 text-xs text-ink/85">
+						The address ranges saved here cover far more of the internet than one venue's
+						network can, so they cannot tell this venue apart from anywhere else, and there
+						is no coordinate. Taps here cannot be checked against either. They are still
+						recorded — they go to The Spike for approval instead.
+					</p>
+				} else {
+					<p class="mt-1 text-xs text-ink/85">
+						This venue has no address range and no coordinate, so taps here cannot be
+						checked against either. They are still recorded — they go to The Spike for
+						approval instead.
+					</p>
+				}
 			</div>
 		}
 		<dl class="mt-3 grid grid-cols-2 gap-x-4 gap-y-2">

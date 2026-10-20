@@ -783,6 +783,11 @@ func TestLocationsSection_SaysWhenAVenueHasNoProofOfPlace(t *testing.T) {
 			"warning; every tap there goes to the approval queue and the screen is the " +
 			"only place a manager could learn that")
 	}
+	// The bare venue keeps the plain sentence; the too-wide wording is for a card
+	// that prints ranges (TestLocationsSection_ATooWideListIsNoProofOfPlace).
+	if !strings.Contains(body, "has no address range and no coordinate") {
+		t.Error("a venue with no ranges at all lost the sentence that says so")
+	}
 	if !strings.Contains(body, "go to The Spike") {
 		t.Error("the warning does not say what actually happens (the taps are recorded " +
 			"and queued for approval), which is the difference between a scold and a fact")
@@ -797,6 +802,54 @@ func TestLocationsSection_SaysWhenAVenueHasNoProofOfPlace(t *testing.T) {
 	// zero length; a NULL shift means lateness is NOT MEASURED.
 	if !strings.Contains(body, "Lateness not measured") {
 		t.Error("a venue with no shift does not say lateness is not measured for it")
+	}
+}
+
+// TestLocationsSection_ATooWideListIsNoProofOfPlace is M12-03.
+//
+// 🔴 A LIST THE ENGINE DOES NOT COUNT MUST NOT SILENCE THE WARNING. A venue saved
+// before the write guard can still hold {0.0.0.0/1, 128.0.0.0/1}; the decision
+// engine reads that as no network proof (internal/domain/tap ipMatches), and this
+// screen used to read it as proof, so the one venue whose every tap goes to the
+// approval queue was the one that said nothing. The card now asks the same
+// function the engine asks.
+func TestLocationsSection_ATooWideListIsNoProofOfPlace(t *testing.T) {
+	wide := []netip.Prefix{netip.MustParsePrefix("0.0.0.0/1"), netip.MustParsePrefix("128.0.0.0/1")}
+	narrow := []netip.Prefix{netip.MustParsePrefix("203.0.113.0/24")}
+	gps := &tenant.GPS{Lat: 35.917270, Lng: 14.489540}
+
+	tests := []struct {
+		name     string
+		venue    tenant.Venue
+		warnings int
+	}{
+		{"a wide list and no GPS", tenant.Venue{StaticIPs: wide}, 1},
+		// The warning is about having NO proof; GPS is proof, so the card stays quiet
+		// even though the list itself counts for nothing (the domain test pins that).
+		{"a wide list beside GPS", tenant.Venue{StaticIPs: wide, GPS: gps}, 0},
+		{"a narrow list", tenant.Venue{StaticIPs: narrow}, 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.venue.ID = uuid.New()
+			tc.venue.Name = "KF Probe"
+			b := venueBrowser(t, &fakeVenues{screen: tenant.VenueScreen{Venues: []tenant.Venue{tc.venue}}})
+			body := htmlOf(t, b.do(http.MethodGet, locationsHref, nil))
+			if n := strings.Count(body, "No proof of place"); n != tc.warnings {
+				t.Errorf("\"No proof of place\" appears %d time(s), want %d", n, tc.warnings)
+			}
+			// THE WARNING MUST NOT CONTRADICT THE CARD. With the ranges printed below it,
+			// "no address range" is false; the sentence names why they do not count.
+			if tc.warnings > 0 {
+				if strings.Contains(body, "has no address range") {
+					t.Error("the warning says the venue has no address range above a card " +
+						"that lists its ranges")
+				}
+				if !strings.Contains(body, "cannot tell this venue apart") {
+					t.Error("the warning does not say why the saved ranges do not count")
+				}
+			}
+		})
 	}
 }
 

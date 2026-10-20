@@ -90,7 +90,14 @@ type AdminLoginView struct {
 	FreeMonths int
 }
 
-// AdminLoginProof is the four-line creed on the sign-in screen's brand panel.
+// AdminLoginPath is where the panel's sign-in page is mounted, for a screen that has
+// no view field to carry the path — the sign-up wizard's header (M12-06). It is the
+// twin of internal/handler's adminLoginPath, which stays a literal so the cookie-net
+// route scan can read it; TestSignupSurface_EverySignInLinkGoesToTheSignInPage fails
+// if the two ever differ.
+const AdminLoginPath = "/admin/login"
+
+// AdminLoginProof is the three-line creed on the sign-in screen's brand panel.
 //
 // 🔴 EVERY LINE NAMES A CAPABILITY THIS PRODUCT ACTUALLY MOUNTS, and the rule is
 // landingview.go's rather than this file's usual one: a sign-in screen is mostly
@@ -112,6 +119,12 @@ type AdminLoginView struct {
 //     statement about how a rollout goes, not about anything this repository
 //     builds. It is replaced by CLAUDE.md §4.2's red line, which is a product fact
 //     and a better reason to buy.
+//
+// ⚠️ A FOURTH LINE WAS REMOVED (M12-04): "The first tap is a practice run and never
+// counts as worked time." ADR 0026 replaced the practice tap with the activation tap,
+// which writes no transactions row at all, and no new record is ever practice=true —
+// so the line described a behaviour the product no longer has. It was not replaced:
+// the activation line above already says what that first tap does.
 var AdminLoginProof = []string{
 	// No install: the plaque's URL opens in the browser the phone already has
 	// (CLAUDE.md preamble, and the hero's own creed on the landing page).
@@ -119,9 +132,6 @@ var AdminLoginProof = []string{
 	// internal/handler/activate.go: one activation, then the session cookie
 	// recognises the person on every later tap.
 	"Staff activate once; after that it is tap and go.",
-	// CLAUDE.md §5, "Practice tap": the first record after activation carries
-	// practice=true and never counts toward worked hours.
-	"The first tap is a practice run and never counts as worked time.",
 	// CLAUDE.md §4.2: the location is read at the moment of a tap and in no other
 	// shape — nothing runs in the background and no perimeter is watched. (Worded
 	// without §4.2's own vocabulary on purpose: make audit's R2 scan is line-local

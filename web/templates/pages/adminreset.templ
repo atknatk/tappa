@@ -37,8 +37,7 @@ templ AdminResetRequest(v AdminResetRequestView) {
 			@components.Notice(components.ToneWarn, "This Taptime cannot send email yet") {
 				<p>
 					No recovery link will arrive, whatever address you enter — sending is not switched
-					on for this server. Ask another owner of your business to set a new password for
-					you from the panel.
+					on for this server.
 				</p>
 			}
 		}
@@ -94,9 +93,6 @@ templ AdminResetSent(v AdminResetSentView) {
 					none will arrive. Nothing about your account was changed.
 				</p>
 			}
-			<p class="text-sm text-ink/85">
-				Ask another owner of your business to set a new password for you from the panel.
-			</p>
 		}
 		<p class="text-xs text-ink/70">
 			<a href={ templ.SafeURL(v.SignInHref) } class="inline-flex min-h-11 items-center underline">Back to sign in</a>

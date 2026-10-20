@@ -454,10 +454,15 @@ var (
 	// have been any of those things. A screen that guesses wrong about why is a
 	// screen that sends somebody to ask for a replacement that will not arrive
 	// either.
+	//
+	// ⚠️ IT HAS NO HINT ON PURPOSE (M12-05). It used to send the visitor to "another
+	// owner of your business" to set a password "from the panel", and the panel has
+	// no such form: an administrator can change only their own password
+	// (SetOwnAdminPassword). No true next step exists on this deployment, so the
+	// screen names none rather than inventing one.
 	problemResetNoDelivery = pages.ProblemView{
 		Title:   "This Taptime cannot send recovery links",
 		Message: "Sending is not switched on for this server, so no recovery link was ever issued and nothing here can set a password.",
-		Hint:    "Ask another owner of your business to set a new password for you from the panel.",
 	}
 	// 🔴 ONE SCREEN FOR EVERY WAY A LINK CAN FAIL — unknown, malformed, already
 	// used, expired, superseded by a newer one, or belonging to an account that has
