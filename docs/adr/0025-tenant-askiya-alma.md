@@ -1224,3 +1224,22 @@ GATE-1; ADR 0026 aktivasyon dokunuşu) **ölçülerek** taşındı.
 - **Güvenlik iddiası (B):** tehdit modeli — *Bu pinler kazara sapmaya karşıdır; bir pini bilerek atlatmak kod
   incelemesinin konusudur.* PART I yukarıdaki testler ve kartın mutasyonları; PART II yukarıdaki pinler;
   PART III — *Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.*
+
+- **Not (2026-10-20, B'nin DÜŞÜK turu — iki merceğin ortak bulgusu; yalnız ekleme):**
+  - **SB4'ün cümlesi düzeltilir:** DB eşitlik tablosu yalnız kararı ve kaydı değil, **ekranın içeriğini de**
+    yakalar. Tablo o güne dek sayfanın durumunu, yönlendirmesini ve bağlam basıp basmadığını karşılaştırıyordu,
+    gövdeyi değil; askıda `GetLocationWiFi`'ın ağ adını düşüren ve `GetEmployeeActivationContext`'in işletme
+    adına *" (paused)"* ekleyen iki mutant yeşil kalıyordu. Bugün `TestSuspensionDB_TapsAreDecidedAsIfThereWereNoSuspension`
+    tap sayfasının ve sonuç ekranının gövdesini, `TestSuspensionDB_TheActivationTapIsTheSameForASuspendedBusiness`
+    sihirbazın üç ekranını ve *"Activation complete"*i karşılaştırır — normalize edilerek (imzalı bağlam, CSRF,
+    CSP nonce, id'ler, plaket uid'leri, sayaç ve saat yer tutucuya döner; geri kalan her bayt birebir). Tablonun
+    iki işletmesi de markalıdır (logo + accent), yani işletme adı, logo, accent, mekân ve düğme ekrandadır.
+    Ölçüldü: ağ adı düşen mutant aktivasyon testinde, mekân adı düşen mutant tap tablosunda, *" (paused)"*
+    ikisinde de kırmızı. SB4'ün kalan sınırı aynen: tablo yalnız DB'li koşudadır, mutasyon kümelerinde değil.
+  - **Panelin okumaları iş verisi yazmaz (ölçüldü):** askıdaki bir işletmenin yöneticisiyle `AdminAuth.Mount`'un
+    her GET'i (`chi.Walk`) ve handler'ların okuduğu sorgu biçimleri (kişi kartı ve deaktivasyon onayı, mekân kartı
+    ve kaldırma onayı, kaldırma makbuzu, ay, hafta, onay öğesi, politika sürümü, plaket) istenir; istek süresince
+    verilen işlem kimlikleriyle (`xmin`) bu tenant'ın oluşturulan ya da güncellenen satırları tablo tablo sayılır.
+    Yazılan tek şey oturumun `last_used_at`'i ve iki dışa aktarımın kendi iz satırıdır (`report.exported`,
+    `billing.exported`) —
+    `TestPanelSuspensionDB_NoPanelReadWritesBusinessData`. Sınırı: `DELETE`'i ve `tenant_id`'siz tabloları görmez.
