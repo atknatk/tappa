@@ -14,6 +14,7 @@ package handler
 
 import (
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"go/ast"
 	"go/parser"
@@ -35,13 +36,15 @@ import (
 
 	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/domain/tenant"
+	"github.com/atknatk/tappa/internal/qrcode"
+	"github.com/atknatk/tappa/internal/sun"
 	"github.com/atknatk/tappa/web/templates/components"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
 // plaqueBrowser is a signed-in manager looking at a section backed by the two
 // fakes.
-func plaqueBrowser(t *testing.T, venues panelVenues, plaques panelPlaques) *browser {
+func plaqueBrowser(t *testing.T, venues panelVenues, plaques panelPlaques, opts ...AdminAuthOption) *browser {
 	t.Helper()
 	admins := &fakeAdmins{verify: func() (adminauth.Resolved, error) {
 		return adminauth.Resolved{
@@ -49,7 +52,7 @@ func plaqueBrowser(t *testing.T, venues panelVenues, plaques panelPlaques) *brow
 			Role: "owner", FullName: "KF Owner",
 		}, nil
 	}}
-	b := newBrowser(t, newAdminRouterWithPlaques(t, admins, venues, plaques))
+	b := newBrowser(t, newAdminRouterWithPlaques(t, admins, venues, plaques, opts...))
 	b.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 	return b
 }
@@ -1708,9 +1711,12 @@ func TestPlaqueViewModels_CannotCarryAKey(t *testing.T) {
 			"Frozen", "OpenHref"},
 		"components.PlaqueFormView": {"Heading", "Action", "CloseHref", "Plaque", "Mode",
 			"Venues", "Successors", "Blocked", "ErrorMessage", "Submit",
-			"ConfirmField", "ConfirmToken", "UnmountHref", "Trail"},
+			"ConfirmField", "ConfirmToken", "UnmountHref", "Trail", "Drawing"},
 		"components.PlaqueEventView":   {"What", "When", "Who", "BySystem"},
 		"components.PlaqueReceiptView": {"Replaced", "Unmounted", "Name"},
+		// M12-12 (D4): the drawing carries its QR code as the helper's path STRING and
+		// a side — never the module matrix, a slice this walk would have to permit.
+		"components.PlaqueDrawingView": {"Last4", "QRPath", "QRSide"},
 	}
 	seen := map[string]bool{}
 	for _, root := range []struct {
@@ -1725,6 +1731,9 @@ func TestPlaqueViewModels_CannotCarryAKey(t *testing.T) {
 		// never compared against a list filed under its own name. Naming it here is the
 		// difference between a described type and a checked one.
 		{"components.PlaqueEventView", reflect.TypeOf(components.PlaqueEventView{})},
+		// A root of its own for the same reason: reached only as PlaqueFormView.Drawing,
+		// its field list would otherwise never be compared.
+		{"components.PlaqueDrawingView", reflect.TypeOf(components.PlaqueDrawingView{})},
 		// 🔴 THE WHOLE SECTION VIEW, walked for SHAPE ONLY. A key would not have to
 		// arrive through a plaque type to be rendered by this section, and enumerating
 		// another milestone's fields here would make this test go red on their work
@@ -1853,5 +1862,110 @@ func TestPlaqueWords_AgreeBetweenHandlerAndTemplate(t *testing.T) {
 	if len(plaqueActWords) != 3 {
 		t.Fatalf("plaqueActWords holds %d word(s); the section ships three plaque acts "+
 			"(mount, replace, un-mount)", len(plaqueActWords))
+	}
+}
+
+// --- the plaque drawing (M12-12, D4) ---------------------------------------------
+
+// drawnQRPath is the d attribute of the drawing's ink path, or "" when the page draws
+// no QR code.
+var drawnQRPath = regexp.MustCompile(`<path class="fill-ink" d="([^"]*)"`)
+
+// TestPlaqueDrawing_TheMountedPlaqueCarriesItsRealQRCode: the open card of a plaque on
+// a wall draws the QR code that plaque carries — the drawn path IS internal/qrcode's
+// path for sun.PlaqueQRURL over the tap base cmd/tappa hands the encode relay, and
+// that URL opens the tap route, /t, on the configured host, with the uid and nothing
+// else (no ctr, no cmac, no src marker).
+func TestPlaqueDrawing_TheMountedPlaqueCarriesItsRealQRCode(t *testing.T) {
+	venues := twoVenues()
+	base := PlaqueTapBase(testBaseURL + "/")
+	b := plaqueBrowser(t, venues, threePlaques(venues.firstVenueID()), PlaqueDrawingsFrom(base))
+
+	raw, err := hex.DecodeString(uidOnWall)
+	if err != nil {
+		t.Fatal(err)
+	}
+	qrURL, err := sun.PlaqueQRURL(base, raw)
+	if err != nil {
+		t.Fatalf("PlaqueQRURL(%q): %v", base, err)
+	}
+	u, err := url.Parse(qrURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.Path != "/t" {
+		t.Errorf("the QR URL opens %q; a plaque opens the tap route /t", u.Path)
+	}
+	if want, _ := url.Parse(testBaseURL); u.Scheme != "https" || u.Host != want.Host {
+		t.Errorf("the QR URL is on %s://%s; the configured base is %s", u.Scheme, u.Host, testBaseURL)
+	}
+	if q := u.Query(); len(q) != 1 || q.Get("tag") != uidOnWall {
+		t.Errorf("the QR URL's query is %q; it carries the uid and nothing else", u.RawQuery)
+	}
+	code, err := qrcode.Encode([]byte(qrURL), plaqueQRLevel)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	html := htmlOf(t, b.do(http.MethodGet, locationsHref+"?plaque="+uidOnWall, nil))
+	m := drawnQRPath.FindAllStringSubmatch(html, -1)
+	if len(m) != 1 {
+		t.Fatalf("the card drew %d QR path(s); a mounted plaque's card draws exactly one", len(m))
+	}
+	if m[0][1] != code.SVGPath(qrcode.QuietZone) {
+		t.Errorf("the drawn path is not internal/qrcode's path for %s", qrURL)
+	}
+	for _, want := range []string{"Hold your phone here", "Or scan — same thing", "PLAQUE 0601", "drawing, not to scale"} {
+		if !strings.Contains(html, want) {
+			t.Errorf("the drawing does not say %q", want)
+		}
+	}
+}
+
+// TestPlaqueDrawing_NoRealCodeMeansNoDrawing: wherever the real code cannot be made,
+// nothing is drawn in its place — a development http base (sun.PlaqueQRURL refuses
+// it, as BuildTapNDEF would), a panel given no base at all, and a plaque that is not
+// on a wall. The card itself still opens.
+func TestPlaqueDrawing_NoRealCodeMeansNoDrawing(t *testing.T) {
+	venues := twoVenues()
+	for _, tc := range []struct {
+		name string
+		uid  string
+		opts []AdminAuthOption
+	}{
+		{"an http base", uidOnWall, []AdminAuthOption{PlaqueDrawingsFrom(PlaqueTapBase("http://localhost:8080"))}},
+		{"no base", uidOnWall, nil},
+		{"a plaque in the box", uidInStock, []AdminAuthOption{PlaqueDrawingsFrom(PlaqueTapBase(testBaseURL))}},
+		{"a retired plaque", uidRetired, []AdminAuthOption{PlaqueDrawingsFrom(PlaqueTapBase(testBaseURL))}},
+		// Another business's (or no business's) uid: the lookup finds nothing, so no
+		// card and no drawing — the uid in the address is never a source of a code.
+		{"an unknown uid", "AABBCCDDEEFF01", []AdminAuthOption{PlaqueDrawingsFrom(PlaqueTapBase(testBaseURL))}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := plaqueBrowser(t, venues, threePlaques(venues.firstVenueID()), tc.opts...)
+			html := htmlOf(t, b.do(http.MethodGet, locationsHref+"?plaque="+tc.uid, nil))
+			if opened := strings.Contains(html, `aria-label="`+tc.uid+`"`); opened == (tc.uid == "AABBCCDDEEFF01") {
+				t.Fatalf("card for %s opened = %v; a known plaque's card opens, an unknown uid's does not", tc.uid, opened)
+			}
+			for _, absent := range []string{`class="fill-ink"`, `class="fill-paper"`, "<figure", "Hold your phone here", "PLAQUE "} {
+				if strings.Contains(html, absent) {
+					t.Errorf("the page renders %q; with no real code there is no drawing", absent)
+				}
+			}
+		})
+	}
+}
+
+// TestPlaqueDrawing_AFrozenRowIsNotDrawn: a row in the non-canonical spelling is on a
+// wall, but a code built from it would name an upper-case uid the row does not have.
+func TestPlaqueDrawing_AFrozenRowIsNotDrawn(t *testing.T) {
+	wall := uuid.New()
+	p := tenant.Plaque{UID: strings.ToLower(uidOnWall), Status: tenant.PlaqueActive, LocationID: &wall}
+	if d := plaqueDrawingOf(discardLogger(), PlaqueTapBase(testBaseURL), p); d != nil {
+		t.Errorf("a non-canonical row was drawn: %+v", *d)
+	}
+	p.UID, p.Canonical = uidOnWall, true
+	if d := plaqueDrawingOf(discardLogger(), PlaqueTapBase(testBaseURL), p); d == nil || d.Last4 != "0601" {
+		t.Errorf("the canonical twin was not drawn with its last four digits: %+v", d)
 	}
 }

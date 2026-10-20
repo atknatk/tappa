@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -611,6 +610,11 @@ func run() error {
 		return err
 	}
 	var encoder handler.PlaqueEncoder
+	// ONE value for the chip and for the drawing: the encode relay builds the plaque's
+	// NDEF template from it, and the panel's plaque drawing (M12-12) builds the plaque's
+	// QR code from it (handler.PlaqueDrawingsFrom, below). Joined once, so the two
+	// cannot name different hosts.
+	plaqueTapBase := handler.PlaqueTapBase(cfg.BaseURL)
 	encodeStore, err := encode.NewStore(encode.Config{
 		Rows:    encodeRows,
 		Wrapper: encodeWrapper,
@@ -618,7 +622,7 @@ func run() error {
 		// the plaque's NDEF record, and the plaque must open the tap page.
 		// handler.TapPath is the route's own constant, so the plaque and the router
 		// cannot drift apart.
-		BaseURL: strings.TrimRight(cfg.BaseURL, "/") + handler.TapPath,
+		BaseURL: plaqueTapBase,
 	})
 	switch {
 	case err != nil:
@@ -742,7 +746,7 @@ func run() error {
 	// before anything is minted — and the panel then mails each link to the employee's
 	// own address; NewAdminAuth refuses the option without the mode and the mode
 	// without the option. Switching the ConfigMap is a deploy decision (§12).
-	var panelOptions []handler.AdminAuthOption
+	panelOptions := []handler.AdminAuthOption{handler.PlaqueDrawingsFrom(plaqueTapBase)}
 	switch cfg.InviteDelivery {
 	case config.InviteDeliveryPanel:
 		// No e-mail transport: the integration API's invitation requests wait in the queue (an
