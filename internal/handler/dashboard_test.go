@@ -531,11 +531,15 @@ func panelNonSectionScreens(t *testing.T) map[string]string {
 	t.Helper()
 	out := map[string]string{}
 
-	// The policy CONFIRMATION step: a POST that renders rather than redirecting.
+	// The policy CONFIRMATION step: a POST that renders rather than redirecting. It names
+	// a STORED rule, so the page carries what an owner really presses -- the history's
+	// version links as well as the button and Cancel (M12-38); a random id renders no
+	// history and would leave those links outside this corpus.
 	scribe := newFakeScribe()
-	b := policyBrowserWith(t, newFakeRules(), scribe)
+	changeRules := newFakeRules()
+	b := policyBrowserWith(t, changeRules, scribe)
 	rec := b.do(http.MethodPost, policyChangeHref,
-		url.Values{"op": {opDisable}, "policy": {uuid.NewString()}})
+		url.Values{"op": {opDisable}, "policy": {changeRules.screen.Baseline[0].PolicyID.String()}})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("the policy confirmation step answered %d, want 200; this corpus entry "+
 			"would otherwise be empty and prove nothing", rec.Code)

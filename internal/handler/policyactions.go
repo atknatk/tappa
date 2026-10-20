@@ -5,15 +5,19 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/httpx"
+	"github.com/atknatk/tappa/internal/policy"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
@@ -226,7 +230,18 @@ func (a *AdminAuth) policyChangeReview(w http.ResponseWriter, r *http.Request) {
 		a.redirect(w, policiesReturn("not-permitted"))
 		return
 	}
-	token, err := a.setConfirmation(w, r, confirmActionPolicyEdit, c.subject())
+	// THE RULEBOOK IS READ AFTER THE GATE AND BEFORE THE MINT (M12-38): the page names the
+	// rule, its places, its version and its state, and the confirmation is bound to all of
+	// it. A failed read is "unavailable" and mints nothing -- a page that could not say
+	// what it is about must not offer the button.
+	screen, err := a.rules.Screen(r.Context(), id.TenantID())
+	if err != nil {
+		a.log.Error("panel: could not read the policy layer for a change review", "err", err)
+		a.redirect(w, policiesReturn("unavailable"))
+		return
+	}
+	shown := policyChangeShown(c, screen)
+	token, err := a.setConfirmation(w, r, confirmActionPolicyEdit, policyChangeSubject(c, shown))
 	if err != nil {
 		// §4.6: an owner whose confirmation could not be minted is told the action is
 		// unavailable, not shown a button that would fail.
@@ -234,7 +249,7 @@ func (a *AdminAuth) policyChangeReview(w http.ResponseWriter, r *http.Request) {
 		a.redirect(w, policiesReturn("unavailable"))
 		return
 	}
-	v := a.policyChangeView(r, c, token)
+	v := a.policyChangeView(r, c, shown, token)
 	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminPolicyChange(v))
 }
 
@@ -273,7 +288,29 @@ func (a *AdminAuth) policyChangeApply(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if why := a.confirmationRefusalFor(r, confirmActionPolicyEdit, c.subject()); why != "" {
+	// AN UNCONFIRMED POST COSTS NO READ. The subject below needs the rulebook, so the one
+	// refusal that needs nothing -- no confirmation in the form at all -- is answered
+	// first, with the word confirmationRefusalFor would give it.
+	if strings.TrimSpace(r.PostFormValue(confirmField)) == "" {
+		a.log.Warn("panel policy change refused: the confirmation step was not completed",
+			"op", c.op, "reason", "confirm-required")
+		a.redirect(w, policiesReturn("confirm-required"))
+		return
+	}
+	// 🔴 THE PAGE IS REBUILT FROM A FRESH READ AND ITS DIGEST MUST MATCH THE ONE MINTED.
+	// The confirmation binds what the review page SHOWED -- the rule's name, its version
+	// and what the change makes of it, its state, its places -- not only the posted
+	// fields. If any of it has changed since (another owner wrote a version, switched the
+	// rule, renamed a venue), the page the owner confirmed is no longer true and the
+	// token does not verify: "version 3" on the screen cannot become version 4 in the
+	// store.
+	screen, err := a.rules.Screen(r.Context(), id.TenantID())
+	if err != nil {
+		a.log.Error("panel: could not read the policy layer to apply a change", "err", err)
+		a.redirect(w, policiesReturn("unavailable"))
+		return
+	}
+	if why := a.confirmationRefusalFor(r, confirmActionPolicyEdit, policyChangeSubject(c, policyChangeShown(c, screen))); why != "" {
 		a.log.Warn("panel policy change refused: the confirmation step was not completed",
 			"op", c.op, "reason", why)
 		a.redirect(w, policiesReturn(why))
@@ -282,7 +319,6 @@ func (a *AdminAuth) policyChangeApply(w http.ResponseWriter, r *http.Request) {
 	a.short.clear(w, adminConfirmCookieName)
 
 	actor := actorOf(id)
-	var err error
 	switch c.op {
 	case opEnable, opDisable:
 		_, err = a.scribe.SetEnabled(r.Context(), tenant.EnableCommand{
@@ -549,97 +585,537 @@ func (a *AdminAuth) policyVersionPage(w http.ResponseWriter, r *http.Request) {
 
 // --- the two screens this file renders -------------------------------------------
 
-// policyChangeView turns a validated change into the confirmation screen.
+// policyChangeView wraps what the confirmation page shows in the panel's chrome and the
+// form that makes the change.
 //
-// 🔴 THE SENTENCES ARE CHOSEN FROM THE OPERATION, WHICH IS A WORD FROM A CLOSED
-// LIST, so there is nothing on this page a caller can put words into. The one value
-// that comes from a human — the rule's name — is cleaned and bounded at the boundary
-// and rendered as text by templ, which escapes it.
-func (a *AdminAuth) policyChangeView(r *http.Request, c policyChange, token string) pages.PolicyChangeView {
-	v := pages.PolicyChangeView{
-		PanelChrome:  a.chrome(r, pages.TabPolicies),
+// THE PAGE'S HEADING IS THE SHELL'S ONE h1 (M12-01): the title is the act, the trail
+// leads back to Rules. The kicker slot stays empty -- the board draws what kind of rule
+// this is as the eyebrow over the rule's own name, inside the change card.
+func (a *AdminAuth) policyChangeView(r *http.Request, c policyChange, shown pages.PolicyChangeShown, token string) pages.PolicyChangeView {
+	chrome := a.chrome(r, pages.TabPolicies)
+	chrome.Title = shown.Heading
+	chrome.Crumbs = []pages.Crumb{{Label: "Rules", Href: policiesHref}, {Label: "Review this change"}}
+	return pages.PolicyChangeView{
+		PanelChrome:  chrome,
+		Shown:        shown,
 		Action:       policyApplyHref,
 		ConfirmField: confirmField,
 		ConfirmToken: token,
 		BackHref:     policiesHref,
 		Fields:       policyChangeFields(c),
 	}
+}
+
+// policyChangeSubject is what the confirmation MAC is bound to: the posted change
+// (policyChange.subject) AND a digest of everything the page shows about it.
+//
+// 🔴 THE PAGE SHOWS MORE THAN THE FORM CARRIES, SO THE MAC BINDS MORE THAN THE FORM
+// (M12-38). The review page names the rule, prints its version and what the change makes
+// of it ("version 2 → version 3"), its state, the places it applies, its history -- all
+// read from the rulebook, none of it posted. A token bound to the posted fields alone
+// would still open the write after another owner had written version 3 in between, and
+// the store would get version 4 under a page that said 3. So the page's whole shown value
+// is digested into the subject, and the write rebuilds that value from a fresh read
+// (policyChangeApply): a page that has stopped being true cannot be confirmed.
+//
+// THE OTHER DIRECTION HOLDS BY CONSTRUCTION: every part of policyChange.subject is on
+// the page -- the operation as the title and "What", the rule by name (or its id when no
+// stored rule has it), the place, the name, the copied rule, the venues by name.
+//
+// The digest is hex, so it carries neither separator (adminConfirm.mint refuses "|";
+// the parts join with "/"). %#v of a value made of strings, ints and slices is
+// deterministic, which is all a digest needs.
+func policyChangeSubject(c policyChange, shown pages.PolicyChangeShown) string {
+	h := sha256.New()
+	_, _ = fmt.Fprintf(h, "%#v", shown)
+	return c.subject() + "/" + hex.EncodeToString(h.Sum(nil))
+}
+
+// policyChangeShown builds everything the confirmation page says about one change from
+// the change itself and ONE rulebook read (no second call: the newest stored version's
+// body is the rule's own statements, already on the screen read).
+//
+// 🔴 ONLY WHAT THE OPERATION REALLY DOES IS DRAWN AS A CHANGE (D1). A switch moves a
+// rule's state, a binding moves the bound list, a written rule moves a name and places.
+// No operation here chooses an effect -- an authored rule copies the shipped rule's
+// effect word for word (tenant.copyOfShipped) -- so no effect is ever struck through or
+// added: the effect pills are printed as what each version says, never as the act. And
+// nothing predicts how a tap would come out (no simulator, M9-06).
+//
+// 🔴 EVERY STRING IS SERVER-CHOSEN: closed-vocabulary sentences, the rulebook's own
+// words and the posted values the boundary already cleaned. templ escapes all of it.
+func policyChangeShown(c policyChange, s tenant.PolicyScreen) pages.PolicyChangeShown {
+	zone := s.Zone
+	if zone == nil {
+		zone = time.UTC
+	}
+	places := newPolicyPlaces(s)
+	var sh pages.PolicyChangeShown
+	sh.Heading, sh.Summary, sh.Warning = policyChangeWords(c)
+
+	rule, found := policyRuleByID(s, c.policyID)
+	var row pages.PolicyRuleView
+	if found {
+		row = policyRuleView(rule, zone, s.GuardrailsOnly, policyEditor{})
+	}
+	// DECIDING is the engine's sense of "in use": stored, switched on, and the layer not
+	// dropped. A switched-off rule's newest version is stored, not in use.
+	deciding := found && rule.State == tenant.StateActive && !s.GuardrailsOnly
+
+	switch {
+	case c.policyID == uuid.Nil:
+		sh.RuleKind, sh.RuleTitle = "A new rule of your own", c.name
+	case !found:
+		// THE ID IS PRINTED BECAUSE IT IS WHAT THE BUTTON WOULD ACT ON: a confirmation
+		// that hid the one value it is bound to would be the C′ shape again.
+		sh.RuleKind, sh.RuleTitle = "A rule this page cannot find", c.policyID.String()
+		sh.Notes = append(sh.Notes, "No rule with this id is stored for this business, so "+
+			"there is nothing about it to show here.")
+	case rule.Managed:
+		sh.RuleKind, sh.RuleTitle = "Taptime baseline", row.Title
+	default:
+		sh.RuleKind, sh.RuleTitle = "One of your own policies", row.Title
+	}
+
+	var sids []string
+	for _, st := range row.Statements {
+		sids = append(sids, st.Sid)
+	}
+	version := ""
+	if found && rule.VersionNo > 0 {
+		version = "version " + strconv.Itoa(rule.VersionNo)
+	}
+	nothing := []pages.PolicyChangeDiffPart{{Text: "—"}}
+
+	switch c.op {
+	case opEnable, opDisable:
+		if !found {
+			sh.Before = pages.PolicyChangeSide{Label: "Before · now", Lines: []pages.PolicyChangeDiffLine{{Label: "State", Parts: nothing}}}
+			sh.After = pages.PolicyChangeSide{Label: "After · from the next tap", Lines: []pages.PolicyChangeDiffLine{{Label: "State", Parts: nothing}}}
+			break
+		}
+		target, move := "Switched off by you", "switched on → switched off"
+		if c.op == opEnable {
+			target, move = "In force", "switched off → switched on"
+			// THE RULES PAGE'S OVERRIDE, KEPT: when the engine has dropped the layer a
+			// switched-on rule decides nothing, so "In force" would be the page's most
+			// confident lie (policyRuleView).
+			if s.GuardrailsOnly {
+				target = "Stored — but not deciding today"
+			}
+		}
+		was, now := "del", "ins"
+		// ALREADY THERE: the domain returns early and writes nothing, so nothing is
+		// drawn as moving and the page says so.
+		if (c.op == opDisable) == (rule.State == tenant.StateOff) {
+			was, now, target = "", "", row.StateLabel
+			sh.Notes = append(sh.Notes, "The rule is already in that state, so making this "+
+				"change writes nothing.")
+		}
+		sh.RuleLine = joinDot(nonEmpty(joinDot(sids), version, move))
+		sh.Before = pages.PolicyChangeSide{Label: "Before · now", Lines: appendAnswer(
+			[]pages.PolicyChangeDiffLine{{Label: "State", Parts: []pages.PolicyChangeDiffPart{{Text: row.StateLabel, Mark: was}}}},
+			row.Statements)}
+		sh.After = pages.PolicyChangeSide{Label: "After · from the next tap", Lines: appendAnswer(
+			[]pages.PolicyChangeDiffLine{{Label: "State", Parts: []pages.PolicyChangeDiffPart{{Text: target, Mark: now}}}},
+			row.Statements)}
+		sh.Notes = append(sh.Notes, "What the rule says stays as it is; only whether it "+
+			"takes part in decisions changes. Nothing is deleted.")
+
+	case opBind, opUnbind:
+		sh.RuleLine = joinDot(nonEmpty(joinDot(sids), version, "no new version"))
+		bound := slices.Contains(rule.Attachments, c.resource)
+		var before, after []pages.PolicyChangeDiffPart
+		for _, res := range rule.Attachments {
+			mark := ""
+			if c.op == opUnbind && res == c.resource {
+				mark = "del"
+			}
+			before = append(before, pages.PolicyChangeDiffPart{Text: places.label(res), Mark: mark})
+			if mark == "" {
+				after = append(after, pages.PolicyChangeDiffPart{Text: places.label(res)})
+			}
+		}
+		if c.op == opBind && !bound {
+			after = append(after, pages.PolicyChangeDiffPart{Text: places.label(c.resource), Mark: "ins"})
+		}
+		switch {
+		case c.op == opBind && bound:
+			sh.Notes = append(sh.Notes, "It is already recorded there, so this change will be "+
+				"refused as one that was already true.")
+		case c.op == opUnbind && !bound:
+			sh.Notes = append(sh.Notes, "It is not recorded there, so this change will be "+
+				"refused as one there is nothing to remove for.")
+		}
+		if len(before) == 0 {
+			before = []pages.PolicyChangeDiffPart{{Text: "nothing"}}
+		}
+		if len(after) == 0 {
+			after = []pages.PolicyChangeDiffPart{{Text: "nothing"}}
+		}
+		sh.Before = pages.PolicyChangeSide{Label: "Before · recorded now",
+			Lines: []pages.PolicyChangeDiffLine{{Label: "Bound to", Parts: before}}}
+		sh.After = pages.PolicyChangeSide{Label: "After · once you make it",
+			Lines: []pages.PolicyChangeDiffLine{{Label: "Bound to", Parts: after}}}
+		sh.Notes = append(sh.Notes, "Bookkeeping, not scope: what decides where a rule "+
+			"applies is the “Where” line on each of its statements, and that does not change here.")
+
+	case opAuthor:
+		doc, docFound := shippedRule(c.basedOn)
+		afterRes := []string{"location/*"}
+		if len(c.venues) > 0 {
+			afterRes = afterRes[:0]
+			for _, v := range c.venues {
+				afterRes = append(afterRes, "location/"+v.String())
+			}
+		}
+		var beforeRes []string
+		if len(rule.Statements) > 0 {
+			beforeRes = rule.Statements[0].Resources
+		}
+		var answer []pages.PolicyChangeDiffPart
+		for _, st := range doc.Document.Statements {
+			var actions []string
+			for _, a := range st.Action {
+				actions = append(actions, string(a))
+			}
+			answer = append(answer, pages.PolicyChangeDiffPart{
+				Text: statementLabel(string(st.Effect), actions), Effect: string(st.Effect),
+			})
+		}
+		if !docFound {
+			answer = []pages.PolicyChangeDiffPart{{Text: "— not a Taptime rule you can copy"}}
+		}
+		afterLabel := func(no string) string {
+			if s.GuardrailsOnly || (found && !deciding) {
+				return "After · " + no
+			}
+			return "After · " + no + ", from the next tap"
+		}
+		if !found {
+			if c.policyID == uuid.Nil {
+				sh.RuleLine = "→ version 1"
+			}
+			sh.Before = pages.PolicyChangeSide{Label: "Before · no such rule yet", Lines: []pages.PolicyChangeDiffLine{
+				{Label: "Called", Parts: nothing}, {Label: "Where", Parts: nothing}, {Label: "Answer", Parts: nothing},
+			}}
+			var where []pages.PolicyChangeDiffPart
+			for _, res := range afterRes {
+				where = append(where, pages.PolicyChangeDiffPart{Text: places.label(res), Mark: "ins"})
+			}
+			sh.After = pages.PolicyChangeSide{Label: afterLabel("version 1"), Lines: []pages.PolicyChangeDiffLine{
+				{Label: "Called", Parts: []pages.PolicyChangeDiffPart{{Text: c.name, Mark: "ins"}}},
+				{Label: "Where", Parts: where},
+				{Label: "Answer", Parts: answer},
+			}}
+			if c.policyID != uuid.Nil {
+				sh.After.Label = afterLabel("a new version")
+			}
+		} else {
+			next := "version " + strconv.Itoa(rule.VersionNo+1)
+			sh.RuleLine = joinDot(nonEmpty(joinDot(sids), version+" → "+next))
+			if rule.Managed {
+				sh.Notes = append(sh.Notes, "This is a Taptime rule, not one of yours: a new "+
+					"version of it cannot be written here, so this change will be refused.")
+			}
+			was, now := "", ""
+			if rule.Name != c.name {
+				was, now = "del", "ins"
+			}
+			var whereBefore, whereAfter []pages.PolicyChangeDiffPart
+			for _, res := range beforeRes {
+				mark := ""
+				if !slices.Contains(afterRes, res) {
+					mark = "del"
+				}
+				whereBefore = append(whereBefore, pages.PolicyChangeDiffPart{Text: places.label(res), Mark: mark})
+			}
+			for _, res := range afterRes {
+				mark := ""
+				if !slices.Contains(beforeRes, res) {
+					mark = "ins"
+				}
+				whereAfter = append(whereAfter, pages.PolicyChangeDiffPart{Text: places.label(res), Mark: mark})
+			}
+			if len(whereBefore) == 0 {
+				whereBefore = nothing
+			}
+			use := "newest stored"
+			if deciding {
+				use = "in use"
+			}
+			sh.Before = pages.PolicyChangeSide{Label: "Before · " + version + ", " + use, Lines: appendAnswer(
+				[]pages.PolicyChangeDiffLine{
+					{Label: "Called", Parts: []pages.PolicyChangeDiffPart{{Text: rule.Name, Mark: was}}},
+					{Label: "Where", Parts: whereBefore},
+				}, row.Statements)}
+			sh.After = pages.PolicyChangeSide{Label: afterLabel(next), Lines: []pages.PolicyChangeDiffLine{
+				{Label: "Called", Parts: []pages.PolicyChangeDiffPart{{Text: c.name, Mark: now}}},
+				{Label: "Where", Parts: whereAfter},
+				{Label: "Answer", Parts: answer},
+			}}
+		}
+		if docFound {
+			sh.Notes = append(sh.Notes, "The answer, the condition and the engine’s reason are "+
+				"copied from “"+doc.Name+"” word for word. Only the name and the venues are yours. "+
+				"What any tap will now get is not worked out here — there is no simulator yet.")
+		} else {
+			sh.Notes = append(sh.Notes, "“"+c.basedOn+"” is not a Taptime rule you can base your "+
+				"own on, so this change will be refused.")
+		}
+	}
+
+	// THE SPECIFICS. Places by name, never by uuid; an id no name is known for is printed
+	// with a sentence saying so (policyPlaces.label).
+	sh.Detail = append(sh.Detail, pages.PolicyChangeLine{Label: "What", Value: policyChangeWhat(c)})
+	if c.op == opAuthor {
+		var where []string
+		if len(c.venues) == 0 {
+			where = append(where, places.label("location/*"))
+		}
+		for _, v := range c.venues {
+			where = append(where, places.label("location/"+v.String()))
+		}
+		sh.Detail = append(sh.Detail,
+			pages.PolicyChangeLine{Label: "A version of", Value: c.basedOn},
+			pages.PolicyChangeLine{Label: "Where", Value: joinDot(where)})
+	}
+	if c.resource != "" {
+		sh.Detail = append(sh.Detail, pages.PolicyChangeLine{Label: "Place", Value: places.label(c.resource)})
+	}
+	if found && version != "" {
+		label, value := "Newest stored version", version
+		if deciding {
+			label = "Version in use"
+		}
+		for _, h := range rule.History {
+			if h.Current {
+				value += " · " + h.At.In(zone).Format("2 Jan 2006 15:04")
+			}
+		}
+		sh.Detail = append(sh.Detail, pages.PolicyChangeLine{Label: label, Value: value})
+	}
+	// THE PAGE IS ONLY EVER RENDERED FOR AN ACTOR THE ENGINE GRANTS policy:edit (the
+	// review asks May before anything else), so this is a fact about the reader, in the
+	// engine's terms rather than a role's.
+	sh.Detail = append(sh.Detail, pages.PolicyChangeLine{
+		Label: "Who can save", Value: "you — the rules engine grants you policy:edit",
+	})
+
+	switch {
+	case found:
+		sh.History = row.History
+		for i := range sh.History {
+			// "IN USE" ONLY WHILE THE ENGINE IS USING IT: a switched-off rule's newest
+			// version is stored, and nothing is in force.
+			if sh.History[i].Marker != "" && !deciding {
+				sh.History[i].Marker, sh.History[i].MarkerTone = "newest stored", pages.PolicyToneOff
+			}
+		}
+		sh.HistoryNote = row.HistoryNote
+		if len(sh.History) == 0 {
+			sh.HistoryEmpty = "No version of this rule is stored yet."
+		}
+		if !rule.Managed && rule.StoredStamp != "" {
+			sh.HistoryOrigin = "Its newest version was copied from the Taptime baseline of " +
+				rule.StoredStamp + "."
+		}
+		if len(row.Statements) > 0 || row.Problem != "" {
+			sh.InUseLabel = "The newest stored version, read in full"
+			if deciding {
+				sh.InUseLabel = "The version in use, read in full"
+			}
+			sh.InUseProblem = row.Problem
+			for _, st := range row.Statements {
+				st.Resources = places.labels(st.Resources)
+				sh.InUseStatements = append(sh.InUseStatements, st)
+			}
+		}
+	case c.policyID == uuid.Nil:
+		sh.HistoryEmpty = "A new rule has no history yet. Making this change stores its version 1."
+	default:
+		sh.HistoryEmpty = "No rule with this id is stored for this business, so there is no " +
+			"history to show."
+	}
+	return sh
+}
+
+// policyChangeWords are the change in words: the title, the lead and the consequence
+// sentence, chosen from the operation's closed vocabulary.
+//
+// 🔴 THE SENTENCES ARE CHOSEN FROM THE OPERATION, WHICH IS A WORD FROM A CLOSED
+// LIST, so there is nothing here a caller can put words into.
+func policyChangeWords(c policyChange) (heading, summary, warning string) {
 	switch c.op {
 	case opEnable:
-		v.Heading = "Switch this rule back on"
-		v.Summary = "From the next tap onwards, this rule takes part in every decision again."
-		v.Warning = "Taps judged while it was off were judged without it, and those records " +
+		heading = "Switch this rule back on"
+		summary = "From the next tap onwards, this rule takes part in every decision again."
+		warning = "Taps judged while it was off were judged without it, and those records " +
 			"do not change."
 	case opDisable:
-		v.Heading = "Switch this rule off"
-		v.Summary = "From the next tap onwards, this rule takes no part in any decision. It is " +
+		heading = "Switch this rule off"
+		summary = "From the next tap onwards, this rule takes no part in any decision. It is " +
 			"not deleted: its history stays, so a record decided under it can still explain itself."
-		v.Warning = "This is the change most likely to move somebody's hours. A rule that was " +
+		warning = "This is the change most likely to move somebody's hours. A rule that was " +
 			"sending taps to The Spike will stop doing so, and taps that would have been " +
 			"queued will simply be approved or refused by whatever decides next."
 	case opBind:
-		v.Heading = "Record where this rule applies"
-		v.Summary = "This records the rule as bound to one more place."
-		v.Warning = "A binding is a RECORD of scope, not the scope itself. What actually " +
+		heading = "Record where this rule applies"
+		summary = "This records the rule as bound to one more place."
+		warning = "A binding is a RECORD of scope, not the scope itself. What actually " +
 			"decides where a rule applies is the “Where” line on each of its statements — the " +
 			"engine reads that and not this. Nothing about how your taps are judged changes here."
 	case opUnbind:
-		v.Heading = "Stop recording this rule as applying there"
-		v.Summary = "This removes one binding. It is the one thing on this page that is a real " +
+		heading = "Stop recording this rule as applying there"
+		summary = "This removes one binding. It is the one thing on this page that is a real " +
 			"deletion, and it is safe to be one: a binding carries no decision history — a " +
 			"record names the rule that decided it where one did, and the exact stored " +
 			"version where that rule was a stored one, and none of that lives in these rows."
-		v.Warning = "As above: the engine does not read these rows, so how your taps are " +
+		warning = "As above: the engine does not read these rows, so how your taps are " +
 			"judged does not change. What changes is what this page, and provisioning, will say " +
 			"about where the rule belongs."
 	case opAuthor:
 		// 🔴 THE TWO BRANCHES OF THIS FORM GET DIFFERENT WORDS. They said the same thing
 		// for a round — including "the one it replaces stays readable" on a CREATE, where
-		// there is nothing to replace — and the only visible difference between the two
-		// screens was a uuid on a detail line. A confirmation step whose whole claim is
-		// that it shows what will happen cannot describe two acts identically.
+		// there is nothing to replace. A confirmation step whose whole claim is that it
+		// shows what will happen cannot describe two acts identically.
 		if c.policyID == uuid.Nil {
-			v.Heading = "Write a new rule of your own"
-			v.Summary = "This creates a rule that is yours: a new entry beside the Taptime " +
+			heading = "Write a new rule of your own"
+			summary = "This creates a rule that is yours: a new entry beside the Taptime " +
 				"baseline, starting at version 1. Nothing existing is changed or replaced."
 		} else {
-			v.Heading = "Write a new version of your rule"
-			v.Summary = "This stores a NEW VERSION of a rule you already have. Nothing is " +
+			heading = "Write a new version of your rule"
+			summary = "This stores a NEW VERSION of a rule you already have. Nothing is " +
 				"overwritten — a policy's versions can never be edited or deleted, so the " +
 				"version this one supersedes stays readable for the records it decided."
 		}
-		v.Warning = "Your copy does NOT switch the Taptime rule off. Until you do that, both are " +
+		warning = "Your copy does NOT switch the Taptime rule off. Until you do that, both are " +
 			"weighed together and the more specific one wins where they disagree — so a copy " +
 			"scoped to one venue changes that venue and leaves the rest as they were."
 	}
-	v.Detail = append(v.Detail, pages.PolicyChangeLine{Label: "What", Value: c.op})
-	if c.policyID != uuid.Nil {
-		v.Detail = append(v.Detail, pages.PolicyChangeLine{Label: "Rule", Value: c.policyID.String()})
-	}
-	if c.resource != "" {
-		v.Detail = append(v.Detail, pages.PolicyChangeLine{Label: "Scope", Value: c.resource})
-	}
-	if c.op == opAuthor {
-		v.Detail = append(v.Detail,
-			pages.PolicyChangeLine{Label: "Called", Value: c.name},
-			pages.PolicyChangeLine{Label: "A version of", Value: c.basedOn},
-			pages.PolicyChangeLine{Label: "Where", Value: venueSummary(c.venues)})
-	}
-	return v
+	return heading, summary, warning
 }
 
-// venueSummary says which venues an authored rule names, WITHOUT pretending an
-// empty list means nothing: it means everywhere, which is what the shipped rule
-// already says.
-func venueSummary(venues []uuid.UUID) string {
-	if len(venues) == 0 {
-		return "every venue"
+// policyChangeWhat is the operation in a few words, for the "What" line.
+func policyChangeWhat(c policyChange) string {
+	switch c.op {
+	case opEnable:
+		return "Switch a rule back on"
+	case opDisable:
+		return "Switch a rule off"
+	case opBind:
+		return "Record where a rule applies"
+	case opUnbind:
+		return "Remove a record of where a rule applies"
+	case opAuthor:
+		if c.policyID == uuid.Nil {
+			return "A new rule of your own"
+		}
+		return "A new version of one of your rules"
+	default:
+		return c.op
 	}
-	out := make([]string, 0, len(venues))
-	for _, v := range venues {
-		out = append(out, v.String())
+}
+
+// appendAnswer adds a rule's effects as one "Answer" row of read-only pills -- what the
+// version says, never something the change moves.
+func appendAnswer(lines []pages.PolicyChangeDiffLine, statements []pages.PolicyStatementView) []pages.PolicyChangeDiffLine {
+	var parts []pages.PolicyChangeDiffPart
+	for _, st := range statements {
+		parts = append(parts, pages.PolicyChangeDiffPart{Text: st.Label, Effect: st.Effect})
 	}
-	return strings.Join(out, " · ")
+	if len(parts) == 0 {
+		return lines
+	}
+	return append(lines, pages.PolicyChangeDiffLine{Label: "Answer", Parts: parts})
+}
+
+// policyRuleByID finds a stored rule on the screen. The zero id is never found: it is
+// what an authoring post for a NEW rule carries, and what a shipped document with no
+// stored row reports.
+func policyRuleByID(s tenant.PolicyScreen, id uuid.UUID) (tenant.Rule, bool) {
+	if id == uuid.Nil {
+		return tenant.Rule{}, false
+	}
+	for _, list := range [][]tenant.Rule{s.Baseline, s.Tenant} {
+		for _, r := range list {
+			if r.PolicyID == id {
+				return r, true
+			}
+		}
+	}
+	return tenant.Rule{}, false
+}
+
+// shippedRule is the shipped document an authored rule copies, asked of the domain's
+// own list (tenant.AuthorableRules) -- the one the write will look it up in.
+func shippedRule(name string) (policy.BaselineDoc, bool) {
+	for _, doc := range tenant.AuthorableRules() {
+		if doc.Name == name {
+			return doc, true
+		}
+	}
+	return policy.BaselineDoc{}, false
+}
+
+// nonEmpty drops the empty strings from a list of parts.
+func nonEmpty(parts ...string) []string {
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// policyPlaces names a resource in the business's own words.
+type policyPlaces struct {
+	names  map[string]string
+	capped bool
+}
+
+func newPolicyPlaces(s tenant.PolicyScreen) policyPlaces {
+	p := policyPlaces{
+		names: map[string]string{
+			"*":          "every venue and department",
+			"location/*": "every venue",
+		},
+		capped: s.ScopeCapped,
+	}
+	for _, t := range s.ScopeTargets {
+		name := t.Name
+		if t.Kind != "location" {
+			name += " (" + t.Kind + ")"
+		}
+		p.names[t.Resource()] = name
+	}
+	return p
+}
+
+// label is a resource's name, or the raw resource with a sentence saying why no name is
+// known.
+//
+// 🔴 AN UNNAMED PLACE IS SHOWN, NOT HIDDEN -- the Rules page's rule (policyEditor.label):
+// a binding or a posted venue may name a place this business no longer has, and the
+// button would act on it all the same. When the list of places was cut short the page
+// does not claim the place is gone; it says the name was not read.
+func (p policyPlaces) label(resource string) string {
+	if name, ok := p.names[resource]; ok {
+		return name
+	}
+	if p.capped {
+		return resource + " (its name is past the places this page read)"
+	}
+	return resource + " (not a place of this business)"
+}
+
+func (p policyPlaces) labels(resources []string) []string {
+	out := make([]string, 0, len(resources))
+	for _, r := range resources {
+		out = append(out, p.label(r))
+	}
+	return out
 }
 
 // policyChangeFields echoes the change back as hidden inputs.
@@ -668,11 +1144,22 @@ func policyChangeFields(c policyChange) []pages.PolicyChangeField {
 
 // policyVersionView maps one stored version onto its page.
 func (a *AdminAuth) policyVersionView(r *http.Request, b tenant.VersionBody) pages.PolicyVersionPageView {
+	// THE PAGE'S OWN HEADING (M12-01): the trail back to Rules ends in the version, the
+	// title is the rule's name and the eyebrow says whose rule it is.
+	chrome := a.chrome(r, pages.TabPolicies)
+	version := "version " + strconv.Itoa(b.VersionNo)
+	chrome.Title = b.PolicyName
+	chrome.Kicker = "One of your own policies · " + version
+	if policy.Layer(b.Layer) == policy.LayerBaseline {
+		chrome.Title = strings.TrimPrefix(b.PolicyName, baselineNamePrefix)
+		chrome.Kicker = "Taptime baseline · " + version
+	}
+	chrome.Crumbs = []pages.Crumb{{Label: "Rules", Href: policiesHref}, {Label: "Version " + strconv.Itoa(b.VersionNo)}}
 	v := pages.PolicyVersionPageView{
-		PanelChrome: a.chrome(r, pages.TabPolicies),
+		PanelChrome: chrome,
 		PolicyName:  b.PolicyName,
 		Layer:       b.Layer,
-		Version:     "version " + strconv.Itoa(b.VersionNo),
+		Version:     version,
 		At:          b.At.Format("2 Jan 2006 15:04"),
 		Author:      b.Author,
 		Bytes:       strconv.Itoa(b.Bytes) + " bytes",

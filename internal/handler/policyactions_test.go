@@ -11,11 +11,15 @@ package handler
 // manager no control the server would turn away.
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -700,6 +704,293 @@ func TestPolicyApply_TheCrossLocationGuardSaysWhatToSwitchFirst(t *testing.T) {
 			if !strings.Contains(page, htmlText(want)) {
 				t.Errorf("problem=%s does not print %q", c.word, want)
 			}
+		}
+	}
+}
+
+// --- M12-38: the review page names what it is about, and is bound to what it shows ---
+
+// policyOwnRuleScreen is the realistic screen plus ONE rule of the business's own, at
+// version 2, scoped to one named venue, and returns it with the venue's id.
+func policyOwnRuleScreen() (tenant.PolicyScreen, tenant.Rule, uuid.UUID) {
+	s := policyScreenWithControls()
+	venue := uuid.New()
+	s.ScopeTargets = append(s.ScopeTargets, tenant.ScopeTarget{Kind: "location", ID: venue, Name: "Zz Hamrun"})
+	doc := tenant.AuthorableRules()[0]
+	own := tenant.Rule{
+		PolicyID: uuid.New(), Name: "Zz nights at Hamrun", State: tenant.StateActive, VersionNo: 2,
+		StoredStamp: policy.BaselineVersion, Attachments: []string{"location/" + venue.String()},
+		History: []tenant.RuleVersion{
+			{No: 2, At: time.Date(2026, 9, 14, 10, 22, 0, 0, time.UTC), Author: "KF Owner", Bytes: 412, Current: true},
+			{No: 1, At: time.Date(2026, 8, 2, 16, 5, 0, 0, time.UTC), Author: "KF Owner", Bytes: 377},
+		},
+		HistoryTotal: 2,
+	}
+	for _, st := range doc.Document.Statements {
+		rs := tenant.RuleStatement{
+			Sid: "own:zz-copy", Effect: string(st.Effect), Reason: st.Reason,
+			Resources: []string{"location/" + venue.String()},
+		}
+		for _, a := range st.Action {
+			rs.Actions = append(rs.Actions, string(a))
+		}
+		own.Statements = append(own.Statements, rs)
+	}
+	s.Tenant = append(s.Tenant, own)
+	return s, own, venue
+}
+
+// TestPolicyChange_NamesTheRuleAndThePlacesNotTheirIDs.
+//
+// The page used to print the policy's uuid as "Rule" and every venue as a uuid. A
+// confirmation is read by a person deciding something they cannot take back, so it names
+// the rule and the places in the business's own words -- and still tells an unknown id
+// apart rather than dropping it.
+func TestPolicyChange_NamesTheRuleAndThePlacesNotTheirIDs(t *testing.T) {
+	screen, own, venue := policyOwnRuleScreen()
+	rules := newFakeRules()
+	rules.screen = screen
+
+	b := policyBrowserWith(t, rules, newFakeScribe())
+	rec := b.do(http.MethodPost, policyChangeHref, url.Values{
+		"op": {opAuthor}, "policy": {own.PolicyID.String()}, "name": {"Zz nights everywhere"},
+		"based_on": {tenant.AuthorableRules()[0].Name}, "venue": {venue.String()},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("the review step answered %d, want 200", rec.Code)
+	}
+	page := htmlOf(t, rec)
+	for _, want := range []string{
+		"Zz nights at Hamrun",    // the rule, by its stored name
+		"Zz Hamrun",              // the venue, by its name
+		"version 2 → version 3",  // a supersede says which version it writes
+		"Zz nights everywhere",   // the new name
+		`<del class="diff-del">`, // the old name goes
+		`<ins class="diff-ins">`, // the new name arrives
+		"Review this change",     // the trail's last step
+		"History of this rule",   // the strip beside the change
+		"The version in use, read in full",
+	} {
+		if !strings.Contains(page, htmlText(want)) && !strings.Contains(page, want) {
+			t.Errorf("the review page does not carry %q", want)
+		}
+	}
+	// THE UUIDS ARE IN THE FORM (they are what the write acts on) AND NOWHERE ELSE: a
+	// visible uuid is a page that did not resolve what it is about.
+	body := page[strings.Index(page, `<main`):]
+	visible := regexpHiddenInputs.ReplaceAllString(body, "")
+	for _, id := range []string{own.PolicyID.String(), venue.String()} {
+		if strings.Contains(stripHrefs(visible), id) {
+			t.Errorf("the review page prints the id %s outside the form", id)
+		}
+	}
+	// AN ID NO STORED RULE HAS IS PRINTED, WITH A SENTENCE: the button would act on it.
+	ghost := uuid.New()
+	rec = policyBrowserWith(t, rules, newFakeScribe()).do(http.MethodPost, policyChangeHref,
+		url.Values{"op": {opDisable}, "policy": {ghost.String()}})
+	page = htmlOf(t, rec)
+	if !strings.Contains(page, ghost.String()) || !strings.Contains(page, htmlText("A rule this page cannot find")) {
+		t.Error("a change to an id no stored rule has does not say so and name the id")
+	}
+}
+
+var regexpHiddenInputs = regexp.MustCompile(`<input type="hidden"[^>]*>`)
+
+func stripHrefs(s string) string { return regexp.MustCompile(`href="[^"]*"`).ReplaceAllString(s, "") }
+
+// TestPolicyChange_DrawsOnlyWhatTheOperationChanges.
+//
+// 🔴 D1: NO OPERATION CHOOSES AN EFFECT, so no effect is ever drawn as moving. A switch
+// moves the state, a binding moves the bound list, an authored rule moves a name and its
+// places; the effect pills are what each version says.
+func TestPolicyChange_DrawsOnlyWhatTheOperationChanges(t *testing.T) {
+	screen, own, venue := policyOwnRuleScreen()
+	rules := newFakeRules()
+	rules.screen = screen
+	other := screen.ScopeTargets[0]
+	cases := map[string]struct {
+		form         url.Values
+		moves, stays []string
+	}{
+		"disable": {url.Values{"op": {opDisable}, "policy": {own.PolicyID.String()}},
+			[]string{"In force", "Switched off by you"}, nil},
+		"bind": {url.Values{"op": {opBind}, "policy": {own.PolicyID.String()}, "resource": {other.Resource()}},
+			[]string{other.Name}, []string{"Zz Hamrun"}},
+		"unbind": {url.Values{"op": {opUnbind}, "policy": {own.PolicyID.String()}, "resource": {"location/" + venue.String()}},
+			[]string{"Zz Hamrun"}, nil},
+		"author new": {url.Values{"op": {opAuthor}, "name": {"Zz brand new"}, "based_on": {tenant.AuthorableRules()[0].Name}},
+			[]string{"Zz brand new"}, nil},
+	}
+	effects := map[string]bool{}
+	for _, e := range []string{"allow", "review", "deny", "ignore", "redirect", "note"} {
+		effects[effectLabel(e)] = true
+	}
+	effects["Grant"] = true
+	marked := regexp.MustCompile(`<(del|ins) class="diff-(?:del|ins)"><span class="sr-only">(?:removed|added): </span>([^<]*)</(?:del|ins)>`)
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			rec := policyBrowserWith(t, rules, newFakeScribe()).do(http.MethodPost, policyChangeHref, tc.form)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("review answered %d", rec.Code)
+			}
+			page := htmlOf(t, rec)
+			found := map[string]bool{}
+			for _, m := range marked.FindAllStringSubmatch(page, -1) {
+				found[m[2]] = true
+				if effects[strings.ReplaceAll(m[2], "&#39;", "'")] {
+					t.Errorf("an EFFECT is drawn as changing (%s %q); no operation chooses one", m[1], m[2])
+				}
+			}
+			for _, w := range tc.moves {
+				if !found[htmlText(w)] {
+					t.Errorf("%q is not drawn as changing (marked: %v)", w, found)
+				}
+			}
+			for _, w := range tc.stays {
+				if found[htmlText(w)] {
+					t.Errorf("%q is drawn as changing, but this operation leaves it as it is", w)
+				}
+			}
+			// NO PREDICTED OUTCOME: the page never claims to know how taps come out.
+			if !strings.Contains(page, htmlText("cannot tell you how many of last week")) {
+				t.Error("the page lost the sentence that says the consequences were not checked")
+			}
+		})
+	}
+}
+
+// TestPolicyChange_TheHiddenFieldsAreExactlyTheChangesOwn.
+//
+// 🔴 NO HIDDEN FIELD ENTERS THE FORM WITHOUT ENTERING THE SUBJECT. The form's hidden
+// inputs, in order, are policyChangeFields' and the confirmation -- nothing the redesign
+// added travels to the write.
+func TestPolicyChange_TheHiddenFieldsAreExactlyTheChangesOwn(t *testing.T) {
+	screen, own, venue := policyOwnRuleScreen()
+	rules := newFakeRules()
+	rules.screen = screen
+	form := url.Values{"op": {opAuthor}, "policy": {own.PolicyID.String()}, "name": {"Zz a | b"},
+		"based_on": {tenant.AuthorableRules()[0].Name}, "venue": {venue.String()}}
+	page := htmlOf(t, policyBrowserWith(t, rules, newFakeScribe()).do(http.MethodPost, policyChangeHref, form))
+	var want []string
+	for _, f := range policyChangeFields(policyChange{op: opAuthor, policyID: own.PolicyID, name: "Zz a | b",
+		basedOn: tenant.AuthorableRules()[0].Name, venues: []uuid.UUID{venue}}) {
+		want = append(want, `<input type="hidden" name="`+f.Name+`" value="`+htmlText(f.Value)+`">`)
+	}
+	got := regexpHiddenInputs.FindAllString(page, -1)
+	if len(got) != len(want)+1 {
+		t.Fatalf("the form carries %d hidden inputs, want %d plus the confirmation:\n%s", len(got), len(want), strings.Join(got, "\n"))
+	}
+	for i, w := range want {
+		if got[i] != w {
+			t.Errorf("hidden input %d is %s, want %s", i, got[i], w)
+		}
+	}
+	if !strings.Contains(got[len(want)], `name="`+confirmField+`"`) {
+		t.Errorf("the last hidden input is %s, want the confirmation", got[len(want)])
+	}
+}
+
+// TestPolicyConfirmation_IsBoundToWhatThePageShowed.
+//
+// 🔴 THE PAGE SAYS "version 2 → version 3"; IF ANOTHER OWNER WRITES VERSION 3 IN BETWEEN,
+// THE BUTTON MUST NOT WRITE VERSION 4 UNDER IT. The rulebook is changed between the two
+// steps -- the posted form is untouched -- and the write must be refused as unconfirmed.
+func TestPolicyConfirmation_IsBoundToWhatThePageShowed(t *testing.T) {
+	screen, own, venue := policyOwnRuleScreen()
+	form := url.Values{"op": {opAuthor}, "policy": {own.PolicyID.String()}, "name": {"Zz nights"},
+		"based_on": {tenant.AuthorableRules()[0].Name}, "venue": {venue.String()}}
+	moves := map[string]func(s *tenant.PolicyScreen){
+		"another version was written": func(s *tenant.PolicyScreen) { s.Tenant[len(s.Tenant)-1].VersionNo = 3 },
+		"the rule was switched off":   func(s *tenant.PolicyScreen) { s.Tenant[len(s.Tenant)-1].State = tenant.StateOff },
+		"the venue was renamed": func(s *tenant.PolicyScreen) {
+			s.ScopeTargets[len(s.ScopeTargets)-1].Name = "Zz Hamrun (old)"
+		},
+	}
+	for name, move := range moves {
+		t.Run(name, func(t *testing.T) {
+			rules := newFakeRules()
+			rules.screen = screen
+			// Each case owns its slices, so one case's move cannot leak into the next.
+			rules.screen.Tenant = slices.Clone(screen.Tenant)
+			rules.screen.ScopeTargets = slices.Clone(screen.ScopeTargets)
+			scribe := newFakeScribe()
+			b := policyBrowserWith(t, rules, scribe)
+			rec := b.do(http.MethodPost, policyChangeHref, form)
+			token := hiddenValue(t, htmlOf(t, rec), confirmField)
+			if token == "" {
+				t.Fatal("no confirmation was minted")
+			}
+			move(&rules.screen)
+			f := url.Values{}
+			for k, v := range form {
+				f[k] = v
+			}
+			f.Set(confirmField, token)
+			rec = b.do(http.MethodPost, policyApplyHref, f)
+			if len(scribe.calls) != 0 {
+				t.Errorf("the write went through after %s; the page the owner confirmed is no "+
+					"longer true", name)
+			}
+			if to := rec.Header().Get("Location"); !strings.Contains(to, "problem=confirm") {
+				t.Errorf("redirected to %q, want a confirmation refusal", to)
+			}
+		})
+	}
+	// ANTI-VACUITY: the same two steps with NOTHING moved write exactly once.
+	rules := newFakeRules()
+	rules.screen = screen
+	scribe := newFakeScribe()
+	b := policyBrowserWith(t, rules, scribe)
+	token := hiddenValue(t, htmlOf(t, b.do(http.MethodPost, policyChangeHref, form)), confirmField)
+	form.Set(confirmField, token)
+	b.do(http.MethodPost, policyApplyHref, form)
+	if len(scribe.calls) != 1 || scribe.calls[0] != "author" {
+		t.Fatalf("an unchanged rulebook did not open the write (%v); every refusal above is a "+
+			"refusal of the harness", scribe.calls)
+	}
+}
+
+// TestPolicyChange_AFailedReadMintsNothingAndAnUnconfirmedApplyReadsNothing.
+func TestPolicyChange_AFailedReadMintsNothingAndAnUnconfirmedApplyReadsNothing(t *testing.T) {
+	rules := newFakeRules()
+	rules.err = errors.New("db down")
+	rec := policyBrowserWith(t, rules, newFakeScribe()).do(http.MethodPost, policyChangeHref,
+		url.Values{"op": {opDisable}, "policy": {uuid.NewString()}})
+	if to := rec.Header().Get("Location"); rec.Code != http.StatusSeeOther || !strings.Contains(to, "problem=unavailable") {
+		t.Errorf("a failed rulebook read answered %d → %q, want 303 to problem=unavailable", rec.Code, to)
+	}
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == adminConfirmCookieName && c.Value != "" {
+			t.Error("a review that could not read the rulebook minted a confirmation")
+		}
+	}
+	// AN APPLY WITH NO CONFIRMATION IN THE FORM COSTS NO RULEBOOK READ.
+	quiet := newFakeRules()
+	rec = policyBrowserWith(t, quiet, newFakeScribe()).do(http.MethodPost, policyApplyHref,
+		url.Values{"op": {opDisable}, "policy": {uuid.NewString()}})
+	if quiet.calls != 0 || !strings.Contains(rec.Header().Get("Location"), "problem=confirm-required") {
+		t.Errorf("an unconfirmed apply read the rulebook %d time(s) and went to %q", quiet.calls,
+			rec.Header().Get("Location"))
+	}
+}
+
+// TestPolicyVersionPage_HasItsOwnHeading.
+func TestPolicyVersionPage_HasItsOwnHeading(t *testing.T) {
+	rules := newFakeRules()
+	rules.version = tenant.VersionBody{
+		PolicyID: uuid.New(), PolicyName: "Zz nights", Layer: "tenant", Enabled: true,
+		VersionNo: 3, Author: "KF Owner", Bytes: 99, Current: true,
+		Problem: "zz-parser-complaint",
+	}
+	page := htmlOf(t, policyBrowser(t, rules).do(http.MethodGet,
+		policyVersionHref+"?policy="+rules.version.PolicyID.String()+"&no=3", nil))
+	if n := strings.Count(page, "<h1"); n != 1 {
+		t.Errorf("the version page prints %d h1, want 1", n)
+	}
+	for _, want := range []string{`aria-current="page">Version 3<`, ">Zz nights</h1>", "zz-parser-complaint",
+		htmlText("This version cannot be read by this release"), `role="note"`} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the version page does not carry %q", want)
 		}
 	}
 }
