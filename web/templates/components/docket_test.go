@@ -91,8 +91,13 @@ func TestRailDocket_ManualAndTrainingStayDistinguishable(t *testing.T) {
 	if !strings.Contains(p, `stamp stamp--training">TRAINING`) || strings.Contains(p, "Entered by a manager") {
 		t.Errorf("the practice rail docket is not stamped TRAINING and only that:\n%s", p)
 	}
-	if strings.Contains(m, "IP no") || strings.Contains(m, "GPS no") {
-		t.Error("the manual rail docket reports a check nobody ran as failed")
+	// The component prints the signs it is handed; turning a manual record's NULL
+	// evidence into "n/a" rather than "no" is the handler's sign(), and the real
+	// read path is what guards it (TestTransactionDocket_EvidenceSignHasThreeStates,
+	// TestManualEntry_TheRedesignsHeadingStepsAndPreview). What this component owns
+	// is that a manual record keeps its evidence line, with the handler's words in it.
+	if !strings.Contains(m, "IP n/a · GPS n/a") {
+		t.Errorf("the manual rail docket does not print the signs it was handed (IP n/a · GPS n/a):\n%s", m)
 	}
 }
 
