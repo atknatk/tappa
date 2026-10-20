@@ -107,9 +107,10 @@ func apiKeysProblemSentence(word string) string {
 // problemAPIKeysOwnerOnly is what a manager sees at any of this section's addresses. It names no
 // key -- WHO may look, never WHAT they would have seen.
 var problemAPIKeysOwnerOnly = pages.ProblemView{
-	Title:   "API keys are the owner's",
-	Message: "This section issues and revokes the keys other systems use to reach this business's records, and it belongs to an owner of the business rather than to a manager. Nothing is wrong with your account.",
-	Hint:    "If a system needs a key, ask an owner of the business.",
+	Title:     "API keys are the owner's",
+	Message:   "This section issues and revokes the keys other systems use to reach this business's records, and it belongs to an owner of the business rather than to a manager. Nothing is wrong with your account.",
+	Hint:      "If a system needs a key, ask an owner of the business.",
+	OwnerOnly: true,
 }
 
 // problemAPIKeysUnavailable answers a write on a panel built without the keys service.
