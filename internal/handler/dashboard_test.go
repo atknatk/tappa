@@ -1217,6 +1217,10 @@ var panelTouchTargets = map[string]int{
 	// billing, rules). It is an <input>, not an <a> or a <button>, so the form-control
 	// scan and the stylesheet half of the pair hold it.
 	"field-input": 44, // .field-input -> min-h-11 = 2.75rem
+	// People (M12-30) draws the status chips (links) and each person's row (one link,
+	// 64 px on a phone, 60 px from md).
+	"chip-link":  44, // .chip-link  -> min-h-11 (a filter chip, a link)
+	"roster-row": 60, // .roster-row -> min-h-16, md:min-h-[60px]
 }
 
 // panelPendingTouchTargets are the press-target classes the panel redesign defines
@@ -1233,9 +1237,7 @@ var panelTouchTargets = map[string]int{
 // template uses a class still listed here, and the markup scan above turns red while
 // a press target carries one that is not in panelTouchTargets.
 var panelPendingTouchTargets = map[string]int{
-	"chip-link":        44, // .chip-link        -> min-h-11 (a filter chip, a link)
 	"queue-item":       44, // .queue-item       -> min-h-11 (The Spike's queue)
-	"roster-row":       60, // .roster-row       -> min-h-16, md:min-h-[60px] (People)
 	"venue-card":       44, // .venue-card       -> min-h-11 (Venues)
 	"stat-card--spike": 44, // .stat-card--spike -> min-h-11 (The Pass: a link to The Spike)
 	"btn--approve":     64, // .btn--approve     -> min-h-16 (The Spike)

@@ -53,22 +53,35 @@ type RosterRowView struct {
 	// the two markets this ships to. That is a first-class state, not a gap.
 	Department string
 	// Status is the RAW lifecycle value: invited | active | deactivated. It picks
-	// the chip, and the chip carries the WORD as well as the tone, so status is
+	// the pill, and the pill carries the WORD as well as the tone, so status is
 	// never told by colour alone (skill tappa-brand).
 	Status string
-	// Since is the lifecycle date that matches Status, already formatted, or "" when
-	// the stamp was never written. The template prints "not recorded" for the empty
-	// case rather than nothing: a blank beside a date label reads as a value.
-	Since string
-	// Devices is the one sentence this row says about signed-in phones, built by the
-	// handler from a COUNT and a nullable timestamp.
+	// Initials are the two letters of the row's square (Initials), drawing only: the
+	// template hides them from a screen reader, which reads the name.
+	Initials string
+	// Role is the job title a manager typed, "" when none was -- the row then prints
+	// the venue without a separator in front of it (panel redesign, M12-18).
+	Role string
+	// LastTap is when this person's newest record happened, in the tenant's zone
+	// ("14:31 today", "02:14 yesterday", "Mon 09:02", "2 Oct 18:00"); "—" when the
+	// page's last-tap read was measured and they have none; "could not be read" when
+	// that read failed (§4.6: unknown is never "none").
+	LastTap string
+	// LastTapNote is the one word beside it that changes what the time means:
+	// "refused" for a refused tap (§5 row 4 records those too), "by hand" for a
+	// record a manager typed, "" otherwise.
+	LastTapNote string
+	// Devices is what this row says about signed-in browsers: the count, as the
+	// card's longer sentence starts ("1 signed in", "None signed in"). The card, which
+	// has the room, says when they were last used (deviceLine).
 	//
-	// 🔴 IT IS A SENTENCE RATHER THAN TWO FIELDS BECAUSE THE TWO FACTS DO NOT
-	// COMPOSE INDEPENDENTLY. "No device" and "a device that has never been used" are
-	// different situations that both have no timestamp, and a template joining a
-	// count field to a date field would render them identically. The handler decides
-	// which sentence is true; see deviceLine.
+	// 🔴 A DEACTIVATED PERSON'S COUNT IS THEIR REAL ONE: deactivating does not sign a
+	// browser out (user decision, 2026-08-07), so the row never prints "none" for them
+	// by rule.
 	Devices string
+	// Selected is true on the row whose card is open (?manage=). The row says so with
+	// aria-current, and the frame follows the attribute.
+	Selected bool
 
 	// ManageHref opens this person's action card (M6-05 phase B). It is the SAME
 	// section URL with ?manage=<id> added and the reader's filters and page kept, so
@@ -115,6 +128,42 @@ type RosterActionsView struct {
 	Department string
 	// NoHome is RosterRowView.NoHome for the person the card is about.
 	NoHome bool
+	// Initials is the card's square, drawing only (Initials).
+	Initials string
+
+	// THE SUMMARY (M12-20). Every line below is "" when the summary was not read or
+	// its read failed, and SummaryFailed says which: a card that cannot say when
+	// somebody signed in says so, rather than reading as "never" (§4.6).
+	//
+	// Role is the job title, "" when none was typed.
+	Role string
+	// SinceLine is the lifecycle date that matches Status ("Active since 3 Sep 2026",
+	// "Deactivated on 2 Oct 2026"), "" when that stamp was never written. 🔴 An
+	// INVITED person added in the panel has no such stamp (no statement writes
+	// invited_at), so their card prints none -- it never borrows another date.
+	SinceLine string
+	// DeactivatedOn is the day the person was deactivated, "" when it is not on
+	// record or they are not deactivated.
+	DeactivatedOn string
+	// SignedInLine is the card's sentence about live browser sessions: the count,
+	// since when the oldest one is signed in, and when one was last used. It is the
+	// real count for a deactivated person too: their sessions stay alive.
+	SignedInLine string
+	// LiveDevices is the count behind that sentence, so the card can add what it
+	// means for a deactivated person only when there is something signed in.
+	LiveDevices int
+	// LinkLine says whether an activation link is outstanding ("A link was created
+	// 3 days ago and works until 27 Oct", "No working link yet"), "" when it was not
+	// read. It says "created", never "sent": the product does not know delivery.
+	LinkLine string
+	// SummaryFailed is true when the summary was asked and did not answer.
+	SummaryFailed bool
+
+	// Recent is the person's last records (M12-19): day, direction, time and the
+	// engine's word, and nothing else -- so a record at a partner venue reads like any
+	// other (K-39). RecentState is "measured", "failed" or "" (not read).
+	Recent      []MiniTapView
+	RecentState string
 
 	// Hidden is the roster position, posted back by every form on the card.
 	Hidden []FormField
@@ -246,4 +295,43 @@ type RosterFilterView struct {
 	// matches these filters" rather than "nobody works here" — different claims, and
 	// only one of them can be true at a time.
 	Narrowed bool
+
+	// Chips are the status links: "Everyone" first, then one per word of Statuses, in
+	// that slice's order (panel redesign: the status select became links). Each keeps
+	// the name, venue and department filters and drops the cursor.
+	Chips []RosterChipView
+}
+
+// RosterChipView is one status chip: a link, not a control that acts.
+type RosterChipView struct {
+	Label string
+	Href  string
+	// Current marks the chip of the status the list is filtered on ("Everyone" when
+	// none); the template says it with aria-current, the frame follows.
+	Current bool
+	// Count is how many people the list would hold with this chip picked, honouring
+	// the other filters. Counted is false when the count was not measured, and then
+	// the chip prints no number at all -- never 0 (§4.6).
+	Count   int
+	Counted bool
+}
+
+// MiniTapView is one mini docket of the card's strip of recent records.
+//
+// 🔴 K-39 / §4.7 -- FOUR WORDS AND NOTHING ELSE: the day, the direction, the time and
+// the engine's verdict. No venue, no plaque, no note, no trust, no evidence: the read
+// under it (ledger.RecentTap) has no field for them, so a record at a holding
+// partner's venue is drawn exactly like one at home.
+type MiniTapView struct {
+	// Day is "Tue 20" in the tenant's zone.
+	Day string
+	// Direction is "IN" or "OUT", "—" for a record with none (a refusal, an ignored
+	// repeat): never a guess.
+	Direction string
+	// Time is "14:26" in the tenant's zone.
+	Time string
+	// Verdict is the engine's raw word (ok, flag, reject, ignored); it picks the frame,
+	// and Word is what the template prints.
+	Verdict string
+	Word    string
 }
