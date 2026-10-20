@@ -1587,6 +1587,10 @@ func TestAccount_DevelopersIsAnOwnerOnlyLinkCard(t *testing.T) {
 	}
 }
 
+// accountContrastRatio is a contrast ratio as a reader would see it written: "5.70:1",
+// "4.5 : 1", "7:1".
+var accountContrastRatio = regexp.MustCompile(`\d(\.\d+)?\s*:\s*1\b`)
+
 // TestAccount_DrawsNothingTheScreenFileLeftOut is the screen file's "Not ported" list
 // (docs/design/panel-redesign/screens/account-auth.md §1.4) as text that must not appear,
 // for both roles, and its one corrected sentence as text that must: the logo's VIES gate
@@ -1604,11 +1608,27 @@ func TestAccount_DrawsNothingTheScreenFileLeftOut(t *testing.T) {
 			"Holding", "holding group", // no group card (ADR 0027 §2)
 			"Close this account", "Close account", // no account closing
 			"CET/CEST", // no zone abbreviation
-			`<select class="field-input" id="account-timezone"`, // the zone stays a free input
 		} {
 			if strings.Contains(page, htmlText(never)) || strings.Contains(page, never) {
 				t.Errorf("%s: the Account page carries %q, which the screen file leaves out", role, never)
 			}
+		}
+		// No contrast ratio readout, in any spelling. The two literals above caught only
+		// ": 1" and ":1 " -- "Contrast 5.70:1" slipped past both. A clock in the page's text
+		// cannot trip it: minutes are two digits, so "10:15" has no word boundary after the 1.
+		if m := accountContrastRatio.FindString(stripTags(page)); m != "" {
+			t.Errorf("%s: the Account page reads out a contrast ratio %q, which the screen file leaves out", role, m)
+		}
+		// The zone stays a free input. This used to search for one exact select opening
+		// (`<select class="field-input" id="account-timezone"`) and went vacuous the day the
+		// input's class became "field-input field-input--mono": any select named timezone is
+		// the ban, and the owner's form must positively carry the input, or the ban measures
+		// a page that has no zone control at all.
+		if regexp.MustCompile(`<select[^>]*\bname="timezone"`).MatchString(page) {
+			t.Errorf("%s: the zone is a select; the screen file keeps it a free input", role)
+		}
+		if role == accountTestOwnerRole && !regexp.MustCompile(`<input[^>]*\bname="timezone"`).MatchString(page) {
+			t.Errorf("owner: the Account page carries no timezone input, so the select ban measured nothing")
 		}
 		if regexp.MustCompile(`<input[^>]*name="vat_number"`).MatchString(page) {
 			t.Errorf("%s: the VAT number is an input", role)
