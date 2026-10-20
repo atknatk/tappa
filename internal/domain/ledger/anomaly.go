@@ -225,11 +225,40 @@ type AnomalyVenue struct {
 	Answerable   int
 	DistanceOnly int
 	OutsideVenue int
+	// Both, NetworkOnly and Neither are, with DistanceOnly, the four-way split of Judged the
+	// Odd shapes "evidence mix" bar draws (M12-22). Each is a count of records, out of Judged:
+	//
+	//	Both          the address range matched and the reading fell inside the radius
+	//	NetworkOnly   the address range matched; the reading did not, or none was taken
+	//	DistanceOnly  the reading fell inside the radius; the address range did not match
+	//	Neither       one of the two was assessed and neither matched
+	//
+	// THE NAMES ARE THE RECORD'S SHAPE, NOT THE SENSOR'S (DistanceOnly's reason): what the row
+	// holds is two booleans; no address and no distance reaches this type (§4.7). The exact
+	// predicates, and the one shape none of the four counts, are in db/queries/anomalies.sql
+	// (ListAnomalyVenues) -- Unsplit is that shape's count.
+	Both        int
+	NetworkOnly int
+	Neither     int
 	// Partner marks ANOTHER holding member's venue where this business's staff tapped (M11
-	// API-1c, ADR 0027 §9): Name is the peer's venue, and DistanceOnly / OutsideVenue are zero
-	// by construction -- the query counts the two evidence figures at this business's own venues
-	// only (K-39: the peer's network and coordinate are not this panel's to describe).
+	// API-1c, ADR 0027 §9): Name is the peer's venue, and DistanceOnly / OutsideVenue / Both /
+	// NetworkOnly / Neither are zero by construction -- the query counts the evidence figures at
+	// this business's own venues only (K-39: the peer's network and coordinate are not this
+	// panel's to describe). Such a row gets the label, never a bar.
 	Partner bool
+}
+
+// Unsplit is the part of Judged the four-way split does not place: a record whose address
+// range was not assessed while its reading fell inside the radius (ip_match NULL, gps_match
+// true). No writer produces it today -- the tap path sets both booleans, the manual path
+// neither -- so it is 0 in every measured week; it is a method rather than an assumption so a
+// bar drawn out of Judged can show the remainder as "not split" instead of stretching a
+// segment over it. A partner venue's row has no split at all and answers 0.
+func (v AnomalyVenue) Unsplit() int {
+	if v.Partner {
+		return 0
+	}
+	return v.Judged - v.Both - v.NetworkOnly - v.DistanceOnly - v.Neither
 }
 
 // AnomalyLostPlaque is one of THIS business's lost or retired plaques that a holding peer's
@@ -477,6 +506,9 @@ func (r *Reader) Anomalies(ctx context.Context, tenantID uuid.UUID, f ReportFilt
 				Answerable:   int(v.Answerable),
 				DistanceOnly: int(v.DistanceOnly),
 				OutsideVenue: int(v.OutsideVenue),
+				Both:         int(v.BothMatched),
+				NetworkOnly:  int(v.NetworkOnly),
+				Neither:      int(v.NeitherMatched),
 				// A venue of this business always has a name (the join's key is a foreign key);
 				// one with none is a peer's -- the group the query made from site_location_id.
 				Partner: v.LocationName == nil,

@@ -483,3 +483,25 @@ func TestAnomalyThresholds_ArePrintableAndNotZero(t *testing.T) {
 			"would say 'within 0 seconds'")
 	}
 }
+
+// TestAnomalyVenue_UnsplitIsTheRemainderOfJudged (M12-22): the four-way split's remainder is
+// what Judged holds beyond Both + NetworkOnly + DistanceOnly + Neither, and a partner venue's row
+// -- which has no split, K-39 -- answers 0 rather than its whole Judged.
+func TestAnomalyVenue_UnsplitIsTheRemainderOfJudged(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		v    AnomalyVenue
+		want int
+	}{
+		{"the four cover judged", AnomalyVenue{Judged: 10, Both: 4, NetworkOnly: 3, DistanceOnly: 2, Neither: 1}, 0},
+		{"one record of the unsplit shape", AnomalyVenue{Judged: 11, Both: 4, NetworkOnly: 3, DistanceOnly: 2, Neither: 1}, 1},
+		{"nothing judged", AnomalyVenue{Records: 3}, 0},
+		{"a partner venue has no split", AnomalyVenue{Records: 6, Judged: 6, Partner: true}, 0},
+	}
+	for _, tt := range tests {
+		if got := tt.v.Unsplit(); got != tt.want {
+			t.Errorf("%s: Unsplit() = %d, want %d", tt.name, got, tt.want)
+		}
+	}
+}

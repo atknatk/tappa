@@ -225,9 +225,40 @@ LIMIT @row_limit;
 -- the employer's nine readers): its location_id is NULL and site_location_id names the peer's
 -- venue (K-30), so the group is the one that is set. The peer's name is not in this tenant's
 -- locations -- l.name is NULL for that group, and internal/domain/ledger names it from
--- holding_site_locations. K-39: the two EVIDENCE figures (distance_only, outside_venue) count the
--- employer's own venues only -- a peer's network and coordinate are not this panel's to describe,
--- even as a count of matches.
+-- holding_site_locations. K-39: the EVIDENCE figures (distance_only, outside_venue and, since M12-22,
+-- both_matched, network_only, neither_matched) count the employer's own venues only -- a peer's
+-- network and coordinate are not this panel's to describe, even as a count of matches.
+--
+-- 🔴 M12-22 -- THE FOUR-WAY SPLIT OF `judged` (the Odd shapes "evidence mix" bar). Four figures,
+-- each a count over the two evidence BOOLEANS (never an address, never a distance -- §4.7), each
+-- carrying `t.site_tenant_id IS NULL` (K-39: a partner venue's row has no bar at all):
+--
+--      both_matched     ip_match AND gps_match
+--      network_only     ip_match AND NOT coalesce(gps_match, false)   -- gps false OR not taken
+--      distance_only    gps_match AND NOT ip_match                    -- UNCHANGED (M6-11)
+--      neither_matched  (ip_match IS NOT NULL OR gps_match IS NOT NULL)
+--                       AND NOT coalesce(ip_match, false) AND NOT coalesce(gps_match, false)
+--
+-- Read against `judged` (one of the two set) they are disjoint, and they cover it EXCEPT one
+-- shape, named rather than folded somewhere: ip_match NULL with gps_match true. distance_only
+-- (whose definition this card keeps) does not count it -- `NOT NULL` is NULL --, and it is not a
+-- match of the network, nor "neither". No writer produces it: the tap path writes both booleans
+-- together (internal/domain/checkin: IpMatch and GpsMatch from one Decision), the manual path
+-- writes neither. Measured 2026-10-20 on the c4 database (KF's simulated day + the test rows):
+-- the combinations present are (f,f) (f,t) (t,f) (t,t) and (NULL,NULL) only. internal/domain/
+-- ledger's AnomalyVenue.Unsplit() is the remainder, so a row of that shape would show as "not
+-- split" rather than be spread over a segment it is not.
+--
+-- ⚠️ `judged` ITSELF DOES NOT CARRY THE SITE FILTER, and need not: a venue row is the employer's
+-- own (location_id) OR a peer's (site_location_id) -- never both (the
+-- transactions_site_excludes_the_local_venue CHECK) -- so a partner row's judged is a count of
+-- its records the screen never divides (no bar for a partner row), and an own row's judged is
+-- exactly the base the four figures split.
+--
+-- EXPLAIN ANALYZE (2026-10-20, seeded KF 10000000-…-0001, the last 7 days: 22 rows): Limit ->
+-- Sort -> GroupAggregate -> Sort -> Nested Loop Left Join (Bitmap Index Scan on
+-- transactions_tenant_occurred_idx; locations by locations_id_tenant_key) -- the three FILTERs add
+-- no node, they are evaluated in the one aggregate pass.
 SELECT
     coalesce(t.location_id, t.site_location_id)::uuid              AS location_id,
     l.name                                                         AS location_name,
@@ -243,7 +274,19 @@ SELECT
     count(*) FILTER (WHERE t.gps_match AND NOT t.ip_match AND t.site_tenant_id IS NULL) AS distance_only,
     count(*) FILTER (
         WHERE t.policy_context ->> 'tap:gpsConflict' = 'true' AND t.site_tenant_id IS NULL
-    )                                                              AS outside_venue
+    )                                                              AS outside_venue,
+    count(*) FILTER (
+        WHERE t.ip_match AND t.gps_match AND t.site_tenant_id IS NULL
+    )                                                              AS both_matched,
+    count(*) FILTER (
+        WHERE t.ip_match AND NOT coalesce(t.gps_match, false) AND t.site_tenant_id IS NULL
+    )                                                              AS network_only,
+    count(*) FILTER (
+        WHERE (t.ip_match IS NOT NULL OR t.gps_match IS NOT NULL)
+          AND NOT coalesce(t.ip_match, false)
+          AND NOT coalesce(t.gps_match, false)
+          AND t.site_tenant_id IS NULL
+    )                                                              AS neither_matched
 FROM transactions t
 LEFT JOIN locations l
        ON l.id = t.location_id

@@ -982,7 +982,10 @@ func TestAnomalies_ThePartnerBucketSaysNothingByItsPlace(t *testing.T) {
 // business's unanswerable). MUTANTS (measured, anomalies.sql, one at a time): the filter out of
 // outside_venue_on_network, out of the person select's distance_only, out of its outside_venue, out
 // of the person ORDER, out of the venue ORDER, partner_answerable without its snapshot condition --
-// each red.
+// each red. M12-22 widens it to the venue's four-way evidence split (another week, every shape of
+// the two booleans at both venues): MUTANTS (measured 2026-10-20, the site filter out of the
+// venue query's both_matched, network_only, neither_matched, one at a time) -- each red, the
+// partner row then showing 2, 4 and 6.
 func TestAnomalies_EveryEvidenceFigureLeavesThePartnerOut(t *testing.T) {
 	w := newHWorld(t)
 	aaa, zzz := w.staff[w.km][0], w.staff[w.km][1]
@@ -1051,6 +1054,84 @@ func TestAnomalies_EveryEvidenceFigureLeavesThePartnerOut(t *testing.T) {
 	}
 	if own < 0 || partner < 0 || own > partner {
 		t.Errorf("venue order: own at %d, partner at %d -- want the own venue first (the partner's rows do not rank it)", own, partner)
+	}
+
+	// M12-22: the venue's four-way evidence split, another week. Every shape of the two booleans
+	// at the own venue, the same shapes (twice each) at the partner's: the own venue splits its
+	// judged records four ways and the one unsplit shape (ip not assessed, reading inside) is the
+	// remainder; the partner venue's row carries no split at all.
+	shape := func(site bool, ip, gps *bool, channel string, k int) {
+		t.Helper()
+		var siteTenant, siteVenue, siteTag, venue, tag any
+		if site {
+			siteTenant, siteVenue, siteTag = w.kf, w.venue[w.kf], w.plaque[w.kf]
+		} else {
+			venue, tag = w.venue[w.km], w.plaque[w.km]
+		}
+		var sun, ctr any = true, 1000
+		if channel == "manual" {
+			sun, ctr, siteTag, tag = nil, nil, nil, nil
+		}
+		w.exec(`INSERT INTO transactions (tenant_id, employee_id, occurred_at, verdict, channel, type, sun_valid, ctr, ip_match, gps_match, trust,
+		                                  location_id, tag_uid, site_tenant_id, site_location_id, site_tag_uid)
+		        VALUES ($1, $2, $3, 'ok', $4, 'in', $5, $6, $7, $8, 50, $9, $10, $11, $12, $13)`,
+			w.km, w.staff[w.km][2], hLocal(t, "2026-05-20", fmt.Sprintf("08:%02d:00", k)), channel, sun, ctr, ip, gps,
+			venue, tag, siteTenant, siteVenue, siteTag)
+	}
+	yes, no := hBool(true), hBool(false)
+	shapes := []struct{ ip, gps *bool }{{yes, yes}, {yes, no}, {yes, nil}, {no, yes}, {no, no}, {no, nil}, {nil, no}}
+	k := 0
+	for _, s := range shapes {
+		k++
+		shape(false, s.ip, s.gps, "nfc", k)
+		for range 2 {
+			k++
+			shape(true, s.ip, s.gps, "nfc", k)
+		}
+	}
+	k++
+	shape(false, nil, nil, "manual", k)
+	a, err = w.r.Anomalies(w.ctx, w.km, ReportFilter{Day: Date{Year: 2026, Month: time.May, Day: 20}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mix := func(id uuid.UUID) (AnomalyVenue, bool) {
+		for _, v := range a.Venues {
+			if v.LocationID == id {
+				return v, true
+			}
+		}
+		return AnomalyVenue{}, false
+	}
+	ownMix, ok := mix(w.venue[w.km])
+	if !ok {
+		t.Fatal("the own venue has no row in the mix week")
+	}
+	if ownMix.Records != 8 || ownMix.Judged != 7 || ownMix.Both != 1 || ownMix.NetworkOnly != 2 || ownMix.DistanceOnly != 1 ||
+		ownMix.Neither != 3 || ownMix.Unsplit() != 0 {
+		t.Errorf("CONTROL, the own venue's split: records %d judged %d both %d network-only %d distance-only %d neither %d unsplit %d; "+
+			"want 8, 7, 1, 2, 1, 3, 0", ownMix.Records, ownMix.Judged, ownMix.Both, ownMix.NetworkOnly, ownMix.DistanceOnly, ownMix.Neither, ownMix.Unsplit())
+	}
+	partnerMix, ok := mix(w.venue[w.kf])
+	if !ok {
+		t.Fatal("the partner venue has no row in the mix week")
+	}
+	if !partnerMix.Partner || partnerMix.Records != 14 || partnerMix.Both != 0 || partnerMix.NetworkOnly != 0 ||
+		partnerMix.DistanceOnly != 0 || partnerMix.Neither != 0 || partnerMix.Unsplit() != 0 {
+		t.Errorf("K-39, the partner venue's split: partner %v records %d both %d network-only %d distance-only %d neither %d unsplit %d; "+
+			"want a partner row of 14 records and no evidence figure", partnerMix.Partner, partnerMix.Records, partnerMix.Both,
+			partnerMix.NetworkOnly, partnerMix.DistanceOnly, partnerMix.Neither, partnerMix.Unsplit())
+	}
+	// The shape no writer produces, written by hand: the own venue's remainder says it.
+	k++
+	shape(false, nil, yes, "nfc", k)
+	a, err = w.r.Anomalies(w.ctx, w.km, ReportFilter{Day: Date{Year: 2026, Month: time.May, Day: 20}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ownMix, _ = mix(w.venue[w.km]); ownMix.Judged != 8 || ownMix.DistanceOnly != 1 || ownMix.Unsplit() != 1 {
+		t.Errorf("ip not assessed, reading inside: judged %d distance-only %d unsplit %d; want 8, 1, 1 (the remainder, not a segment)",
+			ownMix.Judged, ownMix.DistanceOnly, ownMix.Unsplit())
 	}
 }
 
