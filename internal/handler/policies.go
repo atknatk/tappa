@@ -731,7 +731,7 @@ func guardrailLabel(effect, qualifier, alert string) string {
 // guardrailGroupHeading is the sub-heading over a group of guarantees, by what they
 // guard (tenant.Guardrail.Guards).
 func guardrailGroupHeading(guards string) string {
-	if guards == "the panel" {
+	if guards == tenant.GuardsPanel {
 		return "Guarantees on the panel itself · they guard the rules, not taps"
 	}
 	return "Guarantees on " + guards

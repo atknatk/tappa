@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -222,9 +223,9 @@ func policyScreenFixture() tenant.PolicyScreen {
 		row.Qualifier = map[string]string{
 			"sys:tenant-mismatch": "other business", "sys:no-session": "activation page",
 		}[g.Sid]
-		row.Guards = "taps"
+		row.Guards = tenant.GuardsTaps
 		if g.Sid == "sys:policy-edit-owner-only" || g.Sid == "sys:no-self-review" {
-			row.Guards = "the panel"
+			row.Guards = tenant.GuardsPanel
 		}
 		if g.Sid == "sys:person-debounce" {
 			row.Bounded = &tenant.BoundedParam{
@@ -2338,7 +2339,7 @@ func TestPoliciesSection_DrawsTheLadderTheEngineKeeps(t *testing.T) {
 	at := strings.Index(guarantees, group)
 	for _, g := range screen.Guardrails {
 		pos := strings.Index(guarantees, fmt.Sprintf(`<span class="rung-no">%02d</span>`, g.Order))
-		if (g.Guards == "the panel") != (pos > at) {
+		if (g.Guards == tenant.GuardsPanel) != (pos > at) {
 			t.Errorf("guarantee %s (guards %s) is on the wrong side of the panel group's heading", g.Sid, g.Guards)
 		}
 	}
@@ -2352,6 +2353,34 @@ func TestPoliciesSection_DrawsTheLadderTheEngineKeeps(t *testing.T) {
 	for _, claim := range []string{"First match wins", "first match wins", "read top to bottom"} {
 		if strings.Contains(section, claim) {
 			t.Errorf("the section says %q; below the guarantees the rules are weighed, not read in order", claim)
+		}
+	}
+}
+
+// TestPolicyGuaranteePill_WrapsOnAPhone pins the recipe that keeps a guarantee's
+// effect inside its plate. The pill sits on the plate's own row below md, and the
+// longest label ("Ignore — recorded, counts nothing") in a nowrap pill was measured
+// overflowing the plate by 14 px at 375 px and scrolling the page at 360. The wrap is
+// the cure, and it is only allowed back to nowrap from md, where the plate is wide.
+func TestPolicyGuaranteePill_WrapsOnAPhone(t *testing.T) {
+	raw, err := os.ReadFile("../../web/static/css/input.css")
+	if err != nil {
+		t.Fatalf("reading input.css: %v", err)
+	}
+	m := regexp.MustCompile(`(?s)\.effect-pill--locked\s*\{(.*?)\}`).FindStringSubmatch(string(raw))
+	if m == nil {
+		t.Fatal("input.css declares no .effect-pill--locked rule")
+	}
+	got := strings.Fields(strings.NewReplacer("@apply", " ", ";", " ").Replace(m[1]))
+	for _, want := range []string{"whitespace-normal", "max-w-full", "md:whitespace-nowrap", "min-h-0"} {
+		if !slices.Contains(got, want) {
+			t.Errorf(".effect-pill--locked does not carry %s, so a long guarantee label "+
+				"cannot wrap inside its plate on a phone", want)
+		}
+	}
+	for _, c := range got {
+		if c == "whitespace-nowrap" {
+			t.Error(".effect-pill--locked is nowrap at every width; it must wrap below md")
 		}
 	}
 }

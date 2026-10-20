@@ -901,23 +901,26 @@ var guardrailQualifiers = map[string]string{
 	"sys:no-session":      "activation page",
 }
 
-// The two answers guardsWords gives.
+// The two answers guardsWords gives -- exported so the panel keys its group heading off
+// the same words rather than re-typing them.
 const (
-	guardsTaps  = "taps"
-	guardsPanel = "the panel"
+	GuardsTaps  = "taps"
+	GuardsPanel = "the panel"
 )
 
 // guardsWords says whether g guards taps or the panel, by asking g's own Match.
 //
-// A guarantee guards THE PANEL when it fires on a panel act that carries nothing a tap
-// carries: an action other than tap:record, with the review pair filled in (a reviewer
-// who is the subject) and no tag, session, channel or tap key at all. Every tap
-// guarantee reads one of those tap facts and stays silent on such a context; the two
-// panel guarantees fire on it. The answer is the engine's, so a guarantee added or
-// moved tomorrow lands in the right group without anybody editing a list.
+// A guarantee guards THE PANEL when it fires on ONE synthetic probe: an action other
+// than tap:record, with ReviewerID == SubjectEmployeeID and no tag, session, channel or
+// tap key at all. Every tap guarantee shipped today reads one of those tap facts and
+// stays silent on it; the two panel guarantees fire on it. That is all the probe
+// tests: a future guarantee keyed on some OTHER panel fact would read as "taps" here,
+// so TestGuardrailGuards_ReCheckedWhenTheShippedSetChanges pins today's sid set and
+// goes red when it changes, sending the next author back to this probe. The order of
+// the guarantees is never consulted.
 func guardsWords(g policy.Guardrail) string {
 	if g.Match == nil {
-		return guardsTaps
+		return GuardsTaps
 	}
 	same := uuid.New()
 	for _, a := range policy.Actions() {
@@ -925,10 +928,10 @@ func guardsWords(g policy.Guardrail) string {
 			continue
 		}
 		if g.Match(policy.Context{Action: a, ReviewerID: &same, SubjectEmployeeID: &same}) {
-			return guardsPanel
+			return GuardsPanel
 		}
 	}
-	return guardsTaps
+	return GuardsTaps
 }
 
 // guardrailAlertWords returns the words for g's alert, or "" when the engine gives g

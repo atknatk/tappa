@@ -1482,8 +1482,14 @@
   .effect-pill--review { @apply border-saffron; }
   .effect-pill--deny { @apply border-tomato; }
   .effect-pill--quiet { @apply border-line; }
-  /* A guarantee's effect: an ink frame and a small padlock -- locked, not a state. */
-  .effect-pill--locked { @apply gap-2 border-ink; }
+  /* A guarantee's effect: an ink frame and a small padlock -- locked, not a state.
+     Drawn as the board's small chip, and it WRAPS below md: "Ignore — recorded,
+     counts nothing" in a nowrap pill overflowed its plate on a 375 px phone and
+     scrolled the page at 360 (measured). */
+  .effect-pill--locked {
+    @apply min-h-0 max-w-full gap-2 whitespace-normal rounded-full border-ink px-2.5 py-0.5
+           text-left text-[13px] md:whitespace-nowrap;
+  }
   /* The small padlock: a shackle (::before) over a body (::after), 10 x 13 px. */
   .lock-mini { @apply relative inline-block h-[13px] w-2.5 flex-none; }
   .lock-mini::before {

@@ -16,6 +16,7 @@ import (
 	"go/token"
 	"log/slog"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -310,19 +311,46 @@ func TestGuardrailGuards_SplitsThePanelGuaranteesByTheirOwnMatch(t *testing.T) {
 	want := map[string]bool{"sys:policy-edit-owner-only": true, "sys:no-self-review": true}
 	for _, g := range testRulebook(t).guardrails() {
 		switch {
-		case want[g.Sid] && g.Guards != guardsPanel:
+		case want[g.Sid] && g.Guards != GuardsPanel:
 			t.Errorf("%s guards %q; it fires on a panel act and never on a tap", g.Sid, g.Guards)
-		case !want[g.Sid] && g.Guards != guardsTaps:
+		case !want[g.Sid] && g.Guards != GuardsTaps:
 			t.Errorf("%s guards %q; it reads a tap fact", g.Sid, g.Guards)
 		}
 	}
 	// NEGATIVE CONTROL: a guarantee that fires on everything is a panel one by this
 	// derivation's rule, and one that fires on nothing is a tap one.
-	if got := guardsWords(policy.Guardrail{Match: func(policy.Context) bool { return true }}); got != guardsPanel {
+	if got := guardsWords(policy.Guardrail{Match: func(policy.Context) bool { return true }}); got != GuardsPanel {
 		t.Errorf("an always-firing guarantee is %q", got)
 	}
-	if got := guardsWords(policy.Guardrail{Match: func(policy.Context) bool { return false }}); got != guardsTaps {
+	if got := guardsWords(policy.Guardrail{Match: func(policy.Context) bool { return false }}); got != GuardsTaps {
 		t.Errorf("a never-firing guarantee is %q", got)
+	}
+}
+
+// TestGuardrailGuards_ReCheckedWhenTheShippedSetChanges is the probe's tripwire. The
+// split into tap and panel guarantees is derived from ONE synthetic panel context
+// (guardsWords), which is right for today's eleven and says nothing about a guarantee
+// keyed on a panel fact the probe does not carry. So the shipped sid set is pinned
+// here: adding, removing or renaming a guarantee turns this red, and whoever fixes it
+// is told to re-check that guardsWords still sorts the new set correctly.
+func TestGuardrailGuards_ReCheckedWhenTheShippedSetChanges(t *testing.T) {
+	t.Parallel()
+	want := []string{
+		"sys:tenant-mismatch", "sys:tag-not-active", "sys:sun-invalid", "sys:no-session",
+		"sys:employee-deactivated", "sys:tap-freshness", "sys:occurred-at-bound",
+		"sys:person-debounce", "sys:cross-tenant-qr-site-ip", "sys:policy-edit-owner-only",
+		"sys:no-self-review",
+	}
+	var got []string
+	for _, g := range policy.Guardrails(testParams()) {
+		got = append(got, g.Sid)
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("the shipped guarantees changed:\n  got  %v\n  want %v\n"+
+			"Re-check guardsWords before updating this list: its single panel-act probe "+
+			"decides which group each guarantee is drawn in on the Rules screen, and a new "+
+			"guarantee keyed on a fact the probe does not carry would land in the wrong one.",
+			got, want)
 	}
 }
 

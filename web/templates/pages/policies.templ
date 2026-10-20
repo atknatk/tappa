@@ -395,8 +395,7 @@ templ PolicyGuarantees(v PoliciesView) {
 				<span class="lock-glyph absolute -left-[46px] -top-1 md:-left-[55px]"></span>
 				<h2 class="font-display text-lg font-bold tracking-tight text-ink">Taptime guarantees <span class="font-mono text-xs font-normal tracking-normal text-ink/70">· checked in this order · the first that applies decides on its own</span></h2>
 				<p class="text-sm text-ink/85">
-					These are checked in the order shown, and the first one that applies decides on
-					its own. They are part of the product rather than a setting: there is no control to
+					They are part of the product rather than a setting: there is no control to
 					turn one off, on this page or anywhere else, because each of them is a promise
 					the product is sold on. Some of them can be TUNED inside a range — that is
 					marked below.
@@ -413,7 +412,7 @@ templ PolicyGuarantees(v PoliciesView) {
 						<p class="md:text-right"><span class="effect-pill effect-pill--locked"><span class="lock-mini"></span>{ g.Outcome }</span></p>
 						<div class="flex flex-wrap items-center gap-x-2 gap-y-1 md:col-span-2">
 							<span class="font-mono text-xs text-ink">{ g.Sid }</span>
-							<span class="tally tally--locked tally--pill">Cannot be switched off</span>
+							<span class="tally tally--locked pill-tally">Cannot be switched off</span>
 						</div>
 						<p class="text-xs text-ink/85 md:col-span-2">{ g.Rule }</p>
 						<p class="text-xs text-ink/85 md:col-span-2">Engine’s reason: “{ g.Reason }”</p>
@@ -893,7 +892,7 @@ templ policyAuthorities(v PoliciesView) {
 				<section class="min-w-0 rounded-[14px] border border-line bg-paper px-4 py-3">
 					<div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
 						<span class="font-mono text-sm text-ink">{ a.Action }</span>
-						<span class="tally tally--rejected tally--pill">{ a.DefaultLabel }</span>
+						<span class="tally tally--rejected pill-tally">{ a.DefaultLabel }</span>
 					</div>
 					if len(a.Grants) > 0 {
 						<dl class="mt-1">
@@ -1010,15 +1009,15 @@ templ policyAuthorities(v PoliciesView) {
 func policyToneClass(tone string) string {
 	switch tone {
 	case PolicyToneRunning:
-		return "tally tally--active tally--pill"
+		return "tally tally--active pill-tally"
 	case PolicyToneOff:
-		return "tally tally--deactivated tally--pill"
+		return "tally tally--deactivated pill-tally"
 	case PolicyToneWaiting:
-		return "tally tally--queued tally--pill"
+		return "tally tally--queued pill-tally"
 	case PolicyToneRefusing:
-		return "tally tally--rejected tally--pill"
+		return "tally tally--rejected pill-tally"
 	default:
-		return "tally tally--locked tally--pill"
+		return "tally tally--locked pill-tally"
 	}
 }
 
