@@ -991,6 +991,15 @@ func brandEditorDrawsNoSecondHeader(t *testing.T, href, region string) {
 // RE-RENDERED FOR M12-09 (panel-only empty state): only the "plaques" golden, and only inside the
 // empty state's opening tags (its label is now the section's name, "The Pass", and its classes are
 // PanelEmpty's); the heading and sentence are the same bytes, the "zero" golden is unchanged.
+//
+// RE-RENDERED FOR M12-27 (the past-day ledger of the redesign; both views here are ledger views --
+// no day-less request reaches them). Checked before replacing: everything up to the content
+// well's opening tag and everything from its closing tags on is byte for byte the old golden in
+// both files; inside the well the date paragraph is gone (the day and the zone are the heading's
+// kicker now), the filter bar is the disclosure form without the verdict dropdown (the verdict
+// is the chips), the notice keeps its bytes (4 spaces of leading indentation instead of 8), and
+// the empty state -- heading, sentence, classes -- is unchanged. zero 11354 -> 12025 bytes,
+// plaques 12325 -> 12961. The banner's absence still adds nothing (the three variants below).
 func TestKeyBudgetBanner_AbsentAddsNothing(t *testing.T) {
 	render := func(v pages.TransactionsView) string {
 		t.Helper()
