@@ -494,6 +494,33 @@ func TestEmployerReaders_NineReadersNameTheSite(t *testing.T) {
 				t.Errorf("the site's left open: %+v, want %d (its own staff's only)", sitePass.LeftOpen, wantSite)
 			}
 		})
+		t.Run(dir.name+"/13 CountPanelTransactionsByVerdict", func(t *testing.T) {
+			// The 16th holds four of the employer's records at the site's venue: three ok, one flag.
+			// They are the employer's own records, so they are counted -- their verdict is the residue
+			// ADR 0027 §13 item 5 names -- and the count equals the list.
+			employer, err := pass.Screen(w.ctx, dir.employer, Filter{Date: day})
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := VerdictTally{State: Measured, Records: 4, Approved: 3, Flagged: 1}
+			if employer.Tally != want {
+				t.Errorf("the employer's tally of the 16th: %+v, want %+v", employer.Tally, want)
+			}
+			if n := listed(t, pass, dir.employer, Filter{Date: day}); n != employer.Tally.Records {
+				t.Errorf("the employer's tally says %d, its list shows %d", employer.Tally.Records, n)
+			}
+			site, err := pass.Screen(w.ctx, dir.site, Filter{Date: day})
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantSite := 0 // as case 12: the site counts its own staff's records only
+			if dir.site == w.km {
+				wantSite = 4
+			}
+			if site.Tally.State != Measured || site.Tally.Records != wantSite {
+				t.Errorf("the site's tally of the 16th: %+v, want %d records (its own staff's only)", site.Tally, wantSite)
+			}
+		})
 	}
 }
 

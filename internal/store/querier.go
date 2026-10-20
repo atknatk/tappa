@@ -818,6 +818,40 @@ type Querier interface {
 	// transactions_tenant_employee_occurred_idx as GetLastOpenTransaction does -- re-measure rather
 	// than believe this line.
 	CountOnTheFloorByVenue(ctx context.Context, arg CountOnTheFloorByVenueParams) ([]CountOnTheFloorByVenueRow, error)
+	// The day's records counted by verdict (M12-16, D3): the ledger's summary line ("10 records · 6
+	// approved · … · 1 manual entry") and the counts on its verdict chips.
+	//
+	// 🔴 THE SAME ROWS ListPanelTransactions LISTS, MINUS TWO PREDICATES, AND THE TWO ARE THE POINT.
+	// Tenant, day window, venue, department, the name CTE and the channel are copied predicate for
+	// predicate; the VERDICT filter is left out because the chips ARE the verdict choice (each chip's
+	// count must hold whichever chip is pressed), and the CURSOR because a count is of the day, not of
+	// a page. So `records` equals the rows the list shows across every page with no verdict chosen,
+	// and each verdict's figure equals the list with that verdict chosen -- pinned by
+	// TestTally_CountsWhatTheListShows. Change a predicate in one statement and not the other and
+	// that test goes red.
+	//
+	// THE NAME CTE IS ListPanelTransactions' OWN, status-agnostic for its reason (§4.6): a person who
+	// has left is found, and their records are counted.
+	//
+	// NO JOIN: the list's joins only NAME a row (LEFT JOINs, and transaction_reviews is UNIQUE per
+	// record), so none of them changes which rows exist or how many. `verdict` is the ENGINE's (§4.3);
+	// a manager's later decision is not folded into it here either.
+	//
+	// ⚠️ IT READS `verdict`, AND A PARTNER-VENUE ROW'S VERDICT IS COUNTED: the residue ADR 0027 §13
+	// item 5 names (the employer sees the outcome of its own staff's taps at a partner venue, never the
+	// evidence behind it). internal/db's evidence inventory files it so.
+	//
+	// Bounds are bare parameters; the optional filters are sqlc.narg, null meaning "do not narrow",
+	// exactly as in ListPanelTransactions.
+	//
+	// TENANT SCOPE (§4.5): explicit predicate on the row and in the CTE, beside RLS; the tenant is the
+	// panel session's. It runs in the SAME WithTenant as the page it summarises (ledger.Screen), in
+	// its own savepoint.
+	//
+	// EXPLAIN (ANALYZE, BUFFERS), 2026-10-20, seed tenant after `make seed` and one simulated day,
+	// today's window, no filter: Bitmap Index Scan on transactions_tenant_occurred_idx -> Bitmap Heap
+	// Scan (21 rows) -> Aggregate, the CTE never executed; shared hit=5, 0.31 ms.
+	CountPanelTransactionsByVerdict(ctx context.Context, arg CountPanelTransactionsByVerdictParams) (CountPanelTransactionsByVerdictRow, error)
 	// reviews.sql -- the FLAGGED approval queue (M6-04): two reads and one write.
 	//
 	// 🔴 SECTION 4.3 IS THE WHOLE DESIGN OF THIS FILE. A manager approving or

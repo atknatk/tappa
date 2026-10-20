@@ -318,6 +318,7 @@ func TestPass_AFailedWidgetCostsItsFigureAndNeverThePage(t *testing.T) {
 		{"CountOnTheFloorByVenue", func(s Screen) Reading { return s.Floor.State }},
 		{"ListWorkedShiftEvents", func(s Screen) Reading { return s.Tape.State }},
 		{"ListOpenCheckIns", func(s Screen) Reading { return s.LeftOpen.State }},
+		{"CountPanelTransactionsByVerdict", func(s Screen) Reading { return s.Tally.State }},
 	} {
 		t.Run(c.statement, func(t *testing.T) {
 			var logged logCounter
@@ -364,12 +365,14 @@ func passStates(s Screen) []struct {
 		{"CountOnTheFloorByVenue", s.Floor.State},
 		{"ListWorkedShiftEvents", s.Tape.State},
 		{"ListOpenCheckIns", s.LeftOpen.State},
+		{"CountPanelTransactionsByVerdict", s.Tally.State},
 	}
 }
 
-// TestPass_ALedgerDayReadsNoWidget: with a date the screen is the ledger, and no "now" widget is
-// asked -- each says NotQueried and claims nothing.
-func TestPass_ALedgerDayReadsNoWidget(t *testing.T) {
+// TestPass_ALedgerDayReadsNoNowWidget: with a date the screen is the ledger, and no "now" widget
+// is asked -- each says NotQueried and claims nothing -- while the day's own figures (the verdict
+// tally) are measured.
+func TestPass_ALedgerDayReadsNoNowWidget(t *testing.T) {
 	data := passDB(t)
 	b := newPassTenant(t, data, "Ledger day", "Door")
 	s, err := readerAt(t, data, time.Now(), nil).Screen(context.Background(), b.id, Filter{Date: Date{Year: 2026, Month: time.September, Day: 1}})
@@ -377,14 +380,17 @@ func TestPass_ALedgerDayReadsNoWidget(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, w := range passStates(s) {
-		if w.state != NotQueried && !ledgerDayWidget[w.name] {
+		switch {
+		case ledgerDayWidget[w.name] && w.state != Measured:
+			t.Errorf("%s is %v on a ledger day, want Measured -- it is a figure about the day", w.name, w.state)
+		case !ledgerDayWidget[w.name] && w.state != NotQueried:
 			t.Errorf("%s is %v on a ledger day, want NotQueried", w.name, w.state)
 		}
 	}
 }
 
-// ledgerDayWidget names the widgets a ledger day DOES read (the day's own figures).
-var ledgerDayWidget = map[string]bool{}
+// ledgerDayWidget names the figures a ledger day DOES read (the day's own).
+var ledgerDayWidget = map[string]bool{"CountPanelTransactionsByVerdict": true}
 
 // TestTape_IsReadFromTodaysRecordsAsOfNow drives the tape through Screen against real rows: an
 // overnight entry from yesterday shows from 00:00, today's closed shift shows in its hours, an

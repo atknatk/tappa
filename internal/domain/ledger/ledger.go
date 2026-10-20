@@ -440,6 +440,28 @@ type Screen struct {
 	Tape Tape
 	// LeftOpen is The Pass's "left open since yesterday" (M12-15). Today's view only.
 	LeftOpen LeftOpen
+
+	// Tally is the day's records counted by verdict (M12-16) under the page's own filters, the
+	// verdict filter excepted. Unlike the widgets above it is read for every day, the Pass's and
+	// the ledger's: it is a figure about the day the page shows.
+	Tally VerdictTally
+}
+
+// VerdictTally is the day's records by the ENGINE's verdict, plus how many were typed by a manager.
+//
+// 🔴 IT COUNTS WHAT THE LIST LISTS (CountPanelTransactionsByVerdict copies ListPanelTransactions'
+// predicates, verdict and cursor excepted), so Records is the number of dockets the day holds under
+// these filters across every page, and each verdict's figure is what its chip would list. Approved
+// is the engine's `ok`; a manager's later decision on a flag is not folded in (§4.3).
+type VerdictTally struct {
+	State    Reading
+	Records  int
+	Approved int
+	Flagged  int
+	Rejected int
+	Ignored  int
+	// Manual is how many of Records a manager typed (channel='manual'), whatever their verdict.
+	Manual int
 }
 
 // Day loads one page of dockets for the given filter.
@@ -495,6 +517,11 @@ func (r *Reader) Screen(ctx context.Context, tenantID uuid.UUID, f Filter) (Scre
 			return err
 		}
 		out.Plaques, out.History = r.advisories(ctx, tx, tenantID)
+		// The day's tally, in the page's transaction and its own savepoint: a failed count costs
+		// the summary line, never the records already read.
+		out.Tally = widget(ctx, r, tx, tenantID, "verdict tally", VerdictTally{State: ReadFailed}, func(sp pgx.Tx) (VerdictTally, error) {
+			return tally(ctx, store.New(sp), tenantID, f, out.Day, out.Zone)
+		})
 		if f.Date.Zero() {
 			r.passWidgets(ctx, tx, tenantID, &out)
 		}
@@ -658,11 +685,7 @@ func (r *Reader) page(ctx context.Context, tx pgx.Tx, q *store.Queries, tenantID
 		now := r.now().In(zone)
 		day = Date{Year: now.Year(), Month: now.Month(), Day: now.Day()}
 	}
-	from := time.Date(day.Year, day.Month, day.Day, 0, 0, 0, 0, zone)
-	// AddDate rather than +24h: a day is not always 24 hours long. Malta puts
-	// its clocks forward in March, and a fixed 24-hour window on that date would
-	// reach an hour into the next day and show its first taps on the wrong page.
-	to := from.AddDate(0, 0, 1)
+	from, to := dayWindow(day, zone)
 
 	params := store.ListPanelTransactionsParams{
 		TenantID:     tenantID,
@@ -670,19 +693,13 @@ func (r *Reader) page(ctx context.Context, tx pgx.Tx, q *store.Queries, tenantID
 		ToAt:         to,
 		LocationID:   f.LocationID,
 		DepartmentID: f.DepartmentID,
+		EmployeeName: nameFilter(f),
+		Channel:      channelFilter(f),
 		PageSize:     PageSize + 1, // one extra: see below
-	}
-	if f.EmployeeName != "" {
-		n := escapeLike(f.EmployeeName)
-		params.EmployeeName = &n
 	}
 	if f.Verdict != "" {
 		v := f.Verdict
 		params.Verdict = &v
-	}
-	if f.Channel != "" {
-		c := f.Channel
-		params.Channel = &c
 	}
 	if f.After != nil {
 		at, id := f.After.At, f.After.ID
@@ -716,6 +733,65 @@ func (r *Reader) page(ctx context.Context, tx pgx.Tx, q *store.Queries, tenantID
 		page.Next = &Cursor{At: last.OccurredAt, ID: last.ID}
 	}
 	return page, nil
+}
+
+// dayWindow is a calendar day as the half-open UTC window [local midnight, next local midnight).
+//
+// AddDate rather than +24h: a day is not always 24 hours long. Malta puts its clocks forward in
+// March, and a fixed 24-hour window on that date would reach an hour into the next day and show
+// its first taps on the wrong page.
+func dayWindow(day Date, zone *time.Location) (from, to time.Time) {
+	if zone == nil {
+		zone = time.UTC
+	}
+	from = time.Date(day.Year, day.Month, day.Day, 0, 0, 0, 0, zone)
+	return from, from.AddDate(0, 0, 1)
+}
+
+// nameFilter and channelFilter are the two optional filters the list and its tally pass the same
+// way -- one spelling, so the two statements cannot be handed different values.
+func nameFilter(f Filter) *string {
+	if f.EmployeeName == "" {
+		return nil
+	}
+	n := escapeLike(f.EmployeeName)
+	return &n
+}
+
+func channelFilter(f Filter) *string {
+	if f.Channel == "" {
+		return nil
+	}
+	c := f.Channel
+	return &c
+}
+
+// tally counts the day's records by verdict under f's filters, f.Verdict and f.After excepted (see
+// VerdictTally). day and zone are the page's resolved ones, so the count is of the day the page
+// shows.
+func tally(ctx context.Context, q *store.Queries, tenantID uuid.UUID, f Filter, day Date, zone *time.Location) (VerdictTally, error) {
+	from, to := dayWindow(day, zone)
+	row, err := q.CountPanelTransactionsByVerdict(ctx, store.CountPanelTransactionsByVerdictParams{
+		TenantID:     tenantID,
+		FromAt:       from,
+		ToAt:         to,
+		LocationID:   f.LocationID,
+		DepartmentID: f.DepartmentID,
+		EmployeeName: nameFilter(f),
+		Channel:      channelFilter(f),
+	})
+	if err != nil {
+		return VerdictTally{}, fmt.Errorf("count the day by verdict: %w", err)
+	}
+	return VerdictTally{
+		State:    Measured,
+		Records:  int(row.Records),
+		Approved: int(row.Approved),
+		Flagged:  int(row.Flagged),
+		Rejected: int(row.Rejected),
+		Ignored:  int(row.Ignored),
+		Manual:   int(row.Manual),
+	}, nil
 }
 
 // record maps one store row to one docket.

@@ -660,6 +660,66 @@ WHERE t.tenant_id = @tenant_id
 ORDER BY t.occurred_at DESC, t.id DESC
 LIMIT sqlc.arg('page_size')::int;
 
+-- name: CountPanelTransactionsByVerdict :one
+-- The day's records counted by verdict (M12-16, D3): the ledger's summary line ("10 records · 6
+-- approved · … · 1 manual entry") and the counts on its verdict chips.
+--
+-- 🔴 THE SAME ROWS ListPanelTransactions LISTS, MINUS TWO PREDICATES, AND THE TWO ARE THE POINT.
+-- Tenant, day window, venue, department, the name CTE and the channel are copied predicate for
+-- predicate; the VERDICT filter is left out because the chips ARE the verdict choice (each chip's
+-- count must hold whichever chip is pressed), and the CURSOR because a count is of the day, not of
+-- a page. So `records` equals the rows the list shows across every page with no verdict chosen,
+-- and each verdict's figure equals the list with that verdict chosen -- pinned by
+-- TestTally_CountsWhatTheListShows. Change a predicate in one statement and not the other and
+-- that test goes red.
+--
+-- THE NAME CTE IS ListPanelTransactions' OWN, status-agnostic for its reason (§4.6): a person who
+-- has left is found, and their records are counted.
+--
+-- NO JOIN: the list's joins only NAME a row (LEFT JOINs, and transaction_reviews is UNIQUE per
+-- record), so none of them changes which rows exist or how many. `verdict` is the ENGINE's (§4.3);
+-- a manager's later decision is not folded into it here either.
+--
+-- ⚠️ IT READS `verdict`, AND A PARTNER-VENUE ROW'S VERDICT IS COUNTED: the residue ADR 0027 §13
+-- item 5 names (the employer sees the outcome of its own staff's taps at a partner venue, never the
+-- evidence behind it). internal/db's evidence inventory files it so.
+--
+-- Bounds are bare parameters; the optional filters are sqlc.narg, null meaning "do not narrow",
+-- exactly as in ListPanelTransactions.
+--
+-- TENANT SCOPE (§4.5): explicit predicate on the row and in the CTE, beside RLS; the tenant is the
+-- panel session's. It runs in the SAME WithTenant as the page it summarises (ledger.Screen), in
+-- its own savepoint.
+--
+-- EXPLAIN (ANALYZE, BUFFERS), 2026-10-20, seed tenant after `make seed` and one simulated day,
+-- today's window, no filter: Bitmap Index Scan on transactions_tenant_occurred_idx -> Bitmap Heap
+-- Scan (21 rows) -> Aggregate, the CTE never executed; shared hit=5, 0.31 ms.
+WITH matched_employees AS MATERIALIZED (
+    SELECT e2.id
+    FROM employees e2
+    WHERE e2.tenant_id = @tenant_id
+      AND sqlc.narg('employee_name')::text IS NOT NULL
+      AND e2.full_name ILIKE '%' || sqlc.narg('employee_name')::text || '%'
+)
+SELECT count(*)                                         AS records,
+       count(*) FILTER (WHERE t.verdict = 'ok')         AS approved,
+       count(*) FILTER (WHERE t.verdict = 'flag')       AS flagged,
+       count(*) FILTER (WHERE t.verdict = 'reject')     AS rejected,
+       count(*) FILTER (WHERE t.verdict = 'ignored')    AS ignored,
+       count(*) FILTER (WHERE t.channel = 'manual')     AS manual
+FROM transactions t
+WHERE t.tenant_id = @tenant_id
+  AND t.occurred_at >= @from_at
+  AND t.occurred_at <  @to_at
+  AND (sqlc.narg('location_id')::uuid IS NULL
+       OR t.location_id = sqlc.narg('location_id')::uuid)
+  AND (sqlc.narg('department_id')::uuid IS NULL
+       OR t.department_id = sqlc.narg('department_id')::uuid)
+  AND (sqlc.narg('employee_name')::text IS NULL
+       OR t.employee_id IN (SELECT id FROM matched_employees))
+  AND (sqlc.narg('channel')::text IS NULL
+       OR t.channel = sqlc.narg('channel')::text);
+
 -- name: ListWorkedShiftEvents :many
 -- The REPORTS section's read (M6-07 phase A): the raw material worked hours are
 -- computed from. One row per DIRECTION-CARRYING record, ordered so that one pass

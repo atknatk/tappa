@@ -268,6 +268,8 @@ type fakeLedger struct {
 	tape ledger.Tape
 	// leftOpen is The Pass's "left open since yesterday" (M12-15); NotQueried by default.
 	leftOpen ledger.LeftOpen
+	// tally is the day's verdict counts (M12-16), read for every day; NotQueried by default.
+	tally ledger.VerdictTally
 
 	// M6-04's read side. queue/pending default to "asked, and there is nothing
 	// waiting", for the same reason page does: an unqueried zero value renders
@@ -1274,13 +1276,16 @@ func (f *fakeLedger) Screen(_ context.Context, tenantID uuid.UUID, filter ledger
 	var floor ledger.Floor
 	var tape ledger.Tape
 	var leftOpen ledger.LeftOpen
+	f.mu.Lock()
+	tally := f.tally
+	f.mu.Unlock()
 	if filter.Date.Zero() {
 		f.mu.Lock()
 		floor, tape, leftOpen = f.floor, f.tape, f.leftOpen
 		f.mu.Unlock()
 	}
 	return ledger.Screen{Page: f.snapshot(filter), Options: f.opts, Plaques: f.plaques, History: f.history,
-		Floor: floor, Tape: tape, LeftOpen: leftOpen}, nil
+		Floor: floor, Tape: tape, LeftOpen: leftOpen, Tally: tally}, nil
 }
 
 func (f *fakeLedger) Day(_ context.Context, tenantID uuid.UUID, filter ledger.Filter) (ledger.Page, error) {
