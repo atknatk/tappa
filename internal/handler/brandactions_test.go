@@ -539,12 +539,19 @@ func brandShapes(t *testing.T) map[string]tenant.PanelBrand {
 // an owner and a manager under five saved brands. The preview block is the page's one
 // inert element and holds, in order and EACH EXACTLY ONCE, the tap screen's three
 // components as the brand calls for them -- layout.BrandHeader of TapBrand(the
-// panel-route logo, the saved theme), TapHeading with the signed-in name,
+// panel-route logo, the saved theme), the greeting with the signed-in name,
 // TapButtonFace(TapButtonPreview) -- and nothing else; it contains no "<form" and no
 // "/api/checkin"; its one button is type="button" and is inside no <form> of the page;
 // no element on the page carries a form= attribute; the rest of the editor draws no
 // header (withoutBrandEditor); and every form of the editor posts to one of the three
 // brand routes.
+//
+// THE GREETING IS pages.TapPreviewHeading SINCE M12-41, NOT pages.TapHeading. TapHeading's
+// greeting is the tap screen's <h1>, so drawing it here gave the Account page two h1
+// elements; the panel draws a twin with the same classes and words and no heading
+// element, and TestTapPreviewHeading_IsTapHeadingWithoutItsHeading holds the twin to
+// TapHeading's bytes (two tags apart), so the claim "the tap screen's own greeting" is
+// still measured, one step removed. TestAccount_HasExactlyOneH1 holds the page's count.
 func TestBrandPreview_IsTheTapScreensOwnComponentsAndCannotSubmit(t *testing.T) {
 	for _, role := range []string{"owner", "manager"} {
 		for name, pb := range brandShapes(t) {
@@ -568,7 +575,7 @@ func TestBrandPreview_IsTheTapScreensOwnComponentsAndCannotSubmit(t *testing.T) 
 			}
 			parts := []string{
 				renderString(t, layout.BrandHeader(layout.TapBrand(logo, theme))),
-				renderString(t, pages.TapHeading("Maria Borg", "")),
+				renderString(t, pages.TapPreviewHeading("Maria Borg")),
 				renderString(t, pages.TapButtonFace(pages.TapButtonPreview)),
 			}
 			at := 0
@@ -620,6 +627,37 @@ func TestBrandPreview_IsTheTapScreensOwnComponentsAndCannotSubmit(t *testing.T) 
 					t.Errorf("%s: the picker does not start on %s", where, picker)
 				}
 			}
+		}
+	}
+}
+
+// TestTapPreviewHeading_IsTapHeadingWithoutItsHeading: for plain, escaped and Maltese
+// names, the Account preview's greeting is TapHeading(name, "") -- the tap screen's own
+// greeting with no venue line -- with exactly two tags swapped: the section for a
+// division and the <h1> for a paragraph. Everything else (the docket, the label, the
+// classes, the words, the escaping, the white space) is the tap screen's byte for byte, so
+// a change to the employee's greeting that is not made to the preview too turns this red.
+// The twin draws no heading element at all, and TapHeading still draws its one <h1>: the
+// tap screen keeps its heading (CLAUDE.md §9).
+func TestTapPreviewHeading_IsTapHeadingWithoutItsHeading(t *testing.T) {
+	swap := strings.NewReplacer(
+		`<section class="docket">`, `<div class="docket">`,
+		`</section>`, `</div>`,
+		`<h1 `, `<p `,
+		`</h1>`, `</p>`,
+	)
+	for _, name := range []string{"Maria Borg", "Ġorġ Żammit-Ħili", `<b>"&'`} {
+		tap := renderString(t, pages.TapHeading(name, ""))
+		preview := renderString(t, pages.TapPreviewHeading(name))
+		if strings.Count(tap, "<h1") != 1 || strings.Count(tap, `<section class="docket">`) != 1 {
+			t.Fatalf("PREMISE: %q: the tap screen's greeting is not one docket section with one h1: %s", name, tap)
+		}
+		if got := swap.Replace(tap); got != preview {
+			t.Errorf("%q: the preview's greeting is not the tap screen's with its two tags swapped\n tap: %s\nwant: %s\n got: %s",
+				name, tap, got, preview)
+		}
+		if regexp.MustCompile(`<h[1-6]\b|<section\b`).MatchString(preview) {
+			t.Errorf("%q: the preview's greeting draws a heading or a section: %s", name, preview)
 		}
 	}
 }
