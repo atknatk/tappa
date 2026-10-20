@@ -33,7 +33,7 @@ Boards: `Account`, `Developers`, `States`, `SignIn`, `Choose`, `Reset`, `Signup`
 | S5 | phone back arrow, tenant name in the top bar, search icon | porcelain lockup | **REMOVED (D1)** (search, unbranded tenant name) | a back link is a plain link if a page wants one |
 | S6 | M-More as a full page | `<details class="bar-more">` sheet (`panel.templ:142-172`) | KEPT AS CODE | user-approved in the shell commit |
 | S7 | dark tenant card with Switch | — | **REMOVED (D1)** | |
-| S8 | rounded grouped list, 56 px rows, chevrons, dashed separators | `.sheet-list` rows `min-h-12 border-b` | DERIVE (CSS only) | M12-47 |
+| S8 | rounded grouped list, 56 px rows, chevrons, dashed separators (the earlier full-page More, `0e31694`) | `.sheet-list` rows `min-h-12 border-b` | KEPT AS CODE | the board (`fd18724` / `c2dd88d`) draws the shipped rows; M12-47's polish = lift shadow (ink/10) + scrim (ink/40) + sign-out radius 10 px. Tapping the scrim closes the sheet (CSS only, no JS) |
 | S9 | row badges ("1 to replace", "Owner") | — | **REMOVED (D1)** | |
 | S10 | "Manual entry" link | — | **REMOVED (D1)** | a manual entry starts from a person; `/admin/records/new` without `?id=` redirects with a problem |
 | S11 | "Signed in as … · Owner" + Sign out | `.sheet-foot` (`admin.templ:440-447`) | EXISTS | button `min-h-12 rounded-xl border border-ink font-bold` |
@@ -349,8 +349,10 @@ chips. Tests: `marketing_test.go` (`TestMarketing_MountsEveryLegalDocumentAndLin
 
 ## 9. M-More sheet
 
-Keep `<details class="bar-more">`; CSS-only polish (grouped rounded list, chevrons, dashed separators — S8); no
-badges (S9), no tenant card (S7), no Manual entry link (S10). Keep `aria-current` and the sr-only ", current: X"
+Keep `<details class="bar-more">` and its shipped rows (S8 — the board draws them); CSS-only polish: the sheet
+lifts on an ink/10 shadow, the page above the bar is dimmed at ink/40, the sign-out button takes the 10 px
+radius. The scrim is a `::before` of More's own `<summary>`, so tapping it closes the sheet — CSS only, no JS;
+the bar stays lit and pressable. No badges (S9), no tenant card (S7), no Manual entry link (S10). Keep `aria-current` and the sr-only ", current: X"
 (`dfb122d`) and `TestPanelSections_ThePhoneNavMarksExactlyOneCurrentAndOffersEverySection`.
 
 ---
