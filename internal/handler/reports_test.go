@@ -240,8 +240,12 @@ func TestReportsSection_ListsAtMostMaxReportRowsAndSaysSo(t *testing.T) {
 	})
 	body := reportBrowser(t, records).do(http.MethodGet, reportsHref, nil).Body.String()
 
-	if got := strings.Count(body, `<section class="docket">`); got > maxReportRows+8 {
-		t.Fatalf("%d dockets on the page; the listing is not bounded", got)
+	// THE ROLL'S ROWS, COUNTED EXACTLY. A person's week is a roll row since M12-36 (it was a
+	// docket before), so counting dockets here measured nothing: removing the cap left this
+	// test green (measured by the M12-36 audit). An exact count also fails if the cap stops
+	// listing anybody at all.
+	if got := strings.Count(body, `<tr class="roll-row">`); got != maxReportRows {
+		t.Fatalf("%d person rows on the page, want exactly %d; the listing is not bounded", got, maxReportRows)
 	}
 	if !strings.Contains(body, "Showing 100 of 131 people") {
 		t.Error("the page does not say how many rows it left out")
