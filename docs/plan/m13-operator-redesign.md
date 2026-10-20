@@ -233,7 +233,7 @@ zemine koymak (panolar bandın içinde çizer) · telefonda sign-out'u ikona çe
 - **Spec:** [README §5–§6](../design/operator-redesign/README.md)
 
 **Amaç.** README §6'nın operatör sınıflarını `input.css`'in `op-*` bloğunda (`input.css:1098-1145`,
-`a8a06f6`'da yeniden okundu, `27516b7`'de değişmedi) güncellemek: `.op-card` `rounded-[14px]`, `shadow-sm` düşer, iç boşluklar üç genişlikte
+`a8a06f6`'da yeniden okundu, `27516b7`'de değişmedi) güncellemek: `.op-card` `rounded-[14px]`, `shadow-sm` düşer (hiçbir operatör kartında gölge yok), iç boşluklar üç genişlikte
 (telefonda **20 px**, `p-5`; tablet/masaüstünde 22 px 24 px); docket dolgusu kapsamlı kuralla
 `.op-main .docket { @apply px-5 py-4 md:px-6 md:py-[18px]; }` — telefonda 16 px 20 px,
 tablet/masaüstünde 18 px 24 px; `.docket`'in kendi `px-4 py-3`'ü panel için kalır. **Tek ölçek, tek
@@ -574,7 +574,8 @@ yeşil; reddedilen ad yankılanmaz; tenant seçici, holding sayfası, onay adım
 Giriş kartı (müşteri sitesi `/legal` metin, bağlantı değil), dört düzenleyici kartı (canlı/yayımlanmamış,
 "behind" uyarısı, textarea, düğme), sürüm docket'i (`<li class="op-version">`, Live çipi, "tenant admin
 (legacy)"), boş ve 100 sınırı notları. Cilalı panolar (README §6.1 "Legal editor", "Legal versions"):
-- Belge başına **tam genişlik tek düzenleyici kartı**: başlık satırında solda yol (mono), sağda dekoratif
+- Belge başına **tam genişlik tek düzenleyici kartı**, yan iç boşluğu tek kart ölçeği: masaüstü / tablet /
+  telefon **24 / 24 / 20 px** (panoların `--edpx`'i 32 / 26 / 18'den hizalandı); başlık satırında solda yol (mono), sağda dekoratif
   durum noktası (`aria-hidden`; durumu sözcükler taşır) + "Live since …" / "Not published…"; "The public
   page is behind" uyarısı başlık ile form **arasında** (kodun sırası); "TEXT" etiket çubuklu
   **çerçeveli textarea**, mono 14 px / 1.7, `rows="12"`; solda yardım, sağda **Publish a new version**

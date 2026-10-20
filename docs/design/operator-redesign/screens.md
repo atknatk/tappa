@@ -619,7 +619,8 @@ Signed-in shell, current = Legal texts; no banner. Title `Legal texts`.
 | cap | The newest 100 are listed. Older versions are not shown here. |
 
 **Layout (polished boards; README §6.1 "Legal editor", "Legal versions"):** one **full-width
-editor card per document** — header row with the path mono on the left and a decorative status
+editor card per document**, side inset 24 / 24 / 20 px desktop / tablet / phone (the single card
+scale) — header row with the path mono on the left and a decorative status
 dot + "Live since …" / "Not published. …" on the right; the "public page is behind" notice
 between that header and the form (the code's order, `legal.templ:54-65`); a **framed textarea**
 with a "TEXT" label bar (the `Text` label, caps by CSS), mono 14 px / line-height 1.7,
