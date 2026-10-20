@@ -11,21 +11,26 @@ package components
 // "Plaket baskısı"). Colours come from classes and the size from SVG presentation
 // attributes; the panel's policy refuses a style attribute.
 //
+// The tap zone is ink with paper words and rings, as the current boards draw it at all
+// three widths (visual QA c2dd88d, "one plaque drawing across the three breakpoints");
+// the QR half under it stays ink on paper. Paper on ink is 16.2:1; the two outer rings
+// are decoration and carry no meaning.
+//
 // The figure is ONE image to a screen reader, named by the view's Label; the rings are
 // drawn, not said. The copy is the skill's, word for word.
 templ PlaqueDrawing(v PlaqueDrawingView) {
 	if v.Drawable() {
 		<figure role="img" aria-label={ v.Label() } class="flex flex-col items-center gap-3 rounded-[18px] bg-line/50 p-6">
 			<div class="flex w-[200px] flex-col overflow-hidden rounded-2xl border border-line bg-paper shadow-lg shadow-ink/10">
-				<div class="flex h-44 flex-col items-center justify-center gap-2.5">
-					<div aria-hidden="true" class="flex h-[120px] w-[120px] items-center justify-center rounded-full border border-ink/25">
-						<div class="flex h-[86px] w-[86px] items-center justify-center rounded-full border border-ink/45">
-							<div class="flex h-[54px] w-[54px] items-center justify-center rounded-full border-2 border-ink font-display text-xs font-bold tracking-tight text-ink">taptime</div>
+				<div class="flex h-44 flex-col items-center justify-center gap-2.5 bg-ink text-paper">
+					<div aria-hidden="true" class="flex h-[120px] w-[120px] items-center justify-center rounded-full border border-porcelain/25">
+						<div class="flex h-[86px] w-[86px] items-center justify-center rounded-full border border-porcelain/45">
+							<div class="flex h-[54px] w-[54px] items-center justify-center rounded-full border-2 border-paper font-display text-[13px] font-bold tracking-[-0.02em]">taptime</div>
 						</div>
 					</div>
-					<span class="font-display text-xs font-bold text-ink">Hold your phone here</span>
+					<span class="font-display text-xs font-bold">Hold your phone here</span>
 				</div>
-				<div class="flex flex-col items-center gap-1 border-t border-dashed border-line pb-3 pt-2.5">
+				<div class="flex flex-col items-center gap-1 pb-3 pt-2.5">
 					<svg viewBox={ v.QRViewBox() } width={ v.QRPixels() } height={ v.QRPixels() } shape-rendering="crispEdges" aria-hidden="true" class="h-auto max-w-full">
 						<rect width={ v.qrSideText() } height={ v.qrSideText() } class="fill-paper"></rect>
 						<path class="fill-ink" d={ v.QRPath }></path>

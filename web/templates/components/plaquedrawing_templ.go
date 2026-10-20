@@ -19,6 +19,11 @@ import templruntime "github.com/a-h/templ/runtime"
 // "Plaket baskısı"). Colours come from classes and the size from SVG presentation
 // attributes; the panel's policy refuses a style attribute.
 //
+// The tap zone is ink with paper words and rings, as the current boards draw it at all
+// three widths (visual QA c2dd88d, "one plaque drawing across the three breakpoints");
+// the QR half under it stays ink on paper. Paper on ink is 16.2:1; the two outer rings
+// are decoration and carry no meaning.
+//
 // The figure is ONE image to a screen reader, named by the view's Label; the rings are
 // drawn, not said. The copy is the skill's, word for word.
 func PlaqueDrawing(v PlaqueDrawingView) templ.Component {
@@ -50,20 +55,20 @@ func PlaqueDrawing(v PlaqueDrawingView) templ.Component {
 			var templ_7745c5c3_Var2 string
 			templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(v.Label())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/plaquedrawing.templ`, Line: 18, Col: 43}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/plaquedrawing.templ`, Line: 23, Col: 43}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\" class=\"flex flex-col items-center gap-3 rounded-[18px] bg-line/50 p-6\"><div class=\"flex w-[200px] flex-col overflow-hidden rounded-2xl border border-line bg-paper shadow-lg shadow-ink/10\"><div class=\"flex h-44 flex-col items-center justify-center gap-2.5\"><div aria-hidden=\"true\" class=\"flex h-[120px] w-[120px] items-center justify-center rounded-full border border-ink/25\"><div class=\"flex h-[86px] w-[86px] items-center justify-center rounded-full border border-ink/45\"><div class=\"flex h-[54px] w-[54px] items-center justify-center rounded-full border-2 border-ink font-display text-xs font-bold tracking-tight text-ink\">taptime</div></div></div><span class=\"font-display text-xs font-bold text-ink\">Hold your phone here</span></div><div class=\"flex flex-col items-center gap-1 border-t border-dashed border-line pb-3 pt-2.5\"><svg viewBox=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\" class=\"flex flex-col items-center gap-3 rounded-[18px] bg-line/50 p-6\"><div class=\"flex w-[200px] flex-col overflow-hidden rounded-2xl border border-line bg-paper shadow-lg shadow-ink/10\"><div class=\"flex h-44 flex-col items-center justify-center gap-2.5 bg-ink text-paper\"><div aria-hidden=\"true\" class=\"flex h-[120px] w-[120px] items-center justify-center rounded-full border border-porcelain/25\"><div class=\"flex h-[86px] w-[86px] items-center justify-center rounded-full border border-porcelain/45\"><div class=\"flex h-[54px] w-[54px] items-center justify-center rounded-full border-2 border-paper font-display text-[13px] font-bold tracking-[-0.02em]\">taptime</div></div></div><span class=\"font-display text-xs font-bold\">Hold your phone here</span></div><div class=\"flex flex-col items-center gap-1 pb-3 pt-2.5\"><svg viewBox=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var3 string
 			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(v.QRViewBox())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/plaquedrawing.templ`, Line: 29, Col: 33}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/plaquedrawing.templ`, Line: 34, Col: 33}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 			if templ_7745c5c3_Err != nil {
@@ -76,7 +81,7 @@ func PlaqueDrawing(v PlaqueDrawingView) templ.Component {
 			var templ_7745c5c3_Var4 string
 			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(v.QRPixels())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/plaquedrawing.templ`, Line: 29, Col: 56}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/plaquedrawing.templ`, Line: 34, Col: 56}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 			if templ_7745c5c3_Err != nil {
@@ -89,7 +94,7 @@ func PlaqueDrawing(v PlaqueDrawingView) templ.Component {
 			var templ_7745c5c3_Var5 string
 			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(v.QRPixels())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/plaquedrawing.templ`, Line: 29, Col: 80}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/plaquedrawing.templ`, Line: 34, Col: 80}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 			if templ_7745c5c3_Err != nil {
@@ -102,7 +107,7 @@ func PlaqueDrawing(v PlaqueDrawingView) templ.Component {
 			var templ_7745c5c3_Var6 string
 			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(v.qrSideText())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/plaquedrawing.templ`, Line: 30, Col: 34}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/plaquedrawing.templ`, Line: 35, Col: 34}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 			if templ_7745c5c3_Err != nil {
@@ -115,7 +120,7 @@ func PlaqueDrawing(v PlaqueDrawingView) templ.Component {
 			var templ_7745c5c3_Var7 string
 			templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(v.qrSideText())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/plaquedrawing.templ`, Line: 30, Col: 60}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/plaquedrawing.templ`, Line: 35, Col: 60}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 			if templ_7745c5c3_Err != nil {
@@ -128,7 +133,7 @@ func PlaqueDrawing(v PlaqueDrawingView) templ.Component {
 			var templ_7745c5c3_Var8 string
 			templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(v.QRPath)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/plaquedrawing.templ`, Line: 31, Col: 41}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/plaquedrawing.templ`, Line: 36, Col: 41}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 			if templ_7745c5c3_Err != nil {
@@ -141,7 +146,7 @@ func PlaqueDrawing(v PlaqueDrawingView) templ.Component {
 			var templ_7745c5c3_Var9 string
 			templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(v.Last4)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/plaquedrawing.templ`, Line: 34, Col: 83}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/plaquedrawing.templ`, Line: 39, Col: 83}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 			if templ_7745c5c3_Err != nil {

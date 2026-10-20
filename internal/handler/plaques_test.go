@@ -1937,12 +1937,15 @@ func TestPlaqueDrawing_NoRealCodeMeansNoDrawing(t *testing.T) {
 		{"no base", uidOnWall, nil},
 		{"a plaque in the box", uidInStock, []AdminAuthOption{PlaqueDrawingsFrom(PlaqueTapBase(testBaseURL))}},
 		{"a retired plaque", uidRetired, []AdminAuthOption{PlaqueDrawingsFrom(PlaqueTapBase(testBaseURL))}},
+		// Another business's (or no business's) uid: the lookup finds nothing, so no
+		// card and no drawing — the uid in the address is never a source of a code.
+		{"an unknown uid", "AABBCCDDEEFF01", []AdminAuthOption{PlaqueDrawingsFrom(PlaqueTapBase(testBaseURL))}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			b := plaqueBrowser(t, venues, threePlaques(venues.firstVenueID()), tc.opts...)
 			html := htmlOf(t, b.do(http.MethodGet, locationsHref+"?plaque="+tc.uid, nil))
-			if !strings.Contains(html, `aria-label="`+tc.uid+`"`) {
-				t.Fatalf("the card for %s did not open", tc.uid)
+			if opened := strings.Contains(html, `aria-label="`+tc.uid+`"`); opened == (tc.uid == "AABBCCDDEEFF01") {
+				t.Fatalf("card for %s opened = %v; a known plaque's card opens, an unknown uid's does not", tc.uid, opened)
 			}
 			for _, absent := range []string{`class="fill-ink"`, `class="fill-paper"`, "<figure", "Hold your phone here", "PLAQUE "} {
 				if strings.Contains(html, absent) {
@@ -1958,11 +1961,11 @@ func TestPlaqueDrawing_NoRealCodeMeansNoDrawing(t *testing.T) {
 func TestPlaqueDrawing_AFrozenRowIsNotDrawn(t *testing.T) {
 	wall := uuid.New()
 	p := tenant.Plaque{UID: strings.ToLower(uidOnWall), Status: tenant.PlaqueActive, LocationID: &wall}
-	if d := plaqueDrawingOf(PlaqueTapBase(testBaseURL), p); d != nil {
+	if d := plaqueDrawingOf(discardLogger(), PlaqueTapBase(testBaseURL), p); d != nil {
 		t.Errorf("a non-canonical row was drawn: %+v", *d)
 	}
 	p.UID, p.Canonical = uidOnWall, true
-	if d := plaqueDrawingOf(PlaqueTapBase(testBaseURL), p); d == nil || d.Last4 != "0601" {
+	if d := plaqueDrawingOf(discardLogger(), PlaqueTapBase(testBaseURL), p); d == nil || d.Last4 != "0601" {
 		t.Errorf("the canonical twin was not drawn with its last four digits: %+v", d)
 	}
 }

@@ -107,6 +107,14 @@ func TestPlaqueDrawing_SaysTheSkillsWordsAsOneImage(t *testing.T) {
 		t.Errorf("want the rings and the code hidden from a screen reader (2 aria-hidden), got %d",
 			strings.Count(html, `aria-hidden="true"`))
 	}
+	// The tap zone is ink with paper words, as the current boards draw it (c2dd88d);
+	// the QR half is still ink modules on a paper ground.
+	if !strings.Contains(html, `justify-center gap-2.5 bg-ink text-paper">`) {
+		t.Error("the tap zone is not drawn in ink")
+	}
+	if !strings.Contains(html, `class="fill-paper"></rect>`) || !strings.Contains(html, `<path class="fill-ink" d="`) {
+		t.Error("the QR code is no longer ink on paper")
+	}
 	if strings.Contains(strings.ToLower(html), "brand") {
 		t.Error("the drawing names a class with \"brand\" in it")
 	}
