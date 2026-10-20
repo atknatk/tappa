@@ -499,13 +499,13 @@ templ marketingDocument(title string, robots Robots, src string, alternates []Al
 // asked for.
 //
 // WHY A PARAMETER AND NOT A SIBLING SHELL, which is what layout.MarketingWithScript
-// is. Marketing has FOUR call sites (pages.Legal, which serves all four documents,
-// and three sign-up wizard screens) and none of them wanted a script, so a sibling
-// kept every one of them unable to grow one by accident. Auth has ONE call site,
-// pages.AdminLogin — counted, not remembered: a sibling here
-// would leave the scriptless shell with no caller at all — dead code whose only job
-// is to look like a guarantee. One shell with one argument is the same count of
-// screens that can load a script, written where a reader can see it.
+// is. When the script arrived Auth had ONE call site, pages.AdminLogin, and a
+// sibling would have left the scriptless shell with no caller at all. Since the
+// redesign (M12-44) the whole sign-in family renders here — pages.AdminLogin with
+// the reveal script, and pages.AdminChoose, AdminResetRequest, AdminResetSent and
+// AdminResetNew with "" — five call sites, counted. A "" is a visible argument at
+// each of them rather than an inheritance, and the paragraph below is why widening
+// one of them is still not a one-word edit.
 //
 // WHAT THE ARGUMENT IS NOT: the security boundary. A path written here loads only if
 // the response's Content-Security-Policy permits one, and that is decided per render

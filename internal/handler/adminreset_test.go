@@ -21,6 +21,7 @@ import (
 
 	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/db"
+	"github.com/atknatk/tappa/web/templates/pages"
 )
 
 // --- fakes ---------------------------------------------------------------------
@@ -491,10 +492,18 @@ func TestAdminReset_WithoutAChannelNothingIsIssuedAndTheScreenSaysSo(t *testing.
 	// never sent. This test read every byte of that document and asked only for the
 	// presence of one string and the absence of another; neither mentioned the title.
 	// A body scan is only as good as what it refuses.
-	for _, promise := range []string{"on its way", "Check your email", "expires in an hour"} {
-		if strings.Contains(body, promise) {
-			t.Errorf("the answer contains %q — a deployment that cannot send a link must not "+
-				"say that anywhere in the document, headings and <title> included", promise)
+	//
+	// ⚠️ AND THE FORM IS SCANNED TOO (M12-44). The redesign drew a step list on the
+	// recovery screens whose second step is "Check your email · The link works once,
+	// for an hour"; on a channel-less deployment the list is not drawn, and only this
+	// scan of the FORM holds that — the answer alone left it unguarded (third-eye
+	// audit, measured by forcing the list on).
+	for where, page := range map[string]string{"the answer": body, "the request form": form} {
+		for _, promise := range []string{"on its way", "Check your email", "expires in an hour", "for an hour"} {
+			if strings.Contains(page, promise) {
+				t.Errorf("%s contains %q — a deployment that cannot send a link must not "+
+					"say that anywhere in the document, headings and <title> included", where, promise)
+			}
 		}
 	}
 	// ⚠️ AND NO SCREEN OF THIS FLOW PROMISES A WAY ROUND IT THAT DOES NOT EXIST
@@ -1598,4 +1607,72 @@ func TestAdminReset_TheUndeliverableLineClaimsOnlyWhatHappened(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestAdminReset_ProblemsAreThePanelCardAndLeadNowhereButTheFixedPaths: the recovery's
+// failure screens are drawn on the panel's problem card (M12-10), not on the tap
+// screens' pages.Problem, so no tap button and no "Try again" reach this pre-sign-in
+// family. Every screen is met without a session: a constant that offers a retry starts
+// the recovery again at its own form, every other one goes to the sign-in page, and
+// neither ever offers The Pass. The constant's words are said and nothing is added.
+func TestAdminReset_ProblemsAreThePanelCardAndLeadNowhereButTheFixedPaths(t *testing.T) {
+	t.Parallel()
+	all := map[string]pages.ProblemView{
+		"problemResetNoCookie": problemResetNoCookie, "problemResetRestart": problemResetRestart,
+		"problemResetTooMany": problemResetTooMany, "problemResetServer": problemResetServer,
+		"problemResetNoDelivery": problemResetNoDelivery, "problemResetLinkUnusable": problemResetLinkUnusable,
+	}
+	for name, v := range all {
+		got := resetProblemOf(http.StatusBadRequest, v)
+		wantHref, wantLabel := adminLoginPath, "Go to sign in"
+		if v.RetryURL != "" {
+			wantHref, wantLabel = adminResetPath, "Start again"
+		}
+		if got.CTAHref != wantHref || got.CTALabel != wantLabel {
+			t.Errorf("%s: way on %q %q, want %q %q", name, got.CTAHref, got.CTALabel, wantHref, wantLabel)
+		}
+		if got.Title != v.Title || got.Message != v.Message || got.Hint != v.Hint || got.OwnerOnly {
+			t.Errorf("%s: the card's words are not the constant's: %+v", name, got)
+		}
+	}
+	// ANTI-VACUITY: both arms are exercised by the shipped constants.
+	if problemResetLinkUnusable.RetryURL == "" || problemResetNoCookie.RetryURL != "" {
+		t.Fatal("the two arms this test relies on no longer exist in the constants")
+	}
+
+	// THROUGH THE ROUTER, one screen per arm.
+	router, _ := newResetRouter(t, &fakeResets{}, &recordingChannel{}, &fakeTrail{})
+	for _, c := range []struct {
+		path string
+		v    pages.ProblemView
+		href string
+	}{
+		{adminResetNewPath, problemResetNoCookie, `href="/admin/login"`},
+		{adminResetNewPath + "?t=a.b", problemResetLinkUnusable, `href="/admin/reset"`},
+	} {
+		rec := newBrowser(t, router).do(http.MethodGet, c.path, nil)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("GET %s answered %d, want 400", c.path, rec.Code)
+		}
+		body := htmlOf(t, rec)
+		if !strings.Contains(body, panelProblemCard) || !strings.Contains(body, panelProblemChipOpen+"400</span>") {
+			t.Errorf("GET %s: not the panel problem card with its 400 chip", c.path)
+		}
+		for _, want := range []string{c.v.Title, c.v.Message, c.v.Hint} {
+			if !strings.Contains(body, htmlText(want)) {
+				t.Errorf("GET %s: the card does not say %q", c.path, want)
+			}
+		}
+		if n := strings.Count(body, "<a "); n != 1 || !strings.Contains(body, c.href) {
+			t.Errorf("GET %s: %d link(s), want exactly the one to %s", c.path, n, c.href)
+		}
+		for _, never := range []string{"tap-button", "Try again", panelProblemThePass, "<form", "<script", "style="} {
+			if strings.Contains(body, never) {
+				t.Errorf("GET %s: the card carries %q", c.path, never)
+			}
+		}
+		if got := rec.Header().Get("Content-Security-Policy"); got != adminCSP {
+			t.Errorf("GET %s: policy %q, want adminCSP", c.path, got)
+		}
+	}
 }

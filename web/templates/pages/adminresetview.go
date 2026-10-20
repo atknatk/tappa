@@ -96,4 +96,8 @@ type AdminResetNewView struct {
 	// and it describes only what the VISITOR typed — never anything about the link,
 	// the account or the server.
 	Error string
+	// SignInHref is the top bar's way back to the sign-in form (M12-44): the plain
+	// path, as on the other two recovery screens. The token never travels in it — it
+	// lives in the link cookie, and this is a constant the handler passes.
+	SignInHref string
 }

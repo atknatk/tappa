@@ -1192,8 +1192,8 @@ var panelTouchTargets = map[string]int{
 	// the class cannot lose its height silently. The markup gap is recorded rather
 	// than papered over (see TestPanelScreens_FormControlsCarryATouchTargetClass).
 	"filter-input": 44, // .filter-input -> min-h-11 = 2.75rem
-	// The raw utility, used inline by the sign-in form's two fields rather than
-	// through a semantic class. It is a real compiled rule (min-height:2.75rem), so
+	// The raw utility, used inline by links (the sign-in page's lockup, "Forgot
+	// password?" and the sign-up offer among them) rather than through a semantic class. It is a real compiled rule (min-height:2.75rem), so
 	// the stylesheet half below holds it to the same floor.
 	"min-h-11": 44,
 	// The sign-in field's password reveal button (2026-09-14). It is a real <button>,
