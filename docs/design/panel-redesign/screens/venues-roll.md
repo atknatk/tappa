@@ -90,7 +90,7 @@ DOM: `<div class="flex flex-col gap-6 desk:grid desk:grid-cols-[minmax(0,300px)_
 | V11a | "Position" column | — | **REMOVED (D1)** | the uid is the row header |
 | V11b | "Plaque" | `PlaqueRowView.UID` | EXISTS | **full uid renders** (`TestPlaquesSection_ShowsTheFiveColumnsAndNeverAKey`, `plaques_test.go:142-152`); each row keeps its open link `?plaque=<uid>` (`TestPlaquesSection_OpensEveryRowItLISTS`) |
 | V11c | "Last seen" | `PlaqueRowView.LastSeen` ("2 Jan 2006 15:04", tenant zone) | KEPT AS CODE | absolute ("9 Aug 2026" pinned, `plaques_test.go:146`); **"Never tapped"** pinned |
-| V11d | "Counter" `000641` | `PlaqueRowView.Counter` | DERIVE | zero-pad 6 (still contains "641") |
+| V11d | "Chip reads" `641` | `PlaqueRowView.Counter` (`strconv.FormatInt`, `plaques.go:210`) | KEPT AS CODE | **unpadded** (D1); the board's `000641` was corrected |
 | V11e | Status pill | `plaqueStatusWord` → "In service" / "In stock" / "Retired" / "Reported lost" (`plaques.go:244-257`) | KEPT AS CODE + DERIVE | "Active" and "Replace" **REMOVED (D1)**; pill "Needs replacing" (`tally--unencoded`) when `KeyAlert == "wall"` (`plaque.templ:68-77`), else the status word; tones In service `tally--mounted`, In stock `tally--stock`, Retired line, Reported lost `tally--rejected` |
 | V11f | "Mark lost" | no writer (`tags.sql:389` comment only) | **REMOVED (D1)** | the row's "Open" link reaches the card (Replace, Take it off the wall…) |
 | V12 | In stock ("In the box") | `v.Stock`, `v.MountableStock` | EXISTS — **keep** | the only path to mount; rows link `?plaque=<uid>`; "Nothing in stock" pinned (`plaques_test.go:181`) |
@@ -151,8 +151,10 @@ Plaques: `TestPlaquesSection_ShowsTheFiveColumnsAndNeverAKey`, `TestPlaquesSecti
 `TestPlaqueWords_AgreeBetweenHandlerAndTemplate`.
 New (describe, then name when written): `?at=` default / unknown / unreadable; a too-wide list
 (`{0.0.0.0/1, 128.0.0.0/1}`) → "IP –" and the "No proof of place" notice; the radius label equals the
-injected radius (200 → "200 m"); the QR decodes to `<base>/t?tag=<uid>` (oracle: the reader in
-`internal/qrcode/read_test.go`). No holdingless golden covers this page.
+injected radius (200 → "200 m"); the drawn path **equals** the `internal/qrcode` SVG-path helper's
+output for `<base>/t?tag=<uid>` (the decode round-trip itself is M12-12's test in
+`internal/qrcode/qrcode_test.go`, next to the package's reader in `read_test.go`). No holdingless golden
+covers this page.
 
 ---
 
@@ -343,7 +345,7 @@ holding peer as other); `ListWorkedShiftEvents` stays `residue` in the evidence 
 | "approved on its own" / "either one is enough" | §5 QR row; baseline is tenant-changeable | C3 / F5 wording |
 | hard-coded "150 m" | `TAPPA_GPS_RADIUS_M` (25..1000) | inject the radius; one source |
 | Wi-Fi shown as evidence | migration 00010 | outside the evidence list, "not checked" |
-| real QR | skill: ink on paper, no `?src=qr` | D4; separate view type, string path; decode test |
+| real QR | skill: ink on paper, no `?src=qr` | D4; separate view type, string path from the `internal/qrcode` helper; decode round-trip in `internal/qrcode/qrcode_test.go` |
 | §4.7 | `TestPlaqueViewModels_CannotCarryAKey` | QR data never a slice on a plaque view type |
 | hours | §6 no float | integer `Duration` math |
 | §4.6 on the Roll | Q18 | every excluded quantity visible at every width |

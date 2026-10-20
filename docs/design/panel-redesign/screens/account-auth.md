@@ -16,7 +16,7 @@ Boards: `Account`, `Developers`, `States`, `SignIn`, `Choose`, `Reset`, `Signup`
   `components.Card`, `pages.Problem` (`activate.templ:614`), every `layout.*`
   (`TestUnbrandedScreens_AreByteIdenticalToTheGolden`; `TestPanelBrand_AnUnbrandedChromeIsTheChromeBeforeWL8`,
   layout entries `internal/handler/panelbrand_golden_test.go:138-145`).
-- No new JS: only the sign-in page loads `/static/js/adminpassword.js` (`admin.templ:184`; `adminLoginCSP`,
+- No new JS: only the sign-in page loads `/static/js/adminpassword.js` (`admin.templ:53` passes `adminPasswordScript` to `layout.Auth`, the constant at `:156`; `adminLoginCSP`,
   `adminlogin.go:1912`).
 - Tailwind scans templ and `web/static/js` only; no utility names in templ comments.
 

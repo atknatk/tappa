@@ -69,12 +69,13 @@ adları (`ip`, `gps`, `lat`, `addr`, `code`, `key` …) · saat/para float'sız 
 | M12-05 | P1 | Sıfırlama metni olmayan bir "başka sahip" akışı vaat ediyor | yapıcı | — |
 | M12-06 | P1 | Signup boş giriş href'i geçiyor | yapıcı | — |
 | M12-07 | P1 | Signup 3. adım "yöneticilerini sonra davet et" diyor | yapıcı | — |
+| M12-50 | P1 | Rules: iki guardrail cümlesi pencereyi "yours to set" diye vaat ediyor (backlog T72) | yapıcı | — |
 | M12-08 | P2 | Token / tarif katmanı (`input.css`) + kova yardımcıları + dokunma hedefleri | yapıcı (`tappa-brand`) | M12-01 |
 | M12-09 | P2 | `PanelNotice` + `PanelEmpty`; `EmptyState` çağıranları | yapıcı (`tappa-brand`) | M12-08 |
 | M12-10 | P2 | `PanelProblem` + `renderProblem` geçişi | yapıcı + güvenlik | M12-08 |
-| M12-11 | P2 | Docket varyantları: duyarlı docket, `RailDocket`, `VerdictStamp`, kanal alanı, ctr dolgusu | yapıcı (`tappa-brand`) | M12-08 |
+| M12-11 | P2 | Docket varyantları: duyarlı docket, `RailDocket`, `VerdictStamp`, kanal alanı | yapıcı (`tappa-brand`) | M12-08 |
 | M12-12 | P2 | Gerçek QR'lı plaket çizimi (D4) | yapıcı (`tappa-sun`, `tappa-brand`) + güvenlik | M12-08 |
-| M12-13 | P3 | Okuma: "on the floor now" + lokasyon başına sayım | `tappa-db-migrator` | M12-01 |
+| M12-13 | P3 | Okuma: "on the floor now" + lokasyon başına sayım | `tappa-db-migrator` | — |
 | M12-14 | P3 | Okuma: saatlik bant (saat başına vardiyadaki kişi) | `tappa-db-migrator` | — |
 | M12-15 | P3 | Okuma: dünden açık kalan girişler (`ListOpenCheckIns` yeniden kullanımı) | `tappa-db-migrator` | — |
 | M12-16 | P3 | Okuma: günün verdict sayımları | `tappa-db-migrator` | — |
@@ -98,7 +99,7 @@ adları (`ip`, `gps`, `lat`, `addr`, `code`, `key` …) · saat/para float'sız 
 | M12-34 | P4 | Ekran: Venues & plaques | yapıcı (`tappa-brand`) | M12-01, 03, 08, 09, 12 |
 | M12-35 | P4 | Ekran: lokasyon formu (+ departman formu) | yapıcı (`tappa-brand`) | M12-34 |
 | M12-36 | P4 | Ekran: The Roll | yapıcı (`tappa-brand`) | M12-01, 08, 09, 21 |
-| M12-37 | P4 | Ekran: Rules | yapıcı (`tappa-brand`) + güvenlik | M12-01, 08 |
+| M12-37 | P4 | Ekran: Rules | yapıcı (`tappa-brand`) + güvenlik | M12-01, 08, 50 |
 | M12-38 | P4 | Ekran: kural değişikliği incelemesi + sürüm sayfası | yapıcı (`tappa-brand`) | M12-37 |
 | M12-39 | P4 | Ekran: Billing | yapıcı (`tappa-brand`) | M12-02, 08, 09 |
 | M12-40 | P4 | Ekran: ay dondurma | yapıcı (`tappa-brand`) | M12-39 |
@@ -198,6 +199,8 @@ yeşil. Karar motorunun okuma tarafıyla (`internal/domain/tap/decide.go:667-722
 ## M12-04 — Giriş ekranı kanıt listesi practice tap'i anlatıyor
 
 - **Bağımlılık:** — · **Araç:** yapıcı · **Commit:** `fix(login): drop the practice-tap claim from the sign-in panel`
+- **Kırmızı çizgi:** — (iddia disiplini; giriş ailesi Taptime'ındır, §9 dışı)
+- **Dosyalar:** `web/templates/pages/adminview.go` (`AdminLoginProof`), `web/templates/pages/admin.templ` (`adminLoginBrandPanel`), `internal/handler/adminloginsplit_test.go`
 
 **Amaç.** `AdminLoginProof`'un 3. satırı ("The first tap is a practice run…") ADR 0026 ile kalkan bir
 davranışı vaat ediyor; satır kaldırılır ya da doğru cümleyle değişir.
@@ -209,6 +212,8 @@ korunur; sayfa CSP'si ve betik kümesi değişmez.
 ## M12-05 — Sıfırlama metni olmayan bir akışı vaat ediyor
 
 - **Bağımlılık:** — · **Araç:** yapıcı · **Commit:** `fix(reset): stop promising an owner can set another admin's password`
+- **Kırmızı çizgi:** — (numaralandırma güvenliği: kayıtlı / kayıtsız yanıt bayt-aynı kalır)
+- **Dosyalar:** `web/templates/pages/adminreset.templ` (`AdminResetRequest`, `AdminResetSent`), `internal/handler/adminreset_test.go`
 
 **Amaç.** `AdminResetRequest` ve `AdminResetSent`'teki *"Ask another owner of your business to set a new
 password for you from the panel."* cümlesi kaldırılır; yerine doğru olan (ör. Taptime'a başvurmak) ya da
@@ -220,6 +225,8 @@ hiçbir şey.
 ## M12-06 — Signup boş giriş href'i geçiyor
 
 - **Bağımlılık:** — · **Araç:** yapıcı · **Commit:** `fix(signup): link the header's sign-in to the sign-in page`
+- **Kırmızı çizgi:** —
+- **Dosyalar:** `web/templates/pages/signup.templ` (`signupShell`), `web/templates/pages/landing.templ` (`marketingChrome`, parametre seçilirse), `internal/handler/signup.go`, `internal/handler/signup_test.go`, `internal/handler/marketing_test.go`
 
 **Amaç.** `signupShell` `marketingChrome("")` çağırıyor → "Sign in" bulunduğu sayfaya gidiyor. Giriş yolu
 geçirilir (Landing ve Legal aynı kabuğu paylaşır; parametre ya da signup'a özel başlık).
@@ -230,12 +237,47 @@ taramaları (`signup_test.go`) ve `marketing_test.go` yeşil; "sign in" signup i
 ## M12-07 — Signup 3. adım yönetici davetini vaat ediyor
 
 - **Bağımlılık:** — · **Araç:** yapıcı · **Commit:** `fix(signup): drop the manager-invite promise from step three`
+- **Kırmızı çizgi:** — (iddia disiplini)
+- **Dosyalar:** `web/templates/pages/signup.templ` (`SignupAccount`), `internal/handler/signup_test.go`
 
 **Amaç.** *"You can invite the rest of your managers later."* kaldırılır — yönetici daveti yok (M7-07 /
 Q02 bloklu).
 
 **Kabul kriterleri.** Cümle hiçbir signup ekranında yok; iddia sözlüğü taraması "invite"ın çalışan
 davetine dayanmasıyla bu cümleyi gizlemiyor (denetçi kontrol eder); `signup_test.go` yeşil.
+
+## M12-50 — Rules: iki guardrail cümlesi "yours to set" diyor
+
+> Numara sıradaki boş ID'dir (README → görev ID şeması: ID'ler yeniden kullanılmaz, yeni görev sona
+> eklenir); içerik olarak bir **P1 kusuru**dur ve M12-37'den önce koşar.
+
+- **Bağımlılık:** —
+- **Kırmızı çizgi:** — (yalnız metin; guardrail davranışı değişmez)
+- **Araç:** yapıcı
+- **Commit:** `fix(policies): say Taptime sets the freshness window and the time tolerance`
+- **İlgili:** [backlog T72](../backlog.md) (panel, tenant'a veremeyeceği bir ayarı vaat ediyor)
+
+**Amaç.** `internal/domain/tenant/rulebook.go:813-816` `guardrailRules` içindeki iki cümle —
+`sys:tap-freshness` *"The window is yours to set; switching it off is not."* ve `sys:occurred-at-bound`
+*"The tolerance is yours to set; accepting any time at all is not."* — değerin **Taptime tarafından**
+konduğunu söyleyecek biçimde yeniden yazılır (panoların gösterdiği metin: *"Taptime sets the window; no
+business can switch it off."* / *"Taptime sets the tolerance; no business can accept any time at all."*).
+
+**Neden.** Pencereler süreç genelinde tek değer (`TAPPA_*` yapılandırması → `tenant.NewRulebook`, tek
+çağrı); panelde bu blokta form yok ve ayarlar bölümü zaten *"set by Taptime, within …"* diyor
+(`policies.templ:261`). İki metin birbiriyle çelişiyor; T72'nin kökü bu (landing'deki eşi 19. oturumda
+kaldırıldı).
+
+**Dosyalar.** `internal/domain/tenant/rulebook.go`; gerekirse metni kelimesi kelimesine arayan testler
+(önce `grep -rn "yours to set"` — bugün yalnız `rulebook.go`'da iki eşleşme).
+
+**Kabul kriterleri.**
+- "yours to set" deposunun ürün kodunda ve şablonlarında 0 kez geçer; yeni cümleler ayarlar bölümüyle
+  çelişmez.
+- `TestGuardrailRules_CoverTheShippedSlice` (iki yönlü kapsama), `TestPolicyGuardrailWords_MatchTheDomainWall`,
+  `TestPolicyGuardrailView_CarriesNoSwitch`, `TestPoliciesSection_RendersOnlyInertMarkup` yeşil.
+- Guardrail bloğunda hiçbir kontrol yok (değişmedi); `policyBranchWitness` etkilenmez.
+- Kart bitince T72 backlog satırına "M12-50 ile kapandı" notu düşülür (ya da T72 Kapananlar'a taşınır).
 
 > *Kusur değil (D1):* manuel kayıt The Pass sekmesi altında açılır (`manualentry.go:691`); panolar buna
 > göre düzeltildi, kod değişmez.
@@ -309,7 +351,7 @@ yeşil (gerekirse kasıtlı güncelleme, gevşetmeden).
 
 **Amaç.** Tek duyarlı `TransactionDocket` (`desk`'te tam `dl`, altında kompakt kanıt satırı — iki kopya
 değil); yeni `components.RailDocket`; `verdictStamp` → dışa açık `VerdictStamp`; `DocketView.Channel`;
-ctr altı haneye dolgulu (`#000641`); `PartnerVenue` için "· partner venue".
+ctr kodun bastığı gibi **dolgusuz** kalır (`#612` — `transactions.go:273`, `docket.templ:107-108`; D1); `PartnerVenue` için "· partner venue".
 
 **Kabul kriterleri.** Damga ve docket **keskin** (D2); işaretler kodun kelimeleri ("IP yes · GPS no",
 "n/a"); yöneticinin notu motor notuyla birleşmez; ortak satırda "not shown at a partner venue" ve
@@ -326,12 +368,19 @@ yeşil; key-budget golden'ları değişirse ayrı commit.
 - **Commit:** `feat(venues): draw the plaque with its real QR code`
 
 **Amaç.** `components.PlaqueDrawing(PlaqueDrawingView{Last4, QRPath, QRSide})`; QR yolu `internal/qrcode`
-(`Encode`, `Bitmap(QuietZone)`) ile ve SVG yol yardımcısı `internal/qrcode`'a (tek uygulama; operatör de
-ona geçebilir) ya da components'a kopya (panel `operatorpages`'i import etmez). URL `<base>/t?tag=<uid>`
+(`Encode`, `Bitmap(QuietZone)`) ile. **SVG yol yardımcısı `internal/qrcode`'da** (ör. `func (c *Code)
+SVGPath(border int) string`, yalnız stdlib) — tek uygulama; components'a kopya **yok** (panel
+`operatorpages`'i import etmez, operatör de bu yardımcıya geçebilir). URL `<base>/t?tag=<uid>`
 `sun.MintTapPath`'in yanındaki tek bir yardımcıdan; `?src=qr` yok.
 
-**Kabul kriterleri.** Yeni test: çizilen QR, `internal/qrcode/read_test.go`'daki okuyucuyla çözülünce
-`<base>/t?tag=<uid>`; ink on paper; görünüm tipinde dilim yok, `TestPlaqueViewModels_CannotCarryAKey`
+**Dosyalar.** `internal/qrcode/qrcode.go` (yardımcı), `internal/qrcode/qrcode_test.go` (gidiş-dönüş testi),
+`internal/sun/mint.go` (QR URL yardımcısı) + testi, `web/templates/components/plaque.templ` (ya da yeni
+`plaquedrawing.templ`), `components/plaqueview.go`, `internal/handler/plaques.go`, `plaques_test.go`.
+
+**Kabul kriterleri.** Gidiş-dönüş testi **`internal/qrcode/qrcode_test.go`'da** (okuyucu
+`read_test.go`'da, `qrcode_test` paketinde ve dışa açık değil): yardımcının yolundan geri kurulan modüller
+okuyucuyla çözülünce `<base>/t?tag=<uid>`. Bileşen tarafında yalnız **çizilen `d` yolunun yardımcının
+çıktısına eşit** olduğu doğrulanır (bileşen yolu kendisi hesaplamaz); ink on paper; görünüm tipinde dilim yok, `TestPlaqueViewModels_CannotCarryAKey`
 bilinçli güncellenir (yeni tip yürüyüşe eklenir); figür `role="img"` + `aria-label`; metin skill'deki gibi
 ("Hold your phone here", "Or scan — same thing", `PLAQUE 91AC`, "drawing, not to scale"); taban host'u
 NDEF şablonuyla (`internal/sun/ndef.go:29`) aynı.
@@ -354,6 +403,8 @@ yasaklı sözcük içermez. Kırmızı çizgi her birinde §4.5 (+ K-39).
 ## M12-13 — "On the floor now" + lokasyon başına sayım
 
 - **Araç:** agent `tappa-db-migrator` · **Commit:** `feat(ledger): count who is on the floor now, per venue`
+- **Bağımlılık:** — (bir okuma; kabuğa bağlı değil — önceki sürümdeki M12-01 bağımlılığı kaldırıldı)
+- **Dosyalar:** `db/queries/transactions.sql` (yeni ifade) + `internal/store` (üretilen), `internal/domain/ledger/` (yeni yöntem, ör. `floor.go`), `internal/domain/ledger/holding_db_test.go` (iki yön), `internal/db/evidencereaders_test.go` (yalnız bir kanıt sütunu okunursa), `internal/handler/transactions.go` (`panelLedger` sahteleri)
 
 Kişi başına son açık `in` (`practice` değil, sonrasında `out` yok — `ListOpenCheckIns` /
 `GetLastOpenTransaction` yüklemi), `occurred_at >= @since` (`@since = now − tap.StaleOpenIn`, Go'da),
@@ -364,6 +415,8 @@ eklenir; büyük sayı ve satırlar aynı okumadan.
 ## M12-14 — Saatlik bant
 
 - **Araç:** agent `tappa-db-migrator` · **Commit:** `feat(ledger): count people on shift per venue per hour`
+- **Bağımlılık:** —
+- **Dosyalar:** `db/queries/transactions.sql` (yeni toplama seçilirse) + `internal/store`, `internal/domain/ledger/` (yeni `tape.go` + tablo testi), `internal/domain/ledger/holding_db_test.go`, `internal/db/evidencereaders_test.go` (`ListWorkedShiftEvents` `residue` kalır / yeni ifade sınıflanır)
 
 Bugünün takvim gününde geçen saatler için lokasyon başına saatlik kişi sayısı. Yol seçimi EXPLAIN'le:
 `ListWorkedShiftEvents` yeniden kullanımı (`[gün başı − StaleOpenIn, şimdi)`, Go'da eşleme; envanterde zaten
@@ -374,6 +427,8 @@ aşılınca bant "incomplete" der; gelecek saat yok.
 ## M12-15 — Dünden açık kalan girişler
 
 - **Araç:** agent `tappa-db-migrator` · **Commit:** `feat(ledger): count yesterday's check-ins left open`
+- **Bağımlılık:** —
+- **Dosyalar:** yeni SQL yok — `internal/domain/ledger/anomaly.go` ya da `ledger.go` (yeni yöntem) + testi, `internal/domain/ledger/holding_db_test.go`
 
 Yeni SQL yok: `ListOpenCheckIns` (`anomalies.sql:476`) dünün takvim günü (tenant dilimi), `row_limit =
 cap+1` ile yeni bir ledger yöntemi. Ek kabul: sınırlıda "N+"; practice satırları hariç (sorgu zaten);
@@ -382,6 +437,8 @@ Odd shapes'e bağlantı verisi.
 ## M12-16 — Günün verdict sayımları
 
 - **Araç:** agent `tappa-db-migrator` · **Commit:** `feat(ledger): count the day's records by verdict`
+- **Bağımlılık:** —
+- **Dosyalar:** `db/queries/transactions.sql` + `internal/store`, `internal/domain/ledger/ledger.go` (`Screen` içinde aynı işlem), `internal/db/evidencereaders_test.go`, `internal/handler/transactions_db_test.go`
 
 `CountPanelTransactionsByVerdict`: `ListPanelTransactions` ile aynı yüklemler (tenant, gün penceresi,
 lokasyon, departman, ad CTE'si, kanal), **verdict ve imleç hariç**; verdict başına sayı +
@@ -392,6 +449,8 @@ testi; ad CTE'si ayrılanları da bulur.
 ## M12-17 — Durum başına çalışan sayısı
 
 - **Araç:** agent `tappa-db-migrator` · **Commit:** `feat(roster): count people per lifecycle status`
+- **Bağımlılık:** —
+- **Dosyalar:** `db/queries/employees.sql` + `internal/store`, `internal/domain/ledger/roster.go`, `internal/db/m11schema_test.go` (`TestEmployeeLocationReaders_Counted`), `internal/handler/employees_db_test.go`
 
 `CountPanelEmployeesByStatus :many`: `ListPanelEmployees`'in lokasyon/departman/ad yüklemleri, durum hariç,
 `GROUP BY status`; listeyle aynı `WithTenant`. Ek kabul: çipler süzgeçleri onurlandırır; kicker toplamı
@@ -400,6 +459,8 @@ süzgeçsiz; çalışan-lokasyon envanteri.
 ## M12-18 — Listede iş unvanı + son dokunuş
 
 - **Araç:** agent `tappa-db-migrator` · **Commit:** `feat(roster): show each person's job title and last tap`
+- **Bağımlılık:** —
+- **Dosyalar:** `db/queries/employees.sql` (`ListPanelEmployees`) + `internal/store`, `internal/domain/ledger/roster.go`, `internal/db/evidencereaders_test.go`, `internal/db/m11schema_test.go` (`TestEmployeeLocationReaders_Counted`), `internal/handler/employees_db_test.go`
 
 `ListPanelEmployees`'e `e.role` ve `LEFT JOIN LATERAL (… occurred_at, verdict … ORDER BY occurred_at DESC
 LIMIT 1)` (`transactions_tenant_employee_occurred_idx`). Practice hariç. Ek kabul: `verdict` → envanter
@@ -409,6 +470,8 @@ imleç değişmez (`…PagesThroughEverybodyExactlyOnce` yeşil); bayt tavanı t
 ## M12-19 — Bir kişinin son 7 dokunuşu
 
 - **Araç:** agent `tappa-db-migrator` · **Commit:** `feat(roster): read a person's last seven taps`
+- **Bağımlılık:** —
+- **Dosyalar:** `db/queries/transactions.sql` + `internal/store`, `internal/domain/ledger/roster.go` (ya da `internal/domain/tenant/staff.go`), `internal/db/evidencereaders_test.go`, RLS DB testi
 
 `ListRecentTapsForEmployee :many` (`occurred_at, type, verdict, channel`, LIMIT 7; isteğe bağlı
 `transaction_reviews` sonucu). Ek kabul: envanter girişi; ortak lokasyon satırı yalnız gün/yön/saat/kelime;
@@ -417,6 +480,8 @@ imleç değişmez (`…PagesThroughEverybodyExactlyOnce` yeşil); bayt tavanı t
 ## M12-20 — Kişi özeti (+ bekleyen davet)
 
 - **Araç:** agent `tappa-db-migrator` · **Commit:** `feat(roster): read a person's summary for the card`
+- **Bağımlılık:** —
+- **Dosyalar:** `db/queries/employees.sql` (`GetPanelPersonSummary`) + `internal/store`, `db/queries/invites.sql` (yalnız okunur, değişmez), `internal/domain/tenant/staff.go`, `internal/db/m11schema_test.go` (`TestEmployeeLocationReaders_Counted`) (`employees` + `location_id` adlandırılırsa), RLS DB testi
 
 Ayrı `GetPanelPersonSummary :one` (rol, invited/activated/deactivated_at, canlı oturum sayısı, ilk/son
 oturum tarihi) — **`GetPanelEmployeeForAction` genişletilmez** (`Deactivate` / `Move` onu okur). Bekleyen
@@ -427,6 +492,8 @@ bağlanır. Ek kabul: `device_info`, e-posta, davet kodu görünüm tipine girme
 ## M12-21 — The Roll: rol, ev lokasyonu, hücre işaretleri, sayaçlar
 
 - **Araç:** agent `tappa-db-migrator` · **Commit:** `feat(ledger): mark other-venue, manual and open days on the roll`
+- **Bağımlılık:** —
+- **Dosyalar:** `db/queries/transactions.sql` (`ListWorkedShiftEvents`) + `internal/store`, `internal/domain/ledger/report.go`, `internal/domain/ledger/report_test.go`, `internal/db/evidencereaders_test.go` (`residue` kalır), `internal/db/m11schema_test.go` (`TestEmployeeLocationReaders_Counted`) (ifade artık `employees` + `location_id` adlandırır), `internal/handler/reports_db_test.go`
 
 `ListWorkedShiftEvents`'e `e.role`, `e.location_id`, ev lokasyonu adı (tenant'lı LEFT JOIN) — ya da hafta
 çalışanları için ayrı küçük okuma (EXPLAIN'e göre). `PersonHours.Role/HomeLocationID/HomeVenue`;
@@ -439,6 +506,8 @@ vardiyası başlangıç gününde); `ListWorkedShiftEvents` envanterde `residue`
 ## M12-22 — Odd shapes: lokasyon başına kanıt dağılımı
 
 - **Araç:** agent `tappa-db-migrator` + agent `tappa-security-auditor` · **Commit:** `feat(anomalies): split each venue's evidence four ways`
+- **Bağımlılık:** —
+- **Dosyalar:** `db/queries/anomalies.sql` (`ListAnomalyVenues`) + `internal/store`, `internal/domain/ledger/anomaly.go`, `internal/db/evidencereaders_test.go` (sayı 3 → 6), `internal/domain/ledger/holding_db_test.go`
 
 `ListAnomalyVenues`'e üç süzgeç — `Both` (`ip_match AND gps_match`), `NetworkOnly` (`ip_match AND NOT
 coalesce(gps_match,false)`), `Neither` (biri ölçülmüş, ikisi de eşleşmemiş) — **her biri** `AND
@@ -449,6 +518,8 @@ out" testi üç yeni rakama genişler.
 ## M12-23 — Odd shapes: çiftlerin gün noktaları
 
 - **Araç:** agent `tappa-db-migrator` · **Commit:** `feat(anomalies): list the days a pair tapped together`
+- **Bağımlılık:** —
+- **Dosyalar:** `db/queries/anomalies.sql` (`ListTapsTakenTogether`) + `internal/store`, `internal/domain/ledger/anomaly.go` + testi
 
 `ListTapsTakenTogether`'e `array_agg(DISTINCT p.local_day ORDER BY p.local_day) AS together_days`;
 `Period.DayLabels`'a karşı `[]bool`. Ek kabul: kanıt sütunu yok; görünüm yürüyüşü (`[]bool` izinli) yeşil;
@@ -457,6 +528,8 @@ out" testi üç yeni rakama genişler.
 ## M12-24 — Odd shapes: plaket sayacı from → to
 
 - **Araç:** agent `tappa-db-migrator` · **Commit:** `feat(anomalies): show the counter values around the largest gap`
+- **Bağımlılık:** —
+- **Dosyalar:** `db/queries/anomalies.sql` (yeni ifade ya da `ListAnomalyPlaques` genişlemesi) + `internal/store`, `internal/domain/ledger/anomaly.go`, `internal/db/evidencereaders_test.go` (yeni `excluded` girişi)
 
 En büyük boşluk için `ctr` (to), `to − gap − 1` (from), o satırın ve aynı `tag_uid`'deki önceki dokunuşun
 `occurred_at`'i (pencereden önce olabilir → lateral arama). Ek kabul: `ctr` okur → yeni envanter girişi
@@ -466,6 +539,8 @@ En büyük boşluk için `ctr` (to), `to − gap − 1` (from), o satırın ve a
 ## M12-25 — The Spike: bugün karar verilen
 
 - **Araç:** agent `tappa-db-migrator` · **Commit:** `feat(review): count today's decisions`
+- **Bağımlılık:** —
+- **Dosyalar:** `db/queries/reviews.sql` + `internal/store`, `internal/domain/ledger/review.go`, ledger sorgu ağı testi, `internal/handler/review_db_test.go`
 
 `CountReviewsSince(tenant_id, since)` `transaction_reviews` üzerinde; `since` = tenant yerel gece yarısı
 (`GetTenantClock`). Ek kabul: ledger sorgu ağı açık tenant yüklemini görür; başarısızlık "not counted",
@@ -489,6 +564,7 @@ güncellemeler commit mesajında gerekçeli); **(d)** golden değişiyorsa ayrı
 - **Kırmızı çizgi:** §4.3, §4.6, K-39, §4.2 ("live" yok)
 - **Araç:** yapıcı (`tappa-brand`) · **Commit:** `feat(pass): port The Pass to the redesign`
 - **Spec:** [screens/pass-ledger.md §1](../design/panel-redesign/screens/pass-ledger.md)
+- **Dosyalar:** `web/templates/pages/transactions.templ`, `transactionsview.go`, `components/docket.templ` (`RailDocket`), `internal/handler/transactions.go`, `transactions_test.go`, `panelbrand_test.go` + key-budget golden'ları (ayrı commit)
 
 Kicker (tarih · saat · tam dilim), "Right now" ızgarası (floor + tally, Spike kartı `Pending`'den, left-open
 kartı), ray (çipler bağlantı, `RailDocket`'ler, `nth-child` eğim, "See the whole day →", "Show more"
@@ -502,6 +578,7 @@ commit; her widget için "sorgulanmamış görünüm iddia etmez" testi; tek `Wi
 - **Bağımlılık:** M12-11, M12-16, M12-26 · **Kırmızı çizgi:** §4.3, §4.6, K-39
 - **Araç:** yapıcı (`tappa-brand`) · **Commit:** `feat(pass): port the past-day ledger to the redesign`
 - **Spec:** [screens/pass-ledger.md §2](../design/panel-redesign/screens/pass-ledger.md)
+- **Dosyalar:** `web/templates/pages/transactions.templ`, `components/filterbar.templ`, `components/docketview.go`, `internal/handler/transactions.go`, `transactions_test.go`, `transactions_db_test.go`, `web/static/css/input.css` (`.filter-details`)
 
 Title "The Pass · Mon 19 Oct", gün adımlayıcı bağlantıları, "Today", süzgeç paneli (+ telefon `<details>`,
 gizli `verdict`/`date`), özet satırı + sayılı verdict çipleri, **azalan** saat grupları ("(continued)" ile),
@@ -513,6 +590,7 @@ metinleri kodun; "every offered option is accepted" testi çip bağlantıların�
 - **Bağımlılık:** M12-01, M12-08, M12-09, M12-11, M12-25 · **Kırmızı çizgi:** §4.3, §4.6, K-39 (ADR 0027 §13 madde 5(e))
 - **Araç:** yapıcı (`tappa-brand`) + agent `tappa-security-auditor` · **Commit:** `feat(review): port The Spike to the redesign`
 - **Spec:** [screens/spike-odd.md Part S](../design/panel-redesign/screens/spike-odd.md)
+- **Dosyalar:** `web/templates/pages/review.templ`, `reviewview.go`, `components/docket.templ` (`SpikeDocket`), `internal/handler/review.go`, `internal/domain/ledger/ledger.go` + `site.go` (`RuleSID` + boşaltma), `review_test.go`, `review_db_test.go`, `holdingpanel_db_test.go`
 
 `?focus=` seçimi (yalnız yüklenmiş kayıtlar arasından; geçersiz → ilk), sıra en yeni önce, kuyruk
 öğeleri, telefon sayfalayıcısı, `SpikeDocket` + kanıt karoları, kısa "why" haritası, `RuleSID` dışa açılır ve
@@ -527,6 +605,7 @@ güncellenir.
 - **Bağımlılık:** M12-01, M12-08, M12-09, M12-22, M12-23, M12-24 · **Kırmızı çizgi:** K-39, §4.3, §4.6
 - **Araç:** yapıcı (`tappa-brand`) + agent `tappa-security-auditor` · **Commit:** `feat(anomalies): port Odd shapes to the redesign`
 - **Spec:** [screens/spike-odd.md Part O](../design/panel-redesign/screens/spike-odd.md)
+- **Dosyalar:** `web/templates/pages/anomalies.templ`, `anomaliesview.go`, `internal/handler/anomalies.go`, `anomalies_test.go`, `holdingless_golden_test.go` + `internal/handler/holdingless_view_golden_test.go` ve golden'ları (ayrı commit)
 
 Kart ızgarası, hafta segmentli kontrolü + GET formu, yığılmış kanıt çubukları (ortak satırda çubuk yok),
 çiftler (20 sn / lokasyon / 2+ gün, gün noktaları), sayaç boşlukları (from → to), GPS-only alt kümesi
@@ -540,6 +619,7 @@ holdingless golden'ları ayrı commit.
 - **Bağımlılık:** M12-01, M12-08, M12-09, M12-17, M12-18, M12-19, M12-20 · **Kırmızı çizgi:** §4.7, §4.6, K-39
 - **Araç:** yapıcı (`tappa-brand`) · **Commit:** `feat(roster): port People to the redesign`
 - **Spec:** [screens/people.md §1](../design/panel-redesign/screens/people.md)
+- **Dosyalar:** `web/templates/pages/employees.templ`, `employeesview.go`, `components/roster.templ`, `components/rosterview.go`, `internal/handler/employees.go`, `employees_test.go`, `employees_db_test.go`, `employeeactions_test.go`, `inviteemail_test.go`, `internal/handler/dashboard_test.go` (`panelTouchTargets`)
 
 Kicker toplamı, "Add somebody", durum çipleri (DB kelimeleri, sayılı, bağlantı), düz satırlar (baş harf,
 ad, rol · lokasyon, hap, son dokunuş, oturum sayısı), tek kart (`?manage=`; desk yan sütun, tablet üstte,
@@ -551,6 +631,7 @@ oturum sayısı; "Unlink phone", gruplama, "Stopped" yok.
 
 - **Bağımlılık:** M12-30 · **Araç:** yapıcı (`tappa-brand`) · **Commit:** `feat(roster): port the person form to the redesign`
 - **Spec:** [screens/people.md §2](../design/panel-redesign/screens/people.md)
+- **Dosyalar:** `components/staffform.templ`, `components/staffformview.go`, `components/roster.templ`, `internal/handler/employees.go`, `employeeactions.go`, `employeeadd_test.go`, `employeeadd_db_test.go`, `employeeemail_test.go`
 
 Ekle: aynı URL'de form düzeni, "After you add them" (kipe duyarlı, `InviteByEmail`), telefon yapışkan
 gönder. Yönet: aynı kartın tam sayfa düzeni (yeni parametre yok). Ek kabul: `TestEmployeeAdd_*` yeşil;
@@ -562,6 +643,7 @@ adres.
 - **Bağımlılık:** M12-09, M12-20 · **Kırmızı çizgi:** §4.7 · **Araç:** yapıcı (`tappa-brand`)
 - **Commit:** `feat(roster): port the invitation result to the redesign`
 - **Spec:** [screens/people.md §3](../design/panel-redesign/screens/people.md)
+- **Dosyalar:** `web/templates/pages/employees.templ` (`AdminInviteIssued`, `AdminInviteEmailed`), `employeesview.go`, `internal/handler/employeeactions.go`, `inviteemail.go`, `employeeactions_test.go`, `inviteemail_test.go`
 
 İsim bloğu, `select-all` kesikli kutu (metin, `<a>` değil), sonraki adımlar (kendi işletmenin plaketi), üç
 `Retired` dalı, her e-posta sonucu. Ek kabul: bağlantı yanıtta tam bir kez, log'da yok; "Copy", "Send it
@@ -572,6 +654,7 @@ again", "Show a link instead" yok.
 - **Bağımlılık:** M12-01, M12-08, M12-09, M12-11 · **Kırmızı çizgi:** §4.3, §4.7, §6
 - **Araç:** yapıcı (`tappa-brand`) · **Commit:** `feat(manual): port manual entry to the redesign`
 - **Spec:** [screens/people.md §4](../design/panel-redesign/screens/people.md)
+- **Dosyalar:** `web/templates/pages/manualentry.templ`, `manualentryview.go`, `internal/handler/manualentry.go`, `manualentry_test.go`, `manualvenue_test.go`
 
 Crumbs, "1 Fill in · 2 Check" adımları, radyo kartları (gerçek radyolar), onay adımında gerçek docket
 önizlemesi (APPROVED + "Entered by a manager"), tam kalıcılık uyarısı her genişlikte; sekme The Pass kalır;
@@ -583,6 +666,7 @@ Crumbs, "1 Fill in · 2 Check" adımları, radyo kartları (gerçek radyolar), o
 - **Bağımlılık:** M12-01, M12-03, M12-08, M12-09, M12-12 · **Kırmızı çizgi:** §5 (kanıt anlamı), §4.7
 - **Araç:** yapıcı (`tappa-brand`) · **Commit:** `feat(venues): port Venues & plaques to the redesign`
 - **Spec:** [screens/venues-roll.md §1](../design/panel-redesign/screens/venues-roll.md)
+- **Dosyalar:** `web/templates/pages/locations.templ`, `locationsview.go`, `components/venue.templ`, `components/venueview.go`, `components/plaque.templ`, `components/plaqueview.go`, `internal/handler/locations.go`, `plaques.go`, `locationactions.go`, `internal/handler/adminlogin.go` (yarıçap alanı), `cmd/tappa/main.go` (bağlama), `locations_test.go`, `plaques_test.go`
 
 `?at=` seçimi (yanıtlanan bilinmeyen kimlik), lokasyon kartları (IP rozeti üç hâl), detay (plaket çizimi,
 "Where it is", yapılandırmadan yarıçap — `AdminAuth`'a enjekte, `cmd/tappa`'da bağlanır — kanala duyarlı
@@ -596,6 +680,7 @@ of place" sayfada tam bir kez; `?at` sorgu sözlüğü testleri genişler; yarı
 - **Bağımlılık:** M12-34 · **Kırmızı çizgi:** §5, §6 · **Araç:** yapıcı (`tappa-brand`)
 - **Commit:** `feat(venues): port the venue form to the redesign`
 - **Spec:** [screens/venues-roll.md §2](../design/panel-redesign/screens/venues-roll.md)
+- **Dosyalar:** `components/venue.templ` (`VenueForm`, `DepartmentForm`, `Removal`), `components/venueview.go`, `internal/handler/locations.go`, `locationactions.go`, `locations_test.go`, `locationactions_test.go`
 
 Numaralı bölümler, kanala duyarlı yardım metinleri (F5/F12/F15), ayrıştırıcının cümlesini aynen taşıyan
 hata kutusu, tamsayı dakikalı vardiya SVG çubuğu, sağ sütun (güven aritmetiği olmadan docket, bu lokasyonun
@@ -608,6 +693,7 @@ geçer ya da gerekçeyle bilinçli yeniden yazılır.
 - **Bağımlılık:** M12-01, M12-08, M12-09, M12-21 · **Kırmızı çizgi:** §4.6 (Q18), §6, K-39
 - **Araç:** yapıcı (`tappa-brand`) · **Commit:** `feat(roll): port The Roll to the redesign`
 - **Spec:** [screens/venues-roll.md §3](../design/panel-redesign/screens/venues-roll.md)
+- **Dosyalar:** `web/templates/pages/reports.templ`, `reportsview.go`, `internal/handler/reports.go`, `reports_test.go`, `reports_db_test.go`, `reportscsv_test.go`, holdingless golden'ları (ayrı commit)
 
 ISO hafta kicker'ı, adımlayıcı + "This week" + hafta formu, CSV bağlantısı ve cümlesi, önce fiş (`.docket`,
 board'un altı satırı + §4.6 satırlarının hepsi her genişlikte), "Not closed yet." kutusu (Odd shapes'e),
@@ -617,9 +703,10 @@ holdingless golden'ları ayrı commit + "holding yalnız ortak bölümü ekler" 
 
 ## M12-37 — Rules
 
-- **Bağımlılık:** M12-01, M12-08 · **Kırmızı çizgi:** §5 (guardrail'ler kapatılamaz), §4.6, T125
+- **Bağımlılık:** M12-01, M12-08, M12-50 · **Kırmızı çizgi:** §5 (guardrail'ler kapatılamaz), §4.6, T125
 - **Araç:** yapıcı (`tappa-brand`) + agent `tappa-security-auditor` · **Commit:** `feat(policies): port Rules to the redesign`
 - **Spec:** [screens/rules-billing.md §1](../design/panel-redesign/screens/rules-billing.md)
+- **Dosyalar:** `web/templates/pages/policies.templ`, `policiesview.go`, `internal/handler/policies.go`, `internal/domain/tenant/rulebook.go` (ifade haritası + uyarı bayrağı) + `rulebook_test.go`, `policies_test.go`, `policyactions_test.go`, `web/static/css/input.css`
 
 `.policy-section` ızgarası (intro DOM'da garantilerden hemen önce, desk'te sağ sütunda), 11 guardrail
 motorun sırasıyla perçinli plakalarda (yalnız sınıf; SVG yok), domain'de sid → kısa ifade haritası + uyarı
@@ -634,6 +721,7 @@ kontrol yok (devre dışı da değil); T125 satırı ve iki problem cümlesi; et
 - **Bağımlılık:** M12-37 · **Kırmızı çizgi:** onay MAC'i (bağlanan şey ekranda gösterilen şey)
 - **Araç:** yapıcı (`tappa-brand`) · **Commit:** `feat(policies): port the rule change review to the redesign`
 - **Spec:** [screens/rules-billing.md §2](../design/panel-redesign/screens/rules-billing.md)
+- **Dosyalar:** `web/templates/pages/policychange.templ`, `internal/handler/policyactions.go`, `policyactions_test.go`
 
 İşleme özgü Title, kural adı (`a.rules.Screen`, yeni SQL yok), işlem-dürüst önce/sonra, uyarı çağrısı,
 UUID yerine adlar, tam "what nobody can tell you yet" metni, sürüm bağlantıları + güncel sürüm gövdesi.
@@ -645,6 +733,7 @@ reddedilir; tahmini sonuç metni yok.
 - **Bağımlılık:** M12-02, M12-08, M12-09 · **Kırmızı çizgi:** append-only `billing_periods`, kalemlendirme yok
 - **Araç:** yapıcı (`tappa-brand`) · **Commit:** `feat(billing): port Billing to the redesign`
 - **Spec:** [screens/rules-billing.md §3](../design/panel-redesign/screens/rules-billing.md)
+- **Dosyalar:** `web/templates/pages/billing.templ`, `billingview.go`, `internal/handler/billing.go`, `billing_test.go`, `billingactions_test.go`, `billing_db_test.go`
 
 Seçili ay kartı (düzen B) ve denklem, "Frozen months" fiş ızgarası (`.docket` + damgalar), plan/kurucu yan
 sütunu (aylar `FirstChargeableMonth`'tan), ay seçici + CSV, taban/bedava/kalemlendirme/WhyNotClose,
@@ -655,6 +744,7 @@ yok; GET yazmaz; PDF, ödeme kartı, e-posta, "View breakdown" yok.
 
 - **Bağımlılık:** M12-39 · **Araç:** yapıcı (`tappa-brand`) · **Commit:** `feat(billing): port the freeze-month review to the redesign`
 - **Spec:** [screens/rules-billing.md §4](../design/panel-redesign/screens/rules-billing.md)
+- **Dosyalar:** `web/templates/pages/billing.templ` (`AdminBillingClose`), `billingview.go` (`BillingCloseView` bölünmesi), `internal/handler/billingactions.go`, `billingactions_test.go`
 
 Crumbs, kicker, Title, kesik fiş (gruplu `dl` — görünüm modelinde bölünmüş `Detail`), tam metinli
 geri alınamaz uyarı, birincil / iptal. Ek kabul: yönlendirme hedefi değişmez (sayfada başarı durumu yok);
@@ -665,6 +755,7 @@ formda `month` + token dışında girdi yok; sahip kapısı iki adımda.
 - **Bağımlılık:** M12-01, M12-08, M12-09 · **Kırmızı çizgi:** §9 (accent yuvaları), §4.5, yöneticiye sahip verisi yok
 - **Araç:** yapıcı (`tappa-brand`) + agent `tappa-security-auditor` · **Commit:** `feat(account): port Account to the redesign`
 - **Spec:** [screens/account-auth.md §1](../design/panel-redesign/screens/account-auth.md)
+- **Dosyalar:** `web/templates/pages/account.templ`, `accountview.go`, `brandeditorview.go`, `internal/handler/account.go`, `account_test.go`, `accountsection_db_test.go`, `accountpassword_test.go`, `brandactions_test.go`, `brandupload_test.go`
 
 Identity (salt-okunur VAT + dört hâlli çip, 8 tür, dilim girdisi), Your brand (kesikli logo kutusu, seçici
 + hex, yalnız kaydedilen önizleme, mevcut ret/öneri), Password, What your staff read, yalnız sahibe
@@ -676,6 +767,7 @@ yok; düzeltilmiş VIES cümlesi; Managers / Group kartı, swatch'lar, oran okum
 - **Bağımlılık:** M12-01, M12-08, M12-09 · **Kırmızı çizgi:** §7 (anahtar, sır, URL)
 - **Araç:** yapıcı (`tappa-brand`) + agent `tappa-security-auditor` · **Commit:** `feat(apikeys): port Developers to the redesign`
 - **Spec:** [screens/account-auth.md §2](../design/panel-redesign/screens/account-auth.md)
+- **Dosyalar:** `web/templates/pages/apikeys.templ`, `apikeysview.go`, `components/` (`OneTimeSecret`), `internal/handler/apikeys.go`, `webhooks.go`, `apikeys_test.go`, `apikeys_db_test.go`, `webhooks_test.go`, `webhooks_db_test.go`
 
 Anahtar kartı (satır içi oluşturma, tek seferlik kutu + "I've stored it", desk tablo / altında liste,
 iptal tarihi), webhook kartı (ON/OFF, önceden dolu adres, "N of 10 left" `w.Limit`'ten, döndürme tarihi,
@@ -687,6 +779,7 @@ testleri yeşil.
 
 - **Bağımlılık:** M12-04, M12-08 · **Araç:** yapıcı (`tappa-brand`) · **Commit:** `feat(login): port the sign-in page to the redesign`
 - **Spec:** [screens/account-auth.md §4](../design/panel-redesign/screens/account-auth.md)
+- **Dosyalar:** `web/templates/pages/admin.templ` (`AdminLogin`, `adminLoginBrandPanel`), `adminview.go`, `internal/handler/adminloginsplit_test.go`, `adminlogin_test.go`
 
 Yeni marka yarısı (kelime markası bağlantı, statik `aria-hidden` docket'ler, başlık), kart, bildirimler,
 parola göster düğmesi değişmeden. Ek kabul: `TestAdminLogin_*` ve `TestAdminLoginPassword_*` aileleri yeşil; betik
@@ -696,6 +789,7 @@ kümesi ve CSP aynı; başarısızlık bayt-aynılığı; `layout.Auth` baytlar�
 
 - **Bağımlılık:** M12-05, M12-08 · **Araç:** yapıcı (`tappa-brand`) · **Commit:** `feat(login): port business choice and password reset to the redesign`
 - **Spec:** [screens/account-auth.md §5–§6](../design/panel-redesign/screens/account-auth.md)
+- **Dosyalar:** `web/templates/pages/admin.templ` (`AdminChoose`), `web/templates/pages/adminreset.templ`, `adminresetview.go`, `web/templates/layout/base.templ` (yalnız `layout.Auth` yorumu), `internal/handler/adminlogin_test.go`, `adminreset_test.go`
 
 İkisi `layout.Auth(title, "")`'a; Choose'da "Password accepted · one more step", asılı docket'ler,
 "Continue to {name}"; Reset'te başlıkta "Back to sign in" (`/new` dahil), statik adım gezintisi. Ek kabul:
@@ -706,6 +800,7 @@ numaralandırma ve zamanlama testleri; hiçbir href'te token yok; ikisinde de be
 
 - **Bağımlılık:** M12-06, M12-07, M12-08 · **Araç:** yapıcı (`tappa-brand`) · **Commit:** `feat(signup): port signup to the redesign`
 - **Spec:** [screens/account-auth.md §7](../design/panel-redesign/screens/account-auth.md)
+- **Dosyalar:** `web/templates/pages/signup.templ`, `signupview.go`, `internal/handler/signup.go`, `signup_test.go`
 
 İlerleme docket'i / telefon ilerleme çubuğu, çipler ve kartlar (yerel radyo + `peer`), 3. adım iki sütun +
 Back, VAT tonlu bitti docket'i, problem uyarısı. Ek kabul: dokuz signup ekranının hepsinde tarama yeşil;
@@ -715,6 +810,7 @@ honeypot sağlam; "Replay" ve canlı satır ekleme yok.
 
 - **Bağımlılık:** M12-08 · **Araç:** yapıcı (`tappa-brand`) · **Commit:** `feat(legal): port the legal pages to the redesign`
 - **Spec:** [screens/account-auth.md §8](../design/panel-redesign/screens/account-auth.md)
+- **Dosyalar:** `web/templates/pages/legal.templ`, `landingview.go` (`LegalPageView`), `landing.templ` (`marketingChrome`), `internal/handler/marketing.go`, `marketing_test.go`, `legalpublic_test.go`
 
 Pazarlama kabuğu (panel değil), "Start free" (`SignupHref`), yayın durumu çipli belge gezintisi
 (`texts.Published()`), çerez tablosu → telefonda kartlar, numaralı taslak listesi. Ek kabul: çerez ve legal
@@ -723,6 +819,7 @@ testleri; bayraklar veriden; önbellek değişmez (her ziyaretçiye aynı bayt).
 ## M12-47 — M-More sayfası cilası
 
 - **Bağımlılık:** M12-08 · **Araç:** yapıcı (`tappa-brand`) · **Commit:** `style(panel): group the More sheet as drawn`
+- **Dosyalar:** `web/static/css/input.css` (`.sheet-*`), `web/templates/components/panel.templ` (`BarNav`, yalnız sınıf/ok), `internal/handler/dashboard_test.go`
 
 Yalnız CSS: gruplu yuvarlatılmış liste, oklar, kesikli ayraçlar. Ek kabul: yeni rota yok; rozet sorgusu
 yok; Manual entry bağlantısı yok; tek-current testi yeşil.

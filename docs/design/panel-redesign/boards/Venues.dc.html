@@ -217,6 +217,23 @@ th{font-weight:400}
         </div>
 
         <div style="background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 18px; padding: 18px 24px; display: flex; flex-direction: column; gap: 10px">
+          <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 12px">
+            <h3 style="margin: 0; font-size: 16px; letter-spacing: -0.01em">{{cur.deptHead}}</h3>
+            <a href="VenueForm.dc.html" style="font-size: 13px; font-weight: 700; min-height: 44px; display: inline-flex; align-items: center">Add a department</a>
+          </div>
+          <sc-for list="{{cur.depts}}" as="d" hint-placeholder-count="2">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 44px; border-top: 1px dashed #C9D2C8">
+              <span style="font-size: 14px; font-weight: 700">{{d.name}}</span>
+              <span class="mono" style="font-size: 13px; color: rgba(21,34,25,.7)">{{d.shift}}</span>
+              <a href="VenueForm.dc.html" style="font-size: 13px; font-weight: 700">{{d.edit}}</a>
+            </div>
+          </sc-for>
+          <sc-if value="{{cur.deptNone}}" hint-placeholder-val="{{false}}">
+            <p style="margin: 0; font-size: 13px; color: rgba(21,34,25,.7)">No departments at this venue.</p>
+          </sc-if>
+        </div>
+
+        <div style="background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 18px; padding: 18px 24px; display: flex; flex-direction: column; gap: 10px">
           <h3 style="margin: 0; font-size: 16px; letter-spacing: -0.01em">Also on this venue <span style="font-size: 13px; font-weight: 400; color: rgba(21,34,25,.7)">— not evidence</span></h3>
           <dl style="margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; align-items: baseline">
             <dt class="lbl">Wi-Fi shown at activation (not checked)</dt><dd class="mono" style="margin: 0; font-size: 13px">{{cur.wifi}}</dd>
@@ -251,7 +268,7 @@ th{font-weight:400}
   </main>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1760}}'>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1920}}'>
 class Component extends DCLogic {
   constructor(props) { super(props); this.state = { sel: 'KF Valletta' }; }
   renderVals() {
@@ -280,7 +297,7 @@ class Component extends DCLogic {
       return '';
     };
     const onWall = v => v.pl.filter(p => p[3] === 'In service').length;
-    const pad6 = n => String(n).padStart(6, '0');
+    const pad6 = n => String(n); // the code prints the counter unpadded (plaques.go:210)
     const pillOf = st => 'font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:2px 8px;border-radius:999px;' + (
       st === 'In service' ? 'border:1px solid #1F5C41;background:rgba(31,92,65,.1);color:#152219'
       : st === 'Reported lost' ? 'border:1px solid #BE3D2A;background:rgba(190,61,42,.1);color:#152219'
@@ -317,6 +334,11 @@ class Component extends DCLogic {
         style: 'width:100%;text-align:left;display:flex;flex-direction:column;gap:10px;padding:14px 16px;border-radius:14px;font:inherit;color:#152219;cursor:pointer;background:#FFFDF4;' + (on ? 'border:2px solid #152219' : 'border:1px solid #C9D2C8;margin:1px 0') };
     });
     const cur = detailOf(V.find(v => v.name === this.state.sel) || V[V.length - 1]);
+    // S5: departments are kept on the venue detail (code: "Departments (N)", each row opens ?department=<id>,
+    // an empty shift reads "Uses the venue's shift"; "Add a department" opens ?department=new).
+    const DEPTS = { 'KF Valletta': [['Kitchen', '09:00 – 17:00'], ['Floor', '']], 'KF Headquarter': [['Office', '08:00 – 17:00']] };
+    const dl = DEPTS[cur.name] || [];
+    Object.assign(cur, { depts: dl.map(([n, s]) => ({ name: n, shift: s || "Uses the venue's shift", edit: 'Edit ' + n })), deptHead: 'Departments (' + dl.length + ')', deptNone: dl.length === 0 });
     return { venues, cur, stock, stockCount };
   }
 }

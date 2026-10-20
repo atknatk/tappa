@@ -41,7 +41,7 @@ constraints: [README](../README.md). Status words: [pass-ledger](pass-ledger.md)
 
 ### 1.2 What the engine does (corrections the boards needed — D1)
 
-**Guardrails: 11, in this order** (`policy.Guardrails`, `internal/policy/guardrails.go:302-627`; the
+**Guardrails: 11, in this order** (`policy.Guardrails`, `internal/policy/guardrails.go:302-623`; the
 panel numbers them from the slice, `rulebook.go:778-792`): 1 `sys:tenant-mismatch` (redirect, no record;
 not between peers in one holding) · 2 `sys:tag-not-active` (deny; alert when `lost`) · 3 `sys:sun-invalid`
 (NFC) · 4 `sys:no-session` (redirect, no record) · 5 `sys:employee-deactivated` (deny + alert) · 6
@@ -86,7 +86,7 @@ confirmation per change. The board's per-rule Approve / Spike / Reject picker is
 | Plate condition text | `g.Reason`, `g.Rule` (`rulebook.go:803-826`), `g.Outcome` | DERIVE | short "when" phrases: a sid → phrase map **in the domain beside `guardrailRules`** (11 entries, both-directions coverage test like `TestGuardrailRules_CoverTheShippedSlice`); field name e.g. `When` (passes the control-word net) |
 | Plate effect label | `g.Effect`; `effectSentence` (`policies.go:621-639`) | DERIVE | `effectLabel`: allow → Approve, review → Send to The Spike, deny → Reject, ignore → Ignore (recorded, counts nothing), redirect → No record; "+ security alert" from an `Alerts` flag copied into `tenant.Guardrail` (`rulebook.go:161-183`; only `lost` for tag-not-active); "Send them to their own" **REMOVED** → "No record (other business)" |
 | Guardrail sid | `g.Sid` | EXISTS | |
-| `g.Rule` + tunable box | `policies.templ:332-343` | EXISTS — **keep** | the plate's second line (small, ink/70); tunable box for debounce / freshness / skew |
+| `g.Rule` + tunable box | `policies.templ:332-343` | EXISTS — **keep** | the plate's second line (small, ink/70); tunable box for debounce / freshness / skew. **M12-50 first:** the shipped `g.Rule` for `sys:tap-freshness` and `sys:occurred-at-bound` says the value is "yours to set" (`rulebook.go:813-816`, backlog T72) — false; the boards already show the corrected "Taptime sets the window / the tolerance" |
 | Guardrails 6, 7, 10, 11 | engine | EXISTS — **keep** | 10–11 may sit in a sub-group "Also locked for the panel" |
 | "Your rules" headings | `policyBaseline` h2 "Taptime baseline", `policyTenant` h2 "Your own policies" | EXISTS | "Taptime baseline" and "Who may do what" pinned (`policies_test.go:636`); two lists stay two lists |
 | Rule rung number | — | **REMOVED** | baseline / tenant rows are unnumbered (no order among them) |

@@ -71,9 +71,11 @@ a{color:#1F5C41}a:hover{color:#152219}
           <span style="font-size: 24px; font-weight: 700; letter-spacing: -0.02em">{{total}}</span>
         </div>
         <div style="border: 1px dashed #D98E2B; background: rgba(217,142,43,.1); border-radius: 10px; padding: 10px 12px; font-size: 13px; line-height: 1.45; display: flex; flex-direction: column; gap: 4px">
-          <strong>{{openHead}}</strong>
+          <strong>Not closed yet.</strong>
+            <span>{{openHead}}</span>
           <span>The figure above is SHORT by whatever these add up to. Nothing here is counted as zero hours — it is simply not counted, and it stays visible until somebody deals with it.</span>
-          <a href="#open" style="display: inline-flex; align-items: center; min-height: 44px; font-weight: 700">See the open list ↓</a>
+          <a href="M-Odd.dc.html" style="display: inline-flex; align-items: center; min-height: 44px; font-weight: 700">Close open check-ins →</a>
+            <a href="#open" style="display: inline-flex; align-items: center; min-height: 44px; font-weight: 700">See the open list ↓</a>
         </div>
         <div style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; line-height: 1.45; color: rgba(21,34,25,.7)">
           <sc-for list="{{smallPrint}}" as="s" hint-placeholder-count="4"><p style="margin: 0">{{s}}</p></sc-for>
@@ -169,7 +171,7 @@ a{color:#1F5C41}a:hover{color:#152219}
   </nav>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":3250}}'>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":3320}}'>
 class Component extends DCLogic {
   renderVals() {
     // Sample week shaped like ledger.ReportScreen. Minutes are integers; hours print as the code's hoursMinutes ("8h 02m").

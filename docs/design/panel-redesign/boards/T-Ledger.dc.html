@@ -196,16 +196,16 @@ class Component extends DCLogic {
     const hasNotice = !!notices[noticeKey];
 
     const all = nothing ? [] : [
-      { h: '18:00', venue: 'KF Paceville', name: 'Dragan Nikolic', dir: 'in', time: '18:04:12', s: 'reject', trust: 'none', ev: 'IP n/a · GPS yes', uid: '4B90', ctr: '000451', note: 'this tag is not in service' },
+      { h: '18:00', venue: 'KF Paceville', name: 'Dragan Nikolic', dir: 'in', time: '18:04:12', s: 'reject', trust: 'none', ev: 'IP n/a · GPS yes', uid: '4B90', ctr: '451', note: 'this tag is not in service' },
       { h: '18:00', venue: 'KF St Julians', name: 'Elena Petrova', dir: 'in', time: '18:00:51', s: 'flag', trust: '50', ev: 'IP no · GPS yes', uid: '0C21', ctr: '', review: 'approved', note: 'QR tap without an IP match: GPS alone is not sufficient proof of place', reviewNote: 'Seen arriving — mobile data was on.' },
-      { h: '14:00', venue: 'KM Production Hall · partner venue', name: 'Carlos Mendez', dir: 'in', time: '14:12:09', s: 'ok', partner: true, uid: '6E02', ctr: '000188', note: 'Decided by your rules at a partner venue — evidence is not shown.' },
+      { h: '14:00', venue: 'KM Production Hall · partner venue', name: 'Carlos Mendez', dir: 'in', time: '14:12:09', s: 'ok', partner: true, uid: '6E02', ctr: '188', note: 'Decided by your rules at a partner venue — evidence is not shown.' },
       { h: '14:00', venue: 'KF Hamrun', name: 'Antoine Vella', dir: 'in', time: '14:00:00', s: 'ok', trust: 'none', ev: 'IP n/a · GPS n/a', uid: '', ctr: '', manual: true, note: 'Phone left at home — seen on the floor at 14:00.' },
-      { h: '10:00', venue: 'KF Msida', name: 'Grace Attard', dir: 'in', time: '10:01:31', s: 'ignored', trust: 'none', ev: 'IP n/a · GPS yes', uid: 'A713', ctr: '000572', note: 'duplicate tap by the same person within the debounce window' },
-      { h: '10:00', venue: 'KF Msida', name: 'Grace Attard', dir: 'in', time: '10:01:05', s: 'ok', trust: '50', ev: 'IP n/a · GPS yes', uid: 'A713', ctr: '000571', note: 'verified via GPS only — no network proof of place' },
-      { h: '09:00', venue: 'KF Valletta', name: 'Maria Borg', dir: 'in', time: '09:58:40', s: 'ok', trust: '100', ev: 'IP yes · GPS yes', uid: '91AC', ctr: '000615' },
-      { h: '09:00', venue: 'KF Valletta', name: 'Julia Sciberras', dir: 'in', time: '09:02:11', s: 'flag', trust: '20', ev: 'IP no · GPS no', uid: '91AC', ctr: '000612', queued: true, note: 'neither IP nor GPS could place this tap' },
-      { h: '01:00', venue: 'KF St Julians', name: 'Elena Petrova', dir: 'out', time: '01:58:07', s: 'ok', trust: '70', ev: 'IP yes · GPS n/a', uid: '0C21', ctr: '001207' },
-      { h: '01:00', venue: 'KF Paceville', name: 'Nadia Farrugia', dir: 'out', time: '01:30:22', s: 'ok', trust: '50', ev: 'IP n/a · GPS yes', uid: '4B90', ctr: '000449', note: 'verified via GPS only — no network proof of place' }
+      { h: '10:00', venue: 'KF Msida', name: 'Grace Attard', dir: 'in', time: '10:01:31', s: 'ignored', trust: 'none', ev: 'IP n/a · GPS yes', uid: 'A713', ctr: '572', note: 'duplicate tap by the same person within the debounce window' },
+      { h: '10:00', venue: 'KF Msida', name: 'Grace Attard', dir: 'in', time: '10:01:05', s: 'ok', trust: '50', ev: 'IP n/a · GPS yes', uid: 'A713', ctr: '571', note: 'verified via GPS only — no network proof of place' },
+      { h: '09:00', venue: 'KF Valletta', name: 'Maria Borg', dir: 'in', time: '09:58:40', s: 'ok', trust: '100', ev: 'IP yes · GPS yes', uid: '91AC', ctr: '615' },
+      { h: '09:00', venue: 'KF Valletta', name: 'Julia Sciberras', dir: 'in', time: '09:02:11', s: 'flag', trust: '20', ev: 'IP no · GPS no', uid: '91AC', ctr: '612', queued: true, note: 'neither IP nor GPS could place this tap' },
+      { h: '01:00', venue: 'KF St Julians', name: 'Elena Petrova', dir: 'out', time: '01:58:07', s: 'ok', trust: '70', ev: 'IP yes · GPS n/a', uid: '0C21', ctr: '1207' },
+      { h: '01:00', venue: 'KF Paceville', name: 'Nadia Farrugia', dir: 'out', time: '01:30:22', s: 'ok', trust: '50', ev: 'IP n/a · GPS yes', uid: '4B90', ctr: '449', note: 'verified via GPS only — no network proof of place' }
     ];
     const stampWord = { ok: 'APPROVED', flag: 'FLAGGED', reject: 'REJECTED', ignored: 'IGNORED' };
     const stampCls = { ok: 'stamp stamp--approved', flag: 'stamp stamp--flagged', reject: 'stamp stamp--rejected', ignored: 'stamp stamp--ignored' };

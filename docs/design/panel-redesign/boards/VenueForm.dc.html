@@ -98,17 +98,7 @@ a{color:#1F5C41}a:hover{color:#152219}
             <div class="field">
               <label for="venue-ranges" class="lbl">Address ranges — one per line</label>
               <textarea id="venue-ranges" class="mono" rows="3" spellcheck="false" aria-invalid="true" aria-describedby="venue-ranges-err venue-ranges-help" style="min-height: 92px; padding: 10px 12px; border: 2px solid #BE3D2A; border-radius: 10px; background: #FFFDF4; font-size: 14px; line-height: 1.6; color: #152219; resize: vertical; box-sizing: border-box; width: 100%">{{venue.rangesText}}</textarea>
-              <ul aria-label="How the list was read" style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px">
-                <sc-for list="{{venue.ranges}}" as="r" hint-placeholder-count="3">
-                  <li style="{{r.rowStyle}}">
-                    <span class="mono" aria-hidden="true" style="{{r.markStyle}}">{{r.mark}}</span>
-                    <span class="mono" style="font-size: 13px; font-weight: 700; min-width: 150px">{{r.cidr}}</span>
-                    <span style="font-size: 13px">{{r.note}}</span>
-                  </li>
-                </sc-for>
-              </ul>
               <div id="venue-ranges-err" role="alert" style="border: 1px solid #BE3D2A; background: rgba(190,61,42,.07); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px">
-                <strong style="font-size: 14px">Too wide to say where anyone is — a venue's ranges add up to at most a /7 in IPv4 or a /31 in IPv6, over the whole list.</strong>
                 <span style="font-size: 13px; line-height: 1.45">0.0.0.0/1 covers far more of the internet than one venue's network can, so it cannot tell this venue apart from anywhere else. Every tap would be recorded as proven by the network even when nobody is here. Give the ranges your venue actually uses.</span>
               </div>
               <p id="venue-ranges-help" class="help">A range like 203.0.113.0/24, or a single address like 203.0.113.5. <strong style="color: #152219">Leave it empty and plaque taps here are checked against GPS alone, and QR scans go to The Spike; with no coordinate either, every tap goes to The Spike.</strong></p>
@@ -258,25 +248,14 @@ a{color:#1F5C41}a:hover{color:#152219}
   </main>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1760}}'>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1620}}'>
 class Component extends DCLogic {
   constructor(props) { super(props); this.state = { overnight: null }; }
   renderVals() {
-    // A rejected POST, re-rendered from what was posted. The read-back never marks every line ✓ while the save is
-    // refused: the width rule is about the whole list (a /7 in IPv4 or a /31 in IPv6), so the list gets its own row.
+    // A rejected POST, re-rendered from what was posted.
     const V = { name: 'KF Valletta', ranges: [['203.0.113.13/32', 'ok'], ['0.0.0.0/1', 'no']], lat: '35.899000', lng: '14.514000', start: '10:00', end: '22:00', night: false, wifi: 'KF-Valletta-Staff' };
     const overnight = this.state.overnight === null ? V.night : this.state.overnight;
-    const NOTE = {
-      ok: 'Read — 1 address, counted toward the whole list',
-      no: 'Refused — this line alone is wider than the whole list may be',
-      list: 'Whole list: more than a /7 in IPv4 — the save is refused'
-    };
-    const rowOf = (cidr, st) => ({
-      cidr, mark: st === 'ok' ? '✓' : '✗', note: NOTE[st],
-      rowStyle: 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 10px;border-radius:10px;' + (st === 'ok' ? 'background:rgba(31,92,65,.07)' : 'background:rgba(190,61,42,.08)') + (st === 'list' ? ';border:1px dashed #BE3D2A' : ''),
-      markStyle: 'flex:none;width:22px;height:22px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;font-size:13px;' + (st === 'ok' ? 'background:#1F5C41;color:#FFFDF4' : 'background:#BE3D2A;color:#FFFDF4')
-    });
-    const ranges = V.ranges.map(([c, st]) => rowOf(c, st)).concat([rowOf('All 2 lines', 'list')]);
+    // S3 (D1): no per-line read-back and no invented heading — the error box carries only the parser's sentence (locations.go:728-732).
     // Integer minutes, as the port must (no float).
     const toMin = t => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
     const s = toMin(V.start), e = toMin(V.end);
@@ -287,7 +266,7 @@ class Component extends DCLogic {
     const shiftHelp = 'Lateness is measured against the shift of the venue a person taps at, unless their department has its own. Empty means lateness is not measured here, which is not the same as a shift starting at midnight.';
     return {
       biz: { name: 'Kebab Factory', meta: '9 venues · 112 people' },
-      venue: { ...V, ranges, rangesText: V.ranges.map(r => r[0]).join('\n') },
+      venue: { ...V, rangesText: V.ranges.map(r => r[0]).join('\n') },
       overnight, toggleOvernight: () => this.setState({ overnight: !overnight }), shiftBars, shiftHelp,
       proves: { net: 'Not saved — the list is refused', gps: V.lat + ', ' + V.lng },
       plaques

@@ -59,10 +59,7 @@ a{color:#1F5C41}a:hover{color:#152219}
       <span class="lbl">Tue 20 Oct · 14:32 · Europe/Malta</span>
       <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px">
         <h1 style="margin: 0; font-size: 30px; line-height: 1; letter-spacing: -0.035em">The Pass</h1>
-      <a href="M-People.dc.html" style="flex: none; min-height: 44px; padding: 0 14px; box-sizing: border-box; border-radius: 12px; background: #1F5C41; color: #FFFDF4; font: 700 14px 'Space Grotesk', sans-serif; text-decoration: none; display: inline-flex; align-items: center; gap: 6px">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-        Manual entry
-        </a>
+      <!-- D1: no "Manual entry" button here — a manual entry starts from a person (People card → "Enter a record by hand") -->
       </div>
     </div>
 
@@ -152,7 +149,10 @@ a{color:#1F5C41}a:hover{color:#152219}
             </ol>
           </div>
         </div>
-        <a href="M-Pass.dc.html" class="btn-quiet" style="align-self: flex-start">Show more</a>
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px">
+          <a href="M-Pass.dc.html" class="btn-quiet" style="align-self: flex-start">Show more</a>
+          <a href="M-Ledger.dc.html" style="min-height: 44px; display: inline-flex; align-items: center; font-size: 14px; font-weight: 700">See the whole day →</a>
+        </div>
       </sc-if>
       <sc-if value="{{railEmpty}}" hint-placeholder-val="{{false}}">
         <section style="border: 1px dashed rgba(21,34,25,.5); border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 6px">

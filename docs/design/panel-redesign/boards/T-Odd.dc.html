@@ -330,7 +330,7 @@ class Component extends DCLogic {
       { venue: 'KF Hamrun', uid: '04D93F7B127E55', to: 678, missing: 36, gaps: 1, records: 30 },
       { venue: 'KF St Julians', uid: '04A23C1A2B0C21', to: 1204, missing: 11, gaps: 1, records: 38 }
     ].map(g => ({ venue: g.venue, uid: g.uid, missing: plural(g.missing, 'read missing', 'reads missing'),
-      from: '#' + String(g.to - g.missing - 1).padStart(6, '0'), to: '#' + String(g.to).padStart(6, '0'),
+      from: '#' + String(g.to - g.missing - 1), to: '#' + String(g.to),
       chips: [chip(plural(g.gaps, 'gap', 'gaps'), 'rejected'), chip(plural(g.records, 'record', 'records'), 'manual')] }));
 
     // Per person: only people with one of the four counts above zero (complete: 8 of the 50-row cap).
