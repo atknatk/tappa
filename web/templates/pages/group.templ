@@ -17,7 +17,7 @@ import "github.com/atknatk/tappa/web/templates/components"
 templ AdminGroup(v GroupView) {
 	@PanelShell(v.PanelChrome) {
 		if v.Queried && !v.Member {
-			@components.EmptyStateLabeled("No group", "This business is not in a group") {
+			@components.PanelEmpty(SectionLabel(TabGroup), "This business is not in a group", components.PanelEmptyCTA{}) {
 				<p>
 					Taptime can link businesses that work together — the same owner, staff who
 					tap at each other&#39;s venues — into a group. Taptime sets a group up; ask

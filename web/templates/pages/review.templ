@@ -125,7 +125,7 @@ templ AdminReview(v ReviewView) {
 				<a class="btn btn--quiet self-start" href={ templ.URL(v.MoreHref) }>Show more</a>
 			}
 		} else if v.Queried {
-			@components.EmptyState("Nothing is waiting for review") {
+			@components.PanelEmpty(SectionLabel(TabReview), "Nothing is waiting for review", components.PanelEmptyCTA{}) {
 				<p>
 					Every flagged tap has been decided. New ones arrive here when the engine
 					records a tap it could not judge on evidence alone.

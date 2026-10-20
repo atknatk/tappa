@@ -417,7 +417,7 @@ func AdminLocations(v LocationsView) templ.Component {
 					}
 					return nil
 				})
-				templ_7745c5c3_Err = components.EmptyState("No venues yet").Render(templ.WithChildren(ctx, templ_7745c5c3_Var10), templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = components.PanelEmpty(SectionLabel(TabLocations)+" · venues", "No venues yet", components.PanelEmptyCTA{}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var10), templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -515,7 +515,7 @@ func AdminLocations(v LocationsView) templ.Component {
 					}
 					return nil
 				})
-				templ_7745c5c3_Err = components.EmptyState("No departments").Render(templ.WithChildren(ctx, templ_7745c5c3_Var14), templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = components.PanelEmpty(SectionLabel(TabLocations)+" · departments", "No departments", components.PanelEmptyCTA{}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var14), templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -599,7 +599,7 @@ func AdminLocations(v LocationsView) templ.Component {
 					}
 					return nil
 				})
-				templ_7745c5c3_Err = components.EmptyState("No plaques are mounted").Render(templ.WithChildren(ctx, templ_7745c5c3_Var17), templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = components.PanelEmpty(SectionLabel(TabLocations)+" · plaques on the wall", "No plaques are mounted", components.PanelEmptyCTA{}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var17), templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -634,7 +634,7 @@ func AdminLocations(v LocationsView) templ.Component {
 					}
 					return nil
 				})
-				templ_7745c5c3_Err = components.EmptyState("Nothing in stock").Render(templ.WithChildren(ctx, templ_7745c5c3_Var18), templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = components.PanelEmpty(SectionLabel(TabLocations)+" · in stock", "Nothing in stock", components.PanelEmptyCTA{}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var18), templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
