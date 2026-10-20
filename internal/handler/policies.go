@@ -625,7 +625,7 @@ func effectSentence(effect string) string {
 	case "allow":
 		return "Lets it through."
 	case "review":
-		return "Records it and sends it to your review queue."
+		return "Records it and sends it to The Spike."
 	case "deny":
 		return "Refuses it. The attempt is still written down."
 	case "ignore":

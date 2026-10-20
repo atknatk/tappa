@@ -2,6 +2,8 @@ package pages
 
 import (
 	"strconv"
+	"strings"
+	"unicode"
 
 	"github.com/atknatk/tappa/web/templates/components"
 )
@@ -380,7 +382,7 @@ var PanelSections = []PanelSection{
 //
 // 🔴 IT WAS EXTRACTED IN M6-03 AND THE REASON IS THE FAILURE CLASS THIS REPO KEEPS
 // PAYING FOR. Until M6-03 there was one panel page, so the wordmark, the "signed
-// in as" block, the sign-out form and the tab bar lived inside it. M6-03 gives ONE
+// in as" block, the sign-out form and the navigation (then a tab bar) lived inside it. M6-03 gives ONE
 // of the sections real content, and the obvious move — a second page template
 // with the same chrome pasted above it — would have made the navigation, the
 // sign-out button and the brand lockup a SECOND REPRESENTATION, i.e. two places
@@ -505,7 +507,7 @@ func SectionLabel(tab PanelTab) string {
 	return ""
 }
 
-// CurrentHref is the href TabBar compares against. An unknown tab yields "",
+// CurrentHref is the href SideNav and BarNav compare against. An unknown tab yields "",
 // which marks no tab current rather than marking the first one — see Section().
 func (c PanelChrome) CurrentHref() string {
 	s, ok := c.Section()
@@ -527,4 +529,15 @@ func (c PanelChrome) CurrentHref() string {
 // somebody makes on purpose.
 type AdminDashboardView struct {
 	PanelChrome
+}
+
+// initialOf is the first letter of a business's name, upper-cased, for the tablet rail's
+// mark when the business is branded but has no logo; "" when the name has no letter.
+func initialOf(name string) string {
+	for _, r := range strings.TrimSpace(name) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return string(unicode.ToUpper(r))
+		}
+	}
+	return ""
 }

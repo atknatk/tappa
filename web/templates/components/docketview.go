@@ -5,7 +5,7 @@ package components
 // 🔴 WHY THESE TYPES LIVE IN components RATHER THAN IN pages, because the rest of
 // the product's view models are in pages and this looks like an exception. It is
 // the rule this package already follows: components.Tab is defined here too, next
-// to the TabBar that renders it. The reason is mechanical rather than stylistic —
+// to SideNav and BarNav, which render it. The reason is mechanical rather than stylistic —
 // pages imports components, so a component taking a pages type would close an
 // import cycle. A component owns the shape of its own input.
 //

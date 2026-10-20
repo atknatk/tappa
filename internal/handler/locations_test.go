@@ -783,7 +783,7 @@ func TestLocationsSection_SaysWhenAVenueHasNoProofOfPlace(t *testing.T) {
 			"warning; every tap there goes to the approval queue and the screen is the " +
 			"only place a manager could learn that")
 	}
-	if !strings.Contains(body, "review queue") {
+	if !strings.Contains(body, "go to The Spike") {
 		t.Error("the warning does not say what actually happens (the taps are recorded " +
 			"and queued for approval), which is the difference between a scold and a fact")
 	}

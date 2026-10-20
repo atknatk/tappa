@@ -196,7 +196,8 @@ func TestPanelSections_EachRequestMarksExactlyItsOwnTabCurrent(t *testing.T) {
 // section is in the sheet; bar and sheet together link every section once and nothing
 // else; the bar's order is Pass, Spike, Roll, People; and the sheet is a native
 // disclosure (<details>/<summary>), so it opens with no script on a page whose policy
-// has no script-src.
+// has no script-src; and when the current section is in the (closed) sheet, the summary
+// names it in visually hidden text.
 func TestPanelSections_ThePhoneNavMarksExactlyOneCurrentAndOffersEverySection(t *testing.T) {
 	bodies := sectionBodies(t)
 	navRE := regexp.MustCompile(`(?s)<nav class="bar" aria-label="Panel sections, phone">(.*?)</nav>`)
@@ -245,6 +246,15 @@ func TestPanelSections_ThePhoneNavMarksExactlyOneCurrentAndOffersEverySection(t 
 		moreCurrent := strings.Contains(nav, `<summary class="bar-link bar-link--current">`)
 		if moreCurrent != inSheet {
 			t.Errorf("GET %s: More drawn current=%v while the section is in the sheet=%v", s.Href, moreCurrent, inSheet)
+		}
+		// A CLOSED <details> hides the sheet's links, aria-current with them, so the
+		// summary must name the current section itself -- and only then.
+		spoken := `<span class="sr-only">, current: ` + htmlText(s.Label) + `</span></summary>`
+		if got := strings.Contains(nav, spoken); got != inSheet {
+			t.Errorf("GET %s: the summary names the current section to a screen reader = %v, want %v", s.Href, got, inSheet)
+		}
+		if !inSheet && strings.Contains(nav, ", current: ") {
+			t.Errorf("GET %s: the summary claims a current section the sheet does not hold", s.Href)
 		}
 	}
 }
@@ -1106,15 +1116,16 @@ var (
 // Adding one is free and safe — it can only make the test stricter.
 var docketLabelGrounds = map[string]string{
 	"paper":     "the ground of .docket, .empty-state and components.Card",
-	"porcelain": "the page ground itself, behind both shells — form labels and the panel header sit directly on it",
+	"porcelain": "the page ground itself, behind both shells — form labels and the panel's phone top bar sit directly on it",
 	// Neither Notice tone carries a docket-label today. They are listed anyway
 	// because they are light SURFACES a label could legitimately land on, and
 	// including them costs nothing: the tone clears AA on all four.
 	"green-lite": "components.Notice(ToneOK) — listed so a label could be added there without a surprise",
 	// M6-04 gave saffron-lite two more callers: .tally--queued (a docket footnote)
-	// and .tab-count (the navigation's pending badge). It is still a light SURFACE a
+	// and .tab-count (the navigation's pending badge; solid saffron since the
+	// 2026-10-20 shell, so it no longer sits on this ground). It is still a light SURFACE a
 	// docket-label could land on, so it stays here rather than moving.
-	"saffron-lite": "components.Notice(ToneWarn), .tally--queued and .tab-count — light surfaces a label could land on",
+	"saffron-lite": "components.Notice(ToneWarn) and .tally--queued — light surfaces a label could land on",
 }
 
 // nonSurfaceGrounds are the palette colours used as a background that a
@@ -1145,7 +1156,7 @@ var nonSurfaceGrounds = map[string]string{
 	// which carries the lockup and the sign-out control in paper and saffron -- no
 	// docket-label sits on it either (the tenant banner under it is saffron-lite).
 	"ink":     "stamp--training's 10% tint, the sign-in screen's brand panel and the operator band; no docket-label sits on any of them",
-	"saffron": "stamp--flagged's 10% tint, inside .stamp only",
+	"saffron": "stamp--flagged's 10% tint and .tab-count, the navigation's pending badge (solid, ink text 6.2:1, since the 2026-10-20 shell); no docket-label sits on either",
 	// ⚠️ NO LONGER "inside .stamp only": M6-04 added .tally--rejected, which uses
 	// bg-tomato/10 in a docket footnote. The CLASSIFICATION is unchanged and still
 	// correct (no docket-label sits on either), but the reason had to be re-measured

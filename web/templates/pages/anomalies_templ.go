@@ -1297,7 +1297,7 @@ func anomalyOpen(v AnomaliesView) templ.Component {
 			templ_7745c5c3_Var61 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 98, "<h2 class=\"font-display text-lg font-bold tracking-tight text-ink\">Check-ins with no checkout</h2><p class=\"text-sm text-ink/85\">A check-in with no later checkout, anywhere in the record. The Reports section counts a slightly different thing — it pairs a week's records into shifts — so the two figures can differ without either being wrong.</p><p class=\"text-xs text-ink/70\">Training taps are not in this list. A training tap is a check-in nothing ever closes, so counting it would add one false entry for every new starter.</p>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 98, "<h2 class=\"font-display text-lg font-bold tracking-tight text-ink\">Check-ins with no checkout</h2><p class=\"text-sm text-ink/85\">A check-in with no later checkout, anywhere in the record. The Roll counts a slightly different thing — it pairs a week's records into shifts — so the two figures can differ without either being wrong.</p><p class=\"text-xs text-ink/70\">Training taps are not in this list. A training tap is a check-in nothing ever closes, so counting it would add one false entry for every new starter.</p>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

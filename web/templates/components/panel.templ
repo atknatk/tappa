@@ -141,6 +141,7 @@ templ BarNav(bar, sheet []Tab, currentHref string) {
 			if tabsHold(sheet, currentHref) {
 				<summary class="bar-link bar-link--current">
 					@barLinkBody(IconMore, "More")
+					<span class="sr-only">, current: { tabLabelOf(sheet, currentHref) }</span>
 				</summary>
 			} else {
 				<summary class="bar-link">
@@ -178,6 +179,18 @@ templ barLinkBody(icon, label string) {
 		@NavIcon(icon, "nav-icon")
 	</span>
 	<span>{ label }</span>
+}
+
+// tabLabelOf is the label of the tab whose href is current, or "".
+// THE CLOSED SHEET HIDES ITS LINKS, aria-current included, so when the current section
+// lives in the sheet the summary itself says which one it is to a screen reader.
+func tabLabelOf(tabs []Tab, currentHref string) string {
+	for _, t := range tabs {
+		if t.Href == currentHref {
+			return t.Label
+		}
+	}
+	return ""
 }
 
 // tabsHold reports whether one of tabs is the current section.

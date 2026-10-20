@@ -473,6 +473,15 @@ func TestPanelBrand_ABrandedBusinessGetsItsHeaderOnEverySection(t *testing.T) {
 			if strings.Contains(chrome, wordmark) {
 				t.Errorf("%s: the wordmark is still drawn beside the business's header", where)
 			}
+			// Without a logo the rail's mark is the business's initial, never Taptime's "t."
+			// (2026-10-20 audit); with one, there is no mark at all.
+			mark := `<span class="side-mark" aria-hidden="true">T</span>`
+			if got := strings.Contains(chrome, mark); got == v.logo {
+				t.Errorf("%s: the rail draws the business's initial = %v, want %v", where, got, !v.logo)
+			}
+			if strings.Contains(chrome, `aria-hidden="true">t.</span>`) {
+				t.Errorf("%s: a branded rail draws Taptime's mark", where)
+			}
 			header := brandHeadRE.FindAllString(chrome, -1)
 			if len(header) != 1 {
 				t.Fatalf("%s: %d brand headers", where, len(header))

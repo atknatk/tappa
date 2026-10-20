@@ -93,7 +93,7 @@ func AdminReports(v ReportsView) templ.Component {
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<p>This week holds more records than one report reads at once, so the hours below are a floor and not a total. Nothing has been lost — every record is still in Transactions.</p>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<p>This week holds more records than one report reads at once, so the hours below are a floor and not a total. Nothing has been lost — every record is still on The Pass.</p>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -1159,9 +1159,9 @@ func tooLongLine(n int) string {
 // a direction with nobody on it.
 func unattributableLine(n int) string {
 	if n == 1 {
-		return "1 record in this week names no employee, so no hours could be attributed to anybody. It is still in Transactions."
+		return "1 record in this week names no employee, so no hours could be attributed to anybody. It is still on The Pass."
 	}
-	return itoa(n) + " records in this week name no employee, so no hours could be attributed to anybody. They are still in Transactions."
+	return itoa(n) + " records in this week name no employee, so no hours could be attributed to anybody. They are still on The Pass."
 }
 
 // reportPartners is JOINED to reportOpen (templ.Join) rather than called as a sibling: a sibling

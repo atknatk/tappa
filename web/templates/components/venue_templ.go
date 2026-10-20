@@ -79,7 +79,7 @@ func VenueRow(v VenueRowView) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		if v.NoProofOfPlace {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "       <div class=\"mt-3 border-l-4 border-saffron bg-saffron-lite px-3 py-2\"><p class=\"font-display text-sm font-bold tracking-tight text-ink\">No proof of place</p><p class=\"mt-1 text-xs text-ink/85\">This venue has no address range and no coordinate, so taps here cannot be checked against either. They are still recorded — they go to the review queue for approval instead.</p></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "       <div class=\"mt-3 border-l-4 border-saffron bg-saffron-lite px-3 py-2\"><p class=\"font-display text-sm font-bold tracking-tight text-ink\">No proof of place</p><p class=\"mt-1 text-xs text-ink/85\">This venue has no address range and no coordinate, so taps here cannot be checked against either. They are still recorded — they go to The Spike for approval instead.</p></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -617,7 +617,7 @@ func VenueForm(v VenueFormView) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 49, "One per line — a range like 192.168.1.0/24, or a single address like 192.168.1.5. This is how Taptime checks somebody is really at this venue. <strong class=\"font-bold\">Leave it empty and taps here are checked against GPS alone; with no coordinate either, every tap goes to the review queue.</strong>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 49, "One per line — a range like 192.168.1.0/24, or a single address like 192.168.1.5. This is how Taptime checks somebody is really at this venue. <strong class=\"font-bold\">Leave it empty and taps here are checked against GPS alone; with no coordinate either, every tap goes to The Spike.</strong>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

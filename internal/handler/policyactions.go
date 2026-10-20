@@ -575,7 +575,7 @@ func (a *AdminAuth) policyChangeView(r *http.Request, c policyChange, token stri
 		v.Summary = "From the next tap onwards, this rule takes no part in any decision. It is " +
 			"not deleted: its history stays, so a record decided under it can still explain itself."
 		v.Warning = "This is the change most likely to move somebody's hours. A rule that was " +
-			"sending taps to your review queue will stop doing so, and taps that would have been " +
+			"sending taps to The Spike will stop doing so, and taps that would have been " +
 			"queued will simply be approved or refused by whatever decides next."
 	case opBind:
 		v.Heading = "Record where this rule applies"

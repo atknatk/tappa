@@ -785,8 +785,8 @@ func reportCSVExclusions(d *reportDoc, s ledger.ReportScreen) {
 		d.row("Read complete", "NO", "",
 			"This week holds more records than one report reads at once (limit "+
 				strconv.Itoa(ledger.ReportEventCap)+" records). EVERY FIGURE IN THIS FILE IS A "+
-				"FLOOR AND NOT A TOTAL. Nothing has been lost — every record is still in the "+
-				"Transactions section.")
+				"FLOOR AND NOT A TOTAL. Nothing has been lost — every record is still on "+
+				"The Pass.")
 	} else {
 		// A MEASURED "yes" RATHER THAN SILENCE. The absence of a warning and the
 		// absence of a check look identical in a file.
@@ -815,7 +815,7 @@ func reportCSVExclusions(d *reportDoc, s ledger.ReportScreen) {
 	d.row("Checkouts that began earlier", strconv.Itoa(s.StartedEarlier), "",
 		"Their shift started before this week, so their hours are in the previous report.")
 	d.row("Records naming no employee", strconv.Itoa(s.Unattributable), "",
-		"Direction-carrying records with nobody on them, so no hours could be attributed. Still in the Transactions section.")
+		"Direction-carrying records with nobody on them, so no hours could be attributed. Still on The Pass.")
 
 	if len(s.People) == 0 {
 		// The file's twin of the screen's empty state, and it says the same careful

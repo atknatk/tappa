@@ -419,21 +419,24 @@ handler'da `mayEditAccount`, domain'de ikinci kez, rol ve durum DB'den
   `side-name` / `side-coline` sınıflarında: porselende ink (14,32:1) ve ink/70 (5,70:1), ink
   üzerinde paper (16,2:1) ve paper/70 (8,5:1); rayda ad görsel olarak gizli ama okunur.
   Markasız kilit `pages.PanelWordmark` (ink üzerinde paper "taptime"/"punchless", rayda "t.").
-  Aşağıdaki maddelerin geri kalanı (karar 3, 6, 9) aynen geçerlidir; "porcelain'de" diyen kontrast
-  sayıları yalnız telefon üst çubuğu içindir.
-- *Markalı* = kapıdan **bugün** geçen accent **ya da** logo (karar 3). Markalıda Wordmark'ın
-  yerine: 4 px şerit (yalnız accent geçiyorsa; başlığın ilk öğesi, `aria-hidden`) · logo
-  (varsa) · işletme adı (Space Grotesk kalın; renk sınıfı yok, sayfanın ink'i — porcelain'de
-  14,32:1) · altında co-brand (5,70:1). **Yalnız accent'li** işletmede de ad ve co-brand
-  çizilir, yeşil `taptime` kalkar. Ad ve co-brand paragrafları tam sınıf listeleriyle pinli.
+  Logosuz markalı işletmede rayın işareti adın ilk harfidir ("t." yalnız markasızda).
+  Aşağıdaki maddeler (karar 3, 6, 9) aynen geçerlidir; "porcelain'de" diyen kontrast sayıları
+  yalnız telefon üst çubuğu içindir, ink üzerindeki sayılar bu maddededir.
+- *Markalı* = kapıdan **bugün** geçen accent **ya da** logo (karar 3). Markalıda
+  `PanelWordmark`'ın yerine: 4 px şerit (yalnız accent geçiyorsa; başlığın ilk öğesi,
+  `aria-hidden`) · logo (varsa) · işletme adı (`side-name`) · altında co-brand
+  (`side-coline`). **Yalnız accent'li** işletmede de ad ve co-brand çizilir. Ad ve co-brand
+  paragrafları tam sınıf listeleriyle pinli; renkleri ve oranları yukarıdaki maddede.
 - **Logo kutusu: 32 px yükseklik, en çok 192 px genişlik**, oran korunur, saklanandan büyük
   çizilmez — küçük logo büyütülüp bulanıklaşmaz; 512×128 → 128×32
   (`TestPanelLogoOf_KeepsTheProportionsInsideTheSlot`, 1–512 × 1–512 taraması; karar 6).
 - **`alt=""`** (karar 9): ada eşit bir `alt` ekran okuyucuda adı iki kez okutur ve kırık logoda
   adı kutunun içine basıp sayfayı iter — 114 karakterlik adla kutu 128×216, içerik +145 px
   (ölçüldü). Boş `alt` ile kırık logo kutunun dışına **0 px** basar (sınır 5).
-- Şerit 1024 genişlikte sütun boyunca 992×4 px; tenant rengi yalnız orada. Birincil düğme ve
-  sekme işareti yeşil kalır (K4).
+- Şerit yan kolonun tepesi boyunca 4 px: rayda 88 px, kenar çubuğunda 248 px, telefonda üst
+  çubuğun tam genişliği; tenant rengi yalnız orada. Birincil düğme yeşil, geçerli bölüm işareti
+  **paper bir hap** kalır — accent geçerli işareti hiçbir genişlikte boyamaz (K4; ADR 0023 WL-8
+  notu eki, 2026-10-20).
 
 ### Account → *"Your brand"*: önizleme ve editör (ADR 0023 WL-7 notu, ADR 0024 WL-7 notu)
 

@@ -333,7 +333,7 @@ func policyDegraded(v PoliciesView) templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "       <p>One of your Taptime baseline rules is stored in a form this release cannot read, and the engine does not run a PART of a rulebook — a half rulebook is a different rulebook, not a safer one. So every tap is currently being judged by the Taptime guarantees alone: whatever one of them settles is settled the same way it always is, and everything else is recorded and sent to your review queue instead of being approved.</p><p class=\"mt-1\">The rules listed below are stored and valid, and they are <strong>not deciding anything today</strong>. Neither are the permissions further down. This is not something you can fix from this screen — tell us, and it is repaired by shipping a rule your business accepts.</p><dl class=\"mt-2\"><dt class=\"docket-label\">Cannot be read</dt>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "       <p>One of your Taptime baseline rules is stored in a form this release cannot read, and the engine does not run a PART of a rulebook — a half rulebook is a different rulebook, not a safer one. So every tap is currently being judged by the Taptime guarantees alone: whatever one of them settles is settled the same way it always is, and everything else is recorded and sent to The Spike instead of being approved.</p><p class=\"mt-1\">The rules listed below are stored and valid, and they are <strong>not deciding anything today</strong>. Neither are the permissions further down. This is not something you can fix from this screen — tell us, and it is repaired by shipping a rule your business accepts.</p><dl class=\"mt-2\"><dt class=\"docket-label\">Cannot be read</dt>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -393,7 +393,7 @@ func policyIntro(v PoliciesView) templ.Component {
 			templ_7745c5c3_Var11 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "<section class=\"bg-paper border border-line px-4 py-4\"><h2 class=\"font-display text-lg font-bold tracking-tight text-ink\">How your rules are decided</h2><p class=\"mt-1 text-sm text-ink/85\">Every tap is judged in three layers, in this order. <strong>Taptime guarantees</strong> run first and stop everything else — they are part of the product and nobody can switch them off, including us. If none of them applies, your <strong>Taptime baseline</strong> and <strong>your own policies</strong> are weighed together, and where two rules disagree the <strong>more specific one decides</strong> — a rule about one venue beats a rule about all of them, whichever way it goes. Only when two rules are equally specific does the stricter answer win. If nothing at all matches, a tap is sent to your review queue rather than quietly approved.</p><p class=\"mt-2 font-mono text-xs uppercase tracking-widest text-ink/70\">Baseline shipped with this release: ")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "<section class=\"bg-paper border border-line px-4 py-4\"><h2 class=\"font-display text-lg font-bold tracking-tight text-ink\">How your rules are decided</h2><p class=\"mt-1 text-sm text-ink/85\">Every tap is judged in three layers, in this order. <strong>Taptime guarantees</strong> run first and stop everything else — they are part of the product and nobody can switch them off, including us. If none of them applies, your <strong>Taptime baseline</strong> and <strong>your own policies</strong> are weighed together, and where two rules disagree the <strong>more specific one decides</strong> — a rule about one venue beats a rule about all of them, whichever way it goes. Only when two rules are equally specific does the stricter answer win. If nothing at all matches, a tap is sent to The Spike rather than quietly approved.</p><p class=\"mt-2 font-mono text-xs uppercase tracking-widest text-ink/70\">Baseline shipped with this release: ")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -810,7 +810,7 @@ func policyTenant(v PoliciesView) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			} else {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 52, "<p class=\"mt-1 text-sm\">Your business is running on the Taptime guarantees alone — none of the baseline rules above is deciding anything yet. Taps are still recorded; anything the guarantees do not settle goes to your review queue.</p>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 52, "<p class=\"mt-1 text-sm\">Your business is running on the Taptime guarantees alone — none of the baseline rules above is deciding anything yet. Taps are still recorded; anything the guarantees do not settle goes to The Spike.</p>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1940,7 +1940,7 @@ func policyAuthorities(v PoliciesView) templ.Component {
 					}
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 161, "<p class=\"mt-1 text-sm text-ink/85\">Recording an employee's tap is the exception, and it is the promise the product is built on: if the evidence is not good enough, the tap is still written down and sent to your review queue. A record is never dropped, never silently approved, and never decided by nobody.</p></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 161, "<p class=\"mt-1 text-sm text-ink/85\">Recording an employee's tap is the exception, and it is the promise the product is built on: if the evidence is not good enough, the tap is still written down and sent to The Spike. A record is never dropped, never silently approved, and never decided by nobody.</p></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

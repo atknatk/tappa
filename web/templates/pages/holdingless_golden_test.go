@@ -11,6 +11,8 @@ package pages
 // changes the chrome around every panel page. Checked before replacing: with the chrome cut off
 // (everything outside the content well; before, everything outside the tab bar and </main>), each
 // page's own markup is byte for byte the 85b4b8d golden's. The holding claim is unchanged.
+// The anomalies golden was replaced once more in the same day's fix round: its one change is the
+// sentence naming the reports section by its new label ("The Reports section" -> "The Roll").
 
 import (
 	"bytes"

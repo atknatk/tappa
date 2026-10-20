@@ -468,6 +468,10 @@ templ PanelWordmark() {
 // (ink at 70% on porcelain 5.70:1, paper at 70% on ink 8.5:1). On the tablet's rail
 // the name block is visually hidden but still read.
 //
+// WITHOUT A LOGO, THE RAIL SHOWS THE NAME'S FIRST LETTER where an unbranded panel
+// shows Taptime's "t." — a branded business's rail is not Taptime's mark (2026-10-20
+// audit). aria-hidden: the name itself is read from the visually hidden block.
+//
 // THE LOGO SITS ON A PAPER TILE, because logos are drawn for a light ground and the
 // rail and sidebar are ink. The <img> keeps its 32px-slot box (PanelLogoOf); on the
 // 88px rail it may only shrink.
@@ -489,7 +493,7 @@ templ panelBrandHeader(b PanelBrand) {
 					<img src={ b.Logo.Src } width={ itoa(b.Logo.Width) } height={ itoa(b.Logo.Height) } alt=""/>
 				</span>
 			} else {
-				<span class="side-mark" aria-hidden="true">t.</span>
+				<span class="side-mark" aria-hidden="true">{ initialOf(b.Name) }</span>
 			}
 			<div class="side-named">
 				<p class="side-name">{ b.Name }</p>

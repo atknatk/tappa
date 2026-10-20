@@ -96,12 +96,12 @@ func AdminReview(v ReviewView) templ.Component {
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<p>The tap record itself is unchanged — it still shows the flag the engine gave it. Your decision is recorded beside it and appears in the Transactions list.</p>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<p>The tap record itself is unchanged — it still shows the flag the engine gave it. Your decision is recorded beside it and appears on The Pass.</p>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					if v.Clipped {
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "    <p class=\"mt-2\">Your note was longer than 500 characters, so only the first 500 were saved. You can read what was kept on the record in Transactions.</p>")
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "    <p class=\"mt-2\">Your note was longer than 500 characters, so only the first 500 were saved. You can read what was kept on the record on The Pass.</p>")
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
@@ -301,7 +301,7 @@ func AdminReview(v ReviewView) templ.Component {
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "<p>Every flagged tap has been decided. New ones arrive here when the engine records a tap it could not judge on evidence alone.</p><p class=\"mt-2\">Decided records stay in <span class=\"font-mono\">Transactions</span>, with the flag they were given and the decision beside it.</p>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "<p>Every flagged tap has been decided. New ones arrive here when the engine records a tap it could not judge on evidence alone.</p><p class=\"mt-2\">Decided records stay on The Pass, with the flag they were given and the decision beside it.</p>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}

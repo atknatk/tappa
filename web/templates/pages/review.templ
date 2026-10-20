@@ -48,7 +48,7 @@ templ AdminReview(v ReviewView) {
 			@components.Notice(components.ToneOK, doneHeading(v.Done)) {
 				<p>
 					The tap record itself is unchanged — it still shows the flag the engine gave
-					it. Your decision is recorded beside it and appears in the Transactions list.
+					it. Your decision is recorded beside it and appears on The Pass.
 				</p>
 				if v.Clipped {
 					// 🔴 SAYING THE NOTE WAS CUT IS THE WHOLE REASON THIS BRANCH EXISTS.
@@ -57,7 +57,7 @@ templ AdminReview(v ReviewView) {
 					// the product was the only party that knew.
 					<p class="mt-2">
 						Your note was longer than 500 characters, so only the first 500 were
-						saved. You can read what was kept on the record in Transactions.
+						saved. You can read what was kept on the record on The Pass.
 					</p>
 				}
 			}
@@ -131,7 +131,7 @@ templ AdminReview(v ReviewView) {
 					records a tap it could not judge on evidence alone.
 				</p>
 				<p class="mt-2">
-					Decided records stay in <span class="font-mono">Transactions</span>, with the
+					Decided records stay on The Pass, with the
 					flag they were given and the decision beside it.
 				</p>
 			}
