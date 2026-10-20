@@ -300,7 +300,7 @@ templ anomalyVenues(v AnomaliesView) {
 				for _, l := range v.Venues {
 					<li class="flex flex-col gap-1">
 						<div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2.5 gap-y-1 md:grid-cols-[150px_minmax(0,1fr)_84px] desk:grid-cols-[124px_minmax(0,1fr)_84px]">
-							<p class="truncate text-[13px] font-bold text-ink">{ l.Name }</p>
+							<p class="truncate text-[13px] font-bold text-ink" title={ l.Name }>{ l.Name }</p>
 							if l.Partner {
 								<p class="docket-label col-span-2 row-start-2 md:col-span-1 md:col-start-2 md:row-start-1">Partner venue · evidence not shown</p>
 								<p class="col-start-2 row-start-1 whitespace-nowrap text-right font-mono text-xs text-ink md:col-start-3">{ l.Records }</p>
@@ -434,7 +434,7 @@ templ anomalyDistanceOnly(v AnomaliesView) {
 				<ul class="flex flex-col">
 					for _, p := range v.DistanceOnlyPeople {
 						<li class="grid min-h-9 grid-cols-[minmax(0,1fr)_80px_auto] items-center gap-2.5 border-t border-dashed border-line py-1 desk:grid-cols-[minmax(0,1fr)_120px_auto]">
-							<span class="truncate text-sm font-bold text-ink">{ p.Name }</span>
+							<span class="truncate text-sm font-bold text-ink" title={ p.Name }>{ p.Name }</span>
 							<span class="flex h-2 overflow-hidden rounded bg-porcelain" aria-hidden="true">
 								<span class={ "h-full shrink-0 bg-saffron", components.WidthPct(p.Pct) }></span>
 							</span>

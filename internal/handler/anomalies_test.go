@@ -683,3 +683,29 @@ func itoaTest(n int) string {
 	}
 	return string(b)
 }
+
+// TestAnomaliesNames_ATruncatedNameKeepsItsFullText (M12-48): a venue's or a person's name
+// cut to one line by an ellipsis on the evidence-mix and GPS-alone cards still carries the
+// whole name in a title, so a long name ("KF St Julians Seafront Terrace") is never only its
+// first half.
+func TestAnomaliesNames_ATruncatedNameKeepsItsFullText(t *testing.T) {
+	const venue, person = "KF St Julians Seafront Terrace and Upper Bar", "Maria Concetta Borg Camilleri Spiteri"
+	body := oddPage(t, func(a *ledger.Anomalies) {
+		a.Totals = ledger.AnomalyTotals{Records: 10, Judged: 10, Answerable: 10, DistanceOnly: 2}
+		a.People = []ledger.AnomalyPerson{{Name: person, Records: 10, DistanceOnly: 2}}
+		a.Venues = []ledger.AnomalyVenue{{Name: venue, Records: 10, Judged: 10, Answerable: 10, Both: 8, DistanceOnly: 2}}
+	}, weekOfUTC().To)
+
+	cut := regexp.MustCompile(`<(?:p|span) class="truncate[^"]*"([^>]*)>([^<]*)<`)
+	got := map[string]bool{}
+	for _, m := range cut.FindAllStringSubmatch(body, -1) {
+		if want := ` title="` + m[2] + `"`; m[1] != want {
+			t.Errorf("the truncated name %q carries %q, want%s", m[2], m[1], want)
+		}
+		got[m[2]] = true
+	}
+	// CONTROL: both cards drew their name, so the loop above read something.
+	if !got[venue] || !got[person] {
+		t.Fatalf("the page has no truncated venue (%v) or person (%v) name to check", got[venue], got[person])
+	}
+}
