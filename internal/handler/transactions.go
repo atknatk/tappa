@@ -124,6 +124,12 @@ func (a *AdminAuth) transactionsSection(w http.ResponseWriter, r *http.Request) 
 		PanelChrome: a.chrome(r, pages.TabTransactions),
 	}
 	fillTransactionsView(&v, screen.Page, f)
+	// ONE URL, TWO LAYOUTS (M12-26/27): /admin with no day is The Pass, a day is its ledger.
+	pass := isPass(r, f)
+	if pass {
+		v.Chips = verdictChips(f, screen.Page.Day, pass, screen.Tally)
+		a.fillPass(r.Context(), &v, screen, id)
+	}
 	v.Filters.Locations = optionViews(screen.Options.Locations)
 	v.Filters.Departments = optionViews(screen.Options.Departments)
 	// THE COUNTS ARE CARRIED ACROSS, NOT INTERPRETED HERE. Which sentence they mean

@@ -458,40 +458,75 @@ func TestTransactionFilters_EveryOfferedOptionIsAccepted(t *testing.T) {
 	fake := ledgerWithRecords(1, true)
 	b := panelBrowserWith(t, fake)
 
-	cases := []struct {
-		param   string
-		options []components.OptionView
-		read    func(ledger.Filter) string
-	}{
-		{"verdict", panelVerdicts, func(f ledger.Filter) string { return f.Verdict }},
-		{"channel", panelChannels, func(f ledger.Filter) string { return f.Channel }},
+	// THE CHANNEL AND, ON A LEDGER DAY, THE VERDICT ARE DROPDOWNS: each option is driven
+	// through the handler and must render as an option.
+	for _, o := range panelVerdicts {
+		rec := b.do(http.MethodGet, ledgerDayHref+"&verdict="+url.QueryEscape(o.Value), nil)
+		if got := fake.lastFilter(t).Verdict; got != o.Value {
+			t.Errorf("the verdict dropdown offers %q but the handler read %q", o.Value, got)
+		}
+		if body := htmlOf(t, rec); !strings.Contains(body, `value="`+o.Value+`"`) {
+			t.Errorf("the verdict dropdown does not render an option with value %q", o.Value)
+		}
 	}
 	total := 0
-	for _, c := range cases {
-		if len(c.options) == 0 {
-			t.Fatalf("%s offers no options at all; this test would pass over an empty set", c.param)
+	for _, o := range panelChannels {
+		total++
+		rec := b.do(http.MethodGet, transactionsHref+"?channel="+url.QueryEscape(o.Value), nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET with channel=%s: %d", o.Value, rec.Code)
 		}
-		for _, o := range c.options {
-			total++
-			rec := b.do(http.MethodGet, transactionsHref+"?"+c.param+"="+url.QueryEscape(o.Value), nil)
-			if rec.Code != http.StatusOK {
-				t.Fatalf("GET with %s=%s: %d", c.param, o.Value, rec.Code)
+		if got := fake.lastFilter(t).Channel; got != o.Value {
+			t.Errorf("the channel dropdown offers %q but the handler read %q -- the "+
+				"dropdown and the validator disagree, so a manager can pick a "+
+				"filter that does nothing", o.Value, got)
+		}
+		if body := htmlOf(t, rec); !strings.Contains(body, `value="`+o.Value+`"`) {
+			t.Errorf("the channel dropdown does not render an option with value %q", o.Value)
+		}
+	}
+
+	// ON THE PASS THE VERDICT IS OFFERED AS CHIPS (M12-26): links.
+	// What the product RENDERS is read off the page -- every chip link -- and each one is
+	// followed: the handler must read back exactly the verdict the chip offered, and the chips
+	// must offer every value the validator accepts and nothing else.
+	chipHref := regexp.MustCompile(`<a href="([^"]+)" class="chip-link[^"]*"`)
+	for _, page := range []string{transactionsHref} {
+		body := htmlOf(t, b.do(http.MethodGet, page, nil))
+		offered := map[string]bool{}
+		for _, m := range chipHref.FindAllStringSubmatch(body, -1) {
+			u, err := url.Parse(strings.ReplaceAll(m[1], "&amp;", "&"))
+			if err != nil {
+				t.Fatalf("%s: chip href %q: %v", page, m[1], err)
 			}
-			if got := c.read(fake.lastFilter(t)); got != o.Value {
-				t.Errorf("the %s dropdown offers %q but the handler read %q -- the "+
-					"dropdown and the validator disagree, so a manager can pick a "+
-					"filter that does nothing", c.param, o.Value, got)
+			want := u.Query().Get("verdict")
+			offered[want] = true
+			if rec := b.do(http.MethodGet, u.String(), nil); rec.Code != http.StatusOK {
+				t.Fatalf("%s: following the %q chip answered %d", page, want, rec.Code)
 			}
-			if body := htmlOf(t, rec); !strings.Contains(body, `value="`+o.Value+`"`) {
-				t.Errorf("the %s dropdown does not render an option with value %q", c.param, o.Value)
+			got := fake.lastFilter(t)
+			if got.Verdict != want {
+				t.Errorf("%s: the chip offers verdict %q but the handler read %q", page, want, got.Verdict)
+			}
+			if page != transactionsHref && (got.Channel != "qr" || got.Date.String() != "2026-08-05") {
+				t.Errorf("%s: the %q chip dropped the day or the channel (%+v)", page, want, got)
+			}
+		}
+		if len(offered) != len(panelVerdicts)+1 || !offered[""] {
+			t.Errorf("%s offers the verdicts %v; want All and the validator's %d", page, offered, len(panelVerdicts))
+		}
+		for _, o := range panelVerdicts {
+			if !offered[o.Value] {
+				t.Errorf("%s offers no chip for %q, which the validator accepts", page, o.Value)
 			}
 		}
 	}
+	total += len(panelVerdicts)
 	// The vocabularies are migration 0005's CHECK lists: four verdicts, three
 	// channels. A shrunken list would make this pass over less than it should.
 	if total != 7 {
 		t.Errorf("walked %d options; migration 0005 fixes four verdicts and three "+
-			"channels, so this should be 7. If the schema changed, the dropdown and "+
+			"channels, so this should be 7. If the schema changed, the chips, the dropdown and "+
 			"this number change together.", total)
 	}
 }
@@ -567,23 +602,31 @@ func TestTransactionPaging_CarriesTheFiltersAndTheCursor(t *testing.T) {
 // TestTransactionPaging_LastPageOffersNothingToPress. A "show more" that fetches
 // an empty list is a control that lies about there being more.
 func TestTransactionPaging_LastPageOffersNothingToPress(t *testing.T) {
-	fake := ledgerWithRecords(3, true)
-	fake.page.Next = nil
-	b := panelBrowserWith(t, fake)
+	// THE LEDGER'S CONTROL IS THE HTMX ONE; THE PASS'S IS A PLAIN LINK to the ledger's next page
+	// (M12-26: the rail cannot take the ledger's hour groups in place). Both are checked: absent
+	// on the last page, present when there is a cursor.
+	for _, c := range []struct{ path, control string }{
+		{ledgerDayHref, "hx-get"},
+		{transactionsHref, ">Show more<"},
+	} {
+		fake := ledgerWithRecords(3, true)
+		fake.page.Next = nil
+		b := panelBrowserWith(t, fake)
 
-	body := htmlOf(t, b.do(http.MethodGet, transactionsHref, nil))
-	if strings.Contains(body, "hx-get") {
-		t.Error("the last page still renders a paging control. There is nothing behind " +
-			"it, so pressing it appends nothing and looks broken.")
-	}
-	// Positive control: with a cursor there IS one, so the check above is not
-	// passing because the control never renders.
-	fake2 := ledgerWithRecords(3, true)
-	fake2.page.Next = &ledger.Cursor{At: time.Now().UTC(), ID: uuid.New()}
-	b2 := panelBrowserWith(t, fake2)
-	if !strings.Contains(htmlOf(t, b2.do(http.MethodGet, transactionsHref, nil)), "hx-get") {
-		t.Error("a page WITH a next cursor renders no paging control either -- the test " +
-			"above is vacuous")
+		body := htmlOf(t, b.do(http.MethodGet, c.path, nil))
+		if strings.Contains(body, c.control) {
+			t.Errorf("%s: the last page still renders a paging control. There is nothing behind "+
+				"it, so pressing it appends nothing and looks broken.", c.path)
+		}
+		// Positive control: with a cursor there IS one, so the check above is not
+		// passing because the control never renders.
+		fake2 := ledgerWithRecords(3, true)
+		fake2.page.Next = &ledger.Cursor{At: time.Now().UTC(), ID: uuid.New()}
+		b2 := panelBrowserWith(t, fake2)
+		if !strings.Contains(htmlOf(t, b2.do(http.MethodGet, c.path, nil)), c.control) {
+			t.Errorf("%s: a page WITH a next cursor renders no paging control either -- the test "+
+				"above is vacuous", c.path)
+		}
 	}
 }
 
@@ -612,7 +655,7 @@ func TestTransactionDocket_IsADocketAndCarriesEveryFieldTheCardAsksFor(t *testin
 		EmployeeName: "Maria Borg",
 	}}
 	b := panelBrowserWith(t, fake)
-	body := htmlOf(t, b.do(http.MethodGet, transactionsHref, nil))
+	body := htmlOf(t, b.do(http.MethodGet, ledgerDayHref, nil))
 
 	for _, want := range []struct{ what, text string }{
 		{"the location", "KF St Julians"},
@@ -965,7 +1008,7 @@ func TestFilterBar_RendersNoEmployeeRoster(t *testing.T) {
 		fake.opts.Departments = append(fake.opts.Departments, ledger.Option{ID: uuid.New(), Label: "Kitchen", Group: "Venue"})
 	}
 	b := panelBrowserWith(t, fake)
-	body := htmlOf(t, b.do(http.MethodGet, transactionsHref, nil))
+	body := htmlOf(t, b.do(http.MethodGet, ledgerDayHref, nil))
 
 	if !strings.Contains(body, `id="filter-employee"`) {
 		t.Fatal("there is no employee filter at all -- the card names six filters")
@@ -1210,7 +1253,7 @@ func TestTransactions_ADocketSaysWhoWroteTheNote(t *testing.T) {
 	}
 
 	// THEIRS: the label is printed and the sentence still is.
-	body := htmlOf(t, panelBrowserWith(t, base(true)).do(http.MethodGet, transactionsHref, nil))
+	body := htmlOf(t, panelBrowserWith(t, base(true)).do(http.MethodGet, ledgerDayHref, nil))
 	if !strings.Contains(body, claim) {
 		t.Fatalf("the note itself is not on the page; this test is measuring the wrong "+
 			"surface:\n%s", body)
@@ -1225,7 +1268,7 @@ func TestTransactions_ADocketSaysWhoWroteTheNote(t *testing.T) {
 	// OURS: the same sentence, our layer — no label. This is the control that stops
 	// the check above from passing on a label the template prints unconditionally,
 	// which would make the mark meaningless by making it universal.
-	ours := htmlOf(t, panelBrowserWith(t, base(false)).do(http.MethodGet, transactionsHref, nil))
+	ours := htmlOf(t, panelBrowserWith(t, base(false)).do(http.MethodGet, ledgerDayHref, nil))
 	if !strings.Contains(ours, claim) {
 		t.Fatalf("the control page does not carry the note at all:\n%s", ours)
 	}
@@ -1280,7 +1323,7 @@ func TestPolicyNote_IsEscapedOnBothSurfacesThatPrintIt(t *testing.T) {
 			Note:         hostileNote,
 		}},
 	}
-	docket := htmlOf(t, panelBrowserWith(t, f).do(http.MethodGet, transactionsHref, nil))
+	docket := htmlOf(t, panelBrowserWith(t, f).do(http.MethodGet, ledgerDayHref, nil))
 	if strings.Contains(docket, raw) {
 		t.Errorf("the docket rendered %q unescaped inside the policy note", raw)
 	}

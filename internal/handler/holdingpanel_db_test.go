@@ -112,8 +112,12 @@ func TestHoldingPanel_PartnerViewsSayTheOutcomeNeverTheReason(t *testing.T) {
 	if !strings.Contains(transactions, kmVenueName) || !strings.Contains(transactions, "not shown at a partner venue") {
 		t.Error("the employer's docket does not name the partner venue and say its evidence is not shown")
 	}
-	if strings.Contains(transactions, "IP no · GPS yes") {
-		t.Error("the employer's docket prints the evidence signs of a row at a partner venue (K-39)")
+	// M12-27: none of the shapes a blanked score or sign could take either -- "n/a" and "none" are
+	// what the docket prints for an own row that was not assessed, and a Trust label is the score's.
+	for _, leak := range []string{"IP no · GPS yes", "IP n/a", "Trust none", ">Trust<"} {
+		if strings.Contains(transactions, leak) {
+			t.Errorf("the employer's docket prints %q for a row at a partner venue (K-39)", leak)
+		}
 	}
 	// G-ORTA-1: the engine's sentence says the same in words; the docket carries the stand-in.
 	if strings.Contains(transactions, "no network proof of place") || !strings.Contains(transactions, "Decided by your rules at a partner venue") {
