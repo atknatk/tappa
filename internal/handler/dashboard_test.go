@@ -81,6 +81,10 @@ func sectionBodiesAs(t *testing.T, member bool) map[string]string {
 	if member {
 		fakeMember(records)
 	}
+	// M12-28: The Spike with a FULL page -- records waiting and a next page -- so every net
+	// over these bodies reads the queue links, the pager, the decision form and "Show more",
+	// not only the empty state the default fake renders.
+	records.queue = fullSpikeQueue().queue
 	b := panelBrowserWith(t, records)
 	out := make(map[string]string, len(pages.PanelSections))
 	for _, s := range pages.PanelSections {
@@ -572,7 +576,18 @@ func panelNonSectionScreens(t *testing.T) map[string]string {
 	}
 	out["POST "+manualEntryHref] = htmlOf(t, rec)
 
-	// ANTI-VACUITY: both pages must actually carry press targets, or adding them to the
+	// The Spike with records waiting and a next page, a record in the middle in focus (M12-28):
+	// the queue links, both pager links, the two decision buttons and "Show more". The section
+	// corpus above renders the review section with the default fake's empty queue.
+	full := fullSpikeQueue()
+	spike := panelBrowserWith(t, full)
+	rec = spike.do(http.MethodGet, reviewHref+"?focus="+full.queue.Records[1].ID.String(), nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("the full Spike answered %d, want 200", rec.Code)
+	}
+	out["GET "+reviewHref+" (a full page)"] = htmlOf(t, rec)
+
+	// ANTI-VACUITY: every page must actually carry press targets, or adding it to the
 	// corpus changes nothing.
 	for where, body := range out {
 		if len(pressTargetsOf(body)) == 0 {

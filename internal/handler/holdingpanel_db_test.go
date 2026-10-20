@@ -140,13 +140,13 @@ func TestHoldingPanel_PartnerViewsSayTheOutcomeNeverTheReason(t *testing.T) {
 		t.Fatalf("The Spike's form decides %v, want the partner-venue record %s", ids, flagged)
 	}
 	for _, want := range []string{kmVenueName + " · partner venue", "Network · Location", "not shown at a partner venue",
-		ledger.PartnerVenueNote, "at a partner venue", "FLAGGED"} {
+		ledger.PartnerVenueNote, "at a partner venue", "FLAGGED", "chip read"} {
 		if !strings.Contains(spike, want) {
 			t.Errorf("The Spike's partner-venue record does not say %q", want)
 		}
 	}
 	for _, leak := range []string{"base:", "no-evidence", "rule ", "Trust", "trust ", "IP ", "GPS",
-		"neither IP nor GPS", "venue's range", "placed the tap", "no network, no location"} {
+		"neither IP nor GPS", "venue's range", "placed the tap", "no network, no location", "chip signature valid"} {
 		if strings.Contains(spike, leak) {
 			t.Errorf("The Spike's partner-venue record carries %q (K-39)", leak)
 		}

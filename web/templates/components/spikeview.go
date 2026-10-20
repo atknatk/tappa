@@ -64,7 +64,12 @@ func SpikeFocus(d DocketView) SpikeFocusView {
 // physicalTapTile says whether the record is a physical touch. A FLAGGED NFC record had a valid
 // chip signature: an invalid one is rejected before any rule that can flag (§5 row 2). A QR scan
 // carries no signature at all; a counter gap is named from the rule alone (its size is not shown
-// -- D1). The rule is blank on a partner-venue record, so a partner row never says "counter gap".
+// -- D1).
+//
+// 🔴 ON A PARTNER-VENUE RECORD THE NFC TILE IS NEUTRAL: "yes" / "chip read", never the green
+// "chip signature valid". The rule is blank there (K-39), so a counter gap cannot be told from
+// any other flag -- and a green mark beside an engine note saying the counter jumped would be
+// the tile vouching for something the screen cannot see. The tap was a chip read either way.
 func physicalTapTile(d DocketView) EvidenceTile {
 	t := EvidenceTile{Label: "Physical tap"}
 	switch {
@@ -72,6 +77,8 @@ func physicalTapTile(d DocketView) EvidenceTile {
 		t.Value, t.Sub, t.Tone = "QR scan", "no chip signature on a QR scan", toneNone
 	case d.Channel == "manual":
 		t.Value, t.Sub, t.Tone = "n/a", "entered by a manager", toneNone
+	case d.Channel == "nfc" && d.PartnerVenue:
+		t.Value, t.Sub, t.Tone = "yes", "chip read", toneNone
 	case d.Channel == "nfc" && ruleRest(d.RuleSID) == "ctr-gap-review":
 		t.Value, t.Sub, t.Tone = "yes", "counter gap", toneBad
 	case d.Channel == "nfc":

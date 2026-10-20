@@ -55,6 +55,14 @@ func queueWith(n int) *fakeLedger {
 	return f
 }
 
+// fullSpikeQueue is a fake whose queue is a full page of The Spike: three records waiting and a
+// cursor to the next page, so "Show more" and both ends of the pager are drawn.
+func fullSpikeQueue() *fakeLedger {
+	f := queueWith(3)
+	f.queue.Next = &ledger.Cursor{At: f.queue.Records[2].OccurredAt, ID: f.queue.Records[2].ID}
+	return f
+}
+
 // --- §4.6: a screen may not claim what it has not measured ------------------
 
 // TestReviewSection_AFailedReadIsAnErrorAndNeverAnEmptyQueue is the §4.6 net, and
@@ -1515,6 +1523,43 @@ func TestReviewSection_APopulatedQueueHasNoSmallTarget(t *testing.T) {
 	}
 	if !strings.Contains(body, `class="field-input"`) {
 		t.Error("the note field lost its touch-target class")
+	}
+}
+
+// TestReviewSection_ThePhonesShowMoreIsNotUnderThePinnedButtons is the third eye's ORTA finding,
+// held as far as markup can hold it. On a phone the decision buttons are pinned above the bar
+// and the queue's section -- with "Show more", the only way to the next page there -- comes
+// AFTER the form, so the room reserved for the pinned bar must sit on the page's last block (the
+// two-column wrapper that holds both sections), not on the form: room on the form left the link
+// under the bar (measured at 390: link 688-732 px, bar 695-772 px, the point under the link was
+// Approve). Re-measured after the fix in the commit that added this test.
+// MUTANT: the spacer moved back onto the form -> red.
+func TestReviewSection_ThePhonesShowMoreIsNotUnderThePinnedButtons(t *testing.T) {
+	full := fullSpikeQueue()
+	body := htmlOf(t, panelBrowserWith(t, full).do(http.MethodGet, reviewHref, nil))
+	more := strings.Index(body, ">Show more<")
+	queue := strings.Index(body, `aria-label="Queue"`)
+	if more < 0 || queue < 0 {
+		t.Fatalf("a full page draws no Show more (%d) or no queue section (%d)", more, queue)
+	}
+	wrapper := -1
+	for _, m := range regexp.MustCompile(`<div class="([^"]*)"`).FindAllStringSubmatchIndex(body, -1) {
+		classes := strings.Fields(body[m[2]:m[3]])
+		if slices.Contains(classes, "desk:flex-row") && m[0] < queue {
+			wrapper = m[0]
+			if !slices.Contains(classes, "pb-[84px]") || !slices.Contains(classes, "md:pb-0") {
+				t.Errorf("the two-column wrapper (%q) reserves no room for the phone's pinned buttons", body[m[2]:m[3]])
+			}
+		}
+	}
+	if wrapper < 0 || wrapper > more {
+		t.Fatalf("no two-column wrapper opens before the queue section and its Show more (wrapper %d, more %d)", wrapper, more)
+	}
+	form := formActionRE.FindAllString(body, -1)
+	for _, f := range form {
+		if strings.Contains(f, "pb-[84px]") {
+			t.Errorf("the form still reserves the phone's room (%s): Show more comes after it", f)
+		}
 	}
 }
 

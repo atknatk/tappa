@@ -101,7 +101,14 @@ templ AdminReview(v ReviewView) {
 				// 1200. Below it they stack: the tablet scrolls the queue sideways above the
 				// record; the phone hides the list and pages through the records instead, and
 				// the queue's section moves below the record for its "Show more".
-				<div class="flex flex-col gap-[22px] desk:flex-row desk:items-start desk:gap-7">
+				//
+				// THE PHONE'S ROOM FOR THE PINNED BUTTONS IS RESERVED HERE, ON THE PAGE'S LAST
+				// BLOCK, not on the form: on the phone the queue's section -- and its "Show
+				// more", the only way to the next page there -- comes after the form, and room
+				// reserved on the form left that link under the pinned bar (measured at 390:
+				// the link at 688-732 px, the bar at 695-772, the point under the link was
+				// Approve). From md the bar is an ordinary row and nothing is reserved.
+				<div class="flex flex-col gap-[22px] pb-[84px] md:pb-0 desk:flex-row desk:items-start desk:gap-7">
 					<section aria-label="Queue" class="order-last flex min-w-0 flex-col gap-3 md:order-none desk:shrink-0 desk:basis-[280px]">
 						<div class="hidden md:-mx-8 md:block md:overflow-x-auto md:px-8 md:pb-1 desk:mx-0 desk:overflow-visible desk:px-0 desk:pb-0">
 							// The spike itself, drawn above the list on the desk: decoration.
@@ -122,7 +129,7 @@ templ AdminReview(v ReviewView) {
 					</section>
 					<section aria-label="The record being decided" class="flex min-w-0 flex-col gap-[18px] desk:grow-[999] desk:basis-[520px]">
 						@reviewPager(v.Pager)
-						<form method="post" action={ templ.URL(v.Action) } class="flex flex-col gap-[18px] pb-[84px] md:pb-0">
+						<form method="post" action={ templ.URL(v.Action) } class="flex flex-col gap-[18px]">
 							<input type="hidden" name="id" value={ v.FocusID }/>
 							@components.SpikeDocket(v.Focus) {
 								<div class="field-stack">
