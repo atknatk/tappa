@@ -62,7 +62,8 @@ adları (`ip`, `gps`, `lat`, `addr`, `code`, `key` …) · saat/para float'sız 
 
 | ID | Faz | Görev | Ajan | Bağımlılık |
 |---|---|---|---|---|
-| M12-01 | P0 | Kabuk kancaları: Kicker / Title / Crumbs / Actions, h1 boyu, içerik genişliği | yapıcı (`tappa-brand`) | — |
+| M12-51 | P0 | `origin/main`'i dala birleştir (GRP-1 Group bölümü yeni kabukta, yalnız canlı holding üyesine) — M12-01'den önce | yapıcı (`tappa-brand`) | — |
+| M12-01 | P0 | Kabuk kancaları: Kicker / Title / Crumbs / Actions, h1 boyu, içerik genişliği | yapıcı (`tappa-brand`) | M12-51 |
 | M12-02 | P1 | Billing dondurma formu `month` taşımıyor — ✅ **kodda** (`b75b6bf` bu dalda; `main` için `claude/fix-billing-freeze-month` `6381772`, CI yeşil, `main`'e alındı: [atknatk/tappa#1](https://github.com/atknatk/tappa/pull/1), `a4084c0`) | yapıcı | — |
 | M12-03 | P1 | `HasProofOfPlace` okuma tarafı /7 · /31 kuralını uygulamıyor | yapıcı + güvenlik | — |
 | M12-04 | P1 | Giriş ekranı kanıt listesi practice tap'ten söz ediyor | yapıcı | — |
@@ -120,9 +121,44 @@ okumalarını bekler. Her kart tek başına sevk edilebilir (dal üzerinde, CI y
 
 ## P0 — Kabuk
 
+## M12-51 — `origin/main`'i panel yeniden tasarımı dalına birleştir
+
+- **Bağımlılık:** — (M12-01'den **önce** koşar; aynı kabuk dosyalarına dokunur)
+- **Kırmızı çizgi:** §9 (tenant markası yuvaları değişmez); §4.5'e dokunmaz (GRP-1'in okuması olduğu gibi gelir)
+- **Araç:** yapıcı, skill `tappa-brand`
+- **Commit:** `merge: bring main's Group section and billing fix into the panel redesign` (gerçek merge
+  commit'i — dal push'lu, rebase/squash yok); golden değişirse ayrı commit; bu kart `docs(plan)`.
+
+**Amaç.** `origin/main`'in 20 commit'ini (GRP-1 Group bölümü `ab655ab`, `b70895d`; M12-02 birleşmesi
+`a4084c0`; entegrasyon rehberi; dokümanlar) dala almak ve GRP-1'in **Group** sekmesini yeni kabukta
+çizmek.
+
+**Neden.** `git merge-tree` `admin.templ`, `adminview.go`, üretilmiş `*_templ.go`'lar,
+`adminlogin_db_test.go` ve `panelbrand_golden_test.go`'da çakışma gösteriyordu; M12-01 aynı kabuk
+dosyalarını düzenlediği için birleşme önce oturmalı.
+
+**Kapsam.** Dalın kabuğu bütünüyle kalır; `main`'in `GroupOnly` / `PanelChrome.InGroup` mantığı eklenir:
+Group (etiket "Group", `/admin/group`) **yalnız canlı holding üyesine**, iki rol için de çizilir —
+masaüstü kenar çubuğunun alt grubunda Account'tan sonra (tablo sırası: Billing, Account, Group,
+Developers), tablet rayında bir satır içi çizgi SVG ikonla (`aria-hidden`), telefonda More sayfasında.
+`panel.templ`'de `main`'in `EmptyStateLabeled`'ı kalır. Üretilmiş dosyalar elle birleştirilmez
+(`make gen`). Group sayfasının metni bölümleri yeni etiketleriyle anar (The Pass, The Roll …); sayfa
+başka türlü yeniden tasarlanmaz (D1 — panosu yok).
+
+**Kabul kriterleri.**
+- Gerçek bir merge commit'i; `HEAD..origin/main` boş.
+- Gruba üye olmayan bir işletmenin kabuğu birleşmeden önceki dal kabuğuyla **bayt-aynı** (WL-8 panel
+  özetleri değişmeden geçer); üye işletmede fark yalnız Group bağlantısıdır (kenar çubuğu/ray + More).
+- Test iddiaları iki taraftan birleşir, hiçbiri gevşetilmez; kenar çubuğu ve telefon gezinme testleri
+  Group'u üye işletmede **ve** yokluğunu üye olmayanda kapsar; Group'un alt gruptaki yeri sabitlenir.
+- Group sayfası yeni kabukta tam bir `<h1>` ile render edilir.
+- Değişen golden'lar (WL-8, holdingless, key-budget) birleşmeden **sonra ayrı** bir commit'te, yazılı
+  bayt kontrolüyle yeniden yazılır — değişen yoksa bu commit de yoktur.
+- `make check` (DB env'li, tam `-race`) yeşil; dal push'lu, `main`'e dokunulmaz.
+
 ## M12-01 — Kabuk kancaları ve içerik genişliği
 
-- **Bağımlılık:** — (kabuk `0bb5085` + `dfb122d` üstünde)
+- **Bağımlılık:** M12-51 (kabuk `0bb5085` + `dfb122d` üstünde)
 - **Kırmızı çizgi:** §9 (tenant markası yuvaları değişmez)
 - **Araç:** yapıcı, skill `tappa-brand`
 - **Commit:** `feat(panel): let a section own its kicker, title, crumbs and actions`
