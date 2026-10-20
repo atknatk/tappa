@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/atknatk/tappa/internal/domain/ledger"
 )
@@ -34,7 +35,8 @@ import (
 //     rule, the score, the signs or the evidence sentence (M12-28, K-39).
 //
 // And the CONTROLS: a business in no holding gets none of the four additions, and its anomalies
-// screen names no partner business at all (no bucket, no sentence).
+// screen names no partner business at all (no bucket, no sentence) -- while its OWN tap and its
+// own flagged record, at its own venue, print their evidence on the docket and in The Spike.
 func TestHoldingPanel_PartnerViewsSayTheOutcomeNeverTheReason(t *testing.T) {
 	p := newPanelHarness(t)
 	p.signIn(t)
@@ -150,7 +152,12 @@ func TestHoldingPanel_PartnerViewsSayTheOutcomeNeverTheReason(t *testing.T) {
 		}
 	}
 	for _, leak := range []string{"base:", "no-evidence", "rule ", "Trust", "trust ", "IP ", "GPS",
-		"neither IP nor GPS", "venue's range", "placed the tap", "no network, no location", "chip signature valid"} {
+		"neither IP nor GPS", "venue's range", "placed the tap", "no network, no location", "chip signature valid",
+		// The separate Network and Location tiles drawn for a blanked record read "n/a" / "not
+		// checked" -- an own record's words for "never assessed", which a partner record is not.
+		// The value is read as the tile prints it (">n/a<"): a bare "n/a" is inside
+		// "/admin/anomalies" and every other /admin/a… href in the chrome.
+		"not checked", ">n/a<"} {
 		if strings.Contains(spike, leak) {
 			t.Errorf("The Spike's partner-venue record carries %q (K-39)", leak)
 		}
@@ -162,12 +169,67 @@ func TestHoldingPanel_PartnerViewsSayTheOutcomeNeverTheReason(t *testing.T) {
 	}
 
 	// CONTROLS: a business in no holding.
+	//
+	// 🔴 WITH ROWS OF ITS OWN, because "no partner venue" read on an empty page measures nothing:
+	// a ledger.atSite that marked EVERY record partner (MUTANT H1, measured: green while the
+	// control had no rows) has nothing to mark there. So the control has its own venue, plaque
+	// and employee, an ok tap at that venue and a flagged record in the queue -- none of them
+	// naming a site -- and its screens must print that evidence (positive) as well as no partner
+	// wording (negative). MUTANT H1 against this (measured): red.
 	q := newPanelHarness(t)
 	q.signIn(t)
+	ownVenueName := "Own Venue " + suffix
+	ownVenue := q.seedWall(t, ownVenueName)
+	ownPlaque := q.seedPlaque(t, "active", ownVenue)
+	ownStaff := uuid.New()
+	exec(`INSERT INTO employees (id, tenant_id, location_id, full_name, status, invited_at) VALUES ($1, $2, $3, $4, 'active', now())`,
+		ownStaff, q.tenantID, ownVenue, "Control Person "+suffix)
+	// The ok tap goes through the app's role IN THE CONTROL'S TENANT CONTEXT, as the tap path writes
+	// it: punch_feed (migration 00049) refuses an own-tenant ok row written outside that context.
+	var ownFlagged uuid.UUID
+	if err := q.data.WithTenant(ctx, q.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		if _, e := tx.Exec(ctx, `INSERT INTO transactions (tenant_id, employee_id, location_id, tag_uid, occurred_at, verdict, channel, type, sun_valid, ctr,
+		                                                 ip_match, gps_match, trust, note, policy_layer, matched_sid)
+		      VALUES ($1, $2, $3, $4, $5, 'ok', 'nfc', 'in', true, 1000, true, false, 70, $6, 'guardrail', 'base:ip-or-gps-ok')`,
+			q.tenantID, ownStaff, ownVenue, ownPlaque, day.Add(time.Hour), "network proof of place: the source IP matches the location"); e != nil {
+			return e
+		}
+		return tx.QueryRow(ctx, `INSERT INTO transactions (tenant_id, employee_id, location_id, tag_uid, occurred_at, verdict, channel, type, sun_valid, ctr,
+		                                                 ip_match, gps_match, trust, note, policy_layer, matched_sid, queued)
+		      VALUES ($1, $2, $3, $4, $5, 'flag', 'nfc', 'in', true, 1001, false, false, 20, $6, 'guardrail', 'base:no-evidence-review', true) RETURNING id`,
+			q.tenantID, ownStaff, ownVenue, ownPlaque, day.Add(2*time.Hour), "neither IP nor GPS could place this tap").Scan(&ownFlagged)
+	}); err != nil {
+		t.Fatalf("CONTROL: seeding the own records: %v", err)
+	}
+	ownPage := func(path string) string {
+		t.Helper()
+		res, body := q.get(t, path)
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("CONTROL GET %s: %d", path, res.StatusCode)
+		}
+		return html.UnescapeString(body)
+	}
+	ownDay := ownPage(transactionsHref + "?date=2026-07-01")
+	for _, want := range []string{ownVenueName, ">Trust<", "IP yes · GPS no", "IP no · GPS no"} {
+		if !strings.Contains(ownDay, want) {
+			t.Errorf("CONTROL: the business's own docket does not print %q -- K-39 blanks a partner venue's evidence, never its own", want)
+		}
+	}
+	ownSpike := ownPage(reviewHref + "?focus=" + ownFlagged.String())
+	if ids := hiddenIDsOf(ownSpike); len(ids) != 1 || ids[0] != ownFlagged.String() {
+		t.Fatalf("CONTROL: The Spike's form decides %v, want the own record %s", ids, ownFlagged)
+	}
+	for _, want := range []string{ownVenueName, "address not in the venue's range", "did not place the tap at the venue",
+		"chip signature valid", "no network, no location", "rule base:no-evidence-review", "neither IP nor GPS could place this tap"} {
+		if !strings.Contains(ownSpike, want) {
+			t.Errorf("CONTROL: The Spike's own record does not say %q -- K-39 blanks a partner venue's evidence, never its own", want)
+		}
+	}
 	for _, c := range []struct{ path, absent string }{
 		{weekHref(day), "Partner staff"}, {anomaliesHref, "A lost plaque was tapped"},
 		// D-a (fourth review): no partner bucket and no partner sentence -- MUTANT (measured): the
-		// bucket appended at Partner >= 0 put a 0-record bucket on this empty week -> red.
+		// bucket appended at Partner >= 0 put a 0-record bucket on this week, which holds no
+		// partner record -> red.
 		{anomaliesHref, "partner business"},
 		{transactionsHref + "?date=2026-07-01", "partner venue"},
 		{reviewHref, "partner venue"},
