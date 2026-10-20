@@ -21,6 +21,12 @@ var inlineStyle = regexp.MustCompile(`(?i)\bstyle\s*\??=\s*["'{]|<style[\s>/]`)
 // templ.RenderCSSItems) -- which style-src 'self' drops like any other inline style.
 var cssComponent = regexp.MustCompile(`^\s*css\s+\w+\s*\(`)
 
+// styleKey is a "style" key in a Go map literal -- templ.Attributes{"style": …} -- which, spread
+// into an element with { attrs... }, is a style attribute no markup scan sees. A .templ file holds
+// Go functions too (pages/transactions.templ's chipCurrent returns templ.Attributes), so it is read
+// there as well as in the .go files.
+var styleKey = regexp.MustCompile("[\"`]style[\"`]\\s*:")
+
 // inlineStyleExempt are the ONLY .templ files allowed inline styles, by path under web/templates,
 // each with its reason. A new file is scanned until it is listed here with one.
 var inlineStyleExempt = map[string]string{
@@ -80,6 +86,16 @@ func TestTemplates_CarryNoInlineStyle(t *testing.T) {
 			t.Errorf("the scan does not see %q -- a templ css component, which renders a <style> block", shape)
 		}
 	}
+	for _, shape := range []string{`templ.Attributes{"aria-current": "true", "style": "color:#c00"}`, "{`style`: s}", `"style" : x`} {
+		if !styleKey.MatchString(shape) {
+			t.Errorf("the scan does not see %q -- a style key in an attribute map", shape)
+		}
+	}
+	for _, prose := range []string{`"aria-current": "true"`, `class="line-style"`, `"styles": x`} {
+		if styleKey.MatchString(prose) {
+			t.Errorf("the scan reads %q as a style key", prose)
+		}
+	}
 	for _, prose := range []string{"// the css class above", "\tclass={ css }", "panelcss red() {", "@css.Card()"} {
 		if cssComponent.MatchString(prose) {
 			t.Errorf("the scan reads %q as a templ css component", prose)
@@ -134,6 +150,10 @@ func TestTemplates_CarryNoInlineStyle(t *testing.T) {
 						"page renders without the rule. Write the Tailwind utility literally in the "+
 						".templ, or a class in input.css's @layer components.", rel, i+1, hit)
 				}
+				if hit := styleKey.FindString(line); hit != "" {
+					t.Errorf("%s:%d puts a style key in an attribute map (%q): spread into an element it is "+
+						"an inline style, and style-src 'self' drops it", rel, i+1, strings.TrimSpace(line))
+				}
 				if cssComponent.MatchString(line) {
 					t.Errorf("%s:%d declares a templ css component (%q): a class={ … } that uses it renders "+
 						"a <style> block into the page, which style-src 'self' drops. Use a Tailwind utility "+
@@ -151,6 +171,11 @@ func TestTemplates_CarryNoInlineStyle(t *testing.T) {
 					"<style> block into the page, which style-src 'self' drops", rel)
 			}
 			if strings.HasSuffix(rel, "_templ.go") {
+				// The compiled form of a .templ's Go functions: the same map literal, read again.
+				if hit := styleKey.FindString(src); hit != "" {
+					t.Errorf("%s puts a style key in an attribute map (%q): spread into an element it is "+
+						"an inline style, and style-src 'self' drops it", rel, hit)
+				}
 				return nil
 			}
 			// A view type can hand an element its attributes (templ.Attributes spread with
