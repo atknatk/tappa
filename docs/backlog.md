@@ -301,6 +301,43 @@ düzeltildi; ilki hâlâ açık.
 
 ---
 
+## Panel redesign — drawn but not built (D1, 2026-10-20)
+
+> Kullanıcı kararı D1 (*"Kod gerçektir"*): "The Pass" panolarında çizilmiş ama üründe olmayan
+> özellikler port'tan **çıkarıldı**; kaybolmasınlar diye burada, birer satır. **Söz değildir** — her
+> biri ayrı bir ürün kararı ister. Ayrıntı: `docs/design/panel-redesign/screens/*.md` ("Not ported").
+> Planı: [M12](plan/m12-panel-redesign.md). Bu bölüm hiçbir görevi bloklamaz.
+
+- **Genel arama** (kişi, lokasyon, plaket) — panel başlığında ve telefonda; bugün yalnız ledger'ın ad süzgeci var.
+- **Vardiya planı / "rostered"** — "of N rostered", "not in yet", "rostered, still ahead" bantları, sayım paydaları.
+- **Vardiya günü sınırı** ("06:00 → 06:00") — bugün takvim günü; rapor ve CSV'yi de etkiler (ADR ister).
+- **Canlı yenileme** — The Pass rayının kendiliğinden güncellenmesi.
+- **Kişi seçicili "Manual entry"** — kişi seçmeden The Pass'ten / More'dan manuel kayıt başlatma.
+- **Manuel kayıtta "Change something"** — onay adımından değerlerle forma geri dönen POST.
+- **Tenant değiştirici** — oturum içinde işletme değiştirme, yan menüde sayılar.
+- **"Unlink phone"** — bir kişinin oturumlarını panelden iptal (rota, onay, audit).
+- **"Edit details"** — çalışan adı / rolünü panelden düzenleme (bugün yalnız API yazar).
+- **Yönetici listesi ve yönetici daveti** — Account'ta Managers kartı (M7-07 / Q02 bloklu).
+- **Holding / grup kartı** — Account'ta üyelik gösterimi (ADR 0027 §2 kapalı listesi değişir).
+- **Plaket sipariş akışı** ("Order plaques").
+- **"Mark lost"** — plaketi panelden kayıp işaretleme (güvenlik sınırı, ADR ister).
+- **Plaket konum adı** ("Front door") — `tags`'te sütun yok.
+- **Kural başına etki seçici** (Approve / Spike / Reject) ve **toplu "Review & save" çubuğu**.
+- **Kopyala düğmeleri** (davet bağlantısı, API anahtarı) — JS ve CSP ister.
+- **Maskeli `tt_whsec_` kuyruğu** — anahtar mühürlü saklanıyor, yeniden gösterilmiyor.
+- **Webhook gecikmesi** ("in 312 ms") — süre ölçülmüyor.
+- **The Spike'ta mesafe (metre), "konum paylaşılmadı / dışarıda" ayrımı, sayaç atlama büyüklüğü** — yeni sütunlar ister.
+- **Klavye kısayolları** (A / R).
+- **Odd shapes'te satır başına "Close it"**.
+- **Faturalama: ödeme kartı, fatura e-postası, PDF fatura / ekstre, kişi başına döküm.**
+- **Hesap kapatma.**
+- **Venue formunda satır satır adres okuma** ("How each line was read") ve hata sınıfına göre başlık.
+- **Account'ta hazır accent örnekleri (swatch) ve kaydedilen accent'in kontrast oranı okuması.**
+- **Developers'ta tek anahtar iptali için satır içi onay.**
+- **Panel 404 sayfası**; "Sign in again — you will come back here" (dönüş URL'si).
+
+---
+
 ## Kapananlar
 
 *(T47 ve T49 satırlarında ✅ ile işaretli — M8-03, `ae07e7c`)*

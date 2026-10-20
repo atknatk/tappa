@@ -64,8 +64,17 @@ renk zaten kenarlıkta ve zeminde, metin `ink` — orada değişen bir şey yok.
 Her işlem kaydı bir **mutfak adisyonu fişi**dir. Bu, ürünün tanınma işareti —
 tablo satırına çevirme.
 
+⚠️ **Köşeler ve çipler — kullanıcı kararı, 2026-10-20 (panel yeniden tasarımı "The Pass", D2).**
+Keskin köşe kuralı **adisyon (docket) ve kaşe damgası** içindir ve aynen kalır — imza motif budur;
+fiş (receipt) ve mini docket da adisyondur. Bunların **dışındaki** yüzeyler tasarımdaki gibi
+yuvarlatılabilir: kart, sayfa/çekmece (sheet), form alanı, düğme `rounded-xl` … `rounded-2xl` (kartlarda
+`rounded-[18px]`), alan `rounded-[10px]`; **çip ve durum hapı `rounded-full`** olabilir. Yuvarlatma rengi
+ya da durumu taşımaz; durum yine kelimede ve çerçevede. Teslim paketi:
+`docs/design/panel-redesign/README.md` (yarıçap tablosu §4).
+
 Anatomi:
-- `bg-paper`, keskin köşe (`rounded-none`) veya en fazla `rounded-sm`
+- `bg-paper`, keskin köşe (`rounded-none`) veya en fazla `rounded-sm` — **yalnız docket ve damga**
+  (yukarıdaki 2026-10-20 notu)
 - Üst ve alt kenarda **perforasyon**: `line` renginde tekrarlayan yarım daireler
   (CSS `radial-gradient` ile; görsel dosya kullanma)
 - Tek `line` kenarlık, çok hafif gölge (`shadow-sm`) — yükseltilmiş kart değil
@@ -290,9 +299,14 @@ Slogan: **No app. No device. No fingerprints. Just tap.** · Kampanya: *Go punch
 
 ## Yapma
 
-Emoji ikon seti (marka mesajları hariç) · yuvarlak hap butonlar · gradient ·
-glassmorphism · sallanan animasyon · stok illüstrasyon · birden çok vurgu rengi ·
-mono olmayan sayı · adisyon yerine düz tablo satırı.
+Emoji ikon seti (marka mesajları hariç) · yuvarlatılmış adisyon ya da kaşe damgası ·
+gradient · glassmorphism · sallanan animasyon · stok illüstrasyon · birden çok vurgu rengi ·
+mono olmayan sayı · **işlem kaydı** için adisyon yerine düz tablo satırı.
+
+*(2026-10-20, D2: bu listede "yuvarlak hap butonlar" yazıyordu; kullanıcı kuralı güncelledi — çipler ve
+durum hapları `rounded-full` olabilir, düğmeler ve kartlar yuvarlatılabilir; yasak artık yalnız
+docket ve damganın köşesidir. Kişi listesi (People) ve aggregate kartları kayıt değildir; işlem kayıtları
+yine adisyondur.)*
 
 ## Tenant slotları
 
