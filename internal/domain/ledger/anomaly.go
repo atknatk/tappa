@@ -76,6 +76,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/atknatk/tappa/internal/store"
 )
@@ -303,6 +304,11 @@ type AnomalyPair struct {
 	Days int
 	// ClosestSeconds is the smallest gap observed between the two.
 	ClosestSeconds int
+	// TogetherOn says, for each local day of the week -- index i is Period.DayLabels' i-th --,
+	// whether the two were together that day (M12-23, the week's dots). It comes from the same
+	// query and the same zone as Days, so its true count is Days; a nil slice is a pair read
+	// before this field existed (a fake), never "on no day".
+	TogetherOn []bool
 }
 
 // AnomalyOpen is a check-in with no later checkout.
@@ -580,6 +586,7 @@ func (r *Reader) Anomalies(ctx context.Context, tenantID uuid.UUID, f ReportFilt
 				Together:       int(p.Together),
 				Days:           int(p.Days),
 				ClosestSeconds: int(p.ClosestSeconds),
+				TogetherOn:     togetherOn(p.TogetherDays, period, zone),
 			})
 			var site *uuid.UUID
 			if p.LocationName == nil {
@@ -710,6 +717,30 @@ func (r *Reader) Anomalies(ctx context.Context, tenantID uuid.UUID, f ReportFilt
 		return AnomalyScreen{}, fmt.Errorf("ledger: anomalies: %w", err)
 	}
 	return out, nil
+}
+
+// togetherOn maps a pair's local days onto the week: one boolean per Period.DayLabels entry.
+//
+// THE DAYS ARE MATCHED BY CALENDAR DATE, NOT BY INSTANT. Postgres bucketed each tap into a
+// local date in the resolved zone (`occurred_at AT TIME ZONE zone`) and returns a `date`, which
+// pgx reads as midnight UTC of that date; DayLabels are midnights in the zone. Comparing the
+// instants would shift every day by the zone's offset -- comparing year, month and day does not.
+// A date outside the week (none can be: the window is the week's own bounds) sets no day.
+func togetherOn(days []pgtype.Date, period Period, zone *time.Location) []bool {
+	labels := period.DayLabels(zone)
+	out := make([]bool, len(labels))
+	for _, d := range days {
+		if !d.Valid {
+			continue
+		}
+		y, m, dd := d.Time.Date()
+		for i, l := range labels {
+			if ly, lm, ld := l.Date(); ly == y && lm == m && ld == dd {
+				out[i] = true
+			}
+		}
+	}
+	return out
 }
 
 // anomalyReadLimit and trimAnomalyRows are the two halves of ONE invariant, written as

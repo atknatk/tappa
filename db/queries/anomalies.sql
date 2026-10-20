@@ -493,6 +493,18 @@ WITH ordered AS (
 -- this very paragraph states, broken two lines below where it is written. It is on the
 -- screen now ("together N times"), because "twice on two days" and "forty times on two
 -- days" are different rows and the day count alone cannot tell them apart.
+--
+-- M12-23 -- `together_days` IS WHICH LOCAL DAYS, BESIDE `days` (HOW MANY). The same
+-- `local_day` the HAVING counts -- bucketed in the zone the caller resolved -- so its length
+-- is `days` by construction, and the 20 s / same venue / 2+ days definition is untouched (no
+-- predicate changed). internal/domain/ledger maps it against Period.DayLabels into one
+-- boolean per day of the week. It reads no evidence column: a pair is two people's times at
+-- one venue. EXPLAIN ANALYZE (2026-10-20, seeded KF after a simulated day, the last 7 days,
+-- min_days 1 so the probe has groups: 19 rows in, 8 pairs out): Limit -> Sort -> GroupAggregate
+-- -> Sort -> Nested Loop Left Join (locations) over two Hash Right Joins (employees b, a; seq
+-- scans of the tenant's 69 people) over Subquery Scan `o` -> WindowAgg -> Sort -> Index Scan on
+-- transactions_tenant_occurred_idx. The array is built in the GroupAggregate that already sorts
+-- by local_day for count(DISTINCT) -- no node added.
 SELECT
     a.full_name                                                    AS first_employee_name,
     b.full_name                                                    AS second_employee_name,
@@ -500,7 +512,8 @@ SELECT
     p.location_id::uuid                                            AS location_id,
     count(*)                                                       AS together,
     count(DISTINCT p.local_day)                                    AS days,
-    min(p.apart_seconds)::int                                      AS closest_seconds
+    min(p.apart_seconds)::int                                      AS closest_seconds,
+    array_agg(DISTINCT p.local_day ORDER BY p.local_day)::date[]   AS together_days
 FROM pairs p
 LEFT JOIN employees a ON a.id = p.first_id  AND a.tenant_id = @tenant_id
 LEFT JOIN employees b ON b.id = p.second_id AND b.tenant_id = @tenant_id

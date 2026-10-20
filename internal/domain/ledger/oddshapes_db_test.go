@@ -62,4 +62,42 @@ func TestRLS_OddShapes_TenantIsolation(t *testing.T) {
 	if r, bo, n, d, ne := split(a); r+bo+n+d+ne != 0 {
 		t.Errorf("§4.5 BREACH: A's connection splits B's venue %d/%d/%d/%d of %d records", bo, n, d, ne, r)
 	}
+
+	// M12-23: a second person of B's taps 5 s after the first on two days; the pair's local days,
+	// as ListTapsTakenTogether builds them (lag over the venue, array_agg of the local date), with
+	// no tenant predicate.
+	mate := w.employee(b)
+	for i, day := range []string{"2026-03-04", "2026-03-05"} {
+		w.exec(`INSERT INTO transactions (tenant_id, employee_id, occurred_at, verdict, channel, type, sun_valid, ctr, location_id, tag_uid)
+		        VALUES ($1, $2, $3, 'ok', 'nfc', 'in', true, $4, $5, $6)`,
+			b, mate, hLocal(t, day, "09:00:05"), 1101+i, venue, plaque)
+	}
+	w.exec(`INSERT INTO transactions (tenant_id, employee_id, occurred_at, verdict, channel, type, sun_valid, ctr, location_id, tag_uid)
+	        VALUES ($1, $2, $3, 'ok', 'nfc', 'in', true, 1201, $4, $5)`, b, person, hLocal(t, "2026-03-05", "09:00:00"), venue, plaque)
+	days := func(tenant uuid.UUID) (n int) {
+		t.Helper()
+		if err := w.data.WithTenant(w.ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
+			return tx.QueryRow(ctx, `
+				WITH o AS (
+				    SELECT t.employee_id, t.occurred_at,
+				           lag(t.employee_id) OVER (PARTITION BY t.location_id ORDER BY t.occurred_at, t.id) AS prev_employee_id,
+				           lag(t.occurred_at) OVER (PARTITION BY t.location_id ORDER BY t.occurred_at, t.id) AS prev_occurred_at
+				    FROM transactions t
+				    WHERE t.location_id = $1
+				)
+				SELECT coalesce(cardinality(array_agg(DISTINCT (o.occurred_at AT TIME ZONE 'Europe/Malta')::date)), 0)
+				FROM o
+				WHERE o.prev_employee_id <> o.employee_id AND o.occurred_at - o.prev_occurred_at < interval '20 seconds'`,
+				venue).Scan(&n)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if n := days(b); n != 2 {
+		t.Fatalf("CONTROL: B's own connection finds the pair on %d local days, want 2", n)
+	}
+	if n := days(a); n != 0 {
+		t.Errorf("§4.5 BREACH: A's connection finds B's pair on %d local days", n)
+	}
 }

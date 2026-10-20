@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // TestAnomalies_IssuesOnlySelects is §4.3 made mechanical for this section.
@@ -502,6 +503,48 @@ func TestAnomalyVenue_UnsplitIsTheRemainderOfJudged(t *testing.T) {
 	for _, tt := range tests {
 		if got := tt.v.Unsplit(); got != tt.want {
 			t.Errorf("%s: Unsplit() = %d, want %d", tt.name, got, tt.want)
+		}
+	}
+}
+
+// TestTogetherOn_MapsTheLocalDatesOntoTheWeek (M12-23): a pair's local dates become one boolean
+// per Period.DayLabels entry, matched by calendar date in the zone -- also where the zone is far
+// from UTC (a date read back as UTC midnight would land on the previous day if compared as an
+// instant) and across the week Malta moves its clocks; a NULL date, a date outside the week and
+// no dates at all set nothing.
+func TestTogetherOn_MapsTheLocalDatesOntoTheWeek(t *testing.T) {
+	t.Parallel()
+	load := func(name string) *time.Location {
+		z, err := time.LoadLocation(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return z
+	}
+	date := func(y int, m time.Month, d int) pgtype.Date {
+		return pgtype.Date{Time: time.Date(y, m, d, 0, 0, 0, 0, time.UTC), Valid: true}
+	}
+	tests := []struct {
+		name string
+		zone *time.Location
+		day  Date
+		days []pgtype.Date
+		want []bool
+	}{
+		{"Malta, Tue and Thu", load("Europe/Malta"), Date{Year: 2026, Month: time.March, Day: 4},
+			[]pgtype.Date{date(2026, time.March, 3), date(2026, time.March, 5)}, []bool{false, true, false, true, false, false, false}},
+		{"Auckland, Mon and Sun", load("Pacific/Auckland"), Date{Year: 2026, Month: time.March, Day: 4},
+			[]pgtype.Date{date(2026, time.March, 2), date(2026, time.March, 8)}, []bool{true, false, false, false, false, false, true}},
+		{"Malta, the clocks-forward week (Sat, Sun)", load("Europe/Malta"), Date{Year: 2026, Month: time.March, Day: 25},
+			[]pgtype.Date{date(2026, time.March, 28), date(2026, time.March, 29)}, []bool{false, false, false, false, false, true, true}},
+		{"a NULL date and one outside the week", load("Europe/Malta"), Date{Year: 2026, Month: time.March, Day: 4},
+			[]pgtype.Date{{}, date(2026, time.March, 9), date(2026, time.March, 2)}, []bool{true, false, false, false, false, false, false}},
+		{"no dates", load("Europe/Malta"), Date{Year: 2026, Month: time.March, Day: 4}, nil, make([]bool, 7)},
+	}
+	for _, tt := range tests {
+		got := togetherOn(tt.days, WeekOf(tt.day, tt.zone), tt.zone)
+		if !reflect.DeepEqual(got, tt.want) {
+			t.Errorf("%s: %v, want %v", tt.name, got, tt.want)
 		}
 	}
 }

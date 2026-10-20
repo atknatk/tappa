@@ -348,6 +348,10 @@ func TestEmployerReaders_NineReadersNameTheSite(t *testing.T) {
 		t.Run(dir.name+"/6 ListTapsTakenTogether", func(t *testing.T) {
 			for _, p := range anomalies.Pairs {
 				if p.Venue == venue {
+					// M12-23: the week's dots -- Wed 16 and Thu 17 of the week from Mon 14 September.
+					if want := []bool{false, false, true, true, false, false, false}; !slices.Equal(p.TogetherOn, want) || p.Days != 2 {
+						t.Errorf("the pair's days: %v (%d), want %v (2)", p.TogetherOn, p.Days, want)
+					}
 					return
 				}
 			}

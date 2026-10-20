@@ -3354,9 +3354,10 @@ type Querier interface {
 	// its records the screen never divides (no bar for a partner row), and an own row's judged is
 	// exactly the base the four figures split.
 	//
-	// EXPLAIN (2026-10-20, KF 10000000-…-0001, its week): Limit -> Sort -> GroupAggregate -> Sort ->
-	// Hash Left Join (locations) over a Bitmap Heap Scan on transactions_tenant_occurred_idx -- the
-	// same plan as before the three FILTERs; they are evaluated in the one aggregate pass.
+	// EXPLAIN ANALYZE (2026-10-20, seeded KF 10000000-…-0001, the last 7 days: 22 rows): Limit ->
+	// Sort -> GroupAggregate -> Sort -> Nested Loop Left Join (Bitmap Index Scan on
+	// transactions_tenant_occurred_idx; locations by locations_id_tenant_key) -- the three FILTERs add
+	// no node, they are evaluated in the one aggregate pass.
 	ListAnomalyVenues(ctx context.Context, arg ListAnomalyVenuesParams) ([]ListAnomalyVenuesRow, error)
 	// The frozen history, newest month first.
 	//
@@ -4499,6 +4500,18 @@ type Querier interface {
 	// this very paragraph states, broken two lines below where it is written. It is on the
 	// screen now ("together N times"), because "twice on two days" and "forty times on two
 	// days" are different rows and the day count alone cannot tell them apart.
+	//
+	// M12-23 -- `together_days` IS WHICH LOCAL DAYS, BESIDE `days` (HOW MANY). The same
+	// `local_day` the HAVING counts -- bucketed in the zone the caller resolved -- so its length
+	// is `days` by construction, and the 20 s / same venue / 2+ days definition is untouched (no
+	// predicate changed). internal/domain/ledger maps it against Period.DayLabels into one
+	// boolean per day of the week. It reads no evidence column: a pair is two people's times at
+	// one venue. EXPLAIN ANALYZE (2026-10-20, seeded KF after a simulated day, the last 7 days,
+	// min_days 1 so the probe has groups: 19 rows in, 8 pairs out): Limit -> Sort -> GroupAggregate
+	// -> Sort -> Nested Loop Left Join (locations) over two Hash Right Joins (employees b, a; seq
+	// scans of the tenant's 69 people) over Subquery Scan `o` -> WindowAgg -> Sort -> Index Scan on
+	// transactions_tenant_occurred_idx. The array is built in the GroupAggregate that already sorts
+	// by local_day for count(DISTINCT) -- no node added.
 	ListTapsTakenTogether(ctx context.Context, arg ListTapsTakenTogetherParams) ([]ListTapsTakenTogetherRow, error)
 	// THE DELIVERY LOG (the owner's panel): the business's deliveries, newest first, a page at a time.
 	// The position is the last row shown, (created_at, id): every row strictly before it in that order.
