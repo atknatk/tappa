@@ -855,7 +855,7 @@ func TestPanelScreens_FormControlsCarryATouchTargetClass(t *testing.T) {
 			if c := attrValueRE("class").FindStringSubmatch(attrs); len(c) == 2 {
 				classes = c[1]
 			}
-			if !hasTouchTargetClass(classes) {
+			if !hasControlTouchTargetClass(classes) {
 				t.Errorf("%s: <%s class=%q> is a form control carrying none of %v.\n"+
 					"A control smaller than 44px is missed by a thumb, and a manager "+
 					"checks this at the pass on a phone.", where, m[1], classes, panelTouchTargets)

@@ -1230,11 +1230,13 @@ var panelTouchTargets = map[string]int{
 	"filter-input": 44, // .filter-input -> min-h-11 = 2.75rem
 	// The raw utility, used inline by links (the sign-in page's lockup, "Forgot
 	// password?" and the sign-up offer among them) rather than through a semantic class. It is a real compiled rule (min-height:2.75rem), so
-	// the stylesheet half below holds it to the same floor.
+	// the stylesheet half below holds it to the same floor. On a press target it counts only
+	// beside a display class (M12-49, hasTouchTargetClass): on an inline <a> it reserves nothing.
 	"min-h-11": 44,
 	// Its 48 px sibling, on the ledger's filter disclosure (<summary class="flex min-h-12 …">,
 	// components/filterbar.templ): the first <summary> outside the phone bar, read since
-	// pressTargetRE learned <summary> (M12-49).
+	// pressTargetRE learned <summary> (M12-49). Like min-h-11 it counts on a press target
+	// only beside a display class (hasTouchTargetClass).
 	"min-h-12": 48,
 	// The sign-in field's password reveal button (2026-09-14). It is a real <button>,
 	// so BOTH halves of the pair reach it: the markup half accepts it because the
@@ -1291,13 +1293,55 @@ var panelTouchTargets = map[string]int{
 // a press target carries one that is not in panelTouchTargets.
 var panelPendingTouchTargets = map[string]int{}
 
+// hasTouchTargetClass is the rule for a PRESS TARGET (<a>, <button>, <summary>): one of
+// panelTouchTargets, and -- for a raw height utility -- a display class beside it.
+//
+// 🔴 A RAW min-h-11 ON AN INLINE <a> RESERVES NOTHING: min-height does not apply to an
+// inline box, so the link stays one line of text tall however the class reads. Measured
+// (M12-49): dropping inline-flex from "Forgot password?" left every net green while the
+// link shrank to its text. A semantic class (.btn, .chip-link ...) sets its own display in
+// input.css; a raw utility counts only with flex, inline-flex, block, inline-block, grid or
+// inline-grid on the same element, under any variant (`hidden md:inline-flex` is a target
+// exactly where it is shown).
 func hasTouchTargetClass(classes string) bool {
-	for _, c := range strings.Fields(classes) {
-		if _, ok := panelTouchTargets[c]; ok {
+	return touchTargetClass(classes, true)
+}
+
+// hasControlTouchTargetClass is the rule for a FORM CONTROL (<input>, <select>, <textarea>):
+// the same list, but a raw height utility needs no display class, because a form control is
+// an inline-block replaced element and min-height applies to it as it stands.
+func hasControlTouchTargetClass(classes string) bool {
+	return touchTargetClass(classes, false)
+}
+
+func touchTargetClass(classes string, needDisplay bool) bool {
+	fields := strings.Fields(classes)
+	for _, c := range fields {
+		if _, ok := panelTouchTargets[c]; !ok {
+			continue
+		}
+		if !needDisplay || !rawHeightUtilities[c] {
 			return true
+		}
+		for _, d := range fields {
+			if i := strings.LastIndex(d, ":"); i >= 0 {
+				d = d[i+1:]
+			}
+			if displayUtilities[d] {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// rawHeightUtilities are the entries of panelTouchTargets that are Tailwind utilities rather
+// than semantic classes, so they carry no display of their own.
+var rawHeightUtilities = map[string]bool{"min-h-11": true, "min-h-12": true}
+
+// displayUtilities are the display classes under which a min-height takes effect.
+var displayUtilities = map[string]bool{
+	"flex": true, "inline-flex": true, "block": true, "inline-block": true, "grid": true, "inline-grid": true,
 }
 
 type pressTarget struct {

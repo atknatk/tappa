@@ -831,7 +831,7 @@ func TestBrandEditor_EveryControlIsATouchTarget(t *testing.T) {
 		}
 		controls++
 		c, _ := attr(" "+m[2], "class")
-		if !hasTouchTargetClass(c) {
+		if !hasControlTouchTargetClass(c) {
 			t.Errorf("<%s%s> carries no touch-target class", m[1], m[2])
 		}
 	}
