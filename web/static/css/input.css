@@ -1289,7 +1289,7 @@
   .pill--invited { @apply border-dashed border-saffron bg-saffron/10; }
   .pill--deactivated { @apply border-line text-ink/70; }
   /* A tally drawn as a pill: the same tones (the .tally--* modifiers above). */
-  .tally-pill { @apply rounded-full px-2 font-bold tracking-[0.08em]; }
+  .pill-tally { @apply rounded-full px-2 font-bold tracking-[0.08em]; }
 
   /* --- buttons: modifiers of .btn, which keeps the height and the focus ring ---
      The accent never reaches them. The destructive pair is an ink word in a
