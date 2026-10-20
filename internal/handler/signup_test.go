@@ -1490,3 +1490,62 @@ func TestSignup_ARefusedValueIsNotEchoedRaw(t *testing.T) {
 		t.Error("the 422 body is not valid UTF-8")
 	}
 }
+
+// TestSignupProgress_FollowsTheWizardAndOnlyTheConfirmationIsStamped is M12-45's
+// progress docket and phone bar, over the screens a visitor is actually served.
+//
+// Each form names exactly one current step (the docket's aria-current) and the bar
+// counts the steps behind it; the confirmation names none and counts all three; a
+// problem screen draws no progress at all, because it does not know how far the
+// visitor got. The APPROVED stamp appears only where the business exists: the
+// confirmation's own docket and the progress docket beside it.
+func TestSignupProgress_FollowsTheWizardAndOnlyTheConfirmationIsStamped(t *testing.T) {
+	t.Parallel()
+	screens := signupSurfaceScreens(t)
+	for name, want := range map[string]struct {
+		current, valueNow string
+		stamps            int
+	}{
+		"business": {current: "Business", valueNow: "0"},
+		"places":   {current: "Places", valueNow: "1"},
+		"account":  {current: "Your sign-in", valueNow: "2"},
+		"done":     {valueNow: "3", stamps: 2},
+	} {
+		body := screens[name]
+		currents := regexp.MustCompile(`(?s)<li[^>]*aria-current="step"[^>]*>.*?</li>`).FindAllString(body, -1)
+		switch {
+		case want.current == "" && len(currents) != 0:
+			t.Errorf("the %s screen marks %d step(s) current; every step is done there", name, len(currents))
+		case want.current != "" && len(currents) != 1:
+			t.Errorf("the %s screen marks %d step(s) current, want exactly 1", name, len(currents))
+		case want.current != "":
+			if got := strings.Join(strings.Fields(regexp.MustCompile(`<[^>]*>`).ReplaceAllString(currents[0], " ")), " "); !strings.Contains(got, want.current) {
+				t.Errorf("the %s screen marks %q current, want %q", name, got, want.current)
+			}
+		}
+		if !strings.Contains(body, `role="progressbar"`) ||
+			!strings.Contains(body, `aria-valuenow="`+want.valueNow+`"`) {
+			t.Errorf("the %s screen's progress bar does not report %s step(s) behind", name, want.valueNow)
+		}
+		if got := strings.Count(body, `class="stamp stamp--approved"`); got != want.stamps {
+			t.Errorf("the %s screen carries %d APPROVED stamp(s), want %d", name, got, want.stamps)
+		}
+	}
+	for _, name := range []string{"problem-restart", "problem-nocookie", "problem-toomany", "problem-server"} {
+		body := screens[name]
+		if strings.Contains(body, `role="progressbar"`) || strings.Contains(body, `aria-label="Registration progress"`) {
+			t.Errorf("the %s screen draws progress; a problem screen does not know how far the "+
+				"visitor got", name)
+		}
+		if strings.Contains(body, "stamp--approved") {
+			t.Errorf("the %s screen carries an APPROVED stamp", name)
+		}
+		if strings.Count(body, "<h1") != 1 {
+			t.Errorf("the %s screen has %d h1 elements, want 1", name, strings.Count(body, "<h1"))
+		}
+	}
+	// The progress docket names the business as typed, from the second step on.
+	if !strings.Contains(screenText(t, screens["places"]), "Kebab Factory Ltd") {
+		t.Error("the places screen's progress docket does not name the business being registered")
+	}
+}

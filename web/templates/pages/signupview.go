@@ -1,5 +1,7 @@
 package pages
 
+import "strconv"
+
 // The SIGN-UP WIZARD's view models (M7-02).
 //
 // 🔴 THIS FILE IS WRITTEN UNDER **BOTH** OF THIS PACKAGE'S RULES AT ONCE, which no
@@ -240,4 +242,92 @@ type SignupProblemView struct {
 	// Retry is the path to start again, or "" when starting again is not the answer
 	// (a rate-limited caller must not be handed a button that spends more budget).
 	Retry string
+}
+
+// signupProgress is where the wizard stands, for the progress docket beside the form
+// and the progress bar above it on a phone (M12-45, design "The Pass").
+//
+// IT IS DERIVED FROM THE VIEW EACH SCREEN ALREADY RECEIVES, never carried by the
+// handler: the step is the screen's own number and the name is what the visitor typed
+// (step one's normalised Name, the later steps' BusinessName). A problem screen has
+// none — it does not know how far the visitor got, so it draws no progress at all
+// rather than a guessed one.
+type signupProgress struct {
+	// Step is 1..signupSteps on a form; 0 on the confirmation and on a problem screen.
+	Step int
+	// Done is the confirmation: the business exists, so every step is done and the
+	// docket carries the APPROVED stamp (true only there — see SignupDoneView).
+	Done bool
+	// Name is the business as typed so far; "" before step one has been answered.
+	Name string
+}
+
+// signupStepTitles names the three steps in order. Its length is signupSteps
+// (TestSignupProgress_NamesEveryStep, in this package, holds the two together).
+var signupStepTitles = []string{"Business", "Places", "Your sign-in"}
+
+// shown reports whether this screen draws progress at all.
+func (p signupProgress) shown() bool { return p.Done || p.Step > 0 }
+
+// name is what the docket calls the business: the visitor's own words, or a
+// placeholder that cannot be mistaken for one.
+func (p signupProgress) name() string {
+	if p.Name == "" {
+		return "New business"
+	}
+	return p.Name
+}
+
+// state is step i's (1-based) word: done, now or next. The word, not the colour of its
+// mark, is what tells the reader (the mark is aria-hidden).
+func (p signupProgress) state(i int) string {
+	switch {
+	case p.Done || i < p.Step:
+		return "done"
+	case i == p.Step:
+		return "now"
+	default:
+		return "next"
+	}
+}
+
+// completed is how many steps are behind the visitor: the progress bar's value.
+func (p signupProgress) completed() int {
+	if p.Done {
+		return signupSteps
+	}
+	return p.Step - 1
+}
+
+// barLabel and barTitle are the two words above the phone's progress bar.
+func (p signupProgress) barLabel() string {
+	if p.Done {
+		return "Registration"
+	}
+	return "Step " + strconv.Itoa(p.Step) + " of " + strconv.Itoa(signupSteps)
+}
+
+func (p signupProgress) barTitle() string {
+	if p.Done {
+		return "set up"
+	}
+	return signupStepTitles[p.Step-1]
+}
+
+// mark is what the step's round mark prints: a tick once done, else its number.
+func (p signupProgress) mark(i int) string {
+	if p.state(i) == "done" {
+		return "✓"
+	}
+	return "0" + strconv.Itoa(i)
+}
+
+// signupDoneStepNo numbers the confirmation's "what happens next" list. The sign-in
+// item is absent when signing in was measured to be impossible, so the numbers that
+// follow move up rather than starting at 02.
+func signupDoneStepNo(signInBlocked bool, i int) string {
+	if signInBlocked {
+		i--
+	}
+	return "0" + strconv.Itoa(i)
 }
