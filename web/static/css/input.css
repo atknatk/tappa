@@ -1133,6 +1133,289 @@
      navigation is not drawn (a phone, a tablet, a small laptop), so each of its links is a
      44 px touch target. The heading's id is the guide's own anchor (apiguide.ContentsID). */
   .guide-prose h2#contents + ul a { @apply inline-flex min-h-11 items-center; }
+
+  /* =====================================================================
+     THE PANEL REDESIGN'S SHARED CLASSES ("The Pass", M12-08).
+
+     The recipes are docs/design/panel-redesign/README.md §5, the opacity steps
+     and radii its §4 (D2: the docket and the stamp stay sharp; cards, fields,
+     buttons and chips may be rounded, chips and pills fully). Palette tokens
+     only, and only the steps §4 lists for new classes.
+
+     NOTHING BELOW IS RENDERED YET. Tailwind keeps a rule of this layer only when
+     its class name appears somewhere in the scanned sources, so each class enters
+     app.css with the first screen card that writes it -- this card adds the
+     recipes, not the pages. The exception is the tape bars: the bucket helper
+     (web/templates/components/buckets.templ) writes their ten names literally,
+     so those ten rules compile from today.
+
+     🔴 FOUR NAMES DIFFER FROM README §5 BECAUSE THE SCAN IS LEXICAL, NOT A USE
+     COUNT. Measured on the first build of this block: .chip, .field, .lock and
+     .switch compiled into app.css with no element carrying them (+2 869 bytes),
+     because the word stands as a whole token somewhere in the templates -- prose
+     comments for the first three (36, 81 and 12 files), the Go keyword in 62 --
+     and Tailwind keeps any layer rule whose class it finds as a token. So they
+     are .chip-link, .field-stack, .lock-glyph and .rule-switch; their modifiers
+     and parts follow. The rail's tilt rules key on the item and the element
+     (article) rather than on .docket for the same reason: a selector naming a
+     class already in use compiles with it. A new class here needs a name no
+     sentence would contain.
+
+     THE PRESS TARGETS (.chip-link, .queue-item, .roster-row, .venue-card,
+     .rule-switch, .field-input, .stat-card--spike, .btn--approve, .btn--reject)
+     each reserve at
+     least 44 px, and each is listed in panelPendingTouchTargets
+     (internal/handler/dashboard_test.go), whose test reads the heights out of
+     THIS file because the compiled stylesheet does not carry them yet. The first
+     screen that uses one moves it to panelTouchTargets, where the markup scan and
+     the compiled-stylesheet check take over; the pending test turns red until it
+     does.
+
+     NO CLASS HERE READS THE TENANT ACCENT and no name carries the accent's word
+     (TestCompiledCSS_BrandNamesOccurOnlyInTheGolden,
+     TestCompiledCSS_BrandVariablesOnlyInTheirSlots): the panel's actions stay the
+     palette's. Status is never colour alone -- every tone below is a frame or a
+     ground under a word the template writes. */
+
+  /* --- surfaces --- */
+  .panel-card {
+    @apply flex flex-col gap-4 rounded-[18px] border border-line bg-paper p-4
+           md:px-[22px] md:py-5 desk:px-6 desk:py-[22px];
+  }
+  .stat-card {
+    @apply flex flex-col gap-2.5 rounded-[18px] border border-line bg-paper p-4
+           md:px-5 md:py-[18px] desk:gap-[18px] desk:px-6 desk:py-[22px];
+  }
+  /* The Spike's card is a link to the queue, so it is a press target. */
+  .stat-card--spike {
+    @apply min-h-11 border-saffron bg-saffron-lite text-ink hover:border-ink
+           focus:outline-none focus-visible:ring-2 focus-visible:ring-ink;
+  }
+  .stat-card--open { @apply border-dashed border-ink/50; }
+
+  /* The mono eyebrow and field label. ink/70 is the tone .docket-label already
+     clears AA with on every light ground (ink/50 is for borders only). */
+  .lbl { @apply font-mono text-[11px] uppercase tracking-[0.12em] text-ink/70; }
+
+  /* --- form field (a new pair: .filter-input stays as other pages use it) ---
+     The error state follows aria-invalid, so the attribute a screen reader hears
+     and the frame a sighted manager sees cannot disagree; the 2 px frame keeps
+     the box by giving back 1 px of padding. */
+  .field-stack { @apply flex flex-col gap-1.5; }
+  .field-input {
+    @apply min-h-11 w-full rounded-[10px] border border-line bg-paper px-3 font-display
+           text-sm text-ink focus:border-tappa-green focus:outline-none focus:ring-2
+           focus:ring-tappa-green/40;
+  }
+  .field-input--mono { @apply font-mono; }
+  .field-input[aria-invalid="true"] { @apply border-2 border-tomato px-[11px]; }
+  .field-help { @apply text-[13px] leading-[1.45] text-ink/70; }
+
+  /* --- chips: links, not buttons; the current one is ink with paper text ---
+     The focus mark is an outline with an offset because a ring in ink would
+     vanish against the current chip's own ink fill. */
+  .chip-link {
+    @apply inline-flex min-h-11 flex-none items-center gap-1.5 whitespace-nowrap rounded-full
+           border border-ink/50 px-3.5 font-display text-[13px] font-medium text-ink
+           hover:border-ink focus:outline-none focus-visible:outline-2
+           focus-visible:outline-offset-2 focus-visible:outline-ink;
+  }
+  .chip-link--on { @apply border-ink bg-ink text-paper; }
+  .chip-count { @apply font-mono text-xs opacity-80; }
+  /* A phone scrolls the row sideways inside the shell's padding (the bleed);
+     from md it wraps. */
+  .chip-group {
+    @apply -mx-4 flex gap-2 overflow-x-auto px-4 md:mx-0 md:flex-wrap md:overflow-visible md:px-0;
+    scrollbar-width: none;
+  }
+
+  /* --- status pills: the database's words (INVITED / ACTIVE / DEACTIVATED) ---
+     Word ink, colour in the frame, as on the stamp. */
+  .pill {
+    @apply inline-flex items-center whitespace-nowrap rounded-full border px-2.5 py-0.5
+           text-xs font-medium text-ink;
+  }
+  .pill--active { @apply border-tappa-green bg-tappa-green/10; }
+  .pill--invited { @apply border-dashed border-saffron bg-saffron/10; }
+  .pill--deactivated { @apply border-line text-ink/70; }
+  /* A tally drawn as a pill: the same tones (the .tally--* modifiers above). */
+  .tally--pill { @apply rounded-full px-2 font-bold tracking-[0.08em]; }
+
+  /* --- buttons: modifiers of .btn, which keeps the height and the focus ring ---
+     The accent never reaches them. The destructive pair is an ink word in a
+     tomato frame; a fill would put the word on tomato. */
+  .btn--ink {
+    @apply rounded-xl bg-ink text-paper hover:bg-tappa-green focus:ring-offset-2
+           focus:ring-offset-paper;
+  }
+  .btn--line { @apply rounded-xl border border-ink bg-transparent text-ink hover:bg-ink/5; }
+  .btn--danger { @apply rounded-xl border-2 border-tomato bg-paper text-ink hover:bg-tomato/10; }
+  .btn--approve {
+    @apply min-h-16 rounded-2xl bg-tappa-green text-lg text-paper hover:bg-ink
+           focus:ring-offset-2 focus:ring-offset-paper;
+  }
+  .btn--reject {
+    @apply min-h-16 rounded-2xl border-2 border-tomato bg-paper text-lg text-ink
+           hover:bg-tomato/10;
+  }
+
+  /* --- evidence tile (The Spike, Odd shapes) ---
+     The mark is aria-hidden in the template; the value and the sub-line carry
+     the meaning. Paper on tomato 5.30:1, paper on tappa-green 7.73:1. */
+  .ev-tile { @apply flex flex-col gap-1.5 rounded-xl border border-line px-3.5 py-3; }
+  .ev-tile--ok { @apply bg-tappa-green/5; }
+  .ev-tile--bad { @apply bg-tomato/5; }
+  .ev-tile--none { @apply bg-paper; }
+  .ev-tile-value { @apply font-display text-base font-bold text-ink; }
+  .ev-tile-sub { @apply text-xs text-ink/70; }
+  .ev-tile-mark {
+    @apply inline-flex size-[22px] flex-none items-center justify-center rounded-md
+           font-mono text-[13px];
+  }
+  .ev-tile--ok .ev-tile-mark { @apply bg-tappa-green text-paper; }
+  .ev-tile--bad .ev-tile-mark { @apply bg-tomato text-paper; }
+  .ev-tile--none .ev-tile-mark { @apply bg-line text-ink; }
+
+  /* --- evidence badge on a venue card: "IP ok", "IP too wide", "IP none" ---
+     The template adds the sr-only words; the marks are aria-hidden. */
+  .ev-badge {
+    @apply inline-flex items-center whitespace-nowrap rounded-md border px-[7px] py-0.5
+           font-mono text-[11px] font-bold text-ink;
+  }
+  .ev-badge--ok { @apply border-tappa-green bg-tappa-green/10; }
+  .ev-badge--wide { @apply border-dashed border-saffron bg-saffron/10; }
+  .ev-badge--none { @apply border-dashed border-ink/50 text-ink/70; }
+
+  /* --- selectable rows and cards: links carrying aria-current ---
+     A 2 px frame on the selected one gives back 1 px of padding, so selecting
+     does not move the content. */
+  .queue-item {
+    @apply flex min-h-11 w-full flex-col gap-1 rounded-xl border border-line px-3.5 py-3
+           text-left text-ink hover:border-ink focus:outline-none focus-visible:ring-2
+           focus-visible:ring-ink;
+  }
+  .queue-item--current { @apply border-2 border-ink bg-paper px-[13px] py-[11px]; }
+  .venue-card {
+    @apply flex min-h-11 w-full flex-col gap-2.5 rounded-[14px] border border-line bg-paper
+           px-4 py-3.5 text-ink hover:border-ink focus:outline-none focus-visible:ring-2
+           focus-visible:ring-ink;
+  }
+  .venue-card--on { @apply border-2 border-ink px-[15px] py-[13px]; }
+  /* A person's row in People: 64 px on a phone, 60 px from md. The selected row
+     is marked by its aria-current, not by a second class. */
+  .roster-row {
+    @apply flex min-h-16 w-full flex-wrap items-center gap-3.5 border-t border-dashed
+           border-line px-5 py-2.5 text-ink first:border-t-0 hover:bg-tappa-green/5
+           focus:outline-none focus-visible:ring-2 focus-visible:ring-inset
+           focus-visible:ring-ink md:min-h-[60px];
+  }
+  .roster-row[aria-current="true"] {
+    @apply bg-tappa-green/10;
+    box-shadow: inset 3px 0 0 theme('colors.ink');
+  }
+
+  /* --- The Roll's day cell ---
+     Modifiers combine; each cell carries sr-only words in the template, and the
+     manual cell its literal M as well as the dotted underline. */
+  .roll-cell {
+    @apply inline-block min-w-[58px] rounded-lg py-[7px] text-center font-mono text-[13px]
+           text-ink;
+  }
+  .roll-cell--worked { @apply bg-tappa-green/15; }
+  .roll-cell--other { @apply ring-1 ring-inset ring-ink; }
+  .roll-cell--manual { @apply underline decoration-dotted; }
+  .roll-cell--open { @apply border border-dashed border-saffron bg-saffron/10 py-[6px]; }
+  .roll-cell--none { @apply text-ink/70; }
+
+  /* --- the tape's bar heights: ten buckets the bucket helper chooses ---
+     A share of the row's own height, so one set serves the phone's 28 px row and
+     the 34 px one. The steps follow the approved boards: the shortest bar is a
+     quarter of the row, so one person on shift is still a visible bar, and a
+     bucket of 0 writes no bar at all. */
+  .tape-bar--1 { height: 26%; }
+  .tape-bar--2 { height: 34%; }
+  .tape-bar--3 { height: 42%; }
+  .tape-bar--4 { height: 51%; }
+  .tape-bar--5 { height: 59%; }
+  .tape-bar--6 { height: 67%; }
+  .tape-bar--7 { height: 75%; }
+  .tape-bar--8 { height: 84%; }
+  .tape-bar--9 { height: 92%; }
+  .tape-bar--10 { height: 100%; }
+
+  /* --- the rail's tilt: by position, never a per-item class built in Go ---
+     Seven angles in a cycle, hung from the clip (top centre). The docket keeps
+     its sharp corners (D2); only its angle changes. The rail docket is an
+     article (README §5); the clip beside it is not, so it does not turn. */
+  .rail-item article { transform-origin: top center; }
+  .rail-item:nth-child(7n+1) article { rotate: -1.2deg; }
+  .rail-item:nth-child(7n+2) article { rotate: 0.8deg; }
+  .rail-item:nth-child(7n+3) article { rotate: -0.4deg; }
+  .rail-item:nth-child(7n+4) article { rotate: 1.1deg; }
+  .rail-item:nth-child(7n+5) article { rotate: -0.9deg; }
+  .rail-item:nth-child(7n+6) article { rotate: 0.5deg; }
+  .rail-item:nth-child(7n+7) article { rotate: -1.4deg; }
+
+  /* --- the Rules ladder: CLASS-ONLY on purpose ---
+     /admin/policies is held to a short list of tags and attributes (no svg, no
+     list elements, no aria, no id), so the rail, the rung connectors, the
+     riveted plates and the lock glyph are all drawn from pseudo-elements and
+     carry nothing a screen reader reads. The numbers in .rung-no are the
+     engine's Order, written by the template. Geometry: the rail's centre is
+     19 px from the left on a phone and 26 px from md, and each connector and
+     badge is centred on it. */
+  .ladder { @apply relative pl-12 md:pl-16; }
+  .ladder::before {
+    content: '';
+    @apply absolute bottom-1.5 left-4 top-1.5 w-1.5 rounded bg-ink md:left-[22px] md:w-2;
+  }
+  .rung { @apply relative; }
+  .rung::before {
+    content: '';
+    @apply absolute -left-[29px] top-[26px] h-[3px] w-[29px] bg-ink md:-left-[42px] md:w-[42px];
+  }
+  .rung-no {
+    @apply absolute -left-[42px] top-3.5 inline-flex size-[26px] items-center justify-center
+           rounded-full bg-ink font-mono text-xs font-bold text-paper
+           md:-left-16 md:top-[13px] md:h-7 md:w-[52px] md:rounded-md;
+  }
+  .plate { @apply relative rounded-xl border border-line bg-ink/5 px-[22px] py-3.5; }
+  .plate::before,
+  .plate::after {
+    content: '';
+    @apply absolute top-2 size-[5px] rounded-full bg-ink/50;
+  }
+  .plate::before { @apply left-2; }
+  .plate::after { @apply right-2; }
+  /* A padlock: a ring, a shackle (::before) and a body (::after). */
+  .lock-glyph {
+    @apply relative inline-block size-[34px] flex-none rounded-full border-[3px] border-ink
+           bg-porcelain;
+  }
+  .lock-glyph::before {
+    content: '';
+    @apply absolute left-1/2 top-1.5 h-[9px] w-2.5 -translate-x-1/2 rounded-t-full border-2
+           border-b-0 border-ink;
+  }
+  .lock-glyph::after {
+    content: '';
+    @apply absolute left-1/2 top-[13px] h-[9px] w-3.5 -translate-x-1/2 rounded-sm bg-ink;
+  }
+
+  /* --- the rule switch: a submit button whose words name the outcome ---
+     No switch role and no pressed state: the state is the state chip beside it,
+     and the button says what pressing it will do. */
+  .rule-switch {
+    @apply inline-flex min-h-11 items-center gap-2.5 rounded-[22px] border pl-1.5 pr-3.5
+           text-left font-display text-[13px] font-bold text-ink hover:border-ink
+           focus:outline-none focus-visible:ring-2 focus-visible:ring-ink
+           focus-visible:ring-offset-2 focus-visible:ring-offset-paper;
+  }
+  .rule-switch--on { @apply border-tappa-green bg-tappa-green/15; }
+  .rule-switch--off { @apply border-ink/50 bg-porcelain; }
+  .rule-switch-knob { @apply size-[30px] flex-none rounded-full; }
+  .rule-switch--on .rule-switch-knob { @apply bg-tappa-green; }
+  .rule-switch--off .rule-switch-knob { @apply border border-ink/50 bg-paper; }
 }
 
 /* =====================================================================
