@@ -128,12 +128,26 @@ func (r *dbRig) suspend(biz uuid.UUID) {
 
 // trySuspend is suspend with the database's answer returned (and a lock timeout, when given).
 func (r *dbRig) trySuspend(biz uuid.UUID, lockTimeout string) error {
+	_, err := r.trySuspendTimed(biz, lockTimeout)
+	return err
+}
+
+// trySuspendTimed is trySuspend that also says how long op_suspend_tenant ITSELF took -- timed
+// inside asOperator, after the cross-package operator-tables lock is held. Timing the whole of
+// asOperator would time that lock too: internal/db's opTx takes it EXCLUSIVE while it walks
+// migrations, and a run of the whole module waited 40 s on it beside this package (2026-10-20,
+// op-15's full -race run) -- a wait on the TEST'S lock, not on the tenant's row.
+func (r *dbRig) trySuspendTimed(biz uuid.UUID, lockTimeout string) (time.Duration, error) {
 	r.t.Helper()
 	hash := r.operatorSession()
 	r.liftAtEnd(biz)
-	return r.asOperator(lockTimeout, func(ctx context.Context, tx pgx.Tx) error {
+	var took time.Duration
+	err := r.asOperator(lockTimeout, func(ctx context.Context, tx pgx.Tx) error {
+		start := time.Now()
+		defer func() { took = time.Since(start) }()
 		return db.SuspendTenant(ctx, tx, hash, biz, db.SuspensionSecurityHold)
 	})
+	return took, err
 }
 
 // liftAtEnd registers, once per business, the t.Cleanup that has the operator lift biz's suspension.
@@ -664,9 +678,7 @@ func TestSuspension_TheReadHoldsNoLockOnTheTenant(t *testing.T) {
 	raw, _ := r.key(biz, owner)
 	r.liftAtEnd(biz) // before the hold: the held write is released first at the end (LIFO)
 	release, done := heldWrites(t, r, raw, "held-"+uuid.NewString(), 1)
-	start := time.Now()
-	err := r.trySuspend(biz, "300ms")
-	took := time.Since(start)
+	took, err := r.trySuspendTimed(biz, "300ms")
 	if err != nil {
 		t.Fatalf("op_suspend_tenant beside a write in flight: %v after %v; want it through at once", err, took)
 	}
