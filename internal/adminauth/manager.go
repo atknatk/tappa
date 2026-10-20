@@ -764,6 +764,58 @@ type Resolved struct {
 	AdminUserID uuid.UUID
 	Role        string
 	FullName    string
+	// Suspended is the business's suspension as the same TouchAdminSession statement
+	// read it (ADR 0025 §1, §3): nil when the business is not suspended.
+	//
+	// 🔴 ITS ZERO VALUE IS THE HARMFUL DIRECTION, AND THAT IS A NUMBERED EXCEPTION
+	// (ADR 0025 §3, K15-9) TO THE RULE internal/httpx/adminidentity.go WRITES DOWN
+	// ("the state you get by DOING NOTHING must be the harmless one"). A nil here
+	// means "writes open", so a Verify that stopped copying the two columns would
+	// lift every suspension silently. The exception is narrow -- the field means
+	// something only on a LIVE identity, and only Verify makes one -- and it is held
+	// by two pins rather than by polarity:
+	// TestVerify_CarriesTheSuspensionTheStatementReturned (the mapping) and
+	// TestPanelSuspensionDB_TheNextPostOfTheSameSessionIsRefused (end to end).
+	Suspended *Suspension
+}
+
+// Suspension is a suspended business's two columns (tenants.suspended_at and
+// tenants.suspension_reason, migration 00063).
+//
+// Reason is a CODE from the closed set tenants_suspension_reason_check allows. It is not
+// text for a person: the panel turns it into a sentence through a closed map and never
+// renders it (ADR 0025 §3, "Gerekçe cümleleri"); a code this build does not know is
+// carried verbatim.
+//
+// 🔴 IT IS A PLAIN STRING, NOT internal/db's SuspensionReason, AND THAT IS ADR 0021
+// §3.6. internal/db declares that type in its OPERATOR file, and the customer side of
+// the code uses none of the operator's names (TestCustomerPanel_ImportsNoOperatorPackage
+// reads internal/handler for exactly that). The two copies of the set are bound by a
+// test, not by a shared type: internal/handler's
+// TestSuspensionSentences_CoverTheClosedReasonSet.
+type Suspension struct {
+	Since  time.Time
+	Reason string
+}
+
+// suspensionOf maps the statement's two nullable columns onto Resolved.Suspended.
+//
+// 🔴 HALF A SUSPENSION IS A SUSPENSION. The CHECK tenants_suspension_both_or_neither
+// makes a row with one column set impossible, owner included; if one ever arrived
+// anyway, reading it as "not suspended" would open the business's writes on the
+// strength of a broken row. Either column set means suspended.
+func suspensionOf(at *time.Time, reason *string) *Suspension {
+	if at == nil && reason == nil {
+		return nil
+	}
+	s := &Suspension{}
+	if at != nil {
+		s.Since = *at
+	}
+	if reason != nil {
+		s.Reason = *reason
+	}
+	return s
 }
 
 // Verify resolves a panel cookie and proves the session is still usable.
@@ -783,6 +835,11 @@ type Resolved struct {
 // disabled admin until their cookie expired — and the cookie has no server-side
 // expiry (cookie.go). The write only happens for a cookie that ALREADY resolved to
 // a real session row, so an unauthenticated flood costs reads, not writes.
+//
+// THE BUSINESS'S SUSPENSION COMES BACK FROM THE SAME STATEMENT (ADR 0025 §3): the
+// panel's write gate reads Resolved.Suspended and never queries for it. A tenant row
+// the statement cannot see makes it return 0 rows, which lands below as ErrNoSession —
+// a suspension that cannot be read is "not signed in", never "not suspended".
 //
 // EVERY FAILURE COLLAPSES TO ErrNoSession, deliberately: absent, malformed,
 // unknown, revoked and disabled-admin all mean "go to the login page" for the
@@ -837,6 +894,7 @@ func (m *Manager) Verify(ctx context.Context, t Token) (Resolved, error) {
 		AdminUserID: row.AdminUserID,
 		Role:        row.Role,
 		FullName:    row.FullName,
+		Suspended:   suspensionOf(row.SuspendedAt, row.SuspensionReason),
 	}, nil
 }
 

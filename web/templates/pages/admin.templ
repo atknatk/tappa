@@ -405,9 +405,26 @@ templ panelChrome(c PanelChrome) {
 			</form>
 		</div>
 	</div>
+	if c.Suspension.Shown() {
+		@panelSuspensionStrip(c.Suspension)
+	}
 	@components.TabBar(panelTabs(c), c.CurrentHref())
 	if s, ok := c.Section(); ok {
 		<h1 class="font-display text-2xl font-bold tracking-tight">{ s.Label }</h1>
+	}
+}
+
+// panelSuspensionStrip is the strip a suspended business sees above the navigation of
+// every section (ADR 0025 §3, "Panel kabuğu"). It is the product's own Notice in its
+// warning tone, so the tenant's accent never paints it (ADR 0023 §6 item 2), and the
+// meaning is in the words: the heading says what stopped, the sentence says why and
+// what to do, the last line says what still works. The date is a number and so set in
+// the data face. Every string arrives as text from internal/handler; the reason's code
+// does not reach this template.
+templ panelSuspensionStrip(s PanelSuspension) {
+	@components.Notice(components.ToneWarn, s.Heading) {
+		<p>{ s.Sentence }</p>
+		<p class="mt-1">Since <span class="font-mono">{ s.Since }</span>. { s.StillWorks }</p>
 	}
 }
 

@@ -141,6 +141,12 @@ func (a *AdminAuth) mountSections(r chi.Router) {
 // signed-in manager's session budget, 301 unbudgeted lookups). Adding a route here
 // inherits the order; adding one outside is a visible edit somewhere else.
 //
+// ⚠️ SINCE OP-15 PHASE B THE CHAIN HAS TWO SPELLINGS, AND THEY DIFFER BY ONE RING.
+// The main group mounts ProtectWriting, whose last stage refuses a suspended
+// business (ADR 0025 §3); the sibling group at the end mounts the same chain without
+// that stage, for a closed list of routes a suspension must not stop. Everything said
+// above about the Origin check and the order holds for both.
+//
 // 🔴 IT IS A SEPARATE FUNCTION FROM mountSections BECAUSE IT NEEDS A DIFFERENT
 // CHAIN, NOT A LONGER ONE. mountSections is called from inside Mount's protected
 // group and everything in it inherits Protect(); a mutating route needs the Origin
@@ -159,13 +165,8 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 	r.Group(func(r chi.Router) {
 		r.Use(a.ProtectWriting())
 		r.Post(reviewHref, a.reviewDecision)
-		// 🔴 THE ROUTE THAT CREATES A PERSON (M6-13). It belongs here for the reason
-		// every other write does — the Origin check must run AHEAD of the resolver —
-		// and it is the first one in this section whose absence was a PRODUCT gap
-		// rather than a security one: until it existed the panel managed employees it
-		// had no way to bring into existence.
-		r.Post(employeeAddHref, a.employeeAdd)
-		r.Post(employeeInviteHref, a.employeeInvite)
+		// (Adding a person and re-inviting one are in the sibling group at the end of
+		// this function: a suspension does not stop them — ADR 0025 §3.)
 		r.Post(employeeDeactivateHref, a.employeeDeactivate)
 		r.Post(employeeMoveHref, a.employeeMove)
 		// 🔴 THE ADDRESS CHANGE (M10 EM-6). Here for the ordinary reason — the Origin
@@ -190,14 +191,8 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		r.Post(plaqueMountHref, a.mountPlaque)
 		r.Post(plaqueReplaceHref, a.replacePlaque)
 		r.Post(plaqueUnmountHref, a.unmountPlaque)
-		// 🔴 THE TWO MANUAL-ENTRY POSTs (M6-08), AND THE FIRST OF THEM WRITES NO ROW.
-		// It is here anyway: it mints a confirmation and sets its twin cookie, which is
-		// state, and a POST registered in mountSections would silently take the READ
-		// chain — running the resolver before the Origin check, which is the defect an
-		// audit measured on POST /admin/review. The second appends a permanent,
-		// undeletable attendance record, which is the heaviest write this panel has.
-		r.Post(manualEntryHref, a.manualEntryReview)
-		r.Post(manualRecordHref, a.manualEntryRecord)
+		// (The manual record's two steps are in the sibling group at the end of this
+		// function: a suspension does not stop them — ADR 0025 §3.)
 		// 🔴 THE TWO POLICY POSTs (M6-09 phase B), AND THE FIRST OF THEM WRITES NO
 		// POLICY ROW. It is here anyway for the reason the manual-entry review step is:
 		// it mints a confirmation and sets its twin cookie, which is state — and it can
@@ -226,30 +221,21 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		// clock every shift and every lateness verdict is resolved against, and it moves
 		// both ends of every billing month that has not been frozen yet.
 		r.Post(accountHref, a.accountSave)
-		// 🔴 CHANGE-MY-OWN-PASSWORD (M7-05, T73). It shares this chain for the ordinary
-		// reason — the Origin check must run AHEAD of the resolver — but its gate is the
-		// OPPOSITE of accountSave's: any live admin may rotate their OWN credential
-		// (K-A), so it is NOT owner-only. It is a separate route from accountSave for
-		// exactly that reason: the two must never share a gate.
-		r.Post(accountPasswordHref, a.accountPasswordSave)
-		// 🔴 THE INTEGRATION KEYS' THREE WRITES (M11 API-3). Here for the ordinary reason -- the
-		// Origin check runs AHEAD of the resolver -- and owner-only inside the handlers. The first
-		// answers with the one page that shows a raw key.
+		// (Changing one's own password is in the sibling group at the end of this
+		// function: a suspension does not stop it — ADR 0025 §3.)
+		// 🔴 THE INTEGRATION KEYS' WRITES (M11 API-3). Here for the ordinary reason -- the
+		// Origin check runs AHEAD of the resolver -- and owner-only inside the handlers. The
+		// one here answers with the one page that shows a raw key; the two revocations are in
+		// the sibling group at the end of this function (K-26: a suspension does not stop a
+		// defence).
 		r.Post(apiKeysHref, a.apiKeyCreate)
-		r.Post(apiKeyRevokeHref, a.apiKeyRevoke)
-		r.Post(apiKeyRevokeAllHref, a.apiKeyRevokeAll)
-		// 🔴 THE WEBHOOK'S SIX WRITES (M11 API-9). Here for the ordinary reason -- the Origin check
-		// runs AHEAD of the resolver (GATE-1) -- and owner-only inside the handlers. The test ping is
-		// the one panel write that makes an outbound request: a cross-site POST must never reach it.
-		r.Post(webhookHref, a.webhookCreate)
-		r.Post(webhookAddressHref, a.webhookReaddress)
-		r.Post(webhookRotateHref, a.webhookRotate)
-		r.Post(webhookDisableHref, a.webhookSwitch(false))
-		r.Post(webhookEnableHref, a.webhookSwitch(true))
-		r.Post(webhookPingHref, a.webhookPing)
-		// API-10's "resend" from the delivery log: an outbound request like the ping (one slot of
-		// the same bucket), so it is on this chain for the same reason.
-		r.Post(webhookResendHref, a.webhookResend)
+		// 🔴 THE WEBHOOK'S WRITES (M11 API-9, API-10). Here for the ordinary reason -- the
+		// Origin check runs AHEAD of the resolver (GATE-1) -- and owner-only inside the
+		// handlers. The test ping and the resend are the panel writes that make an outbound
+		// request: a cross-site POST must never reach them. Which of them a suspension
+		// stops is internal/webhook/endpoints' decision (OpenWhileSuspended), not a list
+		// here: the closed ones mount in this group, the open one in the sibling below.
+		a.mountWebhookWrites(r, false)
 		// 🔴 THE ACCOUNT SECTION'S BRAND EDITOR (M10 WL-7): the colour and taking a logo
 		// or a colour back are two ordinary writes on this chain. The LOGO UPLOAD is a
 		// nested group for the encode relay's reason below: its gate (brandupload.go)
@@ -288,6 +274,67 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 			r.Post(plaqueEncodeStepHref, a.plaqueEncodeStep)
 			r.Post(plaqueEncodeAbortHref, a.plaqueEncodeAbort)
 		})
+	})
+
+	// 🔴 THE SUSPENSION-EXEMPT SIBLING (ADR 0025 §3, OP-15 phase B). The same chain as
+	// the group above minus its last ring — protectWritingThroughSuspension — and it
+	// lives INSIDE this function on purpose: every mutating panel route is still
+	// registered here, so the census that derives the write routes from this function
+	// (TestPanelProblemPages_CountTheWriteRoutesStillTellingReadersTheirPageIsEmpty)
+	// still sees all of them. The list is CLOSED; ADR 0025 §3 names each route and its
+	// reason, and with the three sign-in routes that were never behind the chain it is
+	// the whole exception list. A route added here is an edit to that decision, and
+	// TestSuspensionRoutes_EveryPanelWriteIsGatedOrANamedException turns red on it
+	// until the decision is made.
+	//
+	// The routes, each still owner- or role-checked inside its own handler as before:
+	//
+	//	the admin's own password  a legitimate admin can rotate their own credential while
+	//	                          suspended; it changes no business data and signs the
+	//	                          same admin out everywhere else (adminauth.ChangeOwnPassword)
+	//	adding a person           the PRECONDITION of any record for somebody who starts
+	//	                          work during a suspension: an invitation and a manual
+	//	                          record need an existing row (K-B1, orchestrator, 6th round)
+	//	re-inviting               how an employee whose session was lost gets back out of
+	//	                          §5 row 3 (K-B1 = (i), user decision 2026-10-08)
+	//	the manual record's two   how a shift that could not be tapped gets written at all
+	//	steps                     before it ages past MaxBackdate (K-B1 = (i))
+	//	revoking API keys, one    K-26 (user decision 2026-10-10; ADR 0025's M11 note, plan
+	//	or all of them            §4.7): a write that NARROWS what the business exposes; a
+	//	                          suspended business that cannot shut a leaked key is the
+	//	                          opposite of what a suspension is for
+	//	switching the webhook     K-26 likewise -- the act internal/webhook/endpoints names
+	//	off                       open (OpenWhileSuspended), mounted here by that answer
+	r.Group(func(r chi.Router) {
+		r.Use(a.protectWritingThroughSuspension())
+		// 🔴 CHANGE-MY-OWN-PASSWORD (M7-05, T73). It shares this chain for the ordinary
+		// reason — the Origin check must run AHEAD of the resolver — but its gate is the
+		// OPPOSITE of accountSave's: any live admin may rotate their OWN credential
+		// (K-A), so it is NOT owner-only. It is a separate route from accountSave for
+		// exactly that reason: the two must never share a gate.
+		r.Post(accountPasswordHref, a.accountPasswordSave)
+		// 🔴 THE ROUTE THAT CREATES A PERSON (M6-13). It belongs on a writing chain for
+		// the reason every other write does — the Origin check must run AHEAD of the
+		// resolver — and it is the first one in this section whose absence was a
+		// PRODUCT gap rather than a security one: until it existed the panel managed
+		// employees it had no way to bring into existence.
+		r.Post(employeeAddHref, a.employeeAdd)
+		r.Post(employeeInviteHref, a.employeeInvite)
+		// 🔴 THE TWO MANUAL-ENTRY POSTs (M6-08), AND THE FIRST OF THEM WRITES NO ROW.
+		// It is on a writing chain anyway: it mints a confirmation and sets its twin
+		// cookie, which is state, and a POST registered in mountSections would silently
+		// take the READ chain — running the resolver before the Origin check, which is
+		// the defect an audit measured on POST /admin/review. The second appends a
+		// permanent, undeletable attendance record, which is the heaviest write this
+		// panel has.
+		r.Post(manualEntryHref, a.manualEntryReview)
+		r.Post(manualRecordHref, a.manualEntryRecord)
+		// 🔴 THE DEFENCES (K-26). Revoking a key and revoking every key take away what an
+		// integration may do; neither consults the business's API gate either
+		// (internal/apikey's Revoke). Owner-only inside the handlers, as before.
+		r.Post(apiKeyRevokeHref, a.apiKeyRevoke)
+		r.Post(apiKeyRevokeAllHref, a.apiKeyRevokeAll)
+		a.mountWebhookWrites(r, true)
 	})
 }
 

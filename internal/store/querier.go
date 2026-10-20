@@ -5607,6 +5607,15 @@ type Querier interface {
 	//
 	// last_used_at is the only column written, which is all the 00011 column grant
 	// permits.
+	//
+	// THE BUSINESS'S SUSPENSION RIDES ON THE SAME STATEMENT (ADR 0025 §3, OP-15 phase B):
+	// `tenants` is joined by primary key and its two suspension columns come back with the
+	// identity, so the panel's write gate costs no second query. The join is INNER and that
+	// is the fail-closed half of the design: a tenant row this statement cannot see (RLS
+	// reads it in the session's own tenant context) yields 0 rows, i.e. "not signed in" --
+	// never "signed in and not suspended". `tenants` is only READ here: UPDATE ... FROM
+	// locks the target's rows, not the joined table's, so a suspension being written does
+	// not hold this statement up (measured: TestVerifyDB_DoesNotWaitForTheSuspensionsRowLock).
 	TouchAdminSession(ctx context.Context, arg TouchAdminSessionParams) (TouchAdminSessionRow, error)
 	// Refreshes last_used_at on use (the card's "kullanimda yenilenir"). The
 	// revoked_at IS NULL guard makes the refresh fail CLOSED: a session revoked

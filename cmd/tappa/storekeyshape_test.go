@@ -200,6 +200,13 @@ const storeDir = "internal/store"
 // tenant_branding, read by tenant AND digest, exactly as GetTenantLogoRow.Logo. Neither
 // calls a definer; internal/db's TestTenantBranding_PerPageReadsDoNotSelectTheLogo pins
 // the first's select list and the second's positive control.
+//
+// M10 OP-15 phase B (written 2026-10-08, carried onto 00063 on 2026-10-20; ADR 0025 §3) widened TouchAdminSessionRow by two
+// fields, the business's suspension -- tenants.suspended_at (*time.Time) and
+// tenants.suspension_reason (*string, a code from a closed CHECK set) -- read by the
+// panel's per-request statement so the write gate needs no second query. Harmless by
+// this inventory's test: no []byte, no key, no model type, and neither column carries
+// anything but a time and one of four words.
 var storeSurface = map[string]string{
 	// M11 API-6: the API's employee (employees.sql), K-25's budget and the owner's alert (audit.sql)
 	// and the invitation queue (invitequeue.sql). No address is returned (has_email / same_email are
@@ -386,7 +393,7 @@ var storeSurface = map[string]string{
 	"SetTenantAccent":                  "(context.Context, SetTenantAccentParams{Accent string; UpdatedBy uuid.UUID; TenantID uuid.UUID}) (int64, error)",
 	"SetTenantLogo":                    "(context.Context, SetTenantLogoParams{Logo []byte; LogoSha256 string; LogoMime string; LogoWidth int32; LogoHeight int32; UpdatedBy uuid.UUID; TenantID uuid.UUID}) (int64, error)",
 	"TenantHasAnyTransaction":          "(context.Context, uuid.UUID) (bool, error)",
-	"TouchAdminSession":                "(context.Context, TouchAdminSessionParams{ID uuid.UUID; TenantID uuid.UUID}) (TouchAdminSessionRow{ID uuid.UUID; LastUsedAt *time.Time; AdminUserID uuid.UUID; Role string; FullName string}, error)",
+	"TouchAdminSession":                "(context.Context, TouchAdminSessionParams{ID uuid.UUID; TenantID uuid.UUID}) (TouchAdminSessionRow{ID uuid.UUID; LastUsedAt *time.Time; AdminUserID uuid.UUID; Role string; FullName string; SuspendedAt *time.Time; SuspensionReason *string}, error)",
 	"TouchSession":                     "(context.Context, TouchSessionParams{ID uuid.UUID; TenantID uuid.UUID}) (TouchSessionRow{ID uuid.UUID; LastUsedAt *time.Time}, error)",
 	"UnmountTagFromWall":               "(context.Context, UnmountTagFromWallParams{TenantID uuid.UUID; Uid string}) (UnmountTagFromWallRow{Uid string; TenantID uuid.UUID; LocationID *uuid.UUID; LastCtr int32; Status string; RetiredAt *time.Time; ReplacedBy *string; CreatedAt time.Time; EncodedAt *time.Time}, error)",
 	"UpdateDepartment":                 "(context.Context, UpdateDepartmentParams{Name string; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; TenantID uuid.UUID; ID uuid.UUID}) (Department{ID uuid.UUID; TenantID uuid.UUID; LocationID uuid.UUID; Name string; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; CreatedAt time.Time}, error)",
