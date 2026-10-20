@@ -439,12 +439,21 @@ func (m *Marketing) Landing(w http.ResponseWriter, r *http.Request) {
 // the pages were skeletons. A document with no text renders the skeleton, which is
 // the state the whole of pages.legal.templ was designed around.
 func (m *Marketing) legal(w http.ResponseWriter, r *http.Request, p pages.LegalPage) {
-	v := pages.LegalPageView{Page: p, SignInHref: adminLoginPath}
+	v := pages.LegalPageView{Page: p, SignInHref: adminLoginPath, SignupHref: m.signupHref}
 	if p.Path == cookieNoticePath {
 		v.Cookies = cookieNotice()
 	}
 	if m.texts != nil {
-		if d, ok := m.texts.Published()[legalSlugOf(p.Path)]; ok {
+		published := m.texts.Published()
+		// THE DOCUMENT NAVIGATION'S "not in force yet" MARKS come from the same snapshot
+		// as the body, read once, so the page cannot describe two different moments. They
+		// depend on what is published and on nothing about the visitor, so the page stays
+		// the same bytes for everybody and the public Cache-Control still holds.
+		v.PublishedSlugs = make(map[string]bool, len(published))
+		for slug := range published {
+			v.PublishedSlugs[slug] = true
+		}
+		if d, ok := published[legalSlugOf(p.Path)]; ok {
 			// ALREADY SPLIT. The paragraphs are computed once when a publication installs
 			// the snapshot, not per request — this page is unmetered, so per-request work
 			// here is work an anonymous caller can ask for as often as they like.
