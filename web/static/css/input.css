@@ -1516,6 +1516,31 @@
   .rule-switch-knob { @apply size-[30px] flex-none rounded-full; }
   .rule-switch--on .rule-switch-knob { @apply bg-tappa-green; }
   .rule-switch--off .rule-switch-knob { @apply border border-ink/50 bg-paper; }
+
+  /* --- Odd shapes (M12-29): the aggregate cards, their chips and the side notes ---
+     The week's figures are aggregates, not records, so they sit on rounded cards (D2);
+     the totals stay a docket. Every chip carries its own words and takes its tone from
+     the existing tally modifiers (one declaration per tone); the open entry's age is the
+     one new tone, dashed because an open entry is waiting for a record that never came.
+     A side note is a word-first box: its heading names what it is, the 4 px edge only
+     repeats the tone. No name below is a word a sentence would contain (§3.2). */
+  .odd-card {
+    @apply flex min-w-0 flex-col gap-3.5 rounded-[18px] border border-line bg-paper p-5
+           desk:px-6 desk:py-[22px];
+  }
+  .odd-title {
+    @apply font-display text-[19px] font-bold leading-tight tracking-[-0.02em] text-ink md:text-xl;
+  }
+  .odd-chip {
+    @apply inline-flex min-h-6 items-center rounded-full border px-2.5 font-mono text-xs text-ink;
+  }
+  .odd-chip--open { @apply border-dashed border-saffron bg-saffron/10; }
+  .odd-callout {
+    @apply flex flex-col gap-2 rounded-[14px] border border-l-4 border-line bg-paper px-4 py-3.5
+           text-[13px] leading-normal text-ink md:px-5 md:py-4;
+  }
+  .odd-callout--alert { @apply border-l-tomato; }
+  .odd-callout--warn { @apply border-l-saffron; }
 }
 
 /* =====================================================================

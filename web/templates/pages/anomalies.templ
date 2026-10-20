@@ -2,7 +2,7 @@ package pages
 
 import "github.com/atknatk/tappa/web/templates/components"
 
-// The ANOMALIES section (M6-11) — one screen that says "there is something odd here".
+// The ANOMALIES section (M6-11), "Odd shapes" — one screen that says "there is something odd here".
 //
 // 🔴 THE SENTENCE THE WHOLE SCREEN IS BUILT AROUND: the report does not comment, it
 // shows data. There is no "suspicious employee" label anywhere below, no severity, no
@@ -17,7 +17,9 @@ import "github.com/atknatk/tappa/web/templates/components"
 //
 // 🔴 §4.3 — THIS IS A READ. No form posts, no button dismisses a signal, and nothing
 // marks a row as seen. A dismissed anomaly is one the next reader never sees, and
-// `transactions` takes no writes at all.
+// `transactions` takes no writes at all. The redesign's boards drew a "Close it" on each
+// open entry; it is not here (D1) — a typed checkout is The Pass's manual entry, reached
+// from the person, and this page carries no write target to reach it from.
 //
 // 🔴 §4.6 — WHAT THIS SCREEN CANNOT ANSWER FOR IS PRINTED ON IT. Three of the signals
 // are read out of a frozen policy snapshot that older records do not carry; the count
@@ -26,43 +28,80 @@ import "github.com/atknatk/tappa/web/templates/components"
 // all, and the page says which two and why rather than leaving a reader to assume they
 // were checked.
 //
+// THE REDESIGN (M12-29, boards Odd / T-Odd / M-Odd). The week's aggregates are rounded
+// cards, the totals stay a docket; one markup at every width. Phone: one column, in the
+// boards' order. From the tablet up: the evidence mix across the top, the rule breakdown
+// across the bottom, and two columns between them — pairs and people on the left, the
+// counter gaps, the GPS-alone list and the open entries on the right. On a phone the two
+// column wrappers dissolve (display contents) and each card's order puts it in the phone
+// board's place; from the tablet the order is the markup's again.
+//
+// ⚠️ THE DESK BOARD PUTS THE MIX AND THE RULES INSIDE THE LEFT COLUMN; this page keeps the
+// tablet's arrangement at the desk too. One markup cannot hold both column assignments
+// without a row-aligned grid, and a row-aligned grid leaves a gap as tall as the longer
+// list beside it — fifty people against a two-row card.
+//
 // skill tappa-brand governs the surface: kitchen docket as the record motif, every
 // number in IBM Plex Mono, the fixed status-to-colour mapping (a thing to look at is
 // saffron, a refusal is tomato, a neutral count is the quiet `line` tone), and no
-// meaning carried by colour alone — every chip says its own word.
+// meaning carried by colour alone — every chip says its own word, every bar prints its
+// counts beside it.
 templ AdminAnomalies(v AnomaliesView) {
-	@PanelShell(v.PanelChrome) {
-		@anomalyWeekBar(v)
-		<p class="font-mono text-sm text-ink/85">
-			{ v.WeekLabel }
-			<span class="text-ink/70">· { v.ZoneLabel }</span>
-		</p>
-		if v.Queried {
-			@templ.Join(anomalyTotals(v), anomalyLostPlaques(v))
-			@anomalyMissingSources()
-			@anomalyPeople(v)
-			@anomalyVenues(v)
-			@anomalyPlaques(v)
-			@anomalyPairs(v)
-			@anomalyOpen(v)
-			@anomalyPolicies(v)
+	@PanelActions(anomalyWeekStepper(v)) {
+		@PanelShell(v.PanelChrome) {
+			@anomalyWeekBar(v)
+			if v.Queried {
+				@templ.Join(anomalyTotals(v), anomalyLostPlaques(v))
+				@anomalyMissingSources()
+				<div class="flex flex-col gap-4">
+					@anomalyVenues(v)
+					<div class="contents md:grid md:grid-cols-2 md:items-start md:gap-4">
+						<div class="contents md:flex md:min-w-0 md:flex-col md:gap-4">
+							@anomalyPairs(v)
+							@anomalyPeople(v)
+						</div>
+						<div class="contents md:flex md:min-w-0 md:flex-col md:gap-4">
+							@anomalyPlaques(v)
+							@anomalyDistanceOnly(v)
+							@anomalyOpen(v)
+						</div>
+					</div>
+					@anomalyPolicies(v)
+				</div>
+			}
 		}
 	}
 }
 
+// anomalyWeekStepper is the week beside the title: two arrows and the week between them.
+// The arrows are links (every week is an address), each a 44 px target with its words in
+// aria-label; the chevrons are drawing.
+templ anomalyWeekStepper(v AnomaliesView) {
+	<div role="group" aria-label="Week" class="inline-flex items-center rounded-xl border border-line bg-paper">
+		<a class="inline-flex min-h-11 w-11 items-center justify-center text-ink" href={ templ.URL(v.PrevHref) } aria-label="Previous week">
+			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M15 6l-6 6 6 6"></path></svg>
+		</a>
+		<span class="px-1.5 font-mono text-[13px] text-ink">{ v.WeekShort }</span>
+		<a class="inline-flex min-h-11 w-11 items-center justify-center text-ink" href={ templ.URL(v.NextHref) } aria-label="Next week">
+			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 6l6 6-6 6"></path></svg>
+		</a>
+	</div>
+}
+
 // anomalyWeekBar is the week picker. A plain GET form with no script, so every week is
-// an address — bookmarkable, shareable, and working on a locked-down laptop.
+// an address — bookmarkable, shareable, and working on a locked-down laptop. It carries
+// the week in full and the zone the days are counted in.
 templ anomalyWeekBar(v AnomaliesView) {
-	<form class="filter-bar" method="get" action={ templ.URL(v.ThisWeekHref) } aria-label="Choose a week">
-		<div class="filter-field">
-			<label class="docket-label" for="anomaly-week">Week containing</label>
-			<input class="filter-input" id="anomaly-week" type="date" name="week" value={ v.WeekValue }/>
-		</div>
-		<div class="filter-actions">
-			<button class="btn btn--primary" type="submit">Show</button>
-			<a class="btn btn--quiet" href={ templ.URL(v.PrevHref) }>Previous week</a>
-			<a class="btn btn--quiet" href={ templ.URL(v.NextHref) }>Next week</a>
-			<a class="btn btn--quiet" href={ templ.URL(v.ThisWeekHref) }>This week</a>
+	<form class="flex flex-wrap items-end justify-between gap-x-4 gap-y-2.5" method="get" action={ templ.URL(v.ThisWeekHref) } aria-label="Choose a week">
+		<p class="font-mono text-[13px] text-ink/80">
+			{ v.WeekLabel }
+			<span class="text-ink/70">· { v.ZoneLabel }</span>
+		</p>
+		<div class="flex w-full flex-wrap items-end gap-2 md:w-auto">
+			<label class="lbl self-center" for="anomaly-week">Week containing</label>
+			<input class="field-input field-input--mono min-w-0 flex-[1_1_140px] md:w-44 md:flex-none" id="anomaly-week" type="date" name="week" value={ v.WeekValue }/>
+			<button class="btn btn--primary rounded-xl" type="submit">Show</button>
+			<a class="btn btn--line" href={ templ.URL(v.ThisWeekHref) }>This week</a>
 		</div>
 	</form>
 }
@@ -73,10 +112,10 @@ templ anomalyWeekBar(v AnomaliesView) {
 // and an accusation. "47 taps" says nothing; "47 of 2 273 records judged on evidence"
 // is something a manager can weigh against last week.
 templ anomalyTotals(v AnomaliesView) {
-	<section class="docket">
-		<p class="docket-label">Records examined this week</p>
-		<p class="font-mono text-3xl font-bold tracking-tight text-ink">{ v.Totals.RecordsLine }</p>
-		<p class="mt-1 text-xs text-ink/85">
+	<section class="docket flex flex-col gap-2 px-4 pt-[18px] pb-5 md:px-[22px] md:pt-5 md:pb-[22px] desk:px-6 desk:pt-[22px] desk:pb-6" aria-labelledby="odd-totals">
+		<p class="lbl" id="odd-totals">Records examined this week</p>
+		<p class="font-mono text-[26px] font-bold tracking-[-0.02em] text-ink md:text-[28px] desk:text-3xl">{ v.Totals.RecordsLine }</p>
+		<p class="font-display text-[13px] leading-normal text-ink/80">
 			{ v.Totals.JudgedLine }
 			Training taps and manager-typed rows are counted here — a training tap is a real
 			touch of a plaque, and a typed row carries no touch at all. Both are named below.
@@ -85,29 +124,29 @@ templ anomalyTotals(v AnomaliesView) {
 		// the same population, and a reader who notices two different bases without
 		// being told why concludes one of them is wrong. Both numbers are printed so
 		// each figure's base can be matched to the population it names.
-		<p class="mt-1 text-xs text-ink/70">{ v.Totals.BasisLine }</p>
-		<div class="mt-3 flex flex-wrap gap-2">
+		<p class="font-display text-[13px] leading-normal text-ink/70">{ v.Totals.BasisLine }</p>
+		<div class="flex flex-wrap gap-2 pt-1.5">
 			if v.Totals.DistanceOnly > 0 {
-				<span class="tally tally--queued">{ v.Totals.DistanceOnlyLine }</span>
+				<span class="odd-chip tally--queued">{ v.Totals.DistanceOnlyLine }</span>
 			}
 			if v.Totals.OutsideVenue > 0 {
-				<span class="tally tally--queued">{ v.Totals.OutsideVenueLine }</span>
+				<span class="odd-chip tally--queued">{ v.Totals.OutsideVenueLine }</span>
 			}
 			if v.Totals.CounterGaps > 0 {
-				<span class="tally tally--rejected">{ v.Totals.CounterGapsLine }</span>
+				<span class="odd-chip tally--rejected">{ v.Totals.CounterGapsLine }</span>
 			}
 			if v.Totals.OtherVenue > 0 {
-				<span class="tally tally--manual">{ v.Totals.OtherVenueLine }</span>
+				<span class="odd-chip tally--manual">{ v.Totals.OtherVenueLine }</span>
 			}
 			if v.Totals.Training > 0 {
-				<span class="tally tally--manual">{ v.Totals.TrainingLine }</span>
+				<span class="odd-chip tally--manual">{ v.Totals.TrainingLine }</span>
 			}
 			if v.Totals.ManagerTyped > 0 {
-				<span class="tally tally--manual">{ v.Totals.ManagerTypedLine }</span>
+				<span class="odd-chip tally--manual">{ v.Totals.ManagerTypedLine }</span>
 			}
 		</div>
 		if v.Totals.OutsideVenue > 0 {
-			<p class="mt-3 text-xs text-ink/85">
+			<p class="mt-1.5 font-display text-[13px] leading-normal text-ink/80">
 				{ v.Totals.OutsideVenueOnNetworkLine }
 			</p>
 		}
@@ -116,10 +155,10 @@ templ anomalyTotals(v AnomaliesView) {
 			// gaps, the outside-the-venue reading and the other-venue count are all read
 			// out of the frozen policy snapshot a record carries. Records written before
 			// that column existed, and every manager-typed row, do not have one.
-			<p class="mt-2 text-xs text-ink/70">{ v.Totals.UnanswerableLine }</p>
+			<p class="font-display text-[13px] leading-normal text-ink/70">{ v.Totals.UnanswerableLine }</p>
 		}
 		if v.Totals.PartnerLine != "" {
-			<p class="mt-2 text-xs text-ink/70">{ v.Totals.PartnerLine }</p>
+			<p class="font-display text-[13px] leading-normal text-ink/70">{ v.Totals.PartnerLine }</p>
 		}
 	</section>
 }
@@ -137,26 +176,32 @@ templ anomalyTotals(v AnomaliesView) {
 // The heading counts no longer: it said "Two things" while the block is a list, and a
 // count in a heading is one more thing to keep in step with the list under it.
 templ anomalyMissingSources() {
-	@components.Notice(components.ToneWarn, "What this page does not see") {
+	<section class="odd-callout odd-callout--warn" aria-labelledby="odd-unseen">
+		<h2 class="font-display text-[15px] font-bold" id="odd-unseen">What this page does not see</h2>
 		<p>
 			A plaque page that was opened and never used is not recorded anywhere, so the
 			number of opened-but-unused pages is not on this screen. What IS on it is the
 			counter gap above: the plaque's own chip counts every read, so collected pages
 			leave a jump behind whether or not they are ever used.
 		</p>
-		<p class="mt-2">
+		<p>
 			Which device a person signed in from is not recorded either — only a coarse
 			browser family, which every phone of the same make shares. So "several people
 			activated from one device" cannot be told from "several people use the same
 			model of phone", and this page does not guess at it.
 		</p>
-		<p class="mt-2">
+		<p>
 			The list of people who tap together compares each tap with the ONE before it at
 			that venue. Where three people arrive in a burst, the first and the third are
 			not paired with each other — the two neighbouring pairs are listed instead, so
 			the group is visible but that one combination is not.
 		</p>
-	}
+	</section>
+}
+
+// anomalyShortened is the one line every shortened listing prints inside its card.
+templ anomalyShortened(kind string, cap int) {
+	<p class="font-mono text-xs leading-normal text-ink/80">This list is shortened · { moreRowsLine(kind, cap) }</p>
 }
 
 // anomalyPeople lists the employees carrying at least one signal.
@@ -166,90 +211,143 @@ templ anomalyMissingSources() {
 // the employees section with extra columns; what is left out here is rows, not facts —
 // the totals above cover everybody.
 templ anomalyPeople(v AnomaliesView) {
-	<h2 class="font-display text-lg font-bold tracking-tight text-ink">Per person</h2>
 	if len(v.People) > 0 {
-		<p class="text-xs text-ink/70">
-			Only people with at least one of these counts above zero appear here. The
-			totals above cover everybody who tapped.
-		</p>
-		if v.MorePeople {
-			@components.Notice(components.ToneWarn, "This list is shortened") {
-				<p>{ moreRowsLine("people", v.ListCap) }</p>
+		<section class="odd-card order-5 md:order-none" aria-labelledby="odd-people">
+			<div class="flex flex-col gap-1">
+				<h2 class="odd-title" id="odd-people">Per person</h2>
+				<p class="text-[13px] leading-normal text-ink/70">
+					Only people with at least one of these counts above zero appear here. The
+					totals above cover everybody who tapped.
+				</p>
+			</div>
+			if v.MorePeople {
+				@anomalyShortened("people", v.ListCap)
 			}
-		}
-		<div class="flex flex-col gap-4">
-			for _, p := range v.People {
-				<section class="docket">
-					<div class="report-head">
-						<p class="report-who">{ p.Name }</p>
-						<p class="report-total">{ p.Records }</p>
-					</div>
-					<div class="mt-2 flex flex-wrap gap-2">
-						if p.DistanceOnly != "" {
-							<span class="tally tally--queued">{ p.DistanceOnly }</span>
-						}
-						if p.OutsideVenue != "" {
-							<span class="tally tally--queued">{ p.OutsideVenue }</span>
-						}
-						if p.CounterGaps != "" {
-							<span class="tally tally--rejected">{ p.CounterGaps }</span>
-						}
-						if p.OtherVenue != "" {
-							<span class="tally tally--manual">{ p.OtherVenue }</span>
-						}
-					</div>
-				</section>
+			<ul class="flex flex-col">
+				for _, p := range v.People {
+					<li class="flex flex-col gap-1.5 border-t border-dashed border-line py-2.5">
+						<p class="flex justify-between gap-2">
+							<span class="text-sm font-bold text-ink">{ p.Name }</span>
+							<span class="font-mono text-xs text-ink">{ p.Records }</span>
+						</p>
+						<p class="flex flex-wrap gap-1.5">
+							if p.DistanceOnly != "" {
+								<span class="odd-chip tally--queued">{ p.DistanceOnly }</span>
+							}
+							if p.OutsideVenue != "" {
+								<span class="odd-chip tally--queued">{ p.OutsideVenue }</span>
+							}
+							if p.CounterGaps != "" {
+								<span class="odd-chip tally--rejected">{ p.CounterGaps }</span>
+							}
+							if p.OtherVenue != "" {
+								<span class="odd-chip tally--manual">{ p.OtherVenue }</span>
+							}
+						</p>
+					</li>
+				}
+			</ul>
+		</section>
+	} else {
+		<div class="order-5 md:order-none">
+			@components.PanelEmpty(SectionLabel(TabAnomalies)+" · per person", "Nobody carries one of these counts this week", components.PanelEmptyCTA{}) {
+				<p>
+					Every person who tapped is inside the totals above; none of them has a
+					GPS-only tap, a counter gap, a reading outside the venue or a tap at
+					another venue in this week.
+				</p>
 			}
 		</div>
-	} else {
-		@components.PanelEmpty(SectionLabel(TabAnomalies)+" · per person", "Nobody carries one of these counts this week", components.PanelEmptyCTA{}) {
-			<p>
-				Every person who tapped is inside the totals above; none of them has a
-				GPS-only tap, a counter gap, a reading outside the venue or a tap at
-				another venue in this week.
-			</p>
-		}
 	}
 }
 
-// anomalyVenues is the same week split by the venue whose plaque was touched.
+// anomalyVenues is the week split by the venue whose plaque was touched: one bar per
+// venue, its judged records split four ways by which evidence matched.
 //
 // EVERY VENUE WITH TAPS IS HERE, INCLUDING THE CLEAN ONES, and that is deliberate: a
 // high rate at one branch beside a zero at another is the comparison this section
 // exists to make, and it needs the zero to be visible.
+//
+// 🔴 K-39: A PARTNER VENUE'S ROW IS ITS NAME, ITS RECORD COUNT AND THE LABEL — never a
+// bar. The handler leaves its evidence fields empty; the template draws no track for it
+// either, so even an empty bar does not stand where the partner's evidence would be.
+//
+// THE WIDTHS ARE CLASS BUCKETS (no inline style under the panel's CSP): each part's
+// whole per cent, a step of five, through components.WidthPct. Every part's count is
+// printed under the bar, so the step loses no fact.
 templ anomalyVenues(v AnomaliesView) {
 	if len(v.Venues) > 0 {
-		<h2 class="font-display text-lg font-bold tracking-tight text-ink">Per venue</h2>
-		<p class="text-xs text-ink/70">
-			Every venue with taps this week, clean ones included. A high rate at one venue
-			beside a low one at another is as likely to be a Wi-Fi problem as anything else
-			— both are worth knowing.
-		</p>
-		if v.MoreVenues {
-			@components.Notice(components.ToneWarn, "This list is shortened") {
-				<p>{ moreRowsLine("venues", v.ListCap) }</p>
+		<section class="odd-card order-1 md:order-none" aria-labelledby="odd-mix">
+			<div class="flex flex-col gap-1">
+				<div class="flex flex-wrap items-baseline justify-between gap-2">
+					<h2 class="odd-title" id="odd-mix">Evidence mix by venue</h2>
+					<p class="font-mono text-xs text-ink/70">share of judged records · count = judged</p>
+				</div>
+				<p class="text-[13px] leading-normal text-ink/70">
+					Every venue with taps this week, clean ones included. A high rate at one venue
+					beside a low one at another is as likely to be a Wi-Fi problem as anything else
+					— both are worth knowing.
+				</p>
+				<p class="text-[13px] leading-normal text-ink/70">
+					Each bar splits a venue's judged records by what matched: both its network and
+					the distance reading, the network only, the distance only, or neither.
+				</p>
+			</div>
+			if v.MoreVenues {
+				@anomalyShortened("venues", v.ListCap)
 			}
-		}
-		<div class="flex flex-col gap-4">
-			for _, l := range v.Venues {
-				<section class="docket">
-					<div class="report-head">
-						<p class="report-who">{ l.Name }</p>
-						<p class="report-total">{ l.Records }</p>
-					</div>
-					if l.Partner {
-						// M11 API-1c, K-39: the evidence at a partner business's venue is that
-						// business's network and coordinate -- not counted here.
-						<p class="docket-label mt-1">Partner venue · evidence not shown</p>
-					} else {
-						<div class="mt-2 flex flex-wrap gap-2">
-							<span class="tally tally--queued">{ l.DistanceOnly }</span>
-							<span class="tally tally--queued">{ l.OutsideVenue }</span>
+			<ul class="flex flex-col gap-3">
+				for _, l := range v.Venues {
+					<li class="flex flex-col gap-1">
+						<div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2.5 gap-y-1 md:grid-cols-[150px_minmax(0,1fr)_84px] desk:grid-cols-[124px_minmax(0,1fr)_84px]">
+							<p class="truncate text-[13px] font-bold text-ink">{ l.Name }</p>
+							if l.Partner {
+								<p class="docket-label col-span-2 row-start-2 md:col-span-1 md:col-start-2 md:row-start-1">Partner venue · evidence not shown</p>
+								<p class="col-start-2 row-start-1 whitespace-nowrap text-right font-mono text-xs text-ink md:col-start-3">{ l.Records }</p>
+							} else {
+								<div class="col-span-2 row-start-2 flex h-3.5 overflow-hidden rounded bg-porcelain md:col-span-1 md:col-start-2 md:row-start-1 md:h-[18px]" role="img" aria-label={ l.MixLabel }>
+									for _, s := range l.Segments {
+										<span class={ "h-full shrink-0", components.WidthPct(s.Pct), mixTone(s.Part), templ.KV("border-r border-paper", !s.Last) }></span>
+									}
+								</div>
+								<p class="col-start-2 row-start-1 whitespace-nowrap text-right font-mono text-xs text-ink md:col-start-3">{ l.Judged }</p>
+							}
 						</div>
-					}
-				</section>
-			}
-		</div>
+						if !l.Partner {
+							<p class="font-mono text-[11px] leading-normal text-ink/70 md:pl-[160px] desk:pl-[134px]">{ l.Split }</p>
+							<p class="font-mono text-[11px] leading-normal text-ink/70 md:pl-[160px] desk:pl-[134px]">{ l.Records } · { l.OutsideVenue }</p>
+						}
+					</li>
+				}
+			</ul>
+			<ul class="grid grid-cols-2 gap-x-3 gap-y-1.5 border-t border-dashed border-line pt-3 font-mono text-[11px] text-ink/70 md:flex md:flex-wrap md:gap-3.5 md:text-xs" aria-label="Legend">
+				<li class="inline-flex items-center gap-1.5"><span class="size-3 flex-none rounded-[3px] bg-tappa-green" aria-hidden="true"></span>both</li>
+				<li class="inline-flex items-center gap-1.5"><span class="size-3 flex-none rounded-[3px] bg-tappa-green/50" aria-hidden="true"></span>network only</li>
+				<li class="inline-flex items-center gap-1.5"><span class="size-3 flex-none rounded-[3px] bg-saffron" aria-hidden="true"></span>distance only</li>
+				<li class="inline-flex items-center gap-1.5"><span class="size-3 flex-none rounded-[3px] bg-line ring-1 ring-inset ring-ink/50" aria-hidden="true"></span>neither</li>
+				if v.MixUnsplit {
+					<li class="inline-flex items-center gap-1.5"><span class="size-3 flex-none rounded-[3px] bg-paper ring-1 ring-inset ring-ink" aria-hidden="true"></span>not split</li>
+				}
+			</ul>
+		</section>
+	}
+}
+
+// mixTone is the fill of one part of a venue's evidence bar. The names are written out
+// here, whole, so the stylesheet scan finds them; the word for each part is in the legend
+// and in the counts under the bar, so the fill only repeats it.
+func mixTone(part string) string {
+	switch part {
+	case "both":
+		return "bg-tappa-green"
+	case "network":
+		return "bg-tappa-green/50"
+	case "distance":
+		return "bg-saffron"
+	case "neither":
+		return "bg-line"
+	default:
+		return "bg-paper"
 	}
 }
 
@@ -258,34 +356,99 @@ templ anomalyVenues(v AnomaliesView) {
 // 🔴 THE COUNTER GAP IS THE ONE LIVE TRACE OF COLLECTED TAP URLs (A1 / Q21). The chip
 // increments on every read whether or not the page is ever used, so a run of unused
 // reads shows up as a jump the next time somebody really taps.
+//
+// THE COUNTERS AROUND THE LARGEST GAP (M12-24) come in four states and each says only what
+// it knows: not asked — the row claims nothing beyond the gap; read — "#from → #to" and
+// when; failed — the counters could not be read, the gap list stands; elsewhere — the read
+// that showed the gap is not on this business's record, so no counter is printed.
 templ anomalyPlaques(v AnomaliesView) {
 	if len(v.Plaques) > 0 {
-		<h2 class="font-display text-lg font-bold tracking-tight text-ink">Plaque counter gaps</h2>
-		<p class="text-sm text-ink/85">
-			A plaque's chip counts every read. A gap means reads happened that never became
-			a check-in — a page opened and abandoned looks the same as a page collected for
-			later, and this list does not tell them apart.
-		</p>
-		if v.MorePlaques {
-			@components.Notice(components.ToneWarn, "This list is shortened") {
-				<p>{ moreRowsLine("plaques", v.ListCap) }</p>
+		<section class="odd-card order-3 md:order-none" aria-labelledby="odd-gaps">
+			<div class="flex flex-col gap-1">
+				<h2 class="odd-title" id="odd-gaps">Plaque counter gaps</h2>
+				<p class="text-[13px] leading-normal text-ink/70">
+					A plaque's chip counts every read. A gap means reads happened that never became
+					a check-in — a page opened and abandoned looks the same as a page collected for
+					later, and this list does not tell them apart.
+				</p>
+			</div>
+			if v.MorePlaques {
+				@anomalyShortened("plaques", v.ListCap)
 			}
-		}
-		<div class="flex flex-col gap-4">
-			for _, p := range v.Plaques {
-				<section class="docket">
-					<div class="report-head">
-						<p class="report-who">{ p.LocationName }</p>
-						<p class="report-total">{ p.LargestGap }</p>
-					</div>
-					<p class="docket-label mt-1">Plaque { p.TagUID }</p>
-					<div class="mt-2 flex flex-wrap gap-2">
-						<span class="tally tally--rejected">{ p.CounterGaps }</span>
-						<span class="tally tally--manual">{ p.Records }</span>
-					</div>
-				</section>
+			<ul class="flex flex-col gap-2.5">
+				for _, p := range v.Plaques {
+					<li class="flex flex-col gap-2.5 rounded-xl border border-line px-3.5 py-3">
+						<p class="flex flex-col gap-0.5">
+							<span class="text-sm font-bold text-ink">{ p.LocationName }</span>
+							<span class="break-all font-mono text-[11px] text-ink/70">Plaque { p.TagUID }</span>
+						</p>
+						if p.Jump == "read" {
+							<p class="sr-only">Counter { p.CounterFrom } → { p.CounterTo }, { p.LargestGap }</p>
+							// The badge sits in the row between two halves of the track rather than over
+							// it, so a long counter wraps the row instead of running under the badge.
+							<div class="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[13px] text-ink" aria-hidden="true">
+								<span>{ p.CounterFrom }</span>
+								<span class="h-0.5 min-w-3 flex-1 bg-line"></span>
+								<span class="whitespace-nowrap rounded-md border border-saffron bg-saffron-lite px-2 text-[11px] font-bold">{ p.LargestGap }</span>
+								<span class="h-0.5 min-w-3 flex-1 bg-line"></span>
+								<span>{ p.CounterTo }</span>
+							</div>
+							<p class="font-mono text-[11px] leading-normal text-ink/70">{ p.JumpWhen }</p>
+						} else {
+							<p class="flex flex-wrap gap-1.5">
+								<span class="odd-chip border-saffron bg-saffron/10">{ p.LargestGap }</span>
+							</p>
+							switch p.Jump {
+								case "failed":
+									<p class="font-mono text-[11px] leading-normal text-ink/70">The counters around this gap could not be read.</p>
+								case "elsewhere":
+									<p class="font-mono text-[11px] leading-normal text-ink/70">The read that showed this gap is not on your record, so no counters are printed.</p>
+							}
+						}
+						<p class="flex flex-wrap gap-1.5">
+							<span class="odd-chip tally--rejected">{ p.CounterGaps }</span>
+							<span class="odd-chip tally--manual">{ p.Records }</span>
+						</p>
+					</li>
+				}
+			</ul>
+		</section>
+	}
+}
+
+// anomalyDistanceOnly is the per-person list narrowed to the records verified by GPS
+// alone — inside the venue's radius with no network match — most first.
+//
+// 🔴 §4.6: IT IS A SUBSET OF THE PER-PERSON LIST, which stops at the cap and is ordered by
+// counter gaps first; when that list is shortened, so may this one be, and the card says
+// so. The bar is a person's count against the card's largest, drawn as a bucket; the count
+// beside it carries the meaning. "Approved" is not measured and is not said.
+templ anomalyDistanceOnly(v AnomaliesView) {
+	if len(v.People) > 0 {
+		<section class="odd-card order-4 md:order-none" aria-labelledby="odd-distance">
+			<div class="flex flex-wrap items-baseline justify-between gap-2">
+				<h2 class="odd-title" id="odd-distance">Verified by GPS alone</h2>
+				<p class="font-mono text-xs text-ink/70">no network match · per person</p>
+			</div>
+			if len(v.DistanceOnlyPeople) > 0 {
+				<ul class="flex flex-col">
+					for _, p := range v.DistanceOnlyPeople {
+						<li class="grid min-h-9 grid-cols-[minmax(0,1fr)_80px_auto] items-center gap-2.5 border-t border-dashed border-line py-1 desk:grid-cols-[minmax(0,1fr)_120px_auto]">
+							<span class="truncate text-sm font-bold text-ink">{ p.Name }</span>
+							<span class="flex h-2 overflow-hidden rounded bg-porcelain" aria-hidden="true">
+								<span class={ "h-full shrink-0 bg-saffron", components.WidthPct(p.Pct) }></span>
+							</span>
+							<span class="min-w-7 text-right font-mono text-[13px] text-ink">{ itoa(p.N) }<span class="sr-only"> verified by GPS alone</span></span>
+						</li>
+					}
+				</ul>
+			} else {
+				<p class="text-[13px] leading-normal text-ink/70">Nobody listed under Per person was verified by GPS alone this week.</p>
 			}
-		</div>
+			if v.MorePeople {
+				<p class="font-mono text-xs leading-normal text-ink/80">Taken from the per-person list, which is shortened, so this list may be incomplete.</p>
+			}
+		</section>
 	}
 }
 
@@ -295,108 +458,143 @@ templ anomalyPlaques(v AnomaliesView) {
 // is the ordinary start of a shift. So a single burst is not on this list at all; what
 // is on it is a pair that does it on separate days, and the thresholds are printed so a
 // reader can judge the filter rather than trust it.
+//
+// THE WEEK'S DOTS (M12-23) are one per day, filled on the days the two were together;
+// their words are the dots' text alternative and the count beside them. A pair whose days
+// were not read draws no dots and prints the day count alone.
 templ anomalyPairs(v AnomaliesView) {
 	if len(v.Pairs) > 0 {
-		<h2 class="font-display text-lg font-bold tracking-tight text-ink">Tapped together, more than once</h2>
-		<p class="text-sm text-ink/85">
-			Two people arriving together is not a finding. This is a place to look, not a
-			conclusion: colleagues who share a lift produce exactly this row.
-		</p>
-		<p class="font-mono text-xs text-ink/85">{ v.TogetherLine }</p>
-		if v.MorePairs {
-			@components.Notice(components.ToneWarn, "This list is shortened") {
-				<p>{ moreRowsLine("pairs", v.ListCap) }</p>
+		<section class="odd-card order-2 md:order-none" aria-labelledby="odd-pairs">
+			<div class="flex flex-col gap-1.5">
+				<h2 class="odd-title" id="odd-pairs">Tapping together</h2>
+				<p class="font-mono text-xs leading-normal text-ink/80">{ v.TogetherLine }</p>
+				<p class="text-[13px] leading-normal text-ink/70">
+					Two people arriving together is not a finding. This is a place to look, not a
+					conclusion: colleagues who share a lift produce exactly this row.
+				</p>
+			</div>
+			if v.MorePairs {
+				@anomalyShortened("pairs", v.ListCap)
 			}
-		}
-		<div class="flex flex-col gap-4">
-			for _, p := range v.Pairs {
-				<section class="docket">
-					<div class="report-head">
-						<p class="report-who">{ p.First } &amp; { p.Second }</p>
-						<p class="report-total">{ p.Days }</p>
-					</div>
-					<p class="docket-label mt-1">{ p.Venue }</p>
-					<div class="mt-2 flex flex-wrap gap-2">
-						<span class="tally tally--queued">{ p.Together }</span>
-						<span class="tally tally--queued">{ p.Closest }</span>
-					</div>
-				</section>
-			}
-		</div>
+			<ul class="flex flex-col">
+				for _, p := range v.Pairs {
+					<li class="flex flex-col gap-2 border-t border-dashed border-line py-3 desk:flex-row desk:flex-wrap desk:items-center desk:gap-x-3.5">
+						<div class="flex min-w-0 flex-col gap-1 desk:flex-[1_1_240px]">
+							<p class="flex flex-wrap items-center gap-2 text-[15px] font-bold text-ink desk:text-sm">
+								<span>{ p.First }</span>
+								<span class="inline-flex items-center" aria-hidden="true">
+									<span class="size-1.5 rounded-full bg-ink"></span>
+									<span class="w-[22px] border-t-[1.5px] border-ink"></span>
+									<span class="size-1.5 rounded-full bg-ink"></span>
+								</span>
+								<span class="sr-only">and</span>
+								<span>{ p.Second }</span>
+							</p>
+							<p class="font-mono text-xs text-ink/70">{ p.Venue } · { p.Together } · { p.Closest }</p>
+						</div>
+						<div class="flex items-center justify-between gap-2 desk:gap-3.5">
+							if len(p.Dots) > 0 {
+								<span class="flex gap-1.5 desk:gap-1" role="img" aria-label={ p.DotsLabel }>
+									for _, d := range p.Dots {
+										if d.On {
+											<span class="size-3 rounded-full bg-ink"></span>
+										} else {
+											<span class="size-3 rounded-full border-[1.5px] border-ink/50"></span>
+										}
+									}
+								</span>
+								<span class="whitespace-nowrap font-mono text-xs font-bold text-ink desk:min-w-[84px] desk:text-right">{ p.DaysOf }</span>
+							} else {
+								<span class="font-mono text-xs font-bold text-ink">{ p.Days }</span>
+							}
+						</div>
+					</li>
+				}
+			</ul>
+		</section>
 	}
 }
 
 // anomalyOpen is the check-ins nothing closed, plus the tally the list itself cannot
 // produce.
+//
+// NOTHING ON A ROW CLOSES IT (D1, §4.3): the boards' "Close it" is not drawn. A missing
+// checkout is typed from the person on The Pass; here it is only counted.
 templ anomalyOpen(v AnomaliesView) {
-	<h2 class="font-display text-lg font-bold tracking-tight text-ink">Check-ins with no checkout</h2>
-	// 🔴 THE DEFINITION IS ON THE PAGE BECAUSE IT IS NOT THE REPORTS SECTION'S. Here a
-	// check-in is open when no checkout follows it, full stop. The reports section
-	// PAIRS a week's records and additionally treats a very late checkout as a missed
-	// one, so the two counts can legitimately differ — and a reader who finds two
-	// numbers with one name is a reader who stops trusting both.
-	<p class="text-sm text-ink/85">
-		A check-in with no later checkout, anywhere in the record. The Roll
-		counts a slightly different thing — it pairs a week's records into shifts — so
-		the two figures can differ without either being wrong.
-	</p>
-	<p class="text-xs text-ink/70">
-		Training taps are not in this list. A training tap is a check-in nothing ever
-		closes, so counting it would add one false entry for every new starter.
-	</p>
-	if len(v.Open) > 0 {
-		if v.MoreOpen {
-			@components.Notice(components.ToneWarn, "This list is shortened") {
-				<p>{ moreRowsLine("check-ins", v.ListCap) }</p>
-			}
-		}
-		<div class="flex flex-col gap-4">
-			for _, o := range v.Open {
-				<section class="docket">
-					<div class="report-head">
-						<p class="report-who">{ o.Who }</p>
-						<p class="report-day">{ o.At }</p>
-					</div>
-					<p class="docket-label mt-1">{ o.Venue }</p>
-					<div class="mt-2 flex flex-wrap gap-2">
-						<span class="tally tally--queued">Still open</span>
-						if o.ManagerTyped {
-							<span class="tally tally--manual">Entered by a manager</span>
-						}
-						if o.WasMaskable {
-							<span class="tally tally--manual">Training tap follows</span>
-						}
-					</div>
-				</section>
-			}
+	<section class="odd-card order-6 md:order-none" aria-labelledby="odd-open">
+		<div class="flex flex-col gap-1.5">
+			<div class="flex flex-wrap items-baseline justify-between gap-2">
+				<h2 class="odd-title" id="odd-open">Left open</h2>
+				<p class="font-mono text-xs text-ink/70">not counted in hours</p>
+			</div>
+			// 🔴 THE DEFINITION IS ON THE PAGE BECAUSE IT IS NOT THE REPORTS SECTION'S. Here a
+			// check-in is open when no checkout follows it, full stop. The reports section
+			// PAIRS a week's records and additionally treats a very late checkout as a missed
+			// one, so the two counts can legitimately differ — and a reader who finds two
+			// numbers with one name is a reader who stops trusting both.
+			<p class="text-[13px] leading-normal text-ink/80">
+				A check-in with no later checkout, anywhere in the record. The Roll
+				counts a slightly different thing — it pairs a week's records into shifts — so
+				the two figures can differ without either being wrong.
+			</p>
+			<p class="text-xs leading-normal text-ink/70">
+				Training taps are not in this list. A training tap is a check-in nothing ever
+				closes, so counting it would add one false entry for every new starter.
+			</p>
 		</div>
-	} else {
-		@components.PanelEmpty(SectionLabel(TabAnomalies)+" · check-ins with no checkout", "Every check-in this week has a checkout after it", components.PanelEmptyCTA{}) {
-			<p>Nothing in this week is waiting for a missing record.</p>
+		if len(v.Open) > 0 {
+			if v.MoreOpen {
+				@anomalyShortened("check-ins", v.ListCap)
+			}
+			<ul class="flex flex-col">
+				for _, o := range v.Open {
+					<li class="flex flex-col gap-1.5 border-t border-dashed border-line py-3">
+						<p class="flex flex-wrap items-center justify-between gap-2">
+							<span class="text-sm font-bold text-ink">{ o.Who }</span>
+							<span class="odd-chip odd-chip--open">{ o.Age }</span>
+						</p>
+						<p class="font-mono text-[11px] text-ink/70">{ o.Venue } · IN { o.At }</p>
+						<p class="flex flex-wrap gap-1.5">
+							<span class="odd-chip tally--queued">Still open</span>
+							if o.ManagerTyped {
+								<span class="odd-chip tally--manual">Entered by a manager</span>
+							}
+							if o.WasMaskable {
+								<span class="odd-chip tally--manual">Training tap follows</span>
+							}
+						</p>
+					</li>
+				}
+			</ul>
+		} else {
+			@components.PanelEmpty(SectionLabel(TabAnomalies)+" · check-ins with no checkout", "Every check-in this week has a checkout after it", components.PanelEmptyCTA{}) {
+				<p>Nothing in this week is waiting for a missing record.</p>
+			}
 		}
-	}
-	if v.Masked.Total > 0 {
-		// 🔴 THE HALF THE LIST ABOVE CANNOT SHOW (ADR 0008, M5-11's hand-over note). A
-		// single checkout satisfies "nothing closed it" for EVERY older unclosed
-		// check-in at once, so an entry a training tap once hid leaves the list silently
-		// on the person's next checkout — counted as closed, by a checkout that really
-		// belonged to a different check-in. Finding those needs this second question.
-		@components.Notice(components.ToneWarn, "Check-ins with a training tap after them") {
-			<p>
-				A training tap sitting after a check-in used to hide it, so the next tap was
-				recorded as another arrival instead of a departure. Those records are still
-				here — nothing was lost — but a later checkout takes them off the list above
-				without closing what they opened.
-			</p>
-			<p class="mt-2 font-mono text-xs">
-				{ v.Masked.StillOpen } · { v.Masked.ClosedLater }
-			</p>
-			<p class="mt-2 text-xs">
-				This is a hint about where to look rather than a diagnosis: a new starter who
-				taps again after training produces the same shape.
-			</p>
+		if v.Masked.Total > 0 {
+			// 🔴 THE HALF THE LIST ABOVE CANNOT SHOW (ADR 0008, M5-11's hand-over note). A
+			// single checkout satisfies "nothing closed it" for EVERY older unclosed
+			// check-in at once, so an entry a training tap once hid leaves the list silently
+			// on the person's next checkout — counted as closed, by a checkout that really
+			// belonged to a different check-in. Finding those needs this second question.
+			<div class="odd-callout odd-callout--warn" role="note">
+				<p class="text-sm font-bold">Check-ins with a training tap after them</p>
+				<p>
+					A training tap sitting after a check-in used to hide it, so the next tap was
+					recorded as another arrival instead of a departure. Those records are still
+					here — nothing was lost — but a later checkout takes them off the list above
+					without closing what they opened.
+				</p>
+				<p class="font-mono text-xs">
+					{ v.Masked.StillOpen } · { v.Masked.ClosedLater }
+				</p>
+				<p class="text-xs">
+					This is a hint about where to look rather than a diagnosis: a new starter who
+					taps again after training produces the same shape.
+				</p>
+			</div>
 		}
-	}
+	</section>
 }
 
 // anomalyPolicies is the rule breakdown (M3-07).
@@ -405,31 +603,43 @@ templ anomalyOpen(v AnomaliesView) {
 // working. What is worth seeing is a CHANGE in the mix — a week where the invalid-tap
 // rule triples is a week where a plaque is failing or somebody is replaying URLs, and
 // neither shows up in a verdict count.
+//
+// ONE NEUTRAL TONE FOR EVERY RULE'S BAR: a colour guessed from a rule's id would be a
+// verdict the page does not have. The partner bucket is anonymous, last and quiet (K-39).
 templ anomalyPolicies(v AnomaliesView) {
 	if len(v.Policies) > 0 {
-		<h2 class="font-display text-lg font-bold tracking-tight text-ink">Which rule decided</h2>
-		<p class="text-sm text-ink/85">
-			Every record names the rule that judged it. A rule firing is not a problem in
-			itself; a rule firing far more than last week is worth a look.
-		</p>
-		if v.MorePolicies {
-			@components.Notice(components.ToneWarn, "This list is shortened") {
-				<p>{ moreRowsLine("rules", v.ListCap) }</p>
+		<section class="odd-card order-7 md:order-none" aria-labelledby="odd-rules">
+			<div class="flex flex-col gap-1">
+				<h2 class="odd-title" id="odd-rules">Which rule decided</h2>
+				<p class="text-[13px] leading-normal text-ink/70">
+					Every record names the rule that judged it. A rule firing is not a problem in
+					itself; a rule firing far more than last week is worth a look.
+				</p>
+			</div>
+			if v.MorePolicies {
+				@anomalyShortened("rules", v.ListCap)
 			}
-		}
-		<div class="flex flex-col gap-4">
-			for _, s := range v.Policies {
-				<section class="docket">
-					<div class="report-head">
-						<p class="report-who">{ s.SID }</p>
-						<p class="report-total">{ s.Records }</p>
-					</div>
-					if s.Layer != "" {
-						<p class="docket-label mt-1">{ s.Layer }</p>
-					}
-				</section>
-			}
-		</div>
+			<ul class="flex flex-col gap-2.5">
+				for _, s := range v.Policies {
+					<li class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 md:grid-cols-[220px_minmax(0,1fr)_96px]">
+						<p class="flex min-w-0 flex-wrap gap-x-2 font-mono text-xs text-ink">
+							<span class="break-all">{ s.SID }</span>
+							if s.Layer != "" {
+								<span class="text-ink/70">{ s.Layer }</span>
+							}
+						</p>
+						<span class="col-span-2 row-start-2 flex h-2 overflow-hidden rounded bg-ink/5 md:col-span-1 md:col-start-2 md:row-start-1 md:h-3 md:bg-porcelain" aria-hidden="true">
+							if s.Partner {
+								<span class={ "h-full shrink-0 bg-line", components.WidthPct(s.Pct) }></span>
+							} else {
+								<span class={ "h-full shrink-0 bg-ink", components.WidthPct(s.Pct) }></span>
+							}
+						</span>
+						<p class="col-start-2 row-start-1 whitespace-nowrap text-right font-mono text-xs text-ink md:col-start-3">{ s.Records }</p>
+					</li>
+				}
+			</ul>
+		</section>
 	}
 }
 
@@ -450,31 +660,25 @@ func moreRowsLine(kind string, cap int) string {
 // the only trace of it here. Rendered only when there is one.
 templ anomalyLostPlaques(v AnomaliesView) {
 	if len(v.LostPlaques) > 0 {
-		@components.Notice(components.ToneAlert, "A lost plaque was tapped") {
-			<p>
+		<div class="odd-callout odd-callout--alert" role="alert">
+			<p class="text-[15px] font-bold">A lost plaque was tapped</p>
+			<p class="text-sm">
 				Staff of another business in your group touched a plaque you reported lost or
 				retired. Their employer refused the tap. If the plaque is still on a wall, take
 				it down.
 			</p>
-		}
-		if v.MoreLost {
-			@components.Notice(components.ToneWarn, "This list is shortened") {
-				<p>{ moreRowsLine("plaques", v.ListCap) }</p>
+			if v.MoreLost {
+				@anomalyShortened("plaques", v.ListCap)
 			}
-		}
-		<div class="flex flex-col gap-4">
-			for _, l := range v.LostPlaques {
-				<section class="docket">
-					<div class="report-head">
-						<p class="report-who">{ l.LocationName }</p>
-						<p class="report-day">{ l.Last }</p>
-					</div>
-					<p class="docket-label mt-1">Plaque { l.TagUID }</p>
-					<div class="mt-2 flex flex-wrap gap-2">
-						<span class="tally tally--rejected">{ l.Refusals }</span>
-					</div>
-				</section>
-			}
+			<ul class="flex flex-col">
+				for _, l := range v.LostPlaques {
+					<li class="flex flex-wrap items-center gap-x-3.5 gap-y-1.5 border-t border-dashed border-line pt-2.5">
+						<span class="text-sm font-bold">{ l.LocationName }</span>
+						<span class="break-all font-mono text-xs text-ink/70">Plaque { l.TagUID } · { l.Last }</span>
+						<span class="odd-chip tally--rejected">{ l.Refusals }</span>
+					</li>
+				}
+			</ul>
 		</div>
 	}
 }
