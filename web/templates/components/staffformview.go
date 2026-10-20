@@ -149,4 +149,10 @@ type StaffFormView struct {
 	// somebody does NOT move the bill; ACTIVATING them does. Measured directly
 	// against the database rather than read off the migration.
 	BillingNote string
+
+	// InviteByEmail is true when this deployment e-mails activation links
+	// (TAPPA_INVITE_DELIVERY=email, M10 EM-7B). It changes one sentence of the "after
+	// you add them" steps -- how the link reaches the person -- so the form never
+	// promises a delivery the deployment does not make.
+	InviteByEmail bool
 }

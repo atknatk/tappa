@@ -475,9 +475,11 @@ func (a *AdminAuth) employeeInvite(w http.ResponseWriter, r *http.Request) {
 		PanelChrome:   a.chrome(r, pages.TabEmployees),
 		Name:          person.Name,
 		ActivationURL: sink.link,
+		Venue:         inviteVenue(person),
 		Expires:       expiryPhrase(inv.CreatedAt, inv.ExpiresAt),
 		Retired:       inv.RetiredSiblings,
-		BackHref:      rosterReturn(f, employeeID, "", ""),
+		BackHref:      rosterReturn(f, person.ID, "", ""),
+		ListHref:      rosterReturn(f, uuid.Nil, "", ""),
 	}
 	a.renderPanel(w, r, http.StatusOK, issued.PanelChrome, pages.AdminInviteIssued(issued))
 }
@@ -508,6 +510,16 @@ func expiryPhrase(createdAt, expiresAt time.Time) string {
 	default:
 		return strconv.Itoa(days) + " days"
 	}
+}
+
+// inviteVenue is where the person the link belongs to works, as the invitation page
+// names them under their name: the venue, "No home venue" for a person the integration
+// manages with none (K-14), or nothing when the name did not come back.
+func inviteVenue(p tenant.Person) string {
+	if p.LocationName == "" && p.LocationID == nil {
+		return "No home venue"
+	}
+	return p.LocationName
 }
 
 // panelLinkSink is invite.LinkSink for ONE request: it takes the link the channel

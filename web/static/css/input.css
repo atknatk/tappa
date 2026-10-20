@@ -1369,6 +1369,18 @@
     @apply bg-tappa-green/10;
     box-shadow: inset 3px 0 0 theme('colors.ink');
   }
+  /* The row's initials square and, on a phone, the chevron at its end. They are
+     classes rather than utility chains because a page carries fifty rows on a
+     no-store response (the report-row measurement): the chevron is two borders of a
+     turned square, so no row carries an svg for it. Both are drawing only -- the
+     template keeps them from a screen reader. */
+  .roster-initials {
+    @apply inline-flex size-10 flex-none items-center justify-center rounded-[10px] border
+           border-ink/50 bg-paper font-mono text-[13px] font-bold;
+  }
+  .roster-chevron {
+    @apply mr-1 size-2.5 flex-none rotate-45 border-r-2 border-t-2 border-ink/70 md:hidden;
+  }
 
   /* --- The Roll's day cell ---
      Modifiers combine; each cell carries sr-only words in the template, and the
@@ -1547,6 +1559,32 @@
   }
   .odd-callout--alert { @apply border-l-tomato; }
   .odd-callout--warn { @apply border-l-saffron; }
+
+  /* --- manual entry (M12-33, boards Manual / T-Manual / M-Manual) ---
+     Each direction card is the label of a visually hidden radio: the frame
+     doubles (a 1 px inset ring inside the ink border) when its radio is checked,
+     and a ring outside it shows keyboard focus -- no script, no layout shift. */
+  .manual-dircard {
+    @apply relative flex min-h-[60px] cursor-pointer flex-col justify-center gap-0.5 rounded-xl
+           border border-line px-3 py-2 text-ink md:min-h-16 md:px-3.5 md:py-2.5
+           has-[:checked]:border-ink has-[:checked]:bg-paper
+           has-[:checked]:shadow-[inset_0_0_0_1px_theme(colors.ink)]
+           has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-tappa-green
+           has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-paper;
+  }
+  /* The action row. On a phone the two controls of each step stay in reach while
+     the form is scrolled: the row sticks to the bottom of the viewport, just above
+     the fixed section bar (.bar: 4 px + a 60 px link + max(8 px, the home
+     indicator's inset) -- the offset below is that sum), and it bleeds to the
+     docket's edges over the docket's own paper. It sticks only inside its own
+     form, so it never floats over another step. From the tablet width it is an
+     ordinary row at the end of the form. It is a container, not a press target:
+     its button and link carry their own heights. */
+  .manual-actbar {
+    @apply sticky z-10 -mx-4 flex flex-wrap items-center gap-3 border-t border-line bg-paper
+           px-4 py-2.5 md:static md:mx-0 md:border-t-0 md:bg-transparent md:p-0;
+    bottom: calc(4rem + max(0.5rem, env(safe-area-inset-bottom)));
+  }
 }
 
 /* =====================================================================

@@ -163,8 +163,15 @@ type InviteIssuedView struct {
 	// which one is current.
 	Retired int
 
-	// BackHref returns to the roster the manager came from, filters and page intact.
+	// Venue is where the person works, printed under their name so the manager can
+	// check whose link this is before reading it out; "" when the name did not come back.
+	Venue string
+
+	// BackHref returns to the roster the manager came from, filters and page intact,
+	// with this person's card open. ListHref is the same roster without the card: the
+	// first step of the page's trail.
 	BackHref string
+	ListHref string
 }
 
 // InviteEmailedView is the answer to an invitation press in the E-MAIL mode
@@ -207,8 +214,39 @@ type InviteEmailedView struct {
 	// "unsent-recipient-limit" sentences for the same reason.
 	RecipientHourLimit int
 	RecipientDayLimit  int
-	// BackHref returns to the person's card on the roster the manager came from.
+	// BackHref returns to the person's card on the roster the manager came from, and
+	// ListHref to that roster without the card (the trail's first step).
 	BackHref string
+	ListHref string
+}
+
+// invitationChrome is the shell's heading for the two invitation answers: the trail
+// People / <name> / Invitation, the eyebrow, and the title "Invitation".
+func invitationChrome(c PanelChrome, name, listHref, backHref, kicker string) PanelChrome {
+	c.Crumbs = []Crumb{
+		{Label: SectionLabel(TabEmployees), Href: listHref},
+		{Label: name, Href: backHref},
+		{Label: "Invitation"},
+	}
+	c.Kicker = kicker
+	c.Title = "Invitation"
+	return c
+}
+
+// issuedChrome: the link is shown here, once, for one person.
+func issuedChrome(v InviteIssuedView) PanelChrome {
+	return invitationChrome(v.PanelChrome, v.Name, v.ListHref, v.BackHref, "One person · one link · shown once")
+}
+
+// emailedChrome: the e-mail mode never shows the link. Only a sent outcome may say it
+// was sent by e-mail; every other outcome is about an invitation by e-mail that did not
+// go, or was not made.
+func emailedChrome(v InviteEmailedView) PanelChrome {
+	kicker := "Invitation by email"
+	if v.Outcome == "sent" {
+		kicker = "Sent by email"
+	}
+	return invitationChrome(v.PanelChrome, v.Name, v.ListHref, v.BackHref, kicker)
 }
 
 // inviteEmailedHeading names a refused or fallback outcome in a few words; the
