@@ -239,7 +239,7 @@ func apiKeysGuideNote() templ.Component {
 			templ_7745c5c3_Var8 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<p class=\"max-w-[360px] text-sm leading-normal text-ink/80\">For the endpoints and the signature, read the <a class=\"inline-flex min-h-11 items-center font-bold text-ink underline underline-offset-4 hover:text-tappa-green\" href=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<p class=\"max-w-[360px] text-sm leading-normal text-ink/80\">For the endpoints and the signature, read the <a class=\"hit-link font-bold text-ink underline underline-offset-4 hover:text-tappa-green\" href=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -278,7 +278,7 @@ func apiKeysCard(v APIKeysView) templ.Component {
 			templ_7745c5c3_Var10 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<section class=\"panel-card\" aria-labelledby=\"api-keys-title\"><div class=\"flex flex-col gap-4 desk:flex-row desk:items-end desk:justify-between desk:gap-6\"><div class=\"flex min-w-0 flex-col gap-1.5 desk:flex-1\"><h2 id=\"api-keys-title\" class=\"font-display text-[19px] font-bold leading-tight tracking-[-0.02em] text-ink md:text-xl desk:text-[22px]\">Integration keys</h2><p class=\"max-w-2xl text-sm leading-normal text-ink/70\">A key lets your HR or payroll system keep your staff and venues in step with Taptime and collect your punches. Anybody holding a key can do that for this business, so give each system its own key and revoke one the moment it is no longer needed. The full key is shown once, when you create it; after that only its first characters stay on screen.</p><p class=\"max-w-2xl text-sm leading-normal text-ink/70\"><a class=\"inline-flex min-h-11 items-center font-bold text-ink underline underline-offset-4 hover:text-tappa-green\" href=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<section class=\"panel-card\" aria-labelledby=\"api-keys-title\"><div class=\"flex flex-col gap-4 desk:flex-row desk:items-end desk:justify-between desk:gap-6\"><div class=\"flex min-w-0 flex-col gap-1.5 desk:flex-1\"><h2 id=\"api-keys-title\" class=\"font-display text-[19px] font-bold leading-tight tracking-[-0.02em] text-ink md:text-xl desk:text-[22px]\">Integration keys</h2><p class=\"max-w-2xl text-sm leading-normal text-ink/70\">A key lets your HR or payroll system keep your staff and venues in step with Taptime and collect your punches. Anybody holding a key can do that for this business, so give each system its own key and revoke one the moment it is no longer needed. The full key is shown once, when you create it; after that only its first characters stay on screen.</p><p class=\"max-w-2xl text-sm leading-normal text-ink/70\"><a class=\"hit-link font-bold text-ink underline underline-offset-4 hover:text-tappa-green\" href=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1098,7 +1098,7 @@ func webhookSection(w WebhookView, sectionHref string) templ.Component {
 				}
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 74, "</div><p class=\"max-w-2xl text-sm leading-normal text-ink/70\">We send every punch to one address of yours, signed with a key only you and Taptime hold.</p><p class=\"max-w-2xl text-sm leading-normal text-ink/70\"><a class=\"inline-flex min-h-11 items-center font-bold text-ink underline underline-offset-4 hover:text-tappa-green\" href=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 74, "</div><p class=\"max-w-2xl text-sm leading-normal text-ink/70\">We send every punch to one address of yours, signed with a key only you and Taptime hold.</p><p class=\"max-w-2xl text-sm leading-normal text-ink/70\"><a class=\"hit-link font-bold text-ink underline underline-offset-4 hover:text-tappa-green\" href=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
