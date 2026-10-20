@@ -67,7 +67,7 @@ templ AdminLogin(v AdminLoginView) {
 					</div>
 				}
 				<div class="flex flex-1 flex-col items-center justify-center gap-5">
-					<section class="flex w-full max-w-[440px] flex-col gap-[22px] md:rounded-[18px] md:border md:border-line md:bg-paper md:px-9 md:pb-8 md:pt-9">
+					<section class="flex w-full max-w-[440px] flex-col gap-[22px] md:max-w-[480px] md:rounded-[18px] md:border md:border-line md:bg-paper md:px-9 md:pb-8 md:pt-9 desk:max-w-[440px]">
 						<div class="flex flex-col gap-1.5 md:gap-2">
 							<h1 class="font-display text-3xl font-bold leading-none tracking-tight md:text-[32px] desk:text-[34px]">Welcome back</h1>
 							<p class="text-[15px] text-ink/70">Sign in to your business panel.</p>
@@ -216,7 +216,7 @@ templ adminPasswordToggle() {
 // 🔴 THE DOCKETS ARE A DRAWING, NOT RECORDS. The names, venues and times are made
 // up (the landing scene's precedent), nothing is read to draw them, and the whole
 // rail is aria-hidden: a screen reader meets the lockup, the heading and the claims.
-// The tilts are literal classes on three fixed elements; a phone shows one docket.
+// The tilts are literal classes on three fixed elements.
 //
 // The paragraph is drawn from the desk width up: stacked above the form, every row
 // of this half is a row the person who came to sign in scrolls past.
@@ -231,10 +231,8 @@ templ adminLoginBrandPanel() {
 			<span class="absolute -inset-x-5 top-1.5 h-1.5 rounded bg-porcelain md:-left-2.5 md:-right-16 md:top-2 md:h-[7px] desk:-left-16 desk:-right-6 desk:top-2.5 desk:h-2"></span>
 			<div class="flex gap-2.5 pb-2 md:gap-3 md:pb-0 desk:gap-[18px] desk:pl-2">
 				@adminLoginDocket("KF Valletta", "Maria Borg", "IN 07:58", "-rotate-2", true, "")
-				<div class="hidden md:contents">
-					@adminLoginDocket("KF Hamrun", "Kevin Borg", "IN 08:02", "rotate-[1.5deg]", false, "TRUST 70")
-					@adminLoginDocket("KF Msida", "Grace Attard", "OUT 16:31", "-rotate-[0.8deg]", false, "TRUST 100")
-				</div>
+				@adminLoginDocket("KF Hamrun", "Kevin Borg", "IN 08:02", "rotate-[1.5deg]", false, "TRUST 70")
+				@adminLoginDocket("KF Msida", "Grace Attard", "OUT 16:31", "-rotate-[0.8deg]", false, "TRUST 100")
 			</div>
 		</div>
 		<div class="flex flex-col gap-3 md:col-start-1 md:row-start-2 desk:max-w-[460px]">
@@ -310,19 +308,19 @@ templ AdminChoose(v AdminChooseView) {
 								<form method="post" action="/admin/login/choose" class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between md:gap-5 desk:flex-col desk:items-stretch desk:gap-3.5">
 									<input type="hidden" name="csrf" value={ v.CSRFToken }/>
 									<input type="hidden" name="tenant_id" value={ b.TenantID }/>
-									<div class="flex min-w-0 flex-col gap-3 md:flex-1 md:flex-row md:items-center md:gap-7 desk:flex-col desk:items-stretch desk:gap-3.5">
+									<div class="flex min-w-0 items-start justify-between gap-2.5 md:flex-1 md:items-center md:justify-start md:gap-7 desk:flex-col desk:items-stretch desk:gap-3.5">
 										<div class="flex min-w-0 flex-col gap-1">
 											<p class="lbl">Business</p>
 											<p class="break-words text-xl font-bold leading-tight tracking-tight text-ink md:text-[22px]">{ b.TenantName }</p>
 										</div>
-										<div class="flex flex-none flex-col gap-1 border-t border-dashed border-line pt-3 md:border-l md:border-t-0 md:pl-[22px] md:pt-0 desk:border-l-0 desk:border-t desk:pl-0 desk:pt-3">
-											<p class="lbl">Your role</p>
-											<p class="font-mono text-sm font-bold uppercase tracking-widest text-ink md:text-[13px] desk:text-sm">{ b.Role }</p>
+										<div class="flex flex-none flex-col rounded-md border border-ink px-2 py-[3px] md:gap-1 md:rounded-none md:border-0 md:border-l md:border-dashed md:border-line md:px-0 md:py-0 md:pl-[22px] desk:border-l-0 desk:border-t desk:pl-0 desk:pt-3">
+											<p class="lbl sr-only md:not-sr-only">Your role</p>
+											<p class="font-mono text-[11px] font-bold uppercase tracking-widest text-ink md:text-[13px] desk:text-sm">{ b.Role }</p>
 										</div>
 									</div>
 									<button type="submit" class="btn btn--primary w-full gap-2 rounded-xl md:w-auto md:max-w-[45%] md:flex-none desk:w-full desk:max-w-none">
 										<span class="min-w-0 break-words">Continue to { b.TenantName }</span>
-										<span aria-hidden="true">→</span>
+										<span aria-hidden="true" class="hidden md:inline">→</span>
 									</button>
 								</form>
 							</article>
