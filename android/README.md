@@ -91,16 +91,27 @@ POST /admin/plaques/encode/abort    session=<handle>
 Success: `{"session","command","step","done"}` — `command` is the next C-APDU as
 hex and is empty exactly when the round is over. Fault: `{"fault": <word>}` with a
 matching status (`encode-unavailable` 503 · `bad-request` 400 · `unknown-session`
-404 · `busy` 409 · `refused` 422 · `too-many-rounds` 429 · `server-error` 500).
-Anything non-JSON is the panel chain ahead of the endpoint (303 sign-in / origin,
-429 HTML) and **only its status code is read**.
+404 · `busy` 409 · `refused` 422 · `already-encoded` 422 · `too-many-rounds` 429 ·
+`server-error` 500 · `suspended` 403). Anything non-JSON is the panel chain ahead of
+the endpoint (303 sign-in / origin, 429 HTML) and **only its status code is read**.
+
+`suspended` (ADR 0025 §3, OP-15 phase B) is the panel's suspension gate refusing a
+suspended business's round on any of the three routes, ahead of the relay: the app
+names the suspension, blames neither the chip nor the phone, offers no retry, sends
+no abort, and says what the plaque holds from where the round stopped — blank before
+the server accepted the 4th response, an inventory row to keep apart from then on,
+part-written once the chip has processed the 9th command. **Ship order: the APK that
+knows `suspended` goes out before the server that says it** — an older APK reads the
+word as unknown, shows the generic sentence, no keep-apart warning, and leaves
+"Try again" on (ADR 0025 limit 12).
 
 Ten exchanges today (`select · getversion.1-3 · authenticate.1-2 · getcarduid ·
 writedata · changekey.sdmfileread · changefilesettings`), eleven when ADR 0017 §5.1
 step 8 ships. The app takes its cue from `done`, never from a count.
 
 `ContractPinTest` reads the **Go source** two directories up and pins the three
-routes, the seven fault words, the ten step names, the two form field names, the
+routes, the fault vocabulary (as a set and by its size — the README no longer
+writes the number, which went stale twice), the ten step names, the two form field names, the
 panel cookie name and path, the login path, the deployed `TAPPA_BASE_URL` and the
 two wording milestones (row written after exchange 4, secret installed after 9) against
 the Kotlin constants. A drift on the server turns the Android tests red **under one

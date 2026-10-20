@@ -110,7 +110,7 @@ class RelayLoopTest {
         val statuses = mapOf(
             "encode-unavailable" to 503, "bad-request" to 400, "unknown-session" to 404,
             "busy" to 409, "refused" to 422, "already-encoded" to 422, "too-many-rounds" to 429,
-            "server-error" to 500,
+            "server-error" to 500, "suspended" to 403,
         )
         assertEquals(Wording.FAULT_WORDS.toSet(), statuses.map { (word, _) -> word }.toSet())
         for (word in Wording.FAULT_WORDS) {
@@ -141,6 +141,89 @@ class RelayLoopTest {
         val alreadyEncoded = Wording.forFault("already-encoded")
         assertTrue("already-encoded says it is already encoded", alreadyEncoded.contains("already been encoded"))
         assertTrue("already-encoded tells the operator to use a fresh plaque", alreadyEncoded.contains("fresh"))
+    }
+
+    // --- a suspended business --------------------------------------------------------
+
+    /**
+     * ADR 0025 §3, refusal 4: the server's suspension gate answers 403 {"fault":"suspended"}
+     * on any of the three routes, ahead of the relay. Driven through the REAL loop, the
+     * refusal arriving on begin (n = 0) and on the step that posts the n-th response, so
+     * the count the wording sees is the count the loop produces: Faulted(n) means the chip
+     * processed n commands and the server accepted n − 1 responses. The plaque's state is
+     * tiered on the two sides separately -- the row is the SERVER's (accepted 4th
+     * response), the secret is the CHIP's (9th command processed):
+     *
+     *   n = 0, 4   blank (at 4 the row-writing response was never accepted)
+     *   n = 5, 8   the inventory row exists, the secret does not: keep it apart
+     *   n = 9      part-written: keep it apart, never run it again
+     *
+     * Every arm names the suspension, blames neither the chip nor the phone, never tells
+     * the operator to try a fresh plaque, sends no abort, and offers no retry. RED IF:
+     * the milestones are applied to n alone (n = 4 would say "apart"), off by one, the
+     * sentence blames the chip, the loop aborts, or retryIsSafe lets the button say
+     * "Try again".
+     */
+    @Test
+    fun suspended_namesTheSuspension_tiersThePlaqueWarning_andNeverRetries() {
+        fun suspendedAt(n: Int): Pair<Outcome, Int> {
+            val local = FakePanel()
+            try {
+                val base = local.script
+                var steps = 0
+                local.script = { s ->
+                    when {
+                        n == 0 && s.path == HttpRelayServer.ENCODE_PATH -> local.fault(403, "suspended")
+                        s.path == HttpRelayServer.STEP_PATH && ++steps == n -> local.fault(403, "suspended")
+                        else -> base(s)
+                    }
+                }
+                val chip = ScriptedChip()
+                val outcome = RelayLoop(HttpRelayServer(local.base, cookie = { cookie }, allowHttp = true), chip).run()
+                return outcome to local.aborts().size
+            } finally {
+                local.close()
+            }
+        }
+        val row = Wording.ROW_WRITTEN_AFTER_EXCHANGES
+        val secret = Wording.SECRET_INSTALLED_AFTER_EXCHANGES
+        assertEquals("the boundaries this test names are ADR 0025's", listOf(4, 9), listOf(row, secret))
+
+        val blank = "still blank"
+        val apart = "inventory row"
+        val partWritten = "PART-WRITTEN"
+        for ((n, arm) in listOf(0 to blank, row to blank, row + 1 to apart, secret - 1 to apart, secret to partWritten)) {
+            val (outcome, aborts) = suspendedAt(n)
+            assertEquals("n = $n", Outcome.Faulted(n, 403, "suspended"), outcome)
+            assertEquals("n = $n: no abort -- the gate ahead of the relay would refuse it the same way", 0, aborts)
+            val text = Wording.forOutcome(outcome)
+            assertTrue("n = $n names the suspension: $text", text.contains("paused"))
+            assertTrue("n = $n blames nothing: $text", text.contains("Nothing is wrong with the plaque or this phone"))
+            assertTrue("n = $n is in the '$arm' arm: $text", text.contains(arm))
+            for (other in listOf(blank, apart, partWritten) - arm) {
+                assertFalse("n = $n also says '$other': $text", text.contains(other))
+            }
+            assertFalse("n = $n sends the operator to a fresh plaque: $text", text.contains("fresh"))
+            assertFalse("n = $n says the chip answered wrongly: $text", text.contains("chip answered"))
+            assertFalse("n = $n offers a retry", Wording.retryIsSafe(outcome))
+            // 2nd round, F4: the button closes the app; every round would meet the gate.
+            assertEquals("n = $n's button", "Close", Wording.primaryLabel(outcome))
+            assertTrue("n = $n's button closes the app", Wording.primaryCloses(outcome))
+        }
+        // The blank arm says what to do next.
+        val blankText = Wording.forOutcome(suspendedAt(0).first)
+        assertTrue(blankText, blankText.contains("Ask the business owner to contact Taptime."))
+        assertTrue(blankText, blankText.contains("Open this app again once the account is switched back on."))
+        // ... and only the suspension closes: every other outcome keeps its label.
+        assertEquals("Next plaque", Wording.primaryLabel(Outcome.Faulted(3, 422, "refused")))
+        assertEquals("Try again", Wording.primaryLabel(Outcome.Faulted(0, 409, "busy")))
+        assertEquals("Try again", Wording.primaryLabel(Outcome.Refused(0, 303)))
+        assertEquals("Next plaque", Wording.primaryLabel(Outcome.ChipLost(secret, abortSent = true)))
+        assertEquals("Next plaque", Wording.primaryLabel(Outcome.Completed(11, null)))
+        assertFalse(Wording.primaryCloses(Outcome.Faulted(3, 422, "refused")))
+        // The keep-apart advice is the point of the tiers: it appears from the row on.
+        assertTrue(Wording.forOutcome(Outcome.Faulted(row + 1, 403, "suspended")).contains("apart"))
+        assertFalse(Wording.forOutcome(Outcome.Faulted(row, 403, "suspended")).contains("apart"))
     }
 
     // --- the chip leaves the field ----------------------------------------------------
@@ -229,6 +312,8 @@ class RelayLoopTest {
         // A re-encode is over for THIS plaque: the button must not say "Try again".
         assertFalse(Wording.retryIsSafe(Outcome.Faulted(9, 422, "already-encoded")))
         assertTrue(Wording.retryIsSafe(Outcome.Faulted(0, 409, "busy")))
+        // A suspended business meets the same gate on every round (ADR 0025 §3).
+        assertFalse(Wording.retryIsSafe(Outcome.Faulted(0, 403, "suspended")))
         assertTrue(Wording.retryIsSafe(Outcome.Refused(0, 303)))
         assertFalse(Wording.retryIsSafe(Outcome.Unreachable(row, "timeout", abortSent = false)))
     }
