@@ -1077,6 +1077,9 @@ done
 # `EXECUTE` KODU yok (olculdu: 59 dosyanin 21'inde `execute` sozcugu geciyor, hepsi bir yorumda ya
 # da `has_function_privilege(…, 'EXECUTE')` dizesinde). Bir migration deploy olunca degismez
 # (CLAUDE.md §3), pin de degismez; YENI bir satir yalniz govdesi okunup gerekcesi yazilarak eklenir.
+# 00063 (M10 OP-15, 2026-10-20): onuncu satir, ayni sekil -- Up'ta ve Down'da birer DO blogu,
+# govdelerinde 4 `alter`in 4'u `alter table public.operator_audit_log add constraint
+# operator_audit_log_kind_check` (NOT VALID / VALIDATED dallari); EXECUTE kodu yok.
 R5B_BODY_DDL='
 00027_move_legal_publishing_to_the_operator.sql ff642e7342eea75e9bd9e5a1f565ed86236a67bce4df45224a1f076ba82d6515
 00029_read_tenants_from_the_operator.sql 40dfbcc6552251d0262e558bafe6b232c9002f5aafa380ffd11dc05310258d1b
@@ -1087,6 +1090,7 @@ R5B_BODY_DDL='
 00034_recheck_a_tenants_vat_from_the_operator.sql acff23b7eb25471c2cef5c005e0341687b02e21a165a7770259fcb3352e28fcb
 00039_open_the_api_from_the_operator.sql 2e0f577c880f6814c057d7477e275b1b90ae4596c9492a99799569d49b3f71b7
 00042_put_holdings_on_the_operator_surface.sql ebcf1ce2ebe977910e25255dfb91915d7d336b84c808fda722c79031133130a5
+00063_suspend_a_tenant_from_the_operator.sql ea5719006deaef86882aeccc9bf4dc359134d409f0bba0239fec4d90f24eb1b1
 '
 
 # R5B_SET_CONFIG -- bir migration'in `set_config` ile kurabilecegi ayarlar (fix1, 2026-10-19). Sevk

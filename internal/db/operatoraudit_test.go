@@ -99,8 +99,18 @@ const (
 // against the database, TestOperatorAuditKinds_TheTypedConstantsAreTheList against the Go
 // constants). 00031 made it eleven; 00033 (OP-14 D) added the three owner kinds, opOwnerKinds;
 // 00034 (OP-16) the first tenant-writing kind, opTenantWriteKinds; 00039 (M11 API-1) the two
-// API-gate kinds; 00042 (M11 API-1a) the three holding kinds, opHoldingKinds.
+// API-gate kinds; 00042 (M11 API-1a) the three holding kinds, opHoldingKinds; 00063 (M10 OP-15)
+// the two suspension kinds, tenant-writing kinds too.
 var opAuditKinds = []string{"login_failed", "unknown_email", "totp_failed", "locked", "enrollment_failed",
+	"password_ok", "login", "enrollment", "logout", "read", "legal_publish",
+	"operator_created", "operator_mfa_reset", "operator_disabled", "tenant_vat_checked",
+	"tenant_api_enabled", "tenant_api_disabled",
+	"holding_created", "holding_member_added", "holding_member_removed",
+	"tenant_suspended", "tenant_reinstated"}
+
+// opAuditKinds42 is the set at 00042 through 00062 -- what 00063's Down gives back, and what a
+// test that reaches 00042-00062 through opAtVersion pins.
+var opAuditKinds42 = []string{"login_failed", "unknown_email", "totp_failed", "locked", "enrollment_failed",
 	"password_ok", "login", "enrollment", "logout", "read", "legal_publish",
 	"operator_created", "operator_mfa_reset", "operator_disabled", "tenant_vat_checked",
 	"tenant_api_enabled", "tenant_api_disabled",
@@ -131,9 +141,13 @@ var opAuditKinds33 = []string{"login_failed", "unknown_email", "totp_failed", "l
 	"operator_created", "operator_mfa_reset", "operator_disabled"}
 
 // opTenantWriteKinds is operator_audit_log_tenant_write_shape's list at HEAD (00034's one kind,
-// 00039's two): the kinds an op_* that CHANGES a tenant writes -- a row that names its tenant and
-// nothing else.
-var opTenantWriteKinds = []string{"tenant_vat_checked", "tenant_api_enabled", "tenant_api_disabled"}
+// 00039's two, 00063's two): the kinds an op_* that CHANGES a tenant writes -- a row that names its
+// tenant and nothing else.
+var opTenantWriteKinds = []string{"tenant_vat_checked", "tenant_api_enabled", "tenant_api_disabled",
+	"tenant_suspended", "tenant_reinstated"}
+
+// opTenantWriteKinds39 is that list at 00039 through 00062 -- what 00063's Down gives back.
+var opTenantWriteKinds39 = []string{"tenant_vat_checked", "tenant_api_enabled", "tenant_api_disabled"}
 
 // opAuditKinds31 is the set at 00031 and 00032 -- what 00031's own tests reach (opAtVersion
 // first runs 00033's Down) and what 00033's Down gives back.
@@ -1202,9 +1216,9 @@ func TestOperator00031_CallersTempTableIsNeverRead(t *testing.T) {
 //     and refuses a kind outside it;
 //   - op_read_audit reads {"filter": k} out of a filter row for EVERY kind the CHECK names and
 //     for "all", and not for a kind outside it;
-//   - (00034) operator_audit_log_tenant_write_shape names exactly opTenantWriteKinds, each a member
-//     of the kind CHECK and of neither of actor_shape's session-less arms -- a tenant-writing
-//     row carries its session and its operator;
+//   - (00034, widened by 00039 and 00063) operator_audit_log_tenant_write_shape names exactly
+//     opTenantWriteKinds, each a member of the kind CHECK and of neither of actor_shape's
+//     session-less arms -- a tenant-writing row carries its session and its operator;
 //   - (00042) operator_audit_log_holding_write_shape names exactly opHoldingKinds, holding_created
 //     alone as its tenant-less kind, each a session kind of the CHECK and none a tenant-write kind.
 //

@@ -895,6 +895,18 @@ func TestOperator00026_PrivilegeMatrix(t *testing.T) {
 		{"tappa_opdefiner", "tenants", "vat_verified", "UPDATE", true},
 		{"tappa_opdefiner", "audit_log", "at", "INSERT", true},
 		{"tappa_opdefiner", "audit_log", "id", "INSERT", false},
+		// 00063 (M10 OP-15): the definer writes the suspension and nothing else of tenants; the
+		// customer reads it and writes neither column (ADR 0025 §1).
+		{"tappa_opdefiner", "tenants", "suspended_at", "UPDATE", true},
+		{"tappa_opdefiner", "tenants", "suspension_reason", "UPDATE", true},
+		{"tappa_opdefiner", "tenants", "name", "UPDATE", false},
+		{"tappa_opdefiner", "tenants", "suspended_at", "INSERT", false},
+		{"tappa_app", "tenants", "suspended_at", "UPDATE", false},
+		{"tappa_app", "tenants", "suspension_reason", "UPDATE", false},
+		{"tappa_app", "tenants", "suspended_at", "INSERT", false},
+		{"tappa_app", "tenants", "suspension_reason", "INSERT", false},
+		{"tappa_app", "tenants", "suspended_at", "SELECT", true},
+		{"tappa_operator", "tenants", "suspended_at", "SELECT", false},
 	}
 	for _, n := range named {
 		var got bool
@@ -988,11 +1000,16 @@ func TestOperator00026_PrivilegeMatrix(t *testing.T) {
 	// 00039 (M11 API-1): op_enable_tenant_api / op_disable_tenant_api write the tenant's API
 	// gate -- UPDATE on api_enabled_at and api_code, and SELECT on api_enabled_at alone (the
 	// enable keeps the first opening instant); the K6 INSERT is 00034's.
+	//
+	// 00063 (M10 OP-15): op_suspend_tenant and op_reinstate_tenant write the tenant's two
+	// suspension columns -- SELECT and UPDATE on suspended_at and suspension_reason, nothing else
+	// of tenants (ADR 0025 §1; asserted by name above) -- and append to audit_log through 00034's
+	// INSERT, which 00063 does not widen. The two reads return the same two columns.
 	opdefinerTenantGrants := map[string]string{
 		"legal_documents:SELECT": "id,slug,body,published_at,published_by",
 		"legal_documents:INSERT": "slug,body,published_by",
-		"tenants:SELECT":         "id,name,vat_number,business_type,plan,timezone,created_at,price_per_employee_month,vat_verified,vat_checked_at,api_enabled_at,api_code",
-		"tenants:UPDATE":         "vat_verified,vat_checked_at,api_enabled_at,api_code",
+		"tenants:SELECT":         "id,name,vat_number,business_type,plan,timezone,created_at,price_per_employee_month,vat_verified,vat_checked_at,api_enabled_at,api_code,suspended_at,suspension_reason",
+		"tenants:UPDATE":         "vat_verified,vat_checked_at,api_enabled_at,api_code,suspended_at,suspension_reason",
 		"audit_log:INSERT":       "tenant_id,actor_id,action,target,detail,at",
 		"locations:SELECT":       "id,tenant_id,name",
 		"employees:SELECT":       "tenant_id,status,activated_at,deactivated_at",

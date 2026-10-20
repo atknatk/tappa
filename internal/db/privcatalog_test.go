@@ -163,7 +163,9 @@ SELECT line FROM (
 
 // privCatalogAllowed is the allowlist: generated from the catalogue at migration 00060 (T137 fix1,
 // 2026-10-19; `TAPPA_PRIVCATALOG_DUMP=1 go test -run TestPrivCatalog_ ./internal/db -v` prints the
-// live one; 00061 changed nine function lines, read again at 00061) and READ line by line before
+// live one; 00061 changed nine function lines, read again at 00061; 00063 -- M10 OP-15 -- added
+// op_suspend_tenant and op_reinstate_tenant and the two suspension columns to tappa_opdefiner's
+// two tenants lines, read again at 00063) and READ line by line before
 // it was written here. Things the reading noted, all
 // kept on purpose:
 //   - nine pre-M11 trigger functions (tappa_forbid_*, tappa_check_transaction_review,
@@ -265,8 +267,8 @@ column tenants tappa_app INSERT id,name,vat_number,business_type,structure,timez
 column tenants tappa_app UPDATE name,business_type,timezone
 column tenants tappa_feedwriter SELECT id,api_enabled_at,api_code
 column tenants tappa_holdingdefiner SELECT id,name,timezone,vat_verified,api_enabled_at,api_code
-column tenants tappa_opdefiner SELECT id,name,vat_number,business_type,plan,timezone,created_at,price_per_employee_month,vat_verified,vat_checked_at,api_enabled_at,api_code
-column tenants tappa_opdefiner UPDATE vat_verified,vat_checked_at,api_enabled_at,api_code
+column tenants tappa_opdefiner SELECT id,name,vat_number,business_type,plan,timezone,created_at,price_per_employee_month,vat_verified,vat_checked_at,api_enabled_at,api_code,suspended_at,suspension_reason
+column tenants tappa_opdefiner UPDATE vat_verified,vat_checked_at,api_enabled_at,api_code,suspended_at,suspension_reason
 column tenants tappa_resolver SELECT id,api_enabled_at
 column transactions tappa_feedwriter SELECT id,tenant_id,employee_id,location_id,tag_uid,type,occurred_at,verdict,channel,practice,site_tenant_id
 column transactions tappa_holdingdefiner SELECT id,tenant_id,employee_id,ctr,type,occurred_at,sun_valid,verdict,channel,practice,site_tenant_id,site_location_id,site_tag_uid
@@ -322,7 +324,9 @@ function op_read_tenant_vat(text,text,uuid) owner=tappa_opdefiner definer=true e
 function op_read_tenants(text,text,text,integer,integer) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator
 function op_record_auth_event(text,text,uuid) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator
 function op_record_vat_check(text,uuid,text,boolean) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator
+function op_reinstate_tenant(text,uuid) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator
 function op_remove_holding_member(text,uuid,uuid) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator
+function op_suspend_tenant(text,uuid,text) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator
 function op_touch_session(text) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator
 function punch_feed() owner=tappa_feedwriter definer=true execute=tappa_feedwriter
 function resolve_admin_by_email(citext) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver

@@ -220,6 +220,11 @@ var auditKindWords = map[db.OperatorAuditKind]string{
 	db.OperatorAuditHoldingCreated:       "Holding created",
 	db.OperatorAuditHoldingMemberAdded:   "Asked to add a business to a holding",
 	db.OperatorAuditHoldingMemberRemoved: "Asked to remove a business from a holding",
+	// M10 OP-15 (migration 00063): written on every accepted call, whether or not the tenant
+	// exists and whatever it held -- so the word says the operator's action was recorded, not
+	// that a state moved (the tenant's own audit row, and its overview, say that).
+	db.OperatorAuditTenantSuspended:  "Tenant suspension recorded",
+	db.OperatorAuditTenantReinstated: "Tenant reinstatement recorded",
 }
 
 // auditScopeWords is the word for each read kind op_read_audit returns as a row's scope --

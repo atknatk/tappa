@@ -368,6 +368,8 @@ type Tenant struct {
 	VatCheckedAt          *time.Time
 	ApiEnabledAt          *time.Time
 	ApiCode               *string
+	SuspendedAt           *time.Time
+	SuspensionReason      *string
 }
 
 type TenantBranding struct {

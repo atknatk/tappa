@@ -100,7 +100,13 @@ var opAuditKindsAddedBy = map[int][]string{
 	34: {"tenant_vat_checked"},
 	39: {"tenant_api_enabled", "tenant_api_disabled"},
 	42: {"holding_created", "holding_member_added", "holding_member_removed"},
+	63: {"tenant_suspended", "tenant_reinstated"},
 }
+
+// opSuspensionMigration is 00063's number (M10 OP-15): its Down REFUSES while a tenant is
+// suspended (ADR 0025 §2, K15-6), so opAtVersion lifts every suspension inside the test's
+// transaction before it runs that Down.
+const opSuspensionMigration = 63
 
 // opAtVersionSkips are the later migrations opAtVersion does NOT walk back, each with why. They
 // touch no operator object (TestOpAtVersion_SkipsOnlyMigrationsWithoutAnOperatorObject reads
@@ -236,8 +242,24 @@ func opAtVersion(t *testing.T, ctx context.Context, tx pgx.Tx, version int, kind
 	// migration's Down runs DDL in this transaction and holds its table locks until the test
 	// ends, so it runs only under the operator-tables lock held EXCLUSIVE (opTx takes it so), and
 	// the strong locks it leaves on tables of public -- anything above what a writer takes -- are
-	// logged with how long they were held ("OP16-T9").
+	// logged with how long they were held ("OP16-T9"). Since 00063 (M10 OP-15) that includes
+	// ACCESS EXCLUSIVE on tenants -- its Down drops two columns, and lockForDowns takes the lock
+	// first -- so every package that touches tenants waits for the test's rollback (ADR 0025
+	// limit 9).
 	opMustHoldTheTablesLockExclusive(t, ctx, tx)
+	// 00063's Down refuses while a tenant is suspended: a committed suspension (an E2E test that
+	// failed before its cleanup reinstated, or a real one on a development database) is lifted
+	// HERE, inside the transaction, and comes back with the rollback. One statement, no row
+	// locked unless such a row exists (tenants is already held: downTables names it).
+	for _, f := range later {
+		if f.n != opSuspensionMigration {
+			continue
+		}
+		if _, err := tx.Exec(ctx, `UPDATE public.tenants SET suspended_at = NULL, suspension_reason = NULL
+		                            WHERE suspended_at IS NOT NULL OR suspension_reason IS NOT NULL`); err != nil {
+			t.Fatalf("lift the suspensions 00063's Down refuses over, inside the transaction: %v", err)
+		}
+	}
 	for _, f := range later {
 		_, down := opMigrationSections(t, f.name)
 		opRunSection(t, ctx, tx, down, f.name+" Down, to reach version "+strconv.Itoa(version))

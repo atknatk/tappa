@@ -456,11 +456,12 @@ func TestAuditScreen_EveryRowSaysWhatTheLogHolds(t *testing.T) {
 // otherwise (2nd round: a hyphen, a leading digit and a leading underscore are not a token;
 // 3rd round: nor is a byte past ASCII -- z and a right-to-left override, z and an accented
 // letter --, so no bidi control and no look-alike letter reaches the page from a value).
-// CONTROL: the derived set has twenty members (eleven since 00031, the three owner kinds
+// CONTROL: the derived set has twenty-two members (eleven since 00031, the three owner kinds
 // since 00033 -- M10 OP-14 D --, tenant_vat_checked since 00034 -- M10 OP-16 --, the two API-gate
-// kinds since 00039 -- M11 API-1 --, the three holding kinds since 00042 -- M11 API-1a),
-// password_ok, operator_disabled, tenant_vat_checked, tenant_api_enabled and
-// holding_member_added among them.
+// kinds since 00039 -- M11 API-1 --, the three holding kinds since 00042 -- M11 API-1a --,
+// tenant_suspended and tenant_reinstated since 00063 -- M10 OP-15), password_ok,
+// operator_disabled, tenant_vat_checked, tenant_api_enabled, holding_member_added and the two
+// suspension kinds among them.
 //
 // PART II -- red on: a constant of the type with no word; a word for a value that is no
 // constant; an empty or a shared word; a fallback that names an unknown kind as a known one.
@@ -481,11 +482,13 @@ func TestAuditWords_NameEveryKindAndNothingElse(t *testing.T) {
 		derived = append(derived, constant.StringVal(c.Val()))
 	}
 	slices.Sort(derived)
-	if len(derived) != 20 || !slices.Contains(derived, string(db.OperatorAuditPasswordOK)) ||
+	if len(derived) != 22 || !slices.Contains(derived, string(db.OperatorAuditPasswordOK)) ||
 		!slices.Contains(derived, string(db.OperatorAuditOperatorDisabled)) ||
 		!slices.Contains(derived, string(db.OperatorAuditTenantVATChecked)) ||
 		!slices.Contains(derived, string(db.OperatorAuditTenantAPIEnabled)) ||
-		!slices.Contains(derived, string(db.OperatorAuditHoldingMemberAdded)) {
+		!slices.Contains(derived, string(db.OperatorAuditHoldingMemberAdded)) ||
+		!slices.Contains(derived, string(db.OperatorAuditTenantSuspended)) ||
+		!slices.Contains(derived, string(db.OperatorAuditTenantReinstated)) {
 		t.Fatalf("CONTROL: the derived kinds are %v", derived)
 	}
 	var listed []string

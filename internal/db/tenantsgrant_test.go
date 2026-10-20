@@ -125,6 +125,35 @@ func TestTenants00024_TheAppMayUpdateThreeColumnsAndDeleteNothing(t *testing.T) 
 	_, err = execAs(t, app, id, `DELETE FROM tenants WHERE id = $1`, id)
 	wantSQLSTATE(t, err, sqlstateInsufficientPrivi, "tappa_app deleting its own childless tenant row")
 
+	// THE CLOSED LIST, DERIVED (since 00063, M10 OP-15): EVERY column of tenants outside the
+	// three is refused as a statement -- read from the catalogue, not listed, so a column a later
+	// migration adds is covered the day it exists. 00063's suspension columns are the reason: a
+	// customer that could write suspended_at or suspension_reason could lift its own suspension
+	// (ADR 0025 §1). `SET col = col` names nothing but the column: the refusal is the privilege
+	// check, before any row is read.
+	var closed []string
+	if err := app.pool.QueryRow(ctx,
+		`SELECT coalesce(array_agg(a.attname::text ORDER BY a.attnum), '{}')
+		   FROM pg_attribute a
+		  WHERE a.attrelid = 'tenants'::regclass AND a.attnum > 0 AND NOT a.attisdropped
+		    AND a.attname NOT IN ('name', 'business_type', 'timezone')`).Scan(&closed); err != nil {
+		t.Fatalf("derive the closed columns of tenants: %v", err)
+	}
+	for _, must := range []string{"id", "vat_number", "structure", "suspended_at", "suspension_reason"} {
+		found := false
+		for _, c := range closed {
+			found = found || c == must
+		}
+		if !found {
+			t.Fatalf("CONTROL: the derived closed list %v lacks %s", closed, must)
+		}
+	}
+	for _, col := range closed {
+		q := pgx.Identifier{col}.Sanitize()
+		_, err = execAs(t, app, id, `UPDATE tenants SET `+q+` = `+q+` WHERE id = $1`, id)
+		wantSQLSTATE(t, err, sqlstateInsufficientPrivi, "tappa_app writing its own tenants."+col)
+	}
+
 	// POSITIVE CONTROL, same row: the three columns the account screen saves. Without
 	// it the refusals above could be a role with no UPDATE at all.
 	n, err := execAs(t, app, id,
