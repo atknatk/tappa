@@ -22,6 +22,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -739,15 +740,18 @@ func TestEmployeeAdd_ARejectedFormKeepsTheRosterPosition(t *testing.T) {
 	}
 	body := htmlOf(t, rec)
 
-	// THE FILTER BAR CAME BACK SET. Without the body-reading branch no status chip is
-	// marked current (the panel redesign's echo of the status, M12-30) and the roster
-	// underneath is everybody, page one.
-	if currentStatusChip(body) != "Active" ||
-		!strings.Contains(body, `<input type="hidden" name="status" value="`+ledger.StatusActive+`">`) {
+	// THE POSITION CAME BACK SET. Since the panel redesign (M12-31) the open form is its
+	// own layout without the list, so the position lives where it is used: in the form's
+	// hidden fields, posted with the corrected form, and in Cancel, which returns to that
+	// list. Without the body-reading branch both are the unfiltered first page.
+	addForm := docketBlock(t, body, `aria-label="Add somebody to this business"`)
+	if !strings.Contains(addForm, `<input type="hidden" name="status" value="`+ledger.StatusActive+`">`) ||
+		!strings.Contains(anchorFor(t, addForm, "Cancel"), "status="+ledger.StatusActive) {
 		t.Error("🔴 the status filter was lost when the form was refused -- the list under the " +
 			"corrected form is not the list the manager was looking at")
 	}
-	if !strings.Contains(body, `value="borg"`) {
+	if !strings.Contains(addForm, `<input type="hidden" name="name" value="borg">`) ||
+		!strings.Contains(anchorFor(t, addForm, "Cancel"), "name=borg") {
 		t.Error("🔴 the name filter was lost when the form was refused")
 	}
 	// AND THE DOMAIN SAW THE FILTER AS A FILTER, never as part of the new person.
@@ -943,7 +947,7 @@ func docketBlock(t *testing.T, body, marker string) string {
 func TestEmployeeAdd_TheFormIsLabelledAndExplainsItself(t *testing.T) {
 	b := panelBrowserWithActions(t, &fakeStaff{}, &fakeInviter{})
 	body := htmlOf(t, b.do(http.MethodGet, employeesHref+"?"+addParam+"="+addOpenValue, nil))
-	form := docketBlock(t, body, "New person")
+	form := docketBlock(t, body, `aria-label="Add somebody to this business"`)
 
 	// A4: every control the form ships carries a label bound to its id.
 	for _, id := range []string{
@@ -958,9 +962,11 @@ func TestEmployeeAdd_TheFormIsLabelledAndExplainsItself(t *testing.T) {
 		}
 	}
 
-	// A8: the heading names what the card is for.
-	if !strings.Contains(form, "New person") {
-		t.Error("the add card has lost its heading")
+	// A8: the heading names what the page is for. Since the panel redesign (M12-31) the
+	// form is its own layout and "New person" is the page's one <h1>, the shell's title
+	// slot, rather than a heading inside the form's card.
+	if !regexp.MustCompile(`<h1[^>]*>New person</h1>`).MatchString(body) {
+		t.Error("the add page has lost its heading")
 	}
 
 	// A5: the citext sentence is ON THE SCREEN, not only in the refusal. Half of this

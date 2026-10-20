@@ -17,7 +17,6 @@ package handler
 import (
 	"net/http"
 	"reflect"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -36,16 +35,34 @@ func peopleCardBrowser(t *testing.T, records *fakeLedger, staff *fakeStaff) *bro
 }
 
 // cardOf isolates the person's card, so an assertion about the card is not satisfied by a
-// row of the list or a notice.
-var cardRE = regexp.MustCompile(`(?s)<section class="[^"]*" aria-label="Actions for [^"]*">.*?</section>`)
-
+// row of the list or a notice. The card holds sections of its own, so the close is found by
+// counting them.
 func cardOf(t *testing.T, body string) string {
 	t.Helper()
-	cards := cardRE.FindAllString(body, -1)
-	if len(cards) != 1 {
-		t.Fatalf("the page carries %d person card(s), want exactly 1", len(cards))
+	if n := strings.Count(body, `aria-label="Actions for `); n != 1 {
+		t.Fatalf("the page carries %d person card(s), want exactly 1", n)
 	}
-	return cards[0]
+	start := strings.LastIndex(body[:strings.Index(body, `aria-label="Actions for `)], "<section")
+	depth := 0
+	for i := start; i < len(body); {
+		open := strings.Index(body[i:], "<section")
+		end := strings.Index(body[i:], "</section>")
+		if end < 0 {
+			break
+		}
+		if open >= 0 && open < end {
+			depth++
+			i += open + len("<section")
+			continue
+		}
+		depth--
+		i += end + len("</section>")
+		if depth == 0 {
+			return body[start:i]
+		}
+	}
+	t.Fatal("the person card's section is not closed")
+	return ""
 }
 
 func TestPeopleCard_AsksTheTenantGateBeforeTheStrip(t *testing.T) {
@@ -304,6 +321,38 @@ func TestPeopleViews_TheNewFieldsCarryNoSecret(t *testing.T) {
 			if strings.Contains(low, never) && row.Field(i).Name != "Devices" {
 				t.Errorf("RosterRowView.%s: a list row carries no %s", row.Field(i).Name, never)
 			}
+		}
+	}
+}
+
+// TestPersonForm_TheNextStepsFollowTheDeliveryMode (M12-31): the add page's "after you add
+// them" steps say how the link reaches the person in THIS deployment, and never promise a
+// lateness rule the engine does not apply (lateness is measured against the department's
+// shift, else the tapped venue's -- never the home venue's).
+func TestPersonForm_TheNextStepsFollowTheDeliveryMode(t *testing.T) {
+	addHref := employeesHref + "?" + addParam + "=" + addOpenValue
+	panel := htmlOf(t, panelBrowserWithActions(t, &fakeStaff{}, &fakeInviter{}).do(http.MethodGet, addHref, nil))
+	email, _ := emailPanel(t, adminRoleOwner, &fakeStaff{}, &fakeInviter{}, &fakeTrail{}, &fakeMailSender{})
+	mailed := htmlOf(t, email.do(http.MethodGet, addHref, nil))
+	for _, tc := range []struct {
+		name, body, want, never string
+	}{
+		{"panel", panel, "show them their activation link", "We email it"},
+		{"email", mailed, "We email it to the address on file", "show them their activation link"},
+	} {
+		if !strings.Contains(tc.body, tc.want) || strings.Contains(tc.body, tc.never) {
+			t.Errorf("%s mode: want %q and not %q in the next steps", tc.name, tc.want, tc.never)
+		}
+		for _, w := range []string{"Their first tap on one of your plaques finishes the setup. That tap writes no attendance record.", ">INVITED<"} {
+			if !strings.Contains(tc.body, w) {
+				t.Errorf("%s mode: the next steps do not say %q", tc.name, w)
+			}
+		}
+		if strings.Contains(strings.ToLower(tc.body), "lateness") {
+			t.Errorf("%s mode: the add page speaks of lateness against the home venue", tc.name)
+		}
+		if strings.Contains(tc.body, "aria-label=\"Filter employees\"") || strings.Contains(tc.body, `class="roster-row"`) {
+			t.Errorf("%s mode: the add page still draws the list or the chips", tc.name)
 		}
 	}
 }

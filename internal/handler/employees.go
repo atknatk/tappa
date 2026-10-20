@@ -262,6 +262,16 @@ func (a *AdminAuth) employeesView(w http.ResponseWriter, r *http.Request, reject
 	v.Actions, v.Problem = a.rosterActions(w, r, f, screen, v.Problem, now)
 	v.Done = a.confirmedRosterAction(r, v.Actions)
 	v.Add = a.rosterAdd(r, f, screen, rejected)
+	// THE ADD FORM IS ITS OWN LAYOUT ON THE SAME URL (M12-31): a trail back to the list,
+	// the eyebrow and the title "New person". Nothing else about the request changes.
+	if v.Add.Possible && v.Add.Open {
+		v.PanelChrome.Crumbs = []pages.Crumb{
+			{Label: pages.SectionLabel(pages.TabEmployees), Href: v.Add.Form.CloseHref},
+			{Label: "Add somebody"},
+		}
+		v.PanelChrome.Kicker = "Add somebody · they activate with their first tap"
+		v.PanelChrome.Title = "New person"
+	}
 
 	return v, true
 }
@@ -370,6 +380,7 @@ func (a *AdminAuth) rosterAdd(r *http.Request, f ledger.RosterFilter, screen led
 	form.Locations = locations
 	form.Departments = optionViews(screen.Options.Departments)
 	form.BillingNote = addBillingNote
+	form.InviteByEmail = a.inviteMail != nil
 	if form.LocationID == "" && len(locations) == 1 {
 		// ONE VENUE IS THE COMMON CASE AND PRE-SELECTING IT REMOVES A DECISION THAT HAS
 		// ONLY ONE ANSWER.

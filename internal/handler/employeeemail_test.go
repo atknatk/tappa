@@ -235,9 +235,15 @@ func TestEmployeeEmail_TheCardOffersTheFormOnlyToAnOwner(t *testing.T) {
 			if offers != tc.wantForm {
 				t.Errorf("the %s's card offers the address form = %v, want %v", tc.role, offers, tc.wantForm)
 			}
-			says := strings.Contains(body, "Only the business owner can change an address.")
+			// A MANAGER IS REFUSED BOTH OWNER FORMS ON THIS CARD (the address and the
+			// external ref), and since the panel redesign (M12-31) the card says the rule
+			// once for the two: the combined sentence, never the address-only one.
+			says := strings.Contains(body, "Only the business owner can change an address or an external ref.")
 			if says == tc.wantForm {
 				t.Errorf("the %s's card says who may change the address = %v, want %v", tc.role, says, !tc.wantForm)
+			}
+			if strings.Contains(body, "Only the business owner can change an address.") {
+				t.Errorf("the %s's card says the address rule on its own beside the combined one", tc.role)
 			}
 			// THE FORM SAYS WHAT SAVING DOES TO OUTSTANDING LINKS, before the save. The
 			// behaviour itself is TestEmployeeEmailDB_AChangedAddressKillsTheLinkSentBefore.

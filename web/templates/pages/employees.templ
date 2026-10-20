@@ -210,75 +210,81 @@ templ AdminEmployees(v EmployeesView) {
 				}
 			}
 			// THE WAY IN SITS IN THE HEADING (M6-13, redrawn by M12-30): "Add somebody" is the
-			// first control after the title, a link while closed. What is left here is the
-			// form once opened, and the sentence a business with no venue gets instead.
-			if !v.Add.Possible || v.Add.Open {
+			// first control after the title, a link while closed. Opened, the form is the
+			// page (M12-31): its own layout on the same URL, without the list and the chips,
+			// the roster's position riding in its hidden fields. A business with no venue
+			// gets the sentence that says why there is no form, above its list.
+			if v.Add.Possible && v.Add.Open {
 				@components.RosterAdd(v.Add)
-			}
-			// THE PANES. With a card open: beside the list from a desk, above it on a
-			// tablet, and alone on a phone (the card carries the way back). One markup at
-			// every width; the sequence and the tracks are the only things that change.
-			<div class={ peoplePanesClass(v.Actions != nil) }>
-				<div class={ peopleFilterClass(v.Actions != nil) }>
-					@components.RosterFilterBar(v.Filters)
-				</div>
-				if len(v.People) > 0 {
-					<section aria-label="Roster" class={ peopleListClass(v.Actions != nil) }>
-						<ul class="flex flex-col pt-2">
-							for _, p := range v.People {
-								@components.RosterRow(p)
-							}
-						</ul>
-						<div class="flex flex-wrap items-center justify-between gap-2 border-t border-dashed border-line px-5 py-2 font-mono text-xs text-ink/70">
-							// MONO, BECAUSE THIS IS DATA: the zone the last taps are printed in.
-							<p>Dates shown in <span class="text-ink">{ v.ZoneLabel }</span></p>
-							if v.MoreHref != "" {
-								// AN ORDINARY LINK. With no script on this page there is nothing
-								// to intercept it, so it navigates — which is also why it says
-								// "Next" rather than "Show more": nothing is appended, the list
-								// is replaced, and a control naming the wrong behaviour is a
-								// control that lies about what pressing it does.
-								//
-								// THERE IS NO "PREVIOUS", and that is a stated limit rather than
-								// an oversight: a keyset cursor walks one way, and the honest
-								// backward control is the browser's own Back — every page here
-								// is a plain GET with its position in the URL.
-								<a class="btn btn--line" href={ templ.URL(v.MoreHref) }>Next page</a>
+			} else {
+				if !v.Add.Possible {
+					@components.RosterAdd(v.Add)
+				}
+				// THE PANES. With a card open: beside the list from a desk, above it on a
+				// tablet, and alone on a phone (the card carries the way back). One markup at
+				// every width; the sequence and the tracks are the only things that change.
+				<div class={ peoplePanesClass(v.Actions != nil) }>
+					<div class={ peopleFilterClass(v.Actions != nil) }>
+						@components.RosterFilterBar(v.Filters)
+					</div>
+					if len(v.People) > 0 {
+						<section aria-label="Roster" class={ peopleListClass(v.Actions != nil) }>
+							<ul class="flex flex-col pt-2">
+								for _, p := range v.People {
+									@components.RosterRow(p)
+								}
+							</ul>
+							<div class="flex flex-wrap items-center justify-between gap-2 border-t border-dashed border-line px-5 py-2 font-mono text-xs text-ink/70">
+								// MONO, BECAUSE THIS IS DATA: the zone the last taps are printed in.
+								<p>Dates shown in <span class="text-ink">{ v.ZoneLabel }</span></p>
+								if v.MoreHref != "" {
+									// AN ORDINARY LINK. With no script on this page there is nothing
+									// to intercept it, so it navigates — which is also why it says
+									// "Next" rather than "Show more": nothing is appended, the list
+									// is replaced, and a control naming the wrong behaviour is a
+									// control that lies about what pressing it does.
+									//
+									// THERE IS NO "PREVIOUS", and that is a stated limit rather than
+									// an oversight: a keyset cursor walks one way, and the honest
+									// backward control is the browser's own Back — every page here
+									// is a plain GET with its position in the URL.
+									<a class="btn btn--line" href={ templ.URL(v.MoreHref) }>Next page</a>
+								}
+							</div>
+						</section>
+					} else if v.Queried {
+						<div class={ peopleEmptyClass(v.Actions != nil) }>
+							@components.PanelEmpty(SectionLabel(TabEmployees), emptyRosterHeading(v), components.PanelEmptyCTA{}) {
+								if v.Paged {
+									// 🔴 THE POSITION, NOT THE BUSINESS. This branch exists because
+									// without it a cursor past the last name printed "No people have
+									// been added to this business yet" over a business with staff —
+									// measured, from nothing more exotic than a stale bookmark. A
+									// page that has run off the end knows only where it is.
+									<p>You have reached the end of the list.</p>
+									<p class="mt-2">
+										<a class="btn btn--quiet" href={ templ.URL(v.StartHref) }>Back to the start</a>
+									</p>
+								} else if v.Filters.Narrowed {
+									<p>Nobody on this list matches those filters. Widen them, or clear them to see everybody.</p>
+								} else {
+									// 🔴 THIS SENTENCE IS ABOUT THE RECORDS, NOT ABOUT THE BUSINESS.
+									// "Nobody works here" would be a claim about the world; what the
+									// product actually measured is that this business has no employee
+									// rows yet — which is the ordinary state of a tenant on its first
+									// day, before anybody has been invited.
+									<p>No people have been added to this business yet.</p>
+								}
 							}
 						</div>
-					</section>
-				} else if v.Queried {
-					<div class={ peopleEmptyClass(v.Actions != nil) }>
-						@components.PanelEmpty(SectionLabel(TabEmployees), emptyRosterHeading(v), components.PanelEmptyCTA{}) {
-							if v.Paged {
-								// 🔴 THE POSITION, NOT THE BUSINESS. This branch exists because
-								// without it a cursor past the last name printed "No people have
-								// been added to this business yet" over a business with staff —
-								// measured, from nothing more exotic than a stale bookmark. A
-								// page that has run off the end knows only where it is.
-								<p>You have reached the end of the list.</p>
-								<p class="mt-2">
-									<a class="btn btn--quiet" href={ templ.URL(v.StartHref) }>Back to the start</a>
-								</p>
-							} else if v.Filters.Narrowed {
-								<p>Nobody on this list matches those filters. Widen them, or clear them to see everybody.</p>
-							} else {
-								// 🔴 THIS SENTENCE IS ABOUT THE RECORDS, NOT ABOUT THE BUSINESS.
-								// "Nobody works here" would be a claim about the world; what the
-								// product actually measured is that this business has no employee
-								// rows yet — which is the ordinary state of a tenant on its first
-								// day, before anybody has been invited.
-								<p>No people have been added to this business yet.</p>
-							}
-						}
-					</div>
-				}
-				if v.Actions != nil {
-					<div class="min-w-0 order-first desk:order-none desk:col-start-2 desk:row-start-2">
-						@components.RosterActions(*v.Actions)
-					</div>
-				}
-			</div>
+					}
+					if v.Actions != nil {
+						<div class="min-w-0 order-first desk:order-none desk:col-start-2 desk:row-start-2">
+							@components.RosterActions(*v.Actions)
+						</div>
+					}
+				</div>
+			}
 		}
 	}
 }
