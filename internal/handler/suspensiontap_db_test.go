@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -26,19 +27,25 @@ type tapSeen struct {
 	PageStatus   int
 	PageLocation string
 	PageMinted   bool
-	Status       int
-	Location     string
-	Rows         int
-	Alerts       int
-	Verdict      string
-	Trust        string
-	Type         string
-	Note         string
-	Sid          string
-	Layer        string
-	Practice     bool
-	Queued       bool
-	Channel      string
+	// PageBody and Body are the plaque page's and the check-in's answers as a person
+	// sees them, normalised (pageText): a suspension that changed what the tap screen or
+	// the result screen SAYS -- the venue, the network, the business's name or brand,
+	// the button -- shows here even when every decision above is equal.
+	PageBody string
+	Body     string
+	Status   int
+	Location string
+	Rows     int
+	Alerts   int
+	Verdict  string
+	Trust    string
+	Type     string
+	Note     string
+	Sid      string
+	Layer    string
+	Practice bool
+	Queued   bool
+	Channel  string
 }
 
 func flat[T any](p *T) string {
@@ -71,7 +78,7 @@ func viaPage(t *testing.T, h *tapHarness, employee uuid.UUID, cookie *http.Cooki
 	t.Helper()
 	rows, alerts := h.countFor(t, employee), h.auditCount(t, "tap.security_alert")
 	page := h.get(t, target, cookie)
-	s := tapSeen{PageStatus: page.Code, PageLocation: page.Header().Get("Location")}
+	s := tapSeen{PageStatus: page.Code, PageLocation: page.Header().Get("Location"), PageBody: pageText(h, page.Body.String())}
 	if m := ctxFieldRE.FindStringSubmatch(page.Body.String()); m != nil {
 		s.PageMinted = true
 		signed := m[1]
@@ -87,7 +94,7 @@ func viaPage(t *testing.T, h *tapHarness, employee uuid.UUID, cookie *http.Cooki
 			}
 		}
 		w := h.postSigned(t, signed, cookie, addr, extra)
-		s.Status, s.Location = w.Code, w.Header().Get("Location")
+		s.Status, s.Location, s.Body = w.Code, w.Header().Get("Location"), pageText(h, w.Body.String())
 	}
 	s.Rows, s.Alerts = h.countFor(t, employee)-rows, h.auditCount(t, "tap.security_alert")-alerts
 	if s.Rows > 0 {
@@ -134,6 +141,51 @@ func holdingStep(t *testing.T, h *tapHarness, _ *uint32) tapSeen {
 	return folded(seen[0], seen[1])
 }
 
+// The parts of a tap answer that differ between two identical businesses by
+// construction, not by decision: the signed context (it carries ids and the session's
+// MAC), the per-response CSP nonce, ids, plaque uids, counter values and clock
+// readings. Everything else -- every word, every class, every link that is not one of
+// those -- is compared verbatim.
+var (
+	pageCtxRE   = regexp.MustCompile(`name="ctx" value="[^"]*"`)
+	pageNonceRE = regexp.MustCompile(`nonce="[^"]*"`)
+	pageCSRFRE  = regexp.MustCompile(`name="csrf" value="[^"]*"`)
+	pageUUIDRE  = regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)
+	pageUIDRE   = regexp.MustCompile(`\b[0-9A-F]{14}\b`)
+	pageCtrRE   = regexp.MustCompile(`ctr=[0-9A-Fa-f]+`)
+	pageClockRE = regexp.MustCompile(`\b[0-2]?[0-9]:[0-5][0-9](:[0-5][0-9])?\b`)
+)
+
+// pageText is a tap answer's body with the construction-dependent parts replaced by
+// placeholders (above); the harness's own plaque uid is replaced by name too.
+func pageText(h *tapHarness, body string) string {
+	body = strings.ReplaceAll(body, h.tagUID, "<UID>")
+	body = pageCtxRE.ReplaceAllString(body, `name="ctx" value="<CTX>"`)
+	body = pageNonceRE.ReplaceAllString(body, `nonce="<NONCE>"`)
+	body = pageCSRFRE.ReplaceAllString(body, `name="csrf" value="<CSRF>"`)
+	body = pageUUIDRE.ReplaceAllString(body, "<ID>")
+	body = pageUIDRE.ReplaceAllString(body, "<UID>")
+	body = pageCtrRE.ReplaceAllString(body, "ctr=<CTR>")
+	return pageClockRE.ReplaceAllString(body, "<CLOCK>")
+}
+
+// firstDifference shows where two normalised bodies first disagree: a short window of
+// each around the first differing byte (a rendered page is often one line), or "same".
+func firstDifference(a, b string) string {
+	if a == b {
+		return "same"
+	}
+	at := 0
+	for at < len(a) && at < len(b) && a[at] == b[at] {
+		at++
+	}
+	window := func(x string) string {
+		lo, hi := max(at-60, 0), min(at+60, len(x))
+		return x[lo:hi]
+	}
+	return fmt.Sprintf("at byte %d: unsuspended %q, suspended %q", at, window(a), window(b))
+}
+
 // nextCtr spends the plaque's next counter value.
 func nextCtr(ctr *uint32) uint32 { *ctr++; return *ctr }
 
@@ -148,6 +200,8 @@ func folded(first, second tapSeen) tapSeen {
 	if first.Verdict != second.Verdict {
 		second.Verdict = first.Verdict + "+" + second.Verdict
 	}
+	second.PageBody = first.PageBody + "\n----\n" + second.PageBody
+	second.Body = first.Body + "\n----\n" + second.Body
 	return second
 }
 
@@ -270,13 +324,23 @@ func TestSuspensionDB_TapsAreDecidedAsIfThereWereNoSuspension(t *testing.T) {
 		t.Fatalf("control: the second business is not suspended (%v)", err)
 	}
 
+	// BOTH BUSINESSES ARE BRANDED (logo + accent), so the tap and result screens draw
+	// the business's name, logo and accent -- the screen content a suspension must not
+	// change (§4, CLAUDE.md §9) is on the page to be compared.
+	for _, h := range []*tapHarness{open, suspended} {
+		h.brandBusiness(t, h.tenantID, 31, "DA291C")
+	}
+
 	openCtr, suspendedCtr := uint32(open.startCtr), uint32(suspended.startCtr)
 	outcomes := map[string]bool{}
 	for _, step := range suspensionTapSteps() {
 		a := step.run(t, open, &openCtr)
 		b := step.run(t, suspended, &suspendedCtr)
 		if !reflect.DeepEqual(a, b) {
-			t.Errorf("%s:\n  unsuspended %+v\n  suspended   %+v", step.name, a, b)
+			pa, pb, ra, rb := a.PageBody, b.PageBody, a.Body, b.Body
+			a.PageBody, b.PageBody, a.Body, b.Body = "", "", "", ""
+			t.Errorf("%s:\n  unsuspended %+v\n  suspended   %+v\n  tap page: %s\n  result:   %s",
+				step.name, a, b, firstDifference(pa, pb), firstDifference(ra, rb))
 		}
 		t.Logf("%-38s page %d minted=%v -> %d %-8s trust=%s sid=%s rows=%d alerts=%d",
 			step.name, a.PageStatus, a.PageMinted, a.Status, a.Verdict, a.Trust, a.Sid, a.Rows, a.Alerts)
@@ -292,26 +356,40 @@ func TestSuspensionDB_TapsAreDecidedAsIfThereWereNoSuspension(t *testing.T) {
 			}
 		}
 	}
+	// ANTI-VACUITY for the screen comparison: the first step's tap page carries the
+	// business's name, its logo, its accent, the venue and the one button, and its
+	// result screen the confirmation -- all compared verbatim above.
+	first := suspensionTapSteps()[0].run(t, open, &openCtr)
+	for _, want := range []string{"Kebab Factory Ltd", "/t/logo/", "/brand/theme/DA291C.css", "Joseph", "St Julians", ">Tap<"} {
+		if !strings.Contains(first.PageBody, want) {
+			t.Errorf("anti-vacuity: the compared tap page lacks %q", want)
+		}
+	}
+	if !strings.Contains(first.Body, "All done") {
+		t.Errorf("anti-vacuity: the compared result screen lacks the confirmation")
+	}
 	for _, want := range []string{"ok", "flag", "ignored", "reject", "page minted", "redirect /activate?from=tap"} {
 		if !outcomes[want] {
 			t.Errorf("no step produced %q; the table is not exercising §5 the way it claims (%v)", want, outcomes)
 		}
 	}
-	if openCtr != suspendedCtr {
+	if openCtr != suspendedCtr+1 {
 		t.Errorf("the two plaques spent %d and %d counter values", openCtr, suspendedCtr)
 	}
 }
 
 // TestSuspensionDB_TheActivationTapIsTheSameForASuspendedBusiness is ADR 0025 §4's
-// activation half under ADR 0026: an invitation issued, consent recorded in the wizard,
-// and the FIRST REAL NFC TAP -- the step that activates (no transactions row) -- on two
-// businesses, one of them suspended. Both land on the same answer: the tap's status and
-// "Activation complete", the person active, the invitation spent, one session issued, and
-// no attendance row.
+// activation half under ADR 0026: an invitation issued, the wizard walked (welcome,
+// the privacy notice, consent), and the FIRST REAL NFC TAP -- the step that activates
+// (no transactions row) -- on two businesses, one of them suspended. Both land on the
+// same answer: the tap's status, the person active, the invitation spent, one session
+// issued, no attendance row -- and the SAME SCREENS, compared normalised (pageText):
+// the employer's name in the GDPR notice, the venue's network on step 3, the
+// "Activation complete" page.
 func TestSuspensionDB_TheActivationTapIsTheSameForASuspendedBusiness(t *testing.T) {
 	type seen struct {
 		Status, TxDelta int
-		Complete        bool
+		Screens         [4]string
 	}
 	run := func(suspend bool) seen {
 		h := newHarness(t, "invited")
@@ -319,19 +397,46 @@ func TestSuspensionDB_TheActivationTapIsTheSameForASuspendedBusiness(t *testing.
 			suspendAsOwner(t, ownerPoolForTest(t), h.tenantID, db.SuspensionSecurityHold)
 		}
 		c := h.client(t)
-		h.consent(t, c, h.issue(t))
+		code := h.issue(t)
+		var out seen
+		welcome, err := c.Get(h.server.URL + "/activate?code=" + url.QueryEscape(code))
+		if err != nil {
+			t.Fatalf("open link: %v", err)
+		}
+		out.Screens[0] = pageText(h.tapHarness, body(t, welcome))
+		privacy := h.getBody(t, c, "/activate?step=2")
+		out.Screens[1] = pageText(h.tapHarness, privacy)
+		resp, err := c.PostForm(h.server.URL+"/api/activate", url.Values{"consent": {"yes"}, "csrf": {formToken(t, privacy)}})
+		if err != nil {
+			t.Fatalf("consent: %v", err)
+		}
+		out.Screens[2] = pageText(h.tapHarness, body(t, resp))
 		before := h.transactionCount(t)
-		resp, page := h.tapWith(t, c, h.nextTap(t))
+		tapResp, page := h.tapWith(t, c, h.nextTap(t))
+		out.Screens[3] = pageText(h.tapHarness, page)
 		h.assertEmployeeStatus(t, "active")
 		h.assertInviteConsumed(t, true)
 		h.assertSessionCount(t, 1)
-		return seen{Status: resp.StatusCode, TxDelta: h.transactionCount(t) - before, Complete: strings.Contains(page, "Activation complete")}
+		out.Status, out.TxDelta = tapResp.StatusCode, h.transactionCount(t)-before
+		return out
 	}
 	open, suspended := run(false), run(true)
-	if open != suspended {
-		t.Errorf("the activating tap: unsuspended %+v, suspended %+v", open, suspended)
+	if open.Status != suspended.Status || open.TxDelta != suspended.TxDelta {
+		t.Errorf("the activating tap: unsuspended %d / %d row(s), suspended %d / %d row(s)",
+			open.Status, open.TxDelta, suspended.Status, suspended.TxDelta)
 	}
-	if !open.Complete || open.Status != http.StatusOK || open.TxDelta != 0 {
-		t.Errorf("anti-vacuity: the unsuspended activation is %+v, want 200, complete, no row", open)
+	for i, name := range []string{"welcome", "privacy notice", "consent landing (step 3)", "activation complete"} {
+		if open.Screens[i] != suspended.Screens[i] {
+			t.Errorf("the %s screen differs for a suspended business: %s", name, firstDifference(open.Screens[i], suspended.Screens[i]))
+		}
+	}
+	// ANTI-VACUITY: what the comparison is about is on the screens.
+	for i, want := range []string{"Maria Borg", "Kebab Factory Ltd", "KF-StJulians-Staff", "Activation complete"} {
+		if !strings.Contains(open.Screens[i], want) {
+			t.Errorf("anti-vacuity: screen %d lacks %q", i, want)
+		}
+	}
+	if open.Status != http.StatusOK || open.TxDelta != 0 {
+		t.Errorf("anti-vacuity: the unsuspended activation is %d / %d row(s), want 200 / 0", open.Status, open.TxDelta)
 	}
 }

@@ -479,3 +479,122 @@ func TestPanelSuspensionDB_TheDefencesStayOpenAndTakeEffect(t *testing.T) {
 		}
 	}
 }
+
+// TestPanelSuspensionDB_NoPanelReadWritesBusinessData is ADR 0025 §4's read half seen
+// from the other side: the panel's GETs are not behind the suspension gate, so a GET
+// that wrote business data would be a write a suspension does not stop. For a
+// SUSPENDED business's signed-in admin, every GET AdminAuth.Mount serves (chi.Walk) and
+// the query-string forms its handlers read (a person's card and its deactivation
+// confirmation, a venue's card and its removal confirmation, the removal receipt, a
+// month, a week, a review item, a policy version, a plaque) is requested, and every row
+// of THIS tenant created or updated meanwhile is counted per table, by xmin -- the
+// transaction ids handed out during the request. Allowed: the session's own
+// last_used_at (admin_sessions, one row -- also the control that the measurement sees
+// a write at all) and, on the two exports only, their own trail row (report.exported,
+// billing.exported -- checked by action). Anything else is red.
+//
+// PART III: the scan sees INSERTs and UPDATEs (a new row version carries the writer's
+// xmin), not DELETEs, and only tables with a tenant_id column (plus tenants by id).
+func TestPanelSuspensionDB_NoPanelReadWritesBusinessData(t *testing.T) {
+	p := newPanelHarness(t)
+	owner := ownerPoolForTest(t)
+	ctx := context.Background()
+	venue, _, person := seedPanelPerson(t, p, p.tenantID, "Read Probe", "active")
+	suspendAsOwner(t, owner, p.tenantID, db.SuspensionNonPayment)
+	p.signIn(t)
+
+	var tables []string
+	rows, err := owner.Query(ctx, `SELECT quote_ident(c.table_name) FROM information_schema.columns c
+		JOIN information_schema.tables t ON t.table_schema = c.table_schema AND t.table_name = c.table_name
+		WHERE c.table_schema = 'public' AND c.column_name = 'tenant_id' AND t.table_type = 'BASE TABLE' ORDER BY 1`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		tables = append(tables, n)
+	}
+	rows.Close()
+	if len(tables) < 20 {
+		t.Fatalf("only %d tenant tables found; the scan is not reading the schema", len(tables))
+	}
+	nextXID := func() int64 {
+		var x int64
+		if err := owner.QueryRow(ctx, `SELECT pg_snapshot_xmax(pg_current_snapshot())::text::bigint`).Scan(&x); err != nil {
+			t.Fatal(err)
+		}
+		return x
+	}
+	written := func(from, to int64) map[string]int {
+		out := map[string]int{}
+		count := func(name, where string) {
+			var n int
+			q := `SELECT count(*) FROM ` + name + ` WHERE ` + where +
+				` AND xmin::text::bigint >= ($2 % 4294967296) AND xmin::text::bigint < ($3 % 4294967296)`
+			if err := owner.QueryRow(ctx, q, p.tenantID, from, to).Scan(&n); err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+			if n > 0 {
+				out[name] = n
+			}
+		}
+		for _, tb := range tables {
+			count(tb, "tenant_id = $1")
+		}
+		count("tenants", "id = $1")
+		return out
+	}
+
+	walk := newAdminRouterWithActions(t, suspendedIdentity(uuid.New(), uuid.New(), uuid.New(), nil),
+		&fakeTrail{}, newFakeLedger(), &fakeReviewer{}, &fakeStaff{}, &fakeInviter{})
+	var paths []string
+	for _, mr := range walkedRoutes(t, walk) {
+		if path, ok := strings.CutPrefix(mr, "GET "); ok {
+			paths = append(paths, path)
+		}
+	}
+	paths = append(paths,
+		employeesHref+"?manage="+person.String(), employeesHref+"?manage="+person.String()+"&confirm=deactivate",
+		manualEntryHref+"?id="+person.String(), locationsHref+"?venue="+venue.String(),
+		locationsHref+"?venue="+venue.String()+"&confirm=remove", locationsHref+"?done=location-removed&id="+venue.String(),
+		billingHref+"?month=2026-09", "/admin/anomalies?week=2026-10-12", reportsHref+"?week=2026-10-12",
+		reviewHref+"?for="+uuid.NewString(), "/admin/policies/version?policy="+uuid.NewString()+"&no=1",
+		locationsHref+"?plaque=04A1B2C3D4E5F6", billingCSVHref+"?month=2026-09", reportsCSVHref+"?week=2026-10-12",
+	)
+	exports := map[string]bool{billingCSVHref: true, reportsCSVHref: true}
+	for _, path := range paths {
+		from := nextXID()
+		res, _ := p.get(t, path)
+		got := written(from, nextXID())
+		bare, _, _ := strings.Cut(path, "?")
+		if bare == adminLoginPath || bare == "/admin/login/choose" {
+			if len(got) != 0 {
+				t.Errorf("GET %s wrote %v", path, got)
+			}
+			continue
+		}
+		if got["admin_sessions"] != 1 {
+			t.Errorf("GET %s (%d): the session touch is not seen (%v) -- the measurement is blind", path, res.StatusCode, got)
+		}
+		delete(got, "admin_sessions")
+		if exports[bare] && got["audit_log"] == 1 {
+			var n int
+			if err := owner.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND action IN ($2, $3)
+				AND xmin::text::bigint >= ($4 % 4294967296)`, p.tenantID, ActionReportExported, ActionBillingExported, from).Scan(&n); err != nil {
+				t.Fatal(err)
+			}
+			if n == 1 {
+				delete(got, "audit_log")
+			}
+		}
+		if len(got) != 0 {
+			t.Errorf("GET %s for a suspended business wrote %v; a panel read is not behind the suspension gate", path, got)
+		}
+	}
+	if len(paths) < 25 {
+		t.Fatalf("only %d GET(s) driven", len(paths))
+	}
+}
