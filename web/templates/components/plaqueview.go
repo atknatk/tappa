@@ -79,7 +79,7 @@ import "strconv"
 // VERDICT -- the engine's judgement of a tap -- and a plaque's lifecycle is not a
 // judgement of anything. The status is a word in a labelled field.
 
-// PlaqueRowView is one plaque as the docket renders it.
+// PlaqueRowView is one plaque as the Venues rows and the plaque card render it.
 type PlaqueRowView struct {
 	// UID is the chip id printed on the plaque. It is PUBLIC: it is on the wall and
 	// in the tap URL's address bar.
@@ -120,7 +120,7 @@ type PlaqueRowView struct {
 	// header for exactly what backs it. It never contains, encodes or hints at a key.
 	KeyState string
 
-	// KeyAlert is which unrecorded-encode banner the docket carries (M10 F0-6):
+	// KeyAlert is which unrecorded-encode banner the plaque card carries (M10 F0-6):
 	//
 	//	"stock"  in the box, encoding not recorded as finished — it cannot go on a
 	//	         wall
@@ -178,7 +178,8 @@ type PlaqueFormView struct {
 	// CloseHref is this section without the card.
 	CloseHref string
 
-	// Plaque is the row itself, rendered as the docket's detail block.
+	// Plaque is the row itself, read out as the card's facts (its open link is the row's,
+	// not the card's: the card never links to itself).
 	Plaque PlaqueRowView
 
 	// Mode is which act this card offers: "mount", "onwall", "unmount" or "" for none.

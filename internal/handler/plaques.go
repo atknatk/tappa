@@ -559,7 +559,7 @@ func plaqueCardOf(p tenant.Plaque, screen tenant.PlaqueScreen, venues tenant.Ven
 	switch {
 	case !p.Changeable():
 		// The frozen development residue (00013's NOT VALID constraint). The row's own
-		// docket already carries the warning; this is why there is no control.
+		// banner already carries the warning; this is why there is no control.
 		f.Blocked = "This plaque cannot be changed, so it cannot be mounted or replaced."
 	case p.InStock() && !p.Encoded():
 		// 🔴 M10 F0-6 / INCIDENT A-1. AssignTagToLocation refuses a row with no
