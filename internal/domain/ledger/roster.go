@@ -177,6 +177,13 @@ type Person struct {
 	// migration 00003 makes the column NOT NULL with a CHECK, so an empty string
 	// would mean the query stopped selecting it.
 	Status string
+	// Role is the job title a manager typed (employees.role), "" when none was. Free text
+	// no decision reads (00003); the screen prints it beside the venue.
+	Role string
+	// LastTap is this person's newest non-practice record, nil when they have none. nil
+	// means "no tap yet" ONLY when the page's LastTaps reading is Measured -- a page whose
+	// last-tap read failed carries nil on every row and says so (RosterPage.LastTaps).
+	LastTap *LastTap
 	// HasHome is false for an employee the integration manages who has no home venue
 	// (K-14, migration 00037). It is what tells "no venue" apart from a missed join.
 	HasHome bool
@@ -213,6 +220,24 @@ type Person struct {
 	Since *time.Time
 }
 
+// LastTap is the newest non-practice record of one person, as the roster row prints it
+// (M12-18): when, the engine's verdict word and the channel -- "14:31 today", "refused",
+// "by hand".
+//
+// 🔴 K-39 / §4.7 -- WHAT IT CANNOT CARRY. No venue, no plaque, no note, no trust, no
+// evidence sign: the statement (ListLastTapsForEmployees) selects three columns and this
+// type has a field for each and nothing else, so a tap at a holding peer's venue reads
+// exactly like any other. The verdict word is ADR 0027 §13 item 5's named residue.
+type LastTap struct {
+	At time.Time
+	// Verdict is the engine's word (ok, flag, reject, ignored; migration 0005's CHECK) --
+	// never a reviewer's, which lives in transaction_reviews.
+	Verdict string
+	// Channel is nfc, qr or manual: a record a manager typed is not a tap, and the screen
+	// may say so.
+	Channel string
+}
+
 // RosterPage is one page of people.
 type RosterPage struct {
 	// Queried is the anti-fabrication flag, the same one Page and QueuePage carry
@@ -221,6 +246,11 @@ type RosterPage struct {
 	// separates them (§4.6, the class M5-11 closed).
 	Queried bool
 	People  []Person
+	// LastTaps is the state of the page's last-tap read (M12-18): Measured, every row's
+	// LastTap is the answer (nil = none); ReadFailed, the read was asked inside the page's
+	// transaction and failed in its own savepoint, so no row's LastTap means anything and
+	// the screen says so rather than "—" (§4.6); NotQueried, nobody asked.
+	LastTaps Reading
 	// NextID is the anchor for the following page, nil when this is the last one.
 	NextID *uuid.UUID
 	// Zone is the tenant's timezone; every instant above is UTC and is converted at
@@ -376,6 +406,22 @@ func (r *Reader) Roster(ctx context.Context, tenantID uuid.UUID, f RosterFilter)
 			out.NextID = &id
 		}
 
+		// EACH ROW'S LAST TAP, for THIS PAGE'S people only (ListLastTapsForEmployees says
+		// why it is a second statement). In the page's snapshot, in its own savepoint: a
+		// failure leaves every row without one and the page saying it could not read them.
+		out.LastTaps = ReadFailed
+		if err := inSavepoint(ctx, tx, func(q *store.Queries) error {
+			return lastTaps(ctx, q, tenantID, out.People)
+		}); err != nil {
+			for i := range out.People {
+				out.People[i].LastTap = nil
+			}
+			r.log.Error("ledger: could not read the roster's last taps; the rows will say so "+
+				"rather than claim nobody tapped", "err", err, "tenant_id", tenantID)
+		} else {
+			out.LastTaps = Measured
+		}
+
 		if out.Options, err = options(ctx, q, tenantID); err != nil {
 			return err
 		}
@@ -403,6 +449,35 @@ func (r *Reader) Roster(ctx context.Context, tenantID uuid.UUID, f RosterFilter)
 		return RosterScreen{}, fmt.Errorf("ledger: roster: %w", err)
 	}
 	return out, nil
+}
+
+// lastTaps fills each person's LastTap from ListLastTapsForEmployees. A page with nobody on it
+// asks nothing and is measured: there is no row whose tap could be unknown.
+func lastTaps(ctx context.Context, q *store.Queries, tenantID uuid.UUID, people []Person) error {
+	if len(people) == 0 {
+		return nil
+	}
+	ids := make([]uuid.UUID, len(people))
+	at := make(map[uuid.UUID]int, len(people))
+	for i, p := range people {
+		ids[i] = p.ID
+		at[p.ID] = i
+	}
+	rows, err := q.ListLastTapsForEmployees(ctx, store.ListLastTapsForEmployeesParams{
+		TenantID:    tenantID,
+		EmployeeIds: ids,
+	})
+	if err != nil {
+		return fmt.Errorf("list last taps: %w", err)
+	}
+	for _, row := range rows {
+		i, ok := at[row.EmployeeID]
+		if !ok {
+			return fmt.Errorf("list last taps: a row for an employee the page does not hold")
+		}
+		people[i].LastTap = &LastTap{At: row.OccurredAt, Verdict: row.Verdict, Channel: row.Channel}
+	}
+	return nil
 }
 
 // rosterNarrowing is the part of a RosterFilter the list and the status tally share: venue,
@@ -458,6 +533,7 @@ func person(row store.ListPanelEmployeesRow) Person {
 	return Person{
 		ID:             row.ID,
 		Name:           row.FullName,
+		Role:           deref(row.Role),
 		Status:         row.Status,
 		HasHome:        row.LocationID != nil,
 		LocationName:   deref(row.LocationName),

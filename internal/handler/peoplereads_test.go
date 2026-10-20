@@ -19,6 +19,43 @@ import (
 // peopleReadTypes are the domain types the People reads hand to the panel.
 var peopleReadTypes = []reflect.Type{
 	reflect.TypeOf(ledger.StatusTally{}),
+	reflect.TypeOf(ledger.LastTap{}),
+}
+
+// peopleReadFields are the fields M12 added to an existing type, whose other fields predate this
+// walker (ledger.Person's HasHome, from M11 API-1, holds "hash" as a substring; ledger.RosterPage
+// carries a *time.Location). They are checked by name and by type here; ledger.personFields closes
+// Person's set.
+var peopleReadFields = []struct {
+	typ   reflect.Type
+	field string
+}{
+	{reflect.TypeOf(ledger.Person{}), "Role"},
+	{reflect.TypeOf(ledger.Person{}), "LastTap"},
+	{reflect.TypeOf(ledger.RosterPage{}), "LastTaps"},
+	{reflect.TypeOf(ledger.RosterScreen{}), "Tally"},
+}
+
+func TestPeopleReads_TheFieldsAddedToOlderTypesAreClean(t *testing.T) {
+	want := map[string]reflect.Type{
+		"Role":     reflect.TypeOf(""),
+		"LastTap":  reflect.TypeOf(&ledger.LastTap{}),
+		"LastTaps": reflect.TypeOf(ledger.Reading(0)),
+		"Tally":    reflect.TypeOf(ledger.StatusTally{}),
+	}
+	for _, f := range peopleReadFields {
+		sf, ok := f.typ.FieldByName(f.field)
+		if !ok {
+			t.Errorf("%s has no field %s", f.typ, f.field)
+			continue
+		}
+		if why := bannedFieldName(sf.Name); why != "" {
+			t.Errorf("%s.%s is a field a coordinate or a secret could travel in (%s)", f.typ, sf.Name, why)
+		}
+		if sf.Type != want[f.field] {
+			t.Errorf("%s.%s is a %s, want %s", f.typ, sf.Name, sf.Type, want[f.field])
+		}
+	}
 }
 
 func TestPeopleReads_CarryNothingACoordinateCouldTravelIn(t *testing.T) {

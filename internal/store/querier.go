@@ -3437,6 +3437,50 @@ type Querier interface {
 	// the same rows: it names the rule whose sentence (note) describes the peer's evidence, which the
 	// reader replaces for such a row (internal/domain/ledger's evidenceSids); it is not rendered.
 	ListFlaggedForReview(ctx context.Context, arg ListFlaggedForReviewParams) ([]ListFlaggedForReviewRow, error)
+	// Each listed person's LAST TAP (M12-18, panel redesign D3): the newest NON-PRACTICE
+	// record of each employee id on one roster page, and of it only the instant, the verdict
+	// word and the channel -- the row says "14:31 today", "refused", "by hand", never why.
+	// Practice rows are not attendance (ADR 0008) and are skipped. A person with no record
+	// has NO ROW here; internal/domain/ledger reads that as "no tap yet", which it may say
+	// only because this statement answered (RosterPage.LastTaps is Measured).
+	//
+	// 🔴 WHY A SECOND STATEMENT AND NOT A THIRD LATERAL IN ListPanelEmployees, which is the
+	// shape the M12-18 card names. Measured with sqlc v1.28: a column of a LEFT JOIN LATERAL
+	// subquery is typed by its SOURCE column's nullability, not by the join's --
+	// transactions.occurred_at, verdict and channel are NOT NULL, so the row type came out
+	// `LastTapAt time.Time` / `LastTapVerdict string`, and pgx would fail to scan the NULLs
+	// the LEFT JOIN produces for every person who never tapped -- the ordinary state of
+	// somebody just added. CASE, NULLIF and a cast were each generated and each typed wrong
+	// (interface{}, bool, time.Time); a scalar subquery too (time.Time). Joining
+	// transactions back by the lateral's id types correctly, but the planner then hashed
+	// the tenant's whole transactions table (EXPLAIN: Hash Left Join over a Seq Scan,
+	// 6.4 ms against 0.6 ms) -- and either lateral runs for the WHOLE roster, because the
+	// list sorts every row before its LIMIT.
+	//
+	// So this reads AT MOST ONE PAGE OF PEOPLE: unnest(@employee_ids) is the page's ids (Go
+	// hands RosterPageSize of them), each probes transactions_tenant_employee_occurred_idx
+	// (tenant_id, employee_id, occurred_at DESC) in order and stops at its first
+	// non-practice row. CROSS JOIN LATERAL drops the people with no record, so every
+	// selected column is genuinely NOT NULL and sqlc's types are honest. The id only breaks
+	// a tie between two records of one microsecond; an Incremental Sort on the presorted
+	// occurred_at costs nothing when there is none.
+	//
+	// 🔴 K-39 / SECTION 4.7 -- WHAT IT DOES NOT SELECT: note, trust, ip_match, gps_match,
+	// gps_lat, gps_lng, source_ip, matched_sid, policy_context, the venue and the plaque. A
+	// last tap taken at a holding PEER's venue (site_location_id) is therefore the same
+	// three facts as any other; its verdict word is the residue ADR 0027 §13 item 5 names
+	// (internal/db/evidencereaders_test.go files it so).
+	//
+	// TENANT SCOPE (section 4.5, belt + braces): the explicit t.tenant_id predicate is
+	// required even though RLS is on. The ids come from this tenant's own page, and a
+	// foreign id would only ever find nothing: RLS and the predicate both bind the probe.
+	//
+	// EXPLAIN ANALYZE (2026-10-20, seeded KF tenant, its 25 employee ids, 3 000 synthetic
+	// records added inside a rolled-back transaction, ANALYZEd, as tappa_app): Nested Loop
+	// over Function Scan on unnest; per id Limit / Incremental Sort (Presorted Key
+	// occurred_at) / Index Scan using transactions_tenant_employee_occurred_idx (loops=25,
+	// Filter NOT practice), 0.4 ms.
+	ListLastTapsForEmployees(ctx context.Context, arg ListLastTapsForEmployeesParams) ([]ListLastTapsForEmployeesRow, error)
 	// The resets of one administrator that could still be spent RIGHT NOW: not consumed,
 	// not retired, not expired.
 	//
@@ -3699,6 +3743,10 @@ type Querier interface {
 	// NULLS LAST is load-bearing: last_used_at is nullable (00003 -- it is stamped on
 	// USE, and a session created seconds ago has never been used), so a freshly issued
 	// device must not sort above one that has actually been used.
+	//
+	// M12-18 (panel redesign D3) ADDED e.role: the job title a manager typed (00003: free
+	// text, nullable, no decision reads it). Each person's LAST TAP is NOT read here but by
+	// ListLastTapsForEmployees, below, over this page's ids -- that statement says why.
 	ListPanelEmployees(ctx context.Context, arg ListPanelEmployeesParams) ([]ListPanelEmployeesRow, error)
 	// ---------------------------------------------------------------------------
 	// THE LOCATIONS SECTION (M6-06 phase A). Everything above this line is on the
