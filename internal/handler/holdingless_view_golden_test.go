@@ -14,6 +14,10 @@ package handler
 // page's own markup is byte for byte the 85b4b8d golden's. The holding claim is unchanged.
 // The anomalies golden was replaced once more in the same day's fix round: its one change is the
 // sentence naming the reports section by its new label ("The Reports section" -> "The Roll").
+// M12-36 (The Roll ported to the redesign) replaced the reports golden: the chrome before the
+// content well (5 318 B) and after </main> (4 382 B) is byte for byte the previous golden's, and
+// every changed byte lies inside the well, which is the Roll's own markup. The holding claim is
+// now also asserted directly: TestHoldinglessPanels_AHoldingAddsOnlyThePartnerSection.
 
 import (
 	"bytes"
