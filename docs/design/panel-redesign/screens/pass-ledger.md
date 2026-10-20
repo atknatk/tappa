@@ -45,7 +45,7 @@ and in `docs/backlog.md`.
 | Route | `GET /admin` from `pages.PanelSections` (`TabTransactions`, `web/templates/pages/adminview.go:287`) in `mountSections` (`internal/handler/dashboard.go:60-62`); fragment `GET /admin/dockets` (`dashboard.go:89`, `transactions.go:76`) |
 | Handler | `transactionsSection` (`internal/handler/transactions.go:104-144`); `transactionDockets` (`:172-186`); `fillTransactionsView` (`:193-233`), `docketView` (`:236-276`), `sign` (`:286-295`), `parseTransactionFilter` (`:307-331`), `filterQuery` (`:335-347`) |
 | Domain | `ledger.Reader.Screen` (`internal/domain/ledger/ledger.go:469-~500`): `GetTenantClock` → `page` (`ListPanelTransactions`, `PageSize` 25, `:67`) → `nameSiteRecords` (`site.go:68-96`) → `options` → `advisories` (`CountTenantPlaques`, `TenantHasAnyTransaction`) |
-| Templates | `web/templates/pages/transactions.templ` (`AdminTransactions` :51, `plaqueNotice` :137, `TransactionDockets` :202, `dockets` :207, `keyBudgetBanner` :253); `components/docket.templ` (`TransactionDocket` :32, `verdictStamp` :187); `components/filterbar.templ` (`FilterBar` :30); `components.EmptyState` (`panel.templ:278`) |
+| Templates | `web/templates/pages/transactions.templ` (`AdminTransactions` :51, `plaqueNotice` :137, `TransactionDockets` :202, `dockets` :207, `keyBudgetBanner` :253); `components/docket.templ` (`TransactionDocket` :32, `verdictStamp` :187); `components/filterbar.templ` (`FilterBar` :30); `components.EmptyState` (`panel.templ:278`; removed in M12-48) |
 | View models | `pages.TransactionsView` (`transactionsview.go:17-66`); `components.DocketView` (`components/docketview.go:33-159`); `FilterBarView` (`:171-215`); `PlaqueCounts` (`transactionsview.go:109-134`); `KeyBudgetBanner` (`:234-240`); `PanelChrome.Pending` (`adminview.go:395-413`) |
 
 ### 1.2 Elements
@@ -151,7 +151,7 @@ As §1.1: `GET /admin?date=YYYY-MM-DD&location=&department=&employee=&verdict=&c
 | # | Element | Source | Status | Port note |
 |---|---|---|---|---|
 | L1 | Kicker "Europe/Malta · records are never edited" | `ZoneLabel` (`transactionsview.go:40`) | EXISTS / DERIVE | "records are never edited" is true (§4.3); shift clause **REMOVED** |
-| L2 | Title "The Pass · Mon 19 Oct" (phone "Mon 19 Oct") | shell label + `page.Day` (`Format("Mon 2 Jan")`) | DERIVE | via the Title slot; one `<h1>` |
+| L2 | Title "The Pass · Mon 19 Oct" (phone "Mon 19 Oct") | shell label + `page.Day` (`Format("Mon 2 Jan")`) | DERIVE | via the Title slot; one `<h1>`. **As built (M12-27, recorded in M12-48):** the phone's h1 also reads "The Pass · Mon 19 Oct" — the Title is one string printed once, and a phone-only "day only" heading would need a second h1 text or a hidden span inside the one h1 |
 | L3 | Day stepper ◀ ▶ | `page.Day` ± 1, `filterQuery(f, day)` (`transactions.go:335-347`) | DERIVE | two `<a>` (`aria-label` "Previous day" / "Next day"); next from today hidden or links to today; cursor params never carried (`filterbar.templ:21-24`) |
 | L4 | "Today" | `/admin` | DERIVE | "live" **REMOVED** |
 | L5 | Filter form | `components.FilterBar` (`filterbar.templ:30-71`), `FilterBarView` | EXISTS (restyle) | verdict moves to chips → hidden `verdict` input keeps it on Apply; "Clear" only when `Narrowed` (`filterbar.templ:63-68`, kept); channel labels from `panelChannels` ("Plaque tap (NFC)", "QR scan", "Entered by a manager", `transactions.go:96-100`); phone hides Day (hidden `date` input); every control keeps `filter-input` |
@@ -170,7 +170,7 @@ As §1.1: `GET /admin?date=YYYY-MM-DD&location=&department=&employee=&verdict=&c
 
 | Block | Phone | Tablet `md` | Desktop `desk` |
 |---|---|---|---|
-| Header | h1 = day only; stepper `flex-1 justify-between` + "Today" | h1 "The Pass · day"; stepper + "Today" | stepper inline + "Today" right (`flex-wrap justify-between items-end`) |
+| Header | h1 = day only (**as built: "The Pass · day"**, see L2); stepper `flex-1 justify-between` + "Today" | h1 "The Pass · day"; stepper + "Today" | stepper inline + "Today" right (`flex-wrap justify-between items-end`) |
 | Filters | inside `<details>`; stacked; Apply full width 48 px | `grid grid-cols-3 gap-3 p-4` | `grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-3.5 px-5 py-[18px] items-end` |
 | Summary + chips | summary `text-xs`; chips scroller | stacked | one row `flex-wrap justify-between items-center` |
 | Hour group | header `flex items-baseline gap-2 border-t-2 border-ink pt-1.5`; cards one column | cards `grid grid-cols-2 gap-x-3.5 gap-y-5` | `grid grid-cols-[96px_minmax(0,1fr)] gap-4`; cards `grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-x-4 gap-y-[22px]` (2 columns at 864) |

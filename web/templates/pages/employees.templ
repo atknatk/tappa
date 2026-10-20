@@ -534,7 +534,7 @@ templ AdminInviteIssued(v InviteIssuedView) {
 						// button -- this page loads no script.
 						<p class="select-all break-all rounded-xl border-2 border-dashed border-ink/50 bg-porcelain px-4 py-3.5 font-mono text-[15px] text-ink md:text-base">{ v.ActivationURL }</p>
 						<p class="text-[13px] leading-normal text-ink/70">
-							Shown as text, not a link, so it does not open here and sign your own browser in.
+							Shown as text, not a link, so it does not open here and start their setup in your browser.
 						</p>
 					</div>
 					<div class="flex flex-col gap-1.5 border-t border-dashed border-line pt-3.5">
@@ -572,12 +572,13 @@ templ AdminInviteIssued(v InviteIssuedView) {
 	}
 }
 
-// inviteBack is the way back to the person's card, the roster position kept.
+// inviteBack is the way back to the person's card, the roster position kept -- so it says
+// "their card", not "the list": the href is the card's ?manage= link.
 templ inviteBack(href string) {
 	<p>
 		<a class="btn btn--line gap-2" href={ templ.URL(href) }>
 			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M19 12H5M11 6l-6 6 6 6"></path></svg>
-			Back to the list
+			Back to their card
 		</a>
 	</p>
 }

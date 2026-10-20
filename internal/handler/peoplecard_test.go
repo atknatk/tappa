@@ -198,7 +198,8 @@ func TestPeopleCard_ADeactivatedPersonKeepsTheirSignedInBrowsers(t *testing.T) {
 	for _, want := range []string{
 		"2 signed in · since 3 Sep 2026 · not used yet",
 		"stays signed in; it simply cannot record time any more",
-		"Deactivated on 2 Oct 2026. Their taps are refused, and every refusal is still recorded.",
+		"Deactivated on 2 Oct 2026",
+		"Their taps are refused, and every refusal is still recorded.",
 		"Their taps are already being refused. Deactivating again would change nothing.",
 		"No invitation can be sent to somebody who has been deactivated.",
 	} {
@@ -210,6 +211,11 @@ func TestPeopleCard_ADeactivatedPersonKeepsTheirSignedInBrowsers(t *testing.T) {
 		if strings.Contains(card, never) {
 			t.Errorf("the card says %q -- deactivation keeps sessions and records every refusal", never)
 		}
+	}
+	// M12-48: the date is said once, beside the status pill -- the deactivate block
+	// printed it a second time.
+	if n := strings.Count(card, "Deactivated on"); n != 1 {
+		t.Errorf("the card says \"Deactivated on\" %d times, want exactly 1.\ncard:\n%s", n, card)
 	}
 }
 
@@ -287,7 +293,7 @@ func TestPeopleList_CountsOnlyWhatWasMeasured(t *testing.T) {
 func TestPeopleViews_TheNewFieldsCarryNoSecret(t *testing.T) {
 	fields := map[reflect.Type][]string{
 		reflect.TypeOf(components.RosterRowView{}): {"Initials", "Role", "LastTap", "LastTapNote", "Devices", "Selected"},
-		reflect.TypeOf(components.RosterActionsView{}): {"Initials", "Role", "SinceLine", "DeactivatedOn",
+		reflect.TypeOf(components.RosterActionsView{}): {"Initials", "Role", "SinceLine",
 			"SignedInLine", "LiveDevices", "LinkLine", "SummaryFailed", "Recent", "RecentState"},
 		reflect.TypeOf(components.RosterFilterView{}): {"Chips"},
 	}
@@ -382,8 +388,8 @@ func TestInvitePages_TheRedesignAddsNoExposure(t *testing.T) {
 	}
 	for _, want := range []string{
 		`<h1`, `>Invitation</h1>`, "One person · one link · shown once", `aria-current="page">Invitation<`,
-		">KF St Julians<", "select-all", "Shown as text, not a link",
-		"What Maria Borg does next", "Taps one of your plaques", "No app to install.", "Back to the list</a>",
+		">KF St Julians<", "select-all", "Shown as text, not a link, so it does not open here and start their setup in your browser.",
+		"What Maria Borg does next", "Taps one of your plaques", "No app to install.", "Back to their card</a>",
 		managedRosterHref(id),
 	} {
 		if !strings.Contains(body, want) {

@@ -68,7 +68,7 @@ Decisions and constraints: [README](../README.md). Status words: [pass-ledger](p
 | Phone section | session count + dates | EXISTS + **BUILT (D3, M12-20)** | "1 signed in · since 3 Sep · last used …"; the activation venue **REMOVED** (sessions carry no location; the activation tap writes no record); `device_info` not printed |
 | "Unlink phone" | no route | **REMOVED (D1)** | |
 | Deactivate | two-step link → confirmation → POST with one-shot token (`roster.templ:315-342`, `employees.go:489-500`) | KEPT AS CODE | label "Deactivate"; keep "Asks first. It cannot be undone afterwards." (`:335`) and the confirm sentence (`:318-322`); "They can no longer tap" **REMOVED** (their taps are refused **and recorded**, §5 row 4) |
-| Deactivated paragraph | `deactivated_at`; `roster.templ:338-340` | DERIVE | "Deactivated on 2 Oct. Their taps are refused, and every refusal is still recorded." |
+| Deactivated paragraph | `deactivated_at`; `roster.templ:338-340` | DERIVE | "Their taps are refused, and every refusal is still recorded."; the date ("Deactivated on 2 Oct 2026") is printed **once**, beside the status pill (`SinceLine`) — M12-48 removed the paragraph's second copy |
 | Tablet "This week 33:15 · +1 open" | — | **REMOVED (D1)** | |
 | Tablet "Shift 18:00–02:00 · from Bar department" | — | **REMOVED (D1)** | lateness rule is department else tapped venue |
 | Tablet "Edit details" | no handler (names are API-written, `employees.sql:951`) | **REMOVED (D1)** | |
@@ -214,15 +214,15 @@ headings `inviteEmailedHeading` `:216`). Templates `AdminInviteIssued` (`employe
 | "This link belongs to" + name + "role · venue" | `v.Name`; `person.LocationName` (`staff.go:187-206`) | EXISTS + DERIVE + **BUILT (D3, M12-20)** | add `Venue` to the view; role from the summary or omitted |
 | Link box "Activation link — shown once" | `employees.templ:461-465` (text, `break-all font-mono`) | EXISTS | stays **text, not `<a>`** (`employeesview.go:142-147`); add `select-all` |
 | "Copy" / "Copy link" | — | **REMOVED (D1)** | |
-| "Shown as text, not a link, so it does not open here and sign your own browser in." | — | DERIVE | true, may be added |
+| "Shown as text, not a link, so it does not open here and start their setup in your browser." | — | DERIVE | true (ADR 0026: opening the link starts the wizard and signs nobody in; M12-48 replaced "sign your own browser in") |
 | "Taptime keeps no copy …" + retire sentence | `employees.templ:466-490` | EXISTS | all three `Retired` branches (0 / 1 / >1) |
 | sent: notice + "Sent to" + address | `employees.templ:515-540`, full `v.Address` | KEPT AS CODE | full address (`inviteemail_test.go:188`); "Sent, never delivered" sentence binds (`:505-507`); keep the Retired branches |
 | unsent: alert | `employees.templ:541-548` | EXISTS | |
-| "Send it again" | — | **REMOVED (D1)** | the card's invite button (via "Back to the list") does it |
+| "Send it again" | — | **REMOVED (D1)** | the card's invite button (via "Back to their card") does it |
 | "Show a link instead" | — | **REMOVED (D1)** | the server answers "show-has-address" when an address exists |
 | Other e-mail outcomes | `employees.templ:549-643` | EXISTS — **keep** | every branch and number (`TestInviteEmail_EveryOutcomeIsASentenceAndNoneCarriesALink`, `inviteemail_test.go:178`) |
 | "What <name> does next" aside | — | DERIVE (static) | step 3 "Taps one of your plaques" (own business only, K-35/ADR 0026); "It writes no attendance record — the next tap is a normal check-in"; step 2 generic ("Confirms it is them"); "No app to install, nothing biometric." (true, §4.1); e-mail mode step 1 "Opens the email on their own phone" |
-| "Back to the list" | `employees.templ:492-494`, `:645-647` | EXISTS | keep the `btn` class (or register the new class) |
+| "Back to their card" | `employees.templ:492-494`, `:645-647` | EXISTS | keep the `btn` class (or register the new class); M12-48 renamed it from "Back to the list" — the href is the person's card (`?manage=`) |
 
 ### 3.3 Breakpoints and recipes
 

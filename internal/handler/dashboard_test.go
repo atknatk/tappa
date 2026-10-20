@@ -1285,6 +1285,12 @@ var panelTouchTargets = map[string]int{
 // the commit of the first screen that writes it -- that test turns red while a
 // template uses a class still listed here, and the markup scan above turns red while
 // a press target carries one that is not in panelTouchTargets.
+//
+// EMPTY BY DESIGN (M12-48): every class M12-08 listed here has been moved by the screen
+// that first draws it. The map and its test stay as the way in for the next press target
+// defined ahead of its screen -- cheaper to keep than to rebuild, and with nothing listed
+// the test still runs its control on three live classes. Do not read an empty map as a
+// forgotten one.
 var panelPendingTouchTargets = map[string]int{}
 
 func hasTouchTargetClass(classes string) bool {
@@ -1455,7 +1461,7 @@ var (
 // the only way to make the rule weaker and that is an edit somebody has to defend.
 // Adding one is free and safe — it can only make the test stricter.
 var docketLabelGrounds = map[string]string{
-	"paper":     "the ground of .docket, .empty-state and components.Card",
+	"paper":     "the ground of .docket, components.Card and the Rules page's .empty-state box",
 	"porcelain": "the page ground itself, behind both shells — form labels and the panel's phone top bar sit directly on it",
 	// Neither Notice tone carries a docket-label today. They are listed anyway
 	// because they are light SURFACES a label could legitimately land on, and

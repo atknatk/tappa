@@ -345,6 +345,28 @@ düzeltildi; ilki hâlâ açık.
 
 ---
 
+## Panel redesign — denetimlerin ertelediği küçük bulgular (M12-48, 2026-10-20)
+
+> M12 ekran kartlarının denetimlerinde bulunan, kartın kapsamı dışında kalan küçük kusurlar; her
+> biri bir satır, numarasız (paralel dallarda T-numarası çakışmasın diye). Hiçbiri bir görevi
+> bloklamaz. Düzeltilmedi — yalnız yazıldı.
+
+- **Billing:** `fillBillingFounding` standart planda da *"founding free months have ended"* yazıyor — plan kontrolü yok.
+- **Freeze özeti:** işletme adı "." ile bitiyorsa cümle *"Ltd.."* basıyor.
+- **Parola sıfırlama:** `problemResetRestart` ipucu *"Start again from the sign-in page."* diyor, CTA'sı `/admin/reset`'e gidiyor.
+- **Ağ kanıtı (4-in-6):** yalnız `::ffff:a.b.c.d` aralıklarından oluşan bir liste panelde kanıt sayılıyor, motorun `ipMatches`'i onu hiç eşlemiyor (saklanan aralık `Unmap` edilmiyor) — yazarken reddet ya da okurken aynala.
+- **`BuildTapNDEF`:** boş host (`https:///t`) ve userinfo kabul ediyor — ayrıştır, `Host` iste, `User` reddet.
+- **`CountReviewsSince`:** tenant'ın bütün karar geçmişini tarıyor — `(tenant_id, reviewed_at)` indeksi (migration).
+- **`PanelProblem`:** panonun *"NOT SIGNED IN"* hapı yok ve *"Try again"* yalnız GET.
+- **Marketing:** `marketing.go` ~447-455 `PublishedSlugs`'ı her istekte kuruyor — snapshot başına bir kez hesapla.
+- **Manuel kayıt:** not onay adımında görünüyor ama onay MAC'ine girmiyor — notun özetini MAC'e ekle.
+- **Kural uygulama:** okuma→yazma penceresi duruyor; `AuthorCommand`'a bir `ExpectedVersion` onu kapatır.
+- **Kararsız test:** `TestResetOutboxDB_TheFallbackWithdrawalsStayUnderTheFloor` (250–300 ms penceresi; yük altında 324 ms ölçüldü).
+- **Rules sayfası:** kapatılmış bir kuralın geçmişi hâlâ *"in use"* diyor (M12-37 kalıntısı; inceleme sayfası kendininkini düzeltti) — **M12-38 birleştikten sonra düzeltilecek.**
+- **`.empty-state` kuralı:** `components.EmptyState` M12-48'de kalktı; sınıfı taşıyan son öğe Rules sayfasının *"no policies of your own"* kutusu (`policies.templ`) — **M12-38 birleştikten sonra** kutuyu panelin kendi boş durumuna taşı, kuralı ve `dashboard_test.go`'nun paper zemin satırındaki adını sil.
+
+---
+
 ## Kapananlar
 
 *(T47 ve T49 satırlarında ✅ ile işaretli — M8-03, `ae07e7c`)*

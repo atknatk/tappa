@@ -341,7 +341,7 @@ templ plaquesCard(p PassPlaquesView) {
 						}
 					</ul>
 					if p.More {
-						<p class="text-[13px] text-ink/70">Eight plaques, the most recently seen first.</p>
+						<p class="text-[13px] text-ink/70">{ itoa(PassPlaqueRows) + " plaques, the most recently seen first." }</p>
 					}
 			}
 			if p.Href != "" {

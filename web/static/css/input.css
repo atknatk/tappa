@@ -422,7 +422,10 @@
 
   /* --- empty state: a section that has nothing in it YET ---
      Dashed rather than solid, because the docket's solid `line` border is what a
-     RECORD looks like and this is the absence of one. */
+     RECORD looks like and this is the absence of one. Its component was retired in
+     M12-48 (panel sections draw PanelEmpty); the one element still carrying this
+     class is the Rules page's "no policies of your own" box, which moves with the
+     Rules port's follow-up, and the rule goes with it. */
   .empty-state {
     @apply flex flex-col items-start gap-1 border border-dashed border-line
            bg-paper px-4 py-8;
@@ -1217,13 +1220,12 @@
 
      THE PRESS TARGETS (.chip-link, .queue-item, .roster-row, .venue-card,
      .rule-switch, .field-input, .stat-card--spike, .btn--approve, .btn--reject)
-     each reserve at
-     least 44 px, and each is listed in panelPendingTouchTargets
-     (internal/handler/dashboard_test.go), whose test reads the heights out of
-     THIS file because the compiled stylesheet does not carry them yet. The first
-     screen that uses one moves it to panelTouchTargets, where the markup scan and
-     the compiled-stylesheet check take over; the pending test turns red until it
-     does.
+     each reserve at least 44 px. They were defined here before any screen drew
+     them and waited in panelPendingTouchTargets (internal/handler/dashboard_test.go),
+     whose test reads heights out of THIS file; every screen card has since moved
+     its own to panelTouchTargets, where the markup scan and the
+     compiled-stylesheet check hold them. The pending map is empty by design and
+     stays as the way in for a press target defined ahead of its screen.
 
      NO CLASS HERE READS THE TENANT ACCENT and no name carries the accent's word
      (TestCompiledCSS_BrandNamesOccurOnlyInTheGolden,

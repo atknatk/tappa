@@ -388,6 +388,7 @@ func TestLedger_TheFilterDisclosureOpensOnlyForItsOwnFields(t *testing.T) {
 		{"&channel=qr", true},
 		{"&employee=Borg", true},
 		{"&location=" + uuid.NewString(), true},
+		{"&department=" + uuid.NewString(), true},
 	} {
 		body := htmlOf(t, panelBrowserWith(t, ledgerWithRecords(1, true)).do(http.MethodGet, ledgerDayHref+c.query, nil))
 		if !strings.Contains(body, `<details class="filter-details`) {

@@ -62,7 +62,7 @@ upload `brandupload.go`). **Templ** `pages/account.templ` (`AdminAccount` :33, `
 | VAT number | `v.VATNumber` | KEPT AS CODE | **read-only text** (`<p class="font-mono">`), never an input with a `name` (`accountview.go:27-30`; no UPDATE grant) |
 | VAT chip "✓ Verified in VIES · 2 Oct" | `VATState`, `VATStateWord`, `VATCheckedAt` (`fillAccountVAT`, `account.go:314`) | DERIVE | all **four** states; class switch stays in templ (`accountVATMarker`); a short date `VATCheckedShort` in the business zone; keep the full "Last answer …" line as help |
 | Kind of business | `v.Types` = `signup.BusinessTypes`, **8** values (`internal/domain/signup/signup.go:174-183`) | EXISTS | all 8 (`TestAccount_TheTypeListIsTheSchemasVocabulary`) |
-| Time zone | `<input list=…>` + datalist (`accountview.go:114-118`) | KEPT AS CODE | not a closed `<select>`; keep the holding-lock sentence and the "What the timezone moves" notice; "(CET/CEST)" **REMOVED** |
+| Time zone | `<input list=…>` + datalist (`accountview.go:114-118`) | KEPT AS CODE | not a closed `<select>`; keep the "What the timezone moves" notice; "(CET/CEST)" **REMOVED** (M12-48: an earlier draft also said "keep the holding-lock sentence" — the Account page has no such sentence in the code, so there is nothing to keep) |
 | Help line | `account-business_type-help` / `account-timezone-help` | DERIVE | "The kind picks the message your staff see after a tap; the message itself can't be written by hand." |
 | Manager view of Identity | `accountNoForm` + `WhyNotEdit` | EXISTS — **keep** | `TestAccount_ManagerMayReadAndMayNotSave` |
 | "Registered on", "On file" docket, Billing link | `RegisteredOn`, `accountFacts`, `BillingHref` (owner only) | EXISTS — **keep** | `TestAccount_ShowsWhatIsOnFile`, `TestAccount_NeverPrintsTheCommercialTerms` |
@@ -131,7 +131,7 @@ approval · §9 the preview is the only accent in the body · CSP: colours are l
 | Element | Source | Status | Port note |
 |---|---|---|---|
 | Kicker "Owner only · keys and the webhook for your payroll or HR system" | — | DERIVE | |
-| "Integration guide" header link | guide only on `TAPPA_API_HOST` (`internal/handler/api/guide.go:19,34`; `cfg.APIHost`, `config.go:124`) | DERIVE (as text) | print the address as mono **text** when `APIHost != ""`, nothing otherwise — a relative link 404s, an absolute one fails the panel `://` scan (`dashboard_test.go:563`) |
+| "Integration guide" link | the guide is served on the panel host at `/docs/api` (`pages.APIGuidePath`) | EXISTS | a relative link (`apikeys.templ`, "integration guide" / "Read the integration guide") — no `://` on a panel page. (M12-48: this row used to say the guide lived only on `TAPPA_API_HOST` so a relative link would 404 and the address had to be printed as text; that stopped being true when the guide was served at `/docs/api`.) |
 | Keys h2 + intro | `apiKeysIntro` | EXISTS | board copy accurate (first characters kept); keep "not available on this deployment" and "API access is off" |
 | Create form | `apiKeyCreateForm` (only `if v.APIEnabled`) | EXISTS | keep "Two live keys cannot share a name." and the error; `flex flex-wrap items-end gap-2` |
 | One-time reveal box | `apiKeyShownOnce`: Notice + readonly `<input id=api-key-new value={v.NewKey}>` | EXISTS (restyle) | `OneTimeSecret` (warn tone); key **exactly once** in the response (`TestApiKeyPanel_TheKeyIsShownOnceAndNeverAgain`, `apikeys_db_test.go:222-276`); "Copy" **REMOVED**; "I've stored it" = plain link to `apiKeysHref` |
@@ -189,13 +189,13 @@ masked secret; the address only via `ShowToTheOwner`.
 
 ## 3. Empty and problem states — `States` (reference board)
 
-Sources: `components.EmptyState` (`web/templates/components/panel.templ:278-286`, `.empty-state`
+Sources: `components.EmptyState` (`web/templates/components/panel.templ:278-286`, removed in M12-48; `.empty-state`
 `input.css:426-429`), `components.Notice` (`notice.templ:40-50`), `(*AdminAuth).renderProblem` →
 `pages.Problem` (`internal/handler/adminlogin.go:1757`; `activate.templ:614`, `layout.Page`; 161 call sites).
 
 | Element | Source | Status | Port note |
 |---|---|---|---|
-| Empty card (eyebrow = section name, dashed ink/50, `rounded-[18px]`, optional CTA) | `EmptyState(heading)` (eyebrow "Nothing here yet", dashed `border-line`, square) | DERIVE — **M12-09** | new `PanelEmpty(where, heading, cta)`; callers: transactions :71, reports :224, locations :189/215/263/295, review :128, anomalies :205/374, employees :247, admin :516; holdingless goldens re-rendered in a dedicated commit |
+| Empty card (eyebrow = section name, dashed ink/50, `rounded-[18px]`, optional CTA) | `EmptyState(heading)` (removed in M12-48; eyebrow "Nothing here yet", dashed `border-line`, square) | DERIVE — **M12-09** | new `PanelEmpty(where, heading, cta)`; callers: transactions :71, reports :224, locations :189/215/263/295, review :128, anomalies :205/374, employees :247, admin :516; holdingless goldens re-rendered in a dedicated commit |
 | Spike empty | `review.templ:128` | KEPT AS CODE | |
 | Pass empty "Nobody tapped … between 06:00 and 06:00" | `emptyHeading` | KEPT AS CODE | times **REMOVED** (calendar day) |
 | People empty "No one invited yet" + "Invite someone" | `emptyRosterHeading`: "Nobody on the books yet" / filters / paged | KEPT AS CODE | CTA "Add somebody" → `?add=new`; keep the filter and paged variants |

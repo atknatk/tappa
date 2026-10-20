@@ -141,10 +141,9 @@ type RosterActionsView struct {
 	// "Deactivated on 2 Oct 2026"), "" when that stamp was never written. 🔴 An
 	// INVITED person added in the panel has no such stamp (no statement writes
 	// invited_at), so their card prints none -- it never borrows another date.
+	// It is the card's only "Deactivated on" date (M12-48: the deactivate block
+	// printed it a second time).
 	SinceLine string
-	// DeactivatedOn is the day the person was deactivated, "" when it is not on
-	// record or they are not deactivated.
-	DeactivatedOn string
 	// SignedInLine is the card's sentence about live browser sessions: the count,
 	// since when the oldest one is signed in, and when one was last used. It is the
 	// real count for a deactivated person too: their sessions stay alive.
