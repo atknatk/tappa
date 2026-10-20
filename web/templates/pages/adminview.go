@@ -1,9 +1,13 @@
 package pages
 
 import (
+	"context"
+	"io"
 	"strconv"
 	"strings"
 	"unicode"
+
+	"github.com/a-h/templ"
 
 	"github.com/atknatk/tappa/web/templates/components"
 )
@@ -437,6 +441,97 @@ type PanelChrome struct {
 	// live member of a holding. The zero value -- no holding, or a read that failed -- draws the
 	// chrome exactly as it was before GRP-1.
 	InGroup bool
+
+	// THE SECTION'S OWN HEADING (M12-01). Every board of the redesign opens its page the same
+	// way -- a mono eyebrow line, a big title, sometimes a trail back to the parent page and a
+	// control to the right ("New person", "Freeze September 2026", "Review this change") -- and
+	// the shell printed only the section's label. These slots let a section say that without
+	// writing a heading of its own; the fourth, the actions, is PanelActions below.
+	//
+	// 🔴 THE SHELL STILL PRINTS EXACTLY ONE <h1>, and that is why the title is a slot rather than
+	// something a section draws in its body: a page that writes its own <h1> under the shell's
+	// has two (the trap the card names). Heading() picks the one.
+	//
+	// ALL ZERO IS THE CHROME AS IT WAS: the h1 holding the section's label straight in the
+	// content well, no wrapper, no eyebrow, no trail (TestPanelHead_EmptySlotsAreTheShellAsItWas).
+	// The tenant accent reaches none of them -- its slots do not grow (ADR 0023 §2).
+
+	// Kicker is the mono eyebrow line above the title (a date, a clock, "Owner only · …").
+	Kicker string
+	// Title replaces the section's label in the h1 ("New person" on People's form).
+	Title string
+	// Crumbs is the trail from a parent page to this one, in reading order. The LAST crumb is
+	// this page: it is printed as text marked as the current page and its Href is never used. A
+	// crumb before it with no Href is printed as text too -- a link to nowhere looks like a
+	// working control (SectionHref's rule).
+	Crumbs []Crumb
+}
+
+// Crumb is one step of a section's breadcrumb trail.
+type Crumb struct {
+	Label string
+	Href  string
+}
+
+// Heading is the text of the one <h1>: the Title when a section set one, else the section's
+// label. ok is false when there is neither -- an undeclared tab with no title, which renders
+// no heading at all, exactly as before the slots (Section()'s rule).
+func (c PanelChrome) Heading() (string, bool) {
+	if c.Title != "" {
+		return c.Title, true
+	}
+	if s, ok := c.Section(); ok {
+		return s.Label, true
+	}
+	return "", false
+}
+
+// hasHead says whether any slot that needs the heading's wrapper is set. The Title alone does
+// not: it only changes the h1's words, so a section that sets nothing else gets the bare h1.
+func (c PanelChrome) hasHead(actions templ.Component) bool {
+	return c.Kicker != "" || len(c.Crumbs) > 0 || actions != nil
+}
+
+// panelActionsKey carries a section's heading actions from PanelActions to the shell.
+type panelActionsKey struct{}
+
+// PanelActions draws actions -- a section's own markup: a button, a link, a week stepper -- at
+// the right of the title of the panel shell rendered inside it, wrapping under the title when
+// the row is narrow (M12-01). A section writes
+//
+//	@PanelActions(peopleActions(v)) {
+//		@PanelShell(v.PanelChrome) { …the body… }
+//	}
+//
+// and a nil actions renders the shell exactly as without the wrapper.
+//
+// 🔴 WHY THE ACTIONS ARE NOT A FIELD OF PanelChrome, which is where the card put them and where
+// the other three slots are. PanelChrome is embedded in every section's view, and the §4.7 walls
+// walk those views by TYPE (TestAnomaliesView_CarriesNothingACoordinateCouldHideIn,
+// TestPlaqueViewModels_CannotCarryAKey): every leaf must be a string, a count or a flag,
+// because any other shape -- an interface above all -- is where a key or a coordinate arrives
+// under a harmless name. A templ.Component field broke both (measured), and loosening those
+// walls is not this card's to do. Markup belongs to the template anyway: the view stays data,
+// the template that renders the section supplies its controls.
+//
+// ⚠️ THE ROUTE IS THE CONTEXT, NAMED AT THE CALL. Both shells keep their signatures (the
+// scriptless one still has no string slot; the shell-page checks still find @PanelShell), and
+// the only reader is the shell's heading (panelActionsOf).
+func PanelActions(actions templ.Component) templ.Component {
+	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
+		children := templ.GetChildren(ctx)
+		ctx = templ.ClearChildren(ctx)
+		if actions != nil {
+			ctx = context.WithValue(ctx, panelActionsKey{}, actions)
+		}
+		return children.Render(ctx, w)
+	})
+}
+
+// panelActionsOf is the actions PanelActions placed around this shell, or nil.
+func panelActionsOf(ctx context.Context) templ.Component {
+	a, _ := ctx.Value(panelActionsKey{}).(templ.Component)
+	return a
 }
 
 // PendingBadge is what the navigation knows about the approval queue.

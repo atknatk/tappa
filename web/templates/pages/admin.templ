@@ -392,7 +392,8 @@ templ PanelShellWithScript(c PanelChrome, script string) {
 // the phone's top bar below md, an 88px ink icon rail from md, a 248px ink sidebar
 // from desk. The phone's navigation is BarNav, a bottom bar with a no-script "More"
 // sheet, displayed only below md. The section's body keeps its own markup inside a
-// content well (.panel-well, about 64rem wide) beside the navigation.
+// content well (.panel-well, about 72rem wide; input.css says why) beside the navigation.
+// The section's heading is the shell's too: panelHead below.
 //
 // A BRANDED BUSINESS'S HEADER TAKES THE WORDMARK'S PLACE, and nothing else in the
 // chrome changes (M10 WL-8; panelbrandview.go has the rule and the zero value). The
@@ -425,8 +426,10 @@ templ panelChrome(c PanelChrome) {
 		</div>
 		<main class="panel-main">
 			<div class="panel-well">
-				if s, ok := c.Section(); ok {
-					<h1 class="font-display text-3xl font-bold tracking-tight">{ s.Label }</h1>
+				if a := panelActionsOf(ctx); c.hasHead(a) {
+					@panelHead(c, a)
+				} else if h, ok := c.Heading(); ok {
+					@panelHeading(h)
 				}
 				{ children... }
 			</div>
@@ -439,6 +442,72 @@ templ panelChrome(c PanelChrome) {
 				<button type="submit" class="btn btn--quiet w-full">Sign out</button>
 			</form>
 		}
+	</div>
+}
+
+// panelHeading is the one <h1> of a panel page (PanelChrome.Heading picks its words). The
+// size steps with the width -- 30 px on the phone, 36 px on the tablet, 44 px on the desk --
+// set solid (line height equal to the size) with the boards' tight negative tracking. Ink on
+// porcelain, never the accent.
+//
+// THE TABLET STEP REPEATS THE SOLID LEADING, ON PURPOSE. The tablet's size utility carries a
+// line height of its own (40 px) and is emitted inside the tablet media rule, after the base
+// leading, so without the repeat the title is set at 40 px from the tablet up -- the desk's
+// arbitrary 44 px sets no line height and inherits it (measured in the compiled stylesheet).
+templ panelHeading(h string) {
+	<h1 class="font-display text-3xl md:text-4xl desk:text-[44px] font-bold leading-none md:leading-none tracking-[-0.035em]">{ h }</h1>
+}
+
+// panelHead is the heading when a section set a kicker, a trail or actions (M12-01; the actions
+// come from PanelActions, adminview.go says why they are not a PanelChrome field). Its order
+// is the boards': the trail, then the eyebrow, then the title, with the actions on the title's
+// row, at its right, moving under it when the row runs out of width.
+//
+// THE TRAIL IS AN ORDERED LIST IN A NAV NAMED "Breadcrumb", the pattern assistive technology
+// announces as one. The last crumb is this page: text, marked as the current page, never a
+// link -- a link to the page one is on is a control that does nothing. The slashes between
+// crumbs are drawing, so they are not read. Each earlier crumb is a 44 px target like every
+// other link in the panel.
+//
+// THE EYEBROW IS A PARAGRAPH, not part of the h1, so the heading a reader jumps to is the
+// title alone.
+templ panelHead(c PanelChrome, actions templ.Component) {
+	<div class="panel-head">
+		if len(c.Crumbs) > 0 {
+			<nav aria-label="Breadcrumb" class="panel-crumbs">
+				<ol class="panel-crumbs-list">
+					for i, cr := range c.Crumbs {
+						<li class="panel-crumbs-item">
+							if i == len(c.Crumbs)-1 {
+								<span aria-current="page">{ cr.Label }</span>
+							} else {
+								if cr.Href != "" {
+									<a href={ templ.URL(cr.Href) } class="panel-crumb">{ cr.Label }</a>
+								} else {
+									<span>{ cr.Label }</span>
+								}
+								<span aria-hidden="true">/</span>
+							}
+						</li>
+					}
+				</ol>
+			</nav>
+		}
+		<div class="panel-head-row">
+			<div class="panel-head-text">
+				if c.Kicker != "" {
+					<p class="lbl">{ c.Kicker }</p>
+				}
+				if h, ok := c.Heading(); ok {
+					@panelHeading(h)
+				}
+			</div>
+			if actions != nil {
+				<div class="panel-actions">
+					@actions
+				</div>
+			}
+		</div>
 	</div>
 }
 

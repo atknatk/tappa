@@ -1082,6 +1082,9 @@ var panelTouchTargets = map[string]int{
 	// real <a> elements, so both halves of the pair reach them.
 	"bar-link":   60, // .bar-link   -> min-h-[60px]
 	"sheet-link": 48, // .sheet-link -> min-h-12 = 3rem
+	// A section's breadcrumb link (M12-01, pages.panelHead): every crumb before the current
+	// page is a real <a>, so both halves of the pair reach it.
+	"panel-crumb": 44, // .panel-crumb -> min-h-11 = 2.75rem
 }
 
 func hasTouchTargetClass(classes string) bool {

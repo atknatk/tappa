@@ -534,9 +534,39 @@
   .panel-main {
     @apply min-w-0 flex-1 px-4 pt-4 pb-28 md:px-8 md:pt-7 md:pb-12 desk:px-11;
   }
+  /* The content well. ITS CAP IS 72rem (1152 px), RAISED FROM 64rem IN M12-01, and the cap is
+     the only thing that changed: the well is still full width up to it. Measured against the
+     shell: the content box is the viewport minus the side column (88 px rail from md, 248 px
+     sidebar from desk) minus .panel-main's padding (2 x 32 px, 2 x 44 px from desk) -- 864 px
+     at 1200, 1104 px at 1440 -- so the cap first binds at a 1488 px viewport, where 64rem bound
+     at 1360 and left 1440 with 80 px of empty gutter. 72rem is the widest the redesign's
+     boards lay their content out (about 1120 px) plus room; a cap only limits growth, so it
+     cannot make a page scroll sideways -- only content wider than the box can, which is why
+     every desk recipe is held to 864 px, the narrowest desk box. Prose keeps its own measure
+     where a section sets one; the well does not set a reading width. */
   .panel-well {
-    @apply mx-auto flex w-full max-w-5xl flex-col gap-6;
+    @apply mx-auto flex w-full max-w-6xl flex-col gap-6;
   }
+  /* The section's heading block (M12-01, pages.panelHead), drawn only when a section set a
+     kicker, a breadcrumb trail or actions; a bare title is the h1 alone. The title row wraps:
+     the actions sit at its right end, bottom-aligned with the title, and move under it when
+     the row is too narrow. Nothing here reads the tenant accent (ADR 0023 §2). */
+  .panel-head { @apply flex flex-col gap-2.5; }
+  .panel-head-row { @apply flex flex-wrap items-end justify-between gap-4; }
+  .panel-head-text { @apply flex min-w-0 flex-col gap-1.5; }
+  .panel-actions { @apply flex flex-wrap items-center gap-3; }
+  /* The trail: mono, ink at 70 % (5.70:1 on porcelain). An earlier crumb is a link and a
+     44 px target (panelTouchTargets); the current page is plain text. */
+  .panel-crumbs-list { @apply flex flex-wrap items-center gap-x-2 font-mono text-xs text-ink/70; }
+  .panel-crumbs-item { @apply flex items-center gap-x-2; }
+  .panel-crumb {
+    @apply inline-flex min-h-11 items-center underline underline-offset-4 hover:text-ink
+           focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2;
+  }
+  /* The eyebrow recipe of the redesign (README §4 "Type sizes"): mono 11 px, upper case,
+     0.12em tracking, ink at 70 % (5.70:1 on porcelain, 6.05:1 on paper). M12-01's kicker is
+     its first user; M12-08's field labels reuse it. */
+  .lbl { @apply font-mono text-[11px] uppercase tracking-[0.12em] text-ink/70; }
 
   /* The phone's bottom tab bar: four sections and More. It is fixed, so .panel-main
      carries bottom padding taller than the bar (and the home indicator's inset). */
@@ -606,8 +636,12 @@
     @apply min-h-11 w-full border border-line bg-paper px-2 py-1 font-mono text-sm text-ink
            focus:border-tappa-green focus:outline-none focus:ring-1 focus:ring-tappa-green;
   }
+  /* THE ACTIONS WRAP (M12-01's measurement): on a 390 px phone the Billing and The Roll bars
+     carry five buttons in this row (show, previous, next, the current period, the CSV), and
+     a row that does not wrap pushed the page 77-102 px wider than the screen -- a sideways
+     scroll on every phone. Where the row fits, wrapping changes nothing. */
   .filter-actions {
-    @apply flex items-center gap-2;
+    @apply flex flex-wrap items-center gap-2;
   }
 
   /* --- tally: a small fact ABOUT a record, printed inside its docket ---
