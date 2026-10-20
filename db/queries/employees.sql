@@ -387,8 +387,12 @@ WHERE e.tenant_id = @tenant_id
 -- NULLS LAST is load-bearing: last_used_at is nullable (00003 -- it is stamped on
 -- USE, and a session created seconds ago has never been used), so a freshly issued
 -- device must not sort above one that has actually been used.
+--
+-- M12-18 (panel redesign D3) ADDED e.role: the job title a manager typed (00003: free
+-- text, nullable, no decision reads it). Each person's LAST TAP is NOT read here but by
+-- ListLastTapsForEmployees, below, over this page's ids -- that statement says why.
 SELECT e.id, e.full_name, e.status, e.invited_at, e.activated_at, e.deactivated_at,
-       e.location_id,
+       e.location_id, e.role,
        l.name AS location_name,
        d.name AS department_name,
        COALESCE(ls.live_sessions, 0)::bigint AS live_sessions,
@@ -419,6 +423,62 @@ WHERE e.tenant_id = @tenant_id
                                  sqlc.narg('cursor_id')::uuid))
 ORDER BY e.full_name ASC, e.id ASC
 LIMIT sqlc.arg('page_size')::int;
+
+-- name: ListLastTapsForEmployees :many
+-- Each listed person's LAST TAP (M12-18, panel redesign D3): the newest NON-PRACTICE
+-- record of each employee id on one roster page, and of it only the instant, the verdict
+-- word and the channel -- the row says "14:31 today", "refused", "by hand", never why.
+-- Practice rows are not attendance (ADR 0008) and are skipped. A person with no record
+-- has NO ROW here; internal/domain/ledger reads that as "no tap yet", which it may say
+-- only because this statement answered (RosterPage.LastTaps is Measured).
+--
+-- 🔴 WHY A SECOND STATEMENT AND NOT A THIRD LATERAL IN ListPanelEmployees, which is the
+-- shape the M12-18 card names. Measured with sqlc v1.28: a column of a LEFT JOIN LATERAL
+-- subquery is typed by its SOURCE column's nullability, not by the join's --
+-- transactions.occurred_at, verdict and channel are NOT NULL, so the row type came out
+-- `LastTapAt time.Time` / `LastTapVerdict string`, and pgx would fail to scan the NULLs
+-- the LEFT JOIN produces for every person who never tapped -- the ordinary state of
+-- somebody just added. CASE, NULLIF and a cast were each generated and each typed wrong
+-- (interface{}, bool, time.Time); a scalar subquery too (time.Time). Joining
+-- transactions back by the lateral's id types correctly, but the planner then hashed
+-- the tenant's whole transactions table (EXPLAIN: Hash Left Join over a Seq Scan,
+-- 6.4 ms against 0.6 ms) -- and either lateral runs for the WHOLE roster, because the
+-- list sorts every row before its LIMIT.
+--
+-- So this reads AT MOST ONE PAGE OF PEOPLE: unnest(@employee_ids) is the page's ids (Go
+-- hands RosterPageSize of them), each probes transactions_tenant_employee_occurred_idx
+-- (tenant_id, employee_id, occurred_at DESC) in order and stops at its first
+-- non-practice row. CROSS JOIN LATERAL drops the people with no record, so every
+-- selected column is genuinely NOT NULL and sqlc's types are honest. The id only breaks
+-- a tie between two records of one microsecond; an Incremental Sort on the presorted
+-- occurred_at costs nothing when there is none.
+--
+-- 🔴 K-39 / SECTION 4.7 -- WHAT IT DOES NOT SELECT: note, trust, ip_match, gps_match,
+-- gps_lat, gps_lng, source_ip, matched_sid, policy_context, the venue and the plaque. A
+-- last tap taken at a holding PEER's venue (site_location_id) is therefore the same
+-- three facts as any other; its verdict word is the residue ADR 0027 §13 item 5 names
+-- (internal/db/evidencereaders_test.go files it so).
+--
+-- TENANT SCOPE (section 4.5, belt + braces): the explicit t.tenant_id predicate is
+-- required even though RLS is on. The ids come from this tenant's own page, and a
+-- foreign id would only ever find nothing: RLS and the predicate both bind the probe.
+--
+-- EXPLAIN ANALYZE (2026-10-20, seeded KF tenant, its 25 employee ids, 3 000 synthetic
+-- records added inside a rolled-back transaction, ANALYZEd, as tappa_app): Nested Loop
+-- over Function Scan on unnest; per id Limit / Incremental Sort (Presorted Key
+-- occurred_at) / Index Scan using transactions_tenant_employee_occurred_idx (loops=25,
+-- 2 rows each, Filter NOT practice), 0.6 ms with the probe's own id array built in.
+SELECT p.employee_id::uuid AS employee_id, lt.occurred_at, lt.verdict, lt.channel
+FROM unnest(@employee_ids::uuid[]) AS p(employee_id)
+CROSS JOIN LATERAL (
+    SELECT t.occurred_at, t.verdict, t.channel
+    FROM transactions t
+    WHERE t.tenant_id = @tenant_id
+      AND t.employee_id = p.employee_id
+      AND NOT t.practice
+    ORDER BY t.occurred_at DESC, t.id DESC
+    LIMIT 1
+) lt;
 
 -- name: GetRosterCursorAnchor :one
 -- The name of ONE employee, by id -- the anchor a roster page continues from.
@@ -464,6 +524,125 @@ SELECT full_name
 FROM employees
 WHERE tenant_id = @tenant_id
   AND id = @id;
+
+-- name: CountPanelEmployeesByStatus :many
+-- How many people the roster holds per lifecycle status (M12-17, panel redesign D3):
+-- the People screen's status chips and its "N on the books" kicker.
+--
+-- TWO FIGURES PER STATUS, FROM ONE SCAN.
+--
+--	everyone   the whole roster, no predicate but the tenant's. The kicker's total is the
+--	           sum of the three, and it does NOT move with the filters: it answers "how
+--	           many people are on the books", not "how many match what I typed".
+--	matching   ListPanelEmployees' venue, department and name predicates, spelled the
+--	           SAME WAY (ledger.TestStatusTally_SharesTheRostersPredicates compares the
+--	           lines), and NOT its status predicate -- each chip shows how many the list
+--	           would hold if that chip were picked, so the status is what is grouped on,
+--	           never what is filtered on. Nor its cursor: a count is of the whole list,
+--	           not of the page.
+--
+-- The predicates sit in a FILTER rather than in the WHERE so one pass over the tenant's
+-- employees answers both figures; two statements would scan twice and could straddle a
+-- hire. internal/domain/ledger runs this in the SAME transaction as the page it counts
+-- (Reader.Roster), inside its own savepoint, so a failure costs the chips and never the
+-- list.
+--
+-- 🔴 DEACTIVATED PEOPLE ARE COUNTED (section 4.6), for the reason ListPanelEmployees lists
+-- them: somebody who has left is still on the books a manager looks through.
+--
+-- K-14: an employee with no home venue (location_id NULL, an API-managed row) is in
+-- `everyone` and in `matching` unless a venue filter is set -- exactly where the list
+-- shows them ("No home venue") and where it does not.
+--
+-- SECTION 4.7: no name, address, session or invitation column is selected; the result is
+-- three words and six counts.
+--
+-- TENANT SCOPE (section 4.5, belt + braces): the explicit e.tenant_id predicate is
+-- required even though RLS is on. No JOIN.
+--
+-- EXPLAIN (2026-10-20, seeded KF tenant, 25 of 36 employees, tappa_app, ANALYZEd): Seq
+-- Scan on employees filtered on tenant_id -> HashAggregate on status -> Sort (3 rows),
+-- 0.4 ms. The table is small enough that the planner skips employees_tenant_idx; on a
+-- large roster the same shape reads that index, and its cost is one pass over the
+-- tenant's roster -- the pass the list's own name sort already pays.
+SELECT e.status,
+       count(*)::bigint AS everyone,
+       count(*) FILTER (
+           WHERE (sqlc.narg('location_id')::uuid IS NULL
+                  OR e.location_id = sqlc.narg('location_id')::uuid)
+             AND (sqlc.narg('department_id')::uuid IS NULL
+                  OR e.department_id = sqlc.narg('department_id')::uuid)
+             AND (sqlc.narg('full_name')::text IS NULL
+                  OR e.full_name ILIKE '%' || sqlc.narg('full_name')::text || '%')
+       )::bigint AS matching
+FROM employees e
+WHERE e.tenant_id = @tenant_id
+GROUP BY e.status
+ORDER BY e.status;
+
+-- name: GetPanelPersonSummary :one
+-- ONE person's summary for the People card (M12-20, panel redesign D3): the job title, the
+-- lifecycle stamps, and what a manager chasing a phone needs -- how many browser sessions
+-- are live, since when the oldest of them, when one was last used.
+--
+-- 🔴 IT IS A SEPARATE STATEMENT AND GetPanelEmployeeForAction IS NOT WIDENED. That one is
+-- read INSIDE Deactivate and Move, in the write's own transaction, to name the FROM half
+-- of the audit row; every column added to it is a column those writes read for nothing.
+--
+-- THE LIFECYCLE STAMPS ARE THE COLUMNS AS THEY ARE: invited_at is written by NO statement
+-- of this product (CreateEmployee says so), so a person added in the panel has it NULL and
+-- the card prints no "invited on" date rather than inventing one -- the pending invitation's
+-- own date comes from ListPendingInvitesForEmployee instead.
+--
+-- 🔴 SECTION 4.7 -- WHAT IT DOES NOT SELECT: employees.email, sessions.token_hash,
+-- sessions.device_info, sessions.id (beyond the join below, never returned), and nothing of
+-- employee_invites. The session facts are a COUNT and two INSTANTS.
+--
+-- LIVE MEANS revoked_at IS NULL, exactly ListPanelEmployees' lateral: the card's count and
+-- the roster row's count are the same number. A deactivated person keeps theirs (user
+-- decision 2026-08-07: deactivating does not sign phones out), and the card says so.
+--
+-- THE SHAPE IS DICTATED BY sqlc's NULLABILITY INFERENCE, the hazard ListPanelEmployees
+-- documents: a LEFT JOIN LATERAL column is typed by its SOURCE column. last_used_at is
+-- nullable at the source, so ls.last_used_at types as *time.Time; created_at is NOT NULL, so
+-- the oldest live session's created_at is reached by joining sessions back on the lateral's
+-- id (fs) -- a LEFT JOIN of a TABLE, which sqlc types nullable, which is what "no session"
+-- needs. The count is COALESCEd in the outer select.
+--
+-- TENANT SCOPE (section 4.5, belt + braces): the explicit e.tenant_id predicate is required
+-- even though RLS is on, both laterals bind the CALLER's tenant parameter, and the sessions
+-- join restates the tenant in its ON. A foreign id returns no row.
+--
+-- EXPLAIN ANALYZE (2026-10-20, seeded KF tenant, as tappa_app): Index Scan using
+-- employees_id_tenant_key for the one person; the two session laterals and the join back
+-- Seq Scan a 23-row sessions table (on a large one they probe sessions_tenant_idx
+-- (tenant_id, employee_id), as ListPanelEmployees measures), 1.3 ms.
+SELECT e.id, e.status, e.role, e.invited_at, e.activated_at, e.deactivated_at,
+       COALESCE(ls.live_sessions, 0)::bigint AS live_sessions,
+       fs.created_at AS first_session_at,
+       ls.last_used_at AS session_last_used_at
+FROM employees e
+LEFT JOIN LATERAL (
+    SELECT s.last_used_at, count(*) OVER () AS live_sessions
+    FROM sessions s
+    WHERE s.tenant_id = @tenant_id
+      AND s.employee_id = e.id
+      AND s.revoked_at IS NULL
+    ORDER BY s.last_used_at DESC NULLS LAST
+    LIMIT 1
+) ls ON TRUE
+LEFT JOIN LATERAL (
+    SELECT s.id
+    FROM sessions s
+    WHERE s.tenant_id = @tenant_id
+      AND s.employee_id = e.id
+      AND s.revoked_at IS NULL
+    ORDER BY s.created_at ASC, s.id ASC
+    LIMIT 1
+) f ON TRUE
+LEFT JOIN sessions fs ON fs.tenant_id = e.tenant_id AND fs.id = f.id
+WHERE e.tenant_id = @tenant_id
+  AND e.id = @employee_id;
 
 -- name: GetPanelEmployeeForAction :one
 -- ONE person, with the placement facts a manager needs before acting on them

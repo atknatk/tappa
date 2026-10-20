@@ -298,6 +298,11 @@ type fakeLedger struct {
 	rosterTenant  []uuid.UUID
 	rosterFilters []ledger.RosterFilter
 
+	// M12-19's card strip. The zero value is NotQueried: the fake claims nothing about a
+	// person's records unless a test says what they are.
+	recent      ledger.RecentTaps
+	recentAsked []uuid.UUID // tenant, employee, tenant, employee, ...
+
 	// M6-07 phase A's read side. Same rule again: it defaults to "asked, and this
 	// week holds nothing", because an unqueried zero value renders nothing at all and
 	// a test using it would be reading a blank section rather than an empty week.
@@ -441,6 +446,14 @@ func (f *fakeLedger) Roster(_ context.Context, tenantID uuid.UUID, filter ledger
 	return s, nil
 }
 
+// RecentTaps is M12-19's read. It records who was asked about whom.
+func (f *fakeLedger) RecentTaps(_ context.Context, tenantID, employeeID uuid.UUID) ledger.RecentTaps {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.recentAsked = append(f.recentAsked, tenantID, employeeID)
+	return f.recent
+}
+
 // lastRosterFilter is the roster twin of lastFilter.
 func (f *fakeLedger) lastRosterFilter(t *testing.T) ledger.RosterFilter {
 	t.Helper()
@@ -551,9 +564,14 @@ func (f *fakeReviewer) recorded() []review.Decision {
 // transaction — a fake accepts whatever it is told, so those live in
 // employeeactions_db_test.go against real Postgres.
 type fakeStaff struct {
-	mu            sync.Mutex
-	person        *tenant.Person
-	personErr     error
+	mu        sync.Mutex
+	person    *tenant.Person
+	personErr error
+	// M12-20's card summary. The zero value is NotQueried: the fake claims nothing about a
+	// person's sessions or links unless a test says what they are.
+	summary       tenant.PersonSummary
+	summaryErr    error
+	summaryAsked  []uuid.UUID
 	deactivateErr error
 	moveErr       error
 	addErr        error
@@ -683,6 +701,17 @@ func (f *fakeStaff) Person(_ context.Context, _, employeeID uuid.UUID) (tenant.P
 		LocationID:   &panelTestLocation,
 		LocationName: "KF St Julians",
 	}, nil
+}
+
+// Summary is M12-20's read. It records whom it was asked about.
+func (f *fakeStaff) Summary(_ context.Context, _, employeeID uuid.UUID) (tenant.PersonSummary, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.summaryAsked = append(f.summaryAsked, employeeID)
+	if f.summaryErr != nil {
+		return tenant.PersonSummary{}, f.summaryErr
+	}
+	return f.summary, nil
 }
 
 func (f *fakeStaff) Deactivate(_ context.Context, c tenant.DeactivateCommand) (tenant.Person, error) {

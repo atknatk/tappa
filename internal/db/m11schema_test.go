@@ -1004,10 +1004,12 @@ func TestEmployeeUpdatedAt_OnlyDirectoryColumnsOnEveryUpdatePath(t *testing.T) {
 //	InsertManualTransaction       the record's venue -> the manager's choice (K-14)
 //	CountLocationReferences       a venue's references -> a NULL never counts
 //	LockEmployeeForExternalRefChange  (new in API-1) no home venue -> the ref cannot be removed
+//	CountPanelEmployeesByStatus   (M12-17) the chips' venue filter -> counted in `everyone`, and
+//	                              in `matching` unless a venue is picked: where the list shows them
 //	ListRollEmployees             (M12-21) the Roll's home venue -> no other-venue mark; the
 //	                              person's counted shifts are Totals.OtherVenueUnknown
 var employeeLocationReaders = []string{
-	"ConsumeInviteAndActivate", "CountLocationReferences", "CreateEmployee", "GetEmployeeActivationContext",
+	"ConsumeInviteAndActivate", "CountLocationReferences", "CountPanelEmployeesByStatus", "CreateEmployee", "GetEmployeeActivationContext",
 	"GetEmployeeForTap", "GetPanelEmployeeForAction", "InsertManualTransaction", "ListPanelEmployees",
 	"ListRollEmployees", "LockEmployeeForExternalRefChange", "MoveEmployee",
 }

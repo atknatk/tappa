@@ -204,6 +204,10 @@ var storeSurface = map[string]string{
 	// M11 API-6: the API's employee (employees.sql), K-25's budget and the owner's alert (audit.sql)
 	// and the invitation queue (invitequeue.sql). No address is returned (has_email / same_email are
 	// booleans computed in SQL), no code and no hash; ids, names, instants and counts.
+	"CountPanelEmployeesByStatus":    "(context.Context, CountPanelEmployeesByStatusParams{LocationID *uuid.UUID; DepartmentID *uuid.UUID; FullName *string; TenantID uuid.UUID}) ([]CountPanelEmployeesByStatusRow{Status string; Everyone int64; Matching int64}, error)",
+	"GetPanelPersonSummary":          "(context.Context, GetPanelPersonSummaryParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (GetPanelPersonSummaryRow{ID uuid.UUID; Status string; Role *string; InvitedAt *time.Time; ActivatedAt *time.Time; DeactivatedAt *time.Time; LiveSessions int64; FirstSessionAt *time.Time; SessionLastUsedAt *time.Time}, error)",
+	"ListLastTapsForEmployees":       "(context.Context, ListLastTapsForEmployeesParams{EmployeeIds []uuid.UUID; TenantID uuid.UUID}) ([]ListLastTapsForEmployeesRow{EmployeeID uuid.UUID; OccurredAt time.Time; Verdict string; Channel string}, error)",
+	"ListRecentTapsForEmployee":      "(context.Context, ListRecentTapsForEmployeeParams{TenantID uuid.UUID; EmployeeID *uuid.UUID}) ([]ListRecentTapsForEmployeeRow{OccurredAt time.Time; Type *string; Verdict string; Channel string; ReviewOutcome *string}, error)",
 	"RetireUndeliveredInvites":       "(context.Context, RetireUndeliveredInvitesParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (int64, error)",
 	"CountRecentSentInvites":         "(context.Context, CountRecentSentInvitesParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (int32, error)",
 	"FailInviteRequest":              "(context.Context, FailInviteRequestParams{Due *time.Time; TenantID uuid.UUID; EmployeeID uuid.UUID; LeaseUntil *time.Time}) (int32, error)",
@@ -346,7 +350,7 @@ var storeSurface = map[string]string{
 	"ListLocationsForTenant":           "(context.Context, uuid.UUID) ([]Location{ID uuid.UUID; TenantID uuid.UUID; Name string; StaticIps []netip.Prefix; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; CreatedAt time.Time; WifiSsid *string; ExternalRef *string; Active bool}, error)",
 	"ListOpenCheckIns":                 "(context.Context, ListOpenCheckInsParams{TenantID uuid.UUID; FromAt time.Time; ToAt time.Time; RowLimit int32}) ([]ListOpenCheckInsRow{EmployeeName *string; LocationName *string; SiteLocationID *uuid.UUID; OccurredAt time.Time; ManagerTyped bool; WasMaskable bool}, error)",
 	"ListPanelDepartments":             "(context.Context, ListPanelDepartmentsParams{TenantID uuid.UUID; RowLimit int32}) ([]ListPanelDepartmentsRow{ID uuid.UUID; TenantID uuid.UUID; LocationID uuid.UUID; Name string; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; CreatedAt time.Time; LocationName string}, error)",
-	"ListPanelEmployees":               "(context.Context, ListPanelEmployeesParams{TenantID uuid.UUID; Status *string; LocationID *uuid.UUID; DepartmentID *uuid.UUID; FullName *string; CursorName *string; CursorID *uuid.UUID; PageSize int32}) ([]ListPanelEmployeesRow{ID uuid.UUID; FullName string; Status string; InvitedAt *time.Time; ActivatedAt *time.Time; DeactivatedAt *time.Time; LocationID *uuid.UUID; LocationName *string; DepartmentName *string; LiveSessions int64; SessionLastUsedAt *time.Time}, error)",
+	"ListPanelEmployees":               "(context.Context, ListPanelEmployeesParams{TenantID uuid.UUID; Status *string; LocationID *uuid.UUID; DepartmentID *uuid.UUID; FullName *string; CursorName *string; CursorID *uuid.UUID; PageSize int32}) ([]ListPanelEmployeesRow{ID uuid.UUID; FullName string; Status string; InvitedAt *time.Time; ActivatedAt *time.Time; DeactivatedAt *time.Time; LocationID *uuid.UUID; Role *string; LocationName *string; DepartmentName *string; LiveSessions int64; SessionLastUsedAt *time.Time}, error)",
 	"ListPanelLocations":               "(context.Context, ListPanelLocationsParams{TenantID uuid.UUID; RowLimit int32}) ([]ListPanelLocationsRow{ID uuid.UUID; Name string; StaticIps []netip.Prefix; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; WifiSsid *string; CreatedAt time.Time; ExternalRef *string; DepartmentCount int64}, error)",
 	"ListPanelTransactions":            "(context.Context, ListPanelTransactionsParams{TenantID uuid.UUID; FromAt time.Time; ToAt time.Time; LocationID *uuid.UUID; DepartmentID *uuid.UUID; EmployeeName *string; Verdict *string; Channel *string; CursorAt *time.Time; CursorID *uuid.UUID; PageSize int32}) ([]ListPanelTransactionsRow{ID uuid.UUID; OccurredAt time.Time; Type *string; Trust *int16; Verdict string; Channel string; Practice bool; Queued bool; TagUid *string; Ctr *int32; IpMatch *bool; GpsMatch *bool; Note *string; PolicyLayer *string; LocationName *string; DepartmentName *string; EmployeeName *string; ReviewOutcome *string; ReviewNote *string; SiteLocationID *uuid.UUID; SiteTagUid *string; MatchedSid *string}, error)",
 	"ListPendingInvitesForEmployee":    "(context.Context, ListPendingInvitesForEmployeeParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) ([]ListPendingInvitesForEmployeeRow{ID uuid.UUID; TenantID uuid.UUID; EmployeeID uuid.UUID; CreatedAt time.Time; ExpiresAt time.Time}, error)",
@@ -1059,14 +1063,18 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// 217 -> 218 on 2026-10-20 (M12-24; recounted at the merge that brought C4 beside C1 and C3):
 	// anomalies.sql's ListAnomalyPlaqueJumps, the counters around each listed plaque's largest gap
 	// over the caller's own rows; it calls no definer.
-	if named != 218 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND EIGHTEEN were "+
+	// 218 -> 222 on 2026-10-20 (M12-17..19; recounted at the merge that brought C2 beside C1, C3
+	// and C4): employees.sql's CountPanelEmployeesByStatus (the chips) and GetPanelPersonSummary
+	// (the person card), transactions.sql's ListLastTapsForEmployees (the roster's last tap) and
+	// ListRecentTapsForEmployee (the card's strip); none calls a definer.
+	if named != 222 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND TWENTY-TWO were "+
 			"there when this was pinned (2026-10-20: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
 			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+
 			"+ EM-7B's three invitation e-mail queries, + EM-7C's two recovery queries, "+
 			"+ the activation tap's two consent queries, + WL-13's two activation brand queries, "+
-			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock, + T130's retention sweep, + GRP-1's partner-venue count, + M12-13's floor count, + M12-16's verdict count, + M12-21's roll homes, + M12-25's decision count, + M12-24's plaque counters). "+
+			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock, + T130's retention sweep, + GRP-1's partner-venue count, + M12-13's floor count, + M12-16's verdict count, + M12-21's roll homes, + M12-25's decision count, + M12-24's plaque counters, + M12-17..19's four People reads). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {
