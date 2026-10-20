@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -9,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/atknatk/tappa/web"
 )
 
 // The panel's STATIC nets (M12-49): rules held over the .templ SOURCES rather than over
@@ -167,8 +170,12 @@ type templTag struct {
 	line  int
 	attrs string
 	// label is the source of the <label> the tag sits inside ("" when none), read so a
-	// control pressed through its label is judged by the label.
+	// control pressed through its label is judged by the label -- but only when the tag is
+	// that label's own control (labelsIt).
 	label string
+	// labelsIt: the label's for= names this tag's id, or the label has no for= and this is
+	// the first input, select or textarea inside it. A label toggles one control.
+	labelsIt bool
 }
 
 // templTagOpen finds the elements a person can press or type into.
@@ -191,6 +198,10 @@ func templTagsIn(src string) []templTag {
 			attrs: src[m[1]:end],
 			label: enclosingLabel(src[:m[0]]),
 		})
+		tag := &out[len(out)-1]
+		if tag.label != "" {
+			tag.labelsIt = labelOwnsControl(src[:m[0]], tag.label, tag.attrs)
+		}
 	}
 	return out
 }
@@ -207,6 +218,38 @@ func enclosingLabel(before string) string {
 		return ""
 	}
 	return before[i+len("<label") : end]
+}
+
+// labelOwnsControl reports whether the label whose attributes are labelAttrs is the label of
+// the control whose attributes are attrs (the control begins at the end of before): its for=
+// and the control's id= are the same source text, or it has no for= and no other control
+// opens between the label and this one.
+func labelOwnsControl(before, labelAttrs, attrs string) bool {
+	if f, ok := templAttrSource(labelAttrs, "for"); ok {
+		id, ok := templAttrSource(attrs, "id")
+		return ok && id == f
+	}
+	i := strings.LastIndex(before, "<label")
+	return !regexp.MustCompile(`<(?:input|select|textarea)\b`).MatchString(before[i:])
+}
+
+// templAttrSource is an attribute's value as written in the source: the quoted text, or the
+// whole `{ ... }` expression.
+func templAttrSource(attrs, name string) (string, bool) {
+	loc := regexp.MustCompile(`(?:^|\s)` + regexp.QuoteMeta(name) + `=`).FindStringIndex(attrs)
+	if loc == nil {
+		return "", false
+	}
+	rest := attrs[loc[1]:]
+	switch {
+	case strings.HasPrefix(rest, `"`):
+		if end := strings.IndexByte(rest[1:], '"'); end >= 0 {
+			return rest[:end+2], true
+		}
+	case strings.HasPrefix(rest, "{"):
+		return "{" + strings.TrimSpace(balancedBraces(rest)) + "}", true
+	}
+	return "", false
 }
 
 func templTagEnd(src string, from int) int {
@@ -461,7 +504,7 @@ func TestPanelTemplates_EveryPressTargetAndFormControlCarriesATouchTargetClass(t
 				}
 			}
 			control := tag.name == "input" || tag.name == "select" || tag.name == "textarea"
-			if control && tag.label != "" && everyAlternative(tag.label, funcs, hasTouchTargetClass) {
+			if control && tag.labelsIt && everyAlternative(tag.label, funcs, hasTouchTargetClass) {
 				throughLabel++
 				continue
 			}
@@ -528,7 +571,7 @@ func TestTemplTouchScanner_RejectsTheThingsItExistsToReject(t *testing.T) {
 		if len(tags) != 1 {
 			t.Fatalf("%q: read %d tags, want 1", src, len(tags))
 		}
-		if tags[0].label != "" && everyAlternative(tags[0].label, funcs, hasTouchTargetClass) {
+		if tags[0].labelsIt && everyAlternative(tags[0].label, funcs, hasTouchTargetClass) {
 			return true
 		}
 		return everyAlternative(tags[0].attrs, funcs, hasTouchTargetClass)
@@ -555,6 +598,25 @@ func TestTemplTouchScanner_RejectsTheThingsItExistsToReject(t *testing.T) {
 	} {
 		if !pass(src) {
 			t.Errorf("the scanner refused %q", src)
+		}
+	}
+	// A label toggles ONE control: the one its for= names, or with no for= the first inside it.
+	for _, c := range []struct {
+		src  string
+		want []bool
+	}{
+		{`<label for={ p + "-on" } class="inline-flex min-h-11"><input id={ p + "-on" } type="checkbox"/><input class="w-8" type="text"/></label>`, []bool{true, false}},
+		{`<label class="manual-dircard"><input class="sr-only" type="radio"/><input class="w-8" type="text"/></label>`, []bool{true, false}},
+		{`<label for="a" class="manual-dircard"><input id="b" class="sr-only" type="radio"/></label>`, []bool{false}},
+	} {
+		tags := templTagsIn(c.src)
+		if len(tags) != len(c.want) {
+			t.Fatalf("%q: read %d tags, want %d", c.src, len(tags), len(c.want))
+		}
+		for i, tag := range tags {
+			if tag.labelsIt != c.want[i] {
+				t.Errorf("%q: control %d is its label's own = %v, want %v", c.src, i, tag.labelsIt, c.want[i])
+			}
 		}
 	}
 	if n := len(templTagsIn("// <a class=\"underline\">\n/* <button> */")); n != 0 {
@@ -679,4 +741,78 @@ var knownRunningTextLinks = map[string]bool{
 	"pages/apikeys.templ|templ.URL(APIGuideWebhooksHref)": true,
 	"pages/transactions.templ|templ.URL(p.Href)":          true,
 	"pages/transactions.templ|templ.URL(v.PlaquesHref())": true,
+}
+
+// TestPanelScreens_APseudoElementTouchTargetIsAnchoredToItsHost holds the half of a touch target
+// that TestPanelScreens_TouchTargetClassesReserve44px cannot see: WHERE the reserved box is.
+//
+// 🔴 A CLASS WHOSE 44 PX LIVES ON ::before OR ::after (.hit-link) RESERVES IT ONLY IF THE PSEUDO-
+// ELEMENT IS DRAWN AND PLACED ON THE LINK. The height check reads min-height alone, so dropping
+// `relative` from .hit-link (the box escapes to the nearest positioned ancestor) or `absolute`
+// from its ::after (the box becomes a 44 px inline box that grows the line again) left it green
+// -- measured (M12-49 audit). So, in the COMPILED stylesheet: every rule that gives such a class
+// a min-height is on its pseudo-element and declares content and position:absolute, and the
+// class itself declares position:relative.
+func TestPanelScreens_APseudoElementTouchTargetIsAnchoredToItsHost(t *testing.T) {
+	raw, err := fs.ReadFile(web.Static(), "css/app.css")
+	if err != nil {
+		t.Skipf("no compiled stylesheet to read (%v) — run `make css`. THIS IS NOT A PASS.", err)
+	}
+	ruleRE := regexp.MustCompile(`([^{}]*)\{([^{}]*)\}`)
+	decl := func(body, prop, value string) bool {
+		return regexp.MustCompile(`(?:^|;)` + regexp.QuoteMeta(prop) + `:` + value + `(?:;|$)`).MatchString(body)
+	}
+	pseudoHosted := []string{}
+	for class := range panelTouchTargets {
+		self := regexp.MustCompile(`^\.` + regexp.QuoteMeta(class) + `$`)
+		pseudo := regexp.MustCompile(`^\.` + regexp.QuoteMeta(class) + `::?(?:after|before)$`)
+		var heightOnPseudo, heightOnOther, hostRelative bool
+		var pseudoBodies []string
+		for _, rule := range ruleRE.FindAllStringSubmatch(string(raw), -1) {
+			for _, sel := range strings.Split(rule[1], ",") {
+				sel = strings.TrimSpace(sel)
+				switch {
+				case self.MatchString(sel):
+					if decl(rule[2], "position", "relative") {
+						hostRelative = true
+					}
+				case pseudo.MatchString(sel):
+					pseudoBodies = append(pseudoBodies, rule[2])
+				}
+				if strings.Contains(rule[2], "min-height:") && regexp.MustCompile(`\.`+regexp.QuoteMeta(class)+`\b`).MatchString(sel) {
+					if pseudo.MatchString(sel) {
+						heightOnPseudo = true
+					} else {
+						heightOnOther = true
+					}
+				}
+			}
+		}
+		if !heightOnPseudo {
+			continue
+		}
+		pseudoHosted = append(pseudoHosted, class)
+		if heightOnOther {
+			t.Errorf(".%s reserves a min-height on its pseudo-element and on itself; say which box "+
+				"is the target", class)
+		}
+		if !hostRelative {
+			t.Errorf(".%s keeps its 44 px on a pseudo-element but does not declare position:relative: "+
+				"the box is placed against some ancestor, not the link", class)
+		}
+		drawn, absolute := false, false
+		for _, b := range pseudoBodies {
+			drawn = drawn || regexp.MustCompile(`(?:^|;)content:`).MatchString(b)
+			absolute = absolute || decl(b, "position", "absolute")
+		}
+		if !drawn || !absolute {
+			t.Errorf(".%s's pseudo-element declares content: %v, position:absolute: %v -- without content "+
+				"it is not drawn, without absolute it is an inline box that grows the line", class, drawn, absolute)
+		}
+	}
+	// ANTI-VACUITY: .hit-link is the known pseudo-hosted target.
+	if !slices.Contains(pseudoHosted, "hit-link") {
+		t.Fatalf("CONTROL: .hit-link was not read as a pseudo-element target (read: %v); the reader "+
+			"is not reading the stylesheet", pseudoHosted)
+	}
 }
