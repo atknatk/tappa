@@ -1210,8 +1210,9 @@ var panelTouchTargets = map[string]int{
 	// A section's breadcrumb link (M12-01, pages.panelHead): every crumb before the current
 	// page is a real <a>, so both halves of the pair reach it.
 	"panel-crumb": 44, // .panel-crumb -> min-h-11 = 2.75rem
-	// The redesign's form field (M12-08), first drawn by the sign-in form (M12-43).
-	// Not an <a> or a <button>, so the form-control scan and the stylesheet half hold it.
+	// The redesign's form field (M12-08), drawn by several screens (sign-in, sign-up,
+	// billing, rules). It is an <input>, not an <a> or a <button>, so the form-control
+	// scan and the stylesheet half of the pair hold it.
 	"field-input": 44, // .field-input -> min-h-11 = 2.75rem
 }
 
