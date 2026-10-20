@@ -63,7 +63,7 @@ adları (`ip`, `gps`, `lat`, `addr`, `code`, `key` …) · saat/para float'sız 
 | ID | Faz | Görev | Ajan | Bağımlılık |
 |---|---|---|---|---|
 | M12-01 | P0 | Kabuk kancaları: Kicker / Title / Crumbs / Actions, h1 boyu, içerik genişliği | yapıcı (`tappa-brand`) | — |
-| M12-02 | P1 | Billing dondurma formu `month` taşımıyor — ✅ **kodda** (`b75b6bf` bu dalda; `main` için `claude/fix-billing-freeze-month` `6381772`, CI yeşil, `main`'e alınması kullanıcıda) | yapıcı | — |
+| M12-02 | P1 | Billing dondurma formu `month` taşımıyor — ✅ **kodda** (`b75b6bf` bu dalda; `main` için `claude/fix-billing-freeze-month` `6381772`, CI yeşil, `main`'e alındı: [atknatk/tappa#1](https://github.com/atknatk/tappa/pull/1), `a4084c0`) | yapıcı | — |
 | M12-03 | P1 | `HasProofOfPlace` okuma tarafı /7 · /31 kuralını uygulamıyor | yapıcı + güvenlik | — |
 | M12-04 | P1 | Giriş ekranı kanıt listesi practice tap'ten söz ediyor | yapıcı | — |
 | M12-05 | P1 | Sıfırlama metni olmayan bir "başka sahip" akışı vaat ediyor | yapıcı | — |
@@ -163,7 +163,7 @@ yapıp her bölümü aynı committe değiştirmek.
 
 ## M12-02 — Billing "Freeze <month>" formu ay alanı taşımıyor
 
-> ✅ **Yapıldı (2026-10-20).** `main`'den açılan `claude/fix-billing-freeze-month` dalında `6381772` (bağımsız denetim ONAY; CI ilk koşuda ilgisiz `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` rastlantısıyla kırmızı, tek yeniden koşuda yeşil) ve bu dala `b75b6bf` olarak cherry-pick edildi. **`main`'e alınması kullanıcının eylemi bekliyor** (oturumun izin katmanı `main` push'unu üretim deploy'u sayıp reddetti). Geliştirici bu kartı atlar.
+> ✅ **Yapıldı (2026-10-20).** `main`'den açılan `claude/fix-billing-freeze-month` dalında `6381772` (bağımsız denetim ONAY; CI ilk koşuda ilgisiz `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` rastlantısıyla kırmızı, tek yeniden koşuda yeşil) ve bu dala `b75b6bf` olarak cherry-pick edildi. **`main`'e alındı:** kullanıcı onayıyla [atknatk/tappa#1](https://github.com/atknatk/tappa/pull/1) birleştirildi (`a4084c0`). Geliştirici bu kartı atlar.
 
 - **Bağımlılık:** —
 - **Kırmızı çizgi:** — (`billing_periods` append-only; GET yazmaz)
