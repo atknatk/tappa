@@ -15,11 +15,13 @@ package handler
 import (
 	"bytes"
 	"errors"
+	"html"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -50,6 +52,14 @@ func queueWith(n int) *fakeLedger {
 			LocationName: "Somewhere",
 		})
 	}
+	return f
+}
+
+// fullSpikeQueue is a fake whose queue is a full page of The Spike: three records waiting and a
+// cursor to the next page, so "Show more" and both ends of the pager are drawn.
+func fullSpikeQueue() *fakeLedger {
+	f := queueWith(3)
+	f.queue.Next = &ledger.Cursor{At: f.queue.Records[2].OccurredAt, ID: f.queue.Records[2].ID}
 	return f
 }
 
@@ -913,9 +923,15 @@ var formActionRE = regexp.MustCompile(`(?is)<form\b[^>]*\bmethod\s*=\s*["']?post
 // the SECTION TABLE names, and (b) an address that is really mounted and really
 // records a decision. Both halves are derived; neither can be satisfied by a stale
 // constant.
+//
+// M12-28 (deliberate update): the redesign shows ONE record in focus, so the page carries
+// ONE decision form -- not one per queued record -- whose hidden id is the focused record
+// (the first, with no focus= in the address), and every queue item is a GET link that puts
+// a record in focus. Both are asserted below; the "really mounted" half is unchanged.
 func TestReviewForm_PostsToTheRouteThatIsActuallyMounted(t *testing.T) {
 	reviewer := &fakeReviewer{}
-	b := panelBrowserWithReviewer(t, queueWith(2), reviewer)
+	queue := queueWith(2)
+	b := panelBrowserWithReviewer(t, queue, reviewer)
 	body := htmlOf(t, b.do(http.MethodGet, reviewHref, nil))
 
 	forms := formActionRE.FindAllString(body, -1)
@@ -953,9 +969,25 @@ func TestReviewForm_PostsToTheRouteThatIsActuallyMounted(t *testing.T) {
 			decisionForms++
 		}
 	}
-	if decisionForms != 2 {
-		t.Fatalf("found %d decision form(s) pointing at %q, want 2 (one per queued "+
-			"record)", decisionForms, want)
+	if decisionForms != 1 {
+		t.Fatalf("found %d decision form(s) pointing at %q, want 1 (the record in "+
+			"focus; M12-28)", decisionForms, want)
+	}
+	// THE FORM DECIDES THE RECORD IN FOCUS: the first one when the address names none.
+	first := queue.queue.Records[0].ID.String()
+	if ids := hiddenIDsOf(body); len(ids) != 1 || ids[0] != first {
+		t.Errorf("the decision form's hidden ids are %v, want exactly [%s] (the first record)", ids, first)
+	}
+	// AND EVERY QUEUE ITEM IS A LINK, NOT A FORM: a GET to this section with focus=<its id>.
+	links := queueLinksOf(body)
+	if len(links) != len(queue.queue.Records) {
+		t.Fatalf("found %d queue link(s), want one per record (%d)", len(links), len(queue.queue.Records))
+	}
+	for i, href := range links {
+		u, err := url.Parse(href)
+		if err != nil || u.Path != want || u.Query().Get("focus") != queue.queue.Records[i].ID.String() {
+			t.Errorf("queue item %d links to %q; want %s?focus=%s", i, href, want, queue.queue.Records[i].ID)
+		}
 	}
 
 	// 🔴 AND THE ADDRESS IS REALLY MOUNTED. Agreeing with the table is not enough --
@@ -1185,6 +1217,348 @@ func TestTransactionDocket_ShowsTheEngineVerdictAndTheManagerDecisionSeparately(
 			t.Errorf("%s's record has been decided and the docket still says it is waiting. "+
 				"queued is a column that cannot be cleared; the tally must read the "+
 				"review, not the column.", who)
+		}
+	}
+}
+
+// --- The Spike's focus (M12-28) -------------------------------------------------
+
+// hiddenIDsOf reads the value of every hidden input named "id" on a page.
+func hiddenIDsOf(body string) []string {
+	var out []string
+	for _, m := range regexp.MustCompile(`(?is)<input\b[^>]*>`).FindAllString(body, -1) {
+		if !strings.Contains(m, `type="hidden"`) || !strings.Contains(m, `name="id"`) {
+			continue
+		}
+		if v := attrValueRE("value").FindStringSubmatch(m); len(v) == 2 {
+			out = append(out, v[1])
+		}
+	}
+	return out
+}
+
+// queueLinksOf reads the href of every queue item, in order (html-unescaped).
+func queueLinksOf(body string) []string {
+	var out []string
+	for _, m := range pressTargetRE.FindAllStringSubmatch(body, -1) {
+		c := attrValueRE("class").FindStringSubmatch(m[2])
+		if len(c) != 2 || !slices.Contains(strings.Fields(c[1]), "queue-item") {
+			continue
+		}
+		if h := attrValueRE("href").FindStringSubmatch(m[2]); len(h) == 2 {
+			out = append(out, html.UnescapeString(h[1]))
+		}
+	}
+	return out
+}
+
+// TestReviewFocus_ChoosesOnlyAmongTheLoadedRecords is screens/spike-odd.md S.2 row 7f: focus=
+// picks a record of THIS page; anything else -- not a uuid, an id this page did not load (another
+// business's, a decided one, one on another page all look the same from here) -- falls back to the
+// first record with a 200, never a 404 or a blank page (§4.6), and the page says nothing about the
+// id it was given. The record in focus is the one the form decides and the one marked current.
+func TestReviewFocus_ChoosesOnlyAmongTheLoadedRecords(t *testing.T) {
+	queue := queueWith(3)
+	queue.queue.Records[1].EmployeeName = "Second Person"
+	b := panelBrowserWith(t, queue)
+	ids := []string{}
+	for _, r := range queue.queue.Records {
+		ids = append(ids, r.ID.String())
+	}
+	stranger := uuid.NewString()
+	for _, tc := range []struct {
+		name, focus, want string
+	}{
+		{"no focus", "", ids[0]},
+		{"the second record", ids[1], ids[1]},
+		{"the last record", ids[2], ids[2]},
+		{"not a uuid", "not-a-uuid", ids[0]},
+		{"an id this page did not load", stranger, ids[0]},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := reviewHref
+			if tc.focus != "" {
+				path += "?focus=" + url.QueryEscape(tc.focus)
+			}
+			rec := b.do(http.MethodGet, path, nil)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("GET %s answered %d, want 200", path, rec.Code)
+			}
+			body := htmlOf(t, rec)
+			if got := hiddenIDsOf(body); len(got) != 1 || got[0] != tc.want {
+				t.Errorf("the form decides %v, want [%s]", got, tc.want)
+			}
+			if strings.Contains(body, stranger) {
+				t.Error("the page repeats the id it could not find")
+			}
+			current := 0
+			for _, m := range pressTargetRE.FindAllStringSubmatch(body, -1) {
+				if strings.Contains(m[2], `aria-current="true"`) && strings.Contains(m[2], "queue-item--current") {
+					current++
+					if h := attrValueRE("href").FindStringSubmatch(m[2]); len(h) != 2 || !strings.Contains(html.UnescapeString(h[1]), "focus="+tc.want) {
+						t.Errorf("the current queue item links to %v, want focus=%s", h, tc.want)
+					}
+				}
+			}
+			if current != 1 {
+				t.Errorf("%d queue items are marked current (class and aria-current), want 1", current)
+			}
+		})
+	}
+	// The second record in focus puts its name in the docket's heading line.
+	body := htmlOf(t, b.do(http.MethodGet, reviewHref+"?focus="+ids[1], nil))
+	if !strings.Contains(body, "Second Person") {
+		t.Error("the focused record's name is not on the page")
+	}
+}
+
+// TestReviewFocus_LinksKeepThePagesPosition: on a later page (after_at, after_id), every focus link
+// and both pager links carry the same position, so choosing a record reloads THIS page; a half
+// position is dropped exactly as reviewCursor drops it.
+func TestReviewFocus_LinksKeepThePagesPosition(t *testing.T) {
+	queue := queueWith(3)
+	b := panelBrowserWith(t, queue)
+	at := time.Date(2026, 8, 5, 9, 30, 0, 0, time.UTC).Format(time.RFC3339Nano)
+	after := uuid.NewString()
+	body := htmlOf(t, b.do(http.MethodGet,
+		reviewHref+"?after_at="+url.QueryEscape(at)+"&after_id="+after+"&focus="+queue.queue.Records[1].ID.String(), nil))
+	links := queueLinksOf(body)
+	if len(links) != 3 {
+		t.Fatalf("found %d queue links, want 3", len(links))
+	}
+	pager := 0
+	for _, m := range pressTargetRE.FindAllStringSubmatch(body, -1) {
+		if c := attrValueRE("class").FindStringSubmatch(m[2]); len(c) == 2 && strings.Contains(c[1], "spike-step") {
+			h := attrValueRE("href").FindStringSubmatch(m[2])
+			if len(h) == 2 {
+				links = append(links, html.UnescapeString(h[1]))
+				pager++
+			}
+		}
+	}
+	if pager != 2 {
+		t.Fatalf("the second of three records has %d pager links, want 2 (previous and next)", pager)
+	}
+	for _, href := range links {
+		u, err := url.Parse(href)
+		if err != nil || u.Query().Get("after_at") != at || u.Query().Get("after_id") != after || u.Query().Get("focus") == "" {
+			t.Errorf("%q does not keep the page's position (after_at=%s, after_id=%s) with a focus", href, at, after)
+		}
+	}
+
+	half := htmlOf(t, b.do(http.MethodGet, reviewHref+"?after_id="+after, nil))
+	for _, href := range queueLinksOf(half) {
+		if strings.Contains(href, "after_") {
+			t.Errorf("half a position travelled into %q", href)
+		}
+	}
+}
+
+// TestReviewPager_SaysWhereItIsAndStopsAtTheEnds: "N of M" counts this page's records; the first
+// record has no previous link and the last no next link -- each end is a disabled span, never a
+// link to nowhere.
+func TestReviewPager_SaysWhereItIsAndStopsAtTheEnds(t *testing.T) {
+	queue := queueWith(3)
+	b := panelBrowserWith(t, queue)
+	pagerLinks := func(body string) map[string]bool {
+		out := map[string]bool{}
+		for _, m := range pressTargetRE.FindAllStringSubmatch(body, -1) {
+			if c := attrValueRE("class").FindStringSubmatch(m[2]); len(c) == 2 && strings.Contains(c[1], "spike-step") {
+				out[attrValueRE("aria-label").FindStringSubmatch(m[2])[1]] = true
+			}
+		}
+		return out
+	}
+	first := htmlOf(t, b.do(http.MethodGet, reviewHref, nil))
+	if !strings.Contains(first, "1 of 3") {
+		t.Error("the first record's pager does not say 1 of 3")
+	}
+	if l := pagerLinks(first); l["Previous record"] || !l["Next record"] {
+		t.Errorf("the first record's pager links: %v, want Next only", l)
+	}
+	if !strings.Contains(first, `aria-disabled="true" aria-label="Previous record"`) {
+		t.Error("the first record's previous end is not a disabled control")
+	}
+	last := htmlOf(t, b.do(http.MethodGet, reviewHref+"?focus="+queue.queue.Records[2].ID.String(), nil))
+	if !strings.Contains(last, "3 of 3") {
+		t.Error("the last record's pager does not say 3 of 3")
+	}
+	if l := pagerLinks(last); !l["Previous record"] || l["Next record"] {
+		t.Errorf("the last record's pager links: %v, want Previous only", l)
+	}
+}
+
+// TestReviewQueueWhen_SaysTheDayAsAManagerWould pins queueWhen against an injected now, across the
+// tenant's midnight and a DST change (Malta, 25 October 2026).
+func TestReviewQueueWhen_SaysTheDayAsAManagerWould(t *testing.T) {
+	malta, err := time.LoadLocation("Europe/Malta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 10, 26, 0, 30, 0, 0, malta) // the day after the clocks went back
+	for _, tc := range []struct {
+		at   time.Time
+		want string
+	}{
+		{time.Date(2026, 10, 26, 0, 10, 0, 0, malta), "today 00:10"},
+		{time.Date(2026, 10, 25, 23, 50, 0, 0, malta), "yesterday 23:50"},
+		{time.Date(2026, 10, 25, 1, 0, 0, 0, malta), "yesterday 01:00"},
+		{time.Date(2026, 10, 24, 9, 2, 0, 0, malta), "Sat 09:02"},
+		{time.Date(2026, 10, 20, 9, 2, 0, 0, malta), "Tue 09:02"},
+		{time.Date(2026, 10, 19, 9, 2, 0, 0, malta), "19 Oct 09:02"},
+		{time.Date(2026, 10, 27, 9, 2, 0, 0, malta), "27 Oct 09:02"},
+	} {
+		if got := queueWhen(tc.at.UTC(), now.UTC(), malta); got != tc.want {
+			t.Errorf("queueWhen(%s) = %q, want %q", tc.at, got, tc.want)
+		}
+	}
+}
+
+// TestReviewDecidedToday_NeverPrintsAZeroNobodyMeasured is the "N decided today" figure's three
+// states (M12-25, README §2 D3): measured -> the number, 0 included; failed -> "not counted"
+// and no number; not queried -> no claim at all.
+func TestReviewDecidedToday_NeverPrintsAZeroNobodyMeasured(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		decided ledger.Decided
+		want    string
+		absent  []string
+	}{
+		{"measured", ledger.Decided{Queried: true, N: 4}, "4 decided today", []string{"not counted"}},
+		{"measured zero", ledger.Decided{Queried: true}, "0 decided today", []string{"not counted"}},
+		{"failed", ledger.Decided{Failed: true}, "decided today: not counted", []string{"0 decided today"}},
+		{"not queried", ledger.Decided{}, "", []string{"decided today"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			queue := queueWith(1)
+			queue.queue.Decided = tc.decided
+			body := htmlOf(t, panelBrowserWith(t, queue).do(http.MethodGet, reviewHref, nil))
+			if tc.want != "" && !strings.Contains(body, tc.want) {
+				t.Errorf("the page does not say %q", tc.want)
+			}
+			for _, a := range tc.absent {
+				if strings.Contains(body, a) {
+					t.Errorf("the page says %q", a)
+				}
+			}
+		})
+	}
+}
+
+// TestReviewFocus_TheEvidenceTilesAreTheCodesWords: the focused record's tiles carry the docket's
+// three-state sign words and a sentence that does not choose between "no reading" and "outside";
+// a QR scan says it has no chip signature; the marks are drawing; the decision is two submit
+// buttons of one form with no access key and no shortcut hint, and the copy names nobody's gender.
+func TestReviewFocus_TheEvidenceTilesAreTheCodesWords(t *testing.T) {
+	queue := queueWith(2)
+	yes, no := true, false
+	queue.queue.Records[0].IPMatch, queue.queue.Records[0].GPSMatch = &no, &yes
+	queue.queue.Records[0].RuleSID = "base:no-evidence-review"
+	queue.queue.Records[1].Channel = "qr"
+	queue.queue.Records[1].RuleSID = "own:qr-requires-ip"
+	b := panelBrowserWith(t, queue)
+
+	nfc := htmlOf(t, b.do(http.MethodGet, reviewHref, nil))
+	text := html.UnescapeString(nfc)
+	for _, want := range []string{
+		"Physical tap", "chip signature valid", "signed in on this phone",
+		"address not in the venue's range", "placed the tap at the venue",
+		"rule base:no-evidence-review", "no network, no location", "QR without network",
+		"Note for the record (optional)", ">Approve<", ">Reject<",
+		"Your decision is a new line beside the record.", "The original tap is never edited.",
+		"Every day · newest first · shrinks as you work it",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the focused NFC record's page does not say %q", want)
+		}
+	}
+	marks := regexp.MustCompile(`<span class="ev-tile-mark"[^>]*>`).FindAllString(nfc, -1)
+	if len(marks) != 4 {
+		t.Errorf("found %d tile marks, want 4", len(marks))
+	}
+	for _, m := range marks {
+		if !strings.Contains(m, `aria-hidden="true"`) {
+			t.Errorf("a tile mark is read aloud: %s", m)
+		}
+	}
+	lower := strings.ToLower(nfc)
+	for _, banned := range []string{"accesskey", "they were there", " her ", " she ", "her own", "oldest first", "judged"} {
+		if strings.Contains(lower, banned) {
+			t.Errorf("the page carries %q", banned)
+		}
+	}
+	if strings.Contains(nfc, `form="`) {
+		t.Error("a control is tied to a form by a form= attribute")
+	}
+
+	qr := htmlOf(t, b.do(http.MethodGet, reviewHref+"?focus="+queue.queue.Records[1].ID.String(), nil))
+	for _, want := range []string{"QR scan", "no chip signature on a QR scan", "rule own:qr-requires-ip", "IN · 5 Aug 09:01:00 · QR"} {
+		if !strings.Contains(qr, want) {
+			t.Errorf("the focused QR record's page does not say %q", want)
+		}
+	}
+}
+
+// TestReviewSection_APopulatedQueueHasNoSmallTarget runs the panel's press-target net over a
+// queue WITH records (the section corpus renders the empty one): queue links, pager links, the
+// two buttons and "Show more" each carry a class of panelTouchTargets.
+func TestReviewSection_APopulatedQueueHasNoSmallTarget(t *testing.T) {
+	queue := queueWith(3)
+	queue.queue.Next = &ledger.Cursor{At: time.Now().UTC(), ID: uuid.New()}
+	body := htmlOf(t, panelBrowserWith(t, queue).do(http.MethodGet, reviewHref+"?focus="+queue.queue.Records[1].ID.String(), nil))
+	targets := pressTargetsOf(body)
+	kinds := map[string]bool{}
+	for _, tgt := range targets {
+		if !hasTouchTargetClass(tgt.classes) {
+			t.Errorf("<%s class=%q> carries none of the touch-target classes", tgt.tag, tgt.classes)
+		}
+		for _, c := range []string{"queue-item", "spike-step", "btn--approve", "btn--reject", "btn--quiet"} {
+			if slices.Contains(strings.Fields(tgt.classes), c) {
+				kinds[c] = true
+			}
+		}
+	}
+	if len(kinds) != 5 {
+		t.Errorf("the page drew %v of the five kinds of press target; this net measured less than it claims", kinds)
+	}
+	if !strings.Contains(body, `class="field-input"`) {
+		t.Error("the note field lost its touch-target class")
+	}
+}
+
+// TestReviewSection_ThePhonesShowMoreIsNotUnderThePinnedButtons is the third eye's ORTA finding,
+// held as far as markup can hold it. On a phone the decision buttons are pinned above the bar
+// and the queue's section -- with "Show more", the only way to the next page there -- comes
+// AFTER the form, so the room reserved for the pinned bar must sit on the page's last block (the
+// two-column wrapper that holds both sections), not on the form: room on the form left the link
+// under the bar (measured at 390: link 688-732 px, bar 695-772 px, the point under the link was
+// Approve). Re-measured after the fix in the commit that added this test.
+// MUTANT: the spacer moved back onto the form -> red.
+func TestReviewSection_ThePhonesShowMoreIsNotUnderThePinnedButtons(t *testing.T) {
+	full := fullSpikeQueue()
+	body := htmlOf(t, panelBrowserWith(t, full).do(http.MethodGet, reviewHref, nil))
+	more := strings.Index(body, ">Show more<")
+	queue := strings.Index(body, `aria-label="Queue"`)
+	if more < 0 || queue < 0 {
+		t.Fatalf("a full page draws no Show more (%d) or no queue section (%d)", more, queue)
+	}
+	wrapper := -1
+	for _, m := range regexp.MustCompile(`<div class="([^"]*)"`).FindAllStringSubmatchIndex(body, -1) {
+		classes := strings.Fields(body[m[2]:m[3]])
+		if slices.Contains(classes, "desk:flex-row") && m[0] < queue {
+			wrapper = m[0]
+			if !slices.Contains(classes, "pb-[84px]") || !slices.Contains(classes, "md:pb-0") {
+				t.Errorf("the two-column wrapper (%q) reserves no room for the phone's pinned buttons", body[m[2]:m[3]])
+			}
+		}
+	}
+	if wrapper < 0 || wrapper > more {
+		t.Fatalf("no two-column wrapper opens before the queue section and its Show more (wrapper %d, more %d)", wrapper, more)
+	}
+	form := formActionRE.FindAllString(body, -1)
+	for _, f := range form {
+		if strings.Contains(f, "pb-[84px]") {
+			t.Errorf("the form still reserves the phone's room (%s): Show more comes after it", f)
 		}
 	}
 }

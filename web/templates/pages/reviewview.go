@@ -23,6 +23,35 @@ type ReviewItem struct {
 	// already learned to read, and a second layout would be a second place for the
 	// evidence line to drift.
 	Docket components.DocketView
+	// When is the record's time as the queue says it -- "today 14:26", "yesterday 02:14",
+	// "Mon 09:02", or "5 Oct 09:02" past a week -- in the tenant's zone, against the
+	// handler's clock (M12-28).
+	When string
+	// FocusHref puts this record in focus: the section's own URL with focus=<ID>, keeping
+	// the page's keyset position (after_at, after_id) so the same page stays loaded.
+	// Selection is a link, not a script (README §3.3); the POST re-checks everything.
+	FocusHref string
+	// Current marks the record in focus. Exactly one item carries it on a non-empty page.
+	Current bool
+}
+
+// ReviewPager is the phone's way through the page's records, one at a time (M12-28): the
+// position of the record in focus, how many this page holds, and the two neighbours' focus
+// links, "" at either end. "Of" is the PAGE's count, not the queue's: the queue's count is
+// the line above, and the next page is "Show more".
+type ReviewPager struct {
+	Pos      int
+	Of       int
+	PrevHref string
+	NextHref string
+}
+
+// DecidedToday is The Spike's "N decided today" (M12-25), three states as ledger.Decided:
+// not queried -> the line claims nothing; Failed -> "not counted", never 0; Queried -> N.
+type DecidedToday struct {
+	Queried bool
+	Failed  bool
+	N       int
 }
 
 // ReviewView is the review queue section.
@@ -50,6 +79,23 @@ type ReviewView struct {
 	Queried bool
 
 	Items []ReviewItem
+
+	// Focus is the record being decided -- the one decision form is about this record and
+	// no other (M12-28: the queue shows one record in focus instead of one form per record).
+	// It is the zero value when Items is empty.
+	//
+	// 🔴 IT IS CHOSEN AMONG THE RECORDS THIS PAGE LOADED, never looked up by the id in the
+	// address: an id that is not a uuid, another business's, already decided, or simply not on
+	// this page falls back to the first item, with no error and no claim about that id (§4.6:
+	// no blank page, no 404). What the form posts is re-checked by the INSERT anyway.
+	Focus components.SpikeFocusView
+	// FocusID is the focused record's id -- the decision form's hidden id.
+	FocusID string
+	// Pager is the phone's pager over this page's records.
+	Pager ReviewPager
+
+	// Decided is "N decided today" beside the queue's count.
+	Decided DecidedToday
 
 	// ZoneLabel is the tenant's timezone name. The queue spans days, so every time
 	// on it is meaningless without saying which clock it is on.

@@ -12,11 +12,18 @@ import "github.com/atknatk/tappa/web/templates/components"
 // after the decision, in the Transactions section, which is how the immutability is
 // visible rather than merely promised.
 //
-// 🔴 EACH RECORD IS ITS OWN FORM, exactly as AdminChoose's picker is, and for the
-// same reason: the whole card-plus-buttons is one decision with nothing to select
-// first, and a keyboard user is one tab away from submitting. It is also what makes
-// there be NO BULK ACTION on this screen — see the paragraph in
-// internal/handler/review.go for why that is a decision rather than an omission.
+// 🔴 ONE FORM, FOR THE ONE RECORD IN FOCUS (M12-28 — it was one form per record until the
+// redesign). The queue is a list of LINKS that put a record in focus (?focus=<id>, keeping the
+// page's keyset position); the decision form is about that record only, its id travels as
+// the form's id field, and the two outcomes are its two submit buttons. That keeps every
+// press a single complete decision -- nothing to select first, no default outcome for a stray
+// Enter key -- and it keeps there being NO BULK ACTION on this screen: see the paragraph in
+// internal/handler/review.go for why that is a decision rather than an omission. The form
+// carries the docket, the note and the buttons together, including the phone's bar of
+// buttons pinned above the navigation: the bar is the same two buttons placed by the
+// stylesheet, never a second form and never a form= attribute.
+//
+// NO KEYBOARD SHORTCUTS (D1): an access key would turn a chord into a pay decision.
 //
 // NO SCRIPT. This section renders pages.PanelShell — ONE argument, no script string
 // anywhere in the call — and PanelShell renders layout.Panel. The widened
@@ -43,99 +50,201 @@ import "github.com/atknatk/tappa/web/templates/components"
 // measured going red on exactly that edit. Two sentences, both true, and the second
 // one is the reason the first must not be written as "impossible".
 templ AdminReview(v ReviewView) {
-	@PanelShell(v.PanelChrome) {
-		if v.Done != "" {
-			@components.Notice(components.ToneOK, doneHeading(v.Done)) {
-				<p>
-					The tap record itself is unchanged — it still shows the flag the engine gave
-					it. Your decision is recorded beside it and appears on The Pass.
-				</p>
-				if v.Clipped {
-					// 🔴 SAYING THE NOTE WAS CUT IS THE WHOLE REASON THIS BRANCH EXISTS.
-					// The boundary keeps the first 500 characters and used to keep them
-					// silently, on a field nothing rendered — so the manager lost text and
-					// the product was the only party that knew.
+	@PanelActions(reviewMeta(v)) {
+		@PanelShell(v.PanelChrome) {
+			if v.Done != "" {
+				@components.PanelNotice(components.ToneOK, doneHeading(v.Done)) {
+					<p>
+						The tap record itself is unchanged — it still shows the flag the engine gave
+						it. Your decision is recorded beside it and appears on The Pass.
+					</p>
+					if v.Clipped {
+						// 🔴 SAYING THE NOTE WAS CUT IS THE WHOLE REASON THIS BRANCH EXISTS.
+						// The boundary keeps the first 500 characters and used to keep them
+						// silently, on a field nothing rendered — so the manager lost text and
+						// the product was the only party that knew.
+						<p class="mt-2">
+							Your note was longer than 500 characters, so only the first 500 were
+							saved. You can read what was kept on the record on The Pass.
+						</p>
+					}
+				}
+			}
+			if v.Problem != "" {
+				@components.PanelNotice(components.ToneWarn, problemHeading(v.Problem)) {
+					switch v.Problem {
+						case "unreadable":
+							// 🔴 IT SAYS NOTHING ABOUT THE RECORD, BECAUSE NOTHING WAS LOOKED
+							// UP. These branches used to share "gone"'s sentence — "that record
+							// is not waiting for a decision any more" — which is a claim about
+							// the world on a path where the world was never consulted: on an
+							// oversized body the record IS still waiting.
+							<p>We could not read that submission, so nothing was recorded. The record is still in the queue.</p>
+							<p class="mt-1">If your note was very long, shorten it and try again.</p>
+						case "yours":
+							// 🔴 THIS BRANCH SAYS "YOU", AND SAYING SO REQUIRED MEASURING IT.
+							// The screen used to answer a double click with "somebody else
+							// decided that record first" — a sentence the system had not
+							// checked, about the one person it was certainly wrong about.
+							<p>{ yoursLine(v.Was) }</p>
+							<p class="mt-1">A record is decided once, so the second press changed nothing.</p>
+						case "taken":
+							<p>Somebody else decided that record first. A record is decided once, so nothing was written for yours.</p>
+						default:
+							<p>That record is not waiting for a decision any more. Nothing was written.</p>
+					}
+				}
+			}
+			if len(v.Items) > 0 {
+				// TWO COLUMNS FROM THE DESK WIDTH: the queue (280 px) beside the record (520 px
+				// and growing), 828 px with the gap -- inside the 864 px the desk box has at
+				// 1200. Below it they stack: the tablet scrolls the queue sideways above the
+				// record; the phone hides the list and pages through the records instead, and
+				// the queue's section moves below the record for its "Show more".
+				//
+				// THE PHONE'S ROOM FOR THE PINNED BUTTONS IS RESERVED HERE, ON THE PAGE'S LAST
+				// BLOCK, not on the form: on the phone the queue's section -- and its "Show
+				// more", the only way to the next page there -- comes after the form, and room
+				// reserved on the form left that link under the pinned bar (measured at 390:
+				// the link at 688-732 px, the bar at 695-772, the point under the link was
+				// Approve). From md the bar is an ordinary row and nothing is reserved.
+				<div class="flex flex-col gap-[22px] pb-[84px] md:pb-0 desk:flex-row desk:items-start desk:gap-7">
+					<section aria-label="Queue" class="order-last flex min-w-0 flex-col gap-3 md:order-none desk:shrink-0 desk:basis-[280px]">
+						<div class="hidden md:-mx-8 md:block md:overflow-x-auto md:px-8 md:pb-1 desk:mx-0 desk:overflow-visible desk:px-0 desk:pb-0">
+							// The spike itself, drawn above the list on the desk: decoration.
+							<div class="hidden justify-center pb-1.5 desk:flex" aria-hidden="true">
+								<div class="h-9 w-1 rounded-t-sm bg-ink"></div>
+							</div>
+							<ol class="flex gap-2.5 md:min-w-max desk:min-w-0 desk:flex-col desk:gap-2">
+								for _, item := range v.Items {
+									<li>
+										@components.SpikeQueueEntry(item.Docket, item.When, item.FocusHref, item.Current)
+									</li>
+								}
+							</ol>
+						</div>
+						if v.MoreHref != "" {
+							<a class="btn btn--quiet self-start rounded-xl" href={ templ.URL(v.MoreHref) }>Show more</a>
+						}
+					</section>
+					<section aria-label="The record being decided" class="flex min-w-0 flex-col gap-[18px] desk:grow-[999] desk:basis-[520px]">
+						@reviewPager(v.Pager)
+						<form method="post" action={ templ.URL(v.Action) } class="flex flex-col gap-[18px]">
+							<input type="hidden" name="id" value={ v.FocusID }/>
+							@components.SpikeDocket(v.Focus) {
+								<div class="field-stack">
+									<label for="review-note" class="lbl">Note for the record (optional)</label>
+									<input
+										id="review-note"
+										name="note"
+										type="text"
+										maxlength="500"
+										autocomplete="off"
+										placeholder="e.g. I saw them on the floor"
+										class="field-input"
+									/>
+								</div>
+							}
+							// TWO SUBMIT BUTTONS, ONE FORM, and the outcome travels as the
+							// pressed button's value. There is no radio to choose first and no
+							// default outcome for a stray Enter key to submit. On the phone
+							// the stylesheet pins this row above the navigation bar; from the
+							// tablet up it sits under the record.
+							<div class="spike-actions">
+								<button type="submit" name="outcome" value="approved" class="btn btn--approve max-md:min-h-14 max-md:flex-[2] max-md:rounded-[14px] max-md:text-base desk:flex-[1_1_200px]">Approve</button>
+								<button type="submit" name="outcome" value="rejected" class="btn btn--reject max-md:min-h-14 max-md:flex-1 max-md:rounded-[14px] max-md:text-base desk:flex-[1_1_200px]">Reject</button>
+							</div>
+							<p class="font-mono text-xs text-ink/70">
+								Your decision is a new line beside the record.
+								<span class="hidden md:inline">The original tap is never edited.</span>
+							</p>
+						</form>
+					</section>
+				</div>
+			} else if v.Queried {
+				@components.PanelEmpty(SectionLabel(TabReview), "Nothing is waiting for review", components.PanelEmptyCTA{}) {
+					<p>
+						Every flagged tap has been decided. New ones arrive here when the engine
+						records a tap it could not judge on evidence alone.
+					</p>
 					<p class="mt-2">
-						Your note was longer than 500 characters, so only the first 500 were
-						saved. You can read what was kept on the record on The Pass.
+						Decided records stay on The Pass, with the
+						flag they were given and the decision beside it.
 					</p>
 				}
 			}
 		}
-		if v.Problem != "" {
-			@components.Notice(components.ToneWarn, problemHeading(v.Problem)) {
-				switch v.Problem {
-					case "unreadable":
-						// 🔴 IT SAYS NOTHING ABOUT THE RECORD, BECAUSE NOTHING WAS LOOKED
-						// UP. These branches used to share "gone"'s sentence — "that record
-						// is not waiting for a decision any more" — which is a claim about
-						// the world on a path where the world was never consulted: on an
-						// oversized body the record IS still waiting.
-						<p>We could not read that submission, so nothing was recorded. The record is still in the queue.</p>
-						<p class="mt-1">If your note was very long, shorten it and try again.</p>
-					case "yours":
-						// 🔴 THIS BRANCH SAYS "YOU", AND SAYING SO REQUIRED MEASURING IT.
-						// The screen used to answer a double click with "somebody else
-						// decided that record first" — a sentence the system had not
-						// checked, about the one person it was certainly wrong about.
-						<p>{ yoursLine(v.Was) }</p>
-						<p class="mt-1">A record is decided once, so the second press changed nothing.</p>
-					case "taken":
-						<p>Somebody else decided that record first. A record is decided once, so nothing was written for yours.</p>
-					default:
-						<p>That record is not waiting for a decision any more. Nothing was written.</p>
-				}
-			}
+	}
+}
+
+// reviewMeta is the line at the right of the title: the queue's count, today's decisions and
+// the clock every time on the page is on (the queue spans days, so a time without its zone
+// tells a manager nothing). It is drawn in every state the count can be in -- a queue counted
+// empty says "Waiting for review: 0".
+templ reviewMeta(v ReviewView) {
+	<p class="font-mono text-[13px] text-ink/85">
+		{ queueLine(v) }
+		if s := decidedLine(v.Decided); s != "" {
+			· { s }
 		}
-		<p class="font-mono text-sm text-ink/85">
-			{ queueLine(v) }
-			<span class="text-ink/70">· { v.ZoneLabel }</span>
-		</p>
-		if len(v.Items) > 0 {
-			<div class="flex flex-col gap-6">
-				for _, item := range v.Items {
-					<div class="flex flex-col gap-2">
-						@components.TransactionDocket(item.Docket)
-						<form method="post" action={ templ.URL(v.Action) } class="flex flex-wrap items-end gap-3 border border-line bg-paper px-4 py-3">
-							<input type="hidden" name="id" value={ item.ID }/>
-							<div class="flex min-w-[12rem] flex-1 flex-col gap-1">
-								<label for={ "note-" + item.ID } class="docket-label">Note (optional)</label>
-								<input
-									id={ "note-" + item.ID }
-									name="note"
-									type="text"
-									maxlength="500"
-									autocomplete="off"
-									class="filter-input"
-								/>
-							</div>
-							// TWO SUBMIT BUTTONS, ONE FORM, and the outcome travels as the
-							// pressed button's value. That is what makes each press a single
-							// complete decision: there is no radio to choose first and no
-							// default outcome for a stray Enter key to submit.
-							<div class="filter-actions">
-								<button type="submit" name="outcome" value="approved" class="btn btn--primary">Approve</button>
-								<button type="submit" name="outcome" value="rejected" class="btn btn--quiet">Reject</button>
-							</div>
-						</form>
-					</div>
-				}
-			</div>
-			if v.MoreHref != "" {
-				<a class="btn btn--quiet self-start" href={ templ.URL(v.MoreHref) }>Show more</a>
-			}
-		} else if v.Queried {
-			@components.PanelEmpty(SectionLabel(TabReview), "Nothing is waiting for review", components.PanelEmptyCTA{}) {
-				<p>
-					Every flagged tap has been decided. New ones arrive here when the engine
-					records a tap it could not judge on evidence alone.
-				</p>
-				<p class="mt-2">
-					Decided records stay on The Pass, with the
-					flag they were given and the decision beside it.
-				</p>
-			}
+		<span class="text-ink/70">· { v.ZoneLabel }</span>
+	</p>
+}
+
+// reviewPager is the phone's pager: the previous and next record of this page as links, the
+// position, and one dot per record (drawing). An end is a disabled span, not a link to nowhere.
+templ reviewPager(p ReviewPager) {
+	<nav aria-label="Records on this page" class="flex min-h-11 items-center justify-between gap-2.5 md:hidden">
+		if p.PrevHref != "" {
+			<a href={ templ.URL(p.PrevHref) } class="spike-step" aria-label="Previous record">
+				@pagerChevron(true)
+			</a>
+		} else {
+			<span class="spike-step spike-step--off" role="link" aria-disabled="true" aria-label="Previous record">
+				@pagerChevron(true)
+			</span>
 		}
+		<div class="flex min-w-0 flex-col items-center gap-1.5">
+			<p class="font-mono text-sm font-bold text-ink">{ itoa(p.Pos) } of { itoa(p.Of) }</p>
+			<p class="flex flex-wrap justify-center gap-[5px]" aria-hidden="true">
+				for i := 1; i <= p.Of; i++ {
+					<span class={ "size-2 rounded-full", templ.KV("bg-ink", i == p.Pos), templ.KV("bg-line", i != p.Pos) }></span>
+				}
+			</p>
+		</div>
+		if p.NextHref != "" {
+			<a href={ templ.URL(p.NextHref) } class="spike-step" aria-label="Next record">
+				@pagerChevron(false)
+			</a>
+		} else {
+			<span class="spike-step spike-step--off" role="link" aria-disabled="true" aria-label="Next record">
+				@pagerChevron(false)
+			</span>
+		}
+	</nav>
+}
+
+templ pagerChevron(back bool) {
+	<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true" focusable="false">
+		if back {
+			<path d="M15 6l-6 6 6 6"></path>
+		} else {
+			<path d="M9 6l6 6-6 6"></path>
+		}
+	</svg>
+}
+
+// decidedLine is "N decided today", three states (M12-25): nothing when the count was not
+// asked for, "decided today: not counted" when it failed -- never 0 -- and the number when it
+// answered, 0 included, because then 0 is a measurement.
+func decidedLine(d DecidedToday) string {
+	switch {
+	case d.Failed:
+		return "decided today: not counted"
+	case d.Queried:
+		return itoa(d.N) + " decided today"
+	default:
+		return ""
 	}
 }
 

@@ -1353,6 +1353,27 @@
            focus-visible:ring-ink;
   }
   .queue-item--current { @apply border-2 border-ink bg-paper px-[13px] py-[11px]; }
+  /* The Spike's phone pager (M12-28): the previous / next record of the page, a 44 px
+     square link; an end is the same square as a disabled span, its frame and chevron
+     dimmed (the chevron is drawing; the label says what it is). */
+  .spike-step {
+    @apply inline-flex size-11 min-h-11 flex-none items-center justify-center rounded-xl
+           border border-ink/50 bg-paper text-ink hover:border-ink focus:outline-none
+           focus-visible:ring-2 focus-visible:ring-ink;
+  }
+  .spike-step--off { @apply border-line text-ink/70 hover:border-line; }
+  /* The Spike's two decision buttons (M12-28). On a phone the row is pinned above the
+     bottom navigation bar -- the bar's own height, as .bar-sheet computes it -- so the
+     decision stays in reach while the record scrolls; the form gives the page room for it.
+     It sits under the bar's stacking context, so the More sheet's dimmed page covers it.
+     From md it is an ordinary row under the record: two columns on the tablet, a wrapping
+     row on the desk. It is the same two buttons of the same form at every width. */
+  .spike-actions {
+    @apply fixed inset-x-0 z-10 flex gap-2.5 border-t border-line bg-porcelain px-4 py-2.5
+           md:static md:z-auto md:grid md:grid-cols-2 md:gap-3 md:border-t-0
+           md:bg-transparent md:p-0 desk:flex desk:flex-wrap;
+    bottom: calc(64px + max(0.5rem, env(safe-area-inset-bottom)));
+  }
   .venue-card {
     @apply flex min-h-11 w-full flex-col gap-2.5 rounded-[14px] border border-line bg-paper
            px-4 py-3.5 text-ink hover:border-ink focus:outline-none focus-visible:ring-2

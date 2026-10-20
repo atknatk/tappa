@@ -1,5 +1,7 @@
 package components
 
+import "strings"
+
 // TransactionDocket renders one record as the kitchen docket (M6-03).
 //
 // 🔴 IT IS A DOCKET AND NOT A TABLE ROW. skill tappa-brand's "Yapma" list ends
@@ -286,4 +288,111 @@ templ VerdictStamp(verdict string) {
 		case "ignored":
 			<span class="stamp stamp--ignored">IGNORED</span>
 	}
+}
+
+// SpikeDocket is the record a manager is deciding on The Spike (M12-28, README §5 "Docket",
+// screens/spike-odd.md S.2 rows 9-22). It is a docket -- the motif, perforated on both edges,
+// sharp corners (D2) -- and it is built from the same DocketView as the ledger's two dockets
+// through SpikeFocus, so the evidence cannot read differently here and on The Pass.
+//
+// Top to bottom: the venue and the plaque's last four characters, the person, the direction
+// with the date-ful time and the channel, and the engine's stamp; the evidence tiles; "Why it is
+// here" -- the engine's own sentence (never board prose), labelled when the deciding rule is the
+// business's own, and the rule and score in mono; then the children, which are the decision
+// form's note field.
+//
+// 🔴 A PARTNER-VENUE RECORD (K-39) gets one merged tile for the network and the location and no
+// rule-and-score line: the ledger has already blanked the score, the signs, the rule and the
+// evidence sentence (nameSiteRecords), and this only declines to draw labels for values that are
+// not there. PartnerVenueNote is the sentence it prints.
+//
+// The tile's mark is drawing that assistive technology does not read; the value word and the
+// sentence under it carry the meaning, so a tone is never told by colour alone.
+templ SpikeDocket(f SpikeFocusView) {
+	<article class="docket flex flex-col gap-[18px] px-[18px] pt-[22px] pb-6 md:gap-5 md:p-6 desk:gap-[22px] desk:px-[30px] desk:pt-7 desk:pb-[30px]">
+		<div class="flex items-start justify-between gap-2.5 md:gap-4">
+			<div class="flex min-w-0 flex-col gap-1.5">
+				<p class="lbl break-words">{ spikeLabel(f.Docket) }</p>
+				<p class="break-words font-display text-[28px] font-bold leading-none tracking-[-0.03em] text-ink md:text-[30px] desk:text-[34px]">{ docketWho(f.Docket) }</p>
+				<p class="text-sm text-ink desk:text-[15px]">{ spikeLine(f.Docket) }</p>
+			</div>
+			<p class="flex flex-none flex-col items-end gap-2 pt-1">
+				@VerdictStamp(f.Docket.Verdict)
+				if f.Docket.Practice {
+					<span class="stamp stamp--training">TRAINING</span>
+				}
+			</p>
+		</div>
+		if f.Docket.Manual {
+			<p><span class="tally tally--manual">Entered by a manager</span></p>
+		}
+		<div class="grid grid-cols-2 gap-2 md:gap-2.5 desk:grid-cols-[repeat(auto-fit,minmax(150px,1fr))]">
+			for _, t := range f.Tiles {
+				@evidenceTile(t)
+			}
+		</div>
+		<div class="flex flex-col gap-1.5 border-t border-dashed border-line pt-3.5 md:pt-4">
+			<p class="lbl">Why it is here</p>
+			if f.Docket.NoteIsTenants {
+				<p class="docket-label">Your own policy rule</p>
+			}
+			if f.Docket.Note != "" {
+				<p class="font-display text-sm leading-normal text-ink md:text-[15px]">{ f.Docket.Note }</p>
+			}
+			if !f.Docket.PartnerVenue {
+				<p class="text-xs text-ink/70">{ spikeRuleLine(f.Docket) }</p>
+			}
+		</div>
+		{ children... }
+	</article>
+}
+
+// evidenceTile is one tile of SpikeDocket. The frame's tone is chosen here, from literal class
+// names, so the stylesheet keeps every one of them.
+templ evidenceTile(t EvidenceTile) {
+	<div class={ "ev-tile min-w-0", templ.KV("ev-tile--ok", t.Tone == toneOK), templ.KV("ev-tile--bad", t.Tone == toneBad), templ.KV("ev-tile--none", t.Tone != toneOK && t.Tone != toneBad) }>
+		<p class="lbl">{ t.Label }</p>
+		<p class="ev-tile-value flex min-w-0 items-center gap-2 break-words">
+			<span class="ev-tile-mark" aria-hidden="true">{ evidenceMark(t.Tone) }</span>
+			<span class="min-w-0">{ t.Value }</span>
+		</p>
+		if t.Sub != "" {
+			<p class="ev-tile-sub font-display">{ t.Sub }</p>
+		}
+	</div>
+}
+
+func evidenceMark(tone string) string {
+	switch tone {
+	case toneOK:
+		return "✓"
+	case toneBad:
+		return "✗"
+	default:
+		return "–"
+	}
+}
+
+// SpikeQueueEntry is one record in The Spike's queue: a link that puts it in focus (selection is
+// a link, not a script -- README §3.3), marked as the current one when it is. Name and when on
+// the first line; venue, direction (desk only, as the boards draw it) and the short reason on
+// the second. The when is the handler's ("today 14:26", "yesterday 02:14", "Mon 09:02").
+templ SpikeQueueEntry(d DocketView, when, href string, current bool) {
+	<a
+		href={ templ.URL(href) }
+		class={ "queue-item md:h-full md:min-h-14 md:w-[220px] desk:h-auto desk:min-h-11 desk:w-full", templ.KV("queue-item--current", current) }
+		if current {
+			aria-current="true"
+		}
+	>
+		<span class="flex min-w-0 items-baseline justify-between gap-2">
+			<span class="min-w-0 break-words font-display text-sm font-bold desk:text-[15px]">{ docketWho(d) }</span>
+			<span class="flex-none whitespace-nowrap font-mono text-[11px] desk:text-xs">{ when }</span>
+		</span>
+		<span class="break-words font-mono text-[11px] text-ink/70 desk:text-xs">
+			{ docketVenue(d) }
+			<span class="hidden desk:inline">· { strings.ToUpper(docketDirection(d)) }</span>
+			· { SpikeWhy(d) }
+		</span>
+	</a>
 }

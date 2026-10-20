@@ -295,14 +295,24 @@ type Record struct {
 	// SiteLocationID is the peer's venue of such a row, nil for every other (and for a refusal on
 	// a peer's plaque that hangs on no wall).
 	SiteLocationID *uuid.UUID
-	// matchedSid is the rule that decided. It is filled for EVERY row (record, queueRecord) but
-	// read only for a row at a partner venue, to tell an evidence sentence from any other
-	// (evidenceSids, site.go). Unexported, so no template and no exported accessor reaches it.
-	// Record has no LogValue/Format/MarshalJSON guard on purpose: nothing logs or encodes a
-	// Record (it goes to a template only), and a sid names a rule, not a piece of evidence --
-	// the rule a peer's tap matched is what the residue in ADR 0027 §13 item 5 (e) is about,
-	// and that residue lives in the order of rules, not in this field.
-	matchedSid string
+	// RuleSID is the rule that decided (transactions.matched_sid): "base:no-evidence-review",
+	// "own:…", "sys:…", or "" when the row names none. The two mappers (record, queueRecord) fill
+	// it for every row; The Spike prints it on the record in focus and derives its short "why"
+	// from it (M12-28).
+	//
+	// 🔴 K-39: IT IS BLANKED ON EVERY ROW AT A PARTNER VENUE, IN nameSiteRecords (site.go), after
+	// partnerNote has read it. The rule a peer's tap matched tells the employer which evidence the
+	// peer's network or coordinate gave -- "base:gps-only-allow" says the phone was off the peer's
+	// network as plainly as the sentence PartnerVenueNote replaces -- so ADR 0027 §13 item 5 (e)
+	// keeps it off the employer's screens. The blanking lives with the other K-39 blanking (trust,
+	// the two signs, the note), in the ledger, never in a template: a template that forgot a
+	// check would otherwise be the only thing between the sid and the page.
+	//
+	// It was unexported until M12-28 and read only to tell an evidence sentence from any other
+	// (evidenceSids). Record has no LogValue/Format/MarshalJSON guard on purpose: nothing logs or
+	// encodes a Record (it goes to a template only), and a sid names a rule, not a piece of
+	// evidence -- no address, no coordinate (§4.7).
+	RuleSID string
 }
 
 // Option is one entry of a filter's dropdown.
@@ -833,7 +843,7 @@ func record(row store.ListPanelTransactionsRow) Record {
 		EmployeeName:   deref(row.EmployeeName),
 	}
 	atSite(&rec, row.SiteLocationID, row.SiteTagUid)
-	rec.matchedSid = deref(row.MatchedSid)
+	rec.RuleSID = deref(row.MatchedSid)
 	return rec
 }
 

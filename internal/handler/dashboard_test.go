@@ -81,6 +81,10 @@ func sectionBodiesAs(t *testing.T, member bool) map[string]string {
 	if member {
 		fakeMember(records)
 	}
+	// M12-28: The Spike with a FULL page -- records waiting and a next page -- so every net
+	// over these bodies reads the queue links, the pager, the decision form and "Show more",
+	// not only the empty state the default fake renders.
+	records.queue = fullSpikeQueue().queue
 	b := panelBrowserWith(t, records)
 	out := make(map[string]string, len(pages.PanelSections))
 	for _, s := range pages.PanelSections {
@@ -572,7 +576,18 @@ func panelNonSectionScreens(t *testing.T) map[string]string {
 	}
 	out["POST "+manualEntryHref] = htmlOf(t, rec)
 
-	// ANTI-VACUITY: both pages must actually carry press targets, or adding them to the
+	// The Spike with records waiting and a next page, a record in the middle in focus (M12-28):
+	// the queue links, both pager links, the two decision buttons and "Show more". The section
+	// corpus above renders the review section with the default fake's empty queue.
+	full := fullSpikeQueue()
+	spike := panelBrowserWith(t, full)
+	rec = spike.do(http.MethodGet, reviewHref+"?focus="+full.queue.Records[1].ID.String(), nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("the full Spike answered %d, want 200", rec.Code)
+	}
+	out["GET "+reviewHref+" (a full page)"] = htmlOf(t, rec)
+
+	// ANTI-VACUITY: every page must actually carry press targets, or adding it to the
 	// corpus changes nothing.
 	for where, body := range out {
 		if len(pressTargetsOf(body)) == 0 {
@@ -1231,8 +1246,8 @@ var panelTouchTargets = map[string]int{
 	// of the pair reach it.
 	"rule-switch": 44, // .rule-switch -> min-h-11 = 2.75rem
 	// The redesign's form field (M12-08), drawn by several screens (sign-in, sign-up,
-	// billing, rules). It is an <input>, not an <a> or a <button>, so the form-control
-	// scan and the stylesheet half of the pair hold it.
+	// billing, rules, The Spike's note). It is an <input>, not an <a> or a <button>, so the
+	// form-control scan and the stylesheet half of the pair hold it.
 	"field-input": 44, // .field-input -> min-h-11 = 2.75rem
 	// People (M12-30) draws the status chips (links) and each person's row (one link,
 	// 64 px on a phone, 60 px from md); The Pass (M12-26) draws the verdict chips and the
@@ -1240,6 +1255,13 @@ var panelTouchTargets = map[string]int{
 	"chip-link":        44, // .chip-link        -> min-h-11 (a filter chip, a link)
 	"roster-row":       60, // .roster-row       -> min-h-16, md:min-h-[60px]
 	"stat-card--spike": 44, // .stat-card--spike -> min-h-11
+	// The Spike (M12-28), moved here from panelPendingTouchTargets by the screen that first
+	// draws them: the queue's focus links, the two decision buttons, and the phone pager's
+	// previous / next links (a disabled end is a span, not a press target).
+	"queue-item":   44, // .queue-item   -> min-h-11 (md:min-h-14 on the tablet's scroller)
+	"btn--approve": 64, // .btn--approve -> min-h-16 (56 px in the phone's pinned bar)
+	"btn--reject":  64, // .btn--reject  -> min-h-16 (56 px in the phone's pinned bar)
+	"spike-step":   44, // .spike-step   -> min-h-11, a 44 px square
 }
 
 // panelPendingTouchTargets are the press-target classes the panel redesign defines
@@ -1256,10 +1278,7 @@ var panelTouchTargets = map[string]int{
 // template uses a class still listed here, and the markup scan above turns red while
 // a press target carries one that is not in panelTouchTargets.
 var panelPendingTouchTargets = map[string]int{
-	"queue-item":   44, // .queue-item       -> min-h-11 (The Spike's queue)
-	"venue-card":   44, // .venue-card       -> min-h-11 (Venues)
-	"btn--approve": 64, // .btn--approve     -> min-h-16 (The Spike)
-	"btn--reject":  64, // .btn--reject      -> min-h-16 (The Spike)
+	"venue-card": 44, // .venue-card -> min-h-11 (Venues)
 }
 
 func hasTouchTargetClass(classes string) bool {
