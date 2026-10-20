@@ -303,9 +303,14 @@ func TestAdminLogin_ChromeLinksReachRoutesThatAreMounted(t *testing.T) {
 func TestAdminLogin_BrandPanelClaimsOnlyWhatTheProductDoes(t *testing.T) {
 	_, body := loginPage(t)
 
-	if len(pages.AdminLoginProof) < 3 {
+	// THE REDESIGN (M12-43) SHORTENED THE CLAIMS TO THE DRAWING'S TWO SENTENCES under
+	// one heading; the floor follows the list, and the heading is held as well.
+	if len(pages.AdminLoginProof) < 2 {
 		t.Fatalf("pages.AdminLoginProof has %d line(s); this test would prove almost "+
 			"nothing", len(pages.AdminLoginProof))
+	}
+	if !strings.Contains(body, htmlText(pages.AdminLoginHeadline)) {
+		t.Errorf("the brand panel does not render its heading %q", pages.AdminLoginHeadline)
 	}
 	for _, line := range pages.AdminLoginProof {
 		if !strings.Contains(body, htmlText(line)) {

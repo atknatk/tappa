@@ -224,11 +224,16 @@ func TestAdminLoginPassword_FieldKeepsEveryAttributeAPasswordManagerReads(t *tes
 		`type="password"`,
 		`autocomplete="current-password"`,
 		`required`,
-		`placeholder="••••••••"`,
 	} {
 		if !strings.Contains(open, want) {
 			t.Errorf("the password field no longer carries %s:\n    %s", want, open)
 		}
+	}
+	// NO PLACEHOLDER (M12-43, docs/design/panel-redesign/screens/account-auth.md §4):
+	// the row of bullets it used to carry looked like a value already typed. A
+	// password manager reads none of it, so its absence is held rather than its text.
+	if strings.Contains(open, "placeholder=") {
+		t.Errorf("the password field carries a placeholder again:\n    %s", open)
 	}
 	// THE SERVED TYPE IS password AND STAYS THAT WAY. The script swaps it in the
 	// browser; a page that shipped type="text" would show the secret to anyone
