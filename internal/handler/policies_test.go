@@ -1631,9 +1631,64 @@ func policyNoticeFrames(t *testing.T) map[string]string {
 			t.Fatalf("PanelNotice(%s)'s frame is not the shape this exemption was written for "+
 				"(one role, one mark): frame %q, inert %q", tone, frame, inert)
 		}
+		// 🔴 WHAT IS DROPPED IS STILL SCANNED, against a list narrower than the section's:
+		// the mark and its drawing, element by element. Without this an onclick on the mark
+		// (measured) left every test green, because the exemption removed it unread.
+		if bad := noticeMarkOutsideItsList(html[open+1 : mark+len("</span>")]); len(bad) > 0 {
+			t.Fatalf("PanelNotice(%s)'s mark carries %v, which no notice mark needs. The "+
+				"section scan does not read the mark (policyNoticeFrames), so it is held "+
+				"to its own list here.", tone, bad)
+		}
 		out[frame] = inert
 	}
 	return out
+}
+
+// policyNoticeMarkAttrs is, per element, everything a PanelNotice mark may carry: an
+// aria-hidden span around an svg drawn with paths and circles. Nothing on it can make an
+// element behave.
+var policyNoticeMarkAttrs = map[string]map[string]bool{
+	"span": {"class": true, "aria-hidden": true},
+	"svg": {"width": true, "height": true, "viewbox": true, "fill": true, "stroke": true,
+		"stroke-width": true, "stroke-linecap": true, "stroke-linejoin": true,
+		"focusable": true, "aria-hidden": true},
+	"path":   {"d": true},
+	"circle": {"cx": true, "cy": true, "r": true},
+}
+
+// noticeMarkOutsideItsList is markupOutsideTheAllowList with the list held per element
+// (policyNoticeMarkAttrs), for the part of a notice frame the section scan skips.
+func noticeMarkOutsideItsList(html string) []string {
+	var bad []string
+	for tag, attrs := range policyNoticeMarkAttrs {
+		for _, found := range markupOutsideTheAllowList(onlyElements(html, tag), map[string]bool{tag: true}, attrs) {
+			bad = append(bad, tag+": "+found)
+		}
+	}
+	// AN ELEMENT NOT ON THE LIST AT ALL is caught by scanning every opening tag against
+	// the element names alone.
+	names := map[string]bool{}
+	for tag := range policyNoticeMarkAttrs {
+		names[tag] = true
+	}
+	for _, m := range regexp.MustCompile(`<\s*([a-zA-Z][a-zA-Z0-9-]*)`).FindAllStringSubmatch(html, -1) {
+		if !names[strings.ToLower(m[1])] {
+			bad = append(bad, "<"+strings.ToLower(m[1])+">")
+		}
+	}
+	return bad
+}
+
+// onlyElements keeps the opening tags of one element name, so the scanner reads that
+// element's attributes alone.
+func onlyElements(html, tag string) string {
+	var b strings.Builder
+	for _, m := range regexp.MustCompile(`<\s*([a-zA-Z][a-zA-Z0-9-]*)[^>]*>`).FindAllStringSubmatch(html, -1) {
+		if strings.EqualFold(m[1], tag) {
+			b.WriteString(m[0])
+		}
+	}
+	return b.String()
 }
 
 // withoutPanelNoticeFrames is html with every exact PanelNotice frame made inert
