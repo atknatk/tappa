@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Which business? — Taptime (mobile)</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-bottom:0}
+.docket::after{content:"";position:absolute;left:-1px;right:-1px;bottom:-7px;height:7px;background:radial-gradient(circle at 7px 7px,transparent 4px,#FFFDF4 4.5px) 0 0/14px 7px repeat-x}
+.go{min-height:52px;width:100%;border:0;border-radius:14px;background:#1F5C41;color:#FFFDF4;font:700 16px 'Space Grotesk',sans-serif;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 900px; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA; display: flex; flex-direction: column">
+  <div style="height: 4px; background: #1F5C41"></div>
+  <header style="height: 56px; padding: 0 16px; display: flex; flex-direction: column; justify-content: center; gap: 1px">
+    <div style="font-size: 20px; font-weight: 700; letter-spacing: -0.03em; line-height: 1">taptime</div>
+    <div class="mono" style="font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: rgba(21,34,25,.7)">punchless</div>
+  </header>
+  <main style="padding: 16px 16px 40px; display: flex; flex-direction: column; gap: 22px">
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <span class="lbl">Signed in · one more step</span>
+      <h1 style="margin: 0; font-size: 30px; line-height: 1.05; letter-spacing: -0.03em">Which business?</h1>
+      <p style="margin: 0; font-size: 15px; line-height: 1.5; color: rgba(21,34,25,.7)">You manage more than one. Pick the one you want to work in — you can sign out and switch at any time.</p>
+    </div>
+    <sc-for list="{{businesses}}" as="b" hint-placeholder-count="3">
+      <form onSubmit="{{b.go}}" class="docket" style="padding: 18px 16px 18px; display: flex; flex-direction: column; gap: 12px">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px">
+          <div style="display: flex; flex-direction: column; gap: 3px; min-width: 0">
+            <span class="lbl">Business</span>
+            <span style="font-size: 20px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.15">{{b.name}}</span>
+          </div>
+          <span class="mono" style="flex: none; font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; padding: 3px 8px; border: 1px solid #152219; border-radius: 6px" aria-label="Your role: {{b.role}}">{{b.role}}</span>
+        </div>
+        <button type="submit" class="go">Continue to {{b.name}}</button>
+      </form>
+    </sc-for>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const stop = (e) => { if (e && e.preventDefault) e.preventDefault(); };
+    const businesses = [
+      { name: 'Kebab Factory', role: 'Owner' },
+      { name: 'Kebab Manufacturing Co.', role: 'Manager' },
+      { name: 'Rusty Bar', role: 'Manager' }
+    ].map(b => ({ ...b, go: stop }));
+    return { businesses };
+  }
+}
+</script>
+</body>
+</html>

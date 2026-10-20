@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Invitation — mobile</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-bottom:0}
+.docket::after{content:"";position:absolute;left:-1px;right:-1px;bottom:-6px;height:6px;background:radial-gradient(circle at 6px 6px,transparent 3.5px,#FFFDF4 4px) 0 0/12px 6px repeat-x}
+.tab{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:60px;text-decoration:none;color:rgba(237,240,234,.8);font:500 11px 'Space Grotesk',sans-serif}
+.tab:hover{color:#FFFDF4}
+.tab-ic{width:48px;height:30px;border-radius:15px;display:flex;align-items:center;justify-content:center}
+.tab--on{color:#FFFDF4}
+.tab--on .tab-ic{background:#FFFDF4;color:#152219}
+.tab-badge{position:absolute;top:4px;left:calc(50% + 8px);min-width:18px;height:18px;border-radius:9px;background:#D98E2B;color:#152219;font:700 11px 'IBM Plex Mono',monospace;display:flex;align-items:center;justify-content:center}
+.iconbtn{width:44px;height:44px;display:inline-flex;align-items:center;justify-content:center;border:0;background:transparent;color:#152219;border-radius:12px;cursor:pointer;text-decoration:none}
+.help{margin:0;font-size:13px;line-height:1.45;color:rgba(21,34,25,.7)}
+.ok{border:1px solid #1F5C41;background:rgba(31,92,65,.08);border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:5px;font-size:14px;line-height:1.45}
+.alert{border:1px solid #BE3D2A;background:rgba(190,61,42,.07);border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:5px;font-size:14px;line-height:1.45}
+</style>
+</helmet>
+<div style="width: 390px; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
+  <div style="height: 4px; background: #1F5C41"></div>
+  <header style="height: 56px; display: flex; align-items: center; gap: 4px; padding: 0 16px; box-sizing: border-box">
+    <a href="M-People.dc.html" class="iconbtn" aria-label="Back to People" style="margin-left: -12px"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></a>
+    <div style="flex: 1; display: flex; flex-direction: column; gap: 2px">
+      <span style="font-size: 20px; font-weight: 700; letter-spacing: -0.03em; line-height: 1">taptime</span>
+      <span class="mono" style="font-size: 10px; letter-spacing: .12em; color: rgba(21,34,25,.7)">KEBAB FACTORY</span>
+    </div>
+  </header>
+
+  <main style="padding: 16px 16px 24px; display: flex; flex-direction: column; gap: 16px">
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <span class="lbl">Shown once</span>
+      <h1 style="margin: 0; font-size: 30px; line-height: 1; letter-spacing: -0.035em">Invitation</h1>
+    </div>
+
+    <sc-if value="{{isIssued}}" hint-placeholder-val="{{true}}">
+      <section class="docket" aria-label="Activation link" style="padding: 18px 16px 22px; display: flex; flex-direction: column; gap: 12px">
+        <div style="display: flex; flex-direction: column; gap: 3px">
+          <span class="lbl">This link belongs to</span>
+          <span style="font-size: 26px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.05">Ahmed Hassan</span>
+          <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">Kitchen Porter · KF Hamrun</span>
+        </div>
+        <span class="lbl">Activation link</span>
+        <p class="mono" style="margin: 0; padding: 12px 14px; border: 2px dashed rgba(21,34,25,.5); border-radius: 12px; font-size: 15px; word-break: break-all; user-select: all; background: #EDF0EA">https://[panel host]/a/XXXX-XXXX-XXXX</p>
+        <button type="button" style="min-height: 52px; border-radius: 12px; border: 0; background: #152219; color: #FFFDF4; font: 700 15px 'Space Grotesk', sans-serif; cursor: pointer">Copy link</button>
+      </section>
+      <div role="status" class="ok">
+        <strong>Give it to Ahmed — and only to them.</strong>
+        <span>Opening it signs their phone in, so anybody who reads it can record time as them. It works for [validity].</span>
+      </div>
+      <p class="help">Taptime keeps no copy. If you lose this page, create another invitation — that retires this one.</p>
+    </sc-if>
+
+    <sc-if value="{{isSent}}" hint-placeholder-val="{{false}}">
+      <div role="status" class="ok">
+        <strong>Invitation sent to Ahmed Hassan</strong>
+        <span>Their activation link is on its way by email. It works for [validity]. Nobody sees the link on this screen.</span>
+      </div>
+      <section class="docket" style="padding: 16px 16px 20px; display: flex; flex-direction: column; gap: 8px">
+        <span class="lbl">Sent to</span>
+        <span class="mono" style="font-size: 18px">a•••@•••.mt</span>
+        <p class="help">Sent means our mail service accepted it, not that it has reached their inbox.</p>
+      </section>
+    </sc-if>
+
+    <sc-if value="{{isUnsent}}" hint-placeholder-val="{{false}}">
+      <div role="alert" class="alert">
+        <strong>The email may not have gone out</strong>
+        <span>We could not confirm it was sent. Try again in a few minutes — the new link replaces this one. Any earlier link has already stopped working.</span>
+      </div>
+      <button type="button" style="min-height: 56px; border-radius: 14px; border: 0; background: #1F5C41; color: #FFFDF4; font: 700 16px 'Space Grotesk', sans-serif; cursor: pointer">Send it again</button>
+    </sc-if>
+
+    <section aria-label="What Ahmed does next" style="background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 12px">
+      <h2 style="margin: 0; font-size: 17px">What Ahmed does next</h2>
+      <ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px">
+        <sc-for list="{{steps}}" as="s" hint-placeholder-count="3">
+          <li style="display: grid; grid-template-columns: 30px 1fr; gap: 10px; align-items: start">
+            <span class="mono" style="width: 30px; height: 30px; border-radius: 8px; border: 1px solid #152219; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px">{{s.n}}</span>
+            <span style="font-size: 14px; line-height: 1.4"><strong>{{s.t}}</strong> <span style="color: rgba(21,34,25,.7)">{{s.d}}</span></span>
+          </li>
+        </sc-for>
+      </ol>
+    </section>
+
+    <a href="M-People.dc.html" style="font-weight: 700; font-size: 15px; min-height: 44px; display: inline-flex; align-items: center">Back to the list</a>
+  </main>
+
+  <nav aria-label="Panel sections" style="position: sticky; bottom: 0; height: 68px; box-sizing: border-box; background: #152219; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); padding: 0 4px 8px">
+    <a href="M-Pass.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18"/><path d="M7.5 5v3M17.5 5v3"/><rect x="5" y="8" width="5" height="9" rx="1"/><rect x="15" y="8" width="5" height="11" rx="1"/></svg></span>Pass</a>
+    <a href="M-Spike.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18"/><path d="M7 21h10"/><rect x="6" y="9" width="12" height="7" rx="1"/></svg></span>Spike<span class="tab-badge" aria-label="4 waiting">4</span></a>
+    <a href="M-Roll.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-2-1.5L14 21l-2-1.5L10 21l-2-1.5L6 21z"/><path d="M9 8h6M9 12h6"/></svg></span>Roll</a>
+    <a href="M-People.dc.html" class="tab tab--on" aria-current="page"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c1.8.7 3 2.4 3.5 5.2"/></svg></span>People</a>
+    <a href="M-More.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></span>More</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"outcome":{"editor":"enum","options":["issued","sent","unsent"],"default":"issued"},"$preview":{"width":390,"height":1060}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const o = this.props.outcome ?? 'issued';
+    return {
+      isIssued: o === 'issued', isSent: o === 'sent', isUnsent: o === 'unsent',
+      steps: [
+        { n: '1', t: 'Opens the link', d: 'on their own phone.' },
+        { n: '2', t: 'Confirms it is them.', d: '' },
+        { n: '3', t: 'Taps a plaque', d: '— that finishes setup, no record is written.' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

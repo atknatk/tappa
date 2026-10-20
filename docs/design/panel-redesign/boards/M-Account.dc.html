@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Account — mobile</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.tab{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:60px;text-decoration:none;color:rgba(237,240,234,.8);font:500 11px 'Space Grotesk',sans-serif}
+.tab:hover{color:#FFFDF4}
+.tab-ic{width:48px;height:30px;border-radius:15px;display:flex;align-items:center;justify-content:center}
+.tab--on{color:#FFFDF4}
+.tab--on .tab-ic{background:#FFFDF4;color:#152219}
+.tab-badge{position:absolute;top:4px;left:calc(50% + 8px);min-width:18px;height:18px;border-radius:9px;background:#D98E2B;color:#152219;font:700 11px 'IBM Plex Mono',monospace;display:flex;align-items:center;justify-content:center}
+.iconbtn{width:44px;height:44px;display:inline-flex;align-items:center;justify-content:center;border:0;background:transparent;color:#152219;border-radius:12px;cursor:pointer;text-decoration:none}
+.card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:16px;padding:18px 16px;display:flex;flex-direction:column;gap:14px}
+.field{display:flex;flex-direction:column;gap:6px}
+.input{min-height:44px;padding:0 12px;border:1px solid #C9D2C8;border-radius:10px;background:#FFFDF4;font:14px 'Space Grotesk',sans-serif;color:#152219;box-sizing:border-box;width:100%}
+.ghost{min-height:44px;padding:0 14px;border-radius:10px;border:1px solid rgba(21,34,25,.5);background:transparent;font:500 13px 'Space Grotesk',sans-serif;color:#152219;cursor:pointer}
+</style>
+</helmet>
+<div style="width: 390px; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
+  <div style="height: 4px; background: {{accent}}"></div>
+  <header style="height: 56px; display: flex; align-items: center; gap: 4px; padding: 0 16px; box-sizing: border-box">
+    <a href="M-More.dc.html" class="iconbtn" aria-label="Back to More" style="margin-left: -12px"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></a>
+    <div style="flex: 1; display: flex; flex-direction: column; gap: 2px">
+      <span style="font-size: 20px; font-weight: 700; letter-spacing: -0.03em; line-height: 1">taptime</span>
+      <span class="mono" style="font-size: 10px; letter-spacing: .12em; color: rgba(21,34,25,.7)">KEBAB FACTORY</span>
+    </div>
+    <button type="button" class="iconbtn" aria-label="Search" style="margin-right: -12px"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
+  </header>
+
+  <main style="padding: 16px 16px 24px; display: flex; flex-direction: column; gap: 18px">
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <span class="lbl">The business itself</span>
+      <h1 style="margin: 0; font-size: 30px; line-height: 1; letter-spacing: -0.035em">Account</h1>
+    </div>
+
+    <section class="card" aria-labelledby="id-h">
+      <h2 id="id-h" style="margin: 0; font-size: 19px; letter-spacing: -0.02em">Identity</h2>
+      <div class="field">
+        <label for="acc-name" class="lbl">Business name</label>
+        <input id="acc-name" class="input" type="text" value="Kebab Factory">
+      </div>
+      <div class="field">
+        <label for="acc-vat" class="lbl">VAT number</label>
+        <input id="acc-vat" class="input mono" type="text" value="MT[VAT NUMBER]">
+        <span style="align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; background: rgba(31,92,65,.12); color: #1F5C41; font-size: 12px; font-weight: 700">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+          Verified in VIES · 2 Oct
+        </span>
+      </div>
+      <div class="field">
+        <label for="acc-kind" class="lbl">Kind of business</label>
+        <select id="acc-kind" class="input">
+          <option selected>Restaurant</option>
+          <option>Production</option>
+          <option>Other</option>
+        </select>
+        <span style="font-size: 12px; color: rgba(21,34,25,.7)">Sets the message staff see after a tap. It can't be edited.</span>
+      </div>
+      <div class="field">
+        <label for="acc-tz" class="lbl">Time zone</label>
+        <select id="acc-tz" class="input mono">
+          <option selected>Europe/Malta (CET/CEST)</option>
+        </select>
+        <span style="font-size: 12px; color: rgba(21,34,25,.7)">Days, shifts and lateness are measured in this zone.</span>
+      </div>
+      <button type="button" style="min-height: 48px; border-radius: 12px; border: 0; background: #152219; color: #FFFDF4; font: 700 14px 'Space Grotesk', sans-serif; cursor: pointer">Save identity</button>
+    </section>
+
+    <section class="card" aria-labelledby="brand-h">
+      <h2 id="brand-h" style="margin: 0; font-size: 19px; letter-spacing: -0.02em">Your brand</h2>
+      <div style="display: flex; align-items: center; gap: 14px">
+        <div style="width: 72px; height: 72px; border-radius: 12px; border: 1.5px dashed rgba(21,34,25,.5); display: flex; align-items: center; justify-content: center; text-align: center; font-size: 11px; color: rgba(21,34,25,.7); flex: none">Your logo</div>
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <button type="button" class="ghost" style="align-self: flex-start">Upload logo</button>
+          <span style="font-size: 12px; color: rgba(21,34,25,.7)">PNG or JPEG. Shown only after VIES check.</span>
+        </div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <span id="accent-l" class="lbl">Accent colour</span>
+        <div role="radiogroup" aria-labelledby="accent-l" style="display: flex; gap: 10px">
+          <sc-for list="{{swatches}}" as="s" hint-placeholder-count="4">
+            <button type="button" role="radio" aria-checked="{{s.on}}" aria-label="{{s.name}}" onClick="{{s.pick}}" style="{{s.style}}"></button>
+          </sc-for>
+        </div>
+      </div>
+      <div style="padding: 14px; border-radius: 12px; background: #EDF0EA; display: flex; flex-direction: column; gap: 10px">
+        <span class="lbl">Tap screen preview</span>
+        <span style="{{previewStyle}}">Check in</span>
+        <span style="{{verdictStyle}}">{{verdict}}</span>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="dev-h">
+      <h2 id="dev-h" style="margin: 0; font-size: 19px; letter-spacing: -0.02em">Developers</h2>
+      <div style="padding: 12px 14px; border: 1px solid #C9D2C8; border-radius: 12px; display: flex; flex-direction: column; gap: 8px">
+        <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px">
+          <span style="font-size: 15px; font-weight: 700">Payroll sync</span>
+          <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7)">used 2 h ago</span>
+        </div>
+        <span class="mono" style="font-size: 13px">tt_live_••••••••3f9a</span>
+        <button type="button" style="align-self: flex-start; min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid #BE3D2A; background: transparent; font: 500 13px 'Space Grotesk', sans-serif; color: #152219; cursor: pointer">Revoke</button>
+      </div>
+      <button type="button" class="ghost">Create key</button>
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; border-top: 1px dashed #C9D2C8; padding-top: 12px">
+        <span style="display: flex; flex-direction: column; gap: 2px">
+          <span style="font-size: 14px; font-weight: 700">Webhook</span>
+          <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">not set</span>
+        </span>
+        <button type="button" class="ghost">Set up</button>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="hold-h">
+      <h2 id="hold-h" style="margin: 0; font-size: 19px; letter-spacing: -0.02em">Holding</h2>
+      <span style="font-size: 14px">Not part of a group.</span>
+      <span style="font-size: 12px; color: rgba(21,34,25,.7)">Groups let staff tap at partner businesses. Taptime sets them up on request.</span>
+    </section>
+
+    <section class="card" aria-labelledby="mgr-h">
+      <h2 id="mgr-h" style="margin: 0; font-size: 19px; letter-spacing: -0.02em">Managers</h2>
+      <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column">
+        <sc-for list="{{managers}}" as="m" hint-placeholder-count="3">
+          <li style="min-height: 52px; display: flex; justify-content: space-between; align-items: center; gap: 8px; border-bottom: 1px dashed #C9D2C8">
+            <span style="display: flex; flex-direction: column; gap: 2px">
+              <span style="font-size: 14px; font-weight: 700">{{m.name}}</span>
+              <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7)">{{m.scope}}</span>
+            </span>
+            <span class="mono" style="{{m.roleStyle}}">{{m.role}}</span>
+          </li>
+        </sc-for>
+      </ul>
+      <button type="button" class="ghost">Invite manager</button>
+    </section>
+  </main>
+
+  <nav aria-label="Panel sections" style="position: sticky; bottom: 0; height: 68px; box-sizing: border-box; background: #152219; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); padding: 0 4px 8px">
+    <a href="M-Pass.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18"/><path d="M7.5 5v3M17.5 5v3"/><rect x="5" y="8" width="5" height="9" rx="1"/><rect x="15" y="8" width="5" height="11" rx="1"/></svg></span>Pass</a>
+    <a href="M-Spike.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18"/><path d="M7 21h10"/><rect x="6" y="9" width="12" height="7" rx="1"/></svg></span>Spike<span class="tab-badge" aria-label="4 waiting">4</span></a>
+    <a href="M-Roll.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-2-1.5L14 21l-2-1.5L10 21l-2-1.5L6 21z"/><path d="M9 8h6M9 12h6"/></svg></span>Roll</a>
+    <a href="M-People.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c1.8.7 3 2.4 3.5 5.2"/></svg></span>People</a>
+    <a href="M-More.dc.html" class="tab tab--on" aria-current="page"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></span>More</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1700}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { pick: 0 }; }
+  renderVals() {
+    const opts = [
+      { hex: '#1F5C41', name: 'Taptime green', ratio: '7.7 : 1', pass: true },
+      { hex: '#152219', name: 'Ink', ratio: '16.2 : 1', pass: true },
+      { hex: '#BE3D2A', name: 'Tomato', ratio: '5.3 : 1', pass: true },
+      { hex: '#D98E2B', name: 'Saffron', ratio: '2.6 : 1', pass: false }
+    ];
+    const cur = opts[this.state.pick];
+    const swatches = opts.map((o, i) => ({
+      name: o.name, on: i === this.state.pick ? 'true' : 'false',
+      pick: () => this.setState({ pick: i }),
+      style: 'width:44px;height:44px;border-radius:50%;cursor:pointer;background:' + o.hex + ';' + (i === this.state.pick ? 'border:3px solid #FFFDF4;box-shadow:0 0 0 2px #152219' : 'border:0')
+    }));
+    const managers = [
+      { name: '[OWNER NAME] (you)', scope: 'all venues', role: 'OWNER' },
+      { name: 'Doris Micallef', scope: 'KF Valletta · KF Msida', role: 'MANAGER' },
+      { name: 'Frank Debono', scope: 'KF St Julians · KF Paceville', role: 'MANAGER' }
+    ].map(m => ({ ...m, roleStyle: 'font-size:11px;font-weight:700;letter-spacing:.08em;padding:2px 8px;border-radius:6px;' + (m.role === 'OWNER' ? 'background:#152219;color:#FFFDF4' : 'background:rgba(21,34,25,.06);color:#152219') }));
+    return {
+      swatches, managers, accent: cur.pass ? cur.hex : '#1F5C41',
+      previewStyle: 'min-height:64px;border-radius:16px;display:flex;align-items:center;justify-content:center;font:700 20px Space Grotesk,sans-serif;color:#FFFDF4;background:' + cur.hex,
+      verdict: cur.pass ? cur.ratio + ' · passes' : cur.ratio + ' · too light for white text',
+      verdictStyle: 'font:700 12px IBM Plex Mono,monospace;align-self:flex-start;padding:3px 8px;border-radius:6px;' + (cur.pass ? 'background:rgba(31,92,65,.12);color:#1F5C41' : 'background:#F7EBD6;border:1px solid #D98E2B;color:#152219')
+    };
+  }
+}
+</script>
+</body>
+</html>

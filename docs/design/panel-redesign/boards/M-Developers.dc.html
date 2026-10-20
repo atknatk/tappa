@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Developers — mobile</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.tab{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:60px;text-decoration:none;color:rgba(237,240,234,.8);font:500 11px 'Space Grotesk',sans-serif}
+.tab:hover{color:#FFFDF4}
+.tab-ic{width:48px;height:30px;border-radius:15px;display:flex;align-items:center;justify-content:center}
+.tab--on{color:#FFFDF4}
+.tab--on .tab-ic{background:#FFFDF4;color:#152219}
+.tab-badge{position:absolute;top:4px;left:calc(50% + 8px);min-width:18px;height:18px;border-radius:9px;background:#D98E2B;color:#152219;font:700 11px 'IBM Plex Mono',monospace;display:flex;align-items:center;justify-content:center}
+.iconbtn{width:44px;height:44px;display:inline-flex;align-items:center;justify-content:center;border:0;background:transparent;color:#152219;border-radius:12px;cursor:pointer;text-decoration:none}
+.card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:16px;padding:18px 16px;display:flex;flex-direction:column;gap:14px}
+.input{min-height:44px;padding:0 12px;border:1px solid #C9D2C8;border-radius:10px;background:#FFFDF4;font:14px 'Space Grotesk',sans-serif;color:#152219;box-sizing:border-box;width:100%}
+.btn1{min-height:48px;padding:0 16px;border-radius:12px;border:0;background:#1F5C41;color:#FFFDF4;font:700 15px 'Space Grotesk',sans-serif;cursor:pointer}
+.ghost{min-height:44px;padding:0 14px;border-radius:10px;border:1px solid rgba(21,34,25,.5);background:transparent;font:700 13px 'Space Grotesk',sans-serif;color:#152219;cursor:pointer}
+.btnx{min-height:44px;padding:0 14px;border-radius:10px;border:1.5px solid #BE3D2A;background:transparent;font:700 13px 'Space Grotesk',sans-serif;color:#152219;cursor:pointer}
+</style>
+</helmet>
+<div style="width: 390px; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
+  <div style="height: 4px; background: #1F5C41"></div>
+  <header style="height: 56px; display: flex; align-items: center; gap: 4px; padding: 0 16px; box-sizing: border-box">
+    <a href="M-More.dc.html" class="iconbtn" aria-label="Back to More" style="margin-left: -12px"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></a>
+    <div style="flex: 1; display: flex; flex-direction: column; gap: 2px">
+      <span style="font-size: 20px; font-weight: 700; letter-spacing: -0.03em; line-height: 1">taptime</span>
+      <span class="mono" style="font-size: 10px; letter-spacing: .12em; color: rgba(21,34,25,.7)">KEBAB FACTORY</span>
+    </div>
+    <button type="button" class="iconbtn" aria-label="Search" style="margin-right: -12px"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
+  </header>
+
+  <main style="padding: 16px 16px 24px; display: flex; flex-direction: column; gap: 18px">
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <span class="lbl">Owner only</span>
+      <h1 style="margin: 0; font-size: 30px; line-height: 1; letter-spacing: -0.035em">Developers</h1>
+      <a href="/v1/guide.md" style="min-height: 44px; display: inline-flex; align-items: center; font-weight: 700; font-size: 14px">Integration guide →</a>
+    </div>
+
+    <section class="card" aria-labelledby="keys-h">
+      <h2 id="keys-h" style="margin: 0; font-size: 19px; letter-spacing: -0.02em">Integration keys</h2>
+      <p style="margin: 0; font-size: 13px; color: rgba(21,34,25,.7)">The full key is shown once. After that only its first characters stay on screen.</p>
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <label for="kname" class="lbl">Name</label>
+        <input id="kname" class="input" type="text" value="HR sync">
+      </div>
+      <button type="button" class="btn1" onClick="{{create}}">Create key</button>
+      <sc-if value="{{revealed}}" hint-placeholder-val="{{false}}">
+        <div role="status" style="border: 2px solid #D98E2B; background: rgba(217,142,43,.1); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 10px">
+          <strong style="font-size: 14px">Copy this key now — it is shown once</strong>
+          <code class="mono" style="min-height: 44px; display: flex; align-items: center; padding: 8px 12px; box-sizing: border-box; background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 10px; font-size: 12px; word-break: break-all; user-select: all">tt_live_[SHOWN ONCE — 40 CHARS]</code>
+          <div style="display: flex; gap: 8px">
+            <button type="button" class="ghost" style="flex: 1">Copy</button>
+            <button type="button" class="ghost" style="flex: 1" onClick="{{dismiss}}">I've stored it</button>
+          </div>
+          <span style="font-size: 12px; color: #152219">You won't see this again.</span>
+        </div>
+      </sc-if>
+      <ul style="list-style: none; margin: 0; padding: 0">
+        <sc-for list="{{keys}}" as="k" hint-placeholder-count="3">
+          <li style="display: flex; flex-direction: column; gap: 8px; padding: 12px 0; border-top: 1px dashed #C9D2C8">
+            <span style="display: flex; justify-content: space-between; gap: 8px; align-items: center"><strong style="font-size: 15px">{{k.name}}</strong><span class="mono" style="{{k.pill}}">{{k.status}}</span></span>
+            <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">{{k.hint}} · used {{k.used}}</span>
+            <sc-if value="{{k.canRevoke}}" hint-placeholder-val="{{true}}">
+              <button type="button" class="btnx" onClick="{{k.ask}}" style="align-self: flex-start">Revoke</button>
+            </sc-if>
+            <sc-if value="{{k.asking}}" hint-placeholder-val="{{false}}">
+              <div style="display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 10px; background: rgba(190,61,42,.06)">
+                <span style="font-size: 13px">Systems using this key stop at once.</span>
+                <div style="display: flex; gap: 8px">
+                  <button type="button" class="btnx" onClick="{{k.revoke}}" style="flex: 1">Yes, revoke</button>
+                  <button type="button" class="ghost" onClick="{{k.cancel}}" style="flex: 1">Keep</button>
+                </div>
+              </div>
+            </sc-if>
+          </li>
+        </sc-for>
+      </ul>
+    </section>
+
+    <section class="card" aria-labelledby="wh-h">
+      <div style="display: flex; justify-content: space-between; align-items: center">
+        <h2 id="wh-h" style="margin: 0; font-size: 19px; letter-spacing: -0.02em">Webhook</h2>
+        <span class="mono" style="font-size: 11px; font-weight: 700; letter-spacing: .08em; padding: 3px 10px; border-radius: 999px; border: 1px solid #1F5C41; background: rgba(31,92,65,.1)">ON</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <label for="whurl" class="lbl">Address</label>
+        <input id="whurl" class="input" type="url" value="https://[YOUR HOST]/taptime" style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">
+        <span style="font-size: 12px; color: rgba(21,34,25,.7)">https:// and a host name only.</span>
+      </div>
+      <dl style="margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 8px 12px; align-items: baseline">
+        <dt class="lbl">Sends</dt><dd style="margin: 0; font-size: 13px">Every punch</dd>
+        <dt class="lbl">Key</dt><dd class="mono" style="margin: 0; font-size: 12px">tt_whsec_••••••••a21c</dd>
+        <dt class="lbl">Tests</dt><dd class="mono" style="margin: 0; font-size: 12px">{{pingsLeft}} of 10 left this hour</dd>
+      </dl>
+      <sc-if value="{{pinged}}" hint-placeholder-val="{{false}}">
+        <div role="status" style="border: 1px solid #1F5C41; background: rgba(31,92,65,.08); border-radius: 12px; padding: 10px 12px; font-size: 13px"><strong>The test message arrived.</strong> Answer 200.</div>
+      </sc-if>
+      <button type="button" class="btn1" onClick="{{ping}}">Send a test message</button>
+      <div style="display: flex; gap: 8px">
+        <button type="button" class="ghost" style="flex: 1">Rotate key</button>
+        <button type="button" class="ghost" style="flex: 1">Switch off</button>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="dl-h">
+      <h2 id="dl-h" style="margin: 0; font-size: 19px; letter-spacing: -0.02em">Deliveries</h2>
+      <ul style="list-style: none; margin: 0; padding: 0">
+        <sc-for list="{{deliveries}}" as="d" hint-placeholder-count="5">
+          <li style="display: flex; flex-direction: column; gap: 6px; padding: 10px 0; border-top: 1px dashed #C9D2C8">
+            <span style="display: flex; justify-content: space-between; align-items: center; gap: 8px"><span class="mono" style="font-size: 13px; font-weight: 700">{{d.id}}</span><span class="mono" style="{{d.pill}}">{{d.state}}</span></span>
+            <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7)">{{d.queued}} · tries {{d.tries}} · {{d.answer}}{{d.note}}</span>
+            <sc-if value="{{d.canResend}}" hint-placeholder-val="{{false}}">
+              <button type="button" class="ghost" style="align-self: flex-start">Send again now</button>
+            </sc-if>
+          </li>
+        </sc-for>
+      </ul>
+      <p class="mono" style="margin: 0; font-size: 11px; color: rgba(21,34,25,.7)">Retries after 1 · 5 · 30 min · 2 · 6 h. Status code and error class only, never your server's reply.</p>
+    </section>
+  </main>
+
+  <nav aria-label="Panel sections" style="position: sticky; bottom: 0; height: 68px; box-sizing: border-box; background: #152219; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); padding: 0 4px 8px">
+    <a href="M-Pass.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18"/><path d="M7.5 5v3M17.5 5v3"/><rect x="5" y="8" width="5" height="9" rx="1"/><rect x="15" y="8" width="5" height="11" rx="1"/></svg></span>Pass</a>
+    <a href="M-Spike.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18"/><path d="M7 21h10"/><rect x="6" y="9" width="12" height="7" rx="1"/></svg></span>Spike<span class="tab-badge" aria-label="4 waiting">4</span></a>
+    <a href="M-Roll.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-2-1.5L14 21l-2-1.5L10 21l-2-1.5L6 21z"/><path d="M9 8h6M9 12h6"/></svg></span>Roll</a>
+    <a href="M-People.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c1.8.7 3 2.4 3.5 5.2"/></svg></span>People</a>
+    <a href="M-More.dc.html" class="tab tab--on" aria-current="page"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></span>More</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1860}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { revealed: false, asking: null, revoked: [], pings: 9, pinged: false };
+  }
+  renderVals() {
+    const s = this.state;
+    const P = 'font-size:11px;font-weight:700;letter-spacing:.08em;padding:2px 8px;border-radius:999px;';
+    const live = P + 'border:1px solid #1F5C41;background:rgba(31,92,65,.1)';
+    const dead = P + 'border:1px solid #C9D2C8;color:rgba(21,34,25,.7)';
+    const base = [
+      { id: 'k1', name: 'Payroll sync', hint: 'tt_live_3f9a', used: 'today 14:02', on: true },
+      { id: 'k2', name: 'Rota planner', hint: 'tt_live_81c0', used: 'yesterday', on: true },
+      { id: 'k3', name: 'Old test key', hint: 'tt_live_0d4e', used: '20 Sep', on: false }
+    ];
+    const keys = base.map(k => {
+      const on = k.on && s.revoked.indexOf(k.id) < 0;
+      const asking = on && s.asking === k.id;
+      return { ...k, status: on ? 'Live' : 'Revoked', pill: on ? live : dead, canRevoke: on && !asking, asking,
+        ask: () => this.setState({ asking: k.id }), cancel: () => this.setState({ asking: null }),
+        revoke: () => this.setState({ asking: null, revoked: s.revoked.concat([k.id]) }) };
+    });
+    const st = {
+      Delivered: P + 'border:1px solid #1F5C41;background:rgba(31,92,65,.1)',
+      Retrying: P + 'border:1px dashed #D98E2B;background:rgba(217,142,43,.12)',
+      Queued: P + 'border:1px solid rgba(21,34,25,.5)',
+      Failed: P + 'border:1px solid #BE3D2A;background:rgba(190,61,42,.1)'
+    };
+    const deliveries = [
+      ['dlv_7f21', 'today 14:31', 'Delivered', '', '1', '200'],
+      ['dlv_7f20', 'today 14:28', 'Retrying', ' · next try in 5 min', '2', 'timeout'],
+      ['dlv_7f19', 'today 13:58', 'Queued', '', '0', '—'],
+      ['dlv_7e02', 'Mon 09:02', 'Failed', ' · gave up', '6', 'refused'],
+      ['dlv_7dff', 'Mon 08:40', 'Failed', ' · gave up', '6', 'tls']
+    ].map(([id, queued, state, note, tries, answer]) => ({ id, queued, state, note, tries, answer, pill: st[state], canResend: state !== 'Delivered' }));
+    return {
+      keys, deliveries, revealed: s.revealed, pinged: s.pinged, pingsLeft: s.pings,
+      create: () => this.setState({ revealed: true }),
+      dismiss: () => this.setState({ revealed: false }),
+      ping: () => this.setState({ pings: Math.max(0, s.pings - 1), pinged: true })
+    };
+  }
+}
+</script>
+</body>
+</html>

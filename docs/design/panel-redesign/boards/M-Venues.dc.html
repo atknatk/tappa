@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Venues &amp; plaques — mobile</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.tab{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:60px;text-decoration:none;color:rgba(237,240,234,.8);font:500 11px 'Space Grotesk',sans-serif}
+.tab:hover{color:#FFFDF4}
+.tab-ic{width:48px;height:30px;border-radius:15px;display:flex;align-items:center;justify-content:center}
+.tab--on{color:#FFFDF4}
+.tab--on .tab-ic{background:#FFFDF4;color:#152219}
+.tab-badge{position:absolute;top:4px;left:calc(50% + 8px);min-width:18px;height:18px;border-radius:9px;background:#D98E2B;color:#152219;font:700 11px 'IBM Plex Mono',monospace;display:flex;align-items:center;justify-content:center}
+.iconbtn{width:44px;height:44px;display:inline-flex;align-items:center;justify-content:center;border:0;background:transparent;color:#152219;border-radius:12px;cursor:pointer;text-decoration:none}
+</style>
+</helmet>
+<div style="width: 390px; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
+  <div style="height: 4px; background: #1F5C41"></div>
+  <header style="height: 56px; display: flex; align-items: center; gap: 4px; padding: 0 16px; box-sizing: border-box">
+    <a href="M-More.dc.html" class="iconbtn" aria-label="Back to More" style="margin-left: -12px"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></a>
+    <div style="flex: 1; display: flex; flex-direction: column; gap: 2px">
+      <span style="font-size: 20px; font-weight: 700; letter-spacing: -0.03em; line-height: 1">taptime</span>
+      <span class="mono" style="font-size: 10px; letter-spacing: .12em; color: rgba(21,34,25,.7)">KEBAB FACTORY</span>
+    </div>
+    <button type="button" class="iconbtn" aria-label="Search" style="margin-right: -12px"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
+  </header>
+
+  <main style="padding: 16px 16px 24px; display: flex; flex-direction: column; gap: 18px">
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <span class="lbl">8 venues · 11 plaques</span>
+      <h1 style="margin: 0; font-size: 30px; line-height: 1; letter-spacing: -0.035em">Venues &amp; plaques</h1>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <sc-for list="{{venues}}" as="v" hint-placeholder-count="8">
+        <section style="{{v.cardStyle}}">
+          <button type="button" onClick="{{v.toggle}}" aria-expanded="{{v.expanded}}" style="width: 100%; min-height: 44px; padding: 14px 16px; border: 0; background: transparent; font: inherit; color: #152219; text-align: left; cursor: pointer; display: flex; flex-direction: column; gap: 6px">
+            <span style="display: flex; justify-content: space-between; align-items: center; gap: 8px">
+              <span style="font-size: 16px; font-weight: 700">{{v.name}}</span>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="{{v.chevStyle}}"><path d="M6 9l6 6 6-6"/></svg>
+            </span>
+            <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">{{v.hours}} · {{v.count}}</span>
+            <span style="display: flex; gap: 6px">
+              <span class="mono" style="{{v.ipStyle}}">IP {{v.ipMark}}</span>
+              <span class="mono" style="{{v.gpsStyle}}">GPS {{v.gpsMark}}</span>
+            </span>
+            <sc-if value="{{v.warn}}" hint-placeholder-val="{{false}}">
+              <span style="font-size: 12px; padding: 5px 8px; border: 1px dashed #D98E2B; background: rgba(217,142,43,.1); border-radius: 8px">No network set — taps rely on GPS</span>
+            </sc-if>
+          </button>
+
+          <sc-if value="{{v.open}}" hint-placeholder-val="{{false}}">
+            <div style="padding: 4px 16px 18px; display: flex; flex-direction: column; gap: 18px; border-top: 1px dashed #C9D2C8">
+              <figure style="margin: 14px 0 0; display: flex; flex-direction: column; align-items: center; gap: 8px">
+                <div role="img" aria-label="{{v.plaqueLabel}}" style="width: 200px; border-radius: 14px; overflow: hidden; border: 1px solid #C9D2C8; box-shadow: 0 2px 0 #C9D2C8; background: #FFFDF4">
+                  <div style="height: 180px; background: #1F5C41; color: #FFFDF4; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px">
+                    <div style="position: absolute; left: 50%; top: 50%; width: 132px; height: 132px; margin: -74px 0 0 -66px; border-radius: 50%; border: 1px solid rgba(255,253,244,.25)"></div>
+                    <div style="position: absolute; left: 50%; top: 50%; width: 96px; height: 96px; margin: -56px 0 0 -48px; border-radius: 50%; border: 1px solid rgba(255,253,244,.4)"></div>
+                    <span style="position: relative; font-size: 22px; font-weight: 700; letter-spacing: -0.03em; margin-top: -10px">taptime</span>
+                    <span style="position: relative; font-size: 12px; margin-top: 52px">Hold your phone here</span>
+                  </div>
+                  <div style="padding: 12px; display: flex; flex-direction: column; align-items: center; gap: 6px">
+                    <div style="display: grid; grid-template-columns: repeat(9, 8px); grid-auto-rows: 8px; padding: 4px; background: #FFFDF4">
+                      <sc-for list="{{qr}}" as="q" hint-placeholder-count="81">
+                        <span style="{{q}}"></span>
+                      </sc-for>
+                    </div>
+                    <span style="font-size: 11px">Or scan — same thing</span>
+                    <span class="mono" style="font-size: 10px; letter-spacing: .12em">PLAQUE {{v.uid}}</span>
+                  </div>
+                </div>
+                <figcaption class="mono" style="font-size: 11px; color: rgba(21,34,25,.7)">{{v.uidCaption}}</figcaption>
+              </figure>
+
+              <div style="display: flex; flex-direction: column">
+                <span class="lbl" style="padding-bottom: 4px">Where it is</span>
+                <sc-for list="{{v.where}}" as="w" hint-placeholder-count="3">
+                  <div style="min-height: 44px; display: flex; justify-content: space-between; align-items: center; gap: 12px; border-bottom: 1px dashed #C9D2C8">
+                    <span style="font-size: 13px; color: rgba(21,34,25,.7)">{{w.k}}</span>
+                    <span class="mono" style="font-size: 13px; text-align: right">{{w.v}}</span>
+                  </div>
+                </sc-for>
+                <button type="button" style="margin-top: 10px; min-height: 44px; border-radius: 12px; border: 1px solid rgba(21,34,25,.5); background: transparent; font: 500 14px 'Space Grotesk', sans-serif; color: #152219; cursor: pointer">Edit where it is</button>
+              </div>
+
+              <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; background: rgba(21,34,25,.04)">
+                <span style="display: flex; flex-direction: column; gap: 2px">
+                  <span class="lbl">Shift</span>
+                  <span class="mono" style="font-size: 18px; font-weight: 500">{{v.hours}}</span>
+                </span>
+                <span style="font-size: 12px; color: rgba(21,34,25,.7); text-align: right; max-width: 150px">Late is measured from here, unless a department has its own.</span>
+              </div>
+
+              <div style="display: flex; flex-direction: column; gap: 8px">
+                <span class="lbl">Plaques on this venue</span>
+                <sc-for list="{{v.plaques}}" as="p" hint-placeholder-count="2">
+                  <div style="padding: 12px 14px; border: 1px solid #C9D2C8; border-radius: 12px; background: #FFFDF4; display: flex; flex-direction: column; gap: 8px">
+                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px">
+                      <span style="font-size: 15px; font-weight: 700">{{p.pos}}</span>
+                      <span class="mono" style="{{p.pillStyle}}">{{p.status}}</span>
+                    </div>
+                    <div class="mono" style="font-size: 12px; color: rgba(21,34,25,.7); display: flex; justify-content: space-between">
+                      <span>PLAQUE {{p.uid}}</span><span>last tap {{p.last}}</span>
+                    </div>
+                    <button type="button" style="align-self: flex-start; min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid #BE3D2A; background: transparent; font: 500 13px 'Space Grotesk', sans-serif; color: #152219; cursor: pointer">Mark lost</button>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </sc-if>
+        </section>
+      </sc-for>
+    </div>
+
+    <button type="button" style="min-height: 52px; border-radius: 14px; border: 0; background: #1F5C41; color: #FFFDF4; font: 700 15px 'Space Grotesk', sans-serif; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      Add venue
+    </button>
+  </main>
+
+  <nav aria-label="Panel sections" style="position: sticky; bottom: 0; height: 68px; box-sizing: border-box; background: #152219; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); padding: 0 4px 8px">
+    <a href="M-Pass.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18"/><path d="M7.5 5v3M17.5 5v3"/><rect x="5" y="8" width="5" height="9" rx="1"/><rect x="15" y="8" width="5" height="11" rx="1"/></svg></span>Pass</a>
+    <a href="M-Spike.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18"/><path d="M7 21h10"/><rect x="6" y="9" width="12" height="7" rx="1"/></svg></span>Spike<span class="tab-badge" aria-label="4 waiting">4</span></a>
+    <a href="M-Roll.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-2-1.5L14 21l-2-1.5L10 21l-2-1.5L6 21z"/><path d="M9 8h6M9 12h6"/></svg></span>Roll</a>
+    <a href="M-People.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c1.8.7 3 2.4 3.5 5.2"/></svg></span>People</a>
+    <a href="M-More.dc.html" class="tab tab--on" aria-current="page"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></span>More</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":2080}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { open: 'KF Valletta' }; }
+  renderVals() {
+    const day = '10:00 – 22:00', night = '18:00 – 02:00 ↷';
+    const data = [
+      ['KF Hamrun', day, true, true, '203.0.113.10/32', 'KF-Hamrun-Staff', '35.885, 14.488', '7E55', [['Back door', '7E55', '3 min', 'ACTIVE']]],
+      ['KF Msida', day, true, true, '203.0.113.12/32', 'none', '35.895, 14.489', 'A713', [['Front', 'A713', '13 min', 'ACTIVE']]],
+      ['KF Valletta', day, true, true, '203.0.113.13/32', 'KF-Valletta-Staff', '35.899, 14.514', '91AC', [['Front door', '91AC', 'just now', 'ACTIVE'], ['Kitchen pass', '5D02', '41 min', 'ACTIVE']]],
+      ['KF St Julians', night, true, true, '203.0.113.14/32', 'KF-StJulians-Staff', '35.918, 14.489', '0C21', [['Bar', '0C21', '6 min', 'ACTIVE'], ['Back door', 'E4B7', '9 days', 'REPLACE']]],
+      ['KF Mellieha', day, true, true, '203.0.113.11/32', 'KF-Mellieha-Staff', '35.957, 14.362', '22F0', [['Front', '22F0', '34 min', 'ACTIVE']]],
+      ['KF Paceville', night, false, true, 'not set', 'not set', '35.922, 14.488', '6A18', [['Front', '6A18', '1 h', 'ACTIVE']]],
+      ['KF San Gwann', day, true, true, '203.0.113.16/32', 'KF-SanGwann-Staff', '35.906, 14.476', 'B391', [['Front', 'B391', '22 min', 'ACTIVE'], ['Store room', '3C7E', '2 h', 'ACTIVE']]],
+      ['KF Headquarter', '09:00 – 17:00', true, false, '203.0.113.17/32', 'KF-HQ', 'not set', 'D0F4', [['Reception', 'D0F4', '4 h', 'ACTIVE']]]
+    ];
+    const badge = (ok) => 'font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;' + (ok ? 'background:rgba(31,92,65,.12);color:#1F5C41' : 'background:transparent;border:1px dashed rgba(21,34,25,.5);color:rgba(21,34,25,.7)');
+    const pill = (s) => 'font-size:11px;font-weight:700;letter-spacing:.08em;padding:2px 8px;border-radius:6px;' + (s === 'ACTIVE' ? 'background:rgba(31,92,65,.12);color:#1F5C41' : 'background:rgba(190,61,42,.1);border:1px solid #BE3D2A;color:#152219');
+    const venues = data.map(([name, hours, ip, gps, net, wifi, geo, uid, plaques]) => {
+      const open = this.state.open === name;
+      return {
+        name, hours, uid, open, warn: !ip, expanded: open ? 'true' : 'false',
+        count: plaques.length + (plaques.length === 1 ? ' plaque' : ' plaques'),
+        ipMark: ip ? '✓' : '–', gpsMark: gps ? '✓' : '–', ipStyle: badge(ip), gpsStyle: badge(gps),
+        cardStyle: 'background:#FFFDF4;border-radius:16px;overflow:hidden;' + (open ? 'border:2px solid #152219' : 'border:1px solid #C9D2C8'),
+        chevStyle: open ? 'transform:rotate(180deg)' : '',
+        toggle: () => this.setState({ open: open ? '' : name }),
+        plaqueLabel: 'Wall plaque ' + uid + ': tap zone on top, QR code below',
+        uidCaption: 'The plaque as mounted at ' + name,
+        where: [{ k: 'Venue network', v: net }, { k: 'Staff Wi-Fi', v: wifi }, { k: 'GPS point', v: geo === 'not set' ? geo : geo + ' · 150 m' }],
+        plaques: plaques.map(([pos, u, last, status]) => ({ pos, uid: u, last, status, pillStyle: pill(status) }))
+      };
+    });
+    const on = (r, c) => {
+      const f = (r0, c0) => r >= r0 && r < r0 + 3 && c >= c0 && c < c0 + 3;
+      if (f(0, 0) || f(0, 6) || f(6, 0)) return true;
+      return ((r * 7 + c * 3 + r * c) % 5) < 2;
+    };
+    const qr = [];
+    for (let r = 0; r < 9; r++) for (let c = 0; c < 9; c++) qr.push(on(r, c) ? 'background:#152219' : 'background:transparent');
+    return { venues, qr };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Empty states and problems — mobile</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.iconbtn{width:44px;height:44px;border:0;border-radius:12px;background:transparent;color:#152219;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:60px;text-decoration:none;color:rgba(237,240,234,.8);font:500 11px 'Space Grotesk',sans-serif;position:relative}
+.tab:hover{color:#FFFDF4}
+.pill{width:48px;height:30px;border-radius:15px;display:flex;align-items:center;justify-content:center}
+.tab--on{color:#FFFDF4}
+.tab--on .pill{background:#FFFDF4;color:#152219}
+.badge{position:absolute;top:4px;left:calc(50% + 6px);min-width:18px;height:18px;padding:0 5px;box-sizing:border-box;border-radius:9px;background:#D98E2B;color:#152219;font:700 11px 'IBM Plex Mono',monospace;display:flex;align-items:center;justify-content:center}
+.empty{border:1px dashed rgba(21,34,25,.5);border-radius:16px;padding:18px;display:flex;flex-direction:column;gap:6px}
+.notice{border-radius:14px;padding:14px;display:flex;gap:12px;align-items:flex-start}
+.nicon{width:28px;height:28px;flex:none;border-radius:8px;display:inline-flex;align-items:center;justify-content:center}
+.btn{min-height:48px;padding:0 16px;border-radius:12px;font:700 15px 'Space Grotesk',sans-serif;display:flex;align-items:center;justify-content:center;text-decoration:none}
+</style>
+</helmet>
+<div style="width: 390px; display: flex; flex-direction: column; background: #EDF0EA; color: #152219; font-family: 'Space Grotesk', system-ui, sans-serif">
+  <div style="height: 4px; background: #1F5C41"></div>
+  <header style="height: 56px; padding: 0 8px 0 4px; display: flex; align-items: center; justify-content: space-between; box-sizing: border-box">
+    <div style="display: flex; align-items: center; gap: 4px">
+      <a href="M-More.dc.html" class="iconbtn" aria-label="Back to More"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></a>
+      <div style="display: flex; flex-direction: column; gap: 1px">
+        <span style="font-size: 20px; font-weight: 700; letter-spacing: -0.03em; line-height: 1">taptime</span>
+        <span class="mono" style="font-size: 10px; letter-spacing: .12em; color: rgba(21,34,25,.7)">KEBAB FACTORY</span>
+      </div>
+    </div>
+    <button type="button" class="iconbtn" aria-label="Search"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
+  </header>
+
+  <main style="padding: 16px; display: flex; flex-direction: column; gap: 22px">
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <span class="lbl">Reference board</span>
+      <h1 style="margin: 0; font-size: 30px; line-height: 1; letter-spacing: -0.035em">Empty, notices, problems</h1>
+    </div>
+
+    <section aria-labelledby="mh-empty" style="display: flex; flex-direction: column; gap: 12px">
+      <h2 id="mh-empty" style="margin: 0; font-size: 18px">Empty states</h2>
+      <sc-for list="{{empties}}" as="e" hint-placeholder-count="4">
+        <div class="empty">
+          <span class="lbl">{{e.where}}</span>
+          <h3 style="margin: 0; font-size: 17px">{{e.h}}</h3>
+          <p style="margin: 0; font-size: 13px; line-height: 1.45; color: rgba(21,34,25,.7)">{{e.p}}</p>
+          <sc-if value="{{e.cta}}" hint-placeholder-val="{{false}}">
+            <a href="{{e.href}}" class="btn" style="margin-top: 6px; background: #1F5C41; color: #FFFDF4">{{e.cta}}</a>
+          </sc-if>
+        </div>
+      </sc-for>
+    </section>
+
+    <section aria-labelledby="mh-notice" style="display: flex; flex-direction: column; gap: 10px">
+      <h2 id="mh-notice" style="margin: 0; font-size: 18px">Notices</h2>
+      <div role="status" class="notice" style="background: rgba(31,92,65,.1); border: 1px solid #1F5C41">
+        <span class="nicon" style="background: #1F5C41; color: #FFFDF4"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
+        <div style="display: flex; flex-direction: column; gap: 3px"><span class="lbl" style="color: #1F5C41">Done</span><strong style="font-size: 15px">Your new password is set</strong><span style="font-size: 13px">Every session was signed out, on every device.</span></div>
+      </div>
+      <div role="status" class="notice" style="background: #F7EBD6; border: 1px solid #D98E2B">
+        <span class="nicon" style="background: #D98E2B; color: #152219"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 7v6"/><circle cx="12" cy="17" r="0.6"/></svg></span>
+        <div style="display: flex; flex-direction: column; gap: 3px"><span class="lbl" style="color: #152219">Heads up</span><strong style="font-size: 15px">We could not reach the EU VAT register just now</strong><span style="font-size: 13px">Your number is saved. We will check it again.</span></div>
+      </div>
+      <div role="alert" class="notice" style="background: #FFFDF4; border: 2px solid #BE3D2A">
+        <span class="nicon" style="background: #BE3D2A; color: #FFFDF4"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"/></svg></span>
+        <div style="display: flex; flex-direction: column; gap: 3px"><span class="lbl" style="color: #152219">Not done</span><strong style="font-size: 15px">We could not save that</strong><span style="font-size: 13px">Nothing was changed. Try again in a moment.</span></div>
+      </div>
+    </section>
+
+    <section aria-labelledby="mh-problem" style="display: flex; flex-direction: column; gap: 12px">
+      <h2 id="mh-problem" style="margin: 0; font-size: 18px">Problem pages</h2>
+      <sc-for list="{{problems}}" as="p" hint-placeholder-count="4">
+        <article style="background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 10px">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px">
+            <span class="mono" style="font-size: 12px; font-weight: 700; letter-spacing: .1em; padding: 3px 8px; border: 1px solid #152219; border-radius: 6px">{{p.code}}</span>
+            <sc-if value="{{p.lock}}" hint-placeholder-val="{{false}}">
+              <span class="mono" style="font-size: 10px; letter-spacing: .1em; padding: 3px 8px; border-radius: 999px; background: #152219; color: #FFFDF4">OWNER ONLY</span>
+            </sc-if>
+          </div>
+          <h3 style="margin: 0; font-size: 20px; line-height: 1.15">{{p.title}}</h3>
+          <p style="margin: 0; font-size: 14px; line-height: 1.5">{{p.msg}}</p>
+          <p style="margin: 0; font-size: 12px; color: rgba(21,34,25,.7)">{{p.hint}}</p>
+          <a href="{{p.href}}" class="btn" style="background: #152219; color: #FFFDF4">{{p.cta}}</a>
+        </article>
+      </sc-for>
+    </section>
+  </main>
+
+  <nav aria-label="Panel sections" style="position: sticky; bottom: 0; height: 68px; box-sizing: border-box; padding: 0 4px 8px; background: #152219; display: flex">
+    <a href="M-Pass.dc.html" class="tab"><span class="pill"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18"/><path d="M7.5 5v3M17.5 5v3"/><rect x="5" y="8" width="5" height="9" rx="1"/><rect x="15" y="8" width="5" height="11" rx="1"/></svg></span>Pass</a>
+    <a href="M-Spike.dc.html" class="tab"><span class="pill"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18"/><path d="M7 21h10"/><rect x="6" y="9" width="12" height="7" rx="1"/></svg></span>Spike<span class="badge" aria-label="4 waiting">4</span></a>
+    <a href="M-Roll.dc.html" class="tab"><span class="pill"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-2-1.5L14 21l-2-1.5L10 21l-2-1.5L6 21z"/><path d="M9 8h6M9 12h6"/></svg></span>Roll</a>
+    <a href="M-People.dc.html" class="tab"><span class="pill"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c1.8.7 3 2.4 3.5 5.2"/></svg></span>People</a>
+    <a href="M-More.dc.html" class="tab tab--on" aria-current="page"><span class="pill"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></span>More</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":2260}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const empties = [
+      { where: 'The Spike', h: 'Nothing is waiting for review', p: 'The spike is empty. Nothing waits on you.' },
+      { where: 'The Pass · past day', h: 'No taps recorded on this day', p: 'Nobody tapped a plaque between 06:00 and 06:00.' },
+      { where: 'People', h: 'No one invited yet', p: 'They open the link on their own phone, then tap a plaque once.', cta: 'Invite someone', href: 'M-People.dc.html' },
+      { where: 'Odd shapes', h: 'Every check-in this week has a checkout after it', p: 'Totals for this week are complete.' }
+    ];
+    const problems = [
+      { code: '404', title: 'Not found', msg: 'This page does not exist, or it belongs to another business.', hint: 'Check the address.', cta: 'Back to The Pass', href: 'M-Pass.dc.html' },
+      { code: '403', lock: true, title: 'Only the owner can do that', msg: 'Managers can read this, but only the owner can change it.', hint: 'Ask the owner of Kebab Factory.', cta: 'Back', href: 'M-Billing.dc.html' },
+      { code: '401', title: 'Sign in again', msg: 'Your panel session has ended, so nothing was changed.', hint: 'You will come back here after signing in.', cta: 'Sign in', href: 'M-Pass.dc.html' },
+      { code: '503', title: 'We could not load your venues', msg: 'Taptime could not reach its records just now. Taps are still being recorded.', hint: 'Try again in a moment.', cta: 'Try again', href: 'M-Venues.dc.html' }
+    ];
+    return { empties, problems };
+  }
+}
+</script>
+</body>
+</html>

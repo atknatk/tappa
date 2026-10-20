@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Which business? — Taptime (tablet)</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-bottom:0}
+.docket::after{content:"";position:absolute;left:-1px;right:-1px;bottom:-7px;height:7px;background:radial-gradient(circle at 7px 7px,transparent 4px,#FFFDF4 4.5px) 0 0/14px 7px repeat-x}
+.go{min-height:48px;padding:0 20px;border:0;border-radius:12px;background:#1F5C41;color:#FFFDF4;font:700 15px 'Space Grotesk',sans-serif;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px}
+</style>
+</helmet>
+<div style="width: 834px; min-height: 880px; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA; display: flex; flex-direction: column">
+  <div style="height: 4px; background: #1F5C41"></div>
+  <header style="padding: 22px 40px; display: flex; flex-direction: column; gap: 2px">
+    <div style="font-size: 24px; font-weight: 700; letter-spacing: -0.03em">taptime</div>
+    <div class="mono" style="font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: rgba(21,34,25,.7)">punchless</div>
+  </header>
+  <main style="padding: 24px 40px 56px; display: flex; flex-direction: column; gap: 30px">
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <span class="lbl">Signed in · one more step</span>
+      <h1 style="margin: 0; font-size: 40px; line-height: 1; letter-spacing: -0.035em">Which business?</h1>
+      <p style="margin: 0; font-size: 16px; line-height: 1.5; color: rgba(21,34,25,.7); max-width: 560px">You manage more than one. Pick the one you want to work in — you can sign out and switch at any time.</p>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 22px">
+      <sc-for list="{{businesses}}" as="b" hint-placeholder-count="3">
+        <form onSubmit="{{b.go}}" class="docket" style="padding: 20px 22px; display: flex; align-items: center; justify-content: space-between; gap: 20px">
+          <div style="display: flex; align-items: center; gap: 28px; min-width: 0">
+            <div style="display: flex; flex-direction: column; gap: 4px; min-width: 0">
+              <span class="lbl">Business</span>
+              <span style="font-size: 22px; font-weight: 700; letter-spacing: -0.02em">{{b.name}}</span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 4px; border-left: 1px dashed #C9D2C8; padding-left: 22px">
+              <span class="lbl">Your role</span>
+              <span class="mono" style="font-size: 13px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase">{{b.role}}</span>
+            </div>
+          </div>
+          <button type="submit" class="go">Continue
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </button>
+        </form>
+      </sc-for>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":834,"height":880}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const stop = (e) => { if (e && e.preventDefault) e.preventDefault(); };
+    const businesses = [
+      { name: 'Kebab Factory', role: 'Owner' },
+      { name: 'Kebab Manufacturing Co.', role: 'Manager' },
+      { name: 'Rusty Bar', role: 'Manager' }
+    ].map(b => ({ ...b, go: stop }));
+    return { businesses };
+  }
+}
+</script>
+</body>
+</html>

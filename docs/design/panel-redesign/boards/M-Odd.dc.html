@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Odd shapes — mobile</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.tab{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:60px;text-decoration:none;color:rgba(237,240,234,.8);font:500 11px 'Space Grotesk',sans-serif}
+.tab:hover{color:#FFFDF4}
+.tab-ic{width:48px;height:30px;border-radius:15px;display:flex;align-items:center;justify-content:center}
+.tab--on{color:#FFFDF4}
+.tab--on .tab-ic{background:#FFFDF4;color:#152219}
+.tab-badge{position:absolute;top:4px;left:calc(50% + 8px);min-width:18px;height:18px;border-radius:9px;background:#D98E2B;color:#152219;font:700 11px 'IBM Plex Mono',monospace;display:flex;align-items:center;justify-content:center}
+.iconbtn{width:44px;height:44px;display:inline-flex;align-items:center;justify-content:center;border:0;background:transparent;color:#152219;border-radius:12px;cursor:pointer;text-decoration:none}
+.card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:16px;padding:18px 16px;display:flex;flex-direction:column;gap:14px}
+.hatch{background:repeating-linear-gradient(135deg,#C9D2C8 0 3px,#FFFDF4 3px 6px)}
+</style>
+</helmet>
+<div style="width: 390px; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
+  <div style="height: 4px; background: #1F5C41"></div>
+  <header style="height: 56px; display: flex; align-items: center; gap: 4px; padding: 0 16px; box-sizing: border-box">
+    <a href="M-More.dc.html" class="iconbtn" aria-label="Back to More" style="margin-left: -12px"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></a>
+    <div style="flex: 1; display: flex; flex-direction: column; gap: 2px">
+      <span style="font-size: 20px; font-weight: 700; letter-spacing: -0.03em; line-height: 1">taptime</span>
+      <span class="mono" style="font-size: 10px; letter-spacing: .12em; color: rgba(21,34,25,.7)">KEBAB FACTORY</span>
+    </div>
+    <button type="button" class="iconbtn" aria-label="Search" style="margin-right: -12px"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
+  </header>
+
+  <main style="padding: 16px 16px 24px; display: flex; flex-direction: column; gap: 18px">
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <span class="lbl">Week 42 · nothing here decides anything</span>
+      <h1 style="margin: 0; font-size: 30px; line-height: 1; letter-spacing: -0.035em">Odd shapes</h1>
+    </div>
+
+    <div role="group" aria-label="Week" style="display: flex; align-items: center; justify-content: space-between; background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 12px">
+      <button type="button" class="iconbtn" aria-label="Previous week"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button>
+      <span class="mono" style="font-size: 13px">Week 42 · 12 – 18 Oct</span>
+      <button type="button" class="iconbtn" aria-label="Next week"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+    </div>
+
+    <section class="card" aria-labelledby="mix-h">
+      <h2 id="mix-h" style="margin: 0; font-size: 19px; letter-spacing: -0.02em">Evidence mix by venue</h2>
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <sc-for list="{{mix}}" as="m" hint-placeholder-count="8">
+          <div style="display: flex; flex-direction: column; gap: 4px">
+            <span style="display: flex; justify-content: space-between; font-size: 13px"><span style="font-weight: 500">{{m.name}}</span><span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7)">{{m.taps}} taps</span></span>
+            <span role="img" aria-label="{{m.aria}}" style="display: flex; height: 14px; border-radius: 4px; overflow: hidden; background: #FFFDF4">
+              <span style="{{m.a}}"></span><span style="{{m.b}}"></span><span style="{{m.c}}"></span><span class="hatch" style="{{m.d}}"></span>
+            </span>
+          </div>
+        </sc-for>
+      </div>
+      <div class="mono" style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px; font-size: 11px; color: rgba(21,34,25,.7)">
+        <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; background: #1F5C41"></span>IP + GPS</span>
+        <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; background: rgba(31,92,65,.55)"></span>IP only</span>
+        <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; background: #D98E2B"></span>GPS only</span>
+        <span style="display: inline-flex; align-items: center; gap: 6px"><span class="hatch" style="width: 10px; height: 10px; box-shadow: inset 0 0 0 1px rgba(21,34,25,.5)"></span>neither</span>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="pair-h">
+      <h2 id="pair-h" style="margin: 0; font-size: 19px; letter-spacing: -0.02em">Tapping together</h2>
+      <p style="margin: 0; font-size: 13px; line-height: 1.45; color: rgba(21,34,25,.7)">Same plaque, within 10 seconds of each other. Could be carpooling. Could be one phone for two people. Worth a look, not a verdict.</p>
+      <div style="display: flex; flex-direction: column">
+        <sc-for list="{{pairs}}" as="p" hint-placeholder-count="3">
+          <div style="padding: 12px 0; border-top: 1px dashed #C9D2C8; display: flex; flex-direction: column; gap: 8px">
+            <span style="display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 700; flex-wrap: wrap">{{p.a}} <span class="mono" aria-label="and" style="font-weight: 400; color: rgba(21,34,25,.7)">⟷</span> {{p.b}}</span>
+            <span style="display: flex; justify-content: space-between; align-items: center">
+              <span role="img" aria-label="{{p.aria}}" style="display: flex; gap: 6px">
+                <sc-for list="{{p.dots}}" as="d" hint-placeholder-count="7">
+                  <span style="{{d}}"></span>
+                </sc-for>
+              </span>
+              <span class="mono" style="font-size: 12px">{{p.days}} · {{p.where}}</span>
+            </span>
+          </div>
+        </sc-for>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="gap-h">
+      <h2 id="gap-h" style="margin: 0; font-size: 19px; letter-spacing: -0.02em">Plaque counter gaps</h2>
+      <p style="margin: 0; font-size: 13px; line-height: 1.45; color: rgba(21,34,25,.7)">The plaque counts every read. A jump means it was read without opening Taptime.</p>
+      <sc-for list="{{gaps}}" as="g" hint-placeholder-count="2">
+        <div style="padding: 12px 14px; border-radius: 12px; border: 1px solid #C9D2C8; display: flex; flex-direction: column; gap: 8px">
+          <span style="display: flex; justify-content: space-between; align-items: baseline"><span style="font-size: 14px; font-weight: 700">{{g.venue}}</span><span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7)">PLAQUE {{g.uid}}</span></span>
+          <span class="mono" style="display: flex; align-items: center; gap: 8px; font-size: 13px">
+            <span>#{{g.from}}</span>
+            <span style="flex: 1; height: 2px; background: #C9D2C8; position: relative"><span style="position: absolute; left: 50%; top: -9px; transform: translateX(-50%); padding: 1px 6px; border-radius: 6px; background: #F7EBD6; border: 1px solid #D98E2B; font-size: 11px; font-weight: 700; color: #152219">{{g.jump}}</span></span>
+            <span>#{{g.to}}</span>
+          </span>
+          <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7)">{{g.when}}</span>
+        </div>
+      </sc-for>
+    </section>
+
+    <section class="card" aria-labelledby="open-h">
+      <h2 id="open-h" style="margin: 0; font-size: 19px; letter-spacing: -0.02em">Left open</h2>
+      <sc-for list="{{open}}" as="o" hint-placeholder-count="2">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; padding-top: 10px; border-top: 1px dashed #C9D2C8">
+          <span style="display: flex; flex-direction: column; gap: 2px">
+            <span style="font-size: 14px; font-weight: 700">{{o.name}}</span>
+            <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7)">{{o.what}}</span>
+          </span>
+          <button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid #152219; background: transparent; font: 700 13px 'Space Grotesk', sans-serif; color: #152219; cursor: pointer; white-space: nowrap">Close it</button>
+        </div>
+      </sc-for>
+      <span style="font-size: 12px; color: rgba(21,34,25,.7)">Open check-ins are not counted in hours until closed.</span>
+    </section>
+
+    <section class="card" aria-labelledby="rule-h">
+      <h2 id="rule-h" style="margin: 0; font-size: 19px; letter-spacing: -0.02em">Which rule decided</h2>
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <sc-for list="{{rules}}" as="r" hint-placeholder-count="6">
+          <div style="display: flex; flex-direction: column; gap: 4px">
+            <span class="mono" style="display: flex; justify-content: space-between; font-size: 12px"><span>{{r.id}}</span><span>{{r.n}}</span></span>
+            <span style="height: 8px; border-radius: 4px; background: rgba(21,34,25,.06); overflow: hidden"><span style="{{r.bar}}"></span></span>
+          </div>
+        </sc-for>
+      </div>
+    </section>
+  </main>
+
+  <nav aria-label="Panel sections" style="position: sticky; bottom: 0; height: 68px; box-sizing: border-box; background: #152219; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); padding: 0 4px 8px">
+    <a href="M-Pass.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18"/><path d="M7.5 5v3M17.5 5v3"/><rect x="5" y="8" width="5" height="9" rx="1"/><rect x="15" y="8" width="5" height="11" rx="1"/></svg></span>Pass</a>
+    <a href="M-Spike.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18"/><path d="M7 21h10"/><rect x="6" y="9" width="12" height="7" rx="1"/></svg></span>Spike<span class="tab-badge" aria-label="4 waiting">4</span></a>
+    <a href="M-Roll.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-2-1.5L14 21l-2-1.5L10 21l-2-1.5L6 21z"/><path d="M9 8h6M9 12h6"/></svg></span>Roll</a>
+    <a href="M-People.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c1.8.7 3 2.4 3.5 5.2"/></svg></span>People</a>
+    <a href="M-More.dc.html" class="tab tab--on" aria-current="page"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></span>More</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const rawMix = [
+      ['KF Hamrun', 212, 78, 14, 6, 2], ['KF Msida', 164, 0, 81, 15, 4], ['KF Valletta', 288, 84, 10, 4, 2],
+      ['KF St Julians', 190, 61, 21, 9, 9], ['KF Mellieha', 121, 70, 18, 7, 5], ['KF Paceville', 140, 0, 0, 82, 18],
+      ['KF San Gwann', 133, 74, 16, 6, 4], ['KF Headquarter', 46, 0, 96, 0, 4]
+    ];
+    const mix = rawMix.map(([name, taps, a, b, c, d]) => ({
+      name, taps,
+      a: 'width:' + a + '%;background:#1F5C41', b: 'width:' + b + '%;background:rgba(31,92,65,.55)',
+      c: 'width:' + c + '%;background:#D98E2B', d: 'width:' + d + '%',
+      aria: name + ': ' + a + '% IP and GPS, ' + b + '% IP only, ' + c + '% GPS only, ' + d + '% neither'
+    }));
+    const dot = (on) => 'width:12px;height:12px;border-radius:50%;' + (on ? 'background:#152219' : 'border:1px solid rgba(21,34,25,.5);box-sizing:border-box');
+    const pairs = [
+      ['Kevin Borg', 'Antoine Vella', [1, 1, 0, 1, 1, 1, 0], 'KF Hamrun'],
+      ['Elena Petrova', 'Nadia Farrugia', [0, 1, 1, 0, 1, 1, 0], 'KF St Julians'],
+      ['Marco Bugeja', 'Julia Sciberras', [1, 0, 1, 1, 0, 0, 0], 'KF Valletta']
+    ].map(([a, b, w, where]) => {
+      const n = w.filter(Boolean).length;
+      return { a, b, where, days: n + ' of 7 days', dots: w.map(x => dot(x)), aria: 'Tapped together on ' + n + ' of 7 days' };
+    });
+    const gaps = [
+      { venue: 'KF Hamrun', uid: '7E55', from: '000641', to: '000678', jump: '+37', when: 'Thu 15 Oct, between 01:52 and 02:14' },
+      { venue: 'KF St Julians', uid: 'E4B7', from: '001208', to: '001221', jump: '+13', when: 'Sat 17 Oct, between 23:40 and 23:58' }
+    ];
+    const open = [
+      { name: 'Elena Petrova', what: 'IN Thu 15 Oct 18:02 · KF St Julians' },
+      { name: 'Julia Sciberras', what: 'IN Sun 18 Oct 09:01 · KF Valletta' }
+    ];
+    const rawRules = [['base:ip-or-gps-ok', 1012], ['base:gps-only-allow', 128], ['sys:person-debounce', 64], ['base:no-evidence-review', 31], ['base:qr-requires-ip', 12], ['base:ctr-gap-review', 2]];
+    const max = rawRules[0][1];
+    const rules = rawRules.map(([id, n]) => ({ id, n, bar: 'display:block;height:8px;border-radius:4px;width:' + Math.max(2, Math.round(100 * n / max)) + '%;background:' + (id.indexOf('review') >= 0 || id.indexOf('requires') >= 0 ? '#D98E2B' : '#1F5C41') }));
+    return { mix, pairs, gaps, open, rules };
+  }
+}
+</script>
+</body>
+</html>

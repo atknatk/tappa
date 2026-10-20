@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Legal — mobile</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+</style>
+</helmet>
+<div style="width: 390px; display: flex; flex-direction: column; background: #EDF0EA; color: #152219; font-family: 'Space Grotesk', system-ui, sans-serif">
+  <header style="height: 56px; padding: 0 8px 0 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #C9D2C8">
+    <a href="#" style="text-decoration: none; color: #152219; display: flex; flex-direction: column; gap: 1px">
+      <span style="font-size: 20px; font-weight: 700; letter-spacing: -0.03em; line-height: 1">taptime</span>
+      <span class="mono" style="font-size: 10px; letter-spacing: .12em; color: rgba(21,34,25,.7)">PUNCHLESS</span>
+    </a>
+    <div style="display: flex; align-items: center; gap: 4px">
+      <a href="M-Pass.dc.html" style="min-height: 44px; padding: 0 8px; display: inline-flex; align-items: center; font-weight: 700; font-size: 14px">Sign in</a>
+      <a href="M-Signup.dc.html" style="min-height: 44px; padding: 0 14px; border-radius: 12px; background: #1F5C41; color: #FFFDF4; text-decoration: none; display: inline-flex; align-items: center; font-weight: 700; font-size: 14px">Start free</a>
+    </div>
+  </header>
+
+  <main style="padding: 18px 16px 32px; display: flex; flex-direction: column; gap: 22px">
+    <nav aria-label="Legal documents" style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+      <sc-for list="{{docs}}" as="d" hint-placeholder-count="4">
+        <button type="button" onClick="{{d.pick}}" aria-current="{{d.current}}" style="{{d.style}}">
+          <span style="font-size: 14px; font-weight: 700">{{d.nav}}</span>
+          <span class="mono" style="font-size: 10px; font-weight: 700; letter-spacing: .08em; color: #152219">NOT IN FORCE</span>
+        </button>
+      </sc-for>
+    </nav>
+
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <span class="lbl">Legal · {{cur.path}}</span>
+      <h1 style="margin: 0; font-size: 30px; line-height: 1.05; letter-spacing: -0.03em">{{cur.title}}</h1>
+      <p style="margin: 0; font-size: 15px; line-height: 1.5">{{cur.lede}}</p>
+    </div>
+
+    <section aria-labelledby="draft-h" style="border: 2px dashed #D98E2B; background: #F7EBD6; border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 10px">
+      <h2 id="draft-h" style="margin: 0; font-size: 18px; letter-spacing: -0.02em">This text has not been published yet</h2>
+      <p style="margin: 0; font-size: 14px; line-height: 1.5">Nothing on this page is in force. It is a placeholder so the document has an address before it has a text, and it will be replaced with the real one — no part of it should be relied on in the meantime.</p>
+      <span class="lbl" style="color: #152219; margin-top: 2px">Waiting on</span>
+      <ol style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px">
+        <sc-for list="{{cur.needs}}" as="n" hint-placeholder-count="5">
+          <li style="display: grid; grid-template-columns: 26px 1fr; gap: 6px; font-size: 14px; line-height: 1.5">
+            <span class="mono" style="font-weight: 700; color: #152219">{{n.no}}</span><span>{{n.text}}</span>
+          </li>
+        </sc-for>
+      </ol>
+    </section>
+
+    <sc-if value="{{cur.cookies}}" hint-placeholder-val="{{true}}">
+      <section aria-labelledby="ck-h" style="display: flex; flex-direction: column; gap: 12px">
+        <h2 id="ck-h" style="margin: 0; font-size: 21px; letter-spacing: -0.02em">The cookies Taptime sets</h2>
+        <p style="margin: 0; font-size: 14px; line-height: 1.55">All of them are necessary to sign in and to record a shift. There is no advertising cookie, no analytics cookie and nothing embedded from another site — every stylesheet, typeface and script this product loads is served from this domain, so no third party is contacted by opening a page.</p>
+        <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px">
+          <sc-for list="{{cookies}}" as="c" hint-placeholder-count="11">
+            <li style="background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 8px">
+              <span class="mono" style="font-size: 14px; font-weight: 700; overflow-wrap: anywhere">{{c.name}}</span>
+              <span style="font-size: 13px; line-height: 1.5">{{c.purpose}}</span>
+              <dl class="mono" style="margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 12px; border-top: 1px dashed #C9D2C8; padding-top: 8px">
+                <dt style="color: rgba(21,34,25,.7)">Lifetime</dt><dd style="margin: 0">{{c.life}}</dd>
+                <dt style="color: rgba(21,34,25,.7)">Sent to</dt><dd style="margin: 0">{{c.scope}}</dd>
+              </dl>
+            </li>
+          </sc-for>
+        </ul>
+        <p style="margin: 0; font-size: 12px; line-height: 1.5; color: rgba(21,34,25,.7)">Every cookie is HttpOnly · SameSite=Lax · Secure. Secure is set whenever Taptime is served over https, which is every deployment that is not a developer's own machine. HttpOnly means no page script can read the value.</p>
+      </section>
+    </sc-if>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":2900}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { sel: 'cookies' }; }
+  renderVals() {
+    const DOCS = [
+      { id: 'privacy', path: '/legal/privacy', title: 'Privacy policy', nav: 'Privacy',
+        lede: 'What Taptime records about the people who use it, why, how long it is kept and how somebody exercises their rights over it.',
+        needs: ['The controller: the registered company acting as data controller, with its address.', 'A contact point for data protection requests, and a data protection officer if one is appointed.', 'The retention period for attendance records, audit entries and sessions — the deployment configures this, so the published number has to be the deployed one.', 'Where the data is hosted and processed, and the processors involved.', 'The legal basis relied on for each category, and the transfer position if any processor sits outside the EU.', 'The supervisory authority a complaint goes to.'] },
+      { id: 'terms', path: '/legal/terms', title: 'Terms of service', nav: 'Terms',
+        lede: 'The agreement between Taptime and the organisation that subscribes: what is provided, what it costs, and how either side ends it.',
+        needs: ['The contracting entity and the governing law.', 'Billing terms: when an invoice is issued, payment period, VAT treatment, and what happens on non-payment.', 'The exact wording of the founding offer — the free period and the price lock — and the conditions attached to it.', 'Notice period and what happens to recorded data after an account ends.', 'Any service commitment that is actually being made, or an explicit statement that none is.'] },
+      { id: 'imprint', path: '/legal/imprint', title: 'Company details', nav: 'Company details',
+        lede: 'Who runs Taptime: the registered company, where it is registered and how to reach it.',
+        needs: ['Registered company name, legal form and registration number.', 'Registered office address.', 'VAT identification number.', 'A contact email address and, if there is one, a telephone number.', 'The names of the people authorised to represent the company.'] },
+      { id: 'cookies', path: '/legal/cookies', title: 'Cookies', nav: 'Cookies',
+        lede: 'Every cookie Taptime sets, what it is for and how long it lasts. Taptime sets no advertising or analytics cookie and embeds nothing from another site.',
+        needs: ['The controller and contact point, as for the privacy policy.', 'Confirmation of the legal basis: these cookies are the ones without which the service cannot be delivered, which is the basis this document will state.'] }
+    ];
+    const cookies = [
+      ['tappa_session', 'Remembers which employee this phone belongs to, so a tap at a plaque knows who tapped. Set once, when the personal invitation link is opened.', '365 days', '/'],
+      ['tappa_activation', 'Carries the invitation while the phone is being set up, so the code stays out of the address bar, out of browser history and out of any link that leaves this site. Once the privacy notice is accepted it also marks this browser as the one that accepted it, so only this browser’s first tap on a plaque can finish setup. Cleared as soon as the invitation is used.', 'until the invitation expires (at most 30 days)', '/'],
+      ['tappa_activated', 'Set for a few minutes right after a phone finishes setup, so the setup page that is still open in another tab can tell that it was THIS setup that finished. It holds no password and no code.', '15 minutes', '/'],
+      ['tappa_admin_session', 'Keeps a manager signed in to the dashboard. A separate cookie from the employee one, sent only to the dashboard, so neither can be used in the other’s place.', '12 hours', '/admin'],
+      ['tappa_admin_login', 'Protects the dashboard sign-in form against being submitted from another site. Exists only while somebody is on the sign-in page.', '15 minutes', '/admin'],
+      ['tappa_admin_choice', 'Set only when one person manages more than one organisation: it carries the choice being offered, signed by this server, between the password step and the pick-a-business step.', '5 minutes', '/admin'],
+      ['tappa_admin_confirm', 'Set for a moment when a manager is asked to confirm something that cannot be undone, so the confirmation belongs to that manager, that session and that one action.', '10 minutes', '/admin'],
+      ['tappa_admin_reset', 'Protects the ‘I cannot get in’ form against being submitted from another site. Exists only while somebody is on that page.', '15 minutes', '/admin'],
+      ['tappa_admin_reset_link', 'Carries a recovery link while a new password is being chosen, so the link stays out of the address bar and out of browser history. Cleared as soon as the link is used or refused.', '1 hour', '/admin/reset/new'],
+      ['tappa_signup', 'Protects the registration form against being submitted from another site. Exists only while somebody is filling the form in.', '30 minutes', '/signup'],
+      ['tappa_signup_state', 'Carries the answers already given — the business name, the VAT number and the places — from one step of the registration form to the next, signed by this server. It never holds a password. Cleared as soon as the business is created.', '30 minutes', '/signup']
+    ].map(([name, purpose, life, scope]) => ({ name, purpose, life, scope }));
+    const sel = this.state.sel;
+    const docs = DOCS.map(d => {
+      const on = d.id === sel;
+      return { nav: d.nav, current: on ? 'page' : 'false', pick: () => this.setState({ sel: d.id }),
+        style: 'text-align:left;display:flex;flex-direction:column;gap:4px;padding:10px 12px;border-radius:12px;font:inherit;color:#152219;cursor:pointer;min-height:56px;' +
+          (on ? 'background:#FFFDF4;border:2px solid #152219' : 'background:transparent;border:1px solid #C9D2C8') };
+    });
+    const d = DOCS.find(x => x.id === sel) || DOCS[3];
+    const cur = { title: d.title, path: d.path, lede: d.lede, cookies: d.id === 'cookies', needs: d.needs.map((text, i) => ({ text, no: String(i + 1).padStart(2, '0') })) };
+    return { docs, cur, cookies };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>The Pass, past day — mobile</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-bottom:0}
+.docket::after{content:"";position:absolute;left:-1px;right:-1px;bottom:-7px;height:7px;background:radial-gradient(circle at 7px 7px,transparent 4px,#FFFDF4 4.5px) 0 0/14px 7px repeat-x}
+.stamp{display:inline-block;padding:3px 7px;border:2px solid;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#152219;transform:rotate(-8deg)}
+.stamp--ok{border-color:#1F5C41;box-shadow:inset 0 0 0 1px #1F5C41;background:rgba(31,92,65,.1)}
+.stamp--flag{border-color:#D98E2B;box-shadow:inset 0 0 0 1px #D98E2B;background:rgba(217,142,43,.1)}
+.stamp--reject{border-color:#BE3D2A;box-shadow:inset 0 0 0 1px #BE3D2A;background:rgba(190,61,42,.1)}
+.stamp--ignored{border-color:#C9D2C8;box-shadow:inset 0 0 0 1px #C9D2C8;background:rgba(201,210,200,.25)}
+.iconbtn{width:44px;height:44px;border:0;border-radius:12px;background:transparent;color:#152219;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:60px;text-decoration:none;color:rgba(237,240,234,.8);font:500 11px 'Space Grotesk',sans-serif;position:relative}
+.tab:hover{color:#FFFDF4}
+.pill{width:48px;height:30px;border-radius:15px;display:flex;align-items:center;justify-content:center}
+.tab--on{color:#FFFDF4}
+.tab--on .pill{background:#FFFDF4;color:#152219}
+.badge{position:absolute;top:4px;left:calc(50% + 6px);min-width:18px;height:18px;padding:0 5px;box-sizing:border-box;border-radius:9px;background:#D98E2B;color:#152219;font:700 11px 'IBM Plex Mono',monospace;display:flex;align-items:center;justify-content:center}
+.hscroll{overflow-x:auto;scrollbar-width:none}
+.field{display:flex;flex-direction:column;gap:6px}
+.input{min-height:44px;padding:0 12px;border:1px solid #C9D2C8;border-radius:10px;background:#FFFDF4;font:14px 'Space Grotesk',sans-serif;color:#152219;box-sizing:border-box;width:100%}
+.tally{display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid #152219;color:#152219}
+.tally--approved{border-color:#1F5C41;background:rgba(31,92,65,.1)}
+.tally--queued{border:1px dashed #D98E2B;background:rgba(217,142,43,.1)}
+summary{list-style:none}summary::-webkit-details-marker{display:none}
+</style>
+</helmet>
+<div style="width: 390px; display: flex; flex-direction: column; background: #EDF0EA; color: #152219; font-family: 'Space Grotesk', system-ui, sans-serif">
+  <div style="height: 4px; background: #1F5C41"></div>
+  <header style="height: 56px; padding: 0 8px 0 16px; display: flex; align-items: center; justify-content: space-between; box-sizing: border-box">
+    <div style="display: flex; flex-direction: column; gap: 1px">
+      <span style="font-size: 20px; font-weight: 700; letter-spacing: -0.03em; line-height: 1">taptime</span>
+      <span class="mono" style="font-size: 10px; letter-spacing: .12em; color: rgba(21,34,25,.7)">KEBAB FACTORY</span>
+    </div>
+    <div style="display: flex; gap: 2px">
+      <button type="button" class="iconbtn" aria-label="Search"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
+      <button type="button" class="iconbtn" aria-label="Manual entry" style="background: #1F5C41; color: #FFFDF4"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+    </div>
+  </header>
+
+  <main style="padding: 16px; display: flex; flex-direction: column; gap: 16px">
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <span class="lbl">Shift day 06:00 → 06:00</span>
+      <h1 style="margin: 0; font-size: 30px; line-height: 1; letter-spacing: -0.035em">Mon 19 Oct</h1>
+    </div>
+
+    <div role="group" aria-label="Day" style="display: flex; gap: 8px">
+      <div style="flex: 1; display: flex; align-items: center; justify-content: space-between; background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 12px">
+        <button type="button" aria-label="Previous day" class="iconbtn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button>
+        <span class="mono" style="font-size: 13px">Mon 19 Oct</span>
+        <button type="button" aria-label="Next day" class="iconbtn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+      </div>
+      <a href="M-Pass.dc.html" style="min-height: 44px; padding: 0 14px; border-radius: 12px; background: #152219; color: #FFFDF4; font: 700 14px 'Space Grotesk', sans-serif; text-decoration: none; display: inline-flex; align-items: center">Today</a>
+    </div>
+
+    <details style="background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 14px">
+      <summary style="min-height: 48px; padding: 0 14px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; font-weight: 700; font-size: 14px">
+        <span>Filters</span>
+        <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7); font-weight: 400">location · department · employee · channel</span>
+      </summary>
+      <form role="search" aria-label="Filter transactions" style="padding: 4px 14px 14px; display: flex; flex-direction: column; gap: 12px">
+        <div class="field"><label class="lbl" for="m-loc">Location</label><select class="input" id="m-loc"><option>All locations</option></select></div>
+        <div class="field"><label class="lbl" for="m-dep">Department</label><select class="input" id="m-dep"><option>All departments</option></select></div>
+        <div class="field"><label class="lbl" for="m-emp">Employee</label><input class="input" id="m-emp" type="text" placeholder="Part of a name"></div>
+        <div class="field"><label class="lbl" for="m-chan">Channel</label><select class="input" id="m-chan"><option>Any channel</option></select></div>
+        <button type="button" style="min-height: 48px; border-radius: 12px; border: 0; background: #1F5C41; color: #FFFDF4; font: 700 15px 'Space Grotesk', sans-serif; cursor: pointer">Apply</button>
+      </form>
+    </details>
+
+    <p class="mono" style="margin: 0; font-size: 12px; color: rgba(21,34,25,.7); line-height: 1.5">{{summary}}</p>
+    <div role="group" aria-label="Verdict" class="hscroll" style="display: flex; gap: 6px; margin: 0 -16px; padding: 0 16px">
+      <sc-for list="{{chips}}" as="c" hint-placeholder-count="5">
+        <button type="button" onClick="{{c.pick}}" aria-pressed="{{c.on}}" style="{{c.style}}">{{c.label}} <span class="mono" style="font-size: 12px; opacity: .8">{{c.n}}</span></button>
+      </sc-for>
+    </div>
+
+    <sc-if value="{{empty}}" hint-placeholder-val="{{false}}">
+      <section style="border: 1px dashed rgba(21,34,25,.5); border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 6px">
+        <span class="lbl">Nothing here yet</span>
+        <h2 style="margin: 0; font-size: 18px">No taps recorded on this day</h2>
+        <p style="margin: 0; font-size: 14px; color: rgba(21,34,25,.7)">for this verdict.</p>
+      </section>
+    </sc-if>
+
+    <sc-for list="{{groups}}" as="g" hint-placeholder-count="5">
+      <section style="display: flex; flex-direction: column; gap: 12px">
+        <div style="display: flex; align-items: baseline; gap: 8px; border-top: 2px solid #152219; padding-top: 6px">
+          <span class="mono" style="font-size: 18px; font-weight: 500">{{g.hour}}</span>
+          <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7)">{{g.sub}}</span>
+        </div>
+        <sc-for list="{{g.items}}" as="d" hint-placeholder-count="2">
+          <article class="docket" style="padding: 14px 14px 12px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 8px">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px">
+              <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+                <span class="lbl" style="font-size: 10px">{{d.venue}}</span>
+                <span style="font-size: 16px; font-weight: 700">{{d.name}}</span>
+              </div>
+              <span class="{{d.stampCls}}">{{d.stamp}}</span>
+            </div>
+            <div class="mono" style="display: flex; align-items: baseline; gap: 8px">
+              <span style="font-size: 11px; font-weight: 700; padding: 1px 6px; border: 1px solid #152219">{{d.dir}}</span>
+              <span style="font-size: 18px; font-weight: 500">{{d.time}}</span>
+            </div>
+            <div class="mono" style="font-size: 11px; color: rgba(21,34,25,.7); display: flex; justify-content: space-between; gap: 6px; border-top: 1px dashed #C9D2C8; padding-top: 7px">
+              <span>{{d.ev}}</span><span>{{d.tag}}</span>
+            </div>
+            <sc-if value="{{d.hasTally}}" hint-placeholder-val="{{false}}">
+              <div style="display: flex; flex-wrap: wrap; gap: 6px">
+                <sc-for list="{{d.tallies}}" as="t" hint-placeholder-count="1">
+                  <span class="{{t.cls}}">{{t.text}}</span>
+                </sc-for>
+              </div>
+            </sc-if>
+            <sc-if value="{{d.note}}" hint-placeholder-val="{{false}}">
+              <p style="margin: 0; font-size: 12px; line-height: 1.4">{{d.note}}</p>
+            </sc-if>
+          </article>
+        </sc-for>
+      </section>
+    </sc-for>
+  </main>
+
+  <nav aria-label="Panel sections" style="position: sticky; bottom: 0; height: 68px; box-sizing: border-box; padding: 0 4px 8px; background: #152219; display: flex">
+    <a href="M-Pass.dc.html" class="tab tab--on" aria-current="page"><span class="pill"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18"/><path d="M7.5 5v3M17.5 5v3"/><rect x="5" y="8" width="5" height="9" rx="1"/><rect x="15" y="8" width="5" height="11" rx="1"/></svg></span>Pass</a>
+    <a href="M-Spike.dc.html" class="tab"><span class="pill"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18"/><path d="M7 21h10"/><rect x="6" y="9" width="12" height="7" rx="1"/></svg></span>Spike<span class="badge" aria-label="4 waiting">4</span></a>
+    <a href="M-Roll.dc.html" class="tab"><span class="pill"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-2-1.5L14 21l-2-1.5L10 21l-2-1.5L6 21z"/><path d="M9 8h6M9 12h6"/></svg></span>Roll</a>
+    <a href="M-People.dc.html" class="tab"><span class="pill"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c1.8.7 3 2.4 3.5 5.2"/></svg></span>People</a>
+    <a href="M-More.dc.html" class="tab"><span class="pill"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></span>More</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":2780}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { v: 'all' }; }
+  renderVals() {
+    const all = [
+      { h: '09:00', venue: 'KF Valletta', name: 'Julia Sciberras', dir: 'IN', time: '09:02:11', s: 'flag', ev: 'TRUST 20 · IP ✗ GPS ✗', tag: '91AC', tallies: [['tally tally--queued', 'Waiting for review']], note: 'GPS 212 m from the venue — beyond 150 m.' },
+      { h: '09:00', venue: 'KF Valletta', name: 'Maria Borg', dir: 'IN', time: '09:58:40', s: 'ok', ev: 'TRUST 100 · IP ✓ GPS ✓', tag: '91AC' },
+      { h: '10:00', venue: 'KF Msida', name: 'Grace Attard', dir: 'IN', time: '10:01:05', s: 'ok', ev: 'TRUST 50 · IP – GPS ✓', tag: 'A713', note: 'Verified via GPS only.' },
+      { h: '10:00', venue: 'KF Msida', name: 'Grace Attard', dir: 'IN', time: '10:01:31', s: 'ignored', ev: 'TRUST none', tag: 'A713', note: 'Same person again within 60 seconds.' },
+      { h: '14:00', venue: 'KF Hamrun', name: 'Antoine Vella', dir: 'IN', time: '14:00:00', s: 'ok', ev: 'MANUAL', tag: 'no plaque', tallies: [['tally', 'Entered by a manager']], note: 'Phone left at home — seen on the floor at 14:00.' },
+      { h: '14:00', venue: 'KM Production Hall · partner', name: 'Carlos Mendez', dir: 'IN', time: '14:12:09', s: 'ok', ev: 'evidence not shown', tag: '6E02', note: 'Decided by your rules at a partner venue — evidence is not shown.' },
+      { h: '18:00', venue: 'KF St Julians', name: 'Elena Petrova', dir: 'IN', time: '18:00:51', s: 'flag', ev: 'TRUST 20 · QR · IP ✗', tag: '0C21', tallies: [['tally tally--approved', 'Approved by a manager']], note: 'Manager: saw her arrive.' },
+      { h: '18:00', venue: 'KF Paceville', name: 'Dragan Nikolic', dir: 'IN', time: '18:04:12', s: 'reject', ev: 'TRUST none', tag: '4B90', note: 'This plaque is retired.' },
+      { h: '01:00', venue: 'KF St Julians', name: 'Elena Petrova', dir: 'OUT', time: '01:58:07', s: 'ok', ev: 'TRUST 70 · IP ✓ GPS –', tag: '0C21' },
+      { h: '01:00', venue: 'KF Paceville', name: 'Nadia Farrugia', dir: 'OUT', time: '01:30:22', s: 'ok', ev: 'TRUST 50 · IP – GPS ✓', tag: '4B90' }
+    ];
+    const words = { ok: 'Approved', flag: 'Flagged', reject: 'Rejected', ignored: 'Ignored' };
+    const subs = { '09:00': 'Mon', '10:00': 'Mon', '14:00': 'Mon', '18:00': 'Mon', '01:00': 'Tue · same shift' };
+    const v = this.state.v;
+    const shown = all.filter(d => v === 'all' || d.s === v).map(d => ({
+      ...d, stamp: words[d.s], stampCls: 'stamp stamp--' + d.s,
+      tallies: (d.tallies || []).map(([cls, text]) => ({ cls, text })), hasTally: !!(d.tallies && d.tallies.length), note: d.note || ''
+    }));
+    const groups = ['09:00', '10:00', '14:00', '18:00', '01:00'].map(h => ({ hour: h, sub: subs[h], items: shown.filter(d => d.h === h) })).filter(g => g.items.length);
+    const count = s => all.filter(d => d.s === s).length;
+    const chips = [['all', 'All', all.length], ['ok', 'Approved', count('ok')], ['flag', 'Flagged', count('flag')], ['reject', 'Rejected', count('reject')], ['ignored', 'Ignored', count('ignored')]].map(([id, label, n]) => {
+      const on = v === id;
+      return { label, n, on: on ? 'true' : 'false', pick: () => this.setState({ v: id }),
+        style: 'flex:none;min-height:44px;padding:0 14px;border-radius:22px;font:500 13px Space Grotesk,sans-serif;cursor:pointer;white-space:nowrap;' + (on ? 'background:#152219;color:#FFFDF4;border:1px solid #152219' : 'background:transparent;color:#152219;border:1px solid rgba(21,34,25,.5)') };
+    });
+    const summary = all.length + ' records · ' + count('ok') + ' approved · ' + count('flag') + ' flagged · ' + count('reject') + ' rejected · ' + count('ignored') + ' ignored · 1 manual';
+    return { groups, chips, summary, empty: groups.length === 0 };
+  }
+}
+</script>
+</body>
+</html>

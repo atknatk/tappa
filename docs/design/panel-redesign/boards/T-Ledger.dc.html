@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>The Pass, past day — tablet</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-bottom:0}
+.docket::after{content:"";position:absolute;left:-1px;right:-1px;bottom:-7px;height:7px;background:radial-gradient(circle at 7px 7px,transparent 4px,#FFFDF4 4.5px) 0 0/14px 7px repeat-x}
+.stamp{display:inline-block;padding:3px 8px;border:2px solid;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#152219;transform:rotate(-8deg)}
+.stamp--ok{border-color:#1F5C41;box-shadow:inset 0 0 0 1px #1F5C41;background:rgba(31,92,65,.1)}
+.stamp--flag{border-color:#D98E2B;box-shadow:inset 0 0 0 1px #D98E2B;background:rgba(217,142,43,.1)}
+.stamp--reject{border-color:#BE3D2A;box-shadow:inset 0 0 0 1px #BE3D2A;background:rgba(190,61,42,.1)}
+.stamp--ignored{border-color:#C9D2C8;box-shadow:inset 0 0 0 1px #C9D2C8;background:rgba(201,210,200,.25)}
+.tnav{position:relative;width:72px;min-height:60px;border-radius:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;text-decoration:none;color:#EDF0EA;font-family:'Space Grotesk',sans-serif;font-weight:500;font-size:10px}
+.tnav:hover{background:rgba(237,240,234,.08);color:#FFFDF4}
+.tnav--on,.tnav--on:hover{background:#FFFDF4;color:#152219}
+.tbadge{position:absolute;top:5px;left:42px;min-width:18px;height:18px;padding:0 4px;box-sizing:border-box;border-radius:9px;background:#D98E2B;color:#152219;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.field{display:flex;flex-direction:column;gap:6px;min-width:0}
+.input{min-height:44px;padding:0 12px;border:1px solid #C9D2C8;border-radius:10px;background:#FFFDF4;font:14px 'Space Grotesk',sans-serif;color:#152219;box-sizing:border-box;width:100%}
+.tally{display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid #152219;color:#152219}
+.tally--approved{border-color:#1F5C41;background:rgba(31,92,65,.1)}
+.tally--queued{border:1px dashed #D98E2B;background:rgba(217,142,43,.1)}
+</style>
+</helmet>
+<div style="width: 834px; display: flex; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
+  <aside style="flex: 0 0 88px; align-self: stretch; background: #152219; position: relative; padding: 20px 8px; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; gap: 6px">
+    <div style="position: absolute; left: 0; right: 0; top: 0; height: 4px; background: #1F5C41"></div>
+    <div style="font-size: 26px; font-weight: 700; color: #FFFDF4; letter-spacing: -0.03em; padding: 4px 0 14px">t.</div>
+    <nav aria-label="Panel sections" style="display: flex; flex-direction: column; gap: 4px">
+      <a href="T-Pass.dc.html" class="tnav tnav--on" aria-current="page"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18"/><path d="M7.5 5v3M17.5 5v3"/><rect x="5" y="8" width="5" height="9" rx="1"/><rect x="15" y="8" width="5" height="11" rx="1"/></svg>Pass</a>
+      <a href="T-Spike.dc.html" class="tnav"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18"/><path d="M7 21h10"/><rect x="6" y="9" width="12" height="7" rx="1"/></svg>Spike<span class="tbadge" aria-label="4 waiting">4</span></a>
+      <a href="T-People.dc.html" class="tnav"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c1.8.7 3 2.4 3.5 5.2"/></svg>People</a>
+      <a href="T-Venues.dc.html" class="tnav"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>Venues</a>
+      <a href="T-Roll.dc.html" class="tnav"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-2-1.5L14 21l-2-1.5L10 21l-2-1.5L6 21z"/><path d="M9 8h6M9 12h6"/></svg>Roll</a>
+      <a href="T-Odd.dc.html" class="tnav"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="17" r="2"/><circle cx="12" cy="10" r="2"/><circle cx="18" cy="15" r="2"/><path d="M15 3.5l5 5M20 3.5l-5 5"/></svg>Odd</a>
+      <a href="T-Rules.dc.html" class="tnav"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>Rules</a>
+    </nav>
+    <div style="margin-top: auto; display: flex; flex-direction: column; gap: 4px; border-top: 1px solid rgba(237,240,234,.14); padding-top: 10px">
+      <a href="T-Billing.dc.html" class="tnav"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h4"/></svg>Billing</a>
+      <a href="T-Account.dc.html" class="tnav"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21V8l8-5 8 5v13"/><path d="M9 21v-6h6v6"/></svg>Account</a>
+      <a href="T-Developers.dc.html" class="tnav"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 8l-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14"/></svg>Dev</a>
+    </div>
+  </aside>
+
+  <main style="flex: 1; min-width: 0; padding: 24px; box-sizing: border-box; display: flex; flex-direction: column; gap: 20px">
+    <header style="display: flex; flex-direction: column; gap: 14px">
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <span class="lbl">Shift day 06:00 → 06:00 · records are never edited</span>
+        <h1 style="margin: 0; font-size: 36px; line-height: 1; letter-spacing: -0.035em">The Pass <span style="color: rgba(21,34,25,.7); font-weight: 500">· Mon 19 Oct</span></h1>
+      </div>
+      <div role="group" aria-label="Day" style="display: flex; gap: 10px; align-items: center">
+        <div style="flex: 1; display: flex; align-items: center; justify-content: space-between; background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 12px">
+          <button type="button" aria-label="Previous day" style="width: 44px; height: 44px; border: 0; background: transparent; cursor: pointer; color: #152219"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button>
+          <span class="mono" style="font-size: 13px">Mon 19 Oct</span>
+          <button type="button" aria-label="Next day" style="width: 44px; height: 44px; border: 0; background: transparent; cursor: pointer; color: #152219"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+        </div>
+        <a href="T-Pass.dc.html" style="min-height: 44px; padding: 0 16px; border-radius: 12px; background: #152219; color: #FFFDF4; font: 700 14px 'Space Grotesk', sans-serif; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; flex: none">Today, live
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </a>
+      </div>
+    </header>
+
+    <form role="search" aria-label="Filter transactions" style="background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 18px; padding: 16px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: end">
+      <div class="field"><label class="lbl" for="t-day">Day</label><input class="input mono" id="t-day" type="date" value="2026-10-19"></div>
+      <div class="field"><label class="lbl" for="t-loc">Location</label><select class="input" id="t-loc"><option>All locations</option><option>KF Valletta</option></select></div>
+      <div class="field"><label class="lbl" for="t-dep">Department</label><select class="input" id="t-dep"><option>All departments</option></select></div>
+      <div class="field"><label class="lbl" for="t-emp">Employee</label><input class="input" id="t-emp" type="text" placeholder="Part of a name"></div>
+      <div class="field"><label class="lbl" for="t-chan">Channel</label><select class="input" id="t-chan"><option>Any channel</option><option>NFC</option><option>QR</option><option>Manual</option></select></div>
+      <div style="display: flex; gap: 8px">
+        <button type="button" style="flex: 1; min-height: 44px; border-radius: 10px; border: 0; background: #1F5C41; color: #FFFDF4; font: 700 14px 'Space Grotesk', sans-serif; cursor: pointer">Apply</button>
+        <button type="button" style="min-height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid rgba(21,34,25,.5); background: transparent; color: #152219; font: 500 14px 'Space Grotesk', sans-serif; cursor: pointer">Clear</button>
+      </div>
+    </form>
+
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <p class="mono" style="margin: 0; font-size: 12px; color: rgba(21,34,25,.7)">{{summary}}</p>
+      <div role="group" aria-label="Verdict" style="display: flex; flex-wrap: wrap; gap: 6px">
+        <sc-for list="{{chips}}" as="c" hint-placeholder-count="5">
+          <button type="button" onClick="{{c.pick}}" aria-pressed="{{c.on}}" style="{{c.style}}">{{c.label}} <span class="mono" style="font-size: 12px; opacity: .8">{{c.n}}</span></button>
+        </sc-for>
+      </div>
+    </div>
+
+    <sc-if value="{{empty}}" hint-placeholder-val="{{false}}">
+      <section style="border: 1px dashed rgba(21,34,25,.5); border-radius: 18px; padding: 24px; display: flex; flex-direction: column; gap: 6px">
+        <span class="lbl">Nothing here yet</span>
+        <h2 style="margin: 0; font-size: 20px">No taps recorded on this day</h2>
+        <p style="margin: 0; font-size: 14px; color: rgba(21,34,25,.7)">for this verdict. Clear the filter to see every record.</p>
+      </section>
+    </sc-if>
+
+    <div style="display: flex; flex-direction: column; gap: 22px">
+      <sc-for list="{{groups}}" as="g" hint-placeholder-count="5">
+        <section style="display: flex; flex-direction: column; gap: 12px">
+          <div style="display: flex; align-items: baseline; gap: 10px; border-top: 2px solid #152219; padding-top: 6px">
+            <span class="mono" style="font-size: 20px; font-weight: 500">{{g.hour}}</span>
+            <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7)">{{g.sub}}</span>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 14px; padding-bottom: 8px">
+            <sc-for list="{{g.items}}" as="d" hint-placeholder-count="2">
+              <article class="docket" style="padding: 14px 14px 12px; display: flex; flex-direction: column; gap: 9px">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px">
+                  <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+                    <span class="lbl" style="font-size: 10px">{{d.venue}}</span>
+                    <span style="font-size: 16px; font-weight: 700">{{d.name}}</span>
+                  </div>
+                  <span class="{{d.stampCls}}">{{d.stamp}}</span>
+                </div>
+                <div class="mono" style="display: flex; align-items: baseline; gap: 8px">
+                  <span style="font-size: 12px; font-weight: 700; padding: 1px 6px; border: 1px solid #152219">{{d.dir}}</span>
+                  <span style="font-size: 18px; font-weight: 500">{{d.time}}</span>
+                </div>
+                <div class="mono" style="font-size: 11px; color: rgba(21,34,25,.7); display: flex; justify-content: space-between; gap: 6px; border-top: 1px dashed #C9D2C8; padding-top: 7px">
+                  <span>{{d.evLine}}</span><span>{{d.tagShort}}</span>
+                </div>
+                <sc-if value="{{d.hasTally}}" hint-placeholder-val="{{false}}">
+                  <div style="display: flex; flex-wrap: wrap; gap: 6px">
+                    <sc-for list="{{d.tallies}}" as="t" hint-placeholder-count="1">
+                      <span class="{{t.cls}}">{{t.text}}</span>
+                    </sc-for>
+                  </div>
+                </sc-if>
+                <sc-if value="{{d.note}}" hint-placeholder-val="{{false}}">
+                  <p style="margin: 0; font-size: 12px; line-height: 1.4">{{d.note}}</p>
+                </sc-if>
+              </article>
+            </sc-for>
+          </div>
+        </section>
+      </sc-for>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":834,"height":1880}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { v: 'all' }; }
+  renderVals() {
+    const all = [
+      { h: '09:00', venue: 'KF Valletta', name: 'Julia Sciberras', dir: 'IN', time: '09:02:11', s: 'flag', ev: 'TRUST 20 · IP ✗ GPS ✗', tag: '91AC #000612', tallies: [['tally tally--queued', 'Waiting for review']], note: 'GPS 212 m from the venue — beyond 150 m.' },
+      { h: '09:00', venue: 'KF Valletta', name: 'Maria Borg', dir: 'IN', time: '09:58:40', s: 'ok', ev: 'TRUST 100 · IP ✓ GPS ✓', tag: '91AC #000615' },
+      { h: '10:00', venue: 'KF Msida', name: 'Grace Attard', dir: 'IN', time: '10:01:05', s: 'ok', ev: 'TRUST 50 · IP – GPS ✓', tag: 'A713 #000571', note: 'Verified via GPS only.' },
+      { h: '10:00', venue: 'KF Msida', name: 'Grace Attard', dir: 'IN', time: '10:01:31', s: 'ignored', ev: 'TRUST none', tag: 'A713 #000572', note: 'Same person again within 60 seconds.' },
+      { h: '14:00', venue: 'KF Hamrun', name: 'Antoine Vella', dir: 'IN', time: '14:00:00', s: 'ok', ev: 'MANUAL', tag: 'no plaque', tallies: [['tally', 'Entered by a manager']], note: 'Phone left at home — seen on the floor at 14:00.', manual: true },
+      { h: '14:00', venue: 'KM Production Hall · partner', name: 'Carlos Mendez', dir: 'IN', time: '14:12:09', s: 'ok', ev: 'evidence not shown', tag: '6E02 #000188', note: 'Decided by your rules at a partner venue — evidence is not shown.' },
+      { h: '18:00', venue: 'KF St Julians', name: 'Elena Petrova', dir: 'IN', time: '18:00:51', s: 'flag', ev: 'TRUST 20 · QR · IP ✗', tag: '0C21 QR', tallies: [['tally tally--approved', 'Approved by a manager']], note: 'Manager: saw her arrive — mobile data was on.' },
+      { h: '18:00', venue: 'KF Paceville', name: 'Dragan Nikolic', dir: 'IN', time: '18:04:12', s: 'reject', ev: 'TRUST none', tag: '4B90 #000451', note: 'This plaque is retired.' },
+      { h: '01:00', venue: 'KF St Julians', name: 'Elena Petrova', dir: 'OUT', time: '01:58:07', s: 'ok', ev: 'TRUST 70 · IP ✓ GPS –', tag: '0C21 #001207' },
+      { h: '01:00', venue: 'KF Paceville', name: 'Nadia Farrugia', dir: 'OUT', time: '01:30:22', s: 'ok', ev: 'TRUST 50 · IP – GPS ✓', tag: '4B90 #000449' }
+    ];
+    const words = { ok: 'Approved', flag: 'Flagged', reject: 'Rejected', ignored: 'Ignored' };
+    const subs = { '09:00': 'Mon', '10:00': 'Mon', '14:00': 'Mon', '18:00': 'Mon', '01:00': 'Tue · same shift' };
+    const v = this.state.v;
+    const shown = all.filter(d => v === 'all' || d.s === v).map(d => ({
+      ...d, stamp: words[d.s], stampCls: 'stamp stamp--' + d.s, evLine: d.ev, tagShort: d.tag,
+      tallies: (d.tallies || []).map(([cls, text]) => ({ cls, text })), hasTally: !!(d.tallies && d.tallies.length), note: d.note || ''
+    }));
+    const groups = ['09:00', '10:00', '14:00', '18:00', '01:00'].map(h => ({ hour: h, sub: subs[h], items: shown.filter(d => d.h === h) })).filter(g => g.items.length);
+    const count = s => all.filter(d => d.s === s).length;
+    const chips = [['all', 'All', all.length], ['ok', 'Approved', count('ok')], ['flag', 'Flagged', count('flag')], ['reject', 'Rejected', count('reject')], ['ignored', 'Ignored', count('ignored')]].map(([id, label, n]) => {
+      const on = v === id;
+      return { label, n, on: on ? 'true' : 'false', pick: () => this.setState({ v: id }),
+        style: 'min-height:44px;padding:0 14px;border-radius:22px;font:500 13px Space Grotesk,sans-serif;cursor:pointer;' + (on ? 'background:#152219;color:#FFFDF4;border:1px solid #152219' : 'background:transparent;color:#152219;border:1px solid rgba(21,34,25,.5)') };
+    });
+    const summary = all.length + ' records · ' + count('ok') + ' approved · ' + count('flag') + ' flagged · ' + count('reject') + ' rejected · ' + count('ignored') + ' ignored · 1 manual';
+    return { groups, chips, summary, empty: groups.length === 0 };
+  }
+}
+</script>
+</body>
+</html>

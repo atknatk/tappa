@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Freeze September 2026 — mobile</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.tab{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:60px;text-decoration:none;color:rgba(237,240,234,.8);font:500 11px 'Space Grotesk',sans-serif}
+.tab:hover{color:#FFFDF4}
+.tab-ic{width:48px;height:30px;border-radius:15px;display:flex;align-items:center;justify-content:center}
+.tab--on{color:#FFFDF4}
+.tab--on .tab-ic{background:#FFFDF4;color:#152219}
+.tab-badge{position:absolute;top:4px;left:calc(50% + 8px);min-width:18px;height:18px;border-radius:9px;background:#D98E2B;color:#152219;font:700 11px 'IBM Plex Mono',monospace;display:flex;align-items:center;justify-content:center}
+.iconbtn{width:44px;height:44px;display:inline-flex;align-items:center;justify-content:center;border:0;background:transparent;color:#152219;border-radius:12px;cursor:pointer;text-decoration:none}
+.receipt{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-top:0;border-bottom:0}
+.receipt::before{content:"";position:absolute;left:-1px;right:-1px;top:-7px;height:7px;background:radial-gradient(circle at 7px 0,transparent 4px,#FFFDF4 4.5px) 0 0/14px 7px repeat-x}
+.receipt::after{content:"";position:absolute;left:-1px;right:-1px;bottom:-7px;height:7px;background:radial-gradient(circle at 7px 7px,transparent 4px,#FFFDF4 4.5px) 0 0/14px 7px repeat-x}
+.stamp{display:inline-block;padding:3px 8px;border:2px solid;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#152219;transform:rotate(-8deg)}
+.stamp--ok{border-color:#1F5C41;box-shadow:inset 0 0 0 1px #1F5C41;background:rgba(31,92,65,.1)}
+.stamp--flag{border-color:#D98E2B;box-shadow:inset 0 0 0 1px #D98E2B;background:rgba(217,142,43,.1)}
+.row{display:flex;justify-content:space-between;gap:12px;font-size:12px}
+.row span:first-child{color:rgba(21,34,25,.7)}
+</style>
+</helmet>
+<div style="width: 390px; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
+  <div style="height: 4px; background: #1F5C41"></div>
+  <header style="height: 56px; display: flex; align-items: center; gap: 4px; padding: 0 16px; box-sizing: border-box">
+    <a href="M-Billing.dc.html" class="iconbtn" aria-label="Back to Billing" style="margin-left: -12px"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></a>
+    <div style="flex: 1; display: flex; flex-direction: column; gap: 2px">
+      <span style="font-size: 20px; font-weight: 700; letter-spacing: -0.03em; line-height: 1">taptime</span>
+      <span class="mono" style="font-size: 10px; letter-spacing: .12em; color: rgba(21,34,25,.7)">KEBAB FACTORY</span>
+    </div>
+  </header>
+
+  <main style="padding: 16px 16px 24px; display: flex; flex-direction: column; gap: 18px">
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <span class="lbl">Owner only · permanent</span>
+      <h1 style="margin: 0; font-size: 30px; line-height: 1.05; letter-spacing: -0.035em">Freeze September 2026</h1>
+      <p style="margin: 0; font-size: 14px; line-height: 1.5">Stores what September cost as a permanent record. It is never recomputed afterwards.</p>
+    </div>
+
+    <section aria-labelledby="det-h" style="padding-top: 7px">
+      <div class="receipt" style="padding: 18px 16px 22px; display: flex; flex-direction: column; gap: 12px">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px">
+          <h2 id="det-h" style="margin: 0; font-size: 16px">What will be frozen</h2>
+          <span class="{{stampCls}}">{{stamp}}</span>
+        </div>
+        <div class="mono" style="display: flex; flex-direction: column; gap: 7px; border-top: 1px dashed #C9D2C8; padding-top: 10px">
+          <div class="row"><span>Business</span><span>Kebab Factory Ltd.</span></div>
+          <div class="row"><span>Month</span><span>2026-09</span></div>
+          <div class="row"><span>Timezone</span><span>Europe/Malta</span></div>
+          <div class="row"><span>Starts (UTC)</span><span>2026-08-31T22:00Z</span></div>
+          <div class="row"><span>Ends (UTC, excl.)</span><span>2026-09-30T22:00Z</span></div>
+          <div class="row"><span>Plan</span><span>[PLAN]</span></div>
+          <div class="row"><span>People (live)</span><span>[N]</span></div>
+          <div class="row"><span>Price / person</span><span>[PRICE]</span></div>
+        </div>
+        <div class="mono" style="display: flex; justify-content: space-between; align-items: baseline; border-top: 1px dashed #C9D2C8; padding-top: 10px">
+          <span style="font-size: 12px; font-weight: 700">AMOUNT (LIVE)</span>
+          <span style="font-size: 22px; font-weight: 500">[AMOUNT]</span>
+        </div>
+      </div>
+    </section>
+
+    <div role="note" style="background: #FFFDF4; border: 2px solid #BE3D2A; border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 8px">
+      <h2 style="margin: 0; font-size: 16px; line-height: 1.3">This cannot be undone, and the figures are counted again when you press it</h2>
+      <p style="margin: 0; font-size: 13px; line-height: 1.5">A frozen month can never be edited, removed or replaced. There is no undo and no credit note.</p>
+      <p style="margin: 0; font-size: 13px; line-height: 1.5">Freezing recounts at the moment you press — the figures above are live. Only the number of people is stored, not which people.</p>
+    </div>
+
+    <sc-if value="{{open}}" hint-placeholder-val="{{true}}">
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <button type="button" onClick="{{freeze}}" style="min-height: 56px; border-radius: 14px; border: 0; background: #152219; color: #FFFDF4; font: 700 16px 'Space Grotesk', sans-serif; cursor: pointer">Freeze this month</button>
+        <a href="M-Billing.dc.html" style="min-height: 52px; border-radius: 14px; border: 1px solid rgba(21,34,25,.5); display: flex; align-items: center; justify-content: center; text-decoration: none; color: #152219; font-weight: 700; font-size: 15px">Cancel</a>
+      </div>
+    </sc-if>
+    <sc-if value="{{done}}" hint-placeholder-val="{{false}}">
+      <div role="status" style="border: 1px solid #1F5C41; background: rgba(31,92,65,.08); border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px">
+        <strong style="font-size: 15px">September 2026 is frozen.</strong>
+        <span style="font-size: 13px">Counted again at 14:32 and stored.</span>
+        <a href="M-Billing.dc.html" style="font-weight: 700; font-size: 14px; min-height: 44px; display: inline-flex; align-items: center">Back to Billing →</a>
+      </div>
+    </sc-if>
+  </main>
+
+  <nav aria-label="Panel sections" style="position: sticky; bottom: 0; height: 68px; box-sizing: border-box; background: #152219; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); padding: 0 4px 8px">
+    <a href="M-Pass.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18"/><path d="M7.5 5v3M17.5 5v3"/><rect x="5" y="8" width="5" height="9" rx="1"/><rect x="15" y="8" width="5" height="11" rx="1"/></svg></span>Pass</a>
+    <a href="M-Spike.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18"/><path d="M7 21h10"/><rect x="6" y="9" width="12" height="7" rx="1"/></svg></span>Spike<span class="tab-badge" aria-label="4 waiting">4</span></a>
+    <a href="M-Roll.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-2-1.5L14 21l-2-1.5L10 21l-2-1.5L6 21z"/><path d="M9 8h6M9 12h6"/></svg></span>Roll</a>
+    <a href="M-People.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c1.8.7 3 2.4 3.5 5.2"/></svg></span>People</a>
+    <a href="M-More.dc.html" class="tab tab--on" aria-current="page"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></span>More</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1180}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { done: false }; }
+  renderVals() {
+    const d = this.state.done;
+    return {
+      open: !d, done: d,
+      stamp: d ? 'Frozen' : 'Ready',
+      stampCls: d ? 'stamp stamp--ok' : 'stamp stamp--flag',
+      freeze: () => this.setState({ done: true })
+    };
+  }
+}
+</script>
+</body>
+</html>

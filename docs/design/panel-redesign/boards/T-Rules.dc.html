@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Rules — tablet</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.tnav{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;width:72px;min-height:60px;border-radius:14px;text-decoration:none;color:#EDF0EA;font-family:'Space Grotesk',sans-serif;font-size:10px;font-weight:500;position:relative}
+.tnav:hover{background:rgba(237,240,234,.08);color:#FFFDF4}
+.tnav--on{background:#FFFDF4;color:#152219}
+.tnav--on:hover{background:#FFFDF4;color:#152219}
+.plate{position:relative}
+.plate::before,.plate::after{content:"";position:absolute;width:6px;height:6px;border-radius:3px;background:rgba(21,34,25,.5);top:8px}
+.plate::before{left:8px}.plate::after{right:8px}
+</style>
+</helmet>
+<div style="width: 834px; min-height: 2200px; display: flex; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
+
+  <aside style="flex: 0 0 88px; align-self: stretch; background: #152219; color: #EDF0EA; padding: 20px 8px; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; gap: 6px; position: relative">
+    <div style="position: absolute; left: 0; top: 0; right: 0; height: 4px; background: #1F5C41"></div>
+    <div style="font-size: 26px; font-weight: 700; color: #FFFDF4; letter-spacing: -0.04em; padding: 6px 0 16px">t.</div>
+    <nav aria-label="Panel sections" style="display: flex; flex-direction: column; gap: 4px">
+      <a href="T-Pass.dc.html" class="tnav"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18"/><path d="M7.5 5v3M17.5 5v3"/><rect x="5" y="8" width="5" height="9" rx="1"/><rect x="15" y="8" width="5" height="11" rx="1"/></svg>Pass</a>
+      <a href="T-Spike.dc.html" class="tnav"><span style="position: relative; display: inline-flex"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18"/><path d="M7 21h10"/><rect x="6" y="9" width="12" height="7" rx="1"/></svg><span class="mono" aria-label="4 waiting" style="position: absolute; top: -6px; right: -10px; min-width: 18px; height: 18px; border-radius: 9px; background: #D98E2B; color: #152219; font-size: 10px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center">4</span></span>Spike</a>
+      <a href="T-People.dc.html" class="tnav"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c1.8.7 3 2.4 3.5 5.2"/></svg>People</a>
+      <a href="T-Venues.dc.html" class="tnav"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>Venues</a>
+      <a href="T-Roll.dc.html" class="tnav"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-2-1.5L14 21l-2-1.5L10 21l-2-1.5L6 21z"/><path d="M9 8h6M9 12h6"/></svg>Roll</a>
+      <a href="T-Odd.dc.html" class="tnav"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="17" r="2"/><circle cx="12" cy="10" r="2"/><circle cx="18" cy="15" r="2"/><path d="M15 3.5l5 5M20 3.5l-5 5"/></svg>Odd</a>
+      <a href="T-Rules.dc.html" class="tnav tnav--on" aria-current="page"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>Rules</a>
+    </nav>
+    <div style="margin-top: auto; display: flex; flex-direction: column; gap: 4px; border-top: 1px solid rgba(237,240,234,.14); padding-top: 10px">
+      <a href="T-Billing.dc.html" class="tnav"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h4"/></svg>Billing</a>
+      <a href="T-Account.dc.html" class="tnav"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21V8l8-5 8 5v13"/><path d="M9 21v-6h6v6"/></svg>Account</a>
+      <a href="T-Developers.dc.html" class="tnav"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 8l-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14"/></svg>Dev</a>
+    </div>
+  </aside>
+
+  <main style="flex: 1; min-width: 0; padding: 24px; box-sizing: border-box; display: flex; flex-direction: column; gap: 22px">
+    <header style="display: flex; flex-direction: column; gap: 6px">
+      <span class="lbl">First match wins · read top to bottom</span>
+      <h1 style="margin: 0; font-size: 36px; line-height: 1; letter-spacing: -0.035em">Rules</h1>
+    </header>
+
+    <sc-if value="{{changed}}" hint-placeholder-val="{{false}}">
+      <div role="status" style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 14px 12px 18px; border-radius: 14px; background: #152219; color: #FFFDF4">
+        <span style="font-weight: 700; font-size: 15px; flex: 1 1 160px">{{changedLabel}}</span>
+        <button type="button" onClick="{{discard}}" style="min-height: 44px; padding: 0 16px; border-radius: 10px; border: 1px solid rgba(255,253,244,.5); background: transparent; color: #FFFDF4; font: 700 14px 'Space Grotesk', sans-serif; cursor: pointer">Discard</button>
+        <button type="button" style="min-height: 44px; padding: 0 16px; border-radius: 10px; border: 0; background: #FFFDF4; color: #152219; font: 700 14px 'Space Grotesk', sans-serif; cursor: pointer">Review &amp; save</button>
+        <span class="mono" style="flex-basis: 100%; font-size: 11px; color: #C9D2C8">Only the owner can save rule changes</span>
+      </div>
+    </sc-if>
+
+    <section aria-labelledby="ladder-h" style="display: flex; flex-direction: column; gap: 14px">
+      <h2 id="ladder-h" style="margin: 0; font-size: 22px; letter-spacing: -0.02em">The ladder</h2>
+      <div style="position: relative; padding-left: 52px; display: flex; flex-direction: column; gap: 10px">
+        <div aria-hidden="true" style="position: absolute; left: 17px; top: 8px; bottom: 8px; width: 4px; border-radius: 2px; background: #152219"></div>
+
+        <span class="lbl" style="margin-left: -52px; padding: 2px 0 2px 52px">Guardrails · always on, for every business</span>
+        <ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px">
+          <sc-for list="{{guards}}" as="g" hint-placeholder-count="7">
+            <li class="plate" style="position: relative; padding: 14px 18px 14px 26px; border-radius: 12px; background: rgba(21,34,25,.05); border: 1px solid #C9D2C8; display: grid; grid-template-columns: 1fr auto; gap: 4px 14px; align-items: center">
+              <span class="mono" aria-hidden="true" style="position: absolute; left: -48px; top: 12px; width: 30px; height: 30px; border-radius: 15px; background: #152219; color: #FFFDF4; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">{{g.no}}</span>
+              <span style="font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 8px">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="Locked"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+                {{g.what}}
+              </span>
+              <span class="mono" style="font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 6px; border: 1px solid #152219; white-space: nowrap">{{g.effect}}</span>
+              <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7)">{{g.id}}</span>
+            </li>
+          </sc-for>
+        </ol>
+
+        <span class="lbl" style="padding-top: 10px">Your rules · you can change these</span>
+        <ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px">
+          <sc-for list="{{base}}" as="b" hint-placeholder-count="5">
+            <li style="position: relative; padding: 16px 18px; border-radius: 14px; background: #FFFDF4; border: 1px solid #C9D2C8; display: flex; flex-direction: column; gap: 10px">
+              <span class="mono" aria-hidden="true" style="position: absolute; left: -48px; top: 16px; width: 30px; height: 30px; border-radius: 15px; background: #FFFDF4; border: 2px solid #152219; box-sizing: border-box; color: #152219; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">{{b.no}}</span>
+              <div style="display: flex; flex-direction: column; gap: 3px">
+                <span style="font-size: 15px; font-weight: 700">{{b.what}}</span>
+                <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7)">{{b.id}}</span>
+              </div>
+              <div role="radiogroup" aria-label="{{b.what}}" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 4px; border-radius: 12px; background: #EDF0EA">
+                <sc-for list="{{b.opts}}" as="o" hint-placeholder-count="3">
+                  <button type="button" role="radio" aria-checked="{{o.on}}" onClick="{{o.pick}}" style="{{o.style}}">{{o.label}}</button>
+                </sc-for>
+              </div>
+            </li>
+          </sc-for>
+          <li style="position: relative; padding: 16px 18px; border-radius: 14px; background: #FFFDF4; border: 1px solid #C9D2C8; display: flex; align-items: center; justify-content: space-between; gap: 14px">
+            <span class="mono" aria-hidden="true" style="position: absolute; left: -48px; top: 16px; width: 30px; height: 30px; border-radius: 15px; background: #FFFDF4; border: 2px solid #152219; box-sizing: border-box; color: #152219; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">13</span>
+            <div style="display: flex; flex-direction: column; gap: 3px">
+              <label for="note-sw" style="font-size: 15px; font-weight: 700">Note a tap at another venue</label>
+              <span style="font-size: 13px; color: rgba(21,34,25,.7)">A note on the record, never a verdict.</span>
+              <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7)">base:cross-location-note</span>
+            </div>
+            <button id="note-sw" type="button" role="switch" aria-checked="{{noteOn}}" onClick="{{toggleNote}}" style="{{noteTrack}}"><span style="{{noteKnob}}"></span></button>
+          </li>
+          <li class="plate" style="position: relative; padding: 16px 18px 16px 26px; border-radius: 14px; background: rgba(217,142,43,.1); border: 1px solid #D98E2B; display: flex; flex-direction: column; gap: 6px">
+            <span class="mono" aria-hidden="true" style="position: absolute; left: -48px; top: 16px; width: 30px; height: 30px; border-radius: 15px; background: #D98E2B; color: #152219; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">14</span>
+            <div style="display: flex; justify-content: space-between; gap: 12px; align-items: center">
+              <span style="font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 8px">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="Locked"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+                Nothing else matched
+              </span>
+              <span class="mono" style="font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 6px; border: 1px solid #152219; white-space: nowrap">Send to spike</span>
+            </div>
+            <span style="font-size: 14px">Nothing approves silently. A record is always kept.</span>
+            <span class="mono" style="font-size: 11px; color: #152219">base:no-evidence-review</span>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <section aria-labelledby="how-h" style="background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 18px; padding: 20px; display: flex; flex-direction: column; gap: 14px">
+      <h2 id="how-h" style="margin: 0; font-size: 20px; letter-spacing: -0.02em">How a tap is judged</h2>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+        <sc-for list="{{how}}" as="h" hint-placeholder-count="4">
+          <div style="display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: 12px; border: 1px solid #C9D2C8">
+            <span class="lbl">{{h.k}}</span>
+            <span style="font-size: 15px; font-weight: 700">{{h.v}}</span>
+            <span style="font-size: 13px; color: rgba(21,34,25,.7); line-height: 1.4">{{h.d}}</span>
+          </div>
+        </sc-for>
+      </div>
+      <p class="mono" style="margin: 0; font-size: 12px; color: rgba(21,34,25,.7)">Location is read only at the moment of the tap. Never in the background, never between taps.</p>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":834,"height":2200}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.defaults = { 'base:ip-or-gps-ok': 'Approve', 'base:gps-only-allow': 'Approve', 'base:qr-requires-ip': 'Send to spike', 'base:gps-conflict-review': 'Send to spike', 'base:ctr-gap-review': 'Send to spike' };
+    this.state = { eff: Object.assign({}, this.defaults), note: true };
+  }
+  renderVals() {
+    const guards = [
+      ['01', 'Plaque belongs to another business', 'Redirect', 'sys:tenant-mismatch'],
+      ['02', 'Plaque is lost or retired', 'Reject', 'sys:tag-not-active'],
+      ['03', 'Chip signature wrong or counter did not move', 'Reject', 'sys:sun-invalid'],
+      ['04', 'Phone not signed in', 'Activation page, no record', 'sys:no-session'],
+      ['05', 'Person is deactivated', 'Reject + alert', 'sys:employee-deactivated'],
+      ['06', 'Same person again within 60 s', 'Ignore', 'sys:person-debounce'],
+      ['07', 'Partner-venue QR without venue network', 'Send to spike', 'sys:cross-tenant-qr-site-ip']
+    ].map(([no, what, effect, id]) => ({ no, what, effect, id }));
+    const rows = [
+      ['08', 'Venue network or GPS within 150 m', 'base:ip-or-gps-ok'],
+      ['09', 'GPS alone, no venue network', 'base:gps-only-allow'],
+      ['10', 'QR scan without venue network', 'base:qr-requires-ip'],
+      ['11', 'GPS says the phone was elsewhere', 'base:gps-conflict-review'],
+      ['12', 'Plaque counter jumped', 'base:ctr-gap-review']
+    ];
+    const eff = this.state.eff;
+    const base = rows.map(([no, what, id]) => ({
+      no, what, id,
+      opts: ['Approve', 'Send to spike', 'Reject'].map(label => {
+        const on = eff[id] === label;
+        return { label, on: on ? 'true' : 'false',
+          pick: () => this.setState({ eff: Object.assign({}, this.state.eff, { [id]: label }) }),
+          style: 'min-height:44px;border-radius:9px;font:700 13px Space Grotesk,sans-serif;cursor:pointer;' + (on ? 'background:#152219;color:#FFFDF4;border:1px solid #152219' : 'background:transparent;color:#152219;border:1px solid transparent') };
+      })
+    }));
+    let n = Object.keys(this.defaults).filter(k => eff[k] !== this.defaults[k]).length;
+    if (!this.state.note) n += 1;
+    const on = this.state.note;
+    return {
+      guards, base,
+      changed: n > 0, changedLabel: n + (n === 1 ? ' rule changed' : ' rules changed'),
+      discard: () => this.setState({ eff: Object.assign({}, this.defaults), note: true }),
+      noteOn: on ? 'true' : 'false', toggleNote: () => this.setState({ note: !this.state.note }),
+      noteTrack: 'flex:0 0 auto;width:56px;height:32px;border-radius:16px;border:0;padding:3px;cursor:pointer;display:flex;align-items:center;box-sizing:border-box;' + (on ? 'background:#1F5C41;justify-content:flex-end' : 'background:rgba(21,34,25,.5);justify-content:flex-start'),
+      noteKnob: 'width:26px;height:26px;border-radius:13px;background:#FFFDF4;display:block',
+      how: [
+        { k: 'Physical tap', v: 'The chip signs it', d: 'Each touch carries a fresh signature and a counter that only goes up.' },
+        { k: 'Who', v: 'Their own phone', d: 'The browser they activated with. No app, no fingerprint, no face.' },
+        { k: 'Where', v: 'Venue network', d: 'The phone was on the address range you set for the venue.' },
+        { k: 'Backup where', v: 'GPS at the tap', d: 'Within 150 m of the venue point, read once.' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

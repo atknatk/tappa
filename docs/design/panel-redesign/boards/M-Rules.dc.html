@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Rules — mobile</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0EA}
+a{color:#1F5C41}a:hover{color:#152219}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.tab{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:60px;text-decoration:none;color:rgba(237,240,234,.8);font:500 11px 'Space Grotesk',sans-serif}
+.tab:hover{color:#FFFDF4}
+.tab-ic{width:48px;height:30px;border-radius:15px;display:flex;align-items:center;justify-content:center}
+.tab--on{color:#FFFDF4}
+.tab--on .tab-ic{background:#FFFDF4;color:#152219}
+.tab-badge{position:absolute;top:4px;left:calc(50% + 8px);min-width:18px;height:18px;border-radius:9px;background:#D98E2B;color:#152219;font:700 11px 'IBM Plex Mono',monospace;display:flex;align-items:center;justify-content:center}
+.iconbtn{width:44px;height:44px;display:inline-flex;align-items:center;justify-content:center;border:0;background:transparent;color:#152219;border-radius:12px;cursor:pointer;text-decoration:none}
+.rung{position:absolute;left:-36px;top:14px;width:26px;height:26px;border-radius:50%;background:#152219;color:#FFFDF4;font:700 11px 'IBM Plex Mono',monospace;display:flex;align-items:center;justify-content:center}
+.rivet{position:absolute;width:6px;height:6px;border-radius:50%;background:rgba(21,34,25,.5)}
+</style>
+</helmet>
+<div style="width: 390px; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
+  <div style="height: 4px; background: #1F5C41"></div>
+  <header style="height: 56px; display: flex; align-items: center; gap: 4px; padding: 0 16px; box-sizing: border-box">
+    <a href="M-More.dc.html" class="iconbtn" aria-label="Back to More" style="margin-left: -12px"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></a>
+    <div style="flex: 1; display: flex; flex-direction: column; gap: 2px">
+      <span style="font-size: 20px; font-weight: 700; letter-spacing: -0.03em; line-height: 1">taptime</span>
+      <span class="mono" style="font-size: 10px; letter-spacing: .12em; color: rgba(21,34,25,.7)">KEBAB FACTORY</span>
+    </div>
+    <button type="button" class="iconbtn" aria-label="Search" style="margin-right: -12px"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
+  </header>
+
+  <main style="padding: 16px 16px 24px; display: flex; flex-direction: column; gap: 18px">
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <span class="lbl">First match wins</span>
+      <h1 style="margin: 0; font-size: 30px; line-height: 1; letter-spacing: -0.035em">Rules</h1>
+    </div>
+    <p style="margin: 0; font-size: 14px; line-height: 1.5; color: rgba(21,34,25,.7)">Every tap climbs this ladder from the top. The first rung that fits decides. If no rung decides, the tap goes to the spike.</p>
+
+    <ol style="list-style: none; margin: 0; padding: 0 0 0 36px; position: relative; display: flex; flex-direction: column; gap: 10px">
+      <li aria-hidden="true" style="position: absolute; left: 12px; top: 8px; bottom: 8px; width: 2px; background: #152219"></li>
+
+      <li class="lbl" style="padding: 2px 0 2px">Guardrails · no business can change these</li>
+      <sc-for list="{{guards}}" as="g" hint-placeholder-count="7">
+        <li style="position: relative">
+          <span class="rung">{{g.no}}</span>
+          <div style="position: relative; padding: 14px 16px; border-radius: 12px; background: rgba(21,34,25,.05); border: 1px solid #C9D2C8; display: flex; flex-direction: column; gap: 6px">
+            <span class="rivet" style="left: 6px; top: 6px"></span><span class="rivet" style="right: 6px; top: 6px"></span>
+            <span class="rivet" style="left: 6px; bottom: 6px"></span><span class="rivet" style="right: 6px; bottom: 6px"></span>
+            <span style="display: flex; align-items: center; gap: 6px">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(21,34,25,.7)" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+              <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7)">{{g.id}}</span>
+            </span>
+            <span style="font-size: 14px; font-weight: 500; line-height: 1.35">{{g.when}}</span>
+            <span class="mono" style="font-size: 12px; font-weight: 700">→ {{g.then}}</span>
+          </div>
+        </li>
+      </sc-for>
+
+      <li class="lbl" style="padding: 10px 0 2px">Your rules · you choose what happens</li>
+      <sc-for list="{{rules}}" as="r" hint-placeholder-count="5">
+        <li style="position: relative">
+          <span class="rung">{{r.no}}</span>
+          <div style="{{r.cardStyle}}">
+            <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7)">{{r.id}}</span>
+            <span style="font-size: 15px; font-weight: 700; line-height: 1.35">{{r.when}}</span>
+            <div role="group" aria-label="{{r.groupLabel}}" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; border: 1px solid rgba(21,34,25,.5); border-radius: 12px; overflow: hidden">
+              <sc-for list="{{r.opts}}" as="o" hint-placeholder-count="3">
+                <button type="button" onClick="{{o.pick}}" aria-pressed="{{o.on}}" style="{{o.style}}">{{o.label}}</button>
+              </sc-for>
+            </div>
+            <sc-if value="{{r.changed}}" hint-placeholder-val="{{false}}">
+              <span class="mono" style="font-size: 11px; color: #152219">changed · was {{r.was}}</span>
+            </sc-if>
+          </div>
+        </li>
+      </sc-for>
+
+      <li style="position: relative">
+        <span class="rung">13</span>
+        <div style="padding: 14px 16px; border-radius: 12px; background: #FFFDF4; border: 1px solid #C9D2C8; display: flex; align-items: center; gap: 12px">
+          <span style="flex: 1; display: flex; flex-direction: column; gap: 4px">
+            <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7)">base:cross-location-note</span>
+            <span style="font-size: 15px; font-weight: 700; line-height: 1.35">Note taps at another venue</span>
+            <span style="font-size: 12px; color: rgba(21,34,25,.7)">A note, not a decision. It shows in reports, not on the staff screen.</span>
+          </span>
+          <button type="button" role="switch" aria-checked="{{noteOn}}" aria-label="Note taps at another venue" onClick="{{toggleNote}}" style="{{switchStyle}}"><span style="{{knobStyle}}"></span></button>
+        </div>
+      </li>
+
+      <li style="position: relative">
+        <span class="rung">14</span>
+        <div style="padding: 14px 16px; border-radius: 12px; background: #F7EBD6; border: 1px solid #D98E2B; display: flex; flex-direction: column; gap: 6px">
+          <span style="display: flex; align-items: center; gap: 6px">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#152219" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+            <span class="mono" style="font-size: 11px; color: #152219">base:no-evidence-review · always last</span>
+          </span>
+          <span style="font-size: 15px; font-weight: 700">Nothing above matched</span>
+          <span class="mono" style="font-size: 12px; font-weight: 700">→ Send to spike — nothing approves silently</span>
+        </div>
+      </li>
+    </ol>
+  </main>
+
+  <sc-if value="{{dirty}}" hint-placeholder-val="{{false}}">
+    <div style="position: sticky; bottom: 68px; margin: 0 12px 12px; padding: 10px 10px 10px 16px; border-radius: 16px; background: #152219; color: #FFFDF4; display: flex; align-items: center; gap: 8px; box-shadow: 0 6px 18px rgba(21,34,25,.25)">
+      <span style="flex: 1; font-size: 14px; font-weight: 700">{{dirtyLabel}}</span>
+      <button type="button" onClick="{{discard}}" style="min-height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid rgba(255,253,244,.4); background: transparent; color: #FFFDF4; font: 500 13px 'Space Grotesk', sans-serif; cursor: pointer">Discard</button>
+      <button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 10px; border: 0; background: #FFFDF4; color: #152219; font: 700 13px 'Space Grotesk', sans-serif; cursor: pointer">Review &amp; save</button>
+    </div>
+  </sc-if>
+
+  <nav aria-label="Panel sections" style="position: sticky; bottom: 0; height: 68px; box-sizing: border-box; background: #152219; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); padding: 0 4px 8px">
+    <a href="M-Pass.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18"/><path d="M7.5 5v3M17.5 5v3"/><rect x="5" y="8" width="5" height="9" rx="1"/><rect x="15" y="8" width="5" height="11" rx="1"/></svg></span>Pass</a>
+    <a href="M-Spike.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18"/><path d="M7 21h10"/><rect x="6" y="9" width="12" height="7" rx="1"/></svg></span>Spike<span class="tab-badge" aria-label="4 waiting">4</span></a>
+    <a href="M-Roll.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-2-1.5L14 21l-2-1.5L10 21l-2-1.5L6 21z"/><path d="M9 8h6M9 12h6"/></svg></span>Roll</a>
+    <a href="M-People.dc.html" class="tab"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c1.8.7 3 2.4 3.5 5.2"/></svg></span>People</a>
+    <a href="M-More.dc.html" class="tab tab--on" aria-current="page"><span class="tab-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></span>More</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":2120}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { eff: {}, note: true };
+  }
+  renderVals() {
+    const guards = [
+      ['sys:tenant-mismatch', 'The plaque belongs to a business outside your group', 'Send them to their own panel · no record'],
+      ['sys:tag-not-active', 'The plaque is marked lost or retired', 'Reject'],
+      ['sys:sun-invalid', 'The chip signature is wrong, or its counter did not move', 'Reject'],
+      ['sys:no-session', 'The phone is not signed in as anyone', 'Activation page · no record'],
+      ['sys:employee-deactivated', 'The person no longer works here', 'Reject · security alert'],
+      ['sys:person-debounce', 'Same person again within 60 seconds', 'Ignored'],
+      ['sys:cross-tenant-qr-site-ip', 'QR scan at a partner venue, off its network', 'Send to spike']
+    ].map(([id, when, then], i) => ({ no: i + 1, id, when, then }));
+
+    const defs = [
+      ['base:ip-or-gps-ok', 'On the venue network, or GPS within 150 m', 'ok'],
+      ['base:gps-only-allow', 'Only GPS matched — no venue network', 'ok'],
+      ['base:qr-requires-ip', 'QR scan without the venue network', 'flag'],
+      ['base:gps-conflict-review', 'GPS says more than 150 m away', 'flag'],
+      ['base:ctr-gap-review', 'The plaque counter jumped since its last tap', 'flag']
+    ];
+    const names = { ok: 'Approve', flag: 'Spike', reject: 'Reject' };
+    const onStyle = { ok: 'background:#1F5C41;color:#FFFDF4', flag: 'background:#D98E2B;color:#152219', reject: 'background:#BE3D2A;color:#FFFDF4' };
+    let dirty = 0;
+    const rules = defs.map(([id, when, def], i) => {
+      const cur = this.state.eff[id] || def;
+      const changed = cur !== def;
+      if (changed) dirty++;
+      return {
+        no: i + 8, id, when, changed, was: names[def], groupLabel: 'What happens: ' + when,
+        cardStyle: 'padding:14px 16px;border-radius:12px;background:#FFFDF4;display:flex;flex-direction:column;gap:8px;' + (changed ? 'border:2px solid #D98E2B' : 'border:1px solid #C9D2C8'),
+        opts: ['ok', 'flag', 'reject'].map((k, j) => ({
+          label: names[k], on: cur === k ? 'true' : 'false',
+          pick: () => this.setState({ eff: Object.assign({}, this.state.eff, { [id]: k }) }),
+          style: 'min-height:44px;border:0;font:700 13px Space Grotesk,sans-serif;cursor:pointer;' + (j > 0 ? 'border-left:1px solid rgba(21,34,25,.5);' : '') + (cur === k ? onStyle[k] : 'background:transparent;color:#152219')
+        }))
+      };
+    });
+    if (!this.state.note) dirty++;
+    const noteOn = this.state.note;
+    return {
+      guards, rules, dirty: dirty > 0,
+      dirtyLabel: dirty + (dirty === 1 ? ' rule changed' : ' rules changed'),
+      discard: () => this.setState({ eff: {}, note: true }),
+      noteOn: noteOn ? 'true' : 'false',
+      toggleNote: () => this.setState({ note: !this.state.note }),
+      switchStyle: 'flex:none;width:52px;height:32px;border-radius:16px;border:0;padding:3px;cursor:pointer;display:flex;' + (noteOn ? 'background:#1F5C41;justify-content:flex-end' : 'background:rgba(21,34,25,.5);justify-content:flex-start'),
+      knobStyle: 'width:26px;height:26px;border-radius:50%;background:#FFFDF4;display:block'
+    };
+  }
+}
+</script>
+</body>
+</html>
