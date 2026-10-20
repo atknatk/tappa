@@ -70,6 +70,9 @@ const PageSize = 25
 type Reader struct {
 	data Database
 	log  *slog.Logger
+	// now is the server's clock. It is a field so a DB test can stand the reader at a fixed instant
+	// (the Pass's widgets measure against "now"); NewReader sets time.Now and nothing else does.
+	now func() time.Time
 }
 
 // NewReader wires it. A nil database is refused rather than tolerated: a reader
@@ -83,7 +86,7 @@ func NewReader(data Database, log *slog.Logger) (*Reader, error) {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Reader{data: data, log: log}, nil
+	return &Reader{data: data, log: log, now: time.Now}, nil
 }
 
 // Date is a calendar day with no clock and no zone — the thing a manager types
@@ -427,6 +430,11 @@ type Screen struct {
 	Plaques    Plaques
 	History    History
 	TenantName string
+
+	// Floor is The Pass's "on the floor now" (M12-13). It is read only for TODAY's view -- a
+	// Filter with no Date, which is what /admin without `date` is -- and stays NotQueried for a
+	// ledger day, where "now" is not what the page is about.
+	Floor Floor
 }
 
 // Day loads one page of dockets for the given filter.
@@ -482,6 +490,9 @@ func (r *Reader) Screen(ctx context.Context, tenantID uuid.UUID, f Filter) (Scre
 			return err
 		}
 		out.Plaques, out.History = r.advisories(ctx, tx, tenantID)
+		if f.Date.Zero() {
+			r.passWidgets(ctx, tx, tenantID, &out)
+		}
 		return nil
 	})
 	if err != nil {
@@ -613,11 +624,18 @@ func (r *Reader) advisories(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID) 
 // outer transaction aborted — which is the exact failure this function exists to
 // prevent, arriving by a different door.
 func inSavepoint(ctx context.Context, tx pgx.Tx, fn func(*store.Queries) error) error {
+	return inSavepointTx(ctx, tx, func(sp pgx.Tx) error { return fn(store.New(sp)) })
+}
+
+// inSavepointTx is inSavepoint for a read that needs the savepoint's pgx.Tx itself rather than a
+// store over it -- a Pass widget that names a holding peer's venue reads holding_site_locations
+// through db.HoldingOn(tx) (siteVenuesFor), and that read has to sit inside the same savepoint.
+func inSavepointTx(ctx context.Context, tx pgx.Tx, fn func(pgx.Tx) error) error {
 	sp, err := tx.Begin(ctx) // SAVEPOINT
 	if err != nil {
 		return fmt.Errorf("savepoint: %w", err)
 	}
-	if err := fn(store.New(sp)); err != nil {
+	if err := fn(sp); err != nil {
 		_ = sp.Rollback(context.Background()) // ROLLBACK TO SAVEPOINT
 		return err
 	}
@@ -632,7 +650,7 @@ func (r *Reader) page(ctx context.Context, tx pgx.Tx, q *store.Queries, tenantID
 	zone := r.loadZone(zoneName)
 	day := f.Date
 	if day.Zero() {
-		now := time.Now().In(zone)
+		now := r.now().In(zone)
 		day = Date{Year: now.Year(), Month: now.Month(), Day: now.Day()}
 	}
 	from := time.Date(day.Year, day.Month, day.Day, 0, 0, 0, 0, zone)

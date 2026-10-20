@@ -772,6 +772,52 @@ type Querier interface {
 	// mean nothing can clear them. There is no dev-only special case anywhere in this
 	// path -- the number says what it counts and the reader decides.
 	CountMaskedOpenCheckIns(ctx context.Context, arg CountMaskedOpenCheckInsParams) (CountMaskedOpenCheckInsRow, error)
+	// The Pass's "on the floor now" (M12-13, D3): how many PEOPLE are checked in right now, per venue.
+	// One row per venue; the big number is the sum of the rows, so the figure and its breakdown come
+	// from one statement and cannot disagree.
+	//
+	// "CHECKED IN" IS GetLastOpenTransaction's PREDICATE, per person: a non-practice `in` with no
+	// `out` of the same person after it. DISTINCT ON keeps each person's LATEST such `in` (by id, in
+	// the subquery), so a person counts once, at the venue of their latest entry -- two unclosed
+	// check-ins in a row (the pre-ADR-0008 shape) do not make one person two. A flagged `in` counts:
+	// it is a record (§4.6), and whether it is approved is the review queue's business, not the
+	// floor's.
+	//
+	// 🔴 @since IS now - tap.StaleOpenIn, COMPUTED IN GO, and it is a bare parameter (no coalesce):
+	// a check-in older than the engine's own "forgotten checkout" horizon is not somebody on the
+	// floor, it is an anomaly (Odd shapes lists it). The clock is the server's (the Go process), the
+	// instant compared is the record's declared occurred_at -- the same pair ListOpenCheckIns uses.
+	// The outer row repeats `occurred_at >= @since`: logically redundant (every id the subquery picks
+	// satisfies it), it is what keeps the outer scan to the window instead of the tenant's history.
+	//
+	// 🔴 §4.1 / §4.2: this is DERIVED FROM RECORDED TAPS, not tracking. Nothing here reads a
+	// coordinate or an address; the venue is the plaque's (location_id) or, for a row taken at a
+	// holding peer's venue, site_location_id (K-30) -- named by internal/domain/ledger from
+	// holding_site_locations (siteVenuesFor), the one way into a peer's venue list. No evidence column
+	// is read (K-39: a partner row adds a person to the count, never a fact about the peer's network).
+	//
+	// A ROW WITH NO EMPLOYEE IS NOT A PERSON and is left out (employee_id IS NOT NULL): a direction
+	// is only ever assigned to a recognised person (internal/domain/tap), so the predicate is a
+	// guard. Rows with neither venue id group under NULL/NULL and are returned, not dropped.
+	//
+	// NO LIMIT: the rows are bounded by the business's venues plus its peers', not by its history.
+	//
+	// TENANT SCOPE (§4.5): the explicit predicate on the outer row, the subquery's row, the
+	// anti-join's row and the join's ON, beside RLS. The tenant comes from the panel session. (The
+	// outer statement is over transactions rather than over a CTE of the picked rows because
+	// internal/domain/tenant's TestTransactionsQueries_CarryAnExplicitTenantPredicate refuses a
+	// statement that reads a tenant table with no WHERE -- the CTE shape's outer SELECT had none.)
+	//
+	// EXPLAIN (ANALYZE, BUFFERS), 2026-10-20, seed tenant 10000000-...-0001 after `make seed` and the
+	// simulated days the test runs leave (72 rows, 70 inside the window; after ANALYZE; host load
+	// average ~100, so the times are noise): Bitmap Index Scan on transactions_tenant_occurred_idx for
+	// the outer window -> Hash Semi Join against the subquery (Bitmap Index Scan on
+	// transactions_tenant_occurred_idx -> Hash Right Anti Join against the tenant's `out` rows ->
+	// Sort + Unique for DISTINCT ON) -> Nested Loop Left Join to locations -> GroupAggregate -> Sort;
+	// shared hit=78 every run, 1.1-6.2 ms warm. On a larger table the anti-join is expected to probe
+	// transactions_tenant_employee_occurred_idx as GetLastOpenTransaction does -- re-measure rather
+	// than believe this line.
+	CountOnTheFloorByVenue(ctx context.Context, arg CountOnTheFloorByVenueParams) ([]CountOnTheFloorByVenueRow, error)
 	// reviews.sql -- the FLAGGED approval queue (M6-04): two reads and one write.
 	//
 	// 🔴 SECTION 4.3 IS THE WHOLE DESIGN OF THIS FILE. A manager approving or

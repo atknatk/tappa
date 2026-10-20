@@ -260,6 +260,11 @@ type fakeLedger struct {
 	// pages.TransactionsView.OffersAnotherDay).
 	history ledger.History
 
+	// floor is The Pass's "on the floor now" widget (M12-13). The zero value is NotQueried --
+	// "not measured", plaques' default and for plaques' reason: a fake that claimed a count would
+	// let a screen print a number no test set up. Tests that want one say so.
+	floor ledger.Floor
+
 	// M6-04's read side. queue/pending default to "asked, and there is nothing
 	// waiting", for the same reason page does: an unqueried zero value renders
 	// nothing at all, so a test using it would be reading a blank section.
@@ -1260,7 +1265,16 @@ func (f *fakeLedger) Screen(_ context.Context, tenantID uuid.UUID, filter ledger
 	if f.err != nil {
 		return ledger.Screen{}, f.err
 	}
-	return ledger.Screen{Page: f.snapshot(filter), Options: f.opts, Plaques: f.plaques, History: f.history}, nil
+	// The Pass's widgets ride only on TODAY's view (no date), as the real reader's do: a ledger
+	// day leaves them NotQueried.
+	var floor ledger.Floor
+	if filter.Date.Zero() {
+		f.mu.Lock()
+		floor = f.floor
+		f.mu.Unlock()
+	}
+	return ledger.Screen{Page: f.snapshot(filter), Options: f.opts, Plaques: f.plaques, History: f.history,
+		Floor: floor}, nil
 }
 
 func (f *fakeLedger) Day(_ context.Context, tenantID uuid.UUID, filter ledger.Filter) (ledger.Page, error) {

@@ -239,7 +239,9 @@ func hLocal(t *testing.T, day, clock string) time.Time {
 // and each reader is asked as the EMPLOYER: the venue is the site's, by name, its shift is the
 // site's, and the site's evidence is not described (K-39). Readers 7 and 8 name the site's plaque
 // NOWHERE at the employer (the site sees it from its projection -- the site half is asserted
-// too), reader 9 is the site's: its venue's references count the peer's taps.
+// too), reader 9 is the site's: its venue's references count the peer's taps. M12's Pass readers
+// follow as cases 10 onward (the panel redesign's D3 reads): each names the site's venue for the
+// employer, carries no evidence, and the site's own reading does not hold the employer's staff.
 func TestEmployerReaders_NineReadersNameTheSite(t *testing.T) {
 	w := newHWorld(t)
 	day := Date{Year: 2026, Month: time.September, Day: 16}
@@ -416,6 +418,37 @@ func TestEmployerReaders_NineReadersNameTheSite(t *testing.T) {
 			}
 			if refs.HoldingCount < 6 {
 				t.Errorf("the site's venue counts %d holding references, want the peer's 6 taps", refs.HoldingCount)
+			}
+		})
+		// THE PASS'S READERS (M12-13 ...), asked at 12:30 on the 17th: e1 and e2 are on the floor at
+		// the site's venue (their 17th check-ins are open), e3's flagged check-in of the 16th is
+		// older than tap.StaleOpenIn and is not.
+		pass := readerAt(t, w.data, hLocal(t, "2026-09-17", "12:30:00"), nil)
+		employerPass, err := pass.Screen(w.ctx, dir.employer, Filter{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		sitePass, err := pass.Screen(w.ctx, dir.site, Filter{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Run(dir.name+"/10 CountOnTheFloorByVenue", func(t *testing.T) {
+			f := employerPass.Floor
+			if f.State != Measured || f.People != 2 || len(f.Venues) != 1 {
+				t.Fatalf("the employer's floor: %+v, want 2 people at one venue", f)
+			}
+			if v := f.Venues[0]; v.Name != venue || !v.Partner || v.LocationID != w.venue[dir.site] || v.People != 2 {
+				t.Errorf("the employer's floor names %+v, want the site's venue %q as a partner venue with 2 people", v, venue)
+			}
+			// The site's own floor does not hold the employer's staff: those records are the
+			// employer's, and RLS keeps them there.
+			if sitePass.Floor.State != Measured {
+				t.Fatalf("the site's floor is %v, want Measured", sitePass.Floor.State)
+			}
+			for _, v := range sitePass.Floor.Venues {
+				if v.LocationID == w.venue[dir.site] {
+					t.Errorf("the site's floor counts %d people at its own venue -- the employer's staff", v.People)
+				}
 			}
 		})
 	}
