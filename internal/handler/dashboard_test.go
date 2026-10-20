@@ -1203,10 +1203,11 @@ var panelTouchTargets = map[string]int{
 	// because a control revealed one keystroke later is pressed by the same thumb.
 	"pw-toggle": 44, // .pw-toggle -> min-h-11/min-w-11 = 2.75rem square
 	// The phone's navigation (design "The Pass", 2026-10-20): the bottom bar's four
-	// links and its More summary are 60px tall, the More sheet's rows 48px. Both are
-	// real <a> elements, so both halves of the pair reach them.
+	// links and its More summary are 60px tall, the More sheet's rows 56px (the grouped
+	// list of M12-47; they were 48px before). Both are real <a> elements, so both halves
+	// of the pair reach them.
 	"bar-link":   60, // .bar-link   -> min-h-[60px]
-	"sheet-link": 48, // .sheet-link -> min-h-12 = 3rem
+	"sheet-link": 56, // .sheet-link -> min-h-14 = 3.5rem
 	// A section's breadcrumb link (M12-01, pages.panelHead): every crumb before the current
 	// page is a real <a>, so both halves of the pair reach it.
 	"panel-crumb": 44, // .panel-crumb -> min-h-11 = 2.75rem
