@@ -64,6 +64,30 @@ func MintTapPath(key, uid []byte, ctr uint32) (string, error) {
 	return b.String(), nil
 }
 
+// PlaqueQRURL returns the URL a plaque's printed QR code carries:
+// "<base>?tag=<UID>" — the tap URL with no ctr and no cmac, which Parse reads as the
+// QR channel. Unlike the rest of this file it is NOT a development tool: the panel
+// draws this code on the plaque drawing (M12-12, D4). A QR code is static, so there
+// is nothing to forge — it is the same on every scan, carries no proof of a touch,
+// and base:qr-requires-ip decides what a scan is worth.
+//
+// base is the SAME string BuildTapNDEF takes — scheme, host and the tap route, no
+// query (cmd/tappa hands encode.Config "BaseURL + handler.TapPath") — and is checked
+// by BuildTapNDEF itself, so the QR code and the chip's template cannot name two
+// hosts, and a base no plaque could be encoded with (not https, a query, a
+// non-ASCII byte) draws no QR either. uid is the raw 7-byte UID, written in the
+// canonical upper case tags.uid stores. No "src=qr" marker: the channel is the
+// absence of the SUN pair, and the server derives it (CLAUDE.md §5).
+func PlaqueQRURL(base string, uid []byte) (string, error) {
+	if len(uid) != uidLen {
+		return "", fmt.Errorf("sun: qr: uid must be %d bytes, got %d", uidLen, len(uid))
+	}
+	if _, err := BuildTapNDEF(base); err != nil {
+		return "", fmt.Errorf("sun: qr: %w", err)
+	}
+	return base + "?" + paramTag + "=" + strings.ToUpper(hex.EncodeToString(uid)), nil
+}
+
 // ErrDevMintingDisabled is what MintNextTapForDevelopment answers on a Verifier
 // that was not made with WithDevelopmentMinting — which is every Verifier
 // NewVerifier returns. The HTTP gate cannot be forgotten around: without this

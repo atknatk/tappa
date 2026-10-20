@@ -1,9 +1,10 @@
 // Package qrcode encodes bytes as a QR Code symbol (ISO/IEC 18004, Model 2): byte mode,
 // error correction level L, M, Q or H, the smallest of versions 1-40 that holds the data,
 // Reed-Solomon error correction, the mask the standard's four penalty rules score lowest,
-// and the format and (version 7 and up) version information. It returns the module matrix;
-// drawing it is the caller's (operatorpages draws the operator enrollment key's QR code as
-// one SVG path -- ADR 0020 §3, QR note).
+// and the format and (version 7 and up) version information. It returns the module matrix,
+// and draws it as one SVG path (SVGPath) for the panel's plaque drawing (M12-12, D4);
+// operatorpages draws the operator enrollment key's QR code with its own per-module path
+// (ADR 0020 §3, QR note).
 //
 // WHY IN THE REPOSITORY, NOT A LIBRARY. The user decided on 2026-10-09 that the enrollment
 // page shows its key as a QR code; CLAUDE.md §1 adds no dependency for it ("stdlib > small
@@ -24,6 +25,8 @@ package qrcode
 import (
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 )
 
 // Level is an error correction level. The constants' order is the standard's order of
@@ -114,6 +117,50 @@ func (c *Code) Bitmap(border int) [][]bool {
 		}
 	}
 	return out
+}
+
+// SVGSide is the side, in modules, of the square SVGPath(border) draws in: the symbol
+// plus border light modules on each side. It is the viewBox's width and height
+// ("0 0 side side"), the drawing's paper rect, and Bitmap(border)'s side. A negative
+// border counts as 0, as in Bitmap.
+func (c *Code) SVGSide(border int) int { return len(c.modules) + 2*max(border, 0) }
+
+// SVGPath is the symbol's dark modules as ONE SVG path's d attribute, one unit per module,
+// shifted right and down by border light modules (the quiet zone the caller's viewBox,
+// SVGSide(border) square, leaves light). Each horizontal run of dark modules in a row is
+// one closed rectangle "M<x> <y>h<n>v1h-<n>z", so the path is about a third the length of
+// one square per module and still draws exactly Bitmap(border)'s dark cells: the
+// rectangles never overlap, so the fill rule does not matter. The light modules are the
+// caller's paper (a rect under the path). A negative border counts as 0, as in Bitmap.
+//
+// It is the one implementation the panel draws with (M12-12): a view carries the string,
+// never the matrix.
+func (c *Code) SVGPath(border int) string {
+	border = max(border, 0)
+	var b strings.Builder
+	for y, row := range c.modules {
+		for x := 0; x < len(row); {
+			if !row[x] {
+				x++
+				continue
+			}
+			start := x
+			for x < len(row) && row[x] {
+				x++
+			}
+			n := strconv.Itoa(x - start)
+			b.WriteString("M")
+			b.WriteString(strconv.Itoa(start + border))
+			b.WriteString(" ")
+			b.WriteString(strconv.Itoa(y + border))
+			b.WriteString("h")
+			b.WriteString(n)
+			b.WriteString("v1h-")
+			b.WriteString(n)
+			b.WriteString("z")
+		}
+	}
+	return b.String()
 }
 
 // Encode encodes data in byte mode at level, in the smallest version that holds it, with
