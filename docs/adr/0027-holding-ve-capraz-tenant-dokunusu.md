@@ -388,8 +388,8 @@ dönüş sütunu, tenant sınırının ne kadar açıldığının kendisidir. Ku
 | `holding_directory(p_updated_since, p_cursor)` | **Eş** tenant'ların çalışanları — **çağıranın kendi tenant'ı hariç** (kendi çalışanları her zaman RLS'li sorgudan gelir, ADR 0028 §2): kimlik, `api_code`, `external_ref`, kod, ad, soyad, tam ad (`full_name` — kullanıcı kararı 2026-10-15, K-41), **aktif/pasif** (K-1h) — **e-posta yok**; sayfalı, en çok 1000 | `GET /v1/directory` (ADR 0028) | `tappa_app` |
 | `holding_peer(a, b, mod)` | İki tenant'ın **aynı** holding'de eş olup olmadığı (tek yüklem) ve yukarıdaki beş kip | yalnız bu listedeki definer'lar ve tetikleyiciler | **yalnız sahip** (INVOKER, VOLATILE) |
 | `holding_peer(a, mod)` *(T124, `00060`)* | Aynı yüklemin küme biçimi: `a`'nın `strict` eşleri (tek kip) | `holding_site_locations`, `holding_directory` | **yalnız sahip** (INVOKER, VOLATILE) |
-| `holding_group()` *(GRP-1, `00062`)* | Çağıranın **kendi** holding'i ve onun **canlı** üyeleri: holding'in adı, üyenin adı, şirket kodu (`api_code`), katılma tarihi, kendisi mi — **VAT, adres, e-posta, çalışan sayısı, plan/fatura, API anahtarı, ayrılmış üye asla** (K-1d); argümansız, en çok 1000 | panelin "Group" sekmesi (salt-okur) | `tappa_app` |
-| `holding_peer(a)` *(GRP-1, `00062`)* | Aynı yüklemin kadro biçimi: `a`'nın canlı holding'i/holding'leri ve onların canlı üyeleri (`a` dahil), her biri katılma tarihiyle; `strict`, kipsiz | `holding_group` | **yalnız sahip** (INVOKER, VOLATILE) |
+| `holding_group()` *(GRP-1, `00062`; kullanıcı onayı 2026-10-20)* | Çağıranın **kendi** holding'i ve onun **canlı** üyeleri: holding'in adı, üyenin adı, şirket kodu (`api_code`), katılma tarihi, kendisi mi — **VAT, adres, e-posta, çalışan sayısı, plan/fatura, API anahtarı, ayrılmış üye asla** (K-1d); argümansız, en çok 1000 | panelin "Group" sekmesi (salt-okur) | `tappa_app` |
+| `holding_peer(a)` *(GRP-1, `00062`; kullanıcı onayı 2026-10-20)* | Aynı yüklemin kadro biçimi: `a`'nın canlı holding'i/holding'leri ve onların canlı üyeleri (`a` dahil), her biri katılma tarihiyle; `strict`, kipsiz | `holding_group` | **yalnız sahip** (INVOKER, VOLATILE) |
 | Tetikleyici `holding_site_gate()`: **`site_*` üyelik kapısı** | `BEFORE INSERT ON transactions`, `WHEN (NEW.site_tenant_id IS NOT NULL)`; K-29'un kanal × zaman şartı (§6) | `transactions` | yalnız sahip |
 | Tetikleyici `holding_feed()`: **holding akış/izdüşüm tetikleyicisi** | `AFTER INSERT ON transactions` ve `ON transaction_reviews`, tetikleyici adı **ad sırasında ilk** (K-31); `site_punches` (§9) ve iki hedefin olay/teslim satırları (§8; ADR 0028 §4) | `transactions`, `transaction_reviews` | yalnız sahip |
 | Tetikleyici `holding_timezone_lock()`: **saat dilimi kilidi** | `BEFORE UPDATE ON tenants` (K-36, §1) | `tenants` | yalnız sahip |
@@ -479,7 +479,7 @@ ile doğar.
 | Tablo | SELECT (yalnız bu sütunlar) | INSERT | UPDATE | DELETE | Neden |
 |---|---|---|---|---|---|
 | `holding_members` | `holding_id`, `member_tenant_id`, `joined_at`, `left_at` | — | **yalnız `lock_anchor`** | — | `holding_peer`; `FOR SHARE` (aşağıda *kilit çapası*) |
-| `holdings` | `id`, `name` *(GRP-1, `00062`)* | — | — | — | yalnız `holding_group` (grubun adı); `created_at` asla. GRP-1'den önce hiçbir gövde okumuyordu (`holding_id` eşitliği `holding_members`'ta) |
+| `holdings` | `id`, `name` *(GRP-1, `00062`; kullanıcı onayı 2026-10-20)* | — | — | — | yalnız `holding_group` (grubun adı); `created_at` asla. GRP-1'den önce hiçbir gövde okumuyordu (`holding_id` eşitliği `holding_members`'ta) |
 | `tags` | `uid`, `tenant_id`, `location_id`, `status`, `last_ctr` | — | `last_ctr` | — | `holding_tap_site`, `holding_advance_tag_counter` (`FOR UPDATE` bu `UPDATE` yetkisiyle karşılanır), BEFORE kapısının `last_ctr ≥ NEW.ctr` şartı |
 | `locations` | `id`, `tenant_id`, `name`, `external_ref` *(M11)*, `static_ips`, `gps_lat`, `gps_lng`, `shift_start`, `shift_end`, `overnight` | — | — | — | `holding_tap_site`, `holding_site_locations`, anlık görüntü |
 | `tenants` | `id`, `name`, `timezone`, `vat_verified`, `api_code` *(M11)*, `api_enabled_at` *(M11)* | — | — | — | saha meta, VIES kapısı, anlık görüntünün şirket kodu, teslim kapısı (ADR 0028 §6); saat dilimi kilidi `NEW`/`OLD`'u okur |
@@ -2060,13 +2060,14 @@ olduğunu göstermedi (aşağıda: ön-süzmenin 5,2–5,8 ms'sinden de hızlı)
 uygulaması, ana oturumun tasarım önerisiyle (otonom kararlar aşağıda işaretli). **Migration `00062`**
 (`db/migrations/00062_show_a_member_its_group.sql`).
 
-- **🔴 Kapalı liste büyüdü — kullanıcı onayı gerekir (§2).** Mevcut fonksiyonların hiçbiri grubun adını (`holdings.name` — tanımlayıcı
-  hiç okumuyordu) ve üyeliklerin tarihini (`holding_members` — gövdesinde yalnız `holding_peer` adlandırabilir) veremiyordu. Bu yüzden
-  üç şey eklendi: **(1)** çağrılabilir `holding_group()`; **(2)** `holding_peer`'in **üçüncü imzası** (kadro biçimi); **(3)** matrise
-  `holdings (id, name)` SELECT. §2'nin kuralı (*"listeye fonksiyon eklemek … `holding_peer`'e kip eklemek … KULLANICI ONAYI + bu ADR'nin
-  değişikliği ister"*; T124 notu: *"üçüncü bir imza aynı onayı ister"*) gereği bu üç ekleme **kullanıcının açık onayını bekler**; görünür
-  davranış (grup ve üyeleri) kullanıcının 2026-10-19 kararıdır, onu taşıyan katalog genişlemesi ana oturumun önerisidir. Onay gelmeden
-  dal `main`'e birleştirilmez.
+- **🔴 Kapalı liste büyüdü — kullanıcı onayladı (2026-10-20, §2).** Mevcut fonksiyonların hiçbiri grubun adını (`holdings.name` —
+  tanımlayıcı hiç okumuyordu) ve üyeliklerin tarihini (`holding_members` — gövdesinde yalnız `holding_peer` adlandırabilir)
+  veremiyordu. Bu yüzden üç şey eklendi: **(1)** çağrılabilir `holding_group()`; **(2)** `holding_peer`'in **üçüncü imzası** (kadro
+  biçimi); **(3)** matrise `holdings (id, name)` SELECT. §2'nin kuralı (*"listeye fonksiyon eklemek … `holding_peer`'e kip eklemek …
+  KULLANICI ONAYI + bu ADR'nin değişikliği ister"*; T124 notu: *"üçüncü bir imza aynı onayı ister"*) gereği bu üç ekleme kullanıcıya
+  soruldu; **kullanıcı 2026-10-20'de üçünü de açıkça onayladı** (`holding_group()`, `holding_peer` kadro biçimi, tanımlayıcıya
+  `holdings (id, name)`). Görünür davranış (grup ve üyeleri) kullanıcının 2026-10-19 kararıdır; bu not ve §2/§3 tabloları onaylanan
+  genişlemenin kaydıdır.
 - **Neden üçüncü imza, gövdede `holding_members` değil (otonom).** `holding_group`'un üyelik tablosunu kendisi okuması §2'nin *"TEK
   fonksiyon `holding_peer`"* kuralına bir istisna ve taramaya (`TestHoldingPeer_IsTheOnlyBodyThatTouchesHoldingMembers`) bir delik
   isterdi. Kadro biçimi T124'ün yoludur: aynı ad, kural ve tarama **yazıldığı gibi** kalır; üyelik zamanlaması (katı, duvar saati bir
@@ -2092,7 +2093,9 @@ uygulaması, ana oturumun tasarım önerisiyle (otonom kararlar aşağıda işar
 - **Görünürlük ve rota (otonom).** Sekme `PanelSection.GroupOnly` ile yalnız canlı üyeye çizilir (`OwnerOnly`'nin biçimi: çizilen
   değişir, yönlendirme değişmez). Rota her işletmeye bağlıdır (*"linki 404 veren sekme"* yapısal olarak imkânsız kalır); üye olmayana
   panelin boş durumu döner — eski yer imiyle ayrıldıktan sonra gelen işletme de bir cümle okur; cümle yalnız kendi işletmesi hakkındadır.
-  Krom üyeliği istek başına bir kez sorar (`ledger.Reader.InGroup`, tek `holding_group` çağrısı); okuma başarısızsa krom
+  Krom üyeliği istek başına bir kez sorar (`ledger.Reader.InGroup`, tek `holding_group` çağrısı) — Group sekmesinin kendi sayfasında
+  ise hiç sormaz: sekmenin okuması (`ledger.Reader.Group`) cevabı zaten verdi ve krom onu alır (`chromeInGroup`; sayfa başına tek
+  `holding_group`, aynı sayfada çelişebilecek iki cevap yok — `TestGroup_TheSectionAsksTheHoldingOnce`); okuma başarısızsa krom
   holding'siz işletmeninkidir ve hata loglanır (markanın kuralı), sekmenin kendi okuması başarısızsa problem sayfası (§4.6).
   Holding'siz işletmenin panel sayfaları bayt bayt aynı (`TestPanelBrand_AnUnbrandedChromeIsTheChromeBeforeWL8`,
   `TestHoldinglessViews_AreByteIdenticalToTheGolden`, ve gerçek veritabanında Reports'un baytları başka bir holding kurulmadan önce ve
@@ -2109,6 +2112,18 @@ uygulaması, ana oturumun tasarım önerisiyle (otonom kararlar aşağıda işar
   de sızıntı bulur (`TestHoldingFilter_MutantsM1M2M3AreRedInFunctionsAndTriggers`); panelde sekme koşulu hep-doğru yapılınca dört test
   kırmızı (`TestGroup_ANonMemberSeesNoTabAndTheEmptyState` dahil). Matrisin yeni iki sütunu tek tek geri alınınca `holding_group` `42501`
   (`TestHoldingDefiner_EveryGrantIsUsed`).
+- **Düzeltme turu 1 (2026-10-20, denetim bulguları).** **(a) Sıra pinleri** (üçüncü göz, ORTA): gerçek veritabanında eş
+  personelinin farklı zamanlı üç ve eşit zamanlı iki kaydı — Reports `(occurred_at, transaction_id)` artan, Group `occurred_at` azalan
+  (eşit zamanlıda `transaction_id` artan) listeler; sınır + 1 satırda Group en yeni 100'ü tutar, en eskisi düşer, *"More"* söylenir
+  (`TestPartnerTaps_ReportsListTheEarliestFirstAndGroupTheLatest`; Reports'a `true`, Group'a `false`, sorgudan `CASE` terimi — üçü
+  kırmızı, ölçüldü). **(b)** `CountRecordsAtPartnerVenues`'ün iki süzgeci: kendi mekânındaki kendi kaydı ve eş mekândaki alıştırma
+  dokunuşu sayılmaz, yöneticinin eş mekân için girdiği manuel kayıt sayılır ve eşin Group sekmesinde `employer_manual` olarak ayrı
+  listelenir (`TestGroup_CountsOwnRecordsAtPartnerVenuesAndNothingElse`; iki süzgeç ayrı ayrı silinince kırmızı). **(c)** `holding_group`
+  gövdesi md5 ile pinli (`holdingGroupBodyMD5`, `TestHoldingGroup_TheBodyIsPinned` — `holding_peer`'in üç biçiminin emsali; davranış
+  testlerinin görmediği bir gövde değişikliği kontrolle kırmızı). **(d)** Metin: *"staff numbers"* → *"headcount"*; paylaşım kutusu
+  yöneticinin eş mekân için girdiği kaydın da eşe göründüğünü söyler; üye olmayanın boş durumu *"Nothing here yet"* değil *"No group"*
+  etiketini taşır (`components.EmptyStateLabeled`; öteki boş durumlar bayt bayt aynı). **(e)** Group sayfasında `holding_group` iki
+  yerine bir kez çağrılır (yukarıda).
 - **Down zincirleri:** `feedBelow48` önce `00062`'nin Down'ını, `feedUpAgain` sonda Up'ını koşar (`00060`'ın Up'ı üçüncü bir
   `holding_peer`'i reddeder); `TestHolding00055_…` ve `TestHolding00060_…` aynı sırayla; `opAtVersionSkips`'e 62.
   `TestHolding00062_DownGivesBackAndUpTakesItAgain`: Down iki fonksiyonu düşürür ve `holdings` SELECT'ini geri alır, ön koşul ikinci
