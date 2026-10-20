@@ -96,12 +96,39 @@ no new route, no form. It must stay unmistakable from the tenant panel.
   - audit `<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4M9 12h7M9 16h7"/>`
   - legal `<path d="M12 3v18M5 7h14M7 7l-3 7h6zM17 7l-3 7h6z"/>`
 - **One-tenant screens** (overview, plaques, billing, VAT number): below the nav (desktop: at
-  the top of the content column), the existing saffron-lite **tenant banner** (label "Tenant",
-  name in display XL bold; **"Unnamed tenant"** + the id, mono, when unnamed), and directly
-  under it a **tenant sub-nav**: **Overview · Plaques · Billing · VAT number** (text tabs on
-  paper with a `line` bottom border; current = **saffron** 3 px bottom marker + bold +
-  `aria-current="page"`). The main nav's **Tenants** item is current on these screens. "Back to
-  the tenants" stays as a link.
+  the top of the content column), the existing saffron-lite **tenant banner** with its **1 px**
+  saffron bottom rule (label "Tenant", name in display XL bold; **"Unnamed tenant"** + the id,
+  mono, when unnamed), and **inside the banner**, under the name, the **tenant sub-nav**
+  `<nav aria-label="This tenant">`: **Overview · Plaques · Billing · VAT number** (text tabs on
+  the banner's saffron-lite ground, 44 px tall, 3 px transparent bottom border sitting on the
+  banner's rule; current = **saffron** 3 px bottom marker + bold + `aria-current="page"`; Space
+  Grotesk 15 px on desktop and tablet, **14 px on the phone, where the row wraps** instead of
+  scrolling). The main nav's **Tenants** item is current on these screens. "Back to the tenants"
+  stays as a link. This is how all fifteen tenant-screen boards draw it; where an earlier draft
+  of this README put the sub-nav on paper under the banner, the boards win (orchestrator
+  decision, 2026-10-20).
+- **DOM order the tests will see** (signed-in; one DOM for all widths):
+
+  ```
+  <header class="op-bar"> … sign-out form … </header>
+  <div class="op-frame">
+    <nav class="op-nav" aria-label="Operator sections"> … five links … </nav>
+    <div class="op-col">                                   (content column)
+      <section class="op-tenant" aria-label="Tenant">      (one-tenant screens only)
+        <p class="docket-label">Tenant</p> <p …name…></p>
+        <nav class="op-subnav" aria-label="This tenant"> … four links … </nav>
+      </section>
+      <main class="op-main …"> … the page … </main>
+    </div>
+  </div>
+  ```
+
+  The banner (with its sub-nav) is **outside and before `<main>`**, as it is today
+  (`chrome.templ:91-99`), so `<header class="op-bar">` still precedes `<main`, the banner still
+  precedes the page, and the tests that search `body[banner:]` for the name keep finding it. On
+  the phone the `op-nav` is `fixed` at the bottom, so its early DOM position costs nothing
+  visually and keeps it first for keyboard and screen-reader users. Signed-out screens:
+  `<header class="op-bar">` (no form) then `<main class="op-main …">` — no frame, no nav.
 - **Signed-out screens** (sign-in, code, enrollment, signed-out problems): the band **without**
   nav and **without** sign out; a centred single-column card.
 - **Signed-in problem pages:** band + nav, **no** current item (a problem is not a section).
@@ -156,7 +183,7 @@ money). The operator-specific rules:
    `TenantScreen` refuses to render without a name (`view.go:91-98` → plain 500;
    `TestTenantScreen_RefusesToRenderWithoutAName`). Platform-wide screens (Home, Tenants, Audit,
    Holdings, Legal) have no banner; each row names its tenant.
-5. **Home makes no read** (`home.templ:6-13`, `console.go:122-134`). A figure on Home would be a
+5. **Home makes no read** (`home.templ:7`, `console.go:12-23` — `home` at :15 renders `Home()` and calls no store). A figure on Home would be a
    new audited read and a new `op_*` (a migration, ADR 0021) — not a port.
 6. **Read budget.** Each data screen view = one `read` audit row + one budget unit
    (`TestReadBudget_TheReadsOfEveryScreenShareOneBudgetPerSession`; per screen
@@ -234,8 +261,11 @@ added per render —
 - `aria-current="page"` in the main nav: exactly one on every signed-in render except
   "problem, signed in" (zero), and it is the right item (Console on home; Tenants on the tenant
   list and the four one-tenant screens; Holdings, Audit log, Legal texts on theirs);
-- the four one-tenant screens carry the tenant sub-nav after the banner with the tenant's four
-  paths and exactly one current (Overview / Plaques / Billing / VAT number);
+- **every one-tenant render (17** — the 16 overview / plaques / billing / VAT fixtures plus the
+  bare "tenant screen" fixture**)** carries the tenant sub-nav **inside** the banner
+  (`<section class="op-tenant"` … `<nav class="op-subnav"` … `</section>`, before `<main`) with
+  the tenant's four paths and exactly one current (Overview / Plaques / Billing / VAT number;
+  the bare fixture names which one it passes); no other render carries it;
 - the panel-marker list grows by the shell classes shipped since (`sheet-`, `panel-well`,
   `panel-stripe`) and the tenant-brand markers (`/brand/` — the theme stylesheet and logo paths,
   `layout/theme.go:41-46` —, `bg-brand`, `--brand`, `<img`); not the bare words "brand" or
@@ -247,8 +277,8 @@ added per render —
 
 | What | Test(s) | Pins |
 |---|---|---|
-| Links and actions | `TestOperatorScreens_EveryActionAndLinkIsAMountedRoute` (`op8_test.go:856`) | Home's exact `<a href="/operator/holdings" class="op-link">Holdings</a>` and `…/audit" class="op-link">Audit log</a>`; form **counts** on overview (open 1, close 1), holdings, audit (3 when filtered), billing page 3 (2), VAT (1, 0 for an odd number). The nav adds links, no forms. |
-| One form on plaques | `op13_test.go:327` (inside the plaque-screen tests) | the plaques page has exactly **one** `<form` — the sign-out. So sign-out is one form for all widths; the nav holds no form. |
+| Links and actions | `TestOperatorScreens_EveryActionAndLinkIsAMountedRoute` (`op8_test.go:856`) | Home's exact `<a href="/operator/holdings" class="op-link">Holdings</a>` and `…/audit" class="op-link">Audit log</a>`; form **counts** on overview (open 1, close 1), holdings, audit (3 when filtered), billing page 3 (2), VAT (1, 0 for an odd number). The counts match **exact opening-tag prefixes, attribute order included** — e.g. `<form method="post" action="/operator/tenants/<id>/integration" class=`, `<form method="post" action="/operator/holdings" class=`, `<form method="post" action="/operator/tenants/<id>/billing">` — so a port keeps `method` before `action`, and keeps or omits the trailing `class=` exactly as today. Every `action`/`href`/`src` must be a mounted same-origin path. The nav adds links, no forms. |
+| One form, one button on plaques | `op13_test.go:327-332` (in `TestPlaqueScreen_EveryShapeHasItsSentenceAndAnUnknownStatusStaysVisible`) | the plaques page has exactly **one** `<form` (the sign-out, `<form method="post" action="/operator/logout">`), exactly **one** `<button`, and no `hx-` attribute. So sign-out is one form and one text button at every width; the nav and sub-nav hold neither. |
 | SVG count | `TestEnrollQR_OnlyOnTheFirstLoad` (`enrollqr_test.go:202-229`) | 1 SVG on enroll first load, 0 elsewhere → extended in M13-01 |
 | QR | `TestEnrollQR_IsTheKeysURIInkOnPaper` | `class="op-qr"`, `role="img"`, aria-label, `#152219`/`#FFFDF4`, order svg → key → uri |
 | Script | `TestEnrollScript_IsTheReviewedBody`, `TestEnrollScript_TouchesTheFragmentAndNothingElse` | ids `enroll-token`, `enroll-token-wrap`; the script's body |
@@ -275,7 +305,8 @@ sizes. Operator-specific mappings from the boards:
 | `rgba(21,34,25,.05)` | `bg-ink/5` | current main-nav item, nav hover |
 | `rgba(21,34,25,.7)` | `text-ink/70` | phone bar inactive label (6.05:1 on paper) |
 | `rgba(217,142,43,.1)` | `bg-saffron/10` | tenant sub-nav hover |
-| `#D98E2B` 3 px | `border-b-[3px] border-saffron` | tenant sub-nav current marker; the banner's bottom rule as drawn |
+| `#D98E2B` 3 px | `border-b-[3px] border-saffron` | tenant sub-nav current marker (the banner's own rule is 1 px `border-b border-saffron`) |
+| `#F7EBD6` | `bg-saffron-lite` | tenant banner, and the sub-nav row inside it |
 | `#152219` 3 px | `border-l-[3px]` / `border-b-[3px]` / top marker `before:` | main-nav current marker (desk / tablet / phone) |
 | card radius 14 px | `rounded-[14px]` | `.op-card` (D2: cards may round; dockets stay sharp) |
 | button radius 10 px | `rounded-[10px]` | sign out, primary and quiet buttons, fields |
@@ -290,15 +321,15 @@ existing `op-*` block at `input.css:1045-1092`) and **unexported** templ compone
 
 | Component | Extends / new | Recipe | Breakpoints · notes |
 |---|---|---|---|
-| **Band** `op-bar` | existing `.op-bar`, `.op-lockup`, `.op-signout` (`input.css:1045-1051`), `bar(signedIn)` (`chrome.templ:33-46`) | keep `<header class="op-bar">` and the lockup markup byte-for-byte; inner `flex min-h-16 items-center justify-between gap-3 px-4 md:px-6 desk:px-8` (full width now — it no longer sits in `max-w-3xl`); `.op-signout` gains `rounded-[10px]` | same at every width; one sign-out form. On phone the button may shrink to an icon **only** if its accessible name stays "Sign out" (`sr-only` text); the test's `action="/operator/logout"` must still appear once. |
+| **Band** `op-bar` | existing `.op-bar`, `.op-lockup`, `.op-signout` (`input.css:1045-1051`), `bar(signedIn)` (`chrome.templ:33-46`) | keep `<header class="op-bar">` and the lockup markup byte-for-byte; inner `flex min-h-16 items-center justify-between gap-3 px-4 md:px-6 desk:px-8` (full width now — it no longer sits in `max-w-3xl`); `.op-signout` gains `rounded-[10px]` | same at every width; one sign-out form. On the phone it stays the **text** button "Sign out" — no icon, no `<svg>` (the plaques page allows exactly one `<button>`, and the SVG count on signed-in renders is exactly the nav's five); `action="/operator/logout"` appears once. |
 | **Frame** `op-frame` | new | `desk:flex desk:min-h-[calc(100vh-4rem)]`; content column `min-w-0 flex-1` | wraps nav + content column on signed-in screens only |
-| **Main nav** `op-nav` | new; **one** `<nav class="op-nav" aria-label="Operator sections">` | desk: `desk:static desk:w-[232px] desk:flex-none desk:flex-col desk:border-r desk:border-line desk:bg-paper desk:px-3 desk:py-6`; label `.op-nav-label` `hidden desk:block px-3 pb-2 font-mono text-[11px] uppercase tracking-[0.12em] text-ink/70` "PLATFORM"; item `.op-nav-item` `flex min-h-11 items-center gap-2 font-display text-[15px] text-ink hover:bg-ink/5`; current `aria-[current=page]:font-bold` + marker | **tablet** `md:flex md:flex-row md:flex-wrap md:border-b md:border-line md:bg-paper md:px-2.5`, item `md:px-3.5 md:border-b-[3px] md:border-transparent md:aria-[current=page]:border-ink`; **desk** item `desk:border-b-0 desk:border-l-[3px] desk:aria-[current=page]:border-ink desk:aria-[current=page]:bg-ink/5`; **phone** `fixed inset-x-0 bottom-0 z-10 grid grid-cols-5 border-t border-line bg-paper pb-[env(safe-area-inset-bottom)]`, item `relative min-h-[60px] flex-col justify-center gap-0.5 text-[11px] text-ink/70 aria-[current=page]:text-ink aria-[current=page]:font-bold` with an ink 3 px top marker on current. Icon `<svg class="size-[22px] md:hidden" aria-hidden="true">`. Phone label vs wider label: `<span class="md:hidden">Audit</span><span class="hidden md:inline">Audit log</span>` (and Legal / Legal texts). **Not** the panel's sidebar classes. |
-| **Content column** | replaces `<main class="mx-auto … max-w-3xl … px-4 py-8">` (`chrome.templ:72,83,95`) | `<main class="mx-auto flex w-full max-w-[960px] flex-col gap-4 px-4 pt-4 pb-24 md:gap-5 md:px-6 md:py-6 desk:gap-6 desk:px-10 desk:pt-8 desk:pb-14">` | `pb-24` on phone clears the fixed bar; signed-out screens: centred `max-w-lg`, no bottom padding |
-| **Tenant banner** `op-tenant` | existing `.op-tenant` (`input.css:1052`), `tenantBanner` (`chrome.templ:54-66`) | keep `<section class="op-tenant" aria-label="Tenant">`, the label `docket-label` "Tenant", the two `<p>` shapes and `<bdi>` exactly; rule may thicken to `border-b-[3px]`; inner `max-w-[960px] px-4 py-4 md:px-6 desk:px-10 desk:py-5`; name `md:text-2xl desk:text-3xl` is allowed **only** if the pinned `<p class="font-display text-xl font-bold tracking-tight">` stays (add the size via a parent selector rule, not on the `<p>`) | in the content column on desktop, full width under the tab row on tablet, under the band on phone |
-| **Tenant sub-nav** `op-subnav` | new; `<nav class="op-subnav" aria-label="This tenant">` | `flex overflow-x-auto border-b border-line bg-paper px-2 md:px-4 [scrollbar-width:none]`; item `.op-subnav-item` `inline-flex min-h-11 items-center whitespace-nowrap border-b-[3px] border-transparent px-3.5 font-display text-[15px] text-ink hover:bg-saffron/10 aria-[current=page]:border-saffron aria-[current=page]:font-bold` | same row at every width (scrolls sideways on a narrow phone, never wraps the page). Paths from the view (`OverviewPath`, `PlaquesPath`, `BillingPath`, `VATPath`) — content, not classes. |
+| **Main nav** `op-nav` | new; **one** `<nav class="op-nav" aria-label="Operator sections">`; links only — **no `<form>`, no `<button>`** inside (the plaques page allows exactly one of each, the sign-out) | desk: `desk:static desk:w-[232px] desk:flex-none desk:flex-col desk:border-r desk:border-line desk:bg-paper desk:px-3 desk:py-6`; label `.op-nav-label` `hidden desk:block px-3 pb-2 font-mono text-[11px] uppercase tracking-[0.12em] text-ink/70` "PLATFORM"; item `.op-nav-item` `flex min-h-11 items-center gap-2 font-display text-[15px] text-ink hover:bg-ink/5`; current `aria-[current=page]:font-bold` + marker | **tablet** `md:static md:flex md:flex-row md:flex-wrap md:border-t-0 md:border-b md:border-line md:bg-paper md:px-2.5 md:pb-0` (the `md:static`, `md:border-t-0` and `md:pb-0` undo the phone's fixed bar), item `md:min-h-11 md:flex-row md:px-3.5 md:text-[15px] md:border-b-[3px] md:border-transparent md:aria-[current=page]:border-ink`; **desk** item `desk:border-b-0 desk:border-l-[3px] desk:aria-[current=page]:border-ink desk:aria-[current=page]:bg-ink/5`; **phone** `fixed inset-x-0 bottom-0 z-10 grid grid-cols-5 border-t border-line bg-paper pb-[env(safe-area-inset-bottom)]`, item `relative min-h-[60px] flex-col justify-center gap-0.5 text-[11px] text-ink/70 aria-[current=page]:text-ink aria-[current=page]:font-bold` with an ink 3 px top marker on current. Icon `<svg class="size-[22px] md:hidden" aria-hidden="true">`. Phone label vs wider label: `<span class="md:hidden">Audit</span><span class="hidden md:inline">Audit log</span>` (and Legal / Legal texts). **Not** the panel's sidebar classes. |
+| **Content column** | new wrapper `div.op-col` (`min-w-0 flex-1`) + `<main>` replacing `<main class="mx-auto … max-w-3xl … px-4 py-8">` (`chrome.templ:72,83,95`) | `<main class="op-main mx-auto flex w-full max-w-[960px] flex-col gap-4 px-4 pt-4 pb-24 md:gap-5 md:px-6 md:py-6 desk:gap-6 desk:px-10 desk:pt-8 desk:pb-14">` — the **`op-main`** class is introduced here (M13-01) because the chip rule (M13-02) scopes to it | `pb-24` on phone clears the fixed bar; signed-out screens: `op-main` too, centred `max-w-lg`, no bottom padding |
+| **Tenant banner** `op-tenant` | existing `.op-tenant` (`input.css:1052`), `tenantBanner` (`chrome.templ:54-66`) | keep `<section class="op-tenant" aria-label="Tenant">`, the label `docket-label` "Tenant", the two `<p>` shapes and `<bdi>` exactly; rule stays **1 px** `border-b border-saffron` (as today and as drawn); inner `max-w-[960px] px-4 pt-4 md:px-6 md:pt-5 desk:px-10 desk:pt-6` with **no bottom padding** — the sub-nav row inside it sits on the rule; name `md:text-2xl desk:text-3xl` is allowed **only** if the pinned `<p class="font-display text-xl font-bold tracking-tight">` stays (add the size via a parent selector rule, not on the `<p>`) | in the content column on desktop, full width under the tab row on tablet, under the band on phone |
+| **Tenant sub-nav** `op-subnav` | new; `<nav class="op-subnav" aria-label="This tenant">` **inside** `section.op-tenant`, after the name | `mt-2 -ml-2.5 flex flex-wrap` (no ground of its own: the banner's saffron-lite); item `.op-subnav-item` `-mb-px inline-flex min-h-11 items-center whitespace-nowrap border-b-[3px] border-transparent px-2.5 font-display text-sm md:px-3.5 md:text-[15px] text-ink hover:bg-saffron/10 aria-[current=page]:border-saffron aria-[current=page]:font-bold` | phone 14 px and **wraps** (as `M-Op*` draw it); tablet/desk 15 px. Ink on saffron-lite is AA (ink/70 there is already 5.6:1). Paths from the view (`OverviewPath`, `PlaquesPath`, `BillingPath`, `VATPath`) — content, not classes. |
 | **Card** `op-card` | existing `.op-card` (`input.css:1053`) | `rounded-[14px] border border-line bg-paper p-4 md:px-6 md:py-5 desk:px-6 desk:py-[22px] flex flex-col gap-3.5`; drop `shadow-sm` | label `docket-label` (pinned on the overview `dt`s) or `.op-label` (`font-mono text-[11px] uppercase tracking-[0.12em] text-ink/70`) for new eyebrows; h1 `font-display text-2xl md:text-[28px] desk:text-[32px] font-bold tracking-tight` — **one** `<h1>` per page |
 | **Docket list** | existing `.docket` (`input.css:132-142`, sharp, perforated) + `.op-row` / `.op-version` (`input.css:1089-1092`) | keep `<section class="docket" aria-labelledby="…">` and `<h2 id="…" class="docket-label">` exactly; row `flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b border-dashed border-line py-2.5 last:border-b-0`; first fact mono bold; facts `text-sm`; ids `break-all font-mono text-xs text-ink/70` | **sharp** (D2). Desk: facts on one line where they fit; phone: wrap. `<li class="op-row">` / `<li class="op-version">` stay literal (regex-pinned). |
-| **Chip / tally** | existing `.tally` + tones (`input.css:625-703`) | `rounded-full` via a **scoped** rule `.op-main .tally { @apply rounded-full px-2.5; }` (the class on `<main>`), never by adding a class to the span | the span stays `<span class="tally tally--x">` (regex-pinned); word ink, colour in the frame; no new tone |
+| **Chip / tally** | existing `.tally` + tones (`input.css:625-703`) | `rounded-full` via a **scoped** rule `.op-main .tally { @apply rounded-full px-2.5; }` (`op-main` is put on `<main>` by M13-01's content column), never by adding a class to the span | the span stays `<span class="tally tally--x">` (regex-pinned); word ink, colour in the frame; no new tone |
 | **Fact grid** (`dl`) | existing overview / VAT `dl` | `grid grid-cols-1 gap-4 md:grid-cols-2 desk:grid-cols-4`; big counts keep `<dd class="mt-1 font-mono text-3xl font-bold">` (regex-pinned) | phone 1 col (facts) / 2 col (counts) |
 | **Field** `op-input` | existing `.op-input` (`input.css:1054-1057`) | add `rounded-[10px]`; label `op-label`; help `text-[13px] leading-[1.45] text-ink/70` | keeps `min-h-11` (op14 input.css check). Textarea (Legal) and select (Audit) use it too. |
 | **Buttons** | existing `btn btn--primary`, `btn btn--quiet` | `rounded-[10px]`; primary green, quiet paper + `line` border (tomato on hover — Close the API, Remove) | one button per form; no confirm step exists (D1) |
@@ -316,15 +347,15 @@ existing `op-*` block at `input.css:1045-1092`) and **unexported** templ compone
 
 | Boards (desk · tablet · phone) | Route(s) | Handler | Templ component | View type | Card |
 |---|---|---|---|---|---|
-| shell (every signed-in board) | every signed-in route | `render` (`render.go`) | `bar`, `screen`, `scriptedScreen`, `tenantScreen`, `tenantBanner` (`chrome.templ:33-99`), new `opNav`, `opSubNav` | `TenantName` (`view.go:45`) | M13-01 |
+| shell (every signed-in board) | every signed-in route; sign-out `POST /operator/logout` | `render` (`render.go:72`); `logout` console.go:37 | `bar`, `screen`, `scriptedScreen`, `tenantScreen`, `tenantBanner` (`chrome.templ:33-99`), new `opNav`, `opSubNav` | `TenantName` (`view.go:45`) | M13-01 |
 | `OpSignIn` · `T-OpSignIn` · `M-OpSignIn` | `GET`/`POST /operator/login`, `GET`/`POST /operator/login/totp` | `signInPage` signin.go:16, `signIn` :35, `codePage` :62, `code` :75 | `SignIn` signin.templ:18, `Code` :58 | `SignInView` view.go:105-109, `CodeView` :112-115 | M13-04 |
 | `OpEnroll` · `T-OpEnroll` · `M-OpEnroll` | `GET /operator/enroll?id=…`, `POST /operator/enroll` | `enrollPage` enroll.go:56, `enroll` :120 | `Enroll` enroll.templ:31 (`scriptedScreen`) | `EnrollView` view.go:129-146 | M13-05 |
-| `OpHome` · `T-OpHome` · `M-OpHome` | `GET /operator` | `home` console.go:126 | `Home` home.templ:20 | — | M13-06 |
+| `OpHome` · `T-OpHome` · `M-OpHome` | `GET /operator` | `home` console.go:15 | `Home` home.templ:20 | — | M13-06 |
 | `OpProblem` · `T-OpProblem` · `M-OpProblem` | every refusal (constants `render.go:137-452`, list `problemPages()` :456-471) | `render` problem path | `Problem` home.templ:53 | `ProblemView` view.go:558-568 | M13-03 |
 | `OpTenants` · `T-OpTenants` · `M-OpTenants` | `GET`/`POST /operator/tenants` | `tenantList` tenants.go:103, `searchTenants` :116 | `Tenants` tenants.templ:23 | `TenantsView` view.go:195-207, `TenantRow` :211-220 | M13-07 |
 | `OpTenant` · `T-OpTenant` · `M-OpTenant` | `GET /operator/tenants/{id}`, `POST …/integration`, `POST …/integration/close` | `tenantOverview` tenants.go:176, `enableTenantAPI` tenantapi.go:231, `disableTenantAPI` :271 | `TenantOverview` tenants.templ:119 | `TenantOverviewView` view.go:224-239, `TenantAPIView` :243-257 | M13-08 |
 | `OpPlaques` · `T-OpPlaques` · `M-OpPlaques` | `GET /operator/tenants/{id}/plaques` | `tenantPlaques` plaques.go:68 | `TenantPlaques` plaques.templ:16 | `TenantPlaquesView` view.go:262-274, `PlaqueRow` :281-290 | M13-09 |
-| `OpBilling` · `T-OpBilling` · `M-OpBilling` | `GET`/`POST /operator/tenants/{id}/billing` | `tenantBilling` billing.go:91, `pageTenantBilling` :110 | `TenantBilling` billing.templ:24 | `TenantBillingView` view.go:394-403, `BillingRow` :412-426 | M13-10 |
+| `OpBilling` · `T-OpBilling` · `M-OpBilling` | `GET`/`POST /operator/tenants/{id}/billing` | `tenantBilling` billing.go:92, `pageTenantBilling` :111 | `TenantBilling` billing.templ:24 | `TenantBillingView` view.go:394-403, `BillingRow` :412-426 | M13-10 |
 | `OpVat` · `T-OpVat` · `M-OpVat` | `GET`/`POST /operator/tenants/{id}/vat` | `tenantVAT` vat.go:155, `recheckVAT` :191 | `TenantVAT` vat.templ:21 | `TenantVATView` view.go:454-480 | M13-11 |
 | `OpAudit` · `T-OpAudit` · `M-OpAudit` | `GET`/`POST /operator/audit` | `auditLog` audit.go:83, `filterAudit` :97 | `AuditLog` audit.templ:27 | `AuditLogView` view.go:318-332, `AuditRow` :371-387 | M13-12 |
 | `OpHoldings` · `T-OpHoldings` · `M-OpHoldings` | `GET /operator/holdings[?page=N…]`, `POST /operator/holdings`, `POST …/{id}/members`, `POST …/{id}/members/{tenant}/remove` | `holdingsPage` holdings.go:135, `createHolding` :170, `addHoldingMember` :218, `removeHoldingMember` :256 | `Holdings` holdings.templ:24 | `HoldingsView` view.go:508-519, `HoldingView` :525-530, `HoldingMemberView` :536-542 | M13-13 |
@@ -336,8 +367,13 @@ refused render (`render.go:72-84`).
 
 ### Board notes (D1 corrections the port applies)
 
-- The boards label the nav `aria-label="Operator sections"` and the sub-nav `"This tenant"`
-  (`M-OpHome` once says "Tenant sections" — use "This tenant").
+- The nav's binding label is `aria-label="Operator sections"`, the sub-nav's `aria-label="This tenant"`;
+  all fifteen boards that draw a sub-nav carry "This tenant" (relabelled 2026-10-20).
+- `OpHome` / `T-OpHome` / `M-OpHome` once drew an icon tile beside each of Home's four links;
+  the tiles were removed from the boards and are **not ported** (D1: Home has none today, and a
+  tile would add SVGs the signed-in count does not allow).
+- The audit boards' "Unrecognised" sample row uses the neutral raw kind `future_kind` (an
+  earlier sample named a holding rename, which does not exist).
 - `OpEnroll` draws a placeholder box for the QR ("QR rendered by internal/qrcode"): the port
   keeps the real inline SVG from `qr.go`; the sample key and `otpauth://` URI are sample data.
 - `OpProblem` draws `{{pr.title}}` etc.: every title, message and back link is one of the

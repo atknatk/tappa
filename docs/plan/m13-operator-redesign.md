@@ -51,6 +51,11 @@ karar yok; "çizilmiş ama yapılmamış" listesi de yok.
 - **Sabitlenmiş işaretleme** (README §4) değişirse test **aynı commit'te**, iddianın niyeti korunarak
   güncellenir; hiçbir iddia gevşetilmez. Henüz var olmayan bir testin adı belgeye yazılmaz
   (`TestEveryNamedTestExists`) — yeni testi tarif et, adını yapıcı koyar.
+- **Golden politikası:** operatör yüzeyinin HTML golden'ı **yoktur** (işaretleme testlerle
+  sabitlenir, README §4). `TestUnbrandedScreens_AreByteIdenticalToTheGolden` (tap/aktivasyon
+  ekranları; `components.Notice`, `layout.*`) ve marka CSS golden'ı (`TestCompiledCSS_BrandNamesOccurOnlyInTheGolden`)
+  M13 boyunca **bayt-aynı** kalır; bunlar hiçbir kartta yeniden üretilmez — kırmızıya dönerlerse
+  kart paylaşılan bir bileşene dokunmuştur ve düzeltilecek olan koddur, golden değil.
 - **Dal:** `claude/admiring-brown-jw8hf1` (ya da kullanıcının açtığı feature dalı). `main`'e
   birleştirme bir deploy kararıdır — kullanıcı istemedikçe yok.
 - **Kart bitince:** `state.md` ledger + "ŞU AN" + oturum notu.
@@ -109,8 +114,9 @@ O2 kartları birbirinden bağımsızdır; her biri kendi bağımlılıkları bit
 
 **Amaç.** Bütün imzalı operatör ekranlarına OP-1'in kabuğunu getirmek: değişmeyen bant, tek DOM'lu
 `<nav class="op-nav" aria-label="Operator sections">` (masaüstü sol sütun / tablet sekme satırı /
-telefon alt çubuğu), tek-tenant ekranlarında tenant bandının altına
-`<nav class="op-subnav" aria-label="This tenant">`, ~960 px içerik sütunu.
+telefon alt çubuğu), tek-tenant ekranlarında tenant bandının **içinde**, adın altında
+`<nav class="op-subnav" aria-label="This tenant">`, ~960 px içerik sütunu
+(`<main class="op-main …">`).
 
 **Neden.** Kullanıcı kararı OP-1. Bugün `/operator` menünün kendisi; her ekran yalnız "Back to …"
 bağlantıları taşıyor (`chrome.templ:19-21`). Bütün ekran kartları bu kabuğun üstüne oturur.
@@ -128,11 +134,20 @@ bağlantıları taşıyor (`chrome.templ:19-21`). Bütün ekran kartları bu kab
   "Audit"/"Legal" kısa etiketleri (`md:hidden` / `hidden md:inline` span çifti); beş ikon README §2'deki
   yollarla satır içi `<svg … aria-hidden="true">`, yalnız telefonda görünür; masaüstünde "PLATFORM"
   etiketi; `aria-current="page"` tek öğede.
-- Sign out tek form kalır (her genişlikte aynı form; telefonda daralırsa erişilebilir adı yine
-  "Sign out").
+- Sign out tek form ve tek **metin** düğmesi kalır — her genişlikte aynı; telefonda ikon/`<svg>` yok
+  (plaket sayfası tam bir `<button>` ister, imzalı sayfanın SVG'leri yalnız nav'ın beşi).
+- **DOM sırası** (README §2): `header.op-bar` → `div.op-frame` → `nav.op-nav` → `div.op-col` →
+  [`section.op-tenant` (ad + içinde `nav.op-subnav`)] → `main.op-main`. Bant ve alt gezinme
+  `<main>`'in **dışında ve önünde** (bugünkü `tenantScreen` sırası); `<header class="op-bar">` yine
+  `<main`'den önce.
+- İçerik sütunu: `div.op-col` + `<main class="op-main mx-auto flex w-full max-w-[960px] …">`
+  (README §6 "Content column"); **`op-main` sınıfı bu kartta konur** — M13-02'nin çip kuralı ona
+  bağlıdır. İmzasız ekranların `<main>`'i de `op-main` taşır.
 - `input.css`: `.op-frame`, `.op-nav`, `.op-nav-item`, `.op-nav-label`, `.op-subnav`, `.op-subnav-item`
-  (README §6 tarifleri), basılabilir olanlarda `min-h-11`; `.op-tenant` çizgisi `border-b-[3px]`
-  olabilir. Telefonda `<main>` alt dolgusu sabit çubuğu aşar.
+  (README §6 tarifleri; tablette `md:static md:border-t-0 md:pb-0`, öğe `md:flex-row md:min-h-11` —
+  telefonun sabit çubuğu tablette sabit kalmaz), basılabilir olanlarda `min-h-11`; `.op-tenant`
+  çizgisi **1 px** kalır, iç alt dolgusu kalkar (alt gezinme çizginin üstüne oturur); alt gezinme
+  telefonda 14 px ve satır kırar. Telefonda `<main>` alt dolgusu sabit çubuğu aşar.
 - Ekran gövdeleri bu kartta **değişmez** (yalnız sarmalayan kabuk); her ekranın kendi "Back to …"
   bağlantıları kalır.
 - ADR 0020'ye (§4 ya da §9 yanına) ve ADR 0023'ün operatör satırına tarihli not: OP-1 gezinmesi
@@ -154,8 +169,10 @@ tipi), her ekranın `@screen` / `@TenantScreen` çağrısı (`home.templ`, `sign
   `/operator/tenants`, `/operator/holdings`, `/operator/audit`, `/operator/legal`); imzasız 9
   render'da hiç; ana nav'da `aria-current="page"` "problem, signed in" dışındaki 36 imzalı render'da
   tam bir ve doğru öğede (Home → Console; liste + dört tek-tenant ekranı → Tenants; Holdings, Audit
-  log, Legal texts kendilerinde), imzalı problemde sıfır; dört tek-tenant fixture'ında bandın
-  **ardından** alt gezinme, tenant'ın dört yolu ve tam bir geçerli sekme.
+  log, Legal texts kendilerinde), imzalı problemde sıfır; **her tek-tenant render'ında (17** — 16
+  overview / plaques / billing / VAT fixture'ı + çıplak "tenant screen" fixture'ı**)** alt gezinme
+  bandın **içinde** (`<section class="op-tenant"` … `<nav class="op-subnav"` … `</section>`, `<main`'den
+  önce), tenant'ın dört yolu ve tam bir geçerli sekme; başka hiçbir render'da alt gezinme yok.
 - **Yeni test** (adını yapıcı koyar; kabuk testinin yanında): hiçbir operatör render'ı panel kabuğunun
   işaretlerini (`panel-side`, `side-nav`, `bar-link`, `tab-link`, `sheet-`, `panel-well`,
   `panel-stripe`, `punchless`, yeşil `taptime`) ya da tenant markasını (`/brand/` — tema ve logo yolları,
@@ -166,8 +183,12 @@ tipi), her ekranın `@screen` / `@TenantScreen` çağrısı (`home.templ`, `sign
   tam 1 (QR), öteki imzasız render'lar 0, imzalı render'lar tam 5 ve beşi de `aria-hidden="true"` ve
   `op-nav`'ın içinde.
 - `TestOperatorScreens_EveryActionAndLinkIsAMountedRoute` yeşil (nav ve alt gezinme yolları bağlı
-  rotalar) ve KONTROL'üne nav'ın beş yolu ile alt gezinmenin dört yolu eklenir; form sayıları değişmez
-  (nav form taşımaz; plaket sayfasında tek `<form` — `op13_test.go:327`).
+  rotalar) ve KONTROL'üne nav'ın beş yolu ile alt gezinmenin dört yolu eklenir; form sayıları değişmez.
+  Bu test **açılış etiketi öneklerini, öznitelik sırası dahil** eşler (ör. `<form method="post"
+  action="/operator/holdings" class=`, `<form method="post" action="/operator/tenants/<id>/billing">`) —
+  `method` `action`'dan önce, sondaki `class=` bugünkü gibi var ya da yok.
+- Plaket sayfası: tam **bir** `<form` (sign-out), tam **bir** `<button`, hiç `hx-` yok
+  (`op13_test.go:327-332`) — nav ve alt gezinme form/düğme taşımaz.
 - `TestOperatorChrome_TheColouredTextClearsAA` genişletilir: nav'ın `ink/70` etiketi paper'da ve
   geçerli öğenin `ink`'i `ink/5`-üstü-paper'da ≥ 4.5:1; alt gezinmenin `ink`'i paper'da.
 - `op14_test.go:750`'deki input.css 44 px listesine yeni basılabilir `op-*` sınıfları eklenir.
@@ -183,7 +204,8 @@ tipi), her ekranın `@screen` / `@TenantScreen` çağrısı (`home.templ`, `sign
 telefon için ikinci bir forma kopyalamak (form sayımları kırılır) · panelin `.panel-side`/`.bar-link`
 sınıflarını "yeniden kullanmak" · ikonları CSS arka planı yapmak (CSP'de `img-src` yok) · kayıt
 sayfasına nav koymak (SVG sayımı 1 olmalı; kayıt imzasızdır) · `TenantScreen`'i dışa kapalı yapmak ya
-da yeni dışa açık bileşen eklemek · bant işaretlemesine dokunmak.
+da yeni dışa açık bileşen eklemek · bant işaretlemesine dokunmak · alt gezinmeyi bandın dışına, paper
+zemine koymak (panolar bandın içinde çizer) · telefonda sign-out'u ikona çevirmek.
 
 ---
 
@@ -201,7 +223,11 @@ da yeni dışa açık bileşen eklemek · bant işaretlemesine dokunmak.
 güncellemek: `.op-card` `rounded-[14px]`, `shadow-sm` düşer, iç boşluklar üç genişlikte; `.op-input`
 `rounded-[10px]`; `.op-signout` ve operatör ekranlarındaki `btn` `rounded-[10px]`; `.op-row`/`.op-version`
 kesikli ayraç; yeni `.op-label` (mono 11 px etiket); çipler `rounded-full` — **span'e sınıf eklemeden**,
-kapsamlı kural `.op-main .tally` (`<main>`'e `op-main` sınıfı).
+kapsamlı kural `.op-main .tally` (`op-main` sınıfını M13-01 `<main>`'e koydu).
+
+**Dosyalar.** `web/static/css/input.css` (`op-*` bloğu); gerekirse `web/templates/operatorpages/*.templ`
+yalnız `op-label` için; `internal/handler/operator/op12_test.go`, `op14_test.go` (44 px ve çip
+kuralları — yalnız yeni sınıf eklenirse).
 
 **Kabul kriterleri.**
 - `.docket` keskin kalır (D2); `.tally` temel kuralı ve tonları değişmez (panel de kullanır); yuvarlama
@@ -226,12 +252,21 @@ kapsamlı kural `.op-main .tally` (`<main>`'e `op-main` sınıfı).
 ona geçer — **ton ve metinler değişmeden**. `Problem` (`home.templ:53-65`) yeni çerçevede: imzasız
 ortalanmış kart, imzalı nav'lı ve geçerli öğesiz; durum çipi yok (görünüm durumu taşımaz — D1).
 
+**Dosyalar.** `web/templates/operatorpages/notice.templ` (yeni), `signin.templ`, `enroll.templ`,
+`holdings.templ`, `tenants.templ`, `vat.templ`, `legal.templ`, `home.templ`, `web/static/css/input.css`;
+`internal/handler/operator/op10_test.go` (`warnNotice`), `holdings_test.go` (`headingsOn`),
+`tenantapi_test.go` (`apiHeadingsOn`) — yalnız başlık biçimi değişirse.
+
 **Kabul kriterleri.**
 - `components.Notice` baytları değişmez (`TestUnbrandedScreens_AreByteIdenticalToTheGolden`);
   `operatorpages` hâlâ yalnız `components` ve `layout`'u import eder; `opNotice` dışa kapalı.
-- `op10_test.go:492`'deki `warnNotice` regex'i (`<section class="border-l-4 border-saffron…`) yeni
-  bildirimin işaretlemesine **aynı commit'te** güncellenir; "The public page is behind" bildirimini
-  bulan iddia korunur.
+- Bildirim başlığı `<p …>heading</p>` biçiminde kalır: üç yardımcı onu bu biçimle arar —
+  `headingsOn` (`holdings_test.go:68`, `">"+h+"</p>"`), `apiHeadingsOn` (`tenantapi_test.go:49`, aynı)
+  ve `warnNotice` (`op10_test.go:492`, `<section class="border-l-4 border-saffron[^"]*">…</section>`).
+  `warnNotice`'in kesit regex'i yeni bildirimin işaretlemesine zaten değişmek zorunda; başlık `<p>`
+  olmaktan çıkarsa (ör. `<h2>`) **üçü de aynı commit'te** güncellenir ve her biri, sayfada **var
+  olan** bir başlığı bulduğunu gösteren bir KONTROL kazanır (boş eşleşmeyle yeşil kalamaz). "The
+  public page is behind" bildirimini bulan iddia korunur.
 - Her problem sabitinin başlığı, mesajı ve geri bağlantısı aynı: `TestProblemPages_LinkOnlyToMountedRoutes`,
   `TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo`, `TestOperatorHeaders_FortyResponseClassesCarryThePolicy` yeşil.
 - Bildirim metni arayan bütün testler yeşil (`TestEnroll_TheWeakPasswordNoticeNamesBothLimits`,
@@ -258,8 +293,9 @@ yeşil; 390 / 834 / 1200 / 1440'ta yatay kaydırma yok.
 - **Spec:** [screens.md §1](../design/operator-redesign/screens.md) · **Panolar:** `OpSignIn`, `T-OpSignIn`, `M-OpSignIn`
 - **Dosyalar:** `web/templates/operatorpages/signin.templ`, `internal/handler/operator/signin.go` (yalnız gerekirse), `op8_test.go`, `op8_db_test.go`
 
-İmzasız kabuk, ortalanmış kart; altı durum (varsayılan, Expired, Failed, kod, Rejected, Locked). Ek
-kabul: `TestSurface_EveryRefusedSignInPaysOneComparisonAndAnswersAlike`,
+İmzasız kabuk, ortalanmış kart; altı durum (varsayılan, Expired, Failed, kod, Rejected, Locked).
+
+**Kabul kriterleri.** O2 ortak kabulü ve: `TestSurface_EveryRefusedSignInPaysOneComparisonAndAnswersAlike`,
 `TestE2E_EveryRefusedSignInIsOneRowAndTheSameBytes`, `TestSignIn_ReadsTheBodyNeverTheQuery` yeşil;
 yazılan adres yankılanmaz; "forgot password", kayıt, "remember me" yok.
 
@@ -270,8 +306,9 @@ yazılan adres yankılanmaz; "forgot password", kayıt, "remember me" yok.
 - **Spec:** [screens.md §2](../design/operator-redesign/screens.md) · **Panolar:** `OpEnroll`, `T-OpEnroll`, `M-OpEnroll`
 - **Dosyalar:** `web/templates/operatorpages/enroll.templ`, `web/static/css/input.css` (`.op-qr`, `.op-key`, `.op-uri`, `.op-token-field`), `enrollqr_test.go`, `op8r2_test.go`, `op8r4_test.go`
 
-İki adımlı kart, QR → anahtar → URI sırası, betikli/betiksiz jeton alanı, dört bildirim. Ek kabul:
-`enroll.js`'e dokunulmaz (`TestEnrollScript_IsTheReviewedBody`, `TestEnrollScript_TouchesTheFragmentAndNothingElse`);
+İki adımlı kart, QR → anahtar → URI sırası, betikli/betiksiz jeton alanı, dört bildirim.
+
+**Kabul kriterleri.** O2 ortak kabulü ve: `enroll.js`'e dokunulmaz (`TestEnrollScript_IsTheReviewedBody`, `TestEnrollScript_TouchesTheFragmentAndNothingElse`);
 `enroll-token` / `enroll-token-wrap` kimlikleri aynı; `TestEnrollQR_IsTheKeysURIInkOnPaper`,
 `TestEnrollQR_OnlyOnTheFirstLoad` (sayfada tek `<svg>`), `TestEnroll_TheTokenNeverTravelsInTheURL`,
 `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` yeşil; nav yok.
@@ -283,7 +320,12 @@ yazılan adres yankılanmaz; "forgot password", kayıt, "remember me" yok.
 - **Spec:** [screens.md §3](../design/operator-redesign/screens.md) · **Panolar:** `OpHome`, `T-OpHome`, `M-OpHome`
 - **Dosyalar:** `web/templates/operatorpages/home.templ`, `op8_test.go`
 
-Kart: etiket, h1, dört bağlantı + açıklamaları, oturum cümlesi. Ek kabul: `<a href="/operator/holdings"
+Kart: etiket, h1, dört bağlantı + açıklamaları, oturum cümlesi. **İkon kutucukları taşınmaz** (D1):
+panoların eski bir sürümü her bağlantının yanına 48 px ikon kutucuğu çiziyordu; kutucuklar
+`OpHome` / `T-OpHome` / `M-OpHome`'dan kaldırıldı — Home'da bugün yok ve imzalı sayfanın SVG'leri
+tam olarak nav'ın beşi.
+
+**Kabul kriterleri.** O2 ortak kabulü ve: `<a href="/operator/holdings"
 class="op-link">Holdings</a>` ve `…/audit" class="op-link">Audit log</a>` aynen; sayı, widget, operatör
 adı/e-postası yok; Home'un store çağrısı 0.
 
@@ -295,7 +337,9 @@ adı/e-postası yok; Home'un store çağrısı 0.
 - **Dosyalar:** `web/templates/operatorpages/tenants.templ` (`Tenants`, `tenantList`, `tenantPager`, `tenantPageForm`), `op11_test.go`
 
 Arama kartı (`role="search"`, POST), sonuç satırı + "Show every tenant", docket satırları, üç boş durum,
-POST sayfalayıcı. Ek kabul: `TestTenantSearch_NoLogLineHeaderOrOtherPageCarriesTheTerm`,
+POST sayfalayıcı.
+
+**Kabul kriterleri.** O2 ortak kabulü ve: `TestTenantSearch_NoLogLineHeaderOrOtherPageCarriesTheTerm`,
 `TestTenantList_PagesForwardOnlyAfterAFullPage`, `TestTenantScreens_EscapeWhatATenantAndAnOperatorTyped`,
 `TestTenantScreens_TheTextClearsAA` yeşil; `op11_test.go:845` ve `:997` işaretlemesi aynen; sayaç,
 süzgeç, sıralama, "son aramalar" yok.
@@ -308,7 +352,9 @@ süzgeç, sıralama, "son aramalar" yok.
 - **Dosyalar:** `web/templates/operatorpages/tenants.templ` (`TenantOverview`, `tenantFact`, `tenantCount`, `tenantAPISection`, `apiNotice`), `op11_test.go`, `tenantapi_test.go`
 
 Olgular kartı, "Live now" docket'i, üç bağlantı, API bölümü (durum satırı, cümle, form, Close), altı
-bildirim + kurallar. Ek kabul: `dt`/`dd` regex'leri (`op11_test.go:894`, `:900`) aynen; açık API'de tam
+bildirim + kurallar.
+
+**Kabul kriterleri.** O2 ortak kabulü ve: `dt`/`dd` regex'leri (`op11_test.go:894`, `:900`) aynen; açık API'de tam
 bir açma ve bir kapama formu, kapalıda yalnız açma formu; `TestTenantOverview_NamesTheTenantInTheBannerAndRefusesABadPath`,
 `TestTenantOverview_AnUnnamedTenantIsNamedByItsID`, `TestOperatorAPI_TheResultIsReadNotPosted`,
 `TestOperatorAPI_TheCodeRuleIsTheDatabases` yeşil; onay adımı eklenmez.
@@ -320,7 +366,10 @@ bir açma ve bir kapama formu, kapalıda yalnız açma formu; `TestTenantOvervie
 - **Spec:** [screens.md §7](../design/operator-redesign/screens.md) · **Panolar:** `OpPlaques`, `T-OpPlaques`, `M-OpPlaques`
 - **Dosyalar:** `web/templates/operatorpages/plaques.templ`, `op13_test.go`
 
-Özet kartı (üç cümleden biri), docket satırları, yedi çip. Ek kabul: sayfada tek `<form` (sign-out);
+Özet kartı (üç cümleden biri), docket satırları, yedi çip.
+
+**Kabul kriterleri.** O2 ortak kabulü ve: sayfada tam bir `<form` (sign-out), tam bir `<button`
+(sign-out'un metin düğmesi), hiç `hx-` (`op13_test.go:327-332`);
 `TestPlaqueScreen_NoKeyReachesThePage`, `TestPlaqueWords_NameEveryShapeAndNothingElse`,
 `TestPlaqueScreen_TheFirst200OfNAndAnEmptyTenant`, `TestPlaqueScreen_TheChipsAndTextClearAA` yeşil;
 plaket QR'ı ya da çizimi yok.
@@ -332,8 +381,9 @@ plaket QR'ı ya da çizimi yok.
 - **Spec:** [screens.md §8](../design/operator-redesign/screens.md) · **Panolar:** `OpBilling`, `T-OpBilling`, `M-OpBilling`
 - **Dosyalar:** `web/templates/operatorpages/billing.templ`, `op12_test.go`
 
-Giriş kartı, docket (beş durum, serbest pencere, taban cümlesi, son sayfa notu), POST sayfalayıcı. Ek
-kabul: `TestBillingScreen_WearsTheDocketAnatomy`, `TestBillingScreen_EveryStateSaysItsWordAndNoVerdict`,
+Giriş kartı, docket (beş durum, serbest pencere, taban cümlesi, son sayfa notu), POST sayfalayıcı.
+
+**Kabul kriterleri.** O2 ortak kabulü ve: `TestBillingScreen_WearsTheDocketAnatomy`, `TestBillingScreen_EveryStateSaysItsWordAndNoVerdict`,
 `TestBilling_AFrozenMonthAndALiveMonthDoNotRenderAlike`, `TestBillingScreen_OffersNoItemisationAnywhere`,
 `TestBillingScreen_ReadsNothingFromTheURL` yeşil; page 3'te tam iki sayfalayıcı formu; ödendi/gecikti
 sözcüğü, fatura PDF'i, kişi listesi yok.
@@ -346,7 +396,9 @@ sözcüğü, fatura PDF'i, kişi listesi yok.
 - **Dosyalar:** `web/templates/operatorpages/vat.templ`, `op16_test.go`
 
 "On file" docket'i, dört karar çipi, zaman satırı, "Ask again" kartı (alansız form) ya da
-sorulamaz cümlesi, üç uyarı. Ek kabul: `TestVATScreen_TheFourStatesAreCalledWhatTheAccountScreenCallsThem`,
+sorulamaz cümlesi, üç uyarı.
+
+**Kabul kriterleri.** O2 ortak kabulü ve: `TestVATScreen_TheFourStatesAreCalledWhatTheAccountScreenCallsThem`,
 `TestVATScreen_EveryStateSaysItsWordAndSentence`, `TestVATRecheck_TheNumberIsTheServersNotTheClients`,
 `TestVATRecheck_TheNumberIsOnNoLogLineOrHeader` yeşil; sorulabilirde tam bir form, garip numarada
 hiç; numara düzenleme alanı yok; başarı bildirimi yok.
@@ -359,7 +411,9 @@ hiç; numara düzenleme alanı yok; başarı bildirimi yok.
 - **Dosyalar:** `web/templates/operatorpages/audit.templ`, `op14_test.go`, `op14d_test.go`
 
 Süzgeç kartı (`<select id="audit-kind" name="kind" class="op-input">`), docket satırı (her olgu bir
-span), boş/son sayfa durumları, POST sayfalayıcı. Ek kabul: `TestAuditScreen_WearsTheDocketAnatomy`
+span), boş/son sayfa durumları, POST sayfalayıcı.
+
+**Kabul kriterleri.** O2 ortak kabulü ve: `TestAuditScreen_WearsTheDocketAnatomy`
 (başlık ve sayfalayıcı işaretlemesi aynen), `TestAuditWords_NameEveryKindAndNothingElse`,
 `TestAuditScreen_EveryRowSaysWhatTheLogHolds`, `TestAuditScreen_NoCredentialFieldReachesThePage`,
 `TestAuditScreen_ReadsNothingFromTheURL` yeşil; süzülmüş sayfada tam üç form; dışa aktarım, tenant
@@ -373,7 +427,9 @@ başına görünüm, türetilmiş hüküm yok.
 - **Dosyalar:** `web/templates/operatorpages/holdings.templ`, `holdings_test.go`
 
 Oluşturma kartı, dokuz bildirim + kurallar, holding girdileri (üye satırları, Live/Ended, Remove, ekleme
-formu, sayfa bölünmesi cümleleri), **bağlantı** sayfalayıcısı. Ek kabul: form sayıları
+formu, sayfa bölünmesi cümleleri), **bağlantı** sayfalayıcısı.
+
+**Kabul kriterleri.** O2 ortak kabulü ve: form sayıları
 (`op8_test.go:884-886`) ve çip işaretlemesi (`holdings_test.go:~689, ~987`) aynen;
 `TestHoldings_CreateAddRemoveThroughTheScreen`, `TestHoldings_TheResultIsReadNotPosted`,
 `TestHoldings_PagesForwardOnlyAfterAFullPage`, `TestHoldingsScreen_EscapesWhatOperatorsAndBusinessesNamed`
@@ -388,7 +444,9 @@ yeşil; reddedilen ad yankılanmaz; tenant seçici, holding sayfası, onay adım
 
 Giriş kartı (müşteri sitesi `/legal` metin, bağlantı değil), dört düzenleyici kartı (canlı/yayımlanmamış,
 "behind" uyarısı, textarea, düğme), sürüm docket'i (`<li class="op-version">`, Live çipi, "tenant admin
-(legacy)"), boş ve 100 sınırı notları. Ek kabul: `TestLegalPage_ShowsWhoPublishedEachVersion`,
+(legacy)"), boş ve 100 sınırı notları.
+
+**Kabul kriterleri.** O2 ortak kabulü ve: `TestLegalPage_ShowsWhoPublishedEachVersion`,
 `TestLegalPublish_AFailedRefreshRedirectsAndTheScreenSaysThePageIsBehind`,
 `TestLegalScreen_ReopensOnPastedMarkupWithoutExecutingIt`, `TestLegalScreen_TheTextClearsAA` yeşil;
 eski sürüm metni, önizleme, fark, "bu sürümü yeniden yayımla" yok.
@@ -410,5 +468,10 @@ değişmedi, tasarlanmış sızıntı alanları dışında sır/terim/VAT/holdin
 URL'ye çıkmadı, tenant markası yok, tenant adı bandı her tek-tenant ekranında; 390 / 834 / 1200 / 1440
 ekran görüntüsü turu (imzalı + imzasız + tek-tenant). Skill `tappa-brand`'e operatör kabuğunun ve `op-*`
 bileşenlerinin özeti (tarihli not), tasarım README'sinin bileşen kataloğu gerçekleşen sınıf adlarıyla
-güncellenir. Ek kabul: `TestEveryNamedTestExists` yeşil (belgede adı geçen her test var). Bulgu →
+güncellenir.
+
+**Dosyalar.** `.claude/skills/tappa-brand/` (operatör notu), `docs/design/operator-redesign/README.md`
+(katalog), yalnız düzeltme gerektiren kod/test dosyaları.
+
+**Kabul kriterleri.** `TestEveryNamedTestExists` yeşil (belgede adı geçen her test var). Bulgu →
 düzeltme → yeni denetçi. Bittiğinde `state.md`; `main`'e birleştirme **kullanıcının deploy kararıdır**.

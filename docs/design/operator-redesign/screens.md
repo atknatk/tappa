@@ -26,9 +26,11 @@ tomato on hover. Notices are today `components.Notice(tone, heading)`
 | Band | `bar(signedIn)` `chrome.templ:33-46`: `<header class="op-bar">`, inner `max-w-3xl`, lockup `<p class="op-lockup">TAPTIME <span class="text-saffron">OPERATOR</span></p>`; signed in: `<form method="post" action="/operator/logout"><button type="submit" class="op-signout">Sign out</button></form>` | same markup; inner row full width; one sign-out form at every width |
 | Nav | none (`chrome.templ:19-21`) | `<nav class="op-nav" aria-label="Operator sections">` — label "PLATFORM" (desk only); Console `/operator` · Tenants `/operator/tenants` · Holdings `/operator/holdings` · Audit log (phone: "Audit") `/operator/audit` · Legal texts (phone: "Legal") `/operator/legal`; one current, `aria-current="page"` |
 | Tenant banner | `tenantBanner(name)` `chrome.templ:54-66`: `<section class="op-tenant" aria-label="Tenant">`, `docket-label` "Tenant", name `<p class="font-display text-xl font-bold tracking-tight"><bdi>…</bdi></p>`; unnamed: `<p …>Unnamed tenant</p>` + `<p class="break-all font-mono text-sm">id</p>` (`view.go:84`) | same markup, in the content column |
-| Tenant sub-nav | none | `<nav class="op-subnav" aria-label="This tenant">` Overview · Plaques · Billing · VAT number, current saffron |
-| Main | `<main class="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8">` (`chrome.templ:72,83,95`) | `max-w-[960px]`, phone bottom padding for the bar |
+| Tenant sub-nav | none | `<nav class="op-subnav" aria-label="This tenant">` **inside** `section.op-tenant`, after the name: Overview · Plaques · Billing · VAT number, current saffron 3 px marker; phone 14 px, wraps |
+| Main | `<main class="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8">` (`chrome.templ:72,83,95`) | `<main class="op-main …">`, `max-w-[960px]`, phone bottom padding for the bar |
 | Title | `screen`: `<Title> — Taptime operator`; `tenantScreen`: `<Title> — <name or "Unnamed tenant <id>"> — Taptime operator` | unchanged |
+
+DOM order (signed in): `header.op-bar` → `div.op-frame` → `nav.op-nav` → `div.op-col` → [`section.op-tenant` containing `nav.op-subnav`] → `main.op-main`. The banner stays outside and before `<main>` (README §2). The phone sign-out is the same single text button (no icon, no `<svg>`).
 
 Signed-in shell (band with sign out + nav): Home, every data screen, signed-in problems.
 Signed-out shell (band only): SignIn, Code, Enroll (enrollment *ends* in a session —
@@ -149,11 +151,13 @@ Signed-in shell, current = Console. Title `Console`.
 | footer | A session ends after 30 minutes without use, and after 8 hours in any case. Sign out when you are done. |
 
 Links: `/operator/tenants`, `/operator/legal`, `/operator/holdings`, `/operator/audit`, each
-`class="op-link"`. The order on Home stays Tenants, Legal texts, Holdings, Audit log (the nav's
+`class="op-link"`. **No icon tiles:** an earlier board drew a 48 px icon tile beside each link;
+the tiles were removed from `OpHome` / `T-OpHome` / `M-OpHome` and are not ported (D1 — Home has
+none, and the only SVGs a signed-in page may carry are the nav's five). The order on Home stays Tenants, Legal texts, Holdings, Audit log (the nav's
 order is OP-1's).
 
 **Not shown:** the operator's name or e-mail (no definer reads an operator's e-mail,
-`home.templ:13-14`); any count, tenant data, recent activity or widget (Home makes no read). No
+`home.templ:18-19`); any count, tenant data, recent activity or widget (Home makes no read). No
 empty or error state.
 **Tests:** `TestOperatorScreens_EveryActionAndLinkIsAMountedRoute` pins
 `<a href="/operator/holdings" class="op-link">Holdings</a>` and
@@ -331,8 +335,9 @@ Chips (`plaques.go:136-149`):
 | Lost | `tally--withdrawn` | Reported lost; taps on it are rejected. |
 | Unrecognised | `tally--unrecognised` | Its stored status and location are not a state this screen knows; the status is shown as stored. |
 
-**Forms:** none — the page's only `<form` is the band's sign-out (`plaques.templ:7-9`,
-`op13_test.go:327`). The nav and sub-nav are links.
+**Forms:** none — the page's only `<form` is the band's sign-out and its only `<button` the
+sign-out's text button; no `hx-` attribute (`plaques.templ:7-9`, `op13_test.go:327-332`). The nav
+and sub-nav are links, and the phone sign-out stays text (no icon).
 **States:** mixed rows covering all seven chips · truncated "first 200 of N" · no plaques ·
 unnamed tenant.
 **Not shown:** AES key, key ref, CMAC, tap URL, a QR of the plaque (D4's plaque drawing is a
@@ -552,7 +557,7 @@ Signed-in shell, current = Legal texts; no banner. Title `Legal texts`.
 **Form:** one per document, `POST /operator/legal` with hidden `slug` + `body`.
 **Success:** 303 back, no success notice.
 **Not shown:** old versions' text, "republish this version", preview, diff (each would need a new
-`op_read_*`, `legal.templ:9-12`); a link to the customer host.
+`op_read_*`, `legal.templ:15-17`); a link to the customer host.
 **Tests:** `TestLegalPage_ShowsWhoPublishedEachVersion`, `TestLegalPublish_AFailedRefreshRedirectsAndTheScreenSaysThePageIsBehind`
 (with `op10_test.go:492`'s `warnNotice` regex — update with the notice in M13-03),
 `TestLegalPage_AVersionPublishedBetweenTheTwoReadsIsNotCalledBehind`,
