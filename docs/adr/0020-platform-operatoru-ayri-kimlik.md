@@ -1207,6 +1207,8 @@ m10-platform.md §3'ün ölçütleriyle:
   bcrypt'i için süreç geneli tavan yok) ve OP-8 kartının L2'si (dağıtık enrollment) — çaresiz
   sayılı sınır olarak kalır. Ayrıntı: `deploy/README.md`, *"Uygulandı: K2"*.
 - **OP-K5 — askıdaki ayın faturalanması** (ADR 0025 / OP-15; bu ADR'nin konusu değil).
+  → **Kapandı (kullanıcı kararı, 2026-10-08): (a) — askıdaki ay normal faturalanır;** fatura
+  aritmetiği değişmez, askı geçmişi tablosu yok ([ADR 0025](0025-tenant-askiya-alma.md) §6).
 - **OP-K12 — T27/T37 plan geçmişi** (OP-17'nin önkoşulu).
 
 **Görev kartında sayıyla/ölçümle karara bağlanacak (bu ADR bilerek sayı koymadı):**
@@ -1259,6 +1261,14 @@ m10-platform.md §3'ün ölçütleriyle:
   operatör `plaque.*` yazdığında `ListPlaqueHistory`'nin `admin_users` LEFT JOIN'i satırı
   *"adsız yönetici"* okur (`by_system = false`, ad `''`) — o kart `actor_kind`'ı okumalı. ADR
   0021 "OP-16 uygulama notu", LV9.
+  *(OP-15 A eki, 2026-10-08; 2026-10-20'de 00063 olarak taşındı — [ADR 0025](0025-tenant-askiya-alma.md)
+  "Sonuçlar"ın istediği atıf düzeltmesi; hüküm değişmez:)* `ConfirmRecentRemoval`'ın eylemi sorguda sabit
+  değil bir **parametredir** (`action = @action`, aktör oturumdaki yönetici — `db/queries/audit.sql`); güvence
+  onu çağıranların **kapalı haritalarındadır**: `venueRemovalWords` (`location.deleted`, `department.deleted` —
+  `internal/handler/locations.go`) ve `plaqueActWords` (üç `plaque.*` eylemi — `internal/handler/plaques.go`).
+  İkisi de bir `tenant.*` satırı döndüremez; OP-15'in iki satırı (`tenant.suspended`,
+  `tenant.reinstated`, `detail.actor_kind = "operator"`) ve panelin `tenant.write_refused` satırı
+  (bir **yöneticinin** satırı, OP-15 B) dahil.
 
 ## Sonuçlar
 
