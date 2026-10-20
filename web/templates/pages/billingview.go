@@ -67,14 +67,20 @@ type BillingView struct {
 	// and WILL move if either does. billing.Draft's own comment calls rendering them
 	// identically "the failure this whole task exists to prevent".
 	Frozen bool
-	// Stamp and StampClass are the rubber stamp that carries Frozen to the eye. The
-	// WORD is what says it (skill tappa-brand: status is never colour alone); the
-	// class only tints the frame.
-	Stamp      string
-	StampClass string
+	// Stamp is the rubber stamp's word that carries Frozen to the eye. The WORD is
+	// what says it (skill tappa-brand: status is never colour alone); the frame's tone
+	// is chosen in the template from Frozen, so the class name is written there, where
+	// the stylesheet scan finds it (README §3 constraint 2), and never built here.
+	Stamp string
 	// StateLine is Frozen in a sentence, because a stamp is a label and this is a
 	// claim about whether the number can still change.
 	StateLine string
+	// Running is true only on a draft of the month the business is living in now (in
+	// its own zone): the one month whose figure moves while the page is open.
+	// RunningLine says how far into it we are ("day 20 of 31 · …"); both are empty on
+	// an ended, a future and a frozen month.
+	Running     bool
+	RunningLine string
 
 	TenantName string
 	// PlanLabel is 'founding' or 'standard' in words.
@@ -88,6 +94,13 @@ type BillingView struct {
 	// UnitPrice and Amount are money, rendered with a symbol by the handler.
 	UnitPrice string
 	Amount    string
+	// AmountLabel names the amount by what it is: "So far" on the running month,
+	// "Draft" on any other unfrozen one, "Frozen" on a frozen one.
+	AmountLabel string
+	// Equation is the count, the price and the amount in one sentence, for a screen
+	// reader: the drawn equation sets its operators apart from the figures, and read
+	// aloud that is a list of numbers.
+	Equation string
 	// FreeLine is non-empty when the month falls inside the founding offer's free
 	// window, and says the amount is zero BECAUSE of the offer rather than because
 	// nobody worked.
@@ -110,6 +123,13 @@ type BillingView struct {
 	// FoundingHeading is the notice's own heading, because a Notice carries its
 	// meaning in the heading rather than in the tone.
 	FoundingHeading string
+	// FirstCharged and FreeUntil are the plan card's founding lines: the first month
+	// that is charged for, and the free window that ends the month before it. Both come
+	// from billing.Draft.FirstChargeableMonth, so the number of free months is the
+	// database's and is written nowhere on the screen. Empty on a frozen month (the row
+	// keeps the decision, not the rule) and on a plan with no free months.
+	FirstCharged string
+	FreeUntil    string
 
 	// Itemisation is the sentence that says what a frozen figure does NOT keep. It is
 	// a field rather than fixed template prose because the two documents say it
@@ -140,9 +160,10 @@ type BillingView struct {
 	// list must say it is bounded.
 	HistoryCapped   bool
 	HistoryCapLabel string
-	// HistoryEmpty is the sentence for a business that has never frozen a month. It
-	// is a measured claim rather than a blank space.
-	HistoryEmpty string
+	// HistoryEmptyHeading and HistoryEmpty are the empty state for a business that has
+	// never frozen a month. They are a measured claim rather than a blank space.
+	HistoryEmptyHeading string
+	HistoryEmpty        string
 
 	// Problem is a word from a closed vocabulary, echoed from the query string after
 	// a refused close. The handler maps it to a sentence; nothing free-text is
@@ -158,10 +179,17 @@ type BillingView struct {
 type BillingHistoryRow struct {
 	MonthValue string
 	MonthLabel string
+	// RangeLabel is the month's first and last day in the zone the row was counted in
+	// ("1 – 31 Aug"), read from the row's own boundaries.
+	RangeLabel string
 	Employees  string
 	UnitPrice  string
 	Amount     string
-	ClosedAt   string
+	// ClosedAt is when the row was frozen, in that same zone.
+	ClosedAt string
+	// Href opens the month on this section; CSVHref downloads its export.
+	Href    string
+	CSVHref string
 	// Free marks a month the founding offer covered, so a zero row reads as "the offer
 	// paid for it" rather than "nobody was employed".
 	Free bool
@@ -181,9 +209,19 @@ type BillingCloseView struct {
 
 	Heading string
 	Summary string
-	// Detail is what will be frozen, spelled out — the same figures the section
-	// showed, so the reader can check the screen against itself before pressing.
-	Detail []BillingLine
+	// What will be frozen, spelled out — the same figures the section showed, so the
+	// reader can check the screen against itself before pressing. It is four named
+	// groups rather than one list the template slices by position: Identity says which
+	// document (business, month, zone, boundaries, plan), Figures the count and the
+	// price, AmountLive the amount as counted now, and Notes the conditional lines (the
+	// founding offer, the floor). The labels are the definitions and stay whole.
+	Identity   []BillingLine
+	Figures    []BillingLine
+	AmountLive BillingLine
+	Notes      []BillingLine
+	// AfterLine says what pressing leads to: the section's own page for this month,
+	// stamped FROZEN. The redirect is the confirmation; this page has no done state.
+	AfterLine string
 	// Warning is the consequence, and it says the two things that are true: the row
 	// can never be edited or removed, and the figures are re-counted at the instant of
 	// the close rather than taken from this page.
