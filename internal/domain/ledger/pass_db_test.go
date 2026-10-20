@@ -243,16 +243,22 @@ func TestRLS_Floor_AnotherTenantsPeopleAreNotOnThisFloor(t *testing.T) {
 	a.tap(passTap{who: a.person("A on the floor", "Door"), venue: "Door", at: now.Add(-time.Hour), kind: "in"})
 	b.tap(passTap{who: b.person("B on the floor", "Door"), venue: "Door", at: now.Add(-time.Hour), kind: "in"})
 
-	// The statement's own shape with every tenant predicate removed.
+	// CountOnTheFloorByVenue's own shape (the outer read over transactions, the DISTINCT ON
+	// subquery, the anti-join and the venue join) with every tenant predicate removed: the outer
+	// row's, the subquery's, the anti-join's and the join's ON.
 	const whereless = `
-		WITH latest AS (
-		    SELECT DISTINCT ON (t.employee_id) t.location_id, t.site_location_id
-		    FROM transactions t
-		    WHERE t.employee_id IS NOT NULL AND t.type = 'in' AND NOT t.practice AND t.occurred_at >= $1
-		      AND NOT EXISTS (SELECT 1 FROM transactions o WHERE o.employee_id = t.employee_id
-		                        AND o.type = 'out' AND o.occurred_at > t.occurred_at)
-		    ORDER BY t.employee_id, t.occurred_at DESC, t.id DESC)
-		SELECT f.location_id FROM latest f LEFT JOIN locations l ON l.id = f.location_id`
+		SELECT t.location_id, t.site_location_id, l.name AS location_name, count(*) AS people
+		FROM transactions t
+		LEFT JOIN locations l ON l.id = t.location_id
+		WHERE t.occurred_at >= $1
+		  AND t.id IN (
+		      SELECT DISTINCT ON (x.employee_id) x.id
+		      FROM transactions x
+		      WHERE x.employee_id IS NOT NULL AND x.type = 'in' AND NOT x.practice AND x.occurred_at >= $1
+		        AND NOT EXISTS (SELECT 1 FROM transactions o WHERE o.employee_id = x.employee_id
+		                          AND o.type = 'out' AND o.occurred_at > x.occurred_at)
+		      ORDER BY x.employee_id, x.occurred_at DESC, x.id DESC)
+		GROUP BY t.location_id, t.site_location_id, l.name`
 	venuesSeenBy := func(tenant uuid.UUID) map[uuid.UUID]bool {
 		seen := map[uuid.UUID]bool{}
 		if err := data.WithTenant(context.Background(), tenant, func(ctx context.Context, tx pgx.Tx) error {
@@ -260,13 +266,21 @@ func TestRLS_Floor_AnotherTenantsPeopleAreNotOnThisFloor(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			ids, err := pgx.CollectRows(rows, pgx.RowTo[*uuid.UUID])
-			for _, id := range ids {
-				if id != nil {
-					seen[*id] = true
+			defer rows.Close()
+			for rows.Next() {
+				var (
+					loc, site *uuid.UUID
+					name      *string
+					people    int64
+				)
+				if err := rows.Scan(&loc, &site, &name, &people); err != nil {
+					return err
+				}
+				if loc != nil {
+					seen[*loc] = true
 				}
 			}
-			return err
+			return rows.Err()
 		}); err != nil {
 			t.Fatal(err)
 		}
