@@ -840,6 +840,8 @@ var partnerNoteCases = []partnerNoteCase{
 // MUTANTS (measured, site.go): the manual exemption removed -> the manual canary is lost; the sid
 // set narrowed (no gps-conflict-review) -> its sentence leaks; widened (every base: sid) -> the
 // counter gap's sentence is lost; the own: namespace dropped -> the tenant copy leaks.
+// M12-28 adds the rule's sid beside the sentence: blank on every partner-venue row, the stored sid
+// on the own-venue CONTROL.
 func TestEmployerReaders_APartnerVenueRowCarriesNoEvidenceSentence(t *testing.T) {
 	w := newHWorld(t)
 	day := Date{Year: 2026, Month: time.July, Day: 22}
@@ -894,6 +896,10 @@ func TestEmployerReaders_APartnerVenueRowCarriesNoEvidenceSentence(t *testing.T)
 			if rec.Note != partnerNoteCases[1].note {
 				t.Errorf("CONTROL: the own-venue row's note is %q, want the engine's sentence", rec.Note)
 			}
+			// M12-28: the rule's sid reaches the employer's own rows (The Spike prints it) ...
+			if rec.RuleSID != partnerNoteCases[1].sid {
+				t.Errorf("CONTROL: the own-venue row's rule is %q, want %q", rec.RuleSID, partnerNoteCases[1].sid)
+			}
 			continue
 		}
 		c, ok := cases[rec.ID]
@@ -901,6 +907,12 @@ func TestEmployerReaders_APartnerVenueRowCarriesNoEvidenceSentence(t *testing.T)
 			continue
 		}
 		seen++
+		// ... and never a row at a partner venue (K-39, ADR 0027 §13 item 5 (e)): whichever rule the
+		// peer's tap matched, evidence rule or not, nameSiteRecords blanks it.
+		// MUTANT (site.go): the blanking removed -> every partner row here names its sid.
+		if rec.RuleSID != "" {
+			t.Errorf("%s (%s): a partner-venue row carries its rule %q (K-39)", c.sid, rec.Verdict, rec.RuleSID)
+		}
 		want := c.note
 		if !c.shown {
 			want = c.want

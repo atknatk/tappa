@@ -66,12 +66,18 @@ type DocketView struct {
 	// Ctr is the chip's read counter as text, "" when there is none.
 	Ctr string
 	// Channel is how the record arrived -- nfc | qr | manual, the column's closed
-	// set (migration 0005), carried as the code's word. It is not rendered by
-	// either docket today: Manual below is the docket's half of §5's "manual is
-	// reported separately", and Channel is for the screens that name the channel
-	// itself (The Spike's "IN · 14:26:02 · NFC" line, M12-28). It is a channel, not
-	// a place: it says nothing about a network or a coordinate (§4.7).
+	// set (migration 0005), carried as the code's word. The ledger's two dockets do
+	// not print it: Manual below is their half of §5's "manual is reported
+	// separately". SpikeDocket names the channel itself (The Spike's
+	// "IN · 14:26:02 · NFC" line and its "Physical tap" tile, M12-28). It is a
+	// channel, not a place: it says nothing about a network or a coordinate (§4.7).
 	Channel string
+	// RuleSID is the rule that decided ("base:no-evidence-review"), "" when the row
+	// names none -- and "" on every record at a partner venue, because the ledger
+	// blanks it there with the rest of the K-39 evidence (ledger.Record.RuleSID).
+	// Only SpikeDocket prints it, on the record in focus, and SpikeWhy reads it for the
+	// queue's short reason; the ledger's two dockets do not.
+	RuleSID string
 	// Verdict is ok | flag | reject | ignored. It picks the stamp, and the stamp
 	// carries the WORD as well as the colour, so status is never told by colour
 	// alone.

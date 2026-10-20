@@ -39,7 +39,7 @@ func TestPartnerNote_KeepsTheEnginesAnnotations(t *testing.T) {
 			"the tag counter jumped: reads happened that the server never saw; " + crossNote},
 	}
 	for _, c := range cases {
-		if got := partnerNote(Record{Note: c.note, matchedSid: c.sid}); got != c.want {
+		if got := partnerNote(Record{Note: c.note, RuleSID: c.sid}); got != c.want {
 			t.Errorf("%s %q: got %q, want %q", c.sid, c.note, got, c.want)
 		}
 	}

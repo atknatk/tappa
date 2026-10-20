@@ -251,10 +251,12 @@ func docketView(rec ledger.Record, zone *time.Location) components.DocketView {
 		GPSSign:    sign(rec.GPSMatch),
 		TagUID:     rec.TagUID,
 		Channel:    rec.Channel,
-		Verdict:    rec.Verdict,
-		Practice:   rec.Practice,
-		Manual:     rec.Manual,
-		Queued:     rec.Queued,
+		// M12-28: blank on a partner-venue row, where the ledger dropped it (K-39).
+		RuleSID:  rec.RuleSID,
+		Verdict:  rec.Verdict,
+		Practice: rec.Practice,
+		Manual:   rec.Manual,
+		Queued:   rec.Queued,
 		// THE ENGINE'S VERDICT AND THE MANAGER'S DECISION TRAVEL SEPARATELY (M6-04).
 		// Verdict above still says what §5 decided at the tap; this says whether a
 		// human has since approved or rejected it, read through a JOIN on

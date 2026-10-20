@@ -8,12 +8,15 @@ package handler
 
 import (
 	"context"
+	"html"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/atknatk/tappa/internal/domain/ledger"
 )
 
 // TestHoldingPanel_PartnerViewsSayTheOutcomeNeverTheReason renders four screens of the signed-in
@@ -26,7 +29,9 @@ import (
 //   - the anomalies week carries the lost-plaque alert for KF's lost plaque a KM employee touched;
 //   - KF's own employee's tap at KM's venue is a docket naming KM's venue whose evidence reads
 //     "not shown at a partner venue" -- not the signs (K-39);
-//   - the manual form offers KM's venue as a partner venue.
+//   - the manual form offers KM's venue as a partner venue;
+//   - The Spike's record in focus at KM's venue shows the outcome and the partner venue, never the
+//     rule, the score, the signs or the evidence sentence (M12-28, K-39).
 //
 // And the CONTROLS: a business in no holding gets none of the four additions, and its anomalies
 // screen names no partner business at all (no bucket, no sentence).
@@ -119,6 +124,34 @@ func TestHoldingPanel_PartnerViewsSayTheOutcomeNeverTheReason(t *testing.T) {
 	if strings.Contains(transactions, "no network proof of place") || !strings.Contains(transactions, "Decided by your rules at a partner venue") {
 		t.Error("the employer's docket carries the engine's evidence sentence for a row at a partner venue (K-39)")
 	}
+	// M12-28: KF's own employee's FLAGGED tap at KM's venue, in The Spike's queue and in focus. The
+	// record's own row carries signs, a score, an evidence rule and its sentence; the Spike shows
+	// the outcome, the partner venue, PartnerVenueNote and one merged tile -- no rule sid, no trust,
+	// no IP/GPS word, no evidence sentence (K-39, ADR 0027 §13 item 5 (e)).
+	var flagged uuid.UUID
+	if err := owner.QueryRow(ctx, `INSERT INTO transactions (tenant_id, employee_id, occurred_at, verdict, channel, type, sun_valid, ctr, ip_match, gps_match, trust,
+	                                note, policy_layer, matched_sid, queued, site_tenant_id, site_location_id, site_tag_uid)
+	      VALUES ($1, $2, $3, 'flag', 'nfc', 'in', true, 1001, false, false, 20, $4, 'guardrail', 'base:no-evidence-review', true, $5, $6, $7) RETURNING id`,
+		p.tenantID, kfStaff, day.Add(2*time.Hour), "neither IP nor GPS could place this tap", km, kmVenue, kmPlaque).Scan(&flagged); err != nil {
+		t.Fatal(err)
+	}
+	spike := html.UnescapeString(page(reviewHref + "?focus=" + flagged.String()))
+	if ids := hiddenIDsOf(spike); len(ids) != 1 || ids[0] != flagged.String() {
+		t.Fatalf("The Spike's form decides %v, want the partner-venue record %s", ids, flagged)
+	}
+	for _, want := range []string{kmVenueName + " · partner venue", "Network · Location", "not shown at a partner venue",
+		ledger.PartnerVenueNote, "at a partner venue", "FLAGGED"} {
+		if !strings.Contains(spike, want) {
+			t.Errorf("The Spike's partner-venue record does not say %q", want)
+		}
+	}
+	for _, leak := range []string{"base:", "no-evidence", "rule ", "Trust", "trust ", "IP ", "GPS",
+		"neither IP nor GPS", "venue's range", "placed the tap", "no network, no location"} {
+		if strings.Contains(spike, leak) {
+			t.Errorf("The Spike's partner-venue record carries %q (K-39)", leak)
+		}
+	}
+
 	manual := page(manualEntryHref + "?id=" + kfStaff.String())
 	if !strings.Contains(manual, `name="site"`) || !strings.Contains(manual, kmVenueName) {
 		t.Error("the manual form does not offer the partner venue")
@@ -133,6 +166,7 @@ func TestHoldingPanel_PartnerViewsSayTheOutcomeNeverTheReason(t *testing.T) {
 		// bucket appended at Partner >= 0 put a 0-record bucket on this empty week -> red.
 		{anomaliesHref, "partner business"},
 		{transactionsHref + "?date=2026-07-01", "partner venue"},
+		{reviewHref, "partner venue"},
 	} {
 		res, body := q.get(t, c.path)
 		if res.StatusCode != http.StatusOK || strings.Contains(body, c.absent) {
