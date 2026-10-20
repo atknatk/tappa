@@ -247,6 +247,7 @@ func docketView(rec ledger.Record, zone *time.Location) components.DocketView {
 		IPSign:     sign(rec.IPMatch),
 		GPSSign:    sign(rec.GPSMatch),
 		TagUID:     rec.TagUID,
+		Channel:    rec.Channel,
 		Verdict:    rec.Verdict,
 		Practice:   rec.Practice,
 		Manual:     rec.Manual,
