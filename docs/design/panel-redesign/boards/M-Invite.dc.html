@@ -57,7 +57,7 @@ a{color:#1F5C41}a:hover{color:#152219}
           <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">Kitchen Porter · KF Hamrun</span>
         </div>
         <span class="lbl">Activation link — shown once</span>
-        <p class="mono" style="margin: 0; padding: 12px 14px; border: 2px dashed rgba(21,34,25,.5); border-radius: 12px; font-size: 15px; word-break: break-all; user-select: all; background: #EDF0EA">https://[panel host]/a/XXXX-XXXX-XXXX</p>
+        <p class="mono" style="margin: 0; padding: 12px 14px; border: 2px dashed rgba(21,34,25,.5); border-radius: 12px; font-size: 15px; word-break: break-all; user-select: all; background: #EDF0EA">https://[panel host]/a/<span style="white-space: nowrap">XXXX-XXXX-XXXX</span></p>
         <p class="help">One tap selects it all. Shown as text, not a link, so it does not open here and sign your own browser in.</p>
         <div style="border-top: 1px dashed #C9D2C8; padding-top: 10px; display: flex; flex-direction: column; gap: 6px">
           <p class="help">Taptime keeps no copy of this link. If you lose this page, create another invitation.</p>
@@ -112,7 +112,7 @@ a{color:#1F5C41}a:hover{color:#152219}
   </nav>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"outcome":{"editor":"enum","options":["issued","sent","unsent"],"default":"issued"},"$preview":{"width":390,"height":1180}}'>
+<script type="text/x-dc" data-dc-script data-props='{"outcome":{"editor":"enum","options":["issued","sent","unsent"],"default":"issued"},"$preview":{"width":390,"height":1020}}'>
 class Component extends DCLogic {
   renderVals() {
     const o = this.props.outcome ?? 'issued';

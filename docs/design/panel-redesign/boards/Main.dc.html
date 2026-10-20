@@ -150,6 +150,7 @@ a{color:#1F5C41}a:hover{color:#152219}
         </nav>
       </div>
       <sc-if value="{{railHas}}" hint-placeholder-val="{{true}}">
+        <div style="position: relative">
         <div class="rail-scroll" style="position: relative; padding-bottom: 18px">
           <div style="position: relative; min-width: max-content; padding-top: 10px">
             <div aria-hidden="true" style="position: absolute; left: 0; right: 0; top: 10px; height: 8px; border-radius: 4px; background: #152219"></div>
@@ -158,9 +159,9 @@ a{color:#1F5C41}a:hover{color:#152219}
                 <li style="width: 214px; display: flex; flex-direction: column; align-items: center">
                   <div aria-hidden="true" style="width: 46px; height: 18px; background: rgba(21,34,25,.7); border-radius: 0 0 6px 6px; position: relative; z-index: 1"></div>
                   <article class="docket" style="width: 100%; margin-top: -4px; padding: 18px 16px 16px; box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; transform: rotate({{d.tilt}}deg); transform-origin: top center">
-                    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px">
+                    <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 8px">
                       <span class="lbl">{{d.venue}}</span>
-                      <span class="{{d.stampCls}}">{{d.stamp}}</span>
+                      <span class="{{d.stampCls}}" style="align-self: flex-end; margin-top: -2px">{{d.stamp}}</span>
                     </div>
                     <div style="font-size: 18px; font-weight: 700; letter-spacing: -0.01em">{{d.name}}</div>
                     <div class="mono" style="display: flex; align-items: baseline; gap: 10px">
@@ -184,6 +185,8 @@ a{color:#1F5C41}a:hover{color:#152219}
             </ol>
           </div>
         </div>
+        <div aria-hidden="true" style="position: absolute; top: 0; right: 0; bottom: 18px; width: 48px; pointer-events: none; background: linear-gradient(to right, rgba(237,240,234,0), #EDF0EA)"></div>
+        </div>
         <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px">
           <a href="Main.dc.html" class="btn-quiet" style="align-self: flex-start">Show more</a>
           <a href="Ledger.dc.html" style="min-height: 44px; display: inline-flex; align-items: center; font-size: 14px; font-weight: 700">See the whole day →</a>
@@ -198,7 +201,7 @@ a{color:#1F5C41}a:hover{color:#152219}
       </sc-if>
     </section>
 
-    <section style="display: flex; flex-wrap: wrap; gap: 16px; align-items: stretch">
+    <section style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start">
       <div style="flex: 999 1 560px; min-width: 0; background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 18px; padding: 22px 24px; display: flex; flex-direction: column; gap: 16px">
         <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px">
           <h2 style="margin: 0; font-size: 22px; letter-spacing: -0.02em">The tape</h2>
@@ -266,7 +269,7 @@ a{color:#1F5C41}a:hover{color:#152219}
   </main>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#1F5C41","options":["#1F5C41","#D98E2B","#BE3D2A","#152219"]},"verdict":{"editor":"enum","options":["all","ok","flag","reject","ignored"],"default":"all"},"notice":{"editor":"enum","options":["none","key-budget","no-plaques-loaded","none-on-a-wall","none-in-service"],"default":"none"},"reads":{"editor":"enum","options":["measured","could-not-read"],"default":"measured"},"$preview":{"width":1440,"height":1300}}'>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#1F5C41","options":["#1F5C41","#D98E2B","#BE3D2A","#152219"]},"verdict":{"editor":"enum","options":["all","ok","flag","reject","ignored"],"default":"all"},"notice":{"editor":"enum","options":["none","key-budget","no-plaques-loaded","none-on-a-wall","none-in-service"],"default":"none"},"reads":{"editor":"enum","options":["measured","could-not-read"],"default":"measured"},"$preview":{"width":1440,"height":1420}}'>
 class Component extends DCLogic {
   renderVals() {
     const accent = this.props.accent ?? '#1F5C41';

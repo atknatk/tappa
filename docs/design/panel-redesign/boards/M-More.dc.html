@@ -26,7 +26,7 @@ a{color:#1F5C41}a:hover{color:#152219}
 .badge{position:absolute;top:4px;left:calc(50% + 6px);min-width:18px;height:18px;padding:0 5px;box-sizing:border-box;border-radius:9px;background:#D98E2B;color:#152219;font:700 11px 'IBM Plex Mono',monospace;display:flex;align-items:center;justify-content:center}
 </style>
 </helmet>
-<div style="width: 390px; height: 814px; position: relative; overflow: hidden; display: flex; flex-direction: column; background: #EDF0EA; color: #152219; font-family: 'Space Grotesk', system-ui, sans-serif">
+<div style="width: 390px; height: 820px; position: relative; overflow: hidden; display: flex; flex-direction: column; background: #EDF0EA; color: #152219; font-family: 'Space Grotesk', system-ui, sans-serif">
   <div style="height: 4px; background: #1F5C41"></div>
   <header style="height: 56px; padding: 0 8px 0 16px; display: flex; align-items: center; justify-content: space-between; box-sizing: border-box">
     <div style="display: flex; flex-direction: column; gap: 1px">
@@ -44,6 +44,7 @@ a{color:#1F5C41}a:hover{color:#152219}
     <div class="ghostblock" style="height: 160px"></div>
   </main>
 
+  <div aria-hidden="true" style="position: absolute; left: 0; right: 0; top: 0; bottom: 68px; background: rgba(21,34,25,.4)"></div>
   <div role="region" aria-label="More" style="position: absolute; left: 0; right: 0; bottom: 68px; max-height: 75%; overflow-y: auto; box-sizing: border-box; background: #FFFDF4; border-top: 1px solid #C9D2C8; border-radius: 16px 16px 0 0; padding: 16px 16px 24px; box-shadow: 0 -8px 24px rgba(21,34,25,.12)">
     <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column">
           <li><a href="M-Venues.dc.html" class="srow"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg><span>Venues &amp; plaques</span></a></li>
@@ -68,7 +69,7 @@ a{color:#1F5C41}a:hover{color:#152219}
   </nav>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":814}}'>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":820}}'>
 class Component extends DCLogic {
   renderVals() {
     return {};

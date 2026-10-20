@@ -15,8 +15,8 @@ body{margin:0;background:#EDF0EA}
 a{color:#1F5C41}a:hover{color:#152219}
 .mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
 .lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
-.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-bottom:0}
-.docket::after{content:"";position:absolute;left:-1px;right:-1px;bottom:-6px;height:6px;background:radial-gradient(circle at 6px 6px,transparent 3.5px,#FFFDF4 4px) 0 0/12px 6px repeat-x}
+.docket{position:relative;background:#EDF0EA;border:1px solid #C9D2C8;border-bottom:0}
+.docket::after{content:"";position:absolute;left:-1px;right:-1px;bottom:-6px;height:6px;background:radial-gradient(circle at 6px 6px,transparent 3.5px,#EDF0EA 4px) 0 0/12px 6px repeat-x}
 .tnav{position:relative;width:72px;min-height:60px;border-radius:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;text-decoration:none;color:#EDF0EA;font-family:'Space Grotesk',sans-serif;font-weight:500;font-size:10px}
 .tnav:hover{background:rgba(237,240,234,.08);color:#FFFDF4}
 .tnav--on,.tnav--on:hover{background:#FFFDF4;color:#152219}
@@ -95,7 +95,7 @@ a{color:#1F5C41}a:hover{color:#152219}
       <form role="search" aria-label="Filter employees" style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 0">
         <div role="group" aria-label="Status" style="display: flex; flex-wrap: wrap; gap: 6px">
           <sc-for list="{{chips}}" as="c" hint-placeholder-count="4">
-            <button type="button" onClick="{{c.pick}}" aria-current="{{c.on}}" style="{{c.style}}">{{c.label}} <span class="mono" style="font-size: 12px; opacity: .8">{{c.n}}</span></button>
+            <button type="button" onClick="{{c.pick}}" aria-current="{{c.on}}" style="{{c.style}}">{{c.label}} <span class="mono" style="font-size: 12px; font-weight: 400; opacity: .8">{{c.n}}</span></button>
           </sc-for>
         </div>
         <div style="margin-left: auto; display: flex; gap: 8px; align-items: center">
@@ -131,7 +131,7 @@ a{color:#1F5C41}a:hover{color:#152219}
   </main>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":834,"height":1400}}'>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":834,"height":1290}}'>
 class Component extends DCLogic {
   constructor(props) { super(props); this.state = { filter: 'all' }; }
   renderVals() {

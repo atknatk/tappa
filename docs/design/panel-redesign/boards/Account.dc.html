@@ -75,8 +75,8 @@ a{color:#1F5C41}a:hover{color:#152219}
       </sc-if>
     </header>
 
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 20px; align-items: start">
-
+    <div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start">
+      <div style="flex: 1 1 380px; min-width: 0; display: flex; flex-direction: column; gap: 20px">
       <section aria-labelledby="id-h" class="card">
         <h2 id="id-h" style="margin: 0; font-size: 20px; letter-spacing: -0.02em">Identity</h2>
         <sc-if value="{{owner}}" hint-placeholder-val="{{true}}">
@@ -145,6 +145,39 @@ a{color:#1F5C41}a:hover{color:#152219}
         </div>
       </section>
 
+      <section aria-labelledby="pw-h" class="card">
+        <h2 id="pw-h" style="margin: 0; font-size: 20px; letter-spacing: -0.02em">Your password</h2>
+        <p class="hint" style="font-size: 13px">This changes the password you sign in to Taptime with. Changing it keeps you signed in on this device and signs you out everywhere else.</p>
+        <div class="fld">
+          <label for="pw-cur" class="lbl">Current password</label>
+          <input id="pw-cur" class="field mono" type="password" autocomplete="current-password" style="font-family: 'IBM Plex Mono', monospace">
+          <p class="hint">Type the password you use now, so we know it is you making the change.</p>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px">
+          <div class="fld">
+            <label for="pw-new" class="lbl">New password</label>
+            <input id="pw-new" class="field mono" type="password" autocomplete="new-password" style="font-family: 'IBM Plex Mono', monospace">
+          </div>
+          <div class="fld">
+            <label for="pw-again" class="lbl">New password again</label>
+            <input id="pw-again" class="field mono" type="password" autocomplete="new-password" style="font-family: 'IBM Plex Mono', monospace">
+          </div>
+        </div>
+        <p class="hint">At least 8 characters. A few words you will remember beats a short one you will not.</p>
+        <button type="button" class="btn1" style="align-self: flex-start">Change password</button>
+      </section>
+
+      <sc-if value="{{owner}}" hint-placeholder-val="{{true}}">
+        <section aria-labelledby="dev-h" class="card" style="flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px">
+          <div style="display: flex; flex-direction: column; gap: 4px; flex: 1 1 240px">
+            <h2 id="dev-h" style="margin: 0; font-size: 20px; letter-spacing: -0.02em">Integration keys and webhook</h2>
+            <p class="hint" style="font-size: 13px">Keys for your payroll or HR system and the address punches are sent to live on their own page. Only an owner sees it.</p>
+          </div>
+          <a href="Developers.dc.html" class="btn2" style="display: inline-flex; align-items: center; text-decoration: none">Open Developers →</a>
+        </section>
+      </sc-if>
+      </div>
+      <div style="flex: 1 1 380px; min-width: 0; display: flex; flex-direction: column; gap: 20px">
       <section aria-labelledby="brand-h" class="card">
         <h2 id="brand-h" style="margin: 0; font-size: 20px; letter-spacing: -0.02em">Your brand</h2>
         <p class="hint" style="font-size: 13px">Your logo goes on the screens your staff see when they tap in and out, and at the top of this panel. Your colour goes on their tap button, and on the strip along the top of this panel.</p>
@@ -218,28 +251,6 @@ a{color:#1F5C41}a:hover{color:#152219}
         </sc-if>
       </section>
 
-      <section aria-labelledby="pw-h" class="card">
-        <h2 id="pw-h" style="margin: 0; font-size: 20px; letter-spacing: -0.02em">Your password</h2>
-        <p class="hint" style="font-size: 13px">This changes the password you sign in to Taptime with. Changing it keeps you signed in on this device and signs you out everywhere else.</p>
-        <div class="fld">
-          <label for="pw-cur" class="lbl">Current password</label>
-          <input id="pw-cur" class="field mono" type="password" autocomplete="current-password" style="font-family: 'IBM Plex Mono', monospace">
-          <p class="hint">Type the password you use now, so we know it is you making the change.</p>
-        </div>
-        <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px">
-          <div class="fld">
-            <label for="pw-new" class="lbl">New password</label>
-            <input id="pw-new" class="field mono" type="password" autocomplete="new-password" style="font-family: 'IBM Plex Mono', monospace">
-          </div>
-          <div class="fld">
-            <label for="pw-again" class="lbl">New password again</label>
-            <input id="pw-again" class="field mono" type="password" autocomplete="new-password" style="font-family: 'IBM Plex Mono', monospace">
-          </div>
-        </div>
-        <p class="hint">At least 8 characters. A few words you will remember beats a short one you will not.</p>
-        <button type="button" class="btn1" style="align-self: flex-start">Change password</button>
-      </section>
-
       <section aria-labelledby="msg-h" class="card">
         <h2 id="msg-h" style="margin: 0; font-size: 20px; letter-spacing: -0.02em">What your staff read</h2>
         <p class="hint" style="font-size: 13px">These two lines are the send-off after a tap that counted. They follow the kind of business above rather than being written per business, so every restaurant on Taptime reads the same one — writing your own is not built yet. They are never shown on a tap that is waiting for a manager.</p>
@@ -254,21 +265,12 @@ a{color:#1F5C41}a:hover{color:#152219}
           </div>
         </div>
       </section>
-
-      <sc-if value="{{owner}}" hint-placeholder-val="{{true}}">
-        <section aria-labelledby="dev-h" class="card" style="flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px">
-          <div style="display: flex; flex-direction: column; gap: 4px; flex: 1 1 240px">
-            <h2 id="dev-h" style="margin: 0; font-size: 20px; letter-spacing: -0.02em">Integration keys and webhook</h2>
-            <p class="hint" style="font-size: 13px">Keys for your payroll or HR system and the address punches are sent to live on their own page. Only an owner sees it.</p>
-          </div>
-          <a href="Developers.dc.html" class="btn2" style="display: inline-flex; align-items: center; text-decoration: none">Open Developers →</a>
-        </section>
-      </sc-if>
+      </div>
     </div>
   </main>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"role":{"editor":"enum","options":["owner","manager"],"default":"owner"},"vat":{"editor":"enum","options":["valid","invalid","no-answer","unchecked"],"default":"valid"},"savedAccent":{"editor":"enum","options":["#1F5C41","#D98E2B","#BE3D2A","#152219"],"default":"#1F5C41"},"colourTry":{"editor":"enum","options":["none","saved","refused"],"default":"none"},"$preview":{"width":1440,"height":1720}}'>
+<script type="text/x-dc" data-dc-script data-props='{"role":{"editor":"enum","options":["owner","manager"],"default":"owner"},"vat":{"editor":"enum","options":["valid","invalid","no-answer","unchecked"],"default":"valid"},"savedAccent":{"editor":"enum","options":["#1F5C41","#D98E2B","#BE3D2A","#152219"],"default":"#1F5C41"},"colourTry":{"editor":"enum","options":["none","saved","refused"],"default":"none"},"$preview":{"width":1440,"height":1450}}'>
 class Component extends DCLogic {
   renderVals() {
     const owner = (this.props.role ?? 'owner') === 'owner';

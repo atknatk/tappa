@@ -25,8 +25,8 @@ a{color:#1F5C41}a:hover{color:#152219}
 .navlink:hover{background:rgba(237,240,234,.08);color:#FFFDF4}
 .navlink--on{background:#FFFDF4;color:#152219}
 .navlink--on:hover{background:#FFFDF4;color:#152219}
-.mini{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-bottom:0}
-.mini::after{content:"";position:absolute;left:-1px;right:-1px;bottom:-5px;height:5px;background:radial-gradient(circle at 5px 5px,transparent 3px,#FFFDF4 3.5px) 0 0/10px 5px repeat-x}
+.mini{position:relative;background:#EDF0EA;border:1px solid #C9D2C8;border-bottom:0}
+.mini::after{content:"";position:absolute;left:-1px;right:-1px;bottom:-5px;height:5px;background:radial-gradient(circle at 5px 5px,transparent 3px,#EDF0EA 3.5px) 0 0/10px 5px repeat-x}
 </style>
 </helmet>
 <div style="min-height: 100vh; display: flex; flex-wrap: wrap; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
@@ -79,7 +79,7 @@ a{color:#1F5C41}a:hover{color:#152219}
     <form role="search" aria-label="Filter employees" style="display: flex; flex-direction: column; gap: 12px; margin: 0">
       <div role="group" aria-label="Status" style="align-self: flex-start; display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 999px">
         <sc-for list="{{chips}}" as="c" hint-placeholder-count="4">
-          <button type="button" onClick="{{c.pick}}" aria-current="{{c.on}}" style="{{c.style}}">{{c.label}} <span class="mono" style="font-size: 12px; opacity: .75">{{c.n}}</span></button>
+          <button type="button" onClick="{{c.pick}}" aria-current="{{c.on}}" style="{{c.style}}">{{c.label}} <span class="mono" style="font-size: 12px; font-weight: 400; opacity: .75">{{c.n}}</span></button>
         </sc-for>
       </div>
       <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end">
@@ -211,7 +211,7 @@ a{color:#1F5C41}a:hover{color:#152219}
   </main>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1240}}'>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1280}}'>
 class Component extends DCLogic {
   constructor(props) { super(props); this.state = { sel: 'ep', status: 'all' }; }
   renderVals() {

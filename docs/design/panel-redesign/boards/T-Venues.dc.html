@@ -116,7 +116,7 @@ th{font-weight:400}
                 </div>
               </div>
             </div>
-            <figcaption class="mono" style="font-size: 11px; color: rgba(21,34,25,.7); word-break: break-all">{{cur.uid}} · drawing, not to scale</figcaption>
+            <figcaption class="mono" style="font-size: 11px; color: rgba(21,34,25,.7); overflow-wrap: anywhere">{{cur.uid}} · drawing, not to scale</figcaption>
           </sc-if>
           <sc-if value="{{cur.noPlaque}}" hint-placeholder-val="{{false}}">
             <p style="margin: 0; padding: 18px; border-radius: 16px; background: rgba(201,210,200,.5); font-size: 13px; line-height: 1.45">No plaque is on a wall here yet. Open a plaque in stock below to mount it.</p>
@@ -142,8 +142,8 @@ th{font-weight:400}
               <div style="position: absolute; left: 50%; top: 50%; width: 220px; height: 220px; margin: -110px 0 0 -110px; border-radius: 50%; border: 1px dashed rgba(21,34,25,.5)"></div>
               <div style="position: absolute; left: 50%; top: 50%; width: 130px; height: 130px; margin: -65px 0 0 -65px; border-radius: 50%; border: 2px dashed #1F5C41; background: rgba(31,92,65,.08)"></div>
               <div style="position: absolute; left: 50%; top: 50%; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; background: #152219"></div>
-              <span class="mono" style="position: absolute; left: calc(50% + 70px); top: calc(50% - 10px); font-size: 11px; color: #1F5C41; font-weight: 700">150 m</span>
-              <span class="mono" style="position: absolute; left: 12px; bottom: 10px; font-size: 11px; color: rgba(21,34,25,.7)">GPS read only at the tap</span>
+              <span class="mono" style="position: absolute; left: calc(50% + 70px); top: calc(50% - 10px); padding: 0 3px; border-radius: 4px; background: #EDF0EA; font-size: 11px; color: #1F5C41; font-weight: 700">150 m</span>
+              <span class="mono" style="position: absolute; left: 8px; bottom: 8px; padding: 2px 6px; border-radius: 6px; background: #EDF0EA; font-size: 11px; color: rgba(21,34,25,.7)">GPS read only at the tap</span>
             </div>
           </sc-if>
           <p style="margin: 0; font-size: 13px; line-height: 1.5; color: rgba(21,34,25,.7)">Under the standard rules, a plaque tap on this network or within 150 m is approved. A QR scan needs the network — GPS alone sends it to The Spike. Neither — the tap is still recorded and goes to The Spike.</p>
@@ -242,7 +242,7 @@ th{font-weight:400}
   </main>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":834,"height":2230}}'>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":834,"height":2030}}'>
 class Component extends DCLogic {
   constructor(props) { super(props); this.state = { sel: 'KF Valletta' }; }
   renderVals() {

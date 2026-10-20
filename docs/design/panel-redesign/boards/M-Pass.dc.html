@@ -115,7 +115,8 @@ a{color:#1F5C41}a:hover{color:#152219}
         </sc-for>
       </nav>
       <sc-if value="{{railHas}}" hint-placeholder-val="{{true}}">
-        <div class="hscroll" style="margin: 0 -16px; position: relative">
+        <div style="position: relative; margin: 0 -16px">
+        <div class="hscroll" style="position: relative">
           <div style="position: relative; width: max-content; padding: 10px 16px 18px">
             <div aria-hidden="true" style="position: absolute; left: 0; right: 0; top: 10px; height: 7px; border-radius: 4px; background: #152219"></div>
             <ol style="list-style: none; margin: 0; padding: 0; display: flex; gap: 12px">
@@ -123,9 +124,9 @@ a{color:#1F5C41}a:hover{color:#152219}
                 <li style="width: 190px; display: flex; flex-direction: column; align-items: center">
                   <div aria-hidden="true" style="width: 40px; height: 18px; background: rgba(21,34,25,.7); border-radius: 0 0 6px 6px; position: relative; z-index: 1"></div>
                   <article class="docket" style="width: 100%; min-height: 168px; margin-top: -4px; padding: 16px 14px 12px; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px; transform: rotate({{d.tilt}}deg); transform-origin: top center">
-                    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 6px">
+                    <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 6px">
                       <span class="lbl" style="font-size: 10px">{{d.venue}}</span>
-                      <span class="{{d.stampCls}}">{{d.stamp}}</span>
+                      <span class="{{d.stampCls}}" style="align-self: flex-end; margin-top: -2px">{{d.stamp}}</span>
                     </div>
                     <div style="font-size: 17px; font-weight: 700; letter-spacing: -0.01em">{{d.name}}</div>
                     <div class="mono" style="display: flex; align-items: baseline; gap: 8px">
@@ -149,6 +150,8 @@ a{color:#1F5C41}a:hover{color:#152219}
             </ol>
           </div>
         </div>
+        <div aria-hidden="true" style="position: absolute; top: 0; right: 0; bottom: 18px; width: 40px; pointer-events: none; background: linear-gradient(to right, rgba(237,240,234,0), #EDF0EA)"></div>
+        </div>
         <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px">
           <a href="M-Pass.dc.html" class="btn-quiet" style="align-self: flex-start">Show more</a>
           <a href="M-Ledger.dc.html" style="min-height: 44px; display: inline-flex; align-items: center; font-size: 14px; font-weight: 700">See the whole day →</a>
@@ -169,10 +172,10 @@ a{color:#1F5C41}a:hover{color:#152219}
         <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7)">00:00 → now</span>
       </div>
       <sc-if value="{{read}}" hint-placeholder-val="{{true}}">
-        <div class="hscroll" style="margin: 0 -16px; padding: 0 16px">
-          <div style="width: 560px; display: flex; flex-direction: column; gap: 8px">
+        <div>
+          <div style="display: flex; flex-direction: column; gap: 8px">
             <sc-for list="{{tape}}" as="r" hint-placeholder-count="6">
-              <div role="img" aria-label="{{r.aria}}" style="display: grid; grid-template-columns: 84px 1fr; align-items: end; gap: 8px; height: 28px">
+              <div role="img" aria-label="{{r.aria}}" style="display: grid; grid-template-columns: 76px 1fr; align-items: end; gap: 8px; height: 28px">
                 <span style="font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{r.name}}</span>
                 <div style="display: grid; grid-template-columns: repeat(24, minmax(0, 1fr)); gap: 2px; align-items: end; height: 28px; border-bottom: 1px solid #C9D2C8">
                   <sc-for list="{{r.bars}}" as="b" hint-placeholder-count="24">
@@ -181,10 +184,10 @@ a{color:#1F5C41}a:hover{color:#152219}
                 </div>
               </div>
             </sc-for>
-            <div style="display: grid; grid-template-columns: 84px 1fr; gap: 8px; height: 14px">
+            <div style="display: grid; grid-template-columns: 76px 1fr; gap: 8px; height: 14px">
               <span></span>
-              <div class="mono" style="display: grid; grid-template-columns: repeat(24, minmax(0, 1fr)); gap: 2px; font-size: 10px; color: rgba(21,34,25,.7)">
-                <sc-for list="{{hours}}" as="h" hint-placeholder-count="24">
+              <div class="mono" style="display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 2px; font-size: 10px; color: rgba(21,34,25,.7)">
+                <sc-for list="{{hours}}" as="h" hint-placeholder-count="8">
                   <span>{{h.label}}</span>
                 </sc-for>
               </div>
@@ -237,7 +240,7 @@ a{color:#1F5C41}a:hover{color:#152219}
   </nav>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"verdict":{"editor":"enum","options":["all","ok","flag","reject","ignored"],"default":"all"},"notice":{"editor":"enum","options":["none","key-budget","no-plaques-loaded","none-on-a-wall","none-in-service"],"default":"none"},"reads":{"editor":"enum","options":["measured","could-not-read"],"default":"measured"},"$preview":{"width":390,"height":2020}}'>
+<script type="text/x-dc" data-dc-script data-props='{"verdict":{"editor":"enum","options":["all","ok","flag","reject","ignored"],"default":"all"},"notice":{"editor":"enum","options":["none","key-budget","no-plaques-loaded","none-on-a-wall","none-in-service"],"default":"none"},"reads":{"editor":"enum","options":["measured","could-not-read"],"default":"measured"},"$preview":{"width":390,"height":2130}}'>
 class Component extends DCLogic {
   renderVals() {
     const DEV = 'M-Developers.dc.html', VEN = 'M-Venues.dc.html', SELF = 'M-Pass.dc.html', MAXD = 10, BAR_MIN = 5, BAR_MAX = 28;
@@ -300,7 +303,7 @@ class Component extends DCLogic {
         return { style: 'height:' + px + 'px;background:' + (h === NOW ? '#152219' : '#1F5C41') };
       })
     }));
-    const hours = Array.from({ length: 24 }, (_, h) => ({ label: h % 3 === 0 ? String(h).padStart(2, '0') : '' }));
+    const hours = Array.from({ length: 8 }, (_, i) => ({ label: String(i * 3).padStart(2, '0') }));
 
     const plaques = [
       ['KF Valletta', '91AC', '20 Oct 2026 14:31', false], ['KF Hamrun', '7E55', '20 Oct 2026 14:28', false],

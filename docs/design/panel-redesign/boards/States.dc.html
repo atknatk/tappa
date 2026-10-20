@@ -64,7 +64,7 @@ a{color:#1F5C41}a:hover{color:#152219}
 
     <section aria-labelledby="h-empty" style="display: flex; flex-direction: column; gap: 14px">
       <h2 id="h-empty" style="margin: 0; font-size: 22px; letter-spacing: -0.02em">Empty states <span class="mono" style="font-size: 13px; font-weight: 400; color: rgba(21,34,25,.7)">· the section names itself; the sentence says what was asked</span></h2>
-      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px">
+      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px">
         <sc-for list="{{empties}}" as="e" hint-placeholder-count="7">
           <div class="empty">
             <span class="lbl">{{e.where}}</span>
@@ -111,7 +111,7 @@ a{color:#1F5C41}a:hover{color:#152219}
     <section aria-labelledby="h-problem" style="display: flex; flex-direction: column; gap: 14px">
       <h2 id="h-problem" style="margin: 0; font-size: 22px; letter-spacing: -0.02em">Problem pages <span class="mono" style="font-size: 13px; font-weight: 400; color: rgba(21,34,25,.7)">· what happened, then what to do next</span></h2>
       <p style="margin: 0; font-size: 14px; line-height: 1.5; color: rgba(21,34,25,.7); max-width: 760px">The code is the status the panel already answers with. There is no "sign in again" page: an expired session goes straight to the sign-in page. A problem met before signing in offers the sign-in page, never The Pass.</p>
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px">
         <sc-for list="{{problems}}" as="p" hint-placeholder-count="4">
           <article style="background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 18px; padding: 24px; display: flex; flex-direction: column; gap: 12px">
             <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px">
@@ -141,7 +141,7 @@ a{color:#1F5C41}a:hover{color:#152219}
   </main>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1900}}'>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1610}}'>
 class Component extends DCLogic {
   renderVals() {
     // Sentences are the product's own (review, transactions, employees, locations, reports, anomalies templates).

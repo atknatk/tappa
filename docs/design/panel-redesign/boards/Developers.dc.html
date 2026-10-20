@@ -131,12 +131,14 @@ th{font-weight:400}
     </section>
 
     <div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start">
-      <section aria-labelledby="wh-h" class="card" style="flex: 1 1 420px">
+      <section aria-labelledby="wh-h" class="card" style="flex: 1 1 100%">
         <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px">
           <h2 id="wh-h" style="margin: 0; font-size: 22px; letter-spacing: -0.02em">Webhook</h2>
           <span class="mono" style="font-size: 12px; font-weight: 700; letter-spacing: .08em; padding: 3px 10px; border-radius: 999px; border: 1px solid #1F5C41; background: rgba(31,92,65,.1)">ON</span>
         </div>
         <p style="margin: 0; font-size: 14px; color: rgba(21,34,25,.7)">We send every punch to one address of yours, signed with a key only you and Taptime hold.</p>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 16px 40px; align-items: start">
+        <div style="display: flex; flex-direction: column; gap: 16px; min-width: 0">
         <sc-if value="{{whReveal}}" hint-placeholder-val="{{false}}">
           <div role="status" style="border: 2px solid #D98E2B; background: rgba(217,142,43,.1); border-radius: 14px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
             <strong style="font-size: 15px">Store the webhook's signing key now — it is shown once</strong>
@@ -157,6 +159,8 @@ th{font-weight:400}
           <dt class="lbl">Created</dt><dd class="mono" style="margin: 0; font-size: 13px">2 Oct 2026</dd>
           <dt class="lbl">Test messages</dt><dd class="mono" style="margin: 0; font-size: 13px">9 of 10 left this hour</dd>
         </dl>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 16px; min-width: 0">
         <sc-if value="{{pingOk}}" hint-placeholder-val="{{false}}">
           <div role="status" style="display: flex; flex-direction: column; gap: 4px; border: 1px solid #1F5C41; background: rgba(31,92,65,.1); border-radius: 14px; padding: 14px 16px">
             <span class="lbl" style="color: #1F5C41">Done</span>
@@ -180,9 +184,11 @@ th{font-weight:400}
           <label style="display: inline-flex; align-items: center; gap: 8px; min-height: 44px; font-size: 14px"><input type="checkbox" style="width: 20px; height: 20px; accent-color: #1F5C41">Yes, replace the signing key now</label>
           <button type="button" class="btn2">Rotate the signing key</button>
         </div>
+        </div>
+        </div>
       </section>
 
-      <section aria-labelledby="dl-h" class="card" style="flex: 999 1 560px">
+      <section aria-labelledby="dl-h" class="card" style="flex: 1 1 100%">
         <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px">
           <h2 id="dl-h" style="margin: 0; font-size: 22px; letter-spacing: -0.02em">Deliveries</h2>
           <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">retries after 1 · 5 · 30 min · 2 · 6 h, then failed</span>
@@ -202,7 +208,7 @@ th{font-weight:400}
             <tbody>
               <sc-for list="{{deliveries}}" as="d" hint-placeholder-count="6">
                 <tr style="border-top: 1px dashed #C9D2C8">
-                  <td class="mono" style="padding: 10px 6px; font-size: 12px; word-break: break-all; max-width: 200px">{{d.id}}<span style="display: block; color: rgba(21,34,25,.7)">punch {{d.punch}}</span></td>
+                  <td class="mono" style="padding: 10px 6px; font-size: 12px; word-break: break-all; min-width: 280px">{{d.id}}<span style="display: block; color: rgba(21,34,25,.7)">punch {{d.punch}}</span></td>
                   <td class="mono" style="padding: 10px 6px; font-size: 13px">{{d.queued}}</td>
                   <td style="padding: 10px 6px"><span class="mono" style="{{d.pill}}">{{d.state}}</span><span class="mono" style="display: block; font-size: 12px; color: rgba(21,34,25,.7); margin-top: 3px">{{d.note}}</span></td>
                   <td class="mono" style="padding: 10px 6px; font-size: 13px; text-align: right">{{d.tries}}</td>
@@ -227,7 +233,7 @@ th{font-weight:400}
   </main>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"reveal":{"editor":"enum","options":["none","api-key","webhook-key"],"default":"none"},"ping":{"editor":"enum","options":["none","arrived","failed"],"default":"none"},"$preview":{"width":1440,"height":1600}}'>
+<script type="text/x-dc" data-dc-script data-props='{"reveal":{"editor":"enum","options":["none","api-key","webhook-key"],"default":"none"},"ping":{"editor":"enum","options":["none","arrived","failed"],"default":"none"},"$preview":{"width":1440,"height":1690}}'>
 class Component extends DCLogic {
   renderVals() {
     const reveal = this.props.reveal ?? 'none';

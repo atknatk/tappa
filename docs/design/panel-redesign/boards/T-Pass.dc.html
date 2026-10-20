@@ -100,7 +100,7 @@ a{color:#1F5C41}a:hover{color:#152219}
         </sc-if>
       </div>
       <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px">
-        <a href="T-Spike.dc.html" style="text-decoration: none; color: #152219; background: #F7EBD6; border: 1px solid #D98E2B; border-radius: 18px; padding: 18px 20px; display: flex; flex-direction: column; gap: 14px">
+        <a href="T-Spike.dc.html" style="text-decoration: none; color: #152219; background: #F7EBD6; border: 1px solid #D98E2B; border-radius: 18px; padding: 18px 20px; display: flex; flex-direction: column; justify-content: space-between; gap: 14px">
           <span class="lbl" style="color: #152219">On the spike</span>
           <span style="display: flex; align-items: flex-end; gap: 12px">
             <span class="mono" style="font-size: 56px; line-height: .9; font-weight: 400">4</span>
@@ -132,7 +132,8 @@ a{color:#1F5C41}a:hover{color:#152219}
         </nav>
       </div>
       <sc-if value="{{railHas}}" hint-placeholder-val="{{true}}">
-        <div style="overflow-x: auto; margin: 0 -24px; padding: 0 24px 18px">
+        <div style="position: relative; margin: 0 -24px">
+        <div style="overflow-x: auto; padding: 0 24px 18px">
           <div style="position: relative; min-width: max-content; padding-top: 10px">
             <div aria-hidden="true" style="position: absolute; left: 0; right: 0; top: 10px; height: 8px; border-radius: 4px; background: #152219"></div>
             <ol style="list-style: none; margin: 0; display: flex; gap: 14px; padding: 0 12px">
@@ -140,9 +141,9 @@ a{color:#1F5C41}a:hover{color:#152219}
                 <li style="width: 200px; display: flex; flex-direction: column; align-items: center">
                   <div aria-hidden="true" style="width: 44px; height: 18px; background: rgba(21,34,25,.7); border-radius: 0 0 6px 6px; position: relative; z-index: 1"></div>
                   <article class="docket" style="width: 100%; margin-top: -4px; padding: 16px 14px 14px; box-sizing: border-box; display: flex; flex-direction: column; gap: 9px; transform: rotate({{d.tilt}}deg); transform-origin: top center">
-                    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px">
+                    <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 8px">
                       <span class="lbl">{{d.venue}}</span>
-                      <span class="{{d.stampCls}}">{{d.stamp}}</span>
+                      <span class="{{d.stampCls}}" style="align-self: flex-end; margin-top: -2px">{{d.stamp}}</span>
                     </div>
                     <div style="font-size: 17px; font-weight: 700">{{d.name}}</div>
                     <div class="mono" style="display: flex; align-items: baseline; gap: 10px">
@@ -165,6 +166,8 @@ a{color:#1F5C41}a:hover{color:#152219}
               </sc-for>
             </ol>
           </div>
+        </div>
+        <div aria-hidden="true" style="position: absolute; top: 0; right: 0; bottom: 18px; width: 40px; pointer-events: none; background: linear-gradient(to right, rgba(237,240,234,0), #EDF0EA)"></div>
         </div>
         <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px">
           <a href="T-Pass.dc.html" class="btn-quiet" style="align-self: flex-start">Show more</a>
@@ -224,7 +227,7 @@ a{color:#1F5C41}a:hover{color:#152219}
         <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7)">in service · last seen</span>
       </div>
       <sc-if value="{{read}}" hint-placeholder-val="{{true}}">
-        <ul style="list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 24px">
+        <ul style="list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 24px; align-items: start">
           <sc-for list="{{plaques}}" as="p" hint-placeholder-count="6">
             <li style="display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; padding: 10px 0; border-bottom: 1px dashed #C9D2C8">
               <span style="font-size: 14px; font-weight: 500">{{p.venue}}</span>
@@ -246,7 +249,7 @@ a{color:#1F5C41}a:hover{color:#152219}
   </main>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"verdict":{"editor":"enum","options":["all","ok","flag","reject","ignored"],"default":"all"},"notice":{"editor":"enum","options":["none","key-budget","no-plaques-loaded","none-on-a-wall","none-in-service"],"default":"none"},"reads":{"editor":"enum","options":["measured","could-not-read"],"default":"measured"},"$preview":{"width":834,"height":1820}}'>
+<script type="text/x-dc" data-dc-script data-props='{"verdict":{"editor":"enum","options":["all","ok","flag","reject","ignored"],"default":"all"},"notice":{"editor":"enum","options":["none","key-budget","no-plaques-loaded","none-on-a-wall","none-in-service"],"default":"none"},"reads":{"editor":"enum","options":["measured","could-not-read"],"default":"measured"},"$preview":{"width":834,"height":1780}}'>
 class Component extends DCLogic {
   renderVals() {
     const DEV = 'T-Developers.dc.html', VEN = 'T-Venues.dc.html', SELF = 'T-Pass.dc.html', MAXD = 10, BAR_MIN = 6, BAR_MAX = 34;

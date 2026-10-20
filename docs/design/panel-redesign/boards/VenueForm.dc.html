@@ -182,8 +182,8 @@ a{color:#1F5C41}a:hover{color:#152219}
         <section aria-labelledby="proves-h" class="docket" style="padding: 20px 22px 22px; display: flex; flex-direction: column; gap: 12px">
           <span class="lbl" id="proves-h">What a tap here can prove</span>
           <div class="mono" style="display: flex; flex-direction: column; gap: 8px; font-size: 13px">
-            <div style="display: flex; justify-content: space-between; gap: 8px"><span>Network</span><span style="font-weight: 700; text-align: right">{{proves.net}}</span></div>
-            <div style="display: flex; justify-content: space-between; gap: 8px"><span>GPS (configured 150 m)</span><span style="font-weight: 700; text-align: right">{{proves.gps}}</span></div>
+            <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px"><span style="white-space: nowrap">Network</span><span style="margin-left: auto; font-weight: 700; text-align: right">{{proves.net}}</span></div>
+            <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px"><span style="white-space: nowrap">GPS (configured 150 m)</span><span style="margin-left: auto; font-weight: 700; text-align: right">{{proves.gps}}</span></div>
             <div style="display: flex; justify-content: space-between; gap: 8px; border-top: 1px dashed #C9D2C8; padding-top: 8px"><span>Plaque tap</span><span style="text-align: right">network or GPS</span></div>
             <div style="display: flex; justify-content: space-between; gap: 8px"><span>QR scan</span><span style="text-align: right">network only</span></div>
           </div>
@@ -248,7 +248,7 @@ a{color:#1F5C41}a:hover{color:#152219}
   </main>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1620}}'>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1790}}'>
 class Component extends DCLogic {
   constructor(props) { super(props); this.state = { overnight: null }; }
   renderVals() {

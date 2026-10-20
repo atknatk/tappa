@@ -16,6 +16,7 @@ a{color:#1F5C41}a:hover{color:#152219}
 .mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
 .lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
 .docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-bottom:0}
+.docket-well{background:#EDF0EA;border-radius:12px;padding:14px 14px 22px}
 .docket::after{content:"";position:absolute;left:-1px;right:-1px;bottom:-7px;height:7px;background:radial-gradient(circle at 7px 7px,transparent 4px,#FFFDF4 4.5px) 0 0/14px 7px repeat-x}
 .tnav{position:relative;width:72px;min-height:60px;border-radius:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;text-decoration:none;color:#EDF0EA;font-family:'Space Grotesk',sans-serif;font-weight:500;font-size:10px}
 .tnav:hover{background:rgba(237,240,234,.08);color:#FFFDF4}
@@ -130,6 +131,7 @@ a{color:#1F5C41}a:hover{color:#152219}
         <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7)">Version 1 was copied from the Taptime baseline of 2026-07-26.</span>
 
         <span class="lbl" style="border-top: 1px dashed #C9D2C8; padding-top: 14px">State · the version page when an old version cannot be read</span>
+        <div class="docket-well">
         <article aria-label="Version 1, read in full" class="docket" style="padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 10px">
           <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap">
             <span style="font-weight: 700; font-size: 15px">GPS-only at Headquarter and Hamrun</span>
@@ -144,12 +146,13 @@ a{color:#1F5C41}a:hover{color:#152219}
           </div>
           <a href="T-Rules.dc.html" style="align-self: flex-start; min-height: 44px; padding: 0 14px; border-radius: 12px; border: 1px solid rgba(21,34,25,.5); color: #152219; font-size: 14px; font-weight: 700; text-decoration: none; display: inline-flex; align-items: center">Back to your rules</a>
         </article>
+        </div>
       </section>
     </div>
   </main>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":834,"height":2100}}'>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":834,"height":1940}}'>
 class Component extends DCLogic {
   renderVals() {
     const mk = (ver, at, author, bytes, marker, current) => ({

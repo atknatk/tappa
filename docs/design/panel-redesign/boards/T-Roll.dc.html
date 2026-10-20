@@ -111,21 +111,21 @@ th{font-weight:400}
     <sc-if value="{{capped}}" hint-placeholder-val="{{false}}">
       <div role="note" style="border-left: 4px solid #D98E2B; background: rgba(217,142,43,.12); border-radius: 0 12px 12px 0; padding: 10px 14px; font-size: 13px; line-height: 1.45"><strong>Not everybody is listed.</strong> Showing 100 of 134 people, by name. The totals cover everybody; only this list is shortened. Download the CSV for every row.</div>
     </sc-if>
-    <section aria-label="Hours by person" style="background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 18px; padding: 8px 0 4px; overflow-x: auto">
-      <table style="width: 100%; min-width: 690px; border-collapse: collapse">
+    <section aria-label="Hours by person" style="position: relative; background: linear-gradient(90deg, #FFFDF4 30%, rgba(255,253,244,0)) 0 0 / 40px 100% no-repeat local, linear-gradient(270deg, #FFFDF4 30%, rgba(255,253,244,0)) 100% 0 / 40px 100% no-repeat local, radial-gradient(farthest-side at 0 50%, rgba(21,34,25,.18), rgba(21,34,25,0)) 0 0 / 14px 100% no-repeat scroll, radial-gradient(farthest-side at 100% 50%, rgba(21,34,25,.18), rgba(21,34,25,0)) 100% 0 / 14px 100% no-repeat scroll, #FFFDF4; border: 1px solid #C9D2C8; border-radius: 18px; padding: 8px 0 4px; overflow-x: auto">
+      <table style="width: 100%; min-width: 640px; border-collapse: collapse">
         <thead>
           <tr>
-            <th scope="col" class="lbl" style="text-align: left; padding: 12px 14px">Person</th>
+            <th scope="col" class="lbl" style="text-align: left; padding: 12px 6px 12px 14px">Person</th>
             <sc-for list="{{days}}" as="d" hint-placeholder-count="7">
-              <th scope="col" class="lbl" style="text-align: center; padding: 12px 4px">{{d}}</th>
+              <th scope="col" class="lbl" style="text-align: center; padding: 12px 1px; letter-spacing: .04em; white-space: nowrap">{{d}}</th>
             </sc-for>
-            <th scope="col" class="lbl" style="text-align: right; padding: 12px 14px">Total</th>
+            <th scope="col" class="lbl" style="text-align: right; padding: 12px 14px 12px 6px">Total</th>
           </tr>
         </thead>
         <tbody>
           <sc-for list="{{rows}}" as="r" hint-placeholder-count="8">
             <tr style="border-top: 1px dashed #C9D2C8">
-              <th scope="row" style="text-align: left; padding: 9px 14px; vertical-align: top">
+              <th scope="row" style="text-align: left; padding: 9px 6px 9px 14px; vertical-align: top">
                 <span style="display: flex; flex-direction: column; gap: 3px">
                   <span style="font-size: 15px; font-weight: 700">{{r.name}}</span>
                   <span class="mono" style="font-size: 11px; font-weight: 400; color: rgba(21,34,25,.7)">{{r.sub}}</span>
@@ -137,12 +137,12 @@ th{font-weight:400}
                 </span>
               </th>
               <sc-for list="{{r.cells}}" as="c" hint-placeholder-count="7">
-                <td style="padding: 6px 3px; text-align: center; vertical-align: top">
+                <td style="padding: 6px 1px; text-align: center; vertical-align: top">
                   <span class="mono" style="{{c.style}}">{{c.v}}<span class="sr">{{c.sr}}</span></span>
                 </td>
               </sc-for>
-              <td class="mono" style="text-align: right; padding: 9px 14px; white-space: nowrap; vertical-align: top">
-                <span style="font-size: 16px; font-weight: 700">{{r.total}}</span>
+              <td class="mono" style="text-align: right; padding: 9px 14px 9px 6px; white-space: nowrap; vertical-align: top">
+                <span style="font-size: 15px; font-weight: 700">{{r.total}}</span>
               </td>
             </tr>
           </sc-for>
@@ -159,11 +159,11 @@ th{font-weight:400}
 
     <section aria-labelledby="pv-h" style="display: flex; flex-direction: column; gap: 10px">
       <h2 id="pv-h" style="margin: 0; font-size: 20px; letter-spacing: -0.02em">Per venue</h2>
-      <ul style="list-style: none; margin: 0; padding: 0; background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 18px; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); overflow: hidden">
+      <ul style="list-style: none; margin: 0; padding: 0; background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 18px; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); overflow: hidden">
         <sc-for list="{{venues}}" as="v" hint-placeholder-count="7">
-          <li style="display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 12px 18px; border-bottom: 1px dashed #C9D2C8">
+          <li style="display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 12px 18px; border-bottom: 1px dashed #C9D2C8; margin-bottom: -1px">
             <span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14px; font-weight: 700">{{v.name}}</span><span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7)">{{v.shifts}}</span></span>
-            <span class="mono" style="font-size: 14px; font-weight: 700">{{v.total}}</span>
+            <span class="mono" style="font-size: 14px; font-weight: 700; white-space: nowrap">{{v.total}}</span>
           </li>
         </sc-for>
       </ul>
@@ -194,7 +194,7 @@ th{font-weight:400}
   </main>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":834,"height":2160}}'>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":834,"height":2260}}'>
 class Component extends DCLogic {
   renderVals() {
     // Sample week shaped like ledger.ReportScreen. Minutes are integers; hours print as the code's hoursMinutes ("8h 02m").
@@ -211,7 +211,7 @@ class Component extends DCLogic {
       ['Marco Bugeja', 'Line Cook', 'KF Marsaskala', [[0, 'n'], [390, 'w'], [405, 'w'], [390, 'w'], [420, 'w'], [450, 'w'], [0, 'n']], ['5 arrivals not measured — no shift set']],
       ['Nadia Farrugia', '', 'KF Mellieha', [[300, 'w'], [315, 'w'], [300, 'w'], [0, 'n'], [360, 'w'], [390, 'w'], [0, 'n']], []]
     ];
-    const tallyStyle = t => 'font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;color:#152219;white-space:nowrap;' + (
+    const tallyStyle = t => 'font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;color:#152219;line-height:1.45;' + (
       /refused/.test(t) ? 'border:1px solid #BE3D2A;background:rgba(190,61,42,.1)'
       : /late|waiting|no checkout/.test(t) ? 'border:1px solid #D98E2B;background:rgba(217,142,43,.12)'
       : 'border:1px solid #C9D2C8');
@@ -262,7 +262,7 @@ class Component extends DCLogic {
       truncated: false, capped: false
     };
     const days = ['Mon 12', 'Tue 13', 'Wed 14', 'Thu 15', 'Fri 16', 'Sat 17', 'Sun 18'];
-    const base = 'display:inline-block;min-width:60px;padding:7px 2px;border-radius:8px;font-size:11px;box-sizing:border-box;color:#152219;';
+    const base = 'display:inline-block;min-width:54px;padding:7px 2px;white-space:nowrap;border-radius:8px;font-size:11px;box-sizing:border-box;color:#152219;';
     const kinds = {
       w: base + 'background:rgba(31,92,65,.15)',
       x: base + 'background:rgba(31,92,65,.15);box-shadow:inset 0 0 0 1px #152219',

@@ -15,7 +15,7 @@ body{margin:0;background:#EDF0EA}
 a{color:#1F5C41}a:hover{color:#152219}
 .mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
 .lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
-.ctable{width:100%;min-width:760px;border-collapse:collapse;font-size:13px}
+.ctable{width:100%;border-collapse:collapse;font-size:13px}
 .ctable th,.ctable td{text-align:left;vertical-align:top;padding:12px 14px;border-bottom:1px dashed #C9D2C8}
 .ctable tr:last-child th,.ctable tr:last-child td{border-bottom:0}
 </style>
@@ -70,23 +70,21 @@ a{color:#1F5C41}a:hover{color:#152219}
                   <th scope="col" class="lbl">What it is for</th>
                   <th scope="col" class="lbl">Lifetime</th>
                   <th scope="col" class="lbl">Sent to</th>
-                  <th scope="col" class="lbl">Attributes</th>
                 </tr>
               </thead>
               <tbody>
                 <sc-for list="{{cookies}}" as="c" hint-placeholder-count="11">
                   <tr>
                     <th scope="row" class="mono" style="font-weight: 700; white-space: nowrap">{{c.name}}</th>
-                    <td style="line-height: 1.5; color: #152219; min-width: 280px">{{c.purpose}}</td>
+                    <td style="line-height: 1.5; color: #152219; width: 52%; min-width: 280px">{{c.purpose}}</td>
                     <td class="mono">{{c.life}}</td>
-                    <td class="mono">{{c.scope}}</td>
-                    <td class="mono" style="font-size: 12px">{{c.flags}}</td>
+                    <td class="mono" style="white-space: nowrap">{{c.scope}}</td>
                   </tr>
                 </sc-for>
               </tbody>
             </table>
           </div>
-          <p style="margin: 0; font-size: 12px; line-height: 1.5; color: rgba(21,34,25,.7)">Secure is set whenever Taptime is served over https, which is every deployment that is not a developer's own machine. HttpOnly means no page script can read the value.</p>
+          <p style="margin: 0; font-size: 12px; line-height: 1.5; color: rgba(21,34,25,.7)">Every cookie is HttpOnly · SameSite=Lax · Secure. Secure is set whenever Taptime is served over https, which is every deployment that is not a developer's own machine. HttpOnly means no page script can read the value.</p>
         </section>
       </sc-if>
 
@@ -118,7 +116,7 @@ a{color:#1F5C41}a:hover{color:#152219}
   </footer>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1800}}'>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":2210}}'>
 class Component extends DCLogic {
   constructor(props) { super(props); this.state = { sel: 'cookies' }; }
   renderVals() {

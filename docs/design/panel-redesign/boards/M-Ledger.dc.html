@@ -81,9 +81,9 @@ summary{list-style:none}summary::-webkit-details-marker{display:none}
     </sc-if>
 
     <details style="background: #FFFDF4; border: 1px solid #C9D2C8; border-radius: 14px">
-      <summary style="min-height: 48px; padding: 0 14px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; font-weight: 700; font-size: 14px">
-        <span>Filters</span>
-        <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7); font-weight: 400">location · department · employee · channel</span>
+      <summary style="min-height: 48px; padding: 8px 14px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; font-weight: 700; font-size: 14px">
+        <span style="flex: none">Filters</span>
+        <span class="mono" style="min-width: 0; text-align: right; line-height: 1.4; font-size: 12px; color: rgba(21,34,25,.7); font-weight: 400">location · department · employee · channel</span>
       </summary>
       <form role="search" aria-label="Filter transactions" style="padding: 4px 14px 14px; display: flex; flex-direction: column; gap: 12px">
         <input type="hidden" name="date" value="2026-10-19">
@@ -172,7 +172,7 @@ summary{list-style:none}summary::-webkit-details-marker{display:none}
   </nav>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"verdict":{"editor":"enum","options":["all","ok","flag","reject","ignored"],"default":"all"},"day":{"editor":"enum","options":["records","nothing-recorded"],"default":"records"},"counts":{"editor":"enum","options":["measured","could-not-read"],"default":"measured"},"more":{"editor":"boolean","default":false},"notice":{"editor":"enum","options":["none","key-budget","no-plaques-loaded","none-on-a-wall","none-in-service"],"default":"none"},"$preview":{"width":390,"height":2840}}'>
+<script type="text/x-dc" data-dc-script data-props='{"verdict":{"editor":"enum","options":["all","ok","flag","reject","ignored"],"default":"all"},"day":{"editor":"enum","options":["records","nothing-recorded"],"default":"records"},"counts":{"editor":"enum","options":["measured","could-not-read"],"default":"measured"},"more":{"editor":"boolean","default":false},"notice":{"editor":"enum","options":["none","key-budget","no-plaques-loaded","none-on-a-wall","none-in-service"],"default":"none"},"$preview":{"width":390,"height":2560}}'>
 class Component extends DCLogic {
   renderVals() {
     const DEV = 'M-Developers.dc.html', VEN = 'M-Venues.dc.html', SELF = 'M-Ledger.dc.html';

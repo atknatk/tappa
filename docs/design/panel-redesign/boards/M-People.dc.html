@@ -18,7 +18,7 @@ a{color:#1F5C41}a:hover{color:#152219}
 .iconbtn{width:44px;height:44px;border:0;border-radius:12px;background:transparent;color:#152219;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
 .hscroll{overflow-x:auto;scrollbar-width:none}
 .plist li+li{border-top:1px dashed #C9D2C8}
-.prow{width:100%;height:64px;display:flex;align-items:center;gap:12px;padding:0 12px;border:0;background:transparent;font:inherit;color:#152219;text-align:left;cursor:pointer;box-sizing:border-box}
+.prow{width:100%;min-height:64px;display:flex;align-items:center;gap:12px;padding:10px 12px;border:0;background:transparent;font:inherit;color:#152219;text-align:left;cursor:pointer;box-sizing:border-box}
 .prow:hover{background:rgba(31,92,65,.05)}
 .tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:60px;text-decoration:none;color:rgba(237,240,234,.8);font:500 11px 'Space Grotesk',sans-serif;position:relative}
 .tab:hover{color:#FFFDF4}
@@ -57,7 +57,7 @@ a{color:#1F5C41}a:hover{color:#152219}
       </label>
       <div class="hscroll" role="group" aria-label="Status" style="margin: 0 -16px; padding: 0 16px; height: 48px; display: flex; gap: 6px; align-items: center">
         <sc-for list="{{chips}}" as="c" hint-placeholder-count="4">
-          <button type="button" onClick="{{c.pick}}" aria-current="{{c.on}}" style="{{c.style}}">{{c.label}} <span class="mono" style="font-size: 12px; opacity: .8">{{c.n}}</span></button>
+          <button type="button" onClick="{{c.pick}}" aria-current="{{c.on}}" style="{{c.style}}">{{c.label}} <span class="mono" style="font-size: 12px; font-weight: 400; opacity: .8">{{c.n}}</span></button>
         </sc-for>
       </div>
     </form>
@@ -74,7 +74,7 @@ a{color:#1F5C41}a:hover{color:#152219}
             <span class="mono" aria-hidden="true" style="flex: none; width: 40px; height: 40px; border-radius: 10px; background: #EDF0EA; border: 1px solid #C9D2C8; box-sizing: border-box; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700">{{p.ini}}</span>
             <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
               <span style="font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{p.name}}</span>
-              <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{p.role}} · {{p.last}}</span>
+              <span class="mono" style="font-size: 11px; color: rgba(21,34,25,.7); line-height: 1.45">{{p.role}} · <span style="white-space: nowrap">{{p.last}}</span></span>
             </span>
             <span class="mono" style="{{p.pillStyle}}">{{p.status}}</span>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(21,34,25,.7)" stroke-width="2" aria-hidden="true" style="flex: none"><path d="M9 6l6 6-6 6"/></svg>
@@ -98,7 +98,7 @@ a{color:#1F5C41}a:hover{color:#152219}
   </nav>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1280}}'>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1270}}'>
 class Component extends DCLogic {
   constructor(props) { super(props); this.state = { status: 'all' }; }
   renderVals() {

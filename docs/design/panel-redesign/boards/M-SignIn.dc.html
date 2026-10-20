@@ -17,9 +17,13 @@ a{color:#1F5C41}a:hover{color:#152219}
 .lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
 .field{min-height:48px;width:100%;box-sizing:border-box;border:1px solid #C9D2C8;border-radius:10px;background:#FFFDF4;padding:0 14px;font:15px 'IBM Plex Mono',monospace;color:#152219}
 .field:focus{outline:2px solid #1F5C41;outline-offset:1px;border-color:#1F5C41}
+.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-bottom:0}
+.docket::after{content:"";position:absolute;left:-1px;right:-1px;bottom:-7px;height:7px;background:radial-gradient(circle at 7px 7px,transparent 4px,#FFFDF4 4.5px) 0 0/14px 7px repeat-x}
+.stamp{display:inline-block;padding:3px 8px;border:2px solid;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#152219;transform:rotate(-8deg)}
+.stamp--ok{border-color:#1F5C41;box-shadow:inset 0 0 0 1px #1F5C41;background:rgba(31,92,65,.1)}
 </style>
 </helmet>
-<div style="width: 390px; min-height: 900px; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
+<div style="width: 390px; min-height: 830px; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
 
   <section aria-label="Taptime" style="background: #152219; color: #EDF0EA; padding: 22px 20px 26px; display: flex; flex-direction: column; gap: 18px; position: relative; overflow: hidden">
     <div style="position: absolute; left: 0; top: 0; right: 0; height: 4px; background: #1F5C41"></div>
@@ -27,13 +31,30 @@ a{color:#1F5C41}a:hover{color:#152219}
       <div style="font-size: 22px; font-weight: 700; letter-spacing: -0.03em">taptime</div>
       <div class="mono" style="font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,253,244,.7)">punchless</div>
     </div>
-    <div aria-hidden="true" style="position: relative; padding-top: 6px; height: 64px">
+    <div aria-hidden="true" style="position: relative; padding-top: 6px">
       <div style="position: absolute; left: -20px; right: -20px; top: 6px; height: 6px; border-radius: 3px; background: #EDF0EA"></div>
-      <div style="display: flex; gap: 10px; padding-left: 4px">
-        <div style="width: 64px; height: 50px; margin-top: 4px; background: #FFFDF4; transform: rotate(-2deg); transform-origin: top center"></div>
-        <div style="width: 64px; height: 42px; margin-top: 4px; background: #FFFDF4; transform: rotate(1.5deg); transform-origin: top center"></div>
-        <div style="width: 64px; height: 54px; margin-top: 4px; background: #FFFDF4; transform: rotate(-0.8deg); transform-origin: top center; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 6px; box-sizing: border-box">
-          <span style="border: 2px solid #1F5C41; box-shadow: inset 0 0 0 1px #1F5C41; background: rgba(31,92,65,.1); color: #152219; font-size: 7px; font-weight: 700; letter-spacing: .14em; padding: 1px 3px; transform: rotate(-8deg)">APPROVED</span>
+      <div style="display: flex; gap: 10px; padding-bottom: 8px">
+        <div style="width: 100px; display: flex; flex-direction: column; align-items: center">
+          <div style="width: 26px; height: 11px; background: rgba(21,34,25,.5); border-radius: 0 0 4px 4px; position: relative; z-index: 1"></div>
+          <div class="docket" style="width: 100%; margin-top: -3px; padding: 10px 9px 8px; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px; color: #152219; transform: rotate(-2deg); transform-origin: top center">
+          <span style="font-size: 11px; font-weight: 700">Maria Borg</span>
+          <span class="mono" style="font-size: 12px">IN 07:58</span>
+          <span><span class="stamp stamp--ok" style="font-size: 8px; padding: 1px 4px">Approved</span></span>
+          </div>
+        </div>
+        <div style="width: 100px; display: flex; flex-direction: column; align-items: center">
+          <div style="width: 26px; height: 11px; background: rgba(21,34,25,.5); border-radius: 0 0 4px 4px; position: relative; z-index: 1"></div>
+          <div class="docket" style="width: 100%; margin-top: -3px; padding: 10px 9px 8px; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px; color: #152219; transform: rotate(1.5deg); transform-origin: top center">
+          <span style="font-size: 11px; font-weight: 700">Kevin Borg</span>
+          <span class="mono" style="font-size: 12px">IN 08:02</span>
+          </div>
+        </div>
+        <div style="width: 100px; display: flex; flex-direction: column; align-items: center">
+          <div style="width: 26px; height: 11px; background: rgba(21,34,25,.5); border-radius: 0 0 4px 4px; position: relative; z-index: 1"></div>
+          <div class="docket" style="width: 100%; margin-top: -3px; padding: 10px 9px 8px; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px; color: #152219; transform: rotate(-0.8deg); transform-origin: top center">
+          <span style="font-size: 11px; font-weight: 700">Grace Attard</span>
+          <span class="mono" style="font-size: 12px">OUT 16:31</span>
+          </div>
         </div>
       </div>
     </div>
@@ -82,7 +103,7 @@ a{color:#1F5C41}a:hover{color:#152219}
   </main>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"state":{"editor":"enum","options":["normal","failed","recovered"],"default":"normal"},"$preview":{"width":390,"height":900}}'>
+<script type="text/x-dc" data-dc-script data-props='{"state":{"editor":"enum","options":["normal","failed","recovered"],"default":"normal"},"$preview":{"width":390,"height":830}}'>
 class Component extends DCLogic {
   constructor(props) { super(props); this.state = { shown: false }; }
   renderVals() {
