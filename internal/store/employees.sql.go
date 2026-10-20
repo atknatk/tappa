@@ -12,6 +12,100 @@ import (
 	"github.com/google/uuid"
 )
 
+const countPanelEmployeesByStatus = `-- name: CountPanelEmployeesByStatus :many
+SELECT e.status,
+       count(*)::bigint AS everyone,
+       count(*) FILTER (
+           WHERE ($1::uuid IS NULL
+                  OR e.location_id = $1::uuid)
+             AND ($2::uuid IS NULL
+                  OR e.department_id = $2::uuid)
+             AND ($3::text IS NULL
+                  OR e.full_name ILIKE '%' || $3::text || '%')
+       )::bigint AS matching
+FROM employees e
+WHERE e.tenant_id = $4
+GROUP BY e.status
+ORDER BY e.status
+`
+
+type CountPanelEmployeesByStatusParams struct {
+	LocationID   *uuid.UUID
+	DepartmentID *uuid.UUID
+	FullName     *string
+	TenantID     uuid.UUID
+}
+
+type CountPanelEmployeesByStatusRow struct {
+	Status   string
+	Everyone int64
+	Matching int64
+}
+
+// How many people the roster holds per lifecycle status (M12-17, panel redesign D3):
+// the People screen's status chips and its "N on the books" kicker.
+//
+// TWO FIGURES PER STATUS, FROM ONE SCAN.
+//
+//	everyone   the whole roster, no predicate but the tenant's. The kicker's total is the
+//	           sum of the three, and it does NOT move with the filters: it answers "how
+//	           many people are on the books", not "how many match what I typed".
+//	matching   ListPanelEmployees' venue, department and name predicates, spelled the
+//	           SAME WAY (ledger.TestStatusTally_SharesTheRostersPredicates compares the
+//	           lines), and NOT its status predicate -- each chip shows how many the list
+//	           would hold if that chip were picked, so the status is what is grouped on,
+//	           never what is filtered on. Nor its cursor: a count is of the whole list,
+//	           not of the page.
+//
+// The predicates sit in a FILTER rather than in the WHERE so one pass over the tenant's
+// employees answers both figures; two statements would scan twice and could straddle a
+// hire. internal/domain/ledger runs this in the SAME transaction as the page it counts
+// (Reader.Roster), inside its own savepoint, so a failure costs the chips and never the
+// list.
+//
+// 🔴 DEACTIVATED PEOPLE ARE COUNTED (section 4.6), for the reason ListPanelEmployees lists
+// them: somebody who has left is still on the books a manager looks through.
+//
+// K-14: an employee with no home venue (location_id NULL, an API-managed row) is in
+// `everyone` and in `matching` unless a venue filter is set -- exactly where the list
+// shows them ("No home venue") and where it does not.
+//
+// SECTION 4.7: no name, address, session or invitation column is selected; the result is
+// three words and six counts.
+//
+// TENANT SCOPE (section 4.5, belt + braces): the explicit e.tenant_id predicate is
+// required even though RLS is on. No JOIN.
+//
+// EXPLAIN (2026-10-20, seeded KF tenant, 25 of 36 employees, tappa_app, ANALYZEd): Seq
+// Scan on employees filtered on tenant_id -> HashAggregate on status -> Sort (3 rows),
+// 0.4 ms. The table is small enough that the planner skips employees_tenant_idx; on a
+// large roster the same shape reads that index, and its cost is one pass over the
+// tenant's roster -- the pass the list's own name sort already pays.
+func (q *Queries) CountPanelEmployeesByStatus(ctx context.Context, arg CountPanelEmployeesByStatusParams) ([]CountPanelEmployeesByStatusRow, error) {
+	rows, err := q.db.Query(ctx, countPanelEmployeesByStatus,
+		arg.LocationID,
+		arg.DepartmentID,
+		arg.FullName,
+		arg.TenantID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CountPanelEmployeesByStatusRow{}
+	for rows.Next() {
+		var i CountPanelEmployeesByStatusRow
+		if err := rows.Scan(&i.Status, &i.Everyone, &i.Matching); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const createEmployee = `-- name: CreateEmployee :one
 INSERT INTO employees (
     tenant_id, location_id, department_id, full_name, role, email

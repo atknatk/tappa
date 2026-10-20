@@ -233,6 +233,64 @@ type RosterScreen struct {
 	RosterPage
 	Options    Options
 	TenantName string
+	// Tally is the per-status count the People screen's chips and kicker print (M12-17). It is
+	// read in the same transaction as the page, in its own savepoint: a failure leaves it
+	// ReadFailed and the page standing.
+	Tally StatusTally
+}
+
+// StatusCounts is one count per lifecycle status, read through Of.
+//
+// THE COUNTS ARE INDEXED BY EmployeeStatuses RATHER THAN NAMED FIELDS, and the reason is the
+// §4.7 field walker (internal/handler's bannedFieldName): it refuses any field whose name holds
+// "invite", because that is where an invitation code would travel -- and a field named after the
+// lifecycle word "invited" is exactly such a name. The words stay the database's; they are the
+// keys, not identifiers.
+type StatusCounts struct {
+	counts [3]int
+}
+
+// statusIndex is a status word's place in EmployeeStatuses, -1 for any other word.
+func statusIndex(status string) int {
+	for i, s := range EmployeeStatuses {
+		if s == status {
+			return i
+		}
+	}
+	return -1
+}
+
+// Of is the count for one status word, 0 for a word outside EmployeeStatuses -- a word the
+// handler validated against that closed set never reaches that branch.
+func (c StatusCounts) Of(status string) int {
+	if i := statusIndex(status); i >= 0 {
+		return c.counts[i]
+	}
+	return 0
+}
+
+// Total is the sum of the three. It is the only total there is: migration 00003's CHECK admits
+// no fourth status, and a row carrying one fails the read rather than vanishing from the sum.
+func (c StatusCounts) Total() int {
+	n := 0
+	for _, v := range c.counts {
+		n += v
+	}
+	return n
+}
+
+// StatusTally is how many people the roster holds per lifecycle status (M12-17, D3).
+//
+// 🔴 TWO COUNTS, AND THEY ANSWER DIFFERENT QUESTIONS. Matching honours the roster's venue,
+// department and name filters and ignores its status filter -- each chip says how many the list
+// would hold if it were picked. Everyone honours nothing but the tenant: its Total is the
+// kicker's "N on the books", which does not shrink because a manager typed a name.
+//
+// State is the §4.6 flag (reading.go): only a Measured tally may print a number, 0 included.
+type StatusTally struct {
+	State    Reading
+	Matching StatusCounts
+	Everyone StatusCounts
 }
 
 // Roster loads one page of the people who work for this tenant.
@@ -257,15 +315,13 @@ func (r *Reader) Roster(ctx context.Context, tenantID uuid.UUID, f RosterFilter)
 		out.TenantName = clock.Name
 		out.Zone = r.loadZone(clock.Timezone)
 
+		narrow := rosterNarrowingOf(f)
 		params := store.ListPanelEmployeesParams{
 			TenantID:     tenantID,
-			LocationID:   f.LocationID,
-			DepartmentID: f.DepartmentID,
+			LocationID:   narrow.location,
+			DepartmentID: narrow.department,
+			FullName:     narrow.name,
 			PageSize:     RosterPageSize + 1, // one extra: see below
-		}
-		if f.Name != "" {
-			n := escapeLike(f.Name)
-			params.FullName = &n
 		}
 		if f.Status != "" {
 			s := f.Status
@@ -323,10 +379,72 @@ func (r *Reader) Roster(ctx context.Context, tenantID uuid.UUID, f RosterFilter)
 		if out.Options, err = options(ctx, q, tenantID); err != nil {
 			return err
 		}
+
+		// THE CHIPS ARE A WIDGET, NOT THE LIST. Their read rides in the page's transaction --
+		// one snapshot, so a chip cannot disagree with the rows under it because somebody was
+		// hired between two round trips -- but inside a savepoint, so a failed count costs
+		// the chips and never the roster (§4.6; advisories_db_test.go measured why the
+		// savepoint, not the swallowed error, is what keeps the page).
+		out.Tally = StatusTally{State: ReadFailed}
+		if err := inSavepoint(ctx, tx, func(q *store.Queries) error {
+			tally, err := statusTally(ctx, q, tenantID, narrow)
+			if err != nil {
+				return err
+			}
+			out.Tally = tally
+			return nil
+		}); err != nil {
+			r.log.Error("ledger: could not count the roster per status; the chips will say so "+
+				"rather than print a number", "err", err, "tenant_id", tenantID)
+		}
 		return nil
 	})
 	if err != nil {
 		return RosterScreen{}, fmt.Errorf("ledger: roster: %w", err)
+	}
+	return out, nil
+}
+
+// rosterNarrowing is the part of a RosterFilter the list and the status tally share: venue,
+// department and the escaped name fragment. Built once, handed to both statements, so the chips
+// cannot be counted against a filter the list was not read with.
+type rosterNarrowing struct {
+	location   *uuid.UUID
+	department *uuid.UUID
+	name       *string
+}
+
+func rosterNarrowingOf(f RosterFilter) rosterNarrowing {
+	n := rosterNarrowing{location: f.LocationID, department: f.DepartmentID}
+	if f.Name != "" {
+		escaped := escapeLike(f.Name)
+		n.name = &escaped
+	}
+	return n
+}
+
+// statusTally reads CountPanelEmployeesByStatus.
+//
+// A STATUS OUTSIDE EmployeeStatuses IS AN ERROR, NOT A DROPPED ROW. migration 00003's CHECK makes
+// it unreachable today; if that ever changes, a tally that silently left those people out of
+// the total would be a smaller number presented as a measurement.
+func statusTally(ctx context.Context, q *store.Queries, tenantID uuid.UUID, n rosterNarrowing) (StatusTally, error) {
+	rows, err := q.CountPanelEmployeesByStatus(ctx, store.CountPanelEmployeesByStatusParams{
+		TenantID:     tenantID,
+		LocationID:   n.location,
+		DepartmentID: n.department,
+		FullName:     n.name,
+	})
+	if err != nil {
+		return StatusTally{}, fmt.Errorf("count employees by status: %w", err)
+	}
+	out := StatusTally{State: Measured}
+	for _, row := range rows {
+		i := statusIndex(row.Status)
+		if i < 0 {
+			return StatusTally{}, fmt.Errorf("count employees by status: a status outside the vocabulary: %q", row.Status)
+		}
+		out.Matching.counts[i], out.Everyone.counts[i] = int(row.Matching), int(row.Everyone)
 	}
 	return out, nil
 }

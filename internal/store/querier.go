@@ -772,6 +772,46 @@ type Querier interface {
 	// mean nothing can clear them. There is no dev-only special case anywhere in this
 	// path -- the number says what it counts and the reader decides.
 	CountMaskedOpenCheckIns(ctx context.Context, arg CountMaskedOpenCheckInsParams) (CountMaskedOpenCheckInsRow, error)
+	// How many people the roster holds per lifecycle status (M12-17, panel redesign D3):
+	// the People screen's status chips and its "N on the books" kicker.
+	//
+	// TWO FIGURES PER STATUS, FROM ONE SCAN.
+	//
+	//	everyone   the whole roster, no predicate but the tenant's. The kicker's total is the
+	//	           sum of the three, and it does NOT move with the filters: it answers "how
+	//	           many people are on the books", not "how many match what I typed".
+	//	matching   ListPanelEmployees' venue, department and name predicates, spelled the
+	//	           SAME WAY (ledger.TestStatusTally_SharesTheRostersPredicates compares the
+	//	           lines), and NOT its status predicate -- each chip shows how many the list
+	//	           would hold if that chip were picked, so the status is what is grouped on,
+	//	           never what is filtered on. Nor its cursor: a count is of the whole list,
+	//	           not of the page.
+	//
+	// The predicates sit in a FILTER rather than in the WHERE so one pass over the tenant's
+	// employees answers both figures; two statements would scan twice and could straddle a
+	// hire. internal/domain/ledger runs this in the SAME transaction as the page it counts
+	// (Reader.Roster), inside its own savepoint, so a failure costs the chips and never the
+	// list.
+	//
+	// 🔴 DEACTIVATED PEOPLE ARE COUNTED (section 4.6), for the reason ListPanelEmployees lists
+	// them: somebody who has left is still on the books a manager looks through.
+	//
+	// K-14: an employee with no home venue (location_id NULL, an API-managed row) is in
+	// `everyone` and in `matching` unless a venue filter is set -- exactly where the list
+	// shows them ("No home venue") and where it does not.
+	//
+	// SECTION 4.7: no name, address, session or invitation column is selected; the result is
+	// three words and six counts.
+	//
+	// TENANT SCOPE (section 4.5, belt + braces): the explicit e.tenant_id predicate is
+	// required even though RLS is on. No JOIN.
+	//
+	// EXPLAIN (2026-10-20, seeded KF tenant, 25 of 36 employees, tappa_app, ANALYZEd): Seq
+	// Scan on employees filtered on tenant_id -> HashAggregate on status -> Sort (3 rows),
+	// 0.4 ms. The table is small enough that the planner skips employees_tenant_idx; on a
+	// large roster the same shape reads that index, and its cost is one pass over the
+	// tenant's roster -- the pass the list's own name sort already pays.
+	CountPanelEmployeesByStatus(ctx context.Context, arg CountPanelEmployeesByStatusParams) ([]CountPanelEmployeesByStatusRow, error)
 	// reviews.sql -- the FLAGGED approval queue (M6-04): two reads and one write.
 	//
 	// 🔴 SECTION 4.3 IS THE WHOLE DESIGN OF THIS FILE. A manager approving or
