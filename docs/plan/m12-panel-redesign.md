@@ -859,8 +859,12 @@ testleri; bayraklar veriden; önbellek değişmez (her ziyaretçiye aynı bayt).
 - **Bağımlılık:** M12-08 · **Araç:** yapıcı (`tappa-brand`) · **Commit:** `style(panel): group the More sheet as drawn`
 - **Dosyalar:** `web/static/css/input.css` (`.sheet-*`), `web/templates/components/panel.templ` (`BarNav`, yalnız sınıf/ok), `internal/handler/dashboard_test.go`
 
-Yalnız CSS: gruplu yuvarlatılmış liste, oklar, kesikli ayraçlar. Ek kabul: yeni rota yok; rozet sorgusu
-yok; Manual entry bağlantısı yok; tek-current testi yeşil.
+Yalnız CSS, markup değişmez. **Satırlar kod olarak kalır** — pano (`fd18724` / `c2dd88d`) teslim edilen
+düz satırları çizer (min 48 px, düz `border-b`); "gruplu yuvarlatılmış liste, oklar, kesikli ayraçlar" ilk
+tam-sayfa More panosuna (`0e31694`) aitti ve bu kartın eski metniydi. Cila = sayfanın ink/10 kaldırma gölgesi
++ çubuğun üstündeki sayfayı karartan ink/40 perde + sign-out düğmesinin 10 px yarıçapı. Perde More
+`<summary>`'sinin `::before`'udur: perdeye dokunmak sayfayı kapatır (yalnız CSS, betik yok). Ek kabul: yeni
+rota yok; rozet sorgusu yok; Manual entry bağlantısı yok; tek-current testi yeşil.
 
 ---
 
