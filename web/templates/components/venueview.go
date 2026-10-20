@@ -82,6 +82,11 @@ type VenueRowView struct {
 	// OnWall is how many of this venue's plaques are in service (Plaque.OnAWall), the
 	// figure the card prints as "2 on the wall" and the page's kicker adds up.
 	OnWall int
+	// PlaquesCapped says the plaque read was cut (tenant.PlaqueScreen.Capped), so OnWall
+	// is a FLOOR: the card prints "2+ on the wall", and "no plaque on a wall" is never
+	// said -- a plaque past the cut may be on this venue's wall (§4.6: an unmeasured
+	// figure is not a zero).
+	PlaquesCapped bool
 
 	// SelectHref opens this venue in the detail column (?at=<id>#venue) -- a link, not
 	// a script. Current marks the one the detail shows.

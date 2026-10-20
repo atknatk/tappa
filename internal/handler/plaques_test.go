@@ -142,6 +142,13 @@ func TestPlaquesSection_ShowsTheFiveColumnsAndNeverAKey(t *testing.T) {
 	b := plaqueBrowser(t, venues, threePlaques(venues.firstVenueID()))
 
 	html := htmlOf(t, b.do(http.MethodGet, locationsHref, nil))
+	// 🔴 THE FULL UID HEADS ITS ROW. A bare Contains was satisfied by the open link's
+	// sr-only words ("Open plaque <uid>") alone, so it is bound to the row header.
+	for _, uid := range []string{uidOnWall, uidRetired} {
+		if !regexp.MustCompile(`<th scope="row"[^>]*><span[^>]*>` + uid + `</span>`).MatchString(html) {
+			t.Errorf("no row is headed by the full uid %s", uid)
+		}
+	}
 	for _, want := range []string{
 		uidOnWall,        // the uid
 		"In service",     // the status, in the manager's words

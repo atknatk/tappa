@@ -582,11 +582,32 @@ func (a *AdminAuth) openVenue(v *pages.LocationsView, screen tenant.VenueScreen,
 		Mountable:         v.MountableStock,
 	}
 	d.Venue.Current = true
+	d.Venue.PlaquesCapped = plaques.Capped
 	a.venuePlaques(d, plaques, screen, ven.ID)
 	for i := range v.Venues {
 		v.Venues[i].Current = v.Venues[i].SelectHref == d.Venue.SelectHref
 	}
+	// 🔴 A VENUE PAST THE LIST'S CAP, OPENED BY ?at, HAS ITS PLAQUES IN ITS DETAIL --
+	// so they leave the two lists of plaques at no listed venue, where fillPlaques put
+	// them. A plaque is listed once.
+	inDetail := make(map[string]bool, len(d.Plaques))
+	for _, p := range d.Plaques {
+		inDetail[p.UID] = true
+	}
+	v.Elsewhere = withoutPlaques(v.Elsewhere, inDetail)
+	v.OutOfService = withoutPlaques(v.OutOfService, inDetail)
 	v.Detail = d
+}
+
+// withoutPlaques is rows less the ones named in drop.
+func withoutPlaques(rows []components.PlaqueRowView, drop map[string]bool) []components.PlaqueRowView {
+	out := rows[:0:0]
+	for _, r := range rows {
+		if !drop[r.UID] {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // GPSRadiusFrom gives the panel the GPS radius the decision engine uses

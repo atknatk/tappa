@@ -411,6 +411,9 @@ func (a *AdminAuth) locationsShell(r *http.Request, screen tenant.VenueScreen, p
 		DepartmentAction:  departmentSaveHref,
 	}
 	v.Venues = venueRowViews(screen, venueOnWall(plaques))
+	for i := range v.Venues {
+		v.Venues[i].PlaquesCapped = plaques.Capped
+	}
 	fillPlaques(&v, plaques, screen, plaques.Zone)
 	v.Kicker = locationsKicker(len(screen.Venues), screen.VenuesCapped, v.OnWalls, plaques.Capped)
 	// THE FIRST VENUE IS OPEN UNTIL THE REQUEST SAYS OTHERWISE (selectVenue): the list

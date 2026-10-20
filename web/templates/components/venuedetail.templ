@@ -52,7 +52,7 @@ templ VenueCard(v VenueRowView) {
 			} else {
 				<span class="ev-badge ev-badge--none">GPS<span aria-hidden="true">{ " –" }</span><span class="sr-only">{ " point not set" }</span></span>
 			}
-			<span class="ml-auto whitespace-nowrap font-mono text-xs text-ink/70">{ onWallText(v.OnWall) }</span>
+			<span class="ml-auto whitespace-nowrap font-mono text-xs text-ink/70">{ onWallText(v.OnWall, v.PlaquesCapped) }</span>
 		</span>
 		if w := venueWarning(v); w != "" {
 			<span class="flex items-start gap-1.5 text-xs text-ink">
@@ -66,7 +66,7 @@ templ VenueCard(v VenueRowView) {
 // networkBadge is the card's IP badge in its three states: a list that counts, a list
 // saved but too wide to count, and none. The mark is drawn; the words are said.
 templ networkBadge(v VenueRowView) {
-	switch {
+	switch  {
 		case v.NetworkProof:
 			<span class="ev-badge ev-badge--ok">IP<span aria-hidden="true">{ " ✓" }</span><span class="sr-only">{ " network set" }</span></span>
 		case v.NetworkTooWide:
@@ -118,14 +118,18 @@ templ VenueDetail(d VenueDetailView) {
 					@PlaqueDrawing(*d.Drawing)
 				} else {
 					<div class="flex h-full flex-col justify-center gap-2 rounded-[18px] bg-line/50 p-6">
-						if d.Venue.OnWall > 0 {
+						if d.Venue.OnWall == 0 && d.Venue.PlaquesCapped {
+							// §4.6: the plaque read was cut, so "none is on a wall here" is not
+							// something this page measured.
+							<p class="text-sm text-ink">This page could not list every plaque, so it cannot say whether one is on a wall here.</p>
+						} else if d.Venue.OnWall > 0 {
 							// A plaque is up but its real code cannot be made here (a development
 							// server with no public tap address). Nothing is drawn in its place.
 							<p class="text-sm text-ink">The drawing is not shown: this server has no tap address a plaque could carry.</p>
 						} else {
 							@PlaqueNotOnAWall()
 							<p class="text-[13px] leading-snug text-ink">
-								switch {
+								switch  {
 									case d.Mountable > 0:
 										Open a plaque in stock below to mount it.
 									case d.InStock > 0:
@@ -231,7 +235,18 @@ templ whereItIs(d VenueDetailView) {
 			}
 		</div>
 		<p class="border-t border-dashed border-line pt-3 text-[13px] leading-snug text-ink/70">
-			Under the standard rules, a plaque tap on this network or within { radiusPhrase(d.Radius) } is approved. A QR scan needs the network — GPS alone sends it to The Spike. Neither — the tap is still recorded and goes to The Spike. Location is read only at the moment of the tap.
+			// 🔴 THE NETWORK HALF IS NAMED ONLY WHERE IT COUNTS (§5). A saved list too wide to
+			// tell this venue apart is not evidence, so "on this network" would promise an
+			// approval the engine never gives; with no list there is no network to name.
+			switch  {
+				case d.Venue.NetworkProof:
+					Under the standard rules, a plaque tap on this network or within { radiusPhrase(d.Radius) } is approved.
+				case d.Venue.NetworkTooWide:
+					Under the standard rules, a plaque tap within { radiusPhrase(d.Radius) } is approved; the saved address list is too wide to count.
+				default:
+					Under the standard rules, a plaque tap within { radiusPhrase(d.Radius) } is approved; no venue network is set.
+			}
+			A QR scan needs the network — GPS alone sends it to The Spike. Neither — the tap is still recorded and goes to The Spike. Location is read only at the moment of the tap.
 		</p>
 	</div>
 }
@@ -266,6 +281,8 @@ templ venuePlaques(d VenueDetailView) {
 		}
 		if len(d.Plaques) > 0 {
 			@PlaqueTable(d.Plaques)
+		} else if d.Venue.PlaquesCapped {
+			<p class="px-4 pb-4 pt-1.5 text-[13px] text-ink/70 md:px-6">This page could not list every plaque, and none of those it listed is at this venue.</p>
 		} else {
 			<p class="px-4 pb-4 pt-1.5 text-[13px] text-ink/70 md:px-6">No plaque has been mounted at this venue.</p>
 		}
@@ -443,10 +460,13 @@ func plaqueStatusClass(status string) string {
 	}
 }
 
-// onWallText is the card's plaque count.
-func onWallText(n int) string {
-	switch n {
-	case 0:
+// onWallText is the card's plaque count. On a cut plaque list it is a floor ("2+"), and
+// never "no plaque": a plaque past the cut may be on this wall.
+func onWallText(n int, capped bool) string {
+	switch {
+	case capped:
+		return strconv.Itoa(n) + "+ on the wall"
+	case n == 0:
 		return "no plaque on a wall"
 	default:
 		return strconv.Itoa(n) + " on the wall"
@@ -455,9 +475,13 @@ func onWallText(n int) string {
 
 // venuePlaqueCount is the table's count line: in service, and out of service if any.
 func venuePlaqueCount(d VenueDetailView) string {
-	out := onWallText(d.Venue.OnWall)
+	out := onWallText(d.Venue.OnWall, d.Venue.PlaquesCapped)
 	if d.OutOfService > 0 {
-		out += " · " + strconv.Itoa(d.OutOfService) + " out of service"
+		out += " · " + strconv.Itoa(d.OutOfService)
+		if d.Venue.PlaquesCapped {
+			out += "+"
+		}
+		out += " out of service"
 	}
 	return out
 }
