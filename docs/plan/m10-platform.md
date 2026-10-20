@@ -12409,7 +12409,7 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 > | 13 | yazılamayan sonuç satırı loglanır | `TestInviteEmail_AnUnrecordedOutcomeIsLoggedNotSwallowed` |
 > | 14 | owner yedeği: owner görür (`manager_panel`), öteki roller reddedilir | `TestInviteEmailDB_OnlyTheOwnerSeesALinkOnScreen`, `TestInviteEmail_TheFallbackIsTheOwnersAlone`, `TestEmailRouteDB_TheOwnersFallbackRequiresNoAddress` |
 > | 15 | kart yalnız sunucunun yapacağını önerir | `TestInviteEmail_TheCardOffersOnlyWhatTheServerWouldDo` |
-> | 16 | panel modu bayt-aynı, e-posta göndermez | `TestRosterActions_ThePanelModeCardIsTheCardBeforeEM7B`, `TestInviteEmail_ThePanelModeNeverMails`, mevcut `TestEmployeeInvite_ShowsTheLinkOnceAndNeverLogsIt`, `TestPanelEmployeesDB_TheInviteLinkIsShownOnceAndNeverReadBack` |
+> | 16 | panel modu bayt-aynı, e-posta göndermez | `TestRosterActions_ThePanelModeCardIsPinned`, `TestInviteEmail_ThePanelModeNeverMails`, mevcut `TestEmployeeInvite_ShowsTheLinkOnceAndNeverLogsIt`, `TestPanelEmployeesDB_TheInviteLinkIsShownOnceAndNeverReadBack` |
 > | 17 | mod ile yapılandırma iki yönlü | `TestNewAdminAuth_TheInvitationModeMatchesTheConfiguration` |
 > | 18 | açılışta taban/gönderici reddi | `TestNewEmailInvitations_RefusesWhatItCannotBuild` |
 > | 19 | tek taşıyıcı iki akışa; seçenek yalnız e-posta kolunda | `TestInvitationWiring_OneTransportServesBothFlows` |
@@ -12449,7 +12449,7 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 > | M13 | owner kapısı kaldırıldı (`id.Live()`) | KIRMIZI — `TestInviteEmailDB_OnlyTheOwnerSeesALinkOnScreen`, `TestInviteEmail_TheFallbackIsTheOwnersAlone`, `TestInviteEmail_TheCardOffersOnlyWhatTheServerWouldDo` |
 > | M14 | panel modunda taşıyıcı kabul | KIRMIZI — `TestNewAdminAuth_TheInvitationModeMatchesTheConfiguration` |
 > | M14b | main.go: seçenek e-posta kolunun dışında | KIRMIZI — `TestInvitationWiring_OneTransportServesBothFlows` |
-> | M14c | kart: e-posta kolu panel modunda da | KIRMIZI — `TestRosterActions_ThePanelModeCardIsTheCardBeforeEM7B`, `TestInviteEmail_ThePanelModeNeverMails` |
+> | M14c | kart: e-posta kolu panel modunda da | KIRMIZI — `TestRosterActions_ThePanelModeCardIsPinned`, `TestInviteEmail_ThePanelModeNeverMails` |
 > | M15 | ret yutulur, transaction commit edilir | KIRMIZI — `TestEmailRouteDB_EachAddressRefusalMintsNothing`, `TestInviteEmailDB_EachAddressRefusalMintsNothing` |
 > | M16 | ret audit satırı yazılmaz | KIRMIZI — dört test |
 > | M17 | yönetici alt sorgusunun tenant yüklemi yok | KIRMIZI — `TestInviteEmailQueries_CarryTheirOwnTenantPredicate` |
@@ -12476,7 +12476,7 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 > **41 mutasyon: 41 KIRMIZI, 0 YEŞİL** (4. tur: M31–M31d yeni, dördü KIRMIZI; 3. tur: M26–M30 yeni; çapası değişen M09, M10, M16, M20, M25
 > yeniden koşuldu, beşi KIRMIZI; hepsi `sha-ok`). Önceki sayım: **30 mutasyon: 30 KIRMIZI, 0 YEŞİL** (28'i rebase öncesi tam koşu; rebase turunda M14b çapası `breaker`'a göre yeniden yazılıp M24, M25 ile birlikte `b935f47` tabanlı kopyada koşuldu — üçü KIRMIZI, `sha-ok`). Koşu kümeleri: invite `-run 'TestEmailRouteDB_|TestEmailRoute_'`, db
 > `-run 'TestRLS_InviteRecipient_|TestInviteEmailQueries_|TestInviteRecipient_'`, handler (sahte)
-> `-run 'TestNewAdminAuth_TheInvitationModeMatchesTheConfiguration|TestNewEmailInvitations_|TestInviteEmail_|TestRosterActions_ThePanelModeCardIsTheCardBeforeEM7B'`,
+> `-run 'TestNewAdminAuth_TheInvitationModeMatchesTheConfiguration|TestNewEmailInvitations_|TestInviteEmail_|TestRosterActions_ThePanelModeCardIsPinned'`,
 > handler (DB) `-run 'TestInviteEmailDB_'`, email `-run 'TestInvitation_|TestRender_TheTwoPartsSayTheSameWords'`, cmd
 > `-run 'TestInvitationWiring_|TestShutdownBudget_TheInvitationEmailNestsInsideTheHTTPGrace|TestUnbuiltDelivery_'` (kimlik bilgisi testleri `-skip` ile atlanarak).
 >

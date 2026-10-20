@@ -76,8 +76,9 @@ import (
 //     an outcome row that cannot
 //     be written is logged, not swallowed — TestInviteEmail_AnUnrecordedOutcomeIsLoggedNotSwallowed;
 //   - the panel mode takes the panel channel whatever the form says, and its card is
-//     byte for byte the card before EM-7B — TestInviteEmail_ThePanelModeNeverMails,
-//     TestRosterActions_ThePanelModeCardIsTheCardBeforeEM7B;
+//     pinned byte for byte (re-pinned only by the redesign, on purpose) —
+//     TestInviteEmail_ThePanelModeNeverMails,
+//     TestRosterActions_ThePanelModeCardIsPinned;
 //   - the construction matches the mode both ways —
 //     TestNewAdminAuth_TheInvitationModeMatchesTheConfiguration; a base URL the e-mail
 //     cannot carry, and a nil sender, are refused at boot —
