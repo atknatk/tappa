@@ -1001,6 +1001,10 @@
   .guide-prose :is(th, td) { min-width: 10rem; }
   .guide-prose td code { overflow-wrap: normal; white-space: nowrap; }
   .guide-prose hr { @apply border-line; }
+  /* The guide's own contents list is the page's table of contents wherever the side
+     navigation is not drawn (a phone, a tablet, a small laptop), so each of its links is a
+     44 px touch target. The heading's id is the guide's own anchor (apiguide.ContentsID). */
+  .guide-prose h2#contents + ul a { @apply inline-flex min-h-11 items-center; }
 }
 
 /* =====================================================================

@@ -11,15 +11,21 @@ import "github.com/atknatk/tappa/web/templates/layout"
 // to http(s), this site or this page; the body is the one block on this page written without
 // escaping, and only that package can produce it (apiguide.Guide's body is unexported).
 //
-// LAYOUT. On a phone the page is one column and the guide's own contents list, right after the
-// title, is the table of contents. From the large breakpoint up a sticky side navigation lists the
-// sections and subsections. Tables and code blocks scroll inside their own box (the scoped rules
-// in input.css), so the page itself never scrolls sideways.
+// LAYOUT. On a phone, a tablet and a small laptop the page is one column, the width of the
+// chrome's header and footer, and the guide's own contents list, right after the title, is the
+// table of contents (its links are 44 px touch targets: the scoped rules in input.css). From the
+// extra-large breakpoint up a sticky side navigation lists the sections and subsections in the
+// left margin, and the text column stays the header's width and centre, so the title lines up
+// with the wordmark above it. Tables and code blocks scroll inside their own box (input.css), so
+// the page itself never scrolls sideways.
+//
+// LANGUAGE. The document is English (the marketing chrome is); the article carries the page's
+// language, and the head names both translations (layout.MarketingTranslated).
 templ APIGuide(v APIGuideView) {
-	@layout.Marketing(v.Guide.Title+" — Taptime", layout.RobotsPublic) {
+	@layout.MarketingTranslated(v.pageTitle(), layout.RobotsPublic, v.alternates()) {
 		@marketingChrome(v.SignInHref) {
 			<article class="px-4 py-10 sm:py-14" lang={ v.lang() }>
-				<div class="mx-auto w-full max-w-3xl lg:grid lg:max-w-6xl lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-12">
+				<div class="mx-auto w-full max-w-3xl xl:grid xl:max-w-none xl:grid-cols-[minmax(0,1fr)_minmax(0,48rem)_minmax(0,1fr)] xl:gap-8">
 					@apiGuideSideNav(v)
 					<div class="min-w-0">
 						<p class="docket-label">{ v.say("Integration API", "Entegrasyon API'si") }</p>
@@ -60,9 +66,9 @@ templ apiGuideLinks(v APIGuideView) {
 }
 
 // apiGuideSideNav lists the guide's sections beside it on a wide screen. It is not drawn on a
-// phone: there the guide's own contents list is at the top of the page.
+// narrower one: there the guide's own contents list is at the top of the page.
 templ apiGuideSideNav(v APIGuideView) {
-	<nav class="hidden lg:block" aria-label={ v.say("On this page", "Bu sayfada") }>
+	<nav class="hidden xl:block xl:w-full xl:max-w-56 xl:justify-self-end" aria-label={ v.say("On this page", "Bu sayfada") }>
 		<div class="sticky top-6 max-h-[calc(100vh-3rem)] overflow-y-auto pr-2">
 			<p class="docket-label">{ v.say("On this page", "Bu sayfada") }</p>
 			<ul class="mt-3 flex flex-col text-sm">

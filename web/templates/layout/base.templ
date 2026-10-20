@@ -127,7 +127,7 @@ templ PageWithScript(title, src string, b Brand) {
 templ shell(title, script string, b Brand) {
 	<!DOCTYPE html>
 	<html lang="en">
-		@documentHead(title, script, RobotsPrivate, b.theme)
+		@documentHead(title, script, RobotsPrivate, b.theme, nil)
 		<body class="min-h-screen bg-porcelain text-ink antialiased">
 			<main class="mx-auto flex w-full max-w-md flex-col gap-6 px-4 py-8">
 				@BrandHeader(b)
@@ -200,7 +200,10 @@ templ BrandHeader(b Brand) {
 // built from a brand.Color only, and its zero value writes nothing: the panel shells,
 // the tap screen's shell and (M10 WL-13) the activation family's pass the business's,
 // every other shell passes the zero value.
-templ documentHead(title, script string, robots Robots, theme Theme) {
+//
+// alternates are the page's translations (layout.Alternate); nil writes nothing, which
+// is every shell but MarketingTranslated.
+templ documentHead(title, script string, robots Robots, theme Theme, alternates []Alternate) {
 	<head>
 		<meta charset="utf-8"/>
 		<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
@@ -210,6 +213,9 @@ templ documentHead(title, script string, robots Robots, theme Theme) {
 		<link rel="stylesheet" href="/static/css/app.css"/>
 		if theme.Linked() {
 			<link rel="stylesheet" href={ theme.Href() }/>
+		}
+		for _, a := range alternates {
+			<link rel="alternate" hreflang={ a.Lang } href={ a.Href }/>
 		}
 		if script != "" {
 			<script src={ script } defer></script>
@@ -340,7 +346,7 @@ templ Panel(title string, theme Theme) {
 templ PanelWithScript(title, src string, theme Theme) {
 	<!DOCTYPE html>
 	<html lang="en">
-		@documentHead(title, src, RobotsPrivate, theme)
+		@documentHead(title, src, RobotsPrivate, theme, nil)
 		<body class="min-h-screen bg-porcelain text-ink antialiased">
 			<main class="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-6">
 				{ children... }
@@ -383,7 +389,7 @@ const (
 //
 // It is a separate shell for three measured reasons, and none of them is width:
 //
-//  1. INDEXING. It is the only shell that can send RobotsPublic. Adding a robots
+//  1. INDEXING. It (with its two siblings below) is the only shell that can send RobotsPublic. Adding a robots
 //     parameter to Page or Panel instead would have made "let this be indexed" an
 //     edit a caller of the ACTIVATION shell could make.
 //  2. NO SCRIPT SLOT, and no sibling with one. Page has PageWithScript and Panel
@@ -434,9 +440,35 @@ templ Marketing(title string, robots Robots) {
 // src must be an app-relative path under /static, and "" means no script at all.
 // Nothing here builds a URL from user input.
 templ MarketingWithScript(title string, robots Robots, src string) {
+	@marketingDocument(title, robots, src, nil) {
+		{ children... }
+	}
+}
+
+// MarketingTranslated is the marketing shell for a page that exists in more than one
+// language -- today the integration guide, /docs/api and /docs/api/tr (M11 DOCS-1) --
+// and it differs from Marketing by the head's <link rel="alternate" hreflang> lines
+// and nothing else: no script slot, the same policy, the same bytes otherwise.
+//
+// The alternates are root-relative: the HTML resolves them against the page's own
+// address, and the marketing surface does not know its canonical origin (it renders
+// the same bytes for every host it is served on). Search engines that ask for
+// absolute hreflang URLs are the stated residual.
+//
+// The document stays lang="en": the chrome around a translated body (navigation,
+// footer) is English on every marketing page, so the page marks the translated part
+// itself -- the guide's article carries lang="tr".
+templ MarketingTranslated(title string, robots Robots, alternates []Alternate) {
+	@marketingDocument(title, robots, "", alternates) {
+		{ children... }
+	}
+}
+
+// marketingDocument is the marketing shells' one document skeleton.
+templ marketingDocument(title string, robots Robots, src string, alternates []Alternate) {
 	<!DOCTYPE html>
 	<html lang="en">
-		@documentHead(title, src, robots, Theme{})
+		@documentHead(title, src, robots, Theme{}, alternates)
 		<body class="min-h-screen bg-porcelain text-ink antialiased">
 			{ children... }
 		</body>
@@ -490,7 +522,7 @@ templ MarketingWithScript(title string, robots Robots, src string) {
 templ Auth(title, script string) {
 	<!DOCTYPE html>
 	<html lang="en">
-		@documentHead(title, script, RobotsPrivate, Theme{})
+		@documentHead(title, script, RobotsPrivate, Theme{}, nil)
 		<body class="min-h-screen bg-porcelain text-ink antialiased">
 			{ children... }
 		</body>
@@ -533,7 +565,7 @@ templ Operator(title string) {
 templ OperatorWithScript(title, src string) {
 	<!DOCTYPE html>
 	<html lang="en">
-		@documentHead(title, src, RobotsPrivate, Theme{})
+		@documentHead(title, src, RobotsPrivate, Theme{}, nil)
 		<body class="min-h-screen bg-porcelain text-ink antialiased">
 			{ children... }
 		</body>

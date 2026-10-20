@@ -9,6 +9,9 @@ package handler
 //	                                                    marketing tests' (publicSurfaceURLs)
 //	TestAPIGuidePages_RoutesAreTheLinkedPaths           the routes are the constants the links use
 //	TestAPIGuidePages_LinkTheOtherLanguage              each page links the other
+//	TestAPIGuidePages_NameBothTranslationsInTheHead     hreflang alternates for both, nowhere else
+//	TestAPIGuidePages_FitAPhone                         tables and code scroll in their own box; the
+//	                                                    contents list's links are touch targets
 //	TestAPIGuidePages_OfferOpenAPIOnlyWithAnAPIHost     the download link is the API host's, or absent
 //	TestAPIGuidePages_AreLinkedFromTheFootersAndThePanel  the two footers, the panel's API keys screen
 //	                                                    and its webhook section (to #webhooks)
@@ -19,7 +22,10 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -48,7 +54,7 @@ func TestAPIGuidePages_AreTheGuideInTheMarketingChrome(t *testing.T) {
 		}
 		for _, want := range []string{
 			`<meta name="robots" content="index, follow">`,
-			"<title>" + htmlText(g.Title) + " — Taptime</title>",
+			"<title>" + htmlText(g.Title) + "</title>",
 			"<h1 class=\"mt-2 font-display text-3xl font-bold tracking-tight\">" + htmlText(g.Title) + "</h1>",
 			`<article class="px-4 py-10 sm:py-14" lang="` + c.lang + `">`,
 			`<div class="guide-prose mt-8">`,
@@ -58,8 +64,12 @@ func TestAPIGuidePages_AreTheGuideInTheMarketingChrome(t *testing.T) {
 				t.Errorf("GET %s lacks %q", c.path, want)
 			}
 		}
+		// The guide's title names the product; the document title does not name it twice.
+		if title := between(body, "<title>", "</title>"); strings.Count(title, "Taptime") != 1 {
+			t.Errorf("GET %s: the title names Taptime %d times: %q", c.path, strings.Count(title, "Taptime"), title)
+		}
 		// The side navigation lists every anchored section but the guide's own contents list.
-		nav := between(body, `<nav class="hidden lg:block"`, "</nav>")
+		nav := between(body, `<nav class="hidden xl:block`, "</nav>")
 		listed := 0
 		for _, s := range g.Sections {
 			link := `href="#` + s.ID + `"`
@@ -108,6 +118,90 @@ func TestAPIGuidePages_LinkTheOtherLanguage(t *testing.T) {
 	} {
 		if !want.MatchString(mustFetchMarketing(t, r, path)) {
 			t.Errorf("GET %s does not link the other language (%s)", path, want)
+		}
+	}
+}
+
+// TestAPIGuidePages_NameBothTranslationsInTheHead: each page's head names the English and the
+// Turkish page (hreflang, root-relative -- layout.MarketingTranslated says why), both are served,
+// and no other marketing page carries an alternate. Mutant (measured): the alternates loop removed
+// from documentHead -> red.
+func TestAPIGuidePages_NameBothTranslationsInTheHead(t *testing.T) {
+	t.Parallel()
+	r := marketingRouter(t)
+	want := []string{
+		`<link rel="alternate" hreflang="en" href="` + pages.APIGuidePath + `">`,
+		`<link rel="alternate" hreflang="tr" href="` + pages.APIGuideTRPath + `">`,
+	}
+	for _, path := range []string{pages.APIGuidePath, pages.APIGuideTRPath} {
+		head := between(mustFetchMarketing(t, r, path), "<head>", "</head>")
+		for _, w := range want {
+			if !strings.Contains(head, w) {
+				t.Errorf("GET %s: the head lacks %s", path, w)
+			}
+		}
+		if n := strings.Count(head, `rel="alternate"`); n != len(want) {
+			t.Errorf("GET %s: %d alternates in the head, want %d", path, n, len(want))
+		}
+		if code := fetchMarketing(t, r, path, nil).Code; code != http.StatusOK {
+			t.Errorf("the alternate %s answers %d", path, code)
+		}
+	}
+	for _, path := range marketingURLs() {
+		if strings.Contains(mustFetchMarketing(t, r, path), `rel="alternate"`) {
+			t.Errorf("GET %s carries an alternate; only the guide is translated", path)
+		}
+	}
+}
+
+// TestAPIGuidePages_FitAPhone holds the phone-width rules the page relies on (DOCS-1, low round):
+// every table and code block of the guide is inside the scoped wrapper whose rules make it scroll
+// in its own box (a table a block, both at most the column's width, sideways scroll), and the
+// guide's contents list -- the table of contents where no side navigation is drawn -- follows its
+// heading directly, which is what the 44 px touch-target rule selects. The rules are read from
+// input.css and, when it has been built, from the compiled app.css. Mutants (measured): the
+// sideways scroll removed from the table rule, or the contents rule's selector changed -> red.
+func TestAPIGuidePages_FitAPhone(t *testing.T) {
+	t.Parallel()
+	css := repoFile(t, "web", "static", "css", "input.css")
+	rules := map[string][]string{
+		".guide-prose table":              {"block", "max-w-full", "overflow-x-auto"},
+		".guide-prose pre":                {"max-w-full", "overflow-x-auto"},
+		".guide-prose h2#contents + ul a": {"inline-flex", "min-h-11", "items-center"},
+	}
+	for sel, utilities := range rules {
+		m := regexp.MustCompile(`(?m)^\s*` + regexp.QuoteMeta(sel) + ` \{ @apply ([^;]*);`).FindStringSubmatch(css)
+		if m == nil {
+			t.Errorf("input.css has no %q rule", sel)
+			continue
+		}
+		have := strings.Fields(m[1])
+		for _, u := range utilities {
+			if !slices.Contains(have, u) {
+				t.Errorf("input.css: %q lacks %s (has %v)", sel, u, have)
+			}
+		}
+	}
+	if compiled, err := os.ReadFile(filepath.Join("..", "..", "web", "static", "css", "app.css")); err == nil {
+		for _, want := range []string{"display:block;max-width:100%;overflow-x:auto", ".guide-prose h2#contents+ul a{align-items:center;display:inline-flex;min-height:2.75rem}"} {
+			if !strings.Contains(string(compiled), want) {
+				t.Errorf("app.css lacks %q", want)
+			}
+		}
+	}
+
+	r := marketingRouter(t)
+	for _, path := range []string{pages.APIGuidePath, pages.APIGuideTRPath} {
+		body := mustFetchMarketing(t, r, path)
+		prose := between(body, `<div class="guide-prose mt-8">`, "</article>")
+		for _, tag := range []string{"<table>", "<pre>"} {
+			all, inside := strings.Count(body, tag), strings.Count(prose, tag)
+			if all < 5 || inside != all {
+				t.Errorf("GET %s: %d %s on the page, %d inside the guide's wrapper", path, all, tag, inside)
+			}
+		}
+		if !regexp.MustCompile(`<h2 id="` + apiguide.ContentsID + `"><a href="#` + apiguide.ContentsID + `">[^<]+</a></h2>\s*<ul>\s*<li><a href="#`).MatchString(prose) {
+			t.Errorf("GET %s: the contents heading is not directly followed by its list of links", path)
 		}
 	}
 }

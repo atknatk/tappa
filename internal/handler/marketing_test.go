@@ -726,6 +726,9 @@ func TestExternalReferenceScanner_CatchesWhatItExistsToCatch(t *testing.T) {
 // href is present in the EMBEDDED static tree rather than merely prefixed with
 // /static (M6-12 phase B, which shipped for exactly this trap: app.css is
 // gitignored, so a binary can serve a page whose stylesheet 404s).
+// (DOCS-1: documentHead now also writes the integration guide's two
+// <link rel="alternate" hreflang> lines, and only on its pages; their hrefs are
+// fetched and must answer 200 in TestAPIGuidePages_NameBothTranslationsInTheHead.)
 //
 // ⚠️ THE RESIDUAL, STATED: a <link> added directly to layout.Marketing, bypassing
 // documentHead, would be checked by neither — an EXTERNAL one is caught by

@@ -1,6 +1,11 @@
 package pages
 
-import "github.com/atknatk/tappa/internal/apiguide"
+import (
+	"strings"
+
+	"github.com/atknatk/tappa/internal/apiguide"
+	"github.com/atknatk/tappa/web/templates/layout"
+)
 
 // The integration guide's two pages on the product site (M11 DOCS-1, ADR 0030). internal/handler
 // mounts them at these paths, the marketing footer and the panel's API keys screen link to them, and
@@ -55,4 +60,20 @@ func (v APIGuideView) sideSections() []apiguide.Section {
 		}
 	}
 	return out
+}
+
+// pageTitle is the document's <title>: the guide's own title, which already names Taptime
+// ("Taptime integration API — integration guide"), and the product's name after it only
+// when it does not.
+func (v APIGuideView) pageTitle() string {
+	if strings.Contains(v.Guide.Title, "Taptime") {
+		return v.Guide.Title
+	}
+	return v.Guide.Title + " — Taptime"
+}
+
+// alternates are the guide's two translations, for the head: the same pair on both pages,
+// each naming itself too (hreflang is read as a set).
+func (v APIGuideView) alternates() []layout.Alternate {
+	return []layout.Alternate{{Lang: "en", Href: APIGuidePath}, {Lang: "tr", Href: APIGuideTRPath}}
 }
