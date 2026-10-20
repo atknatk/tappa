@@ -1004,10 +1004,12 @@ func TestEmployeeUpdatedAt_OnlyDirectoryColumnsOnEveryUpdatePath(t *testing.T) {
 //	InsertManualTransaction       the record's venue -> the manager's choice (K-14)
 //	CountLocationReferences       a venue's references -> a NULL never counts
 //	LockEmployeeForExternalRefChange  (new in API-1) no home venue -> the ref cannot be removed
+//	ListRollEmployees             (M12-21) the Roll's home venue -> no other-venue mark; the
+//	                              person's counted shifts are Totals.OtherVenueUnknown
 var employeeLocationReaders = []string{
 	"ConsumeInviteAndActivate", "CountLocationReferences", "CreateEmployee", "GetEmployeeActivationContext",
 	"GetEmployeeForTap", "GetPanelEmployeeForAction", "InsertManualTransaction", "ListPanelEmployees",
-	"LockEmployeeForExternalRefChange", "MoveEmployee",
+	"ListRollEmployees", "LockEmployeeForExternalRefChange", "MoveEmployee",
 }
 
 // employeeLocationNonReaders are the statements the wide net below catches -- they name employees

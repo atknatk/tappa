@@ -310,6 +310,9 @@ func TestEmployerReaders_NineReadersNameTheSite(t *testing.T) {
 			t.Errorf("the flagged open check-in is not listed (%d open)", len(anomalies.Open))
 		})
 		t.Run(dir.name+"/4 ListWorkedShiftEvents + resolveShift", func(t *testing.T) {
+			// M12-21: e1's HOME is the employer's own venue, so the shift at the peer's venue is
+			// "at another venue" on the Roll -- a duration and a mark, no evidence (K-39).
+			w.exec(`UPDATE employees SET location_id = $2 WHERE tenant_id = $1 AND id = $3`, dir.employer, w.venue[dir.employer], e[0])
 			hours, err := w.r.Hours(w.ctx, dir.employer, ReportFilter{Day: day})
 			if err != nil {
 				t.Fatal(err)
@@ -333,6 +336,14 @@ func TestEmployerReaders_NineReadersNameTheSite(t *testing.T) {
 				if p.EmployeeID == e[0] && p.LateShifts == 0 {
 					t.Error("e1 arrived 09:30 against the site's 09:00 shift and is not late -- the site's shift was not resolved")
 				}
+				// Wednesday 16 September is day 2 of the week of Monday 14 September.
+				if p.EmployeeID == e[0] && (len(p.Marks) != ReportDays || !p.Marks[2].Other || p.HomeVenue != w.venueName[dir.employer]) {
+					t.Errorf("e1 worked at the peer's venue away from home (%q) and the Roll does not mark it: %+v", w.venueName[dir.employer], p.Marks)
+				}
+			}
+			if !hours.Homes.Queried || hours.Totals.OtherVenue != 1 || hours.Totals.OtherVenueUnknown != 0 {
+				t.Errorf("Roll totals: homes %+v, other venue %d, not judged %d; want e1's one shift at the peer's venue",
+					hours.Homes, hours.Totals.OtherVenue, hours.Totals.OtherVenueUnknown)
 			}
 		})
 		t.Run(dir.name+"/5 ListAnomalyVenues", func(t *testing.T) {

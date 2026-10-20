@@ -215,12 +215,23 @@ type PersonHours struct {
 	// The screen says "unknown" rather than printing nothing, because a blank cell
 	// reads as "nobody".
 	Name string
+	// Role, HomeLocationID and HomeVenue are the person's job title and HOME venue as the
+	// roster holds them NOW (M12-21; ListRollEmployees) -- not as they were on the days of
+	// the week, which nothing records. Role is "" when none is set and the screen omits it.
+	// HomeLocationID is nil when the person has no home venue (K-14) OR when the read did
+	// not answer (Report.Homes says which); either way no other-venue mark is claimed.
+	Role           string
+	HomeLocationID *uuid.UUID
+	HomeVenue      string
 	// Worked is the payroll figure: the sum of HoursCounted intervals only.
 	Worked time.Duration
 	// Daily is Worked split over the period's local days, FirstDay first. It is a
 	// slice rather than a [7]time.Duration so the template ranges over it without
 	// knowing how long a period is.
 	Daily []time.Duration
+	// Marks runs beside Daily, one per local day: what else is true of that day besides
+	// its counted hours (M12-21). See DayMarks for exactly what each mark counts.
+	Marks []DayMarks
 	// Awaiting and Refused are the hours held out of Worked, kept apart because they
 	// are different instructions to a manager: one needs a decision, one has had one.
 	Awaiting time.Duration
@@ -266,6 +277,25 @@ type PersonHours struct {
 	Open int
 }
 
+// DayMarks is what one cell of the Roll says besides its hours (M12-21). Each mark is a
+// CLAIM, so each is false unless measured: a false mark is "not seen", never "seen not to be".
+type DayMarks struct {
+	// Other: a COUNTED shift that started this day began at a venue other than the person's
+	// home venue -- a holding peer's venue included (ADR 0027 §9: it is not theirs). Never set
+	// for a person with no home venue, for a shift whose record names no venue, or when the
+	// roster read did not answer: those shifts are Totals.OtherVenueUnknown, not "at home".
+	// Durations and this mark only -- no evidence of the peer's is behind it (K-39).
+	Other bool
+	// Manual: a manager TYPED one of this person's check-ins this day (channel='manual') --
+	// the same population as PersonHours.ManualArrivals, so the marks and the tally can be
+	// reconciled (two typed arrivals on one day are one mark and a tally of two). A typed
+	// CHECKOUT does not set it, for the reason ManualArrivals gives.
+	Manual bool
+	// Open: one of this person's check-ins this day has no checkout (an OpenEntry, Q18) -- on
+	// a day with hours too, which is a different cell from a day with none.
+	Open bool
+}
+
 // VenueHours is one location's week. The key is the location of the CHECK-IN: a
 // person who taps in at one venue and out at another worked the shift they started,
 // and §5 already treats moving down the chain as normal.
@@ -283,6 +313,9 @@ type VenueHours struct {
 // closing one -- no estimated end, no assumed shift length, no hours. A manager enters
 // the correction (M6-08); until they do, the total is short and the screen says so.
 type OpenEntry struct {
+	// EmployeeID is whose entry it is (M12-21), so the Roll can mark the day on that
+	// person's row; the name alone is not unique.
+	EmployeeID   uuid.UUID
 	EmployeeName string
 	LocationName string
 	At           time.Time
@@ -308,6 +341,29 @@ type Totals struct {
 	Shifts   int
 	Open     int
 	TooLong  int
+	// OtherVenue counts the COUNTED shifts (a subset of Shifts) that began at a venue other
+	// than the person's home venue (M12-21) -- one per DayMarks.Other source, so a day with
+	// two such shifts is one mark and two here. OtherVenueUnknown counts the counted shifts
+	// that could not be judged: the person has no home venue, the record names no venue, or
+	// the roster read did not answer (Report.Homes). The screen prints the second beside the
+	// first, so an unjudged week never reads as "nobody worked elsewhere".
+	OtherVenue        int
+	OtherVenueUnknown int
+	// ManualArrivals is the sum of PersonHours.ManualArrivals: check-ins a manager typed.
+	ManualArrivals int
+	// Approved counts the COUNTED shifts (a subset of Shifts) that are in the total only
+	// because a manager APPROVED a flag: at least one end has verdict 'flag' and review
+	// 'approved' (endpointState's second case).
+	Approved int
+}
+
+// HomesRead is the tri-state of the roster read behind PersonHours.Role/HomeLocationID/
+// HomeVenue, DayMarks.Other and Totals.OtherVenue (M12-21). The zero value is NOT QUERIED
+// (no claim); Failed is a read that did not answer -- the report itself still renders, the
+// other-venue figure says "could not be read" rather than 0; Queried is measured.
+type HomesRead struct {
+	Queried bool
+	Failed  bool
 }
 
 // Report is one week of worked hours.
@@ -324,6 +380,8 @@ type Report struct {
 	Venues  []VenueHours
 	Open    []OpenEntry
 	Totals  Totals
+	// Homes is whether the roster read answered; see HomesRead.
+	Homes HomesRead
 	// PracticeTaps is how many TRAINING taps fall in the period. They are excluded
 	// from every figure above; the number is here so "excluded" is not the same as
 	// "invisible" (§5, M6-07 card).
@@ -371,7 +429,8 @@ type ReportFilter struct {
 // ONE TRANSACTION, THREE QUERIES -- the same shape Screen and Roster use. The clock
 // has to be read before the week's boundaries can be computed, and reading the events
 // and the training-tap count in the same transaction means the two cannot disagree
-// about which records existed.
+// about which records existed. (Since M12-21 the roster read behind the titles and the
+// other-venue marks rides in the same transaction too, inside a savepoint -- see rollHomes.)
 func (r *Reader) Hours(ctx context.Context, tenantID uuid.UUID, f ReportFilter) (ReportScreen, error) {
 	var out ReportScreen
 	err := r.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
@@ -431,7 +490,21 @@ func (r *Reader) Hours(ctx context.Context, tenantID uuid.UUID, f ReportFilter) 
 		if out.Partners, err = partnerTaps(ctx, q, tenantID, period, false); err != nil {
 			return err
 		}
+		homes, homesRead := r.rollHomes(ctx, tx, tenantID, evs)
+		for i := range evs {
+			if h, ok := homes[evs[i].EmployeeID]; ok {
+				evs[i].Home = h.HomeLocationID
+			}
+		}
 		body := accumulate(evs, period, zone, time.Now())
+		body.Homes = homesRead
+		for i := range body.People {
+			if h, ok := homes[body.People[i].EmployeeID]; ok {
+				body.People[i].Role = deref(h.Role)
+				body.People[i].HomeLocationID = h.HomeLocationID
+				body.People[i].HomeVenue = deref(h.HomeVenue)
+			}
+		}
 		body.Unattributable = unattributable
 		body.Truncated = truncatedBy(len(rows))
 		body.PracticeTaps = int(practice)
@@ -445,6 +518,42 @@ func (r *Reader) Hours(ctx context.Context, tenantID uuid.UUID, f ReportFilter) 
 		return ReportScreen{}, fmt.Errorf("ledger: hours: %w", err)
 	}
 	return out, nil
+}
+
+// rollHomes reads the job title and home venue of everybody the week's events name
+// (M12-21, ListRollEmployees), inside a SAVEPOINT: a failure costs the other-venue marks
+// and the titles -- reported as HomesRead.Failed -- and never the week's hours.
+//
+// AN EMPTY WEEK ASKS NOTHING AND IS MEASURED: with no person there is no title to read and
+// no shift to judge, so "queried, nothing" is the true answer rather than "not queried".
+func (r *Reader) rollHomes(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, evs []reportEvent) (map[uuid.UUID]store.ListRollEmployeesRow, HomesRead) {
+	seen := map[uuid.UUID]bool{}
+	ids := make([]uuid.UUID, 0)
+	for _, e := range evs {
+		if !seen[e.EmployeeID] {
+			seen[e.EmployeeID] = true
+			ids = append(ids, e.EmployeeID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil, HomesRead{Queried: true}
+	}
+	homes := map[uuid.UUID]store.ListRollEmployeesRow{}
+	if err := inSavepoint(ctx, tx, func(q *store.Queries) error {
+		rows, err := q.ListRollEmployees(ctx, store.ListRollEmployeesParams{TenantID: tenantID, EmployeeIds: ids})
+		if err != nil {
+			return err
+		}
+		for _, row := range rows {
+			homes[row.ID] = row
+		}
+		return nil
+	}); err != nil {
+		r.log.Error("ledger: could not read the roll's titles and home venues; the other-venue "+
+			"figure will say it could not be read", "err", err, "tenant_id", tenantID)
+		return nil, HomesRead{Failed: true}
+	}
+	return homes, HomesRead{Queried: true}
 }
 
 // readLimit and truncatedBy are the two halves of ONE invariant, and they are named
@@ -523,6 +632,10 @@ type reportEvent struct {
 	Manual       bool
 	LocationID   uuid.UUID
 	LocationName string
+	// Home is the person's home venue (M12-21), nil when they have none or it was not
+	// read. It decides DayMarks.Other and nothing else -- resolveShift never sees it (§5/Q17:
+	// lateness follows the TAPPED venue), which is why it is attached after the row mapping.
+	Home *uuid.UUID
 	// Shift is the shift this tap is judged against, already resolved: the
 	// DEPARTMENT's when it has one, otherwise the TAPPED location's (§5, Q17). nil
 	// means lateness is not computed here, which is a different answer from "on time".
@@ -681,6 +794,10 @@ func endpointState(verdict, review string) HoursState {
 	}
 }
 
+// approvedFlag is an end that is payable only because a manager approved it: the
+// engine flagged it and the review said yes (endpointState's second case).
+func approvedFlag(e reportEvent) bool { return e.Verdict == "flag" && e.Review == "approved" }
+
 // worse picks the state that keeps an interval OUT of the total. An interval has two
 // ends and it is only payable if BOTH are.
 func worse(a, b HoursState) HoursState {
@@ -759,6 +876,7 @@ func accumulate(evs []reportEvent, p Period, zone *time.Location, now time.Time)
 				EmployeeID: e.EmployeeID,
 				Name:       e.Name,
 				Daily:      make([]time.Duration, p.Days()),
+				Marks:      make([]DayMarks, p.Days()),
 			}
 			people[e.EmployeeID] = ph
 		}
@@ -773,9 +891,14 @@ func accumulate(evs []reportEvent, p Period, zone *time.Location, now time.Time)
 		if e.At.Before(p.From) || !e.At.Before(p.To) {
 			return
 		}
-		person(e).Open++
+		ph := person(e)
+		ph.Open++
 		out.Totals.Open++
+		if d := dayIndex(e.At, p, zone); d >= 0 && d < len(ph.Marks) {
+			ph.Marks[d].Open = true
+		}
 		out.Open = append(out.Open, OpenEntry{
+			EmployeeID:   e.EmployeeID,
 			EmployeeName: e.Name,
 			LocationName: e.LocationName,
 			At:           e.At,
@@ -794,6 +917,10 @@ func accumulate(evs []reportEvent, p Period, zone *time.Location, now time.Time)
 		ph := person(e)
 		if e.Manual {
 			ph.ManualArrivals++
+			out.Totals.ManualArrivals++
+			if d := dayIndex(e.At, p, zone); d >= 0 && d < len(ph.Marks) {
+				ph.Marks[d].Manual = true
+			}
 		}
 		if e.Shift == nil {
 			ph.Unmeasured++
@@ -872,8 +999,22 @@ func accumulate(evs []reportEvent, p Period, zone *time.Location, now time.Time)
 			ph.Shifts++
 			out.Totals.Worked += worked
 			out.Totals.Shifts++
-			if d := dayIndex(in.At, p, zone); d >= 0 && d < len(ph.Daily) {
+			d := dayIndex(in.At, p, zone)
+			if d >= 0 && d < len(ph.Daily) {
 				ph.Daily[d] += worked
+			}
+			// THE SHIFT'S VENUE IS ITS CHECK-IN'S, the same key VenueHours uses.
+			switch {
+			case in.Home == nil || in.LocationID == uuid.Nil:
+				out.Totals.OtherVenueUnknown++
+			case in.LocationID != *in.Home:
+				out.Totals.OtherVenue++
+				if d >= 0 && d < len(ph.Marks) {
+					ph.Marks[d].Other = true
+				}
+			}
+			if approvedFlag(in) || approvedFlag(e) {
+				out.Totals.Approved++
 			}
 			v, ok := venues[in.LocationID]
 			if !ok {
