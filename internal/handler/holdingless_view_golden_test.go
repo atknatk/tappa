@@ -23,6 +23,9 @@ package handler
 // content well (5 318 B) and after </main> (4 382 B) is byte for byte the previous golden's, and
 // every changed byte lies inside the well, which is the Roll's own markup. The holding claim is
 // now also asserted directly: TestHoldinglessPanels_AHoldingAddsOnlyThePartnerSection.
+// M12-48 replaced the anomalies-view golden: its only change is two title attributes, the
+// truncated venue name's (title="St Julians") and the GPS-alone person's (title="Maria Borg");
+// everything else, the chrome included, is the same bytes. The reports-view golden is unchanged.
 
 import (
 	"bytes"
