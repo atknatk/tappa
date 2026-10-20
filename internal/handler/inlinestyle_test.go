@@ -102,11 +102,21 @@ func TestTemplates_CarryNoInlineStyle(t *testing.T) {
 		}
 	}
 
-	for name, csp := range map[string]string{
+	constCSPs := map[string]string{
 		"marketingCSP": marketingCSP, "landingCSP": landingCSP, "signupCSP": signupCSP,
 		"adminCSP": adminCSP, "adminScriptedCSP": adminScriptedCSP, "adminLoginCSP": adminLoginCSP,
 		"tapCSP": tapCSP, "activationCSP": activationCSP,
-	} {
+	}
+	policies := map[string]string{
+		// The policies the pages are really sent under, computed from the constants above.
+		"tapCSPFor(false)": tapCSPFor(false), "tapCSPFor(true)": tapCSPFor(true),
+		"activationCSPFor(false)": activationCSPFor(false), "activationCSPFor(true)": activationCSPFor(true),
+		`landingCSPFor("", "")`: landingCSPFor("", ""), `landingCSPFor(video, poster)`: landingCSPFor("v.mp4", "p.jpg"),
+	}
+	for name, csp := range constCSPs {
+		policies[name] = csp
+	}
+	for name, csp := range policies {
 		if !strings.Contains(csp, "style-src 'self'") || strings.Contains(csp, "unsafe-inline") {
 			t.Errorf("%s = %q: the inline-style net assumes style-src 'self' without 'unsafe-inline'", name, csp)
 		}
@@ -114,6 +124,42 @@ func TestTemplates_CarryNoInlineStyle(t *testing.T) {
 	operatorSrc := repoFile(t, "internal", "handler", "operator", "render.go")
 	if !strings.Contains(operatorSrc, `const operatorCSP = "default-src 'none'; style-src 'self';`) || strings.Contains(operatorSrc, `'unsafe-inline';`) {
 		t.Error("internal/handler/operator/render.go: operatorCSP no longer reads style-src 'self' -- the inline-style net assumes it")
+	}
+	// THE LIST ABOVE IS HAND-KEPT, so it is checked against the sources: every *CSP constant
+	// declared in this package must be in constCSPs, and the operator package must declare only
+	// operatorCSP -- a new policy cannot be added without this net reading it.
+	cspDecl := regexp.MustCompile(`(?m)^(?:const\s+|\t)(\w+CSP)\s*=[^=]`)
+	declared := func(dir ...string) []string {
+		files, err := filepath.Glob(filepath.Join(append(append([]string{"..", ".."}, dir...), "*.go")...))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var names []string
+		for _, f := range files {
+			if strings.HasSuffix(f, "_test.go") {
+				continue
+			}
+			raw, err := os.ReadFile(f)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, m := range cspDecl.FindAllStringSubmatch(string(raw), -1) {
+				names = append(names, m[1])
+			}
+		}
+		sort.Strings(names)
+		return names
+	}
+	var listed []string
+	for name := range constCSPs {
+		listed = append(listed, name)
+	}
+	sort.Strings(listed)
+	if got := declared("internal", "handler"); strings.Join(got, ",") != strings.Join(listed, ",") {
+		t.Errorf("internal/handler declares the policies %v, the inline-style net reads %v -- list every *CSP constant", got, listed)
+	}
+	if got := declared("internal", "handler", "operator"); strings.Join(got, ",") != "operatorCSP" {
+		t.Errorf("internal/handler/operator declares the policies %v, the inline-style net reads only operatorCSP", got)
 	}
 
 	root := filepath.Join("..", "..", "web", "templates")
