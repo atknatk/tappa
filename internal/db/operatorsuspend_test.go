@@ -1436,13 +1436,13 @@ func TestOperator00063_DownGivesBack00062AndUpTakesItAgain(t *testing.T) {
 	// branch opens a savepoint holding no audit row of a kind outside 00042's set (the append-only
 	// trigger disabled inside the savepoint for the delete, as 00034's Down test does) and no
 	// suspended tenant (opAtVersion's step, for a committed one a branch did not write).
-	branch := func() pgx.Tx {
+	branch := func(also ...string) pgx.Tx {
 		t.Helper()
 		sp, err := tx.Begin(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}
-		lockForDowns(t, ctx, sp, downTables(down))
+		lockForDowns(t, ctx, sp, append(downTables(down), also...))
 		for _, s := range []struct {
 			sql  string
 			args []any
@@ -1605,15 +1605,15 @@ func TestOperator00063_DownGivesBack00062AndUpTakesItAgain(t *testing.T) {
 
 	// The chain composes downward: 63 -> 42 with this file's rows present -- 00042's Down is the
 	// next one that rewrites the kind CHECK, and it leaves 00039's set NOT VALID over them. The
-	// tables 00042's Down names are locked too (branch took 00063's), inside the branch.
-	sp = branch()
+	// tables 00042's Down names are locked WITH 00063's, in the branch's one lockForDowns (never one
+	// set held while waiting for the other -- opAtVersionLocking's lesson).
+	sp = branch(downTables(down42)...)
 	if err := opSuspend(t, ctx, sp, hash, f.id, "terms_breach"); err != nil {
 		t.Fatalf("a suspension before the chain: %v", err)
 	}
 	if err := opReinstate(t, ctx, sp, hash, f.id); err != nil {
 		t.Fatalf("a reinstatement before the chain: %v", err)
 	}
-	lockForDowns(t, ctx, sp, downTables(down42))
 	opRunSection(t, ctx, sp, down, "00063 Down (chain)")
 	opRunSection(t, ctx, sp, down42, "00042 Down after 00063's, this file's rows present")
 	if def, valid := opConstraint(t, ctx, sp, "operator_audit_log", "operator_audit_log_kind_check"); valid ||

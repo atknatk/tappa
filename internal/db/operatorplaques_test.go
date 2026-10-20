@@ -163,6 +163,28 @@ var opAtVersionSkips = map[int]string{
 // but the delete. (Since OP-13: 00029's Down test reaches 00029 through 00030's Down.)
 func opAtVersion(t *testing.T, ctx context.Context, tx pgx.Tx, version int, kinds ...string) {
 	t.Helper()
+	opAtVersionLocking(t, ctx, tx, version, nil, kinds...)
+}
+
+// opAtVersionLocking is opAtVersion for a test that goes on to take MORE table locks after the walk
+// (a later Down of its own, holdingLockedSavepoint's holdingDownTables): `also` joins the ONE
+// lockForDowns the walk takes first, so the transaction never holds the walk's locks -- tenants'
+// ACCESS EXCLUSIVE among them since 00063 -- while it waits for another table.
+//
+// 🔴 WHY (CI run 39443714553, reproduced on a clean volume, 2026-10-20): the three 00042 tests took
+// opAtVersion(62) -- which walks 00063's Down and keeps ACCESS EXCLUSIVE on tenants -- and THEN, in
+// holdingLockedSavepoint, lockForDowns(holdingDownTables). internal/egress's webhook worker held
+// webhook_deliveries (RowExclusive + RowShare, its claim) and waited for ACCESS SHARE on tenants
+// (the API gate's read); this test held tenants and asked, NOWAIT and then in bounded turns, for
+// webhook_deliveries. A cycle, but never a deadlock PostgreSQL resolves: this side's waits are
+// shorter than deadlock_timeout by design (lockInTurn), so the worker's one deadlock check -- a
+// second after its wait began -- mostly found this side not waiting. Both sides waited 90 s:
+// "lock the tables the Downs touch: N rounds, still busy", and every reader of tenants in every
+// other package behind them. lockForDowns' own argument (no deadlock handed to anyone) holds only
+// when the transaction holds NONE of the tables when it starts; taking the union in one call
+// restores that.
+func opAtVersionLocking(t *testing.T, ctx context.Context, tx pgx.Tx, version int, also []string, kinds ...string) {
+	t.Helper()
 	entries, err := os.ReadDir(filepath.Join("..", "..", "db", "migrations"))
 	if err != nil {
 		t.Fatalf("read db/migrations: %v", err)
@@ -191,7 +213,7 @@ func opAtVersion(t *testing.T, ctx context.Context, tx pgx.Tx, version int, kind
 	// statement before anything else, and after the walk no strong lock may sit outside them.
 	var lockFirst []string
 	if len(later) > 0 {
-		lockFirst = []string{"operator_read_tickets", "operator_audit_log"}
+		lockFirst = append([]string{"operator_read_tickets", "operator_audit_log"}, also...)
 		for _, f := range later {
 			_, down := opMigrationSections(t, f.name)
 			lockFirst = append(lockFirst, downTables(down)...)
