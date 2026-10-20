@@ -1289,7 +1289,7 @@
   .pill--invited { @apply border-dashed border-saffron bg-saffron/10; }
   .pill--deactivated { @apply border-line text-ink/70; }
   /* A tally drawn as a pill: the same tones (the .tally--* modifiers above). */
-  .tally--pill { @apply rounded-full px-2 font-bold tracking-[0.08em]; }
+  .pill-tally { @apply rounded-full px-2 font-bold tracking-[0.08em]; }
 
   /* --- buttons: modifiers of .btn, which keeps the height and the focus ring ---
      The accent never reaches them. The destructive pair is an ink word in a
@@ -1437,6 +1437,12 @@
   .rail-item:nth-child(7n+5) article { rotate: -0.9deg; }
   .rail-item:nth-child(7n+6) article { rotate: 0.5deg; }
   .rail-item:nth-child(7n+7) article { rotate: -1.4deg; }
+  /* The business picker (M12-44) hangs its dockets from the rail only from desk;
+     below it they stack full width with no rail and no clip, and a wide docket
+     turned about its top edge would only look crooked. */
+  @media (max-width: 1199.98px) {
+    .choose-rail .rail-item article { rotate: none; }
+  }
 
   /* --- the Rules ladder: CLASS-ONLY on purpose ---
      /admin/policies is held to a short list of tags and attributes (no svg, no
@@ -1484,6 +1490,50 @@
     @apply absolute left-1/2 top-[13px] h-[9px] w-3.5 -translate-x-1/2 rounded-sm bg-ink;
   }
 
+  /* --- the Rules page's frame (M12-37) ---
+     The two wrappers are TEST BOUNDARIES whose markup is pinned byte for byte
+     (`<div class="policy-section">` and `<div class="policy-guarantees">`), so
+     their layout lives here rather than in a class attribute. The section is a
+     column; the guarantees are the first row of the left column from desk, with
+     the intro beside them (the template places the intro). */
+  .policy-section { @apply flex flex-col gap-6; }
+  .policy-guarantees { @apply min-w-0 desk:col-start-1 desk:row-start-1; }
+  /* The guarantees' rail runs on through the 24 px between the two ladders and
+     the rules' rail starts flush, so the page draws one rail: the gap is the
+     grid's row gap (gap-6 below desk, gap-y-6 from desk). */
+  .ladder-runon::before { @apply -bottom-6 rounded-b-none; }
+  .ladder-runin::before { @apply top-0 rounded-t-none; }
+  /* A statement's effect, read-only: a label in a frame, never a control (the
+     redesign's per-rule effect picker is not built -- D1). Word ink, colour in
+     the frame, as on the stamp. */
+  .effect-pill {
+    @apply inline-flex min-h-10 items-center whitespace-nowrap rounded-[10px] border
+           border-ink/50 bg-paper px-3.5 font-display text-sm font-bold text-ink;
+  }
+  .effect-pill--allow { @apply border-tappa-green; }
+  .effect-pill--review { @apply border-saffron; }
+  .effect-pill--deny { @apply border-tomato; }
+  .effect-pill--quiet { @apply border-line; }
+  /* A guarantee's effect: an ink frame and a small padlock -- locked, not a state.
+     Drawn as the board's small chip, and it WRAPS below md: "Ignore — recorded,
+     counts nothing" in a nowrap pill overflowed its plate on a 375 px phone and
+     scrolled the page at 360 (measured). */
+  .effect-pill--locked {
+    @apply min-h-0 max-w-full gap-2 whitespace-normal rounded-full border-ink px-2.5 py-0.5
+           text-left text-[13px] md:whitespace-nowrap;
+  }
+  /* The small padlock: a shackle (::before) over a body (::after), 10 x 13 px. */
+  .lock-mini { @apply relative inline-block h-[13px] w-2.5 flex-none; }
+  .lock-mini::before {
+    content: '';
+    @apply absolute left-1/2 top-0 h-1.5 w-1.5 -translate-x-1/2 rounded-t-full border-[1.5px]
+           border-b-0 border-ink;
+  }
+  .lock-mini::after {
+    content: '';
+    @apply absolute bottom-0 left-0 h-[7px] w-2.5 rounded-[2px] bg-ink;
+  }
+
   /* --- the rule switch: a submit button whose words name the outcome ---
      No switch role and no pressed state: the state is the state chip beside it,
      and the button says what pressing it will do. */
@@ -1498,6 +1548,31 @@
   .rule-switch-knob { @apply size-[30px] flex-none rounded-full; }
   .rule-switch--on .rule-switch-knob { @apply bg-tappa-green; }
   .rule-switch--off .rule-switch-knob { @apply border border-ink/50 bg-paper; }
+
+  /* --- Odd shapes (M12-29): the aggregate cards, their chips and the side notes ---
+     The week's figures are aggregates, not records, so they sit on rounded cards (D2);
+     the totals stay a docket. Every chip carries its own words and takes its tone from
+     the existing tally modifiers (one declaration per tone); the open entry's age is the
+     one new tone, dashed because an open entry is waiting for a record that never came.
+     A side note is a word-first box: its heading names what it is, the 4 px edge only
+     repeats the tone. No name below is a word a sentence would contain (§3.2). */
+  .odd-card {
+    @apply flex min-w-0 flex-col gap-3.5 rounded-[18px] border border-line bg-paper p-5
+           desk:px-6 desk:py-[22px];
+  }
+  .odd-title {
+    @apply font-display text-[19px] font-bold leading-tight tracking-[-0.02em] text-ink md:text-xl;
+  }
+  .odd-chip {
+    @apply inline-flex min-h-6 items-center rounded-full border px-2.5 font-mono text-xs text-ink;
+  }
+  .odd-chip--open { @apply border-dashed border-saffron bg-saffron/10; }
+  .odd-callout {
+    @apply flex flex-col gap-2 rounded-[14px] border border-l-4 border-line bg-paper px-4 py-3.5
+           text-[13px] leading-normal text-ink md:px-5 md:py-4;
+  }
+  .odd-callout--alert { @apply border-l-tomato; }
+  .odd-callout--warn { @apply border-l-saffron; }
 }
 
 /* =====================================================================
