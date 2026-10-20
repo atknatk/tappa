@@ -864,6 +864,7 @@ func (h *AdminReset) NewPage(w http.ResponseWriter, r *http.Request) {
 	h.render(w, r, http.StatusOK, pages.AdminResetNew(pages.AdminResetNewView{
 		CSRFToken:        csrf,
 		MinPasswordChars: signup.MinPasswordRunes,
+		SignInHref:       adminLoginPath,
 	}))
 }
 
@@ -924,6 +925,7 @@ func (h *AdminReset) Submit(w http.ResponseWriter, r *http.Request) {
 			CSRFToken:        csrf,
 			MinPasswordChars: signup.MinPasswordRunes,
 			Error:            msg,
+			SignInHref:       adminLoginPath,
 		}))
 		return
 	}

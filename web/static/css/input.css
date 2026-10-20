@@ -1385,6 +1385,12 @@
   .rail-item:nth-child(7n+5) article { rotate: -0.9deg; }
   .rail-item:nth-child(7n+6) article { rotate: 0.5deg; }
   .rail-item:nth-child(7n+7) article { rotate: -1.4deg; }
+  /* The business picker (M12-44) hangs its dockets from the rail only from desk;
+     below it they stack full width with no rail and no clip, and a wide docket
+     turned about its top edge would only look crooked. */
+  @media (max-width: 1199.98px) {
+    .choose-rail .rail-item article { rotate: none; }
+  }
 
   /* --- the Rules ladder: CLASS-ONLY on purpose ---
      /admin/policies is held to a short list of tags and attributes (no svg, no
