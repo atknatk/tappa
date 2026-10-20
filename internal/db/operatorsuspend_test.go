@@ -327,7 +327,8 @@ func opOldestTenant(t *testing.T, ctx context.Context, q opQuerier) uuid.UUID {
 	t.Helper()
 	var id uuid.UUID
 	if err := q.QueryRow(ctx, `SELECT id FROM public.tenants ORDER BY created_at, id LIMIT 1`).Scan(&id); err != nil {
-		t.Fatalf("PREMISE: no committed tenant: %v", err)
+		t.Fatalf("PREMISE: the database holds no committed tenant (%v) -- this test needs one that ANOTHER session can see; "+
+			"a fresh volume has none until `make seed` or another package's test commits one. Not a defect of the code under test", err)
 	}
 	return id
 }
@@ -694,17 +695,19 @@ func TestOperator00063_TheFunctionsAndTheirExactSignatures(t *testing.T) {
 	}
 }
 
-// opTenantWriteReach names, as "who -> role", every role tappa_app or tappa_operator can use --
-// pg_has_role MEMBER: itself, an inherited membership and one it reaches only by SET ROLE; each
-// role's privilege counts PUBLIC's -- that holds a table-level UPDATE or INSERT on tenants, or an
-// UPDATE or INSERT on either suspension column. The column half is the third eye's F3 (3rd round):
-// has_column_privilege asked of tappa_app alone does not see a grant it can only SET ROLE to.
+// opTenantWriteReach names, as "who -> role", every role tappa_app, tappa_operator or one of M11's
+// three definers (tappa_holdingdefiner, tappa_feedwriter, tappa_resolver -- the two lenses'
+// DÜŞÜK-2, 2026-10-20) can use -- pg_has_role MEMBER: itself, an inherited membership and one it
+// reaches only by SET ROLE; each role's privilege counts PUBLIC's -- that holds a table-level UPDATE
+// or INSERT on tenants, or an UPDATE or INSERT on either suspension column. The column half is the
+// third eye's F3 (3rd round): has_column_privilege asked of tappa_app alone does not see a grant it
+// can only SET ROLE to.
 func opTenantWriteReach(t *testing.T, ctx context.Context, q opQuerier) []string {
 	t.Helper()
 	rows, err := q.Query(ctx, `
 		SELECT who.rolname || ' -> ' || r.rolname
 		  FROM pg_roles who JOIN pg_roles r ON pg_has_role(who.oid, r.oid, 'MEMBER')
-		 WHERE who.rolname IN ('tappa_app', 'tappa_operator')
+		 WHERE who.rolname IN ('tappa_app', 'tappa_operator', 'tappa_holdingdefiner', 'tappa_feedwriter', 'tappa_resolver')
 		   AND (has_table_privilege(r.oid, 'public.tenants', 'UPDATE')
 		        OR has_table_privilege(r.oid, 'public.tenants', 'INSERT')
 		        OR EXISTS (SELECT 1 FROM unnest(ARRAY['suspended_at', 'suspension_reason']) AS c (col),
@@ -760,7 +763,7 @@ func TestOperator00063_TheAppCannotWriteASuspensionAndTheDefinerWritesOnlyItsCol
 		t.Error("PREMISE: the two suspension columns are not tenants' last columns")
 	}
 	if reach := opTenantWriteReach(t, ctx, tx); len(reach) != 0 {
-		t.Errorf("roles tappa_app or tappa_operator can use write tenants or a suspension column: %v", reach)
+		t.Errorf("roles tappa_app, tappa_operator or an M11 definer can use write tenants or a suspension column: %v", reach)
 	}
 	// CONTROL -- the third eye's N6b (3rd round): a column UPDATE on the suspension that tappa_app
 	// reaches ONLY by SET ROLE (a membership WITH INHERIT FALSE). tappa_app's own column privilege
@@ -1764,8 +1767,9 @@ func TestOperator00063_TheDownLocksOutTenantWritesBeforeItLooksForASuspension(t 
 // left it (an extra or a missing SELECT or UPDATE column, a table-level UPDATE, an INSERT, a
 // DELETE, a TRUNCATE) or of audit_log (a SELECT, an extra or a missing INSERT column, an UPDATE, a
 // DELETE), and a table-level UPDATE or INSERT on tenants reaching tappa_app -- directly, through
-// PUBLIC, through a role it inherits and through one it can only SET ROLE to -- or tappa_operator.
-// Each with SQLSTATE 55000 naming 00063; the cluster this suite runs on (taken to 00062 first)
+// PUBLIC, through a role it inherits and through one it can only SET ROLE to -- or tappa_operator, or
+// one of M11's three definers (tappa_holdingdefiner, tappa_feedwriter, tappa_resolver; directly and,
+// for the resolver, through a role it inherits -- DÜŞÜK-2). Each with SQLSTATE 55000 naming 00063; the cluster this suite runs on (taken to 00062 first)
 // passes, and so does one whose kind CHECK a later Down left NOT VALID (CONTROL: the suffix is
 // read aside).
 func TestOperator00063_PreconditionRefusesAWrongCluster(t *testing.T) {
@@ -1860,9 +1864,18 @@ func TestOperator00063_PreconditionRefusesAWrongCluster(t *testing.T) {
 		{"tappa_app may UPDATE every tenant column", []string{`GRANT UPDATE ON tenants TO tappa_app`}, reach},
 		{"tappa_app may INSERT every tenant column", []string{`GRANT INSERT ON tenants TO tappa_app`}, reach},
 		{"PUBLIC may UPDATE every tenant column", []string{`GRANT UPDATE ON tenants TO PUBLIC`}, reach},
-		{"tappa_app inherits a table-level UPDATE", []string{`GRANT UPDATE ON tenants TO tappa_resolver`, `GRANT tappa_resolver TO tappa_app`}, reach},
-		{"tappa_app may SET ROLE to a table-level INSERT", []string{`GRANT INSERT ON tenants TO tappa_resolver`,
-			`GRANT tappa_resolver TO tappa_app WITH INHERIT FALSE`}, reach},
+		// The membership vehicle is a role made in the savepoint (rolled back with it): one of the
+		// five named roles would be refused by its own grant, and the membership arm would go unmeasured.
+		{"tappa_app inherits a table-level UPDATE", []string{`CREATE ROLE zz_op15_vehicle NOLOGIN`,
+			`GRANT UPDATE ON tenants TO zz_op15_vehicle`, `GRANT zz_op15_vehicle TO tappa_app`}, reach},
+		{"tappa_app may SET ROLE to a table-level INSERT", []string{`CREATE ROLE zz_op15_vehicle NOLOGIN`,
+			`GRANT INSERT ON tenants TO zz_op15_vehicle`, `GRANT zz_op15_vehicle TO tappa_app WITH INHERIT FALSE`}, reach},
+		// DÜŞÜK-2 (the two lenses, 2026-10-20): M11's three definers own functions tappa_app calls.
+		{"tappa_holdingdefiner may UPDATE every tenant column", []string{`GRANT UPDATE ON tenants TO tappa_holdingdefiner`}, reach},
+		{"tappa_feedwriter may INSERT a tenant", []string{`GRANT INSERT ON tenants TO tappa_feedwriter`}, reach},
+		{"tappa_resolver may UPDATE every tenant column", []string{`GRANT UPDATE ON tenants TO tappa_resolver`}, reach},
+		{"tappa_resolver inherits a table-level INSERT", []string{`CREATE ROLE zz_op15_vehicle NOLOGIN`,
+			`GRANT INSERT ON tenants TO zz_op15_vehicle`, `GRANT zz_op15_vehicle TO tappa_resolver`}, reach},
 		{"tappa_operator may UPDATE every tenant column", []string{`GRANT UPDATE ON tenants TO tappa_operator`}, reach},
 	} {
 		sp, err := tx.Begin(ctx)

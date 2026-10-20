@@ -95,8 +95,8 @@
 --      that the database is at 00062 on the operator surface this file replaces (the two CHECKs
 --      by their whole text, the four bodies by md5(prosrc), the two reads' result types), and
 --      that the definer's reach on tenants and audit_log is exactly what 00034, 00039 and 00042
---      left and no table-level write on tenants reaches tappa_app or tappa_operator (the drift
---      check);
+--      left and no table-level write on tenants reaches tappa_app, tappa_operator or one of M11's
+--      three definers (the drift check);
 --   2. tenants gains the two columns and their two CHECKs;
 --   3. the grants: tappa_opdefiner gains SELECT and UPDATE on the two columns -- nothing else;
 --   4. the audit kinds: operator_audit_log_kind_check gains 'tenant_suspended' and
@@ -163,10 +163,16 @@ SET LOCAL lock_timeout = '1s';
 --     grant cannot take back a wider privilege another hand gave, so "the definer writes only the
 --     suspension, the verdict and the API gate" would be false on the day this file is applied
 --     with every test of CI green;
---   * tappa_app and tappa_operator: NO table-level UPDATE or INSERT on tenants through any role
---     they are a member of (pg_has_role MEMBER: themselves, PUBLIC's grants included -- and a
---     membership without INHERIT too, since SET ROLE reaches it), because the two new columns
---     would fall under such a grant on the spot (00034's D3 lesson, widened to the SET ROLE path).
+--   * tappa_app and tappa_operator -- and M11's three definers, tappa_holdingdefiner,
+--     tappa_feedwriter and tappa_resolver (the two lenses' DÜŞÜK-2, 2026-10-20: each owns
+--     SECURITY DEFINER functions tappa_app calls, so a table-level write it held would reach the
+--     two new columns through any body that names tenants, now or later) -- NO table-level UPDATE
+--     or INSERT on tenants through any role they are a member of (pg_has_role MEMBER: themselves,
+--     PUBLIC's grants included -- and a membership without INHERIT too, since SET ROLE reaches
+--     it), because the two new columns would fall under such a grant on the spot (00034's D3
+--     lesson, widened to the SET ROLE path). tappa_opdefiner is held to its exact lists above.
+--     A column grant on a suspension column cannot exist yet (the columns do not); after this
+--     file internal/db's opTenantWriteReach pins the same five roles on the two columns.
 -- The 2026-10-08 draft (as 00035) looked for single kinds with position(); the CHECKs are now
 -- compared WHOLE, as 00039 and 00042 compare them -- a set widened or narrowed by anything but
 -- this file is a refusal, not a guess.
@@ -311,10 +317,11 @@ BEGIN
        OR EXISTS (SELECT 1
                     FROM pg_catalog.pg_roles who
                     JOIN pg_catalog.pg_roles r ON pg_catalog.pg_has_role(who.oid, r.oid, 'MEMBER')
-                   WHERE who.rolname IN ('tappa_app', 'tappa_operator')
+                   WHERE who.rolname IN ('tappa_app', 'tappa_operator', 'tappa_holdingdefiner',
+                                         'tappa_feedwriter', 'tappa_resolver')
                      AND (pg_catalog.has_table_privilege(r.oid, 'public.tenants', 'UPDATE')
                           OR pg_catalog.has_table_privilege(r.oid, 'public.tenants', 'INSERT'))) THEN
-        RAISE EXCEPTION 'migration 00063 (M10 OP-15) grants tappa_opdefiner two column privileges on tenants and adds two columns tappa_app must not write, and a privilege no migration gave is already there (tappa_opdefiner reaches more or less of tenants or audit_log than 00034, 00039 and 00042 left it, or a table-level UPDATE or INSERT on tenants reaches tappa_app or tappa_operator through a role they can use). A column grant cannot narrow it. Revoke it by hand, then migrate again. Nothing was changed.'
+        RAISE EXCEPTION 'migration 00063 (M10 OP-15) grants tappa_opdefiner two column privileges on tenants and adds two columns tappa_app must not write, and a privilege no migration gave is already there (tappa_opdefiner reaches more or less of tenants or audit_log than 00034, 00039 and 00042 left it, or a table-level UPDATE or INSERT on tenants reaches tappa_app, tappa_operator, tappa_holdingdefiner, tappa_feedwriter or tappa_resolver through a role they can use). A column grant cannot narrow it. Revoke it by hand, then migrate again. Nothing was changed.'
             USING ERRCODE = 'object_not_in_prerequisite_state';
     END IF;
 END
