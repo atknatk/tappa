@@ -152,7 +152,12 @@ func TestHoldingPanel_PartnerViewsSayTheOutcomeNeverTheReason(t *testing.T) {
 		}
 	}
 	for _, leak := range []string{"base:", "no-evidence", "rule ", "Trust", "trust ", "IP ", "GPS",
-		"neither IP nor GPS", "venue's range", "placed the tap", "no network, no location", "chip signature valid"} {
+		"neither IP nor GPS", "venue's range", "placed the tap", "no network, no location", "chip signature valid",
+		// The separate Network and Location tiles drawn for a blanked record read "n/a" / "not
+		// checked" -- an own record's words for "never assessed", which a partner record is not.
+		// The value is read as the tile prints it (">n/a<"): a bare "n/a" is inside
+		// "/admin/anomalies" and every other /admin/a… href in the chrome.
+		"not checked", ">n/a<"} {
 		if strings.Contains(spike, leak) {
 			t.Errorf("The Spike's partner-venue record carries %q (K-39)", leak)
 		}
