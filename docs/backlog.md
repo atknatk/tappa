@@ -365,6 +365,8 @@ düzeltildi; ilki hâlâ açık.
 - **Plaket kartı başlığı:** kart mekân sayfasının içinde açılınca h2 başlığı sonraki h3'leri ("Departments", "Also on this venue") plaketin altına alıyor (`components/plaque.templ:43`) — `PlaqueFormView`'a başlık seviyesi ver: mekân içinde h3, kutu ve elsewhere yerleşiminde h2.
 - **Stoktaki plaket kartı:** "In stock" bölümünde kart, çerçeveli bölümün içinde ikinci bir çerçeveli kart olarak duruyor (`pages/locations.templ:313-317`) — çerçevesiz bir varyant ya da kartı bölümün üstüne al.
 - **Ölü alan:** `PlaqueFormView.ErrorMessage`'ı hiçbir handler doldurmuyor (`plaqueview.go:216-218`, `plaque.templ:49-53`) — alanı ve `TestPlaqueViewModels_CannotCarryAKey`'deki adını birlikte kaldır.
+- **Satır içi stil ağı (`inlinestyle_test.go`):** CSP bildirim sayımı yalnız `const` biçimini görüyor — `var embedCSP = "…'unsafe-inline'"` ve `Header().Set("Content-Security-Policy", "<literal>")` sayılmıyor (`cspDecl`'e `var` ekle, literal Set çağrılarını da say).
+- **Satır içi stil ağı:** `web/templates` altındaki elle yazılmış bir view `.go` dosyasında `templ.Raw("<style>…")` görülmüyor — `inlineStyle` regex'ini elle yazılmış `.go` dosyalarına da uygula (yorum satırlarını atla; `email.go` yorumunda "no <style>" geçiyor).
 
 ---
 
