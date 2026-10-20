@@ -251,20 +251,12 @@ func TestRender_EveryInternalLinkResolves(t *testing.T) {
 // (internal/handler/api's TestGuide_TheTwoLanguagesAreOneDocument) to the pages: the same ids,
 // headings, tables, lists, code blocks and link targets, in the same order.
 //
-// 🔴 ONE KNOWN DIFFERENCE, PINNED (found by this test, 2026-10-19): in the English Markdown's §9.9 a
-// wrapped line begins "+ `version`", and CommonMark reads a line that begins "+ " as a bullet list
-// item -- on GitHub as here --, so the English page draws a stray one-item list the Turkish page
-// does not have. The fix is in the Markdown (rewrap the line), which changes /v1/guide.md's bytes;
-// DOCS-1 must leave those bytes alone, so the fix is the main session's (reported). Until then the
-// comparison joins that one line back; once the Markdown is fixed this test goes red and asks for
-// the exception to be removed.
+// It found one difference (2026-10-19): a wrapped line of the English §9.9 began "+ `version`",
+// which CommonMark -- on GitHub as here -- reads as a one-item bullet list the Turkish page did not
+// have. The Markdown was rewrapped (DOCS-1 low round), so the comparison takes both files as they
+// are; a line that starts a list by accident again goes red here.
 func TestRender_TheTwoLanguagesAreOneDocument(t *testing.T) {
-	const strayBullet, joined = "\n+ `version`, the two never count", " + `version`, the two never count"
-	enSrc := string(apidocs.English())
-	if strings.Count(enSrc, strayBullet) != 1 {
-		t.Fatalf("the English guide's stray \"+ `version`\" line is fixed (or moved): remove this exception")
-	}
-	en := renderString(t, mustRender(t, strings.Replace(enSrc, strayBullet, joined, 1), Options{}))
+	en := renderString(t, mustRender(t, string(apidocs.English()), Options{}))
 	tr := renderString(t, mustRender(t, string(apidocs.Turkish()), Options{}))
 	for name, re := range map[string]*regexp.Regexp{"ids": idAttr, "links": hrefAttr, "structure": structure} {
 		a, b := all(re, en), all(re, tr)

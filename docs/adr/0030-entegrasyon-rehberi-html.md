@@ -64,7 +64,7 @@ Seçenekler: (a) md'yi elle HTML'e çevirmek — ikinci kaynak; (b) derlemede bi
   linki, alt bilgi ve panel linkleri, host kapıları). Yapısal pazarlama testleri
   (`publicSurfaceURLs`) iki sayfayı da ölçer.
 - **Bulunan kusur (kayıt):** İngilizce md'nin §9.9'unda bir satır `+ \`version\`` ile
-  başlıyor; CommonMark (GitHub dahil) bunu madde imi okur. Düzeltme md'de ve
-  `/v1/guide.md` baytlarını değiştirir; DOCS-1 o baytlara dokunmadığı için ayrı iş.
-  `TestRender_TheTwoLanguagesAreOneDocument` bu tek farkı pinler ve md düzeltilince
-  istisnanın silinmesini ister.
+  başlıyordu; CommonMark (GitHub dahil) bunu madde imi okur. DOCS-1 düşük turunda satır
+  kırılımı değiştirildi (anlam aynı; dosya boyu aynı, `/v1/guide.md` baytları ve ETag'i
+  bilinçli olarak değişti). `TestRender_TheTwoLanguagesAreOneDocument` artık istisnasız
+  karşılaştırır.
