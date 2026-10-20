@@ -280,9 +280,14 @@ templ SignupPlaces(v SignupPlacesView) {
 }
 
 // SignupAccount is step three: the person who will manage it.
+//
+// ⚠️ THE BLURB NO LONGER ENDS "You can invite the rest of your managers later."
+// (M12-07). The panel invites EMPLOYEES only; inviting another administrator is
+// blocked (M7-07 / Q02), so the sentence promised a capability the product does not
+// have. TestSignupSurface_PromisesNoManagerInvite holds it out.
 templ SignupAccount(v SignupAccountView) {
 	@signupShell("Your account — Taptime", 3, "Create your sign-in",
-		"This is the account you will manage "+v.BusinessName+" with. You can invite the rest of your managers later.") {
+		"This is the account you will manage "+v.BusinessName+" with.") {
 		<form method="post" action="/signup/account" class="flex flex-col gap-6">
 			<input type="hidden" name="csrf" value={ v.CSRFToken }/>
 			// THE HONEYPOT. It is hidden from people three ways at once — off-screen,

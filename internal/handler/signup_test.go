@@ -1345,6 +1345,41 @@ func TestSignupSurface_EverySignInLinkGoesToTheSignInPage(t *testing.T) {
 	}
 }
 
+// TestSignupSurface_PromisesNoManagerInvite is M12-07.
+//
+// 🔴 THE VOCABULARY TABLE COULD NOT SEE THIS ONE. Step three said "You can invite the
+// rest of your managers later.", and "invite" IS anchored — to the panel's EMPLOYEE
+// invitation (employeeactions.go). Inviting another administrator is blocked (M7-07 /
+// Q02), so a sentence that pairs "invite" with a manager, an administrator or an
+// owner borrows a derivation that does not cover it. This scans sentence by sentence
+// so the anchor cannot launder that pairing.
+func TestSignupSurface_PromisesNoManagerInvite(t *testing.T) {
+	t.Parallel()
+	sentence := regexp.MustCompile(`[.!?]\s+`)
+	invites := 0
+	for name, body := range signupSurfaceScreens(t) {
+		for _, s := range sentence.Split(strings.ToLower(screenText(t, body)), -1) {
+			if !strings.Contains(s, "invite") {
+				continue
+			}
+			invites++
+			for _, who := range []string{"manager", "admin", "owner"} {
+				if strings.Contains(s, who) {
+					t.Errorf("the %s screen promises to invite a %s (%q); the panel invites "+
+						"employees only, and administrator invites are blocked (M7-07 / Q02)",
+						name, who, strings.Join(strings.Fields(s), " "))
+				}
+			}
+		}
+	}
+	// ANTI-VACUITY: the done screen's "Invite your team." is an employee invite and
+	// must be seen, or this scan is not reading the screens.
+	if invites == 0 {
+		t.Fatal("no sentence on the sign-up surface mentions an invitation; the scan is " +
+			"not reading the screens")
+	}
+}
+
 // TestSignupSurface_UsesNoUnanchoredCapabilityWord renders every screen this feature
 // serves and refuses a capability word that is not in the table above.
 func TestSignupSurface_UsesNoUnanchoredCapabilityWord(t *testing.T) {
