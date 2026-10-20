@@ -46,8 +46,16 @@ func holdinglessRenders(t *testing.T) map[string][]byte {
 		Totals: AnomalyTotalsView{RecordsLine: "12 records", JudgedLine: "10 of these were judged", BasisLine: "Two bases",
 			DistanceOnly: 1, DistanceOnlyLine: "1 of 10 verified by GPS alone", OutsideVenue: 1, OutsideVenueLine: "1 of 11 read outside the venue",
 			OutsideVenueOnNetworkLine: "none on the network", Unanswerable: 1, UnanswerableLine: "1 record carries no policy snapshot"},
-		People:   []AnomalyPersonView{{Name: "Maria Borg", Records: "4 records", DistanceOnly: "1 verified by GPS alone"}},
-		Venues:   []AnomalyVenueView{{Name: "KF St Julians", Records: "12 records", OutsideVenue: "1 of 11"}},
+		People:             []AnomalyPersonView{{Name: "Maria Borg", Records: "4 records", DistanceOnly: "1 verified by GPS alone"}},
+		DistanceOnlyPeople: []AnomalyDistanceOnlyView{{Name: "Maria Borg", N: 1, Pct: 100}},
+		// The venue's split is what fillVenueMix makes of 8 both, 1 network only, 1 distance
+		// only and 0 neither out of the totals' 10 judged (M12-48: the fixture drew an empty
+		// track, so the golden pinned no bar).
+		Venues: []AnomalyVenueView{{Name: "KF St Julians", Records: "12 records", Judged: "10 judged",
+			Segments:     []AnomalyMixSegment{{Part: "both", Pct: 80}, {Part: "network", Pct: 10}, {Part: "distance", Pct: 10, Last: true}},
+			Split:        "8 both · 1 network only · 1 distance only · 0 neither",
+			MixLabel:     "KF St Julians, 10 judged: 8 both, 1 network only, 1 distance only, 0 neither",
+			OutsideVenue: "1 of 11"}},
 		Policies: []AnomalyPolicyView{{SID: "base:ip-or-gps-ok", Layer: "baseline", Records: "10 records"}},
 		ListCap:  50,
 	}
