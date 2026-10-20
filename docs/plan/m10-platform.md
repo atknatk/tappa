@@ -13190,6 +13190,289 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 >
 > **Denetim ve kapanış (2026-10-09, orkestratör):** 🟢 **KULLANICI KARARLARI (2026-10-09, §9):** aktivasyon ailesine tam marka (S3) — logo yalnız VIES-doğrulanmışta; accent varken ilerleme çubuğu, numaralar ve onay kutusu ink. İnceleme (salt-okur, `origin/main` `65f55b4`) K6'nın bilinçli olduğunu ve logonun davet çerezine bağlı yeni bir rota gerektirdiğini gösterdi. Tam disiplin: üçüncü göz ONAY (tappa-brand merceği; golden'ların `e95a717`'den yazıldığını bağımsız doğruladı; üç düşük metin → 2. tur) → güvenlik ONAY (13 ret nedeni bayt-aynı, zamanlama VIES/sha sızdırmıyor, RLS ayrıca, önbellek `private`; ORTA metin: VIES numaranın varlığını söyler, sahipliğini değil → 3. tur). Tap/sonuç/panel'e VIES kapısı UZATILMADI (oturum + fiziksel dokunuş; status quo). Faz sonu: `verify.sh` yeşil; `-race` handler (344 s), domain/tenant, templates/email, cmd/tappa ok; `internal/db`'de yalnız bilinen T113 kırmızıları.
 
+> **OP-15A — askıya alma / yeniden etkinleştirme: veri katmanı (00063; 2026-10-08'de 00035 olarak yazıldı)**
+>
+> **Kart düzeltmesi (2026-10-20, taşıma).** Bu kart 2026-10-08'de 00034'ün üstüne `00035` olarak yazıldı
+> (aşağıdaki metin o günündür; test adları bugünkülere çevrildi — o gün adlarındaki sürüm 00035'ti) ve
+> beklemeye alındı (`hold/op15a`, `0f3ef86`; üçüncü göz ONAY, güvenlik denetimi yarıda kesildi). M11 önce
+> sevk edildi (kullanıcı kararı, 2026-10-17); A bugün dal `op-15`'te, taban **`2736927`** (`m11-api`'nin GRP-1
+> birleştirmesi, goose 62) üstüne **migration `00063_suspend_a_tenant_from_the_operator.sql`** olarak taşındı
+> (00035…00062 dolu; 00036 boş). Kararlar (adlar, gövdenin sırası, yetkiler, K15-1…K15-11, D1–D3, D5–D6,
+> LS1–LS12) **değişmedi**; değişenler, adıyla — ayrıntı ve özetler ADR 0021 *"OP-15 uygulama notu"* md. 13:
+> - **Değiştirilen gövdeler:** `op_begin_read` ve `op_read_audit` artık **00042'nin** gövdeleri + birer liste
+>   düzenlemesi (md5 `a9e5a8f9…` / `9e81b37e…` → 00063'ün `0f57e3a5…` / `75df477d…`); `op_read_tenant_detail`
+>   artık **00057'nin** gövdesi + askı (on bir sütun → on üç; askı `api_enabled_at, api_code`'dan sonra;
+>   `adfaeaf3…` → `680d550d…`); `op_read_tenants` 00029'unki (`b477d5d1…` → `29e8dedf…`). Down her birini o
+>   gövdeye bayt bayt geri verir (00042, 00029, 00057).
+> - **Sayılar:** audit tür kümesi 15 → 17 yerine **20 → 22** (yeni iki tür `holding_member_removed`'dan sonra);
+>   tenant-yazma türleri 1 → 3 yerine **3 → 5**; tanımlayıcının `tenants` `SELECT`'i 10 → 12 yerine **12 → 14**,
+>   `UPDATE`'i 2 → 4 yerine **4 → 6**; `TestOperatorSQL_OnlyBoundParameters` 18 → 20 yerine **24 → 26**;
+>   `TestAuditWords_NameEveryKindAndNothingElse` CONTROL 15 → 17 yerine **20 → 22**; `opAtVersion` çağrı noktası
+>   15 → **19** (taban 00062'de 14; beşi bu taşımanın), 00063'ün Down'ını koşan 14 → **18** (LS7).
+> - **Ön koşul (md. 6) 00062'nin izlerine göre yeniden yazıldı:** 00034'ün altı fonksiyonunun sahibi +
+>   `position()` ile tek tür yerine — dört değiştirilen fonksiyonun sahibi, iki okumanın sonucu (00029'un,
+>   **00057'nin**), iki CHECK **bütün metniyle** (`NOT VALID` eki dışarıda), dört gövde **`md5(prosrc)`** ile
+>   (00039/00042'nin emsali); kayma listeleri 00039 ve 00042'nin API sütunlarıyla. Rol kümesi değişmedi
+>   (`tappa_app`, `tappa_operator`; M11'in üç NOLOGIN tanımlayıcısı LS10'da adıyla kapsam dışı).
+> - **Migration kuralları:** Up'ın ve Down'ın ilk ifadesi `SET LOCAL lock_timeout = '1s'` (00054'ün kuralı);
+>   Down'ın `LOCK TABLE public.tenants IN SHARE ROW EXCLUSIVE MODE`'u (K15-6, 3. tur F1) ondan hemen sonra.
+>   R5b'nin gövde kuralı (T137): `R5B_BODY_DDL`'ye onuncu satır (sha256 `ea571900…`) ve
+>   `TestRedline_T137_TheBodyWhitelistIsPinned`'in listesi; T138'in katalog testi (`privcatalog_test.go`):
+>   iki satır değişti, iki satır eklendi; `TestM11Catalog_EveryNewTableMatchesTheMatrixUnderArwd`'ın matrisine
+>   iki sütun, iki fonksiyon.
+> - **Test düzeni (md. 9 kartın md. 9'unun yerine):** hold dalının D4'ü (00034/00029'un imza testleri kendi
+>   sürümlerinde) uygulanmadı — M11 o testleri HEAD'in birikimli listelerine zaten geçirmişti; kartın (b), (c)'nin
+>   `opReadDetail29`'u, (d) ve (f)'si bu yüzden başka biçimdedir (`opDetailSQL`/`opTenantsSQL` adlı sütunlar,
+>   askı `opReadDetailHead`/`opReadTenantsHead` ile). Yeni: 00057'nin Down testi `opAtVersion(57)`'den sonra
+>   kendi Down/Up'ını koşar; 00042'nin üç testi `opAtVersion(62)` ile başlar (00042'nin ön koşulu tenant-yazma
+>   CHECK'ini bütün metinle karşılaştırır); `TestHoldingOps_RowLocksNeedNoNewPrivilegeAndFailClosed` altı
+>   `UPDATE` sütununu geri alır (askı sütunları satır kilidi için yeter).
+> - **Mutasyon turu (bugün, 35 mutasyon, numaralar aynı):** goose döngüsü YOK (LS11); atılabilir bir veritabanında
+>   (`tappa-op15-mut`, goose 63) mutasyonlu gövde / CHECK / yetki ifadesi commit edilip testler koşuldu, sonra asıl
+>   ifade geri uygulandı ve şema parmak izi (`pg_dump -s`, rastgele `\restrict` satırları çıkarılmış) her
+>   mutasyondan sonra karşılaştırıldı; Down metninin ve Go'nun mutasyonları kopyala-geri-yaz (Down testlerin
+>   geri alınan işleminde koşar). `-run` kümesi commit eden testleri (`TestTenants00024_*`, `TestAccountDB_*`,
+>   `TestE2E_*`) içermez. Sonuç: kontrol (değişmemiş dosya) yeşil, **35/35 KIRMIZI**, panik 0; 36 döngünün 36'sında şema parmak izi başlangıçtakine (`c9c471c7…`) eşit; toplam ~17 dk (1037 sn) — tablonun son sütunu.
+> - **Doğrulama:** Up → Down → Up şema parmak izi (00062'ye bayt bayt, sonra 00063'e); `-race`: `internal/db` 597 / 0 / 0, `internal/domain/tenant` 252 / 0 / 0, `internal/handler/operator` 168 / 0 / 0; `cmd/...`'de tek yeni kırmızı `TestAPIWiring_TheSuspensionReaderFollowsTheColumn` (tasarım gereği — API-4b) ve bilinen ortam kırmızısı `TestRotateScript_AccountsForEveryGoToolchainVariable`; gofmt/build/vet/staticcheck temiz, `make gen` iki kez fark yok, redline 0. Gerçek hiçbir tenant askıya alınmadı. Ayrıntı ADR 0021 OP-15 notu md. 11.
+> - **B/C'ye devirler değişmedi;** M11'in `/v1` askı kontrol noktası (API-4b) ve
+>   `TestAPIWiring_TheSuspensionReaderFollowsTheColumn`'ın tasarım gereği kırmızısı ADR 0021 OP-15 notu md. 14'te.
+>
+>
+> **Kart düzeltmesi (2026-10-08, uygulama sırasında).** Taban `38c72b9` (dal `m10-a1` ucu: OP-16B
+> `38c72b9`, ADR 0025 `f6c1b2b`, OP-16A 00034 `ac13003`); Aşama 2'den önce `a32c7fa`'ya rebase edildi
+> (araya `b0c3b8e` belge ve `a32c7fa` test düzeltmesi girdi; çakışma yok, iki taraf korundu). Normatif kaynak **ADR 0025 (KABUL,
+> 2026-10-08)**; planlayıcının taslağı (`scratchpad/op15-16-plan/op15.md`, `8575d24`, OP-16A'dan önce)
+> yalnız yol gösterdi — taslağın `INSERT … SELECT … WHERE EXISTS`'i, *"saat kilitten önce"* sırası ve
+> *"ilk tenant-yazan `op_*` buysa audit_log INSERT"* maddesi ADR'nin ve 00034'ün şekliyle değiştirildi.
+> Migration **00035** (`db/migrations/00035_suspend_a_tenant_from_the_operator.sql`). Yazıldı:
+> `internal/db/operator.go` (OP-15 bloğu: `OperatorAuditTenantSuspended`, `OperatorAuditTenantReinstated`,
+> `SuspensionReason` + dört sabit, `SuspensionReasons`, `Known`, `ErrSuspensionReasonRefused`,
+> `suspendTenantSQL`, `reinstateTenantSQL`, `SuspendTenant`, `ReinstateTenant`; `operatorAuditKinds`'e iki
+> ad; `TenantSummary.SuspendedAt`, `TenantOverview.SuspendedAt`/`.SuspensionReason`; iki okuma ifadesinin
+> ve iki taramanın sonuna sütunlar; başlığa bir cümle), `db/queries/operator.sql` (belge),
+> `internal/store/models.go` (`make gen`: `Tenant`'a iki alan), `internal/handler/operator/audit.go` (iki
+> tür sözcüğü — beşinci kopya), ADR 0021 (durum satırı, §1 tablosunun tanımlayıcı satırı, §2 v 7 ve
+> §2 vii'ye tarihli notlar, "Karar verilmedi"de OP-K5 kapanışı, "OP-15 uygulama notu", Sonuçlar'a OP-15
+> maddesi), ADR 0025 ("A fazı eki", yalnız ekleme), ADR 0020 ("Karar verilmedi"nin OP-K5 maddesine
+> kapanış ve `actor_kind` maddesine atıf düzeltmesi, yalnız ekleme). Yeni test dosyaları:
+> `internal/db/operatorsuspend_test.go` ve `internal/db/operatorsuspendcalls_test.go` — **25 test (3. turda +1), 23'ü
+> DB ister**. Güncellenen pinler md. 9. `go.mod`, `go.sum`, `sqlc.yaml` diff'i boş; `make gen` iki kez
+> koşuldu, diff'in sha256'sı iki koşuda aynı (`abc6c67f…`); templ diff vermedi.
+>
+> **İki aşamalı çalışma (paylaşılan dev Postgres):** Aşama 1 veritabanına yazmadı; yalnız salt-okur
+> sonda (`scratchpad/op15a/ro.sh`: dosya `BEGIN TRANSACTION READ ONLY;` ile başlamıyor ya da
+> `ROLLBACK;` ile bitmiyorsa ya da `COMMIT`/`END` satırı varsa reddeder). Aşama 2 (orkestratörün
+> *"uygula"*sından sonra): goose 35 Up → Down → Up (`pg_dump --schema-only` sha), DB testleri, paket-arası
+> kilit ölçümü, mutasyonlar. **Dev DB Aşama 1 sonunda 34, Aşama 2 sonunda 35.**
+>
+> 1. **Adlar (ADR 0025 §1–§2):** `op_suspend_tenant(p_session, p_tenant_id, p_reason) RETURNS void`,
+>    `op_reinstate_tenant(p_session, p_tenant_id) RETURNS void`; ret iletileri
+>    `op_suspend_tenant: suspension refused` / `op_reinstate_tenant: reinstatement refused` (22023);
+>    türler `tenant_suspended`, `tenant_reinstated`; eylemler `tenant.suspended`, `tenant.reinstated`;
+>    sütunlar `suspended_at timestamptz`, `suspension_reason text`; CHECK'ler
+>    `tenants_suspension_both_or_neither`, `tenants_suspension_reason_check`; indeks ve tetikleyici yok.
+> 2. **Gövde (§2 harfiyen):** oturum → argüman reddi (tablo okunmadan) → **önce kilit** `PERFORM t.id …
+>    FOR NO KEY UPDATE` (PL/pgSQL hedefsiz `SELECT` yazdırmaz; **hiçbir değişken** önceki durumu tutmaz)
+>    → `IF FOUND`: tek `clock_timestamp()` kilitten sonra, `UPDATE` birincil anahtarla (`coalesce` ile
+>    ilk zaman korunur), tenant satırı `INSERT … VALUES` `at` = aynı okuma → `IF` dışında operatör satırı
+>    → kısıt yakalayıcı (tek 22023). Commit edilmiş okumaya bağ yok.
+> 3. **Okumalar (K15-3 A'da):** iki okuma `DROP` + `CREATE` + sahip + `REVOKE ALL … FROM PUBLIC` +
+>    `GRANT EXECUTE`; liste sona `suspended_at`, genel bakış sona `suspended_at, suspension_reason`;
+>    gövdeler 00029'unki + birer düzenleme. Go kodu **aynen** taşır (bilinmeyen kod `Known()` false).
+> 4. **Kopyalar:** audit türünün beş kopyası + test kopyaları (`opAuditKinds` 17, `opAuditKinds34` 15,
+>    `opAuditKindsAddedBy[35]`, `opTenantWriteKinds` 3); `op_begin_read`/`op_read_audit` 00034 + **birer**
+>    liste düzenlemesi (okuma türü eklenmedi). Gerekçe kümesinin A'daki üç kopyası tek testte bağlı.
+> 5. **Yetkiler:** tanımlayıcı `tenants`'ta iki sütunda `SELECT` + `UPDATE`; `audit_log`'a ekleme yok;
+>    `tappa_app` hiçbir şey almadı/kaybetmedi (tablo düzeyi `SELECT` okur); `tappa_operator` EXECUTE.
+> 6. **Ön koşul + kayma:** rol denetimleri; 00034'ün izleri (altı fonksiyon, okumaların 00029 sonuç
+>    tipi, adayların yokluğu, iki CHECK'in durumu); kayma — tanımlayıcının erişimi eksik/fazla yönde
+>    **sıralı küme** olarak; `tappa_app` ve `tappa_operator`'ın `pg_has_role(…, 'MEMBER')` ile
+>    ulaşabildiği her rolde (PUBLIC, kalıtımlı, **kalıtımsız/SET ROLE**) tablo düzeyi `UPDATE`/`INSERT` yok.
+> 7. **Down (K15-6):** ilk ifade `LOCK TABLE public.tenants IN SHARE ROW EXCLUSIVE MODE` (3. tur, F1),
+>    ikincisi ret (askıdaki tenant varken 55000); iki yazma düşer; iki okuma
+>    00029'un **bütün `CREATE` ifadesine** bayt bayt (`REVOKE EXECUTE … FROM PUBLIC`, Down'da `REVOKE
+>    ALL` hiç yok); iki gövde 00034'ünkine bayt bayt; sütun `REVOKE`'ları; CHECK'ler; **en son**
+>    `tenants` DDL'i (sınır 9).
+> 8. **`opAtVersion`:** `opAuditKindsAddedBy[35]`; 35 sonraki migration'lar arasındaysa Down'dan önce
+>    işlem içinde askıları kaldıran tek `UPDATE`.
+> 9. **Başka görevlerin testlerinde güncellemeler — neden (zayıflatılmadı):** (a) `opAuditKinds` 17,
+>    `opAuditKinds34`, `opTenantWriteKinds`; (b) `TestOperator00034_TheFunctionsAndTheirExactSignatures`
+>    ve `TestOperator00034_TheDefinerWritesTheVerdictAndNotTheNumber` `opAtVersion(34)` ile 00034'te (HEAD
+>    00035'in testlerinde); (c) 00034 Down testi: `opAuditKinds34`, `opReadDetail29`, T9'un ikinci
+>    oturum sondası yalnız `audit_log` (00035'in Down'ı `tenants`'ta ACCESS EXCLUSIVE tutar — **bu
+>    bulunmasaydı 00034'ün Down testi kırmızıya dönerdi**); (d) `TestOperator00029_TheFunctionsAndTheirExactSignatures`
+>    `opAtVersion(29)` ile; (e) `TestOperator00029_TheDefinerReadsNamedColumnsAndNoSecret`: `tappa_app`
+>    `SELECT` katalogdan türetilir; (f) `opScanTenants`/`opScanDetail` HEAD'in sütunları, üç Down testi
+>    (00030/00032/00034) `opReadDetail29`; (g) `TestOperator00026_PrivilegeMatrix` izin listesi + on adlı
+>    hücre; (h) `TestOperatorSQL_OnlyBoundParameters` 18 → 20; (i)
+>    `TestOperatorAccessors_TheCustomerRoleCannotUseThem` + 2; (j) `TestTenants00024_TheAppMayUpdateThreeColumnsAndDeleteNothing`
+>    türetilmiş ifade yarısı; (k) `TestAccountDB_TheAppRoleHoldsNoUpdateOnTheVATColumnsOrTheTerms`
+>    türetilmiş kapalı liste + taban; (l) `TestAuditWords_NameEveryKindAndNothingElse` CONTROL 15 → 17.
+>
+> **Ölçümler (salt-okur, Aşama 1, 2026-10-08; PostgreSQL 17.10, goose 34, `tappa_owner`):** ADR 0021
+> OP-15 notu md. 10 — özet: `tenants` 11 canlı + **38 düşürülmüş** sütun; tetikleyici yok; iki indeks
+> (pkey, vat_number); `relacl` `tappa_app=r`; `tappa_app` UPDATE `name,business_type,timezone`, INSERT
+> 00016/00017'nin sekizi; tanımlayıcı SELECT 00034'ün onu, UPDATE `vat_verified,vat_checked_at`;
+> `audit_log`'da tanımlayıcı yalnız altı INSERT sütunu; **hiçbir rol üyeliği yok** (yalnız `pg_monitor`'un
+> iç üyelikleri); canlı gövde md5'leri 00035'in Down'ındaki dört gövdeye eşit (`op_begin_read`
+> `d3d333f6…` 9475, `op_read_audit` `1fc96929…` 5729, `op_read_tenants` `b477d5d1…` 1747,
+> `op_read_tenant_detail` `86d4081d…` 1465); adaylar yok; askı satırı/eylemi 0; bilet tablosu boş;
+> `tenant_vat_checked` 12 ve `tenant.vat_rechecked` 12 commit'li satır var (OP-16B'nin E2E'si);
+> `tenants` 109 MB, ortalama satır 159 bayt; sunucu zaman aşımları 0, `TimeZone` UTC, `log_statement`
+> `all` (geliştirme).
+>
+> **Aşama 2 (2026-10-08) — ADR 0021 OP-15 notu md. 11, özet:** şema sha'ları goose 34 `26acd0f2…` →
+> Up `8f5df583…` → Down `26acd0f2…` → Up `8f5df583…`; `internal/db` 407/0/0, `internal/domain/tenant`
+> 206/0/0, `internal/handler/operator` 148/0/0 (`-race`); sayılı değerler: var olmayan tenant
+> `idx_tup_fetch`/`n_tup_upd`/`n_tup_ins` 0/0/0, var olan 3/1/1, önceki durum indeks planında hiçbir
+> sayacı farklı oynatmıyor (sıralı tarama planında konum kanalı — LS3, 3. tur F4); Y1 772–965 µs; LS5 55P03 306–311 ms, var olmayan 5–8 ms; satır kilidinde tap 4–6 ms;
+> genişlik 199 ↔ 236 bayt, dolu sayfada HOT değil; WAL kayıt sayısı yükte oynadığı için pinlenmedi;
+> küçük veritabanı planı taklit edilerek istatistik pinleri önlemle 7/7, önlemsiz 2/7; paket-arası
+> kilit iki koşuda hata 0, kilitlenme sayacı 12 → 12, en uzun bekleyiş 1,22 sn; mutasyon 35/35 kırmızı;
+> gerçek hiçbir tenant askıda değil (626 523 / 626 523 NULL), askı satırı ve OP-15 fikstürü 0.
+>
+> **3. tur (2026-10-08) — üçüncü göz ONAY verdi; beş DÜŞÜK bulgu commit'ten önce kapandı** (kullanıcının
+> kuralı: yalnız hedefli testler, goose döngüsü yok, Down yalnız geri alınan test işleminde; Up
+> değişmedi, dev DB 35'te). Ayrıntı ADR 0021 OP-15 notu md. 7, md. 12, LS3, LS11, LS12.
+> - **F1 (TOCTOU):** Down'ın ilk ifadesi `LOCK TABLE public.tenants IN SHARE ROW EXCLUSIVE MODE`, ret
+>   ikinci. Gerekçe: yazanları (ROW EXCLUSIVE) tutan, kendisiyle çakışan en dar kip; tap okuması (ACCESS
+>   SHARE) ve FK denetimi (ROW SHARE) DDL'e dek geçer. Kontrolü DDL'in önüne taşımak ya aynı yükselmeyi
+>   ya da kontrolün taraması boyunca tap'leri durduran bir ACCESS EXCLUSIVE'i gerektirirdi. Bedel LS12.
+>   Yeni test `TestOperator00063_TheDownLocksOutTenantWritesBeforeItLooksForASuspension` (ikinci
+>   oturumun askı `UPDATE`'i 301 ms bekleyip 55P03).
+> - **F2:** `TestOpSuspendTenant_ASecondSuspensionKeepsTheFirstTime` ilk zaman nil ise `Fatalf`; dosyada
+>   başka korumasız çözümleme yok. M19 satırı düzeltildi. Aşama 2'nin koşucusu panikleri saymıyordu —
+>   *"ölçülen"* sütunu alt sınırdır.
+> - **F3:** `opTenantWriteReach` — `pg_has_role(MEMBER)` döngüsüne iki askı sütununda
+>   `has_column_privilege` (`UPDATE`, `INSERT`); testte N6b kontrolü (öncülüyle: `SET ROLE` sonrası
+>   yazı geçer).
+> - **F4:** LS3 — önceki durum indeks planında kapalı, sıralı tarama planında konum kanalı (LS4 sınıfı).
+> - **F5:** LS11 — `relnatts` 161 → 719 döngü; mutasyonlar geri alınan test işleminde.
+> - **Hedefli koşu (`-race`, `-run`):** 19 PASS / 0 FAIL (değişen ve yeni dört test, dosyayı okuyan imza
+>   testi, 00035'in Down'ını `opAtVersion` ile koşan on dört test).
+> - **İki mutasyon (kopyada, geri alınan işlemde):** MF1 Down'ın kilidi kaldırıldı → yeni test KIRMIZI
+>   (`UPDATE` 1 ms'de geçti) + Down testi KIRMIZI; MF3 HEAD pininin sütun yarısı kaldırıldı → HEAD testi
+>   KIRMIZI (N6b kontrolü) ve N6b sondası yeşile döndü (pin `[]`; pin yerindeyken
+>   `[tappa_app -> tappa_resolver]`, kırmızı).
+>
+> **Kararlar ve ADR 0025'ten sapmalar (gerekçeli; hiçbiri normatif metni değiştirmez):**
+> - **D1** kilitli okuma `PERFORM` ile (aynı ifade, hedefsiz).
+> - **D2** Down'da fonksiyon yetkisi `REVOKE EXECUTE` ile — Down'da `REVOKE ALL` yok (görevin yasağı ve
+>   ADR'nin *"adlı sütunlarla"* kuralının fonksiyon karşılığı); Up'ta `REVOKE ALL … FROM PUBLIC` yalnız
+>   fonksiyonlarda (ADR 0021 §2 vi, ADR 0025 §2) — tabloda hiç yok; test pinler. *(Orkestratör kabul
+>   etti.)*
+> - **D3** kayma denetimi ADR'nin cümlesinden **geniş** (sıralı küme; eksik yön; `tappa_operator`;
+>   kalıtımsız üyelik ve PUBLIC).
+> - **D4** 00034 ve 00029'un HEAD'e bakan iki imza testi kendi sürümlerinde koşar (`opAtVersion`);
+>   bedeli LS7'nin çağrı noktası sayısı (10 → 15; 14'ü 00035'in Down'ını koşar). *(Orkestratör:
+>   kalsın, Aşama 2'de ölç. Ölçüldü — iki tam koşuda 40P01/55P03 0, belirgin süre artışı yok → kaldı.)*
+> - **D5** genişlik kanalının **sınırı** kurulmadı (boş yer eklentisiz okunamaz); dolu sayfa vakası
+>   ölçülür ve pinlenir (HOT değil, sayfa değişir), boyut ve WAL loglanır. *(Aşama 2: Aşama 1'in WAL
+>   kayıt sayısı pini paket-arası koşuda kırmızıya döndü — 13'e 12, 15'e 16 — ve kaldırıldı.)*
+> - **D6** *(Aşama 2)* sayaç karşılaştıran iki test `a32c7fa`'nın önlemini (`SET LOCAL enable_seqscan =
+>   off`, `jit = off`) işlemin ilk ifadesi olarak alır; küçük veritabanının planı taklit edilerek
+>   gösterildi (md. 11). `EXPLAIN (ANALYZE, WAL)` bağlı parametrelerle çalışıyor; literal'e geçilmedi.
+>
+> **Kabul tablosu (her satır bir test adı; A'nın kapsamı):**
+>
+> | Kabul | Test |
+> |---|---|
+> | `tappa_app` askı sütunlarını UPDATE edemiyor (katalog + doğrudan UPDATE 42501, INSERT de yok; yalnız `SET ROLE` ile ulaşılan bir sütun yetkisi de — 3. tur, F3, N6b kontrolü) | `TestOperator00063_TheAppCannotWriteASuspensionAndTheDefinerWritesOnlyItsColumns` |
+> | açık üç sütun dışında hiçbir sütun UPDATE'e açık değil — katalogdan türetilmiş | `TestTenants00024_TheAppMayUpdateThreeColumnsAndDeleteNothing`, `TestAccountDB_TheAppRoleHoldsNoUpdateOnTheVATColumnsOrTheTerms` |
+> | tanımlayıcının tam listeleri, `tappa_operator` hiçbir şey | `TestOperator00026_PrivilegeMatrix`, `TestOperator00063_TheAppCannotWriteASuspensionAndTheDefinerWritesOnlyItsColumns` |
+> | iki yazma `void`, sahip, `proconfig`, `EXECUTE` yalnız operatör; ileri/ters pin | `TestOperator00063_TheFunctionsAndTheirExactSignatures`, `TestOperator00026_ForwardCatalogPin`, `TestOperator00026_ReverseCatalogPin` |
+> | donan saat yok | `TestOperator00026_NoFrozenClock`, `TestOpSuspendTenant_TheTenantRowsTimeIsTheWallClock` |
+> | iki audit satırı + değişiklik aynı tx (her yazı için bir kol) | `TestOpSuspendTenant_TheWritesShareOneTransaction` |
+> | durum bağımsızlığı (yok / askısız / askıda) ve B14 | `TestOpSuspendTenant_TheAnswerIsTheSameWhateverTheTenantsState` |
+> | kemer | `TestOpSuspendTenant_ACallForOneTenantTouchesNoOther` + kaynak pinlerinin dört kemer kontrolü |
+> | saat kilitten sonra (Y1) | `TestOpSuspendTenant_TheLockIsTakenBeforeTheClockIsRead` |
+> | ilk zaman korunur; askısız tenant'ı kaldırmak satır yazar (K15-4, K15-11) | `TestOpSuspendTenant_ASecondSuspensionKeepsTheFirstTime` |
+> | satırların tam şekli (`detail`, `at`, operatör satırı) | `TestOpSuspendTenant_WritesTheSuspensionAndBothRowsInOneCall` |
+> | argüman reddi tablo okumadan | `TestOpSuspendTenant_ArgumentsAreRefusedBeforeAnythingIsRead` |
+> | CHECK'ler sahibi de bağlar | `TestOperator00063_TheTenantsChecksBindTheOwnerToo` |
+> | gerekçe kopyaları eşit; Go sınırda reddeder | `TestOperator00063_TheReasonSetIsOneSetInEveryCopy`, `TestSuspensionReasons_TheTypedConstantsAreTheList`, `TestSuspendTenant_RefusesAnUnknownReasonWithoutARoundTrip` |
+> | tenant-yazma türleri yalnız tenant'ı adlandırır | `TestOperator00063_TheTenantWriteKindsNameTheirTenantAndNothingElse` |
+> | audit türünün beş kopyası | `TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree`, `TestOperatorAuditKinds_TheTypedConstantsAreTheList`, `TestAuditWords_NameEveryKindAndNothingElse`, `TestE2E_AuditWordsCoverEveryScopeAndSearchClassTheDatabaseReturns` |
+> | gölge | `TestOperator00063_CallersTempTableIsNeverRead` |
+> | ölü oturumlar | `TestOpSuspendTenant_RefusesEveryDeadSession` |
+> | Down/Up, K15-6, sınır 9'un ölçümü | `TestOperator00063_DownGivesBack00062AndUpTakesItAgain` |
+> | Down'ın reddi bir kilidin arkasında: kontrol tutarken başka oturumun askı `UPDATE`'i bekler (55P03), tap okuması ve FK denetimi geçer (3. tur, F1) | `TestOperator00063_TheDownLocksOutTenantWritesBeforeItLooksForASuspension` |
+> | kayma denetimi | `TestOperator00063_PreconditionRefusesAWrongCluster` |
+> | istatistik kehaneti (varlık biti sayılı, önceki durum kapalı) | `TestOpSuspendTenant_TheStatisticsTellOnlyWhetherTheTenantExists` |
+> | genişlik kanalları, dolu sayfa dahil | `TestOpSuspendTenant_TheWidthChannelsAreMeasured` |
+> | tap'ler kilitte beklemez; bekleyiş varlığı söyler | `TestOpSuspendTenant_TheRowLockLetsTheTenantsWritesThrough`, `TestOpSuspendTenant_ALockWaitTellsOnlyThatTheTenantExists` |
+> | okumaların yeni sütunları, ürünün taraması | `TestOpReadTenantDetail_ReturnsTheNamedTenantsSuspension` |
+> | genel kapılar | `go build`, `gofmt -l` boş, `go vet`, staticcheck (exit 0, çıktı yok), `make gen` idempotent, `redline-check.sh` exit 0 |
+>
+> **Mutasyon tablosu (Aşama 2'de koşuldu, 2026-10-08: kontrol yeşil, 35/35 KIRMIZI — kopyala-geri-yaz, SQL mutasyonları goose ile, her döngüden sonra şema sha'sı aynı; ölçülen sütun yalnız `-run` kümesindeki testleri sayar):**
+>
+> | # | Mutasyon | Kırmızı beklenen | Ölçülen (2026-10-08, 00035) | Ölçülen (2026-10-20, 00063) |
+> |---|---|---|---|---|
+> | M1 | saat kilitten önce (askıya alma) | `TestOpSuspendTenant_TheLockIsTakenBeforeTheClockIsRead`, kaynak pini | **KIRMIZI** (2): `…TheLockIsTakenBeforeTheClockIsRead`, imza/kaynak pini | **KIRMIZI** (2): `…TheLockIsTakenBeforeTheClockIsRead`, imza/kaynak pini |
+> | M2 | `IF FOUND` → `IF EXISTS (…)` | kaynak pini | **KIRMIZI** (2): `…TheStatisticsTellOnlyWhetherTheTenantExists`, imza/kaynak pini | **KIRMIZI** (2): `…TheStatisticsTellOnlyWhetherTheTenantExists`, imza/kaynak pini |
+> | M3 | tenant satırı `IF` dışında | `TestOpSuspendTenant_TheAnswerIsTheSameWhateverTheTenantsState` (FK → 22023), kaynak pini | **KIRMIZI** (5): `…ALockWaitTellsOnlyThatTheTenantExists`, `…TheAnswerIsTheSameWhateverTheTenantsState`, `…TheStatisticsTellOnlyWhetherTheTenantExists`, gölge, imza/kaynak pini | **KIRMIZI** (5): `…ALockWaitTellsOnlyThatTheTenantExists`, `…TheAnswerIsTheSameWhateverTheTenantsState`, `…TheStatisticsTellOnlyWhetherTheTenantExists`, gölge, imza/kaynak pini |
+> | M4 | operatör satırı yalnız `IF` içinde | `…TheAnswerIsTheSame…` (var olmayan id'ye operatör satırı yok), gölge testi, pin | **KIRMIZI** (3): `…TheAnswerIsTheSameWhateverTheTenantsState`, gölge, imza/kaynak pini | **KIRMIZI** (3): `…TheAnswerIsTheSameWhateverTheTenantsState`, gölge, imza/kaynak pini |
+> | M5 | `coalesce` kaldırılır | `TestOpSuspendTenant_ASecondSuspensionKeepsTheFirstTime`, pin | **KIRMIZI** (2): `…ASecondSuspensionKeepsTheFirstTime`, imza/kaynak pini | **KIRMIZI** (2): `…ASecondSuspensionKeepsTheFirstTime`, imza/kaynak pini |
+> | M6 | gövde kapalı küme dışı gerekçeyi kabul eder | `TestOperator00063_TheReasonSetIsOneSetInEveryCopy`, `…ArgumentsAreRefused…` (istatistik), pin | **KIRMIZI** (4): `…ArgumentsAreRefusedBeforeAnythingIsRead`, `…TheAnswerIsTheSameWhateverTheTenantsState`, imza/kaynak pini, gerekçe kopyaları | **KIRMIZI** (4): `…ArgumentsAreRefusedBeforeAnythingIsRead`, `…TheAnswerIsTheSameWhateverTheTenantsState`, imza/kaynak pini, gerekçe kopyaları |
+> | M7 | CHECK kapalı küme dışını kabul eder | `…TheReasonSetIsOneSetInEveryCopy`, `…TheTenantsChecksBindTheOwnerToo`, imza testi | **KIRMIZI** (3): imza/kaynak pini, gerekçe kopyaları, CHECK'ler sahibi bağlar | **KIRMIZI** (3): imza/kaynak pini, gerekçe kopyaları, CHECK'ler sahibi bağlar |
+> | M8 | `tappa_app`'e askı sütunlarında UPDATE | `…TheAppCannotWrite…`, `TestOperator00026_PrivilegeMatrix`, `TestTenants00024_…`, `TestAccountDB_…` | **KIRMIZI** (2): `TestOperator00026_PrivilegeMatrix`, `…TheAppCannotWrite…` | **KIRMIZI** (4): `TestM11Catalog_EveryNewTableMatchesTheMatrixUnderArwd`, `TestOperator00026_PrivilegeMatrix`, `…TheAppCannotWrite…`, `TestPrivCatalog_TheWholeCatalogueIsTheAllowlist` |
+> | M9 | tanımlayıcıya `tenants` tablo düzeyi UPDATE | `TestOperator00026_PrivilegeMatrix`, `…TheAppCannotWrite…` | **KIRMIZI** (4): `…TheWritesShareOneTransaction`, `TestOperator00026_PrivilegeMatrix`, Down testi, `…TheAppCannotWrite…` | **KIRMIZI** (6): `…TheWritesShareOneTransaction`, `TestOperator00026_PrivilegeMatrix`, Down testi, ön koşul testi, `…TheAppCannotWrite…`, `TestPrivCatalog_TheWholeCatalogueIsTheAllowlist` |
+> | M10 | `at` = `now()` | `…TheTenantRowsTimeIsTheWallClock`, `TestOperator00026_NoFrozenClock`, pin | **KIRMIZI** (6): `…ASecondSuspensionKeepsTheFirstTime`, `…TheLockIsTakenBeforeTheClockIsRead`, `…TheTenantRowsTimeIsTheWallClock`, `…WritesTheSuspensionAndBothRowsInOneCall`, `TestOperator00026_NoFrozenClock`, imza/kaynak pini | **KIRMIZI** (6): `…ASecondSuspensionKeepsTheFirstTime`, `…TheLockIsTakenBeforeTheClockIsRead`, `…TheTenantRowsTimeIsTheWallClock`, `…WritesTheSuspensionAndBothRowsInOneCall`, `TestOperator00026_NoFrozenClock`, imza/kaynak pini |
+> | M11 | `at` = `statement_timestamp()` | aynı | **KIRMIZI** (4): `…TheLockIsTakenBeforeTheClockIsRead`, `…TheTenantRowsTimeIsTheWallClock`, `TestOperator00026_NoFrozenClock`, imza/kaynak pini | **KIRMIZI** (4): `…TheLockIsTakenBeforeTheClockIsRead`, `…TheTenantRowsTimeIsTheWallClock`, `TestOperator00026_NoFrozenClock`, imza/kaynak pini |
+> | M12 | dönüş `boolean` | `TestOperator00026_ForwardCatalogPin`, imza testi | **KIRMIZI** (2): ileri pin, imza/kaynak pini | **KIRMIZI** (16): `…ACallForOneTenantTouchesNoOther`, `…ALockWaitTellsOnlyThatTheTenantExists`, `…ASecondSuspensionKeepsTheFirstTime`, `…TheAnswerIsTheSameWhateverTheTenantsState`, `…TheLockIsTakenBeforeTheClockIsRead`, `…TheRowLockLetsTheTenantsWritesThrough`, `…TheStatisticsTellOnlyWhetherTheTenantExists`, `…TheTenantRowsTimeIsTheWallClock`, `…TheWidthChannelsAreMeasured`, `…TheWritesShareOneTransaction`, `…WritesTheSuspensionAndBothRowsInOneCall`, ileri pin, gölge, Down testi, imza/kaynak pini, gerekçe kopyaları |
+> | M13 | ret iletisinde `p_tenant_id` | `…ArgumentsAreRefused…`, pin | **KIRMIZI** (4): `…ArgumentsAreRefusedBeforeAnythingIsRead`, `…TheAnswerIsTheSameWhateverTheTenantsState`, imza/kaynak pini, gerekçe kopyaları | **KIRMIZI** (4): `…ArgumentsAreRefusedBeforeAnythingIsRead`, `…TheAnswerIsTheSameWhateverTheTenantsState`, imza/kaynak pini, gerekçe kopyaları |
+> | M14 | `search_path` pini kaldırılır | ileri pin, imza testi, gölge testi | **KIRMIZI** (2): ileri pin, imza/kaynak pini | **KIRMIZI** (2): ileri pin, imza/kaynak pini |
+> | M15 | sahip `tappa_owner` | ters pin, imza testi | **KIRMIZI** (3): `…TheWritesShareOneTransaction`, ters pin, imza/kaynak pini | **KIRMIZI** (5): `TestM11Catalog_EveryNewTableMatchesTheMatrixUnderArwd`, `…TheWritesShareOneTransaction`, ters pin, imza/kaynak pini, `TestPrivCatalog_TheWholeCatalogueIsTheAllowlist` |
+> | M16 | Down `REVOKE ALL ON tenants FROM tappa_opdefiner` | Down testi (metin; Down sonrası genel bakış) | **KIRMIZI** (2): Down testi, ön koşul testi | **KIRMIZI** (2): Down testi, ön koşul testi |
+> | M17 | Down gövdesi bir bayt farklı (`op_begin_read`) | Down testi; 00034'ün iki testi (00034'te canlı gövde) | **KIRMIZI** (1): Down testi | **KIRMIZI** (2): Down testi, ön koşul testi |
+> | M18 | Down'da ret yok (askı varken Down geçer) | Down testi, dal 3 | **KIRMIZI** (1): Down testi | **KIRMIZI** (2): Down testi, Down'ın kilidi |
+> | M19 | kemer: `UPDATE`'in `WHERE`'i `p_tenant_id` dışı (`v_admin`) | `…ACallForOneTenantTouchesNoOther`, pin | **KIRMIZI** (6): `…ASecondSuspensionKeepsTheFirstTime`, `…WritesTheSuspensionAndBothRowsInOneCall`, gölge, Down testi, imza/kaynak pini, gerekçe kopyaları — *liste eksik (3. tur, F2): `…ASecondSuspensionKeepsTheFirstTime` nil'de panikledi, paket çöktü ve sonraki testler — kemer testi dahil — koşmadı; kemer testi M19'u tek başına yakalar (üçüncü gözün ölçümü); panik kapandı* | **KIRMIZI** (12): `…ACallForOneTenantTouchesNoOther`, `…ASecondSuspensionKeepsTheFirstTime`, `…TheLockIsTakenBeforeTheClockIsRead`, `…TheStatisticsTellOnlyWhetherTheTenantExists`, `…TheTenantRowsTimeIsTheWallClock`, `…TheWidthChannelsAreMeasured`, `…TheWritesShareOneTransaction`, `…WritesTheSuspensionAndBothRowsInOneCall`, gölge, Down testi, imza/kaynak pini, gerekçe kopyaları |
+> | M20 | kemer: operatör satırının hedefi `v_admin` | `…ACallForOneTenant…`, `…WritesTheSuspension…`, pin | **KIRMIZI** (8): `…ACallForOneTenantTouchesNoOther`, `…ASecondSuspensionKeepsTheFirstTime`, `…TheAnswerIsTheSameWhateverTheTenantsState`, `…TheWritesShareOneTransaction`, `…WritesTheSuspensionAndBothRowsInOneCall`, gölge, Down testi, imza/kaynak pini | **KIRMIZI** (8): `…ACallForOneTenantTouchesNoOther`, `…ASecondSuspensionKeepsTheFirstTime`, `…TheAnswerIsTheSameWhateverTheTenantsState`, `…TheWritesShareOneTransaction`, `…WritesTheSuspensionAndBothRowsInOneCall`, gölge, Down testi, imza/kaynak pini |
+> | M21 | kısıt yakalayıcı DETAIL döndürür | `…TheWritesShareOneTransaction` (CHECK kolları), pin | **KIRMIZI** (2): `…TheWritesShareOneTransaction`, imza/kaynak pini | **KIRMIZI** (2): `…TheWritesShareOneTransaction`, imza/kaynak pini |
+> | M22 | `auditKindWords`'ten bir tür düşer | `TestAuditWords_NameEveryKindAndNothingElse`, `TestE2E_AuditWordsCoverEveryScopeAndSearchClassTheDatabaseReturns` | **KIRMIZI** (2): `TestAuditWords_NameEveryKindAndNothingElse`, `TestE2E_AuditWordsCoverEveryScopeAndSearchClassTheDatabaseReturns` | **KIRMIZI** (1): `TestAuditWords_NameEveryKindAndNothingElse` |
+> | M23 | `op_read_tenant_detail` dönüşünde iki askı sütununun sırası değişir | imza testi, Down testi, `TestOpReadTenantDetail_ReturnsTheNamedTenantsSuspension` | **KIRMIZI** (2): Down testi, imza/kaynak pini | **KIRMIZI** (2): Down testi, imza/kaynak pini |
+> | M24 | tenant-yazma CHECK'i yeni türleri kapsamaz | `…TheTenantWriteKinds…`, `TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree`, imza testi | **KIRMIZI** (4): Down testi, imza/kaynak pini, `…TheTenantWriteKinds…`, `TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree` | **KIRMIZI** (4): Down testi, imza/kaynak pini, `…TheTenantWriteKinds…`, `TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree` |
+> | M25 | `FOR UPDATE` | `…TheRowLockLetsTheTenantsWritesThrough`, pin | **KIRMIZI** (2): `…TheRowLockLetsTheTenantsWritesThrough`, imza/kaynak pini | **KIRMIZI** (2): `…TheRowLockLetsTheTenantsWritesThrough`, imza/kaynak pini |
+> | M26 | kilit yok | pin, `…TheLockIsTakenBeforeTheClockIsRead` | **KIRMIZI** (2): `…TheLockIsTakenBeforeTheClockIsRead`, imza/kaynak pini | **KIRMIZI** (2): `…TheLockIsTakenBeforeTheClockIsRead`, imza/kaynak pini |
+> | M27 | argüman reddi kilitten sonra | `…ArgumentsAreRefused…` (`tenants` oynar), pin | **KIRMIZI** (2): `…ArgumentsAreRefusedBeforeAnythingIsRead`, imza/kaynak pini | **KIRMIZI** (2): `…ArgumentsAreRefusedBeforeAnythingIsRead`, imza/kaynak pini |
+> | M28 | Go `Known()` her değeri kabul eder | `TestSuspendTenant_RefusesAnUnknownReasonWithoutARoundTrip`, `TestSuspensionReasons_…` | **KIRMIZI** (4): `TestOpReadTenantDetail_ReturnsTheNamedTenantsSuspension`, gerekçe kopyaları, `TestSuspendTenant_RefusesAnUnknownReasonWithoutARoundTrip`, `TestSuspensionReasons_TheTypedConstantsAreTheList` | **KIRMIZI** (4): `TestOpReadTenantDetail_ReturnsTheNamedTenantsSuspension`, gerekçe kopyaları, `TestSuspendTenant_RefusesAnUnknownReasonWithoutARoundTrip`, `TestSuspensionReasons_TheTypedConstantsAreTheList` |
+> | M29 | Go `readTenantDetail` gerekçeyi taramaz | `TestOpReadTenantDetail_ReturnsTheNamedTenantsSuspension` | **KIRMIZI** (1): `TestOpReadTenantDetail_ReturnsTheNamedTenantsSuspension` | **KIRMIZI** (1): `TestOpReadTenantDetail_ReturnsTheNamedTenantsSuspension` |
+> | M30 | Down'da `tenants` DDL'i sonda değil | Down testi (metin) | **KIRMIZI** (2): Down testi, ön koşul testi | **KIRMIZI** (2): Down testi, ön koşul testi |
+> | M31 | ön koşulda `pg_has_role` kolu yok (yalnız `has_table_privilege('tappa_app')`) | ön koşul testi (SET ROLE vakası) | **KIRMIZI** (1): ön koşul testi | **KIRMIZI** (1): ön koşul testi |
+> | M32 | ön koşulda `tappa_operator` yok | ön koşul testi | **KIRMIZI** (1): ön koşul testi | **KIRMIZI** (1): ön koşul testi |
+> | M33 | kaldırmanın `detail`'i gerekçe taşır | `…WritesTheSuspension…`, pin | **KIRMIZI** (2): `…WritesTheSuspensionAndBothRowsInOneCall`, imza/kaynak pini | **KIRMIZI** (2): `…WritesTheSuspensionAndBothRowsInOneCall`, imza/kaynak pini |
+> | M34 | tür CHECK'inde `tenant_reinstated` yok | `TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree`, kaldırma testleri (22023) | **KIRMIZI** (15): `…ACallForOneTenantTouchesNoOther`, `…ALockWaitTellsOnlyThatTheTenantExists`, `…ASecondSuspensionKeepsTheFirstTime`, `…TheAnswerIsTheSameWhateverTheTenantsState`, `…TheLockIsTakenBeforeTheClockIsRead`, `…TheRowLockLetsTheTenantsWritesThrough`, `…TheStatisticsTellOnlyWhetherTheTenantExists`, `…TheTenantRowsTimeIsTheWallClock`, `…TheWritesShareOneTransaction`, `…WritesTheSuspensionAndBothRowsInOneCall`, gölge, Down testi, imza/kaynak pini, `…TheTenantWriteKinds…`, `TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree` | **KIRMIZI** (15): `…ACallForOneTenantTouchesNoOther`, `…ALockWaitTellsOnlyThatTheTenantExists`, `…ASecondSuspensionKeepsTheFirstTime`, `…TheAnswerIsTheSameWhateverTheTenantsState`, `…TheLockIsTakenBeforeTheClockIsRead`, `…TheRowLockLetsTheTenantsWritesThrough`, `…TheStatisticsTellOnlyWhetherTheTenantExists`, `…TheTenantRowsTimeIsTheWallClock`, `…TheWritesShareOneTransaction`, `…WritesTheSuspensionAndBothRowsInOneCall`, gölge, Down testi, imza/kaynak pini, `…TheTenantWriteKinds…`, `TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree` |
+> | M35 | `op_begin_read`'in filtre listesinde yeni türler yok | `TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree`, imza testi | **KIRMIZI** (3): Down testi, imza/kaynak pini, `TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree` | **KIRMIZI** (3): Down testi, imza/kaynak pini, `TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree` |
+>
+> **Sayılı sınırlar:** ADR 0021 "OP-15 uygulama notu" **LS1–LS12** (LS1 — A'da askıyı okuyan hiçbir
+> şey yok, sevk sırası A → B → C; LS2 DSN sahibi; LS3 istatistik — önceki durum indeks planında kapalı,
+> sıralı tarama planında konum kanalı (LS4 sınıfı), varlık biti sayılı; LS4 genişlik kanalları, sınır kurulmadı, WAL pinlenmedi; LS5 kilit bekleyişi ve izsiz tutma —
+> T108; LS6 `audit_log.at`; LS7 Down'ın `tenants` kilidi, 14 çağrı noktası; LS8 tanımlayıcı olarak
+> satır yazmak; LS9 doğrulanmış tenant-yazma CHECK'i; LS10 kayma yalnız tablo düzeyi; LS11 her kalıcı
+> Down `tenants`'ta iki `attnum` tüketir — geliştirme veritabanında 38 → 148, `relnatts` 161, 1600
+> sınırına ⌊(1600 − 161) / 2⌋ = 719 döngü; mutasyon turları artık geri alınan test işleminde; LS12 Down'ın
+> SHARE ROW EXCLUSIVE kilidinin bedeli — yükselmede olası 40P01, READ COMMITTED varsayımı).
+>
+> **Güvenlik iddiası:** ADR 0021 "OP-15 uygulama notu" — tehdit modeli cümlesi; PART I (25 test, her
+> biri test · girdiler · assert); PART II (`opSuspSourceRules` ve adlı pinler); PART III *"Listede
+> olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok."*
+>
+> **Devirler:**
+> - **B fazı:** `TouchAdminSession`'ın askıyı döndürmesi; `suspensionGate`; ret satırı ve 403; röle
+>   sözcüğü `suspended` (beş yer); panel cümle haritası → `TestOperator00063_TheReasonSetIsOneSetInEveryCopy`'ye
+>   dördüncü kopya olarak; LS1'in kapanışı.
+> - **C fazı:** `*OperatorDB` iki yöntemi + tüketici arayüzü; iki POST; operatör etiket haritası → aynı
+>   teste beşinci kopya; askıya alan E2E'ler tenant'ı `t.Cleanup`'ta yeniden etkinleştirir (yoksa
+>   `opAtVersion`'ın işlem içi adımı devreye girer, Down'ın reddi de).
+> - **Aşama 2'de yapıldı (orkestratörün 5. cevabı, yalnız ekleme):** ADR 0021 §2 v 7 (B14 cümlesine
+>   `FOUND` notu), §2 vii (kilit-sonra-saat notu), ADR 0021 ve ADR 0020 "Karar verilmedi"deki OP-K5
+>   kapanışları; ADR 0025 "A fazı eki"nde Aşama 2'nin sonucu.
+> - **Orkestratörün belge işi:** ADR 0020 §4 rota listesi (C ile); `m10-platform.md` OP-15 kartı ve
+>   §3/§6 (ADR 0025 "Sonuçlar"); backlog adayı `audit_log.at` tetikleyicisi; T108'e askı.
+> - **Sınır 9'un kalıcı çaresi** (danışma kilidini `tenants`'a dokunan paketlere genişletmek) — ayrı
+>   karar; Aşama 2'nin verisi (md. 11): iki tam koşuda kilit hatası 0, en uzun bekleyiş 1,22 sn — bugün
+>   gerekmiyor.
+
 ## 4. Akış B — E-posta (AWS SES)
 
 ### Öneri: SES SMTP arayüzü + stdlib `net/smtp` (STARTTLS 587), `eu-central-1` — ✅ (sıfır yeni modül)
