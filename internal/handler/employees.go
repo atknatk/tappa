@@ -870,7 +870,6 @@ func fillPersonSummary(v *components.RosterActionsView, s tenant.PersonSummary, 
 	case ledger.StatusDeactivated:
 		if s.Deactivated != nil {
 			v.SinceLine = "Deactivated on " + rosterDate(s.Deactivated, zone)
-			v.DeactivatedOn = rosterDate(s.Deactivated, zone)
 		}
 	}
 	v.LinkLine = linkLine(s.Status, s.Link, zone, now)

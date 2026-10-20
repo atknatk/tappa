@@ -68,7 +68,7 @@ Decisions and constraints: [README](../README.md). Status words: [pass-ledger](p
 | Phone section | session count + dates | EXISTS + **BUILT (D3, M12-20)** | "1 signed in · since 3 Sep · last used …"; the activation venue **REMOVED** (sessions carry no location; the activation tap writes no record); `device_info` not printed |
 | "Unlink phone" | no route | **REMOVED (D1)** | |
 | Deactivate | two-step link → confirmation → POST with one-shot token (`roster.templ:315-342`, `employees.go:489-500`) | KEPT AS CODE | label "Deactivate"; keep "Asks first. It cannot be undone afterwards." (`:335`) and the confirm sentence (`:318-322`); "They can no longer tap" **REMOVED** (their taps are refused **and recorded**, §5 row 4) |
-| Deactivated paragraph | `deactivated_at`; `roster.templ:338-340` | DERIVE | "Deactivated on 2 Oct. Their taps are refused, and every refusal is still recorded." |
+| Deactivated paragraph | `deactivated_at`; `roster.templ:338-340` | DERIVE | "Their taps are refused, and every refusal is still recorded."; the date ("Deactivated on 2 Oct 2026") is printed **once**, beside the status pill (`SinceLine`) — M12-48 removed the paragraph's second copy |
 | Tablet "This week 33:15 · +1 open" | — | **REMOVED (D1)** | |
 | Tablet "Shift 18:00–02:00 · from Bar department" | — | **REMOVED (D1)** | lateness rule is department else tapped venue |
 | Tablet "Edit details" | no handler (names are API-written, `employees.sql:951`) | **REMOVED (D1)** | |

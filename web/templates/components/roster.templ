@@ -354,10 +354,9 @@ templ RosterActions(v RosterActionsView) {
 						<p class="text-xs text-ink/70">Asks first. It cannot be undone afterwards.</p>
 					}
 				} else {
+					// The day they were deactivated is printed once, beside the status pill
+					// (SinceLine); this paragraph says what deactivation does.
 					<p class="text-sm text-ink">
-						if v.DeactivatedOn != "" {
-							{ "Deactivated on " + v.DeactivatedOn + "." }
-						}
 						Their taps are refused, and every refusal is still recorded.
 					</p>
 					<p class="text-xs text-ink/85">
