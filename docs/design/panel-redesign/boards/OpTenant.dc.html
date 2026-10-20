@@ -42,7 +42,7 @@ a{color:#1F5C41}a:hover{color:#152219}
 .mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
 .lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
 .card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:14px;padding:22px 24px;display:flex;flex-direction:column;gap:14px;min-width:0}
-.docket{background:#FFFDF4;border:1px solid #C9D2C8;border-top:2px dashed #C9D2C8;border-radius:0;padding:16px 20px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.docket{background:#FFFDF4;border:1px solid #C9D2C8;border-top:2px dashed #C9D2C8;border-radius:0;padding:18px 24px;display:flex;flex-direction:column;gap:8px;min-width:0}
 .h1{margin:0;font:700 28px/1.1 'Space Grotesk',sans-serif;letter-spacing:-0.03em}
 .txt{margin:0;font-size:14px;line-height:1.5}
 .hint{margin:0;font-size:12px;line-height:1.45;color:rgba(21,34,25,.7)}
@@ -176,7 +176,7 @@ dl{margin:0}dd{margin:0}
   </div>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"api": {"editor": "enum", "options": ["open", "closed-with-code", "never-opened"], "default": "open"}, "notice": {"editor": "enum", "options": ["none", "opened", "not-opened", "code-not-changed", "closed", "still-open", "code-refused"], "default": "none"}, "tenant": {"editor": "enum", "options": ["named", "unnamed"], "default": "named"}, "$preview": {"width": 1440, "height": 1037}}'>
+<script type="text/x-dc" data-dc-script data-props='{"api": {"editor": "enum", "options": ["open", "closed-with-code", "never-opened"], "default": "open"}, "notice": {"editor": "enum", "options": ["none", "opened", "not-opened", "code-not-changed", "closed", "still-open", "code-refused"], "default": "none"}, "tenant": {"editor": "enum", "options": ["named", "unnamed"], "default": "named"}, "$preview": {"width": 1440, "height": 1041}}'>
 class Component extends DCLogic {
   renderVals() {
     const pick = this.props.api ?? 'open';

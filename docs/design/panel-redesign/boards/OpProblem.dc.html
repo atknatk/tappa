@@ -50,7 +50,7 @@ a{color:#1F5C41}a:hover{color:#152219}
 .oplink{display:inline-flex;align-items:center;min-height:44px;font-family:'Space Grotesk',sans-serif;font-weight:700;color:#1F5C41;text-decoration:underline;text-underline-offset:4px}
 .note{display:flex;flex-direction:column;gap:4px;padding:14px 16px;border-left:4px solid;border-radius:0 10px 10px 0;font-size:14px;line-height:1.45}
 .note strong{font-size:15px;color:#152219;letter-spacing:-0.01em}
-.note p{margin:0;color:rgba(21,34,25,.85)}
+.note p{margin:0;color:rgba(21,34,25,.85);text-wrap:pretty}
 .note--warn{border-left-color:#D98E2B;background:#F7EBD6}
 .note--alert{border-left-color:#BE3D2A;background:#FFFDF4;box-shadow:inset 0 0 0 1px rgba(190,61,42,.35)}
 .docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-bottom:0;border-radius:0}
@@ -69,7 +69,7 @@ a{color:#1F5C41}a:hover{color:#152219}
     <main style="flex: 1; box-sizing: border-box; padding: 72px 24px 96px; display: flex; justify-content: center; align-items: flex-start">
       <div style="width: 100%; max-width: 560px; display: flex; flex-direction: column; gap: 16px">
           <div role="alert" class="note note--alert" style="padding: 24px 28px; gap: 10px">
-            <h1 style="margin: 0; font-size: 28px; line-height: 1.12; letter-spacing: -0.03em">{{pr.title}}</h1>
+            <h1 style="margin: 0; font-size: 28px; line-height: 1.12; letter-spacing: -0.03em; text-wrap: balance">{{pr.title}}</h1>
             <p style="font-size: 15px; line-height: 1.5">{{pr.message}}</p>
           </div>
           <sc-if value="{{pr.hasBack}}" hint-placeholder-val="{{true}}">
@@ -102,7 +102,7 @@ a{color:#1F5C41}a:hover{color:#152219}
   <main class="opmain" style="display: flex; flex-direction: column; gap: 28px">
         <div style="display: flex; flex-direction: column; gap: 16px; max-width: 640px">
           <div role="alert" class="note note--alert" style="padding: 24px 28px; gap: 10px">
-            <h1 style="margin: 0; font-size: 28px; line-height: 1.12; letter-spacing: -0.03em">{{pr.title}}</h1>
+            <h1 style="margin: 0; font-size: 28px; line-height: 1.12; letter-spacing: -0.03em; text-wrap: balance">{{pr.title}}</h1>
             <p style="font-size: 15px; line-height: 1.5">{{pr.message}}</p>
           </div>
           <sc-if value="{{pr.hasBack}}" hint-placeholder-val="{{true}}">
@@ -129,22 +129,23 @@ class Component extends DCLogic {
     };
     // render.go problem constants (title / message / back / signed-in), verbatim.
     const P = {
-      'cross-origin': ["That request did not come from this site", "Open the page again and send the form from there.", "OpSignIn.dc.html", "Go to the sign-in", false, ''],
-      'enroll-refused': ["This setup link does not work", "It may have expired (a link lasts 30 minutes) or been used already. Ask for a new one.", "", "", false, ''],
-      'enroll-incomplete': ["This setup link is incomplete", "Open the whole link from your message, including the part after the # sign.", "", "", false, ''],
-      'sign-out-throttled': ["Too many sign-out requests from your network", "This browser no longer holds your session, but the server could not be asked to end it. It ends after 30 minutes without use; if someone else may hold it, ask for it to be revoked.", "OpSignIn.dc.html", "Go to the sign-in", false, ''],
-      'too-many-signed-out': ["Too many requests", "Wait ten minutes, then try again.", "", "", false, ''],
-      'too-many-signed-in': ["Too many requests", "Wait ten minutes, then try again.", "", "", true, ''],
-      'sign-out-failed': ["Sign-out did not finish", "Your session is still open. Try signing out again in a moment.", "OpHome.dc.html", "Back to the console", true, 'console'],
-      'holding-change': ["The change was not confirmed", "The database did not confirm it. Open the holdings again \u2014 the list shows each holding's members as the database holds them \u2014 and try again from there if nothing changed.", "OpHoldings.dc.html", "Back to the holdings", true, 'holdings'],
-      'billing-unreadable': ["This tenant's billing could not be loaded", "Try again in a moment. No figure was read, so none is shown \u2014 not even a zero.", "OpTenants.dc.html", "Back to the tenants", true, 'tenants'],
-      'legal-empty': ["There is no text to publish", "The box had no visible text \u2014 spaces, line breaks and invisible characters do not count. Nothing was published.", "OpLegal.dc.html", "Back to the legal texts", true, 'legal']
+      'cross-origin': ["That request did not come from this site", "Open the page again and send the form from there.", "OpSignIn.dc.html", "Go to the sign-in", false],
+      'enroll-refused': ["This setup link does not work", "It may have expired (a link lasts 30 minutes) or been used already. Ask for a new one.", "", "", false],
+      'enroll-incomplete': ["This setup link is incomplete", "Open the whole link from your message, including the part after the # sign.", "", "", false],
+      'sign-out-throttled': ["Too many sign-out requests from your network", "This browser no longer holds your session, but the server could not be asked to end it. It ends after 30 minutes without use; if someone else may hold it, ask for it to be revoked.", "OpSignIn.dc.html", "Go to the sign-in", false],
+      'too-many-signed-out': ["Too many requests", "Wait ten minutes, then try again.", "", "", false],
+      'too-many-signed-in': ["Too many requests", "Wait ten minutes, then try again.", "", "", true],
+      'sign-out-failed': ["Sign-out did not finish", "Your session is still open. Try signing out again in a moment.", "OpHome.dc.html", "Back to the console", true],
+      'holding-change': ["The change was not confirmed", "The database did not confirm it. Open the holdings again \u2014 the list shows each holding's members as the database holds them \u2014 and try again from there if nothing changed.", "OpHoldings.dc.html", "Back to the holdings", true],
+      'billing-unreadable': ["This tenant's billing could not be loaded", "Try again in a moment. No figure was read, so none is shown \u2014 not even a zero.", "OpTenants.dc.html", "Back to the tenants", true],
+      'legal-empty': ["There is no text to publish", "The box had no visible text \u2014 spaces, line breaks and invisible characters do not count. Nothing was published.", "OpLegal.dc.html", "Back to the legal texts", true]
     };
-    const [title, message, href, backLabel, signedIn, section] = P[this.props.variant ?? 'cross-origin'];
+    const [title, message, href, backLabel, signedIn] = P[this.props.variant ?? 'cross-origin'];
     return {
       pr: { title, message, href, backLabel, hasBack: href !== '' },
       signedIn, signedOut: !signedIn,
-      ...navOf(section),
+      // A problem page marks no section current (screens.md §0), even when its back link names one.
+      ...navOf(''),
       noop: (e) => { if (e && e.preventDefault) e.preventDefault(); }
     };
   }

@@ -21,7 +21,7 @@ a{color:#1F5C41}a:hover{color:#152219}
 .oplock span{color:#D98E2B}
 .opout{min-height:44px;padding:0 16px;border:1px solid #FFFDF4;border-radius:10px;background:transparent;color:#FFFDF4;font:700 14px 'Space Grotesk',sans-serif;white-space:nowrap;cursor:pointer}
 .opout:hover{border-color:#D98E2B;color:#D98E2B}
-.opbot{position:sticky;bottom:0;z-index:5;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));background:#FFFDF4;border-top:1px solid #C9D2C8}
+.opbot{position:sticky;bottom:0;margin-top:auto;z-index:5;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));background:#FFFDF4;border-top:1px solid #C9D2C8}
 .opbt{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:60px;text-decoration:none;color:rgba(21,34,25,.7);font:500 11px 'Space Grotesk',sans-serif}
 .opbt:hover{color:#152219}
 .opbt--on{color:#152219;font-weight:700}
@@ -34,11 +34,11 @@ a{color:#1F5C41}a:hover{color:#152219}
 .opsubt{display:flex;align-items:center;min-height:44px;padding:0 10px;border-bottom:3px solid transparent;margin-bottom:-1px;text-decoration:none;color:#152219;font:400 14px 'Space Grotesk',sans-serif;white-space:nowrap}
 .opsubt:hover{color:#152219;background:rgba(217,142,43,.12)}
 .opsubt--on{border-bottom-color:#D98E2B;font-weight:700}
-.opmain{width:100%;max-width:none;box-sizing:border-box;padding:20px 16px 32px}
+.opmain{width:100%;max-width:none;box-sizing:border-box;padding:20px 16px 64px}
 /* end operator shell */
 .mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
 .lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
-.card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:14px;padding:22px 24px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:14px;min-width:0}
 .docket{background:#FFFDF4;border:1px solid #C9D2C8;border-top:2px dashed #C9D2C8;border-radius:0;padding:16px 20px;display:flex;flex-direction:column;gap:8px;min-width:0}
 .h1{margin:0;font:700 28px/1.1 'Space Grotesk',sans-serif;letter-spacing:-0.03em}
 .txt{margin:0;font-size:14px;line-height:1.5}
@@ -69,7 +69,7 @@ a{color:#1F5C41}a:hover{color:#152219}
 dl{margin:0}dd{margin:0}
 </style>
 </helmet>
-<div style="width: 390px; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
+<div style="width: 390px; min-height: 100vh; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
   <header class="opbar">
     <div class="opbar-in">
       <p class="oplock">TAPTIME <span>OPERATOR</span></p>
@@ -87,12 +87,12 @@ dl{margin:0}dd{margin:0}
         <button type="submit" class="btnp" style="width: 100%">Search</button>
       </form>
       <sc-if value="{{searched}}" hint-placeholder-val="{{false}}">
-        <div style="display: flex; flex-direction: column; gap: 0; border-top: 1px dashed #C9D2C8; padding-top: 12px">
-          <p class="txt">Tenants matching <bdi class="mono" style="font-weight: 700">{{term}}</bdi>.</p>
-          <p class="txt"><a href="M-OpTenants.dc.html" class="oplink">Show every tenant</a></p>
-        </div>
+        <p class="txt" style="border-top: 1px dashed #C9D2C8; padding-top: 14px">Tenants matching <bdi class="mono" style="font-weight: 700; overflow-wrap: anywhere">{{term}}</bdi>.</p>
       </sc-if>
-      <p class="txt"><a href="M-OpHome.dc.html" class="oplink">Back to the console</a></p>
+      <p class="links" style="margin-top: -8px; flex-direction: column; align-items: flex-start">
+        <sc-if value="{{searched}}" hint-placeholder-val="{{false}}"><a href="M-OpTenants.dc.html" class="oplink">Show every tenant</a></sc-if>
+        <a href="M-OpHome.dc.html" class="oplink">Back to the console</a>
+      </p>
     </section>
 
     <section class="docket" aria-labelledby="tenant-list">
@@ -103,12 +103,12 @@ dl{margin:0}dd{margin:0}
       <sc-if value="{{hasRows}}" hint-placeholder-val="{{true}}">
         <ol style="list-style: none; margin: 4px 0 0; padding: 0">
           <sc-for list="{{rows}}" as="r" hint-placeholder-count="6">
-          <li class="oprow" style="display: flex; flex-direction: column; gap: 2px">
-            <a href="M-OpTenant.dc.html" class="oplink" style="font-size: 15px; min-height: 36px">
+          <li class="oprow" style="display: flex; flex-direction: column; gap: 2px; padding: 4px 0 12px">
+            <a href="M-OpTenant.dc.html" class="oplink" style="display: flex; font-size: 15px">
               <sc-if value="{{r.named}}" hint-placeholder-val="{{true}}"><bdi>{{r.name}}</bdi></sc-if>
               <sc-if value="{{r.unnamed}}" hint-placeholder-val="{{false}}"><span style="font-style: italic">Unnamed tenant</span></sc-if>
             </a>
-            <span style="display: flex; flex-wrap: wrap; gap: 4px 14px"><span>Since <span class="mono">{{r.since}}</span></span><span class="mono">{{r.plan}}</span></span>
+            <span style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin-top: -4px"><span>Since <span class="mono">{{r.since}}</span></span><span aria-hidden="true" style="color: rgba(21,34,25,.4)">·</span><span class="mono">{{r.plan}}</span></span>
             <span class="mono" style="font-size: 12px; color: rgba(21,34,25,.7); word-break: break-all">{{r.id}}</span>
           </li>
           </sc-for>
@@ -136,7 +136,7 @@ dl{margin:0}dd{margin:0}
   </nav>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"list": {"editor": "enum", "options": ["every", "every-page-2", "searched", "no-match", "none", "past-the-end"], "default": "every"}, "$preview": {"width": 390, "height": 1282}}'>
+<script type="text/x-dc" data-dc-script data-props='{"list": {"editor": "enum", "options": ["every", "every-page-2", "searched", "no-match", "none", "past-the-end"], "default": "every"}, "$preview": {"width": 390, "height": 1278}}'>
 class Component extends DCLogic {
   renderVals() {
     const state = this.props.list ?? 'every';
