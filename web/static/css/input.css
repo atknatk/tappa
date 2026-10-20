@@ -1439,6 +1439,22 @@
   .tape-bar--9 { height: 92%; }
   .tape-bar--10 { height: 100%; }
 
+  /* --- the ledger's filter disclosure (M12-27, board M-Ledger) ---
+     ONE form at every width: on a phone it sits in a native <details>; from the tablet
+     width the summary is not drawn and the form always shows. A closed disclosure hides
+     its content in the browser's own slot, which only ::details-content reaches, so the
+     tablet/desk rule is gated on the browser knowing that pseudo-element: one that does
+     not keeps the summary as a working "Filters" control rather than hiding the form
+     with no way to open it. */
+  .filter-details > summary { list-style: none; }
+  .filter-details > summary::-webkit-details-marker { display: none; }
+  @media (min-width: 768px) {
+    @supports selector(::details-content) {
+      .filter-details > summary { display: none; }
+      .filter-details::details-content { content-visibility: visible; }
+    }
+  }
+
   /* --- the rail's tilt: by position, never a per-item class built in Go ---
      Seven angles in a cycle, hung from the clip (top centre). The docket keeps
      its sharp corners (D2); only its angle changes. The rail docket is an

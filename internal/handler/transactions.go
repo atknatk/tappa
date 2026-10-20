@@ -124,6 +124,17 @@ func (a *AdminAuth) transactionsSection(w http.ResponseWriter, r *http.Request) 
 		PanelChrome: a.chrome(r, pages.TabTransactions),
 	}
 	fillTransactionsView(&v, screen.Page, f)
+	// ONE URL, TWO LAYOUTS (M12-26/27): /admin with no day is The Pass, a day is its ledger.
+	// The verdict chips and the day's tally are both layouts'; the widgets are The Pass's.
+	pass := isPass(r, f)
+	v.Chips = verdictChips(f, screen.Page.Day, pass, screen.Tally)
+	v.Summary = tallySummary(screen.Tally)
+	v.TallyFailed = screen.Tally.State == ledger.ReadFailed
+	if pass {
+		a.fillPass(r.Context(), &v, screen, id)
+	} else {
+		fillLedger(&v, screen.Page, f, time.Now())
+	}
 	v.Filters.Locations = optionViews(screen.Options.Locations)
 	v.Filters.Departments = optionViews(screen.Options.Departments)
 	// THE COUNTS ARE CARRIED ACROSS, NOT INTERPRETED HERE. Which sentence they mean
@@ -213,8 +224,12 @@ func fillTransactionsView(v *pages.TransactionsView, page ledger.Page, f ledger.
 	v.DayLabel = time.Date(day.Year, day.Month, day.Day, 0, 0, 0, 0, zone).Format("Monday 2 January 2006")
 	v.ZoneLabel = zone.String()
 
+	v.Hours = hourGroups(page, f.After, v.Dockets)
 	v.Filters = components.FilterBarView{
-		Action:       transactionsHref,
+		Action: transactionsHref,
+		// CLEAR KEEPS THE DAY. It drops every filter and stays on the day being read; /admin alone
+		// is The Pass now, a different page from "this day, unfiltered".
+		ClearHref:    transactionsHref + "?date=" + day.String(),
 		Date:         day.String(),
 		LocationID:   uuidParam(f.LocationID),
 		DepartmentID: uuidParam(f.DepartmentID),

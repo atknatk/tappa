@@ -84,6 +84,7 @@ type FloorVenue struct {
 // what "now" was.
 func (r *Reader) passWidgets(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, out *Screen) {
 	now := r.now()
+	out.AsOf = now
 	out.Floor = widget(ctx, r, tx, tenantID, "floor", Floor{State: ReadFailed}, func(sp pgx.Tx) (Floor, error) {
 		return floorAt(ctx, sp, tenantID, now)
 	})

@@ -440,6 +440,10 @@ type Screen struct {
 	Tape Tape
 	// LeftOpen is The Pass's "left open since yesterday" (M12-15). Today's view only.
 	LeftOpen LeftOpen
+	// AsOf is the one clock reading the three widgets above were measured against (passWidgets),
+	// so the page can say what "now" was (M12-26: the Pass's kicker prints its time). Zero when
+	// the widgets were not read -- a ledger day.
+	AsOf time.Time
 
 	// Tally is the day's records counted by verdict (M12-16) under the page's own filters, the
 	// verdict filter excepted. Unlike the widgets above it is read for every day, the Pass's and

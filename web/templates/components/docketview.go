@@ -179,6 +179,8 @@ type FilterBarView struct {
 	// Action is where the form submits — the section's own URL, so filtering is a
 	// plain GET and every filtered view is a bookmarkable address.
 	Action string
+	// ClearHref drops every filter and keeps the day; Clear is drawn only when Narrowed.
+	ClearHref string
 	// Date is the ISO day in the box ("2026-08-05").
 	Date string
 
@@ -219,6 +221,13 @@ type FilterBarView struct {
 	// it to say "nothing matches these filters" rather than "nothing happened
 	// that day" — different claims, and only one of them is true at a time.
 	Narrowed bool
+}
+
+// FormNarrowed is Narrowed for the fields the form itself holds -- a venue, a department, a
+// name, a channel. The verdict is a chip outside the form, so a chosen verdict alone does not
+// open the phone's filter disclosure.
+func (v FilterBarView) FormNarrowed() bool {
+	return v.LocationID != "" || v.DepartmentID != "" || v.EmployeeName != "" || v.Channel != ""
 }
 
 // OptionView is one <option>: the value that goes in the URL, the label a human

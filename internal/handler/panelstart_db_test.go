@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -213,11 +214,19 @@ func TestPanelLandingDB_ManualRecordsKeepTheDatePickerOffered(t *testing.T) {
 	p.signIn(t)
 
 	const advice = "Pick another day above"
+	// The screen is read on a LEDGER day with no record (today in UTC; the typed record below is
+	// three days back), where the date picker is above the list. The Pass, which has none, offers
+	// the same advice as its link to the day's ledger (M12-26) and is read alongside.
+	ledgerToday := transactionsHref + "?date=" + time.Now().UTC().Format("2006-01-02")
+	const passAdvice = ">See the whole day →</a>"
 
 	// BEFORE: no plaques, no records. The advice is withdrawn, which is right.
-	_, body := p.get(t, transactionsHref)
+	_, body := p.get(t, ledgerToday)
 	if strings.Contains(body, advice) {
 		t.Fatalf("a business with no records at all is still sent to the date picker")
+	}
+	if _, pass := p.get(t, transactionsHref); strings.Contains(pass, passAdvice) || strings.Contains(pass, advice) {
+		t.Fatalf("The Pass of a business with no records at all still sends it to another day")
 	}
 	// POSITIVE CONTROL: the empty state itself is on the page, so "the advice is
 	// gone" is not "the page is gone".
@@ -241,7 +250,10 @@ func TestPanelLandingDB_ManualRecordsKeepTheDatePickerOffered(t *testing.T) {
 		p.tenantID, employeeID, locationID, adminID)
 
 	// AFTER: still no plaques, but there IS a record — on another day.
-	_, body = p.get(t, transactionsHref)
+	if _, pass := p.get(t, transactionsHref); !strings.Contains(pass, passAdvice) {
+		t.Errorf("The Pass does not offer the day's ledger to a manager whose records are on another day")
+	}
+	_, body = p.get(t, ledgerToday)
 	if !strings.Contains(body, advice) {
 		t.Errorf("a manager typed a record three days ago into a business with NO plaques, "+
 			"and today's empty page still does not mention another day.\n"+

@@ -1144,7 +1144,7 @@ func TestTransactionDocket_ShowsTheEngineVerdictAndTheManagerDecisionSeparately(
 			EmployeeName: "Waiting Person", Queued: true},
 	}
 	b := panelBrowserWith(t, fake)
-	body := htmlOf(t, b.do(http.MethodGet, transactionsHref, nil))
+	body := htmlOf(t, b.do(http.MethodGet, ledgerDayHref, nil))
 
 	cards := map[string]string{}
 	for _, card := range strings.Split(body, "<article") {

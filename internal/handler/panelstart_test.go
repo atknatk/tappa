@@ -504,7 +504,8 @@ func TestPanelLanding_WithdrawsDatePickerAdviceOnlyWhereItCannotWork(t *testing.
 			fake.plaques = tc.plaques
 			fake.history = tc.history
 			b := panelBrowserWith(t, fake)
-			body := htmlOf(t, b.do(http.MethodGet, transactionsHref, nil))
+			// THE LEDGER DAY carries the sentence: its day picker is above the list.
+			body := htmlOf(t, b.do(http.MethodGet, ledgerDayHref, nil))
 
 			// POSITIVE CONTROL, every row: the empty state really is on the page, so a
 			// missing sentence cannot be mistaken for a withdrawn one.
@@ -512,7 +513,20 @@ func TestPanelLanding_WithdrawsDatePickerAdviceOnlyWhereItCannotWork(t *testing.
 				t.Fatalf("the empty state is missing entirely; this test measures nothing")
 			}
 			if got := strings.Contains(body, advice); got != tc.want {
-				t.Errorf("%q present = %v, want %v", advice, got, tc.want)
+				t.Errorf("ledger: %q present = %v, want %v", advice, got, tc.want)
+			}
+
+			// THE PASS (M12-26) has no picker above it: never "above"; the same advice is the
+			// link to the day's ledger, withheld on the same test.
+			pass := htmlOf(t, b.do(http.MethodGet, transactionsHref, nil))
+			if !strings.Contains(pass, "Nothing was recorded here on this day") {
+				t.Fatalf("The Pass's empty state is missing entirely; this test measures nothing")
+			}
+			if strings.Contains(pass, advice) {
+				t.Errorf("The Pass says %q but draws no day picker", advice)
+			}
+			if got := strings.Contains(pass, ">See the whole day →</a>"); got != tc.want {
+				t.Errorf("The Pass: the ledger link present = %v, want %v", got, tc.want)
 			}
 		})
 	}
@@ -534,7 +548,18 @@ func TestPanelLanding_LinksOnlyToASectionThatExists(t *testing.T) {
 	fake := newFakeLedger()
 	fake.plaques = ledger.Plaques{Queried: true}
 	b := panelBrowserWith(t, fake)
-	body := htmlOf(t, b.do(http.MethodGet, transactionsHref, nil))
+	page := htmlOf(t, b.do(http.MethodGet, transactionsHref, nil))
+
+	// THE NOTICE ALONE IS READ, NOT THE PAGE. The shell's navigation links to the same section
+	// under the same label, and since M12-26 so does The Pass's plaque card, so a page-wide
+	// search stayed green with the notice's own link removed (measured). The notice is the
+	// warning-toned <section> components.Notice draws.
+	start := strings.Index(page, `<section class="border-l-4 border-saffron`)
+	if start < 0 {
+		t.Fatal("no plaque notice on the page; this test is reading the wrong state")
+	}
+	body := page[start:]
+	body = body[:strings.Index(body, "</section>")]
 
 	if !strings.Contains(body, `href="`+href+`"`) {
 		t.Errorf("the notice does not link to %s", href)
