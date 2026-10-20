@@ -189,13 +189,13 @@ masked secret; the address only via `ShowToTheOwner`.
 
 ## 3. Empty and problem states — `States` (reference board)
 
-Sources: `components.EmptyState` (`web/templates/components/panel.templ:278-286`, `.empty-state`
+Sources: `components.EmptyState` (`web/templates/components/panel.templ:278-286`, removed in M12-48; `.empty-state`
 `input.css:426-429`), `components.Notice` (`notice.templ:40-50`), `(*AdminAuth).renderProblem` →
 `pages.Problem` (`internal/handler/adminlogin.go:1757`; `activate.templ:614`, `layout.Page`; 161 call sites).
 
 | Element | Source | Status | Port note |
 |---|---|---|---|
-| Empty card (eyebrow = section name, dashed ink/50, `rounded-[18px]`, optional CTA) | `EmptyState(heading)` (eyebrow "Nothing here yet", dashed `border-line`, square) | DERIVE — **M12-09** | new `PanelEmpty(where, heading, cta)`; callers: transactions :71, reports :224, locations :189/215/263/295, review :128, anomalies :205/374, employees :247, admin :516; holdingless goldens re-rendered in a dedicated commit |
+| Empty card (eyebrow = section name, dashed ink/50, `rounded-[18px]`, optional CTA) | `EmptyState(heading)` (removed in M12-48; eyebrow "Nothing here yet", dashed `border-line`, square) | DERIVE — **M12-09** | new `PanelEmpty(where, heading, cta)`; callers: transactions :71, reports :224, locations :189/215/263/295, review :128, anomalies :205/374, employees :247, admin :516; holdingless goldens re-rendered in a dedicated commit |
 | Spike empty | `review.templ:128` | KEPT AS CODE | |
 | Pass empty "Nobody tapped … between 06:00 and 06:00" | `emptyHeading` | KEPT AS CODE | times **REMOVED** (calendar day) |
 | People empty "No one invited yet" + "Invite someone" | `emptyRosterHeading`: "Nobody on the books yet" / filters / paged | KEPT AS CODE | CTA "Add somebody" → `?add=new`; keep the filter and paged variants |

@@ -836,11 +836,13 @@ eklemez ya da genişletmez, eş mekânın adı yalnız `holding_site_locations` 
   `transactions` okunmaz.
 - **Odd shapes** — mekân başına kanıt dağılımı (M12-22, `ListAnomalyVenues`'in beş rakamı:
   eş mekân kendi satırıdır ve dağılımı yoktur, `site_tenant_id IS NULL` filtresi sayılı), çiftlerin
-  gün noktaları (M12-23, `ListTapsTakenTogether` — eş satırları bugünkü gibi dışarıda) ve sayaç
+  gün noktaları (M12-23, `ListTapsTakenTogether` — eş mekân satırları o mekânın sırasına katılır
+  (M11 API-1c); kanıt sütunu okunmaz) ve sayaç
   atlamaları (M12-24, `ListAnomalyPlaqueJumps` — `tag_uid IS NOT NULL`, saha satırının plaketi
   işverenin anomalisi değildir).
-Sınıflandırma `TestEvidenceReaders_EveryOneIsClassified` ve
-`TestEmployeeLocationReaders_Counted`'dadır; buradaki liste onların özetidir, yerine geçmez.
+Kanıt ya da çalışanın ev mekânını okuyanlar `TestEvidenceReaders_EveryOneIsClassified` ve
+`TestEmployeeLocationReaders_Counted`'da sınıflıdır; `CountOnTheFloorByVenue`,
+`GetPanelPersonSummary` ve `CountReviewsSince` hiçbir kanıt sütunu okumadığı için ikisinde de yoktur.
 
 **Lokasyon silme:** KF'nin `CountLocationReferences`'ı KM'deki `site_location_id`'leri göremez →
 sayım izdüşümden de yapılır; FK `RESTRICT` son kemer (§4).
@@ -992,10 +994,13 @@ adlandırılmış kalan risk (1. tur, güvenlik merceği; §13 madde 13).
    değiştirmesini kanıt dışı kurallara da yaymak olurdu (ikinci denetimin ORTA-B'si tam onu geri
    aldı: kayıp plaket, sayaç boşluğu, farklı şube notu işverenin bilmesi gerekendir) — bu yüzden
    adlandırılmış artık, kod değişmedi. İşveren kendi verisini dışa aktarabilir. (f) **Kayıt kanalı**
-   (M12-28, M12-48'de yazıldı): The Spike'ın odaktaki kaydı eş mekân satırında da kanalı (plaket
-   dokunuşu / QR) yazar — The Pass'ın kanal filtresinin zaten yaptığı açıklamanın aynısı (eş satırı
-   `channel=qr` ile süzülebilir). Kanal kanıt değildir ama *QR* ve `flag` birlikte
-   `qr-requires-ip`'in eşleştiğini ima edebilir; yeni bir açılma değil, aynı bilginin ikinci yeri.
+   (M12-48'de yazıldı): eş mekân satırında kanalı (plaket dokunuşu / QR / elle) gösteren yüzeyler —
+   günlük docket'in kanal alanı ve damgası (M12'den önce de vardı); The Spike'ın *"Physical tap"*
+   kutusu (*"QR scan"* ya da *"chip read"*) ve kaydın satırı (`spikeLine`, *"… · QR"*, M12-28);
+   kadro satırının son dokunuş notu *"by hand"* (M12-18). Hepsi The Pass'ın kanal filtresinin zaten
+   yaptığı açıklamadır (eş satırı `channel=qr` ile süzülebilir). Kanal kanıt değildir ama *QR* ve
+   `flag` birlikte `qr-requires-ip`'in eşleştiğini ima edebilir; yeni bir açılma değil, aynı bilginin
+   başka yerleri.
 6. **K-38:** çapraz QR guardrail'ı işverence ne gevşetilir ne `deny`'e sıkılaştırılır.
 7. **K-29:** üyeliğin **commit edilmiş** bitişinden sonra verilen onay/ret KF'ye düşmez (60 sn'lik
    çıkış penceresinde de — onay katıdır; `TestHoldingFeed_ApprovalInsideTheExitWindowIsNotProjected`);
