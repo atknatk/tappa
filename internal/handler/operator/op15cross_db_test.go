@@ -42,10 +42,12 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/apikey"
@@ -96,7 +98,7 @@ func newCrossSurfaces(t *testing.T, l *legalE2E) *crossSurfaces {
 		t.Fatalf("tappa_app's pool: %v", err)
 	}
 	t.Cleanup(data.Close)
-	log := slog.New(slog.DiscardHandler)
+	log := slog.New(slog.NewTextHandler(newTestLogWriter(t), &slog.HandlerOptions{Level: slog.LevelWarn}))
 	must := func(err error) {
 		t.Helper()
 		if err != nil {
@@ -107,8 +109,19 @@ func newCrossSurfaces(t *testing.T, l *legalE2E) *crossSurfaces {
 	c := &crossSurfaces{data: data, biz: uuid.New(), password: "FAKE op15c cross passphrase " + uuid.NewString()[:8]}
 	c.name = "FAKE op15c cross " + c.biz.String()[:8]
 	c.email = "op15c-cross-" + c.biz.String()[:12] + "@example.test"
-	digest, err := adminauth.Hash(c.password)
+	// 🔴 THE OWNER'S DIGEST IS AT bcrypt's MINIMUM COST, NOT adminauth.Cost (12), and that is the fix of
+	// this test's first CI red (run 39437308396: the sign-in answered 500). Every panel sign-in pays
+	// adminauth.MaxCandidates comparisons at the first candidate's own cost (Manager.pad): about 1.8 s
+	// natively, but 22-25 s under -race on an idle 16-core machine, and 68 s with the CPU contended --
+	// past httpx.RequestTimeout (30 s), so the session's insert met a spent deadline ("adminauth: issue:
+	// db: begin tx: context deadline exceeded") and the panel answered 500 (reproduced on a clean
+	// database under load, 2026-10-20). A digest carries its own cost, so the sign-in runs the same
+	// path -- resolver, eight comparisons, session, cookie -- in milliseconds; the work factor is pinned
+	// in internal/adminauth (TestHash_UsesTheDeclaredCost) and internal/handler's DB harness stores
+	// cost-4 digests for the same reason (adminlogin_db_test.go, ownerDigest).
+	raw, err := bcrypt.GenerateFromPassword([]byte(c.password), bcrypt.MinCost)
 	must(err)
+	digest := string(raw)
 	admin := uuid.New()
 	c.admin = admin
 	for _, q := range []struct {
@@ -193,6 +206,36 @@ func newCrossSurfaces(t *testing.T, l *legalE2E) *crossSurfaces {
 	return c
 }
 
+// testLogWriter sends the three features' WARN and ERROR lines to the test's own log, so a red run says
+// why (the first CI red of this test was a bare 500: the lines went to a discard handler). What those
+// lines carry is the product's choice and CLAUDE.md §7's: the panel's sign-in path logs the address and
+// the error, never the e-mail address or the password; the session token and the API key are on no
+// line. Lines written after the test ended are dropped (t.Log would panic).
+type testLogWriter struct {
+	mu   sync.Mutex
+	t    *testing.T
+	done bool
+}
+
+func newTestLogWriter(t *testing.T) *testLogWriter {
+	w := &testLogWriter{t: t}
+	t.Cleanup(func() {
+		w.mu.Lock()
+		w.done = true
+		w.mu.Unlock()
+	})
+	return w
+}
+
+func (w *testLogWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if !w.done {
+		w.t.Log(strings.TrimRight(string(p), "\n"))
+	}
+	return len(p), nil
+}
+
 // crossNoWork is K-19's set: this test reads no webhook.
 type crossNoWork struct{}
 
@@ -225,7 +268,9 @@ func (c *crossSurfaces) panelSignIn(t *testing.T) []*http.Cookie {
 	for _, k := range page.Result().Cookies() {
 		r.AddCookie(k)
 	}
+	start := time.Now()
 	w := c.serve(r)
+	t.Logf("the panel's sign-in took %v", time.Since(start).Round(time.Millisecond))
 	if w.Code != http.StatusSeeOther || len(w.Result().Cookies()) == 0 {
 		t.Fatalf("the panel's sign-in = %d with %d cookie(s), want 303 and a session", w.Code, len(w.Result().Cookies()))
 	}
