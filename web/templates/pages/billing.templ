@@ -321,49 +321,93 @@ templ billingReceipt(h BillingHistoryRow) {
 }
 
 // AdminBillingClose is the confirmation step: the last screen before a permanent row.
+//
+// THE SHELL CARRIES ITS HEADING: the trail back to Billing, the eyebrow saying whose step
+// this is, and the act with its month as the one h1 (billingCloseView sets them). Below
+// it, the summary; then the receipt of what will be frozen beside the warning and the
+// two controls, side by side from the tablet up and stacked on a phone.
+//
+// THE RECEIPT IS STAMPED DRAFT AND STAYS DRAFT. This page never shows the after-state:
+// the figures on it are a live count, and the frozen document is the section's own page
+// for this month, which the write redirects to.
 templ AdminBillingClose(v BillingCloseView) {
 	@PanelShell(v.PanelChrome) {
-		<div class="flex flex-col gap-4">
-			<section class="bg-paper border border-line px-4 py-4">
-				<h2 class="font-display text-xl font-bold tracking-tight text-ink">{ v.Heading }</h2>
-				<p class="mt-1 text-sm text-ink/85">{ v.Summary }</p>
-				<dl class="mt-3 grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-2">
-					for _, d := range v.Detail {
-						<div>
-							<dt class="docket-label">{ d.Label }</dt>
-							<dd class="font-mono text-xs text-ink">{ d.Value }</dd>
+		<div class="flex flex-col gap-6 md:gap-7">
+			<p class="max-w-3xl text-sm leading-normal text-ink md:text-[15px]">{ v.Summary }</p>
+			<div class="flex flex-col gap-7 md:flex-row md:flex-wrap md:items-start">
+				<section class="docket flex min-w-0 flex-col gap-3 px-4 pb-[22px] pt-[18px] md:flex-[1_1_380px] md:gap-3.5 md:px-[26px] md:pb-7 md:pt-6" aria-labelledby="freeze-what">
+					<div class="flex items-start justify-between gap-3">
+						<div class="flex min-w-0 flex-col gap-0.5">
+							<h2 id="freeze-what" class="font-display text-base font-bold tracking-[-0.01em] text-ink md:text-lg">What will be frozen</h2>
+							<span class="lbl">Check it against the Billing page</span>
 						</div>
+						<span class="stamp stamp--flagged flex-none">DRAFT</span>
+					</div>
+					@billingCloseLines(v.Identity)
+					@billingCloseLines(v.Figures)
+					<div class="flex items-baseline justify-between gap-3 border-t border-dashed border-line pt-3">
+						<span class="text-xs font-bold uppercase md:text-[13px]">{ v.AmountLive.Label }</span>
+						<span class="text-2xl font-bold md:text-[28px]">{ v.AmountLive.Value }</span>
+					</div>
+					if len(v.Notes) > 0 {
+						@billingCloseLines(v.Notes)
 					}
-				</dl>
-			</section>
-			@components.Notice(components.ToneAlert, "This cannot be undone, and the figures are counted again when you press it") {
-				<p>{ v.Warning }</p>
-				<p class="mt-1">
-					// 🔴 THE PAGE MUST NOT CLAIM THE FIGURES ABOVE ARE THE ONES THAT WILL FREEZE.
-					// They are today's live count; the statement that writes the row recounts inside
-					// its own transaction, and it takes no amount from this form — there is no
-					// parameter an invoice figure could be posted into. Between this screen and the
-					// press, somebody can be hired or deactivated, and the row would then differ
-					// from what is printed here.
-					The figures above are a live count taken when this page was drawn. Freezing
-					counts again at that moment, from the same definition, so a person hired or
-					deactivated in between changes what is stored. Nothing you can type here sets
-					the amount.
-				</p>
-				<p class="mt-1">
-					// THE ONE PROMISE THE ROW CANNOT KEEP, SAID BEFORE IT IS WRITTEN RATHER THAN
-					// DISCOVERED AFTERWARDS.
-					What is frozen is the NUMBER of people, not which people. Nothing stored here
-					can reconstruct the list later, and after somebody is anonymised the question
-					has no answer at all — so this figure is an invoice, never an itemised one.
-				</p>
-			}
-			<form method="post" action={ templ.URL(v.Action) } class="flex flex-wrap items-center gap-3">
-				<input type="hidden" name="month" value={ v.Month }/>
-				<input type="hidden" name={ v.ConfirmField } value={ v.ConfirmToken }/>
-				<button class="btn btn--primary" type="submit">Freeze this month</button>
-				<a class="btn btn--quiet" href={ templ.URL(v.BackHref) }>Cancel</a>
-			</form>
+				</section>
+				<div class="flex min-w-0 flex-col gap-4 md:flex-[1_1_420px]">
+					// THE WARNING IS ITS OWN CARD AND NOT A PanelNotice, whose alert tone opens
+					// with "Not done": nothing has failed here, it is the act that is about to
+					// happen. The heading carries the meaning in words and the tomato frame
+					// repeats it.
+					<div role="note" aria-labelledby="freeze-warn" class="flex flex-col gap-2 rounded-[18px] border-2 border-tomato bg-paper px-4 py-4 text-ink md:gap-3 md:px-6 md:py-[22px]">
+						<h2 id="freeze-warn" class="font-display text-base font-bold leading-snug tracking-[-0.02em] md:text-xl">This cannot be undone, and the figures are counted again when you press it</h2>
+						<p class="text-[13px] leading-normal md:text-sm">{ v.Warning }</p>
+						<p class="text-[13px] leading-normal md:text-sm">
+							// 🔴 THE PAGE MUST NOT CLAIM THE FIGURES ABOVE ARE THE ONES THAT WILL FREEZE.
+							// They are today's live count; the statement that writes the row recounts inside
+							// its own transaction, and it takes no amount from this form — there is no
+							// parameter an invoice figure could be posted into. Between this screen and the
+							// press, somebody can be hired or deactivated, and the row would then differ
+							// from what is printed here.
+							The figures above are a live count taken when this page was drawn. Freezing
+							counts again at that moment, from the same definition, so a person hired or
+							deactivated in between changes what is stored. Nothing you can type here sets
+							the amount.
+						</p>
+						<p class="text-[13px] leading-normal md:text-sm">
+							// THE ONE PROMISE THE ROW CANNOT KEEP, SAID BEFORE IT IS WRITTEN RATHER THAN
+							// DISCOVERED AFTERWARDS.
+							What is frozen is the NUMBER of people, not which people. Nothing stored here
+							can reconstruct the list later, and after somebody is anonymised the question
+							has no answer at all — so this figure is an invoice, never an itemised one.
+						</p>
+					</div>
+					// THE FORM CARRIES THE MONTH AND THE CONFIRMATION AND NOTHING ELSE: no amount,
+					// no price, no count. Freeze comes first and Cancel second, which is the order
+					// focus takes.
+					<form method="post" action={ templ.URL(v.Action) } class="flex flex-col gap-2.5 md:flex-row md:flex-wrap md:gap-3">
+						<input type="hidden" name="month" value={ v.Month }/>
+						<input type="hidden" name={ v.ConfirmField } value={ v.ConfirmToken }/>
+						<button class="btn btn--ink min-h-14 rounded-[14px] text-base md:flex-[1_1_220px]" type="submit">Freeze this month</button>
+						<a class="btn btn--line min-h-[52px] rounded-[14px] text-[15px] md:min-h-14 md:flex-[1_1_160px]" href={ templ.URL(v.BackHref) }>Cancel</a>
+					</form>
+					<div class="flex flex-col gap-1.5 rounded-[14px] border border-dashed border-ink/50 px-4 py-3.5">
+						<span class="lbl">After pressing · no page of its own</span>
+						<p class="text-[13px] leading-normal text-ink/70">{ v.AfterLine }</p>
+					</div>
+				</div>
+			</div>
 		</div>
 	}
+}
+
+// billingCloseLines is one group of the receipt: a label and its value per line, the
+// label in the muted ink and the value set right. A long value (a UTC instant) breaks
+// where it must (between words first) rather than pushing the receipt wider than a phone.
+templ billingCloseLines(lines []BillingLine) {
+	<dl class="grid grid-cols-[auto_1fr] gap-x-[18px] gap-y-[9px] border-t border-dashed border-line pt-3 text-xs md:text-[13px]">
+		for _, l := range lines {
+			<dt class="text-ink/70">{ l.Label }</dt>
+			<dd class="min-w-0 text-right text-ink [overflow-wrap:anywhere]">{ l.Value }</dd>
+		}
+	</dl>
 }

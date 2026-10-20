@@ -433,9 +433,17 @@ func (a *AdminAuth) refuseBillingClose(r *http.Request, id httpx.AdminIdentity, 
 // and is rendered back through Month.String — four digits, a hyphen, two digits. There
 // is nothing on this page a caller can put words into.
 func (a *AdminAuth) billingCloseView(r *http.Request, d billing.Draft, token string) pages.BillingCloseView {
+	heading := "Freeze " + monthLabel(d.Month)
+	chrome := a.chrome(r, pages.TabBilling)
+	// THE PAGE'S OWN HEADING IS THE SHELL'S ONE h1 (M12-01): the title is the act and
+	// the month, the trail leads back to the section, and the eyebrow says whose step
+	// this is and what it ends in.
+	chrome.Kicker = "Owner only · the last screen before a permanent row"
+	chrome.Title = heading
+	chrome.Crumbs = []pages.Crumb{{Label: "Billing", Href: billingMonthHref(d.Month)}, {Label: heading}}
 	v := pages.BillingCloseView{
-		PanelChrome:  a.chrome(r, pages.TabBilling),
-		Heading:      "Freeze " + monthLabel(d.Month),
+		PanelChrome:  chrome,
+		Heading:      heading,
 		Action:       billingFreezeHref,
 		Month:        d.Month.String(),
 		ConfirmField: confirmField,
@@ -446,22 +454,29 @@ func (a *AdminAuth) billingCloseView(r *http.Request, d billing.Draft, token str
 		businessName(d.TenantName) + ". From then on this month reads its stored figures and " +
 		"is never recomputed, so a person deactivated or removed later, and a price that " +
 		"changes later, leave the amount exactly as it was."
+	// WHAT HAPPENS NEXT IS THE SECTION ITSELF (billingCloseApply redirects to this
+	// month), so the sentence names that page rather than promising a message.
+	v.AfterLine = "The month is recounted and stored, and you are taken straight back to Billing " +
+		"for " + monthLabel(d.Month) + ". That page is the confirmation: its stamp reads FROZEN, it " +
+		"says when the month was frozen, and its figures are the stored ones."
 	v.Warning = "A frozen month can never be edited, removed or replaced — the database refuses " +
 		"all three, including for us. There is no undo and no credit note in this release, so a " +
 		"month frozen by mistake stays as it is until a correction is designed for it."
-	v.Detail = []pages.BillingLine{
+	v.Identity = []pages.BillingLine{
 		{Label: "Business", Value: businessName(d.TenantName)},
 		{Label: "Month", Value: d.Month.String()},
 		{Label: "Timezone", Value: zoneLabel(d.Zone)},
 		{Label: "Period starts (UTC)", Value: isoUTC(d.From)},
 		{Label: "Period ends (UTC, exclusive)", Value: isoUTC(d.To)},
 		{Label: "Plan", Value: planLabel(d.Plan)},
+	}
+	v.Figures = []pages.BillingLine{
 		{Label: "People counted (live)", Value: strconv.Itoa(d.EmployeeCount)},
 		{Label: "Price per person", Value: money(d.UnitPrice)},
-		{Label: "Amount (live)", Value: money(d.AmountDue)},
 	}
+	v.AmountLive = pages.BillingLine{Label: "Amount (live)", Value: money(d.AmountDue)}
 	if d.Free {
-		v.Detail = append(v.Detail, pages.BillingLine{
+		v.Notes = append(v.Notes, pages.BillingLine{
 			Label: "Founding offer",
 			Value: "inside the free window — this month freezes at zero",
 		})
@@ -470,7 +485,7 @@ func (a *AdminAuth) billingCloseView(r *http.Request, d billing.Draft, token str
 		// THE FLOOR ADMISSION TRAVELS ONTO THE WARNING TOO. This is the last screen
 		// before a permanent row; a caveat that appeared on the section and not here
 		// would be one the reader had already scrolled past.
-		v.Detail = append(v.Detail, pages.BillingLine{
+		v.Notes = append(v.Notes, pages.BillingLine{
 			Label: "The count is a floor",
 			Value: plural(d.UnstampedEmployees, "record", "records") +
 				" disagree with their own dates and cannot be counted (an upper bound, not a shortfall)",

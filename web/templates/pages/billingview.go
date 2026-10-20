@@ -209,9 +209,19 @@ type BillingCloseView struct {
 
 	Heading string
 	Summary string
-	// Detail is what will be frozen, spelled out — the same figures the section
-	// showed, so the reader can check the screen against itself before pressing.
-	Detail []BillingLine
+	// What will be frozen, spelled out — the same figures the section showed, so the
+	// reader can check the screen against itself before pressing. It is four named
+	// groups rather than one list the template slices by position: Identity says which
+	// document (business, month, zone, boundaries, plan), Figures the count and the
+	// price, AmountLive the amount as counted now, and Notes the conditional lines (the
+	// founding offer, the floor). The labels are the definitions and stay whole.
+	Identity   []BillingLine
+	Figures    []BillingLine
+	AmountLive BillingLine
+	Notes      []BillingLine
+	// AfterLine says what pressing leads to: the section's own page for this month,
+	// stamped FROZEN. The redirect is the confirmation; this page has no done state.
+	AfterLine string
 	// Warning is the consequence, and it says the two things that are true: the row
 	// can never be edited or removed, and the figures are re-counted at the instant of
 	// the close rather than taken from this page.
