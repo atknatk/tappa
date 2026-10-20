@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/a-h/templ"
@@ -255,6 +256,16 @@ func NewTap(preview tapPreviewer, dir tapDirectory, sess sessionVerifier, checki
 // it is a plaque swap in the field. The route and the thing written to the chip are
 // now the same string at compile time.
 const TapPath = "/t"
+
+// PlaqueTapBase is the URL a plaque carries before its query: the configured
+// TAPPA_BASE_URL without a trailing slash, then TapPath. It is the ONE place that
+// joins the two. cmd/tappa calls it once and hands the result both to the encode relay
+// (what the chip's NDEF template is built from) and to the panel (what the plaque
+// drawing's QR code is built from, M12-12), so the chip and the drawing cannot name two
+// hosts or two routes.
+func PlaqueTapBase(baseURL string) string {
+	return strings.TrimRight(baseURL, "/") + TapPath
+}
 
 func (t *Tap) Mount(r chi.Router) {
 	r.Group(func(r chi.Router) {

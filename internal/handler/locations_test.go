@@ -63,11 +63,11 @@ func newAdminRouterWithVenues(t *testing.T, admins *fakeAdmins, venues panelVenu
 // caller's control too (M6-06 phase B). It is a second constructor rather than a
 // widened one because every existing caller is about venues and departments, and
 // making them all name a plaque fake would bury the one thing each is testing.
-func newAdminRouterWithPlaques(t *testing.T, admins *fakeAdmins, venues panelVenues, plaques panelPlaques) http.Handler {
+func newAdminRouterWithPlaques(t *testing.T, admins *fakeAdmins, venues panelVenues, plaques panelPlaques, opts ...AdminAuthOption) http.Handler {
 	t.Helper()
 	records := newFakeLedger()
 	h, err := NewAdminAuth(admins, &fakeTrail{}, records, records, &fakeReviewer{},
-		&fakeStaff{}, &fakeInviter{}, venues, plaques, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(), newFakeAccount(), newFakeBrands(), newFakeBrandWriter(), nil, &fakeNotices{}, adminTestConfig(), discardLogger())
+		&fakeStaff{}, &fakeInviter{}, venues, plaques, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(), newFakeAccount(), newFakeBrands(), newFakeBrandWriter(), nil, &fakeNotices{}, adminTestConfig(), discardLogger(), opts...)
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}

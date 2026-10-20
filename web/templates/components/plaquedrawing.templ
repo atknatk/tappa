@@ -1,0 +1,47 @@
+package components
+
+// PlaqueDrawing draws one plaque the way it hangs on a wall (M12-12, D4): the tap
+// zone on top, the QR code it carries underneath, and the printed line with the last
+// four digits of its uid.
+//
+// 🔴 THE QR CODE IS THE PLAQUE'S REAL ONE, NEVER A PATTERN. The d attribute is
+// internal/qrcode's SVGPath output, carried on the view as a string and written here
+// verbatim; this template computes no module. Dark modules in ink on a paper ground,
+// never on green: a camera expects dark modules on a light ground (skill tappa-brand,
+// "Plaket baskısı"). Colours come from classes and the size from SVG presentation
+// attributes; the panel's policy refuses a style attribute.
+//
+// The figure is ONE image to a screen reader, named by the view's Label; the rings are
+// drawn, not said. The copy is the skill's, word for word.
+templ PlaqueDrawing(v PlaqueDrawingView) {
+	if v.Drawable() {
+		<figure role="img" aria-label={ v.Label() } class="flex flex-col items-center gap-3 rounded-[18px] bg-line/50 p-6">
+			<div class="flex w-[200px] flex-col overflow-hidden rounded-2xl border border-line bg-paper shadow-lg shadow-ink/10">
+				<div class="flex h-44 flex-col items-center justify-center gap-2.5">
+					<div aria-hidden="true" class="flex h-[120px] w-[120px] items-center justify-center rounded-full border border-ink/25">
+						<div class="flex h-[86px] w-[86px] items-center justify-center rounded-full border border-ink/45">
+							<div class="flex h-[54px] w-[54px] items-center justify-center rounded-full border-2 border-ink font-display text-xs font-bold tracking-tight text-ink">taptime</div>
+						</div>
+					</div>
+					<span class="font-display text-xs font-bold text-ink">Hold your phone here</span>
+				</div>
+				<div class="flex flex-col items-center gap-1 border-t border-dashed border-line pb-3 pt-2.5">
+					<svg viewBox={ v.QRViewBox() } width={ v.QRPixels() } height={ v.QRPixels() } shape-rendering="crispEdges" aria-hidden="true" class="h-auto max-w-full">
+						<rect width={ v.qrSideText() } height={ v.qrSideText() } class="fill-paper"></rect>
+						<path class="fill-ink" d={ v.QRPath }></path>
+					</svg>
+					<span class="font-display text-[11px] font-medium text-ink">Or scan — same thing</span>
+					<span class="font-mono text-[10px] tracking-[.12em] text-ink">PLAQUE { v.Last4 }</span>
+				</div>
+			</div>
+			<figcaption class="text-center font-mono text-[11px] text-ink/70">drawing, not to scale</figcaption>
+		</figure>
+	}
+}
+
+// PlaqueNotOnAWall is the drawing's place when a venue has no plaque on a wall: no
+// drawing, and the sentence that says why. It is a venue's state, not a plaque's —
+// the Venues detail (M12-34) is where it is shown.
+templ PlaqueNotOnAWall() {
+	<p class="text-sm text-ink">No plaque is on a wall here yet.</p>
+}
