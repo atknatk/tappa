@@ -52,6 +52,8 @@ var evidenceReaders = map[string]evidenceReaderClass{
 		"partner rows are not in the breakdown; ledger appends one unnamed bucket, last, from the totals"},
 	"ListAnomalyPlaques": {"excluded", "tag_uid IS NOT NULL", 0,
 		"a site row's tag_uid is NULL (K-30): the peer's plaque is never the employer's anomaly"},
+	"ListAnomalyPlaqueJumps": {"excluded", "tag_uid IS NOT NULL", 0,
+		"the counters around a listed plaque's largest gap (M12-24): a site row's tag_uid is NULL (K-30), and the previous-read lookup is keyed on the same own tag_uid"},
 	"ListPanelTransactions": {"go-blank", "site_location_id", 0,
 		"ledger.nameSiteRecords blanks ip/gps/trust and replaces an evidence rule's note (matched_sid read for that)"},
 	"ListFlaggedForReview": {"go-blank", "site_location_id", 0, "the same mapping as the day list (review queue)"},

@@ -9,11 +9,15 @@ package ledger
 
 import (
 	"context"
+	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/atknatk/tappa/internal/db"
 )
 
 // TestRLS_OddShapes_TenantIsolation: B (C in hWorld) has a record of every evidence shape at its
@@ -99,5 +103,194 @@ func TestRLS_OddShapes_TenantIsolation(t *testing.T) {
 	}
 	if n := days(a); n != 0 {
 		t.Errorf("§4.5 BREACH: A's connection finds B's pair on %d local days", n)
+	}
+
+	// M12-24: B's plaque's counters, as ListAnomalyPlaqueJumps reads them, with no tenant predicate.
+	counters := func(tenant uuid.UUID) (n int) {
+		t.Helper()
+		if err := w.data.WithTenant(w.ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
+			return tx.QueryRow(ctx, `SELECT count(t.ctr) FROM transactions t WHERE t.tag_uid = $1 AND t.sun_valid`, plaque).Scan(&n)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if n := counters(b); n != 7 {
+		t.Fatalf("CONTROL: B's own connection reads %d counters of its plaque, want 7", n)
+	}
+	if n := counters(a); n != 0 {
+		t.Errorf("§4.5 BREACH: A's connection reads %d counters of B's plaque", n)
+	}
+}
+
+// jumpTap writes one tap of KM's on uid at KM's venue: a verified read (ok, in) with the given
+// counter and tap:ctrGap, or -- sun false -- a replay refused (reject, no direction).
+func (w *hWorld) jumpTap(uid string, at time.Time, ctr, gap int, sun bool) {
+	w.t.Helper()
+	verdict, kind := "ok", any("in")
+	if !sun {
+		verdict, kind = "reject", nil
+	}
+	w.exec(`INSERT INTO transactions (tenant_id, employee_id, occurred_at, verdict, channel, type, sun_valid, ctr, location_id, tag_uid, policy_context)
+	        VALUES ($1, $2, $3, $4, 'nfc', $5, $6, $7, $8, $9, jsonb_build_object('tap:ctrGap', $10::int))`,
+		w.km, w.staff[w.km][0], at, verdict, kind, sun, ctr, w.venue[w.km], uid, gap)
+}
+
+// TestAnomalies_ThePlaqueJumpNamesItsCounters (M12-24): the counters around each listed plaque's
+// largest gap, one week of KM's (Mon 9 - Sun 15 February 2026, Malta):
+//
+//	P  ctr 600 on Fri 6 Feb 22:00 (BEFORE the week), a replay of 600 refused on Mon 9 01:00,
+//	   ctr 641 gap 40 on Tue 10 09:30, ctr 645 gap 3 on Wed 11 -> #600 -> #641, between
+//	   Fri 22:00 (the verified read, not the later replay) and Tue 09:30
+//	Q  ctr 50 gap 7, no earlier read (an installer's reads, an activation tap) -> #42 -> #50,
+//	   the earlier read not on record
+//	R  ctr 10 on Thu 12 08:00, ctr 20 gap 5 at 09:00 -> #14 -> #20, the earlier time NOT the
+//	   08:00 read's (its counter is 10, not 14)
+//
+// and this week, a KF employee's tap on KM's plaque S revealing a gap of 90 (the projection,
+// K-1i) beside KM's own gap of 2 there -> the row's largest gap is the peer's, so its counters
+// are "elsewhere". MUTANTS (measured 2026-10-20): `q.sun_valid` dropped -> P's earlier time is the
+// replay's; the JumpFrom check dropped -> R carries the 08:00 time; the gap check dropped -> S
+// prints KM's own counters beside the peer's 90; the read outside a savepoint -> the page fails
+// (TestAnomalies_AFailedCounterReadLeavesThePageStanding) -- each red.
+func TestAnomalies_ThePlaqueJumpNamesItsCounters(t *testing.T) {
+	w := newHWorld(t)
+	p, q, r := w.tag(w.km, w.venue[w.km]), w.tag(w.km, w.venue[w.km]), w.tag(w.km, w.venue[w.km])
+	w.jumpTap(p, hLocal(t, "2026-02-06", "22:00:00"), 600, 0, true)
+	w.jumpTap(p, hLocal(t, "2026-02-09", "01:00:00"), 600, 0, false)
+	w.jumpTap(p, hLocal(t, "2026-02-10", "09:30:00"), 641, 40, true)
+	w.jumpTap(p, hLocal(t, "2026-02-11", "09:00:00"), 645, 3, true)
+	w.jumpTap(q, hLocal(t, "2026-02-12", "10:00:00"), 50, 7, true)
+	w.jumpTap(r, hLocal(t, "2026-02-12", "08:00:00"), 10, 0, true)
+	w.jumpTap(r, hLocal(t, "2026-02-12", "09:00:00"), 20, 5, true)
+	a, err := w.r.Anomalies(w.ctx, w.km, ReportFilter{Day: Date{Year: 2026, Month: time.February, Day: 11}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plaque := func(uid string) AnomalyPlaque {
+		t.Helper()
+		for _, pl := range a.Plaques {
+			if pl.TagUID == uid {
+				return pl
+			}
+		}
+		t.Fatalf("plaque %s is not on the gap list: %+v", uid, a.Plaques)
+		return AnomalyPlaque{}
+	}
+	at := func(pl AnomalyPlaque) string {
+		if pl.JumpPreviousAt == nil {
+			return "nil"
+		}
+		return pl.JumpPreviousAt.UTC().Format(time.RFC3339)
+	}
+	for _, c := range []struct {
+		name     string
+		uid      string
+		from, to int
+		at, prev time.Time
+	}{
+		{"P: the earlier read before the week, the replay skipped", p, 600, 641, hLocal(t, "2026-02-10", "09:30:00"), hLocal(t, "2026-02-06", "22:00:00")},
+		{"Q: no earlier read on record", q, 42, 50, hLocal(t, "2026-02-12", "10:00:00"), time.Time{}},
+		{"R: the earlier read is not the one at #from", r, 14, 20, hLocal(t, "2026-02-12", "09:00:00"), time.Time{}},
+	} {
+		pl := plaque(c.uid)
+		want := "nil"
+		if !c.prev.IsZero() {
+			want = c.prev.UTC().Format(time.RFC3339)
+		}
+		if pl.JumpState != CounterJumpRead || pl.JumpFrom != c.from || pl.JumpTo != c.to || !pl.JumpAt.Equal(c.at) || at(pl) != want {
+			t.Errorf("%s: %s #%d -> #%d at %v, earlier %s; want read #%d -> #%d at %v, earlier %s",
+				c.name, pl.JumpState, pl.JumpFrom, pl.JumpTo, pl.JumpAt, at(pl), c.from, c.to, c.at, want)
+		}
+	}
+
+	s := w.tag(w.km, w.venue[w.km])
+	w.jumpTap(s, time.Now().Add(-2*time.Minute), 700, 2, true)
+	w.exec(`INSERT INTO transactions (tenant_id, employee_id, occurred_at, verdict, channel, type, sun_valid, ctr, queued, policy_context,
+	                                  site_tenant_id, site_location_id, site_tag_uid)
+	        VALUES ($1, $2, now() - interval '1 minute', 'ok', 'nfc', 'in', true, 791, false, '{"tap:ctrGap": 90}', $3, $4, $5)`,
+		w.kf, w.staff[w.kf][0], w.km, w.venue[w.km], s)
+	a, err = w.r.Anomalies(w.ctx, w.km, ReportFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pl := plaque(s); pl.LargestGap != 90 || pl.JumpState != CounterJumpElsewhere || pl.JumpTo != 0 || pl.JumpPreviousAt != nil {
+		t.Errorf("S, the peer's gap the larger: largest %d, %s #%d -> #%d; want 90 and elsewhere, no counters", pl.LargestGap, pl.JumpState, pl.JumpFrom, pl.JumpTo)
+	}
+}
+
+// failingTx is a transaction whose ListAnomalyPlaqueJumps statement fails IN POSTGRES (a
+// division by zero, so the transaction really is aborted -- a Go error would prove nothing about
+// the savepoint); every other statement, and the savepoint it opens, is the real one.
+type failingTx struct {
+	pgx.Tx
+	match string
+}
+
+func (f failingTx) Begin(ctx context.Context) (pgx.Tx, error) {
+	sp, err := f.Tx.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return failingTx{sp, f.match}, nil
+}
+
+func (f failingTx) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	if strings.Contains(sql, f.match) {
+		return f.Tx.Query(ctx, "SELECT 1/0")
+	}
+	return f.Tx.Query(ctx, sql, args...)
+}
+
+type failingData struct {
+	inner Database
+	match string
+}
+
+func (f failingData) WithTenant(ctx context.Context, tenantID uuid.UUID, fn db.TxFunc) error {
+	return f.inner.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		return fn(ctx, failingTx{tx, f.match})
+	})
+}
+
+// TestAnomalies_AFailedCounterReadLeavesThePageStanding (M12-24, P3 (f)): the counters' statement
+// fails in Postgres -> the page still answers (Queried), the gap list is there with every plaque
+// "failed" (never zero counters as if measured), the reads AFTER it in the same transaction still
+// ran (the open check-in is listed -- the savepoint cleared the abort), and the failure is logged.
+// CONTROL: the same reader without the planted failure reads the counters.
+func TestAnomalies_AFailedCounterReadLeavesThePageStanding(t *testing.T) {
+	w := newHWorld(t)
+	uid := w.tag(w.km, w.venue[w.km])
+	w.jumpTap(uid, hLocal(t, "2026-01-13", "09:00:00"), 30, 4, true)
+	day := ReportFilter{Day: Date{Year: 2026, Month: time.January, Day: 13}}
+
+	logs := &logCounter{}
+	failing, err := NewReader(failingData{inner: w.data, match: "name: ListAnomalyPlaqueJumps"}, slog.New(logs))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := failing.Anomalies(w.ctx, w.km, day)
+	if err != nil {
+		t.Fatalf("a failed counter read failed the page: %v", err)
+	}
+	if !a.Queried || len(a.Plaques) != 1 || a.Plaques[0].TagUID != uid || a.Plaques[0].LargestGap != 4 {
+		t.Fatalf("the page: queried %v, plaques %+v; want the gap list standing", a.Queried, a.Plaques)
+	}
+	if pl := a.Plaques[0]; pl.JumpState != CounterJumpFailed || pl.JumpTo != 0 || pl.JumpPreviousAt != nil {
+		t.Errorf("the counters after a failed read: %s #%d -> #%d; want failed and nothing else", pl.JumpState, pl.JumpFrom, pl.JumpTo)
+	}
+	if len(a.Open) != 1 {
+		t.Errorf("the open list after the failed read holds %d entries, want the 1 check-in -- the transaction stayed aborted", len(a.Open))
+	}
+	if logs.errors() != 1 {
+		t.Errorf("%d errors logged, want 1 -- a swallowed failure is §7's `_ = err`", logs.errors())
+	}
+
+	b, err := w.r.Anomalies(w.ctx, w.km, day)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pl := b.Plaques[0]; pl.JumpState != CounterJumpRead || pl.JumpFrom != 25 || pl.JumpTo != 30 {
+		t.Errorf("CONTROL: %s #%d -> #%d, want read #25 -> #30", pl.JumpState, pl.JumpFrom, pl.JumpTo)
 	}
 }
