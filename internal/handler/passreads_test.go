@@ -2,7 +2,8 @@ package handler
 
 // passreads_test.go -- §4.7 asserted STRUCTURALLY on the Pass's new domain reads (M12-13 ...,
 // D3): no field a coordinate, an address or a secret could travel in, and every leaf a count, a
-// name, a flag, an id, an instant or a Reading. The view types lane D builds on them get their own
+// name, a flag, an id, an instant or a Reading -- the one text leaf being a venue's Name, so no
+// evidence sentence (K-39) has a field to travel in either. The view types lane D builds on them get their own
 // walkers; this pins the layer underneath, so a field added here is refused before any template
 // can print it.
 
@@ -42,7 +43,15 @@ func TestPassReads_CarryNothingACoordinateCouldTravelIn(t *testing.T) {
 			}
 			switch {
 			case allowedStruct[ft], allowedArray[ft], ft == reflect.TypeOf(ledger.Reading(0)):
-			case ft.Kind() == reflect.String, ft.Kind() == reflect.Bool, ft.Kind() == reflect.Int:
+			case ft.Kind() == reflect.String:
+				// The only text a Pass figure carries is a venue's name. A note, a reason or any
+				// other sentence would be where a partner venue's evidence could be put into words
+				// (K-39), so it is refused here, before any reader could fill it.
+				if f.Name != "Name" {
+					t.Errorf("%s%s.%s is text that is not a venue's name -- a Pass figure carries no sentence (K-39)",
+						path, rt.Name(), f.Name)
+				}
+			case ft.Kind() == reflect.Bool, ft.Kind() == reflect.Int:
 			case ft.Kind() == reflect.Struct:
 				walk(ft, path+rt.Name()+".")
 			default:
