@@ -1079,6 +1079,12 @@ func (r *Rulebook) storedRule(
 	return rule
 }
 
+// StatementsOf flattens a document the way the screen shows a stored one -- for a page
+// that compares a shipped document (what an authored version will copy) with a stored
+// version, so both sides are flattened by ONE function (the panel's rule change review,
+// M12-38).
+func StatementsOf(doc policy.Document) []RuleStatement { return statementsOf(doc) }
+
 // statementsOf flattens a parsed document for display.
 func statementsOf(doc policy.Document) []RuleStatement {
 	out := make([]RuleStatement, 0, len(doc.Statements))

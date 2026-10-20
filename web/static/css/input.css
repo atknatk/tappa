@@ -1599,6 +1599,17 @@
     @apply absolute bottom-0 left-0 h-[7px] w-2.5 rounded-[2px] bg-ink;
   }
 
+  /* --- a rule change's before / after (M12-38) ---
+     What goes is struck through in tomato, what arrives sits on a tenth of
+     tappa-green; the word stays ink on both (ink on either tint over porcelain
+     or paper is above 12:1), and the template adds "removed" / "added" for a
+     screen reader, so the tint never carries the meaning alone. */
+  .diff-del {
+    @apply rounded-full bg-tomato/10 px-2 py-px text-ink line-through decoration-tomato
+           decoration-2;
+  }
+  .diff-ins { @apply rounded-full bg-tappa-green/10 px-2 py-px text-ink no-underline; }
+
   /* --- the rule switch: a submit button whose words name the outcome ---
      No switch role and no pressed state: the state is the state chip beside it,
      and the button says what pressing it will do. */
