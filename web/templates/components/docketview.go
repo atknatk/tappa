@@ -65,6 +65,13 @@ type DocketView struct {
 	TagUID string
 	// Ctr is the chip's read counter as text, "" when there is none.
 	Ctr string
+	// Channel is how the record arrived -- nfc | qr | manual, the column's closed
+	// set (migration 0005), carried as the code's word. It is not rendered by
+	// either docket today: Manual below is the docket's half of §5's "manual is
+	// reported separately", and Channel is for the screens that name the channel
+	// itself (The Spike's "IN · 14:26:02 · NFC" line, M12-28). It is a channel, not
+	// a place: it says nothing about a network or a coordinate (§4.7).
+	Channel string
 	// Verdict is ok | flag | reject | ignored. It picks the stamp, and the stamp
 	// carries the WORD as well as the colour, so status is never told by colour
 	// alone.

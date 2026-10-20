@@ -203,6 +203,15 @@ templ PlaqueCard(v PlaqueFormView) {
 			}
 		}
 		@PlaqueRow(v.Plaque)
+		if v.Drawing != nil {
+			// The plaque on its wall, with the QR code it really carries (M12-12). The
+			// Venues detail of the redesign (M12-34) draws it beside the venue; until
+			// then the open card of a mounted plaque is the one place on this page that
+			// is about one plaque on one wall.
+			<div class="mt-4 flex justify-center">
+				@PlaqueDrawing(*v.Drawing)
+			</div>
+		}
 		if len(v.Trail) > 0 {
 			// 🔴 THE AUDIT HALF OF THE HISTORY, AND IT ANSWERS THE ONE QUESTION THE ROW
 			// CANNOT. The docket above already says WHAT happened and WHEN — loaded, took

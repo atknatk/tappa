@@ -331,10 +331,10 @@ kaldırıldı).
 - **Commit:** `feat(panel): add the redesign's component classes and class buckets`
 
 **Amaç.** README §4–§5'in paylaşılan sınıfları `input.css` `@layer components` altında: `.panel-card`,
-`.stat-card`, `.lbl`, `.field` / `.field-input`, `.chip` / `.chip-group`, `.pill` + tonlar, `.btn--ink`,
-`.btn--line`, `.btn--danger`, `.btn--approve`, `.btn--reject`, `.tally--pill`, `.ev-tile*`, `.queue-item*`,
+`.stat-card`, `.lbl`, `.field-stack` / `.field-input`, `.chip-link` / `.chip-group`, `.pill` + tonlar, `.btn--ink`,
+`.btn--line`, `.btn--danger`, `.btn--approve`, `.btn--reject`, `.pill-tally`, `.ev-tile*`, `.queue-item*`,
 `.roster-row`, `.venue-card*`, `.ev-badge*`, `.roll-cell*`, `.tape-bar--1…10`, `.rail-item:nth-child` eğim
-kuralları, `.ladder` / `.rung` / `.plate` / `.lock`, `.switch*`. Kova yardımcıları **tek bir `.templ`
+kuralları, `.ladder` / `.rung` / `.plate` / `.lock-glyph`, `.rule-switch*`. Kova yardımcıları **tek bir `.templ`
 dosyasında**: `widthPct` (21 literal), `tapeBar` (10 literal).
 
 **Kabul kriterleri.**
@@ -856,11 +856,15 @@ testleri; bayraklar veriden; önbellek değişmez (her ziyaretçiye aynı bayt).
 
 ## M12-47 — M-More sayfası cilası
 
-- **Bağımlılık:** M12-08 · **Araç:** yapıcı (`tappa-brand`) · **Commit:** `style(panel): group the More sheet as drawn`
-- **Dosyalar:** `web/static/css/input.css` (`.sheet-*`), `web/templates/components/panel.templ` (`BarNav`, yalnız sınıf/ok), `internal/handler/dashboard_test.go`
+- **Bağımlılık:** M12-08 · **Araç:** yapıcı (`tappa-brand`) · **Commit:** `style(panel): lift the More sheet over a dimmed page as drawn` (ilk deneme `style(panel): group the More sheet as drawn` panoya aykırıydı, geri alındı)
+- **Dosyalar:** yalnız `web/static/css/input.css` (`.bar-sheet`, `.bar-more`, `.sheet-foot`)
 
-Yalnız CSS: gruplu yuvarlatılmış liste, oklar, kesikli ayraçlar. Ek kabul: yeni rota yok; rozet sorgusu
-yok; Manual entry bağlantısı yok; tek-current testi yeşil.
+Yalnız CSS, markup değişmez. **Satırlar kod olarak kalır** — pano (`fd18724` / `c2dd88d`) teslim edilen
+düz satırları çizer (min 48 px, düz `border-b`); "gruplu yuvarlatılmış liste, oklar, kesikli ayraçlar" ilk
+tam-sayfa More panosuna (`0e31694`) aitti ve bu kartın eski metniydi. Cila = sayfanın ink/10 kaldırma gölgesi
++ çubuğun üstündeki sayfayı karartan ink/40 perde + sign-out düğmesinin 10 px yarıçapı. Perde More
+`<summary>`'sinin `::before`'udur: perdeye dokunmak sayfayı kapatır (yalnız CSS, betik yok). Ek kabul: yeni
+rota yok; rozet sorgusu yok; Manual entry bağlantısı yok; tek-current testi yeşil.
 
 ---
 

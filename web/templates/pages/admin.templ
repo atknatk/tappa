@@ -10,16 +10,15 @@ import (
 // kitchen-docket motif for a record-shaped row, touch targets at least 44px, and
 // no dark theme.
 //
-// WHY THE PANEL USES THE SAME SHELL AS THE TAP SCREENS. layout.Page is one narrow
-// column sized for a phone, which is not what a dashboard wants — but M6-01 is
-// authentication, and a sign-in form IS one narrow column. M6-02 owns the panel
-// layout and will bring its own shell; giving this task a second one would mean
-// two shells nobody had decided between.
-//
-// NO SCRIPT ON ANY OF THESE PAGES, which is why layout.Page is used rather than
-// layout.PageWithScript: a sign-in that works with JavaScript disabled works on a
-// locked-down work laptop too. The CSP the handler sets omits script-src entirely
-// for the same reason.
+// THE SIGN-IN FAMILY — sign-in, "which business?" and the recovery screens in
+// adminreset.templ — RENDERS layout.Auth (design "The Pass", M12-43/M12-44): a
+// full-bleed document each page lays out itself. Only the sign-in page passes a
+// script (the password reveal); the others pass "" and their policy, adminCSP,
+// names no script-src at all, so a path written there would load nothing
+// (TestAdminLoginPassword_OnlyTheSignInPageWidensIt). A sign-in that works with
+// JavaScript disabled works on a locked-down work laptop too. The family is
+// Taptime's own: no tenant logo, accent or stripe on any of it
+// (TestPanelBrand_TheSignInFamilyStaysTaptime).
 
 // AdminLogin is the panel sign-in form: one email, one password, one button.
 //
@@ -51,12 +50,15 @@ import (
 // TestAdminLogin_OffersNoSignInLinkItCannotSend keeps it absent.
 templ AdminLogin(v AdminLoginView) {
 	@layout.Auth("Sign in — Taptime", adminPasswordScript) {
-		<div class="flex min-h-screen flex-col lg:flex-row">
+		<div class="flex min-h-screen flex-col desk:flex-row">
 			@adminLoginBrandPanel(v)
-			<main class="flex flex-1 flex-col gap-8 px-5 py-10 sm:px-8 lg:px-14 lg:py-12">
+			<main class="flex min-w-0 flex-1 flex-col gap-6 px-4 py-6 md:gap-8 md:px-10 md:py-14 desk:flex-[1_1_560px] desk:px-16 desk:pb-12 desk:pt-8">
 				if v.SignupHref != "" {
-					<div class="flex flex-wrap items-center justify-between gap-x-6">
-						<p class="text-sm text-ink/70">Not using Taptime yet?</p>
+					// Below the form on a phone (after a dashed rule), above it on a desk —
+					// one block moved by its order. On a tablet the band's top row carries
+					// the same offer instead (adminLoginBrandPanel).
+					<div class="order-last flex flex-col items-center gap-0.5 border-t border-dashed border-line pt-3.5 md:order-first md:hidden desk:flex md:flex-row md:flex-wrap md:justify-end md:gap-x-3.5 md:border-t-0 md:pt-0">
+						<p class="text-[13px] text-ink/70 md:text-sm">Not using Taptime yet?</p>
 						<a
 							href={ templ.SafeURL(v.SignupHref) }
 							class="inline-flex min-h-11 items-center font-display text-sm font-bold tracking-tight text-tappa-green underline underline-offset-4 hover:text-ink"
@@ -65,84 +67,82 @@ templ AdminLogin(v AdminLoginView) {
 						</a>
 					</div>
 				}
-				<div class="flex flex-1 items-center justify-center">
-					<div class="w-full max-w-md">
-						<section class="rounded-lg border border-line bg-paper px-6 py-8 shadow-sm sm:px-9">
-							<h1 class="font-display text-3xl font-bold tracking-tight">Welcome back</h1>
-							<p class="mt-2 text-sm text-ink/70">Sign in to your business panel.</p>
-							if v.Recovered {
-								<div class="mt-6">
-									@components.Notice(components.ToneOK, "Your new password is set") {
-										<p>
-											Every Taptime session was signed out, on every device. Sign in with the new password.
-										</p>
-									}
-								</div>
-							}
-							if v.Failed {
-								<div class="mt-6">
-									@components.Notice(components.ToneAlert, "We could not sign you in") {
-										<p>Check the email address and the password, then try again.</p>
-									}
-								</div>
-							}
-							<form method="post" action="/admin/login" class="mt-7 flex flex-col gap-5">
-								<input type="hidden" name="csrf" value={ v.CSRFToken }/>
-								<div class="flex flex-col gap-1.5">
-									<label for="admin-email" class="docket-label">Work email</label>
-									<input
-										id="admin-email"
-										name="email"
-										type="email"
-										autocomplete="username"
-										required
-										autofocus
-										placeholder="you@yourcompany.com"
-										class="min-h-11 w-full rounded-md border border-line bg-paper px-3 py-2 font-mono text-sm text-ink placeholder:text-ink/70 focus:border-tappa-green focus:outline-none focus:ring-1 focus:ring-tappa-green"
-									/>
-								</div>
-								<div class="flex flex-col gap-1.5">
-									<label for="admin-password" class="docket-label">Password</label>
-									<div class="relative">
-										// 🔴 EVERY ATTRIBUTE ON THIS INPUT IS THE ONE IT HAD BEFORE THE REVEAL
-										// BUTTON, and that is a requirement rather than tidiness: name, id,
-										// autocomplete="current-password" and required are what a password
-										// MANAGER reads to decide this is the field it stored a secret for.
-										// The one class that changed is pr-12, which reserves the 44px the
-										// button occupies so a long value does not run underneath it — a
-										// manager reads attributes, not padding.
-										//
-										// type="password" is the SERVED value and stays that way. The script
-										// swaps it to "text" and back; a browser that runs no script never
-										// sees anything but this.
-										<input
-											id="admin-password"
-											name="password"
-											type="password"
-											autocomplete="current-password"
-											required
-											placeholder="••••••••"
-											class="min-h-11 w-full rounded-md border border-line bg-paper px-3 py-2 pr-12 font-mono text-sm text-ink focus:border-tappa-green focus:outline-none focus:ring-1 focus:ring-tappa-green"
-										/>
-										@adminPasswordToggle()
-									</div>
-								</div>
-								<button type="submit" class="btn btn--primary mt-1 w-full">Sign in</button>
-							</form>
-							if v.ResetHref != "" {
-								<p class="mt-4 text-center text-sm">
-									// The touch-target class is not decoration here: this is the link somebody
-									// reaches for after a failed sign-in, often on a phone, and
-									// TestPanelScreens_EveryPressTargetCarriesATouchTargetClass measures every
-									// anchor on a panel screen against the brand's 44px floor.
-									<a href={ templ.SafeURL(v.ResetHref) } class="inline-flex min-h-11 items-center text-ink/70 underline underline-offset-4 hover:text-ink">Forgot password?</a>
+				<div class="flex flex-1 flex-col items-center justify-center gap-5">
+					<section class="flex w-full max-w-[440px] flex-col gap-[22px] md:max-w-[480px] md:rounded-[18px] md:border md:border-line md:bg-paper md:px-9 md:pb-8 md:pt-9 desk:max-w-[440px]">
+						<div class="flex flex-col gap-1.5 md:gap-2">
+							<h1 class="font-display text-3xl font-bold leading-none tracking-tight md:text-[32px] desk:text-[34px]">Welcome back</h1>
+							<p class="text-[15px] text-ink/70">Sign in to your business panel.</p>
+						</div>
+						if v.Recovered {
+							@components.Notice(components.ToneOK, "Your new password is set") {
+								<p>
+									Every Taptime session was signed out, on every device. Sign in with the new password.
 								</p>
 							}
-						</section>
-						<p class="mt-6 text-center text-xs text-ink/70">
-							This is the manager panel. Employees do not sign in — they tap the plaque.
-						</p>
-					</div>
+						}
+						if v.Failed {
+							@components.Notice(components.ToneAlert, "We could not sign you in") {
+								<p>Check the email address and the password, then try again.</p>
+							}
+						}
+						<form method="post" action="/admin/login" class="flex flex-col gap-4 md:gap-[18px]">
+							<input type="hidden" name="csrf" value={ v.CSRFToken }/>
+							<div class="field-stack">
+								<label for="admin-email" class="lbl">Work email</label>
+								<input
+									id="admin-email"
+									name="email"
+									type="email"
+									autocomplete="username"
+									required
+									autofocus
+									placeholder="you@yourcompany.com"
+									class="field-input field-input--mono min-h-12 placeholder:text-ink/70"
+								/>
+							</div>
+							<div class="field-stack">
+								<label for="admin-password" class="lbl">Password</label>
+								<div class="relative">
+									// 🔴 EVERY ATTRIBUTE ON THIS INPUT IS ONE A PASSWORD MANAGER READS:
+									// name, id, autocomplete="current-password" and required are what it
+									// uses to decide this is the field it stored a secret for. The
+									// right padding reserves the 44px the reveal button occupies so a
+									// long value does not run underneath it — a manager reads
+									// attributes, not padding.
+									//
+									// THERE IS NO PLACEHOLDER (M12-43). The row of bullets the field
+									// used to show looked like a value already typed; an empty box with
+									// its label above says the same thing without pretending.
+									//
+									// type="password" is the SERVED value and stays that way. The script
+									// swaps it to "text" and back; a browser that runs no script never
+									// sees anything but this.
+									<input
+										id="admin-password"
+										name="password"
+										type="password"
+										autocomplete="current-password"
+										required
+										class="field-input field-input--mono min-h-12 pr-12"
+									/>
+									@adminPasswordToggle()
+								</div>
+							</div>
+							<button type="submit" class="btn btn--primary min-h-[54px] w-full rounded-xl md:min-h-[52px]">Sign in</button>
+						</form>
+						if v.ResetHref != "" {
+							<p class="-mt-2 text-center text-sm">
+								// The touch-target class is not decoration here: this is the link somebody
+								// reaches for after a failed sign-in, often on a phone, and
+								// TestPanelScreens_EveryPressTargetCarriesATouchTargetClass measures every
+								// anchor on a panel screen against the brand's 44px floor.
+								<a href={ templ.SafeURL(v.ResetHref) } class="inline-flex min-h-11 items-center text-ink/70 underline underline-offset-4 hover:text-ink">Forgot password?</a>
+							</p>
+						}
+					</section>
+					<p class="max-w-[440px] text-center text-[13px] text-ink/70">
+						This is the manager panel. Employees do not sign in — they tap the plaque.
+					</p>
 				</div>
 			</main>
 		</div>
@@ -206,85 +206,79 @@ templ adminPasswordToggle() {
 	</button>
 }
 
-// adminLoginBrandPanel is the dark half of the sign-in screen.
+// adminLoginBrandPanel is the dark half of the sign-in screen (design "The Pass",
+// M12-43): the lockup, a rail of dockets, the heading and its claims.
 //
-// ⚠️ EVERY COLOUR HERE IS A PALETTE TOKEN ON AN ink GROUND, AND THE TONES WERE
-// MEASURED RATHER THAN EYEBALLED (WCAG 2.1, sRGB composite, against ink #152219):
-// paper 16.17:1 · green-lite 13.70:1 · paper/80 10.72:1 · paper/70 8.50:1. AA asks
-// 4.5:1 of every one of them. saffron is NOT used on this panel any more: the
-// founding-offer badge that carried it (ink on saffron, 6.16:1) was removed at the
-// user's request on 2026-09-14, and the offer now lives only in the header link.
+// ⚠️ EVERY COLOUR HERE IS A PALETTE TOKEN, MEASURED ON ink (WCAG 2.1, sRGB
+// composite): paper 16.17:1 · paper/70 8.50:1 · line 10.62:1. The 4 px bar along the
+// top is decorative tappa-green and is NOT the panel's accent stripe — the sign-in
+// family is Taptime's own (TestPanelBrand_TheSignInFamilyStaysTaptime).
 //
-// 🔴 THE ACCENT GREEN IS green-lite AND THE DRAWING'S WAS MINTIER. The palette holds
-// exactly one light green (#E1EDE6); tappa-green is 2.09:1 on ink and unusable as
-// text there, and inventing a hex for one heading is the drift
-// TestBrand_NoOffPaletteColourInAnySource exists to refuse.
+// 🔴 THE DOCKETS ARE A DRAWING, NOT RECORDS. The names, venues and times are made
+// up (the landing scene's precedent), nothing is read to draw them, and the whole
+// rail is aria-hidden: a screen reader meets the lockup, the heading and the claims.
+// The tilts are literal classes on three fixed elements.
 //
-// ⚠️ AND green-lite ALONE DID NOT ACTUALLY PRODUCE A TWO-TONE HEADING — measured on
-// the rendered page rather than assumed. #E1EDE6 against paper #FFFDF4 is 1.08:1:
-// side by side at heading size the two are the same white, so the first render of
-// this screen looked monochrome where the drawing has an accent. What makes the
-// difference visible without a tenth token is dimming the BASE: the heading is
-// paper/75 (9.57:1 on ink) and the accent is green-lite at full strength (13.70:1),
-// so the accent is the BRIGHTER and cooler of the two, which is the figure-ground
-// the drawing uses. Both clear AA by a wide margin; the accent is not carrying any
-// meaning colour alone would have to carry.
-//
-// THE PLAQUE AND THE PROOF LINES ARE HIDDEN ON A PHONE (sm:/lg: gates). Stacked,
-// this half sits ABOVE the form, and every row of brand here is a row the person
-// who came to sign in has to scroll past. The wordmark, the heading and the badge
-// survive at every width; the decoration does not.
+// The paragraph is drawn from the desk width up: stacked above the form, every row
+// of this half is a row the person who came to sign in scrolls past.
 templ adminLoginBrandPanel(v AdminLoginView) {
-	<aside class="relative flex flex-col gap-8 overflow-hidden bg-ink px-5 py-10 text-paper sm:px-8 lg:w-[44%] lg:shrink-0 lg:px-14 lg:py-12">
-		// Two rings bleeding out of opposite corners, drawn in 10% paper (1.34:1 —
-		// deliberately below any contrast floor, because they carry no information and
-		// a decorative line that competes with the heading is a worse page).
-		<span aria-hidden="true" class="pointer-events-none absolute -right-32 -top-40 h-[420px] w-[420px] rounded-full border border-paper/10"></span>
-		<span aria-hidden="true" class="pointer-events-none absolute -bottom-44 -left-36 h-[360px] w-[360px] rounded-full border border-paper/10"></span>
-		<a href="/" class="relative inline-flex min-h-11 w-fit items-center gap-3 font-display text-xl font-bold tracking-tight text-paper">
-			<span class="relative block h-8 w-8 shrink-0 rounded-full bg-tappa-green">
-				<span class="absolute inset-1.5 rounded-full border-2 border-paper/90"></span>
-			</span>
-			taptime
-		</a>
-		<div class="relative flex flex-1 flex-col justify-center gap-7">
-			<h2 class="max-w-md font-display text-3xl font-bold leading-tight tracking-tight text-paper/75 sm:text-4xl">
-				Every shift starts
-				<br/>
-				<span class="text-green-lite">with a tap.</span>
-			</h2>
-			<ul class="hidden max-w-md flex-col gap-3 font-mono text-xs leading-relaxed text-paper/80 lg:flex">
-				for _, line := range AdminLoginProof {
-					<li class="flex gap-3">
-						<span aria-hidden="true" class="text-green-lite">✓</span>
-						<span>{ line }</span>
-					</li>
+	<aside aria-label="Taptime" class="relative flex flex-col gap-[18px] overflow-hidden bg-ink px-5 pb-[26px] pt-[22px] text-paper md:grid md:grid-cols-[minmax(0,1fr)_330px] md:items-end md:gap-x-8 md:gap-y-[26px] md:px-10 md:pb-9 md:pt-7 desk:flex desk:items-stretch desk:min-w-0 desk:flex-[1_1_520px] desk:justify-between desk:gap-12 desk:px-16 desk:py-10">
+		<span aria-hidden="true" class="absolute inset-x-0 top-0 h-1 bg-tappa-green"></span>
+		<div class="flex items-center justify-between gap-4 md:col-span-2">
+			<a href="/" class="inline-flex min-h-11 w-fit flex-col justify-center gap-0.5 text-paper">
+				<span class="font-display text-[22px] font-bold leading-none tracking-tight md:text-2xl desk:text-[26px]">taptime</span>
+				<span class="font-mono text-[10px] uppercase tracking-widest text-paper/70 md:text-[11px]">punchless</span>
+			</a>
+			if v.SignupHref != "" {
+				// The tablet's place for the offer (T-SignIn): a framed link in the band's
+				// top row. The phone and the desk draw the same words beside the form.
+				<a
+					href={ templ.SafeURL(v.SignupHref) }
+					class="hidden min-h-11 items-center rounded-xl border border-porcelain/25 px-4 font-display text-sm font-bold tracking-tight text-paper hover:border-paper md:inline-flex desk:hidden"
+				>
+					Start now — first { itoa(v.FreeMonths) } months free
+				</a>
+			}
+		</div>
+		<div aria-hidden="true" class="relative pt-1.5 md:col-start-2 md:row-start-2 md:pt-2 desk:w-full desk:max-w-[520px] desk:pt-2.5">
+			<span class="absolute -inset-x-5 top-1.5 h-1.5 rounded bg-porcelain md:-left-2.5 md:-right-16 md:top-2 md:h-[7px] desk:-left-16 desk:-right-6 desk:top-2.5 desk:h-2"></span>
+			<div class="flex gap-2.5 pb-2 md:gap-3 md:pb-0 desk:gap-[18px] desk:pl-2">
+				@adminLoginDocket("KF Valletta", "Maria Borg", "IN 07:58", "-rotate-2", true, "")
+				@adminLoginDocket("KF Hamrun", "Kevin Borg", "IN 08:02", "rotate-[1.5deg]", false, "TRUST 70")
+				@adminLoginDocket("KF Msida", "Grace Attard", "OUT 16:31", "-rotate-[0.8deg]", false, "TRUST 100")
+			</div>
+		</div>
+		<div class="flex flex-col gap-3 md:col-start-1 md:row-start-2 desk:max-w-[460px]">
+			<h2 class="font-display text-[26px] font-bold leading-none tracking-tight md:text-[40px] desk:text-5xl">{ AdminLoginHeadline }</h2>
+			<p class="hidden text-[15px] leading-normal text-line desk:block">
+				for i, line := range AdminLoginProof {
+					if i > 0 {
+						{ " " }
+					}
+					{ line }
 				}
-			</ul>
+			</p>
 		</div>
 	</aside>
 }
 
-// adminLoginPlaque is the wall plaque, small, printed on the brand panel.
-//
-// It is the landing page's hero object at a sixth of the size and it is drawn HERE
-// rather than shared with pages/landing.templ: that page's plaque lives inside the
-// .lp stylesheet the user supplied verbatim, and pulling a component out of it would
-// put this screen's layout at the mercy of an edit to the landing's own design.
-// Twenty lines of markup is the cheaper of the two couplings.
-//
-// THE SVG IS INLINE BECAUSE IT HAS TO BE: adminCSP names no img-src, so a file —
-// ours or anybody else's — would not load.
-templ adminLoginPlaque() {
-	<div class="hidden w-44 flex-col items-center rounded-2xl border border-paper/15 bg-paper/5 px-5 py-6 text-center sm:flex">
-		<p class="font-mono text-[10px] uppercase tracking-widest text-paper/70">Taptime</p>
-		<span aria-hidden="true" class="mt-4 flex h-16 w-16 items-center justify-center rounded-full border-2 border-dashed border-green-lite">
-			<svg viewBox="0 0 24 24" class="h-8 w-8 text-green-lite" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true" focusable="false">
-				<path d="M6 8.5a8 8 0 0 1 12 0M8.5 11a4.5 4.5 0 0 1 7 0" stroke-linecap="round"></path>
-				<circle cx="12" cy="14.5" r="1.6" fill="currentColor" stroke="none"></circle>
-			</svg>
-		</span>
-		<p class="mt-4 font-display text-sm font-bold leading-snug text-paper">Tap here to<br/>clock in / out</p>
+// adminLoginDocket is one hanging docket on the sign-in rail: a clip, then the
+// docket turned about its top edge. tilt is one of the literal classes the caller
+// writes, so the stylesheet carries all three.
+templ adminLoginDocket(venue, name, when, tilt string, stamped bool, foot string) {
+	<div class="flex w-[100px] flex-none flex-col items-center desk:w-[150px]">
+		<span class="relative z-10 h-[11px] w-[26px] rounded-b bg-ink/50 md:h-[13px] md:w-[30px] desk:h-4 desk:w-10 desk:rounded-b-md"></span>
+		<div class={ "docket -mt-[3px] flex w-full origin-top flex-col gap-1 px-[9px] pb-2 pt-2.5 text-ink md:gap-1.5 md:px-2.5 md:pb-2.5 md:pt-3 desk:-mt-1 desk:gap-2 desk:px-3.5 desk:pb-3.5 desk:pt-4", tilt }>
+			<span class="lbl hidden desk:block">{ venue }</span>
+			<span class="font-display text-[11px] font-bold md:text-xs desk:text-[15px]">{ name }</span>
+			<span class="font-mono text-xs md:text-[13px] desk:text-lg desk:font-bold">{ when }</span>
+			if stamped {
+				<span class="desk:self-end"><span class="stamp stamp--approved px-1 py-px text-[8px] md:px-[5px] md:py-0.5 md:text-[9px] desk:px-2.5 desk:py-1 desk:text-[11px]">Approved</span></span>
+			}
+			if foot != "" {
+				<span class="hidden border-t border-dashed border-line pt-1.5 font-mono text-[11px] text-ink/70 desk:block">{ foot }</span>
+			}
+		</div>
 	</div>
 }
 
@@ -292,38 +286,90 @@ templ adminLoginPlaque() {
 // stored password ACTUALLY VERIFIED (PHASE B OBLIGATION 5 — the set is built in
 // internal/adminauth and signed on the way here).
 //
-// EACH ROW IS A DOCKET, which is the brand's signature motif for a record: paper
-// ground, perforated edges, mono content, the label small and uppercase. A plain
-// list of links would have been less work and would have looked like every other
-// product.
+// THE KICKER SAYS "Password accepted", NOT "Signed in". No session exists until a
+// business is picked; the drawing's "Signed in · one more step" claimed one.
+//
+// EACH ROW IS A DOCKET hung from the rail by a clip (design "The Pass", M12-44):
+// the brand's signature motif for a record, sharp-cornered. The rail and the clips
+// are drawn from the desk width up, where the dockets sit side by side and turn
+// by position (the rail's own tilt rules); below it they stack straight.
 //
 // EACH ROW IS ITS OWN FORM rather than one form with radio buttons: it makes the
 // whole row-plus-button a single decision with nothing to select first, and it
 // keeps a keyboard user one tab away from submitting. The tenant id is a hidden
 // field per form, and the server does not believe it — it checks membership of the
-// signed set.
+// signed set. Each button names its business, so a screen reader's list of buttons
+// tells them apart.
 templ AdminChoose(v AdminChooseView) {
-	@layout.Page("Which business? — Taptime") {
-		<h1 class="font-display text-2xl font-bold tracking-tight">Which business?</h1>
-		<p class="text-sm text-ink/70">
-			You manage more than one. Pick the one you want to work in — you can sign out and switch at any time.
-		</p>
-		<div class="flex flex-col gap-4">
-			for _, b := range v.Businesses {
-				<form method="post" action="/admin/login/choose">
-					<input type="hidden" name="csrf" value={ v.CSRFToken }/>
-					<input type="hidden" name="tenant_id" value={ b.TenantID }/>
-					<section class="docket">
-						<p class="docket-label">Business</p>
-						<p class="font-display text-lg font-bold tracking-tight text-ink">{ b.TenantName }</p>
-						<p class="mt-1 docket-label">Your role</p>
-						<p class="uppercase tracking-widest text-ink">{ b.Role }</p>
-						<button type="submit" class="btn btn--primary mt-3 w-full">Continue</button>
-					</section>
-				</form>
-			}
-		</div>
+	@layout.Auth("Which business? — Taptime", "") {
+		@AuthHeader("")
+		<main class="mx-auto flex w-full max-w-[1040px] flex-col gap-[22px] px-4 pb-10 pt-4 md:gap-[30px] md:px-10 md:pb-14 md:pt-6 desk:gap-9 desk:px-14 desk:pb-[72px] desk:pt-8">
+			<div class="flex flex-col gap-2 md:gap-2.5 desk:max-w-[620px]">
+				<p class="lbl">Password accepted · one more step</p>
+				<h1 class="font-display text-3xl font-bold leading-none tracking-tight md:text-[40px] desk:text-5xl">Which business?</h1>
+				<p class="max-w-[560px] text-[15px] leading-normal text-ink/70 md:text-base">
+					You manage more than one. Pick the one you want to work in — you can sign out and switch at any time.
+				</p>
+			</div>
+			<div class="choose-rail relative desk:pt-2.5">
+				<span aria-hidden="true" class="absolute inset-x-0 top-2.5 hidden h-2 rounded bg-ink desk:block"></span>
+				<ol class="grid gap-[22px] desk:gap-6 desk:px-4 desk:[grid-template-columns:repeat(auto-fit,minmax(260px,1fr))]">
+					for _, b := range v.Businesses {
+						<li class="rail-item flex min-w-0 flex-col items-center">
+							<span aria-hidden="true" class="relative z-10 hidden h-[18px] w-[46px] rounded-b-md bg-ink/70 desk:block"></span>
+							<article class="docket w-full px-4 py-[18px] font-display md:px-[22px] md:py-5 desk:-mt-1 desk:px-5 desk:pb-5 desk:pt-[22px]">
+								<form method="post" action="/admin/login/choose" class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between md:gap-5 desk:flex-col desk:items-stretch desk:gap-3.5">
+									<input type="hidden" name="csrf" value={ v.CSRFToken }/>
+									<input type="hidden" name="tenant_id" value={ b.TenantID }/>
+									<div class="flex min-w-0 items-start justify-between gap-2.5 md:flex-1 md:items-center md:justify-start md:gap-7 desk:flex-col desk:items-stretch desk:gap-3.5">
+										<div class="flex min-w-0 flex-col gap-1">
+											<p class="lbl">Business</p>
+											<p class="break-words text-xl font-bold leading-tight tracking-tight text-ink md:text-[22px]">{ b.TenantName }</p>
+										</div>
+										<div class="flex flex-none flex-col rounded-md border border-ink px-2 py-[3px] md:gap-1 md:rounded-none md:border-0 md:border-l md:border-dashed md:border-line md:px-0 md:py-0 md:pl-[22px] desk:border-l-0 desk:border-t desk:pl-0 desk:pt-3">
+											<p class="lbl sr-only md:not-sr-only">Your role</p>
+											<p class="font-mono text-[11px] font-bold uppercase tracking-widest text-ink md:text-[13px] desk:text-sm">{ b.Role }</p>
+										</div>
+									</div>
+									<button type="submit" class="btn btn--primary w-full gap-2 rounded-xl md:w-auto md:max-w-[45%] md:flex-none desk:w-full desk:max-w-none">
+										<span class="min-w-0 break-words">Continue to { b.TenantName }</span>
+										<span aria-hidden="true" class="hidden md:inline">→</span>
+									</button>
+								</form>
+							</article>
+						</li>
+					}
+				</ol>
+			</div>
+		</main>
 	}
+}
+
+// AuthHeader is the sign-in family's top bar outside the sign-in page itself:
+// a decorative tappa-green bar (never the accent stripe — this family is
+// Taptime's), the taptime / punchless lockup and, when signInHref is set, the way
+// back to the sign-in form. The lockup is text, not a link: on these screens the
+// only way anywhere is the sign-in form or the step in front of the person.
+templ AuthHeader(signInHref string) {
+	<span aria-hidden="true" class="block h-1 bg-tappa-green"></span>
+	<header class="flex min-h-14 items-center justify-between gap-3 px-4 py-2.5 md:px-10 md:py-[22px] desk:px-14">
+		@AuthLockup()
+		if signInHref != "" {
+			<a href={ templ.SafeURL(signInHref) } class="inline-flex min-h-11 items-center gap-1 font-display text-sm font-bold text-tappa-green underline-offset-4 hover:text-ink hover:underline">
+				<span aria-hidden="true">←</span>
+				Back to sign in
+			</a>
+		}
+	</header>
+}
+
+// AuthLockup is the sign-in family's wordmark on porcelain: "taptime" in ink over
+// the "punchless" line (ink/70, 5.70:1 on porcelain).
+templ AuthLockup() {
+	<p class="flex flex-col gap-0.5">
+		<span class="font-display text-xl font-bold leading-none tracking-tight text-ink md:text-2xl">taptime</span>
+		<span class="font-mono text-[10px] uppercase tracking-widest text-ink/70 md:text-[11px]">punchless</span>
+	</p>
 }
 
 // PanelShell is the chrome a panel section that loads NO SCRIPT renders inside:
@@ -582,7 +628,7 @@ templ panelBrandHeader(b PanelBrand) {
 templ AdminDashboard(v AdminDashboardView) {
 	@PanelShell(v.PanelChrome) {
 		if s, ok := v.Section(); ok {
-			@components.EmptyState(s.Label + " is not built yet") {
+			@components.PanelEmpty(s.Label, s.Label+" is not built yet", components.PanelEmptyCTA{}) {
 				<p>{ s.Blurb }</p>
 				<p class="mt-2">
 					It arrives with <span class="font-mono uppercase">{ s.Task }</span>.

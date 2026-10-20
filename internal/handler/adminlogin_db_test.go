@@ -548,7 +548,11 @@ func TestPanelE2E_SignInAndOut(t *testing.T) {
 			t.Fatalf("the panel does not offer the %q section", sec.Label)
 		}
 	}
-	if !strings.Contains(panel, "Nothing here yet") {
+	// M12-09: the panel's empty state opens with the section's own name rather than
+	// "Nothing here yet", so "it says it is empty" is that label directly followed by the
+	// empty state's heading -- the shell's kicker, the only other label, is followed by the h1.
+	emptyLabel := `<p class="lbl">` + htmlText(pages.SectionLabel(pages.TabTransactions)) + `</p><h2 `
+	if !strings.Contains(panel, emptyLabel) || strings.Contains(panel, "Nothing here yet") {
 		t.Fatalf("the default section does not say it is empty")
 	}
 	// 🔴 NO OPERATOR ELEMENT ON A CUSTOMER'S PANEL (M10 OP-10). Until OP-10 the panel

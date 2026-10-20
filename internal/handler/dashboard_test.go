@@ -1192,8 +1192,8 @@ var panelTouchTargets = map[string]int{
 	// the class cannot lose its height silently. The markup gap is recorded rather
 	// than papered over (see TestPanelScreens_FormControlsCarryATouchTargetClass).
 	"filter-input": 44, // .filter-input -> min-h-11 = 2.75rem
-	// The raw utility, used inline by the sign-in form's two fields rather than
-	// through a semantic class. It is a real compiled rule (min-height:2.75rem), so
+	// The raw utility, used inline by links (the sign-in page's lockup, "Forgot
+	// password?" and the sign-up offer among them) rather than through a semantic class. It is a real compiled rule (min-height:2.75rem), so
 	// the stylesheet half below holds it to the same floor.
 	"min-h-11": 44,
 	// The sign-in field's password reveal button (2026-09-14). It is a real <button>,
@@ -1210,10 +1210,12 @@ var panelTouchTargets = map[string]int{
 	// A section's breadcrumb link (M12-01, pages.panelHead): every crumb before the current
 	// page is a real <a>, so both halves of the pair reach it.
 	"panel-crumb": 44, // .panel-crumb -> min-h-11 = 2.75rem
-	// The Rules screen (M12-37) draws the first two of M12-08's pending press targets: the
-	// rule switch (a submit <button>, so both halves reach it) and the redesign's form
-	// field (the authoring form and the bind picker; the stylesheet half holds its height).
+	// The Rules screen (M12-37) draws the rule switch, a submit <button>, so both halves
+	// of the pair reach it.
 	"rule-switch": 44, // .rule-switch -> min-h-11 = 2.75rem
+	// The redesign's form field (M12-08), drawn by several screens (sign-in, sign-up,
+	// billing, rules). It is an <input>, not an <a> or a <button>, so the form-control
+	// scan and the stylesheet half of the pair hold it.
 	"field-input": 44, // .field-input -> min-h-11 = 2.75rem
 }
 

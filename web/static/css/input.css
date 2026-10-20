@@ -586,11 +586,27 @@
   .bar-link .tab-count { @apply absolute top-1 left-[calc(50%+6px)] ml-0; }
   .bar-more { @apply flex flex-1; }
   .bar-more > .bar-link { @apply w-full; }
-  /* The More sheet: a native disclosure, so it opens and closes with JavaScript off. */
+  /* The More sheet: a native disclosure, so it opens and closes with JavaScript off.
+     M12-47 (board M-More) changes no markup and keeps the shipped rows, as the board draws
+     them: the sheet lifts off the page on a soft ink shadow and the page above the bar is
+     dimmed. */
   .bar-sheet {
     @apply fixed inset-x-0 z-10 max-h-[75vh] overflow-y-auto rounded-t-2xl
            border-t border-line bg-paper px-4 pt-4 pb-6 text-ink;
     /* the bar's own height: 4px top padding, 60px links, and its bottom padding */
+    bottom: calc(64px + max(0.5rem, env(safe-area-inset-bottom)));
+    box-shadow: 0 -8px 24px theme('colors.ink / 10%');
+  }
+  /* THE DIMMED PAGE IS THE SUMMARY'S OWN BOX, NOT AN ELEMENT. A pseudo-element belongs to
+     the element that draws it, so a tap on the dimmed page is a tap on More's summary and
+     the browser closes the disclosure itself -- "tap outside to close" with no script, and
+     a tap can no longer land on a link it cannot see clearly. It stops at the bar's top
+     (the sheet's own bottom), so the four bar links and More stay lit and pressable; the
+     sheet (z-10) paints above it inside the bar's stacking context. Decoration only: the
+     content is empty, so nothing is read. */
+  .bar-more[open] > .bar-link::before {
+    content: "";
+    @apply fixed inset-x-0 top-0 cursor-default bg-ink/40;
     bottom: calc(64px + max(0.5rem, env(safe-area-inset-bottom)));
   }
   .sheet-list { @apply flex flex-col; }
@@ -600,6 +616,9 @@
   }
   .sheet-link--current { @apply font-bold; }
   .sheet-foot { @apply mt-4 flex flex-col gap-3; }
+  /* The sheet's sign-out is a small button with the redesign's field radius (README §4);
+     the sidebar's copy of the same form keeps its own shape. */
+  .sheet-foot .btn { @apply rounded-[10px]; }
 
   /* --- filter bar: the panel's six filters (M6-03) ---
      It was M6-02's card item and was MOVED here rather than dropped: M6-02 had
@@ -1185,14 +1204,15 @@
 
      🔴 FOUR NAMES DIFFER FROM README §5 BECAUSE THE SCAN IS LEXICAL, NOT A USE
      COUNT. Measured on the first build of this block: .chip, .field, .lock and
-     .switch compiled into app.css with no element carrying them (+2 869 bytes),
+     .switch compiled into app.css with no element carrying them (+2 479 bytes),
      because the word stands as a whole token somewhere in the templates -- prose
      comments for the first three (36, 81 and 12 files), the Go keyword in 62 --
      and Tailwind keeps any layer rule whose class it finds as a token. So they
      are .chip-link, .field-stack, .lock-glyph and .rule-switch; their modifiers
      and parts follow. The rail's tilt rules key on the item and the element
      (article) rather than on .docket for the same reason: a selector naming a
-     class already in use compiles with it. A new class here needs a name no
+     class already in use compiles with it (the .docket-bound tilt rules added
+     +390 bytes more; +2 869 bytes together). A new class here needs a name no
      sentence would contain.
 
      THE PRESS TARGETS (.chip-link, .queue-item, .roster-row, .venue-card,
@@ -1269,7 +1289,7 @@
   .pill--invited { @apply border-dashed border-saffron bg-saffron/10; }
   .pill--deactivated { @apply border-line text-ink/70; }
   /* A tally drawn as a pill: the same tones (the .tally--* modifiers above). */
-  .tally--pill { @apply rounded-full px-2 font-bold tracking-[0.08em]; }
+  .pill-tally { @apply rounded-full px-2 font-bold tracking-[0.08em]; }
 
   /* --- buttons: modifiers of .btn, which keeps the height and the focus ring ---
      The accent never reaches them. The destructive pair is an ink word in a
@@ -1385,6 +1405,12 @@
   .rail-item:nth-child(7n+5) article { rotate: -0.9deg; }
   .rail-item:nth-child(7n+6) article { rotate: 0.5deg; }
   .rail-item:nth-child(7n+7) article { rotate: -1.4deg; }
+  /* The business picker (M12-44) hangs its dockets from the rail only from desk;
+     below it they stack full width with no rail and no clip, and a wide docket
+     turned about its top edge would only look crooked. */
+  @media (max-width: 1199.98px) {
+    .choose-rail .rail-item article { rotate: none; }
+  }
 
   /* --- the Rules ladder: CLASS-ONLY on purpose ---
      /admin/policies is held to a short list of tags and attributes (no svg, no

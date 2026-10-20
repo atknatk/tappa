@@ -32,6 +32,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/atknatk/tappa/internal/domain/ledger"
+	"github.com/atknatk/tappa/internal/store"
 )
 
 // reportFixture is one tenant's worth of worked time.
@@ -357,5 +358,148 @@ func TestPanelReportsDB_NeverRendersACoordinateOrASourceAddress(t *testing.T) {
 	}
 	if stored == 0 {
 		t.Fatal("no seeded row carries a coordinate; the §4.7 sweep above is vacuous")
+	}
+}
+
+// TestPanelReportsDB_TheRollReadsTitlesAndHomesOfItsOwnTenantOnly is M12-21's read
+// (ListRollEmployees) against real Postgres: the title and home venue arrive on the
+// person's row, a counted shift at another of the business's venues is marked and
+// counted, and the read is tenant-isolated in BOTH defences.
+//
+// 🔴 THE RLS HALF IS WRITTEN WITHOUT A TENANT FILTER (CLAUDE.md §6). A's connection is
+// asked for B's employee by id alone; if that returns nothing, it is RLS that refused it
+// and not a WHERE clause. The control is beside it: the SAME statement in B's context
+// returns B's row, so the zero is not a statement that matches nothing anywhere.
+func TestPanelReportsDB_TheRollReadsTitlesAndHomesOfItsOwnTenantOnly(t *testing.T) {
+	p := newPanelHarness(t)
+	week, zone := reportWeek(t)
+	ctx := context.Background()
+	a := seedReportTenant(t, p, p.tenantID, "Alpha", week, zone)
+
+	bTenant := uuid.New()
+	if err := p.data.WithTenant(ctx, bTenant, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx,
+			`INSERT INTO tenants (id, name, vat_number, business_type, structure)
+			 VALUES ($1, 'Roll Bravo Ltd', $2, 'bar', 'single')`,
+			bTenant, "VAT-"+bTenant.String())
+		return e
+	}); err != nil {
+		t.Fatalf("insert tenant B: %v", err)
+	}
+	b := seedReportTenant(t, p, bTenant, "Bravo", week, zone)
+
+	// A's person gets a title and works one more shift, on Tuesday, at a SECOND venue of A's.
+	away := uuid.New()
+	if err := p.data.WithTenant(ctx, p.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		if _, e := tx.Exec(ctx, `UPDATE employees SET role = 'Line Cook' WHERE tenant_id = $1 AND id = $2`,
+			p.tenantID, a.employeeID); e != nil {
+			return fmt.Errorf("title: %w", e)
+		}
+		if _, e := tx.Exec(ctx,
+			`INSERT INTO locations (id, tenant_id, name, static_ips, shift_start, shift_end)
+			 VALUES ($1, $2, 'Alpha Away', '{203.0.113.0/24}', '10:00', '22:00')`, away, p.tenantID); e != nil {
+			return fmt.Errorf("second venue: %w", e)
+		}
+		for _, r := range []struct {
+			dir string
+			at  time.Time
+		}{{"in", localAt(week, zone, 1, 10, 0)}, {"out", localAt(week, zone, 1, 14, 0)}} {
+			if _, e := tx.Exec(ctx,
+				`INSERT INTO transactions (tenant_id, employee_id, location_id, type, occurred_at,
+				                           ip_match, sun_valid, trust, verdict, channel, practice, queued)
+				 VALUES ($1, $2, $3, $4, $5, true, true, 70, 'ok', 'nfc', false, false)`,
+				p.tenantID, a.employeeID, away, r.dir, r.at); e != nil {
+				return fmt.Errorf("away shift: %w", e)
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.data.WithTenant(ctx, bTenant, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx, `UPDATE employees SET role = 'Bartender' WHERE tenant_id = $1 AND id = $2`, bTenant, b.employeeID)
+		return e
+	}); err != nil {
+		t.Fatalf("B's title: %v", err)
+	}
+
+	r, err := ledger.NewReader(p.data, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scr, err := r.Hours(ctx, p.tenantID, ledger.ReportFilter{Day: week.FirstDay})
+	if err != nil {
+		t.Fatalf("Hours: %v", err)
+	}
+	if !scr.Homes.Queried || scr.Homes.Failed {
+		t.Fatalf("the roster read did not answer: %+v", scr.Homes)
+	}
+	if len(scr.People) != 1 {
+		t.Fatalf("A's week holds %d people, want 1 (§4.5 breach or an empty week)", len(scr.People))
+	}
+	ph := scr.People[0]
+	if ph.Role != "Line Cook" || ph.HomeLocationID == nil || *ph.HomeLocationID != a.locationID || ph.HomeVenue != a.location {
+		t.Errorf("A's person reads role %q, home %v %q; want Line Cook at %s %q", ph.Role, ph.HomeLocationID, ph.HomeVenue, a.locationID, a.location)
+	}
+	if ph.Role == "Bartender" || ph.HomeVenue == b.location {
+		t.Errorf("§4.5 BREACH: A's Roll carries B's title or venue")
+	}
+	// Two shifts at home (Monday, the Wednesday overnight) and one away (Tuesday).
+	if tt := scr.Totals; tt.Shifts != 3 || tt.OtherVenue != 1 || tt.OtherVenueUnknown != 0 {
+		t.Errorf("Totals: shifts %d, other venue %d, not judged %d; want 3, 1, 0", tt.Shifts, tt.OtherVenue, tt.OtherVenueUnknown)
+	}
+	for d, m := range ph.Marks {
+		if m.Other != (d == 1) {
+			t.Errorf("day %d: other-venue mark %v; only Tuesday was worked away from home", d, m.Other)
+		}
+	}
+
+	// RLS, with NO tenant filter in the statement.
+	const noFilter = `SELECT e.id, e.role, e.location_id, hl.name
+	                  FROM employees e LEFT JOIN locations hl ON hl.id = e.location_id
+	                  WHERE e.id = ANY($1::uuid[])`
+	count := func(tenant uuid.UUID, sql string, args ...any) int {
+		t.Helper()
+		n := 0
+		if err := p.data.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
+			rows, err := tx.Query(ctx, sql, args...)
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				n++
+			}
+			return rows.Err()
+		}); err != nil {
+			t.Fatalf("query in %s's context: %v", tenant, err)
+		}
+		return n
+	}
+	if n := count(bTenant, noFilter, []uuid.UUID{b.employeeID}); n != 1 {
+		t.Fatalf("CONTROL: B's own context sees %d of B's employee, want 1 -- the zero below would be vacuous", n)
+	}
+	if n := count(p.tenantID, noFilter, []uuid.UUID{b.employeeID}); n != 0 {
+		t.Errorf("§4.5 BREACH (RLS): A's connection reads %d row(s) of B's employee with no tenant filter", n)
+	}
+
+	// THE STORE STATEMENT ITSELF, in A's context, asked for B's id under either tenant.
+	for _, asked := range []uuid.UUID{p.tenantID, bTenant} {
+		var got []store.ListRollEmployeesRow
+		if err := p.data.WithTenant(ctx, p.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+			var e error
+			got, e = store.New(tx).ListRollEmployees(ctx, store.ListRollEmployeesParams{TenantID: asked, EmployeeIds: []uuid.UUID{b.employeeID, a.employeeID}})
+			return e
+		}); err != nil {
+			t.Fatal(err)
+		}
+		for _, row := range got {
+			if row.ID == b.employeeID {
+				t.Errorf("§4.5 BREACH: ListRollEmployees(tenant %s) in A's context returned B's employee", asked)
+			}
+		}
+		if asked == p.tenantID && len(got) != 1 {
+			t.Errorf("CONTROL: A's own statement returned %d rows for A's employee, want 1", len(got))
+		}
 	}
 }

@@ -57,6 +57,9 @@ type panelLedger interface {
 	Screen(ctx context.Context, tenantID uuid.UUID, f ledger.Filter) (ledger.Screen, error)
 	Day(ctx context.Context, tenantID uuid.UUID, f ledger.Filter) (ledger.Page, error)
 	Roster(ctx context.Context, tenantID uuid.UUID, f ledger.RosterFilter) (ledger.RosterScreen, error)
+	// RecentTaps is M12-19's: one person's last seven records for the People card. It answers a
+	// tri-state rather than an error, because a failed strip must not cost the card.
+	RecentTaps(ctx context.Context, tenantID, employeeID uuid.UUID) ledger.RecentTaps
 	// Hours is M6-07's, and it is here for the same reason Roster is: same package,
 	// same concrete reader, and one interface is what stops a second identical
 	// argument appearing in the constructor.
@@ -247,6 +250,7 @@ func docketView(rec ledger.Record, zone *time.Location) components.DocketView {
 		IPSign:     sign(rec.IPMatch),
 		GPSSign:    sign(rec.GPSMatch),
 		TagUID:     rec.TagUID,
+		Channel:    rec.Channel,
 		Verdict:    rec.Verdict,
 		Practice:   rec.Practice,
 		Manual:     rec.Manual,

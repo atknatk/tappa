@@ -13,6 +13,10 @@ package pages
 // page's own markup is byte for byte the 85b4b8d golden's. The holding claim is unchanged.
 // The anomalies golden was replaced once more in the same day's fix round: its one change is the
 // sentence naming the reports section by its new label ("The Reports section" -> "The Roll").
+// M12-09 (panel-only empty state) replaced the anomalies golden again: the bytes differ only
+// inside the open-check-ins empty state's opening tags (the section, its label -- now the
+// section's name, "Odd shapes · check-ins with no checkout" -- and the h2's and the body
+// div's classes); its heading and sentence are the same bytes. The reports golden is unchanged.
 
 import (
 	"bytes"

@@ -616,10 +616,15 @@ func TestPanelBrand_TheSignInFamilyStaysTaptime(t *testing.T) {
 	h.Mount(r)
 	b := newBrowser(t, r)
 
-	// The picker and the problem page keep layout's porcelain shells, so their opening
-	// is the tap screens' wordmark (tapbrand_test.go) -- the panel chrome's, too, until
-	// the 2026-10-20 shell.
-	wordmark := tapWordmarkHTML
+	// The problem page keeps layout's porcelain shell, so its opening is the tap
+	// screens' wordmark (tapbrand_test.go) -- the panel chrome's, too, until the
+	// 2026-10-20 shell. The picker moved to the sign-in family's layout.Auth (M12-44)
+	// and opens with that family's own Taptime lockup.
+	var lockup bytes.Buffer
+	if err := pages.AuthLockup().Render(context.Background(), &lockup); err != nil {
+		t.Fatalf("rendering the sign-in family's lockup: %v", err)
+	}
+	wordmarks := map[string]string{"picker": lockup.String(), "panel problem": tapWordmarkHTML}
 	login := b.do(http.MethodGet, "/admin/login", nil)
 	csrf := csrfFrom(t, htmlOf(t, login))
 	if rec := b.do(http.MethodPost, "/admin/login", url.Values{
@@ -633,8 +638,8 @@ func TestPanelBrand_TheSignInFamilyStaysTaptime(t *testing.T) {
 		http.StatusInternalServerError, problemPanelUnavailable)
 	for name, rec := range map[string]*httptest.ResponseRecorder{"picker": picker, "panel problem": problem} {
 		body := htmlOf(t, rec)
-		if !strings.Contains(body, wordmark) {
-			t.Errorf("%s: no wordmark", name)
+		if !strings.Contains(body, wordmarks[name]) {
+			t.Errorf("%s: no Taptime wordmark", name)
 		}
 		for _, never := range []string{"<img", "panel-stripe", "/brand/theme/", "/admin/brand/logo/", "taptime · punchless"} {
 			if strings.Contains(body, never) {
@@ -982,6 +987,10 @@ func brandEditorDrawsNoSecondHeader(t *testing.T, href, region string) {
 // own markup is byte for byte c4f6f74's, and the "plaques" page's differs only in the section
 // label the notice links with ("Locations & Wall Tags" became "Venues & plaques", the same
 // decision). The banner's absence still adds nothing.
+//
+// RE-RENDERED FOR M12-09 (panel-only empty state): only the "plaques" golden, and only inside the
+// empty state's opening tags (its label is now the section's name, "The Pass", and its classes are
+// PanelEmpty's); the heading and sentence are the same bytes, the "zero" golden is unchanged.
 func TestKeyBudgetBanner_AbsentAddsNothing(t *testing.T) {
 	render := func(v pages.TransactionsView) string {
 		t.Helper()

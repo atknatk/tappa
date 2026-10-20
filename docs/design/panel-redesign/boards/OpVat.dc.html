@@ -42,7 +42,7 @@ a{color:#1F5C41}a:hover{color:#152219}
 .mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
 .lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
 .card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:14px;padding:22px 24px;display:flex;flex-direction:column;gap:14px;min-width:0}
-.docket{background:#FFFDF4;border:1px solid #C9D2C8;border-top:2px dashed #C9D2C8;border-radius:0;padding:16px 20px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.docket{background:#FFFDF4;border:1px solid #C9D2C8;border-top:2px dashed #C9D2C8;border-radius:0;padding:18px 24px;display:flex;flex-direction:column;gap:8px;min-width:0}
 .h1{margin:0;font:700 28px/1.1 'Space Grotesk',sans-serif;letter-spacing:-0.03em}
 .txt{margin:0;font-size:14px;line-height:1.5}
 .hint{margin:0;font-size:12px;line-height:1.45;color:rgba(21,34,25,.7)}
@@ -94,7 +94,8 @@ dl{margin:0}dd{margin:0}
       <section class="opten" aria-label="Tenant">
         <div class="opten-in">
           <p class="oplbl">Tenant</p>
-          <p class="optname"><bdi>Kebab Factory Ltd.</bdi></p>
+          <sc-if value="{{named}}" hint-placeholder-val="{{true}}"><p class="optname"><bdi>Kebab Factory Ltd.</bdi></p></sc-if>
+          <sc-if value="{{unnamed}}" hint-placeholder-val="{{false}}"><p class="optname">Unnamed tenant</p><p class="optid">6f1c2a9e-4b7d-4e21-9a3c-0d5e8b7f1a24</p></sc-if>
           <nav aria-label="This tenant" class="opsub"><a href="OpTenant.dc.html" class="opsubt">Overview</a><a href="OpPlaques.dc.html" class="opsubt">Plaques</a><a href="OpBilling.dc.html" class="opsubt">Billing</a><a href="OpVat.dc.html" class="opsubt opsubt--on" aria-current="page">VAT number</a></nav>
         </div>
       </section>
@@ -118,21 +119,23 @@ dl{margin:0}dd{margin:0}
 
     <section class="docket" aria-labelledby="tenant-vat">
       <h2 id="tenant-vat" class="lbl" style="margin: 0">On file</h2>
-      <dl style="display: flex; flex-direction: column; gap: 12px; padding-top: 4px">
+      <dl style="display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 12px 56px; padding-top: 4px">
         <div><dt class="lbl">VAT number</dt><dd class="mono" style="margin-top: 4px; font-size: 18px; font-weight: 700; word-break: break-all">{{number}}</dd></div>
         <div><dt class="lbl">VIES answer</dt><dd style="margin-top: 6px"><span class="{{chip}}">{{word}}</span></dd></div>
       </dl>
       <p class="txt" style="padding-top: 4px">{{sentence}}</p>
-      <sc-if value="{{answered}}" hint-placeholder-val="{{true}}"><p class="txt">Last answer <span class="mono">2026-10-20 09:14 UTC</span></p></sc-if>
-      <sc-if value="{{askedOnly}}" hint-placeholder-val="{{false}}"><p class="txt">Asked <span class="mono">2026-10-19 17:02 UTC</span></p></sc-if>
-      <sc-if value="{{neverAsked}}" hint-placeholder-val="{{false}}"><p class="txt">No time of asking is on file.</p></sc-if>
+      <sc-if value="{{answered}}" hint-placeholder-val="{{true}}"><p class="txt"><span style="color: rgba(21,34,25,.7)">Last answer</span> <span class="mono">2026-10-20 09:14 UTC</span></p></sc-if>
+      <sc-if value="{{askedOnly}}" hint-placeholder-val="{{false}}"><p class="txt"><span style="color: rgba(21,34,25,.7)">Asked</span> <span class="mono">2026-10-19 17:02 UTC</span></p></sc-if>
+      <sc-if value="{{neverAsked}}" hint-placeholder-val="{{false}}"><p class="txt" style="color: rgba(21,34,25,.7)">No time of asking is on file.</p></sc-if>
     </section>
 
     <section class="card" aria-labelledby="tenant-vat-ask">
       <h2 id="tenant-vat-ask" class="lbl" style="margin: 0">Ask again</h2>
       <sc-if value="{{askable}}" hint-placeholder-val="{{true}}">
-        <p class="txt">Sends the number above to VIES now. If VIES answers, its answer replaces the one on file and is written to this tenant's own audit log; if it does not answer, nothing changes.</p>
-        <form method="post" action="/operator/tenants/5e2a9c74-6d1b-4f83-a0c7-3e9b5f1d2a68/vat" style="margin: 0"><button type="submit" class="btnp">Ask VIES again</button></form>
+        <div style="display: flex; align-items: center; gap: 24px">
+          <p class="txt" style="flex: 1 1 auto; max-width: 560px">Sends the number above to VIES now. If VIES answers, its answer replaces the one on file and is written to this tenant's own audit log; if it does not answer, nothing changes.</p>
+          <form method="post" action="/operator/tenants/5e2a9c74-6d1b-4f83-a0c7-3e9b5f1d2a68/vat" style="margin: 0 0 0 auto; flex: 0 0 auto"><button type="submit" class="btnp">Ask VIES again</button></form>
+        </div>
       </sc-if>
       <sc-if value="{{notAskable}}" hint-placeholder-val="{{false}}">
         <p class="txt">This number is not in the format VIES accepts for its country, so it cannot be sent from here. Only the platform owner can correct it, in the database.</p>
@@ -143,9 +146,10 @@ dl{margin:0}dd{margin:0}
   </div>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"verdict": {"editor": "enum", "options": ["confirmed", "not-found", "no-answer", "not-checked"], "default": "confirmed"}, "askable": {"editor": "enum", "options": ["yes", "no"], "default": "yes"}, "notice": {"editor": "enum", "options": ["none", "vies-silent", "cannot-be-sent", "too-many"], "default": "none"}, "$preview": {"width": 1440, "height": 941}}'>
+<script type="text/x-dc" data-dc-script data-props='{"verdict": {"editor": "enum", "options": ["confirmed", "not-found", "no-answer", "not-checked"], "default": "confirmed"}, "askable": {"editor": "enum", "options": ["yes", "no"], "default": "yes"}, "notice": {"editor": "enum", "options": ["none", "vies-silent", "cannot-be-sent", "too-many"], "default": "none"}, "tenant": {"editor": "enum", "options": ["named", "unnamed"], "default": "named"}, "$preview": {"width": 1440, "height": 855}}'>
 class Component extends DCLogic {
   renderVals() {
+    const unnamedTenant = (this.props.tenant ?? 'named') === 'unnamed';
     const verdict = this.props.verdict ?? 'confirmed';
     const notice = this.props.notice ?? 'none';
     // A 422 means the stored number is not in VIES's format: such a number is never askable.
@@ -165,6 +169,7 @@ class Component extends DCLogic {
     };
     const [noticeHeading, noticeBody] = N[notice] ?? ['', ''];
     return {
+      named: !unnamedTenant, unnamed: unnamedTenant,
       number: askable ? 'MT12345678' : 'MT 1234-5678',
       word, chip, sentence,
       answered: when === 'answered', askedOnly: when === 'asked', neverAsked: when === 'never',

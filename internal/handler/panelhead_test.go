@@ -58,6 +58,17 @@ var unbrandedPanelShellBeforeM1201 = map[string]unbrandedDigest{
 	"AdminDashboard, owner, reports":                 {11865, "07e010c0e0e3ae81d9dc48d37416c2f4aa86e2deb0fa98f679434c4aa823119a"},
 }
 
+// panelEmptyUndo is what M12-09 changed in AdminDashboard's body (the "not built yet" empty
+// state), now and before: components.EmptyState's opening became components.PanelEmpty's.
+// The heading and the sentences between them are untouched, so they are not listed.
+var panelEmptyUndo = []struct{ now, before string }{
+	{
+		`<section class="flex flex-col gap-2 rounded-[18px] border border-dashed border-ink/50 p-6"><p class="lbl">The Roll</p><h2 class="font-display text-[19px] font-bold leading-tight tracking-tight text-ink">`,
+		`<section class="empty-state"><p class="docket-label">Nothing here yet</p><h2 class="font-display text-lg font-bold tracking-tight text-ink">`,
+	},
+	{`<div class="text-sm leading-normal text-ink/70">`, `<div class="text-sm text-ink/70">`},
+}
+
 // TestPanelHead_EmptySlotsAreTheShellAsItWas: every panel render of the WL-8 corpus (all
 // slots empty) prints the new h1 exactly as often as a section is declared (once, or never
 // for the undeclared tab), and with that one class put back it is the pre-M12-01 render to
@@ -75,6 +86,18 @@ func TestPanelHead_EmptySlotsAreTheShellAsItWas(t *testing.T) {
 			continue
 		}
 		got := string(renderUnbranded(t, r))
+		if r.name == "AdminDashboard, owner, reports" {
+			// M12-09 moved this section's BODY to components.PanelEmpty. The body is not the
+			// shell, so its old markup is put back too -- each piece exactly once -- and the
+			// claims below still hold the shell against the pre-M12-01 digest, the eyebrow
+			// check included (the empty state's own label goes with the undo).
+			for _, u := range panelEmptyUndo {
+				if c := strings.Count(got, u.now); c != 1 {
+					t.Fatalf("%s: the M12-09 empty state's %q appears %d times, want 1", r.name, u.now, c)
+				}
+				got = strings.Replace(got, u.now, u.before, 1)
+			}
+		}
 		wantH1 := 1
 		if r.name == "PanelShell, owner, an undeclared tab" {
 			wantH1 = 0

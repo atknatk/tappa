@@ -202,7 +202,7 @@ templ anomalyPeople(v AnomaliesView) {
 			}
 		</div>
 	} else {
-		@components.EmptyState("Nobody carries one of these counts this week") {
+		@components.PanelEmpty(SectionLabel(TabAnomalies)+" · per person", "Nobody carries one of these counts this week", components.PanelEmptyCTA{}) {
 			<p>
 				Every person who tapped is inside the totals above; none of them has a
 				GPS-only tap, a counter gap, a reading outside the venue or a tap at
@@ -371,7 +371,7 @@ templ anomalyOpen(v AnomaliesView) {
 			}
 		</div>
 	} else {
-		@components.EmptyState("Every check-in this week has a checkout after it") {
+		@components.PanelEmpty(SectionLabel(TabAnomalies)+" · check-ins with no checkout", "Every check-in this week has a checkout after it", components.PanelEmptyCTA{}) {
 			<p>Nothing in this week is waiting for a missing record.</p>
 		}
 	}

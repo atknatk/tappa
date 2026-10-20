@@ -919,3 +919,100 @@ func billingForm(month, token string) url.Values {
 	}
 	return v
 }
+
+// --- the redesign's derived lines (M12-39) -------------------------------------------
+
+// TestBillingView_OnlyTheMonthWeAreInIsRunning pins the "day N of M" line and the "So
+// far" label to the calendar rather than to HasEnded alone: a future month has not
+// ended either, and it has not started.
+func TestBillingView_OnlyTheMonthWeAreInIsRunning(t *testing.T) {
+	d := newFakeBooks().draft
+	d.HasEnded = false
+	d.Month = billing.Month{Year: 2026, Month: time.October}
+
+	cases := []struct {
+		name      string
+		now       time.Time
+		wantLine  string
+		wantLabel string
+	}{
+		{"inside the month", time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC),
+			"day 20 of 31 · the figure moves until the month ends", "So far"},
+		// 23:30 UTC on 31 October is already 1 November in Malta: the zone decides.
+		{"the month after, in the tenant's zone", time.Date(2026, 10, 31, 23, 30, 0, 0, time.UTC), "", "Draft"},
+		{"a month that has not started", time.Date(2026, 9, 2, 9, 0, 0, 0, time.UTC), "", "Draft"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var v pages.BillingView
+			fillBillingView(&v, d, nil, false, tc.now)
+			if v.RunningLine != tc.wantLine || v.AmountLabel != tc.wantLabel || v.Running != (tc.wantLine != "") {
+				t.Errorf("running=%v line=%q label=%q, want line=%q label=%q",
+					v.Running, v.RunningLine, v.AmountLabel, tc.wantLine, tc.wantLabel)
+			}
+		})
+	}
+	frozen := frozenDraftFor(d.Month, 3, 450)
+	var v pages.BillingView
+	fillBillingView(&v, frozen, nil, false, time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC))
+	if v.Running || v.AmountLabel != "Frozen" {
+		t.Errorf("a frozen month reads running=%v label=%q, want false and Frozen", v.Running, v.AmountLabel)
+	}
+}
+
+// TestBillingPlan_TheFreeWindowComesFromTheFirstChargeableMonth is the plan card's
+// founding lines: named from the database's month, never from a count of free months,
+// and absent where there is no rule (a frozen row) or no free month (standard).
+func TestBillingPlan_TheFreeWindowComesFromTheFirstChargeableMonth(t *testing.T) {
+	d := newFakeBooks().draft // founding, first chargeable September 2026
+	var v pages.BillingView
+	fillBillingPlan(&v, d)
+	if v.FirstCharged != "September 2026" || v.FreeUntil != "Free until the end of August 2026." {
+		t.Errorf("founding lines %q / %q", v.FirstCharged, v.FreeUntil)
+	}
+	for name, mod := range map[string]func(*billing.Draft){
+		"standard plan": func(d *billing.Draft) { d.Plan = "standard" },
+		"frozen row":    func(d *billing.Draft) { d.FirstChargeableMonth = billing.Month{} },
+	} {
+		dd := d
+		mod(&dd)
+		var w pages.BillingView
+		fillBillingPlan(&w, dd)
+		if w.FirstCharged != "" || w.FreeUntil != "" {
+			t.Errorf("%s: founding lines %q / %q, want none", name, w.FirstCharged, w.FreeUntil)
+		}
+	}
+	// AND THE TEMPLATE WRITES NO COUNT OF FREE MONTHS (the boards said two; the rule is
+	// the database's).
+	src := repoFile(t, "web", "templates", "pages", "billing.templ")
+	for _, word := range []string{"two months", "three months", "2 months", "3 months", "first two", "first three"} {
+		if strings.Contains(strings.ToLower(src), word) {
+			t.Errorf("billing.templ writes %q; the free window is tappa_first_chargeable_month's", word)
+		}
+	}
+}
+
+// TestBillingHistory_ReadsItsDatesInTheZoneTheRowWasCountedIn: the receipt's range is
+// the row's own boundaries (To exclusive), the frozen time is local, and a zone this
+// binary cannot load says UTC rather than passing UTC off as local.
+func TestBillingHistory_ReadsItsDatesInTheZoneTheRowWasCountedIn(t *testing.T) {
+	malta, err := time.LoadLocation("Europe/Malta")
+	if err != nil {
+		t.Skipf("no zone database: %v", err)
+	}
+	h := frozenDraftFor(billing.Month{Year: 2026, Month: time.August}, 2, 300)
+	h.Zone = "Europe/Malta"
+	h.From = time.Date(2026, 8, 1, 0, 0, 0, 0, malta)
+	h.To = time.Date(2026, 9, 1, 0, 0, 0, 0, malta)
+	h.ClosedAt = time.Date(2026, 9, 2, 7, 14, 0, 0, time.UTC)
+	if got := rangeLabel(h); got != "1 – 31 Aug" {
+		t.Errorf("rangeLabel = %q, want %q", got, "1 – 31 Aug")
+	}
+	if got := closedLabel(h); got != "2 Sep 2026 09:14" {
+		t.Errorf("closedLabel = %q, want the Malta wall clock", got)
+	}
+	h.Zone = "Nowhere/Atlantis"
+	if got := closedLabel(h); got != "2 Sep 2026 07:14 UTC" {
+		t.Errorf("closedLabel with an unloadable zone = %q, want it marked UTC", got)
+	}
+}

@@ -221,7 +221,7 @@ templ reportPeople(v ReportsView) {
 			}
 		</div>
 	} else if v.Queried {
-		@components.EmptyState("No hours were recorded this week") {
+		@components.PanelEmpty(SectionLabel(TabReports), "No hours were recorded this week", components.PanelEmptyCTA{}) {
 			// 🔴 "NO HOURS WERE RECORDED" IS NOT "NOBODY WORKED". §5 row 3 sends
 			// somebody with no session to the activation page and writes NO RECORD AT
 			// ALL, so a week in which every plaque was touched by new starters produces

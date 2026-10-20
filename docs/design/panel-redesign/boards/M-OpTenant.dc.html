@@ -21,7 +21,7 @@ a{color:#1F5C41}a:hover{color:#152219}
 .oplock span{color:#D98E2B}
 .opout{min-height:44px;padding:0 16px;border:1px solid #FFFDF4;border-radius:10px;background:transparent;color:#FFFDF4;font:700 14px 'Space Grotesk',sans-serif;white-space:nowrap;cursor:pointer}
 .opout:hover{border-color:#D98E2B;color:#D98E2B}
-.opbot{position:sticky;bottom:0;z-index:5;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));background:#FFFDF4;border-top:1px solid #C9D2C8}
+.opbot{position:sticky;bottom:0;margin-top:auto;z-index:5;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));background:#FFFDF4;border-top:1px solid #C9D2C8}
 .opbt{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:60px;text-decoration:none;color:rgba(21,34,25,.7);font:500 11px 'Space Grotesk',sans-serif}
 .opbt:hover{color:#152219}
 .opbt--on{color:#152219;font-weight:700}
@@ -34,11 +34,11 @@ a{color:#1F5C41}a:hover{color:#152219}
 .opsubt{display:flex;align-items:center;min-height:44px;padding:0 10px;border-bottom:3px solid transparent;margin-bottom:-1px;text-decoration:none;color:#152219;font:400 14px 'Space Grotesk',sans-serif;white-space:nowrap}
 .opsubt:hover{color:#152219;background:rgba(217,142,43,.12)}
 .opsubt--on{border-bottom-color:#D98E2B;font-weight:700}
-.opmain{width:100%;max-width:none;box-sizing:border-box;padding:20px 16px 32px}
+.opmain{width:100%;max-width:none;box-sizing:border-box;padding:20px 16px 64px}
 /* end operator shell */
 .mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
 .lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
-.card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:14px;padding:22px 24px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:14px;min-width:0}
 .docket{background:#FFFDF4;border:1px solid #C9D2C8;border-top:2px dashed #C9D2C8;border-radius:0;padding:16px 20px;display:flex;flex-direction:column;gap:8px;min-width:0}
 .h1{margin:0;font:700 28px/1.1 'Space Grotesk',sans-serif;letter-spacing:-0.03em}
 .txt{margin:0;font-size:14px;line-height:1.5}
@@ -69,7 +69,7 @@ a{color:#1F5C41}a:hover{color:#152219}
 dl{margin:0}dd{margin:0}
 </style>
 </helmet>
-<div style="width: 390px; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
+<div style="width: 390px; min-height: 100vh; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
   <header class="opbar">
     <div class="opbar-in">
       <p class="oplock">TAPTIME <span>OPERATOR</span></p>
@@ -87,9 +87,9 @@ dl{margin:0}dd{margin:0}
   <main class="opmain" style="display: flex; flex-direction: column; gap: 16px">
     <section class="card" aria-label="Tenant overview">
       <p class="lbl" style="margin: 0">Tenant overview</p>
-      <dl style="display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px 20px">
-        <div><dt class="lbl">Tenant id</dt><dd class="mono" style="margin-top: 4px; font-size: 14px; word-break: break-all">{{tenantId}}</dd></div>
-        <div><dt class="lbl">Signed up</dt><dd class="mono" style="margin-top: 4px; font-size: 14px; word-break: break-all">2026-07-24 09:12 UTC</dd></div>
+      <dl style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px">
+        <div style="grid-column: 1 / -1"><dt class="lbl">Tenant id</dt><dd class="mono" style="margin-top: 4px; font-size: 14px; word-break: break-all">{{tenantId}}</dd></div>
+        <div style="grid-column: 1 / -1"><dt class="lbl">Signed up</dt><dd class="mono" style="margin-top: 4px; font-size: 14px; word-break: break-all">2026-07-24 09:12 UTC</dd></div>
         <div><dt class="lbl">Plan</dt><dd class="mono" style="margin-top: 4px; font-size: 14px; word-break: break-all">founding</dd></div>
         <div><dt class="lbl">Business type</dt><dd class="mono" style="margin-top: 4px; font-size: 14px; word-break: break-all">restaurant</dd></div>
       </dl>
@@ -97,7 +97,7 @@ dl{margin:0}dd{margin:0}
 
     <section class="docket" aria-labelledby="tenant-live">
       <h2 id="tenant-live" class="lbl" style="margin: 0">Live now</h2>
-      <dl style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 20px; padding-top: 4px; align-items: end">
+      <dl style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding-top: 4px; align-items: end">
         <div><dt class="lbl">Locations</dt><dd class="mono" style="margin-top: 4px; font-size: 30px; font-weight: 700; line-height: 1.1">9</dd></div>
         <div><dt class="lbl">Active employees</dt><dd class="mono" style="margin-top: 4px; font-size: 30px; font-weight: 700; line-height: 1.1">64</dd></div>
         <div><dt class="lbl">Active plaques</dt><dd class="mono" style="margin-top: 4px; font-size: 30px; font-weight: 700; line-height: 1.1">11</dd></div>
@@ -164,7 +164,7 @@ dl{margin:0}dd{margin:0}
   </nav>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"api": {"editor": "enum", "options": ["open", "closed-with-code", "never-opened"], "default": "open"}, "notice": {"editor": "enum", "options": ["none", "opened", "not-opened", "code-not-changed", "closed", "still-open", "code-refused"], "default": "none"}, "tenant": {"editor": "enum", "options": ["named", "unnamed"], "default": "named"}, "$preview": {"width": 390, "height": 1542}}'>
+<script type="text/x-dc" data-dc-script data-props='{"api": {"editor": "enum", "options": ["open", "closed-with-code", "never-opened"], "default": "open"}, "notice": {"editor": "enum", "options": ["none", "opened", "not-opened", "code-not-changed", "closed", "still-open", "code-refused"], "default": "none"}, "tenant": {"editor": "enum", "options": ["named", "unnamed"], "default": "named"}, "$preview": {"width": 390, "height": 1510}}'>
 class Component extends DCLogic {
   renderVals() {
     const pick = this.props.api ?? 'open';

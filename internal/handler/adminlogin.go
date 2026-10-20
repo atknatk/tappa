@@ -264,6 +264,12 @@ type AdminAuth struct {
 	// the log at start-up.
 	encoder PlaqueEncoder
 
+	// plaqueTapBase is the tap URL a plaque carries ("https://<host>/t"), the SAME value
+	// cmd/tappa hands the encode relay, set by the PlaqueDrawingsFrom option. The plaque
+	// drawing's QR code is built from it (M12-12); "" — or a base no plaque could be
+	// encoded with — draws no QR code at all (plaqueDrawingOf).
+	plaqueTapBase string
+
 	// notices sends the "your password was changed" notice after the Account section's
 	// change-my-own-password commits (M10 EM-9, passwordnotice.go). It is REQUIRED, for
 	// the M5-04 reason: a nil notifier would let a change go unannounced and unrecorded

@@ -77,7 +77,7 @@ DOM: `<div class="flex flex-col gap-6 desk:grid desk:grid-cols-[minmax(0,300px)_
 | V6f | warning "No network set — taps rely on GPS" | `!IPProof && GPS != ""` | DERIVE | channel-correct: add "QR scans here go to The Spike"; the "No proof of place" notice (neither) renders **once**, in the detail |
 | V7 | Detail eyebrow "Venue", h2 name | `VenueRowView.Name` | EXISTS | |
 | V8 | "Edit venue" | `EditHref` (`?venue=<id>`, `locations.go:1065`) | EXISTS | |
-| V9 | Plaque drawing | first `OnAWall()` plaque of the venue | **BUILT (D4, M12-12)** | desktop (paper tap zone) version at every width; **real QR** `<base>/t?tag=<uid>`; "Hold your phone here" / "Or scan — same thing" / `PLAQUE 91AC`; caption "drawing, not to scale"; no plaque → no drawing + "No plaque is on a wall here yet" |
+| V9 | Plaque drawing | first `OnAWall()` plaque of the venue | **BUILT (D4, M12-12)** | desktop version at every width (the current boards, after visual QA `c2dd88d`, draw an **ink** tap zone with paper words and rings; "paper tap zone" predated that QA — M12-12b follows the boards); **real QR** `<base>/t?tag=<uid>`; "Hold your phone here" / "Or scan — same thing" / `PLAQUE 91AC`; caption "drawing, not to scale"; no plaque → no drawing + "No plaque is on a wall here yet" |
 | V9c | caption "{pos} · NFC + QR" | — | **REMOVED (D1)** | no position column |
 | V10a | "Venue network" → ranges | `VenueRowView.Ranges` | EXISTS | one per line; empty → "Not set"; too wide → "too wide to count as proof" |
 | V10b | Wi-Fi name | `VenueRowView.WiFi` | KEPT AS CODE | **not evidence** (migration 00010; `venue.go:295-303`): outside the evidence list, labelled "Wi-Fi shown at activation (not checked)" (`venue.templ:94`) |
