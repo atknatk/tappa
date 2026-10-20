@@ -14,6 +14,11 @@ package handler
 // page's own markup is byte for byte the 85b4b8d golden's. The holding claim is unchanged.
 // The anomalies golden was replaced once more in the same day's fix round: its one change is the
 // sentence naming the reports section by its new label ("The Reports section" -> "The Roll").
+// M12-29 (Odd shapes ported to the redesign) replaced the anomalies-view golden: the bytes differ
+// only inside the content well, and the holding claim was re-measured on the new page -- the
+// same screen with three partner records added renders these bytes plus exactly three
+// insertions (the partner sentence, the partner venue's row with its label and no bar, the
+// anonymous rule bucket last), and the absent lost-plaque block still adds 0 bytes.
 
 import (
 	"bytes"
