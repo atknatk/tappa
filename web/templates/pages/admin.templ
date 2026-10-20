@@ -51,12 +51,13 @@ import (
 templ AdminLogin(v AdminLoginView) {
 	@layout.Auth("Sign in — Taptime", adminPasswordScript) {
 		<div class="flex min-h-screen flex-col desk:flex-row">
-			@adminLoginBrandPanel()
+			@adminLoginBrandPanel(v)
 			<main class="flex min-w-0 flex-1 flex-col gap-6 px-4 py-6 md:gap-8 md:px-10 md:py-14 desk:flex-[1_1_560px] desk:px-16 desk:pb-12 desk:pt-8">
 				if v.SignupHref != "" {
-					// Below the form on a phone (after a dashed rule), above it from the
-					// tablet up — one block moved by its order, not a second copy.
-					<div class="order-last flex flex-col items-center gap-0.5 border-t border-dashed border-line pt-3.5 md:order-first md:flex-row md:flex-wrap md:justify-end md:gap-x-3.5 md:border-t-0 md:pt-0">
+					// Below the form on a phone (after a dashed rule), above it on a desk —
+					// one block moved by its order. On a tablet the band's top row carries
+					// the same offer instead (adminLoginBrandPanel).
+					<div class="order-last flex flex-col items-center gap-0.5 border-t border-dashed border-line pt-3.5 md:order-first md:hidden desk:flex md:flex-row md:flex-wrap md:justify-end md:gap-x-3.5 md:border-t-0 md:pt-0">
 						<p class="text-[13px] text-ink/70 md:text-sm">Not using Taptime yet?</p>
 						<a
 							href={ templ.SafeURL(v.SignupHref) }
@@ -220,13 +221,25 @@ templ adminPasswordToggle() {
 //
 // The paragraph is drawn from the desk width up: stacked above the form, every row
 // of this half is a row the person who came to sign in scrolls past.
-templ adminLoginBrandPanel() {
+templ adminLoginBrandPanel(v AdminLoginView) {
 	<aside aria-label="Taptime" class="relative flex flex-col gap-[18px] overflow-hidden bg-ink px-5 pb-[26px] pt-[22px] text-paper md:grid md:grid-cols-[minmax(0,1fr)_330px] md:items-end md:gap-x-8 md:gap-y-[26px] md:px-10 md:pb-9 md:pt-7 desk:flex desk:items-stretch desk:min-w-0 desk:flex-[1_1_520px] desk:justify-between desk:gap-12 desk:px-16 desk:py-10">
 		<span aria-hidden="true" class="absolute inset-x-0 top-0 h-1 bg-tappa-green"></span>
-		<a href="/" class="inline-flex min-h-11 w-fit flex-col justify-center gap-0.5 text-paper md:col-span-2">
-			<span class="font-display text-[22px] font-bold leading-none tracking-tight md:text-2xl desk:text-[26px]">taptime</span>
-			<span class="font-mono text-[10px] uppercase tracking-widest text-paper/70 md:text-[11px]">punchless</span>
-		</a>
+		<div class="flex items-center justify-between gap-4 md:col-span-2">
+			<a href="/" class="inline-flex min-h-11 w-fit flex-col justify-center gap-0.5 text-paper">
+				<span class="font-display text-[22px] font-bold leading-none tracking-tight md:text-2xl desk:text-[26px]">taptime</span>
+				<span class="font-mono text-[10px] uppercase tracking-widest text-paper/70 md:text-[11px]">punchless</span>
+			</a>
+			if v.SignupHref != "" {
+				// The tablet's place for the offer (T-SignIn): a framed link in the band's
+				// top row. The phone and the desk draw the same words beside the form.
+				<a
+					href={ templ.SafeURL(v.SignupHref) }
+					class="hidden min-h-11 items-center rounded-xl border border-porcelain/25 px-4 font-display text-sm font-bold tracking-tight text-paper hover:border-paper md:inline-flex desk:hidden"
+				>
+					Start now — first { itoa(v.FreeMonths) } months free
+				</a>
+			}
+		</div>
 		<div aria-hidden="true" class="relative pt-1.5 md:col-start-2 md:row-start-2 md:pt-2 desk:w-full desk:max-w-[520px] desk:pt-2.5">
 			<span class="absolute -inset-x-5 top-1.5 h-1.5 rounded bg-porcelain md:-left-2.5 md:-right-16 md:top-2 md:h-[7px] desk:-left-16 desk:-right-6 desk:top-2.5 desk:h-2"></span>
 			<div class="flex gap-2.5 pb-2 md:gap-3 md:pb-0 desk:gap-[18px] desk:pl-2">
