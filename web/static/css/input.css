@@ -572,7 +572,10 @@
      guide."). This keeps the link inline -- the line box is the text's own -- and reserves
      the 44 px in a transparent box drawn by ::after, centred on the line: the anchor's
      pseudo-element is part of the anchor, so a press on it follows the link. The ::after's
-     min-height is what TestPanelScreens_TouchTargetClassesReserve44px reads. */
+     min-height is what TestPanelScreens_TouchTargetClassesReserve44px reads.
+     CAUTION: the ::after reaches about 11.5 px outside the line box -- never put a .hit-link
+     within 12 px of another control (measured: a button 4 px below lost its top ~7.5 px of
+     hit area to the link). */
   .hit-link { @apply relative; }
   .hit-link::after {
     content: "";

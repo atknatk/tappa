@@ -358,6 +358,10 @@ golden'ı); panel yalnız kendi `Panel*` bileşenlerini kullanır.
 - **Dokunma hedefi** yeni bir basılabilir sınıfsa `panelTouchTargets`'a girer; ekranından önce
   tanımlanan sınıf `panelPendingTouchTargets`'ta bekler (bugün boş — tasarım gereği;
   `TestPanelScreens_PendingTouchTargetClassesReserve44pxInTheSource`).
+- **Cümle içindeki bağlantı `.hit-link` taşır**, `inline-flex min-h-11` değil — o, satırı 44 px'e
+  büyütüp cümleyi boşluklu satırlara böler (`TestPanelTemplates_ALinkInRunningTextKeepsTheLineBox`).
+  ⚠️ `.hit-link::after` satır kutusunun ~11,5 px dışına taşar: başka bir kontrolün **12 px**
+  yakınına koyma (ölçüldü: 4 px altındaki bir düğme üst ~7,5 px'ini bağlantıya kaptırdı).
 - **Docket'in sınıf özniteliği tam `class="docket"`** kalır
   (`TestTransactionDocket_IsADocketAndCarriesEveryFieldTheCardAsksFor`; sonuç ekranıyla ortak) — tam
   docket'in dolgusu bu yüzden tasarımın tarifinden farklıdır (README §5.1).
