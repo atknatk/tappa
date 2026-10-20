@@ -334,43 +334,19 @@ func TestLedger_TheStepperStopsAtTodayAndKeepsTheFilters(t *testing.T) {
 
 // TestPassViews_CarryNothingACoordinateCouldTravelIn is §4.7 on the view types The Pass and the
 // ledger add: no field whose name a coordinate, an address or a secret would arrive under, and
-// every leaf a string, a count, a flag or a state.
+// every leaf a string, a count, a flag or a state -- the docket the hour groups carry included
+// (walkViewFields).
 func TestPassViews_CarryNothingACoordinateCouldTravelIn(t *testing.T) {
-	seen := map[reflect.Type]bool{}
-	fields := 0
-	var walk func(reflect.Type)
-	walk = func(rt reflect.Type) {
-		for rt.Kind() == reflect.Slice {
-			rt = rt.Elem()
-		}
-		if rt.Kind() != reflect.Struct || seen[rt] || rt == reflect.TypeOf(components.DocketView{}) {
-			return // DocketView is walked by TestTypes_NothingOnTheReadPathCanCarryACoordinate
-		}
-		seen[rt] = true
-		for i := 0; i < rt.NumField(); i++ {
-			f := rt.Field(i)
-			fields++
-			if why := bannedFieldName(f.Name); why != "" {
-				t.Errorf("%s.%s: %s", rt.Name(), f.Name, why)
-			}
-			switch k := f.Type.Kind(); k {
-			case reflect.String, reflect.Bool, reflect.Int, reflect.Uint8:
-			case reflect.Struct, reflect.Slice:
-				walk(f.Type)
-			default:
-				t.Errorf("%s.%s is a %s -- a Pass view holds words, counts, flags and states", rt.Name(), f.Name, f.Type)
-			}
-		}
-	}
-	for _, typ := range []reflect.Type{
+	fields, seen := walkViewFields(t,
 		reflect.TypeOf(pages.VerdictChip{}), reflect.TypeOf(pages.HourGroup{}), reflect.TypeOf(pages.FloorView{}),
 		reflect.TypeOf(pages.SpikeView{}), reflect.TypeOf(pages.LeftOpenView{}), reflect.TypeOf(pages.TapeView{}),
 		reflect.TypeOf(pages.PassPlaquesView{}),
-	} {
-		walk(typ)
-	}
+	)
 	if fields < 25 {
 		t.Fatalf("the walk saw %d fields; it is reading the wrong types", fields)
+	}
+	if !seen[reflect.TypeOf(components.DocketView{})] {
+		t.Error("the walk never reached the docket the hour groups carry")
 	}
 }
 
