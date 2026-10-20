@@ -587,9 +587,9 @@
   .bar-more { @apply flex flex-1; }
   .bar-more > .bar-link { @apply w-full; }
   /* The More sheet: a native disclosure, so it opens and closes with JavaScript off.
-     M12-47 (board M-More) dresses it and changes no markup: the sheet lifts off the page on
-     a soft ink shadow, the page above the bar is dimmed, and the sections sit in ONE rounded
-     group with dashed rules between the rows and a chevron at each row's end. */
+     M12-47 (board M-More) changes no markup and keeps the shipped rows, as the board draws
+     them: the sheet lifts off the page on a soft ink shadow and the page above the bar is
+     dimmed. */
   .bar-sheet {
     @apply fixed inset-x-0 z-10 max-h-[75vh] overflow-y-auto rounded-t-2xl
            border-t border-line bg-paper px-4 pt-4 pb-6 text-ink;
@@ -609,28 +609,12 @@
     @apply fixed inset-x-0 top-0 cursor-default bg-ink/40;
     bottom: calc(64px + max(0.5rem, env(safe-area-inset-bottom)));
   }
-  /* One rounded group on the sheet: a line frame, the rows ruled off with the docket's
-     dashed line. The frame clips the rows' fills to its corners, so the rows' focus ring is
-     drawn inside them. */
-  .sheet-list { @apply flex flex-col overflow-hidden rounded-2xl border border-line bg-paper; }
-  .sheet-list > li + li { @apply border-t border-dashed border-line; }
+  .sheet-list { @apply flex flex-col; }
   .sheet-link {
-    @apply flex min-h-14 items-center gap-3.5 px-3.5 font-display text-base font-medium text-ink
-           hover:bg-tappa-green/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset
-           focus-visible:ring-ink;
+    @apply flex min-h-12 items-center gap-3 border-b border-line px-1 font-display text-base
+           text-ink hover:text-tappa-green focus:outline-none focus-visible:ring-2 focus-visible:ring-ink;
   }
-  /* The row's chevron is drawn by the stylesheet (two borders of a turned square), so it is
-     not in the markup and no screen reader meets it. Ink at 70 % on paper is 6.05:1. */
-  .sheet-link::after {
-    content: "";
-    @apply ml-auto mr-1 size-2 flex-none rotate-45 border-r-2 border-t-2 border-ink/70;
-  }
-  /* The current section is marked by its aria-current; the weight, the fill and the ink
-     edge (the People roster's selected row) only repeat that to the eye. The edge is a
-     shadow utility so the focus ring composes with it instead of replacing it. */
-  .sheet-link--current {
-    @apply bg-tappa-green/10 font-bold shadow-[inset_3px_0_0_theme(colors.ink)];
-  }
+  .sheet-link--current { @apply font-bold; }
   .sheet-foot { @apply mt-4 flex flex-col gap-3; }
   /* The sheet's sign-out is a small button with the redesign's field radius (README §4);
      the sidebar's copy of the same form keeps its own shape. */
