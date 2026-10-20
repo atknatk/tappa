@@ -472,8 +472,9 @@ templ policyTenant(v PoliciesView) {
 		<h2 class="font-display text-lg font-bold tracking-tight text-ink">Your own policies <span class="font-mono text-xs font-normal tracking-normal text-ink/70">· written by you · Taptime never changes them</span></h2>
 	</div>
 	if len(v.Tenant) == 0 {
-		<div class="empty-state rounded-[14px]">
-			<p>You have not written any policies of your own.</p>
+		// THE PANEL'S OWN EMPTY STATE (PanelEmpty), the words unchanged: the first sentence
+		// became its heading and the second stays its body.
+		@components.PanelEmpty(SectionLabel(TabPolicies)+" · your own policies", "You have not written any policies of your own.", components.PanelEmptyCTA{}) {
 			// 🔴 THE SECOND SENTENCE USED TO SAY "running on the guarantees and the
 			// baseline above" UNCONDITIONALLY, AND ON A BUSINESS WITH NO BASELINE ROWS
 			// AT ALL THE PAGE THEN CONTRADICTED ITSELF — nine rules marked "Not set up
@@ -482,18 +483,18 @@ templ policyTenant(v PoliciesView) {
 			// rows. Reassurance that is false on the exact screen that shows why is
 			// worse than no reassurance.
 			if v.BaselineInForce {
-				<p class="mt-1 text-sm">
+				<p>
 					Your business is running on the guarantees and the baseline above, which is
 					the intended starting point rather than a gap.
 				</p>
 			} else {
-				<p class="mt-1 text-sm">
+				<p>
 					Your business is running on the Taptime guarantees alone — none of the
 					baseline rules above is deciding anything yet. Taps are still recorded;
 					anything the guarantees do not settle goes to The Spike.
 				</p>
 			}
-		</div>
+		}
 	} else {
 		<div class="flex flex-col gap-4">
 			for _, r := range v.Tenant {

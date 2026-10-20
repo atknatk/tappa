@@ -362,7 +362,6 @@ düzeltildi; ilki hâlâ açık.
 - **Manuel kayıt:** not onay adımında görünüyor ama onay MAC'ine girmiyor — notun özetini MAC'e ekle.
 - **Kural uygulama:** okuma→yazma penceresi duruyor; `AuthorCommand`'a bir `ExpectedVersion` onu kapatır.
 - **Kararsız test:** `TestResetOutboxDB_TheFallbackWithdrawalsStayUnderTheFloor` (250–300 ms penceresi; yük altında 324 ms ölçüldü).
-- **`.empty-state` kuralı:** `components.EmptyState` M12-48'de kalktı; sınıfı taşıyan son öğe Rules sayfasının *"no policies of your own"* kutusu (`policies.templ`) — **M12-38 birleştikten sonra** kutuyu panelin kendi boş durumuna taşı, kuralı ve `dashboard_test.go`'nun paper zemin satırındaki adını sil.
 
 ---
 

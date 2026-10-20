@@ -1461,7 +1461,7 @@ var (
 // the only way to make the rule weaker and that is an edit somebody has to defend.
 // Adding one is free and safe — it can only make the test stricter.
 var docketLabelGrounds = map[string]string{
-	"paper":     "the ground of .docket, components.Card and the Rules page's .empty-state box",
+	"paper":     "the ground of .docket and components.Card",
 	"porcelain": "the page ground itself, behind both shells — form labels and the panel's phone top bar sit directly on it",
 	// Neither Notice tone carries a docket-label today. They are listed anyway
 	// because they are light SURFACES a label could legitimately land on, and
