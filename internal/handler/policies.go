@@ -13,6 +13,7 @@ import (
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/internal/policy"
+	"github.com/atknatk/tappa/web/templates/components"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
@@ -123,7 +124,7 @@ func (a *AdminAuth) policiesSection(w http.ResponseWriter, r *http.Request) {
 	// second representation of the engine's decision on the one page whose job is to
 	// show what the engine decides.
 	v.MayEdit = a.scribe.May(r.Context(), id.TenantID(), actorOf(id))
-	v.ProblemHeading, v.Problem = policyProblem(r.URL.Query().Get("problem"))
+	v.ProblemHeading, v.Problem, v.ProblemTone = policyProblem(r.URL.Query().Get("problem"))
 	fillPoliciesView(&v, screen)
 	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminPolicies(v))
 }
@@ -140,21 +141,26 @@ const policiesKicker = "Guarantees first · then your rules, weighed together"
 // a caller can type reaches the page. An unknown word produces no notice at all
 // rather than a generic one: a banner that fires for any junk in the query string is
 // a banner somebody can make a customer see.
-func policyProblem(raw string) (heading, sentence string) {
+func policyProblem(raw string) (heading, sentence string, tone components.Tone) {
 	word := oneOfWords(strings.TrimSpace(raw), policyProblemWords...)
 	sentence = policyProblemSentence(word)
 	if sentence == "" {
-		return "", ""
+		return "", "", ""
 	}
 	// 🔴 ONE WORD IS NOT A REFUSAL, AND ITS HEADING MUST NOT SAY IT IS.
 	// `lockout-stands` means the change WAS made, took the author's authority away, and
 	// could not be put back. "That change was not made" over that body is the page's
 	// largest sentence contradicting its own paragraph — and the reason
 	// tenant.ErrLockoutStands is a separate sentinel in the first place.
+	//
+	// 🔴 AND NEITHER MAY ITS LABEL (M12 notice port). The panel notice opens every alert
+	// with "Not done", so the alert tone over this heading printed "Not done · That change
+	// was made" -- the same contradiction one line up. It is a warning: something WAS done
+	// and the owner has to act on it, which is what "Heads up" says.
 	if word == "lockout-stands" {
-		return "That change was made, and it locked you out", sentence
+		return "That change was made, and it locked you out", sentence, components.ToneWarn
 	}
-	return "That change was not made", sentence
+	return "That change was not made", sentence, components.ToneAlert
 }
 
 func policyProblemSentence(word string) string {
@@ -599,11 +605,13 @@ func policyRuleView(r tenant.Rule, zone *time.Location, guardrailsOnly bool, ed 
 			// document cannot be read the engine is using NO version of anything, so a
 			// green "in use" chip beside every history line is the same false confidence
 			// the "In force" label was -- one element further down, and it survived the
-			// first fix because the test looked for one string.
-			if guardrailsOnly {
-				version.Marker, version.MarkerTone = "newest stored", pages.PolicyToneOff
-			} else {
+			// first fix because the test looked for one string. A switched-off rule is
+			// the same claim from the other side: its newest version is stored and
+			// decides nothing (ruleDeciding, the review page's truth too).
+			if ruleDeciding(r, guardrailsOnly) {
 				version.Marker, version.MarkerTone = "in use", pages.PolicyToneRunning
+			} else {
+				version.Marker, version.MarkerTone = "newest stored", pages.PolicyToneOff
 			}
 		}
 		row.History = append(row.History, version)
@@ -614,6 +622,14 @@ func policyRuleView(r tenant.Rule, zone *time.Location, guardrailsOnly bool, ed 
 	}
 	policyControls(&row, r, ed)
 	return row
+}
+
+// ruleDeciding is the engine's sense of "in use", the one both the Rules page and the
+// change review read: the rule is stored and switched on, and the engine has not dropped
+// the whole layer over a document it cannot read. A switched-off rule's newest version is
+// stored, not in use.
+func ruleDeciding(r tenant.Rule, guardrailsOnly bool) bool {
+	return r.State == tenant.StateActive && !guardrailsOnly
 }
 
 // stateWords turns a rule state into the sentence AND the chip tone.

@@ -54,7 +54,7 @@ templ AdminPolicies(v PoliciesView) {
 				<p class="font-mono text-xs uppercase tracking-widest text-ink/70">{ v.Summary }</p>
 			}
 			if v.VersionsCapped {
-				@components.Notice(components.ToneWarn, "Some version history is not on this page") {
+				@components.PanelNotice(components.ToneWarn, "Some version history is not on this page") {
 					<p>
 						Your policy history is longer than one page reads at once, so some
 						versions are not listed below — and a rule whose row fell outside the
@@ -65,7 +65,7 @@ templ AdminPolicies(v PoliciesView) {
 				}
 			}
 			if v.AttachmentsCapped {
-				@components.Notice(components.ToneWarn, "Some scope bindings are not on this page") {
+				@components.PanelNotice(components.ToneWarn, "Some scope bindings are not on this page") {
 					<p>
 						This business has more policy bindings than one page reads at once, so the
 						“Bound to” lists below are shortened.
@@ -85,7 +85,7 @@ templ AdminPolicies(v PoliciesView) {
 				}
 			}
 			if v.ScopeCapped {
-				@components.Notice(components.ToneWarn, "Some of your venues are not in the scope picker") {
+				@components.PanelNotice(components.ToneWarn, "Some of your venues are not in the scope picker") {
 					<p>
 						This business has more venues and departments than one page reads at once, so
 						the list of places a rule can be applied to is shortened. Rules already bound
@@ -100,7 +100,7 @@ templ AdminPolicies(v PoliciesView) {
 				// silent-failure shape §4.6 forbids one layer over, and it is worse here than on
 				// a read: the whole point of the confirmation step is that somebody read a
 				// sentence before pressing, so a press that did nothing has to be visible.
-				@components.Notice(components.ToneAlert, v.ProblemHeading) {
+				@components.PanelNotice(v.ProblemTone, v.ProblemHeading) {
 					<p>{ v.Problem }</p>
 				}
 			}
@@ -156,7 +156,7 @@ templ AdminPolicies(v PoliciesView) {
 // about one line and wrong about every other line on the page.
 templ policyDegraded(v PoliciesView) {
 	if v.GuardrailsOnly {
-		@components.Notice(components.ToneAlert, "Your rules are not being applied right now") {
+		@components.PanelNotice(components.ToneAlert, "Your rules are not being applied right now") {
 			// 🔴 BOTH SENTENCES BELOW WERE MEASURED AND ONE OF THEM USED TO BE TWO
 			// OVERSTATEMENTS. It said "every tap is … then sent to your review queue",
 			// which is false for a tap a guarantee MATCHES — those are refused or sent to
@@ -472,8 +472,9 @@ templ policyTenant(v PoliciesView) {
 		<h2 class="font-display text-lg font-bold tracking-tight text-ink">Your own policies <span class="font-mono text-xs font-normal tracking-normal text-ink/70">· written by you · Taptime never changes them</span></h2>
 	</div>
 	if len(v.Tenant) == 0 {
-		<div class="empty-state rounded-[14px]">
-			<p>You have not written any policies of your own.</p>
+		// THE PANEL'S OWN EMPTY STATE (PanelEmpty), the words unchanged: the first sentence
+		// became its heading and the second stays its body.
+		@components.PanelEmpty(SectionLabel(TabPolicies)+" · your own policies", "You have not written any policies of your own.", components.PanelEmptyCTA{}) {
 			// 🔴 THE SECOND SENTENCE USED TO SAY "running on the guarantees and the
 			// baseline above" UNCONDITIONALLY, AND ON A BUSINESS WITH NO BASELINE ROWS
 			// AT ALL THE PAGE THEN CONTRADICTED ITSELF — nine rules marked "Not set up
@@ -482,18 +483,18 @@ templ policyTenant(v PoliciesView) {
 			// rows. Reassurance that is false on the exact screen that shows why is
 			// worse than no reassurance.
 			if v.BaselineInForce {
-				<p class="mt-1 text-sm">
+				<p>
 					Your business is running on the guarantees and the baseline above, which is
 					the intended starting point rather than a gap.
 				</p>
 			} else {
-				<p class="mt-1 text-sm">
+				<p>
 					Your business is running on the Taptime guarantees alone — none of the
 					baseline rules above is deciding anything yet. Taps are still recorded;
 					anything the guarantees do not settle goes to The Spike.
 				</p>
 			}
-		</div>
+		}
 	} else {
 		<div class="flex flex-col gap-4">
 			for _, r := range v.Tenant {
@@ -587,7 +588,7 @@ templ policyRule(r PolicyRuleView) {
 				</div>
 			}
 			if r.Problem != "" {
-				@components.Notice(components.ToneAlert, "This rule is not being applied") {
+				@components.PanelNotice(components.ToneAlert, "This rule is not being applied") {
 					<p>
 						Its stored document cannot be read by this release, so the engine ignores
 						it and no tap is being judged by it. What the document says is not shown
@@ -879,7 +880,7 @@ templ policyAuthorities(v PoliciesView) {
 			// scrolls to this section is looking at a list of grants; without this line it
 			// reads as the current permissions, and every one of them is a permission the
 			// engine is not applying today.
-			@components.Notice(components.ToneAlert, "None of these grants is being applied today") {
+			@components.PanelNotice(components.ToneAlert, "None of these grants is being applied today") {
 				<p>
 					A baseline rule cannot be read, so the engine is running on the guarantees
 					alone (see the top of this page). The grants below are what your rulebook
@@ -959,7 +960,7 @@ templ policyAuthorities(v PoliciesView) {
 		// page's sentence to match whether any call is NOT on it — in BOTH directions. So
 		// the day the panel stops consulting the engine, or starts consulting it somewhere
 		// new, one of the two goes red instead of quietly becoming false.
-		@components.Notice(components.ToneWarn, "What this page describes, and what it does not") {
+		@components.PanelNotice(components.ToneWarn, "What this page describes, and what it does not") {
 			<p>
 				These are the answers the rules engine gives, and the panel now ASKS it: changing anything on this page is refused unless the engine allows you
 				// 🔴 THIS SENTENCE HAS BEEN WRONG TWICE, IN OPPOSITE DIRECTIONS, AND BOTH WERE

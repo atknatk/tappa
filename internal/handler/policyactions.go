@@ -700,9 +700,9 @@ func policyChangeShown(c policyChange, s tenant.PolicyScreen) pages.PolicyChange
 	if found {
 		row = policyRuleView(rule, zone, s.GuardrailsOnly, policyEditor{})
 	}
-	// DECIDING is the engine's sense of "in use": stored, switched on, and the layer not
-	// dropped. A switched-off rule's newest version is stored, not in use.
-	deciding := found && rule.State == tenant.StateActive && !s.GuardrailsOnly
+	// DECIDING is the engine's sense of "in use", read from the same function the Rules
+	// page reads (ruleDeciding), so the two pages cannot disagree about one version.
+	deciding := found && ruleDeciding(rule, s.GuardrailsOnly)
 
 	switch {
 	case c.policyID == uuid.Nil:
@@ -984,14 +984,9 @@ func policyChangeShown(c policyChange, s tenant.PolicyScreen) pages.PolicyChange
 
 	switch {
 	case found:
+		// "IN USE" ONLY WHILE THE ENGINE IS USING IT: policyRuleView already marks the
+		// strip through ruleDeciding, so the strip is taken as the Rules page draws it.
 		sh.History = row.History
-		for i := range sh.History {
-			// "IN USE" ONLY WHILE THE ENGINE IS USING IT: a switched-off rule's newest
-			// version is stored, and nothing is in force.
-			if sh.History[i].Marker != "" && !deciding {
-				sh.History[i].Marker, sh.History[i].MarkerTone = "newest stored", pages.PolicyToneOff
-			}
-		}
 		sh.HistoryNote = row.HistoryNote
 		if len(sh.History) == 0 {
 			sh.HistoryEmpty = "No version of this rule is stored yet."
