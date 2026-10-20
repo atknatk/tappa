@@ -76,6 +76,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/atknatk/tappa/internal/store"
 )
@@ -225,11 +226,40 @@ type AnomalyVenue struct {
 	Answerable   int
 	DistanceOnly int
 	OutsideVenue int
+	// Both, NetworkOnly and Neither are, with DistanceOnly, the four-way split of Judged the
+	// Odd shapes "evidence mix" bar draws (M12-22). Each is a count of records, out of Judged:
+	//
+	//	Both          the address range matched and the reading fell inside the radius
+	//	NetworkOnly   the address range matched; the reading did not, or none was taken
+	//	DistanceOnly  the reading fell inside the radius; the address range did not match
+	//	Neither       one of the two was assessed and neither matched
+	//
+	// THE NAMES ARE THE RECORD'S SHAPE, NOT THE SENSOR'S (DistanceOnly's reason): what the row
+	// holds is two booleans; no address and no distance reaches this type (§4.7). The exact
+	// predicates, and the one shape none of the four counts, are in db/queries/anomalies.sql
+	// (ListAnomalyVenues) -- Unsplit is that shape's count.
+	Both        int
+	NetworkOnly int
+	Neither     int
 	// Partner marks ANOTHER holding member's venue where this business's staff tapped (M11
-	// API-1c, ADR 0027 §9): Name is the peer's venue, and DistanceOnly / OutsideVenue are zero
-	// by construction -- the query counts the two evidence figures at this business's own venues
-	// only (K-39: the peer's network and coordinate are not this panel's to describe).
+	// API-1c, ADR 0027 §9): Name is the peer's venue, and DistanceOnly / OutsideVenue / Both /
+	// NetworkOnly / Neither are zero by construction -- the query counts the evidence figures at
+	// this business's own venues only (K-39: the peer's network and coordinate are not this
+	// panel's to describe). Such a row gets the label, never a bar.
 	Partner bool
+}
+
+// Unsplit is the part of Judged the four-way split does not place: a record whose address
+// range was not assessed while its reading fell inside the radius (ip_match NULL, gps_match
+// true). No writer produces it today -- the tap path sets both booleans, the manual path
+// neither -- so it is 0 in every measured week; it is a method rather than an assumption so a
+// bar drawn out of Judged can show the remainder as "not split" instead of stretching a
+// segment over it. A partner venue's row has no split at all and answers 0.
+func (v AnomalyVenue) Unsplit() int {
+	if v.Partner {
+		return 0
+	}
+	return v.Judged - v.Both - v.NetworkOnly - v.DistanceOnly - v.Neither
 }
 
 // AnomalyLostPlaque is one of THIS business's lost or retired plaques that a holding peer's
@@ -256,7 +286,49 @@ type AnomalyPlaque struct {
 	// LargestGap is the biggest single jump rather than their sum. Ten taps each one
 	// short is a busy plaque; one tap forty short is a different event.
 	LargestGap int
+
+	// The counters around LargestGap (M12-24, "#from -> #to · between … and …"). JumpState says
+	// which of the four states the five fields below are in; outside JumpRead they are zero and
+	// make no claim.
+	JumpState CounterJumpState
+	// JumpTo is the counter of the read that showed the gap; JumpFrom = JumpTo - LargestGap - 1,
+	// the counter the atomic advance compared it against (db/queries/tags.sql).
+	JumpFrom, JumpTo int
+	// JumpAt is the declared occurred_at of the JumpTo read.
+	JumpAt time.Time
+	// JumpPreviousAt is the declared occurred_at of the read whose counter is JumpFrom, or nil
+	// when that read is not on this business's record within CounterJumpLookback (an activation
+	// tap writes no row, a holding peer's read is in the peer's books) -- never another read's
+	// time beside JumpFrom.
+	JumpPreviousAt *time.Time
 }
+
+// CounterJumpState is the state of a plaque's from -> to counters (M12-24): the P3 tri-state
+// (not read / failed / read) plus the one a holding adds.
+type CounterJumpState string
+
+const (
+	// CounterJumpNotRead: not asked (the zero value) -- the screen claims nothing.
+	CounterJumpNotRead CounterJumpState = ""
+	// CounterJumpFailed: the read failed; the rest of the page stands ("could not be read").
+	CounterJumpFailed CounterJumpState = "failed"
+	// CounterJumpRead: JumpFrom, JumpTo and JumpAt are measured (JumpPreviousAt may be nil).
+	CounterJumpRead CounterJumpState = "read"
+	// CounterJumpElsewhere: the largest gap on the row was revealed by a holding peer's staff on
+	// this business's plaque (the projection, K-1i) -- its counters are not in this business's
+	// records, so none are printed.
+	CounterJumpElsewhere CounterJumpState = "elsewhere"
+)
+
+// CounterJumpLookback is how far before the week the read just before a gap is looked for.
+//
+// A BOUND, BECAUSE THE LOOKUP OTHERWISE HAS NONE: a plaque whose gap is on its first recorded
+// read (an installer's test reads, then the first real tap) has no earlier read, and the
+// search for one would walk the tenant's whole history -- once per listed plaque. 31 days keeps
+// a plaque used weekly well inside it; past it the screen says the earlier read is not on
+// record rather than guessing. The bound also caps the join's hash side (db/queries/anomalies.sql,
+// ListAnomalyPlaqueJumps, measured with EXPLAIN ANALYZE).
+const CounterJumpLookback = 31 * 24 * time.Hour
 
 // AnomalyPair is two people whose taps land together, repeatedly.
 //
@@ -274,6 +346,11 @@ type AnomalyPair struct {
 	Days int
 	// ClosestSeconds is the smallest gap observed between the two.
 	ClosestSeconds int
+	// TogetherOn says, for each local day of the week -- index i is Period.DayLabels' i-th --,
+	// whether the two were together that day (M12-23, the week's dots). It comes from the same
+	// query and the same zone as Days, so its true count is Days; a nil slice is a pair read
+	// before this field existed (a fake), never "on no day".
+	TogetherOn []bool
 }
 
 // AnomalyOpen is a check-in with no later checkout.
@@ -477,6 +554,9 @@ func (r *Reader) Anomalies(ctx context.Context, tenantID uuid.UUID, f ReportFilt
 				Answerable:   int(v.Answerable),
 				DistanceOnly: int(v.DistanceOnly),
 				OutsideVenue: int(v.OutsideVenue),
+				Both:         int(v.BothMatched),
+				NetworkOnly:  int(v.NetworkOnly),
+				Neither:      int(v.NeitherMatched),
 				// A venue of this business always has a name (the join's key is a foreign key);
 				// one with none is a peer's -- the group the query made from site_location_id.
 				Partner: v.LocationName == nil,
@@ -521,6 +601,21 @@ func (r *Reader) Anomalies(ctx context.Context, tenantID uuid.UUID, f ReportFilt
 			body.Plaques, body.MorePlaques = mergeSitePlaques(body.Plaques, sitePlaques, body.MorePlaques || moreSite)
 		}
 
+		// M12-24: the counters around each listed plaque's largest gap, in a savepoint -- a failed
+		// read leaves the gap list standing and says "could not be read" for the counters.
+		if len(body.Plaques) > 0 {
+			if err := inSavepoint(ctx, tx, func(q *store.Queries) error {
+				return readPlaqueJumps(ctx, q, tenantID, period, body.Plaques)
+			}); err != nil {
+				for i := range body.Plaques {
+					body.Plaques[i].JumpState, body.Plaques[i].JumpFrom, body.Plaques[i].JumpTo = CounterJumpFailed, 0, 0
+					body.Plaques[i].JumpAt, body.Plaques[i].JumpPreviousAt = time.Time{}, nil
+				}
+				r.log.Error("ledger: could not read the plaque counters around the largest gaps; the gap list "+
+					"stands without them", "err", err, "tenant_id", tenantID)
+			}
+		}
+
 		pairs, err := q.ListTapsTakenTogether(ctx, store.ListTapsTakenTogetherParams{
 			TenantID: tenantID,
 			FromAt:   period.From,
@@ -548,6 +643,7 @@ func (r *Reader) Anomalies(ctx context.Context, tenantID uuid.UUID, f ReportFilt
 				Together:       int(p.Together),
 				Days:           int(p.Days),
 				ClosestSeconds: int(p.ClosestSeconds),
+				TogetherOn:     togetherOn(p.TogetherDays, period, zone),
 			})
 			var site *uuid.UUID
 			if p.LocationName == nil {
@@ -678,6 +774,74 @@ func (r *Reader) Anomalies(ctx context.Context, tenantID uuid.UUID, f ReportFilt
 		return AnomalyScreen{}, fmt.Errorf("ledger: anomalies: %w", err)
 	}
 	return out, nil
+}
+
+// readPlaqueJumps fills the counters around each plaque's largest gap (M12-24) from
+// ListAnomalyPlaqueJumps. A row of this business's own records whose gap is the row's
+// LargestGap is CounterJumpRead; a row with none -- or with a smaller one, because the
+// projection's gap (a holding peer's tap on this plaque) is the larger -- is
+// CounterJumpElsewhere. The previous read's time is kept only when its counter IS JumpFrom.
+func readPlaqueJumps(ctx context.Context, q *store.Queries, tenantID uuid.UUID, period Period, plaques []AnomalyPlaque) error {
+	uids := make([]string, 0, len(plaques))
+	for _, p := range plaques {
+		uids = append(uids, p.TagUID)
+	}
+	rows, err := q.ListAnomalyPlaqueJumps(ctx, store.ListAnomalyPlaqueJumpsParams{
+		TenantID:     tenantID,
+		LookbackFrom: period.From.Add(-CounterJumpLookback),
+		FromAt:       period.From,
+		ToAt:         period.To,
+		TagUids:      uids,
+	})
+	if err != nil {
+		return fmt.Errorf("list the plaque counters around the largest gaps: %w", err)
+	}
+	type key struct{ uid, venue string }
+	at := make(map[key]store.ListAnomalyPlaqueJumpsRow, len(rows))
+	for _, r := range rows {
+		at[key{r.TagUid, deref(r.LocationName)}] = r
+	}
+	for i := range plaques {
+		p := &plaques[i]
+		r, ok := at[key{p.TagUID, p.LocationName}]
+		if !ok || r.RevealedCtr == nil || int(r.Gap) != p.LargestGap {
+			p.JumpState = CounterJumpElsewhere
+			continue
+		}
+		p.JumpState = CounterJumpRead
+		p.JumpTo = int(*r.RevealedCtr)
+		p.JumpFrom = p.JumpTo - p.LargestGap - 1
+		p.JumpAt = r.RevealedAt
+		if r.PreviousCtr != nil && int(*r.PreviousCtr) == p.JumpFrom && r.PreviousAt != nil {
+			when := *r.PreviousAt
+			p.JumpPreviousAt = &when
+		}
+	}
+	return nil
+}
+
+// togetherOn maps a pair's local days onto the week: one boolean per Period.DayLabels entry.
+//
+// THE DAYS ARE MATCHED BY CALENDAR DATE, NOT BY INSTANT. Postgres bucketed each tap into a
+// local date in the resolved zone (`occurred_at AT TIME ZONE zone`) and returns a `date`, which
+// pgx reads as midnight UTC of that date; DayLabels are midnights in the zone. Comparing the
+// instants would shift every day by the zone's offset -- comparing year, month and day does not.
+// A date outside the week (none can be: the window is the week's own bounds) sets no day.
+func togetherOn(days []pgtype.Date, period Period, zone *time.Location) []bool {
+	labels := period.DayLabels(zone)
+	out := make([]bool, len(labels))
+	for _, d := range days {
+		if !d.Valid {
+			continue
+		}
+		y, m, dd := d.Time.Date()
+		for i, l := range labels {
+			if ly, lm, ld := l.Date(); ly == y && lm == m && ld == dd {
+				out[i] = true
+			}
+		}
+	}
+	return out
 }
 
 // anomalyReadLimit and trimAnomalyRows are the two halves of ONE invariant, written as

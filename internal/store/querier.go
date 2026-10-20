@@ -3391,6 +3391,51 @@ type Querier interface {
 	// LEFT JOIN, because migration 0005 lets a record name an employee the roster no
 	// longer holds; the caller prints "Unknown employee" rather than dropping the row.
 	ListAnomalyPeople(ctx context.Context, arg ListAnomalyPeopleParams) ([]ListAnomalyPeopleRow, error)
+	// The counter values around each listed plaque's LARGEST gap (M12-24, Odd shapes "#from -> #to").
+	//
+	// 🔴 WHAT IT READS IS THE CHIP'S COUNTER, AND ONLY FOR THIS BUSINESS'S OWN PLAQUES. `ctr` is a
+	// chip fact (the evidence inventory lists it), so the statement is filed as `excluded`:
+	// `t.tag_uid IS NOT NULL` keeps every row taken at a holding peer's venue out -- such a row's
+	// tag_uid is NULL (K-30), and a peer's plaque is never this business's anomaly (ListAnomalyPlaques'
+	// own reason). The caller passes the uids ListAnomalyPlaques (merged with the projection's gaps)
+	// listed, so the cap is that listing's and this adds no row of its own.
+	//
+	// PER (plaque, venue name) -- ListAnomalyPlaques' grouping -- the window's read with the largest
+	// gap (the same CASE guard, so a malformed snapshot is a 0, never an error), ties broken by the
+	// higher counter. Its `ctr` is the "to"; the caller derives "from" = to - gap - 1 (the counter of
+	// the read the atomic advance compared against, tags.sql).
+	//
+	// THE PREVIOUS READ -- the latest earlier read of the same plaque whose SUN verified (a replayed
+	// URL's row carries an old counter at a later time and would date the jump wrongly; sun_valid is
+	// set only when the counter advanced). It may precede the window, so it is a per-plaque lookup bounded
+	// below by @lookback_from (the caller's: the window's start less ledger.CounterJumpLookback) --
+	// without the bound a plaque with no earlier read would walk the tenant's whole history. The
+	// caller uses its time ONLY when its counter IS "from"; any other counter means the read just
+	// before the gap is not on this business's record (an activation tap writes no row -- ADR 0026 --,
+	// a holding peer's read is in the peer's books) and the screen says so rather than pairing a
+	// counter with another read's time.
+	//
+	// ⚠️ BOTH TIMES ARE THE DECLARED occurred_at (a phone's claim; ADR 0006 measures the server's
+	// clock only for debounce) -- the screen says "between", with that caveat.
+	//
+	// EXPLAIN ANALYZE (2026-10-20, c4 database): seeded KF (22 rows in the last 7 days, no gap, its 11
+	// plaques asked) -> Sort -> Hash Left Join [Hash Cond (SubPlan 1) = p.id AND tag_uid] -> Unique ->
+	// Sort -> Nested Loop Left Join (locations) over an Index Scan on transactions_tenant_occurred_idx
+	// (0 rows qualify); the Hash's inner side is an Index Scan on transactions_tenant_occurred_idx from
+	// the lookback bound on (never executed). On TestAnomalies_ThePlaqueJumpNamesItsCounters' tenant (4
+	// gap rows, 3 jumps): the same shape, the SubPlan a Limit over an Index Scan on
+	// transactions_tenant_occurred_idx bounded below by the lookback (1 row per loop), 1.2 ms.
+	// THE PREVIOUS READ IS JOINED BACK BY ITS KEY rather than selected out of a LEFT JOIN LATERAL, for
+	// one measured reason: sqlc v1.28 types a LATERAL's columns as NOT NULL (time.Time, which a
+	// missing previous read fails to scan into) and a CASE with a NULL arm as interface{} (the open
+	// type the anomaly type wall refuses); a LEFT JOIN of the table itself is typed nullable. The
+	// tenant is re-stated in the subquery and in the ON.
+	// ⚠️ THE ON REPEATS THE LOOKBACK BOUND, redundantly for the row it finds, because the planner
+	// chooses a HASH join here whatever shape the pick takes, and the hash's inner side is every row
+	// the ON lets through: with the key and the tenant alone that was the tenant's whole history
+	// (measured, EXPLAIN ANALYZE 2026-10-20: Bitmap Heap Scan of all the tenant's rows into the
+	// Hash). With the bound it is the lookback window's rows of the listed plaques.
+	ListAnomalyPlaqueJumps(ctx context.Context, arg ListAnomalyPlaqueJumpsParams) ([]ListAnomalyPlaqueJumpsRow, error)
 	// Counter gaps per plaque -- the OTHER half of the ctr-gap signal (A1 / Q21).
 	//
 	// 🔴 A GAP IS A PROPERTY OF THE PLAQUE'S COUNTER, NOT OF THE PERSON. The NTAG chip
@@ -3434,9 +3479,40 @@ type Querier interface {
 	// the employer's nine readers): its location_id is NULL and site_location_id names the peer's
 	// venue (K-30), so the group is the one that is set. The peer's name is not in this tenant's
 	// locations -- l.name is NULL for that group, and internal/domain/ledger names it from
-	// holding_site_locations. K-39: the two EVIDENCE figures (distance_only, outside_venue) count the
-	// employer's own venues only -- a peer's network and coordinate are not this panel's to describe,
-	// even as a count of matches.
+	// holding_site_locations. K-39: the EVIDENCE figures (distance_only, outside_venue and, since M12-22,
+	// both_matched, network_only, neither_matched) count the employer's own venues only -- a peer's
+	// network and coordinate are not this panel's to describe, even as a count of matches.
+	//
+	// 🔴 M12-22 -- THE FOUR-WAY SPLIT OF `judged` (the Odd shapes "evidence mix" bar). Four figures,
+	// each a count over the two evidence BOOLEANS (never an address, never a distance -- §4.7), each
+	// carrying `t.site_tenant_id IS NULL` (K-39: a partner venue's row has no bar at all):
+	//
+	//      both_matched     ip_match AND gps_match
+	//      network_only     ip_match AND NOT coalesce(gps_match, false)   -- gps false OR not taken
+	//      distance_only    gps_match AND NOT ip_match                    -- UNCHANGED (M6-11)
+	//      neither_matched  (ip_match IS NOT NULL OR gps_match IS NOT NULL)
+	//                       AND NOT coalesce(ip_match, false) AND NOT coalesce(gps_match, false)
+	//
+	// Read against `judged` (one of the two set) they are disjoint, and they cover it EXCEPT one
+	// shape, named rather than folded somewhere: ip_match NULL with gps_match true. distance_only
+	// (whose definition this card keeps) does not count it -- `NOT NULL` is NULL --, and it is not a
+	// match of the network, nor "neither". No writer produces it: the tap path writes both booleans
+	// together (internal/domain/checkin: IpMatch and GpsMatch from one Decision), the manual path
+	// writes neither. Measured 2026-10-20 on the c4 database (KF's simulated day + the test rows):
+	// the combinations present are (f,f) (f,t) (t,f) (t,t) and (NULL,NULL) only. internal/domain/
+	// ledger's AnomalyVenue.Unsplit() is the remainder, so a row of that shape would show as "not
+	// split" rather than be spread over a segment it is not.
+	//
+	// ⚠️ `judged` ITSELF DOES NOT CARRY THE SITE FILTER, and need not: a venue row is the employer's
+	// own (location_id) OR a peer's (site_location_id) -- never both (the
+	// transactions_site_excludes_the_local_venue CHECK) -- so a partner row's judged is a count of
+	// its records the screen never divides (no bar for a partner row), and an own row's judged is
+	// exactly the base the four figures split.
+	//
+	// EXPLAIN ANALYZE (2026-10-20, seeded KF 10000000-…-0001, the last 7 days: 22 rows): Limit ->
+	// Sort -> GroupAggregate -> Sort -> Nested Loop Left Join (Bitmap Index Scan on
+	// transactions_tenant_occurred_idx; locations by locations_id_tenant_key) -- the three FILTERs add
+	// no node, they are evaluated in the one aggregate pass.
 	ListAnomalyVenues(ctx context.Context, arg ListAnomalyVenuesParams) ([]ListAnomalyVenuesRow, error)
 	// The frozen history, newest month first.
 	//
@@ -4616,6 +4692,18 @@ type Querier interface {
 	// this very paragraph states, broken two lines below where it is written. It is on the
 	// screen now ("together N times"), because "twice on two days" and "forty times on two
 	// days" are different rows and the day count alone cannot tell them apart.
+	//
+	// M12-23 -- `together_days` IS WHICH LOCAL DAYS, BESIDE `days` (HOW MANY). The same
+	// `local_day` the HAVING counts -- bucketed in the zone the caller resolved -- so its length
+	// is `days` by construction, and the 20 s / same venue / 2+ days definition is untouched (no
+	// predicate changed). internal/domain/ledger maps it against Period.DayLabels into one
+	// boolean per day of the week. It reads no evidence column: a pair is two people's times at
+	// one venue. EXPLAIN ANALYZE (2026-10-20, seeded KF after a simulated day, the last 7 days,
+	// min_days 1 so the probe has groups: 19 rows in, 8 pairs out): Limit -> Sort -> GroupAggregate
+	// -> Sort -> Nested Loop Left Join (locations) over two Hash Right Joins (employees b, a; seq
+	// scans of the tenant's 69 people) over Subquery Scan `o` -> WindowAgg -> Sort -> Index Scan on
+	// transactions_tenant_occurred_idx. The array is built in the GroupAggregate that already sorts
+	// by local_day for count(DISTINCT) -- no node added.
 	ListTapsTakenTogether(ctx context.Context, arg ListTapsTakenTogetherParams) ([]ListTapsTakenTogetherRow, error)
 	// THE DELIVERY LOG (the owner's panel): the business's deliveries, newest first, a page at a time.
 	// The position is the last row shown, (created_at, id): every row strictly before it in that order.
