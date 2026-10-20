@@ -998,8 +998,10 @@ func brandEditorDrawsNoSecondHeader(t *testing.T, href, region string) {
 // both files; inside the well the date paragraph is gone (the day and the zone are the heading's
 // kicker now), the filter bar is the disclosure form without the verdict dropdown (the verdict
 // is the chips), the notice keeps its bytes (4 spaces of leading indentation instead of 8), and
-// the empty state -- heading, sentence, classes -- is unchanged. zero 11354 -> 12025 bytes,
-// plaques 12325 -> 12961. The banner's absence still adds nothing (the three variants below).
+// the empty state -- heading, sentence, classes -- is unchanged. zero 11 360 -> 12 033 B,
+// plaques 12 331 -> 12 969 B (wc -c; these figures first went in as 11354 -> 12025 and
+// 12325 -> 12961 "bytes", which were rune counts -- "·" and "—" are more than one byte).
+// The banner's absence still adds nothing (the three variants below).
 func TestKeyBudgetBanner_AbsentAddsNothing(t *testing.T) {
 	render := func(v pages.TransactionsView) string {
 		t.Helper()
