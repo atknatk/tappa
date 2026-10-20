@@ -248,7 +248,8 @@ type PanelSection struct {
 	// (GRP-1) -- the OwnerOnly shape: it changes what is drawn, not what is routed. The route stays
 	// (every row of this table is mounted), and for a business in no group it answers with the
 	// panel's empty state ("not in a group"), which is also what a stale bookmark reaches after a
-	// business has left. The chrome reads the membership once per panel request (PanelChrome.InGroup).
+	// business has left. The chrome reads the membership once per panel request (PanelChrome.InGroup) --
+	// on the Group section itself not at all: the section's own read answers it (chromeInGroup).
 	GroupOnly bool
 }
 

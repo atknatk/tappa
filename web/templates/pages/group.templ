@@ -17,7 +17,7 @@ import "github.com/atknatk/tappa/web/templates/components"
 templ AdminGroup(v GroupView) {
 	@PanelShell(v.PanelChrome) {
 		if v.Queried && !v.Member {
-			@components.EmptyState("This business is not in a group") {
+			@components.EmptyStateLabeled("No group", "This business is not in a group") {
 				<p>
 					Taptime can link businesses that work together — the same owner, staff who
 					tap at each other&#39;s venues — into a group. Taptime sets a group up; ask
@@ -128,9 +128,10 @@ templ groupShared() {
 				Every business in the group sees the others&#39; names and company codes, as listed above.
 			</li>
 			<li>
-				When your staff tap a partner&#39;s plaque, that business sees who (name, staff code and
-				reference), when, at which of its venues, in or out, and the result — counted, waiting,
-				approved or rejected. It never sees the reason.
+				When your staff tap a partner&#39;s plaque, or your manager enters a record for one of its
+				venues, that business sees who (name, staff code and reference), when, at which of its
+				venues, in or out, and the result — counted, waiting, approved or rejected, or entered by
+				their employer. It never sees the reason.
 			</li>
 			<li>
 				A partner&#39;s connected HR or payroll system can list your staff&#39;s names and codes and
@@ -138,7 +139,7 @@ templ groupShared() {
 			</li>
 			<li>
 				Never shared: e-mail addresses, GPS positions, network addresses, notes, the rules behind a
-				decision, and your VAT number, address, staff numbers and billing. A tap at a partner&#39;s
+				decision, and your VAT number, address, headcount and billing. A tap at a partner&#39;s
 				venue is decided by your rules, and the partner&#39;s location evidence is not shown to you.
 			</li>
 			<li>

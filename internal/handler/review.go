@@ -536,22 +536,29 @@ func oneOfWords(s string, allowed ...string) string {
 // half a brand: the chrome is the unbranded one and the error is logged
 // (panelBrand, panelbrand.go).
 func (a *AdminAuth) chrome(r *http.Request, tab pages.PanelTab) pages.PanelChrome {
+	// GRP-1: the Group tab is drawn only for a live holding member. A failed read draws the chrome as
+	// for a business in no group (the brand's rule above: the chrome falls back to what it was before
+	// the feature, the error is logged) -- the section itself stays reachable by its address, and its
+	// own read fails loudly (group.go).
+	in, err := a.ledger.InGroup(r.Context(), httpx.AdminOf(r).TenantID())
+	if err != nil {
+		a.log.Error("panel: could not read whether the business is in a group", "err", err)
+	}
+	return a.chromeInGroup(r, tab, err == nil && in)
+}
+
+// chromeInGroup is chrome with the membership already answered -- the Group section's, whose own
+// read is the same holding_group call (group.go): asking it twice per page would be a second
+// statement for one answer, and two answers that could disagree within one page.
+func (a *AdminAuth) chromeInGroup(r *http.Request, tab pages.PanelTab, inGroup bool) pages.PanelChrome {
 	id := httpx.AdminOf(r)
 	c := pages.PanelChrome{
 		FullName: id.Admin.FullName,
 		Role:     id.Admin.Role,
 		Tab:      tab,
 		Brand:    a.panelBrand(r.Context(), id.TenantID()),
+		InGroup:  inGroup,
 	}
-	// GRP-1: the Group tab is drawn only for a live holding member. A failed read draws the chrome as
-	// for a business in no group (the brand's rule above: the chrome falls back to what it was before
-	// the feature, the error is logged) -- the section itself stays reachable by its address, and its
-	// own read fails loudly (group.go).
-	in, err := a.ledger.InGroup(r.Context(), id.TenantID())
-	if err != nil {
-		a.log.Error("panel: could not read whether the business is in a group", "err", err)
-	}
-	c.InGroup = err == nil && in
 	p, err := a.queue.Pending(r.Context(), id.TenantID())
 	if err != nil {
 		a.log.Error("panel: could not count the review queue", "err", err)

@@ -66,7 +66,8 @@ func groupTabDrawn(body string) bool {
 
 // TestGroup_ANonMemberSeesNoTabAndTheEmptyState: a business in no group (the fake's default, and a
 // membership that has ended reads the same) -- as an owner and as a manager -- gets no Group tab on
-// ANY section, and the route answers 200 with the panel's empty state and nothing of a group.
+// ANY section, and the route answers 200 with the panel's empty state -- labelled "No group", not
+// "Nothing here yet" (the GRP-1 review's DUSUK-2: "yet" promises a group) -- and nothing of a group.
 // MUTANT (measured): panelTabs' GroupOnly condition made always-true -> red here.
 func TestGroup_ANonMemberSeesNoTabAndTheEmptyState(t *testing.T) {
 	for _, role := range []string{"owner", "manager"} {
@@ -88,6 +89,10 @@ func TestGroup_ANonMemberSeesNoTabAndTheEmptyState(t *testing.T) {
 			}
 			if !strings.Contains(body, "This business is not in a group") {
 				t.Errorf("%s GET %s: no empty state", role, s.Href)
+			}
+			// Nothing is about to arrive here: the label says what the state is, never "yet".
+			if !strings.Contains(body, `<p class="docket-label">No group</p>`) || strings.Contains(body, "Nothing here yet") {
+				t.Errorf("%s GET %s: the empty state is not labelled \"No group\" alone", role, s.Href)
 			}
 			for _, never := range []string{"Your group", "Members", "Partner staff at your venues", "What the group shares"} {
 				if strings.Contains(body, never) {
@@ -129,6 +134,9 @@ func TestGroup_OwnerAndManagerSeeTheTabAndThePage(t *testing.T) {
 			"Entered by their employer", "Ann Camilleri", "Hours: at their employer",
 			"Your staff at partner venues", ">17<", `href="` + reportsHref + `"`,
 			"What the group shares", "never sees the reason", "timezone cannot be changed", "Taptime runs the group",
+			// The shared-list box: a manual record for a partner's venue is seen there too (employer_manual),
+			// and the "never" list names a headcount, not an ambiguous "staff numbers".
+			"or your manager enters a record for one of its", "or entered by", "address, headcount and billing",
 		} {
 			if !strings.Contains(body, htmlText(want)) && !strings.Contains(body, want) {
 				t.Errorf("%s GET %s: the page does not say %q", role, groupHref, want)
@@ -139,8 +147,8 @@ func TestGroup_OwnerAndManagerSeeTheTabAndThePage(t *testing.T) {
 		if n, m := strings.Count(body, "<form"), strings.Count(chrome, "<form"); n != m || m == 0 {
 			t.Errorf("%s GET %s: %d forms, the chrome alone has %d -- the section is read only", role, groupHref, n, m)
 		}
-		if strings.Contains(body, "not in a group") {
-			t.Errorf("%s GET %s: a member is told it is not in a group", role, groupHref)
+		if strings.Contains(body, "not in a group") || strings.Contains(body, "staff numbers") {
+			t.Errorf("%s GET %s: a member is told it is not in a group, or reads \"staff numbers\"", role, groupHref)
 		}
 		records.mu.Lock()
 		asked := append(records.groupTenant, records.inGroupTenant...)
@@ -184,5 +192,43 @@ func TestGroup_AFailedMembershipReadDrawsTheChromeOfNoGroup(t *testing.T) {
 	}
 	if groupTabDrawn(htmlOf(t, rec)) {
 		t.Error("a failed membership read drew the Group tab")
+	}
+}
+
+// TestGroup_TheSectionAsksTheHoldingOnce: on the Group section the chrome takes the membership from
+// the section's own read (chromeInGroup) -- holding_group is asked ONCE per page, never again by the
+// chrome, and the tab follows that one answer: drawn for a member even when the chrome's own question
+// would fail, absent for a business in no group. Every other section still asks the chrome's question.
+// MUTANT (measured): groupSection building its chrome with a.chrome -> red here.
+func TestGroup_TheSectionAsksTheHoldingOnce(t *testing.T) {
+	for _, member := range []bool{true, false} {
+		records := newFakeLedger()
+		if member {
+			fakeMember(records)
+			records.inGroupErr = errors.New("connection reset")
+		} else {
+			records.group = ledger.GroupScreen{Queried: true}
+		}
+		b := groupBrowser(t, "manager", records)
+		rec := b.do(http.MethodGet, groupHref, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("member %v: GET %s: %d", member, groupHref, rec.Code)
+		}
+		if got := groupTabDrawn(htmlOf(t, rec)); got != member {
+			t.Errorf("member %v: the Group section draws the tab: %v", member, got)
+		}
+		records.mu.Lock()
+		section, chrome := len(records.groupTenant), len(records.inGroupTenant)
+		records.mu.Unlock()
+		if section != 1 || chrome != 0 {
+			t.Errorf("member %v: one Group page asked Group %d time(s) and InGroup %d, want 1 and 0", member, section, chrome)
+		}
+		b.do(http.MethodGet, reportsHref, nil)
+		records.mu.Lock()
+		chrome = len(records.inGroupTenant)
+		records.mu.Unlock()
+		if chrome != 1 {
+			t.Errorf("member %v: Reports asked InGroup %d time(s), want 1 (the chrome's question)", member, chrome)
+		}
 	}
 }

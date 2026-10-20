@@ -74,7 +74,7 @@ func AdminGroup(v GroupView) templ.Component {
 					}
 					return nil
 				})
-				templ_7745c5c3_Err = components.EmptyState("This business is not in a group").Render(templ.WithChildren(ctx, templ_7745c5c3_Var3), templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = components.EmptyStateLabeled("No group", "This business is not in a group").Render(templ.WithChildren(ctx, templ_7745c5c3_Var3), templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -444,7 +444,7 @@ func groupShared() templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "<ul class=\"mt-2 flex flex-col gap-2 text-sm text-ink/85\"><li>Every business in the group sees the others&#39; names and company codes, as listed above.</li><li>When your staff tap a partner&#39;s plaque, that business sees who (name, staff code and reference), when, at which of its venues, in or out, and the result — counted, waiting, approved or rejected. It never sees the reason.</li><li>A partner&#39;s connected HR or payroll system can list your staff&#39;s names and codes and whether they are active.</li><li>Never shared: e-mail addresses, GPS positions, network addresses, notes, the rules behind a decision, and your VAT number, address, staff numbers and billing. A tap at a partner&#39;s venue is decided by your rules, and the partner&#39;s location evidence is not shown to you.</li><li>The businesses in a group keep one clock: your timezone cannot be changed while you are a member.</li><li>Taptime runs the group. To join a business, leave or change it, ask Taptime.</li></ul>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "<ul class=\"mt-2 flex flex-col gap-2 text-sm text-ink/85\"><li>Every business in the group sees the others&#39; names and company codes, as listed above.</li><li>When your staff tap a partner&#39;s plaque, or your manager enters a record for one of its venues, that business sees who (name, staff code and reference), when, at which of its venues, in or out, and the result — counted, waiting, approved or rejected, or entered by their employer. It never sees the reason.</li><li>A partner&#39;s connected HR or payroll system can list your staff&#39;s names and codes and whether they are active.</li><li>Never shared: e-mail addresses, GPS positions, network addresses, notes, the rules behind a decision, and your VAT number, address, headcount and billing. A tap at a partner&#39;s venue is decided by your rules, and the partner&#39;s location evidence is not shown to you.</li><li>The businesses in a group keep one clock: your timezone cannot be changed while you are a member.</li><li>Taptime runs the group. To join a business, leave or change it, ask Taptime.</li></ul>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

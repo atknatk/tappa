@@ -41,7 +41,8 @@ func (a *AdminAuth) groupSection(w http.ResponseWriter, r *http.Request) {
 		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
 		return
 	}
-	v := pages.GroupView{PanelChrome: a.chrome(r, pages.TabGroup)}
+	// The section's read already answered the membership: the chrome takes it, not a second call.
+	v := pages.GroupView{PanelChrome: a.chromeInGroup(r, pages.TabGroup, screen.Member)}
 	fillGroupView(&v, screen)
 	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminGroup(v))
 }
