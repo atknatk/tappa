@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -9,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/atknatk/tappa/web"
 )
 
 // The panel's STATIC nets (M12-49): rules held over the .templ SOURCES rather than over
@@ -679,4 +682,78 @@ var knownRunningTextLinks = map[string]bool{
 	"pages/apikeys.templ|templ.URL(APIGuideWebhooksHref)": true,
 	"pages/transactions.templ|templ.URL(p.Href)":          true,
 	"pages/transactions.templ|templ.URL(v.PlaquesHref())": true,
+}
+
+// TestPanelScreens_APseudoElementTouchTargetIsAnchoredToItsHost holds the half of a touch target
+// that TestPanelScreens_TouchTargetClassesReserve44px cannot see: WHERE the reserved box is.
+//
+// 🔴 A CLASS WHOSE 44 PX LIVES ON ::before OR ::after (.hit-link) RESERVES IT ONLY IF THE PSEUDO-
+// ELEMENT IS DRAWN AND PLACED ON THE LINK. The height check reads min-height alone, so dropping
+// `relative` from .hit-link (the box escapes to the nearest positioned ancestor) or `absolute`
+// from its ::after (the box becomes a 44 px inline box that grows the line again) left it green
+// -- measured (M12-49 audit). So, in the COMPILED stylesheet: every rule that gives such a class
+// a min-height is on its pseudo-element and declares content and position:absolute, and the
+// class itself declares position:relative.
+func TestPanelScreens_APseudoElementTouchTargetIsAnchoredToItsHost(t *testing.T) {
+	raw, err := fs.ReadFile(web.Static(), "css/app.css")
+	if err != nil {
+		t.Skipf("no compiled stylesheet to read (%v) — run `make css`. THIS IS NOT A PASS.", err)
+	}
+	ruleRE := regexp.MustCompile(`([^{}]*)\{([^{}]*)\}`)
+	decl := func(body, prop, value string) bool {
+		return regexp.MustCompile(`(?:^|;)` + regexp.QuoteMeta(prop) + `:` + value + `(?:;|$)`).MatchString(body)
+	}
+	pseudoHosted := []string{}
+	for class := range panelTouchTargets {
+		self := regexp.MustCompile(`^\.` + regexp.QuoteMeta(class) + `$`)
+		pseudo := regexp.MustCompile(`^\.` + regexp.QuoteMeta(class) + `::?(?:after|before)$`)
+		var heightOnPseudo, heightOnOther, hostRelative bool
+		var pseudoBodies []string
+		for _, rule := range ruleRE.FindAllStringSubmatch(string(raw), -1) {
+			for _, sel := range strings.Split(rule[1], ",") {
+				sel = strings.TrimSpace(sel)
+				switch {
+				case self.MatchString(sel):
+					if decl(rule[2], "position", "relative") {
+						hostRelative = true
+					}
+				case pseudo.MatchString(sel):
+					pseudoBodies = append(pseudoBodies, rule[2])
+				}
+				if strings.Contains(rule[2], "min-height:") && regexp.MustCompile(`\.`+regexp.QuoteMeta(class)+`\b`).MatchString(sel) {
+					if pseudo.MatchString(sel) {
+						heightOnPseudo = true
+					} else {
+						heightOnOther = true
+					}
+				}
+			}
+		}
+		if !heightOnPseudo {
+			continue
+		}
+		pseudoHosted = append(pseudoHosted, class)
+		if heightOnOther {
+			t.Errorf(".%s reserves a min-height on its pseudo-element and on itself; say which box "+
+				"is the target", class)
+		}
+		if !hostRelative {
+			t.Errorf(".%s keeps its 44 px on a pseudo-element but does not declare position:relative: "+
+				"the box is placed against some ancestor, not the link", class)
+		}
+		drawn, absolute := false, false
+		for _, b := range pseudoBodies {
+			drawn = drawn || regexp.MustCompile(`(?:^|;)content:`).MatchString(b)
+			absolute = absolute || decl(b, "position", "absolute")
+		}
+		if !drawn || !absolute {
+			t.Errorf(".%s's pseudo-element declares content: %v, position:absolute: %v -- without content "+
+				"it is not drawn, without absolute it is an inline box that grows the line", class, drawn, absolute)
+		}
+	}
+	// ANTI-VACUITY: .hit-link is the known pseudo-hosted target.
+	if !slices.Contains(pseudoHosted, "hit-link") {
+		t.Fatalf("CONTROL: .hit-link was not read as a pseudo-element target (read: %v); the reader "+
+			"is not reading the stylesheet", pseudoHosted)
+	}
 }
