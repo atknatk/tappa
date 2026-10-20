@@ -45,6 +45,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/a-h/templ"
 	"github.com/google/uuid"
@@ -590,6 +591,24 @@ func panelNonSectionScreens(t *testing.T) map[string]string {
 		t.Fatalf("the full Spike answered %d, want 200", rec.Code)
 	}
 	out["GET "+reviewHref+" (a full page)"] = htmlOf(t, rec)
+
+	// THE PLAQUE CARD (M12-34): ?plaque= is a query on the Venues section, and the section
+	// corpus renders that section with no card open, so the card's controls were outside
+	// this net -- which is how its old quiet buttons outlived the redesign. Three states draw
+	// every control it has: the mount form, the replacement form with the way down, and the
+	// un-mount step.
+	venues := twoVenues()
+	wall := venues.firstVenueID()
+	onWall := tenant.Plaque{UID: uidOnWall, Status: tenant.PlaqueActive, LocationID: &wall, Canonical: true, EncodedAt: &fixtureStamp}
+	spare := tenant.Plaque{UID: uidSpare2, Status: tenant.PlaqueUnassigned, Canonical: true, EncodedAt: &fixtureStamp}
+	pb := plaqueBrowser(t, venues, &fakePlaques{screen: tenant.PlaqueScreen{Zone: time.UTC, Plaques: []tenant.Plaque{onWall, spare}}})
+	for _, q := range []string{"?plaque=" + uidSpare2, "?plaque=" + uidOnWall, "?plaque=" + uidOnWall + "&confirm=unmount"} {
+		rec = pb.do(http.MethodGet, locationsHref+q, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("the plaque card %s answered %d, want 200", q, rec.Code)
+		}
+		out["GET "+locationsHref+q] = htmlOf(t, rec)
+	}
 
 	// ANTI-VACUITY: every page must actually carry press targets, or adding it to the
 	// corpus changes nothing.

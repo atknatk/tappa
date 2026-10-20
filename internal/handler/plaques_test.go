@@ -489,10 +489,15 @@ var forbiddenTapClaims = []string{
 	"would be rejected", "rejects every tap", "every tap on it is rejected", "did not finish",
 }
 
-// The two components.Notice tones the banners use, as the component renders them.
+// The two components.PanelNotice tones the banners use, as the component renders them.
+//
+// ⚠️ M12-34 PORTED THE CARD TO THE PANEL'S OWN NOTICE, and these two were the shared
+// components.Notice frames until then (a left edge of four, saffron-lite or paper). The
+// shared notice draws the tap and activation screens and is not the panel's; the frames
+// below are panelNoticeClass's, so a banner drawn with the old component fails here.
 const (
-	noticeWarnClass  = "border-l-4 border-saffron bg-saffron-lite px-4 py-4"
-	noticeAlertClass = "border-l-4 border-tomato bg-paper px-4 py-4"
+	noticeWarnClass  = "flex items-start gap-3.5 rounded-[14px] border border-saffron bg-saffron-lite px-[18px] py-4 text-ink"
+	noticeAlertClass = "flex items-start gap-3.5 rounded-[14px] border-2 border-tomato bg-paper px-[18px] py-4 text-ink"
 )
 
 // cardOnly cuts the rendered section down to the open card: the plaque card's own
@@ -501,7 +506,8 @@ const (
 // ⚠️ IT USED TO TAKE EVERYTHING BEFORE THE VENUES HEADING, because the card was drawn
 // above the venue list. M12-34 draws it inside its venue's detail (or with the box),
 // i.e. AFTER the list, so the cut is now the card's own element -- counting nested
-// sections, since the card's banners are components.Notice sections of their own.
+// sections, which the old card's banners were (the ported card's are not, and the count
+// costs nothing).
 func cardOnly(t *testing.T, html string) string {
 	t.Helper()
 	start := strings.Index(html, `<section id="plaque"`)
@@ -2020,7 +2026,7 @@ func TestPlaqueDrawing_NoRealCodeMeansNoDrawing(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			b := plaqueBrowser(t, venues, threePlaques(venues.firstVenueID()), tc.opts...)
 			html := htmlOf(t, b.do(http.MethodGet, locationsHref+"?plaque="+tc.uid, nil))
-			if !strings.Contains(html, `aria-label="`+tc.uid+`"`) {
+			if !plaqueCardOpenFor(html, tc.uid) {
 				t.Fatalf("the card for %s did not open", tc.uid)
 			}
 			for _, absent := range nothingDrawn {
@@ -2044,7 +2050,7 @@ func TestPlaqueDrawing_NoRealCodeMeansNoDrawing(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			b := plaqueBrowser(t, venues, threePlaques(venues.firstVenueID()), PlaqueDrawingsFrom(base))
 			html := htmlOf(t, b.do(http.MethodGet, locationsHref+"?plaque="+tc.uid, nil))
-			if opened := strings.Contains(html, `aria-label="`+tc.uid+`"`); opened == (tc.uid == "AABBCCDDEEFF01") {
+			if opened := plaqueCardOpenFor(html, tc.uid); opened == (tc.uid == "AABBCCDDEEFF01") {
 				t.Fatalf("card for %s opened = %v; a known plaque's card opens, an unknown uid's does not", tc.uid, opened)
 			}
 			if strings.Contains(html, "PLAQUE "+tc.uid[len(tc.uid)-4:]) {
