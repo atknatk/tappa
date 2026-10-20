@@ -141,3 +141,29 @@ func TestBillingDraft_TheFreezeFormCarriesTheMonth(t *testing.T) {
 		t.Fatalf("billing.ParseMonth(%q) = %v, %v; want %v", got, m, err, d.Month)
 	}
 }
+
+// TestBillingClose_TheWarningsFormCarriesTheMonthAndTheTokenAndNothingElse is M12-40's
+// form criterion, read from the rendered page: the write takes no figure, so the form
+// has no field one could be typed into, and the page's one h1 is the act and its month
+// with a trail back to that month on the section.
+func TestBillingClose_TheWarningsFormCarriesTheMonthAndTheTokenAndNothingElse(t *testing.T) {
+	b := billingBrowser(t, newFakeBooks(), billingTestOwnerRole)
+	rec := b.do(http.MethodPost, billingCloseHref, billingForm(billingTestMonth.String(), ""))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST %s: %d, want the warning screen", billingCloseHref, rec.Code)
+	}
+	html := htmlOf(t, rec)
+	body := postFormAt(t, html, billingFreezeHref)
+	if len(body) != 2 || body.Get("month") != billingTestMonth.String() || body.Get(confirmField) == "" {
+		t.Errorf("the freeze form sends %v, want exactly month=%s and the confirmation", body, billingTestMonth)
+	}
+	if n := strings.Count(html, "<h1"); n != 1 {
+		t.Errorf("the warning page has %d h1, want 1", n)
+	}
+	if !strings.Contains(html, ">Freeze July 2026</h1>") {
+		t.Error("the page's h1 is not the act and its month")
+	}
+	if !strings.Contains(html, `href="`+billingMonthHref(billingTestMonth)+`" class="panel-crumb"`) {
+		t.Error("the trail does not lead back to this month on the section")
+	}
+}

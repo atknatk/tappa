@@ -224,6 +224,9 @@ people.
 | Open | "Check-ins with no checkout" + definition + training paragraph | heading may read "Left open — not counted in hours"; keep both paragraphs |
 | Rules | "Which rule decided" + its paragraph; partner bucket label verbatim | keep |
 | Partner venue | "Partner venue · evidence not shown" | keep (K-39) |
+| Evidence mix | parts "both" · "network only" · "distance only" · "neither", and "not split" for `Unsplit()` | every part's count printed under the bar ("52 both · 9 network only · 3 distance only · 1 neither · 2 not split"); the base beside the bar ("65 judged"); a venue with nothing judged: "No record here was judged on evidence this week." (M12-29) |
+| Counters (`JumpState`) | `read`: `#from → #to` (sr-only "Counter #604 → #641, 36 reads missing") + "between Mon 12 Oct 02:14 and Tue 13 Oct 09:30, by the phones' clocks"; `read` with `JumpPreviousAt == nil`: "read Tue 13 Oct 09:30 · the earlier read is not on record"; `failed`: "The counters around this gap could not be read."; `elsewhere`: "The read that showed this gap is not on your record, so no counters are printed."; `""` (not asked): nothing beyond "N reads missing" | written in M12-29; the times are the declared `occurred_at` |
+| GPS-only subset | "Taken from the per-person list, which is shortened, so this list may be incomplete." (only when `MorePeople`) | M12-29 |
 | sid literals | none | **never write a literal `base:` or `sys:` in `anomalies.templ`** (`TestHoldingPanel_PartnerViewsSayTheOutcomeNeverTheReason`, `holdingpanel_db_test.go:108-114`) |
 
 ## O.7 Tests

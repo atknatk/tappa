@@ -555,6 +555,23 @@ func panelNonSectionScreens(t *testing.T) map[string]string {
 	}
 	out["GET "+policyVersionHref] = htmlOf(t, rec)
 
+	// MANUAL ENTRY'S TWO STEPS (M12-33): the form is a sub-route with a parameter and the
+	// confirmation a POST that renders, so neither is a section href. The confirmation
+	// carries the permanent write's button.
+	mb := panelBrowserWithRecorder(t, &fakeRecorder{})
+	rec = mb.do(http.MethodGet, manualFormHref(), nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("the manual entry form answered %d, want 200", rec.Code)
+	}
+	out["GET "+manualEntryHref] = htmlOf(t, rec)
+	rec = mb.do(http.MethodPost, manualEntryHref, url.Values{
+		"id": {entryID.String()}, "direction": {"out"}, "date": {"2026-08-05"}, "time": {"17:00"},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("the manual entry confirmation answered %d, want 200", rec.Code)
+	}
+	out["POST "+manualEntryHref] = htmlOf(t, rec)
+
 	// ANTI-VACUITY: both pages must actually carry press targets, or adding them to the
 	// corpus changes nothing.
 	for where, body := range out {
@@ -1192,8 +1209,8 @@ var panelTouchTargets = map[string]int{
 	// the class cannot lose its height silently. The markup gap is recorded rather
 	// than papered over (see TestPanelScreens_FormControlsCarryATouchTargetClass).
 	"filter-input": 44, // .filter-input -> min-h-11 = 2.75rem
-	// The raw utility, used inline by the sign-in form's two fields rather than
-	// through a semantic class. It is a real compiled rule (min-height:2.75rem), so
+	// The raw utility, used inline by links (the sign-in page's lockup, "Forgot
+	// password?" and the sign-up offer among them) rather than through a semantic class. It is a real compiled rule (min-height:2.75rem), so
 	// the stylesheet half below holds it to the same floor.
 	"min-h-11": 44,
 	// The sign-in field's password reveal button (2026-09-14). It is a real <button>,
@@ -1210,13 +1227,23 @@ var panelTouchTargets = map[string]int{
 	// A section's breadcrumb link (M12-01, pages.panelHead): every crumb before the current
 	// page is a real <a>, so both halves of the pair reach it.
 	"panel-crumb": 44, // .panel-crumb -> min-h-11 = 2.75rem
+	// The Rules screen (M12-37) draws the rule switch, a submit <button>, so both halves
+	// of the pair reach it.
+	"rule-switch": 44, // .rule-switch -> min-h-11 = 2.75rem
+	// The redesign's form field (M12-08), drawn by several screens (sign-in, sign-up,
+	// billing, rules, The Spike's note). It is an <input>, not an <a> or a <button>, so the
+	// form-control scan and the stylesheet half of the pair hold it.
+	"field-input": 44, // .field-input -> min-h-11 = 2.75rem
+	// People (M12-30) draws the status chips (links) and each person's row (one link,
+	// 64 px on a phone, 60 px from md).
+	"chip-link":  44, // .chip-link  -> min-h-11 (a filter chip, a link)
+	"roster-row": 60, // .roster-row -> min-h-16, md:min-h-[60px]
 	// The Spike (M12-28), moved here from panelPendingTouchTargets by the screen that first
-	// draws them: the queue's focus links, the two decision buttons, the note field, and the
-	// phone pager's previous / next links (a disabled end is a span, not a press target).
+	// draws them: the queue's focus links, the two decision buttons, and the phone pager's
+	// previous / next links (a disabled end is a span, not a press target).
 	"queue-item":   44, // .queue-item   -> min-h-11 (md:min-h-14 on the tablet's scroller)
 	"btn--approve": 64, // .btn--approve -> min-h-16 (56 px in the phone's pinned bar)
 	"btn--reject":  64, // .btn--reject  -> min-h-16 (56 px in the phone's pinned bar)
-	"field-input":  44, // .field-input  -> min-h-11 (a form control)
 	"spike-step":   44, // .spike-step   -> min-h-11, a 44 px square
 }
 
@@ -1234,10 +1261,7 @@ var panelTouchTargets = map[string]int{
 // template uses a class still listed here, and the markup scan above turns red while
 // a press target carries one that is not in panelTouchTargets.
 var panelPendingTouchTargets = map[string]int{
-	"chip-link":        44, // .chip-link        -> min-h-11 (a filter chip, a link)
-	"roster-row":       60, // .roster-row       -> min-h-16, md:min-h-[60px] (People)
 	"venue-card":       44, // .venue-card       -> min-h-11 (Venues)
-	"rule-switch":      44, // .rule-switch      -> min-h-11 (Rules: a submit button)
 	"stat-card--spike": 44, // .stat-card--spike -> min-h-11 (The Pass: a link to The Spike)
 }
 

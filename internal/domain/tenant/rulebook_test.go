@@ -16,6 +16,7 @@ import (
 	"go/token"
 	"log/slog"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -207,6 +208,149 @@ func TestGuardrailRules_CoverTheShippedSlice(t *testing.T) {
 		if !shipped[sid] {
 			t.Errorf("guardrailRules explains %q, which the engine no longer ships", sid)
 		}
+	}
+}
+
+// TestGuardrailWhen_CoverTheShippedSlice is TestGuardrailRules_CoverTheShippedSlice's
+// twin for the plate's headline: every shipped guardrail has a "when" phrase (a plate
+// with no condition is a lock nobody can place), and no phrase outlives its guardrail
+// (a condition for a rule the engine no longer runs is a rule a reader would believe
+// is running). The rendered row carries it too, so the field is wired, not just the map.
+func TestGuardrailWhen_CoverTheShippedSlice(t *testing.T) {
+	t.Parallel()
+	shipped := map[string]bool{}
+	for _, g := range policy.Guardrails(testParams()) {
+		shipped[g.Sid] = true
+		if strings.TrimSpace(guardrailWhen[g.Sid]) == "" {
+			t.Errorf("%s ships but has no \"when\" phrase: its plate would have no headline", g.Sid)
+		}
+	}
+	if len(shipped) < 5 {
+		t.Fatalf("read %d shipped guardrail(s); there are more", len(shipped))
+	}
+	for sid := range guardrailWhen {
+		if !shipped[sid] {
+			t.Errorf("guardrailWhen describes %q, which the engine no longer ships", sid)
+		}
+	}
+	for _, g := range testRulebook(t).guardrails() {
+		if g.When != guardrailWhen[g.Sid] {
+			t.Errorf("%s renders the phrase %q, want %q", g.Sid, g.When, guardrailWhen[g.Sid])
+		}
+	}
+}
+
+// TestGuardrailAlerts_AreTheOnesTheEngineRaises ties the alert words to the ENGINE's
+// answer in both directions: a guardrail the engine gives an Alert must have words
+// (or the plate hides the security alert §5 row 4 promises), and a guardrail with words
+// must have an Alert (or the plate promises an alert nobody is sent). The assembled
+// row carries exactly the engine's answer.
+func TestGuardrailAlerts_AreTheOnesTheEngineRaises(t *testing.T) {
+	t.Parallel()
+	raises := map[string]bool{}
+	for _, g := range policy.Guardrails(testParams()) {
+		raises[g.Sid] = g.Alert != nil
+		if g.Alert != nil && strings.TrimSpace(guardrailAlerts[g.Sid]) == "" {
+			t.Errorf("%s raises a security alert and the screen has no words for it", g.Sid)
+		}
+	}
+	for sid := range guardrailAlerts {
+		if !raises[sid] {
+			t.Errorf("guardrailAlerts names an alert for %q, which raises none", sid)
+		}
+	}
+	alerting := 0
+	for _, g := range testRulebook(t).guardrails() {
+		if raises[g.Sid] != (g.Alert != "") {
+			t.Errorf("%s renders the alert %q; the engine raises one: %v", g.Sid, g.Alert, raises[g.Sid])
+		}
+		if g.Alert != "" {
+			alerting++
+		}
+	}
+	// ANTI-VACUITY: §5 rows 1 and 4 each raise one today.
+	if alerting < 2 {
+		t.Fatalf("only %d guardrail(s) render an alert; the engine raises at least two", alerting)
+	}
+}
+
+// TestGuardrailQualifiers_AreTheEnginesRedirects: a guarantee has a qualifier exactly
+// when the engine's effect for it is redirect -- a redirect without one prints a bare
+// "No record" that cannot tell the two apart, and a qualifier on anything else names a
+// destination that guarantee never sends anyone to.
+func TestGuardrailQualifiers_AreTheEnginesRedirects(t *testing.T) {
+	t.Parallel()
+	redirects := map[string]bool{}
+	for _, g := range policy.Guardrails(testParams()) {
+		redirects[g.Sid] = g.Effect == policy.EffectRedirect
+	}
+	for sid := range guardrailQualifiers {
+		if !redirects[sid] {
+			t.Errorf("guardrailQualifiers names a destination for %q, which is not a redirect", sid)
+		}
+	}
+	seen := 0
+	for _, g := range testRulebook(t).guardrails() {
+		if redirects[g.Sid] != (strings.TrimSpace(g.Qualifier) != "") {
+			t.Errorf("%s renders the qualifier %q; the engine redirects: %v", g.Sid, g.Qualifier, redirects[g.Sid])
+		}
+		if g.Qualifier != "" {
+			seen++
+		}
+	}
+	if seen < 2 {
+		t.Fatalf("only %d guarantee(s) carry a qualifier; the engine ships two redirects", seen)
+	}
+}
+
+// TestGuardrailGuards_SplitsThePanelGuaranteesByTheirOwnMatch pins the derivation AND
+// today's answer: exactly the two guarantees that fire on a panel act are "the panel",
+// every other is "taps" -- asked of each guarantee's Match, not of its position.
+func TestGuardrailGuards_SplitsThePanelGuaranteesByTheirOwnMatch(t *testing.T) {
+	t.Parallel()
+	want := map[string]bool{"sys:policy-edit-owner-only": true, "sys:no-self-review": true}
+	for _, g := range testRulebook(t).guardrails() {
+		switch {
+		case want[g.Sid] && g.Guards != GuardsPanel:
+			t.Errorf("%s guards %q; it fires on a panel act and never on a tap", g.Sid, g.Guards)
+		case !want[g.Sid] && g.Guards != GuardsTaps:
+			t.Errorf("%s guards %q; it reads a tap fact", g.Sid, g.Guards)
+		}
+	}
+	// NEGATIVE CONTROL: a guarantee that fires on everything is a panel one by this
+	// derivation's rule, and one that fires on nothing is a tap one.
+	if got := guardsWords(policy.Guardrail{Match: func(policy.Context) bool { return true }}); got != GuardsPanel {
+		t.Errorf("an always-firing guarantee is %q", got)
+	}
+	if got := guardsWords(policy.Guardrail{Match: func(policy.Context) bool { return false }}); got != GuardsTaps {
+		t.Errorf("a never-firing guarantee is %q", got)
+	}
+}
+
+// TestGuardrailGuards_ReCheckedWhenTheShippedSetChanges is the probe's tripwire. The
+// split into tap and panel guarantees is derived from ONE synthetic panel context
+// (guardsWords), which is right for today's eleven and says nothing about a guarantee
+// keyed on a panel fact the probe does not carry. So the shipped sid set is pinned
+// here: adding, removing or renaming a guarantee turns this red, and whoever fixes it
+// is told to re-check that guardsWords still sorts the new set correctly.
+func TestGuardrailGuards_ReCheckedWhenTheShippedSetChanges(t *testing.T) {
+	t.Parallel()
+	want := []string{
+		"sys:tenant-mismatch", "sys:tag-not-active", "sys:sun-invalid", "sys:no-session",
+		"sys:employee-deactivated", "sys:tap-freshness", "sys:occurred-at-bound",
+		"sys:person-debounce", "sys:cross-tenant-qr-site-ip", "sys:policy-edit-owner-only",
+		"sys:no-self-review",
+	}
+	var got []string
+	for _, g := range policy.Guardrails(testParams()) {
+		got = append(got, g.Sid)
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("the shipped guarantees changed:\n  got  %v\n  want %v\n"+
+			"Re-check guardsWords before updating this list: its single panel-act probe "+
+			"decides which group each guarantee is drawn in on the Rules screen, and a new "+
+			"guarantee keyed on a fact the probe does not carry would land in the wrong one.",
+			got, want)
 	}
 }
 

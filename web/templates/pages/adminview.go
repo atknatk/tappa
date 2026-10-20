@@ -97,7 +97,12 @@ type AdminLoginView struct {
 // if the two ever differ.
 const AdminLoginPath = "/admin/login"
 
-// AdminLoginProof is the three-line creed on the sign-in screen's brand panel.
+// AdminLoginHeadline is the sign-in screen's brand-half heading (design "The Pass",
+// M12-43): the product's own descriptor, the same words as the panel's "punchless"
+// lockup, and a claim about nothing that could stop being true.
+const AdminLoginHeadline = "Punchless time & attendance."
+
+// AdminLoginProof is the paragraph under that heading, one claim per entry.
 //
 // 🔴 EVERY LINE NAMES A CAPABILITY THIS PRODUCT ACTUALLY MOUNTS, and the rule is
 // landingview.go's rather than this file's usual one: a sign-in screen is mostly
@@ -105,38 +110,33 @@ const AdminLoginPath = "/admin/login"
 // claim the product does not keep is a lie that ships. The answer to "which code
 // provides this?" is written beside each line.
 //
-// ⚠️ THREE SHAPES WERE DELIBERATELY NOT WRITTEN, and all three were on the drawing
-// this screen was built from:
+// ⚠️ SHAPES THAT WERE DELIBERATELY NOT WRITTEN, from the drawings this screen has
+// been built from (2026-09-14 and the 2026-10-20 redesign):
 //
 //   - A DELIVERY PROMISE. "Plaques are on us" describes a supply chain that does
 //     not exist yet: no plaque has been encoded (M8-05 phase B3 is blocked on
-//     hardware). The half of that sentence that IS true — nobody buys a reader — is
-//     kept, and the half that is a promise is gone.
+//     hardware).
 //   - A DURATION NOBODY MEASURED. "Minutes away" is the numeric claim
 //     TestLanding_MakesNoUnmeasuredNumericClaim exists to refuse on the public
 //     surface, and this screen is no more entitled to it.
 //   - A PROCESS CLAIM. "Runs beside your current system while you compare" is a
 //     statement about how a rollout goes, not about anything this repository
-//     builds. It is replaced by CLAUDE.md §4.2's red line, which is a product fact
-//     and a better reason to buy.
+//     builds.
+//   - A PRACTICE TAP (M12-04). ADR 0026 replaced it with the activation tap, which
+//     writes no transactions row at all, and no new record is ever practice=true.
 //
-// ⚠️ A FOURTH LINE WAS REMOVED (M12-04): "The first tap is a practice run and never
-// counts as worked time." ADR 0026 replaced the practice tap with the activation tap,
-// which writes no transactions row at all, and no new record is ever practice=true —
-// so the line described a behaviour the product no longer has. It was not replaced:
-// the activation line above already says what that first tap does.
+// ⚠️ "EVERY TAP WE RECORD", NOT THE DRAWING'S "EVERY TAP". Two taps write nothing:
+// one from a browser with no session (§5 row 3, the activation page) and the
+// activation tap itself (ADR 0026). Every other tap — rejected ones included — is a
+// transactions row, and the panel shows each as a docket.
 var AdminLoginProof = []string{
-	// No install: the plaque's URL opens in the browser the phone already has
-	// (CLAUDE.md preamble, and the hero's own creed on the landing page).
-	"No app to install — staff tap with the phone in their pocket.",
-	// internal/handler/activate.go: one activation, then the session cookie
-	// recognises the person on every later tap.
-	"Staff activate once; after that it is tap and go.",
-	// CLAUDE.md §4.2: the location is read at the moment of a tap and in no other
-	// shape — nothing runs in the background and no perimeter is watched. (Worded
-	// without §4.2's own vocabulary on purpose: make audit's R2 scan is line-local
-	// and reads a comment the same way it reads code.)
-	"Location is read at the moment of a tap, never in the background.",
+	// The plaque is passive and mounted at the entrance; staff tap their own phone
+	// and the URL opens in the browser it already has (CLAUDE.md preamble).
+	"A plaque on the wall, the phone in their pocket.",
+	// internal/domain/tap + internal/policy decide every recorded tap (judged); the
+	// verdict is the docket's stamp (stamped); transactions takes no UPDATE or
+	// DELETE (CLAUDE.md §4.3 — kept).
+	"Every tap we record lands here as a docket — judged, stamped, kept.",
 }
 
 // AdminBusiness is one row of the "which business?" picker.

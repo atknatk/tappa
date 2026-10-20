@@ -128,7 +128,7 @@ func (c *Code) SVGSide(border int) int { return len(c.modules) + 2*max(border, 0
 // SVGPath is the symbol's dark modules as ONE SVG path's d attribute, one unit per module,
 // shifted right and down by border light modules (the quiet zone the caller's viewBox,
 // SVGSide(border) square, leaves light). Each horizontal run of dark modules in a row is
-// one closed rectangle "M<x> <y>h<n>v1h-<n>z", so the path is about a third the length of
+// one closed rectangle "M<x> <y>h<n>v1h-<n>z", so the path is about half the length of
 // one square per module and still draws exactly Bitmap(border)'s dark cells: the
 // rectangles never overlap, so the fill rule does not matter. The light modules are the
 // caller's paper (a rect under the path). A negative border counts as 0, as in Bitmap.

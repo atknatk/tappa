@@ -42,7 +42,10 @@ a{color:#1F5C41}a:hover{color:#152219}
 .mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
 .lbl{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(21,34,25,.7)}
 .card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:14px;padding:22px 24px;display:flex;flex-direction:column;gap:14px;min-width:0}
-.docket{background:#FFFDF4;border:1px solid #C9D2C8;border-top:2px dashed #C9D2C8;border-radius:0;padding:16px 20px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-radius:0;padding:18px 24px;box-shadow:0 1px 2px rgba(21,34,25,.06);display:flex;flex-direction:column;gap:8px;min-width:0}
+.docket::before,.docket::after{content:'';position:absolute;left:-1px;right:-1px;height:6px;background-image:radial-gradient(circle at 5px 0,#EDF0EA 3px,transparent 3.5px);background-size:10px 6px;background-repeat:repeat-x}
+.docket::before{top:-1px}
+.docket::after{bottom:-1px;transform:rotate(180deg)}
 .h1{margin:0;font:700 28px/1.1 'Space Grotesk',sans-serif;letter-spacing:-0.03em}
 .txt{margin:0;font-size:14px;line-height:1.5}
 .hint{margin:0;font-size:12px;line-height:1.45;color:rgba(21,34,25,.7)}
@@ -70,6 +73,13 @@ a{color:#1F5C41}a:hover{color:#152219}
 .note p,.note li{margin:0;font-size:14px;line-height:1.5;color:rgba(21,34,25,.85)}
 .note ul{margin:4px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:4px}
 dl{margin:0}dd{margin:0}
+/* plaque rows: the uid in its own column, as the billing month is */
+.plq{display:grid;grid-template-columns:168px minmax(0,1fr);gap:4px 24px;padding:16px 0}
+.plq-uid{font-weight:700;font-size:15px;line-height:26px;word-break:break-all}
+.plq-body{display:flex;flex-direction:column;gap:6px;min-width:0}
+.plq-say{font-size:14px;line-height:1.45}
+.plq-facts{display:flex;flex-wrap:wrap;gap:4px 22px;font-size:13px;line-height:1.45}
+.plq-k{color:rgba(21,34,25,.7)}
 </style>
 </helmet>
 <div style="min-height: 100vh; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
@@ -94,7 +104,8 @@ dl{margin:0}dd{margin:0}
       <section class="opten" aria-label="Tenant">
         <div class="opten-in">
           <p class="oplbl">Tenant</p>
-          <p class="optname"><bdi>Kebab Factory Ltd.</bdi></p>
+          <sc-if value="{{named}}" hint-placeholder-val="{{true}}"><p class="optname"><bdi>Kebab Factory Ltd.</bdi></p></sc-if>
+          <sc-if value="{{unnamed}}" hint-placeholder-val="{{false}}"><p class="optname">Unnamed tenant</p><p class="optid">6f1c2a9e-4b7d-4e21-9a3c-0d5e8b7f1a24</p></sc-if>
           <nav aria-label="This tenant" class="opsub"><a href="OpTenant.dc.html" class="opsubt">Overview</a><a href="OpPlaques.dc.html" class="opsubt opsubt--on" aria-current="page">Plaques</a><a href="OpBilling.dc.html" class="opsubt">Billing</a><a href="OpVat.dc.html" class="opsubt">VAT number</a></nav>
         </div>
       </section>
@@ -117,20 +128,23 @@ dl{margin:0}dd{margin:0}
         <h2 id="tenant-plaques" class="lbl" style="margin: 0">Plaques of this tenant</h2>
         <ol style="list-style: none; margin: 4px 0 0; padding: 0">
           <sc-for list="{{rows}}" as="r" hint-placeholder-count="7">
-            <li class="oprow" style="display: flex; flex-direction: column; gap: 6px">
-              <span style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px"><span class="mono" style="font-weight: 700; font-size: 15px">{{r.uid}}</span><span class="{{r.chip}}">{{r.label}}</span></span>
-              <span style="font-size: 14px">{{r.sentence}}</span>
-              <span style="display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 13px; color: rgba(21,34,25,.85)">
-                <sc-if value="{{r.odd}}" hint-placeholder-val="{{false}}"><span>Stored status <span class="mono">{{r.stored}}</span></span></sc-if>
-                <sc-if value="{{r.noLoc}}" hint-placeholder-val="{{false}}"><span>No location</span></sc-if>
-                <sc-if value="{{r.namedLoc}}" hint-placeholder-val="{{true}}"><span>At <bdi>{{r.loc}}</bdi></span></sc-if>
-                <sc-if value="{{r.unnamedLoc}}" hint-placeholder-val="{{false}}"><span>At an unnamed location <span class="mono" style="word-break: break-all">{{r.locId}}</span></span></sc-if>
-                <sc-if value="{{r.encoded}}" hint-placeholder-val="{{true}}"><span>Encoded <span class="mono">{{r.encodedAt}}</span></span></sc-if>
-                <sc-if value="{{r.notEncoded}}" hint-placeholder-val="{{false}}"><span>No encode recorded</span></sc-if>
-                <span>Added <span class="mono">{{r.added}}</span></span>
-                <sc-if value="{{r.retired}}" hint-placeholder-val="{{false}}"><span>Retired <span class="mono">{{r.retiredAt}}</span></span></sc-if>
-                <sc-if value="{{r.replaced}}" hint-placeholder-val="{{false}}"><span>Replaced by <span class="mono">{{r.replacedBy}}</span></span></sc-if>
-                <span>Counter <span class="mono">{{r.ctr}}</span></span>
+            <li class="oprow plq">
+              <span class="mono plq-uid">{{r.uid}}</span>
+              <span class="plq-body">
+                <span class="{{r.chip}}" style="align-self: flex-start">{{r.label}}</span>
+                <span class="plq-say">{{r.sentence}}</span>
+                <span class="plq-facts">
+                  <sc-if value="{{r.odd}}" hint-placeholder-val="{{false}}"><span><span class="plq-k">Stored status</span> <span class="mono">{{r.stored}}</span></span></sc-if>
+                  <sc-if value="{{r.noLoc}}" hint-placeholder-val="{{false}}"><span class="plq-k">No location</span></sc-if>
+                  <sc-if value="{{r.namedLoc}}" hint-placeholder-val="{{true}}"><span><span class="plq-k">At</span> <bdi>{{r.loc}}</bdi></span></sc-if>
+                  <sc-if value="{{r.unnamedLoc}}" hint-placeholder-val="{{false}}"><span><span class="plq-k">At an unnamed location</span> <span class="mono" style="word-break: break-all">{{r.locId}}</span></span></sc-if>
+                  <sc-if value="{{r.encoded}}" hint-placeholder-val="{{true}}"><span><span class="plq-k">Encoded</span> <span class="mono">{{r.encodedAt}}</span></span></sc-if>
+                  <sc-if value="{{r.notEncoded}}" hint-placeholder-val="{{false}}"><span class="plq-k">No encode recorded</span></sc-if>
+                  <span><span class="plq-k">Added</span> <span class="mono">{{r.added}}</span></span>
+                  <sc-if value="{{r.retired}}" hint-placeholder-val="{{false}}"><span><span class="plq-k">Retired</span> <span class="mono">{{r.retiredAt}}</span></span></sc-if>
+                  <sc-if value="{{r.replaced}}" hint-placeholder-val="{{false}}"><span><span class="plq-k">Replaced by</span> <span class="mono">{{r.replacedBy}}</span></span></sc-if>
+                  <span><span class="plq-k">Counter</span> <span class="mono">{{r.ctr}}</span></span>
+                </span>
               </span>
             </li>
           </sc-for>
@@ -142,9 +156,10 @@ dl{margin:0}dd{margin:0}
   </div>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"list": {"editor": "enum", "options": ["whole", "first-200", "none"], "default": "whole"}, "$preview": {"width": 1440, "height": 1397}}'>
+<script type="text/x-dc" data-dc-script data-props='{"list": {"editor": "enum", "options": ["whole", "first-200", "none"], "default": "whole"}, "tenant": {"editor": "enum", "options": ["named", "unnamed"], "default": "named"}, "$preview": {"width": 1440, "height": 1522}}'>
 class Component extends DCLogic {
   renderVals() {
+    const unnamedTenant = (this.props.tenant ?? 'named') === 'unnamed';
     const state = this.props.list ?? 'whole';
     // plaques.go plaqueWordFor: word, chip tone, sentence. The panel's own order: no location first.
     const W = {
@@ -173,7 +188,7 @@ class Component extends DCLogic {
         encoded: encodedAt !== '', notEncoded: encodedAt === '', encodedAt, added,
         retired: retiredAt !== '', retiredAt, replaced: replacedBy !== '', replacedBy, ctr };
     });
-    return { rows, hasRows: rows.length > 0, none: state === 'none', truncated: state === 'first-200', whole: state === 'whole' };
+    return { named: !unnamedTenant, unnamed: unnamedTenant, rows, hasRows: rows.length > 0, none: state === 'none', truncated: state === 'first-200', whole: state === 'whole' };
   }
 }
 </script>

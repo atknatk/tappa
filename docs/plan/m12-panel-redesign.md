@@ -71,6 +71,7 @@ adları (`ip`, `gps`, `lat`, `addr`, `code`, `key` …) · saat/para float'sız 
 | M12-06 | P1 | Signup boş giriş href'i geçiyor | yapıcı | — |
 | M12-07 | P1 | Signup 3. adım "yöneticilerini sonra davet et" diyor | yapıcı | — |
 | M12-50 | P1 | Rules: iki guardrail cümlesi pencereyi "yours to set" diye vaat ediyor (backlog T72) | yapıcı | — |
+| M12-52 | P1 | `.tally--pill` çip ton-kuralı okuyucusunu kırıyordu — ✅ **ad değişikliği kodda** (`5524505` + `00ca1e6`: `.pill-tally`; test yeşil); kalan: biçim-yardımcısı mutasyon kontrolü — M13-02'nin ön koşulu | yapıcı (`tappa-brand`) | — |
 | M12-08 | P2 | Token / tarif katmanı (`input.css`) + kova yardımcıları + dokunma hedefleri | yapıcı (`tappa-brand`) | M12-01 |
 | M12-09 | P2 | `PanelNotice` + `PanelEmpty`; `EmptyState` çağıranları | yapıcı (`tappa-brand`) | M12-08 |
 | M12-10 | P2 | `PanelProblem` + `renderProblem` geçişi | yapıcı + güvenlik | M12-08 |
@@ -320,6 +321,56 @@ kaldırıldı).
 > *Kusur değil (D1):* manuel kayıt The Pass sekmesi altında açılır (`manualentry.go:691`); panolar buna
 > göre düzeltildi, kod değişmez.
 
+## M12-52 — `.tally--pill` çip ton-kuralı okuyucusunu kırıyor
+
+> Numara sıradaki boş ID'dir (ID'ler yeniden kullanılmaz); içerik olarak bir **P1 kusuru**dur — M12-08'in
+> (`2afa9db`) bıraktığı kırmızı bir test — ve operatör kartı M13-02'den önce koşar.
+>
+> **Yol (a) kodda:** `5524505` (`fix(panel): name the pill tally a shape, not a tone`, `.tally-pill`) +
+> `00ca1e6` (`.pill-tally` — `.tally-pill` de `.tally` ile başladığı için okuyucuya takılıyordu);
+> `input.css:1292`, `docs/design/panel-redesign/README.md:319` ve M12-08'in sınıf listesi güncellendi;
+> `TestTallyRules_NoToneRuleColoursTheWord` `00ca1e6`'da yeşil (ölçüldü). **Kalan kabul:** aşağıdaki
+> ikinci KONTROL (bir `.tally--x` kuralına eklenen biçim yardımcısının bulgu olduğu mutasyon) henüz
+> testte yok.
+
+- **Bağımlılık:** —
+- **Kırmızı çizgi:** — (yalnız CSS; §9 marka eşlemesi: çip sözcüğü mürekkep, renk çerçevede)
+- **Araç:** yapıcı, skill `tappa-brand`
+- **Commit:** `fix(panel): keep the pill shape out of the chip tone rules`
+
+**Amaç.** `web/static/css/input.css:1292` `.tally--pill { @apply rounded-full px-2 font-bold tracking-[0.08em]; }`
+(M12-08, `2afa9db`; hiçbir şablon kullanmıyor — HEAD'de `.templ`/`.go`/`.js` içinde 0 eşleşme)
+`TestTallyRules_NoToneRuleColoursTheWord`'ü kırmızıya çevirdi: okuyucu `readTallyRules`
+(`internal/handler/operator/op12_test.go:1645-1707`) `.tally` geçen her seçiciyi okur ve bir `.tally--x`
+kuralında yalnız çerçeve ve zemin (`border-*`, `bg-*`) kabul eder; `rounded-full`, `px-2`, `font-bold`,
+`tracking-[0.08em]` dört bulgu üretir (bugünkü çıktı).
+
+**Kapsam.** İki yoldan biri, yapıcının seçimi:
+- **(a) Ad değişikliği:** biçim, okuyucunun çip kuralı saymadığı bir sınıfa taşınır (ör. `.chip-pill`,
+  adında `tally` geçmeyen) ve kullanıldığında span'e değil bir ebeveyn kapsamına bağlanır — çip regex'i
+  `<span class="tally (tally--[a-z-]+)">` span'e ikinci sınıf koymayı yasaklar; ya da
+- **(b) Sınırlı kapsamlı biçim:** M13-02'nin `.op-main .tally` kuralının panel eşi — tam bir seçici, tek
+  `@apply`, yalnız biçim/yazı yardımcıları (`rounded-*`, `px-*`, `py-*`, `min-h-*`, `font-bold`,
+  `tracking-*`); okuyucuya bu **tek** seçici eklenir, mutasyon kontrolüyle.
+- `docs/design/panel-redesign/README.md:319`'daki `.tally--pill` tarifi seçilen ada göre güncellenir; M12-08 kartının
+  sınıf listesi ("Amaç" paragrafındaki `.tally--pill`) de.
+
+**Yasak.** Bir `.tally--x` kuralının uygulayabileceği şey **asla genişletilmez**: okuyucunun
+`border-`/`bg-` dışı her yardımcıyı bulgu sayan kolu aynen kalır; testi yeşile döndürmek için o kola istisna
+eklemek bu kartı geçmez.
+
+**Dosyalar.** `web/static/css/input.css`; (b) seçilirse `internal/handler/operator/op12_test.go`
+(`readTallyRules`); `docs/design/panel-redesign/README.md`, bu dosya.
+
+**Kabul kriterleri.**
+- `TestTallyRules_NoToneRuleColoursTheWord` bugünkü iddialarıyla yeşil (taban kural tek ve `text-ink`; her
+  `.tally--x` kuralı yalnız çerçeve + zemin; beklenen on ton okunur).
+- **KONTROL:** bir `.tally--x` kuralına eklenmiş bir renk yardımcısı (ör. `text-saffron`) ve bir biçim
+  yardımcısı (ör. `rounded-full`) hâlâ birer bulgudur — testin mevcut mutasyon kontrolü
+  (`op12_test.go:1634-1640`) yeşil, ikincisi için aynı biçimde bir mutasyon eklenir.
+- (b) seçilirse: kapsamlı kurala eklenen bir renk yardımcısı kırmızı (mutasyon kontrolü).
+- `TestCompiledCSS_TallyWordIsInkOnEveryChip` ve panelin çip testleri yeşil; şablon işaretlemesi değişmez.
+
 ---
 
 ## P2 — Paylaşılan bileşenler
@@ -332,7 +383,7 @@ kaldırıldı).
 
 **Amaç.** README §4–§5'in paylaşılan sınıfları `input.css` `@layer components` altında: `.panel-card`,
 `.stat-card`, `.lbl`, `.field-stack` / `.field-input`, `.chip-link` / `.chip-group`, `.pill` + tonlar, `.btn--ink`,
-`.btn--line`, `.btn--danger`, `.btn--approve`, `.btn--reject`, `.tally--pill`, `.ev-tile*`, `.queue-item*`,
+`.btn--line`, `.btn--danger`, `.btn--approve`, `.btn--reject`, `.pill-tally`, `.ev-tile*`, `.queue-item*`,
 `.roster-row`, `.venue-card*`, `.ev-badge*`, `.roll-cell*`, `.tape-bar--1…10`, `.rail-item:nth-child` eğim
 kuralları, `.ladder` / `.rung` / `.plate` / `.lock-glyph`, `.rule-switch*`. Kova yardımcıları **tek bir `.templ`
 dosyasında**: `widthPct` (21 literal), `tapeBar` (10 literal).

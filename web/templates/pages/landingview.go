@@ -1008,6 +1008,14 @@ type LegalPageView struct {
 	// SignInHref is the panel's sign-in page, for the shared chrome. Same reason
 	// LandingView carries it: internal/handler owns where the panel is mounted.
 	SignInHref string
+	// SignupHref is where the header's "Start free" points (M12-46): the handler's
+	// own route constant, so the button exists exactly when the wizard is mounted.
+	// "" draws no button.
+	SignupHref string
+	// PublishedSlugs is the set of documents that carry a published text, keyed by
+	// slug ("privacy"), for the document navigation's "not in force yet" marks. nil
+	// means nothing is published, which is the state a fresh deployment is in.
+	PublishedSlugs map[string]bool
 	// Cookies is the measured inventory. Only the cookie notice has one; for the
 	// other three it is nil and the template renders none.
 	Cookies []CookieRow
@@ -1069,3 +1077,31 @@ func (v LegalPageView) Robots() layout.Robots {
 // not hold. What it does guarantee is that the page stops saying "not in force"
 // only because a person went to the operator screen and published.
 func (v LegalPageView) Published() bool { return len(v.Body) > 0 }
+
+// SlugPublished reports whether the document at path has a published text, for the
+// document navigation. The slug is derived from the path the same way the handler
+// derives it (internal/handler's legalSlugOf), so the two cannot name different keys.
+func (v LegalPageView) SlugPublished(path string) bool {
+	return v.PublishedSlugs[strings.TrimPrefix(path, "/legal/")]
+}
+
+// IsCurrent reports whether path is the document this page renders.
+func (v LegalPageView) IsCurrent(path string) bool { return v.Page.Path == path }
+
+// AllFlags returns the attribute set every cookie row carries, or "" when the rows
+// differ or there are none (M12-46). When it is set, the cookie notice prints the
+// attributes once, as a sentence under the table, instead of a column repeating one
+// value eleven times; the moment one cookie is written differently, the column comes
+// back and each row says its own. The value is still the rows' own data, never typed.
+func AllFlags(rows []CookieRow) string {
+	if len(rows) == 0 {
+		return ""
+	}
+	first := rows[0].Flags
+	for _, r := range rows[1:] {
+		if r.Flags != first {
+			return ""
+		}
+	}
+	return first
+}

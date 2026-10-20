@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"encoding/hex"
 	"errors"
+	"log/slog"
 	"net/http"
 	"sort"
 	"strconv"
@@ -12,6 +14,8 @@ import (
 
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/httpx"
+	"github.com/atknatk/tappa/internal/qrcode"
+	"github.com/atknatk/tappa/internal/sun"
 	"github.com/atknatk/tappa/web/templates/components"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
@@ -392,6 +396,7 @@ func (a *AdminAuth) plaqueCard(w http.ResponseWriter, r *http.Request, screen te
 		return nil, nil
 	}
 	f := plaqueCardOf(p, screen, venues, zone)
+	f.Drawing = plaqueDrawingOf(a.log, a.plaqueTapBase, p)
 	// 🔴 THE TRAIL IS READ ONLY FOR THE OPEN CARD, never for the list. It is one
 	// bounded query for one plaque, and putting it on every row would pay for it
 	// N times to answer a question a manager asks about ONE door — the same
@@ -722,4 +727,58 @@ func plaqueReturn(done, uid string) string {
 		return locationsHref
 	}
 	return locationsHref + "?done=" + w + "&id=" + uid
+}
+
+// PlaqueDrawingsFrom gives the panel the tap URL its plaque drawings encode — the
+// value PlaqueTapBase returned, the same one the encode relay was given. Without it
+// (or with a base no plaque could carry) a plaque card draws no QR code.
+func PlaqueDrawingsFrom(tapBase string) AdminAuthOption {
+	return func(a *AdminAuth) { a.plaqueTapBase = tapBase }
+}
+
+// plaqueQRLevel is the drawn code's error correction: M, the level operatorpages'
+// enrollment code uses. The printed plaque's level is the print run's decision (skill
+// tappa-brand, "Plaket baskısı"); a drawing at a different level still decodes to the
+// same URL, which is the only thing it claims.
+const plaqueQRLevel = qrcode.M
+
+// plaqueDrawingOf draws a plaque that is on a wall, with the QR code it carries
+// (M12-12, D4), or returns nil.
+//
+// 🔴 nil RATHER THAN A PATTERN, IN EVERY CASE THE REAL CODE CANNOT BE MADE. The URL
+// is sun.PlaqueQRURL's — "<tapBase>?tag=<UID>", no ctr, no cmac, no src marker (the
+// server derives the QR channel from the missing SUN pair) — and that helper refuses
+// any base BuildTapNDEF would refuse: a development http://localhost base draws no
+// code, because no plaque could have been encoded with it. A plaque not on a wall is
+// not drawn (the drawing shows a plaque where it hangs), and neither is a row in the
+// frozen non-canonical spelling: the code would name an upper-case uid the row does
+// not have.
+//
+// ⚠️ TWO OF THE nil ARMS ARE NOT EXPECTED and are logged as such: a canonical row whose
+// uid is not hex, and a URL the encoder will not take. Each writes a WARN that names no
+// uid and no URL (and, for the hex arm, not the decoder's error, which quotes the
+// offending byte) — the drawing is a display detail, so the card still opens.
+func plaqueDrawingOf(log *slog.Logger, tapBase string, p tenant.Plaque) *components.PlaqueDrawingView {
+	if !p.OnAWall() || !p.Canonical {
+		return nil
+	}
+	uid, err := hex.DecodeString(p.UID)
+	if err != nil {
+		log.Warn("panel: a canonical plaque uid is not hex; its drawing is not shown")
+		return nil
+	}
+	qrURL, err := sun.PlaqueQRURL(tapBase, uid)
+	if err != nil {
+		return nil
+	}
+	code, err := qrcode.Encode([]byte(qrURL), plaqueQRLevel)
+	if err != nil {
+		log.Warn("panel: the plaque QR code could not be encoded; its drawing is not shown", "err", err)
+		return nil
+	}
+	return &components.PlaqueDrawingView{
+		Last4:  strings.ToUpper(p.UID[len(p.UID)-4:]),
+		QRPath: code.SVGPath(qrcode.QuietZone),
+		QRSide: code.SVGSide(qrcode.QuietZone),
+	}
 }

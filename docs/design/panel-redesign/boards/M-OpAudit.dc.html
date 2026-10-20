@@ -10,7 +10,7 @@
 <helmet>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
-<style>:root{--gx:16px;--maxw:none;--tn:28px;--bpt:18px;--mpt:18px;--mpb:28px;--gap:16px;--cp:20px 18px;--h1:26px;--dp:16px;--c1:minmax(0,1fr);--btnself:stretch;--m1:minmax(0,1fr);--edcols:minmax(0,1fr)}
+<style>:root{--gx:16px;--maxw:none;--tn:28px;--bpt:18px;--mpt:18px;--mpb:28px;--gap:16px;--cp:20px;--h1:26px;--dp:20px;--c1:minmax(0,1fr);--btnself:stretch;--m1:minmax(0,1fr);--edcols:minmax(0,1fr)}
 body{margin:0;background:#EDF0EA}
 a{color:#1F5C41}a:hover{color:#152219}
 /* operator shell (OP-1) — identical on every board of this width */
@@ -21,7 +21,7 @@ a{color:#1F5C41}a:hover{color:#152219}
 .oplock span{color:#D98E2B}
 .opout{min-height:44px;padding:0 16px;border:1px solid #FFFDF4;border-radius:10px;background:transparent;color:#FFFDF4;font:700 14px 'Space Grotesk',sans-serif;white-space:nowrap;cursor:pointer}
 .opout:hover{border-color:#D98E2B;color:#D98E2B}
-.opbot{position:sticky;bottom:0;z-index:5;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));background:#FFFDF4;border-top:1px solid #C9D2C8}
+.opbot{position:sticky;bottom:0;margin-top:auto;z-index:5;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));background:#FFFDF4;border-top:1px solid #C9D2C8}
 .opbt{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:60px;text-decoration:none;color:rgba(21,34,25,.7);font:500 11px 'Space Grotesk',sans-serif}
 .opbt:hover{color:#152219}
 .opbt--on{color:#152219;font-weight:700}
@@ -34,65 +34,91 @@ a{color:#1F5C41}a:hover{color:#152219}
 .opsubt{display:flex;align-items:center;min-height:44px;padding:0 10px;border-bottom:3px solid transparent;margin-bottom:-1px;text-decoration:none;color:#152219;font:400 14px 'Space Grotesk',sans-serif;white-space:nowrap}
 .opsubt:hover{color:#152219;background:rgba(217,142,43,.12)}
 .opsubt--on{border-bottom-color:#D98E2B;font-weight:700}
-.opmain{width:100%;max-width:none;box-sizing:border-box;padding:20px 16px 32px}
+.opmain{width:100%;max-width:none;box-sizing:border-box;padding:20px 16px 64px}
 /* end operator shell */
 .mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
-.lbl{margin:0;font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:10px;font-weight:400;letter-spacing:.16em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.lbl{margin:0;font:400 11px/1.4 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.14em;text-transform:uppercase;color:rgba(21,34,25,.7)}
 .col{max-width:var(--maxw);display:flex;flex-direction:column;gap:var(--gap)}
-.card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:14px;padding:var(--cp);box-shadow:0 1px 2px rgba(21,34,25,.06);display:flex;flex-direction:column;gap:12px;min-width:0}
-.h1{margin:0;font:700 var(--h1)/1.1 'Space Grotesk',sans-serif;letter-spacing:-.03em}
-.h2{margin:0;font:700 18px/1.2 'Space Grotesk',sans-serif;letter-spacing:-.02em}
-.p{margin:0;font-family:'Space Grotesk',sans-serif;font-size:15px;line-height:1.55}
-.small{margin:0;font-family:'Space Grotesk',sans-serif;font-size:13px;line-height:1.5;color:rgba(21,34,25,.7)}
+.card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:14px;padding:var(--cp);display:flex;flex-direction:column;gap:12px;min-width:0}
+.card > .lbl + .h1{margin-top:-4px}
+.h1{margin:0;font:700 var(--h1)/1.1 'Space Grotesk',sans-serif;letter-spacing:-.03em;color:#152219}
+.h2{margin:0;font:700 19px/1.25 'Space Grotesk',sans-serif;letter-spacing:-.02em;color:#152219}
+.p{margin:0;font:400 15px/1.55 'Space Grotesk',sans-serif;color:#152219;max-width:68ch}
+.small{margin:0;font:400 13px/1.5 'Space Grotesk',sans-serif;color:rgba(21,34,25,.7)}
 .links{margin:0;display:flex;flex-wrap:wrap;gap:0 24px}
 .oplink{display:inline-flex;align-items:center;min-height:44px;padding:0;border:0;background:none;font:700 15px 'Space Grotesk',sans-serif;color:#1F5C41;text-decoration:underline;text-underline-offset:4px;cursor:pointer}
 .oplink:hover{color:#152219}
-.fld{display:flex;flex-direction:column;gap:6px;min-width:0}
-.field{min-height:44px;width:100%;box-sizing:border-box;padding:8px 12px;border:1px solid #C9D2C8;border-radius:8px;background:#FFFDF4;font:14px 'IBM Plex Mono',ui-monospace,monospace;color:#152219}
-textarea.field{line-height:1.55;resize:vertical;display:block}
+.fld{display:flex;flex-direction:column;gap:6px;min-width:0;margin:0}
+.field{min-height:44px;width:100%;box-sizing:border-box;padding:8px 12px;border:1px solid #C9D2C8;border-radius:8px;background:#FFFDF4;font:400 14px 'IBM Plex Mono',ui-monospace,monospace;color:#152219}
+.field:focus{outline:2px solid #152219;outline-offset:1px}
 .inline{display:flex;flex-wrap:wrap;gap:10px;align-items:stretch}
-.inline .field{flex:1 1 240px;width:auto;min-width:0;max-width:100%}
-.btn1{min-height:44px;padding:0 22px;border-radius:10px;border:0;background:#1F5C41;color:#FFFDF4;font:700 15px 'Space Grotesk',sans-serif;cursor:pointer;align-self:var(--btnself)}
+.inline .field{flex:1 1 240px;width:auto;min-width:0;max-width:var(--fieldmax,100%)}
+.btn1{min-height:44px;padding:0 22px;border-radius:10px;border:0;background:#1F5C41;color:#FFFDF4;font:700 15px 'Space Grotesk',sans-serif;cursor:pointer;white-space:nowrap}
 .btn1:hover{background:#152219}
-.quiet{min-height:44px;padding:0 16px;border-radius:10px;border:1px solid #C9D2C8;background:#FFFDF4;color:#152219;font:700 14px 'Space Grotesk',sans-serif;cursor:pointer}
+.quiet{min-height:44px;padding:0 18px;border-radius:10px;border:1px solid #C9D2C8;background:#FFFDF4;color:#152219;font:700 14px 'Space Grotesk',sans-serif;cursor:pointer;white-space:nowrap}
 .quiet:hover{border-color:#BE3D2A;color:#BE3D2A}
 .note{border-left:4px solid #C9D2C8;border-radius:0 12px 12px 0;padding:14px 18px;display:flex;flex-direction:column;gap:6px}
 .note--ok{border-left-color:#1F5C41;background:#E1EDE6}
 .note--warn{border-left-color:#D98E2B;background:#F7EBD6}
-.note--alert{border-left-color:#BE3D2A;background:#FFFDF4;border-top:1px solid #C9D2C8;border-right:1px solid #C9D2C8;border-bottom:1px solid #C9D2C8}
-.note-h{margin:0;font:700 16px/1.3 'Space Grotesk',sans-serif;color:#152219}
-.note p{margin:0;font-size:14px;line-height:1.5;color:rgba(21,34,25,.85)}
-.note ul{margin:4px 0 0;padding:0 0 0 18px;display:flex;flex-direction:column;gap:4px;font-size:14px;line-height:1.45;color:rgba(21,34,25,.85)}
-.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-radius:0;padding:20px var(--dp) 20px;box-shadow:0 1px 2px rgba(21,34,25,.06);font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:13px;color:#152219;min-width:0}
+.note .note-h{margin:0;font:700 16px/1.3 'Space Grotesk',sans-serif;color:#152219}
+.note p{margin:0;font:400 14px/1.5 'Space Grotesk',sans-serif;color:rgba(21,34,25,.85)}
+.note ul{margin:4px 0 0;padding:0 0 0 18px;display:flex;flex-direction:column;gap:4px;font:400 14px/1.45 'Space Grotesk',sans-serif;color:rgba(21,34,25,.85)}
+.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-radius:0;padding:16px var(--dp);box-shadow:0 1px 2px rgba(21,34,25,.06);font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:13px;color:#152219;min-width:0}
 .docket::before,.docket::after{content:'';position:absolute;left:-1px;right:-1px;height:6px;background-image:radial-gradient(circle at 5px 0,#EDF0EA 3px,transparent 3.5px);background-size:10px 6px;background-repeat:repeat-x}
 .docket::before{top:-1px}
 .docket::after{bottom:-1px;transform:rotate(180deg)}
-.dh{padding-bottom:10px;border-bottom:2px dashed #C9D2C8}
+.dh{padding-bottom:12px;border-bottom:2px dashed #C9D2C8}
+.dh .mono{font-weight:700;color:#152219}
+.dfoot{margin:0;padding-top:12px;border-top:2px dashed #C9D2C8;font:400 13px/1.5 'Space Grotesk',sans-serif;color:rgba(21,34,25,.7)}
+.dempty{margin:0;padding:22px 0 8px;font:400 15px/1.5 'Space Grotesk',sans-serif;color:#152219}
 .list{list-style:none;margin:0;padding:0}
-.row{display:grid;grid-template-columns:var(--c1) minmax(0,1fr);gap:6px 20px;align-items:baseline;padding:14px 0;border-bottom:1px solid #C9D2C8}
-.row:last-child{border-bottom:0}
-.rk{font:700 14px 'IBM Plex Mono',ui-monospace,monospace;color:#152219;min-width:0;overflow-wrap:anywhere}
-.facts{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 18px;min-width:0}
-.fact{font:13px/1.5 'IBM Plex Mono',ui-monospace,monospace;color:rgba(21,34,25,.75);min-width:0;overflow-wrap:anywhere}
-.fact b{font-weight:700;color:#152219}
-.full{flex:1 0 100%;font:14px/1.5 'Space Grotesk',sans-serif;color:#152219}
-.kw{font:700 15px/1.3 'Space Grotesk',sans-serif;color:#152219}
-.rowlink{display:inline-flex;align-items:center;min-height:44px;font:700 14px 'Space Grotesk',sans-serif;color:#1F5C41;text-decoration:underline;text-underline-offset:4px}
-.rowlink:hover{color:#152219}
-.chip{display:inline-flex;align-items:center;min-height:24px;padding:2px 10px;box-sizing:border-box;border:1px solid #C9D2C8;border-radius:999px;font:700 11px/1.3 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;color:#152219}
+.chip{display:inline-flex;align-items:center;min-height:24px;padding:2px 10px;box-sizing:border-box;border:1px solid #C9D2C8;border-radius:999px;font:700 11px/1.3 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;color:#152219;max-width:100%}
 .t-green{border-color:#1F5C41;background:#E1EDE6}
 .t-saffron{border-color:#D98E2B;background:#F7EBD6}
-.t-line{border-color:#C9D2C8;background:rgba(201,210,200,.1)}
+.t-saffron-o{border-color:#D98E2B;background:#FFFDF4;border-style:dashed}
+.t-line{border-color:#C9D2C8;background:rgba(201,210,200,.18)}
 .t-ink{border-color:#152219;background:rgba(21,34,25,.1)}
-.pager{display:flex;flex-wrap:wrap;gap:0 28px}
+.fact{font:400 13px/1.5 'Space Grotesk',sans-serif;color:rgba(21,34,25,.72);min-width:0;overflow-wrap:anywhere}
+.fact b{font:700 13px/1.5 'IBM Plex Mono',ui-monospace,monospace;color:#152219}
+.idl{font:400 12px/1.45 'IBM Plex Mono',ui-monospace,monospace;color:rgba(21,34,25,.7);word-break:break-all}
+.rowlink{position:relative;font:700 inherit;font-family:'Space Grotesk',sans-serif;color:#1F5C41;text-decoration:underline;text-underline-offset:3px}
+.rowlink::after{content:'';position:absolute;left:0;right:0;top:50%;height:44px;transform:translateY(-50%)}
+.rowlink:hover{color:#152219}
+.pager{display:flex;flex-wrap:wrap;gap:12px}
 .pager form{margin:0}
-.idl{font:12px/1.4 'IBM Plex Mono',ui-monospace,monospace;color:rgba(21,34,25,.7);word-break:break-all}
-.row{grid-template-columns:minmax(0,1fr);gap:8px}
-.inline .field{flex-basis:160px}
+.pgbtn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 22px;box-sizing:border-box;border:1px solid rgba(21,34,25,.3);border-radius:10px;background:#FFFDF4;color:#152219;font:700 15px 'Space Grotesk',sans-serif;text-decoration:none;cursor:pointer;white-space:nowrap}
+.pgbtn:hover{border-color:#152219;color:#152219}
+.filter{margin:4px 0 0;padding:16px 18px;border:1px solid #C9D2C8;border-radius:12px;background:rgba(21,34,25,.03);display:flex;flex-direction:column;gap:8px}
+.filter .inline .field{max-width:440px}
+select.field{appearance:none;-webkit-appearance:none;padding-right:40px;background-image:linear-gradient(45deg,transparent 50%,#152219 50%),linear-gradient(135deg,#152219 50%,transparent 50%);background-position:calc(100% - 20px) 50%,calc(100% - 15px) 50%;background-size:5px 5px;background-repeat:no-repeat;font-family:'Space Grotesk',sans-serif;font-size:15px}
+.arow{display:grid;grid-template-columns:var(--ac1) minmax(0,1fr);gap:6px 24px;align-items:baseline;padding:16px 0;border-bottom:1px solid rgba(201,210,200,.8)}
+.arow:last-child{border-bottom:0;padding-bottom:6px}
+.aat{font:700 13px/1.5 'IBM Plex Mono',ui-monospace,monospace;color:#152219;white-space:nowrap}
+.abody{display:flex;flex-direction:column;gap:6px;min-width:0}
+.akind{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;font:700 15px/1.35 'Space Grotesk',sans-serif;color:#152219}
+.akind .mono{font-size:14px}
+.afacts{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 18px}
+.afacts .fact{font-size:13.5px}
+.afacts .fact b.vm{font:400 12.5px/1.5 'IBM Plex Mono',ui-monospace,monospace;color:#152219;word-break:break-all}
+.afacts .fact b.vn{font:500 13.5px/1.5 'Space Grotesk',sans-serif;color:#152219}
+.afacts .rowlink{font-size:13.5px}
+:root{--ac1:minmax(0,1fr)}
+.filter{padding:14px}
+.filter .btn1{flex:1 1 100%}
+.arow{grid-template-columns:minmax(0,1fr);gap:4px;padding:14px 0}
+.afacts{flex-direction:column;gap:0}
+.afacts .fact{min-height:24px}
+.afacts .fact:has(.rowlink){display:flex;flex-wrap:wrap;align-items:center;column-gap:6px;min-height:44px}
+.rowlink::after{display:none}
+.afacts .rowlink{display:inline-flex;align-items:center;min-height:44px}
+.pager{gap:10px}
+.pager > *{flex:1 1 0}
+.pager .pgbtn{width:100%}
+.p{font-size:15px}
 </style>
 </helmet>
-<div style="width: 390px; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
-<header class="opbar">
+<div style="width: 390px; min-height: 100vh; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
+  <header class="opbar">
     <div class="opbar-in">
       <p class="oplock">TAPTIME <span>OPERATOR</span></p>
       <form method="post" action="/operator/logout" style="margin: 0"><button type="button" class="opout">Sign out</button></form>
@@ -105,7 +131,7 @@ textarea.field{line-height:1.55;resize:vertical;display:block}
   <p class="lbl">Audit log</p>
   <h1 id="audit-h" class="h1">Who did what on this surface</h1>
   <p class="p">Every sign-in, sign-out, read and publication on the operator surface, newest first, for every operator. Opening this page is a read too, and it is listed.</p>
-  <form method="post" action="#" class="fld" style="margin: 6px 0 0">
+  <form method="post" action="#" class="fld filter">
     <label for="audit-kind" class="lbl">Kind</label>
     <div class="inline">
       <select id="audit-kind" name="kind" class="field">
@@ -122,36 +148,38 @@ textarea.field{line-height:1.55;resize:vertical;display:block}
 
 <section class="docket" aria-labelledby="audit-list">
   <h2 id="audit-list" class="lbl dh">Newest first · {{filter}} · page <span class="mono">{{page}}</span></h2>
-  <sc-if value="{{emptyKind}}" hint-placeholder-val="{{false}}"><p class="p" style="padding-top: 14px">The log holds no entry of this kind.</p></sc-if>
-  <sc-if value="{{emptyPast}}" hint-placeholder-val="{{false}}"><p class="p" style="padding-top: 14px">This page is empty: the log ended on the page before.</p></sc-if>
+  <sc-if value="{{emptyKind}}" hint-placeholder-val="{{false}}"><p class="dempty">The log holds no entry of this kind.</p></sc-if>
+  <sc-if value="{{emptyPast}}" hint-placeholder-val="{{false}}"><p class="dempty">This page is empty: the log ended on the page before.</p></sc-if>
   <sc-if value="{{hasRows}}" hint-placeholder-val="{{true}}">
     <ol class="list">
       <sc-for list="{{rows}}" as="r" hint-placeholder-count="12">
-        <li class="row">
-          <span class="rk">{{r.at}}</span>
-          <span class="facts">
-            <sc-if value="{{r.known}}" hint-placeholder-val="{{true}}"><span class="kw" style="flex: 1 0 100%">{{r.kind}}</span></sc-if>
-            <sc-if value="{{r.unknown}}" hint-placeholder-val="{{false}}"><span style="flex: 1 0 100%; display: flex; flex-wrap: wrap; gap: 8px; align-items: center"><span class="mono" style="font-weight: 700; font-size: 14px">{{r.kind}}</span><span class="chip t-ink">Unrecognised</span></span></sc-if>
-            <sc-for list="{{r.facts}}" as="f" hint-placeholder-count="3">
-              <span class="fact">{{f.pre}}<sc-if value="{{f.isLink}}"><a href="M-OpTenant.dc.html" class="rowlink"><bdi>{{f.link}}</bdi></a></sc-if><sc-if value="{{f.isUnnamedLink}}"><a href="M-OpTenant.dc.html" class="rowlink"><i>Unnamed tenant</i></a> </sc-if><sc-if value="{{f.isVal}}"><b>{{f.val}}</b></sc-if>{{f.post}}<sc-if value="{{f.italic}}"><i>Detail not shown</i></sc-if></span>
-            </sc-for>
-          </span>
+        <li class="arow">
+          <span class="aat">{{r.at}}</span>
+          <div class="abody">
+            <sc-if value="{{r.known}}" hint-placeholder-val="{{true}}"><span class="akind">{{r.kind}}</span></sc-if>
+            <sc-if value="{{r.unknown}}" hint-placeholder-val="{{false}}"><span class="akind"><span class="mono">{{r.kind}}</span><span class="chip t-ink">Unrecognised</span></span></sc-if>
+            <span class="afacts">
+              <sc-for list="{{r.facts}}" as="f" hint-placeholder-count="3">
+                <span class="fact">{{f.pre}}<sc-if value="{{f.isLink}}"><a href="M-OpTenant.dc.html" class="rowlink"><bdi>{{f.link}}</bdi></a></sc-if><sc-if value="{{f.isUnnamedLink}}"><a href="M-OpTenant.dc.html" class="rowlink"><i>Unnamed tenant</i></a> </sc-if><sc-if value="{{f.isVal}}"><b class="{{f.vc}}">{{f.val}}</b></sc-if>{{f.post}}<sc-if value="{{f.italic}}"><i>Detail not shown</i></sc-if></span>
+              </sc-for>
+            </span>
+          </div>
         </li>
       </sc-for>
     </ol>
   </sc-if>
   <sc-if value="{{lastPage}}" hint-placeholder-val="{{false}}">
-    <p class="small" style="margin-top: 14px; padding-top: 12px; border-top: 2px dashed #C9D2C8">This is the last page the screen shows: the newest <span class="mono">50,000</span> entries of the kind chosen.</p>
+    <p class="dfoot" style="margin-top: 6px">This is the last page the screen shows: the newest <span class="mono">50,000</span> entries of the kind chosen.</p>
   </sc-if>
 </section>
 
 <sc-if value="{{hasPager}}" hint-placeholder-val="{{true}}">
   <nav class="pager" aria-label="Pages of the audit log">
     <sc-if value="{{hasPrev}}" hint-placeholder-val="{{false}}">
-      <form method="post" action="#"><input type="hidden" name="kind" value="{{kindValue}}"><input type="hidden" name="page" value="{{prev}}"><button type="submit" class="oplink">Previous page</button></form>
+      <form method="post" action="#"><input type="hidden" name="kind" value="{{kindValue}}"><input type="hidden" name="page" value="{{prev}}"><button type="submit" class="pgbtn">Previous page</button></form>
     </sc-if>
     <sc-if value="{{hasNext}}" hint-placeholder-val="{{true}}">
-      <form method="post" action="#"><input type="hidden" name="kind" value="{{kindValue}}"><input type="hidden" name="page" value="{{next}}"><button type="submit" class="oplink">Next page</button></form>
+      <form method="post" action="#"><input type="hidden" name="kind" value="{{kindValue}}"><input type="hidden" name="page" value="{{next}}"><button type="submit" class="pgbtn">Next page</button></form>
     </sc-if>
   </nav>
 </sc-if>
@@ -167,7 +195,7 @@ textarea.field{line-height:1.55;resize:vertical;display:block}
   </nav>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"auditView": {"editor": "enum", "options": ["every-kind-page-1", "filtered-signed-in-page-2", "empty-kind", "past-the-end", "last-page-1000"], "default": "every-kind-page-1"}, "$preview": {"width": 390, "height": 2590}}'>
+<script type="text/x-dc" data-dc-script data-props='{"auditView": {"editor": "enum", "options": ["every-kind-page-1", "filtered-signed-in-page-2", "empty-kind", "past-the-end", "last-page-1000"], "default": "every-kind-page-1"}, "$preview": {"width": 390, "height": 3166}}'>
 class Component extends DCLogic {
   renderVals() {
     const view = this.props.auditView ?? 'every-kind-page-1';
@@ -199,8 +227,8 @@ class Component extends DCLogic {
     const kinds = K.map(([value, label]) => ({ value, label, sel: value === kindValue, unsel: value !== kindValue }));
     const filter = K.find(k => k[0] === kindValue)[1];
     // One fact = one span. Every key present on every fact.
-    const F = o => Object.assign({ pre: '', isLink: false, link: '', isUnnamedLink: false, isVal: false, val: '', post: '', italic: false }, o);
-    const by = n => F({ pre: 'By ', isVal: true, val: n });
+    const F = o => Object.assign({ pre: '', isLink: false, link: '', isUnnamedLink: false, isVal: false, val: '', post: '', italic: false, vc: 'vm' }, o);
+    const by = n => F({ pre: 'By ', isVal: true, val: n, vc: 'vn' });
     const plain = t => F({ pre: t });
     const val = (pre, v, post) => F({ pre, isVal: true, val: v, post: post || '' });
     const tenant = n => F({ pre: 'Tenant ', isLink: true, link: n });
@@ -211,13 +239,14 @@ class Component extends DCLogic {
     if (view === 'every-kind-page-1') {
       hasNext = true;
       rows = [
-        R('2026-10-20 14:32:07', 'Read', [by(A), plain('Of this audit log'), val('Page ', '1', ' (50 per page)'), val('Filter: ', 'Every kind'), sess('3f9a1c0e')]),
+        R('2026-10-20 14:32:07', 'Read', [by(A), plain('Of this audit log'), val('Page ', '1', ' (50 per page)'), F({ pre: 'Filter: ', isVal: true, val: 'Every kind', vc: 'vn' }), sess('3f9a1c0e')]),
         R('2026-10-20 14:31:52', 'Read', [by(A), tenant('Kebab Factory Ltd.'), plain('Of a tenant\'s billing'), val('Page ', '1', ' (12 per page)'), sess('3f9a1c0e')]),
         R('2026-10-20 14:30:10', 'Integration API opened', [by(A), tenant('Kebab Manufacturing Co. Ltd.'), sess('3f9a1c0e')]),
         R('2026-10-20 14:29:41', 'Read', [by(A), plain('Of the tenant list'), val('Page ', '1', ' (50 per page)'), plain('Searched by name'), sess('3f9a1c0e')]),
+        R('2026-10-20 14:29:02', 'Read', [by(A), plain('Of a scope this screen does not show'), sess('3f9a1c0e')]),
         R('2026-10-20 14:12:03', 'Legal text published', [by(A), val('Document ', 'privacy'), val('', '18432', ' bytes'), sess('3f9a1c0e')]),
         R('2026-10-20 14:05:19', 'Signed in', [by(A), sess('3f9a1c0e')]),
-        R('2026-10-20 14:04:58', 'Password accepted, before the code', [plain('Before sign-in'), F({ pre: 'Account ', isVal: true, val: A })]),
+        R('2026-10-20 14:04:58', 'Password accepted, before the code', [plain('Before sign-in'), F({ pre: 'Account ', isVal: true, val: A, vc: 'vn' })]),
         R('2026-10-20 13:58:44', 'Sign-in refused: no active account with that address', [plain('Before sign-in')]),
         R('2026-10-20 11:20:00', 'Operator account reset to a new setup link', [plain('By the platform owner, with opadmin'), val('Account of an unnamed operator ', '5d0e2a71-4c8b-4f19-a3e6-91b7c2d40f58')]),
         R('2026-10-20 10:47:31', 'Read', [val('By an unnamed operator ', '5d0e2a71-4c8b-4f19-a3e6-91b7c2d40f58'), F({ pre: 'Tenant ', isUnnamedLink: true, isVal: true, val: 'b4a71e09-2d6c-4e83-9f50-6a1c8d3e7b22' }), plain('Of a tenant\'s plaques'), sess('a07c55d2')]),
@@ -244,9 +273,9 @@ class Component extends DCLogic {
       rows = [
         R('2026-08-02 09:41:15', 'Read', [by(A), plain('Of the legal texts'), sess('0d3f7a92')]),
         R('2026-08-02 09:40:58', 'Signed in', [by(A), sess('0d3f7a92')]),
-        R('2026-08-02 09:40:31', 'Code refused', [plain('Before sign-in'), F({ pre: 'Account ', isVal: true, val: A })]),
+        R('2026-08-02 09:40:31', 'Code refused', [plain('Before sign-in'), F({ pre: 'Account ', isVal: true, val: A, vc: 'vn' })]),
         R('2026-08-01 16:12:04', 'Set up and signed in', [by(A), sess('7ab0c4e1')]),
-        R('2026-08-01 15:47:22', 'Operator account created', [plain('By the platform owner, with opadmin'), F({ pre: 'Account ', isVal: true, val: A })])
+        R('2026-08-01 15:47:22', 'Operator account created', [plain('By the platform owner, with opadmin'), F({ pre: 'Account ', isVal: true, val: A, vc: 'vn' })])
       ];
     }
     return {

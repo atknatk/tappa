@@ -10,7 +10,7 @@
 <helmet>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet">
-<style>:root{--gx:40px;--maxw:960px;--tn:40px;--bpt:26px;--mpt:32px;--mpb:64px;--gap:24px;--cp:28px 32px;--h1:32px;--dp:28px;--c1:196px;--btnself:flex-start;--m1:220px;--edcols:repeat(2,minmax(0,1fr))}
+<style>:root{--gx:40px;--maxw:960px;--tn:40px;--bpt:26px;--mpt:32px;--mpb:64px;--gap:24px;--cp:22px 24px;--h1:32px;--dp:24px;--c1:196px;--btnself:flex-start;--m1:220px;--edcols:repeat(2,minmax(0,1fr))}
 body{margin:0;background:#EDF0EA}
 a{color:#1F5C41}a:hover{color:#152219}
 /* operator shell (OP-1) — identical on every board of this width */
@@ -40,64 +40,85 @@ a{color:#1F5C41}a:hover{color:#152219}
 .opmain{width:100%;max-width:960px;box-sizing:border-box;padding:32px 40px 64px}
 /* end operator shell */
 .mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
-.lbl{margin:0;font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:10px;font-weight:400;letter-spacing:.16em;text-transform:uppercase;color:rgba(21,34,25,.7)}
+.lbl{margin:0;font:400 11px/1.4 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.14em;text-transform:uppercase;color:rgba(21,34,25,.7)}
 .col{max-width:var(--maxw);display:flex;flex-direction:column;gap:var(--gap)}
-.card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:14px;padding:var(--cp);box-shadow:0 1px 2px rgba(21,34,25,.06);display:flex;flex-direction:column;gap:12px;min-width:0}
-.h1{margin:0;font:700 var(--h1)/1.1 'Space Grotesk',sans-serif;letter-spacing:-.03em}
-.h2{margin:0;font:700 18px/1.2 'Space Grotesk',sans-serif;letter-spacing:-.02em}
-.p{margin:0;font-family:'Space Grotesk',sans-serif;font-size:15px;line-height:1.55}
-.small{margin:0;font-family:'Space Grotesk',sans-serif;font-size:13px;line-height:1.5;color:rgba(21,34,25,.7)}
+.card{background:#FFFDF4;border:1px solid #C9D2C8;border-radius:14px;padding:var(--cp);display:flex;flex-direction:column;gap:12px;min-width:0}
+.card > .lbl + .h1{margin-top:-4px}
+.h1{margin:0;font:700 var(--h1)/1.1 'Space Grotesk',sans-serif;letter-spacing:-.03em;color:#152219}
+.h2{margin:0;font:700 19px/1.25 'Space Grotesk',sans-serif;letter-spacing:-.02em;color:#152219}
+.p{margin:0;font:400 15px/1.55 'Space Grotesk',sans-serif;color:#152219;max-width:68ch}
+.small{margin:0;font:400 13px/1.5 'Space Grotesk',sans-serif;color:rgba(21,34,25,.7)}
 .links{margin:0;display:flex;flex-wrap:wrap;gap:0 24px}
 .oplink{display:inline-flex;align-items:center;min-height:44px;padding:0;border:0;background:none;font:700 15px 'Space Grotesk',sans-serif;color:#1F5C41;text-decoration:underline;text-underline-offset:4px;cursor:pointer}
 .oplink:hover{color:#152219}
-.fld{display:flex;flex-direction:column;gap:6px;min-width:0}
-.field{min-height:44px;width:100%;box-sizing:border-box;padding:8px 12px;border:1px solid #C9D2C8;border-radius:8px;background:#FFFDF4;font:14px 'IBM Plex Mono',ui-monospace,monospace;color:#152219}
-textarea.field{line-height:1.55;resize:vertical;display:block}
+.fld{display:flex;flex-direction:column;gap:6px;min-width:0;margin:0}
+.field{min-height:44px;width:100%;box-sizing:border-box;padding:8px 12px;border:1px solid #C9D2C8;border-radius:8px;background:#FFFDF4;font:400 14px 'IBM Plex Mono',ui-monospace,monospace;color:#152219}
+.field:focus{outline:2px solid #152219;outline-offset:1px}
 .inline{display:flex;flex-wrap:wrap;gap:10px;align-items:stretch}
-.inline .field{flex:1 1 240px;width:auto;min-width:0;max-width:100%}
-.btn1{min-height:44px;padding:0 22px;border-radius:10px;border:0;background:#1F5C41;color:#FFFDF4;font:700 15px 'Space Grotesk',sans-serif;cursor:pointer;align-self:var(--btnself)}
+.inline .field{flex:1 1 240px;width:auto;min-width:0;max-width:var(--fieldmax,100%)}
+.btn1{min-height:44px;padding:0 22px;border-radius:10px;border:0;background:#1F5C41;color:#FFFDF4;font:700 15px 'Space Grotesk',sans-serif;cursor:pointer;white-space:nowrap}
 .btn1:hover{background:#152219}
-.quiet{min-height:44px;padding:0 16px;border-radius:10px;border:1px solid #C9D2C8;background:#FFFDF4;color:#152219;font:700 14px 'Space Grotesk',sans-serif;cursor:pointer}
+.quiet{min-height:44px;padding:0 18px;border-radius:10px;border:1px solid #C9D2C8;background:#FFFDF4;color:#152219;font:700 14px 'Space Grotesk',sans-serif;cursor:pointer;white-space:nowrap}
 .quiet:hover{border-color:#BE3D2A;color:#BE3D2A}
 .note{border-left:4px solid #C9D2C8;border-radius:0 12px 12px 0;padding:14px 18px;display:flex;flex-direction:column;gap:6px}
 .note--ok{border-left-color:#1F5C41;background:#E1EDE6}
 .note--warn{border-left-color:#D98E2B;background:#F7EBD6}
-.note--alert{border-left-color:#BE3D2A;background:#FFFDF4;border-top:1px solid #C9D2C8;border-right:1px solid #C9D2C8;border-bottom:1px solid #C9D2C8}
-.note-h{margin:0;font:700 16px/1.3 'Space Grotesk',sans-serif;color:#152219}
-.note p{margin:0;font-size:14px;line-height:1.5;color:rgba(21,34,25,.85)}
-.note ul{margin:4px 0 0;padding:0 0 0 18px;display:flex;flex-direction:column;gap:4px;font-size:14px;line-height:1.45;color:rgba(21,34,25,.85)}
-.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-radius:0;padding:20px var(--dp) 20px;box-shadow:0 1px 2px rgba(21,34,25,.06);font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:13px;color:#152219;min-width:0}
+.note .note-h{margin:0;font:700 16px/1.3 'Space Grotesk',sans-serif;color:#152219}
+.note p{margin:0;font:400 14px/1.5 'Space Grotesk',sans-serif;color:rgba(21,34,25,.85)}
+.note ul{margin:4px 0 0;padding:0 0 0 18px;display:flex;flex-direction:column;gap:4px;font:400 14px/1.45 'Space Grotesk',sans-serif;color:rgba(21,34,25,.85)}
+.docket{position:relative;background:#FFFDF4;border:1px solid #C9D2C8;border-radius:0;padding:18px var(--dp);box-shadow:0 1px 2px rgba(21,34,25,.06);font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:13px;color:#152219;min-width:0}
 .docket::before,.docket::after{content:'';position:absolute;left:-1px;right:-1px;height:6px;background-image:radial-gradient(circle at 5px 0,#EDF0EA 3px,transparent 3.5px);background-size:10px 6px;background-repeat:repeat-x}
 .docket::before{top:-1px}
 .docket::after{bottom:-1px;transform:rotate(180deg)}
-.dh{padding-bottom:10px;border-bottom:2px dashed #C9D2C8}
+.dh{padding-bottom:12px;border-bottom:2px dashed #C9D2C8}
+.dh .mono{font-weight:700;color:#152219}
+.dfoot{margin:0;padding-top:12px;border-top:2px dashed #C9D2C8;font:400 13px/1.5 'Space Grotesk',sans-serif;color:rgba(21,34,25,.7)}
+.dempty{margin:0;padding:22px 0 8px;font:400 15px/1.5 'Space Grotesk',sans-serif;color:#152219}
 .list{list-style:none;margin:0;padding:0}
-.row{display:grid;grid-template-columns:var(--c1) minmax(0,1fr);gap:6px 20px;align-items:baseline;padding:14px 0;border-bottom:1px solid #C9D2C8}
-.row:last-child{border-bottom:0}
-.rk{font:700 14px 'IBM Plex Mono',ui-monospace,monospace;color:#152219;min-width:0;overflow-wrap:anywhere}
-.facts{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 18px;min-width:0}
-.fact{font:13px/1.5 'IBM Plex Mono',ui-monospace,monospace;color:rgba(21,34,25,.75);min-width:0;overflow-wrap:anywhere}
-.fact b{font-weight:700;color:#152219}
-.full{flex:1 0 100%;font:14px/1.5 'Space Grotesk',sans-serif;color:#152219}
-.kw{font:700 15px/1.3 'Space Grotesk',sans-serif;color:#152219}
-.rowlink{display:inline-flex;align-items:center;min-height:44px;font:700 14px 'Space Grotesk',sans-serif;color:#1F5C41;text-decoration:underline;text-underline-offset:4px}
-.rowlink:hover{color:#152219}
-.chip{display:inline-flex;align-items:center;min-height:24px;padding:2px 10px;box-sizing:border-box;border:1px solid #C9D2C8;border-radius:999px;font:700 11px/1.3 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;color:#152219}
+.chip{display:inline-flex;align-items:center;min-height:24px;padding:2px 10px;box-sizing:border-box;border:1px solid #C9D2C8;border-radius:999px;font:700 11px/1.3 'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;color:#152219;max-width:100%}
 .t-green{border-color:#1F5C41;background:#E1EDE6}
 .t-saffron{border-color:#D98E2B;background:#F7EBD6}
-.t-line{border-color:#C9D2C8;background:rgba(201,210,200,.1)}
+.t-saffron-o{border-color:#D98E2B;background:#FFFDF4;border-style:dashed}
+.t-line{border-color:#C9D2C8;background:rgba(201,210,200,.18)}
 .t-ink{border-color:#152219;background:rgba(21,34,25,.1)}
-.pager{display:flex;flex-wrap:wrap;gap:0 28px}
+.fact{font:400 13px/1.5 'Space Grotesk',sans-serif;color:rgba(21,34,25,.72);min-width:0;overflow-wrap:anywhere}
+.fact b{font:700 13px/1.5 'IBM Plex Mono',ui-monospace,monospace;color:#152219}
+.idl{font:400 12px/1.45 'IBM Plex Mono',ui-monospace,monospace;color:rgba(21,34,25,.7);word-break:break-all}
+.rowlink{position:relative;font:700 inherit;font-family:'Space Grotesk',sans-serif;color:#1F5C41;text-decoration:underline;text-underline-offset:3px}
+.rowlink::after{content:'';position:absolute;left:0;right:0;top:50%;height:44px;transform:translateY(-50%)}
+.rowlink:hover{color:#152219}
+.pager{display:flex;flex-wrap:wrap;gap:12px}
 .pager form{margin:0}
-.idl{font:12px/1.4 'IBM Plex Mono',ui-monospace,monospace;color:rgba(21,34,25,.7);word-break:break-all}
-
-.eds{display:grid;grid-template-columns:var(--edcols);gap:var(--gap);align-items:start}
-.vrow{display:grid;grid-template-columns:170px 130px 100px minmax(0,1fr) 64px;gap:6px 16px;align-items:center;min-height:44px;padding:8px 0;border-bottom:1px solid #C9D2C8}
+.pgbtn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 22px;box-sizing:border-box;border:1px solid rgba(21,34,25,.3);border-radius:10px;background:#FFFDF4;color:#152219;font:700 15px 'Space Grotesk',sans-serif;text-decoration:none;cursor:pointer;white-space:nowrap}
+.pgbtn:hover{border-color:#152219;color:#152219}
+.ed{gap:0;padding:0;overflow:hidden}
+.edhead{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 20px;padding:20px var(--edpx) 16px;border-bottom:1px solid #C9D2C8}
+.edpath{margin:0;font:700 18px/1.3 'IBM Plex Mono',ui-monospace,monospace;color:#152219;overflow-wrap:anywhere}
+.edstate{margin:0;display:inline-flex;align-items:flex-start;gap:8px;font:400 14px/1.4 'Space Grotesk',sans-serif;color:rgba(21,34,25,.75)}
+.edstate .mono{font-size:13px;color:#152219}
+.dot{flex:0 0 auto;margin-top:6px;width:8px;height:8px;border-radius:50%;border:1.5px solid rgba(21,34,25,.45);box-sizing:border-box}
+.dot--live{background:#1F5C41;border-color:#1F5C41}
+.edwarn{padding:16px var(--edpx) 0}
+.edform{margin:0;padding:18px var(--edpx) 22px;display:flex;flex-direction:column;gap:12px}
+.edframe{border:1px solid #C9D2C8;border-radius:10px;background:#FFFDF4;overflow:hidden}
+.edframe:focus-within{border-color:#152219;box-shadow:0 0 0 1px #152219}
+.edbar{display:flex;align-items:center;min-height:36px;padding:0 16px;background:rgba(21,34,25,.04);border-bottom:1px solid #C9D2C8}
+.edtext{display:block;width:100%;box-sizing:border-box;min-height:44px;margin:0;padding:18px var(--edtx);border:0;background:transparent;resize:vertical;font:400 14px/1.7 'IBM Plex Mono',ui-monospace,monospace;color:#152219;outline:none}
+.edfoot{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px 20px}
+.edfoot .small{flex:1 1 220px}
+.vrow{display:grid;grid-template-columns:var(--vcols);gap:4px 20px;align-items:center;min-height:44px;padding:10px 0;border-bottom:1px solid rgba(201,210,200,.8)}
 .vrow:last-child{border-bottom:0}
+.vat{font:700 13px 'IBM Plex Mono',ui-monospace,monospace;color:#152219}
+.vpath{font:400 13px 'IBM Plex Mono',ui-monospace,monospace;color:#152219}
+.vbytes{font:400 13px 'IBM Plex Mono',ui-monospace,monospace;color:rgba(21,34,25,.72);text-align:right}
+.vby{font:400 14px 'Space Grotesk',sans-serif;color:#152219;overflow-wrap:anywhere}
+.vlive{display:flex;justify-content:flex-end}
+.vmeta{display:contents}
+:root{--edpx:24px;--edtx:22px;--vcols:172px 150px 96px minmax(0,1fr) 64px}
 </style>
 </helmet>
 <div style="min-height: 100vh; display: flex; flex-direction: column; font-family: 'Space Grotesk', system-ui, sans-serif; color: #152219; background: #EDF0EA">
-<header class="opbar">
+  <header class="opbar">
     <div class="opbar-in">
       <p class="oplock">TAPTIME <span>OPERATOR</span></p>
       <form method="post" action="/operator/logout" style="margin: 0"><button type="button" class="opout">Sign out</button></form>
@@ -122,50 +143,55 @@ textarea.field{line-height:1.55;resize:vertical;display:block}
   <p class="lbl">Legal texts</p>
   <h1 id="legal-h" class="h1">Taptime's legal texts</h1>
   <p class="p">Publishing adds a new version; nothing is overwritten. To undo a change, publish the earlier text again.</p>
-  <p class="small" style="font-size: 14px">The public pages are on the customer site, under /legal.</p>
+  <p class="small" style="font-size: 14px">The public pages are on the customer site, under <span class="mono">/legal</span>.</p>
   <p class="links"><a href="OpHome.dc.html" class="oplink">Back to the console</a></p>
 </section>
 
-<div class="eds">
-  <sc-for list="{{docs}}" as="d" hint-placeholder-count="4">
-    <section class="card" aria-labelledby="{{d.hid}}">
-      <h2 id="{{d.hid}}" class="mono" style="margin: 0; font-size: 17px; font-weight: 700">{{d.path}}</h2>
-      <sc-if value="{{d.published}}" hint-placeholder-val="{{true}}"><p class="small" style="font-size: 14px">Live since <span class="mono">{{d.since}}</span></p></sc-if>
-      <sc-if value="{{d.unpublished}}" hint-placeholder-val="{{false}}"><p class="small" style="font-size: 14px">Not published. The public page shows its placeholder.</p></sc-if>
-      <sc-if value="{{d.behind}}" hint-placeholder-val="{{false}}">
+<sc-for list="{{docs}}" as="d" hint-placeholder-count="4">
+  <section class="card ed" aria-labelledby="{{d.hid}}">
+    <div class="edhead">
+      <h2 id="{{d.hid}}" class="edpath">{{d.path}}</h2>
+      <sc-if value="{{d.published}}" hint-placeholder-val="{{true}}"><p class="edstate"><span class="dot dot--live" aria-hidden="true"></span><span>Live since <span class="mono">{{d.since}}</span></span></p></sc-if>
+      <sc-if value="{{d.unpublished}}" hint-placeholder-val="{{false}}"><p class="edstate"><span class="dot" aria-hidden="true"></span><span>Not published. The public page shows its placeholder.</span></p></sc-if>
+    </div>
+    <sc-if value="{{d.behind}}" hint-placeholder-val="{{false}}">
+      <div class="edwarn">
         <div role="status" class="note note--warn">
           <p class="note-h">The public page is behind</p>
           <p>The newest version, published <span class="mono">{{d.liveAt}}</span>, has not reached the public page yet. This editor opened on the text the page shows, so publishing it replaces the newest version.</p>
           <p>Reload this screen to try again. The page also catches up after the next publication or a restart.</p>
         </div>
-      </sc-if>
-      <form method="post" action="#" class="fld" style="margin: 4px 0 0; gap: 8px">
-        <input type="hidden" name="slug" value="{{d.slug}}">
-        <label for="{{d.bid}}" class="lbl">Text</label>
-        <textarea id="{{d.bid}}" name="body" rows="12" required class="field">{{d.body}}</textarea>
+      </div>
+    </sc-if>
+    <form method="post" action="#" class="edform">
+      <input type="hidden" name="slug" value="{{d.slug}}">
+      <div class="edframe">
+        <div class="edbar"><label for="{{d.bid}}" class="lbl">Text</label></div>
+        <textarea id="{{d.bid}}" name="body" rows="12" required class="edtext">{{d.body}}</textarea>
+      </div>
+      <div class="edfoot">
         <p class="small">A blank line starts a new paragraph. At most 256 KiB.</p>
         <button type="submit" class="btn1">Publish a new version</button>
-      </form>
-    </section>
-  </sc-for>
-</div>
+      </div>
+    </form>
+  </section>
+</sc-for>
 
 <section class="docket" aria-labelledby="legal-versions">
   <h2 id="legal-versions" class="lbl dh">Versions, newest first</h2>
-  <sc-if value="{{noVersions}}" hint-placeholder-val="{{false}}"><p class="p" style="padding-top: 14px">Nothing has been published yet.</p></sc-if>
+  <sc-if value="{{noVersions}}" hint-placeholder-val="{{false}}"><p class="dempty">Nothing has been published yet.</p></sc-if>
   <sc-if value="{{hasVersions}}" hint-placeholder-val="{{true}}">
     <ol class="list">
       <sc-for list="{{versions}}" as="v" hint-placeholder-count="6">
         <li class="vrow">
-          <span style="font-weight: 700">{{v.at}}</span>
-          <span>{{v.path}}</span>
-          <span>{{v.bytes}}</span>
-          <span style="font-family: 'Space Grotesk', sans-serif; font-size: 14px"><bdi>{{v.by}}</bdi></span>
-          <span><sc-if value="{{v.live}}" hint-placeholder-val="{{false}}"><span class="chip t-green">Live</span></sc-if></span>
+          <span class="vat">{{v.at}}</span>
+          <span class="vpath">{{v.path}}</span>
+          <span class="vmeta"><span class="vbytes">{{v.bytes}}</span><span class="vby"><bdi>{{v.by}}</bdi></span></span>
+          <span class="vlive"><sc-if value="{{v.live}}" hint-placeholder-val="{{false}}"><span class="chip t-green">Live</span></sc-if></span>
         </li>
       </sc-for>
     </ol>
-    <sc-if value="{{capped}}" hint-placeholder-val="{{false}}"><p class="small" style="margin-top: 12px; padding-top: 12px; border-top: 2px dashed #C9D2C8">The newest 100 are listed. Older versions are not shown here.</p></sc-if>
+    <sc-if value="{{capped}}" hint-placeholder-val="{{false}}"><p class="dfoot" style="margin-top: 4px">The newest 100 are listed. Older versions are not shown here.</p></sc-if>
   </sc-if>
 </section>
 
@@ -175,7 +201,7 @@ textarea.field{line-height:1.55;resize:vertical;display:block}
   </div>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"legalState": {"editor": "enum", "options": ["published", "public-page-behind", "version-cap-reached", "nothing-published"], "default": "published"}, "$preview": {"width": 1440, "height": 1947}}'>
+<script type="text/x-dc" data-dc-script data-props='{"legalState": {"editor": "enum", "options": ["published", "public-page-behind", "version-cap-reached", "nothing-published"], "default": "published"}, "$preview": {"width": 1440, "height": 3069}}'>
 class Component extends DCLogic {
   renderVals() {
     const s = this.props.legalState ?? 'published';

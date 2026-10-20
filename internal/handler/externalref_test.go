@@ -135,7 +135,9 @@ func TestEmployeesCard_ShowsTheExternalRefAndOffersTheFormToAnOwnerOnly(t *testi
 		if got := strings.Contains(body, `name="external_ref"`); got != c.form {
 			t.Errorf("%s: the external-ref form rendered=%v, want %v", c.role, got, c.form)
 		}
-		if !c.form && !strings.Contains(body, "Only the business owner can change an external ref.") {
+		// A manager is refused the address form too, so the card says the rule once for
+		// both (panel redesign, M12-31).
+		if !c.form && !strings.Contains(body, "Only the business owner can change an address or an external ref.") {
 			t.Errorf("%s: no sentence saying who can change the ref", c.role)
 		}
 		if c.ref != "" && !strings.Contains(body, c.ref) {
