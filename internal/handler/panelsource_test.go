@@ -565,16 +565,6 @@ func TestTemplTouchScanner_RejectsTheThingsItExistsToReject(t *testing.T) {
 // paragraphOpen is a <p> opening tag (not <path>, <pre> or <param>).
 var paragraphOpen = regexp.MustCompile(`<p[\s>]`)
 
-// insideParagraph reports whether a tag that begins at the end of before sits in a <p> that is
-// still open there.
-func insideParagraph(before string) bool {
-	locs := paragraphOpen.FindAllStringIndex(before, -1)
-	if len(locs) == 0 {
-		return false
-	}
-	return !strings.Contains(before[locs[len(locs)-1][0]:], "</p>")
-}
-
 // runningTextLink reads the paragraph a link sits in: whether the paragraph carries words of
 // its own beside its links and is not a flex or grid row. A link alone in its <p> (a "Forgot
 // password?" line, a button) or in a row of items may be a box; a link with a sentence around
