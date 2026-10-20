@@ -223,6 +223,13 @@ type FilterBarView struct {
 	Narrowed bool
 }
 
+// FormNarrowed is Narrowed for the fields the form itself holds -- a venue, a department, a
+// name, a channel. The verdict is a chip outside the form, so a chosen verdict alone does not
+// open the phone's filter disclosure.
+func (v FilterBarView) FormNarrowed() bool {
+	return v.LocationID != "" || v.DepartmentID != "" || v.EmployeeName != "" || v.Channel != ""
+}
+
 // OptionView is one <option>: the value that goes in the URL, the label a human
 // reads, and an optional group heading.
 type OptionView struct {

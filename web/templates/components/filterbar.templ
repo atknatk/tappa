@@ -29,7 +29,8 @@ package components
 // pass, on a phone, with one thumb.
 templ FilterBar(v FilterBarView) {
 	// ONE FORM AT EVERY WIDTH (M12-27, board M-Ledger): on a phone it sits in a native
-	// disclosure, open by default when something is narrowed; from the tablet width the
+	// disclosure, open by default when one of its own fields narrows the list (a verdict chip
+	// alone does not open it); from the tablet width the
 	// disclosure's summary is not drawn and the form always shows (filter-details in input.css
 	// says how, and what an older browser does instead). No script either way.
 	//
@@ -40,7 +41,7 @@ templ FilterBar(v FilterBarView) {
 	// THE DAY FIELD IS NOT DRAWN ON A PHONE, where the stepper above changes the day; its value
 	// still travels with the form (a field that is not displayed is still submitted), so Apply
 	// stays on the day being read. One date control, one id.
-	<details class="filter-details rounded-[14px] border border-line bg-paper md:rounded-none md:border-0 md:bg-transparent" open?={ v.Narrowed }>
+	<details class="filter-details rounded-[14px] border border-line bg-paper md:rounded-none md:border-0 md:bg-transparent" open?={ v.FormNarrowed() }>
 		<summary class="flex min-h-12 cursor-pointer items-center justify-between gap-3 px-3.5 py-2 font-display text-sm font-bold text-ink">
 			<span class="flex-none">Filters</span>
 			<span class="min-w-0 text-right font-mono text-xs font-normal text-ink/70">location · department · employee · channel</span>

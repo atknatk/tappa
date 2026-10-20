@@ -504,7 +504,8 @@ func TestPanelLanding_WithdrawsDatePickerAdviceOnlyWhereItCannotWork(t *testing.
 			fake.plaques = tc.plaques
 			fake.history = tc.history
 			b := panelBrowserWith(t, fake)
-			body := htmlOf(t, b.do(http.MethodGet, transactionsHref, nil))
+			// THE LEDGER DAY carries the sentence: its day picker is above the list.
+			body := htmlOf(t, b.do(http.MethodGet, ledgerDayHref, nil))
 
 			// POSITIVE CONTROL, every row: the empty state really is on the page, so a
 			// missing sentence cannot be mistaken for a withdrawn one.
@@ -512,7 +513,20 @@ func TestPanelLanding_WithdrawsDatePickerAdviceOnlyWhereItCannotWork(t *testing.
 				t.Fatalf("the empty state is missing entirely; this test measures nothing")
 			}
 			if got := strings.Contains(body, advice); got != tc.want {
-				t.Errorf("%q present = %v, want %v", advice, got, tc.want)
+				t.Errorf("ledger: %q present = %v, want %v", advice, got, tc.want)
+			}
+
+			// THE PASS (M12-26) has no picker above it: never "above"; the same advice is the
+			// link to the day's ledger, withheld on the same test.
+			pass := htmlOf(t, b.do(http.MethodGet, transactionsHref, nil))
+			if !strings.Contains(pass, "Nothing was recorded here on this day") {
+				t.Fatalf("The Pass's empty state is missing entirely; this test measures nothing")
+			}
+			if strings.Contains(pass, advice) {
+				t.Errorf("The Pass says %q but draws no day picker", advice)
+			}
+			if got := strings.Contains(pass, ">See the whole day →</a>"); got != tc.want {
+				t.Errorf("The Pass: the ledger link present = %v, want %v", got, tc.want)
 			}
 		})
 	}

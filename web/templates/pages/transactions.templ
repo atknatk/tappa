@@ -341,7 +341,7 @@ templ plaquesCard(p PassPlaquesView) {
 						}
 					</ul>
 					if p.More {
-						<p class="text-[13px] text-ink/70">The eight seen most recently.</p>
+						<p class="text-[13px] text-ink/70">Eight plaques, the most recently seen first.</p>
 					}
 			}
 			if p.Href != "" {
@@ -409,6 +409,10 @@ func chipCurrent(current bool) templ.Attributes {
 }
 
 // transactionsEmpty is the empty list, gated on having asked (§4.6).
+//
+// 🔴 THE PASS HAS NO DAY PICKER ABOVE IT (M12-26), so it gives the date-picker advice as a link
+// instead: the day's ledger, where the stepper and the date field are. The advice is withheld on
+// the same records-based test (OffersAnotherDay).
 templ transactionsEmpty(v TransactionsView) {
 	@components.PanelEmpty(SectionLabel(TabTransactions), emptyHeading(v), components.PanelEmptyCTA{}) {
 		if v.Filters.Narrowed {
@@ -437,7 +441,12 @@ templ transactionsEmpty(v TransactionsView) {
 			// (proved with a real INSERT into a zero-plaque tenant). The advice
 			// was being taken away from the only person whose records really were
 			// on another day. OffersAnotherDay asks the records themselves.
-			if v.OffersAnotherDay() {
+			if v.Today {
+				<p>Nothing was recorded here on this day.</p>
+				if v.OffersAnotherDay() && v.WholeDayHref != "" {
+					<p class="mt-1"><a href={ templ.URL(v.WholeDayHref) } class="inline-flex min-h-11 items-center font-bold text-tappa-green underline underline-offset-4 hover:text-ink">See the whole day →</a></p>
+				}
+			} else if v.OffersAnotherDay() {
 				<p>Nothing was recorded here on this day. Pick another day above.</p>
 			} else {
 				<p>Nothing was recorded here on this day.</p>

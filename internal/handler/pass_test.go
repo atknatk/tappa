@@ -373,3 +373,28 @@ func TestPassViews_CarryNothingACoordinateCouldTravelIn(t *testing.T) {
 		t.Fatalf("the walk saw %d fields; it is reading the wrong types", fields)
 	}
 }
+
+// TestLedger_TheFilterDisclosureOpensOnlyForItsOwnFields: on a phone the form sits in a
+// <details> that opens by default when one of the form's own fields narrows the list; the
+// verdict is a chip outside the form, so it alone leaves the disclosure closed.
+func TestLedger_TheFilterDisclosureOpensOnlyForItsOwnFields(t *testing.T) {
+	open := regexp.MustCompile(`<details class="filter-details[^"]*" open`)
+	for _, c := range []struct {
+		query string
+		open  bool
+	}{
+		{"", false},
+		{"&verdict=flag", false},
+		{"&channel=qr", true},
+		{"&employee=Borg", true},
+		{"&location=" + uuid.NewString(), true},
+	} {
+		body := htmlOf(t, panelBrowserWith(t, ledgerWithRecords(1, true)).do(http.MethodGet, ledgerDayHref+c.query, nil))
+		if !strings.Contains(body, `<details class="filter-details`) {
+			t.Fatalf("%q: no filter disclosure on the page", c.query)
+		}
+		if got := open.MatchString(body); got != c.open {
+			t.Errorf("%q: disclosure open = %v, want %v", c.query, got, c.open)
+		}
+	}
+}
