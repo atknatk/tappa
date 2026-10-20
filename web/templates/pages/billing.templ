@@ -146,7 +146,13 @@ templ billingDraft(v BillingView) {
 		// irreversible — billing_periods takes no UPDATE and no DELETE from anybody —
 		// so the act is gated by a MAC'd warning the server has to have rendered first.
 		// This form writes nothing at all: it asks for the warning.
+		//
+		// 🔴 THE MONTH TRAVELS IN THE BODY. readBillingMonth refuses a POST without one
+		// (a guess on this route would freeze a month nobody asked for), and the month
+		// on this card lives only in the query string — which a POST to CloseHref does
+		// not carry. Without this field the button always answered "unreadable".
 		<form method="post" action={ templ.URL(v.CloseHref) }>
+			<input type="hidden" name="month" value={ v.MonthValue }/>
 			<button class="btn btn--primary" type="submit">{ v.CloseLabel }</button>
 		</form>
 	} else if v.WhyNotClose != "" {
