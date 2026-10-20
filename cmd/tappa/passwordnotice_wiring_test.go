@@ -50,7 +50,9 @@ func paramIndex(t *testing.T, path, fn, param string) int {
 // plain identifier, assigned in run() exactly once, from that NewAdminReset call; that
 // call's argument in NewAdminReset's `mail` position is a plain identifier that run()
 // assigns from handler.NewEmailResetChannel(...); and the same flow identifier is
-// passed to the one NewRouter call (it is mounted) and to the shutdown call (it is
+// passed to the one appRouter call (it is mounted -- appRouter is the surface's one
+// composition since OP-15 phase B, and TestAppRouter_IsTheOnlyComposition holds that
+// it hands every feature to httpx.NewRouter) and to the shutdown call (it is
 // drained). The two parameter positions are read from internal/handler's own
 // declarations.
 //
@@ -106,7 +108,7 @@ func TestPasswordNoticeWiring_ThePanelIsGivenTheMountedRecoveryFlow(t *testing.T
 		}
 		if c, ok := n.(*ast.CallExpr); ok {
 			switch exprName(c.Fun) {
-			case "NewRouter":
+			case "appRouter":
 				routers = append(routers, c)
 			case "shutdown":
 				shutdowns = append(shutdowns, c)
@@ -185,8 +187,8 @@ func TestPasswordNoticeWiring_ThePanelIsGivenTheMountedRecoveryFlow(t *testing.T
 			}
 		}
 		t.Errorf("the panel's notifier %q is not passed to %s: the flow that announces changes is not "+
-			"the one the binary %s", flow.Name, what, map[string]string{"NewRouter": "mounts", "shutdown": "drains"}[what])
+			"the one the binary %s", flow.Name, what, map[string]string{"appRouter": "mounts", "shutdown": "drains"}[what])
 	}
-	passes(routers, "NewRouter")
+	passes(routers, "appRouter")
 	passes(shutdowns, "shutdown")
 }

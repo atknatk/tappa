@@ -25,7 +25,8 @@ import (
 // internal/webhook/delivery joins the packages that import internal/egress.
 //
 // API-13a (K-22's operator screen): the operator surface run() builds (openOperatorSurface) is the one
-// it hands httpx.NewRouter, and W reaches its NoticeWorkTo too -- an accepted API open puts the
+// it hands appRouter (since OP-15 phase B the composition httpx.NewRouter is reached through --
+// TestAppRouter_IsTheOnlyComposition holds that appRouter hands every feature on), and W reaches its NoticeWorkTo too -- an accepted API open puts the
 // business into K-19's set at once (ADR 0028, "API-13a uygulama notu" 2); without the call the open
 // still answers "Opened." and the waiting deliveries sit until delivery.GateRecheck.
 //
@@ -149,7 +150,7 @@ func TestWebhookWiring_TheEndpointServiceReachesThePanel(t *testing.T) {
 	var added, endpointsNotice, reviewerNotice, operatorNotice, operatorRouted bool
 	ast.Inspect(run, func(n ast.Node) bool {
 		c, ok := n.(*ast.CallExpr)
-		if ok && isSel(c.Fun, "httpx", "NewRouter") {
+		if ok && isIdent(c.Fun, "appRouter") {
 			for _, a := range c.Args {
 				if id, isID := a.(*ast.Ident); isID && id.Name == operatorVar && operatorVar != "" {
 					operatorRouted = true
@@ -185,7 +186,7 @@ func TestWebhookWiring_TheEndpointServiceReachesThePanel(t *testing.T) {
 			deliveryCalls, deliveryVar, workVar, added, endpointsNotice, reviewerNotice)
 	}
 	if operatorVar == "" || !operatorRouted || !operatorNotice {
-		t.Fatalf("run(): the operator surface (openOperatorSurface as %q) handed to httpx.NewRouter: %v; W handed to its NoticeWorkTo: %v",
+		t.Fatalf("run(): the operator surface (openOperatorSurface as %q) handed to appRouter: %v; W handed to its NoticeWorkTo: %v",
 			operatorVar, operatorRouted, operatorNotice)
 	}
 

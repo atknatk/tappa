@@ -598,7 +598,8 @@ func TestOpenOperatorSurface_PrintsNoValue(t *testing.T) {
 //     screen refreshes is the store the public pages read (a second store for either side
 //     would leave the public page on the boot text after every publication);
 //   - run() receives the Surface and a closer, never the pool -- and passes the Surface
-//     to httpx.NewRouter, so the surface is mounted rather than built and dropped.
+//     to appRouter (which hands it to httpx.NewRouter), so the surface is mounted rather
+//     than built and dropped.
 //
 // A call is named with its package qualifier as written (operator.New and
 // operatorauth.New are told apart by it). The scan is syntactic and bounded to main.go
@@ -813,13 +814,16 @@ func TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator(t *testing.T) {
 		t.Fatal("run() does not bind openOperatorSurface's result")
 	}
 	mounted := false
+	// appRouter is the surface's one composition since OP-15 phase B (router.go);
+	// TestAppRouter_IsTheOnlyComposition holds that it hands every feature, this one
+	// included, to httpx.NewRouter.
 	for _, u := range uses(run, surface) {
-		if strings.HasSuffix(u, " of httpx.NewRouter") {
+		if strings.HasSuffix(u, " of appRouter") {
 			mounted = true
 		}
 	}
 	if !mounted {
-		t.Error("run() builds the operator surface and never passes it to httpx.NewRouter: /operator would answer 404, not 503")
+		t.Error("run() builds the operator surface and never passes it to appRouter: /operator would answer 404, not 503")
 	}
 }
 

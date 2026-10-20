@@ -10,15 +10,17 @@ import (
 
 // TestBrandThemeWiring_RunMountsTheThemeRoute pins the wiring of M10 WL-5's route as
 // main.go spells it. It asserts: run() makes exactly one call whose function is named
-// NewRouter, and that call's arguments hold handler.NewBrandTheme() -- the call
-// itself, with no arguments -- exactly once. That NewRouter mounts each argument is
-// NewRouter's own code and is not read here. The route's own tests drive a router
-// built with it; without this pin they would stay green with the route passed to no
-// router in the product (the "delivered but not mounted" class,
-// docs/plan/agent-brief.md).
+// appRouter (the one composition of the surface, router.go -- OP-15 phase B moved the
+// router's assembly there from an inline httpx.NewRouter call), and that call's
+// arguments hold handler.NewBrandTheme() -- the call itself, with no arguments --
+// exactly once. That appRouter hands every argument to httpx.NewRouter is pinned by
+// TestAppRouter_IsTheOnlyComposition, and that NewRouter mounts each is NewRouter's own
+// code. The route's own tests drive a router built with it; without this pin they
+// would stay green with the route passed to no router in the product (the "delivered
+// but not mounted" class, docs/plan/agent-brief.md).
 //
-// PART II -- what it catches: the call removed from NewRouter's arguments; the
-// route built elsewhere in run() and not passed; a second NewRouter call in run().
+// PART II -- what it catches: the call removed from appRouter's arguments; the
+// route built elsewhere in run() and not passed; a second appRouter call in run().
 // PART III: a form not on that list is code review's -- no completeness claim.
 func TestBrandThemeWiring_RunMountsTheThemeRoute(t *testing.T) {
 	fset := token.NewFileSet()
@@ -38,7 +40,7 @@ func TestBrandThemeWiring_RunMountsTheThemeRoute(t *testing.T) {
 	routers, mounted := 0, 0
 	ast.Inspect(run.Body, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
-		if !ok || exprName(call.Fun) != "NewRouter" {
+		if !ok || exprName(call.Fun) != "appRouter" {
 			return true
 		}
 		routers++
@@ -56,10 +58,10 @@ func TestBrandThemeWiring_RunMountsTheThemeRoute(t *testing.T) {
 		return true
 	})
 	if routers != 1 {
-		t.Fatalf("run() calls NewRouter %d times; this test expects the one router the binary serves", routers)
+		t.Fatalf("run() calls appRouter %d times; this test expects the one router the binary serves", routers)
 	}
 	if mounted != 1 {
-		t.Errorf("run()'s NewRouter call is passed handler.NewBrandTheme() %d times, want once: "+
+		t.Errorf("run()'s appRouter call is passed handler.NewBrandTheme() %d times, want once: "+
 			"GET /brand/theme/{HEX}.css would answer 404 in the product", mounted)
 	}
 }
