@@ -1007,8 +1007,11 @@ type Querier interface {
 	// it from GetTenantClock in the same transaction), so "today" is the business's day and not UTC's
 	// (CLAUDE.md §6).
 	//
-	// IT READS transaction_reviews ONLY. A decision is the manager's row (append-only, §4.3) and its
-	// reviewed_at is the moment it was recorded -- the SERVER's now() at INSERT, never a declared time.
+	// IT READS transaction_reviews ONLY. A decision is the manager's row (append-only, §4.3) and, on
+	// the product's write path, its reviewed_at is the moment it was recorded -- the SERVER's now() at
+	// INSERT, never a declared time: no statement in db/queries writes the column, so it is always
+	// 00005's DEFAULT now(). (The schema does not forbid writing it; a row written outside the product
+	// would carry whatever it was given.)
 	// No transactions column is read, so no evidence reaches the figure and the K-39 inventory
 	// (internal/db/evidencereaders_test.go) is not touched: a decision on a record taken at a holding
 	// peer's venue is still this business's decision about its own record.
