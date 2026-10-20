@@ -665,6 +665,131 @@ func TestPanelScreens_TouchTargetClassesReserve44px(t *testing.T) {
 	}
 }
 
+// TestPanelScreens_PendingTouchTargetClassesReserve44pxInTheSource holds the classes
+// of panelPendingTouchTargets to the same floor as the compiled check above, by
+// reading input.css: every rule whose selector names the class (comments dropped,
+// rules inside @media included) and declares a min-height -- as an @apply utility,
+// variants included, or as a plain declaration -- must reserve at least 44 px and
+// at least the height the map records, and at least one such rule must exist. It
+// also asserts that the class is in only one of the two maps and that no template
+// uses it yet: the first screen that does moves it to panelTouchTargets.
+//
+// The control reads three live entries of panelTouchTargets the same way and wants
+// the heights that map records, so a reader that finds nothing cannot pass.
+func TestPanelScreens_PendingTouchTargetClassesReserve44pxInTheSource(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "web", "static", "css", "input.css"))
+	if err != nil {
+		t.Fatalf("reading input.css: %v", err)
+	}
+	src := cssCommentRE.ReplaceAllString(string(raw), " ")
+
+	for _, class := range []string{"btn", "tap-button", "bar-link"} {
+		heights, err := sourceMinHeights(src, class)
+		if err != nil || len(heights) != 1 || heights[0] != float64(panelTouchTargets[class]) {
+			t.Fatalf("CONTROL: input.css gives .%s the min-heights %v (%v), want exactly [%d] "+
+				"as panelTouchTargets records; the reader is not reading the stylesheet",
+				class, heights, err, panelTouchTargets[class])
+		}
+	}
+
+	used := map[string][]string{}
+	for path, text := range brandSources(t) {
+		if !strings.HasSuffix(path, ".templ") {
+			continue
+		}
+		for _, list := range classListsIn(text) {
+			for _, c := range strings.Fields(list) {
+				if _, pending := panelPendingTouchTargets[c]; pending && !slices.Contains(used[c], path) {
+					used[c] = append(used[c], path)
+				}
+			}
+		}
+	}
+
+	for class, wantPx := range panelPendingTouchTargets {
+		if _, live := panelTouchTargets[class]; live {
+			t.Errorf(".%s is in both panelTouchTargets and panelPendingTouchTargets; a class "+
+				"is pending until a screen draws it and live after, never both", class)
+		}
+		if where := used[class]; len(where) > 0 {
+			sort.Strings(where)
+			t.Errorf(".%s is used by %s, so it is no longer pending: move it from "+
+				"panelPendingTouchTargets to panelTouchTargets, where the markup scan and "+
+				"the compiled-stylesheet check hold it", class, strings.Join(where, ", "))
+		}
+		heights, err := sourceMinHeights(src, class)
+		if err != nil {
+			t.Errorf(".%s: %v", class, err)
+			continue
+		}
+		if len(heights) == 0 {
+			t.Errorf("no rule in input.css gives .%s a min-height; a pending press target "+
+				"that reserves nothing would enter panelTouchTargets already broken", class)
+		}
+		for _, px := range heights {
+			if px < 44 {
+				t.Errorf(".%s reserves %.1fpx in input.css, want at least 44px", class, px)
+			}
+			if px < float64(wantPx) {
+				t.Errorf(".%s reserves %.1fpx in input.css but panelPendingTouchTargets "+
+					"records %dpx", class, px, wantPx)
+			}
+		}
+	}
+}
+
+// sourceMinHeights reads, from comment-free input.css, the min-height of every flat
+// rule whose selector names .class (the class itself, not a longer name it begins):
+// each min-h-* utility of an @apply, whatever its variants, and each plain min-height
+// declaration. A min-height it cannot express in pixels is an error, not a skip.
+func sourceMinHeights(src, class string) ([]float64, error) {
+	ruleRE := regexp.MustCompile(`([^{}]*)\{([^{}]*)\}`)
+	selRE := regexp.MustCompile(`\.` + regexp.QuoteMeta(class) + `(?:[^\w-]|$)`)
+	plainRE := regexp.MustCompile(`(?:^|[;\s])min-height\s*:\s*([^;]+)`)
+	utilRE := regexp.MustCompile(`^min-h-(?:(\d+(?:\.\d+)?)|\[([^\]]+)\])$`)
+	var out []float64
+	for _, rule := range ruleRE.FindAllStringSubmatch(src, -1) {
+		if !selRE.MatchString(rule[1]) {
+			continue
+		}
+		for _, m := range applyOnly.FindAllStringSubmatch(rule[2], -1) {
+			for _, tok := range strings.Fields(m[1]) {
+				if i := strings.LastIndex(tok, ":"); i >= 0 {
+					tok = tok[i+1:]
+				}
+				if !strings.HasPrefix(tok, "min-h-") {
+					continue
+				}
+				u := utilRE.FindStringSubmatch(tok)
+				if u == nil {
+					return nil, fmt.Errorf("%s is a min-height this test cannot read in pixels", tok)
+				}
+				if u[1] != "" {
+					n, err := strconv.ParseFloat(u[1], 64)
+					if err != nil {
+						return nil, fmt.Errorf("%s: %w", tok, err)
+					}
+					out = append(out, n*4) // the spacing scale: 1 = 0.25rem = 4px
+					continue
+				}
+				px, ok := remOrPxToPixels(u[2])
+				if !ok {
+					return nil, fmt.Errorf("%s is a min-height this test cannot read in pixels", tok)
+				}
+				out = append(out, px)
+			}
+		}
+		for _, m := range plainRE.FindAllStringSubmatch(rule[2], -1) {
+			px, ok := remOrPxToPixels(strings.TrimSpace(m[1]))
+			if !ok {
+				return nil, fmt.Errorf("min-height:%s is not in rem or px", m[1])
+			}
+			out = append(out, px)
+		}
+	}
+	return out, nil
+}
+
 // TestPanelScreens_ScriptsAndPolicyAgreeAndReachNoThirdParty.
 //
 // 🔴 THE NAME AND THIS COMMENT WERE BOTH STALE AND AN AUDIT CAUGHT THEM. Until
@@ -1085,6 +1210,31 @@ var panelTouchTargets = map[string]int{
 	// A section's breadcrumb link (M12-01, pages.panelHead): every crumb before the current
 	// page is a real <a>, so both halves of the pair reach it.
 	"panel-crumb": 44, // .panel-crumb -> min-h-11 = 2.75rem
+}
+
+// panelPendingTouchTargets are the press-target classes the panel redesign defines
+// in input.css BEFORE any screen draws them (M12-08), each with the height it
+// reserves.
+//
+// THEY CANNOT BE IN panelTouchTargets YET, and that is measured, not supposed:
+// Tailwind compiles a layer class only when it finds the name in a scanned source,
+// so none of these is in app.css, and TestPanelScreens_TouchTargetClassesReserve44px
+// would report each one as "no rule gives it a min-height". So this list is held by
+// TestPanelScreens_PendingTouchTargetClassesReserve44pxInTheSource, which reads the
+// heights out of input.css itself. A class leaves this map for panelTouchTargets in
+// the commit of the first screen that writes it -- that test turns red while a
+// template uses a class still listed here, and the markup scan above turns red while
+// a press target carries one that is not in panelTouchTargets.
+var panelPendingTouchTargets = map[string]int{
+	"chip-link":        44, // .chip-link        -> min-h-11 (a filter chip, a link)
+	"queue-item":       44, // .queue-item       -> min-h-11 (The Spike's queue)
+	"roster-row":       60, // .roster-row       -> min-h-16, md:min-h-[60px] (People)
+	"venue-card":       44, // .venue-card       -> min-h-11 (Venues)
+	"rule-switch":      44, // .rule-switch      -> min-h-11 (Rules: a submit button)
+	"field-input":      44, // .field-input      -> min-h-11 (a form control)
+	"stat-card--spike": 44, // .stat-card--spike -> min-h-11 (The Pass: a link to The Spike)
+	"btn--approve":     64, // .btn--approve     -> min-h-16 (The Spike)
+	"btn--reject":      64, // .btn--reject      -> min-h-16 (The Spike)
 }
 
 func hasTouchTargetClass(classes string) bool {

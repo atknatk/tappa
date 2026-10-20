@@ -937,6 +937,11 @@ func policyGuaranteeForbiddenClasses() map[string]bool {
 	for name := range panelTouchTargets {
 		out[name] = true
 	}
+	// The redesign's press targets that no screen draws yet (M12-08) are forbidden
+	// here from the day they are defined, not from the day a screen first uses one.
+	for name := range panelPendingTouchTargets {
+		out[name] = true
+	}
 	return out
 }
 
