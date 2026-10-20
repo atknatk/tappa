@@ -13481,6 +13481,152 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 >   karar; Aşama 2'nin verisi (md. 11): iki tam koşuda kilit hatası 0, en uzun bekleyiş 1,22 sn — bugün
 >   gerekmiyor.
 
+> **OP-15B — askının müşteri paneli kapısı (+ plaket rölesinin `suspended` sözcüğü + Android)**
+>
+> **Kart düzeltmesi (2026-10-20, taşıma).** B 2026-10-08'de OP-15A'nın 2. tur yamasının (00035) üstüne
+> yazıldı, 2. turu (F1–F4) yarıda kaldı ve beklemeye alındı (`hold/op15b`, `97bb92b`, WIP taban `2b1bda1` —
+> push edilmedi). Bugün yalnız B'nin farkı (`git diff 2b1bda1 hold/op15b`) dal `op-15`'e (taban `71a40e2`,
+> OP-15A son hâli, goose 63) taşındı ve bitirildi. O günkü kartın sayıları bayattı; aşağıdakiler bugün ölçüldü.
+> Değişenler, adıyla: (1) panel M11 ile 12 yazma kazandı (API anahtarı ×3, webhook ×7, external-ref ×2) —
+> sınıfları M11 notu / plan §4.7 / K-26'dan, istisna listesi **8 → 11** (K-26'nın üç savunması); (2) webhook
+> rotalarının sınıfı `internal/webhook/endpoints`'in `OpenWhileSuspended`'ından mount ile okunur (ikinci liste
+> yok); (3) `appRouter` M11'in iki yeni özelliğini (entegrasyon API'si, geliştirme simülatörü) alır ve yürüyüş
+> üç isteğe bağlı yüzeyi kapalı/açık kurar; (4) ADR 0026 aktivasyonu değiştirdi — davet bağlantısı artık yalnız
+> onaya kadar gider, aktivasyon ilk NFC dokunuşudur: DB testi onayı ölçer, aktivasyon dokunuşu ayrı eşitlik
+> testidir; (5) §4.6 tablosu `GET /t` üzerinden ve holding çapraz dokunuşu dahil; (6) `TestOperator00063_…`
+> (00035 değil). Normatif metin ADR 0025 *"B fazı eki"* (yalnız ekleme).
+>
+> **Yazıldı (ürün):** `db/queries/admins.sql` (`TouchAdminSession` + `tenants` iç join + iki sütun) → `internal/store`
+> (üretildi); `internal/adminauth/manager.go` (`Resolved.Suspended`, `Suspension`, `suspensionOf`);
+> `internal/httpx/adminidentity.go` (`Suspension()`); `internal/handler/suspension.go` (yeni: kapı, ret satırı,
+> cümleler, 403 sayfası, şerit); `adminlogin.go` (`ProtectWriting`'in son halkası,
+> `protectWritingThroughSuspension`); `dashboard.go` (`mountWriting`: kapılı grup + kardeş grup);
+> `webhooks.go` (`webhookWrites`, `mountWebhookWrites`); `plaqueencode.go` (`faultSuspended`, `encodeRelayRoutes`,
+> `refuseSuspendedRelay`); `review.go` (şerit); `web/templates/pages/` (`PanelSuspension`, `panelSuspensionStrip`);
+> `cmd/tappa/router.go` (`appRouter`) + `main.go` (tek satır); `internal/webhook/endpoints/endpoints.go` (yorum);
+> Android `Wording.kt`, `RelayLoop.kt`, `MainActivity.kt` (askıda birincil düğme "Close"), `android/README.md`.
+>
+> **Yazıldı (test):** `internal/handler/suspension_test.go`, `suspension_db_test.go`, `suspensiontap_db_test.go`;
+> `internal/adminauth/suspension_test.go`, `suspension_db_test.go`; `cmd/tappa/approuter_test.go`; Kotlin
+> `RelayLoopTest.suspended_namesTheSuspension_tiersThePlaqueWarning_andNeverRetries`. Güncellenen:
+> `plaqueencode_test.go` (birebir sözcük listesi), `cmd/tappa/brandtheme_test.go`, `passwordnotice_wiring_test.go`,
+> `operator_test.go`, `webhookwiring_test.go` (dördü `run()`'ın `NewRouter` çağrısını okuyordu → `appRouter`),
+> `storekeyshape_test.go` (`TouchAdminSessionRow`'un iki alanı), Kotlin `RelayLoopTest` haritası.
+>
+> 1. **Bugünkü envanter (`chi.Walk`, `AdminAuth.Mount`; GET/HEAD dışı 42 = 31 kapılı + 11 istisna):**
+>
+>    | Sınıf | Rotalar |
+>    |---|---|
+>    | **açık — giriş** (zincir dışı) | `/admin/login`, `/admin/login/choose`, `/admin/logout` |
+>    | **açık — kaydın yolu** (K-B1) + kendi parolası | `/admin/employees/add`, `/admin/employees/invite`, `/admin/records/new`, `/admin/records`, `/admin/account/password` |
+>    | **açık — K-26 savunması** | `/admin/api-keys/revoke`, `/admin/api-keys/revoke-all`, `/admin/api-keys/webhook/disable` |
+>    | **403 — §4.7 adlı** | `/admin/api-keys` (oluşturma), `…/webhook` (oluşturma), `…/webhook/rotate`, `…/webhook/address`, `…/webhook/ping`, `…/webhook/resend` |
+>    | **403 — varsayılan kapalı (M11, adı geçmiyor)** | `…/webhook/enable`, `/admin/employees/external-ref`, `/admin/locations/venue/external-ref` |
+>    | **403 — M10 panel yazmaları** | review, employees deactivate/move/email, venue save/delete, department save/delete, plaket tak/değiştir/sök, policy ×2, billing ×2, account, marka renk/sıfırla/logo, encode rölesi ×3 (JSON `suspended`) |
+>
+>    Belirsiz bir satır: **revoke-all** — §4.7 *"anahtar iptali"* diyor; toplu iptal aynı eylemdir, yetkiyi
+>    yalnız daraltır → açık. Uygulama (`appRouter`): kapalı 31 · 11 · 8 · 24; açık 31 · 11 · 27 (8 adlı +
+>    simülatör + operatör 14 + `/v1` 4) · 8.
+> 2. **Kararlar ve sapmalar:** ADR 0025 *"B fazı eki"* md. 1–7 (gerekçe haritası A'nın kopya testine eklenmedi
+>    — import döngüsü + ADR 0021 §3.6; şeridin saat dilimi bir okuma; bağlamsız `Error`; sınıf 3 sahiplik +
+>    önek; yürüyüş üç yüzeyi birlikte kurar; tablo `GET /t` üzerinden + holding; iki rol). `appRouter` bugün de
+>    gerekliydi (ölçüm: `run()` 14 argümanlı satır içi `NewRouter`; servis edilen kompozisyonu yürüyen test yoktu).
+> 3. **Kabul — her satır bir test:**
+>
+>    | Kabul | Test |
+>    |---|---|
+>    | Router'dan türetilmiş: her panel yazması kapılı (askıda 403 + 1 satır + 0 store çağrısı, askısız 403 değil) ya da 11 addan biri; iki rol × dört kod | `TestSuspensionRoutes_EveryPanelWriteIsGatedOrANamedException` |
+>    | Dört sınıf, ortak kurucu, her yöntem, isteğe bağlı yüzeyler kapalı/açık | `TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses`, `TestAppRouter_IsTheOnlyComposition` |
+>    | §4.6: NFC/QR tap'i (sayfa üzerinden) ve holding çapraz dokunuşu askıda aynı | `TestSuspensionDB_TapsAreDecidedAsIfThereWereNoSuspension` |
+>    | Aktivasyon dokunuşu (ADR 0026) askıda aynı | `TestSuspensionDB_TheActivationTapIsTheSameForASuspendedBusiness` |
+>    | Kaydın yolları askıda yazar (K-B1) | `TestPanelSuspensionDB_TheRecordPathsStayOpenAndWrite` |
+>    | K-26 savunmaları askıda etkili; §4.7'nin kapalıları 403 + satır | `TestPanelSuspensionDB_TheDefencesStayOpenAndTakeEffect` |
+>    | Okumalar, iki CSV, giriş/çıkış, parola sıfırlama açık | `TestPanelSuspensionDB_ReadsExportsSignInAndResetStayOpen`, `TestSuspensionRoutes_ReadsAnswerTheSameWithOrWithoutASuspension` |
+>    | Askı → aynı oturumun sonraki POST'u 403 + DB satırı; kaldırma → geçer | `TestPanelSuspensionDB_TheNextPostOfTheSameSessionIsRefused` |
+>    | K15-9 eşlemesi (dört kod, iki rol, 0 satır = oturum yok) | `TestVerify_CarriesTheSuspensionTheStatementReturned`, `TestVerifyDB_ReturnsTheBusinesssSuspension` |
+>    | Okuyucu askının kilidini beklemez | `TestVerifyDB_DoesNotWaitForTheSuspensionsRowLock` |
+>    | Satır cevaptan önce; satır yazılamazsa 403 + üç alanlı log | `TestSuspensionGate_TheRowIsWrittenBeforeTheAnswer`, `TestSuspensionGate_AFailedRefusalRowStillRefusesAndLogsThreeFields` |
+>    | Cümleler; ham kod yok | `TestSuspensionSentences_OnlyTwoReasonsHaveTheirOwnSentence`, `TestSuspensionSentences_CoverTheClosedReasonSet`, `TestSuspensionScreens_NeverRenderTheReasonCode` |
+>    | Röle JSON `suspended` | `TestSuspensionRelay_TheThreeRoutesAnswerSuspendedJSONAndTouchNothing`, `TestPlaqueEncode_WritesOnlyDeclaredFaults` |
+>    | Şerit: her bölüm, saat dilimi, UTC yedeği, uyarı tonu | `TestSuspensionStrip_EverySectionShowsItInTheBusinesssTimezone` |
+>    | Zincirin yapısı; webhook'un iki çağrısı | `TestSuspensionChain_TheGateIsTheLastRingOfProtectWriting` |
+>    | Tap yolu (holding dahil) askıyı adlandırmaz | `TestSuspension_TheTapPathNeverNamesASuspension` |
+>    | Webhook sınıf tablosu | `TestEndpoints_SuspensionClassesAreSection10` |
+>    | Android: cümle, kademeler (0, 4 boş · 5, 8 satırlı · 9 yarım), tekrar yok, "Close" | `RelayLoopTest.suspended_namesTheSuspension_tiersThePlaqueWarning_andNeverRetries`, `ContractPinTest.theFaultVocabulary_matchesPlaqueencodeGo` |
+>
+> 4. **Mutasyonlar — 43/43 kırmızı** (ağacın kopyasında, veritabanı ortamı YOK — DB testleri kümede değil; Go
+>    kümeleri açık test adlarıyla, Android Gradle `--offline --rerun-tasks`; her mutasyondan sonra dosya geri
+>    yazıldı ve sha256 karşılaştırıldı; kümeler tabanda yeşil):
+>
+>    | # | Mutasyon | Kırmızıya çeviren |
+>    |---|---|---|
+>    | M01 | gate out of ProtectWriting | AFailedRefusalRow, Relay, EveryPanelWrite, NeverRender |
+>    | M02 | an exception gated (manual record into the gated group) | Chain, EveryPanelWrite |
+>    | M03 | a further exception (deactivate into the sibling) | Chain, EveryPanelWrite |
+>    | M04 | refusal row after the answer | RowBeforeAnswer, Relay, EveryPanelWrite |
+>    | M05 | no refusal row | AFailedRefusalRow, RowBeforeAnswer, Relay, EveryPanelWrite |
+>    | M06 | fail-open when the row fails | AFailedRefusalRow |
+>    | M07 | Verify drops the suspension | VerifyCarries |
+>    | M08 | half a suspension is none | VerifyCarries |
+>    | M09 | tenants outer join | VerifyCarries |
+>    | M10 | statement does not return the reason | VerifyCarries |
+>    | M11 | security_hold gets its own sentence | NeverRender, OnlyTwo |
+>    | M12 | non_payment joins the neutral sentence | OnlyTwo, Strip |
+>    | M13 | unknown code rendered raw | NeverRender, OnlyTwo |
+>    | M14 | strip prints the code | NeverRender |
+>    | M15 | relay says refused | Relay, EveryPanelWrite |
+>    | M16 | relay gets the HTML page | Relay, EveryPanelWrite |
+>    | M17 | tap path names a suspension (checkin) | TapPathNeverNames |
+>    | M18 | identity never reports a suspension | AFailedRefusalRow, Relay, EveryPanelWrite, NeverRender, Strip |
+>    | M19 | gate ahead of the resolver | AFailedRefusalRow, Relay, EveryPanelWrite, NeverRender |
+>    | M20 | gate ahead of the session budget | Chain |
+>    | M21 | error line carries the DB error | AFailedRefusalRow |
+>    | M22 | refusal row carries the path | EveryPanelWrite |
+>    | M23 | strip dropped from the chrome | Strip |
+>    | M24 | strip in UTC | Strip |
+>    | M25 | reads gated too | Reads, Strip |
+>    | M26 | app walk narrowed to POST | AppRoutes |
+>    | M27 | run() skips the shared composer | Composition, BrandThemeWiring, OperatorWiring, PasswordNoticeWiring, WebhookWiring |
+>    | M28 | a POST outside the panel (tap surface) | AppRoutes |
+>    | M29 | a methodless route outside the panel | AppRoutes |
+>    | M30 | Android vocabulary lacks suspended | `ContractPinTest.theFaultVocabulary_matchesPlaqueencodeGo`, `RelayLoopTest.everyFaultWord_stopsTheRound_withoutAnAbort_andHasItsOwnSentence` |
+>    | M31 | Android tier on exchanges | `RelayLoopTest.suspended_namesTheSuspension_tiersThePlaqueWarning_andNeverRetries` |
+>    | M32 | Android retries suspended | `RelayLoopTest.chipLost_advice_dependsOnHowFarTheRoundGot`, `RelayLoopTest.suspended_namesTheSuspension_tiersThePlaqueWarning_andNeverRetries` |
+>    | M33 | Android secret boundary off by one | `RelayLoopTest.suspended_namesTheSuspension_tiersThePlaqueWarning_andNeverRetries` |
+>    | M34 | server renames the word (Go only) | WritesOnlyDeclaredFaults, Relay, EveryPanelWrite, `ContractPinTest.theFaultVocabulary_matchesPlaqueencodeGo` |
+>    | M35 | Android sentence blames the chip | `RelayLoopTest.suspended_namesTheSuspension_tiersThePlaqueWarning_andNeverRetries` |
+>    | M36 | K-26: key revoke gated | Chain, EveryPanelWrite |
+>    | M37 | K-26: revoke-all gated | Chain, EveryPanelWrite |
+>    | M38 | webhook enable opened in the endpoint table | EveryPanelWrite, EndpointClasses |
+>    | M39 | mounting ignores the class (all webhook writes gated) | EveryPanelWrite |
+>    | M40 | key create opened (into the sibling) | Chain, EveryPanelWrite |
+>    | M41 | appRouter drops the dev tools | Composition, AppRoutes |
+>    | M42 | webhook act misclassified (ping as disable) | EveryPanelWrite |
+>    | M43 | holding page reader names a suspension | TapPathNeverNames |
+>
+>    Kısaltmalar: EveryPanelWrite `TestSuspensionRoutes_EveryPanelWriteIsGatedOrANamedException` · Reads
+>    `TestSuspensionRoutes_ReadsAnswerTheSameWithOrWithoutASuspension` · Relay
+>    `TestSuspensionRelay_TheThreeRoutesAnswerSuspendedJSONAndTouchNothing` · AFailedRefusalRow
+>    `TestSuspensionGate_AFailedRefusalRowStillRefusesAndLogsThreeFields` · RowBeforeAnswer
+>    `TestSuspensionGate_TheRowIsWrittenBeforeTheAnswer` · NeverRender `TestSuspensionScreens_NeverRenderTheReasonCode` ·
+>    OnlyTwo `TestSuspensionSentences_OnlyTwoReasonsHaveTheirOwnSentence` · Strip
+>    `TestSuspensionStrip_EverySectionShowsItInTheBusinesssTimezone` · Chain `TestSuspensionChain_TheGateIsTheLastRingOfProtectWriting` ·
+>    TapPathNeverNames `TestSuspension_TheTapPathNeverNamesASuspension` · VerifyCarries
+>    `TestVerify_CarriesTheSuspensionTheStatementReturned` · AppRoutes `TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses` ·
+>    Composition `TestAppRouter_IsTheOnlyComposition` · BrandThemeWiring `TestBrandThemeWiring_RunMountsTheThemeRoute` ·
+>    PasswordNoticeWiring `TestPasswordNoticeWiring_ThePanelIsGivenTheMountedRecoveryFlow` · OperatorWiring
+>    `TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator` · WebhookWiring `TestWebhookWiring_TheEndpointServiceReachesThePanel` ·
+>    WritesOnlyDeclaredFaults `TestPlaqueEncode_WritesOnlyDeclaredFaults` · EndpointClasses `TestEndpoints_SuspensionClassesAreSection10`.
+>    Davranışsal yarısı DB'de olanlar (SB4): M02/M36/M37'nin işi `TestPanelSuspensionDB_TheRecordPathsStayOpenAndWrite`
+>    ve `…TheDefencesStayOpenAndTakeEffect`, M17/M43'ün adsız biçimi `TestSuspensionDB_TapsAreDecidedAsIfThereWereNoSuspension`.
+> 5. **Sayılı sınırlar:** ADR 0025 *"B fazı eki"* SB1–SB7; ADR'nin 1, 2, 6, 7 (🔴 `tags` satırı asla silinmez),
+>    11, 12, 13 aynen.
+> 6. **Devirler:** **C** — operatörün etiket haritası A'nın kopya testine girebilir; ADR 0025'in sonu iki ekin
+>    (B, C ve API-4b'nin) metinsel birleştirmesi. **API-4b** — `/v1` kontrol noktası; `appRouter` yürüyüşü
+>    `/v1` rotalarını sahiplik + önekle sınıflar, kendi askı sınıflamasını API-4b ölçer;
+>    `TestAPIWiring_TheSuspensionReaderFollowsTheColumn` bu dalda kırmızı kalır. **Sevk sırası:** önce APK
+>    (`suspended`'ı tanıyan), sonra sunucu (sınır 12). **K15-13** (çapraz yüzey E2E) C'den sonra.
+
 ## 4. Akış B — E-posta (AWS SES)
 
 ### Öneri: SES SMTP arayüzü + stdlib `net/smtp` (STARTTLS 587), `eu-central-1` — ✅ (sıfır yeni modül)
