@@ -717,12 +717,19 @@ func TestPolicyApply_TheCrossLocationGuardSaysWhatToSwitchFirst(t *testing.T) {
 // --- M12-38: the review page names what it is about, and is bound to what it shows ---
 
 // policyOwnRuleScreen is the realistic screen plus ONE rule of the business's own, at
-// version 2, scoped to one named venue, and returns it with the venue's id.
+// version 2, copied from the first authorable shipped rule and scoped to one named venue,
+// and returns it with the venue's id.
 func policyOwnRuleScreen() (tenant.PolicyScreen, tenant.Rule, uuid.UUID) {
+	return policyOwnRuleScreenFrom(tenant.AuthorableRules()[0])
+}
+
+// policyOwnRuleScreenFrom is policyOwnRuleScreen with the stored version copied from doc --
+// WITH its conditions, flattened the way the rulebook flattens a stored document, so a new
+// version copying the same rule really compares equal.
+func policyOwnRuleScreenFrom(doc policy.BaselineDoc) (tenant.PolicyScreen, tenant.Rule, uuid.UUID) {
 	s := policyScreenWithControls()
 	venue := uuid.New()
 	s.ScopeTargets = append(s.ScopeTargets, tenant.ScopeTarget{Kind: "location", ID: venue, Name: "Zz Hamrun"})
-	doc := tenant.AuthorableRules()[0]
 	own := tenant.Rule{
 		PolicyID: uuid.New(), Name: "Zz nights at Hamrun", State: tenant.StateActive, VersionNo: 2,
 		StoredStamp: policy.BaselineVersion, Attachments: []string{"location/" + venue.String()},
@@ -732,15 +739,10 @@ func policyOwnRuleScreen() (tenant.PolicyScreen, tenant.Rule, uuid.UUID) {
 		},
 		HistoryTotal: 2,
 	}
-	for _, st := range doc.Document.Statements {
-		rs := tenant.RuleStatement{
-			Sid: "own:zz-copy", Effect: string(st.Effect), Reason: st.Reason,
-			Resources: []string{"location/" + venue.String()},
-		}
-		for _, a := range st.Action {
-			rs.Actions = append(rs.Actions, string(a))
-		}
-		own.Statements = append(own.Statements, rs)
+	for _, st := range tenant.StatementsOf(doc.Document) {
+		st.Sid = "own:zz-copy"
+		st.Resources = []string{"location/" + venue.String()}
+		own.Statements = append(own.Statements, st)
 	}
 	s.Tenant = append(s.Tenant, own)
 	return s, own, venue
@@ -827,15 +829,42 @@ func TestPolicyChange_DrawsOnlyWhatTheOperationChanges(t *testing.T) {
 	if different.Name == "" {
 		t.Fatal("no authorable rule answers differently from the first; the differing case measures nothing")
 	}
-	supersede := func(basedOn string) url.Values {
-		return url.Values{"op": {opAuthor}, "policy": {own.PolicyID.String()}, "name": {own.Name},
+	// A PAIR THAT ANSWERS THE SAME AND IS CONDITIONED DIFFERENTLY, so the conditions half
+	// is measured on its own: the stored version copies a, the new version copies b.
+	var condA, condB policy.BaselineDoc
+	for _, a := range tenant.AuthorableRules() {
+		for _, b := range tenant.AuthorableRules() {
+			ea, eb := tenant.StatementsOf(a.Document), tenant.StatementsOf(b.Document)
+			if condA.Name == "" && a.Name != b.Name && len(ea) == len(eb) && ea[0].Effect == eb[0].Effect &&
+				!slices.EqualFunc(ea, eb, func(x, y tenant.RuleStatement) bool {
+					return x.Effect == y.Effect && slices.Equal(x.Conditions, y.Conditions)
+				}) && slices.EqualFunc(ea, eb, func(x, y tenant.RuleStatement) bool { return x.Effect == y.Effect }) {
+				condA, condB = a, b
+			}
+		}
+	}
+	if condA.Name == "" {
+		t.Fatal("no two authorable rules answer the same under different conditions; the conditions case measures nothing")
+	}
+	supersede := func(policyID uuid.UUID, name, basedOn string) url.Values {
+		return url.Values{"op": {opAuthor}, "policy": {policyID.String()}, "name": {name},
 			"based_on": {basedOn}, "venue": {venue.String()}}
 	}
+	// Whether the differently-answering rule is also conditioned differently decides
+	// whether its case must carry the conditions row too.
+	differentConditions := !slices.EqualFunc(tenant.StatementsOf(same.Document), tenant.StatementsOf(different.Document),
+		func(x, y tenant.RuleStatement) bool { return slices.Equal(x.Conditions, y.Conditions) })
+	condScreen, condOwn, _ := policyOwnRuleScreenFrom(condA)
+	condScreen.ScopeTargets = screen.ScopeTargets
+	condRules := newFakeRules()
+	condRules.screen = condScreen
 	cases := map[string]struct {
-		form          url.Values
-		moves, stays  []string
-		effectsMove   bool
-		says, saysNot string
+		rules          *fakeRules
+		form           url.Values
+		moves, stays   []string
+		effectsMove    bool
+		conditionsMove bool
+		says, saysNot  []string
 	}{
 		"disable": {form: url.Values{"op": {opDisable}, "policy": {own.PolicyID.String()}},
 			moves: []string{"In force", "Switched off by you"}},
@@ -845,16 +874,26 @@ func TestPolicyChange_DrawsOnlyWhatTheOperationChanges(t *testing.T) {
 			moves: []string{"Zz Hamrun"}},
 		"author new": {form: url.Values{"op": {opAuthor}, "name": {"Zz brand new"}, "based_on": {same.Name}},
 			moves: []string{"Zz brand new"}},
-		"a new version copying the same rule": {form: supersede(same.Name),
-			stays: []string{own.Name, "Zz Hamrun"}, saysNot: "answer differs from"},
-		"a new version copying a rule that answers differently": {form: supersede(different.Name),
-			stays: []string{own.Name, "Zz Hamrun"}, effectsMove: true, says: "This version’s answer differs from version 2’s."},
+		"a new version copying the same rule": {form: supersede(own.PolicyID, own.Name, same.Name),
+			stays: []string{own.Name, "Zz Hamrun"}, saysNot: []string{"answer differs from", "conditions differ from"}},
+		"a new version copying a rule that answers differently": {form: supersede(own.PolicyID, own.Name, different.Name),
+			stays: []string{own.Name, "Zz Hamrun"}, effectsMove: true, conditionsMove: differentConditions,
+			says: []string{"This version’s answer differs from version 2’s."}},
+		"a new version copying a rule that answers the same under other conditions": {rules: condRules,
+			form:  supersede(condOwn.PolicyID, condOwn.Name, condB.Name),
+			stays: []string{condOwn.Name}, conditionsMove: true,
+			says:    []string{"This version’s conditions differ from version 2’s."},
+			saysNot: []string{"answer differs from"}},
 	}
 	marked := regexp.MustCompile(`<(del|ins) class="diff-(?:del|ins)"><span class="sr-only">(?:removed|added): </span>([^<]*)</(?:del|ins)>`)
 	markedEffect := regexp.MustCompile(`<(del|ins) class="no-underline"><span class="sr-only">(?:removed|added): </span><span class="effect-pill[^"]*">(?:<span class="line-through[^"]*">)?([^<]*)</span>`)
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			rec := policyBrowserWith(t, rules, newFakeScribe()).do(http.MethodPost, policyChangeHref, tc.form)
+			r := rules
+			if tc.rules != nil {
+				r = tc.rules
+			}
+			rec := policyBrowserWith(t, r, newFakeScribe()).do(http.MethodPost, policyChangeHref, tc.form)
 			if rec.Code != http.StatusOK {
 				t.Fatalf("review answered %d", rec.Code)
 			}
@@ -883,11 +922,20 @@ func TestPolicyChange_DrawsOnlyWhatTheOperationChanges(t *testing.T) {
 					t.Errorf("%q is drawn as changing, but this operation leaves it as it is", w)
 				}
 			}
-			if tc.says != "" && !strings.Contains(page, htmlText(tc.says)) {
-				t.Errorf("the page does not say %q", tc.says)
+			for _, w := range tc.says {
+				if !strings.Contains(page, htmlText(w)) {
+					t.Errorf("the page does not say %q", w)
+				}
 			}
-			if tc.saysNot != "" && strings.Contains(page, htmlText(tc.saysNot)) {
-				t.Errorf("the page says %q about a version that answers the same", tc.saysNot)
+			for _, w := range tc.saysNot {
+				if strings.Contains(page, htmlText(w)) {
+					t.Errorf("the page says %q, which is not true of this change", w)
+				}
+			}
+			// THE CONDITIONS ROW: present, struck and added, exactly when they differ.
+			onlyWhen := strings.Contains(page, `<dt class="pt-0.5 text-ink/70">Only when</dt>`)
+			if onlyWhen != tc.conditionsMove {
+				t.Errorf("the cards carry an “Only when” row: %v, want %v", onlyWhen, tc.conditionsMove)
 			}
 			// NO PREDICTED OUTCOME: the page never claims to know how taps come out.
 			if !strings.Contains(page, htmlText("cannot tell you how many of last week")) {
@@ -930,36 +978,119 @@ func TestPolicyChange_SaysInUseOnlyWhileTheEngineUsesTheVersion(t *testing.T) {
 	}
 }
 
+// TestPolicyChange_ClaimsNothingAboutAVersionItCannotRead.
+//
+// 🔴 A STORED VERSION THIS RELEASE CANNOT PARSE HAS NO STATEMENTS ON THE SCREEN READ.
+// Comparing a new version against that empty list printed "answer differs", "conditions
+// differ" and "Only when: none" about a document nobody had read -- and the confirmation
+// bound the false sentence. The page says it cannot tell instead.
+func TestPolicyChange_ClaimsNothingAboutAVersionItCannotRead(t *testing.T) {
+	screen, own, venue := policyOwnRuleScreen()
+	last := len(screen.Tenant) - 1
+	screen.Tenant[last].State = tenant.StateUnreadable
+	screen.Tenant[last].Problem = "zz-parser-complaint"
+	screen.Tenant[last].Statements = nil
+	rules := newFakeRules()
+	rules.screen = screen
+	var different policy.BaselineDoc
+	for _, d := range tenant.AuthorableRules() {
+		if d.Document.Statements[0].Effect != tenant.AuthorableRules()[0].Document.Statements[0].Effect {
+			different = d
+			break
+		}
+	}
+	page := htmlOf(t, policyBrowserWith(t, rules, newFakeScribe()).do(http.MethodPost, policyChangeHref,
+		url.Values{"op": {opAuthor}, "policy": {own.PolicyID.String()}, "name": {own.Name},
+			"based_on": {different.Name}, "venue": {venue.String()}}))
+	if !strings.Contains(page, htmlText("Version 2 could not be read, so this page cannot say what it answered.")) {
+		t.Error("the page does not say it cannot tell what the unreadable version answered")
+	}
+	for _, forbidden := range []string{"answer differs from", "conditions differ from", `<dt class="pt-0.5 text-ink/70">Only when</dt>`, `class="no-underline"`} {
+		if strings.Contains(page, htmlText(forbidden)) || strings.Contains(page, forbidden) {
+			t.Errorf("the page claims %q about a version it cannot read", forbidden)
+		}
+	}
+}
+
 // TestPolicyApply_AForgedConfirmationCostsNoRulebookRead.
 //
 // The apply's subject needs a rulebook read, so everything about the confirmation that
-// does not -- signature, session, action, the cookie twin -- is checked first. A forged
-// or foreign token must be refused with no read at all.
+// does not -- signature, expiry, session, action, the cookie twin -- is checked first. Every
+// token the auditors measured is refused as confirm-required with NO read.
 func TestPolicyApply_AForgedConfirmationCostsNoRulebookRead(t *testing.T) {
-	for name, token := range map[string]string{
-		"garbage":      "not-a-token",
-		"forged shape": "YWJj.ZGVm",
-	} {
+	server, err := newAdminConfirm(adminTestConfig())
+	if err != nil {
+		t.Fatalf("newAdminConfirm: %v", err)
+	}
+	at := func(c adminConfirm, d time.Duration) adminConfirm {
+		c.now = func() time.Time { return time.Now().Add(d) }
+		return c
+	}
+	mint := func(c adminConfirm, action, subject string, session uuid.UUID) string {
+		t.Helper()
+		tok, err := c.mint(action, subject, session)
+		if err != nil {
+			t.Fatalf("mint: %v", err)
+		}
+		return tok
+	}
+	subject := opDisable + "/" + uuid.NewString()
+	wrongKey := adminConfirm{key: []byte("not-the-servers-key-not-the-servers"), ttl: adminConfirmTTL}
+	cases := map[string]struct {
+		token    string
+		noCookie bool
+	}{
+		"garbage":                                       {token: "not-a-token"},
+		"forged shape":                                  {token: "YWJj.ZGVm"},
+		"another action's real token":                   {token: mint(server, confirmActionDeactivate, uuid.NewString(), panelTestSession)},
+		"another session's token":                       {token: mint(server, confirmActionPolicyEdit, subject, uuid.New())},
+		"an expired token":                              {token: mint(at(server, -adminConfirmTTL-time.Minute), confirmActionPolicyEdit, subject, panelTestSession)},
+		"a token from ten minutes ahead":                {token: mint(at(server, 10*time.Minute), confirmActionPolicyEdit, subject, panelTestSession)},
+		"a token minted for the precheck's own subject": {token: mint(server, confirmActionPolicyEdit, policyNoSubject, panelTestSession)},
+		"a token signed with another key":               {token: mint(wrongKey, confirmActionPolicyEdit, subject, panelTestSession)},
+		"a genuine token without its cookie":            {token: mint(server, confirmActionPolicyEdit, subject, panelTestSession), noCookie: true},
+	}
+	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			rules := newFakeRules()
 			scribe := newFakeScribe()
 			b := policyBrowserWith(t, rules, scribe)
-			b.cookies[adminConfirmCookieName] = token
+			if !tc.noCookie {
+				b.cookies[adminConfirmCookieName] = tc.token
+			}
 			rec := b.do(http.MethodPost, policyApplyHref, url.Values{
-				"op": {opDisable}, "policy": {uuid.NewString()}, confirmField: {token},
+				"op": {opDisable}, "policy": {uuid.NewString()}, confirmField: {tc.token},
 			})
 			if rules.calls != 0 || len(scribe.calls) != 0 {
-				t.Errorf("a forged confirmation cost %d rulebook read(s) and %v write(s)", rules.calls, scribe.calls)
+				t.Errorf("it cost %d rulebook read(s) and %v write(s)", rules.calls, scribe.calls)
 			}
 			if to := rec.Header().Get("Location"); !strings.Contains(to, "problem=confirm-required") {
 				t.Errorf("redirected to %q, want problem=confirm-required", to)
 			}
 		})
 	}
-	// ANTI-VACUITY: a GENUINE token does reach the read (and then the write).
+	// COUNTER-CONTROL: a GENUINE policy token, this session's, with its cookie, minted for
+	// ANOTHER change passes the precheck, costs exactly one read and is refused as stale --
+	// so the zeros above are the precheck and not a route that never reads.
 	rules := newFakeRules()
 	scribe := newFakeScribe()
 	b := policyBrowserWith(t, rules, scribe)
+	tok := mint(server, confirmActionPolicyEdit, subject, panelTestSession)
+	b.cookies[adminConfirmCookieName] = tok
+	rec := b.do(http.MethodPost, policyApplyHref, url.Values{
+		"op": {opDisable}, "policy": {uuid.NewString()}, confirmField: {tok},
+	})
+	if rules.calls != 1 || len(scribe.calls) != 0 {
+		t.Errorf("a genuine token for another change cost %d read(s) and %v write(s), want 1 and none",
+			rules.calls, scribe.calls)
+	}
+	if to := rec.Header().Get("Location"); !strings.Contains(to, "problem=confirm-stale") {
+		t.Errorf("a genuine token for another change redirected to %q, want problem=confirm-stale", to)
+	}
+	// AND THE WHOLE PAIR STILL WORKS: a token minted by the review step writes.
+	rules = newFakeRules()
+	scribe = newFakeScribe()
+	b = policyBrowserWith(t, rules, scribe)
 	form := url.Values{"op": {opDisable}, "policy": {uuid.NewString()}}
 	form.Set(confirmField, hiddenValue(t, htmlOf(t, b.do(http.MethodPost, policyChangeHref, form)), confirmField))
 	before := rules.calls

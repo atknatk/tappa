@@ -895,8 +895,30 @@ func policyChangeShown(c policyChange, s tenant.PolicyScreen) pages.PolicyChange
 			}
 			// THE ANSWER AND THE CONDITIONS, MARKED ONLY WHERE THE COPY REALLY DIFFERS from
 			// the version it replaces (a new version may copy a different shipped rule).
+			//
+			// 🔴 AND ONLY WHERE THE PAGE KNOWS WHAT THAT VERSION SAYS. A stored version this
+			// release cannot read has no statements on the screen read; comparing against
+			// that empty list would print "answer differs" and "Only when: none" about a
+			// document nobody here has read -- and the confirmation would bind the false
+			// sentence. So the page says it cannot tell instead.
 			beforeAnswer := answerParts(row.Statements)
-			if docFound && !slices.Equal(effectsOf(row.Statements), effectsOfRule(copied)) {
+			readable := row.Problem == "" && len(row.Statements) > 0
+			if !readable {
+				which := version
+				if which == "" {
+					which = "the stored version"
+				}
+				// TWO CASES, TWO SENTENCES: a version this release cannot parse, and one the
+				// screen read does not carry (a switched-off rule's document is not read).
+				if row.Problem != "" {
+					sh.Notes = append(sh.Notes, capitalFirst(which)+" could not be read, so this page "+
+						"cannot say what it answered.")
+				} else {
+					sh.Notes = append(sh.Notes, "This page does not show what "+which+" says, so it "+
+						"cannot say whether this version answers differently.")
+				}
+			}
+			if readable && docFound && !slices.Equal(effectsOf(row.Statements), effectsOfRule(copied)) {
 				beforeAnswer = marked(beforeAnswer, "del")
 				answer = marked(answer, "ins")
 				sh.Notes = append(sh.Notes, "This version’s answer differs from "+version+"’s.")
@@ -905,7 +927,7 @@ func policyChangeShown(c policyChange, s tenant.PolicyScreen) pages.PolicyChange
 				beforeLines = append(beforeLines, pages.PolicyChangeDiffLine{Label: "Answer", Parts: beforeAnswer})
 			}
 			afterLines = append(afterLines, pages.PolicyChangeDiffLine{Label: "Answer", Parts: answer})
-			if beforeCond, afterCond := conditionsOfView(row.Statements), conditionsOfRule(copied); docFound && !slices.Equal(beforeCond, afterCond) {
+			if beforeCond, afterCond := conditionsOfView(row.Statements), conditionsOfRule(copied); readable && docFound && !slices.Equal(beforeCond, afterCond) {
 				beforeLines = append(beforeLines, pages.PolicyChangeDiffLine{Label: "Only when", Parts: textParts(beforeCond, "del")})
 				afterLines = append(afterLines, pages.PolicyChangeDiffLine{Label: "Only when", Parts: textParts(afterCond, "ins")})
 				sh.Notes = append(sh.Notes, "This version’s conditions differ from "+version+"’s.")
@@ -1178,6 +1200,15 @@ func shippedRule(name string) (policy.BaselineDoc, bool) {
 		}
 	}
 	return policy.BaselineDoc{}, false
+}
+
+// capitalFirst upper-cases a sentence's first letter ("version 2" -> "Version 2"). The
+// strings it gets are this file's own ASCII words.
+func capitalFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
 }
 
 // nonEmpty drops the empty strings from a list of parts.
