@@ -190,7 +190,9 @@ attribute · no bulk action (`review.go:49-57`).
 > assignments without a row-aligned grid, which leaves a gap as tall as the longer list beside it
 > (`anomalies.templ`, `AdminAnomalies` comment). Row-level recipes below keep their `desk:` steps.
 
-- Grid `grid grid-cols-1 items-start gap-4 md:grid-cols-2`; mix and rules `md:col-span-2 desk:col-span-1`;
+- Grid `grid grid-cols-1 items-start gap-4 md:grid-cols-2`; mix and rules `md:col-span-2 desk:col-span-1`
+  (**as built:** full width at the desk too — the recorded deviation above; the M12-49 tour's
+  DÜŞÜK-6 is this deviation, not a defect);
   totals, notices, people and open lists above or as `md:col-span-2` cards. (At 864 px two columns of
   ~424 px.)
 - Card `p-5 desk:px-6 desk:py-[22px]`; h2 `text-[19px] md:text-xl`.

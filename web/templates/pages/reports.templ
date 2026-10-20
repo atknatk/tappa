@@ -302,22 +302,22 @@ templ reportTallies(p ReportRowView) {
 	if p.Late != "" || p.Unmeasured != "" || p.Awaiting != "" || p.Refused != "" || p.Manual != "" || p.Open != "" {
 		<span class="mt-1.5 flex flex-wrap gap-1">
 			if p.Late != "" {
-				<span class="tally tally--queued pill-tally">{ p.Late }</span>
+				<span class="tally tally--queued roll-qual">{ p.Late }</span>
 			}
 			if p.Unmeasured != "" {
-				<span class="tally tally--manual pill-tally">{ p.Unmeasured }</span>
+				<span class="tally tally--manual roll-qual">{ p.Unmeasured }</span>
 			}
 			if p.Awaiting != "" {
-				<span class="tally tally--queued pill-tally">{ p.Awaiting } waiting</span>
+				<span class="tally tally--queued roll-qual">{ p.Awaiting } waiting</span>
 			}
 			if p.Refused != "" {
-				<span class="tally tally--rejected pill-tally">{ p.Refused } refused</span>
+				<span class="tally tally--rejected roll-qual">{ p.Refused } refused</span>
 			}
 			if p.Manual != "" {
-				<span class="tally tally--manual pill-tally">{ p.Manual }</span>
+				<span class="tally tally--manual roll-qual">{ p.Manual }</span>
 			}
 			if p.Open != "" {
-				<span class="tally tally--queued pill-tally">{ p.Open }</span>
+				<span class="tally tally--queued roll-qual">{ p.Open }</span>
 			}
 		</span>
 	}

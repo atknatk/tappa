@@ -346,7 +346,7 @@ Repeated chains become `@layer components` classes in `input.css` (the report-ro
 | **Split auth layout** | restyles `AdminLogin` inside `layout.Auth` (shell bytes unchanged) | `flex min-h-screen flex-col desk:flex-row`; brand half `bg-ink text-paper desk:flex-[1_1_520px]`; form half `desk:flex-[1_1_560px]`; card `rounded-[18px] border border-line bg-paper px-9 pt-9 pb-8` | phone: brand band + plain form; tablet: band on top; decorative dockets `aria-hidden`, tilt with literal `-rotate-2` classes; decorative `h-1 bg-tappa-green` bar allowed, never `.panel-stripe` / `bg-brand` |
 | **Empty state** | new `components.PanelEmpty(where, heading, cta)` (the old `components.EmptyState` / `EmptyStateLabeled` lost their last caller to it and were removed in M12-48) | `flex flex-col gap-2 rounded-[18px] border border-dashed border-ink/50 p-6`; eyebrow = section name (`.lbl`); **h2** `text-[19px]` (as built — this row said h3; the heading sits directly under the shell's h1, so h3 would skip a level); body; optional CTA link | keep every existing heading/body variant and the `Queried` gate; callers re-pointed in M12-09 |
 | **Notice** | new `components.PanelNotice(tone, heading)` (do **not** edit `components.Notice`) | ok `rounded-[14px] border border-tappa-green bg-tappa-green/10 px-[18px] py-4` + label "Done"; warn `border-saffron bg-saffron-lite` + "Heads up"; alert `border-2 border-tomato bg-paper` + "Not done" | `role="alert"` for alert, `role="status"` otherwise; label word first ("Done" in tappa-green on green/10 = 6.63:1) |
-| **Problem** | new `pages.PanelProblem(PanelProblemView{Status, OwnerOnly, Title, Message, Hint, CTAHref, CTALabel})`; `AdminAuth.renderProblem` switches to it (`pages.Problem` stays for tap/activation) | card `rounded-[18px] border border-line bg-paper p-6 flex flex-col gap-3 max-w-xl`; code chip `rounded-md border border-ink px-2 py-0.5 font-mono text-xs font-bold tracking-[0.1em]`; owner pill `rounded-md bg-ink px-2 font-mono text-[11px] text-paper` | code from the status renderProblem already receives; unauthenticated problems link to `/admin/login`, never "Back to The Pass"; no 401 page; per-problem copy stays |
+| **Problem** | new `pages.PanelProblem(PanelProblemView{Status, OwnerOnly, Title, Message, Hint, CTAHref, CTALabel})`; `AdminAuth.renderProblem` switches to it (`pages.Problem` stays for tap/activation) | card `rounded-[18px] border border-line bg-paper p-6 flex flex-col gap-3 max-w-xl`; code chip `rounded-md border border-ink px-2 py-0.5 font-mono text-xs font-bold tracking-[0.1em]`; owner pill `rounded-md bg-ink px-2 font-mono text-[11px] text-paper` | code from the status renderProblem already receives; unauthenticated problems link to `/admin/login`, never "Back to The Pass"; no 401 page; per-problem copy stays. **As built: outside the panel shell** (`layout.Page`, Taptime's wordmark), though the States board draws the card inside it — see §5.1 |
 
 ### 5.1 As built — the names the port shipped, and its recorded deviations (M12-48)
 
@@ -396,6 +396,14 @@ M12-47. Where the two differ, the code is right (D1) and the reason is here.
   ([spike-odd O.3](screens/spike-odd.md#o3-breakpoints)).
 - **The Pass's phone h1 reads "The Pass · <day>"** (M12-27): the Title is one string printed once;
   spec L2 asked for the day alone on the phone ([pass-ledger L2](screens/pass-ledger.md)).
+- **The panel's problem pages render outside the shell** (M12-10, recorded in the M12-49 tour):
+  `pages.PanelProblem` draws its card in `layout.Page` — Taptime's wordmark, no sidebar, rail or
+  tab bar, no tenant brand — while the States board (`States` · `T-States` · `M-States`) draws it
+  inside the panel shell. The reason is in `pages/panelproblem.templ` (`PanelProblem`'s comment):
+  a problem is often the page that answers when the business's own records (its brand among
+  them) could not be read, so it does not depend on them; and the sign-in family, where the
+  unauthenticated problems send the reader, stays Taptime's (ADR 0023 §2). The card itself (code chip, owner pill, title, message, hint, one link)
+  is the board's.
 
 **Lessons the port paid for** (each one red at least once):
 

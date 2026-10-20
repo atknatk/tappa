@@ -1389,9 +1389,11 @@
            border-[1.5px] border-ink font-mono text-xs font-bold text-ink;
   }
   /* A person's row in People: 64 px on a phone, 60 px from md. The selected row
-     is marked by its aria-current, not by a second class. */
+     is marked by its aria-current, not by a second class. The gap between lines is
+     the smaller one: where the list is narrow (a desk with the card open) the row's
+     figures wrap onto a second line as one block, under the name. */
   .roster-row {
-    @apply flex min-h-16 w-full flex-wrap items-center gap-3.5 border-t border-dashed
+    @apply flex min-h-16 w-full flex-wrap items-center gap-x-3.5 gap-y-1.5 border-t border-dashed
            border-line px-5 py-2.5 text-ink first:border-t-0 hover:bg-tappa-green/5
            focus:outline-none focus-visible:ring-2 focus-visible:ring-inset
            focus-visible:ring-ink md:min-h-[60px];
@@ -1425,7 +1427,9 @@
   }
   .roll-cell--worked { @apply bg-tappa-green/15; }
   .roll-cell--other { @apply ring-1 ring-inset ring-ink; }
-  .roll-cell--manual { @apply underline decoration-dotted; }
+  /* A typed cell carries its M beside the figure, so from the tablet it takes a little
+     more room on each side: at the base padding the M touched the open cell's frame. */
+  .roll-cell--manual { @apply underline decoration-dotted md:px-2; }
   .roll-cell--open { @apply border border-dashed border-saffron bg-saffron/10 py-[6px]; }
   .roll-cell--none { @apply text-ink/70; }
   /* The manager-typed mark: a literal letter beside the hours, under them on a phone. */
@@ -1457,6 +1461,12 @@
            text-ink max-md:col-span-2 max-md:col-start-6 max-md:row-start-1 max-md:p-0
            max-md:text-lg;
   }
+  /* A qualifier under a person's name (late arrivals, typed arrivals, open check-ins):
+     the tally's tone beside it, the shape the boards draw -- a 10 px corner rather than
+     a full round, so a qualifier the name column wraps onto two lines stays a
+     rounded box instead of turning into an oval. Its own name: .tally* selectors are
+     reserved for tones. */
+  .roll-qual { @apply rounded-[10px] px-2 font-bold leading-snug tracking-[0.08em]; }
   /* The person's shift count under their total: a count, so mono, and quieter. */
   .roll-shifts { @apply mt-0.5 block text-[11px] font-normal text-ink/70; }
 
