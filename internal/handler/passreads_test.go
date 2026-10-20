@@ -53,6 +53,7 @@ func TestPassReads_CarryNothingACoordinateCouldTravelIn(t *testing.T) {
 	}
 	for _, typ := range []reflect.Type{
 		reflect.TypeOf(ledger.Floor{}),
+		reflect.TypeOf(ledger.Tape{}),
 	} {
 		walk(typ, "")
 	}

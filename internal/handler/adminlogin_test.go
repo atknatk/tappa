@@ -264,6 +264,8 @@ type fakeLedger struct {
 	// "not measured", plaques' default and for plaques' reason: a fake that claimed a count would
 	// let a screen print a number no test set up. Tests that want one say so.
 	floor ledger.Floor
+	// tape is The Pass's hourly tape (M12-14); NotQueried by default for the same reason.
+	tape ledger.Tape
 
 	// M6-04's read side. queue/pending default to "asked, and there is nothing
 	// waiting", for the same reason page does: an unqueried zero value renders
@@ -1268,13 +1270,14 @@ func (f *fakeLedger) Screen(_ context.Context, tenantID uuid.UUID, filter ledger
 	// The Pass's widgets ride only on TODAY's view (no date), as the real reader's do: a ledger
 	// day leaves them NotQueried.
 	var floor ledger.Floor
+	var tape ledger.Tape
 	if filter.Date.Zero() {
 		f.mu.Lock()
-		floor = f.floor
+		floor, tape = f.floor, f.tape
 		f.mu.Unlock()
 	}
 	return ledger.Screen{Page: f.snapshot(filter), Options: f.opts, Plaques: f.plaques, History: f.history,
-		Floor: floor}, nil
+		Floor: floor, Tape: tape}, nil
 }
 
 func (f *fakeLedger) Day(_ context.Context, tenantID uuid.UUID, filter ledger.Filter) (ledger.Page, error) {

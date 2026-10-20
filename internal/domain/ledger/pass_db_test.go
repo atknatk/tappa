@@ -8,6 +8,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -315,6 +316,7 @@ func TestPass_AFailedWidgetCostsItsFigureAndNeverThePage(t *testing.T) {
 		state     func(Screen) Reading
 	}{
 		{"CountOnTheFloorByVenue", func(s Screen) Reading { return s.Floor.State }},
+		{"ListWorkedShiftEvents", func(s Screen) Reading { return s.Tape.State }},
 	} {
 		t.Run(c.statement, func(t *testing.T) {
 			var logged logCounter
@@ -359,6 +361,7 @@ func passStates(s Screen) []struct {
 		state Reading
 	}{
 		{"CountOnTheFloorByVenue", s.Floor.State},
+		{"ListWorkedShiftEvents", s.Tape.State},
 	}
 }
 
@@ -380,3 +383,116 @@ func TestPass_ALedgerDayReadsNoWidget(t *testing.T) {
 
 // ledgerDayWidget names the widgets a ledger day DOES read (the day's own figures).
 var ledgerDayWidget = map[string]bool{}
+
+// TestTape_IsReadFromTodaysRecordsAsOfNow drives the tape through Screen against real rows: an
+// overnight entry from yesterday shows from 00:00, today's closed shift shows in its hours, an
+// entry left open yesterday morning (older than tap.StaleOpenIn) and a training tap show nowhere,
+// and the hours stop at the one holding now.
+func TestTape_IsReadFromTodaysRecordsAsOfNow(t *testing.T) {
+	data := passDB(t)
+	now := hLocal(t, "2026-09-02", "10:30:00")
+	b := newPassTenant(t, data, "Tape", "Bar", "Kitchen")
+	night := b.person("Night shift", "Bar")
+	b.tap(passTap{who: night, venue: "Bar", at: hLocal(t, "2026-09-01", "22:00:00"), kind: "in"})
+	b.tap(passTap{who: night, venue: "Bar", at: hLocal(t, "2026-09-02", "02:10:00"), kind: "out"})
+	day := b.person("Day shift", "Kitchen")
+	b.tap(passTap{who: day, venue: "Kitchen", at: hLocal(t, "2026-09-02", "08:05:00"), kind: "in", verdict: "flag"})
+	forgot := b.person("Forgot yesterday", "Bar")
+	b.tap(passTap{who: forgot, venue: "Bar", at: hLocal(t, "2026-09-01", "08:00:00"), kind: "in"})
+	trainee := b.person("Trainee", "Bar")
+	b.tap(passTap{who: trainee, venue: "Bar", at: hLocal(t, "2026-09-02", "09:00:00"), kind: "in", practice: true})
+
+	s, err := readerAt(t, data, now, nil).Screen(context.Background(), b.id, Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tp := s.Tape
+	if tp.State != Measured || tp.Incomplete {
+		t.Fatalf("the tape is %v (incomplete %v), want Measured and complete", tp.State, tp.Incomplete)
+	}
+	if len(tp.Hours) != 11 || !tp.Hours[0].Equal(hLocal(t, "2026-09-02", "00:00:00")) {
+		t.Fatalf("the tape has %d hours from %v, want 11 from local midnight", len(tp.Hours), tp.Hours)
+	}
+	want := map[string][]int{
+		"Tape Bar":     {1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0},
+		"Tape Kitchen": {0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1},
+	}
+	if len(tp.Venues) != len(want) {
+		t.Fatalf("venues %+v, want Bar and Kitchen", tp.Venues)
+	}
+	for _, v := range tp.Venues {
+		w, ok := want[v.Name]
+		if !ok || v.LocationID != b.venues[strings.TrimPrefix(v.Name, "Tape ")] || v.Partner || v.Unplaced {
+			t.Errorf("unexpected row %+v", v)
+			continue
+		}
+		for i := range w {
+			if v.People[i] != w[i] {
+				t.Errorf("%s: %v, want %v", v.Name, v.People, w)
+				break
+			}
+		}
+	}
+}
+
+// TestRLS_Tape_AnotherTenantsShiftsAreNotOnThisTape: the tape's statement, asked in A's context
+// for B (its explicit filter admits B's rows), answers nothing; a probe with no tenant predicate in
+// A's context sees A's records and not B's. Positive control: B's context sees B's.
+func TestRLS_Tape_AnotherTenantsShiftsAreNotOnThisTape(t *testing.T) {
+	data := passDB(t)
+	now := time.Now()
+	a := newPassTenant(t, data, "Tape RLS A", "Door")
+	b := newPassTenant(t, data, "Tape RLS B", "Door")
+	aWho, bWho := a.person("A on shift", "Door"), b.person("B on shift", "Door")
+	a.tap(passTap{who: aWho, venue: "Door", at: now.Add(-time.Hour), kind: "in"})
+	b.tap(passTap{who: bWho, venue: "Door", at: now.Add(-time.Hour), kind: "in"})
+
+	read := func(ctxTenant, asked uuid.UUID) []store.ListWorkedShiftEventsRow {
+		var rows []store.ListWorkedShiftEventsRow
+		if err := data.WithTenant(context.Background(), ctxTenant, func(ctx context.Context, tx pgx.Tx) error {
+			var err error
+			rows, err = store.New(tx).ListWorkedShiftEvents(ctx, store.ListWorkedShiftEventsParams{
+				TenantID: asked, FromAt: now.Add(-2 * time.Hour), UntilAt: now, RowLimit: 10})
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return rows
+	}
+	if rows := read(b.id, b.id); len(rows) != 1 || *rows[0].EmployeeID != bWho {
+		t.Fatalf("positive control: B's context reads %+v, want B's one record", rows)
+	}
+	if rows := read(a.id, b.id); len(rows) != 0 {
+		t.Errorf("RLS: A's context asking for B's shift events got %d rows", len(rows))
+	}
+	var seen []uuid.UUID
+	if err := data.WithTenant(context.Background(), a.id, func(ctx context.Context, tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `SELECT t.employee_id FROM transactions t
+		                           LEFT JOIN employees e ON e.id = t.employee_id
+		                           LEFT JOIN locations l ON l.id = t.location_id
+		                           WHERE t.type IS NOT NULL AND NOT t.practice AND t.occurred_at >= $1 AND t.occurred_at < $2`,
+			now.Add(-2*time.Hour), now)
+		if err != nil {
+			return err
+		}
+		seen, err = pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(seen, aWho) {
+		t.Fatal("positive control: A's tenant-filter-free read does not see A's own record")
+	}
+	if slices.Contains(seen, bWho) {
+		t.Error("RLS: A's tenant-filter-free read sees B's record")
+	}
+	s, err := readerAt(t, data, now, nil).Screen(context.Background(), a.id, Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range s.Tape.Venues {
+		if v.LocationID == b.venues["Door"] {
+			t.Errorf("RLS: A's tape has B's venue row %+v", v)
+		}
+	}
+}

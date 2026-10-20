@@ -87,6 +87,9 @@ func (r *Reader) passWidgets(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID,
 	out.Floor = widget(ctx, r, tx, tenantID, "floor", Floor{State: ReadFailed}, func(sp pgx.Tx) (Floor, error) {
 		return floorAt(ctx, sp, tenantID, now)
 	})
+	out.Tape = widget(ctx, r, tx, tenantID, "tape", Tape{State: ReadFailed}, func(sp pgx.Tx) (Tape, error) {
+		return tapeAt(ctx, sp, tenantID, now, out.Zone)
+	})
 }
 
 // widget runs one widget read in its own savepoint. On failure it logs the error with the tenant

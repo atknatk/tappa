@@ -451,6 +451,33 @@ func TestEmployerReaders_NineReadersNameTheSite(t *testing.T) {
 				}
 			}
 		})
+		t.Run(dir.name+"/11 ListWorkedShiftEvents (the Pass's tape)", func(t *testing.T) {
+			tp := employerPass.Tape
+			if tp.State != Measured || len(tp.Hours) != 13 || len(tp.Venues) != 1 {
+				t.Fatalf("the employer's tape: %v, %d hours, %d venues; want Measured, 13 hours, the site's venue alone", tp.State, len(tp.Hours), len(tp.Venues))
+			}
+			v := tp.Venues[0]
+			if v.Name != venue || !v.Partner || v.LocationID != w.venue[dir.site] {
+				t.Errorf("the employer's tape names %q (partner %v, %s), want the site's venue %q", v.Name, v.Partner, v.LocationID, venue)
+			}
+			for h, n := range v.People {
+				want := 0
+				if h >= 9 {
+					want = 2 // e1 and e2 from their 09:00 check-ins; e3's entry is past tap.StaleOpenIn
+				}
+				if n != want {
+					t.Errorf("the employer's tape at %02d:00 counts %d, want %d (%v)", h, n, want, v.People)
+				}
+			}
+			if sitePass.Tape.State != Measured {
+				t.Fatalf("the site's tape is %v, want Measured", sitePass.Tape.State)
+			}
+			for _, v := range sitePass.Tape.Venues {
+				if v.LocationID == w.venue[dir.site] {
+					t.Errorf("the site's tape has a row for its own venue -- the employer's staff: %v", v.People)
+				}
+			}
+		})
 	}
 }
 

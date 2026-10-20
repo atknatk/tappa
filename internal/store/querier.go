@@ -4661,6 +4661,15 @@ type Querier interface {
 	// location_id is NULL (K-30), so the join below finds no name for it; the reader
 	// names it -- and finds its SHIFT -- from holding_site_locations (internal/domain/ledger's siteVenues), the one way into
 	// the peer's venue list. Ids only -- no evidence column is added (K-39).
+	//
+	// A SECOND CALLER: THE PASS'S HOURLY TAPE (M12-14, internal/domain/ledger/tape.go), over
+	// [local midnight - tap.StaleOpenIn, now) with row_limit = TapeEventCap + 1. It reads the
+	// direction chain and the venue only -- not the verdict, not the review, not the shifts -- so the
+	// statement's evidence-inventory entry (`residue`, internal/db) is unchanged by it. EXPLAIN
+	// (ANALYZE, BUFFERS) of that window, 2026-10-20, seed tenant after `make seed` and one simulated
+	// day (22 rows in the table): Bitmap Index Scan on transactions_tenant_occurred_idx -> Bitmap Heap
+	// Scan (Rows Removed by Filter 3) -> the four left joins -> Sort -> Limit; 19 rows, shared hit=19,
+	// 1.06 ms -- one observation on a tiny table, for the reason the block above gives.
 	ListWorkedShiftEvents(ctx context.Context, arg ListWorkedShiftEventsParams) ([]ListWorkedShiftEventsRow, error)
 	// SERIALISE ONE API KEY'S DEACTIVATIONS (M11 API-6, ADR 0028 §12, K-25). The budget is a
 	// READ-THEN-DECIDE over this table (CountAPIDeactivations), and without a lock N concurrent

@@ -56,7 +56,7 @@ var evidenceReaders = map[string]evidenceReaderClass{
 		"ledger.nameSiteRecords blanks ip/gps/trust and replaces an evidence rule's note (matched_sid read for that)"},
 	"ListFlaggedForReview": {"go-blank", "site_location_id", 0, "the same mapping as the day list (review queue)"},
 	"ListWorkedShiftEvents": {"residue", "", 0,
-		"verdict decides the hours state only; it is not printed as evidence (§13 item 5: the verdict residue)"},
+		"verdict decides the hours state only; it is not printed as evidence (§13 item 5: the verdict residue); the Pass's tape (M12-14) reads the chain and the venue, not the verdict"},
 	"CountPendingFlagged":           {"residue", "", 0, "a count of flags to decide; a flag's existence is the verdict residue (§13 item 5)"},
 	"GetLastOpenTransaction":        {"not-rendered", "", 0, "the tap decision's input (direction chain), never shown"},
 	"GetLastTransactionForEmployee": {"not-rendered", "", 0, "the tap decision's input (debounce), never shown"},

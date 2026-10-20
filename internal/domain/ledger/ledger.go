@@ -435,6 +435,9 @@ type Screen struct {
 	// Filter with no Date, which is what /admin without `date` is -- and stays NotQueried for a
 	// ledger day, where "now" is not what the page is about.
 	Floor Floor
+	// Tape is The Pass's hourly tape (M12-14): today's hours that have begun, people on shift per
+	// venue per hour. Today's view only, like Floor.
+	Tape Tape
 }
 
 // Day loads one page of dockets for the given filter.
