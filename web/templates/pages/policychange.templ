@@ -231,7 +231,7 @@ templ policyChangeCard(s PolicyChangeSide, after bool) {
 				<dt class="pt-0.5 text-ink/70">{ l.Label }</dt>
 				<dd class="flex min-w-0 flex-wrap items-center gap-1.5 text-ink [overflow-wrap:anywhere]">
 					for _, p := range l.Parts {
-						switch {
+						switch  {
 							case p.Effect != "":
 								<span class={ effectPillClass(p.Effect), "min-h-7 text-[13px]" }>{ p.Text }</span>
 							case p.Mark == "del":
