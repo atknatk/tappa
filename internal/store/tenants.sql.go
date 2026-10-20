@@ -230,6 +230,38 @@ func (q *Queries) GetTenantClock(ctx context.Context, tenantID uuid.UUID) (GetTe
 	return i, err
 }
 
+const getTenantSuspended = `-- name: GetTenantSuspended :one
+SELECT (suspended_at IS NOT NULL)::boolean AS suspended
+FROM tenants
+WHERE id = $1
+`
+
+// Whether the operator has suspended this business (ADR 0025 §1; 00063's suspended_at) -- the ONE
+// read of /v1's suspension checkpoint (M11 API-4b; ADR 0028 §10; internal/handler/api/suspension.go).
+// It runs INSIDE the write's own transaction (apikey.Writes.Run, the key's tenant context), so the
+// answer and the write it decides are one transaction's.
+//
+// 🔴 A PLAIN READ -- NO ROW LOCK, AND THAT IS THE MEASURED DECISION (API-4b; ADR 0028 §10 "API-4b
+// eki"). FOR KEY SHARE does not conflict with the operator's FOR NO KEY UPDATE, so it would order
+// nothing; FOR SHARE does, and it would make op_suspend_tenant wait for every /v1 write of the
+// business in flight -- and share lockers that keep arriving are granted past the waiting operator
+// (measured: 3 overlapping writers, 23-204 grants in 0.5-4.5 s of waiting; a lock_timeout does not
+// bound it, each wait starts its own). The suspended party could hold off its own suspension. The
+// price of the plain read, named: a write that read "not suspended" before the suspension committed
+// may commit after it -- one write per request already past this read, the panel gate's own
+// semantics (ADR 0025 limit 6: "the effect is on the next request").
+//
+// §4.5: `id = @tenant_id` is the explicit predicate (tenants is scoped by its own id -- see this
+// file's header) and the transaction's app.tenant_id is RLS's. A business that does not exist, or
+// one RLS hides, is no row: pgx.ErrNoRows, which the checkpoint answers as an outage (503), never
+// as "not suspended".
+func (q *Queries) GetTenantSuspended(ctx context.Context, tenantID uuid.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, getTenantSuspended, tenantID)
+	var suspended bool
+	err := row.Scan(&suspended)
+	return suspended, err
+}
+
 const updateTenantAccount = `-- name: UpdateTenantAccount :one
 UPDATE tenants
 SET name          = $1,

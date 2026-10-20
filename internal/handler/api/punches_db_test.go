@@ -766,7 +766,7 @@ func TestPunches_ClosedIs403RevokedIs401SuspendedIsOpen(t *testing.T) {
 		t.Fatalf("a closed API: %d %s", rec.Code, rec.Body.String())
 	}
 	w.exec(`UPDATE tenants SET api_enabled_at = now() WHERE id = $1`, w.kf.id)
-	w.r.suspended.suspend(w.kf.id)
+	w.r.suspend(w.kf.id)
 	if p := pageOf(t, w.get(w.kf.raw, "scope=employer")); !slices.Equal(ids(p.Data), []string{pch(id)}) {
 		t.Fatalf("suspended: %v", ids(p.Data))
 	}

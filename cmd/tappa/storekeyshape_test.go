@@ -321,7 +321,9 @@ var storeSurface = map[string]string{
 	"GetTenantClock":           "(context.Context, uuid.UUID) (GetTenantClockRow{ID uuid.UUID; Name string; Timezone string}, error)",
 	"GetTenantLogo":            "(context.Context, GetTenantLogoParams{TenantID uuid.UUID; LogoSha256 string}) (GetTenantLogoRow{Logo []byte; LogoMime *string}, error)",
 	"GetTenantPanelBrand":      "(context.Context, uuid.UUID) (GetTenantPanelBrandRow{Name string; Accent *string; LogoSha256 *string; LogoMime *string; LogoWidth *int32; LogoHeight *int32}, error)",
-	"GetTransactionReview":     "(context.Context, GetTransactionReviewParams{TenantID uuid.UUID; TransactionID uuid.UUID}) (GetTransactionReviewRow{ReviewerID uuid.UUID; Outcome string}, error)",
+	// M11 API-4b: /v1's suspension checkpoint -- one boolean, read in the write's own transaction.
+	"GetTenantSuspended":   "(context.Context, uuid.UUID) (bool, error)",
+	"GetTransactionReview": "(context.Context, GetTransactionReviewParams{TenantID uuid.UUID; TransactionID uuid.UUID}) (GetTransactionReviewRow{ReviewerID uuid.UUID; Outcome string}, error)",
 	// M11 API-11: the sandbox simulation's read of the tap it recorded -- the decision's columns, no
 	// source address, no coordinate, no policy context.
 	"GetTapOutcome":                    "(context.Context, GetTapOutcomeParams{TenantID uuid.UUID; ID uuid.UUID}) (GetTapOutcomeRow{ID uuid.UUID; EmployeeID *uuid.UUID; Verdict string; Type *string; Trust *int16; Channel string; OccurredAt time.Time; MatchedSid *string; Practice bool; LocationID *uuid.UUID; SiteLocationID *uuid.UUID; TagUid *string; SiteTagUid *string}, error)",
@@ -1043,14 +1045,16 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// 212 -> 213 on 2026-10-19 (GRP-1): transactions.sql's CountRecordsAtPartnerVenues, a count of the
 	// caller's own rows that name a peer's venue; it calls no definer (holding_group is read by
 	// internal/db/holding.go by hand).
-	if named != 213 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND THIRTEEN were "+
-			"there when this was pinned (2026-10-19: 111 on 2026-08-24, + T73's three "+
+	// 213 -> 214 on 2026-10-20 (M11 API-4b): tenants.sql's GetTenantSuspended, /v1's suspension
+	// checkpoint's read of the caller's own tenant row; it calls no definer.
+	if named != 214 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND FOURTEEN were "+
+			"there when this was pinned (2026-10-20: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
 			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+
 			"+ EM-7B's three invitation e-mail queries, + EM-7C's two recovery queries, "+
 			"+ the activation tap's two consent queries, + WL-13's two activation brand queries, "+
-			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock, + T130's retention sweep, + GRP-1's partner-venue count). "+
+			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock, + T130's retention sweep, + GRP-1's partner-venue count, + API-4b's suspension read). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {

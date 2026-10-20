@@ -143,7 +143,7 @@ func newRig(t *testing.T, answer func(hash string) (db.ResolvedAPIKey, error), o
 	logs := &bytes.Buffer{}
 	log := slog.New(slog.NewJSONHandler(&syncWriter{w: logs}, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	work := &workSet{}
-	c := Config{Host: apiHost, Keys: chain, Writes: refuseWrites{}, Suspension: NoSuspensionColumn{}, Work: work,
+	c := Config{Host: apiHost, Keys: chain, Writes: refuseWrites{}, Suspension: suspendedSwitch{}, Work: work,
 		Locations: refuseLocations{}, Employees: refuseEmployees{}, Punches: refusePunches{}, Directory: refuseDirectory{}, Log: log}
 	for _, o := range opts {
 		o(&c)
@@ -815,7 +815,7 @@ func (s suspendedSwitch) Suspended(context.Context, pgx.Tx, uuid.UUID) (bool, er
 }
 
 // TestWrite_ACommitWithoutTheCheckpointIsRefused (ADR 0028 §10, the checkpoint's mechanics -- the
-// per-cell table is API-4b's, on OP-15's column): a write whose work never called Gate.Admit does
+// per-cell table is API-4b's, on OP-15's column -- suspension_db_test.go): a write whose work never called Gate.Admit does
 // not commit (503); while the business is suspended a closed class and the UNNAMED class are 403
 // tenant_suspended and an open class passes; with no suspension every class passes.
 //

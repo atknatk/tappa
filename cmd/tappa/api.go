@@ -34,8 +34,9 @@ const (
 //
 // extensions are the sandbox build's /v1 additions (sandboxExtensions) -- none in production.
 //
-// The suspension checkpoint is api.NoSuspensionColumn until OP-15 adds tenants.suspended_at
-// (internal/handler/api/suspension.go; API-4b).
+// The suspension checkpoint reads OP-15's column (tenants.suspended_at, 00063) through
+// tenant.WriteSuspension, in each write's own transaction (internal/handler/api/suspension.go; M11
+// API-4b; TestAPIWiring_TheSuspensionReaderFollowsTheColumn).
 //
 // PUT /v1/locations (API-5) is handed venues -- run()'s *tenant.Venues, the PANEL's venue domain
 // with the panel's audit recorder -- so a venue the API writes passes the rules a manager's does
@@ -75,7 +76,7 @@ func openAPISurface(cfg *config.Config, data *db.DB, work api.WorkNoticer, venue
 		return nil, err
 	}
 	surface, err := api.New(api.Config{
-		Host: cfg.APIHost, Keys: chain, Writes: writes, Suspension: api.NoSuspensionColumn{}, Work: work, Locations: venues,
+		Host: cfg.APIHost, Keys: chain, Writes: writes, Suspension: tenant.WriteSuspension{}, Work: work, Locations: venues,
 		Employees: staff, Punches: punches, Directory: directory, Extensions: extensions, Log: log,
 	})
 	if err != nil {

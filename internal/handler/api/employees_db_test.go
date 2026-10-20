@@ -589,8 +589,10 @@ func TestEmployees_SuspensionClassesAreSection10(t *testing.T) {
 		uuid.New(), biz, venue, panelAddr); err != nil {
 		t.Fatal(err)
 	}
+	r.suspend(biz)
+	// Counted AFTER the suspension: the operator's call writes the business's own 'tenant.suspended'
+	// row (ADR 0025 §2 step 4.3) -- the suspension's trail, not a /v1 write's.
 	trail := r.ownerCount(`SELECT count(*) FROM audit_log WHERE tenant_id = $1`, biz)
-	r.suspended.suspend(biz)
 	for _, x := range []struct {
 		method, path, body string
 	}{
